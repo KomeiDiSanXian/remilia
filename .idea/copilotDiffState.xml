@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotDiffPersistence">
+    <option name="pendingDiffs">
+      <map>
+        <entry key="$PROJECT_DIR$/debug_test.go">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/debug_test.go" />
+              <option name="updatedContent" value="package remilia&#10;&#10;import (&#10;&#9;&quot;testing&quot;&#10;&#10;&#9;&quot;github.com/KomeiDiSanXian/remilia/openapi/dto&quot;&#10;)&#10;&#10;// TestSimpleHandlerExecution 简单测试 Handler 是否执行&#10;func TestSimpleHandlerExecution(t *testing.T) {&#10;&#9;engine := NewEngine()&#10;&#10;&#9;executed := false&#10;&#9;engine.OnC2C().HandleE(func(ctx *Context) error {&#10;&#9;&#9;executed = true&#10;&#9;&#9;return nil&#10;&#9;})&#10;&#10;&#9;event := &amp;dto.Payload{&#10;&#9;&#9;Type: dto.C2CMessageCreate,&#10;&#9;&#9;ID:   &quot;test-1&quot;,&#10;&#9;}&#10;&#9;ctx := NewContext(event, nil)&#10;&#9;engine.ProcessEvent(ctx)&#10;&#9;ctx.Release()&#10;&#10;&#9;if !executed {&#10;&#9;&#9;t.Error(&quot;Handler was not executed&quot;)&#10;&#9;}&#10;}&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

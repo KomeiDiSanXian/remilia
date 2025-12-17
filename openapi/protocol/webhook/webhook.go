@@ -1,0 +1,321 @@
+package webhook
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/allegro/bigcache/v3"
+
+	"github.com/KomeiDiSanXian/remilia/helper"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/sirupsen/logrus"
+)
+
+// WebHook represents a webhook
+type WebHook interface {
+	Verify(header http.Header, body []byte) (bool, error) // Verify verifies the signature of the request
+	Sign(header http.Header, body []byte) ([]byte, error) // Sign signs the request
+	Handle(w http.ResponseWriter, r *http.Request)        // Handle handles the webhook request
+	Addr() string                                         // Addr returns the address of the webhook server
+	EventStream() <-chan *dto.Payload                     // EventStream returns a channel that emits events from the webhook server
+}
+
+// Conn represents a connection to a webhook server.
+type Conn struct {
+	info      *dto.BotInfo
+	mu        sync.Mutex
+	eventChan chan *dto.Payload
+	bigCache  *bigcache.BigCache
+}
+
+// DedupOptions represents the options for deduplication strategy
+type DedupOptions struct {
+	Enable           bool          // 是否启用去重
+	Shards           int           // BigCache 分片数，影响并发性能
+	LifeWindow       time.Duration // 去重窗口时长
+	CleanWindow      time.Duration // 清理间隔
+	MaxEntrySize     int           // 单个条目最大字节数
+	HardMaxCacheSize int           // 缓存最大内存限制（MB）
+}
+
+// New creates a new connection to a webhook server.
+//
+// use it like this:
+//
+//	wh := webhook.New(ctx, botInfo)
+//	http.HandleFunc("/", wh.Handle)
+func New(ctx context.Context, info *dto.BotInfo) *Conn {
+	// 默认配置（生产环境建议使用 NewWithOptions 进行配置）
+	config := bigcache.Config{
+		Shards:           1024,
+		LifeWindow:       5 * time.Minute,
+		CleanWindow:      1 * time.Minute,
+		MaxEntrySize:     4096,
+		HardMaxCacheSize: 1024,
+	}
+
+	bigCache, err := bigcache.New(ctx, config)
+	if err != nil {
+		// 不再直接退出进程，而是记录错误并以降级模式运行（无去重缓存）
+		logrus.WithError(err).Error("[Remilia] Failed to create BigCache, running without dedup cache")
+	}
+	return &Conn{
+		info:      info,
+		eventChan: make(chan *dto.Payload, 1), // Buffered channel to hold events
+		bigCache:  bigCache,                   // 可能为 nil，后续逻辑需判空
+	}
+}
+
+// NewWithBuffer creates a new connection with specified event channel buffer size.
+func NewWithBuffer(ctx context.Context, info *dto.BotInfo, buffer int) *Conn {
+	if buffer <= 0 {
+		buffer = 1
+	}
+	// 默认配置（生产环境建议使用 NewWithOptions 进行配置）
+	config := bigcache.Config{
+		Shards:           1024,
+		LifeWindow:       5 * time.Minute,
+		CleanWindow:      1 * time.Minute,
+		MaxEntrySize:     4096,
+		HardMaxCacheSize: 1024,
+	}
+	bigCache, err := bigcache.New(ctx, config)
+	if err != nil {
+		logrus.WithError(err).Error("[Remilia] Failed to create BigCache, running without dedup cache")
+	}
+	return &Conn{
+		info:      info,
+		eventChan: make(chan *dto.Payload, buffer),
+		bigCache:  bigCache,
+	}
+}
+
+// NewWithOptions allows configuring event channel buffer and dedup bigcache
+func NewWithOptions(ctx context.Context, info *dto.BotInfo, buffer int, opts DedupOptions) *Conn {
+	if buffer <= 0 {
+		buffer = 1
+	}
+	var bigCache *bigcache.BigCache
+	if opts.Enable {
+		cfg := bigcache.Config{
+			Shards:             maxInt(opts.Shards, 64),
+			LifeWindow:         ifZeroDuration(opts.LifeWindow, 5*time.Minute),
+			CleanWindow:        ifZeroDuration(opts.CleanWindow, 1*time.Minute),
+			MaxEntriesInWindow: 1000 * 10 * 60, // 默认值，可根据 LifeWindow 动态计算
+			MaxEntrySize:       maxInt(opts.MaxEntrySize, 1024),
+			HardMaxCacheSize:   maxInt(opts.HardMaxCacheSize, 256),
+		}
+		bc, err := bigcache.New(ctx, cfg)
+		if err != nil {
+			logrus.WithError(err).Warn("[Remilia] Failed to create BigCache, running without dedup cache")
+		} else {
+			bigCache = bc
+		}
+	}
+	return &Conn{
+		info:      info,
+		eventChan: make(chan *dto.Payload, buffer),
+		bigCache:  bigCache,
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > 0 {
+		return a
+	}
+	return b
+}
+
+func ifZeroDuration(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return def
+}
+
+// Addr returns the address of the webhook server.
+func (c *Conn) Addr() string {
+	return c.info.ServeAddr
+}
+
+// EventStream returns a channel that emits events from the webhook server.
+func (c *Conn) EventStream() <-chan *dto.Payload {
+	return c.eventChan
+}
+
+// Handle will handle the webhook request.
+func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
+	if c == nil {
+		logrus.Error("[WebHook] WebHook connection is nil")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	defer func() {
+		if err := r.Body.Close(); err != nil {
+			logrus.WithError(err).Error("[WebHook] Failed to close request body")
+		}
+	}()
+
+	// 读取请求体
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		logrus.WithError(err).Error("[WebHook] Failed to read request body")
+		if errors.Is(err, io.EOF) {
+			w.WriteHeader(http.StatusBadRequest)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// 验证签名
+	verified, err := c.Verify(r.Header, b)
+	if err != nil {
+		logrus.WithError(err).Error("[WebHook] Failed to verify request signature")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if !verified {
+		logrus.Error("[WebHook] Invalid request signature")
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// 解析载荷
+	payload := &dto.Payload{Raw: b}
+	if err := json.Unmarshal(b, payload); err != nil {
+		logrus.WithError(err).Error("[WebHook] Failed to unmarshal payload")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"ID":            payload.ID,
+		"Sequence":      payload.Sequence,
+		"Operation":     payload.Operation,
+		"OperationName": dto.OperationCodeName[payload.Operation],
+		"Type":          payload.Type,
+		"Detail":        helper.BytesToString(payload.Detail),
+	}).Debug("[WebHook] Received payload")
+
+	// 处理操作
+	result, err := c.handleOperation(payload, r.Header)
+	if err != nil {
+		logrus.WithError(err).Error("[WebHook] Failed to handle operation")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	c.writeResponse(w, result)
+}
+
+func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
+	if result == nil {
+		logrus.Debug("[WebHook] No response needed")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if _, err := w.Write(result); err != nil {
+		logrus.WithError(err).Error("[WebHook] Failed to write response")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	logrus.WithField("Result", helper.BytesToString(result)).Debug("[WebHook] Response sent")
+}
+
+func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) ([]byte, error) {
+	switch payload.Operation {
+	case dto.HTTPCallbackValidation:
+		return c.handleHttpCallbackValidation(payload, header)
+	case dto.HTTPCallbackACK:
+		logrus.Info("[WebHook] Received the ACK from the server")
+		return nil, nil // no response needed for ACK
+	case dto.Heartbeat:
+		return c.handleHeartbeat(payload)
+	case dto.Dispatch:
+		c.handleDispatch(payload)
+		return nil, nil // no response needed for dispatch
+	default:
+		logrus.Warnf("[WebHook] Received unknown operation code: %d", payload.Operation)
+		return nil, nil // no response needed for unknown operation codes
+	}
+}
+
+func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte, error) {
+	h := header.Clone()
+	h.Set(HeaderTimestamp, req.EventTs)
+	sign, err := c.Sign(h, helper.StringToBytes(req.PlainToken))
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign the validation request: %w", err)
+	}
+	resp, err := json.Marshal(&dto.ValidationRsp{
+		PlainToken: req.PlainToken,
+		Signature:  hex.EncodeToString(sign),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal the validation response: %w", err)
+	}
+	return resp, nil
+}
+
+func (c *Conn) handleDispatch(payload *dto.Payload) {
+	logrus.Debug("[WebHook] Received the event from the server")
+	key := helper.FNVHash(fmt.Sprintf("%s:%s", payload.Type, payload.ID))
+
+	// 如果未启用 bigCache 或配置禁用，直接分发（非阻塞）
+	if c.bigCache == nil {
+		select {
+		case c.eventChan <- payload:
+			logrus.Tracef("[WebHook] Dispatched payload %s to the event channel", key)
+		default:
+			logrus.Warn("[WebHook] Event channel is full, dropping payload")
+		}
+		return
+	}
+
+	if _, err := c.bigCache.Get(key); err == nil {
+		logrus.Tracef("[WebHook] Payload %s already exists in the cache, skipping dispatch", key)
+		return
+	}
+	_ = c.bigCache.Set(key, payload.Raw)
+
+	select {
+	case c.eventChan <- payload:
+		logrus.Tracef("[WebHook] Dispatched payload %s to the event channel", key)
+	default:
+		logrus.Warn("[WebHook] Event channel is full, dropping payload")
+	}
+}
+
+func (c *Conn) handleHeartbeat(payload *dto.Payload) ([]byte, error) {
+	logrus.Info("[WebHook] Received the heartbeat from the server")
+	result, _ := json.Marshal(struct {
+		Op   dto.OperationCode `json:"op"`
+		Data uint64            `json:"data"`
+	}{
+		Op:   dto.HeartbeatACK,
+		Data: payload.Sequence,
+	})
+	return result, nil
+}
+
+func (c *Conn) handleHttpCallbackValidation(payload *dto.Payload, header http.Header) ([]byte, error) {
+	logrus.Info("[WebHook] Received the validation request from the server")
+	var req dto.ValidationReq
+	if err := json.Unmarshal(payload.Detail, &req); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal the validation request: %w", err)
+	}
+	return c.validationACK(req, header)
+}

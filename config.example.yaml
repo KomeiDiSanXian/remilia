@@ -1,0 +1,178 @@
+# Remilia Bot 配置文件示例 (v1.0.0)
+# 复制此文件为 config.yaml 并填入你的实际配置
+
+# ====================================
+# Bot 基础配置（必填）
+# ====================================
+bot:
+  # Bot 的 AppID
+  app_id: 123456789
+
+  # Bot 的 BotID
+  bot_id: 987654321
+
+  # Bot 的 Token（请妥善保管，不要提交到代码仓库）
+  token: "your_bot_token_here"
+
+  # Bot 的 AppSecret（请妥善保管，不要提交到代码仓库）
+  secret: "your_bot_secret_here"
+
+# ====================================
+# 服务器配置
+# ====================================
+server:
+  # Webhook 监听地址
+  host: "0.0.0.0"
+
+  # Webhook 监听端口
+  port: 8080
+
+# ====================================
+# 日志配置
+# ====================================
+log:
+  # 日志级别: debug, info, warn, error
+  level: "info"
+
+  # 日志输出格式: text, json
+  format: "text"
+
+# ====================================
+# 并发控制配置（可选）
+# v0.7.0+ 支持反压机制
+# ====================================
+concurrency:
+  # 最大并发数，<=0 表示不限制
+  # 推荐值: 100-1000（根据服务器性能调整）
+  limit: 500
+
+  # 反压策略: drop（丢弃）, block（阻塞）, trywait（尝试等待）
+  # - drop: 超过限制时丢弃新事件（适合允许丢失的场景）
+  # - block: 超过限制时阻塞等待（适合不能丢失的场景）
+  # - trywait: 尝试等待一段时间，超时后丢弃（推荐）
+  policy: "trywait"
+
+  # 等待超时时间（仅 trywait 策略生效）
+  # 格式: "200ms", "1s", "2s" 等
+  wait_timeout: "500ms"
+
+  # Webhook 事件通道缓冲大小
+  # 推荐值: 100-1000（根据流量调整）
+  event_buffer: 1000
+
+# ====================================
+# 重试配置（可选）
+# v0.7.0+ 支持自动重试机制
+# ====================================
+retry:
+  # 是否启用自动重试
+  enable: true
+
+  # 最大重试次数（不包括首次尝试）
+  # 推荐值: 2-3 次
+  max_attempts: 3
+
+  # 重试退避基础时间
+  # 格式: "100ms", "200ms", "500ms" 等
+  backoff_base: "200ms"
+
+  # 重试退避最大时间
+  # 格式: "1s", "2s", "5s" 等
+  backoff_max: "2s"
+
+# ====================================
+# 中间件配置（可选）
+# v0.7.0+ 支持内置中间件
+# ====================================
+middleware:
+  # 日志中间件（记录请求日志）
+  logging: true
+
+  # 恢复中间件（捕获 panic）
+  recover: true
+
+  # 认证中间件（用户/群组白名单）
+  auth: false
+  auth_whitelist:
+    - "user_id_1"
+    - "user_id_2"
+    - "group_id_1"
+
+  # 限流中间件（令牌桶算法）
+  rate_limit: false
+  rate_limit_rate: 100   # 每秒生成的令牌数
+  rate_limit_burst: 200  # 令牌桶容量（允许突发）
+
+  # 指标收集中间件（Prometheus）
+  # v0.7.1+ 支持 Prometheus 集成
+  metrics: true
+
+# ====================================
+# 死信队列配置（可选）
+# v0.7.0+ 支持失败事件持久化
+# ====================================
+dead_letter:
+  # 是否启用死信队列
+  enable: true
+
+  # 目标类型: file（文件）, kafka（Kafka）, webhook（Webhook）
+  target: "file"
+
+  # 文件目标配置（target=file 时生效）
+  file_path: "./dead_letters.log"
+
+  # Kafka 目标配置（target=kafka 时生效）
+  kafka_brokers:
+    - "localhost:9092"
+  kafka_topic: "bot-dead-letters"
+
+  # Webhook 目标配置（target=webhook 时生效）
+  webhook_url: "https://your-webhook-endpoint.com/dead-letters"
+
+# ====================================
+# Webhook 配置（可选）
+# v0.7.0+ 增强配置
+# ====================================
+webhook:
+  # 事件通道缓冲大小
+  # 推荐值: 1000-5000（根据流量调整）
+  event_buffer: 1000
+
+  # 是否启用事件去重
+  # v0.7.0+ 使用 BigCache 实现高效去重
+  dedup_enable: true
+
+  # BigCache 分片数（2的幂次）
+  # 推荐值: 1024（默认）
+  dedup_shards: 1024
+
+  # 去重缓存生命周期
+  # 格式: "1m", "5m", "10m" 等
+  dedup_life_window: "5m"
+
+  # 清理过期条目的间隔时间
+  # 格式: "30s", "1m", "5m" 等
+  dedup_clean_window: "1m"
+
+  # 单个缓存条目的最大字节数
+  # 推荐值: 1024-4096 bytes
+  dedup_max_entry_size: 4096
+
+  # 最大缓存大小（MB）
+  # 推荐值: 50-200 MB
+  dedup_hard_max_size: 100
+
+# ====================================
+# 配置说明
+# ====================================
+# 1. 必填配置: bot, server, log
+# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook
+# 3. 环境变量支持:
+#    - BOT_APP_ID
+#    - BOT_BOT_ID
+#    - BOT_TOKEN
+#    - BOT_SECRET
+# 4. 配置热重载: 使用 config.Watch() 监听配置变更
+#
+# 详细文档: docs/CONFIG.md
+
