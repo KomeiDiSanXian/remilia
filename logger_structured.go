@@ -99,7 +99,7 @@ func (l *StructuredLogger) WithContext(ctx *Context) *StructuredLogger {
 	// Matcher 信息
 	if ctx.matcher != nil {
 		fields[LogFieldMatcher] = ctx.matcher.Source
-		fields[LogFieldPriority] = ctx.matcher.Priority
+		fields[LogFieldPriority] = ctx.matcher.priority
 	}
 
 	return &StructuredLogger{
@@ -143,7 +143,7 @@ func (l *StructuredLogger) WithMatcher(matcher *Matcher) *StructuredLogger {
 	}
 	return l.WithFields(logrus.Fields{
 		LogFieldMatcher:  matcher.Source,
-		LogFieldPriority: matcher.Priority,
+		LogFieldPriority: matcher.priority,
 	})
 }
 

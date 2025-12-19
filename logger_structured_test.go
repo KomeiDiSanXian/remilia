@@ -107,7 +107,7 @@ func TestLoggerWithMatcher(t *testing.T) {
 
 	matcher := &Matcher{
 		Source:   "test-matcher",
-		Priority: 10,
+		priority: 10,
 	}
 
 	matcherLogger := logger.WithMatcher(matcher)
@@ -240,7 +240,7 @@ func TestLoggerWithContextFullFields(t *testing.T) {
 	// 设置 matcher
 	matcher := &Matcher{
 		Source:   "test-source",
-		Priority: 20,
+		priority: 20,
 	}
 	ctx.matcher = matcher
 

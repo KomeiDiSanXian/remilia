@@ -107,7 +107,7 @@ func TestMatcherSetPriority(t *testing.T) {
 
 	result := matcher.SetPriority(10)
 
-	assert.Equal(t, uint(10), matcher.Priority)
+	assert.Equal(t, uint(10), matcher.priority)
 	assert.Equal(t, matcher, result) // Test method chaining
 }
 
@@ -117,11 +117,11 @@ func TestMatcherSetBlock(t *testing.T) {
 
 	result := matcher.SetBlock(true)
 
-	assert.True(t, matcher.IsBlock)
+	assert.True(t, matcher.isBlock)
 	assert.Equal(t, matcher, result) // Test method chaining
 
 	matcher.SetBlock(false)
-	assert.False(t, matcher.IsBlock)
+	assert.False(t, matcher.isBlock)
 }
 
 func TestMatcherSetTemp(t *testing.T) {
@@ -130,11 +130,11 @@ func TestMatcherSetTemp(t *testing.T) {
 
 	result := matcher.SetTemp(true)
 
-	assert.True(t, matcher.IsTemp)
+	assert.True(t, matcher.isTemp)
 	assert.Equal(t, matcher, result) // Test method chaining
 
 	matcher.SetTemp(false)
-	assert.False(t, matcher.IsTemp)
+	assert.False(t, matcher.isTemp)
 }
 
 func TestMatcherCopy(t *testing.T) {
@@ -146,12 +146,12 @@ func TestMatcherCopy(t *testing.T) {
 	original := &Matcher{
 		EventType:  dto.C2CMessageCreate,
 		Rules:      []Rule{func(ctx *Context) bool { return true }},
-		IsBlock:    true,
-		Priority:   10,
+		isBlock:    true,
+		priority:   10,
 		Handler:    handler,
 		HandlerErr: handlerE,
 		Engine:     engine,
-		IsTemp:     true,
+		isTemp:     true,
 		Source:     "global",
 	}
 
@@ -159,9 +159,9 @@ func TestMatcherCopy(t *testing.T) {
 
 	assert.NotEqual(t, original, copied) // Different instances
 	assert.Equal(t, original.EventType, copied.EventType)
-	assert.Equal(t, original.IsBlock, copied.IsBlock)
-	assert.Equal(t, original.Priority, copied.Priority)
-	assert.Equal(t, original.IsTemp, copied.IsTemp)
+	assert.Equal(t, original.isBlock, copied.isBlock)
+	assert.Equal(t, original.priority, copied.priority)
+	assert.Equal(t, original.isTemp, copied.isTemp)
 	assert.Equal(t, original.Engine, copied.Engine)
 	assert.Equal(t, original.Source, copied.Source)
 	assert.Equal(t, original.Rules, copied.Rules)
@@ -216,9 +216,9 @@ func TestMatcherChaining(t *testing.T) {
 		Handle(func(ctx *Context) {})
 
 	assert.Equal(t, matcher, result)
-	assert.Equal(t, uint(5), matcher.Priority)
-	assert.True(t, matcher.IsBlock)
-	assert.True(t, matcher.IsTemp)
+	assert.Equal(t, uint(5), matcher.priority)
+	assert.True(t, matcher.isBlock)
+	assert.True(t, matcher.isTemp)
 	assert.NotNil(t, matcher.Handler)
 }
 

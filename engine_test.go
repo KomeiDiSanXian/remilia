@@ -65,7 +65,7 @@ func TestEngineOn(t *testing.T) {
 	assert.Equal(t, dto.C2CMessageCreate, matcher.EventType)
 	assert.Len(t, matcher.Rules, 1)
 	assert.Equal(t, engine, matcher.Engine)
-	assert.Equal(t, uint(50), matcher.Priority) // Default priority
+	assert.Equal(t, uint(50), matcher.priority) // Default priority
 
 	// COW 模式：通过状态访问
 	state := engine.state.Load().(*engineState)

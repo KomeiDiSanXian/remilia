@@ -176,6 +176,11 @@ func (b *Bot) Shutdown(ctx context.Context) {
 		// 注意：超时后 goroutine 可能仍在运行，但我们不再等待
 	}
 
+	// 6. 关闭 Engine，停止后台清理器等资源
+	if b.engine != nil {
+		b.engine.Close()
+	}
+
 	logrus.Info("[Remilia] Bot shutdown complete")
 }
 

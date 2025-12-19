@@ -253,18 +253,19 @@ func TestEngine_ProcessEventNoLeak(t *testing.T) {
 	runtime.ReadMemStats(&m)
 	after := m.Alloc
 
-	growth := after - before
+	growthSigned := int64(after) - int64(before)
+	if growthSigned < 0 {
+		growthSigned = 0 // 可能因分配模式导致 GC 后低于基线，视为无增长
+	}
+	growth := uint64(growthSigned)
 	t.Logf("Processed %d events", processedCount)
 	t.Logf("Memory growth: %d bytes for %d events", growth, count)
-	t.Logf("Average per event: %d bytes", growth/count)
-
-	assert.Equal(t, count, processedCount, "All events should be processed")
-
-	// 验证没有显著的内存泄漏
-	// 平均每个事件应该 < 200 bytes 残留（考虑到一些缓存和临时对象）
 	avgPerEvent := growth / count
+	t.Logf("Average per event: %d bytes", avgPerEvent)
 	assert.Less(t, avgPerEvent, uint64(200),
 		"Average memory per event should be less than 200 bytes")
+
+	assert.Equal(t, count, processedCount, "All events should be processed")
 }
 
 // TestContext_MultipleGoroutinesSharedContext 测试多个 goroutine 共享同一个 Context

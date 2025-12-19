@@ -75,7 +75,7 @@ func TestMatcherPrioritySorting(t *testing.T) {
 		assert.Equal(t, []string{"first", "second", "third"}, executionOrder)
 	})
 
-	t.Run("Priority = 0 优先级最高", func(t *testing.T) {
+	t.Run("priority = 0 优先级最高", func(t *testing.T) {
 		engine := NewEngine()
 
 		var executionOrder []int
@@ -111,9 +111,9 @@ func TestMatcherPrioritySorting(t *testing.T) {
 		engine := NewEngine()
 
 		m := engine.OnC2C()
-		// 不设置 Priority，使用默认值
+		// 不设置 priority，使用默认值
 
-		assert.Equal(t, uint(50), m.Priority)
+		assert.Equal(t, uint(50), m.priority)
 	})
 }
 

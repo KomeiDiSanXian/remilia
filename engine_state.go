@@ -1,6 +1,8 @@
 package remilia
 
 import (
+	"sort"
+
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
@@ -187,4 +189,10 @@ func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
 			s.sortedCache[""] = sorted
 		}
 	}
+}
+
+func sortMatchersByPriority(matchers []*Matcher) {
+	sort.Slice(matchers, func(i, j int) bool {
+		return matchers[i].getPriority() < matchers[j].getPriority()
+	})
 }

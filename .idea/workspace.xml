@@ -4,13 +4,45 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: improve HTTP server shutdown logic with caller's context timeout">
+      <change afterPath="$PROJECT_DIR$/bot_shutdown_engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/COW方案决策总结.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/COW重构完成报告.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/COW重构进度报告.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/CommandParser增强完成报告.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/CommandParser快速开始.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Engine性能对比可视化.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Engine性能对比报告.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Engine锁机制重构方案.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/QQ机器人解耦改造方案.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context_migration_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_migration_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine_state.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logger_structured.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logger_structured_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/matcher_index_test.go.bak" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/matcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/priority_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/priority_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/priority_test.go.broken" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/realistic_bench.bat" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_fuzz_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_fuzz_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/代码问题分析与改进建议.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/架构分析与改进建议.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/测试文件修复总结.md" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="GOROOT" url="file://C:/Program Files/Go" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/context.go" root0="FORCE_HIGHLIGHTING" />
   </component>
@@ -30,28 +62,30 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
-    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
-    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;E:/project/Go/remilia&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.github.copilot.settings.chat.ChatConfigurable&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.GoLinterPluginOnboarding": "true",
+    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.migrated.go.modules.settings": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "git-widget-placeholder": "master",
+    "go.import.settings.migrated": "true",
+    "go.sdk.automatically.set": "true",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "E:/project/Go/remilia",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "settings.editor.selected.configurable": "com.github.copilot.settings.mcp.McpConfigurable",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -72,6 +106,15 @@
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="init" />
+    <MESSAGE value="refactor: enhance configuration structure and add Viper support" />
+    <MESSAGE value="refactor: optimize middleware state management and caching" />
+    <MESSAGE value="fix: synchronize access time update to prevent race conditions" />
+    <MESSAGE value="refactor: implement eviction logic for rate limit token buckets" />
+    <MESSAGE value="fix: improve HTTP server shutdown logic with caller's context timeout" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: improve HTTP server shutdown logic with caller's context timeout" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

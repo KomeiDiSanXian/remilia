@@ -29,9 +29,9 @@ type (
 
 // Matcher 事件匹配器
 type Matcher struct {
-	IsTemp      bool          // 是否为临时Matcher（SetTemp(true) 时默认 maxUse=1，一次性匹配器）
-	IsBlock     bool          // 是否为阻塞后续Matcher
-	Priority    uint          // 优先级，数值越小优先级越高，0为最高优先级
+	isTemp      bool          // 是否为临时Matcher（SetTemp(true) 时默认 maxUse=1，一次性匹配器）
+	isBlock     bool          // 是否为阻塞后续Matcher
+	priority    uint          // 优先级，数值越小优先级越高，0为最高优先级
 	EventType   dto.EventType // 显式事件类型
 	Rules       []Rule        // 其他匹配规则
 	Handler     Handler       // 处理函数（无错误返回）
@@ -61,12 +61,12 @@ func (m *Matcher) copy() *Matcher {
 	return &Matcher{
 		EventType:   m.EventType,
 		Rules:       m.Rules,
-		IsBlock:     m.IsBlock,
-		Priority:    m.Priority,
+		isBlock:     m.isBlock,
+		priority:    m.priority,
 		Handler:     m.Handler,
 		HandlerErr:  m.HandlerErr,
 		Engine:      m.Engine,
-		IsTemp:      m.IsTemp,
+		isTemp:      m.isTemp,
 		Source:      m.Source,
 		pluginName:  m.pluginName,
 		middlewares: m.middlewares,
@@ -197,14 +197,15 @@ func (m *Matcher) SetPriority(priority uint) *Matcher {
 		return m
 	}
 
-	// 只有在优先级真正改变时才失效缓存
-	if m.Priority != priority {
-		m.Priority = priority
+	m.mu.Lock()
+	changed := m.priority != priority
+	m.priority = priority
+	engine := m.Engine
+	muEvent := m.EventType
+	m.mu.Unlock()
 
-		// 通知 Engine 重建排序缓存
-		if m.Engine != nil {
-			m.Engine.invalidateSortedCache(m.EventType)
-		}
+	if changed && engine != nil {
+		engine.invalidateSortedCache(muEvent)
 	}
 
 	return m
@@ -215,7 +216,9 @@ func (m *Matcher) SetBlock(block bool) *Matcher {
 	if m == noopMatcher {
 		return m
 	}
-	m.IsBlock = block
+	m.mu.Lock()
+	m.isBlock = block
+	m.mu.Unlock()
 	return m
 }
 
@@ -228,7 +231,7 @@ func (m *Matcher) SetTemp(temp bool) *Matcher {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.IsTemp = temp
+	m.isTemp = temp
 	if temp {
 		// 默认一次性 matcher
 		m.maxUseCount = 1
@@ -247,7 +250,7 @@ func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.IsTemp = true
+	m.isTemp = true
 	if maxUse <= 0 {
 		m.maxUseCount = 1
 	} else {
@@ -280,7 +283,7 @@ func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.IsTemp = true
+	m.isTemp = true
 	m.createdAt = time.Now()
 	m.expiresAt = m.createdAt.Add(timeout)
 	return m
@@ -380,4 +383,26 @@ func (m *Matcher) invalidateCombinedChain() {
 	// protect against nil/zero atomic.Value on noop or zero matchers
 	defer func() { _ = recover() }()
 	m.combinedChain.Store(nil)
+}
+
+// getPriority returns priority in a threadsafe way.
+func (m *Matcher) getPriority() uint {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	p := m.priority
+	m.mu.RUnlock()
+	return p
+}
+
+// isBlocking returns whether matcher should block subsequent handlers.
+func (m *Matcher) isBlocking() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	b := m.isBlock
+	m.mu.RUnlock()
+	return b
 }

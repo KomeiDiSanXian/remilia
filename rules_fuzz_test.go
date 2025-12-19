@@ -426,8 +426,8 @@ func FuzzMatcherSetPriority(f *testing.F) {
 		}
 
 		// 验证优先级被设置
-		if matcher.Priority != priority {
-			t.Errorf("Priority not set correctly: expected %d, got %d", priority, matcher.Priority)
+		if matcher.priority != priority {
+			t.Errorf("priority not set correctly: expected %d, got %d", priority, matcher.priority)
 		}
 	})
 }

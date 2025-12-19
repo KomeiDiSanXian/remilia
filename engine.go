@@ -2,7 +2,6 @@ package remilia
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +50,7 @@ type Engine struct {
 	metricsCollector           *MetricsCollector // 指标收集器（可选）
 	tempMatcherCleanerStop     func()            // 清理器停止函数
 	tempMatcherCleanerInterval time.Duration     // 清理间隔
+	tempMatcherCleanerDone     chan struct{}     // 清理器退出信号
 }
 
 // NewEngine 创建一个新的事件引擎（COW 模式）
@@ -243,6 +243,7 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 	ticker := time.NewTicker(interval)
 	done := make(chan struct{})
+	e.tempMatcherCleanerDone = done
 
 	go func() {
 		defer ticker.Stop()
@@ -271,7 +272,7 @@ func (e *Engine) cleanExpiredMatchers() {
 	state := e.state.Load().(*engineState)
 	for _, m := range state.matchers {
 		m.mu.RLock()
-		isExpired := m.IsTemp && !m.expiresAt.IsZero() && now.After(m.expiresAt)
+		isExpired := m.isTemp && !m.expiresAt.IsZero() && now.After(m.expiresAt)
 		m.mu.RUnlock()
 
 		if isExpired {
@@ -370,7 +371,7 @@ func (e *Engine) GetMatcherCount() int {
 // 所有方法都返回自身，形成无操作链
 var noopMatcher = &Matcher{
 	deleted:     true,
-	Priority:    999,
+	priority:    999,
 	Source:      "noop",
 	Rules:       []Rule{},
 	middlewares: []HandlerMiddleware{},
@@ -406,7 +407,7 @@ func (e *Engine) On(eventType dto.EventType, rules ...Rule) *Matcher {
 		EventType: eventType,
 		Rules:     rules,
 		Engine:    e,
-		Priority:  50,       // 默认优先级
+		priority:  50,       // 默认优先级
 		Source:    "global", // 默认来源为全局（非插件）
 	}
 	newState.addMatcher(matcher)
@@ -480,7 +481,7 @@ func (e *Engine) ProcessEvent(ctx *Context) {
 		if matcher.Match(ctx) {
 			ctx.matcher = matcher
 			e.invokeHandler(ctx, matcher)
-			if matcher.IsBlock || state.block {
+			if matcher.isBlocking() || state.block {
 				break
 			}
 		}
@@ -549,7 +550,7 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 			if matcher.Match(ctx) {
 				ctx.matcher = matcher
 				e.invokeHandler(ctx, matcher)
-				if matcher.IsBlock || state.block {
+				if matcher.isBlocking() || state.block {
 					break
 				}
 			}
@@ -703,6 +704,18 @@ func (e *Engine) GetMetricsCollector() *MetricsCollector {
 	return e.metricsCollector
 }
 
+// Close 停止 Engine 的后台清理器等资源
+// 建议在不再使用 Engine 时调用，避免后台 goroutine 泄漏。
+func (e *Engine) Close() {
+	e.writeMu.Lock()
+	if e.tempMatcherCleanerStop != nil {
+		e.tempMatcherCleanerStop()
+		e.tempMatcherCleanerStop = nil
+	}
+	e.tempMatcherCleanerDone = nil
+	e.writeMu.Unlock()
+}
+
 func handlerAdapter(h Handler) HandlerE { return func(ctx *Context) error { h(ctx); return nil } }
 
 // invokeHandler 封装调用处理器，通过中间件链执行
@@ -774,7 +787,7 @@ func (e *Engine) invokeHandler(ctx *Context, m *Matcher) {
 
 	// 临时 matcher：按使用次数自动删除
 	m.mu.Lock()
-	if m.IsTemp && m.maxUseCount > 0 && !m.deleted {
+	if m.isTemp && m.maxUseCount > 0 && !m.deleted {
 		m.useCount++
 		if m.useCount >= m.maxUseCount {
 			// 标记删除并在锁外通知 Engine
@@ -788,12 +801,4 @@ func (e *Engine) invokeHandler(ctx *Context, m *Matcher) {
 		}
 	}
 	m.mu.Unlock()
-}
-
-// sortMatchersByPriority 按优先级排序 matchers
-// Priority 数值越小优先级越高，0 为最高优先级
-func sortMatchersByPriority(matchers []*Matcher) {
-	sort.Slice(matchers, func(i, j int) bool {
-		return matchers[i].Priority < matchers[j].Priority
-	})
 }
