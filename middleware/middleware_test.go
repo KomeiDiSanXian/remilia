@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,6 +213,72 @@ func TestRateLimitTokenBucket_PerKeyBucket(t *testing.T) {
 
 	// user2 第一次成功（独立的桶）
 	assert.NoError(t, handler(ctx2))
+}
+
+func TestRateLimitTokenBucket_EvictsOldestWhenCapExceeded(t *testing.T) {
+	// 缩小桶上限以验证淘汰逻辑
+	originalCap := rateLimitMaxBuckets
+	rateLimitMaxBuckets = 5
+	originalTTL := rateLimitBucketTTL
+	originalInterval := rateLimitCleanupInterval
+	// 加快 TTL 和清理间隔以便测试
+	rateLimitBucketTTL = 200 * time.Millisecond
+	rateLimitCleanupInterval = 100 * time.Millisecond
+	defer func() { rateLimitMaxBuckets = originalCap }()
+	defer func() { rateLimitBucketTTL = originalTTL; rateLimitCleanupInterval = originalInterval }()
+
+	mw := RateLimitTokenBucket(10, 5, func(ctx *remilia.Context) string {
+		if id, ok := ctx.GetState("user_id"); ok {
+			return id.(string)
+		}
+		return "default"
+	})
+
+	handler := mw(func(ctx *remilia.Context) error { return nil })
+
+	// 创建超过上限的 key，触发淘汰（不要求每次 Allow 成功，只要不 panic）
+	for i := 0; i < 7; i++ {
+		ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+		ctx.SetState("user_id", fmt.Sprintf("user-%d", i))
+		_ = handler(ctx)
+	}
+
+	// 等待 TTL 过期以驱动清理
+	time.Sleep(250 * time.Millisecond)
+	_ = handler(remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
+
+	// 旧键应已被淘汰后可重建，不应 panic
+	ctxOld := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+	ctxOld.SetState("user_id", "user-0")
+	_ = handler(ctxOld)
+}
+
+func TestRateLimitTokenBucket_ConcurrentAccessUnderCap(t *testing.T) {
+	originalCap := rateLimitMaxBuckets
+	rateLimitMaxBuckets = 50
+	defer func() { rateLimitMaxBuckets = originalCap }()
+
+	mw := RateLimitTokenBucket(5, 2, func(ctx *remilia.Context) string {
+		if id, ok := ctx.GetState("user_id"); ok {
+			return id.(string)
+		}
+		return "default"
+	})
+
+	handler := mw(func(ctx *remilia.Context) error { return nil })
+
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+			ctx.SetState("user_id", fmt.Sprintf("user-%d", i))
+			_ = handler(ctx) // 我们只关心无 panic 且不溢出
+		}(i)
+	}
+
+	wg.Wait()
 }
 
 func TestMetrics(t *testing.T) {

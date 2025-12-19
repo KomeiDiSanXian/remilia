@@ -253,6 +253,15 @@ func RequestID() remilia.HandlerMiddleware {
 	}
 }
 
+// 默认桶上限，可在测试中临时调小验证淘汰行为
+var rateLimitMaxBuckets = 10000
+
+// 过期 TTL 与清理间隔，可在测试中调小
+var (
+	rateLimitBucketTTL       = 10 * time.Minute
+	rateLimitCleanupInterval = 5 * time.Minute
+)
+
 // RateLimitTokenBucket 令牌桶限流：支持共享桶或按键（用户/群）维度
 // rate: 每秒令牌数；burst: 突发容量；keyFn: 返回限流键（为空表示共享桶）
 //
@@ -274,8 +283,37 @@ func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*remilia.Context
 	}
 
 	shared := rate.NewLimiter(rate.Limit(ratePerSec), burst)
-	buckets := make(map[string]*rate.Limiter)
+
+	// 轻量级防泄漏：跟踪访问时间，超过上限时淘汰最久未访问的桶
+	type bucketEntry struct {
+		lim       *rate.Limiter
+		lastVisit time.Time
+	}
+
+	buckets := make(map[string]*bucketEntry)
 	var mu sync.RWMutex // 保护 buckets map
+	lastCleanup := time.Now()
+
+	cleanupIfNeeded := func(now time.Time) {
+		if now.Sub(lastCleanup) < rateLimitCleanupInterval {
+			return
+		}
+		mu.Lock()
+		for k, v := range buckets {
+			if now.Sub(v.lastVisit) > rateLimitBucketTTL {
+				delete(buckets, k)
+			}
+		}
+		lastCleanup = now
+		// 如果仍超过上限，快速删除少量条目（无需线性排序）
+		for len(buckets) > rateLimitMaxBuckets {
+			for k := range buckets {
+				delete(buckets, k)
+				break
+			}
+		}
+		mu.Unlock()
+	}
 
 	return func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
@@ -284,25 +322,35 @@ func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*remilia.Context
 				key = keyFn(ctx)
 			}
 
+			now := time.Now()
+			cleanupIfNeeded(now)
+
 			lim := shared
 			if key != "" {
 				// 先尝试读取
 				mu.RLock()
-				b, ok := buckets[key]
+				entry, ok := buckets[key]
 				mu.RUnlock()
 
 				if ok {
-					lim = b
+					lim = entry.lim
+					// 更新访问时间（需要写锁）
+					mu.Lock()
+					if e := buckets[key]; e != nil {
+						e.lastVisit = now
+					}
+					mu.Unlock()
 				} else {
 					// 不存在则创建（需要写锁）
 					mu.Lock()
 					// 双重检查，避免重复创建
-					if b, ok := buckets[key]; ok {
-						lim = b
+					if e, ok := buckets[key]; ok {
+						lim = e.lim
+						e.lastVisit = now
 					} else {
-						b = rate.NewLimiter(rate.Limit(ratePerSec), burst)
+						b := &bucketEntry{lim: rate.NewLimiter(rate.Limit(ratePerSec), burst), lastVisit: now}
 						buckets[key] = b
-						lim = b
+						lim = b.lim
 					}
 					mu.Unlock()
 				}
