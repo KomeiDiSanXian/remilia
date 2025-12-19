@@ -5,90 +5,90 @@ import (
 	"os"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 // Config 配置文件结构
 type Config struct {
-	Bot         BotConfig         `yaml:"bot"`
-	Server      ServerConfig      `yaml:"server"`
-	Log         LogConfig         `yaml:"log"`
-	Concurrency ConcurrencyConfig `yaml:"concurrency"`
-	Retry       RetryConfig       `yaml:"retry"`
-	Middleware  MiddlewareConfig  `yaml:"middleware"`
-	DeadLetter  DeadLetterConfig  `yaml:"dead_letter"`
-	Webhook     WebhookConfig     `yaml:"webhook"`
+	Bot         BotConfig         `yaml:"bot" mapstructure:"bot"`
+	Server      ServerConfig      `yaml:"server" mapstructure:"server"`
+	Log         LogConfig         `yaml:"log" mapstructure:"log"`
+	Concurrency ConcurrencyConfig `yaml:"concurrency" mapstructure:"concurrency"`
+	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
+	Middleware  MiddlewareConfig  `yaml:"middleware" mapstructure:"middleware"`
+	DeadLetter  DeadLetterConfig  `yaml:"dead_letter" mapstructure:"dead_letter"`
+	Webhook     WebhookConfig     `yaml:"webhook" mapstructure:"webhook"`
 }
 
 // BotConfig Bot 配置
 type BotConfig struct {
-	AppID  uint64 `yaml:"app_id"`
-	BotID  uint64 `yaml:"bot_id"`
-	Token  string `yaml:"token"`
-	Secret string `yaml:"secret"`
+	AppID  uint64 `yaml:"app_id" mapstructure:"app_id"`
+	BotID  uint64 `yaml:"bot_id" mapstructure:"bot_id"`
+	Token  string `yaml:"token" mapstructure:"token"`
+	Secret string `yaml:"secret" mapstructure:"secret"`
 }
 
 // ServerConfig 服务器配置
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host string `yaml:"host" mapstructure:"host"`
+	Port int    `yaml:"port" mapstructure:"port"`
 }
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level  string `yaml:"level"`
-	Format string `yaml:"format"`
+	Level  string `yaml:"level" mapstructure:"level"`
+	Format string `yaml:"format" mapstructure:"format"`
 }
 
 // ConcurrencyConfig 并发/反压配置（可选）
 type ConcurrencyConfig struct {
-	Limit       int    `yaml:"limit"`        // 最大并发；<=0 表示不限制
-	Policy      string `yaml:"policy"`       // drop|block|trywait
-	WaitTimeout string `yaml:"wait_timeout"` // 例如 "200ms"、"1s"
-	EventBuffer int    `yaml:"event_buffer"` // webhook eventChan 缓冲大小
+	Limit       int    `yaml:"limit" mapstructure:"limit"`
+	Policy      string `yaml:"policy" mapstructure:"policy"`
+	WaitTimeout string `yaml:"wait_timeout" mapstructure:"wait_timeout"`
+	EventBuffer int    `yaml:"event_buffer" mapstructure:"event_buffer"`
 }
 
 // RetryConfig 重试与死信队列配置（可选）
 type RetryConfig struct {
-	Enable      bool   `yaml:"enable"`
-	MaxAttempts int    `yaml:"max_attempts"`
-	BackoffBase string `yaml:"backoff_base"` // "200ms"
-	BackoffMax  string `yaml:"backoff_max"`  // "2s"
+	Enable      bool   `yaml:"enable" mapstructure:"enable"`
+	MaxAttempts int    `yaml:"max_attempts" mapstructure:"max_attempts"`
+	BackoffBase string `yaml:"backoff_base" mapstructure:"backoff_base"`
+	BackoffMax  string `yaml:"backoff_max" mapstructure:"backoff_max"`
 }
 
 // MiddlewareConfig 中间件开关（可选）
 type MiddlewareConfig struct {
-	Logging        bool     `yaml:"logging"`
-	Recover        bool     `yaml:"recover"`
-	Auth           bool     `yaml:"auth"`
-	AuthWhitelist  []string `yaml:"auth_whitelist"` // 允许的用户ID/群ID
-	RateLimit      bool     `yaml:"rate_limit"`
-	RateLimitRate  int      `yaml:"rate_limit_rate"`  // 每秒令牌
-	RateLimitBurst int      `yaml:"rate_limit_burst"` // 峰值突发
-	Metrics        bool     `yaml:"metrics"`
+	Logging        bool     `yaml:"logging" mapstructure:"logging"`
+	Recover        bool     `yaml:"recover" mapstructure:"recover"`
+	Auth           bool     `yaml:"auth" mapstructure:"auth"`
+	AuthWhitelist  []string `yaml:"auth_whitelist" mapstructure:"auth_whitelist"`
+	RateLimit      bool     `yaml:"rate_limit" mapstructure:"rate_limit"`
+	RateLimitRate  int      `yaml:"rate_limit_rate" mapstructure:"rate_limit_rate"`
+	RateLimitBurst int      `yaml:"rate_limit_burst" mapstructure:"rate_limit_burst"`
+	Metrics        bool     `yaml:"metrics" mapstructure:"metrics"`
 }
 
 // DeadLetterConfig 死信队列配置
 type DeadLetterConfig struct {
-	Enable       bool     `yaml:"enable"`
-	Target       string   `yaml:"target"` // file|kafka|webhook
-	FilePath     string   `yaml:"file_path"`
-	KafkaBrokers []string `yaml:"kafka_brokers"`
-	KafkaTopic   string   `yaml:"kafka_topic"`
-	WebhookURL   string   `yaml:"webhook_url"`
+	Enable       bool     `yaml:"enable" mapstructure:"enable"`
+	Target       string   `yaml:"target" mapstructure:"target"`
+	FilePath     string   `yaml:"file_path" mapstructure:"file_path"`
+	KafkaBrokers []string `yaml:"kafka_brokers" mapstructure:"kafka_brokers"`
+	KafkaTopic   string   `yaml:"kafka_topic" mapstructure:"kafka_topic"`
+	WebhookURL   string   `yaml:"webhook_url" mapstructure:"webhook_url"`
 }
 
 // WebhookConfig webhook 配置
 type WebhookConfig struct {
-	EventBuffer      int    `yaml:"event_buffer"`
-	DedupEnable      bool   `yaml:"dedup_enable"`
-	Shards           int    `yaml:"dedup_shards"`
-	LifeWindow       string `yaml:"dedup_life_window"`    // e.g., "5m"
-	CleanWindow      string `yaml:"dedup_clean_window"`   // e.g., "1m"
-	MaxEntrySize     int    `yaml:"dedup_max_entry_size"` // bytes
-	HardMaxCacheSize int    `yaml:"dedup_hard_max_size"`  // MB
+	EventBuffer      int    `yaml:"event_buffer" mapstructure:"event_buffer"`
+	DedupEnable      bool   `yaml:"dedup_enable" mapstructure:"dedup_enable"`
+	Shards           int    `yaml:"dedup_shards" mapstructure:"dedup_shards"`
+	LifeWindow       string `yaml:"dedup_life_window" mapstructure:"dedup_life_window"`
+	CleanWindow      string `yaml:"dedup_clean_window" mapstructure:"dedup_clean_window"`
+	MaxEntrySize     int    `yaml:"dedup_max_entry_size" mapstructure:"dedup_max_entry_size"`
+	HardMaxCacheSize int    `yaml:"dedup_hard_max_size" mapstructure:"dedup_hard_max_size"`
 }
 
 var globalConfig *Config
@@ -442,6 +442,50 @@ func Watch(path string, apply func(*Config)) (func() error, error) {
 	}()
 
 	return func() error { close(stop); return nil }, nil
+}
+
+// LoadViper 使用 Viper 加载配置，支持 yaml/json/env，优先顺序：显式路径 -> 默认路径 -> 环境变量
+func LoadViper(path string) (*Config, error) {
+	v := viper.New()
+
+	if path != "" {
+		v.SetConfigFile(path)
+	} else {
+		v.SetConfigName("config")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("./config")
+	}
+
+	// 环境变量支持（如 BOT_APP_ID）
+	v.SetEnvPrefix("REMILIA")
+	v.AutomaticEnv()
+
+	// 允许 yaml/json/hcl 等
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("load config via viper failed: %w", err)
+		}
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config via viper failed: %w", err)
+	}
+
+	// 若关键字段仍为空，尝试兼容已有 env 读取
+	if cfg.Bot.AppID == 0 || cfg.Bot.BotID == 0 || cfg.Bot.Token == "" || cfg.Bot.Secret == "" {
+		if fallback, err := LoadDefault(); err == nil {
+			cfg = *fallback
+		}
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	globalConfig = &cfg
+	return &cfg, nil
 }
 
 // 辅助函数

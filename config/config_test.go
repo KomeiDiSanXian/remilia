@@ -375,3 +375,49 @@ func TestLoadFromEnv(t *testing.T) {
 	assert.Equal(t, "warn", cfg.Log.Level)
 	assert.Equal(t, "json", cfg.Log.Format)
 }
+
+func TestLoadViper_FromFile(t *testing.T) {
+	content := `
+log:
+  level: "info"
+  format: "text"
+bot:
+  app_id: 1
+  bot_id: 2
+  token: "t"
+  secret: "s"
+server:
+  port: 8080
+`
+	tmpFile, err := os.CreateTemp("", "config-viper-*.yaml")
+	assert.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	_, _ = tmpFile.WriteString(content)
+	tmpFile.Close()
+
+	cfg, err := LoadViper(tmpFile.Name())
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(1), cfg.Bot.AppID)
+	assert.Equal(t, uint64(2), cfg.Bot.BotID)
+	assert.Equal(t, 8080, cfg.Server.Port)
+}
+
+func TestLoadViper_EnvFallback(t *testing.T) {
+	os.Setenv("BOT_APP_ID", "10")
+	os.Setenv("BOT_BOT_ID", "11")
+	os.Setenv("BOT_TOKEN", "tok")
+	os.Setenv("BOT_SECRET", "sec")
+	defer func() {
+		os.Unsetenv("BOT_APP_ID")
+		os.Unsetenv("BOT_BOT_ID")
+		os.Unsetenv("BOT_TOKEN")
+		os.Unsetenv("BOT_SECRET")
+	}()
+
+	cfg, err := LoadViper("")
+	assert.NoError(t, err)
+	assert.Equal(t, uint64(10), cfg.Bot.AppID)
+	assert.Equal(t, uint64(11), cfg.Bot.BotID)
+	assert.Equal(t, "tok", cfg.Bot.Token)
+	assert.Equal(t, "sec", cfg.Bot.Secret)
+}
