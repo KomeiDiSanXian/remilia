@@ -139,10 +139,18 @@ func (b *Bot) Shutdown(ctx context.Context) {
 		}
 	}
 
-	// 3. 关闭 HTTP 服务器（带超时）
+	// 3. 关闭 HTTP 服务器，沿用调用方的超时/取消
 	if b.srv != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
+		// 如果调用方未设置截止时间，兜底 5 秒以免悬挂
+		shutdownCtx := ctx
+		if deadline, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			shutdownCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+		} else {
+			_ = deadline // 保持可读性，明确已携带截止时间
+		}
+
 		if err := b.srv.Shutdown(shutdownCtx); err != nil {
 			logrus.WithError(err).Warn("[Remilia] HTTP server shutdown error")
 		} else {
