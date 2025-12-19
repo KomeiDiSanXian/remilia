@@ -89,33 +89,53 @@ func (e *Engine) rebuildMatcherChain(m *Matcher) {
 
 // rebuildMatcherChainCOW 重新为给定 matcher 组合全局/插件/局部中间件链（COW 版本）
 //
-// 无锁读取中间件状态
+// 使用代际号避免全量重建，按需合并
 func (e *Engine) rebuildMatcherChainCOW(m *Matcher) {
 	if m == nil {
 		return
 	}
 
-	// 无锁读取中间件状态
 	mwState := e.middleware.Load().(*middlewareState)
+	e.ensureMatcherChainWithState(m, mwState)
+}
 
-	// 复制当前的全局/插件中间件配置
-	globals := append([]HandlerMiddleware(nil), mwState.globalMiddlewares...)
-	var plugins []HandlerMiddleware
-	if strings.HasPrefix(m.Source, "plugin:") {
-		name := strings.TrimPrefix(m.Source, "plugin:")
-		if pmw, ok := mwState.pluginMiddlewares[name]; ok {
-			plugins = append([]HandlerMiddleware(nil), pmw...)
+// ensureMatcherChainWithState 检查缓存是否过期，必要时惰性合并中间件链
+func (e *Engine) ensureMatcherChainWithState(m *Matcher, mwState *middlewareState) {
+	if m == nil || mwState == nil {
+		return
+	}
+
+	pluginName := m.pluginName
+	if pluginName == "" && strings.HasPrefix(m.Source, "plugin:") {
+		pluginName = strings.TrimPrefix(m.Source, "plugin:")
+		m.pluginName = pluginName
+	}
+
+	pluginSnap := mwState.pluginMiddlewares[pluginName]
+	globalSnap := mwState.global
+	var pluginChain []HandlerMiddleware
+	var pluginGen uint64
+	if pluginSnap != nil {
+		pluginChain = pluginSnap.chain
+		pluginGen = pluginSnap.gen
+	}
+
+	if cached := m.getCombinedChain(); cached != nil {
+		if m.cachedGen.global == globalSnap.gen && m.cachedGen.plugin == pluginGen {
+			return
 		}
 	}
-	locals := append([]HandlerMiddleware(nil), m.middlewares...)
 
-	chain := make([]HandlerMiddleware, 0, len(globals)+len(plugins)+len(locals))
-	chain = append(chain, globals...)
-	chain = append(chain, plugins...)
+	m.mu.RLock()
+	locals := append([]HandlerMiddleware(nil), m.middlewares...)
+	m.mu.RUnlock()
+
+	chain := make([]HandlerMiddleware, 0, len(globalSnap.chain)+len(pluginChain)+len(locals))
+	chain = append(chain, globalSnap.chain...)
+	chain = append(chain, pluginChain...)
 	chain = append(chain, locals...)
 
-	// 使用 atomic.Value 实现无锁读取
-	m.setCombinedChain(chain)
+	m.setCombinedChain(chain, globalSnap.gen, pluginGen)
 }
 
 // DeleteAllMatchers 删除引擎中的所有匹配器（COW 写操作）
@@ -585,21 +605,16 @@ func (e *Engine) Use(mw ...HandlerMiddleware) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 加载当前中间件状态
 	oldMwState := e.middleware.Load().(*middlewareState)
 
-	// 2. 复制状态
+	// 复制状态并追加中间件，递增代际号
 	newMwState := copyMiddlewareState(oldMwState)
-	newMwState.globalMiddlewares = append(newMwState.globalMiddlewares, mw...)
+	newChain := append([]HandlerMiddleware(nil), newMwState.global.chain...)
+	newChain = append(newChain, mw...)
+	newMwState.global.chain = newChain
+	newMwState.global.gen++
 
-	// 3. 原子替换
 	e.middleware.Store(newMwState)
-
-	// 4. 重建所有 matcher 的中间件链
-	state := e.state.Load().(*engineState)
-	for _, m := range state.matchers {
-		e.rebuildMatcherChainCOW(m)
-	}
 
 	return e
 }
@@ -616,41 +631,20 @@ func (e *Engine) UseForPlugin(pluginName string, mw ...HandlerMiddleware) *Engin
 		return e
 	}
 
-	// 1. 加载当前中间件状态
 	oldMwState := e.middleware.Load().(*middlewareState)
 
-	// 2. 复制状态
+	// 复制状态并更新目标插件快照
 	newMwState := copyMiddlewareState(oldMwState)
-	newMwState.pluginMiddlewares[key] = append(newMwState.pluginMiddlewares[key], mw...)
-
-	// 3. 原子替换
-	e.middleware.Store(newMwState)
-
-	// 4. 重建受影响的 matcher 链
-	state := e.state.Load().(*engineState)
-	prefix := "plugin:" + key
-	for _, m := range state.matchers {
-		if strings.HasPrefix(m.Source, prefix) {
-			e.rebuildMatcherChainCOW(m)
-		}
+	snap, ok := newMwState.pluginMiddlewares[key]
+	if !ok {
+		snap = &middlewareSnapshot{chain: make([]HandlerMiddleware, 0), gen: 1}
+		newMwState.pluginMiddlewares[key] = snap
 	}
+	newChain := append([]HandlerMiddleware(nil), snap.chain...)
+	newChain = append(newChain, mw...)
+	snap.chain = newChain
+	snap.gen++
 
-	return e
-}
-
-// SetTrace 启用/禁用中间件执行顺序的 trace（COW 写操作）
-func (e *Engine) SetTrace(enable bool) *Engine {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-
-	// 加载当前中间件状态
-	oldMwState := e.middleware.Load().(*middlewareState)
-
-	// 复制状态
-	newMwState := copyMiddlewareState(oldMwState)
-	newMwState.traceEnabled = enable
-
-	// 原子替换
 	e.middleware.Store(newMwState)
 
 	return e
@@ -667,17 +661,6 @@ func (e *Engine) ResetMiddlewares() *Engine {
 
 	// 原子替换
 	e.middleware.Store(newMwState)
-
-	// 重建所有 matcher 的中间件链
-	state := e.state.Load().(*engineState)
-	matchers := append([]*Matcher(nil), state.matchers...)
-
-	// 在锁外重建（避免长时间持有锁）
-	e.writeMu.Unlock()
-	for _, m := range matchers {
-		e.rebuildMatcherChainCOW(m)
-	}
-	e.writeMu.Lock()
 
 	return e
 }
@@ -742,6 +725,8 @@ func (e *Engine) invokeHandler(ctx *Context, m *Matcher) {
 
 	// 基于预先组合好的中间件链（global -> plugin -> matcher）包裹 handler
 	// 使用 atomic.Value 实现无锁读取
+	mwState := e.middleware.Load().(*middlewareState)
+	e.ensureMatcherChainWithState(m, mwState)
 	combinedChain := m.getCombinedChain()
 	chain := make([]HandlerMiddleware, len(combinedChain))
 	copy(chain, combinedChain)

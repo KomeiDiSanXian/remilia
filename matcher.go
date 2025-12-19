@@ -38,11 +38,15 @@ type Matcher struct {
 	HandlerErr  HandlerE      // 处理函数（带错误返回）
 	Engine      *Engine       // 所属引擎
 	Source      string        // 来源标签："global" 或 "plugin:<name>"
+	pluginName  string        // 归属插件名（避免反复解析 Source）
 	middlewares []HandlerMiddleware
 
-	// 组合后的中间件链（global -> plugin -> matcher），在配置变更时由 Engine 重建
-	// 使用 atomic.Value 实现无锁读取，提升并发性能
+	// 组合后的中间件链缓存及对应的代际号快照
 	combinedChain atomic.Value // []HandlerMiddleware
+	cachedGen     struct {
+		global uint64
+		plugin uint64
+	}
 
 	// 生命周期与临时 matcher 管理
 	mu          sync.RWMutex // 保护 deleted / useCount / maxUseCount / createdAt / expiresAt 等
@@ -64,6 +68,7 @@ func (m *Matcher) copy() *Matcher {
 		Engine:      m.Engine,
 		IsTemp:      m.IsTemp,
 		Source:      m.Source,
+		pluginName:  m.pluginName,
 		middlewares: m.middlewares,
 	}
 }
@@ -77,7 +82,9 @@ func (m *Matcher) getCombinedChain() []HandlerMiddleware {
 }
 
 // setCombinedChain 设置组合的中间件链（写操作）
-func (m *Matcher) setCombinedChain(chain []HandlerMiddleware) {
+func (m *Matcher) setCombinedChain(chain []HandlerMiddleware, globalGen, pluginGen uint64) {
+	m.cachedGen.global = globalGen
+	m.cachedGen.plugin = pluginGen
 	m.combinedChain.Store(chain)
 }
 
@@ -159,6 +166,7 @@ func (m *Matcher) Handle(handler Handler) *Matcher {
 	m.Handler = handler
 	m.HandlerErr = nil
 	m.mu.Unlock()
+	// Lazy recomposition now happens on-demand; no eager rebuild needed
 	if m.Engine != nil {
 		m.Engine.rebuildMatcherChain(m)
 	}
@@ -285,6 +293,7 @@ func (m *Matcher) Use(mw ...HandlerMiddleware) *Matcher {
 	}
 	m.mu.Lock()
 	m.middlewares = append(m.middlewares, mw...)
+	m.invalidateCombinedChain()
 	m.mu.Unlock()
 	if m.Engine != nil {
 		m.Engine.rebuildMatcherChain(m)
@@ -360,4 +369,15 @@ func (m *Matcher) Where(rule Rule) *Matcher {
 	}
 	m.Rules = append(m.Rules, rule)
 	return m
+}
+
+func (m *Matcher) invalidateCombinedChain() {
+	if m == nil {
+		return
+	}
+	m.cachedGen.global = 0
+	m.cachedGen.plugin = 0
+	// protect against nil/zero atomic.Value on noop or zero matchers
+	defer func() { _ = recover() }()
+	m.combinedChain.Store(nil)
 }

@@ -23,15 +23,22 @@ type engineState struct {
 	maxMatchers int  // 最大匹配器数量限制
 }
 
+// middlewareSnapshot 表示不可变的中间件切片及其代际号
+// gen 每次修改对应切片时递增，用于缓存失效
+type middlewareSnapshot struct {
+	chain []HandlerMiddleware
+	gen   uint64
+}
+
 // middlewareState 不可变的中间件状态（COW 模式）
 //
 // 中间件配置独立于引擎状态，可以单独更新。
 type middlewareState struct {
-	// 全局中间件
-	globalMiddlewares []HandlerMiddleware
+	// 全局中间件快照
+	global middlewareSnapshot
 
-	// 插件中间件（按插件名称分组）
-	pluginMiddlewares map[string][]HandlerMiddleware
+	// 插件中间件快照（按插件名称分组）
+	pluginMiddlewares map[string]*middlewareSnapshot
 
 	// 中间件追踪开关
 	traceEnabled bool
@@ -51,8 +58,8 @@ func newEngineState() *engineState {
 // newMiddlewareState 创建新的中间件状态
 func newMiddlewareState() *middlewareState {
 	return &middlewareState{
-		globalMiddlewares: make([]HandlerMiddleware, 0),
-		pluginMiddlewares: make(map[string][]HandlerMiddleware),
+		global:            middlewareSnapshot{chain: make([]HandlerMiddleware, 0), gen: 1},
+		pluginMiddlewares: make(map[string]*middlewareSnapshot),
 		traceEnabled:      false,
 	}
 }
@@ -86,17 +93,25 @@ func copyEngineState(src *engineState) *engineState {
 // copyMiddlewareState 深拷贝中间件状态
 func copyMiddlewareState(src *middlewareState) *middlewareState {
 	dst := &middlewareState{
-		globalMiddlewares: make([]HandlerMiddleware, len(src.globalMiddlewares)),
-		pluginMiddlewares: make(map[string][]HandlerMiddleware, len(src.pluginMiddlewares)),
+		global: middlewareSnapshot{
+			chain: make([]HandlerMiddleware, len(src.global.chain)),
+			gen:   src.global.gen,
+		},
+		pluginMiddlewares: make(map[string]*middlewareSnapshot, len(src.pluginMiddlewares)),
 		traceEnabled:      src.traceEnabled,
 	}
 
 	// 复制全局中间件
-	copy(dst.globalMiddlewares, src.globalMiddlewares)
+	copy(dst.global.chain, src.global.chain)
 
 	// 复制插件中间件
 	for k, v := range src.pluginMiddlewares {
-		dst.pluginMiddlewares[k] = append([]HandlerMiddleware(nil), v...)
+		snap := &middlewareSnapshot{
+			chain: make([]HandlerMiddleware, len(v.chain)),
+			gen:   v.gen,
+		}
+		copy(snap.chain, v.chain)
+		dst.pluginMiddlewares[k] = snap
 	}
 
 	return dst

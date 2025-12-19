@@ -44,15 +44,13 @@ func TestEngineUseMiddleware(t *testing.T) {
 		return func(ctx *Context) error { return next(ctx) }
 	}
 
-	// Test adding middleware
 	engine.Use(mw1)
 	mwState := engine.middleware.Load().(*middlewareState)
-	assert.Len(t, mwState.globalMiddlewares, 1)
+	assert.Len(t, mwState.global.chain, 1)
 
-	// Test adding multiple middleware at once
 	engine.Use(mw2)
 	mwState = engine.middleware.Load().(*middlewareState)
-	assert.Len(t, mwState.globalMiddlewares, 2)
+	assert.Len(t, mwState.global.chain, 2)
 }
 
 func TestEngineOn(t *testing.T) {

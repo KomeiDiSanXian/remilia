@@ -165,7 +165,7 @@ func TestConcurrentUseAndOn(t *testing.T) {
 
 	// 验证没有 panic 且所有操作都成功
 	mwState := engine.middleware.Load().(*middlewareState)
-	assert.Equal(t, iterations, len(mwState.globalMiddlewares),
+	assert.Equal(t, iterations, len(mwState.global.chain),
 		"All middleware should be registered")
 
 	matcherCount := engine.GetMatcherCount()

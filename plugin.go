@@ -61,6 +61,7 @@ func (p *BasePlugin) AddMatcher(matcher *Matcher) {
 	defer p.mu.Unlock()
 	// 标记来源为该插件
 	matcher.Source = "plugin:" + p.name
+	matcher.pluginName = p.name
 	p.matchers = append(p.matchers, matcher)
 }
 
@@ -119,6 +120,7 @@ func (p *BasePlugin) Reload(engine *Engine) error {
 
 	// 2. 保存 Engine 状态快照（COW 模式下直接保存引用）
 	oldEngineState := engine.state.Load().(*engineState)
+	oldMiddlewareState := engine.middleware.Load().(*middlewareState)
 
 	// 3. 尝试卸载（这会清空 p.matchers 并删除 matchers）
 	if err := p.Unload(engine); err != nil {
@@ -139,6 +141,7 @@ func (p *BasePlugin) Reload(engine *Engine) error {
 		// 回滚 Engine 状态（直接恢复旧的不可变状态）
 		engine.writeMu.Lock()
 		engine.state.Store(oldEngineState)
+		engine.middleware.Store(oldMiddlewareState)
 		engine.writeMu.Unlock()
 
 		// 恢复所有 matcher 的 deleted 状态并重建中间件链
