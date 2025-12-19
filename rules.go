@@ -135,8 +135,12 @@ func (rc *regexCacheStore) get(pattern string) (*regexp.Regexp, bool) {
 	rc.mu.RUnlock()
 
 	if ok {
-		// 更新访问时间（无需加锁，允许轻微不精确）
-		entry.lastAccess = time.Now()
+		// 在锁保护下更新访问时间，避免与淘汰并发产生竞态
+		rc.mu.Lock()
+		if e, stillPresent := rc.cache[pattern]; stillPresent {
+			e.lastAccess = time.Now()
+		}
+		rc.mu.Unlock()
 		return entry.re, true
 	}
 	return nil, false
