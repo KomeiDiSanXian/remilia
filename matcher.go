@@ -47,6 +47,7 @@ type Matcher struct {
 		global uint64
 		plugin uint64
 	}
+	cacheMu sync.RWMutex // 保护 cachedGen 与组合链的生成/失效
 
 	// 生命周期与临时 matcher 管理
 	mu          sync.RWMutex // 保护 deleted / useCount / maxUseCount / createdAt / expiresAt 等
@@ -81,11 +82,23 @@ func (m *Matcher) getCombinedChain() []HandlerMiddleware {
 	return nil
 }
 
+// getChainCache 返回链缓存及代际号的快照（线程安全）
+func (m *Matcher) getChainCache() ([]HandlerMiddleware, uint64, uint64) {
+	m.cacheMu.RLock()
+	chain := m.getCombinedChain()
+	globalGen := m.cachedGen.global
+	pluginGen := m.cachedGen.plugin
+	m.cacheMu.RUnlock()
+	return chain, globalGen, pluginGen
+}
+
 // setCombinedChain 设置组合的中间件链（写操作）
 func (m *Matcher) setCombinedChain(chain []HandlerMiddleware, globalGen, pluginGen uint64) {
+	m.cacheMu.Lock()
 	m.cachedGen.global = globalGen
 	m.cachedGen.plugin = pluginGen
 	m.combinedChain.Store(chain)
+	m.cacheMu.Unlock()
 }
 
 // Delete 从所属引擎中删除该匹配器

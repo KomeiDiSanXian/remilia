@@ -170,6 +170,21 @@ func (ctx *Context) GetState(key string) (any, bool) {
 	return val, ok
 }
 
+func GetState[T any](ctx *Context, key string) (T, error) {
+	ctx.stateMu.RLock()
+	defer ctx.stateMu.RUnlock()
+	var zero T
+	val, ok := ctx.state[key]
+	if !ok {
+		return zero, fmt.Errorf("state key '%s' not found", key)
+	}
+	typedVal, ok := val.(T)
+	if !ok {
+		return zero, fmt.Errorf("state key '%s' is not of type %T", key, zero)
+	}
+	return typedVal, nil
+}
+
 // GetAllState 获取所有状态的副本（线程安全）
 func (ctx *Context) GetAllState() State {
 	ctx.stateMu.RLock()

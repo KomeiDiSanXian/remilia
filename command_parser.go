@@ -42,7 +42,10 @@ func (ctx *Context) ParseCommand() (*CommandArgs, error) {
 	}
 
 	// 分词（支持引号）
-	tokens := tokenize(content)
+	tokens, err := tokenize(content)
+	if err != nil {
+		return nil, fmt.Errorf("tokenize error: %w", err)
+	}
 	if len(tokens) == 0 {
 		return nil, fmt.Errorf("no tokens found")
 	}
@@ -94,15 +97,27 @@ func (ctx *Context) ParseCommand() (*CommandArgs, error) {
 	return args, nil
 }
 
-// tokenize 分词函数，支持引号
+// tokenize 分词函数，支持引号和转义字符
 // 示例: `hello "world test" foo` -> ["hello", "world test", "foo"]
-func tokenize(s string) []string {
+func tokenize(s string) ([]string, error) {
 	tokens := make([]string, 0)
 	var current strings.Builder
 	inQuote := false
 	quoteChar := rune(0)
+	escaped := false
 
-	for i, r := range s {
+	for _, r := range s {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+
 		switch r {
 		case '"', '\'':
 			if !inQuote {
@@ -124,14 +139,21 @@ func tokenize(s string) []string {
 		default:
 			current.WriteRune(r)
 		}
-
-		// 处理最后一个字符
-		if i == len(s)-1 && current.Len() > 0 {
-			tokens = append(tokens, current.String())
-		}
 	}
 
-	return tokens
+	if escaped {
+		return nil, fmt.Errorf("unexpected end of string after escape character")
+	}
+
+	if inQuote {
+		return nil, fmt.Errorf("unclosed quote: %c", quoteChar)
+	}
+
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+
+	return tokens, nil
 }
 
 // Get 获取位置参数（从 0 开始）

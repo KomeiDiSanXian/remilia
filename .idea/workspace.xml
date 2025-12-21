@@ -4,35 +4,16 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: improve HTTP server shutdown logic with caller's context timeout">
-      <change afterPath="$PROJECT_DIR$/bot_shutdown_engine_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: ensure Engine is properly closed during bot shutdown">
+      <change afterPath="$PROJECT_DIR$/command_parser_fuzz_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/COW方案决策总结.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/COW重构完成报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/COW重构进度报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CommandParser增强完成报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/CommandParser快速开始.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Engine性能对比可视化.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Engine性能对比报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Engine锁机制重构方案.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/QQ机器人解耦改造方案.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/context_migration_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_migration_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command_enhanced.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_enhanced.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command_parser.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_parser.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command_parser_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_parser_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/context.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_state.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logger_structured.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/logger_structured_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/matcher_index_test.go.bak" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/matcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/priority_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/priority_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/priority_test.go.broken" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/realistic_bench.bat" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/rules_fuzz_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_fuzz_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/代码问题分析与改进建议.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/架构分析与改进建议.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/测试文件修复总结.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -82,10 +63,16 @@
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
     "run.code.analysis.last.selected.profile": "pProject Default",
-    "settings.editor.selected.configurable": "com.github.copilot.settings.mcp.McpConfigurable",
+    "settings.editor.selected.configurable": "com.github.copilot.settings.customization.CustomizationConfigurable",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\openapi" />
+      <recent name="E:\project\Go\remilia\docs" />
+    </key>
+  </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -114,7 +101,8 @@
     <MESSAGE value="fix: synchronize access time update to prevent race conditions" />
     <MESSAGE value="refactor: implement eviction logic for rate limit token buckets" />
     <MESSAGE value="fix: improve HTTP server shutdown logic with caller's context timeout" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix: improve HTTP server shutdown logic with caller's context timeout" />
+    <MESSAGE value="fix: ensure Engine is properly closed during bot shutdown" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: ensure Engine is properly closed during bot shutdown" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

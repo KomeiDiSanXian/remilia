@@ -120,8 +120,8 @@ func (e *Engine) ensureMatcherChainWithState(m *Matcher, mwState *middlewareStat
 		pluginGen = pluginSnap.gen
 	}
 
-	if cached := m.getCombinedChain(); cached != nil {
-		if m.cachedGen.global == globalSnap.gen && m.cachedGen.plugin == pluginGen {
+	if chain, globalGen, pluginGenCached := m.getChainCache(); chain != nil {
+		if globalGen == globalSnap.gen && pluginGenCached == pluginGen {
 			return
 		}
 	}
@@ -740,7 +740,7 @@ func (e *Engine) invokeHandler(ctx *Context, m *Matcher) {
 	// 使用 atomic.Value 实现无锁读取
 	mwState := e.middleware.Load().(*middlewareState)
 	e.ensureMatcherChainWithState(m, mwState)
-	combinedChain := m.getCombinedChain()
+	combinedChain, _, _ := m.getChainCache()
 	chain := make([]HandlerMiddleware, len(combinedChain))
 	copy(chain, combinedChain)
 
@@ -750,27 +750,24 @@ func (e *Engine) invokeHandler(ctx *Context, m *Matcher) {
 
 	// 执行 handler 并处理错误和 panic
 	var err error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				// 捕获 panic 并转换为错误
-				err = fmt.Errorf("panic in handler: %v", r)
-				logrus.WithFields(logrus.Fields{
-					"panic":      r,
-					"matcher":    m.Source,
-					"event_type": ctx.GetEventType(),
-				}).Error("[Engine] Handler panic recovered")
-			}
-		}()
-		err = he(ctx)
+
+	defer func() {
+		if r := recover(); r != nil {
+			// 捕获 panic 并转换为错误
+			err = fmt.Errorf("panic in handler: %v", r)
+			logrus.WithFields(logrus.Fields{
+				"panic":      r,
+				"matcher":    m.Source,
+				"event_type": ctx.GetEventType(),
+			}).Error("[Engine] Handler panic recovered")
+		}
 	}()
+	err = he(ctx)
 
 	// 记录错误
 	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{
-			"matcher":    m.Source,
-			"event_type": ctx.GetEventType(),
-		}).Error("[Engine] Handler execution error")
+		// 错误日志交由中间件处理，此处仅更新指标
+		// logrus.WithError(err)...
 
 		// 更新指标（使用 writeMu 保护）
 		e.writeMu.Lock()

@@ -304,7 +304,10 @@ func parseCommandRaw(input string) (*CommandArgs, error) {
 		Positional: make([]string, 0),
 	}
 
-	tokens := tokenize(input)
+	tokens, err := tokenize(input)
+	if err != nil {
+		return nil, fmt.Errorf("tokenize error: %w", err)
+	}
 	if len(tokens) == 0 {
 		return nil, fmt.Errorf("no tokens found")
 	}

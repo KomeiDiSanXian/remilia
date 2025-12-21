@@ -89,6 +89,48 @@ func TestParseCommand_QuotedArgs(t *testing.T) {
 	assert.Equal(t, "Alice Bob", args.GetFlag("to"))
 }
 
+func TestParseCommand_EscapedArgs(t *testing.T) {
+	t.Parallel()
+	// 测试转义引号: /say "hello \"world\""
+	ctx := NewContext(&dto.Payload{
+		Detail: []byte(`{"content":"/say \"hello \\\"world\\\"\""}`),
+	}, nil)
+
+	args, err := ctx.ParseCommand()
+	assert.NoError(t, err)
+	assert.Equal(t, `hello "world"`, args.Get(0))
+
+	// 测试转义空格: /say hello\ world
+	ctx = NewContext(&dto.Payload{
+		Detail: []byte(`{"content":"/say hello\\ world"}`),
+	}, nil)
+	args, err = ctx.ParseCommand()
+	assert.NoError(t, err)
+	assert.Equal(t, "hello world", args.Get(0))
+}
+
+func TestParseCommand_UnclosedQuote(t *testing.T) {
+	t.Parallel()
+	ctx := NewContext(&dto.Payload{
+		Detail: []byte(`{"content":"/say \"hello world"}`),
+	}, nil)
+
+	_, err := ctx.ParseCommand()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unclosed quote")
+}
+
+func TestParseCommand_TrailingEscape(t *testing.T) {
+	t.Parallel()
+	ctx := NewContext(&dto.Payload{
+		Detail: []byte(`{"content":"/say hello\\"}`),
+	}, nil)
+
+	_, err := ctx.ParseCommand()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected end of string")
+}
+
 func TestParseCommand_EmptyContent(t *testing.T) {
 	t.Parallel()
 	ctx := NewContext(&dto.Payload{
@@ -242,7 +284,8 @@ func TestTokenize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			result := tokenize(tt.input)
+			result, err := tokenize(tt.input)
+			assert.NoError(t, err)
 			assert.Equal(t, tt.expect, result)
 		})
 	}

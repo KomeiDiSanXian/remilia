@@ -19,10 +19,15 @@ func Logging() remilia.HandlerMiddleware {
 		return func(ctx *remilia.Context) error {
 			start := time.Now()
 			err := next(ctx)
-			logrus.WithError(err).WithFields(logrus.Fields{
+			entry := logrus.WithError(err).WithFields(logrus.Fields{
 				"latency": time.Since(start),
 				"type":    ctx.GetEventType(),
-			}).Info("handler")
+			})
+			if err != nil {
+				entry.Error("handler execution failed")
+			} else {
+				entry.Debug("handler execution success")
+			}
 			return err
 		}
 	}
