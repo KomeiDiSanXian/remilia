@@ -42,11 +42,13 @@ func TestBasePluginUnload(t *testing.T) {
 	plugin := NewBasePlugin("test-plugin")
 	engine := NewEngine()
 
-	matcher1 := engine.OnC2C()
-	matcher2 := engine.OnGroupAt()
+	engine.WithMatcherGroupBatch(func() {
+		matcher1 := engine.OnC2C()
+		matcher2 := engine.OnGroupAt()
 
-	plugin.AddMatcher(matcher1)
-	plugin.AddMatcher(matcher2)
+		plugin.AddMatcher(matcher1)
+		plugin.AddMatcher(matcher2)
+	})
 
 	assert.Len(t, plugin.matchers, 2)
 

@@ -1,6 +1,7 @@
 package remilia
 
 import (
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,28 +28,7 @@ type (
 	HandlerE func(ctx *Context) error // 新增：返回错误的处理函数
 )
 
-// Matcher 事件匹配器
-type Matcher struct {
-	isTemp      bool          // 是否为临时Matcher（SetTemp(true) 时默认 maxUse=1，一次性匹配器）
-	isBlock     bool          // 是否为阻塞后续Matcher
-	priority    uint          // 优先级，数值越小优先级越高，0为最高优先级
-	EventType   dto.EventType // 显式事件类型
-	Rules       []Rule        // 其他匹配规则
-	Handler     Handler       // 处理函数（无错误返回）
-	HandlerErr  HandlerE      // 处理函数（带错误返回）
-	Engine      *Engine       // 所属引擎
-	Source      string        // 来源标签："global" 或 "plugin:<name>"
-	pluginName  string        // 归属插件名（避免反复解析 Source）
-	middlewares []HandlerMiddleware
-
-	// 组合后的中间件链缓存及对应的代际号快照
-	combinedChain atomic.Value // []HandlerMiddleware
-	cachedGen     struct {
-		global uint64
-		plugin uint64
-	}
-	cacheMu sync.RWMutex // 保护 cachedGen 与组合链的生成/失效
-
+type matcherRuntime struct {
 	// 生命周期与临时 matcher 管理
 	mu          sync.RWMutex // 保护 deleted / useCount / maxUseCount / createdAt / expiresAt 等
 	deleted     bool         // 是否已从 Engine 中删除
@@ -56,22 +36,68 @@ type Matcher struct {
 	maxUseCount int32        // 最大使用次数（>0 时启用自动删除）
 	createdAt   time.Time    // 创建时间
 	expiresAt   time.Time    // 过期时间（零值表示不过期）
+	isTemp      int32        // 1: 临时Matcher(由TempManager管理) 0: 常驻Matcher(State管理) (atomic)
+}
+
+// Matcher 事件匹配器
+type Matcher struct {
+	rt          matcherRuntime // Runtime state
+	isBlock     bool           // 是否为阻塞后续Matcher
+	priority    uint           // 优先级，数值越小优先级越高，0为最高优先级
+	EventType   dto.EventType  // 显式事件类型
+	Rules       []Rule         // 其他匹配规则
+	Handler     Handler        // 处理函数（无错误返回）
+	HandlerErr  HandlerE       // 处理函数（带错误返回）
+	coordinator MatcherCoordinator
+	Source      string // 来源标签："global" 或 "plugin:<name>"
+	group       string // 归属分组名（例如插件名）
+	middlewares []HandlerMiddleware
+
+	// 组合后的中间件链缓存及对应的代际号快照
+	combinedChain atomic.Value // []HandlerMiddleware
+	cachedGen     struct {
+		global uint64
+		group  uint64
+	}
+	cacheMu sync.RWMutex // 保护 cachedGen 与组合链的生成/失效
+
+	// 优化：精确命令匹配
+	// 如果设置了此字段，并且 Engine 支持命令索引，则进行 O(1) 查找
+	// 仅当消息的第一个单词（空格分隔）与此字段完全相等时触发
+	command string
 }
 
 func (m *Matcher) copy() *Matcher {
+	newRules := make([]Rule, len(m.Rules))
+	copy(newRules, m.Rules)
+
+	newMiddlewares := make([]HandlerMiddleware, len(m.middlewares))
+	copy(newMiddlewares, m.middlewares)
+
 	return &Matcher{
+		rt:          matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
 		EventType:   m.EventType,
-		Rules:       m.Rules,
+		Rules:       newRules,
 		isBlock:     m.isBlock,
 		priority:    m.priority,
 		Handler:     m.Handler,
 		HandlerErr:  m.HandlerErr,
-		Engine:      m.Engine,
-		isTemp:      m.isTemp,
 		Source:      m.Source,
-		pluginName:  m.pluginName,
-		middlewares: m.middlewares,
+		group:       m.group,
+		middlewares: newMiddlewares,
+		command:     m.command,
 	}
+}
+
+// GetCommand 获取匹配器的触发命令
+func (m *Matcher) GetCommand() string {
+	return m.command
+}
+
+// IsTemp returns true if the matcher is a temporary matcher managed by TempManager.
+// Safe for concurrent access.
+func (m *Matcher) IsTemp() bool {
+	return atomic.LoadInt32(&m.rt.isTemp) == 1
 }
 
 // getCombinedChain 获取组合的中间件链（无锁读取）
@@ -87,16 +113,16 @@ func (m *Matcher) getChainCache() ([]HandlerMiddleware, uint64, uint64) {
 	m.cacheMu.RLock()
 	chain := m.getCombinedChain()
 	globalGen := m.cachedGen.global
-	pluginGen := m.cachedGen.plugin
+	groupGen := m.cachedGen.group
 	m.cacheMu.RUnlock()
-	return chain, globalGen, pluginGen
+	return chain, globalGen, groupGen
 }
 
 // setCombinedChain 设置组合的中间件链（写操作）
-func (m *Matcher) setCombinedChain(chain []HandlerMiddleware, globalGen, pluginGen uint64) {
+func (m *Matcher) setCombinedChain(chain []HandlerMiddleware, globalGen, groupGen uint64) {
 	m.cacheMu.Lock()
 	m.cachedGen.global = globalGen
-	m.cachedGen.plugin = pluginGen
+	m.cachedGen.group = groupGen
 	m.combinedChain.Store(chain)
 	m.cacheMu.Unlock()
 }
@@ -125,38 +151,45 @@ func (m *Matcher) setCombinedChain(chain []HandlerMiddleware, globalGen, pluginG
 //	    SetTemp(true).
 //	    Handle(func(ctx *Context) {
 //	        // handler 执行完后，matcher 会自动删除
-//	    })
+//
+// Delete matches
 func (m *Matcher) Delete() {
-	m.mu.Lock()
-	if m.deleted {
-		m.mu.Unlock()
+	m.rt.mu.Lock()
+	if m.rt.deleted {
+		m.rt.mu.Unlock()
 		return
 	}
-	m.deleted = true
-	engine := m.Engine
-	m.mu.Unlock()
 
-	if engine != nil {
-		engine.DeleteMatcher(m)
+	m.rt.deleted = true
+	coordinator := m.coordinator
+	m.rt.mu.Unlock()
+
+	if coordinator != nil {
+		coordinator.DeleteMatcher(m)
 	}
 }
 
 // IsDeleted 返回 matcher 是否已经被删除
 func (m *Matcher) IsDeleted() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.deleted
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.rt.deleted
+}
+
+// isNoop 检查是否为 noop matcher
+func (m *Matcher) isNoop() bool {
+	return m != nil && m.Source == "noop"
 }
 
 // Match 检查事件是否匹配此 Matcher
 func (m *Matcher) Match(ctx *Context) bool {
-	m.mu.RLock()
-	if m.deleted {
-		m.mu.RUnlock()
+	m.rt.mu.RLock()
+	if m.rt.deleted {
+		m.rt.mu.RUnlock()
 		return false
 	}
 	rules := m.Rules
-	m.mu.RUnlock()
+	m.rt.mu.RUnlock()
 
 	// 事件类型过滤已经由 Engine.getMatchersForEvent 通过索引完成
 
@@ -172,31 +205,32 @@ func (m *Matcher) Match(ctx *Context) bool {
 
 // Handle 设置 Matcher 的处理函数（无错误返回）
 func (m *Matcher) Handle(handler Handler) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m // noop matcher 不执行任何操作
 	}
-	m.mu.Lock()
+	m.rt.mu.Lock()
 	m.Handler = handler
 	m.HandlerErr = nil
-	m.mu.Unlock()
-	// Lazy recomposition now happens on-demand; no eager rebuild needed
-	if m.Engine != nil {
-		m.Engine.rebuildMatcherChain(m)
+	coord := m.coordinator
+	m.rt.mu.Unlock()
+	if coord != nil {
+		coord.RebuildMatcherChain(m)
 	}
 	return m
 }
 
 // HandleE 设置 Matcher 的处理函数（带错误返回）
 func (m *Matcher) HandleE(handler HandlerE) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m // noop matcher 不执行任何操作
 	}
-	m.mu.Lock()
+	m.rt.mu.Lock()
 	m.HandlerErr = handler
 	m.Handler = nil
-	m.mu.Unlock()
-	if m.Engine != nil {
-		m.Engine.rebuildMatcherChain(m)
+	coord := m.coordinator
+	m.rt.mu.Unlock()
+	if coord != nil {
+		coord.RebuildMatcherChain(m)
 	}
 	return m
 }
@@ -206,19 +240,24 @@ func (m *Matcher) HandleE(handler HandlerE) *Matcher {
 // 注意：修改优先级会导致 Engine 的排序缓存失效并重建。
 // 如果需要批量修改多个 matcher 的优先级，建议在添加到 Engine 之前设置。
 func (m *Matcher) SetPriority(priority uint) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 
-	m.mu.Lock()
+	m.rt.mu.Lock()
 	changed := m.priority != priority
 	m.priority = priority
-	engine := m.Engine
+	coord := m.coordinator
 	muEvent := m.EventType
-	m.mu.Unlock()
+	isTempManager := atomic.LoadInt32(&m.rt.isTemp) == 1
+	m.rt.mu.Unlock()
 
-	if changed && engine != nil {
-		engine.invalidateSortedCache(muEvent)
+	if changed && coord != nil {
+		if isTempManager {
+			coord.UpdateTempMatcherPriority(m)
+		} else {
+			coord.InvalidateSortedCache(muEvent)
+		}
 	}
 
 	return m
@@ -226,12 +265,12 @@ func (m *Matcher) SetPriority(priority uint) *Matcher {
 
 // SetBlock 设置 Matcher 是否阻塞后续匹配
 func (m *Matcher) SetBlock(block bool) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
-	m.mu.Lock()
+	m.rt.mu.Lock()
 	m.isBlock = block
-	m.mu.Unlock()
+	m.rt.mu.Unlock()
 	return m
 }
 
@@ -239,80 +278,111 @@ func (m *Matcher) SetBlock(block bool) *Matcher {
 // 约定：SetTemp(true) 默认视为一次性匹配器（maxUse=1），使用一次后自动删除；
 // 若需自定义最大使用次数，请使用 SetTempWithMaxUse。
 func (m *Matcher) SetTemp(temp bool) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isTemp = temp
+	m.rt.mu.Lock()
+	if m.rt.deleted {
+		m.rt.mu.Unlock()
+		return m
+	}
+
+	currentIsTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
+	coord := m.coordinator
+
+	// Update state
 	if temp {
-		// 默认一次性 matcher
-		m.maxUseCount = 1
-		m.useCount = 0
+		atomic.StoreInt32(&m.rt.isTemp, 1)
+		m.rt.maxUseCount = 1
+		m.rt.useCount = 0
 	} else {
-		m.maxUseCount = 0
-		m.useCount = 0
+		atomic.StoreInt32(&m.rt.isTemp, 0)
+		m.rt.maxUseCount = 0
+		m.rt.useCount = 0
+	}
+	m.rt.mu.Unlock()
+
+	if temp != currentIsTemp && coord != nil {
+		if temp {
+			coord.MigrateMatcherToTemp(m)
+		} else {
+			coord.MigrateMatcherFromTemp(m)
+		}
 	}
 	return m
+}
+
+func (m *Matcher) deteledOrLocked() bool {
+	return m.rt.deleted
 }
 
 // SetTempWithMaxUse 将 matcher 标记为临时匹配器，并指定最大使用次数（<=0 时等价于一次性 matcher）。
 func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isTemp = true
-	if maxUse <= 0 {
-		m.maxUseCount = 1
-	} else {
-		m.maxUseCount = int32(maxUse)
+	m.rt.mu.Lock()
+	if m.rt.deleted {
+		m.rt.mu.Unlock()
+		return m
 	}
-	m.useCount = 0
+
+	needsMigration := atomic.LoadInt32(&m.rt.isTemp) == 0
+	coord := m.coordinator
+	needsMigration = needsMigration && coord != nil
+
+	atomic.StoreInt32(&m.rt.isTemp, 1)
+	if maxUse <= 0 {
+		m.rt.maxUseCount = 1
+	} else {
+		m.rt.maxUseCount = int32(maxUse)
+	}
+	m.rt.useCount = 0
+	m.rt.mu.Unlock()
+
+	if needsMigration {
+		coord.MigrateMatcherToTemp(m)
+	}
 	return m
 }
 
-// SetTempWithTimeout 将 matcher 标记为临时匹配器，并指定过期时间
-//
-// 过期后，matcher 会被自动删除（需要启用 Engine 的清理器）。
-// 可以同时设置最大使用次数和超时时间，满足任一条件即删除。
-//
-// 使用示例：
-//
-//	// 5 分钟后自动过期
-//	engine.OnC2C(OnCommand("temp")).
-//	    SetTempWithTimeout(5 * time.Minute).
-//	    HandleE(handler)
-//
-//	// 最多使用 3 次或 10 分钟后过期
-//	engine.OnC2C(OnCommand("temp")).
-//	    SetTempWithMaxUse(3).
-//	    SetTempWithTimeout(10 * time.Minute).
-//	    HandleE(handler)
 func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.isTemp = true
-	m.createdAt = time.Now()
-	m.expiresAt = m.createdAt.Add(timeout)
+	m.rt.mu.Lock()
+	if m.rt.deleted {
+		m.rt.mu.Unlock()
+		return m
+	}
+
+	needsMigration := atomic.LoadInt32(&m.rt.isTemp) == 0
+	coord := m.coordinator
+	needsMigration = needsMigration && coord != nil
+
+	atomic.StoreInt32(&m.rt.isTemp, 1)
+	m.rt.createdAt = time.Now()
+	m.rt.expiresAt = m.rt.createdAt.Add(timeout)
+	m.rt.mu.Unlock()
+
+	if needsMigration {
+		coord.MigrateMatcherToTemp(m)
+	}
 	return m
 }
 
 // Use 为当前 matcher 注册局部中间件（仅对此 matcher 生效）
 func (m *Matcher) Use(mw ...HandlerMiddleware) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m // noop matcher 不执行任何操作
 	}
-	m.mu.Lock()
+	m.rt.mu.Lock()
 	m.middlewares = append(m.middlewares, mw...)
 	m.invalidateCombinedChain()
-	m.mu.Unlock()
-	if m.Engine != nil {
-		m.Engine.rebuildMatcherChain(m)
+	coord := m.coordinator
+	m.rt.mu.Unlock()
+	if coord != nil {
+		coord.RebuildMatcherChain(m)
 	}
 	return m
 }
@@ -320,7 +390,7 @@ func (m *Matcher) Use(mw ...HandlerMiddleware) *Matcher {
 // Command 添加命令匹配规则（链式调用）
 // 匹配以指定前缀开头的消息，忽略前导空白
 func (m *Matcher) Command(cmd string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnCommand(cmd))
@@ -330,7 +400,7 @@ func (m *Matcher) Command(cmd string) *Matcher {
 // Keyword 添加关键词匹配规则（链式调用）
 // 匹配包含指定关键词的消息
 func (m *Matcher) Keyword(keyword string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnKeyword(keyword))
@@ -340,7 +410,7 @@ func (m *Matcher) Keyword(keyword string) *Matcher {
 // Prefix 添加前缀匹配规则（链式调用）
 // 匹配以指定前缀开头的消息，忽略前导空白
 func (m *Matcher) Prefix(prefix string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnPrefix(prefix))
@@ -350,7 +420,7 @@ func (m *Matcher) Prefix(prefix string) *Matcher {
 // Suffix 添加后缀匹配规则（链式调用）
 // 匹配以指定后缀结尾的消息
 func (m *Matcher) Suffix(suffix string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnSuffix(suffix))
@@ -360,7 +430,7 @@ func (m *Matcher) Suffix(suffix string) *Matcher {
 // FullMatch 添加完全匹配规则（链式调用）
 // 匹配完全相同的消息，忽略前导空白
 func (m *Matcher) FullMatch(text string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnFullMatch(text))
@@ -370,7 +440,7 @@ func (m *Matcher) FullMatch(text string) *Matcher {
 // Regex 添加正则表达式匹配规则（链式调用）
 // 注意：如果正则表达式无效会 panic
 func (m *Matcher) Regex(pattern string) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, OnRegex(pattern))
@@ -380,7 +450,7 @@ func (m *Matcher) Regex(pattern string) *Matcher {
 // Where 添加自定义规则（链式调用）
 // 用于添加任意 Rule 函数
 func (m *Matcher) Where(rule Rule) *Matcher {
-	if m == noopMatcher {
+	if m.isNoop() {
 		return m
 	}
 	m.Rules = append(m.Rules, rule)
@@ -391,11 +461,56 @@ func (m *Matcher) invalidateCombinedChain() {
 	if m == nil {
 		return
 	}
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+
 	m.cachedGen.global = 0
-	m.cachedGen.plugin = 0
+	m.cachedGen.group = 0
 	// protect against nil/zero atomic.Value on noop or zero matchers
 	defer func() { _ = recover() }()
 	m.combinedChain.Store(nil)
+}
+
+// ensureChain ensures the combined chain is cached and valid.
+// It uses double-checked locking to avoid redundant computation.
+func (m *Matcher) ensureChain(globalChain []HandlerMiddleware, globalGen uint64, groupChain []HandlerMiddleware, groupGen uint64) {
+	if m == nil {
+		return
+	}
+
+	// 1. Optimistic check
+	if chain, gGen, pGen := m.getChainCache(); chain != nil {
+		if gGen == globalGen && pGen == groupGen {
+			return
+		}
+	}
+
+	// 2. Prepare to update. Need consistent view of locals.
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+
+	// 3. Acquire write lock on cache
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+
+	// 4. Double check
+	if m.cachedGen.global == globalGen && m.cachedGen.group == groupGen {
+		if m.combinedChain.Load() != nil {
+			return
+		}
+	}
+
+	// 5. Compute
+	locals := m.middlewares
+	chain := make([]HandlerMiddleware, 0, len(globalChain)+len(groupChain)+len(locals))
+	chain = append(chain, globalChain...)
+	chain = append(chain, groupChain...)
+	chain = append(chain, locals...)
+
+	// 6. Update cache
+	m.cachedGen.global = globalGen
+	m.cachedGen.group = groupGen
+	m.combinedChain.Store(chain)
 }
 
 // getPriority returns priority in a threadsafe way.
@@ -403,9 +518,9 @@ func (m *Matcher) getPriority() uint {
 	if m == nil {
 		return 0
 	}
-	m.mu.RLock()
+	m.rt.mu.RLock()
 	p := m.priority
-	m.mu.RUnlock()
+	m.rt.mu.RUnlock()
 	return p
 }
 
@@ -414,8 +529,74 @@ func (m *Matcher) isBlocking() bool {
 	if m == nil {
 		return false
 	}
-	m.mu.RLock()
+	m.rt.mu.RLock()
 	b := m.isBlock
-	m.mu.RUnlock()
+	m.rt.mu.RUnlock()
 	return b
+}
+
+// BindCommand 手动绑定触发命令，为普通匹配器启用 O(1) 分发优化
+//
+// 使用场景：
+//   - 为使用 Engine.On() 注册的普通匹配器开启优化
+//   - 为 OnFullMatch 等其他规则提供前缀索引加速
+//
+// 示例：
+//
+//	// 将普通匹配器纳入命令索引，仅当消息以 "/test" 开头时才从哈希表获取并执行
+//	engine.On(type, rules...).BindCommand("/test")
+//
+//	// 对完全匹配也能优化：先通过 "hello" 索引找到，再由 Rule 验证完整内容
+//	engine.OnFullMatch("hello world").BindCommand("hello")
+//
+// 注意：此操作会触发 Engine 状态更新（COW），建议在初始化时调用。
+func (m *Matcher) BindCommand(cmd string) *Matcher {
+	m.command = strings.TrimSpace(cmd)
+	if m.coordinator != nil {
+		m.coordinator.UpdateMatcherCommand(m)
+	}
+	return m
+}
+
+// MatcherCoordinator defines the operations Matcher needs from Engine.
+// This interface decouples Matcher from Engine's concrete implementation.
+type MatcherCoordinator interface {
+	DeleteMatcher(m *Matcher)
+	RebuildMatcherChain(m *Matcher)
+	InvalidateSortedCache(eventType dto.EventType)
+	UpdateTempMatcherPriority(m *Matcher)
+	UpdateMatcherCommand(m *Matcher)
+	MigrateMatcherToTemp(m *Matcher)
+	MigrateMatcherFromTemp(m *Matcher)
+}
+
+// SetGroup sets the matcher group name.
+//
+// Contract:
+//   - group is the authoritative key for group middlewares and plugin unloading.
+//   - Source is diagnostics only; changing Source must not affect group behavior.
+//
+// NOTE:
+//   - This method is safe to call after matcher registration.
+//   - It will invalidate the middleware chain cache and (if possible) trigger a rebuild.
+func (m *Matcher) SetGroup(group string) *Matcher {
+	m.rt.mu.Lock()
+	m.group = strings.TrimSpace(group)
+	m.invalidateCombinedChain()
+	coord := m.coordinator
+	m.rt.mu.Unlock()
+
+	if coord != nil {
+		coord.RebuildMatcherChain(m)
+	}
+
+	return m
+}
+
+// GetGroup returns the matcher group name.
+func (m *Matcher) GetGroup() string {
+	m.rt.mu.RLock()
+	g := m.group
+	m.rt.mu.RUnlock()
+	return g
 }

@@ -46,7 +46,7 @@ func TestNew(t *testing.T) {
 	assert.NotNil(t, bot.tm)
 	assert.NotNil(t, bot.engine)
 	assert.NotNil(t, bot.api)
-	assert.Nil(t, bot.wh)
+	assert.Nil(t, bot.adapter)
 }
 
 func TestNewWithWebHook(t *testing.T) {
@@ -61,7 +61,7 @@ func TestNewWithWebHook(t *testing.T) {
 	bot := New(info, WithWebHook(mockWebhook))
 
 	assert.NotNil(t, bot)
-	assert.Equal(t, mockWebhook, bot.wh)
+	assert.NotNil(t, bot.adapter)
 }
 
 func TestNewWithEngine(t *testing.T) {
@@ -98,7 +98,7 @@ func TestNewWithMultipleOptions(t *testing.T) {
 
 	assert.NotNil(t, bot)
 	assert.Equal(t, customEngine, bot.engine)
-	assert.Equal(t, mockWebhook, bot.wh)
+	assert.NotNil(t, bot.adapter)
 }
 
 func TestBotGetEngine(t *testing.T) {
@@ -194,4 +194,27 @@ func TestNew_DefaultEngineCreation(t *testing.T) {
 
 	assert.NotNil(t, bot)
 	assert.NotNil(t, bot.engine, "Engine should be auto-created")
+}
+
+func TestBotDelegation(t *testing.T) {
+	info := &dto.BotInfo{AppID: 12345}
+	bot := New(info)
+
+	// Test On
+	matcher := bot.On(dto.C2CMessageCreate)
+	assert.NotNil(t, matcher)
+	assert.Equal(t, dto.C2CMessageCreate, matcher.EventType)
+
+	// Test OnC2C
+	c2cMatcher := bot.OnC2C()
+	assert.NotNil(t, c2cMatcher)
+	assert.Equal(t, dto.C2CMessageCreate, c2cMatcher.EventType)
+
+	// Test OnCommand
+	cmdMatcher := bot.OnCommand(dto.C2CMessageCreate, "/ping")
+	assert.NotNil(t, cmdMatcher)
+	assert.Equal(t, "/ping", cmdMatcher.GetCommand())
+
+	// Test Use (Chaining)
+	assert.Equal(t, bot, bot.Use(func(next HandlerE) HandlerE { return next }))
 }

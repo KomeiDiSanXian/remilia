@@ -25,16 +25,19 @@ func TestEngine_MaxMatchersReturnsNoopMatcher(t *testing.T) {
 	assert.NotNil(t, m2)
 	assert.NotEqual(t, noopMatcher, m2)
 
-	// 第三个应该返回 noopMatcher
+	// 第三个应该返回 noopMatcher (新的实例)
 	m3 := engine.OnC2C().Handle(func(ctx *Context) {
 		ctx.SetState("m3", true)
 	})
 	assert.NotNil(t, m3, "Should return noopMatcher, not nil")
-	assert.Equal(t, noopMatcher, m3, "Should return noopMatcher when limit reached")
+	// assert.Equal(t, noopMatcher, m3) // 不再相等，因为返回的是新实例
+	assert.True(t, m3.rt.deleted, "Should be marked as deleted")
+	assert.Equal(t, "noop", m3.Source, "Should have source 'noop'")
+	assert.NotNil(t, m3.coordinator, "coordinator should not be nil")
 
 	// noopMatcher 的链式调用应该安全
 	m4 := m3.Command("/test").Keyword("hello").SetPriority(10).SetBlock(true).SetTemp(true)
-	assert.Equal(t, noopMatcher, m4, "Chained calls on noopMatcher should return itself")
+	assert.Equal(t, m3, m4, "Chained calls should return the same instance")
 
 	// 验证只有 m1 和 m2 真正注册了
 	assert.Equal(t, 2, engine.GetMatcherCount())

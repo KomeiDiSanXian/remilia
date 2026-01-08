@@ -124,7 +124,7 @@ func TestFormatHandlerError(t *testing.T) {
 	ctx := NewContext(nil, nil)
 
 	// 设置 trace
-	ctx.SetState("mw_trace", []string{"middleware1", "middleware2"})
+	ctx.internalSet(internalStateKeyMiddlewareTrace, []string{"middleware1", "middleware2"})
 
 	// 包装错误
 	err := WrapError(errors.New("test error"), ctx, matcher, 2)
@@ -248,7 +248,7 @@ func TestHandlerError_WithTrace(t *testing.T) {
 
 	// 设置中间件追踪
 	trace := []string{"Recover", "Logging", "Handler"}
-	ctx.SetState("mw_trace", trace)
+	ctx.internalSet(internalStateKeyMiddlewareTrace, trace)
 
 	// 包装错误
 	err := WrapError(errors.New("test error"), ctx, matcher, 1)

@@ -1,6 +1,7 @@
 package remilia
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,10 +56,10 @@ func TestWithTimeout(t *testing.T) {
 	})
 
 	t.Run("超时后 goroutine 仍在运行", func(t *testing.T) {
-		executed := false
+		var executed atomic.Bool
 		slowRule := func(ctx *Context) bool {
 			time.Sleep(100 * time.Millisecond)
-			executed = true // 即使超时，这里仍会执行
+			executed.Store(true) // 即使超时，这里仍会执行
 			return true
 		}
 
@@ -71,7 +72,7 @@ func TestWithTimeout(t *testing.T) {
 
 		// 等待 goroutine 完成
 		time.Sleep(150 * time.Millisecond)
-		assert.True(t, executed) // goroutine 仍然执行完成了
+		assert.True(t, executed.Load()) // goroutine 仍然执行完成了
 	})
 }
 

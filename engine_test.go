@@ -64,7 +64,7 @@ func TestEngineOn(t *testing.T) {
 	assert.NotNil(t, matcher)
 	assert.Equal(t, dto.C2CMessageCreate, matcher.EventType)
 	assert.Len(t, matcher.Rules, 1)
-	assert.Equal(t, engine, matcher.Engine)
+	assert.Equal(t, engine, matcher.coordinator)
 	assert.Equal(t, uint(50), matcher.priority) // Default priority
 
 	// COW 模式：通过状态访问
@@ -431,4 +431,59 @@ func TestTempMatcher_WithMaxUse(t *testing.T) {
 	// 再次事件不应再触发
 	engine.ProcessEvent(NewContext(event, nil))
 	assert.Equal(t, int32(2), calls)
+}
+
+func TestEngine_MatcherPool_Limit(t *testing.T) {
+	e := NewEngine()
+	// Ensure auto cleanup doesn't interfere randomly, though it shouldn't matter here
+	e.SetTempMatcherCleanInterval(0)
+
+	// 1. Create matchers exceeding the retention limit
+	// MaxMatcherPoolRetainCapacity is 1024
+	numMatchers := MaxMatcherPoolRetainCapacity + 500
+
+	// Create a dummy rule
+	noopRule := func(ctx *Context) bool { return true }
+	// Create a dummy handler (void)
+	noopHandler := func(ctx *Context) {}
+
+	// Add temp matchers
+	for i := 0; i < numMatchers; i++ {
+		e.OnTemp("test_event", noopRule).Handle(noopHandler)
+	}
+
+	// 2. ProcessEvent. This should invoke the logic
+	// Create a context
+	payload := &dto.Payload{
+		Type: "test_event",
+	}
+	ctx := NewContext(payload, nil)
+
+	// This call will:
+	// 1. Get a slice from pool (likely small initially)
+	// 2. Grow it to hold 1500+ matchers in mergeSortedMatchers
+	// 3. On defer, check capacity. Since 1500+ > 1024, it should NOT put it back.
+	e.ProcessEvent(ctx)
+
+	// 3. Verify pool state
+	// In a single-threaded test, sync.Pool usually acts as LIFO for the local P.
+	// So if we put something back, Get() should return it.
+	// If we didn't put it back, Get() calls New() which returns a small slice.
+
+	// Try a few times to be sure
+	for i := 0; i < 5; i++ {
+		slice := e.s.matcherPool.Get()
+		c := cap(slice)
+
+		// Assert that the capacity is small (default 16, or at least <= 1024)
+		assert.LessOrEqual(t, c, MaxMatcherPoolRetainCapacity, "Recovered slice capacity %d exceeds limit %d", c, MaxMatcherPoolRetainCapacity)
+
+		if c > DefaultMatcherPoolCapacity {
+			t.Logf("Warning: Got capacity %d, expected default %d. But as long as it is <= %d it is acceptable.", c, DefaultMatcherPoolCapacity, MaxMatcherPoolRetainCapacity)
+		}
+		// Put back to avoid starving other tests (keep policy consistent)
+		if c <= MaxMatcherPoolRetainCapacity {
+			e.s.matcherPool.Put(slice)
+		}
+	}
 }

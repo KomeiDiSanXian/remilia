@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/sirupsen/logrus"
 )
@@ -101,15 +103,8 @@ func OnSuffix(suffix string) Rule {
 // regexCacheStore 全局正则表达式缓存，避免重复编译相同模式
 // 使用 LRU 策略限制缓存大小，防止内存泄漏和 DoS 攻击
 type regexCacheStore struct {
-	mu      sync.RWMutex
-	cache   map[string]*regexCacheEntry
-	lruList []string // 简单的 LRU 列表
+	cache   *lru.Cache[string, *regexp.Regexp]
 	maxSize int
-}
-
-type regexCacheEntry struct {
-	re         *regexp.Regexp
-	lastAccess time.Time
 }
 
 var (
@@ -120,86 +115,27 @@ var (
 // initRegexCache 初始化正则表达式缓存
 func initRegexCache() {
 	regexCacheOnce.Do(func() {
+		// 创建一个新的 LRU 缓存，容量为 1000
+		cache, err := lru.New[string, *regexp.Regexp](1000)
+		if err != nil {
+			// 理论上只有当 size <= 0 时才会返回错误，这里 panic 是安全的
+			panic(err)
+		}
 		regexCache = &regexCacheStore{
-			cache:   make(map[string]*regexCacheEntry),
-			lruList: make([]string, 0, 1000),
-			maxSize: 1000, // 最多缓存 1000 个正则表达式
+			cache:   cache,
+			maxSize: 1000,
 		}
 	})
 }
 
 // get 从缓存获取正则表达式
 func (rc *regexCacheStore) get(pattern string) (*regexp.Regexp, bool) {
-	rc.mu.RLock()
-	entry, ok := rc.cache[pattern]
-	rc.mu.RUnlock()
-
-	if ok {
-		// 在锁保护下更新访问时间，避免与淘汰并发产生竞态
-		rc.mu.Lock()
-		if e, stillPresent := rc.cache[pattern]; stillPresent {
-			e.lastAccess = time.Now()
-		}
-		rc.mu.Unlock()
-		return entry.re, true
-	}
-	return nil, false
+	return rc.cache.Get(pattern)
 }
 
 // put 将正则表达式放入缓存
 func (rc *regexCacheStore) put(pattern string, re *regexp.Regexp) {
-	rc.mu.Lock()
-	defer rc.mu.Unlock()
-
-	// 如果已存在，更新并返回
-	if entry, exists := rc.cache[pattern]; exists {
-		entry.re = re
-		entry.lastAccess = time.Now()
-		return
-	}
-
-	// 检查缓存大小，如果达到上限则删除最旧的
-	if len(rc.cache) >= rc.maxSize {
-		rc.evictOldest()
-	}
-
-	// 添加新条目
-	rc.cache[pattern] = &regexCacheEntry{
-		re:         re,
-		lastAccess: time.Now(),
-	}
-	rc.lruList = append(rc.lruList, pattern)
-}
-
-// evictOldest 删除最旧的缓存条目（必须在持有锁的情况下调用）
-func (rc *regexCacheStore) evictOldest() {
-	if len(rc.cache) == 0 {
-		return
-	}
-
-	// 找到最旧的条目
-	var oldestPattern string
-	var oldestTime time.Time
-	first := true
-
-	for pattern, entry := range rc.cache {
-		if first || entry.lastAccess.Before(oldestTime) {
-			oldestPattern = pattern
-			oldestTime = entry.lastAccess
-			first = false
-		}
-	}
-
-	// 删除最旧的条目
-	delete(rc.cache, oldestPattern)
-
-	// 从 LRU 列表中移除
-	for i, p := range rc.lruList {
-		if p == oldestPattern {
-			rc.lruList = append(rc.lruList[:i], rc.lruList[i+1:]...)
-			break
-		}
-	}
+	rc.cache.Add(pattern, re)
 }
 
 // OnRegex 匹配正则表达式（预编译并缓存）
@@ -416,10 +352,7 @@ func MonitorRule(name string, rule Rule, threshold time.Duration) Rule {
 // 注意：清空缓存会导致下次使用时重新编译正则表达式。
 func ClearRegexCache() {
 	initRegexCache()
-	regexCache.mu.Lock()
-	defer regexCache.mu.Unlock()
-	regexCache.cache = make(map[string]*regexCacheEntry)
-	regexCache.lruList = make([]string, 0, regexCache.maxSize)
+	regexCache.cache.Purge()
 }
 
 // GetRegexCacheSize 获取正则表达式缓存当前大小（用于监控）
@@ -428,9 +361,7 @@ func ClearRegexCache() {
 // 注意：这是一个 O(1) 操作。
 func GetRegexCacheSize() int {
 	initRegexCache()
-	regexCache.mu.RLock()
-	defer regexCache.mu.RUnlock()
-	return len(regexCache.cache)
+	return regexCache.cache.Len()
 }
 
 // GetRegexCacheMaxSize 获取正则表达式缓存最大容量
@@ -454,13 +385,6 @@ func SetRegexCacheMaxSize(size int) {
 	}
 
 	initRegexCache()
-	regexCache.mu.Lock()
-	defer regexCache.mu.Unlock()
-
+	regexCache.cache.Resize(size)
 	regexCache.maxSize = size
-
-	// 如果当前缓存大小超过新限制，淘汰多余的条目
-	for len(regexCache.cache) > size {
-		regexCache.evictOldest()
-	}
 }

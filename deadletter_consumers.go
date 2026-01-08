@@ -92,30 +92,33 @@ func (f FileDeadLetterConsumer) Consume(item DeadLetterItem) {
 //
 // 支持配置超时、重试次数等参数。
 // 如果发送失败，会记录错误日志。
+//
+// MaxRetries 语义：
+//   - MaxRetries < 0：使用默认重试次数（3）
+//   - MaxRetries == 0：不重试（只尝试 1 次）
+//   - MaxRetries  > 0：最多重试 MaxRetries 次（总尝试次数 = 1 + MaxRetries）
+//
+// 为了兼容旧行为（零值表示默认），推荐调用方显式设置 MaxRetries，或在配置加载阶段写入默认值。
 type WebhookDeadLetterConsumer struct {
 	URL        string        // Webhook 地址
 	Timeout    time.Duration // 请求超时时间（默认 5 秒）
-	MaxRetries int           // 最大重试次数（默认 3 次）
+	MaxRetries int           // 最大重试次数（<0 表示使用默认 3；0 表示不重试）
 }
 
 // Consume 消费死信，发送到 Webhook
 //
-// 错误处理：
-//   - 序列化失败：记录错误日志并返回
-//   - 请求失败：记录错误日志，根据配置重试
-//   - 响应非 2xx：记录警告日志
-//
 // 重试策略：
-//   - 指数退避：1s, 2s, 4s
-//   - 最大重试次数：MaxRetries（默认 3）
+//   - 指数退避：1s, 2s, 4s ...
 func (w WebhookDeadLetterConsumer) Consume(item DeadLetterItem) {
 	// 设置默认值
 	timeout := w.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
+
 	maxRetries := w.MaxRetries
-	if maxRetries == 0 {
+	// Back-compat default: allow callers to opt into default by setting MaxRetries < 0.
+	if maxRetries < 0 {
 		maxRetries = 3
 	}
 
@@ -134,7 +137,7 @@ func (w WebhookDeadLetterConsumer) Consume(item DeadLetterItem) {
 		Timeout: timeout,
 	}
 
-	// 重试发送
+	// 重试发送：attempt=0 表示首次尝试；attempt>0 表示第 attempt 次重试
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {

@@ -1,6 +1,7 @@
 package remilia
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -128,13 +129,12 @@ func TestMatcherSetTemp(t *testing.T) {
 	t.Parallel()
 	matcher := &Matcher{}
 
-	result := matcher.SetTemp(true)
+	matcher.SetTemp(true)
 
-	assert.True(t, matcher.isTemp)
-	assert.Equal(t, matcher, result) // Test method chaining
+	assert.True(t, matcher.IsTemp())
 
 	matcher.SetTemp(false)
-	assert.False(t, matcher.isTemp)
+	assert.False(t, matcher.IsTemp())
 }
 
 func TestMatcherCopy(t *testing.T) {
@@ -144,15 +144,15 @@ func TestMatcherCopy(t *testing.T) {
 	engine := NewEngine()
 
 	original := &Matcher{
-		EventType:  dto.C2CMessageCreate,
-		Rules:      []Rule{func(ctx *Context) bool { return true }},
-		isBlock:    true,
-		priority:   10,
-		Handler:    handler,
-		HandlerErr: handlerE,
-		Engine:     engine,
-		isTemp:     true,
-		Source:     "global",
+		EventType:   dto.C2CMessageCreate,
+		Rules:       []Rule{func(ctx *Context) bool { return true }},
+		isBlock:     true,
+		priority:    10,
+		Handler:     handler,
+		HandlerErr:  handlerE,
+		coordinator: engine,
+		rt:          matcherRuntime{isTemp: 1},
+		Source:      "global",
 	}
 
 	copied := original.copy()
@@ -161,10 +161,14 @@ func TestMatcherCopy(t *testing.T) {
 	assert.Equal(t, original.EventType, copied.EventType)
 	assert.Equal(t, original.isBlock, copied.isBlock)
 	assert.Equal(t, original.priority, copied.priority)
-	assert.Equal(t, original.isTemp, copied.isTemp)
-	assert.Equal(t, original.Engine, copied.Engine)
+	assert.Equal(t, original.rt.isTemp, copied.rt.isTemp)
 	assert.Equal(t, original.Source, copied.Source)
-	assert.Equal(t, original.Rules, copied.Rules)
+	// assert.Equal on slice of functions fails if backing arrays differ (DeepEqual limitation)
+	assert.Equal(t, len(original.Rules), len(copied.Rules))
+	if len(original.Rules) > 0 {
+		// Verify deep copy: backing arrays should be different
+		assert.NotEqual(t, fmt.Sprintf("%p", original.Rules), fmt.Sprintf("%p", copied.Rules))
+	}
 	assert.NotNil(t, copied.Handler)
 	assert.NotNil(t, copied.HandlerErr)
 }
@@ -192,7 +196,7 @@ func TestMatcherDelete_NotInList(t *testing.T) {
 	t.Parallel()
 	engine := NewEngine()
 
-	matcher := &Matcher{Engine: engine}
+	matcher := &Matcher{coordinator: engine}
 
 	assert.NotPanics(t, func() {
 		matcher.Delete()
@@ -218,7 +222,7 @@ func TestMatcherChaining(t *testing.T) {
 	assert.Equal(t, matcher, result)
 	assert.Equal(t, uint(5), matcher.priority)
 	assert.True(t, matcher.isBlock)
-	assert.True(t, matcher.isTemp)
+	assert.True(t, matcher.IsTemp())
 	assert.NotNil(t, matcher.Handler)
 }
 

@@ -10,7 +10,8 @@ import (
 func TestNewMetricsCollector(t *testing.T) {
 	mc := NewMetricsCollector("test_new_" + t.Name())
 	assert.NotNil(t, mc)
-	assert.Contains(t, mc.namespace, "test_new_")
+	// namespace 已封装在 infra/metrics 内部，这里只验证不会 panic 且对象可用
+	mc.RecordEventDropped("test")
 }
 
 func TestMetricsCollector_Pool(t *testing.T) {

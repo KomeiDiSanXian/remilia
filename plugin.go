@@ -59,9 +59,32 @@ func (p *BasePlugin) Name() string {
 func (p *BasePlugin) AddMatcher(matcher *Matcher) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	// 标记来源为该插件
-	matcher.Source = "plugin:" + p.name
-	matcher.pluginName = p.name
+
+	// Contract:
+	// - matcher.group is the authoritative grouping key used for middleware scoping and plugin unloading.
+	// - matcher.Source is diagnostics/labeling only.
+	source := "plugin:" + p.name
+
+	// If matcher is already registered to an Engine, update group/source through Engine API.
+	// This avoids per-matcher full index rebuild (write amplification) by allowing callers
+	// to batch updates via Engine.WithMatcherGroupBatch.
+	if matcher != nil {
+		if matcher.coordinator != nil {
+			// Engine side: update fields, rebuild chain; index rebuild is done by batch commit.
+			if eng, ok := matcher.coordinator.(*Engine); ok {
+				eng.SetMatcherGroup(matcher, p.name, source)
+			} else {
+				// Fallback: set fields locally and rebuild chain.
+				matcher.Source = source
+				matcher.SetGroup(p.name)
+			}
+		} else {
+			// Not registered yet.
+			matcher.Source = source
+			matcher.SetGroup(p.name)
+		}
+	}
+
 	p.matchers = append(p.matchers, matcher)
 }
 
@@ -81,18 +104,15 @@ func (p *BasePlugin) Load(_ *Engine) error {
 }
 
 // Unload 卸载插件，清理所有匹配器（在锁外删除匹配器，避免锁反转）
-func (p *BasePlugin) Unload(_ *Engine) error {
+func (p *BasePlugin) Unload(engine *Engine) error {
+	if engine != nil {
+		engine.RemoveGroup(p.name)
+	}
+
 	p.mu.Lock()
-	matchersToDelete := make([]*Matcher, len(p.matchers))
-	copy(matchersToDelete, p.matchers)
 	p.matchers = make([]*Matcher, 0)
 	p.mu.Unlock()
 
-	for _, matcher := range matchersToDelete {
-		if matcher != nil {
-			matcher.Delete()
-		}
-	}
 	return nil
 }
 
@@ -118,9 +138,8 @@ func (p *BasePlugin) Reload(engine *Engine) error {
 	copy(oldMatchers, p.matchers)
 	p.mu.Unlock()
 
-	// 2. 保存 Engine 状态快照（COW 模式下直接保存引用）
-	oldEngineState := engine.state.Load().(*engineState)
-	oldMiddlewareState := engine.middleware.Load().(*middlewareState)
+	// 2. 保存 Engine 状态快照
+	snapshot := engine.Snapshot()
 
 	// 3. 尝试卸载（这会清空 p.matchers 并删除 matchers）
 	if err := p.Unload(engine); err != nil {
@@ -138,21 +157,18 @@ func (p *BasePlugin) Reload(engine *Engine) error {
 		p.matchers = oldMatchers
 		p.mu.Unlock()
 
-		// 回滚 Engine 状态（直接恢复旧的不可变状态）
-		engine.writeMu.Lock()
-		engine.state.Store(oldEngineState)
-		engine.middleware.Store(oldMiddlewareState)
-		engine.writeMu.Unlock()
+		// 回滚 Engine 状态
+		engine.Restore(snapshot)
 
 		// 恢复所有 matcher 的 deleted 状态并重建中间件链
 		for _, matcher := range oldMatchers {
 			if matcher != nil {
-				matcher.mu.Lock()
-				matcher.deleted = false
-				matcher.mu.Unlock()
+				matcher.rt.mu.Lock()
+				matcher.rt.deleted = false
+				matcher.rt.mu.Unlock()
 
 				// 重建中间件链
-				engine.rebuildMatcherChainCOW(matcher)
+				engine.RebuildMatcherChain(matcher)
 			}
 		}
 
@@ -175,7 +191,7 @@ func (p *BasePlugin) Use(engine *Engine, mw ...HandlerMiddleware) {
 	if engine == nil {
 		return
 	}
-	engine.UseForPlugin(p.name, mw...)
+	engine.UseForGroup(p.name, mw...)
 }
 
 // PluginLifecycleListener 插件生命周期监听器接口

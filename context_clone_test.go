@@ -214,8 +214,9 @@ func BenchmarkContextCloneWithLargeState(b *testing.B) {
 // TestContextCloneNilEvent 测试克隆 nil event 的 context
 func TestContextCloneNilEvent(t *testing.T) {
 	ctx := &Context{
-		state:   make(State),
-		stateMu: sync.RWMutex{},
+		userState:     make(State),
+		internalState: make(internalState),
+		stateMu:       sync.RWMutex{},
 	}
 	ctx.SetState("key", "value")
 

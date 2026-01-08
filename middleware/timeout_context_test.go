@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,9 +63,9 @@ func TestTimeoutWithContextCancellation(t *testing.T) {
 	}
 	ctx := remilia.NewContext(payload, nil)
 
-	// 记录 context 是否被取消
-	var contextCanceled bool
-	var contextError error
+	// 记录 context 是否被取消（避免 data race）
+	var canceled atomic.Bool
+	cerrCh := make(chan error, 1)
 
 	// 创建一个长时间运行的 handler
 	handler := func(ctx *remilia.Context) error {
@@ -77,8 +78,11 @@ func TestTimeoutWithContextCancellation(t *testing.T) {
 			return nil
 		case <-stdCtx.Done():
 			// Context 被取消
-			contextCanceled = true
-			contextError = stdCtx.Err()
+			canceled.Store(true)
+			select {
+			case cerrCh <- stdCtx.Err():
+			default:
+			}
 			return stdCtx.Err()
 		}
 	}
@@ -99,8 +103,14 @@ func TestTimeoutWithContextCancellation(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 验证 context 被取消
-	if !contextCanceled {
+	if !canceled.Load() {
 		t.Error("Expected context to be canceled on timeout")
+	}
+
+	var contextError error
+	select {
+	case contextError = <-cerrCh:
+	default:
 	}
 
 	// 验证 context 错误是 DeadlineExceeded

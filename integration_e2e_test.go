@@ -1,6 +1,7 @@
 package remilia_test
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,11 +115,11 @@ func TestE2ETimeoutMiddleware(t *testing.T) {
 	// 应用超时中间件（50ms 超时）
 	engine.Use(middleware.Timeout(50 * time.Millisecond))
 
-	var handlerStarted bool
+	var handlerStarted atomic.Bool
 
 	// Handler 耗时 100ms
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
-		handlerStarted = true
+		handlerStarted.Store(true)
 		time.Sleep(100 * time.Millisecond)
 		return nil
 	})
@@ -131,7 +132,7 @@ func TestE2ETimeoutMiddleware(t *testing.T) {
 	engine.ProcessEvent(ctx) // autoRelease 会自动释放
 
 	// 验证 Handler 启动
-	assert.True(t, handlerStarted)
+	assert.True(t, handlerStarted.Load())
 	time.Sleep(60 * time.Millisecond)
 }
 

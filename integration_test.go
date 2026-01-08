@@ -470,13 +470,15 @@ func TestIntegration_PluginIntegration(t *testing.T) {
 
 	var pluginHandlerExecuted bool
 
-	// 添加 Matcher 到插件
-	matcher := engine.OnC2C()
-	matcher.HandleE(func(ctx *remilia.Context) error {
-		pluginHandlerExecuted = true
-		return nil
+	engine.WithMatcherGroupBatch(func() {
+		// 添加 Matcher 到插件
+		matcher := engine.OnC2C()
+		matcher.HandleE(func(ctx *remilia.Context) error {
+			pluginHandlerExecuted = true
+			return nil
+		})
+		plugin.AddMatcher(matcher)
 	})
-	plugin.AddMatcher(matcher)
 
 	// 处理事件
 	event := &dto.Payload{

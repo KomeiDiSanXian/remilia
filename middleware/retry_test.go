@@ -160,10 +160,11 @@ func TestRetryWithDeadLetter(t *testing.T) {
 	testError := errors.New("persistent error")
 	var called int32
 
-	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
+	m := engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
 		atomic.AddInt32(&called, 1)
 		return testError
 	})
+	m.Source = "test-source"
 
 	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
 	engine.ProcessEvent(ctx)
@@ -177,6 +178,7 @@ func TestRetryWithDeadLetter(t *testing.T) {
 		assert.Equal(t, dto.C2CMessageCreate, item.Event.Type)
 		assert.Error(t, item.Err)
 		assert.Equal(t, 2, item.Attempt)
+		assert.Equal(t, "test-source", item.Source)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("应该收到死信消息")
 	}

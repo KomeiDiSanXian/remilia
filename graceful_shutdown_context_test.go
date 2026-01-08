@@ -295,7 +295,10 @@ func TestBotShutdownCancelsHandlers(t *testing.T) {
 	engine := bot.GetEngine()
 
 	var cancelled atomic.Bool
+	started := make(chan struct{})
+
 	engine.OnC2C().HandleE(func(ctx *Context) error {
+		close(started)
 		select {
 		case <-ctx.Context().Done():
 			cancelled.Store(true)
@@ -312,15 +315,12 @@ func TestBotShutdownCancelsHandlers(t *testing.T) {
 	remiliaCtx := NewContextWithContext(bot.ctx, event, bot.api)
 	done := make(chan struct{})
 	go func() {
-		bot.wg.Add(1)
-		defer bot.wg.Done()
 		engine.ProcessEvent(remiliaCtx)
 		close(done)
 	}()
 
-	// 等待一下然后关闭
-	time.Sleep(100 * time.Millisecond)
-
+	// 确保 handler 已经开始执行，然后关闭
+	<-started
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	bot.Shutdown(shutdownCtx)

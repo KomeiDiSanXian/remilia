@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	infradlq "github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,19 +37,19 @@ func (m *MockDeadLetterConsumer) GetItems() []DeadLetterItem {
 }
 
 func TestDeadLetterQueue_Basic(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize: 10,
 		Workers: 1,
 	})
 
 	consumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(consumer)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	// Enqueue some dead letters
 	for i := 0; i < 5; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -63,14 +64,14 @@ func TestDeadLetterQueue_Basic(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Check stats
-	stats := dlq.Stats()
+	stats := q.Stats()
 	assert.Equal(t, int64(5), consumer.GetConsumed())
 	assert.Equal(t, int64(0), stats.Dropped)
 	assert.Equal(t, int64(5), stats.Processed)
 }
 
 func TestDeadLetterQueue_DropOldest(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    3,
 		Workers:    1,
 		DropPolicy: DropOldest,
@@ -80,13 +81,13 @@ func TestDeadLetterQueue_DropOldest(t *testing.T) {
 	slowConsumer := DeadLetterConsumerFunc(func(item DeadLetterItem) {
 		time.Sleep(50 * time.Millisecond)
 	})
-	dlq.AddConsumer(slowConsumer)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(slowConsumer)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	// Enqueue more than capacity quickly
 	for i := 0; i < 10; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -100,7 +101,7 @@ func TestDeadLetterQueue_DropOldest(t *testing.T) {
 	// Wait a bit for some processing
 	time.Sleep(100 * time.Millisecond)
 
-	stats := dlq.Stats()
+	stats := q.Stats()
 
 	// Some should be dropped because we enqueued 10 items into a queue of size 3
 	// with slow processing
@@ -111,20 +112,20 @@ func TestDeadLetterQueue_DropOldest(t *testing.T) {
 }
 
 func TestDeadLetterQueue_DropNewest(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
+	dropped := atomic.Int64{}
+
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    2,
 		Workers:    0,
 		DropPolicy: DropNewest,
+		OnDropped: func(_ infradlq.DeadLetterItem, _ string) {
+			dropped.Add(1)
+		},
 	})
-
-	dropped := atomic.Int64{}
-	dlq.config.OnDropped = func(item DeadLetterItem, reason string) {
-		dropped.Add(1)
-	}
 
 	// Enqueue more than capacity
 	for i := 0; i < 5; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -135,27 +136,23 @@ func TestDeadLetterQueue_DropNewest(t *testing.T) {
 		})
 	}
 
-	// First 2 should be in queue, last 3 dropped
-	stats := dlq.Stats()
+	stats := q.Stats()
 	assert.Equal(t, 2, stats.QueueSize)
 	assert.Equal(t, int64(3), dropped.Load())
 }
 
 func TestDeadLetterQueue_MultipleConsumers(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 10,
-		Workers: 1,
-	})
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
 
 	consumer1 := &MockDeadLetterConsumer{}
 	consumer2 := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer1)
-	dlq.AddConsumer(consumer2)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(consumer1)
+	q.AddConsumer(consumer2)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	// Enqueue
-	dlq.Enqueue(DeadLetterItem{
+	q.Enqueue(DeadLetterItem{
 		Event: &dto.Payload{
 			ID:   "test-event",
 			Type: dto.C2CMessageCreate,
@@ -174,20 +171,17 @@ func TestDeadLetterQueue_MultipleConsumers(t *testing.T) {
 }
 
 func TestDeadLetterQueue_MultipleWorkers(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 100,
-		Workers: 3,
-	})
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 100, Workers: 3})
 
 	consumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(consumer)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	// Enqueue many
 	count := 50
 	for i := 0; i < count; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i%10))),
 				Type: dto.C2CMessageCreate,
@@ -206,18 +200,15 @@ func TestDeadLetterQueue_MultipleWorkers(t *testing.T) {
 }
 
 func TestDeadLetterQueue_Shutdown(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 10,
-		Workers: 3, // 增加 worker 数量以加快处理
-	})
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 3})
 
 	consumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer)
-	dlq.Start()
+	q.AddConsumer(consumer)
+	q.Start()
 
 	// Enqueue
 	for i := 0; i < 5; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -232,7 +223,7 @@ func TestDeadLetterQueue_Shutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := dlq.Shutdown(ctx)
+	err := q.Shutdown(ctx)
 	assert.NoError(t, err)
 
 	// Wait a bit for final processing
@@ -245,22 +236,19 @@ func TestDeadLetterQueue_Shutdown(t *testing.T) {
 }
 
 func TestDeadLetterQueue_ShutdownTimeout(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 10,
-		Workers: 1,
-	})
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
 
 	// Slow consumer
 	slowConsumer := DeadLetterConsumer(DeadLetterConsumerFunc(func(item DeadLetterItem) {
 		time.Sleep(2 * time.Second)
 	}))
 
-	dlq.AddConsumer(slowConsumer)
-	dlq.Start()
+	q.AddConsumer(slowConsumer)
+	q.Start()
 
 	// Enqueue
 	for i := 0; i < 3; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -275,24 +263,21 @@ func TestDeadLetterQueue_ShutdownTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	err := dlq.Shutdown(ctx)
+	err := q.Shutdown(ctx)
 	assert.Error(t, err)
 	assert.Equal(t, context.DeadlineExceeded, err)
 }
 
 func TestDeadLetterQueue_Stats(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 5,
-		Workers: 1,
-	})
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 5, Workers: 1})
 
 	consumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(consumer)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	// Initial stats
-	stats := dlq.Stats()
+	stats := q.Stats()
 	assert.Equal(t, 0, stats.QueueSize)
 	assert.Equal(t, 5, stats.MaxSize)
 	assert.Equal(t, int64(0), stats.Processed)
@@ -300,7 +285,7 @@ func TestDeadLetterQueue_Stats(t *testing.T) {
 	assert.Equal(t, 1, stats.Workers)
 
 	// Enqueue
-	dlq.Enqueue(DeadLetterItem{
+	q.Enqueue(DeadLetterItem{
 		Event: &dto.Payload{
 			ID:   "test-event",
 			Type: dto.C2CMessageCreate,
@@ -313,7 +298,7 @@ func TestDeadLetterQueue_Stats(t *testing.T) {
 	// Wait
 	time.Sleep(100 * time.Millisecond)
 
-	stats = dlq.Stats()
+	stats = q.Stats()
 	assert.Equal(t, int64(1), stats.Processed)
 }
 
@@ -321,19 +306,19 @@ func TestDeadLetterQueue_OnDroppedCallback(t *testing.T) {
 	dropped := make([]DeadLetterItem, 0)
 	reasons := make([]string, 0)
 
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    2,
 		Workers:    0,
 		DropPolicy: DropNewest,
-		OnDropped: func(item DeadLetterItem, reason string) {
-			dropped = append(dropped, item)
+		OnDropped: func(item infradlq.DeadLetterItem, reason string) {
+			dropped = append(dropped, DeadLetterItem(item))
 			reasons = append(reasons, reason)
 		},
 	})
 
 	// Enqueue more than capacity
 	for i := 0; i < 5; i++ {
-		dlq.Enqueue(DeadLetterItem{
+		q.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{
 				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
 				Type: dto.C2CMessageCreate,
@@ -359,24 +344,23 @@ func TestDeadLetterQueue_OnProcessedCallback(t *testing.T) {
 	processed := make([]DeadLetterItem, 0)
 	durations := make([]time.Duration, 0)
 
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize: 10,
 		Workers: 1,
-		OnProcessed: func(item DeadLetterItem, duration time.Duration) {
+		OnProcessed: func(item infradlq.DeadLetterItem, duration time.Duration) {
 			mu.Lock()
 			defer mu.Unlock()
-			processed = append(processed, item)
+			processed = append(processed, DeadLetterItem(item))
 			durations = append(durations, duration)
 		},
 	})
 
 	consumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer)
-	dlq.Start()
-	defer dlq.Shutdown(context.Background())
+	q.AddConsumer(consumer)
+	q.Start()
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
-	// Enqueue
-	dlq.Enqueue(DeadLetterItem{
+	q.Enqueue(DeadLetterItem{
 		Event: &dto.Payload{
 			ID:   "test-event",
 			Type: dto.C2CMessageCreate,
@@ -398,36 +382,30 @@ func TestDeadLetterQueue_OnProcessedCallback(t *testing.T) {
 }
 
 func TestDeadLetterQueue_DynamicConsumerUpdate(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 10,
-		Workers: 1,
-	})
-	defer dlq.Shutdown(context.Background())
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	consumer1 := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer1)
-	dlq.Start()
+	q.AddConsumer(consumer1)
+	q.Start()
 
-	dlq.Enqueue(newTestDeadLetterItem("dynamic-1"))
+	q.Enqueue(newTestDeadLetterItem("dynamic-1"))
 	waitForCondition(t, 500*time.Millisecond, func() bool {
 		return consumer1.GetConsumed() == 1
 	})
 
 	consumer2 := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(consumer2)
+	q.AddConsumer(consumer2)
 
-	dlq.Enqueue(newTestDeadLetterItem("dynamic-2"))
+	q.Enqueue(newTestDeadLetterItem("dynamic-2"))
 	waitForCondition(t, 500*time.Millisecond, func() bool {
 		return consumer2.GetConsumed() == 1
 	})
 }
 
 func TestDeadLetterQueue_ConsumerPanicRecovered(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
-		MaxSize: 10,
-		Workers: 1,
-	})
-	defer dlq.Shutdown(context.Background())
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
+	defer func() { _ = q.Shutdown(context.Background()) }()
 
 	panicCount := atomic.Int32{}
 	panicConsumer := DeadLetterConsumerFunc(func(item DeadLetterItem) {
@@ -436,12 +414,12 @@ func TestDeadLetterQueue_ConsumerPanicRecovered(t *testing.T) {
 	})
 
 	safeConsumer := &MockDeadLetterConsumer{}
-	dlq.AddConsumer(panicConsumer)
-	dlq.AddConsumer(safeConsumer)
-	dlq.Start()
+	q.AddConsumer(panicConsumer)
+	q.AddConsumer(safeConsumer)
+	q.Start()
 
-	dlq.Enqueue(newTestDeadLetterItem("panic-1"))
-	dlq.Enqueue(newTestDeadLetterItem("panic-2"))
+	q.Enqueue(newTestDeadLetterItem("panic-1"))
+	q.Enqueue(newTestDeadLetterItem("panic-2"))
 
 	waitForCondition(t, time.Second, func() bool {
 		return safeConsumer.GetConsumed() >= 2
@@ -481,8 +459,8 @@ func (f DeadLetterConsumerFunc) Consume(item DeadLetterItem) {
 }
 
 func TestDeadLetterQueue_DefaultConfig(t *testing.T) {
-	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{})
-
-	assert.Equal(t, 10000, dlq.config.MaxSize)
-	assert.Equal(t, 1, dlq.config.Workers)
+	q := NewDeadLetterQueue(DeadLetterQueueConfig{})
+	stats := q.Stats()
+	assert.Equal(t, 10000, stats.MaxSize)
+	assert.Equal(t, 1, stats.Workers)
 }

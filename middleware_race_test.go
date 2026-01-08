@@ -196,7 +196,7 @@ func TestPluginMiddlewareRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5; i++ {
-			engine.UseForPlugin(pluginName, pluginMW)
+			engine.UseForGroup(pluginName, pluginMW)
 			time.Sleep(time.Microsecond)
 		}
 	}()
@@ -206,6 +206,7 @@ func TestPluginMiddlewareRace(t *testing.T) {
 		for i := 0; i < matcherCount; i++ {
 			m := engine.OnC2C()
 			m.Source = "plugin:" + pluginName
+			m.SetGroup(pluginName)
 			m.HandleE(func(ctx *Context) error {
 				return nil
 			})

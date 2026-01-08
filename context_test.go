@@ -73,7 +73,8 @@ func TestNewContext(t *testing.T) {
 
 	assert.NotNil(t, ctx)
 	assert.Equal(t, event, ctx.event)
-	assert.NotNil(t, ctx.state)
+	assert.NotNil(t, ctx.userState)
+	assert.NotNil(t, ctx.internalState)
 	assert.Equal(t, mockAPI, ctx.api)
 }
 

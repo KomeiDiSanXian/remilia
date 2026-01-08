@@ -15,7 +15,18 @@ type engineState struct {
 	matchers []*Matcher
 
 	// 匹配器索引（按事件类型分组）
+	// 此索引仅包含普通（非命令优化）的匹配器
 	matcherIndex map[dto.EventType][]*Matcher
+
+	// 命令匹配器索引（按命令词 -> 事件类型分组）
+	// 优化：使用 map[string]map[dto.EventType][]*Matcher 结构
+	// 第一层 key 为命令词（如 "/ping"）
+	// 第二层 key 为事件类型（如 C2CMessageCreate），"" 表示通用类型
+	commandIndex map[string]map[dto.EventType][]*Matcher
+
+	// 分组索引（按组名分组）
+	// 用于快速删除特定组的所有匹配器
+	groupIndex map[string][]*Matcher
 
 	// 排序缓存（按优先级排序的匹配器）
 	sortedCache map[dto.EventType][]*Matcher
@@ -39,11 +50,11 @@ type middlewareState struct {
 	// 全局中间件快照
 	global middlewareSnapshot
 
-	// 插件中间件快照（按插件名称分组）
-	pluginMiddlewares map[string]*middlewareSnapshot
+	// 分组中间件快照（按组名分组）
+	groupMiddlewares map[string]*middlewareSnapshot
 
-	// 中间件追踪开关
-	traceEnabled bool
+	// traceHook is called when a named middleware executes.
+	traceHook MiddlewareTraceHook
 }
 
 // newEngineState 创建新的引擎状态
@@ -51,6 +62,8 @@ func newEngineState() *engineState {
 	return &engineState{
 		matchers:     make([]*Matcher, 0),
 		matcherIndex: make(map[dto.EventType][]*Matcher),
+		commandIndex: make(map[string]map[dto.EventType][]*Matcher),
+		groupIndex:   make(map[string][]*Matcher),
 		sortedCache:  make(map[dto.EventType][]*Matcher),
 		block:        false,
 		maxMatchers:  0,
@@ -60,9 +73,9 @@ func newEngineState() *engineState {
 // newMiddlewareState 创建新的中间件状态
 func newMiddlewareState() *middlewareState {
 	return &middlewareState{
-		global:            middlewareSnapshot{chain: make([]HandlerMiddleware, 0), gen: 1},
-		pluginMiddlewares: make(map[string]*middlewareSnapshot),
-		traceEnabled:      false,
+		global:           middlewareSnapshot{chain: make([]HandlerMiddleware, 0), gen: 1},
+		groupMiddlewares: make(map[string]*middlewareSnapshot),
+		traceHook:        nil,
 	}
 }
 
@@ -71,6 +84,8 @@ func copyEngineState(src *engineState) *engineState {
 	dst := &engineState{
 		matchers:     make([]*Matcher, len(src.matchers)),
 		matcherIndex: make(map[dto.EventType][]*Matcher, len(src.matcherIndex)),
+		commandIndex: make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex)),
+		groupIndex:   make(map[string][]*Matcher, len(src.groupIndex)),
 		sortedCache:  make(map[dto.EventType][]*Matcher, len(src.sortedCache)),
 		block:        src.block,
 		maxMatchers:  src.maxMatchers,
@@ -82,6 +97,21 @@ func copyEngineState(src *engineState) *engineState {
 	// 复制 matcherIndex map
 	for k, v := range src.matcherIndex {
 		dst.matcherIndex[k] = append([]*Matcher(nil), v...)
+	}
+
+	// 复制 commandIndex map (Deep copy)
+	dst.commandIndex = make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex))
+	for cmd, eventMap := range src.commandIndex {
+		newEventMap := make(map[dto.EventType][]*Matcher, len(eventMap))
+		for et, matchers := range eventMap {
+			newEventMap[et] = append([]*Matcher(nil), matchers...)
+		}
+		dst.commandIndex[cmd] = newEventMap
+	}
+
+	// 复制 groupIndex map
+	for k, v := range src.groupIndex {
+		dst.groupIndex[k] = append([]*Matcher(nil), v...)
 	}
 
 	// 复制 sortedCache map
@@ -99,21 +129,21 @@ func copyMiddlewareState(src *middlewareState) *middlewareState {
 			chain: make([]HandlerMiddleware, len(src.global.chain)),
 			gen:   src.global.gen,
 		},
-		pluginMiddlewares: make(map[string]*middlewareSnapshot, len(src.pluginMiddlewares)),
-		traceEnabled:      src.traceEnabled,
+		groupMiddlewares: make(map[string]*middlewareSnapshot, len(src.groupMiddlewares)),
+		traceHook:        src.traceHook,
 	}
 
 	// 复制全局中间件
 	copy(dst.global.chain, src.global.chain)
 
-	// 复制插件中间件
-	for k, v := range src.pluginMiddlewares {
+	// 复制分组中间件
+	for k, v := range src.groupMiddlewares {
 		snap := &middlewareSnapshot{
 			chain: make([]HandlerMiddleware, len(v.chain)),
 			gen:   v.gen,
 		}
 		copy(snap.chain, v.chain)
-		dst.pluginMiddlewares[k] = snap
+		dst.groupMiddlewares[k] = snap
 	}
 
 	return dst
@@ -123,20 +153,43 @@ func copyMiddlewareState(src *middlewareState) *middlewareState {
 func (s *engineState) rebuildIndex() {
 	// 清空旧索引
 	s.matcherIndex = make(map[dto.EventType][]*Matcher)
+	s.commandIndex = make(map[string]map[dto.EventType][]*Matcher)
+	s.groupIndex = make(map[string][]*Matcher)
 	s.sortedCache = make(map[dto.EventType][]*Matcher)
 
 	// 重建索引
 	for _, m := range s.matchers {
-		et := m.EventType
-		s.matcherIndex[et] = append(s.matcherIndex[et], m)
+		cmd := m.GetCommand()
+		if cmd != "" {
+			if s.commandIndex[cmd] == nil {
+				s.commandIndex[cmd] = make(map[dto.EventType][]*Matcher)
+			}
+			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
+		} else {
+			// 仅当没有 command 时加入常规索引
+			et := m.EventType
+			s.matcherIndex[et] = append(s.matcherIndex[et], m)
+		}
+
+		// 更新分组索引
+		if m.group != "" {
+			s.groupIndex[m.group] = append(s.groupIndex[m.group], m)
+		}
 	}
 
-	// 重建排序缓存
+	// 重建排序缓存（常规索引）
 	for eventType, matchers := range s.matcherIndex {
 		sorted := make([]*Matcher, len(matchers))
 		copy(sorted, matchers)
 		sortMatchersByPriority(sorted)
 		s.sortedCache[eventType] = sorted
+	}
+
+	// 对命令索引中的列表也进行排序
+	for _, eventMap := range s.commandIndex {
+		for _, matchers := range eventMap {
+			sortMatchersByPriority(matchers)
+		}
 	}
 }
 
@@ -144,16 +197,55 @@ func (s *engineState) rebuildIndex() {
 func (s *engineState) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
 
-	// 更新索引
-	et := m.EventType
-	s.matcherIndex[et] = append(s.matcherIndex[et], m)
+	cmd := m.GetCommand()
+	if cmd != "" {
+		if s.commandIndex[cmd] == nil {
+			s.commandIndex[cmd] = make(map[dto.EventType][]*Matcher)
+		}
+		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
+		// 每次添加后重新排序（对于单个添加操作，这可以接受；批量添加应使用 rebuildIndex）
+		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
+	} else {
+		// 更新常规索引
+		et := m.EventType
+		s.matcherIndex[et] = append(s.matcherIndex[et], m)
 
-	// 更新排序缓存
-	matchers := s.matcherIndex[et]
-	sorted := make([]*Matcher, len(matchers))
-	copy(sorted, matchers)
-	sortMatchersByPriority(sorted)
-	s.sortedCache[et] = sorted
+		// 更新排序缓存
+		matchers := s.matcherIndex[et]
+		sorted := make([]*Matcher, len(matchers))
+		copy(sorted, matchers)
+		sortMatchersByPriority(sorted)
+		s.sortedCache[et] = sorted
+	}
+
+	// 更新分组索引
+	if m.group != "" {
+		s.groupIndex[m.group] = append(s.groupIndex[m.group], m)
+	}
+}
+
+// removeGroup 移除指定分组的所有匹配器
+func (s *engineState) removeGroup(groupName string) {
+	if groupName == "" {
+		return
+	}
+
+	// 如果组不存在，无需操作
+	if _, ok := s.groupIndex[groupName]; !ok {
+		return
+	}
+
+	// 过滤主列表
+	newMatchers := make([]*Matcher, 0, len(s.matchers))
+	for _, m := range s.matchers {
+		if m.group != groupName {
+			newMatchers = append(newMatchers, m)
+		}
+	}
+	s.matchers = newMatchers
+
+	// 重建所有索引
+	s.rebuildIndex()
 }
 
 // deleteMatcher 从状态中删除匹配器
@@ -170,6 +262,30 @@ func (s *engineState) deleteMatcher(m *Matcher) {
 	s.rebuildIndex()
 }
 
+// deleteMatchers 从状态中批量删除匹配器
+func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
+	if len(matchersToDelete) == 0 {
+		return
+	}
+
+	toDelete := make(map[*Matcher]bool)
+	for _, m := range matchersToDelete {
+		toDelete[m] = true
+	}
+
+	// Filter s.matchers in place
+	newMatchers := s.matchers[:0]
+	for _, m := range s.matchers {
+		if !toDelete[m] {
+			newMatchers = append(newMatchers, m)
+		}
+	}
+	s.matchers = newMatchers
+
+	// Rebuild index
+	s.rebuildIndex()
+}
+
 // invalidateSortedCache 失效并重建指定事件类型的排序缓存
 func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
 	// 重建指定事件类型的缓存
@@ -178,6 +294,9 @@ func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
 		copy(sorted, matchers)
 		sortMatchersByPriority(sorted)
 		s.sortedCache[eventType] = sorted
+	} else {
+		// 如果该类型没有 matchers，确保从 cache 中移除 (safe delete)
+		delete(s.sortedCache, eventType)
 	}
 
 	// 如果是具体事件类型，也需要重建通用匹配器缓存

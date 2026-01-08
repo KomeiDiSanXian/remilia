@@ -46,13 +46,13 @@ func TestEngine_AutoCleanExpiredMatchers(t *testing.T) {
 	engine.On(dto.C2CMessageCreate).SetTempWithTimeout(50 * time.Millisecond).Handle(func(ctx *Context) {})
 
 	// 验证已添加
-	assert.Equal(t, 1, engine.GetMatcherCount())
+	assert.Equal(t, 1, engine.GetTempMatcherCount())
 
 	// 等待过期和清理
 	time.Sleep(150 * time.Millisecond)
 
 	// 验证已被清理
-	assert.Equal(t, 0, engine.GetMatcherCount())
+	assert.Equal(t, 0, engine.GetTempMatcherCount())
 }
 
 func TestEngine_TempMatcherCleanerRestart(t *testing.T) {
@@ -80,13 +80,15 @@ func TestEngine_TempMatcherCleaner_NoMemoryLeak(t *testing.T) {
 		engine.On(dto.C2CMessageCreate).SetTempWithTimeout(50 * time.Millisecond).Handle(func(ctx *Context) {})
 	}
 
-	assert.Equal(t, 100, engine.GetMatcherCount())
+	// 临时 matcher 不在 State 中，应检查 TempMatcherCount
+	assert.Equal(t, 100, engine.GetTempMatcherCount())
+	assert.Equal(t, 0, engine.GetMatcherCount())
 
 	// 等待清理
 	time.Sleep(100 * time.Millisecond)
 
 	// 验证已全部清理
-	assert.Equal(t, 0, engine.GetMatcherCount())
+	assert.Equal(t, 0, engine.GetTempMatcherCount())
 }
 
 func TestEngine_TempMatcherCleaner_MixedMatchers(t *testing.T) {
@@ -100,13 +102,16 @@ func TestEngine_TempMatcherCleaner_MixedMatchers(t *testing.T) {
 	engine.On(dto.C2CMessageCreate).SetTempWithTimeout(30 * time.Millisecond).Handle(func(ctx *Context) {})
 	engine.On(dto.C2CMessageCreate).SetTempWithTimeout(30 * time.Millisecond).Handle(func(ctx *Context) {})
 
-	assert.Equal(t, 3, engine.GetMatcherCount())
+	// 1 永久 (State), 2 临时 (TempManager)
+	assert.Equal(t, 1, engine.GetMatcherCount())
+	assert.Equal(t, 2, engine.GetTempMatcherCount())
 
 	// 等待临时 matcher 过期
 	time.Sleep(60 * time.Millisecond)
 
 	// 验证只清理了临时 matcher
 	assert.Equal(t, 1, engine.GetMatcherCount())
+	assert.Equal(t, 0, engine.GetTempMatcherCount())
 }
 
 func TestEngine_GetTempMatcherCleanInterval(t *testing.T) {

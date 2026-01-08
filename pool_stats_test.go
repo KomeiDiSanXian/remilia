@@ -20,6 +20,8 @@ func TestInstrumentedPoolHitRate(t *testing.T) {
 	}
 
 	// 情况2: 放回后再获取，命中率应该提升
+	// 注意：sync.Pool 在 GC/调度下不保证 Put 一定会被后续 Get 命中，
+	// 特别是在 -race 下调度更激进，因此不能断言精确命中率。
 	for i := 0; i < 10; i++ {
 		pool.Put(&struct{}{})
 	}
@@ -27,9 +29,10 @@ func TestInstrumentedPoolHitRate(t *testing.T) {
 		pool.Get()
 	}
 	stats = pool.Stats()
-	// (20-10)/20*100 = 50%
-	expectedHitRate := 50.0
-	if stats.HitRate < expectedHitRate-1 || stats.HitRate > expectedHitRate+1 {
-		t.Errorf("Expected hit rate around %.1f%%, got %.1f%%", expectedHitRate, stats.HitRate)
+	if stats.HitRate <= 0 {
+		t.Errorf("Expected hit rate to improve after Put(), got %.1f%%", stats.HitRate)
+	}
+	if stats.HitRate > 100 {
+		t.Errorf("HitRate should be within [0,100], got %.1f%%", stats.HitRate)
 	}
 }

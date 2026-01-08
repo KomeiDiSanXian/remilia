@@ -51,13 +51,18 @@ func TestBotShutdownTimeout(t *testing.T) {
 
 	bot.Start()
 
-	// 添加一个永不完成的任务来模拟超时场景
-	bot.wg.Add(1)
-	go func() {
-		// 故意不调用 Done()，模拟卡住的 handler
-		time.Sleep(10 * time.Second)
-		bot.wg.Done()
-	}()
+	release := make(chan struct{})
+	started := make(chan struct{})
+
+	bot.engine.OnAny().HandleE(func(ctx *Context) error {
+		close(started)
+		<-release
+		return nil
+	})
+
+	// 触发一个 in-flight handler
+	go bot.engine.ProcessEvent(NewContextWithContext(bot.ctx, &dto.Payload{Type: dto.C2CMessageCreate, ID: "block"}, bot.api))
+	<-started
 
 	// 使用短超时关闭 bot
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -66,6 +71,9 @@ func TestBotShutdownTimeout(t *testing.T) {
 	start := time.Now()
 	bot.Shutdown(shutdownCtx)
 	elapsed := time.Since(start)
+
+	// 释放以防 goroutine 泄露
+	close(release)
 
 	// 验证 Shutdown 在超时后返回（不会无限等待）
 	assert.Less(t, elapsed, time.Second, "shutdown should return after timeout")
@@ -144,24 +152,20 @@ func TestBotContextPropagation(t *testing.T) {
 		}
 	})
 
+	started := make(chan struct{})
 	bot.engine.OnAny().HandleE(func(ctx *Context) error {
+		close(started)
 		// 等待 context 取消
 		<-ctx.Context().Done()
 		return nil
 	})
 
-	// 处理事件
-	event := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		ID:   "test-event-3",
-	}
-
+	// 处理事件：直接走 Engine，in-flight 统计归 Engine
+	event := &dto.Payload{Type: dto.C2CMessageCreate, ID: "test-event-3"}
 	ctx := NewContextWithContext(bot.ctx, event, bot.api)
-	go func() {
-		bot.wg.Add(1)
-		defer bot.wg.Done()
-		bot.engine.ProcessEvent(ctx)
-	}()
+	go bot.engine.ProcessEvent(ctx)
+
+	<-started
 
 	// 短暂等待后关闭
 	time.Sleep(50 * time.Millisecond)
@@ -237,27 +241,35 @@ func TestBotShutdownWithPendingHandlers(t *testing.T) {
 
 	var tasksCompleted atomic.Int32
 
-	// 添加一些快速完成的任务
-	for i := 0; i < 3; i++ {
-		bot.wg.Add(1)
-		go func() {
-			defer bot.wg.Done()
-			time.Sleep(50 * time.Millisecond)
-			tasksCompleted.Add(1)
-		}()
-	}
+	release := make(chan struct{})
+	started := make(chan struct{})
 
-	// 等待任务启动
-	time.Sleep(10 * time.Millisecond)
+	// 添加一个会阻塞的 handler（模拟 pending）
+	bot.engine.OnAny().HandleE(func(ctx *Context) error {
+		close(started)
+		<-release
+		tasksCompleted.Add(1)
+		return nil
+	})
+
+	go bot.engine.ProcessEvent(NewContextWithContext(bot.ctx, &dto.Payload{Type: dto.C2CMessageCreate, ID: "pending"}, bot.api))
+	<-started
 
 	// 优雅关闭（足够的超时让任务完成）
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
+
+	// 释放 handler，让其在 shutdown 期间能自然完成
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+	}()
+
 	bot.Shutdown(shutdownCtx)
 
-	// 验证所有任务都完成了
-	assert.Equal(t, int32(3), tasksCompleted.Load(),
-		"all tasks should complete during graceful shutdown")
+	// 验证任务完成了
+	assert.Equal(t, int32(1), tasksCompleted.Load(),
+		"handler should complete during graceful shutdown")
 
 	// 验证没有超时
 	assert.NoError(t, shutdownCtx.Err(), "shutdown should complete before timeout")

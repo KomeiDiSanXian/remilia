@@ -1,12 +1,13 @@
 package remilia
 
 import (
-	stdctx "context" // 标准库 context，使用别名避免命名冲突
-	"encoding/json"
+	stdctx "context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/sirupsen/logrus"
@@ -14,25 +15,39 @@ import (
 )
 
 // State 上下文状态
+//
+// 注意：该类型用于用户态 state（SetState/GetState）。框架内部缓存使用 internalState，
+// 避免与用户 key 冲突、降低隐式耦合。
 type State map[string]any
+
+// internalState is reserved for framework use only.
+// Keys are internal-only and must not be relied upon by users.
+type internalState map[string]any
 
 // Context 上下文
 type Context struct {
+	ctxMu   sync.RWMutex
 	ctx     stdctx.Context // 标准库 context，用于超时控制、取消传播等
 	matcher *Matcher
 	event   *dto.Payload
-	state   State
-	stateMu sync.RWMutex
-	api     openapi.OpenAPI
+
+	// userState is exposed via SetState/GetState APIs.
+	userState State
+	// internalState is reserved for framework caches (parsed command, command args, traces, etc.).
+	internalState internalState
+	stateMu       sync.RWMutex
+
+	api openapi.OpenAPI
 }
 
 // NewContext 创建一个新的上下文
 func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context {
 	return &Context{
-		ctx:   stdctx.Background(),
-		event: event,
-		api:   api,
-		state: make(State),
+		ctx:           stdctx.Background(),
+		event:         event,
+		api:           api,
+		userState:     make(State),
+		internalState: make(internalState),
 	}
 }
 
@@ -56,7 +71,7 @@ func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context {
 //	}
 func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.OpenAPI) *Context {
 	c := NewContext(event, api)
-	c.ctx = ctx
+	c.SetStdContext(ctx)
 	return c
 }
 
@@ -81,10 +96,16 @@ func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.O
 //   - 如果在 goroutine 中只使用 stdCtx（不访问 Context 其他字段），不需要 Retain
 //   - 如果需要访问 Context.State 等字段，必须使用 Retain/Release 或 WithRetainAsync
 func (ctx *Context) Context() stdctx.Context {
-	if ctx.ctx == nil {
-		ctx.ctx = stdctx.Background()
+	if ctx == nil {
+		return stdctx.Background()
 	}
-	return ctx.ctx
+	ctx.ctxMu.RLock()
+	c := ctx.ctx
+	ctx.ctxMu.RUnlock()
+	if c == nil {
+		return stdctx.Background()
+	}
+	return c
 }
 
 // SetStdContext 设置标准库 context
@@ -120,7 +141,12 @@ func (ctx *Context) Context() stdctx.Context {
 //   - 建议使用 defer 确保 context 被正确恢复
 //   - 不要在多个 goroutine 中并发调用此方法
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
+	if ctx == nil {
+		return
+	}
+	ctx.ctxMu.Lock()
 	ctx.ctx = stdCtx
+	ctx.ctxMu.Unlock()
 }
 
 // Clone 克隆 Context 用于异步操作
@@ -137,44 +163,109 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 //   - 克隆的 Context 共享相同的 event、api 和 stdCtx（浅拷贝）
 func (ctx *Context) Clone() *Context {
 	newCtx := &Context{
-		ctx:     ctx.ctx,
-		matcher: ctx.matcher,
-		event:   ctx.event,
-		api:     ctx.api,
-		state:   make(State),
-		stateMu: sync.RWMutex{},
+		// ctx is shared (shallow copy) but protected by ctxMu for concurrent access
+		ctx:           ctx.Context(),
+		matcher:       ctx.matcher,
+		event:         ctx.event,
+		api:           ctx.api,
+		userState:     make(State),
+		internalState: make(internalState),
+		stateMu:       sync.RWMutex{},
 	}
 
-	// 深拷贝 State map
+	// 深拷贝 state
 	ctx.stateMu.RLock()
-	for k, v := range ctx.state {
-		newCtx.state[k] = v
+	for k, v := range ctx.userState {
+		newCtx.userState[k] = v
+	}
+	for k, v := range ctx.internalState {
+		newCtx.internalState[k] = v
 	}
 	ctx.stateMu.RUnlock()
 
 	return newCtx
 }
 
-// SetState 设置状态值（线程安全）
+// SetState 设置用户态状态值（线程安全）
 func (ctx *Context) SetState(key string, value any) {
+	if isReservedUserStateKey(key) {
+		// Hard-ban legacy/internal keys from user state to prevent collisions.
+		logrus.WithField("key", key).Warn("[Context] set reserved state key is forbidden")
+		return
+	}
 	ctx.stateMu.Lock()
 	defer ctx.stateMu.Unlock()
-	ctx.state[key] = value
+	ctx.userState[key] = value
 }
 
-// GetState 获取状态值（线程安全）
+// GetState 获取用户态状态值（线程安全）
 func (ctx *Context) GetState(key string) (any, bool) {
 	ctx.stateMu.RLock()
 	defer ctx.stateMu.RUnlock()
-	val, ok := ctx.state[key]
+	val, ok := ctx.userState[key]
 	return val, ok
 }
 
+// internalGet 获取内部状态（线程安全）
+func (ctx *Context) internalGet(key string) (any, bool) {
+	ctx.stateMu.RLock()
+	defer ctx.stateMu.RUnlock()
+	val, ok := ctx.internalState[key]
+	return val, ok
+}
+
+// internalSet 设置内部状态（线程安全）
+func (ctx *Context) internalSet(key string, value any) {
+	ctx.stateMu.Lock()
+	defer ctx.stateMu.Unlock()
+	ctx.internalState[key] = value
+}
+
+// internalDelete 删除内部状态（线程安全）
+func (ctx *Context) internalDelete(key string) {
+	ctx.stateMu.Lock()
+	defer ctx.stateMu.Unlock()
+	delete(ctx.internalState, key)
+}
+
+// InternalGet gets a framework-internal cached value.
+//
+// This is intended for framework extensions (e.g. package extension) and advanced integrations.
+// User state must still go through GetState/SetState.
+//
+// Note: internal keys are reserved and may change; do not persist them.
+func (ctx *Context) InternalGet(key string) (any, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	return ctx.internalGet(key)
+}
+
+// InternalSet sets a framework-internal cached value.
+//
+// This is intended for framework extensions (e.g. package extension) and advanced integrations.
+// It does NOT apply reserved-key checks (those are for user state only).
+func (ctx *Context) InternalSet(key string, value any) {
+	if ctx == nil {
+		return
+	}
+	ctx.internalSet(key, value)
+}
+
+// InternalDelete deletes a framework-internal cached value.
+func (ctx *Context) InternalDelete(key string) {
+	if ctx == nil {
+		return
+	}
+	ctx.internalDelete(key)
+}
+
+// GetState 泛型版本，获取指定类型的用户态状态值（线程安全）
 func GetState[T any](ctx *Context, key string) (T, error) {
 	ctx.stateMu.RLock()
 	defer ctx.stateMu.RUnlock()
 	var zero T
-	val, ok := ctx.state[key]
+	val, ok := ctx.userState[key]
 	if !ok {
 		return zero, fmt.Errorf("state key '%s' not found", key)
 	}
@@ -185,23 +276,27 @@ func GetState[T any](ctx *Context, key string) (T, error) {
 	return typedVal, nil
 }
 
-// GetAllState 获取所有状态的副本（线程安全）
+// GetAllState 获取所有用户态状态的副本（线程安全）
 func (ctx *Context) GetAllState() State {
 	ctx.stateMu.RLock()
 	defer ctx.stateMu.RUnlock()
 
-	stateCopy := make(State, len(ctx.state))
-	for k, v := range ctx.state {
+	stateCopy := make(State, len(ctx.userState))
+	for k, v := range ctx.userState {
 		stateCopy[k] = v
 	}
 	return stateCopy
 }
 
-// DeleteState 删除状态值（线程安全）
+// DeleteState 删除用户态状态值（线程安全）
 func (ctx *Context) DeleteState(key string) {
+	if isReservedUserStateKey(key) {
+		logrus.WithField("key", key).Warn("[Context] delete reserved state key is forbidden")
+		return
+	}
 	ctx.stateMu.Lock()
 	defer ctx.stateMu.Unlock()
-	delete(ctx.state, key)
+	delete(ctx.userState, key)
 }
 
 // GetString 获取字符串类型的状态值，如果不存在或类型不匹配返回空字符串
@@ -281,7 +376,11 @@ func (ctx *Context) SetStateMap(data State) {
 	ctx.stateMu.Lock()
 	defer ctx.stateMu.Unlock()
 	for k, v := range data {
-		ctx.state[k] = v
+		if isReservedUserStateKey(k) {
+			logrus.WithField("key", k).Warn("[Context] set reserved state key is forbidden")
+			continue
+		}
+		ctx.userState[k] = v
 	}
 }
 
@@ -292,7 +391,7 @@ func (ctx *Context) GetStateKeys(keys ...string) State {
 
 	result := make(State, len(keys))
 	for _, key := range keys {
-		if val, ok := ctx.state[key]; ok {
+		if val, ok := ctx.userState[key]; ok {
 			result[key] = val
 		}
 	}
@@ -302,6 +401,16 @@ func (ctx *Context) GetStateKeys(keys ...string) State {
 // GetEvent 获取事件
 func (ctx *Context) GetEvent() *dto.Payload {
 	return ctx.event
+}
+
+// GetMatcherSource 返回当前命中的 matcher 来源（例如 "global" 或 "plugin:<name>"）。
+//
+// 注意：该值由 Engine 在事件匹配命中后设置；如果在 matcher 命中前调用（或当前事件未命中任何 matcher），将返回空字符串。
+func (ctx *Context) GetMatcherSource() string {
+	if ctx == nil || ctx.matcher == nil {
+		return ""
+	}
+	return ctx.matcher.Source
 }
 
 // GetEventType 获取事件类型
@@ -457,17 +566,21 @@ func (ctx *Context) GetMessageContent() string {
 // 使用 gjson 直接提取 author 字段，避免完整结构体解析
 // 返回临时 Author 对象，调用者不应保存指针
 func (ctx *Context) GetAuthor() *dto.Author {
-	result := gjson.GetBytes(ctx.event.Detail, "author")
-	if !result.Exists() {
+	if ctx.event == nil {
 		return nil
 	}
 
-	var author dto.Author
-	if err := json.Unmarshal([]byte(result.Raw), &author); err != nil {
-		logrus.WithError(err).Warn("[Context] Failed to unmarshal author")
+	res := gjson.GetBytes(ctx.event.Detail, "author")
+	if !res.Exists() {
 		return nil
 	}
-	return &author
+
+	return &dto.Author{
+		ID:           res.Get("id").String(),
+		MemberOpenID: res.Get("member_openid").String(),
+		UnionOpenID:  res.Get("union_openid").String(),
+		UserOpenID:   res.Get("user_openid").String(),
+	}
 }
 
 // At 生成 @ 用户字符串
@@ -487,4 +600,98 @@ func (ctx *Context) At() string {
 // Caution: 在markdown消息中才能使用, 普通消息无需调用此方法
 func (ctx *Context) AtAll() string {
 	return dto.AtAll()
+}
+
+const (
+	// stateKeyParsedCommand is an internal cache key.
+	stateKeyParsedCommand = "_remilia_internal_parsed_command"
+
+	// internalStateKeyMiddlewareTrace stores the runtime executed named middleware trace.
+	// This is framework-internal and must never be written via userState.
+	internalStateKeyMiddlewareTrace = "_remilia_internal_mw_trace"
+
+	// legacyUserStateKeyMiddlewareTrace is a legacy key previously written into user state.
+	// It is now forbidden to avoid user key collisions.
+	legacyUserStateKeyMiddlewareTrace = "mw_trace"
+)
+
+// isReservedUserStateKey reports whether key is reserved for framework internal use.
+// Reserved keys are forbidden in user-facing SetState/DeleteState.
+func isReservedUserStateKey(key string) bool {
+	k := strings.TrimSpace(key)
+	if k == "" {
+		return false
+	}
+	if k == legacyUserStateKeyMiddlewareTrace {
+		return true
+	}
+	if k == "retry_attempt" {
+		return true
+	}
+	return strings.HasPrefix(k, "_remilia_internal_")
+}
+
+// GetParsedCommand 获取增强版命令解析结果（如果之前已解析）
+func (ctx *Context) GetParsedCommand() *command.ParsedCommand {
+	if val, ok := ctx.internalGet(stateKeyParsedCommand); ok {
+		if cmd, ok := val.(*command.ParsedCommand); ok {
+			return cmd
+		}
+	}
+	return nil
+}
+
+// SetParsedCommand 设置增强版命令解析结果（通常由中间件或规则设置）
+func (ctx *Context) SetParsedCommand(cmd *command.ParsedCommand) {
+	ctx.internalSet(stateKeyParsedCommand, cmd)
+}
+
+// MatchCommand 使用给定的解析器匹配命令
+// 如果匹配成功，将结果缓存到 internalState，并返回 true
+func (ctx *Context) MatchCommand(parser *command.CommandParser) bool {
+	content := ctx.GetMessageContent()
+	parsed, err := parser.Parse(content)
+	if err != nil {
+		return false
+	}
+	ctx.SetParsedCommand(parsed)
+	return true
+}
+
+// GetMiddlewareTrace returns the executed named middleware trace recorded by Engine.Named tracing.
+//
+// Note: this is read-only access to framework-internal state. The legacy userState key
+// "mw_trace" is forbidden.
+func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	if v, ok := ctx.internalGet(internalStateKeyMiddlewareTrace); ok {
+		arr, ok := v.([]string)
+		return arr, ok
+	}
+	return nil, false
+}
+
+// SetRetryAttempt sets the current retry attempt (framework internal).
+// This value is used by Retry/DeadLetter for diagnostics/metadata and is not user state.
+func (ctx *Context) SetRetryAttempt(attempt int) {
+	if ctx == nil {
+		return
+	}
+	ctx.internalSet("_remilia_internal_retry_attempt", attempt)
+}
+
+// GetRetryAttempt returns the current retry attempt set by Retry middleware.
+// If not present, it returns (0, false).
+func (ctx *Context) GetRetryAttempt() (int, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	if v, ok := ctx.internalGet("_remilia_internal_retry_attempt"); ok {
+		if n, ok := v.(int); ok {
+			return n, true
+		}
+	}
+	return 0, false
 }

@@ -36,7 +36,7 @@ func TestEngineMatcherLimit(t *testing.T) {
 	if m6 == nil {
 		t.Error("Expected noopMatcher, got nil")
 	}
-	if m6 != noopMatcher {
+	if !m6.rt.deleted || m6.Source != "noop" {
 		t.Error("Expected 6th matcher to be noopMatcher")
 	}
 
@@ -85,7 +85,7 @@ func TestEngineMatcherLimitDeletion(t *testing.T) {
 
 	// 第 4 个应该返回 noopMatcher
 	m4 := engine.On(dto.C2CMessageCreate, OnCommand("test4"))
-	if m4 != noopMatcher {
+	if !m4.rt.deleted || m4.Source != "noop" {
 		t.Error("Expected 4th matcher to be noopMatcher")
 	}
 
@@ -118,7 +118,7 @@ func TestEngineMatcherLimitZeroMeansUnlimited(t *testing.T) {
 
 	// 第 6 个应该失败，返回 noopMatcher
 	m6 := engine.On(dto.C2CMessageCreate, OnCommand("test6"))
-	if m6 != noopMatcher {
+	if !m6.rt.deleted || m6.Source != "noop" {
 		t.Error("Expected 6th matcher to be noopMatcher with limit=5")
 	}
 
@@ -172,7 +172,7 @@ func TestEngineMatcherLimitConcurrent(t *testing.T) {
 	failCount := 0
 	for i := 0; i < 100; i++ {
 		m := <-results
-		if m != noopMatcher {
+		if m.Source == "global" {
 			successCount++
 		} else {
 			failCount++
@@ -181,7 +181,7 @@ func TestEngineMatcherLimitConcurrent(t *testing.T) {
 
 	// 应该有正好 50 个成功
 	if successCount != 50 {
-		t.Errorf("Expected 50 successful registrations, got %d", successCount)
+		t.Errorf("Expected 50 successful registrations, got %d (failCount: %d)", successCount, failCount)
 	}
 
 	// 验证最终数量

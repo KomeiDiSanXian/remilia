@@ -315,8 +315,20 @@ func (pm *PermissionManager) GetUserPermissions(userID string) []Permission {
 // Context 扩展方法
 
 // HasPermission 检查当前用户是否有指定权限
+// Deprecated: Use permission.Check(ctx, resource, action) instead.
 func (ctx *Context) HasPermission(resource, action string) bool {
-	// 获取权限管理器
+	return CheckPermission(ctx, resource, action)
+}
+
+// RequirePermission 要求指定权限，如果没有则返回错误
+// Deprecated: Use permission.Ensure(ctx, resource, action) instead.
+func (ctx *Context) RequirePermission(resource, action string) error {
+	return EnsurePermission(ctx, resource, action)
+}
+
+// CheckPermission 检查上下文是否具有指定权限
+func CheckPermission(ctx *Context, resource, action string) bool {
+	// 获取 PermissionManager
 	pm, ok := ctx.GetState("permission_manager")
 	if !ok {
 		return false
@@ -328,7 +340,7 @@ func (ctx *Context) HasPermission(resource, action string) bool {
 	}
 
 	// 获取用户 ID（从 state 或 event 中）
-	userID := ctx.getUserID()
+	userID := GetUserID(ctx)
 	if userID == "" {
 		return false
 	}
@@ -339,16 +351,16 @@ func (ctx *Context) HasPermission(resource, action string) bool {
 	})
 }
 
-// RequirePermission 要求指定权限，如果没有则返回错误
-func (ctx *Context) RequirePermission(resource, action string) error {
-	if !ctx.HasPermission(resource, action) {
+// EnsurePermission 检查权限并在未授予时返回错误
+func EnsurePermission(ctx *Context, resource, action string) error {
+	if !CheckPermission(ctx, resource, action) {
 		return ErrPermissionDenied
 	}
 	return nil
 }
 
-// getUserID 从 Context 中获取用户 ID
-func (ctx *Context) getUserID() string {
+// GetUserID 从上下文中检索用户 ID
+func GetUserID(ctx *Context) string {
 	// 优先从 state 获取
 	if userID, ok := ctx.GetState("user_id"); ok {
 		if id, ok := userID.(string); ok {
@@ -363,6 +375,12 @@ func (ctx *Context) getUserID() string {
 	}
 
 	return ""
+}
+
+// getUserID 从 Context 中获取用户 ID
+// Deprecated: Use GetUserID(ctx) instead.
+func (ctx *Context) getUserID() string {
+	return GetUserID(ctx)
 }
 
 // 错误定义

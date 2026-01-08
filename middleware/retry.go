@@ -51,8 +51,7 @@ func Retry(cfg RetryConfig) remilia.HandlerMiddleware {
 
 			// 尝试执行（包括首次执行）
 			for attempt := 0; attempt <= cfg.MaxAttempts; attempt++ {
-				// 设置当前尝试次数到 context
-				ctx.SetState("retry_attempt", attempt)
+				ctx.SetRetryAttempt(attempt)
 
 				err := next(ctx)
 
@@ -162,17 +161,9 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan remilia.DeadLetterIt
 
 			// 如果最终还是失败，发送到死信队列
 			if err != nil && cfg.ShouldRetry(err) {
-				attempt := 0
-				if v, ok := ctx.GetState("retry_attempt"); ok {
-					if n, ok := v.(int); ok {
-						attempt = n
-					}
-				}
+				attempt, _ := ctx.GetRetryAttempt()
 
-				// 获取 matcher source
-				source := "unknown"
-				// 注意：matcher 是内部字段，这里使用默认值
-				// 实际使用中可以通过 ctx.State 传递 source
+				source := ctx.GetMatcherSource()
 
 				item := remilia.DeadLetterItem{
 					Event:   ctx.GetEvent(),

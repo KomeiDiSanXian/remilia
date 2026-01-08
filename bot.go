@@ -2,11 +2,8 @@ package remilia
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,15 +16,10 @@ import (
 
 // Bot is the main entry point for the Remilia.
 type Bot struct {
-	wh     webhook.WebHook
-	tm     *token.Manager
-	engine *Engine
-	api    openapi.OpenAPI
-
-	// 优雅关闭相关
-	srv    *http.Server
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	adapter Adapter
+	tm      *token.Manager
+	engine  *Engine
+	api     openapi.OpenAPI
 
 	// Context 传播机制：用于优雅关闭时主动取消正在执行的 handler
 	ctx    context.Context
@@ -40,7 +32,14 @@ type BotOption func(*Bot)
 // WithWebHook enables the webhook protocol for the bot.
 func WithWebHook(wh webhook.WebHook) BotOption {
 	return func(b *Bot) {
-		b.wh = wh
+		b.adapter = NewWebhookAdapter(wh)
+	}
+}
+
+// WithAdapter sets a custom adapter for the bot.
+func WithAdapter(adapter Adapter) BotOption {
+	return func(b *Bot) {
+		b.adapter = adapter
 	}
 }
 
@@ -71,18 +70,19 @@ func WithEngine(engine *Engine) BotOption {
 func New(info *dto.BotInfo, options ...BotOption) *Bot {
 	tm := token.NewManager(info)
 
-	// 默认创建新的 Engine
-	engine := NewEngine()
-
 	b := &Bot{
-		tm:     tm,
-		engine: engine,
-		api:    openapi.New(tm),
+		tm:  tm,
+		api: openapi.New(tm),
 	}
 
 	// 应用选项（可能覆盖默认 Engine）
 	for _, opt := range options {
 		opt(b)
+	}
+
+	// 默认创建新的 Engine (如果选项中未提供)
+	if b.engine == nil {
+		b.engine = NewEngine()
 	}
 
 	return b
@@ -98,14 +98,75 @@ func (b *Bot) GetAPI() openapi.OpenAPI {
 	return b.api
 }
 
+// On registers a matcher for a specific event type.
+// This delegates to the underlying Engine.
+func (b *Bot) On(eventType dto.EventType, rules ...Rule) *Matcher {
+	return b.engine.On(eventType, rules...)
+}
+
+// OnAny registers a matcher for any event type.
+func (b *Bot) OnAny(rules ...Rule) *Matcher {
+	return b.engine.OnAny(rules...)
+}
+
+// OnC2C registers a matcher for C2C messages.
+func (b *Bot) OnC2C(rules ...Rule) *Matcher {
+	return b.engine.OnC2C(rules...)
+}
+
+// OnGroupAt registers a matcher for Group@ messages.
+func (b *Bot) OnGroupAt(rules ...Rule) *Matcher {
+	return b.engine.OnGroupAt(rules...)
+}
+
+// OnGroupAdd registers a matcher for GroupAddRobot events.
+func (b *Bot) OnGroupAdd(rules ...Rule) *Matcher {
+	return b.engine.OnGroupAdd(rules...)
+}
+
+// OnGroupDel registers a matcher for GroupDelRobot events.
+func (b *Bot) OnGroupDel(rules ...Rule) *Matcher {
+	return b.engine.OnGroupDel(rules...)
+}
+
+// OnCommand registers a matcher for a command.
+func (b *Bot) OnCommand(eventType dto.EventType, command string, rules ...Rule) *Matcher {
+	return b.engine.OnCommand(eventType, command, rules...)
+}
+
+// OnFullMatch registers a matcher for exact match.
+func (b *Bot) OnFullMatch(text string, rules ...Rule) *Matcher {
+	return b.engine.OnFullMatch(text, rules...)
+}
+
+// Use registers global middleware.
+// This delegates to the underlying Engine but returns *Bot for chaining.
+func (b *Bot) Use(mw ...HandlerMiddleware) *Bot {
+	b.engine.Use(mw...)
+	return b
+}
+
 // Start 启动 Bot（非阻塞），配合 Shutdown 进行优雅关闭
 func (b *Bot) Start() {
 	// 创建 bot 级别的 context，用于优雅关闭时主动取消所有 handler
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 
-	if b.wh != nil {
-		b.runWithWebhook()
+	if b.adapter != nil {
+		handleFunc := func(event *dto.Payload) {
+			// 使用 bot context 作为父 context，支持优雅关闭时主动取消
+			ctx := NewContextWithContext(b.ctx, event, b.api)
+			// IMPORTANT: in-flight tracking is owned by Engine (Engine.eventWg).
+			// Adapter.Start is already required to run asynchronously.
+			b.engine.ProcessEvent(ctx)
+		}
+
+		if err := b.adapter.Start(b.ctx, handleFunc); err != nil {
+			logrus.WithError(err).Error("[Remilia] Failed to start adapter")
+		}
+	} else {
+		logrus.Warn("[Remilia] No adapter configured")
 	}
+
 	logrus.Infof("[Remilia] Bot started")
 }
 
@@ -114,10 +175,8 @@ func (b *Bot) Start() {
 // 关闭流程：
 //
 //   - 1. 主动取消所有正在执行的 handler（通过 context）
-//   - 2. 停止事件循环（不再接收新事件）
-//   - 3. 关闭 HTTP 服务器（停止接收新连接）
-//   - 4. 排空事件通道（防止 goroutine 阻塞）
-//   - 5. 等待所有 handler 完成（带超时）
+//   - 2. 停止适配器（停止接收新事件）
+//   - 3. 关闭 Engine：停止后台资源并等待 in-flight 事件处理完成（受 ctx 限制）
 //
 // ctx 参数控制整个关闭流程的超时时间。
 func (b *Bot) Shutdown(ctx context.Context) {
@@ -129,138 +188,26 @@ func (b *Bot) Shutdown(ctx context.Context) {
 		logrus.Debug("[Remilia] Cancelled all running handlers")
 	}
 
-	// 2. 停止事件循环
-	if b.stopCh != nil {
-		select {
-		case <-b.stopCh:
-		default:
-			close(b.stopCh)
-			logrus.Debug("[Remilia] Stopped event loop")
+	// 2. 停止适配器（停止接收新事件）
+	if b.adapter != nil {
+		if err := b.adapter.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Warn("[Remilia] Adapter shutdown error")
 		}
 	}
 
-	// 3. 关闭 HTTP 服务器，沿用调用方的超时/取消
-	if b.srv != nil {
-		// 如果调用方未设置截止时间，兜底 5 秒以免悬挂
-		shutdownCtx := ctx
-		if deadline, ok := ctx.Deadline(); !ok {
-			var cancel context.CancelFunc
-			shutdownCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
-			defer cancel()
-		} else {
-			_ = deadline // 保持可读性，明确已携带截止时间
-		}
-
-		if err := b.srv.Shutdown(shutdownCtx); err != nil {
-			logrus.WithError(err).Warn("[Remilia] HTTP server shutdown error")
-		} else {
-			logrus.Debug("[Remilia] HTTP server closed")
-		}
-	}
-
-	// 4. 排空事件通道（防止 goroutine 阻塞）
-	b.drainEventChannel(500 * time.Millisecond)
-
-	// 5. 等待所有 handler 完成（带超时）
-	done := make(chan struct{})
-	go func() {
-		b.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		logrus.Info("[Remilia] All handlers completed successfully")
-	case <-ctx.Done():
-		logrus.Warn("[Remilia] Shutdown timeout, some handlers may be interrupted")
-		// 注意：超时后 goroutine 可能仍在运行，但我们不再等待
-	}
-
-	// 6. 关闭 Engine，停止后台清理器等资源
+	// 3. 关闭 Engine：停止后台资源并等待 in-flight 事件处理完成（受 ctx 限制）
 	if b.engine != nil {
-		b.engine.Close()
+		if err := b.engine.Shutdown(ctx); err != nil {
+			logrus.WithError(err).Warn("[Remilia] Engine shutdown error")
+		}
 	}
 
 	logrus.Info("[Remilia] Bot shutdown complete")
 }
 
-// drainEventChannel 排空事件通道，防止 goroutine 阻塞
-func (b *Bot) drainEventChannel(timeout time.Duration) {
-	if b.wh == nil {
-		return
-	}
-
-	ch := b.wh.EventStream()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	drained := 0
-	for {
-		select {
-		case <-timer.C:
-			if drained > 0 {
-				logrus.Infof("[Remilia] Drained %d pending events", drained)
-			}
-			return
-		case _, ok := <-ch:
-			if !ok {
-				if drained > 0 {
-					logrus.Infof("[Remilia] Drained %d pending events", drained)
-				}
-				return
-			}
-			drained++
-		}
-	}
-}
-
+// Deprecated: logic moved to WebhookAdapter
 func (b *Bot) runWithWebhook() {
-	logrus.Info("[Remilia] Starting bot with webhook")
-	if b.wh == nil {
-		logrus.Error("[Remilia] Webhook is nil, cannot start HTTP server")
-		return
-	}
-	if b.stopCh == nil {
-		b.stopCh = make(chan struct{})
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", b.wh.Handle)
-	b.srv = &http.Server{Addr: b.wh.Addr(), Handler: mux}
-
-	// Start the HTTP server in a separate goroutine
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
-		if err := b.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Error("[Remilia] Failed to start the server")
-		}
-	}()
-
-	// Start a goroutine to listen for events and publish them to the engine
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
-		for {
-			select {
-			case event, ok := <-b.wh.EventStream():
-				if !ok {
-					logrus.Info("[Remilia] Event stream closed")
-					return
-				}
-				logrus.WithFields(logrus.Fields{
-					"type": event.Type,
-					"id":   event.ID,
-				}).Debug("[Remilia] Processing event")
-				// 使用 bot context 作为父 context，支持优雅关闭时主动取消
-				ctx := NewContextWithContext(b.ctx, event, b.api)
-				b.engine.ProcessEvent(ctx)
-			case <-b.stopCh:
-				logrus.Info("[Remilia] Stopping event loop")
-				return
-			}
-		}
-	}()
+	logrus.Warn("[Remilia] runWithWebhook is deprecated, use Adapter instead")
 }
 
 // Run starts the bot.

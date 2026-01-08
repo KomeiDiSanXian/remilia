@@ -105,6 +105,29 @@ func BenchmarkEngineProcessEventParallel(b *testing.B) {
 	})
 }
 
+// BenchmarkEngineBatchDelete 测试批量删除匹配器的性能
+func BenchmarkEngineBatchDelete(b *testing.B) {
+	engine := NewEngine()
+	defer engine.Close()
+
+	// 每次操作的批量大小
+	batchSize := 100
+	matchers := make([]*Matcher, batchSize)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		// 准备数据：添加 batchSize 个 matcher
+		for j := 0; j < batchSize; j++ {
+			matchers[j] = engine.On(dto.C2CMessageCreate, func(ctx *Context) bool { return true })
+		}
+		b.StartTimer()
+
+		// 测试目标：批量删除
+		engine.DeleteMatchers(matchers)
+	}
+}
+
 // BenchmarkEngineWithMiddleware 测试带中间件的性能
 func BenchmarkEngineWithMiddleware(b *testing.B) {
 	engine := NewEngine()
