@@ -24,6 +24,19 @@ type State map[string]any
 // Keys are internal-only and must not be relied upon by users.
 type internalState map[string]any
 
+// stateExt is the V2 user state extension container.
+//
+// It is intentionally unexported. Access is via ctx.Set/ctx.Get/ctx.All.
+// During progressive migration, V1 state APIs still exist.
+type stateExt struct {
+	mu sync.RWMutex
+	m  map[string]any
+}
+
+func newStateExt() *stateExt {
+	return &stateExt{m: make(map[string]any)}
+}
+
 // Context 上下文
 type Context struct {
 	ctxMu   sync.RWMutex
@@ -31,6 +44,12 @@ type Context struct {
 	matcher *Matcher
 	event   *dto.Payload
 
+	// --- V2 extensions store (Phase 1) ---
+	// ext stores typed-key extensions. This will progressively replace internal caches/state.
+	extOnce sync.Once
+	ext     *Extensions
+
+	// --- V1 state (temporary during migration) ---
 	// userState is exposed via SetState/GetState APIs.
 	userState State
 	// internalState is reserved for framework caches (parsed command, command args, traces, etc.).
@@ -694,4 +713,69 @@ func (ctx *Context) GetRetryAttempt() (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// Ext returns the typed-key extensions store.
+//
+// This is a V2 primitive introduced for progressive migration.
+func (ctx *Context) Ext() *Extensions {
+	if ctx == nil {
+		return nil
+	}
+	ctx.extOnce.Do(func() {
+		ctx.ext = newExtensions()
+	})
+	return ctx.ext
+}
+
+// Set sets a user state value (V2 sugar).
+//
+// It uses the State extension stored in ctx.Ext() and enforces the reserved key policy.
+// This is introduced for progressive migration and will replace SetState over time.
+func (ctx *Context) Set(key string, value any) {
+	if ctx == nil {
+		return
+	}
+	if isReservedUserStateKey(key) {
+		logrus.WithField("key", key).Warn("[Context] set reserved state key is forbidden")
+		return
+	}
+
+	s := ExtGetOrInit(ctx.Ext(), func() *stateExt { return newStateExt() })
+	s.mu.Lock()
+	s.m[key] = value
+	s.mu.Unlock()
+}
+
+// Get gets a user state value (V2 sugar).
+func (ctx *Context) Get(key string) (any, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	s, ok := ExtGet[*stateExt](ctx.Ext())
+	if !ok || s == nil {
+		return nil, false
+	}
+	s.mu.RLock()
+	v, ok := s.m[key]
+	s.mu.RUnlock()
+	return v, ok
+}
+
+// All returns a copy of all user state values stored via ctx.Set.
+func (ctx *Context) All() map[string]any {
+	if ctx == nil {
+		return nil
+	}
+	s, ok := ExtGet[*stateExt](ctx.Ext())
+	if !ok || s == nil {
+		return map[string]any{}
+	}
+	s.mu.RLock()
+	out := make(map[string]any, len(s.m))
+	for k, v := range s.m {
+		out[k] = v
+	}
+	s.mu.RUnlock()
+	return out
 }
