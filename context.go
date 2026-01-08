@@ -45,6 +45,18 @@ type retryAttemptExt struct {
 	Attempt int
 }
 
+// middlewareTraceExt stores executed named middleware trace as a typed extension.
+//
+// It replaces legacy internalState key internalStateKeyMiddlewareTrace.
+// Migration rule:
+//   - write only to this extension (via SetMiddlewareTrace)
+//   - read this extension first, then fallback to legacy internalState
+//
+// Note: slice is treated as immutable snapshot per write.
+type middlewareTraceExt struct {
+	Trace []string
+}
+
 func newStateExt() *stateExt {
 	return &stateExt{m: make(map[string]any)}
 }
@@ -691,17 +703,32 @@ func (ctx *Context) MatchCommand(parser *command.CommandParser) bool {
 
 // GetMiddlewareTrace returns the executed named middleware trace recorded by Engine.Named tracing.
 //
-// Note: this is read-only access to framework-internal state. The legacy userState key
-// "mw_trace" is forbidden.
+// V2 migration: read typed extension first, then fallback to legacy internalState.
 func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 	if ctx == nil {
 		return nil, false
 	}
+	if mt, ok := ExtGet[middlewareTraceExt](ctx.Ext()); ok {
+		return mt.Trace, true
+	}
+	// legacy fallback
 	if v, ok := ctx.internalGet(internalStateKeyMiddlewareTrace); ok {
 		arr, ok := v.([]string)
 		return arr, ok
 	}
 	return nil, false
+}
+
+// SetMiddlewareTrace sets the executed named middleware trace (framework internal).
+//
+// It writes only to typed extension store.
+func (ctx *Context) SetMiddlewareTrace(trace []string) {
+	if ctx == nil {
+		return
+	}
+	// Take a copy to prevent accidental external mutation.
+	cp := append([]string(nil), trace...)
+	ExtSet(ctx.Ext(), middlewareTraceExt{Trace: cp})
 }
 
 // SetRetryAttempt sets the current retry attempt (framework internal).

@@ -84,9 +84,9 @@ func TestMiddlewareTraceHook_EnableLegacyMwTraceState(t *testing.T) {
 	ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
 	engine.ProcessEvent(ctx)
 
-	v, ok := ctx.internalGet(internalStateKeyMiddlewareTrace)
+	trace, ok := ctx.GetMiddlewareTrace()
 	assert.True(t, ok)
-	assert.Equal(t, []string{"mw1"}, v)
+	assert.Equal(t, []string{"mw1"}, trace)
 
 	// Legacy userState key must not be written.
 	_, ok = ctx.GetState("mw_trace")

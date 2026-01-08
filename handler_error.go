@@ -56,10 +56,8 @@ func WrapError(err error, ctx *Context, m *Matcher, attempt int) error {
 
 	var trace []string
 	if ctx != nil {
-		if v, ok := ctx.internalGet(internalStateKeyMiddlewareTrace); ok {
-			if arr, ok := v.([]string); ok {
-				trace = arr
-			}
+		if arr, ok := ctx.GetMiddlewareTrace(); ok {
+			trace = arr
 		}
 	}
 

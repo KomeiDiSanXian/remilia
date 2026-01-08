@@ -49,10 +49,10 @@ func (e *Engine) EnableMiddlewareTrace() *Engine {
 
 		if arr, ok := ctx.GetMiddlewareTrace(); ok {
 			arr = append(arr, name)
-			ctx.internalSet(internalStateKeyMiddlewareTrace, arr)
+			ctx.SetMiddlewareTrace(arr)
 			return
 		}
-		ctx.internalSet(internalStateKeyMiddlewareTrace, []string{name})
+		ctx.SetMiddlewareTrace([]string{name})
 	})
 }
 
