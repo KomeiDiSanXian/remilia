@@ -33,6 +33,18 @@ type stateExt struct {
 	m  map[string]any
 }
 
+// retryAttemptExt stores retry attempt as a typed extension (V2 Phase 2).
+//
+// It replaces the legacy internalState key "_remilia_internal_retry_attempt".
+// During progressive migration we:
+//   - write only to this extension
+//   - read from this extension first, then fallback to legacy internalState
+//
+// This keeps the migration safe while allowing old code paths to be updated gradually.
+type retryAttemptExt struct {
+	Attempt int
+}
+
 func newStateExt() *stateExt {
 	return &stateExt{m: make(map[string]any)}
 }
@@ -693,20 +705,29 @@ func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 }
 
 // SetRetryAttempt sets the current retry attempt (framework internal).
-// This value is used by Retry/DeadLetter for diagnostics/metadata and is not user state.
+//
+// V2 migration:
+//   - prefer storing in typed extensions
+//   - do not write legacy internalState key anymore
 func (ctx *Context) SetRetryAttempt(attempt int) {
 	if ctx == nil {
 		return
 	}
-	ctx.internalSet("_remilia_internal_retry_attempt", attempt)
+	ExtSet(ctx.Ext(), retryAttemptExt{Attempt: attempt})
 }
 
 // GetRetryAttempt returns the current retry attempt set by Retry middleware.
 // If not present, it returns (0, false).
+//
+// V2 migration: read typed extension first, then fallback to legacy internalState.
 func (ctx *Context) GetRetryAttempt() (int, bool) {
 	if ctx == nil {
 		return 0, false
 	}
+	if ra, ok := ExtGet[retryAttemptExt](ctx.Ext()); ok {
+		return ra.Attempt, true
+	}
+	// legacy fallback
 	if v, ok := ctx.internalGet("_remilia_internal_retry_attempt"); ok {
 		if n, ok := v.(int); ok {
 			return n, true
