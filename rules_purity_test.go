@@ -17,7 +17,7 @@ func TestRulePureFunction(t *testing.T) {
 		}
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("type", "message")
+		ctx.Set("type", "message")
 
 		// 多次调用应该返回相同结果
 		result1 := rule(ctx)
@@ -76,8 +76,8 @@ func TestRulePureFunction(t *testing.T) {
 		engine.OnC2C(And(rule1, rule2)).Handle(handler)
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("type", "message")
-		ctx.SetState("user", "admin")
+		ctx.Set("type", "message")
+		ctx.Set("user", "admin")
 
 		engine.ProcessEvent(ctx)
 
@@ -224,7 +224,7 @@ func TestRuleSideEffectAntiPattern(t *testing.T) {
 		})
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("type", "message")
+		ctx.Set("type", "message")
 
 		// 问题：checkCount 的值取决于规则被调用多少次
 		// 这是不确定的，因为：
@@ -254,7 +254,7 @@ func TestRuleSideEffectAntiPattern(t *testing.T) {
 		})
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("type", "message")
+		ctx.Set("type", "message")
 
 		engine.ProcessEvent(ctx)
 
@@ -273,7 +273,7 @@ func TestRulePurityExamples(t *testing.T) {
 			Type: dto.C2CMessageCreate,
 		}, nil)
 		// 模拟消息内容
-		ctx.SetState("message_content", "/ping")
+		ctx.Set("message_content", "/ping")
 
 		result := rule(ctx)
 		// 注意：实际测试需要 Context 能够正确获取消息内容
@@ -288,7 +288,7 @@ func TestRulePurityExamples(t *testing.T) {
 		}
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("role", "admin")
+		ctx.Set("role", "admin")
 
 		result := isAdmin(ctx)
 		assert.True(t, result)
@@ -308,8 +308,8 @@ func TestRulePurityExamples(t *testing.T) {
 		ctx := NewContext(&dto.Payload{
 			Type: dto.C2CMessageCreate,
 		}, nil)
-		ctx.SetState("cmd", "/admin")
-		ctx.SetState("role", "admin")
+		ctx.Set("cmd", "/admin")
+		ctx.Set("role", "admin")
 
 		result := rule(ctx)
 		assert.True(t, result)

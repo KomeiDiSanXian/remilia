@@ -89,6 +89,6 @@ func TestMiddlewareTraceHook_EnableLegacyMwTraceState(t *testing.T) {
 	assert.Equal(t, []string{"mw1"}, trace)
 
 	// Legacy userState key must not be written.
-	_, ok = ctx.GetState("mw_trace")
+	_, ok = ctx.Get("mw_trace")
 	assert.False(t, ok)
 }

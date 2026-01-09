@@ -237,20 +237,20 @@ const (
 //	engine.Use(middleware.RequestID())
 //
 //	// 在 Handler 中获取
-//	requestID := ctx.GetState("request_id")
+//	requestID, _ := ctx.Get(middleware.CtxKeyRequestID)
 func RequestID() remilia.HandlerMiddleware {
 	return func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
 			// 生成唯一 ID（使用时间戳 + 随机数）
 			requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
 
-			// 存储到 Context
-			ctx.SetState("request_id", requestID)
+			// 存储到 Context（V2 sugar）
+			ctx.Set(CtxKeyRequestID, requestID)
 
 			// 记录日志
 			logrus.WithFields(logrus.Fields{
-				"request_id": requestID,
-				"event_type": ctx.GetEventType(),
+				CtxKeyRequestID: requestID,
+				"event_type":    ctx.GetEventType(),
 			}).Debug("[RequestID] Generated")
 
 			return next(ctx)

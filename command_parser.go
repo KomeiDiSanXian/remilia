@@ -16,5 +16,13 @@ func (ctx *Context) ParseCommand() (*command.CommandArgs, error) {
 	if ctx == nil {
 		return nil, nil
 	}
-	return extensionimpl.ParseCommand(ctx.internalGet, ctx.internalSet, ctx.GetMessageContent())
+	return extensionimpl.ParseCommandV2(
+		func() (*extensionimpl.CommandArgsCacheV2, bool) {
+			return ExtGet[*extensionimpl.CommandArgsCacheV2](ctx.Ext())
+		},
+		func(v *extensionimpl.CommandArgsCacheV2) {
+			ExtSet(ctx.Ext(), v)
+		},
+		ctx.GetMessageContent(),
+	)
 }

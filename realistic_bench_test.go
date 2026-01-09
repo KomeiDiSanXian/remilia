@@ -132,7 +132,7 @@ func BenchmarkRealisticEventProcessing(b *testing.B) {
 	engine.OnAny(OnKeyword("hello")).Handle(func(ctx *Context) {
 		content := ctx.GetMessageContent()
 		result := simulateComplexLogic(content)
-		ctx.SetState("processed", result)
+		ctx.Set("processed", result)
 		atomic.AddInt64(&processedCount, 1)
 	})
 
@@ -140,8 +140,8 @@ func BenchmarkRealisticEventProcessing(b *testing.B) {
 		// 模拟命令处理
 		parts := strings.Split(ctx.GetMessageContent(), " ")
 		if len(parts) > 1 {
-			ctx.SetState("command", parts[0])
-			ctx.SetState("args", strings.Join(parts[1:], " "))
+			ctx.Set("command", parts[0])
+			ctx.Set("args", strings.Join(parts[1:], " "))
 		}
 		atomic.AddInt64(&processedCount, 1)
 	})
@@ -150,9 +150,9 @@ func BenchmarkRealisticEventProcessing(b *testing.B) {
 		// 模拟通用消息处理
 		content := ctx.GetMessageContent()
 		if len(content) > 100 {
-			ctx.SetState("long_message", true)
+			ctx.Set("long_message", true)
 		}
-		ctx.SetState("processed_at", time.Now().Unix())
+		ctx.Set("processed_at", time.Now().Unix())
 		atomic.AddInt64(&processedCount, 1)
 	})
 
@@ -210,7 +210,7 @@ func BenchmarkWithNetworkIO(b *testing.B) {
 
 		// 模拟响应处理
 		result := simulateComplexLogic(content)
-		ctx.SetState("api_result", result)
+		ctx.Set("api_result", result)
 	})
 
 	events := make([]*dto.Payload, 100)
@@ -241,7 +241,7 @@ func BenchmarkWithDatabaseSimulation(b *testing.B) {
 		atomic.AddInt64(&dbQueries, 1)
 
 		// 模拟查询结果处理
-		ctx.SetState("db_result", map[string]interface{}{
+		ctx.Set("db_result", map[string]interface{}{
 			"user_id": mathRand.Int63(),
 			"score":   mathRand.Intn(1000),
 			"data":    generateRandomString(50),
@@ -290,7 +290,7 @@ func BenchmarkMemoryPressure(b *testing.B) {
 			processed = append(processed, fmt.Sprintf("%s_%d_%x", content, i, tempData[i%len(tempData)]))
 		}
 
-		ctx.SetState("processed_data", processed)
+		ctx.Set("processed_data", processed)
 	})
 
 	// 生成大量不同的事件
@@ -327,22 +327,22 @@ func BenchmarkConcurrentRealistic(b *testing.B) {
 
 		content := ctx.GetMessageContent()
 		result := simulateComplexLogic(content)
-		ctx.SetState("purchase_result", result)
+		ctx.Set("purchase_result", result)
 		atomic.AddInt64(&totalProcessed, 1)
 	})
 
 	engine.OnAny(OnPrefix("/admin")).Handle(func(ctx *Context) {
 		// 模拟管理员操作
 		simulateDBOperation()
-		ctx.SetState("admin_action", true)
+		ctx.Set("admin_action", true)
 		atomic.AddInt64(&totalProcessed, 1)
 	})
 
 	engine.OnC2C().Handle(func(ctx *Context) {
 		// 模拟日志记录
 		content := ctx.GetMessageContent()
-		ctx.SetState("logged", true)
-		ctx.SetState("content_length", len(content))
+		ctx.Set("logged", true)
+		ctx.Set("content_length", len(content))
 		atomic.AddInt64(&totalProcessed, 1)
 	})
 
@@ -396,20 +396,20 @@ func BenchmarkQQAPILimitSimulation(b *testing.B) {
 		if now.Sub(lastCall) < minInterval {
 			// API限流
 			atomic.AddInt64(&apiCallsBlocked, 1)
-			ctx.SetState("status", "rate_limited")
+			ctx.Set("status", "rate_limited")
 		} else {
 			// 模拟成功的API调用
 			simulateNetworkDelay()
 			lastCall = now
 			atomic.AddInt64(&apiCallsSuccess, 1)
-			ctx.SetState("status", "sent")
+			ctx.Set("status", "sent")
 		}
 	})
 
 	engine.OnC2C().Handle(func(ctx *Context) {
 		// 模拟消息处理但不调用API
 		content := ctx.GetMessageContent()
-		ctx.SetState("processed", len(content) > 10)
+		ctx.Set("processed", len(content) > 10)
 	})
 
 	// 生成大量API调用事件
@@ -463,7 +463,7 @@ func BenchmarkLargePayload(b *testing.B) {
 					processed = append(processed, simulateComplexLogic(line))
 				}
 			}
-			ctx.SetState("processed_lines", processed)
+			ctx.Set("processed_lines", processed)
 			atomic.AddInt64(&largePayloadCount, 1)
 		}
 	})
@@ -527,12 +527,11 @@ func BenchmarkC2CMessageMix(b *testing.B) {
 
 	engine.OnAny(OnPrefix("/")).Handle(func(ctx *Context) {
 		atomic.AddInt64(&commandHits, 1)
-		ctx.SetState("command", ctx.GetMessageContent())
+		ctx.Set("command", ctx.GetMessageContent())
 	})
 
 	engine.OnAny(OnKeyword("@bot")).Handle(func(ctx *Context) {
-		ctx.SetState("mention", true)
-		atomic.AddInt64(&handlerHits, 1)
+		ctx.Set("mention", true)
 	})
 
 	engine.OnC2C().Handle(func(ctx *Context) {
@@ -540,7 +539,7 @@ func BenchmarkC2CMessageMix(b *testing.B) {
 		if err := ctx.DecodeEvent(&evt); err == nil {
 			atomic.AddInt64(&attachmentsHandled, int64(len(evt.Attachments)))
 		}
-		ctx.SetState("length", len(ctx.GetMessageContent()))
+		ctx.Set("length", len(ctx.GetMessageContent()))
 		atomic.AddInt64(&handlerHits, 1)
 	})
 
@@ -591,11 +590,11 @@ func BenchmarkGroupAttachmentBurst(b *testing.B) {
 				atomic.AddInt64(&mediaBytes, int64(att.Size))
 			}
 		}
-		ctx.SetState("group", true)
+		ctx.Set("group", true)
 	})
 
 	engine.OnAny(OnKeyword("report")).Handle(func(ctx *Context) {
-		ctx.SetState("report", time.Now().UnixNano())
+		ctx.Set("report", time.Now().UnixNano())
 	})
 
 	groups := []string{"group_alpha", "group_beta", "group_gamma"}

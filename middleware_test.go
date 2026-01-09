@@ -35,12 +35,12 @@ func TestEngine_Middleware_OrderAndError(t *testing.T) {
 func TestEngine_Middleware_AdapterHandle(t *testing.T) {
 	engine := NewEngine()
 	engine.Use(func(next HandlerE) HandlerE {
-		return func(ctx *Context) error { ctx.SetState("mw", true); return next(ctx) }
+		return func(ctx *Context) error { ctx.Set("mw", true); return next(ctx) }
 	})
 	var seen bool
 	// 使用新 API：OnC2C 注册处理器
 	engine.OnC2C().Handle(func(ctx *Context) {
-		if v, ok := ctx.GetState("mw"); ok {
+		if v, ok := ctx.Get("mw"); ok {
 			seen = v.(bool)
 		}
 	})

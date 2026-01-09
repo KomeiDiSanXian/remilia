@@ -67,16 +67,22 @@ V2 中 `Context` 应尽量成为一个轻薄外壳，包含：
 
 ### 3.3 用户态 State 作为一等扩展
 
-我们保留 `ctx.Set/ctx.Get` 的易用接口，但其底层存储通过扩展实现：
+我们保留 `ctx.Set/ctx.Get` 的易用接口，但其底层存储通过扩展实现。
 
-- `ctx.Set(key, value)` 委托给内部的 `State` 扩展
-- `ctx.Get(key)` 同样委托给 `State` 扩展
+同时在 V2 中明确删除语义（与实现保持一致）：
 
-收益：
+- `ctx.Delete(key)`：删除 key
+- `ctx.Set(key, nil)`：**等价于** `ctx.Delete(key)`（删除 key，而不是保存 nil 值）
 
-- 用户体验不变（1B）
-- `Context` 结构体更轻
-- state 的实现可替换（例如后续优化为 COW/分片锁/只读快照等）
+> 说明：这能显著降低渐进迁移成本，并避免 `Get(key)` 返回 `(nil, true)` 的歧义。
+
+```go
+ctx.Set("k", "v")
+_, _ = ctx.Get("k")
+
+ctx.Set("k", nil) // 删除
+_, ok := ctx.Get("k") // ok == false
+```
 
 ### 3.4 可选能力放到 `extension/*`
 
@@ -175,7 +181,10 @@ func Command(ctx *remilia.Context) CommandExt
 - **并发不变量** 必须明确并测试：
   - 用户态 state 当前通过锁保证并发安全；V2 必须保持安全（或明确变更契约）。
 - **异步使用** 必须有迁移路径：
-  - 当前有 Clone/retain 指南；V2 需要明确 extensions 的 clone/snapshot 语义。
+  - V2 明确 `Clone()` 语义：
+    - 复制 typed extensions 的 snapshot（按条目复制）
+    - 对 V2 user state（stateExt）做深拷贝，保证 clone 后 store 不共享
+    - extension value 若是引用类型，复制的是引用；extension 值应视为 immutable，或自行保证并发安全
 - **性能**：typed store 的查询必须足够快，并避免热路径的额外分配。
   - 第一版优先正确与清晰；后续再针对热点做优化。
 

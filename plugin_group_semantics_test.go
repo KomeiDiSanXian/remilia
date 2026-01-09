@@ -56,7 +56,7 @@ func TestPlugin_GroupIsAuthoritative_SourceIsNot(t *testing.T) {
 	// register group middleware for p1 (should apply only to plugin matcher)
 	engine.UseForGroup("p1", func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			ctx.SetState("mw_hit", true)
+			ctx.Set("mw_hit", true)
 			return next(ctx)
 		}
 	})
@@ -65,7 +65,7 @@ func TestPlugin_GroupIsAuthoritative_SourceIsNot(t *testing.T) {
 	engine.ProcessEvent(ctx)
 
 	// Plugin matcher belongs to group p1, so group middleware must run.
-	v, ok := ctx.GetState("mw_hit")
+	v, ok := ctx.Get("mw_hit")
 	require.True(t, ok)
 	require.Equal(t, true, v)
 
@@ -76,7 +76,7 @@ func TestPlugin_GroupIsAuthoritative_SourceIsNot(t *testing.T) {
 	ctx2 := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
 	engine.ProcessEvent(ctx2)
 
-	v2, ok := ctx2.GetState("mw_hit")
+	v2, ok := ctx2.Get("mw_hit")
 	require.True(t, ok)
 	require.Equal(t, true, v2)
 }
@@ -97,7 +97,7 @@ func TestPlugin_SourceDoesNotBackfillGroup(t *testing.T) {
 
 	engine.UseForGroup("p1", func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			ctx.SetState("mw_hit", true)
+			ctx.Set("mw_hit", true)
 			return next(ctx)
 		}
 	})
@@ -105,7 +105,7 @@ func TestPlugin_SourceDoesNotBackfillGroup(t *testing.T) {
 	ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
 	engine.ProcessEvent(ctx)
 
-	_, ok := ctx.GetState("mw_hit")
+	_, ok := ctx.Get("mw_hit")
 	require.False(t, ok)
 	require.GreaterOrEqual(t, atomic.LoadInt32(&hit), int32(1))
 }

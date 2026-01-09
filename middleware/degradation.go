@@ -312,7 +312,9 @@ func (ad *AdaptiveDegradation) Middleware() remilia.HandlerMiddleware {
 				}
 			case DegradationSimplify:
 				// 简化处理（可以在业务层实现）
-				ctx.SetState("degraded", true)
+				SetDegraded(ctx)
+			default:
+				// DegradationDrop or unknown: no-op here.
 			}
 
 			return next(ctx)

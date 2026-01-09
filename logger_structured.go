@@ -90,7 +90,7 @@ func (l *StructuredLogger) WithContext(ctx *Context) *StructuredLogger {
 	}
 
 	// 请求 ID（如果有）
-	if reqID, ok := ctx.GetState(LogFieldRequestID); ok {
+	if reqID, ok := ctx.Get(LogFieldRequestID); ok {
 		if reqIDStr, ok := reqID.(string); ok {
 			fields[LogFieldRequestID] = reqIDStr
 		}

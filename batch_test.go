@@ -194,7 +194,7 @@ func TestProcessEventBatchLargeVolume(t *testing.T) {
 func BenchmarkProcessEventBatch(b *testing.B) {
 	engine := NewEngine()
 	engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("processed", true)
+		ctx.Set("processed", true)
 	})
 
 	events := make([]*dto.Payload, 10)
@@ -212,7 +212,7 @@ func BenchmarkProcessEventBatch(b *testing.B) {
 func BenchmarkProcessEventBatchSizes(b *testing.B) {
 	engine := NewEngine()
 	engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("processed", true)
+		ctx.Set("processed", true)
 	})
 
 	sizes := []int{1, 10, 50, 100, 500}
@@ -236,7 +236,7 @@ func BenchmarkProcessEventBatchSizes(b *testing.B) {
 func BenchmarkCompareProcessMethods(b *testing.B) {
 	engine := NewEngine()
 	engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("processed", true)
+		ctx.Set("processed", true)
 	})
 
 	events := make([]*dto.Payload, 10)
@@ -269,7 +269,7 @@ func BenchmarkBatchProcessWithComplexMatchers(b *testing.B) {
 	// 添加多个匹配器
 	for i := 0; i < 10; i++ {
 		engine.OnC2C().Handle(func(ctx *Context) {
-			ctx.SetState(fmt.Sprintf("matcher_%d", i), true)
+			ctx.Set(fmt.Sprintf("matcher_%d", i), true)
 		})
 	}
 

@@ -18,8 +18,8 @@ func TestContextClone(t *testing.T) {
 	}
 
 	ctx := NewContext(event, nil)
-	ctx.SetState("key1", "value1")
-	ctx.SetState("key2", 42)
+	ctx.Set("key1", "value1")
+	ctx.Set("key2", 42)
 
 	// 克隆 context
 	clonedCtx := ctx.Clone()
@@ -32,7 +32,8 @@ func TestContextClone(t *testing.T) {
 	assert.Equal(t, 42, clonedCtx.GetInt("key2"), "state should be copied")
 
 	// 验证 state map 是独立的（修改不会影响原 context）
-	clonedCtx.SetState("key1", "modified")
+	// 修改克隆的 V2 store，不应影响原 context
+	clonedCtx.Set("key1", "modified")
 	assert.Equal(t, "value1", ctx.GetString("key1"), "modifying cloned context should not affect original")
 	assert.Equal(t, "modified", clonedCtx.GetString("key1"), "cloned context should be modified")
 
@@ -54,7 +55,7 @@ func TestContextCloneInGoroutine(t *testing.T) {
 	}
 
 	ctx := NewContext(event, nil)
-	ctx.SetState("counter", 0)
+	ctx.Set("counter", 0)
 
 	var wg sync.WaitGroup
 	var completed atomic.Int32
@@ -69,8 +70,8 @@ func TestContextCloneInGoroutine(t *testing.T) {
 			asyncCtx := ctx.Clone()
 
 			// 修改克隆的 context（不会影响其他 goroutine）
-			asyncCtx.SetState("goroutine_id", id)
-			asyncCtx.SetState("counter", id*10)
+			asyncCtx.Set("goroutine_id", id)
+			asyncCtx.Set("counter", id*10)
 
 			// 模拟工作
 			time.Sleep(10 * time.Millisecond)
@@ -106,7 +107,7 @@ func TestContextCloneEmpty(t *testing.T) {
 	assert.NotNil(t, clonedCtx)
 
 	// 在克隆的 context 中添加 state
-	clonedCtx.SetState("new_key", "new_value")
+	clonedCtx.Set("new_key", "new_value")
 	assert.Equal(t, "new_value", clonedCtx.GetString("new_key"))
 
 	// 原 context 不应受影响
@@ -121,15 +122,15 @@ func TestContextCloneMultipleTimes(t *testing.T) {
 	}
 
 	ctx := NewContext(event, nil)
-	ctx.SetState("generation", 0)
+	ctx.Set("generation", 0)
 
 	// 第一次克隆
 	clone1 := ctx.Clone()
-	clone1.SetState("generation", 1)
+	clone1.Set("generation", 1)
 
 	// 从克隆再克隆
 	clone2 := clone1.Clone()
-	clone2.SetState("generation", 2)
+	clone2.Set("generation", 2)
 
 	// 验证每个 context 都是独立的
 	assert.Equal(t, 0, ctx.GetInt("generation"))
@@ -147,12 +148,12 @@ func TestContextCloneWithComplexState(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	// 设置复杂状态
-	ctx.SetState("string", "value")
-	ctx.SetState("int", 42)
-	ctx.SetState("bool", true)
-	ctx.SetState("float", 3.14)
-	ctx.SetState("slice", []int{1, 2, 3})
-	ctx.SetState("map", map[string]int{"a": 1, "b": 2})
+	ctx.Set("string", "value")
+	ctx.Set("int", 42)
+	ctx.Set("bool", true)
+	ctx.Set("float", 3.14)
+	ctx.Set("slice", []int{1, 2, 3})
+	ctx.Set("map", map[string]int{"a": 1, "b": 2})
 
 	// 克隆
 	clonedCtx := ctx.Clone()
@@ -165,7 +166,9 @@ func TestContextCloneWithComplexState(t *testing.T) {
 
 	// 注意：slice 和 map 是引用类型，会共享底层数据
 	// 这是浅拷贝的预期行为
-	slice, _ := clonedCtx.GetState("slice")
+	sliceAny, ok := clonedCtx.Get("slice")
+	assert.True(t, ok)
+	slice := sliceAny.([]int)
 	assert.Equal(t, []int{1, 2, 3}, slice)
 }
 
@@ -177,9 +180,9 @@ func BenchmarkContextClone(b *testing.B) {
 	}
 
 	ctx := NewContext(event, nil)
-	ctx.SetState("key1", "value1")
-	ctx.SetState("key2", 42)
-	ctx.SetState("key3", true)
+	ctx.Set("key1", "value1")
+	ctx.Set("key2", 42)
+	ctx.Set("key3", true)
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -200,7 +203,7 @@ func BenchmarkContextCloneWithLargeState(b *testing.B) {
 
 	// 添加大量 state
 	for i := 0; i < 100; i++ {
-		ctx.SetState("key"+string(rune(i)), i)
+		ctx.Set("key"+string(rune(i)), i)
 	}
 
 	b.ResetTimer()
@@ -213,12 +216,8 @@ func BenchmarkContextCloneWithLargeState(b *testing.B) {
 
 // TestContextCloneNilEvent 测试克隆 nil event 的 context
 func TestContextCloneNilEvent(t *testing.T) {
-	ctx := &Context{
-		userState:     make(State),
-		internalState: make(internalState),
-		stateMu:       sync.RWMutex{},
-	}
-	ctx.SetState("key", "value")
+	ctx := &Context{}
+	ctx.Set("key", "value")
 
 	// 克隆
 	clonedCtx := ctx.Clone()

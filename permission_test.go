@@ -167,8 +167,8 @@ func TestPermissionManager_RevokeRole(t *testing.T) {
 	pm := NewPermissionManager()
 	userID := "user123"
 
-	pm.AssignRole(userID, "user")
-	pm.AssignRole(userID, "guest")
+	assert.NoError(t, pm.AssignRole(userID, "user"))
+	assert.NoError(t, pm.AssignRole(userID, "guest"))
 	assert.Len(t, pm.GetUserRoles(userID), 2)
 
 	pm.RevokeRole(userID, "guest")
@@ -241,11 +241,11 @@ func TestContext_HasPermission(t *testing.T) {
 
 	ctx := NewContext(&dto.Payload{}, nil)
 
-	ctx.SetState("permission_manager", pm)
-	ctx.SetState("user_id", userID)
+	ctx.SetPermissionManager(pm)
+	ctx.SetUserID(userID)
 
-	assert.True(t, ctx.HasPermission("command:test", "execute"))
-	assert.False(t, ctx.HasPermission("admin:delete", "execute"))
+	assert.True(t, CheckPermission(ctx, "command:test", "execute"))
+	assert.False(t, CheckPermission(ctx, "admin:delete", "execute"))
 }
 
 // TestContext_RequirePermission
@@ -257,13 +257,13 @@ func TestContext_RequirePermission(t *testing.T) {
 
 	ctx := NewContext(&dto.Payload{}, nil)
 
-	ctx.SetState("permission_manager", pm)
-	ctx.SetState("user_id", userID)
+	ctx.SetPermissionManager(pm)
+	ctx.SetUserID(userID)
 
-	err := ctx.RequirePermission("command:test", "execute")
+	err := EnsurePermission(ctx, "command:test", "execute")
 	assert.NoError(t, err)
 
-	err = ctx.RequirePermission("admin:delete", "execute")
+	err = EnsurePermission(ctx, "admin:delete", "execute")
 	assert.Error(t, err)
 	assert.Equal(t, ErrPermissionDenied, err)
 }
@@ -286,7 +286,7 @@ func TestRequirePermissionMiddleware(t *testing.T) {
 
 	event := &dto.Payload{Type: dto.C2CMessageCreate}
 	ctx := NewContext(event, nil)
-	ctx.SetState("user_id", userID)
+	ctx.SetUserID(userID)
 
 	engine.ProcessEvent(ctx)
 
@@ -311,7 +311,7 @@ func TestRequireRole(t *testing.T) {
 
 	event := &dto.Payload{Type: dto.C2CMessageCreate}
 	ctx := NewContext(event, nil)
-	ctx.SetState("user_id", userID)
+	ctx.SetUserID(userID)
 
 	engine.ProcessEvent(ctx)
 	assert.True(t, executed)
@@ -338,7 +338,7 @@ func TestRequireAnyPermission(t *testing.T) {
 
 	event := &dto.Payload{Type: dto.C2CMessageCreate}
 	ctx := NewContext(event, nil)
-	ctx.SetState("user_id", userID)
+	ctx.SetUserID(userID)
 
 	engine.ProcessEvent(ctx)
 	assert.True(t, executed)
@@ -366,7 +366,7 @@ func TestRequireAllPermissions(t *testing.T) {
 
 	event := &dto.Payload{Type: dto.C2CMessageCreate}
 	ctx := NewContext(event, nil)
-	ctx.SetState("user_id", userID)
+	ctx.SetUserID(userID)
 
 	engine.ProcessEvent(ctx)
 	assert.True(t, executed)
@@ -402,7 +402,7 @@ func TestPermissionDenied(t *testing.T) {
 
 	event := &dto.Payload{Type: dto.C2CMessageCreate}
 	ctx := NewContext(event, nil)
-	ctx.SetState("user_id", userID)
+	ctx.SetUserID(userID)
 
 	engine.ProcessEvent(ctx)
 

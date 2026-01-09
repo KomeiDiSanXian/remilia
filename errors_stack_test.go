@@ -64,9 +64,9 @@ func TestShouldCaptureStack_EnvVar(t *testing.T) {
 	original := os.Getenv("REMILIA_STACK_TRACE")
 	defer func() {
 		if original != "" {
-			os.Setenv("REMILIA_STACK_TRACE", original)
+			assert.NoError(t, os.Setenv("REMILIA_STACK_TRACE", original))
 		} else {
-			os.Unsetenv("REMILIA_STACK_TRACE")
+			assert.NoError(t, os.Unsetenv("REMILIA_STACK_TRACE"))
 		}
 		// 重置内部状态
 		stackTraceEnabledOnce = sync.Once{}
@@ -74,13 +74,13 @@ func TestShouldCaptureStack_EnvVar(t *testing.T) {
 	}()
 
 	// 测试启用
-	os.Setenv("REMILIA_STACK_TRACE", "true")
+	assert.NoError(t, os.Setenv("REMILIA_STACK_TRACE", "true"))
 	stackTraceEnabledOnce = sync.Once{}
 	stackTraceEnabled = false // 重置状态
 	assert.True(t, shouldCaptureStack())
 
 	// 测试禁用
-	os.Setenv("REMILIA_STACK_TRACE", "false")
+	assert.NoError(t, os.Setenv("REMILIA_STACK_TRACE", "false"))
 	stackTraceEnabledOnce = sync.Once{}
 	stackTraceEnabled = false // 重置状态
 	assert.False(t, shouldCaptureStack())
@@ -124,7 +124,7 @@ func TestFormatHandlerError(t *testing.T) {
 	ctx := NewContext(nil, nil)
 
 	// 设置 trace
-	ctx.internalSet(internalStateKeyMiddlewareTrace, []string{"middleware1", "middleware2"})
+	ctx.SetMiddlewareTrace([]string{"middleware1", "middleware2"})
 
 	// 包装错误
 	err := WrapError(errors.New("test error"), ctx, matcher, 2)
@@ -248,7 +248,7 @@ func TestHandlerError_WithTrace(t *testing.T) {
 
 	// 设置中间件追踪
 	trace := []string{"Recover", "Logging", "Handler"}
-	ctx.internalSet(internalStateKeyMiddlewareTrace, trace)
+	ctx.SetMiddlewareTrace(trace)
 
 	// 包装错误
 	err := WrapError(errors.New("test error"), ctx, matcher, 1)
@@ -293,4 +293,50 @@ func BenchmarkWrapError_WithoutStack(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = WrapError(baseErr, ctx, matcher, 1)
 	}
+}
+
+func TestWrapError_TraceIncluded_WhenPresent(t *testing.T) {
+	EnableStackTrace(false)
+
+	engine := NewEngine()
+	matcher := engine.On(dto.C2CMessageCreate).HandleE(func(ctx *Context) error {
+		return errors.New("test error")
+	})
+
+	ctx := NewContext(nil, nil)
+	ctx.SetMiddlewareTrace([]string{"middleware1", "middleware2"})
+
+	// 包装错误
+	err := WrapError(errors.New("test error"), ctx, matcher, 1)
+
+	var he HandlerError
+	assert.True(t, errors.As(err, &he))
+	assert.Equal(t, []string{"middleware1", "middleware2"}, he.Trace)
+}
+
+func TestFormatHandlerError_IncludesTrace(t *testing.T) {
+	EnableStackTrace(true)
+	defer EnableStackTrace(false)
+
+	engine := NewEngine()
+	matcher := engine.On(dto.C2CMessageCreate).HandleE(func(ctx *Context) error {
+		return errors.New("test error")
+	})
+
+	ctx := NewContext(nil, nil)
+	trace := []string{"Recover", "Logging", "Handler"}
+	ctx.SetMiddlewareTrace(trace)
+
+	// 包装错误
+	err := WrapError(errors.New("test error"), ctx, matcher, 2)
+
+	// 格式化错误
+	formatted := FormatHandlerError(err)
+
+	// 验证格式化输出
+	assert.Contains(t, formatted, "Message: test error")
+	assert.Contains(t, formatted, "Source:")
+	assert.Contains(t, formatted, "Attempt: 2")
+	assert.Contains(t, formatted, "Trace:")
+	assert.Contains(t, formatted, "Stack:")
 }

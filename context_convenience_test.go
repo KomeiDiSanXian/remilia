@@ -12,14 +12,14 @@ func TestContext_GetString(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing string
-	ctx.SetState("key", "value")
+	ctx.Set("key", "value")
 	assert.Equal(t, "value", ctx.GetString("key"))
 
 	// Test with non-existent key
 	assert.Equal(t, "", ctx.GetString("nonexistent"))
 
 	// Test with wrong type
-	ctx.SetState("number", 123)
+	ctx.Set("number", 123)
 	assert.Equal(t, "", ctx.GetString("number"))
 }
 
@@ -28,14 +28,14 @@ func TestContext_GetInt(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing int
-	ctx.SetState("count", 42)
+	ctx.Set("count", 42)
 	assert.Equal(t, 42, ctx.GetInt("count"))
 
 	// Test with non-existent key
 	assert.Equal(t, 0, ctx.GetInt("nonexistent"))
 
 	// Test with wrong type
-	ctx.SetState("text", "hello")
+	ctx.Set("text", "hello")
 	assert.Equal(t, 0, ctx.GetInt("text"))
 }
 
@@ -45,7 +45,7 @@ func TestContext_GetInt64(t *testing.T) {
 
 	// Test with existing int64
 	var num int64 = 9223372036854775807
-	ctx.SetState("big", num)
+	ctx.Set("big", num)
 	assert.Equal(t, num, ctx.GetInt64("big"))
 
 	// Test with non-existent key
@@ -57,17 +57,17 @@ func TestContext_GetBool(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing bool
-	ctx.SetState("active", true)
+	ctx.Set("active", true)
 	assert.True(t, ctx.GetBool("active"))
 
-	ctx.SetState("inactive", false)
+	ctx.Set("inactive", false)
 	assert.False(t, ctx.GetBool("inactive"))
 
 	// Test with non-existent key
 	assert.False(t, ctx.GetBool("nonexistent"))
 
 	// Test with wrong type
-	ctx.SetState("number", 1)
+	ctx.Set("number", 1)
 	assert.False(t, ctx.GetBool("number"))
 }
 
@@ -76,14 +76,14 @@ func TestContext_GetFloat64(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing float64
-	ctx.SetState("price", 99.99)
+	ctx.Set("price", 99.99)
 	assert.Equal(t, 99.99, ctx.GetFloat64("price"))
 
 	// Test with non-existent key
 	assert.Equal(t, 0.0, ctx.GetFloat64("nonexistent"))
 
 	// Test with wrong type
-	ctx.SetState("text", "hello")
+	ctx.Set("text", "hello")
 	assert.Equal(t, 0.0, ctx.GetFloat64("text"))
 }
 
@@ -92,7 +92,7 @@ func TestContext_MustGetString(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing string
-	ctx.SetState("key", "value")
+	ctx.Set("key", "value")
 	val, err := ctx.MustGetString("key")
 	assert.NoError(t, err)
 	assert.Equal(t, "value", val)
@@ -103,7 +103,7 @@ func TestContext_MustGetString(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	// Test with wrong type
-	ctx.SetState("number", 123)
+	ctx.Set("number", 123)
 	_, err = ctx.MustGetString("number")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not a string")
@@ -114,7 +114,7 @@ func TestContext_MustGetInt(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Test with existing int
-	ctx.SetState("count", 42)
+	ctx.Set("count", 42)
 	val, err := ctx.MustGetInt("count")
 	assert.NoError(t, err)
 	assert.Equal(t, 42, val)
@@ -125,7 +125,7 @@ func TestContext_MustGetInt(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 
 	// Test with wrong type
-	ctx.SetState("text", "hello")
+	ctx.Set("text", "hello")
 	_, err = ctx.MustGetInt("text")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not an int")
@@ -135,13 +135,10 @@ func TestContext_MustGetInt(t *testing.T) {
 func TestContext_SetStateMap(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
-	// Set multiple states at once
-	data := State{
-		"key1": "value1",
-		"key2": 123,
-		"key3": true,
-	}
-	ctx.SetStateMap(data)
+	// Set multiple states at once (V2)
+	ctx.Set("key1", "value1")
+	ctx.Set("key2", 123)
+	ctx.Set("key3", true)
 
 	// Verify all states were set
 	assert.Equal(t, "value1", ctx.GetString("key1"))
@@ -154,12 +151,18 @@ func TestContext_GetStateKeys(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
 
 	// Set up test data
-	ctx.SetState("key1", "value1")
-	ctx.SetState("key2", 123)
-	ctx.SetState("key3", true)
+	ctx.Set("key1", "value1")
+	ctx.Set("key2", 123)
+	ctx.Set("key3", true)
 
-	// Get multiple keys
-	result := ctx.GetStateKeys("key1", "key2", "nonexistent")
+	// Get multiple keys (V2)
+	result := map[string]any{}
+	if v, ok := ctx.Get("key1"); ok {
+		result["key1"] = v
+	}
+	if v, ok := ctx.Get("key2"); ok {
+		result["key2"] = v
+	}
 
 	// Verify results
 	assert.Equal(t, "value1", result["key1"])
@@ -171,7 +174,7 @@ func TestContext_GetStateKeys(t *testing.T) {
 // Benchmark tests
 func BenchmarkContext_GetString(b *testing.B) {
 	ctx := NewContext(&dto.Payload{}, nil)
-	ctx.SetState("key", "value")
+	ctx.Set("key", "value")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -181,27 +184,13 @@ func BenchmarkContext_GetString(b *testing.B) {
 
 func BenchmarkContext_GetState_ManualCast(b *testing.B) {
 	ctx := NewContext(&dto.Payload{}, nil)
-	ctx.SetState("key", "value")
+	ctx.Set("key", "value")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if val, ok := ctx.GetState("key"); ok {
+		if val, ok := ctx.Get("key"); ok {
 			_ = val.(string)
 		}
-	}
-}
-
-func BenchmarkContext_SetStateMap(b *testing.B) {
-	ctx := NewContext(&dto.Payload{}, nil)
-	data := State{
-		"key1": "value1",
-		"key2": 123,
-		"key3": true,
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ctx.SetStateMap(data)
 	}
 }
 
@@ -210,8 +199,8 @@ func BenchmarkContext_SetState_Multiple(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ctx.SetState("key1", "value1")
-		ctx.SetState("key2", 123)
-		ctx.SetState("key3", true)
+		ctx.Set("key1", "value1")
+		ctx.Set("key2", 123)
+		ctx.Set("key3", true)
 	}
 }

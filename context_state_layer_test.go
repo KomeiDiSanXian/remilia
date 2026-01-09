@@ -4,49 +4,61 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
+	"github.com/KomeiDiSanXian/remilia/internal/extensionimpl"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
 )
 
-func TestContext_StateLayering_UserStateDoesNotSeeInternal(t *testing.T) {
+// testExt is a test-only typed extension used to validate Clone copies extensions.
+// It intentionally lives in this _test.go file.
+// NOTE: treat extension value as immutable.
+type testExt struct{ V string }
+
+// internalOnlyExt is a test-only typed extension used to simulate framework-internal data.
+type internalOnlyExt struct{ N int }
+
+func TestContext_StateLayering_UserStateDoesNotSeeTypedExtensions(t *testing.T) {
 	ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: []byte(`{"content":"/x"}`)}, nil)
 
 	// user state
-	ctx.SetState("k", "v")
-	val, ok := ctx.GetState("k")
+	ctx.Set("k", "v")
+	val, ok := ctx.Get("k")
 	require.True(t, ok)
 	require.Equal(t, "v", val)
 
-	// internal state should not be visible via GetState
-	ctx.internalSet("_remilia_internal_test", 123)
-	_, ok = ctx.GetState("_remilia_internal_test")
+	// framework-internal typed extension should not be visible via ctx.Get/ctx.All
+	ExtSet(ctx.Ext(), internalOnlyExt{N: 123})
+	_, ok = ctx.Get("internal_test")
 	require.False(t, ok)
+	all := ctx.All()
+	require.Equal(t, map[string]any{"k": "v"}, all)
 
-	// but internalGet can see it
-	v2, ok := ctx.internalGet("_remilia_internal_test")
+	// but typed extension can be retrieved via ExtGet
+	iex, ok := ExtGet[internalOnlyExt](ctx.Ext())
 	require.True(t, ok)
-	require.Equal(t, 123, v2)
-
-	// GetAllState should only contain user state
-	all := ctx.GetAllState()
-	require.Equal(t, State{"k": "v"}, all)
+	require.Equal(t, 123, iex.N)
 }
 
-func TestContext_Clone_CopiesUserAndInternalState(t *testing.T) {
+func TestContext_Clone_CopiesUserStateAndExtensions(t *testing.T) {
 	ctx := NewContext(&dto.Payload{Detail: []byte(`{"content":"/x"}`)}, nil)
-	ctx.SetState("u", "1")
-	ctx.internalSet("i", "2")
+	ctx.Set("u", "1")
+	ExtSet(ctx.Ext(), testExt{V: "2"})
+	ExtSet(ctx.Ext(), internalOnlyExt{N: 3})
 
 	cloned := ctx.Clone()
 
-	uv, ok := cloned.GetState("u")
+	uv, ok := cloned.Get("u")
 	require.True(t, ok)
 	require.Equal(t, "1", uv)
 
-	iv, ok := cloned.internalGet("i")
+	iv, ok := ExtGet[testExt](cloned.Ext())
 	require.True(t, ok)
-	require.Equal(t, "2", iv)
+	require.Equal(t, "2", iv.V)
+
+	ix, ok := ExtGet[internalOnlyExt](cloned.Ext())
+	require.True(t, ok)
+	require.Equal(t, 3, ix.N)
 }
 
 func TestContext_ParseCommand_CacheIsInternal(t *testing.T) {
@@ -59,13 +71,15 @@ func TestContext_ParseCommand_CacheIsInternal(t *testing.T) {
 	require.NotNil(t, args1)
 
 	// cache must not be visible to user state
-	_, ok := ctx.GetState("_remilia_internal_command_args")
+	all := ctx.All()
+	_, ok := all["_remilia_internal_command_args"]
 	require.False(t, ok)
 
-	// but internal should have it
-	v, ok := ctx.internalGet("_remilia_internal_command_args")
+	// V2 cache should exist in typed extensions
+	cache, ok := ExtGet[*extensionimpl.CommandArgsCacheV2](ctx.Ext())
 	require.True(t, ok)
-	require.NotNil(t, v)
+	require.NotNil(t, cache)
+	require.Same(t, args1, cache.Args)
 
 	args2, err := ctx.ParseCommand()
 	require.NoError(t, err)
@@ -79,7 +93,7 @@ func TestContext_ParsedCommand_StoredInInternalState(t *testing.T) {
 	ctx.SetParsedCommand(pc)
 
 	// not visible to user state
-	_, ok := ctx.GetState("_remilia_internal_parsed_command")
+	_, ok := ctx.Get("_remilia_internal_parsed_command")
 	require.False(t, ok)
 
 	got := ctx.GetParsedCommand()

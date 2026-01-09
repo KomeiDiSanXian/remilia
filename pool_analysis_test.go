@@ -2,10 +2,7 @@ package remilia
 
 import (
 	"runtime"
-	"sync"
 	"testing"
-
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 // TestMatcherCreationFrequency 测试 Matcher 创建频率
@@ -40,51 +37,6 @@ func BenchmarkMatcherCreation(b *testing.B) {
 			// Handler
 		})
 	}
-}
-
-// BenchmarkStateMapOperations 测试 State map 操作性能
-func BenchmarkStateMapOperations(b *testing.B) {
-	event := &dto.Payload{Type: dto.C2CMessageCreate}
-
-	b.Run("CurrentImplementation", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			ctx := NewContext(event, nil)
-			ctx.SetState("key1", "value1")
-			ctx.SetState("key2", 123)
-			ctx.SetState("key3", true)
-			_, _ = ctx.GetState("key1")
-			_ = ctx.GetAllState()
-		}
-	})
-
-	// 模拟如果使用独立 map 池的情况
-	b.Run("TheoreticalSeparateMapPool", func(b *testing.B) {
-		// 这只是理论测试，实际不实现
-		mapPool := &sync.Pool{
-			New: func() interface{} {
-				return make(State)
-			},
-		}
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = NewContext(event, nil)
-			// 理论上从 map 池获取
-			stateMap := mapPool.Get().(State)
-
-			stateMap["key1"] = "value1"
-			stateMap["key2"] = 123
-			stateMap["key3"] = true
-			_ = stateMap["key1"]
-
-			// 清理并放回
-			for k := range stateMap {
-				delete(stateMap, k)
-			}
-			mapPool.Put(stateMap)
-		}
-	})
 }
 
 // TestMatcherMemoryUsage 测试 Matcher 内存使用

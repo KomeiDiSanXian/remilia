@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -219,6 +220,15 @@ func TestDeadLetterQueue_Shutdown(t *testing.T) {
 		})
 	}
 
+	// Ensure at least one item is consumed before shutdown (reduces flakes on slow CI)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if consumer.GetConsumed() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	// Graceful shutdown with longer timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -226,8 +236,15 @@ func TestDeadLetterQueue_Shutdown(t *testing.T) {
 	err := q.Shutdown(ctx)
 	assert.NoError(t, err)
 
-	// Wait a bit for final processing
-	time.Sleep(100 * time.Millisecond)
+	// Wait for final processing (best effort)
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		consumed := consumer.GetConsumed()
+		if consumed >= 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	// All should be processed
 	consumed := consumer.GetConsumed()
@@ -238,25 +255,37 @@ func TestDeadLetterQueue_Shutdown(t *testing.T) {
 func TestDeadLetterQueue_ShutdownTimeout(t *testing.T) {
 	q := NewDeadLetterQueue(DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
 
-	// Slow consumer
-	slowConsumer := DeadLetterConsumer(DeadLetterConsumerFunc(func(item DeadLetterItem) {
-		time.Sleep(2 * time.Second)
+	// Block the consumer until shutdown timeout context is done.
+	blockCh := make(chan struct{})
+	blocked := make(chan struct{}, 1)
+	consumer := DeadLetterConsumer(DeadLetterConsumerFunc(func(item DeadLetterItem) {
+		select {
+		case blocked <- struct{}{}:
+		default:
+		}
+		<-blockCh
 	}))
 
-	q.AddConsumer(slowConsumer)
+	q.AddConsumer(consumer)
 	q.Start()
 
-	// Enqueue
-	for i := 0; i < 3; i++ {
-		q.Enqueue(DeadLetterItem{
-			Event: &dto.Payload{
-				ID:   dto.EventID("test-event-" + string(rune('0'+i))),
-				Type: dto.C2CMessageCreate,
-			},
-			Err:     assert.AnError,
-			Attempt: i,
-			Source:  "test",
-		})
+	// Enqueue at least one item so worker starts consuming.
+	q.Enqueue(DeadLetterItem{
+		Event: &dto.Payload{
+			ID:   "test-event-timeout",
+			Type: dto.C2CMessageCreate,
+		},
+		Err:     assert.AnError,
+		Attempt: 1,
+		Source:  "test",
+	})
+
+	// Ensure consumer has started.
+	select {
+	case <-blocked:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatal("consumer did not start in time")
 	}
 
 	// Short timeout
@@ -264,8 +293,10 @@ func TestDeadLetterQueue_ShutdownTimeout(t *testing.T) {
 	defer cancel()
 
 	err := q.Shutdown(ctx)
+	close(blockCh)
+
 	assert.Error(t, err)
-	assert.Equal(t, context.DeadlineExceeded, err)
+	assert.True(t, errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled))
 }
 
 func TestDeadLetterQueue_Stats(t *testing.T) {

@@ -1,4 +1,6 @@
+//go:build ignore
+
 package remilia
 
-// Deprecated: metrics implementations have been moved to infra/metrics.
-// Keep using remilia.NewMetricsCollector / remilia.MetricsCollector via re-exports in infra_compat.go.
+// This file is intentionally ignored.
+// Metrics backward-compatible facades live in infra_compat.go and metrics_types.go.

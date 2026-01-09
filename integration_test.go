@@ -224,8 +224,8 @@ func TestIntegration_ContextStateManagement(t *testing.T) {
 	// 中间件设置状态
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
-			ctx.SetState("middleware_data", "test-value")
-			ctx.SetState("counter", 42)
+			ctx.Set("middleware_data", "test-value")
+			ctx.Set("counter", 42)
 			return next(ctx)
 		}
 	})
@@ -235,10 +235,10 @@ func TestIntegration_ContextStateManagement(t *testing.T) {
 	var retrievedInt int
 
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
-		if val, ok := ctx.GetState("middleware_data"); ok {
+		if val, ok := ctx.Get("middleware_data"); ok {
 			retrievedString = val.(string)
 		}
-		if val, ok := ctx.GetState("counter"); ok {
+		if val, ok := ctx.Get("counter"); ok {
 			retrievedInt = val.(int)
 		}
 		return nil
@@ -429,18 +429,22 @@ func TestIntegration_ContextClone(t *testing.T) {
 
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
 		originalID = string(ctx.GetEvent().ID)
-		ctx.SetState("test", "original")
+		ctx.Set("test", "original")
 
 		// 克隆 Context
 		cloned := ctx.Clone()
 		clonedID = string(cloned.GetEvent().ID)
 
 		// 修改克隆的状态不应影响原始 Context
-		cloned.SetState("test", "cloned")
+		cloned.Set("test", "cloned")
 
 		// 验证状态独立
-		originalState = ctx.GetString("test")
-		clonedState = cloned.GetString("test")
+		if v, ok := ctx.Get("test"); ok {
+			originalState = v.(string)
+		}
+		if v, ok := cloned.Get("test"); ok {
+			clonedState = v.(string)
+		}
 
 		return nil
 	})

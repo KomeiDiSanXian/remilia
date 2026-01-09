@@ -130,7 +130,7 @@ func TestOnGroupBlacklist(t *testing.T) {
 // TestOnHasPermission tests permission check rule
 func TestOnHasPermission(t *testing.T) {
 	pm := NewPermissionManager()
-	pm.AssignRole("user123", "admin")
+	assert.NoError(t, pm.AssignRole("user123", "admin"))
 
 	rule := OnHasPermission("admin", "manage")
 
@@ -138,21 +138,21 @@ func TestOnHasPermission(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	// Set up permission manager and user ID
-	ctx.SetState("permission_manager", pm)
-	ctx.SetState("user_id", "user123")
+	ctx.SetPermissionManager(pm)
+	ctx.SetUserID("user123")
 
 	// Admin should have permission
 	assert.True(t, rule(ctx))
 
 	// User without permission
-	ctx.SetState("user_id", "user999")
+	ctx.SetUserID("user999")
 	assert.False(t, rule(ctx))
 }
 
 // TestOnHasRole tests role check rule
 func TestOnHasRole(t *testing.T) {
 	pm := NewPermissionManager()
-	pm.AssignRole("user123", "admin")
+	assert.NoError(t, pm.AssignRole("user123", "admin"))
 
 	rule := OnHasRole("admin")
 
@@ -160,14 +160,14 @@ func TestOnHasRole(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	// Set up permission manager and user ID
-	ctx.SetState("permission_manager", pm)
-	ctx.SetState("user_id", "user123")
+	ctx.SetPermissionManager(pm)
+	ctx.SetUserID("user123")
 
 	// User has admin role
 	assert.True(t, rule(ctx))
 
 	// User without role
-	ctx.SetState("user_id", "user999")
+	ctx.SetUserID("user999")
 	assert.False(t, rule(ctx))
 }
 
@@ -175,7 +175,7 @@ func TestOnHasRole(t *testing.T) {
 func TestConvenienceRules_Integration(t *testing.T) {
 	engine := NewEngine()
 	pm := NewPermissionManager()
-	pm.AssignRole("admin_user", "admin")
+	assert.NoError(t, pm.AssignRole("admin_user", "admin"))
 
 	engine.Use(RequirePermissionMiddleware(pm))
 
@@ -202,8 +202,8 @@ func TestConvenienceRules_Integration(t *testing.T) {
 	}
 
 	ctx := NewContext(event, nil)
-	ctx.SetState("permission_manager", pm)
-	ctx.SetState("user_id", "admin_user")
+	ctx.SetPermissionManager(pm)
+	ctx.SetUserID("admin_user")
 
 	engine.ProcessEvent(ctx)
 	assert.True(t, executed)

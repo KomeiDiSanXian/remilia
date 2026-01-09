@@ -151,7 +151,7 @@ func TestRequestID(t *testing.T) {
 	var capturedID string
 	handler := mw(func(ctx *remilia.Context) error {
 		// 检查 request_id 是否被设置
-		requestID, ok := ctx.GetState("request_id")
+		requestID, ok := ctx.Get(CtxKeyRequestID)
 		assert.True(t, ok)
 		assert.NotEmpty(t, requestID)
 		capturedID = requestID.(string)
@@ -188,7 +188,7 @@ func TestRateLimitTokenBucket_SharedBucket(t *testing.T) {
 func TestRateLimitTokenBucket_PerKeyBucket(t *testing.T) {
 	// 按 key 限流 - 使用 Context State 模拟不同用户
 	mw := RateLimitTokenBucket(1, 1, func(ctx *remilia.Context) string {
-		if userID, ok := ctx.GetState("user_id"); ok {
+		if userID, ok := ctx.Get(CtxKeyUserID); ok {
 			return userID.(string)
 		}
 		return "default"
@@ -200,10 +200,10 @@ func TestRateLimitTokenBucket_PerKeyBucket(t *testing.T) {
 
 	// 两个不同的用户
 	ctx1 := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx1.SetState("user_id", "user1")
+	ctx1.Set(CtxKeyUserID, "user1")
 
 	ctx2 := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx2.SetState("user_id", "user2")
+	ctx2.Set(CtxKeyUserID, "user2")
 
 	// user1 第一次成功
 	assert.NoError(t, handler(ctx1))
@@ -228,7 +228,7 @@ func TestRateLimitTokenBucket_EvictsOldestWhenCapExceeded(t *testing.T) {
 	defer func() { rateLimitBucketTTL = originalTTL; rateLimitCleanupInterval = originalInterval }()
 
 	mw := RateLimitTokenBucket(10, 5, func(ctx *remilia.Context) string {
-		if id, ok := ctx.GetState("user_id"); ok {
+		if id, ok := ctx.Get(CtxKeyUserID); ok {
 			return id.(string)
 		}
 		return "default"
@@ -239,7 +239,7 @@ func TestRateLimitTokenBucket_EvictsOldestWhenCapExceeded(t *testing.T) {
 	// 创建超过上限的 key，触发淘汰（不要求每次 Allow 成功，只要不 panic）
 	for i := 0; i < 7; i++ {
 		ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("user_id", fmt.Sprintf("user-%d", i))
+		ctx.Set(CtxKeyUserID, fmt.Sprintf("user-%d", i))
 		_ = handler(ctx)
 	}
 
@@ -249,7 +249,7 @@ func TestRateLimitTokenBucket_EvictsOldestWhenCapExceeded(t *testing.T) {
 
 	// 旧键应已被淘汰后可重建，不应 panic
 	ctxOld := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctxOld.SetState("user_id", "user-0")
+	ctxOld.Set(CtxKeyUserID, "user-0")
 	_ = handler(ctxOld)
 }
 
@@ -259,7 +259,7 @@ func TestRateLimitTokenBucket_ConcurrentAccessUnderCap(t *testing.T) {
 	defer func() { rateLimitMaxBuckets = originalCap }()
 
 	mw := RateLimitTokenBucket(5, 2, func(ctx *remilia.Context) string {
-		if id, ok := ctx.GetState("user_id"); ok {
+		if id, ok := ctx.Get(CtxKeyUserID); ok {
 			return id.(string)
 		}
 		return "default"
@@ -273,7 +273,7 @@ func TestRateLimitTokenBucket_ConcurrentAccessUnderCap(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-			ctx.SetState("user_id", fmt.Sprintf("user-%d", i))
+			ctx.Set(CtxKeyUserID, fmt.Sprintf("user-%d", i))
 			_ = handler(ctx) // 我们只关心无 panic 且不溢出
 		}(i)
 	}

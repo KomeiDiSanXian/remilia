@@ -1,4 +1,6 @@
+//go:build ignore
+
 package remilia
 
-// Deprecated: health manager implementation has been moved to infra/health.
-// Keep using remilia.NewHealthCheck / remilia.HealthCheck via re-exports in infra_compat.go.
+// This file is intentionally ignored.
+// Health backward-compatible facade lives in infra_compat.go.

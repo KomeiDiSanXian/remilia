@@ -235,7 +235,7 @@ func TestLoggerWithContextFullFields(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	// 设置 request_id
-	ctx.SetState(LogFieldRequestID, "req-456")
+	ctx.Set(LogFieldRequestID, "req-456")
 
 	// 设置 matcher
 	matcher := &Matcher{

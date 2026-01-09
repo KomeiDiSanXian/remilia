@@ -131,7 +131,7 @@ func TestRulePerformance(t *testing.T) {
 		}
 
 		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.SetState("type", "message")
+		ctx.Set("type", "message")
 
 		start := time.Now()
 		for i := 0; i < 1000; i++ {
@@ -189,7 +189,7 @@ func TestWithTimeoutInEngine(t *testing.T) {
 // BenchmarkRulePerformance 基准测试
 func BenchmarkRulePerformance(b *testing.B) {
 	ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx.SetState("type", "message")
+	ctx.Set("type", "message")
 
 	b.Run("SimpleRule", func(b *testing.B) {
 		rule := func(ctx *Context) bool {

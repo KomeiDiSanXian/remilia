@@ -9,8 +9,8 @@ import "fmt"
 func RequirePermissionMiddleware(pm *PermissionManager) HandlerMiddleware {
 	return func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			// 将权限管理器注入 Context
-			ctx.SetState("permission_manager", pm)
+			// Phase 3: prefer typed extension injection.
+			ctx.SetPermissionManager(pm)
 			return next(ctx)
 		}
 	}
@@ -23,7 +23,7 @@ func RequirePermissionMiddleware(pm *PermissionManager) HandlerMiddleware {
 func RequirePermission(resource, action string) HandlerMiddleware {
 	return func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			if err := ctx.RequirePermission(resource, action); err != nil {
+			if err := EnsurePermission(ctx, resource, action); err != nil {
 				return fmt.Errorf("permission check failed for %s:%s: %w", resource, action, err)
 			}
 			return next(ctx)
@@ -38,17 +38,12 @@ func RequirePermission(resource, action string) HandlerMiddleware {
 func RequireRole(roleName string) HandlerMiddleware {
 	return func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			pm, ok := ctx.GetState("permission_manager")
+			permManager, ok := ctx.GetPermissionManager()
 			if !ok {
 				return ErrPermissionDenied
 			}
 
-			permManager, ok := pm.(*PermissionManager)
-			if !ok {
-				return ErrPermissionDenied
-			}
-
-			userID := ctx.getUserID()
+			userID := GetUserID(ctx)
 			if userID == "" {
 				return ErrPermissionDenied
 			}
@@ -76,17 +71,12 @@ func RequireRole(roleName string) HandlerMiddleware {
 func RequireAnyPermission(perms ...Permission) HandlerMiddleware {
 	return func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			pm, ok := ctx.GetState("permission_manager")
+			permManager, ok := ctx.GetPermissionManager()
 			if !ok {
 				return ErrPermissionDenied
 			}
 
-			permManager, ok := pm.(*PermissionManager)
-			if !ok {
-				return ErrPermissionDenied
-			}
-
-			userID := ctx.getUserID()
+			userID := GetUserID(ctx)
 			if userID == "" {
 				return ErrPermissionDenied
 			}
@@ -113,17 +103,12 @@ func RequireAnyPermission(perms ...Permission) HandlerMiddleware {
 func RequireAllPermissions(perms ...Permission) HandlerMiddleware {
 	return func(next HandlerE) HandlerE {
 		return func(ctx *Context) error {
-			pm, ok := ctx.GetState("permission_manager")
+			permManager, ok := ctx.GetPermissionManager()
 			if !ok {
 				return ErrPermissionDenied
 			}
 
-			permManager, ok := pm.(*PermissionManager)
-			if !ok {
-				return ErrPermissionDenied
-			}
-
-			userID := ctx.getUserID()
+			userID := GetUserID(ctx)
 			if userID == "" {
 				return ErrPermissionDenied
 			}

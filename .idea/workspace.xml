@@ -4,136 +4,72 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor">
-      <change afterPath="$PROJECT_DIR$/ARCH_REVIEW.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/CODE_REVIEW_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/adapter_shutdown_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/adapter_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/doc.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/enhanced.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/enhanced_system.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/enhanced_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/parser.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command/parser_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command_dispatch_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command_glue.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command_integration_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/command_merge_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/context_reserved_keys_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/context_state_layer_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/debug_output.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/archive/TEMP_MANAGER_MIGRATION.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/code_analysis_report.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/code_structure_audit.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/dummy_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_batch_delete_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_command_registration_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_component.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_component_cleaner.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_component_pending_delete.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_config.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_core.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_group_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_middleware.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_option_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_process.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_race_fix_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_runtime.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_runtime_compile_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_services.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_shutdown_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/engine_withmatchergroupbatch_deadlock_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/errors_stack.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/errors_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/errors_util.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/extension/context_command.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/extension/context_command_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/handler_error.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/health_checkers.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/health_types.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/dlq/.gitkeep" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/dlq/types.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/health/.gitkeep" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/health/health.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/metrics/.gitkeep" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/metrics/compat.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/pool/.gitkeep" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/pool/pool.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/pool/typed_pool.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/pool/typed_pool_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra_compat.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/internal/extensionimpl/command_args.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/matcher_chain_cache_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/matcher_coupling_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/matcher_group_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/metrics_compat.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/metrics_types.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/deadletter.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/deadletter_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware_trace.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware_trace_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin_addmatcher_writeamp_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin_cow_perf_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin_group_semantics_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/pool_types.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/retry_attempt_internal_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/server.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/temp_manager.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/temp_matcher_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="del: archived docs">
+      <change afterPath="$PROJECT_DIR$/docs/refactor/BRANCH_AND_MIGRATION_GUIDE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/refactor/V2_CONTEXT_REDESIGN_CN.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/internal/extensionimpl/command_args_v2.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/context_keys.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/degraded_ext.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/degraded_ext_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/permission_ext.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/user_id_ext.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/user_id_ext_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CODE_REVIEW_REPORT.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/batch_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/batch_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_graceful_shutdown_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_graceful_shutdown_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command_enhanced.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_enhanced.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command_enhanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_enhanced_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/command_parser.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_parser.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command_parser_fuzz_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_parser_fuzz_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command_parser_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command_parser_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/context.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_clone_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context_convenience_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_convenience_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/context_migration_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_migration_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context_reserved_keys_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_reserved_keys_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/context_state_layer_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_state_layer_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/deadletter_consumers.go" beforeDir="false" afterPath="$PROJECT_DIR$/deadletter_consumers.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/deadletter_queue.go" beforeDir="false" afterPath="$PROJECT_DIR$/deadletter_queue.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/deadletter_queue_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/deadletter_queue_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_auto_cleaner_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_auto_cleaner_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_bench_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_bench_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_lock_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_lock_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_matcher_limit_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_matcher_limit_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/refactor/DECISIONS.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/refactor/DECISIONS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/refactor/MIGRATION_CHECKLIST.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/refactor/MIGRATION_CHECKLIST.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/refactor/V2_CONTEXT_REDESIGN.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/refactor/V2_CONTEXT_REDESIGN.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/engine_noop_matcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_noop_matcher_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_state.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/engine_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors_logger_fuzz_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/errors_logger_fuzz_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/errors_stack_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/errors_stack_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors_unified.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors_unified_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/graceful_shutdown_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/graceful_shutdown_context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension/context_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/extension/context_command.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extension/context_command_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/extension/context_command_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extensions.go" beforeDir="false" afterPath="$PROJECT_DIR$/extensions.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extensions_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/extensions_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/health.go" beforeDir="false" afterPath="$PROJECT_DIR$/health.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/integration_e2e_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/integration_e2e_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/integration_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/integration_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/matcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/extensionimpl/command_args.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/logger_structured.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/logger_structured_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/logger_structured_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/matcher_group_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/matcher_group_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/metrics.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/metrics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/metrics_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/degradation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/timeout_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/timeout_context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware_trace_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware_trace_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/permission_middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/permission_middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/permission_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/permission_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin_group_semantics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin_group_semantics_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/pool.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pool_bench_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/pool_stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/pool_stats_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pool_analysis_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/pool_analysis_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/pool_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/realistic_bench_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/realistic_bench_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/retry_attempt_internal_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/retry_attempt_internal_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_cache_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_cache_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_convenience.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_convenience_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_convenience_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_fuzz_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_fuzz_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rules_performance_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_performance_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rules_purity_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/rules_purity_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -191,7 +127,7 @@
     &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;refactor/context-v2&quot;,
     &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
     &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,

@@ -47,7 +47,7 @@ func TestRegexCacheEviction(t *testing.T) {
 	// 访问 p1，使其成为最近使用
 	rule, _ := OnRegexSafe("p1")
 	ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx.SetState("message_content", "test")
+	ctx.Set("message_content", "test")
 	rule(ctx)
 
 	// 添加新模式，应该淘汰未访问的

@@ -405,8 +405,7 @@ func TestAdaptiveDegradation_SimplifyStrategy(t *testing.T) {
 
 	handler := func(ctx *remilia.Context) error {
 		// 业务逻辑可以检查 degraded 标记并简化处理
-		degraded, _ := ctx.GetState("degraded")
-		if degraded != nil {
+		if IsDegraded(ctx) {
 			return nil // 简化处理
 		}
 		return nil
@@ -422,9 +421,8 @@ func TestAdaptiveDegradation_SimplifyStrategy(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	// 检查 degraded 标记是否被设置
-	degraded, exists := ctx.GetState("degraded")
-	if !exists || degraded == nil {
+	// 检查 degraded 标记是否被设置（typed extension 优先）
+	if !IsDegraded(ctx) {
 		t.Error("Expected degraded flag to be set")
 	}
 }

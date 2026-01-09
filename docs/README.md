@@ -5,6 +5,8 @@
 ## 重构 / V2
 
 - [V2 Context 重设计](refactor/V2_CONTEXT_REDESIGN.md)
+- [V2 Context 重设计（中文精简版）](refactor/V2_CONTEXT_REDESIGN_CN.md)
+- [分支与渐进迁移指南（refactor/context-v2）](refactor/BRANCH_AND_MIGRATION_GUIDE.md)
 - [关键决策（轻量 ADR）](refactor/DECISIONS.md)
 - [迁移清单（Checklist）](refactor/MIGRATION_CHECKLIST.md)
 - [测试策略](refactor/TEST_STRATEGY.md)

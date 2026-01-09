@@ -361,7 +361,7 @@ func FuzzContextClone(f *testing.F) {
 		ctx := NewContext(event, nil)
 
 		// 设置状态
-		ctx.SetState(key, value)
+		ctx.Set(key, value)
 
 		// 克隆
 		cloned := ctx.Clone()
@@ -371,10 +371,10 @@ func FuzzContextClone(f *testing.F) {
 		}
 
 		// 修改克隆的状态不应影响原始 Context
-		cloned.SetState(key, "modified")
+		cloned.Set(key, "modified")
 
 		// 验证原始 Context 未被修改
-		originalValue, ok := ctx.GetState(key)
+		originalValue, ok := ctx.Get(key)
 		if ok && originalValue != value {
 			t.Errorf("Original context was modified by clone")
 		}

@@ -15,6 +15,8 @@ import (
 //
 // NOTE: this is introduced in Phase 1 for progressive migration.
 // Existing V1 state/internalState still exist temporarily.
+//
+// (Updated: legacy V1 internal state layers have been removed; Extensions is the only framework metadata store.)
 type Extensions struct {
 	mu sync.RWMutex
 	m  map[reflect.Type]any

@@ -8,6 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
@@ -73,8 +74,6 @@ func TestNewContext(t *testing.T) {
 
 	assert.NotNil(t, ctx)
 	assert.Equal(t, event, ctx.event)
-	assert.NotNil(t, ctx.userState)
-	assert.NotNil(t, ctx.internalState)
 	assert.Equal(t, mockAPI, ctx.api)
 }
 
@@ -109,27 +108,27 @@ func TestContextState(t *testing.T) {
 
 	ctx := NewContext(event, nil)
 
-	// Test setting and getting state using thread-safe API
-	ctx.SetState("key1", "value1")
-	ctx.SetState("key2", 123)
+	// Test setting and getting state using V2 sugar API
+	ctx.Set("key1", "value1")
+	ctx.Set("key2", 123)
 
-	val1, ok1 := ctx.GetState("key1")
+	val1, ok1 := ctx.Get("key1")
 	assert.True(t, ok1)
 	assert.Equal(t, "value1", val1)
 
-	val2, ok2 := ctx.GetState("key2")
+	val2, ok2 := ctx.Get("key2")
 	assert.True(t, ok2)
 	assert.Equal(t, 123, val2)
 
-	// Test GetAllState
-	allState := ctx.GetAllState()
+	// Test All (V2)
+	allState := ctx.All()
 	assert.Equal(t, 2, len(allState))
 	assert.Equal(t, "value1", allState["key1"])
 	assert.Equal(t, 123, allState["key2"])
 
-	// Test DeleteState
-	ctx.DeleteState("key1")
-	_, ok := ctx.GetState("key1")
+	// Delete via Set(key,nil) (V2 semantics)
+	ctx.Set("key1", nil)
+	_, ok := ctx.Get("key1")
 	assert.False(t, ok)
 }
 
@@ -403,9 +402,8 @@ func TestContextGetAuthor(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	author := ctx.GetAuthor()
-
-	assert.NotNil(t, author)
-	assert.Equal(t, "user-123", author.UserOpenID)
+	require.NotNil(t, author)
+	require.Equal(t, "user-123", author.UserOpenID)
 }
 
 func TestContextRetainRelease_AsyncSafe(t *testing.T) {
@@ -417,7 +415,7 @@ func TestContextRetainRelease_AsyncSafe(t *testing.T) {
 	ctx := NewContext(event, nil)
 
 	// Set some state to verify visibility
-	ctx.SetState("k", "v")
+	ctx.Set("k", "v")
 
 	done := make(chan struct{})
 
@@ -427,7 +425,7 @@ func TestContextRetainRelease_AsyncSafe(t *testing.T) {
 		// Should still be valid even if main goroutine released earlier
 		content := ctx.GetMessageContent()
 		assert.Equal(t, "hello", content)
-		val, ok := ctx.GetState("k")
+		val, ok := ctx.Get("k")
 		assert.True(t, ok)
 		assert.Equal(t, "v", val)
 	}()

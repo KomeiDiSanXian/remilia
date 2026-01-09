@@ -52,14 +52,14 @@ func TestE2EStatePropagation(t *testing.T) {
 	// 中间件设置状态
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
-			ctx.SetState("test-state", "middleware-value")
+			ctx.Set("test-state", "middleware-value")
 			return next(ctx)
 		}
 	})
 
 	// Handler 读取状态
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
-		if val, ok := ctx.GetState("test-state"); ok {
+		if val, ok := ctx.Get("test-state"); ok {
 			stateInHandler = val.(string)
 		}
 		return nil
@@ -187,7 +187,7 @@ func TestE2EComplexWorkflow(t *testing.T) {
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
 			workflow = append(workflow, "auth:check")
-			ctx.SetState("authenticated", true)
+			ctx.Set("authenticated", true)
 			return next(ctx)
 		}
 	})
@@ -241,7 +241,7 @@ func TestE2EComplexWorkflow(t *testing.T) {
 	ctx2 := remilia.NewContext(event, nil)
 	engine.ProcessEvent(ctx2) // autoRelease 会自动释放
 
-	// 验证第二次处理被阻断（workflow 增加了中间件日志但没有 handler 执行）
+	// 验证第二次处理被阻断（workflow 增加了中间件日志但沒有 handler 执行）
 	// 会增加: logging:before, auth:check, (dedup blocks), logging:after (每个 handler)
 	newEntries := workflow[initialWorkflowLen:]
 	assert.NotContains(t, newEntries, "handler:high-priority", "Deduped event should not execute handler")
@@ -255,8 +255,8 @@ func TestE2EStateSharing(t *testing.T) {
 	// 中间件 1：设置用户信息
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
-			ctx.SetState("user_id", "user-123")
-			ctx.SetState("username", "testuser")
+			ctx.SetUserID("user-123")
+			ctx.Set("username", "testuser")
 			return next(ctx)
 		}
 	})
@@ -264,7 +264,7 @@ func TestE2EStateSharing(t *testing.T) {
 	// 中间件 2：设置请求 ID
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
-			ctx.SetState("request_id", "req-456")
+			ctx.Set(middleware.CtxKeyRequestID, "req-456")
 			return next(ctx)
 		}
 	})
@@ -272,7 +272,7 @@ func TestE2EStateSharing(t *testing.T) {
 	// Handler：读取所有状态
 	var collectedState map[string]interface{}
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
-		collectedState = ctx.GetAllState()
+		collectedState = ctx.All()
 		return nil
 	})
 
@@ -285,9 +285,9 @@ func TestE2EStateSharing(t *testing.T) {
 	engine.ProcessEvent(ctx) // autoRelease 会自动释放
 
 	// 验证状态
-	assert.Equal(t, "user-123", collectedState["user_id"])
+	assert.Equal(t, "user-123", remilia.GetUserID(ctx))
 	assert.Equal(t, "testuser", collectedState["username"])
-	assert.Equal(t, "req-456", collectedState["request_id"])
+	assert.Equal(t, "req-456", collectedState[middleware.CtxKeyRequestID])
 }
 
 // TestE2EErrorPropagation 端到端测试：错误传播
@@ -348,7 +348,7 @@ func TestE2EMemoryUsage(t *testing.T) {
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
 		// 模拟一些内存操作
 		data := make([]byte, 1024)
-		ctx.SetState("data", data)
+		ctx.Set("data", data)
 		return nil
 	})
 
@@ -377,14 +377,14 @@ func BenchmarkE2ECompleteFlow(b *testing.B) {
 	// 配置中间件
 	engine.Use(func(next remilia.HandlerE) remilia.HandlerE {
 		return func(ctx *remilia.Context) error {
-			ctx.SetState("middleware", true)
+			ctx.Set("middleware", true)
 			return next(ctx)
 		}
 	})
 
 	// 配置 Handler
 	engine.OnC2C().HandleE(func(ctx *remilia.Context) error {
-		_, _ = ctx.GetState("middleware")
+		_, _ = ctx.Get("middleware")
 		return nil
 	})
 

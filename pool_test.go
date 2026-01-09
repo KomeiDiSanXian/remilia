@@ -10,10 +10,7 @@ import (
 func TestInstrumentedPool(t *testing.T) {
 	t.Parallel()
 	pool := NewInstrumentedPool(func() interface{} {
-		return &Context{
-			userState:     make(State),
-			internalState: make(internalState),
-		}
+		return &Context{}
 	})
 
 	pool.Reset()
@@ -40,7 +37,7 @@ func TestInstrumentedPool(t *testing.T) {
 func TestPoolStats(t *testing.T) {
 	t.Parallel()
 	pool := NewInstrumentedPool(func() interface{} {
-		return &Context{userState: make(State), internalState: make(internalState)}
+		return &Context{}
 	})
 
 	pool.Reset()

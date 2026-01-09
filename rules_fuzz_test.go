@@ -120,7 +120,7 @@ func FuzzOnCommand(f *testing.F) {
 				ID:   "fuzz-test",
 			}
 			ctx := NewContext(event, nil)
-			ctx.SetState("message_content", content) // 模拟消息内容
+			ctx.Set("message_content", content) // 模拟消息内容
 
 			// 规则执行不应该 panic
 			_ = rule(ctx)
@@ -343,15 +343,15 @@ func FuzzOnMessageType(f *testing.F) {
 		}
 
 		// 测试 Context 状态操作
-		ctx.SetState("test", "value")
-		_, _ = ctx.GetState("test")
+		ctx.Set("test", "value")
+		_, _ = ctx.Get("test")
 	})
 }
 
 // FuzzContextSetState 模糊测试 Context 状态设置
 //
 // 测试目标：
-//   - SetState 不应该 panic
+//   - ctx.Set 不应该 panic
 //   - 各种键值对都应该正常处理
 func FuzzContextSetState(f *testing.F) {
 	// 种子语料
@@ -366,7 +366,7 @@ func FuzzContextSetState(f *testing.F) {
 		// 不应该 panic
 		defer func() {
 			if r := recover(); r != nil {
-				t.Errorf("SetState panicked with key=%q, value=%q: %v", key, value, r)
+				t.Errorf("ctx.Set panicked with key=%q, value=%q: %v", key, value, r)
 			}
 		}()
 
@@ -377,18 +377,24 @@ func FuzzContextSetState(f *testing.F) {
 		ctx := NewContext(event, nil)
 
 		// 设置状态
-		ctx.SetState(key, value)
+		ctx.Set(key, value)
+		retrievedValue, ok := ctx.Get(key)
 
 		// 获取状态
-		retrievedValue, ok := ctx.GetState(key)
 		if ok {
 			if retrievedValue != value {
-				t.Errorf("GetState returned different value: expected %q, got %q", value, retrievedValue)
+				t.Errorf("ctx.Get returned different value: expected %q, got %v", value, retrievedValue)
 			}
 		}
 
-		// 删除状态
-		ctx.DeleteState(key)
+		// 删除状态（V2）
+		ctx.Delete(key)
+
+		// 验证状态已删除
+		_, ok = ctx.Get(key)
+		if ok {
+			t.Errorf("ctx.Get should not find deleted key %q", key)
+		}
 	})
 }
 

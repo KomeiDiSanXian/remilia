@@ -14,20 +14,20 @@ func TestEngine_MaxMatchersReturnsNoopMatcher(t *testing.T) {
 
 	// 注册两个正常的 matcher
 	m1 := engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("m1", true)
+		ctx.Set("m1", true)
 	})
 	assert.NotNil(t, m1)
 	assert.NotEqual(t, noopMatcher, m1)
 
 	m2 := engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("m2", true)
+		ctx.Set("m2", true)
 	})
 	assert.NotNil(t, m2)
 	assert.NotEqual(t, noopMatcher, m2)
 
 	// 第三个应该返回 noopMatcher (新的实例)
 	m3 := engine.OnC2C().Handle(func(ctx *Context) {
-		ctx.SetState("m3", true)
+		ctx.Set("m3", true)
 	})
 	assert.NotNil(t, m3, "Should return noopMatcher, not nil")
 	// assert.Equal(t, noopMatcher, m3) // 不再相等，因为返回的是新实例
@@ -47,9 +47,9 @@ func TestEngine_MaxMatchersReturnsNoopMatcher(t *testing.T) {
 	engine.ProcessEvent(ctx)
 
 	// 应该只有 m1 和 m2 执行了
-	_, ok1 := ctx.GetState("m1")
-	_, ok2 := ctx.GetState("m2")
-	_, ok3 := ctx.GetState("m3")
+	_, ok1 := ctx.Get("m1")
+	_, ok2 := ctx.Get("m2")
+	_, ok3 := ctx.Get("m3")
 
 	assert.True(t, ok1, "m1 should have executed")
 	assert.True(t, ok2, "m2 should have executed")

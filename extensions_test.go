@@ -2,59 +2,72 @@ package remilia
 
 import (
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-type extCounter struct {
-	N int
-}
+type extFoo struct{ N int }
 
-type extOnce struct {
-	V int
-}
+type extBar struct{ S string }
 
-func TestExtensions_SetGet_Value(t *testing.T) {
+func TestExtensions_SetGet_Typed(t *testing.T) {
 	e := newExtensions()
-	ExtSet(e, extCounter{N: 1})
-	v, ok := ExtGet[extCounter](e)
+
+	ExtSet(e, extFoo{N: 1})
+	v, ok := ExtGet[extFoo](e)
 	require.True(t, ok)
 	require.Equal(t, 1, v.N)
+
+	_, ok = ExtGet[extBar](e)
+	require.False(t, ok)
 }
 
-func TestExtensions_GetOrInit_OnlyOnce(t *testing.T) {
+func TestExtensions_GetOrInit_Once(t *testing.T) {
 	e := newExtensions()
 
-	var calls int32
-	init := func() *extOnce {
-		atomic.AddInt32(&calls, 1)
-		return &extOnce{V: 42}
-	}
+	calls := 0
+	v1 := ExtGetOrInit(e, func() extFoo {
+		calls++
+		return extFoo{N: 42}
+	})
+	v2 := ExtGetOrInit(e, func() extFoo {
+		calls++
+		return extFoo{N: 100}
+	})
 
-	// Concurrency: many goroutines call GetOrInit simultaneously.
+	require.Equal(t, 1, calls)
+	require.Equal(t, 42, v1.N)
+	require.Equal(t, 42, v2.N)
+}
+
+func TestExtensions_GetOrInit_Concurrent(t *testing.T) {
+	e := newExtensions()
+
+	var calls int
+	var mu sync.Mutex
+
+	const workers = 64
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
+	wg.Add(workers)
+	out := make([]extFoo, workers)
+
+	for i := 0; i < workers; i++ {
+		go func(idx int) {
 			defer wg.Done()
-			got := ExtGetOrInit(e, init)
-			require.NotNil(t, got)
-			require.Equal(t, 42, got.V)
-		}()
+			v := ExtGetOrInit(e, func() extFoo {
+				mu.Lock()
+				calls++
+				mu.Unlock()
+				return extFoo{N: 7}
+			})
+			out[idx] = v
+		}(i)
 	}
 	wg.Wait()
 
-	require.Equal(t, int32(1), atomic.LoadInt32(&calls))
-}
-
-func TestExtensions_Get_WrongType_ReturnsFalse(t *testing.T) {
-	e := newExtensions()
-	// Store as *extOnce
-	ExtSet(e, &extOnce{V: 1})
-
-	// Try to read as extOnce (non-pointer)
-	_, ok := ExtGet[extOnce](e)
-	require.False(t, ok)
+	require.Equal(t, 1, calls)
+	for i := 0; i < workers; i++ {
+		require.Equal(t, 7, out[i].N)
+	}
 }

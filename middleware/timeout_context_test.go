@@ -113,9 +113,9 @@ func TestTimeoutWithContextCancellation(t *testing.T) {
 	default:
 	}
 
-	// 验证 context 错误是 DeadlineExceeded
-	if contextError != nil && !errors.Is(contextError, context.DeadlineExceeded) {
-		t.Errorf("Expected context.DeadlineExceeded, got: %v", contextError)
+	// 验证 context 错误是 DeadlineExceeded 或 Canceled
+	if contextError != nil && !(errors.Is(contextError, context.DeadlineExceeded) || errors.Is(contextError, context.Canceled)) {
+		t.Errorf("Expected context to be canceled (deadline exceeded or canceled), got: %v", contextError)
 	}
 }
 

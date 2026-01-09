@@ -205,11 +205,6 @@ func (b *Bot) Shutdown(ctx context.Context) {
 	logrus.Info("[Remilia] Bot shutdown complete")
 }
 
-// Deprecated: logic moved to WebhookAdapter
-func (b *Bot) runWithWebhook() {
-	logrus.Warn("[Remilia] runWithWebhook is deprecated, use Adapter instead")
-}
-
 // Run starts the bot.
 //
 // ctrl + c to stop the bot.

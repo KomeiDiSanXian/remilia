@@ -1,6 +1,8 @@
 package remilia
 
-import "github.com/KomeiDiSanXian/remilia/openapi/dto"
+import (
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
 
 // OnUserWhitelist 创建用户白名单规则
 // 只有在白名单中的用户才能匹配
@@ -110,7 +112,7 @@ func OnGroupBlacklist(groupIDs ...string) Rule {
 //	).Handle(handler)
 func OnHasPermission(resource, action string) Rule {
 	return func(ctx *Context) bool {
-		return ctx.HasPermission(resource, action)
+		return CheckPermission(ctx, resource, action)
 	}
 }
 
@@ -126,17 +128,12 @@ func OnHasPermission(resource, action string) Rule {
 //	).Handle(handler)
 func OnHasRole(roleName string) Rule {
 	return func(ctx *Context) bool {
-		pm, ok := ctx.GetState("permission_manager")
-		if !ok {
+		permManager, ok := ctx.GetPermissionManager()
+		if !ok || permManager == nil {
 			return false
 		}
 
-		permManager, ok := pm.(*PermissionManager)
-		if !ok {
-			return false
-		}
-
-		userID := ctx.getUserID()
+		userID := GetUserID(ctx)
 		if userID == "" {
 			return false
 		}

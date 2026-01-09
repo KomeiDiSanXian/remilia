@@ -96,3 +96,48 @@
 **待确认点（Open points）**
 
 - 是否保留 `Handler` type alias 作为 public sugar。
+
+---
+
+## D005 — V2 user state：`ctx.Set(key, nil)` 等价于删除
+
+**状态**：已接受（Accepted）
+
+**决策**
+
+- 在 V2 `ctx.Set/ctx.Get` 语义下：
+  - `ctx.Set(key, value)` 写入
+  - `ctx.Delete(key)` 删除
+  - `ctx.Set(key, nil)` **等价于** `ctx.Delete(key)`（删除 key，而不是存储一个 nil 值）
+
+**原因（Rationale）**
+
+- 迁移成本更低：大量历史代码使用 “nil 表示 unset” 的习惯。
+- 与 Go 中常见 map 语义保持一致（更贴近业务直觉）。
+- 避免 fuzz / 测试里出现 “存了 nil 但 ok=true” 的歧义。
+
+**代价（Trade-offs）**
+
+- 无法在 V2 user store 中表达 “key 存在但值为 nil”。如果业务确实需要，可改为：
+  - 使用显式 sentinel 值（例如 `struct{}` / `(*T)(nil)` 的区分）
+  - 或在 typed extension 中存储一个 `Option[T]` 结构
+
+---
+
+## D006 — `Context.Clone()` 复制 typed extensions（snapshot）
+
+**状态**：已接受（Accepted）
+
+**决策**
+
+- `Context.Clone()` 会复制 typed extensions 的 snapshot。
+- 对 V2 user state（`stateExt`）做深拷贝，保证 clone 后 `ctx.Set/ctx.Get` 的 store 不共享。
+
+**原因（Rationale）**
+
+- Clone 的使用场景多为异步/并发：复制 extensions 可最大化行为一致性，降低“clone 后丢缓存/丢元信息”的隐性 bug。
+- V2 的内部缓存（command args 等）已经迁入 typed extensions，clone 复制可以减少重复计算。
+
+**代价（Trade-offs）**
+
+- extension value 若是引用类型（指针/map/slice），复制的是引用；extension 的设计应该将 value 视为 immutable（或自行保证并发安全）。

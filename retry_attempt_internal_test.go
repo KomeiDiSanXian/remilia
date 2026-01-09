@@ -8,7 +8,7 @@ import (
 
 func TestContext_SetState_RetryAttemptIsForbiddenInUserState(t *testing.T) {
 	ctx := NewContext(nil, nil)
-	ctx.SetState("retry_attempt", 2)
-	_, ok := ctx.GetState("retry_attempt")
+	ctx.Set("retry_attempt", 2)
+	_, ok := ctx.Get("retry_attempt")
 	assert.False(t, ok)
 }

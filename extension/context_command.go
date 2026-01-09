@@ -20,13 +20,21 @@ func WithCommand(ctx *remilia.Context) Command {
 }
 
 // ParseCommand parses command arguments from ctx.GetMessageContent() with caching.
+//
+// V2 migration:
+//   - cache is stored in typed extensions (not in internalState string keys)
 func (c Command) ParseCommand() (*command.CommandArgs, error) {
 	if c.ctx == nil {
 		return nil, nil
 	}
-	return extensionimpl.ParseCommand(
-		c.ctx.InternalGet,
-		c.ctx.InternalSet,
+
+	return extensionimpl.ParseCommandV2(
+		func() (*extensionimpl.CommandArgsCacheV2, bool) {
+			return remilia.ExtGet[*extensionimpl.CommandArgsCacheV2](c.ctx.Ext())
+		},
+		func(v *extensionimpl.CommandArgsCacheV2) {
+			remilia.ExtSet(c.ctx.Ext(), v)
+		},
 		c.ctx.GetMessageContent(),
 	)
 }

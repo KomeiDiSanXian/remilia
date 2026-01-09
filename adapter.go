@@ -104,6 +104,16 @@ func (a *WebhookAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload
 
 // Shutdown stops the HTTP server and waits for the event loop to exit.
 func (a *WebhookAdapter) Shutdown(ctx context.Context) error {
+	// Strict contract (Phase 4-A): if ctx is already done, we must return ctx.Err()
+	// even if adapter is already shut down.
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+	}
+
 	var shutdownErr error
 
 	a.shutdownOnce.Do(func() {
@@ -135,6 +145,16 @@ func (a *WebhookAdapter) Shutdown(ctx context.Context) error {
 			return
 		}
 	})
+
+	// Strict contract: if ctx became done while we were shutting down (or after),
+	// return ctx.Err() even if shutdown succeeded.
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+	}
 
 	return shutdownErr
 }
