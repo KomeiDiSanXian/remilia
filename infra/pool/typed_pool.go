@@ -15,8 +15,8 @@ type TypedPool[T any] struct {
 	p *InstrumentedPool
 }
 
-// NewTypedPool creates a new typed pool.
-func NewTypedPool[T any](newFunc func() T) *TypedPool[T] {
+// New creates a new typed pool.
+func New[T any](newFunc func() T) *TypedPool[T] {
 	ip := NewInstrumentedPool(func() any { return newFunc() })
 	return &TypedPool[T]{p: ip}
 }
@@ -29,7 +29,7 @@ func (tp *TypedPool[T]) Get() T {
 
 func (tp *TypedPool[T]) Put(v T) { tp.p.Put(v) }
 
-func (tp *TypedPool[T]) Stats() PoolStats { return tp.p.Stats() }
+func (tp *TypedPool[T]) Stats() Stats { return tp.p.Stats() }
 
 func (tp *TypedPool[T]) Reset() { tp.p.Reset() }
 

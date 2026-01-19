@@ -14,7 +14,7 @@ import (
 // NOTE: This type is exported for cross-package access (extension package).
 // Users should NOT depend on it.
 type CommandArgsCacheV2 struct {
-	Args *command.CommandArgs
+	Args *command.Args
 	Err  error
 }
 
@@ -29,12 +29,12 @@ func ParseCommandV2(
 	getExt func() (*CommandArgsCacheV2, bool),
 	setExt func(v *CommandArgsCacheV2),
 	content string,
-) (*command.CommandArgs, error) {
+) (*command.Args, error) {
 	if v, ok := getExt(); ok && v != nil {
 		return v.Args, v.Err
 	}
 
-	var args *command.CommandArgs
+	var args *command.Args
 	var err error
 	if content == "" {
 		err = fmt.Errorf("empty message content")

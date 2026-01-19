@@ -12,7 +12,7 @@ import (
 //   - extension.WithCommand(ctx).ParseCommand()
 //
 // 该方法为兼容入口，行为保持不变。
-func (ctx *Context) ParseCommand() (*command.CommandArgs, error) {
+func (ctx *Context) ParseCommand() (*command.Args, error) {
 	if ctx == nil {
 		return nil, nil
 	}

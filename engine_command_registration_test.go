@@ -15,7 +15,7 @@ func TestEngine_RegisterCommand(t *testing.T) {
 	executed := false
 	var capturedArgs string
 
-	cmd := &command.CommandDefinition{
+	cmd := &command.Definition{
 		Name: "echo",
 		Arguments: []*command.Argument{
 			{Name: "msg", Type: command.ArgTypeString, Required: true},
@@ -47,7 +47,7 @@ func TestEngine_RegisterCommandWithPrefix(t *testing.T) {
 	e := NewEngine()
 
 	executed := false
-	cmd := &command.CommandDefinition{
+	cmd := &command.Definition{
 		Name: "ping",
 		Handler: func(_ any) {
 			executed = true
@@ -70,7 +70,7 @@ func TestEngine_RegisterCommand_ValidationFailure(t *testing.T) {
 	e := NewEngine()
 
 	executed := false
-	cmd := &command.CommandDefinition{
+	cmd := &command.Definition{
 		Name: "must_int",
 		Arguments: []*command.Argument{
 			{Name: "val", Type: command.ArgTypeInt, Required: true},

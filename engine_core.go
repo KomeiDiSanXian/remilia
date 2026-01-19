@@ -58,7 +58,7 @@ func NewEngine(options ...EngineOption) *Engine {
 	// defaults for services
 	e.s.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
 	e.s.tempManager = newTempMatcherManager()
-	e.s.matcherPool = infrapool.NewTypedPool(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
+	e.s.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
 
 	// 初始化不可变状态
 	e.state.Store(newEngineState())
@@ -612,12 +612,12 @@ func (e *Engine) MigrateMatcherFromTemp(m *Matcher) {
 }
 
 // RegisterCommand 注册一个高级命令定义
-func (e *Engine) RegisterCommand(cmd *command.CommandDefinition, rules ...Rule) *Matcher {
+func (e *Engine) RegisterCommand(cmd *command.Definition, rules ...Rule) *Matcher {
 	return e.RegisterCommandWithPrefix("/", cmd, rules...)
 }
 
 // RegisterCommandWithPrefix 带自定义前缀的 RegisterCommand
-func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.CommandDefinition, rules ...Rule) *Matcher {
+func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definition, rules ...Rule) *Matcher {
 	trigger := prefix + cmd.Name
 
 	parseRule := func(ctx *Context) bool {

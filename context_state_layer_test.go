@@ -89,7 +89,7 @@ func TestContext_ParseCommand_CacheIsInternal(t *testing.T) {
 
 func TestContext_ParsedCommand_StoredInInternalState(t *testing.T) {
 	ctx := NewContext(&dto.Payload{Detail: []byte(`{"content":"/x"}`)}, nil)
-	pc := &command.ParsedCommand{Raw: "/x"}
+	pc := &command.Parsed{Raw: "/x"}
 	ctx.SetParsedCommand(pc)
 
 	// not visible to user state

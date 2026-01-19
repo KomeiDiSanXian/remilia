@@ -10,9 +10,9 @@ import (
 )
 
 func TestCommandParser_BasicCommand(t *testing.T) {
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
-	parser.Register(&command.CommandDefinition{
+	parser.Register(&command.Definition{
 		Name:        "ping",
 		Description: "测试连接",
 	})
@@ -24,16 +24,16 @@ func TestCommandParser_BasicCommand(t *testing.T) {
 }
 
 func TestCommandParser_SubCommands(t *testing.T) {
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
-	parser.Register(&command.CommandDefinition{
+	parser.Register(&command.Definition{
 		Name:        "admin",
 		Description: "管理员命令",
-		SubCommands: []*command.CommandDefinition{
+		SubCommands: []*command.Definition{
 			{
 				Name:        "user",
 				Description: "用户管理",
-				SubCommands: []*command.CommandDefinition{
+				SubCommands: []*command.Definition{
 					{
 						Name:        "list",
 						Description: "列出用户",
@@ -64,9 +64,9 @@ func TestCommandParser_SubCommands(t *testing.T) {
 }
 
 func TestCommandParser_Arguments(t *testing.T) {
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
-	parser.Register(&command.CommandDefinition{
+	parser.Register(&command.Definition{
 		Name: "echo",
 		Arguments: []*command.Argument{
 			{Name: "text", Type: command.ArgTypeString, Required: true},
@@ -88,9 +88,9 @@ func TestCommandParser_Arguments(t *testing.T) {
 }
 
 func TestCommandParser_Flags(t *testing.T) {
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
-	parser.Register(&command.CommandDefinition{
+	parser.Register(&command.Definition{
 		Name: "search",
 		Flags: []*command.Flag{
 			{Name: "query", ShortName: "q", Type: command.ArgTypeString, Required: true},
@@ -115,12 +115,12 @@ func TestCommandParser_Flags(t *testing.T) {
 }
 
 func TestCommandParser_CustomValidator(t *testing.T) {
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
-	parser.Register(&command.CommandDefinition{
+	parser.Register(&command.Definition{
 		Name:      "age",
 		Arguments: []*command.Argument{{Name: "n", Type: command.ArgTypeInt, Required: true}},
-		Validator: func(cmd *command.ParsedCommand) error {
+		Validator: func(cmd *command.Parsed) error {
 			if cmd.GetInt("n") < 0 {
 				return fmt.Errorf("age must be non-negative")
 			}

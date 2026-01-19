@@ -19,8 +19,8 @@ func TestParseCommandLine_Basic(t *testing.T) {
 }
 
 func TestEnhancedParser_Basic(t *testing.T) {
-	p := NewCommandParser("/")
-	p.Register(&CommandDefinition{Name: "ping"})
+	p := NewParser("/")
+	p.Register(&Definition{Name: "ping"})
 
 	parsed, err := p.Parse("/ping")
 	if err != nil {
@@ -35,10 +35,10 @@ func TestEnhancedParser_Basic(t *testing.T) {
 }
 
 func TestEnhancedParser_SubCommand(t *testing.T) {
-	p := NewCommandParser("/")
-	p.Register(&CommandDefinition{
+	p := NewParser("/")
+	p.Register(&Definition{
 		Name: "admin",
-		SubCommands: []*CommandDefinition{{
+		SubCommands: []*Definition{{
 			Name:        "ban",
 			Arguments:   []*Argument{{Name: "user", Type: ArgTypeString, Required: true}},
 			SubCommands: nil,

@@ -7,7 +7,7 @@ import (
 )
 
 func TestTypedPool_GetPut(t *testing.T) {
-	p := NewTypedPool(func() []int { return make([]int, 0, 4) })
+	p := New(func() []int { return make([]int, 0, 4) })
 
 	x := p.Get()
 	assert.Equal(t, 0, len(x))
@@ -21,7 +21,7 @@ func TestTypedPool_GetPut(t *testing.T) {
 }
 
 func TestTypedPool_StatsIncrements(t *testing.T) {
-	p := NewTypedPool(func() int { return 1 })
+	p := New(func() int { return 1 })
 	_ = p.Get()
 	_ = p.Get()
 	p.Put(1)

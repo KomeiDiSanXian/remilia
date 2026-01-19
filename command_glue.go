@@ -4,7 +4,7 @@ import "github.com/KomeiDiSanXian/remilia/command"
 
 // OnCommandMatch creates a Rule that matches by the given enhanced command parser.
 // If matched, the parsed result is cached in Context internal state.
-func OnCommandMatch(parser *command.CommandParser) Rule {
+func OnCommandMatch(parser *command.Parser) Rule {
 	return func(ctx *Context) bool { return ctx.MatchCommand(parser) }
 }
 

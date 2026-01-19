@@ -18,8 +18,8 @@ func TestCommandParser_UsesSharedRawParser(t *testing.T) {
 	require.Equal(t, []string{"hello world"}, raw.Positional)
 	require.Equal(t, "celsius", raw.Flags["unit"])
 
-	p := command.NewCommandParser("/")
-	p.Register(&command.CommandDefinition{Name: "echo"})
+	p := command.NewParser("/")
+	p.Register(&command.Definition{Name: "echo"})
 
 	parsed, err := p.Parse(input)
 	require.NoError(t, err)
@@ -29,8 +29,8 @@ func TestCommandParser_UsesSharedRawParser(t *testing.T) {
 }
 
 func TestCommandParser_StringSliceArgument_LastOnly(t *testing.T) {
-	p := command.NewCommandParser("/")
-	p.Register(&command.CommandDefinition{
+	p := command.NewParser("/")
+	p.Register(&command.Definition{
 		Name:      "tags",
 		Arguments: []*command.Argument{{Name: "vals", Type: command.ArgTypeStringSlice, Required: true}},
 	})
@@ -43,8 +43,8 @@ func TestCommandParser_StringSliceArgument_LastOnly(t *testing.T) {
 }
 
 func TestCommandParser_StringSliceNotLast_ShouldError(t *testing.T) {
-	p := command.NewCommandParser("/")
-	p.Register(&command.CommandDefinition{
+	p := command.NewParser("/")
+	p.Register(&command.Definition{
 		Name: "bad",
 		Arguments: []*command.Argument{
 			{Name: "vals", Type: command.ArgTypeStringSlice, Required: false},
@@ -57,8 +57,8 @@ func TestCommandParser_StringSliceNotLast_ShouldError(t *testing.T) {
 }
 
 func TestCommandParser_StringSliceFlag(t *testing.T) {
-	p := command.NewCommandParser("/")
-	p.Register(&command.CommandDefinition{
+	p := command.NewParser("/")
+	p.Register(&command.Definition{
 		Name:  "tags",
 		Flags: []*command.Flag{{Name: "tags", Type: command.ArgTypeStringSlice, Required: true}},
 	})
@@ -72,8 +72,8 @@ func TestCommandParser_StringSliceFlag(t *testing.T) {
 }
 
 func TestCommandParser_StringSliceFlag_WithoutQuotes_NotSupported(t *testing.T) {
-	p := command.NewCommandParser("/")
-	p.Register(&command.CommandDefinition{
+	p := command.NewParser("/")
+	p.Register(&command.Definition{
 		Name:      "tags",
 		Flags:     []*command.Flag{{Name: "tags", Type: command.ArgTypeStringSlice, Required: true}},
 		Arguments: []*command.Argument{{Name: "rest", Type: command.ArgTypeStringSlice, Required: false}},

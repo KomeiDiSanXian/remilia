@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CommandArgs 命令参数结构
+// Args 命令参数结构
 //
 // 注意：这里是“基础命令行解析”结果，供增强解析器/业务方复用。
 //
@@ -21,7 +21,7 @@ import (
 //	output: Command="/weather", Positional=["Beijing"], Flags={unit:celsius, days:3}
 //
 // 备注：StringSlice 等更高级语义由增强命令系统处理。
-type CommandArgs struct {
+type Args struct {
 	Raw        string            // 原始命令字符串
 	Command    string            // 命令名称（如 /weather）
 	Positional []string          // 位置参数
@@ -30,8 +30,8 @@ type CommandArgs struct {
 }
 
 // ParseCommandLine 解析原始命令行字符串
-func ParseCommandLine(input string) (*CommandArgs, error) {
-	args := &CommandArgs{
+func ParseCommandLine(input string) (*Args, error) {
+	args := &Args{
 		Raw:        input,
 		Flags:      make(map[string]string),
 		Positional: make([]string, 0),
@@ -144,7 +144,7 @@ func tokenize(s string) ([]string, error) {
 }
 
 // Get 获取位置参数（从 0 开始）
-func (args *CommandArgs) Get(index int) string {
+func (args *Args) Get(index int) string {
 	if index < 0 || index >= len(args.Positional) {
 		return ""
 	}
@@ -152,10 +152,10 @@ func (args *CommandArgs) Get(index int) string {
 }
 
 // GetFlag 获取命名参数
-func (args *CommandArgs) GetFlag(key string) string { return args.Flags[key] }
+func (args *Args) GetFlag(key string) string { return args.Flags[key] }
 
 // GetFlagOrDefault 获取命名参数，如果不存在返回默认值
-func (args *CommandArgs) GetFlagOrDefault(key, defaultValue string) string {
+func (args *Args) GetFlagOrDefault(key, defaultValue string) string {
 	if val, ok := args.Flags[key]; ok {
 		return val
 	}
@@ -163,13 +163,13 @@ func (args *CommandArgs) GetFlagOrDefault(key, defaultValue string) string {
 }
 
 // HasFlag 检查是否存在某个命名参数
-func (args *CommandArgs) HasFlag(key string) bool {
+func (args *Args) HasFlag(key string) bool {
 	_, ok := args.Flags[key]
 	return ok
 }
 
 // GetInt 获取位置参数并转换为 int
-func (args *CommandArgs) GetInt(index int) (int, error) {
+func (args *Args) GetInt(index int) (int, error) {
 	val := args.Get(index)
 	if val == "" {
 		return 0, fmt.Errorf("argument at index %d not found", index)
@@ -178,7 +178,7 @@ func (args *CommandArgs) GetInt(index int) (int, error) {
 }
 
 // GetFlagInt 获取命名参数并转换为 int
-func (args *CommandArgs) GetFlagInt(key string) (int, error) {
+func (args *Args) GetFlagInt(key string) (int, error) {
 	val := args.GetFlag(key)
 	if val == "" {
 		return 0, fmt.Errorf("flag %s not found", key)
@@ -187,7 +187,7 @@ func (args *CommandArgs) GetFlagInt(key string) (int, error) {
 }
 
 // GetIntOrDefault 获取位置参数并转换为 int，失败返回默认值
-func (args *CommandArgs) GetIntOrDefault(index, defaultValue int) int {
+func (args *Args) GetIntOrDefault(index, defaultValue int) int {
 	val, err := args.GetInt(index)
 	if err != nil {
 		return defaultValue
@@ -196,7 +196,7 @@ func (args *CommandArgs) GetIntOrDefault(index, defaultValue int) int {
 }
 
 // GetFlagIntOrDefault 获取命名参数并转换为 int，失败返回默认值
-func (args *CommandArgs) GetFlagIntOrDefault(key string, defaultValue int) int {
+func (args *Args) GetFlagIntOrDefault(key string, defaultValue int) int {
 	val, err := args.GetFlagInt(key)
 	if err != nil {
 		return defaultValue
@@ -205,7 +205,7 @@ func (args *CommandArgs) GetFlagIntOrDefault(key string, defaultValue int) int {
 }
 
 // GetBool 获取位置参数并转换为 bool
-func (args *CommandArgs) GetBool(index int) (bool, error) {
+func (args *Args) GetBool(index int) (bool, error) {
 	val := args.Get(index)
 	if val == "" {
 		return false, fmt.Errorf("argument at index %d not found", index)
@@ -214,7 +214,7 @@ func (args *CommandArgs) GetBool(index int) (bool, error) {
 }
 
 // GetFlagBool 获取命名参数并转换为 bool
-func (args *CommandArgs) GetFlagBool(key string) bool {
+func (args *Args) GetFlagBool(key string) bool {
 	val := args.GetFlag(key)
 	if val == "" {
 		return false
@@ -227,6 +227,6 @@ func (args *CommandArgs) GetFlagBool(key string) bool {
 }
 
 // Len returns argument count.
-func (args *CommandArgs) Len() int { return len(args.Positional) }
+func (args *Args) Len() int { return len(args.Positional) }
 
-func (args *CommandArgs) String() string { return args.Raw }
+func (args *Args) String() string { return args.Raw }

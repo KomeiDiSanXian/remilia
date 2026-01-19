@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// CommandDefinition 命令定义
+// Definition 表示命令定义。
 //
-// 支持命令树结构、参数验证、子命令等高级功能。
-type CommandDefinition struct {
+// 它支持命令树结构、参数验证、子命令等高级功能。
+type Definition struct {
 	Name        string
 	Aliases     []string
 	Description string
@@ -18,72 +18,104 @@ type CommandDefinition struct {
 	Arguments []*Argument
 	Flags     []*Flag
 
-	SubCommands []*CommandDefinition
+	SubCommands []*Definition
 
-	Validator func(*ParsedCommand) error
+	Validator func(*Parsed) error
 	Handler   Handler
 }
 
-// Handler is a minimal handler signature used by command package.
-// Root package `remilia` can adapt this to its own Handler as needed.
+// Handler 是 command 包内使用的最小处理器签名。
 //
-// NOTE: We intentionally avoid importing root package here to prevent circular deps.
+// 根包 `remilia` 可根据需要将其适配为自身的 Handler 类型。
+//
+// 注意：这里刻意不引用根包以避免循环依赖。
 type Handler func(ctx any)
 
+// Argument 表示命令的位置参数定义。
+//
+// 解析时会根据 Type 做类型转换；当 Required 为 true 且未提供时会返回错误；
+// 当未提供且 Required 为 false 时会使用 Default。
 type Argument struct {
 	Name        string
 	Description string
 	Type        ArgType
 	Required    bool
-	Default     interface{}
+	Default     any
 	Validator   func(string) error
 }
 
+// Flag 表示命令的标志（可选项）定义。
+//
+// Name 对应长标志（例如 --name），ShortName 对应短标志（例如 -n）。
+// 解析时会根据 Type 做类型转换，并在需要时执行 Validator。
 type Flag struct {
 	Name        string
 	ShortName   string
 	Description string
 	Type        ArgType
 	Required    bool
-	Default     interface{}
+	Default     any
 	Validator   func(string) error
 }
 
+// ArgType 表示参数或标志的类型。
+//
+// 该类型用于指导解析阶段如何将字符串转换为具体类型。
 type ArgType int
 
 const (
+	// ArgTypeString 表示字符串类型。
 	ArgTypeString ArgType = iota
+	// ArgTypeInt 表示整型。
 	ArgTypeInt
+	// ArgTypeBool 表示布尔类型。
 	ArgTypeBool
+	// ArgTypeFloat 表示浮点数类型（float64）。
 	ArgTypeFloat
+	// ArgTypeStringSlice 表示字符串切片类型。
+	//
+	// 对于位置参数：仅允许作为最后一个参数，且会将剩余所有 token 作为 slice。
+	// 对于 flag：会对其 rawValue 做 strings.Fields 分割。
 	ArgTypeStringSlice
 )
 
-// ParsedCommand 解析后的命令
-type ParsedCommand struct {
+// Parsed 表示输入命令解析后的结构化结果。
+//
+// Arguments / Flags 存储解析并完成类型转换后的值；rawArgs 保留原始解析结果供内部使用。
+type Parsed struct {
 	Raw         string
 	CommandPath []string
-	Definition  *CommandDefinition
-	Arguments   map[string]interface{}
-	Flags       map[string]interface{}
+	Definition  *Definition
+	Arguments   map[string]any
+	Flags       map[string]any
 
-	rawArgs *CommandArgs
+	rawArgs *Args
 }
 
-type CommandParser struct {
-	rootCommands []*CommandDefinition
+// Parser 表示命令解析器。
+//
+// 它维护已注册的根命令列表，并根据 prefix（例如“/”）进行命令匹配。
+type Parser struct {
+	rootCommands []*Definition
 	prefix       string
 }
 
-func NewCommandParser(prefix string) *CommandParser {
-	return &CommandParser{rootCommands: make([]*CommandDefinition, 0), prefix: prefix}
+// NewParser 创建一个新的命令解析器。
+//
+// prefix 用于指定命令前缀（例如“/”）；解析时会自动剥离该前缀用于匹配命令名。
+func NewParser(prefix string) *Parser {
+	return &Parser{rootCommands: make([]*Definition, 0), prefix: prefix}
 }
 
-func (p *CommandParser) Register(cmd *CommandDefinition) {
+// Register 注册一个根命令定义到解析器中。
+func (p *Parser) Register(cmd *Definition) {
 	p.rootCommands = append(p.rootCommands, cmd)
 }
 
-func (p *CommandParser) Parse(input string) (*ParsedCommand, error) {
+// Parse 将输入字符串解析为 Parsed。
+//
+// 会先进行词法拆分（ParseCommandLine），再匹配命令/子命令，最后解析参数与标志并执行定义中的 Validator。
+func (p *Parser) Parse(input string) (*Parsed, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
@@ -102,7 +134,11 @@ func (p *CommandParser) Parse(input string) (*ParsedCommand, error) {
 	return parseRest(input, rawArgs, cmdPath, def, remainingTokens)
 }
 
-func ParseFromDefinition(input string, rootDef *CommandDefinition, prefix string) (*ParsedCommand, error) {
+// ParseFromDefinition 从给定的 rootDef 命令定义树解析输入字符串。
+//
+// 与 Parser.Parse 不同：该函数不依赖 Parser.Register 的根命令列表，而是直接以 rootDef 为根进行子命令匹配；
+// 同时会校验输入命令是否与 prefix+rootDef.Name（或其别名）一致。
+func ParseFromDefinition(input string, rootDef *Definition, prefix string) (*Parsed, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("empty input")
@@ -126,13 +162,13 @@ func ParseFromDefinition(input string, rootDef *CommandDefinition, prefix string
 	return parseRest(input, rawArgs, fullPath, def, remainingTokens)
 }
 
-func parseRest(input string, rawArgs *CommandArgs, cmdPath []string, def *CommandDefinition, remainingTokens []string) (*ParsedCommand, error) {
-	parsed := &ParsedCommand{
+func parseRest(input string, rawArgs *Args, cmdPath []string, def *Definition, remainingTokens []string) (*Parsed, error) {
+	parsed := &Parsed{
 		Raw:         input,
 		CommandPath: cmdPath,
 		Definition:  def,
-		Arguments:   make(map[string]interface{}),
-		Flags:       make(map[string]interface{}),
+		Arguments:   make(map[string]any),
+		Flags:       make(map[string]any),
 		rawArgs:     rawArgs,
 	}
 
@@ -150,8 +186,8 @@ func parseRest(input string, rawArgs *CommandArgs, cmdPath []string, def *Comman
 	return parsed, nil
 }
 
-func matchSubCommands(args *CommandArgs, rootDef *CommandDefinition) ([]string, *CommandDefinition, []string) {
-	path := []string{}
+func matchSubCommands(args *Args, rootDef *Definition) ([]string, *Definition, []string) {
+	var path []string
 	currentDef := rootDef
 	remainingArgs := args.Positional
 	argIndex := 0
@@ -175,10 +211,10 @@ func matchSubCommands(args *CommandArgs, rootDef *CommandDefinition) ([]string, 
 	return path, currentDef, remainingArgs[argIndex:]
 }
 
-func (p *CommandParser) matchCommand(args *CommandArgs) ([]string, *CommandDefinition, []string) {
+func (p *Parser) matchCommand(args *Args) ([]string, *Definition, []string) {
 	cmdName := strings.TrimPrefix(args.Command, p.prefix)
 
-	var currentDef *CommandDefinition
+	var currentDef *Definition
 	for _, cmd := range p.rootCommands {
 		if cmd.Name == cmdName || contains(cmd.Aliases, cmdName) {
 			currentDef = cmd
@@ -194,7 +230,7 @@ func (p *CommandParser) matchCommand(args *CommandArgs) ([]string, *CommandDefin
 	return path, finalDef, remaining
 }
 
-func parseArguments(parsed *ParsedCommand, tokens []string, def *CommandDefinition) error {
+func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
 	for i, argDef := range def.Arguments {
 		if argDef.Type == ArgTypeStringSlice {
 			if i != len(def.Arguments)-1 {
@@ -211,7 +247,7 @@ func parseArguments(parsed *ParsedCommand, tokens []string, def *CommandDefiniti
 			return nil
 		}
 
-		var value interface{}
+		var value any
 		var err error
 
 		if i < len(tokens) {
@@ -235,7 +271,7 @@ func parseArguments(parsed *ParsedCommand, tokens []string, def *CommandDefiniti
 	return nil
 }
 
-func parseFlags(parsed *ParsedCommand, rawArgs *CommandArgs, def *CommandDefinition) error {
+func parseFlags(parsed *Parsed, rawArgs *Args, def *Definition) error {
 	for _, flagDef := range def.Flags {
 		if flagDef.Type == ArgTypeStringSlice {
 			var rawValue string
@@ -285,7 +321,7 @@ func parseFlags(parsed *ParsedCommand, rawArgs *CommandArgs, def *CommandDefinit
 	return nil
 }
 
-func parseValue(s string, t ArgType) (interface{}, error) {
+func parseValue(s string, t ArgType) (any, error) {
 	switch t {
 	case ArgTypeString:
 		return s, nil
@@ -309,7 +345,10 @@ func parseValue(s string, t ArgType) (interface{}, error) {
 	}
 }
 
-func (p *ParsedCommand) GetString(name string) string {
+// GetString 按名称获取参数或标志值，并以 string 形式返回。
+//
+// 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回空字符串。
+func (p *Parsed) GetString(name string) string {
 	if val, ok := p.Arguments[name]; ok && val != nil {
 		return val.(string)
 	}
@@ -319,7 +358,10 @@ func (p *ParsedCommand) GetString(name string) string {
 	return ""
 }
 
-func (p *ParsedCommand) GetInt(name string) int {
+// GetInt 按名称获取参数或标志值，并以 int 形式返回。
+//
+// 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 0。
+func (p *Parsed) GetInt(name string) int {
 	if val, ok := p.Arguments[name]; ok && val != nil {
 		return val.(int)
 	}
@@ -329,7 +371,10 @@ func (p *ParsedCommand) GetInt(name string) int {
 	return 0
 }
 
-func (p *ParsedCommand) GetBool(name string) bool {
+// GetBool 按名称获取参数或标志值，并以 bool 形式返回。
+//
+// 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 false。
+func (p *Parsed) GetBool(name string) bool {
 	if val, ok := p.Arguments[name]; ok && val != nil {
 		return val.(bool)
 	}
@@ -339,7 +384,10 @@ func (p *ParsedCommand) GetBool(name string) bool {
 	return false
 }
 
-func (p *ParsedCommand) GetFloat(name string) float64 {
+// GetFloat 按名称获取参数或标志值，并以 float64 形式返回。
+//
+// 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 0。
+func (p *Parsed) GetFloat(name string) float64 {
 	if val, ok := p.Arguments[name]; ok && val != nil {
 		return val.(float64)
 	}

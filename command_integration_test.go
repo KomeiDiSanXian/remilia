@@ -11,12 +11,12 @@ import (
 
 func TestCommandIntegration(t *testing.T) {
 	engine := NewEngine()
-	parser := command.NewCommandParser("/")
+	parser := command.NewParser("/")
 
 	executed := false
 	var capturedArg string
 
-	echoCmd := &command.CommandDefinition{
+	echoCmd := &command.Definition{
 		Name:      "echo",
 		Arguments: []*command.Argument{{Name: "text", Type: command.ArgTypeString, Required: true}},
 		Handler: func(v any) {
@@ -45,13 +45,13 @@ func TestCommandIntegration(t *testing.T) {
 
 func TestCommandIntegration_SubCommand(t *testing.T) {
 	engine := NewEngine()
-	parser := command.NewCommandParser("!")
+	parser := command.NewParser("!")
 
 	executed := ""
 
-	adminCmd := &command.CommandDefinition{
+	adminCmd := &command.Definition{
 		Name: "admin",
-		SubCommands: []*command.CommandDefinition{
+		SubCommands: []*command.Definition{
 			{
 				Name:      "ban",
 				Arguments: []*command.Argument{{Name: "user", Type: command.ArgTypeString}},
@@ -82,13 +82,13 @@ func TestCommandIntegration_SubCommand(t *testing.T) {
 
 func TestCommandIntegration_MultipleParsers(t *testing.T) {
 	engine := NewEngine()
-	slashParser := command.NewCommandParser("/")
-	bangParser := command.NewCommandParser("!")
+	slashParser := command.NewParser("/")
+	bangParser := command.NewParser("!")
 
 	var slashExec, bangExec bool
 
-	slashParser.Register(&command.CommandDefinition{Name: "hi", Handler: func(v any) { slashExec = true }})
-	bangParser.Register(&command.CommandDefinition{Name: "hi", Handler: func(v any) { bangExec = true }})
+	slashParser.Register(&command.Definition{Name: "hi", Handler: func(v any) { slashExec = true }})
+	bangParser.Register(&command.Definition{Name: "hi", Handler: func(v any) { bangExec = true }})
 
 	engine.OnAny(OnCommandMatch(slashParser)).Handle(ExecuteCommandDefinition)
 	engine.OnAny(OnCommandMatch(bangParser)).Handle(ExecuteCommandDefinition)

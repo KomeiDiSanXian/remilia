@@ -221,5 +221,5 @@ func TestParseCommand_Caching(t *testing.T) {
 	assert.Same(t, args1, args2, "Pointers should be identical")
 }
 
-// NOTE: command.CommandArgs methods and ParseCommandLine behavior are tested in package command.
+// NOTE: command.Args methods and ParseCommandLine behavior are tested in package command.
 // Here we keep only Context.ParseCommand() behavior and caching guarantees.

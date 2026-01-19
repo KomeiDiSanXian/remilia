@@ -23,7 +23,7 @@ func WithCommand(ctx *remilia.Context) Command {
 //
 // V2 migration:
 //   - cache is stored in typed extensions (not in internalState string keys)
-func (c Command) ParseCommand() (*command.CommandArgs, error) {
+func (c Command) ParseCommand() (*command.Args, error) {
 	if c.ctx == nil {
 		return nil, nil
 	}
@@ -40,6 +40,6 @@ func (c Command) ParseCommand() (*command.CommandArgs, error) {
 }
 
 // ParseCommand is a functional-style helper, equivalent to WithCommand(ctx).ParseCommand().
-func ParseCommand(ctx *remilia.Context) (*command.CommandArgs, error) {
+func ParseCommand(ctx *remilia.Context) (*command.Args, error) {
 	return WithCommand(ctx).ParseCommand()
 }

@@ -6,6 +6,6 @@ import "github.com/KomeiDiSanXian/remilia/infra/pool"
 
 type Pool = pool.Pool
 
-type PoolStats = pool.PoolStats
+type PoolStats = pool.Stats
 
 type InstrumentedPool = pool.InstrumentedPool

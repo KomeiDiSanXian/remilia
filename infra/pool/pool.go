@@ -10,7 +10,7 @@ type Pool interface {
 	Put(any)
 }
 
-type PoolStats struct {
+type Stats struct {
 	Gets    uint64
 	Puts    uint64
 	News    uint64
@@ -43,7 +43,7 @@ func (ip *InstrumentedPool) Put(x any) {
 	ip.pool.Put(x)
 }
 
-func (ip *InstrumentedPool) Stats() PoolStats {
+func (ip *InstrumentedPool) Stats() Stats {
 	gets := ip.gets.Load()
 	puts := ip.puts.Load()
 	news := ip.news.Load()
@@ -53,7 +53,7 @@ func (ip *InstrumentedPool) Stats() PoolStats {
 		hitRate = float64(gets-news) / float64(gets) * 100
 	}
 
-	return PoolStats{Gets: gets, Puts: puts, News: news, HitRate: hitRate}
+	return Stats{Gets: gets, Puts: puts, News: news, HitRate: hitRate}
 }
 
 func (ip *InstrumentedPool) Reset() {

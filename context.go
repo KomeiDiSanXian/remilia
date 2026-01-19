@@ -54,7 +54,7 @@ type middlewareTrace struct {
 //
 // Note: it stores pointer as-is; caller should treat it as immutable.
 type parsedCommand struct {
-	Cmd *command.ParsedCommand
+	Cmd *command.Parsed
 }
 
 func newStateExt() *state {
@@ -253,7 +253,7 @@ func isReservedUserStateKey(key string) bool {
 }
 
 // GetParsedCommand 获取增强版命令解析结果（如果之前已解析）
-func (ctx *Context) GetParsedCommand() *command.ParsedCommand {
+func (ctx *Context) GetParsedCommand() *command.Parsed {
 	if ctx == nil {
 		return nil
 	}
@@ -264,7 +264,7 @@ func (ctx *Context) GetParsedCommand() *command.ParsedCommand {
 }
 
 // SetParsedCommand 设置增强版命令解析结果（通常由中间件或规则设置）
-func (ctx *Context) SetParsedCommand(cmd *command.ParsedCommand) {
+func (ctx *Context) SetParsedCommand(cmd *command.Parsed) {
 	if ctx == nil {
 		return
 	}
@@ -273,7 +273,7 @@ func (ctx *Context) SetParsedCommand(cmd *command.ParsedCommand) {
 
 // MatchCommand 使用给定的解析器匹配命令
 // 如果匹配成功，将结果缓存到 internalState，并返回 true
-func (ctx *Context) MatchCommand(parser *command.CommandParser) bool {
+func (ctx *Context) MatchCommand(parser *command.Parser) bool {
 	content := ctx.GetMessageContent()
 	parsed, err := parser.Parse(content)
 	if err != nil {
