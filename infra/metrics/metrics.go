@@ -9,8 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// MetricsCollector collects prometheus metrics.
-type MetricsCollector struct {
+// Collector collects prometheus metrics.
+type Collector struct {
 	namespace string
 
 	deadLetterQueueSize    prometheus.Gauge
@@ -36,12 +36,12 @@ type MetricsCollector struct {
 	internalPoolNews uint64
 }
 
-func NewMetricsCollector(namespace string) *MetricsCollector {
+func NewMetricsCollector(namespace string) *Collector {
 	if namespace == "" {
 		namespace = "remilia"
 	}
 
-	mc := &MetricsCollector{namespace: namespace}
+	mc := &Collector{namespace: namespace}
 
 	mc.deadLetterQueueSize = promauto.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
@@ -135,28 +135,28 @@ func NewMetricsCollector(namespace string) *MetricsCollector {
 	return mc
 }
 
-func (mc *MetricsCollector) SetDeadLetterQueueSize(size int) {
+func (mc *Collector) SetDeadLetterQueueSize(size int) {
 	mc.deadLetterQueueSize.Set(float64(size))
 }
 
-func (mc *MetricsCollector) RecordDeadLetterConsumed(duration time.Duration) {
+func (mc *Collector) RecordDeadLetterConsumed(duration time.Duration) {
 	mc.deadLetterConsumed.Inc()
 	mc.deadLetterConsumerTime.Observe(duration.Seconds())
 }
 
-func (mc *MetricsCollector) SetPluginHandlers(plugin string, count int) {
+func (mc *Collector) SetPluginHandlers(plugin string, count int) {
 	mc.pluginHandlers.WithLabelValues(plugin).Set(float64(count))
 }
 
-func (mc *MetricsCollector) SetPluginMatchers(plugin string, count int) {
+func (mc *Collector) SetPluginMatchers(plugin string, count int) {
 	mc.pluginMatchers.WithLabelValues(plugin).Set(float64(count))
 }
 
-func (mc *MetricsCollector) RecordPluginLoad(plugin string, duration time.Duration) {
+func (mc *Collector) RecordPluginLoad(plugin string, duration time.Duration) {
 	mc.pluginLoadTime.WithLabelValues(plugin).Observe(duration.Seconds())
 }
 
-func (mc *MetricsCollector) RecordPluginUnload(plugin string, duration time.Duration) {
+func (mc *Collector) RecordPluginUnload(plugin string, duration time.Duration) {
 	mc.pluginUnloadTime.WithLabelValues(plugin).Observe(duration.Seconds())
 }
 
@@ -171,18 +171,18 @@ func FormatAttempt(attempt int) string {
 	return fmt.Sprint(attempt)
 }
 
-func (mc *MetricsCollector) RecordRetryAttempt(attempt int, delay time.Duration) {
+func (mc *Collector) RecordRetryAttempt(attempt int, delay time.Duration) {
 	mc.retryAttempts.WithLabelValues(FormatAttempt(attempt)).Inc()
 	mc.retryDelay.Observe(delay.Seconds())
 }
 
-func (mc *MetricsCollector) RecordRetrySuccess() { mc.retrySuccesses.Inc() }
-func (mc *MetricsCollector) RecordRetryFailure() { mc.retryFailures.Inc() }
-func (mc *MetricsCollector) RecordEventDropped(reason string) {
+func (mc *Collector) RecordRetrySuccess() { mc.retrySuccesses.Inc() }
+func (mc *Collector) RecordRetryFailure() { mc.retryFailures.Inc() }
+func (mc *Collector) RecordEventDropped(reason string) {
 	mc.eventDropped.WithLabelValues(reason).Inc()
 }
 
-func (mc *MetricsCollector) RecordEventProcessed(eventType, source string, duration time.Duration) {
+func (mc *Collector) RecordEventProcessed(eventType, source string, duration time.Duration) {
 	mc.eventProcessed.WithLabelValues(eventType, source).Inc()
 	mc.eventLatency.WithLabelValues(eventType).Observe(duration.Seconds())
 }
@@ -193,7 +193,7 @@ type PoolMetricsSnapshot struct {
 	HitRate float64
 }
 
-func (mc *MetricsCollector) GetPoolMetrics() PoolMetricsSnapshot {
+func (mc *Collector) GetPoolMetrics() PoolMetricsSnapshot {
 	gets := atomic.LoadUint64(&mc.internalPoolGets)
 	news := atomic.LoadUint64(&mc.internalPoolNews)
 

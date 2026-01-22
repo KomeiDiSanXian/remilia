@@ -8,84 +8,84 @@ import (
 	"time"
 )
 
-// HealthStatus represents overall health.
-type HealthStatus string
+// Status represents overall health.
+type Status string
 
 const (
-	HealthStatusHealthy   HealthStatus = "healthy"
-	HealthStatusUnhealthy HealthStatus = "unhealthy"
-	HealthStatusDegraded  HealthStatus = "degraded"
+	Healthy   Status = "healthy"
+	Unhealthy Status = "unhealthy"
+	Degraded  Status = "degraded"
 )
 
-// HealthChecker defines a single health check unit.
-type HealthChecker interface {
+// Checker defines a single health check unit.
+type Checker interface {
 	Name() string
-	Check(ctx context.Context) HealthCheckResult
+	Check(ctx context.Context) CheckResult
 }
 
-// HealthCheckResult is a single checker result.
-type HealthCheckResult struct {
-	Status   HealthStatus   `json:"status"`
+// CheckResult is a single checker result.
+type CheckResult struct {
+	Status   Status         `json:"status"`
 	Error    string         `json:"error,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 	Duration time.Duration  `json:"duration_ms"`
 }
 
-// HealthCheck manages multiple checkers and provides HTTP handlers.
-type HealthCheck struct {
-	checkers map[string]HealthChecker
+// Check manages multiple checkers and provides HTTP handlers.
+type Check struct {
+	checkers map[string]Checker
 	mu       sync.RWMutex
 	// timeout is applied to each checker.
 	timeout time.Duration
 }
 
-func NewHealthCheck() *HealthCheck {
-	return &HealthCheck{
-		checkers: make(map[string]HealthChecker),
+func NewCheck() *Check {
+	return &Check{
+		checkers: make(map[string]Checker),
 		timeout:  5 * time.Second,
 	}
 }
 
-func (h *HealthCheck) SetTimeout(timeout time.Duration) *HealthCheck {
+func (h *Check) SetTimeout(timeout time.Duration) *Check {
 	h.timeout = timeout
 	return h
 }
 
-func (h *HealthCheck) AddChecker(checker HealthChecker) {
+func (h *Check) AddChecker(checker Checker) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.checkers[checker.Name()] = checker
 }
 
-func (h *HealthCheck) RemoveChecker(name string) {
+func (h *Check) RemoveChecker(name string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	delete(h.checkers, name)
 }
 
-type HealthCheckResponse struct {
-	Status HealthStatus                 `json:"status"`
-	Checks map[string]HealthCheckResult `json:"checks"`
-	Time   time.Time                    `json:"time"`
+type CheckResponse struct {
+	Status Status                 `json:"status"`
+	Checks map[string]CheckResult `json:"checks"`
+	Time   time.Time              `json:"time"`
 }
 
-func (h *HealthCheck) Check(ctx context.Context) HealthCheckResponse {
+func (h *Check) Check(ctx context.Context) CheckResponse {
 	h.mu.RLock()
-	checkers := make(map[string]HealthChecker, len(h.checkers))
+	checkers := make(map[string]Checker, len(h.checkers))
 	for name, checker := range h.checkers {
 		checkers[name] = checker
 	}
 	h.mu.RUnlock()
 
-	results := make(map[string]HealthCheckResult)
-	overallStatus := HealthStatusHealthy
+	results := make(map[string]CheckResult)
+	overallStatus := Healthy
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	for name, checker := range checkers {
 		wg.Add(1)
-		go func(name string, checker HealthChecker) {
+		go func(name string, checker Checker) {
 			defer wg.Done()
 			checkCtx, cancel := context.WithTimeout(ctx, h.timeout)
 			defer cancel()
@@ -96,10 +96,10 @@ func (h *HealthCheck) Check(ctx context.Context) HealthCheckResponse {
 
 			mu.Lock()
 			results[name] = result
-			if result.Status == HealthStatusUnhealthy {
-				overallStatus = HealthStatusUnhealthy
-			} else if result.Status == HealthStatusDegraded && overallStatus != HealthStatusUnhealthy {
-				overallStatus = HealthStatusDegraded
+			if result.Status == Unhealthy {
+				overallStatus = Unhealthy
+			} else if result.Status == Degraded && overallStatus != Unhealthy {
+				overallStatus = Degraded
 			}
 			mu.Unlock()
 		}(name, checker)
@@ -107,14 +107,14 @@ func (h *HealthCheck) Check(ctx context.Context) HealthCheckResponse {
 
 	wg.Wait()
 
-	return HealthCheckResponse{
+	return CheckResponse{
 		Status: overallStatus,
 		Checks: results,
 		Time:   time.Now(),
 	}
 }
 
-func (h *HealthCheck) HTTPHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -122,11 +122,11 @@ func (h *HealthCheck) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch response.Status {
-	case HealthStatusHealthy:
+	case Healthy:
 		w.WriteHeader(http.StatusOK)
-	case HealthStatusDegraded:
+	case Degraded:
 		w.WriteHeader(http.StatusOK)
-	case HealthStatusUnhealthy:
+	case Unhealthy:
 		w.WriteHeader(http.StatusServiceUnavailable)
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
@@ -135,14 +135,14 @@ func (h *HealthCheck) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func (h *HealthCheck) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Check) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	response := h.Check(ctx)
 	w.Header().Set("Content-Type", "application/json")
 
-	if response.Status == HealthStatusHealthy {
+	if response.Status == Healthy {
 		w.WriteHeader(http.StatusOK)
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -151,14 +151,14 @@ func (h *HealthCheck) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-func (h *HealthCheck) LivenessHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Check) LivenessHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	response := h.Check(ctx)
 	w.Header().Set("Content-Type", "application/json")
 
-	if response.Status == HealthStatusUnhealthy {
+	if response.Status == Unhealthy {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	} else {
 		w.WriteHeader(http.StatusOK)

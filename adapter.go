@@ -2,99 +2,68 @@ package remilia
 
 import (
 	"context"
-	"net/http"
-	"sync"
+	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 	"github.com/sirupsen/logrus"
 )
 
 // Adapter connects an event source to the Bot
+// It is responsible for receiving events from external sources and delivering them to the bot
 type Adapter interface {
-	// Start starts the adapter and pushes events to the handleFunc.
-	// It should run asynchronously.
+	// Start starts the adapter and begins processing events
+	// The handleFunc will be called for each received event
 	Start(ctx context.Context, handleFunc func(*dto.Payload)) error
 
-	// Shutdown stops the adapter gracefully.
+	// Shutdown gracefully shuts down the adapter
 	Shutdown(ctx context.Context) error
 }
 
-// WebhookAdapter implements Adapter for Webhook
-type WebhookAdapter struct {
-	wh     webhook.WebHook
-	server *HTTPServer
-	wg     sync.WaitGroup
-
-	// startCtx controls the lifetime of the event loop started in Start.
-	// We cancel it in Shutdown to guarantee the loop exits.
-	//
-	// Contract/Behavior:
-	//   - Shutdown(ctx) guarantees that the goroutine started by Start() (the event loop)
-	//     has exited before returning (or returns ctx.Err() if the shutdown context is done).
-	//   - Shutdown(ctx) does NOT close the channel returned by wh.EventStream(); the
-	//     channel's lifecycle is owned by the webhook implementation.
-	//
-	// Rationale:
-	//   - WebHook is a pure event source interface; it may reuse its EventStream across
-	//     multiple consumers or keep it open for the process lifetime.
-	//   - Forcing the channel to close would require a breaking change to the WebHook API
-	//     (e.g. adding Close/Shutdown).
-	startCtx    context.Context
-	startCancel context.CancelFunc
-
-	startOnce    sync.Once
-	shutdownOnce sync.Once
+// WebHook 是 webhook 的最小接口，只需要 EventStream
+type WebHook interface {
+	EventStream() <-chan *dto.Payload
 }
 
-// NewWebhookAdapter creates a new WebhookAdapter
-func NewWebhookAdapter(wh webhook.WebHook) *WebhookAdapter {
-	return &WebhookAdapter{
+// webhookAdapter 将 WebHook 适配为 core.Adapter
+type webhookAdapter struct {
+	wh     WebHook
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// NewWebhookAdapter 创建一个 webhook adapter
+func NewWebhookAdapter(wh WebHook) Adapter {
+	return &webhookAdapter{
 		wh: wh,
 	}
 }
 
-// Start starts the HTTP server and event loop
-func (a *WebhookAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) error {
-	if a.wh == nil {
-		return nil
+// Start 启动 adapter
+func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+	// 验证 EventStream 是否为 nil
+	eventCh := a.wh.EventStream()
+	if eventCh == nil {
+		return fmt.Errorf("EventStream returned nil channel")
 	}
 
-	// Create an internal context for the event loop so Shutdown can always stop it.
-	// If caller already passed a cancellable ctx, we still wrap it to keep a local cancel func.
-	a.startOnce.Do(func() {
-		a.startCtx, a.startCancel = context.WithCancel(ctx)
-	})
+	a.ctx, a.cancel = context.WithCancel(ctx)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", a.wh.Handle)
-	a.server = NewHTTPServer(a.wh.Addr(), mux)
-
-	// Start the HTTP server
-	a.server.Start()
-
-	// Start a goroutine to listen for events
-	a.wg.Add(1)
+	// 启动事件循环
 	go func() {
-		defer a.wg.Done()
-		ch := a.wh.EventStream()
-
 		for {
 			select {
-			case event, ok := <-ch:
+			case <-a.ctx.Done():
+				logrus.Debug("[Adapter] Context done, stopping event loop")
+				return
+			case event, ok := <-eventCh:
 				if !ok {
-					logrus.Info("[WebhookAdapter] Event stream closed")
+					logrus.Warn("[Adapter] EventStream closed, stopping event loop")
 					return
 				}
-				logrus.WithFields(logrus.Fields{
-					"type": event.Type,
-					"id":   event.ID,
-				}).Debug("[WebhookAdapter] Received event")
-
-				handleFunc(event)
-			case <-a.startCtx.Done():
-				logrus.Info("[WebhookAdapter] Stopping event loop")
-				return
+				if event != nil {
+					// 使用 defer+recover 包装 handler 调用，防止 panic 导致 goroutine 退出
+					safeHandle(handler, event)
+				}
 			}
 		}
 	}()
@@ -102,59 +71,19 @@ func (a *WebhookAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload
 	return nil
 }
 
-// Shutdown stops the HTTP server and waits for the event loop to exit.
-func (a *WebhookAdapter) Shutdown(ctx context.Context) error {
-	// Strict contract (Phase 4-A): if ctx is already done, we must return ctx.Err()
-	// even if adapter is already shut down.
-	if ctx != nil {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithField("panic", r).Error("[Adapter] Handler panic recovered")
 		}
+	}()
+	handler(event)
+}
+
+// Shutdown 关闭 adapter
+func (a *webhookAdapter) Shutdown(context.Context) error {
+	if a.cancel != nil {
+		a.cancel()
 	}
-
-	var shutdownErr error
-
-	a.shutdownOnce.Do(func() {
-		// 1) Stop the event loop first to avoid calling handleFunc while shutting down.
-		if a.startCancel != nil {
-			a.startCancel()
-		}
-
-		// 2) Shutdown the HTTP server.
-		if a.server != nil {
-			if err := a.server.Shutdown(ctx); err != nil {
-				shutdownErr = err
-				return
-			}
-		}
-
-		// 3) Wait for Start() loop goroutine to exit, bounded by ctx.
-		done := make(chan struct{})
-		go func() {
-			a.wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			return
-		case <-ctx.Done():
-			shutdownErr = ctx.Err()
-			return
-		}
-	})
-
-	// Strict contract: if ctx became done while we were shutting down (or after),
-	// return ctx.Err() even if shutdown succeeded.
-	if ctx != nil {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-	}
-
-	return shutdownErr
+	return nil
 }

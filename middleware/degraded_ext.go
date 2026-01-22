@@ -1,6 +1,8 @@
 package middleware
 
-import "github.com/KomeiDiSanXian/remilia"
+import (
+	"github.com/KomeiDiSanXian/remilia/core/context"
+)
 
 // DegradedExt is a typed extension marker for degradation simplify strategy.
 //
@@ -13,22 +15,22 @@ import "github.com/KomeiDiSanXian/remilia"
 type DegradedExt struct{}
 
 // SetDegraded marks the context as degraded.
-func SetDegraded(ctx *remilia.Context) {
+func SetDegraded(ctx *context.Context) {
 	if ctx == nil {
 		return
 	}
-	remilia.ExtSet(ctx.Ext(), DegradedExt{})
+	context.ExtSet(ctx.Ext(), DegradedExt{})
 	// Compatibility (temporary): also set user-state key.
 	ctx.Set(CtxKeyDegraded, true)
 }
 
 // IsDegraded reports whether the context is marked as degraded.
 // It checks typed extension first; if not found, it falls back to user-state key.
-func IsDegraded(ctx *remilia.Context) bool {
+func IsDegraded(ctx *context.Context) bool {
 	if ctx == nil {
 		return false
 	}
-	if _, ok := remilia.ExtGet[DegradedExt](ctx.Ext()); ok {
+	if _, ok := context.ExtGet[DegradedExt](ctx.Ext()); ok {
 		return true
 	}
 	v, ok := ctx.Get(CtxKeyDegraded)

@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 )
 
@@ -13,10 +13,10 @@ type SlowHandlerConfig struct {
 	Threshold time.Duration
 
 	// Logger 自定义日志函数，如果为 nil 则使用默认 logrus
-	Logger func(handlerName string, duration time.Duration, ctx *remilia.Context)
+	Logger func(handlerName string, duration time.Duration, ctx *context.Context)
 
 	// OnSlowHandler 慢处理器回调，可用于告警
-	OnSlowHandler func(handlerName string, duration time.Duration, ctx *remilia.Context)
+	OnSlowHandler func(handlerName string, duration time.Duration, ctx *context.Context)
 }
 
 // SlowHandler 创建慢处理器检测中间件
@@ -26,7 +26,7 @@ type SlowHandlerConfig struct {
 //	engine.Use(middleware.SlowHandler(middleware.SlowHandlerConfig{
 //	    Threshold: 1 * time.Second,
 //	}))
-func SlowHandler(config SlowHandlerConfig) remilia.HandlerMiddleware {
+func SlowHandler(config SlowHandlerConfig) context.Middleware {
 	// 设置默认阈值
 	if config.Threshold == 0 {
 		config.Threshold = 1 * time.Second
@@ -34,7 +34,7 @@ func SlowHandler(config SlowHandlerConfig) remilia.HandlerMiddleware {
 
 	// 设置默认 Logger
 	if config.Logger == nil {
-		config.Logger = func(handlerName string, duration time.Duration, ctx *remilia.Context) {
+		config.Logger = func(handlerName string, duration time.Duration, ctx *context.Context) {
 			logrus.WithFields(logrus.Fields{
 				"handler":    handlerName,
 				"duration":   duration,
@@ -43,8 +43,8 @@ func SlowHandler(config SlowHandlerConfig) remilia.HandlerMiddleware {
 		}
 	}
 
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+	return func(next context.Handler) context.Handler {
+		return func(ctx *context.Context) error {
 			start := time.Now()
 
 			// 执行处理器
@@ -78,7 +78,7 @@ func SlowHandler(config SlowHandlerConfig) remilia.HandlerMiddleware {
 // 使用示例:
 //
 //	engine.Use(middleware.SlowHandlerSimple(2 * time.Second))
-func SlowHandlerSimple(threshold time.Duration) remilia.HandlerMiddleware {
+func SlowHandlerSimple(threshold time.Duration) context.Middleware {
 	return SlowHandler(SlowHandlerConfig{
 		Threshold: threshold,
 	})

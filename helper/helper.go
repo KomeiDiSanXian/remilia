@@ -32,7 +32,7 @@ func FNVHash(s string) string {
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-// ParseEvent parses the event based on its type
+// ParseEvent 泛型事件解析器
 func ParseEvent[T any](p *dto.Payload) (*T, error) {
 	var event T
 	if err := p.Decode(&event); err != nil {

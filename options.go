@@ -1,0 +1,52 @@
+package remilia
+
+import (
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+)
+
+// Option Bot 配置选项函数类型
+type Option func(*Bot)
+
+// WithConfig 设置 Bot 配置
+func WithConfig(config *Config) Option {
+	return func(b *Bot) {
+		if config != nil {
+			b.config = config
+		}
+	}
+}
+
+// WithName 设置 Bot 名称
+func WithName(name string) Option {
+	return func(b *Bot) {
+		b.config.Name = name
+	}
+}
+
+// WithVersion 设置 Bot 版本
+func WithVersion(version string) Option {
+	return func(b *Bot) {
+		b.config.Version = version
+	}
+}
+
+// WithDebug 设置调试模式
+func WithDebug(debug bool) Option {
+	return func(b *Bot) {
+		b.config.Debug = debug
+	}
+}
+
+// WithAdapter 设置自定义 Adapter
+func WithAdapter(adapter Adapter) Option {
+	return func(b *Bot) {
+		b.adapter = adapter
+	}
+}
+
+// WithEngine 设置自定义 Engine
+func WithEngine(engine *engine.Engine) Option {
+	return func(b *Bot) {
+		b.engine = engine
+	}
+}

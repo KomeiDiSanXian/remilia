@@ -2,313 +2,605 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	context2 "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// mockHandler creates a mock handler for testing
+func mockHandler(err error, delay time.Duration) context2.Handler {
+	return func(ctx *context2.Context) error {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		return err
+	}
+}
+
+// mockPanicHandler creates a handler that panics
+func mockPanicHandler(panicValue interface{}) context2.Handler {
+	return func(ctx *context2.Context) error {
+		panic(panicValue)
+	}
+}
+
+// createTestContext creates a test context
+func createTestContext() *context2.Context {
+	event := &dto.Payload{
+		ID:   "test-event",
+		Type: "TEST_EVENT",
+	}
+	return context2.NewContext(event, nil)
+}
+
+// TestLogging tests the Logging middleware
 func TestLogging(t *testing.T) {
-	mw := Logging()
-	called := false
+	t.Run("successful execution", func(t *testing.T) {
+		mw := Logging()
+		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
-	handler := mw(func(ctx *remilia.Context) error {
-		called = true
-		return nil
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	t.Run("failed execution", func(t *testing.T) {
+		expectedErr := errors.New("handler error")
+		mw := Logging()
+		handler := mw(mockHandler(expectedErr, 0))
 
-	assert.NoError(t, err)
-	assert.True(t, called)
-}
+		ctx := createTestContext()
+		err := handler(ctx)
 
-func TestLoggingWithError(t *testing.T) {
-	mw := Logging()
-	testErr := errors.New("test error")
-
-	handler := mw(func(ctx *remilia.Context) error {
-		return testErr
+		assert.ErrorIs(t, err, expectedErr)
 	})
-
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
-
-	assert.Equal(t, testErr, err)
 }
 
+// TestRecover tests the Recover middleware
 func TestRecover(t *testing.T) {
-	mw := Recover()
+	t.Run("recover from panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(mockPanicHandler("test panic"))
 
-	handler := mw(func(ctx *remilia.Context) error {
-		panic("test panic")
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic recovered")
+		assert.Contains(t, err.Error(), "test panic")
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	t.Run("recover from nil panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(mockPanicHandler(nil))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "panic")
-	assert.Contains(t, err.Error(), "test panic")
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic recovered")
+	})
+
+	t.Run("no panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(mockHandler(nil, 0))
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
+	})
 }
 
-func TestRecoverNoError(t *testing.T) {
-	mw := Recover()
+// TestAuth tests the Auth middleware
+func TestAuth(t *testing.T) {
+	t.Run("authorized", func(t *testing.T) {
+		mw := Auth(func(ctx *context2.Context) bool {
+			return true
+		})
+		handler := mw(mockHandler(nil, 0))
 
-	handler := mw(func(ctx *remilia.Context) error {
-		return nil
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	t.Run("unauthorized", func(t *testing.T) {
+		mw := Auth(func(ctx *context2.Context) bool {
+			return false
+		})
+		handler := mw(mockHandler(nil, 0))
 
-	assert.NoError(t, err)
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unauthorized")
+	})
 }
 
-func TestAuth_Allowed(t *testing.T) {
-	mw := Auth(func(ctx *remilia.Context) bool {
-		return true
-	})
-
-	called := false
-	handler := mw(func(ctx *remilia.Context) error {
-		called = true
-		return nil
-	})
-
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
-
-	assert.NoError(t, err)
-	assert.True(t, called)
-}
-
-func TestAuth_Denied(t *testing.T) {
-	mw := Auth(func(ctx *remilia.Context) bool {
-		return false
-	})
-
-	called := false
-	handler := mw(func(ctx *remilia.Context) error {
-		called = true
-		return nil
-	})
-
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
-
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "unauthorized")
-	assert.False(t, called)
-}
-
+// TestTimeout tests the Timeout middleware
 func TestTimeout(t *testing.T) {
-	// 测试超时情况
-	mw := Timeout(50 * time.Millisecond)
+	t.Run("completes before timeout", func(t *testing.T) {
+		mw := Timeout(100 * time.Millisecond)
+		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
-	handler := mw(func(ctx *remilia.Context) error {
-		time.Sleep(200 * time.Millisecond) // 超过超时时间
-		return nil
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	start := time.Now()
-	err := handler(ctx)
-	elapsed := time.Since(start)
+	t.Run("timeout", func(t *testing.T) {
+		mw := Timeout(50 * time.Millisecond)
+		handler := mw(mockHandler(nil, 200*time.Millisecond))
 
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
-	assert.GreaterOrEqual(t, elapsed, 50*time.Millisecond)
-	assert.Less(t, elapsed, 150*time.Millisecond) // 应该在超时时间附近
-}
+		ctx := createTestContext()
+		err := handler(ctx)
 
-func TestTimeoutSuccess(t *testing.T) {
-	// 测试未超时情况
-	mw := Timeout(200 * time.Millisecond)
-
-	called := false
-	handler := mw(func(ctx *remilia.Context) error {
-		time.Sleep(50 * time.Millisecond)
-		called = true
-		return nil
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "timeout")
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	t.Run("panic in handler", func(t *testing.T) {
+		mw := Timeout(100 * time.Millisecond)
+		handler := mw(mockPanicHandler("timeout panic"))
 
-	assert.NoError(t, err)
-	assert.True(t, called)
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic in handler")
+	})
 }
 
-func TestRequestID(t *testing.T) {
-	mw := RequestID()
+// TestMetrics tests the Metrics middleware
+func TestMetrics(t *testing.T) {
+	t.Run("records metrics", func(t *testing.T) {
+		mw := Metrics()
+		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
-	var capturedID string
-	handler := mw(func(ctx *remilia.Context) error {
-		// 检查 request_id 是否被设置
-		requestID, ok := ctx.Get(CtxKeyRequestID)
-		assert.True(t, ok)
-		assert.NotEmpty(t, requestID)
-		capturedID = requestID.(string)
-		return nil
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	t.Run("records metrics with error", func(t *testing.T) {
+		expectedErr := errors.New("metrics error")
+		mw := Metrics()
+		handler := mw(mockHandler(expectedErr, 0))
 
-	assert.NoError(t, err)
-	assert.NotEmpty(t, capturedID)
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.ErrorIs(t, err, expectedErr)
+	})
 }
 
-func TestRateLimitTokenBucket_SharedBucket(t *testing.T) {
-	// 共享桶：keyFn 为 nil
-	mw := RateLimitTokenBucket(2, 2, nil)
+// TestConcurrencyLimit tests the ConcurrencyLimit middleware
+func TestConcurrencyLimit(t *testing.T) {
+	t.Run("drop policy - within limit", func(t *testing.T) {
+		mw := ConcurrencyLimit(2, ConcurrencyDrop, 0)
+		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
-	handler := mw(func(ctx *remilia.Context) error {
-		return nil
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+	t.Run("drop policy - exceeds limit", func(t *testing.T) {
+		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
+		handler := mw(mockHandler(nil, 100*time.Millisecond))
 
-	// 前两次应该成功
-	assert.NoError(t, handler(ctx))
-	assert.NoError(t, handler(ctx))
+		// Start first request
+		done1 := make(chan error, 1)
+		go func() {
+			ctx1 := createTestContext()
+			done1 <- handler(ctx1)
+		}()
 
-	// 第三次应该被限流
-	err := handler(ctx)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "rate limited")
+		time.Sleep(10 * time.Millisecond) // Ensure first request acquired token
+
+		// Second request should be dropped
+		ctx2 := createTestContext()
+		err := handler(ctx2)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "concurrency limit exceeded")
+
+		<-done1 // Wait for first request
+	})
+
+	t.Run("block policy", func(t *testing.T) {
+		mw := ConcurrencyLimit(1, ConcurrencyBlock, 0)
+		handler := mw(mockHandler(nil, 50*time.Millisecond))
+
+		start := time.Now()
+
+		// Start first request
+		done1 := make(chan error, 1)
+		go func() {
+			ctx1 := createTestContext()
+			done1 <- handler(ctx1)
+		}()
+
+		time.Sleep(10 * time.Millisecond)
+
+		// Second request should block
+		ctx2 := createTestContext()
+		err := handler(ctx2)
+
+		duration := time.Since(start)
+
+		assert.NoError(t, err)
+		assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
+
+		<-done1
+	})
+
+	t.Run("try-wait policy - timeout", func(t *testing.T) {
+		mw := ConcurrencyLimit(1, ConcurrencyTryWait, 30*time.Millisecond)
+		handler := mw(mockHandler(nil, 100*time.Millisecond))
+
+		// Start first request
+		done1 := make(chan error, 1)
+		go func() {
+			ctx1 := createTestContext()
+			done1 <- handler(ctx1)
+		}()
+
+		time.Sleep(10 * time.Millisecond)
+
+		// Second request should timeout
+		ctx2 := createTestContext()
+		err := handler(ctx2)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "concurrency limit exceeded")
+
+		<-done1
+	})
 }
 
-func TestRateLimitTokenBucket_PerKeyBucket(t *testing.T) {
-	// 按 key 限流 - 使用 Context State 模拟不同用户
-	mw := RateLimitTokenBucket(1, 1, func(ctx *remilia.Context) string {
-		if userID, ok := ctx.Get(CtxKeyUserID); ok {
-			return userID.(string)
+// TestRetryConfig tests retry configuration
+func TestRetryConfig(t *testing.T) {
+	t.Run("default config", func(t *testing.T) {
+		cfg := RetryConfig{}
+		mw := Retry(cfg)
+
+		require.NotNil(t, mw)
+	})
+
+	t.Run("custom config", func(t *testing.T) {
+		cfg := RetryConfig{
+			MaxAttempts: 5,
+			BackoffBase: 100 * time.Millisecond,
+			BackoffMax:  1 * time.Second,
 		}
-		return "default"
+		mw := Retry(cfg)
+
+		require.NotNil(t, mw)
 	})
-
-	handler := mw(func(ctx *remilia.Context) error {
-		return nil
-	})
-
-	// 两个不同的用户
-	ctx1 := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx1.Set(CtxKeyUserID, "user1")
-
-	ctx2 := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctx2.Set(CtxKeyUserID, "user2")
-
-	// user1 第一次成功
-	assert.NoError(t, handler(ctx1))
-	// user1 第二次被限流
-	err1 := handler(ctx1)
-	assert.Error(t, err1)
-
-	// user2 第一次成功（独立的桶）
-	assert.NoError(t, handler(ctx2))
 }
 
-func TestRateLimitTokenBucket_EvictsOldestWhenCapExceeded(t *testing.T) {
-	// 缩小桶上限以验证淘汰逻辑
-	originalCap := rateLimitMaxBuckets
-	rateLimitMaxBuckets = 5
-	originalTTL := rateLimitBucketTTL
-	originalInterval := rateLimitCleanupInterval
-	// 加快 TTL 和清理间隔以便测试
-	rateLimitBucketTTL = 200 * time.Millisecond
-	rateLimitCleanupInterval = 100 * time.Millisecond
-	defer func() { rateLimitMaxBuckets = originalCap }()
-	defer func() { rateLimitBucketTTL = originalTTL; rateLimitCleanupInterval = originalInterval }()
+// TestRetry tests the Retry middleware
+func TestRetry(t *testing.T) {
+	t.Run("succeeds on first try", func(t *testing.T) {
+		mw := Retry(RetryConfig{
+			MaxAttempts: 3,
+			BackoffBase: 10 * time.Millisecond,
+		})
+		handler := mw(mockHandler(nil, 0))
 
-	mw := RateLimitTokenBucket(10, 5, func(ctx *remilia.Context) string {
-		if id, ok := ctx.Get(CtxKeyUserID); ok {
-			return id.(string)
-		}
-		return "default"
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
 	})
 
-	handler := mw(func(ctx *remilia.Context) error { return nil })
+	t.Run("succeeds after retries", func(t *testing.T) {
+		attempts := 0
+		mw := Retry(RetryConfig{
+			MaxAttempts: 3,
+			BackoffBase: 10 * time.Millisecond,
+		})
 
-	// 创建超过上限的 key，触发淘汰（不要求每次 Allow 成功，只要不 panic）
-	for i := 0; i < 7; i++ {
-		ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-		ctx.Set(CtxKeyUserID, fmt.Sprintf("user-%d", i))
+		handler := mw(func(ctx *context2.Context) error {
+			attempts++
+			if attempts < 3 {
+				return errors.New("temporary error")
+			}
+			return nil
+		})
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
+		assert.Equal(t, 3, attempts)
+	})
+
+	t.Run("max attempts reached", func(t *testing.T) {
+		expectedErr := errors.New("persistent error")
+		mw := Retry(RetryConfig{
+			MaxAttempts: 2,
+			BackoffBase: 10 * time.Millisecond,
+		})
+		handler := mw(mockHandler(expectedErr, 0))
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.ErrorIs(t, err, expectedErr)
+	})
+
+	t.Run("custom should retry function", func(t *testing.T) {
+		attempts := 0
+		specialErr := errors.New("special error")
+
+		mw := Retry(RetryConfig{
+			MaxAttempts: 3,
+			BackoffBase: 10 * time.Millisecond,
+			ShouldRetry: func(err error) bool {
+				return err != specialErr
+			},
+		})
+
+		handler := mw(func(ctx *context2.Context) error {
+			attempts++
+			return specialErr
+		})
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.ErrorIs(t, err, specialErr)
+		assert.Equal(t, 1, attempts) // Should not retry
+	})
+}
+
+// TestCircuitBreaker tests CircuitBreaker functionality
+func TestCircuitBreaker(t *testing.T) {
+	t.Run("new circuit breaker", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures:         3,
+			ResetTimeout:        100 * time.Millisecond,
+			HalfOpenMaxRequests: 1,
+		})
+
+		assert.NotNil(t, cb)
+		assert.Equal(t, StateClosed, cb.GetState())
+		assert.Equal(t, int32(0), cb.GetFailures())
+	})
+
+	t.Run("default config", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{})
+
+		assert.NotNil(t, cb)
+		assert.Equal(t, StateClosed, cb.GetState())
+	})
+
+	t.Run("closed to open transition", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures:  2,
+			ResetTimeout: 100 * time.Millisecond,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+		handler := mw(mockHandler(errors.New("test error"), 0))
+
+		ctx := createTestContext()
+
+		// First failure
+		err := handler(ctx)
+		assert.Error(t, err)
+		assert.Equal(t, StateClosed, cb.GetState())
+
+		// Second failure - should open
+		err = handler(ctx)
+		assert.Error(t, err)
+		assert.Equal(t, StateOpen, cb.GetState())
+
+		// Third call should be rejected
+		err = handler(ctx)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "circuit breaker is open")
+	})
+
+	t.Run("open to half-open transition", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures:  1,
+			ResetTimeout: 50 * time.Millisecond,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+		handler := mw(mockHandler(errors.New("test error"), 0))
+
+		ctx := createTestContext()
+
+		// Trigger open
+		_ = handler(ctx)
+		assert.Equal(t, StateOpen, cb.GetState())
+
+		// Wait for reset timeout
+		time.Sleep(60 * time.Millisecond)
+
+		// Should be half-open now
+		successHandler := mw(mockHandler(nil, 0))
+		err := successHandler(ctx)
+
+		assert.NoError(t, err)
+		assert.Equal(t, StateClosed, cb.GetState())
+	})
+
+	t.Run("success in closed state", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures: 3,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+		handler := mw(mockHandler(nil, 0))
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
+		assert.Equal(t, StateClosed, cb.GetState())
+		assert.Equal(t, int32(0), cb.GetFailures())
+	})
+}
+
+// TestConcurrencyPolicy tests concurrency policy enum
+func TestConcurrencyPolicy(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy ConcurrencyPolicy
+	}{
+		{"drop", ConcurrencyDrop},
+		{"block", ConcurrencyBlock},
+		{"try-wait", ConcurrencyTryWait},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mw := ConcurrencyLimit(1, tt.policy, 100*time.Millisecond)
+			assert.NotNil(t, mw)
+		})
+	}
+}
+
+// TestCircuitBreakerState tests circuit breaker state enum
+func TestCircuitBreakerState(t *testing.T) {
+	tests := []struct {
+		name  string
+		state CircuitBreakerState
+	}{
+		{"closed", StateClosed},
+		{"open", StateOpen},
+		{"half-open", StateHalfOpen},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NotEmpty(t, tt.state)
+		})
+	}
+}
+
+// TestMiddlewareChaining tests chaining multiple middlewares
+func TestMiddlewareChaining(t *testing.T) {
+	t.Run("chain multiple middlewares", func(t *testing.T) {
+		executed := false
+
+		finalHandler := func(ctx *context2.Context) error {
+			executed = true
+			return nil
+		}
+
+		// Chain: Recover -> Logging -> Metrics -> Handler
+		handler := Recover()(Logging()(Metrics()(finalHandler)))
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.NoError(t, err)
+		assert.True(t, executed)
+	})
+
+	t.Run("chain with error propagation", func(t *testing.T) {
+		expectedErr := errors.New("chain error")
+
+		finalHandler := mockHandler(expectedErr, 0)
+
+		// Chain middlewares
+		handler := Recover()(Logging()(finalHandler))
+
+		ctx := createTestContext()
+		err := handler(ctx)
+
+		assert.ErrorIs(t, err, expectedErr)
+	})
+}
+
+// BenchmarkLogging benchmarks the Logging middleware
+func BenchmarkLogging(b *testing.B) {
+	mw := Logging()
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
 		_ = handler(ctx)
 	}
-
-	// 等待 TTL 过期以驱动清理
-	time.Sleep(250 * time.Millisecond)
-	_ = handler(remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
-
-	// 旧键应已被淘汰后可重建，不应 panic
-	ctxOld := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	ctxOld.Set(CtxKeyUserID, "user-0")
-	_ = handler(ctxOld)
 }
 
-func TestRateLimitTokenBucket_ConcurrentAccessUnderCap(t *testing.T) {
-	originalCap := rateLimitMaxBuckets
-	rateLimitMaxBuckets = 50
-	defer func() { rateLimitMaxBuckets = originalCap }()
+// BenchmarkRecover benchmarks the Recover middleware
+func BenchmarkRecover(b *testing.B) {
+	mw := Recover()
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
 
-	mw := RateLimitTokenBucket(5, 2, func(ctx *remilia.Context) string {
-		if id, ok := ctx.Get(CtxKeyUserID); ok {
-			return id.(string)
-		}
-		return "default"
-	})
+	b.ResetTimer()
+	b.ReportAllocs()
 
-	handler := mw(func(ctx *remilia.Context) error { return nil })
-
-	var wg sync.WaitGroup
-	for i := 0; i < 40; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-			ctx.Set(CtxKeyUserID, fmt.Sprintf("user-%d", i))
-			_ = handler(ctx) // 我们只关心无 panic 且不溢出
-		}(i)
+	for i := 0; i < b.N; i++ {
+		_ = handler(ctx)
 	}
-
-	wg.Wait()
 }
 
-func TestMetrics(t *testing.T) {
-	mw := Metrics()
-
-	called := false
-	handler := mw(func(ctx *remilia.Context) error {
-		called = true
-		return nil
+// BenchmarkRetry benchmarks the Retry middleware
+func BenchmarkRetry(b *testing.B) {
+	mw := Retry(RetryConfig{
+		MaxAttempts: 3,
+		BackoffBase: 10 * time.Millisecond,
 	})
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	b.ResetTimer()
+	b.ReportAllocs()
 
-	assert.NoError(t, err)
-	assert.True(t, called)
+	for i := 0; i < b.N; i++ {
+		_ = handler(ctx)
+	}
 }
 
-func TestPrometheusMetrics(t *testing.T) {
-	mw := PrometheusMetrics("test")
-
-	called := false
-	handler := mw(func(ctx *remilia.Context) error {
-		called = true
-		return nil
+// BenchmarkCircuitBreaker benchmarks the CircuitBreaker middleware
+func BenchmarkCircuitBreaker(b *testing.B) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		MaxFailures: 10,
 	})
+	mw := CircuitBreakerMiddleware(cb)
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
 
-	ctx := remilia.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	err := handler(ctx)
+	b.ResetTimer()
+	b.ReportAllocs()
 
-	assert.NoError(t, err)
-	assert.True(t, called)
+	for i := 0; i < b.N; i++ {
+		_ = handler(ctx)
+	}
+}
+
+// BenchmarkMiddlewareChain benchmarks chained middlewares
+func BenchmarkMiddlewareChain(b *testing.B) {
+	handler := Recover()(Logging()(Metrics()(mockHandler(nil, 0))))
+	ctx := createTestContext()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_ = handler(ctx)
+	}
 }

@@ -2,10 +2,11 @@ package middleware
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,6 +49,9 @@ type CircuitBreaker struct {
 	state        atomic.Value // CircuitBreakerState
 	lastFailure  atomic.Value // time.Time
 	halfOpenReqs atomic.Int32 // 半开状态下的请求数
+
+	// 保护状态转换的互斥锁
+	mu sync.Mutex
 }
 
 // CircuitBreakerConfig 熔断器配置
@@ -118,6 +122,9 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 
 // canExecute 检查是否可以执行请求
 func (cb *CircuitBreaker) canExecute() error {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
 	state := cb.GetState()
 
 	switch state {
@@ -128,19 +135,25 @@ func (cb *CircuitBreaker) canExecute() error {
 		// 检查是否可以进入半开状态
 		lastFail := cb.lastFailure.Load().(time.Time)
 		if !lastFail.IsZero() && time.Since(lastFail) >= cb.config.ResetTimeout {
-			cb.setState(StateHalfOpen)
+			// 原子地转换状态并重置计数器
+			cb.state.Store(StateHalfOpen)
 			cb.halfOpenReqs.Store(1) // Count this request
+
+			logrus.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
+			if cb.config.OnStateChange != nil {
+				cb.config.OnStateChange(StateOpen, StateHalfOpen)
+			}
 			return nil
 		}
 		return fmt.Errorf("circuit breaker is open")
 
 	case StateHalfOpen:
 		// 半开状态下限制请求数量
-		reqs := cb.halfOpenReqs.Add(1)
-		if reqs > int32(cb.config.HalfOpenMaxRequests) {
-			cb.halfOpenReqs.Add(-1) // 回滚
+		reqs := cb.halfOpenReqs.Load()
+		if reqs >= int32(cb.config.HalfOpenMaxRequests) {
 			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
 		}
+		cb.halfOpenReqs.Add(1)
 		return nil
 
 	default:
@@ -196,9 +209,9 @@ func (cb *CircuitBreaker) onFailure() {
 //	    ResetTimeout: 30 * time.Second,
 //	})
 //	engine.Use(middleware.CircuitBreakerMiddleware(cb))
-func CircuitBreakerMiddleware(cb *CircuitBreaker) remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func CircuitBreakerMiddleware(cb *CircuitBreaker) context.Middleware {
+	return func(next context.Handler) context.Handler {
+		return func(ctx *context.Context) error {
 			// 检查是否可以执行
 			if err := cb.canExecute(); err != nil {
 				logrus.WithError(err).WithFields(logrus.Fields{

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -463,7 +464,8 @@ func LoadViper(path string) (*Config, error) {
 
 	// 允许 yaml/json/hcl 等
 	if err := v.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var configFileNotFoundError viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("load config via viper failed: %w", err)
 		}
 	}
@@ -495,7 +497,7 @@ func getEnvUint64(key string) uint64 {
 		return 0
 	}
 	var result uint64
-	fmt.Sscanf(val, "%d", &result)
+	_, _ = fmt.Sscanf(val, "%d", &result)
 	return result
 }
 
@@ -505,7 +507,7 @@ func getEnvInt(key string, defaultVal int) int {
 		return defaultVal
 	}
 	var result int
-	fmt.Sscanf(val, "%d", &result)
+	_, _ = fmt.Sscanf(val, "%d", &result)
 	return result
 }
 

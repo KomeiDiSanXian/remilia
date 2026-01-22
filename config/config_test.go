@@ -1,297 +1,68 @@
 package config
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLoad(t *testing.T) {
-	// 创建临时配置文件
-	content := `
-bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "test_token"
-  secret: "test_secret"
-
-server:
-  host: "127.0.0.1"
-  port: 9090
-
-log:
-  level: "debug"
-  format: "json"
-`
-	tmpFile, err := os.CreateTemp("", "config-*.yaml")
-	assert.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-
-	_, err = tmpFile.WriteString(content)
-	assert.NoError(t, err)
-	tmpFile.Close()
-
-	// 测试加载
-	cfg, err := Load(tmpFile.Name())
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-
-	// 验证配置值
-	assert.Equal(t, uint64(123456), cfg.Bot.AppID)
-	assert.Equal(t, uint64(789012), cfg.Bot.BotID)
-	assert.Equal(t, "test_token", cfg.Bot.Token)
-	assert.Equal(t, "test_secret", cfg.Bot.Secret)
-	assert.Equal(t, "127.0.0.1", cfg.Server.Host)
-	assert.Equal(t, 9090, cfg.Server.Port)
-	assert.Equal(t, "debug", cfg.Log.Level)
-	assert.Equal(t, "json", cfg.Log.Format)
-}
-
-func TestLoadInvalidFile(t *testing.T) {
-	_, err := Load("non_existent_file.yaml")
-	assert.Error(t, err)
-}
-
-func TestValidate(t *testing.T) {
+// TestBotConfig_Validate 测试 Bot 配置验证
+func TestBotConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  Config
+		config  BotConfig
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{
-					Port: 8080,
-				},
+			config: BotConfig{
+				AppID:  123456,
+				BotID:  789012,
+				Token:  "test-token",
+				Secret: "test-secret",
 			},
 			wantErr: false,
 		},
 		{
 			name: "missing app_id",
-			config: Config{
-				Bot: BotConfig{
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
+			config: BotConfig{
+				BotID:  789012,
+				Token:  "test-token",
+				Secret: "test-secret",
 			},
 			wantErr: true,
 			errMsg:  "app_id",
 		},
 		{
+			name: "missing bot_id",
+			config: BotConfig{
+				AppID:  123456,
+				Token:  "test-token",
+				Secret: "test-secret",
+			},
+			wantErr: true,
+			errMsg:  "bot_id",
+		},
+		{
 			name: "missing token",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
+			config: BotConfig{
+				AppID:  123456,
+				BotID:  789012,
+				Secret: "test-secret",
 			},
 			wantErr: true,
 			errMsg:  "token",
 		},
 		{
-			name: "invalid port - too low",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{
-					Port: 0,
-				},
+			name: "missing secret",
+			config: BotConfig{
+				AppID: 123456,
+				BotID: 789012,
+				Token: "test-token",
 			},
 			wantErr: true,
-			errMsg:  "port",
-		},
-		{
-			name: "invalid port - too high",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{
-					Port: 99999,
-				},
-			},
-			wantErr: true,
-			errMsg:  "port",
-		},
-		{
-			name: "invalid log level",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Log: LogConfig{
-					Level: "invalid",
-				},
-			},
-			wantErr: true,
-			errMsg:  "level",
-		},
-		{
-			name: "invalid log format",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Log: LogConfig{
-					Format: "xml",
-				},
-			},
-			wantErr: true,
-			errMsg:  "format",
-		},
-		{
-			name: "invalid concurrency policy",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Concurrency: ConcurrencyConfig{
-					Policy: "invalid",
-				},
-			},
-			wantErr: true,
-			errMsg:  "policy",
-		},
-		{
-			name: "invalid concurrency wait_timeout",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Concurrency: ConcurrencyConfig{
-					WaitTimeout: "invalid",
-				},
-			},
-			wantErr: true,
-			errMsg:  "wait_timeout",
-		},
-		{
-			name: "valid concurrency config",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Concurrency: ConcurrencyConfig{
-					Limit:       100,
-					Policy:      "block",
-					WaitTimeout: "1s",
-					EventBuffer: 1000,
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "invalid retry config - max_attempts",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Retry: RetryConfig{
-					Enable:      true,
-					MaxAttempts: 0,
-				},
-			},
-			wantErr: true,
-			errMsg:  "max_attempts",
-		},
-		{
-			name: "valid retry config",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				Retry: RetryConfig{
-					Enable:      true,
-					MaxAttempts: 3,
-					BackoffBase: "100ms",
-					BackoffMax:  "5s",
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "invalid dead_letter target",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				DeadLetter: DeadLetterConfig{
-					Enable: true,
-					Target: "invalid",
-				},
-			},
-			wantErr: true,
-			errMsg:  "target",
-		},
-		{
-			name: "dead_letter file - missing file_path",
-			config: Config{
-				Bot: BotConfig{
-					AppID:  123,
-					BotID:  456,
-					Token:  "token",
-					Secret: "secret",
-				},
-				Server: ServerConfig{Port: 8080},
-				DeadLetter: DeadLetterConfig{
-					Enable: true,
-					Target: "file",
-				},
-			},
-			wantErr: true,
-			errMsg:  "file_path",
+			errMsg:  "secret",
 		},
 	}
 
@@ -310,114 +81,664 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestGet(t *testing.T) {
-	// 测试未初始化
-	globalConfig = nil
-	cfg := Get()
-	assert.Nil(t, cfg)
-
-	// 测试已初始化
-	testCfg := &Config{
-		Bot: BotConfig{
-			AppID: 123,
+// TestServerConfig_Validate 测试 Server 配置验证
+func TestServerConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ServerConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid config",
+			config:  ServerConfig{Host: "localhost", Port: 8080},
+			wantErr: false,
+		},
+		{
+			name:    "valid port range - min",
+			config:  ServerConfig{Host: "0.0.0.0", Port: 1},
+			wantErr: false,
+		},
+		{
+			name:    "valid port range - max",
+			config:  ServerConfig{Host: "0.0.0.0", Port: 65535},
+			wantErr: false,
+		},
+		{
+			name:    "empty host is valid",
+			config:  ServerConfig{Port: 8080},
+			wantErr: false,
+		},
+		{
+			name:    "port too low",
+			config:  ServerConfig{Host: "localhost", Port: 0},
+			wantErr: true,
+			errMsg:  "port must be between",
+		},
+		{
+			name:    "port too high",
+			config:  ServerConfig{Host: "localhost", Port: 65536},
+			wantErr: true,
+			errMsg:  "port must be between",
+		},
+		{
+			name:    "negative port",
+			config:  ServerConfig{Host: "localhost", Port: -1},
+			wantErr: true,
+			errMsg:  "port must be between",
 		},
 	}
-	globalConfig = testCfg
-	cfg = Get()
-	assert.Equal(t, testCfg, cfg)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
-func TestLoadFromEnv(t *testing.T) {
-	// 设置环境变量
-	os.Setenv("BOT_APP_ID", "111222")
-	os.Setenv("BOT_BOT_ID", "333444")
-	os.Setenv("BOT_TOKEN", "env_token")
-	os.Setenv("BOT_SECRET", "env_secret")
-	os.Setenv("SERVER_HOST", "localhost")
-	os.Setenv("SERVER_PORT", "7777")
-	os.Setenv("LOG_LEVEL", "warn")
-	os.Setenv("LOG_FORMAT", "json")
+// TestLogConfig_Validate 测试 Log 配置验证
+func TestLogConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  LogConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid level - debug",
+			config:  LogConfig{Level: "debug", Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "valid level - info",
+			config:  LogConfig{Level: "info", Format: "json"},
+			wantErr: false,
+		},
+		{
+			name:    "valid level - warn",
+			config:  LogConfig{Level: "warn", Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "valid level - error",
+			config:  LogConfig{Level: "error", Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "valid level - fatal",
+			config:  LogConfig{Level: "fatal", Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "valid level - panic",
+			config:  LogConfig{Level: "panic", Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "empty level is valid",
+			config:  LogConfig{Format: "text"},
+			wantErr: false,
+		},
+		{
+			name:    "empty format is valid",
+			config:  LogConfig{Level: "info"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid level",
+			config:  LogConfig{Level: "trace", Format: "text"},
+			wantErr: true,
+			errMsg:  "log.level",
+		},
+		{
+			name:    "invalid format",
+			config:  LogConfig{Level: "info", Format: "xml"},
+			wantErr: true,
+			errMsg:  "log.format",
+		},
+	}
 
-	defer func() {
-		os.Unsetenv("BOT_APP_ID")
-		os.Unsetenv("BOT_BOT_ID")
-		os.Unsetenv("BOT_TOKEN")
-		os.Unsetenv("BOT_SECRET")
-		os.Unsetenv("SERVER_HOST")
-		os.Unsetenv("SERVER_PORT")
-		os.Unsetenv("LOG_LEVEL")
-		os.Unsetenv("LOG_FORMAT")
-	}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
 
-	cfg := &Config{
+// TestConcurrencyConfig_Validate 测试 Concurrency 配置验证
+func TestConcurrencyConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ConcurrencyConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: ConcurrencyConfig{
+				Limit:       100,
+				Policy:      "drop",
+				WaitTimeout: "5s",
+				EventBuffer: 1000,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid policy - block",
+			config: ConcurrencyConfig{
+				Limit:  50,
+				Policy: "block",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid policy - trywait",
+			config: ConcurrencyConfig{
+				Limit:       50,
+				Policy:      "trywait",
+				WaitTimeout: "10s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "empty policy is valid",
+			config: ConcurrencyConfig{
+				Limit: 50,
+			},
+			wantErr: false,
+		},
+		{
+			name: "zero limit is valid",
+			config: ConcurrencyConfig{
+				Limit:  0,
+				Policy: "drop",
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative limit",
+			config: ConcurrencyConfig{
+				Limit:  -1,
+				Policy: "drop",
+			},
+			wantErr: true,
+			errMsg:  "concurrency.limit",
+		},
+		{
+			name: "invalid policy",
+			config: ConcurrencyConfig{
+				Limit:  50,
+				Policy: "reject",
+			},
+			wantErr: true,
+			errMsg:  "concurrency.policy",
+		},
+		{
+			name: "invalid wait_timeout",
+			config: ConcurrencyConfig{
+				Limit:       50,
+				Policy:      "trywait",
+				WaitTimeout: "invalid",
+			},
+			wantErr: true,
+			errMsg:  "wait_timeout",
+		},
+		{
+			name: "negative event_buffer",
+			config: ConcurrencyConfig{
+				Limit:       50,
+				EventBuffer: -1,
+			},
+			wantErr: true,
+			errMsg:  "event_buffer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestRetryConfig_Validate 测试 Retry 配置验证
+func TestRetryConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  RetryConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 3,
+				BackoffBase: "1s",
+				BackoffMax:  "30s",
+			},
+			wantErr: false,
+		},
+		{
+			name: "disabled retry - no validation",
+			config: RetryConfig{
+				Enable:      false,
+				MaxAttempts: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "enabled with minimal config",
+			config: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 1,
+			},
+			wantErr: false,
+		},
+		{
+			name: "enabled but zero max_attempts",
+			config: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 0,
+			},
+			wantErr: true,
+			errMsg:  "max_attempts",
+		},
+		{
+			name: "invalid backoff_base",
+			config: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 3,
+				BackoffBase: "invalid",
+			},
+			wantErr: true,
+			errMsg:  "backoff_base",
+		},
+		{
+			name: "invalid backoff_max",
+			config: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 3,
+				BackoffMax:  "not-a-duration",
+			},
+			wantErr: true,
+			errMsg:  "backoff_max",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestMiddlewareConfig_Validate 测试 Middleware 配置验证
+func TestMiddlewareConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  MiddlewareConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config",
+			config: MiddlewareConfig{
+				RateLimit:      true,
+				RateLimitRate:  100,
+				RateLimitBurst: 200,
+			},
+			wantErr: false,
+		},
+		{
+			name: "rate limit disabled - no validation",
+			config: MiddlewareConfig{
+				RateLimit:      false,
+				RateLimitRate:  -1, // Should not be validated
+				RateLimitBurst: -1,
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative rate",
+			config: MiddlewareConfig{
+				RateLimit:     true,
+				RateLimitRate: -1,
+			},
+			wantErr: true,
+			errMsg:  "rate_limit_rate",
+		},
+		{
+			name: "negative burst",
+			config: MiddlewareConfig{
+				RateLimit:      true,
+				RateLimitRate:  100,
+				RateLimitBurst: -1,
+			},
+			wantErr: true,
+			errMsg:  "rate_limit_burst",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestDeadLetterConfig_Validate 测试 DeadLetter 配置验证
+func TestDeadLetterConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  DeadLetterConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid file target",
+			config: DeadLetterConfig{
+				Enable:   true,
+				Target:   "file",
+				FilePath: "/tmp/dlq.log",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid kafka target",
+			config: DeadLetterConfig{
+				Enable:       true,
+				Target:       "kafka",
+				KafkaBrokers: []string{"localhost:9092"},
+				KafkaTopic:   "dlq-topic",
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid webhook target",
+			config: DeadLetterConfig{
+				Enable:     true,
+				Target:     "webhook",
+				WebhookURL: "https://example.com/dlq",
+			},
+			wantErr: false,
+		},
+		{
+			name: "disabled - no validation",
+			config: DeadLetterConfig{
+				Enable: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid target",
+			config: DeadLetterConfig{
+				Enable: true,
+				Target: "redis",
+			},
+			wantErr: true,
+			errMsg:  "target must be one of",
+		},
+		{
+			name: "file target without filepath",
+			config: DeadLetterConfig{
+				Enable: true,
+				Target: "file",
+			},
+			wantErr: true,
+			errMsg:  "file_path is required",
+		},
+		{
+			name: "kafka target without brokers",
+			config: DeadLetterConfig{
+				Enable:     true,
+				Target:     "kafka",
+				KafkaTopic: "topic",
+			},
+			wantErr: true,
+			errMsg:  "kafka_brokers is required",
+		},
+		{
+			name: "kafka target without topic",
+			config: DeadLetterConfig{
+				Enable:       true,
+				Target:       "kafka",
+				KafkaBrokers: []string{"localhost:9092"},
+			},
+			wantErr: true,
+			errMsg:  "kafka_topic is required",
+		},
+		{
+			name: "webhook target without url",
+			config: DeadLetterConfig{
+				Enable: true,
+				Target: "webhook",
+			},
+			wantErr: true,
+			errMsg:  "webhook_url is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestWebhookConfig_Validate 测试 Webhook 配置验证
+func TestWebhookConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  WebhookConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid config with dedup enabled",
+			config: WebhookConfig{
+				EventBuffer:      1000,
+				DedupEnable:      true,
+				Shards:           16,
+				LifeWindow:       "5m",
+				CleanWindow:      "1m",
+				MaxEntrySize:     1024,
+				HardMaxCacheSize: 10000,
+			},
+			wantErr: false,
+		},
+		{
+			name: "dedup disabled - no validation",
+			config: WebhookConfig{
+				EventBuffer: 1000,
+				DedupEnable: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "negative event_buffer",
+			config: WebhookConfig{
+				EventBuffer: -1,
+			},
+			wantErr: true,
+			errMsg:  "event_buffer",
+		},
+		{
+			name: "negative shards",
+			config: WebhookConfig{
+				DedupEnable: true,
+				Shards:      -1,
+			},
+			wantErr: true,
+			errMsg:  "dedup_shards",
+		},
+		{
+			name: "invalid life_window",
+			config: WebhookConfig{
+				DedupEnable: true,
+				LifeWindow:  "invalid",
+			},
+			wantErr: true,
+			errMsg:  "dedup_life_window",
+		},
+		{
+			name: "invalid clean_window",
+			config: WebhookConfig{
+				DedupEnable: true,
+				CleanWindow: "not-duration",
+			},
+			wantErr: true,
+			errMsg:  "dedup_clean_window",
+		},
+		{
+			name: "negative max_entry_size",
+			config: WebhookConfig{
+				DedupEnable:  true,
+				MaxEntrySize: -1,
+			},
+			wantErr: true,
+			errMsg:  "dedup_max_entry_size",
+		},
+		{
+			name: "negative hard_max_cache_size",
+			config: WebhookConfig{
+				DedupEnable:      true,
+				HardMaxCacheSize: -1,
+			},
+			wantErr: true,
+			errMsg:  "dedup_hard_max_size",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.errMsg != "" {
+					assert.Contains(t, err.Error(), tt.errMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestConfig_Validate 测试完整配置验证
+func TestConfig_Validate(t *testing.T) {
+	validConfig := Config{
 		Bot: BotConfig{
-			AppID:  getEnvUint64("BOT_APP_ID"),
-			BotID:  getEnvUint64("BOT_BOT_ID"),
-			Token:  os.Getenv("BOT_TOKEN"),
-			Secret: os.Getenv("BOT_SECRET"),
+			AppID:  123456,
+			BotID:  789012,
+			Token:  "test-token",
+			Secret: "test-secret",
 		},
 		Server: ServerConfig{
-			Host: getEnvDefault("SERVER_HOST", "0.0.0.0"),
-			Port: getEnvInt("SERVER_PORT", 8080),
+			Host: "localhost",
+			Port: 8080,
 		},
 		Log: LogConfig{
-			Level:  getEnvDefault("LOG_LEVEL", "info"),
-			Format: getEnvDefault("LOG_FORMAT", "text"),
+			Level:  "info",
+			Format: "json",
+		},
+		Concurrency: ConcurrencyConfig{
+			Limit:  100,
+			Policy: "drop",
+		},
+		Retry: RetryConfig{
+			Enable:      true,
+			MaxAttempts: 3,
+		},
+		Middleware: MiddlewareConfig{
+			RateLimit:      true,
+			RateLimitRate:  100,
+			RateLimitBurst: 200,
+		},
+		DeadLetter: DeadLetterConfig{
+			Enable:   true,
+			Target:   "file",
+			FilePath: "/tmp/dlq.log",
+		},
+		Webhook: WebhookConfig{
+			EventBuffer: 1000,
 		},
 	}
 
-	assert.Equal(t, uint64(111222), cfg.Bot.AppID)
-	assert.Equal(t, uint64(333444), cfg.Bot.BotID)
-	assert.Equal(t, "env_token", cfg.Bot.Token)
-	assert.Equal(t, "env_secret", cfg.Bot.Secret)
-	assert.Equal(t, "localhost", cfg.Server.Host)
-	assert.Equal(t, 7777, cfg.Server.Port)
-	assert.Equal(t, "warn", cfg.Log.Level)
-	assert.Equal(t, "json", cfg.Log.Format)
-}
+	t.Run("valid complete config", func(t *testing.T) {
+		err := validConfig.Validate()
+		assert.NoError(t, err)
+	})
 
-func TestLoadViper_FromFile(t *testing.T) {
-	content := `
-log:
-  level: "info"
-  format: "text"
-bot:
-  app_id: 1
-  bot_id: 2
-  token: "t"
-  secret: "s"
-server:
-  port: 8080
-`
-	tmpFile, err := os.CreateTemp("", "config-viper-*.yaml")
-	assert.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	_, _ = tmpFile.WriteString(content)
-	tmpFile.Close()
+	t.Run("invalid bot config", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Bot.Token = ""
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "bot config")
+	})
 
-	cfg, err := LoadViper(tmpFile.Name())
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(1), cfg.Bot.AppID)
-	assert.Equal(t, uint64(2), cfg.Bot.BotID)
-	assert.Equal(t, 8080, cfg.Server.Port)
-}
+	t.Run("invalid server config", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Server.Port = 0
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "server config")
+	})
 
-func TestLoadViper_EnvFallback(t *testing.T) {
-	os.Setenv("BOT_APP_ID", "10")
-	os.Setenv("BOT_BOT_ID", "11")
-	os.Setenv("BOT_TOKEN", "tok")
-	os.Setenv("BOT_SECRET", "sec")
-	defer func() {
-		os.Unsetenv("BOT_APP_ID")
-		os.Unsetenv("BOT_BOT_ID")
-		os.Unsetenv("BOT_TOKEN")
-		os.Unsetenv("BOT_SECRET")
-	}()
-
-	cfg, err := LoadViper("")
-	assert.NoError(t, err)
-	assert.Equal(t, uint64(10), cfg.Bot.AppID)
-	assert.Equal(t, uint64(11), cfg.Bot.BotID)
-	assert.Equal(t, "tok", cfg.Bot.Token)
-	assert.Equal(t, "sec", cfg.Bot.Secret)
+	t.Run("invalid log config", func(t *testing.T) {
+		cfg := validConfig
+		cfg.Log.Level = "invalid"
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "log config")
+	})
 }

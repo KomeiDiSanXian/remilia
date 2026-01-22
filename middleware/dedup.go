@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 )
 
@@ -73,7 +73,7 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 // IsDuplicate 检查事件是否重复
 //
 // 返回 true 表示事件已经存在（重复），false 表示首次出现。
-// 如果缓存已满且事件不存在，返回错误。
+// 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
 func (d *DedupFilter) IsDuplicate(eventID string) (bool, error) {
 	now := time.Now().Unix()
 
@@ -95,7 +95,28 @@ func (d *DedupFilter) IsDuplicate(eventID string) (bool, error) {
 
 	// 检查缓存大小限制
 	if !exists && cacheSize >= d.maxSize {
-		return false, fmt.Errorf("dedup cache full (size: %d, max: %d)", cacheSize, d.maxSize)
+		// 缓存满载，尝试立即清理过期条目
+		logrus.WithFields(logrus.Fields{
+			"cache_size": cacheSize,
+			"max_size":   d.maxSize,
+		}).Debug("[Dedup] Cache full, triggering immediate cleanup")
+
+		d.cleanExpired()
+
+		// 重新检查大小
+		d.mu.RLock()
+		cacheSize = len(d.cache)
+		d.mu.RUnlock()
+
+		if cacheSize >= d.maxSize {
+			logrus.WithFields(logrus.Fields{
+				"cache_size": cacheSize,
+				"max_size":   d.maxSize,
+			}).Warn("[Dedup] Cache still full after cleanup")
+			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", cacheSize, d.maxSize)
+		}
+
+		logrus.WithField("cache_size", cacheSize).Debug("[Dedup] Cache cleaned, space available")
 	}
 
 	// 添加到缓存
@@ -184,9 +205,9 @@ func (d *DedupFilter) Clear() {
 //   - 重复事件会被阻断，不会调用 handler
 //   - 缓存满时会返回错误并继续处理（避免拒绝服务）
 //   - 需要手动调用 filter.Stop() 停止后台清理
-func Dedup(filter *DedupFilter) remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func Dedup(filter *DedupFilter) context.Middleware {
+	return func(next context.Handler) context.Handler {
+		return func(ctx *context.Context) error {
 			event := ctx.GetEvent()
 			if event == nil {
 				return next(ctx)
@@ -223,9 +244,9 @@ func Dedup(filter *DedupFilter) remilia.HandlerMiddleware {
 // 与 Dedup 的区别：
 //   - 缓存满时返回错误，不处理事件
 //   - 适用于对数据一致性要求更高的场景
-func DedupWithReject(filter *DedupFilter) remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func DedupWithReject(filter *DedupFilter) context.Middleware {
+	return func(next context.Handler) context.Handler {
+		return func(ctx *context.Context) error {
 			event := ctx.GetEvent()
 			if event == nil {
 				return next(ctx)

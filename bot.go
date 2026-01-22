@@ -2,228 +2,220 @@ package remilia
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
+	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/openapi"
-	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
+	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 	"github.com/sirupsen/logrus"
 )
 
-// Bot is the main entry point for the Remilia.
+// Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
-	adapter Adapter
-	tm      *token.Manager
-	engine  *Engine
-	api     openapi.OpenAPI
+	engine    *engine.Engine
+	adapter   Adapter
+	lifecycle *lifecycle.Manager
+	health    *HealthChecker
+	config    *Config
 
-	// Context 传播机制：用于优雅关闭时主动取消正在执行的 handler
-	ctx    context.Context
-	cancel context.CancelFunc
+	mu        sync.RWMutex
+	running   bool
+	startTime time.Time
+	stopTime  time.Time
 }
 
-// BotOption is the option for the Bot.
-type BotOption func(*Bot)
-
-// WithWebHook enables the webhook protocol for the bot.
-func WithWebHook(wh webhook.WebHook) BotOption {
-	return func(b *Bot) {
-		b.adapter = NewWebhookAdapter(wh)
-	}
+// Config Bot 配置
+type Config struct {
+	Name    string
+	Version string
+	Debug   bool
 }
 
-// WithAdapter sets a custom adapter for the bot.
-func WithAdapter(adapter Adapter) BotOption {
-	return func(b *Bot) {
-		b.adapter = adapter
-	}
-}
-
-// WithEngine sets a custom engine for the bot.
-func WithEngine(engine *Engine) BotOption {
-	return func(b *Bot) {
-		b.engine = engine
-	}
-}
-
-// New creates a new instance of the Remilia SDK.
-//
-// 自动创建独立的 Engine 实例。如果需要自定义 Engine，可通过 WithEngine() 选项提供。
-//
-// 使用示例：
-//
-//	// 默认：自动创建 Engine
-//	bot := remilia.New(info)
-//
-//	// 或提供自定义 Engine
-//	engine := remilia.NewEngine()
-//	bot := remilia.New(info, remilia.WithEngine(engine))
-//
-// 优势：
-//   - ✅ 测试隔离：每个 Bot 使用独立 Engine
-//   - ✅ 多实例：可同时运行多个 Bot
-//   - ✅ 简单易用：零配置即可使用
-func New(info *dto.BotInfo, options ...BotOption) *Bot {
-	tm := token.NewManager(info)
-
+// NewBot 创建新的 Bot 实例
+func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	b := &Bot{
-		tm:  tm,
-		api: openapi.New(tm),
+		engine:    engine,
+		adapter:   adapter,
+		lifecycle: lifecycle.NewManager(),
+		config: &Config{
+			Name:    "remilia-bot",
+			Version: "0.9.0",
+			Debug:   false,
+		},
 	}
 
-	// 应用选项（可能覆盖默认 Engine）
-	for _, opt := range options {
+	// 应用选项
+	for _, opt := range opts {
 		opt(b)
 	}
 
-	// 默认创建新的 Engine (如果选项中未提供)
-	if b.engine == nil {
-		b.engine = NewEngine()
-	}
+	// 初始化健康检查
+	b.health = NewHealthChecker(b)
+
+	// 注册组件到生命周期管理器
+	b.lifecycle.Register(lifecycle.NewSimpleComponent(
+		"adapter",
+		func(ctx context.Context) error {
+			return b.adapter.Start(ctx, b.handleEvent)
+		},
+		func(ctx context.Context) error {
+			return b.adapter.Shutdown(ctx)
+		},
+	))
+
+	b.lifecycle.Register(lifecycle.NewSimpleComponent(
+		"engine",
+		func(ctx context.Context) error {
+			// Engine 通常不需要特殊启动
+			return nil
+		},
+		func(ctx context.Context) error {
+			return b.engine.Shutdown(ctx)
+		},
+	))
 
 	return b
 }
 
-// GetEngine 获取 Bot 的引擎
-func (b *Bot) GetEngine() *Engine {
+// Start 启动 Bot
+func (b *Bot) Start() error {
+	b.mu.Lock()
+	if b.running {
+		b.mu.Unlock()
+		logrus.Warn("[Bot] Already running")
+		return nil
+	}
+	b.mu.Unlock()
+
+	logrus.WithFields(logrus.Fields{
+		"name":    b.config.Name,
+		"version": b.config.Version,
+	}).Info("[Bot] Starting...")
+
+	// 使用生命周期管理器启动所有组件
+	ctx := context.Background()
+	if err := b.lifecycle.Start(ctx); err != nil {
+		logrus.WithError(err).Error("[Bot] Failed to start")
+		return err
+	}
+
+	// 启动成功后才设置状态，避免状态不一致
+	b.mu.Lock()
+	b.running = true
+	b.startTime = time.Now()
+	b.mu.Unlock()
+
+	logrus.Info("[Bot] Started successfully")
+	return nil
+}
+
+// handleEvent 处理事件
+func (b *Bot) handleEvent(payload *dto.Payload) {
+	if b.config.Debug {
+		logrus.WithFields(logrus.Fields{
+			"type": payload.Type,
+			"id":   payload.ID,
+		}).Debug("[Bot] Event received")
+	}
+
+	// 创建 Context
+	ctx := context2.NewContext(payload, nil)
+
+	// 使用 Engine 处理事件
+	b.engine.ProcessEvent(ctx)
+}
+
+// Shutdown 优雅关闭 Bot
+func (b *Bot) Shutdown(ctx context.Context) error {
+	b.mu.Lock()
+	if !b.running {
+		b.mu.Unlock()
+		logrus.Warn("[Bot] Not running")
+		return nil
+	}
+	b.running = false
+	b.stopTime = time.Now()
+	b.mu.Unlock()
+
+	logrus.Info("[Bot] Shutting down...")
+
+	// 使用生命周期管理器停止所有组件（逆序）
+	if err := b.lifecycle.Stop(ctx); err != nil {
+		logrus.WithError(err).Error("[Bot] Shutdown completed with errors")
+		return err
+	}
+
+	logrus.Info("[Bot] Shutdown complete")
+	return nil
+}
+
+// Engine 返回 Bot 的 Engine 实例
+func (b *Bot) Engine() *engine.Engine {
 	return b.engine
 }
 
-// GetAPI 获取 Bot 的 OpenAPI
-func (b *Bot) GetAPI() openapi.OpenAPI {
-	return b.api
+// GetEngine 返回 Bot 的 Engine 实例（别名）
+func (b *Bot) GetEngine() *engine.Engine {
+	return b.engine
 }
 
-// On registers a matcher for a specific event type.
-// This delegates to the underlying Engine.
-func (b *Bot) On(eventType dto.EventType, rules ...Rule) *Matcher {
-	return b.engine.On(eventType, rules...)
+// IsRunning 返回 Bot 是否正在运行
+func (b *Bot) IsRunning() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.running
 }
 
-// OnAny registers a matcher for any event type.
-func (b *Bot) OnAny(rules ...Rule) *Matcher {
-	return b.engine.OnAny(rules...)
-}
+// Uptime 返回 Bot 运行时间
+func (b *Bot) Uptime() time.Duration {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-// OnC2C registers a matcher for C2C messages.
-func (b *Bot) OnC2C(rules ...Rule) *Matcher {
-	return b.engine.OnC2C(rules...)
-}
-
-// OnGroupAt registers a matcher for Group@ messages.
-func (b *Bot) OnGroupAt(rules ...Rule) *Matcher {
-	return b.engine.OnGroupAt(rules...)
-}
-
-// OnGroupAdd registers a matcher for GroupAddRobot events.
-func (b *Bot) OnGroupAdd(rules ...Rule) *Matcher {
-	return b.engine.OnGroupAdd(rules...)
-}
-
-// OnGroupDel registers a matcher for GroupDelRobot events.
-func (b *Bot) OnGroupDel(rules ...Rule) *Matcher {
-	return b.engine.OnGroupDel(rules...)
-}
-
-// OnCommand registers a matcher for a command.
-func (b *Bot) OnCommand(eventType dto.EventType, command string, rules ...Rule) *Matcher {
-	return b.engine.OnCommand(eventType, command, rules...)
-}
-
-// OnFullMatch registers a matcher for exact match.
-func (b *Bot) OnFullMatch(text string, rules ...Rule) *Matcher {
-	return b.engine.OnFullMatch(text, rules...)
-}
-
-// Use registers global middleware.
-// This delegates to the underlying Engine but returns *Bot for chaining.
-func (b *Bot) Use(mw ...HandlerMiddleware) *Bot {
-	b.engine.Use(mw...)
-	return b
-}
-
-// Start 启动 Bot（非阻塞），配合 Shutdown 进行优雅关闭
-func (b *Bot) Start() {
-	// 创建 bot 级别的 context，用于优雅关闭时主动取消所有 handler
-	b.ctx, b.cancel = context.WithCancel(context.Background())
-
-	if b.adapter != nil {
-		handleFunc := func(event *dto.Payload) {
-			// 使用 bot context 作为父 context，支持优雅关闭时主动取消
-			ctx := NewContextWithContext(b.ctx, event, b.api)
-			// IMPORTANT: in-flight tracking is owned by Engine (Engine.eventWg).
-			// Adapter.Start is already required to run asynchronously.
-			b.engine.ProcessEvent(ctx)
+	if !b.running {
+		if !b.stopTime.IsZero() {
+			return b.stopTime.Sub(b.startTime)
 		}
-
-		if err := b.adapter.Start(b.ctx, handleFunc); err != nil {
-			logrus.WithError(err).Error("[Remilia] Failed to start adapter")
-		}
-	} else {
-		logrus.Warn("[Remilia] No adapter configured")
+		return 0
 	}
 
-	logrus.Infof("[Remilia] Bot started")
+	return time.Since(b.startTime)
 }
 
-// Shutdown 优雅关闭 Bot：停止 HTTP 服务器与事件处理协程
-//
-// 关闭流程：
-//
-//   - 1. 主动取消所有正在执行的 handler（通过 context）
-//   - 2. 停止适配器（停止接收新事件）
-//   - 3. 关闭 Engine：停止后台资源并等待 in-flight 事件处理完成（受 ctx 限制）
-//
-// ctx 参数控制整个关闭流程的超时时间。
-func (b *Bot) Shutdown(ctx context.Context) {
-	logrus.Info("[Remilia] Starting graceful shutdown...")
-
-	// 1. 主动取消所有正在执行的 handler
-	if b.cancel != nil {
-		b.cancel()
-		logrus.Debug("[Remilia] Cancelled all running handlers")
-	}
-
-	// 2. 停止适配器（停止接收新事件）
-	if b.adapter != nil {
-		if err := b.adapter.Shutdown(ctx); err != nil {
-			logrus.WithError(err).Warn("[Remilia] Adapter shutdown error")
-		}
-	}
-
-	// 3. 关闭 Engine：停止后台资源并等待 in-flight 事件处理完成（受 ctx 限制）
-	if b.engine != nil {
-		if err := b.engine.Shutdown(ctx); err != nil {
-			logrus.WithError(err).Warn("[Remilia] Engine shutdown error")
-		}
-	}
-
-	logrus.Info("[Remilia] Bot shutdown complete")
+// Config 获取配置
+func (b *Bot) Config() *Config {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.config
 }
 
-// Run starts the bot.
-//
-// ctrl + c to stop the bot.
-func (b *Bot) Run() {
-	defer func() {
-		if r := recover(); r != nil {
-			logrus.WithField("recover", r).Error("[Remilia] Recovered from panic")
-		}
-	}()
+// Health 健康检查
+func (b *Bot) Health() *HealthStatus {
+	return b.health.Check()
+}
 
-	b.Start()
-	logrus.Infof("[Remilia] Bot is running")
+// State 返回生命周期状态
+func (b *Bot) State() lifecycle.State {
+	return b.lifecycle.State()
+}
 
-	sgnChan := make(chan os.Signal, 1)
-	signal.Notify(sgnChan, syscall.SIGINT, syscall.SIGTERM)
-	sgn := <-sgnChan
-	logrus.WithField("signal", sgn).Warn("[Remilia] Received signal, shutting down")
+// OnAny 注册处理所有事件的规则（convenience method）
+func (b *Bot) OnAny(rule ...context2.Rule) *engine.Matcher {
+	return b.engine.OnAny(rule...)
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	b.Shutdown(ctx)
+// OnC2C 注册处理私聊消息的规则（convenience method）
+func (b *Bot) OnC2C(rule ...context2.Rule) *engine.Matcher {
+	return b.engine.OnC2C(rule...)
+}
+
+// OnGroupAt 注册处理群@消息的规则（convenience method）
+func (b *Bot) OnGroupAt(rule ...context2.Rule) *engine.Matcher {
+	return b.engine.OnGroupAt(rule...)
+}
+
+// On 注册自定义规则（convenience method）
+func (b *Bot) On(eventType dto.EventType, rule ...context2.Rule) *engine.Matcher {
+	return b.engine.On(eventType, rule...)
 }

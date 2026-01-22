@@ -7,6 +7,6 @@ import "github.com/prometheus/client_golang/prometheus"
 //
 // New code should prefer higher-level APIs (e.g. RecordEventDropped) instead of touching
 // prometheus primitives directly.
-func (mc *MetricsCollector) EventDroppedCounter() *prometheus.CounterVec {
+func (mc *Collector) EventDroppedCounter() *prometheus.CounterVec {
 	return mc.eventDropped
 }

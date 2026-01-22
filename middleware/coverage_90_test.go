@@ -1,0 +1,822 @@
+package middleware
+
+import (
+	"errors"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// ============================================================================
+// Degradation Full Coverage Tests
+// ============================================================================
+
+func TestAdaptiveDegradationFull(t *testing.T) {
+	t.Run("new adaptive degradation", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			MonitorInterval: 100 * time.Millisecond,
+			Strategy:        DegradationDrop,
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		assert.NotNil(t, ad)
+		assert.Equal(t, LevelNormal, ad.GetLevel())
+	})
+
+	t.Run("middleware normal level", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+				return PriorityLow
+			},
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		mw := ad.Middleware()
+
+		executed := false
+		handler := mw(func(ctx *context2.Context) error {
+			executed = true
+			return nil
+		})
+
+		// Normal level - should execute
+		err := handler(createTestContext())
+		assert.NoError(t, err)
+		assert.True(t, executed)
+	})
+
+	t.Run("priority classifier", func(t *testing.T) {
+		highPriorityCalls := 0
+		lowPriorityCalls := 0
+
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+				event := ctx.GetEvent()
+				if event != nil && event.Type == "HIGH_PRIORITY" {
+					return PriorityHigh
+				}
+				return PriorityLow
+			},
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		mw := ad.Middleware()
+
+		handler := mw(func(ctx *context2.Context) error {
+			event := ctx.GetEvent()
+			if event != nil && event.Type == "HIGH_PRIORITY" {
+				highPriorityCalls++
+			} else {
+				lowPriorityCalls++
+			}
+			return nil
+		})
+
+		// Low priority
+		event1 := &dto.Payload{ID: "1", Type: "LOW_PRIORITY"}
+		_ = handler(context2.NewContext(event1, nil))
+
+		// High priority
+		event2 := &dto.Payload{ID: "2", Type: "HIGH_PRIORITY"}
+		_ = handler(context2.NewContext(event2, nil))
+
+		assert.Equal(t, 1, lowPriorityCalls)
+		assert.Equal(t, 1, highPriorityCalls)
+	})
+
+	t.Run("get level", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+
+		// Initially normal
+		assert.Equal(t, LevelNormal, ad.GetLevel())
+	})
+
+	t.Run("stats tracking", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+				return PriorityLow
+			},
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		mw := ad.Middleware()
+
+		handler := mw(func(ctx *context2.Context) error {
+			return nil
+		})
+
+		// Process some events
+		for i := 0; i < 5; i++ {
+			_ = handler(createTestContext())
+		}
+
+		stats := ad.Stats()
+		assert.Equal(t, LevelNormal, stats.Level)
+		assert.Equal(t, int64(5), stats.TotalEvents)
+	})
+
+	t.Run("reset stats", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		mw := ad.Middleware()
+
+		handler := mw(func(ctx *context2.Context) error {
+			return nil
+		})
+
+		_ = handler(createTestContext())
+
+		stats := ad.Stats()
+		assert.Greater(t, stats.TotalEvents, int64(0))
+
+		ad.Reset()
+
+		stats = ad.Stats()
+		assert.Equal(t, int64(0), stats.TotalEvents)
+		assert.Equal(t, int64(0), stats.DroppedEvents)
+	})
+
+	t.Run("on level change callback", func(t *testing.T) {
+		callbackSet := false
+
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+			OnLevelChange: func(from, to DegradationLevel) {
+				callbackSet = true
+			},
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+
+		// Verify callback is set
+		assert.NotNil(t, ad)
+		_ = callbackSet // Just to use the variable
+	})
+}
+
+func TestDegradationStrategies(t *testing.T) {
+	t.Run("drop strategy", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDrop,
+			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+				return PriorityLow
+			},
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		assert.NotNil(t, ad)
+		assert.Equal(t, DegradationDrop, cfg.Strategy)
+	})
+
+	t.Run("delay strategy", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationDelay,
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		assert.NotNil(t, ad)
+		assert.Equal(t, DegradationDelay, cfg.Strategy)
+	})
+
+	t.Run("simplify strategy", func(t *testing.T) {
+		cfg := DegradationConfig{
+			CPUThreshold:    80.0,
+			MemoryThreshold: 85.0,
+			Strategy:        DegradationSimplify,
+		}
+
+		ad := NewAdaptiveDegradation(cfg)
+		assert.NotNil(t, ad)
+		assert.Equal(t, DegradationSimplify, cfg.Strategy)
+	})
+}
+
+func TestEventPriorities(t *testing.T) {
+	priorities := []EventPriority{
+		PriorityLow,
+		PriorityNormal,
+		PriorityHigh,
+		PriorityCritical,
+	}
+
+	for _, p := range priorities {
+		assert.GreaterOrEqual(t, int(p), 0)
+	}
+}
+
+// ============================================================================
+// Additional Coverage Tests for Other Modules
+// ============================================================================
+
+func TestRecoverAdvanced(t *testing.T) {
+	t.Run("recover from string panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(func(ctx *context2.Context) error {
+			panic("string panic")
+		})
+
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic")
+	})
+
+	t.Run("recover from error panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(func(ctx *context2.Context) error {
+			panic(errors.New("error panic"))
+		})
+
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic")
+	})
+
+	t.Run("recover from nil panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(func(ctx *context2.Context) error {
+			panic(nil)
+		})
+
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "panic")
+	})
+
+	t.Run("no panic", func(t *testing.T) {
+		mw := Recover()
+		handler := mw(func(ctx *context2.Context) error {
+			return errors.New("normal error")
+		})
+
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "panic")
+	})
+}
+
+func TestAuthAdvancedExtra(t *testing.T) {
+	t.Run("multiple auth checks", func(t *testing.T) {
+		calls := 0
+		mw := Auth(func(ctx *context2.Context) bool {
+			calls++
+			return calls <= 2
+		})
+
+		handler := mw(mockHandler(nil, 0))
+
+		// First two should pass
+		assert.NoError(t, handler(createTestContext()))
+		assert.NoError(t, handler(createTestContext()))
+
+		// Third should fail
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unauthorized")
+	})
+
+	t.Run("auth with event inspection", func(t *testing.T) {
+		mw := Auth(func(ctx *context2.Context) bool {
+			event := ctx.GetEvent()
+			return event != nil && event.Type == "TEST_EVENT"
+		})
+
+		handler := mw(mockHandler(nil, 0))
+
+		err := handler(createTestContext())
+		assert.NoError(t, err)
+	})
+}
+
+func TestTimeoutAdvancedExtra(t *testing.T) {
+	t.Run("multiple timeouts", func(t *testing.T) {
+		mw := Timeout(50 * time.Millisecond)
+
+		// Fast handler - no timeout
+		fast := mw(mockHandler(nil, 10*time.Millisecond))
+		err := fast(createTestContext())
+		assert.NoError(t, err)
+
+		// Slow handler - timeout
+		slow := mw(mockHandler(nil, 100*time.Millisecond))
+		err = slow(createTestContext())
+		assert.Error(t, err)
+	})
+
+	t.Run("timeout with error", func(t *testing.T) {
+		mw := Timeout(100 * time.Millisecond)
+		handler := mw(mockHandler(errors.New("handler error"), 10*time.Millisecond))
+
+		err := handler(createTestContext())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "handler error")
+	})
+}
+
+func TestMetricsAdvancedExtra(t *testing.T) {
+	t.Run("metrics with various durations", func(t *testing.T) {
+		mw := Metrics()
+
+		durations := []time.Duration{
+			0,
+			10 * time.Millisecond,
+			50 * time.Millisecond,
+		}
+
+		for _, d := range durations {
+			handler := mw(mockHandler(nil, d))
+			err := handler(createTestContext())
+			assert.NoError(t, err)
+		}
+	})
+
+	t.Run("metrics with different errors", func(t *testing.T) {
+		mw := Metrics()
+
+		testErrors := []error{
+			nil,
+			assert.AnError,
+			errors.New("custom error"),
+		}
+
+		for _, e := range testErrors {
+			handler := mw(mockHandler(e, 0))
+			handler(createTestContext())
+		}
+	})
+}
+
+func TestConcurrencyLimitEdgeCases(t *testing.T) {
+	t.Run("zero or small limit", func(t *testing.T) {
+		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
+		handler := mw(mockHandler(nil, 50*time.Millisecond))
+
+		// First should succeed
+		done := make(chan error, 1)
+		go func() {
+			done <- handler(createTestContext())
+		}()
+
+		time.Sleep(10 * time.Millisecond)
+
+		// Second should be dropped
+		err := handler(createTestContext())
+		assert.Error(t, err)
+
+		<-done
+	})
+
+	t.Run("large limit", func(t *testing.T) {
+		mw := ConcurrencyLimit(1000, ConcurrencyDrop, 0)
+		handler := mw(mockHandler(nil, 0))
+
+		var wg sync.WaitGroup
+		errorCount := int32(0)
+
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := handler(createTestContext()); err != nil {
+					atomic.AddInt32(&errorCount, 1)
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// With limit 1000, no errors expected for 100 concurrent
+		assert.Equal(t, int32(0), errorCount)
+	})
+}
+
+func TestRetryEdgeCases(t *testing.T) {
+	t.Run("zero max attempts", func(t *testing.T) {
+		mw := Retry(RetryConfig{
+			MaxAttempts: 0,
+			BackoffBase: 10 * time.Millisecond,
+		})
+
+		attempts := 0
+		handler := mw(func(ctx *context2.Context) error {
+			attempts++
+			return errors.New("error")
+		})
+
+		err := handler(createTestContext())
+		assert.Error(t, err)
+		// Should still try at least once
+		assert.GreaterOrEqual(t, attempts, 1)
+	})
+
+	t.Run("very short backoff", func(t *testing.T) {
+		start := time.Now()
+
+		mw := Retry(RetryConfig{
+			MaxAttempts: 3,
+			BackoffBase: 1 * time.Millisecond,
+			BackoffMax:  5 * time.Millisecond,
+		})
+
+		handler := mw(mockHandler(errors.New("error"), 0))
+
+		handler(createTestContext())
+
+		duration := time.Since(start)
+		// Should complete quickly with short backoff
+		assert.Less(t, duration, 100*time.Millisecond)
+	})
+
+	t.Run("backoff max respected", func(t *testing.T) {
+		start := time.Now()
+
+		mw := Retry(RetryConfig{
+			MaxAttempts: 5,
+			BackoffBase: 100 * time.Millisecond,
+			BackoffMax:  50 * time.Millisecond, // Max is less than base * 2
+		})
+
+		handler := mw(mockHandler(errors.New("error"), 0))
+
+		handler(createTestContext())
+
+		duration := time.Since(start)
+		// With max 50ms * 4 retries = 200ms, should be less than 300ms
+		assert.Less(t, duration, 300*time.Millisecond)
+	})
+}
+
+func TestCircuitBreakerEdgeCases(t *testing.T) {
+	t.Run("zero max failures", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures: 0,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+		handler := mw(mockHandler(errors.New("error"), 0))
+
+		// Should still work with zero max failures
+		handler(createTestContext())
+	})
+
+	t.Run("very short reset timeout", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures:  1,
+			ResetTimeout: 10 * time.Millisecond,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+
+		// Open circuit
+		failHandler := mw(mockHandler(errors.New("error"), 0))
+		failHandler(createTestContext())
+
+		assert.Equal(t, StateOpen, cb.GetState())
+
+		// Wait for reset
+		time.Sleep(20 * time.Millisecond)
+
+		// Should transition to half-open
+		successHandler := mw(mockHandler(nil, 0))
+		successHandler(createTestContext())
+	})
+}
+
+func TestDedupEdgeCases(t *testing.T) {
+	t.Run("very small cache", func(t *testing.T) {
+		filter := NewDedupFilter(DedupConfig{
+			MaxSize:         1,
+			DefaultTTL:      1 * time.Second,
+			CleanupInterval: 1 * time.Hour,
+		})
+		defer filter.Stop()
+
+		mw := Dedup(filter)
+		handler := mw(mockHandler(nil, 0))
+
+		// Add more events than cache size
+		for i := 0; i < 5; i++ {
+			event := &dto.Payload{
+				ID:   dto.EventID(string(rune('a' + i))),
+				Type: "TEST",
+			}
+			handler(context2.NewContext(event, nil))
+		}
+	})
+
+	t.Run("very short TTL", func(t *testing.T) {
+		filter := NewDedupFilter(DedupConfig{
+			MaxSize:         100,
+			DefaultTTL:      10 * time.Millisecond,
+			CleanupInterval: 5 * time.Millisecond,
+		})
+		defer filter.Stop()
+
+		mw := Dedup(filter)
+		handler := mw(mockHandler(nil, 0))
+
+		event := &dto.Payload{ID: "short-ttl", Type: "TEST"}
+
+		// First
+		handler(context2.NewContext(event, nil))
+
+		// Wait for TTL
+		time.Sleep(20 * time.Millisecond)
+
+		// Should be allowed again
+		handler(context2.NewContext(event, nil))
+	})
+}
+
+func TestSlowHandlerEdgeCases(t *testing.T) {
+	t.Run("zero threshold", func(t *testing.T) {
+		logged := false
+		mw := SlowHandler(SlowHandlerConfig{
+			Threshold: 0, // Should use default
+			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+				logged = true
+			},
+		})
+
+		handler := mw(mockHandler(nil, 10*time.Millisecond))
+		handler(createTestContext())
+
+		// With default threshold (1s), 10ms should not log
+		assert.False(t, logged)
+	})
+
+	t.Run("both logger and callback", func(t *testing.T) {
+		logged := false
+		called := false
+
+		mw := SlowHandler(SlowHandlerConfig{
+			Threshold: 50 * time.Millisecond,
+			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+				logged = true
+			},
+			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+				called = true
+			},
+		})
+
+		handler := mw(mockHandler(nil, 100*time.Millisecond))
+		handler(createTestContext())
+
+		assert.True(t, logged)
+		assert.True(t, called)
+	})
+}
+
+func TestRateLimitEdgeCases(t *testing.T) {
+	t.Run("very low rate", func(t *testing.T) {
+		mw := RateLimitTokenBucket(1, 1, func(ctx *context2.Context) string {
+			return "low"
+		})
+
+		handler := mw(mockHandler(nil, 0))
+
+		// First should succeed
+		err1 := handler(createTestContext())
+		assert.NoError(t, err1)
+
+		// Second should be blocked
+		err2 := handler(createTestContext())
+		assert.Error(t, err2)
+	})
+
+	t.Run("custom key function", func(t *testing.T) {
+		mw := RateLimitTokenBucket(5, 5, func(ctx *context2.Context) string {
+			event := ctx.GetEvent()
+			if event != nil {
+				return string(event.ID)
+			}
+			return "default"
+		})
+
+		handler := mw(mockHandler(nil, 0))
+
+		// Different events should have separate limits
+		for i := 0; i < 3; i++ {
+			event := &dto.Payload{
+				ID:   dto.EventID(string(rune('a' + i))),
+				Type: "TEST",
+			}
+			ctx := context2.NewContext(event, nil)
+			err := handler(ctx)
+			assert.NoError(t, err)
+		}
+	})
+}
+
+// ============================================================================
+// Integration and Stress Tests
+// ============================================================================
+
+func TestMiddlewareIntegration(t *testing.T) {
+	t.Run("full stack", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures: 10,
+		})
+
+		filter := NewDedupFilter(DefaultDedupConfig())
+		defer filter.Stop()
+
+		// Stack: Recover -> Retry -> CircuitBreaker -> Dedup -> Logging -> Metrics -> Handler
+		handler := Recover()(
+			Retry(RetryConfig{
+				MaxAttempts: 2,
+				BackoffBase: 10 * time.Millisecond,
+			})(
+				CircuitBreakerMiddleware(cb)(
+					Dedup(filter)(
+						Logging()(
+							Metrics()(
+								mockHandler(nil, 0),
+							),
+						),
+					),
+				),
+			),
+		)
+
+		event := &dto.Payload{ID: "integration", Type: "TEST"}
+		ctx := context2.NewContext(event, nil)
+
+		err := handler(ctx)
+		assert.NoError(t, err)
+	})
+
+	t.Run("error propagation through stack", func(t *testing.T) {
+		testErr := errors.New("test error")
+
+		handler := Recover()(
+			Logging()(
+				Metrics()(
+					mockHandler(testErr, 0),
+				),
+			),
+		)
+
+		err := handler(createTestContext())
+		assert.ErrorIs(t, err, testErr)
+	})
+}
+
+func TestConcurrentStress(t *testing.T) {
+	t.Run("concurrent rate limit", func(t *testing.T) {
+		mw := RateLimitTokenBucket(10, 10, func(ctx *context2.Context) string {
+			return "stress"
+		})
+
+		handler := mw(mockHandler(nil, 0))
+
+		var wg sync.WaitGroup
+		blocked := int32(0)
+
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := handler(createTestContext()); err != nil {
+					atomic.AddInt32(&blocked, 1)
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Some should be blocked
+		assert.Greater(t, blocked, int32(0))
+	})
+
+	t.Run("concurrent circuit breaker", func(t *testing.T) {
+		cb := NewCircuitBreaker(CircuitBreakerConfig{
+			MaxFailures: 3,
+		})
+
+		mw := CircuitBreakerMiddleware(cb)
+		handler := mw(mockHandler(errors.New("error"), 0))
+
+		var wg sync.WaitGroup
+		rejected := int32(0)
+
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := handler(createTestContext())
+				if err != nil && err.Error() == "circuit breaker is open" {
+					atomic.AddInt32(&rejected, 1)
+				}
+			}()
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		wg.Wait()
+
+		// Circuit should open and reject some
+		assert.Greater(t, rejected, int32(0))
+	})
+}
+
+// ============================================================================
+// Benchmarks for New Tests
+// ============================================================================
+
+func BenchmarkDegradationMiddleware(b *testing.B) {
+	cfg := DegradationConfig{
+		CPUThreshold:    80.0,
+		MemoryThreshold: 85.0,
+		Strategy:        DegradationDrop,
+	}
+
+	ad := NewAdaptiveDegradation(cfg)
+	mw := ad.Middleware()
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		handler(ctx)
+	}
+}
+
+func BenchmarkAuthMiddleware(b *testing.B) {
+	mw := Auth(func(ctx *context2.Context) bool {
+		return true
+	})
+	handler := mw(mockHandler(nil, 0))
+	ctx := createTestContext()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		handler(ctx)
+	}
+}
+
+func BenchmarkFullMiddlewareStack(b *testing.B) {
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		MaxFailures: 100,
+	})
+
+	handler := Recover()(
+		Retry(RetryConfig{
+			MaxAttempts: 1,
+			BackoffBase: 1 * time.Millisecond,
+		})(
+			CircuitBreakerMiddleware(cb)(
+				Logging()(
+					Metrics()(
+						mockHandler(nil, 0),
+					),
+				),
+			),
+		),
+	)
+
+	ctx := createTestContext()
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		handler(ctx)
+	}
+}

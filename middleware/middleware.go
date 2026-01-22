@@ -8,15 +8,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
+	context2 "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
 // Logging 记录处理耗时与错误
-func Logging() remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func Logging() context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			start := time.Now()
 			err := next(ctx)
 			entry := logrus.WithError(err).WithFields(logrus.Fields{
@@ -39,9 +39,9 @@ func Logging() remilia.HandlerMiddleware {
 // 使用示例:
 //
 //	engine.Use(middleware.Recover())
-func Recover() remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) (err error) {
+func Recover() context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) (err error) {
 			defer func() {
 				if r := recover(); r != nil {
 					// 获取堆栈信息
@@ -65,9 +65,9 @@ func Recover() remilia.HandlerMiddleware {
 }
 
 // Auth 简单鉴权：阻止非白名单用户（示例）
-func Auth(allow func(ctx *remilia.Context) bool) remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func Auth(allow func(ctx *context2.Context) bool) context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			if !allow(ctx) {
 				logrus.WithField("user", ctx.GetAuthor()).Warn("unauthorized")
 				return fmt.Errorf("unauthorized")
@@ -77,15 +77,12 @@ func Auth(allow func(ctx *remilia.Context) bool) remilia.HandlerMiddleware {
 	}
 }
 
-// Timeout Handler 超时中间件
-// 为 Handler 设置执行超时时间，超时后自动取消并返回错误
-//
-// 使用示例:
+// Timeout 创建一个超时控制中间件
 //
 //	engine.Use(middleware.Timeout(5 * time.Second))
-func Timeout(timeout time.Duration) remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func Timeout(timeout time.Duration) context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			// 创建带超时的标准库 context
 			stdCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 			defer cancel()
@@ -143,9 +140,9 @@ func Timeout(timeout time.Duration) remilia.HandlerMiddleware {
 }
 
 // Metrics 打点示例：这里只是打印，可对接 Prometheus
-func Metrics() remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func Metrics() context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			start := time.Now()
 			err := next(ctx)
 			latency := time.Since(start)
@@ -156,16 +153,14 @@ func Metrics() remilia.HandlerMiddleware {
 	}
 }
 
-// ConcurrencyLimit 并发限流中间件
-// maxInFlight: 最大并发数；policy: Drop=丢弃, Block=阻塞, TryWait=超时等待
-// waitTimeout: TryWait 策略的超时时间
+// ConcurrencyLimit 创建一个并发限制中间件
 //
 // 使用示例:
 //
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyDrop, 0))
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyBlock, 0))
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyTryWait, 200*time.Millisecond))
-func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) remilia.HandlerMiddleware {
+func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) context2.Middleware {
 	if maxInFlight <= 0 {
 		maxInFlight = 100 // 默认值
 	}
@@ -176,8 +171,8 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 	sema := make(chan struct{}, maxInFlight)
 	var dropped uint64
 
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			// 尝试获取令牌
 			acquired := false
 			switch policy {
@@ -238,9 +233,9 @@ const (
 //
 //	// 在 Handler 中获取
 //	requestID, _ := ctx.Get(middleware.CtxKeyRequestID)
-func RequestID() remilia.HandlerMiddleware {
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+func RequestID() context2.Middleware {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			// 生成唯一 ID（使用时间戳 + 随机数）
 			requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
 
@@ -267,19 +262,20 @@ var (
 	rateLimitCleanupInterval = 5 * time.Minute
 )
 
-// RateLimitTokenBucket 令牌桶限流：支持共享桶或按键（用户/群）维度
-// rate: 每秒令牌数；burst: 突发容量；keyFn: 返回限流键（为空表示共享桶）
+// RateLimitTokenBucket 创建一个令牌桶限流中间件
 //
 // 使用示例:
 //
 //	// 全局限流
-//	engine.Use(middleware.RateLimitTokenBucket(10, 20, nil))
+//	engine.Use(middleware.RateLimitTokenBucket(10, 20, func(ctx *core.Context) string {
+//	    return "global" // 所有请求共享一个限流器
+//	}))
 //
 //	// 按用户限流
-//	engine.Use(middleware.RateLimitTokenBucket(5, 10, func(ctx *remilia.Context) string {
+//	engine.Use(middleware.RateLimitTokenBucket(5, 10, func(ctx *core.Context) string {
 //	    return ctx.GetAuthor() // 返回用户 ID
 //	}))
-func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*remilia.Context) string) remilia.HandlerMiddleware {
+func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*context2.Context) string) context2.Middleware {
 	if ratePerSec <= 0 {
 		ratePerSec = 1
 	}
@@ -320,8 +316,8 @@ func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*remilia.Context
 		mu.Unlock()
 	}
 
-	return func(next remilia.HandlerE) remilia.HandlerE {
-		return func(ctx *remilia.Context) error {
+	return func(next context2.Handler) context2.Handler {
+		return func(ctx *context2.Context) error {
 			key := ""
 			if keyFn != nil {
 				key = keyFn(ctx)

@@ -2,18 +2,22 @@ package remilia
 
 import (
 	"net/http"
-	_ "net/http/pprof"
-
-	"github.com/sirupsen/logrus"
+	_ "net/http/pprof" // Import for side-effect: registers pprof handlers
 )
 
-func init() {
-	go func() {
-		// Start the pprof server on the default port 9001
-		if err := http.ListenAndServe("localhost:9001", nil); err != nil {
-			logrus.Errorf("[Remilia] Failed to start pprof server: %v", err)
-			return
-		}
-		logrus.Info("[Remilia] pprof server started on localhost:9001")
-	}()
+// StartPprofServer starts the pprof HTTP server on the specified address.
+//
+// This function should be called explicitly if you need pprof profiling.
+// The pprof handlers are registered on the default http.ServeMux.
+//
+// Example:
+//
+//	go remilia.StartPprofServer("localhost:9001")
+//
+// To access profiles:
+//   - CPU profile: http://localhost:9001/debug/pprof/profile
+//   - Heap profile: http://localhost:9001/debug/pprof/heap
+//   - Goroutines: http://localhost:9001/debug/pprof/goroutine
+func StartPprofServer(addr string) error {
+	return http.ListenAndServe(addr, nil)
 }
