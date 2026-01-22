@@ -350,7 +350,7 @@ func TestRetry(t *testing.T) {
 			MaxAttempts: 3,
 			BackoffBase: 10 * time.Millisecond,
 			ShouldRetry: func(err error) bool {
-				return err != specialErr
+				return !errors.Is(err, specialErr)
 			},
 		})
 

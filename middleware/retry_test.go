@@ -247,7 +247,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 			BackoffBase: 10 * time.Millisecond,
 			ShouldRetry: func(err error) bool {
 				// 只重试 normalErr
-				return err == normalErr
+				return errors.Is(err, normalErr)
 			},
 		}
 

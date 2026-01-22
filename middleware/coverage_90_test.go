@@ -530,7 +530,7 @@ func TestDedupEdgeCases(t *testing.T) {
 		// Add more events than cache size
 		for i := 0; i < 5; i++ {
 			event := &dto.Payload{
-				ID:   dto.EventID(string(rune('a' + i))),
+				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
 			}
 			handler(context2.NewContext(event, nil))
@@ -631,7 +631,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 		// Different events should have separate limits
 		for i := 0; i < 3; i++ {
 			event := &dto.Payload{
-				ID:   dto.EventID(string(rune('a' + i))),
+				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
 			}
 			ctx := context2.NewContext(event, nil)

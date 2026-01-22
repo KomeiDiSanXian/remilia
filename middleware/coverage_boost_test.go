@@ -237,7 +237,7 @@ func TestRetryAdvanced(t *testing.T) {
 			MaxAttempts: 5,
 			BackoffBase: 10 * time.Millisecond,
 			ShouldRetry: func(err error) bool {
-				return err != permanentErr
+				return !errors.Is(err, permanentErr)
 			},
 		})
 
@@ -442,7 +442,7 @@ func TestAuthAdvanced(t *testing.T) {
 
 func TestMiddlewareChainingAdvanced(t *testing.T) {
 	t.Run("multiple middlewares in order", func(t *testing.T) {
-		order := []string{}
+		var order []string
 
 		mw1 := func(next context2.Handler) context2.Handler {
 			return func(ctx *context2.Context) error {

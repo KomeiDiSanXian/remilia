@@ -26,7 +26,7 @@ func TestRemainingFunctions(t *testing.T) {
 }
 func TestProcessInternals(t *testing.T) {
 	eng := NewEngine()
-	ctx := ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	matchers := eng.getMatchersForEvent(ctx)
+	c := ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+	matchers := eng.getMatchersForEvent(c)
 	assert.NotNil(t, matchers)
 }

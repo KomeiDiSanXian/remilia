@@ -44,7 +44,7 @@ func TestMatcherInternal(t *testing.T) {
 	m.setCombinedChain(nil, 0, 0)
 	copied := m.copy()
 	assert.NotNil(t, copied)
-	ctx := ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
-	matchers := eng.getMatchersForEvent(ctx)
+	c := ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+	matchers := eng.getMatchersForEvent(c)
 	assert.GreaterOrEqual(t, len(matchers), 1)
 }

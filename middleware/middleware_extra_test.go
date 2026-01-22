@@ -85,7 +85,7 @@ func TestDedupExtra(t *testing.T) {
 
 		// Fill cache
 		for i := 0; i < 3; i++ {
-			event := &dto.Payload{ID: dto.EventID(string(rune('a' + i))), Type: "TEST"}
+			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
 			handler(context2.NewContext(event, nil))
 		}
 
@@ -450,7 +450,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 
 		// Add events
 		for i := 0; i < 5; i++ {
-			event := &dto.Payload{ID: dto.EventID(string(rune('a' + i))), Type: "TEST"}
+			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
 			handler(context2.NewContext(event, nil))
 		}
 
@@ -494,7 +494,7 @@ func BenchmarkDedupMiddleware(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		event := &dto.Payload{ID: dto.EventID(string(rune(i % 100))), Type: "TEST"}
+		event := &dto.Payload{ID: dto.EventID(rune(i % 100)), Type: "TEST"}
 		handler(context2.NewContext(event, nil))
 	}
 }

@@ -1,0 +1,549 @@
+package context
+
+import (
+	stdctx "context"
+	"testing"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestContextErrorHandling 测试 Context 错误处理
+func TestContextErrorHandling(t *testing.T) {
+	t.Run("nil_context_operations", func(t *testing.T) {
+		var ctx *Context
+
+		// 这些操作应该安全处理 nil（返回零值而不是 panic）
+		assert.NotPanics(t, func() {
+			_ = ctx.Context()
+			_ = ctx.GetMessageContent()
+			_ = ctx.GetAuthor()
+			_ = ctx.GetEventType()
+			_ = ctx.GetEvent()
+		})
+
+		// 这些操作在 nil context 上会安全返回
+		assert.Equal(t, stdctx.Background(), ctx.Context())
+		assert.Equal(t, "", ctx.GetMessageContent())
+		assert.Nil(t, ctx.GetAuthor())
+		assert.Equal(t, dto.EventType(""), ctx.GetEventType())
+		assert.Nil(t, ctx.GetEvent())
+	})
+
+	t.Run("nil_event_handling", func(t *testing.T) {
+		ctx := NewContext(nil, nil)
+
+		// 应该返回合理的默认值
+		assert.Equal(t, "", ctx.GetMessageContent())
+		assert.Nil(t, ctx.GetAuthor())
+		assert.Equal(t, dto.EventType(""), ctx.GetEventType())
+		assert.Nil(t, ctx.GetEvent())
+	})
+
+	t.Run("nil_api_handling", func(t *testing.T) {
+		event := &dto.Payload{
+			Type: dto.C2CMessageCreate,
+			ID:   "test-event",
+		}
+		ctx := NewContext(event, nil)
+
+		// API 调用应该返回错误而不是 panic
+		_, err := ctx.SendGroupMessage("group-id", &dto.Message{Content: "test"})
+		assert.Error(t, err)
+		assert.Equal(t, ErrNilAPI, err)
+
+		_, err = ctx.SendSingleMessage("user-id", &dto.Message{Content: "test"})
+		assert.Error(t, err)
+		assert.Equal(t, ErrNilAPI, err)
+	})
+
+	t.Run("invalid_json_detail", func(t *testing.T) {
+		event := &dto.Payload{
+			Type:   dto.C2CMessageCreate,
+			ID:     "test-event",
+			Detail: []byte("invalid json"),
+		}
+		ctx := NewContext(event, nil)
+
+		// 应该返回空值而不是 panic
+		content := ctx.GetMessageContent()
+		assert.Equal(t, "", content)
+
+		author := ctx.GetAuthor()
+		assert.Nil(t, author)
+	})
+
+	t.Run("reserved_state_key_rejection", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		// 尝试设置保留键
+		ctx.Set("mw_trace", "value")
+		ctx.Set("retry_attempt", 123)
+		ctx.Set("_remilia_internal_key", "value")
+
+		// 这些键应该被拒绝
+		_, ok := ctx.Get("mw_trace")
+		assert.False(t, ok)
+
+		_, ok = ctx.Get("retry_attempt")
+		assert.False(t, ok)
+
+		_, ok = ctx.Get("_remilia_internal_key")
+		assert.False(t, ok)
+	})
+}
+
+// TestContextConcurrency 测试 Context 并发安全
+func TestContextConcurrency(t *testing.T) {
+	t.Run("concurrent_set_get", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		const goroutines = 10
+		const operations = 100
+
+		done := make(chan bool, goroutines)
+
+		// 并发写入
+		for i := 0; i < goroutines; i++ {
+			go func(id int) {
+				for j := 0; j < operations; j++ {
+					key := "key_" + string(rune('0'+id))
+					ctx.Set(key, j)
+					_, _ = ctx.Get(key)
+				}
+				done <- true
+			}(i)
+		}
+
+		// 等待完成
+		for i := 0; i < goroutines; i++ {
+			<-done
+		}
+
+		// 验证数据一致性
+		all := ctx.All()
+		assert.Equal(t, goroutines, len(all))
+	})
+
+	t.Run("concurrent_extensions_access", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		const goroutines = 10
+		done := make(chan bool, goroutines)
+
+		// 并发访问 Extensions
+		for i := 0; i < goroutines; i++ {
+			go func(id int) {
+				for j := 0; j < 100; j++ {
+					ext := ctx.Ext()
+					assert.NotNil(t, ext)
+				}
+				done <- true
+			}(i)
+		}
+
+		// 等待完成
+		for i := 0; i < goroutines; i++ {
+			<-done
+		}
+	})
+
+	t.Run("concurrent_context_operations", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{
+			Type: dto.C2CMessageCreate,
+			Detail: []byte(`{
+				"content": "test message",
+				"author": {"id": "user-1", "username": "testuser"}
+			}`),
+		}, nil)
+
+		const goroutines = 10
+		done := make(chan bool, goroutines)
+
+		// 并发读取操作
+		for i := 0; i < goroutines; i++ {
+			go func() {
+				for j := 0; j < 100; j++ {
+					_ = ctx.GetMessageContent()
+					_ = ctx.GetAuthor()
+					_ = ctx.GetEventType()
+				}
+				done <- true
+			}()
+		}
+
+		// 等待完成
+		for i := 0; i < goroutines; i++ {
+			<-done
+		}
+	})
+}
+
+// TestContextClone 测试 Context 克隆
+func TestContextClone(t *testing.T) {
+	t.Run("clone_preserves_state", func(t *testing.T) {
+		original := NewContext(&dto.Payload{
+			Type: dto.C2CMessageCreate,
+			ID:   "event-1",
+		}, nil)
+
+		// 设置一些状态
+		original.Set("key1", "value1")
+		original.Set("key2", 42)
+		original.SetRetryAttempt(3)
+
+		// 克隆
+		cloned := original.Clone()
+
+		// 验证状态被复制
+		val1, ok := cloned.Get("key1")
+		assert.True(t, ok)
+		assert.Equal(t, "value1", val1)
+
+		val2, ok := cloned.Get("key2")
+		assert.True(t, ok)
+		assert.Equal(t, 42, val2)
+
+		attempt, ok := cloned.GetRetryAttempt()
+		assert.True(t, ok)
+		assert.Equal(t, 3, attempt)
+	})
+
+	t.Run("clone_is_independent", func(t *testing.T) {
+		original := NewContext(&dto.Payload{Type: "test"}, nil)
+		original.Set("key", "original")
+
+		cloned := original.Clone()
+
+		// 修改克隆不应影响原始
+		cloned.Set("key", "cloned")
+		cloned.Set("new_key", "new_value")
+
+		// 验证原始未改变
+		val, _ := original.Get("key")
+		assert.Equal(t, "original", val)
+
+		_, ok := original.Get("new_key")
+		assert.False(t, ok)
+
+		// 验证克隆的值
+		clonedVal, _ := cloned.Get("key")
+		assert.Equal(t, "cloned", clonedVal)
+
+		newVal, ok := cloned.Get("new_key")
+		assert.True(t, ok)
+		assert.Equal(t, "new_value", newVal)
+	})
+
+	t.Run("clone_with_nil_state", func(t *testing.T) {
+		original := NewContext(&dto.Payload{Type: "test"}, nil)
+		// 不设置任何状态
+
+		cloned := original.Clone()
+
+		// 克隆应该成功
+		assert.NotNil(t, cloned)
+
+		// 可以在克隆上设置状态
+		cloned.Set("key", "value")
+		val, ok := cloned.Get("key")
+		assert.True(t, ok)
+		assert.Equal(t, "value", val)
+	})
+}
+
+// TestContextStdContext 测试标准库 context 集成
+func TestContextStdContext(t *testing.T) {
+	t.Run("context_with_timeout", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		// 设置带超时的 context
+		stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		ctx.SetStdContext(stdCtx)
+
+		// 验证可以读取
+		retrievedCtx := ctx.Context()
+		assert.NotNil(t, retrievedCtx)
+
+		// 等待超时
+		time.Sleep(150 * time.Millisecond)
+
+		// context 应该已取消
+		select {
+		case <-retrievedCtx.Done():
+			assert.Error(t, retrievedCtx.Err())
+		default:
+			t.Error("Context should be cancelled")
+		}
+	})
+
+	t.Run("context_with_cancel", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		stdCtx, cancel := stdctx.WithCancel(stdctx.Background())
+		ctx.SetStdContext(stdCtx)
+
+		// 立即取消
+		cancel()
+
+		// context 应该已取消
+		retrievedCtx := ctx.Context()
+		select {
+		case <-retrievedCtx.Done():
+			assert.Error(t, retrievedCtx.Err())
+		default:
+			t.Error("Context should be cancelled")
+		}
+	})
+
+	t.Run("nil_context_handling", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		// 设置 nil context
+		ctx.SetStdContext(nil)
+
+		// 应该返回 Background
+		stdCtx := ctx.Context()
+		assert.NotNil(t, stdCtx)
+		assert.Equal(t, stdctx.Background(), stdCtx)
+	})
+}
+
+// TestContextMiddlewareTrace 测试中间件追踪
+func TestContextMiddlewareTrace(t *testing.T) {
+	t.Run("set_and_get_trace", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		trace := []string{"mw1", "mw2", "mw3"}
+		ctx.SetMiddlewareTrace(trace)
+
+		retrievedTrace, ok := ctx.GetMiddlewareTrace()
+		assert.True(t, ok)
+		assert.Equal(t, trace, retrievedTrace)
+	})
+
+	t.Run("trace_is_copied", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		originalTrace := []string{"mw1", "mw2"}
+		ctx.SetMiddlewareTrace(originalTrace)
+
+		// 修改原始切片
+		originalTrace[0] = "modified"
+		originalTrace = append(originalTrace, "mw3")
+
+		// 获取的追踪应该未改变
+		retrievedTrace, ok := ctx.GetMiddlewareTrace()
+		assert.True(t, ok)
+		assert.Equal(t, []string{"mw1", "mw2"}, retrievedTrace)
+	})
+
+	t.Run("get_nonexistent_trace", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		trace, ok := ctx.GetMiddlewareTrace()
+		assert.False(t, ok)
+		assert.Nil(t, trace)
+	})
+}
+
+// TestContextRetryAttempt 测试重试次数追踪
+func TestContextRetryAttempt(t *testing.T) {
+	t.Run("set_and_get_attempt", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		for i := 0; i <= 5; i++ {
+			ctx.SetRetryAttempt(i)
+			attempt, ok := ctx.GetRetryAttempt()
+			assert.True(t, ok)
+			assert.Equal(t, i, attempt)
+		}
+	})
+
+	t.Run("get_nonexistent_attempt", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		attempt, ok := ctx.GetRetryAttempt()
+		assert.False(t, ok)
+		assert.Equal(t, 0, attempt)
+	})
+}
+
+// TestContextParsedCommand 测试命令解析
+func TestContextParsedCommand(t *testing.T) {
+	t.Run("set_and_get_parsed_command", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		// 这里简化测试，实际的 Parsed 类型来自 command 包
+		// 我们只测试 set/get 机制
+		ctx.SetParsedCommand(nil)
+
+		parsed := ctx.GetParsedCommand()
+		assert.Nil(t, parsed)
+	})
+
+	t.Run("get_nonexistent_command", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		parsed := ctx.GetParsedCommand()
+		assert.Nil(t, parsed)
+	})
+}
+
+// TestContextStateManagement 测试状态管理
+func TestContextStateManagement(t *testing.T) {
+	t.Run("all_returns_copy", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		ctx.Set("key1", "value1")
+		ctx.Set("key2", 42)
+
+		all1 := ctx.All()
+		assert.Equal(t, 2, len(all1))
+
+		// 修改返回的 map 不应影响 context
+		all1["key3"] = "value3"
+		delete(all1, "key1")
+
+		all2 := ctx.All()
+		assert.Equal(t, 2, len(all2))
+		assert.Contains(t, all2, "key1")
+		assert.NotContains(t, all2, "key3")
+	})
+
+	t.Run("delete_key", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		ctx.Set("key", "value")
+		_, ok := ctx.Get("key")
+		assert.True(t, ok)
+
+		ctx.Delete("key")
+		_, ok = ctx.Get("key")
+		assert.False(t, ok)
+	})
+
+	t.Run("set_nil_value_deletes", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		ctx.Set("key", "value")
+		ctx.Set("key", nil) // 应该删除
+
+		_, ok := ctx.Get("key")
+		assert.False(t, ok)
+	})
+
+	t.Run("empty_state", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		all := ctx.All()
+		assert.NotNil(t, all)
+		assert.Equal(t, 0, len(all))
+	})
+}
+
+// TestContextMatcher 测试 Matcher 引用
+func TestContextMatcher(t *testing.T) {
+	t.Run("get_matcher_source", func(t *testing.T) {
+		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
+
+		// 默认应该返回空
+		source := ctx.GetMatcherSource()
+		assert.Equal(t, "", source)
+	})
+}
+
+// TestContextMessageParsing 测试消息解析
+func TestContextMessageParsing(t *testing.T) {
+	t.Run("parse_valid_message", func(t *testing.T) {
+		event := &dto.Payload{
+			Type: dto.C2CMessageCreate,
+			Detail: []byte(`{
+				"content": "Hello, World!",
+				"author": {
+					"id": "user-123",
+					"user_openid": "openid-456"
+				}
+			}`),
+		}
+		ctx := NewContext(event, nil)
+
+		content := ctx.GetMessageContent()
+		assert.Equal(t, "Hello, World!", content)
+
+		author := ctx.GetAuthor()
+		require.NotNil(t, author)
+		assert.Equal(t, "user-123", author.ID)
+		assert.Equal(t, "openid-456", author.UserOpenID)
+	})
+
+	t.Run("parse_empty_content", func(t *testing.T) {
+		event := &dto.Payload{
+			Type:   dto.C2CMessageCreate,
+			Detail: []byte(`{"content": ""}`),
+		}
+		ctx := NewContext(event, nil)
+
+		content := ctx.GetMessageContent()
+		assert.Equal(t, "", content)
+	})
+
+	t.Run("parse_missing_author", func(t *testing.T) {
+		event := &dto.Payload{
+			Type:   dto.C2CMessageCreate,
+			Detail: []byte(`{"content": "test"}`),
+		}
+		ctx := NewContext(event, nil)
+
+		author := ctx.GetAuthor()
+		assert.Nil(t, author)
+	})
+}
+
+// BenchmarkContextOperations Context 操作性能基准测试
+func BenchmarkContextOperations(b *testing.B) {
+	event := &dto.Payload{
+		Type: dto.C2CMessageCreate,
+		Detail: []byte(`{
+			"content": "test message",
+			"author": {"id": "user-1", "user_openid": "openid-1"}
+		}`),
+	}
+
+	b.Run("NewContext", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = NewContext(event, nil)
+		}
+	})
+
+	b.Run("GetMessageContent", func(b *testing.B) {
+		ctx := NewContext(event, nil)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = ctx.GetMessageContent()
+		}
+	})
+
+	b.Run("SetGet", func(b *testing.B) {
+		ctx := NewContext(event, nil)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			ctx.Set("key", i)
+			_, _ = ctx.Get("key")
+		}
+	})
+
+	b.Run("Clone", func(b *testing.B) {
+		ctx := NewContext(event, nil)
+		ctx.Set("key1", "value1")
+		ctx.Set("key2", 42)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = ctx.Clone()
+		}
+	})
+}
