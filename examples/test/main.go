@@ -40,6 +40,7 @@ func main() {
 		return err
 	})
 	// 创建内置 HTTP 服务器的 Webhook 适配器
+	// 使用默认配置 cpu核数的worker：
 	adapter := remilia.NewWebhookServerAdapter(":9000", global.Info)
 	// 创建 Bot - 使用 NewBotWithInfo 自动初始化 OpenAPI client
 	bot := remilia.NewBotWithInfo(adapter, eng, global.Info)
