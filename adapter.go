@@ -3,6 +3,7 @@ package remilia
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/sirupsen/logrus"
@@ -29,6 +30,9 @@ type webhookAdapter struct {
 	webhook Webhook
 	ctx     context.Context
 	cancel  context.CancelFunc
+	wg      sync.WaitGroup // Track the event loop goroutine
+	mu      sync.RWMutex   // Protect state
+	running bool           // Track if event loop is running
 }
 
 // NewWebhookAdapter 创建一个 webhook adapter
@@ -40,16 +44,30 @@ func NewWebhookAdapter(wh Webhook) Adapter {
 
 // Start 启动 adapter
 func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+	a.mu.Lock()
+	if a.running {
+		a.mu.Unlock()
+		logrus.Warn("[Adapter] Already running")
+		return nil
+	}
+
 	// 验证 EventStream 是否为 nil
 	eventCh := a.webhook.EventStream()
 	if eventCh == nil {
+		a.mu.Unlock()
 		return fmt.Errorf("EventStream returned nil channel")
 	}
 
 	a.ctx, a.cancel = context.WithCancel(ctx)
+	a.running = true
+	a.mu.Unlock()
 
 	// 启动事件循环
+	a.wg.Add(1)
 	go func() {
+		defer a.wg.Done()
+		logrus.Debug("[Adapter] Event loop started")
+
 		for {
 			select {
 			case <-a.ctx.Done():
@@ -68,6 +86,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 		}
 	}()
 
+	logrus.Info("[Adapter] Started successfully")
 	return nil
 }
 
@@ -80,10 +99,56 @@ func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
 	handler(event)
 }
 
-// Shutdown 关闭 adapter
-func (a *webhookAdapter) Stop(context.Context) error {
+// Stop gracefully shuts down the adapter
+func (a *webhookAdapter) Stop(ctx context.Context) error {
+	a.mu.Lock()
+	if !a.running {
+		a.mu.Unlock()
+		logrus.Debug("[Adapter] Not running, nothing to stop")
+		return nil
+	}
+	a.running = false
+	a.mu.Unlock()
+
+	logrus.Info("[Adapter] Stopping...")
+
+	// 1. Signal the event loop to stop
 	if a.cancel != nil {
 		a.cancel()
 	}
-	return nil
+
+	// 2. Wait for event loop goroutine to finish (with timeout from context)
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logrus.Info("[Adapter] Stopped successfully")
+		return nil
+	case <-ctx.Done():
+		logrus.Warn("[Adapter] Stop timeout, event loop may still be running")
+		return ctx.Err()
+	}
+}
+
+// NewWebhookAdapter creates a webhook adapter with built-in HTTP server
+// This is a convenience function that creates a WebhookServerAdapter
+//
+// 参数:
+//   - addr: HTTP server address, e.g., ":8080"
+//   - secret: webhook secret for signature verification (currently not used, reserved for future)
+//
+// 示例:
+//
+//	adapter := remilia.NewWebhookAdapter(":8080", "your-secret")
+//	bot := remilia.NewBot(adapter, engine)
+//	bot.Start()
+//
+// 注意: 如果你需要更多控制，使用 NewWebhookServerAdapter
+func NewWebhookAdapterWithServer(addr string, secret string) Adapter {
+	// TODO: 使用 secret 进行签名验证
+	return NewWebhookServerAdapter(addr, &dto.BotInfo{})
 }

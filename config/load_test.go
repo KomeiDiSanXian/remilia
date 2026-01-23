@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,105 +197,6 @@ server:
 		os.Unsetenv("BOT_SECRET")
 
 		_, err := LoadDefault()
-		assert.Error(t, err)
-	})
-}
-
-// TestWatch 测试配置文件监听
-func TestWatch(t *testing.T) {
-	t.Run("watch config file changes", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		configPath := filepath.Join(tmpDir, "watch.yaml")
-
-		// 初始配置
-		initialContent := `
-bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "initial-token"
-  secret: "initial-secret"
-server:
-  port: 8080
-log:
-  level: "info"
-concurrency:
-  limit: 100
-retry:
-  enable: false
-middleware:
-  rate_limit: false
-dead_letter:
-  enable: false
-webhook:
-  event_buffer: 1000
-`
-		err := os.WriteFile(configPath, []byte(initialContent), 0644)
-		require.NoError(t, err)
-
-		// 加载初始配置
-		_, err = Load(configPath)
-		require.NoError(t, err)
-
-		// 设置监听
-		updateCount := 0
-		var lastConfig *Config
-		stopFunc, err := Watch(configPath, func(cfg *Config) {
-			updateCount++
-			lastConfig = cfg
-		})
-		require.NoError(t, err)
-		require.NotNil(t, stopFunc)
-		defer stopFunc()
-
-		// 等待监听启动
-		time.Sleep(100 * time.Millisecond)
-
-		// 修改配置文件
-		updatedContent := `
-bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "updated-token"
-  secret: "updated-secret"
-server:
-  port: 9090
-log:
-  level: "debug"
-concurrency:
-  limit: 200
-retry:
-  enable: false
-middleware:
-  rate_limit: false
-dead_letter:
-  enable: false
-webhook:
-  event_buffer: 1000
-`
-		err = os.WriteFile(configPath, []byte(updatedContent), 0644)
-		require.NoError(t, err)
-
-		// 等待文件监听和重载（考虑防抖延迟）
-		time.Sleep(500 * time.Millisecond)
-
-		// 验证配置已更新
-		assert.Greater(t, updateCount, 0, "config should be reloaded")
-		if lastConfig != nil {
-			assert.Equal(t, "updated-token", lastConfig.Bot.Token)
-			assert.Equal(t, 9090, lastConfig.Server.Port)
-			assert.Equal(t, "debug", lastConfig.Log.Level)
-			assert.Equal(t, 200, lastConfig.Concurrency.Limit)
-		}
-	})
-
-	t.Run("watch empty path", func(t *testing.T) {
-		_, err := Watch("", nil)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "watch path is empty")
-	})
-
-	t.Run("watch nonexistent file", func(t *testing.T) {
-		_, err := Watch("/nonexistent/path/config.yaml", nil)
 		assert.Error(t, err)
 	})
 }

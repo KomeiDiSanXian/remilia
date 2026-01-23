@@ -2,14 +2,24 @@ package remilia
 
 import (
 	"context"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
+	"github.com/KomeiDiSanXian/remilia/openapi"
+	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// DefaultShutdownTimeout is the default timeout for graceful shutdown
+	DefaultShutdownTimeout = 30 * time.Second
 )
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
@@ -19,6 +29,7 @@ type Bot struct {
 	lifecycle *lifecycle.Manager
 	health    *HealthChecker
 	config    *Config
+	openAPI   openapi.OpenAPI // OpenAPI client for sending messages
 
 	mu        sync.RWMutex
 	running   bool
@@ -79,6 +90,23 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	return b
 }
 
+// NewBotWithInfo 创建带 OpenAPI 支持的 Bot 实例
+// 这个构造函数会自动初始化 OpenAPI client，用于发送消息
+func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
+	b := NewBot(adapter, engine, opts...)
+
+	// 初始化 OpenAPI client
+	if botInfo != nil {
+		tokenManager := token.NewManager(botInfo)
+		b.openAPI = openapi.New(tokenManager)
+		logrus.Info("[Bot] OpenAPI client initialized")
+	} else {
+		logrus.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
+	}
+
+	return b
+}
+
 // Start 启动 Bot
 func (b *Bot) Start() error {
 	b.mu.Lock()
@@ -120,8 +148,8 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 		}).Debug("[Bot] Event received")
 	}
 
-	// 创建 Context
-	ctx := eventctx.NewContext(payload, nil)
+	// 创建 Context，传入 openAPI client
+	ctx := eventctx.NewContext(payload, b.openAPI)
 
 	// 使用 Engine 处理事件
 	b.engine.ProcessEvent(ctx)
@@ -141,14 +169,34 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 	logrus.Info("[Bot] Shutting down...")
 
-	// 使用生命周期管理器停止所有组件（逆序）
-	if err := b.lifecycle.Stop(ctx); err != nil {
-		logrus.WithError(err).Error("[Bot] Stop completed with errors")
-		return err
-	}
+	// 使用 channel 来处理异步关闭
+	done := make(chan error, 1)
+	go func() {
+		// 使用生命周期管理器停止所有组件（逆序）
+		done <- b.lifecycle.Stop(ctx)
+	}()
 
-	logrus.Info("[Bot] Stop complete")
-	return nil
+	// 等待关闭完成或超时
+	select {
+	case err := <-done:
+		if err != nil {
+			logrus.WithError(err).Error("[Bot] Stop completed with errors")
+			return err
+		}
+		logrus.Info("[Bot] Stop complete")
+		return nil
+	case <-ctx.Done():
+		logrus.WithError(ctx.Err()).Warn("[Bot] Stop timeout exceeded")
+		return ctx.Err()
+	}
+}
+
+// Shutdown 使用默认超时时间优雅关闭 Bot
+// 这是 Stop 的便捷包装，使用 DefaultShutdownTimeout 作为超时时间
+func (b *Bot) Shutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+	defer cancel()
+	return b.Stop(ctx)
 }
 
 // Engine 返回 Bot 的 Engine 实例
@@ -218,4 +266,21 @@ func (b *Bot) OnGroupAt(rule ...eventctx.Rule) *engine.Matcher {
 // On 注册自定义规则（convenience method）
 func (b *Bot) On(eventType dto.EventType, rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.On(eventType, rule...)
+}
+
+// WaitForShutdown 等待系统信号并优雅关闭
+func (b *Bot) WaitForShutdown() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
+	<-sigCh
+
+	logrus.Info("[Bot] Received shutdown signal")
+
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+	defer cancel()
+
+	if err := b.Stop(ctx); err != nil {
+		logrus.WithError(err).Error("[Bot] Shutdown failed")
+	}
 }

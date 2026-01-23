@@ -6,7 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -388,61 +387,6 @@ func LoadDefault() (*Config, error) {
 
 	globalConfig = cfg
 	return cfg, nil
-}
-
-// Watch 监听配置文件变更并热重载
-// path: 配置文件路径
-// apply: 成功重载后的回调（将新的配置传入），可用于应用到运行中的 Bot/Engine
-// 返回停止函数：调用后停止监听
-func Watch(path string, apply func(*Config)) (func() error, error) {
-	if path == "" {
-		return nil, fmt.Errorf("watch path is empty")
-	}
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create watcher: %w", err)
-	}
-	if err := w.Add(path); err != nil {
-		_ = w.Close()
-		return nil, fmt.Errorf("failed to add watch on %s: %w", path, err)
-	}
-
-	stop := make(chan struct{})
-
-	go func() {
-		defer w.Close()
-		// 简单抖动消除：文件事件合并
-		var timer *time.Timer
-		debounce := func() {
-			if timer != nil {
-				timer.Stop()
-			}
-			timer = time.AfterFunc(200*time.Millisecond, func() {
-				// 执行重载
-				if cfg, err := Load(path); err == nil {
-					if apply != nil {
-						apply(cfg)
-					}
-				}
-			})
-		}
-
-		for {
-			select {
-			case <-stop:
-				return
-			case ev := <-w.Events:
-				// 关注写入/重命名/创建事件
-				if ev.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) != 0 {
-					debounce()
-				}
-			case err := <-w.Errors:
-				_ = err // 可选：记录日志
-			}
-		}
-	}()
-
-	return func() error { close(stop); return nil }, nil
 }
 
 // LoadViper 使用 Viper 加载配置，支持 yaml/json/env，优先顺序：显式路径 -> 默认路径 -> 环境变量

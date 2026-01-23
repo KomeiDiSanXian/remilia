@@ -146,7 +146,26 @@ func (m *Manager) Stop(ctx context.Context) error {
 	var lastErr error
 	for i := len(components) - 1; i >= 0; i-- {
 		comp := components[i]
-		if err := comp.Stop(ctx); err != nil {
+
+		// 检查 context 是否已超时
+		select {
+		case <-ctx.Done():
+			logrus.WithError(ctx.Err()).
+				WithField("remaining_components", i+1).
+				Warn("[Lifecycle] Stop timeout, aborting remaining components")
+			m.mu.Lock()
+			m.state = StateFailed
+			m.mu.Unlock()
+			return &StopError{Err: ctx.Err()}
+		default:
+		}
+
+		// 为每个组件创建子 context，避免单个组件阻塞整个关闭流程
+		compCtx, compCancel := context.WithTimeout(ctx, 10*time.Second)
+		err := comp.Stop(compCtx)
+		compCancel()
+
+		if err != nil {
 			logrus.WithError(err).
 				WithField("component", comp.Name()).
 				Error("[Lifecycle] Component stop failed")

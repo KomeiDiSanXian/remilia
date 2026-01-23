@@ -4,68 +4,54 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add comprehensive tests for Context error handling and concurrency">
-      <change afterPath="$PROJECT_DIR$/NAMING_IMPROVEMENTS_SUMMARY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/NAMING_REFERENCE_TABLE.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/NAMING_REVIEW.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/NAMING_REVIEW_INDEX.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/TEST_FIXES_COMPLETE.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/UNIT_TEST_ENHANCEMENT.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: rename errors package to errutil and update related references">
+      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/command/registry_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config/watcher_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/BEST_PRACTICES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIG_HOTRELOAD_IMPLEMENTATION.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIG_HOTRELOAD_QUICKREF.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/DOCUMENTATION_SUMMARY.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/GETTING_STARTED.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/PLUGIN_ENHANCEMENT_PROPOSAL.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/PLUGIN_ENHANCEMENT_QUICKREF.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/TROUBLESHOOTING.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/basic-bot/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/command-bot/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/config_hotreload/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/middleware-example/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-example/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/test/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/lifecycle/lifecycle_shutdown_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CODE_REVIEW_ANALYSIS.md" beforeDir="false" afterPath="$PROJECT_DIR$/CODE_REVIEW_ANALYSIS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/NAMING_IMPROVEMENTS_SUMMARY.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NAMING_REFERENCE_TABLE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/NAMING_REVIEW.md" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/adapter_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/command_helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/command_helper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_coverage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/component.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/component_cleaner.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_cleaner.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/component_pending_delete.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_pending_delete.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_90_push_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_90_push_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_coverage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/runtime.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/runtime.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors/stack.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/stack.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/load_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/load_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/FIX_FOUR_CRITICAL_ISSUES.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/FIX_SUMMARY.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/FIX_WEBHOOK_ADAPTER_GOROUTINE_LEAK.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/NAMING_REVIEW_INDEX.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/PACKAGE_MERGE_ANALYSIS.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/PACKAGE_MERGE_COMPLETED.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/QUICK_MIGRATION_GUIDE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/TEST_FIXES_COMPLETE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/UNIT_TEST_ENHANCEMENT.md" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/httpreq/httpreq.go" beforeDir="false" afterPath="$PROJECT_DIR$/httpcilent/httpcilent.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/server/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/server/http.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/http.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_90_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/openapi.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/dedup_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -76,6 +62,13 @@
     <persistenceIdMap>
       <entry key="_E:/project/Go/remilia" value="36TLQeGOmpwUpqS0saqKC3pUilT" />
     </persistenceIdMap>
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Go File" />
+      </list>
+    </option>
   </component>
   <component name="GOROOT" url="file://C:/Program Files/Go" />
   <component name="Git.Settings">
@@ -117,30 +110,34 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
-    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;E:/project/Go/remilia&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.github.copilot.settings.completions.CompletionsConfigurable&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "DefaultGoTemplateProperty": "Go File",
+    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor": "Run",
+    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.GoLinterPluginOnboarding": "true",
+    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.go.formatter.settings.were.checked": "true",
+    "RunOnceActivity.go.migrated.go.modules.settings": "true",
+    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
+    "git-widget-placeholder": "master",
+    "go.import.settings.migrated": "true",
+    "go.sdk.automatically.set": "true",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "E:/project/Go/remilia",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "run.configurations.included.in.services": "true",
+    "settings.editor.selected.configurable": "com.github.copilot.settings.completions.CompletionsConfigurable",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="E:\project\Go\remilia" />
@@ -150,7 +147,43 @@
       <recent name="E:\project\Go\remilia\core\context" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunDashboard">
+    <option name="configurationTypes">
+      <set>
+        <option value="GoApplicationRunConfiguration" />
+      </set>
+    </option>
+    <option name="configurationStatuses">
+      <map>
+        <entry key="GoApplicationRunConfiguration">
+          <value>
+            <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/test" value="STOPPED" />
+            </map>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test">
+    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/basic-bot" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/examples/basic-bot" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/basic-bot/main.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/test" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/examples/test" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/test/main.go" />
+      <method v="2" />
+    </configuration>
     <configuration name="go build github.com/KomeiDiSanXian/remilia/scripts" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="remilia" />
       <working_directory value="$PROJECT_DIR$" />
@@ -162,6 +195,8 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test" />
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/scripts" />
       </list>
     </recent_temporary>
@@ -209,7 +244,8 @@
     <MESSAGE value="refactor" />
     <MESSAGE value="refactor: split all root components" />
     <MESSAGE value="test: add comprehensive tests for Context error handling and concurrency" />
-    <option name="LAST_COMMIT_MESSAGE" value="test: add comprehensive tests for Context error handling and concurrency" />
+    <MESSAGE value="refactor: rename errors package to errutil and update related references" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: rename errors package to errutil and update related references" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
