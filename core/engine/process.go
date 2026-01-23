@@ -49,11 +49,11 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	}
 
 	// 获取已排序的 temp 匹配器（从TempManager）
-	tempSpecific := e.s.tempManager.Get(eventType)
-	tempGeneric := e.s.tempManager.Get("")
+	tempSpecific := e.services.tempManager.Get(eventType)
+	tempGeneric := e.services.tempManager.Get("")
 
 	// 从池中获取切片
-	matchersToCheck := e.s.matcherPool.Get()
+	matchersToCheck := e.services.matcherPool.Get()
 	// 重置长度
 	matchersToCheck = matchersToCheck[:0]
 
@@ -66,7 +66,7 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 
 		// 如果容量过大，不放回池中，避免内存无限增长
 		if cap(matchersToCheck) <= MaxMatcherPoolRetainCapacity {
-			e.s.matcherPool.Put(matchersToCheck)
+			e.services.matcherPool.Put(matchersToCheck)
 		}
 	}()
 
@@ -133,7 +133,7 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 	state := e.state.Load().(*engineState)
 
 	// 从池中获取切片，整个批处理过程复用
-	matchersToCheck := e.s.matcherPool.Get()
+	matchersToCheck := e.services.matcherPool.Get()
 
 	defer func() {
 		// 清理指针
@@ -142,7 +142,7 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 		}
 		// 如果容量过大，不放回池中，避免内存无限增长
 		if cap(matchersToCheck) <= MaxMatcherPoolRetainCapacity {
-			e.s.matcherPool.Put(matchersToCheck)
+			e.services.matcherPool.Put(matchersToCheck)
 		}
 	}()
 
@@ -171,8 +171,8 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 		}
 
 		// 获取已排序的 temp 匹配器（从TempManager）
-		tempSpecific := e.s.tempManager.Get(eventType)
-		tempGeneric := e.s.tempManager.Get("")
+		tempSpecific := e.services.tempManager.Get(eventType)
+		tempGeneric := e.services.tempManager.Get("")
 
 		// 重置切片长度
 		matchersToCheck = matchersToCheck[:0]
@@ -256,10 +256,10 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// 记录错误
 	if err != nil {
 		// 默认记录错误日志，防止错误静默
-		logrus.WithError(err).Debugf("[Engine] Handler error in matcher: %s", m.Source)
+		logrus.WithError(err).Debugf("[Engine] Handler error in matcher: %services", m.Source)
 
 		// 更新指标（无锁读取）
-		val := e.s.metricsCollector.Load()
+		val := e.services.metricsCollector.Load()
 
 		type eventDroppedProvider interface {
 			EventDroppedCounter() interface {
@@ -285,13 +285,13 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			m.rt.mu.Unlock()
 			engine := e
 			if atomic.LoadInt32(&m.rt.isTemp) == 1 {
-				engine.s.tempManager.Remove(m)
+				engine.services.tempManager.Remove(m)
 			} else {
 				// Should not happen if migration is correct, but safe fallback
 				select {
-				case engine.s.pendingDeleteCh <- m:
+				case engine.services.pendingDeleteCh <- m:
 				default:
-					logrus.Debugf("[Engine] Pending delete channel full, matcher %p (source: %s) marked for cleanup", m, m.Source)
+					logrus.Debugf("[Engine] Pending delete channel full, matcher %p (source: %services) marked for cleanup", m, m.Source)
 				}
 			}
 			return
@@ -334,7 +334,7 @@ func (e *Engine) processPendingDeletes() {
 loop:
 	for i := 0; i < limit; i++ {
 		select {
-		case m := <-e.s.pendingDeleteCh:
+		case m := <-e.services.pendingDeleteCh:
 			if m != nil {
 				matchersToDelete = append(matchersToDelete, m)
 			}
@@ -362,14 +362,14 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 	defer e.writeMu.Unlock()
 
 	// Stop existing cleaner if running
-	if e.s.tempMatcherCleanerStop != nil {
-		e.s.tempMatcherCleanerStop()
-		e.s.tempMatcherCleanerStop = nil
+	if e.services.tempMatcherCleanerStop != nil {
+		e.services.tempMatcherCleanerStop()
+		e.services.tempMatcherCleanerStop = nil
 	}
 
-	e.s.tempMatcherCleanerInterval = interval
+	e.services.tempMatcherCleanerInterval = interval
 	if interval > 0 {
-		e.s.tempMatcherCleanerStop = e.StartTempMatcherCleaner(interval)
+		e.services.tempMatcherCleanerStop = e.StartTempMatcherCleaner(interval)
 	}
 
 	return e
@@ -377,7 +377,7 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 
 // GetTempMatcherCleanInterval 获取当前的临时 Matcher 清理间隔
 func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
-	return e.s.tempMatcherCleanerInterval
+	return e.services.tempMatcherCleanerInterval
 }
 
 // StartTempMatcherCleaner 启动临时 Matcher 清理器
@@ -399,7 +399,7 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 	ticker := time.NewTicker(interval)
 	done := make(chan struct{})
-	e.s.tempMatcherCleanerDone = done
+	e.services.tempMatcherCleanerDone = done
 	var once sync.Once
 
 	go func() {
@@ -425,7 +425,7 @@ func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 // cleanExpiredMatchers 清理过期的临时 matcher（COW 无锁读取 + TempManager 堆）
 func (e *Engine) cleanExpiredMatchers() {
 	// 1. 清理 TempManager 中的过期 matcher (高效堆实现)
-	tempExpired := e.s.tempManager.CleanExpired()
+	tempExpired := e.services.tempManager.CleanExpired()
 	for _, m := range tempExpired {
 		m.rt.mu.Lock()
 		m.rt.deleted = true

@@ -26,7 +26,7 @@ func TestZeroCoverageFunctions(t *testing.T) {
 	eng.OnCommand(dto.C2CMessageCreate, "/test")
 	eng.WithMatcherGroupBatch(func() {
 		m2 := eng.OnC2C()
-		eng.SetMatcherGroup(m2, "g", "s")
+		eng.SetMatcherGroup(m2, "g", "services")
 	})
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
 	context := ctx.NewContext(payload, nil)

@@ -15,33 +15,33 @@ type Adapter interface {
 	// The handleFunc will be called for each received event
 	Start(ctx context.Context, handleFunc func(*dto.Payload)) error
 
-	// Shutdown gracefully shuts down the adapter
-	Shutdown(ctx context.Context) error
+	// Stop gracefully shuts down the adapter
+	Stop(ctx context.Context) error
 }
 
-// WebHook 是 webhook 的最小接口，只需要 EventStream
-type WebHook interface {
+// Webhook 是 webhook 的最小接口，只需要 EventStream
+type Webhook interface {
 	EventStream() <-chan *dto.Payload
 }
 
-// webhookAdapter 将 WebHook 适配为 core.Adapter
+// webhookAdapter 将 Webhook 适配为 core.Adapter
 type webhookAdapter struct {
-	wh     WebHook
-	ctx    context.Context
-	cancel context.CancelFunc
+	webhook Webhook
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewWebhookAdapter 创建一个 webhook adapter
-func NewWebhookAdapter(wh WebHook) Adapter {
+func NewWebhookAdapter(wh Webhook) Adapter {
 	return &webhookAdapter{
-		wh: wh,
+		webhook: wh,
 	}
 }
 
 // Start 启动 adapter
 func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
 	// 验证 EventStream 是否为 nil
-	eventCh := a.wh.EventStream()
+	eventCh := a.webhook.EventStream()
 	if eventCh == nil {
 		return fmt.Errorf("EventStream returned nil channel")
 	}
@@ -81,7 +81,7 @@ func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
 }
 
 // Shutdown 关闭 adapter
-func (a *webhookAdapter) Shutdown(context.Context) error {
+func (a *webhookAdapter) Stop(context.Context) error {
 	if a.cancel != nil {
 		a.cancel()
 	}

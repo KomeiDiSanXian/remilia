@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/sirupsen/logrus"
 )
@@ -29,7 +29,7 @@ type RetryConfig struct {
 //	    BackoffBase: 200 * time.Millisecond,
 //	    BackoffMax: 2 * time.Second,
 //	}))
-func Retry(cfg RetryConfig) context2.Middleware {
+func Retry(cfg RetryConfig) eventctx.Middleware {
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 3
 	}
@@ -46,8 +46,8 @@ func Retry(cfg RetryConfig) context2.Middleware {
 		}
 	}
 
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			var lastErr error
 
 			// 尝试执行（包括首次执行）
@@ -135,7 +135,7 @@ func Retry(cfg RetryConfig) context2.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
-func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterItem) context2.Middleware {
+func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterItem) eventctx.Middleware {
 	// 初始化默认值
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 3
@@ -154,10 +154,10 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterIte
 
 	retryMw := Retry(cfg)
 
-	return func(next context2.Handler) context2.Handler {
+	return func(next eventctx.Handler) eventctx.Handler {
 		wrapped := retryMw(next)
 
-		return func(ctx *context2.Context) error {
+		return func(ctx *eventctx.Context) error {
 			err := wrapped(ctx)
 
 			// 如果最终还是失败，发送到死信队列
@@ -202,9 +202,9 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterIte
 //	    log.WithError(err).Error("Handler failed")
 //	    // 发送告警、记录指标等
 //	}))
-func ErrorHandler(handler func(ctx *context2.Context, err error)) context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func ErrorHandler(handler func(ctx *eventctx.Context, err error)) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			err := next(ctx)
 			if err != nil {
 				handler(ctx, err)

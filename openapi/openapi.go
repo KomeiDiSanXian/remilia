@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/KomeiDiSanXian/remilia/httpreq"
+	"github.com/KomeiDiSanXian/remilia/httpcilent"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -14,14 +14,14 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Service 对 OpenAPI 的实现
-type Service struct {
+// Client 对 OpenAPI 的实现
+type Client struct {
 	tm *token.Manager
 }
 
 // New 创建 OpenAPI 服务
-func New(manager *token.Manager) *Service {
-	return &Service{
+func New(manager *token.Manager) *Client {
+	return &Client{
 		tm: manager,
 	}
 }
@@ -29,9 +29,9 @@ func New(manager *token.Manager) *Service {
 // Post 发送一个 post 请求到 url
 //
 // 会自动添加 Authorization 头
-func (api *Service) Post(url string, data any) (gjson.Result, error) {
+func (api *Client) Post(url string, data any) (gjson.Result, error) {
 	api.tm.WaitReady()
-	result, err := httpreq.NewPost(url).
+	result, err := httpcilent.NewPost(url).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
 		SetJSONBody(data).
 		DoJSON()
@@ -45,9 +45,9 @@ func (api *Service) Post(url string, data any) (gjson.Result, error) {
 // Delete 发送一个 delete 请求到 url
 //
 // 会自动添加 Authorization 头
-func (api *Service) Delete(url string) (gjson.Result, error) {
+func (api *Client) Delete(url string) (gjson.Result, error) {
 	api.tm.WaitReady()
-	resp, err := httpreq.New(url, http.MethodDelete).
+	resp, err := httpcilent.New(url, http.MethodDelete).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
 		SetHeader("Content-Type", "application/json").
 		Do()
@@ -62,7 +62,7 @@ func (api *Service) Delete(url string) (gjson.Result, error) {
 		logrus.WithField("status", resp.Status).WithField("url", url).Error("[OpenAPI] Delete failed")
 		return gjson.Result{}, fmt.Errorf("status code not 200: %s", resp.Status)
 	}
-	return httpreq.ParseJSON(resp.Body)
+	return httpcilent.ParseJSON(resp.Body)
 }
 
 // SingleChat sends a message to a single chat
@@ -70,7 +70,7 @@ func (api *Service) Delete(url string) (gjson.Result, error) {
 // openid can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8D%95%E8%81%8A
-func (api *Service) SingleChat(openid string, msg *dto.Message) (gjson.Result, error) {
+func (api *Client) SingleChat(openid string, msg *dto.Message) (gjson.Result, error) {
 	return api.Post(fmt.Sprintf(constant.SingleChatURL, openid), msg)
 }
 
@@ -79,7 +79,7 @@ func (api *Service) SingleChat(openid string, msg *dto.Message) (gjson.Result, e
 // group_openid can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E7%BE%A4%E8%81%8A
-func (api *Service) GroupChat(groupOpenid string, msg *dto.Message) (gjson.Result, error) {
+func (api *Client) GroupChat(groupOpenid string, msg *dto.Message) (gjson.Result, error) {
 	return api.Post(fmt.Sprintf(constant.GroupChatURL, groupOpenid), msg)
 }
 
@@ -88,7 +88,7 @@ func (api *Service) GroupChat(groupOpenid string, msg *dto.Message) (gjson.Resul
 // openid can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html#%E7%94%A8%E4%BA%8E%E5%8D%95%E8%81%8A
-func (api *Service) SingleRichMedia(openid string, media *dto.Media) (gjson.Result, error) {
+func (api *Client) SingleRichMedia(openid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
 }
 
@@ -97,7 +97,7 @@ func (api *Service) SingleRichMedia(openid string, media *dto.Media) (gjson.Resu
 // group_openid can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html#%E7%94%A8%E4%BA%8E%E7%BE%A4%E8%81%8A
-func (api *Service) GroupRichMedia(groupOpenid string, media *dto.Media) (gjson.Result, error) {
+func (api *Client) GroupRichMedia(groupOpenid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(fmt.Sprintf(constant.GroupRichMediaURL, groupOpenid), media)
 }
 
@@ -108,7 +108,7 @@ func (api *Service) GroupRichMedia(groupOpenid string, media *dto.Media) (gjson.
 // message_id can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E5%8D%95%E8%81%8A
-func (api *Service) SingleReset(openid, messageID string) (gjson.Result, error) {
+func (api *Client) SingleReset(openid, messageID string) (gjson.Result, error) {
 	return api.Delete(fmt.Sprintf(constant.SingleResetURL, openid, messageID))
 }
 
@@ -119,6 +119,6 @@ func (api *Service) SingleReset(openid, messageID string) (gjson.Result, error) 
 // message_id can be got from the "payload.detail"
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E7%BE%A4%E8%81%8A
-func (api *Service) GroupReset(groupOpenid, messageID string) (gjson.Result, error) {
+func (api *Client) GroupReset(groupOpenid, messageID string) (gjson.Result, error) {
 	return api.Delete(fmt.Sprintf(constant.GroupResetURL, groupOpenid, messageID))
 }

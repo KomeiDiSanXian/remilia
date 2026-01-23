@@ -80,9 +80,9 @@ func TestNew_UsesDedupByDefault(t *testing.T) {
 		AppSecret: "test_secret",
 	}
 
-	conn := New(ctx, info)
+	conn := NewWebhook(ctx, info)
 	assert.NotNil(t, conn)
-	// New() 应该启用去重
+	// NewWebhook() 应该启用去重
 	assert.NotNil(t, conn.bigCache)
 }
 

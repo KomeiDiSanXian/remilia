@@ -17,7 +17,7 @@ Basic Usage:
 
 	    "github.com/KomeiDiSanXian/remilia"
 	    "github.com/KomeiDiSanXian/remilia/core/engine"
-	    context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	    "github.com/KomeiDiSanXian/remilia/openapi/dto"
 	)
 
@@ -26,7 +26,7 @@ Basic Usage:
 	adapter := myAdapter // implements remilia.Adapter
 
 	// Register event handlers
-	eng.OnC2C(context2.OnCommand("hello")).Handle(func(ctx *context2.Context) error {
+	eng.OnC2C(eventctx.OnCommand("hello")).Handle(func(ctx *eventctx.Context) error {
 	    ctx.ReplyPrivate(&dto.Message{Content: "Hello!"})
 	    return nil
 	})
@@ -46,7 +46,7 @@ Basic Usage:
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	bot.Shutdown(ctx)
+	bot.Stop(ctx)
 
 Health Checking:
 
@@ -63,7 +63,7 @@ Bot uses the lifecycle package to manage component startup and shutdown:
   - Components start in order
   - Components stop in reverse order
   - Failed startup triggers automatic rollback
-  - Shutdown continues even if a component fails
+  - Stop continues even if a component fails
 
 Configuration:
 
@@ -79,13 +79,13 @@ The Adapter interface connects event sources to the Bot:
 
 	type Adapter interface {
 	    Start(ctx context.Context, handleFunc func(*dto.Payload)) error
-	    Shutdown(ctx context.Context) error
+	    Stop(ctx context.Context) error
 	}
 
-You can use the built-in WebHook adapter or implement your own:
+You can use the built-in Webhook adapter or implement your own:
 
-	// Using WebHook adapter
-	webhook := myWebHook // implements remilia.WebHook interface
+	// Using Webhook adapter
+	webhook := myWebHook // implements remilia.Webhook interface
 	adapter := remilia.NewWebhookAdapter(webhook)
 
 For more information, see:

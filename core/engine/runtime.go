@@ -9,13 +9,13 @@ type engineRuntime struct {
 	mu sync.Mutex
 
 	// registered components (best-effort). Order doesn't matter.
-	components []engineComponent
+	components []runtimeComponent
 
 	// eventDone is a channel closed when all in-flight events finish.
-	// We create it per Shutdown call.
+	// We create it per Stop call.
 }
 
-func (rt *engineRuntime) register(c engineComponent) {
+func (rt *engineRuntime) register(c runtimeComponent) {
 	if c == nil {
 		return
 	}

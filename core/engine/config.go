@@ -29,21 +29,16 @@ type DeadLetterItem struct {
 	Source  string
 }
 
-// DeadLetterConsumer 接口定义了死信消费器的行为
-type DeadLetterConsumer interface {
-	Consume(item DeadLetterItem)
-}
-
 // WithCleanupInterval 设置临时 Matcher 清理间隔
 func WithCleanupInterval(interval time.Duration) Option {
 	return func(e *Engine) {
-		e.s.tempMatcherCleanerInterval = interval
+		e.services.tempMatcherCleanerInterval = interval
 	}
 }
 
 // WithPendingDeleteBufferSize 设置批量删除通道的大小
 func WithPendingDeleteBufferSize(size int) Option {
 	return func(e *Engine) {
-		e.s.pendingDeleteCh = make(chan *Matcher, size)
+		e.services.pendingDeleteCh = make(chan *Matcher, size)
 	}
 }

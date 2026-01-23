@@ -13,15 +13,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// state is the V2 user state extension container.
+// extensionState is the V2 user extensionState extension container.
 //
 // It is intentionally unexported. Access is via ctx.Set/ctx.Get/ctx.All.
-type state struct {
+type extensionState struct {
 	mu sync.RWMutex
 	m  map[string]any
 }
 
-// retryAttempt stores retry attempt as a typed extension (V2 Phase 2).
+// retryMetadata stores retry attempt as a typed extension (V2 Phase 2).
 //
 // It replaces the legacy internalState key "_remilia_internal_retry_attempt".
 // During progressive migration we:
@@ -29,7 +29,7 @@ type state struct {
 //   - read from this extension first, then fallback to legacy internalState
 //
 // This keeps the migration safe while allowing old code paths to be updated gradually.
-type retryAttempt struct {
+type retryMetadata struct {
 	Attempt int
 }
 
@@ -57,12 +57,12 @@ type parsedCommand struct {
 	Cmd *command.Parsed
 }
 
-func newStateExt() *state {
-	return &state{m: make(map[string]any)}
+func newStateExt() *extensionState {
+	return &extensionState{m: make(map[string]any)}
 }
 
-// MatcherInterface 定义 Matcher 的最小接口，用于避免循环依赖
-type MatcherInterface interface {
+// Matcher 定义 Matcher 的最小接口，用于避免循环依赖
+type Matcher interface {
 	GetSource() string
 }
 
@@ -70,12 +70,12 @@ type MatcherInterface interface {
 type Context struct {
 	ctxMu   sync.RWMutex   // 保护 ctx 字段的读写锁
 	ctx     stdctx.Context // 标准库 context，用于超时控制、取消传播等
-	matcher interface{}    // Matcher 引用（使用 interface{} 避免循环依赖）
+	matcher Matcher        // Matcher 引用（使用 interface{} 避免循环依赖）
 	event   *dto.Payload
 
 	// --- V2 extensions store ---
-	extOnce sync.Once
-	ext     *Extensions
+	extOnce    sync.Once
+	extensions *Extensions
 
 	api openapi.OpenAPI
 }
@@ -142,15 +142,15 @@ func (ctx *Context) Clone() *Context {
 		}
 	}
 
-	// Deep copy V2 store (state) so clone mutations don't affect original.
-	if s, ok := ExtGet[*state](ctx.Ext()); ok && s != nil {
+	// Deep copy V2 store (extensionState) so clone mutations don't affect original.
+	if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
 		s.mu.RLock()
 		cp := make(map[string]any, len(s.m))
 		for k, v := range s.m {
 			cp[k] = v
 		}
 		s.mu.RUnlock()
-		ExtSet(newCtx.Ext(), &state{m: cp})
+		ExtSet(newCtx.Ext(), &extensionState{m: cp})
 	}
 
 	return newCtx
@@ -206,7 +206,7 @@ func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 		return nil, false
 	}
 	if mt, ok := ExtGet[middlewareTrace](ctx.Ext()); ok {
-		// Return a copy to prevent caller from modifying internal state
+		// Return a copy to prevent caller from modifying internal extensionState
 		cp := make([]string, len(mt.Trace))
 		copy(cp, mt.Trace)
 		return cp, true
@@ -228,7 +228,7 @@ func (ctx *Context) SetRetryAttempt(attempt int) {
 	if ctx == nil {
 		return
 	}
-	ExtSet(ctx.Ext(), retryAttempt{Attempt: attempt})
+	ExtSet(ctx.Ext(), retryMetadata{Attempt: attempt})
 }
 
 // GetRetryAttempt returns the current retry attempt set by Retry middleware.
@@ -236,7 +236,7 @@ func (ctx *Context) GetRetryAttempt() (int, bool) {
 	if ctx == nil {
 		return 0, false
 	}
-	if ra, ok := ExtGet[retryAttempt](ctx.Ext()); ok {
+	if ra, ok := ExtGet[retryMetadata](ctx.Ext()); ok {
 		return ra.Attempt, true
 	}
 	return 0, false
@@ -248,18 +248,18 @@ func (ctx *Context) Ext() *Extensions {
 		return nil
 	}
 	ctx.extOnce.Do(func() {
-		ctx.ext = newExtensions()
+		ctx.extensions = newExtensions()
 	})
-	return ctx.ext
+	return ctx.extensions
 }
 
-// Set sets a user state value (V2 sugar).
+// Set sets a user extensionState value (V2 sugar).
 func (ctx *Context) Set(key string, value any) {
 	if ctx == nil {
 		return
 	}
 	if isReservedUserStateKey(key) {
-		logrus.WithField("key", key).Warn("[Context] set reserved state key is forbidden")
+		logrus.WithField("key", key).Warn("[Context] set reserved extensionState key is forbidden")
 		return
 	}
 
@@ -268,22 +268,22 @@ func (ctx *Context) Set(key string, value any) {
 		return
 	}
 
-	s := ExtGetOrInit(ctx.Ext(), func() *state { return newStateExt() })
+	s := ExtGetOrInit(ctx.Ext(), func() *extensionState { return newStateExt() })
 	s.mu.Lock()
 	s.m[key] = value
 	s.mu.Unlock()
 }
 
-// Delete deletes a user state value stored via ctx.Set.
+// Delete deletes a user extensionState value stored via ctx.Set.
 func (ctx *Context) Delete(key string) {
 	if ctx == nil {
 		return
 	}
 	if isReservedUserStateKey(key) {
-		logrus.WithField("key", key).Warn("[Context] delete reserved state key is forbidden")
+		logrus.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
 		return
 	}
-	s, ok := ExtGet[*state](ctx.Ext())
+	s, ok := ExtGet[*extensionState](ctx.Ext())
 	if !ok || s == nil {
 		return
 	}
@@ -292,12 +292,12 @@ func (ctx *Context) Delete(key string) {
 	s.mu.Unlock()
 }
 
-// Get gets a user state value (V2 sugar).
+// Get gets a user extensionState value (V2 sugar).
 func (ctx *Context) Get(key string) (any, bool) {
 	if ctx == nil {
 		return nil, false
 	}
-	s, ok := ExtGet[*state](ctx.Ext())
+	s, ok := ExtGet[*extensionState](ctx.Ext())
 	if !ok || s == nil {
 		return nil, false
 	}
@@ -307,12 +307,12 @@ func (ctx *Context) Get(key string) (any, bool) {
 	return v, ok
 }
 
-// All returns a copy of all user state values stored via ctx.Set.
+// All returns a copy of all user extensionState values stored via ctx.Set.
 func (ctx *Context) All() map[string]any {
 	if ctx == nil {
 		return nil
 	}
-	s, ok := ExtGet[*state](ctx.Ext())
+	s, ok := ExtGet[*extensionState](ctx.Ext())
 	if !ok || s == nil {
 		return map[string]any{}
 	}
@@ -417,10 +417,7 @@ func (ctx *Context) GetMatcherSource() string {
 	if ctx == nil || ctx.matcher == nil {
 		return ""
 	}
-	if m, ok := ctx.matcher.(MatcherInterface); ok {
-		return m.GetSource()
-	}
-	return ""
+	return ctx.matcher.GetSource()
 }
 
 // GetEventType 获取事件类型
@@ -445,9 +442,9 @@ func (ctx *Context) MustGetString(key string) (string, error) {
 		if str, ok := val.(string); ok {
 			return str, nil
 		}
-		return "", errors.New("state key '" + key + "' is not a string")
+		return "", errors.New("extensionState key '" + key + "' is not a string")
 	}
-	return "", errors.New("state key '" + key + "' not found")
+	return "", errors.New("extensionState key '" + key + "' not found")
 }
 
 // MustGetInt 获取整数类型的状态值
@@ -456,9 +453,9 @@ func (ctx *Context) MustGetInt(key string) (int, error) {
 		if i, ok := val.(int); ok {
 			return i, nil
 		}
-		return 0, errors.New("state key '" + key + "' is not an int")
+		return 0, errors.New("extensionState key '" + key + "' is not an int")
 	}
-	return 0, errors.New("state key '" + key + "' not found")
+	return 0, errors.New("extensionState key '" + key + "' not found")
 }
 
 // GetString 获取字符串类型的状态值

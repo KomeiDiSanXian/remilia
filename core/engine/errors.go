@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	remiliaerrors "github.com/KomeiDiSanXian/remilia/errors"
+	remiliaerrors "github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
@@ -100,12 +100,12 @@ func FormatHandlerError(err error) string {
 	}
 
 	parts := make([]string, 0, 6)
-	parts = append(parts, fmt.Sprintf("Message: %s", he.Message))
-	parts = append(parts, fmt.Sprintf("Source: %s", he.Source))
+	parts = append(parts, fmt.Sprintf("Message: %services", he.Message))
+	parts = append(parts, fmt.Sprintf("Source: %services", he.Source))
 	parts = append(parts, fmt.Sprintf("Attempt: %d", he.Attempt))
 
 	if he.EventID != "" {
-		parts = append(parts, fmt.Sprintf("EventID: %s", he.EventID))
+		parts = append(parts, fmt.Sprintf("EventID: %services", he.EventID))
 	}
 	if len(he.Trace) > 0 {
 		parts = append(parts, fmt.Sprintf("Trace: %v", he.Trace))
@@ -140,7 +140,7 @@ type DeadLetterEvent struct {
 	Type string `json:"type"`
 }
 
-// stringsJoin is a tiny helper to avoid importing strings in this file's public surface.
+// stringsJoin is a tiny helper to avoid importing strings in this file'services public surface.
 func stringsJoin(parts []string, sep string) string {
 	if len(parts) == 0 {
 		return ""

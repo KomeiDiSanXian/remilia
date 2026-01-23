@@ -29,7 +29,7 @@ type HTTPServer struct {
 //
 //	server := server.NewHTTPServer("localhost:8080", myHandler)
 //	server.Start()
-//	defer server.Shutdown(context.Background())
+//	defer server.Stop(context.Background())
 func NewHTTPServer(addr string, handler http.Handler) *HTTPServer {
 	return &HTTPServer{
 		srv: &http.Server{
@@ -66,7 +66,7 @@ func (s *HTTPServer) Start() {
 //
 //	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 //	defer cancel()
-//	if err := server.Shutdown(ctx); err != nil {
+//	if err := server.Stop(ctx); err != nil {
 //	    log.Printf("Server shutdown error: %v", err)
 //	}
 func (s *HTTPServer) Shutdown(ctx context.Context) error {

@@ -18,7 +18,7 @@
 //	// 优雅关闭
 //	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 //	defer cancel()
-//	if err := server.Shutdown(ctx); err != nil {
-//	    log.Printf("Shutdown error: %v", err)
+//	if err := server.Stop(ctx); err != nil {
+//	    log.Printf("Stop error: %v", err)
 //	}
 package server

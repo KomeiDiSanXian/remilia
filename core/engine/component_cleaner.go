@@ -11,11 +11,11 @@ func (c *tempCleanerComponent) stop() {
 		return
 	}
 	c.e.writeMu.Lock()
-	if c.e.s.tempMatcherCleanerStop != nil {
-		c.e.s.tempMatcherCleanerStop()
-		c.e.s.tempMatcherCleanerStop = nil
+	if c.e.services.tempMatcherCleanerStop != nil {
+		c.e.services.tempMatcherCleanerStop()
+		c.e.services.tempMatcherCleanerStop = nil
 	}
-	c.e.s.tempMatcherCleanerDone = nil
+	c.e.services.tempMatcherCleanerDone = nil
 	c.e.writeMu.Unlock()
 }
 

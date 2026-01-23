@@ -4,22 +4,68 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: split all root components">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add comprehensive tests for Context error handling and concurrency">
       <change afterPath="$PROJECT_DIR$/NAMING_IMPROVEMENTS_SUMMARY.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/NAMING_REFERENCE_TABLE.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/NAMING_REVIEW.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/context/context_error_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/NAMING_REVIEW_INDEX.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/TEST_FIXES_COMPLETE.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/UNIT_TEST_ENHANCEMENT.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CODE_REVIEW_ANALYSIS.md" beforeDir="false" afterPath="$PROJECT_DIR$/CODE_REVIEW_ANALYSIS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/command_helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/command_helper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_coverage_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/component.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/component_cleaner.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_cleaner.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/component_pending_delete.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_pending_delete.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_90_push_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_90_push_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/engine_final_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_coverage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/runtime.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/runtime.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors/stack.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/stack.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/httpreq/httpreq.go" beforeDir="false" afterPath="$PROJECT_DIR$/httpcilent/httpcilent.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/server/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/doc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/server/http.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/http.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/coverage_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_90_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/openapi.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/dedup_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -162,7 +208,8 @@
     <MESSAGE value="fix: ensure Engine is properly closed during bot shutdown" />
     <MESSAGE value="refactor" />
     <MESSAGE value="refactor: split all root components" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: split all root components" />
+    <MESSAGE value="test: add comprehensive tests for Context error handling and concurrency" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: add comprehensive tests for Context error handling and concurrency" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

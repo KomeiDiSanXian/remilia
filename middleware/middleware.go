@@ -8,15 +8,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
 )
 
 // Logging 记录处理耗时与错误
-func Logging() context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func Logging() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			start := time.Now()
 			err := next(ctx)
 			entry := logrus.WithError(err).WithFields(logrus.Fields{
@@ -39,9 +39,9 @@ func Logging() context2.Middleware {
 // 使用示例:
 //
 //	engine.Use(middleware.Recover())
-func Recover() context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) (err error) {
+func Recover() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) (err error) {
 			defer func() {
 				if r := recover(); r != nil {
 					// 获取堆栈信息
@@ -65,9 +65,9 @@ func Recover() context2.Middleware {
 }
 
 // Auth 简单鉴权：阻止非白名单用户（示例）
-func Auth(allow func(ctx *context2.Context) bool) context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func Auth(allow func(ctx *eventctx.Context) bool) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			if !allow(ctx) {
 				logrus.WithField("user", ctx.GetAuthor()).Warn("unauthorized")
 				return fmt.Errorf("unauthorized")
@@ -80,9 +80,9 @@ func Auth(allow func(ctx *context2.Context) bool) context2.Middleware {
 // Timeout 创建一个超时控制中间件
 //
 //	engine.Use(middleware.Timeout(5 * time.Second))
-func Timeout(timeout time.Duration) context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func Timeout(timeout time.Duration) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			// 创建带超时的标准库 context
 			stdCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 			defer cancel()
@@ -140,9 +140,9 @@ func Timeout(timeout time.Duration) context2.Middleware {
 }
 
 // Metrics 打点示例：这里只是打印，可对接 Prometheus
-func Metrics() context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func Metrics() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			start := time.Now()
 			err := next(ctx)
 			latency := time.Since(start)
@@ -160,7 +160,7 @@ func Metrics() context2.Middleware {
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyDrop, 0))
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyBlock, 0))
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyTryWait, 200*time.Millisecond))
-func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) context2.Middleware {
+func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) eventctx.Middleware {
 	if maxInFlight <= 0 {
 		maxInFlight = 100 // 默认值
 	}
@@ -171,8 +171,8 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 	sema := make(chan struct{}, maxInFlight)
 	var dropped uint64
 
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			// 尝试获取令牌
 			acquired := false
 			switch policy {
@@ -233,9 +233,9 @@ const (
 //
 //	// 在 Handler 中获取
 //	requestID, _ := ctx.Get(middleware.CtxKeyRequestID)
-func RequestID() context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func RequestID() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			// 生成唯一 ID（使用时间戳 + 随机数）
 			requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
 
@@ -275,7 +275,7 @@ var (
 //	engine.Use(middleware.RateLimitTokenBucket(5, 10, func(ctx *core.Context) string {
 //	    return ctx.GetAuthor() // 返回用户 ID
 //	}))
-func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*context2.Context) string) context2.Middleware {
+func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*eventctx.Context) string) eventctx.Middleware {
 	if ratePerSec <= 0 {
 		ratePerSec = 1
 	}
@@ -316,8 +316,8 @@ func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*context2.Contex
 		mu.Unlock()
 	}
 
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			key := ""
 			if keyFn != nil {
 				key = keyFn(ctx)

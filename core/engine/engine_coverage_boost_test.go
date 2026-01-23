@@ -129,7 +129,7 @@ func TestMatcher_CopyDetailed(t *testing.T) {
 		assert.Equal(t, len(original.middlewares), len(copied.middlewares))
 		assert.Equal(t, original.rt.isTemp, copied.rt.isTemp)
 
-		// Verify it's a deep copy (different slices)
+		// Verify it'services a deep copy (different slices)
 		assert.NotSame(t, &original.Rules, &copied.Rules)
 		assert.NotSame(t, &original.middlewares, &copied.middlewares)
 	})

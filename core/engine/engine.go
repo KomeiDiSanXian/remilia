@@ -36,7 +36,7 @@ type Engine struct {
 	writeMu sync.Mutex
 
 	// services holds runtime/infra concerns (temp manager, pools, metrics, etc.)
-	s engineServices
+	services engineServices
 
 	// runtime holds engine-owned background components.
 	runtime engineRuntime
@@ -58,9 +58,9 @@ func NewEngine(options ...Option) *Engine {
 	e := &Engine{}
 
 	// defaults for services
-	e.s.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
-	e.s.tempManager = newTempMatcherManager()
-	e.s.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
+	e.services.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
+	e.services.tempManager = newTempMatcherManager()
+	e.services.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
 
 	// 初始化不可变状态
 	e.state.Store(newEngineState())
@@ -72,19 +72,19 @@ func NewEngine(options ...Option) *Engine {
 	}
 
 	// 如果未通过选项配置，则使用默认的 pendingDeleteCh
-	if e.s.pendingDeleteCh == nil {
-		e.s.pendingDeleteCh = make(chan *Matcher, DefaultPendingDeleteBufferSize)
+	if e.services.pendingDeleteCh == nil {
+		e.services.pendingDeleteCh = make(chan *Matcher, DefaultPendingDeleteBufferSize)
 	}
 
 	// 自动启动临时 Matcher 清理器（如果间隔 > 0）
-	if e.s.tempMatcherCleanerInterval > 0 {
-		e.s.tempMatcherCleanerStop = e.StartTempMatcherCleaner(e.s.tempMatcherCleanerInterval)
+	if e.services.tempMatcherCleanerInterval > 0 {
+		e.services.tempMatcherCleanerStop = e.StartTempMatcherCleaner(e.services.tempMatcherCleanerInterval)
 	} else {
 		logrus.Info("[Engine] Temp matcher cleaner disabled by default configuration")
 	}
 
 	// 启动批量删除处理器
-	e.s.pendingDeleteStop = e.startPendingDeleteProcessor()
+	e.services.pendingDeleteStop = e.startPendingDeleteProcessor()
 
 	// Register runtime components for unified shutdown semantics.
 	e.runtime.register(&tempCleanerComponent{e: e})
@@ -183,7 +183,7 @@ func (e *Engine) RemoveGroup(groupName string) {
 	// 5. 原子替换
 	e.state.Store(newState)
 
-	logrus.Debugf("[Engine] Removed matcher group: %s", groupName)
+	logrus.Debugf("[Engine] Removed matcher group: %services", groupName)
 }
 
 // InvalidateSortedCache 失效指定事件类型的排序缓存（COW 写操作）
@@ -259,7 +259,7 @@ func (e *Engine) GetMatcherCount() int {
 
 // GetTempMatcherCount 获取当前已注册的临时匹配器数量
 func (e *Engine) GetTempMatcherCount() int {
-	return e.s.tempManager.Count()
+	return e.services.tempManager.Count()
 }
 
 // noopMatcher 是一个空操作匹配器，用于在达到匹配器限制时返回
@@ -379,9 +379,9 @@ func (e *Engine) OnTemp(eventType dto.EventType, rules ...context.Rule) *Matcher
 		},
 	}
 
-	e.s.tempManager.Add(matcher)
+	e.services.tempManager.Add(matcher)
 
-	// Build chain locally (no need for COW rebuild since it's not in state)
+	// Build chain locally (no need for COW rebuild since it'services not in state)
 	e.rebuildMatcherChainCOW(matcher)
 
 	return matcher
@@ -389,8 +389,8 @@ func (e *Engine) OnTemp(eventType dto.EventType, rules ...context.Rule) *Matcher
 
 // UpdateTempMatcherPriority 更新临时 matcher 的优先级（内部方法）
 func (e *Engine) UpdateTempMatcherPriority(m *Matcher) {
-	e.s.tempManager.Remove(m)
-	e.s.tempManager.Add(m)
+	e.services.tempManager.Remove(m)
+	e.services.tempManager.Add(m)
 }
 
 // MatcherStats 匹配器统计
@@ -435,13 +435,13 @@ func (e *Engine) EnableGlobalMatchers(enable bool) {
 func (e *Engine) SetMetricsCollector(mc *metrics.Collector) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
-	e.s.metricsCollector.Store(mc)
+	e.services.metricsCollector.Store(mc)
 	return e
 }
 
 // GetMetricsCollector 获取指标收集器（v0.7.1 新增）
 func (e *Engine) GetMetricsCollector() *metrics.Collector {
-	val := e.s.metricsCollector.Load()
+	val := e.services.metricsCollector.Load()
 	if val == nil {
 		return nil
 	}
@@ -603,14 +603,14 @@ func (e *Engine) OnCommand(eventType dto.EventType, command string, extraRules .
 
 // MigrateMatcherToTemp 将 matcher 迁移到 TempManager
 func (e *Engine) MigrateMatcherToTemp(m *Matcher) {
-	e.s.tempManager.Add(m)
+	e.services.tempManager.Add(m)
 	e.removeMatcherFromStateSilently(m)
 }
 
 // MigrateMatcherFromTemp 将 matcher 从 TempManager 迁移到 State
 func (e *Engine) MigrateMatcherFromTemp(m *Matcher) {
 	e.addMatcherToStateSilently(m)
-	e.s.tempManager.Remove(m)
+	e.services.tempManager.Remove(m)
 }
 
 // RegisterCommand 注册一个高级命令定义

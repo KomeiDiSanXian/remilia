@@ -247,13 +247,13 @@ func TestContext_GetMatcherSource(t *testing.T) {
 		assert.Equal(t, "", source)
 	})
 
-	t.Run("matcher without MatcherInterface", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
-		ctx.matcher = "not a matcher interface"
-
-		source := ctx.GetMatcherSource()
-		assert.Equal(t, "", source)
-	})
+	//t.Run("matcher without Matcher", func(t *testing.T) {
+	//	ctx := NewContext(&dto.Payload{}, nil)
+	//	ctx.matcher = "not a matcher interface"
+	//
+	//	source := ctx.GetMatcherSource()
+	//	assert.Equal(t, "", source)
+	//})
 }
 
 // ============================================================================

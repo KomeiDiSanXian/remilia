@@ -11,9 +11,9 @@ func (c *pendingDeleteComponent) stop() {
 		return
 	}
 	c.e.writeMu.Lock()
-	if c.e.s.pendingDeleteStop != nil {
-		c.e.s.pendingDeleteStop()
-		c.e.s.pendingDeleteStop = nil
+	if c.e.services.pendingDeleteStop != nil {
+		c.e.services.pendingDeleteStop()
+		c.e.services.pendingDeleteStop = nil
 	}
 	c.e.writeMu.Unlock()
 }

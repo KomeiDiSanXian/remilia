@@ -30,5 +30,5 @@ type MatcherCoordinator interface {
 // Adapter connects an event source to the Bot
 type Adapter interface {
 	Start(ctx stdctx.Context, handleFunc func(*dto.Payload)) error
-	Shutdown(ctx stdctx.Context) error
+	Stop(ctx stdctx.Context) error
 }

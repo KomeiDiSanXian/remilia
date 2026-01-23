@@ -863,7 +863,7 @@ func TestRetryContextCancellation(t *testing.T) {
 
 #### 建议
 ```go
-// errors/types.go
+// errutil/types.go
 type ErrorCode int
 
 const (

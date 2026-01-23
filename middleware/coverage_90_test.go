@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +36,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
 			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
 				return PriorityLow
 			},
 		}
@@ -45,7 +45,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		mw := ad.Middleware()
 
 		executed := false
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			executed = true
 			return nil
 		})
@@ -64,7 +64,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
 			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
 				event := ctx.GetEvent()
 				if event != nil && event.Type == "HIGH_PRIORITY" {
 					return PriorityHigh
@@ -76,7 +76,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		ad := NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			event := ctx.GetEvent()
 			if event != nil && event.Type == "HIGH_PRIORITY" {
 				highPriorityCalls++
@@ -88,11 +88,11 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 
 		// Low priority
 		event1 := &dto.Payload{ID: "1", Type: "LOW_PRIORITY"}
-		_ = handler(context2.NewContext(event1, nil))
+		_ = handler(eventctx.NewContext(event1, nil))
 
 		// High priority
 		event2 := &dto.Payload{ID: "2", Type: "HIGH_PRIORITY"}
-		_ = handler(context2.NewContext(event2, nil))
+		_ = handler(eventctx.NewContext(event2, nil))
 
 		assert.Equal(t, 1, lowPriorityCalls)
 		assert.Equal(t, 1, highPriorityCalls)
@@ -116,7 +116,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
 			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
 				return PriorityLow
 			},
 		}
@@ -124,7 +124,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		ad := NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			return nil
 		})
 
@@ -148,7 +148,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		ad := NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			return nil
 		})
 
@@ -190,7 +190,7 @@ func TestDegradationStrategies(t *testing.T) {
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
 			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *context2.Context) EventPriority {
+			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
 				return PriorityLow
 			},
 		}
@@ -245,7 +245,7 @@ func TestEventPriorities(t *testing.T) {
 func TestRecoverAdvanced(t *testing.T) {
 	t.Run("recover from string panic", func(t *testing.T) {
 		mw := Recover()
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			panic("string panic")
 		})
 
@@ -256,7 +256,7 @@ func TestRecoverAdvanced(t *testing.T) {
 
 	t.Run("recover from error panic", func(t *testing.T) {
 		mw := Recover()
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			panic(errors.New("error panic"))
 		})
 
@@ -267,7 +267,7 @@ func TestRecoverAdvanced(t *testing.T) {
 
 	t.Run("recover from nil panic", func(t *testing.T) {
 		mw := Recover()
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			panic(nil)
 		})
 
@@ -278,7 +278,7 @@ func TestRecoverAdvanced(t *testing.T) {
 
 	t.Run("no panic", func(t *testing.T) {
 		mw := Recover()
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			return errors.New("normal error")
 		})
 
@@ -291,7 +291,7 @@ func TestRecoverAdvanced(t *testing.T) {
 func TestAuthAdvancedExtra(t *testing.T) {
 	t.Run("multiple auth checks", func(t *testing.T) {
 		calls := 0
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			calls++
 			return calls <= 2
 		})
@@ -309,7 +309,7 @@ func TestAuthAdvancedExtra(t *testing.T) {
 	})
 
 	t.Run("auth with event inspection", func(t *testing.T) {
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			event := ctx.GetEvent()
 			return event != nil && event.Type == "TEST_EVENT"
 		})
@@ -431,7 +431,7 @@ func TestRetryEdgeCases(t *testing.T) {
 		})
 
 		attempts := 0
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempts++
 			return errors.New("error")
 		})
@@ -533,7 +533,7 @@ func TestDedupEdgeCases(t *testing.T) {
 				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
 			}
-			handler(context2.NewContext(event, nil))
+			handler(eventctx.NewContext(event, nil))
 		}
 	})
 
@@ -551,13 +551,13 @@ func TestDedupEdgeCases(t *testing.T) {
 		event := &dto.Payload{ID: "short-ttl", Type: "TEST"}
 
 		// First
-		handler(context2.NewContext(event, nil))
+		handler(eventctx.NewContext(event, nil))
 
 		// Wait for TTL
 		time.Sleep(20 * time.Millisecond)
 
 		// Should be allowed again
-		handler(context2.NewContext(event, nil))
+		handler(eventctx.NewContext(event, nil))
 	})
 }
 
@@ -566,7 +566,7 @@ func TestSlowHandlerEdgeCases(t *testing.T) {
 		logged := false
 		mw := SlowHandler(SlowHandlerConfig{
 			Threshold: 0, // Should use default
-			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
 			},
 		})
@@ -584,10 +584,10 @@ func TestSlowHandlerEdgeCases(t *testing.T) {
 
 		mw := SlowHandler(SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
-			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
 			},
-			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				called = true
 			},
 		})
@@ -602,7 +602,7 @@ func TestSlowHandlerEdgeCases(t *testing.T) {
 
 func TestRateLimitEdgeCases(t *testing.T) {
 	t.Run("very low rate", func(t *testing.T) {
-		mw := RateLimitTokenBucket(1, 1, func(ctx *context2.Context) string {
+		mw := RateLimitTokenBucket(1, 1, func(ctx *eventctx.Context) string {
 			return "low"
 		})
 
@@ -618,7 +618,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 	})
 
 	t.Run("custom key function", func(t *testing.T) {
-		mw := RateLimitTokenBucket(5, 5, func(ctx *context2.Context) string {
+		mw := RateLimitTokenBucket(5, 5, func(ctx *eventctx.Context) string {
 			event := ctx.GetEvent()
 			if event != nil {
 				return string(event.ID)
@@ -634,7 +634,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
 			}
-			ctx := context2.NewContext(event, nil)
+			ctx := eventctx.NewContext(event, nil)
 			err := handler(ctx)
 			assert.NoError(t, err)
 		}
@@ -673,7 +673,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 		)
 
 		event := &dto.Payload{ID: "integration", Type: "TEST"}
-		ctx := context2.NewContext(event, nil)
+		ctx := eventctx.NewContext(event, nil)
 
 		err := handler(ctx)
 		assert.NoError(t, err)
@@ -697,7 +697,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 
 func TestConcurrentStress(t *testing.T) {
 	t.Run("concurrent rate limit", func(t *testing.T) {
-		mw := RateLimitTokenBucket(10, 10, func(ctx *context2.Context) string {
+		mw := RateLimitTokenBucket(10, 10, func(ctx *eventctx.Context) string {
 			return "stress"
 		})
 
@@ -777,7 +777,7 @@ func BenchmarkDegradationMiddleware(b *testing.B) {
 }
 
 func BenchmarkAuthMiddleware(b *testing.B) {
-	mw := Auth(func(ctx *context2.Context) bool {
+	mw := Auth(func(ctx *eventctx.Context) bool {
 		return true
 	})
 	handler := mw(mockHandler(nil, 0))

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,7 +18,7 @@ func TestDedupFilter_Basic(t *testing.T) {
 		filter := NewDedupFilter(DefaultDedupConfig())
 		defer filter.Stop()
 
-		isDup, err := filter.IsDuplicate("event-1")
+		isDup, err := filter.CheckDuplicate("event-1")
 
 		assert.NoError(t, err)
 		assert.False(t, isDup, "First event should not be duplicate")
@@ -28,8 +28,8 @@ func TestDedupFilter_Basic(t *testing.T) {
 		filter := NewDedupFilter(DefaultDedupConfig())
 		defer filter.Stop()
 
-		_, _ = filter.IsDuplicate("event-1")
-		isDup, err := filter.IsDuplicate("event-1")
+		_, _ = filter.CheckDuplicate("event-1")
+		isDup, err := filter.CheckDuplicate("event-1")
 
 		assert.NoError(t, err)
 		assert.True(t, isDup, "Second same event should be duplicate")
@@ -39,8 +39,8 @@ func TestDedupFilter_Basic(t *testing.T) {
 		filter := NewDedupFilter(DefaultDedupConfig())
 		defer filter.Stop()
 
-		_, _ = filter.IsDuplicate("event-1")
-		isDup, err := filter.IsDuplicate("event-2")
+		_, _ = filter.CheckDuplicate("event-1")
+		isDup, err := filter.CheckDuplicate("event-2")
 
 		assert.NoError(t, err)
 		assert.False(t, isDup, "Different events should not be duplicate")
@@ -59,7 +59,7 @@ func TestDedupFilter_Expiration(t *testing.T) {
 		defer filter.Stop()
 
 		// 添加事件
-		isDup, err := filter.IsDuplicate("event-1")
+		isDup, err := filter.CheckDuplicate("event-1")
 		assert.NoError(t, err)
 		assert.False(t, isDup)
 
@@ -67,7 +67,7 @@ func TestDedupFilter_Expiration(t *testing.T) {
 		time.Sleep(150 * time.Millisecond)
 
 		// 再次检查，应该不是重复（已过期）
-		isDup, err = filter.IsDuplicate("event-1")
+		isDup, err = filter.CheckDuplicate("event-1")
 		assert.NoError(t, err)
 		assert.False(t, isDup, "Expired event should not be duplicate")
 	})
@@ -83,7 +83,7 @@ func TestDedupFilter_Expiration(t *testing.T) {
 
 		// 添加多个事件
 		for i := 0; i < 10; i++ {
-			_, _ = filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
 		stats := filter.GetStats()
@@ -110,7 +110,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 
 		// 填满缓存
 		for i := 0; i < 5; i++ {
-			isDup, err := filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+			isDup, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 			assert.NoError(t, err)
 			assert.False(t, isDup)
 		}
@@ -119,7 +119,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// 现在缓存满但都已过期，添加新事件应该触发立即清理
-		isDup, err := filter.IsDuplicate("new-event")
+		isDup, err := filter.CheckDuplicate("new-event")
 		assert.NoError(t, err, "Should succeed after immediate cleanup")
 		assert.False(t, isDup)
 
@@ -139,12 +139,12 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 
 		// 填满缓存
 		for i := 0; i < 3; i++ {
-			_, err := filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+			_, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 			assert.NoError(t, err)
 		}
 
 		// 立即添加新事件，应该返回错误（无过期条目可清理）
-		isDup, err := filter.IsDuplicate("new-event")
+		isDup, err := filter.CheckDuplicate("new-event")
 		assert.Error(t, err, "Should return error when cache full")
 		assert.False(t, isDup)
 		assert.Contains(t, err.Error(), "full after cleanup")
@@ -161,7 +161,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 
 		// 添加3个事件
 		for i := 0; i < 3; i++ {
-			_, _ = filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
 		// 等待50ms
@@ -169,14 +169,14 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 
 		// 再添加2个事件，缓存满
 		for i := 3; i < 5; i++ {
-			_, _ = filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
 		// 再等待60ms，前3个过期
 		time.Sleep(60 * time.Millisecond)
 
 		// 添加新事件，应该触发清理并成功
-		isDup, err := filter.IsDuplicate("new-event")
+		isDup, err := filter.CheckDuplicate("new-event")
 		assert.NoError(t, err, "Should succeed after partial cleanup")
 		assert.False(t, isDup)
 
@@ -204,7 +204,7 @@ func TestDedupFilter_Concurrent(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < eventsPerGoroutine; j++ {
 					eventID := fmt.Sprintf("event-%d", j)
-					isDup, err := filter.IsDuplicate(eventID)
+					isDup, err := filter.CheckDuplicate(eventID)
 					if err == nil && isDup {
 						duplicates[j].Add(1)
 					}
@@ -249,7 +249,7 @@ func TestDedupFilter_Concurrent(t *testing.T) {
 						return
 					default:
 						eventID := fmt.Sprintf("g%d-event-%d", id, counter)
-						_, _ = filter.IsDuplicate(eventID)
+						_, _ = filter.CheckDuplicate(eventID)
 						counter++
 						time.Sleep(10 * time.Millisecond)
 					}
@@ -277,7 +277,7 @@ func TestDedupFilter_Clear(t *testing.T) {
 
 	// 添加事件
 	for i := 0; i < 5; i++ {
-		_, _ = filter.IsDuplicate(fmt.Sprintf("event-%d", i))
+		_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 	}
 
 	stats := filter.GetStats()
@@ -290,7 +290,7 @@ func TestDedupFilter_Clear(t *testing.T) {
 	assert.Equal(t, 0, stats["cache_size"].(int))
 
 	// 之前的事件现在不是重复
-	isDup, err := filter.IsDuplicate("event-1")
+	isDup, err := filter.CheckDuplicate("event-1")
 	assert.NoError(t, err)
 	assert.False(t, isDup)
 }
@@ -300,13 +300,13 @@ func TestDedupFilter_Stop(t *testing.T) {
 	filter := NewDedupFilter(DefaultDedupConfig())
 
 	// 添加事件
-	_, _ = filter.IsDuplicate("event-1")
+	_, _ = filter.CheckDuplicate("event-1")
 
 	// 停止清理器
 	filter.Stop()
 
 	// 应该仍然可以检查重复（只是后台清理停止）
-	isDup, err := filter.IsDuplicate("event-1")
+	isDup, err := filter.CheckDuplicate("event-1")
 	assert.NoError(t, err)
 	assert.True(t, isDup)
 }
@@ -319,7 +319,7 @@ func TestDedupMiddleware(t *testing.T) {
 
 		var handlerCalled atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			handlerCalled.Add(1)
 			return nil
 		}
@@ -333,13 +333,13 @@ func TestDedupMiddleware(t *testing.T) {
 		}
 
 		// 第一次调用
-		ctx1 := context2.NewContext(event, nil)
+		ctx1 := eventctx.NewContext(event, nil)
 		err := wrappedHandler(ctx1)
 		assert.NoError(t, err)
 		assert.Equal(t, int32(1), handlerCalled.Load())
 
 		// 第二次调用（重复）
-		ctx2 := context2.NewContext(event, nil)
+		ctx2 := eventctx.NewContext(event, nil)
 		err = wrappedHandler(ctx2)
 		assert.NoError(t, err)
 		assert.Equal(t, int32(1), handlerCalled.Load(), "Handler should not be called for duplicate")
@@ -351,7 +351,7 @@ func TestDedupMiddleware(t *testing.T) {
 
 		var handlerCalled atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			handlerCalled.Add(1)
 			return nil
 		}
@@ -363,11 +363,11 @@ func TestDedupMiddleware(t *testing.T) {
 		event1 := &dto.Payload{ID: "event-1", Type: "test"}
 		event2 := &dto.Payload{ID: "event-2", Type: "test"}
 
-		ctx1 := context2.NewContext(event1, nil)
+		ctx1 := eventctx.NewContext(event1, nil)
 		err := wrappedHandler(ctx1)
 		assert.NoError(t, err)
 
-		ctx2 := context2.NewContext(event2, nil)
+		ctx2 := eventctx.NewContext(event2, nil)
 		err = wrappedHandler(ctx2)
 		assert.NoError(t, err)
 
@@ -385,7 +385,7 @@ func TestDedupMiddleware(t *testing.T) {
 
 		var handlerCalled atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			handlerCalled.Add(1)
 			return nil
 		}
@@ -399,13 +399,13 @@ func TestDedupMiddleware(t *testing.T) {
 				ID:   dto.EventID(fmt.Sprintf("event-%d", i)),
 				Type: "test",
 			}
-			ctx := context2.NewContext(event, nil)
+			ctx := eventctx.NewContext(event, nil)
 			_ = wrappedHandler(ctx)
 		}
 
 		// 添加第3个事件（缓存满）
 		event3 := &dto.Payload{ID: "event-3", Type: "test"}
-		ctx3 := context2.NewContext(event3, nil)
+		ctx3 := eventctx.NewContext(event3, nil)
 		err := wrappedHandler(ctx3)
 
 		// 应该继续处理（带警告）
@@ -419,7 +419,7 @@ func TestDedupMiddleware(t *testing.T) {
 
 		var handlerCalled atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			handlerCalled.Add(1)
 			return nil
 		}
@@ -429,7 +429,7 @@ func TestDedupMiddleware(t *testing.T) {
 
 		// 没有 ID 的事件
 		event := &dto.Payload{ID: "", Type: "test"}
-		ctx := context2.NewContext(event, nil)
+		ctx := eventctx.NewContext(event, nil)
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)
@@ -454,8 +454,8 @@ func TestDedupFilter_GetStats(t *testing.T) {
 	assert.Equal(t, "5m0s", stats["ttl"].(string))
 
 	// 添加事件后
-	_, _ = filter.IsDuplicate("event-1")
-	_, _ = filter.IsDuplicate("event-2")
+	_, _ = filter.CheckDuplicate("event-1")
+	_, _ = filter.CheckDuplicate("event-2")
 
 	stats = filter.GetStats()
 	assert.Equal(t, 2, stats["cache_size"].(int))

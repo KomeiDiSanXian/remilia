@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -19,7 +19,7 @@ func TestRetry_Basic(t *testing.T) {
 	t.Run("success_without_retry", func(t *testing.T) {
 		var callCount atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			callCount.Add(1)
 			return nil
 		}
@@ -33,7 +33,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)
@@ -43,7 +43,7 @@ func TestRetry_Basic(t *testing.T) {
 	t.Run("retry_until_success", func(t *testing.T) {
 		var callCount atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			count := callCount.Add(1)
 			if count < 3 {
 				return errors.New("temporary error")
@@ -60,7 +60,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)
@@ -71,7 +71,7 @@ func TestRetry_Basic(t *testing.T) {
 		var callCount atomic.Int32
 		testErr := errors.New("persistent error")
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			callCount.Add(1)
 			return testErr
 		}
@@ -85,7 +85,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -99,7 +99,7 @@ func TestRetry_ContextCancellation(t *testing.T) {
 	t.Run("cancel_during_retry", func(t *testing.T) {
 		var callCount atomic.Int32
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			callCount.Add(1)
 			return errors.New("error")
 		}
@@ -115,7 +115,7 @@ func TestRetry_ContextCancellation(t *testing.T) {
 
 		// 创建可取消的 context
 		stdCtx, cancel := context.WithCancel(context.Background())
-		ctx := context2.NewContextWithContext(stdCtx, &dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContextWithContext(stdCtx, &dto.Payload{Type: "test"}, nil)
 
 		// 在第一次失败后取消 context
 		go func() {
@@ -137,7 +137,7 @@ func TestRetry_BackoffExponential(t *testing.T) {
 	var callCount atomic.Int32
 	var callTimes []time.Time
 
-	handler := func(ctx *context2.Context) error {
+	handler := func(ctx *eventctx.Context) error {
 		callCount.Add(1)
 		callTimes = append(callTimes, time.Now())
 		return errors.New("error")
@@ -152,7 +152,7 @@ func TestRetry_BackoffExponential(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 	_ = wrappedHandler(ctx)
 
 	assert.Equal(t, int32(4), callCount.Load(), "Should try initial + 3 retries")
@@ -176,7 +176,7 @@ func TestRetry_BackoffExponential(t *testing.T) {
 func TestRetry_BackoffMax(t *testing.T) {
 	var callTimes []time.Time
 
-	handler := func(ctx *context2.Context) error {
+	handler := func(ctx *eventctx.Context) error {
 		callTimes = append(callTimes, time.Now())
 		return errors.New("error")
 	}
@@ -190,7 +190,7 @@ func TestRetry_BackoffMax(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 	_ = wrappedHandler(ctx)
 
 	require.Len(t, callTimes, 6) // initial + 5 retries
@@ -208,7 +208,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		var callCount atomic.Int32
 		blockErr := engine.NewBlockError("non-retryable")
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			callCount.Add(1)
 			return blockErr
 		}
@@ -221,7 +221,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -234,7 +234,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		specialErr := errors.New("special error")
 		normalErr := errors.New("normal error")
 
-		handler := func(ctx *context2.Context) error {
+		handler := func(ctx *eventctx.Context) error {
 			count := callCount.Add(1)
 			if count == 1 {
 				return specialErr
@@ -254,7 +254,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -267,7 +267,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 func TestRetry_RetryAttemptTracking(t *testing.T) {
 	attempts := make([]int, 0)
 
-	handler := func(ctx *context2.Context) error {
+	handler := func(ctx *eventctx.Context) error {
 		attempt, ok := ctx.GetRetryAttempt()
 		assert.True(t, ok, "Retry attempt should be set")
 		attempts = append(attempts, attempt)
@@ -286,7 +286,7 @@ func TestRetry_RetryAttemptTracking(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 	err := wrappedHandler(ctx)
 
 	assert.NoError(t, err)
@@ -364,7 +364,7 @@ func TestSleepWithContext_ResourceCleanup(t *testing.T) {
 func TestRetry_ConcurrentRetries(t *testing.T) {
 	var totalCalls atomic.Int32
 
-	handler := func(ctx *context2.Context) error {
+	handler := func(ctx *eventctx.Context) error {
 		totalCalls.Add(1)
 		return errors.New("error")
 	}
@@ -383,7 +383,7 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 
 	for i := 0; i < concurrency; i++ {
 		go func() {
-			ctx := context2.NewContext(&dto.Payload{Type: "test"}, nil)
+			ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 			_ = wrappedHandler(ctx)
 			done <- true
 		}()

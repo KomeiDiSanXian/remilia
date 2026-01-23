@@ -12,9 +12,9 @@ import (
 type DropPolicy int
 
 const (
-	DropOldest DropPolicy = iota
-	DropNewest
-	BlockUntilSpace
+	DropPolicyOldest DropPolicy = iota
+	DropPolicyNewest
+	DropPolicyBlockUntilSpace
 )
 
 type DeadLetterQueueConfig struct {
@@ -127,7 +127,7 @@ func (dlq *DeadLetterQueue) worker(id int) {
 				dlq.config.OnProcessed(item, duration)
 			}
 		case <-dlq.ctx.Done():
-			// If Shutdown() closed the queue, we'll naturally exit via ok==false above.
+			// If Stop() closed the queue, we'll naturally exit via ok==false above.
 			// Otherwise, honor cancellation.
 			return
 		}
@@ -143,7 +143,7 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 		return
 	}
 
-	if dlq.config.DropPolicy != BlockUntilSpace {
+	if dlq.config.DropPolicy != DropPolicyBlockUntilSpace {
 		dlq.enqueueMu.Lock()
 		defer dlq.enqueueMu.Unlock()
 	}
@@ -153,7 +153,7 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 		return
 	default:
 		switch dlq.config.DropPolicy {
-		case DropOldest:
+		case DropPolicyOldest:
 			select {
 			case old := <-dlq.queue:
 				dlq.dropped.Add(1)
@@ -169,13 +169,13 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 				}
 				return
 			}
-		case DropNewest:
+		case DropPolicyNewest:
 			dlq.dropped.Add(1)
 			if dlq.config.OnDropped != nil {
 				dlq.config.OnDropped(item, "queue full, dropping newest")
 			}
 			return
-		case BlockUntilSpace:
+		case DropPolicyBlockUntilSpace:
 			ctx, cancel := context.WithTimeout(dlq.ctx, 30*time.Second)
 			defer cancel()
 			select {
@@ -212,7 +212,7 @@ func (dlq *DeadLetterQueue) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		logrus.Warn("[DeadLetterQueue] Shutdown timeout, some dead letters may not be processed")
+		logrus.Warn("[DeadLetterQueue] Stop timeout, some dead letters may not be processed")
 		return ctx.Err()
 	}
 }

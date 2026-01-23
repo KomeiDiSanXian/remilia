@@ -215,7 +215,7 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 			if matcher.rt.deleted || (!matcher.rt.expiresAt.IsZero() && now.After(matcher.rt.expiresAt)) {
 				heap.Pop(shard.expiration)
 
-				// Verify it's still in this shard and in index before removal
+				// Verify it'services still in this shard and in index before removal
 				// (Handling race where it might have been removed concurrently?
 				// Lock protects us, but deleted flag might be set by Remove)
 				if _, ok := shard.byID[matcher]; ok {

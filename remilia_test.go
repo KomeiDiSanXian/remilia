@@ -56,7 +56,7 @@ func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) 
 	return nil
 }
 
-func (m *mockAdapter) Shutdown(_ context.Context) error {
+func (m *mockAdapter) Stop(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -118,7 +118,7 @@ func TestBot_Start(t *testing.T) {
 		assert.True(t, bot.IsRunning())
 
 		// Cleanup
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 	})
 
 	t.Run("double start", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestBot_Start(t *testing.T) {
 		err = bot.Start()
 		assert.NoError(t, err)
 
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 	})
 
 	t.Run("start with adapter error", func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestBot_Shutdown(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		ctx := context.Background()
-		err := bot.Shutdown(ctx)
+		err := bot.Stop(ctx)
 		assert.NoError(t, err)
 		assert.False(t, bot.IsRunning())
 	})
@@ -170,7 +170,7 @@ func TestBot_Shutdown(t *testing.T) {
 		bot := NewBot(adapter, eng)
 
 		ctx := context.Background()
-		err := bot.Shutdown(ctx)
+		err := bot.Stop(ctx)
 		assert.NoError(t, err)
 	})
 
@@ -184,7 +184,7 @@ func TestBot_Shutdown(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		ctx := context.Background()
-		err := bot.Shutdown(ctx)
+		err := bot.Stop(ctx)
 		require.Error(t, err)
 		assert.False(t, bot.IsRunning())
 	})
@@ -201,7 +201,7 @@ func TestBot_IsRunning(t *testing.T) {
 	require.NoError(t, bot.Start())
 	assert.True(t, bot.IsRunning())
 
-	_ = bot.Shutdown(context.Background())
+	_ = bot.Stop(context.Background())
 	assert.False(t, bot.IsRunning())
 }
 
@@ -218,7 +218,7 @@ func TestBot_Uptime(t *testing.T) {
 		uptime := bot.Uptime()
 		assert.GreaterOrEqual(t, uptime, 100*time.Millisecond)
 
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 	})
 
 	t.Run("uptime when not started", func(t *testing.T) {
@@ -237,7 +237,7 @@ func TestBot_Uptime(t *testing.T) {
 
 		require.NoError(t, bot.Start())
 		time.Sleep(100 * time.Millisecond)
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 
 		uptime := bot.Uptime()
 		assert.GreaterOrEqual(t, uptime, 100*time.Millisecond)
@@ -278,7 +278,7 @@ func TestBot_State(t *testing.T) {
 	state = bot.State()
 	assert.Equal(t, lifecycle.StateRunning, state)
 
-	_ = bot.Shutdown(context.Background())
+	_ = bot.Stop(context.Background())
 }
 
 // TestBot_ConvenienceMethods tests convenience methods
@@ -345,7 +345,7 @@ func TestOptions(t *testing.T) {
 		newAdapter := newMockAdapter()
 		bot := NewBot(adapter, eng, WithAdapter(newAdapter))
 		// Note: WithAdapter doesn't replace adapter in NewBot
-		// It's used in factory New() function
+		// It's used in factory NewBotWithDefault() function
 		assert.NotNil(t, bot.adapter)
 	})
 
@@ -353,7 +353,7 @@ func TestOptions(t *testing.T) {
 		newEngine := engine.NewEngine()
 		bot := NewBot(adapter, eng, WithEngine(newEngine))
 		// Note: WithEngine doesn't replace engine in NewBot
-		// It's used in factory New() function
+		// It's used in factory NewBotWithDefault() function
 		assert.NotNil(t, bot.engine)
 	})
 }
@@ -387,7 +387,7 @@ func TestHealthChecker(t *testing.T) {
 		assert.Equal(t, "ready", health.Checks["adapter"])
 		assert.Greater(t, health.Uptime, time.Duration(0))
 
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 	})
 }
 
@@ -442,9 +442,9 @@ func TestWebhookAdapter(t *testing.T) {
 
 		time.Sleep(50 * time.Millisecond)
 
-		// Shutdown
+		// Stop
 		shutdownCtx := context.Background()
-		err = adapter.Shutdown(shutdownCtx)
+		err = adapter.Stop(shutdownCtx)
 		assert.NoError(t, err)
 
 		// Verify event received
@@ -476,7 +476,7 @@ func TestNew(t *testing.T) {
 			AppSecret: "test-secret",
 		}
 
-		bot := New(info)
+		bot := NewBotWithDefault(info)
 		require.NotNil(t, bot)
 		assert.NotNil(t, bot.engine)
 		assert.NotNil(t, bot.adapter)
@@ -491,7 +491,7 @@ func TestNew(t *testing.T) {
 		}
 
 		customAdapter := newMockAdapter()
-		bot := New(info, WithAdapter(customAdapter))
+		bot := NewBotWithDefault(info, WithAdapter(customAdapter))
 		require.NotNil(t, bot)
 		assert.NotNil(t, bot.adapter)
 	})
@@ -508,7 +508,7 @@ func BenchmarkBot_Start(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		bot := NewBot(adapter, eng)
 		_ = bot.Start()
-		_ = bot.Shutdown(context.Background())
+		_ = bot.Stop(context.Background())
 	}
 }
 
@@ -518,7 +518,7 @@ func BenchmarkBot_Health(b *testing.B) {
 	eng := engine.NewEngine()
 	bot := NewBot(adapter, eng)
 	_ = bot.Start()
-	defer func() { _ = bot.Shutdown(context.Background()) }()
+	defer func() { _ = bot.Stop(context.Background()) }()
 
 	b.ResetTimer()
 	b.ReportAllocs()

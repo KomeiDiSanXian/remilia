@@ -7,7 +7,7 @@ import (
 )
 
 // OnCommandMatch creates a Rule that matches by the given enhanced command parser.
-// If matched, the parsed result is cached in Context internal state.
+// If matched, the parsed result is cached in Context internal extensionState.
 func OnCommandMatch(parser *command.Parser) Rule {
 	return func(ctx *Context) bool {
 		return ctx.MatchCommand(parser)

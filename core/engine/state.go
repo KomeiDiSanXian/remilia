@@ -277,7 +277,7 @@ func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
 		toDelete[m] = true
 	}
 
-	// Filter s.matchers in place
+	// Filter services.matchers in place
 	newMatchers := s.matchers[:0]
 	for _, m := range s.matchers {
 		if !toDelete[m] {

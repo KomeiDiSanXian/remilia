@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -61,7 +61,7 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 			return b.adapter.Start(ctx, b.handleEvent)
 		},
 		func(ctx context.Context) error {
-			return b.adapter.Shutdown(ctx)
+			return b.adapter.Stop(ctx)
 		},
 	))
 
@@ -121,14 +121,14 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 	}
 
 	// 创建 Context
-	ctx := context2.NewContext(payload, nil)
+	ctx := eventctx.NewContext(payload, nil)
 
 	// 使用 Engine 处理事件
 	b.engine.ProcessEvent(ctx)
 }
 
-// Shutdown 优雅关闭 Bot
-func (b *Bot) Shutdown(ctx context.Context) error {
+// Stop 优雅关闭 Bot
+func (b *Bot) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	if !b.running {
 		b.mu.Unlock()
@@ -143,11 +143,11 @@ func (b *Bot) Shutdown(ctx context.Context) error {
 
 	// 使用生命周期管理器停止所有组件（逆序）
 	if err := b.lifecycle.Stop(ctx); err != nil {
-		logrus.WithError(err).Error("[Bot] Shutdown completed with errors")
+		logrus.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
 	}
 
-	logrus.Info("[Bot] Shutdown complete")
+	logrus.Info("[Bot] Stop complete")
 	return nil
 }
 
@@ -201,21 +201,21 @@ func (b *Bot) State() lifecycle.State {
 }
 
 // OnAny 注册处理所有事件的规则（convenience method）
-func (b *Bot) OnAny(rule ...context2.Rule) *engine.Matcher {
+func (b *Bot) OnAny(rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnAny(rule...)
 }
 
 // OnC2C 注册处理私聊消息的规则（convenience method）
-func (b *Bot) OnC2C(rule ...context2.Rule) *engine.Matcher {
+func (b *Bot) OnC2C(rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnC2C(rule...)
 }
 
 // OnGroupAt 注册处理群@消息的规则（convenience method）
-func (b *Bot) OnGroupAt(rule ...context2.Rule) *engine.Matcher {
+func (b *Bot) OnGroupAt(rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnGroupAt(rule...)
 }
 
 // On 注册自定义规则（convenience method）
-func (b *Bot) On(eventType dto.EventType, rule ...context2.Rule) *engine.Matcher {
+func (b *Bot) On(eventType dto.EventType, rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.On(eventType, rule...)
 }

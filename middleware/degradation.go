@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/sirupsen/logrus"
@@ -79,7 +79,7 @@ type AdaptiveDegradation struct {
 	delayedEvents atomic.Int64
 
 	// 延迟队列（用于延迟策略）
-	delayQueue chan *context2.Context
+	delayQueue chan *eventctx.Context
 
 	// 监控指标
 	lastCPU     atomic.Value // float64
@@ -111,7 +111,7 @@ type DegradationConfig struct {
 
 	// PriorityClassifier 事件优先级分类器
 	// 如果未设置，使用默认分类器
-	PriorityClassifier func(*context2.Context) EventPriority
+	PriorityClassifier func(*eventctx.Context) EventPriority
 
 	// OnLevelChange 降级级别变化回调
 	OnLevelChange func(from, to DegradationLevel)
@@ -156,7 +156,7 @@ func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
 
 	ad := &AdaptiveDegradation{
 		config:     config,
-		delayQueue: make(chan *context2.Context, config.DelayQueueSize),
+		delayQueue: make(chan *eventctx.Context, config.DelayQueueSize),
 	}
 
 	ad.level.Store(LevelNormal)
@@ -277,9 +277,9 @@ func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
 }
 
 // Middleware 返回降级中间件
-func (ad *AdaptiveDegradation) Middleware() context2.Middleware {
-	return func(next context2.Handler) context2.Handler {
-		return func(ctx *context2.Context) error {
+func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			ad.totalEvents.Add(1)
 
 			currentLevel := ad.GetLevel()
@@ -340,7 +340,7 @@ func (ad *AdaptiveDegradation) shouldDrop(level DegradationLevel, priority Event
 }
 
 // defaultPriorityClassifier 默认优先级分类器
-func defaultPriorityClassifier(ctx *context2.Context) EventPriority {
+func defaultPriorityClassifier(ctx *eventctx.Context) EventPriority {
 	eventType := ctx.GetEventType()
 
 	// 根据事件类型分类

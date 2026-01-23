@@ -191,7 +191,7 @@ func TestDeadLetterQueue_DropPolicy_DropOldest(t *testing.T) {
 	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    3,
 		Workers:    1,
-		DropPolicy: DropOldest,
+		DropPolicy: DropPolicyOldest,
 		OnDropped: func(item DeadLetterItem, reason string) {
 			mu.Lock()
 			droppedItems = append(droppedItems, string(item.Event.ID))
@@ -231,7 +231,7 @@ func TestDeadLetterQueue_DropPolicy_DropNewest(t *testing.T) {
 	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    3,
 		Workers:    1,
-		DropPolicy: DropNewest,
+		DropPolicy: DropPolicyNewest,
 		OnDropped: func(item DeadLetterItem, reason string) {
 			mu.Lock()
 			droppedItems = append(droppedItems, string(item.Event.ID))
@@ -267,7 +267,7 @@ func TestDeadLetterQueue_DropPolicy_BlockUntilSpace(t *testing.T) {
 	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    2,
 		Workers:    1,
-		DropPolicy: BlockUntilSpace,
+		DropPolicy: DropPolicyBlockUntilSpace,
 	})
 
 	consumer := &mockConsumer{}
@@ -415,7 +415,7 @@ func TestDeadLetterQueue_Stats(t *testing.T) {
 	dlq := NewDeadLetterQueue(DeadLetterQueueConfig{
 		MaxSize:    50,
 		Workers:    3,
-		DropPolicy: DropOldest,
+		DropPolicy: DropPolicyOldest,
 	})
 
 	consumer := &mockConsumer{}
@@ -430,7 +430,7 @@ func TestDeadLetterQueue_Stats(t *testing.T) {
 	assert.Equal(t, 3, stats.Workers)
 	assert.Equal(t, 1, stats.Consumers)
 	assert.False(t, stats.IsClosed)
-	assert.Equal(t, DropOldest, stats.DropPolicy)
+	assert.Equal(t, DropPolicyOldest, stats.DropPolicy)
 }
 
 // TestDeadLetterQueue_ShutdownTimeout 测试关闭超时

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -197,7 +197,7 @@ func TestRetryAdvanced(t *testing.T) {
 			BackoffMax:  200 * time.Millisecond,
 		})
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempts++
 			return errors.New("retry")
 		})
@@ -241,7 +241,7 @@ func TestRetryAdvanced(t *testing.T) {
 			},
 		})
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempts++
 			return permanentErr
 		})
@@ -260,7 +260,7 @@ func TestRetryAdvanced(t *testing.T) {
 			BackoffBase: 10 * time.Millisecond,
 		})
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempt, _ := ctx.GetRetryAttempt()
 			lastAttempt = attempt
 			return errors.New("retry")
@@ -412,7 +412,7 @@ func TestMetricsAdvanced(t *testing.T) {
 
 func TestAuthAdvanced(t *testing.T) {
 	t.Run("complex authorization logic", func(t *testing.T) {
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			// Simulate checking user roles
 			return ctx.GetEvent() != nil
 		})
@@ -424,7 +424,7 @@ func TestAuthAdvanced(t *testing.T) {
 	})
 
 	t.Run("returns error on unauthorized", func(t *testing.T) {
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			return false
 		})
 
@@ -444,8 +444,8 @@ func TestMiddlewareChainingAdvanced(t *testing.T) {
 	t.Run("multiple middlewares in order", func(t *testing.T) {
 		var order []string
 
-		mw1 := func(next context2.Handler) context2.Handler {
-			return func(ctx *context2.Context) error {
+		mw1 := func(next eventctx.Handler) eventctx.Handler {
+			return func(ctx *eventctx.Context) error {
 				order = append(order, "mw1-before")
 				err := next(ctx)
 				order = append(order, "mw1-after")
@@ -453,8 +453,8 @@ func TestMiddlewareChainingAdvanced(t *testing.T) {
 			}
 		}
 
-		mw2 := func(next context2.Handler) context2.Handler {
-			return func(ctx *context2.Context) error {
+		mw2 := func(next eventctx.Handler) eventctx.Handler {
+			return func(ctx *eventctx.Context) error {
 				order = append(order, "mw2-before")
 				err := next(ctx)
 				order = append(order, "mw2-after")
@@ -462,7 +462,7 @@ func TestMiddlewareChainingAdvanced(t *testing.T) {
 			}
 		}
 
-		handler := mw1(mw2(func(ctx *context2.Context) error {
+		handler := mw1(mw2(func(ctx *eventctx.Context) error {
 			order = append(order, "handler")
 			return nil
 		}))

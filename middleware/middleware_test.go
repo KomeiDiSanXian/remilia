@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // mockHandler creates a mock handler for testing
-func mockHandler(err error, delay time.Duration) context2.Handler {
-	return func(ctx *context2.Context) error {
+func mockHandler(err error, delay time.Duration) eventctx.Handler {
+	return func(ctx *eventctx.Context) error {
 		if delay > 0 {
 			time.Sleep(delay)
 		}
@@ -22,19 +22,19 @@ func mockHandler(err error, delay time.Duration) context2.Handler {
 }
 
 // mockPanicHandler creates a handler that panics
-func mockPanicHandler(panicValue interface{}) context2.Handler {
-	return func(ctx *context2.Context) error {
+func mockPanicHandler(panicValue interface{}) eventctx.Handler {
+	return func(ctx *eventctx.Context) error {
 		panic(panicValue)
 	}
 }
 
 // createTestContext creates a test context
-func createTestContext() *context2.Context {
+func createTestContext() *eventctx.Context {
 	event := &dto.Payload{
 		ID:   "test-event",
 		Type: "TEST_EVENT",
 	}
-	return context2.NewContext(event, nil)
+	return eventctx.NewContext(event, nil)
 }
 
 // TestLogging tests the Logging middleware
@@ -100,7 +100,7 @@ func TestRecover(t *testing.T) {
 // TestAuth tests the Auth middleware
 func TestAuth(t *testing.T) {
 	t.Run("authorized", func(t *testing.T) {
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			return true
 		})
 		handler := mw(mockHandler(nil, 0))
@@ -112,7 +112,7 @@ func TestAuth(t *testing.T) {
 	})
 
 	t.Run("unauthorized", func(t *testing.T) {
-		mw := Auth(func(ctx *context2.Context) bool {
+		mw := Auth(func(ctx *eventctx.Context) bool {
 			return false
 		})
 		handler := mw(mockHandler(nil, 0))
@@ -313,7 +313,7 @@ func TestRetry(t *testing.T) {
 			BackoffBase: 10 * time.Millisecond,
 		})
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempts++
 			if attempts < 3 {
 				return errors.New("temporary error")
@@ -354,7 +354,7 @@ func TestRetry(t *testing.T) {
 			},
 		})
 
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			attempts++
 			return specialErr
 		})
@@ -500,7 +500,7 @@ func TestMiddlewareChaining(t *testing.T) {
 	t.Run("chain multiple middlewares", func(t *testing.T) {
 		executed := false
 
-		finalHandler := func(ctx *context2.Context) error {
+		finalHandler := func(ctx *eventctx.Context) error {
 			executed = true
 			return nil
 		}

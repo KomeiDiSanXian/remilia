@@ -8,9 +8,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 )
 
-// New 创建一个带默认配置的 Bot 实例
+// NewBotWithDefault 创建一个带默认配置的 Bot 实例
 // 如果提供了 opts 中包含 adapter，则使用自定义 adapter，否则创建默认 webhook adapter
-func New(info *dto.BotInfo, opts ...Option) *Bot {
+func NewBotWithDefault(info *dto.BotInfo, opts ...Option) *Bot {
 	// 创建默认 newEngine
 	newEngine := engine.NewEngine()
 
@@ -32,7 +32,7 @@ func New(info *dto.BotInfo, opts ...Option) *Bot {
 	// 如果没有提供 adapter，创建默认的 webhook adapter
 	if bot.adapter == nil {
 		ctx := context.Background()
-		wh := webhook.New(ctx, info)
+		wh := webhook.NewWebhook(ctx, info)
 		bot.adapter = NewWebhookAdapter(wh)
 	}
 

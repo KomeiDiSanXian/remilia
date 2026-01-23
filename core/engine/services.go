@@ -13,7 +13,7 @@ import (
 // - matcher slice pool
 // - metrics collector holder
 //
-// The goal is to keep Engine's core routing/matching state separate from
+// The goal is to keep Engine'services core routing/matching state separate from
 // runtime/infra concerns while keeping the external Engine API stable.
 //
 // NOTE: this struct is internal and may change at any time.

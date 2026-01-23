@@ -7,7 +7,7 @@
 ## 📦 安装
 
 ```go
-import "github.com/KomeiDiSanXian/remilia/errors"
+import "github.com/KomeiDiSanXian/remilia/errutil"
 ```
 
 ## 🎯 核心功能
@@ -72,12 +72,12 @@ if errors.IsErrorType(err, errors.ErrContextReleased) {
     // 处理上下文已释放错误
 }
 
-// 使用 errors.Is (标准库)
+// 使用 errutil.Is (标准库)
 if errors.Is(err, errors.ErrEngineShutdown) {
     // 引擎已关闭
 }
 
-// 使用 errors.As (标准库)
+// 使用 errutil.As (标准库)
 var wrapper *errors.ErrorWrapper
 if errors.As(err, &wrapper) {
     log.Printf("Context: %s", wrapper.Context)
@@ -134,7 +134,7 @@ err := errors.NewValidationError("email", "invalid format")
 
 // 配置错误
 err := errors.NewConfigError("port", "must be between 1-65535")
-// 可以用 errors.Is 检查 ErrConfigInvalid
+// 可以用 errutil.Is 检查 ErrConfigInvalid
 
 // 插件错误
 err := errors.NewPluginError("auth-plugin", "failed to initialize")
@@ -247,7 +247,7 @@ if remilia.IsErrorType(err, remilia.ErrConfigInvalid) {
 **推荐迁移到新 API：**
 
 ```go
-import "github.com/KomeiDiSanXian/remilia/errors"
+import "github.com/KomeiDiSanXian/remilia/errutil"
 
 // 新 API（推荐）
 err := errors.WrapErrorf(baseErr, "operation failed")

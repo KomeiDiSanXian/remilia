@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	context2 "github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +25,7 @@ func TestDedupExtra(t *testing.T) {
 		mw := Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 		event1 := &dto.Payload{ID: "e1", Type: "TEST"}
-		err1 := handler(context2.NewContext(event1, nil))
+		err1 := handler(eventctx.NewContext(event1, nil))
 		assert.NoError(t, err1)
 		stats := filter.GetStats()
 		assert.NotNil(t, stats)
@@ -38,14 +38,14 @@ func TestDedupExtra(t *testing.T) {
 		mw := Dedup(filter)
 
 		callCount := 0
-		handler := mw(func(ctx *context2.Context) error {
+		handler := mw(func(ctx *eventctx.Context) error {
 			callCount++
 			return nil
 		})
 
 		event := &dto.Payload{ID: "same", Type: "TEST"}
-		handler(context2.NewContext(event, nil))
-		handler(context2.NewContext(event, nil))
+		handler(eventctx.NewContext(event, nil))
+		handler(eventctx.NewContext(event, nil))
 
 		// Should only execute once
 		assert.Equal(t, 1, callCount)
@@ -58,7 +58,7 @@ func TestDedupExtra(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		event := &dto.Payload{ID: "", Type: "TEST"}
-		err := handler(context2.NewContext(event, nil))
+		err := handler(eventctx.NewContext(event, nil))
 		assert.NoError(t, err)
 	})
 
@@ -68,7 +68,7 @@ func TestDedupExtra(t *testing.T) {
 		mw := Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
-		ctx := context2.NewContext(nil, nil)
+		ctx := eventctx.NewContext(nil, nil)
 		err := handler(ctx)
 		assert.NoError(t, err)
 	})
@@ -86,7 +86,7 @@ func TestDedupExtra(t *testing.T) {
 		// Fill cache
 		for i := 0; i < 3; i++ {
 			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
-			handler(context2.NewContext(event, nil))
+			handler(eventctx.NewContext(event, nil))
 		}
 
 		stats := filter.GetStats()
@@ -102,13 +102,13 @@ func TestDedupRejectExtra(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 		event := &dto.Payload{ID: "dup", Type: "TEST"}
 
-		err1 := handler(context2.NewContext(event, nil))
+		err1 := handler(eventctx.NewContext(event, nil))
 		assert.NoError(t, err1)
 
 		// Small delay to ensure first event is processed
 		time.Sleep(10 * time.Millisecond)
 
-		err2 := handler(context2.NewContext(event, nil))
+		err2 := handler(eventctx.NewContext(event, nil))
 		if err2 == nil {
 			// In some implementations, duplicate might just be skipped without error
 			t.Log("Duplicate was handled without error (implementation detail)")
@@ -129,12 +129,12 @@ func TestDedupRejectExtra(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		event := &dto.Payload{ID: "ttl", Type: "TEST"}
-		err1 := handler(context2.NewContext(event, nil))
+		err1 := handler(eventctx.NewContext(event, nil))
 		assert.NoError(t, err1)
 
 		time.Sleep(100 * time.Millisecond)
 
-		err2 := handler(context2.NewContext(event, nil))
+		err2 := handler(eventctx.NewContext(event, nil))
 		assert.NoError(t, err2)
 	})
 }
@@ -182,8 +182,8 @@ func TestRetryDeadLetterExtra(t *testing.T) {
 func TestErrorHandlerExtra(t *testing.T) {
 	t.Run("captures error", func(t *testing.T) {
 		var captured error
-		var capturedCtx *context2.Context
-		mw := ErrorHandler(func(ctx *context2.Context, err error) {
+		var capturedCtx *eventctx.Context
+		mw := ErrorHandler(func(ctx *eventctx.Context, err error) {
 			captured = err
 			capturedCtx = ctx
 		})
@@ -196,7 +196,7 @@ func TestErrorHandlerExtra(t *testing.T) {
 
 	t.Run("no call on success", func(t *testing.T) {
 		called := false
-		mw := ErrorHandler(func(ctx *context2.Context, err error) {
+		mw := ErrorHandler(func(ctx *eventctx.Context, err error) {
 			called = true
 		})
 		handler := mw(mockHandler(nil, 0))
@@ -222,7 +222,7 @@ func TestRequestIDExtra(t *testing.T) {
 
 func TestRateLimitExtra(t *testing.T) {
 	t.Run("blocks after limit", func(t *testing.T) {
-		mw := RateLimitTokenBucket(1, 1, func(ctx *context2.Context) string { return "test" })
+		mw := RateLimitTokenBucket(1, 1, func(ctx *eventctx.Context) string { return "test" })
 		handler := mw(mockHandler(nil, 0))
 		err1 := handler(createTestContext())
 		assert.NoError(t, err1)
@@ -232,7 +232,7 @@ func TestRateLimitExtra(t *testing.T) {
 	})
 
 	t.Run("different keys separate limits", func(t *testing.T) {
-		mw := RateLimitTokenBucket(1, 1, func(ctx *context2.Context) string {
+		mw := RateLimitTokenBucket(1, 1, func(ctx *eventctx.Context) string {
 			return string(ctx.GetEvent().ID)
 		})
 		handler := mw(mockHandler(nil, 0))
@@ -240,15 +240,15 @@ func TestRateLimitExtra(t *testing.T) {
 		event1 := &dto.Payload{ID: "k1", Type: "TEST"}
 		event2 := &dto.Payload{ID: "k2", Type: "TEST"}
 
-		err1 := handler(context2.NewContext(event1, nil))
-		err2 := handler(context2.NewContext(event2, nil))
+		err1 := handler(eventctx.NewContext(event1, nil))
+		err2 := handler(eventctx.NewContext(event2, nil))
 
 		assert.NoError(t, err1)
 		assert.NoError(t, err2)
 	})
 
 	t.Run("refills over time", func(t *testing.T) {
-		mw := RateLimitTokenBucket(2, 2, func(ctx *context2.Context) string { return "refill" })
+		mw := RateLimitTokenBucket(2, 2, func(ctx *eventctx.Context) string { return "refill" })
 		handler := mw(mockHandler(nil, 0))
 
 		// Use up tokens
@@ -272,7 +272,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 		var loggedDuration time.Duration
 		mw := SlowHandler(SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
-			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
 				loggedDuration = duration
 			},
@@ -287,7 +287,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 		logged := false
 		mw := SlowHandler(SlowHandlerConfig{
 			Threshold: 100 * time.Millisecond,
-			Logger: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
 			},
 		})
@@ -300,7 +300,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 		called := false
 		mw := SlowHandler(SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
-			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *context2.Context) {
+			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				called = true
 			},
 		})
@@ -380,7 +380,7 @@ func TestConcurrentDedup(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if handler(context2.NewContext(event, nil)) == nil {
+			if handler(eventctx.NewContext(event, nil)) == nil {
 				atomic.AddInt32(&processed, 1)
 			}
 		}()
@@ -393,7 +393,7 @@ func TestConcurrentDedup(t *testing.T) {
 }
 
 func TestConcurrentRateLimit(t *testing.T) {
-	mw := RateLimitTokenBucket(5, 5, func(ctx *context2.Context) string { return "concurrent" })
+	mw := RateLimitTokenBucket(5, 5, func(ctx *eventctx.Context) string { return "concurrent" })
 	handler := mw(mockHandler(nil, 0))
 
 	var wg sync.WaitGroup
@@ -427,7 +427,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 			BackoffBase: 10 * time.Millisecond,
 		})
 
-		handler := mw(func(c *context2.Context) error {
+		handler := mw(func(c *eventctx.Context) error {
 			attempts++
 			return errors.New("retry error")
 		})
@@ -451,7 +451,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 		// Add events
 		for i := 0; i < 5; i++ {
 			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
-			handler(context2.NewContext(event, nil))
+			handler(eventctx.NewContext(event, nil))
 		}
 
 		stats := filter.GetStats()
@@ -461,7 +461,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 	})
 
 	t.Run("rate limit with burst", func(t *testing.T) {
-		mw := RateLimitTokenBucket(1, 3, func(ctx *context2.Context) string { return "burst" })
+		mw := RateLimitTokenBucket(1, 3, func(ctx *eventctx.Context) string { return "burst" })
 		handler := mw(mockHandler(nil, 0))
 
 		// Should allow burst
@@ -495,12 +495,12 @@ func BenchmarkDedupMiddleware(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		event := &dto.Payload{ID: dto.EventID(rune(i % 100)), Type: "TEST"}
-		handler(context2.NewContext(event, nil))
+		handler(eventctx.NewContext(event, nil))
 	}
 }
 
 func BenchmarkRateLimitMiddleware(b *testing.B) {
-	mw := RateLimitTokenBucket(1000, 1000, func(ctx *context2.Context) string { return "bench" })
+	mw := RateLimitTokenBucket(1000, 1000, func(ctx *eventctx.Context) string { return "bench" })
 	handler := mw(mockHandler(nil, 0))
 	ctx := createTestContext()
 

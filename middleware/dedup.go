@@ -70,11 +70,11 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 	return filter
 }
 
-// IsDuplicate 检查事件是否重复
+// CheckDuplicate 检查事件是否重复
 //
 // 返回 true 表示事件已经存在（重复），false 表示首次出现。
 // 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
-func (d *DedupFilter) IsDuplicate(eventID string) (bool, error) {
+func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	now := time.Now().Unix()
 
 	d.mu.RLock()
@@ -219,7 +219,7 @@ func Dedup(filter *DedupFilter) context.Middleware {
 				return next(ctx)
 			}
 
-			isDup, err := filter.IsDuplicate(eventID)
+			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
 				// 缓存满了，记录警告但继续处理
 				logrus.WithError(err).WithField("event_id", eventID).
@@ -257,7 +257,7 @@ func DedupWithReject(filter *DedupFilter) context.Middleware {
 				return next(ctx)
 			}
 
-			isDup, err := filter.IsDuplicate(eventID)
+			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
 				// 缓存满了，返回错误
 				logrus.WithError(err).WithField("event_id", eventID).

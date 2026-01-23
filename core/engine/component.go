@@ -2,10 +2,10 @@ package engine
 
 import "context"
 
-// engineComponent represents an internal Engine runtime component.
+// runtimeComponent represents an internal Engine runtime component.
 //
 // It is deliberately unexported to avoid expanding the public API surface.
-// The goal is to keep Engine's core responsibilities (routing/matching) separate
+// The goal is to keep Engine'services core responsibilities (routing/matching) separate
 // from optional runtime background workloads (cleaners, async processors, etc.).
 //
 // Contract:
@@ -14,7 +14,7 @@ import "context"
 //   - wait(ctx) must wait until the component is fully stopped or ctx is done.
 //
 // NOTE: components are engine-internal; callers should use Engine.Shutdown(ctx).
-type engineComponent interface {
+type runtimeComponent interface {
 	stop()
 	wait(ctx context.Context) error
 }

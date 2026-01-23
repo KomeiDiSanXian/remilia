@@ -69,7 +69,7 @@ func (m *Matcher) GetCommand() string {
 	return m.command
 }
 
-// GetSource 获取匹配器的来源标识（实现 context.MatcherInterface）
+// GetSource 获取匹配器的来源标识（实现 context.Matcher）
 func (m *Matcher) GetSource() string {
 	if m == nil {
 		return ""

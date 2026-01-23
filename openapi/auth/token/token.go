@@ -7,7 +7,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 
-	"github.com/KomeiDiSanXian/remilia/httpreq"
+	"github.com/KomeiDiSanXian/remilia/httpcilent"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -86,5 +86,5 @@ func requestToken(info *dto.BotInfo) (gjson.Result, error) {
 		"appId":        strconv.FormatUint(info.AppID, 10),
 		"clientSecret": info.AppSecret,
 	}
-	return httpreq.NewPost(constant.AccessTokenURL).SetJSONBody(bodyMap).DoJSON()
+	return httpcilent.NewPost(constant.AccessTokenURL).SetJSONBody(bodyMap).DoJSON()
 }

@@ -482,7 +482,7 @@ func TestEngine_RemoveGroup_LogMessage(t *testing.T) {
 }
 
 // ============================================================================
-// Shutdown Coverage
+// Stop Coverage
 // ============================================================================
 
 func TestEngine_Shutdown_WaitForEvents(t *testing.T) {
@@ -503,7 +503,7 @@ func TestEngine_Shutdown_WaitForEvents(t *testing.T) {
 	// Give it a moment to start
 	time.Sleep(10 * time.Millisecond)
 
-	// Shutdown should wait
+	// Stop should wait
 	err := eng.Shutdown(stdctx.Background())
 	assert.NoError(t, err)
 }
@@ -560,7 +560,7 @@ func TestSortMatchersByPriority_StableSort(t *testing.T) {
 func TestEngine_Components_Stop(t *testing.T) {
 	eng := NewEngine(WithCleanupInterval(10 * time.Second))
 
-	// Shutdown should stop all components
+	// Stop should stop all components
 	err := eng.Shutdown(stdctx.Background())
 	assert.NoError(t, err)
 }

@@ -15,10 +15,10 @@ import (
 // dummy webhook impl for Verify/Sign used by Conn methods if needed
 
 func TestNewWebhook_NoBigCacheFatal(t *testing.T) {
-	// We cannot easily trigger bigcache failure here, but New should succeed and allow basic methods
+	// We cannot easily trigger bigcache failure here, but NewWebhook should succeed and allow basic methods
 	ctx := context.Background()
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	wh := New(ctx, info)
+	wh := NewWebhook(ctx, info)
 	assert.NotNil(t, wh)
 	assert.Equal(t, ":0", wh.Addr())
 }
@@ -26,7 +26,7 @@ func TestNewWebhook_NoBigCacheFatal(t *testing.T) {
 func TestHandle_InvalidBody(t *testing.T) {
 	ctx := context.Background()
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	c := New(ctx, info)
+	c := NewWebhook(ctx, info)
 	adapter := &testWebHook{Conn: c}
 
 	var body []byte // empty body will cause JSON unmarshal error
@@ -47,7 +47,7 @@ func TestHandle_InvalidBody(t *testing.T) {
 func TestHandleDispatch_NoCache_Dispatches(t *testing.T) {
 	ctx := context.Background()
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	c := New(ctx, info)
+	c := NewWebhook(ctx, info)
 	c.bigCache = nil // force nil cache
 	p := &dto.Payload{Type: dto.C2CMessageCreate, ID: "x", Raw: []byte("{}")}
 	// read from channel non-blocking

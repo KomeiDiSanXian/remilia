@@ -83,7 +83,7 @@ func TestContext_Clone(t *testing.T) {
 		assert.Equal(t, ctx.event, cloned.event)
 		assert.Equal(t, ctx.api, cloned.api)
 
-		// Verify state is copied
+		// Verify extensionState is copied
 		val, ok := cloned.Get("key1")
 		assert.True(t, ok)
 		assert.Equal(t, "value1", val)
@@ -94,7 +94,7 @@ func TestContext_Clone(t *testing.T) {
 		assert.Equal(t, 3, attempt)
 	})
 
-	t.Run("cloned state is independent", func(t *testing.T) {
+	t.Run("cloned extensionState is independent", func(t *testing.T) {
 		ctx := NewContext(&dto.Payload{}, nil)
 		ctx.Set("key1", "original")
 
@@ -111,7 +111,7 @@ func TestContext_Clone(t *testing.T) {
 	})
 }
 
-// TestContext_SetGet tests Set/Get user state
+// TestContext_SetGet tests Set/Get user extensionState
 func TestContext_SetGet(t *testing.T) {
 	t.Run("basic set and get", func(t *testing.T) {
 		ctx := NewContext(&dto.Payload{}, nil)
@@ -173,7 +173,7 @@ func TestContext_SetGet(t *testing.T) {
 	})
 }
 
-// TestContext_Delete tests deleting user state
+// TestContext_Delete tests deleting user extensionState
 func TestContext_Delete(t *testing.T) {
 	t.Run("delete existing key", func(t *testing.T) {
 		ctx := NewContext(&dto.Payload{}, nil)
@@ -773,10 +773,10 @@ func TestExtensions_GetOrInit(t *testing.T) {
 
 // BUG DISCOVERY TESTS - Edge cases and potential bugs
 
-// TestBug_CloneWithNilState tests clone with uninitialized state
+// TestBug_CloneWithNilState tests clone with uninitialized extensionState
 func TestBug_CloneWithNilState(t *testing.T) {
 	ctx := NewContext(&dto.Payload{}, nil)
-	// Don't initialize state
+	// Don't initialize extensionState
 
 	cloned := ctx.Clone()
 

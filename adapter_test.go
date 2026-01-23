@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockWebHook 实现 WebHook 接口用于测试
+// mockWebHook 实现 Webhook 接口用于测试
 type mockWebHook struct {
 	ch chan *dto.Payload
 }
@@ -60,8 +60,8 @@ func TestWebhookAdapter_NormalOperation(t *testing.T) {
 	mu.Unlock()
 
 	// 关闭 adapter
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error")
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error")
 }
 
 // TestWebhookAdapter_NilChannel 测试 nil channel 的情况
@@ -106,9 +106,9 @@ func TestWebhookAdapter_ChannelClosed(t *testing.T) {
 	// 验证事件被处理
 	assert.Equal(t, int32(1), handlerCalled.Load(), "Handler should be called once")
 
-	// Shutdown 应该正常工作
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error")
+	// Stop 应该正常工作
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error")
 }
 
 // TestWebhookAdapter_ContextCancellation 测试 context 取消的情况
@@ -174,9 +174,9 @@ func TestWebhookAdapter_HandlerPanic(t *testing.T) {
 	assert.Equal(t, int32(1), panicCount.Load(), "Panic handler should be called once")
 	assert.Equal(t, int32(1), normalCount.Load(), "Normal handler should be called once")
 
-	// Shutdown
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error")
+	// Stop
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error")
 }
 
 // TestWebhookAdapter_NilEventIgnored 测试 nil 事件被忽略
@@ -208,12 +208,12 @@ func TestWebhookAdapter_NilEventIgnored(t *testing.T) {
 	// 验证只有正常事件被处理
 	assert.Equal(t, int32(1), handlerCalled.Load(), "Only non-nil event should be processed")
 
-	// Shutdown
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error")
+	// Stop
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error")
 }
 
-// TestWebhookAdapter_MultipleShutdown 测试多次调用 Shutdown
+// TestWebhookAdapter_MultipleShutdown 测试多次调用 Stop
 func TestWebhookAdapter_MultipleShutdown(t *testing.T) {
 	eventCh := make(chan *dto.Payload, 10)
 	wh := &mockWebHook{ch: eventCh}
@@ -225,12 +225,12 @@ func TestWebhookAdapter_MultipleShutdown(t *testing.T) {
 	err := adapter.Start(ctx, handler)
 	require.NoError(t, err, "Start should not return error")
 
-	// 第一次 Shutdown
-	err = adapter.Shutdown(context.Background())
+	// 第一次 Stop
+	err = adapter.Stop(context.Background())
 	assert.NoError(t, err, "First shutdown should not return error")
 
-	// 第二次 Shutdown（应该是幂等的）
-	err = adapter.Shutdown(context.Background())
+	// 第二次 Stop（应该是幂等的）
+	err = adapter.Stop(context.Background())
 	assert.NoError(t, err, "Second shutdown should not return error")
 }
 
@@ -276,9 +276,9 @@ func TestWebhookAdapter_ConcurrentEvents(t *testing.T) {
 	assert.Equal(t, eventCount, len(received), "All unique events should be received")
 	mu.Unlock()
 
-	// Shutdown
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error")
+	// Stop
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error")
 }
 
 // TestWebhookAdapter_ShutdownWithPendingEvents 测试有待处理事件时的关闭
@@ -308,8 +308,8 @@ func TestWebhookAdapter_ShutdownWithPendingEvents(t *testing.T) {
 	}
 
 	// 立即关闭（可能有事件还在处理）
-	err = adapter.Shutdown(context.Background())
-	assert.NoError(t, err, "Shutdown should not return error even with pending events")
+	err = adapter.Stop(context.Background())
+	assert.NoError(t, err, "Stop should not return error even with pending events")
 
 	// 记录已处理的事件数
 	processed := handlerCalled.Load()
