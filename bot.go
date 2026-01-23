@@ -24,12 +24,13 @@ const (
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
-	engine    *engine.Engine
-	adapter   Adapter
-	lifecycle *lifecycle.Manager
-	health    *HealthChecker
-	config    *Config
-	openAPI   openapi.OpenAPI // OpenAPI client for sending messages
+	engine       *engine.Engine
+	adapter      Adapter
+	lifecycle    *lifecycle.Manager
+	health       *HealthChecker
+	config       *Config
+	openAPI      openapi.OpenAPI // OpenAPI client for sending messages
+	tokenManager *token.Manager  // Token manager for lifecycle management
 
 	mu        sync.RWMutex
 	running   bool
@@ -98,6 +99,7 @@ func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo
 	// 初始化 OpenAPI client
 	if botInfo != nil {
 		tokenManager := token.NewManager(botInfo)
+		b.tokenManager = tokenManager // 保存引用用于生命周期管理
 		b.openAPI = openapi.New(tokenManager)
 		logrus.Info("[Bot] OpenAPI client initialized")
 	} else {
@@ -173,7 +175,15 @@ func (b *Bot) Stop(ctx context.Context) error {
 	done := make(chan error, 1)
 	go func() {
 		// 使用生命周期管理器停止所有组件（逆序）
-		done <- b.lifecycle.Stop(ctx)
+		err := b.lifecycle.Stop(ctx)
+
+		// 停止 token manager（如果存在）
+		if b.tokenManager != nil {
+			logrus.Debug("[Bot] Stopping token manager...")
+			b.tokenManager.Stop()
+		}
+
+		done <- err
 	}()
 
 	// 等待关闭完成或超时

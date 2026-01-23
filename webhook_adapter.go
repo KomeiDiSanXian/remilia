@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -13,15 +14,17 @@ import (
 
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器
 type WebhookServerAdapter struct {
-	addr    string
-	botInfo *dto.BotInfo
-	webhook *webhook.Conn
-	server  *http.Server
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	mu      sync.RWMutex
-	running bool
+	addr       string
+	botInfo    *dto.BotInfo
+	webhook    *webhook.Conn
+	server     *http.Server
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	mu         sync.RWMutex
+	running    bool
+	workers    int // 并发事件处理的 worker 数量，默认为 1
+	bufferSize int // webhook event channel 的 buffer 大小
 }
 
 // NewWebhookServerAdapter 创建一个内置 HTTP 服务器的 Webhook 适配器
@@ -39,6 +42,7 @@ func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAd
 	return &WebhookServerAdapter{
 		addr:    addr,
 		botInfo: botInfo,
+		workers: runtime.NumCPU(), // 使用 CPU 核心数作为默认 worker 数量
 	}
 }
 
@@ -62,12 +66,18 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	// 创建 context
 	a.ctx, a.cancel = context.WithCancel(ctx)
 
-	// 创建 webhook 连接
-	a.webhook = webhook.NewWebhook(a.ctx, a.botInfo)
+	// 创建 webhook 连接，使用配置的 buffer 大小
+	bufferSize := a.bufferSize
+	if bufferSize <= 0 {
+		bufferSize = 100 // 默认值
+	}
+	a.webhook = webhook.NewWithBuffer(a.ctx, a.botInfo, bufferSize)
 	if a.webhook == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("failed to create webhook connection")
 	}
+
+	logrus.Infof("[WebhookServerAdapter] Webhook buffer size: %d", bufferSize)
 
 	// 创建 HTTP 服务器
 	mux := http.NewServeMux()
@@ -94,29 +104,36 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	}()
 
 	// 启动事件循环（从 webhook 读取事件并转发给 handler）
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		logrus.Debug("[WebhookServerAdapter] Event loop started")
+	// 使用多个 worker goroutine 并发处理事件，提升吞吐量
+	eventStream := a.webhook.EventStream()
 
-		eventStream := a.webhook.EventStream()
-		for {
-			select {
-			case <-a.ctx.Done():
-				logrus.Debug("[WebhookServerAdapter] Context done, stopping event loop")
-				return
-			case event, ok := <-eventStream:
-				if !ok {
-					logrus.Warn("[WebhookServerAdapter] Event stream closed")
+	logrus.Infof("[WebhookServerAdapter] Starting %d event workers", a.workers)
+
+	for i := 0; i < a.workers; i++ {
+		a.wg.Add(1)
+		workerID := i
+		go func() {
+			defer a.wg.Done()
+			logrus.Debugf("[WebhookServerAdapter] Event worker #%d started", workerID)
+
+			for {
+				select {
+				case <-a.ctx.Done():
+					logrus.Debugf("[WebhookServerAdapter] Worker #%d stopping", workerID)
 					return
-				}
-				if event != nil {
-					// 安全调用 handler
-					safeHandleEvent(handler, event)
+				case event, ok := <-eventStream:
+					if !ok {
+						logrus.Warnf("[WebhookServerAdapter] Worker #%d: event stream closed", workerID)
+						return
+					}
+					if event != nil {
+						// 安全调用 handler
+						safeHandleEvent(handler, event)
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	logrus.Info("[WebhookServerAdapter] Started successfully")
 	return nil
