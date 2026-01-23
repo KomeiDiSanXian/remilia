@@ -144,6 +144,16 @@ func (w *Watcher) watchLoop() {
 	var debounceTimer *time.Timer
 	var timerMu sync.Mutex
 
+	// 确保退出时清理 timer
+	defer func() {
+		timerMu.Lock()
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		timerMu.Unlock()
+		logrus.Debug("[ConfigWatcher] Watch loop cleanup completed")
+	}()
+
 	for {
 		select {
 		case <-w.ctx.Done():

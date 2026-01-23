@@ -1,6 +1,7 @@
 package token
 
 import (
+	"context"
 	"strconv"
 	"sync"
 	"time"
@@ -22,14 +23,34 @@ type Manager struct {
 	accessToken string
 	expiresAt   time.Time
 	ready       bool
+
+	// 停止控制
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup // 用于等待 goroutine 退出
 }
 
 // NewManager 初始化并启动后台刷新
 func NewManager(info *dto.BotInfo) *Manager {
-	m := &Manager{}
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &Manager{
+		ctx:    ctx,
+		cancel: cancel,
+	}
 	m.cond = sync.NewCond(&m.mu)
+	m.wg.Add(1)
 	go m.autoRefresh(info)
 	return m
+}
+
+// Stop 停止 token 自动刷新
+// 调用此方法后，Manager 将不再刷新 token
+func (m *Manager) Stop() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.wg.Wait() // 等待 goroutine 退出
+	logrus.Info("[Token] Token manager stopped")
 }
 
 // WaitReady 阻塞直到 access token 可用
@@ -49,14 +70,34 @@ func (m *Manager) GetToken() string {
 }
 
 func (m *Manager) autoRefresh(info *dto.BotInfo) {
+	defer m.wg.Done()
+
 	var firstSuccess bool
+	retryDelay := 10 * time.Second
+
 	for {
+		// 检查是否需要停止
+		select {
+		case <-m.ctx.Done():
+			logrus.Info("[Token] Auto refresh stopped")
+			return
+		default:
+		}
+
 		resp, err := requestToken(info)
 		if err != nil {
 			logrus.WithError(err).Warn("[Token] Failed to get access token")
-			time.Sleep(10 * time.Second) // 失败后等待一段时间再重试
-			continue
+
+			// 失败后等待一段时间再重试，并检查停止信号
+			select {
+			case <-m.ctx.Done():
+				logrus.Info("[Token] Auto refresh stopped during retry wait")
+				return
+			case <-time.After(retryDelay):
+				continue
+			}
 		}
+
 		m.mu.Lock()
 		m.accessToken = resp.Get("access_token").Str
 		expiresIn := resp.Get("expires_in").Int()
@@ -66,8 +107,6 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 			m.ready = true
 			firstSuccess = true
 			m.cond.Broadcast()
-		} else {
-			// TODO: 可以在这里添加一个回调函数，通知 token 更新了
 		}
 		m.mu.Unlock()
 		logrus.WithField("access_token", m.accessToken).WithField("expires_in", expiresIn).Debug("[Token] Updated")
@@ -76,7 +115,15 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 		if refreshAfter <= 0 {
 			refreshAfter = time.Duration(expiresIn) * time.Second / 2 // 如果expires_in小于60秒，则在一半时间后刷新
 		}
-		time.Sleep(refreshAfter)
+
+		// 等待刷新时间或停止信号
+		select {
+		case <-m.ctx.Done():
+			logrus.Info("[Token] Auto refresh stopped during refresh wait")
+			return
+		case <-time.After(refreshAfter):
+			// 继续下一次刷新
+		}
 	}
 
 }
