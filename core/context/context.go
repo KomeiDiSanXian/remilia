@@ -101,12 +101,16 @@ func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.O
 // 用于传递给标准库和第三方库的函数（如 database/sql, http.Client, grpc 等）
 func (ctx *Context) Context() stdctx.Context {
 	if ctx == nil {
+		logrus.Error("[Context] CRITICAL: Context receiver is nil, returning Background()")
 		return stdctx.Background()
 	}
 	ctx.ctxMu.RLock()
 	c := ctx.ctx
 	ctx.ctxMu.RUnlock()
+
+	// 正常情况下不应为 nil（NewContext 已初始化）
 	if c == nil {
+		logrus.Warn("[Context] stdctx is unexpectedly nil, returning Background(). This may indicate a bug.")
 		return stdctx.Background()
 	}
 	return c
@@ -116,7 +120,12 @@ func (ctx *Context) Context() stdctx.Context {
 // 用于中间件注入自定义 context（如注入 tracing context、超时控制等）
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	if ctx == nil {
+		logrus.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
 		return
+	}
+	if stdCtx == nil {
+		logrus.Warn("[Context] Attempting to set nil stdctx, using Background() instead")
+		stdCtx = stdctx.Background()
 	}
 	ctx.ctxMu.Lock()
 	ctx.ctx = stdCtx

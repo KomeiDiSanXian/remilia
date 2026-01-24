@@ -22,6 +22,12 @@ type Definition struct {
 
 	Validator func(*Parsed) error
 	Handler   Handler
+
+	// ===== Help 生成相关字段 =====
+	Category    string   // 命令分类（如 "管理"、"实用工具"）
+	Examples    []string // 使用示例
+	Permissions []string // 所需权限
+	Hidden      bool     // 是否在帮助中隐藏
 }
 
 // Handler 是 command 包内使用的最小处理器签名。

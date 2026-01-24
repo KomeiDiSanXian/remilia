@@ -59,12 +59,12 @@ func TestEngine_GetMetricsCollector_Initially(t *testing.T) {
 func TestEngine_UpdateMatcherCommand_Called(t *testing.T) {
 	eng := NewEngine()
 	matcher := eng.OnC2C()
-	matcher.command = "/newcmd"
+	matcher.BindCommand("/newcmd")
 
 	eng.UpdateMatcherCommand(matcher)
 
 	// Should update internal index
-	assert.Equal(t, "/newcmd", matcher.command)
+	assert.Equal(t, "/newcmd", matcher.GetCommand())
 }
 
 func TestEngine_UpdateMatcherIndex_Called(t *testing.T) {

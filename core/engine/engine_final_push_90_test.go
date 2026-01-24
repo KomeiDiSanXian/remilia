@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -57,7 +58,7 @@ func TestStateCopyEdges(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		m := &Matcher{EventType: dto.C2CMessageCreate, priority: uint(i * 10), group: "g1"}
 		if i%3 == 0 {
-			m.command = "/cmd"
+			m.definition = &command.Definition{Name: "cmd"}
 		}
 		state.addMatcher(m)
 	}

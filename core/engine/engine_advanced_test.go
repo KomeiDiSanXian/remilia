@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -210,7 +211,7 @@ func TestEngine_UpdateMatcherCommand(t *testing.T) {
 		eng := NewEngine()
 
 		matcher := eng.OnC2C()
-		matcher.command = "/test"
+		matcher.BindCommand("/test")
 
 		eng.UpdateMatcherCommand(matcher)
 
@@ -321,8 +322,8 @@ func TestEngineState_RebuildIndex(t *testing.T) {
 	t.Run("rebuild with command matchers", func(t *testing.T) {
 		state := newEngineState()
 
-		m1 := &Matcher{EventType: dto.C2CMessageCreate, command: "/test", priority: 10}
-		m2 := &Matcher{EventType: dto.C2CMessageCreate, command: "/help", priority: 20}
+		m1 := &Matcher{EventType: dto.C2CMessageCreate, definition: &command.Definition{Name: "/test"}, priority: 10}
+		m2 := &Matcher{EventType: dto.C2CMessageCreate, definition: &command.Definition{Name: "/help"}, priority: 20}
 
 		state.matchers = []*Matcher{m1, m2}
 
@@ -645,12 +646,12 @@ func TestEngine_TempMatcherCleaner(t *testing.T) {
 func TestMatcher_Copy(t *testing.T) {
 	t.Run("deep copy all fields", func(t *testing.T) {
 		original := &Matcher{
-			EventType: dto.C2CMessageCreate,
-			priority:  50,
-			isBlock:   true,
-			Source:    "original",
-			group:     "test-group",
-			command:   "/test",
+			EventType:  dto.GroupAtMessageCreate,
+			priority:   50,
+			isBlock:    true,
+			Source:     "original",
+			group:      "test-group",
+			definition: &command.Definition{Name: "test"},
 			Rules: []ctx.Rule{
 				func(c *ctx.Context) bool { return true },
 			},
@@ -672,7 +673,7 @@ func TestMatcher_Copy(t *testing.T) {
 		assert.Equal(t, original.isBlock, copied.isBlock)
 		assert.Equal(t, original.Source, copied.Source)
 		assert.Equal(t, original.group, copied.group)
-		assert.Equal(t, original.command, copied.command)
+		assert.Equal(t, original.GetCommand(), copied.GetCommand())
 		assert.Equal(t, len(original.Rules), len(copied.Rules))
 		assert.Equal(t, len(original.middlewares), len(copied.middlewares))
 		assert.Equal(t, atomic.LoadInt32(&original.rt.isTemp), atomic.LoadInt32(&copied.rt.isTemp))

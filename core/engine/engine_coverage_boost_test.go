@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -265,9 +266,9 @@ func TestEngineState_AddMatcher_WithCommand(t *testing.T) {
 	state := newEngineState()
 
 	m1 := &Matcher{
-		EventType: dto.C2CMessageCreate,
-		command:   "/test",
-		priority:  10,
+		EventType:  dto.C2CMessageCreate,
+		definition: &command.Definition{Name: "test"},
+		priority:   10,
 	}
 
 	state.addMatcher(m1)
@@ -295,7 +296,7 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 	state := newEngineState()
 
 	m1 := &Matcher{EventType: dto.C2CMessageCreate, priority: 10}
-	m2 := &Matcher{EventType: dto.C2CMessageCreate, command: "/test", priority: 20}
+	m2 := &Matcher{EventType: dto.C2CMessageCreate, definition: &command.Definition{Name: "test"}, priority: 20}
 	m3 := &Matcher{EventType: dto.GroupAtMessageCreate, group: "plugin1", priority: 5}
 
 	state.matchers = []*Matcher{m1, m2, m3}

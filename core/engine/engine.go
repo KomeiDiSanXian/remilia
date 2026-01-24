@@ -571,10 +571,7 @@ func (e *Engine) UpdateMatcherIndex(_ *Matcher) {
 
 // OnCommand 注册一个命令匹配器（自动开启 O(1) 分发优化）
 //
-// 相当于：
-//
-//	matcher := ... // create matcher with command set
-//	engine.registerMatcher(matcher)
+// 此方法会自动创建一个 command.Definition 并设置到 Matcher 中。
 //
 // 性能优势：
 //   - 自动将匹配器注册到 Hash Map 索引中
@@ -582,22 +579,29 @@ func (e *Engine) UpdateMatcherIndex(_ *Matcher) {
 //
 // 参数：
 //   - eventType: 事件类型
-//   - command: 触发命令 (如 "/ping")
+//   - cmdPattern: 触发命令 (如 "/ping")
 //   - extraRules: 其他附加规则
-func (e *Engine) OnCommand(eventType dto.EventType, command string, extraRules ...context.Rule) *Matcher {
+func (e *Engine) OnCommand(eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *Matcher {
 	// 构造规则列表，首位为 standard OnCommand rule
 	// 这样即使优化失效或降级，也能正确匹配
 	finalRules := make([]context.Rule, 0, len(extraRules)+1)
-	finalRules = append(finalRules, context.OnCommand(command))
+	finalRules = append(finalRules, context.OnCommand(cmdPattern))
 	finalRules = append(finalRules, extraRules...)
 
 	m := &Matcher{
 		EventType:   eventType,
 		Rules:       finalRules,
 		coordinator: e,
-		priority:    50,                         // 默认优先级
-		Source:      "global",                   // 默认来源为全局（非插件）
-		command:     strings.TrimSpace(command), // Set private command field directly
+		priority:    50,       // 默认优先级
+		Source:      "global", // 默认来源为全局（非插件）
+	}
+
+	// 自动创建 Definition（用于 Help 生成和命令索引）
+	cmdName := strings.TrimPrefix(strings.TrimSpace(cmdPattern), "/")
+	if cmdName != "" {
+		m.definition = &command.Definition{
+			Name: cmdName,
+		}
 	}
 
 	return e.registerMatcher(m)
@@ -637,7 +641,167 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 
 	finalRules := append([]context.Rule{parseRule}, rs...)
 	m := e.OnCommand("", trigger, finalRules...)
+	m.SetDefinition(cmd) // 直接设置 Definition
 	m.Handle(context.ExecuteCommandDefinition)
+	return m
+}
+
+// RegisterCommandDef 注册 command.Definition（自动设置元数据）
+//
+// 这是推荐的命令注册方式，集成了命令解析和元数据管理。
+// 它会自动：
+//  1. 创建命令解析规则
+//  2. 转换 Definition 为 MatcherMetadata
+//  3. 设置 Handler（如果 Definition 中有定义）
+//
+// 参数:
+//   - eventType: 事件类型（空字符串表示所有类型）
+//   - def: 命令定义
+//   - extraRules: 额外的匹配规则（可选）
+//
+// 返回:
+//   - 注册的 Matcher
+//
+// 示例:
+//
+//	def := &command.Definition{
+//	    Name:        "search",
+//	    Aliases:     []string{"find", "query"},
+//	    Description: "搜索内容",
+//	    Usage:       "/search <keyword> [--engine google]",
+//	    Category:    "实用工具",
+//	    Examples:    []string{"/search Go语言"},
+//	    Arguments: []*command.Argument{
+//	        {Name: "keyword", Description: "搜索关键词", Required: true, Type: command.ArgTypeString},
+//	    },
+//	    Flags: []*command.Flag{
+//	        {Name: "engine", ShortName: "e", Description: "搜索引擎", Default: "google"},
+//	    },
+//	}
+//	m := engine.RegisterCommandDef(dto.GroupAtMessageCreate, def)
+func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Definition, extraRules ...context.Rule) *Matcher {
+	if def == nil {
+		logrus.Warn("[Engine] RegisterCommandDef: definition is nil")
+		return &Matcher{
+			rt:          matcherRuntime{deleted: true},
+			priority:    999,
+			Source:      "noop",
+			Rules:       []context.Rule{},
+			middlewares: []Middleware{},
+			coordinator: e,
+		}
+	}
+
+	trigger := "/" + def.Name
+
+	// 构造解析规则
+	parseRule := func(ctx *context.Context) bool {
+		content := ctx.GetMessageContent()
+		parsed, err := command.ParseFromDefinition(content, def, "/")
+		if err != nil {
+			logrus.WithError(err).
+				WithField("trigger", trigger).
+				Debug("[Engine] Command parse failed")
+			return false
+		}
+		ctx.SetParsedCommand(parsed)
+		return true
+	}
+
+	// 组合规则
+	finalRules := make([]context.Rule, 0, len(extraRules)+1)
+	finalRules = append(finalRules, parseRule)
+	finalRules = append(finalRules, extraRules...)
+
+	// 注册命令
+	m := e.OnCommand(eventType, trigger, finalRules...)
+
+	// 直接设置 Definition（无需转换）
+	m.SetDefinition(def)
+
+	// 如果 Definition 有 Handler，自动设置
+	if def.Handler != nil {
+		m.Handle(func(ctx *context.Context) error {
+			def.Handler(ctx)
+			return nil
+		})
+	}
+
+	return m
+}
+
+// RegisterCommandDefWithPrefix 带自定义前缀的 RegisterCommandDef
+//
+// 此方法允许使用自定义命令前缀（如 "!" 或 "#"）。
+//
+// 参数:
+//   - eventType: 事件类型
+//   - prefix: 命令前缀（如 "/"、"!"、"#"）
+//   - def: 命令定义
+//   - extraRules: 额外的匹配规则
+//
+// 返回:
+//   - 注册的 Matcher
+//
+// 示例:
+//
+//	// 使用 "!" 作为命令前缀
+//	m := engine.RegisterCommandDefWithPrefix(dto.GroupAtMessageCreate, "!", def)
+func (e *Engine) RegisterCommandDefWithPrefix(
+	eventType dto.EventType,
+	prefix string,
+	def *command.Definition,
+	extraRules ...context.Rule,
+) *Matcher {
+	if def == nil {
+		logrus.Warn("[Engine] RegisterCommandDefWithPrefix: definition is nil")
+		return &Matcher{
+			rt:          matcherRuntime{deleted: true},
+			priority:    999,
+			Source:      "noop",
+			Rules:       []context.Rule{},
+			middlewares: []Middleware{},
+			coordinator: e,
+		}
+	}
+
+	if prefix == "" {
+		prefix = "/"
+	}
+
+	trigger := prefix + def.Name
+
+	// 构造解析规则
+	parseRule := func(ctx *context.Context) bool {
+		content := ctx.GetMessageContent()
+		parsed, err := command.ParseFromDefinition(content, def, prefix)
+		if err != nil {
+			logrus.WithError(err).
+				WithField("trigger", trigger).
+				Debug("[Engine] Command parse failed")
+			return false
+		}
+		ctx.SetParsedCommand(parsed)
+		return true
+	}
+
+	finalRules := make([]context.Rule, 0, len(extraRules)+1)
+	finalRules = append(finalRules, parseRule)
+	finalRules = append(finalRules, extraRules...)
+
+	m := e.OnCommand(eventType, trigger, finalRules...)
+
+	// 直接设置 Definition
+	m.SetDefinition(def)
+
+	// 自动设置 Handler
+	if def.Handler != nil {
+		m.Handle(func(ctx *context.Context) error {
+			def.Handler(ctx)
+			return nil
+		})
+	}
+
 	return m
 }
 
@@ -688,4 +852,146 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 
 	// Update middleware chain as group affects group middlewares.
 	e.rebuildMatcherChainCOW(m)
+}
+
+// CommandInfo 命令信息（用于 Help 生成和命令发现）
+type CommandInfo struct {
+	Command     string              // 命令名（如 "/help"）
+	Description string              // 命令描述
+	Usage       string              // 使用方法
+	Aliases     []string            // 别名列表
+	Category    string              // 分类
+	Examples    []string            // 使用示例
+	Permissions []string            // 所需权限
+	Plugin      string              // 所属插件名
+	Source      string              // 来源标识（如 "plugin:help"）
+	EventType   dto.EventType       // 事件类型
+	Definition  *command.Definition // 完整定义（直接使用 command.Definition）
+}
+
+// GetAllCommands 获取所有已注册的命令信息
+//
+// 此方法遍历所有 Matcher，提取包含命令的 Matcher 的元数据。
+// 用于 Help Plugin 等需要发现所有命令的场景。
+//
+// 返回的命令列表不包含隐藏命令（Hidden=true）。
+func (e *Engine) GetAllCommands() []CommandInfo {
+	state := e.state.Load().(*engineState)
+
+	commands := make([]CommandInfo, 0)
+	seen := make(map[string]bool) // 去重（相同命令只返回一次）
+
+	// 遍历所有 permanent matcher
+	for _, m := range state.matchers {
+		cmd := m.GetCommand()
+		if cmd == "" {
+			continue // 跳过非命令 matcher
+		}
+
+		if seen[cmd] {
+			continue // 去重
+		}
+		seen[cmd] = true
+
+		// 获取定义
+		def := m.GetDefinition()
+
+		// 跳过隐藏命令
+		if def != nil && def.Hidden {
+			continue
+		}
+
+		info := CommandInfo{
+			Command:    cmd,
+			EventType:  m.EventType,
+			Source:     m.GetSource(),
+			Definition: def,
+		}
+
+		// 从定义填充字段
+		if def != nil {
+			info.Description = def.Description
+			info.Usage = def.Usage
+			info.Aliases = def.Aliases
+			info.Category = def.Category
+			info.Examples = def.Examples
+			info.Permissions = def.Permissions
+		}
+
+		// 提取插件名
+		if strings.HasPrefix(m.GetSource(), "plugin:") {
+			info.Plugin = strings.TrimPrefix(m.GetSource(), "plugin:")
+		} else {
+			info.Plugin = "global"
+		}
+
+		commands = append(commands, info)
+	}
+
+	return commands
+}
+
+// GetCommandsByPlugin 按插件分组获取命令
+//
+// 返回的 map 键为插件名，值为该插件的所有命令列表。
+// 全局命令（非插件注册）使用 "global" 作为键。
+func (e *Engine) GetCommandsByPlugin() map[string][]CommandInfo {
+	commands := e.GetAllCommands()
+	grouped := make(map[string][]CommandInfo)
+
+	for _, cmd := range commands {
+		plugin := cmd.Plugin
+		if plugin == "" {
+			plugin = "global"
+		}
+		grouped[plugin] = append(grouped[plugin], cmd)
+	}
+
+	return grouped
+}
+
+// GetCommandsByCategory 按分类获取命令
+//
+// 返回的 map 键为分类名，值为该分类的所有命令列表。
+// 未设置分类的命令使用 "其他" 作为键。
+func (e *Engine) GetCommandsByCategory() map[string][]CommandInfo {
+	commands := e.GetAllCommands()
+	grouped := make(map[string][]CommandInfo)
+
+	for _, cmd := range commands {
+		category := cmd.Category
+		if category == "" {
+			category = "其他"
+		}
+		grouped[category] = append(grouped[category], cmd)
+	}
+
+	return grouped
+}
+
+// FindCommand 查找特定命令（支持别名）
+//
+// 参数:
+//   - name: 命令名或别名
+//
+// 返回:
+//   - 找到的命令信息，未找到返回 nil
+func (e *Engine) FindCommand(name string) *CommandInfo {
+	commands := e.GetAllCommands()
+
+	for _, cmd := range commands {
+		// 匹配命令名
+		if cmd.Command == name {
+			return &cmd
+		}
+
+		// 匹配别名
+		for _, alias := range cmd.Aliases {
+			if alias == name {
+				return &cmd
+			}
+		}
+	}
+
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
@@ -40,7 +41,7 @@ type Matcher struct {
 	}
 	cacheMu sync.RWMutex
 
-	command string
+	definition *command.Definition // 命令定义（可选，包含所有元数据）
 }
 
 func (m *Matcher) copy() *Matcher {
@@ -60,13 +61,23 @@ func (m *Matcher) copy() *Matcher {
 		Source:      m.Source,
 		group:       m.group,
 		middlewares: newMiddlewares,
-		command:     m.command,
+		definition:  m.definition, // 定义为指针，浅拷贝
 	}
 }
 
 // GetCommand 获取匹配器的触发命令
 func (m *Matcher) GetCommand() string {
-	return m.command
+	if m == nil {
+		return ""
+	}
+	m.rt.mu.RLock()
+	def := m.definition
+	m.rt.mu.RUnlock()
+
+	if def != nil && def.Name != "" {
+		return "/" + def.Name
+	}
+	return ""
 }
 
 // GetSource 获取匹配器的来源标识（实现 context.Matcher）
@@ -160,6 +171,15 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 		if !rule(ctx) {
 			return false
 		}
+	}
+
+	// 双重检查：在匹配过程中可能被删除
+	m.rt.mu.RLock()
+	deleted := m.rt.deleted
+	m.rt.mu.RUnlock()
+
+	if deleted {
+		return false
 	}
 
 	return true
@@ -460,10 +480,27 @@ func (m *Matcher) isBlocking() bool {
 }
 
 // BindCommand 手动绑定触发命令
+//
+// 此方法会自动创建或更新 Definition.Name
 func (m *Matcher) BindCommand(cmd string) *Matcher {
-	m.command = strings.TrimSpace(cmd)
-	if m.coordinator != nil {
-		m.coordinator.UpdateMatcherCommand(m)
+	if m.isNoop() {
+		return m
+	}
+
+	m.rt.mu.Lock()
+	cmdName := strings.TrimPrefix(strings.TrimSpace(cmd), "/")
+	if cmdName != "" {
+		if m.definition == nil {
+			m.definition = &command.Definition{Name: cmdName}
+		} else {
+			m.definition.Name = cmdName
+		}
+	}
+	coord := m.coordinator
+	m.rt.mu.Unlock()
+
+	if coord != nil {
+		coord.UpdateMatcherCommand(m)
 	}
 	return m
 }
@@ -489,4 +526,120 @@ func (m *Matcher) GetGroup() string {
 	g := m.group
 	m.rt.mu.RUnlock()
 	return g
+}
+
+// SetDefinition 设置命令定义（用于 Help 生成和命令解析）
+func (m *Matcher) SetDefinition(def *command.Definition) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	m.definition = def
+	m.rt.mu.Unlock()
+	return m
+}
+
+// GetDefinition 获取命令定义
+func (m *Matcher) GetDefinition() *command.Definition {
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.definition
+}
+
+// SetDescription 设置命令描述（便捷方法）
+func (m *Matcher) SetDescription(desc string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Description = desc
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetUsage 设置命令用法（便捷方法）
+func (m *Matcher) SetUsage(usage string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Usage = usage
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetCategory 设置命令分类（便捷方法）
+func (m *Matcher) SetCategory(category string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Category = category
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetAliases 设置命令别名（便捷方法）
+func (m *Matcher) SetAliases(aliases ...string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Aliases = aliases
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetExamples 设置命令示例（便捷方法）
+func (m *Matcher) SetExamples(examples ...string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Examples = examples
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetHidden 设置是否在帮助中隐藏（便捷方法）
+func (m *Matcher) SetHidden(hidden bool) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Hidden = hidden
+	m.rt.mu.Unlock()
+	return m
+}
+
+// SetPermissions 设置所需权限（便捷方法）
+func (m *Matcher) SetPermissions(permissions ...string) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	if m.definition == nil {
+		m.definition = &command.Definition{}
+	}
+	m.definition.Permissions = permissions
+	m.rt.mu.Unlock()
+	return m
 }

@@ -316,7 +316,7 @@ func TestMatcher_IsDeleted(t *testing.T) {
 func TestMatcher_GetCommand(t *testing.T) {
 	eng := NewEngine()
 	matcher := eng.OnAny()
-	matcher.command = "/test"
+	matcher.BindCommand("/test")
 
 	assert.Equal(t, "/test", matcher.GetCommand())
 }
