@@ -3,12 +3,12 @@ package remilia
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"runtime"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 	"github.com/sirupsen/logrus"
@@ -102,7 +102,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	a.webhook = webhook.NewWithBuffer(a.ctx, a.botInfo, bufferSize)
 	if a.webhook == nil {
 		a.mu.Unlock()
-		return fmt.Errorf("failed to create webhook connection")
+		return errutil.ErrWebhookCreateFailed
 	}
 
 	logrus.Infof("[WebhookServerAdapter] Webhook buffer size: %d", bufferSize)

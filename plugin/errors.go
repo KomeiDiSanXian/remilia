@@ -1,6 +1,10 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/KomeiDiSanXian/remilia/errutil"
+)
 
 // DependencyError 依赖错误
 type DependencyError struct {
@@ -27,5 +31,5 @@ func (e *CircularDependencyError) Error() string {
 }
 
 func (e *CircularDependencyError) Unwrap() error {
-	return ErrCircularDependency
+	return errutil.ErrCircularDependency
 }

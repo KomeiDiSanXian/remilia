@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/allegro/bigcache/v3"
 
 	"github.com/KomeiDiSanXian/remilia/helper"
@@ -233,14 +234,14 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 	h.Set(HeaderTimestamp, req.EventTs)
 	sign, err := c.Sign(h, helper.StringToBytes(req.PlainToken))
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign the validation request: %w", err)
+		return nil, errutil.WrapErrorf(err, "failed to sign the validation request")
 	}
 	resp, err := json.Marshal(&dto.ValidationRsp{
 		PlainToken: req.PlainToken,
 		Signature:  hex.EncodeToString(sign),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal the validation response: %w", err)
+		return nil, errutil.WrapErrorf(err, "failed to marshal the validation response")
 	}
 	return resp, nil
 }

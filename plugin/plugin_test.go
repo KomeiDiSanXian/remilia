@@ -7,6 +7,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -333,7 +334,7 @@ func TestManager_Register(t *testing.T) {
 
 		err = manager.Register(plugin2)
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrPluginAlreadyExists)
+		assert.ErrorIs(t, err, errutil.ErrPluginAlreadyExists)
 	})
 
 	t.Run("registration with load error", func(t *testing.T) {
@@ -368,7 +369,7 @@ func TestManager_Unregister(t *testing.T) {
 
 		err := manager.Unregister("non-existent")
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrPluginNotFound)
+		assert.ErrorIs(t, err, errutil.ErrPluginNotFound)
 	})
 
 	t.Run("unregister with unload error", func(t *testing.T) {
@@ -462,7 +463,7 @@ func TestManager_Reload(t *testing.T) {
 
 		err := manager.Reload("non-existent")
 		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrPluginNotFound)
+		assert.ErrorIs(t, err, errutil.ErrPluginNotFound)
 	})
 
 	t.Run("reload with error", func(t *testing.T) {
@@ -543,20 +544,20 @@ func TestManager_RemoveListener(t *testing.T) {
 
 // TestErrors tests error types
 func TestErrors(t *testing.T) {
-	t.Run("ErrPluginAlreadyExists", func(t *testing.T) {
-		assert.NotNil(t, ErrPluginAlreadyExists)
+	t.Run("errutil.ErrPluginAlreadyExists", func(t *testing.T) {
+		assert.NotNil(t, errutil.ErrPluginAlreadyExists)
 	})
 
-	t.Run("ErrPluginNotFound", func(t *testing.T) {
-		assert.NotNil(t, ErrPluginNotFound)
+	t.Run("errutil.ErrPluginNotFound", func(t *testing.T) {
+		assert.NotNil(t, errutil.ErrPluginNotFound)
 	})
 
-	t.Run("ErrCircularDependency", func(t *testing.T) {
-		assert.NotNil(t, ErrCircularDependency)
+	t.Run("errutil.ErrCircularDependency", func(t *testing.T) {
+		assert.NotNil(t, errutil.ErrCircularDependency)
 	})
 
-	t.Run("ErrDependencyNotFound", func(t *testing.T) {
-		assert.NotNil(t, ErrDependencyNotFound)
+	t.Run("errutil.ErrDependencyNotFound", func(t *testing.T) {
+		assert.NotNil(t, errutil.ErrDependencyNotFound)
 	})
 }
 
@@ -565,12 +566,12 @@ func TestDependencyError(t *testing.T) {
 	err := &DependencyError{
 		Plugin:     "plugin-a",
 		Dependency: "plugin-b",
-		Err:        ErrDependencyNotFound,
+		Err:        errutil.ErrDependencyNotFound,
 	}
 
 	assert.Contains(t, err.Error(), "plugin-a")
 	assert.Contains(t, err.Error(), "plugin-b")
-	assert.ErrorIs(t, err, ErrDependencyNotFound)
+	assert.ErrorIs(t, err, errutil.ErrDependencyNotFound)
 }
 
 // TestCircularDependencyError tests CircularDependencyError
@@ -580,7 +581,7 @@ func TestCircularDependencyError(t *testing.T) {
 	}
 
 	assert.Contains(t, err.Error(), "circular dependency")
-	assert.ErrorIs(t, err, ErrCircularDependency)
+	assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 }
 
 // BenchmarkBasePlugin_AddMatcher benchmarks adding matchers

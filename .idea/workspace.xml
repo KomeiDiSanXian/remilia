@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement main bot entry point with configuration loading and token management">
       <change afterPath="$PROJECT_DIR$/docs/CODE_INTEGRATION_REPORT.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_IMPROVEMENTS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_INDEX.md" afterDir="false" />
@@ -13,22 +13,18 @@
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_SUMMARY.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_CONFUSION_ANALYSIS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_REFACTOR_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/ERROR_HANDLING_ANALYSIS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/ERROR_HANDLING_COMPLETION_REPORT.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/MEDIUM_PRIORITY_CONFIG_REPORT.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/REMAINING_CONFIGURATION_TASKS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/examples/config-integration/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/config-integration/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.example.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.example.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/server/http.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/http.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/slow_handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/slow_handler.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -230,7 +226,9 @@
     <MESSAGE value="typo: add comment for default worker configuration in WebhookServerAdapter" />
     <MESSAGE value="feat: add throughput benchmarking tool with configurable parameters and performance metrics" />
     <MESSAGE value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
-    <option name="LAST_COMMIT_MESSAGE" value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
+    <MESSAGE value="feat: add token management and engine configuration options in YAML and Go files" />
+    <MESSAGE value="feat: implement main bot entry point with configuration loading and token management" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement main bot entry point with configuration loading and token management" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

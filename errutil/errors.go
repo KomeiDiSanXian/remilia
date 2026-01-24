@@ -8,6 +8,7 @@ import (
 // Predefined framework/public errors.
 // These errors are stable and can be checked with errors.Is.
 var (
+	// Core Engine errors
 	ErrConfigInvalid     = errors.New("invalid configuration")
 	ErrMatcherNotFound   = errors.New("matcher not found")
 	ErrContextReleased   = errors.New("context already released")
@@ -17,6 +18,54 @@ var (
 	ErrRuleCompileFailed = errors.New("rule compile failed")
 	ErrDedupCacheFull    = errors.New("dedup cache full")
 	ErrDeadLetterFailed  = errors.New("dead letter processing failed")
+
+	// Adapter errors
+	ErrAdapterStartFailed  = errors.New("adapter start failed")
+	ErrAdapterStopFailed   = errors.New("adapter stop failed")
+	ErrAdapterNotRunning   = errors.New("adapter not running")
+	ErrWebhookCreateFailed = errors.New("failed to create webhook connection")
+
+	// Plugin errors
+	ErrPluginAlreadyExists = errors.New("plugin already exists")
+	ErrPluginNotFound      = errors.New("plugin not found")
+	ErrCircularDependency  = errors.New("circular dependency detected")
+	ErrDependencyNotFound  = errors.New("dependency not found")
+	ErrPluginLoadFailed    = errors.New("plugin load failed")
+	ErrPluginUnloadFailed  = errors.New("plugin unload failed")
+
+	// Bot errors
+	ErrBotAlreadyRunning  = errors.New("bot already running")
+	ErrBotNotRunning      = errors.New("bot not running")
+	ErrBotShutdownTimeout = errors.New("bot shutdown timeout")
+
+	// Lifecycle errors
+	ErrComponentStartFailed   = errors.New("component start failed")
+	ErrComponentStopFailed    = errors.New("component stop failed")
+	ErrComponentNotRegistered = errors.New("component not registered")
+
+	// Config errors
+	ErrConfigFieldRequired = errors.New("config field is required")
+	ErrConfigFieldInvalid  = errors.New("config field value is invalid")
+	ErrConfigLoadFailed    = errors.New("failed to load config")
+	ErrConfigParseFailed   = errors.New("failed to parse config")
+	ErrConfigWatchFailed   = errors.New("failed to watch config")
+
+	// Webhook protocol errors
+	ErrWebhookSignFailed       = errors.New("failed to sign webhook request")
+	ErrWebhookMarshalFailed    = errors.New("failed to marshal webhook data")
+	ErrWebhookUnmarshalFailed  = errors.New("failed to unmarshal webhook data")
+	ErrWebhookValidationFailed = errors.New("webhook validation failed")
+
+	// Middleware errors
+	ErrRateLimitExceeded  = errors.New("rate limit exceeded")
+	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
+	ErrRetryExhausted     = errors.New("retry attempts exhausted")
+	ErrDegradationActive  = errors.New("system is in degraded mode")
+
+	// Token errors
+	ErrTokenExpired       = errors.New("token expired")
+	ErrTokenInvalid       = errors.New("token invalid")
+	ErrTokenRefreshFailed = errors.New("token refresh failed")
 )
 
 // IsErrorType checks if an error matches a target error using errors.Is.

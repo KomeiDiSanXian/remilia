@@ -1,21 +1,12 @@
 package plugin
 
 import (
-	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/sirupsen/logrus"
-)
-
-// 插件相关错误
-var (
-	ErrPluginAlreadyExists = errors.New("plugin already exists")
-	ErrPluginNotFound      = errors.New("plugin not found")
-	ErrCircularDependency  = errors.New("circular dependency detected")
-	ErrDependencyNotFound  = errors.New("dependency not found")
 )
 
 // Plugin 插件接口
@@ -121,7 +112,7 @@ func (p *BasePlugin) Unload(coordinator *engine.Engine) error {
 //   - 回滚更安全，不会出现状态不一致
 func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	if coordinator == nil {
-		return fmt.Errorf("coordinator is nil")
+		return errutil.NewPluginError(p.name, "coordinator is nil")
 	}
 
 	// 1. 保存插件的 matchers 快照
@@ -136,7 +127,7 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	// 3. 尝试卸载（这会清空 p.matchers 并删除 matchers）
 	if err := p.Unload(coordinator); err != nil {
 		// Unload 失败，状态未改变
-		return fmt.Errorf("unload failed during reload: %w", err)
+		return errutil.WrapErrorf(err, "unload failed during reload")
 	}
 
 	// 4. 尝试加载新状态
@@ -159,7 +150,7 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 			}
 		}
 
-		return fmt.Errorf("load failed during reload, rolled back to previous state: %w", err)
+		return errutil.WrapErrorf(err, "load failed during reload, rolled back to previous state")
 	}
 
 	// 5. 成功，旧的 matchers 已经被 Unload 删除，不需要额外清理

@@ -1,11 +1,11 @@
 package plugin
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/sirupsen/logrus"
 )
 
@@ -117,7 +117,7 @@ func (pm *Manager) Register(plugin Plugin) error {
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
 		logrus.Warnf("[PluginManager] Plugin %s already registered", name)
-		return ErrPluginAlreadyExists
+		return errutil.ErrPluginAlreadyExists
 	}
 
 	// 加载插件
@@ -161,7 +161,7 @@ func (pm *Manager) checkDependents(name string) []string {
 func (pm *Manager) Unregister(name string) error {
 	// 先检查是否有其他插件依赖该插件
 	if dependents := pm.checkDependents(name); len(dependents) > 0 {
-		return fmt.Errorf("cannot unregister plugin %s: required by %v", name, dependents)
+		return errutil.NewPluginError(name, fmt.Sprintf("cannot unregister: required by %v", dependents))
 	}
 
 	pm.mu.Lock()
@@ -170,7 +170,7 @@ func (pm *Manager) Unregister(name string) error {
 	if !exists {
 		pm.mu.Unlock()
 		logrus.Warnf("[PluginManager] Plugin %s not found", name)
-		return ErrPluginNotFound
+		return errutil.ErrPluginNotFound
 	}
 
 	// 卸载插件
@@ -215,7 +215,7 @@ func (pm *Manager) Reload(name string) error {
 
 	if !exists {
 		logrus.Warnf("[PluginManager] Plugin %s not found", name)
-		return ErrPluginNotFound
+		return errutil.ErrPluginNotFound
 	}
 
 	logrus.Infof("[PluginManager] Reloading plugin %s", name)
@@ -278,7 +278,7 @@ func (pm *Manager) RegisterWithDependencies(plugins []Plugin) error {
 					return &DependencyError{
 						Plugin:     p.Name(),
 						Dependency: dep,
-						Err:        ErrDependencyNotFound,
+						Err:        errutil.ErrDependencyNotFound,
 					}
 				}
 			}
@@ -295,7 +295,7 @@ func (pm *Manager) RegisterWithDependencies(plugins []Plugin) error {
 	for _, p := range sorted {
 		if err := pm.Register(p); err != nil {
 			// 如果是已存在错误，跳过
-			if errors.Is(err, ErrPluginAlreadyExists) {
+			if errutil.IsErrorType(err, errutil.ErrPluginAlreadyExists) {
 				continue
 			}
 			return err
@@ -351,7 +351,7 @@ func (pm *Manager) topologicalSort(plugins []Plugin) ([]Plugin, error) {
 				return &DependencyError{
 					Plugin:     name,
 					Dependency: name,
-					Err:        ErrPluginNotFound,
+					Err:        errutil.ErrPluginNotFound,
 				}
 			}
 			// 已注册的插件不需要再次加载
