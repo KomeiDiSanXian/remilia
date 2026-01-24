@@ -10,6 +10,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
@@ -27,7 +28,7 @@ type Bot struct {
 	engine       *engine.Engine
 	adapter      Adapter
 	lifecycle    *lifecycle.Manager
-	health       *HealthChecker
+	health       *health.Check
 	config       *Config
 	openAPI      openapi.OpenAPI // OpenAPI client for sending messages
 	tokenManager *token.Manager  // Token manager for lifecycle management
@@ -64,7 +65,20 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	}
 
 	// 初始化健康检查
-	b.health = NewHealthChecker(b)
+	b.health = health.NewCheck()
+
+	// 添加 Bot 自己的 checker
+	b.health.AddChecker(NewBotStatusChecker(b))
+
+	// 添加 Adapter checker
+	if adapter != nil {
+		b.health.AddChecker(NewAdapterHealthChecker(adapter))
+	}
+
+	// 添加 Engine checker
+	if engine != nil {
+		b.health.AddChecker(health.NewEngineHealthChecker(engine))
+	}
 
 	// 注册组件到生命周期管理器
 	b.lifecycle.Register(lifecycle.NewSimpleComponent(
@@ -101,6 +115,10 @@ func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo
 		tokenManager := token.NewManager(botInfo)
 		b.tokenManager = tokenManager // 保存引用用于生命周期管理
 		b.openAPI = openapi.New(tokenManager)
+
+		// 添加 Token Manager health checker
+		b.health.AddChecker(NewTokenManagerHealthChecker(b))
+
 		logrus.Info("[Bot] OpenAPI client initialized")
 	} else {
 		logrus.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
@@ -249,8 +267,15 @@ func (b *Bot) Config() *Config {
 }
 
 // Health 健康检查
-func (b *Bot) Health() *HealthStatus {
-	return b.health.Check()
+func (b *Bot) Health() health.CheckResponse {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return b.health.Check(ctx)
+}
+
+// HealthCheck 返回 health.Check 实例（用于高级配置）
+func (b *Bot) HealthCheck() *health.Check {
+	return b.health
 }
 
 // State 返回生命周期状态
