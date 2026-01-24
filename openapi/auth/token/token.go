@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -109,12 +110,31 @@ func (m *Manager) Stop() {
 }
 
 // WaitReady 阻塞直到 access token 可用
-func (m *Manager) WaitReady() {
-	m.mu.Lock()
-	for !m.ready {
-		m.cond.Wait() // 等到ready为true时被唤醒
+// 使用默认超时时间（30秒）
+func (m *Manager) WaitReady() error {
+	return m.WaitReadyWithTimeout(30 * time.Second)
+}
+
+// WaitReadyWithTimeout 阻塞直到 access token 可用或超时
+func (m *Manager) WaitReadyWithTimeout(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		for !m.ready {
+			m.cond.Wait()
+		}
+		m.mu.Unlock()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("wait ready timeout after %v", timeout)
+	case <-m.ctx.Done():
+		return fmt.Errorf("token manager stopped")
 	}
-	m.mu.Unlock()
 }
 
 // GetToken 获取当前的 access token

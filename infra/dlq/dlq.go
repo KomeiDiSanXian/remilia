@@ -143,15 +143,31 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 		return
 	}
 
-	if dlq.config.DropPolicy != DropPolicyBlockUntilSpace {
-		dlq.enqueueMu.Lock()
-		defer dlq.enqueueMu.Unlock()
+	// DropPolicyBlockUntilSpace 需要阻塞等待，直接尝试发送
+	if dlq.config.DropPolicy == DropPolicyBlockUntilSpace {
+		ctx, cancel := context.WithTimeout(dlq.ctx, 30*time.Second)
+		defer cancel()
+		select {
+		case dlq.queue <- item:
+			return
+		case <-ctx.Done():
+			dlq.dropped.Add(1)
+			if dlq.config.OnDropped != nil {
+				dlq.config.OnDropped(item, "timeout waiting for space")
+			}
+			return
+		}
 	}
+
+	// 其他策略需要加锁保护状态一致性
+	dlq.enqueueMu.Lock()
+	defer dlq.enqueueMu.Unlock()
 
 	select {
 	case dlq.queue <- item:
 		return
 	default:
+		// 队列满，按策略处理
 		switch dlq.config.DropPolicy {
 		case DropPolicyOldest:
 			select {
@@ -175,19 +191,6 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 				dlq.config.OnDropped(item, "queue full, dropping newest")
 			}
 			return
-		case DropPolicyBlockUntilSpace:
-			ctx, cancel := context.WithTimeout(dlq.ctx, 30*time.Second)
-			defer cancel()
-			select {
-			case dlq.queue <- item:
-				return
-			case <-ctx.Done():
-				dlq.dropped.Add(1)
-				if dlq.config.OnDropped != nil {
-					dlq.config.OnDropped(item, "timeout waiting for space")
-				}
-				return
-			}
 		}
 	}
 }

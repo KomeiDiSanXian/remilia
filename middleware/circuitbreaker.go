@@ -149,11 +149,13 @@ func (cb *CircuitBreaker) canExecute() error {
 
 	case StateHalfOpen:
 		// 半开状态下限制请求数量
-		reqs := cb.halfOpenReqs.Load()
-		if reqs >= int32(cb.config.HalfOpenMaxRequests) {
+		// 使用原子递增并检查，避免竞态
+		reqs := cb.halfOpenReqs.Add(1)
+		if reqs > int32(cb.config.HalfOpenMaxRequests) {
+			// 超过限制，回退计数
+			cb.halfOpenReqs.Add(-1)
 			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
 		}
-		cb.halfOpenReqs.Add(1)
 		return nil
 
 	default:

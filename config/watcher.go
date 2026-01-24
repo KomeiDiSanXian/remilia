@@ -148,7 +148,14 @@ func (w *Watcher) watchLoop() {
 	defer func() {
 		timerMu.Lock()
 		if debounceTimer != nil {
-			debounceTimer.Stop()
+			// 正确停止 timer 并 drain channel
+			if !debounceTimer.Stop() {
+				// Timer 已经触发，尝试 drain channel 避免 goroutine 泄漏
+				select {
+				case <-debounceTimer.C:
+				default:
+				}
+			}
 		}
 		timerMu.Unlock()
 		logrus.Debug("[ConfigWatcher] Watch loop cleanup completed")

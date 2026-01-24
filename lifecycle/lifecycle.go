@@ -193,16 +193,39 @@ func (m *Manager) Stop(ctx context.Context) error {
 }
 
 // rollbackStart 回滚已启动的组件
+// 使用独立的超时 context 避免被父 context 取消影响
 func (m *Manager) rollbackStart(ctx context.Context, components []Component) {
 	logrus.WithField("count", len(components)).Warn("[Lifecycle] Rolling back started components")
 
+	// 使用独立的超时 context，确保回滚有足够时间完成
+	// 即使父 context 已取消，回滚仍应继续
+	rollbackCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var rollbackErrors []error
 	for i := len(components) - 1; i >= 0; i-- {
 		comp := components[i]
-		if err := comp.Stop(ctx); err != nil {
+
+		// 为每个组件创建子 context，避免单个组件阻塞整个回滚
+		compCtx, compCancel := context.WithTimeout(rollbackCtx, 10*time.Second)
+		err := comp.Stop(compCtx)
+		compCancel()
+
+		if err != nil {
 			logrus.WithError(err).
 				WithField("component", comp.Name()).
 				Error("[Lifecycle] Component rollback failed")
+			rollbackErrors = append(rollbackErrors, err)
+		} else {
+			logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component rolled back successfully")
 		}
+	}
+
+	if len(rollbackErrors) > 0 {
+		logrus.WithField("error_count", len(rollbackErrors)).
+			Error("[Lifecycle] Rollback completed with errors, some resources may not be released")
+	} else {
+		logrus.Info("[Lifecycle] Rollback completed successfully")
 	}
 }
 
