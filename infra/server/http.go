@@ -15,8 +15,9 @@ import (
 // It provides convenient Start() and Shutdown() methods for managing
 // the HTTP server lifecycle in a concurrent-safe manner.
 type HTTPServer struct {
-	srv *http.Server
-	wg  sync.WaitGroup
+	srv             *http.Server
+	wg              sync.WaitGroup
+	shutdownTimeout time.Duration // 关闭超时时间
 }
 
 // NewHTTPServer creates a new HTTPServer.
@@ -36,7 +37,14 @@ func NewHTTPServer(addr string, handler http.Handler) *HTTPServer {
 			Addr:    addr,
 			Handler: handler,
 		},
+		shutdownTimeout: 5 * time.Second, // 默认 5 秒
 	}
+}
+
+// WithShutdownTimeout 设置关闭超时时间
+func (s *HTTPServer) WithShutdownTimeout(timeout time.Duration) *HTTPServer {
+	s.shutdownTimeout = timeout
+	return s
 }
 
 // Start runs the HTTP server in a background goroutine.
@@ -59,8 +67,8 @@ func (s *HTTPServer) Start() {
 // This method blocks until the server has finished shutting down or
 // the context is canceled.
 //
-// If the provided context has no deadline, a default timeout of 5 seconds
-// is used.
+// If the provided context has no deadline, a default timeout configured
+// in the server (default: 5 seconds) is used.
 //
 // Example:
 //
@@ -73,7 +81,7 @@ func (s *HTTPServer) Shutdown(ctx context.Context) error {
 	shutdownCtx := ctx
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
-		shutdownCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		shutdownCtx, cancel = context.WithTimeout(ctx, s.shutdownTimeout)
 		defer cancel()
 	}
 

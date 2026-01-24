@@ -31,7 +31,9 @@ type engineServices struct {
 	tempMatcherCleanerInterval time.Duration
 	tempMatcherCleanerDone     chan struct{}
 
-	// pending delete
-	pendingDeleteCh   chan *Matcher
-	pendingDeleteStop func()
+	// pending delete config/state
+	pendingDeleteCh              chan *Matcher
+	pendingDeleteStop            func()
+	pendingDeleteProcessInterval time.Duration // 批量删除处理间隔
+	pendingDeleteBatchSize       int           // 每次批量删除数量
 }

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 
 	"github.com/KomeiDiSanXian/remilia/httpcilent"
@@ -28,14 +29,68 @@ type Manager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup // 用于等待 goroutine 退出
+
+	// 配置
+	retryDelay      time.Duration // Token 获取失败重试延迟
+	refreshAdvance  time.Duration // 提前多久刷新 Token
+	minRefreshRatio float64       // 最小刷新时间比例
 }
 
-// NewManager 初始化并启动后台刷新
+// NewManager 初始化并启动后台刷新（使用默认配置）
 func NewManager(info *dto.BotInfo) *Manager {
+	return NewManagerFromConfig(info, config.TokenConfig{
+		RetryDelay:      "10s",
+		RefreshAdvance:  "30s",
+		MinRefreshRatio: 0.5,
+	})
+}
+
+// NewManagerFromConfig 使用指定配置初始化并启动后台刷新
+//
+// 参数:
+//   - info: Bot 信息
+//   - cfg: Token 配置
+//
+// 示例:
+//
+//	cfg, _ := config.LoadDefault()
+//	mgr := token.NewManagerFromConfig(global.Info, cfg.Token)
+func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// 解析配置
+	retryDelay := 10 * time.Second
+	if cfg.RetryDelay != "" {
+		if d, err := time.ParseDuration(cfg.RetryDelay); err == nil {
+			retryDelay = d
+		} else {
+			logrus.WithError(err).Warn("[Token] Invalid retry_delay config, using default 10s")
+		}
+	}
+
+	refreshAdvance := 30 * time.Second
+	if cfg.RefreshAdvance != "" {
+		if d, err := time.ParseDuration(cfg.RefreshAdvance); err == nil {
+			refreshAdvance = d
+		} else {
+			logrus.WithError(err).Warn("[Token] Invalid refresh_advance config, using default 30s")
+		}
+	}
+
+	minRefreshRatio := 0.5
+	if cfg.MinRefreshRatio > 0 && cfg.MinRefreshRatio <= 1 {
+		minRefreshRatio = cfg.MinRefreshRatio
+	}
+
+	logrus.Infof("[Token] Config: retry_delay=%v, refresh_advance=%v, min_refresh_ratio=%.2f",
+		retryDelay, refreshAdvance, minRefreshRatio)
+
 	m := &Manager{
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:             ctx,
+		cancel:          cancel,
+		retryDelay:      retryDelay,
+		refreshAdvance:  refreshAdvance,
+		minRefreshRatio: minRefreshRatio,
 	}
 	m.cond = sync.NewCond(&m.mu)
 	m.wg.Add(1)
@@ -73,7 +128,6 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 	defer m.wg.Done()
 
 	var firstSuccess bool
-	retryDelay := 10 * time.Second
 
 	for {
 		// 检查是否需要停止
@@ -93,7 +147,7 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 			case <-m.ctx.Done():
 				logrus.Info("[Token] Auto refresh stopped during retry wait")
 				return
-			case <-time.After(retryDelay):
+			case <-time.After(m.retryDelay): // 使用配置的重试延迟
 				continue
 			}
 		}
@@ -111,10 +165,15 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 		m.mu.Unlock()
 		logrus.WithField("access_token", m.accessToken).WithField("expires_in", expiresIn).Debug("[Token] Updated")
 
-		refreshAfter := time.Duration(expiresIn-30) * time.Second // 提前30秒刷新
+		// 计算刷新时间，使用配置的 refreshAdvance
+		refreshAfter := time.Duration(expiresIn)*time.Second - m.refreshAdvance
 		if refreshAfter <= 0 {
-			refreshAfter = time.Duration(expiresIn) * time.Second / 2 // 如果expires_in小于60秒，则在一半时间后刷新
+			// 如果 expires_in 太小，则使用最小刷新比例
+			refreshAfter = time.Duration(float64(expiresIn) * m.minRefreshRatio * float64(time.Second))
 		}
+
+		logrus.Debugf("[Token] Next refresh in %v (expires_in=%ds, advance=%v)",
+			refreshAfter, expiresIn, m.refreshAdvance)
 
 		// 等待刷新时间或停止信号
 		select {

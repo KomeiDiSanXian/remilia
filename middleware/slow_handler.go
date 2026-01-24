@@ -3,6 +3,7 @@ package middleware
 import (
 	"time"
 
+	appconfig "github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 )
@@ -79,6 +80,29 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 //
 //	engine.Use(middleware.SlowHandlerSimple(2 * time.Second))
 func SlowHandlerSimple(threshold time.Duration) context.Middleware {
+	return SlowHandler(SlowHandlerConfig{
+		Threshold: threshold,
+	})
+}
+
+// SlowHandlerFromConfig 从配置创建慢处理器检测中间件
+//
+// 使用示例:
+//
+//	cfg, _ := config.LoadDefault()
+//	engine.Use(middleware.SlowHandlerFromConfig(cfg.Middleware))
+func SlowHandlerFromConfig(cfg appconfig.MiddlewareConfig) context.Middleware {
+	threshold := 1 * time.Second
+	if cfg.SlowHandlerThreshold != "" {
+		if d, err := time.ParseDuration(cfg.SlowHandlerThreshold); err == nil {
+			threshold = d
+		} else {
+			logrus.WithError(err).Warn("[SlowHandler] Invalid slow_handler_threshold config, using default 1s")
+		}
+	}
+
+	logrus.Infof("[SlowHandler] Config: threshold=%v", threshold)
+
 	return SlowHandler(SlowHandlerConfig{
 		Threshold: threshold,
 	})

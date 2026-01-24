@@ -2,11 +2,13 @@ package remilia
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"runtime"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 	"github.com/sirupsen/logrus"
@@ -27,7 +29,7 @@ type WebhookServerAdapter struct {
 	bufferSize int // webhook event channel 的 buffer 大小
 }
 
-// NewWebhookServerAdapter 创建一个内置 HTTP 服务器的 Webhook 适配器
+// NewWebhookServerAdapter 创建一个内置 HTTP 服务器的 Webhook 适配器（使用默认配置）
 //
 // 参数:
 //   - addr: HTTP 服务器监听地址，例如 ":8080" 或 "0.0.0.0:8080"
@@ -39,18 +41,44 @@ type WebhookServerAdapter struct {
 //	bot := remilia.NewBot(adapter, engine)
 //	bot.Start()
 func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAdapter {
-	return &WebhookServerAdapter{
-		addr:    addr,
-		botInfo: botInfo,
-		workers: runtime.NumCPU(), // 使用 CPU 核心数作为默认 worker 数量
-	}
+	// 使用默认配置
+	return NewWebhookServerAdapterWithConfig(addr, botInfo, config.WebhookConfig{
+		WorkerCount: 0,   // 0 = 使用 CPU 核心数
+		EventBuffer: 100, // 默认缓冲区大小
+	})
 }
 
-// NewWebhookServerAdapterWithBuffer 创建一个指定缓冲区大小的 Webhook 适配器
-func NewWebhookServerAdapterWithBuffer(addr string, botInfo *dto.BotInfo, bufferSize int) *WebhookServerAdapter {
+// NewWebhookServerAdapterWithConfig 从配置创建 Webhook 适配器
+//
+// 参数:
+//   - addr: HTTP 服务器监听地址
+//   - botInfo: 机器人信息
+//   - webhookConfig: Webhook 配置（从 config.Config.Webhook 获取）
+//
+// 示例:
+//
+//	cfg, _ := config.LoadDefault()
+//	adapter := remilia.NewWebhookServerAdapterWithConfig(":8080", global.Info, cfg.Webhook)
+//	bot := remilia.NewBot(adapter, engine)
+//	bot.Start()
+func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhookConfig config.WebhookConfig) *WebhookServerAdapter {
+	workers := webhookConfig.WorkerCount
+	if workers <= 0 {
+		workers = runtime.NumCPU() // 0 表示使用 CPU 核心数
+	}
+
+	bufferSize := webhookConfig.EventBuffer
+	if bufferSize <= 0 {
+		bufferSize = 100 // 默认值
+	}
+
+	logrus.Infof("[WebhookServerAdapter] Config: workers=%d, buffer=%d", workers, bufferSize)
+
 	return &WebhookServerAdapter{
-		addr:    addr,
-		botInfo: botInfo,
+		addr:       addr,
+		botInfo:    botInfo,
+		workers:    workers,
+		bufferSize: bufferSize,
 	}
 }
 
@@ -98,7 +126,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		defer a.wg.Done()
 		logrus.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
 
-		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logrus.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
 		}
 	}()

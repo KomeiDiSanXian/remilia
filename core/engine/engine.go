@@ -61,6 +61,8 @@ func NewEngine(options ...Option) *Engine {
 	e.services.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
 	e.services.tempManager = newTempMatcherManager()
 	e.services.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
+	e.services.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
+	e.services.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
 
 	// 初始化不可变状态
 	e.state.Store(newEngineState())

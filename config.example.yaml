@@ -100,8 +100,21 @@ middleware:
 
   # 限流中间件（令牌桶算法）
   rate_limit: false
-  rate_limit_rate: 100   # 每秒生成的令牌数
-  rate_limit_burst: 200  # 令牌桶容量（允许突发）
+  rate_limit_rate: 100                      # 每秒生成的令牌数
+  rate_limit_burst: 200                     # 令牌桶容量（允许突发）
+  rate_limit_max_buckets: 10000             # 限流桶数量上限
+  rate_limit_bucket_ttl: "10m"              # 限流桶过期时间
+  rate_limit_cleanup_interval: "5m"         # 限流桶清理间隔
+
+  # 去重中间件
+  dedup_enable: false
+  dedup_max_size: 10000                     # 最大缓存条目数
+  dedup_default_ttl: "5m"                   # 默认去重 TTL
+  dedup_cleanup_interval: "1m"              # 清理间隔
+
+  # 慢处理器中间件（用于监控和调试）
+  slow_handler_enable: false
+  slow_handler_threshold: "1s"              # 慢处理阈值
 
   # 指标收集中间件（Prometheus）
   # v0.7.1+ 支持 Prometheus 集成
@@ -138,6 +151,10 @@ webhook:
   # 推荐值: 1000-5000（根据流量调整）
   event_buffer: 1000
 
+  # 并发事件处理的 worker 数量
+  # 0 表示使用 CPU 核心数，推荐值: 4-16（根据并发需求调整）
+  worker_count: 0
+
   # 是否启用事件去重
   # v0.7.0+ 使用 BigCache 实现高效去重
   dedup_enable: true
@@ -162,17 +179,108 @@ webhook:
   # 推荐值: 50-200 MB
   dedup_hard_max_size: 100
 
+  # BigCache 窗口内最大条目数
+  # 推荐值: 600000（默认 1000*10*60）
+  dedup_max_entries_in_window: 600000
+
+# ====================================
+# Token 管理器配置（可选）
+# ====================================
+token:
+  # Token 获取失败重试延迟
+  # 格式: "5s", "10s", "30s" 等
+  retry_delay: "10s"
+
+  # 提前多久刷新 Token
+  # 格式: "30s", "1m", "2m" 等
+  refresh_advance: "30s"
+
+  # 最小刷新时间比例（expires_in * ratio）
+  # 如果 expires_in 小于 2*refresh_advance，则使用此比例计算刷新时间
+  min_refresh_ratio: 0.5
+
+# ====================================
+# Engine 引擎配置（可选）
+# ====================================
+engine:
+  # 临时 Matcher 清理间隔
+  # 格式: "1m", "5m", "10m" 等
+  temp_matcher_cleanup_interval: "5m"
+
+  # 批量删除通道大小
+  # 推荐值: 1000-10000（根据 Matcher 创建频率调整）
+  pending_delete_buffer_size: 1000
+
+  # 批量删除处理间隔
+  # 格式: "50ms", "100ms", "200ms" 等
+  pending_delete_process_interval: "100ms"
+
+  # 每次批量删除数量
+  # 推荐值: 100-1000
+  pending_delete_batch_size: 1000
+
+  # Matcher 池初始容量
+  # 推荐值: 16-64
+  matcher_pool_capacity: 16
+
+  # Matcher 池最大容量
+  # 推荐值: 1024-4096
+  matcher_pool_max_capacity: 1024
+
+  # 临时 Matcher 分片数
+  # 推荐值: 8-32（2的幂次）
+  temp_matcher_shard_count: 8
+
+# ====================================
+# 自适应降级配置（高级功能，可选）
+# ====================================
+degradation:
+  # 是否启用自适应降级
+  enable: false
+
+  # CPU 使用率阈值（百分比，0-100）
+  # 超过此值开始降级
+  cpu_threshold: 80.0
+
+  # 内存使用率阈值（百分比，0-100）
+  memory_threshold: 85.0
+
+  # 延迟阈值
+  # 格式: "100ms", "500ms", "1s" 等
+  latency_threshold: "500ms"
+
+  # 监控间隔
+  # 格式: "1s", "5s", "10s" 等
+  monitor_interval: "5s"
+
+  # 恢复检查间隔
+  # 格式: "5s", "10s", "30s" 等
+  recovery_interval: "10s"
+
+  # 延迟队列大小（延迟策略使用）
+  delay_queue_size: 1000
+
+  # 协程数量阈值
+  goroutine_threshold: 10000
+
+  # 降级策略: drop（丢弃）, delay（延迟）, simplify（简化）
+  strategy: "drop"
+
 # ====================================
 # 配置说明
 # ====================================
 # 1. 必填配置: bot, server, log
-# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook
+# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation
 # 3. 环境变量支持:
 #    - BOT_APP_ID
 #    - BOT_BOT_ID
 #    - BOT_TOKEN
 #    - BOT_SECRET
 # 4. 配置热重载: 使用 config.Watch() 监听配置变更
+# 5. 性能调优:
+#    - webhook.worker_count: 控制并发处理能力（测试显示8并发可达6127 msg/s）
+#    - webhook.event_buffer: 控制事件缓冲区大小
+#    - engine.*: 控制引擎内部行为和性能
 #
-# 详细文档: docs/CONFIG.md
+# 详细文档: docs/CONFIG.md, docs/CONFIGURATION_IMPROVEMENTS.md
 

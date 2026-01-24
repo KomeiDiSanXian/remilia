@@ -4,22 +4,32 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add throughput benchmarking tool with configurable parameters and performance metrics">
-      <change afterPath="$PROJECT_DIR$/docs/CODE_AUDIT_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CONCURRENT_EVENT_PROCESSING.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/INDEX.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/LIMIT_TEST_UPDATE.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_ANALYSIS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/PROJECT_SUMMARY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/QUICKREF.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/QUICK_START_LIMIT_TEST.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/TEST_RESULTS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/benchmark/THROUGHPUT_LIMIT_RESULTS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/test/FIX_GUIDE.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework">
+      <change afterPath="$PROJECT_DIR$/docs/CODE_INTEGRATION_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_IMPROVEMENTS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_INDEX.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_MIGRATION.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_QUICKREF.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_SUMMARY.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_CONFUSION_ANALYSIS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_REFACTOR_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/MEDIUM_PRIORITY_CONFIG_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/REMAINING_CONFIGURATION_TASKS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/config-integration/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/config-integration/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CODE_REVIEW_ANALYSIS.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/CODE_REVIEW_ANALYSIS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.example.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/config.example.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/server/http.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/http.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/slow_handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/slow_handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -78,34 +88,34 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "DefaultGoTemplateProperty": "Go File",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.GoLinterPluginOnboarding": "true",
-    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "git-widget-placeholder": "master",
-    "go.import.settings.migrated": "true",
-    "go.sdk.automatically.set": "true",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "E:/project/Go/remilia",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "run.code.analysis.last.selected.profile": "pProject Default",
-    "run.configurations.included.in.services": "true",
-    "settings.editor.selected.configurable": "com.github.copilot.settings.completions.CompletionsConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;E:/project/Go/remilia&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
+    &quot;run.configurations.included.in.services&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.github.copilot.settings.completions.CompletionsConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="E:\project\Go\remilia\docs" />
@@ -219,7 +229,8 @@
     <MESSAGE value="refactor: enhance Bot and WebhookServerAdapter with token manager and concurrent event handling" />
     <MESSAGE value="typo: add comment for default worker configuration in WebhookServerAdapter" />
     <MESSAGE value="feat: add throughput benchmarking tool with configurable parameters and performance metrics" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add throughput benchmarking tool with configurable parameters and performance metrics" />
+    <MESSAGE value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
+    <option name="LAST_COMMIT_MESSAGE" value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

@@ -262,6 +262,30 @@ var (
 	rateLimitCleanupInterval = 5 * time.Minute
 )
 
+// RateLimitConfig 限流配置
+type RateLimitConfig struct {
+	// MaxBuckets 最大桶数量，超过后淘汰最久未访问的桶
+	// 默认: 10000
+	MaxBuckets int
+
+	// BucketTTL 桶过期时间
+	// 默认: 10 分钟
+	BucketTTL time.Duration
+
+	// CleanupInterval 清理间隔
+	// 默认: 5 分钟
+	CleanupInterval time.Duration
+}
+
+// DefaultRateLimitConfig 返回默认限流配置
+func DefaultRateLimitConfig() RateLimitConfig {
+	return RateLimitConfig{
+		MaxBuckets:      rateLimitMaxBuckets,
+		BucketTTL:       rateLimitBucketTTL,
+		CleanupInterval: rateLimitCleanupInterval,
+	}
+}
+
 // RateLimitTokenBucket 创建一个令牌桶限流中间件
 //
 // 使用示例:
@@ -276,11 +300,25 @@ var (
 //	    return ctx.GetAuthor() // 返回用户 ID
 //	}))
 func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*eventctx.Context) string) eventctx.Middleware {
+	return RateLimitTokenBucketWithConfig(DefaultRateLimitConfig(), ratePerSec, burst, keyFn)
+}
+
+// RateLimitTokenBucketWithConfig 使用指定配置创建令牌桶限流中间件
+func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burst int, keyFn func(*eventctx.Context) string) eventctx.Middleware {
 	if ratePerSec <= 0 {
 		ratePerSec = 1
 	}
 	if burst <= 0 {
 		burst = 1
+	}
+	if config.MaxBuckets <= 0 {
+		config.MaxBuckets = rateLimitMaxBuckets
+	}
+	if config.BucketTTL <= 0 {
+		config.BucketTTL = rateLimitBucketTTL
+	}
+	if config.CleanupInterval <= 0 {
+		config.CleanupInterval = rateLimitCleanupInterval
 	}
 
 	shared := rate.NewLimiter(rate.Limit(ratePerSec), burst)
@@ -296,18 +334,18 @@ func RateLimitTokenBucket(ratePerSec int, burst int, keyFn func(*eventctx.Contex
 	lastCleanup := time.Now()
 
 	cleanupIfNeeded := func(now time.Time) {
-		if now.Sub(lastCleanup) < rateLimitCleanupInterval {
+		if now.Sub(lastCleanup) < config.CleanupInterval {
 			return
 		}
 		mu.Lock()
 		for k, v := range buckets {
-			if now.Sub(v.lastVisit) > rateLimitBucketTTL {
+			if now.Sub(v.lastVisit) > config.BucketTTL {
 				delete(buckets, k)
 			}
 		}
 		lastCleanup = now
 		// 如果仍超过上限，快速删除少量条目（无需线性排序）
-		for len(buckets) > rateLimitMaxBuckets {
+		for len(buckets) > config.MaxBuckets {
 			for k := range buckets {
 				delete(buckets, k)
 				break

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	appconfig "github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/sirupsen/logrus"
 )
@@ -68,6 +69,46 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 	go filter.cleanup(config.CleanupInterval)
 
 	return filter
+}
+
+// NewDedupFilterFromConfig 从配置创建去重过滤器
+//
+// 使用示例:
+//
+//	cfg, _ := config.LoadDefault()
+//	filter := middleware.NewDedupFilterFromConfig(cfg.Middleware)
+func NewDedupFilterFromConfig(cfg appconfig.MiddlewareConfig) *DedupFilter {
+	maxSize := cfg.DedupMaxSize
+	if maxSize <= 0 {
+		maxSize = 10000
+	}
+
+	defaultTTL := 5 * time.Minute
+	if cfg.DedupDefaultTTL != "" {
+		if d, err := time.ParseDuration(cfg.DedupDefaultTTL); err == nil {
+			defaultTTL = d
+		} else {
+			logrus.WithError(err).Warn("[Dedup] Invalid dedup_default_ttl config, using default 5m")
+		}
+	}
+
+	cleanupInterval := 1 * time.Minute
+	if cfg.DedupCleanupInterval != "" {
+		if d, err := time.ParseDuration(cfg.DedupCleanupInterval); err == nil {
+			cleanupInterval = d
+		} else {
+			logrus.WithError(err).Warn("[Dedup] Invalid dedup_cleanup_interval config, using default 1m")
+		}
+	}
+
+	logrus.Infof("[Dedup] Config: max_size=%d, default_ttl=%v, cleanup_interval=%v",
+		maxSize, defaultTTL, cleanupInterval)
+
+	return NewDedupFilter(DedupConfig{
+		MaxSize:         maxSize,
+		DefaultTTL:      defaultTTL,
+		CleanupInterval: cleanupInterval,
+	})
 }
 
 // CheckDuplicate 检查事件是否重复

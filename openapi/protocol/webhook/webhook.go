@@ -47,54 +47,29 @@ type DedupOptions struct {
 
 // NewWebhook creates a new connection to a webhook server.
 //
+// This is equivalent to NewWithBuffer(ctx, info, 1) with default dedup options.
+//
 // use it like this:
 //
 //	wh := webhook.NewWebhook(ctx, botInfo)
 //	http.HandleFunc("/", wh.Handle)
 func NewWebhook(ctx context.Context, info *dto.BotInfo) *Conn {
-	// 默认配置（生产环境建议使用 NewWithOptions 进行配置）
-	config := bigcache.Config{
-		Shards:           1024,
-		LifeWindow:       5 * time.Minute,
-		CleanWindow:      1 * time.Minute,
-		MaxEntrySize:     4096,
-		HardMaxCacheSize: 1024,
-	}
-
-	bigCache, err := bigcache.New(ctx, config)
-	if err != nil {
-		// 不再直接退出进程，而是记录错误并以降级模式运行（无去重缓存）
-		logrus.WithError(err).Error("[Remilia] Failed to create BigCache, running without dedup cache")
-	}
-	return &Conn{
-		info:      info,
-		eventChan: make(chan *dto.Payload, 1), // Buffered channel to hold events
-		bigCache:  bigCache,                   // 可能为 nil，后续逻辑需判空
-	}
+	return NewWithBuffer(ctx, info, 1)
 }
 
 // NewWithBuffer creates a new connection with specified event channel buffer size.
+//
+// This uses default dedup options with BigCache enabled.
 func NewWithBuffer(ctx context.Context, info *dto.BotInfo, buffer int) *Conn {
-	if buffer <= 0 {
-		buffer = 1
-	}
-	// 默认配置（生产环境建议使用 NewWithOptions 进行配置）
-	config := bigcache.Config{
+	// 使用默认去重配置
+	return NewWithOptions(ctx, info, buffer, DedupOptions{
+		Enable:           true,
 		Shards:           1024,
 		LifeWindow:       5 * time.Minute,
 		CleanWindow:      1 * time.Minute,
 		MaxEntrySize:     4096,
 		HardMaxCacheSize: 1024,
-	}
-	bigCache, err := bigcache.New(ctx, config)
-	if err != nil {
-		logrus.WithError(err).Error("[Remilia] Failed to create BigCache, running without dedup cache")
-	}
-	return &Conn{
-		info:      info,
-		eventChan: make(chan *dto.Payload, buffer),
-		bigCache:  bigCache,
-	}
+	})
 }
 
 // NewWithOptions allows configuring event channel buffer and dedup bigcache
