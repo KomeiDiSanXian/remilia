@@ -185,7 +185,43 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	return true
 }
 
-// Handle 设置 Matcher 的处理函数（无错误返回）
+// Handle 设置 Matcher 的处理函数
+//
+// 此方法用于设置当 Matcher 匹配成功时要执行的处理函数。
+// Handler 接收一个 *context.Context 参数，返回 error。
+//
+// 最佳实践：
+//
+//	建议将 Handle 作为链式调用的最后一步，使代码逻辑更清晰。
+//	配置方法（如 SetDescription、SetPriority、Use）应该在 Handle 之前调用。
+//
+// 推荐用法：
+//
+//	eng.OnCommand("/ping").
+//	    SetDescription("测试连接").
+//	    SetPriority(100).
+//	    Use(middleware.Logging()).
+//	    Handle(func(ctx *context.Context) error {  // ← 最后调用
+//	        return ctx.Reply("Pong!")
+//	    })
+//
+// 分步配置：
+//
+//	m := eng.OnCommand("/admin")
+//	m.SetDescription("管理命令")
+//	m.Use(middleware.RequireAdmin())
+//	m.Handle(func(ctx *context.Context) error {  // ← 最后调用
+//	    return ctx.Reply("Admin panel")
+//	})
+//
+// 注意：
+//
+//	虽然 Handle 返回 *Matcher 支持继续链式调用，但不推荐在 Handle 之后
+//	继续配置其他属性，这会使代码逻辑不清晰。
+//
+// 返回：
+//
+//	返回 *Matcher 以支持链式调用。
 func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	if m.isNoop() {
 		return m

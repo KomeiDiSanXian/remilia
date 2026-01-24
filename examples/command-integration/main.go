@@ -42,6 +42,15 @@ func registerWithOnCommand(eng *engine.Engine) {
 		fmt.Println("Ping command executed")
 		return nil
 	})
+	// 可以直接链式调用
+	eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
+		SetDescription("测试连接").
+		SetUsage("/ping").
+		SetCategory("系统").
+		Handle(func(ctx *context.Context) error {
+			fmt.Println("Ping command executed (chain)")
+			return nil
+		})
 
 	fmt.Println("✅ 注册命令: /ping (OnCommand 自动创建 Definition)")
 }
