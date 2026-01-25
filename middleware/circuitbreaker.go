@@ -45,10 +45,12 @@ type CircuitBreaker struct {
 	config CircuitBreakerConfig
 
 	// 原子操作字段
-	failures     atomic.Int32 // 当前失败次数
-	state        atomic.Value // CircuitBreakerState
-	lastFailure  atomic.Value // time.Time
-	halfOpenReqs atomic.Int32 // 半开状态下的请求数
+	failures        atomic.Int32 // 当前失败次数
+	successes       atomic.Int32 // 半开状态下的连续成功次数
+	state           atomic.Value // CircuitBreakerState
+	lastFailure     atomic.Value // time.Time
+	halfOpenReqs    atomic.Int32 // 半开状态下的请求数
+	halfOpenStarted atomic.Value // time.Time - 半开状态开始时间
 
 	// 保护状态转换的互斥锁
 	mu sync.Mutex
@@ -66,6 +68,15 @@ type CircuitBreakerConfig struct {
 	// 用于测试服务是否恢复，默认为 1
 	HalfOpenMaxRequests int
 
+	// SuccessThreshold 半开状态下连续成功多少次后转为关闭状态
+	// 默认为 1，表示一次成功就关闭
+	SuccessThreshold int
+
+	// HalfOpenTimeout 半开状态的超时时间
+	// 如果在此时间内没有足够的成功请求，重新打开熔断器
+	// 默认为 0，表示不超时
+	HalfOpenTimeout time.Duration
+
 	// OnStateChange 状态变化回调（可选）
 	OnStateChange func(from, to CircuitBreakerState)
 }
@@ -81,12 +92,19 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 	if config.HalfOpenMaxRequests <= 0 {
 		config.HalfOpenMaxRequests = 1
 	}
+	if config.SuccessThreshold <= 0 {
+		config.SuccessThreshold = 1
+	}
+	if config.HalfOpenTimeout <= 0 {
+		config.HalfOpenTimeout = 10 * time.Second // 默认 10 秒
+	}
 
 	cb := &CircuitBreaker{
 		config: config,
 	}
 	cb.state.Store(StateClosed)
 	cb.lastFailure.Store(time.Time{})
+	cb.halfOpenStarted.Store(time.Time{})
 
 	return cb
 }
@@ -138,6 +156,8 @@ func (cb *CircuitBreaker) canExecute() error {
 			// 原子地转换状态并重置计数器
 			cb.state.Store(StateHalfOpen)
 			cb.halfOpenReqs.Store(1) // Count this request
+			cb.successes.Store(0)    // 重置成功计数
+			cb.halfOpenStarted.Store(time.Now())
 
 			logrus.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
 			if cb.config.OnStateChange != nil {
@@ -148,8 +168,22 @@ func (cb *CircuitBreaker) canExecute() error {
 		return fmt.Errorf("circuit breaker is open")
 
 	case StateHalfOpen:
+		// 检查半开状态是否超时
+		halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
+		if !halfOpenStart.IsZero() && cb.config.HalfOpenTimeout > 0 {
+			if time.Since(halfOpenStart) >= cb.config.HalfOpenTimeout {
+				// 半开状态超时，重新打开熔断器
+				cb.state.Store(StateOpen)
+				cb.lastFailure.Store(time.Now())
+				logrus.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
+				if cb.config.OnStateChange != nil {
+					cb.config.OnStateChange(StateHalfOpen, StateOpen)
+				}
+				return fmt.Errorf("circuit breaker is open")
+			}
+		}
+
 		// 半开状态下限制请求数量
-		// 使用原子递增并检查，避免竞态
 		reqs := cb.halfOpenReqs.Add(1)
 		if reqs > int32(cb.config.HalfOpenMaxRequests) {
 			// 超过限制，回退计数
@@ -173,10 +207,22 @@ func (cb *CircuitBreaker) onSuccess() {
 		cb.failures.Store(0)
 
 	case StateHalfOpen:
-		// 半开状态下成功，转为闭合
-		cb.failures.Store(0)
-		cb.setState(StateClosed)
-		logrus.Info("[CircuitBreaker] Service recovered, transitioning to closed state")
+		// 半开状态下成功，增加成功计数
+		successes := cb.successes.Add(1)
+
+		// 检查是否达到成功阈值
+		if successes >= int32(cb.config.SuccessThreshold) {
+			// 达到阈值，转为闭合状态
+			cb.failures.Store(0)
+			cb.successes.Store(0)
+			cb.setState(StateClosed)
+			logrus.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"successes": successes,
+				"threshold": cb.config.SuccessThreshold,
+			}).Debug("[CircuitBreaker] Success in half-open state, waiting for threshold")
+		}
 	}
 }
 
@@ -241,6 +287,7 @@ func CircuitBreakerMiddleware(cb *CircuitBreaker) context.Middleware {
 // Reset 手动重置熔断器
 func (cb *CircuitBreaker) Reset() {
 	cb.failures.Store(0)
+	cb.successes.Store(0)
 	cb.halfOpenReqs.Store(0)
 	cb.setState(StateClosed)
 	logrus.Info("[CircuitBreaker] Manually reset to closed state")
@@ -249,18 +296,23 @@ func (cb *CircuitBreaker) Reset() {
 // Stats 获取熔断器统计信息
 func (cb *CircuitBreaker) Stats() CircuitBreakerStats {
 	lastFail := cb.lastFailure.Load().(time.Time)
+	halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
 	return CircuitBreakerStats{
-		State:        cb.GetState(),
-		Failures:     cb.GetFailures(),
-		LastFailure:  lastFail,
-		HalfOpenReqs: cb.halfOpenReqs.Load(),
+		State:             cb.GetState(),
+		Failures:          cb.GetFailures(),
+		Successes:         cb.successes.Load(),
+		LastFailure:       lastFail,
+		HalfOpenReqs:      cb.halfOpenReqs.Load(),
+		HalfOpenStartTime: halfOpenStart,
 	}
 }
 
 // CircuitBreakerStats 熔断器统计信息
 type CircuitBreakerStats struct {
-	State        CircuitBreakerState
-	Failures     int32
-	LastFailure  time.Time
-	HalfOpenReqs int32
+	State             CircuitBreakerState
+	Failures          int32
+	Successes         int32
+	LastFailure       time.Time
+	HalfOpenReqs      int32
+	HalfOpenStartTime time.Time
 }
