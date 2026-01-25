@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -11,6 +12,31 @@ import (
 )
 
 const tempMatcherShardCount = 8
+
+// TempManagerConfig 临时匹配器管理器配置
+type TempManagerConfig struct {
+	// WatermarkHigh 高水位线，达到后触发清理
+	WatermarkHigh int
+
+	// WatermarkLow 低水位线，清理到这个数量
+	WatermarkLow int
+
+	// CleanupInterval 定期清理间隔
+	CleanupInterval time.Duration
+
+	// EnableAdaptiveCleanup 启用自适应清理
+	EnableAdaptiveCleanup bool
+}
+
+// DefaultTempManagerConfig 返回默认配置
+func DefaultTempManagerConfig() TempManagerConfig {
+	return TempManagerConfig{
+		WatermarkHigh:         10000, // 10K 匹配器触发清理
+		WatermarkLow:          8000,  // 清理到 8K
+		CleanupInterval:       30 * time.Second,
+		EnableAdaptiveCleanup: true,
+	}
+}
 
 // tempMatcherShard holds a subset of temp matchers
 type tempMatcherShard struct {
@@ -31,10 +57,18 @@ func newTempMatcherShard() *tempMatcherShard {
 // tempMatcherManager manage temporary matchers with sharding and optimized insertion
 type tempMatcherManager struct {
 	shards [tempMatcherShardCount]*tempMatcherShard
+	config TempManagerConfig
+	count  int32 // 原子计数，避免频繁加锁统计
 }
 
 func newTempMatcherManager() *tempMatcherManager {
-	tm := &tempMatcherManager{}
+	return newTempMatcherManagerWithConfig(DefaultTempManagerConfig())
+}
+
+func newTempMatcherManagerWithConfig(config TempManagerConfig) *tempMatcherManager {
+	tm := &tempMatcherManager{
+		config: config,
+	}
 	for i := 0; i < tempMatcherShardCount; i++ {
 		tm.shards[i] = newTempMatcherShard()
 	}
@@ -92,10 +126,24 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	}
 
 	shard.byID[matcher] = struct{}{}
+
+	// 增加计数
+	newCount := atomic.AddInt32(&m.count, 1)
+
+	// 检查是否触发水位线清理
+	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh {
+		// 释放锁后触发清理（避免死锁）
+		go m.cleanToWatermark()
+	}
 }
 
 // Count returns the number of temporary matchers
 func (m *tempMatcherManager) Count() int {
+	return int(atomic.LoadInt32(&m.count))
+}
+
+// CountAccurate returns accurate count by scanning all shards (slower)
+func (m *tempMatcherManager) CountAccurate() int {
 	count := 0
 	for i := 0; i < tempMatcherShardCount; i++ {
 		shard := m.shards[i]
@@ -111,7 +159,12 @@ func (m *tempMatcherManager) Remove(matcher *Matcher) {
 	shard := m.getShard(matcher)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
-	m.removeLocked(shard, matcher)
+
+	// Check if it exists before removing
+	if _, exists := shard.byID[matcher]; exists {
+		m.removeLocked(shard, matcher)
+		atomic.AddInt32(&m.count, -1)
+	}
 }
 
 // removeLocked removes matcher assuming lock is held
@@ -215,12 +268,13 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 			if matcher.rt.deleted || (!matcher.rt.expiresAt.IsZero() && now.After(matcher.rt.expiresAt)) {
 				heap.Pop(shard.expiration)
 
-				// Verify it'services still in this shard and in index before removal
+				// Verify services still in this shard and in index before removal
 				// (Handling race where it might have been removed concurrently?
 				// Lock protects us, but deleted flag might be set by Remove)
 				if _, ok := shard.byID[matcher]; ok {
 					m.removeLocked(shard, matcher)
 					expired = append(expired, matcher)
+					atomic.AddInt32(&m.count, -1)
 				}
 			} else {
 				break
@@ -229,6 +283,70 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 		shard.mu.Unlock()
 	}
 	return expired
+}
+
+// cleanToWatermark 清理到低水位线
+func (m *tempMatcherManager) cleanToWatermark() {
+	currentCount := m.Count()
+	if currentCount <= m.config.WatermarkLow {
+		return
+	}
+
+	// 先清理过期的
+	_ = m.CleanExpired() // 忽略返回值，只关心清理动作
+
+	currentCount = m.Count()
+	if currentCount <= m.config.WatermarkLow {
+		return
+	}
+
+	// 如果还是超过低水位线，清理最旧的一些（FIFO）
+	toRemove := currentCount - m.config.WatermarkLow
+	removed := 0
+
+	for i := 0; i < tempMatcherShardCount && removed < toRemove; i++ {
+		shard := m.shards[i]
+		shard.mu.Lock()
+
+		// 收集所有 matcher 并按创建时间排序
+		matchers := make([]*Matcher, 0, len(shard.byID))
+		for matcher := range shard.byID {
+			matchers = append(matchers, matcher)
+		}
+
+		// 按创建时间排序（最旧的在前）
+		sort.Slice(matchers, func(i, j int) bool {
+			return matchers[i].rt.createdAt.Before(matchers[j].rt.createdAt)
+		})
+
+		// 删除最旧的
+		for _, matcher := range matchers {
+			if removed >= toRemove {
+				break
+			}
+			m.removeLocked(shard, matcher)
+			atomic.AddInt32(&m.count, -1)
+			removed++
+		}
+
+		shard.mu.Unlock()
+	}
+}
+
+// GetStats 获取临时匹配器统计信息
+func (m *tempMatcherManager) GetStats() TempManagerStats {
+	return TempManagerStats{
+		Count:         m.Count(),
+		WatermarkHigh: m.config.WatermarkHigh,
+		WatermarkLow:  m.config.WatermarkLow,
+	}
+}
+
+// TempManagerStats 临时匹配器管理器统计信息
+type TempManagerStats struct {
+	Count         int
+	WatermarkHigh int
+	WatermarkLow  int
 }
 
 // matcherHeap implements heap.Interface
