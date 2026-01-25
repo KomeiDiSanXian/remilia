@@ -191,7 +191,14 @@ func (w *Watcher) watchLoop() {
 			// Debounce: reset timer on each event
 			timerMu.Lock()
 			if debounceTimer != nil {
-				debounceTimer.Stop()
+				// Properly stop timer and drain channel to prevent goroutine leak
+				if !debounceTimer.Stop() {
+					// Timer already fired, drain the channel
+					select {
+					case <-debounceTimer.C:
+					default:
+					}
+				}
 			}
 			debounceTimer = time.AfterFunc(w.debounceDelay, func() {
 				if err := w.reload(); err != nil {

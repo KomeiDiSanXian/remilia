@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -120,22 +121,15 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	a.running = true
 	a.mu.Unlock()
 
-	// 启动 HTTP 服务器
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
-		logrus.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
-
-		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
-		}
-	}()
-
-	// 启动事件循环（从 webhook 读取事件并转发给 handler）
-	// 使用多个 worker goroutine 并发处理事件，提升吞吐量
+	// 获取事件流
 	eventStream := a.webhook.EventStream()
 
+	// 先启动事件处理 workers，确保在 HTTP 服务器接收请求前已准备就绪
 	logrus.Infof("[WebhookServerAdapter] Starting %d event workers", a.workers)
+
+	// 使用 channel 等待所有 workers 启动完成
+	workersReady := make(chan struct{})
+	workersStarted := make(chan struct{}, a.workers)
 
 	for i := 0; i < a.workers; i++ {
 		a.wg.Add(1)
@@ -143,6 +137,9 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		go func() {
 			defer a.wg.Done()
 			logrus.Debugf("[WebhookServerAdapter] Event worker #%d started", workerID)
+
+			// 通知 worker 已启动
+			workersStarted <- struct{}{}
 
 			for {
 				select {
@@ -162,6 +159,33 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 			}
 		}()
 	}
+
+	// 等待所有 workers 启动
+	go func() {
+		for i := 0; i < a.workers; i++ {
+			<-workersStarted
+		}
+		close(workersReady)
+	}()
+
+	// 等待 workers 就绪（最多等待 100ms 防止阻塞）
+	select {
+	case <-workersReady:
+		logrus.Debug("[WebhookServerAdapter] All workers ready")
+	case <-time.After(100 * time.Millisecond):
+		logrus.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
+	}
+
+	// 现在启动 HTTP 服务器（workers 已就绪）
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		logrus.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
+
+		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
+		}
+	}()
 
 	logrus.Info("[WebhookServerAdapter] Started successfully")
 	return nil

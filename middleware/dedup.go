@@ -118,52 +118,44 @@ func NewDedupFilterFromConfig(cfg appconfig.MiddlewareConfig) *DedupFilter {
 func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	now := time.Now().Unix()
 
-	d.mu.RLock()
-	expireTime, exists := d.cache[eventID]
-	cacheSize := len(d.cache)
-	d.mu.RUnlock()
+	// 使用单个写锁保护整个操作，避免竞态条件
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	// 检查是否存在且未过期
-	if exists {
+	if expireTime, exists := d.cache[eventID]; exists {
 		if expireTime > now {
 			return true, nil // 重复且未过期
 		}
 		// 已过期，删除
-		d.mu.Lock()
 		delete(d.cache, eventID)
-		d.mu.Unlock()
 	}
 
 	// 检查缓存大小限制
-	if !exists && cacheSize >= d.maxSize {
+	if len(d.cache) >= d.maxSize {
 		// 缓存满载，尝试立即清理过期条目
 		logrus.WithFields(logrus.Fields{
-			"cache_size": cacheSize,
+			"cache_size": len(d.cache),
 			"max_size":   d.maxSize,
 		}).Debug("[Dedup] Cache full, triggering immediate cleanup")
 
-		d.cleanExpired()
+		// 清理过期条目（已持有锁）
+		d.cleanExpiredLocked(now)
 
-		// 重新检查大小
-		d.mu.RLock()
-		cacheSize = len(d.cache)
-		d.mu.RUnlock()
-
-		if cacheSize >= d.maxSize {
+		// 再次检查大小
+		if len(d.cache) >= d.maxSize {
 			logrus.WithFields(logrus.Fields{
-				"cache_size": cacheSize,
+				"cache_size": len(d.cache),
 				"max_size":   d.maxSize,
 			}).Warn("[Dedup] Cache still full after cleanup")
-			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", cacheSize, d.maxSize)
+			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", len(d.cache), d.maxSize)
 		}
 
-		logrus.WithField("cache_size", cacheSize).Debug("[Dedup] Cache cleaned, space available")
+		logrus.WithField("cache_size", len(d.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
 	// 添加到缓存
-	d.mu.Lock()
 	d.cache[eventID] = now + int64(d.defaultTTL.Seconds())
-	d.mu.Unlock()
 
 	return false, nil
 }
@@ -186,24 +178,28 @@ func (d *DedupFilter) cleanup(interval time.Duration) {
 // cleanExpired 清理过期条目
 func (d *DedupFilter) cleanExpired() {
 	now := time.Now().Unix()
+
+	d.mu.Lock()
+	d.cleanExpiredLocked(now)
+	d.mu.Unlock()
+}
+
+// cleanExpiredLocked 清理过期条目（内部方法，假设已持有锁）
+func (d *DedupFilter) cleanExpiredLocked(now int64) {
 	toDelete := make([]string, 0)
 
 	// 收集过期的 eventID
-	d.mu.RLock()
 	for eventID, expireTime := range d.cache {
 		if expireTime <= now {
 			toDelete = append(toDelete, eventID)
 		}
 	}
-	d.mu.RUnlock()
 
 	// 删除过期条目
 	if len(toDelete) > 0 {
-		d.mu.Lock()
 		for _, eventID := range toDelete {
 			delete(d.cache, eventID)
 		}
-		d.mu.Unlock()
 
 		logrus.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
 	}
