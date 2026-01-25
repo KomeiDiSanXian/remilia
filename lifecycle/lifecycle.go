@@ -108,7 +108,7 @@ func (m *Manager) Start(ctx context.Context) error {
 				Error("[Lifecycle] Component start failed")
 
 			// 启动失败，回滚已启动的组件
-			m.rollbackStart(ctx, components[:i])
+			m.rollbackStart(components[:i])
 
 			m.mu.Lock()
 			m.state = StateFailed
@@ -194,7 +194,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 // rollbackStart 回滚已启动的组件
 // 使用独立的超时 context 避免被父 context 取消影响
-func (m *Manager) rollbackStart(ctx context.Context, components []Component) {
+func (m *Manager) rollbackStart(components []Component) {
 	logrus.WithField("count", len(components)).Warn("[Lifecycle] Rolling back started components")
 
 	// 使用独立的超时 context，确保回滚有足够时间完成
@@ -208,17 +208,20 @@ func (m *Manager) rollbackStart(ctx context.Context, components []Component) {
 
 		// 为每个组件创建子 context，避免单个组件阻塞整个回滚
 		compCtx, compCancel := context.WithTimeout(rollbackCtx, 10*time.Second)
-		err := comp.Stop(compCtx)
-		compCancel()
+		// 使用 defer 确保即使 comp.Stop() panic 也能释放 context
+		func() {
+			defer compCancel()
+			err := comp.Stop(compCtx)
 
-		if err != nil {
-			logrus.WithError(err).
-				WithField("component", comp.Name()).
-				Error("[Lifecycle] Component rollback failed")
-			rollbackErrors = append(rollbackErrors, err)
-		} else {
-			logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component rolled back successfully")
-		}
+			if err != nil {
+				logrus.WithError(err).
+					WithField("component", comp.Name()).
+					Error("[Lifecycle] Component rollback failed")
+				rollbackErrors = append(rollbackErrors, err)
+			} else {
+				logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component rolled back successfully")
+			}
+		}()
 	}
 
 	if len(rollbackErrors) > 0 {

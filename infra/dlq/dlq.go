@@ -135,6 +135,7 @@ func (dlq *DeadLetterQueue) worker(id int) {
 }
 
 func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
+	// 检查队列是否已关闭
 	if dlq.queueClosed.Load() {
 		dlq.dropped.Add(1)
 		if dlq.config.OnDropped != nil {
@@ -145,10 +146,30 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 
 	// DropPolicyBlockUntilSpace 需要阻塞等待，直接尝试发送
 	if dlq.config.DropPolicy == DropPolicyBlockUntilSpace {
-		ctx, cancel := context.WithTimeout(dlq.ctx, 30*time.Second)
+		// 使用较短的超时时间，避免在关闭时长时间阻塞
+		ctx, cancel := context.WithTimeout(dlq.ctx, 5*time.Second)
 		defer cancel()
+
+		// 使用 defer recover 防止 send on closed channel panic
+		defer func() {
+			if r := recover(); r != nil {
+				// Channel 已关闭，记录为 dropped
+				dlq.dropped.Add(1)
+				if dlq.config.OnDropped != nil {
+					dlq.config.OnDropped(item, "queue closed during send")
+				}
+			}
+		}()
+
 		select {
 		case dlq.queue <- item:
+			return
+		case <-dlq.ctx.Done():
+			// DLQ 正在关闭，立即返回
+			dlq.dropped.Add(1)
+			if dlq.config.OnDropped != nil {
+				dlq.config.OnDropped(item, "queue closing")
+			}
 			return
 		case <-ctx.Done():
 			dlq.dropped.Add(1)

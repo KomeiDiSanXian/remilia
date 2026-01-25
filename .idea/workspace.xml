@@ -4,14 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add critical issues reference guide and configuration integration examples">
-      <change afterPath="$PROJECT_DIR$/BUG_FIX_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/TEST_FIX.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/dedup_race_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: resolve race condition in deduplication logic and improve cache management">
+      <change afterPath="$PROJECT_DIR$/DLQ_TESTS_FIX_COMPLETE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/lifecycle/lifecycle_context_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/ratelimit_race_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -194,7 +195,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: optimize middleware state management and caching" />
     <MESSAGE value="fix: synchronize access time update to prevent race conditions" />
     <MESSAGE value="refactor: implement eviction logic for rate limit token buckets" />
     <MESSAGE value="fix: improve HTTP server shutdown logic with caller's context timeout" />
@@ -219,7 +219,8 @@
     <MESSAGE value="test: add comprehensive tests for handler composition, middleware, parallel execution, and conditional handling" />
     <MESSAGE value="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting" />
     <MESSAGE value="feat: add critical issues reference guide and configuration integration examples" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add critical issues reference guide and configuration integration examples" />
+    <MESSAGE value="fix: resolve race condition in deduplication logic and improve cache management" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: resolve race condition in deduplication logic and improve cache management" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

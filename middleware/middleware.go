@@ -366,33 +366,23 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 
 			lim := shared
 			if key != "" {
-				// 先尝试读取
-				mu.RLock()
+				// 使用单个写锁保护整个 get-update-create 操作，避免竞态条件
+				mu.Lock()
 				entry, ok := buckets[key]
-				mu.RUnlock()
-
 				if ok {
+					// 已存在，更新访问时间
+					entry.lastVisit = now
 					lim = entry.lim
-					// 更新访问时间（需要写锁）
-					mu.Lock()
-					if e := buckets[key]; e != nil {
-						e.lastVisit = now
-					}
-					mu.Unlock()
 				} else {
-					// 不存在则创建（需要写锁）
-					mu.Lock()
-					// 双重检查，避免重复创建
-					if e, ok := buckets[key]; ok {
-						lim = e.lim
-						e.lastVisit = now
-					} else {
-						b := &bucketEntry{lim: rate.NewLimiter(rate.Limit(ratePerSec), burst), lastVisit: now}
-						buckets[key] = b
-						lim = b.lim
+					// 不存在，创建新的
+					entry = &bucketEntry{
+						lim:       rate.NewLimiter(rate.Limit(ratePerSec), burst),
+						lastVisit: now,
 					}
-					mu.Unlock()
+					buckets[key] = entry
+					lim = entry.lim
 				}
+				mu.Unlock()
 			}
 
 			if !lim.Allow() {
