@@ -84,9 +84,11 @@ func newMiddlewareState() *middlewareState {
 }
 
 // copyEngineState 深拷贝引擎状态
+// 使用 COW 策略，共享底层数组以减少内存分配
 func copyEngineState(src *engineState) *engineState {
 	dst := &engineState{
-		matchers:     make([]*Matcher, len(src.matchers)),
+		// 使用 append 共享底层数组，只在修改时才会复制
+		matchers:     src.matchers[:len(src.matchers):len(src.matchers)],
 		matcherIndex: make(map[dto.EventType][]*Matcher, len(src.matcherIndex)),
 		commandIndex: make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex)),
 		groupIndex:   make(map[string][]*Matcher, len(src.groupIndex)),
@@ -95,59 +97,53 @@ func copyEngineState(src *engineState) *engineState {
 		maxMatchers:  src.maxMatchers,
 	}
 
-	// 复制 matchers 切片
-	copy(dst.matchers, src.matchers)
-
-	// 复制 matcherIndex map
+	// 复制 matcherIndex map - 使用 reslice 共享底层数组
 	for k, v := range src.matcherIndex {
-		dst.matcherIndex[k] = append([]*Matcher(nil), v...)
+		// 通过限制容量，确保 append 会触发新分配（真正的 COW）
+		dst.matcherIndex[k] = v[:len(v):len(v)]
 	}
 
-	// 复制 commandIndex map (Deep copy)
-	dst.commandIndex = make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex))
+	// 复制 commandIndex map (使用共享数组)
 	for cmd, eventMap := range src.commandIndex {
 		newEventMap := make(map[dto.EventType][]*Matcher, len(eventMap))
 		for et, matchers := range eventMap {
-			newEventMap[et] = append([]*Matcher(nil), matchers...)
+			newEventMap[et] = matchers[:len(matchers):len(matchers)]
 		}
 		dst.commandIndex[cmd] = newEventMap
 	}
 
-	// 复制 groupIndex map
+	// 复制 groupIndex map - 共享底层数组
 	for k, v := range src.groupIndex {
-		dst.groupIndex[k] = append([]*Matcher(nil), v...)
+		dst.groupIndex[k] = v[:len(v):len(v)]
 	}
 
-	// 复制 sortedCache map
+	// 复制 sortedCache map - 共享底层数组
 	for k, v := range src.sortedCache {
-		dst.sortedCache[k] = append([]*Matcher(nil), v...)
+		dst.sortedCache[k] = v[:len(v):len(v)]
 	}
 
 	return dst
 }
 
 // copyMiddlewareState 深拷贝中间件状态
+// 使用 COW 策略，共享底层数组以减少内存分配
 func copyMiddlewareState(src *middlewareState) *middlewareState {
 	dst := &middlewareState{
 		global: middlewareSnapshot{
-			chain: make([]Middleware, len(src.global.chain)),
+			// 共享底层数组，限制容量实现 COW
+			chain: src.global.chain[:len(src.global.chain):len(src.global.chain)],
 			gen:   src.global.gen,
 		},
 		groupMiddlewares: make(map[string]*middlewareSnapshot, len(src.groupMiddlewares)),
 		traceHook:        src.traceHook,
 	}
 
-	// 复制全局中间件
-	copy(dst.global.chain, src.global.chain)
-
-	// 复制分组中间件
+	// 复制分组中间件 - 使用共享数组
 	for k, v := range src.groupMiddlewares {
-		snap := &middlewareSnapshot{
-			chain: make([]Middleware, len(v.chain)),
+		dst.groupMiddlewares[k] = &middlewareSnapshot{
+			chain: v.chain[:len(v.chain):len(v.chain)],
 			gen:   v.gen,
 		}
-		copy(snap.chain, v.chain)
-		dst.groupMiddlewares[k] = snap
 	}
 
 	return dst
@@ -214,12 +210,22 @@ func (s *engineState) addMatcher(m *Matcher) {
 		et := m.EventType
 		s.matcherIndex[et] = append(s.matcherIndex[et], m)
 
-		// 更新排序缓存
+		// 更新排序缓存 - 优化：重用现有 slice 容量
 		matchers := s.matcherIndex[et]
-		sorted := make([]*Matcher, len(matchers))
-		copy(sorted, matchers)
-		sortMatchersByPriority(sorted)
-		s.sortedCache[et] = sorted
+		// 检查是否需要重新分配
+		if cap(s.sortedCache[et]) >= len(matchers) {
+			// 重用现有容量
+			sorted := s.sortedCache[et][:len(matchers)]
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			s.sortedCache[et] = sorted
+		} else {
+			// 需要新分配
+			sorted := make([]*Matcher, len(matchers))
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			s.sortedCache[et] = sorted
+		}
 	}
 
 	// 更新分组索引
@@ -294,10 +300,18 @@ func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
 func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
 	// 重建指定事件类型的缓存
 	if matchers, ok := s.matcherIndex[eventType]; ok {
-		sorted := make([]*Matcher, len(matchers))
-		copy(sorted, matchers)
-		sortMatchersByPriority(sorted)
-		s.sortedCache[eventType] = sorted
+		// 尝试重用现有 slice 容量
+		if existing, exists := s.sortedCache[eventType]; exists && cap(existing) >= len(matchers) {
+			sorted := existing[:len(matchers)]
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			s.sortedCache[eventType] = sorted
+		} else {
+			sorted := make([]*Matcher, len(matchers))
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			s.sortedCache[eventType] = sorted
+		}
 	} else {
 		// 如果该类型没有 matchers，确保从 cache 中移除 (safe delete)
 		delete(s.sortedCache, eventType)
@@ -306,10 +320,17 @@ func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
 	// 如果是具体事件类型，也需要重建通用匹配器缓存
 	if eventType != "" {
 		if matchers, ok := s.matcherIndex[""]; ok {
-			sorted := make([]*Matcher, len(matchers))
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			s.sortedCache[""] = sorted
+			if existing, exists := s.sortedCache[""]; exists && cap(existing) >= len(matchers) {
+				sorted := existing[:len(matchers)]
+				copy(sorted, matchers)
+				sortMatchersByPriority(sorted)
+				s.sortedCache[""] = sorted
+			} else {
+				sorted := make([]*Matcher, len(matchers))
+				copy(sorted, matchers)
+				sortMatchersByPriority(sorted)
+				s.sortedCache[""] = sorted
+			}
 		}
 	}
 }
