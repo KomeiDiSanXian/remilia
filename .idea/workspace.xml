@@ -4,58 +4,27 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance error handling by adding new error types for core engine, adapters, plugins, and webhooks">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting">
+      <change afterPath="$PROJECT_DIR$/CODE_REVIEW_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/CRITICAL_ISSUES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/IMPROVEMENT_TASKS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/BUILTIN_PLUGINS_DESIGN.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CODE_AUDIT_AND_IMPROVEMENT_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CODE_INTEGRATION_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/COMMAND_ALIAS_CONFLICT_ANALYSIS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/COMMAND_INTEGRATION_COMPLETED.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/COMMAND_INTEGRATION_PLAN.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_IMPROVEMENTS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_INDEX.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_MIGRATION.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_QUICKREF.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CONFIGURATION_SUMMARY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_CONFUSION_ANALYSIS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CONSTRUCTOR_REFACTOR_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CONTEXT_NIL_FIX_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/DLQ_DEADLOCK_FIX_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/ERROR_HANDLING_ANALYSIS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/ERROR_HANDLING_COMPLETION_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/HANDLE_METHOD_DESIGN_ANALYSIS.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/HELP_PLUGIN_DESIGN.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/HELP_PLUGIN_IMPLEMENTATION_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/LIFECYCLE_ROLLBACK_FIX_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/LIFECYCLE_ROLLBACK_TEST_FIX.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/MEDIUM_PRIORITY_CONFIG_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/MEDIUM_PRIORITY_FIXES_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/REFACTOR_FINAL_CLEANUP.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/REFACTOR_REMOVE_COMMAND_FIELD.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/REFACTOR_USE_DEFINITION_DIRECTLY.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/REMAINING_CONFIGURATION_TASKS.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/TEMP_MATCHER_CONCURRENCY_VERIFICATION_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/TEST_FIXES_COMPLETED.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/command-conflict-test/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/MATCHER_CHAINING_BEST_PRACTICES.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/examples/command-integration/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/command-integration/main.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/examples/config-integration/README.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/examples/help-discovery/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/help-discovery/main.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lifecycle/lifecycle_rollback_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/enhanced_system.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/enhanced_system.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_push_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_push_90_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/CODE_AUDIT_REPORT.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/CODE_REVIEW_ANALYSIS.md" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -238,7 +207,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="init" />
     <MESSAGE value="refactor: enhance configuration structure and add Viper support" />
     <MESSAGE value="refactor: optimize middleware state management and caching" />
     <MESSAGE value="fix: synchronize access time update to prevent race conditions" />
@@ -259,7 +227,12 @@
     <MESSAGE value="feat: add token management and engine configuration options in YAML and Go files" />
     <MESSAGE value="feat: implement main bot entry point with configuration loading and token management" />
     <MESSAGE value="feat: enhance error handling by adding new error types for core engine, adapters, plugins, and webhooks" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance error handling by adding new error types for core engine, adapters, plugins, and webhooks" />
+    <MESSAGE value="feat: enhance circuit breaker and DLQ handling with timeout management and improved error handling" />
+    <MESSAGE value="feat: enhance command registration and handling with automatic definition creation and improved metadata management" />
+    <MESSAGE value="feat: add handler composition utilities for chaining, middleware conversion, parallel execution, and conditional handling" />
+    <MESSAGE value="test: add comprehensive tests for handler composition, middleware, parallel execution, and conditional handling" />
+    <MESSAGE value="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
