@@ -35,6 +35,7 @@ type Bot struct {
 
 	mu        sync.RWMutex
 	running   bool
+	starting  bool // Prevents concurrent Start() calls
 	startTime time.Time
 	stopTime  time.Time
 }
@@ -135,6 +136,12 @@ func (b *Bot) Start() error {
 		logger.Warn("[Bot] Already running")
 		return nil
 	}
+	if b.starting {
+		b.mu.Unlock()
+		logger.Warn("[Bot] Already starting")
+		return nil
+	}
+	b.starting = true
 	b.mu.Unlock()
 
 	logger.WithFields(logger.Fields{
@@ -146,13 +153,18 @@ func (b *Bot) Start() error {
 	ctx := context.Background()
 	if err := b.lifecycle.Start(ctx); err != nil {
 		logger.WithError(err).Error("[Bot] Failed to start")
+		// 启动失败，清除 starting 标志
+		b.mu.Lock()
+		b.starting = false
+		b.mu.Unlock()
 		return err
 	}
 
-	// 启动成功后才设置状态，避免状态不一致
+	// 启动成功后设置状态并清除 starting 标志
 	b.mu.Lock()
 	b.running = true
 	b.startTime = time.Now()
+	b.starting = false // 在 running=true 之后清除
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")

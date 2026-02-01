@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -29,10 +30,11 @@ type Webhook interface {
 
 // Conn represents a connection to a webhook server.
 type Conn struct {
-	info      *dto.BotInfo
-	mu        sync.Mutex
-	eventChan chan *dto.Payload
-	bigCache  *bigcache.BigCache
+	info          *dto.BotInfo
+	mu            sync.Mutex
+	eventChan     chan *dto.Payload
+	bigCache      *bigcache.BigCache
+	droppedEvents atomic.Uint64 // Counter for dropped events
 }
 
 // DedupOptions represents the options for deduplication strategy
@@ -255,7 +257,11 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 		case c.eventChan <- payload:
 			logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 		default:
-			logger.Warn("[Webhook] Event channel is full, dropping payload")
+			dropped := c.droppedEvents.Add(1)
+			logger.WithFields(logger.Fields{
+				"payload_id":    payload.ID,
+				"total_dropped": dropped,
+			}).Warn("[Webhook] Event channel is full, dropping payload")
 		}
 		return
 	}
@@ -270,7 +276,11 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	case c.eventChan <- payload:
 		logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 	default:
-		logger.Warn("[Webhook] Event channel is full, dropping payload")
+		dropped := c.droppedEvents.Add(1)
+		logger.WithFields(logger.Fields{
+			"payload_id":    payload.ID,
+			"total_dropped": dropped,
+		}).Warn("[Webhook] Event channel is full, dropping payload")
 	}
 }
 
@@ -293,4 +303,9 @@ func (c *Conn) handleHttpCallbackValidation(payload *dto.Payload, header http.He
 		return nil, fmt.Errorf("failed to unmarshal the validation request: %w", err)
 	}
 	return c.validationACK(req, header)
+}
+
+// GetDroppedEventsCount returns the total number of dropped events
+func (c *Conn) GetDroppedEventsCount() uint64 {
+	return c.droppedEvents.Load()
 }

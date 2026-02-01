@@ -20,6 +20,7 @@ type DedupFilter struct {
 	maxSize     int              // 最大缓存条目数
 	defaultTTL  time.Duration    // 默认过期时间
 	cleanupDone chan struct{}    // 清理器停止信号
+	strictMode  bool             // 严格模式：cache满时是否拒绝事件
 }
 
 // DedupConfig 去重配置
@@ -35,6 +36,12 @@ type DedupConfig struct {
 	// CleanupInterval 清理过期条目的间隔
 	// 默认: 1 分钟
 	CleanupInterval time.Duration
+
+	// StrictMode 严格模式：cache 满时拒绝处理事件而不是允许通过
+	// true: 拒绝事件，返回错误
+	// false: 允许事件通过（可能重复）
+	// 默认: false
+	StrictMode bool
 }
 
 // DefaultDedupConfig 返回默认配置
@@ -63,6 +70,7 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 		maxSize:     config.MaxSize,
 		defaultTTL:  config.DefaultTTL,
 		cleanupDone: make(chan struct{}),
+		strictMode:  config.StrictMode,
 	}
 
 	// 启动后台清理 goroutine
@@ -258,9 +266,16 @@ func Dedup(filter *DedupFilter) context.Middleware {
 
 			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
-				// 缓存满了，记录警告但继续处理
+				// 缓存满了
+				if filter.strictMode {
+					// 严格模式：拒绝事件
+					logger.WithError(err).WithField("event_id", eventID).
+						Error("[Dedup] Cache full in strict mode, rejecting event")
+					return err
+				}
+				// 非严格模式：记录警告但继续处理
 				logger.WithError(err).WithField("event_id", eventID).
-					Warn("[Dedup] Cache full, processing event anyway")
+					Warn("[Dedup] Cache full, processing event anyway (best-effort mode)")
 				return next(ctx)
 			}
 

@@ -140,9 +140,6 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 
 // canExecute 检查是否可以执行请求
 func (cb *CircuitBreaker) canExecute() error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
 	state := cb.GetState()
 
 	switch state {
@@ -153,17 +150,27 @@ func (cb *CircuitBreaker) canExecute() error {
 		// 检查是否可以进入半开状态
 		lastFail := cb.lastFailure.Load().(time.Time)
 		if !lastFail.IsZero() && time.Since(lastFail) >= cb.config.ResetTimeout {
-			// 原子地转换状态并重置计数器
-			cb.state.Store(StateHalfOpen)
-			cb.halfOpenReqs.Store(1) // Count this request
-			cb.successes.Store(0)    // 重置成功计数
-			cb.halfOpenStarted.Store(time.Now())
+			// 尝试转换到半开状态 - 需要使用锁保护这个复杂操作
+			cb.mu.Lock()
+			// 再次检查状态（double-check）
+			if cb.GetState() == StateOpen {
+				// 转换状态
+				cb.state.Store(StateHalfOpen)
+				cb.halfOpenReqs.Store(1) // Count this request
+				cb.successes.Store(0)    // 重置成功计数
+				cb.halfOpenStarted.Store(time.Now())
 
-			logger.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
-			if cb.config.OnStateChange != nil {
-				cb.config.OnStateChange(StateOpen, StateHalfOpen)
+				logger.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
+				if cb.config.OnStateChange != nil {
+					cb.config.OnStateChange(StateOpen, StateHalfOpen)
+				}
+				cb.mu.Unlock()
+				return nil
 			}
-			return nil
+			// 状态已被其他请求改变，释放锁后重新检查
+			cb.mu.Unlock()
+			// 递归重新检查当前状态
+			return cb.canExecute()
 		}
 		return fmt.Errorf("circuit breaker is open")
 
@@ -183,14 +190,18 @@ func (cb *CircuitBreaker) canExecute() error {
 			}
 		}
 
-		// 半开状态下限制请求数量
-		reqs := cb.halfOpenReqs.Add(1)
-		if reqs > int32(cb.config.HalfOpenMaxRequests) {
-			// 超过限制，回退计数
-			cb.halfOpenReqs.Add(-1)
-			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
+		// 半开状态下限制请求数量 - 使用 CAS 确保原子性
+		for {
+			current := cb.halfOpenReqs.Load()
+			if current >= int32(cb.config.HalfOpenMaxRequests) {
+				return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
+			}
+			// 原子地增加计数
+			if cb.halfOpenReqs.CompareAndSwap(current, current+1) {
+				return nil
+			}
+			// CAS 失败，重试
 		}
-		return nil
 
 	default:
 		return fmt.Errorf("unknown circuit breaker state: %s", state)
