@@ -6,7 +6,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Plugin 插件接口
@@ -102,7 +102,7 @@ func (p *BasePlugin) Unload(coordinator *engine.Engine) error {
 // Reload 的默认实现：原子性重载插件（适配 COW Engine）
 //
 // COW Engine 下的实现策略：
-// 1. 保存插件的 matchers 快照和 Coordinator 状态快照
+// 1. 保存插件旧 matchers 快照、Coordinator 状态快照
 // 2. 尝试 Unload（清空 matchers 并删除）
 // 3. 尝试 Load（创建新的 matchers）
 // 4. 如果 Load 失败，通过 Coordinator 的 COW 机制回滚
@@ -115,7 +115,7 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 		return errutil.NewPluginError(p.name, "coordinator is nil")
 	}
 
-	// 1. 保存插件的 matchers 快照
+	// 1. 保存插件旧 matchers 快照
 	p.mu.Lock()
 	oldMatchers := make([]*engine.Matcher, len(p.matchers))
 	copy(oldMatchers, p.matchers)
@@ -133,9 +133,9 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	// 4. 尝试加载新状态
 	if err := p.Load(coordinator); err != nil {
 		// Load 失败，需要回滚
-		logrus.WithError(err).Warn("[Plugin] Load failed during reload, rolling back")
+		logger.WithError(err).Warn("[Plugin] Load failed during reload, rolling back")
 
-		// 恢复插件的 matchers 列表
+		// 恢复插件旧 matchers 列表
 		p.mu.Lock()
 		p.matchers = oldMatchers
 		p.mu.Unlock()
@@ -154,7 +154,7 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	}
 
 	// 5. 成功，旧的 matchers 已经被 Unload 删除，不需要额外清理
-	logrus.WithField("plugin", p.name).Info("[Plugin] Reload successful")
+	logger.WithField("plugin", p.name).Info("[Plugin] Reload successful")
 	return nil
 }
 

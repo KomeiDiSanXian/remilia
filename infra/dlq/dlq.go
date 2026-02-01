@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 type DropPolicy int
@@ -81,19 +81,19 @@ func (dlq *DeadLetterQueue) AddConsumer(consumer DeadLetterConsumer) {
 	snapshot := append([]DeadLetterConsumer(nil), dlq.consumers...)
 	dlq.consumerSnap.Store(snapshot)
 	dlq.mu.Unlock()
-	logrus.WithField("consumer_count", len(snapshot)).Info("[DeadLetterQueue] Consumer added")
+	logger.WithField("consumer_count", len(snapshot)).Info("[DeadLetterQueue] Consumer added")
 }
 
 func (dlq *DeadLetterQueue) Start() {
 	consumers := dlq.consumerSnap.Load().([]DeadLetterConsumer)
 	if len(consumers) == 0 {
-		logrus.Warn("[DeadLetterQueue] No consumers registered, dead letters will be queued but not processed")
+		logger.Warn("[DeadLetterQueue] No consumers registered, dead letters will be queued but not processed")
 	}
 	for i := 0; i < dlq.config.Workers; i++ {
 		dlq.wg.Add(1)
 		go dlq.worker(i)
 	}
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"workers":   dlq.config.Workers,
 		"max_size":  dlq.config.MaxSize,
 		"consumers": len(consumers),
@@ -115,7 +115,7 @@ func (dlq *DeadLetterQueue) worker(id int) {
 				func(c DeadLetterConsumer, it DeadLetterItem) {
 					defer func() {
 						if r := recover(); r != nil {
-							logrus.WithField("worker_id", id).WithField("panic", r).Error("[DeadLetterQueue] Consumer panic recovered")
+							logger.WithField("worker_id", id).WithField("panic", r).Error("[DeadLetterQueue] Consumer panic recovered")
 						}
 					}()
 					c.Consume(it)
@@ -236,7 +236,7 @@ func (dlq *DeadLetterQueue) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		logrus.Warn("[DeadLetterQueue] Stop timeout, some dead letters may not be processed")
+		logger.Warn("[DeadLetterQueue] Stop timeout, some dead letters may not be processed")
 		return ctx.Err()
 	}
 }

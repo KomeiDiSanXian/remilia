@@ -9,7 +9,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"golang.org/x/time/rate"
 )
 
@@ -19,7 +19,7 @@ func Logging() eventctx.Middleware {
 		return func(ctx *eventctx.Context) error {
 			start := time.Now()
 			err := next(ctx)
-			entry := logrus.WithError(err).WithFields(logrus.Fields{
+			entry := logger.WithError(err).WithFields(logger.Fields{
 				"latency": time.Since(start),
 				"type":    ctx.GetEventType(),
 			})
@@ -49,7 +49,7 @@ func Recover() eventctx.Middleware {
 					length := runtime.Stack(stack, false)
 
 					// 记录详细日志
-					logrus.WithFields(logrus.Fields{
+					logger.WithFields(logger.Fields{
 						"panic":      r,
 						"stack":      string(stack[:length]),
 						"event_type": ctx.GetEventType(),
@@ -69,7 +69,7 @@ func Auth(allow func(ctx *eventctx.Context) bool) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if !allow(ctx) {
-				logrus.WithField("user", ctx.GetAuthor()).Warn("unauthorized")
+				logger.WithField("user", ctx.GetAuthor()).Warn("unauthorized")
 				return fmt.Errorf("unauthorized")
 			}
 			return next(ctx)
@@ -129,7 +129,7 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 			case err := <-done:
 				return err
 			case <-timer.C:
-				logrus.WithFields(logrus.Fields{
+				logger.WithFields(logger.Fields{
 					"timeout":    timeout,
 					"event_type": ctx.GetEventType(),
 				}).Warn("[Timeout] Handler execution timeout")
@@ -147,7 +147,7 @@ func Metrics() eventctx.Middleware {
 			err := next(ctx)
 			latency := time.Since(start)
 			// 简单日志打点，生产环境可使用 PrometheusMetrics 中间件
-			logrus.WithError(err).WithField("latency_ms", latency.Milliseconds()).Debug("metrics")
+			logger.WithError(err).WithField("latency_ms", latency.Milliseconds()).Debug("metrics")
 			return err
 		}
 	}
@@ -182,7 +182,7 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 					acquired = true
 				default:
 					atomic.AddUint64(&dropped, 1)
-					logrus.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
 						Warn("[ConcurrencyLimit] Dropped due to concurrency limit")
 					return fmt.Errorf("concurrency limit exceeded (drop)")
 				}
@@ -197,7 +197,7 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 					acquired = true
 				case <-timer.C:
 					atomic.AddUint64(&dropped, 1)
-					logrus.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
 						WithField("timeout", waitTimeout).
 						Warn("[ConcurrencyLimit] Dropped due to wait timeout")
 					return fmt.Errorf("concurrency limit exceeded (timeout)")
@@ -243,7 +243,7 @@ func RequestID() eventctx.Middleware {
 			ctx.Set(CtxKeyRequestID, requestID)
 
 			// 记录日志
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				CtxKeyRequestID: requestID,
 				"event_type":    ctx.GetEventType(),
 			}).Debug("[RequestID] Generated")
@@ -386,7 +386,7 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 			}
 
 			if !lim.Allow() {
-				logrus.WithField("key", key).Warn("[RateLimit] Rate limited")
+				logger.WithField("key", key).Warn("[RateLimit] Rate limited")
 				return fmt.Errorf("rate limited")
 			}
 			return next(ctx)

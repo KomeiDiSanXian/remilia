@@ -6,7 +6,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // RetryConfig 重试配置
@@ -59,7 +59,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 				// 成功执行
 				if err == nil {
 					if attempt > 0 {
-						logrus.WithFields(logrus.Fields{
+						logger.WithFields(logger.Fields{
 							"attempt":    attempt,
 							"event_type": ctx.GetEventType(),
 						}).Info("[Retry] Succeeded after retry")
@@ -71,7 +71,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 
 				// 检查是否应该重试
 				if !cfg.ShouldRetry(err) {
-					logrus.WithError(err).
+					logger.WithError(err).
 						WithField("attempt", attempt).
 						Debug("[Retry] Error not retryable")
 					return err
@@ -79,8 +79,8 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 
 				// 达到最大重试次数
 				if attempt >= cfg.MaxAttempts {
-					logrus.WithError(err).
-						WithFields(logrus.Fields{
+					logger.WithError(err).
+						WithFields(logger.Fields{
 							"max_attempts": cfg.MaxAttempts,
 							"event_type":   ctx.GetEventType(),
 						}).Warn("[Retry] Max attempts reached")
@@ -93,15 +93,15 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 					delay = cfg.BackoffMax
 				}
 
-				logrus.WithError(err).
-					WithFields(logrus.Fields{
+				logger.WithError(err).
+					WithFields(logger.Fields{
 						"attempt": attempt + 1,
 						"delay":   delay,
 					}).Debug("[Retry] Retrying after delay")
 
 				// 等待后重试
 				if !sleepWithContext(ctx.Context(), delay) {
-					logrus.WithFields(logrus.Fields{
+					logger.WithFields(logger.Fields{
 						"attempt":    attempt + 1,
 						"event_type": ctx.GetEventType(),
 					}).Warn("[Retry] Context canceled during backoff")
@@ -176,13 +176,13 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterIte
 				// 非阻塞发送到死信队列
 				select {
 				case deadLetterCh <- item:
-					logrus.WithFields(logrus.Fields{
+					logger.WithFields(logger.Fields{
 						"event_type": ctx.GetEventType(),
 						"source":     source,
 						"attempts":   attempt,
 					}).Warn("[Retry] Event sent to dead letter queue")
 				default:
-					logrus.WithError(err).
+					logger.WithError(err).
 						WithField("event_type", ctx.GetEventType()).
 						Error("[Retry] Dead letter queue full, dropping event")
 				}

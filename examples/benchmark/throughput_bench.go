@@ -12,9 +12,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -183,7 +183,7 @@ func NewThroughputTest(cfg BenchmarkConfig) *ThroughputTest {
 }
 
 func (t *ThroughputTest) Setup() error {
-	logrus.Info("[Benchmark] Setting up test environment...")
+	logger.Info("[Benchmark] Setting up test environment...")
 
 	// 创建 Engine
 	t.engine = engine.NewEngine()
@@ -262,16 +262,16 @@ func (t *ThroughputTest) Setup() error {
 	// 创建 Bot（不使用真实的 Token Manager）
 	t.bot = remilia.NewBot(t.adapter, t.engine)
 
-	logrus.Info("[Benchmark] Setup completed")
+	logger.Info("[Benchmark] Setup completed")
 	return nil
 }
 
 func (t *ThroughputTest) Run() error {
-	logrus.Infof("[Benchmark] Starting throughput test...")
-	logrus.Infof("[Benchmark] Duration: %v", t.config.Duration)
-	logrus.Infof("[Benchmark] Concurrent Clients: %d", t.config.ConcurrentClients)
-	logrus.Infof("[Benchmark] Message Rate per Client: %d msg/s", t.config.MessageRate)
-	logrus.Infof("[Benchmark] Event Type: %s", t.config.EventType)
+	logger.Infof("[Benchmark] Starting throughput test...")
+	logger.Infof("[Benchmark] Duration: %v", t.config.Duration)
+	logger.Infof("[Benchmark] Concurrent Clients: %d", t.config.ConcurrentClients)
+	logger.Infof("[Benchmark] Message Rate per Client: %d msg/s", t.config.MessageRate)
+	logger.Infof("[Benchmark] Event Type: %s", t.config.EventType)
 
 	// 启动 Bot
 	if err := t.bot.Start(); err != nil {
@@ -301,12 +301,12 @@ func (t *ThroughputTest) Run() error {
 	wg.Wait()
 	t.metrics.EndTime = time.Now()
 
-	logrus.Info("[Benchmark] Test completed, waiting for message processing...")
+	logger.Info("[Benchmark] Test completed, waiting for message processing...")
 
 	// 给足够的时间让所有消息处理完成
 	time.Sleep(3 * time.Second)
 
-	logrus.Info("[Benchmark] Test finished (skipping Bot.Stop to avoid WaitGroup issues)")
+	logger.Info("[Benchmark] Test finished (skipping Bot.Stop to avoid WaitGroup issues)")
 
 	// 注意：为了避免 WaitGroup 重用问题，我们不调用 Bot.Stop()
 	// 在多场景测试中，每个场景使用新的实例，旧实例会被垃圾回收
@@ -356,21 +356,21 @@ func (t *ThroughputTest) createTestPayload(clientID, messageID int) *dto.Payload
 }
 
 func (t *ThroughputTest) Cleanup() error {
-	logrus.Info("[Benchmark] Cleaning up resources...")
+	logger.Info("[Benchmark] Cleaning up resources...")
 
 	// 确保 adapter 完全停止
 	if t.adapter != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := t.adapter.Stop(ctx); err != nil {
-			logrus.WithError(err).Warn("[Benchmark] Adapter stop error")
+			logger.WithError(err).Warn("[Benchmark] Adapter stop error")
 		}
 	}
 
 	// 等待一下确保所有 goroutine 退出
 	time.Sleep(500 * time.Millisecond)
 
-	logrus.Info("[Benchmark] Cleanup completed")
+	logger.Info("[Benchmark] Cleanup completed")
 	return nil
 }
 
@@ -426,13 +426,6 @@ func (t *ThroughputTest) PrintResults() {
 }
 
 func main() {
-	// 设置日志级别
-	logrus.SetLevel(logrus.InfoLevel)
-	logrus.SetFormatter(&logrus.TextFormatter{
-		ForceColors:   true,
-		FullTimestamp: true,
-	})
-
 	// 测试场景
 	scenarios := []struct {
 		name   string
@@ -527,23 +520,23 @@ func main() {
 
 		test := NewThroughputTest(scenario.config)
 		if err := test.Setup(); err != nil {
-			logrus.WithError(err).Fatal("Failed to setup test")
+			logger.WithError(err).Fatal("Failed to setup test")
 		}
 
 		if err := test.Run(); err != nil {
-			logrus.WithError(err).Fatal("Failed to run test")
+			logger.WithError(err).Fatal("Failed to run test")
 		}
 
 		test.PrintResults()
 
 		// 清理资源
 		if err := test.Cleanup(); err != nil {
-			logrus.WithError(err).Warn("Failed to cleanup test")
+			logger.WithError(err).Warn("Failed to cleanup test")
 		}
 
 		// 场景间短暂冷却
 		if i < len(scenarios)-1 {
-			logrus.Infof("Waiting for cooldown before next scenario (3s)...")
+			logger.Infof("Waiting for cooldown before next scenario (3s)...")
 			time.Sleep(3 * time.Second)
 		}
 	}

@@ -7,7 +7,7 @@ import (
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // DedupFilter 事件去重过滤器
@@ -88,7 +88,7 @@ func NewDedupFilterFromConfig(cfg appconfig.MiddlewareConfig) *DedupFilter {
 		if d, err := time.ParseDuration(cfg.DedupDefaultTTL); err == nil {
 			defaultTTL = d
 		} else {
-			logrus.WithError(err).Warn("[Dedup] Invalid dedup_default_ttl config, using default 5m")
+			logger.WithError(err).Warn("[Dedup] Invalid dedup_default_ttl config, using default 5m")
 		}
 	}
 
@@ -97,11 +97,11 @@ func NewDedupFilterFromConfig(cfg appconfig.MiddlewareConfig) *DedupFilter {
 		if d, err := time.ParseDuration(cfg.DedupCleanupInterval); err == nil {
 			cleanupInterval = d
 		} else {
-			logrus.WithError(err).Warn("[Dedup] Invalid dedup_cleanup_interval config, using default 1m")
+			logger.WithError(err).Warn("[Dedup] Invalid dedup_cleanup_interval config, using default 1m")
 		}
 	}
 
-	logrus.Infof("[Dedup] Config: max_size=%d, default_ttl=%v, cleanup_interval=%v",
+	logger.Infof("[Dedup] Config: max_size=%d, default_ttl=%v, cleanup_interval=%v",
 		maxSize, defaultTTL, cleanupInterval)
 
 	return NewDedupFilter(DedupConfig{
@@ -134,7 +134,7 @@ func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	// 检查缓存大小限制
 	if len(d.cache) >= d.maxSize {
 		// 缓存满载，尝试立即清理过期条目
-		logrus.WithFields(logrus.Fields{
+		logger.WithFields(logger.Fields{
 			"cache_size": len(d.cache),
 			"max_size":   d.maxSize,
 		}).Debug("[Dedup] Cache full, triggering immediate cleanup")
@@ -144,14 +144,14 @@ func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 
 		// 再次检查大小
 		if len(d.cache) >= d.maxSize {
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"cache_size": len(d.cache),
 				"max_size":   d.maxSize,
 			}).Warn("[Dedup] Cache still full after cleanup")
 			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", len(d.cache), d.maxSize)
 		}
 
-		logrus.WithField("cache_size", len(d.cache)).Debug("[Dedup] Cache cleaned, space available")
+		logger.WithField("cache_size", len(d.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
 	// 添加到缓存
@@ -201,7 +201,7 @@ func (d *DedupFilter) cleanExpiredLocked(now int64) {
 			delete(d.cache, eventID)
 		}
 
-		logrus.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
+		logger.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
 	}
 }
 
@@ -259,14 +259,14 @@ func Dedup(filter *DedupFilter) context.Middleware {
 			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
 				// 缓存满了，记录警告但继续处理
-				logrus.WithError(err).WithField("event_id", eventID).
+				logger.WithError(err).WithField("event_id", eventID).
 					Warn("[Dedup] Cache full, processing event anyway")
 				return next(ctx)
 			}
 
 			if isDup {
 				// 重复事件，阻断处理
-				logrus.WithField("event_id", eventID).
+				logger.WithField("event_id", eventID).
 					Debug("[Dedup] Duplicate event blocked")
 				return nil // 不返回错误，只是跳过处理
 			}
@@ -297,13 +297,13 @@ func DedupWithReject(filter *DedupFilter) context.Middleware {
 			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
 				// 缓存满了，返回错误
-				logrus.WithError(err).WithField("event_id", eventID).
+				logger.WithError(err).WithField("event_id", eventID).
 					Error("[Dedup] Cache full, rejecting event")
 				return err
 			}
 
 			if isDup {
-				logrus.WithField("event_id", eventID).
+				logger.WithField("event_id", eventID).
 					Debug("[Dedup] Duplicate event blocked")
 				return nil
 			}

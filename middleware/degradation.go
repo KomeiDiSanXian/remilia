@@ -7,9 +7,9 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/sirupsen/logrus"
 )
 
 // DegradationStrategy 降级策略
@@ -198,7 +198,7 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 
 	if newLevel != currentLevel {
 		ad.setLevel(newLevel)
-		logrus.WithFields(logrus.Fields{
+		logger.WithFields(logger.Fields{
 			"from":       currentLevel,
 			"to":         newLevel,
 			"cpu":        cpuPercent,
@@ -250,7 +250,7 @@ func (ad *AdaptiveDegradation) calculateLevel(cpuPercent, memPercent float64, go
 func (ad *AdaptiveDegradation) getCPUUsage() float64 {
 	percent, err := cpu.Percent(time.Second, false)
 	if err != nil || len(percent) == 0 {
-		logrus.WithError(err).Debug("[Degradation] Failed to get CPU usage")
+		logger.WithError(err).Debug("[Degradation] Failed to get CPU usage")
 		return 0
 	}
 	return percent[0]
@@ -260,7 +260,7 @@ func (ad *AdaptiveDegradation) getCPUUsage() float64 {
 func (ad *AdaptiveDegradation) getMemoryUsage() float64 {
 	v, err := mem.VirtualMemory()
 	if err != nil {
-		logrus.WithError(err).Debug("[Degradation] Failed to get memory usage")
+		logger.WithError(err).Debug("[Degradation] Failed to get memory usage")
 		return 0
 	}
 	return v.UsedPercent
@@ -294,7 +294,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			// 根据降级级别和事件优先级决定是否处理
 			if ad.shouldDrop(currentLevel, priority) {
 				ad.droppedEvents.Add(1)
-				logrus.WithFields(logrus.Fields{
+				logger.WithFields(logger.Fields{
 					"level":    currentLevel,
 					"priority": priority,
 					"type":     ctx.GetEventType(),
@@ -414,7 +414,7 @@ func (ad *AdaptiveDegradation) Reset() {
 func (ad *AdaptiveDegradation) ForceLevel(level DegradationLevel) {
 	oldLevel := ad.GetLevel()
 	ad.setLevel(level)
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"from": oldLevel,
 		"to":   level,
 	}).Info("[Degradation] Force level change")

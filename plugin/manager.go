@@ -6,7 +6,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // LifecycleListener 插件生命周期监听器接口
@@ -116,14 +116,14 @@ func (pm *Manager) Register(plugin Plugin) error {
 
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		logrus.Warnf("[PluginManager] Plugin %s already registered", name)
+		logger.Warnf("[PluginManager] Plugin %s already registered", name)
 		return errutil.ErrPluginAlreadyExists
 	}
 
 	// 加载插件
 	if err := plugin.Load(pm.coordinator); err != nil {
 		pm.mu.Unlock()
-		logrus.WithError(err).Errorf("[PluginManager] Failed to load plugin %s", name)
+		logger.WithError(err).Errorf("[PluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", err) // 通知监听器错误
 		return err
 	}
@@ -131,7 +131,7 @@ func (pm *Manager) Register(plugin Plugin) error {
 	pm.plugins[name] = plugin
 	pm.mu.Unlock()
 
-	logrus.Infof("[PluginManager] Plugin %s registered", name)
+	logger.Infof("[PluginManager] Plugin %s registered", name)
 	pm.notifyLoaded(name) // 通知监听器（在锁外）
 	return nil
 }
@@ -169,14 +169,14 @@ func (pm *Manager) Unregister(name string) error {
 	plugin, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
-		logrus.Warnf("[PluginManager] Plugin %s not found", name)
+		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
 	// 卸载插件
 	if err := plugin.Unload(pm.coordinator); err != nil {
 		pm.mu.Unlock()
-		logrus.WithError(err).Errorf("[PluginManager] Failed to unload plugin %s", name)
+		logger.WithError(err).Errorf("[PluginManager] Failed to unload plugin %s", name)
 		pm.notifyError(name, "unload", err) // 通知监听器错误
 		return err
 	}
@@ -184,7 +184,7 @@ func (pm *Manager) Unregister(name string) error {
 	delete(pm.plugins, name)
 	pm.mu.Unlock()
 
-	logrus.Infof("[PluginManager] Plugin %s unregistered", name)
+	logger.Infof("[PluginManager] Plugin %s unregistered", name)
 	pm.notifyUnloaded(name) // 通知监听器（在锁外）
 	return nil
 }
@@ -214,22 +214,22 @@ func (pm *Manager) Reload(name string) error {
 	pm.mu.RUnlock()
 
 	if !exists {
-		logrus.Warnf("[PluginManager] Plugin %s not found", name)
+		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
-	logrus.Infof("[PluginManager] Reloading plugin %s", name)
+	logger.Infof("[PluginManager] Reloading plugin %s", name)
 
 	// 调用插件的 Reload 方法，传递 coordinator
 	if err := plugin.Reload(pm.coordinator); err != nil {
-		logrus.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
+		logger.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
 		pm.notifyError(name, "reload", err) // 通知监听器错误
 		// Reload 失败时不删除插件，因为无法判断插件是否实现了原子性重载
 		// 调用方可以根据需要调用 Unregister 来删除插件
 		return err
 	}
 
-	logrus.Infof("[PluginManager] Plugin %s reloaded successfully", name)
+	logger.Infof("[PluginManager] Plugin %s reloaded successfully", name)
 	pm.notifyReloaded(name) // 通知监听器
 	return nil
 }

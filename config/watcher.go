@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/fsnotify/fsnotify"
-	"github.com/sirupsen/logrus"
 )
 
 // ReloadCallback is called when configuration is reloaded
@@ -138,7 +138,7 @@ func (w *Watcher) Stop() error {
 func (w *Watcher) watchLoop() {
 	defer w.wg.Done()
 
-	logrus.WithField("path", w.configPath).Info("[ConfigWatcher] Started watching configuration file")
+	logger.WithField("path", w.configPath).Info("[ConfigWatcher] Started watching configuration file")
 
 	// Debounce timer to avoid multiple reloads
 	var debounceTimer *time.Timer
@@ -158,13 +158,13 @@ func (w *Watcher) watchLoop() {
 			}
 		}
 		timerMu.Unlock()
-		logrus.Debug("[ConfigWatcher] Watch loop cleanup completed")
+		logger.Debug("[ConfigWatcher] Watch loop cleanup completed")
 	}()
 
 	for {
 		select {
 		case <-w.ctx.Done():
-			logrus.Info("[ConfigWatcher] Stopped")
+			logger.Info("[ConfigWatcher] Stopped")
 			return
 
 		case event, ok := <-w.watcher.Events:
@@ -183,7 +183,7 @@ func (w *Watcher) watchLoop() {
 				continue
 			}
 
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"file": event.Name,
 				"op":   event.Op.String(),
 			}).Debug("[ConfigWatcher] File change detected")
@@ -202,7 +202,7 @@ func (w *Watcher) watchLoop() {
 			}
 			debounceTimer = time.AfterFunc(w.debounceDelay, func() {
 				if err := w.reload(); err != nil {
-					logrus.WithError(err).Error("[ConfigWatcher] Failed to reload configuration")
+					logger.WithError(err).Error("[ConfigWatcher] Failed to reload configuration")
 				}
 			})
 			timerMu.Unlock()
@@ -211,7 +211,7 @@ func (w *Watcher) watchLoop() {
 			if !ok {
 				return
 			}
-			logrus.WithError(err).Error("[ConfigWatcher] Watcher error")
+			logger.WithError(err).Error("[ConfigWatcher] Watcher error")
 		}
 	}
 }
@@ -250,12 +250,12 @@ func (w *Watcher) reload() error {
 		w.reloadCount.Add(1)
 
 		duration := time.Since(startTime)
-		logrus.WithFields(logrus.Fields{
+		logger.WithFields(logger.Fields{
 			"duration_ms":  duration.Milliseconds(),
 			"reload_count": w.reloadCount.Load(),
 		}).Info("[ConfigWatcher] Configuration reloaded successfully")
 	} else {
-		logrus.Info("[ConfigWatcher] Configuration validated successfully (validate-only mode)")
+		logger.Info("[ConfigWatcher] Configuration validated successfully (validate-only mode)")
 	}
 
 	return nil
@@ -301,10 +301,10 @@ func WatchWithAutoRestart(configPath string, restartFunc func(*Config) error) (*
 	watcher.AddCallback(func(oldConfig, newConfig *Config) error {
 		// Check if restart is needed (compare critical fields)
 		if needsRestart(oldConfig, newConfig) {
-			logrus.Info("[ConfigWatcher] Configuration change requires restart")
+			logger.Info("[ConfigWatcher] Configuration change requires restart")
 			return restartFunc(newConfig)
 		}
-		logrus.Info("[ConfigWatcher] Configuration change applied without restart")
+		logger.Info("[ConfigWatcher] Configuration change applied without restart")
 		return nil
 	})
 

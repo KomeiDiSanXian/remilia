@@ -52,6 +52,11 @@ type CommandMeta struct {
 	Priority int
 }
 
+// GetCallCount 获取命令的调用次数
+func (cm *CommandMeta) GetCallCount() int64 {
+	return cm.callCount.Load()
+}
+
 // compiledRegistry 是预编译的注册表，用于快速只读访问
 type compiledRegistry struct {
 	commandMap  map[string]*CommandMeta
@@ -412,8 +417,8 @@ func isValidCommandChar(r rune) bool {
 		r == '_' || r == '-'
 }
 
-// max helper function
-func max(a, b int64) int64 {
+// maxInt64 helper function
+func maxInt64(a, b int64) int64 {
 	if a > b {
 		return a
 	}

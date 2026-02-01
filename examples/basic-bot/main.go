@@ -10,19 +10,12 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/global"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
-	// 设置日志级别
-	logrus.SetLevel(logrus.DebugLevel)
-	logrus.SetFormatter(&logrus.TextFormatter{
-		ForceColors:   true,
-		FullTimestamp: true,
-	})
-
 	// 创建 Engine
 	eng := engine.NewEngine()
 
@@ -45,26 +38,26 @@ func main() {
 	bot := remilia.NewBotWithDefault(global.Info)
 
 	// 启动 Bot
-	logrus.Info("Starting bot...")
+	logger.Info("Starting bot...")
 	if err := bot.Start(); err != nil {
-		logrus.WithError(err).Fatal("Failed to start bot")
+		logger.WithError(err).Fatal("Failed to start bot")
 	}
 
-	logrus.Info("Press Ctrl+C to stop")
+	logger.Info("Press Ctrl+C to stop")
 
 	// 等待退出信号
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
-	logrus.Info("Shutting down gracefully...")
+	logger.Info("Shutting down gracefully...")
 	_ = bot.Shutdown()
-	logrus.Info("Bot stopped")
+	logger.Info("Bot stopped")
 }
 
 func registerHandlers(eng *engine.Engine) {
 	eng.Use(middleware.ErrorHandler(func(ctx *eventctx.Context, err error) {
-		logrus.WithError(err).Error("Handler failed")
+		logger.WithError(err).Error("Handler failed")
 	}))
 	// 1. Echo 命令 - 回显用户消息
 	eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(context *eventctx.Context) error {
@@ -131,14 +124,14 @@ func registerHandlers(eng *engine.Engine) {
 	//	// 7. 私聊消息处理器
 	//	eng.OnDirectMessage(func(ctx *eventctx.Context) error {
 	//		text := ctx.GetPlainText()
-	//		logrus.WithField("text", text).Info("Received direct message")
+	//		logger.WithField("text", text).Info("Received direct message")
 	//		return ctx.Reply("你好！这是私聊回复。发送 /help 查看命令列表")
 	//	})
 	//
 	//	// 8. 所有消息的默认处理器（低优先级）
 	//	eng.OnMessage(func(ctx *eventctx.Context) error {
 	//		// 记录日志但不回复
-	//		logrus.WithFields(logrus.Fields{
+	//		logger.WithFields(logger.Fields{
 	//			"type":   ctx.GetEventType(),
 	//			"author": ctx.GetAuthor(),
 	//		}).Debug("Received message")

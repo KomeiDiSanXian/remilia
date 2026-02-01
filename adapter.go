@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
 // Adapter connects an event source to the Bot
@@ -47,7 +47,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
-		logrus.Warn("[Adapter] Already running")
+		logger.Warn("[Adapter] Already running")
 		return nil
 	}
 
@@ -66,16 +66,16 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		logrus.Debug("[Adapter] Event loop started")
+		logger.Debug("[Adapter] Event loop started")
 
 		for {
 			select {
 			case <-a.ctx.Done():
-				logrus.Debug("[Adapter] Context done, stopping event loop")
+				logger.Debug("[Adapter] Context done, stopping event loop")
 				return
 			case event, ok := <-eventCh:
 				if !ok {
-					logrus.Warn("[Adapter] EventStream closed, stopping event loop")
+					logger.Warn("[Adapter] EventStream closed, stopping event loop")
 					return
 				}
 				if event != nil {
@@ -86,14 +86,14 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 		}
 	}()
 
-	logrus.Info("[Adapter] Started successfully")
+	logger.Info("[Adapter] Started successfully")
 	return nil
 }
 
 func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.WithField("panic", r).Error("[Adapter] Handler panic recovered")
+			logger.WithField("panic", r).Error("[Adapter] Handler panic recovered")
 		}
 	}()
 	handler(event)
@@ -104,13 +104,13 @@ func (a *webhookAdapter) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	if !a.running {
 		a.mu.Unlock()
-		logrus.Debug("[Adapter] Not running, nothing to stop")
+		logger.Debug("[Adapter] Not running, nothing to stop")
 		return nil
 	}
 	a.running = false
 	a.mu.Unlock()
 
-	logrus.Info("[Adapter] Stopping...")
+	logger.Info("[Adapter] Stopping...")
 
 	// 1. Signal the event loop to stop
 	if a.cancel != nil {
@@ -126,10 +126,10 @@ func (a *webhookAdapter) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logrus.Info("[Adapter] Stopped successfully")
+		logger.Info("[Adapter] Stopped successfully")
 		return nil
 	case <-ctx.Done():
-		logrus.Warn("[Adapter] Stop timeout, event loop may still be running")
+		logger.Warn("[Adapter] Stop timeout, event loop may still be running")
 		return ctx.Err()
 	}
 }

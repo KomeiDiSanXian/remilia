@@ -7,10 +7,10 @@ import (
 	"net/http"
 
 	"github.com/KomeiDiSanXian/remilia/httpcilent"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -36,7 +36,7 @@ func (api *Client) Post(url string, data any) (gjson.Result, error) {
 		SetJSONBody(data).
 		DoJSON()
 	if err != nil {
-		logrus.WithError(err).WithField("url", url).Error("[OpenAPI] Post failed")
+		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Post failed")
 		return gjson.Result{}, err
 	}
 	return result, nil
@@ -52,14 +52,14 @@ func (api *Client) Delete(url string) (gjson.Result, error) {
 		SetHeader("Content-Type", "application/json").
 		Do()
 	if err != nil {
-		logrus.WithError(err).WithField("url", url).Error("[OpenAPI] Delete failed")
+		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Delete failed")
 		return gjson.Result{}, err
 	}
 	defer func(Body io.ReadCloser) {
 		_ = Body.Close()
 	}(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		logrus.WithField("status", resp.Status).WithField("url", url).Error("[OpenAPI] Delete failed")
+		logger.WithField("status", resp.Status).WithField("url", url).Error("[OpenAPI] Delete failed")
 		return gjson.Result{}, fmt.Errorf("status code not 200: %s", resp.Status)
 	}
 	return httpcilent.ParseJSON(resp.Body)

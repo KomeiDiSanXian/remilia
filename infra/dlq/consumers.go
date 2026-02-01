@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // FileConsumer writes dead letters as JSON lines to a file.
@@ -32,7 +32,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 	// Serialize dead letter
 	b, err := MarshalDeadLetterItem(item)
 	if err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("event_id", string(item.Event.ID)).
 			WithField("event_type", item.Event.Type).
 			Error("[DeadLetter] Failed to marshal dead letter item")
@@ -42,7 +42,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 	// Open file
 	file, err := os.OpenFile(f.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("path", f.Path).
 			WithField("event_id", string(item.Event.ID)).
 			Error("[DeadLetter] Failed to open dead letter file")
@@ -53,7 +53,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 	// Write to file
 	w := bufio.NewWriter(file)
 	if _, err := w.Write(b); err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("path", f.Path).
 			WithField("event_id", string(item.Event.ID)).
 			Error("[DeadLetter] Failed to write dead letter data")
@@ -62,7 +62,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 
 	// Write newline
 	if _, err := w.Write([]byte("\n")); err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("path", f.Path).
 			WithField("event_id", string(item.Event.ID)).
 			Error("[DeadLetter] Failed to write newline")
@@ -71,7 +71,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 
 	// Flush buffer
 	if err := w.Flush(); err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("path", f.Path).
 			WithField("event_id", string(item.Event.ID)).
 			Error("[DeadLetter] Failed to flush buffer")
@@ -79,7 +79,7 @@ func (f FileConsumer) Consume(item DeadLetterItem) {
 	}
 
 	// Success log
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"event_id":   string(item.Event.ID),
 		"event_type": item.Event.Type,
 		"path":       f.Path,
@@ -126,7 +126,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 	// Serialize dead letter
 	b, err := MarshalDeadLetterItem(item)
 	if err != nil {
-		logrus.WithError(err).
+		logger.WithError(err).
 			WithField("event_id", string(item.Event.ID)).
 			WithField("webhook_url", w.URL).
 			Error("[DeadLetter] Failed to marshal dead letter item for webhook")
@@ -145,7 +145,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 			// Exponential backoff
 			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
 			time.Sleep(backoff)
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"attempt":     attempt + 1,
 				"max_retries": maxRetries + 1,
 				"backoff":     backoff,
@@ -156,7 +156,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 		resp, err := client.Post(w.URL, "application/json", bytes.NewReader(b))
 		if err != nil {
 			lastErr = err
-			logrus.WithError(err).
+			logger.WithError(err).
 				WithField("attempt", attempt+1).
 				WithField("webhook_url", w.URL).
 				Warn("[DeadLetter] Webhook request failed")
@@ -167,7 +167,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			// Success
 			resp.Body.Close()
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"event_id":    string(item.Event.ID),
 				"webhook_url": w.URL,
 				"status_code": resp.StatusCode,
@@ -179,7 +179,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 		// Non-2xx response
 		resp.Body.Close()
 		lastErr = fmt.Errorf("webhook returned status %d", resp.StatusCode)
-		logrus.WithFields(logrus.Fields{
+		logger.WithFields(logger.Fields{
 			"status_code": resp.StatusCode,
 			"attempt":     attempt + 1,
 			"webhook_url": w.URL,
@@ -187,8 +187,8 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 	}
 
 	// All retries failed
-	logrus.WithError(lastErr).
-		WithFields(logrus.Fields{
+	logger.WithError(lastErr).
+		WithFields(logger.Fields{
 			"event_id":    string(item.Event.ID),
 			"webhook_url": w.URL,
 			"max_retries": maxRetries + 1,
@@ -225,7 +225,7 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 //	func (k *KafkaConsumer) Consume(item DeadLetterItem) {
 //	    b, err := MarshalDeadLetterItem(item)
 //	    if err != nil {
-//	        logrus.WithError(err).Error("[DeadLetter] Failed to marshal item for Kafka")
+//	        logger.WithError(err).Error("[DeadLetter] Failed to marshal item for Kafka")
 //	        return
 //	    }
 //
@@ -234,11 +234,11 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 //	        Value: b,
 //	    })
 //	    if err != nil {
-//	        logrus.WithError(err).Error("[DeadLetter] Failed to write to Kafka")
+//	        logger.WithError(err).Error("[DeadLetter] Failed to write to Kafka")
 //	        return
 //	    }
 //
-//	    logrus.WithField("event_id", string(item.Event.ID)).
+//	    logger.WithField("event_id", string(item.Event.ID)).
 //	        Debug("[DeadLetter] Dead letter sent to Kafka")
 //	}
 //
@@ -255,7 +255,7 @@ type KafkaConsumer struct {
 // Note: This is a placeholder implementation that only logs a warning.
 // Actual projects need to import a Kafka client library and implement real message sending logic.
 func (k KafkaConsumer) Consume(item DeadLetterItem) {
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"event_id":   string(item.Event.ID),
 		"event_type": item.Event.Type,
 		"brokers":    k.Brokers,

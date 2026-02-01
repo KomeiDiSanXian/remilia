@@ -8,11 +8,10 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-
 	"github.com/KomeiDiSanXian/remilia/httpcilent"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/tidwall/gjson"
 )
 
@@ -65,7 +64,7 @@ func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 		if d, err := time.ParseDuration(cfg.RetryDelay); err == nil {
 			retryDelay = d
 		} else {
-			logrus.WithError(err).Warn("[Token] Invalid retry_delay config, using default 10s")
+			logger.WithError(err).Warn("[Token] Invalid retry_delay config, using default 10s")
 		}
 	}
 
@@ -74,7 +73,7 @@ func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 		if d, err := time.ParseDuration(cfg.RefreshAdvance); err == nil {
 			refreshAdvance = d
 		} else {
-			logrus.WithError(err).Warn("[Token] Invalid refresh_advance config, using default 30s")
+			logger.WithError(err).Warn("[Token] Invalid refresh_advance config, using default 30s")
 		}
 	}
 
@@ -83,7 +82,7 @@ func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 		minRefreshRatio = cfg.MinRefreshRatio
 	}
 
-	logrus.Infof("[Token] Config: retry_delay=%v, refresh_advance=%v, min_refresh_ratio=%.2f",
+	logger.Infof("[Token] Config: retry_delay=%v, refresh_advance=%v, min_refresh_ratio=%.2f",
 		retryDelay, refreshAdvance, minRefreshRatio)
 
 	m := &Manager{
@@ -106,7 +105,7 @@ func (m *Manager) Stop() {
 		m.cancel()
 	}
 	m.wg.Wait() // 等待 goroutine 退出
-	logrus.Info("[Token] Token manager stopped")
+	logger.Info("[Token] Token manager stopped")
 }
 
 // WaitReady 阻塞直到 access token 可用
@@ -153,19 +152,19 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 		// 检查是否需要停止
 		select {
 		case <-m.ctx.Done():
-			logrus.Info("[Token] Auto refresh stopped")
+			logger.Info("[Token] Auto refresh stopped")
 			return
 		default:
 		}
 
 		resp, err := requestToken(info)
 		if err != nil {
-			logrus.WithError(err).Warn("[Token] Failed to get access token")
+			logger.WithError(err).Warn("[Token] Failed to get access token")
 
 			// 失败后等待一段时间再重试，并检查停止信号
 			select {
 			case <-m.ctx.Done():
-				logrus.Info("[Token] Auto refresh stopped during retry wait")
+				logger.Info("[Token] Auto refresh stopped during retry wait")
 				return
 			case <-time.After(m.retryDelay): // 使用配置的重试延迟
 				continue
@@ -183,7 +182,7 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 			m.cond.Broadcast()
 		}
 		m.mu.Unlock()
-		logrus.WithField("access_token", m.accessToken).WithField("expires_in", expiresIn).Debug("[Token] Updated")
+		logger.WithField("access_token", m.accessToken).WithField("expires_in", expiresIn).Debug("[Token] Updated")
 
 		// 计算刷新时间，使用配置的 refreshAdvance
 		refreshAfter := time.Duration(expiresIn)*time.Second - m.refreshAdvance
@@ -192,13 +191,13 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 			refreshAfter = time.Duration(float64(expiresIn) * m.minRefreshRatio * float64(time.Second))
 		}
 
-		logrus.Debugf("[Token] Next refresh in %v (expires_in=%ds, advance=%v)",
+		logger.Debugf("[Token] Next refresh in %v (expires_in=%ds, advance=%v)",
 			refreshAfter, expiresIn, m.refreshAdvance)
 
 		// 等待刷新时间或停止信号
 		select {
 		case <-m.ctx.Done():
-			logrus.Info("[Token] Auto refresh stopped during refresh wait")
+			logger.Info("[Token] Auto refresh stopped during refresh wait")
 			return
 		case <-time.After(refreshAfter):
 			// 继续下一次刷新

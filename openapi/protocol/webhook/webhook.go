@@ -12,11 +12,10 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/allegro/bigcache/v3"
-
 	"github.com/KomeiDiSanXian/remilia/helper"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
+	"github.com/allegro/bigcache/v3"
 )
 
 // Webhook represents a webhook
@@ -90,7 +89,7 @@ func NewWithOptions(ctx context.Context, info *dto.BotInfo, buffer int, opts Ded
 		}
 		bc, err := bigcache.New(ctx, cfg)
 		if err != nil {
-			logrus.WithError(err).Warn("[Remilia] Failed to create BigCache, running without dedup cache")
+			logger.WithError(err).Warn("[Remilia] Failed to create BigCache, running without dedup cache")
 		} else {
 			bigCache = bc
 		}
@@ -129,21 +128,21 @@ func (c *Conn) EventStream() <-chan *dto.Payload {
 // Handle will handle the webhook request.
 func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
-		logrus.Error("[Webhook] Webhook connection is nil")
+		logger.Error("[Webhook] Webhook connection is nil")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	defer func() {
 		if err := r.Body.Close(); err != nil {
-			logrus.WithError(err).Error("[Webhook] Failed to close request body")
+			logger.WithError(err).Error("[Webhook] Failed to close request body")
 		}
 	}()
 
 	// 读取请求体
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		logrus.WithError(err).Error("[Webhook] Failed to read request body")
+		logger.WithError(err).Error("[Webhook] Failed to read request body")
 		if errors.Is(err, io.EOF) {
 			w.WriteHeader(http.StatusBadRequest)
 		} else {
@@ -155,12 +154,12 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	// 验证签名
 	verified, err := c.Verify(r.Header, b)
 	if err != nil {
-		logrus.WithError(err).Error("[Webhook] Failed to verify request signature")
+		logger.WithError(err).Error("[Webhook] Failed to verify request signature")
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
 	if !verified {
-		logrus.Error("[Webhook] Invalid request signature")
+		logger.Error("[Webhook] Invalid request signature")
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -168,12 +167,12 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	// 解析载荷
 	payload := &dto.Payload{Raw: b}
 	if err := json.Unmarshal(b, payload); err != nil {
-		logrus.WithError(err).Error("[Webhook] Failed to unmarshal payload")
+		logger.WithError(err).Error("[Webhook] Failed to unmarshal payload")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"ID":            payload.ID,
 		"Sequence":      payload.Sequence,
 		"Operation":     payload.Operation,
@@ -185,7 +184,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	// 处理操作
 	result, err := c.handleOperation(payload, r.Header)
 	if err != nil {
-		logrus.WithError(err).Error("[Webhook] Failed to handle operation")
+		logger.WithError(err).Error("[Webhook] Failed to handle operation")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -195,7 +194,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 
 func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
 	if result == nil {
-		logrus.Debug("[Webhook] No response needed")
+		logger.Debug("[Webhook] No response needed")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -203,12 +202,12 @@ func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if _, err := w.Write(result); err != nil {
-		logrus.WithError(err).Error("[Webhook] Failed to write response")
+		logger.WithError(err).Error("[Webhook] Failed to write response")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	logrus.WithField("Result", helper.BytesToString(result)).Debug("[Webhook] Response sent")
+	logger.WithField("Result", helper.BytesToString(result)).Debug("[Webhook] Response sent")
 }
 
 func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) ([]byte, error) {
@@ -216,7 +215,7 @@ func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) ([]byte
 	case dto.HTTPCallbackValidation:
 		return c.handleHttpCallbackValidation(payload, header)
 	case dto.HTTPCallbackACK:
-		logrus.Info("[Webhook] Received the ACK from the server")
+		logger.Info("[Webhook] Received the ACK from the server")
 		return nil, nil // no response needed for ACK
 	case dto.Heartbeat:
 		return c.handleHeartbeat(payload)
@@ -224,7 +223,7 @@ func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) ([]byte
 		c.handleDispatch(payload)
 		return nil, nil // no response needed for dispatch
 	default:
-		logrus.Warnf("[Webhook] Received unknown operation code: %d", payload.Operation)
+		logger.Warnf("[Webhook] Received unknown operation code: %d", payload.Operation)
 		return nil, nil // no response needed for unknown operation codes
 	}
 }
@@ -247,36 +246,36 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 }
 
 func (c *Conn) handleDispatch(payload *dto.Payload) {
-	logrus.Debug("[Webhook] Received the event from the server")
+	logger.Debug("[Webhook] Received the event from the server")
 	key := helper.FNVHash(fmt.Sprintf("%s:%s", payload.Type, payload.ID))
 
 	// 如果未启用 bigCache 或配置禁用，直接分发（非阻塞）
 	if c.bigCache == nil {
 		select {
 		case c.eventChan <- payload:
-			logrus.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
+			logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 		default:
-			logrus.Warn("[Webhook] Event channel is full, dropping payload")
+			logger.Warn("[Webhook] Event channel is full, dropping payload")
 		}
 		return
 	}
 
 	if _, err := c.bigCache.Get(key); err == nil {
-		logrus.Tracef("[Webhook] Payload %s already exists in the cache, skipping dispatch", key)
+		logger.Tracef("[Webhook] Payload %s already exists in the cache, skipping dispatch", key)
 		return
 	}
 	_ = c.bigCache.Set(key, payload.Raw)
 
 	select {
 	case c.eventChan <- payload:
-		logrus.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
+		logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 	default:
-		logrus.Warn("[Webhook] Event channel is full, dropping payload")
+		logger.Warn("[Webhook] Event channel is full, dropping payload")
 	}
 }
 
 func (c *Conn) handleHeartbeat(payload *dto.Payload) ([]byte, error) {
-	logrus.Info("[Webhook] Received the heartbeat from the server")
+	logger.Info("[Webhook] Received the heartbeat from the server")
 	result, _ := json.Marshal(struct {
 		Op   dto.OperationCode `json:"op"`
 		Data uint64            `json:"data"`
@@ -288,7 +287,7 @@ func (c *Conn) handleHeartbeat(payload *dto.Payload) ([]byte, error) {
 }
 
 func (c *Conn) handleHttpCallbackValidation(payload *dto.Payload, header http.Header) ([]byte, error) {
-	logrus.Info("[Webhook] Received the validation request from the server")
+	logger.Info("[Webhook] Received the validation request from the server")
 	var req dto.ValidationReq
 	if err := json.Unmarshal(payload.Detail, &req); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal the validation request: %w", err)

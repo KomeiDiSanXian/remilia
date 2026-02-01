@@ -9,7 +9,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // AdaptiveRateLimiter 自适应限流器
@@ -127,7 +127,7 @@ func (arl *AdaptiveRateLimiter) Start() {
 	go arl.adjustLoop()
 	go arl.metricsLoop()
 
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"initial_limit": arl.config.InitialLimit,
 		"min":           arl.config.MinConcurrency,
 		"max":           arl.config.MaxConcurrency,
@@ -138,7 +138,7 @@ func (arl *AdaptiveRateLimiter) Start() {
 func (arl *AdaptiveRateLimiter) Stop() {
 	arl.cancel()
 	arl.wg.Wait()
-	logrus.Info("[AdaptiveRateLimiter] Stopped")
+	logger.Info("[AdaptiveRateLimiter] Stopped")
 }
 
 // Middleware 返回中间件函数
@@ -172,7 +172,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 				// 超过限制，拒绝请求
 				arl.rejectedRequests.Add(1)
 
-				logrus.WithFields(logrus.Fields{
+				logger.WithFields(logger.Fields{
 					"current_limit": arl.maxConcurrency.Load(),
 					"current_load":  arl.currentLoad.Load(),
 					"rejected":      arl.rejectedRequests.Load(),
@@ -217,7 +217,7 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 				arl.adjustLimit(newLimit)
 				lastAdjustTime = time.Now()
 
-				logrus.WithFields(logrus.Fields{
+				logger.WithFields(logger.Fields{
 					"old_limit":      currentLimit,
 					"new_limit":      newLimit,
 					"cpu":            fmt.Sprintf("%.2f%%", cpu*100),
@@ -350,7 +350,7 @@ func (arl *AdaptiveRateLimiter) adjustLimit(newLimit int32) {
 	// 原子替换
 	arl.sema = newSema
 
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"old": oldLimit,
 		"new": newLimit,
 	}).Debug("[AdaptiveRateLimiter] Semaphore adjusted")
@@ -409,14 +409,14 @@ type AdaptiveStats struct {
 // Helper functions
 
 func maxFloat(a, b, c float64) float64 {
-	max := a
-	if b > max {
-		max = b
+	m := a
+	if b > m {
+		m = b
 	}
-	if c > max {
-		max = c
+	if c > m {
+		m = c
 	}
-	return max
+	return m
 }
 
 func maxInt64(a, b int64) int64 {

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // State 生命周期状态
@@ -82,7 +82,7 @@ func (m *Manager) Register(component Component) {
 	defer m.mu.Unlock()
 
 	m.components = append(m.components, component)
-	logrus.WithField("component", component.Name()).Debug("[Lifecycle] Component registered")
+	logger.WithField("component", component.Name()).Debug("[Lifecycle] Component registered")
 }
 
 // Start 启动所有组件
@@ -97,12 +97,12 @@ func (m *Manager) Start(ctx context.Context) error {
 	components := append([]Component(nil), m.components...)
 	m.mu.Unlock()
 
-	logrus.WithField("component_count", len(components)).Info("[Lifecycle] Starting components")
+	logger.WithField("component_count", len(components)).Info("[Lifecycle] Starting components")
 
 	// 按顺序启动所有组件
 	for i, comp := range components {
 		if err := comp.Start(ctx); err != nil {
-			logrus.WithError(err).
+			logger.WithError(err).
 				WithField("component", comp.Name()).
 				WithField("index", i).
 				Error("[Lifecycle] Component start failed")
@@ -117,14 +117,14 @@ func (m *Manager) Start(ctx context.Context) error {
 			return &StartError{Component: comp.Name(), Err: err}
 		}
 
-		logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component started")
+		logger.WithField("component", comp.Name()).Debug("[Lifecycle] Component started")
 	}
 
 	m.mu.Lock()
 	m.state = StateRunning
 	m.mu.Unlock()
 
-	logrus.Info("[Lifecycle] All components started successfully")
+	logger.Info("[Lifecycle] All components started successfully")
 	return nil
 }
 
@@ -140,7 +140,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	components := append([]Component(nil), m.components...)
 	m.mu.Unlock()
 
-	logrus.WithField("component_count", len(components)).Info("[Lifecycle] Stopping components")
+	logger.WithField("component_count", len(components)).Info("[Lifecycle] Stopping components")
 
 	// 按逆序停止所有组件
 	var lastErr error
@@ -150,7 +150,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		// 检查 context 是否已超时
 		select {
 		case <-ctx.Done():
-			logrus.WithError(ctx.Err()).
+			logger.WithError(ctx.Err()).
 				WithField("remaining_components", i+1).
 				Warn("[Lifecycle] Stop timeout, aborting remaining components")
 			m.mu.Lock()
@@ -166,13 +166,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 		compCancel()
 
 		if err != nil {
-			logrus.WithError(err).
+			logger.WithError(err).
 				WithField("component", comp.Name()).
 				Error("[Lifecycle] Component stop failed")
 			lastErr = err
 			// 继续停止其他组件
 		} else {
-			logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component stopped")
+			logger.WithField("component", comp.Name()).Debug("[Lifecycle] Component stopped")
 		}
 	}
 
@@ -188,14 +188,14 @@ func (m *Manager) Stop(ctx context.Context) error {
 		return &StopError{Err: lastErr}
 	}
 
-	logrus.Info("[Lifecycle] All components stopped successfully")
+	logger.Info("[Lifecycle] All components stopped successfully")
 	return nil
 }
 
 // rollbackStart 回滚已启动的组件
 // 使用独立的超时 context 避免被父 context 取消影响
 func (m *Manager) rollbackStart(components []Component) {
-	logrus.WithField("count", len(components)).Warn("[Lifecycle] Rolling back started components")
+	logger.WithField("count", len(components)).Warn("[Lifecycle] Rolling back started components")
 
 	// 使用独立的超时 context，确保回滚有足够时间完成
 	// 即使父 context 已取消，回滚仍应继续
@@ -214,21 +214,21 @@ func (m *Manager) rollbackStart(components []Component) {
 			err := comp.Stop(compCtx)
 
 			if err != nil {
-				logrus.WithError(err).
+				logger.WithError(err).
 					WithField("component", comp.Name()).
 					Error("[Lifecycle] Component rollback failed")
 				rollbackErrors = append(rollbackErrors, err)
 			} else {
-				logrus.WithField("component", comp.Name()).Debug("[Lifecycle] Component rolled back successfully")
+				logger.WithField("component", comp.Name()).Debug("[Lifecycle] Component rolled back successfully")
 			}
 		}()
 	}
 
 	if len(rollbackErrors) > 0 {
-		logrus.WithField("error_count", len(rollbackErrors)).
+		logger.WithField("error_count", len(rollbackErrors)).
 			Error("[Lifecycle] Rollback completed with errors, some resources may not be released")
 	} else {
-		logrus.Info("[Lifecycle] Rollback completed successfully")
+		logger.Info("[Lifecycle] Rollback completed successfully")
 	}
 }
 

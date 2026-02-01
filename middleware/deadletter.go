@@ -3,7 +3,7 @@ package middleware
 import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // DeadLetter 创建死信队列中间件
@@ -28,7 +28,7 @@ func DeadLetter(q *dlq.DeadLetterQueue) context.Middleware {
 				}
 
 				q.Enqueue(item)
-				logrus.WithError(err).WithFields(logrus.Fields{
+				logger.WithError(err).WithFields(logger.Fields{
 					"event_id": item.Event.ID,
 					"source":   source,
 				}).Warn("[DeadLetter] Event sent to dead letter queue")

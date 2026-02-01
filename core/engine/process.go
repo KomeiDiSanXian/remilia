@@ -9,9 +9,9 @@ import (
 	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
 // ProcessEvent 处理事件（COW 无锁读取）
@@ -242,7 +242,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		if r := recover(); r != nil {
 			// 捕获 panic 并转换为错误
 			err = fmt.Errorf("panic in handler: %v", r)
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"panic":      r,
 				"matcher":    m.Source,
 				"event_type": ctx.GetEventType(),
@@ -256,7 +256,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// 记录错误
 	if err != nil {
 		// 默认记录错误日志，防止错误静默
-		logrus.WithError(err).Debugf("[Engine] Handler error in matcher: %services", m.Source)
+		logger.WithError(err).Debugf("[Engine] Handler error in matcher: %services", m.Source)
 
 		// 更新指标（无锁读取）
 		val := e.services.metricsCollector.Load()
@@ -291,7 +291,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 				select {
 				case engine.services.pendingDeleteCh <- m:
 				default:
-					logrus.Debugf("[Engine] Pending delete channel full, matcher %p (source: %services) marked for cleanup", m, m.Source)
+					logger.Debugf("[Engine] Pending delete channel full, matcher %p (source: %services) marked for cleanup", m, m.Source)
 				}
 			}
 			return
@@ -432,7 +432,7 @@ func (e *Engine) cleanExpiredMatchers() {
 		m.rt.mu.Unlock()
 	}
 	if len(tempExpired) > 0 {
-		logrus.Debugf("[Engine] Cleaned %d temp matchers from TempManager", len(tempExpired))
+		logger.Debugf("[Engine] Cleaned %d temp matchers from TempManager", len(tempExpired))
 	}
 }
 

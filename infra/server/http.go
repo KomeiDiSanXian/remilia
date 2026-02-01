@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // HTTPServer encapsulates the http.Server and its lifecycle management.
@@ -55,9 +55,9 @@ func (s *HTTPServer) Start() {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		logrus.Infof("[Server] Listening on %s", s.srv.Addr)
+		logger.Infof("[Server] Listening on %s", s.srv.Addr)
 		if err := s.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Error("[Server] Failed to start HTTP server")
+			logger.WithError(err).Error("[Server] Failed to start HTTP server")
 		}
 	}()
 }
@@ -85,12 +85,12 @@ func (s *HTTPServer) Shutdown(ctx context.Context) error {
 		defer cancel()
 	}
 
-	logrus.Debug("[Server] Shutting down HTTP server...")
+	logger.Debug("[Server] Shutting down HTTP server...")
 	if err := s.srv.Shutdown(shutdownCtx); err != nil {
-		logrus.WithError(err).Warn("[Server] HTTP server shutdown error")
+		logger.WithError(err).Warn("[Server] HTTP server shutdown error")
 		return err
 	}
-	logrus.Debug("[Server] HTTP server closed")
+	logger.Debug("[Server] HTTP server closed")
 
 	// Wait for the server goroutine to exit
 	done := make(chan struct{})

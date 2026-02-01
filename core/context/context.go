@@ -7,9 +7,9 @@ import (
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/command"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
 
@@ -101,7 +101,7 @@ func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.O
 // 用于传递给标准库和第三方库的函数（如 database/sql, http.Client, grpc 等）
 func (ctx *Context) Context() stdctx.Context {
 	if ctx == nil {
-		logrus.Error("[Context] CRITICAL: Context receiver is nil, returning Background()")
+		logger.Error("[Context] CRITICAL: Context receiver is nil, returning Background()")
 		return stdctx.Background()
 	}
 	ctx.ctxMu.RLock()
@@ -110,7 +110,7 @@ func (ctx *Context) Context() stdctx.Context {
 
 	// 正常情况下不应为 nil（NewContext 已初始化）
 	if c == nil {
-		logrus.Warn("[Context] stdctx is unexpectedly nil, returning Background(). This may indicate a bug.")
+		logger.Warn("[Context] stdctx is unexpectedly nil, returning Background(). This may indicate a bug.")
 		return stdctx.Background()
 	}
 	return c
@@ -120,11 +120,11 @@ func (ctx *Context) Context() stdctx.Context {
 // 用于中间件注入自定义 context（如注入 tracing context、超时控制等）
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	if ctx == nil {
-		logrus.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
+		logger.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
 		return
 	}
 	if stdCtx == nil {
-		logrus.Warn("[Context] Attempting to set nil stdctx, using Background() instead")
+		logger.Warn("[Context] Attempting to set nil stdctx, using Background() instead")
 		stdCtx = stdctx.Background()
 	}
 	ctx.ctxMu.Lock()
@@ -268,7 +268,7 @@ func (ctx *Context) Set(key string, value any) {
 		return
 	}
 	if isReservedUserStateKey(key) {
-		logrus.WithField("key", key).Warn("[Context] set reserved extensionState key is forbidden")
+		logger.WithField("key", key).Warn("[Context] set reserved extensionState key is forbidden")
 		return
 	}
 
@@ -289,7 +289,7 @@ func (ctx *Context) Delete(key string) {
 		return
 	}
 	if isReservedUserStateKey(key) {
-		logrus.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
+		logger.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
 		return
 	}
 	s, ok := ExtGet[*extensionState](ctx.Ext())
@@ -340,7 +340,7 @@ var ErrNilAPI = errors.New("openAPI is nil")
 // SendGroupMessage 发送群聊消息
 func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Result, error) {
 	if ctx == nil || ctx.api == nil {
-		logrus.Error("[Context] OpenAPI is nil")
+		logger.Error("[Context] OpenAPI is nil")
 		return gjson.Result{}, ErrNilAPI
 	}
 	return ctx.api.GroupChat(groupID, msg)
@@ -349,7 +349,7 @@ func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Re
 // SendSingleMessage 发送私聊消息
 func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Result, error) {
 	if ctx == nil || ctx.api == nil {
-		logrus.Error("[Context] OpenAPI is nil")
+		logger.Error("[Context] OpenAPI is nil")
 		return gjson.Result{}, ErrNilAPI
 	}
 	return ctx.api.SingleChat(openID, msg)
@@ -359,7 +359,7 @@ func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Re
 func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
 	var event dto.GroupAtMessageCreateEvent
 	if err := ctx.DecodeEvent(&event); err != nil {
-		logrus.WithError(err).Error("[Context] Failed to decode group event")
+		logger.WithError(err).Error("[Context] Failed to decode group event")
 		return gjson.Result{}, err
 	}
 
@@ -374,7 +374,7 @@ func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
 func (ctx *Context) ReplyPrivate(msg *dto.Message) (gjson.Result, error) {
 	var event dto.C2CMessageCreateEvent
 	if err := ctx.DecodeEvent(&event); err != nil {
-		logrus.WithError(err).Error("[Context] Failed to decode c2c event")
+		logger.WithError(err).Error("[Context] Failed to decode c2c event")
 		return gjson.Result{}, err
 	}
 

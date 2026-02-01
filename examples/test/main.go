@@ -6,23 +6,27 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/global"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
+func init() {
+	go func() {
+		err := remilia.StartPprofServer("localhost:9001")
+		if err != nil {
+			logger.WithError(err).Fatal("Failed to start pprof server")
+		}
+	}()
+}
+
 func main() {
-	logrus.SetLevel(logrus.DebugLevel)
-	logrus.SetFormatter(&logrus.TextFormatter{
-		ForceColors:   true,
-		FullTimestamp: true,
-	})
-	// 加载配置·
+	// 加载配置
 	cfg, err := config.LoadDefault()
 	if err != nil {
 		panic("Failed to load config: " + err.Error())
 	}
 	global.MustInitFromConfig(cfg)
-	logrus.Infof("Bot info: %+v", global.Info)
+	logger.Infof("Bot info: %+v", global.Info)
 	// 创建 Engine
 	eng := engine.NewEngine()
 	// 注册处理器
@@ -31,7 +35,7 @@ func main() {
 		if err := ctx.DecodeEvent(&c2c); err != nil {
 			return err
 		}
-		logrus.Infof("Received message: %+v", c2c.Content)
+		logger.Infof("Received message: %+v", c2c.Content)
 		msg := &dto.Message{
 			Type:    dto.TextMessage,
 			Content: "收到消息: " + c2c.Content,
@@ -40,16 +44,16 @@ func main() {
 		return err
 	})
 	// 创建内置 HTTP 服务器的 Webhook 适配器
-	// 使用默认配置 cpu核数的worker：
+	// 使用默认配置 cpu核数的worker
 	adapter := remilia.NewWebhookServerAdapter(":9000", global.Info)
 	// 创建 Bot - 使用 NewBotWithInfo 自动初始化 OpenAPI client
 	bot := remilia.NewBotWithInfo(adapter, eng, global.Info)
 	// 启动 Bot
-	logrus.Info("Starting bot...")
+	logger.Info("Starting bot...")
 	if err := bot.Start(); err != nil {
-		logrus.WithError(err).Fatal("Failed to start bot")
+		logger.WithError(err).Fatal("Failed to start bot")
 	}
-	logrus.Info("Bot is running on :9000")
+	logger.Info("Bot is running on :9000")
 	// 等待退出信号
 	bot.WaitForShutdown()
 }

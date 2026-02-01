@@ -10,9 +10,9 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
-	"github.com/sirupsen/logrus"
 )
 
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器
@@ -73,7 +73,7 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 		bufferSize = 100 // 默认值
 	}
 
-	logrus.Infof("[WebhookServerAdapter] Config: workers=%d, buffer=%d", workers, bufferSize)
+	logger.Infof("[WebhookServerAdapter] Config: workers=%d, buffer=%d", workers, bufferSize)
 
 	return &WebhookServerAdapter{
 		addr:       addr,
@@ -88,7 +88,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
-		logrus.Warn("[WebhookServerAdapter] Already running")
+		logger.Warn("[WebhookServerAdapter] Already running")
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		return errutil.ErrWebhookCreateFailed
 	}
 
-	logrus.Infof("[WebhookServerAdapter] Webhook buffer size: %d", bufferSize)
+	logger.Infof("[WebhookServerAdapter] Webhook buffer size: %d", bufferSize)
 
 	// 创建 HTTP 服务器
 	mux := http.NewServeMux()
@@ -125,7 +125,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	eventStream := a.webhook.EventStream()
 
 	// 先启动事件处理 workers，确保在 HTTP 服务器接收请求前已准备就绪
-	logrus.Infof("[WebhookServerAdapter] Starting %d event workers", a.workers)
+	logger.Infof("[WebhookServerAdapter] Starting %d event workers", a.workers)
 
 	// 使用 channel 等待所有 workers 启动完成
 	workersReady := make(chan struct{})
@@ -136,7 +136,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		workerID := i
 		go func() {
 			defer a.wg.Done()
-			logrus.Debugf("[WebhookServerAdapter] Event worker #%d started", workerID)
+			logger.Debugf("[WebhookServerAdapter] Event worker #%d started", workerID)
 
 			// 通知 worker 已启动
 			workersStarted <- struct{}{}
@@ -144,11 +144,11 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 			for {
 				select {
 				case <-a.ctx.Done():
-					logrus.Debugf("[WebhookServerAdapter] Worker #%d stopping", workerID)
+					logger.Debugf("[WebhookServerAdapter] Worker #%d stopping", workerID)
 					return
 				case event, ok := <-eventStream:
 					if !ok {
-						logrus.Warnf("[WebhookServerAdapter] Worker #%d: event stream closed", workerID)
+						logger.Warnf("[WebhookServerAdapter] Worker #%d: event stream closed", workerID)
 						return
 					}
 					if event != nil {
@@ -171,23 +171,23 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	// 等待 workers 就绪（最多等待 100ms 防止阻塞）
 	select {
 	case <-workersReady:
-		logrus.Debug("[WebhookServerAdapter] All workers ready")
+		logger.Debug("[WebhookServerAdapter] All workers ready")
 	case <-time.After(100 * time.Millisecond):
-		logrus.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
+		logger.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
 	}
 
 	// 现在启动 HTTP 服务器（workers 已就绪）
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		logrus.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
+		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
 
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
+			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
 		}
 	}()
 
-	logrus.Info("[WebhookServerAdapter] Started successfully")
+	logger.Info("[WebhookServerAdapter] Started successfully")
 	return nil
 }
 
@@ -196,18 +196,18 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	if !a.running {
 		a.mu.Unlock()
-		logrus.Debug("[WebhookServerAdapter] Not running, nothing to stop")
+		logger.Debug("[WebhookServerAdapter] Not running, nothing to stop")
 		return nil
 	}
 	a.running = false
 	a.mu.Unlock()
 
-	logrus.Info("[WebhookServerAdapter] Stopping...")
+	logger.Info("[WebhookServerAdapter] Stopping...")
 
 	// 1. 关闭 HTTP 服务器
 	if a.server != nil {
 		if err := a.server.Shutdown(ctx); err != nil {
-			logrus.WithError(err).Warn("[WebhookServerAdapter] HTTP server shutdown error")
+			logger.WithError(err).Warn("[WebhookServerAdapter] HTTP server shutdown error")
 		}
 	}
 
@@ -225,10 +225,10 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logrus.Info("[WebhookServerAdapter] Stopped successfully")
+		logger.Info("[WebhookServerAdapter] Stopped successfully")
 		return nil
 	case <-ctx.Done():
-		logrus.Warn("[WebhookServerAdapter] Stop timeout")
+		logger.Warn("[WebhookServerAdapter] Stop timeout")
 		return ctx.Err()
 	}
 }
@@ -237,7 +237,7 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 func safeHandleEvent(handler func(*dto.Payload), event *dto.Payload) {
 	defer func() {
 		if r := recover(); r != nil {
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"panic":    r,
 				"event_id": event.ID,
 			}).Error("[WebhookServerAdapter] Handler panic recovered")

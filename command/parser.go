@@ -226,6 +226,11 @@ func (args *Args) GetFlagBool(key string) bool {
 	return b
 }
 
+// ParseInt 解析字符串为 int（全局辅助函数）
+func ParseInt(s string) (int, error) {
+	return strconv.Atoi(s)
+}
+
 // Len returns argument count.
 func (args *Args) Len() int { return len(args.Positional) }
 

@@ -5,7 +5,7 @@ import (
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // SlowHandlerConfig 慢处理器检测配置
@@ -13,7 +13,7 @@ type SlowHandlerConfig struct {
 	// Threshold 慢处理器阈值，超过此时间将记录警告
 	Threshold time.Duration
 
-	// Logger 自定义日志函数，如果为 nil 则使用默认 logrus
+	// Logger 自定义日志函数，如果为 nil 则使用默认日志记录方式
 	Logger func(handlerName string, duration time.Duration, ctx *context.Context)
 
 	// OnSlowHandler 慢处理器回调，可用于告警
@@ -36,7 +36,7 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 	// 设置默认 Logger
 	if config.Logger == nil {
 		config.Logger = func(handlerName string, duration time.Duration, ctx *context.Context) {
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"handler":    handlerName,
 				"duration":   duration,
 				"event_type": ctx.GetEventType(),
@@ -97,11 +97,11 @@ func SlowHandlerFromConfig(cfg appconfig.MiddlewareConfig) context.Middleware {
 		if d, err := time.ParseDuration(cfg.SlowHandlerThreshold); err == nil {
 			threshold = d
 		} else {
-			logrus.WithError(err).Warn("[SlowHandler] Invalid slow_handler_threshold config, using default 1s")
+			logger.WithError(err).Warn("[SlowHandler] Invalid slow_handler_threshold config, using default 1s")
 		}
 	}
 
-	logrus.Infof("[SlowHandler] Config: threshold=%v", threshold)
+	logger.Infof("[SlowHandler] Config: threshold=%v", threshold)
 
 	return SlowHandler(SlowHandlerConfig{
 		Threshold: threshold,

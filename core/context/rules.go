@@ -9,8 +9,8 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
 // OnEventType 匹配特定事件类型
@@ -291,7 +291,7 @@ func WithTimeout(rule Rule, timeout time.Duration) Rule {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logrus.WithField("panic", r).Error("[Rule] Panic in rule with timeout")
+					logger.WithField("panic", r).Error("[Rule] Panic in rule with timeout")
 					resultChan <- false
 				}
 			}()
@@ -302,7 +302,7 @@ func WithTimeout(rule Rule, timeout time.Duration) Rule {
 		case result := <-resultChan:
 			return result
 		case <-time.After(timeout):
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"timeout": timeout,
 			}).Warn("[Rule] Rule timeout exceeded")
 			return false
@@ -336,7 +336,7 @@ func MonitorRule(name string, rule Rule, threshold time.Duration) Rule {
 		duration := time.Since(start)
 
 		if duration > threshold {
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"rule":     name,
 				"duration": duration,
 			}).Warn("[Rule] Slow rule detected")

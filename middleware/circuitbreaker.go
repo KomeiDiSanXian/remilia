@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/sirupsen/logrus"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // CircuitBreakerState 熔断器状态
@@ -128,7 +128,7 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 
 	cb.state.Store(newState)
 
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"from": oldState,
 		"to":   newState,
 	}).Info("[CircuitBreaker] State changed")
@@ -159,7 +159,7 @@ func (cb *CircuitBreaker) canExecute() error {
 			cb.successes.Store(0)    // 重置成功计数
 			cb.halfOpenStarted.Store(time.Now())
 
-			logrus.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
+			logger.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
 			if cb.config.OnStateChange != nil {
 				cb.config.OnStateChange(StateOpen, StateHalfOpen)
 			}
@@ -175,7 +175,7 @@ func (cb *CircuitBreaker) canExecute() error {
 				// 半开状态超时，重新打开熔断器
 				cb.state.Store(StateOpen)
 				cb.lastFailure.Store(time.Now())
-				logrus.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
+				logger.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
 				if cb.config.OnStateChange != nil {
 					cb.config.OnStateChange(StateHalfOpen, StateOpen)
 				}
@@ -216,9 +216,9 @@ func (cb *CircuitBreaker) onSuccess() {
 			cb.failures.Store(0)
 			cb.successes.Store(0)
 			cb.setState(StateClosed)
-			logrus.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
+			logger.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
 		} else {
-			logrus.WithFields(logrus.Fields{
+			logger.WithFields(logger.Fields{
 				"successes": successes,
 				"threshold": cb.config.SuccessThreshold,
 			}).Debug("[CircuitBreaker] Success in half-open state, waiting for threshold")
@@ -237,14 +237,14 @@ func (cb *CircuitBreaker) onFailure() {
 		failures := cb.failures.Add(1)
 		if failures >= int32(cb.config.MaxFailures) {
 			cb.setState(StateOpen)
-			logrus.WithField("failures", failures).Warn("[CircuitBreaker] Max failures reached, opening circuit")
+			logger.WithField("failures", failures).Warn("[CircuitBreaker] Max failures reached, opening circuit")
 		}
 
 	case StateHalfOpen:
 		// 半开状态下失败，直接转为开启
 		cb.failures.Store(int32(cb.config.MaxFailures)) // 设置为最大值
 		cb.setState(StateOpen)
-		logrus.Warn("[CircuitBreaker] Failed in half-open state, reopening circuit")
+		logger.Warn("[CircuitBreaker] Failed in half-open state, reopening circuit")
 	}
 }
 
@@ -262,7 +262,7 @@ func CircuitBreakerMiddleware(cb *CircuitBreaker) context.Middleware {
 		return func(ctx *context.Context) error {
 			// 检查是否可以执行
 			if err := cb.canExecute(); err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{
+				logger.WithError(err).WithFields(logger.Fields{
 					"event_type": ctx.GetEventType(),
 					"state":      cb.GetState(),
 				}).Warn("[CircuitBreaker] Request rejected")
@@ -290,7 +290,7 @@ func (cb *CircuitBreaker) Reset() {
 	cb.successes.Store(0)
 	cb.halfOpenReqs.Store(0)
 	cb.setState(StateClosed)
-	logrus.Info("[CircuitBreaker] Manually reset to closed state")
+	logger.Info("[CircuitBreaker] Manually reset to closed state")
 }
 
 // Stats 获取熔断器统计信息

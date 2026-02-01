@@ -11,11 +11,11 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -119,9 +119,9 @@ func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo
 		// 添加 Token Manager health checker
 		b.health.AddChecker(NewTokenManagerHealthChecker(b))
 
-		logrus.Info("[Bot] OpenAPI client initialized")
+		logger.Info("[Bot] OpenAPI client initialized")
 	} else {
-		logrus.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
+		logger.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
 	}
 
 	return b
@@ -132,12 +132,12 @@ func (b *Bot) Start() error {
 	b.mu.Lock()
 	if b.running {
 		b.mu.Unlock()
-		logrus.Warn("[Bot] Already running")
+		logger.Warn("[Bot] Already running")
 		return nil
 	}
 	b.mu.Unlock()
 
-	logrus.WithFields(logrus.Fields{
+	logger.WithFields(logger.Fields{
 		"name":    b.config.Name,
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
@@ -145,7 +145,7 @@ func (b *Bot) Start() error {
 	// 使用生命周期管理器启动所有组件
 	ctx := context.Background()
 	if err := b.lifecycle.Start(ctx); err != nil {
-		logrus.WithError(err).Error("[Bot] Failed to start")
+		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
 
@@ -155,14 +155,14 @@ func (b *Bot) Start() error {
 	b.startTime = time.Now()
 	b.mu.Unlock()
 
-	logrus.Info("[Bot] Started successfully")
+	logger.Info("[Bot] Started successfully")
 	return nil
 }
 
 // handleEvent 处理事件
 func (b *Bot) handleEvent(payload *dto.Payload) {
 	if b.config.Debug {
-		logrus.WithFields(logrus.Fields{
+		logger.WithFields(logger.Fields{
 			"type": payload.Type,
 			"id":   payload.ID,
 		}).Debug("[Bot] Event received")
@@ -180,14 +180,14 @@ func (b *Bot) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	if !b.running {
 		b.mu.Unlock()
-		logrus.Warn("[Bot] Not running")
+		logger.Warn("[Bot] Not running")
 		return nil
 	}
 	b.running = false
 	b.stopTime = time.Now()
 	b.mu.Unlock()
 
-	logrus.Info("[Bot] Shutting down...")
+	logger.Info("[Bot] Shutting down...")
 
 	// 使用 channel 来处理异步关闭
 	done := make(chan error, 1)
@@ -197,7 +197,7 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 		// 停止 token manager（如果存在）
 		if b.tokenManager != nil {
-			logrus.Debug("[Bot] Stopping token manager...")
+			logger.Debug("[Bot] Stopping token manager...")
 			b.tokenManager.Stop()
 		}
 
@@ -208,13 +208,13 @@ func (b *Bot) Stop(ctx context.Context) error {
 	select {
 	case err := <-done:
 		if err != nil {
-			logrus.WithError(err).Error("[Bot] Stop completed with errors")
+			logger.WithError(err).Error("[Bot] Stop completed with errors")
 			return err
 		}
-		logrus.Info("[Bot] Stop complete")
+		logger.Info("[Bot] Stop complete")
 		return nil
 	case <-ctx.Done():
-		logrus.WithError(ctx.Err()).Warn("[Bot] Stop timeout exceeded")
+		logger.WithError(ctx.Err()).Warn("[Bot] Stop timeout exceeded")
 		return ctx.Err()
 	}
 }
@@ -310,12 +310,12 @@ func (b *Bot) WaitForShutdown() {
 
 	<-sigCh
 
-	logrus.Info("[Bot] Received shutdown signal")
+	logger.Info("[Bot] Received shutdown signal")
 
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 
 	if err := b.Stop(ctx); err != nil {
-		logrus.WithError(err).Error("[Bot] Shutdown failed")
+		logger.WithError(err).Error("[Bot] Shutdown failed")
 	}
 }
