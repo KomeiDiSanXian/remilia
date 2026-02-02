@@ -107,6 +107,18 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 					}).Warn("[Retry] Context canceled during backoff")
 					return engine.NewBlockError("retry canceled")
 				}
+
+				// 再次检查 context 是否取消（在实际执行前）
+				select {
+				case <-ctx.Context().Done():
+					logger.WithFields(logger.Fields{
+						"attempt":    attempt + 1,
+						"event_type": ctx.GetEventType(),
+					}).Warn("[Retry] Context canceled before retry attempt")
+					return engine.NewBlockError("retry canceled")
+				default:
+					// Context 仍然有效，继续重试
+				}
 			}
 
 			return lastErr

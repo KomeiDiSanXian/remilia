@@ -178,6 +178,8 @@ func (d *DedupFilter) cleanup(interval time.Duration) {
 		case <-ticker.C:
 			d.cleanExpired()
 		case <-d.cleanupDone:
+			// 最后清理一次
+			d.cleanExpired()
 			return
 		}
 	}

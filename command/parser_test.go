@@ -99,6 +99,24 @@ func TestTokenize(t *testing.T) {
 			expected: []string{"it's working", "and", `he said "hello"`},
 			wantErr:  false,
 		},
+		{
+			name:     "special escape sequences",
+			input:    `hello\nworld test\ttab`,
+			expected: []string{"hello\nworld", "test\ttab"},
+			wantErr:  false,
+		},
+		{
+			name:     "escaped backslash",
+			input:    `path\\to\\file`,
+			expected: []string{`path\to\file`},
+			wantErr:  false,
+		},
+		{
+			name:     "carriage return escape",
+			input:    `line1\rline2`,
+			expected: []string{"line1\rline2"},
+			wantErr:  false,
+		},
 	}
 
 	for _, tt := range tests {

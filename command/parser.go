@@ -98,7 +98,24 @@ func tokenize(s string) ([]string, error) {
 
 	for _, r := range s {
 		if escaped {
-			current.WriteRune(r)
+			// 处理特殊转义字符
+			switch r {
+			case 'n':
+				current.WriteRune('\n')
+			case 't':
+				current.WriteRune('\t')
+			case 'r':
+				current.WriteRune('\r')
+			case '\\':
+				current.WriteRune('\\')
+			case '"':
+				current.WriteRune('"')
+			case '\'':
+				current.WriteRune('\'')
+			default:
+				// 其他字符直接输出
+				current.WriteRune(r)
+			}
 			escaped = false
 			continue
 		}

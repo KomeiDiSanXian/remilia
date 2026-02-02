@@ -1,9 +1,11 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -68,16 +70,22 @@ func Init(cfg Config) error {
 		// Create logs directory if not exists
 		logDir := filepath.Dir(cfg.FilePath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			return err
+			// Fallback to console only
+			fmt.Fprintf(os.Stderr, "Failed to create log directory: %v, falling back to console only\n", err)
+			cfg.File = false
+			cfg.Console = true
+		} else {
+			// Open log file
+			file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+			if err != nil {
+				// Fallback to console only
+				fmt.Fprintf(os.Stderr, "Failed to open log file: %v, falling back to console only\n", err)
+				cfg.File = false
+				cfg.Console = true
+			} else {
+				writers = append(writers, file)
+			}
 		}
-
-		// Open log file
-		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-		if err != nil {
-			return err
-		}
-
-		writers = append(writers, file)
 	}
 
 	// If no writers specified, use stdout
@@ -99,6 +107,36 @@ func Init(cfg Config) error {
 // InitDefault initializes the logger with default configuration
 func InitDefault() error {
 	return Init(DefaultConfig())
+}
+
+// FieldsPool 是用于复用 Fields map 的对象池，减少内存分配
+var FieldsPool = sync.Pool{
+	New: func() interface{} {
+		return make(Fields, 8) // 预分配 8 个字段的容量
+	},
+}
+
+// GetFields 从池中获取一个 Fields 对象
+//
+// 使用示例:
+//
+//	fields := logger.GetFields()
+//	defer logger.PutFields(fields)
+//	fields["key"] = "value"
+//	logger.WithFields(fields).Info("message")
+func GetFields() Fields {
+	return FieldsPool.Get().(Fields)
+}
+
+// PutFields 将 Fields 对象归还到池中
+//
+// 注意：归还前会清空所有字段
+func PutFields(f Fields) {
+	// 清空所有字段
+	for k := range f {
+		delete(f, k)
+	}
+	FieldsPool.Put(f)
 }
 
 // Fields is a helper type for structured logging fields

@@ -12,10 +12,57 @@ import (
 type Status string
 
 const (
-	Healthy   Status = "healthy"
+	// Healthy 完全健康 - 所有功能正常
+	Healthy Status = "healthy"
+	// Degraded 降级但可用 - 部分功能受影响，但核心功能正常
+	Degraded Status = "degraded"
+	// Unhealthy 不健康 - 核心功能受影响，但服务仍在运行
 	Unhealthy Status = "unhealthy"
-	Degraded  Status = "degraded"
+	// Critical 严重故障 - 服务即将停止或无法正常工作
+	Critical Status = "critical"
 )
+
+// Level 健康级别（用于数值比较）
+type Level int
+
+const (
+	HealthyLevel Level = iota
+	DegradedLevel
+	UnhealthyLevel
+	CriticalLevel
+)
+
+// StatusToLevel 将状态转换为级别
+func StatusToLevel(status Status) Level {
+	switch status {
+	case Healthy:
+		return HealthyLevel
+	case Degraded:
+		return DegradedLevel
+	case Unhealthy:
+		return UnhealthyLevel
+	case Critical:
+		return CriticalLevel
+	default:
+		return UnhealthyLevel
+	}
+}
+
+// LevelToStatus 将级别转换为状态
+func LevelToStatus(level Level) Status {
+	switch level {
+	case HealthyLevel:
+		return Healthy
+	case DegradedLevel:
+		return Degraded
+	case UnhealthyLevel:
+		return Unhealthy
+	case CriticalLevel:
+		return Critical
+	default:
+		return Unhealthy
+	}
+}
 
 // Checker defines a single health check unit.
 type Checker interface {
@@ -78,7 +125,7 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 	h.mu.RUnlock()
 
 	results := make(map[string]CheckResult)
-	overallStatus := Healthy
+	overallLevel := HealthyLevel // 使用级别而不是状态
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -96,10 +143,10 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 
 			mu.Lock()
 			results[name] = result
-			if result.Status == Unhealthy {
-				overallStatus = Unhealthy
-			} else if result.Status == Degraded && overallStatus != Unhealthy {
-				overallStatus = Degraded
+			// 取最差的健康级别作为整体状态
+			resultLevel := StatusToLevel(result.Status)
+			if resultLevel > overallLevel {
+				overallLevel = resultLevel
 			}
 			mu.Unlock()
 		}(name, checker)
@@ -108,7 +155,7 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 	wg.Wait()
 
 	return CheckResponse{
-		Status: overallStatus,
+		Status: LevelToStatus(overallLevel),
 		Checks: results,
 		Time:   time.Now(),
 	}

@@ -11,7 +11,7 @@ import (
 
 const (
 	// DefaultTempMatcherCleanerInterval 默认临时 Matcher 清理间隔
-	DefaultTempMatcherCleanerInterval = 5 * time.Minute
+	DefaultTempMatcherCleanerInterval = 1 * time.Minute
 	// DefaultPendingDeleteBufferSize 默认批量删除通道大小
 	DefaultPendingDeleteBufferSize = 1000
 	// DefaultMatcherPoolCapacity 默认 Matcher 池初始容量

@@ -1,0 +1,132 @@
+package command
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTrie(t *testing.T) {
+	trie := NewTrie()
+
+	// Test Insert and Search
+	t.Run("Insert and Search", func(t *testing.T) {
+		meta1 := &CommandMeta{Name: "/help"}
+		meta2 := &CommandMeta{Name: "/hello"}
+		meta3 := &CommandMeta{Name: "/hell"}
+
+		trie.Insert("/help", meta1)
+		trie.Insert("/hello", meta2)
+		trie.Insert("/hell", meta3)
+
+		// Search for "/hel" should return 3 commands
+		results := trie.Search("/hel")
+		assert.Equal(t, 3, len(results))
+
+		// Search for "/help" should return 1 command
+		results = trie.Search("/help")
+		assert.Equal(t, 1, len(results))
+
+		// Search for "/x" should return empty
+		results = trie.Search("/x")
+		assert.Nil(t, results)
+	})
+
+	// Test Remove
+	t.Run("Remove", func(t *testing.T) {
+		trie.Clear()
+		meta1 := &CommandMeta{Name: "/test"}
+		trie.Insert("/test", meta1)
+
+		results := trie.Search("/test")
+		require.Equal(t, 1, len(results))
+
+		trie.Remove("/test", meta1)
+		results = trie.Search("/test")
+		assert.Equal(t, 0, len(results))
+	})
+
+	// Test Stats
+	t.Run("Stats", func(t *testing.T) {
+		trie.Clear()
+		trie.Insert("/cmd1", &CommandMeta{Name: "/cmd1"})
+		trie.Insert("/cmd2", &CommandMeta{Name: "/cmd2"})
+
+		stats := trie.GetStats()
+		assert.Greater(t, stats.NodeCount, 0)
+		assert.Greater(t, stats.MaxDepth, 0)
+	})
+}
+
+func TestCommandRegistryWithTrie(t *testing.T) {
+	registry := NewCommandRegistry()
+
+	// Register commands
+	def1 := &Definition{
+		Name:        "/help",
+		Description: "Show help",
+	}
+	def2 := &Definition{
+		Name:        "/hello",
+		Description: "Say hello",
+	}
+
+	err := registry.Register(def1)
+	require.NoError(t, err)
+
+	err = registry.Register(def2)
+	require.NoError(t, err)
+
+	// Test prefix completion
+	t.Run("Complete with Trie", func(t *testing.T) {
+		results := registry.Complete("/hel")
+		assert.Equal(t, 2, len(results))
+
+		results = registry.Complete("/help")
+		assert.Equal(t, 1, len(results))
+
+		results = registry.Complete("/x")
+		assert.Nil(t, results)
+	})
+
+	// Test memory efficiency
+	t.Run("Memory Efficiency", func(t *testing.T) {
+		// Register many commands
+		for i := 0; i < 100; i++ {
+			def := &Definition{
+				Name:        fmt.Sprintf("/cmd%d", i),
+				Description: "Test command",
+			}
+			_ = registry.Register(def)
+		}
+
+		// Trie should handle this efficiently
+		results := registry.Complete("/cmd")
+		assert.Greater(t, len(results), 0)
+	})
+}
+
+func BenchmarkTrieInsert(b *testing.B) {
+	trie := NewTrie()
+	meta := &CommandMeta{Name: "/test"}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		trie.Insert("/test", meta)
+	}
+}
+
+func BenchmarkTrieSearch(b *testing.B) {
+	trie := NewTrie()
+	for i := 0; i < 100; i++ {
+		meta := &CommandMeta{Name: fmt.Sprintf("/cmd%d", i)}
+		trie.Insert(meta.Name, meta)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = trie.Search("/cmd")
+	}
+}

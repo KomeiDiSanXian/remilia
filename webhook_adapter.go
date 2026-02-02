@@ -168,11 +168,11 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		close(workersReady)
 	}()
 
-	// 等待 workers 就绪（最多等待 100ms 防止阻塞）
+	// 等待 workers 就绪（最多等待 500ms 防止阻塞）
 	select {
 	case <-workersReady:
 		logger.Debug("[WebhookServerAdapter] All workers ready")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(500 * time.Millisecond):
 		logger.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
 	}
 

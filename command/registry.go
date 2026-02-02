@@ -15,8 +15,8 @@ type CommandRegistry struct {
 	commands map[string]*CommandMeta // command name -> meta
 	aliases  map[string]string       // alias -> command name
 
-	// 高级索引
-	prefixIndex map[string][]*CommandMeta // prefix -> commands (用于补全)
+	// 高级索引 - 使用 Trie 树替代 map，减少内存占用
+	prefixTrie *Trie // Trie 树用于高效前缀搜索
 
 	// 快速查找
 	mu       sync.RWMutex
@@ -61,21 +61,19 @@ func (cm *CommandMeta) GetCallCount() int64 {
 type compiledRegistry struct {
 	commandMap  map[string]*CommandMeta
 	aliasMap    map[string]string
-	prefixIndex map[string][]*CommandMeta
 	commandList []*CommandMeta // 按优先级排序
 }
 
 // NewCommandRegistry 创建新的命令注册表
 func NewCommandRegistry() *CommandRegistry {
 	cr := &CommandRegistry{
-		commands:    make(map[string]*CommandMeta),
-		aliases:     make(map[string]string),
-		prefixIndex: make(map[string][]*CommandMeta),
+		commands:   make(map[string]*CommandMeta),
+		aliases:    make(map[string]string),
+		prefixTrie: NewTrie(), // 使用 Trie 树
 	}
 	cr.compiled.Store(&compiledRegistry{
 		commandMap:  make(map[string]*CommandMeta),
 		aliasMap:    make(map[string]string),
-		prefixIndex: make(map[string][]*CommandMeta),
 		commandList: make([]*CommandMeta, 0),
 	})
 	return cr
@@ -142,11 +140,8 @@ func (cr *CommandRegistry) RegisterWithOptions(def *Definition, opts RegisterOpt
 		cr.aliases[alias] = def.Name
 	}
 
-	// 构建前缀索引（用于命令补全）
-	for i := 1; i <= len(def.Name); i++ {
-		prefix := def.Name[:i]
-		cr.prefixIndex[prefix] = append(cr.prefixIndex[prefix], meta)
-	}
+	// 添加到 Trie 树（用于命令补全）
+	cr.prefixTrie.Insert(def.Name, meta)
 
 	// 重新编译注册表
 	cr.recompile()
@@ -224,13 +219,8 @@ func (cr *CommandRegistry) LookupByPattern(input string) []*CommandMeta {
 
 // Complete 命令补全（返回匹配的命令列表）
 func (cr *CommandRegistry) Complete(prefix string) []*CommandMeta {
-	compiled := cr.compiled.Load().(*compiledRegistry)
-
-	if matches, exists := compiled.prefixIndex[prefix]; exists {
-		return matches
-	}
-
-	return nil
+	// 使用 Trie 进行前缀搜索
+	return cr.prefixTrie.Search(prefix)
 }
 
 // List 列出所有命令
@@ -287,7 +277,6 @@ func (cr *CommandRegistry) recompile() {
 	newCompiled := &compiledRegistry{
 		commandMap:  make(map[string]*CommandMeta, len(cr.commands)),
 		aliasMap:    make(map[string]string, len(cr.aliases)),
-		prefixIndex: make(map[string][]*CommandMeta, len(cr.prefixIndex)),
 		commandList: make([]*CommandMeta, 0, len(cr.commands)),
 	}
 
@@ -302,11 +291,6 @@ func (cr *CommandRegistry) recompile() {
 		newCompiled.aliasMap[alias] = cmdName
 	}
 
-	// 复制前缀索引
-	for prefix, metas := range cr.prefixIndex {
-		newCompiled.prefixIndex[prefix] = metas
-	}
-
 	// 按优先级排序命令列表
 	sortCommandsByPriority(newCompiled.commandList)
 
@@ -316,13 +300,12 @@ func (cr *CommandRegistry) recompile() {
 
 // rebuildPrefixIndex 重建前缀索引（持有写锁时调用）
 func (cr *CommandRegistry) rebuildPrefixIndex() {
-	cr.prefixIndex = make(map[string][]*CommandMeta)
+	// 清空 Trie
+	cr.prefixTrie.Clear()
 
+	// 将所有命令添加到 Trie
 	for _, meta := range cr.commands {
-		for i := 1; i <= len(meta.Name); i++ {
-			prefix := meta.Name[:i]
-			cr.prefixIndex[prefix] = append(cr.prefixIndex[prefix], meta)
-		}
+		cr.prefixTrie.Insert(meta.Name, meta)
 	}
 }
 
