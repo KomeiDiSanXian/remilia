@@ -1,0 +1,317 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/config"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
+
+// 异步任务处理示例
+// 展示如何处理长时间运行的异步任务
+
+type Task struct {
+	ID        string
+	UserID    string
+	Status    string
+	Progress  int
+	Result    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type TaskManager struct {
+	tasks map[string]*Task
+	mu    sync.RWMutex
+}
+
+func NewTaskManager() *TaskManager {
+	return &TaskManager{
+		tasks: make(map[string]*Task),
+	}
+}
+
+func (tm *TaskManager) CreateTask(userID string) *Task {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	task := &Task{
+		ID:        fmt.Sprintf("task-%d", time.Now().Unix()),
+		UserID:    userID,
+		Status:    "pending",
+		Progress:  0,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	tm.tasks[task.ID] = task
+	return task
+}
+
+func (tm *TaskManager) GetTask(taskID string) (*Task, bool) {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	task, exists := tm.tasks[taskID]
+	return task, exists
+}
+
+func (tm *TaskManager) UpdateTask(taskID string, status string, progress int, result string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	if task, exists := tm.tasks[taskID]; exists {
+		task.Status = status
+		task.Progress = progress
+		task.Result = result
+		task.UpdatedAt = time.Now()
+	}
+}
+
+var taskManager = NewTaskManager()
+
+func main() {
+	// 加载配置
+	cfg, err := config.Load("config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// 初始化日志
+	logCfg := logger.Config{
+		Level:      cfg.Log.Level,
+		Console:    true,
+		File:       false,
+		TimeFormat: "2006-01-02 15:04:05",
+	}
+	if err := logger.Init(logCfg); err != nil {
+		log.Fatalf("Failed to init logger: %v", err)
+	}
+
+	// 创建 BotInfo
+	botInfo := &dto.BotInfo{
+		QQNum:     cfg.Bot.BotID,
+		AppID:     cfg.Bot.AppID,
+		Token:     cfg.Bot.Token,
+		AppSecret: cfg.Bot.Secret,
+	}
+
+	// 创建 Bot
+	bot, err := remilia.NewBotBuilder().
+		WithBotInfo(botInfo).
+		WithWebhook(":8080").
+		WithName("async-tasks").
+		Build()
+	if err != nil {
+		log.Fatalf("Failed to build bot: %v", err)
+	}
+
+	// 使用开发环境中间件
+	bot.Engine().Use(middleware.DevelopmentSet()...)
+
+	// 注册处理器
+	registerHandlers(bot)
+
+	logger.Info("[AsyncTasks] Bot started! Try these commands:")
+	logger.Info("[AsyncTasks] /start - 启动异步任务")
+	logger.Info("[AsyncTasks] /status <task_id> - 查询任务状态")
+	logger.Info("[AsyncTasks] /list - 列出所有任务")
+
+	bot.Start()
+	bot.WaitForShutdown()
+}
+
+func registerHandlers(bot *remilia.Bot) {
+	// 启动异步任务
+	bot.Engine().OnCommand(dto.C2CMessageCreate, "/start").Handle(func(ctx *eventctx.Context) error {
+		var c2c dto.C2CMessageCreateEvent
+		if err := ctx.DecodeEvent(&c2c); err != nil {
+			return err
+		}
+
+		// 创建任务
+		task := taskManager.CreateTask(c2c.Author.UserOpenID)
+
+		// 立即响应用户
+		msg := &dto.Message{
+			Type:    dto.TextMessage,
+			Content: fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID),
+		}
+		ctx.ReplyPrivate(msg)
+
+		// 异步执行任务
+		go executeAsyncTask(task.ID)
+
+		return nil
+	})
+
+	// 查询任务状态
+	bot.Engine().OnCommand(dto.C2CMessageCreate, "/status").Handle(func(ctx *eventctx.Context) error {
+		var c2c dto.C2CMessageCreateEvent
+		if err := ctx.DecodeEvent(&c2c); err != nil {
+			return err
+		}
+
+		// 简化：从Content中提取task_id（实际应该用命令解析）
+		// 这里假设用户输入 "/status task-xxx"
+		taskID := "task-" // 简化演示
+
+		task, exists := taskManager.GetTask(taskID)
+		if !exists {
+			msg := &dto.Message{
+				Type:    dto.TextMessage,
+				Content: "❌ 任务不存在\n使用 /list 查看所有任务",
+			}
+			ctx.ReplyPrivate(msg)
+			return nil
+		}
+
+		status := formatTaskStatus(task)
+		msg := &dto.Message{
+			Type:    dto.TextMessage,
+			Content: status,
+		}
+		ctx.ReplyPrivate(msg)
+		return nil
+	})
+
+	// 列出所有任务
+	bot.Engine().OnCommand(dto.C2CMessageCreate, "/list").Handle(func(ctx *eventctx.Context) error {
+		var c2c dto.C2CMessageCreateEvent
+		if err := ctx.DecodeEvent(&c2c); err != nil {
+			return err
+		}
+
+		// 获取所有任务
+		taskManager.mu.RLock()
+		tasks := make([]*Task, 0, len(taskManager.tasks))
+		for _, task := range taskManager.tasks {
+			if task.UserID == c2c.Author.UserOpenID {
+				tasks = append(tasks, task)
+			}
+		}
+		taskManager.mu.RUnlock()
+
+		if len(tasks) == 0 {
+			msg := &dto.Message{
+				Type:    dto.TextMessage,
+				Content: "📭 暂无任务",
+			}
+			ctx.ReplyPrivate(msg)
+			return nil
+		}
+
+		content := "📋 你的任务列表:\n\n"
+		for _, task := range tasks {
+			content += fmt.Sprintf("• %s: %s (%d%%)\n", task.ID, task.Status, task.Progress)
+		}
+
+		msg := &dto.Message{
+			Type:    dto.TextMessage,
+			Content: content,
+		}
+		ctx.ReplyPrivate(msg)
+		return nil
+	})
+
+	logger.Info("[AsyncTasks] Handlers registered")
+}
+
+// executeAsyncTask 执行异步任务
+func executeAsyncTask(taskID string) {
+	logger.WithFields(logger.Fields{
+		"task_id": taskID,
+	}).Info("[AsyncTasks] Task started")
+
+	// 更新为运行中
+	taskManager.UpdateTask(taskID, "running", 0, "")
+
+	// 模拟长时间任务（分步执行）
+	steps := []string{
+		"初始化...",
+		"处理数据...",
+		"计算结果...",
+		"生成报告...",
+		"完成",
+	}
+
+	for i, step := range steps {
+		// 模拟每个步骤的处理时间
+		time.Sleep(2 * time.Second)
+
+		progress := (i + 1) * 20
+		logger.WithFields(logger.Fields{
+			"task_id":  taskID,
+			"step":     step,
+			"progress": progress,
+		}).Info("[AsyncTasks] Task progress")
+
+		taskManager.UpdateTask(taskID, "running", progress, step)
+	}
+
+	// 任务完成
+	result := "任务执行成功！"
+	taskManager.UpdateTask(taskID, "completed", 100, result)
+
+	logger.WithFields(logger.Fields{
+		"task_id": taskID,
+	}).Info("[AsyncTasks] Task completed")
+}
+
+// formatTaskStatus 格式化任务状态
+func formatTaskStatus(task *Task) string {
+	status := "📊 任务状态\n\n"
+	status += fmt.Sprintf("任务ID: %s\n", task.ID)
+	status += fmt.Sprintf("状态: %s\n", task.Status)
+	status += fmt.Sprintf("进度: %d%%\n", task.Progress)
+
+	if task.Result != "" {
+		status += fmt.Sprintf("结果: %s\n", task.Result)
+	}
+
+	status += fmt.Sprintf("创建时间: %s\n", task.CreatedAt.Format("15:04:05"))
+	status += fmt.Sprintf("更新时间: %s", task.UpdatedAt.Format("15:04:05"))
+
+	return status
+}
+
+// executeTaskWithContext 带Context的任务执行（可取消）
+func executeTaskWithContext(ctx context.Context, taskID string) error {
+	logger.WithFields(logger.Fields{
+		"task_id": taskID,
+	}).Info("[AsyncTasks] Task started with context")
+
+	taskManager.UpdateTask(taskID, "running", 0, "")
+
+	// 模拟可取消的长时间任务
+	for i := 0; i < 10; i++ {
+		select {
+		case <-ctx.Done():
+			// 任务被取消
+			logger.WithFields(logger.Fields{
+				"task_id": taskID,
+			}).Warn("[AsyncTasks] Task cancelled")
+			taskManager.UpdateTask(taskID, "cancelled", i*10, "Task was cancelled")
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+			// 继续执行
+			progress := (i + 1) * 10
+			taskManager.UpdateTask(taskID, "running", progress, "Processing...")
+		}
+	}
+
+	taskManager.UpdateTask(taskID, "completed", 100, "Success")
+	logger.WithFields(logger.Fields{
+		"task_id": taskID,
+	}).Info("[AsyncTasks] Task completed")
+
+	return nil
+}

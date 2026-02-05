@@ -1,0 +1,21 @@
+# Remilia Bot 配置文件 - Middleware Example
+
+bot:
+  app_id: 123456
+  bot_id: 654321
+  token: "YOUR_TOKEN"
+  secret: "YOUR_SECRET"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  shutdown_timeout: "30s"
+
+log:
+  level: "info"
+  format: "text"
+
+middleware:
+  logging: true
+  recover: true
+  metrics: true

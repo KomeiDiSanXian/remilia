@@ -1,0 +1,32 @@
+bot:
+  app_id: 123456
+  bot_id: 654321
+  token: "YOUR_TOKEN"
+  secret: "YOUR_SECRET"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  shutdown_timeout: "30s"
+
+log:
+  level: "info"          # 生产环境建议: info 或 warn
+  format: "json"         # 生产环境建议使用 json 格式
+
+concurrency:
+  limit: 500             # 根据服务器性能调整
+  policy: "wait"
+  wait_timeout: "10s"
+  event_buffer: 2000
+
+middleware:
+  logging: true
+  recover: true
+  metrics: true
+
+# 可选：重试配置
+retry:
+  enable: true
+  max_attempts: 3
+  backoff_base: "1s"
+  backoff_max: "30s"

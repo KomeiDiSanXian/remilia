@@ -1,0 +1,21 @@
+# Remilia Bot 配置文件
+# 请填入你的机器人信息
+
+bot:
+  app_id: 123456          # 替换为你的 AppID
+  bot_id: 654321          # 替换为你的机器人 QQ 号
+  token: "YOUR_TOKEN"     # 替换为你的 Token
+  secret: "YOUR_SECRET"   # 替换为你的 Secret
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  shutdown_timeout: "30s"
+
+log:
+  level: "info"           # 日志级别: trace, debug, info, warn, error
+  format: "text"          # 日志格式: json, text
+
+middleware:
+  logging: true           # 启用日志中间件
+  recover: true           # 启用 panic 恢复中间件

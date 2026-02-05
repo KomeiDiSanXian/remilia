@@ -4,16 +4,44 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports">
-      <change afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/FACTORY_FUNCTIONS_GUIDE.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/FACTORY_OPTIMIZATION_REPORT.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/errors.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters">
+      <change afterPath="$PROJECT_DIR$/docs/EXAMPLES_BATCH_UPDATE_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/EXAMPLES_COMPLETE_UPDATE_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/EXAMPLES_FINAL_SUMMARY.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/EXAMPLES_UPDATE_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/WORK_COMPLETE_SUMMARY_2026_02_05.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/async-tasks/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/async-tasks/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/basic-bot/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/command-bot/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/config_hotreload/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/error-handling/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/error-handling/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/handler-chain/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/metrics-monitoring/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/metrics-monitoring/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/middleware-example/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-example/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/production-ready/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/production-ready/config.example.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/production-ready/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/basic-bot/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/basic-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-conflict-test/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-conflict-test/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-integration/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-integration/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/config_hotreload/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/config_hotreload/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/handler-chain/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/handler-chain/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/help-discovery/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/help-discovery/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/middleware-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -231,7 +259,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="typo: add comment for default worker configuration in WebhookServerAdapter" />
     <MESSAGE value="feat: add throughput benchmarking tool with configurable parameters and performance metrics" />
     <MESSAGE value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
     <MESSAGE value="feat: add token management and engine configuration options in YAML and Go files" />
@@ -256,7 +283,8 @@
     <MESSAGE value="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking" />
     <MESSAGE value="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality" />
     <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
+    <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

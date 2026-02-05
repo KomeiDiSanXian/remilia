@@ -1,278 +1,76 @@
-//go:build example
-// +build example
-
 package main
 
 import (
-	"context"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 func main() {
-	// Example 1: Basic usage with manual callback
-	example1()
+	logger.Info("[ConfigHotReload] Configuration hot-reload example")
 
-	// Example 2: Auto-restart pattern
-	// example2()
-
-	// Example 3: Dynamic configuration with validation
-	// example3()
-}
-
-// Example 1: Basic usage with custom callback
-func example1() {
-	logger.Info("Example 1: Basic configuration hot-reload")
-
-	// Create watcher
+	// 创建配置监听器
 	watcher, err := config.NewWatcher("config.yaml")
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to create config watcher")
+		log.Fatalf("Failed to create config watcher: %v\nPlease copy config.example.yaml to config.yaml", err)
 	}
 	defer watcher.Stop()
 
-	// Add callback to handle configuration changes
+	// 添加配置变更回调
 	watcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
-		logger.Info("Configuration changed!")
+		logger.Info("[ConfigHotReload] Configuration changed!")
 
-		// Log the changes
+		// 检测日志级别变更
 		if oldConfig.Log.Level != newConfig.Log.Level {
 			logger.WithFields(logger.Fields{
 				"old": oldConfig.Log.Level,
 				"new": newConfig.Log.Level,
-			}).Info("Log level changed")
-
-			// Apply log level change dynamically
-			level, _ := logger.ParseLevel(newConfig.Log.Level)
-			logger.SetLevel(level)
+			}).Info("[ConfigHotReload] Log level changed (restart to apply)")
 		}
 
-		if oldConfig.Middleware.RateLimit != newConfig.Middleware.RateLimit {
+		// 检测中间件配置变更
+		if oldConfig.Middleware.Logging != newConfig.Middleware.Logging {
 			logger.WithFields(logger.Fields{
-				"old": oldConfig.Middleware.RateLimit,
-				"new": newConfig.Middleware.RateLimit,
-			}).Info("Rate limit setting changed")
+				"old": oldConfig.Middleware.Logging,
+				"new": newConfig.Middleware.Logging,
+			}).Info("[ConfigHotReload] Logging middleware changed")
+		}
+
+		// 检测并发限制变更
+		if oldConfig.Concurrency.Limit != newConfig.Concurrency.Limit {
+			logger.WithFields(logger.Fields{
+				"old": oldConfig.Concurrency.Limit,
+				"new": newConfig.Concurrency.Limit,
+			}).Info("[ConfigHotReload] Concurrency limit changed")
 		}
 
 		return nil
 	})
 
-	// Start watching
+	// 启动监听
 	watcher.Start()
 
-	// Print initial configuration
+	// 打印初始配置
 	cfg := watcher.GetConfig()
 	logger.WithFields(logger.Fields{
-		"app_id":    cfg.Bot.AppID,
-		"log_level": cfg.Log.Level,
-		"port":      cfg.Server.Port,
-	}).Info("Initial configuration loaded")
+		"app_id":      cfg.Bot.AppID,
+		"log_level":   cfg.Log.Level,
+		"port":        cfg.Server.Port,
+		"concurrency": cfg.Concurrency.Limit,
+	}).Info("[ConfigHotReload] Initial configuration loaded")
 
-	// Simulate application running
-	logger.Info("Application running... Modify config.yaml to see hot-reload in action")
+	logger.Info("[ConfigHotReload] Application running...")
+	logger.Info("[ConfigHotReload] Modify config.yaml to see hot-reload!")
+	logger.Info("[ConfigHotReload] Press Ctrl+C to stop")
 
-	// Graceful shutdown
+	// 优雅关闭
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	logger.Info("Shutting down...")
-
-	// Print statistics
-	stats := watcher.GetStats()
-	logger.WithFields(logger.Fields{
-		"reload_count": stats.ReloadCount,
-		"failed_count": stats.FailedCount,
-		"last_reload":  stats.LastReloadTime,
-	}).Info("Configuration watcher statistics")
-}
-
-// Example 2: Auto-restart pattern (for components that need restart)
-func example2() {
-	logger.Info("Example 2: Auto-restart pattern")
-
-	// Simulated component that needs restart on config change
-	type AppComponent struct {
-		config *config.Config
-		cancel context.CancelFunc
-	}
-
-	var currentComponent *AppComponent
-
-	// Restart function
-	restartFunc := func(newConfig *config.Config) error {
-		logger.Info("Restarting component with new configuration...")
-
-		// Stop old component
-		if currentComponent != nil && currentComponent.cancel != nil {
-			currentComponent.cancel()
-			time.Sleep(100 * time.Millisecond) // Give time to cleanup
-		}
-
-		// Start new component with new config
-		ctx, cancel := context.WithCancel(context.Background())
-		currentComponent = &AppComponent{
-			config: newConfig,
-			cancel: cancel,
-		}
-
-		// Start component (simulated)
-		go func() {
-			<-ctx.Done()
-			logger.Info("Component stopped")
-		}()
-
-		logger.Info("Component restarted successfully")
-		return nil
-	}
-
-	// Create watcher with auto-restart
-	watcher, err := config.WatchWithAutoRestart("config.yaml", restartFunc)
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to create config watcher")
-	}
-	defer watcher.Stop()
-
-	// Start initial component
-	if err := restartFunc(watcher.GetConfig()); err != nil {
-		logger.WithError(err).Fatal("Failed to start component")
-	}
-
-	// Start watching
-	watcher.Start()
-
-	logger.Info("Application running with auto-restart enabled")
-
-	// Wait for signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
-}
-
-// Example 3: Dynamic configuration with validation
-func example3() {
-	logger.Info("Example 3: Dynamic configuration with validation")
-
-	// Create watcher with custom debounce delay
-	watcher, err := config.NewWatcher(
-		"config.yaml",
-		config.WithDebounceDelay(500*time.Millisecond),
-	)
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to create config watcher")
-	}
-	defer watcher.Stop()
-
-	// Add validation callback
-	watcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
-		// Custom validation beyond basic config validation
-
-		// Example: Reject if concurrency limit is too low
-		if newConfig.Concurrency.Limit < 10 && newConfig.Concurrency.Limit != 0 {
-			logger.Warn("Rejecting config: concurrency limit too low")
-			return logger.WithFields(logger.Fields{
-				"limit": newConfig.Concurrency.Limit,
-			}).Error("concurrency limit must be at least 10 or 0 (unlimited)")
-		}
-
-		// Example: Warn if changing critical settings
-		if oldConfig.Server.Port != newConfig.Server.Port {
-			logger.WithFields(logger.Fields{
-				"old": oldConfig.Server.Port,
-				"new": newConfig.Server.Port,
-			}).Warn("Server port changed - restart required!")
-		}
-
-		return nil
-	})
-
-	// Add metrics callback
-	watcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
-		// Track configuration changes in metrics
-		logger.Info("Recording configuration change in metrics")
-		// metrics.IncrementConfigReload()
-		return nil
-	})
-
-	// Start watching
-	watcher.Start()
-
-	// Periodic stats logging
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			stats := watcher.GetStats()
-			logger.WithFields(logger.Fields{
-				"reload_count": stats.ReloadCount,
-				"failed_count": stats.FailedCount,
-			}).Info("Configuration watcher stats")
-		}
-	}()
-
-	logger.Info("Application running with advanced validation")
-
-	// Wait for signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
-}
-
-// Example 4: Integration with Bot
-func exampleBotIntegration() {
-	logger.Info("Example 4: Bot integration with hot-reload")
-
-	// This would be in your actual bot setup
-	/*
-		watcher, err := config.NewWatcher("config.yaml")
-		if err != nil {
-			logger.WithError(err).Fatal("Failed to create config watcher")
-		}
-		defer watcher.Stop()
-
-		// Handle dynamic settings
-		watcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
-			// Update log level dynamically
-			if oldConfig.Log.Level != newConfig.Log.Level {
-				level, _ := logger.ParseLevel(newConfig.Log.Level)
-				logger.SetLevel(level)
-				logger.Info("Log level updated")
-			}
-
-			// Update middleware settings
-			if oldConfig.Middleware != newConfig.Middleware {
-				// bot.UpdateMiddleware(newConfig.Middleware)
-				logger.Info("Middleware settings updated")
-			}
-
-			// Critical changes require restart
-			if oldConfig.Bot.AppID != newConfig.Bot.AppID {
-				return fmt.Errorf("bot.app_id change requires manual restart")
-			}
-
-			return nil
-		})
-
-		watcher.Start()
-
-		// Create bot with initial config
-		cfg := watcher.GetConfig()
-		bot := remilia.NewBotWithDefault(&dto.BotInfo{
-			AppID:     cfg.Bot.AppID,
-			QQNum:     cfg.Bot.BotID,
-			Token:     cfg.Bot.Token,
-			AppSecret: cfg.Bot.Secret,
-		})
-
-		bot.Start()
-		defer bot.Shutdown()
-
-		// Application runs...
-	*/
+	logger.Info("[ConfigHotReload] Shutting down...")
 }

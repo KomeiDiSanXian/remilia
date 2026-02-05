@@ -1,0 +1,15 @@
+# Remilia Bot 配置文件 - Command Bot
+
+bot:
+  app_id: 123456
+  bot_id: 654321
+  token: "YOUR_TOKEN"
+  secret: "YOUR_SECRET"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+log:
+  level: "debug"          # 命令调试建议使用 debug
+  format: "text"
