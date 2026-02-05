@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
@@ -24,6 +25,7 @@ type Manager struct {
 	accessToken string
 	expiresAt   time.Time
 	ready       bool
+	stopped     atomic.Bool // 标记 Manager 是否已停止
 
 	// 停止控制
 	ctx    context.Context
@@ -100,7 +102,12 @@ func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 
 // Stop 停止 token 自动刷新
 // 调用此方法后，Manager 将不再刷新 token
+// 此方法是幂等的，多次调用安全
 func (m *Manager) Stop() {
+	if m.stopped.Swap(true) {
+		return // 已经停止
+	}
+
 	if m.cancel != nil {
 		m.cancel()
 	}
@@ -116,6 +123,11 @@ func (m *Manager) WaitReady() error {
 
 // WaitReadyWithTimeout 阻塞直到 access token 可用或超时
 func (m *Manager) WaitReadyWithTimeout(timeout time.Duration) error {
+	// 检查是否已停止
+	if m.stopped.Load() {
+		return fmt.Errorf("token manager has been stopped")
+	}
+
 	done := make(chan struct{})
 	go func() {
 		m.mu.Lock()
@@ -137,9 +149,29 @@ func (m *Manager) WaitReadyWithTimeout(timeout time.Duration) error {
 }
 
 // GetToken 获取当前的 access token
+// 如果 Manager 已停止，返回空字符串
+// 调用者应该检查返回的 token 是否为空
 func (m *Manager) GetToken() string {
+	// 快速检查是否已停止（无锁）
+	if m.stopped.Load() {
+		logger.Warn("[Token] GetToken called after manager stopped")
+		return ""
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// 双重检查：锁内再次验证 ready 状态
+	if !m.ready {
+		logger.Warn("[Token] GetToken called but token not ready")
+		return ""
+	}
+
+	// 可选：检查 token 是否即将过期（提供更好的调试信息）
+	if time.Now().After(m.expiresAt) {
+		logger.Warn("[Token] GetToken returning expired token")
+	}
+
 	return m.accessToken
 }
 

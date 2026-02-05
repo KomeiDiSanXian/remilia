@@ -18,10 +18,11 @@ type Stats struct {
 }
 
 type InstrumentedPool struct {
-	pool sync.Pool
-	gets atomic.Uint64
-	puts atomic.Uint64
-	news atomic.Uint64
+	pool    sync.Pool
+	gets    atomic.Uint64
+	puts    atomic.Uint64
+	news    atomic.Uint64
+	resetMu sync.Mutex // Protect Reset operation for atomicity
 }
 
 func NewInstrumentedPool(newFunc func() any) *InstrumentedPool {
@@ -44,9 +45,12 @@ func (ip *InstrumentedPool) Put(x any) {
 }
 
 func (ip *InstrumentedPool) Stats() Stats {
+	// Use mutex to ensure we get a consistent snapshot during Reset
+	ip.resetMu.Lock()
 	gets := ip.gets.Load()
 	puts := ip.puts.Load()
 	news := ip.news.Load()
+	ip.resetMu.Unlock()
 
 	hitRate := 0.0
 	if gets > 0 {
@@ -56,7 +60,12 @@ func (ip *InstrumentedPool) Stats() Stats {
 	return Stats{Gets: gets, Puts: puts, News: news, HitRate: hitRate}
 }
 
+// Reset atomically resets all statistics counters to zero
+// This method is safe to call concurrently with Get/Put operations
 func (ip *InstrumentedPool) Reset() {
+	ip.resetMu.Lock()
+	defer ip.resetMu.Unlock()
+
 	ip.gets.Store(0)
 	ip.puts.Store(0)
 	ip.news.Store(0)

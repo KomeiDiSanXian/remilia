@@ -180,8 +180,15 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 		}).Debug("[Bot] Event received")
 	}
 
+	// 安全检查：确保 openAPI client 已初始化
+	api := b.openAPI
+	if api == nil {
+		logger.Warn("[Bot] OpenAPI client not initialized, event processing may fail")
+		// 仍然继续处理，context 可以处理 nil API
+	}
+
 	// 创建 Context，传入 openAPI client
-	ctx := eventctx.NewContext(payload, b.openAPI)
+	ctx := eventctx.NewContext(payload, api)
 
 	// 使用 Engine 处理事件
 	b.engine.ProcessEvent(ctx)

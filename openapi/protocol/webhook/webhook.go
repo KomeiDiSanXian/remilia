@@ -35,6 +35,34 @@ type Conn struct {
 	eventChan     chan *dto.Payload
 	bigCache      *bigcache.BigCache
 	droppedEvents atomic.Uint64 // Counter for dropped events
+	totalEvents   atomic.Uint64 // Counter for total events received
+}
+
+// WebhookStats contains statistics about webhook event processing
+type WebhookStats struct {
+	TotalEvents   uint64  // 总接收事件数
+	DroppedEvents uint64  // 丢弃的事件数
+	DropRate      float64 // 丢弃率 (0-1)
+	ChannelSize   int     // 当前channel中的事件数
+	ChannelCap    int     // channel容量
+}
+
+// GetStats returns current webhook statistics
+func (c *Conn) GetStats() WebhookStats {
+	total := c.totalEvents.Load()
+	dropped := c.droppedEvents.Load()
+	dropRate := 0.0
+	if total > 0 {
+		dropRate = float64(dropped) / float64(total)
+	}
+
+	return WebhookStats{
+		TotalEvents:   total,
+		DroppedEvents: dropped,
+		DropRate:      dropRate,
+		ChannelSize:   len(c.eventChan),
+		ChannelCap:    cap(c.eventChan),
+	}
 }
 
 // DedupOptions represents the options for deduplication strategy
@@ -251,6 +279,9 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	logger.Debug("[Webhook] Received the event from the server")
 	key := helper.FNVHash(fmt.Sprintf("%s:%s", payload.Type, payload.ID))
 
+	// 增加总事件计数
+	c.totalEvents.Add(1)
+
 	// 如果未启用 bigCache 或配置禁用，直接分发（非阻塞）
 	if c.bigCache == nil {
 		select {
@@ -258,10 +289,25 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 			logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 		default:
 			dropped := c.droppedEvents.Add(1)
+			total := c.totalEvents.Load()
+			dropRate := float64(dropped) / float64(total) * 100
 			logger.WithFields(logger.Fields{
 				"payload_id":    payload.ID,
+				"payload_type":  payload.Type,
 				"total_dropped": dropped,
+				"total_events":  total,
+				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+				"channel_size":  len(c.eventChan),
+				"channel_cap":   cap(c.eventChan),
 			}).Warn("[Webhook] Event channel is full, dropping payload")
+
+			// 如果丢弃率超过阈值，记录错误级别日志
+			if dropRate > 5.0 {
+				logger.WithFields(logger.Fields{
+					"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+					"total_dropped": dropped,
+				}).Error("[Webhook] High event drop rate detected!")
+			}
 		}
 		return
 	}
@@ -277,10 +323,25 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 		logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 	default:
 		dropped := c.droppedEvents.Add(1)
+		total := c.totalEvents.Load()
+		dropRate := float64(dropped) / float64(total) * 100
 		logger.WithFields(logger.Fields{
 			"payload_id":    payload.ID,
+			"payload_type":  payload.Type,
 			"total_dropped": dropped,
+			"total_events":  total,
+			"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+			"channel_size":  len(c.eventChan),
+			"channel_cap":   cap(c.eventChan),
 		}).Warn("[Webhook] Event channel is full, dropping payload")
+
+		// 如果丢弃率超过阈值，记录错误级别日志
+		if dropRate > 5.0 {
+			logger.WithFields(logger.Fields{
+				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+				"total_dropped": dropped,
+			}).Error("[Webhook] High event drop rate detected!")
+		}
 	}
 }
 

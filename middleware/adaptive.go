@@ -166,7 +166,19 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 					arl.latencyCount.Add(1)
 				}()
 
-				return next(ctx)
+				// 修复：捕获 panic，确保 defer 能执行
+				var err error
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							err = fmt.Errorf("panic in handler: %v", r)
+							logger.WithField("panic", r).Error("[AdaptiveRateLimiter] Handler panic recovered")
+						}
+					}()
+					err = next(ctx)
+				}()
+
+				return err
 
 			default:
 				// 超过限制，拒绝请求
@@ -209,6 +221,12 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 			memory := arl.getMemoryUsage()
 			latency := arl.getLatencyP99()
 			currentLimit := arl.maxConcurrency.Load()
+
+			// 修复：采集失败时跳过调整（负值表示采集失败）
+			if cpu < 0 || memory < 0 {
+				logger.Warn("[AdaptiveRateLimiter] Metrics collection failed, skipping adjustment")
+				continue
+			}
 
 			// 决策是否调整
 			newLimit := arl.decideLimit(cpu, memory, latency, currentLimit)

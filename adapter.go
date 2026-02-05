@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -27,12 +28,13 @@ type Webhook interface {
 
 // webhookAdapter 将 Webhook 适配为 core.Adapter
 type webhookAdapter struct {
-	webhook Webhook
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup // Track the event loop goroutine
-	mu      sync.RWMutex   // Protect state
-	running bool           // Track if event loop is running
+	webhook  Webhook
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup // Track the event loop goroutine
+	mu       sync.RWMutex   // Protect state
+	running  bool           // Track if event loop is running
+	starting atomic.Bool    // Prevent concurrent Start calls
 }
 
 // NewWebhookAdapter 创建一个 webhook adapter
@@ -44,6 +46,12 @@ func NewWebhookAdapter(wh Webhook) Adapter {
 
 // Start 启动 adapter
 func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+	// 防止并发 Start 调用
+	if !a.starting.CompareAndSwap(false, true) {
+		return fmt.Errorf("adapter is already starting or started")
+	}
+	defer a.starting.Store(false)
+
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()

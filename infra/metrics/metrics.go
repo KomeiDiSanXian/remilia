@@ -31,9 +31,10 @@ type Collector struct {
 	eventDropped   *prometheus.CounterVec
 	eventLatency   *prometheus.HistogramVec
 
-	internalPoolGets uint64
-	internalPoolPuts uint64
-	internalPoolNews uint64
+	// Use atomic types for thread-safe access
+	internalPoolGets atomic.Uint64
+	internalPoolPuts atomic.Uint64
+	internalPoolNews atomic.Uint64
 }
 
 func NewMetricsCollector(namespace string) *Collector {
@@ -194,8 +195,8 @@ type PoolMetricsSnapshot struct {
 }
 
 func (mc *Collector) GetPoolMetrics() PoolMetricsSnapshot {
-	gets := atomic.LoadUint64(&mc.internalPoolGets)
-	news := atomic.LoadUint64(&mc.internalPoolNews)
+	gets := mc.internalPoolGets.Load()
+	news := mc.internalPoolNews.Load()
 
 	hitRate := 0.0
 	if gets > 0 {

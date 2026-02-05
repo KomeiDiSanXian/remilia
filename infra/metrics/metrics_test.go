@@ -299,8 +299,8 @@ func TestGetPoolMetrics(t *testing.T) {
 	})
 
 	t.Run("with gets but no news", func(t *testing.T) {
-		collector.internalPoolGets = 100
-		collector.internalPoolNews = 0
+		collector.internalPoolGets.Store(100)
+		collector.internalPoolNews.Store(0)
 
 		snapshot := collector.GetPoolMetrics()
 		assert.Equal(t, uint64(100), snapshot.Gets)
@@ -309,8 +309,8 @@ func TestGetPoolMetrics(t *testing.T) {
 	})
 
 	t.Run("with gets and news", func(t *testing.T) {
-		collector.internalPoolGets = 100
-		collector.internalPoolNews = 20
+		collector.internalPoolGets.Store(100)
+		collector.internalPoolNews.Store(20)
 
 		snapshot := collector.GetPoolMetrics()
 		assert.Equal(t, uint64(100), snapshot.Gets)
@@ -319,8 +319,8 @@ func TestGetPoolMetrics(t *testing.T) {
 	})
 
 	t.Run("all news (0% hit rate)", func(t *testing.T) {
-		collector.internalPoolGets = 50
-		collector.internalPoolNews = 50
+		collector.internalPoolGets.Store(50)
+		collector.internalPoolNews.Store(50)
 
 		snapshot := collector.GetPoolMetrics()
 		assert.Equal(t, uint64(50), snapshot.Gets)
@@ -463,8 +463,8 @@ func BenchmarkRecordRetryAttempt(b *testing.B) {
 // BenchmarkGetPoolMetrics benchmarks pool metrics retrieval
 func BenchmarkGetPoolMetrics(b *testing.B) {
 	collector := NewMetricsCollector("bench")
-	collector.internalPoolGets = 1000
-	collector.internalPoolNews = 200
+	collector.internalPoolGets.Store(1000)
+	collector.internalPoolNews.Store(200)
 
 	b.ResetTimer()
 	b.ReportAllocs()

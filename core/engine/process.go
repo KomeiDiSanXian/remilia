@@ -24,10 +24,22 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
+	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithFields(logger.Fields{
+				"panic":      r,
+				"event_type": ctx.GetEventType(),
+			}).Error("[Engine] Unhandled panic in ProcessEvent recovered")
+		}
+	}()
+
 	// 无锁读取状态
 	state := e.state.Load().(*engineState)
 
 	eventType := ctx.GetEventType()
+
+	// ...existing code...
 
 	// 获取已排序的 permanent 匹配器（从缓存）
 	permSpecific := state.sortedCache[eventType]
@@ -282,16 +294,19 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		m.rt.useCount++
 		if m.rt.useCount >= m.rt.maxUseCount {
 			m.rt.deleted = true
+			// 修复：在锁内保存 isTemp 状态，避免解锁后的竞态条件
+			isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
 			m.rt.mu.Unlock()
+
 			engine := e
-			if atomic.LoadInt32(&m.rt.isTemp) == 1 {
+			if isTemp {
 				engine.services.tempManager.Remove(m)
 			} else {
 				// Should not happen if migration is correct, but safe fallback
 				select {
 				case engine.services.pendingDeleteCh <- m:
 				default:
-					logger.Debugf("[Engine] Pending delete channel full, matcher %p (source: %services) marked for cleanup", m, m.Source)
+					logger.Debugf("[Engine] Pending delete channel full, matcher %p (source: %s) marked for cleanup", m, m.Source)
 				}
 			}
 			return
@@ -451,6 +466,11 @@ func extractCommand(content string) string {
 // Lists 3, 6 are from TempManager (Need "isTemp==0" check to skip)
 func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
 	totalLen := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
+	// 优化：所有列表为空时直接返回
+	if totalLen == 0 {
+		return dst[:0]
+	}
+
 	if cap(dst) < totalLen {
 		dst = make([]*Matcher, 0, totalLen)
 	}
