@@ -35,19 +35,24 @@ func TestBot_HandleEvent(t *testing.T) {
 	require.NoError(t, bot.Start())
 	defer bot.Stop(context.Background())
 
+	// Give the bot time to fully start
+	time.Sleep(50 * time.Millisecond)
+
 	testEvent := &dto.Payload{
-		ID:   "test-",
+		ID:   "test-event-1",
 		Type: dto.C2CMessageCreate,
 	}
 
 	adapter.SendEvent(testEvent)
+
+	// Wait for event to be processed
 	time.Sleep(200 * time.Millisecond)
 
 	mu.Lock()
 	received := eventReceived
 	mu.Unlock()
 
-	assert.True(t, received)
+	assert.True(t, received, "Event should be received and handled")
 }
 
 // TestAdapterHealthChecker tests nil adapter

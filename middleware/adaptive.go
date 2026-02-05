@@ -160,10 +160,18 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 					<-arl.sema
 					arl.currentLoad.Add(-1)
 
-					// 记录延迟
+					// 记录延迟（添加合理性检查，防止统计溢出）
 					latency := time.Since(start)
-					arl.latencySum.Add(latency.Nanoseconds())
-					arl.latencyCount.Add(1)
+
+					// 只记录合理范围内的延迟（< 1小时），避免异常值和溢出
+					if latency > 0 && latency < time.Hour {
+						arl.latencySum.Add(latency.Nanoseconds())
+						arl.latencyCount.Add(1)
+					} else if latency >= time.Hour {
+						logger.WithFields(logger.Fields{
+							"latency": latency,
+						}).Warn("[AdaptiveRateLimiter] Abnormal latency detected, not recorded")
+					}
 				}()
 
 				// 修复：捕获 panic，确保 defer 能执行

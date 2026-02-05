@@ -144,27 +144,36 @@ func (b *Bot) Start() error {
 	b.starting = true
 	b.mu.Unlock()
 
+	// 使用 defer 确保在任何情况下都清理 starting 标志
+	defer func() {
+		// 只有在未成功启动时才清除 starting 标志
+		b.mu.Lock()
+		if !b.running {
+			b.starting = false
+		}
+		b.mu.Unlock()
+	}()
+
 	logger.WithFields(logger.Fields{
 		"name":    b.config.Name,
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
 
+	// 添加超时保护，防止永久阻塞
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// 使用生命周期管理器启动所有组件
-	ctx := context.Background()
 	if err := b.lifecycle.Start(ctx); err != nil {
 		logger.WithError(err).Error("[Bot] Failed to start")
-		// 启动失败，清除 starting 标志
-		b.mu.Lock()
-		b.starting = false
-		b.mu.Unlock()
 		return err
 	}
 
-	// 启动成功后设置状态并清除 starting 标志
+	// 启动成功后设置状态
 	b.mu.Lock()
 	b.running = true
 	b.startTime = time.Now()
-	b.starting = false // 在 running=true 之后清除
+	b.starting = false
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")

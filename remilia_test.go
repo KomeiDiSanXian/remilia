@@ -22,11 +22,17 @@ type mockAdapter struct {
 	shutdown    bool
 	events      chan *dto.Payload
 	mu          sync.Mutex
+
+	// Add context management
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func newMockAdapter() *mockAdapter {
 	return &mockAdapter{
 		events: make(chan *dto.Payload, 10),
+		done:   make(chan struct{}),
 	}
 }
 
@@ -37,15 +43,24 @@ func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) 
 		return m.startErr
 	}
 	m.started = true
+
+	// Create independent context for long-running goroutine
+	// Don't use the ctx parameter as it's only for the start operation
+	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.mu.Unlock()
 
 	// Simulate event processing
 	go func() {
+		defer close(m.done)
+
 		for {
 			select {
-			case <-ctx.Done():
+			case <-m.ctx.Done():
 				return
-			case event := <-m.events:
+			case event, ok := <-m.events:
+				if !ok {
+					return
+				}
 				if event != nil && handleFunc != nil {
 					handleFunc(event)
 				}
@@ -56,21 +71,52 @@ func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) 
 	return nil
 }
 
+func (m *mockAdapter) SendEvent(event *dto.Payload) {
+	m.mu.Lock()
+	started := m.started
+	shutdown := m.shutdown
+	m.mu.Unlock()
+
+	if !started || shutdown {
+		return
+	}
+
+	select {
+	case m.events <- event:
+		// Event sent successfully
+	default:
+		// Channel full or closed, ignore
+	}
+}
+
 func (m *mockAdapter) Stop(_ context.Context) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if m.shutdownErr != nil {
+		m.mu.Unlock()
 		return m.shutdownErr
 	}
 
-	m.shutdown = true
-	close(m.events)
-	return nil
-}
+	if m.shutdown {
+		m.mu.Unlock()
+		return nil
+	}
 
-func (m *mockAdapter) SendEvent(event *dto.Payload) {
-	m.events <- event
+	m.shutdown = true
+	m.mu.Unlock()
+
+	// Cancel context first to stop the goroutine
+	if m.cancel != nil {
+		m.cancel()
+	}
+
+	// Wait for goroutine to finish
+	<-m.done
+
+	// Then close the channel
+	close(m.events)
+
+	return nil
 }
 
 // TestNewBot tests creating a new bot
