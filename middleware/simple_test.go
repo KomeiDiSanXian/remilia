@@ -1,0 +1,180 @@
+package middleware_test
+
+import (
+	"testing"
+	"time"
+
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/stretchr/testify/assert"
+)
+
+// TestSimpleMiddleware tests simplified middleware factories
+func TestSimpleMiddleware(t *testing.T) {
+	t.Run("SimpleAdaptive", func(t *testing.T) {
+		mw := middleware.SimpleAdaptive()
+		assert.NotNil(t, mw)
+	})
+
+	t.Run("SimpleAdaptiveWithLimit", func(t *testing.T) {
+		mw := middleware.SimpleAdaptiveWithLimit(200)
+		assert.NotNil(t, mw)
+	})
+
+	t.Run("SimpleCircuitBreaker", func(t *testing.T) {
+		mw := middleware.SimpleCircuitBreaker()
+		assert.NotNil(t, mw)
+	})
+
+	t.Run("SimpleDedup", func(t *testing.T) {
+		mw := middleware.SimpleDedup()
+		assert.NotNil(t, mw)
+	})
+
+	t.Run("SimpleDedupWithTTL", func(t *testing.T) {
+		mw := middleware.SimpleDedupWithTTL(5 * time.Minute)
+		assert.NotNil(t, mw)
+	})
+}
+
+// TestMiddlewareSet tests middleware set builder
+func TestMiddlewareSet(t *testing.T) {
+	t.Run("EmptySet", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet()
+		middlewares := set.Build()
+		assert.Empty(t, middlewares)
+	})
+
+	t.Run("WithLogging", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithLogging()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 1)
+	})
+
+	t.Run("WithRecover", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithRecover()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 1)
+	})
+
+	t.Run("WithAdaptive", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithAdaptive()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 1)
+	})
+
+	t.Run("WithCircuitBreaker", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithCircuitBreaker()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 1)
+	})
+
+	t.Run("WithDedup", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithDedup()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 1)
+	})
+
+	t.Run("ChainedCalls", func(t *testing.T) {
+		set := middleware.NewMiddlewareSet().
+			WithRecover().
+			WithLogging().
+			WithAdaptive().
+			WithCircuitBreaker()
+		middlewares := set.Build()
+		assert.Len(t, middlewares, 4)
+	})
+}
+
+// TestPredefinedSets tests predefined middleware sets
+func TestPredefinedSets(t *testing.T) {
+	t.Run("ProductionSet", func(t *testing.T) {
+		middlewares := middleware.ProductionSet()
+		assert.NotEmpty(t, middlewares)
+		assert.Len(t, middlewares, 5) // Recover, Logging, Adaptive, CircuitBreaker, Dedup
+	})
+
+	t.Run("DevelopmentSet", func(t *testing.T) {
+		middlewares := middleware.DevelopmentSet()
+		assert.NotEmpty(t, middlewares)
+		assert.Len(t, middlewares, 2) // Recover, Logging
+	})
+
+	t.Run("BasicSet", func(t *testing.T) {
+		middlewares := middleware.BasicSet()
+		assert.NotEmpty(t, middlewares)
+		assert.Len(t, middlewares, 1) // Recover
+	})
+}
+
+// TestMiddlewareExecution tests that middleware can be executed
+func TestMiddlewareExecution(t *testing.T) {
+	t.Run("ProductionSetExecution", func(t *testing.T) {
+		middlewares := middleware.ProductionSet()
+
+		// Create a simple handler
+		executed := false
+		handler := func(ctx *eventctx.Context) error {
+			executed = true
+			return nil
+		}
+
+		// Wrap handler with middleware
+		wrapped := handler
+		for i := len(middlewares) - 1; i >= 0; i-- {
+			wrapped = middlewares[i](wrapped)
+		}
+
+		// Create test context
+		payload := &dto.Payload{
+			Type: dto.C2CMessageCreate,
+		}
+		ctx := eventctx.NewContext(payload, nil)
+
+		// Execute
+		err := wrapped(ctx)
+		assert.NoError(t, err)
+		assert.True(t, executed)
+	})
+}
+
+// BenchmarkMiddlewareFactories benchmarks middleware creation
+func BenchmarkMiddlewareFactories(b *testing.B) {
+	b.Run("SimpleAdaptive", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = middleware.SimpleAdaptive()
+		}
+	})
+
+	b.Run("SimpleCircuitBreaker", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = middleware.SimpleCircuitBreaker()
+		}
+	})
+
+	b.Run("ProductionSet", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = middleware.ProductionSet()
+		}
+	})
+
+	b.Run("MiddlewareSet", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = middleware.NewMiddlewareSet().
+				WithRecover().
+				WithLogging().
+				WithAdaptive().
+				Build()
+		}
+	})
+}

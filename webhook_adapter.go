@@ -3,6 +3,7 @@ package remilia
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"runtime"
 	"sync"
@@ -38,7 +39,7 @@ type WebhookServerAdapter struct {
 //
 // 示例:
 //
-//	adapter := remilia.NewWebhookServerAdapter(":8080", global.Info)
+//	adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
 //	bot := remilia.NewBot(adapter, engine)
 //	bot.Start()
 func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAdapter {
@@ -47,6 +48,22 @@ func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAd
 		WorkerCount: 0,   // 0 = 使用 CPU 核心数
 		EventBuffer: 100, // 默认缓冲区大小
 	})
+}
+
+// SimpleWebhookAdapter 创建最简单的Webhook适配器
+//
+// 使用默认配置，适合快速原型开发
+//
+// 参数:
+//   - port: 监听端口（例如 8080）
+//
+// 示例:
+//
+//	adapter := remilia.SimpleWebhookAdapter(8080)
+//
+// 注意: 此适配器不包含botInfo，仅用于接收事件，不支持主动API调用
+func SimpleWebhookAdapter(port int) *WebhookServerAdapter {
+	return NewWebhookServerAdapter(fmt.Sprintf(":%d", port), nil)
 }
 
 // NewWebhookServerAdapterWithConfig 从配置创建 Webhook 适配器

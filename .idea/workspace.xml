@@ -4,53 +4,16 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality">
-      <change afterPath="$PROJECT_DIR$/docs/01-getting-started/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/03-architecture/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/06-archived/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/ADVANCED_FEATURES_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/ADVANCED_FEATURES_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BEST_PRACTICES.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BUG_AND_IMPROVEMENT_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BUG_FIXES_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BUG_FIXES_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BUG_FIXES_QUICKREF_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/BUILTIN_PLUGINS_DESIGN.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CODE_QUALITY_ANALYSIS_2026_02_02.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CODE_QUALITY_IMPROVEMENTS_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CODE_QUALITY_INDEX_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/COMMAND_INTEGRATION_PLAN.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/COMPILE_ERRORS_FIXED.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/COMPLETE_WORK_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONCURRENT_EVENT_PROCESSING.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIGURATION_IMPROVEMENTS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIGURATION_INDEX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIGURATION_MIGRATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIGURATION_QUICKREF.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIGURATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIG_HOTRELOAD_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/CONFIG_HOTRELOAD_QUICKREF.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/GETTING_STARTED.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/HANDLE_METHOD_DESIGN_ANALYSIS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/HELP_PLUGIN_DESIGN.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/HELP_PLUGIN_IMPLEMENTATION_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/IMPROVEMENTS_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/IMPROVEMENTS_FIX_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/MATCHER_CHAINING_BEST_PRACTICES.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/PLUGIN_ENHANCEMENT_PROPOSAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/PLUGIN_ENHANCEMENT_QUICKREF.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TESTING_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TEST_FIX_FINAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TEST_FIX_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TRIE_TEST_FIX_FINAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/TROUBLESHOOTING.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/VERIFICATION_REPORT_2026_02_05.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/WORK_SUMMARY_2026_02_04.md" beforeDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports">
+      <change afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/FACTORY_FUNCTIONS_GUIDE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/FACTORY_OPTIMIZATION_REPORT.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/errors.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -268,7 +231,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: enhance Bot and WebhookServerAdapter with token manager and concurrent event handling" />
     <MESSAGE value="typo: add comment for default worker configuration in WebhookServerAdapter" />
     <MESSAGE value="feat: add throughput benchmarking tool with configurable parameters and performance metrics" />
     <MESSAGE value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
@@ -293,7 +255,8 @@
     <MESSAGE value="feat: optimize command registry with Trie structure for efficient prefix search and reduce memory usage" />
     <MESSAGE value="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking" />
     <MESSAGE value="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality" />
+    <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
