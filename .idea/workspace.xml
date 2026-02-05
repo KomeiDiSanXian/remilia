@@ -4,29 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: optimize command registry with Trie structure for efficient prefix search and reduce memory usage">
-      <change afterPath="$PROJECT_DIR$/adapter_safety_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking">
+      <change afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/context/pool_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/BUG_FIXES_2026_02_04.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/BUG_FIXES_QUICKREF_2026_02_04.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CODE_QUALITY_ANALYSIS_2026_02_02.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CODE_QUALITY_IMPROVEMENTS_2026_02_04.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/CODE_QUALITY_INDEX_2026_02_04.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/VERIFICATION_REPORT_2026_02_05.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/WORK_SUMMARY_2026_02_04.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/pool/pool_reset_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/openapi/auth/token/token_stop_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_stats_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/pool/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/pool/pool.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/extensions.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/extensions.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -244,7 +234,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: implement graceful shutdown for token manager with context handling" />
     <MESSAGE value="test: add tests for Token Manager and Watcher graceful shutdown and cleanup" />
     <MESSAGE value="refactor: enhance Bot and WebhookServerAdapter with token manager and concurrent event handling" />
     <MESSAGE value="typo: add comment for default worker configuration in WebhookServerAdapter" />
@@ -269,7 +258,8 @@
     <MESSAGE value="feat: add ParseInt function and improve logging by replacing logrus with zerolog" />
     <MESSAGE value="feat: enhance concurrency handling in Bot and CircuitBreaker, add strict mode to Dedup filter" />
     <MESSAGE value="feat: optimize command registry with Trie structure for efficient prefix search and reduce memory usage" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: optimize command registry with Trie structure for efficient prefix search and reduce memory usage" />
+    <MESSAGE value="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

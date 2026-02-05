@@ -77,6 +77,20 @@ func (e *Extensions) Snapshot() map[reflect.Type]any {
 	return out
 }
 
+// Clear removes all extensions from the container.
+// This is used for cleaning up contexts before returning them to the pool.
+func (e *Extensions) Clear() {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// Clear the map
+	for k := range e.m {
+		delete(e.m, k)
+	}
+}
+
 // --- Generic helpers (package-level) ---
 
 // extTypeOf returns the reflect.Type key for T.
