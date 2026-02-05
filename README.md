@@ -186,18 +186,41 @@ func main() {
 
 ## 📚 文档
 
-### 核心概念
+**完整文档**: 👉 [docs/README.md](./docs/README.md)
 
-- [Engine 事件引擎](./docs/ENGINE.md) - 事件处理引擎详解
-- [Context 上下文](./docs/CONTEXT.md) - 请求上下文和辅助方法
-- [Adapter 适配器](./docs/ADAPTER.md) - Webhook 和 WebSocket 适配器
-- [Plugin 插件系统](./docs/PLUGIN.md) - 插件开发指南
+### 快速导航
+
+#### 🚀 新手入门
+- [快速开始指南](./docs/01-getting-started/GETTING_STARTED.md) - 5分钟上手
+- [故障排除](./docs/01-getting-started/TROUBLESHOOTING.md) - 常见问题解答
+
+#### 📖 用户指南
+- [最佳实践](./docs/02-user-guides/BEST_PRACTICES.md) - 推荐的使用模式
+- [配置快速参考](./docs/02-user-guides/CONFIGURATION_QUICKREF.md) - 配置项速查
+- [Matcher 链式调用](./docs/02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md) - 高级模式
+
+#### 🏗️ 架构设计
+- [并发事件处理](./docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md) - COW 并发模型
+- [插件系统设计](./docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md) - 插件架构详解
+- [命令系统集成](./docs/03-architecture/COMMAND_INTEGRATION_PLAN.md) - 命令解析器
+
+#### 📊 质量报告
+- [代码质量分析](./docs/05-reports/CODE_QUALITY_ANALYSIS_2026_02_02.md) ⭐ 评分 9.6/10
+- [验证报告](./docs/05-reports/VERIFICATION_REPORT_2026_02_05.md) ⭐ 17个问题全部解决
+- [性能优化报告](./docs/05-reports/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md) ⭐ GC压力减少50%
+
+### 核心概念（待补充）
+
+- Engine 事件引擎 - 事件处理引擎详解
+- Context 上下文 - 请求上下文和辅助方法
+- Adapter 适配器 - Webhook 和 WebSocket 适配器
+- Plugin 插件系统 - 插件开发指南
 
 ### 功能模块
 
 - [Command 命令系统](./command/README.md) - 命令解析和路由
-- [Middleware 中间件](./docs/MIDDLEWARE.md) - 内置中间件使用指南
-- [Configuration 配置管理](./docs/CONFIGURATION.md) - 配置文件和热更新
+- Middleware 中间件 - 内置中间件使用指南
+- Configuration 配置管理 - 配置文件和热更新
 - [Lifecycle 生命周期](./lifecycle/README.md) - 生命周期管理
 
 ### 高级特性
