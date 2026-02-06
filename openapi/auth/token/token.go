@@ -111,8 +111,20 @@ func (m *Manager) Stop() {
 	if m.cancel != nil {
 		m.cancel()
 	}
-	m.wg.Wait() // 等待 goroutine 退出
-	logger.Info("[Token] Token manager stopped")
+
+	// 添加超时保护，防止永久阻塞
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Info("[Token] Token manager stopped")
+	case <-time.After(5 * time.Second):
+		logger.Warn("[Token] Token manager stop timeout, some goroutines may still be running")
+	}
 }
 
 // WaitReady 阻塞直到 access token 可用

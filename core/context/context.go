@@ -136,10 +136,16 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 //
 // Clone 会创建一个新的 Context 实例，复制当前 Context 的所有字段。
 func (ctx *Context) Clone() *Context {
+	// Clone the event to prevent mutation issues
+	var clonedEvent *dto.Payload
+	if ctx.event != nil {
+		clonedEvent = ctx.event.Clone()
+	}
+
 	newCtx := &Context{
 		ctx:     ctx.Context(),
 		matcher: ctx.matcher,
-		event:   ctx.event,
+		event:   clonedEvent,
 		api:     ctx.api,
 	}
 

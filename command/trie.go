@@ -102,6 +102,40 @@ func (t *Trie) Search(prefix string) []*CommandMeta {
 	return result
 }
 
+// ExactMatch finds a command by exact name match
+// Returns the command metadata if found, nil otherwise
+// Time complexity: O(m) where m is the length of the command name
+func (t *Trie) ExactMatch(name string) *CommandMeta {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	node := t.root
+	runes := []rune(name)
+
+	// Navigate to the end of the command name
+	for _, r := range runes {
+		if node.children[r] == nil {
+			return nil // No match
+		}
+		node = node.children[r]
+	}
+
+	// Check if this is a complete command (not just a prefix)
+	if !node.isEnd || len(node.commands) == 0 {
+		return nil
+	}
+
+	// Return the first command (should only be one for exact match)
+	// The commands slice at an end node should contain the command itself
+	for _, cmd := range node.commands {
+		if cmd.Name == name {
+			return cmd
+		}
+	}
+
+	return nil
+}
+
 // collectCommands recursively collects all commands from a node and its children
 func (t *Trie) collectCommands(node *TrieNode, seen map[*CommandMeta]bool, result *[]*CommandMeta) {
 	if node == nil {

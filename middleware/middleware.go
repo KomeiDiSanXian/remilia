@@ -109,6 +109,11 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 						select {
 						case done <- fmt.Errorf("panic in handler: %v", r):
 						default:
+							// 超时后 panic，记录日志避免丢失
+							logger.WithFields(logger.Fields{
+								"panic":      r,
+								"event_type": ctx.GetEventType(),
+							}).Warn("[Timeout] Panic occurred after timeout, error discarded")
 						}
 					}
 				}()
@@ -121,6 +126,11 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 				case done <- err:
 				default:
 					// 超时后，主 goroutine 已经返回，不再写入
+					if err != nil {
+						logger.WithError(err).WithFields(logger.Fields{
+							"event_type": ctx.GetEventType(),
+						}).Warn("[Timeout] Error occurred after timeout, error discarded")
+					}
 				}
 			}()
 

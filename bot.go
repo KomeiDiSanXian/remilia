@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -151,21 +152,10 @@ func (b *Bot) Start() error {
 	}
 	if b.starting {
 		b.mu.Unlock()
-		logger.Warn("[Bot] Already starting")
-		return nil
+		return fmt.Errorf("bot is already starting")
 	}
 	b.starting = true
 	b.mu.Unlock()
-
-	// 使用 defer 确保在任何情况下都清理 starting 标志
-	defer func() {
-		// 只有在未成功启动时才清除 starting 标志
-		b.mu.Lock()
-		if !b.running {
-			b.starting = false
-		}
-		b.mu.Unlock()
-	}()
 
 	logger.WithFields(logger.Fields{
 		"name":    b.config.Name,
@@ -177,16 +167,18 @@ func (b *Bot) Start() error {
 	defer cancel()
 
 	// 使用生命周期管理器启动所有组件
-	if err := b.lifecycle.Start(ctx); err != nil {
+	err := b.lifecycle.Start(ctx)
+
+	// 更新状态（无论成功或失败，都需要清理 starting 标志）
+	b.mu.Lock()
+	b.starting = false
+	if err != nil {
+		b.mu.Unlock()
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
-
-	// 启动成功后设置状态
-	b.mu.Lock()
 	b.running = true
 	b.startTime = time.Now()
-	b.starting = false
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")
