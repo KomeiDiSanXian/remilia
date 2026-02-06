@@ -12,6 +12,7 @@ import (
 // Collector collects prometheus metrics.
 type Collector struct {
 	namespace string
+	registry  prometheus.Registerer // Custom registry to avoid global collisions
 
 	deadLetterQueueSize    prometheus.Gauge
 	deadLetterConsumed     prometheus.Counter
@@ -37,96 +38,112 @@ type Collector struct {
 	internalPoolNews atomic.Uint64
 }
 
+// NewMetricsCollector creates a new metrics collector with the default global registry
 func NewMetricsCollector(namespace string) *Collector {
+	return NewMetricsCollectorWithRegistry(namespace, prometheus.DefaultRegisterer)
+}
+
+// NewMetricsCollectorWithRegistry creates a new metrics collector with a custom registry
+// This allows multiple collectors in tests or multi-engine scenarios without panic
+func NewMetricsCollectorWithRegistry(namespace string, registry prometheus.Registerer) *Collector {
 	if namespace == "" {
 		namespace = "remilia"
 	}
+	if registry == nil {
+		registry = prometheus.DefaultRegisterer
+	}
 
-	mc := &Collector{namespace: namespace}
+	mc := &Collector{
+		namespace: namespace,
+		registry:  registry,
+	}
 
-	mc.deadLetterQueueSize = promauto.NewGauge(prometheus.GaugeOpts{
+	// Use the custom registry instead of promauto (which uses global registry)
+	factory := promauto.With(registry)
+
+	mc.deadLetterQueueSize = factory.NewGauge(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "deadletter_queue_size",
 		Help:      "Current number of items in dead letter queue",
 	})
 
-	mc.deadLetterConsumed = promauto.NewCounter(prometheus.CounterOpts{
+	mc.deadLetterConsumed = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "deadletter_consumed_total",
 		Help:      "Total number of dead letter items consumed",
 	})
 
-	mc.deadLetterConsumerTime = promauto.NewHistogram(prometheus.HistogramOpts{
+	mc.deadLetterConsumerTime = factory.NewHistogram(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "deadletter_consumer_duration_seconds",
 		Help:      "Time spent consuming dead letter items",
 		Buckets:   prometheus.DefBuckets,
 	})
 
-	mc.pluginHandlers = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	mc.pluginHandlers = factory.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "plugin_handlers_total",
 		Help:      "Number of handlers registered by plugin",
 	}, []string{"plugin"})
 
-	mc.pluginMatchers = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	mc.pluginMatchers = factory.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
 		Name:      "plugin_matchers_total",
 		Help:      "Number of matchers registered by plugin",
 	}, []string{"plugin"})
 
-	mc.pluginLoadTime = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	mc.pluginLoadTime = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "plugin_load_duration_seconds",
 		Help:      "Time spent loading plugin",
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"plugin"})
 
-	mc.pluginUnloadTime = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	mc.pluginUnloadTime = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "plugin_unload_duration_seconds",
 		Help:      "Time spent unloading plugin",
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"plugin"})
 
-	mc.retryAttempts = promauto.NewCounterVec(prometheus.CounterOpts{
+	mc.retryAttempts = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "retry_attempts_total",
 		Help:      "Total number of retry attempts",
 	}, []string{"attempt"})
 
-	mc.retrySuccesses = promauto.NewCounter(prometheus.CounterOpts{
+	mc.retrySuccesses = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "retry_successes_total",
 		Help:      "Total number of successful retries",
 	})
 
-	mc.retryFailures = promauto.NewCounter(prometheus.CounterOpts{
+	mc.retryFailures = factory.NewCounter(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "retry_failures_total",
 		Help:      "Total number of failed retries (entered dead letter)",
 	})
 
-	mc.retryDelay = promauto.NewHistogram(prometheus.HistogramOpts{
+	mc.retryDelay = factory.NewHistogram(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "retry_delay_seconds",
 		Help:      "Delay before retry attempt",
 		Buckets:   []float64{0.1, 0.2, 0.5, 1, 2, 5, 10},
 	})
 
-	mc.eventProcessed = promauto.NewCounterVec(prometheus.CounterOpts{
+	mc.eventProcessed = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "events_processed_total",
 		Help:      "Total number of events processed",
 	}, []string{"type", "source"})
 
-	mc.eventDropped = promauto.NewCounterVec(prometheus.CounterOpts{
+	mc.eventDropped = factory.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "events_dropped_total",
 		Help:      "Total number of events dropped",
 	}, []string{"reason"})
 
-	mc.eventLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	mc.eventLatency = factory.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "event_processing_duration_seconds",
 		Help:      "Time spent processing event",

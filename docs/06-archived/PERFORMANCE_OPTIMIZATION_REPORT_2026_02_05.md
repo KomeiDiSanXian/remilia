@@ -201,8 +201,8 @@ time.Sleep(time.Hour) // 不要长时间持有
 
 ## 📚 相关文档
 
-- [CODE_QUALITY_ANALYSIS_2026_02_02.md](./CODE_QUALITY_ANALYSIS_2026_02_02.md) - 完整代码质量分析
-- [VERIFICATION_REPORT_2026_02_05.md](./VERIFICATION_REPORT_2026_02_05.md) - 问题验证报告
+- [CODE_QUALITY_ANALYSIS_2026_02_02.md](CODE_QUALITY_ANALYSIS_2026_02_02.md) - 完整代码质量分析
+- [VERIFICATION_REPORT_2026_02_05.md](VERIFICATION_REPORT_2026_02_05.md) - 问题验证报告
 - `core/context/pool.go` - Context池化实现
 - `core/context/pool_test.go` - Context池化测试
 

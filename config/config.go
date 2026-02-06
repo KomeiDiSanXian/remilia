@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/viper"
@@ -137,7 +138,7 @@ type WebhookConfig struct {
 	MaxEntriesInWindow int    `yaml:"dedup_max_entries_in_window" mapstructure:"dedup_max_entries_in_window"`
 }
 
-var globalConfig *Config
+var globalConfig atomic.Value // stores *Config
 
 // Load 从文件加载配置
 func Load(path string) (*Config, error) {
@@ -156,13 +157,36 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	globalConfig = &cfg
-	return &cfg, nil
+	// 创建配置的副本以防止外部修改
+	cfgCopy := cfg
+	globalConfig.Store(&cfgCopy)
+	return &cfgCopy, nil
 }
 
 // Get 获取全局配置（需要先调用 Load）
-func Get() *Config {
-	return globalConfig
+// 返回配置副本和是否已加载的标志
+func Get() (*Config, bool) {
+	v := globalConfig.Load()
+	if v == nil {
+		return nil, false
+	}
+	cfg, ok := v.(*Config)
+	if !ok || cfg == nil {
+		return nil, false
+	}
+	// 返回副本以防止外部修改
+	cfgCopy := *cfg
+	return &cfgCopy, true
+}
+
+// MustGet 获取全局配置，如果未加载则panic
+// 仅在确定已加载配置的场景下使用
+func MustGet() *Config {
+	cfg, ok := Get()
+	if !ok {
+		panic("config not loaded, please call config.Load() first")
+	}
+	return cfg
 }
 
 // Validate 验证配置的有效性
@@ -612,7 +636,7 @@ func LoadDefault() (*Config, error) {
 		return nil, fmt.Errorf("no config file found and environment variables incomplete: %w", err)
 	}
 
-	globalConfig = cfg
+	globalConfig.Store(cfg)
 	return cfg, nil
 }
 
@@ -657,7 +681,7 @@ func LoadViper(path string) (*Config, error) {
 		return nil, err
 	}
 
-	globalConfig = &cfg
+	globalConfig.Store(&cfg)
 	return &cfg, nil
 }
 

@@ -1406,7 +1406,7 @@ defer context.ReleaseContext(ctx)
 - `core/context/pool_test.go` - 完整测试套件
 - `core/context/extensions.go` - 添加Clear()方法
 
-**详细报告**: 见 [PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md](./PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md)
+**详细报告**: 见 [PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md](PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md)
 
 **背景** (原设计建议):
 - 每个事件创建一个新的 Context 对象

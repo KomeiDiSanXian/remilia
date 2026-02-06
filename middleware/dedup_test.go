@@ -469,3 +469,53 @@ func TestDefaultDedupConfig(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, config.DefaultTTL)
 	assert.Equal(t, 1*time.Minute, config.CleanupInterval)
 }
+
+// TestDedupFilter_DoubleStop tests that calling Stop() twice doesn't panic
+func TestDedupFilter_DoubleStop(t *testing.T) {
+	filter := NewDedupFilter(DefaultDedupConfig())
+
+	// First stop should work
+	assert.NotPanics(t, func() {
+		filter.Stop()
+	}, "First Stop() should not panic")
+
+	// Second stop should also not panic
+	assert.NotPanics(t, func() {
+		filter.Stop()
+	}, "Second Stop() should not panic")
+
+	// Third stop to be sure
+	assert.NotPanics(t, func() {
+		filter.Stop()
+	}, "Third Stop() should not panic")
+}
+
+// TestDedupFilter_SubSecondTTL tests that TTL below 1 second works correctly
+func TestDedupFilter_SubSecondTTL(t *testing.T) {
+	config := DedupConfig{
+		MaxSize:         100,
+		DefaultTTL:      100 * time.Millisecond, // Sub-second TTL
+		CleanupInterval: 50 * time.Millisecond,
+	}
+	filter := NewDedupFilter(config)
+	defer filter.Stop()
+
+	// Add event
+	isDup, err := filter.CheckDuplicate("event-1")
+	assert.NoError(t, err)
+	assert.False(t, isDup, "First check should not be duplicate")
+
+	// Immediately check again - should be duplicate
+	time.Sleep(1 * time.Millisecond) // tiny sleep to ensure consistent behavior
+	isDup, err = filter.CheckDuplicate("event-1")
+	assert.NoError(t, err)
+	assert.True(t, isDup, "Second check should be duplicate")
+
+	// Wait for expiration
+	time.Sleep(150 * time.Millisecond)
+
+	// Check again - should not be duplicate (expired)
+	isDup, err = filter.CheckDuplicate("event-1")
+	assert.NoError(t, err)
+	assert.False(t, isDup, "After expiration should not be duplicate")
+}

@@ -36,13 +36,18 @@ func TestBotConcurrentStart(t *testing.T) {
 
 	wg.Wait()
 
+	// Give some time for the lifecycle to actually call adapter.Start() in its goroutine
+	time.Sleep(100 * time.Millisecond)
+
 	// Check that the adapter's Start was called exactly once
 	startCallCount := adapter.GetStartCallCount()
 	assert.Equal(t, int32(1), startCallCount, "Adapter Start() should be called exactly once")
 	assert.True(t, bot.IsRunning(), "Bot should be running")
 
 	// Cleanup
-	_ = bot.Shutdown()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = bot.Stop(ctx)
 }
 
 // TestDedupStrictMode tests the strict mode behavior of dedup filter

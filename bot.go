@@ -49,6 +49,14 @@ type Config struct {
 
 // NewBot 创建新的 Bot 实例
 func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
+	// 验证必需参数
+	if adapter == nil {
+		logger.Panic("[Bot] adapter cannot be nil")
+	}
+	if engine == nil {
+		logger.Panic("[Bot] engine cannot be nil")
+	}
+
 	b := &Bot{
 		engine:    engine,
 		adapter:   adapter,

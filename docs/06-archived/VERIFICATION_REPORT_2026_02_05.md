@@ -563,7 +563,7 @@ ok      github.com/KomeiDiSanXian/remilia/tests/integration     1.285s
 
 ## 📚 相关文档
 
-- [CODE_QUALITY_ANALYSIS_2026_02_02.md](./CODE_QUALITY_ANALYSIS_2026_02_02.md) - 完整代码质量分析
+- [CODE_QUALITY_ANALYSIS_2026_02_02.md](CODE_QUALITY_ANALYSIS_2026_02_02.md) - 完整代码质量分析
 - [BUG_FIXES_2026_02_04.md](./BUG_FIXES_2026_02_04.md) - 之前的修复报告
 - [CODE_QUALITY_IMPROVEMENTS_2026_02_04.md](./CODE_QUALITY_IMPROVEMENTS_2026_02_04.md) - 改进报告
 

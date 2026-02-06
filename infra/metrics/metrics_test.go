@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -486,4 +487,75 @@ func BenchmarkConcurrentMetrics(b *testing.B) {
 			collector.RecordEventProcessed("BENCH_EVENT", "global", 10*time.Millisecond)
 		}
 	})
+}
+
+// TestMetricsCollector_MultipleInstances tests that multiple collectors with custom registries don't panic
+func TestMetricsCollector_MultipleInstances(t *testing.T) {
+	// Note: This test uses separate registries to avoid conflicts
+	registry1 := prometheus.NewRegistry()
+	registry2 := prometheus.NewRegistry()
+
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("remilia", registry1)
+	}, "First collector should not panic")
+
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("remilia", registry2)
+	}, "Second collector with different registry should not panic")
+}
+
+// TestMetricsCollector_DuplicateInSameRegistry tests that duplicate names in same registry would panic
+func TestMetricsCollector_DuplicateInSameRegistry(t *testing.T) {
+	registry := prometheus.NewRegistry()
+
+	// First collector should work
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("remilia_dup_test", registry)
+	}, "First collector should not panic")
+
+	// Second collector with same namespace and registry should panic
+	assert.Panics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("remilia_dup_test", registry)
+	}, "Second collector with same namespace and registry should panic")
+}
+
+// TestMetricsCollector_DifferentNamespaces tests that different namespaces in same registry work
+func TestMetricsCollector_DifferentNamespaces(t *testing.T) {
+	registry := prometheus.NewRegistry()
+
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("app1", registry)
+	}, "First collector with namespace app1 should not panic")
+
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("app2", registry)
+	}, "Second collector with namespace app2 should not panic")
+}
+
+// TestMetricsCollector_NilRegistry tests that nil registry falls back to default
+func TestMetricsCollector_NilRegistry(t *testing.T) {
+	assert.NotPanics(t, func() {
+		_ = NewMetricsCollectorWithRegistry("test_nil_reg", nil)
+	}, "Collector with nil registry should use default registry")
+}
+
+// TestMetricsCollector_WithRegistryBasicOperations tests basic operations with custom registry
+func TestMetricsCollector_WithRegistryBasicOperations(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	collector := NewMetricsCollectorWithRegistry("test_ops", registry)
+
+	// Test basic operations don't panic
+	assert.NotPanics(t, func() {
+		collector.SetDeadLetterQueueSize(10)
+		collector.RecordRetrySuccess()
+		collector.RecordRetryFailure()
+		collector.RecordEventDropped("test_reason")
+		collector.SetPluginHandlers("test_plugin", 5)
+		collector.SetPluginMatchers("test_plugin", 3)
+	}, "Basic metric operations should not panic")
+
+	// Verify metrics can be gathered
+	metrics, err := registry.Gather()
+	assert.NoError(t, err)
+	assert.Greater(t, len(metrics), 0, "Should have some metrics")
 }

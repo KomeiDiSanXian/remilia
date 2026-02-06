@@ -121,7 +121,7 @@
 
 ### <a name="quality-analysis"></a>5. 原始质量分析 (基础)
 
-**文件**: [CODE_QUALITY_ANALYSIS_2026_02_02.md](./CODE_QUALITY_ANALYSIS_2026_02_02.md)  
+**文件**: [CODE_QUALITY_ANALYSIS_2026_02_02.md](CODE_QUALITY_ANALYSIS_2026_02_02.md)  
 **页数**: 1727 行  
 **用时**: 60+ 分钟
 
@@ -177,7 +177,7 @@
 
 ### 路径 C: 全面学习 (2小时+)
 
-1. **[原始质量分析](./CODE_QUALITY_ANALYSIS_2026_02_02.md)** (60分钟)
+1. **[原始质量分析](CODE_QUALITY_ANALYSIS_2026_02_02.md)** (60分钟)
    - 全面理解代码质量现状
 
 2. **[完整改进报告](./CODE_QUALITY_IMPROVEMENTS_2026_02_04.md)** (30分钟)

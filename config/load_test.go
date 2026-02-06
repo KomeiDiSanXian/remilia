@@ -66,7 +66,9 @@ webhook:
 		assert.Equal(t, 3, cfg.Retry.MaxAttempts)
 
 		// 验证全局配置已设置
-		assert.Equal(t, cfg, Get())
+		globalCfg, ok := Get()
+		assert.True(t, ok)
+		assert.Equal(t, cfg.Bot.Token, globalCfg.Bot.Token)
 	})
 
 	t.Run("file not found", func(t *testing.T) {
@@ -387,7 +389,8 @@ webhook:
 	require.NoError(t, err)
 
 	// 验证 Get 返回相同的配置
-	globalCfg := Get()
-	assert.Equal(t, cfg, globalCfg)
+	globalCfg, ok := Get()
+	assert.True(t, ok)
+	assert.Equal(t, cfg.Bot.Token, globalCfg.Bot.Token)
 	assert.Equal(t, "get-test-token", globalCfg.Bot.Token)
 }

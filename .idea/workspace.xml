@@ -4,20 +4,29 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance latency tracking with validity checks and add timeout protection for bot startup">
-      <change afterPath="$PROJECT_DIR$/lifecycle/simple.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement v2 lifecycle management with improved context handling and component lifecycle hooks">
+      <change afterPath="$PROJECT_DIR$/bot_nil_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config/config_race_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/06-archived/2026-02-06-code-review-fixes.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/06-archived/2026-02-06-code-review.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/06-archived/2026-02-06-test-fixes.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/TESTING.md" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/TESTING.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_context_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_rollback_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_shutdown_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/parser.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/parser.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/parser_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/parser_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/load_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/load_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/CODE_QUALITY_ANALYSIS_2026_02_02.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/CODE_QUALITY_ANALYSIS_2026_02_02.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/CODE_QUALITY_INDEX_2026_02_04.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/CODE_QUALITY_INDEX_2026_02_04.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/VERIFICATION_REPORT_2026_02_05.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/VERIFICATION_REPORT_2026_02_05.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -124,11 +133,11 @@
 }</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\docs\06-archived" />
       <recent name="E:\project\Go\remilia\lifecycle\v1_archived" />
       <recent name="E:\project\Go\remilia\lifecycle" />
       <recent name="E:\project\Go\remilia\plugins\help" />
       <recent name="E:\project\Go\remilia\docs" />
-      <recent name="E:\project\Go\remilia" />
     </key>
   </component>
   <component name="RunDashboard">
@@ -242,7 +251,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add token management and engine configuration options in YAML and Go files" />
     <MESSAGE value="feat: implement main bot entry point with configuration loading and token management" />
     <MESSAGE value="feat: enhance error handling by adding new error types for core engine, adapters, plugins, and webhooks" />
     <MESSAGE value="feat: enhance circuit breaker and DLQ handling with timeout management and improved error handling" />
@@ -267,7 +275,8 @@
     <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
     <MESSAGE value="feat: add example configuration file and enhance documentation for bot setup" />
     <MESSAGE value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
+    <MESSAGE value="feat: implement v2 lifecycle management with improved context handling and component lifecycle hooks" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement v2 lifecycle management with improved context handling and component lifecycle hooks" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

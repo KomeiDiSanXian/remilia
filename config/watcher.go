@@ -245,7 +245,8 @@ func (w *Watcher) reload() error {
 	// Apply new configuration if not in validate-only mode
 	if !w.validateOnly {
 		w.currentConfig.Store(newConfig)
-		globalConfig = newConfig // Update global config
+		// Update global config using atomic store
+		globalConfig.Store(newConfig)
 		w.lastReloadTime.Store(time.Now())
 		w.reloadCount.Add(1)
 

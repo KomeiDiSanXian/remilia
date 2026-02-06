@@ -21,6 +21,7 @@ type DedupFilter struct {
 	defaultTTL  time.Duration    // 默认过期时间
 	cleanupDone chan struct{}    // 清理器停止信号
 	strictMode  bool             // 严格模式：cache满时是否拒绝事件
+	stopOnce    sync.Once        // 确保Stop只执行一次
 }
 
 // DedupConfig 去重配置
@@ -124,7 +125,7 @@ func NewDedupFilterFromConfig(cfg appconfig.MiddlewareConfig) *DedupFilter {
 // 返回 true 表示事件已经存在（重复），false 表示首次出现。
 // 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
 func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 
 	// 使用单个写锁保护整个操作，避免竞态条件
 	d.mu.Lock()
@@ -162,8 +163,8 @@ func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 		logger.WithField("cache_size", len(d.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
-	// 添加到缓存
-	d.cache[eventID] = now + int64(d.defaultTTL.Seconds())
+	// 添加到缓存 (使用纳秒以保留毫秒以下精度)
+	d.cache[eventID] = now + d.defaultTTL.Nanoseconds()
 
 	return false, nil
 }
@@ -187,7 +188,7 @@ func (d *DedupFilter) cleanup(interval time.Duration) {
 
 // cleanExpired 清理过期条目
 func (d *DedupFilter) cleanExpired() {
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 
 	d.mu.Lock()
 	d.cleanExpiredLocked(now)
@@ -216,8 +217,11 @@ func (d *DedupFilter) cleanExpiredLocked(now int64) {
 }
 
 // Stop 停止清理器
+// 多次调用是安全的，只会执行一次
 func (d *DedupFilter) Stop() {
-	close(d.cleanupDone)
+	d.stopOnce.Do(func() {
+		close(d.cleanupDone)
+	})
 }
 
 // GetStats 获取统计信息
