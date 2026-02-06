@@ -84,10 +84,13 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	// 注册组件到生命周期管理器
 	b.lifecycle.Register(lifecycle.NewSimpleComponent(
 		"adapter",
+		nil, // onStart
 		func(ctx context.Context) error {
+			// onRun: adapter.Start 是阻塞的，适合在这里运行
 			return b.adapter.Start(ctx, b.handleEvent)
 		},
 		func(ctx context.Context) error {
+			// onStop
 			return b.adapter.Stop(ctx)
 		},
 	))
@@ -95,10 +98,12 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	b.lifecycle.Register(lifecycle.NewSimpleComponent(
 		"engine",
 		func(ctx context.Context) error {
-			// Engine 通常不需要特殊启动
+			// onStart: Engine 初始化（如果需要）
 			return nil
 		},
+		nil, // onRun: Engine 没有阻塞循环，使用默认行为（等待 ctx.Done）
 		func(ctx context.Context) error {
+			// onStop
 			return b.engine.Shutdown(ctx)
 		},
 	))

@@ -16,12 +16,13 @@ import (
 
 // mockAdapter is a test adapter
 type mockAdapter struct {
-	startErr    error
-	shutdownErr error
-	started     bool
-	shutdown    bool
-	events      chan *dto.Payload
-	mu          sync.Mutex
+	startErr         error
+	shutdownErr      error
+	started          bool
+	shutdown         bool
+	goroutineStarted bool
+	events           chan *dto.Payload
+	mu               sync.Mutex
 
 	// Add context management
 	ctx    context.Context
@@ -43,6 +44,7 @@ func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) 
 		return m.startErr
 	}
 	m.started = true
+	m.goroutineStarted = true
 
 	// Create independent context for long-running goroutine
 	// Don't use the ctx parameter as it's only for the start operation
@@ -103,6 +105,7 @@ func (m *mockAdapter) Stop(_ context.Context) error {
 	}
 
 	m.shutdown = true
+	goroutineStarted := m.goroutineStarted
 	m.mu.Unlock()
 
 	// Cancel context first to stop the goroutine
@@ -110,8 +113,11 @@ func (m *mockAdapter) Stop(_ context.Context) error {
 		m.cancel()
 	}
 
-	// Wait for goroutine to finish
-	<-m.done
+	// Only wait if goroutine was actually started
+	if goroutineStarted {
+		// Wait for goroutine to finish
+		<-m.done
+	}
 
 	// Then close the channel
 	close(m.events)
@@ -188,9 +194,16 @@ func TestBot_Start(t *testing.T) {
 		eng := engine.NewEngine()
 		bot := NewBot(adapter, eng)
 
+		// In v2, adapter.Start() runs in OnRun (async), so Bot.Start() succeeds
 		err := bot.Start()
-		require.Error(t, err)
-		assert.False(t, bot.IsRunning())
+		require.NoError(t, err, "Bot.Start() should succeed even if adapter will fail later")
+		assert.True(t, bot.IsRunning(), "Bot should be running")
+
+		// The adapter error will be logged but not propagate to Bot.Start()
+		// Wait a bit and then stop
+		time.Sleep(100 * time.Millisecond)
+
+		_ = bot.Stop(context.Background())
 	})
 }
 

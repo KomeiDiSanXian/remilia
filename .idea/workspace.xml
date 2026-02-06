@@ -4,19 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add example configuration file and enhance documentation for bot setup">
-      <change afterPath="$PROJECT_DIR$/docs/BUG_FIX_REPORT_MIDDLE_PRIORITY_2026_02_05.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/BUG_FIX_SUMMARY_2026_02_05.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/CODE_REVIEW_REPORT_2026_02_05.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/LIFECYCLE_DESIGN_EVALUATION_2026_02_05.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/TEST_FIX_REPORT_TestBot_HandleEvent_2026_02_05.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lifecycle/managed.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lifecycle/managed_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance latency tracking with validity checks and add timeout protection for bot startup">
+      <change afterPath="$PROJECT_DIR$/lifecycle/simple.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/TESTING.md" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/TESTING.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_plus_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_plus_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_context_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_rollback_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_shutdown_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -28,6 +28,13 @@
     <persistenceIdMap>
       <entry key="_E:/project/Go/remilia" value="36TLQeGOmpwUpqS0saqKC3pUilT" />
     </persistenceIdMap>
+  </component>
+  <component name="CopilotUserSelectedModel">
+    <selectedModels>
+      <entry key="chat-panel" value="Claude Sonnet 4.5" />
+      <entry key="agent-panel" value="Claude Sonnet 4.5" />
+      <entry key="edit-panel" value="GPT-5.1-Codex-Max" />
+    </selectedModels>
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -117,11 +124,11 @@
 }</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\lifecycle\v1_archived" />
+      <recent name="E:\project\Go\remilia\lifecycle" />
       <recent name="E:\project\Go\remilia\plugins\help" />
       <recent name="E:\project\Go\remilia\docs" />
       <recent name="E:\project\Go\remilia" />
-      <recent name="E:\project\Go\remilia\core\types" />
-      <recent name="E:\project\Go\remilia\core\engine" />
     </key>
   </component>
   <component name="RunDashboard">
@@ -235,7 +242,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="doc: add comprehensive performance benchmarking and analysis documentation for RemiliaBot Framework" />
     <MESSAGE value="feat: add token management and engine configuration options in YAML and Go files" />
     <MESSAGE value="feat: implement main bot entry point with configuration loading and token management" />
     <MESSAGE value="feat: enhance error handling by adding new error types for core engine, adapters, plugins, and webhooks" />
@@ -260,7 +266,8 @@
     <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
     <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
     <MESSAGE value="feat: add example configuration file and enhance documentation for bot setup" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add example configuration file and enhance documentation for bot setup" />
+    <MESSAGE value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
