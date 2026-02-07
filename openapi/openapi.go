@@ -3,10 +3,9 @@ package openapi
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 
-	"github.com/KomeiDiSanXian/remilia/httpcilent"
+	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
@@ -31,9 +30,9 @@ func New(manager *token.Manager) *Client {
 // 会自动添加 Authorization 头
 func (api *Client) Post(url string, data any) (gjson.Result, error) {
 	api.tm.WaitReady()
-	result, err := httpcilent.NewPost(url).
+	result, err := httpclient.Post(url).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
-		SetJSONBody(data).
+		SetJSON(data).
 		DoJSON()
 	if err != nil {
 		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Post failed")
@@ -47,7 +46,7 @@ func (api *Client) Post(url string, data any) (gjson.Result, error) {
 // 会自动添加 Authorization 头
 func (api *Client) Delete(url string) (gjson.Result, error) {
 	api.tm.WaitReady()
-	resp, err := httpcilent.New(url, http.MethodDelete).
+	resp, err := httpclient.Delete(url).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
 		SetHeader("Content-Type", "application/json").
 		Do()
@@ -55,14 +54,12 @@ func (api *Client) Delete(url string) (gjson.Result, error) {
 		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Delete failed")
 		return gjson.Result{}, err
 	}
-	defer func(Body io.ReadCloser) {
-		_ = Body.Close()
-	}(resp.Body)
+	defer resp.Close()
 	if resp.StatusCode != http.StatusOK {
 		logger.WithField("status", resp.Status).WithField("url", url).Error("[OpenAPI] Delete failed")
 		return gjson.Result{}, fmt.Errorf("status code not 200: %s", resp.Status)
 	}
-	return httpcilent.ParseJSON(resp.Body)
+	return resp.JSON()
 }
 
 // SingleChat sends a message to a single chat

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/httpcilent"
+	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/constant"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -257,7 +257,7 @@ func requestToken(info *dto.BotInfo) (gjson.Result, error) {
 		"appId":        strconv.FormatUint(info.AppID, 10),
 		"clientSecret": info.AppSecret,
 	}
-	result, err := httpcilent.NewPost(constant.AccessTokenURL).SetJSONBody(bodyMap).DoJSON()
+	result, err := httpclient.Post(constant.AccessTokenURL).SetJSON(bodyMap).DoJSON()
 	if err != nil {
 		return gjson.Result{}, err
 	}
