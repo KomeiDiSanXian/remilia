@@ -201,11 +201,8 @@ func runDemoMode() {
 	// 创建插件管理器
 	manager := plugin.NewManager(eng)
 
-	// 创建命令注册表
-	registry := command.NewCommandRegistry()
-
 	// 注册插件
-	registerPlugins(manager, registry)
+	registerPlugins(manager)
 
 	// 显示插件信息
 	logger.Info("\n" + strings.Repeat("=", 50))
@@ -257,11 +254,8 @@ func runWithConfig(cfg *config.Config) {
 	// 创建插件管理器
 	manager := plugin.NewManager(bot.Engine())
 
-	// 创建命令注册表
-	registry := command.NewCommandRegistry()
-
 	// 注册插件
-	registerPlugins(manager, registry)
+	registerPlugins(manager)
 
 	logger.Info("[PluginMetadataDemo] All plugins loaded")
 	logger.Info("[PluginMetadataDemo] Try these commands:")
@@ -277,9 +271,9 @@ func runWithConfig(cfg *config.Config) {
 	bot.WaitForShutdown()
 }
 
-func registerPlugins(manager *plugin.Manager, registry *command.CommandRegistry) {
-	// 注册帮助插件
-	helpPlugin := help.NewHelpPlugin(registry)
+func registerPlugins(manager *plugin.Manager) {
+	// 注册帮助插件 - 不再需要 CommandRegistry
+	helpPlugin := help.New()
 	helpPlugin.SetPluginManager(manager)
 	if err := manager.Register(helpPlugin); err != nil {
 		logger.WithError(err).Error("[PluginMetadataDemo] Failed to register help plugin")
