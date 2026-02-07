@@ -38,6 +38,7 @@ type CommandMeta struct {
 	Description string
 	Usage       string
 	Category    string
+	Source      string // 命令来源，格式如 "plugin:pluginName"
 
 	// 定义
 	Definition *Definition
@@ -89,6 +90,7 @@ type RegisterOptions struct {
 	Priority int    // 优先级（越高越优先）
 	Category string // 分类
 	Pattern  string // 自定义匹配模式（正则表达式）
+	Source   string // 来源标识（如 "plugin:pluginName"）
 }
 
 // RegisterWithOptions 使用选项注册命令
@@ -119,6 +121,7 @@ func (cr *CommandRegistry) RegisterWithOptions(def *Definition, opts RegisterOpt
 		Description: def.Description,
 		Usage:       def.Usage,
 		Category:    opts.Category,
+		Source:      opts.Source,
 		Definition:  def,
 		Priority:    opts.Priority,
 	}

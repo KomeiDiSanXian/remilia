@@ -34,8 +34,24 @@ type HelpPlugin struct {
 // NewHelpPlugin 创建帮助插件
 // 如果 registry 为 nil，将尝试从 engine 自动获取
 func NewHelpPlugin(registry *command.CommandRegistry) *HelpPlugin {
+	basePlugin := plugin.NewBasePluginWithMetadata(&plugin.PluginMetadata{
+		Name:        "help",
+		Version:     "1.0.0",
+		Author:      "Remilia",
+		Description: "提供命令和插件的帮助信息查询功能",
+		HelpText: `帮助插件使用说明：
+  /help - 显示所有命令列表
+  /help <页码> - 显示指定页的命令
+  /help plugins - 显示所有插件列表
+  /help <插件名> - 显示插件的详细信息
+  /help <命令名> - 显示命令的详细用法`,
+		Category: "系统",
+		Tags:     []string{"帮助", "文档", "命令"},
+		Hidden:   false,
+	})
+
 	return &HelpPlugin{
-		BasePlugin: plugin.NewBasePlugin("help"),
+		BasePlugin: basePlugin,
 		registry:   registry,
 	}
 }
@@ -69,6 +85,7 @@ func (p *HelpPlugin) SetPluginManager(pm *plugin.Manager) {
 // 支持以下格式：
 //   - /help - 显示所有命令（第1页）
 //   - /help 2 - 显示第2页的命令
+//   - /help plugins - 显示所有插件列表
 //   - /help <插件名> - 显示指定插件的所有命令
 //   - /help <命令名> - 显示指定命令的详细信息
 func (p *HelpPlugin) handleHelp(ctx *eventctx.Context) error {
@@ -86,6 +103,11 @@ func (p *HelpPlugin) handleHelp(ctx *eventctx.Context) error {
 	if target == "" {
 		// 没有参数，显示第1页命令
 		return p.showCommandsPage(ctx, 1)
+	}
+
+	// 特殊关键字：plugins
+	if strings.EqualFold(target, "plugins") || strings.EqualFold(target, "plugin") {
+		return p.showAllPlugins(ctx)
 	}
 
 	// 尝试解析为页码
@@ -200,35 +222,157 @@ func (p *HelpPlugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	return p.sendMessage(ctx, help.String())
 }
 
-// showPluginCommands 显示指定插件的所有命令
-func (p *HelpPlugin) showPluginCommands(ctx *eventctx.Context, pluginName string) error {
-	commands := p.registry.List()
-	if len(commands) == 0 {
-		return p.sendMessage(ctx, "当前没有可用的命令")
+// showAllPlugins 显示所有插件的列表
+func (p *HelpPlugin) showAllPlugins(ctx *eventctx.Context) error {
+	if p.pluginManager == nil {
+		return p.sendMessage(ctx, "插件管理器不可用")
 	}
 
-	// 过滤出属于该插件的命令
-	// 注意：这里需要从命令的 source 或其他标识来判断命令属于哪个插件
-	// 暂时使用分类来模拟
+	pluginsMetadata := p.pluginManager.ListWithMetadata()
+	if len(pluginsMetadata) == 0 {
+		return p.sendMessage(ctx, "当前没有加载任何插件")
+	}
+
+	var help strings.Builder
+	help.WriteString(fmt.Sprintf("📦 已加载插件列表 (共 %d 个)\n", len(pluginsMetadata)))
+	help.WriteString(strings.Repeat("=", 30) + "\n\n")
+
+	// 按分类组织插件
+	categories := make(map[string][]*plugin.PluginMetadata)
+	for _, meta := range pluginsMetadata {
+		category := meta.Category
+		if category == "" {
+			category = "其他"
+		}
+		categories[category] = append(categories[category], meta)
+	}
+
+	// 对分类进行排序
+	sortedCategories := make([]string, 0, len(categories))
+	for category := range categories {
+		sortedCategories = append(sortedCategories, category)
+	}
+	sort.Strings(sortedCategories)
+
+	// 输出每个分类的插件
+	for _, category := range sortedCategories {
+		metas := categories[category]
+		help.WriteString(fmt.Sprintf("【%s】\n", category))
+
+		// 对插件进行排序
+		sort.Slice(metas, func(i, j int) bool {
+			return metas[i].Name < metas[j].Name
+		})
+
+		for _, meta := range metas {
+			help.WriteString(fmt.Sprintf("  🔌 %s", meta.Name))
+
+			if meta.Version != "" {
+				help.WriteString(fmt.Sprintf(" v%s", meta.Version))
+			}
+
+			if meta.Hidden {
+				help.WriteString(" [隐藏]")
+			}
+
+			help.WriteString("\n")
+
+			if meta.Description != "" {
+				help.WriteString(fmt.Sprintf("     %s\n", meta.Description))
+			}
+
+			if meta.Author != "" {
+				help.WriteString(fmt.Sprintf("     👤 %s", meta.Author))
+				if len(meta.Tags) > 0 {
+					help.WriteString(fmt.Sprintf(" | 🏷️  %s", strings.Join(meta.Tags, ", ")))
+				}
+				help.WriteString("\n")
+			} else if len(meta.Tags) > 0 {
+				help.WriteString(fmt.Sprintf("     🏷️  %s\n", strings.Join(meta.Tags, ", ")))
+			}
+
+			help.WriteString("\n")
+		}
+	}
+
+	help.WriteString(strings.Repeat("=", 30) + "\n")
+	help.WriteString("💡 使用方法:\n")
+	help.WriteString("  /help <插件名> - 查看插件的详细信息和命令\n")
+	help.WriteString("  /help <命令名> - 查看命令详情\n")
+
+	return p.sendMessage(ctx, help.String())
+}
+
+// showPluginCommands 显示指定插件的所有命令
+func (p *HelpPlugin) showPluginCommands(ctx *eventctx.Context, pluginName string) error {
+	var help strings.Builder
+	help.WriteString(fmt.Sprintf("🔌 插件【%s】信息\n", pluginName))
+	help.WriteString(strings.Repeat("=", 30) + "\n\n")
+
+	// 显示插件元数据（如果有）
+	if p.pluginManager != nil {
+		if metadata, ok := p.pluginManager.GetMetadata(pluginName); ok && metadata != nil {
+			// 显示插件详细信息
+			if metadata.Description != "" {
+				help.WriteString(fmt.Sprintf("📝 描述: %s\n", metadata.Description))
+			}
+			if metadata.Version != "" {
+				help.WriteString(fmt.Sprintf("📌 版本: %s\n", metadata.Version))
+			}
+			if metadata.Author != "" {
+				help.WriteString(fmt.Sprintf("👤 作者: %s\n", metadata.Author))
+			}
+			if metadata.Category != "" {
+				help.WriteString(fmt.Sprintf("📂 分类: %s\n", metadata.Category))
+			}
+			if len(metadata.Tags) > 0 {
+				help.WriteString(fmt.Sprintf("🏷️  标签: %s\n", strings.Join(metadata.Tags, ", ")))
+			}
+			if metadata.Homepage != "" {
+				help.WriteString(fmt.Sprintf("🏠 主页: %s\n", metadata.Homepage))
+			}
+			if len(metadata.Dependencies) > 0 {
+				help.WriteString(fmt.Sprintf("📦 依赖: %s\n", strings.Join(metadata.Dependencies, ", ")))
+			}
+
+			// 显示帮助文本
+			if metadata.HelpText != "" {
+				help.WriteString(fmt.Sprintf("\n💡 帮助:\n%s\n", metadata.HelpText))
+			}
+
+			help.WriteString("\n")
+		}
+	}
+
+	// 查找属于该插件的命令
+	commands := p.registry.List()
 	pluginCommands := make([]*command.CommandMeta, 0)
+
 	for _, cmd := range commands {
-		// TODO: 这里应该根据命令的实际归属来判断
-		// 目前简单地通过分类名匹配
-		if strings.EqualFold(cmd.Category, pluginName) {
+		// 优先通过 Source 字段判断命令是否属于该插件
+		// Source 格式为 "plugin:插件名"
+		if cmd.Source != "" && strings.HasSuffix(cmd.Source, ":"+pluginName) {
+			pluginCommands = append(pluginCommands, cmd)
+		} else if strings.EqualFold(cmd.Category, pluginName) {
+			// 兼容旧的通过 Category 判断的方式
 			pluginCommands = append(pluginCommands, cmd)
 		}
 	}
 
 	if len(pluginCommands) == 0 {
-		return p.sendMessage(ctx, fmt.Sprintf("插件【%s】没有注册任何命令", pluginName))
+		help.WriteString("该插件没有注册任何命令")
+		return p.sendMessage(ctx, help.String())
 	}
 
-	var help strings.Builder
-	help.WriteString(fmt.Sprintf("🔌 插件【%s】的命令\n", pluginName))
-	help.WriteString(strings.Repeat("=", 30) + "\n\n")
+	help.WriteString(fmt.Sprintf("📋 提供的命令 (%d 个):\n\n", len(pluginCommands)))
+
+	// 按命令名排序
+	sort.Slice(pluginCommands, func(i, j int) bool {
+		return pluginCommands[i].Name < pluginCommands[j].Name
+	})
 
 	for _, cmd := range pluginCommands {
-		help.WriteString(fmt.Sprintf("/%s", cmd.Name))
+		help.WriteString(fmt.Sprintf("  /%s", cmd.Name))
 
 		if len(cmd.Aliases) > 0 {
 			aliases := make([]string, len(cmd.Aliases))
@@ -239,11 +383,11 @@ func (p *HelpPlugin) showPluginCommands(ctx *eventctx.Context, pluginName string
 		}
 
 		if cmd.Description != "" {
-			help.WriteString(fmt.Sprintf("\n  %s", cmd.Description))
+			help.WriteString(fmt.Sprintf("\n    %s", cmd.Description))
 		}
 
 		if cmd.Usage != "" {
-			help.WriteString(fmt.Sprintf("\n  用法: %s", cmd.Usage))
+			help.WriteString(fmt.Sprintf("\n    用法: %s", cmd.Usage))
 		}
 
 		help.WriteString("\n\n")

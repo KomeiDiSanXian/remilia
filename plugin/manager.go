@@ -255,6 +255,47 @@ func (pm *Manager) List() []string {
 	return names
 }
 
+// GetMetadata 获取插件的元数据
+// 如果插件实现了 MetadataProvider 接口，返回详细元数据
+// 否则返回只包含名称的基本元数据
+func (pm *Manager) GetMetadata(name string) (*PluginMetadata, bool) {
+	pm.mu.RLock()
+	plugin, exists := pm.plugins[name]
+	pm.mu.RUnlock()
+
+	if !exists {
+		return nil, false
+	}
+
+	// 检查插件是否实现了 MetadataProvider 接口
+	if provider, ok := plugin.(MetadataProvider); ok {
+		return provider.Metadata(), true
+	}
+
+	// 返回基本元数据
+	return &PluginMetadata{
+		Name: name,
+	}, true
+}
+
+// ListWithMetadata 列出所有插件及其元数据
+func (pm *Manager) ListWithMetadata() map[string]*PluginMetadata {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	result := make(map[string]*PluginMetadata, len(pm.plugins))
+	for name, plugin := range pm.plugins {
+		if provider, ok := plugin.(MetadataProvider); ok {
+			result[name] = provider.Metadata()
+		} else {
+			result[name] = &PluginMetadata{
+				Name: name,
+			}
+		}
+	}
+	return result
+}
+
 // RegisterWithDependencies 注册插件并处理依赖关系（v0.7.1 新增）
 // 自动解析依赖顺序并按正确顺序加载插件
 // 如果检测到循环依赖或缺少依赖会返回错误

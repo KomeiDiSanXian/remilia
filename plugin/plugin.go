@@ -9,6 +9,30 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
+// PluginMetadata 插件元数据
+type PluginMetadata struct {
+	// 基本信息
+	Name        string // 插件名称
+	Version     string // 版本号
+	Author      string // 作者
+	Description string // 描述
+	HelpText    string // 帮助文本
+
+	// 分类和标签
+	Category string   // 分类（如 "管理"、"娱乐"、"工具"）
+	Tags     []string // 标签
+
+	// 依赖信息
+	Dependencies []string // 依赖的插件列表
+
+	// 可见性
+	Hidden bool // 是否在帮助中隐藏
+
+	// 联系方式
+	Homepage   string // 主页
+	Repository string // 仓库地址
+}
+
 // Plugin 插件接口
 type Plugin interface {
 	// Name 返回插件名称
@@ -32,9 +56,17 @@ type Plugin interface {
 	Dependencies() []string
 }
 
+// MetadataProvider 插件元数据提供者接口（可选实现）
+// 插件可以实现此接口来提供详细的元数据信息
+type MetadataProvider interface {
+	// Metadata 返回插件的元数据
+	Metadata() *PluginMetadata
+}
+
 // BasePlugin 基础插件结构
 type BasePlugin struct {
 	name     string
+	metadata *PluginMetadata
 	matchers []*engine.Matcher
 	mu       sync.RWMutex
 }
@@ -44,12 +76,43 @@ func NewBasePlugin(name string) *BasePlugin {
 	return &BasePlugin{
 		name:     name,
 		matchers: make([]*engine.Matcher, 0),
+		metadata: &PluginMetadata{
+			Name: name,
+		},
+	}
+}
+
+// NewBasePluginWithMetadata 创建带元数据的基础插件
+func NewBasePluginWithMetadata(metadata *PluginMetadata) *BasePlugin {
+	return &BasePlugin{
+		name:     metadata.Name,
+		metadata: metadata,
+		matchers: make([]*engine.Matcher, 0),
 	}
 }
 
 // Name 返回插件名称
 func (p *BasePlugin) Name() string {
 	return p.name
+}
+
+// Metadata 返回插件的元数据（实现 MetadataProvider 接口）
+func (p *BasePlugin) Metadata() *PluginMetadata {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.metadata == nil {
+		return &PluginMetadata{
+			Name: p.name,
+		}
+	}
+	return p.metadata
+}
+
+// SetMetadata 设置插件元数据
+func (p *BasePlugin) SetMetadata(metadata *PluginMetadata) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.metadata = metadata
 }
 
 // AddMatcher 添加匹配器到插件（线程安全）
