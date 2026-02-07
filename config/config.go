@@ -24,6 +24,7 @@ type Config struct {
 	Token       TokenConfig       `yaml:"token" mapstructure:"token"`
 	Engine      EngineConfig      `yaml:"engine" mapstructure:"engine"`
 	Degradation DegradationConfig `yaml:"degradation" mapstructure:"degradation"`
+	Tracing     TracingConfig     `yaml:"tracing" mapstructure:"tracing"`
 }
 
 // BotConfig Bot 配置
@@ -101,6 +102,19 @@ type TokenConfig struct {
 	MinRefreshRatio float64 `yaml:"min_refresh_ratio" mapstructure:"min_refresh_ratio"`
 }
 
+// WebhookConfig Webhook 配置
+type WebhookConfig struct {
+	EventBuffer        int    `yaml:"event_buffer" mapstructure:"event_buffer"`
+	WorkerCount        int    `yaml:"worker_count" mapstructure:"worker_count"`
+	DedupEnable        bool   `yaml:"dedup_enable" mapstructure:"dedup_enable"`
+	Shards             int    `yaml:"shards" mapstructure:"shards"`
+	LifeWindow         string `yaml:"life_window" mapstructure:"life_window"`
+	CleanWindow        string `yaml:"clean_window" mapstructure:"clean_window"`
+	MaxEntrySize       int    `yaml:"max_entry_size" mapstructure:"max_entry_size"`
+	HardMaxCacheSize   int    `yaml:"hard_max_cache_size" mapstructure:"hard_max_cache_size"`
+	MaxEntriesInWindow int    `yaml:"max_entries_in_window" mapstructure:"max_entries_in_window"`
+}
+
 // EngineConfig Engine 引擎配置
 type EngineConfig struct {
 	TempMatcherCleanupInterval   string `yaml:"temp_matcher_cleanup_interval" mapstructure:"temp_matcher_cleanup_interval"`
@@ -125,17 +139,36 @@ type DegradationConfig struct {
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
 }
 
-// WebhookConfig webhook 配置
-type WebhookConfig struct {
-	EventBuffer        int    `yaml:"event_buffer" mapstructure:"event_buffer"`
-	WorkerCount        int    `yaml:"worker_count" mapstructure:"worker_count"`
-	DedupEnable        bool   `yaml:"dedup_enable" mapstructure:"dedup_enable"`
-	Shards             int    `yaml:"dedup_shards" mapstructure:"dedup_shards"`
-	LifeWindow         string `yaml:"dedup_life_window" mapstructure:"dedup_life_window"`
-	CleanWindow        string `yaml:"dedup_clean_window" mapstructure:"dedup_clean_window"`
-	MaxEntrySize       int    `yaml:"dedup_max_entry_size" mapstructure:"dedup_max_entry_size"`
-	HardMaxCacheSize   int    `yaml:"dedup_hard_max_size" mapstructure:"dedup_hard_max_size"`
-	MaxEntriesInWindow int    `yaml:"dedup_max_entries_in_window" mapstructure:"dedup_max_entries_in_window"`
+// TracingConfig 分布式追踪配置
+type TracingConfig struct {
+	// Enable 是否启用追踪
+	Enable bool `yaml:"enable" mapstructure:"enable"`
+
+	// ServiceName 服务名称
+	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
+
+	// ServiceVersion 服务版本
+	ServiceVersion string `yaml:"service_version" mapstructure:"service_version"`
+
+	// Environment 环境（dev, staging, prod）
+	Environment string `yaml:"environment" mapstructure:"environment"`
+
+	// Exporter 导出器类型（otlp, zipkin, stdout）
+	Exporter string `yaml:"exporter" mapstructure:"exporter"`
+
+	// Endpoint 追踪后端地址
+	// OTLP (Tempo/Grafana): http://localhost:4318
+	// Zipkin: http://localhost:9411/api/v2/spans
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
+
+	// SamplingRate 采样率 (0.0 - 1.0)
+	SamplingRate float64 `yaml:"sampling_rate" mapstructure:"sampling_rate"`
+
+	// IncludeEventDetail 是否包含事件详情
+	IncludeEventDetail bool `yaml:"include_event_detail" mapstructure:"include_event_detail"`
+
+	// Headers 额外的 HTTP 头（用于 OTLP 认证）
+	Headers map[string]string `yaml:"headers" mapstructure:"headers"`
 }
 
 var globalConfig atomic.Value // stores *Config
@@ -252,6 +285,11 @@ func (c *Config) Validate() error {
 	// 验证 Degradation 配置
 	if err := c.Degradation.Validate(); err != nil {
 		return fmt.Errorf("invalid degradation config: %w", err)
+	}
+
+	// 验证 Tracing 配置
+	if err := c.Tracing.Validate(); err != nil {
+		return fmt.Errorf("invalid tracing config: %w", err)
 	}
 
 	return nil
@@ -598,6 +636,37 @@ func (dc *DegradationConfig) Validate() error {
 		}
 		if !validStrategies[dc.Strategy] {
 			return fmt.Errorf("degradation.strategy must be one of [drop, delay, simplify], got '%s'", dc.Strategy)
+		}
+	}
+
+	return nil
+}
+
+// Validate 验证 Tracing 配置
+func (tc *TracingConfig) Validate() error {
+	if tc.Enable {
+		// 验证服务名称
+		if tc.ServiceName == "" {
+			return fmt.Errorf("tracing.service_name is required when tracing is enabled")
+		}
+
+		// 验证导出器类型
+		validExporters := map[string]bool{
+			"otlp": true, "tempo": true, "grafana": true,
+			"zipkin": true, "stdout": true, "console": true,
+		}
+		if !validExporters[tc.Exporter] {
+			return fmt.Errorf("tracing.exporter must be one of [otlp, tempo, grafana, zipkin, stdout, console], got '%s'", tc.Exporter)
+		}
+
+		// 验证端点（stdout/console 不需要端点）
+		if tc.Exporter != "stdout" && tc.Exporter != "console" && tc.Endpoint == "" {
+			return fmt.Errorf("tracing.endpoint is required when exporter is '%s'", tc.Exporter)
+		}
+
+		// 验证采样率
+		if tc.SamplingRate < 0 || tc.SamplingRate > 1 {
+			return fmt.Errorf("tracing.sampling_rate must be between 0 and 1, got %f", tc.SamplingRate)
 		}
 	}
 

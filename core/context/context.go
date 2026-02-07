@@ -11,6 +11,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/tidwall/gjson"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // extensionState is the V2 user extensionState extension container.
@@ -552,4 +554,9 @@ func (ctx *Context) GetUserID() string {
 // SetUserID 设置用户 ID
 func (ctx *Context) SetUserID(userID string) {
 	ctx.Set("user_id", userID)
+}
+
+// Tracer returns the OpenTelemetry tracer for the context.
+func (ctx *Context) Tracer() trace.Tracer {
+	return noop.NewTracerProvider().Tracer("")
 }
