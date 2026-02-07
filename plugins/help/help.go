@@ -137,8 +137,14 @@ func (p *HelpPlugin) handleHelp(ctx *eventctx.Context) error {
 // showCommandsPage 显示指定页的命令列表
 func (p *HelpPlugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	commands := p.registry.List()
+
+	// 如果没有命令，显示插件列表
 	if len(commands) == 0 {
-		return p.sendMessage(ctx, "当前没有可用的命令")
+		if p.pluginManager != nil {
+			logger.Info("[HelpPlugin] No commands found, showing plugin list instead")
+			return p.showAllPlugins(ctx)
+		}
+		return p.sendMessage(ctx, "当前没有可用的命令和插件")
 	}
 
 	// 计算分页

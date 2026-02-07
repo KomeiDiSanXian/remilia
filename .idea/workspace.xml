@@ -4,11 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement plugin metadata system with detailed help information and enhanced command registration">
-      <change beforePath="$PROJECT_DIR$/examples/plugin-metadata/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-metadata/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/help/help.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -243,7 +239,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test: add comprehensive tests for handler composition, middleware, parallel execution, and conditional handling" />
     <MESSAGE value="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting" />
     <MESSAGE value="feat: add critical issues reference guide and configuration integration examples" />
     <MESSAGE value="fix: resolve race condition in deduplication logic and improve cache management" />
@@ -268,7 +263,8 @@
     <MESSAGE value="feat: implement distributed tracing support with OpenTelemetry, including middleware integration and configuration options" />
     <MESSAGE value="feat: enhance token manager initialization with debug logging and error handling for token response" />
     <MESSAGE value="feat: implement plugin metadata system with detailed help information and enhanced command registration" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement plugin metadata system with detailed help information and enhanced command registration" />
+    <MESSAGE value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
