@@ -3,10 +3,13 @@ package plugin
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/lifecycle"
+	"github.com/spf13/viper"
 )
 
 // LifecycleListener 插件生命周期监听器接口
@@ -29,6 +32,8 @@ type Manager struct {
 	plugins     map[string]Plugin
 	coordinator *engine.Engine
 	listeners   []LifecycleListener // 生命周期监听器列表
+	viper       *viper.Viper        // 全局配置
+	loadOrder   []string            // 插件加载顺序
 	mu          sync.RWMutex
 }
 
@@ -38,7 +43,15 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		plugins:     make(map[string]Plugin),
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
+		loadOrder:   make([]string, 0),
 	}
+}
+
+// SetViper 设置全局配置（用于插件配置管理）
+func (pm *Manager) SetViper(v *viper.Viper) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.viper = v
 }
 
 // AddListener 添加生命周期监听器
@@ -120,16 +133,47 @@ func (pm *Manager) Register(plugin Plugin) error {
 		return errutil.ErrPluginAlreadyExists
 	}
 
+	// 初始化插件配置（如果插件支持配置）
+	if configurable, ok := plugin.(ConfigurablePlugin); ok {
+		if pm.viper != nil {
+			config := NewPluginConfig(name, pm.viper)
+			configurable.SetConfig(config)
+		}
+	}
+
+	// 设置加载中状态（如果插件支持状态管理）
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		stateful.SetState(Loading)
+	}
+
+	pm.mu.Unlock()
+
 	// 加载插件
+	startTime := time.Now()
 	if err := plugin.Load(pm.coordinator); err != nil {
-		pm.mu.Unlock()
 		logger.WithError(err).Errorf("[PluginManager] Failed to load plugin %s", name)
+
+		// 设置错误状态（如果插件支持状态管理）
+		if stateful, ok := plugin.(StatefulPlugin); ok {
+			stateful.SetState(Error)
+			stateful.SetLastError(err)
+		}
+
 		pm.notifyError(name, "load", err) // 通知监听器错误
 		return err
 	}
 
+	pm.mu.Lock()
 	pm.plugins[name] = plugin
+	pm.loadOrder = append(pm.loadOrder, name)
 	pm.mu.Unlock()
+
+	// 设置加载完成状态（如果插件支持状态管理）
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		stateful.SetState(Loaded)
+		stateful.SetLoadTime(startTime)
+		stateful.SetLastError(nil)
+	}
 
 	logger.Infof("[PluginManager] Plugin %s registered", name)
 	pm.notifyLoaded(name) // 通知监听器（在锁外）
@@ -422,4 +466,142 @@ func (pm *Manager) topologicalSort(plugins []Plugin) ([]Plugin, error) {
 	}
 
 	return result, nil
+}
+
+// GetStatus 获取插件状态
+func (pm *Manager) GetStatus(name string) (*Status, error) {
+	pm.mu.RLock()
+	plugin, exists := pm.plugins[name]
+	pm.mu.RUnlock()
+
+	if !exists {
+		return nil, errutil.ErrPluginNotFound
+	}
+
+	status := &Status{
+		Name: name,
+	}
+
+	// 如果插件支持状态管理，获取详细状态
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		status.State = stateful.GetState()
+		status.LoadTime = stateful.GetLoadTime()
+		status.LastError = stateful.GetLastError()
+		status.Uptime = stateful.GetUptime()
+	} else {
+		// 不支持状态管理，默认为已加载
+		status.State = Loaded
+	}
+
+	// 如果插件提供 Matcher 信息
+	if matcherProvider, ok := plugin.(MatcherProvider); ok {
+		status.MatcherCount = len(matcherProvider.GetMatchers())
+	}
+
+	// 如果插件提供元数据
+	if provider, ok := plugin.(MetadataProvider); ok {
+		status.Metadata = provider.Metadata()
+	}
+
+	return status, nil
+}
+
+// ListStatus 列出所有插件的状态
+func (pm *Manager) ListStatus() map[string]*Status {
+	pm.mu.RLock()
+	names := make([]string, 0, len(pm.plugins))
+	for name := range pm.plugins {
+		names = append(names, name)
+	}
+	pm.mu.RUnlock()
+
+	result := make(map[string]*Status, len(names))
+	for _, name := range names {
+		if status, err := pm.GetStatus(name); err == nil {
+			result[name] = status
+		}
+	}
+
+	return result
+}
+
+// IsLoaded 检查插件是否已加载
+func (pm *Manager) IsLoaded(name string) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	plugin, exists := pm.plugins[name]
+	if !exists {
+		return false
+	}
+
+	// 如果插件支持状态管理，检查状态
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		return stateful.GetState() == Loaded
+	}
+
+	// 不支持状态管理，只要存在就认为已加载
+	return true
+}
+
+// GetLoadOrder 获取插件加载顺序
+func (pm *Manager) GetLoadOrder() []string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	order := make([]string, len(pm.loadOrder))
+	copy(order, pm.loadOrder)
+	return order
+}
+
+// Count 返回已注册插件的数量
+func (pm *Manager) Count() int {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return len(pm.plugins)
+}
+
+// AsLifecycleComponent 将插件转换为 lifecycle.Component
+// 这样插件可以被集成到统一的生命周期管理系统中
+//
+// 使用示例:
+//
+//	lifecycleManager := lifecycle.NewManager()
+//	plugin := NewMyPlugin()
+//	component := pluginManager.AsLifecycleComponent(plugin)
+//	lifecycleManager.Register(component)
+//
+// 注意: 这不会将插件注册到 PluginManager，只是创建适配器
+func (pm *Manager) AsLifecycleComponent(plugin Plugin) lifecycle.Component {
+	return NewPluginComponent(plugin, pm.coordinator, pm)
+}
+
+// RegisterToLifecycle 将所有已注册的插件注册到 lifecycle.Manager
+// 这样可以利用 lifecycle 包的统一生命周期管理
+//
+// 使用示例:
+//
+//	pluginManager.Register(plugin1)
+//	pluginManager.Register(plugin2)
+//
+//	lifecycleManager := lifecycle.NewManager()
+//	pluginManager.RegisterToLifecycle(lifecycleManager)
+//
+//	lifecycleManager.Start(ctx)
+func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
+	pm.mu.RLock()
+	plugins := make([]Plugin, 0, len(pm.plugins))
+	for _, plugin := range pm.plugins {
+		plugins = append(plugins, plugin)
+	}
+	pm.mu.RUnlock()
+
+	// 按加载顺序注册
+	for _, plugin := range plugins {
+		component := pm.AsLifecycleComponent(plugin).(lifecycle.Component)
+		lm.Register(component)
+	}
+
+	logger.Infof("[PluginManager] Registered %d plugins to lifecycle manager", len(plugins))
+	return nil
 }

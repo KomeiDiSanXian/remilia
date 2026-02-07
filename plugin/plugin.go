@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -64,12 +65,75 @@ type MetadataProvider interface {
 	Metadata() *Metadata
 }
 
+// ConfigurablePlugin 可配置插件接口（可选实现）
+// 实现此接口的插件支持配置管理
+type ConfigurablePlugin interface {
+	// GetConfig 获取插件配置
+	GetConfig() Config
+
+	// SetConfig 设置插件配置（由 Manager 调用）
+	SetConfig(config Config)
+}
+
+// StatefulPlugin 有状态插件接口（可选实现）
+// 实现此接口的插件支持状态查询
+type StatefulPlugin interface {
+	// GetState 获取插件状态
+	GetState() State
+
+	// SetState 设置插件状态（由 Manager 调用）
+	SetState(state State)
+
+	// GetLoadTime 获取加载时间
+	GetLoadTime() time.Time
+
+	// SetLoadTime 设置加载时间（由 Manager 调用）
+	SetLoadTime(t time.Time)
+
+	// GetLastError 获取最后的错误
+	GetLastError() error
+
+	// SetLastError 设置最后的错误（由 Manager 调用）
+	SetLastError(err error)
+
+	// GetUptime 获取运行时长
+	GetUptime() time.Duration
+}
+
+// MatcherProvider 提供 Matcher 的插件接口（可选实现）
+// 实现此接口的插件可以查询其注册的 Matcher
+type MatcherProvider interface {
+	// GetMatchers 获取插件注册的所有 Matcher
+	GetMatchers() []*engine.Matcher
+}
+
+// EventAwarePlugin 事件感知插件接口（可选实现）
+// 实现此接口的插件支持事件总线
+type EventAwarePlugin interface {
+	// PublishEvent 发布事件
+	PublishEvent(topic string, data interface{}) error
+
+	// SubscribeEvent 订阅事件
+	SubscribeEvent(topic string, handler EventHandler) (Subscription, error)
+
+	// UnsubscribeEvent 取消订阅
+	UnsubscribeEvent(sub Subscription) error
+
+	// GetEventBus 获取事件总线
+	GetEventBus() EventBus
+}
+
 // BasePlugin 基础插件结构
 type BasePlugin struct {
-	name     string
-	metadata *Metadata
-	matchers []*engine.Matcher
-	mu       sync.RWMutex
+	name      string
+	metadata  *Metadata
+	matchers  []*engine.Matcher
+	config    Config
+	eventBus  EventBus
+	state     State
+	loadTime  time.Time
+	lastError error
+	mu        sync.RWMutex
 }
 
 // NewBasePlugin 创建基础插件
@@ -80,6 +144,8 @@ func NewBasePlugin(name string) *BasePlugin {
 		metadata: &Metadata{
 			Name: name,
 		},
+		eventBus: NewEventBus(),
+		state:    Unloaded,
 	}
 }
 
@@ -89,6 +155,8 @@ func NewBasePluginWithMetadata(metadata *Metadata) *BasePlugin {
 		name:     metadata.Name,
 		metadata: metadata,
 		matchers: make([]*engine.Matcher, 0),
+		eventBus: NewEventBus(),
+		state:    Unloaded,
 	}
 }
 
@@ -271,4 +339,94 @@ func (p *BasePlugin) OnAny(eng *engine.Engine, rules ...context.Rule) *engine.Ma
 	matcher := eng.OnAny(rules...)
 	p.AddMatcher(matcher)
 	return matcher
+}
+
+// GetConfig 获取插件配置
+func (p *BasePlugin) GetConfig() Config {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.config
+}
+
+// SetConfig 设置插件配置（由 Manager 调用）
+func (p *BasePlugin) SetConfig(config Config) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.config = config
+}
+
+// PublishEvent 发布事件
+func (p *BasePlugin) PublishEvent(topic string, data interface{}) error {
+	return p.eventBus.Publish(topic, data)
+}
+
+// SubscribeEvent 订阅事件
+func (p *BasePlugin) SubscribeEvent(topic string, handler EventHandler) (Subscription, error) {
+	return p.eventBus.Subscribe(topic, handler)
+}
+
+// UnsubscribeEvent 取消订阅
+func (p *BasePlugin) UnsubscribeEvent(sub Subscription) error {
+	return p.eventBus.Unsubscribe(sub)
+}
+
+// GetEventBus 获取事件总线（用于高级操作）
+func (p *BasePlugin) GetEventBus() EventBus {
+	return p.eventBus
+}
+
+// GetState 获取插件状态（实现 StatefulPlugin 接口）
+func (p *BasePlugin) GetState() State {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.state
+}
+
+// SetState 设置插件状态（实现 StatefulPlugin 接口）
+func (p *BasePlugin) SetState(state State) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.state = state
+}
+
+// GetLoadTime 获取加载时间（实现 StatefulPlugin 接口）
+func (p *BasePlugin) GetLoadTime() time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.loadTime
+}
+
+// SetLoadTime 设置加载时间（实现 StatefulPlugin 接口）
+func (p *BasePlugin) SetLoadTime(t time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.loadTime = t
+}
+
+// GetLastError 获取最后的错误（实现 StatefulPlugin 接口）
+func (p *BasePlugin) GetLastError() error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.lastError
+}
+
+// SetLastError 设置最后的错误（实现 StatefulPlugin 接口）
+func (p *BasePlugin) SetLastError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastError = err
+}
+
+// GetUptime 获取运行时长（实现 StatefulPlugin 接口）
+func (p *BasePlugin) GetUptime() time.Duration {
+	p.mu.RLock()
+	loadTime := p.loadTime
+	state := p.state
+	p.mu.RUnlock()
+
+	if state != Loaded || loadTime.IsZero() {
+		return 0
+	}
+
+	return time.Since(loadTime)
 }

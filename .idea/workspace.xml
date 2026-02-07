@@ -4,7 +4,24 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance help command to display plugin list when no commands are available">
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_ENHANCEMENTS_GUIDE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/PLUGIN_ENHANCEMENTS_IMPLEMENTATION.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/PLUGIN_ENHANCEMENT_ANALYSIS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/PLUGIN_INTERFACE_REFACTORING.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/PLUGIN_LIFECYCLE_INTEGRATION.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-enhancements/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/enhancement_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/lifecycle_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/status.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -239,7 +256,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement health checkers for bot, adapter, and token manager with enhanced health status reporting" />
     <MESSAGE value="feat: add critical issues reference guide and configuration integration examples" />
     <MESSAGE value="fix: resolve race condition in deduplication logic and improve cache management" />
     <MESSAGE value="fix: enhance dead letter queue handling to prevent deadlocks and improve context management" />
@@ -264,7 +280,8 @@
     <MESSAGE value="feat: enhance token manager initialization with debug logging and error handling for token response" />
     <MESSAGE value="feat: implement plugin metadata system with detailed help information and enhanced command registration" />
     <MESSAGE value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
+    <MESSAGE value="feat: enhance help command to display plugin list when no commands are available" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance help command to display plugin list when no commands are available" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
