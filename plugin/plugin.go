@@ -111,7 +111,7 @@ type MatcherProvider interface {
 // 实现此接口的插件支持事件总线
 type EventAwarePlugin interface {
 	// PublishEvent 发布事件
-	PublishEvent(topic string, data interface{}) error
+	PublishEvent(topic string, data any) error
 
 	// SubscribeEvent 订阅事件
 	SubscribeEvent(topic string, handler EventHandler) (Subscription, error)
@@ -356,7 +356,7 @@ func (p *BasePlugin) SetConfig(config Config) {
 }
 
 // PublishEvent 发布事件
-func (p *BasePlugin) PublishEvent(topic string, data interface{}) error {
+func (p *BasePlugin) PublishEvent(topic string, data any) error {
 	return p.eventBus.Publish(topic, data)
 }
 

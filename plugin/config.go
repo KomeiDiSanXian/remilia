@@ -10,30 +10,30 @@ import (
 
 // Config 插件配置接口
 type Config interface {
-	Get(key string) interface{}
+	Get(key string) any
 	GetString(key string, defaultVal string) string
 	GetInt(key string, defaultVal int) int
 	GetBool(key string, defaultVal bool) bool
 	GetDuration(key string, defaultVal time.Duration) time.Duration
 
-	Set(key string, value interface{}) error
+	Set(key string, value any) error
 
 	// Reload 重载配置
 	Reload() error
 
 	// OnChange 监听配置变化
-	OnChange(handler func(key string, oldVal, newVal interface{}))
+	OnChange(handler func(key string, oldVal, newVal any))
 
 	// GetAll 返回一个包含所有配置项的 map
-	GetAll() map[string]interface{}
+	GetAll() map[string]any
 }
 
 // pluginConfig 插件配置实现
 type pluginConfig struct {
 	pluginName string
 	viper      *viper.Viper
-	values     map[string]interface{}
-	handlers   []func(key string, oldVal, newVal interface{})
+	values     map[string]any
+	handlers   []func(key string, oldVal, newVal any)
 	mu         sync.RWMutex
 }
 
@@ -42,8 +42,8 @@ func NewPluginConfig(pluginName string, globalViper *viper.Viper) Config {
 	pc := &pluginConfig{
 		pluginName: pluginName,
 		viper:      globalViper,
-		values:     make(map[string]interface{}),
-		handlers:   make([]func(key string, oldVal, newVal interface{}), 0),
+		values:     make(map[string]any),
+		handlers:   make([]func(key string, oldVal, newVal any), 0),
 	}
 
 	// 从全局配置加载插件配置
@@ -70,7 +70,7 @@ func (pc *pluginConfig) loadFromGlobal() {
 }
 
 // Get 获取配置值
-func (pc *pluginConfig) Get(key string) interface{} {
+func (pc *pluginConfig) Get(key string) any {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 
@@ -150,11 +150,11 @@ func (pc *pluginConfig) GetDuration(key string, defaultVal time.Duration) time.D
 }
 
 // Set 设置配置值
-func (pc *pluginConfig) Set(key string, value interface{}) error {
+func (pc *pluginConfig) Set(key string, value any) error {
 	pc.mu.Lock()
 	oldVal := pc.values[key]
 	pc.values[key] = value
-	handlers := make([]func(key string, oldVal, newVal interface{}), len(pc.handlers))
+	handlers := make([]func(key string, oldVal, newVal any), len(pc.handlers))
 	copy(handlers, pc.handlers)
 	pc.mu.Unlock()
 
@@ -173,7 +173,7 @@ func (pc *pluginConfig) Reload() error {
 }
 
 // OnChange 监听配置变化
-func (pc *pluginConfig) OnChange(handler func(key string, oldVal, newVal interface{})) {
+func (pc *pluginConfig) OnChange(handler func(key string, oldVal, newVal any)) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
@@ -181,11 +181,11 @@ func (pc *pluginConfig) OnChange(handler func(key string, oldVal, newVal interfa
 }
 
 // GetAll 获取所有配置
-func (pc *pluginConfig) GetAll() map[string]interface{} {
+func (pc *pluginConfig) GetAll() map[string]any {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 
-	result := make(map[string]interface{}, len(pc.values))
+	result := make(map[string]any, len(pc.values))
 	for k, v := range pc.values {
 		result[k] = v
 	}

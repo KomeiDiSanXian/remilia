@@ -8,7 +8,7 @@ import (
 )
 
 // EventHandler 事件处理函数
-type EventHandler func(data interface{})
+type EventHandler func(data any)
 
 // Subscription 订阅凭证
 type Subscription interface {
@@ -22,7 +22,7 @@ type Subscription interface {
 // EventBus 事件总线接口
 type EventBus interface {
 	// Publish 发布事件
-	Publish(topic string, data interface{}) error
+	Publish(topic string, data any) error
 
 	// Subscribe 订阅事件
 	Subscribe(topic string, handler EventHandler) (Subscription, error)
@@ -75,7 +75,7 @@ func NewEventBus() EventBus {
 }
 
 // Publish 发布事件
-func (eb *eventBus) Publish(topic string, data interface{}) error {
+func (eb *eventBus) Publish(topic string, data any) error {
 	eb.mu.RLock()
 	handlers := eb.subscribers[topic]
 	eb.mu.RUnlock()
