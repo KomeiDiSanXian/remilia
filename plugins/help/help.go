@@ -34,7 +34,7 @@ type HelpPlugin struct {
 // NewHelpPlugin 创建帮助插件
 // 如果 registry 为 nil，将尝试从 engine 自动获取
 func NewHelpPlugin(registry *command.CommandRegistry) *HelpPlugin {
-	basePlugin := plugin.NewBasePluginWithMetadata(&plugin.PluginMetadata{
+	basePlugin := plugin.NewBasePluginWithMetadata(&plugin.Metadata{
 		Name:        "help",
 		Version:     "1.0.0",
 		Author:      "Remilia",
@@ -61,15 +61,13 @@ func (p *HelpPlugin) Load(eng *engine.Engine) error {
 	logger.Info("[HelpPlugin] Loading help plugin...")
 
 	// 注册 /help 命令 - 列出所有命令或显示特定命令的详细信息
-	matcher := eng.OnCommand(dto.GroupAtMessageCreate, "/help").
+	// 使用 BasePlugin.OnCommand 自动添加到 Matcher 列表
+	p.OnCommand(eng, dto.GroupAtMessageCreate, "/help").
 		Handle(p.handleHelp)
 
 	// 同时支持私聊
-	matcherPrivate := eng.OnCommand(dto.C2CMessageCreate, "/help").
+	p.OnCommand(eng, dto.C2CMessageCreate, "/help").
 		Handle(p.handleHelp)
-
-	p.AddMatcher(matcher)
-	p.AddMatcher(matcherPrivate)
 
 	logger.Info("[HelpPlugin] Help plugin loaded successfully")
 	return nil
@@ -238,7 +236,7 @@ func (p *HelpPlugin) showAllPlugins(ctx *eventctx.Context) error {
 	help.WriteString(strings.Repeat("=", 30) + "\n\n")
 
 	// 按分类组织插件
-	categories := make(map[string][]*plugin.PluginMetadata)
+	categories := make(map[string][]*plugin.Metadata)
 	for _, meta := range pluginsMetadata {
 		category := meta.Category
 		if category == "" {

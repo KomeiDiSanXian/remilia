@@ -258,7 +258,7 @@ func (pm *Manager) List() []string {
 // GetMetadata 获取插件的元数据
 // 如果插件实现了 MetadataProvider 接口，返回详细元数据
 // 否则返回只包含名称的基本元数据
-func (pm *Manager) GetMetadata(name string) (*PluginMetadata, bool) {
+func (pm *Manager) GetMetadata(name string) (*Metadata, bool) {
 	pm.mu.RLock()
 	plugin, exists := pm.plugins[name]
 	pm.mu.RUnlock()
@@ -273,22 +273,22 @@ func (pm *Manager) GetMetadata(name string) (*PluginMetadata, bool) {
 	}
 
 	// 返回基本元数据
-	return &PluginMetadata{
+	return &Metadata{
 		Name: name,
 	}, true
 }
 
 // ListWithMetadata 列出所有插件及其元数据
-func (pm *Manager) ListWithMetadata() map[string]*PluginMetadata {
+func (pm *Manager) ListWithMetadata() map[string]*Metadata {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	result := make(map[string]*PluginMetadata, len(pm.plugins))
+	result := make(map[string]*Metadata, len(pm.plugins))
 	for name, plugin := range pm.plugins {
 		if provider, ok := plugin.(MetadataProvider); ok {
 			result[name] = provider.Metadata()
 		} else {
-			result[name] = &PluginMetadata{
+			result[name] = &Metadata{
 				Name: name,
 			}
 		}

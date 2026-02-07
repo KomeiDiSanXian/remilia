@@ -7,10 +7,11 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
-// PluginMetadata 插件元数据
-type PluginMetadata struct {
+// Metadata 插件元数据
+type Metadata struct {
 	// 基本信息
 	Name        string // 插件名称
 	Version     string // 版本号
@@ -60,13 +61,13 @@ type Plugin interface {
 // 插件可以实现此接口来提供详细的元数据信息
 type MetadataProvider interface {
 	// Metadata 返回插件的元数据
-	Metadata() *PluginMetadata
+	Metadata() *Metadata
 }
 
 // BasePlugin 基础插件结构
 type BasePlugin struct {
 	name     string
-	metadata *PluginMetadata
+	metadata *Metadata
 	matchers []*engine.Matcher
 	mu       sync.RWMutex
 }
@@ -76,14 +77,14 @@ func NewBasePlugin(name string) *BasePlugin {
 	return &BasePlugin{
 		name:     name,
 		matchers: make([]*engine.Matcher, 0),
-		metadata: &PluginMetadata{
+		metadata: &Metadata{
 			Name: name,
 		},
 	}
 }
 
 // NewBasePluginWithMetadata 创建带元数据的基础插件
-func NewBasePluginWithMetadata(metadata *PluginMetadata) *BasePlugin {
+func NewBasePluginWithMetadata(metadata *Metadata) *BasePlugin {
 	return &BasePlugin{
 		name:     metadata.Name,
 		metadata: metadata,
@@ -97,11 +98,11 @@ func (p *BasePlugin) Name() string {
 }
 
 // Metadata 返回插件的元数据（实现 MetadataProvider 接口）
-func (p *BasePlugin) Metadata() *PluginMetadata {
+func (p *BasePlugin) Metadata() *Metadata {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.metadata == nil {
-		return &PluginMetadata{
+		return &Metadata{
 			Name: p.name,
 		}
 	}
@@ -109,7 +110,7 @@ func (p *BasePlugin) Metadata() *PluginMetadata {
 }
 
 // SetMetadata 设置插件元数据
-func (p *BasePlugin) SetMetadata(metadata *PluginMetadata) {
+func (p *BasePlugin) SetMetadata(metadata *Metadata) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.metadata = metadata
@@ -233,4 +234,41 @@ func (p *BasePlugin) Use(coordinator *engine.Engine, mw ...context.Middleware) {
 		return
 	}
 	coordinator.UseForGroup(p.name, mw...)
+}
+
+// OnCommand 注册命令并自动添加到插件的 Matcher 列表
+// 这是一个便捷方法，避免开发者忘记调用 AddMatcher
+func (p *BasePlugin) OnCommand(eng *engine.Engine, eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *engine.Matcher {
+	if eng == nil {
+		logger.Warn("[Plugin] Engine is nil, cannot register command")
+		return nil
+	}
+
+	matcher := eng.OnCommand(eventType, cmdPattern, extraRules...)
+	p.AddMatcher(matcher)
+	return matcher
+}
+
+// On 注册自定义规则并自动添加到插件的 Matcher 列表
+func (p *BasePlugin) On(eng *engine.Engine, eventType dto.EventType, rules ...context.Rule) *engine.Matcher {
+	if eng == nil {
+		logger.Warn("[Plugin] Engine is nil, cannot register matcher")
+		return nil
+	}
+
+	matcher := eng.On(eventType, rules...)
+	p.AddMatcher(matcher)
+	return matcher
+}
+
+// OnAny 注册处理所有事件的规则并自动添加到插件的 Matcher 列表
+func (p *BasePlugin) OnAny(eng *engine.Engine, rules ...context.Rule) *engine.Matcher {
+	if eng == nil {
+		logger.Warn("[Plugin] Engine is nil, cannot register matcher")
+		return nil
+	}
+
+	matcher := eng.OnAny(rules...)
+	p.AddMatcher(matcher)
+	return matcher
 }

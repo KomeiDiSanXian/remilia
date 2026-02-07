@@ -23,7 +23,7 @@ type EchoPlugin struct {
 
 // NewEchoPlugin 创建回显插件（带元数据）
 func NewEchoPlugin() *EchoPlugin {
-	metadata := &plugin.PluginMetadata{
+	metadata := &plugin.Metadata{
 		Name:        "echo",
 		Version:     "1.0.0",
 		Author:      "Example Team",
@@ -46,15 +46,12 @@ func NewEchoPlugin() *EchoPlugin {
 func (p *EchoPlugin) Load(eng *engine.Engine) error {
 	logger.Info("[EchoPlugin] Loading...")
 
-	// 注册 /echo 命令
-	matcherEcho := eng.OnCommand(dto.C2CMessageCreate, "/echo").
+	// 使用 BasePlugin.OnCommand 自动注册 Matcher
+	p.OnCommand(eng, dto.C2CMessageCreate, "/echo").
 		Handle(p.handleEcho)
-	p.AddMatcher(matcherEcho)
 
-	// 注册 /reverse 命令
-	matcherReverse := eng.OnCommand(dto.C2CMessageCreate, "/reverse").
+	p.OnCommand(eng, dto.C2CMessageCreate, "/reverse").
 		Handle(p.handleReverse)
-	p.AddMatcher(matcherReverse)
 
 	logger.Info("[EchoPlugin] Loaded successfully")
 	return nil
@@ -107,7 +104,7 @@ type WeatherPlugin struct {
 
 // NewWeatherPlugin 创建天气插件（带元数据）
 func NewWeatherPlugin() *WeatherPlugin {
-	metadata := &plugin.PluginMetadata{
+	metadata := &plugin.Metadata{
 		Name:        "weather",
 		Version:     "2.1.0",
 		Author:      "Weather Team",
@@ -134,9 +131,9 @@ func NewWeatherPlugin() *WeatherPlugin {
 func (p *WeatherPlugin) Load(eng *engine.Engine) error {
 	logger.Info("[WeatherPlugin] Loading...")
 
-	matcher := eng.OnCommand(dto.C2CMessageCreate, "/weather").
+	// 使用 BasePlugin.OnCommand 自动注册 Matcher
+	p.OnCommand(eng, dto.C2CMessageCreate, "/weather").
 		Handle(p.handleWeather)
-	p.AddMatcher(matcher)
 
 	logger.Info("[WeatherPlugin] Loaded successfully")
 	return nil
