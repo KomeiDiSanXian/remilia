@@ -138,15 +138,10 @@ type BasePlugin struct {
 
 // NewBasePlugin 创建基础插件
 func NewBasePlugin(name string) *BasePlugin {
-	return &BasePlugin{
-		name:     name,
-		matchers: make([]*engine.Matcher, 0),
-		metadata: &Metadata{
-			Name: name,
-		},
-		eventBus: NewEventBus(),
-		state:    Unloaded,
+	metadata := &Metadata{
+		Name: name,
 	}
+	return NewBasePluginWithMetadata(metadata)
 }
 
 // NewBasePluginWithMetadata 创建带元数据的基础插件
