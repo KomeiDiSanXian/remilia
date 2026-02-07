@@ -58,6 +58,8 @@ func NewManager(info *dto.BotInfo) *Manager {
 //	cfg, _ := config.LoadDefault()
 //	mgr := token.NewManagerFromConfig(global.Info, cfg.Token)
 func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
+	logger.Debugf("[Token] Initializing Token Manager with config: %+v", cfg)
+	logger.Debugf("[Token] Bot Info: %+v", info)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// 解析配置
@@ -255,5 +257,12 @@ func requestToken(info *dto.BotInfo) (gjson.Result, error) {
 		"appId":        strconv.FormatUint(info.AppID, 10),
 		"clientSecret": info.AppSecret,
 	}
-	return httpcilent.NewPost(constant.AccessTokenURL).SetJSONBody(bodyMap).DoJSON()
+	result, err := httpcilent.NewPost(constant.AccessTokenURL).SetJSONBody(bodyMap).DoJSON()
+	if err != nil {
+		return gjson.Result{}, err
+	}
+	if result.Get("access_token").Exists() {
+		return result, nil
+	}
+	return gjson.Result{}, fmt.Errorf("invalid token response: %s", result.Raw)
 }
