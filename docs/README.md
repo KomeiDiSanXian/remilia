@@ -173,6 +173,51 @@ Remilia 的架构设计文档，深入理解框架内部。
   - 问题分类统计
   - 快速参考
 
+#### Help Plugin 修复报告 (2026-02-07)
+
+- **[HELP-PLUGIN-FIX-SUMMARY.md](./05-reports/HELP-PLUGIN-FIX-SUMMARY.md)** ⭐ NEW
+  - Help Plugin 命令显示问题修复总结
+  - 问题分析与解决方案
+  - 修复结果验证
+
+- **[help-plugin-complete-fix-report.md](./05-reports/help-plugin-complete-fix-report.md)**
+  - 完整的修复报告
+  - 技术实现细节
+  - 向后兼容性分析
+
+- **[help-plugin-fix-report.md](./05-reports/help-plugin-fix-report.md)**
+  - 技术分析报告
+  - 架构问题诊断
+
+- **[help-plugin-fix-verification.md](./05-reports/help-plugin-fix-verification.md)**
+  - 验证和测试指南
+
+#### 插件生态规划 (2026-02-07) ⭐ NEW
+
+- **[PLUGIN-ECOSYSTEM-SUMMARY.md](./05-reports/PLUGIN-ECOSYSTEM-SUMMARY.md)** 🎯 **必读**
+  - **插件生态分析总结**
+  - 30 个插件详细列表
+  - 优先级分布和投入产出分析
+  - 下一步行动建议
+
+- **[PLUGIN-QUICKREF.md](./05-reports/PLUGIN-QUICKREF.md)** 🚀 **快速参考**
+  - 待开发插件清单
+  - 插件模板代码
+  - 开发顺序建议
+
+- **[PLUGIN-ROADMAP.md](./05-reports/PLUGIN-ROADMAP.md)** 📅 **路线图**
+  - 可视化开发路线图
+  - 时间线规划
+  - 里程碑设定
+  - 依赖关系图
+
+- **[PLUGIN-ECOSYSTEM-PLAN.md](./05-reports/PLUGIN-ECOSYSTEM-PLAN.md)** 📖 **详细规划**
+  - **完整的插件生态规划文档 (34 KB)**
+  - 每个插件的详细设计
+  - 功能描述、API 设计、使用场景
+  - 开发规范和标准
+  - 分三个阶段实施
+
 ---
 
 ### 📦 [06-archived](./06-archived/) - 归档文档

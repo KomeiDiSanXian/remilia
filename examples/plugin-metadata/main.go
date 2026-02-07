@@ -13,7 +13,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/KomeiDiSanXian/remilia/plugins/help"
+	"github.com/KomeiDiSanXian/remilia/plugins/core/help"
 )
 
 // EchoPlugin 示例插件：回显消息
