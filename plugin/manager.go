@@ -598,7 +598,7 @@ func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 
 	// 按加载顺序注册
 	for _, plugin := range plugins {
-		component := pm.AsLifecycleComponent(plugin).(lifecycle.Component)
+		component := pm.AsLifecycleComponent(plugin)
 		lm.Register(component)
 	}
 

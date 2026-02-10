@@ -337,7 +337,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	logger.WithFields(logger.Fields{
 		"component_count": len(components),
-	}).Info("[Lifecycle.v2] Starting components")
+	}).Info("[Lifecycle] Starting components")
 
 	// Phase 1: 调用所有组件的 OnStart
 	var startedComponents []Component
@@ -358,7 +358,7 @@ func (m *Manager) Start(ctx context.Context) error {
 				"component": comp.Name(),
 				"index":     i,
 				"error":     err,
-			}).Error("[Lifecycle.v2] Component OnStart failed")
+			}).Error("[Lifecycle] Component OnStart failed")
 
 			// 回滚已启动的组件
 			m.rollback(startedComponents)
@@ -392,12 +392,12 @@ func (m *Manager) Start(ctx context.Context) error {
 				logger.WithFields(logger.Fields{
 					"component": c.Name(),
 					"error":     err,
-				}).Error("[Lifecycle.v2] Component OnRun failed")
+				}).Error("[Lifecycle] Component OnRun failed")
 			}
 		}(comp)
 	}
 
-	logger.Info("[Lifecycle.v2] All components started successfully")
+	logger.Info("[Lifecycle] All components started successfully")
 	return nil
 }
 
@@ -409,7 +409,7 @@ func (m *Manager) rollback(startedComponents []Component) {
 
 	logger.WithFields(logger.Fields{
 		"count": len(startedComponents),
-	}).Warn("[Lifecycle.v2] Rolling back started components")
+	}).Warn("[Lifecycle] Rolling back started components")
 
 	// 逆序停止
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -421,11 +421,11 @@ func (m *Manager) rollback(startedComponents []Component) {
 			logger.WithFields(logger.Fields{
 				"component": comp.Name(),
 				"error":     err,
-			}).Error("[Lifecycle.v2] Component rollback failed")
+			}).Error("[Lifecycle] Component rollback failed")
 		}
 	}
 
-	logger.Info("[Lifecycle.v2] Rollback completed successfully")
+	logger.Info("[Lifecycle] Rollback completed successfully")
 }
 
 // Stop 停止所有组件
@@ -455,7 +455,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	logger.WithFields(logger.Fields{
 		"component_count": len(components),
-	}).Info("[Lifecycle.v2] Stopping components")
+	}).Info("[Lifecycle] Stopping components")
 
 	// 等待所有 OnRun 完成
 	done := make(chan struct{})
@@ -469,7 +469,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		// 所有 OnRun 已完成
 	case <-ctx.Done():
 		// 超时
-		logger.Warn("[Lifecycle.v2] Stop timeout, some OnRun may still be running")
+		logger.Warn("[Lifecycle] Stop timeout, some OnRun may still be running")
 	}
 
 	// 逆序调用 OnStop
@@ -480,7 +480,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 			logger.WithFields(logger.Fields{
 				"component": comp.Name(),
 				"error":     err,
-			}).Error("[Lifecycle.v2] Component OnStop failed")
+			}).Error("[Lifecycle] Component OnStop failed")
 			if stopErr == nil {
 				stopErr = &StopError{Err: err}
 			}
@@ -495,7 +495,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		return stopErr
 	}
 
-	logger.Info("[Lifecycle.v2] All components stopped successfully")
+	logger.Info("[Lifecycle] All components stopped successfully")
 	return nil
 }
 
@@ -556,7 +556,7 @@ type StartError struct {
 }
 
 func (e *StartError) Error() string {
-	return fmt.Sprintf("lifecycle.v2: component '%s' %s failed: %v", e.Component, e.Phase, e.Err)
+	return fmt.Sprintf("Lifecycle: component '%s' %s failed: %v", e.Component, e.Phase, e.Err)
 }
 
 func (e *StartError) Unwrap() error {
@@ -569,7 +569,7 @@ type StopError struct {
 }
 
 func (e *StopError) Error() string {
-	return fmt.Sprintf("lifecycle.v2: stop failed: %v", e.Err)
+	return fmt.Sprintf("Lifecycle: stop failed: %v", e.Err)
 }
 
 func (e *StopError) Unwrap() error {
@@ -583,5 +583,5 @@ type ErrInvalidState struct {
 }
 
 func (e ErrInvalidState) Error() string {
-	return fmt.Sprintf("lifecycle.v2: invalid state: current=%s, expected=%s", e.Current, e.Expected)
+	return fmt.Sprintf("Lifecycle: invalid state: current=%s, expected=%s", e.Current, e.Expected)
 }
