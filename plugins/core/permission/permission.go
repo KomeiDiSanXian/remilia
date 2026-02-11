@@ -3,6 +3,7 @@ package permission
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -13,7 +14,10 @@ import (
 // Plugin 权限系统插件 (基于 context.PermissionManager)
 type Plugin struct {
 	*plugin.BasePlugin
-	manager *eventctx.PermissionManager
+	manager         *eventctx.PermissionManager
+	verificationMgr *VerificationManager
+	acl             *AccessControlList
+	cleanupStopChan chan struct{}
 }
 
 // New 创建权限插件
@@ -46,8 +50,11 @@ API 使用：
 	}
 
 	p := &Plugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-		manager:    eventctx.NewPermissionManager(),
+		BasePlugin:      plugin.NewBasePluginWithMetadata(metadata),
+		manager:         eventctx.NewPermissionManager(),
+		verificationMgr: NewVerificationManager(),
+		acl:             NewAccessControlList(),
+		cleanupStopChan: make(chan struct{}),
 	}
 
 	// 添加额外的预定义角色以保持向后兼容
@@ -84,7 +91,40 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	roles := []string{"admin", "user", "guest", "moderator"}
 	logger.Infof("[PermissionPlugin] Loaded %d default roles", len(roles))
 
+	// 启动验证码清理协程
+	go p.cleanupExpiredCodes()
+	logger.Info("[PermissionPlugin] Started verification code cleanup routine")
+
 	return nil
+}
+
+// Unload 卸载插件
+func (p *Plugin) Unload() error {
+	logger.Info("[PermissionPlugin] Unloading permission plugin...")
+
+	// 停止清理协程
+	close(p.cleanupStopChan)
+
+	return nil
+}
+
+// cleanupExpiredCodes 定期清理过期的验证码
+func (p *Plugin) cleanupExpiredCodes() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			count := p.verificationMgr.CleanupExpired()
+			if count > 0 {
+				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
+			}
+		case <-p.cleanupStopChan:
+			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
+			return
+		}
+	}
 }
 
 // GetManager 获取底层的 PermissionManager
@@ -294,6 +334,124 @@ func (p *Plugin) RequireRole(roleName string) eventctx.Middleware {
 
 			logger.Warnf("[PermissionPlugin] User '%s' lacks role '%s'", userID, roleName)
 			return fmt.Errorf("role required: %s", roleName)
+		}
+	}
+}
+
+// === 验证码相关方法 ===
+
+// GenerateVerificationCode 生成验证码
+// role: 验证码授予的角色（如 "admin"）
+// expiry: 过期时间（如 30*time.Minute）
+// maxUses: 最大使用次数（0=一次性，-1=无限次）
+func (p *Plugin) GenerateVerificationCode(role string, expiry time.Duration, maxUses int) (string, error) {
+	return p.verificationMgr.GenerateCode(role, expiry, maxUses)
+}
+
+// VerifyAndGrantRole 验证码验证并授予角色
+func (p *Plugin) VerifyAndGrantRole(code, userID string) (string, error) {
+	role, success, err := p.verificationMgr.VerifyCode(code, userID)
+	if err != nil {
+		return "", err
+	}
+
+	if !success {
+		return "", fmt.Errorf("verification failed")
+	}
+
+	// 授予角色
+	if err := p.AssignRole(userID, role); err != nil {
+		return "", fmt.Errorf("failed to assign role: %w", err)
+	}
+
+	logger.Infof("[PermissionPlugin] User '%s' verified with code and granted role '%s'", userID, role)
+	return role, nil
+}
+
+// RevokeVerificationCode 撤销验证码
+func (p *Plugin) RevokeVerificationCode(code string) error {
+	return p.verificationMgr.RevokeCode(code)
+}
+
+// ListVerificationCodes 列出所有有效的验证码
+func (p *Plugin) ListVerificationCodes() []*VerificationCode {
+	return p.verificationMgr.ListCodes()
+}
+
+// GetVerificationCodeInfo 获取验证码信息
+func (p *Plugin) GetVerificationCodeInfo(code string) (*VerificationCode, error) {
+	return p.verificationMgr.GetCodeInfo(code)
+}
+
+// === 黑白名单相关方法 ===
+
+// SetACLMode 设置黑白名单模式
+func (p *Plugin) SetACLMode(mode ListMode) {
+	p.acl.SetMode(mode)
+	logger.Infof("[PermissionPlugin] ACL mode set to: %s", mode.String())
+}
+
+// GetACLMode 获取当前黑白名单模式
+func (p *Plugin) GetACLMode() ListMode {
+	return p.acl.GetMode()
+}
+
+// AddToACL 添加用户到黑白名单
+func (p *Plugin) AddToACL(userID string, note string) {
+	p.acl.Add(userID, note)
+	mode := p.acl.GetMode()
+	logger.Infof("[PermissionPlugin] Added user '%s' to %s", userID, mode.String())
+}
+
+// RemoveFromACL 从黑白名单移除用户
+func (p *Plugin) RemoveFromACL(userID string) bool {
+	removed := p.acl.Remove(userID)
+	if removed {
+		logger.Infof("[PermissionPlugin] Removed user '%s' from ACL", userID)
+	}
+	return removed
+}
+
+// IsUserAllowed 检查用户是否被允许访问
+func (p *Plugin) IsUserAllowed(userID string) (bool, string) {
+	return p.acl.IsAllowed(userID)
+}
+
+// ListACL 列出黑白名单中的所有用户
+func (p *Plugin) ListACL() []UserInfo {
+	return p.acl.List()
+}
+
+// GetACLCount 获取黑白名单中的用户数量
+func (p *Plugin) GetACLCount() int {
+	return p.acl.Count()
+}
+
+// ClearACL 清空黑白名单
+func (p *Plugin) ClearACL() int {
+	count := p.acl.Clear()
+	logger.Infof("[PermissionPlugin] Cleared ACL (%d users removed)", count)
+	return count
+}
+
+// GetACLStats 获取黑白名单统计信息
+func (p *Plugin) GetACLStats() ACLStats {
+	return p.acl.Stats()
+}
+
+// RequireACL 创建黑白名单检查中间件
+func (p *Plugin) RequireACL() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			userID := ctx.GetUserID()
+
+			allowed, reason := p.acl.IsAllowed(userID)
+			if !allowed {
+				logger.Warnf("[PermissionPlugin] User '%s' denied by ACL: %s", userID, reason)
+				return fmt.Errorf("访问被拒绝: %s", reason)
+			}
+
+			return next(ctx)
 		}
 	}
 }

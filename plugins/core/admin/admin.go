@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -44,6 +45,21 @@ func New() *Plugin {
   /perm list [用户] - 列出权限
   /perm role <用户> <角色> - 分配角色
 
+验证码管理：
+  /code gen <角色> [有效期] [次数] - 生成验证码
+    示例: /code gen admin 1h 0  （生成1小时有效的一次性管理员验证码）
+  /code verify <验证码> - 使用验证码获取权限
+  /code list - 列出所有有效验证码
+  /code revoke <验证码> - 撤销验证码
+
+黑白名单管理：
+  /acl mode <模式> - 设置模式（disabled/blacklist/whitelist）
+  /acl add <用户ID> [备注] - 添加用户到列表
+  /acl remove <用户ID> - 从列表移除用户
+  /acl list - 列出所有用户
+  /acl clear - 清空列表
+  /acl stats - 查看统计信息
+
 系统信息：
   /status - 查看系统状态
   /info - 查看机器人信息`,
@@ -58,11 +74,11 @@ func New() *Plugin {
 func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[AdminPlugin] Loading admin plugin...")
 
-	// 注册插件管理命令
-	p.registerPluginCommands(eng)
-
-	// 注册权限管理命令
-	p.registerPermissionCommands(eng)
+	// 注册主命令（使用子命令模式）
+	p.registerPluginCommand(eng)
+	p.registerPermCommand(eng)
+	p.registerCodeCommand(eng)
+	p.registerACLCommand(eng)
 
 	// 注册系统命令
 	p.registerSystemCommands(eng)
@@ -81,38 +97,186 @@ func (p *Plugin) SetPermissionPlugin(pp *permission.Plugin) {
 	p.permPlugin = pp
 }
 
-// registerPluginCommands 注册插件管理命令
-func (p *Plugin) registerPluginCommands(eng *engine.Engine) {
-	// /plugin list
-	p.OnCommand(eng, dto.C2CMessageCreate, "/plugin list").
-		Handle(p.handlePluginList)
+// registerPluginCommand 注册插件管理命令（子命令模式）
+func (p *Plugin) registerPluginCommand(eng *engine.Engine) {
+	pluginCmd := &command.Definition{
+		Name:        "plugin",
+		Description: "插件管理",
+		Usage:       "/plugin <子命令> [参数]",
+		Category:    "系统",
+		SubCommands: []*command.Definition{
+			{
+				Name:        "list",
+				Description: "列出所有插件",
+				Usage:       "/plugin list",
+				Examples:    []string{"/plugin list"},
+			},
+			{
+				Name:        "info",
+				Description: "查看插件详情",
+				Usage:       "/plugin info <插件名>",
+				Arguments: []*command.Argument{
+					{
+						Name:        "name",
+						Type:        command.ArgTypeString,
+						Description: "插件名称",
+						Required:    true,
+					},
+				},
+				Examples: []string{"/plugin info help", "/plugin info permission"},
+			},
+			{
+				Name:        "reload",
+				Description: "重载插件",
+				Usage:       "/plugin reload <插件名>",
+				Arguments: []*command.Argument{
+					{
+						Name:        "name",
+						Type:        command.ArgTypeString,
+						Description: "插件名称",
+						Required:    true,
+					},
+				},
+				Examples: []string{"/plugin reload help"},
+			},
+		},
+	}
 
-	// /plugin info <name>
-	p.OnCommand(eng, dto.C2CMessageCreate, "/plugin info").
-		Handle(p.handlePluginInfo)
-
-	// /plugin reload <name>
-	p.OnCommand(eng, dto.C2CMessageCreate, "/plugin reload").
-		Handle(p.handlePluginReload)
+	p.OnCommand(eng, dto.C2CMessageCreate, "/plugin").
+		SetDefinition(pluginCmd).
+		Handle(p.handlePluginCommand)
 }
 
-// registerPermissionCommands 注册权限管理命令
-func (p *Plugin) registerPermissionCommands(eng *engine.Engine) {
-	// /perm grant <user> <permission>
-	p.OnCommand(eng, dto.C2CMessageCreate, "/perm grant").
-		Handle(p.handlePermGrant)
+// handlePluginCommand 统一处理 plugin 命令
+func (p *Plugin) handlePluginCommand(ctx *eventctx.Context) error {
+	content := ctx.GetMessageContent()
+	args, err := command.ParseCommandLine(content)
+	if err != nil {
+		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
+	}
 
-	// /perm revoke <user> <permission>
-	p.OnCommand(eng, dto.C2CMessageCreate, "/perm revoke").
-		Handle(p.handlePermRevoke)
+	subCommand := args.Get(0)
+	if subCommand == "" {
+		return p.showPluginHelp(ctx)
+	}
 
-	// /perm list [user]
-	p.OnCommand(eng, dto.C2CMessageCreate, "/perm list").
-		Handle(p.handlePermList)
+	switch subCommand {
+	case "list":
+		return p.handlePluginList(ctx)
+	case "info":
+		return p.handlePluginInfo(ctx, args)
+	case "reload":
+		return p.handlePluginReload(ctx, args)
+	default:
+		return p.reply(ctx, fmt.Sprintf("❌ 未知的子命令: %s\n使用 /plugin 查看帮助", subCommand))
+	}
+}
 
-	// /perm role <user> <role>
-	p.OnCommand(eng, dto.C2CMessageCreate, "/perm role").
-		Handle(p.handlePermRole)
+// showPluginHelp 显示插件命令帮助
+func (p *Plugin) showPluginHelp(ctx *eventctx.Context) error {
+	var msg strings.Builder
+	msg.WriteString("📦 插件管理\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString("可用命令:\n")
+	msg.WriteString("  /plugin list - 列出所有插件\n")
+	msg.WriteString("  /plugin info <插件名> - 查看插件详情\n")
+	msg.WriteString("  /plugin reload <插件名> - 重载插件\n")
+	return p.reply(ctx, msg.String())
+}
+
+// registerPermCommand 注册权限管理命令（子命令模式）
+func (p *Plugin) registerPermCommand(eng *engine.Engine) {
+	permCmd := &command.Definition{
+		Name:        "perm",
+		Description: "权限管理",
+		Usage:       "/perm <子命令> [参数]",
+		Category:    "权限",
+		SubCommands: []*command.Definition{
+			{
+				Name:        "grant",
+				Description: "授予用户权限",
+				Usage:       "/perm grant <用户ID> <权限>",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID", Required: true},
+					{Name: "permission", Type: command.ArgTypeString, Description: "权限", Required: true},
+				},
+				Examples: []string{"/perm grant USER123 command.use"},
+			},
+			{
+				Name:        "revoke",
+				Description: "撤销用户权限",
+				Usage:       "/perm revoke <用户ID> <权限>",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID", Required: true},
+					{Name: "permission", Type: command.ArgTypeString, Description: "权限", Required: true},
+				},
+				Examples: []string{"/perm revoke USER123 command.use"},
+			},
+			{
+				Name:        "list",
+				Description: "列出用户权限",
+				Usage:       "/perm list [用户ID]",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID（可选）", Required: false},
+				},
+				Examples: []string{"/perm list", "/perm list USER123"},
+			},
+			{
+				Name:        "role",
+				Description: "分配角色给用户",
+				Usage:       "/perm role <用户ID> <角色>",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID", Required: true},
+					{Name: "role", Type: command.ArgTypeString, Description: "角色名", Required: true},
+				},
+				Examples: []string{"/perm role USER123 admin"},
+			},
+		},
+	}
+
+	p.OnCommand(eng, dto.C2CMessageCreate, "/perm").
+		SetDefinition(permCmd).
+		Handle(p.handlePermCommand)
+}
+
+// handlePermCommand 统一处理 perm 命令
+func (p *Plugin) handlePermCommand(ctx *eventctx.Context) error {
+	content := ctx.GetMessageContent()
+	args, err := command.ParseCommandLine(content)
+	if err != nil {
+		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
+	}
+
+	subCommand := args.Get(0)
+	if subCommand == "" {
+		return p.showPermHelp(ctx)
+	}
+
+	switch subCommand {
+	case "grant":
+		return p.handlePermGrant(ctx, args)
+	case "revoke":
+		return p.handlePermRevoke(ctx, args)
+	case "list":
+		return p.handlePermList(ctx, args)
+	case "role":
+		return p.handlePermRole(ctx, args)
+	default:
+		return p.reply(ctx, fmt.Sprintf("❌ 未知的子命令: %s\n使用 /perm 查看帮助", subCommand))
+	}
+}
+
+// showPermHelp 显示权限命令帮助
+func (p *Plugin) showPermHelp(ctx *eventctx.Context) error {
+	var msg strings.Builder
+	msg.WriteString("🔑 权限管理\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString("可用命令:\n")
+	msg.WriteString("  /perm grant <用户ID> <权限> - 授予权限\n")
+	msg.WriteString("  /perm revoke <用户ID> <权限> - 撤销权限\n")
+	msg.WriteString("  /perm list [用户ID] - 列出权限\n")
+	msg.WriteString("  /perm role <用户ID> <角色> - 分配角色\n")
+	return p.reply(ctx, msg.String())
 }
 
 // registerSystemCommands 注册系统命令
@@ -172,7 +336,7 @@ func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
 }
 
 // handlePluginInfo 处理插件信息命令
-func (p *Plugin) handlePluginInfo(ctx *eventctx.Context) error {
+func (p *Plugin) handlePluginInfo(ctx *eventctx.Context, args *command.Args) error {
 	if p.pluginManager == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
@@ -182,9 +346,7 @@ func (p *Plugin) handlePluginInfo(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-	pluginName := args.Get(0)
+	pluginName := args.Get(1) // Get(0)="info", Get(1)=插件名
 
 	if pluginName == "" {
 		return p.reply(ctx, "用法: /plugin info <插件名>")
@@ -223,7 +385,7 @@ func (p *Plugin) handlePluginInfo(ctx *eventctx.Context) error {
 }
 
 // handlePluginReload 处理插件重载命令
-func (p *Plugin) handlePluginReload(ctx *eventctx.Context) error {
+func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) error {
 	if p.pluginManager == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
@@ -233,9 +395,7 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-	pluginName := args.Get(0)
+	pluginName := args.Get(1) // Get(0)="reload", Get(1)=插件名
 
 	if pluginName == "" {
 		return p.reply(ctx, "用法: /plugin reload <插件名>")
@@ -251,7 +411,7 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context) error {
 }
 
 // handlePermGrant 处理权限授予命令
-func (p *Plugin) handlePermGrant(ctx *eventctx.Context) error {
+func (p *Plugin) handlePermGrant(ctx *eventctx.Context, args *command.Args) error {
 	if p.permPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
@@ -261,26 +421,23 @@ func (p *Plugin) handlePermGrant(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
+	userID := args.Get(1)  // Get(0)="grant", Get(1)=用户ID
+	permStr := args.Get(2) // Get(2)=权限
 
-	userID := args.Get(0)
-	permission := args.Get(1)
-
-	if userID == "" || permission == "" {
+	if userID == "" || permStr == "" {
 		return p.reply(ctx, "用法: /perm grant <用户ID> <权限>")
 	}
 
-	err := p.permPlugin.Grant(userID, permission)
+	err := p.permPlugin.Grant(userID, permStr)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 授予失败: %v", err))
 	}
 
-	return p.reply(ctx, fmt.Sprintf("✅ 已授予用户 '%s' 权限 '%s'", userID, permission))
+	return p.reply(ctx, fmt.Sprintf("✅ 已授予用户 '%s' 权限 '%s'", userID, permStr))
 }
 
 // handlePermRevoke 处理权限撤销命令
-func (p *Plugin) handlePermRevoke(ctx *eventctx.Context) error {
+func (p *Plugin) handlePermRevoke(ctx *eventctx.Context, args *command.Args) error {
 	if p.permPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
@@ -290,26 +447,23 @@ func (p *Plugin) handlePermRevoke(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
+	userID := args.Get(1)  // Get(0)="revoke", Get(1)=用户ID
+	permStr := args.Get(2) // Get(2)=权限
 
-	userID := args.Get(0)
-	permission := args.Get(1)
-
-	if userID == "" || permission == "" {
+	if userID == "" || permStr == "" {
 		return p.reply(ctx, "用法: /perm revoke <用户ID> <权限>")
 	}
 
-	err := p.permPlugin.Revoke(userID, permission)
+	err := p.permPlugin.Revoke(userID, permStr)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 撤销失败: %v", err))
 	}
 
-	return p.reply(ctx, fmt.Sprintf("✅ 已撤销用户 '%s' 的权限 '%s'", userID, permission))
+	return p.reply(ctx, fmt.Sprintf("✅ 已撤销用户 '%s' 的权限 '%s'", userID, permStr))
 }
 
 // handlePermList 处理权限列表命令
-func (p *Plugin) handlePermList(ctx *eventctx.Context) error {
+func (p *Plugin) handlePermList(ctx *eventctx.Context, args *command.Args) error {
 	if p.permPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
@@ -319,10 +473,7 @@ func (p *Plugin) handlePermList(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-
-	userID := args.Get(0)
+	userID := args.Get(1) // Get(0)="list", Get(1)=用户ID（可选）
 	if userID == "" {
 		userID = ctx.GetUserID()
 	}
@@ -355,7 +506,7 @@ func (p *Plugin) handlePermList(ctx *eventctx.Context) error {
 }
 
 // handlePermRole 处理角色分配命令
-func (p *Plugin) handlePermRole(ctx *eventctx.Context) error {
+func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error {
 	if p.permPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
@@ -365,11 +516,8 @@ func (p *Plugin) handlePermRole(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-
-	userID := args.Get(0)
-	roleName := args.Get(1)
+	userID := args.Get(1)   // Get(0)="role", Get(1)=用户ID
+	roleName := args.Get(2) // Get(2)=角色
 
 	if userID == "" || roleName == "" {
 		return p.reply(ctx, "用法: /perm role <用户ID> <角色>")
@@ -435,6 +583,620 @@ func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
 
 	_, err := ctx.ReplyPrivate(msg)
 	return err
+}
+
+// === 验证码相关功能 ===
+
+// registerCodeCommand 注册验证码管理命令（子命令模式）
+func (p *Plugin) registerCodeCommand(eng *engine.Engine) {
+	codeCmd := &command.Definition{
+		Name:        "code",
+		Description: "验证码管理",
+		Usage:       "/code <子命令> [参数]",
+		Category:    "权限",
+		SubCommands: []*command.Definition{
+			{
+				Name:        "gen",
+				Description: "生成验证码",
+				Usage:       "/code gen <角色> [有效期] [次数]",
+				Arguments: []*command.Argument{
+					{Name: "role", Type: command.ArgTypeString, Description: "角色名", Required: true},
+					{Name: "expiry", Type: command.ArgTypeString, Description: "有效期（如 30m, 1h）", Required: false},
+					{Name: "maxUses", Type: command.ArgTypeInt, Description: "最大使用次数", Required: false},
+				},
+				Examples: []string{"/code gen admin 1h 0", "/code gen user 30m 5"},
+			},
+			{
+				Name:        "verify",
+				Description: "使用验证码获取权限",
+				Usage:       "/code verify <验证码>",
+				Arguments: []*command.Argument{
+					{Name: "code", Type: command.ArgTypeString, Description: "验证码", Required: true},
+				},
+				Examples: []string{"/code verify ABC123"},
+			},
+			{
+				Name:        "list",
+				Description: "列出所有有效验证码",
+				Usage:       "/code list",
+				Examples:    []string{"/code list"},
+			},
+			{
+				Name:        "revoke",
+				Description: "撤销验证码",
+				Usage:       "/code revoke <验证码>",
+				Arguments: []*command.Argument{
+					{Name: "code", Type: command.ArgTypeString, Description: "验证码", Required: true},
+				},
+				Examples: []string{"/code revoke ABC123"},
+			},
+		},
+	}
+
+	// 注册私聊命令
+	p.OnCommand(eng, dto.C2CMessageCreate, "/code").
+		SetDefinition(codeCmd).
+		Handle(p.handleCodeCommand)
+
+	// 注册群聊命令（verify 子命令）
+	p.OnCommand(eng, dto.GroupAtMessageCreate, "/code").
+		SetDefinition(codeCmd).
+		Handle(p.handleCodeCommand)
+}
+
+// handleCodeCommand 统一处理 code 命令
+func (p *Plugin) handleCodeCommand(ctx *eventctx.Context) error {
+	content := ctx.GetMessageContent()
+	args, err := command.ParseCommandLine(content)
+	if err != nil {
+		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
+	}
+
+	subCommand := args.Get(0)
+	if subCommand == "" {
+		return p.showCodeHelp(ctx)
+	}
+
+	switch subCommand {
+	case "gen":
+		return p.handleCodeGen(ctx, args)
+	case "verify":
+		return p.handleCodeVerify(ctx, args)
+	case "list":
+		return p.handleCodeList(ctx)
+	case "revoke":
+		return p.handleCodeRevoke(ctx, args)
+	default:
+		return p.reply(ctx, fmt.Sprintf("❌ 未知的子命令: %s\n使用 /code 查看帮助", subCommand))
+	}
+}
+
+// showCodeHelp 显示验证码命令帮助
+func (p *Plugin) showCodeHelp(ctx *eventctx.Context) error {
+	var msg strings.Builder
+	msg.WriteString("🔑 验证码管理\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString("可用命令:\n")
+	msg.WriteString("  /code gen <角色> [有效期] [次数] - 生成验证码\n")
+	msg.WriteString("  /code verify <验证码> - 使用验证码\n")
+	msg.WriteString("  /code list - 列出所有验证码\n")
+	msg.WriteString("  /code revoke <验证码> - 撤销验证码\n")
+	return p.reply(ctx, msg.String())
+}
+
+// handleCodeGen 生成验证码
+func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限（只有管理员可以生成验证码）
+	if !p.checkPermission(ctx, "code.gen") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限才能生成验证码")
+	}
+
+	// 解析参数：/code gen <角色> [有效期] [最大使用次数]
+	role := args.Get(1) // Get(0)="gen", Get(1)=角色
+	if role == "" {
+		return p.reply(ctx, "❌ 请指定角色\n用法: /code gen <角色> [有效期] [最大使用次数]\n示例: /code gen admin 1h 0")
+	}
+
+	// 解析有效期（默认 30 分钟）
+	expiryStr := args.Get(2)
+	expiry := 30 * time.Minute
+	if expiryStr != "" {
+		var err error
+		expiry, err = time.ParseDuration(expiryStr)
+		if err != nil {
+			return p.reply(ctx, fmt.Sprintf("❌ 无效的有效期格式: %s\n示例: 30m, 1h, 24h", expiryStr))
+		}
+	}
+
+	// 解析最大使用次数（默认 0，一次性）
+	maxUses := 0
+	maxUsesStr := args.Get(3)
+	if maxUsesStr != "" {
+		if n, err := command.ParseInt(maxUsesStr); err == nil {
+			maxUses = n
+		} else {
+			return p.reply(ctx, fmt.Sprintf("❌ 无效的使用次数: %s", maxUsesStr))
+		}
+	}
+
+	// 生成验证码
+	code, err := p.permPlugin.GenerateVerificationCode(role, expiry, maxUses)
+	if err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 生成验证码失败: %v", err))
+	}
+
+	// 格式化回复
+	var msg strings.Builder
+	msg.WriteString("✅ 验证码已生成\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("🔑 验证码: %s\n", code))
+	msg.WriteString(fmt.Sprintf("👤 授予角色: %s\n", role))
+	msg.WriteString(fmt.Sprintf("⏰ 有效期: %v\n", expiry))
+
+	if maxUses == 0 {
+		msg.WriteString("🎫 使用次数: 一次性\n")
+	} else if maxUses < 0 {
+		msg.WriteString("🎫 使用次数: 无限次\n")
+	} else {
+		msg.WriteString(fmt.Sprintf("🎫 使用次数: %d 次\n", maxUses))
+	}
+
+	msg.WriteString("\n💡 使用方法:\n")
+	msg.WriteString(fmt.Sprintf("  私聊机器人发送: /code verify %s\n", code))
+	msg.WriteString("\n⚠️ 请妥善保管验证码，不要泄露给他人！")
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleCodeVerify 验证码验证
+func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	code := args.Get(1) // Get(0)="verify", Get(1)=验证码
+	if code == "" {
+		return p.reply(ctx, "❌ 请提供验证码\n用法: /code verify <验证码>")
+	}
+
+	userID := ctx.GetUserID()
+
+	// 验证并授予角色
+	role, err := p.permPlugin.VerifyAndGrantRole(code, userID)
+	if err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 验证失败: %v", err))
+	}
+
+	var msg strings.Builder
+	msg.WriteString("✅ 验证成功！\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("🎉 您已获得角色: %s\n", role))
+	msg.WriteString(fmt.Sprintf("👤 用户ID: %s\n", userID))
+	msg.WriteString("\n💡 您现在可以使用该角色的所有权限！")
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleCodeList 列出验证码
+func (p *Plugin) handleCodeList(ctx *eventctx.Context) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "code.list") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	codes := p.permPlugin.ListVerificationCodes()
+	if len(codes) == 0 {
+		return p.reply(ctx, "📋 当前没有有效的验证码")
+	}
+
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("📋 有效验证码列表 (共 %d 个)\n", len(codes)))
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+
+	for i, code := range codes {
+		msg.WriteString(fmt.Sprintf("%d. 验证码: %s\n", i+1, code.Code))
+		msg.WriteString(fmt.Sprintf("   角色: %s\n", code.Role))
+		msg.WriteString(fmt.Sprintf("   过期时间: %s\n", code.ExpiresAt.Format("2006-01-02 15:04:05")))
+
+		if code.MaxUses == 0 {
+			msg.WriteString(fmt.Sprintf("   使用情况: %d/1 (一次性)\n", code.UseCount))
+		} else if code.MaxUses < 0 {
+			msg.WriteString(fmt.Sprintf("   使用情况: %d/∞\n", code.UseCount))
+		} else {
+			msg.WriteString(fmt.Sprintf("   使用情况: %d/%d\n", code.UseCount, code.MaxUses))
+		}
+
+		if code.UsedBy != "" {
+			msg.WriteString(fmt.Sprintf("   最后使用者: %s\n", code.UsedBy))
+		}
+		msg.WriteString("\n")
+	}
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleCodeRevoke 撤销验证码
+func (p *Plugin) handleCodeRevoke(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "code.revoke") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	code := args.Get(1) // Get(0)="revoke", Get(1)=验证码
+	if code == "" {
+		return p.reply(ctx, "❌ 请提供验证码\n用法: /code revoke <验证码>")
+	}
+
+	if err := p.permPlugin.RevokeVerificationCode(code); err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 撤销失败: %v", err))
+	}
+
+	return p.reply(ctx, fmt.Sprintf("✅ 验证码 %s 已撤销", code))
+}
+
+// hasAdminRole 检查用户是否有管理员角色
+func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
+	if p.permPlugin == nil {
+		return false
+	}
+
+	userID := ctx.GetUserID()
+	roles := p.permPlugin.GetUserRoles(userID)
+	for _, role := range roles {
+		if role == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+// === 黑白名单相关功能 ===
+
+// registerACLCommand 注册黑白名单管理命令（子命令模式）
+func (p *Plugin) registerACLCommand(eng *engine.Engine) {
+	aclCmd := &command.Definition{
+		Name:        "acl",
+		Description: "黑白名单管理",
+		Usage:       "/acl <子命令> [参数]",
+		Category:    "权限",
+		SubCommands: []*command.Definition{
+			{
+				Name:        "mode",
+				Description: "设置黑白名单模式",
+				Usage:       "/acl mode <模式>",
+				Arguments: []*command.Argument{
+					{Name: "mode", Type: command.ArgTypeString, Description: "模式(disabled/blacklist/whitelist)", Required: false},
+				},
+				Examples: []string{"/acl mode blacklist", "/acl mode whitelist", "/acl mode disabled"},
+			},
+			{
+				Name:        "add",
+				Description: "添加用户到列表",
+				Usage:       "/acl add <用户ID> [备注]",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID", Required: true},
+					{Name: "note", Type: command.ArgTypeString, Description: "备注", Required: false},
+				},
+				Examples: []string{"/acl add USER123 违规用户", "/acl add VIP001 VIP会员"},
+			},
+			{
+				Name:        "remove",
+				Description: "从列表移除用户",
+				Usage:       "/acl remove <用户ID>",
+				Arguments: []*command.Argument{
+					{Name: "userID", Type: command.ArgTypeString, Description: "用户ID", Required: true},
+				},
+				Examples: []string{"/acl remove USER123"},
+			},
+			{
+				Name:        "list",
+				Description: "列出所有用户",
+				Usage:       "/acl list",
+				Examples:    []string{"/acl list"},
+			},
+			{
+				Name:        "clear",
+				Description: "清空列表",
+				Usage:       "/acl clear",
+				Examples:    []string{"/acl clear"},
+			},
+			{
+				Name:        "stats",
+				Description: "查看统计信息",
+				Usage:       "/acl stats",
+				Examples:    []string{"/acl stats"},
+			},
+		},
+	}
+
+	p.OnCommand(eng, dto.C2CMessageCreate, "/acl").
+		SetDefinition(aclCmd).
+		Handle(p.handleACLCommand)
+}
+
+// handleACLCommand 统一处理 acl 命令
+func (p *Plugin) handleACLCommand(ctx *eventctx.Context) error {
+	content := ctx.GetMessageContent()
+	args, err := command.ParseCommandLine(content)
+	if err != nil {
+		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
+	}
+
+	subCommand := args.Get(0)
+	if subCommand == "" {
+		return p.showACLHelp(ctx)
+	}
+
+	switch subCommand {
+	case "mode":
+		return p.handleACLMode(ctx, args)
+	case "add":
+		return p.handleACLAdd(ctx, args)
+	case "remove":
+		return p.handleACLRemove(ctx, args)
+	case "list":
+		return p.handleACLList(ctx)
+	case "clear":
+		return p.handleACLClear(ctx)
+	case "stats":
+		return p.handleACLStats(ctx)
+	default:
+		return p.reply(ctx, fmt.Sprintf("❌ 未知的子命令: %s\n使用 /acl 查看帮助", subCommand))
+	}
+}
+
+// showACLHelp 显示黑白名单命令帮助
+func (p *Plugin) showACLHelp(ctx *eventctx.Context) error {
+	var msg strings.Builder
+	msg.WriteString("🛡️  黑白名单管理\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString("可用命令:\n")
+	msg.WriteString("  /acl mode <模式> - 设置模式\n")
+	msg.WriteString("  /acl add <用户ID> [备注] - 添加用户\n")
+	msg.WriteString("  /acl remove <用户ID> - 移除用户\n")
+	msg.WriteString("  /acl list - 列出所有用户\n")
+	msg.WriteString("  /acl clear - 清空列表\n")
+	msg.WriteString("  /acl stats - 查看统计\n")
+	return p.reply(ctx, msg.String())
+}
+
+// handleACLMode 设置黑白名单模式
+func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	modeStr := args.Get(1) // Get(0)="mode", Get(1)=模式
+	if modeStr == "" {
+		currentMode := p.permPlugin.GetACLMode()
+		return p.reply(ctx, fmt.Sprintf("当前模式: %s\n\n可用模式:\n- disabled (禁用)\n- blacklist (黑名单)\n- whitelist (白名单)\n\n用法: /acl mode <模式>", currentMode.String()))
+	}
+
+	var mode permission.ListMode
+	switch strings.ToLower(modeStr) {
+	case "disabled", "disable", "off":
+		mode = permission.ModeDisabled
+	case "blacklist", "black", "bl":
+		mode = permission.ModeBlacklist
+	case "whitelist", "white", "wl":
+		mode = permission.ModeWhitelist
+	default:
+		return p.reply(ctx, fmt.Sprintf("❌ 无效的模式: %s\n可用模式: disabled, blacklist, whitelist", modeStr))
+	}
+
+	p.permPlugin.SetACLMode(mode)
+
+	var msg strings.Builder
+	msg.WriteString("✅ 黑白名单模式已设置\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("🔧 当前模式: %s\n\n", mode.String()))
+
+	switch mode {
+	case permission.ModeDisabled:
+		msg.WriteString("💡 说明: 黑白名单功能已禁用，所有用户都可以访问")
+	case permission.ModeBlacklist:
+		msg.WriteString("💡 说明: 黑名单模式，列表中的用户将被禁止访问\n")
+		msg.WriteString("   使用 /acl add <用户ID> 添加到黑名单")
+	case permission.ModeWhitelist:
+		msg.WriteString("💡 说明: 白名单模式，只有列表中的用户可以访问\n")
+		msg.WriteString("   使用 /acl add <用户ID> 添加到白名单")
+	}
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleACLAdd 添加用户到黑白名单
+func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	userID := args.Get(1) // Get(0)="add", Get(1)=用户ID
+	if userID == "" {
+		return p.reply(ctx, "❌ 请指定用户ID\n用法: /acl add <用户ID> [备注]")
+	}
+
+	// 获取备注（可选）
+	note := ""
+	if args.Len() > 2 {
+		// 将剩余参数作为备注
+		noteArgs := []string{}
+		for i := 2; i < args.Len(); i++ {
+			noteArgs = append(noteArgs, args.Get(i))
+		}
+		note = strings.Join(noteArgs, " ")
+	}
+
+	mode := p.permPlugin.GetACLMode()
+	if mode == permission.ModeDisabled {
+		return p.reply(ctx, "❌ 黑白名单功能未启用\n请先使用 /acl mode 设置模式")
+	}
+
+	p.permPlugin.AddToACL(userID, note)
+
+	var msg strings.Builder
+	msg.WriteString("✅ 用户已添加\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("👤 用户ID: %s\n", userID))
+	msg.WriteString(fmt.Sprintf("🔧 模式: %s\n", mode.String()))
+	if note != "" {
+		msg.WriteString(fmt.Sprintf("📝 备注: %s\n", note))
+	}
+
+	switch mode {
+	case permission.ModeBlacklist:
+		msg.WriteString("\n⚠️ 该用户现在被禁止访问机器人")
+	case permission.ModeWhitelist:
+		msg.WriteString("\n✅ 该用户现在可以访问机器人")
+	}
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleACLRemove 从黑白名单移除用户
+func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	userID := args.Get(1) // Get(0)="remove", Get(1)=用户ID
+	if userID == "" {
+		return p.reply(ctx, "❌ 请指定用户ID\n用法: /acl remove <用户ID>")
+	}
+
+	removed := p.permPlugin.RemoveFromACL(userID)
+	if !removed {
+		return p.reply(ctx, fmt.Sprintf("❌ 用户 %s 不在列表中", userID))
+	}
+
+	return p.reply(ctx, fmt.Sprintf("✅ 已从列表中移除用户: %s", userID))
+}
+
+// handleACLList 列出黑白名单中的所有用户
+func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.view") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	mode := p.permPlugin.GetACLMode()
+	users := p.permPlugin.ListACL()
+
+	var msg strings.Builder
+	msg.WriteString(fmt.Sprintf("📋 黑白名单 - %s模式\n", mode.String()))
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+
+	if len(users) == 0 {
+		msg.WriteString("列表为空")
+	} else {
+		msg.WriteString(fmt.Sprintf("共 %d 个用户:\n\n", len(users)))
+		for i, user := range users {
+			msg.WriteString(fmt.Sprintf("%d. %s", i+1, user.UserID))
+			if user.Note != "" {
+				msg.WriteString(fmt.Sprintf("\n   备注: %s", user.Note))
+			}
+			msg.WriteString("\n\n")
+		}
+	}
+
+	switch mode {
+	case permission.ModeDisabled:
+		msg.WriteString("\n💡 黑白名单功能已禁用")
+	case permission.ModeBlacklist:
+		msg.WriteString("\n⚠️ 列表中的用户将被禁止访问")
+	case permission.ModeWhitelist:
+		msg.WriteString("\n✅ 只有列表中的用户可以访问")
+	}
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleACLClear 清空黑白名单
+func (p *Plugin) handleACLClear(ctx *eventctx.Context) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	count := p.permPlugin.ClearACL()
+
+	var msg strings.Builder
+	msg.WriteString("✅ 黑白名单已清空\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("🗑️  已移除 %d 个用户\n\n", count))
+	msg.WriteString("💡 黑白名单模式保持不变\n")
+	msg.WriteString("   使用 /acl mode 修改模式")
+
+	return p.reply(ctx, msg.String())
+}
+
+// handleACLStats 查看黑白名单统计信息
+func (p *Plugin) handleACLStats(ctx *eventctx.Context) error {
+	if p.permPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+
+	// 检查权限
+	if !p.checkPermission(ctx, "acl.view") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	stats := p.permPlugin.GetACLStats()
+
+	var msg strings.Builder
+	msg.WriteString("📊 黑白名单统计\n")
+	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
+	msg.WriteString(fmt.Sprintf("🔧 当前模式: %s\n", stats.Mode.String()))
+	msg.WriteString(fmt.Sprintf("👥 用户数量: %d\n\n", stats.UserCount))
+
+	switch stats.Mode {
+	case permission.ModeDisabled:
+		msg.WriteString("💡 功能状态: 已禁用\n")
+		msg.WriteString("   所有用户都可以访问")
+	case permission.ModeBlacklist:
+		msg.WriteString("⚠️  功能状态: 黑名单模式\n")
+		msg.WriteString(fmt.Sprintf("   %d 个用户被禁止访问", stats.UserCount))
+	case permission.ModeWhitelist:
+		msg.WriteString("✅ 功能状态: 白名单模式\n")
+		msg.WriteString(fmt.Sprintf("   只有 %d 个用户可以访问", stats.UserCount))
+	}
+
+	return p.reply(ctx, msg.String())
 }
 
 // Dependencies 返回依赖列表

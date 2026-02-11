@@ -4,15 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add debug subcommand demo with comprehensive documentation and environment setup">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_bug_fixes.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_fix_summary.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_quick_reference.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/dev/debug/command_parsing_fix_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="">
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/access-control-list.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/verification-code-system.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/admin_plugin_subcommand_refactoring.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/acl-demo/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/verification-code-demo/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/acl.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/acl_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/verification.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/verification_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -252,7 +256,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
     <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
     <MESSAGE value="feat: add example configuration file and enhance documentation for bot setup" />
     <MESSAGE value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
@@ -277,7 +280,8 @@
     <MESSAGE value="feat: add strings package import" />
     <MESSAGE value="fix: correct formatting in main output display" />
     <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
+    <MESSAGE value="test: add tests for command parsing fixes in debug plugin" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: add tests for command parsing fixes in debug plugin" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
