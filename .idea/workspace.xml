@@ -4,8 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: optimize Debug plugin command registration and enhance documentation">
-      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: correct formatting in main output display">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/debug-subcommand-demo-creation.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/.env.example" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/run.ps1" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -74,8 +81,10 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "DefaultGoTemplateProperty": "Go File",
+    "Go 构建.go build debug-subcommand-demo.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor": "Run",
+    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
@@ -105,7 +114,7 @@
     "go.import.settings.migrated": "true",
     "go.sdk.automatically.set": "true",
     "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "E:/project/Go/remilia/examples/plugin-metadata",
+    "last_opened_file_path": "E:/project/Go/remilia/examples/debug-demo",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
@@ -117,6 +126,7 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\examples\debug-demo" />
       <recent name="E:\project\Go\remilia\examples\plugin-metadata" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -138,6 +148,8 @@
         <entry key="GoApplicationRunConfiguration">
           <value>
             <map>
+              <entry key="go build debug-subcommand-demo" value="FAILED" />
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" value="STOPPED" />
               <entry key="go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata" value="STOPPED" />
             </map>
           </value>
@@ -145,7 +157,25 @@
       </map>
     </option>
   </component>
-  <component name="RunManager" selected="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions">
+  <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo">
+    <configuration name="go build debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$/examples/debug-subcommand-demo" />
+      <kind value="PACKAGE" />
+      <package value="debug-subcommand-demo" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" />
+      <method v="2" />
+    </configuration>
     <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="remilia" />
       <working_directory value="$PROJECT_DIR$" />
@@ -153,24 +183,6 @@
       <package value="github.com/KomeiDiSanXian/remilia/examples/plugin-metadata" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$/examples/plugin-metadata/main.go" />
-      <method v="2" />
-    </configuration>
-    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
-      <module name="remilia" />
-      <working_directory value="$PROJECT_DIR$" />
-      <kind value="PACKAGE" />
-      <package value="github.com/KomeiDiSanXian/remilia/examples/test-help-fix" />
-      <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/examples/test-help-fix/main.go" />
-      <method v="2" />
-    </configuration>
-    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
-      <module name="remilia" />
-      <working_directory value="$PROJECT_DIR$" />
-      <kind value="PACKAGE" />
-      <package value="github.com/KomeiDiSanXian/remilia/examples/tracing-demo" />
-      <directory value="$PROJECT_DIR$" />
-      <filePath value="$PROJECT_DIR$/examples/tracing-demo/main.go" />
       <method v="2" />
     </configuration>
     <configuration name="github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
@@ -199,11 +211,11 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" />
+        <item itemvalue="Go 构建.go build debug-subcommand-demo" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata" />
-        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix" />
-        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo" />
       </list>
     </recent_temporary>
   </component>
@@ -240,8 +252,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: optimize command registry with Trie structure for efficient prefix search and reduce memory usage" />
-    <MESSAGE value="feat: enhance concurrency safety in webhook adapter and token manager, add event statistics tracking" />
     <MESSAGE value="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality" />
     <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
     <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
@@ -265,7 +275,9 @@
     <MESSAGE value="feat: implement enhanced HTTP client with middleware support and request handling" />
     <MESSAGE value="docs: add Help Plugin fix summary and verification documentation" />
     <MESSAGE value="feat: optimize Debug plugin command registration and enhance documentation" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: optimize Debug plugin command registration and enhance documentation" />
+    <MESSAGE value="feat: add strings package import" />
+    <MESSAGE value="fix: correct formatting in main output display" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: correct formatting in main output display" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

@@ -250,7 +250,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, permission string) bool 
 	}
 
 	userID := ctx.GetUserID()
-	return p.permPlugin.HasPermission(userID, permission)
+	return p.devMode || p.permPlugin.HasPermission(userID, permission) // 开发模式下允许所有权限，生产环境需要检查
 }
 
 // reply 发送消息
