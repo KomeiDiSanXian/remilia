@@ -1048,15 +1048,30 @@ func (e *Engine) GetCommandsByCategory() map[string][]CommandInfo {
 func (e *Engine) FindCommand(name string) *CommandInfo {
 	commands := e.GetAllCommands()
 
+	// Normalize search term: ensure it has "/" prefix
+	searchName := name
+	if !strings.HasPrefix(searchName, "/") {
+		searchName = "/" + searchName
+	}
+
 	for _, cmd := range commands {
-		// 匹配命令名
+		// 匹配命令名（精确匹配）
+		if cmd.Command == searchName {
+			return &cmd
+		}
+
+		// Also try matching without prefix normalization for exact matches
 		if cmd.Command == name {
 			return &cmd
 		}
 
 		// 匹配别名
 		for _, alias := range cmd.Aliases {
-			if alias == name {
+			aliasWithSlash := alias
+			if !strings.HasPrefix(alias, "/") {
+				aliasWithSlash = "/" + alias
+			}
+			if aliasWithSlash == searchName || alias == name {
 				return &cmd
 			}
 		}

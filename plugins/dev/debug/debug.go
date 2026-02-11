@@ -407,7 +407,7 @@ func (p *Plugin) handleDebugMatcher(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
 	}
 
-	cmdName := args.Get(0)
+	cmdName := args.Get(1)
 	if cmdName == "" {
 		return p.reply(ctx, "❌ 请指定要查看的命令名称\n用法: /debug matcher <命令>")
 	}
@@ -614,7 +614,8 @@ func (p *Plugin) handleDebugBench(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 命令解析失败: "+err.Error())
 	}
 
-	cmdName := args.Get(0)
+	// Get the command name (should be at index 1, since index 0 is "bench")
+	cmdName := args.Get(1)
 	if cmdName == "" {
 		return p.reply(ctx, "❌ 请指定要测试的命令\n用法: /debug bench <命令>")
 	}

@@ -61,6 +61,7 @@ func main() {
 	debugPlugin := debug.New()
 	debugPlugin.SetDevMode(true) // 启用开发模式（允许所有用户使用）
 	debugPlugin.SetPermissionPlugin(permPlugin)
+	debugPlugin.SetPluginManager(pm)
 	if err := pm.Register(debugPlugin); err != nil {
 		logger.Fatal("注册 Debug 插件失败: " + err.Error())
 	}

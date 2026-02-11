@@ -4,14 +4,14 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: correct formatting in main output display">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/debug-subcommand-demo-creation.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/.env.example" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/run.ps1" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add debug subcommand demo with comprehensive documentation and environment setup">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_bug_fixes.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_fix_summary.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/command_parsing_quick_reference.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/dev/debug/command_parsing_fix_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -252,7 +252,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement context pooling with Acquire and Release methods, enhance Extensions with Clear functionality" />
     <MESSAGE value="docs: add comprehensive documentation for quick start, user guides, architecture design, and quality reports" />
     <MESSAGE value="feat: introduce BotBuilder for streamlined bot creation and add error handling for required parameters" />
     <MESSAGE value="feat: add example configuration file and enhance documentation for bot setup" />
@@ -277,7 +276,8 @@
     <MESSAGE value="feat: optimize Debug plugin command registration and enhance documentation" />
     <MESSAGE value="feat: add strings package import" />
     <MESSAGE value="fix: correct formatting in main output display" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix: correct formatting in main output display" />
+    <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
