@@ -46,6 +46,7 @@ type EventBusStats struct {
 type eventBus struct {
 	subscribers  map[string][]subscriptionImpl // topic -> handlers
 	publishCount int64
+	workerPool   chan struct{} // goroutine 池，限制并发数
 	mu           sync.RWMutex
 }
 
@@ -71,6 +72,7 @@ func (s *subscriptionImpl) Unsubscribe() error {
 func NewEventBus() EventBus {
 	return &eventBus{
 		subscribers: make(map[string][]subscriptionImpl),
+		workerPool:  make(chan struct{}, 100), // 限制最多 100 个并发 goroutine
 	}
 }
 
@@ -85,10 +87,12 @@ func (eb *eventBus) Publish(topic string, data any) error {
 		return nil
 	}
 
-	// 异步通知所有订阅者
+	// 异步通知所有订阅者（使用 goroutine 池限制并发）
 	for _, sub := range handlers {
+		eb.workerPool <- struct{}{} // 获取令牌，如果池满则阻塞
 		go func(h EventHandler) {
 			defer func() {
+				<-eb.workerPool // 释放令牌
 				if r := recover(); r != nil {
 					logger.Errorf("[EventBus] Panic in event handler: %v", r)
 				}

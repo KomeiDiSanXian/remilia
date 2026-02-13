@@ -442,7 +442,7 @@ func TestHealthChecker(t *testing.T) {
 		require.NotNil(t, health)
 		assert.Equal(t, "healthy", string(health.Status))
 		// Bot running check
-		// Engine check
+		// engine check
 		// Adapter check
 		// Check has Time field
 		assert.NotZero(t, health.Time)

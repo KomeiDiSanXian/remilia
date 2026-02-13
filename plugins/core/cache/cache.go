@@ -16,8 +16,8 @@ type Plugin struct {
 	cache *LRUCache
 }
 
-// CacheEntry 缓存条目
-type CacheEntry struct {
+// Entry 缓存条目
+type Entry struct {
 	Key       string
 	Value     []byte
 	ExpiresAt time.Time
@@ -50,12 +50,13 @@ func New() *Plugin {
 // NewWithCapacity 创建指定容量的缓存插件
 func NewWithCapacity(capacity int) *Plugin {
 	metadata := &plugin.Metadata{
-		Name:        "cache",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "高性能 LRU 缓存插件，减少重复计算和外部请求",
-		Category:    "核心",
-		Tags:        []string{"缓存", "性能", "LRU", "核心"},
+		Name:         "cache",
+		Version:      "1.0.0",
+		Author:       "Remilia Team",
+		Description:  "高性能 LRU 缓存插件，减少重复计算和外部请求",
+		Category:     "核心",
+		Tags:         []string{"缓存", "性能", "LRU", "核心"},
+		Dependencies: []string{"storage"}, // 可选依赖，用于持久化缓存
 		HelpText: `缓存插件使用说明：
 
 高性能 LRU 缓存，特性：
@@ -135,7 +136,7 @@ func (c *LRUCache) Get(key string) ([]byte, bool) {
 		return nil, false
 	}
 
-	entry := elem.Value.(*CacheEntry)
+	entry := elem.Value.(*Entry)
 
 	// 检查是否过期
 	if !entry.ExpiresAt.IsZero() && time.Now().After(entry.ExpiresAt) {
@@ -166,7 +167,7 @@ func (c *LRUCache) Set(key string, value []byte, ttl time.Duration) {
 	valueCopy := make([]byte, len(value))
 	copy(valueCopy, value)
 
-	entry := &CacheEntry{
+	entry := &Entry{
 		Key:   key,
 		Value: valueCopy,
 	}
@@ -241,7 +242,7 @@ func (c *LRUCache) CleanExpired() int {
 
 	// 从后往前遍历（最久未使用的在后面）
 	for elem := c.order.Back(); elem != nil; {
-		entry := elem.Value.(*CacheEntry)
+		entry := elem.Value.(*Entry)
 		prev := elem.Prev()
 
 		if !entry.ExpiresAt.IsZero() && now.After(entry.ExpiresAt) {
@@ -267,7 +268,7 @@ func (c *LRUCache) evictOldest() {
 
 // removeElement 移除元素
 func (c *LRUCache) removeElement(elem *list.Element) {
-	entry := elem.Value.(*CacheEntry)
+	entry := elem.Value.(*Entry)
 	delete(c.items, entry.Key)
 	c.order.Remove(elem)
 }
@@ -307,9 +308,4 @@ func (s *CacheStats) HitRate() float64 {
 		return 0
 	}
 	return float64(s.Hits) / float64(total)
-}
-
-// Dependencies 返回依赖列表
-func (p *Plugin) Dependencies() []string {
-	return []string{"storage"} // 可选依赖，用于持久化缓存
 }

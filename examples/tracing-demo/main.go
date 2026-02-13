@@ -72,7 +72,7 @@ func main() {
 ║       endpoint: "http://localhost:4318"                        ║
 ║       sampling_rate: 0.1                                       ║
 ║                                                                ║
-║  2. 添加追踪中间件到 Engine:                                      ║
+║  2. 添加追踪中间件到 engine:                                      ║
 ║     engine.Use(middleware.Tracing(                             ║
 ║         middleware.DefaultTracingConfig()                      ║
 ║     ))                                                         ║

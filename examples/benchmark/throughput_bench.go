@@ -185,7 +185,7 @@ func NewThroughputTest(cfg BenchmarkConfig) *ThroughputTest {
 func (t *ThroughputTest) Setup() error {
 	logger.Info("[Benchmark] Setting up test environment...")
 
-	// 创建 Engine
+	// 创建 engine
 	t.engine = engine.NewEngine()
 
 	// 添加中间件

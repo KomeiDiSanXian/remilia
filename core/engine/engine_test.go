@@ -15,7 +15,7 @@ import (
 )
 
 // ============================================================================
-// Engine Core Tests
+// engine Core Tests
 // ============================================================================
 
 func TestNewEngine(t *testing.T) {
@@ -715,7 +715,7 @@ func TestEngine_DeleteMatcher(t *testing.T) {
 		// Verify matcher count decreased
 		assert.Equal(t, initialCount-1, eng.GetMatcherCount())
 
-		// Note: Engine.DeleteMatcher does not mark matcher.rt.deleted = true
+		// Note: engine.DeleteMatcher does not mark matcher.rt.deleted = true
 		// Only Matcher.Delete() does that
 	})
 }

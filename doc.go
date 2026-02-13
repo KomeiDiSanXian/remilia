@@ -1,12 +1,12 @@
 /*
-Package remilia provides a high-level wrapper around the core Engine with lifecycle management.
+Package remilia provides a high-level wrapper around the core engine with lifecycle management.
 
 Bot is the main entry point for building event-driven applications with Remilia framework.
 It provides:
   - Lifecycle management (start/stop)
   - Health checking
   - Configuration management
-  - Integration with Engine and Adapter
+  - Integration with engine and Adapter
 
 Basic Usage:
 
@@ -21,7 +21,7 @@ Basic Usage:
 	    "github.com/KomeiDiSanXian/remilia/openapi/dto"
 	)
 
-	// Create Engine and Adapter
+	// Create engine and Adapter
 	eng := engine.NewEngine()
 	adapter := myAdapter // implements remilia.Adapter
 

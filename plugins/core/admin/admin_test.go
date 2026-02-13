@@ -25,7 +25,7 @@ func TestAdminPlugin_SetPluginManager(t *testing.T) {
 	adminPlugin := New()
 
 	adminPlugin.SetPluginManager(manager)
-	assert.NotNil(t, adminPlugin.pluginManager)
+	assert.NotNil(t, adminPlugin.PluginManager)
 }
 
 func TestAdminPlugin_SetPermissionPlugin(t *testing.T) {
@@ -33,7 +33,7 @@ func TestAdminPlugin_SetPermissionPlugin(t *testing.T) {
 	permPlugin := permission.New()
 
 	adminPlugin.SetPermissionPlugin(permPlugin)
-	assert.NotNil(t, adminPlugin.permPlugin)
+	assert.NotNil(t, adminPlugin.PermPlugin)
 }
 
 func TestAdminPlugin_CheckPermission(t *testing.T) {

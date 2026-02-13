@@ -32,7 +32,7 @@ func main() {
 		AppSecret: cfg.Bot.Secret,
 	}
 
-	// 创建 Engine
+	// 创建 engine
 	eng := engine.NewEngine()
 
 	// 创建插件管理器

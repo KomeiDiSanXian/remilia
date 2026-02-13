@@ -11,7 +11,7 @@ import (
 
 // TestCommandParsingFixes 验证命令解析bug修复
 // 这个测试验证了以下两个问题的修复：
-// 1. engine.FindCommand 现在支持带/不带 "/" 前缀的搜索
+// 1. Engine.FindCommand 现在支持带/不带 "/" 前缀的搜索
 // 2. debug 子命令正确解析参数（使用 args.Get(1) 而不是 args.Get(0)）
 func TestCommandParsingFixes(t *testing.T) {
 	eng := engine.NewEngine()

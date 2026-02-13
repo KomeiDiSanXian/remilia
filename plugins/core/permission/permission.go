@@ -99,7 +99,7 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 }
 
 // Unload 卸载插件
-func (p *Plugin) Unload() error {
+func (p *Plugin) Unload(eng *engine.Engine) error {
 	logger.Info("[PermissionPlugin] Unloading permission plugin...")
 
 	// 停止清理协程
@@ -454,9 +454,4 @@ func (p *Plugin) RequireACL() eventctx.Middleware {
 			return next(ctx)
 		}
 	}
-}
-
-// Dependencies 返回依赖列表
-func (p *Plugin) Dependencies() []string {
-	return []string{}
 }

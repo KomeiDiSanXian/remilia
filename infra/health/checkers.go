@@ -8,7 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
-// EngineHealthChecker checks Engine basic status.
+// EngineHealthChecker checks engine basic status.
 type EngineHealthChecker struct {
 	engine *engine.Engine
 }

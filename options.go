@@ -44,7 +44,7 @@ func WithAdapter(adapter Adapter) Option {
 	}
 }
 
-// WithEngine 设置自定义 Engine
+// WithEngine 设置自定义 engine
 func WithEngine(engine *engine.Engine) Option {
 	return func(b *Bot) {
 		b.engine = engine

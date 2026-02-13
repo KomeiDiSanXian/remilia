@@ -85,7 +85,7 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 		b.health.AddChecker(NewAdapterHealthChecker(adapter))
 	}
 
-	// 添加 Engine checker
+	// 添加 engine checker
 	if engine != nil {
 		b.health.AddChecker(health.NewEngineHealthChecker(engine))
 	}
@@ -107,10 +107,10 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	b.lifecycle.Register(lifecycle.NewSimpleComponent(
 		"engine",
 		func(ctx context.Context) error {
-			// onStart: Engine 初始化（如果需要）
+			// onStart: engine 初始化（如果需要）
 			return nil
 		},
-		nil, // onRun: Engine 没有阻塞循环，使用默认行为（等待 ctx.Done）
+		nil, // onRun: engine 没有阻塞循环，使用默认行为（等待 ctx.Done）
 		func(ctx context.Context) error {
 			// onStop
 			return b.engine.Shutdown(ctx)
@@ -204,7 +204,7 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 	// 创建 Context，传入 openAPI client
 	ctx := eventctx.NewContext(payload, api)
 
-	// 使用 Engine 处理事件
+	// 使用 engine 处理事件
 	b.engine.ProcessEvent(ctx)
 }
 

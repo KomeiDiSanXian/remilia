@@ -27,7 +27,7 @@ func main() {
 	}
 	global.MustInitFromConfig(cfg)
 	logger.Infof("Bot info: %+v", global.Info)
-	// 创建 Engine
+	// 创建 engine
 	eng := engine.NewEngine()
 	// 注册处理器
 	eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(ctx *eventctx.Context) error {

@@ -30,7 +30,7 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 			logger.WithFields(logger.Fields{
 				"panic":      r,
 				"event_type": ctx.GetEventType(),
-			}).Error("[Engine] Unhandled panic in ProcessEvent recovered")
+			}).Error("[engine] Unhandled panic in ProcessEvent recovered")
 		}
 	}()
 
@@ -258,7 +258,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 				"panic":      r,
 				"matcher":    m.Source,
 				"event_type": ctx.GetEventType(),
-			}).Error("[Engine] Handler panic recovered")
+			}).Error("[engine] Handler panic recovered")
 		}
 	}()
 
@@ -268,7 +268,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// 记录错误
 	if err != nil {
 		// 默认记录错误日志，防止错误静默
-		logger.WithError(err).Debugf("[Engine] Handler error in matcher: %services", m.Source)
+		logger.WithError(err).Debugf("[engine] Handler error in matcher: %services", m.Source)
 
 		// 更新指标（无锁读取）
 		val := e.services.metricsCollector.Load()
@@ -306,7 +306,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 				select {
 				case engine.services.pendingDeleteCh <- m:
 				default:
-					logger.Debugf("[Engine] Pending delete channel full, matcher %p (source: %s) marked for cleanup", m, m.Source)
+					logger.Debugf("[engine] Pending delete channel full, matcher %p (source: %s) marked for cleanup", m, m.Source)
 				}
 			}
 			return
@@ -447,7 +447,7 @@ func (e *Engine) cleanExpiredMatchers() {
 		m.rt.mu.Unlock()
 	}
 	if len(tempExpired) > 0 {
-		logger.Debugf("[Engine] Cleaned %d temp matchers from TempManager", len(tempExpired))
+		logger.Debugf("[engine] Cleaned %d temp matchers from TempManager", len(tempExpired))
 	}
 }
 

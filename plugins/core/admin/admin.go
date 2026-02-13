@@ -17,8 +17,8 @@ import (
 // Plugin 管理插件
 type Plugin struct {
 	*plugin.BasePlugin
-	pluginManager *plugin.Manager
-	permPlugin    *permission.Plugin
+	PluginManager *plugin.Manager    `inject:"manager"`
+	PermPlugin    *permission.Plugin `inject:"plugin:permission"`
 }
 
 // New 创建管理插件
@@ -89,12 +89,12 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 
 // SetPluginManager 设置插件管理器
 func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.pluginManager = pm
+	p.PluginManager = pm
 }
 
 // SetPermissionPlugin 设置权限插件
 func (p *Plugin) SetPermissionPlugin(pp *permission.Plugin) {
-	p.permPlugin = pp
+	p.PermPlugin = pp
 }
 
 // registerPluginCommand 注册插件管理命令（子命令模式）
@@ -292,7 +292,7 @@ func (p *Plugin) registerSystemCommands(eng *engine.Engine) {
 
 // handlePluginList 处理插件列表命令
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
-	if p.pluginManager == nil {
+	if p.PluginManager == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
 
@@ -301,7 +301,7 @@ func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足")
 	}
 
-	plugins := p.pluginManager.ListWithMetadata()
+	plugins := p.PluginManager.ListWithMetadata()
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("📦 已加载插件列表 (共 %d 个)\n", len(plugins)))
@@ -337,7 +337,7 @@ func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
 
 // handlePluginInfo 处理插件信息命令
 func (p *Plugin) handlePluginInfo(ctx *eventctx.Context, args *command.Args) error {
-	if p.pluginManager == nil {
+	if p.PluginManager == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
 
@@ -352,7 +352,7 @@ func (p *Plugin) handlePluginInfo(ctx *eventctx.Context, args *command.Args) err
 		return p.reply(ctx, "用法: /plugin info <插件名>")
 	}
 
-	meta, ok := p.pluginManager.GetMetadata(pluginName)
+	meta, ok := p.PluginManager.GetMetadata(pluginName)
 	if !ok || meta == nil {
 		return p.reply(ctx, fmt.Sprintf("插件 '%s' 不存在", pluginName))
 	}
@@ -386,7 +386,7 @@ func (p *Plugin) handlePluginInfo(ctx *eventctx.Context, args *command.Args) err
 
 // handlePluginReload 处理插件重载命令
 func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) error {
-	if p.pluginManager == nil {
+	if p.PluginManager == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
 
@@ -402,7 +402,7 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) e
 	}
 
 	// 执行重载
-	err := p.pluginManager.Reload(pluginName)
+	err := p.PluginManager.Reload(pluginName)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 重载失败: %v", err))
 	}
@@ -412,7 +412,7 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) e
 
 // handlePermGrant 处理权限授予命令
 func (p *Plugin) handlePermGrant(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
 
@@ -428,7 +428,7 @@ func (p *Plugin) handlePermGrant(ctx *eventctx.Context, args *command.Args) erro
 		return p.reply(ctx, "用法: /perm grant <用户ID> <权限>")
 	}
 
-	err := p.permPlugin.Grant(userID, permStr)
+	err := p.PermPlugin.Grant(userID, permStr)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 授予失败: %v", err))
 	}
@@ -438,7 +438,7 @@ func (p *Plugin) handlePermGrant(ctx *eventctx.Context, args *command.Args) erro
 
 // handlePermRevoke 处理权限撤销命令
 func (p *Plugin) handlePermRevoke(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
 
@@ -454,7 +454,7 @@ func (p *Plugin) handlePermRevoke(ctx *eventctx.Context, args *command.Args) err
 		return p.reply(ctx, "用法: /perm revoke <用户ID> <权限>")
 	}
 
-	err := p.permPlugin.Revoke(userID, permStr)
+	err := p.PermPlugin.Revoke(userID, permStr)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 撤销失败: %v", err))
 	}
@@ -464,7 +464,7 @@ func (p *Plugin) handlePermRevoke(ctx *eventctx.Context, args *command.Args) err
 
 // handlePermList 处理权限列表命令
 func (p *Plugin) handlePermList(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
 
@@ -478,8 +478,8 @@ func (p *Plugin) handlePermList(ctx *eventctx.Context, args *command.Args) error
 		userID = ctx.GetUserID()
 	}
 
-	perms := p.permPlugin.GetUserPermissions(userID)
-	roles := p.permPlugin.GetUserRoles(userID)
+	perms := p.PermPlugin.GetUserPermissions(userID)
+	roles := p.PermPlugin.GetUserRoles(userID)
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("👤 用户 '%s' 的权限信息\n", userID))
@@ -507,7 +507,7 @@ func (p *Plugin) handlePermList(ctx *eventctx.Context, args *command.Args) error
 
 // handlePermRole 处理角色分配命令
 func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "权限插件未初始化")
 	}
 
@@ -523,7 +523,7 @@ func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error
 		return p.reply(ctx, "用法: /perm role <用户ID> <角色>")
 	}
 
-	err := p.permPlugin.AssignRole(userID, roleName)
+	err := p.PermPlugin.AssignRole(userID, roleName)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 分配失败: %v", err))
 	}
@@ -543,8 +543,8 @@ func (p *Plugin) handleStatus(ctx *eventctx.Context) error {
 	msg.WriteString(strings.Repeat("=", 30) + "\n\n")
 	msg.WriteString("✅ 运行中\n")
 
-	if p.pluginManager != nil {
-		plugins := p.pluginManager.List()
+	if p.PluginManager != nil {
+		plugins := p.PluginManager.List()
 		msg.WriteString(fmt.Sprintf("📦 已加载插件: %d 个\n", len(plugins)))
 	}
 
@@ -566,12 +566,12 @@ func (p *Plugin) handleInfo(ctx *eventctx.Context) error {
 
 // checkPermission 检查权限
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return true // 如果没有权限插件，默认允许
 	}
 
 	userID := ctx.GetUserID()
-	return p.permPlugin.HasPermission(userID, perm)
+	return p.PermPlugin.HasPermission(userID, perm)
 }
 
 // reply 回复消息
@@ -686,7 +686,7 @@ func (p *Plugin) showCodeHelp(ctx *eventctx.Context) error {
 
 // handleCodeGen 生成验证码
 func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -724,7 +724,7 @@ func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error 
 	}
 
 	// 生成验证码
-	code, err := p.permPlugin.GenerateVerificationCode(role, expiry, maxUses)
+	code, err := p.PermPlugin.GenerateVerificationCode(role, expiry, maxUses)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 生成验证码失败: %v", err))
 	}
@@ -754,7 +754,7 @@ func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error 
 
 // handleCodeVerify 验证码验证
 func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -766,7 +766,7 @@ func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) err
 	userID := ctx.GetUserID()
 
 	// 验证并授予角色
-	role, err := p.permPlugin.VerifyAndGrantRole(code, userID)
+	role, err := p.PermPlugin.VerifyAndGrantRole(code, userID)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 验证失败: %v", err))
 	}
@@ -783,7 +783,7 @@ func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) err
 
 // handleCodeList 列出验证码
 func (p *Plugin) handleCodeList(ctx *eventctx.Context) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -792,7 +792,7 @@ func (p *Plugin) handleCodeList(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	codes := p.permPlugin.ListVerificationCodes()
+	codes := p.PermPlugin.ListVerificationCodes()
 	if len(codes) == 0 {
 		return p.reply(ctx, "📋 当前没有有效的验证码")
 	}
@@ -825,7 +825,7 @@ func (p *Plugin) handleCodeList(ctx *eventctx.Context) error {
 
 // handleCodeRevoke 撤销验证码
 func (p *Plugin) handleCodeRevoke(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -839,7 +839,7 @@ func (p *Plugin) handleCodeRevoke(ctx *eventctx.Context, args *command.Args) err
 		return p.reply(ctx, "❌ 请提供验证码\n用法: /code revoke <验证码>")
 	}
 
-	if err := p.permPlugin.RevokeVerificationCode(code); err != nil {
+	if err := p.PermPlugin.RevokeVerificationCode(code); err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 撤销失败: %v", err))
 	}
 
@@ -848,12 +848,12 @@ func (p *Plugin) handleCodeRevoke(ctx *eventctx.Context, args *command.Args) err
 
 // hasAdminRole 检查用户是否有管理员角色
 func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return false
 	}
 
 	userID := ctx.GetUserID()
-	roles := p.permPlugin.GetUserRoles(userID)
+	roles := p.PermPlugin.GetUserRoles(userID)
 	for _, role := range roles {
 		if role == "admin" {
 			return true
@@ -974,7 +974,7 @@ func (p *Plugin) showACLHelp(ctx *eventctx.Context) error {
 
 // handleACLMode 设置黑白名单模式
 func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -985,7 +985,7 @@ func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error 
 
 	modeStr := args.Get(1) // Get(0)="mode", Get(1)=模式
 	if modeStr == "" {
-		currentMode := p.permPlugin.GetACLMode()
+		currentMode := p.PermPlugin.GetACLMode()
 		return p.reply(ctx, fmt.Sprintf("当前模式: %s\n\n可用模式:\n- disabled (禁用)\n- blacklist (黑名单)\n- whitelist (白名单)\n\n用法: /acl mode <模式>", currentMode.String()))
 	}
 
@@ -1001,7 +1001,7 @@ func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error 
 		return p.reply(ctx, fmt.Sprintf("❌ 无效的模式: %s\n可用模式: disabled, blacklist, whitelist", modeStr))
 	}
 
-	p.permPlugin.SetACLMode(mode)
+	p.PermPlugin.SetACLMode(mode)
 
 	var msg strings.Builder
 	msg.WriteString("✅ 黑白名单模式已设置\n")
@@ -1024,7 +1024,7 @@ func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error 
 
 // handleACLAdd 添加用户到黑白名单
 func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -1049,12 +1049,12 @@ func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
 		note = strings.Join(noteArgs, " ")
 	}
 
-	mode := p.permPlugin.GetACLMode()
+	mode := p.PermPlugin.GetACLMode()
 	if mode == permission.ModeDisabled {
 		return p.reply(ctx, "❌ 黑白名单功能未启用\n请先使用 /acl mode 设置模式")
 	}
 
-	p.permPlugin.AddToACL(userID, note)
+	p.PermPlugin.AddToACL(userID, note)
 
 	var msg strings.Builder
 	msg.WriteString("✅ 用户已添加\n")
@@ -1077,7 +1077,7 @@ func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
 
 // handleACLRemove 从黑白名单移除用户
 func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -1091,7 +1091,7 @@ func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) erro
 		return p.reply(ctx, "❌ 请指定用户ID\n用法: /acl remove <用户ID>")
 	}
 
-	removed := p.permPlugin.RemoveFromACL(userID)
+	removed := p.PermPlugin.RemoveFromACL(userID)
 	if !removed {
 		return p.reply(ctx, fmt.Sprintf("❌ 用户 %s 不在列表中", userID))
 	}
@@ -1101,7 +1101,7 @@ func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) erro
 
 // handleACLList 列出黑白名单中的所有用户
 func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -1110,8 +1110,8 @@ func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	mode := p.permPlugin.GetACLMode()
-	users := p.permPlugin.ListACL()
+	mode := p.PermPlugin.GetACLMode()
+	users := p.PermPlugin.ListACL()
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("📋 黑白名单 - %s模式\n", mode.String()))
@@ -1144,7 +1144,7 @@ func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
 
 // handleACLClear 清空黑白名单
 func (p *Plugin) handleACLClear(ctx *eventctx.Context) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -1153,7 +1153,7 @@ func (p *Plugin) handleACLClear(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	count := p.permPlugin.ClearACL()
+	count := p.PermPlugin.ClearACL()
 
 	var msg strings.Builder
 	msg.WriteString("✅ 黑白名单已清空\n")
@@ -1167,7 +1167,7 @@ func (p *Plugin) handleACLClear(ctx *eventctx.Context) error {
 
 // handleACLStats 查看黑白名单统计信息
 func (p *Plugin) handleACLStats(ctx *eventctx.Context) error {
-	if p.permPlugin == nil {
+	if p.PermPlugin == nil {
 		return p.reply(ctx, "❌ 权限系统未初始化")
 	}
 
@@ -1176,7 +1176,7 @@ func (p *Plugin) handleACLStats(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	stats := p.permPlugin.GetACLStats()
+	stats := p.PermPlugin.GetACLStats()
 
 	var msg strings.Builder
 	msg.WriteString("📊 黑白名单统计\n")

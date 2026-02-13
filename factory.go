@@ -12,7 +12,7 @@ import (
 // 如果提供了 opts 中包含 adapter，则使用自定义 adapter，否则创建默认 webhook adapter
 // 这个函数会自动初始化 OpenAPI client
 func NewBotWithDefault(info *dto.BotInfo, opts ...Option) *Bot {
-	// 创建默认 Engine
+	// 创建默认 engine
 	newEngine := engine.NewEngine()
 
 	// 创建 bot 但先不设置 adapter

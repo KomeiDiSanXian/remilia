@@ -91,7 +91,7 @@ func FuzzCommandParsing(f *testing.F) {
 	})
 }
 
-// FuzzEngineProcessEvent 模糊测试 Engine 事件处理
+// FuzzEngineProcessEvent 模糊测试 engine 事件处理
 func FuzzEngineProcessEvent(f *testing.F) {
 	// 种子
 	seeds := []string{

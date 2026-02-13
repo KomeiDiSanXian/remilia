@@ -15,7 +15,7 @@ type BatchStats struct {
 	EventsPerSecond float64       // 吞吐量（事件/秒）
 }
 
-// EngineStats Engine 统计信息
+// EngineStats engine 统计信息
 type EngineStats struct {
 	MatcherCount      int   // 匹配器数量
 	EventsProcessed   int64 // 已处理事件数

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -115,7 +116,7 @@ type WebhookConfig struct {
 	MaxEntriesInWindow int    `yaml:"max_entries_in_window" mapstructure:"max_entries_in_window"`
 }
 
-// EngineConfig Engine 引擎配置
+// EngineConfig engine 引擎配置
 type EngineConfig struct {
 	TempMatcherCleanupInterval   string `yaml:"temp_matcher_cleanup_interval" mapstructure:"temp_matcher_cleanup_interval"`
 	PendingDeleteBufferSize      int    `yaml:"pending_delete_buffer_size" mapstructure:"pending_delete_buffer_size"`
@@ -277,7 +278,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid token config: %w", err)
 	}
 
-	// 验证 Engine 配置
+	// 验证 engine 配置
 	if err := c.Engine.Validate(); err != nil {
 		return fmt.Errorf("invalid engine config: %w", err)
 	}
@@ -550,7 +551,7 @@ func (tc *TokenConfig) Validate() error {
 	return nil
 }
 
-// Validate 验证 Engine 配置
+// Validate 验证 engine 配置
 func (ec *EngineConfig) Validate() error {
 	// 验证 TempMatcherCleanupInterval 格式
 	if ec.TempMatcherCleanupInterval != "" {
@@ -696,8 +697,8 @@ func LoadDefault() (*Config, error) {
 			Port: getEnvInt("SERVER_PORT", 8080),
 		},
 		Log: LogConfig{
-			Level:  getEnvDefault("LOG_LEVEL", "info"),
-			Format: getEnvDefault("LOG_FORMAT", "text"),
+			Level:  strings.ToLower(getEnvDefault("LOG_LEVEL", "info")),
+			Format: strings.ToLower(getEnvDefault("LOG_FORMAT", "text")),
 		},
 	}
 

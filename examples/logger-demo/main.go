@@ -28,7 +28,7 @@ func main() {
 	logger.Info("Logger initialized successfully")
 	logger.Info("Bot starting...")
 
-	// 创建 Engine
+	// 创建 engine
 	eng := engine.NewEngine()
 
 	// 创建适配器 - 这里使用模拟适配器作为示例

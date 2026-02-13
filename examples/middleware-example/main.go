@@ -55,7 +55,7 @@ func main() {
 
 	// ===== 方式2: 使用简化工厂（注释掉方式1后使用） =====
 	// logger.Info("[MiddlewareExample] Using simplified middleware factories")
-	// bot.Engine().Use(
+	// bot.engine().Use(
 	// 	middleware.Recover(),                    // Panic 恢复
 	// 	middleware.Logging(),                    // 日志记录
 	// 	middleware.SimpleAdaptive(),             // 自适应限流（默认配置）
@@ -72,11 +72,11 @@ func main() {
 	// 	WithCircuitBreaker().
 	// 	WithDedup().
 	// 	Build()
-	// bot.Engine().Use(middlewares...)
+	// bot.engine().Use(middlewares...)
 
 	// ===== 方式4: 自定义中间件配置（注释掉方式1后使用） =====
 	// logger.Info("[MiddlewareExample] Using custom middleware configuration")
-	// bot.Engine().Use(
+	// bot.engine().Use(
 	// 	middleware.Recover(),
 	// 	middleware.Logging(),
 	// 	middleware.SimpleAdaptiveWithLimit(200),             // 自定义并发限制

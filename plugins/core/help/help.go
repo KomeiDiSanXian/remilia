@@ -27,13 +27,13 @@ const (
 //   - /help <命令名> - 显示指定命令的详细信息
 type Plugin struct {
 	*plugin.BasePlugin
-	engine        *engine.Engine // 从 Engine 直接获取命令信息
-	pluginManager *plugin.Manager
+	Engine        *engine.Engine  `inject:"engine"`  // 从 Engine 直接获取命令信息
+	PluginManager *plugin.Manager `inject:"manager"` // 用于获取插件信息
 }
 
 // NewHelpPlugin 创建帮助插件
 // registry 参数已废弃，为了向后兼容保留但不使用
-// 命令信息将直接从 Engine 获取
+// 命令信息将直接从 engine 获取
 func NewHelpPlugin(_ *command.CommandRegistry) *Plugin {
 	basePlugin := plugin.NewBasePluginWithMetadata(&plugin.Metadata{
 		Name:        "help",
@@ -53,12 +53,12 @@ func NewHelpPlugin(_ *command.CommandRegistry) *Plugin {
 
 	return &Plugin{
 		BasePlugin: basePlugin,
-		engine:     nil, // 将在 Load 时设置
+		Engine:     nil, // 将在 Load 时设置
 	}
 }
 
 // New 创建帮助插件（推荐使用此方法）
-// 命令信息将直接从 Engine 获取，无需额外的 CommandRegistry
+// 命令信息将直接从 engine 获取，无需额外的 CommandRegistry
 func New() *Plugin {
 	return NewHelpPlugin(nil)
 }
@@ -68,7 +68,7 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[Plugin] Loading help plugin...")
 
 	// 保存 engine 引用以便后续获取命令信息
-	p.engine = eng
+	p.Engine = eng
 
 	// 注册 /help 命令 - 列出所有命令或显示特定命令的详细信息
 	// 使用 BasePlugin.OnCommand 自动添加到 Matcher 列表
@@ -85,7 +85,7 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 
 // SetPluginManager 设置插件管理器（用于获取插件信息）
 func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.pluginManager = pm
+	p.PluginManager = pm
 }
 
 // handleHelp 处理帮助命令
@@ -124,8 +124,8 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	}
 
 	// 检查是否是插件名
-	if p.pluginManager != nil {
-		plugins := p.pluginManager.List()
+	if p.PluginManager != nil {
+		plugins := p.PluginManager.List()
 		for _, pluginName := range plugins {
 			if strings.EqualFold(pluginName, target) {
 				return p.showPluginCommands(ctx, pluginName)
@@ -135,7 +135,7 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 
 	// 尝试作为命令名查找（支持带或不带 / 前缀）
 	cmdName := strings.TrimPrefix(target, "/")
-	if cmdInfo := p.engine.FindCommand(cmdName); cmdInfo != nil {
+	if cmdInfo := p.Engine.FindCommand(cmdName); cmdInfo != nil {
 		return p.showCommandDetail(ctx, cmdInfo)
 	}
 
@@ -145,11 +145,11 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 
 // showCommandsPage 显示指定页的命令列表
 func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
-	commands := p.engine.GetAllCommands()
+	commands := p.Engine.GetAllCommands()
 
 	// 如果没有命令，显示插件列表
 	if len(commands) == 0 {
-		if p.pluginManager != nil {
+		if p.PluginManager != nil {
 			logger.Info("[Plugin] No commands found, showing plugin list instead")
 			return p.showAllPlugins(ctx)
 		}
@@ -221,7 +221,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用方法:\n")
 	help.WriteString("  /help <命令名> - 查看命令详情\n")
-	if p.pluginManager != nil {
+	if p.PluginManager != nil {
 		help.WriteString("  /help <插件名> - 查看插件的所有命令\n")
 	}
 	if totalPages > 1 {
@@ -235,11 +235,11 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 
 // showAllPlugins 显示所有插件的列表
 func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
-	if p.pluginManager == nil {
+	if p.PluginManager == nil {
 		return p.sendMessage(ctx, "插件管理器不可用")
 	}
 
-	pluginsMetadata := p.pluginManager.ListWithMetadata()
+	pluginsMetadata := p.PluginManager.ListWithMetadata()
 	if len(pluginsMetadata) == 0 {
 		return p.sendMessage(ctx, "当前没有加载任何插件")
 	}
@@ -321,8 +321,8 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 	help.WriteString(strings.Repeat("=", 30) + "\n\n")
 
 	// 显示插件元数据（如果有）
-	if p.pluginManager != nil {
-		if metadata, ok := p.pluginManager.GetMetadata(pluginName); ok && metadata != nil {
+	if p.PluginManager != nil {
+		if metadata, ok := p.PluginManager.GetMetadata(pluginName); ok && metadata != nil {
 			// 显示插件详细信息
 			if metadata.Description != "" {
 				help.WriteString(fmt.Sprintf("📝 描述: %s\n", metadata.Description))
@@ -356,7 +356,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 	}
 
 	// 查找属于该插件的命令
-	allCommands := p.engine.GetAllCommands()
+	allCommands := p.Engine.GetAllCommands()
 	pluginCommands := make([]engine.CommandInfo, 0)
 
 	for _, cmd := range allCommands {
@@ -554,7 +554,7 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 	msg.WriteString(fmt.Sprintf("❌ 未找到: %s\n\n", target))
 
 	// 尝试提供相似命令建议
-	allCommands := p.engine.GetAllCommands()
+	allCommands := p.Engine.GetAllCommands()
 	var suggestions []string
 	searchTerm := strings.TrimPrefix(target, "/")
 
@@ -591,8 +591,8 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 		msg.WriteString("💡 使用 /help 查看所有可用命令")
 
 		// 如果有插件管理器，显示可用插件
-		if p.pluginManager != nil {
-			plugins := p.pluginManager.List()
+		if p.PluginManager != nil {
+			plugins := p.PluginManager.List()
 			if len(plugins) > 0 {
 				msg.WriteString("\n\n📦 可用插件:\n")
 				for _, pluginName := range plugins {

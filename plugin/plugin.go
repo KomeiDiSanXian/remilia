@@ -214,6 +214,13 @@ func (p *BasePlugin) GetMatchers() []*engine.Matcher {
 
 // Load 加载插件（子类需要重写实现具体逻辑）
 func (p *BasePlugin) Load(_ *engine.Engine) error {
+	// 更新状态为已加载
+	p.mu.Lock()
+	p.state = Loaded
+	p.loadTime = time.Now()
+	p.lastError = nil
+	p.mu.Unlock()
+
 	// 默认实现为空，子类重写
 	return nil
 }
@@ -226,31 +233,39 @@ func (p *BasePlugin) Unload(coordinator *engine.Engine) error {
 
 	p.mu.Lock()
 	p.matchers = make([]*engine.Matcher, 0)
+	p.state = Unloaded
 	p.mu.Unlock()
 
 	return nil
 }
 
-// Reload 的默认实现：原子性重载插件（适配 COW Engine）
+// Reload 的默认实现：原子性重载插件（适配 COW engine）
 //
-// COW Engine 下的实现策略：
+// COW engine 下的实现策略：
 // 1. 保存插件旧 matchers 快照、Coordinator 状态快照
 // 2. 尝试 Unload（清空 matchers 并删除）
 // 3. 尝试 Load（创建新的 matchers）
 // 4. 如果 Load 失败，通过 Coordinator 的 COW 机制回滚
 //
 // 优势：
-//   - 利用 Engine 的 COW 特性，简化回滚逻辑
+//   - 利用 engine 的 COW 特性，简化回滚逻辑
 //   - 回滚更安全，不会出现状态不一致
 func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	if coordinator == nil {
 		return errutil.NewPluginError(p.name, "coordinator is nil")
 	}
 
+	// 设置状态为重载中
+	p.mu.Lock()
+	p.state = Reloading
+	p.mu.Unlock()
+
 	// 1. 保存插件旧 matchers 快照
 	p.mu.Lock()
 	oldMatchers := make([]*engine.Matcher, len(p.matchers))
 	copy(oldMatchers, p.matchers)
+	oldState := p.state
+	oldLoadTime := p.loadTime
 	p.mu.Unlock()
 
 	// 2. 保存 Coordinator 状态快照
@@ -258,7 +273,12 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 
 	// 3. 尝试卸载（这会清空 p.matchers 并删除 matchers）
 	if err := p.Unload(coordinator); err != nil {
-		// Unload 失败，状态未改变
+		// Unload 失败，恢复状态
+		p.mu.Lock()
+		p.state = oldState
+		p.loadTime = oldLoadTime
+		p.lastError = err
+		p.mu.Unlock()
 		return errutil.WrapErrorf(err, "unload failed during reload")
 	}
 
@@ -270,6 +290,8 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 		// 恢复插件旧 matchers 列表
 		p.mu.Lock()
 		p.matchers = oldMatchers
+		p.state = Error
+		p.lastError = err
 		p.mu.Unlock()
 
 		// 回滚 Coordinator 状态
@@ -286,14 +308,14 @@ func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
 	}
 
 	// 5. 成功，旧的 matchers 已经被 Unload 删除，不需要额外清理
+	p.mu.Lock()
+	p.state = Loaded
+	p.loadTime = time.Now()
+	p.lastError = nil
+	p.mu.Unlock()
+
 	logger.WithField("plugin", p.name).Info("[Plugin] Reload successful")
 	return nil
-}
-
-// Dependencies 返回插件依赖列表（默认无依赖）
-// 子类可以重写此方法来声明依赖
-func (p *BasePlugin) Dependencies() []string {
-	return []string{}
 }
 
 // Use 为当前插件注册中间件（作用于该插件的所有匹配器）
@@ -308,7 +330,7 @@ func (p *BasePlugin) Use(coordinator *engine.Engine, mw ...context.Middleware) {
 // 这是一个便捷方法，避免开发者忘记调用 AddMatcher
 func (p *BasePlugin) OnCommand(eng *engine.Engine, eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *engine.Matcher {
 	if eng == nil {
-		logger.Warn("[Plugin] Engine is nil, cannot register command")
+		logger.Warn("[Plugin] engine is nil, cannot register command")
 		return nil
 	}
 
@@ -320,7 +342,7 @@ func (p *BasePlugin) OnCommand(eng *engine.Engine, eventType dto.EventType, cmdP
 // On 注册自定义规则并自动添加到插件的 Matcher 列表
 func (p *BasePlugin) On(eng *engine.Engine, eventType dto.EventType, rules ...context.Rule) *engine.Matcher {
 	if eng == nil {
-		logger.Warn("[Plugin] Engine is nil, cannot register matcher")
+		logger.Warn("[Plugin] engine is nil, cannot register matcher")
 		return nil
 	}
 
@@ -332,7 +354,7 @@ func (p *BasePlugin) On(eng *engine.Engine, eventType dto.EventType, rules ...co
 // OnAny 注册处理所有事件的规则并自动添加到插件的 Matcher 列表
 func (p *BasePlugin) OnAny(eng *engine.Engine, rules ...context.Rule) *engine.Matcher {
 	if eng == nil {
-		logger.Warn("[Plugin] Engine is nil, cannot register matcher")
+		logger.Warn("[Plugin] engine is nil, cannot register matcher")
 		return nil
 	}
 
@@ -429,4 +451,29 @@ func (p *BasePlugin) GetUptime() time.Duration {
 	}
 
 	return time.Since(loadTime)
+}
+
+// Dependencies 返回插件依赖列表（实现 Plugin 接口）
+// 支持三种方式（按优先级）：
+//  1. 从结构体标签自动提取 (inject:"plugin:xxx")
+//  2. 从元数据读取 (metadata.Dependencies)
+//  3. 子类重写此方法提供动态依赖
+func (p *BasePlugin) Dependencies() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	// 优先尝试从结构体标签自动提取
+	// 注意：这里需要传入包含 BasePlugin 的外层插件实例
+	// 由于我们在 BasePlugin 内部，无法直接获取外层实例
+	// 因此标签提取需要在外层调用 ExtractDependencies()
+
+	// 从元数据读取依赖（声明式）
+	if p.metadata != nil && p.metadata.Dependencies != nil {
+		// 返回副本以保证线程安全
+		result := make([]string, len(p.metadata.Dependencies))
+		copy(result, p.metadata.Dependencies)
+		return result
+	}
+
+	return []string{}
 }

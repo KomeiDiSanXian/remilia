@@ -8,7 +8,7 @@ import (
 // Predefined framework/public errors.
 // These errors are stable and can be checked with errors.Is.
 var (
-	// Core Engine errors
+	// Core engine errors
 	ErrConfigInvalid     = errors.New("invalid configuration")
 	ErrMatcherNotFound   = errors.New("matcher not found")
 	ErrContextReleased   = errors.New("context already released")

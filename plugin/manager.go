@@ -129,7 +129,7 @@ func (pm *Manager) Register(plugin Plugin) error {
 
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		logger.Warnf("[PluginManager] Plugin %s already registered", name)
+		logger.Warnf("[pluginManager] Plugin %s already registered", name)
 		return errutil.ErrPluginAlreadyExists
 	}
 
@@ -139,6 +139,23 @@ func (pm *Manager) Register(plugin Plugin) error {
 			config := NewPluginConfig(name, pm.viper)
 			configurable.SetConfig(config)
 		}
+	}
+
+	// 自动依赖注入：收集已注册的插件作为可注入依赖
+	availableDeps := make(map[string]interface{})
+	for depName, depPlugin := range pm.plugins {
+		availableDeps[depName] = depPlugin
+	}
+
+	// 添加插件管理器自身（某些插件可能需要它）
+	availableDeps["manager"] = pm
+	availableDeps["coordinator"] = pm.coordinator
+	availableDeps["engine"] = pm.coordinator
+
+	// 尝试自动注入依赖
+	if err := InjectDependencies(plugin, availableDeps); err != nil {
+		logger.WithError(err).Warnf("[pluginManager] Failed to inject dependencies for plugin %s", name)
+		// 依赖注入失败不阻止插件注册，由插件的 Load 方法决定是否需要这些依赖
 	}
 
 	// 设置加载中状态（如果插件支持状态管理）
@@ -151,7 +168,7 @@ func (pm *Manager) Register(plugin Plugin) error {
 	// 加载插件
 	startTime := time.Now()
 	if err := plugin.Load(pm.coordinator); err != nil {
-		logger.WithError(err).Errorf("[PluginManager] Failed to load plugin %s", name)
+		logger.WithError(err).Errorf("[pluginManager] Failed to load plugin %s", name)
 
 		// 设置错误状态（如果插件支持状态管理）
 		if stateful, ok := plugin.(StatefulPlugin); ok {
@@ -175,12 +192,13 @@ func (pm *Manager) Register(plugin Plugin) error {
 		stateful.SetLastError(nil)
 	}
 
-	logger.Infof("[PluginManager] Plugin %s registered", name)
+	logger.Infof("[pluginManager] Plugin %s registered", name)
 	pm.notifyLoaded(name) // 通知监听器（在锁外）
 	return nil
 }
 
 // checkDependents 返回当前已注册插件中依赖指定插件的插件名称列表
+// 支持自动依赖提取（从标签）和声明式依赖（从元数据或 Dependencies()）
 func (pm *Manager) checkDependents(name string) []string {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -190,12 +208,25 @@ func (pm *Manager) checkDependents(name string) []string {
 		if pluginName == name {
 			continue
 		}
-		for _, dep := range plugin.Dependencies() {
+
+		// 先尝试从标签自动提取依赖
+		tagDeps := ExtractDependencies(plugin)
+		for _, dep := range tagDeps {
 			if dep == name {
 				dependents = append(dependents, pluginName)
+				goto nextPlugin
+			}
+		}
+
+		// 再检查 Dependencies() 方法（元数据或重写）
+		for _, dep := range plugin.Dependencies() {
+			if dep == name {
+				dependents = append(dependents)
 				break
 			}
 		}
+
+	nextPlugin:
 	}
 	return dependents
 }
@@ -213,14 +244,14 @@ func (pm *Manager) Unregister(name string) error {
 	plugin, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
-		logger.Warnf("[PluginManager] Plugin %s not found", name)
+		logger.Warnf("[pluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
 	// 卸载插件
 	if err := plugin.Unload(pm.coordinator); err != nil {
 		pm.mu.Unlock()
-		logger.WithError(err).Errorf("[PluginManager] Failed to unload plugin %s", name)
+		logger.WithError(err).Errorf("[pluginManager] Failed to unload plugin %s", name)
 		pm.notifyError(name, "unload", err) // 通知监听器错误
 		return err
 	}
@@ -228,7 +259,7 @@ func (pm *Manager) Unregister(name string) error {
 	delete(pm.plugins, name)
 	pm.mu.Unlock()
 
-	logger.Infof("[PluginManager] Plugin %s unregistered", name)
+	logger.Infof("[pluginManager] Plugin %s unregistered", name)
 	pm.notifyUnloaded(name) // 通知监听器（在锁外）
 	return nil
 }
@@ -258,22 +289,22 @@ func (pm *Manager) Reload(name string) error {
 	pm.mu.RUnlock()
 
 	if !exists {
-		logger.Warnf("[PluginManager] Plugin %s not found", name)
+		logger.Warnf("[pluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
-	logger.Infof("[PluginManager] Reloading plugin %s", name)
+	logger.Infof("[pluginManager] Reloading plugin %s", name)
 
 	// 调用插件的 Reload 方法，传递 coordinator
 	if err := plugin.Reload(pm.coordinator); err != nil {
-		logger.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
+		logger.WithError(err).Errorf("[pluginManager] Failed to reload plugin %s", name)
 		pm.notifyError(name, "reload", err) // 通知监听器错误
 		// Reload 失败时不删除插件，因为无法判断插件是否实现了原子性重载
 		// 调用方可以根据需要调用 Unregister 来删除插件
 		return err
 	}
 
-	logger.Infof("[PluginManager] Plugin %s reloaded successfully", name)
+	logger.Infof("[pluginManager] Plugin %s reloaded successfully", name)
 	pm.notifyReloaded(name) // 通知监听器
 	return nil
 }
@@ -571,7 +602,7 @@ func (pm *Manager) Count() int {
 //	component := pluginManager.AsLifecycleComponent(plugin)
 //	lifecycleManager.Register(component)
 //
-// 注意: 这不会将插件注册到 PluginManager，只是创建适配器
+// 注意: 这不会将插件注册到 pluginManager，只是创建适配器
 func (pm *Manager) AsLifecycleComponent(plugin Plugin) lifecycle.Component {
 	return NewPluginComponent(plugin, pm.coordinator, pm)
 }
@@ -602,6 +633,6 @@ func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 		lm.Register(component)
 	}
 
-	logger.Infof("[PluginManager] Registered %d plugins to lifecycle manager", len(plugins))
+	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(plugins))
 	return nil
 }

@@ -31,8 +31,8 @@ func main() {
 	logger.Infof("Event buffer: %d", cfg.Webhook.EventBuffer)
 	logger.Infof("Token retry delay: %s", cfg.Token.RetryDelay)
 	logger.Infof("Token refresh advance: %s", cfg.Token.RefreshAdvance)
-	logger.Infof("Engine cleanup interval: %s", cfg.Engine.TempMatcherCleanupInterval)
-	logger.Infof("Engine pending delete buffer: %d", cfg.Engine.PendingDeleteBufferSize)
+	logger.Infof("engine cleanup interval: %s", cfg.Engine.TempMatcherCleanupInterval)
+	logger.Infof("engine pending delete buffer: %d", cfg.Engine.PendingDeleteBufferSize)
 
 	// 2. 创建 Bot 信息
 	botInfo := &dto.BotInfo{
@@ -52,7 +52,7 @@ func main() {
 	tokenMgr.WaitReady()
 	logger.Info("✓ Token is ready")
 
-	// 4. 使用配置创建 Engine
+	// 4. 使用配置创建 engine
 	eng := engine.NewEngine(engine.WithConfig(cfg.Engine))
 
 	// 5. 这里可以注册你的处理器

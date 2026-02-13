@@ -82,7 +82,7 @@ func NewEngine(options ...Option) *Engine {
 	if e.services.tempMatcherCleanerInterval > 0 {
 		e.services.tempMatcherCleanerStop = e.StartTempMatcherCleaner(e.services.tempMatcherCleanerInterval)
 	} else {
-		logger.Info("[Engine] Temp matcher cleaner disabled by default configuration")
+		logger.Info("[engine] Temp matcher cleaner disabled by default configuration")
 	}
 
 	// 启动批量删除处理器
@@ -185,7 +185,7 @@ func (e *Engine) RemoveGroup(groupName string) {
 	// 5. 原子替换
 	e.state.Store(newState)
 
-	logger.Debugf("[Engine] Removed matcher group: %services", groupName)
+	logger.Debugf("[engine] Removed matcher group: %services", groupName)
 }
 
 // InvalidateSortedCache 失效指定事件类型的排序缓存（COW 写操作）
@@ -284,9 +284,9 @@ func (e *Engine) registerMatcher(m *Matcher) *Matcher {
 
 	// 检查匹配器数量限制
 	if oldState.maxMatchers > 0 && len(oldState.matchers) >= oldState.maxMatchers {
-		logger.Errorf("[Engine] Matcher limit reached: %d/%d, returning noop matcher",
+		logger.Errorf("[engine] Matcher limit reached: %d/%d, returning noop matcher",
 			len(oldState.matchers), oldState.maxMatchers)
-		// 返回一个新的 noop matcher，带有 Engine 引用，避免 panic
+		// 返回一个新的 noop matcher，带有 engine 引用，避免 panic
 		return &Matcher{
 			rt:          matcherRuntime{deleted: true},
 			priority:    999,
@@ -338,7 +338,7 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 	// 2. 检查匹配器数量限制
 	newCount := len(oldState.matchers) + len(matchers)
 	if oldState.maxMatchers > 0 && newCount > oldState.maxMatchers {
-		logger.Errorf("[Engine] Matcher limit reached: %d+%d > %d, truncating batch",
+		logger.Errorf("[engine] Matcher limit reached: %d+%d > %d, truncating batch",
 			len(oldState.matchers), len(matchers), oldState.maxMatchers)
 
 		// 只注册到达限制前的 matchers
@@ -377,7 +377,7 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 		e.rebuildMatcherChainCOW(m)
 	}
 
-	logger.Debugf("[Engine] Batch registered %d matchers", len(matchers))
+	logger.Debugf("[engine] Batch registered %d matchers", len(matchers))
 	return matchers
 }
 
@@ -701,7 +701,7 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 		content := ctx.GetMessageContent()
 		parsed, err := command.ParseFromDefinition(content, cmd, prefix)
 		if err != nil {
-			logger.WithError(err).WithField("trigger", trigger).Debug("[Engine] Command parse match failed")
+			logger.WithError(err).WithField("trigger", trigger).Debug("[engine] Command parse match failed")
 			return false
 		}
 		ctx.SetParsedCommand(parsed)
@@ -750,7 +750,7 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 //	m := engine.RegisterCommandDef(dto.GroupAtMessageCreate, def)
 func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Definition, extraRules ...context.Rule) *Matcher {
 	if def == nil {
-		logger.Warn("[Engine] RegisterCommandDef: definition is nil")
+		logger.Warn("[engine] RegisterCommandDef: definition is nil")
 		return &Matcher{
 			rt:          matcherRuntime{deleted: true},
 			priority:    999,
@@ -770,7 +770,7 @@ func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Defini
 		if err != nil {
 			logger.WithError(err).
 				WithField("trigger", trigger).
-				Debug("[Engine] Command parse failed")
+				Debug("[engine] Command parse failed")
 			return false
 		}
 		ctx.SetParsedCommand(parsed)
@@ -823,7 +823,7 @@ func (e *Engine) RegisterCommandDefWithPrefix(
 	extraRules ...context.Rule,
 ) *Matcher {
 	if def == nil {
-		logger.Warn("[Engine] RegisterCommandDefWithPrefix: definition is nil")
+		logger.Warn("[engine] RegisterCommandDefWithPrefix: definition is nil")
 		return &Matcher{
 			rt:          matcherRuntime{deleted: true},
 			priority:    999,
@@ -847,7 +847,7 @@ func (e *Engine) RegisterCommandDefWithPrefix(
 		if err != nil {
 			logger.WithError(err).
 				WithField("trigger", trigger).
-				Debug("[Engine] Command parse failed")
+				Debug("[engine] Command parse failed")
 			return false
 		}
 		ctx.SetParsedCommand(parsed)
@@ -889,7 +889,7 @@ func (e *Engine) WithMatcherGroupBatch(fn func()) {
 	}
 
 	// Important: do NOT hold writeMu while executing fn().
-	// fn frequently calls Engine.On/registerMatcher, which also takes writeMu.
+	// fn frequently calls engine.On/registerMatcher, which also takes writeMu.
 	// Holding it here would deadlock.
 	fn()
 

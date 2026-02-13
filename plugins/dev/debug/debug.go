@@ -18,10 +18,10 @@ import (
 // Plugin Debug调试插件
 type Plugin struct {
 	*plugin.BasePlugin
-	engine        *engine.Engine
-	permPlugin    *permission.Plugin
-	devMode       bool // 是否开启开发模式
-	pluginManager *plugin.Manager
+	Engine        *engine.Engine     `inject:"Engine"`            // Engine引用，自动注入
+	PermPlugin    *permission.Plugin `inject:"plugin:permission"` // 权限插件依赖，自动注入
+	DevMode       bool               // 是否开启开发模式
+	PluginManager *plugin.Manager    `inject:"manager"` // 插件管理器引用，自动注入
 }
 
 // New 创建调试插件
@@ -33,6 +33,7 @@ func New() *Plugin {
 		Description: "开发调试工具集合，提供事件查看、上下文检查、性能分析等功能",
 		Category:    "开发",
 		Tags:        []string{"调试", "开发", "性能"},
+		// Dependencies 会从标签自动提取，无需手动声明
 		HelpText: `调试插件使用说明：
 
 事件调试：
@@ -57,7 +58,7 @@ func New() *Plugin {
 
 	return &Plugin{
 		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-		devMode:    true, // 默认开启开发模式，实际应从配置读取
+		DevMode:    true, // 默认开启开发模式，实际应从配置读取
 	}
 }
 
@@ -65,8 +66,8 @@ func New() *Plugin {
 func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[DebugPlugin] Loading debug plugin...")
 
-	// 保存 engine 引用
-	p.engine = eng
+	// 保存 Engine 引用
+	p.Engine = eng
 
 	// 注册调试命令（只支持私聊，避免泄露敏感信息）
 	p.registerDebugCommands(eng)
@@ -77,17 +78,17 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 
 // SetPermissionPlugin 设置权限插件
 func (p *Plugin) SetPermissionPlugin(pp *permission.Plugin) {
-	p.permPlugin = pp
+	p.PermPlugin = pp
 }
 
 // SetPluginManager 设置插件管理器
 func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.pluginManager = pm
+	p.PluginManager = pm
 }
 
 // SetDevMode 设置开发模式
 func (p *Plugin) SetDevMode(enabled bool) {
-	p.devMode = enabled
+	p.DevMode = enabled
 }
 
 // registerDebugCommands 注册调试命令
@@ -245,12 +246,12 @@ func (p *Plugin) showDebugHelp(ctx *eventctx.Context) error {
 // checkPermission 检查权限
 func (p *Plugin) checkPermission(ctx *eventctx.Context, permission string) bool {
 	// 如果未设置权限插件，默认允许（开发模式）
-	if p.permPlugin == nil {
-		return p.devMode
+	if p.PermPlugin == nil {
+		return p.DevMode
 	}
 
 	userID := ctx.GetUserID()
-	return p.devMode || p.permPlugin.HasPermission(userID, permission) // 开发模式下允许所有权限，生产环境需要检查
+	return p.DevMode || p.PermPlugin.HasPermission(userID, permission) // 开发模式下允许所有权限，生产环境需要检查
 }
 
 // reply 发送消息
@@ -416,7 +417,7 @@ func (p *Plugin) handleDebugMatcher(ctx *eventctx.Context) error {
 	cmdName = strings.TrimPrefix(cmdName, "/")
 
 	// 查找命令
-	cmdInfo := p.engine.FindCommand(cmdName)
+	cmdInfo := p.Engine.FindCommand(cmdName)
 	if cmdInfo == nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 未找到命令: %s", cmdName))
 	}
@@ -521,7 +522,7 @@ func (p *Plugin) handleDebugCommands(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要 debug.view 权限")
 	}
 
-	commands := p.engine.GetAllCommands()
+	commands := p.Engine.GetAllCommands()
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("🔍 注册的命令列表 (共 %d 个)\n", len(commands)))
@@ -559,11 +560,11 @@ func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要 debug.view 权限")
 	}
 
-	if p.pluginManager == nil {
+	if p.PluginManager == nil {
 		return p.reply(ctx, "❌ 插件管理器未初始化")
 	}
 
-	plugins := p.pluginManager.ListWithMetadata()
+	plugins := p.PluginManager.ListWithMetadata()
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("🔍 插件状态 (共 %d 个)\n", len(plugins)))
@@ -575,7 +576,7 @@ func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
 		msg.WriteString(fmt.Sprintf("  - 分类: %s\n", meta.Category))
 
 		// 如果插件实现了 StatefulPlugin，显示更多状态
-		if plug, ok := p.pluginManager.Get(name); ok {
+		if plug, ok := p.PluginManager.Get(name); ok {
 			if stateful, ok := plug.(plugin.StatefulPlugin); ok {
 				state := stateful.GetState()
 				msg.WriteString(fmt.Sprintf("  - 状态: %v\n", state))
@@ -624,7 +625,7 @@ func (p *Plugin) handleDebugBench(ctx *eventctx.Context) error {
 	cmdName = strings.TrimPrefix(cmdName, "/")
 
 	// 查找命令
-	cmdInfo := p.engine.FindCommand(cmdName)
+	cmdInfo := p.Engine.FindCommand(cmdName)
 	if cmdInfo == nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 未找到命令: %s", cmdName))
 	}
@@ -672,7 +673,7 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 
 	// 命令统计
-	commands := p.engine.GetAllCommands()
+	commands := p.Engine.GetAllCommands()
 	msg.WriteString(fmt.Sprintf("📝 命令总数: %d\n", len(commands)))
 
 	// 按事件类型统计
@@ -687,14 +688,14 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	}
 
 	// 插件统计
-	if p.pluginManager != nil {
-		plugins := p.pluginManager.ListWithMetadata()
+	if p.PluginManager != nil {
+		plugins := p.PluginManager.ListWithMetadata()
 		msg.WriteString(fmt.Sprintf("\n📦 插件总数: %d\n", len(plugins)))
 
 		// 按状态统计
 		stateCount := make(map[string]int)
 		for name := range plugins {
-			if plug, ok := p.pluginManager.Get(name); ok {
+			if plug, ok := p.PluginManager.Get(name); ok {
 				if stateful, ok := plug.(plugin.StatefulPlugin); ok {
 					state := stateful.GetState()
 					stateCount[fmt.Sprintf("%v", state)]++
@@ -720,8 +721,32 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	return p.reply(ctx, msg.String())
 }
 
-// Dependencies 返回依赖列表
+// Metadata 返回插件元数据（包含自动提取的依赖信息）
+func (p *Plugin) Metadata() *plugin.Metadata {
+	meta := p.BasePlugin.Metadata()
+
+	// 自动从标签提取依赖并更新元数据
+	deps := plugin.ExtractDependencies(p)
+	logger.Debugf("[DebugPlugin] Metadata() called, extracted deps: %v (len=%d)", deps, len(deps))
+	if len(deps) > 0 {
+		meta.Dependencies = deps
+		logger.Debugf("[DebugPlugin] Set meta.Dependencies to: %v", meta.Dependencies)
+	} else if meta.Dependencies == nil {
+		meta.Dependencies = []string{}
+	}
+
+	return meta
+}
+
+// Dependencies 返回依赖列表（自动从标签提取）
 func (p *Plugin) Dependencies() []string {
-	// 依赖权限插件（可选）
-	return []string{}
+	// 使用自动依赖提取
+	deps := plugin.ExtractDependencies(p)
+
+	// 如果标签提取为空，回退到元数据
+	if len(deps) == 0 {
+		return p.BasePlugin.Dependencies()
+	}
+
+	return deps
 }

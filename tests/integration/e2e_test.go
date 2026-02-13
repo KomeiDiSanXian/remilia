@@ -17,7 +17,7 @@ import (
 
 // TestE2E_BasicCommandFlow 测试基本命令流程
 func TestE2E_BasicCommandFlow(t *testing.T) {
-	// 1. 创建 Engine
+	// 1. 创建 engine
 	eng := engine.NewEngine()
 	defer eng.Close()
 
@@ -193,7 +193,7 @@ func TestE2E_AuditLogging(t *testing.T) {
 		_ = auditLogger.Close()
 	}()
 
-	// 创建 Engine 并注册审计中间件
+	// 创建 engine 并注册审计中间件
 	eng := engine.NewEngine()
 	defer eng.Close()
 	eng.Use(audit.Middleware(auditLogger))
@@ -414,7 +414,7 @@ func TestE2E_FullBotLifecycle(t *testing.T) {
 	//
 	//// 注册命令
 	//commandExecuted := false
-	//// bot.Engine().OnCommand(...).Handle(...)
+	//// bot.engine().OnCommand(...).Handle(...)
 	//
 	//// 启动、测试、停止
 

@@ -133,11 +133,6 @@ func (p *Plugin) Clear() error {
 	return p.storage.Clear()
 }
 
-// Dependencies 返回依赖列表
-func (p *Plugin) Dependencies() []string {
-	return []string{}
-}
-
 var (
 	// ErrNotFound 键不存在
 	ErrNotFound = errors.New("key not found")

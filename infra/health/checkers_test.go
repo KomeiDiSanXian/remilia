@@ -40,7 +40,7 @@ func TestEngineHealthChecker_Check_HealthyEngine(t *testing.T) {
 }
 
 func TestEngineHealthChecker_Check_WithMatchers(t *testing.T) {
-	t.Skip("Engine matcher setup requires more complex initialization")
+	t.Skip("engine matcher setup requires more complex initialization")
 }
 
 func TestDeadLetterQueueHealthChecker_Name(t *testing.T) {

@@ -49,12 +49,12 @@ func WithPendingDeleteBufferSize(size int) Option {
 // WithConfig 从配置创建 Engine 的所有选项
 //
 // 参数:
-//   - cfg: Engine 配置（从 config.Config.Engine 获取）
+//   - cfg: Engine 配置（从 config.Config.engine 获取）
 //
 // 示例:
 //
 //	cfg, _ := config.LoadDefault()
-//	engine := engine.NewEngine(engine.WithConfig(cfg.Engine))
+//	engine := engine.NewEngine(engine.WithConfig(cfg.engine))
 func WithConfig(cfg appconfig.EngineConfig) Option {
 	return func(e *Engine) {
 		// 解析并应用临时 Matcher 清理间隔
@@ -62,7 +62,7 @@ func WithConfig(cfg appconfig.EngineConfig) Option {
 			if interval, err := time.ParseDuration(cfg.TempMatcherCleanupInterval); err == nil {
 				e.services.tempMatcherCleanerInterval = interval
 			} else {
-				logger.WithError(err).Warnf("[Engine] Invalid temp_matcher_cleanup_interval config, using default %v",
+				logger.WithError(err).Warnf("[engine] Invalid temp_matcher_cleanup_interval config, using default %v",
 					DefaultTempMatcherCleanerInterval)
 			}
 		}
@@ -77,7 +77,7 @@ func WithConfig(cfg appconfig.EngineConfig) Option {
 			if interval, err := time.ParseDuration(cfg.PendingDeleteProcessInterval); err == nil {
 				e.services.pendingDeleteProcessInterval = interval
 			} else {
-				logger.WithError(err).Warnf("[Engine] Invalid pending_delete_process_interval config, using default %v",
+				logger.WithError(err).Warnf("[engine] Invalid pending_delete_process_interval config, using default %v",
 					DefaultPendingDeleteProcessInterval)
 			}
 		}
@@ -97,7 +97,7 @@ func WithConfig(cfg appconfig.EngineConfig) Option {
 		// 注意：MaxMatcherPoolCapacity 和 TempMatcherShardCount 需要在池创建时使用
 		// 这些配置可以在后续优化中支持
 
-		logger.Infof("[Engine] Config applied: cleanup_interval=%v, delete_buffer=%d, process_interval=%v, batch_size=%d, pool_capacity=%d",
+		logger.Infof("[engine] Config applied: cleanup_interval=%v, delete_buffer=%d, process_interval=%v, batch_size=%d, pool_capacity=%d",
 			e.services.tempMatcherCleanerInterval,
 			cap(e.services.pendingDeleteCh),
 			e.services.pendingDeleteProcessInterval,

@@ -215,7 +215,7 @@ func (ctx *Context) MatchCommand(parser *command.Parser) bool {
 	return true
 }
 
-// GetMiddlewareTrace returns the executed named middleware trace recorded by Engine.Named tracing.
+// GetMiddlewareTrace returns the executed named middleware trace recorded by engine.Named tracing.
 // Returns a copy of the trace to prevent external modification.
 func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 	if ctx == nil {
