@@ -231,7 +231,7 @@ func TestRealWorldScenarios(t *testing.T) {
 	t.Run("database operation retry queue", func(t *testing.T) {
 		type DBOperation struct {
 			SQL  string
-			Args []interface{}
+			Args []any
 		}
 
 		// Create a DLQ for failed DB operations
@@ -246,7 +246,7 @@ func TestRealWorldScenarios(t *testing.T) {
 		err := dbQueue.Enqueue(Item[*DBOperation]{
 			Data: &DBOperation{
 				SQL:  "INSERT INTO users (name, email) VALUES (?, ?)",
-				Args: []interface{}{"John", "john@example.com"},
+				Args: []any{"John", "john@example.com"},
 			},
 			Err:     assert.AnError,
 			Attempt: 2,

@@ -115,7 +115,7 @@ func TestGenericQueue_EnqueueDequeue(t *testing.T) {
 		defer q.Close(time.Second)
 
 		// Enqueue multiple items
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			err := q.Enqueue(Item[*TestData]{
 				Data: &TestData{ID: i, Message: "msg"},
 			})
@@ -225,7 +225,7 @@ func TestGenericQueue_Stats(t *testing.T) {
 	defer q.Close(time.Second)
 
 	// Enqueue items
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
 	}
 
@@ -261,7 +261,7 @@ func TestGenericQueue_Close(t *testing.T) {
 		q.Start()
 
 		// Add items
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
 		}
 
@@ -353,7 +353,7 @@ func TestGenericQueue_OnCallbacks(t *testing.T) {
 	defer q.Close(time.Second)
 
 	// Enqueue some items
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
 	}
 

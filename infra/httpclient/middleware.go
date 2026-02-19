@@ -70,13 +70,13 @@ func HeaderMiddleware(headers map[string]string) Middleware {
 	}
 }
 
-// RateLimitMiddleware 简单的速率限制中间件
 type RateLimiter struct {
 	lastRequest time.Time
 	minInterval time.Duration
 }
 
-func NewRateLimitMiddleware(minInterval time.Duration) Middleware {
+// RateLimitMiddleware 简单的速率限制中间件
+func RateLimitMiddleware(minInterval time.Duration) Middleware {
 	limiter := &RateLimiter{
 		minInterval: minInterval,
 	}

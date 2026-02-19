@@ -53,13 +53,11 @@ func TestValue_Load(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// Multiple goroutines reading concurrently
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 100 {
+			wg.Go(func() {
 				val := v.Load()
 				assert.Equal(t, 100, val)
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -84,7 +82,7 @@ func TestValue_Store(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// Multiple goroutines writing concurrently
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			val := i
 			go func() {
@@ -117,7 +115,7 @@ func TestValue_Swap(t *testing.T) {
 		results := make([]int, 100)
 
 		// Multiple goroutines swapping concurrently
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			idx := i
 			go func() {
@@ -156,7 +154,7 @@ func TestValue_CompareAndSwap(t *testing.T) {
 		successes := make([]bool, 100)
 
 		// Multiple goroutines trying to CAS concurrently
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			idx := i
 			go func() {

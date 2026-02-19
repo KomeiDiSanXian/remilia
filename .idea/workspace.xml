@@ -4,11 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: update container initialization tests for improved validation and error handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add generic utility functions for event parsing and middleware chaining">
       <change afterPath="$PROJECT_DIR$/docs/05-reports/Container测试修复报告.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/05-reports/context-generic-analysis.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/05-reports/generic-opportunities-analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/scenario-1-implementation-report.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/scenario-2-implementation-report.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/scenario-4-5-6-implementation-report.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/dlq/queue_generic.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/dlq/queue_generic_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -251,9 +259,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
-    <MESSAGE value="feat: enhance help command to display plugin list when no commands are available" />
-    <MESSAGE value="feat: implement plugin lifecycle management with state handling and configuration support" />
     <MESSAGE value="feat: update configuration and event handling types to use 'any' for improved flexibility" />
     <MESSAGE value="feat: simplify NewBasePlugin by delegating to NewBasePluginWithMetadata" />
     <MESSAGE value="feat: rename HelpPlugin to Plugin and refactor command handling to use engine directly" />
@@ -276,7 +281,10 @@
     <MESSAGE value="feat: add automated dependency tracking and smart registration for plugins" />
     <MESSAGE value="feat: implement adaptive sampling and degradation metrics for improved observability and performance" />
     <MESSAGE value="test: update container initialization tests for improved validation and error handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="test: update container initialization tests for improved validation and error handling" />
+    <MESSAGE value="refactor: simplify loop constructs and improve variable initialization in multiple files" />
+    <MESSAGE value="feat: introduce type-safe atomic value wrapper to eliminate type assertions" />
+    <MESSAGE value="feat: add generic utility functions for event parsing and middleware chaining" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add generic utility functions for event parsing and middleware chaining" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>
