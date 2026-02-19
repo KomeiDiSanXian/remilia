@@ -551,7 +551,159 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 	return nil
 }
 
-// container 字段添加到 Manager
-// 注意：这需要修改 manager.go，在这里只是说明需要添加的字段
-// 实际实现时需要在 Manager 结构体中添加：
-// container *Container // 依赖注入容器
+// RegisterMultipleV2 批量注册多个 v2 插件，自动处理依赖顺序
+//
+// 此方法会：
+// 1. 检测循环依赖（使用拓扑排序算法）
+// 2. 按正确的依赖顺序注册插件
+// 3. 如果任何插件注册失败，已注册的插件不会自动回滚
+//
+// 使用示例：
+//
+//	plugins := []*PluginDescriptor{
+//	    NewPluginA(), // 依赖 B
+//	    NewPluginB(), // 依赖 C
+//	    NewPluginC(), // 无依赖
+//	}
+//	if err := manager.RegisterMultipleV2(plugins); err != nil {
+//	    log.Fatal(err)
+//	}
+func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+
+	// 验证所有描述符
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+
+	// 拓扑排序，检测循环依赖
+	sorted, err := pm.topologicalSortV2(descriptors)
+	if err != nil {
+		return fmt.Errorf("dependency resolution failed: %w", err)
+	}
+
+	// 按依赖顺序注册
+	for _, desc := range sorted {
+		if err := pm.RegisterV2(desc); err != nil {
+			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, err)
+		}
+	}
+
+	logger.Infof("[pluginManager] Successfully registered %d plugins in dependency order", len(sorted))
+	return nil
+}
+
+// topologicalSortV2 使用 Kahn 算法进行拓扑排序
+// 返回按依赖顺序排列的插件列表，如果存在循环依赖则返回错误
+func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
+	// 构建映射：名称 -> 描述符
+	descMap := make(map[string]*PluginDescriptor)
+	for _, desc := range descriptors {
+		if _, exists := descMap[desc.Name]; exists {
+			return nil, fmt.Errorf("duplicate plugin name: %s", desc.Name)
+		}
+		descMap[desc.Name] = desc
+	}
+
+	// 构建依赖图和入度表
+	// inDegree[name] = 依赖该插件的数量
+	// graph[name] = 依赖于 name 的插件列表
+	inDegree := make(map[string]int)
+	graph := make(map[string][]string)
+
+	// 初始化入度
+	for name := range descMap {
+		inDegree[name] = 0
+		graph[name] = make([]string, 0)
+	}
+
+	// 计算入度和构建图
+	for _, desc := range descriptors {
+		for _, dep := range desc.Deps {
+			// 检查依赖是否存在（可能已在 manager 中注册，或在当前批次中）
+			pm.mu.RLock()
+			_, existsInManager := pm.plugins[dep]
+			pm.mu.RUnlock()
+
+			_, existsInBatch := descMap[dep]
+
+			if !existsInManager && !existsInBatch {
+				return nil, fmt.Errorf("plugin %s has missing dependency: %s", desc.Name, dep)
+			}
+
+			// 只处理批次内的依赖关系
+			if existsInBatch {
+				inDegree[desc.Name]++
+				graph[dep] = append(graph[dep], desc.Name)
+			}
+		}
+	}
+
+	// Kahn 算法：拓扑排序
+	queue := make([]string, 0)
+
+	// 找出所有入度为 0 的节点（无依赖或依赖已满足）
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	result := make([]*PluginDescriptor, 0, len(descriptors))
+	processed := 0
+
+	for len(queue) > 0 {
+		// 取出一个入度为 0 的节点
+		current := queue[0]
+		queue = queue[1:]
+
+		// 添加到结果
+		result = append(result, descMap[current])
+		processed++
+
+		// 减少所有依赖于 current 的节点的入度
+		for _, dependent := range graph[current] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+	}
+
+	// 检查是否所有节点都被处理（如果没有，说明存在循环依赖）
+	if processed != len(descriptors) {
+		// 找出形成循环的插件
+		unprocessed := make([]string, 0)
+		for name, degree := range inDegree {
+			if degree > 0 {
+				unprocessed = append(unprocessed, name)
+			}
+		}
+		return nil, fmt.Errorf("circular dependency detected among plugins: %v", unprocessed)
+	}
+
+	return result, nil
+}
+
+// ValidateDependencies 验证一组插件的依赖关系（不注册）
+// 返回错误如果存在循环依赖或缺失依赖
+//
+// 使用示例：
+//
+//	if err := manager.ValidateDependencies(plugins); err != nil {
+//	    log.Printf("Dependency validation failed: %v", err)
+//	}
+func (pm *Manager) ValidateDependencies(descriptors []*PluginDescriptor) error {
+	_, err := pm.topologicalSortV2(descriptors)
+	return err
+}
