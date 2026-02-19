@@ -2,11 +2,20 @@ package dlq
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+)
+
+// Error definitions
+var (
+	ErrQueueClosed       = errors.New("queue is closed")
+	ErrQueueFull         = errors.New("queue is full")
+	ErrInvalidDropPolicy = errors.New("invalid drop policy")
+	ErrCloseTimeout      = errors.New("close operation timed out")
 )
 
 type DropPolicy int
