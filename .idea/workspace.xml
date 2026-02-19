@@ -5,17 +5,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: simplify loop constructs using range expressions for better readability">
-      <change afterPath="$PROJECT_DIR$/FIXES_COMPLETED.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/代码质量分析报告.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/修复总结.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/测试修复报告.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/高优先级问题修复报告.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/MEDIUM_PRIORITY_FIXES_COMPLETED.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/中优先级问题修复报告.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/lifecycle/lifecycle_stop_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

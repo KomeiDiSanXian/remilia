@@ -137,6 +137,9 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 // Clone 克隆 Context 用于异步操作
 //
 // Clone 会创建一个新的 Context 实例，复制当前 Context 的所有字段。
+//
+// 重要：克隆的 Context 使用独立的 context.Background()，不会受原 Context 取消的影响。
+// 如果需要传播 trace 信息，会自动复制 trace span。
 func (ctx *Context) Clone() *Context {
 	// Clone the event to prevent mutation issues
 	var clonedEvent *dto.Payload
@@ -144,11 +147,20 @@ func (ctx *Context) Clone() *Context {
 		clonedEvent = ctx.event.Clone()
 	}
 
+	// 创建独立的 context，避免级联取消
+	// 但保留 trace 信息（如果存在）
+	newStdCtx := stdctx.Background()
+
+	// 复制 trace context（如果存在）
+	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
+		newStdCtx = trace.ContextWithSpan(newStdCtx, span)
+	}
+
 	newCtx := &Context{
-		ctx:     ctx.Context(),
-		matcher: ctx.matcher,
+		ctx:     newStdCtx,   // 使用独立的 context
+		matcher: ctx.matcher, // 只读引用，安全
 		event:   clonedEvent,
-		api:     ctx.api,
+		api:     ctx.api, // 只读引用，安全
 	}
 
 	// Copy typed extensions snapshot.

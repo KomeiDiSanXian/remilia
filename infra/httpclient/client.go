@@ -278,6 +278,24 @@ func (r *Request) Use(middleware Middleware) *Request {
 }
 
 // Do 执行请求
+//
+// 重要：调用者必须在使用完 Response 后调用 resp.Close() 关闭响应体，
+// 否则会导致 HTTP 连接泄漏。
+//
+// 示例：
+//
+//	resp, err := client.Get(url).Do()
+//	if err != nil {
+//	    return err
+//	}
+//	defer resp.Close()  // 必须关闭！
+//
+//	body, _ := resp.Bytes()
+//
+// 如果不想手动管理 Response 关闭，可以使用便捷方法：
+// - DoJSON()  自动关闭并解析 JSON
+// - DoString() 自动关闭并返回字符串
+// - DoBytes()  自动关闭并返回字节数组
 func (r *Request) Do() (*Response, error) {
 	// 执行中间件
 	for _, mw := range r.middlewares {

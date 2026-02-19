@@ -10,6 +10,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/shirou/gopsutil/v3/cpu"
 )
 
 // AdaptiveRateLimiter 自适应限流器
@@ -229,19 +230,19 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 			}
 
 			// 获取当前指标
-			cpu := arl.getCPUUsage()
+			cpuUsageVal := arl.getCPUUsage()
 			memory := arl.getMemoryUsage()
 			latency := arl.getLatencyP99()
 			currentLimit := arl.maxConcurrency.Load()
 
 			// 修复：采集失败时跳过调整（负值表示采集失败）
-			if cpu < 0 || memory < 0 {
+			if cpuUsageVal < 0 || memory < 0 {
 				logger.Warn("[AdaptiveRateLimiter] Metrics collection failed, skipping adjustment")
 				continue
 			}
 
 			// 决策是否调整
-			newLimit := arl.decideLimit(cpu, memory, latency, currentLimit)
+			newLimit := arl.decideLimit(cpuUsageVal, memory, latency, currentLimit)
 
 			if newLimit != currentLimit {
 				arl.adjustLimit(newLimit)
@@ -250,7 +251,7 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 				logger.WithFields(logger.Fields{
 					"old_limit":      currentLimit,
 					"new_limit":      newLimit,
-					"cpu":            fmt.Sprintf("%.2f%%", cpu*100),
+					"cpu":            fmt.Sprintf("%.2f%%", cpuUsageVal*100),
 					"memory":         fmt.Sprintf("%.2f%%", memory*100),
 					"latency_p99":    latency,
 					"target_cpu":     fmt.Sprintf("%.2f%%", arl.config.TargetCPU*100),
@@ -285,21 +286,25 @@ func (arl *AdaptiveRateLimiter) metricsLoop() {
 
 // collectMetrics 采集系统指标
 func (arl *AdaptiveRateLimiter) collectMetrics() {
-	// 采集 CPU 使用率
+	// 采集真实 CPU 使用率（使用 gopsutil）
+	// 注意：gopsutil 已经在 go.mod 中作为依赖
+	cpuPercent, err := cpu.Percent(time.Second, false)
+	if err != nil || len(cpuPercent) == 0 {
+		logger.WithError(err).Warn("[AdaptiveRateLimiter] Failed to get CPU usage, using fallback")
+		// 失败时使用负值标记，调整逻辑会跳过
+		arl.cpuUsage.Store(-1.0)
+	} else {
+		// CPU 使用率（0.0-1.0）
+		cpuUsage := cpuPercent[0] / 100.0
+		arl.cpuUsage.Store(cpuUsage)
+	}
+
+	// 内存使用率
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	// CPU 使用率（简化计算，实际应该使用更准确的方法）
-	numCPU := runtime.NumCPU()
-	numGoroutine := runtime.NumGoroutine()
-	cpuUsage := float64(numGoroutine) / float64(numCPU*100) // 简化估算
-	if cpuUsage > 1.0 {
-		cpuUsage = 1.0
-	}
-	arl.cpuUsage.Store(cpuUsage)
-
-	// 内存使用率
-	memUsage := float64(m.Alloc) / float64(m.Sys)
+	// 使用 HeapAlloc / HeapSys 更准确地反映堆内存使用率
+	memUsage := float64(m.HeapAlloc) / float64(m.HeapSys)
 	if memUsage > 1.0 {
 		memUsage = 1.0
 	}

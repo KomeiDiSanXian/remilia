@@ -472,8 +472,8 @@ func (m *Manager) Stop(ctx context.Context) error {
 		logger.Warn("[Lifecycle] Stop timeout, some OnRun may still be running")
 	}
 
-	// 逆序调用 OnStop
-	var stopErr error
+	// 逆序调用 OnStop，收集所有错误
+	var stopErrors []error
 	for i := len(components) - 1; i >= 0; i-- {
 		comp := components[i]
 		if err := comp.OnStop(ctx); err != nil {
@@ -481,9 +481,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 				"component": comp.Name(),
 				"error":     err,
 			}).Error("[Lifecycle] Component OnStop failed")
-			if stopErr == nil {
-				stopErr = &StopError{Err: err}
-			}
+			stopErrors = append(stopErrors, fmt.Errorf("component %s: %w", comp.Name(), err))
 		}
 	}
 
@@ -491,8 +489,15 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.state = StateStopped
 	m.mu.Unlock()
 
-	if stopErr != nil {
-		return stopErr
+	// 如果有多个错误，返回组合错误
+	if len(stopErrors) > 0 {
+		if len(stopErrors) == 1 {
+			return &StopError{Err: stopErrors[0]}
+		}
+		// 多个错误，返回组合错误
+		return &StopError{
+			Err: fmt.Errorf("multiple components failed to stop: %v", stopErrors),
+		}
 	}
 
 	logger.Info("[Lifecycle] All components stopped successfully")
