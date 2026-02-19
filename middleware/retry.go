@@ -88,10 +88,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 				}
 
 				// 计算退避时间（指数退避）
-				delay := cfg.BackoffBase * time.Duration(1<<uint(attempt))
-				if delay > cfg.BackoffMax {
-					delay = cfg.BackoffMax
-				}
+				delay := min(cfg.BackoffBase*time.Duration(1<<uint(attempt)), cfg.BackoffMax)
 
 				logger.WithError(err).
 					WithFields(logger.Fields{

@@ -94,7 +94,7 @@ func TestCommandRegistryWithTrie(t *testing.T) {
 	// Test memory efficiency
 	t.Run("Memory Efficiency", func(t *testing.T) {
 		// Register many commands
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			def := &Definition{
 				Name:        fmt.Sprintf("/cmd%d", i),
 				Description: "Test command",
@@ -120,7 +120,7 @@ func BenchmarkTrieInsert(b *testing.B) {
 
 func BenchmarkTrieSearch(b *testing.B) {
 	trie := NewTrie()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		meta := &CommandMeta{Name: fmt.Sprintf("/cmd%d", i)}
 		trie.Insert(meta.Name, meta)
 	}

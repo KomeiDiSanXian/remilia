@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"sync"
@@ -292,9 +293,7 @@ func (cr *CommandRegistry) recompile() {
 	}
 
 	// 复制别名映射
-	for alias, cmdName := range cr.aliases {
-		newCompiled.aliasMap[alias] = cmdName
-	}
+	maps.Copy(newCompiled.aliasMap, cr.aliases)
 
 	// 按优先级排序命令列表（Trie.GetAllCommands 已经排序，但为了保险再排一次）
 	sortCommandsByPriority(newCompiled.commandList)

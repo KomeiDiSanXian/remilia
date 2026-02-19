@@ -26,7 +26,7 @@ func TestBotConcurrentStart(t *testing.T) {
 	errors := make([]error, 10)
 
 	// Try to start bot concurrently from 10 goroutines
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -122,7 +122,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 		return assert.AnError
 	})
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_ = failHandler(&eventctx.Context{})
 	}
 
@@ -140,10 +140,8 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 
 	startBarrier.Add(1) // Barrier to ensure all goroutines start at the same time
 
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 
 			// Wait for barrier to ensure concurrent execution
 			startBarrier.Wait()
@@ -159,7 +157,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 			} else {
 				rejectedCount.Add(1)
 			}
-		}()
+		})
 	}
 
 	// Release all goroutines at once

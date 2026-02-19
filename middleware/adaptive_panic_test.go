@@ -38,7 +38,7 @@ func TestAdaptiveRateLimiter_PanicRecovery(t *testing.T) {
 	}, nil)
 
 	// 执行多次，确保每次都能正确释放信号量
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := wrappedHandler(ctx)
 		if err == nil {
 			t.Fatalf("Expected error from panic, got nil")
@@ -106,7 +106,7 @@ func TestAdaptiveRateLimiter_ConcurrentPanicRecovery(t *testing.T) {
 	numGoroutines := 50
 	wg.Add(numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
 			ctx := eventctx.NewContext(&dto.Payload{
@@ -164,7 +164,7 @@ func TestAdaptiveRateLimiter_SemaphoreNoLeak(t *testing.T) {
 
 	startTime := time.Now()
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
 			ctx := eventctx.NewContext(&dto.Payload{

@@ -272,7 +272,7 @@ func BenchmarkCommandRegistry_Lookup(b *testing.B) {
 	registry := NewCommandRegistry()
 
 	// 注册 100 个命令
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		def := &Definition{
 			Name: "/cmd" + string(rune('0'+i%10)),
 		}

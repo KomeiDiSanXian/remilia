@@ -224,7 +224,7 @@ func TestWatcher_Debounce(t *testing.T) {
 	watcher.Start()
 
 	// Write multiple times quickly
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		err = os.WriteFile(tmpFile, []byte(validConfig), 0644)
 		require.NoError(t, err)
 		time.Sleep(30 * time.Millisecond)
@@ -265,9 +265,9 @@ func TestWatcher_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = watcher.GetConfig()
 			}
 			done <- true
@@ -275,9 +275,9 @@ func TestWatcher_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent writes
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				_ = watcher.ForceReload()
 				time.Sleep(10 * time.Millisecond)
 			}
@@ -286,7 +286,7 @@ func TestWatcher_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		<-done
 	}
 }

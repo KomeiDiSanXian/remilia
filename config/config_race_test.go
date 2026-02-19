@@ -39,10 +39,8 @@ log:
 	stop := make(chan struct{})
 
 	// Start multiple readers
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -55,18 +53,16 @@ log:
 					time.Sleep(time.Millisecond)
 				}
 			}
-		}()
+		})
 	}
 
 	// Start a writer (simulating hot reload)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5; i++ {
+	wg.Go(func() {
+		for range 5 {
 			time.Sleep(10 * time.Millisecond)
 			_, _ = Load(tmpFile)
 		}
-	}()
+	})
 
 	// Let them run for a bit
 	time.Sleep(100 * time.Millisecond)

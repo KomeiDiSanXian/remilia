@@ -16,7 +16,7 @@ func TestBatchRegisterMatchers(t *testing.T) {
 
 	// 创建多个匹配器
 	matchers := make([]*engine.Matcher, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		matchers[i] = &engine.Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []context.Rule{
@@ -49,7 +49,7 @@ func TestBatchRegisterWithLimit(t *testing.T) {
 
 	// 创建 10 个匹配器
 	matchers := make([]*engine.Matcher, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		matchers[i] = &engine.Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []context.Rule{
@@ -99,7 +99,7 @@ func BenchmarkBatchRegister(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		matchers := make([]*engine.Matcher, 10)
-		for j := 0; j < 10; j++ {
+		for j := range 10 {
 			matchers[j] = &engine.Matcher{
 				EventType: dto.C2CMessageCreate,
 				Rules: []context.Rule{

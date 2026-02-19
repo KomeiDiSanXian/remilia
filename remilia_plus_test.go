@@ -242,13 +242,11 @@ func TestBot_ConcurrentHealth(t *testing.T) {
 	defer bot.Stop(context.Background())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			response := bot.Health()
 			assert.NotNil(t, response)
-		}()
+		})
 	}
 
 	wg.Wait()

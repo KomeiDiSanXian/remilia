@@ -43,7 +43,7 @@ func TestCircuitBreakerAutoRecovery(t *testing.T) {
 
 	// 1. 触发 3 次失败，打开熔断器
 	t.Log("Step 1: Trigger failures to open circuit")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		err := wrappedHandler(ctx)
 		if err == nil {
 			t.Errorf("Expected error, got nil")
@@ -67,7 +67,7 @@ func TestCircuitBreakerAutoRecovery(t *testing.T) {
 
 	// 4. 半开状态下发送成功请求
 	t.Log("Step 4: Send successful requests in half-open state")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		err := wrappedHandler(ctx)
 		if err != nil {
 			t.Errorf("Request %d failed: %v", i+1, err)
@@ -124,7 +124,7 @@ func TestCircuitBreakerHalfOpenTimeout(t *testing.T) {
 	ctx := eventctx.NewContext(event, nil)
 
 	// 触发失败，打开熔断器
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		wrappedHandler(ctx)
 	}
 
@@ -136,7 +136,7 @@ func TestCircuitBreakerHalfOpenTimeout(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// 发送 2 次成功请求，进入半开状态但不够关闭（需要 5 次）
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		err := wrappedHandler(ctx)
 		if err != nil {
 			t.Errorf("Request %d should succeed, got error: %v", i+1, err)
@@ -187,7 +187,7 @@ func TestCircuitBreakerSuccessThreshold(t *testing.T) {
 	ctx := eventctx.NewContext(event, nil)
 
 	// 触发失败
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		wrappedHandler(ctx)
 	}
 
@@ -198,7 +198,7 @@ func TestCircuitBreakerSuccessThreshold(t *testing.T) {
 	failFirst = false
 
 	// 发送 2 次成功，不应该关闭（需要 3 次）
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		wrappedHandler(ctx)
 	}
 

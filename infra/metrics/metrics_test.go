@@ -94,7 +94,7 @@ func TestRecordDeadLetterConsumed(t *testing.T) {
 	assert.Equal(t, initialCount+1, newCount)
 
 	// Record multiple consumptions
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		collector.RecordDeadLetterConsumed(50 * time.Millisecond)
 	}
 
@@ -408,9 +408,9 @@ func TestConcurrentMetrics(t *testing.T) {
 	iterations := 100
 
 	// Concurrent counter increments
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				collector.RecordRetrySuccess()
 			}
 			done <- true
@@ -418,7 +418,7 @@ func TestConcurrentMetrics(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 

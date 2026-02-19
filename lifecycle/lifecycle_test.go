@@ -223,7 +223,7 @@ func TestManager_MultipleComponents(t *testing.T) {
 	const numComponents = 5
 	comps := make([]*testComponent, numComponents)
 
-	for i := 0; i < numComponents; i++ {
+	for i := range numComponents {
 		comp := newTestComponent(string(rune('A' + i)))
 		comp.blockRun = true
 		comps[i] = comp
@@ -314,11 +314,11 @@ func TestResourceComponent(t *testing.T) {
 
 	comp := NewResourceComponent(
 		"test",
-		func(ctx context.Context) (interface{}, error) {
+		func(ctx context.Context) (any, error) {
 			acquireCalled = true
 			return "test-resource", nil
 		},
-		func(ctx context.Context, res interface{}) error {
+		func(ctx context.Context, res any) error {
 			releaseCalled = true
 			resource = res.(string)
 			return nil

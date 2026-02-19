@@ -318,7 +318,7 @@ func TestDeadLetterQueue_MultipleWorkers(t *testing.T) {
 	dlq.Start()
 
 	// 入队多个项目
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		dlq.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{ID: dto.EventID("item-" + string(rune(i)))},
 		})
@@ -390,7 +390,7 @@ func TestDeadLetterQueue_OnProcessedCallback(t *testing.T) {
 	dlq.Start()
 
 	// 入队
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		dlq.Enqueue(DeadLetterItem{
 			Event: &dto.Payload{ID: dto.EventID("item-" + string(rune(i)))},
 		})
@@ -476,7 +476,7 @@ func TestDeadLetterQueue_ConcurrentEnqueue(t *testing.T) {
 
 	// 并发入队
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

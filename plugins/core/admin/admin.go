@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,20 +17,23 @@ import (
 
 // Plugin 管理插件
 type Plugin struct {
-	*plugin.BasePlugin
-	PluginManager *plugin.Manager    `inject:"manager"`
-	PermPlugin    *permission.Plugin `inject:"plugin:permission"`
+	PluginManager *plugin.Manager
+	PermPlugin    *permission.Plugin
 }
 
-// New 创建管理插件
-func New() *Plugin {
-	metadata := &plugin.Metadata{
+// New 创建管理插件（v2 API）
+func New() *plugin.PluginDescriptor {
+	// 创建内部实例
+	v1Plugin := newAdminPluginInternal()
+
+	return &plugin.PluginDescriptor{
 		Name:        "admin",
-		Version:     "1.0.0",
+		Version:     "2.0.0",
 		Author:      "Remilia Team",
 		Description: "机器人管理核心插件，提供插件管理、权限管理和配置管理功能",
 		Category:    "系统",
 		Tags:        []string{"管理", "系统", "核心"},
+		Deps:        []string{"permission"},
 		HelpText: `管理插件使用说明：
 
 插件管理：
@@ -63,11 +67,35 @@ func New() *Plugin {
 系统信息：
   /status - 查看系统状态
   /info - 查看机器人信息`,
-	}
 
-	return &Plugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[AdminPlugin] Loading admin plugin (v2)...")
+
+			// 获取依赖（确保 permission 已加载）
+			_ = ctx.MustGet("permission")
+			// 从容器获取 permission API
+			permAPI, _ := ctx.Manager.GetContainer().Get("permission_api")
+
+			// 设置引用
+			v1Plugin.PluginManager = ctx.Manager
+			if permAPI != nil {
+				v1Plugin.PermPlugin = permAPI.(*permission.Plugin)
+			}
+
+			// 加载插件
+			return v1Plugin.Load(ctx.Engine)
+		},
+
+		Teardown: func() error {
+			logger.Info("[AdminPlugin] Admin plugin unloaded")
+			return nil
+		},
 	}
+}
+
+// newAdminPluginInternal 创建管理插件内部实例
+func newAdminPluginInternal() *Plugin {
+	return &Plugin{}
 }
 
 // Load 加载插件
@@ -142,7 +170,7 @@ func (p *Plugin) registerPluginCommand(eng *engine.Engine) {
 		},
 	}
 
-	p.OnCommand(eng, dto.C2CMessageCreate, "/plugin").
+	eng.OnCommand(dto.C2CMessageCreate, "/plugin").
 		SetDefinition(pluginCmd).
 		Handle(p.handlePluginCommand)
 }
@@ -234,7 +262,7 @@ func (p *Plugin) registerPermCommand(eng *engine.Engine) {
 		},
 	}
 
-	p.OnCommand(eng, dto.C2CMessageCreate, "/perm").
+	eng.OnCommand(dto.C2CMessageCreate, "/perm").
 		SetDefinition(permCmd).
 		Handle(p.handlePermCommand)
 }
@@ -282,11 +310,11 @@ func (p *Plugin) showPermHelp(ctx *eventctx.Context) error {
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(eng *engine.Engine) {
 	// /status
-	p.OnCommand(eng, dto.C2CMessageCreate, "/status").
+	eng.OnCommand(dto.C2CMessageCreate, "/status").
 		Handle(p.handleStatus)
 
 	// /info
-	p.OnCommand(eng, dto.C2CMessageCreate, "/info").
+	eng.OnCommand(dto.C2CMessageCreate, "/info").
 		Handle(p.handleInfo)
 }
 
@@ -634,12 +662,12 @@ func (p *Plugin) registerCodeCommand(eng *engine.Engine) {
 	}
 
 	// 注册私聊命令
-	p.OnCommand(eng, dto.C2CMessageCreate, "/code").
+	eng.OnCommand(dto.C2CMessageCreate, "/code").
 		SetDefinition(codeCmd).
 		Handle(p.handleCodeCommand)
 
 	// 注册群聊命令（verify 子命令）
-	p.OnCommand(eng, dto.GroupAtMessageCreate, "/code").
+	eng.OnCommand(dto.GroupAtMessageCreate, "/code").
 		SetDefinition(codeCmd).
 		Handle(p.handleCodeCommand)
 }
@@ -854,12 +882,7 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
 
 	userID := ctx.GetUserID()
 	roles := p.PermPlugin.GetUserRoles(userID)
-	for _, role := range roles {
-		if role == "admin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(roles, "admin")
 }
 
 // === 黑白名单相关功能 ===
@@ -921,7 +944,7 @@ func (p *Plugin) registerACLCommand(eng *engine.Engine) {
 		},
 	}
 
-	p.OnCommand(eng, dto.C2CMessageCreate, "/acl").
+	eng.OnCommand(dto.C2CMessageCreate, "/acl").
 		SetDefinition(aclCmd).
 		Handle(p.handleACLCommand)
 }

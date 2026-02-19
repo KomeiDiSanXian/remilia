@@ -26,57 +26,71 @@ const (
 //   - /help <插件名> - 显示指定插件的所有命令
 //   - /help <命令名> - 显示指定命令的详细信息
 type Plugin struct {
-	*plugin.BasePlugin
-	Engine        *engine.Engine  `inject:"engine"`  // 从 Engine 直接获取命令信息
-	PluginManager *plugin.Manager `inject:"manager"` // 用于获取插件信息
+	Engine        *engine.Engine  // 从 Engine 直接获取命令信息
+	PluginManager *plugin.Manager // 用于获取插件信息
 }
 
-// NewHelpPlugin 创建帮助插件
-// registry 参数已废弃，为了向后兼容保留但不使用
-// 命令信息将直接从 engine 获取
-func NewHelpPlugin(_ *command.CommandRegistry) *Plugin {
-	basePlugin := plugin.NewBasePluginWithMetadata(&plugin.Metadata{
+// New 创建帮助插件（v2 API）
+func New() *plugin.PluginDescriptor {
+	// 创建 v1 Plugin 实例（闭包捕获）
+	v1Plugin := newHelpPluginInternal()
+
+	return &plugin.PluginDescriptor{
 		Name:        "help",
-		Version:     "1.0.0",
+		Version:     "2.0.0",
 		Author:      "Remilia",
 		Description: "提供命令和插件的帮助信息查询功能",
+		Category:    "系统",
+		Tags:        []string{"帮助", "文档", "命令"},
+		Deps:        []string{},
+		Hidden:      false,
 		HelpText: `帮助插件使用说明：
   /help - 显示所有命令列表
   /help <页码> - 显示指定页的命令
   /help plugins - 显示所有插件列表
   /help <插件名> - 显示插件的详细信息
   /help <命令名> - 显示命令的详细用法`,
-		Category: "系统",
-		Tags:     []string{"帮助", "文档", "命令"},
-		Hidden:   false,
-	})
 
-	return &Plugin{
-		BasePlugin: basePlugin,
-		Engine:     nil, // 将在 Load 时设置
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[Plugin] Loading help plugin (v2)...")
+
+			// 设置 Engine 和 PluginManager
+			v1Plugin.Engine = ctx.Engine
+			v1Plugin.PluginManager = ctx.Manager
+
+			// 注册命令
+			ctx.Engine.OnCommand(dto.GroupAtMessageCreate, "/help").
+				Handle(v1Plugin.handleHelp)
+			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/help").
+				Handle(v1Plugin.handleHelp)
+
+			logger.Info("[Plugin] Help plugin loaded successfully")
+			return nil
+		},
 	}
 }
 
-// New 创建帮助插件（推荐使用此方法）
-// 命令信息将直接从 engine 获取，无需额外的 CommandRegistry
-func New() *Plugin {
-	return NewHelpPlugin(nil)
+// newHelpPluginInternal 创建帮助插件内部实例
+func newHelpPluginInternal() *Plugin {
+	return &Plugin{
+		Engine:        nil, // 将在 Setup 时设置
+		PluginManager: nil, // 将在 Setup 时设置
+	}
 }
 
-// Load 加载帮助插件
+// Load 加载帮助插件（v1 API）
 func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[Plugin] Loading help plugin...")
 
 	// 保存 engine 引用以便后续获取命令信息
 	p.Engine = eng
 
-	// 注册 /help 命令 - 列出所有命令或显示特定命令的详细信息
-	// 使用 BasePlugin.OnCommand 自动添加到 Matcher 列表
-	p.OnCommand(eng, dto.GroupAtMessageCreate, "/help").
+	// 注册 /help 命令
+	eng.OnCommand(dto.GroupAtMessageCreate, "/help").
 		Handle(p.handleHelp)
 
 	// 同时支持私聊
-	p.OnCommand(eng, dto.C2CMessageCreate, "/help").
+	eng.OnCommand(dto.C2CMessageCreate, "/help").
 		Handle(p.handleHelp)
 
 	logger.Info("[Plugin] Help plugin loaded successfully")
@@ -88,14 +102,7 @@ func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
 	p.PluginManager = pm
 }
 
-// handleHelp 处理帮助命令
-//
-// 支持以下格式：
-//   - /help - 显示所有命令（第1页）
-//   - /help 2 - 显示第2页的命令
-//   - /help plugins - 显示所有插件列表
-//   - /help <插件名> - 显示指定插件的所有命令
-//   - /help <命令名> - 显示指定命令的详细信息
+// handleHelp 处理帮助命令（v1）
 func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	content := ctx.GetMessageContent()
 
@@ -166,10 +173,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	}
 
 	startIdx := (page - 1) * commandsPerPage
-	endIdx := startIdx + commandsPerPage
-	if endIdx > len(commands) {
-		endIdx = len(commands)
-	}
+	endIdx := min(startIdx+commandsPerPage, len(commands))
 
 	var help strings.Builder
 	help.WriteString(fmt.Sprintf("📖 可用命令列表 (第 %d/%d 页)\n", page, totalPages))

@@ -1,14 +1,40 @@
+// Package plugin 提供插件系统的核心接口和实现。
+//
+// # 使用 v2 API
+//
+// 插件应该使用 v2 API (PluginDescriptor)，它提供：
+//   - 函数式设计，无需继承
+//   - 自动依赖注入
+//   - 更简洁的代码（减少 60% 样板代码）
+//   - 完整的生命周期管理
+//
+// v2 示例：
+//
+//	func New() *plugin.PluginDescriptor {
+//	    return &plugin.PluginDescriptor{
+//	        Name:    "myplugin",
+//	        Version: "1.0.0",
+//	        Deps:    []string{"cache"},
+//	        Setup: func(ctx *plugin.SetupContext) error {
+//	            cache := ctx.MustGet("cache")
+//	            // 初始化逻辑...
+//	            return nil
+//	        },
+//	    }
+//	}
+//
+// # v1 API 已移除
+//
+// BasePlugin 和相关的 v1 API 已在 v2.0.0 中移除。
+// 请使用 v2 API (PluginDescriptor) 替代。
+//
+// 迁移指南: docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md
 package plugin
 
 import (
-	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 // Metadata 插件元数据
@@ -30,31 +56,31 @@ type Metadata struct {
 	// 可见性
 	Hidden bool // 是否在帮助中隐藏
 
-	// 联系方式
+	// 联系方式（保留用于兼容性）
 	Homepage   string // 主页
 	Repository string // 仓库地址
 }
 
 // Plugin 插件接口
+// 所有插件必须实现此接口的基本方法
+//
+// 注意: 推荐使用 v2 API (PluginDescriptor) 而不是直接实现此接口
 type Plugin interface {
 	// Name 返回插件名称
 	Name() string
 
-	// Load 加载插件到引擎，返回错误信息
+	// Load 加载插件
+	// 在此方法中应该注册事件处理器、初始化资源等
 	Load(coordinator *engine.Engine) error
 
-	// Unload 卸载插件，返回错误信息
+	// Unload 卸载插件
+	// 在此方法中应该清理资源、移除事件处理器等
 	Unload(coordinator *engine.Engine) error
 
-	// Reload 原子性重载插件（策略 B）：
-	//  - 成功时，用新的内部状态替换旧状态；
-	//  - 失败时，不改变原有状态（调用方可根据错误自行处理）。
-	// coordinator 参数用于重新注册 handler 等操作
+	// Reload 重新加载插件（热重载）
 	Reload(coordinator *engine.Engine) error
 
-	// Dependencies 返回插件依赖列表（v0.7.1 新增）
-	// 返回的插件名称列表表示此插件依赖的其他插件
-	// 插件管理器会确保依赖的插件先于当前插件加载
+	// Dependencies 返回插件的依赖列表
 	Dependencies() []string
 }
 
@@ -107,373 +133,13 @@ type MatcherProvider interface {
 	GetMatchers() []*engine.Matcher
 }
 
-// EventAwarePlugin 事件感知插件接口（可选实现）
-// 实现此接口的插件支持事件总线
-type EventAwarePlugin interface {
-	// PublishEvent 发布事件
-	PublishEvent(topic string, data any) error
-
-	// SubscribeEvent 订阅事件
-	SubscribeEvent(topic string, handler EventHandler) (Subscription, error)
-
-	// UnsubscribeEvent 取消订阅
-	UnsubscribeEvent(sub Subscription) error
-
-	// GetEventBus 获取事件总线
-	GetEventBus() EventBus
-}
-
-// BasePlugin 基础插件结构
-type BasePlugin struct {
-	name      string
-	metadata  *Metadata
-	matchers  []*engine.Matcher
-	config    Config
-	eventBus  EventBus
-	state     State
-	loadTime  time.Time
-	lastError error
-	mu        sync.RWMutex
-}
-
-// NewBasePlugin 创建基础插件
-func NewBasePlugin(name string) *BasePlugin {
-	return &BasePlugin{
-		name:     name,
-		matchers: make([]*engine.Matcher, 0),
-		metadata: &Metadata{
-			Name: name,
-		},
-		eventBus: NewEventBus(),
-		state:    Unloaded,
-	}
-}
-
-// NewBasePluginWithMetadata 创建带元数据的基础插件
-func NewBasePluginWithMetadata(metadata *Metadata) *BasePlugin {
-	return &BasePlugin{
-		name:     metadata.Name,
-		metadata: metadata,
-		matchers: make([]*engine.Matcher, 0),
-		eventBus: NewEventBus(),
-		state:    Unloaded,
-	}
-}
-
-// Name 返回插件名称
-func (p *BasePlugin) Name() string {
-	return p.name
-}
-
-// Metadata 返回插件的元数据（实现 MetadataProvider 接口）
-func (p *BasePlugin) Metadata() *Metadata {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.metadata == nil {
-		return &Metadata{
-			Name: p.name,
-		}
-	}
-	return p.metadata
-}
-
-// SetMetadata 设置插件元数据
-func (p *BasePlugin) SetMetadata(metadata *Metadata) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.metadata = metadata
-}
-
-// AddMatcher 添加匹配器到插件（线程安全）
-func (p *BasePlugin) AddMatcher(matcher *engine.Matcher) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Contract:
-	// - matcher.group is the authoritative grouping key used for middleware scoping and plugin unloading.
-	// - matcher.Source is diagnostics/labeling only.
-	source := "plugin:" + p.name
-
-	if matcher != nil {
-		// 设置匹配器的分组和来源
-		matcher.SetSource(source)
-		matcher.SetGroup(p.name)
-	}
-
-	p.matchers = append(p.matchers, matcher)
-}
-
-// GetMatchers 获取所有匹配器（线程安全）
-func (p *BasePlugin) GetMatchers() []*engine.Matcher {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	matchers := make([]*engine.Matcher, len(p.matchers))
-	copy(matchers, p.matchers)
-	return matchers
-}
-
-// Load 加载插件（子类需要重写实现具体逻辑）
-func (p *BasePlugin) Load(_ *engine.Engine) error {
-	// 更新状态为已加载
-	p.mu.Lock()
-	p.state = Loaded
-	p.loadTime = time.Now()
-	p.lastError = nil
-	p.mu.Unlock()
-
-	// 默认实现为空，子类重写
-	return nil
-}
-
-// Unload 卸载插件，清理所有匹配器（在锁外删除匹配器，避免锁反转）
-func (p *BasePlugin) Unload(coordinator *engine.Engine) error {
-	if coordinator != nil {
-		coordinator.RemoveGroup(p.name)
-	}
-
-	p.mu.Lock()
-	p.matchers = make([]*engine.Matcher, 0)
-	p.state = Unloaded
-	p.mu.Unlock()
-
-	return nil
-}
-
-// Reload 的默认实现：原子性重载插件（适配 COW engine）
+// --- v1 API 已在 v2.0.0 中移除 ---
 //
-// COW engine 下的实现策略：
-// 1. 保存插件旧 matchers 快照、Coordinator 状态快照
-// 2. 尝试 Unload（清空 matchers 并删除）
-// 3. 尝试 Load（创建新的 matchers）
-// 4. 如果 Load 失败，通过 Coordinator 的 COW 机制回滚
+// 以下 v1 API 已被移除:
+//   - type BasePlugin
+//   - func NewBasePlugin(name string) *BasePlugin
+//   - func NewBasePluginWithMetadata(metadata *Metadata) *BasePlugin
+//   - type EventAwarePlugin (v1 事件总线功能)
 //
-// 优势：
-//   - 利用 engine 的 COW 特性，简化回滚逻辑
-//   - 回滚更安全，不会出现状态不一致
-func (p *BasePlugin) Reload(coordinator *engine.Engine) error {
-	if coordinator == nil {
-		return errutil.NewPluginError(p.name, "coordinator is nil")
-	}
-
-	// 设置状态为重载中
-	p.mu.Lock()
-	p.state = Reloading
-	p.mu.Unlock()
-
-	// 1. 保存插件旧 matchers 快照
-	p.mu.Lock()
-	oldMatchers := make([]*engine.Matcher, len(p.matchers))
-	copy(oldMatchers, p.matchers)
-	oldState := p.state
-	oldLoadTime := p.loadTime
-	p.mu.Unlock()
-
-	// 2. 保存 Coordinator 状态快照
-	snapshot := coordinator.Snapshot()
-
-	// 3. 尝试卸载（这会清空 p.matchers 并删除 matchers）
-	if err := p.Unload(coordinator); err != nil {
-		// Unload 失败，恢复状态
-		p.mu.Lock()
-		p.state = oldState
-		p.loadTime = oldLoadTime
-		p.lastError = err
-		p.mu.Unlock()
-		return errutil.WrapErrorf(err, "unload failed during reload")
-	}
-
-	// 4. 尝试加载新状态
-	if err := p.Load(coordinator); err != nil {
-		// Load 失败，需要回滚
-		logger.WithError(err).Warn("[Plugin] Load failed during reload, rolling back")
-
-		// 恢复插件旧 matchers 列表
-		p.mu.Lock()
-		p.matchers = oldMatchers
-		p.state = Error
-		p.lastError = err
-		p.mu.Unlock()
-
-		// 回滚 Coordinator 状态
-		coordinator.Restore(snapshot)
-
-		// 重建中间件链
-		for _, matcher := range oldMatchers {
-			if matcher != nil {
-				coordinator.RebuildMatcherChain(matcher)
-			}
-		}
-
-		return errutil.WrapErrorf(err, "load failed during reload, rolled back to previous state")
-	}
-
-	// 5. 成功，旧的 matchers 已经被 Unload 删除，不需要额外清理
-	p.mu.Lock()
-	p.state = Loaded
-	p.loadTime = time.Now()
-	p.lastError = nil
-	p.mu.Unlock()
-
-	logger.WithField("plugin", p.name).Info("[Plugin] Reload successful")
-	return nil
-}
-
-// Use 为当前插件注册中间件（作用于该插件的所有匹配器）
-func (p *BasePlugin) Use(coordinator *engine.Engine, mw ...context.Middleware) {
-	if coordinator == nil {
-		return
-	}
-	coordinator.UseForGroup(p.name, mw...)
-}
-
-// OnCommand 注册命令并自动添加到插件的 Matcher 列表
-// 这是一个便捷方法，避免开发者忘记调用 AddMatcher
-func (p *BasePlugin) OnCommand(eng *engine.Engine, eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *engine.Matcher {
-	if eng == nil {
-		logger.Warn("[Plugin] engine is nil, cannot register command")
-		return nil
-	}
-
-	matcher := eng.OnCommand(eventType, cmdPattern, extraRules...)
-	p.AddMatcher(matcher)
-	return matcher
-}
-
-// On 注册自定义规则并自动添加到插件的 Matcher 列表
-func (p *BasePlugin) On(eng *engine.Engine, eventType dto.EventType, rules ...context.Rule) *engine.Matcher {
-	if eng == nil {
-		logger.Warn("[Plugin] engine is nil, cannot register matcher")
-		return nil
-	}
-
-	matcher := eng.On(eventType, rules...)
-	p.AddMatcher(matcher)
-	return matcher
-}
-
-// OnAny 注册处理所有事件的规则并自动添加到插件的 Matcher 列表
-func (p *BasePlugin) OnAny(eng *engine.Engine, rules ...context.Rule) *engine.Matcher {
-	if eng == nil {
-		logger.Warn("[Plugin] engine is nil, cannot register matcher")
-		return nil
-	}
-
-	matcher := eng.OnAny(rules...)
-	p.AddMatcher(matcher)
-	return matcher
-}
-
-// GetConfig 获取插件配置
-func (p *BasePlugin) GetConfig() Config {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.config
-}
-
-// SetConfig 设置插件配置（由 Manager 调用）
-func (p *BasePlugin) SetConfig(config Config) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.config = config
-}
-
-// PublishEvent 发布事件
-func (p *BasePlugin) PublishEvent(topic string, data any) error {
-	return p.eventBus.Publish(topic, data)
-}
-
-// SubscribeEvent 订阅事件
-func (p *BasePlugin) SubscribeEvent(topic string, handler EventHandler) (Subscription, error) {
-	return p.eventBus.Subscribe(topic, handler)
-}
-
-// UnsubscribeEvent 取消订阅
-func (p *BasePlugin) UnsubscribeEvent(sub Subscription) error {
-	return p.eventBus.Unsubscribe(sub)
-}
-
-// GetEventBus 获取事件总线（用于高级操作）
-func (p *BasePlugin) GetEventBus() EventBus {
-	return p.eventBus
-}
-
-// GetState 获取插件状态（实现 StatefulPlugin 接口）
-func (p *BasePlugin) GetState() State {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.state
-}
-
-// SetState 设置插件状态（实现 StatefulPlugin 接口）
-func (p *BasePlugin) SetState(state State) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.state = state
-}
-
-// GetLoadTime 获取加载时间（实现 StatefulPlugin 接口）
-func (p *BasePlugin) GetLoadTime() time.Time {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.loadTime
-}
-
-// SetLoadTime 设置加载时间（实现 StatefulPlugin 接口）
-func (p *BasePlugin) SetLoadTime(t time.Time) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.loadTime = t
-}
-
-// GetLastError 获取最后的错误（实现 StatefulPlugin 接口）
-func (p *BasePlugin) GetLastError() error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.lastError
-}
-
-// SetLastError 设置最后的错误（实现 StatefulPlugin 接口）
-func (p *BasePlugin) SetLastError(err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastError = err
-}
-
-// GetUptime 获取运行时长（实现 StatefulPlugin 接口）
-func (p *BasePlugin) GetUptime() time.Duration {
-	p.mu.RLock()
-	loadTime := p.loadTime
-	state := p.state
-	p.mu.RUnlock()
-
-	if state != Loaded || loadTime.IsZero() {
-		return 0
-	}
-
-	return time.Since(loadTime)
-}
-
-// Dependencies 返回插件依赖列表（实现 Plugin 接口）
-// 支持三种方式（按优先级）：
-//  1. 从结构体标签自动提取 (inject:"plugin:xxx")
-//  2. 从元数据读取 (metadata.Dependencies)
-//  3. 子类重写此方法提供动态依赖
-func (p *BasePlugin) Dependencies() []string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	// 优先尝试从结构体标签自动提取
-	// 注意：这里需要传入包含 BasePlugin 的外层插件实例
-	// 由于我们在 BasePlugin 内部，无法直接获取外层实例
-	// 因此标签提取需要在外层调用 ExtractDependencies()
-
-	// 从元数据读取依赖（声明式）
-	if p.metadata != nil && p.metadata.Dependencies != nil {
-		// 返回副本以保证线程安全
-		result := make([]string, len(p.metadata.Dependencies))
-		copy(result, p.metadata.Dependencies)
-		return result
-	}
-
-	return []string{}
-}
+// 请使用 v2 API (PluginDescriptor) 替代。
+// 迁移指南: docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md

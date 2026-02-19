@@ -68,7 +68,7 @@ func TestMatcher_TempN(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 
 		// Execute 5 times
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			context := ctx.NewContext(payload, nil)
 			eng.ProcessEvent(context)
 		}

@@ -13,12 +13,12 @@ import (
 
 func TestAsyncComponents(t *testing.T) {
 	eng := NewEngine(WithCleanupInterval(50*time.Millisecond), WithPendingDeleteBufferSize(10))
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		m := eng.OnTemp(dto.C2CMessageCreate)
 		m.rt.expiresAt = time.Now().Add(-1 * time.Second)
 	}
 	time.Sleep(150 * time.Millisecond)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		m := eng.OnC2C()
 		eng.DeleteMatcher(m)
 	}
@@ -32,7 +32,7 @@ func TestRemoveGroupBranches(t *testing.T) {
 	eng := NewEngine()
 	eng.RemoveGroup("empty-before-add")
 	eng.WithMatcherGroupBatch(func() {
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			m := eng.OnC2C()
 			eng.SetMatcherGroup(m, "large-group", "src")
 		}
@@ -55,7 +55,7 @@ func TestInvokeHandlerPaths(t *testing.T) {
 }
 func TestStateCopyEdges(t *testing.T) {
 	state := newEngineState()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		m := &Matcher{EventType: dto.C2CMessageCreate, priority: uint(i * 10), group: "g1"}
 		if i%3 == 0 {
 			m.definition = &command.Definition{Name: "cmd"}

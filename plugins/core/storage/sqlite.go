@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -269,11 +270,11 @@ func (s *SQLiteStorage) Compact() error {
 }
 
 // Stats 获取数据库统计信息
-func (s *SQLiteStorage) Stats() (map[string]interface{}, error) {
+func (s *SQLiteStorage) Stats() (map[string]any, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	// 总键数
 	var totalKeys int
@@ -317,16 +318,16 @@ func convertToSQLPattern(pattern string) string {
 	}
 
 	// 将 * 替换为 %
-	sqlPattern := ""
+	var sqlPattern strings.Builder
 	for _, ch := range pattern {
 		if ch == '*' {
-			sqlPattern += "%"
+			sqlPattern.WriteString("%")
 		} else if ch == '?' {
-			sqlPattern += "_"
+			sqlPattern.WriteString("_")
 		} else {
-			sqlPattern += string(ch)
+			sqlPattern.WriteString(string(ch))
 		}
 	}
 
-	return sqlPattern
+	return sqlPattern.String()
 }

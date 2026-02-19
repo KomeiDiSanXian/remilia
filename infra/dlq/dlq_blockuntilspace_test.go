@@ -28,7 +28,7 @@ func TestDLQBlockUntilSpaceDeadlock(t *testing.T) {
 	dlq.Start()
 
 	// 先填满队列
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		item := DeadLetterItem{
 			Event:   mockEvent(i),
 			Err:     nil,
@@ -47,7 +47,7 @@ func TestDLQBlockUntilSpaceDeadlock(t *testing.T) {
 	// 使用 channel 确保所有 goroutine 都已启动
 	started := make(chan struct{}, enqueueCount)
 
-	for i := 0; i < enqueueCount; i++ {
+	for i := range enqueueCount {
 		go func(id int) {
 			defer wg.Done()
 
@@ -67,7 +67,7 @@ func TestDLQBlockUntilSpaceDeadlock(t *testing.T) {
 	}
 
 	// 等待所有 goroutine 启动
-	for i := 0; i < enqueueCount; i++ {
+	for range enqueueCount {
 		<-started
 	}
 
@@ -118,7 +118,7 @@ func TestDLQBlockUntilSpaceTimeout(t *testing.T) {
 
 	// 填满队列 - 添加 4 个 item
 	// Worker 会立即开始消费第一个（但会阻塞），剩下 3 个在队列中（满）
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		dlq.Enqueue(DeadLetterItem{
 			Event:   mockEvent(i),
 			Err:     nil,
@@ -179,11 +179,11 @@ func TestDLQBlockUntilSpaceConcurrent(t *testing.T) {
 
 	wg.Add(producers)
 
-	for i := 0; i < producers; i++ {
+	for i := range producers {
 		go func(producerID int) {
 			defer wg.Done()
 
-			for j := 0; j < eventsPerProducer; j++ {
+			for j := range eventsPerProducer {
 				item := DeadLetterItem{
 					Event:   mockEvent(producerID*100 + j),
 					Err:     nil,
@@ -220,7 +220,7 @@ func TestDLQContextCancellation(t *testing.T) {
 	dlq.Start()
 
 	// 填满队列
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		dlq.Enqueue(DeadLetterItem{
 			Event:   mockEvent(i),
 			Err:     nil,
@@ -274,7 +274,7 @@ func TestDLQBlockUntilSpaceWithStats(t *testing.T) {
 	dlq.Start()
 
 	// 快速添加事件
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		dlq.Enqueue(DeadLetterItem{
 			Event:   mockEvent(i),
 			Err:     nil,

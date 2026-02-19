@@ -71,9 +71,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	a.mu.Unlock()
 
 	// 启动事件循环
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
+	a.wg.Go(func() {
 		logger.Debug("[Adapter] Event loop started")
 
 		for {
@@ -92,7 +90,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 				}
 			}
 		}
-	}()
+	})
 
 	logger.Info("[Adapter] Started successfully")
 	return nil

@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
 )
 
@@ -12,8 +14,29 @@ func main() {
 	fmt.Println("🤖 验证码权限系统演示")
 	fmt.Println(strings.Repeat("=", 50))
 
-	// 创建权限插件并演示验证码功能
-	permPlugin := permission.New()
+	// 创建引擎和管理器
+	eng := engine.NewEngine()
+	manager := plugin.NewManager(eng)
+
+	// 注册权限插件（v2 API）
+	if err := manager.RegisterV2(permission.New()); err != nil {
+		fmt.Printf("❌ 注册权限插件失败: %v\n", err)
+		return
+	}
+
+	// 从容器获取权限插件 API
+	permAPI, exists := manager.GetContainer().Get("permission_api")
+	if !exists {
+		fmt.Println("❌ 获取权限 API 失败")
+		return
+	}
+
+	// 类型转换
+	permPlugin, ok := permAPI.(*permission.Plugin)
+	if !ok {
+		fmt.Println("❌ 类型转换失败")
+		return
+	}
 
 	fmt.Println("\n📋 功能演示:")
 	fmt.Println(strings.Repeat("-", 50))

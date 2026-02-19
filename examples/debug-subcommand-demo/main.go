@@ -38,38 +38,36 @@ func main() {
 	// 创建插件管理器
 	pm := plugin.NewManager(eng)
 
-	// 1. 注册 Permission 插件（Debug 插件依赖）
+	// 1. 注册 Permission 插件（v2 API）
 	logger.Info("📦 加载 Permission 插件...")
-	permPlugin := permission.New()
-	if err := pm.Register(permPlugin); err != nil {
+	if err := pm.RegisterV2(permission.New()); err != nil {
 		logger.Fatal("注册 Permission 插件失败: " + err.Error())
 	}
 
 	// 添加管理员权限（用于演示）
 	adminUserID := os.Getenv("ADMIN_USER_ID")
 	if adminUserID != "" {
-		// 分配管理员角色（admin 角色拥有所有权限）
-		if err := permPlugin.AssignRole(adminUserID, "admin"); err != nil {
-			logger.Warn("分配管理员角色失败: " + err.Error())
-		} else {
-			logger.Info("✅ 已授予用户 " + adminUserID + " 管理员权限")
+		// 从容器获取权限插件 API 并分配角色
+		if permAPI, exists := pm.GetContainer().Get("permission_api"); exists {
+			if permPlugin, ok := permAPI.(*permission.Plugin); ok {
+				if err := permPlugin.AssignRole(adminUserID, "admin"); err != nil {
+					logger.Warn("分配管理员角色失败: " + err.Error())
+				} else {
+					logger.Info("✅ 已授予用户 " + adminUserID + " 管理员权限")
+				}
+			}
 		}
 	}
 
-	// 2. 注册 Debug 插件
+	// 2. 注册 Debug 插件（v2 API）
 	logger.Info("🐛 加载 Debug 插件...")
-	debugPlugin := debug.New()
-	debugPlugin.SetDevMode(true) // 启用开发模式（允许所有用户使用）
-	debugPlugin.SetPermissionPlugin(permPlugin)
-	debugPlugin.SetPluginManager(pm)
-	if err := pm.Register(debugPlugin); err != nil {
+	if err := pm.RegisterV2(debug.New()); err != nil {
 		logger.Fatal("注册 Debug 插件失败: " + err.Error())
 	}
 
-	// 3. 注册 Help 插件（可以查看所有命令）
+	// 3. 注册 Help 插件（v2 API）
 	logger.Info("📚 加载 Help 插件...")
-	helpPlugin := help.New()
-	if err := pm.Register(helpPlugin); err != nil {
+	if err := pm.RegisterV2(help.New()); err != nil {
 		logger.Fatal("注册 Help 插件失败: " + err.Error())
 	}
 

@@ -32,11 +32,11 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(id int) {
 			defer wg.Done()
 
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				event := &dto.Payload{
 					ID: "same-event-id", // 所有 goroutine 使用相同 ID
 				}
@@ -75,11 +75,11 @@ func TestRateLimitBucketConcurrentKeys(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < keysPerGoroutine; j++ {
+			for j := range keysPerGoroutine {
 				event := &dto.Payload{
 					ID: dto.EventID(fmt.Sprintf("event-%d-%d", goroutineID, j)),
 				}
@@ -108,7 +108,7 @@ func TestRateLimitBucketUpdateLastVisit(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			defer wg.Done()
 
@@ -145,7 +145,7 @@ func TestRateLimitBucketStressTest(t *testing.T) {
 	var wg sync.WaitGroup
 	workers := 20
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -195,7 +195,7 @@ func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			defer wg.Done()
 			counter := 0

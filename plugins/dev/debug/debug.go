@@ -17,23 +17,25 @@ import (
 
 // Plugin Debug调试插件
 type Plugin struct {
-	*plugin.BasePlugin
-	Engine        *engine.Engine     `inject:"Engine"`            // Engine引用，自动注入
-	PermPlugin    *permission.Plugin `inject:"plugin:permission"` // 权限插件依赖，自动注入
+	Engine        *engine.Engine     // Engine引用
+	PermPlugin    *permission.Plugin // 权限插件依赖
 	DevMode       bool               // 是否开启开发模式
-	PluginManager *plugin.Manager    `inject:"manager"` // 插件管理器引用，自动注入
+	PluginManager *plugin.Manager    // 插件管理器引用
 }
 
-// New 创建调试插件
-func New() *Plugin {
-	metadata := &plugin.Metadata{
+// New 创建调试插件（v2 API）
+func New() *plugin.PluginDescriptor {
+	// 创建 v1 Plugin 实例
+	v1Plugin := newDebugPluginInternal()
+
+	return &plugin.PluginDescriptor{
 		Name:        "debug",
-		Version:     "1.0.0",
+		Version:     "2.0.0",
 		Author:      "Remilia Team",
 		Description: "开发调试工具集合，提供事件查看、上下文检查、性能分析等功能",
 		Category:    "开发",
 		Tags:        []string{"调试", "开发", "性能"},
-		// Dependencies 会从标签自动提取，无需手动声明
+		Deps:        []string{"permission"},
 		HelpText: `调试插件使用说明：
 
 事件调试：
@@ -48,17 +50,38 @@ func New() *Plugin {
 
 性能分析：
   /debug bench <命令> - 测试命令的执行性能
-  /debug stats - 显示系统统计信息
 
-⚠️ 注意：
-- 调试插件仅在开发模式下启用
-- 需要管理员权限才能使用`,
-		Hidden: false, // 在帮助中显示
+开发模式功能：
+  - 自动记录所有事件
+  - 显示详细的调试信息
+  - 性能监控和分析`,
+
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[DebugPlugin] Loading debug plugin (v2)...")
+
+			// 获取依赖（但 v2 的 permission 返回 PluginInstance，暂时不处理）
+			_ = ctx.MustGet("permission")
+
+			// 设置引用
+			v1Plugin.Engine = ctx.Engine
+			v1Plugin.PluginManager = ctx.Manager
+
+			// 加载插件
+			return v1Plugin.Load(ctx.Engine)
+		},
+
+		Teardown: func() error {
+			// 清理资源
+			logger.Info("[DebugPlugin] Debug plugin unloaded")
+			return nil
+		},
 	}
+}
 
+// newDebugPluginInternal 创建调试插件内部实例
+func newDebugPluginInternal() *Plugin {
 	return &Plugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-		DevMode:    true, // 默认开启开发模式，实际应从配置读取
+		DevMode: true, // 默认开启开发模式，实际应从配置读取
 	}
 }
 
@@ -169,12 +192,12 @@ func (p *Plugin) registerDebugCommands(eng *engine.Engine) {
 	}
 
 	// 注册私聊命令
-	p.OnCommand(eng, dto.C2CMessageCreate, "/debug").
+	eng.OnCommand(dto.C2CMessageCreate, "/debug").
 		SetDefinition(debugCmd).
 		Handle(p.handleDebugCommand)
 
 	// 注册群聊命令（需要 @ 机器人）
-	p.OnCommand(eng, dto.GroupAtMessageCreate, "/debug").
+	eng.OnCommand(dto.GroupAtMessageCreate, "/debug").
 		SetDefinition(debugCmd).
 		Handle(p.handleDebugCommand)
 }
@@ -634,7 +657,7 @@ func (p *Plugin) handleDebugBench(ctx *eventctx.Context) error {
 	const iterations = 10
 	var totalDuration time.Duration
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		start := time.Now()
 
 		// 创建测试上下文（复用当前事件）
@@ -719,34 +742,4 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	msg.WriteString(fmt.Sprintf("💾 内存使用: %.2f MB\n", float64(m.Alloc)/1024/1024))
 
 	return p.reply(ctx, msg.String())
-}
-
-// Metadata 返回插件元数据（包含自动提取的依赖信息）
-func (p *Plugin) Metadata() *plugin.Metadata {
-	meta := p.BasePlugin.Metadata()
-
-	// 自动从标签提取依赖并更新元数据
-	deps := plugin.ExtractDependencies(p)
-	logger.Debugf("[DebugPlugin] Metadata() called, extracted deps: %v (len=%d)", deps, len(deps))
-	if len(deps) > 0 {
-		meta.Dependencies = deps
-		logger.Debugf("[DebugPlugin] Set meta.Dependencies to: %v", meta.Dependencies)
-	} else if meta.Dependencies == nil {
-		meta.Dependencies = []string{}
-	}
-
-	return meta
-}
-
-// Dependencies 返回依赖列表（自动从标签提取）
-func (p *Plugin) Dependencies() []string {
-	// 使用自动依赖提取
-	deps := plugin.ExtractDependencies(p)
-
-	// 如果标签提取为空，回退到元数据
-	if len(deps) == 0 {
-		return p.BasePlugin.Dependencies()
-	}
-
-	return deps
 }

@@ -115,7 +115,7 @@ func BenchmarkParseEvent(b *testing.B) {
 		Content string `json:"content"`
 	}
 
-	jsonData, _ := json.Marshal(map[string]interface{}{
+	jsonData, _ := json.Marshal(map[string]any{
 		"id": "test-123", "type": "message", "content": "Hello",
 	})
 	payload := &dto.Payload{Detail: jsonData}

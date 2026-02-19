@@ -97,7 +97,7 @@ func TestLogEntry(t *testing.T) {
 		Resource: "command",
 		Result:   "success",
 		Message:  "Command executed successfully",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"args": []string{"help", "search"},
 		},
 		IP:        "192.168.1.100",
@@ -246,7 +246,7 @@ func TestBufferOverflow(t *testing.T) {
 	defer logger.Close()
 
 	// 发送超过缓冲区大小的日志
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		logger.Info(audit.ActionUserLogin, "user123", "Test message")
 	}
 

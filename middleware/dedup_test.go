@@ -82,7 +82,7 @@ func TestDedupFilter_Expiration(t *testing.T) {
 		defer filter.Stop()
 
 		// 添加多个事件
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
@@ -109,7 +109,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 		defer filter.Stop()
 
 		// 填满缓存
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			isDup, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 			assert.NoError(t, err)
 			assert.False(t, isDup)
@@ -138,7 +138,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 		defer filter.Stop()
 
 		// 填满缓存
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			_, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 			assert.NoError(t, err)
 		}
@@ -160,7 +160,7 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 		defer filter.Stop()
 
 		// 添加3个事件
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
@@ -198,24 +198,22 @@ func TestDedupFilter_Concurrent(t *testing.T) {
 		duplicates := make([]atomic.Int32, eventsPerGoroutine)
 
 		// 并发添加相同的事件
-		for i := 0; i < concurrency; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := 0; j < eventsPerGoroutine; j++ {
+		for range concurrency {
+			wg.Go(func() {
+				for j := range eventsPerGoroutine {
 					eventID := fmt.Sprintf("event-%d", j)
 					isDup, err := filter.CheckDuplicate(eventID)
 					if err == nil && isDup {
 						duplicates[j].Add(1)
 					}
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
 
 		// 每个事件应该只有一个首次出现，其他都是重复
-		for j := 0; j < eventsPerGoroutine; j++ {
+		for j := range eventsPerGoroutine {
 			dupCount := duplicates[j].Load()
 			t.Logf("Event %d: %d duplicates out of %d", j, dupCount, concurrency)
 			assert.Greater(t, dupCount, int32(0), "Should have some duplicates")
@@ -238,7 +236,7 @@ func TestDedupFilter_Concurrent(t *testing.T) {
 		stopCh := make(chan struct{})
 
 		// 启动多个 goroutine 持续添加事件
-		for i := 0; i < goroutines; i++ {
+		for i := range goroutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
@@ -276,7 +274,7 @@ func TestDedupFilter_Clear(t *testing.T) {
 	defer filter.Stop()
 
 	// 添加事件
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 	}
 
@@ -394,7 +392,7 @@ func TestDedupMiddleware(t *testing.T) {
 		wrappedHandler := mw(handler)
 
 		// 填满缓存
-		for i := 0; i < 2; i++ {
+		for i := range 2 {
 			event := &dto.Payload{
 				ID:   dto.EventID(fmt.Sprintf("event-%d", i)),
 				Type: "test",

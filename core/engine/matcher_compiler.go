@@ -170,7 +170,7 @@ func (mc *MatcherCompiler) Invalidate(m *Matcher) {
 
 // InvalidateAll 清空所有缓存
 func (mc *MatcherCompiler) InvalidateAll() {
-	mc.cache.Range(func(key, value interface{}) bool {
+	mc.cache.Range(func(key, value any) bool {
 		mc.cache.Delete(key)
 		return true
 	})
@@ -243,7 +243,7 @@ func (mc *MatcherCache) InvalidateEventType(eventType dto.EventType) {
 
 // InvalidateAll 清空所有缓存
 func (mc *MatcherCache) InvalidateAll() {
-	mc.cache.Range(func(key, value interface{}) bool {
+	mc.cache.Range(func(key, value any) bool {
 		mc.cache.Delete(key)
 		return true
 	})
@@ -254,7 +254,7 @@ func (mc *MatcherCache) InvalidateAll() {
 func (mc *MatcherCache) Stats() MatcherCacheStats {
 	stats := MatcherCacheStats{}
 
-	mc.cache.Range(func(key, value interface{}) bool {
+	mc.cache.Range(func(key, value any) bool {
 		stats.EventTypeCount++
 		matchers := value.([]*CompiledMatcher)
 		stats.TotalCompiledMatchers += len(matchers)
@@ -262,7 +262,7 @@ func (mc *MatcherCache) Stats() MatcherCacheStats {
 	})
 
 	// 统计正则表达式缓存
-	mc.compiler.regexps.Range(func(key, value interface{}) bool {
+	mc.compiler.regexps.Range(func(key, value any) bool {
 		stats.RegexpCacheSize++
 		return true
 	})

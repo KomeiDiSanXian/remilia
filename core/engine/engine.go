@@ -485,8 +485,8 @@ func (e *Engine) GetMatcherStats() MatcherStats {
 			stats.Global++
 			continue
 		}
-		if strings.HasPrefix(m.Source, "plugin:") {
-			name := strings.TrimPrefix(m.Source, "plugin:")
+		if after, ok := strings.CutPrefix(m.Source, "plugin:"); ok {
+			name := after
 			stats.ByPlugin[name]++
 		}
 	}
@@ -988,8 +988,8 @@ func (e *Engine) GetAllCommands() []CommandInfo {
 		}
 
 		// 提取插件名
-		if strings.HasPrefix(m.GetSource(), "plugin:") {
-			info.Plugin = strings.TrimPrefix(m.GetSource(), "plugin:")
+		if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
+			info.Plugin = after
 		} else {
 			info.Plugin = "global"
 		}

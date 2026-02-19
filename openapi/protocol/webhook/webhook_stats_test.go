@@ -48,7 +48,7 @@ func TestWebhook_EventCounters(t *testing.T) {
 	conn := NewWithBuffer(ctx, info, 2)
 
 	// 模拟发送多个事件（超过buffer大小）
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		payload := &dto.Payload{
 			Type: dto.C2CMessageCreate,
 			ID:   dto.EventID(string(rune('A' + i))),
@@ -97,7 +97,7 @@ func TestWebhook_DropRateCalculation(t *testing.T) {
 
 	// 快速发送大量事件
 	numEvents := 100
-	for i := 0; i < numEvents; i++ {
+	for i := range numEvents {
 		payload := &dto.Payload{
 			Type: dto.C2CMessageCreate,
 			ID:   dto.EventID(string(rune(i))),

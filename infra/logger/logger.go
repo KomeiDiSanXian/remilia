@@ -111,7 +111,7 @@ func InitDefault() error {
 
 // FieldsPool 是用于复用 Fields map 的对象池，减少内存分配
 var FieldsPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		return make(Fields, 8) // 预分配 8 个字段的容量
 	},
 }
@@ -140,7 +140,7 @@ func PutFields(f Fields) {
 }
 
 // Fields is a helper type for structured logging fields
-type Fields map[string]interface{}
+type Fields map[string]any
 
 // LoggerWithFields wraps zerolog logger to provide logrus-like API
 type LoggerWithFields struct {
@@ -148,7 +148,7 @@ type LoggerWithFields struct {
 }
 
 // WithField adds another field (chainable)
-func (l *LoggerWithFields) WithField(key string, value interface{}) *LoggerWithFields {
+func (l *LoggerWithFields) WithField(key string, value any) *LoggerWithFields {
 	return &LoggerWithFields{
 		logger: l.logger.With().Interface(key, value).Logger(),
 	}
@@ -176,7 +176,7 @@ func (l *LoggerWithFields) Info(msg string) {
 }
 
 // Infof logs a formatted info message
-func (l *LoggerWithFields) Infof(format string, v ...interface{}) {
+func (l *LoggerWithFields) Infof(format string, v ...any) {
 	l.logger.Info().Msgf(format, v...)
 }
 
@@ -186,7 +186,7 @@ func (l *LoggerWithFields) Debug(msg string) {
 }
 
 // Debugf logs a formatted debug message
-func (l *LoggerWithFields) Debugf(format string, v ...interface{}) {
+func (l *LoggerWithFields) Debugf(format string, v ...any) {
 	l.logger.Debug().Msgf(format, v...)
 }
 
@@ -196,7 +196,7 @@ func (l *LoggerWithFields) Warn(msg string) {
 }
 
 // Warnf logs a formatted warning message
-func (l *LoggerWithFields) Warnf(format string, v ...interface{}) {
+func (l *LoggerWithFields) Warnf(format string, v ...any) {
 	l.logger.Warn().Msgf(format, v...)
 }
 
@@ -206,7 +206,7 @@ func (l *LoggerWithFields) Error(msg string) {
 }
 
 // Errorf logs a formatted error message with caller information
-func (l *LoggerWithFields) Errorf(format string, v ...interface{}) {
+func (l *LoggerWithFields) Errorf(format string, v ...any) {
 	l.logger.Error().Caller(1).Msgf(format, v...)
 }
 
@@ -216,7 +216,7 @@ func (l *LoggerWithFields) Fatal(msg string) {
 }
 
 // Fatalf logs a formatted fatal message with caller information and exits
-func (l *LoggerWithFields) Fatalf(format string, v ...interface{}) {
+func (l *LoggerWithFields) Fatalf(format string, v ...any) {
 	l.logger.Fatal().Caller(1).Msgf(format, v...)
 }
 
@@ -230,7 +230,7 @@ func WithFields(fields Fields) *LoggerWithFields {
 }
 
 // WithField creates a logger with a single field
-func WithField(key string, value interface{}) *LoggerWithFields {
+func WithField(key string, value any) *LoggerWithFields {
 	return &LoggerWithFields{
 		logger: Logger.With().Interface(key, value).Logger(),
 	}
@@ -251,7 +251,7 @@ func Trace(msg string) {
 }
 
 // Tracef logs a formatted trace message
-func Tracef(format string, v ...interface{}) {
+func Tracef(format string, v ...any) {
 	Logger.Trace().Msgf(format, v...)
 }
 
@@ -261,7 +261,7 @@ func Debug(msg string) {
 }
 
 // Debugf logs a formatted debug message
-func Debugf(format string, v ...interface{}) {
+func Debugf(format string, v ...any) {
 	Logger.Debug().Msgf(format, v...)
 }
 
@@ -271,7 +271,7 @@ func Info(msg string) {
 }
 
 // Infof logs a formatted info message
-func Infof(format string, v ...interface{}) {
+func Infof(format string, v ...any) {
 	Logger.Info().Msgf(format, v...)
 }
 
@@ -281,7 +281,7 @@ func Warn(msg string) {
 }
 
 // Warnf logs a formatted warning message
-func Warnf(format string, v ...interface{}) {
+func Warnf(format string, v ...any) {
 	Logger.Warn().Msgf(format, v...)
 }
 
@@ -291,7 +291,7 @@ func Error(msg string) {
 }
 
 // Errorf logs a formatted error message with caller information
-func Errorf(format string, v ...interface{}) {
+func Errorf(format string, v ...any) {
 	Logger.Error().Caller(1).Msgf(format, v...)
 }
 
@@ -301,7 +301,7 @@ func Fatal(msg string) {
 }
 
 // Fatalf logs a formatted fatal message with caller information and exits
-func Fatalf(format string, v ...interface{}) {
+func Fatalf(format string, v ...any) {
 	Logger.Fatal().Caller(1).Msgf(format, v...)
 }
 
@@ -311,7 +311,7 @@ func Panic(msg string) {
 }
 
 // Panicf logs a formatted panic message with caller information and panics
-func Panicf(format string, v ...interface{}) {
+func Panicf(format string, v ...any) {
 	Logger.Panic().Caller(1).Msgf(format, v...)
 }
 

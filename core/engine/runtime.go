@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 )
 
@@ -21,10 +22,8 @@ func (rt *engineRuntime) register(c runtimeComponent) {
 	}
 	p := rt.components
 	// small optimization: avoid duplicates by pointer equality
-	for _, existing := range p {
-		if existing == c {
-			return
-		}
+	if slices.Contains(p, c) {
+		return
 	}
 	rt.components = append(rt.components, c)
 }

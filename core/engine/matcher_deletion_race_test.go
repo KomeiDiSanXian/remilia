@@ -19,7 +19,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 	numMatchers := 100
 	var matchers []*Matcher
 
-	for i := 0; i < numMatchers; i++ {
+	for range numMatchers {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []context.Rule{
@@ -43,12 +43,12 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 50
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				ctx := context.NewContext(&dto.Payload{
 					Type: dto.C2CMessageCreate,
 				}, nil)
@@ -108,7 +108,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 	var wg sync.WaitGroup
 	numGoroutines := 20
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -166,23 +166,19 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Goroutine 1: 处理事件
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5; i++ {
+	wg.Go(func() {
+		for range 5 {
 			ctx := context.NewContext(&dto.Payload{
 				Type: dto.C2CMessageCreate,
 			}, nil)
 			engine.ProcessEvent(ctx)
 			time.Sleep(10 * time.Millisecond)
 		}
-	}()
+	})
 
 	// Goroutine 2: 随机修改 isTemp（模拟迁移场景）
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 3; i++ {
+	wg.Go(func() {
+		for range 3 {
 			time.Sleep(15 * time.Millisecond)
 			// 模拟迁移：从 temp 到 state
 			atomic.StoreInt32(&m.rt.isTemp, 0)
@@ -190,7 +186,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 			// 迁移回来
 			atomic.StoreInt32(&m.rt.isTemp, 1)
 		}
-	}()
+	})
 
 	wg.Wait()
 
@@ -208,7 +204,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 	// 创建多个 matcher，使其进入 pending delete
 	numMatchers := 20
 
-	for i := 0; i < numMatchers; i++ {
+	for range numMatchers {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []context.Rule{
@@ -251,7 +247,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 
 	// 创建大量临时 matcher
 	numMatchers := 1000
-	for i := 0; i < numMatchers; i++ {
+	for range numMatchers {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []context.Rule{
@@ -276,7 +272,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 
 	startTime := time.Now()
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()

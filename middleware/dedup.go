@@ -245,11 +245,11 @@ func (d *DedupFilter) Stop() {
 }
 
 // GetStats 获取统计信息
-func (d *DedupFilter) GetStats() map[string]interface{} {
+func (d *DedupFilter) GetStats() map[string]any {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"cache_size": len(d.cache),
 		"max_size":   d.maxSize,
 		"ttl":        d.defaultTTL.String(),

@@ -2,6 +2,7 @@ package command
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -404,10 +405,5 @@ func (p *Parsed) GetFloat(name string) float64 {
 }
 
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }

@@ -47,15 +47,15 @@ func TestFileConsumer_Consume(t *testing.T) {
 		assert.Len(t, lines, 1)
 
 		// 验证 JSON 格式
-		var result map[string]interface{}
+		var result map[string]any
 		err = json.Unmarshal([]byte(lines[0]), &result)
 		require.NoError(t, err)
 
-		event := result["event"].(map[string]interface{})
+		event := result["event"].(map[string]any)
 		assert.Equal(t, "test-event-1", event["id"])
 		assert.Equal(t, "test.event", event["type"])
 
-		errorInfo := result["error"].(map[string]interface{})
+		errorInfo := result["error"].(map[string]any)
 		assert.Equal(t, "test-handler", errorInfo["source"])
 		assert.Equal(t, float64(3), errorInfo["attempt"])
 	})
@@ -108,11 +108,11 @@ func TestFileConsumer_Consume(t *testing.T) {
 		content, err := os.ReadFile(filePath)
 		require.NoError(t, err)
 
-		var result map[string]interface{}
+		var result map[string]any
 		err = json.Unmarshal(content, &result)
 		require.NoError(t, err)
 
-		errorInfo := result["error"].(map[string]interface{})
+		errorInfo := result["error"].(map[string]any)
 		assert.NotEmpty(t, errorInfo["message"])
 	})
 
@@ -151,7 +151,7 @@ func TestWebhookConsumer_Consume(t *testing.T) {
 			assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 			// 读取并验证 body
-			var body map[string]interface{}
+			var body map[string]any
 			err := json.NewDecoder(r.Body).Decode(&body)
 			require.NoError(t, err)
 			assert.NotNil(t, body["event"])
@@ -376,15 +376,15 @@ func TestMarshalDeadLetterItem(t *testing.T) {
 		data, err := MarshalDeadLetterItem(item)
 		require.NoError(t, err)
 
-		var result map[string]interface{}
+		var result map[string]any
 		err = json.Unmarshal(data, &result)
 		require.NoError(t, err)
 
-		event := result["event"].(map[string]interface{})
+		event := result["event"].(map[string]any)
 		assert.Equal(t, "marshal-test", event["id"])
 		assert.Equal(t, "test.event", event["type"])
 
-		errorInfo := result["error"].(map[string]interface{})
+		errorInfo := result["error"].(map[string]any)
 		assert.NotEmpty(t, errorInfo["message"])
 		assert.Equal(t, "test-source", errorInfo["source"])
 		assert.Equal(t, float64(5), errorInfo["attempt"])
@@ -402,11 +402,11 @@ func TestMarshalDeadLetterItem(t *testing.T) {
 		data, err := MarshalDeadLetterItem(item)
 		require.NoError(t, err)
 
-		var result map[string]interface{}
+		var result map[string]any
 		err = json.Unmarshal(data, &result)
 		require.NoError(t, err)
 
-		errorInfo := result["error"].(map[string]interface{})
+		errorInfo := result["error"].(map[string]any)
 		assert.Empty(t, errorInfo["message"])
 	})
 
@@ -462,7 +462,7 @@ func TestFileConsumer_ReadBack(t *testing.T) {
 	lineCount := 0
 	for scanner.Scan() {
 		lineCount++
-		var result map[string]interface{}
+		var result map[string]any
 		err := json.Unmarshal(scanner.Bytes(), &result)
 		require.NoError(t, err)
 		assert.NotNil(t, result["event"])

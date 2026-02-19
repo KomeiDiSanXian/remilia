@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -209,14 +210,15 @@ func registerHandlers(bot *remilia.Bot) {
 			return nil
 		}
 
-		content := "📋 你的任务列表:\n\n"
+		var content strings.Builder
+		content.WriteString("📋 你的任务列表:\n\n")
 		for _, task := range tasks {
-			content += fmt.Sprintf("• %s: %s (%d%%)\n", task.ID, task.Status, task.Progress)
+			content.WriteString(fmt.Sprintf("• %s: %s (%d%%)\n", task.ID, task.Status, task.Progress))
 		}
 
 		msg := &dto.Message{
 			Type:    dto.TextMessage,
-			Content: content,
+			Content: content.String(),
 		}
 		ctx.ReplyPrivate(msg)
 		return nil
@@ -292,7 +294,7 @@ func executeTaskWithContext(ctx context.Context, taskID string) error {
 	taskManager.UpdateTask(taskID, "running", 0, "")
 
 	// 模拟可取消的长时间任务
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		select {
 		case <-ctx.Done():
 			// 任务被取消

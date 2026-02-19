@@ -2,6 +2,7 @@ package context
 
 import (
 	"errors"
+	"slices"
 	"sync"
 )
 
@@ -186,10 +187,8 @@ func (pm *PermissionManager) AssignRole(userID string, roleName string) error {
 	}
 
 	// 检查是否已分配
-	for _, r := range pm.userRoles[userID] {
-		if r == roleName {
-			return nil // 已存在
-		}
+	if slices.Contains(pm.userRoles[userID], roleName) {
+		return nil // 已存在
 	}
 
 	pm.userRoles[userID] = append(pm.userRoles[userID], roleName)

@@ -31,10 +31,8 @@ func TestAdapter_ConcurrentStart(t *testing.T) {
 	var errorCount atomic.Int32
 
 	numGoroutines := 10
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numGoroutines {
+		wg.Go(func() {
 			handler := func(p *dto.Payload) {}
 			err := adapter.Start(context.Background(), handler)
 			if err != nil {
@@ -44,7 +42,7 @@ func TestAdapter_ConcurrentStart(t *testing.T) {
 			} else {
 				successCount.Add(1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

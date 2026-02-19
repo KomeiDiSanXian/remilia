@@ -268,7 +268,7 @@ func checkPermission(userID string) bool {
 // retryOperation 重试操作
 func retryOperation(fn func() error, maxRetries int) error {
 	var err error
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		err = fn()
 		if err == nil {
 			if i > 0 {

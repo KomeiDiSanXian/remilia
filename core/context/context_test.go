@@ -35,8 +35,7 @@ func TestNewContextWithContext(t *testing.T) {
 		Type: dto.C2CMessageCreate,
 	}
 
-	stdCtx, cancel := stdctx.WithCancel(stdctx.Background())
-	defer cancel()
+	stdCtx := t.Context()
 
 	ctx := NewContextWithContext(stdCtx, event, nil)
 
@@ -328,7 +327,7 @@ func TestContext_ConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent Set operations
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -337,21 +336,17 @@ func TestContext_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent Get operations
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			_, _ = ctx.Get("key")
-		}()
+		})
 	}
 
 	// Concurrent Delete operations
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			ctx.Delete("key")
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -365,7 +360,7 @@ func TestExtensions_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent Set
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -374,21 +369,17 @@ func TestExtensions_Concurrent(t *testing.T) {
 	}
 
 	// Concurrent Get
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			_, _ = ExtGet[int](ext)
-		}()
+		})
 	}
 
 	// Concurrent GetOrInit
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			_ = ExtGetOrInit(ext, func() string { return "test" })
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -747,17 +738,15 @@ func TestExtensions_GetOrInit(t *testing.T) {
 		var mu sync.Mutex
 
 		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 100 {
+			wg.Go(func() {
 				ExtGetOrInit(ext, func() string {
 					mu.Lock()
 					initCount++
 					mu.Unlock()
 					return "initialized"
 				})
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -811,7 +800,7 @@ func TestBug_ConcurrentClone(t *testing.T) {
 	var wg sync.WaitGroup
 	clones := make([]*Context, 100)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

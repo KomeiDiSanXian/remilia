@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -21,54 +20,66 @@ type Storage interface {
 	Clear() error
 }
 
-// Plugin 存储插件
+// Plugin 存储插件 API
 type Plugin struct {
-	*plugin.BasePlugin
 	storage Storage
 	mu      sync.RWMutex
 }
 
-// New 创建存储插件
-//
+// New 创建存储插件（v2 API）
 // 默认使用内存存储作为后端
-func New() *Plugin {
-	return NewWithBackend(NewMemoryStorage())
+func New() *plugin.PluginDescriptor {
+	return NewV2WithBackend(NewMemoryStorage())
 }
 
-// NewWithBackend 使用指定后端创建存储插件
-func NewWithBackend(storage Storage) *Plugin {
-	metadata := &plugin.Metadata{
+// NewV2WithBackend 使用指定后端创建存储插件（v2 API）
+func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
+	// 创建 Plugin 包装器
+	pluginAPI := &Plugin{
+		storage: storage,
+	}
+
+	return &plugin.PluginDescriptor{
 		Name:        "storage",
-		Version:     "1.0.0",
+		Version:     "2.0.0",
 		Author:      "Remilia Team",
 		Description: "统一的数据存储抽象层，支持多种后端",
 		Category:    "核心",
 		Tags:        []string{"存储", "数据", "核心"},
+		Deps:        []string{},
 		HelpText: `存储插件使用说明：
 提供统一的 KV 存储接口，支持多种后端：
 - Memory - 内存存储（默认）
 - Redis - Redis 集群（待实现）
 - SQLite - 本地数据库（待实现）
 
-API 使用：
-  storage.Get(key) - 获取值
-  storage.Set(key, value, ttl) - 设置值
-  storage.Delete(key) - 删除值
-  storage.Exists(key) - 检查存在
-  storage.Keys(pattern) - 列出键`,
-	}
+API 使用 (v2):
+  storagePlugin := ctx.MustGet("storage").(*storage.Plugin)
+  storagePlugin.Get(key) - 获取值
+  storagePlugin.Set(key, value, ttl) - 设置值
+  storagePlugin.Delete(key) - 删除值
+  storagePlugin.Exists(key) - 检查存在
+  storagePlugin.Keys(pattern) - 列出键`,
 
-	return &Plugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-		storage:    storage,
-	}
-}
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[StoragePlugin] Loading storage plugin (v2)...")
+			logger.Infof("[StoragePlugin] Backend: %T", storage)
 
-// Load 加载插件
-func (p *Plugin) Load(eng *engine.Engine) error {
-	logger.Info("[StoragePlugin] Loading storage plugin...")
-	logger.Infof("[StoragePlugin] Backend: %T", p.storage)
-	return nil
+			// 注册 API 包装器到容器
+			ctx.Manager.GetContainer().Register("storage_api", pluginAPI)
+
+			logger.Info("[StoragePlugin] Storage plugin loaded successfully")
+			return nil
+		},
+
+		Teardown: func() error {
+			logger.Info("[StoragePlugin] Unloading storage plugin...")
+			if err := storage.Clear(); err != nil {
+				logger.WithError(err).Warn("[StoragePlugin] Failed to clear storage")
+			}
+			return nil
+		},
+	}
 }
 
 // GetStorage 获取存储实例
@@ -91,7 +102,7 @@ func (p *Plugin) Get(key string) ([]byte, error) {
 }
 
 // GetJSON 获取 JSON 值
-func (p *Plugin) GetJSON(key string, v interface{}) error {
+func (p *Plugin) GetJSON(key string, v any) error {
 	data, err := p.storage.Get(key)
 	if err != nil {
 		return err
@@ -105,7 +116,7 @@ func (p *Plugin) Set(key string, value []byte, ttl time.Duration) error {
 }
 
 // SetJSON 设置 JSON 值
-func (p *Plugin) SetJSON(key string, v interface{}, ttl time.Duration) error {
+func (p *Plugin) SetJSON(key string, v any, ttl time.Duration) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err

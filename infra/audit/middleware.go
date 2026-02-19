@@ -48,7 +48,7 @@ func Middleware(logger *Logger) context.Middleware {
 			} else {
 				// 记录一般事件处理
 				// 从 event 中提取 channel_id 和 guild_id
-				metadata := map[string]interface{}{
+				metadata := map[string]any{
 					"event_type": string(ctx.GetEventType()),
 				}
 

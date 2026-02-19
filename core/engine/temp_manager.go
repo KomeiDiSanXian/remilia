@@ -69,7 +69,7 @@ func newTempMatcherManagerWithConfig(config TempManagerConfig) *tempMatcherManag
 	tm := &tempMatcherManager{
 		config: config,
 	}
-	for i := 0; i < tempMatcherShardCount; i++ {
+	for i := range tempMatcherShardCount {
 		tm.shards[i] = newTempMatcherShard()
 	}
 	return tm
@@ -145,7 +145,7 @@ func (m *tempMatcherManager) Count() int {
 // CountAccurate returns accurate count by scanning all shards (slower)
 func (m *tempMatcherManager) CountAccurate() int {
 	count := 0
-	for i := 0; i < tempMatcherShardCount; i++ {
+	for i := range tempMatcherShardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
 		count += len(shard.byID)
@@ -195,7 +195,7 @@ func (m *tempMatcherManager) Get(eventType dto.EventType) []*Matcher {
 	totalLen := 0
 
 	// Lock one by one and copy list to avoid holding all locks
-	for i := 0; i < tempMatcherShardCount; i++ {
+	for i := range tempMatcherShardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
 		src := shard.matcherIndex[eventType]
@@ -256,7 +256,7 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 	now := time.Now()
 
 	// Iterate all shards
-	for i := 0; i < tempMatcherShardCount; i++ {
+	for i := range tempMatcherShardCount {
 		shard := m.shards[i]
 		shard.mu.Lock()
 
@@ -359,11 +359,11 @@ func (h matcherHeap) Less(i, j int) bool {
 }
 func (h matcherHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 
-func (h *matcherHeap) Push(x interface{}) {
+func (h *matcherHeap) Push(x any) {
 	*h = append(*h, x.(*Matcher))
 }
 
-func (h *matcherHeap) Pop() interface{} {
+func (h *matcherHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]

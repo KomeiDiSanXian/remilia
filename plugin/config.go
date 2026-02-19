@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -186,8 +187,6 @@ func (pc *pluginConfig) GetAll() map[string]any {
 	defer pc.mu.RUnlock()
 
 	result := make(map[string]any, len(pc.values))
-	for k, v := range pc.values {
-		result[k] = v
-	}
+	maps.Copy(result, pc.values)
 	return result
 }

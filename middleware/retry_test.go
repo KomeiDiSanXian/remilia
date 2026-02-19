@@ -351,7 +351,7 @@ func TestSleepWithContext_ResourceCleanup(t *testing.T) {
 		// 测试大量调用不会泄漏 timer
 		ctx := context.Background()
 
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			sleepWithContext(ctx, 1*time.Millisecond)
 		}
 
@@ -381,7 +381,7 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 	const concurrency = 10
 	done := make(chan bool, concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
 			_ = wrappedHandler(ctx)
@@ -390,7 +390,7 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 	}
 
 	// 等待所有完成
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		<-done
 	}
 

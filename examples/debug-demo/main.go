@@ -44,38 +44,28 @@ func main() {
 	// 创建插件管理器
 	pm := plugin.NewManager(eng)
 
-	// 1. 创建并注册权限插件（可选）
+	// 1. 注册权限插件（v2 API）
 	logger.Info("注册权限插件...")
-	permPlugin := permission.New()
-	if err := pm.Register(permPlugin); err != nil {
+	if err := pm.RegisterV2(permission.New()); err != nil {
 		logger.Errorf("注册权限插件失败: %v", err)
 	}
 
-	// 配置一些测试权限
-	setupTestPermissions(permPlugin)
+	// 从容器获取权限插件 API 并配置测试权限
+	if permAPI, exists := pm.GetContainer().Get("permission_api"); exists {
+		if permPlugin, ok := permAPI.(*permission.Plugin); ok {
+			setupTestPermissions(permPlugin)
+		}
+	}
 
-	// 2. 创建并注册 Debug 插件
+	// 2. 注册 Debug 插件（v2 API）
 	logger.Info("注册 Debug 插件...")
-	debugPlugin := debug.New()
-
-	// 设置权限插件（可选）
-	debugPlugin.SetPermissionPlugin(permPlugin)
-
-	// 设置插件管理器
-	debugPlugin.SetPluginManager(pm)
-
-	// 设置开发模式（默认已开启）
-	debugPlugin.SetDevMode(true)
-
-	if err := pm.Register(debugPlugin); err != nil {
+	if err := pm.RegisterV2(debug.New()); err != nil {
 		logger.Fatalf("注册 Debug 插件失败: %v", err)
 	}
 
-	// 3. 创建并注册帮助插件
+	// 3. 注册帮助插件（v2 API）
 	logger.Info("注册帮助插件...")
-	helpPlugin := help.New()
-	helpPlugin.SetPluginManager(pm)
-	if err := pm.Register(helpPlugin); err != nil {
+	if err := pm.RegisterV2(help.New()); err != nil {
 		logger.Errorf("注册帮助插件失败: %v", err)
 	}
 

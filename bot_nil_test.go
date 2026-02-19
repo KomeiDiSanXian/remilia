@@ -46,6 +46,6 @@ func (a *testAdapter) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (a *testAdapter) GetHealth() map[string]interface{} {
+func (a *testAdapter) GetHealth() map[string]any {
 	return nil
 }

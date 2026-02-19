@@ -29,11 +29,11 @@ func TestDedupRaceConditionFix(t *testing.T) {
 	var cacheFullErrors int32
 	var mu sync.Mutex
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(goroutineID int) {
 			defer wg.Done()
 
-			for j := 0; j < eventsPerGoroutine; j++ {
+			for j := range eventsPerGoroutine {
 				eventID := fmt.Sprintf("event-%d-%d", goroutineID, j)
 				_, err := filter.CheckDuplicate(eventID)
 				if err != nil {
@@ -87,7 +87,7 @@ func TestDedupConcurrentAddAndClean(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 10 个并发添加者
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -128,7 +128,7 @@ func TestDedupAtomicOperation(t *testing.T) {
 	defer filter.Stop()
 
 	// 先填满缓存
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		_, err := filter.CheckDuplicate(fmt.Sprintf("initial-%d", i))
 		if err != nil {
 			t.Fatalf("Failed to add initial event: %v", err)
@@ -143,7 +143,7 @@ func TestDedupAtomicOperation(t *testing.T) {
 
 	errors := make([]error, concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		go func(idx int) {
 			defer wg.Done()
 			_, err := filter.CheckDuplicate(fmt.Sprintf("concurrent-%d", idx))

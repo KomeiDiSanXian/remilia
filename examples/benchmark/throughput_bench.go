@@ -65,9 +65,7 @@ func (a *MockAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 	a.handler = handler
 
 	for i := 0; i < runtime.NumCPU()*2; i++ { // 启动cpu核数*2个worker
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
+		a.wg.Go(func() {
 			for {
 				select {
 				case <-a.ctx.Done():
@@ -78,7 +76,7 @@ func (a *MockAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 					}
 				}
 			}
-		}()
+		})
 	}
 	return nil
 }
@@ -351,7 +349,7 @@ func (t *ThroughputTest) createTestPayload(clientID, messageID int) *dto.Payload
 		ID:        eventID,
 		Type:      t.config.EventType,
 		Operation: dto.Dispatch,
-		Detail:    []byte(fmt.Sprintf(`{"id":"%s","content":"%s","author":{"user_openid":"%s"}}`, eventID, event.Content, event.Author.UserOpenID)),
+		Detail:    fmt.Appendf(nil, `{"id":"%s","content":"%s","author":{"user_openid":"%s"}}`, eventID, event.Content, event.Author.UserOpenID),
 	}
 }
 

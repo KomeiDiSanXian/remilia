@@ -129,7 +129,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		})
 
 		// Process some events
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			_ = handler(createTestContext())
 		}
 
@@ -406,14 +406,12 @@ func TestConcurrencyLimitEdgeCases(t *testing.T) {
 		var wg sync.WaitGroup
 		errorCount := int32(0)
 
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 100 {
+			wg.Go(func() {
 				if err := handler(createTestContext()); err != nil {
 					atomic.AddInt32(&errorCount, 1)
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -528,7 +526,7 @@ func TestDedupEdgeCases(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		// Add more events than cache size
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			event := &dto.Payload{
 				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
@@ -629,7 +627,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		// Different events should have separate limits
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			event := &dto.Payload{
 				ID:   dto.EventID(rune('a' + i)),
 				Type: "TEST",
@@ -706,14 +704,12 @@ func TestConcurrentStress(t *testing.T) {
 		var wg sync.WaitGroup
 		blocked := int32(0)
 
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 50 {
+			wg.Go(func() {
 				if err := handler(createTestContext()); err != nil {
 					atomic.AddInt32(&blocked, 1)
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -733,15 +729,13 @@ func TestConcurrentStress(t *testing.T) {
 		var wg sync.WaitGroup
 		rejected := int32(0)
 
-		for i := 0; i < 20; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 20 {
+			wg.Go(func() {
 				err := handler(createTestContext())
 				if err != nil && err.Error() == "circuit breaker is open" {
 					atomic.AddInt32(&rejected, 1)
 				}
-			}()
+			})
 			time.Sleep(5 * time.Millisecond)
 		}
 

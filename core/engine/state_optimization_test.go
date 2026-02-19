@@ -15,7 +15,7 @@ func TestCopyEngineState(t *testing.T) {
 	src.block = true
 
 	// 添加一些 matchers
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -158,7 +158,7 @@ func TestInvalidateSortedCacheOptimization(t *testing.T) {
 	state := newEngineState()
 
 	// 添加多个 matchers
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -199,7 +199,7 @@ func TestInvalidateSortedCacheOptimization(t *testing.T) {
 func BenchmarkCopyEngineState(b *testing.B) {
 	// 创建包含 100 个 matchers 的状态
 	src := newEngineState()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -221,7 +221,7 @@ func BenchmarkCopyMiddlewareState(b *testing.B) {
 	src := newMiddlewareState()
 
 	// 添加 10 个全局中间件
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		mw := func(next context.Handler) context.Handler {
 			return func(ctx *context.Context) error {
 				return next(ctx)
@@ -231,7 +231,7 @@ func BenchmarkCopyMiddlewareState(b *testing.B) {
 	}
 
 	// 添加 5 个分组中间件
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		groupName := "group" + string(rune('A'+i))
 		snap := &middlewareSnapshot{
 			chain: make([]Middleware, 10),
@@ -251,7 +251,7 @@ func BenchmarkAddMatcher(b *testing.B) {
 	state := newEngineState()
 
 	// 预分配一些 matchers 以模拟真实场景
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -282,7 +282,7 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 	state := newEngineState()
 
 	// 添加 100 个 matchers
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -303,7 +303,7 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 func BenchmarkCOWModification(b *testing.B) {
 	// 创建初始状态
 	src := newEngineState()
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		m := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},

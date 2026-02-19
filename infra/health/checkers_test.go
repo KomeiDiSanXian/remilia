@@ -78,7 +78,7 @@ func TestDeadLetterQueueHealthChecker_Check_HealthyDLQ(t *testing.T) {
 func TestDeadLetterQueueHealthChecker_Check_QueueSizeExceedsThreshold(t *testing.T) {
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.DeadLetterQueueConfig{MaxSize: 10, Workers: 1})
 	require.NotNil(t, dlqInstance)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		dlqInstance.Enqueue(dlq.DeadLetterItem{Event: &dto.Payload{ID: dto.EventID("test-" + string(rune('0'+i)))}})
 	}
 	checker := NewDeadLetterQueueHealthChecker(dlqInstance, 5, 0.1)

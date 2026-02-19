@@ -52,8 +52,8 @@ func ParseCommandLine(input string) (*Args, error) {
 		token := tokens[i]
 
 		// Handle long flags (--key or --key=value)
-		if strings.HasPrefix(token, "--") {
-			key := strings.TrimPrefix(token, "--")
+		if after, ok := strings.CutPrefix(token, "--"); ok {
+			key := after
 			if key == "" {
 				return nil, fmt.Errorf("invalid flag: %s", token)
 			}

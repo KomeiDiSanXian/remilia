@@ -72,164 +72,162 @@ func main() {
 }
 
 func registerPlugins(manager *plugin.Manager, eng *engine.Engine) {
-	// 1. Greeter 插件
-	greeter := NewGreeterPlugin(eng)
-	if err := manager.Register(greeter); err != nil {
+	// 使用 v2 API 注册插件
+	if err := manager.RegisterV2(NewGreeterPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginExample] Failed to register greeter plugin")
 	}
 
-	// 2. Counter 插件
-	counter := NewCounterPlugin(eng)
-	if err := manager.Register(counter); err != nil {
+	if err := manager.RegisterV2(NewCounterPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginExample] Failed to register counter plugin")
 	}
 
-	logger.Info("[PluginExample] All plugins registered: greeter, counter")
+	logger.Info("[PluginExample] All plugins registered (v2): greeter, counter")
 }
 
-// ===== Greeter Plugin =====
+// ===== Greeter Plugin (v2 API) =====
 
-type GreeterPlugin struct {
-	*plugin.BasePlugin
-	greeting string
-	engine   *engine.Engine
-}
+func NewGreeterPlugin() *plugin.PluginDescriptor {
+	// 使用闭包捕获状态
+	greeting := "你好"
 
-func NewGreeterPlugin(eng *engine.Engine) *GreeterPlugin {
-	return &GreeterPlugin{
-		BasePlugin: plugin.NewBasePlugin("greeter"),
-		greeting:   "你好",
-		engine:     eng,
+	return &plugin.PluginDescriptor{
+		Name:        "greeter",
+		Version:     "2.0.0",
+		Author:      "Remilia",
+		Description: "问候插件示例 - 演示 v2 API 的基本用法",
+		Category:    "示例",
+		Tags:        []string{"greeting", "example", "v2"},
+		HelpText:    "/greet - 发送问候\n/setgreeting - 设置问候语",
+
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[Greeter] Loading plugin (v2)...")
+
+			// 注册 /greet 命令（使用 RegisterCommand 自动追踪）
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/greet").Handle(func(c *eventctx.Context) error {
+				var c2c dto.C2CMessageCreateEvent
+				if err := c.DecodeEvent(&c2c); err != nil {
+					return err
+				}
+
+				response := fmt.Sprintf("%s, %s!", greeting, c2c.Author.UserOpenID)
+				msg := &dto.Message{
+					Type:    dto.TextMessage,
+					Content: response,
+				}
+				_, err := c.ReplyPrivate(msg)
+				return err
+			})
+
+			// 注册 /setgreeting 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").Handle(func(c *eventctx.Context) error {
+				var c2c dto.C2CMessageCreateEvent
+				if err := c.DecodeEvent(&c2c); err != nil {
+					return err
+				}
+
+				if c2c.Content == "/setgreeting" || c2c.Content == "" {
+					msg := &dto.Message{
+						Type:    dto.TextMessage,
+						Content: "用法: /setgreeting <问候语>",
+					}
+					_, err := c.ReplyPrivate(msg)
+					return err
+				}
+
+				// 更新闭包中的状态
+				greeting = "Hello"
+				msg := &dto.Message{
+					Type:    dto.TextMessage,
+					Content: "问候语已更新",
+				}
+				_, err := c.ReplyPrivate(msg)
+				return err
+			})
+
+			logger.Info("[Greeter] Plugin loaded successfully (v2)")
+			return nil
+		},
+
+		Teardown: func() error {
+			logger.Info("[Greeter] Unloading plugin (v2)...")
+			return nil
+		},
 	}
 }
 
-func (p *GreeterPlugin) Load(eng *engine.Engine) error {
-	logger.Info("[Greeter] Loading plugin...")
+// ===== Counter Plugin (v2 API) =====
 
-	// 注册 /greet 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/greet").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
+func NewCounterPlugin() *plugin.PluginDescriptor {
+	// 使用闭包捕获状态
+	var count atomic.Int64
 
-		response := fmt.Sprintf("%s, %s!", p.greeting, c2c.Author.UserOpenID)
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: response,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	})
+	return &plugin.PluginDescriptor{
+		Name:        "counter",
+		Version:     "2.0.0",
+		Author:      "Remilia",
+		Description: "计数器插件示例 - 演示 v2 API 的状态管理",
+		Category:    "示例",
+		Tags:        []string{"counter", "example", "v2"},
+		HelpText:    "/count - 增加计数\n/reset - 重置计数\n/stats - 查看统计",
 
-	// 注册 /setgreeting 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/setgreeting").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[Counter] Loading plugin (v2)...")
 
-		// 简单实现：从Content中提取新问候语
-		if c2c.Content == "/setgreeting" || c2c.Content == "" {
-			msg := &dto.Message{
-				Type:    dto.TextMessage,
-				Content: "用法: /setgreeting <问候语>",
-			}
-			_, err := ctx.ReplyPrivate(msg)
-			return err
-		}
+			// 注册 /count 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/count").Handle(func(c *eventctx.Context) error {
+				var c2c dto.C2CMessageCreateEvent
+				if err := c.DecodeEvent(&c2c); err != nil {
+					return err
+				}
 
-		// 这里简化处理，实际应该解析参数
-		p.greeting = "Hello"
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "问候语已更新",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	})
+				currentCount := count.Add(1)
+				msg := &dto.Message{
+					Type:    dto.TextMessage,
+					Content: fmt.Sprintf("计数: %d", currentCount),
+				}
+				_, err := c.ReplyPrivate(msg)
+				return err
+			})
 
-	logger.Info("[Greeter] Plugin loaded successfully")
-	return nil
-}
+			// 注册 /reset 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/reset").Handle(func(c *eventctx.Context) error {
+				var c2c dto.C2CMessageCreateEvent
+				if err := c.DecodeEvent(&c2c); err != nil {
+					return err
+				}
 
-func (p *GreeterPlugin) Unload(eng *engine.Engine) error {
-	logger.Info("[Greeter] Unloading plugin...")
-	// 清理资源
-	return nil
-}
+				count.Store(0)
+				msg := &dto.Message{
+					Type:    dto.TextMessage,
+					Content: "计数已重置",
+				}
+				_, err := c.ReplyPrivate(msg)
+				return err
+			})
 
-// ===== Counter Plugin =====
+			// 注册 /stats 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/stats").Handle(func(c *eventctx.Context) error {
+				var c2c dto.C2CMessageCreateEvent
+				if err := c.DecodeEvent(&c2c); err != nil {
+					return err
+				}
 
-type CounterPlugin struct {
-	*plugin.BasePlugin
-	count  atomic.Int64
-	engine *engine.Engine
-}
+				currentCount := count.Load()
+				msg := &dto.Message{
+					Type:    dto.TextMessage,
+					Content: fmt.Sprintf("统计信息:\n当前计数: %d", currentCount),
+				}
+				_, err := c.ReplyPrivate(msg)
+				return err
+			})
 
-func NewCounterPlugin(eng *engine.Engine) *CounterPlugin {
-	return &CounterPlugin{
-		BasePlugin: plugin.NewBasePlugin("counter"),
-		engine:     eng,
+			logger.Info("[Counter] Plugin loaded successfully (v2)")
+			return nil
+		},
+
+		Teardown: func() error {
+			logger.Info("[Counter] Unloading plugin (v2)...")
+			return nil
+		},
 	}
-}
-
-func (p *CounterPlugin) Load(eng *engine.Engine) error {
-	logger.Info("[Counter] Loading plugin...")
-
-	// 注册 /count 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/count").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		count := p.count.Add(1)
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: fmt.Sprintf("计数: %d", count),
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	})
-
-	// 注册 /reset 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/reset").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		p.count.Store(0)
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "计数已重置",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	})
-
-	// 注册 /stats 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/stats").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		count := p.count.Load()
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: fmt.Sprintf("统计信息:\n当前计数: %d", count),
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	})
-
-	logger.Info("[Counter] Plugin loaded successfully")
-	return nil
-}
-
-func (p *CounterPlugin) Unload(eng *engine.Engine) error {
-	logger.Info("[Counter] Unloading plugin...")
-	return nil
 }

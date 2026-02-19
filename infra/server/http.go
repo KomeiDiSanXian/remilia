@@ -52,14 +52,12 @@ func (s *HTTPServer) WithShutdownTimeout(timeout time.Duration) *HTTPServer {
 // This method is non-blocking and returns immediately.
 // The server will start accepting connections in the background.
 func (s *HTTPServer) Start() {
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+	s.wg.Go(func() {
 		logger.Infof("[Server] Listening on %s", s.srv.Addr)
 		if err := s.srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[Server] Failed to start HTTP server")
 		}
-	}()
+	})
 }
 
 // Shutdown gracefully shuts down the server.

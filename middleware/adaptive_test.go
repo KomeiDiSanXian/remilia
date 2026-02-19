@@ -92,13 +92,11 @@ func TestAdaptiveRateLimiter_ConcurrencyLimit(t *testing.T) {
 
 	// 启动 10 个请求（等于限制）
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			ctx := createTestContext()
 			_ = wrappedHandler(ctx)
-		}()
+		})
 	}
 
 	// 等待所有请求开始
@@ -165,7 +163,7 @@ func TestAdaptiveRateLimiter_Stats(t *testing.T) {
 	wrappedHandler := middleware(handler)
 
 	// 发送一些请求
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		ctx := createTestContext()
 		_ = wrappedHandler(ctx)
 	}
@@ -202,16 +200,14 @@ func TestAdaptiveRateLimiter_HighLoad(t *testing.T) {
 	// 发送大量并发请求
 	var wg sync.WaitGroup
 	requestCount := 100
-	for i := 0; i < requestCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range requestCount {
+		wg.Go(func() {
 			ctx := createTestContext()
 			err := wrappedHandler(ctx)
 			if err != nil {
 				rejected.Add(1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -258,7 +254,7 @@ func TestAdaptiveRateLimiter_MetricsCollection(t *testing.T) {
 	wrappedHandler := middleware(handler)
 
 	// 发送请求
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ctx := createTestContext()
 		_ = wrappedHandler(ctx)
 	}

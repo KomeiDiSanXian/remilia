@@ -5,14 +5,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// Plugin 缓存插件
+// Plugin 缓存插件 API
 type Plugin struct {
-	*plugin.BasePlugin
 	cache *LRUCache
 }
 
@@ -42,21 +40,29 @@ type CacheStats struct {
 	mu          sync.RWMutex
 }
 
-// New 创建缓存插件
-func New() *Plugin {
-	return NewWithCapacity(1000)
+// New 创建缓存插件（v2 API）
+func New() *plugin.PluginDescriptor {
+	return NewV2WithCapacity(1000)
 }
 
-// NewWithCapacity 创建指定容量的缓存插件
-func NewWithCapacity(capacity int) *Plugin {
-	metadata := &plugin.Metadata{
-		Name:         "cache",
-		Version:      "1.0.0",
-		Author:       "Remilia Team",
-		Description:  "高性能 LRU 缓存插件，减少重复计算和外部请求",
-		Category:     "核心",
-		Tags:         []string{"缓存", "性能", "LRU", "核心"},
-		Dependencies: []string{"storage"}, // 可选依赖，用于持久化缓存
+// NewV2WithCapacity 创建指定容量的缓存插件（v2 API）
+func NewV2WithCapacity(capacity int) *plugin.PluginDescriptor {
+	// 创建缓存实例（闭包捕获）
+	cache := NewLRUCache(capacity)
+
+	// 创建 Plugin 包装器供其他插件使用
+	pluginAPI := &Plugin{
+		cache: cache,
+	}
+
+	return &plugin.PluginDescriptor{
+		Name:        "cache",
+		Version:     "2.0.0",
+		Author:      "Remilia Team",
+		Description: "高性能 LRU 缓存插件，减少重复计算和外部请求",
+		Category:    "核心",
+		Tags:        []string{"缓存", "性能", "LRU", "核心"},
+		Deps:        []string{}, // storage 依赖改为可选
 		HelpText: `缓存插件使用说明：
 
 高性能 LRU 缓存，特性：
@@ -65,17 +71,31 @@ func NewWithCapacity(capacity int) *Plugin {
 - 缓存统计和监控
 - 线程安全
 
-API 使用：
-  cache.Set(key, value, ttl) - 设置缓存
-  cache.Get(key) - 获取缓存
-  cache.Delete(key) - 删除缓存
-  cache.Clear() - 清空缓存
-  cache.Stats() - 查看统计`,
-	}
+API 使用 (v2):
+  cachePlugin := ctx.MustGet("cache").(*cache.Plugin)
+  cachePlugin.Set(key, value, ttl) - 设置缓存
+  cachePlugin.Get(key) - 获取缓存
+  cachePlugin.Delete(key) - 删除缓存
+  cachePlugin.Clear() - 清空缓存
+  cachePlugin.Stats() - 查看统计`,
 
-	return &Plugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-		cache:      NewLRUCache(capacity),
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[CachePlugin] Loading cache plugin (v2)...")
+			logger.Infof("[CachePlugin] Capacity: %d", capacity)
+
+			// 将 API 包装器注册到容器中（供依赖此插件的其他插件使用）
+			// 注意：这是一个临时方案，理想情况下应该通过 v2 的返回值机制
+			ctx.Manager.GetContainer().Register("cache_api", pluginAPI)
+
+			logger.Info("[CachePlugin] Cache plugin loaded successfully")
+			return nil
+		},
+
+		Teardown: func() error {
+			logger.Info("[CachePlugin] Unloading cache plugin...")
+			cache.Clear()
+			return nil
+		},
 	}
 }
 
@@ -86,13 +106,6 @@ func NewLRUCache(capacity int) *LRUCache {
 		items:    make(map[string]*list.Element),
 		order:    list.New(),
 	}
-}
-
-// Load 加载插件
-func (p *Plugin) Load(eng *engine.Engine) error {
-	logger.Info("[CachePlugin] Loading cache plugin...")
-	logger.Infof("[CachePlugin] Capacity: %d", p.cache.capacity)
-	return nil
 }
 
 // Get 获取缓存

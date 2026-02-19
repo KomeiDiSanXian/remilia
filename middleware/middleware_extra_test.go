@@ -84,7 +84,7 @@ func TestDedupExtra(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		// Fill cache
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
 			handler(eventctx.NewContext(event, nil))
 		}
@@ -376,14 +376,12 @@ func TestConcurrentDedup(t *testing.T) {
 
 	event := &dto.Payload{ID: "concurrent", Type: "TEST"}
 
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			if handler(eventctx.NewContext(event, nil)) == nil {
 				atomic.AddInt32(&processed, 1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -399,14 +397,12 @@ func TestConcurrentRateLimit(t *testing.T) {
 	var wg sync.WaitGroup
 	blocked := int32(0)
 
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			if err := handler(createTestContext()); err != nil {
 				atomic.AddInt32(&blocked, 1)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -449,7 +445,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 		handler := mw(mockHandler(nil, 0))
 
 		// Add events
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			event := &dto.Payload{ID: dto.EventID(rune('a' + i)), Type: "TEST"}
 			handler(eventctx.NewContext(event, nil))
 		}

@@ -10,21 +10,21 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugins/core/help"
 )
 
-// TestPlugin 测试插件
-type TestPlugin struct {
-	*plugin.BasePlugin
-}
+// NewTestPlugin 创建测试插件（v2 API）
+func NewTestPlugin() *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
+		Name:        "test",
+		Version:     "2.0.0",
+		Description: "测试插件 - 用于验证 help 插件功能",
+		Category:    "测试",
+		Tags:        []string{"test", "v2"},
 
-func NewTestPlugin() *TestPlugin {
-	return &TestPlugin{
-		BasePlugin: plugin.NewBasePlugin("test"),
+		Setup: func(ctx *plugin.SetupContext) error {
+			// 注册一个测试命令（使用 RegisterCommand 自动追踪）
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/test")
+			return nil
+		},
 	}
-}
-
-func (p *TestPlugin) Load(eng *engine.Engine) error {
-	// 注册一个测试命令
-	p.OnCommand(eng, dto.C2CMessageCreate, "/test")
-	return nil
 }
 
 func main() {
@@ -40,21 +40,18 @@ func main() {
 	// 创建插件管理器
 	manager := plugin.NewManager(eng)
 
-	// 注册帮助插件
-	helpPlugin := help.New()
-	helpPlugin.SetPluginManager(manager)
-	if err := manager.Register(helpPlugin); err != nil {
+	// 注册帮助插件（v2）
+	if err := manager.RegisterV2(help.New()); err != nil {
 		logger.WithError(err).Fatal("Failed to register help plugin")
 	}
 
-	// 注册测试插件
-	testPlugin := NewTestPlugin()
-	if err := manager.Register(testPlugin); err != nil {
+	// 注册测试插件（v2）
+	if err := manager.RegisterV2(NewTestPlugin()); err != nil {
 		logger.WithError(err).Fatal("Failed to register test plugin")
 	}
 
 	// 验证命令是否可以被查询到
-	fmt.Println("\n=== 验证命令查询 ===")
+	fmt.Println("\n=== 验证命令查询 (v2 API) ===")
 	commands := eng.GetAllCommands()
 	fmt.Printf("总共注册了 %d 个命令:\n", len(commands))
 	for _, cmd := range commands {
@@ -85,5 +82,9 @@ func main() {
 		fmt.Printf("  来源: %s\n", cmdInfo.Source)
 	}
 
-	fmt.Println("\n✅ 验证完成！命令可以被正确查询。")
+	fmt.Println("\n✅ v2 API 验证完成！命令可以被正确查询。")
+	fmt.Println("\nv2 改进:")
+	fmt.Println("  ✅ 无需定义结构体和方法")
+	fmt.Println("  ✅ 使用 RegisterCommand 自动追踪")
+	fmt.Println("  ✅ 代码更简洁")
 }

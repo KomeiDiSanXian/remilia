@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	remiliaerrors "github.com/KomeiDiSanXian/remilia/errutil"
@@ -145,10 +146,11 @@ func stringsJoin(parts []string, sep string) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	out := parts[0]
+	var out strings.Builder
+	out.WriteString(parts[0])
 	for i := 1; i < len(parts); i++ {
-		out += sep
-		out += parts[i]
+		out.WriteString(sep)
+		out.WriteString(parts[i])
 	}
-	return out
+	return out.String()
 }

@@ -4,56 +4,153 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement access control list and verification code system with demo">
-      <change afterPath="$PROJECT_DIR$/docs/03-architecture/plugin-dependency-management.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/04-development/plugin-best-practices.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/auto-dependency-injection-implementation.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/compilation-errors-fix.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/config-test-fix.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-critical-fixes-report.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-dependency-fix.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-issues-analysis.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-issues.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/dependency.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/dependency_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: update Engine references to use lowercase 'engine' for consistency">
+      <change afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/PLUGIN_V1_DEPRECATION_NOTICE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/compilation-errors-fixed.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/phase-2-examples-migration-complete.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/phase-3-deprecation-complete-checklist.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/phase-4-v1-removal-complete.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-interfaces-analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-migration-final-summary.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-migration-guide.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-refactoring-analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-fix-plan.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-implementation-summary.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-issues-analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-migration-complete.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-p0-fixes-complete.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-quick-reference.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-v2-upgrade-summary.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/v1-removal-readiness-assessment.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/v2.0.0-RELEASE-NOTES.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/v2_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter_safety_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter_safety_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_nil_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_nil_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/enhanced_system.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/enhanced_system.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/parser.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/parser.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/registry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/trie_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/trie_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_error_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_error_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/extensions.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/extensions.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/batch_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/batch_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_push_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_final_push_90_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher_compiler.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_compiler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/runtime.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/runtime.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_optimization_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/acl-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/acl-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/async-tasks/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/config-integration/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/config-integration/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/debug-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-demo/main.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/logger-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/logger-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/middleware-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/test/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/test/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/tracing-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/tracing-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/health/checkers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/error-handling/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-enhancements/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-enhancements/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-metadata/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-metadata/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/test-help-fix/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/test-help-fix/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/verification-code-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/verification-code-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/benchmark_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/benchmark_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/handler_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/handler_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/helper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/audit.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/audit_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/health/checkers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/pool/pool_reset_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/pool/pool_reset_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/pool/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/pool/pool_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/server/http.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/server/http.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/tracing/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/helper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/simple.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker_autorecovery_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker_autorecovery_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_90_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/ratelimit_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/ratelimit_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token_stop_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token_stop_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/dto/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/dto/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook_stats_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/dependency.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/dependency_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/enhancement_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/cache/cache.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/cache/cache.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/cache/cache_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/acl_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/verification_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/command_parsing_fix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/command_parsing_fix_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/command_parsing_fix_test.go" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/subcommand_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_plus_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_plus_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/benchmark/benchmark_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/benchmark/benchmark_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/chaos/chaos_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/chaos/chaos_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/integration/e2e_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/e2e_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -293,7 +390,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add example configuration file and enhance documentation for bot setup" />
     <MESSAGE value="feat: enhance latency tracking with validity checks and add timeout protection for bot startup" />
     <MESSAGE value="feat: implement v2 lifecycle management with improved context handling and component lifecycle hooks" />
     <MESSAGE value="feat: implement critical fixes from code review, enhancing config safety, dedup lifecycle, command parsing, and metrics registration" />
@@ -318,7 +414,8 @@
     <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
     <MESSAGE value="test: add tests for command parsing fixes in debug plugin" />
     <MESSAGE value="feat: implement access control list and verification code system with demo" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement access control list and verification code system with demo" />
+    <MESSAGE value="fix: update Engine references to use lowercase 'engine' for consistency" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: update Engine references to use lowercase 'engine' for consistency" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

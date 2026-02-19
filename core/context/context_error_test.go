@@ -106,9 +106,9 @@ func TestContextConcurrency(t *testing.T) {
 		done := make(chan bool, goroutines)
 
 		// 并发写入
-		for i := 0; i < goroutines; i++ {
+		for i := range goroutines {
 			go func(id int) {
-				for j := 0; j < operations; j++ {
+				for j := range operations {
 					key := "key_" + string(rune('0'+id))
 					ctx.Set(key, j)
 					_, _ = ctx.Get(key)
@@ -118,7 +118,7 @@ func TestContextConcurrency(t *testing.T) {
 		}
 
 		// 等待完成
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			<-done
 		}
 
@@ -134,9 +134,9 @@ func TestContextConcurrency(t *testing.T) {
 		done := make(chan bool, goroutines)
 
 		// 并发访问 Extensions
-		for i := 0; i < goroutines; i++ {
+		for i := range goroutines {
 			go func(id int) {
-				for j := 0; j < 100; j++ {
+				for range 100 {
 					ext := ctx.Ext()
 					assert.NotNil(t, ext)
 				}
@@ -145,7 +145,7 @@ func TestContextConcurrency(t *testing.T) {
 		}
 
 		// 等待完成
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			<-done
 		}
 	})
@@ -163,9 +163,9 @@ func TestContextConcurrency(t *testing.T) {
 		done := make(chan bool, goroutines)
 
 		// 并发读取操作
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			go func() {
-				for j := 0; j < 100; j++ {
+				for range 100 {
 					_ = ctx.GetMessageContent()
 					_ = ctx.GetAuthor()
 					_ = ctx.GetEventType()
@@ -175,7 +175,7 @@ func TestContextConcurrency(t *testing.T) {
 		}
 
 		// 等待完成
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			<-done
 		}
 	})

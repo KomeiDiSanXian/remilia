@@ -259,7 +259,7 @@ func TestWebhookAdapter_ConcurrentEvents(t *testing.T) {
 
 	// 发送多个事件
 	eventCount := 10
-	for i := 0; i < eventCount; i++ {
+	for i := range eventCount {
 		eventCh <- &dto.Payload{
 			ID:   dto.EventID(fmt.Sprintf("event-%d", i)),
 			Type: "test",
@@ -300,7 +300,7 @@ func TestWebhookAdapter_ShutdownWithPendingEvents(t *testing.T) {
 	require.NoError(t, err, "Start should not return error")
 
 	// 发送大量事件
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		eventCh <- &dto.Payload{
 			ID:   dto.EventID(fmt.Sprintf("event-%d", i)),
 			Type: "test",

@@ -677,7 +677,7 @@ func TestParallel_ConcurrentContextAccess(t *testing.T) {
 	}
 
 	handlers := make([]context.Handler, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		handlers[i] = makeHandler(i)
 	}
 

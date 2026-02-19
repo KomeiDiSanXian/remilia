@@ -319,7 +319,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 		matcher := eng.OnC2C()
 
 		var wg sync.WaitGroup
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			wg.Add(1)
 			go func(priority uint) {
 				defer wg.Done()
@@ -342,7 +342,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 		matcher := eng.OnC2C()
 
 		var wg sync.WaitGroup
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			wg.Add(1)
 			go func(block bool) {
 				defer wg.Done()
@@ -362,21 +362,17 @@ func TestEngine_ConcurrentGroupOperations(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Create matchers
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 20 {
+		wg.Go(func() {
 			m := eng.OnC2C()
 			eng.SetMatcherGroup(m, "test-group", "source")
-		}()
+		})
 	}
 
 	// Delete group concurrently
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		eng.RemoveGroup("test-group")
-	}()
+	})
 
 	wg.Wait()
 
@@ -494,7 +490,7 @@ func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
 
 	// Execute 3 times
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		context := ctx.NewContext(payload, nil)
 		eng.ProcessEvent(context)
 	}
@@ -628,7 +624,7 @@ func TestEngine_SetMaxMatchers_Zero(t *testing.T) {
 	eng := NewEngine()
 	eng.SetMaxMatchers(0) // No limit
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		eng.OnC2C()
 	}
 

@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -119,9 +120,7 @@ type CheckResponse struct {
 func (h *Check) Check(ctx context.Context) CheckResponse {
 	h.mu.RLock()
 	checkers := make(map[string]Checker, len(h.checkers))
-	for name, checker := range h.checkers {
-		checkers[name] = checker
-	}
+	maps.Copy(checkers, h.checkers)
 	h.mu.RUnlock()
 
 	results := make(map[string]CheckResult)

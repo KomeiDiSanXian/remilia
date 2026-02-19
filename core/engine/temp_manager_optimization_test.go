@@ -19,7 +19,7 @@ func TestTempManagerWatermarkCleanup(t *testing.T) {
 	tm := newTempMatcherManagerWithConfig(config)
 
 	// 添加 15 个匹配器
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -52,7 +52,7 @@ func TestTempManagerCount(t *testing.T) {
 	}
 
 	// 添加匹配器
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -81,7 +81,7 @@ func TestTempManagerCleanExpired(t *testing.T) {
 	now := time.Now()
 
 	// 添加过期的匹配器
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -95,7 +95,7 @@ func TestTempManagerCleanExpired(t *testing.T) {
 	}
 
 	// 添加未过期的匹配器
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -129,7 +129,7 @@ func TestTempManagerRemove(t *testing.T) {
 	tm := newTempMatcherManager()
 
 	matchers := make([]*Matcher, 0, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -171,7 +171,7 @@ func TestTempManagerStats(t *testing.T) {
 	tm := newTempMatcherManagerWithConfig(config)
 
 	// 添加一些匹配器
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -211,7 +211,7 @@ func TestTempManagerCleanToWatermark(t *testing.T) {
 	tm := newTempMatcherManagerWithConfig(config)
 
 	// 添加 60 个匹配器
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
@@ -262,7 +262,7 @@ func BenchmarkTempManagerCount(b *testing.B) {
 	tm := newTempMatcherManager()
 
 	// 添加一些匹配器
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		matcher := &Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},

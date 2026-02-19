@@ -22,7 +22,7 @@ func mockHandler(err error, delay time.Duration) eventctx.Handler {
 }
 
 // mockPanicHandler creates a handler that panics
-func mockPanicHandler(panicValue interface{}) eventctx.Handler {
+func mockPanicHandler(panicValue any) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {
 		panic(panicValue)
 	}

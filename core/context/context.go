@@ -3,6 +3,7 @@ package context
 import (
 	stdctx "context"
 	"errors"
+	"maps"
 	"strings"
 	"sync"
 
@@ -162,9 +163,7 @@ func (ctx *Context) Clone() *Context {
 	if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
 		s.mu.RLock()
 		cp := make(map[string]any, len(s.m))
-		for k, v := range s.m {
-			cp[k] = v
-		}
+		maps.Copy(cp, s.m)
 		s.mu.RUnlock()
 		ExtSet(newCtx.Ext(), &extensionState{m: cp})
 	}
@@ -334,9 +333,7 @@ func (ctx *Context) All() map[string]any {
 	}
 	s.mu.RLock()
 	out := make(map[string]any, len(s.m))
-	for k, v := range s.m {
-		out[k] = v
-	}
+	maps.Copy(out, s.m)
 	s.mu.RUnlock()
 	return out
 }

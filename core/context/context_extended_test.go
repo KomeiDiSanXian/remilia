@@ -851,7 +851,7 @@ func TestPermissionManager_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent role assignments
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -860,12 +860,10 @@ func TestPermissionManager_Concurrent(t *testing.T) {
 	}
 
 	// Concurrent permission checks
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			pm.HasPermission("user1", Permission{Resource: "test", Action: "execute"})
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -879,21 +877,17 @@ func TestRole_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent adds
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			role.AddPermission(Permission{Resource: "test", Action: "execute"})
-		}()
+		})
 	}
 
 	// Concurrent checks
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			role.HasPermission(Permission{Resource: "test", Action: "execute"})
-		}()
+		})
 	}
 
 	wg.Wait()

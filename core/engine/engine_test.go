@@ -808,13 +808,11 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 
 		// Process 100 events concurrently
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 100 {
+			wg.Go(func() {
 				context := ctx.NewContext(payload, nil)
 				eng.ProcessEvent(context)
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -828,14 +826,12 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// Register matchers concurrently
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 50 {
+			wg.Go(func() {
 				eng.OnC2C().Handle(func(c *ctx.Context) error {
 					return nil
 				})
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -854,24 +850,20 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 
 		// Concurrent reads (ProcessEvent)
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 50 {
+			wg.Go(func() {
 				context := ctx.NewContext(payload, nil)
 				eng.ProcessEvent(context)
-			}()
+			})
 		}
 
 		// Concurrent writes (register matcher)
-		for i := 0; i < 10; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range 10 {
+			wg.Go(func() {
 				eng.OnGroupAt().Handle(func(c *ctx.Context) error {
 					return nil
 				})
-			}()
+			})
 		}
 
 		wg.Wait()

@@ -16,145 +16,117 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugins/core/help"
 )
 
-// EchoPlugin 示例插件：回显消息
-type EchoPlugin struct {
-	*plugin.BasePlugin
-}
-
-// NewEchoPlugin 创建回显插件（带元数据）
-func NewEchoPlugin() *EchoPlugin {
-	metadata := &plugin.Metadata{
+// NewEchoPlugin 创建回显插件（v2 API）
+func NewEchoPlugin() *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "echo",
-		Version:     "1.0.0",
+		Version:     "2.0.0",
 		Author:      "Example Team",
-		Description: "一个简单的消息回显插件",
+		Description: "一个简单的消息回显插件（v2 API）",
+		Category:    "工具",
+		Tags:        []string{"消息", "工具", "示例", "v2"},
+		Hidden:      false,
 		HelpText: `回显插件使用说明：
   /echo <消息> - 回显你发送的消息
   /reverse <消息> - 反转消息内容`,
-		Category: "工具",
-		Tags:     []string{"消息", "工具", "示例"},
-		Homepage: "https://example.com/echo-plugin",
-		Hidden:   false,
-	}
 
-	return &EchoPlugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[EchoPlugin] Loading (v2)...")
+
+			// 注册 /echo 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/echo").
+				Handle(func(c *eventctx.Context) error {
+					content := c.GetMessageContent()
+					args, _ := command.ParseCommandLine(content)
+
+					msg := args.Get(0)
+					if msg == "" {
+						msg = "请提供要回显的消息"
+					}
+
+					reply := &dto.Message{
+						Type:    dto.TextMessage,
+						Content: "回显: " + msg,
+					}
+					_, err := c.ReplyPrivate(reply)
+					return err
+				})
+
+			// 注册 /reverse 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/reverse").
+				Handle(func(c *eventctx.Context) error {
+					content := c.GetMessageContent()
+					args, _ := command.ParseCommandLine(content)
+
+					msg := args.Get(0)
+					if msg == "" {
+						msg = "请提供要反转的消息"
+					}
+
+					// 反转字符串
+					runes := []rune(msg)
+					for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+						runes[i], runes[j] = runes[j], runes[i]
+					}
+
+					reply := &dto.Message{
+						Type:    dto.TextMessage,
+						Content: "反转: " + string(runes),
+					}
+					_, err := c.ReplyPrivate(reply)
+					return err
+				})
+
+			logger.Info("[EchoPlugin] Loaded successfully (v2)")
+			return nil
+		},
 	}
 }
 
-// Load 加载插件
-func (p *EchoPlugin) Load(eng *engine.Engine) error {
-	logger.Info("[EchoPlugin] Loading...")
-
-	// 使用 BasePlugin.OnCommand 自动注册 Matcher
-	p.OnCommand(eng, dto.C2CMessageCreate, "/echo").
-		Handle(p.handleEcho)
-
-	p.OnCommand(eng, dto.C2CMessageCreate, "/reverse").
-		Handle(p.handleReverse)
-
-	logger.Info("[EchoPlugin] Loaded successfully")
-	return nil
-}
-
-func (p *EchoPlugin) handleEcho(ctx *eventctx.Context) error {
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-
-	msg := args.Get(0)
-	if msg == "" {
-		msg = "请提供要回显的消息"
-	}
-
-	reply := &dto.Message{
-		Type:    dto.TextMessage,
-		Content: "回显: " + msg,
-	}
-	_, err := ctx.ReplyPrivate(reply)
-	return err
-}
-
-func (p *EchoPlugin) handleReverse(ctx *eventctx.Context) error {
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-
-	msg := args.Get(0)
-	if msg == "" {
-		msg = "请提供要反转的消息"
-	}
-
-	// 反转字符串
-	runes := []rune(msg)
-	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-
-	reply := &dto.Message{
-		Type:    dto.TextMessage,
-		Content: "反转: " + string(runes),
-	}
-	_, err := ctx.ReplyPrivate(reply)
-	return err
-}
-
-// WeatherPlugin 示例插件：天气查询
-type WeatherPlugin struct {
-	*plugin.BasePlugin
-}
-
-// NewWeatherPlugin 创建天气插件（带元数据）
-func NewWeatherPlugin() *WeatherPlugin {
-	metadata := &plugin.Metadata{
+// NewWeatherPlugin 创建天气插件（v2 API）
+func NewWeatherPlugin() *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "weather",
-		Version:     "2.1.0",
+		Version:     "3.0.0",
 		Author:      "Weather Team",
-		Description: "查询城市天气信息",
+		Description: "查询城市天气信息（v2 API）",
+		Category:    "生活",
+		Tags:        []string{"天气", "生活", "信息", "v2"},
+		Hidden:      false,
 		HelpText: `天气插件使用说明：
   /weather <城市> - 查询城市的天气信息
   
 示例：
   /weather 北京
   /weather 上海`,
-		Category:   "生活",
-		Tags:       []string{"天气", "生活", "信息"},
-		Homepage:   "https://example.com/weather-plugin",
-		Repository: "https://github.com/example/weather-plugin",
-		Hidden:     false,
+
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[WeatherPlugin] Loading (v2)...")
+
+			// 注册 /weather 命令
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/weather").
+				Handle(func(c *eventctx.Context) error {
+					content := c.GetMessageContent()
+					args, _ := command.ParseCommandLine(content)
+
+					city := args.Get(0)
+					if city == "" {
+						city = "未知城市"
+					}
+
+					// 模拟天气查询
+					reply := &dto.Message{
+						Type:    dto.TextMessage,
+						Content: city + " 的天气：晴朗，温度 22°C",
+					}
+					_, err := c.ReplyPrivate(reply)
+					return err
+				})
+
+			logger.Info("[WeatherPlugin] Loaded successfully (v2)")
+			return nil
+		},
 	}
-
-	return &WeatherPlugin{
-		BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-	}
-}
-
-// Load 加载插件
-func (p *WeatherPlugin) Load(eng *engine.Engine) error {
-	logger.Info("[WeatherPlugin] Loading...")
-
-	// 使用 BasePlugin.OnCommand 自动注册 Matcher
-	p.OnCommand(eng, dto.C2CMessageCreate, "/weather").
-		Handle(p.handleWeather)
-
-	logger.Info("[WeatherPlugin] Loaded successfully")
-	return nil
-}
-
-func (p *WeatherPlugin) handleWeather(ctx *eventctx.Context) error {
-	content := ctx.GetMessageContent()
-	args, _ := command.ParseCommandLine(content)
-
-	city := args.Get(0)
-	if city == "" {
-		city = "未知城市"
-	}
-
-	// 模拟天气查询
-	reply := &dto.Message{
-		Type:    dto.TextMessage,
-		Content: city + " 的天气：晴朗，温度 22°C",
-	}
-	_, err := ctx.ReplyPrivate(reply)
-	return err
 }
 
 func main() {
@@ -272,21 +244,19 @@ func runWithConfig(cfg *config.Config) {
 }
 
 func registerPlugins(manager *plugin.Manager) {
-	// 注册帮助插件 - 不再需要 CommandRegistry
-	helpPlugin := help.New()
-	helpPlugin.SetPluginManager(manager)
-	if err := manager.Register(helpPlugin); err != nil {
+	// 注册帮助插件（v2）
+	if err := manager.RegisterV2(help.New()); err != nil {
 		logger.WithError(err).Error("[PluginMetadataDemo] Failed to register help plugin")
 	}
 
-	// 注册自定义插件
-	echoPlugin := NewEchoPlugin()
-	if err := manager.Register(echoPlugin); err != nil {
+	// 注册自定义插件（v2）
+	if err := manager.RegisterV2(NewEchoPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginMetadataDemo] Failed to register echo plugin")
 	}
 
-	weatherPlugin := NewWeatherPlugin()
-	if err := manager.Register(weatherPlugin); err != nil {
+	if err := manager.RegisterV2(NewWeatherPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginMetadataDemo] Failed to register weather plugin")
 	}
+
+	logger.Info("[PluginMetadataDemo] All plugins registered (v2)")
 }

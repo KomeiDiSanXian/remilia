@@ -27,7 +27,7 @@ type MessageCreateEvent struct {
 	Content     string       `json:"content,omitempty"`
 	Timestamp   string       `json:"timestamp,omitempty"` //RFC3339 format
 	Attachments []Attachment `json:"attachments,omitempty"`
-	Author      Author       `json:"author,omitempty"`
+	Author      Author       `json:"author"`
 }
 
 // Attachment represents an attachment in the event

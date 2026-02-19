@@ -94,9 +94,9 @@ func (c *SimpleComponent) OnStop(ctx context.Context) error {
 //	)
 type ResourceComponent struct {
 	name     string
-	resource interface{}
-	acquire  func(ctx context.Context) (interface{}, error)
-	release  func(ctx context.Context, res interface{}) error
+	resource any
+	acquire  func(ctx context.Context) (any, error)
+	release  func(ctx context.Context, res any) error
 }
 
 // NewResourceComponent 创建一个资源管理组件
@@ -107,8 +107,8 @@ type ResourceComponent struct {
 //   - release: 释放资源的函数（在 OnStop 中调用）
 func NewResourceComponent(
 	name string,
-	acquire func(ctx context.Context) (interface{}, error),
-	release func(ctx context.Context, res interface{}) error,
+	acquire func(ctx context.Context) (any, error),
+	release func(ctx context.Context, res any) error,
 ) *ResourceComponent {
 	return &ResourceComponent{
 		name:    name,
@@ -146,6 +146,6 @@ func (c *ResourceComponent) OnStop(ctx context.Context) error {
 }
 
 // Resource 返回管理的资源
-func (c *ResourceComponent) Resource() interface{} {
+func (c *ResourceComponent) Resource() any {
 	return c.resource
 }

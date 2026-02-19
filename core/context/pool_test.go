@@ -85,12 +85,12 @@ func TestContextPoolConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	errors := make(chan error, numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				// Acquire
 				ctx := context.AcquireContext(payload, nil)
 				if ctx == nil {

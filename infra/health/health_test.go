@@ -261,7 +261,7 @@ func TestCheck_Check_ConcurrentExecution(t *testing.T) {
 	check := NewCheck()
 
 	// 添加多个检查器，每个都有延迟
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		check.AddChecker(&mockChecker{
 			name:   "checker" + string(rune('0'+i)),
 			delay:  50 * time.Millisecond,
@@ -454,7 +454,7 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 
 	// 并发添加检查器
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			check.AddChecker(&mockChecker{
 				name:   "checker" + string(rune('0'+id)),
@@ -465,12 +465,12 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 	}
 
 	// 等待所有添加完成
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
 	// 并发执行检查
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			ctx := context.Background()
 			response := check.Check(ctx)
@@ -480,12 +480,12 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 	}
 
 	// 等待所有检查完成
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		<-done
 	}
 
 	// 并发移除检查器
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		go func(id int) {
 			check.RemoveChecker("checker" + string(rune('0'+id)))
 			done <- true
@@ -493,7 +493,7 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 	}
 
 	// 等待所有移除完成
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		<-done
 	}
 

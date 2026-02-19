@@ -41,17 +41,15 @@ func TestChaos_RandomFailures(t *testing.T) {
 	const totalRequests = 1000
 	var wg sync.WaitGroup
 
-	for i := 0; i < totalRequests; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range totalRequests {
+		wg.Go(func() {
 			event := &dto.Payload{
 				Type:   dto.C2CMessageCreate,
 				Detail: []byte(`{"content": "/chaos"}`),
 			}
 			ctx := rcontext.NewContext(event, nil)
 			eng.ProcessEvent(ctx)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -87,11 +85,9 @@ func TestChaos_HighConcurrency(t *testing.T) {
 	start := time.Now()
 	var wg sync.WaitGroup
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < requestsPerWorker; j++ {
+	for range concurrency {
+		wg.Go(func() {
+			for range requestsPerWorker {
 				event := &dto.Payload{
 					Type:   dto.C2CMessageCreate,
 					Detail: []byte(`{"content": "/concurrent"}`),
@@ -99,7 +95,7 @@ func TestChaos_HighConcurrency(t *testing.T) {
 				ctx := rcontext.NewContext(event, nil)
 				eng.ProcessEvent(ctx)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -135,17 +131,15 @@ func TestChaos_MemoryPressure(t *testing.T) {
 	const concurrency = 100
 	var wg sync.WaitGroup
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			event := &dto.Payload{
 				Type:   dto.C2CMessageCreate,
 				Detail: []byte(`{"content": "/memory"}`),
 			}
 			ctx := rcontext.NewContext(event, nil)
 			eng.ProcessEvent(ctx)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -163,7 +157,7 @@ func TestChaos_RapidRegistrationUnregistration(t *testing.T) {
 
 	// 快速注册和删除匹配器
 	const iterations = 1000
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		matcher := eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/cmd%d", i))
 
 		// 立即删除
@@ -192,9 +186,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 	stopCh := make(chan struct{})
 
 	// Worker 1: 持续注册匹配器
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		i := 0
 		for {
 			select {
@@ -206,12 +198,10 @@ func TestChaos_MixedOperations(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 		}
-	}()
+	})
 
 	// Worker 2: 持续处理事件
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stopCh:
@@ -226,12 +216,10 @@ func TestChaos_MixedOperations(t *testing.T) {
 				time.Sleep(5 * time.Millisecond)
 			}
 		}
-	}()
+	})
 
 	// Worker 3: 持续删除所有匹配器
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			select {
 			case <-stopCh:
@@ -241,7 +229,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 				time.Sleep(100 * time.Millisecond)
 			}
 		}
-	}()
+	})
 
 	// 运行一段时间后停止
 	time.Sleep(duration)
@@ -281,7 +269,7 @@ func TestChaos_SlowHandler(t *testing.T) {
 
 	start := time.Now()
 
-	for i := 0; i < totalRequests; i++ {
+	for i := range totalRequests {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -295,7 +283,7 @@ func TestChaos_SlowHandler(t *testing.T) {
 
 			event := &dto.Payload{
 				Type:   dto.C2CMessageCreate,
-				Detail: []byte(fmt.Sprintf(`{"content": "%s"}`, cmd)),
+				Detail: fmt.Appendf(nil, `{"content": "%s"}`, cmd),
 			}
 			ctx := rcontext.NewContext(event, nil)
 			eng.ProcessEvent(ctx)
@@ -338,10 +326,8 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 	const totalRequests = 50
 	var wg sync.WaitGroup
 
-	for i := 0; i < totalRequests; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range totalRequests {
+		wg.Go(func() {
 
 			// 创建带超时的 context
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -353,7 +339,7 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 			}
 			eventCtx := rcontext.NewContextWithContext(ctx, event, nil)
 			eng.ProcessEvent(eventCtx)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -373,7 +359,7 @@ func TestChaos_ResourceExhaustion(t *testing.T) {
 	defer eng.Close()
 
 	// 尝试注册超过限制的匹配器
-	for i := 0; i < 150; i++ {
+	for i := range 150 {
 		eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/cmd%d", i))
 	}
 
@@ -409,7 +395,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 	})
 
 	// 第一阶段：正常处理
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		event := &dto.Payload{
 			Type:   dto.C2CMessageCreate,
 			Detail: []byte(`{"content": "/service"}`),
@@ -422,7 +408,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 	atomic.StoreInt32(&degradeMode, 1)
 
 	// 第二阶段：降级处理
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		event := &dto.Payload{
 			Type:   dto.C2CMessageCreate,
 			Detail: []byte(`{"content": "/service"}`),
@@ -467,7 +453,7 @@ func TestChaos_CascadingFailures(t *testing.T) {
 
 	// 并发调用，观察级联失败
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		wg.Add(2)
 
 		go func() {
@@ -506,7 +492,7 @@ func TestChaos_StressTest(t *testing.T) {
 	defer eng.Close()
 
 	// 注册多个命令
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		cmdNum := i
 		eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/stress%d", i)).Handle(func(ctx *rcontext.Context) error {
 			// 随机延迟
@@ -537,12 +523,10 @@ func TestChaos_StressTest(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 启动并发 worker
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 
-			for j := 0; j < requestsPerWorker; j++ {
+			for range requestsPerWorker {
 				select {
 				case <-stopCh:
 					return
@@ -555,7 +539,7 @@ func TestChaos_StressTest(t *testing.T) {
 				cmdNum := rand.Intn(10)
 				event := &dto.Payload{
 					Type:   dto.C2CMessageCreate,
-					Detail: []byte(fmt.Sprintf(`{"content": "/stress%d"}`, cmdNum)),
+					Detail: fmt.Appendf(nil, `{"content": "/stress%d"}`, cmdNum),
 				}
 
 				ctx := rcontext.NewContext(event, nil)
@@ -567,7 +551,7 @@ func TestChaos_StressTest(t *testing.T) {
 				// 随机间隔
 				time.Sleep(time.Millisecond * time.Duration(rand.Intn(10)))
 			}
-		}()
+		})
 	}
 
 	// 等待完成或超时

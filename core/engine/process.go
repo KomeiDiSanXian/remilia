@@ -347,7 +347,7 @@ func (e *Engine) processPendingDeletes() {
 	limit := DefaultPendingDeleteBatchSize // 每次最多处理
 
 loop:
-	for i := 0; i < limit; i++ {
+	for range limit {
 		select {
 		case m := <-e.services.pendingDeleteCh:
 			if m != nil {
@@ -486,7 +486,7 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 	for {
 		// 1. Advance indices if current head items should be skipped
 		stop := true
-		for k := 0; k < 6; k++ {
+		for k := range 6 {
 			for idx[k] < lens[k] {
 				m := lists[k][idx[k]]
 				isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
@@ -518,7 +518,7 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 		minP := uint(999999999)
 		winner := -1
 
-		for k := 0; k < 6; k++ {
+		for k := range 6 {
 			if idx[k] < lens[k] {
 				// At this point, lists[k][idx[k]] is a VALID candidate
 				p := lists[k][idx[k]].getPriority()

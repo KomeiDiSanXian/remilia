@@ -178,7 +178,7 @@ func TestParseEvent(t *testing.T) {
 	}
 
 	t.Run("valid event", func(t *testing.T) {
-		eventData := map[string]interface{}{
+		eventData := map[string]any{
 			"id": "test-123", "type": "message", "content": "Hello World", "count": 42,
 		}
 		jsonData, err := json.Marshal(eventData)
@@ -222,8 +222,8 @@ func TestParseEvent_DifferentTypes(t *testing.T) {
 			Author Author `json:"author"`
 		}
 
-		jsonData, _ := json.Marshal(map[string]interface{}{
-			"title": "Test", "author": map[string]interface{}{"name": "John", "id": "123"},
+		jsonData, _ := json.Marshal(map[string]any{
+			"title": "Test", "author": map[string]any{"name": "John", "id": "123"},
 		})
 
 		payload := &dto.Payload{Detail: jsonData}

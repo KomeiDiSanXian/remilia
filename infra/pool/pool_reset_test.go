@@ -14,35 +14,29 @@ func TestPool_ConcurrentReset(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// 并发执行多个 Reset
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			pool.Reset()
-		}()
+		})
 	}
 
 	// 同时进行 Get/Put 操作
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 20 {
 				obj := pool.Get()
 				pool.Put(obj)
 			}
-		}()
+		})
 	}
 
 	// 同时读取统计
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
+	for range 10 {
+		wg.Go(func() {
+			for range 20 {
 				_ = pool.Stats()
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -65,7 +59,7 @@ func TestPool_ResetAtomicity(t *testing.T) {
 	})
 
 	// 执行一些操作
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		obj := pool.Get()
 		pool.Put(obj)
 	}

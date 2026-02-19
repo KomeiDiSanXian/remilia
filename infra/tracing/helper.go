@@ -29,7 +29,7 @@ func (h *SpanHelper) SetAttributes(attrs ...attribute.KeyValue) *SpanHelper {
 }
 
 // SetAttribute 设置单个属性
-func (h *SpanHelper) SetAttribute(key string, value interface{}) *SpanHelper {
+func (h *SpanHelper) SetAttribute(key string, value any) *SpanHelper {
 	if h.span == nil {
 		return h
 	}

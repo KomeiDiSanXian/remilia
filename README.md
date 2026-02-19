@@ -16,6 +16,25 @@
 
 ---
 
+## 🎉 v2.0.0 发布
+
+> **✅ Plugin v2 API 正式版**
+> 
+> v2.0.0 已发布！v1 API (BasePlugin) 已完全移除。
+> 
+> **v2 API 优势**:
+> - ✅ 代码减少 60%
+> - ✅ 自动依赖注入
+> - ✅ 自动 Matcher 追踪
+> - ✅ 更好的类型安全
+> - ✅ 符合 Go 习惯用法
+> 
+> **迁移指南**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)  
+> **变更日志**: [CHANGELOG.md](CHANGELOG.md)  
+> **v2 示例**: [examples/plugin-v2-demo/](examples/plugin-v2-demo/)
+
+---
+
 ## ✨ 特性
 
 ### 🚀 核心能力
@@ -131,7 +150,58 @@ func main() {
 }
 ```
 
-### 3. 使用配置文件
+### 3. 插件开发 (v2 API 推荐)
+
+创建一个简单的插件：
+
+```go
+package myplugin
+
+import (
+    "github.com/KomeiDiSanXian/remilia/plugin"
+    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
+
+// New 创建插件（v2 API）
+func New() *plugin.PluginDescriptor {
+    return &plugin.PluginDescriptor{
+        Name:        "myplugin",
+        Version:     "1.0.0",
+        Description: "我的第一个插件",
+        
+        Setup: func(ctx *plugin.SetupContext) error {
+            // 注册命令（自动追踪）
+            ctx.RegisterCommand(dto.C2CMessageCreate, "/hello").
+                Handle(func(c *eventctx.Context) error {
+                    return c.Reply("Hello from plugin!")
+                })
+            return nil
+        },
+    }
+}
+
+// 使用插件
+func main() {
+    eng := engine.NewEngine()
+    manager := plugin.NewManager(eng)
+    
+    // 注册 v2 插件
+    manager.RegisterV2(myplugin.New())
+    
+    // ... 启动 bot
+}
+```
+
+**v2 API 优势**:
+- ✅ 无需继承 BasePlugin
+- ✅ 代码减少 60%
+- ✅ 自动依赖注入
+- ✅ 自动 Matcher 追踪
+
+**迁移指南**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
+
+### 4. 使用配置文件
 
 ```yaml
 # config.yaml

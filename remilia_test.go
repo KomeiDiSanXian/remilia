@@ -482,8 +482,7 @@ func TestWebhookAdapter(t *testing.T) {
 		var received []*dto.Payload
 		var mu sync.Mutex
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		err := adapter.Start(ctx, func(payload *dto.Payload) {
 			mu.Lock()

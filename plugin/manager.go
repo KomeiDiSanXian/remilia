@@ -1,9 +1,7 @@
 package plugin
 
 import (
-	"fmt"
 	"sync"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -34,6 +32,7 @@ type Manager struct {
 	listeners   []LifecycleListener // 生命周期监听器列表
 	viper       *viper.Viper        // 全局配置
 	loadOrder   []string            // 插件加载顺序
+	container   *Container          // 依赖注入容器（v2）
 	mu          sync.RWMutex
 }
 
@@ -44,6 +43,7 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
 		loadOrder:   make([]string, 0),
+		container:   NewContainer(),
 	}
 }
 
@@ -122,123 +122,21 @@ func (pm *Manager) notifyError(name string, operation string, err error) {
 	}
 }
 
-// Register 注册插件，返回错误信息
-func (pm *Manager) Register(plugin Plugin) error {
-	name := plugin.Name()
-	pm.mu.Lock()
-
-	if _, exists := pm.plugins[name]; exists {
-		pm.mu.Unlock()
-		logger.Warnf("[pluginManager] Plugin %s already registered", name)
-		return errutil.ErrPluginAlreadyExists
-	}
-
-	// 初始化插件配置（如果插件支持配置）
-	if configurable, ok := plugin.(ConfigurablePlugin); ok {
-		if pm.viper != nil {
-			config := NewPluginConfig(name, pm.viper)
-			configurable.SetConfig(config)
-		}
-	}
-
-	// 自动依赖注入：收集已注册的插件作为可注入依赖
-	availableDeps := make(map[string]interface{})
-	for depName, depPlugin := range pm.plugins {
-		availableDeps[depName] = depPlugin
-	}
-
-	// 添加插件管理器自身（某些插件可能需要它）
-	availableDeps["manager"] = pm
-	availableDeps["coordinator"] = pm.coordinator
-	availableDeps["engine"] = pm.coordinator
-
-	// 尝试自动注入依赖
-	if err := InjectDependencies(plugin, availableDeps); err != nil {
-		logger.WithError(err).Warnf("[pluginManager] Failed to inject dependencies for plugin %s", name)
-		// 依赖注入失败不阻止插件注册，由插件的 Load 方法决定是否需要这些依赖
-	}
-
-	// 设置加载中状态（如果插件支持状态管理）
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		stateful.SetState(Loading)
-	}
-
-	pm.mu.Unlock()
-
-	// 加载插件
-	startTime := time.Now()
-	if err := plugin.Load(pm.coordinator); err != nil {
-		logger.WithError(err).Errorf("[pluginManager] Failed to load plugin %s", name)
-
-		// 设置错误状态（如果插件支持状态管理）
-		if stateful, ok := plugin.(StatefulPlugin); ok {
-			stateful.SetState(Error)
-			stateful.SetLastError(err)
-		}
-
-		pm.notifyError(name, "load", err) // 通知监听器错误
-		return err
-	}
-
-	pm.mu.Lock()
-	pm.plugins[name] = plugin
-	pm.loadOrder = append(pm.loadOrder, name)
-	pm.mu.Unlock()
-
-	// 设置加载完成状态（如果插件支持状态管理）
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		stateful.SetState(Loaded)
-		stateful.SetLoadTime(startTime)
-		stateful.SetLastError(nil)
-	}
-
-	logger.Infof("[pluginManager] Plugin %s registered", name)
-	pm.notifyLoaded(name) // 通知监听器（在锁外）
-	return nil
-}
-
-// checkDependents 返回当前已注册插件中依赖指定插件的插件名称列表
-// 支持自动依赖提取（从标签）和声明式依赖（从元数据或 Dependencies()）
-func (pm *Manager) checkDependents(name string) []string {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
-	dependents := make([]string, 0)
-	for pluginName, plugin := range pm.plugins {
-		if pluginName == name {
-			continue
-		}
-
-		// 先尝试从标签自动提取依赖
-		tagDeps := ExtractDependencies(plugin)
-		for _, dep := range tagDeps {
-			if dep == name {
-				dependents = append(dependents, pluginName)
-				goto nextPlugin
-			}
-		}
-
-		// 再检查 Dependencies() 方法（元数据或重写）
-		for _, dep := range plugin.Dependencies() {
-			if dep == name {
-				dependents = append(dependents)
-				break
-			}
-		}
-
-	nextPlugin:
-	}
-	return dependents
-}
+// --- v1 API 已在 v2.0.0 中移除 ---
+//
+// 以下 v1 API 方法已被移除:
+//   - func (pm *Manager) Register(plugin Plugin) error
+//   - func (pm *Manager) RegisterWithDependencies(plugins []Plugin) error
+//   - func (pm *Manager) topologicalSort(plugins []Plugin) ([]Plugin, error)
+//   - func (pm *Manager) checkDependents(name string) []string
+//
+// 请使用 v2 API:
+//   - manager.RegisterV2(descriptor)
+//
+// 迁移指南: docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md
 
 // Unregister 注销插件，返回错误信息
-// 如果当前仍有其他插件依赖该插件，则返回错误并拒绝卸载。
 func (pm *Manager) Unregister(name string) error {
-	// 先检查是否有其他插件依赖该插件
-	if dependents := pm.checkDependents(name); len(dependents) > 0 {
-		return errutil.NewPluginError(name, fmt.Sprintf("cannot unregister: required by %v", dependents))
-	}
-
 	pm.mu.Lock()
 
 	plugin, exists := pm.plugins[name]
@@ -265,17 +163,9 @@ func (pm *Manager) Unregister(name string) error {
 }
 
 // UnregisterCascade 级联卸载指定插件及所有依赖它的插件
-// 注意：调用方需自行确认这是期望的行为。
+// 注意：v2 API 中依赖关系通过容器自动管理
 func (pm *Manager) UnregisterCascade(name string) error {
-	// 先递归卸载所有直接依赖 name 的插件
-	dependents := pm.checkDependents(name)
-	for _, dep := range dependents {
-		if err := pm.UnregisterCascade(dep); err != nil {
-			return err
-		}
-	}
-
-	// 再卸载自身（此时不应再有依赖者）
+	// 直接卸载插件（v2 依赖通过容器管理，不需要级联）
 	return pm.Unregister(name)
 }
 
@@ -369,134 +259,6 @@ func (pm *Manager) ListWithMetadata() map[string]*Metadata {
 		}
 	}
 	return result
-}
-
-// RegisterWithDependencies 注册插件并处理依赖关系（v0.7.1 新增）
-// 自动解析依赖顺序并按正确顺序加载插件
-// 如果检测到循环依赖或缺少依赖会返回错误
-func (pm *Manager) RegisterWithDependencies(plugins []Plugin) error {
-	// 构建插件映射
-	pluginMap := make(map[string]Plugin)
-	for _, p := range plugins {
-		pluginMap[p.Name()] = p
-	}
-
-	// 检查所有依赖是否存在
-	for _, p := range plugins {
-		for _, dep := range p.Dependencies() {
-			if _, exists := pluginMap[dep]; !exists {
-				// 检查是否已经注册
-				pm.mu.RLock()
-				_, registered := pm.plugins[dep]
-				pm.mu.RUnlock()
-
-				if !registered {
-					return &DependencyError{
-						Plugin:     p.Name(),
-						Dependency: dep,
-						Err:        errutil.ErrDependencyNotFound,
-					}
-				}
-			}
-		}
-	}
-
-	// 拓扑排序解析依赖顺序
-	sorted, err := pm.topologicalSort(plugins)
-	if err != nil {
-		return err
-	}
-
-	// 按依赖顺序加载插件
-	for _, p := range sorted {
-		if err := pm.Register(p); err != nil {
-			// 如果是已存在错误，跳过
-			if errutil.IsErrorType(err, errutil.ErrPluginAlreadyExists) {
-				continue
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// topologicalSort 对插件进行拓扑排序
-// 使用 DFS 算法实现，检测循环依赖
-func (pm *Manager) topologicalSort(plugins []Plugin) ([]Plugin, error) {
-	// 构建插件映射
-	pluginMap := make(map[string]Plugin)
-	for _, p := range plugins {
-		pluginMap[p.Name()] = p
-	}
-
-	// 访问状态：0=未访问，1=访问中，2=已完成
-	visited := make(map[string]int)
-	result := make([]Plugin, 0, len(plugins))
-
-	var visit func(name string, path []string) error
-	visit = func(name string, path []string) error {
-		state := visited[name]
-
-		if state == 2 {
-			// 已经完成，跳过
-			return nil
-		}
-
-		if state == 1 {
-			// 访问中，发现循环依赖
-			cycle := append(path, name)
-			return &CircularDependencyError{
-				Cycle: cycle,
-			}
-		}
-
-		// 标记为访问中
-		visited[name] = 1
-		path = append(path, name)
-
-		// 获取插件
-		plugin, exists := pluginMap[name]
-		if !exists {
-			// 检查是否已注册
-			pm.mu.RLock()
-			_, registered := pm.plugins[name]
-			pm.mu.RUnlock()
-
-			if !registered {
-				return &DependencyError{
-					Plugin:     name,
-					Dependency: name,
-					Err:        errutil.ErrPluginNotFound,
-				}
-			}
-			// 已注册的插件不需要再次加载
-			visited[name] = 2
-			return nil
-		}
-
-		// 递归访问依赖
-		for _, dep := range plugin.Dependencies() {
-			if err := visit(dep, path); err != nil {
-				return err
-			}
-		}
-
-		// 标记为已完成
-		visited[name] = 2
-		result = append(result, plugin)
-
-		return nil
-	}
-
-	// 访问所有插件
-	for _, p := range plugins {
-		if err := visit(p.Name(), []string{}); err != nil {
-			return nil, err
-		}
-	}
-
-	return result, nil
 }
 
 // GetStatus 获取插件状态
@@ -635,4 +397,12 @@ func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 
 	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(plugins))
 	return nil
+}
+
+// GetContainer 获取依赖注入容器（v2 API）
+// 允许插件直接访问容器进行高级操作
+func (pm *Manager) GetContainer() *Container {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.container
 }

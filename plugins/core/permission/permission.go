@@ -2,6 +2,7 @@ package permission
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,24 +12,41 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// Plugin 权限系统插件 (基于 context.PermissionManager)
+// Plugin 权限系统插件 API
 type Plugin struct {
-	*plugin.BasePlugin
 	manager         *eventctx.PermissionManager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
 	cleanupStopChan chan struct{}
 }
 
-// New 创建权限插件
-func New() *Plugin {
-	metadata := &plugin.Metadata{
+// New 创建权限插件（v2 API）
+func New() *plugin.PluginDescriptor {
+	// 创建核心组件（闭包捕获）
+	permManager := eventctx.NewPermissionManager()
+	verificationMgr := NewVerificationManager()
+	acl := NewAccessControlList()
+	cleanupStopChan := make(chan struct{})
+
+	// 初始化预定义角色
+	initExtraRoles(permManager)
+
+	// 创建 Plugin API 包装器
+	pluginAPI := &Plugin{
+		manager:         permManager,
+		verificationMgr: verificationMgr,
+		acl:             acl,
+		cleanupStopChan: cleanupStopChan,
+	}
+
+	return &plugin.PluginDescriptor{
 		Name:        "permission",
-		Version:     "2.0.0",
+		Version:     "3.0.0",
 		Author:      "Remilia Team",
-		Description: "基于角色的访问控制（RBAC）权限系统，使用 context.PermissionManager",
+		Description: "基于角色的访问控制（RBAC）权限系统",
 		Category:    "核心",
 		Tags:        []string{"权限", "安全", "RBAC", "核心"},
+		Deps:        []string{},
 		HelpText: `权限系统使用说明：
 
 基于角色的访问控制（RBAC）：
@@ -41,36 +59,53 @@ func New() *Plugin {
 - admin - 管理员（所有权限）
 - user  - 普通用户（命令执行权限）
 - guest - 访客（仅查询权限）
+- moderator - 版主（部分管理权限）
 
-API 使用：
-  HasPermission(userID, resource, action) - 检查权限
-  Grant(userID, resource, action) - 授予权限
-  Revoke(userID, resource, action) - 撤销权限
-  AssignRole(userID, role) - 分配角色`,
+API 使用 (v2):
+  perm := ctx.MustGet("permission").(*permission.Plugin)
+  perm.HasPermission(userID, resource, action) - 检查权限
+  perm.Grant(userID, resource, action) - 授予权限
+  perm.Revoke(userID, resource, action) - 撤销权限
+  perm.AssignRole(userID, role) - 分配角色`,
+
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[PermissionPlugin] Loading permission plugin (v2)...")
+
+			// 获取所有角色
+			roles := []string{"admin", "user", "guest", "moderator"}
+			logger.Infof("[PermissionPlugin] Loaded %d default roles", len(roles))
+
+			// 启动验证码清理协程
+			go cleanupExpiredCodesRoutine(verificationMgr, cleanupStopChan)
+			logger.Info("[PermissionPlugin] Started verification code cleanup routine")
+
+			// 注册 API 包装器到容器
+			ctx.Manager.GetContainer().Register("permission_api", pluginAPI)
+
+			logger.Info("[PermissionPlugin] Permission plugin loaded successfully")
+			return nil
+		},
+
+		Teardown: func() error {
+			logger.Info("[PermissionPlugin] Unloading permission plugin...")
+
+			// 停止清理协程
+			close(cleanupStopChan)
+
+			logger.Info("[PermissionPlugin] Permission plugin unloaded")
+			return nil
+		},
 	}
-
-	p := &Plugin{
-		BasePlugin:      plugin.NewBasePluginWithMetadata(metadata),
-		manager:         eventctx.NewPermissionManager(),
-		verificationMgr: NewVerificationManager(),
-		acl:             NewAccessControlList(),
-		cleanupStopChan: make(chan struct{}),
-	}
-
-	// 添加额外的预定义角色以保持向后兼容
-	p.initExtraRoles()
-
-	return p
 }
 
 // initExtraRoles 初始化额外的预定义角色（保持向后兼容）
-func (p *Plugin) initExtraRoles() {
+func initExtraRoles(permManager *eventctx.PermissionManager) {
 	// 重新定义 user 角色以匹配旧的权限格式
 	user := eventctx.NewRole("user",
 		eventctx.Permission{Resource: "command", Action: "use"},
 		eventctx.Permission{Resource: "message", Action: "send"},
 	)
-	p.manager.RegisterRole(user)
+	permManager.RegisterRole(user)
 
 	// Moderator 角色 - 部分管理权限
 	moderator := eventctx.NewRole("moderator",
@@ -80,10 +115,29 @@ func (p *Plugin) initExtraRoles() {
 		eventctx.Permission{Resource: "user", Action: "kick"},
 		eventctx.Permission{Resource: "command", Action: "use"},
 	)
-	p.manager.RegisterRole(moderator)
+	permManager.RegisterRole(moderator)
 }
 
-// Load 加载插件
+// cleanupExpiredCodesRoutine 定期清理过期的验证码（独立函数）
+func cleanupExpiredCodesRoutine(verificationMgr *VerificationManager, stopChan chan struct{}) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			count := verificationMgr.CleanupExpired()
+			if count > 0 {
+				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
+			}
+		case <-stopChan:
+			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
+			return
+		}
+	}
+}
+
+// Load 加载插件（v1 API）
 func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[PermissionPlugin] Loading permission plugin...")
 
@@ -98,7 +152,7 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	return nil
 }
 
-// Unload 卸载插件
+// Unload 卸载插件（v1 API）
 func (p *Plugin) Unload(eng *engine.Engine) error {
 	logger.Info("[PermissionPlugin] Unloading permission plugin...")
 
@@ -108,23 +162,9 @@ func (p *Plugin) Unload(eng *engine.Engine) error {
 	return nil
 }
 
-// cleanupExpiredCodes 定期清理过期的验证码
+// cleanupExpiredCodes 定期清理过期的验证码（v1 方法）
 func (p *Plugin) cleanupExpiredCodes() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			count := p.verificationMgr.CleanupExpired()
-			if count > 0 {
-				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
-			}
-		case <-p.cleanupStopChan:
-			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
-			return
-		}
-	}
+	cleanupExpiredCodesRoutine(p.verificationMgr, p.cleanupStopChan)
 }
 
 // GetManager 获取底层的 PermissionManager
@@ -326,10 +366,8 @@ func (p *Plugin) RequireRole(roleName string) eventctx.Middleware {
 			userID := ctx.GetUserID()
 			roles := p.manager.GetUserRoles(userID)
 
-			for _, r := range roles {
-				if r == roleName {
-					return next(ctx)
-				}
+			if slices.Contains(roles, roleName) {
+				return next(ctx)
 			}
 
 			logger.Warnf("[PermissionPlugin] User '%s' lacks role '%s'", userID, roleName)

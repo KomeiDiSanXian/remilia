@@ -1,6 +1,8 @@
 package context
 
 import (
+	"slices"
+
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
@@ -152,11 +154,6 @@ func OnHasRole(roleName string) Rule {
 		}
 
 		roles := pm.GetUserRoles(userID)
-		for _, role := range roles {
-			if role == roleName {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(roles, roleName)
 	}
 }

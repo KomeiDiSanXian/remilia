@@ -147,7 +147,7 @@ func TestInstrumentedPool_Reset(t *testing.T) {
 	pool := NewInstrumentedPool(func() any { return 0 })
 
 	// Perform some operations
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		v := pool.Get()
 		pool.Put(v)
 	}
@@ -178,10 +178,10 @@ func TestInstrumentedPool_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				v := pool.Get()
 				pool.Put(v)
 			}
@@ -316,7 +316,7 @@ func TestTypedPool_Reset(t *testing.T) {
 	pool := New(func() string { return "test" })
 
 	// Perform operations
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		v := pool.Get()
 		pool.Put(v)
 	}
@@ -359,10 +359,10 @@ func TestTypedPool_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for range iterations {
 				buf := pool.Get()
 				buf.Data = buf.Data[:0] // Reset
 				buf.Data = append(buf.Data, byte(id))
@@ -445,7 +445,7 @@ func TestTypedPool_LargeObjects(t *testing.T) {
 	})
 
 	// Get and put multiple times
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		obj := pool.Get()
 		obj.ID = i
 		pool.Put(obj)

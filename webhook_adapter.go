@@ -194,15 +194,13 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	}
 
 	// 现在启动 HTTP 服务器（workers 已就绪）
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
+	a.wg.Go(func() {
 		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
 
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
 		}
-	}()
+	})
 
 	logger.Info("[WebhookServerAdapter] Started successfully")
 	return nil

@@ -278,7 +278,7 @@ func TestE2E_ConcurrentEvents(t *testing.T) {
 	const concurrency = 10
 	done := make(chan struct{}, concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			event := &dto.Payload{
 				Type:   dto.C2CMessageCreate,
@@ -291,7 +291,7 @@ func TestE2E_ConcurrentEvents(t *testing.T) {
 	}
 
 	// 等待所有完成
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		<-done
 	}
 
@@ -309,7 +309,7 @@ func TestE2E_BatchRegistration(t *testing.T) {
 
 	// 批量创建匹配器
 	matchers := make([]*engine.Matcher, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		matchers[i] = &engine.Matcher{
 			EventType: dto.C2CMessageCreate,
 			Rules: []rcontext.Rule{
@@ -336,7 +336,7 @@ func TestE2E_PluginLifecycle(t *testing.T) {
 
 	// 使用批量操作
 	eng.WithMatcherGroupBatch(func() {
-		for i := 0; i < 5; i++ {
+		for range 5 {
 			matcher := eng.OnCommand(dto.C2CMessageCreate, "/plugin_cmd")
 			matcher.SetSource("plugin:" + pluginName)
 			eng.SetMatcherGroup(matcher, pluginName, "plugin:"+pluginName)

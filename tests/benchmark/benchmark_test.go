@@ -79,7 +79,7 @@ func BenchmarkBatchMatcherRegistration(b *testing.B) {
 		eng := engine.NewEngine()
 
 		matchers := make([]*engine.Matcher, 100)
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			matchers[j] = &engine.Matcher{
 				EventType: dto.C2CMessageCreate,
 				Rules: []rcontext.Rule{
@@ -151,7 +151,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			trie := command.NewTrie()
-			for j := 0; j < 100; j++ {
+			for j := range 100 {
 				trie.Insert("/command"+string(rune(j)), nil)
 			}
 		}
@@ -159,7 +159,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 
 	b.Run("Search", func(b *testing.B) {
 		trie := command.NewTrie()
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			trie.Insert("/command"+string(rune(j)), nil)
 		}
 
@@ -173,7 +173,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 
 	b.Run("PrefixSearch", func(b *testing.B) {
 		trie := command.NewTrie()
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			trie.Insert("/command"+string(rune(j)), nil)
 		}
 
@@ -370,7 +370,7 @@ func BenchmarkCOWOperations(b *testing.B) {
 
 		for i := 0; i < b.N; i++ {
 			matchers := make([]*engine.Matcher, 10)
-			for j := 0; j < 10; j++ {
+			for j := range 10 {
 				matchers[j] = &engine.Matcher{
 					EventType: dto.C2CMessageCreate,
 					Rules: []rcontext.Rule{

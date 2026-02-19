@@ -23,11 +23,11 @@ func TestEngineRaceConditions(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// 并发注册匹配器
-		for i := 0; i < goroutines; i++ {
+		for i := range goroutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				for j := 0; j < matchersPerGoroutine; j++ {
+				for range matchersPerGoroutine {
 					matcher := engine.On(dto.C2CMessageCreate, context.OnFullMatch("test"))
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
@@ -47,15 +47,12 @@ func TestEngineRaceConditions(t *testing.T) {
 		state := engine.state.Load().(*engineState)
 		matchers := append([]*Matcher(nil), state.matchers...)
 
-		for i := 0; i < goroutines; i++ {
+		for i := range goroutines {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
 				start := id * matchersPerGoroutine
-				end := start + matchersPerGoroutine
-				if end > len(matchers) {
-					end = len(matchers)
-				}
+				end := min(start+matchersPerGoroutine, len(matchers))
 				for _, m := range matchers[start:end] {
 					engine.DeleteMatcher(m)
 					time.Sleep(1 * time.Millisecond)
@@ -77,7 +74,7 @@ func TestEngineRaceConditions(t *testing.T) {
 		var processCount atomic.Int32
 
 		// 注册一些匹配器
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			matcher := engine.OnAny()
 			matcher.Handle(func(ctx *context.Context) error {
 				processCount.Add(1)
@@ -89,32 +86,28 @@ func TestEngineRaceConditions(t *testing.T) {
 		var wg sync.WaitGroup
 
 		// 并发处理事件
-		for i := 0; i < 5; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := 0; j < 10; j++ {
+		for range 5 {
+			wg.Go(func() {
+				for range 10 {
 					ctx := context.NewContext(&dto.Payload{
 						Type: dto.C2CMessageCreate,
 					}, nil)
 					engine.ProcessEvent(ctx)
 				}
-			}()
+			})
 		}
 
 		// 同时并发注册新匹配器
-		for i := 0; i < 3; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for j := 0; j < 5; j++ {
+		for range 3 {
+			wg.Go(func() {
+				for range 5 {
 					matcher := engine.OnAny()
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
 					})
 					time.Sleep(5 * time.Millisecond)
 				}
-			}()
+			})
 		}
 
 		wg.Wait()
@@ -144,7 +137,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 
 		// 启动多个事件处理
 		const eventCount = 5
-		for i := 0; i < eventCount; i++ {
+		for range eventCount {
 			go func() {
 				ctx := context.NewContext(&dto.Payload{
 					Type: dto.C2CMessageCreate,
@@ -231,7 +224,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 		const matcherCount = 1000
 		matchers := make([]*Matcher, matcherCount)
 
-		for i := 0; i < matcherCount; i++ {
+		for i := range matcherCount {
 			matchers[i] = engine.OnAny()
 			matchers[i].Handle(func(ctx *context.Context) error {
 				return nil
@@ -259,7 +252,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 
 		// 创建一些一次性临时匹配器
 		const tempCount = 50
-		for i := 0; i < tempCount; i++ {
+		for range tempCount {
 			matcher := engine.OnTemp(dto.C2CMessageCreate)
 			matcher.SetTempWithMaxUse(1)
 			matcher.Handle(func(ctx *context.Context) error {
@@ -271,7 +264,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 		assert.Equal(t, tempCount, initialCount)
 
 		// 触发所有匹配器（每个使用1次后应该被删除）
-		for i := 0; i < tempCount; i++ {
+		for range tempCount {
 			ctx := context.NewContext(&dto.Payload{
 				Type: dto.C2CMessageCreate,
 			}, nil)

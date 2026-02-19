@@ -47,10 +47,10 @@ type Middleware func(*Request) error
 
 // Logger 定义日志接口
 type Logger interface {
-	Debugf(format string, args ...interface{})
-	Infof(format string, args ...interface{})
-	Warnf(format string, args ...interface{})
-	Errorf(format string, args ...interface{})
+	Debugf(format string, args ...any)
+	Infof(format string, args ...any)
+	Warnf(format string, args ...any)
+	Errorf(format string, args ...any)
 }
 
 // RetryConfig 重试配置
@@ -204,7 +204,7 @@ func (r *Request) SetBody(body io.Reader) *Request {
 }
 
 // SetJSON 设置 JSON 请求体
-func (r *Request) SetJSON(data interface{}) *Request {
+func (r *Request) SetJSON(data any) *Request {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return r
@@ -338,10 +338,7 @@ func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
 		if attempt > 0 {
 			// 等待后重试
-			waitTime := config.RetryWaitTime * time.Duration(attempt)
-			if waitTime > config.RetryMaxWait {
-				waitTime = config.RetryMaxWait
-			}
+			waitTime := min(config.RetryWaitTime*time.Duration(attempt), config.RetryMaxWait)
 
 			if r.client.logger != nil {
 				r.client.logger.Infof("Retrying request (attempt %d/%d) after %v",
@@ -453,7 +450,7 @@ func (r *Response) JSON() (gjson.Result, error) {
 }
 
 // Unmarshal 将响应体反序列化到指定对象
-func (r *Response) Unmarshal(v interface{}) error {
+func (r *Response) Unmarshal(v any) error {
 	body, err := r.Bytes()
 	if err != nil {
 		return err

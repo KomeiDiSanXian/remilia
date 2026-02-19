@@ -1,6 +1,7 @@
 package context
 
 import (
+	"maps"
 	"reflect"
 	"sync"
 )
@@ -71,9 +72,7 @@ func (e *Extensions) Snapshot() map[reflect.Type]any {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	out := make(map[reflect.Type]any, len(e.m))
-	for k, v := range e.m {
-		out[k] = v
-	}
+	maps.Copy(out, e.m)
 	return out
 }
 
@@ -95,7 +94,7 @@ func (e *Extensions) Clear() {
 
 // extTypeOf returns the reflect.Type key for T.
 func extTypeOf[T any]() reflect.Type {
-	return reflect.TypeOf((*T)(nil)).Elem()
+	return reflect.TypeFor[T]()
 }
 
 // ExtGet reads a typed extension value.

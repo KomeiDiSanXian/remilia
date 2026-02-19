@@ -132,7 +132,7 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 		successHandler := mw(mockHandler(nil, 10*time.Millisecond))
 
 		done := make(chan error, 2)
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			go func() {
 				done <- successHandler(createTestContext())
 			}()

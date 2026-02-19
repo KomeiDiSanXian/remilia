@@ -69,20 +69,16 @@ func TestTokenManager_ConcurrentStopAndGetToken(t *testing.T) {
 
 	// 启动多个goroutine并发调用Stop
 	for i := 0; i < numGoroutines/2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			mgr.Stop()
-		}()
+		})
 	}
 
 	// 启动多个goroutine并发调用GetToken
 	for i := 0; i < numGoroutines/2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_ = mgr.GetToken()
-		}()
+		})
 	}
 
 	wg.Wait()

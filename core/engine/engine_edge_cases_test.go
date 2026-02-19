@@ -14,7 +14,7 @@ func TestEdgeCases(t *testing.T) {
 	eng := NewEngine()
 	eng.RemoveGroup("")
 	eng.SetMaxMatchers(100)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		eng.OnC2C()
 	}
 	assert.Equal(t, 5, eng.GetMatcherCount())

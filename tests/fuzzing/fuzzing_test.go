@@ -118,7 +118,7 @@ func FuzzEngineProcessEvent(f *testing.F) {
 		})
 
 		// 构造事件
-		detail := map[string]interface{}{
+		detail := map[string]any{
 			"content": content,
 		}
 		detailBytes, err := json.Marshal(detail)
@@ -217,7 +217,7 @@ func FuzzJSONDecoding(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var result map[string]interface{}
+		var result map[string]any
 		// JSON 解码不应该 panic
 		_ = json.Unmarshal(data, &result)
 	})
@@ -239,7 +239,7 @@ func FuzzMatcherRules(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, content string) {
-		detail := map[string]interface{}{
+		detail := map[string]any{
 			"content": content,
 		}
 		detailBytes, _ := json.Marshal(detail)
@@ -314,7 +314,7 @@ func FuzzMiddlewareChain(f *testing.F) {
 		defer eng.Close()
 
 		// 添加中间件
-		for i := int32(0); i < middlewareCount; i++ {
+		for range middlewareCount {
 			eng.Use(func(next rcontext.Handler) rcontext.Handler {
 				return func(ctx *rcontext.Context) error {
 					return next(ctx)
@@ -399,7 +399,7 @@ func FuzzConcurrentOperations(f *testing.F) {
 
 		// 并发操作
 		done := make(chan struct{}, opCount)
-		for i := int32(0); i < opCount; i++ {
+		for range opCount {
 			go func() {
 				event := &dto.Payload{
 					Type:   dto.C2CMessageCreate,
@@ -412,7 +412,7 @@ func FuzzConcurrentOperations(f *testing.F) {
 		}
 
 		// 等待所有完成
-		for i := int32(0); i < opCount; i++ {
+		for range opCount {
 			<-done
 		}
 	})
@@ -433,7 +433,7 @@ func FuzzMemoryBounds(f *testing.F) {
 		// 创建大内容
 		content := strings.Repeat("a", int(size))
 
-		detail := map[string]interface{}{
+		detail := map[string]any{
 			"content": content,
 		}
 		detailBytes, err := json.Marshal(detail)

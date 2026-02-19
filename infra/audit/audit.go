@@ -110,7 +110,7 @@ type Entry struct {
 	Message string `json:"message,omitempty"`
 
 	// Metadata 附加元数据
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 
 	// IP 来源IP地址
 	IP string `json:"ip,omitempty"`
@@ -390,7 +390,7 @@ func (l *Logger) Critical(action Action, actor, message string) {
 }
 
 // LogWithMetadata 记录带元数据的日志
-func (l *Logger) LogWithMetadata(level Level, action Action, actor string, metadata map[string]interface{}) {
+func (l *Logger) LogWithMetadata(level Level, action Action, actor string, metadata map[string]any) {
 	l.Log(&Entry{
 		Level:    level,
 		Action:   action,
@@ -464,7 +464,7 @@ func (l *Logger) LogConfigChange(actor, configKey, oldValue, newValue string) {
 		Target:   configKey,
 		Resource: "config",
 		Result:   "success",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"old_value": oldValue,
 			"new_value": newValue,
 		},

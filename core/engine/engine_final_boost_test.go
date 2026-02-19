@@ -218,7 +218,7 @@ func TestEngine_ProcessEvent_TempMatcherExecution(t *testing.T) {
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
 
 	// Execute multiple times
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		context := ctx.NewContext(payload, nil)
 		eng.ProcessEvent(context)
 	}
