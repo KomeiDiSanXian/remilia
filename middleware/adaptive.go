@@ -38,9 +38,6 @@ type AdaptiveRateLimiter struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	mu     sync.RWMutex
-
-	// 信号量
-	sema chan struct{}
 }
 
 // AdaptiveConfig 自适应限流配置
@@ -110,7 +107,6 @@ func NewAdaptiveRateLimiter(config AdaptiveConfig) *AdaptiveRateLimiter {
 		config: config,
 		ctx:    ctx,
 		cancel: cancel,
-		sema:   make(chan struct{}, config.InitialLimit),
 	}
 
 	arl.maxConcurrency.Store(int32(config.InitialLimit))
@@ -147,59 +143,67 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 		return func(ctx *eventctx.Context) error {
 			arl.totalRequests.Add(1)
 
-			// 尝试获取令牌
-			select {
-			case arl.sema <- struct{}{}:
-				// 获取成功
-				arl.currentLoad.Add(1)
+			// 获取当前限制
+			limit := arl.maxConcurrency.Load()
 
-				start := time.Now()
+			// 尝试获取令牌（使用 CAS 原子操作，限制重试次数）
+			const maxRetries = 1000
+			for retry := 0; retry < maxRetries; retry++ {
+				current := arl.currentLoad.Load()
+				if current >= limit {
+					// 超过限制，拒绝请求
+					arl.rejectedRequests.Add(1)
 
+					logger.WithFields(logger.Fields{
+						"current_limit": limit,
+						"current_load":  current,
+						"rejected":      arl.rejectedRequests.Load(),
+					}).Warn("[AdaptiveRateLimiter] Request rejected")
+
+					return fmt.Errorf("adaptive rate limit exceeded (limit: %d)", limit)
+				}
+
+				// 尝试原子增加负载
+				if arl.currentLoad.CompareAndSwap(current, current+1) {
+					// 成功获取令牌
+					break
+				}
+				// CAS 失败，重试
+			}
+
+			start := time.Now()
+
+			defer func() {
+				// 释放令牌
+				arl.currentLoad.Add(-1)
+
+				// 记录延迟（添加合理性检查，防止统计溢出）
+				latency := time.Since(start)
+
+				// 只记录合理范围内的延迟（< 1小时），避免异常值和溢出
+				if latency > 0 && latency < time.Hour {
+					arl.latencySum.Add(latency.Nanoseconds())
+					arl.latencyCount.Add(1)
+				} else if latency >= time.Hour {
+					logger.WithFields(logger.Fields{
+						"latency": latency,
+					}).Warn("[AdaptiveRateLimiter] Abnormal latency detected, not recorded")
+				}
+			}()
+
+			// 修复：捕获 panic，确保 defer 能执行
+			var err error
+			func() {
 				defer func() {
-					// 释放令牌
-					<-arl.sema
-					arl.currentLoad.Add(-1)
-
-					// 记录延迟（添加合理性检查，防止统计溢出）
-					latency := time.Since(start)
-
-					// 只记录合理范围内的延迟（< 1小时），避免异常值和溢出
-					if latency > 0 && latency < time.Hour {
-						arl.latencySum.Add(latency.Nanoseconds())
-						arl.latencyCount.Add(1)
-					} else if latency >= time.Hour {
-						logger.WithFields(logger.Fields{
-							"latency": latency,
-						}).Warn("[AdaptiveRateLimiter] Abnormal latency detected, not recorded")
+					if r := recover(); r != nil {
+						err = fmt.Errorf("panic in handler: %v", r)
+						logger.WithField("panic", r).Error("[AdaptiveRateLimiter] Handler panic recovered")
 					}
 				}()
+				err = next(ctx)
+			}()
 
-				// 修复：捕获 panic，确保 defer 能执行
-				var err error
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							err = fmt.Errorf("panic in handler: %v", r)
-							logger.WithField("panic", r).Error("[AdaptiveRateLimiter] Handler panic recovered")
-						}
-					}()
-					err = next(ctx)
-				}()
-
-				return err
-
-			default:
-				// 超过限制，拒绝请求
-				arl.rejectedRequests.Add(1)
-
-				logger.WithFields(logger.Fields{
-					"current_limit": arl.maxConcurrency.Load(),
-					"current_load":  arl.currentLoad.Load(),
-					"rejected":      arl.rejectedRequests.Load(),
-				}).Warn("[AdaptiveRateLimiter] Request rejected")
-
-				return fmt.Errorf("adaptive rate limit exceeded (limit: %d)", arl.maxConcurrency.Load())
-			}
+			return err
 		}
 	}
 }
@@ -357,29 +361,18 @@ func (arl *AdaptiveRateLimiter) decideLimit(cpu, memory float64, latency time.Du
 }
 
 // adjustLimit 调整限制
+//
+// 修复：使用原子计数器代替 channel，避免 channel 替换的竞态问题
+// 新的限制会在下次请求时生效
 func (arl *AdaptiveRateLimiter) adjustLimit(newLimit int32) {
-	arl.mu.Lock()
-	defer arl.mu.Unlock()
+	oldLimit := arl.maxConcurrency.Swap(newLimit)
 
-	oldLimit := arl.maxConcurrency.Load()
-	arl.maxConcurrency.Store(newLimit)
-
-	// 创建新的信号量 channel
-	newSema := make(chan struct{}, newLimit)
-
-	// 迁移现有的令牌
-	currentLoad := int32(len(arl.sema))
-	for i := int32(0); i < currentLoad && i < newLimit; i++ {
-		newSema <- struct{}{}
+	if oldLimit != newLimit {
+		logger.WithFields(logger.Fields{
+			"old": oldLimit,
+			"new": newLimit,
+		}).Debug("[AdaptiveRateLimiter] Limit adjusted")
 	}
-
-	// 原子替换
-	arl.sema = newSema
-
-	logger.WithFields(logger.Fields{
-		"old": oldLimit,
-		"new": newLimit,
-	}).Debug("[AdaptiveRateLimiter] Semaphore adjusted")
 }
 
 // getCPUUsage 获取 CPU 使用率

@@ -356,12 +356,14 @@ func TestAdaptiveRateLimiter_AdjustLimit(t *testing.T) {
 	// 调整到30
 	limiter.adjustLimit(30)
 	assert.Equal(t, int32(30), limiter.maxConcurrency.Load())
-	assert.Equal(t, 30, cap(limiter.sema))
+	// 验证限流器仍然工作
+	assert.Equal(t, int32(0), limiter.currentLoad.Load())
 
 	// 调整到80
 	limiter.adjustLimit(80)
 	assert.Equal(t, int32(80), limiter.maxConcurrency.Load())
-	assert.Equal(t, 80, cap(limiter.sema))
+	// 验证限流器仍然工作
+	assert.Equal(t, int32(0), limiter.currentLoad.Load())
 }
 
 // Benchmark tests

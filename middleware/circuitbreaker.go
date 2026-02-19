@@ -181,19 +181,27 @@ func (cb *CircuitBreaker) canExecute() error {
 			halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
 			if !halfOpenStart.IsZero() && cb.config.HalfOpenTimeout > 0 {
 				if time.Since(halfOpenStart) >= cb.config.HalfOpenTimeout {
-					// 半开状态超时，重新打开熔断器
-					cb.state.Store(StateOpen)
-					cb.lastFailure.Store(time.Now())
-					logger.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
-					if cb.config.OnStateChange != nil {
-						cb.config.OnStateChange(StateHalfOpen, StateOpen)
+					// 半开状态超时，使用锁保护状态转换
+					cb.mu.Lock()
+					// Double-check 状态
+					if cb.GetState() == StateHalfOpen {
+						cb.state.Store(StateOpen)
+						cb.lastFailure.Store(time.Now())
+						logger.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
+						if cb.config.OnStateChange != nil {
+							cb.config.OnStateChange(StateHalfOpen, StateOpen)
+						}
+						cb.mu.Unlock()
+						return fmt.Errorf("circuit breaker is open")
 					}
-					return fmt.Errorf("circuit breaker is open")
+					cb.mu.Unlock()
+					// 状态已改变，继续循环重新检查
+					continue
 				}
 			}
 
-			// 半开状态下限制请求数量 - 使用 CAS 确保原子性
-			for {
+			// 半开状态下限制请求数量 - 使用 CAS 确保原子性，限制重试次数
+			for attempts := 0; attempts < 100; attempts++ {
 				current := cb.halfOpenReqs.Load()
 				if current >= int32(cb.config.HalfOpenMaxRequests) {
 					return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
@@ -204,6 +212,8 @@ func (cb *CircuitBreaker) canExecute() error {
 				}
 				// CAS 失败，重试
 			}
+			// CAS 重试次数过多，返回错误
+			return fmt.Errorf("circuit breaker: too many concurrent state transitions")
 
 		default:
 			return fmt.Errorf("unknown circuit breaker state: %s", state)

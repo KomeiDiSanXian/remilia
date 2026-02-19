@@ -194,16 +194,35 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 	}
 
 	// 现在启动 HTTP 服务器（workers 已就绪）
-	a.wg.Go(func() {
+	serverErrCh := make(chan error, 1)
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
 		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
 
 		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
+			serverErrCh <- err
+			// HTTP 服务器启动失败，取消所有 workers
+			a.cancel()
 		}
-	})
+	}()
 
-	logger.Info("[WebhookServerAdapter] Started successfully")
-	return nil
+	// 检查服务器是否立即失败（例如端口被占用）
+	select {
+	case err := <-serverErrCh:
+		// 服务器启动失败，等待所有 workers 清理
+		logger.WithError(err).Error("[WebhookServerAdapter] Server failed to start, cleaning up workers")
+		a.wg.Wait()
+		a.mu.Lock()
+		a.running = false
+		a.mu.Unlock()
+		return fmt.Errorf("failed to start HTTP server: %w", err)
+	case <-time.After(100 * time.Millisecond):
+		// 服务器启动成功（没有立即报错）
+		logger.Info("[WebhookServerAdapter] Started successfully")
+		return nil
+	}
 }
 
 // Stop 停止适配器（关闭 HTTP 服务器和事件循环）

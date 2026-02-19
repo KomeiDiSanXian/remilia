@@ -48,31 +48,29 @@ func TestAdaptiveRateLimiter_PanicRecovery(t *testing.T) {
 		}
 	}
 
-	// 验证信号量没有泄漏（currentLoad 应该为 0）
+	// 验证所有令牌都已归还（currentLoad 应该为 0）
 	load := arl.currentLoad.Load()
 	if load != 0 {
 		t.Errorf("Expected currentLoad=0 after all calls, got: %d", load)
 	}
 
-	// 验证所有令牌都已归还（应该能再次获取 InitialLimit 个令牌）
-	available := 0
-	for i := 0; i < config.InitialLimit+1; i++ {
-		select {
-		case arl.sema <- struct{}{}:
-			available++
-		default:
-			break
-		}
+	// 验证限流器仍然可以正常工作
+	testPayload := &dto.Payload{ID: "verification-test"}
+	testCtx := eventctx.NewContext(testPayload, nil)
+
+	err := mw(func(ctx *eventctx.Context) error {
+		return nil
+	})(testCtx)
+
+	if err != nil {
+		t.Errorf("Limiter should still work after panic recovery, got error: %v", err)
 	}
 
-	// 清理：释放所有令牌
-	for i := 0; i < available; i++ {
-		<-arl.sema
+	// 再次验证负载为 0
+	if arl.currentLoad.Load() != 0 {
+		t.Errorf("Expected currentLoad=0 after verification test, got: %d", arl.currentLoad.Load())
 	}
 
-	if available != config.InitialLimit {
-		t.Errorf("Expected %d available tokens, got: %d", config.InitialLimit, available)
-	}
 }
 
 // TestAdaptiveRateLimiter_ConcurrentPanicRecovery 测试并发场景下的 panic 恢复
