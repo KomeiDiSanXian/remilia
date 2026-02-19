@@ -149,7 +149,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 
 			// 尝试获取令牌（使用 CAS 原子操作，限制重试次数）
 			const maxRetries = 1000
-			for retry := 0; retry < maxRetries; retry++ {
+			for range maxRetries {
 				current := arl.currentLoad.Load()
 				if current >= limit {
 					// 超过限制，拒绝请求

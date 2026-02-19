@@ -99,7 +99,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 	manager := NewManager(nil)
 
 	var accessedManager *Manager
-	var accessedEngine interface{}
+	var accessedEngine any
 
 	plugin := &PluginDescriptor{
 		Name: "test",

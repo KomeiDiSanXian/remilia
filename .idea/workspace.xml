@@ -4,11 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement adaptive sampling and degradation metrics for improved observability and performance">
-      <change afterPath="$PROJECT_DIR$/CONTAINER_TEST_FIX_COMPLETED.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: update container initialization tests for improved validation and error handling">
       <change afterPath="$PROJECT_DIR$/docs/05-reports/Container测试修复报告.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/context-generic-analysis.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/generic-opportunities-analysis.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/container_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/container_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -251,7 +251,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement plugin metadata system with detailed help information and enhanced command registration" />
     <MESSAGE value="feat: refactor plugin metadata handling and enhance command registration with automatic matcher addition" />
     <MESSAGE value="feat: enhance help command to display plugin list when no commands are available" />
     <MESSAGE value="feat: implement plugin lifecycle management with state handling and configuration support" />
@@ -276,7 +275,8 @@
     <MESSAGE value="feat: implement dependency resolution for Plugin Manager with cycle detection and automatic sorting" />
     <MESSAGE value="feat: add automated dependency tracking and smart registration for plugins" />
     <MESSAGE value="feat: implement adaptive sampling and degradation metrics for improved observability and performance" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement adaptive sampling and degradation metrics for improved observability and performance" />
+    <MESSAGE value="test: update container initialization tests for improved validation and error handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: update container initialization tests for improved validation and error handling" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

@@ -201,7 +201,7 @@ func (cb *CircuitBreaker) canExecute() error {
 			}
 
 			// 半开状态下限制请求数量 - 使用 CAS 确保原子性，限制重试次数
-			for attempts := 0; attempts < 100; attempts++ {
+			for range 100 {
 				current := cb.halfOpenReqs.Load()
 				if current >= int32(cb.config.HalfOpenMaxRequests) {
 					return fmt.Errorf("circuit breaker is half-open, max requests exceeded")

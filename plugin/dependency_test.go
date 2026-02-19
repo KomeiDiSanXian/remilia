@@ -258,7 +258,7 @@ func BenchmarkTopologicalSort(b *testing.B) {
 
 	// 创建一个大型的依赖图（100个插件）
 	plugins := make([]*PluginDescriptor, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		deps := make([]string, 0)
 		// 每个插件依赖前面的 1-3 个插件
 		if i > 0 {

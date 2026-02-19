@@ -44,14 +44,8 @@ func ParseCommandLine(input string) (*Args, error) {
 	}
 
 	// 预分配容量：估计有少量 flags 和 positional 参数
-	estimatedFlags := len(tokens) / 4
-	if estimatedFlags < 2 {
-		estimatedFlags = 2
-	}
-	estimatedPositional := len(tokens) / 2
-	if estimatedPositional < 2 {
-		estimatedPositional = 2
-	}
+	estimatedFlags := max(len(tokens)/4, 2)
+	estimatedPositional := max(len(tokens)/2, 2)
 
 	args := &Args{
 		Raw:        input,
@@ -137,10 +131,7 @@ func isShortFlag(token string) bool {
 // - 预分配 strings.Builder 缓冲区（减少内存分配）
 func tokenize(s string) ([]string, error) {
 	// 预分配容量：估计平均每8个字符一个token
-	estimatedTokens := len(s)/8 + 1
-	if estimatedTokens < 4 {
-		estimatedTokens = 4
-	}
+	estimatedTokens := max(len(s)/8+1, 4)
 	tokens := make([]string, 0, estimatedTokens)
 
 	var current strings.Builder
