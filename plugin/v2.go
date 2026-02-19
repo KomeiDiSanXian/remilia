@@ -88,28 +88,57 @@ type SetupContext struct {
 	Manager *Manager       // 插件管理器
 	Config  Config         // 插件配置
 
-	container  *Container      // 依赖注入容器
-	pluginName string          // 当前插件名称（内部使用）
-	instance   *PluginInstance // 插件实例引用（内部使用）
+	container        *Container      // 依赖注入容器
+	pluginName       string          // 当前插件名称（内部使用）
+	instance         *PluginInstance // 插件实例引用（内部使用）
+	trackedDeps      map[string]bool // 自动跟踪的依赖（内部使用）
+	autoTrackEnabled bool            // 是否启用自动依赖跟踪（内部使用）
 }
 
 // Get 获取依赖插件
 // 返回插件实例和是否存在的标志
+//
+// 注意：调用此方法会自动记录依赖关系，用于依赖验证
 func (ctx *SetupContext) Get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
+
+	// 自动跟踪依赖
+	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
+		if ctx.trackedDeps == nil {
+			ctx.trackedDeps = make(map[string]bool)
+		}
+		ctx.trackedDeps[name] = true
+	}
+
 	return ctx.container.Get(name)
 }
 
 // MustGet 获取依赖插件（如果不存在则 panic）
 // 用于必需的依赖
+//
+// 注意：调用此方法会自动记录依赖关系，用于依赖验证
 func (ctx *SetupContext) MustGet(name string) any {
 	plugin, ok := ctx.Get(name)
 	if !ok {
 		panic(fmt.Sprintf("required dependency '%s' not found", name))
 	}
 	return plugin
+}
+
+// GetTrackedDependencies 获取自动跟踪到的依赖列表
+// 返回在 Setup 函数中通过 Get/MustGet 调用的所有插件名称
+func (ctx *SetupContext) GetTrackedDependencies() []string {
+	if ctx.trackedDeps == nil {
+		return []string{}
+	}
+
+	deps := make([]string, 0, len(ctx.trackedDeps))
+	for name := range ctx.trackedDeps {
+		deps = append(deps, name)
+	}
+	return deps
 }
 
 // RegisterCommand 注册命令并自动追踪 Matcher
@@ -477,22 +506,8 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		}
 	}
 
-	// 创建依赖注入容器（如果还没有）
-	if pm.container == nil {
-		pm.container = NewContainer()
-	}
-
-	// 将已注册的插件添加到容器
-	for pluginName, plugin := range pm.plugins {
-		if !pm.container.Has(pluginName) {
-			pm.container.Register(pluginName, plugin)
-		}
-	}
-
-	// 添加特殊服务
-	pm.container.Register("manager", pm)
-	pm.container.Register("engine", pm.coordinator)
-	pm.container.Register("coordinator", pm.coordinator)
+	// 确保容器已初始化
+	pm.ensureContainerInitialized()
 
 	// 创建插件配置
 	var config Config
@@ -509,12 +524,13 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 	// 创建 SetupContext（设置插件名称和实例引用以支持 Matcher 追踪）
 	setupCtx := &SetupContext{
-		Engine:     pm.coordinator,
-		Manager:    pm,
-		Config:     config,
-		container:  pm.container,
-		pluginName: name,
-		instance:   instance,
+		Engine:           pm.coordinator,
+		Manager:          pm,
+		Config:           config,
+		container:        pm.container,
+		pluginName:       name,
+		instance:         instance,
+		autoTrackEnabled: true, // 启用自动依赖跟踪
 	}
 
 	instance.setupContext = setupCtx
@@ -538,6 +554,32 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		logger.WithError(loadErr).Errorf("[pluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", loadErr)
 		return loadErr
+	}
+
+	// 验证自动跟踪的依赖与声明的依赖是否一致
+	trackedDeps := setupCtx.GetTrackedDependencies()
+	if len(trackedDeps) > 0 {
+		// 检查是否有未声明的依赖
+		declaredDeps := make(map[string]bool)
+		for _, dep := range desc.Deps {
+			declaredDeps[dep] = true
+		}
+
+		undeclaredDeps := make([]string, 0)
+		for _, tracked := range trackedDeps {
+			if !declaredDeps[tracked] {
+				undeclaredDeps = append(undeclaredDeps, tracked)
+			}
+		}
+
+		// 如果有未声明的依赖，记录警告
+		if len(undeclaredDeps) > 0 {
+			logger.WithFields(logger.Fields{
+				"plugin":          name,
+				"undeclared_deps": undeclaredDeps,
+				"declared_deps":   desc.Deps,
+			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
+		}
 	}
 
 	// 加载成功，完成注册
@@ -706,4 +748,177 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 func (pm *Manager) ValidateDependencies(descriptors []*PluginDescriptor) error {
 	_, err := pm.topologicalSortV2(descriptors)
 	return err
+}
+
+// ensureContainerInitialized 确保依赖注入容器已初始化
+// 此方法应该在持有 Manager 锁的情况下调用
+func (pm *Manager) ensureContainerInitialized() {
+	// 创建容器（如果不存在）
+	if pm.container == nil {
+		pm.container = NewContainer()
+	}
+
+	// 注册已存在的插件到容器
+	for pluginName, plugin := range pm.plugins {
+		if !pm.container.Has(pluginName) {
+			pm.container.Register(pluginName, plugin)
+		}
+	}
+
+	// 注册特殊服务（只在不存在时注册，避免重复）
+	if !pm.container.Has("manager") {
+		pm.container.Register("manager", pm)
+	}
+	if !pm.container.Has("engine") {
+		pm.container.Register("engine", pm.coordinator)
+	}
+	if !pm.container.Has("coordinator") {
+		pm.container.Register("coordinator", pm.coordinator)
+	}
+}
+
+// RegisterMultipleV2Smart 智能批量注册插件（自动推断依赖关系）
+//
+// 此方法会：
+// 1. 首次尝试注册所有插件以收集依赖信息
+// 2. 根据实际使用的依赖关系进行拓扑排序
+// 3. 按正确顺序重新注册所有插件
+//
+// 优势：
+//   - 不需要手动声明 Deps 字段
+//   - 自动跟踪 Setup 函数中的依赖调用
+//   - 自动检测循环依赖
+//
+// 限制：
+//   - 插件的 Setup 函数必须能够多次调用而无副作用（幂等性）
+//   - 或者使用 DryRun 模式（需要插件支持）
+//
+// 使用示例：
+//
+//	plugins := []*PluginDescriptor{
+//	    {Name: "auth", Setup: func(ctx *SetupContext) error {
+//	        // 无依赖
+//	        return nil
+//	    }},
+//	    {Name: "permission", Setup: func(ctx *SetupContext) error {
+//	        auth := ctx.MustGet("auth") // 自动检测依赖 auth
+//	        return nil
+//	    }},
+//	}
+//	// 不需要手动声明 Deps!
+//	if err := manager.RegisterMultipleV2Smart(plugins); err != nil {
+//	    log.Fatal(err)
+//	}
+func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+
+	// 验证所有描述符
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+
+	// 阶段1：推断依赖关系
+	logger.Info("[pluginManager] Smart registration: inferring dependencies...")
+
+	inferredDeps := make(map[string][]string)
+	descMap := make(map[string]*PluginDescriptor)
+
+	for _, desc := range descriptors {
+		descMap[desc.Name] = desc
+	}
+
+	// 创建临时容器用于依赖推断
+	tempContainer := NewContainer()
+
+	// 添加已存在的插件到临时容器
+	pm.mu.RLock()
+	for name, plugin := range pm.plugins {
+		tempContainer.Register(name, plugin)
+	}
+	pm.mu.RUnlock()
+
+	// 添加所有待注册插件的占位符到临时容器
+	for _, desc := range descriptors {
+		tempContainer.Register(desc.Name, &PluginInstance{desc: desc})
+	}
+
+	// 为每个插件推断依赖
+	for _, desc := range descriptors {
+		setupCtx := &SetupContext{
+			Engine:           pm.coordinator,
+			Manager:          pm,
+			Config:           nil, // 推断阶段不提供配置
+			container:        tempContainer,
+			pluginName:       desc.Name,
+			instance:         nil,
+			autoTrackEnabled: true,
+		}
+
+		// 尝试调用 Setup 来跟踪依赖（忽略错误）
+		// 注意：这要求 Setup 函数在没有真实依赖的情况下也能运行（至少到 Get/MustGet 调用）
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Setup 可能会 panic（例如 MustGet 找不到依赖）
+					// 这是预期的，我们只关心 Get/MustGet 被调用了哪些插件
+					logger.WithFields(logger.Fields{
+						"plugin": desc.Name,
+						"panic":  r,
+					}).Debug("[pluginManager] Setup panicked during dependency inference (expected)")
+				}
+			}()
+
+			// 忽略错误，我们只关心依赖跟踪
+			_ = desc.Setup(setupCtx)
+		}()
+
+		// 获取跟踪到的依赖
+		tracked := setupCtx.GetTrackedDependencies()
+		if len(tracked) > 0 {
+			inferredDeps[desc.Name] = tracked
+			logger.WithFields(logger.Fields{
+				"plugin": desc.Name,
+				"deps":   tracked,
+			}).Debug("[pluginManager] Inferred dependencies")
+		}
+	}
+
+	// 阶段2：使用推断的依赖进行拓扑排序
+	logger.Info("[pluginManager] Smart registration: sorting by dependencies...")
+
+	// 创建带有推断依赖的描述符副本
+	descriptorsWithDeps := make([]*PluginDescriptor, len(descriptors))
+	for i, desc := range descriptors {
+		descCopy := *desc // 浅拷贝
+
+		// 合并声明的依赖和推断的依赖
+		depsMap := make(map[string]bool)
+		for _, dep := range desc.Deps {
+			depsMap[dep] = true
+		}
+		for _, dep := range inferredDeps[desc.Name] {
+			depsMap[dep] = true
+		}
+
+		mergedDeps := make([]string, 0, len(depsMap))
+		for dep := range depsMap {
+			mergedDeps = append(mergedDeps, dep)
+		}
+
+		descCopy.Deps = mergedDeps
+		descriptorsWithDeps[i] = &descCopy
+	}
+
+	// 使用现有的 RegisterMultipleV2 进行注册
+	return pm.RegisterMultipleV2(descriptorsWithDeps)
 }
