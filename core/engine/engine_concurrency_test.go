@@ -43,8 +43,8 @@ func TestEngineRaceConditions(t *testing.T) {
 		count := engine.GetMatcherCount()
 		assert.Equal(t, goroutines*matchersPerGoroutine, count, "Should register all matchers")
 
-		// 并发删除匹配器
-		state := engine.state.Load().(*engineState)
+		// 并发删除匹配器 - 无需类型断言
+		state := engine.state.Load()
 		matchers := append([]*Matcher(nil), state.matchers...)
 
 		for i := range goroutines {
@@ -240,8 +240,8 @@ func TestEngineMemoryLeaks(t *testing.T) {
 
 		assert.Equal(t, 0, engine.GetMatcherCount())
 
-		// 验证状态清理
-		state := engine.state.Load().(*engineState)
+		// 验证状态清理 - 无需类型断言
+		state := engine.state.Load()
 		assert.Equal(t, 0, len(state.matchers))
 		assert.Equal(t, 0, len(state.matcherIndex))
 	})

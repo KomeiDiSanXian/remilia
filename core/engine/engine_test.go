@@ -658,7 +658,7 @@ func TestEngine_SetBlock(t *testing.T) {
 
 		eng.SetBlock(true)
 
-		state := eng.state.Load().(*engineState)
+		state := eng.state.Load() // 无需类型断言
 		assert.True(t, state.block)
 	})
 
@@ -730,7 +730,7 @@ func TestEngine_DeleteAllMatchers(t *testing.T) {
 
 		eng.DeleteAllMatchers()
 
-		state := eng.state.Load().(*engineState)
+		state := eng.state.Load() // 无需类型断言
 		assert.Equal(t, 0, len(state.matcherIndex))
 	})
 }

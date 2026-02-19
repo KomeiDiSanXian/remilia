@@ -24,7 +24,7 @@ func (e *Engine) rebuildMatcherChainCOW(m *Matcher) {
 		return
 	}
 
-	mwState := e.middleware.Load().(*middlewareState)
+	mwState := e.middleware.Load()
 	e.ensureMatcherChainWithState(m, mwState)
 }
 
@@ -57,7 +57,7 @@ func (e *Engine) Use(mw ...Middleware) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldMwState := e.middleware.Load().(*middlewareState)
+	oldMwState := e.middleware.Load() // 无需类型断言
 
 	// 复制状态并追加中间件，递增代际号
 	newMwState := copyMiddlewareState(oldMwState)
@@ -83,7 +83,7 @@ func (e *Engine) UseForGroup(groupName string, mw ...Middleware) *Engine {
 		return e
 	}
 
-	oldMwState := e.middleware.Load().(*middlewareState)
+	oldMwState := e.middleware.Load() // 无需类型断言
 
 	// 复制状态并更新目标分组快照
 	newMwState := copyMiddlewareState(oldMwState)
@@ -122,7 +122,7 @@ func (e *Engine) Named(name string, mw Middleware) Middleware {
 	name = strings.TrimSpace(name)
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
-			mwState := e.middleware.Load().(*middlewareState)
+			mwState := e.middleware.Load()
 			if mwState.traceHook != nil && name != "" {
 				func() {
 					defer func() { _ = recover() }()
@@ -140,7 +140,7 @@ func (e *Engine) SetMiddlewareTraceHook(hook MiddlewareTraceHook) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldMwState := e.middleware.Load().(*middlewareState)
+	oldMwState := e.middleware.Load() // 无需类型断言
 	newMwState := copyMiddlewareState(oldMwState)
 
 	if hook == nil {

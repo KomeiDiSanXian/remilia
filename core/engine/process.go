@@ -34,8 +34,8 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 		}
 	}()
 
-	// 无锁读取状态
-	state := e.state.Load().(*engineState)
+	// 无锁读取状态 - 无需类型断言
+	state := e.state.Load()
 
 	eventType := ctx.GetEventType()
 
@@ -111,8 +111,8 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 //
 // COW 模式：无锁读取
 func (e *Engine) getMatchersForEvent(ctx *context.Context) []*Matcher {
-	// 无锁读取状态
-	state := e.state.Load().(*engineState)
+	// 无锁读取状态 - 无需类型断言
+	state := e.state.Load()
 
 	eventType := ctx.GetEventType()
 	// 获取特定事件类型的匹配器
@@ -141,8 +141,8 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
-	// 无锁读取状态（一次读取，处理所有事件）
-	state := e.state.Load().(*engineState)
+	// 无锁读取状态（一次读取，处理所有事件）- 无需类型断言
+	state := e.state.Load()
 
 	// 从池中获取切片，整个批处理过程复用
 	matchersToCheck := e.services.matcherPool.Get()
@@ -235,7 +235,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 
 	// 基于预先组合好的中间件链（global -> plugin -> matcher）包裹 handler
 	// 使用 atomic.Value 实现无锁读取
-	mwState := e.middleware.Load().(*middlewareState)
+	mwState := e.middleware.Load()
 	e.ensureMatcherChainWithState(m, mwState)
 	combinedChain, _, _ := m.getChainCache()
 	// COW 模式下 combinedChain 是不可变的，无需拷贝

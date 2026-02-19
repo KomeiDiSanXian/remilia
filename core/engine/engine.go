@@ -4,10 +4,10 @@ import (
 	stdctx "context"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
@@ -28,9 +28,9 @@ import (
 //   - 内存效率：读操作零分配，整体效率提升 93%
 //   - 适用场景：读多写少（完美匹配 Engine 使用模式）
 type Engine struct {
-	// 不可变状态（COW 模式）
-	state      atomic.Value // *engineState - 引擎核心状态
-	middleware atomic.Value // *middlewareState - 中间件配置
+	// 不可变状态（COW 模式）- 使用类型安全的泛型包装器
+	state      *atomic.Value[*engineState]     // 引擎核心状态
+	middleware *atomic.Value[*middlewareState] // 中间件配置
 
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
@@ -64,9 +64,9 @@ func NewEngine(options ...Option) *Engine {
 	e.services.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
 	e.services.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
 
-	// 初始化不可变状态
-	e.state.Store(newEngineState())
-	e.middleware.Store(newMiddlewareState())
+	// 初始化不可变状态 - 使用类型安全的泛型包装器
+	e.state = atomic.NewValue(newEngineState())
+	e.middleware = atomic.NewValue(newMiddlewareState())
 
 	// 应用用户自定义的选项
 	for _, opt := range options {
@@ -100,8 +100,8 @@ func (e *Engine) DeleteAllMatchers() {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 1. 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 	oldMatchers := append([]*Matcher(nil), oldState.matchers...)
 
 	// 2. 创建新的空状态
@@ -129,8 +129,8 @@ func (e *Engine) DeleteMatcher(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 复制状态
 	newState := copyEngineState(oldState)
@@ -147,8 +147,8 @@ func (e *Engine) DeleteMatchers(matchers []*Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 获取当前状态
-	state := e.state.Load().(*engineState)
+	// 1. 获取当前状态 - 无需类型断言
+	state := e.state.Load()
 
 	// 2. 复制状态
 	newState := copyEngineState(state)
@@ -168,8 +168,8 @@ func (e *Engine) RemoveGroup(groupName string) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 获取当前状态
-	state := e.state.Load().(*engineState)
+	// 1. 获取当前状态 - 无需类型断言
+	state := e.state.Load()
 
 	// 2. 检查是否有该组（快速检查，避免不必要的复制）
 	if _, ok := state.groupIndex[groupName]; !ok {
@@ -196,8 +196,8 @@ func (e *Engine) InvalidateSortedCache(eventType dto.EventType) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 复制状态
 	newState := copyEngineState(oldState)
@@ -214,8 +214,8 @@ func (e *Engine) SetBlock(block bool) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 复制状态
 	newState := copyEngineState(oldState)
@@ -234,8 +234,8 @@ func (e *Engine) SetMaxMatchers(limit int) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 复制状态
 	newState := copyEngineState(oldState)
@@ -249,13 +249,13 @@ func (e *Engine) SetMaxMatchers(limit int) *Engine {
 
 // GetMaxMatchers 获取当前的匹配器数量上限（COW 无锁读取）
 func (e *Engine) GetMaxMatchers() int {
-	state := e.state.Load().(*engineState)
+	state := e.state.Load() // 无需类型断言
 	return state.maxMatchers
 }
 
 // GetMatcherCount 获取当前已注册的匹配器数量（COW 无锁读取）
 func (e *Engine) GetMatcherCount() int {
-	state := e.state.Load().(*engineState)
+	state := e.state.Load() // 无需类型断言
 	return len(state.matchers)
 }
 
@@ -279,8 +279,8 @@ func (e *Engine) registerMatcher(m *Matcher) *Matcher {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 1. 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 检查匹配器数量限制
 	if oldState.maxMatchers > 0 && len(oldState.matchers) >= oldState.maxMatchers {
@@ -332,8 +332,8 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 1. 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	// 1. 加载当前状态 - 无需类型断言
+	oldState := e.state.Load()
 
 	// 2. 检查匹配器数量限制
 	newCount := len(oldState.matchers) + len(matchers)
@@ -475,8 +475,7 @@ type MatcherStats struct {
 // GetMatcherStats 获取匹配器统计信息（COW 无锁读取）
 func (e *Engine) GetMatcherStats() MatcherStats {
 	// 无锁读取状态
-	state := e.state.Load().(*engineState)
-
+	state := e.state.Load()
 	stats := MatcherStats{ByPlugin: make(map[string]int)}
 	stats.Total = len(state.matchers)
 
@@ -563,7 +562,7 @@ func (e *Engine) removeMatcherFromStateSilently(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load().(*engineState)
+	oldState := e.state.Load()
 	newState := copyEngineState(oldState)
 	newState.deleteMatcher(m)
 	e.state.Store(newState)
@@ -575,7 +574,7 @@ func (e *Engine) addMatcherToStateSilently(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load().(*engineState)
+	oldState := e.state.Load()
 	newState := copyEngineState(oldState)
 	newState.addMatcher(m)
 	e.state.Store(newState)
@@ -590,8 +589,8 @@ type Snapshot struct {
 func (e *Engine) Snapshot() Snapshot {
 	return Snapshot{
 		data: &engineSnapshot{
-			state:      e.state.Load().(*engineState),
-			middleware: e.middleware.Load().(*middlewareState),
+			state:      e.state.Load(),
+			middleware: e.middleware.Load(),
 		},
 	}
 }
@@ -626,7 +625,7 @@ func (e *Engine) UpdateMatcherIndex(_ *Matcher) {
 	defer e.writeMu.Unlock()
 
 	// 加载当前状态
-	oldState := e.state.Load().(*engineState)
+	oldState := e.state.Load()
 
 	// 复制状态
 	newState := copyEngineState(oldState)
@@ -897,7 +896,7 @@ func (e *Engine) WithMatcherGroupBatch(fn func()) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load().(*engineState)
+	oldState := e.state.Load()
 	newState := copyEngineState(oldState)
 	newState.rebuildIndex()
 	e.state.Store(newState)
@@ -945,7 +944,7 @@ type CommandInfo struct {
 //
 // 返回的命令列表不包含隐藏命令（Hidden=true）。
 func (e *Engine) GetAllCommands() []CommandInfo {
-	state := e.state.Load().(*engineState)
+	state := e.state.Load()
 
 	commands := make([]CommandInfo, 0)
 	seen := make(map[string]bool) // 去重（相同命令只返回一次）
