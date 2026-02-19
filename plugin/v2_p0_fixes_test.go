@@ -162,7 +162,7 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 	// Try to register multiple plugins concurrently
 	done := make(chan bool, 10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			desc := &PluginDescriptor{
 				Name:    "concurrent-test",
@@ -183,7 +183,7 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
