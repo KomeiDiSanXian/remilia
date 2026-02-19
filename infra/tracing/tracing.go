@@ -44,6 +44,14 @@ type Config struct {
 	// 1.0 = 100% 采样，0.1 = 10% 采样
 	SamplingRate float64
 
+	// UseAdaptiveSampling 是否使用自适应采样
+	// 启用后，SamplingRate 将作为基础采样率
+	UseAdaptiveSampling bool
+
+	// AdaptiveSamplerConfig 自适应采样器配置
+	// 仅在 UseAdaptiveSampling = true 时有效
+	AdaptiveSamplerConfig *AdaptiveSamplerConfig
+
 	// Headers 额外的 HTTP 头（用于 OTLP）
 	Headers map[string]string
 }
@@ -64,8 +72,9 @@ func DefaultConfig() Config {
 
 // Provider 追踪提供者
 type Provider struct {
-	tp     *sdktrace.TracerProvider
-	config Config
+	tp              *sdktrace.TracerProvider
+	config          Config
+	adaptiveSampler *AdaptiveSampler
 }
 
 // NewProvider 创建追踪提供者
@@ -109,9 +118,29 @@ func NewProvider(config Config) (*Provider, error) {
 	}
 
 	// 创建采样器
-	sampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(config.SamplingRate),
-	)
+	var sampler sdktrace.Sampler
+	var adaptiveSampler *AdaptiveSampler
+
+	if config.UseAdaptiveSampling {
+		// 使用自适应采样器
+		samplerConfig := DefaultAdaptiveSamplerConfig()
+		if config.AdaptiveSamplerConfig != nil {
+			samplerConfig = *config.AdaptiveSamplerConfig
+		}
+		// 使用配置的采样率作为基础采样率
+		samplerConfig.BaseSamplingRate = config.SamplingRate
+
+		adaptiveSampler = NewAdaptiveSampler(samplerConfig)
+		sampler = adaptiveSampler
+
+		logger.Info("[Tracing] Using adaptive sampling strategy")
+	} else {
+		// 使用固定采样率
+		sampler = sdktrace.ParentBased(
+			sdktrace.TraceIDRatioBased(config.SamplingRate),
+		)
+		logger.WithField("rate", config.SamplingRate).Info("[Tracing] Using fixed sampling rate")
+	}
 
 	// 创建 TracerProvider
 	tp := sdktrace.NewTracerProvider(
@@ -136,11 +165,13 @@ func NewProvider(config Config) (*Provider, error) {
 		"exporter": config.Exporter,
 		"endpoint": config.Endpoint,
 		"sampling": config.SamplingRate,
+		"adaptive": config.UseAdaptiveSampling,
 	}).Info("[Tracing] Tracing initialized")
 
 	return &Provider{
-		tp:     tp,
-		config: config,
+		tp:              tp,
+		config:          config,
+		adaptiveSampler: adaptiveSampler,
 	}, nil
 }
 
@@ -223,4 +254,32 @@ func (p *Provider) Tracer(name string) trace.Tracer {
 // IsEnabled 检查追踪是否启用
 func (p *Provider) IsEnabled() bool {
 	return p.config.Enabled
+}
+
+// GetAdaptiveSampler 获取自适应采样器
+// 如果未启用自适应采样，返回 nil
+func (p *Provider) GetAdaptiveSampler() *AdaptiveSampler {
+	return p.adaptiveSampler
+}
+
+// StartAdaptiveMonitor 启动自适应采样监控
+// 仅在启用自适应采样时有效
+func (p *Provider) StartAdaptiveMonitor(ctx context.Context) {
+	if p.adaptiveSampler == nil {
+		logger.Warn("[Tracing] Adaptive sampling not enabled, monitor not started")
+		return
+	}
+
+	logger.Info("[Tracing] Starting adaptive sampling monitor")
+	p.adaptiveSampler.StartMonitor(ctx)
+}
+
+// GetSamplingStats 获取采样统计信息
+func (p *Provider) GetSamplingStats() *AdaptiveSamplerStats {
+	if p.adaptiveSampler == nil {
+		return nil
+	}
+
+	stats := p.adaptiveSampler.GetStats()
+	return &stats
 }

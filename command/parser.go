@@ -30,13 +30,11 @@ type Args struct {
 }
 
 // ParseCommandLine 解析原始命令行字符串
+//
+// 性能优化：
+// - 预分配 map 和 slice 容量
+// - 减少字符串操作和内存分配
 func ParseCommandLine(input string) (*Args, error) {
-	args := &Args{
-		Raw:        input,
-		Flags:      make(map[string]string),
-		Positional: make([]string, 0),
-	}
-
 	tokens, err := tokenize(input)
 	if err != nil {
 		return nil, fmt.Errorf("tokenize error: %w", err)
@@ -45,7 +43,23 @@ func ParseCommandLine(input string) (*Args, error) {
 		return nil, fmt.Errorf("no tokens found")
 	}
 
-	args.Command = tokens[0]
+	// 预分配容量：估计有少量 flags 和 positional 参数
+	estimatedFlags := len(tokens) / 4
+	if estimatedFlags < 2 {
+		estimatedFlags = 2
+	}
+	estimatedPositional := len(tokens) / 2
+	if estimatedPositional < 2 {
+		estimatedPositional = 2
+	}
+
+	args := &Args{
+		Raw:        input,
+		Command:    tokens[0],
+		Flags:      make(map[string]string, estimatedFlags),
+		Positional: make([]string, 0, estimatedPositional),
+	}
+
 	tokens = tokens[1:]
 
 	for i := 0; i < len(tokens); {
@@ -117,9 +131,21 @@ func isShortFlag(token string) bool {
 
 // tokenize 分词函数，支持引号和转义字符
 // 示例: `hello "world test" foo` -> ["hello", "world test", "foo"]
+//
+// 性能优化：
+// - 预分配 tokens slice 容量（减少扩容）
+// - 预分配 strings.Builder 缓冲区（减少内存分配）
 func tokenize(s string) ([]string, error) {
-	tokens := make([]string, 0)
+	// 预分配容量：估计平均每8个字符一个token
+	estimatedTokens := len(s)/8 + 1
+	if estimatedTokens < 4 {
+		estimatedTokens = 4
+	}
+	tokens := make([]string, 0, estimatedTokens)
+
 	var current strings.Builder
+	current.Grow(32) // 预分配32字节缓冲区，适合大多数token
+
 	inQuote := false
 	quoteChar := rune(0)
 	escaped := false
@@ -170,6 +196,8 @@ func tokenize(s string) ([]string, error) {
 			} else if current.Len() > 0 {
 				tokens = append(tokens, current.String())
 				current.Reset()
+				// 每次 Reset 后重新 Grow，保持缓冲区大小
+				current.Grow(32)
 			}
 		default:
 			current.WriteRune(r)

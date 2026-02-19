@@ -2,15 +2,89 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
+
+var (
+	// Prometheus metrics for degradation
+	degradationLevelGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "level",
+		Help:      "Current degradation level (0=normal, 1=light, 2=moderate, 3=severe)",
+	})
+
+	degradationActiveGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "active",
+		Help:      "Whether degradation is currently active (1=active, 0=inactive)",
+	})
+
+	degradationEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "events_total",
+		Help:      "Total number of events by action (processed/dropped/delayed)",
+	}, []string{"action"})
+
+	degradationTriggersTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "triggers_total",
+		Help:      "Total number of degradation triggers by reason",
+	}, []string{"reason"})
+
+	degradationCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "cpu_usage_percent",
+		Help:      "Current CPU usage percentage",
+	})
+
+	degradationMemoryGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "memory_usage_percent",
+		Help:      "Current memory usage percentage",
+	})
+
+	degradationGoroutinesGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "goroutines_total",
+		Help:      "Current number of goroutines",
+	})
+
+	degradationRecoveriesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "remilia",
+		Subsystem: "degradation",
+		Name:      "recoveries_total",
+		Help:      "Total number of degradation level recoveries",
+	}, []string{"from_level", "to_level"})
+)
+
+// metricsOnce ensures metrics are registered only once
+var metricsOnce sync.Once
+
+// initMetrics initializes metrics (can be called multiple times safely)
+func initMetrics() {
+	metricsOnce.Do(func() {
+		// Metrics are already registered via promauto
+		logger.Debug("[Degradation] Metrics initialized")
+	})
+}
 
 // DegradationStrategy 降级策略
 type DegradationStrategy int
@@ -128,6 +202,9 @@ type DegradationConfig struct {
 
 // NewAdaptiveDegradation 创建自适应降级控制器
 func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
+	// 初始化 metrics
+	initMetrics()
+
 	// 设置默认值
 	if config.CPUThreshold == 0 {
 		config.CPUThreshold = 80.0
@@ -164,6 +241,10 @@ func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
 	ad.lastMemory.Store(0.0)
 	ad.lastLatency.Store(time.Duration(0))
 
+	// 初始化 metrics
+	degradationLevelGauge.Set(0) // LevelNormal
+	degradationActiveGauge.Set(0)
+
 	return ad
 }
 
@@ -193,6 +274,11 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 	ad.lastCPU.Store(cpuPercent)
 	ad.lastMemory.Store(memPercent)
 
+	// 更新 Prometheus metrics
+	degradationCPUGauge.Set(cpuPercent)
+	degradationMemoryGauge.Set(memPercent)
+	degradationGoroutinesGauge.Set(float64(goroutines))
+
 	currentLevel := ad.GetLevel()
 	newLevel := ad.calculateLevel(cpuPercent, memPercent, goroutines)
 
@@ -209,6 +295,44 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 		if ad.config.OnLevelChange != nil {
 			ad.config.OnLevelChange(currentLevel, newLevel)
 		}
+	}
+}
+
+// setLevel 设置降级级别并更新 metrics
+func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
+	oldLevel := ad.GetLevel()
+	ad.level.Store(level)
+
+	// 更新 Prometheus metrics
+	degradationLevelGauge.Set(float64(level))
+
+	if level == LevelNormal {
+		degradationActiveGauge.Set(0)
+	} else {
+		degradationActiveGauge.Set(1)
+
+		// 记录触发原因
+		reason := "unknown"
+		if cpuVal, ok := ad.lastCPU.Load().(float64); ok && cpuVal > ad.config.CPUThreshold {
+			reason = "cpu"
+			degradationTriggersTotal.WithLabelValues(reason).Inc()
+		}
+		if memVal, ok := ad.lastMemory.Load().(float64); ok && memVal > ad.config.MemoryThreshold {
+			reason = "memory"
+			degradationTriggersTotal.WithLabelValues(reason).Inc()
+		}
+		if ad.config.EnableGoroutineLimit && runtime.NumGoroutine() > ad.config.GoroutineThreshold {
+			reason = "goroutines"
+			degradationTriggersTotal.WithLabelValues(reason).Inc()
+		}
+	}
+
+	// 记录恢复事件
+	if oldLevel != LevelNormal && level == LevelNormal {
+		degradationRecoveriesTotal.WithLabelValues(
+			fmt.Sprintf("%d", oldLevel),
+			fmt.Sprintf("%d", level),
+		).Inc()
 	}
 }
 
@@ -271,11 +395,6 @@ func (ad *AdaptiveDegradation) GetLevel() DegradationLevel {
 	return ad.level.Load().(DegradationLevel)
 }
 
-// setLevel 设置降级级别
-func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
-	ad.level.Store(level)
-}
-
 // Middleware 返回降级中间件
 func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
@@ -285,6 +404,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			currentLevel := ad.GetLevel()
 			if currentLevel == LevelNormal {
 				// 正常状态，直接处理
+				degradationEventsTotal.WithLabelValues("processed").Inc()
 				return next(ctx)
 			}
 
@@ -294,6 +414,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			// 根据降级级别和事件优先级决定是否处理
 			if ad.shouldDrop(currentLevel, priority) {
 				ad.droppedEvents.Add(1)
+				degradationEventsTotal.WithLabelValues("dropped").Inc()
 				logger.WithFields(logger.Fields{
 					"level":    currentLevel,
 					"priority": priority,
@@ -307,6 +428,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			case DegradationDelay:
 				if priority < PriorityHigh {
 					ad.delayedEvents.Add(1)
+					degradationEventsTotal.WithLabelValues("delayed").Inc()
 					// 延迟处理
 					time.Sleep(100 * time.Millisecond)
 				}
@@ -317,6 +439,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 				// DegradationDrop or unknown: no-op here.
 			}
 
+			degradationEventsTotal.WithLabelValues("processed").Inc()
 			return next(ctx)
 		}
 	}
