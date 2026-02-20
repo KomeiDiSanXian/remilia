@@ -8,7 +8,7 @@
 
 ## 📋 项目概述
 
-根据 [PLUGIN-ECOSYSTEM-PLAN.md](./PLUGIN-ECOSYSTEM-PLAN.md) 的规划，成功开发并测试了 **Debug Plugin**（调试插件），这是一个用于开发阶段的调试工具集合。
+根据 [PLUGIN-ECOSYSTEM-PLAN.md](PLUGIN-ECOSYSTEM-PLAN.md) 的规划，成功开发并测试了 **Debug Plugin**（调试插件），这是一个用于开发阶段的调试工具集合。
 
 ## ✨ 实现的功能
 

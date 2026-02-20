@@ -399,7 +399,7 @@ func TestPluginMetadata(t *testing.T) {
 - [完整示例代码](../../examples/plugin-metadata/)
 - [插件系统增强方案](../03-architecture/PLUGIN_ENHANCEMENT_PROPOSAL.md)
 - [Help 插件设计](../03-architecture/HELP_PLUGIN_DESIGN.md)
-- [实施报告](../05-reports/PLUGIN_METADATA_ENHANCEMENT.md)
+- [实施报告](../06-archived/PLUGIN_METADATA_ENHANCEMENT.md)
 
 ---
 

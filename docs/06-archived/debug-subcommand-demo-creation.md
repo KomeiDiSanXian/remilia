@@ -314,6 +314,6 @@ debug-subcommand-demo.exe  # ~20MB（包含所有依赖）
 
 - [示例代码](../../examples/debug-subcommand-demo/)
 - [示例文档](../../examples/debug-subcommand-demo/README.md)
-- [优化报告](./debug-plugin-subcommand-optimization.md)
+- [优化报告](debug-plugin-subcommand-optimization.md)
 - [Debug 插件源码](../../plugins/dev/debug/)
 

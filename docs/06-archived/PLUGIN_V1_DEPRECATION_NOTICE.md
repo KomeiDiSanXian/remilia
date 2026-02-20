@@ -89,7 +89,7 @@ v2 benefits: -60% code, auto dependency injection, better type safety
 
 详细的迁移步骤请参见：
 - **迁移指南**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](../02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
-- **v2 快速参考**: [docs/05-reports/plugin-v2-quick-reference.md](../05-reports/plugin-v2-quick-reference.md)
+- **v2 快速参考**: [docs/05-reports/plugin-v2-quick-reference.md](plugin-v2-quick-reference.md)
 
 ### 步骤 3: 迁移代码
 
@@ -205,7 +205,7 @@ func New() *plugin.PluginDescriptor {
 ### 文档资源
 
 - **迁移指南**: [PLUGIN_V1_TO_V2_MIGRATION.md](../02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
-- **v2 快速参考**: [plugin-v2-quick-reference.md](../05-reports/plugin-v2-quick-reference.md)
+- **v2 快速参考**: [plugin-v2-quick-reference.md](plugin-v2-quick-reference.md)
 - **示例代码**: [examples/](../../examples/)
 
 ### 常见问题

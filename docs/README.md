@@ -200,18 +200,18 @@ Remilia 的架构设计文档，深入理解框架内部。
   - 优先级分布和投入产出分析
   - 下一步行动建议
 
-- **[PLUGIN-QUICKREF.md](./05-reports/PLUGIN-QUICKREF.md)** 🚀 **快速参考**
+- **[PLUGIN-QUICKREF.md](06-archived/PLUGIN-QUICKREF.md)** 🚀 **快速参考**
   - 待开发插件清单
   - 插件模板代码
   - 开发顺序建议
 
-- **[PLUGIN-ROADMAP.md](./05-reports/PLUGIN-ROADMAP.md)** 📅 **路线图**
+- **[PLUGIN-ROADMAP.md](06-archived/PLUGIN-ROADMAP.md)** 📅 **路线图**
   - 可视化开发路线图
   - 时间线规划
   - 里程碑设定
   - 依赖关系图
 
-- **[PLUGIN-ECOSYSTEM-PLAN.md](./05-reports/PLUGIN-ECOSYSTEM-PLAN.md)** 📖 **详细规划**
+- **[PLUGIN-ECOSYSTEM-PLAN.md](06-archived/PLUGIN-ECOSYSTEM-PLAN.md)** 📖 **详细规划**
   - **完整的插件生态规划文档 (34 KB)**
   - 每个插件的详细设计
   - 功能描述、API 设计、使用场景
@@ -232,47 +232,47 @@ Remilia 的架构设计文档，深入理解框架内部。
   - 常见问题解答
   - 最佳实践和示例
 
-- **[PLUGIN_V1_DEPRECATION_NOTICE.md](./05-reports/PLUGIN_V1_DEPRECATION_NOTICE.md)** 📜 **历史文档**
+- **[PLUGIN_V1_DEPRECATION_NOTICE.md](06-archived/PLUGIN_V1_DEPRECATION_NOTICE.md)** 📜 **历史文档**
   - v1 弃用公告（已完成）
   - 迁移时间表记录
 
-- **[phase-2-examples-migration-complete.md](./05-reports/phase-2-examples-migration-complete.md)** ✅ **Phase 2 完成**
+- **[phase-2-examples-migration-complete.md](06-archived/phase-2-examples-migration-complete.md)** ✅ **Phase 2 完成**
   - **所有 4 个示例已迁移到 v2**
   - 代码平均减少 26%
   - 所有示例编译通过
   - 创建完整迁移指南
 
-- **[plugin-v2-p0-fixes-complete.md](./05-reports/plugin-v2-p0-fixes-complete.md)** ✅ **P0 修复完成**
+- **[plugin-v2-p0-fixes-complete.md](06-archived/plugin-v2-p0-fixes-complete.md)** ✅ **P0 修复完成**
   - **所有 4 个 P0 问题已修复**
   - 质量评分：7.25/10 → 9.0/10
   - 新增 5 个验证测试，全部通过
   - 生产就绪 ✅
 
-- **[v1-removal-readiness-assessment.md](./05-reports/v1-removal-readiness-assessment.md)** ⚠️ **移除评估**
+- **[v1-removal-readiness-assessment.md](06-archived/v1-removal-readiness-assessment.md)** ⚠️ **移除评估**
   - v1 插件系统移除准备评估
   - Phase 1 & 2 已完成
   - 移除前置条件检查清单
   - 详细路线图和时间表
 
-- **[plugin-v2-migration-complete.md](./05-reports/plugin-v2-migration-complete.md)** ✅ **迁移报告**
+- **[plugin-v2-migration-complete.md](06-archived/plugin-v2-migration-complete.md)** ✅ **迁移报告**
   - v2 核心实现完成
   - 所有核心插件已迁移（100%）
   - 完整测试套件（15个测试）
   - v1 vs v2 对比分析
 
-- **[plugin-v2-issues-analysis.md](./05-reports/plugin-v2-issues-analysis.md)** 🔴 **问题分析**
+- **[plugin-v2-issues-analysis.md](06-archived/plugin-v2-issues-analysis.md)** 🔴 **问题分析**
   - 4 个 P0 严重问题
   - 3 个 P1 中等问题
   - 详细影响分析
   - 质量评分：7.25/10
 
-- **[plugin-v2-fix-plan.md](./05-reports/plugin-v2-fix-plan.md)** 🔧 **修复计划**
+- **[plugin-v2-fix-plan.md](06-archived/plugin-v2-fix-plan.md)** 🔧 **修复计划**
   - P0 问题修复方案
   - 代码实现示例
   - 测试用例设计
   - 目标：提升到 9/10
 
-- **[plugin-v2-quick-reference.md](./05-reports/plugin-v2-quick-reference.md)** 📚 **快速参考**
+- **[plugin-v2-quick-reference.md](06-archived/plugin-v2-quick-reference.md)** 📚 **快速参考**
   - v2 API 使用指南
   - 代码模板和示例
   - 最佳实践

@@ -328,7 +328,7 @@ func (p *Plugin) handleDebugConfig(ctx *eventctx.Context) error {
 ## 相关文档
 
 - [Debug Plugin 源码](../../plugins/dev/debug/)
-- [子命令优化报告](../../docs/05-reports/debug-plugin-subcommand-optimization.md)
+- [子命令优化报告](../../docs/06-archived/debug-plugin-subcommand-optimization.md)
 - [Command 包文档](../../command/)
 - [Plugin 系统文档](../../plugin/)
 

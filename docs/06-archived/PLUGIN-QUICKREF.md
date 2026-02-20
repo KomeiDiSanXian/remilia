@@ -177,7 +177,7 @@ go test -cover ./plugins/category/pluginname/...
 
 ## 📚 相关文档
 
-- **详细规划**: [PLUGIN-ECOSYSTEM-PLAN.md](./PLUGIN-ECOSYSTEM-PLAN.md)
+- **详细规划**: [PLUGIN-ECOSYSTEM-PLAN.md](PLUGIN-ECOSYSTEM-PLAN.md)
 - **开发指南**: `docs/02-user-guides/PLUGIN_ENHANCEMENT_QUICKREF.md`
 - **架构设计**: `docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md`
 
