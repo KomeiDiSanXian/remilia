@@ -63,6 +63,7 @@ func NewEngine(options ...Option) *Engine {
 	e.services.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
 	e.services.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
 	e.services.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
+	e.services.compiler = NewMatcherCompiler()
 
 	// 初始化不可变状态 - 使用类型安全的泛型包装器
 	e.state = atomic.NewValue(newEngineState())
@@ -518,6 +519,30 @@ func (e *Engine) GetMetricsCollector() *metrics.Collector {
 	return val.(*metrics.Collector)
 }
 
+// GetCompiler 获取 Matcher 编译器
+func (e *Engine) GetCompiler() *MatcherCompiler {
+	return e.services.compiler
+}
+
+// CompileAllMatchers 预编译所有 matchers 以提升性能
+//
+// 此方法会遍历所有已注册的 matchers 并预编译它们的规则。
+// 编译后的 matchers 会按成本排序规则，并缓存正则表达式等资源。
+//
+// 使用场景：
+//   - 在应用启动后调用一次，预编译所有 matchers
+//   - 在批量注册 matchers 后调用
+//
+// 注意：编译是可选的优化，不编译也能正常工作。
+func (e *Engine) CompileAllMatchers() {
+	state := e.state.Load()
+	compiler := e.services.compiler
+
+	for _, m := range state.matchers {
+		compiler.Compile(m)
+	}
+}
+
 // Shutdown gracefully stops Engine background workers (cleaners, processors, etc.)
 // and waits for in-flight event processing to complete.
 //
@@ -632,6 +657,34 @@ func (e *Engine) UpdateMatcherIndex(_ *Matcher) {
 
 	// 重建索引（将会根据 m.command/group 更新位置）
 	newState.rebuildIndex()
+
+	// 原子替换
+	e.state.Store(newState)
+}
+
+// UpdateCommandCache 更新指定 matcher 的命令缓存（COW 写操作）
+// 当 matcher 的 definition 变化时调用
+func (e *Engine) UpdateCommandCache(m *Matcher) {
+	if m == nil {
+		return
+	}
+
+	cmd := m.GetCommand()
+	if cmd == "" {
+		return
+	}
+
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	// 加载当前状态
+	oldState := e.state.Load()
+
+	// 复制状态
+	newState := copyEngineState(oldState)
+
+	// 更新命令缓存
+	newState.rebuildCommandInfoCache(m, cmd)
 
 	// 原子替换
 	e.state.Store(newState)
@@ -939,61 +992,17 @@ type CommandInfo struct {
 
 // GetAllCommands 获取所有已注册的命令信息
 //
-// 此方法遍历所有 Matcher，提取包含命令的 Matcher 的元数据。
+// 此方法使用缓存优化，O(1) 复杂度返回命令列表。
 // 用于 Help Plugin 等需要发现所有命令的场景。
 //
 // 返回的命令列表不包含隐藏命令（Hidden=true）。
 func (e *Engine) GetAllCommands() []CommandInfo {
 	state := e.state.Load()
 
-	commands := make([]CommandInfo, 0)
-	seen := make(map[string]bool) // 去重（相同命令只返回一次）
-
-	// 遍历所有 permanent matcher
-	for _, m := range state.matchers {
-		cmd := m.GetCommand()
-		if cmd == "" {
-			continue // 跳过非命令 matcher
-		}
-
-		if seen[cmd] {
-			continue // 去重
-		}
-		seen[cmd] = true
-
-		// 获取定义
-		def := m.GetDefinition()
-
-		// 跳过隐藏命令
-		if def != nil && def.Hidden {
-			continue
-		}
-
-		info := CommandInfo{
-			Command:    cmd,
-			EventType:  m.EventType,
-			Source:     m.GetSource(),
-			Definition: def,
-		}
-
-		// 从定义填充字段
-		if def != nil {
-			info.Description = def.Description
-			info.Usage = def.Usage
-			info.Aliases = def.Aliases
-			info.Category = def.Category
-			info.Examples = def.Examples
-			info.Permissions = def.Permissions
-		}
-
-		// 提取插件名
-		if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
-			info.Plugin = after
-		} else {
-			info.Plugin = "global"
-		}
-
-		commands = append(commands, info)
+	// 直接从缓存返回（O(1) 复杂度）
+	commands := make([]CommandInfo, 0, len(state.commandInfoCache))
+	for _, info := range state.commandInfoCache {
+		commands = append(commands, *info)
 	}
 
 	return commands

@@ -454,8 +454,9 @@ func (m *Matcher) invalidateCombinedChain() {
 
 	m.cachedGen.global = 0
 	m.cachedGen.group = 0
-	defer func() { _ = recover() }()
-	m.combinedChain.Store(nil)
+	// atomic.Value cannot store nil interface, store nil []Middleware instead
+	var nilChain []Middleware
+	m.combinedChain.Store(nilChain)
 }
 
 // ensureChain ensures the combined chain is cached and valid.
@@ -571,7 +572,14 @@ func (m *Matcher) SetDefinition(def *command.Definition) *Matcher {
 	}
 	m.rt.mu.Lock()
 	m.definition = def
+	coord := m.coordinator
 	m.rt.mu.Unlock()
+
+	// 触发命令缓存更新
+	if coord != nil {
+		coord.UpdateCommandCache(m)
+	}
+
 	return m
 }
 

@@ -148,10 +148,18 @@ func (ctx *Context) Clone() *Context {
 	}
 
 	// 创建独立的 context，避免级联取消
-	// 但保留 trace 信息（如果存在）
+	// 保留 deadline 和 values，但独立取消
 	newStdCtx := stdctx.Background()
 
-	// 复制 trace context（如果存在）
+	// 复制 deadline（如果存在）
+	if deadline, ok := ctx.Context().Deadline(); ok {
+		var cancel stdctx.CancelFunc
+		newStdCtx, cancel = stdctx.WithDeadline(newStdCtx, deadline)
+		// 不保存 cancel，让 deadline 自动触发，避免需要手动管理
+		_ = cancel
+	}
+
+	// 复制 trace span（如果存在）
 	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
 		newStdCtx = trace.ContextWithSpan(newStdCtx, span)
 	}

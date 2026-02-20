@@ -68,6 +68,14 @@ func (e *Engine) Use(mw ...Middleware) *Engine {
 
 	e.middleware.Store(newMwState)
 
+	// 失效所有 matcher 的缓存，确保它们重建中间件链
+	state := e.state.Load()
+	for _, m := range state.matchers {
+		if m != nil {
+			m.invalidateCombinedChain()
+		}
+	}
+
 	return e
 }
 
@@ -98,6 +106,17 @@ func (e *Engine) UseForGroup(groupName string, mw ...Middleware) *Engine {
 	snap.gen++
 
 	e.middleware.Store(newMwState)
+
+	// 失效该组所有 matcher 的缓存，确保它们重建中间件链
+	// 这样可以避免 matcher 使用过期的中间件
+	state := e.state.Load()
+	if groupMatchers, ok := state.groupIndex[key]; ok {
+		for _, m := range groupMatchers {
+			if m != nil {
+				m.invalidateCombinedChain()
+			}
+		}
+	}
 
 	return e
 }

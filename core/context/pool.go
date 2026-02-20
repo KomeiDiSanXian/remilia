@@ -1,6 +1,7 @@
 package context
 
 import (
+	stdctx "context"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/openapi"
@@ -64,7 +65,7 @@ func ReleaseContext(ctx *Context) {
 
 	// Reset standard context to background
 	ctx.ctxMu.Lock()
-	ctx.ctx = nil
+	ctx.ctx = stdctx.Background()
 	ctx.ctxMu.Unlock()
 
 	// Return to pool

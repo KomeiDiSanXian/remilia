@@ -4,12 +4,23 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: update loop constructs to use range for improved readability and performance">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/Container测试修复报告.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/context-generic-analysis.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/generic-opportunities-analysis.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: move to archived">
+      <change afterPath="$PROJECT_DIR$/core/engine/bugfix_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/core-analysis-bugs-improvements.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/core-optimization-guide.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/core-optimization-summary.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/FIXES_COMPLETED.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -131,9 +142,9 @@
       <recent name="E:\project\Go\remilia\examples\plugin-metadata" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\docs\06-archived" />
       <recent name="E:\project\Go\remilia\infra" />
       <recent name="E:\project\Go\remilia\plugins\core" />
-      <recent name="E:\project\Go\remilia\docs\06-archived" />
       <recent name="E:\project\Go\remilia\lifecycle\v1_archived" />
       <recent name="E:\project\Go\remilia\lifecycle" />
     </key>
@@ -255,7 +266,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: rename HelpPlugin to Plugin and refactor command handling to use engine directly" />
     <MESSAGE value="feat: add main application with plugin system demonstration and configuration management" />
     <MESSAGE value="feat: implement memory and SQLite storage plugins with unified interface" />
     <MESSAGE value="feat: add SQLite storage plugin demonstration and enhance main application with command validation" />
@@ -280,7 +290,8 @@
     <MESSAGE value="feat: add generic utility functions for event parsing and middleware chaining" />
     <MESSAGE value="feat: add backward compatibility layer with type aliases and migration helpers for generic dead letter queue" />
     <MESSAGE value="refactor: update loop constructs to use range for improved readability and performance" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: update loop constructs to use range for improved readability and performance" />
+    <MESSAGE value="docs: move to archived" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: move to archived" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

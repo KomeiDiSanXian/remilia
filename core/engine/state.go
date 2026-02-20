@@ -2,6 +2,7 @@ package engine
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -35,6 +36,10 @@ type engineState struct {
 	// 排序缓存（按优先级排序的匹配器）
 	sortedCache map[dto.EventType][]*Matcher
 
+	// 命令信息缓存（用于优化 GetAllCommands 性能）
+	// key 为命令名（如 "/ping"），value 为命令信息
+	commandInfoCache map[string]*CommandInfo
+
 	// 配置项
 	block       bool // 是否阻断后续匹配器
 	maxMatchers int  // 最大匹配器数量限制
@@ -64,13 +69,14 @@ type middlewareState struct {
 // newEngineState 创建新的引擎状态
 func newEngineState() *engineState {
 	return &engineState{
-		matchers:     make([]*Matcher, 0),
-		matcherIndex: make(map[dto.EventType][]*Matcher),
-		commandIndex: make(map[string]map[dto.EventType][]*Matcher),
-		groupIndex:   make(map[string][]*Matcher),
-		sortedCache:  make(map[dto.EventType][]*Matcher),
-		block:        false,
-		maxMatchers:  0,
+		matchers:         make([]*Matcher, 0),
+		matcherIndex:     make(map[dto.EventType][]*Matcher),
+		commandIndex:     make(map[string]map[dto.EventType][]*Matcher),
+		groupIndex:       make(map[string][]*Matcher),
+		sortedCache:      make(map[dto.EventType][]*Matcher),
+		commandInfoCache: make(map[string]*CommandInfo),
+		block:            false,
+		maxMatchers:      0,
 	}
 }
 
@@ -85,16 +91,23 @@ func newMiddlewareState() *middlewareState {
 
 // copyEngineState 深拷贝引擎状态
 // 使用 COW 策略，共享底层数组以减少内存分配
+//
+// 安全性说明：
+//   - 使用 [:len:len] 限制容量，确保 append 操作会触发新分配
+//   - 只能使用 append 修改切片，不能就地修改（如 matchers[i] = xxx）
+//   - 所有修改操作（addMatcher、deleteMatcher 等）都正确使用 append
+//   - 这种策略在当前代码中是安全的，因为没有就地修改操作
 func copyEngineState(src *engineState) *engineState {
 	dst := &engineState{
 		// 使用 append 共享底层数组，只在修改时才会复制
-		matchers:     src.matchers[:len(src.matchers):len(src.matchers)],
-		matcherIndex: make(map[dto.EventType][]*Matcher, len(src.matcherIndex)),
-		commandIndex: make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex)),
-		groupIndex:   make(map[string][]*Matcher, len(src.groupIndex)),
-		sortedCache:  make(map[dto.EventType][]*Matcher, len(src.sortedCache)),
-		block:        src.block,
-		maxMatchers:  src.maxMatchers,
+		matchers:         src.matchers[:len(src.matchers):len(src.matchers)],
+		matcherIndex:     make(map[dto.EventType][]*Matcher, len(src.matcherIndex)),
+		commandIndex:     make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex)),
+		groupIndex:       make(map[string][]*Matcher, len(src.groupIndex)),
+		sortedCache:      make(map[dto.EventType][]*Matcher, len(src.sortedCache)),
+		commandInfoCache: make(map[string]*CommandInfo, len(src.commandInfoCache)),
+		block:            src.block,
+		maxMatchers:      src.maxMatchers,
 	}
 
 	// 复制 matcherIndex map - 使用 reslice 共享底层数组
@@ -120,6 +133,11 @@ func copyEngineState(src *engineState) *engineState {
 	// 复制 sortedCache map - 共享底层数组
 	for k, v := range src.sortedCache {
 		dst.sortedCache[k] = v[:len(v):len(v)]
+	}
+
+	// 复制 commandInfoCache - 浅拷贝指针（CommandInfo 是只读的）
+	for k, v := range src.commandInfoCache {
+		dst.commandInfoCache[k] = v
 	}
 
 	return dst
@@ -156,6 +174,7 @@ func (s *engineState) rebuildIndex() {
 	s.commandIndex = make(map[string]map[dto.EventType][]*Matcher)
 	s.groupIndex = make(map[string][]*Matcher)
 	s.sortedCache = make(map[dto.EventType][]*Matcher)
+	s.commandInfoCache = make(map[string]*CommandInfo)
 
 	// 重建索引
 	for _, m := range s.matchers {
@@ -165,6 +184,9 @@ func (s *engineState) rebuildIndex() {
 				s.commandIndex[cmd] = make(map[dto.EventType][]*Matcher)
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
+
+			// 重建命令信息缓存
+			s.rebuildCommandInfoCache(m, cmd)
 		} else {
 			// 仅当没有 command 时加入常规索引
 			et := m.EventType
@@ -193,6 +215,45 @@ func (s *engineState) rebuildIndex() {
 	}
 }
 
+// rebuildCommandInfoCache 重建单个命令的缓存信息
+func (s *engineState) rebuildCommandInfoCache(m *Matcher, cmd string) {
+	// 获取定义
+	def := m.GetDefinition()
+
+	// 跳过隐藏命令
+	if def != nil && def.Hidden {
+		// 如果命令被标记为隐藏，从缓存中删除
+		delete(s.commandInfoCache, cmd)
+		return
+	}
+
+	info := &CommandInfo{
+		Command:    cmd,
+		EventType:  m.EventType,
+		Source:     m.GetSource(),
+		Definition: def,
+	}
+
+	// 从定义填充字段
+	if def != nil {
+		info.Description = def.Description
+		info.Usage = def.Usage
+		info.Aliases = def.Aliases
+		info.Category = def.Category
+		info.Examples = def.Examples
+		info.Permissions = def.Permissions
+	}
+
+	// 提取插件名
+	if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
+		info.Plugin = after
+	} else {
+		info.Plugin = "global"
+	}
+
+	s.commandInfoCache[cmd] = info
+}
+
 // addMatcher 添加匹配器到状态
 func (s *engineState) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
@@ -205,6 +266,9 @@ func (s *engineState) addMatcher(m *Matcher) {
 		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 		// 每次添加后重新排序（对于单个添加操作，这可以接受；批量添加应使用 rebuildIndex）
 		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
+
+		// 更新命令信息缓存
+		s.rebuildCommandInfoCache(m, cmd)
 	} else {
 		// 更新常规索引
 		et := m.EventType

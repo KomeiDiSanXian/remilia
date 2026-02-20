@@ -26,6 +26,9 @@ type engineServices struct {
 	// matcher slice pool
 	matcherPool *infrapool.TypedPool[[]*Matcher]
 
+	// matcher compiler for optimization
+	compiler *MatcherCompiler
+
 	// temp cleaner config/state
 	tempMatcherCleanerStop     func()
 	tempMatcherCleanerInterval time.Duration

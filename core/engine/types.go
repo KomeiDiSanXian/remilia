@@ -23,6 +23,7 @@ type MatcherCoordinator interface {
 	InvalidateSortedCache(eventType dto.EventType)
 	UpdateTempMatcherPriority(m *Matcher)
 	UpdateMatcherCommand(m *Matcher)
+	UpdateCommandCache(m *Matcher)
 	MigrateMatcherToTemp(m *Matcher)
 	MigrateMatcherFromTemp(m *Matcher)
 }

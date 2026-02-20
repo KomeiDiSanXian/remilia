@@ -76,11 +76,27 @@ func newTempMatcherManagerWithConfig(config TempManagerConfig) *tempMatcherManag
 }
 
 func (m *tempMatcherManager) getShard(matcher *Matcher) *tempMatcherShard {
-	// Simple pointer hashing
-	// We use the pointer address to distribute matchers across shards uniformly
+	// Use FNV-1a hash for better distribution
+	// This avoids potential clustering from Go's memory allocator
 	ptr := uintptr(unsafe.Pointer(matcher))
-	idx := ptr % tempMatcherShardCount
+	hash := hashPtr(ptr)
+	idx := hash % tempMatcherShardCount
 	return m.shards[idx]
+}
+
+// hashPtr implements FNV-1a hash for pointer values
+func hashPtr(ptr uintptr) uintptr {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	hash := uint64(offset64)
+	// Hash the pointer value byte by byte
+	for i := 0; i < 8; i++ {
+		hash ^= uint64((ptr >> (i * 8)) & 0xFF)
+		hash *= prime64
+	}
+	return uintptr(hash)
 }
 
 // Add adds a temp matcher using insertion sort (O(N)) and sharded lock

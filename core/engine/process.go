@@ -76,10 +76,11 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 			matchersToCheck[i] = nil
 		}
 
-		// 如果容量过大，不放回池中，避免内存无限增长
-		if cap(matchersToCheck) <= MaxMatcherPoolRetainCapacity {
-			e.services.matcherPool.Put(matchersToCheck)
+		// 如果容量过大，截断后再归还，避免内存无限增长
+		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
+			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
 		}
+		e.services.matcherPool.Put(matchersToCheck)
 	}()
 
 	// 合并 6 个已经排序的子列表
@@ -152,10 +153,11 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 		for i := range matchersToCheck {
 			matchersToCheck[i] = nil
 		}
-		// 如果容量过大，不放回池中，避免内存无限增长
-		if cap(matchersToCheck) <= MaxMatcherPoolRetainCapacity {
-			e.services.matcherPool.Put(matchersToCheck)
+		// 如果容量过大，截断后再归还，避免内存无限增长
+		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
+			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
 		}
+		e.services.matcherPool.Put(matchersToCheck)
 	}()
 
 	// 处理每个事件
@@ -452,8 +454,9 @@ func (e *Engine) cleanExpiredMatchers() {
 }
 
 // extractCommand 提取消息中的命令词（首个空格前的单词）
+// 自动去除首尾空白，确保 "  /ping  " 也能正确提取为 "/ping"
 func extractCommand(content string) string {
-	trimmed := strings.TrimLeftFunc(content, unicode.IsSpace)
+	trimmed := strings.TrimSpace(content)
 	idx := strings.IndexFunc(trimmed, unicode.IsSpace)
 	if idx == -1 {
 		return trimmed
