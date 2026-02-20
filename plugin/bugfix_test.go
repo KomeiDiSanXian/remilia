@@ -30,19 +30,15 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	errors := make(chan error, 2)
 
 	// Goroutine 1: 注册插件
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		err := manager.RegisterV2(slowPlugin)
 		if err != nil {
 			errors <- err
 		}
-	}()
+	})
 
 	// Goroutine 2: 尝试获取正在加载的插件
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		time.Sleep(20 * time.Millisecond) // 等待插件开始加载
 
 		plugin, exists := manager.Get("slow-plugin")
@@ -57,7 +53,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 			}
 		}
 		// 如果不存在或者已加载，都是正常的
-	}()
+	})
 
 	wg.Wait()
 	close(errors)
@@ -176,7 +172,7 @@ func TestBugFix_ContainerConcurrentAccess(t *testing.T) {
 
 	// 并发写入
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -185,7 +181,7 @@ func TestBugFix_ContainerConcurrentAccess(t *testing.T) {
 	}
 
 	// 并发读取
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

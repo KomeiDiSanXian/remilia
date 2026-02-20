@@ -4,10 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance">
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests">
+      <change beforePath="$PROJECT_DIR$/core/engine/optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -253,7 +254,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add SQLite storage plugin demonstration and enhance main application with command validation" />
     <MESSAGE value="feat: implement enhanced HTTP client with middleware support and request handling" />
     <MESSAGE value="docs: add Help Plugin fix summary and verification documentation" />
     <MESSAGE value="feat: optimize Debug plugin command registration and enhance documentation" />
@@ -278,7 +278,8 @@
     <MESSAGE value="docs: move to archived" />
     <MESSAGE value="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation" />
     <MESSAGE value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
+    <MESSAGE value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

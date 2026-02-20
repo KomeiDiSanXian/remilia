@@ -92,7 +92,7 @@ func hashPtr(ptr uintptr) uintptr {
 	)
 	hash := uint64(offset64)
 	// Hash the pointer value byte by byte
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		hash ^= uint64((ptr >> (i * 8)) & 0xFF)
 		hash *= prime64
 	}

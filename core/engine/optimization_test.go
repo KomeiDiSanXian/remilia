@@ -82,7 +82,7 @@ func BenchmarkGetAllCommands_WithCache(b *testing.B) {
 	defer eng.Close()
 
 	// 注册100个命令
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		def := &command.Definition{
 			Name:        string(rune('a'+i%26)) + string(rune('0'+i/26)),
 			Description: "Test command",
@@ -138,7 +138,7 @@ func TestOptimization_CompileAllMatchers(t *testing.T) {
 	defer eng.Close()
 
 	// 注册多个命令
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		def := &command.Definition{
 			Name:        "test" + string(rune('0'+i)),
 			Description: "Test command",

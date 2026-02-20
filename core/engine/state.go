@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"maps"
 	"sort"
 	"strings"
 
@@ -136,9 +137,7 @@ func copyEngineState(src *engineState) *engineState {
 	}
 
 	// 复制 commandInfoCache - 浅拷贝指针（CommandInfo 是只读的）
-	for k, v := range src.commandInfoCache {
-		dst.commandInfoCache[k] = v
-	}
+	maps.Copy(dst.commandInfoCache, src.commandInfoCache)
 
 	return dst
 }
