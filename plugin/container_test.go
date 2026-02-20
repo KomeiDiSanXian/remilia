@@ -157,13 +157,12 @@ func TestEnsureContainerInitialized_Idempotent(t *testing.T) {
 
 	// 验证特殊服务只注册了一次
 	count := 0
-	container1.mu.RLock()
-	for name := range container1.services {
+	container1.services.Range(func(name, value any) bool {
 		if name == "manager" || name == "engine" || name == "coordinator" {
 			count++
 		}
-	}
-	container1.mu.RUnlock()
+		return true
+	})
 
 	assert.Equal(t, 3, count, "Should have exactly 3 special services")
 

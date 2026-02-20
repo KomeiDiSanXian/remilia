@@ -11,6 +11,7 @@ const (
 	Unloaded  State = iota // 未加载
 	Loading                // 加载中
 	Loaded                 // 已加载
+	Unloading              // 卸载中
 	Error                  // 错误状态
 	Reloading              // 重载中
 )
@@ -24,6 +25,8 @@ func (s State) String() string {
 		return "Loading"
 	case Loaded:
 		return "Loaded"
+	case Unloading:
+		return "Unloading"
 	case Error:
 		return "Error"
 	case Reloading:

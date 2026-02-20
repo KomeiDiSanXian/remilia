@@ -65,13 +65,15 @@ func (pm *Manager) AddListener(listener LifecycleListener) {
 func (pm *Manager) RemoveListener(listener LifecycleListener) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	for i, l := range pm.listeners {
-		// 使用指针比较
-		if l == listener {
-			pm.listeners = append(pm.listeners[:i], pm.listeners[i+1:]...)
-			return
+
+	// 更安全的删除方式：创建新切片，避免索引越界风险
+	newListeners := make([]LifecycleListener, 0, len(pm.listeners))
+	for _, l := range pm.listeners {
+		if l != listener {
+			newListeners = append(newListeners, l)
 		}
 	}
+	pm.listeners = newListeners
 }
 
 // notifyLoaded 通知监听器插件已加载
@@ -205,7 +207,19 @@ func (pm *Manager) Get(name string) (Plugin, bool) {
 	defer pm.mu.RUnlock()
 
 	plugin, exists := pm.plugins[name]
-	return plugin, exists
+	if !exists {
+		return nil, false
+	}
+
+	// 检查插件状态，如果正在加载则返回 false
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		if stateful.GetState() == Loading {
+			logger.Warnf("[pluginManager] Plugin %s is currently loading, please wait", name)
+			return nil, false
+		}
+	}
+
+	return plugin, true
 }
 
 // List 列出所有插件

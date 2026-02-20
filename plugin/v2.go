@@ -204,45 +204,33 @@ func MustGetPlugin[T any](ctx *SetupContext, name string) *T {
 
 // Container 依赖注入容器
 type Container struct {
-	services map[string]any
-	mu       sync.RWMutex
+	services sync.Map // 使用 sync.Map 提升并发性能
 }
 
 // NewContainer 创建依赖注入容器
 func NewContainer() *Container {
-	return &Container{
-		services: make(map[string]any),
-	}
+	return &Container{}
 }
 
 // Register 注册服务
 func (c *Container) Register(name string, service any) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.services[name] = service
+	c.services.Store(name, service)
 }
 
 // Get 获取服务
 func (c *Container) Get(name string) (any, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	service, ok := c.services[name]
-	return service, ok
+	return c.services.Load(name)
 }
 
 // Has 检查服务是否存在
 func (c *Container) Has(name string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	_, ok := c.services[name]
+	_, ok := c.services.Load(name)
 	return ok
 }
 
 // Remove 移除服务
 func (c *Container) Remove(name string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.services, name)
+	c.services.Delete(name)
 }
 
 // PluginInstance v2 插件实例
@@ -290,7 +278,7 @@ func (pi *PluginInstance) Load(coordinator *engine.Engine) error {
 // Unload 卸载插件（实现 Plugin 接口，用于兼容）
 func (pi *PluginInstance) Unload(coordinator *engine.Engine) error {
 	pi.mu.Lock()
-	pi.state = Unloaded // Changed from Unloading to Unloaded
+	pi.state = Unloading
 	pi.mu.Unlock()
 
 	// 清理注册的匹配器
@@ -307,6 +295,7 @@ func (pi *PluginInstance) Unload(coordinator *engine.Engine) error {
 	pi.mu.Lock()
 	if err != nil {
 		pi.state = Error
+		pi.lastError = err
 	} else {
 		pi.state = Unloaded
 	}
@@ -535,7 +524,9 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 	instance.setupContext = setupCtx
 
-	// 先添加到 plugins map（标记为占位，防止并发注册相同插件）
+	// 先添加到 plugins map，并设置为 Loading 状态
+	// 这样其他 goroutine 通过 Get() 获取时可以检测到插件正在加载
+	instance.state = Loading
 	pm.plugins[name] = instance
 
 	pm.mu.Unlock()
