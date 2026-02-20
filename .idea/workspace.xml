@@ -4,12 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/container_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/container_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/status.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/status.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance">
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -256,7 +253,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement memory and SQLite storage plugins with unified interface" />
     <MESSAGE value="feat: add SQLite storage plugin demonstration and enhance main application with command validation" />
     <MESSAGE value="feat: implement enhanced HTTP client with middleware support and request handling" />
     <MESSAGE value="docs: add Help Plugin fix summary and verification documentation" />
@@ -281,7 +277,8 @@
     <MESSAGE value="refactor: update loop constructs to use range for improved readability and performance" />
     <MESSAGE value="docs: move to archived" />
     <MESSAGE value="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation" />
+    <MESSAGE value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

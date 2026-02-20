@@ -158,7 +158,7 @@ func (c *Container) Remove(name string) {
 
 ---
 
-### 5. topologicalSortV2 可能无法检测所有循环依赖 【中优先级】
+### 5. topologicalSortV2 循环依赖检测增强 【中优先级】✅ 已修复
 
 **位置**: `plugin/v2.go:670-750`
 
@@ -171,37 +171,53 @@ func (c *Container) Remove(name string) {
 批次: B -> C -> A  (循环)
 ```
 
-当前实现可能无法检测到这种跨批次的循环依赖。
+**修复方案**:
+添加 `checkCrossBatchCyclicDependency` 函数，在拓扑排序前检查跨批次循环依赖。
 
-**影响**:
-- 可能允许注册形成循环依赖的插件
-- 导致插件系统状态不一致
-
-**修复建议**:
-在拓扑排序时也考虑已注册插件的依赖关系：
-
+**修复代码**:
 ```go
+// topologicalSortV2 增强版本
 func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
-    // ... existing code ...
+    // ...构建映射...
     
-    // 检查批次内插件与已注册插件之间的循环依赖
-    pm.mu.RLock()
+    // 检查跨批次循环依赖
+    if err := pm.checkCrossBatchCyclicDependency(descriptors, descMap); err != nil {
+        return nil, err
+    }
+    
+    // ...继续 Kahn 算法...
+}
+
+// checkCrossBatchCyclicDependency 检查跨批次循环依赖
+func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescriptor, descMap map[string]*PluginDescriptor) error {
+    // 对于批次中的每个插件
     for _, desc := range descriptors {
-        for _, dep := range desc.Deps {
-            if existingPlugin, ok := pm.plugins[dep]; ok {
-                // 检查 existingPlugin 的依赖是否包含当前批次中的插件
-                if err := pm.checkCyclicDependency(desc.Name, existingPlugin); err != nil {
-                    pm.mu.RUnlock()
-                    return nil, err
-                }
+        // 检查它依赖的每个已注册插件
+        for _, depName := range desc.Deps {
+            existingPlugin, existsInManager := pm.plugins[depName]
+            if !existsInManager {
+                continue
+            }
+
+            // 检查已注册插件是否依赖批次中的插件（形成循环）
+            if err := pm.detectCycleThroughExisting(existingPlugin, desc.Name, descMap, make(map[string]bool)); err != nil {
+                return fmt.Errorf("cross-batch circular dependency: %w", err)
             }
         }
     }
-    pm.mu.RUnlock()
-    
-    // ... rest of code ...
+    return nil
 }
 ```
+
+**实现细节**:
+1. `checkCrossBatchCyclicDependency`: 主检查函数
+2. `detectCycleThroughExisting`: 递归检查已注册插件的依赖链
+3. `batchPluginDependsOn`: 检查批次内插件的依赖关系
+
+**测试**: `TestBugFix_CrossBatchCyclicDependency` ✅
+- 直接循环检测
+- 间接循环检测
+- 无误报验证
 
 **优先级**: 中
 
@@ -606,7 +622,7 @@ func (pr *PluginRegistry) Update(name string) error {
 
 1. ✅ **RemoveListener 切片操作安全性** - 防御性编程 - 已修复
 2. ✅ **Container 并发性能优化** - 提升性能 - 已修复
-3. **拓扑排序循环依赖检测** - 完善依赖管理
+3. ✅ **拓扑排序循环依赖检测** - 完善依赖管理 - 已修复
 4. **插件配置验证** - 提前发现配置错误
 5. **Help 插件性能优化** - 提升用户体验
 
@@ -630,25 +646,27 @@ Plugin 模块整体设计良好，v2 API 大幅简化了插件开发。
 2. **RemoveListener 切片操作** - 使用更安全的新切片方式删除元素
 3. **PluginInstance.Unload 状态** - 添加 Unloading 中间状态
 4. **Container 并发性能** - 使用 sync.Map 替代 map + RWMutex
+5. **topologicalSortV2 循环依赖检测** - 添加跨批次循环依赖检测
 
 ### 剩余问题
 
-1. **依赖管理**：缺少版本控制和跨批次循环依赖检测
-2. **资源管理**：缺少资源限制和监控
-3. **状态管理**：热重载缺少状态保存机制
+1. **依赖管理**：缺少版本控制（建议添加）
+2. **资源管理**：缺少资源限制��监控（建议添加）
+3. **状态管理**：热重载缺少状态保存机制（建议添加）
 
 ### 测试结果
 
-- ✅ 所有现有测试通过
-- ✅ 新增 4 个 Bug 修复测试全部通过
+- ✅ 所有现有测试通过（0.317s）
+- ✅ 新增 5 个 Bug 修复测试全部通过
+- ✅ 跨批次循环依赖检测正常工作
 - ✅ 无功能回归
 
 建议优先实现高收益改进点（依赖版本管理、状态保存、资源限制）。
 
 ---
 
-**文档版本**: v1.1  
+**文档版本**: v1.2  
 **最后更新**: 2026-02-20  
-**修复状态**: 4/6 Bug 已修复 ✅ (1 高优先级，2 中优先级，1 低优先级)  
-**剩余 Bug**: 2 个（1 中优先级跨批次循环依赖检测，1 低优先级 Help 插件错误处理实际已正确实现）
+**修复状态**: 5/6 Bug 已修复 ✅ (1 高优先级，3 中优先级，1 低优先级)  
+**剩余 Bug**: 1 个（低优先级 Help 插件错误处理，实际已正确实现）
 

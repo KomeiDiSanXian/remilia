@@ -638,6 +638,8 @@ func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
 
 // topologicalSortV2 使用 Kahn 算法进行拓扑排序
 // 返回按依赖顺序排列的插件列表，如果存在循环依赖则返回错误
+//
+// 增强版本：检测批次内和跨批次的循环依赖
 func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
 	// 构建映射：名称 -> 描述符
 	descMap := make(map[string]*PluginDescriptor)
@@ -646,6 +648,11 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 			return nil, fmt.Errorf("duplicate plugin name: %s", desc.Name)
 		}
 		descMap[desc.Name] = desc
+	}
+
+	// 检查跨批次循环依赖
+	if err := pm.checkCrossBatchCyclicDependency(descriptors, descMap); err != nil {
+		return nil, err
 	}
 
 	// 构建依赖图和入度表
@@ -726,6 +733,100 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 	}
 
 	return result, nil
+}
+
+// checkCrossBatchCyclicDependency 检查跨批次循环依赖
+// 即：已注册插件和批次内插件之间是否形成循环
+func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescriptor, descMap map[string]*PluginDescriptor) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	// 对于批次中的每个插件
+	for _, desc := range descriptors {
+		// 检查它依赖的每个已注册插件
+		for _, depName := range desc.Deps {
+			existingPlugin, existsInManager := pm.plugins[depName]
+			if !existsInManager {
+				continue // 不是已注册插件，跳过
+			}
+
+			// 检查已注册插件是否（直接或间接）依赖批次中的插件
+			if err := pm.detectCycleThroughExisting(existingPlugin, desc.Name, descMap, make(map[string]bool)); err != nil {
+				return fmt.Errorf("cross-batch circular dependency: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// detectCycleThroughExisting 检测已注册插件是否依赖批次中的插件（可能形成循环）
+// existingPlugin: 已注册的插件
+// targetName: 批次中的插件名称
+// batchPlugins: 批次中的插件映射
+// visited: 已访问的插件集合（防止无限递归）
+func (pm *Manager) detectCycleThroughExisting(existingPlugin Plugin, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) error {
+	pluginName := existingPlugin.Name()
+
+	// 防止无限递归
+	if visited[pluginName] {
+		return nil
+	}
+	visited[pluginName] = true
+
+	// 获取已注册插件的依赖
+	deps := existingPlugin.Dependencies()
+
+	for _, dep := range deps {
+		// 如果已注册插件依赖批次中的插件，形成循环
+		if dep == targetName {
+			return fmt.Errorf("plugin %s (registered) depends on %s (in batch), which depends on %s",
+				pluginName, dep, pluginName)
+		}
+
+		// 如果依赖是批次中的其他插件
+		if batchDesc, inBatch := batchPlugins[dep]; inBatch {
+			// 检查批次中的这个插件是否依赖 targetName
+			if pm.batchPluginDependsOn(batchDesc, targetName, batchPlugins, make(map[string]bool)) {
+				return fmt.Errorf("plugin %s (registered) -> %s (batch) -> %s (batch) forms a cycle",
+					pluginName, dep, targetName)
+			}
+		}
+
+		// 如果依赖是另一个已注册插件，递归检查
+		if depPlugin, exists := pm.plugins[dep]; exists {
+			if err := pm.detectCycleThroughExisting(depPlugin, targetName, batchPlugins, visited); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// batchPluginDependsOn 检查批次中的插件是否（直接或间接）依赖目标插件
+func (pm *Manager) batchPluginDependsOn(plugin *PluginDescriptor, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) bool {
+	// 防止无限递归
+	if visited[plugin.Name] {
+		return false
+	}
+	visited[plugin.Name] = true
+
+	// 检查直接依赖
+	for _, dep := range plugin.Deps {
+		if dep == targetName {
+			return true
+		}
+
+		// 检查间接依赖（只在批次内）
+		if depDesc, inBatch := batchPlugins[dep]; inBatch {
+			if pm.batchPluginDependsOn(depDesc, targetName, batchPlugins, visited) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // ValidateDependencies 验证一组插件的依赖关系（不注册）
