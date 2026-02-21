@@ -28,7 +28,7 @@ func TestWriteLoop_DrainOnStop(t *testing.T) {
 
 	// 并发写入若干条目
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -74,9 +74,7 @@ func TestWriteLoop_DrainOnStop_ConcurrentProducers(t *testing.T) {
 	// 启动持续写入的 goroutine
 	stopWriting := make(chan struct{})
 	var writeWg sync.WaitGroup
-	writeWg.Add(1)
-	go func() {
-		defer writeWg.Done()
+	writeWg.Go(func() {
 		for {
 			select {
 			case <-stopWriting:
@@ -86,7 +84,7 @@ func TestWriteLoop_DrainOnStop_ConcurrentProducers(t *testing.T) {
 				time.Sleep(time.Millisecond)
 			}
 		}
-	}()
+	})
 
 	// 写入一段时间后关闭
 	time.Sleep(50 * time.Millisecond)

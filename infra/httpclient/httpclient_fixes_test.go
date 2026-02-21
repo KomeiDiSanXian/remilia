@@ -57,10 +57,8 @@ func TestRequest_Middlewares_NoConcurrentRace(t *testing.T) {
 	var wg sync.WaitGroup
 	errCh := make(chan error, concurrency)
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			// 每个 Request 添加自己的 middleware（测试切片不共享）
 			req := client.Get("/").Use(func(r *Request) error { return nil })
 			resp, err := req.Do()
@@ -69,7 +67,7 @@ func TestRequest_Middlewares_NoConcurrentRace(t *testing.T) {
 				return
 			}
 			defer resp.Close()
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

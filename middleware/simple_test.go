@@ -243,8 +243,7 @@ func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
 
 // TestNewManagedAdaptiveWithLimitContext_Works 测试带限制的 context 版本
 func TestNewManagedAdaptiveWithLimitContext_Works(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	parent := t.Context()
 
 	managed := middleware.NewManagedAdaptiveWithLimitContext(parent, 50)
 	assert.NotNil(t, managed)

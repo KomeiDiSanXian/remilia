@@ -9,7 +9,7 @@ import (
 func TestQuantileHistogram_RingBuffer_O1Write(t *testing.T) {
 	maxSamples := 5
 	qh := NewQuantileHistogramWithSize(maxSamples)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		qh.Observe(int64(i))
 	}
 	assert.Equal(t, maxSamples, qh.Count())
@@ -34,7 +34,7 @@ func TestQuantileHistogram_RingBuffer_Wraparound(t *testing.T) {
 }
 func TestQuantileHistogram_Reset_AfterRingBuffer(t *testing.T) {
 	qh := NewQuantileHistogramWithSize(3)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		qh.Observe(int64(i * 10))
 	}
 	qh.Reset()

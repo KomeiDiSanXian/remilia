@@ -1,7 +1,7 @@
 package stats
 
 import (
-	"sort"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,7 +93,7 @@ func (qh *QuantileHistogram) Quantile(q float64) int64 {
 		copy(samples[firstPart:], qh.buf[:start])
 	}
 
-	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	slices.Sort(samples)
 
 	if q <= 0 {
 		return samples[0]

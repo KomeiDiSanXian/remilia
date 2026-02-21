@@ -58,7 +58,7 @@ func TestQuantileHistogram_ConcurrentSafe(t *testing.T) {
 	qh := NewQuantileHistogram()
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(v int64) {
 			defer wg.Done()

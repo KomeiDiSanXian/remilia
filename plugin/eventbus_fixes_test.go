@@ -14,7 +14,7 @@ import (
 func TestEventBus_Publish_NonBlocking(t *testing.T) {
 	bus := NewEventBus().(*eventBus)
 	// 先填满 worker pool（100 个令牌）
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		bus.workerPool <- struct{}{}
 	}
 	// 订阅一个 handler
@@ -33,7 +33,7 @@ func TestEventBus_Publish_NonBlocking(t *testing.T) {
 		t.Fatal("Publish blocked when worker pool was full")
 	}
 	// 清空 pool
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-bus.workerPool
 	}
 }
@@ -71,12 +71,10 @@ func TestEventBus_PublishCount_Atomic(t *testing.T) {
 	require.NoError(t, err)
 	// 并发发布
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			_ = bus.Publish("count-topic", "data")
-		}()
+		})
 	}
 	wg.Wait()
 	// 等待异步 handler 完成
