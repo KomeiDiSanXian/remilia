@@ -27,46 +27,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	remilia "github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	mw "github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/tidwall/gjson"
 )
 
 // ─────────────────────────────────────────────────────────────
 // Mock infrastructure
 // ─────────────────────────────────────────────────────────────
-
-// nullAPI satisfies openapi.OpenAPI without any real network I/O.
-type nullAPI struct{ calls atomic.Int64 }
-
-func (n *nullAPI) SingleChat(_ string, _ *dto.Message) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
-func (n *nullAPI) GroupChat(_ string, _ *dto.Message) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
-func (n *nullAPI) SingleRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
-func (n *nullAPI) GroupRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
-func (n *nullAPI) SingleReset(_, _ string) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
-func (n *nullAPI) GroupReset(_, _ string) (gjson.Result, error) {
-	n.calls.Add(1)
-	return gjson.Result{}, nil
-}
 
 // pumpAdapter is an Adapter that accepts events via InjectEvent.
 // Workers = 2 × CPU to forward events to the bot handler concurrently.
