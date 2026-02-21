@@ -38,11 +38,13 @@ func (s State) String() string {
 
 // Status 插件状态信息
 type Status struct {
-	Name         string        // 插件名称
-	State        State         // 当前状态
-	LoadTime     time.Time     // 加载时间
-	LastError    error         // 最后的错误
-	MatcherCount int           // Matcher 数量
-	Metadata     *Metadata     // 元数据
-	Uptime       time.Duration // 运行时长
+	Name                  string        // 插件名称
+	State                 State         // 当前状态
+	LoadTime              time.Time     // 加载时间
+	LastError             error         // 最后的错误
+	MatcherCount          int           // Matcher 数量
+	Metadata              *Metadata     // 元数据
+	Uptime                time.Duration // 运行时长
+	HasSaveState          bool          // 是否实现了状态保存/恢复（SaveState != nil）
+	EventBusSubscriptions int           // EventBus 中的订阅数（当前总订阅数快照）
 }

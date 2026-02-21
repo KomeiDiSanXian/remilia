@@ -260,6 +260,14 @@ func (s State) String() string {
 	}
 }
 
+// ComponentStatus 记录单个组件的运行时状态
+type ComponentStatus struct {
+	Name    string
+	Running bool
+	ExitErr error     // OnRun 返回的错误，nil 表示正常退出或仍在运行
+	ExitAt  time.Time // OnRun 退出时间，零值表示仍在运行
+}
+
 // Manager 管理多个组件的生命周期
 //
 // Manager 提供统一的组件生命周期管理，包括：
@@ -294,12 +302,17 @@ type Manager struct {
 	runCtx    context.Context
 	runCancel context.CancelFunc
 	runWg     sync.WaitGroup // 等待所有 OnRun 完成
+
+	// 组件运行时状态追踪
+	compStatusMu sync.RWMutex
+	compStatuses map[string]*ComponentStatus
 }
 
 // NewManager 创建新的生命周期管理器
 func NewManager() *Manager {
 	return &Manager{
-		state: StateCreated,
+		state:        StateCreated,
+		compStatuses: make(map[string]*ComponentStatus),
 	}
 }
 
@@ -392,13 +405,35 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.state = StateRunning
 	m.mu.Unlock()
 
+	// 初始化组件状态
+	m.compStatusMu.Lock()
+	m.compStatuses = make(map[string]*ComponentStatus, len(components))
+	for _, comp := range components {
+		m.compStatuses[comp.Name()] = &ComponentStatus{
+			Name:    comp.Name(),
+			Running: true,
+		}
+	}
+	m.compStatusMu.Unlock()
+
 	// 在独立 goroutine 中运行每个组件的 OnRun
 	for _, comp := range components {
 		m.runWg.Add(1)
 		go func(c Component) {
 			defer m.runWg.Done()
 
-			if err := c.OnRun(runCtx); err != nil {
+			err := c.OnRun(runCtx)
+
+			// 更新组件退出状态
+			m.compStatusMu.Lock()
+			if st, ok := m.compStatuses[c.Name()]; ok {
+				st.Running = false
+				st.ExitErr = err
+				st.ExitAt = time.Now()
+			}
+			m.compStatusMu.Unlock()
+
+			if err != nil {
 				logger.WithFields(logger.Fields{
 					"component": c.Name(),
 					"error":     err,
@@ -523,6 +558,38 @@ func (m *Manager) State() State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.state
+}
+
+// ComponentStatuses 返回所有组件的运行时状态快照
+//
+// 返回 map[组件名]*ComponentStatus，包括：
+//   - Running: 是否仍在运行
+//   - ExitErr: OnRun 退出时的错误（nil 表示正常退出或仍在运行）
+//   - ExitAt:  OnRun 退出时间（零值表示仍在运行）
+//
+// 可以用于健康检查或排查哪个组件意外退出。
+func (m *Manager) ComponentStatuses() map[string]ComponentStatus {
+	m.compStatusMu.RLock()
+	defer m.compStatusMu.RUnlock()
+
+	result := make(map[string]ComponentStatus, len(m.compStatuses))
+	for name, st := range m.compStatuses {
+		result[name] = *st // 返回值拷贝，避免外部修改
+	}
+	return result
+}
+
+// HasUnhealthyComponents 检查是否有组件意外退出（OnRun 返回 error）
+func (m *Manager) HasUnhealthyComponents() bool {
+	m.compStatusMu.RLock()
+	defer m.compStatusMu.RUnlock()
+
+	for _, st := range m.compStatuses {
+		if !st.Running && st.ExitErr != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Uptime 返回运行时间

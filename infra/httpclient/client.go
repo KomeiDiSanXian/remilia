@@ -61,10 +61,43 @@ type RetryConfig struct {
 	RetryCondition func(*http.Response, error) bool
 }
 
+// DefaultTransportConfig 默认连接池配置
+var DefaultTransportConfig = TransportConfig{
+	MaxIdleConns:        100,
+	MaxIdleConnsPerHost: 10,
+	MaxConnsPerHost:     0, // 0 表示不限制
+	IdleConnTimeout:     90 * time.Second,
+	DisableKeepAlives:   false,
+}
+
+// TransportConfig 连接池配置
+type TransportConfig struct {
+	MaxIdleConns        int
+	MaxIdleConnsPerHost int
+	MaxConnsPerHost     int
+	IdleConnTimeout     time.Duration
+	DisableKeepAlives   bool
+}
+
 // NewClient 创建一个新的 HTTP 客户端
+//
+// 每个 Client 拥有独立的连接池，避免与其他 Client 实例互相干扰。
+// 默认配置：MaxIdleConns=100, MaxIdleConnsPerHost=10, IdleConnTimeout=90s
 func NewClient() *Client {
+	return NewClientWithTransport(DefaultTransportConfig)
+}
+
+// NewClientWithTransport 创建带自定义连接池配置的 HTTP 客户端
+func NewClientWithTransport(tc TransportConfig) *Client {
+	transport := &http.Transport{
+		MaxIdleConns:        tc.MaxIdleConns,
+		MaxIdleConnsPerHost: tc.MaxIdleConnsPerHost,
+		MaxConnsPerHost:     tc.MaxConnsPerHost,
+		IdleConnTimeout:     tc.IdleConnTimeout,
+		DisableKeepAlives:   tc.DisableKeepAlives,
+	}
 	return &Client{
-		client:  http.DefaultClient,
+		client:  &http.Client{Transport: transport},
 		headers: make(http.Header),
 	}
 }

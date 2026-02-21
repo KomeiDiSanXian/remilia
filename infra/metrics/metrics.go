@@ -32,6 +32,12 @@ type Collector struct {
 	eventDropped   *prometheus.CounterVec
 	eventLatency   *prometheus.HistogramVec
 
+	// Bot 业务层指标
+	botUptime          prometheus.Gauge         // Bot 运行状态（1=运行中，0=停止）
+	commandInvocations *prometheus.CounterVec   // 命令调用次数，按命令名和状态分类
+	messageSent        *prometheus.CounterVec   // 消息发送次数，按类型和状态分类
+	messageLatency     *prometheus.HistogramVec // 消息发送延迟
+
 	// Use atomic types for thread-safe access
 	internalPoolGets atomic.Uint64
 	internalPoolPuts atomic.Uint64
@@ -150,6 +156,32 @@ func NewMetricsCollectorWithRegistry(namespace string, registry prometheus.Regis
 		Buckets:   prometheus.DefBuckets,
 	}, []string{"type"})
 
+	// Bot 业务层指标
+	mc.botUptime = factory.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "bot_up",
+		Help:      "Bot running status (1 = running, 0 = stopped)",
+	})
+
+	mc.commandInvocations = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "command_invocations_total",
+		Help:      "Total number of command invocations",
+	}, []string{"command", "status"})
+
+	mc.messageSent = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "messages_sent_total",
+		Help:      "Total number of messages sent",
+	}, []string{"type", "status"})
+
+	mc.messageLatency = factory.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      "message_send_duration_seconds",
+		Help:      "Time spent sending a message",
+		Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
+	}, []string{"type"})
+
 	return mc
 }
 
@@ -221,4 +253,31 @@ func (mc *Collector) GetPoolMetrics() PoolMetricsSnapshot {
 	}
 
 	return PoolMetricsSnapshot{Gets: gets, News: news, HitRate: hitRate}
+}
+
+// --- Bot 业务层指标 ---
+
+// SetBotUp 设置 Bot 运行状态（true=运行中，false=已停止）
+func (mc *Collector) SetBotUp(running bool) {
+	if running {
+		mc.botUptime.Set(1)
+	} else {
+		mc.botUptime.Set(0)
+	}
+}
+
+// RecordCommandInvocation 记录命令调用
+// status: "success" | "failure" | "rejected"
+func (mc *Collector) RecordCommandInvocation(command, status string) {
+	mc.commandInvocations.WithLabelValues(command, status).Inc()
+}
+
+// RecordMessageSent 记录消息发送
+// msgType: "text" | "markdown" | "embed" 等
+// status: "success" | "failure"
+func (mc *Collector) RecordMessageSent(msgType, status string, duration time.Duration) {
+	mc.messageSent.WithLabelValues(msgType, status).Inc()
+	if duration > 0 {
+		mc.messageLatency.WithLabelValues(msgType).Observe(duration.Seconds())
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -174,6 +175,57 @@ type TracingConfig struct {
 
 var globalConfig atomic.Value // stores *Config
 
+// ChangeListener 配置变更监听器函数类型
+// 当配置通过 Load 或 Reload 更新时被调用
+type ChangeListener func(newCfg *Config)
+
+var (
+	changeListeners   []ChangeListener
+	changeListenersMu sync.RWMutex
+)
+
+// Subscribe 注册配置变更监听器
+// 每次 Load 成功后会按注册顺序调用所有监听器
+//
+// 使用示例:
+//
+//	config.Subscribe(func(cfg *config.Config) {
+//	    // 更新中间件的速率限制参数
+//	    rateLimiter.Update(cfg.Middleware.RateLimitRate)
+//	})
+func Subscribe(listener ChangeListener) {
+	changeListenersMu.Lock()
+	changeListeners = append(changeListeners, listener)
+	changeListenersMu.Unlock()
+}
+
+// Unsubscribe 移除所有配置变更监听器（主要用于测试清理）
+func UnsubscribeAll() {
+	changeListenersMu.Lock()
+	changeListeners = nil
+	changeListenersMu.Unlock()
+}
+
+// notifyListeners 通知所有已注册的监听器配置已变更
+func notifyListeners(cfg *Config) {
+	changeListenersMu.RLock()
+	listeners := make([]ChangeListener, len(changeListeners))
+	copy(listeners, changeListeners)
+	changeListenersMu.RUnlock()
+
+	for _, listener := range listeners {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// 监听器 panic 不应影响配置加载流程
+					_ = r
+				}
+			}()
+			listener(cfg)
+		}()
+	}
+}
+
 // Load 从文件加载配置
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -194,6 +246,10 @@ func Load(path string) (*Config, error) {
 	// 创建配置的副本以防止外部修改
 	cfgCopy := cfg
 	globalConfig.Store(&cfgCopy)
+
+	// 通知所有已注册的监听器
+	notifyListeners(&cfgCopy)
+
 	return &cfgCopy, nil
 }
 

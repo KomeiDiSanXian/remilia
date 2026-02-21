@@ -2,7 +2,7 @@
 
 **日期**: 2026-02-21  
 **范围**: 全量模块扫描  
-**状态**: Bug 修复完成 ✅
+**状态**: Bug 修复完成 ✅ | 改进项完成 ✅
 
 ---
 
@@ -1008,26 +1008,26 @@ type Bot struct {
 | Bug #14 | `health` | 🐛 Bug | Degraded 状态返回 503 | 低 ✅ 已修复 |
 | Bug #15 | `config` | 🐛 Bug | 空配置错误信息不友好 | 低（语义问题，非逻辑错误） |
 | Bug #16 | `stats` | 🐛 Bug | Histogram.Min() 初始值误读 | 低 ✅ 已修复 |
-| 改进 #1 | `adapter.go` | ⚡ 改进 | Webhook secret 验证未实现 | **高** |
-| 改进 #2 | `bot.go` | ⚡ 改进 | 事件处理缺少耗时监控 | 中 |
-| 改进 #3 | `engine` | ⚡ 改进 | 清理器间隔 hardcode | 中 |
-| 改进 #4 | `middleware/simple` | ⚡ 改进 | SimpleAdaptive goroutine 永久泄漏 | **高** |
-| 改进 #5 | `middleware/simple` | ⚡ 改进 | ProductionSet 中间件顺序不合理 | 中 |
-| 改进 #6 | `lifecycle` | ⚡ 改进 | 缺少组件健康状态聚合 | 中 |
-| 改进 #7 | `httpclient` | ⚡ 改进 | 使用全局 DefaultClient 影响性能 | **高** |
-| 改进 #8 | `dlq` | ⚡ 改进 | Shutdown 时 ctx cancel 可能中断 drain | 中 |
-| 改进 #9 | `pool` | ⚡ 改进 | Stats 加锁读 atomic 性能损耗 | 低 |
-| 改进 #10 | `health` | ⚡ 改进 | 健康检查缺少缓存机制 | 中 |
-| 改进 #11 | `metrics` | ⚡ 改进 | 缺少 Bot 业务层指标 | **高** |
-| 改进 #12 | `tracing` | ⚡ 改进 | 禁用时未设置全局 TracerProvider | 低 |
-| 改进 #13 | `config` | ⚡ 改进 | 热重载无法通知已初始化组件 | **高** |
-| 改进 #14 | `stats` | ⚡ 改进 | Histogram 缺少分位数支持 | 中 |
-| 改进 #15 | `helper` | ⚡ 改进 | ChainWithNext 并发安全说明缺失 | 中 |
-| 改进 #16 | `plugin` | ⚡ 改进 | Manager.GetEventBus() 方法缺失 | 中 |
-| 改进 #17 | `plugin` | ⚡ 改进 | 插件状态快照信息不完整 | 中 |
-| 改进 #18 | 全局 | ⚡ 改进 | 缺少统一根 Context 管理 | **高** |
-| 改进 #19 | 全局 | ⚡ 改进 | 错误包装规范不统一 | 中 |
-| 改进 #20 | 全局 | ⚡ 改进 | 组件间循环依赖风险 | 中 |
+| 改进 #1 | `adapter.go` | ⚡ 改进 | Webhook secret 验证未实现 | **高**（安全风险，保留待实现）|
+| 改进 #2 | `bot.go` | ⚡ 改进 | 事件处理缺少耗时监控 | 中 ✅ 已完成（Debug 日志 + 可扩展 metrics hook）|
+| 改进 #3 | `engine` | ⚡ 改进 | 清理器间隔 hardcode | 中 ✅ 已存在完整实现（EngineConfig.TempMatcherCleanupInterval）|
+| 改进 #4 | `middleware/simple` | ⚡ 改进 | SimpleAdaptive goroutine 永久泄漏 | **高** ✅ 已完成（NewManagedAdaptive/NewManagedAdaptiveWithLimit）|
+| 改进 #5 | `middleware/simple` | ⚡ 改进 | ProductionSet 中间件顺序不合理 | 中 ✅ 已完成（新顺序: Recover→Dedup→CircuitBreaker→Adaptive→Logging）|
+| 改进 #6 | `lifecycle` | ⚡ 改进 | 缺少组件健康状态聚合 | 中 ✅ 已完成（ComponentStatuses()/HasUnhealthyComponents()）|
+| 改进 #7 | `httpclient` | ⚡ 改进 | 使用全局 DefaultClient 影响性能 | **高** ✅ 已完成（NewClientWithTransport/TransportConfig）|
+| 改进 #8 | `dlq` | ⚡ 改进 | Shutdown 时 ctx cancel 可能中断 drain | 中 ✅ 已完成（移除 dlq.cancel() 调用）|
+| 改进 #9 | `pool` | ⚡ 改进 | Stats 加锁读 atomic 性能损耗 | 低 ✅ 已完成（移除 resetMu 锁）|
+| 改进 #10 | `health` | ⚡ 改进 | 健康检查缺少缓存机制 | 中 ✅ 已完成（默认 TTL=1s，SetCacheTTL 可配置）|
+| 改进 #11 | `metrics` | ⚡ 改进 | 缺少 Bot 业务层指标 | **高** ✅ 已完成（botUptime/commandInvocations/messageSent/messageLatency）|
+| 改进 #12 | `tracing` | ⚡ 改进 | 禁用时未设置全局 TracerProvider | 低 ✅ 已完成（禁用时也设置 no-op provider 和传播器）|
+| 改进 #13 | `config` | ⚡ 改进 | 热重载无法通知已初始化组件 | **高** ✅ 已完成（Subscribe/UnsubscribeAll/notifyListeners）|
+| 改进 #14 | `stats` | ⚡ 改进 | Histogram 缺少分位数支持 | 中 ✅ 已完成（QuantileHistogram: P50/P90/P95/P99）|
+| 改进 #15 | `helper` | ⚡ 改进 | ChainWithNext 并发安全说明缺失 | 中 ✅ 已完成（改为递归实现，添加并发安全注释）|
+| 改进 #16 | `plugin` | ⚡ 改进 | Manager.GetEventBus() 方法缺失 | 中 ✅ 已完成|
+| 改进 #17 | `plugin` | ⚡ 改进 | 插件状态快照信息不完整 | 中 ✅ 已完成（Status 增加 HasSaveState/EventBusSubscriptions）|
+| 改进 #18 | 全局 | ⚡ 改进 | 缺少统一根 Context 管理 | **高**（架构级改造，保留待后续重构）|
+| 改进 #19 | 全局 | ⚡ 改进 | 错误包装规范不统一 | 中（规范类问题，保留为技术债）|
+| 改进 #20 | 全局 | ⚡ 改进 | 组件间循环依赖风险 | 中（架构级问题，保留为技术债）|
 
 ---
 

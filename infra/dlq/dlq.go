@@ -198,11 +198,9 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 func (dlq *DeadLetterQueue) Shutdown(ctx context.Context) error {
 	dlq.closeOnce.Do(func() {
 		dlq.queueClosed.Store(true)
-		// Close the queue so workers can drain remaining items and exit.
+		// 关闭队列 channel，让 worker 通过 ok==false 自然退出
+		// 不调用 dlq.cancel()，避免 ctx.Done() 分支在队列未完全消费前抢先触发退出
 		close(dlq.queue)
-		// Cancel context only for external force-cancel users; it should not be required
-		// for normal shutdown.
-		dlq.cancel()
 	})
 
 	done := make(chan struct{})

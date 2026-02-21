@@ -4,18 +4,26 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement caching mechanism in Help plugin for improved performance and reduced response time">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status">
+      <change afterPath="$PROJECT_DIR$/stats/stats_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/audit/audit.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/chain.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/chain.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/health/health.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/health/health_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/pool/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/pool/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/tracing/tracing.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/tracing.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/status.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/status.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -262,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: optimize Debug plugin command registration and enhance documentation" />
     <MESSAGE value="feat: add strings package import" />
     <MESSAGE value="fix: correct formatting in main output display" />
     <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
@@ -287,7 +294,8 @@
     <MESSAGE value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
     <MESSAGE value="refactor: replace traditional for loops with range for improved readability in tests and state management" />
     <MESSAGE value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
+    <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

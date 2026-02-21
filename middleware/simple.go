@@ -6,35 +6,71 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 )
 
+// ManagedAdaptiveRateLimiter 封装了 AdaptiveRateLimiter，提供 Stop 机制。
+// 通过此类型使用时，调用方可以在应用退出时调用 Stop() 释放后台 goroutine。
+type ManagedAdaptiveRateLimiter struct {
+	arl *AdaptiveRateLimiter
+}
+
+// Middleware 返回中间件函数
+func (m *ManagedAdaptiveRateLimiter) Middleware() eventctx.Middleware {
+	return m.arl.Middleware()
+}
+
+// Stop 停止后台 goroutine（adjustLoop 和 metricsLoop）
+func (m *ManagedAdaptiveRateLimiter) Stop() {
+	m.arl.Stop()
+}
+
+// NewManagedAdaptive 创建一个可管理的自适应限流器（推荐使用）
+//
+// 与 SimpleAdaptive 不同，此函数返回 *ManagedAdaptiveRateLimiter，
+// 调用方应在应用退出时调用 Stop() 来释放后台 goroutine。
+//
+// 使用示例:
+//
+//	managed := middleware.NewManagedAdaptive()
+//	engine.Use(managed.Middleware())
+//	defer managed.Stop()
+func NewManagedAdaptive() *ManagedAdaptiveRateLimiter {
+	arl := NewAdaptiveRateLimiter(DefaultAdaptiveConfig())
+	arl.Start()
+	return &ManagedAdaptiveRateLimiter{arl: arl}
+}
+
+// NewManagedAdaptiveWithLimit 创建带自定义并发限制的可管理限流器
+func NewManagedAdaptiveWithLimit(maxConcurrency int) *ManagedAdaptiveRateLimiter {
+	config := DefaultAdaptiveConfig()
+	config.MaxConcurrency = maxConcurrency
+	config.InitialLimit = maxConcurrency / 2
+	config.MinConcurrency = maxConcurrency / 10
+	arl := NewAdaptiveRateLimiter(config)
+	arl.Start()
+	return &ManagedAdaptiveRateLimiter{arl: arl}
+}
+
 // SimpleAdaptive 创建带默认配置的自适应限流器中间件
 //
-// 这是最简单的使用方式，适合大多数场景
+// 注意：此函数仅返回中间件函数，后台 goroutine 无法被停止。
+// 在需要优雅关闭的场景，请改用 NewManagedAdaptive()。
 //
 // 使用示例:
 //
 //	engine.Use(middleware.SimpleAdaptive())
 func SimpleAdaptive() eventctx.Middleware {
-	arl := NewAdaptiveRateLimiter(DefaultAdaptiveConfig())
-	arl.Start()
-	return arl.Middleware()
+	return NewManagedAdaptive().Middleware()
 }
 
 // SimpleAdaptiveWithLimit 创建指定并发限制的自适应限流器
 //
-// 快速设置最大并发数，其他参数使用默认值
+// 注意：此函数仅返回中间件函数，后台 goroutine 无法被停止。
+// 在需要优雅关闭的场景，请改用 NewManagedAdaptiveWithLimit()。
 //
 // 使用示例:
 //
 //	engine.Use(middleware.SimpleAdaptiveWithLimit(200))
 func SimpleAdaptiveWithLimit(maxConcurrency int) eventctx.Middleware {
-	config := DefaultAdaptiveConfig()
-	config.MaxConcurrency = maxConcurrency
-	config.InitialLimit = maxConcurrency / 2
-	config.MinConcurrency = maxConcurrency / 10
-
-	arl := NewAdaptiveRateLimiter(config)
-	arl.Start()
-	return arl.Middleware()
+	return NewManagedAdaptiveWithLimit(maxConcurrency).Middleware()
 }
 
 // SimpleCircuitBreaker 创建带默认配置的熔断器中间件
@@ -135,12 +171,12 @@ func (s *MiddlewareSet) Build() []eventctx.Middleware {
 
 // ProductionSet 返回生产环境推荐的中间件组合
 //
-// 包含：
-//   - Recover: panic恢复
-//   - Logging: 日志记录
-//   - Adaptive: 自适应限流
-//   - CircuitBreaker: 熔断器
-//   - Dedup: 去重
+// 中间件执行顺序（从外到内）：
+//  1. Recover:        panic 恢复（最外层，保证任何 panic 都能被捕获）
+//  2. Dedup:          去重过滤（在限流前过滤重复请求，避免浪费配额）
+//  3. CircuitBreaker: 熔断器（在限流前熔断，快速失败）
+//  4. Adaptive:       自适应限流
+//  5. Logging:        日志记录（最内层，记录实际处理的请求）
 //
 // 使用示例:
 //
@@ -148,10 +184,10 @@ func (s *MiddlewareSet) Build() []eventctx.Middleware {
 func ProductionSet() []eventctx.Middleware {
 	return NewMiddlewareSet().
 		WithRecover().
-		WithLogging().
-		WithAdaptive().
-		WithCircuitBreaker().
 		WithDedup().
+		WithCircuitBreaker().
+		WithAdaptive().
+		WithLogging().
 		Build()
 }
 

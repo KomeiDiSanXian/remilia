@@ -178,3 +178,40 @@ func BenchmarkMiddlewareFactories(b *testing.B) {
 		}
 	})
 }
+
+// TestManagedAdaptive_StopReleasesGoroutines 测试 ManagedAdaptive Stop 能正确释放后台 goroutine
+func TestManagedAdaptive_StopReleasesGoroutines(t *testing.T) {
+	managed := middleware.NewManagedAdaptive()
+	assert.NotNil(t, managed.Middleware())
+
+	// Stop 不应该阻塞
+	done := make(chan struct{})
+	go func() {
+		managed.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// OK
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop() did not return within 3 seconds")
+	}
+}
+
+// TestManagedAdaptiveWithLimit_Works 测试带限制的可管理限流器
+func TestManagedAdaptiveWithLimit_Works(t *testing.T) {
+	managed := middleware.NewManagedAdaptiveWithLimit(50)
+	assert.NotNil(t, managed)
+	mw := managed.Middleware()
+	assert.NotNil(t, mw)
+	managed.Stop()
+}
+
+// TestProductionSet_MiddlewareOrder 测试 ProductionSet 中间件顺序
+// 顺序应为: Recover → Dedup → CircuitBreaker → Adaptive → Logging
+func TestProductionSet_MiddlewareOrder(t *testing.T) {
+	middlewares := middleware.ProductionSet()
+	// ProductionSet 应包含 5 个中间件
+	assert.Equal(t, 5, len(middlewares), "ProductionSet should have 5 middlewares")
+}

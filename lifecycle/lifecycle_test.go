@@ -350,3 +350,77 @@ func TestResourceComponent(t *testing.T) {
 		t.Errorf("Resource mismatch: got=%s", resource)
 	}
 }
+
+// TestManager_ComponentStatuses 测试组件健康状态聚合
+func TestManager_ComponentStatuses(t *testing.T) {
+	manager := NewManager()
+
+	comp1 := newTestComponent("comp1")
+	comp1.blockRun = true
+	comp2 := newTestComponent("comp2")
+	comp2.blockRun = false
+	comp2.runErr = errors.New("comp2 failed")
+
+	manager.Register(comp1)
+	manager.Register(comp2)
+
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// comp2 会快速退出（runErr 非空）
+	time.Sleep(100 * time.Millisecond)
+
+	statuses := manager.ComponentStatuses()
+	if len(statuses) != 2 {
+		t.Fatalf("expected 2 statuses, got %d", len(statuses))
+	}
+
+	// comp1 应仍在运行
+	if st, ok := statuses["comp1"]; !ok || !st.Running {
+		t.Error("comp1 should still be running")
+	}
+
+	// comp2 应已退出且有错误
+	if st, ok := statuses["comp2"]; !ok || st.Running {
+		t.Error("comp2 should have exited")
+	} else if st.ExitErr == nil {
+		t.Error("comp2 should have ExitErr")
+	}
+
+	// HasUnhealthyComponents 应返回 true
+	if !manager.HasUnhealthyComponents() {
+		t.Error("should have unhealthy components")
+	}
+
+	// 正常停止
+	_ = manager.Stop(context.Background())
+}
+
+// TestManager_ComponentStatuses_AllHealthy 测试所有组件健康时的状态
+func TestManager_ComponentStatuses_AllHealthy(t *testing.T) {
+	manager := NewManager()
+
+	comp := newTestComponent("comp")
+	comp.blockRun = true
+	manager.Register(comp)
+
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	statuses := manager.ComponentStatuses()
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+
+	if st := statuses["comp"]; !st.Running {
+		t.Error("comp should be running")
+	}
+
+	if manager.HasUnhealthyComponents() {
+		t.Error("should not have unhealthy components")
+	}
+
+	_ = manager.Stop(context.Background())
+}

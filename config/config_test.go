@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -741,4 +742,106 @@ func TestConfig_Validate(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "log config")
 	})
+}
+
+// TestSubscribe_NotifiesOnLoad 测试 Subscribe 在 Load 后触发通知
+func TestSubscribe_NotifiesOnLoad(t *testing.T) {
+	// 清理状态
+	UnsubscribeAll()
+	defer UnsubscribeAll()
+
+	var called int
+	var receivedCfg *Config
+
+	Subscribe(func(cfg *Config) {
+		called++
+		receivedCfg = cfg
+	})
+
+	// 创建临时配置文件
+	content := `
+bot:
+  app_id: 123456
+  bot_id: 789012
+  token: "test-token"
+  secret: "test-secret"
+server:
+  port: 8080
+`
+	tmpFile := t.TempDir() + "/test_config.yaml"
+	if err := writeFile(tmpFile, content); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	_, err := Load(tmpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, called)
+	assert.NotNil(t, receivedCfg)
+	assert.Equal(t, uint64(123456), receivedCfg.Bot.AppID)
+}
+
+// TestSubscribe_MultipleListeners 测试多个监听器
+func TestSubscribe_MultipleListeners(t *testing.T) {
+	UnsubscribeAll()
+	defer UnsubscribeAll()
+
+	count := 0
+	Subscribe(func(cfg *Config) { count++ })
+	Subscribe(func(cfg *Config) { count++ })
+	Subscribe(func(cfg *Config) { count++ })
+
+	content := `
+bot:
+  app_id: 111
+  bot_id: 222
+  token: "t"
+  secret: "s"
+server:
+  port: 8080
+`
+	tmpFile := t.TempDir() + "/multi_listener_config.yaml"
+	if err := writeFile(tmpFile, content); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	_, err := Load(tmpFile)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, count)
+}
+
+// TestSubscribe_PanicInListenerDoesNotBreakLoad 测试监听器 panic 不影响 Load 流程
+func TestSubscribe_PanicInListenerDoesNotBreakLoad(t *testing.T) {
+	UnsubscribeAll()
+	defer UnsubscribeAll()
+
+	Subscribe(func(cfg *Config) {
+		panic("listener panic")
+	})
+
+	var normalCalled bool
+	Subscribe(func(cfg *Config) {
+		normalCalled = true
+	})
+
+	content := `
+bot:
+  app_id: 111
+  bot_id: 222
+  token: "t"
+  secret: "s"
+server:
+  port: 8080
+`
+	tmpFile := t.TempDir() + "/panic_listener_config.yaml"
+	if err := writeFile(tmpFile, content); err != nil {
+		t.Fatalf("failed to write temp config: %v", err)
+	}
+
+	_, err := Load(tmpFile)
+	assert.NoError(t, err, "Load should succeed even if listener panics")
+	assert.True(t, normalCalled, "subsequent listeners should still be called")
+}
+
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
 }

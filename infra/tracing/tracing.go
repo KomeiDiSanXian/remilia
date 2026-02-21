@@ -80,9 +80,19 @@ type Provider struct {
 // NewProvider 创建追踪提供者
 func NewProvider(config Config) (*Provider, error) {
 	if !config.Enabled {
-		logger.Info("[Tracing] Tracing is disabled")
+		logger.Info("[Tracing] Tracing is disabled, using no-op provider")
+		// 创建 no-op provider 并设置为全局，保证 otel.Tracer() 行为一致
+		tp := sdktrace.NewTracerProvider()
+		otel.SetTracerProvider(tp)
+		// 同样设置传播器，避免跨进程 trace 头被忽略
+		otel.SetTextMapPropagator(
+			propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			),
+		)
 		return &Provider{
-			tp:     sdktrace.NewTracerProvider(),
+			tp:     tp,
 			config: config,
 		}, nil
 	}

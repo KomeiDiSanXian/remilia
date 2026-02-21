@@ -312,6 +312,20 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 		status.Metadata = provider.Metadata()
 	}
 
+	// 填充 SaveState 是否已实现（v2 PluginInstance）
+	if inst, ok := plugin.(*PluginInstance); ok {
+		status.HasSaveState = inst.desc.SaveState != nil
+	}
+
+	// 填充 EventBus 全局订阅数快照
+	pm.mu.RLock()
+	bus := pm.eventBus
+	pm.mu.RUnlock()
+	if bus != nil {
+		stats := bus.GetStats()
+		status.EventBusSubscriptions = stats.SubscriptionCount
+	}
+
 	return status, nil
 }
 
@@ -421,4 +435,17 @@ func (pm *Manager) GetContainer() *Container {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return pm.container
+}
+
+// GetEventBus 获取插件间事件总线
+//
+// 允许在 Setup 阶段之外（如外部组件）订阅或发布插件事件。
+// 使用示例:
+//
+//	bus := manager.GetEventBus()
+//	bus.Subscribe("my-topic", func(data any) { ... })
+func (pm *Manager) GetEventBus() EventBus {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.eventBus
 }

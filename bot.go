@@ -190,6 +190,8 @@ func (b *Bot) Start() error {
 
 // handleEvent 处理事件
 func (b *Bot) handleEvent(payload *dto.Payload) {
+	start := time.Now()
+
 	if b.config.Debug {
 		logger.WithFields(logger.Fields{
 			"type": payload.Type,
@@ -209,6 +211,16 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 
 	// 使用 engine 处理事件
 	b.engine.ProcessEvent(ctx)
+
+	// 记录事件处理耗时（Debug 模式下记录，生产中可通过 metrics 上报）
+	elapsed := time.Since(start)
+	if b.config.Debug {
+		logger.WithFields(logger.Fields{
+			"type":    payload.Type,
+			"id":      payload.ID,
+			"elapsed": elapsed,
+		}).Debug("[Bot] Event processed")
+	}
 }
 
 // Stop 优雅关闭 Bot

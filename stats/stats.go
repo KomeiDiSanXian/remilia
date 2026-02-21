@@ -1,9 +1,122 @@
 package stats
 
 import (
+	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// QuantileHistogram 支持分位数查询的直方图
+//
+// 使用滑动窗口存储最近的观测值，以计算精确的分位数。
+// 适用于延迟统计等需要 P50/P90/P95/P99 的场景。
+//
+// 注意：最大存储 MaxSamples 个样本（默认 10000），超出后丢弃最旧的样本。
+type QuantileHistogram struct {
+	mu         sync.Mutex
+	samples    []int64
+	maxSamples int
+	sorted     bool // 标记 samples 是否已排序（懒排序）
+}
+
+const DefaultMaxSamples = 10000
+
+// NewQuantileHistogram 创建分位数直方图
+func NewQuantileHistogram() *QuantileHistogram {
+	return NewQuantileHistogramWithSize(DefaultMaxSamples)
+}
+
+// NewQuantileHistogramWithSize 创建指定最大样本数的分位数直方图
+func NewQuantileHistogramWithSize(maxSamples int) *QuantileHistogram {
+	if maxSamples <= 0 {
+		maxSamples = DefaultMaxSamples
+	}
+	return &QuantileHistogram{
+		samples:    make([]int64, 0, min64(maxSamples, 1024)),
+		maxSamples: maxSamples,
+	}
+}
+
+func min64(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Observe 记录一个观测值（纳秒或任意 int64 单位）
+func (qh *QuantileHistogram) Observe(value int64) {
+	qh.mu.Lock()
+	defer qh.mu.Unlock()
+
+	if len(qh.samples) >= qh.maxSamples {
+		// 环形覆盖：用新值替换最旧的值（索引 0），然后左移
+		copy(qh.samples, qh.samples[1:])
+		qh.samples[len(qh.samples)-1] = value
+	} else {
+		qh.samples = append(qh.samples, value)
+	}
+	qh.sorted = false
+}
+
+// Quantile 返回指定分位数的值（q 范围 0.0-1.0）
+// 例如 Quantile(0.99) 返回 P99 值
+// 如果没有观测数据，返回 0
+func (qh *QuantileHistogram) Quantile(q float64) int64 {
+	qh.mu.Lock()
+	defer qh.mu.Unlock()
+
+	n := len(qh.samples)
+	if n == 0 {
+		return 0
+	}
+	if q <= 0 {
+		return qh.samples[0]
+	}
+	if q >= 1.0 {
+		return qh.samples[n-1]
+	}
+
+	if !qh.sorted {
+		sorted := make([]int64, n)
+		copy(sorted, qh.samples)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		// 直接在原 slice 上排序（不影响环形写入逻辑，因为每次 Quantile 后都是已排序状态）
+		copy(qh.samples, sorted)
+		qh.sorted = true
+	}
+
+	idx := int(float64(n-1) * q)
+	return qh.samples[idx]
+}
+
+// P50 返回第 50 百分位（中位数）
+func (qh *QuantileHistogram) P50() int64 { return qh.Quantile(0.50) }
+
+// P90 返回第 90 百分位
+func (qh *QuantileHistogram) P90() int64 { return qh.Quantile(0.90) }
+
+// P95 返回第 95 百分位
+func (qh *QuantileHistogram) P95() int64 { return qh.Quantile(0.95) }
+
+// P99 返回第 99 百分位
+func (qh *QuantileHistogram) P99() int64 { return qh.Quantile(0.99) }
+
+// Count 返回当前样本数
+func (qh *QuantileHistogram) Count() int {
+	qh.mu.Lock()
+	defer qh.mu.Unlock()
+	return len(qh.samples)
+}
+
+// Reset 清空所有样本
+func (qh *QuantileHistogram) Reset() {
+	qh.mu.Lock()
+	defer qh.mu.Unlock()
+	qh.samples = qh.samples[:0]
+	qh.sorted = false
+}
 
 // BatchStats 批量处理统计信息
 type BatchStats struct {

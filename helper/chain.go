@@ -54,6 +54,11 @@ func ChainGeneric[Ctx any](handlers ...func(Ctx) error) func(Ctx) error {
 // This is useful for building middleware chains where each middleware can decide
 // whether to call the next handler in the chain.
 //
+// Concurrency safety: Each invocation of the returned function creates its own
+// execution state, so it is safe to call the returned function concurrently.
+// However, each individual call chain must be executed sequentially (i.e., a
+// single middleware must NOT call next() from multiple goroutines concurrently).
+//
 // Example:
 //
 //	middleware := ChainWithNext[*context.Context](
@@ -80,17 +85,17 @@ func ChainWithNext[Ctx any](middlewares ...func(Ctx, func(Ctx) error) error) fun
 	}
 
 	return func(ctx Ctx, final func(Ctx) error) error {
-		var index int
-		var runner func(Ctx) error
-		runner = func(c Ctx) error {
-			if index >= len(middlewares) {
+		// 使用递归而非可变 index，避免并发调用时的数据竞争
+		var dispatch func(i int, c Ctx) error
+		dispatch = func(i int, c Ctx) error {
+			if i >= len(middlewares) {
 				return final(c)
 			}
-			mw := middlewares[index]
-			index++
-			return mw(c, runner)
+			return middlewares[i](c, func(next Ctx) error {
+				return dispatch(i+1, next)
+			})
 		}
-		return runner(ctx)
+		return dispatch(0, ctx)
 	}
 }
 

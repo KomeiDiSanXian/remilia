@@ -85,17 +85,36 @@ type Check struct {
 	mu       sync.RWMutex
 	// timeout is applied to each checker.
 	timeout time.Duration
+
+	// 结果缓存，避免高频调用时对所有 checker 并发执行
+	cacheMu      sync.RWMutex
+	cachedResult *CheckResponse
+	cacheTime    time.Time
+	cacheTTL     time.Duration // 0 表示禁用缓存
 }
+
+// DefaultCacheTTL 默认健康检查结果缓存时间
+const DefaultCacheTTL = time.Second
 
 func NewCheck() *Check {
 	return &Check{
 		checkers: make(map[string]Checker),
 		timeout:  5 * time.Second,
+		cacheTTL: DefaultCacheTTL,
 	}
 }
 
 func (h *Check) SetTimeout(timeout time.Duration) *Check {
 	h.timeout = timeout
+	return h
+}
+
+// SetCacheTTL 设置健康检查结果缓存时间。
+// 设为 0 禁用缓存（每次调用都执行所有 checker）。
+func (h *Check) SetCacheTTL(ttl time.Duration) *Check {
+	h.cacheMu.Lock()
+	h.cacheTTL = ttl
+	h.cacheMu.Unlock()
 	return h
 }
 
@@ -118,13 +137,24 @@ type CheckResponse struct {
 }
 
 func (h *Check) Check(ctx context.Context) CheckResponse {
+	// 尝试返回缓存结果
+	h.cacheMu.RLock()
+	ttl := h.cacheTTL
+	cached := h.cachedResult
+	cacheTime := h.cacheTime
+	h.cacheMu.RUnlock()
+
+	if ttl > 0 && cached != nil && time.Since(cacheTime) < ttl {
+		return *cached
+	}
+
 	h.mu.RLock()
 	checkers := make(map[string]Checker, len(h.checkers))
 	maps.Copy(checkers, h.checkers)
 	h.mu.RUnlock()
 
 	results := make(map[string]CheckResult)
-	overallLevel := HealthyLevel // 使用级别而不是状态
+	overallLevel := HealthyLevel
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -142,7 +172,6 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 
 			mu.Lock()
 			results[name] = result
-			// 取最差的健康级别作为整体状态
 			resultLevel := StatusToLevel(result.Status)
 			if resultLevel > overallLevel {
 				overallLevel = resultLevel
@@ -153,11 +182,21 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 
 	wg.Wait()
 
-	return CheckResponse{
+	resp := CheckResponse{
 		Status: LevelToStatus(overallLevel),
 		Checks: results,
 		Time:   time.Now(),
 	}
+
+	// 更新缓存
+	if ttl > 0 {
+		h.cacheMu.Lock()
+		h.cachedResult = &resp
+		h.cacheTime = time.Now()
+		h.cacheMu.Unlock()
+	}
+
+	return resp
 }
 
 func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {

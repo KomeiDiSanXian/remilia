@@ -45,12 +45,12 @@ func (ip *InstrumentedPool) Put(x any) {
 }
 
 func (ip *InstrumentedPool) Stats() Stats {
-	// Use mutex to ensure we get a consistent snapshot during Reset
-	ip.resetMu.Lock()
+	// atomic 字段读取本身是并发安全的，无需加锁。
+	// Stats 与 Reset 之间没有严格的原子性保证（监控场景下可接受短暂不一致）。
+	// 避免与 Reset() 竞争 resetMu 导致高频 Stats 调用性能下降。
 	gets := ip.gets.Load()
 	puts := ip.puts.Load()
 	news := ip.news.Load()
-	ip.resetMu.Unlock()
 
 	hitRate := 0.0
 	if gets > 0 {
