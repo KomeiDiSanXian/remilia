@@ -30,16 +30,21 @@ var contextPool = sync.Pool{
 func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context {
 	ctx := contextPool.Get().(*Context)
 
-	// Reset/Initialize fields
 	ctx.event = event
 	ctx.api = api
 	ctx.matcher = nil
-
-	// Extensions will be lazily initialized on first access via Ext().
-	// 修复 #4：使用 atomic.Store(false) 替代 sync.Once{} 赋值，保证原子性。
-	// sync.Once 赋值在存在并发 Ext() 调用的情况下是非原子操作（race detector 可检出）。
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
+
+	// Reset typed decode cache
+	ctx.decoded = decodeCache{}
+
+	// Reset Once-based field caches by replacing with zero values.
+	// sync.Once cannot be reset directly; we store a fresh zero value.
+	ctx.contentOnce = sync.Once{}
+	ctx.content = ""
+	ctx.authorOnce = sync.Once{}
+	ctx.author = nil
 
 	return ctx
 }
@@ -53,28 +58,31 @@ func ReleaseContext(ctx *Context) {
 		return
 	}
 
-	// Clear sensitive data
 	ctx.event = nil
 	ctx.api = nil
 	ctx.matcher = nil
 
-	// Clear extensions if they were created
 	if ctx.extensions != nil {
 		ctx.extensions.Clear()
 		ctx.extensions = nil
 	}
 
-	// Reset standard context to background
+	// Clear decode cache
+	ctx.decoded = decodeCache{}
+
+	// Clear field caches
+	ctx.contentOnce = sync.Once{}
+	ctx.content = ""
+	ctx.authorOnce = sync.Once{}
+	ctx.author = nil
+
 	ctx.ctxMu.Lock()
 	ctx.ctx = stdctx.Background()
 	ctx.ctxMu.Unlock()
 
-	// Return to pool
 	contextPool.Put(ctx)
 }
 
-// GetPoolStats returns statistics about the context pool
-// Useful for monitoring and debugging
 type ContextPoolStats struct {
 	// Note: sync.Pool doesn't expose size metrics
 	// This is a placeholder for future instrumentation

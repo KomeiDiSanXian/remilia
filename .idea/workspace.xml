@@ -4,8 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add producer concurrency cap for unlimited path in throughput benchmark">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/dto/payload.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/dto/payload.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -140,18 +147,6 @@
         <option value="GoApplicationRunConfiguration" />
       </set>
     </option>
-    <option name="configurationStatuses">
-      <map>
-        <entry key="GoApplicationRunConfiguration">
-          <value>
-            <map>
-              <entry key="go build debug-subcommand-demo" value="FAILED" />
-              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" value="STOPPED" />
-            </map>
-          </value>
-        </entry>
-      </map>
-    </option>
   </component>
   <component name="RunManager" selected="Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort">
     <configuration name="go build debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
@@ -251,7 +246,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix: improve CPU usage calculation in AdaptiveRateLimiter using gopsutil for accuracy" />
     <MESSAGE value="feat: implement dependency resolution for Plugin Manager with cycle detection and automatic sorting" />
     <MESSAGE value="feat: add automated dependency tracking and smart registration for plugins" />
     <MESSAGE value="feat: implement adaptive sampling and degradation metrics for improved observability and performance" />
@@ -276,7 +270,8 @@
     <MESSAGE value="refactor: enhance throughput benchmark by restructuring scenarios and improving event handling" />
     <MESSAGE value="refactor: remove unused nullAPI mock implementation from throughput benchmark" />
     <MESSAGE value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
+    <MESSAGE value="feat: add producer concurrency cap for unlimited path in throughput benchmark" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add producer concurrency cap for unlimited path in throughput benchmark" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

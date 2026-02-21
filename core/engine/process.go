@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -162,7 +163,7 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 
 	// 处理每个事件
 	for _, event := range events {
-		ctx := context.NewContext(event, api)
+		ctx := context.AcquireContext(event, api)
 		eventType := ctx.GetEventType()
 
 		// 获取已排序的 permanent 匹配器（从缓存）
@@ -213,11 +214,17 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 				}
 			}
 		}
+
+		context.ReleaseContext(ctx)
 	}
 }
 
 // invokeHandler 封装调用处理器，通过中间件链执行
 // 提供完整的错误处理：panic 恢复、错误记录、死信队列
+//
+// 性能优化：使用预编译迭代器链替代逐次构建嵌套闭包。
+// 中间件链在首次调用（或链变化）时编译为 []Handler，后续调用直接迭代，
+// 消除每次 invocation 产生 len(chain) 个闭包的堆分配。
 func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// 读取 handler 时需要加锁，避免数据竞争
 	m.rt.mu.RLock()
@@ -228,33 +235,23 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	handlerErr := m.Handler
 	m.rt.mu.RUnlock()
 
-	var he context.Handler
-	if handlerErr != nil {
-		he = handlerErr
-	} else {
+	if handlerErr == nil {
 		return
 	}
 
-	// 基于预先组合好的中间件链（global -> plugin -> matcher）包裹 handler
-	// 使用 atomic.Value 实现无锁读取
+	// 确保中间件链是最新的
 	mwState := e.middleware.Load()
 	e.ensureMatcherChainWithState(m, mwState)
-	combinedChain, _, _ := m.getChainCache()
-	// COW 模式下 combinedChain 是不可变的，无需拷贝
-	chain := combinedChain
+	chain, _, _ := m.getChainCache()
 
-	// 应用中间件链到 HandlerE
-	finalHandler := he
-	for i := len(chain) - 1; i >= 0; i-- {
-		finalHandler = chain[i](finalHandler)
-	}
+	// 获取或构建预编译迭代器链
+	finalHandler := e.getOrBuildIterChain(m, chain, handlerErr)
 
 	// 执行 handler 并处理错误和 panic
 	var err error
 
 	defer func() {
 		if r := recover(); r != nil {
-			// 捕获 panic 并转换为错误
 			err = fmt.Errorf("panic in handler: %v", r)
 			logger.WithFields(logger.Fields{
 				"panic":      r,
@@ -264,15 +261,12 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		}
 	}()
 
-	// 执行包裹后的 handler
 	err = finalHandler(ctx)
 
 	// 记录错误
 	if err != nil {
-		// 默认记录错误日志，防止错误静默
 		logger.WithError(err).Debugf("[engine] Handler error in matcher: %services", m.Source)
 
-		// 更新指标（无锁读取）
 		val := e.services.metricsCollector.Load()
 
 		type eventDroppedProvider interface {
@@ -296,7 +290,6 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		m.rt.useCount++
 		if m.rt.useCount >= m.rt.maxUseCount {
 			m.rt.deleted = true
-			// 修复：在锁内保存 isTemp 状态，避免解锁后的竞态条件
 			isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
 			m.rt.mu.Unlock()
 
@@ -304,7 +297,6 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			if isTemp {
 				engine.services.tempManager.Remove(m)
 			} else {
-				// Should not happen if migration is correct, but safe fallback
 				select {
 				case engine.services.pendingDeleteCh <- m:
 				default:
@@ -315,6 +307,58 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		}
 	}
 	m.rt.mu.Unlock()
+}
+
+// getOrBuildIterChain returns a single Handler that, when called, executes
+// the full middleware chain iteratively (no nested closures on hot path).
+//
+// The compiled chain is cached in m.compiledHandlers and is keyed by the
+// identity of both the core handler and the middleware slice length.
+// When either changes the cache is rebuilt (rare: only on middleware
+// registration or handler hot-reload), so the fast path is alloc-free.
+func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.Handler) context.Handler {
+	// Fast path: no middleware → call handler directly, zero overhead.
+	if len(chain) == 0 {
+		return he
+	}
+
+	hid := handlerID(he)
+
+	if v := m.compiledHandlers.Load(); v != nil {
+		if cc, ok := v.(*compiledChain); ok && cc != nil {
+			// Valid if same handler identity and same chain length.
+			// ensureChain always builds a new []Middleware slice on change,
+			// so a changed chain length correctly invalidates the cache.
+			if cc.handlerSig == hid && len(cc.handlers) == len(chain)+1 {
+				return cc.handlers[0]
+			}
+		}
+	}
+
+	// Slow path: build the compiled chain once.
+	// handlers[i] = chain[i](handlers[i+1]): each is a single closure
+	// allocated here, not on every invocation.
+	handlers := make([]context.Handler, len(chain)+1)
+	handlers[len(chain)] = he
+	for i := len(chain) - 1; i >= 0; i-- {
+		handlers[i] = chain[i](handlers[i+1])
+	}
+
+	cc := &compiledChain{
+		handlers:   handlers,
+		handlerSig: hid,
+	}
+	m.compiledHandlers.Store(cc)
+	return handlers[0]
+}
+
+// handlerID returns a stable numeric identity for a Handler function value
+// using reflect. Two calls with the same closure object return the same id.
+func handlerID(h context.Handler) uintptr {
+	if h == nil {
+		return 0
+	}
+	return reflect.ValueOf(h).Pointer()
 }
 
 // startPendingDeleteProcessor 启动批量删除处理器

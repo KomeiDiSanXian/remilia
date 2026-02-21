@@ -34,14 +34,26 @@ type Matcher struct {
 	group       string
 	middlewares []Middleware
 
-	combinedChain atomic.Value
-	cachedGen     struct {
+	combinedChain    atomic.Value // []Middleware  — the raw middleware slice
+	compiledHandlers atomic.Value // compiledChain — pre-built iterative handler slice
+	cachedGen        struct {
 		global uint64
 		group  uint64
 	}
 	cacheMu sync.RWMutex
 
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
+}
+
+// compiledChain holds a pre-built slice of Handlers that correspond to
+// [mw0_wrapper, mw1_wrapper, …, actual_handler].  invokeHandler iterates
+// through this slice instead of constructing nested closures on every call.
+//
+// The slice is keyed by the handler pointer that was active when it was
+// compiled; if the handler changes (hot-reload scenario) the entry is stale.
+type compiledChain struct {
+	handlers   []context.Handler
+	handlerSig uintptr // pointer identity of the core handler at compile time
 }
 
 func (m *Matcher) copy() *Matcher {
@@ -454,9 +466,10 @@ func (m *Matcher) invalidateCombinedChain() {
 
 	m.cachedGen.global = 0
 	m.cachedGen.group = 0
-	// atomic.Value cannot store nil interface, store nil []Middleware instead
 	var nilChain []Middleware
 	m.combinedChain.Store(nilChain)
+	// Also invalidate the compiled iterative chain so it is rebuilt on next invoke.
+	m.compiledHandlers.Store((*compiledChain)(nil))
 }
 
 // ensureChain ensures the combined chain is cached and valid.

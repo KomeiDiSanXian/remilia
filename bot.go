@@ -262,8 +262,9 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 		// 仍然继续处理，context 可以处理 nil API
 	}
 
-	// 创建 Context，传入 openAPI client
-	ctx := eventctx.NewContext(payload, api)
+	// 从 pool 获取 Context，处理完毕后归还，减少 per-event 堆分配。
+	ctx := eventctx.AcquireContext(payload, api)
+	defer eventctx.ReleaseContext(ctx)
 
 	// 使用 engine 处理事件
 	b.engine.ProcessEvent(ctx)

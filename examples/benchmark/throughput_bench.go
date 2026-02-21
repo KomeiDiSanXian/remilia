@@ -22,6 +22,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -233,17 +234,38 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 		return fmt.Errorf("pumpAdapter already started")
 	}
 	a.ctx, a.cancel = context.WithCancel(ctx)
-	for range runtime.NumCPU() * 2 {
+	workers := runtime.NumCPU() * 2
+	for range workers {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
+			// batch buffer: reused across iterations to avoid per-event alloc
+			batch := make([]*dto.Payload, 0, 64)
 			for {
+				// Block until at least one event arrives or context is done.
 				select {
 				case <-a.ctx.Done():
 					return
 				case ev := <-a.ch:
+					batch = append(batch, ev)
+				}
+				// Drain as many additional events as are immediately available
+				// (non-blocking), up to batch capacity.
+			drain:
+				for len(batch) < cap(batch) {
+					select {
+					case ev := <-a.ch:
+						batch = append(batch, ev)
+					default:
+						break drain
+					}
+				}
+				// Process the batch
+				for _, ev := range batch {
 					handler(ev)
 				}
+				// Reset slice length but keep backing array
+				batch = batch[:0]
 			}
 		}()
 	}
@@ -271,9 +293,47 @@ func (a *pumpAdapter) InjectEvent(p *dto.Payload) {
 	}
 }
 
-// ─────────────────────────────────────────────────────────────
-// Scenario descriptor
-// ─────────────────────────────────────────────────────────────
+// payloadPool recycles *dto.Payload objects (including their Detail []byte)
+// to reduce per-event heap allocation in the benchmark producers.
+var payloadPool = sync.Pool{
+	New: func() any {
+		return &dto.Payload{Detail: make([]byte, 0, 256)}
+	},
+}
+
+func acquirePayload(id dto.EventID, wid int) *dto.Payload {
+	p := payloadPool.Get().(*dto.Payload)
+	p.ID = id
+	p.Type = dto.C2CMessageCreate
+	p.Operation = dto.Dispatch
+	p.Detail = fmt.Appendf(p.Detail[:0], `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, id, wid)
+	return p
+}
+
+func releasePayload(p *dto.Payload) {
+	p.Detail = p.Detail[:0]
+	payloadPool.Put(p)
+}
+
+// detailPool recycles the []byte slices used for Payload.Detail in the
+// benchmark producer goroutines.  The pool is sized to 256 bytes which is
+// sufficient for the bench JSON payload; larger allocations fall back to the
+// heap as usual.
+var detailPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 256)
+		return &b
+	},
+}
+
+func acquireDetail() []byte {
+	return *detailPool.Get().(*[]byte)
+}
+
+func releaseDetail(b []byte) {
+	b = b[:0]
+	detailPool.Put(&b)
+}
 
 type Scenario struct {
 	Name     string
@@ -428,6 +488,10 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		}
 		m.recordLatency(time.Since(t0).Nanoseconds())
 		m.processed.Add(1)
+		// Return the Payload to the pool now that we have finished decoding it.
+		if p := ctx.GetEvent(); p != nil {
+			releasePayload(p)
+		}
 		return nil
 	})
 	// ── Adapter + Bot ──
@@ -500,13 +564,14 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 				}
 
 				seq++
-				eid := dto.EventID(fmt.Sprintf("w%d-s%d", wid, seq))
-				pump.InjectEvent(&dto.Payload{
-					ID:        eid,
-					Type:      dto.C2CMessageCreate,
-					Operation: dto.Dispatch,
-					Detail:    fmt.Appendf(nil, `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, eid, wid),
-				})
+				// Build the EventID string in a pool buffer to avoid fmt.Sprintf alloc.
+				idBuf := acquireDetail()
+				idBuf = fmt.Appendf(idBuf, "w%d-s%d", wid, seq)
+				eid := dto.EventID(idBuf)
+				releaseDetail(idBuf)
+
+				payload := acquirePayload(eid, wid)
+				pump.InjectEvent(payload)
 				m.sent.Add(1)
 
 				// Release semaphore slot after inject (not after handler finishes —
@@ -664,14 +729,14 @@ func buildSuites() map[string][]Scenario {
 // ─────────────────────────────────────────────────────────────
 const bar = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-func printBanner(suite string, dur time.Duration, withMW bool) {
+func printBanner(suite string, dur time.Duration, withMW bool, gcPct int) {
 	fmt.Println()
 	fmt.Println(bar)
 	fmt.Printf("  %-26s  Remilia Framework — Throughput Benchmark\n", "")
 	fmt.Printf("  Go %-10s  GOMAXPROCS=%d  CPUs=%d  %s\n",
 		runtime.Version(), runtime.GOMAXPROCS(0), runtime.NumCPU(),
 		time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Printf("  Suite: %-12s  Duration/scenario: %-8v  Middleware: %v\n", suite, dur, withMW)
+	fmt.Printf("  Suite: %-12s  Duration/scenario: %-8v  Middleware: %v  GOGC: %d\n", suite, dur, withMW, gcPct)
 	fmt.Println(bar)
 }
 func printScenarioTitle(i int, name string) {
@@ -776,7 +841,14 @@ func main() {
 	suiteFlag := flag.String("suite", "standard", `scenario suite: "quick" | "standard" | "full"`)
 	mwFlag := flag.Bool("middleware", true, "attach Recover middleware to the engine")
 	outputFlag := flag.String("output", "", "write JSON results to this file (optional)")
+	gcPctFlag := flag.Int("gcpercent", 100, "GOGC value (100=default, 200=less frequent GC, -1=off)")
 	flag.Parse()
+
+	// Apply GC tuning before any allocation.
+	if *gcPctFlag != 100 {
+		debug.SetGCPercent(*gcPctFlag)
+	}
+
 	// Silence framework logs so they don't skew timing measurements.
 	_ = logger.Init(logger.Config{Level: "error", Console: false})
 	suites := buildSuites()
@@ -788,7 +860,7 @@ func main() {
 	for i := range scenarios {
 		scenarios[i].WithMW = *mwFlag
 	}
-	printBanner(*suiteFlag, *durFlag, *mwFlag)
+	printBanner(*suiteFlag, *durFlag, *mwFlag, *gcPctFlag)
 	var results []ScenarioResult
 	for i, s := range scenarios {
 		printScenarioTitle(i, s.Name)
