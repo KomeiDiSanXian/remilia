@@ -4,19 +4,16 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add event processing duration logging and improve configuration change listener management">
-      <change afterPath="$PROJECT_DIR$/docs/02-user-guides/ERROR_HANDLING.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/errutil/wrapper_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement error handling improvements using errutil package for better error wrapping and context management">
+      <change afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/health/checkers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/health/checkers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -262,7 +259,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix: correct formatting in main output display" />
     <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
     <MESSAGE value="test: add tests for command parsing fixes in debug plugin" />
     <MESSAGE value="feat: implement access control list and verification code system with demo" />
@@ -287,7 +283,8 @@
     <MESSAGE value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
     <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
     <MESSAGE value="feat: add event processing duration logging and improve configuration change listener management" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add event processing duration logging and improve configuration change listener management" />
+    <MESSAGE value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -340,10 +340,15 @@ func (m *Manager) Register(comp Component) {
 //
 // 启动过程：
 //  1. 调用所有组件的 OnStart（按注册顺序）
-//  2. 创建运行时 context
+//  2. 以传入 ctx 的父 context 派生运行时 context（runCtx）
 //  3. 在独立 goroutine 中调用所有组件的 OnRun
 //
-// 如果任何组件的 OnStart 失败，会自动回滚已启动的组件。
+// ctx 仅用于控制 OnStart 阶段的超时，不作为 OnRun 的运行时 context。
+// OnRun 使用从 ctx.Value 链继承的父 context（剥离超时/截止时间），
+// 由 Stop() 时调用 runCancel 来终止所有 OnRun goroutine。
+//
+// 若希望 OnRun goroutine 与 Bot 根 context 联动，
+// 请在 Bot.Start() 中传入从 rootCtx 派生的 ctx。
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 
@@ -399,8 +404,14 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	// Phase 2: 创建运行时 context 并启动所有组件的 OnRun
+	//
+	// 使用 context.WithoutCancel(ctx) 的父 context 派生 runCtx：
+	//   - 保留 ctx 的 Value 链（tracing、metadata 等）
+	//   - 剥离 OnStart 阶段的超时/截止时间（避免 runCtx 被启动超时取消）
+	//   - runCtx 仅由 Stop() 调用 runCancel 来取消
+	parentCtx := context.WithoutCancel(ctx)
 	m.mu.Lock()
-	m.runCtx, m.runCancel = context.WithCancel(context.Background())
+	m.runCtx, m.runCancel = context.WithCancel(parentCtx)
 	runCtx := m.runCtx
 	m.state = StateRunning
 	m.mu.Unlock()

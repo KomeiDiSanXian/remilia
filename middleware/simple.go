@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -33,18 +34,35 @@ func (m *ManagedAdaptiveRateLimiter) Stop() {
 //	engine.Use(managed.Middleware())
 //	defer managed.Stop()
 func NewManagedAdaptive() *ManagedAdaptiveRateLimiter {
-	arl := NewAdaptiveRateLimiter(DefaultAdaptiveConfig())
+	return NewManagedAdaptiveWithContext(context.Background())
+}
+
+// NewManagedAdaptiveWithContext 创建与外部 context 联动的可管理限流器。
+//
+// 当 parent ctx 被取消时（如 Bot 关闭），后台 goroutine 自动退出，无需手动调用 Stop()。
+//
+// 推荐与 Bot 根 context 配合使用：
+//
+//	managed := middleware.NewManagedAdaptiveWithContext(bot.Context())
+//	engine.Use(managed.Middleware())
+func NewManagedAdaptiveWithContext(parent context.Context) *ManagedAdaptiveRateLimiter {
+	arl := NewAdaptiveRateLimiterWithContext(parent, DefaultAdaptiveConfig())
 	arl.Start()
 	return &ManagedAdaptiveRateLimiter{arl: arl}
 }
 
 // NewManagedAdaptiveWithLimit 创建带自定义并发限制的可管理限流器
 func NewManagedAdaptiveWithLimit(maxConcurrency int) *ManagedAdaptiveRateLimiter {
+	return NewManagedAdaptiveWithLimitContext(context.Background(), maxConcurrency)
+}
+
+// NewManagedAdaptiveWithLimitContext 创建带自定义并发限制且与外部 context 联动的限流器
+func NewManagedAdaptiveWithLimitContext(parent context.Context, maxConcurrency int) *ManagedAdaptiveRateLimiter {
 	config := DefaultAdaptiveConfig()
 	config.MaxConcurrency = maxConcurrency
 	config.InitialLimit = maxConcurrency / 2
 	config.MinConcurrency = maxConcurrency / 10
-	arl := NewAdaptiveRateLimiter(config)
+	arl := NewAdaptiveRateLimiterWithContext(parent, config)
 	arl.Start()
 	return &ManagedAdaptiveRateLimiter{arl: arl}
 }

@@ -1025,7 +1025,7 @@ type Bot struct {
 | 改进 #15 | `helper` | ⚡ 改进 | ChainWithNext 并发安全说明缺失 | 中 ✅ 已完成（改为递归实现，添加并发安全注释）|
 | 改进 #16 | `plugin` | ⚡ 改进 | Manager.GetEventBus() 方法缺失 | 中 ✅ 已完成|
 | 改进 #17 | `plugin` | ⚡ 改进 | 插件状态快照信息不完整 | 中 ✅ 已完成（Status 增加 HasSaveState/EventBusSubscriptions）|
-| 改进 #18 | 全局 | ⚡ 改进 | 缺少统一根 Context 管理 | **高**（架构级改造，保留待后续重构）|
+| 改进 #18 | 全局 | ⚡ 改进 | 缺少统一根 Context 管理 | **高** ✅ 已完成（Bot.rootCtx/rootCancel；Bot.Context() 方法；lifecycle runCtx 从 rootCtx 派生；token.Manager/AdaptiveRateLimiter 新增 WithContext 构造函数）|
 | 改进 #19 | 全局 | ⚡ 改进 | 错误包装规范不统一 | 中 ✅ 已完成（errutil 新增 Wrap/Wrapf/WrapWithContext/New/Is/As/Join；核心包推广使用；规范文档见 docs/02-user-guides/ERROR_HANDLING.md）|
 | 改进 #20 | 全局 | ⚡ 改进 | 组件间循环依赖风险 | 中 ✅ 已完成（infra/health 改为接口 EngineStats/DLQStats，消除对 core/engine 和 infra/dlq 的直接依赖；上层 bot 层提供 DLQHealthAdapter 适配器）|
 

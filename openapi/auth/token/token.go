@@ -38,16 +38,28 @@ type Manager struct {
 	minRefreshRatio float64       // 最小刷新时间比例
 }
 
-// NewManager 初始化并启动后台刷新（使用默认配置）
+// NewManager 初始化并启动后台刷新（使用默认配置，context.Background() 作为根 context）
 func NewManager(info *dto.BotInfo) *Manager {
-	return NewManagerFromConfig(info, config.TokenConfig{
+	return NewManagerWithContext(context.Background(), info)
+}
+
+// NewManagerWithContext 创建与外部 context 联动的 Manager（默认 token 配置）。
+//
+// 当 parent ctx 被取消时（如 Bot 关闭），后台 token 刷新 goroutine 将自动退出，
+// 无需手动调用 Stop()。
+//
+// 推荐在 Bot 生命周期中使用：
+//
+//	mgr := token.NewManagerWithContext(bot.Context(), info)
+func NewManagerWithContext(parent context.Context, info *dto.BotInfo) *Manager {
+	return NewManagerFromConfigWithContext(parent, info, config.TokenConfig{
 		RetryDelay:      "10s",
 		RefreshAdvance:  "30s",
 		MinRefreshRatio: 0.5,
 	})
 }
 
-// NewManagerFromConfig 使用指定配置初始化并启动后台刷新
+// NewManagerFromConfig 使用指定配置初始化并启动后台刷新（context.Background() 作为根 context）
 //
 // 参数:
 //   - info: Bot 信息
@@ -58,9 +70,16 @@ func NewManager(info *dto.BotInfo) *Manager {
 //	cfg, _ := config.LoadDefault()
 //	mgr := token.NewManagerFromConfig(global.Info, cfg.Token)
 func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
+	return NewManagerFromConfigWithContext(context.Background(), info, cfg)
+}
+
+// NewManagerFromConfigWithContext 创建与外部 context 联动的 Manager（自定义配置）。
+//
+// 当 parent ctx 被取消时，后台刷新 goroutine 自动退出，无需手动调用 Stop()。
+func NewManagerFromConfigWithContext(parent context.Context, info *dto.BotInfo, cfg config.TokenConfig) *Manager {
 	logger.Debugf("[Token] Initializing Token Manager with config: %+v", cfg)
 	logger.Debugf("[Token] Bot Info: %+v", info)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 
 	// 解析配置
 	retryDelay := 10 * time.Second

@@ -80,8 +80,21 @@ func DefaultAdaptiveConfig() AdaptiveConfig {
 	}
 }
 
-// NewAdaptiveRateLimiter 创建自适应限流器
+// NewAdaptiveRateLimiter 创建自适应限流器（使用 context.Background() 作为根 context）
 func NewAdaptiveRateLimiter(config AdaptiveConfig) *AdaptiveRateLimiter {
+	return NewAdaptiveRateLimiterWithContext(context.Background(), config)
+}
+
+// NewAdaptiveRateLimiterWithContext 创建与外部 context 联动的自适应限流器。
+//
+// 当 parent ctx 被取消时（如 Bot 关闭），后台 goroutine（adjustLoop/metricsLoop）
+// 将自动退出，无需手动调用 Stop()。
+//
+// 推荐在 Bot 的生命周期中使用此函数，将 Bot 根 context 传入：
+//
+//	arl := middleware.NewAdaptiveRateLimiterWithContext(bot.Context(), config)
+//	arl.Start()
+func NewAdaptiveRateLimiterWithContext(parent context.Context, config AdaptiveConfig) *AdaptiveRateLimiter {
 	// 验证配置
 	if config.MinConcurrency <= 0 {
 		config.MinConcurrency = 10
@@ -102,7 +115,7 @@ func NewAdaptiveRateLimiter(config AdaptiveConfig) *AdaptiveRateLimiter {
 		config.AdjustStep = 10
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 
 	arl := &AdaptiveRateLimiter{
 		config: config,

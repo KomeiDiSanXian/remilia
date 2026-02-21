@@ -35,6 +35,12 @@ type Bot struct {
 	config       *Config
 	openAPI      openapi.OpenAPI // OpenAPI client for sending messages
 	tokenManager *token.Manager  // Token manager for lifecycle management
+	botInfo      *dto.BotInfo    // 保存 BotInfo，用于 Start() 时延迟初始化 tokenManager
+
+	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
+	// Start() 时创建，Stop() 时取消，确保所有依赖组件随 Bot 一起退出
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
 
 	mu        sync.RWMutex
 	running   bool
@@ -127,16 +133,21 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
 	b := NewBot(adapter, engine, opts...)
 
-	// 初始化 OpenAPI client
+	// 保存 botInfo，在 Start() 时使用 rootCtx 创建 tokenManager
+	// 避免在构造期创建后台 goroutine（此时还没有根 context）
 	if botInfo != nil {
-		tokenManager := token.NewManager(botInfo)
-		b.tokenManager = tokenManager // 保存引用用于生命周期管理
-		b.openAPI = openapi.New(tokenManager)
+		b.botInfo = botInfo
+
+		// 预初始化 openAPI client（openAPI 本身不启动 goroutine，只在调用时使用 tokenManager）
+		// tokenManager 的实际创建延迟到 Start()
+		tmpTokenManager := token.NewManagerWithContext(context.Background(), botInfo)
+		b.tokenManager = tmpTokenManager
+		b.openAPI = openapi.New(tmpTokenManager)
 
 		// 添加 Token Manager health checker
 		b.health.AddChecker(NewTokenManagerHealthChecker(b))
 
-		logger.Info("[Bot] OpenAPI client initialized")
+		logger.Info("[Bot] OpenAPI client initialized (token manager will rebind to root context on Start)")
 	} else {
 		logger.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
 	}
@@ -164,28 +175,67 @@ func (b *Bot) Start() error {
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
 
-	// 添加超时保护，防止 OnStart 阶段永久阻塞
-	// 注意：此超时仅控制 OnStart 阶段，OnRun 在独立 goroutine 中运行不受此超时影响
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultStartTimeout)
-	defer cancel()
+	// 创建根 context：Bot 运行期间所有后台 goroutine 的上级
+	// Stop() 时调用 rootCancel 统一取消所有依赖组件
+	rootCtx, rootCancel := context.WithCancel(context.Background())
 
-	// 使用生命周期管理器启动所有组件
-	err := b.lifecycle.Start(ctx)
+	// 将 tokenManager 重新绑定到 rootCtx，替换构造时创建的临时实例
+	// 这样 token 刷新 goroutine 会随 Bot 根 context 一起退出
+	if b.botInfo != nil {
+		oldManager := b.tokenManager
+		newManager := token.NewManagerWithContext(rootCtx, b.botInfo)
+		b.tokenManager = newManager
+		b.openAPI = openapi.New(newManager)
+		// 停止旧的临时 manager（它使用 context.Background()，不会被 rootCtx 取消）
+		if oldManager != nil {
+			go oldManager.Stop()
+		}
+	}
 
-	// 更新状态（无论成功或失败，都需要清理 starting 标志）
+	// 为 OnStart 阶段创建带超时的子 context（不影响 rootCtx）
+	startCtx, startCancel := context.WithTimeout(rootCtx, DefaultStartTimeout)
+	defer startCancel()
+
+	// 将 rootCtx 传给 lifecycle.Start，使 OnRun goroutine 从 rootCtx 派生
+	err := b.lifecycle.Start(startCtx)
+
 	b.mu.Lock()
 	b.starting = false
 	if err != nil {
 		b.mu.Unlock()
+		rootCancel() // 启动失败，立即释放 rootCtx
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
 	b.running = true
 	b.startTime = time.Now()
+	b.rootCtx = rootCtx
+	b.rootCancel = rootCancel
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")
 	return nil
+}
+
+// Context 返回 Bot 的根 context。
+//
+// 此 context 在 Bot.Start() 时创建，Bot.Stop() 时取消。
+// 可用于：
+//   - 创建与 Bot 生命周期绑定的后台 goroutine
+//   - 初始化 AdaptiveRateLimiter 等组件，使其随 Bot 自动退出
+//
+// 示例：
+//
+//	arl := middleware.NewAdaptiveRateLimiterWithContext(bot.Context(), config)
+//
+// 注意：在 Bot.Start() 调用之前，此方法返回 context.Background()。
+func (b *Bot) Context() context.Context {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.rootCtx != nil {
+		return b.rootCtx
+	}
+	return context.Background()
 }
 
 // handleEvent 处理事件
@@ -233,16 +283,21 @@ func (b *Bot) Stop(ctx context.Context) error {
 	}
 	b.running = false
 	b.stopTime = time.Now()
+	rootCancel := b.rootCancel
+	b.rootCancel = nil
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Shutting down...")
 
-	// 直接调用 lifecycle.Stop，它已经接受 ctx 作为超时控制
-	// 避免额外 goroutine 包装导致 ctx 超时后泄漏
+	// 先停止 lifecycle（包括 adapter.Stop 和 engine.Shutdown）
 	err := b.lifecycle.Stop(ctx)
 
-	// 无论 lifecycle.Stop 是否超时，都尝试停止 token manager
-	// token manager 的 Stop 是非阻塞的
+	// 取消根 context：通知所有与 Bot 绑定的后台 goroutine（token manager、adaptive limiter 等）退出
+	if rootCancel != nil {
+		rootCancel()
+	}
+
+	// token manager.Stop() 保持向后兼容（rootCancel 已触发，这里是双重保险）
 	if b.tokenManager != nil {
 		logger.Debug("[Bot] Stopping token manager...")
 		b.tokenManager.Stop()

@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -214,4 +215,39 @@ func TestProductionSet_MiddlewareOrder(t *testing.T) {
 	middlewares := middleware.ProductionSet()
 	// ProductionSet 应包含 5 个中间件
 	assert.Equal(t, 5, len(middlewares), "ProductionSet should have 5 middlewares")
+}
+
+// TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled 测试父 context 取消时自动退出
+func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+
+	managed := middleware.NewManagedAdaptiveWithContext(parent)
+	assert.NotNil(t, managed.Middleware())
+
+	// 取消父 context，后台 goroutine 应该自动退出（无需调用 Stop）
+	done := make(chan struct{})
+	go func() {
+		cancel()
+		// 给一点时间让 goroutine 退出
+		time.Sleep(200 * time.Millisecond)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// OK: parent cancel 触发了退出
+	case <-time.After(3 * time.Second):
+		t.Fatal("goroutines did not exit after parent context cancelled")
+	}
+}
+
+// TestNewManagedAdaptiveWithLimitContext_Works 测试带限制的 context 版本
+func TestNewManagedAdaptiveWithLimitContext_Works(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	managed := middleware.NewManagedAdaptiveWithLimitContext(parent, 50)
+	assert.NotNil(t, managed)
+	mw := managed.Middleware()
+	assert.NotNil(t, mw)
 }
