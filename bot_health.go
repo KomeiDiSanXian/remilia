@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 )
 
@@ -142,5 +143,45 @@ func (c *TokenManagerHealthChecker) Check(_ context.Context) health.CheckResult 
 		Metadata: map[string]any{
 			"enabled": true,
 		},
+	}
+}
+
+// DLQHealthAdapter 将 *dlq.DeadLetterQueue 适配为 health.DLQStats 接口。
+//
+// 这是解决 infra/health 不应直接依赖 infra/dlq 的适配器（Adapter Pattern）。
+// infra/health 只知道 health.DLQStats 接口，实际的 DLQ 类型在上层（bot 层）注入。
+//
+// 使用示例：
+//
+//	myDLQ := dlq.NewDeadLetterQueue(config)
+//	adapter := remilia.NewDLQHealthAdapter(myDLQ)
+//	botHealth.AddChecker(health.NewDeadLetterQueueHealthChecker(adapter, 1000, 0.1))
+type DLQHealthAdapter struct {
+	q *dlq.DeadLetterQueue
+}
+
+// NewDLQHealthAdapter 创建 DLQ 健康检查适配器
+func NewDLQHealthAdapter(q *dlq.DeadLetterQueue) *DLQHealthAdapter {
+	return &DLQHealthAdapter{q: q}
+}
+
+// Stats 实现 health.DLQStats 接口，将 dlq.Stats 转换为 health.DLQStatsSnapshot
+func (a *DLQHealthAdapter) Stats() health.DLQStatsSnapshot {
+	s := a.q.Stats()
+	// dlq.Stats.Processed/Dropped 是 int64，转换为 uint64（值域安全：计数不会为负）
+	processed := uint64(0)
+	if s.Processed > 0 {
+		processed = uint64(s.Processed)
+	}
+	dropped := uint64(0)
+	if s.Dropped > 0 {
+		dropped = uint64(s.Dropped)
+	}
+	return health.DLQStatsSnapshot{
+		QueueSize: s.QueueSize,
+		MaxSize:   s.MaxSize,
+		Processed: processed,
+		Dropped:   dropped,
+		Workers:   s.Workers,
 	}
 }

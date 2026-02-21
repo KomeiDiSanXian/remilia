@@ -12,6 +12,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// dlqAdapter 在测试中将 *dlq.DeadLetterQueue 适配为 DLQStats 接口
+// （生产代码中该适配器在 bot/bot_health.go 中定义）
+type dlqAdapter struct{ q *dlq.DeadLetterQueue }
+
+func (a *dlqAdapter) Stats() DLQStatsSnapshot {
+	s := a.q.Stats()
+	processed := uint64(0)
+	if s.Processed > 0 {
+		processed = uint64(s.Processed)
+	}
+	dropped := uint64(0)
+	if s.Dropped > 0 {
+		dropped = uint64(s.Dropped)
+	}
+	return DLQStatsSnapshot{
+		QueueSize: s.QueueSize,
+		MaxSize:   s.MaxSize,
+		Processed: processed,
+		Dropped:   dropped,
+		Workers:   s.Workers,
+	}
+}
+
 func TestEngineHealthChecker_Name(t *testing.T) {
 	checker := NewEngineHealthChecker(nil)
 	assert.Equal(t, "engine", checker.Name())
@@ -60,7 +83,7 @@ func TestDeadLetterQueueHealthChecker_Check_NilDLQ(t *testing.T) {
 func TestDeadLetterQueueHealthChecker_Check_HealthyDLQ(t *testing.T) {
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.DeadLetterQueueConfig{MaxSize: 100, Workers: 2})
 	require.NotNil(t, dlqInstance)
-	checker := NewDeadLetterQueueHealthChecker(dlqInstance, 50, 0.1)
+	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1)
 	ctx := stdctx.Background()
 	result := checker.Check(ctx)
 	assert.Equal(t, Healthy, result.Status)
@@ -81,7 +104,7 @@ func TestDeadLetterQueueHealthChecker_Check_QueueSizeExceedsThreshold(t *testing
 	for i := range 8 {
 		dlqInstance.Enqueue(dlq.DeadLetterItem{Event: &dto.Payload{ID: dto.EventID("test-" + string(rune('0'+i)))}})
 	}
-	checker := NewDeadLetterQueueHealthChecker(dlqInstance, 5, 0.1)
+	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 5, 0.1)
 	ctx := stdctx.Background()
 	result := checker.Check(ctx)
 	assert.Equal(t, Degraded, result.Status)
@@ -136,7 +159,7 @@ func TestDeadLetterQueueHealthChecker_Integration(t *testing.T) {
 		_ = dlqInstance.Shutdown(ctx)
 	}()
 	check := NewCheck()
-	check.AddChecker(NewDeadLetterQueueHealthChecker(dlqInstance, 50, 0.1))
+	check.AddChecker(NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1))
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
@@ -160,7 +183,7 @@ func TestMultipleCheckers_Integration(t *testing.T) {
 	}()
 	check := NewCheck()
 	check.AddChecker(NewEngineHealthChecker(eng))
-	check.AddChecker(NewDeadLetterQueueHealthChecker(dlqInstance, 50, 0.1))
+	check.AddChecker(NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1))
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
@@ -185,7 +208,7 @@ func BenchmarkEngineHealthChecker(b *testing.B) {
 
 func BenchmarkDeadLetterQueueHealthChecker(b *testing.B) {
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.DeadLetterQueueConfig{MaxSize: 100, Workers: 2})
-	checker := NewDeadLetterQueueHealthChecker(dlqInstance, 50, 0.1)
+	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1)
 	ctx := stdctx.Background()
 	b.ResetTimer()
 	b.ReportAllocs()

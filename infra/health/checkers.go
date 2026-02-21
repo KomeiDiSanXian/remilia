@@ -3,18 +3,28 @@ package health
 import (
 	"context"
 	"fmt"
-
-	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
+// EngineStats 是 health 包对 Engine 状态的最小视图。
+// 上层（如 bot_health.go）在注册 checker 时传入实现此接口的对象。
+// 这样 infra/health 就不再依赖上层的 core/engine 包，遵循依赖倒置原则。
+type EngineStats interface {
+	// GetMatcherCount 返回当前活跃的 Matcher 数量
+	GetMatcherCount() int
+}
+
 // EngineHealthChecker checks engine basic status.
+//
+// 使用示例（在 bot 层注册）：
+//
+//	check.AddChecker(health.NewEngineHealthChecker(engine))
 type EngineHealthChecker struct {
-	engine *engine.Engine
+	engine EngineStats
 }
 
 // NewEngineHealthChecker creates a new EngineHealthChecker.
-func NewEngineHealthChecker(engine *engine.Engine) *EngineHealthChecker {
+// engine 参数接受任何实现了 EngineStats 接口的对象（如 *engine.Engine）。
+func NewEngineHealthChecker(engine EngineStats) *EngineHealthChecker {
 	return &EngineHealthChecker{engine: engine}
 }
 
@@ -31,9 +41,30 @@ func (c *EngineHealthChecker) Check(_ context.Context) CheckResult {
 	return CheckResult{Status: Healthy, Metadata: metadata}
 }
 
+// DLQStats 是 health 包对死信队列统计的最小视图。
+// infra/health 不再直接依赖 infra/dlq 具体类型。
+type DLQStats interface {
+	// Stats 返回队列的统计快照
+	Stats() DLQStatsSnapshot
+}
+
+// DLQStatsSnapshot 队列统计快照，由调用方通过适配器填充。
+// 定义在 health 包中，避免引入 infra/dlq 的具体类型。
+type DLQStatsSnapshot struct {
+	QueueSize int
+	MaxSize   int
+	Processed uint64
+	Dropped   uint64
+	Workers   int
+}
+
 // DeadLetterQueueHealthChecker checks DLQ backlog and drop rate.
+//
+// 使用示例：
+//
+//	check.AddChecker(health.NewDeadLetterQueueHealthChecker(dlqAdapter, 1000, 0.1))
 type DeadLetterQueueHealthChecker struct {
-	dlq            *dlq.DeadLetterQueue
+	dlq            DLQStats
 	maxQueueSize   int
 	maxDroppedRate float64
 }
@@ -41,10 +72,10 @@ type DeadLetterQueueHealthChecker struct {
 // NewDeadLetterQueueHealthChecker creates a new DeadLetterQueueHealthChecker.
 //
 // Parameters:
-//   - dlq: the DeadLetterQueue to check
+//   - dlq: 实现了 DLQStats 接口的对象（如 *dlq.DeadLetterQueue 通过适配器包装）
 //   - maxQueueSize: maximum queue size threshold (default: 1000)
 //   - maxDroppedRate: maximum dropped rate threshold (default: 0.1 = 10%)
-func NewDeadLetterQueueHealthChecker(dlq *dlq.DeadLetterQueue, maxQueueSize int, maxDroppedRate float64) *DeadLetterQueueHealthChecker {
+func NewDeadLetterQueueHealthChecker(dlq DLQStats, maxQueueSize int, maxDroppedRate float64) *DeadLetterQueueHealthChecker {
 	if maxQueueSize <= 0 {
 		maxQueueSize = 1000
 	}

@@ -215,7 +215,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		a.mu.Lock()
 		a.running = false
 		a.mu.Unlock()
-		return fmt.Errorf("failed to start HTTP server: %w", err)
+		return errutil.Wrapf(err, "failed to start HTTP server")
 	case <-time.After(100 * time.Millisecond):
 		// 服务器启动成功（没有立即报错）
 		logger.Info("[WebhookServerAdapter] Started successfully")

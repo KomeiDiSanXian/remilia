@@ -2,10 +2,10 @@ package remilia
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
@@ -48,7 +48,7 @@ func NewWebhookAdapter(wh Webhook) Adapter {
 func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
 	// 防止并发 Start 调用
 	if !a.starting.CompareAndSwap(false, true) {
-		return fmt.Errorf("adapter is already starting or started")
+		return errutil.New("adapter is already starting or started")
 	}
 	defer a.starting.Store(false)
 
@@ -63,7 +63,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	eventCh := a.webhook.EventStream()
 	if eventCh == nil {
 		a.mu.Unlock()
-		return fmt.Errorf("EventStream returned nil channel")
+		return errutil.New("EventStream returned nil channel")
 	}
 
 	a.ctx, a.cancel = context.WithCancel(ctx)

@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -230,12 +231,12 @@ func notifyListeners(cfg *Config) {
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, errutil.Wrapf(err, "failed to read config file")
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, errutil.Wrapf(err, "failed to parse config file")
 	}
 
 	// 验证必填字段

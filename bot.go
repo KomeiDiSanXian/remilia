@@ -2,7 +2,6 @@ package remilia
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
@@ -154,7 +154,7 @@ func (b *Bot) Start() error {
 	}
 	if b.starting {
 		b.mu.Unlock()
-		return fmt.Errorf("bot is already starting")
+		return errutil.New("bot is already starting")
 	}
 	b.starting = true
 	b.mu.Unlock()
