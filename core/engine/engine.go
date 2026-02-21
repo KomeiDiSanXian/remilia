@@ -645,20 +645,47 @@ func (e *Engine) UpdateMatcherCommand(m *Matcher) {
 
 // UpdateMatcherIndex 强制更新匹配器的索引（COW 写操作）
 // 当匹配器的 command 或 group 属性变化时调用
-func (e *Engine) UpdateMatcherIndex(_ *Matcher) {
+//
+// 改进 #14：仅重建受影响 matcher 的 EventType 对应的 sortedCache，
+// 避免每次都全量重建所有索引（原实现 O(N) 全量重建）。
+// 若 m 为 nil，则回退到全量重建。
+func (e *Engine) UpdateMatcherIndex(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	// 加载当前状态
 	oldState := e.state.Load()
-
-	// 复制状态
 	newState := copyEngineState(oldState)
 
-	// 重建索引（将会根据 m.command/group 更新位置）
-	newState.rebuildIndex()
+	if m == nil {
+		// 无法确定受影响范围，全量重建
+		newState.rebuildIndex()
+		e.state.Store(newState)
+		return
+	}
 
-	// 原子替换
+	// 局部重建：只重建受影响 eventType 的排序缓存
+	// 对于有 command 的 matcher，只需更新 commandIndex 对应的排序
+	// 对于无 command 的 matcher，只需更新 matcherIndex + sortedCache 的对应 eventType
+	cmd := m.GetCommand()
+	et := m.EventType
+
+	if cmd != "" {
+		// 命令 matcher：重新排序 commandIndex 中该命令该 eventType 的列表
+		if cmdMap, ok := newState.commandIndex[cmd]; ok {
+			if matchers, ok := cmdMap[et]; ok {
+				sortMatchersByPriority(matchers)
+			}
+		}
+	} else {
+		// 普通 matcher：重新排序 matcherIndex 中该 eventType 的列表，并更新 sortedCache
+		if matchers, ok := newState.matcherIndex[et]; ok {
+			sorted := make([]*Matcher, len(matchers))
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			newState.sortedCache[et] = sorted
+		}
+	}
+
 	e.state.Store(newState)
 }
 

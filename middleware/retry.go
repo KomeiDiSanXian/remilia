@@ -102,6 +102,11 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 						"attempt":    attempt + 1,
 						"event_type": ctx.GetEventType(),
 					}).Warn("[Retry] Context canceled during backoff")
+					// 修复 #16：返回 ctx.Err() 而非 BlockError，
+					// 语义更准确，调用方可用 errors.Is(err, context.Canceled) 判断
+					if ctxErr := ctx.Context().Err(); ctxErr != nil {
+						return ctxErr
+					}
 					return engine.NewBlockError("retry canceled")
 				}
 
@@ -112,6 +117,10 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 						"attempt":    attempt + 1,
 						"event_type": ctx.GetEventType(),
 					}).Warn("[Retry] Context canceled before retry attempt")
+					// 修复 #16：同上，返回 ctx.Err()
+					if ctxErr := ctx.Context().Err(); ctxErr != nil {
+						return ctxErr
+					}
 					return engine.NewBlockError("retry canceled")
 				default:
 					// Context 仍然有效，继续重试

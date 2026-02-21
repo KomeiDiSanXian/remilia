@@ -1,13 +1,14 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"hash/fnv"
 	"sync"
 	"time"
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/core/context"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -57,8 +58,23 @@ func DefaultDedupConfig() DedupConfig {
 	}
 }
 
-// NewDedupFilter 创建新的去重过滤器
+// NewDedupFilter 创建新的去重过滤器（使用 context.Background() 作为根 context）
+//
+// 注意：调用方应在不再使用时调用 filter.Stop() 释放后台 goroutine。
+// 若想让 goroutine 与外部生命周期自动联动，请使用 NewDedupFilterWithContext。
 func NewDedupFilter(config DedupConfig) *DedupFilter {
+	return NewDedupFilterWithContext(context.Background(), config)
+}
+
+// NewDedupFilterWithContext 创建与外部 context 联动的去重过滤器。
+//
+// 当 parent ctx 被取消时（如 Bot 关闭），后台 cleanup goroutine 自动退出，
+// 无需手动调用 Stop()。与 AdaptiveRateLimiter、token.Manager 的 WithContext 模式一致。
+//
+// 推荐在 Bot 生命周期中使用：
+//
+//	filter := middleware.NewDedupFilterWithContext(bot.Context(), config)
+func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *DedupFilter {
 	if config.MaxSize <= 0 {
 		config.MaxSize = 10000
 	}
@@ -77,8 +93,26 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 		strictMode:  config.StrictMode,
 	}
 
-	// 启动后台清理 goroutine
-	go filter.cleanup(config.CleanupInterval)
+	// 启动后台清理 goroutine，同时监听 parent context 和 cleanupDone
+	interval := config.CleanupInterval
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				filter.cleanExpired()
+			case <-parent.Done():
+				// 外部 context 取消（如 Bot 关闭）时退出
+				filter.cleanExpired()
+				return
+			case <-filter.cleanupDone:
+				// 手动调用 Stop() 时退出
+				filter.cleanExpired()
+				return
+			}
+		}
+	}()
 
 	return filter
 }
@@ -276,9 +310,9 @@ func (d *DedupFilter) Clear() {
 //   - 重复事件会被阻断，不会调用 handler
 //   - 缓存满时会返回错误并继续处理（避免拒绝服务）
 //   - 需要手动调用 filter.Stop() 停止后台清理
-func Dedup(filter *DedupFilter) context.Middleware {
-	return func(next context.Handler) context.Handler {
-		return func(ctx *context.Context) error {
+func Dedup(filter *DedupFilter) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			event := ctx.GetEvent()
 			if event == nil {
 				return next(ctx)
@@ -322,9 +356,9 @@ func Dedup(filter *DedupFilter) context.Middleware {
 // 与 Dedup 的区别：
 //   - 缓存满时返回错误，不处理事件
 //   - 适用于对数据一致性要求更高的场景
-func DedupWithReject(filter *DedupFilter) context.Middleware {
-	return func(next context.Handler) context.Handler {
-		return func(ctx *context.Context) error {
+func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
 			event := ctx.GetEvent()
 			if event == nil {
 				return next(ctx)

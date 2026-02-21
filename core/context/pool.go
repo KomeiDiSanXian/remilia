@@ -35,10 +35,11 @@ func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context {
 	ctx.api = api
 	ctx.matcher = nil
 
-	// Extensions will be lazily initialized on first access
-	// This avoids allocating Extensions if not needed
+	// Extensions will be lazily initialized on first access via Ext().
+	// 修复 #4：使用 atomic.Store(false) 替代 sync.Once{} 赋值，保证原子性。
+	// sync.Once 赋值在存在并发 Ext() 调用的情况下是非原子操作（race detector 可检出）。
 	ctx.extensions = nil
-	ctx.extOnce = sync.Once{}
+	ctx.extInitialized.Store(false)
 
 	return ctx
 }

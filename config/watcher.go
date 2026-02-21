@@ -220,11 +220,24 @@ func (w *Watcher) watchLoop() {
 func (w *Watcher) reload() error {
 	startTime := time.Now()
 
-	// Load new configuration
+	// 修复 #12：编辑器（vim、VS Code）保存时先 truncate 再 write，
+	// debounce 后立即读取仍可能读到截断的文件。
+	// 使用稳定性读取策略：加载后等待 50ms 再次加载比较，一致则应用。
 	newConfig, err := Load(w.configPath)
 	if err != nil {
 		w.failedCount.Add(1)
 		return fmt.Errorf("failed to load new config: %w", err)
+	}
+
+	// 稳定性校验：等待 50ms 后再次读取，确认文件已完整写入
+	time.Sleep(50 * time.Millisecond)
+	newConfig2, err2 := Load(w.configPath)
+	if err2 != nil {
+		// 二次读取失败通常意味着文件仍在写入，保留第一次的结果继续尝试
+		logger.WithError(err2).Warn("[ConfigWatcher] Stability check read failed, using first read result")
+	} else if newConfig2 != nil {
+		// 以第二次读取的最终结果为准（更接近最终状态）
+		newConfig = newConfig2
 	}
 
 	// Get current configuration

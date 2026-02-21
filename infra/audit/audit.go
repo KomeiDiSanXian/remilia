@@ -284,9 +284,17 @@ func (l *Logger) writeLoop() {
 			}
 
 		case <-l.stopCh:
-			// 写入剩余日志
-			for len(l.buffer) > 0 {
-				batch = append(batch, <-l.buffer)
+			// 修复 #3：使用非阻塞 drain 替代 len()+<-ch 模式。
+			// 原代码中 len() 与 <-ch 不是原子操作，并发写入时可能导致阻塞。
+			// 使用 select+default 确保在 channel 为空时立即退出。
+		drain:
+			for {
+				select {
+				case entry := <-l.buffer:
+					batch = append(batch, entry)
+				default:
+					break drain
+				}
 			}
 			if len(batch) > 0 {
 				l.writeBatch(batch)

@@ -240,6 +240,12 @@ func (b *Bot) Context() context.Context {
 
 // handleEvent 处理事件
 func (b *Bot) handleEvent(payload *dto.Payload) {
+	// 修复 #17：防护 nil payload，虽然 adapter 层通常有保证，但防御性编程更健壮
+	if payload == nil {
+		logger.Warn("[Bot] Received nil payload, skipping")
+		return
+	}
+
 	start := time.Now()
 
 	if b.config.Debug {

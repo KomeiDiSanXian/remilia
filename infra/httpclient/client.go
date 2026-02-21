@@ -34,6 +34,9 @@ type Request struct {
 	timeout     time.Duration
 	context     context.Context
 	middlewares []Middleware
+	// 修复 #9：buildErr 存储构建阶段（SetJSON 等）产生的错误，在 Do() 时统一返回，
+	// 避免静默丢弃导致调用方收到空 body 请求但不知原因。
+	buildErr error
 }
 
 // Response 包装 http.Response 并提供便捷方法
@@ -201,13 +204,14 @@ func (c *Client) NewRequest(method, urlStr string) *Request {
 	}
 
 	req := &Request{
-		client:      c,
-		method:      method,
-		url:         fullURL,
-		headers:     c.headers.Clone(),
-		timeout:     c.timeout,
-		context:     context.Background(),
-		middlewares: c.middlewares,
+		client:  c,
+		method:  method,
+		url:     fullURL,
+		headers: c.headers.Clone(),
+		timeout: c.timeout,
+		context: context.Background(),
+		// 修复 #10：拷贝 middlewares 切片，避免多个并发 Request.Use() 共享底层数组引发竞态
+		middlewares: append([]Middleware(nil), c.middlewares...),
 	}
 
 	return req
@@ -240,6 +244,8 @@ func (r *Request) SetBody(body io.Reader) *Request {
 func (r *Request) SetJSON(data any) *Request {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
+		// 修复 #9：存储错误，Do() 时返回，而非静默丢弃（避免发出空 body 请求）
+		r.buildErr = fmt.Errorf("SetJSON: failed to marshal data: %w", err)
 		return r
 	}
 	r.body = bytes.NewReader(jsonData)
@@ -330,6 +336,11 @@ func (r *Request) Use(middleware Middleware) *Request {
 // - DoString() 自动关闭并返回字符串
 // - DoBytes()  自动关闭并返回字节数组
 func (r *Request) Do() (*Response, error) {
+	// 修复 #9：返回构建阶段（如 SetJSON）存储的错误
+	if r.buildErr != nil {
+		return nil, r.buildErr
+	}
+
 	// 执行中间件
 	for _, mw := range r.middlewares {
 		if err := mw(r); err != nil {

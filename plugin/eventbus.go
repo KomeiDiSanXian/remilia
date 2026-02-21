@@ -3,6 +3,7 @@ package plugin
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -45,8 +46,9 @@ type EventBusStats struct {
 // eventBus 事件总线实现
 type eventBus struct {
 	subscribers  map[string][]subscriptionImpl // topic -> handlers
-	publishCount int64
-	workerPool   chan struct{} // goroutine 池，限制并发数
+	publishCount atomic.Int64                  // 发布事件总数（原子操作，无需写锁）
+	subIDCounter atomic.Int64                  // 全局单调递增订阅 ID，避免 ID 重复
+	workerPool   chan struct{}                 // goroutine 池，限制并发数
 	mu           sync.RWMutex
 }
 
@@ -87,23 +89,38 @@ func (eb *eventBus) Publish(topic string, data any) error {
 		return nil
 	}
 
-	// 异步通知所有订阅者（使用 goroutine 池限制并发）
+	// 异步通知所有订阅者
+	// 修复 #1：使用非阻塞 select 避免当 workerPool 满时卡死调用方（主事件循环）。
+	// 池满时直接启动 goroutine（不受并发限制），并记录警告。
 	for _, sub := range handlers {
-		eb.workerPool <- struct{}{} // 获取令牌，如果池满则阻塞
-		go func(h EventHandler) {
-			defer func() {
-				<-eb.workerPool // 释放令牌
-				if r := recover(); r != nil {
-					logger.Errorf("[EventBus] Panic in event handler: %v", r)
-				}
-			}()
-			h(data)
-		}(sub.handler)
+		select {
+		case eb.workerPool <- struct{}{}:
+			// 成功获取令牌，正常受限并发
+			go func(h EventHandler) {
+				defer func() {
+					<-eb.workerPool // 释放令牌
+					if r := recover(); r != nil {
+						logger.Errorf("[EventBus] Panic in event handler: %v", r)
+					}
+				}()
+				h(data)
+			}(sub.handler)
+		default:
+			// 池已满：不阻塞调用方，直接启动 goroutine（不计入池）
+			logger.Warnf("[EventBus] Worker pool full for topic %s, running handler without pool limit", topic)
+			go func(h EventHandler) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.Errorf("[EventBus] Panic in event handler: %v", r)
+					}
+				}()
+				h(data)
+			}(sub.handler)
+		}
 	}
 
-	eb.mu.Lock()
-	eb.publishCount++
-	eb.mu.Unlock()
+	// 修复 #18：使用 atomic 操作替代写锁，减少锁竞争
+	eb.publishCount.Add(1)
 
 	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d", topic, len(handlers))
 	return nil
@@ -118,8 +135,8 @@ func (eb *eventBus) Subscribe(topic string, handler EventHandler) (Subscription,
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
-	// 生成订阅 ID
-	id := fmt.Sprintf("%s-%d", topic, len(eb.subscribers[topic]))
+	// 修复 #6：使用全局单调递增 ID，避免"订阅→取消→再订阅"时 ID 重复导致误删
+	id := fmt.Sprintf("%s-%d", topic, eb.subIDCounter.Add(1))
 
 	sub := subscriptionImpl{
 		id:      id,
@@ -183,7 +200,7 @@ func (eb *eventBus) GetStats() EventBusStats {
 
 	stats := EventBusStats{
 		TopicCount:   len(eb.subscribers),
-		PublishCount: eb.publishCount,
+		PublishCount: eb.publishCount.Load(), // 使用 atomic.Load
 		TopicStats:   make(map[string]int),
 	}
 

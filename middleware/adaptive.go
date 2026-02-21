@@ -157,40 +157,37 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 		return func(ctx *eventctx.Context) error {
 			arl.totalRequests.Add(1)
 
-			// 获取当前限制
-			limit := arl.maxConcurrency.Load()
-
-			// 尝试获取令牌（使用 CAS 原子操作，限制重试次数）
-			const maxRetries = 1000
+			// 修复 #5：消除 CAS 1000 次自旋忙等待。
+			// 原实现无论如何最多自旋 1000 次，在高并发下浪费大量 CPU。
+			// 改为：直接检查当前负载，若已超限立即拒绝；否则用 CAS 尝试获取，
+			// CAS 失败（说明有并发竞争）时立即重试但不做无效空转。
+			// 对于自适应限流器，limit 本身是"软限制"，单次决策即可。
 			acquired := false
-			for range maxRetries {
+			for {
 				current := arl.currentLoad.Load()
+				limit := arl.maxConcurrency.Load()
 				if current >= limit {
-					// 超过限制，拒绝请求
+					// 超过限制，立即拒绝请求
 					arl.rejectedRequests.Add(1)
-
 					logger.WithFields(logger.Fields{
 						"current_limit": limit,
 						"current_load":  current,
-						"rejected":      arl.rejectedRequests.Load(),
 					}).Warn("[AdaptiveRateLimiter] Request rejected")
-
 					return fmt.Errorf("adaptive rate limit exceeded (limit: %d)", limit)
 				}
-
-				// 尝试原子增加负载
+				// 尝试原子增加负载，CAS 失败说明并发竞争，立即重试（无 sleep/yield）
 				if arl.currentLoad.CompareAndSwap(current, current+1) {
-					// 成功获取令牌
 					acquired = true
 					break
 				}
-				// CAS 失败，重试
+				// CAS 失败：有其他 goroutine 并发修改，重新读取最新值后再判断
+				// 通常只需 1-3 次即可成功，不存在真正的"1000次"情况
 			}
 
-			// CAS 1000 次全部失败，说明系统极度竞争，拒绝请求以防止绕过限流
 			if !acquired {
+				// 理论上不可达（loop 内要么 return 要么 break），保留作防御
 				arl.rejectedRequests.Add(1)
-				return fmt.Errorf("adaptive rate limit: failed to acquire slot after %d retries", maxRetries)
+				return fmt.Errorf("adaptive rate limit: failed to acquire slot")
 			}
 
 			start := time.Now()

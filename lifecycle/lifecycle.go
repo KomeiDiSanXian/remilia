@@ -306,14 +306,35 @@ type Manager struct {
 	// 组件运行时状态追踪
 	compStatusMu sync.RWMutex
 	compStatuses map[string]*ComponentStatus
+
+	// 修复 #8：Stop 等待 OnRun 超时后为 OnStop 阶段分配的额外超时。
+	// 默认 10s，可通过 WithStopTimeout() 选项自定义。
+	stopTimeout time.Duration
+}
+
+// ManagerOption Manager 配置选项
+type ManagerOption func(*Manager)
+
+// WithStopTimeout 设置 Stop 等待 OnRun 超时后 OnStop 阶段的额外超时时间（默认 10s）
+func WithStopTimeout(d time.Duration) ManagerOption {
+	return func(m *Manager) {
+		if d > 0 {
+			m.stopTimeout = d
+		}
+	}
 }
 
 // NewManager 创建新的生命周期管理器
-func NewManager() *Manager {
-	return &Manager{
+func NewManager(opts ...ManagerOption) *Manager {
+	m := &Manager{
 		state:        StateCreated,
 		compStatuses: make(map[string]*ComponentStatus),
+		stopTimeout:  10 * time.Second, // 默认 10s
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Register 注册组件
@@ -373,7 +394,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			// 超时，回滚
-			m.rollback(startedComponents)
+			m.rollback(ctx, startedComponents)
 			m.mu.Lock()
 			m.state = StateCreated
 			m.mu.Unlock()
@@ -389,7 +410,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			}).Error("[Lifecycle] Component OnStart failed")
 
 			// 回滚已启动的组件
-			m.rollback(startedComponents)
+			m.rollback(ctx, startedComponents)
 			m.mu.Lock()
 			m.state = StateCreated
 			m.mu.Unlock()
@@ -458,7 +479,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // rollback 回滚已启动的组件
-func (m *Manager) rollback(startedComponents []Component) {
+func (m *Manager) rollback(startCtx context.Context, startedComponents []Component) {
 	if len(startedComponents) == 0 {
 		return
 	}
@@ -467,8 +488,9 @@ func (m *Manager) rollback(startedComponents []Component) {
 		"count": len(startedComponents),
 	}).Warn("[Lifecycle] Rolling back started components")
 
-	// 逆序停止
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 修复 #7：从调用方 ctx 派生（继承 Value 链），但剥离已过期的 deadline/cancel，
+	// 给 rollback 一个独立的 10s 超时。避免启动超时后 rollback 也立即失败。
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(startCtx), 10*time.Second)
 	defer cancel()
 
 	for i := len(startedComponents) - 1; i >= 0; i-- {
@@ -526,8 +548,9 @@ func (m *Manager) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		// 等待 OnRun 超时，为 OnStop 创建新的独立 context
 		// 原 ctx 已过期，继续使用会导致 OnStop 立即返回错误
+		// 修复 #8：使用可配置的 stopTimeout（默认 10s），通过 WithStopTimeout 选项自定义
 		logger.Warn("[Lifecycle] Stop timeout waiting for OnRun, proceeding with OnStop using fresh context")
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), m.stopTimeout)
 		defer stopCancel()
 		ctx = stopCtx
 	}

@@ -126,7 +126,9 @@ func TestRetry_ContextCancellation(t *testing.T) {
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
-		assert.True(t, engine.IsBlockError(err), "Should return BlockError on cancel")
+		// 修复 #16：context 取消时现在返回 ctx.Err()（context.Canceled），
+		// 而非 BlockError，语义更准确，调用方可用 errors.Is(err, context.Canceled) 判断
+		assert.True(t, errors.Is(err, context.Canceled), "Should return context.Canceled on cancel")
 		// 应该只调用一次（初始尝试），因为在重试等待期间被取消
 		assert.Equal(t, int32(1), callCount.Load(), "Should stop retrying after cancel")
 	})

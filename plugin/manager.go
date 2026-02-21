@@ -152,8 +152,13 @@ func (pm *Manager) Unregister(name string) error {
 
 	// 卸载插件
 	if err := plugin.Unload(pm.coordinator); err != nil {
+		// 修复 #13：Unload 失败时，标记插件为 Error 状态，
+		// 防止插件在损坏状态下继续被 Reload/Get 等操作使用。
+		if stateful, ok := plugin.(StatefulPlugin); ok {
+			stateful.SetState(Error)
+		}
 		pm.mu.Unlock()
-		logger.WithError(err).Errorf("[pluginManager] Failed to unload plugin %s", name)
+		logger.WithError(err).Errorf("[pluginManager] Failed to unload plugin %s, marked as error state", name)
 		pm.notifyError(name, "unload", err) // 通知监听器错误
 		return err
 	}
@@ -163,6 +168,31 @@ func (pm *Manager) Unregister(name string) error {
 
 	logger.Infof("[pluginManager] Plugin %s unregistered", name)
 	pm.notifyUnloaded(name) // 通知监听器（在锁外）
+	return nil
+}
+
+// ForceUnregister 强制注销插件，忽略 Unload 错误直接从管理器中移除。
+//
+// 适用场景：
+//   - 插件处于 Error 状态，Unload 已无法正常执行
+//   - 需要强制清理损坏的插件
+//
+// 注意：强制注销不会调用插件的资源清理逻辑，可能造成资源泄漏。
+func (pm *Manager) ForceUnregister(name string) error {
+	pm.mu.Lock()
+
+	_, exists := pm.plugins[name]
+	if !exists {
+		pm.mu.Unlock()
+		logger.Warnf("[pluginManager] ForceUnregister: plugin %s not found", name)
+		return errutil.ErrPluginNotFound
+	}
+
+	delete(pm.plugins, name)
+	pm.mu.Unlock()
+
+	logger.Warnf("[pluginManager] Plugin %s force unregistered (Unload skipped)", name)
+	pm.notifyUnloaded(name)
 	return nil
 }
 

@@ -9,15 +9,21 @@ import (
 
 // QuantileHistogram 支持分位数查询的直方图
 //
-// 使用滑动窗口存储最近的观测值，以计算精确的分位数。
+// 使用环形缓冲区存储最近的观测值，以计算精确的分位数。
 // 适用于延迟统计等需要 P50/P90/P95/P99 的场景。
 //
-// 注意：最大存储 MaxSamples 个样本（默认 10000），超出后丢弃最旧的样本。
+// 改进 #15：使用真正的环形缓冲区（head 指针），消除原来每次写入的 O(N) copy 开销。
+// 原实现在超过容量时执行 copy(samples, samples[1:])，每次移动 N 个元素（10000 个时约 80KB）。
+// 新实现写入复杂度 O(1)，只在 Quantile 计算时排序一次（懒排序）。
+//
+// 注意：最大存储 MaxSamples 个样本（默认 10000），超出后环形覆盖最旧的样本。
 type QuantileHistogram struct {
 	mu         sync.Mutex
-	samples    []int64
+	buf        []int64 // 环形缓冲区
+	head       int     // 下一个写入位置（环形指针）
+	count      int     // 实际有效样本数（≤ maxSamples）
 	maxSamples int
-	sorted     bool // 标记 samples 是否已排序（懒排序）
+	sorted     bool // 标记 buf 中有效样本是否已排序（懒排序，Quantile 调用时才排）
 }
 
 const DefaultMaxSamples = 10000
@@ -33,7 +39,7 @@ func NewQuantileHistogramWithSize(maxSamples int) *QuantileHistogram {
 		maxSamples = DefaultMaxSamples
 	}
 	return &QuantileHistogram{
-		samples:    make([]int64, 0, min64(maxSamples, 1024)),
+		buf:        make([]int64, maxSamples), // 预分配固定大小的环形缓冲区
 		maxSamples: maxSamples,
 	}
 }
@@ -46,16 +52,17 @@ func min64(a, b int) int {
 }
 
 // Observe 记录一个观测值（纳秒或任意 int64 单位）
+//
+// 改进 #15：O(1) 写入，使用环形缓冲区 head 指针替换原来的 O(N) copy。
 func (qh *QuantileHistogram) Observe(value int64) {
 	qh.mu.Lock()
 	defer qh.mu.Unlock()
 
-	if len(qh.samples) >= qh.maxSamples {
-		// 环形覆盖：用新值替换最旧的值（索引 0），然后左移
-		copy(qh.samples, qh.samples[1:])
-		qh.samples[len(qh.samples)-1] = value
-	} else {
-		qh.samples = append(qh.samples, value)
+	// 将值写入 head 位置，head 指针环绕
+	qh.buf[qh.head] = value
+	qh.head = (qh.head + 1) % qh.maxSamples
+	if qh.count < qh.maxSamples {
+		qh.count++
 	}
 	qh.sorted = false
 }
@@ -67,28 +74,35 @@ func (qh *QuantileHistogram) Quantile(q float64) int64 {
 	qh.mu.Lock()
 	defer qh.mu.Unlock()
 
-	n := len(qh.samples)
+	n := qh.count
 	if n == 0 {
 		return 0
 	}
+
+	// 从环形缓冲区提取有效样本（按写入时间顺序）
+	// head 指向下一个写入位置，有效数据从 (head - count) 到 (head-1)（环绕）
+	samples := make([]int64, n)
+	if qh.count < qh.maxSamples {
+		// 未满：有效数据在 [0, count)
+		copy(samples, qh.buf[:n])
+	} else {
+		// 已满：有效数据从 head 开始环绕
+		start := qh.head
+		firstPart := qh.maxSamples - start
+		copy(samples, qh.buf[start:])
+		copy(samples[firstPart:], qh.buf[:start])
+	}
+
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+
 	if q <= 0 {
-		return qh.samples[0]
+		return samples[0]
 	}
 	if q >= 1.0 {
-		return qh.samples[n-1]
+		return samples[n-1]
 	}
-
-	if !qh.sorted {
-		sorted := make([]int64, n)
-		copy(sorted, qh.samples)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-		// 直接在原 slice 上排序（不影响环形写入逻辑，因为每次 Quantile 后都是已排序状态）
-		copy(qh.samples, sorted)
-		qh.sorted = true
-	}
-
 	idx := int(float64(n-1) * q)
-	return qh.samples[idx]
+	return samples[idx]
 }
 
 // P50 返回第 50 百分位（中位数）
@@ -107,14 +121,15 @@ func (qh *QuantileHistogram) P99() int64 { return qh.Quantile(0.99) }
 func (qh *QuantileHistogram) Count() int {
 	qh.mu.Lock()
 	defer qh.mu.Unlock()
-	return len(qh.samples)
+	return qh.count
 }
 
 // Reset 清空所有样本
 func (qh *QuantileHistogram) Reset() {
 	qh.mu.Lock()
 	defer qh.mu.Unlock()
-	qh.samples = qh.samples[:0]
+	qh.head = 0
+	qh.count = 0
 	qh.sorted = false
 }
 

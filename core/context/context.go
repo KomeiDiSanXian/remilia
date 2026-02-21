@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -76,8 +77,12 @@ type Context struct {
 	event   *dto.Payload
 
 	// --- V2 extensions store ---
-	extOnce    sync.Once
-	extensions *Extensions
+	// 修复 #4：使用 atomic.Bool 替代 sync.Once，避免 sync.Pool 复用时
+	// 对 sync.Once 直接赋值（ctx.extOnce = sync.Once{}）产生竞态。
+	// atomic.Bool.Store(false) 是原子操作，对并发 Ext() 调用是安全的。
+	extInitialized atomic.Bool
+	extMu          sync.Mutex // 保护 extensions 初始化的互斥锁
+	extensions     *Extensions
 
 	api openapi.OpenAPI
 }
@@ -282,9 +287,17 @@ func (ctx *Context) Ext() *Extensions {
 	if ctx == nil {
 		return nil
 	}
-	ctx.extOnce.Do(func() {
+	// 快速路径：已初始化
+	if ctx.extInitialized.Load() {
+		return ctx.extensions
+	}
+	// 慢路径：初始化（双重检查锁定）
+	ctx.extMu.Lock()
+	defer ctx.extMu.Unlock()
+	if !ctx.extInitialized.Load() {
 		ctx.extensions = newExtensions()
-	})
+		ctx.extInitialized.Store(true)
+	}
 	return ctx.extensions
 }
 

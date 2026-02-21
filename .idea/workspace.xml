@@ -4,16 +4,29 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement error handling improvements using errutil package for better error wrapping and context management">
-      <change afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement unified root context management for Bot lifecycle and background goroutines">
+      <change afterPath="$PROJECT_DIR$/infra/audit/audit_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/httpclient/httpclient_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/dedup_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/eventbus_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/stats/quantile_ringbuffer_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/component_cleaner.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_cleaner.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/audit.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/auth/token/token.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -259,7 +272,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add debug subcommand demo with comprehensive documentation and environment setup" />
     <MESSAGE value="test: add tests for command parsing fixes in debug plugin" />
     <MESSAGE value="feat: implement access control list and verification code system with demo" />
     <MESSAGE value="fix: update Engine references to use lowercase 'engine' for consistency" />
@@ -284,7 +296,8 @@
     <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
     <MESSAGE value="feat: add event processing duration logging and improve configuration change listener management" />
     <MESSAGE value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
+    <MESSAGE value="feat: implement unified root context management for Bot lifecycle and background goroutines" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement unified root context management for Bot lifecycle and background goroutines" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
