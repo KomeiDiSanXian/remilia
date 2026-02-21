@@ -236,9 +236,7 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 	a.ctx, a.cancel = context.WithCancel(ctx)
 	workers := runtime.NumCPU() * 2
 	for range workers {
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
+		a.wg.Go(func() {
 			// batch buffer: reused across iterations to avoid per-event alloc
 			batch := make([]*dto.Payload, 0, 64)
 			for {
@@ -267,7 +265,7 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 				// Reset slice length but keep backing array
 				batch = batch[:0]
 			}
-		}()
+		})
 	}
 	return nil
 }
@@ -363,10 +361,7 @@ func (s Scenario) prodConcurrency() int {
 		return s.ProdConcurrency
 	}
 	// Default: leave half the Ps for the adapter/engine consumer workers.
-	n := runtime.GOMAXPROCS(0) / 2
-	if n < 1 {
-		n = 1
-	}
+	n := max(runtime.GOMAXPROCS(0)/2, 1)
 	return n
 }
 
@@ -675,10 +670,7 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 func buildSuites() map[string][]Scenario {
 	ncpu := runtime.NumCPU()
 	// Default unlimited prod-concurrency: half of GOMAXPROCS, at least 1.
-	unlimProd := ncpu / 2
-	if unlimProd < 1 {
-		unlimProd = 1
-	}
+	unlimProd := max(ncpu/2, 1)
 	return map[string][]Scenario{
 		"quick": {
 			{Name: "low    (100 msg/s)", Workers: 10, RatePerW: 10},
