@@ -281,9 +281,34 @@ type Scenario struct {
 	RatePerW int           // msg/s per worker; 0 = unlimited
 	Duration time.Duration // 0 = use global flag
 	WithMW   bool
+	// ProdConcurrency caps how many producer goroutines may be
+	// simultaneously active in the unlimited (RatePerW==0) path.
+	// 0 means "use default": GOMAXPROCS/2, minimum 1.
+	// This prevents producers from starving the adapter workers
+	// (consumers) for OS threads when all goroutines compete for
+	// the same P slots.
+	ProdConcurrency int
 }
 
 func (s Scenario) targetRate() int { return s.Workers * s.RatePerW }
+
+// prodConcurrency returns the effective producer concurrency cap for
+// the unlimited path, resolving the zero-value default.
+func (s Scenario) prodConcurrency() int {
+	if s.RatePerW > 0 {
+		// rate-limited path does not need a cap
+		return s.Workers
+	}
+	if s.ProdConcurrency > 0 {
+		return s.ProdConcurrency
+	}
+	// Default: leave half the Ps for the adapter/engine consumer workers.
+	n := runtime.GOMAXPROCS(0) / 2
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
 
 // ─────────────────────────────────────────────────────────────
 // Per-run event metrics (lock-free)
@@ -333,6 +358,12 @@ type ScenarioResult struct {
 	DurationSecs  float64 `json:"duration_secs"`
 	GOMAXPROCS    int     `json:"gomaxprocs"`
 	GoVersion     string  `json:"go_version"`
+	IsUnlimited   bool    `json:"is_unlimited"`
+	// ProdConcurrency is the semaphore width used in the unlimited path
+	// (how many producer goroutines may hold the CPU simultaneously).
+	ProdConcurrency int `json:"prod_concurrency"`
+	// ConsumerWorkers is the number of adapter dispatch goroutines.
+	ConsumerWorkers int `json:"consumer_workers"`
 	// ── Throughput ──
 	EventsSent       int64   `json:"events_sent"`
 	EventsProcessed  int64   `json:"events_processed"`
@@ -348,10 +379,10 @@ type ScenarioResult struct {
 	MinLatencyMs float64 `json:"min_latency_ms"`
 	MaxLatencyMs float64 `json:"max_latency_ms"`
 	// ── CPU ──
-	CpuSysAvgPct  float64 `json:"cpu_sys_avg_pct"`  // system-wide CPU, average
-	CpuSysMaxPct  float64 `json:"cpu_sys_max_pct"`  // system-wide CPU, peak
-	CpuProcAvgPct float64 `json:"cpu_proc_avg_pct"` // this process CPU, average
-	CpuProcMaxPct float64 `json:"cpu_proc_max_pct"` // this process CPU, peak
+	CpuSysAvgPct  float64 `json:"cpu_sys_avg_pct"`
+	CpuSysMaxPct  float64 `json:"cpu_sys_max_pct"`
+	CpuProcAvgPct float64 `json:"cpu_proc_avg_pct"`
+	CpuProcMaxPct float64 `json:"cpu_proc_max_pct"`
 	// ── OS memory ──
 	MemSysUsedAvgMB  float64 `json:"mem_sys_used_avg_mb"`
 	MemSysUsedMaxMB  float64 `json:"mem_sys_used_max_mb"`
@@ -368,8 +399,8 @@ type ScenarioResult struct {
 	GoroutinesMax int     `json:"goroutines_max"`
 	// ── GC ──
 	GCRuns         uint32  `json:"gc_runs"`
-	GCPauseDeltaMs float64 `json:"gc_pause_delta_ms"`   // total GC pause added during test
-	GCPauseAvgMs   float64 `json:"gc_pause_avg_per_gc"` // per-run average
+	GCPauseDeltaMs float64 `json:"gc_pause_delta_ms"`
+	GCPauseAvgMs   float64 `json:"gc_pause_avg_per_gc"`
 	// ── Engine ──
 	EngineMatchers int `json:"engine_matchers"`
 }
@@ -400,6 +431,7 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		return nil
 	})
 	// ── Adapter + Bot ──
+	consumerWorkers := runtime.NumCPU() * 2
 	bufSize := max(s.Workers*max(s.RatePerW, 200)*2, 8192)
 	pump := newPumpAdapter(bufSize)
 	bot := remilia.NewBot(pump, eng)
@@ -414,11 +446,24 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	time.Sleep(50 * time.Millisecond)
 	sampler := newSysSampler()
 	sampler.Start(250 * time.Millisecond) // sample every 250 ms
+
 	// ── Produce events ──
 	prodCtx, prodCancel := context.WithTimeout(context.Background(), dur)
 	defer prodCancel()
 	start := time.Now()
 	var prodWg sync.WaitGroup
+
+	isUnlimited := s.RatePerW == 0
+	prodCap := s.prodConcurrency()
+
+	// semaphore: only used in the unlimited path to cap how many
+	// producers are simultaneously running (not just goroutine-alive).
+	// Sized to prodCap; producers acquire before injecting, release after.
+	var sema chan struct{}
+	if isUnlimited {
+		sema = make(chan struct{}, prodCap)
+	}
+
 	for w := range s.Workers {
 		prodWg.Add(1)
 		go func(wid int) {
@@ -431,19 +476,29 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 			var seq int64
 			for {
 				if s.RatePerW > 0 {
+					// ── rate-limited path (unchanged) ──
 					select {
 					case <-prodCtx.Done():
 						return
 					case <-ticker.C:
 					}
 				} else {
+					// ── unlimited path: semaphore instead of Gosched spin ──
+					// First check context cheaply.
 					select {
 					case <-prodCtx.Done():
 						return
 					default:
-						runtime.Gosched()
+					}
+					// Block until a slot is free; this yields the P to other
+					// goroutines (consumers) while we wait, instead of spinning.
+					select {
+					case <-prodCtx.Done():
+						return
+					case sema <- struct{}{}:
 					}
 				}
+
 				seq++
 				eid := dto.EventID(fmt.Sprintf("w%d-s%d", wid, seq))
 				pump.InjectEvent(&dto.Payload{
@@ -453,6 +508,12 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 					Detail:    fmt.Appendf(nil, `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, eid, wid),
 				})
 				m.sent.Add(1)
+
+				// Release semaphore slot after inject (not after handler finishes —
+				// we measure the channel-send cost, not the downstream processing).
+				if isUnlimited {
+					<-sema
+				}
 			}
 		}(w)
 	}
@@ -498,13 +559,17 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	}
 	matcherStats := eng.GetMatcherStats()
 	return ScenarioResult{
-		Name:             s.Name,
-		Workers:          s.Workers,
-		RatePerWorker:    s.RatePerW,
-		TargetRate:       s.targetRate(),
-		DurationSecs:     secs,
-		GOMAXPROCS:       runtime.GOMAXPROCS(0),
-		GoVersion:        runtime.Version(),
+		Name:            s.Name,
+		Workers:         s.Workers,
+		RatePerWorker:   s.RatePerW,
+		TargetRate:      s.targetRate(),
+		DurationSecs:    secs,
+		GOMAXPROCS:      runtime.GOMAXPROCS(0),
+		GoVersion:       runtime.Version(),
+		IsUnlimited:     isUnlimited,
+		ProdConcurrency: prodCap,
+		ConsumerWorkers: consumerWorkers,
+		// throughput
 		EventsSent:       sent,
 		EventsProcessed:  processed,
 		EventsFailed:     failed,
@@ -544,11 +609,22 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 // ─────────────────────────────────────────────────────────────
 func buildSuites() map[string][]Scenario {
 	ncpu := runtime.NumCPU()
+	// Default unlimited prod-concurrency: half of GOMAXPROCS, at least 1.
+	unlimProd := ncpu / 2
+	if unlimProd < 1 {
+		unlimProd = 1
+	}
 	return map[string][]Scenario{
 		"quick": {
 			{Name: "low    (100 msg/s)", Workers: 10, RatePerW: 10},
 			{Name: "mid   (5000 msg/s)", Workers: 100, RatePerW: 50},
 			{Name: "high (20000 msg/s)", Workers: 400, RatePerW: 50},
+			{
+				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
+				Workers:         ncpu * 4,
+				RatePerW:        0,
+				ProdConcurrency: unlimProd,
+			},
 		},
 		"standard": {
 			{Name: "smoke      (100 msg/s)", Workers: 10, RatePerW: 10},
@@ -556,7 +632,12 @@ func buildSuites() map[string][]Scenario {
 			{Name: "high      (5000 msg/s)", Workers: 100, RatePerW: 50},
 			{Name: "stress   (20000 msg/s)", Workers: 400, RatePerW: 50},
 			{Name: "extreme  (50000 msg/s)", Workers: 1000, RatePerW: 50},
-			{Name: fmt.Sprintf("unlimited  (%d workers, no rate limit)", ncpu*4), Workers: ncpu * 4, RatePerW: 0},
+			{
+				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
+				Workers:         ncpu * 4,
+				RatePerW:        0,
+				ProdConcurrency: unlimProd,
+			},
 		},
 		"full": {
 			{Name: "smoke       (100 msg/s)", Workers: 10, RatePerW: 10},
@@ -568,7 +649,12 @@ func buildSuites() map[string][]Scenario {
 			{Name: "heavy     (20000 msg/s)", Workers: 400, RatePerW: 50},
 			{Name: "extreme   (50000 msg/s)", Workers: 1000, RatePerW: 50},
 			{Name: "max      (100000 msg/s)", Workers: 2000, RatePerW: 50},
-			{Name: fmt.Sprintf("unlimited  (%d workers, no rate limit)", ncpu*4), Workers: ncpu * 4, RatePerW: 0},
+			{
+				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
+				Workers:         ncpu * 4,
+				RatePerW:        0,
+				ProdConcurrency: unlimProd,
+			},
 		},
 	}
 }
@@ -594,13 +680,19 @@ func printScenarioTitle(i int, name string) {
 }
 func printResult(r ScenarioResult) {
 	tgtStr := "unlimited (no rate limit)"
-	achieveStr := "—"
+	achieveStr := "-"
 	if r.TargetRate > 0 {
 		tgtStr = fmt.Sprintf("%d msg/s", r.TargetRate)
 		achieveStr = fmt.Sprintf("%.1f%%", r.AchievementPct)
 	}
 	// ── Throughput ──
 	fmt.Printf("  %-26s %s\n", "Target rate:", tgtStr)
+	if r.IsUnlimited {
+		// Show how CPU slots are divided between producers and consumers
+		// so the reader understands the fairness budget.
+		fmt.Printf("  %-26s prod sema=%d  consumers=%d  (GOMAXPROCS=%d)\n",
+			"Concurrency split:", r.ProdConcurrency, r.ConsumerWorkers, r.GOMAXPROCS)
+	}
 	fmt.Printf("  %-26s %.1f msg/s\n", "Actual throughput:", r.ThroughputActual)
 	fmt.Printf("  %-26s %s\n", "Achievement:", achieveStr)
 	fmt.Printf("  %-26s %.2f s\n", "Elapsed:", r.DurationSecs)

@@ -4,8 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: remove unused nullAPI mock implementation from throughput benchmark">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis">
       <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -252,7 +251,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: simplify loop constructs using range expressions for better readability" />
     <MESSAGE value="fix: improve CPU usage calculation in AdaptiveRateLimiter using gopsutil for accuracy" />
     <MESSAGE value="feat: implement dependency resolution for Plugin Manager with cycle detection and automatic sorting" />
     <MESSAGE value="feat: add automated dependency tracking and smart registration for plugins" />
@@ -277,7 +275,8 @@
     <MESSAGE value="refactor: optimize loop constructs for concurrency in tests and replace sort with slices package" />
     <MESSAGE value="refactor: enhance throughput benchmark by restructuring scenarios and improving event handling" />
     <MESSAGE value="refactor: remove unused nullAPI mock implementation from throughput benchmark" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: remove unused nullAPI mock implementation from throughput benchmark" />
+    <MESSAGE value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
