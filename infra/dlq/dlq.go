@@ -153,40 +153,10 @@ func (dlq *DeadLetterQueue) Enqueue(item DeadLetterItem) {
 		return
 	}
 
-	// DropPolicyBlockUntilSpace 需要阻塞等待，直接尝试发送
+	// DropPolicyBlockUntilSpace 需要阻塞等待，使用独立方法精确控制 recover 范围
 	if dlq.config.DropPolicy == DropPolicyBlockUntilSpace {
-		// 使用较短的超时时间，避免在关闭时长时间阻塞
-		ctx, cancel := context.WithTimeout(dlq.ctx, 5*time.Second)
-		defer cancel()
-
-		// 使用 defer recover 防止 send on closed channel panic
-		defer func() {
-			if r := recover(); r != nil {
-				// Channel 已关闭，记录为 dropped
-				dlq.dropped.Add(1)
-				if dlq.config.OnDropped != nil {
-					dlq.config.OnDropped(item, "queue closed during send")
-				}
-			}
-		}()
-
-		select {
-		case dlq.queue <- item:
-			return
-		case <-dlq.ctx.Done():
-			// DLQ 正在关闭，立即返回
-			dlq.dropped.Add(1)
-			if dlq.config.OnDropped != nil {
-				dlq.config.OnDropped(item, "queue closing")
-			}
-			return
-		case <-ctx.Done():
-			dlq.dropped.Add(1)
-			if dlq.config.OnDropped != nil {
-				dlq.config.OnDropped(item, "timeout waiting for space")
-			}
-			return
-		}
+		dlq.enqueueBlockUntilSpace(item)
+		return
 	}
 
 	// 其他策略需要加锁保护状态一致性
@@ -261,5 +231,42 @@ func (dlq *DeadLetterQueue) Stats() Stats {
 		IsClosed:   dlq.queueClosed.Load(),
 		Consumers:  len(consumers),
 		DropPolicy: dlq.config.DropPolicy,
+	}
+}
+
+// enqueueBlockUntilSpace 处理 DropPolicyBlockUntilSpace 策略的入队
+// 独立方法确保 defer recover 只作用于此函数范围，不会误捕获其他分支的 panic
+func (dlq *DeadLetterQueue) enqueueBlockUntilSpace(item DeadLetterItem) {
+	// 使用较短的超时时间，避免在关闭时长时间阻塞
+	ctx, cancel := context.WithTimeout(dlq.ctx, 5*time.Second)
+	defer cancel()
+
+	// recover 精确作用于本函数，防止 send on closed channel panic
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel 已关闭，记录为 dropped
+			dlq.dropped.Add(1)
+			if dlq.config.OnDropped != nil {
+				dlq.config.OnDropped(item, "queue closed during send")
+			}
+		}
+	}()
+
+	select {
+	case dlq.queue <- item:
+		return
+	case <-dlq.ctx.Done():
+		// DLQ 正在关闭，立即返回
+		dlq.dropped.Add(1)
+		if dlq.config.OnDropped != nil {
+			dlq.config.OnDropped(item, "queue closing")
+		}
+		return
+	case <-ctx.Done():
+		dlq.dropped.Add(1)
+		if dlq.config.OnDropped != nil {
+			dlq.config.OnDropped(item, "timeout waiting for space")
+		}
+		return
 	}
 }

@@ -348,10 +348,22 @@ func (r *Request) Do() (*Response, error) {
 }
 
 // doWithRetry 执行带重试的请求
+//
+// 修复：预先将请求体读入内存，每次重试时创建新的 reader，
+// 避免非 io.Seeker 的请求体（如 strings.NewReader）在重试时发送空 body。
 func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 	config := r.client.retryConfig
 	var resp *http.Response
 	var err error
+
+	// 预先读取请求体，以便每次重试都能重新发送完整的 body
+	var bodyBytes []byte
+	if r.body != nil {
+		bodyBytes, err = io.ReadAll(r.body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body for retry: %w", err)
+		}
+	}
 
 	for attempt := 0; attempt <= config.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -365,12 +377,16 @@ func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 
 			time.Sleep(waitTime)
 
-			// 重新创建请求体（如果有）
-			if r.body != nil {
-				if seeker, ok := r.body.(io.Seeker); ok {
-					seeker.Seek(0, io.SeekStart)
-				}
+			// 重新创建 HTTP 请求以重置请求体（避免 consumed reader 问题）
+			var reqBody io.Reader
+			if bodyBytes != nil {
+				reqBody = bytes.NewReader(bodyBytes)
 			}
+			req, err = http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), reqBody)
+			if err != nil {
+				return nil, fmt.Errorf("failed to recreate request for retry: %w", err)
+			}
+			req.Header = r.headers
 		}
 
 		resp, err = r.client.client.Do(req)
@@ -434,13 +450,17 @@ func (r *Request) DoBytes() ([]byte, error) {
 }
 
 // Bytes 读取响应体为字节数组
+//
+// 首次调用时读取并缓存响应体，后续调用直接返回缓存。
+// 注意：读取后 Body 会被关闭，应使用 Close() 方法手动关闭（Close 内部做幂等处理）。
 func (r *Response) Bytes() ([]byte, error) {
 	if r.body != nil {
 		return r.body, nil
 	}
 
-	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
+	// 无论读取成功与否，关闭 Body 释放连接
+	r.Body.Close()
 	if err != nil {
 		return nil, err
 	}

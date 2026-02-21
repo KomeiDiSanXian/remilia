@@ -243,11 +243,16 @@ func (l *Logger) Log(entry *Entry) {
 		entry.ID = l.generateID()
 	}
 
-	// 发送到缓冲区
-	select {
-	case l.buffer <- entry:
-	default:
-		logger.Warn("[Audit] Audit log buffer full, dropping entry")
+	if l.config.AsyncWrite {
+		// 异步写入：发送到缓冲区
+		select {
+		case l.buffer <- entry:
+		default:
+			logger.Warn("[Audit] Audit log buffer full, dropping entry")
+		}
+	} else {
+		// 同步写入：直接写入文件，不经过 channel（避免无消费者时丢失日志）
+		l.writeBatch([]*Entry{entry})
 	}
 }
 

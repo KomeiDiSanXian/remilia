@@ -188,9 +188,12 @@ func (h *Check) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
 	response := h.Check(ctx)
 	w.Header().Set("Content-Type", "application/json")
 
-	if response.Status == Healthy {
+	// Degraded 表示"部分功能受影响但核心功能正常"，对 K8s 等编排系统仍应返回 200
+	// 避免编排系统将仍可服务的实例错误地从流量中剔除
+	switch response.Status {
+	case Healthy, Degraded:
 		w.WriteHeader(http.StatusOK)
-	} else {
+	default:
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}
 

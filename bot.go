@@ -22,6 +22,8 @@ import (
 const (
 	// DefaultShutdownTimeout is the default timeout for graceful shutdown
 	DefaultShutdownTimeout = 30 * time.Second
+	// DefaultStartTimeout is the default timeout for component OnStart phase
+	DefaultStartTimeout = 30 * time.Second
 )
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
@@ -162,8 +164,9 @@ func (b *Bot) Start() error {
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
 
-	// 添加超时保护，防止永久阻塞
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 添加超时保护，防止 OnStart 阶段永久阻塞
+	// 注意：此超时仅控制 OnStart 阶段，OnRun 在独立 goroutine 中运行不受此超时影响
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultStartTimeout)
 	defer cancel()
 
 	// 使用生命周期管理器启动所有组件
@@ -222,34 +225,23 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 	logger.Info("[Bot] Shutting down...")
 
-	// 使用 channel 来处理异步关闭
-	done := make(chan error, 1)
-	go func() {
-		// 使用生命周期管理器停止所有组件（逆序）
-		err := b.lifecycle.Stop(ctx)
+	// 直接调用 lifecycle.Stop，它已经接受 ctx 作为超时控制
+	// 避免额外 goroutine 包装导致 ctx 超时后泄漏
+	err := b.lifecycle.Stop(ctx)
 
-		// 停止 token manager（如果存在）
-		if b.tokenManager != nil {
-			logger.Debug("[Bot] Stopping token manager...")
-			b.tokenManager.Stop()
-		}
-
-		done <- err
-	}()
-
-	// 等待关闭完成或超时
-	select {
-	case err := <-done:
-		if err != nil {
-			logger.WithError(err).Error("[Bot] Stop completed with errors")
-			return err
-		}
-		logger.Info("[Bot] Stop complete")
-		return nil
-	case <-ctx.Done():
-		logger.WithError(ctx.Err()).Warn("[Bot] Stop timeout exceeded")
-		return ctx.Err()
+	// 无论 lifecycle.Stop 是否超时，都尝试停止 token manager
+	// token manager 的 Stop 是非阻塞的
+	if b.tokenManager != nil {
+		logger.Debug("[Bot] Stopping token manager...")
+		b.tokenManager.Stop()
 	}
+
+	if err != nil {
+		logger.WithError(err).Error("[Bot] Stop completed with errors")
+		return err
+	}
+	logger.Info("[Bot] Stop complete")
+	return nil
 }
 
 // Shutdown 使用默认超时时间优雅关闭 Bot

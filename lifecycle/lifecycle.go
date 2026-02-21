@@ -306,9 +306,19 @@ func NewManager() *Manager {
 // Register 注册组件
 //
 // 组件将按照注册顺序启动，按照逆序停止。
+//
+// 注意：此方法只能在 Manager 启动之前调用（StateCreated 或 StateStopped 状态）。
+// 在 StateRunning 状态下调用时，组件会被加入列表，但 OnRun 不会被执行，
+// 仅会记录警告日志。如需动态添加组件，应在下次 Start 前注册。
 func (m *Manager) Register(comp Component) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.state == StateRunning {
+		logger.WithFields(logger.Fields{
+			"component": comp.Name(),
+		}).Warn("[Lifecycle] Register called while running: component OnRun will NOT be started until next Start()")
+	}
 
 	m.components = append(m.components, comp)
 }
@@ -468,8 +478,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 	case <-done:
 		// 所有 OnRun 已完成
 	case <-ctx.Done():
-		// 超时
-		logger.Warn("[Lifecycle] Stop timeout, some OnRun may still be running")
+		// 等待 OnRun 超时，为 OnStop 创建新的独立 context
+		// 原 ctx 已过期，继续使用会导致 OnStop 立即返回错误
+		logger.Warn("[Lifecycle] Stop timeout waiting for OnRun, proceeding with OnStop using fresh context")
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		ctx = stopCtx
 	}
 
 	// 逆序调用 OnStop，收集所有错误

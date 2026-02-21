@@ -354,9 +354,9 @@ func TestCheck_ReadinessHandler(t *testing.T) {
 			expectedCode: http.StatusOK,
 		},
 		{
-			name:         "degraded returns unavailable",
+			name:         "degraded returns OK",
 			status:       Degraded,
-			expectedCode: http.StatusServiceUnavailable,
+			expectedCode: http.StatusOK,
 		},
 		{
 			name:         "unhealthy returns unavailable",

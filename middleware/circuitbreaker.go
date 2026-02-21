@@ -239,6 +239,7 @@ func (cb *CircuitBreaker) onSuccess() {
 			// 达到阈值，转为闭合状态
 			cb.failures.Store(0)
 			cb.successes.Store(0)
+			cb.halfOpenReqs.Store(0) // 重置半开请求计数，避免下次进入半开状态时计数残留
 			cb.setState(StateClosed)
 			logger.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
 		} else {

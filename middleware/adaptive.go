@@ -149,6 +149,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 
 			// 尝试获取令牌（使用 CAS 原子操作，限制重试次数）
 			const maxRetries = 1000
+			acquired := false
 			for range maxRetries {
 				current := arl.currentLoad.Load()
 				if current >= limit {
@@ -167,9 +168,16 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 				// 尝试原子增加负载
 				if arl.currentLoad.CompareAndSwap(current, current+1) {
 					// 成功获取令牌
+					acquired = true
 					break
 				}
 				// CAS 失败，重试
+			}
+
+			// CAS 1000 次全部失败，说明系统极度竞争，拒绝请求以防止绕过限流
+			if !acquired {
+				arl.rejectedRequests.Add(1)
+				return fmt.Errorf("adaptive rate limit: failed to acquire slot after %d retries", maxRetries)
 			}
 
 			start := time.Now()

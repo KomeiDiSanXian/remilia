@@ -4,13 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: replace traditional for loops with range for improved readability in tests and state management">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-improvements-implementation.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement caching mechanism in Help plugin for improved performance and reduced response time">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/comprehensive-bug-and-improvement-report.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-analysis-bugs-improvements.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/audit.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,8 +31,8 @@
   <component name="CopilotUserSelectedModel">
     <selectedModels>
       <entry key="edit-panel" value="GPT-5.1-Codex-Max" />
-      <entry key="chat-panel" value="Claude Sonnet 4.5" />
-      <entry key="agent-panel" value="Claude Sonnet 4.5" />
+      <entry key="chat-panel" value="Claude Sonnet 4.6" />
+      <entry key="agent-panel" value="Claude Sonnet 4.6" />
     </selectedModels>
   </component>
   <component name="FileTemplateManagerImpl">
@@ -256,7 +262,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: add Help Plugin fix summary and verification documentation" />
     <MESSAGE value="feat: optimize Debug plugin command registration and enhance documentation" />
     <MESSAGE value="feat: add strings package import" />
     <MESSAGE value="fix: correct formatting in main output display" />
@@ -281,7 +286,8 @@
     <MESSAGE value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
     <MESSAGE value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
     <MESSAGE value="refactor: replace traditional for loops with range for improved readability in tests and state management" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: replace traditional for loops with range for improved readability in tests and state management" />
+    <MESSAGE value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -137,13 +137,13 @@ func (h *Histogram) Sum() int64 {
 	return h.sum.Load()
 }
 
-// Min 获取最小值
+// Min 获取最小观测值
+// 如果没有观测数据（Count() == 0），返回 0
 func (h *Histogram) Min() int64 {
-	load := h.min.Load()
-	if load == int64(^uint64(0)>>1) {
+	if h.count.Load() == 0 {
 		return 0
 	}
-	return load
+	return h.min.Load()
 }
 
 // Max 获取最大值
