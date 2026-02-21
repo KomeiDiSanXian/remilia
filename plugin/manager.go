@@ -33,6 +33,7 @@ type Manager struct {
 	viper       *viper.Viper        // 全局配置
 	loadOrder   []string            // 插件加载顺序
 	container   *Container          // 依赖注入容器（v2）
+	eventBus    EventBus            // 插件间事件总线
 	mu          sync.RWMutex
 }
 
@@ -44,6 +45,7 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		listeners:   make([]LifecycleListener, 0),
 		loadOrder:   make([]string, 0),
 		container:   NewContainer(),
+		eventBus:    NewEventBus(),
 	}
 }
 

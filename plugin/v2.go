@@ -54,6 +54,10 @@ type PluginDescriptor struct {
 	Teardown TeardownFunc // 清理函数（可选）
 	Reload   ReloadFunc   // 热重载函数（可选）
 
+	// 状态保存/恢复钩子（用于热重载）
+	SaveState    SaveStateFunc    // 保存状态（可选）
+	RestoreState RestoreStateFunc // 恢复状态（可选）
+
 	// 配置
 	ConfigSchema any // 配置结构（可选）
 
@@ -81,12 +85,23 @@ type TeardownFunc func() error
 // 如果不实现，将使用默认的 Teardown + Setup 策略
 type ReloadFunc func(ctx *SetupContext) error
 
+// SaveStateFunc 插件状态保存函数
+// 在热重载前保存插件状态（可选）
+// 返回的状态数据将传递给 RestoreStateFunc
+type SaveStateFunc func() (any, error)
+
+// RestoreStateFunc 插件状态恢复函数
+// 在热重载后恢复插件状态（可选）
+// 接收 SaveStateFunc 返回的状态数据
+type RestoreStateFunc func(state any) error
+
 // SetupContext 插件初始化上下文
 // 提供插件初始化所需的所有资源
 type SetupContext struct {
-	Engine  *engine.Engine // 事件引擎
-	Manager *Manager       // 插件管理器
-	Config  Config         // 插件配置
+	Engine   *engine.Engine // 事件引擎
+	Manager  *Manager       // 插件管理器
+	Config   Config         // 插件配置
+	EventBus EventBus       // 插件间事件总线
 
 	container        *Container      // 依赖注入容器
 	pluginName       string          // 当前插件名称（内部使用）
@@ -311,11 +326,25 @@ func (pi *PluginInstance) Reload(coordinator *engine.Engine) error {
 	pi.state = Reloading
 	pi.mu.Unlock()
 
+	// 保存状态（如果定义了 SaveState 函数）
+	var savedState any
+	var saveErr error
+	if pi.desc.SaveState != nil {
+		savedState, saveErr = pi.desc.SaveState()
+		if saveErr != nil {
+			logger.WithError(saveErr).Warn("[plugin] Failed to save state before reload")
+			// 继续重载，但记录错误
+		} else {
+			logger.Infof("[plugin] State saved for plugin: %s", pi.desc.Name)
+		}
+	}
+
 	// 重新创建 SetupContext 以获取最新的容器状态
 	newContext := &SetupContext{
 		Engine:     oldContext.Engine,
 		Manager:    oldContext.Manager,
 		Config:     oldContext.Config,
+		EventBus:   oldContext.EventBus,
 		container:  oldContext.container,
 		pluginName: oldContext.pluginName,
 		instance:   oldContext.instance,
@@ -341,6 +370,15 @@ func (pi *PluginInstance) Reload(coordinator *engine.Engine) error {
 		pi.lastError = nil
 		pi.mu.Unlock()
 
+		// 恢复状态（如果有保存的状态且定义了 RestoreState 函数）
+		if savedState != nil && pi.desc.RestoreState != nil {
+			if err := pi.desc.RestoreState(savedState); err != nil {
+				logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
+			} else {
+				logger.Infof("[plugin] State restored for plugin: %s", pi.desc.Name)
+			}
+		}
+
 		return nil
 	}
 
@@ -348,7 +386,20 @@ func (pi *PluginInstance) Reload(coordinator *engine.Engine) error {
 	if err := pi.Unload(coordinator); err != nil {
 		return err
 	}
-	return pi.Load(coordinator)
+	if err := pi.Load(coordinator); err != nil {
+		return err
+	}
+
+	// 恢复状态（如果有保存的状态且定义了 RestoreState 函数）
+	if savedState != nil && pi.desc.RestoreState != nil {
+		if err := pi.desc.RestoreState(savedState); err != nil {
+			logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
+		} else {
+			logger.Infof("[plugin] State restored for plugin: %s", pi.desc.Name)
+		}
+	}
+
+	return nil
 }
 
 // Dependencies 返回依赖列表（实现 Plugin 接口，用于兼容）
@@ -516,6 +567,7 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		Engine:           pm.coordinator,
 		Manager:          pm,
 		Config:           config,
+		EventBus:         pm.eventBus,
 		container:        pm.container,
 		pluginName:       name,
 		instance:         instance,

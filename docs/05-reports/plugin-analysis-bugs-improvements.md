@@ -397,12 +397,13 @@ func (pm *Manager) EnforceResourceLimits(name string) error {
 
 ---
 
-### 4. 实现插件间的事件总线 【高收益】
+### 4. 实现插件间的事件总线 【高收益】✅ 已实现
 
 **当前问题**:
 插件间通信只能通过直接调用方法，缺乏解耦的通信机制。
 
-**改进方案**:
+**已实现方案**:
+已经实现了完整的 EventBus 系统（`plugin/eventbus.go`），并已集成到 SetupContext 中：
 ```go
 type EventBus struct {
     subscribers map[string][]func(event any)

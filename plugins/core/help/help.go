@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -28,6 +30,12 @@ const (
 type Plugin struct {
 	Engine        *engine.Engine  // 从 Engine 直接获取命令信息
 	PluginManager *plugin.Manager // 用于获取插件信息
+
+	// 缓存
+	helpCache     map[string]string // key: "page:1", "plugin:cache", "command:help", "plugins"
+	cacheMu       sync.RWMutex
+	cacheExpiry   time.Time
+	cacheDuration time.Duration // 缓存有效期
 }
 
 // New 创建帮助插件（v2 API）
@@ -75,7 +83,42 @@ func newHelpPluginInternal() *Plugin {
 	return &Plugin{
 		Engine:        nil, // 将在 Setup 时设置
 		PluginManager: nil, // 将在 Setup 时设置
+		helpCache:     make(map[string]string),
+		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
+		cacheExpiry:   time.Now(),
 	}
+}
+
+// getCachedHelp 获取缓存的帮助信息
+func (p *Plugin) getCachedHelp(key string) (string, bool) {
+	p.cacheMu.RLock()
+	defer p.cacheMu.RUnlock()
+
+	// 检查缓存是否过期
+	if time.Now().After(p.cacheExpiry) {
+		return "", false
+	}
+
+	text, ok := p.helpCache[key]
+	return text, ok
+}
+
+// setCachedHelp 设置缓存的帮助信息
+func (p *Plugin) setCachedHelp(key string, text string) {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+
+	p.helpCache[key] = text
+	p.cacheExpiry = time.Now().Add(p.cacheDuration)
+}
+
+// invalidateCache 清除所有缓存
+func (p *Plugin) invalidateCache() {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+
+	p.helpCache = make(map[string]string)
+	p.cacheExpiry = time.Now()
 }
 
 // Load 加载帮助插件（v1 API）
@@ -152,6 +195,13 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 
 // showCommandsPage 显示指定页的命令列表
 func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
+	// 尝试从缓存获取
+	cacheKey := fmt.Sprintf("page:%d", page)
+	if cached, ok := p.getCachedHelp(cacheKey); ok {
+		logger.Debugf("[help] Cache hit for page: %d", page)
+		return p.sendMessage(ctx, cached)
+	}
+
 	commands := p.Engine.GetAllCommands()
 
 	// 如果没有命令，显示插件列表
@@ -234,11 +284,22 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 
 	help.WriteString(fmt.Sprintf("\n📊 统计: 共 %d 个命令", len(commands)))
 
-	return p.sendMessage(ctx, help.String())
+	// 缓存结果
+	helpText := help.String()
+	p.setCachedHelp(cacheKey, helpText)
+
+	return p.sendMessage(ctx, helpText)
 }
 
 // showAllPlugins 显示所有插件的列表
 func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
+	// 尝试从缓存获取
+	cacheKey := "plugins"
+	if cached, ok := p.getCachedHelp(cacheKey); ok {
+		logger.Debug("[help] Cache hit for plugins list")
+		return p.sendMessage(ctx, cached)
+	}
+
 	if p.PluginManager == nil {
 		return p.sendMessage(ctx, "插件管理器不可用")
 	}
@@ -315,11 +376,22 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
 	help.WriteString("  /help <插件名> - 查看插件的详细信息和命令\n")
 	help.WriteString("  /help <命令名> - 查看命令详情\n")
 
-	return p.sendMessage(ctx, help.String())
+	// 缓存结果
+	helpText := help.String()
+	p.setCachedHelp(cacheKey, helpText)
+
+	return p.sendMessage(ctx, helpText)
 }
 
 // showPluginCommands 显示指定插件的所有命令
 func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) error {
+	// 尝试从缓存获取
+	cacheKey := fmt.Sprintf("plugin:%s", pluginName)
+	if cached, ok := p.getCachedHelp(cacheKey); ok {
+		logger.Debugf("[help] Cache hit for plugin: %s", pluginName)
+		return p.sendMessage(ctx, cached)
+	}
+
 	var help strings.Builder
 	help.WriteString(fmt.Sprintf("🔌 插件【%s】信息\n", pluginName))
 	help.WriteString(strings.Repeat("=", 30) + "\n\n")
@@ -412,6 +484,14 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 
 // showCommandDetail 显示特定命令的详细信息
 func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.CommandInfo) error {
+	// 尝试从缓存获取
+	cmdName := strings.TrimPrefix(cmdInfo.Command, "/")
+	cacheKey := fmt.Sprintf("command:%s", cmdName)
+	if cached, ok := p.getCachedHelp(cacheKey); ok {
+		logger.Debugf("[help] Cache hit for command: %s", cmdName)
+		return p.sendMessage(ctx, cached)
+	}
+
 	var detail strings.Builder
 
 	detail.WriteString("📝 命令详情\n")
@@ -512,7 +592,11 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 		}
 	}
 
-	return p.sendMessage(ctx, detail.String())
+	// 缓存结果
+	detailText := detail.String()
+	p.setCachedHelp(cacheKey, detailText)
+
+	return p.sendMessage(ctx, detailText)
 }
 
 // showCategoryCommands 显示特定分类下的所有命令
