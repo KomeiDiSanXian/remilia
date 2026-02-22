@@ -1,12 +1,16 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
+
+// ErrEventDropped 在 goroutine 池满时，Publish 会返回此错误
+var ErrEventDropped = errors.New("eventbus: worker pool full, event dropped")
 
 // EventHandler 事件处理函数
 type EventHandler func(data any)
@@ -27,6 +31,11 @@ type EventBus interface {
 
 	// Subscribe 订阅事件
 	Subscribe(topic string, handler EventHandler) (Subscription, error)
+
+	// SubscribeAll 订阅所有主题（通配符订阅）
+	// 此订阅者会收到所有通过 Publish 发布的事件（topic 作为 data 的包装不传递，直接传原始 data）
+	// 注意：通配符订阅者不会收到其他通配符订阅者的事件（防止无限循环）
+	SubscribeAll(handler EventHandler) (Subscription, error)
 
 	// Unsubscribe 取消订阅
 	Unsubscribe(sub Subscription) error
@@ -80,21 +89,33 @@ func NewEventBus() EventBus {
 	}
 }
 
+// wildcardTopic 通配符主题键，订阅此主题的处理器会收到所有事件
+const wildcardTopic = "*"
+
 // Publish 发布事件
 func (eb *eventBus) Publish(topic string, data any) error {
 	eb.mu.RLock()
 	handlers := eb.subscribers[topic]
+	// 通配符订阅者也应收到此事件（不对 wildcardTopic 本身触发通配符，避免无限循环）
+	var wildcardHandlers []subscriptionImpl
+	if topic != wildcardTopic {
+		wildcardHandlers = eb.subscribers[wildcardTopic]
+	}
 	eb.mu.RUnlock()
 
-	if len(handlers) == 0 {
+	allHandlers := make([]subscriptionImpl, 0, len(handlers)+len(wildcardHandlers))
+	allHandlers = append(allHandlers, handlers...)
+	allHandlers = append(allHandlers, wildcardHandlers...)
+
+	if len(allHandlers) == 0 {
 		logger.Debugf("[EventBus] No subscribers for topic: %s", topic)
 		return nil
 	}
 
-	// 异步通知所有订阅者
-	// 修复 #1：使用非阻塞 select 避免当 workerPool 满时卡死调用方（主事件循环）。
-	// 池满时直接启动 goroutine（不受并发限制），并记录警告。
-	for _, sub := range handlers {
+	var dropped bool
+
+	// 异步通知所有订阅者（含通配符订阅者）
+	for _, sub := range allHandlers {
 		select {
 		case eb.workerPool <- struct{}{}:
 			// 成功获取令牌，正常受限并发
@@ -108,18 +129,19 @@ func (eb *eventBus) Publish(topic string, data any) error {
 				h(data)
 			}(sub.handler)
 		default:
-			// 池已满：丢弃本次事件而不是无限新建 goroutine。
-			// 无界新建 goroutine 在慢消费者场景下会耗尽内存；
-			// 有界丢弃可通过 GetStats().DroppedCount 监控。
-			dropped := eb.droppedCount.Add(1)
-			logger.Warnf("[EventBus] Worker pool full, dropping event for topic %s (total dropped: %d)", topic, dropped)
+			// 池已满：丢弃本次事件并记录统计
+			cnt := eb.droppedCount.Add(1)
+			logger.Warnf("[EventBus] Worker pool full, dropping event for topic %s (total dropped: %d)", topic, cnt)
+			dropped = true
 		}
 	}
 
-	// 修复 #18：使用 atomic 操作替代写锁，减少锁竞争
 	eb.publishCount.Add(1)
+	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d)", topic, len(handlers), len(wildcardHandlers))
 
-	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d", topic, len(handlers))
+	if dropped {
+		return ErrEventDropped
+	}
 	return nil
 }
 
@@ -146,6 +168,11 @@ func (eb *eventBus) Subscribe(topic string, handler EventHandler) (Subscription,
 
 	logger.Debugf("[EventBus] Subscribed to topic: %s, id: %s", topic, id)
 	return &sub, nil
+}
+
+// SubscribeAll 订阅所有主题（通配符订阅，实现 EventBus 接口）
+func (eb *eventBus) SubscribeAll(handler EventHandler) (Subscription, error) {
+	return eb.Subscribe(wildcardTopic, handler)
 }
 
 // Unsubscribe 取消订阅

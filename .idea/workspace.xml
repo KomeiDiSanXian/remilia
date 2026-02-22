@@ -4,10 +4,40 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins">
-      <change afterPath="$PROJECT_DIR$/bot_manager.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/bot_manager_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement BotManager for managing multiple Bot instances with lifecycle control">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis-2026-02-22.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/p3_features_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/acl/acl.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/acl/acl_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/auditlog/auditlog.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/auditlog/auditlog_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/keywordfilter/keywordfilter.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/keywordfilter/keywordfilter_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/verifycode/verifycode.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/verifycode/verifycode_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/antispam/antispam.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/conversation/conversation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/cache/cache.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/cache/cache.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/memory.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/memory.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -241,7 +271,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: move to archived" />
     <MESSAGE value="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation" />
     <MESSAGE value="feat: add tests for bug fixes related to concurrent access, listener safety, unload state transition, and container performance" />
     <MESSAGE value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
@@ -266,7 +295,8 @@
     <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
     <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
     <MESSAGE value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
+    <MESSAGE value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

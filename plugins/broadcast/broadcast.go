@@ -16,8 +16,10 @@ package broadcast
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/time/rate"
 
@@ -56,6 +58,20 @@ type Plugin struct {
 	rl  *rate.Limiter
 	api openapi.OpenAPI
 	mu  sync.RWMutex
+
+	// 订阅管理
+	groupSubs map[string]bool // groupOpenID -> subscribed
+	c2cSubs   map[string]bool // userOpenID -> subscribed
+	subMu     sync.RWMutex
+
+	// 可选持久化后端
+	storage storageBackend
+}
+
+// storageBackend 用于订阅持久化（避免直接依赖 storage 包）
+type storageBackend interface {
+	Get(key string) ([]byte, error)
+	Set(key string, value []byte, ttl time.Duration) error
 }
 
 // New 创建广播插件描述符
@@ -65,8 +81,10 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 		c = cfg[0]
 	}
 	p := &Plugin{
-		cfg: c,
-		rl:  rate.NewLimiter(rate.Limit(c.Rate), c.Burst),
+		cfg:       c,
+		rl:        rate.NewLimiter(rate.Limit(c.Rate), c.Burst),
+		groupSubs: make(map[string]bool),
+		c2cSubs:   make(map[string]bool),
 	}
 
 	return &plugin.PluginDescriptor{
@@ -81,11 +99,28 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
   bc := ctx.MustGet("broadcast").(*broadcast.Plugin)
   bc.SetAPI(api)
   result := bc.ToGroups(groupIDs, msg)
-  result := bc.ToC2C(openIDs, msg)`,
+  result := bc.ToC2C(openIDs, msg)
+
+  // 订阅管理
+  bc.SubscribeGroup("group-openid")
+  bc.UnsubscribeGroup("group-openid")
+  bc.ToSubscribedGroups(msg)  // 向所有已订阅群广播`,
 
 		Setup: func(setupCtx *plugin.SetupContext) error {
 			logger.Infof("[Broadcast] Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
 			setupCtx.Manager.GetContainer().Register("broadcast", p)
+			// 可选：若 storage 插件已注册，则使用其持久化订阅数据
+			if storageRaw, ok := setupCtx.Manager.GetContainer().Get("storage"); ok {
+				if sb, ok := storageRaw.(storageBackend); ok {
+					p.storage = sb
+					p.loadSubs()
+				}
+			}
+			return nil
+		},
+
+		Teardown: func() error {
+			p.saveSubs()
 			return nil
 		},
 	}
@@ -180,4 +215,111 @@ func (p *Plugin) send(targets []string, msg *dto.Message, isGroup bool) Result {
 
 	logger.Infof("[Broadcast] Completed: total=%d success=%d failed=%d", result.Total, result.Success, result.Failed)
 	return result
+}
+
+// SubscribeGroup 将群加入广播订阅列表
+func (p *Plugin) SubscribeGroup(groupOpenID string) {
+	p.subMu.Lock()
+	p.groupSubs[groupOpenID] = true
+	p.subMu.Unlock()
+	go p.saveSubs()
+}
+
+// UnsubscribeGroup 将群从订阅列表移除
+func (p *Plugin) UnsubscribeGroup(groupOpenID string) {
+	p.subMu.Lock()
+	delete(p.groupSubs, groupOpenID)
+	p.subMu.Unlock()
+	go p.saveSubs()
+}
+
+// SubscribeC2C 将用户加入广播订阅列表
+func (p *Plugin) SubscribeC2C(userOpenID string) {
+	p.subMu.Lock()
+	p.c2cSubs[userOpenID] = true
+	p.subMu.Unlock()
+	go p.saveSubs()
+}
+
+// UnsubscribeC2C 将用户从订阅列表移除
+func (p *Plugin) UnsubscribeC2C(userOpenID string) {
+	p.subMu.Lock()
+	delete(p.c2cSubs, userOpenID)
+	p.subMu.Unlock()
+	go p.saveSubs()
+}
+
+// ListGroupSubscribers 返回所有已订阅的群 ID
+func (p *Plugin) ListGroupSubscribers() []string {
+	p.subMu.RLock()
+	defer p.subMu.RUnlock()
+	out := make([]string, 0, len(p.groupSubs))
+	for id := range p.groupSubs {
+		out = append(out, id)
+	}
+	return out
+}
+
+// ListC2CSubscribers 返回所有已订阅的用户 ID
+func (p *Plugin) ListC2CSubscribers() []string {
+	p.subMu.RLock()
+	defer p.subMu.RUnlock()
+	out := make([]string, 0, len(p.c2cSubs))
+	for id := range p.c2cSubs {
+		out = append(out, id)
+	}
+	return out
+}
+
+// ToSubscribedGroups 向所有已订阅的群发送消息
+func (p *Plugin) ToSubscribedGroups(msg *dto.Message) Result {
+	return p.ToGroups(p.ListGroupSubscribers(), msg)
+}
+
+// ToSubscribedC2C 向所有已订阅的用户发送私聊消息
+func (p *Plugin) ToSubscribedC2C(msg *dto.Message) Result {
+	return p.ToC2C(p.ListC2CSubscribers(), msg)
+}
+
+type subSnapshot struct {
+	Groups []string `json:"groups"`
+	C2Cs   []string `json:"c2cs"`
+}
+
+func (p *Plugin) saveSubs() {
+	if p.storage == nil {
+		return
+	}
+	snap := subSnapshot{
+		Groups: p.ListGroupSubscribers(),
+		C2Cs:   p.ListC2CSubscribers(),
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return
+	}
+	_ = p.storage.Set("broadcast:subscriptions", data, 0)
+}
+
+func (p *Plugin) loadSubs() {
+	if p.storage == nil {
+		return
+	}
+	data, err := p.storage.Get("broadcast:subscriptions")
+	if err != nil {
+		return
+	}
+	var snap subSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return
+	}
+	p.subMu.Lock()
+	defer p.subMu.Unlock()
+	for _, id := range snap.Groups {
+		p.groupSubs[id] = true
+	}
+	for _, id := range snap.C2Cs {
+		p.c2cSubs[id] = true
+	}
+	logger.Infof("[Broadcast] Loaded %d group + %d c2c subscriptions", len(snap.Groups), len(snap.C2Cs))
 }

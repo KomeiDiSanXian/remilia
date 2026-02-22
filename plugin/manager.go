@@ -7,6 +7,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
+	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 )
 
@@ -49,11 +50,40 @@ func NewManager(coordinator *engine.Engine) *Manager {
 	}
 }
 
-// SetViper 设置全局配置（用于插件配置管理）
+// SetViper 设置全局配置（用于插件配置管理）并订阅变更事件，
+// 当底层配置文件变更时自动触发所有已加载插件的 Config.Reload() 和 OnChange 回调。
 func (pm *Manager) SetViper(v *viper.Viper) {
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.viper = v
+	pm.mu.Unlock()
+
+	// 订阅 viper 配置变更事件，自动传播到所有插件配置
+	if v != nil {
+		v.OnConfigChange(func(_ fsnotify.Event) {
+			pm.propagateConfigChange()
+		})
+	}
+}
+
+// propagateConfigChange 向所有已加载插件的 Config 广播配置变更
+func (pm *Manager) propagateConfigChange() {
+	pm.mu.RLock()
+	plugins := make([]Plugin, 0, len(pm.plugins))
+	for _, p := range pm.plugins {
+		plugins = append(plugins, p)
+	}
+	pm.mu.RUnlock()
+
+	for _, p := range plugins {
+		if configurable, ok := p.(ConfigurablePlugin); ok {
+			cfg := configurable.GetConfig()
+			if cfg != nil {
+				if err := cfg.Reload(); err != nil {
+					logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", p.Name())
+				}
+			}
+		}
+	}
 }
 
 // AddListener 添加生命周期监听器
@@ -154,11 +184,9 @@ func (pm *Manager) Unregister(name string) error {
 	if err := plugin.Unload(pm.coordinator); err != nil {
 		// 修复 #13：Unload 失败时，标记插件为 Error 状态，
 		// 防止插件在损坏状态下继续被 Reload/Get 等操作使用。
-		if stateful, ok := plugin.(StatefulPlugin); ok {
+		if stateful, ok := plugin.(statefulPluginWriter); ok {
 			stateful.SetState(Error)
 		}
-		pm.mu.Unlock()
-		logger.WithError(err).Errorf("[pluginManager] Failed to unload plugin %s, marked as error state", name)
 		pm.notifyError(name, "unload", err) // 通知监听器错误
 		return err
 	}
@@ -230,7 +258,49 @@ func (pm *Manager) Reload(name string) error {
 
 	logger.Infof("[pluginManager] Plugin %s reloaded successfully", name)
 	pm.notifyReloaded(name) // 通知监听器
+
+	// 通知所有依赖了 name 插件的其他插件（依赖方通知）
+	pm.notifyDependents(name)
 	return nil
+}
+
+// notifyDependents 通知依赖了 reloadedPlugin 的所有其他 v2 插件
+func (pm *Manager) notifyDependents(reloadedPlugin string) {
+	pm.mu.RLock()
+	plugins := make(map[string]Plugin, len(pm.plugins))
+	for k, v := range pm.plugins {
+		plugins[k] = v
+	}
+	pm.mu.RUnlock()
+
+	for depName, p := range plugins {
+		if depName == reloadedPlugin {
+			continue
+		}
+		// 只处理 PluginInstance（v2 插件）
+		inst, ok := p.(*PluginInstance)
+		if !ok {
+			continue
+		}
+		// 检查该插件是否依赖了刚重载的插件
+		for _, dep := range inst.desc.Deps {
+			if dep == reloadedPlugin {
+				// 调用 OnDependencyReloaded 回调
+				if inst.desc.OnDependencyReloaded != nil {
+					logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
+					go func(cb func(string), dep string) {
+						defer func() {
+							if r := recover(); r != nil {
+								logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
+							}
+						}()
+						cb(dep)
+					}(inst.desc.OnDependencyReloaded, reloadedPlugin)
+				}
+				break
+			}
+		}
+	}
 }
 
 // Get 获取插件

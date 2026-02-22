@@ -126,8 +126,8 @@ func (m *MemoryStorage) Clear() error {
 	return nil
 }
 
-// CleanExpired 清理过期数据
-func (m *MemoryStorage) CleanExpired() int {
+// CleanExpired 清理过期数据（实现 CleanableStorage 接口）
+func (m *MemoryStorage) CleanExpired() (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -141,7 +141,7 @@ func (m *MemoryStorage) CleanExpired() int {
 		}
 	}
 
-	return count
+	return count, nil
 }
 
 // Size 返回存储的键数量

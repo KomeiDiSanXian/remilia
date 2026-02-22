@@ -36,7 +36,7 @@ func (pc *Component) OnStart(ctx context.Context) error {
 	logger.Infof("[Component] Starting plugin: %s", name)
 
 	// 设置加载中状态
-	if stateful, ok := pc.plugin.(StatefulPlugin); ok {
+	if stateful, ok := pc.plugin.(statefulPluginWriter); ok {
 		stateful.SetState(Loading)
 	}
 
@@ -45,7 +45,7 @@ func (pc *Component) OnStart(ctx context.Context) error {
 		logger.WithError(err).Errorf("[Component] Failed to load plugin: %s", name)
 
 		// 设置错误状态
-		if stateful, ok := pc.plugin.(StatefulPlugin); ok {
+		if stateful, ok := pc.plugin.(statefulPluginWriter); ok {
 			stateful.SetState(Error)
 			stateful.SetLastError(err)
 		}
@@ -59,7 +59,7 @@ func (pc *Component) OnStart(ctx context.Context) error {
 	}
 
 	// 设置加载完成状态
-	if stateful, ok := pc.plugin.(StatefulPlugin); ok {
+	if stateful, ok := pc.plugin.(statefulPluginWriter); ok {
 		stateful.SetState(Loaded)
 		stateful.SetLastError(nil)
 	}
@@ -101,7 +101,7 @@ func (pc *Component) OnStop(ctx context.Context) error {
 	}
 
 	// 设置卸载状态
-	if stateful, ok := pc.plugin.(StatefulPlugin); ok {
+	if stateful, ok := pc.plugin.(statefulPluginWriter); ok {
 		stateful.SetState(Unloaded)
 	}
 

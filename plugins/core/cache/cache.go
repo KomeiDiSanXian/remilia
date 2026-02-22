@@ -83,9 +83,8 @@ API 使用 (v2):
 			logger.Info("[CachePlugin] Loading cache plugin (v2)...")
 			logger.Infof("[CachePlugin] Capacity: %d", capacity)
 
-			// 将 API 包装器注册到容器中（供依赖此插件的其他插件使用）
-			// 注意：这是一个临时方案，理想情况下应该通过 v2 的返回值机制
-			ctx.Manager.GetContainer().Register("cache_api", pluginAPI)
+			// 注册 API 包装器到容器，使用插件名 "cache" 以便 MustGet("cache") 直接获取 *cache.Plugin
+			ctx.Manager.GetContainer().Register("cache", pluginAPI)
 
 			logger.Info("[CachePlugin] Cache plugin loaded successfully")
 			return nil

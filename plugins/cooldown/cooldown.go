@@ -1,0 +1,184 @@
+// Package cooldown 提供命令冷却时间插件。
+//
+// 比 antispam 更轻量，专注于单命令冷却控制。
+// 支持用户级和全局冷却时间，可作为中间件或规则使用。
+//
+// 使用示例:
+//
+//	pm.RegisterV2(cooldown.New())
+//
+//	// 作为中间件（在 Setup 中）：
+//	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
+//	engine.OnCommand(dto.C2CMessageCreate, "/daily").
+//	    Use(cd.Middleware("daily", 24*time.Hour)).
+//	    Handle(dailyHandler)
+//
+//	// 手动检查（在 Handler 中）：
+//	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
+//	if !cd.Allow(userID, "sign", 24*time.Hour) {
+//	    remaining := cd.Remaining(userID, "sign", 24*time.Hour)
+//	    return ctx.Reply(dto.TextMsg(fmt.Sprintf("冷却中，还需等待 %s", remaining.Round(time.Second))))
+//	}
+package cooldown
+
+import (
+	"fmt"
+	"sync"
+	"time"
+
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/plugin"
+)
+
+// entry 冷却记录
+type entry struct {
+	lastUsed time.Time
+}
+
+// Plugin 冷却时间插件 API
+type Plugin struct {
+	mu      sync.RWMutex
+	records map[string]*entry // key: "userID:command"
+}
+
+// NewPlugin 创建 Plugin 实例
+func NewPlugin() *Plugin {
+	return &Plugin{
+		records: make(map[string]*entry),
+	}
+}
+
+// New 创建冷却时间插件描述符
+func New() *plugin.PluginDescriptor {
+	p := NewPlugin()
+	return Descriptor(p)
+}
+
+// Descriptor 从已有 Plugin 创建描述符
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
+		Name:        "cooldown",
+		Version:     "1.0.0",
+		Author:      "Remilia Team",
+		Description: "命令冷却时间插件，支持用户级和命令级冷却控制",
+		Category:    "核心",
+		Tags:        []string{"冷却", "限速", "防刷"},
+		Deps:        []string{},
+		HelpText: `冷却时间插件使用说明：
+  p := cooldown.NewPlugin()
+  pm.RegisterV2(cooldown.Descriptor(p))
+
+  // 作为中间件
+  engine.OnCommand(...).Use(p.Middleware("cmd", 10*time.Second)).Handle(h)
+
+  // 手动检查
+  if !p.Allow(userID, "cmd", 10*time.Second) {
+      remaining := p.Remaining(userID, "cmd", 10*time.Second)
+      ctx.Reply(...)
+  }`,
+		Setup: func(ctx *plugin.SetupContext) error {
+			logger.Info("[Cooldown] Plugin loaded")
+			ctx.Manager.GetContainer().Register("cooldown", p)
+			return nil
+		},
+	}
+}
+
+// cdKey 构建冷却记录 key
+func cdKey(userID, command string) string {
+	return userID + ":" + command
+}
+
+// Allow 检查用户是否允许执行命令（冷却时间已到则重置计时并返回 true）
+func (p *Plugin) Allow(userID, command string, cooldown time.Duration) bool {
+	key := cdKey(userID, command)
+	now := time.Now()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	e, exists := p.records[key]
+	if !exists || now.Sub(e.lastUsed) >= cooldown {
+		p.records[key] = &entry{lastUsed: now}
+		return true
+	}
+	return false
+}
+
+// Remaining 返回还需等待的时间（如果冷却已过则返回 0）
+func (p *Plugin) Remaining(userID, command string, cooldown time.Duration) time.Duration {
+	key := cdKey(userID, command)
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	e, exists := p.records[key]
+	if !exists {
+		return 0
+	}
+	remaining := cooldown - time.Since(e.lastUsed)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// Reset 重置用户对某命令的冷却时间
+func (p *Plugin) Reset(userID, command string) {
+	key := cdKey(userID, command)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.records, key)
+}
+
+// Middleware 返回可用于 engine.OnXxx().Use() 的冷却时间中间件
+func (p *Plugin) Middleware(command string, duration time.Duration) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			author := ctx.GetAuthor()
+			userID := ""
+			if author != nil {
+				userID = author.UserOpenID
+			}
+			if userID == "" {
+				return next(ctx)
+			}
+
+			if !p.Allow(userID, command, duration) {
+				remaining := p.Remaining(userID, command, duration)
+				logger.Debugf("[Cooldown] User %s is in cooldown for %s, remaining: %s", userID, command, remaining.Round(time.Second))
+				msg := fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", remaining.Round(time.Second))
+				if ctx.GetEventType() == dto.C2CMessageCreate {
+					_, _ = ctx.ReplyPrivate(&dto.Message{Content: msg, Type: dto.TextMessage})
+				} else {
+					_, _ = ctx.ReplyGroup(&dto.Message{Content: msg, Type: dto.TextMessage})
+				}
+				return nil
+			}
+			return next(ctx)
+		}
+	}
+}
+
+// GlobalAllow 检查全局（不区分用户）命令冷却时间
+func (p *Plugin) GlobalAllow(command string, cooldown time.Duration) bool {
+	return p.Allow("__global__", command, cooldown)
+}
+
+// CleanExpired 清理已过期的冷却记录（减少内存占用）
+func (p *Plugin) CleanExpired(maxAge time.Duration) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	threshold := time.Now().Add(-maxAge)
+	count := 0
+	for key, e := range p.records {
+		if e.lastUsed.Before(threshold) {
+			delete(p.records, key)
+			count++
+		}
+	}
+	return count
+}

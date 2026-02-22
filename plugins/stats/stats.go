@@ -17,6 +17,7 @@
 package stats
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -56,6 +57,13 @@ type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
+	storage       storageBackend // 可选持久化后端
+}
+
+// storageBackend 避免直接依赖 storage 包
+type storageBackend interface {
+	Get(key string) ([]byte, error)
+	Set(key string, value []byte, ttl time.Duration) error
 }
 
 type userEntry struct {
@@ -94,6 +102,19 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		Setup: func(setupCtx *plugin.SetupContext) error {
 			logger.Info("[Stats] Plugin loaded")
 			setupCtx.Manager.GetContainer().Register("stats", p)
+			// 可选：若 storage 已注册，则加载持久化的统计快照
+			if storageRaw, ok := setupCtx.Manager.GetContainer().Get("storage"); ok {
+				if sb, ok := storageRaw.(storageBackend); ok {
+					p.storage = sb
+					p.loadSnapshot()
+					// 每 5 分钟定期保存快照
+					go p.autoSave(5 * time.Minute)
+				}
+			}
+			return nil
+		},
+		Teardown: func() error {
+			p.saveSnapshot()
 			return nil
 		},
 	}
@@ -240,5 +261,64 @@ func cutoffTime(w TimeWindow) time.Time {
 		return now.Add(-30 * 24 * time.Hour)
 	default: // AllTime
 		return time.Time{}
+	}
+}
+
+// statsSnapshot 持久化快照结构
+type statsSnapshot struct {
+	Commands map[string]int64 `json:"commands"`
+	Total    int64            `json:"total"`
+}
+
+func (p *Plugin) saveSnapshot() {
+	if p.storage == nil {
+		return
+	}
+	snap := statsSnapshot{
+		Commands: make(map[string]int64),
+		Total:    p.totalMessages.Load(),
+	}
+	p.commandCounts.Range(func(k, v any) bool {
+		snap.Commands[k.(string)] = v.(*atomic.Int64).Load()
+		return true
+	})
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return
+	}
+	if err := p.storage.Set("stats:snapshot", data, 0); err != nil {
+		logger.WithError(err).Warn("[Stats] Failed to save snapshot")
+	}
+}
+
+func (p *Plugin) loadSnapshot() {
+	if p.storage == nil {
+		return
+	}
+	data, err := p.storage.Get("stats:snapshot")
+	if err != nil {
+		return
+	}
+	var snap statsSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		logger.WithError(err).Warn("[Stats] Failed to load snapshot")
+		return
+	}
+	p.totalMessages.Store(snap.Total)
+	for cmd, count := range snap.Commands {
+		v, _ := p.commandCounts.LoadOrStore(cmd, new(atomic.Int64))
+		v.(*atomic.Int64).Store(count)
+	}
+	logger.Infof("[Stats] Loaded snapshot: total=%d commands=%d", snap.Total, len(snap.Commands))
+}
+
+func (p *Plugin) autoSave(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		if p.storage == nil {
+			return
+		}
+		p.saveSnapshot()
 	}
 }

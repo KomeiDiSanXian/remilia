@@ -66,10 +66,10 @@ func New() *plugin.PluginDescriptor {
 			v1Plugin.Engine = ctx.Engine
 			v1Plugin.PluginManager = ctx.Manager
 
-			// 注册命令
-			ctx.Engine.OnCommand(dto.GroupAtMessageCreate, "/help").
+			// 使用 RegisterCommand 注册命令（使 Matcher 可被插件系统追踪）
+			ctx.RegisterCommand(dto.GroupAtMessageCreate, "/help").
 				Handle(v1Plugin.handleHelp)
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/help").
+			ctx.RegisterCommand(dto.C2CMessageCreate, "/help").
 				Handle(v1Plugin.handleHelp)
 
 			logger.Info("[Plugin] Help plugin loaded successfully")

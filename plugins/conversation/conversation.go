@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -50,6 +51,14 @@ type Session struct {
 type Plugin struct {
 	sessions sync.Map
 	machines sync.Map
+	storage  storageBackend // 可选持久化后端
+}
+
+// storageBackend 避免直接依赖 storage 包
+type storageBackend interface {
+	Get(key string) ([]byte, error)
+	Set(key string, value []byte, ttl time.Duration) error
+	Delete(key string) error
 }
 
 // NewPlugin 创建并返回一个 Conversation Plugin 实例。
@@ -75,6 +84,17 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) error {
 			logger.Info("[Conversation] Plugin loaded")
 			ctx.Manager.GetContainer().Register("conversation", p)
+			// 可选：若 storage 已注册，则恢复持久化的会话
+			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+				if sb, ok := storageRaw.(storageBackend); ok {
+					p.storage = sb
+					p.restoreSessions()
+				}
+			}
+			return nil
+		},
+		Teardown: func() error {
+			p.persistSessions()
 			return nil
 		},
 	}
@@ -275,6 +295,55 @@ func (p *Plugin) GC() int {
 }
 func isExpired(s *Session) bool {
 	return !s.ExpiresAt.IsZero() && time.Now().After(s.ExpiresAt)
+}
+
+// persistSessions 将所有活跃会话保存到 storage
+func (p *Plugin) persistSessions() {
+	if p.storage == nil {
+		return
+	}
+	sessions := make(map[string]*Session)
+	p.sessions.Range(func(k, v any) bool {
+		s := v.(*Session)
+		if !isExpired(s) {
+			sessions[k.(string)] = s
+		}
+		return true
+	})
+	data, err := json.Marshal(sessions)
+	if err != nil {
+		logger.WithError(err).Warn("[Conversation] Failed to marshal sessions")
+		return
+	}
+	if err := p.storage.Set("conversation:sessions", data, 0); err != nil {
+		logger.WithError(err).Warn("[Conversation] Failed to persist sessions")
+	} else {
+		logger.Infof("[Conversation] Persisted %d sessions", len(sessions))
+	}
+}
+
+// restoreSessions 从 storage 恢复会话
+func (p *Plugin) restoreSessions() {
+	if p.storage == nil {
+		return
+	}
+	data, err := p.storage.Get("conversation:sessions")
+	if err != nil {
+		return // 键不存在，忽略
+	}
+	var sessions map[string]*Session
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		logger.WithError(err).Warn("[Conversation] Failed to restore sessions")
+		return
+	}
+	count := 0
+	for k, s := range sessions {
+		if !isExpired(s) {
+			p.sessions.Store(k, s)
+			count++
+		}
+	}
+	logger.Infof("[Conversation] Restored %d sessions from storage", count)
 }
 func extractUserID(ctx *eventctx.Context) string {
 	if a := ctx.GetAuthor(); a != nil {

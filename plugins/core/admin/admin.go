@@ -19,6 +19,7 @@ import (
 type Plugin struct {
 	PluginManager *plugin.Manager
 	PermPlugin    *permission.Plugin
+	setupCtx      *plugin.SetupContext // 用于注册可追踪的 Matcher
 }
 
 // New 创建管理插件（v2 API）
@@ -71,13 +72,12 @@ func New() *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) error {
 			logger.Info("[AdminPlugin] Loading admin plugin (v2)...")
 
-			// 获取依赖（确保 permission 已加载）
-			_ = ctx.MustGet("permission")
-			// 从容器获取 permission API
-			permAPI, _ := ctx.Manager.GetContainer().Get("permission_api")
+			// 获取依赖，MustGet("permission") 现在直接返回 *permission.Plugin
+			permAPI := ctx.MustGet("permission")
 
 			// 设置引用
 			v1Plugin.PluginManager = ctx.Manager
+			v1Plugin.setupCtx = ctx // 保存 SetupContext 以便注册可追踪的命令
 			if permAPI != nil {
 				v1Plugin.PermPlugin = permAPI.(*permission.Plugin)
 			}
@@ -170,9 +170,15 @@ func (p *Plugin) registerPluginCommand(eng *engine.Engine) {
 		},
 	}
 
-	eng.OnCommand(dto.C2CMessageCreate, "/plugin").
-		SetDefinition(pluginCmd).
-		Handle(p.handlePluginCommand)
+	if p.setupCtx != nil {
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/plugin").
+			SetDefinition(pluginCmd).
+			Handle(p.handlePluginCommand)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/plugin").
+			SetDefinition(pluginCmd).
+			Handle(p.handlePluginCommand)
+	}
 }
 
 // handlePluginCommand 统一处理 plugin 命令
@@ -262,9 +268,15 @@ func (p *Plugin) registerPermCommand(eng *engine.Engine) {
 		},
 	}
 
-	eng.OnCommand(dto.C2CMessageCreate, "/perm").
-		SetDefinition(permCmd).
-		Handle(p.handlePermCommand)
+	if p.setupCtx != nil {
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/perm").
+			SetDefinition(permCmd).
+			Handle(p.handlePermCommand)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/perm").
+			SetDefinition(permCmd).
+			Handle(p.handlePermCommand)
+	}
 }
 
 // handlePermCommand 统一处理 perm 命令
@@ -309,13 +321,19 @@ func (p *Plugin) showPermHelp(ctx *eventctx.Context) error {
 
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(eng *engine.Engine) {
-	// /status
-	eng.OnCommand(dto.C2CMessageCreate, "/status").
-		Handle(p.handleStatus)
-
-	// /info
-	eng.OnCommand(dto.C2CMessageCreate, "/info").
-		Handle(p.handleInfo)
+	if p.setupCtx != nil {
+		// /status
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/status").
+			Handle(p.handleStatus)
+		// /info
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/info").
+			Handle(p.handleInfo)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/status").
+			Handle(p.handleStatus)
+		eng.OnCommand(dto.C2CMessageCreate, "/info").
+			Handle(p.handleInfo)
+	}
 }
 
 // handlePluginList 处理插件列表命令
@@ -662,14 +680,22 @@ func (p *Plugin) registerCodeCommand(eng *engine.Engine) {
 	}
 
 	// 注册私聊命令
-	eng.OnCommand(dto.C2CMessageCreate, "/code").
-		SetDefinition(codeCmd).
-		Handle(p.handleCodeCommand)
-
-	// 注册群聊命令（verify 子命令）
-	eng.OnCommand(dto.GroupAtMessageCreate, "/code").
-		SetDefinition(codeCmd).
-		Handle(p.handleCodeCommand)
+	if p.setupCtx != nil {
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/code").
+			SetDefinition(codeCmd).
+			Handle(p.handleCodeCommand)
+		// 注册群聊命令（verify 子命令）
+		p.setupCtx.RegisterCommand(dto.GroupAtMessageCreate, "/code").
+			SetDefinition(codeCmd).
+			Handle(p.handleCodeCommand)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/code").
+			SetDefinition(codeCmd).
+			Handle(p.handleCodeCommand)
+		eng.OnCommand(dto.GroupAtMessageCreate, "/code").
+			SetDefinition(codeCmd).
+			Handle(p.handleCodeCommand)
+	}
 }
 
 // handleCodeCommand 统一处理 code 命令
@@ -944,9 +970,15 @@ func (p *Plugin) registerACLCommand(eng *engine.Engine) {
 		},
 	}
 
-	eng.OnCommand(dto.C2CMessageCreate, "/acl").
-		SetDefinition(aclCmd).
-		Handle(p.handleACLCommand)
+	if p.setupCtx != nil {
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/acl").
+			SetDefinition(aclCmd).
+			Handle(p.handleACLCommand)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/acl").
+			SetDefinition(aclCmd).
+			Handle(p.handleACLCommand)
+	}
 }
 
 // handleACLCommand 统一处理 acl 命令
@@ -1065,7 +1097,7 @@ func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
 	note := ""
 	if args.Len() > 2 {
 		// 将剩余参数作为备注
-		noteArgs := []string{}
+		var noteArgs []string
 		for i := 2; i < args.Len(); i++ {
 			noteArgs = append(noteArgs, args.Get(i))
 		}

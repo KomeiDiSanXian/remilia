@@ -256,7 +256,7 @@ func (s *SQLiteStorage) Close() error {
 	return nil
 }
 
-// Compact 压缩数据库（运行 VACUUM）
+// Compact 压缩数据库（VACUUM）
 func (s *SQLiteStorage) Compact() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

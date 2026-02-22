@@ -79,8 +79,8 @@ API 使用 (v2):
 			go cleanupExpiredCodesRoutine(verificationMgr, cleanupStopChan)
 			logger.Info("[PermissionPlugin] Started verification code cleanup routine")
 
-			// 注册 API 包装器到容器
-			ctx.Manager.GetContainer().Register("permission_api", pluginAPI)
+			// 注册 API 包装器到容器，使用插件名 "permission" 以便 MustGet("permission") 直接获取 *permission.Plugin
+			ctx.Manager.GetContainer().Register("permission", pluginAPI)
 
 			logger.Info("[PermissionPlugin] Permission plugin loaded successfully")
 			return nil

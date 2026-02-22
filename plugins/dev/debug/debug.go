@@ -17,10 +17,11 @@ import (
 
 // Plugin Debug调试插件
 type Plugin struct {
-	Engine        *engine.Engine     // Engine引用
-	PermPlugin    *permission.Plugin // 权限插件依赖
-	DevMode       bool               // 是否开启开发模式
-	PluginManager *plugin.Manager    // 插件管理器引用
+	Engine        *engine.Engine       // Engine引用
+	PermPlugin    *permission.Plugin   // 权限插件依赖
+	DevMode       bool                 // 是否开启开发模式
+	PluginManager *plugin.Manager      // 插件管理器引用
+	setupCtx      *plugin.SetupContext // 用于注册可追踪的 Matcher
 }
 
 // New 创建调试插件（v2 API）
@@ -62,9 +63,15 @@ func New() *plugin.PluginDescriptor {
 			// 获取依赖（但 v2 的 permission 返回 PluginInstance，暂时不处理）
 			_ = ctx.MustGet("permission")
 
+			// 从配置读取 DevMode（默认 false，生产环境关闭）
+			if ctx.Config != nil {
+				v1Plugin.DevMode = ctx.Config.GetBool("dev_mode", false)
+			}
+
 			// 设置引用
 			v1Plugin.Engine = ctx.Engine
 			v1Plugin.PluginManager = ctx.Manager
+			v1Plugin.setupCtx = ctx // 保存 SetupContext 以便 registerDebugCommands 使用
 
 			// 加载插件
 			return v1Plugin.Load(ctx.Engine)
@@ -81,7 +88,7 @@ func New() *plugin.PluginDescriptor {
 // newDebugPluginInternal 创建调试插件内部实例
 func newDebugPluginInternal() *Plugin {
 	return &Plugin{
-		DevMode: true, // 默认开启开发模式，实际应从配置读取
+		DevMode: false, // 默认关闭，由 Setup 从配置读取
 	}
 }
 
@@ -192,14 +199,22 @@ func (p *Plugin) registerDebugCommands(eng *engine.Engine) {
 	}
 
 	// 注册私聊命令
-	eng.OnCommand(dto.C2CMessageCreate, "/debug").
-		SetDefinition(debugCmd).
-		Handle(p.handleDebugCommand)
-
-	// 注册群聊命令（需要 @ 机器人）
-	eng.OnCommand(dto.GroupAtMessageCreate, "/debug").
-		SetDefinition(debugCmd).
-		Handle(p.handleDebugCommand)
+	if p.setupCtx != nil {
+		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/debug").
+			SetDefinition(debugCmd).
+			Handle(p.handleDebugCommand)
+		// 注册群聊命令（需要 @ 机器人）
+		p.setupCtx.RegisterCommand(dto.GroupAtMessageCreate, "/debug").
+			SetDefinition(debugCmd).
+			Handle(p.handleDebugCommand)
+	} else {
+		eng.OnCommand(dto.C2CMessageCreate, "/debug").
+			SetDefinition(debugCmd).
+			Handle(p.handleDebugCommand)
+		eng.OnCommand(dto.GroupAtMessageCreate, "/debug").
+			SetDefinition(debugCmd).
+			Handle(p.handleDebugCommand)
+	}
 }
 
 // handleDebugCommand 统一处理 debug 命令

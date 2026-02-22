@@ -101,29 +101,33 @@ type ConfigurablePlugin interface {
 	SetConfig(config Config)
 }
 
-// StatefulPlugin 有状态插件接口（可选实现）
-// 实现此接口的插件支持状态查询
+// StatefulPlugin 有状态插件只读接口（可选实现）
+// 插件消费者通过此接口查询插件运行状态，无法通过此接口修改状态。
+// Manager 内部通过 statefulPluginWriter 接口进行写操作。
 type StatefulPlugin interface {
 	// GetState 获取插件状态
 	GetState() State
 
-	// SetState 设置插件状态（由 Manager 调用）
-	SetState(state State)
-
 	// GetLoadTime 获取加载时间
 	GetLoadTime() time.Time
-
-	// SetLoadTime 设置加载时间（由 Manager 调用）
-	SetLoadTime(t time.Time)
 
 	// GetLastError 获取最后的错误
 	GetLastError() error
 
-	// SetLastError 设置最后的错误（由 Manager 调用）
-	SetLastError(err error)
-
 	// GetUptime 获取运行时长
 	GetUptime() time.Duration
+}
+
+// statefulPluginWriter 有状态插件写接口（仅 Manager 包内使用）
+// 通过包级私有接口限制写方法只能由 Manager 调用，防止外部代码误修改插件状态。
+type statefulPluginWriter interface {
+	StatefulPlugin
+	// SetState 设置插件状态（由 Manager 调用）
+	SetState(state State)
+	// SetLoadTime 设置加载时间（由 Manager 调用）
+	SetLoadTime(t time.Time)
+	// SetLastError 设置最后的错误（由 Manager 调用）
+	SetLastError(err error)
 }
 
 // MatcherProvider 提供 Matcher 的插件接口（可选实现）

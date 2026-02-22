@@ -20,6 +20,7 @@
 package antispam
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -64,6 +65,11 @@ type banEntry struct {
 	until time.Time // zero = 永久
 }
 
+// banEntryJSON 用于 JSON 序列化的封禁记录（time.Time 不直接 JSON 友好）
+type banEntryJSON struct {
+	Until int64 `json:"until"` // Unix 时间戳（纳秒），0 = 永久
+}
+
 // Plugin 反垃圾插件 API
 type Plugin struct {
 	cfg     Config
@@ -71,6 +77,13 @@ type Plugin struct {
 	groupRL *lru.Cache[string, *rate.Limiter]
 	banList map[string]banEntry
 	banMu   sync.RWMutex
+	storage storageBackend // 可选持久化后端
+}
+
+// storageBackend 用于封禁名单持久化的接口（避免直接依赖 storage 包）
+type storageBackend interface {
+	Get(key string) ([]byte, error)
+	Set(key string, value []byte, ttl time.Duration) error
 }
 
 // NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
@@ -112,9 +125,87 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 			logger.Infof("[AntiSpam] Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
 			ctx.Manager.GetContainer().Register("antispam", p)
+
+			// 可选：若 storage 插件已注册，则加载持久化的封禁名单
+			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+				if sb, ok := storageRaw.(storageBackend); ok {
+					p.storage = sb
+					p.loadBanList()
+				}
+			}
+			return nil
+		},
+
+		// 保存封禁名单到 storage（如果可用）
+		Teardown: func() error {
+			p.saveBanList()
 			return nil
 		},
 	}
+}
+
+// loadBanList 从 storage 加载封禁名单
+func (p *Plugin) loadBanList() {
+	if p.storage == nil {
+		return
+	}
+	data, err := p.storage.Get("antispam:banlist")
+	if err != nil {
+		return // 键不存在或其他错误，忽略
+	}
+	var entries map[string]banEntryJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to load ban list")
+		return
+	}
+	p.banMu.Lock()
+	defer p.banMu.Unlock()
+	now := time.Now()
+	for id, e := range entries {
+		var until time.Time
+		if e.Until != 0 {
+			until = time.Unix(0, e.Until)
+			if until.Before(now) {
+				continue // 已过期，跳过
+			}
+		}
+		p.banList[id] = banEntry{until: until}
+	}
+	logger.Infof("[AntiSpam] Loaded %d ban entries from storage", len(p.banList))
+}
+
+// saveBanList 将封禁名单保存到 storage
+func (p *Plugin) saveBanList() {
+	if p.storage == nil {
+		return
+	}
+	p.banMu.RLock()
+	entries := make(map[string]banEntryJSON, len(p.banList))
+	now := time.Now()
+	for id, e := range p.banList {
+		if !e.until.IsZero() && e.until.Before(now) {
+			continue // 已过期，不保存
+		}
+		entries[id] = banEntryJSON{Until: e.until.UnixNano()}
+	}
+	p.banMu.RUnlock()
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to marshal ban list")
+		return
+	}
+	if err := p.storage.Set("antispam:banlist", data, 0); err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
+		return
+	}
+	logger.Infof("[AntiSpam] Saved %d ban entries to storage", len(entries))
+}
+
+// SetStorage 手动设置持久化后端（用于在 Setup 后注入 storage）
+func (p *Plugin) SetStorage(s storageBackend) {
+	p.storage = s
+	p.loadBanList()
 }
 
 // New 创建反垃圾插件描述符（便捷入口，内部创建 Plugin 实例）。
@@ -219,21 +310,23 @@ func (p *Plugin) GroupRule(getGroupID func(*eventctx.Context) string) eventctx.R
 // Ban 封禁用户，duration=0 表示永久
 func (p *Plugin) Ban(userID string, duration time.Duration) {
 	p.banMu.Lock()
-	defer p.banMu.Unlock()
 	var until time.Time
 	if duration > 0 {
 		until = time.Now().Add(duration)
 	}
 	p.banList[userID] = banEntry{until: until}
+	p.banMu.Unlock()
 	logger.Infof("[AntiSpam] Banned user %s until %v", userID, until)
+	go p.saveBanList() // 异步持久化
 }
 
 // Unban 解封用户
 func (p *Plugin) Unban(userID string) {
 	p.banMu.Lock()
-	defer p.banMu.Unlock()
 	delete(p.banList, userID)
+	p.banMu.Unlock()
 	logger.Infof("[AntiSpam] Unbanned user %s", userID)
+	go p.saveBanList() // 异步持久化
 }
 
 // IsBanned 检查用户是否被封禁（自动清理过期封禁）

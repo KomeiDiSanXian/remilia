@@ -76,7 +76,7 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	plugin, exists := manager.Get("stateful-test")
 	require.True(t, exists)
 
-	// Cast to StatefulPlugin
+	// Cast to StatefulPlugin (read-only public interface)
 	stateful, ok := plugin.(StatefulPlugin)
 	require.True(t, ok, "Plugin should implement StatefulPlugin")
 
@@ -95,18 +95,20 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	uptime := stateful.GetUptime()
 	assert.Greater(t, uptime, time.Duration(0), "Uptime should be positive")
 
-	// Test SetLoadTime
+	// Test SetLoadTime (write methods are via internal statefulPluginWriter)
+	writer, ok := plugin.(statefulPluginWriter)
+	require.True(t, ok, "Plugin should implement statefulPluginWriter")
 	newTime := time.Now().Add(-1 * time.Hour)
-	stateful.SetLoadTime(newTime)
+	writer.SetLoadTime(newTime)
 	assert.Equal(t, newTime, stateful.GetLoadTime())
 
 	// Test SetLastError
 	testErr := assert.AnError
-	stateful.SetLastError(testErr)
+	writer.SetLastError(testErr)
 	assert.Equal(t, testErr, stateful.GetLastError())
 
 	// Test SetState
-	stateful.SetState(Error)
+	writer.SetState(Error)
 	assert.Equal(t, Error, stateful.GetState())
 }
 

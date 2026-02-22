@@ -20,10 +20,45 @@ type Storage interface {
 	Clear() error
 }
 
+// CleanableStorage 支持主动清理过期键的存储接口（可选实现）
+type CleanableStorage interface {
+	Storage
+	// CleanExpired 清理所有已过期的键，返回清理的键数量和错误
+	CleanExpired() (int, error)
+}
+
 // Plugin 存储插件 API
 type Plugin struct {
-	storage Storage
-	mu      sync.RWMutex
+	storage   Storage
+	mu        sync.RWMutex
+	stopClean chan struct{} // 停止后台清理协程的信号
+}
+
+// startCleanRoutine 启动后台定期清理协程（仅当 storage 实现了 CleanableStorage 时）
+func (p *Plugin) startCleanRoutine() chan struct{} {
+	cleanable, ok := p.storage.(CleanableStorage)
+	if !ok {
+		return nil
+	}
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				n, err := cleanable.CleanExpired()
+				if err != nil {
+					logger.WithError(err).Warn("[StoragePlugin] Background clean failed")
+				} else if n > 0 {
+					logger.Infof("[StoragePlugin] Cleaned %d expired keys", n)
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return stop
 }
 
 // New 创建存储插件（v2 API）
@@ -70,8 +105,11 @@ API 使用 (v2):
 			logger.Info("[StoragePlugin] Loading storage plugin (v2)...")
 			logger.Infof("[StoragePlugin] Backend: %T", storage)
 
-			// 注册 API 包装器到容器
-			ctx.Manager.GetContainer().Register("storage_api", pluginAPI)
+			// 注册 API 包装器到容器，使用插件名 "storage" 以便 MustGet("storage") 直接获取 *storage.Plugin
+			ctx.Manager.GetContainer().Register("storage", pluginAPI)
+
+			// 启动后台定期清理协程（如果后端支持）
+			pluginAPI.stopClean = pluginAPI.startCleanRoutine()
 
 			logger.Info("[StoragePlugin] Storage plugin loaded successfully")
 			return nil
@@ -79,6 +117,11 @@ API 使用 (v2):
 
 		Teardown: func() error {
 			logger.Info("[StoragePlugin] Unloading storage plugin...")
+			// 停止后台清理协程
+			if pluginAPI.stopClean != nil {
+				close(pluginAPI.stopClean)
+				pluginAPI.stopClean = nil
+			}
 			if err := storage.Clear(); err != nil {
 				logger.WithError(err).Warn("[StoragePlugin] Failed to clear storage")
 			}

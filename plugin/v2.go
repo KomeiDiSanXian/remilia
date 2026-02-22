@@ -55,6 +55,12 @@ type PluginDescriptor struct {
 	Teardown TeardownFunc // 清理函数（可选）
 	Reload   ReloadFunc   // 热重载函数（可选）
 
+	// 依赖热重载通知回调（可选）
+	// 当本插件依赖的某个插件完成热重载后，此函数会被调用。
+	// 可用于刷新缓存、重新获取依赖引用等。
+	// reloadedDep: 已完成重载的依赖插件名称
+	OnDependencyReloaded func(reloadedDep string)
+
 	// 状态保存/恢复钩子（用于热重载）
 	SaveState    SaveStateFunc    // 保存状态（可选）
 	RestoreState RestoreStateFunc // 恢复状态（可选）
@@ -103,6 +109,11 @@ type SetupContext struct {
 	Manager  *Manager       // 插件管理器
 	Config   Config         // 插件配置
 	EventBus EventBus       // 插件间事件总线
+
+	// DryRun 为 true 时表示当前处于依赖推断阶段（由 RegisterMultipleV2Smart 使用）。
+	// Setup 函数应在 DryRun 为 true 时跳过有副作用的操作（注册命令、启动 goroutine 等），
+	// 仅执行 Get/MustGet 调用以暴露依赖关系。
+	DryRun bool
 
 	container        *Container      // 依赖注入容器
 	pluginName       string          // 当前插件名称（内部使用）
@@ -238,21 +249,25 @@ func NewContainer() *Container {
 	return &Container{}
 }
 
-// Register 注册服务。冻结后调用会 panic（应在所有插件加载完成前完成注册）。
+// Register 注册服务。冻结后会自动刷新只读快照，支持热重载/动态注册场景。
 func (c *Container) Register(name string, service any) {
-	if c.frozen.Load() {
-		panic("Container.Register called after Freeze(); all plugins must be registered before Freeze()")
-	}
 	c.services.Store(name, service)
+	// 若已冻结，同步刷新快照保持一致性
+	if c.frozen.Load() {
+		c.refreshSnapshot()
+	}
 }
 
-// Freeze 将容器切换为只读模式。
-// 调用后 Get/Has 使用无锁 map，Register/Remove 将 panic。
-// 应在所有插件加载完成后调用一次。
+// Freeze 将容器切换为只读快照模式。
+// 调用后 Get/Has 使用无锁 map，性能提升 2-3x。
+// 冻结后仍可调用 Register/Remove，会自动刷新快照。
 func (c *Container) Freeze() {
-	if c.frozen.Swap(true) {
-		return // 已经冻结，幂等
-	}
+	c.frozen.Store(true)
+	c.refreshSnapshot()
+}
+
+// refreshSnapshot 重建只读快照（需在 frozen==true 时调用）。
+func (c *Container) refreshSnapshot() {
 	snapshot := make(map[string]any)
 	c.services.Range(func(k, v any) bool {
 		snapshot[k.(string)] = v
@@ -276,12 +291,12 @@ func (c *Container) Has(name string) bool {
 	return ok
 }
 
-// Remove 移除服务。冻结后调用会 panic。
+// Remove 移除服务。冻结后会自动刷新只读快照。
 func (c *Container) Remove(name string) {
-	if c.frozen.Load() {
-		panic("Container.Remove called after Freeze()")
-	}
 	c.services.Delete(name)
+	if c.frozen.Load() {
+		c.refreshSnapshot()
+	}
 }
 
 // PluginInstance v2 插件实例
@@ -1037,7 +1052,8 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 		setupCtx := &SetupContext{
 			Engine:           pm.coordinator,
 			Manager:          pm,
-			Config:           nil, // 推断阶段不提供配置
+			Config:           nil,  // 推断阶段不提供配置
+			DryRun:           true, // 标记为干运行，Setup 函数应跳过有副作用的操作
 			container:        tempContainer,
 			pluginName:       desc.Name,
 			instance:         nil,
@@ -1045,7 +1061,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 		}
 
 		// 尝试调用 Setup 来跟踪依赖（忽略错误）
-		// 注意：这要求 Setup 函数在没有真实依赖的情况下也能运行（至少到 Get/MustGet 调用）
+		// Setup 函数应检查 ctx.DryRun == true 来跳过注册命令等副作用操作
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

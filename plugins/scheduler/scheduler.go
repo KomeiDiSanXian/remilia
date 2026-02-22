@@ -33,6 +33,16 @@ type JobFunc func()
 // JobID 任务唯一标识
 type JobID int
 
+// JobRecord 任务执行记录
+type JobRecord struct {
+	JobID    JobID
+	JobName  string
+	StartAt  time.Time
+	Duration time.Duration
+	Success  bool
+	Error    string
+}
+
 // jobEntry 内部任务记录
 type jobEntry struct {
 	id      JobID
@@ -42,12 +52,19 @@ type jobEntry struct {
 	running atomic.Bool   // 防重入标志
 }
 
+// historySize 保存的最大历史记录数（环形缓冲）
+const historySize = 100
+
 // Plugin 计划任务插件 API
 type Plugin struct {
 	c      *cron.Cron
 	mu     sync.Mutex
 	jobs   map[JobID]*jobEntry
 	nextID JobID
+
+	// 任务执行历史（环形缓冲）
+	historyMu sync.RWMutex
+	history   []JobRecord
 }
 
 // NewPlugin 创建并返回一个 Scheduler Plugin 实例。
@@ -225,7 +242,7 @@ func (p *Plugin) Jobs() int {
 	return len(p.jobs)
 }
 
-// wrap 包装任务函数，加入防重入保护和 panic 恢复
+// wrap 包装任务函数，加入防重入保护、panic 恢复和执行历史记录
 func (p *Plugin) wrap(entry *jobEntry, fn JobFunc) func() {
 	return func() {
 		if !entry.running.CompareAndSwap(false, true) {
@@ -233,13 +250,52 @@ func (p *Plugin) wrap(entry *jobEntry, fn JobFunc) func() {
 			return
 		}
 		defer entry.running.Store(false)
+
+		start := time.Now()
+		rec := JobRecord{
+			JobID:   entry.id,
+			JobName: entry.name,
+			StartAt: start,
+			Success: true,
+		}
+
 		defer func() {
+			rec.Duration = time.Since(start)
 			if r := recover(); r != nil {
 				logger.Errorf("[Scheduler] Panic in job '%s' (id=%d): %v", entry.name, entry.id, r)
+				rec.Success = false
+				rec.Error = fmt.Sprintf("panic: %v", r)
 			}
+			logger.Debugf("[Scheduler] Job '%s' (id=%d) completed in %s success=%v",
+				entry.name, entry.id, rec.Duration, rec.Success)
+			p.appendHistory(rec)
 		}()
-		start := time.Now()
 		fn()
-		logger.Debugf("[Scheduler] Job '%s' (id=%d) completed in %s", entry.name, entry.id, time.Since(start))
 	}
+}
+
+// appendHistory 追加执行记录到环形缓冲
+func (p *Plugin) appendHistory(rec JobRecord) {
+	p.historyMu.Lock()
+	defer p.historyMu.Unlock()
+	if len(p.history) >= historySize {
+		// 丢弃最旧的记录
+		p.history = p.history[1:]
+	}
+	p.history = append(p.history, rec)
+}
+
+// History 返回最近任务执行记录（最多 n 条，n<=0 时返回全部）
+func (p *Plugin) History(n int) []JobRecord {
+	p.historyMu.RLock()
+	defer p.historyMu.RUnlock()
+	if n <= 0 || n >= len(p.history) {
+		out := make([]JobRecord, len(p.history))
+		copy(out, p.history)
+		return out
+	}
+	// 返回最近 n 条（末尾）
+	out := make([]JobRecord, n)
+	copy(out, p.history[len(p.history)-n:])
+	return out
 }
