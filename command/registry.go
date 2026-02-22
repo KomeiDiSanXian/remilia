@@ -9,11 +9,11 @@ import (
 	"sync/atomic"
 )
 
-// CommandRegistry 是一个高性能的命令注册表
+// Registry 是一个高性能的命令注册表
 // 提供快速的命令查找、别名解析和统计功能
 //
 // 优化: 使用单一 Trie 树索引，移除冗余的 commands map，减少 40-50% 内存占用
-type CommandRegistry struct {
+type Registry struct {
 	// 索引结构 - 统一使用 Trie 树
 	trie *Trie // Trie 树用于精确查找和前缀搜索
 
@@ -31,8 +31,8 @@ type CommandRegistry struct {
 	aliasHits   atomic.Int64
 }
 
-// CommandMeta 存储命令的元数据和快速访问信息
-type CommandMeta struct {
+// Meta 存储命令的元数据和快速访问信息
+type Meta struct {
 	// 基本信息
 	Name        string
 	Aliases     []string
@@ -56,33 +56,33 @@ type CommandMeta struct {
 }
 
 // GetCallCount 获取命令的调用次数
-func (cm *CommandMeta) GetCallCount() int64 {
+func (cm *Meta) GetCallCount() int64 {
 	return cm.callCount.Load()
 }
 
 // compiledRegistry 是预编译的注册表，用于快速只读访问
 type compiledRegistry struct {
-	commandMap  map[string]*CommandMeta
+	commandMap  map[string]*Meta
 	aliasMap    map[string]string
-	commandList []*CommandMeta // 按优先级排序
+	commandList []*Meta // 按优先级排序
 }
 
 // NewCommandRegistry 创建新的命令注册表
-func NewCommandRegistry() *CommandRegistry {
-	cr := &CommandRegistry{
+func NewCommandRegistry() *Registry {
+	cr := &Registry{
 		trie:    NewTrie(),
 		aliases: make(map[string]string),
 	}
 	cr.compiled.Store(&compiledRegistry{
-		commandMap:  make(map[string]*CommandMeta),
+		commandMap:  make(map[string]*Meta),
 		aliasMap:    make(map[string]string),
-		commandList: make([]*CommandMeta, 0),
+		commandList: make([]*Meta, 0),
 	})
 	return cr
 }
 
 // Register 注册一个命令
-func (cr *CommandRegistry) Register(def *Definition) error {
+func (cr *Registry) Register(def *Definition) error {
 	return cr.RegisterWithOptions(def, RegisterOptions{})
 }
 
@@ -95,7 +95,7 @@ type RegisterOptions struct {
 }
 
 // RegisterWithOptions 使用选项注册命令
-func (cr *CommandRegistry) RegisterWithOptions(def *Definition, opts RegisterOptions) error {
+func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) error {
 	if def.Name == "" {
 		return fmt.Errorf("command name cannot be empty")
 	}
@@ -116,7 +116,7 @@ func (cr *CommandRegistry) RegisterWithOptions(def *Definition, opts RegisterOpt
 	}
 
 	// 创建元数据
-	meta := &CommandMeta{
+	meta := &Meta{
 		Name:        def.Name,
 		Aliases:     def.Aliases,
 		Description: def.Description,
@@ -151,7 +151,7 @@ func (cr *CommandRegistry) RegisterWithOptions(def *Definition, opts RegisterOpt
 }
 
 // Unregister 注销命令
-func (cr *CommandRegistry) Unregister(name string) error {
+func (cr *Registry) Unregister(name string) error {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
@@ -175,7 +175,7 @@ func (cr *CommandRegistry) Unregister(name string) error {
 }
 
 // Lookup 查找命令（支持别名）
-func (cr *CommandRegistry) Lookup(nameOrAlias string) (*CommandMeta, bool) {
+func (cr *Registry) Lookup(nameOrAlias string) (*Meta, bool) {
 	cr.lookupCount.Add(1)
 
 	compiled := cr.compiled.Load().(*compiledRegistry)
@@ -202,10 +202,10 @@ func (cr *CommandRegistry) Lookup(nameOrAlias string) (*CommandMeta, bool) {
 }
 
 // LookupByPattern 通过正则模式查找命令
-func (cr *CommandRegistry) LookupByPattern(input string) []*CommandMeta {
+func (cr *Registry) LookupByPattern(input string) []*Meta {
 	compiled := cr.compiled.Load().(*compiledRegistry)
 
-	matches := make([]*CommandMeta, 0)
+	matches := make([]*Meta, 0)
 	for _, meta := range compiled.commandList {
 		if meta.pattern != nil && meta.pattern.MatchString(input) {
 			matches = append(matches, meta)
@@ -219,22 +219,22 @@ func (cr *CommandRegistry) LookupByPattern(input string) []*CommandMeta {
 //
 // 优化: 使用简单的字符串前缀匹配替代 Trie，简化实现
 // 对于命令补全这种非高频操作，性能损失可以忽略（通常 < 1ms）
-func (cr *CommandRegistry) Complete(prefix string) []*CommandMeta {
+func (cr *Registry) Complete(prefix string) []*Meta {
 	// 使用 Trie 进行前缀搜索
 	return cr.trie.Search(prefix)
 }
 
 // List 列出所有命令
-func (cr *CommandRegistry) List() []*CommandMeta {
+func (cr *Registry) List() []*Meta {
 	compiled := cr.compiled.Load().(*compiledRegistry)
 	return compiled.commandList
 }
 
 // ListByCategory 按分类列出命令
-func (cr *CommandRegistry) ListByCategory(category string) []*CommandMeta {
+func (cr *Registry) ListByCategory(category string) []*Meta {
 	compiled := cr.compiled.Load().(*compiledRegistry)
 
-	result := make([]*CommandMeta, 0)
+	result := make([]*Meta, 0)
 	for _, meta := range compiled.commandList {
 		if meta.Category == category {
 			result = append(result, meta)
@@ -246,7 +246,7 @@ func (cr *CommandRegistry) ListByCategory(category string) []*CommandMeta {
 
 // GetStats 获取注册表统计信息
 // GetStats 获取注册表统计信息
-func (cr *CommandRegistry) GetStats() RegistryStats {
+func (cr *Registry) GetStats() RegistryStats {
 	cr.mu.RLock()
 	compiled := cr.compiled.Load().(*compiledRegistry)
 	commandCount := len(compiled.commandMap)
@@ -276,14 +276,14 @@ type RegistryStats struct {
 }
 
 // recompile 重新编译注册表（持有写锁时调用）
-func (cr *CommandRegistry) recompile() {
+func (cr *Registry) recompile() {
 	// 从 Trie 获取所有命令
 	allCommands := cr.trie.GetAllCommands()
 
 	newCompiled := &compiledRegistry{
-		commandMap:  make(map[string]*CommandMeta, len(allCommands)),
+		commandMap:  make(map[string]*Meta, len(allCommands)),
 		aliasMap:    make(map[string]string, len(cr.aliases)),
-		commandList: make([]*CommandMeta, 0, len(allCommands)),
+		commandList: make([]*Meta, 0, len(allCommands)),
 	}
 
 	// 构建命令映射和列表
@@ -302,15 +302,8 @@ func (cr *CommandRegistry) recompile() {
 	cr.compiled.Store(newCompiled)
 }
 
-// rebuildPrefixIndex 重建前缀索引已废弃，因为现在直接使用 Trie
-// 保留此方法以保持向后兼容，但实际不做任何事
-// Deprecated: 不再需要，Trie 自动维护索引
-func (cr *CommandRegistry) rebuildPrefixIndex() {
-	// No-op: Trie 自动维护索引
-}
-
 // sortCommandsByPriority 按优先级排序命令
-func sortCommandsByPriority(commands []*CommandMeta) {
+func sortCommandsByPriority(commands []*Meta) {
 	// 使用简单的冒泡排序（命令数量通常不多）
 	n := len(commands)
 	for i := 0; i < n-1; i++ {

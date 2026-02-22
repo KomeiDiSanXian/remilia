@@ -13,13 +13,13 @@ func TestTrieExactMatch(t *testing.T) {
 
 	// 注册命令
 	def1 := &Definition{Name: "/help"}
-	meta1 := &CommandMeta{Name: "/help", Definition: def1}
+	meta1 := &Meta{Name: "/help", Definition: def1}
 
 	def2 := &Definition{Name: "/hello"}
-	meta2 := &CommandMeta{Name: "/hello", Definition: def2}
+	meta2 := &Meta{Name: "/hello", Definition: def2}
 
 	def3 := &Definition{Name: "/he"}
-	meta3 := &CommandMeta{Name: "/he", Definition: def3}
+	meta3 := &Meta{Name: "/he", Definition: def3}
 
 	trie.Insert("/help", meta1)
 	trie.Insert("/hello", meta2)

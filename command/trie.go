@@ -8,7 +8,7 @@ import (
 // TrieNode represents a node in the prefix tree
 type TrieNode struct {
 	children map[rune]*TrieNode
-	commands []*CommandMeta
+	commands []*Meta
 	isEnd    bool
 }
 
@@ -23,13 +23,13 @@ func NewTrie() *Trie {
 	return &Trie{
 		root: &TrieNode{
 			children: make(map[rune]*TrieNode),
-			commands: make([]*CommandMeta, 0),
+			commands: make([]*Meta, 0),
 		},
 	}
 }
 
 // Insert adds a command to the trie
-func (t *Trie) Insert(name string, meta *CommandMeta) {
+func (t *Trie) Insert(name string, meta *Meta) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -40,7 +40,7 @@ func (t *Trie) Insert(name string, meta *CommandMeta) {
 		if node.children[r] == nil {
 			node.children[r] = &TrieNode{
 				children: make(map[rune]*TrieNode),
-				commands: make([]*CommandMeta, 0),
+				commands: make([]*Meta, 0),
 			}
 		}
 		node = node.children[r]
@@ -52,7 +52,7 @@ func (t *Trie) Insert(name string, meta *CommandMeta) {
 }
 
 // Remove removes a command from the trie
-func (t *Trie) Remove(name string, meta *CommandMeta) {
+func (t *Trie) Remove(name string, meta *Meta) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -78,7 +78,7 @@ func (t *Trie) Remove(name string, meta *CommandMeta) {
 }
 
 // Search finds all commands with the given prefix
-func (t *Trie) Search(prefix string) []*CommandMeta {
+func (t *Trie) Search(prefix string) []*Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -97,7 +97,7 @@ func (t *Trie) Search(prefix string) []*CommandMeta {
 		return nil
 	}
 
-	result := make([]*CommandMeta, len(node.commands))
+	result := make([]*Meta, len(node.commands))
 	copy(result, node.commands)
 	return result
 }
@@ -105,7 +105,7 @@ func (t *Trie) Search(prefix string) []*CommandMeta {
 // ExactMatch finds a command by exact name match
 // Returns the command metadata if found, nil otherwise
 // Time complexity: O(m) where m is the length of the command name
-func (t *Trie) ExactMatch(name string) *CommandMeta {
+func (t *Trie) ExactMatch(name string) *Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -137,7 +137,7 @@ func (t *Trie) ExactMatch(name string) *CommandMeta {
 }
 
 // collectCommands recursively collects all commands from a node and its children
-func (t *Trie) collectCommands(node *TrieNode, seen map[*CommandMeta]bool, result *[]*CommandMeta) {
+func (t *Trie) collectCommands(node *TrieNode, seen map[*Meta]bool, result *[]*Meta) {
 	if node == nil {
 		return
 	}
@@ -165,7 +165,7 @@ func (t *Trie) Clear() {
 
 	t.root = &TrieNode{
 		children: make(map[rune]*TrieNode),
-		commands: make([]*CommandMeta, 0),
+		commands: make([]*Meta, 0),
 	}
 }
 
@@ -204,8 +204,8 @@ func (t *Trie) collectStats(node *TrieNode, depth int, stats *TrieStats) {
 }
 
 // removeCommandFromSlice removes a command from a slice
-func removeCommandFromSlice(slice []*CommandMeta, meta *CommandMeta) []*CommandMeta {
-	result := make([]*CommandMeta, 0, len(slice))
+func removeCommandFromSlice(slice []*Meta, meta *Meta) []*Meta {
+	result := make([]*Meta, 0, len(slice))
 	for _, cmd := range slice {
 		if cmd != meta {
 			result = append(result, cmd)
@@ -215,12 +215,12 @@ func removeCommandFromSlice(slice []*CommandMeta, meta *CommandMeta) []*CommandM
 }
 
 // GetAllCommands returns all commands in the trie (sorted by priority)
-func (t *Trie) GetAllCommands() []*CommandMeta {
+func (t *Trie) GetAllCommands() []*Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	seen := make(map[*CommandMeta]bool)
-	result := make([]*CommandMeta, 0)
+	seen := make(map[*Meta]bool)
+	result := make([]*Meta, 0)
 
 	t.collectAllCommands(t.root, seen, &result)
 
@@ -232,7 +232,7 @@ func (t *Trie) GetAllCommands() []*CommandMeta {
 	return result
 }
 
-func (t *Trie) collectAllCommands(node *TrieNode, seen map[*CommandMeta]bool, result *[]*CommandMeta) {
+func (t *Trie) collectAllCommands(node *TrieNode, seen map[*Meta]bool, result *[]*Meta) {
 	if node == nil {
 		return
 	}

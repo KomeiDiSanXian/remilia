@@ -90,7 +90,6 @@ type Context struct {
 	matcher Matcher        // Matcher 引用（使用 interface{} 避免循环依赖）
 	event   *dto.Payload
 
-	// --- V2 extensions store ---
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
 	extensions     *Extensions

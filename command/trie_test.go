@@ -13,9 +13,9 @@ func TestTrie(t *testing.T) {
 
 	// Test Insert and Search
 	t.Run("Insert and Search", func(t *testing.T) {
-		meta1 := &CommandMeta{Name: "/help"}
-		meta2 := &CommandMeta{Name: "/hello"}
-		meta3 := &CommandMeta{Name: "/hell"}
+		meta1 := &Meta{Name: "/help"}
+		meta2 := &Meta{Name: "/hello"}
+		meta3 := &Meta{Name: "/hell"}
 
 		trie.Insert("/help", meta1)
 		trie.Insert("/hello", meta2)
@@ -37,7 +37,7 @@ func TestTrie(t *testing.T) {
 	// Test Remove
 	t.Run("Remove", func(t *testing.T) {
 		trie.Clear()
-		meta1 := &CommandMeta{Name: "/test"}
+		meta1 := &Meta{Name: "/test"}
 		trie.Insert("/test", meta1)
 
 		results := trie.Search("/test")
@@ -51,8 +51,8 @@ func TestTrie(t *testing.T) {
 	// Test Stats
 	t.Run("Stats", func(t *testing.T) {
 		trie.Clear()
-		trie.Insert("/cmd1", &CommandMeta{Name: "/cmd1"})
-		trie.Insert("/cmd2", &CommandMeta{Name: "/cmd2"})
+		trie.Insert("/cmd1", &Meta{Name: "/cmd1"})
+		trie.Insert("/cmd2", &Meta{Name: "/cmd2"})
 
 		stats := trie.GetStats()
 		assert.Greater(t, stats.NodeCount, 0)
@@ -110,7 +110,7 @@ func TestCommandRegistryWithTrie(t *testing.T) {
 
 func BenchmarkTrieInsert(b *testing.B) {
 	trie := NewTrie()
-	meta := &CommandMeta{Name: "/test"}
+	meta := &Meta{Name: "/test"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -121,7 +121,7 @@ func BenchmarkTrieInsert(b *testing.B) {
 func BenchmarkTrieSearch(b *testing.B) {
 	trie := NewTrie()
 	for i := range 100 {
-		meta := &CommandMeta{Name: fmt.Sprintf("/cmd%d", i)}
+		meta := &Meta{Name: fmt.Sprintf("/cmd%d", i)}
 		trie.Insert(meta.Name, meta)
 	}
 

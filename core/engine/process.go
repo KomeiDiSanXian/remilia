@@ -49,8 +49,6 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 
 	eventType := ctx.GetEventType()
 
-	// ...existing code...
-
 	// 获取已排序的 permanent 匹配器（从缓存）
 	permSpecific := state.sortedCache[eventType]
 	permGeneric := state.sortedCache[""]
