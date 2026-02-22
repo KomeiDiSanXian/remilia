@@ -14,6 +14,10 @@ import (
 var (
 	// Logger Global logger instance
 	Logger zerolog.Logger
+
+	// logFile 保存当前打开的日志文件句柄，用于关闭和轮转
+	logFile   *os.File
+	logFileMu sync.Mutex
 )
 
 // Config logger configuration
@@ -38,6 +42,13 @@ func DefaultConfig() Config {
 
 // Init initializes the global logger with the given configuration
 func Init(cfg Config) error {
+	logFileMu.Lock()
+	// 关闭上一次打开的日志文件（如多次调用 Init 或热重载时防止 fd 泄漏）
+	if logFile != nil {
+		_ = logFile.Close()
+		logFile = nil
+	}
+	logFileMu.Unlock()
 	// Set time format
 	timeFormat := cfg.TimeFormat
 	if timeFormat == "" {
@@ -84,6 +95,9 @@ func Init(cfg Config) error {
 				cfg.Console = true
 			} else {
 				writers = append(writers, file)
+				logFileMu.Lock()
+				logFile = file
+				logFileMu.Unlock()
 			}
 		}
 	}
@@ -107,6 +121,18 @@ func Init(cfg Config) error {
 // InitDefault initializes the logger with default configuration
 func InitDefault() error {
 	return Init(DefaultConfig())
+}
+
+// CloseLogFile 关闭当前日志文件句柄。
+// 应在进程退出或 Bot.Stop() 时调用，确保缓冲区 flush 并释放文件描述符。
+// 多次调用是安全的。
+func CloseLogFile() {
+	logFileMu.Lock()
+	defer logFileMu.Unlock()
+	if logFile != nil {
+		_ = logFile.Close()
+		logFile = nil
+	}
 }
 
 // FieldsPool 是用于复用 Fields map 的对象池，减少内存分配

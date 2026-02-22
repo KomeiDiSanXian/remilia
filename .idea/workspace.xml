@@ -4,12 +4,22 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: improve payload acquisition and management to prevent use-after-free errors">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/code-review-bugs-and-improvements.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -243,7 +253,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: simplify loop constructs and improve variable initialization in multiple files" />
     <MESSAGE value="feat: introduce type-safe atomic value wrapper to eliminate type assertions" />
     <MESSAGE value="feat: add generic utility functions for event parsing and middleware chaining" />
     <MESSAGE value="feat: add backward compatibility layer with type aliases and migration helpers for generic dead letter queue" />
@@ -268,7 +277,8 @@
     <MESSAGE value="refactor: simplify worker goroutine management and improve concurrency calculations" />
     <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
     <MESSAGE value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
+    <MESSAGE value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

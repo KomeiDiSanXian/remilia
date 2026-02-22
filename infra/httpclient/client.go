@@ -419,10 +419,15 @@ func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 					attempt, config.MaxRetries, waitTime)
 			}
 
-			// 修复 B8：使用 select 监听 ctx.Done()，确保 context 取消时立即响应
+			// 修复 B8：使用 select 监听 ctx.Done()，确保 context 取消时立即响应。
+			// 使用 time.NewTimer 替代 time.After：context 取消时立即 Stop timer，
+			// 避免 time.After 创建的 timer 在等待期间无法被提前回收，
+			// 减少高并发场景下的 timer 累积内存压力。
+			retryTimer := time.NewTimer(waitTime)
 			select {
-			case <-time.After(waitTime):
+			case <-retryTimer.C:
 			case <-req.Context().Done():
+				retryTimer.Stop()
 				return nil, req.Context().Err()
 			}
 

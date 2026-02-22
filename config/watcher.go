@@ -59,6 +59,27 @@ func WithValidateOnly(validate bool) WatcherOption {
 	}
 }
 
+// NewWatcherWithContext creates a new configuration watcher whose lifetime is
+// bound to the provided parent context. When parent is cancelled (e.g. on
+// Bot shutdown), the watcher stops automatically without requiring an explicit
+// Stop() call. This follows the same WithContext pattern used by
+// AdaptiveRateLimiter, DedupFilter, and token.Manager.
+//
+// Example:
+//
+//	w, err := config.NewWatcherWithContext(bot.Context(), "config.yaml")
+func NewWatcherWithContext(parent context.Context, configPath string, opts ...WatcherOption) (*Watcher, error) {
+	w, err := NewWatcher(configPath, opts...)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		<-parent.Done()
+		_ = w.Stop()
+	}()
+	return w, nil
+}
+
 // NewWatcher creates a new configuration watcher
 func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 	absPath, err := filepath.Abs(configPath)

@@ -54,6 +54,7 @@ type Matcher struct {
 type compiledChain struct {
 	handlers   []context.Handler
 	handlerSig uintptr // pointer identity of the core handler at compile time
+	chainSig   uint64  // XOR fingerprint of all middleware function pointers
 }
 
 func (m *Matcher) copy() *Matcher {

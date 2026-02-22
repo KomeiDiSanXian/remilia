@@ -443,6 +443,7 @@ func (b *Bot) On(eventType dto.EventType, rule ...eventctx.Rule) *engine.Matcher
 func (b *Bot) WaitForShutdown() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh) // 防止信号 channel 泄漏：函数返回后注销信号通知
 
 	<-sigCh
 

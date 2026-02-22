@@ -68,6 +68,8 @@ type DeadLetterQueue struct {
 	sendMu      sync.RWMutex
 	queueClosed atomic.Bool
 	closeOnce   sync.Once
+	// startOnce 保证 Start() 幂等，防止多次调用启动重复 worker
+	startOnce sync.Once
 }
 
 func NewDeadLetterQueue(config DeadLetterQueueConfig) *DeadLetterQueue {
@@ -101,51 +103,46 @@ func (dlq *DeadLetterQueue) AddConsumer(consumer DeadLetterConsumer) {
 }
 
 func (dlq *DeadLetterQueue) Start() {
-	consumers := dlq.consumerSnap.Load().([]DeadLetterConsumer)
-	if len(consumers) == 0 {
-		logger.Warn("[DeadLetterQueue] No consumers registered, dead letters will be queued but not processed")
-	}
-	for i := 0; i < dlq.config.Workers; i++ {
-		dlq.wg.Add(1)
-		go dlq.worker(i)
-	}
-	logger.WithFields(logger.Fields{
-		"workers":   dlq.config.Workers,
-		"max_size":  dlq.config.MaxSize,
-		"consumers": len(consumers),
-	}).Info("[DeadLetterQueue] Started")
+	dlq.startOnce.Do(func() {
+		consumers := dlq.consumerSnap.Load().([]DeadLetterConsumer)
+		if len(consumers) == 0 {
+			logger.Warn("[DeadLetterQueue] No consumers registered, dead letters will be queued but not processed")
+		}
+		for i := 0; i < dlq.config.Workers; i++ {
+			dlq.wg.Add(1)
+			go dlq.worker(i)
+		}
+		logger.WithFields(logger.Fields{
+			"workers":   dlq.config.Workers,
+			"max_size":  dlq.config.MaxSize,
+			"consumers": len(consumers),
+		}).Info("[DeadLetterQueue] Started")
+	})
 }
 
 func (dlq *DeadLetterQueue) worker(id int) {
 	defer dlq.wg.Done()
 
-	for {
-		select {
-		case item, ok := <-dlq.queue:
-			if !ok {
-				return
-			}
-			consumers := dlq.consumerSnap.Load().([]DeadLetterConsumer)
-			start := time.Now()
-			for _, consumer := range consumers {
-				func(c DeadLetterConsumer, it DeadLetterItem) {
-					defer func() {
-						if r := recover(); r != nil {
-							logger.WithField("worker_id", id).WithField("panic", r).Error("[DeadLetterQueue] Consumer panic recovered")
-						}
-					}()
-					c.Consume(it)
-				}(consumer, item)
-			}
-			duration := time.Since(start)
-			dlq.processed.Add(1)
-			if dlq.config.OnProcessed != nil {
-				dlq.config.OnProcessed(item, duration)
-			}
-		case <-dlq.ctx.Done():
-			// If Stop() closed the queue, we'll naturally exit via ok==false above.
-			// Otherwise, honor cancellation.
-			return
+	// range 在 close(queue) 后自动退出，不会遗漏 channel 中的任何消息。
+	// 注意：cancel() 仅用于打断 enqueueBlockUntilSpace 中的阻塞生产者，
+	// 消费侧不应响应 ctx.Done()，否则会在 close(queue) 之前静默丢弃已入队消息。
+	for item := range dlq.queue {
+		consumers := dlq.consumerSnap.Load().([]DeadLetterConsumer)
+		start := time.Now()
+		for _, consumer := range consumers {
+			func(c DeadLetterConsumer, it DeadLetterItem) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WithField("worker_id", id).WithField("panic", r).Error("[DeadLetterQueue] Consumer panic recovered")
+					}
+				}()
+				c.Consume(it)
+			}(consumer, item)
+		}
+		duration := time.Since(start)
+		dlq.processed.Add(1)
+		if dlq.config.OnProcessed != nil {
+			dlq.config.OnProcessed(item, duration)
 		}
 	}
 }

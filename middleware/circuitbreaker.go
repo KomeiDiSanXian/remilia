@@ -120,8 +120,18 @@ func (cb *CircuitBreaker) GetFailures() int32 {
 }
 
 // setState 设置状态（内部方法）
+// 使用 mu 锁保护整个 Load-Compare-Store-Callback 序列，防止并发调用时
+// OnStateChange 回调被重复触发（例如多个 goroutine 同时达到失败阈值时）。
 func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
-	oldState := cb.GetState()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.setStateLocked(newState)
+}
+
+// setStateLocked 在已持有 mu 的情况下设置状态。
+// 供 canExecute 等已持锁路径调用，避免重复加锁。
+func (cb *CircuitBreaker) setStateLocked(newState CircuitBreakerState) {
+	oldState := cb.state.Load().(CircuitBreakerState)
 	if oldState == newState {
 		return
 	}
@@ -157,15 +167,10 @@ func (cb *CircuitBreaker) canExecute() error {
 				// 再次检查状态（double-check）
 				if cb.GetState() == StateOpen {
 					// 转换状态
-					cb.state.Store(StateHalfOpen)
 					cb.halfOpenReqs.Store(1) // Count this request
 					cb.successes.Store(0)    // 重置成功计数
 					cb.halfOpenStarted.Store(time.Now())
-
-					logger.Info("[CircuitBreaker] Transitioning from Open to HalfOpen")
-					if cb.config.OnStateChange != nil {
-						cb.config.OnStateChange(StateOpen, StateHalfOpen)
-					}
+					cb.setStateLocked(StateHalfOpen)
 					cb.mu.Unlock()
 					return nil
 				}
@@ -185,12 +190,8 @@ func (cb *CircuitBreaker) canExecute() error {
 					cb.mu.Lock()
 					// Double-check 状态
 					if cb.GetState() == StateHalfOpen {
-						cb.state.Store(StateOpen)
 						cb.lastFailure.Store(time.Now())
-						logger.Warn("[CircuitBreaker] Half-open timeout, reopening circuit")
-						if cb.config.OnStateChange != nil {
-							cb.config.OnStateChange(StateHalfOpen, StateOpen)
-						}
+						cb.setStateLocked(StateOpen)
 						cb.mu.Unlock()
 						return fmt.Errorf("circuit breaker is open")
 					}

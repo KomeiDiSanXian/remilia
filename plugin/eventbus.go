@@ -40,6 +40,7 @@ type EventBusStats struct {
 	TopicCount        int            // 主题数量
 	SubscriptionCount int            // 订阅数量
 	PublishCount      int64          // 发布事件总数
+	DroppedCount      int64          // 池满时丢弃的事件总数
 	TopicStats        map[string]int // 每个主题的订阅数
 }
 
@@ -47,6 +48,7 @@ type EventBusStats struct {
 type eventBus struct {
 	subscribers  map[string][]subscriptionImpl // topic -> handlers
 	publishCount atomic.Int64                  // 发布事件总数（原子操作，无需写锁）
+	droppedCount atomic.Int64                  // 池满时丢弃的事件总数
 	subIDCounter atomic.Int64                  // 全局单调递增订阅 ID，避免 ID 重复
 	workerPool   chan struct{}                 // goroutine 池，限制并发数
 	mu           sync.RWMutex
@@ -106,16 +108,11 @@ func (eb *eventBus) Publish(topic string, data any) error {
 				h(data)
 			}(sub.handler)
 		default:
-			// 池已满：不阻塞调用方，直接启动 goroutine（不计入池）
-			logger.Warnf("[EventBus] Worker pool full for topic %s, running handler without pool limit", topic)
-			go func(h EventHandler) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Errorf("[EventBus] Panic in event handler: %v", r)
-					}
-				}()
-				h(data)
-			}(sub.handler)
+			// 池已满：丢弃本次事件而不是无限新建 goroutine。
+			// 无界新建 goroutine 在慢消费者场景下会耗尽内存；
+			// 有界丢弃可通过 GetStats().DroppedCount 监控。
+			dropped := eb.droppedCount.Add(1)
+			logger.Warnf("[EventBus] Worker pool full, dropping event for topic %s (total dropped: %d)", topic, dropped)
 		}
 	}
 
@@ -200,7 +197,8 @@ func (eb *eventBus) GetStats() EventBusStats {
 
 	stats := EventBusStats{
 		TopicCount:   len(eb.subscribers),
-		PublishCount: eb.publishCount.Load(), // 使用 atomic.Load
+		PublishCount: eb.publishCount.Load(),
+		DroppedCount: eb.droppedCount.Load(),
 		TopicStats:   make(map[string]int),
 	}
 

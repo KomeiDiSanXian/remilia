@@ -180,50 +180,84 @@ var globalConfig atomic.Value // stores *Config
 // 当配置通过 Load 或 Reload 更新时被调用
 type ChangeListener func(newCfg *Config)
 
+// listenerEntry 带 ID 的监听器条目
+type listenerEntry struct {
+	id int64
+	fn ChangeListener
+}
+
+// ListenerToken 配置监听器注销凭证
+// 调用 Cancel() 可精确移除对应的监听器，而不影响其他监听器。
+type ListenerToken struct {
+	id   int64
+	once sync.Once
+}
+
+// Cancel 注销此监听器。多次调用是安全的（幂等）。
+func (t *ListenerToken) Cancel() {
+	t.once.Do(func() { unsubscribeByID(t.id) })
+}
+
 var (
-	changeListeners   []ChangeListener
+	listenerEntries   []listenerEntry
 	changeListenersMu sync.RWMutex
+	listenerIDCounter atomic.Int64
 )
 
-// Subscribe 注册配置变更监听器
-// 每次 Load 成功后会按注册顺序调用所有监听器
+// Subscribe 注册配置变更监听器，返回可用于精确取消的 token。
+// 每次 Load 成功后会按注册顺序调用所有监听器。
 //
 // 使用示例:
 //
-//	config.Subscribe(func(cfg *config.Config) {
-//	    // 更新中间件的速率限制参数
+//	token := config.Subscribe(func(cfg *config.Config) {
 //	    rateLimiter.Update(cfg.Middleware.RateLimitRate)
 //	})
-func Subscribe(listener ChangeListener) {
+//	// 插件卸载时：
+//	defer token.Cancel()
+func Subscribe(listener ChangeListener) *ListenerToken {
+	id := listenerIDCounter.Add(1)
 	changeListenersMu.Lock()
-	changeListeners = append(changeListeners, listener)
+	listenerEntries = append(listenerEntries, listenerEntry{id: id, fn: listener})
 	changeListenersMu.Unlock()
+	return &ListenerToken{id: id}
 }
 
-// Unsubscribe 移除所有配置变更监听器（主要用于测试清理）
+// unsubscribeByID 按 ID 移除单个监听器（内部使用）
+func unsubscribeByID(id int64) {
+	changeListenersMu.Lock()
+	defer changeListenersMu.Unlock()
+	for i, e := range listenerEntries {
+		if e.id == id {
+			listenerEntries = append(listenerEntries[:i], listenerEntries[i+1:]...)
+			return
+		}
+	}
+}
+
+// UnsubscribeAll 移除所有配置变更监听器（主要用于测试清理）
 func UnsubscribeAll() {
 	changeListenersMu.Lock()
-	changeListeners = nil
+	listenerEntries = nil
 	changeListenersMu.Unlock()
 }
 
 // notifyListeners 通知所有已注册的监听器配置已变更
 func notifyListeners(cfg *Config) {
 	changeListenersMu.RLock()
-	listeners := make([]ChangeListener, len(changeListeners))
-	copy(listeners, changeListeners)
+	snapshot := make([]listenerEntry, len(listenerEntries))
+	copy(snapshot, listenerEntries)
 	changeListenersMu.RUnlock()
 
-	for _, listener := range listeners {
-		func() {
+	for _, entry := range snapshot {
+		func(fn ChangeListener) {
 			defer func() {
 				if r := recover(); r != nil {
 					// 监听器 panic 不应影响配置加载流程
 					_ = r
 				}
 			}()
-			listener(cfg)
-		}()
+			fn(cfg)
+		}(entry.fn)
 	}
 }
 

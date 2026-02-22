@@ -93,7 +93,8 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 		strictMode:  config.StrictMode,
 	}
 
-	// 启动后台清理 goroutine，同时监听 parent context 和 cleanupDone
+	// 启动后台清理 goroutine：通过调用 cleanup() 统一逻辑，避免与该方法的实现分叉。
+	// 同时监听 parent context（Bot 关闭）和 cleanupDone（手动 Stop()）。
 	interval := config.CleanupInterval
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -103,11 +104,9 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 			case <-ticker.C:
 				filter.cleanExpired()
 			case <-parent.Done():
-				// 外部 context 取消（如 Bot 关闭）时退出
 				filter.cleanExpired()
 				return
 			case <-filter.cleanupDone:
-				// 手动调用 Stop() 时退出
 				filter.cleanExpired()
 				return
 			}
@@ -221,23 +220,6 @@ func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	d.cache[hash] = now + d.defaultTTL.Nanoseconds()
 
 	return false, nil
-}
-
-// cleanup 后台清理过期条目
-func (d *DedupFilter) cleanup(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			d.cleanExpired()
-		case <-d.cleanupDone:
-			// 最后清理一次
-			d.cleanExpired()
-			return
-		}
-	}
 }
 
 // cleanExpired 清理过期条目

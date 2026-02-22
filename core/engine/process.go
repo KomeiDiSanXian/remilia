@@ -148,10 +148,15 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 	if len(events) == 0 {
 		return
 	}
+	// 与 ProcessEvent 相同的保护：用读锁保证"检查 shutdown → Add(1)"的原子性，
+	// 防止与 Shutdown() 的 shutdownMu.Lock + eventWg.Wait() 产生竞态。
+	e.shutdownMu.RLock()
 	if e.shutdown.Load() {
+		e.shutdownMu.RUnlock()
 		return
 	}
 	e.eventWg.Add(1)
+	e.shutdownMu.RUnlock()
 	defer e.eventWg.Done()
 
 	// 无锁读取状态（一次读取，处理所有事件）- 无需类型断言
@@ -338,13 +343,14 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.
 	}
 
 	hid := handlerID(he)
+	sig := chainSignature(chain)
 
 	if v := m.compiledHandlers.Load(); v != nil {
 		if cc, ok := v.(*compiledChain); ok && cc != nil {
-			// Valid if same handler identity and same chain length.
-			// ensureChain always builds a new []Middleware slice on change,
-			// so a changed chain length correctly invalidates the cache.
-			if cc.handlerSig == hid && len(cc.handlers) == len(chain)+1 {
+			// Valid if same handler identity AND same middleware content fingerprint.
+			// chainSig catches same-length-but-different-content replacements that
+			// the old length-only check would miss.
+			if cc.handlerSig == hid && cc.chainSig == sig {
 				return cc.handlers[0]
 			}
 		}
@@ -362,9 +368,21 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.
 	cc := &compiledChain{
 		handlers:   handlers,
 		handlerSig: hid,
+		chainSig:   sig,
 	}
 	m.compiledHandlers.Store(cc)
 	return handlers[0]
+}
+
+// chainSignature computes an XOR fingerprint of all middleware function pointers
+// in the chain. Two chains with the same length but different middleware will
+// produce different signatures, enabling content-aware cache invalidation.
+func chainSignature(chain []Middleware) uint64 {
+	var sig uint64
+	for _, m := range chain {
+		sig ^= uint64(reflect.ValueOf(m).Pointer())
+	}
+	return sig
 }
 
 // handlerID returns a stable numeric identity for a Handler function value

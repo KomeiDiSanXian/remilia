@@ -14,8 +14,19 @@ func BytesToString(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
 
-// StringToBytes unsafe 零拷贝转换
-func StringToBytes(s string) (b []byte) { return *(*[]byte)(unsafe.Pointer(&s)) }
+// StringToBytes unsafe 零拷贝将 string 转为只读 []byte。
+// 使用 Go 1.20+ unsafe.Slice + unsafe.StringData，正确设置 data 和 len，
+// 不再依赖 *(*[]byte)(unsafe.Pointer(&s))——后者会将 string 结构体后面的
+// 任意内存误读为 cap 字段，属于未定义行为。
+//
+// 注意：返回的 []byte 不可写入，其底层指向 string 的只读内存。
+// 若需要可修改的副本，请使用 []byte(s)。
+func StringToBytes(s string) []byte {
+	if len(s) == 0 {
+		return []byte{}
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
 
 // HideURL 隐藏URL
 func HideURL(url string) string {
