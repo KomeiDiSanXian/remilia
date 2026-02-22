@@ -2,6 +2,7 @@ package dlq
 
 import (
 	stdctx "context"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,8 +130,8 @@ func TestConsumerAdapter(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		// Legacy consumer should have received it
-		assert.Equal(t, 1, legacyConsumer.count)
-		assert.Equal(t, "adapter-test", string(legacyConsumer.lastItem.Event.ID))
+		assert.Equal(t, 1, legacyConsumer.getCount())
+		assert.Equal(t, "adapter-test", string(legacyConsumer.getLastItem().Event.ID))
 	})
 
 	t.Run("multiple legacy consumers", func(t *testing.T) {
@@ -153,8 +154,8 @@ func TestConsumerAdapter(t *testing.T) {
 
 		time.Sleep(100 * time.Millisecond)
 
-		assert.Equal(t, 1, consumer1.count)
-		assert.Equal(t, 1, consumer2.count)
+		assert.Equal(t, 1, consumer1.getCount())
+		assert.Equal(t, 1, consumer2.getCount())
 	})
 }
 
@@ -183,13 +184,28 @@ func TestMigrationPath(t *testing.T) {
 
 // Mock legacy consumer for testing
 type mockLegacyConsumer struct {
+	mu       sync.Mutex
 	count    int
 	lastItem DeadLetterItem
 }
 
 func (m *mockLegacyConsumer) Consume(item DeadLetterItem) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.count++
 	m.lastItem = item
+}
+
+func (m *mockLegacyConsumer) getCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.count
+}
+
+func (m *mockLegacyConsumer) getLastItem() DeadLetterItem {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastItem
 }
 
 // TestRealWorldScenarios demonstrates real-world use cases

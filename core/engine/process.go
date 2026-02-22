@@ -22,6 +22,9 @@ import (
 //   - 零内存分配：直接使用已排序的匹配器切片（通过 sync.Pool）
 //   - 5-6x 性能提升：相比原有的 RWMutex 实现
 func (e *Engine) ProcessEvent(ctx *context.Context) {
+	if e.shutdown.Load() {
+		return
+	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
@@ -139,7 +142,9 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 	if len(events) == 0 {
 		return
 	}
-
+	if e.shutdown.Load() {
+		return
+	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
@@ -246,26 +251,8 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 
 	// 获取或构建预编译迭代器链
 	finalHandler := e.getOrBuildIterChain(m, chain, handlerErr)
-
-	// 执行 handler 并处理错误和 panic
-	var err error
-
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("panic in handler: %v", r)
-			logger.WithFields(logger.Fields{
-				"panic":      r,
-				"matcher":    m.Source,
-				"event_type": ctx.GetEventType(),
-			}).Error("[engine] Handler panic recovered")
-		}
-	}()
-
-	err = finalHandler(ctx)
-
-	// 记录错误
-	if err != nil {
-		logger.WithError(err).Debugf("[engine] Handler error in matcher: %services", m.Source)
+	recordHandlerError := func(err error) {
+		logger.WithError(err).Debugf("[engine] Handler error in matcher: %s", m.Source)
 
 		val := e.services.metricsCollector.Load()
 
@@ -282,6 +269,28 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 				}
 			}
 		}
+	}
+
+	// 执行 handler 并处理 panic
+	var panicErr error
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr = fmt.Errorf("panic in handler: %v", r)
+			logger.WithFields(logger.Fields{
+				"panic":      r,
+				"matcher":    m.Source,
+				"event_type": ctx.GetEventType(),
+			}).Error("[engine] Handler panic recovered")
+			// panic 路径同样触发 metrics 记录
+			recordHandlerError(panicErr)
+		}
+	}()
+
+	err := finalHandler(ctx)
+
+	// 记录正常路径错误
+	if err != nil {
+		recordHandlerError(err)
 	}
 
 	// 临时 matcher：按使用次数自动删除

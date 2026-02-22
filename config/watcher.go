@@ -220,10 +220,9 @@ func (w *Watcher) watchLoop() {
 func (w *Watcher) reload() error {
 	startTime := time.Now()
 
-	// 修复 #12：编辑器（vim、VS Code）保存时先 truncate 再 write，
-	// debounce 后立即读取仍可能读到截断的文件。
-	// 使用稳定性读取策略：加载后等待 50ms 再次加载比较，一致则应用。
-	newConfig, err := Load(w.configPath)
+	// 修复 B7：使用 loadRaw 代替 Load，避免 Load 内部调用 notifyListeners 导致同一次
+	// 配置变更触发两次通知（watcher 稳定性检查需要读取两次文件）。
+	newConfig, err := loadRaw(w.configPath)
 	if err != nil {
 		w.failedCount.Add(1)
 		return fmt.Errorf("failed to load new config: %w", err)
@@ -231,7 +230,7 @@ func (w *Watcher) reload() error {
 
 	// 稳定性校验：等待 50ms 后再次读取，确认文件已完整写入
 	time.Sleep(50 * time.Millisecond)
-	newConfig2, err2 := Load(w.configPath)
+	newConfig2, err2 := loadRaw(w.configPath)
 	if err2 != nil {
 		// 二次读取失败通常意味着文件仍在写入，保留第一次的结果继续尝试
 		logger.WithError(err2).Warn("[ConfigWatcher] Stability check read failed, using first read result")
@@ -262,6 +261,9 @@ func (w *Watcher) reload() error {
 		globalConfig.Store(newConfig)
 		w.lastReloadTime.Store(time.Now())
 		w.reloadCount.Add(1)
+
+		// 修复 B7：通知监听器仅在最终确认后调用一次（loadRaw 不触发通知）
+		notifyListeners(newConfig)
 
 		duration := time.Since(startTime)
 		logger.WithFields(logger.Fields{

@@ -179,17 +179,24 @@ func (b *Bot) Start() error {
 	// Stop() 时调用 rootCancel 统一取消所有依赖组件
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
-	// 将 tokenManager 重新绑定到 rootCtx，替换构造时创建的临时实例
-	// 这样 token 刷新 goroutine 会随 Bot 根 context 一起退出
+	// 修复 B3（完整版）：
+	// 1. 在锁内读取 oldManager/oldOpenAPI，并更新为新实例，消除 handleEvent 并发读写数据竞态
+	// 2. lifecycle.Start 失败后在失败路径回滚，保持 bot 可重启
+	// 3. rootCancel() 先于 oldManager.Stop()，确保新 manager 停止再处理旧 manager
+	var oldManager *token.Manager
+	var oldOpenAPI openapi.OpenAPI
+
 	if b.botInfo != nil {
-		oldManager := b.tokenManager
 		newManager := token.NewManagerWithContext(rootCtx, b.botInfo)
+		newOpenAPI := openapi.New(newManager)
+
+		// 在锁内原子替换，与 handleEvent 的读操作互斥
+		b.mu.Lock()
+		oldManager = b.tokenManager
+		oldOpenAPI = b.openAPI
 		b.tokenManager = newManager
-		b.openAPI = openapi.New(newManager)
-		// 停止旧的临时 manager（它使用 context.Background()，不会被 rootCtx 取消）
-		if oldManager != nil {
-			go oldManager.Stop()
-		}
+		b.openAPI = newOpenAPI
+		b.mu.Unlock()
 	}
 
 	// 为 OnStart 阶段创建带超时的子 context（不影响 rootCtx）
@@ -202,8 +209,19 @@ func (b *Bot) Start() error {
 	b.mu.Lock()
 	b.starting = false
 	if err != nil {
+		// 失败路径：回滚 tokenManager/openAPI 到旧值，使 bot 仍可重启
+		if b.botInfo != nil {
+			b.tokenManager = oldManager
+			b.openAPI = oldOpenAPI
+		}
 		b.mu.Unlock()
-		rootCancel() // 启动失败，立即释放 rootCtx
+
+		// 取消 rootCtx，停止新建的 tokenManager goroutine
+		rootCancel()
+		// 旧 manager 在整个过程中未受影响，异步停止即可（它的 context 仍是 context.Background()）
+		if oldManager != nil {
+			go oldManager.Stop()
+		}
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
@@ -212,6 +230,13 @@ func (b *Bot) Start() error {
 	b.rootCtx = rootCtx
 	b.rootCancel = rootCancel
 	b.mu.Unlock()
+
+	// 启动成功：旧 manager 已被新 manager 取代，异步停止
+	if oldManager != nil {
+		go oldManager.Stop()
+	}
+	// 旧 openAPI 无需关闭（它是无状态的 wrapper，持有的 tokenManager 即将停止）
+	_ = oldOpenAPI
 
 	logger.Info("[Bot] Started successfully")
 	return nil
@@ -248,15 +273,22 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 
 	start := time.Now()
 
+	// 在处理之前提前读取 payload 中的调试字段，避免 ReleasePayload 后 use-after-free
+	eventType := payload.Type
+	eventID := payload.ID
+
 	if b.config.Debug {
 		logger.WithFields(logger.Fields{
-			"type": payload.Type,
-			"id":   payload.ID,
+			"type": eventType,
+			"id":   eventID,
 		}).Debug("[Bot] Event received")
 	}
 
 	// 安全检查：确保 openAPI client 已初始化
+	// 修复 B3：加 RLock 读取 openAPI，与 Start() 中锁内写入 b.openAPI 互斥，消除数据竞态
+	b.mu.RLock()
 	api := b.openAPI
+	b.mu.RUnlock()
 	if api == nil {
 		logger.Warn("[Bot] OpenAPI client not initialized, event processing may fail")
 		// 仍然继续处理，context 可以处理 nil API
@@ -264,18 +296,23 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 
 	// 从 pool 获取 Context，处理完毕后归还，减少 per-event 堆分配。
 	ctx := eventctx.AcquireContext(payload, api)
-	defer eventctx.ReleaseContext(ctx)
 
 	// 使用 engine 处理事件
 	b.engine.ProcessEvent(ctx)
 
+	// 归还 Context 到池（清空内部字段）
+	eventctx.ReleaseContext(ctx)
+
+	// 改进 3.3: 归还 Payload 到对象池，减少 GC 压力。
+	// 必须在 ReleaseContext 之后调用，确保 Context 不再持有 payload 引用。
+	dto.ReleasePayload(payload)
+
 	// 记录事件处理耗时（Debug 模式下记录，生产中可通过 metrics 上报）
-	elapsed := time.Since(start)
 	if b.config.Debug {
 		logger.WithFields(logger.Fields{
-			"type":    payload.Type,
-			"id":      payload.ID,
-			"elapsed": elapsed,
+			"type":    eventType,
+			"id":      eventID,
+			"elapsed": time.Since(start),
 		}).Debug("[Bot] Event processed")
 	}
 }

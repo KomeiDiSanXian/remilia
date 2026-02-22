@@ -419,7 +419,12 @@ func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 					attempt, config.MaxRetries, waitTime)
 			}
 
-			time.Sleep(waitTime)
+			// 修复 B8：使用 select 监听 ctx.Done()，确保 context 取消时立即响应
+			select {
+			case <-time.After(waitTime):
+			case <-req.Context().Done():
+				return nil, req.Context().Err()
+			}
 
 			// 重新创建 HTTP 请求以重置请求体（避免 consumed reader 问题）
 			var reqBody io.Reader

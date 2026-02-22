@@ -13,6 +13,79 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 )
 
+// latencyHistogram 是一个轻量级固定桶直方图，用于计算 P99 延迟。
+// 无外部依赖，使用 32 个指数增长的桶覆盖 0.1ms ~ 10s。
+// 每个桶使用 atomic.Int64，读写均无锁。
+type latencyHistogram struct {
+	// 桶边界（纳秒），32 个桶，指数增长：~0.1ms, ~0.2ms, ~0.4ms … ~10s
+	bounds [32]int64
+	counts [32]atomic.Int64
+	total  atomic.Int64 // 总样本数，用于快速判断是否有数据
+}
+
+// newLatencyHistogram 创建默认桶配置的直方图
+func newLatencyHistogram() *latencyHistogram {
+	h := &latencyHistogram{}
+	// 生成 32 个指数桶：起点 100µs，公比 ~1.6，覆盖到 ~10s
+	base := int64(100_000) // 100µs in ns
+	for i := range 32 {
+		h.bounds[i] = base
+		base = base * 8 / 5 // ×1.6
+	}
+	return h
+}
+
+// observe 记录一个延迟样本
+func (h *latencyHistogram) observe(d time.Duration) {
+	ns := d.Nanoseconds()
+	if ns <= 0 {
+		return
+	}
+	// 找到对应桶（线性搜索，32 次迭代，极快）
+	idx := 31
+	for i, bound := range h.bounds {
+		if ns <= bound {
+			idx = i
+			break
+		}
+	}
+	h.counts[idx].Add(1)
+	h.total.Add(1)
+}
+
+// percentile 计算百分位数延迟（0-100），并重置所有桶。
+// 如果无样本则返回 0。
+func (h *latencyHistogram) percentile(p float64) time.Duration {
+	total := h.total.Load()
+	if total == 0 {
+		return 0
+	}
+
+	// 读取并重置各桶
+	counts := make([]int64, 32)
+	for i := range 32 {
+		counts[i] = h.counts[i].Swap(0)
+	}
+	h.total.Store(0)
+
+	// 计算目标排名
+	target := int64(float64(total)*p/100.0 + 0.5)
+	if target <= 0 {
+		target = 1
+	}
+
+	var cumulative int64
+	for i, c := range counts {
+		cumulative += c
+		if cumulative >= target {
+			// 返回该桶的上界作为近似值
+			return time.Duration(h.bounds[i])
+		}
+	}
+	// 全部样本都在最后一桶之后
+	return time.Duration(h.bounds[31])
+}
+
 // AdaptiveRateLimiter 自适应限流器
 // 根据系统负载（CPU、内存、延迟）自动调整并发限制
 type AdaptiveRateLimiter struct {
@@ -24,11 +97,12 @@ type AdaptiveRateLimiter struct {
 	currentLoad    atomic.Int32
 
 	// 系统指标
-	cpuUsage     atomic.Value // float64
-	memoryUsage  atomic.Value // float64
-	latencyP99   atomic.Value // time.Duration
-	latencySum   atomic.Int64 // 总延迟（纳秒）
-	latencyCount atomic.Int64 // 请求计数
+	cpuUsage    atomic.Value // float64
+	memoryUsage atomic.Value // float64
+	latencyP99  atomic.Value // time.Duration
+
+	// 改进 3.1: 使用固定桶直方图替换 latencySum/latencyCount + avg*1.5 近似
+	latencyHist *latencyHistogram
 
 	// 统计
 	totalRequests    atomic.Int64
@@ -118,9 +192,10 @@ func NewAdaptiveRateLimiterWithContext(parent context.Context, config AdaptiveCo
 	ctx, cancel := context.WithCancel(parent)
 
 	arl := &AdaptiveRateLimiter{
-		config: config,
-		ctx:    ctx,
-		cancel: cancel,
+		config:      config,
+		ctx:         ctx,
+		cancel:      cancel,
+		latencyHist: newLatencyHistogram(),
 	}
 
 	arl.maxConcurrency.Store(int32(config.InitialLimit))
@@ -196,13 +271,10 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 				// 释放令牌
 				arl.currentLoad.Add(-1)
 
-				// 记录延迟（添加合理性检查，防止统计溢出）
+				// 改进 3.1: 使用直方图记录延迟，替换 avg*1.5 近似
 				latency := time.Since(start)
-
-				// 只记录合理范围内的延迟（< 1小时），避免异常值和溢出
 				if latency > 0 && latency < time.Hour {
-					arl.latencySum.Add(latency.Nanoseconds())
-					arl.latencyCount.Add(1)
+					arl.latencyHist.observe(latency)
 				} else if latency >= time.Hour {
 					logger.WithFields(logger.Fields{
 						"latency": latency,
@@ -304,15 +376,13 @@ func (arl *AdaptiveRateLimiter) metricsLoop() {
 
 // collectMetrics 采集系统指标
 func (arl *AdaptiveRateLimiter) collectMetrics() {
-	// 采集真实 CPU 使用率（使用 gopsutil）
-	// 注意：gopsutil 已经在 go.mod 中作为依赖
-	cpuPercent, err := cpu.Percent(time.Second, false)
+	// 改进：使用非阻塞采样 interval=0（对比上次调用的增量），避免每次阻塞 1 秒
+	// metricsLoop 每 5 秒触发一次，两次调用间隔已足够作为采样窗口
+	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil || len(cpuPercent) == 0 {
 		logger.WithError(err).Warn("[AdaptiveRateLimiter] Failed to get CPU usage, using fallback")
-		// 失败时使用负值标记，调整逻辑会跳过
 		arl.cpuUsage.Store(-1.0)
 	} else {
-		// CPU 使用率（0.0-1.0）
 		cpuUsage := cpuPercent[0] / 100.0
 		arl.cpuUsage.Store(cpuUsage)
 	}
@@ -328,18 +398,9 @@ func (arl *AdaptiveRateLimiter) collectMetrics() {
 	}
 	arl.memoryUsage.Store(memUsage)
 
-	// 计算 P99 延迟
-	latencySum := arl.latencySum.Load()
-	latencyCount := arl.latencyCount.Load()
-	if latencyCount > 0 {
-		avgLatency := time.Duration(latencySum / latencyCount)
-		// 简化：使用平均值的1.5倍作为P99（实际应该使用直方图）
-		p99 := avgLatency * 3 / 2
+	// 改进 3.1: 使用直方图计算真实 P99，替换 avg*1.5 近似方案
+	if p99 := arl.latencyHist.percentile(99); p99 > 0 {
 		arl.latencyP99.Store(p99)
-
-		// 重置计数器
-		arl.latencySum.Store(0)
-		arl.latencyCount.Store(0)
 	}
 }
 

@@ -4,10 +4,11 @@ import (
 	stdctx "context"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/infra/atomic"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
@@ -17,7 +18,7 @@ import (
 // Engine 事件引擎（Copy-on-Write 模式）
 //
 // COW 并发模型：
-//   - 读操作：完全无锁，通过 atomic.Value 读取不可变状态
+//   - 读操作：完全无锁，通过 infraatomic.Value 读取不可变状态
 //   - 写操作：使用 writeMu 保护，复制-修改-替换
 //   - 无死锁风险：只有单一写锁，读操作无锁
 //   - 读写分离：写操作不阻塞读操作（读操作看到旧状态）
@@ -29,8 +30,8 @@ import (
 //   - 适用场景：读多写少（完美匹配 Engine 使用模式）
 type Engine struct {
 	// 不可变状态（COW 模式）- 使用类型安全的泛型包装器
-	state      *atomic.Value[*engineState]     // 引擎核心状态
-	middleware *atomic.Value[*middlewareState] // 中间件配置
+	state      *infraatomic.Value[*engineState]     // 引擎核心状态
+	middleware *infraatomic.Value[*middlewareState] // 中间件配置
 
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
@@ -43,6 +44,10 @@ type Engine struct {
 
 	// eventWg tracks active event processing calls
 	eventWg sync.WaitGroup
+
+	// shutdown 标志：Shutdown() 设置后，ProcessEvent 不再接受新事件
+	// 防止 Shutdown 调用 eventWg.Wait() 后，ProcessEvent 仍调用 eventWg.Add(1) 的竞态
+	shutdown atomic.Bool
 }
 
 // NewEngine 创建一个新的事件引擎（COW 模式）
@@ -66,8 +71,8 @@ func NewEngine(options ...Option) *Engine {
 	e.services.compiler = NewMatcherCompiler()
 
 	// 初始化不可变状态 - 使用类型安全的泛型包装器
-	e.state = atomic.NewValue(newEngineState())
-	e.middleware = atomic.NewValue(newMiddlewareState())
+	e.state = infraatomic.NewValue(newEngineState())
+	e.middleware = infraatomic.NewValue(newMiddlewareState())
 
 	// 应用用户自定义的选项
 	for _, opt := range options {
@@ -186,7 +191,7 @@ func (e *Engine) RemoveGroup(groupName string) {
 	// 5. 原子替换
 	e.state.Store(newState)
 
-	logger.Debugf("[engine] Removed matcher group: %services", groupName)
+	logger.Debugf("[engine] Removed matcher group: %s", groupName)
 }
 
 // InvalidateSortedCache 失效指定事件类型的排序缓存（COW 写操作）
@@ -558,7 +563,9 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return err
 	}
 
-	// 2) Wait for active events to complete, bounded by ctx.
+	e.shutdown.Store(true)
+
+	// Wait for active events to complete, bounded by ctx.
 	done := make(chan struct{})
 	go func() {
 		e.eventWg.Wait()
@@ -1019,19 +1026,20 @@ type CommandInfo struct {
 
 // GetAllCommands 获取所有已注册的命令信息
 //
-// 此方法使用缓存优化，O(1) 复杂度返回命令列表。
+// 改进 3.7：直接返回预构建的命令列表缓存副本，避免每次调用遍历 map。
+// 命令列表在每次 COW 写操作（注册/删除命令）时自动更新，读操作 O(n) 复制一次切片。
 // 用于 Help Plugin 等需要发现所有命令的场景。
 //
 // 返回的命令列表不包含隐藏命令（Hidden=true）。
 func (e *Engine) GetAllCommands() []CommandInfo {
 	state := e.state.Load()
 
-	// 直接从缓存返回（O(1) 复杂度）
-	commands := make([]CommandInfo, 0, len(state.commandInfoCache))
-	for _, info := range state.commandInfoCache {
-		commands = append(commands, *info)
+	// 改进 3.7: 直接复制预构建缓存切片，避免 map 遍历
+	if len(state.commandListCache) == 0 {
+		return nil
 	}
-
+	commands := make([]CommandInfo, len(state.commandListCache))
+	copy(commands, state.commandListCache)
 	return commands
 }
 

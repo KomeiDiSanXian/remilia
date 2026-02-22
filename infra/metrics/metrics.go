@@ -44,9 +44,27 @@ type Collector struct {
 	internalPoolNews atomic.Uint64
 }
 
-// NewMetricsCollector creates a new metrics collector with the default global registry
+// NewMetricsCollector 创建使用独立 Prometheus Registry 的指标收集器。
+//
+// 改进 3.10：不再使用 prometheus.DefaultRegisterer，而是为每个 Collector 创建
+// 独立的 Registry，彻底避免同一进程多次调用时因 metric 名称重复导致的 panic。
+//
+// 如果需要将指标暴露到 /metrics 端点，请使用 Collector.Registry() 获取 registry
+// 并注册到 http handler：
+//
+//	mc := metrics.NewMetricsCollector("mybot")
+//	http.Handle("/metrics", promhttp.HandlerFor(mc.Registry(), promhttp.HandlerOpts{}))
 func NewMetricsCollector(namespace string) *Collector {
-	return NewMetricsCollectorWithRegistry(namespace, prometheus.DefaultRegisterer)
+	return NewMetricsCollectorWithRegistry(namespace, prometheus.NewRegistry())
+}
+
+// Registry 返回该 Collector 使用的 Prometheus Registry。
+// 可用于将指标暴露到自定义的 /metrics HTTP 端点。
+func (mc *Collector) Registry() prometheus.Gatherer {
+	if g, ok := mc.registry.(prometheus.Gatherer); ok {
+		return g
+	}
+	return prometheus.DefaultGatherer
 }
 
 // NewMetricsCollectorWithRegistry creates a new metrics collector with a custom registry

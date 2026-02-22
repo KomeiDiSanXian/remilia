@@ -547,10 +547,10 @@ func (m *Manager) Stop(ctx context.Context) error {
 		// 所有 OnRun 已完成
 	case <-ctx.Done():
 		// 等待 OnRun 超时，为 OnStop 创建新的独立 context
-		// 原 ctx 已过期，继续使用会导致 OnStop 立即返回错误
-		// 修复 #8：使用可配置的 stopTimeout（默认 10s），通过 WithStopTimeout 选项自定义
+		// 修复 B4：使用 context.WithoutCancel(ctx) 保留原始 ctx 的 Value 链（trace/metadata），
+		// 只剥离已过期的取消信号，避免 trace span 断链。
 		logger.Warn("[Lifecycle] Stop timeout waiting for OnRun, proceeding with OnStop using fresh context")
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), m.stopTimeout)
+		stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), m.stopTimeout)
 		defer stopCancel()
 		ctx = stopCtx
 	}

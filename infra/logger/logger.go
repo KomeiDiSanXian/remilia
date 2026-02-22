@@ -315,6 +315,28 @@ func Panicf(format string, v ...any) {
 	Logger.Panic().Caller(1).Msgf(format, v...)
 }
 
+// InitNop 初始化一个静默的 logger（丢弃所有输出）。
+// 用于测试场景，避免控制台产生噪声日志。
+//
+// 示例：
+//
+//	func TestMain(m *testing.M) {
+//	    logger.InitNop()
+//	    os.Exit(m.Run())
+//	}
+func InitNop() {
+	Logger = zerolog.Nop()
+	log.Logger = Logger
+}
+
+// InitTest 初始化一个仅输出 Error 及以上级别的测试 logger。
+// 相比 InitNop，保留了关键错误日志，便于测试时排查问题。
+func InitTest() {
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
+	log.Logger = Logger
+}
+
 func init() {
 	// Initialize with default config on package load
 	_ = InitDefault()

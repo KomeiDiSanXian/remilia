@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"runtime"
 	"sync"
@@ -193,34 +194,32 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		logger.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
 	}
 
-	// 现在启动 HTTP 服务器（workers 已就绪）
-	serverErrCh := make(chan error, 1)
-	a.wg.Go(func() {
-		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
-
-		if err := a.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
-			serverErrCh <- err
-			// HTTP 服务器启动失败，取消所有 workers
-			a.cancel()
-		}
-	})
-
-	// 检查服务器是否立即失败（例如端口被占用）
-	select {
-	case err := <-serverErrCh:
-		// 服务器启动失败，等待所有 workers 清理
-		logger.WithError(err).Error("[WebhookServerAdapter] Server failed to start, cleaning up workers")
+	// 修复 B2：使用 net.Listen 预绑定端口，确定性地检测端口冲突，
+	// 消除原先 time.After(100ms) 竞态判断的不可靠性。
+	ln, err := net.Listen("tcp", a.addr)
+	if err != nil {
+		// 端口绑定失败（如端口被占用），立即清理 workers
+		a.cancel()
 		a.wg.Wait()
 		a.mu.Lock()
 		a.running = false
 		a.mu.Unlock()
-		return errutil.Wrapf(err, "failed to start HTTP server")
-	case <-time.After(100 * time.Millisecond):
-		// 服务器启动成功（没有立即报错）
-		logger.Info("[WebhookServerAdapter] Started successfully")
-		return nil
+		return errutil.Wrapf(err, "failed to bind address %s", a.addr)
 	}
+
+	// 端口已成功绑定，启动 HTTP 服务器（使用已绑定的 listener）
+	a.wg.Go(func() {
+		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
+
+		if err := a.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
+			// HTTP 服务器运行期间失败，取消所有 workers
+			a.cancel()
+		}
+	})
+
+	logger.Info("[WebhookServerAdapter] Started successfully")
+	return nil
 }
 
 // Stop 停止适配器（关闭 HTTP 服务器和事件循环）
@@ -265,15 +264,8 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 	}
 }
 
-// safeHandleEvent 安全地调用事件处理器，捕获 panic
+// safeHandleEvent 安全地调用事件处理器，捕获 panic。
+// 改进 3.8：统一使用 adapter.go 中的 safeHandle，消除重复代码。
 func safeHandleEvent(handler func(*dto.Payload), event *dto.Payload) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WithFields(logger.Fields{
-				"panic":    r,
-				"event_id": event.ID,
-			}).Error("[WebhookServerAdapter] Handler panic recovered")
-		}
-	}()
-	handler(event)
+	safeHandle(handler, event)
 }

@@ -194,9 +194,11 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析载荷
-	payload := &dto.Payload{Raw: b}
+	// 改进 3.3: 从池中获取 Payload，减少 GC 压力
+	payload := dto.AcquirePayload()
+	payload.Raw = b
 	if err := json.Unmarshal(b, payload); err != nil {
+		dto.ReleasePayload(payload)
 		logger.WithError(err).Error("[Webhook] Failed to unmarshal payload")
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -212,7 +214,13 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	}).Debug("[Webhook] Received payload")
 
 	// 处理操作
-	result, err := c.handleOperation(payload, r.Header)
+	// consumed=true 表示 payload 已进入 eventChan，由消费者负责归还；
+	// consumed=false 表示 payload 在此处理完毕，Handle 负责归还。
+	result, consumed, err := c.handleOperation(payload, r.Header)
+	if !consumed {
+		// 非 Dispatch 路径（Validation/Heartbeat/ACK/unknown），在此归还
+		defer dto.ReleasePayload(payload)
+	}
 	if err != nil {
 		logger.WithError(err).Error("[Webhook] Failed to handle operation")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -240,21 +248,27 @@ func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
 	logger.WithField("Result", helper.BytesToString(result)).Debug("[Webhook] Response sent")
 }
 
-func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) ([]byte, error) {
+// handleOperation 处理各种操作码。
+// 返回值 consumed 为 true 时表示 payload 已写入 eventChan，
+// 由下游消费者（bot.handleEvent）调用 dto.ReleasePayload 归还；
+// consumed 为 false 时由 Handle 归还。
+func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) (result []byte, consumed bool, err error) {
 	switch payload.Operation {
 	case dto.HTTPCallbackValidation:
-		return c.handleHttpCallbackValidation(payload, header)
+		r, e := c.handleHttpCallbackValidation(payload, header)
+		return r, false, e
 	case dto.HTTPCallbackACK:
 		logger.Info("[Webhook] Received the ACK from the server")
-		return nil, nil // no response needed for ACK
+		return nil, false, nil
 	case dto.Heartbeat:
-		return c.handleHeartbeat(payload)
+		r, e := c.handleHeartbeat(payload)
+		return r, false, e
 	case dto.Dispatch:
 		c.handleDispatch(payload)
-		return nil, nil // no response needed for dispatch
+		return nil, true, nil // payload 已进入 eventChan
 	default:
 		logger.Warnf("[Webhook] Received unknown operation code: %d", payload.Operation)
-		return nil, nil // no response needed for unknown operation codes
+		return nil, false, nil
 	}
 }
 
@@ -288,12 +302,13 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 		case c.eventChan <- payload:
 			logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 		default:
+			// 改进 3.3: channel full，payload 未进入 channel，立即归还
+			dto.ReleasePayload(payload)
 			dropped := c.droppedEvents.Add(1)
 			total := c.totalEvents.Load()
 			dropRate := float64(dropped) / float64(total) * 100
 			logger.WithFields(logger.Fields{
-				"payload_id":    payload.ID,
-				"payload_type":  payload.Type,
+				"payload_id":    "(released)",
 				"total_dropped": dropped,
 				"total_events":  total,
 				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
@@ -301,7 +316,6 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 				"channel_cap":   cap(c.eventChan),
 			}).Warn("[Webhook] Event channel is full, dropping payload")
 
-			// 如果丢弃率超过阈值，记录错误级别日志
 			if dropRate > 5.0 {
 				logger.WithFields(logger.Fields{
 					"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
@@ -313,6 +327,8 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	}
 
 	if _, err := c.bigCache.Get(key); err == nil {
+		// 改进 3.3: 重复事件，payload 未使用，立即归还
+		dto.ReleasePayload(payload)
 		logger.Tracef("[Webhook] Payload %s already exists in the cache, skipping dispatch", key)
 		return
 	}
@@ -322,12 +338,13 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	case c.eventChan <- payload:
 		logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
 	default:
+		// 改进 3.3: channel full，payload 未进入 channel，立即归还
+		dto.ReleasePayload(payload)
 		dropped := c.droppedEvents.Add(1)
 		total := c.totalEvents.Load()
 		dropRate := float64(dropped) / float64(total) * 100
 		logger.WithFields(logger.Fields{
-			"payload_id":    payload.ID,
-			"payload_type":  payload.Type,
+			"payload_id":    "(released)",
 			"total_dropped": dropped,
 			"total_events":  total,
 			"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
@@ -335,7 +352,6 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 			"channel_cap":   cap(c.eventChan),
 		}).Warn("[Webhook] Event channel is full, dropping payload")
 
-		// 如果丢弃率超过阈值，记录错误级别日志
 		if dropRate > 5.0 {
 			logger.WithFields(logger.Fields{
 				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,9 +216,9 @@ func TestWatcher_Debounce(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	reloadCount := 0
+	var reloadCount atomic.Int32
 	watcher.AddCallback(func(old, new *Config) error {
-		reloadCount++
+		reloadCount.Add(1)
 		return nil
 	})
 
@@ -234,7 +235,7 @@ func TestWatcher_Debounce(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 
 	// Should only reload once due to debouncing
-	assert.LessOrEqual(t, reloadCount, 2, "Expected at most 2 reloads due to debouncing")
+	assert.LessOrEqual(t, reloadCount.Load(), int32(2), "Expected at most 2 reloads due to debouncing")
 }
 
 func TestWatcher_Stop(t *testing.T) {

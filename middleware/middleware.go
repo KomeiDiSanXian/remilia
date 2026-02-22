@@ -341,19 +341,29 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 
 	buckets := make(map[string]*bucketEntry)
 	var mu sync.RWMutex // 保护 buckets map
-	lastCleanup := time.Now()
+	// lastCleanup 用 atomic.Int64 存储 UnixNano，避免多个 goroutine 同时读写时的数据竞态。
+	// 无锁快速路径（检查是否需要清理）和有锁慢速路径（执行清理）都通过原子操作访问它。
+	var lastCleanup atomic.Int64
+	lastCleanup.Store(time.Now().UnixNano())
 
 	cleanupIfNeeded := func(now time.Time) {
-		if now.Sub(lastCleanup) < config.CleanupInterval {
+		nowNano := now.UnixNano()
+		// 无锁快速路径：原子读，不满足间隔则直接返回
+		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
 			return
 		}
 		mu.Lock()
+		// 重新检查（double-check），防止多个 goroutine 同时通过快速路径后重复清理
+		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
+			mu.Unlock()
+			return
+		}
 		for k, v := range buckets {
 			if now.Sub(v.lastVisit) > config.BucketTTL {
 				delete(buckets, k)
 			}
 		}
-		lastCleanup = now
+		lastCleanup.Store(nowNano)
 		// 如果仍超过上限，快速删除少量条目（无需线性排序）
 		for len(buckets) > config.MaxBuckets {
 			for k := range buckets {

@@ -227,6 +227,27 @@ func notifyListeners(cfg *Config) {
 	}
 }
 
+// loadRaw 从文件读取并解析配置，不更新全局状态也不触发监听器。
+// 内部使用，供 Watcher 调用以避免双重通知（修复 B7）。
+func loadRaw(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errutil.Wrapf(err, "failed to read config file")
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, errutil.Wrapf(err, "failed to parse config file")
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	cfgCopy := cfg
+	return &cfgCopy, nil
+}
+
 // Load 从文件加载配置
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)

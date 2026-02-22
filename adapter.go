@@ -50,12 +50,20 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	if !a.starting.CompareAndSwap(false, true) {
 		return errutil.New("adapter is already starting or started")
 	}
-	defer a.starting.Store(false)
+	// 修复 B1：只在失败时重置 starting，成功路径不重置（依靠 running 字段防止重复启动）
+	var startSucceeded bool
+	defer func() {
+		if !startSucceeded {
+			a.starting.Store(false)
+		}
+	}()
 
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
 		logger.Warn("[Adapter] Already running")
+		startSucceeded = true // 已在运行，视为成功，保持 starting=true 无意义，但不应重置
+		a.starting.Store(false)
 		return nil
 	}
 
@@ -93,6 +101,7 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	})
 
 	logger.Info("[Adapter] Started successfully")
+	startSucceeded = true
 	return nil
 }
 

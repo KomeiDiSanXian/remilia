@@ -76,14 +76,17 @@ func TestInstrumentedPool_GetPutCycle(t *testing.T) {
 	assert.Equal(t, 1, v1)
 	pool.Put(v1)
 
-	// Get again - should reuse
+	// Get again - may or may not reuse depending on GC
 	v2 := pool.Get()
-	assert.Equal(t, 1, v2) // Same value
+	// sync.Pool 不保证 Put 后的对象被下次 Get 返回（GC 可能清空 pool）。
+	// 只验证返回值是合法的正整数（由 New 函数生成）。
+	assert.True(t, v2.(int) >= 1, "v2 should be a valid value from the pool")
 
 	stats := pool.Stats()
 	assert.Equal(t, uint64(2), stats.Gets)
 	assert.Equal(t, uint64(1), stats.Puts)
-	assert.Equal(t, uint64(1), stats.News) // Only one new object created
+	// News 取决于 GC 是否清空了 pool：1（复用）或 2（重新 New）均合法。
+	assert.True(t, stats.News >= 1 && stats.News <= 2, "News should be 1 (reuse) or 2 (GC'd pool)")
 }
 
 // TestInstrumentedPool_Stats tests statistics calculation
@@ -283,15 +286,16 @@ func TestTypedPool_GetPutCycle(t *testing.T) {
 	// Put back
 	pool.Put(v1)
 
-	// Get again - should reuse same object
+	// Get again - sync.Pool may or may not reuse (GC can clear pool)
 	v2 := pool.Get()
-	assert.Equal(t, 999, v2.Value)
-	assert.Equal(t, "modified", v2.Name)
+	// 只校验 v2 是有效的 *Data 对象（非 nil），不依赖 pool 复用语义
+	assert.NotNil(t, v2)
 
 	stats := pool.Stats()
 	assert.Equal(t, uint64(2), stats.Gets)
 	assert.Equal(t, uint64(1), stats.Puts)
-	assert.Equal(t, uint64(1), stats.News)
+	// News 取决于 GC 是否清空了 pool：1（复用）或 2（重新 New）均合法
+	assert.True(t, stats.News >= 1 && stats.News <= 2, "News should be 1 (reuse) or 2 (GC'd pool)")
 }
 
 // TestTypedPool_Stats tests typed pool statistics
@@ -396,8 +400,13 @@ func TestTypedPool_DifferentTypes(t *testing.T) {
 		pool.Put(v)
 
 		v2 := pool.Get()
-		assert.Equal(t, 1, len(v2))
-		assert.Equal(t, "test", v2[0])
+		// sync.Pool 可能在 GC 时丢弃缓存，Get() 返回新建空 slice。
+		// 只有在确实拿到了放回的那个 slice 时才校验值。
+		if len(v2) > 0 {
+			assert.Equal(t, "test", v2[0])
+		} else {
+			t.Log("slice pool: sync.Pool returned a new slice (GC'd), skipping value assertion")
+		}
 	})
 
 	t.Run("map pool", func(t *testing.T) {
@@ -413,7 +422,13 @@ func TestTypedPool_DifferentTypes(t *testing.T) {
 		pool.Put(v)
 
 		v2 := pool.Get()
-		assert.Equal(t, 123, v2["key"])
+		// sync.Pool 可能在 GC 时丢弃缓存，Get() 返回新建空 map，此时 v2["key"] == 0。
+		// 只有在确实拿到了放回的那个 map 时才校验值。
+		if val, ok := v2["key"]; ok {
+			assert.Equal(t, 123, val)
+		} else {
+			t.Log("map pool: sync.Pool returned a new map (GC'd), skipping value assertion")
+		}
 	})
 
 	t.Run("channel pool", func(t *testing.T) {
@@ -428,8 +443,15 @@ func TestTypedPool_DifferentTypes(t *testing.T) {
 		pool.Put(v)
 
 		v2 := pool.Get()
-		val := <-v2
-		assert.Equal(t, 42, val)
+		// sync.Pool 可能在 GC 时丢弃缓存，Get() 返回新建空 channel，
+		// 此时直接 <-v2 会永久阻塞。用 select + default 防止死锁。
+		select {
+		case val := <-v2:
+			assert.Equal(t, 42, val)
+		default:
+			// Pool 返回了新建的空 channel（GC 或 race detector 影响），跳过值校验
+			t.Log("channel pool: sync.Pool returned a new channel (GC'd), skipping value assertion")
+		}
 	})
 }
 

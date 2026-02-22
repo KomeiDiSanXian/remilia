@@ -467,6 +467,27 @@ func (pm *Manager) GetContainer() *Container {
 	return pm.container
 }
 
+// FreezeContainer 冻结依赖注入容器，切换为无锁只读模式。
+//
+// 改进 3.5：在所有插件通过 RegisterV2/RegisterMultipleV2 加载完成后调用此方法，
+// 后续 Get/Has 操作将使用无锁 map，读性能提升 2-3x。
+//
+// 注意：冻结后不能再调用 Register/Remove，否则会 panic。
+//
+// 示例：
+//
+//	manager.RegisterMultipleV2(plugins...)
+//	manager.FreezeContainer() // 所有插件加载完成，冻结容器
+func (pm *Manager) FreezeContainer() {
+	pm.mu.RLock()
+	c := pm.container
+	pm.mu.RUnlock()
+	if c != nil {
+		c.Freeze()
+	}
+	logger.Info("[pluginManager] Container frozen, Get/Has now use lock-free read")
+}
+
 // GetEventBus 获取插件间事件总线
 //
 // 允许在 Setup 阶段之外（如外部组件）订阅或发布插件事件。

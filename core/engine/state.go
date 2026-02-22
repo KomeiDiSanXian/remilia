@@ -41,6 +41,12 @@ type engineState struct {
 	// key 为命令名（如 "/ping"），value 为命令信息
 	commandInfoCache map[string]*CommandInfo
 
+	// 改进 3.7: commandListCache 是 commandInfoCache 展开后的只读切片缓存，
+	// 避免 GetAllCommands 每次调用都重新分配切片并遍历 map。
+	// commandListVer 与 commandInfoCache 同步更新，用于缓存失效检测。
+	commandListCache []CommandInfo
+	commandListVer   int64
+
 	// 配置项
 	block       bool // 是否阻断后续匹配器
 	maxMatchers int  // 最大匹配器数量限制
@@ -212,6 +218,9 @@ func (s *engineState) rebuildIndex() {
 			sortMatchersByPriority(matchers)
 		}
 	}
+
+	// 改进 3.7: 重建命令列表缓存
+	s.rebuildCommandListCache()
 }
 
 // rebuildCommandInfoCache 重建单个命令的缓存信息
@@ -223,6 +232,7 @@ func (s *engineState) rebuildCommandInfoCache(m *Matcher, cmd string) {
 	if def != nil && def.Hidden {
 		// 如果命令被标记为隐藏，从缓存中删除
 		delete(s.commandInfoCache, cmd)
+		s.rebuildCommandListCache() // 改进 3.7: 同步更新列表缓存
 		return
 	}
 
@@ -251,6 +261,19 @@ func (s *engineState) rebuildCommandInfoCache(m *Matcher, cmd string) {
 	}
 
 	s.commandInfoCache[cmd] = info
+	// 改进 3.7: 命令信息变化后重建列表缓存
+	s.rebuildCommandListCache()
+}
+
+// rebuildCommandListCache 将 commandInfoCache 展开为有序切片并缓存。
+// 每次 commandInfoCache 变动后调用，保证 GetAllCommands 可 O(1) 复制返回。
+func (s *engineState) rebuildCommandListCache() {
+	list := make([]CommandInfo, 0, len(s.commandInfoCache))
+	for _, info := range s.commandInfoCache {
+		list = append(list, *info)
+	}
+	s.commandListCache = list
+	s.commandListVer++
 }
 
 // addMatcher 添加匹配器到状态
