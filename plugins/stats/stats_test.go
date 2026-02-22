@@ -73,7 +73,7 @@ func TestStats_TotalMessages(t *testing.T) {
 	p := newStatsPlugin(t)
 	mw := p.Middleware()
 	handler := mw(func(ctx *context.Context) error { return nil })
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		handler(makeCtxWithCommand("msg", "u"))
 	}
 	if p.TotalMessages() != 5 {

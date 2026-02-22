@@ -159,7 +159,7 @@ func (p *Plugin) Rule() eventctx.Rule {
 			var groupID string
 			var event interface{ GetGroupOpenID() string }
 			// 尝试从事件中提取 group open id
-			var gae interface{}
+			var gae any
 			if err := ctx.DecodeEvent(&gae); err == nil {
 				// 使用内容中提取（避免类型断言失败）
 			}

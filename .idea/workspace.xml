@@ -4,19 +4,29 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: optimize backoff calculation to prevent integer overflow in retry logic">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add hot-reload support for middleware configurations and implement Redis storage">
+      <change afterPath="$PROJECT_DIR$/core/context/cooldown_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/docs/05-reports/feature-gap-analysis-2026-02-22.md" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/openapi/dto/builder.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/openapi/dto/builder_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/antispam/antispam.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/antispam/antispam_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/conversation/conversation.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/conversation/conversation_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/core/storage/redis.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/i18n/i18n.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/stats/stats_test.go" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
@@ -258,7 +268,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add backward compatibility layer with type aliases and migration helpers for generic dead letter queue" />
     <MESSAGE value="refactor: update loop constructs to use range for improved readability and performance" />
     <MESSAGE value="docs: move to archived" />
     <MESSAGE value="feat: add tests for bug fixes in command extraction, context cloning, matcher pool, and cache invalidation" />
@@ -283,7 +292,8 @@
     <MESSAGE value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
     <MESSAGE value="refactor: enhance concurrency safety and prevent signal channel leaks in shutdown handling" />
     <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
+    <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
