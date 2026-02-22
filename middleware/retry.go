@@ -90,10 +90,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 				// 计算退避时间（指数退避）
 				// 防止 attempt >= 63 时 1<<uint(attempt) 整数溢出，将移位上界限为 62
 				const maxBackoffShift = 62
-				shift := uint(attempt)
-				if shift > maxBackoffShift {
-					shift = maxBackoffShift
-				}
+				shift := min(uint(attempt), maxBackoffShift)
 				delay := min(cfg.BackoffBase*time.Duration(1<<shift), cfg.BackoffMax)
 
 				logger.WithError(err).
