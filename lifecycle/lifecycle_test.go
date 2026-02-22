@@ -261,23 +261,23 @@ func TestManager_MultipleComponents(t *testing.T) {
 
 // TestSimpleComponent tests SimpleComponent
 func TestSimpleComponent(t *testing.T) {
-	startCalled := false
-	runCalled := false
-	stopCalled := false
+	var startCalled atomic.Bool
+	var runCalled atomic.Bool
+	var stopCalled atomic.Bool
 
 	comp := NewSimpleComponent(
 		"test",
 		func(ctx context.Context) error {
-			startCalled = true
+			startCalled.Store(true)
 			return nil
 		},
 		func(ctx context.Context) error {
-			runCalled = true
+			runCalled.Store(true)
 			<-ctx.Done()
 			return nil
 		},
 		func(ctx context.Context) error {
-			stopCalled = true
+			stopCalled.Store(true)
 			return nil
 		},
 	)
@@ -292,7 +292,7 @@ func TestSimpleComponent(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	if !startCalled || !runCalled {
+	if !startCalled.Load() || !runCalled.Load() {
 		t.Error("Start or Run not called")
 	}
 
@@ -301,7 +301,7 @@ func TestSimpleComponent(t *testing.T) {
 		t.Fatalf("Stop failed: %v", err)
 	}
 
-	if !stopCalled {
+	if !stopCalled.Load() {
 		t.Error("Stop not called")
 	}
 }

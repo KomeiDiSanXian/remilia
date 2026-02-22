@@ -48,6 +48,12 @@ type Engine struct {
 	// shutdown 标志：Shutdown() 设置后，ProcessEvent 不再接受新事件
 	// 防止 Shutdown 调用 eventWg.Wait() 后，ProcessEvent 仍调用 eventWg.Add(1) 的竞态
 	shutdown atomic.Bool
+
+	// shutdownMu 保护 shutdown 标志检查与 eventWg.Add 的原子性。
+	// ProcessEvent 持有 RLock 完成"检查 shutdown → Add(1)"两步操作；
+	// Shutdown 持有 Lock 完成"Store(true)"后立即释放，随后调用 eventWg.Wait()。
+	// 这确保不存在"ProcessEvent 已通过检查但尚未 Add(1)，而 Shutdown 已开始 Wait"的窗口。
+	shutdownMu sync.RWMutex
 }
 
 // NewEngine 创建一个新的事件引擎（COW 模式）
@@ -563,7 +569,11 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return err
 	}
 
+	// 持有写锁设置 shutdown 标志，与 ProcessEvent 的"读锁保护的 Load+Add"互斥。
+	// 写锁释放后，不会再有新的 eventWg.Add(1) 调用，可以安全地调用 eventWg.Wait()。
+	e.shutdownMu.Lock()
 	e.shutdown.Store(true)
+	e.shutdownMu.Unlock()
 
 	// Wait for active events to complete, bounded by ctx.
 	done := make(chan struct{})

@@ -57,11 +57,15 @@ type DeadLetterQueue struct {
 	dropped   atomic.Int64
 	processed atomic.Int64
 
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
-	enqueueMu   sync.Mutex
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	mu        sync.RWMutex
+	enqueueMu sync.Mutex
+	// sendMu 保护 enqueueBlockUntilSpace 中 channel send 与 Shutdown 中 close(queue) 的并发安全。
+	// 发送方持有 RLock，Shutdown 在 cancel() 之后、close(queue) 之前获取 Lock，
+	// 确保 close 时不存在正在执行 send 的 goroutine。
+	sendMu      sync.RWMutex
 	queueClosed atomic.Bool
 	closeOnce   sync.Once
 }
@@ -204,10 +208,12 @@ func (dlq *DeadLetterQueue) Shutdown(ctx context.Context) error {
 		// 先取消 dlq.ctx，使 enqueueBlockUntilSpace 中的 <-dlq.ctx.Done() 分支
 		// 能够先于 close(queue) 退出，消除 close/send 并发竞态。
 		dlq.cancel()
-		// 持有 sendMu 写锁，等待所有正在执行 enqueueBlockUntilSpace 的 goroutine 退出
-		// sendMu.Lock 会等到所有 RLock 持有者（正在 select send 的 goroutine）完成后才获取，
-		// 从而确保在 close(queue) 时没有其他 goroutine 正在向 channel 发送数据。
+		// 持有 sendMu 写锁，等待所有正在执行 enqueueBlockUntilSpace 的 goroutine 退出。
+		// sendMu.Lock 会阻塞直到所有 RLock 持有者（正在 select send 的 goroutine）完成后
+		// 才获取，从而确保在 close(queue) 时没有其他 goroutine 正在向 channel 发送数据。
+		dlq.sendMu.Lock()
 		close(dlq.queue)
+		dlq.sendMu.Unlock()
 	})
 
 	done := make(chan struct{})
@@ -260,6 +266,12 @@ func (dlq *DeadLetterQueue) enqueueBlockUntilSpace(item DeadLetterItem) {
 			}
 		}
 	}()
+
+	// 持有 sendMu 读锁以防止与 Shutdown 中 close(queue) 的并发竞态。
+	// Shutdown 持有写锁时，所有持有读锁的发送方都已退出 select，channel 已无活跃 send，
+	// 可以安全关闭。
+	dlq.sendMu.RLock()
+	defer dlq.sendMu.RUnlock()
 
 	select {
 	case dlq.queue <- item:

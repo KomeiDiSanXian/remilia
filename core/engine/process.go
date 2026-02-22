@@ -22,10 +22,16 @@ import (
 //   - 零内存分配：直接使用已排序的匹配器切片（通过 sync.Pool）
 //   - 5-6x 性能提升：相比原有的 RWMutex 实现
 func (e *Engine) ProcessEvent(ctx *context.Context) {
+	// 用读锁保护"检查 shutdown → eventWg.Add(1)"的原子性。
+	// Shutdown() 持有写锁完成 shutdown.Store(true) 后立即释放，
+	// 随后调用 eventWg.Wait()，此时已无法再进入此 RLock 区间并执行 Add(1)。
+	e.shutdownMu.RLock()
 	if e.shutdown.Load() {
+		e.shutdownMu.RUnlock()
 		return
 	}
 	e.eventWg.Add(1)
+	e.shutdownMu.RUnlock()
 	defer e.eventWg.Done()
 
 	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃

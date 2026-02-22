@@ -4,8 +4,12 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: enhance context handling and improve payload management for webhook processing">
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: improve payload acquisition and management to prevent use-after-free errors">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -239,7 +243,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test: update container initialization tests for improved validation and error handling" />
     <MESSAGE value="refactor: simplify loop constructs and improve variable initialization in multiple files" />
     <MESSAGE value="feat: introduce type-safe atomic value wrapper to eliminate type assertions" />
     <MESSAGE value="feat: add generic utility functions for event parsing and middleware chaining" />
@@ -264,7 +267,8 @@
     <MESSAGE value="refactor: optimize context handling and event decoding for improved performance" />
     <MESSAGE value="refactor: simplify worker goroutine management and improve concurrency calculations" />
     <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: enhance context handling and improve payload management for webhook processing" />
+    <MESSAGE value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

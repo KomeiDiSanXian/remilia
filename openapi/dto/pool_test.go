@@ -63,12 +63,12 @@ func TestPayloadPoolConcurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+			for j := range iterations {
 				p := dto.AcquirePayload()
-				p.ID = dto.EventID("event")
+				p.ID = "event"
 				p.Sequence = uint64(id*iterations + j)
 				dto.ReleasePayload(p)
 			}
