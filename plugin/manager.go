@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -268,9 +270,7 @@ func (pm *Manager) Reload(name string) error {
 func (pm *Manager) notifyDependents(reloadedPlugin string) {
 	pm.mu.RLock()
 	plugins := make(map[string]Plugin, len(pm.plugins))
-	for k, v := range pm.plugins {
-		plugins[k] = v
-	}
+	maps.Copy(plugins, pm.plugins)
 	pm.mu.RUnlock()
 
 	for depName, p := range plugins {
@@ -283,21 +283,18 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 			continue
 		}
 		// 检查该插件是否依赖了刚重载的插件
-		for _, dep := range inst.desc.Deps {
-			if dep == reloadedPlugin {
-				// 调用 OnDependencyReloaded 回调
-				if inst.desc.OnDependencyReloaded != nil {
-					logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
-					go func(cb func(string), dep string) {
-						defer func() {
-							if r := recover(); r != nil {
-								logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
-							}
-						}()
-						cb(dep)
-					}(inst.desc.OnDependencyReloaded, reloadedPlugin)
-				}
-				break
+		if slices.Contains(inst.desc.Deps, reloadedPlugin) {
+			// 调用 OnDependencyReloaded 回调
+			if inst.desc.OnDependencyReloaded != nil {
+				logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
+				go func(cb func(string), dep string) {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
+						}
+					}()
+					cb(dep)
+				}(inst.desc.OnDependencyReloaded, reloadedPlugin)
 			}
 		}
 	}

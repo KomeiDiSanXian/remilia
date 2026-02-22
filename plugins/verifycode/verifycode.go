@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -197,11 +198,9 @@ func (p *Plugin) Verify(userID, code string) (string, error) {
 	}
 
 	// 检查是否已被该用户使用
-	for _, uid := range entry.UsedBy {
-		if uid == userID {
-			p.mu.Unlock()
-			return "", fmt.Errorf("code already used by this user")
-		}
+	if slices.Contains(entry.UsedBy, userID) {
+		p.mu.Unlock()
+		return "", fmt.Errorf("code already used by this user")
 	}
 
 	role := entry.Role

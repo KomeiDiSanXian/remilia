@@ -19,6 +19,7 @@ package acl
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -275,9 +276,7 @@ func (p *Plugin) save() {
 		Mode:    int(p.mode),
 		Entries: make(map[string]Entry, len(p.entries)),
 	}
-	for k, v := range p.entries {
-		snap.Entries[k] = v
-	}
+	maps.Copy(snap.Entries, p.entries)
 	p.mu.RUnlock()
 
 	data, err := json.Marshal(snap)

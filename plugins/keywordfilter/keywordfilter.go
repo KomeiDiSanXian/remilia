@@ -23,6 +23,7 @@ package keywordfilter
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -138,10 +139,8 @@ func (p *Plugin) AddKeyword(keyword string) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, kw := range p.keywords {
-		if kw == keyword {
-			return // 已存在
-		}
+	if slices.Contains(p.keywords, keyword) {
+		return // 已存在
 	}
 	p.keywords = append(p.keywords, keyword)
 	logger.Debugf("[KeywordFilter] Added keyword: %s", keyword)

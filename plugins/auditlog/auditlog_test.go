@@ -35,7 +35,7 @@ func TestAuditLog_RecordAndQuery(t *testing.T) {
 func TestAuditLog_CircularBuffer(t *testing.T) {
 	p := auditlog.NewPlugin(auditlog.Config{MaxMemoryEntries: 3})
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		p.RecordRaw("user", "cmd", nil)
 	}
 
