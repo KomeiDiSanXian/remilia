@@ -529,6 +529,34 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
+// UpdateConfig 热更新配置（线程安全）。
+// 仅更新目标指标（TargetCPU / TargetMemory / TargetLatency）和并发范围；
+// 不重启后台 goroutine，下一个 adjustLoop 周期生效。
+func (arl *AdaptiveRateLimiter) UpdateConfig(cfg AdaptiveConfig) {
+	arl.mu.Lock()
+	defer arl.mu.Unlock()
+	// 只覆盖可热更新的字段，保留 ctx/cancel 等运行时状态
+	if cfg.MinConcurrency > 0 {
+		arl.config.MinConcurrency = cfg.MinConcurrency
+	}
+	if cfg.MaxConcurrency > 0 {
+		arl.config.MaxConcurrency = cfg.MaxConcurrency
+	}
+	if cfg.TargetCPU > 0 {
+		arl.config.TargetCPU = cfg.TargetCPU
+	}
+	if cfg.TargetMemory > 0 {
+		arl.config.TargetMemory = cfg.TargetMemory
+	}
+	if cfg.TargetLatency > 0 {
+		arl.config.TargetLatency = cfg.TargetLatency
+	}
+	if cfg.AdjustStep > 0 {
+		arl.config.AdjustStep = cfg.AdjustStep
+	}
+	logger.Info("[AdaptiveRateLimiter] Config updated via hot-reload")
+}
+
 // AdaptiveRateLimit 创建自适应限流中间件（便捷函数）
 func AdaptiveRateLimit(config AdaptiveConfig) eventctx.Middleware {
 	limiter := NewAdaptiveRateLimiter(config)

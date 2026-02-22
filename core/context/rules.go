@@ -356,9 +356,6 @@ func ClearRegexCache() {
 }
 
 // GetRegexCacheSize 获取正则表达式缓存当前大小(用于监控)
-//
-// 返回当前缓存中的正则表达式数量。
-// 注意: 这是一个 O(1) 操作。
 func GetRegexCacheSize() int {
 	initRegexCache()
 	return regexCache.cache.Len()
@@ -371,20 +368,78 @@ func GetRegexCacheMaxSize() int {
 }
 
 // SetRegexCacheMaxSize 设置正则表达式缓存最大容量
-//
-// 主要用于调整缓存大小以适应不同的使用场景。
-// 如果新容量小于当前缓存大小，会立即淘汰多余的条目。
-//
-// 使用示例:
-//
-//	// 在应用启动时调整缓存大小
-//	remilia.SetRegexCacheMaxSize(5000)
 func SetRegexCacheMaxSize(size int) {
 	if size <= 0 {
-		size = 1000 // 默认值
+		size = 1000
 	}
-
 	initRegexCache()
 	regexCache.cache.Resize(size)
 	regexCache.maxSize = size
+}
+
+// ---- Cooldown Rule --------------------------------------------------------
+
+// cooldownStore 全局用户冷却时间存储（LRU，最多 50000 条）
+var (
+	cooldownStore     *lru.Cache[string, time.Time]
+	cooldownStoreOnce sync.Once
+)
+
+func initCooldownStore() {
+	cooldownStoreOnce.Do(func() {
+		c, err := lru.New[string, time.Time](50000)
+		if err != nil {
+			panic(err)
+		}
+		cooldownStore = c
+	})
+}
+
+// OnCooldown 创建用户级冷却时间规则。
+// 同一用户在 d 时间内只允许触发一次；冷却期间该规则返回 false，事件不匹配。
+//
+// keyFn 用于从 Context 中提取冷却 key（通常是 UserOpenID）。
+// 若 keyFn 为 nil，则默认使用 ctx.GetAuthor().UserOpenID。
+//
+// 使用示例:
+//
+//	engine.OnC2C(OnCommand("/sign"), OnCooldown(24*time.Hour, nil)).Handle(signHandler)
+func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
+	initCooldownStore()
+	if keyFn == nil {
+		keyFn = func(ctx *Context) string {
+			if a := ctx.GetAuthor(); a != nil {
+				return a.UserOpenID
+			}
+			return ""
+		}
+	}
+	return func(ctx *Context) bool {
+		key := keyFn(ctx)
+		if key == "" {
+			return true // 无法确定 key，放行
+		}
+		now := time.Now()
+		if last, ok := cooldownStore.Get(key); ok && now.Sub(last) < d {
+			logger.WithFields(logger.Fields{
+				"key":       key,
+				"remaining": (d - now.Sub(last)).Round(time.Second).String(),
+			}).Debug("[OnCooldown] User is in cooldown")
+			return false
+		}
+		cooldownStore.Add(key, now)
+		return true
+	}
+}
+
+// OnAtBot 匹配消息中包含 @Bot 标记的事件。
+// botOpenID 为机器人自身的 OpenID，若为空则只要 content 中包含 qqbot-at 标签即视为 @Bot。
+func OnAtBot(botOpenID string) Rule {
+	return func(ctx *Context) bool {
+		content := ctx.GetMessageContent()
+		if botOpenID != "" {
+			return strings.Contains(content, `id="`+botOpenID+`"`)
+		}
+		return strings.Contains(content, "<qqbot-at-user")
+	}
 }

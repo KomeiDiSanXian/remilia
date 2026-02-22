@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -247,5 +248,44 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 		return false
 	case <-timer.C:
 		return true
+	}
+}
+
+// ConfigurableRetry wraps Retry with a mutable config for hot-reload support.
+type ConfigurableRetry struct {
+	mu  sync.RWMutex
+	cfg RetryConfig
+}
+
+// NewConfigurableRetry creates a hot-reloadable retry middleware wrapper.
+func NewConfigurableRetry(cfg RetryConfig) *ConfigurableRetry {
+	return &ConfigurableRetry{cfg: cfg}
+}
+
+// UpdateConfig updates the retry configuration at runtime (thread-safe).
+func (cr *ConfigurableRetry) UpdateConfig(cfg RetryConfig) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	if cfg.MaxAttempts > 0 {
+		cr.cfg.MaxAttempts = cfg.MaxAttempts
+	}
+	if cfg.BackoffBase > 0 {
+		cr.cfg.BackoffBase = cfg.BackoffBase
+	}
+	if cfg.BackoffMax > 0 {
+		cr.cfg.BackoffMax = cfg.BackoffMax
+	}
+	logger.Info("[ConfigurableRetry] Config updated via hot-reload")
+}
+
+// Middleware returns the eventctx.Middleware function.
+func (cr *ConfigurableRetry) Middleware() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			cr.mu.RLock()
+			cfg := cr.cfg
+			cr.mu.RUnlock()
+			return Retry(cfg)(next)(ctx)
+		}
 	}
 }

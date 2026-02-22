@@ -32,6 +32,11 @@ func New() *plugin.PluginDescriptor {
 	return NewV2WithBackend(NewMemoryStorage())
 }
 
+// NewWithBackend 使用指定后端创建存储插件（NewV2WithBackend 的别名）
+func NewWithBackend(storage Storage) *plugin.PluginDescriptor {
+	return NewV2WithBackend(storage)
+}
+
 // NewV2WithBackend 使用指定后端创建存储插件（v2 API）
 func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
 	// 创建 Plugin 包装器

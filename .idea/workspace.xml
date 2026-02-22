@@ -4,22 +4,27 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/code-review-bugs-and-improvements.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: optimize backoff calculation to prevent integer overflow in retry logic">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/feature-gap-analysis-2026-02-22.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/openapi/dto/builder.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/antispam/antispam.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/conversation/conversation.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/storage/redis.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/i18n/i18n.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -253,8 +258,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: introduce type-safe atomic value wrapper to eliminate type assertions" />
-    <MESSAGE value="feat: add generic utility functions for event parsing and middleware chaining" />
     <MESSAGE value="feat: add backward compatibility layer with type aliases and migration helpers for generic dead letter queue" />
     <MESSAGE value="refactor: update loop constructs to use range for improved readability and performance" />
     <MESSAGE value="docs: move to archived" />
@@ -278,7 +281,9 @@
     <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
     <MESSAGE value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
     <MESSAGE value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
+    <MESSAGE value="refactor: enhance concurrency safety and prevent signal channel leaks in shutdown handling" />
+    <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

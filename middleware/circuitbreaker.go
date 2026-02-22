@@ -319,6 +319,28 @@ func (cb *CircuitBreaker) Reset() {
 	logger.Info("[CircuitBreaker] Manually reset to closed state")
 }
 
+// UpdateConfig 热更新熔断器配置（线程安全，下一次状态判断时生效）
+func (cb *CircuitBreaker) UpdateConfig(cfg CircuitBreakerConfig) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cfg.MaxFailures > 0 {
+		cb.config.MaxFailures = cfg.MaxFailures
+	}
+	if cfg.ResetTimeout > 0 {
+		cb.config.ResetTimeout = cfg.ResetTimeout
+	}
+	if cfg.HalfOpenMaxRequests > 0 {
+		cb.config.HalfOpenMaxRequests = cfg.HalfOpenMaxRequests
+	}
+	if cfg.SuccessThreshold > 0 {
+		cb.config.SuccessThreshold = cfg.SuccessThreshold
+	}
+	if cfg.HalfOpenTimeout > 0 {
+		cb.config.HalfOpenTimeout = cfg.HalfOpenTimeout
+	}
+	logger.Info("[CircuitBreaker] Config updated via hot-reload")
+}
+
 // Stats 获取熔断器统计信息
 func (cb *CircuitBreaker) Stats() CircuitBreakerStats {
 	lastFail := cb.lastFailure.Load().(time.Time)
