@@ -5,21 +5,13 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/stats"
 )
 
-func newStatsPlugin(t *testing.T) *stats.Plugin {
-	t.Helper()
-	p, desc := stats.NewPlugin()
-	eng := engine.NewEngine()
-	pm := plugin.NewManager(eng)
-	if err := pm.RegisterV2(desc); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	return p
+// stats.Plugin 无 Setup 初始化逻辑，直接 NewPlugin() 即可，无需走 manager 注册流程。
+func newStatsPlugin() *stats.Plugin {
+	return stats.NewPlugin()
 }
 func makeCtxWithCommand(cmd, userID string) *context.Context {
 	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
@@ -31,10 +23,8 @@ func makeCtxWithCommand(cmd, userID string) *context.Context {
 	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
 }
 func TestStats_Middleware_RecordsCommand(t *testing.T) {
-	p := newStatsPlugin(t)
-	mw := p.Middleware()
-	noop := func(ctx *context.Context) error { return nil }
-	handler := mw(noop)
+	p := newStatsPlugin()
+	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
 	ctx := makeCtxWithCommand("/help", "user1")
 	handler(ctx)
 	handler(ctx)
@@ -43,19 +33,16 @@ func TestStats_Middleware_RecordsCommand(t *testing.T) {
 	}
 }
 func TestStats_Middleware_RecordsUser(t *testing.T) {
-	p := newStatsPlugin(t)
-	mw := p.Middleware()
-	noop := func(ctx *context.Context) error { return nil }
-	handler := mw(noop)
+	p := newStatsPlugin()
+	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
 	handler(makeCtxWithCommand("hello", "stats_u1"))
 	handler(makeCtxWithCommand("world", "stats_u2"))
-	active := p.ActiveUsers(stats.AllTime)
-	if len(active) < 2 {
-		t.Errorf("expected >= 2 active users, got %d", len(active))
+	if len(p.ActiveUsers(stats.AllTime)) < 2 {
+		t.Errorf("expected >= 2 active users, got %d", len(p.ActiveUsers(stats.AllTime)))
 	}
 }
 func TestStats_TopCommands(t *testing.T) {
-	p := newStatsPlugin(t)
+	p := newStatsPlugin()
 	p.RecordCommand("/ping")
 	p.RecordCommand("/ping")
 	p.RecordCommand("/ping")
@@ -70,9 +57,8 @@ func TestStats_TopCommands(t *testing.T) {
 	}
 }
 func TestStats_TotalMessages(t *testing.T) {
-	p := newStatsPlugin(t)
-	mw := p.Middleware()
-	handler := mw(func(ctx *context.Context) error { return nil })
+	p := newStatsPlugin()
+	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
 	for range 5 {
 		handler(makeCtxWithCommand("msg", "u"))
 	}
@@ -81,7 +67,7 @@ func TestStats_TotalMessages(t *testing.T) {
 	}
 }
 func TestStats_Reset(t *testing.T) {
-	p := newStatsPlugin(t)
+	p := newStatsPlugin()
 	p.RecordCommand("/x")
 	p.Reset()
 	if p.CommandCount("/x") != 0 {

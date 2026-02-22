@@ -52,17 +52,19 @@ type Plugin struct {
 	machines sync.Map
 }
 
-// New creates the conversation plugin descriptor.
-// Use NewPlugin() to also get a direct reference to the Plugin API.
-func New() *plugin.PluginDescriptor {
-	_, desc := NewPlugin()
-	return desc
+// NewPlugin 创建并返回一个 Conversation Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := conversation.NewPlugin()
+//	pm.RegisterV2(conversation.Descriptor(p))
+//	p.Start(ctx, machine)
+func NewPlugin() *Plugin {
+	return &Plugin{}
 }
 
-// NewPlugin creates the conversation plugin and returns both the Plugin API and its descriptor.
-func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
-	p := &Plugin{}
-	desc := &plugin.PluginDescriptor{
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "conversation",
 		Version:     "1.0.0",
 		Author:      "Remilia Team",
@@ -76,7 +78,12 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 			return nil
 		},
 	}
-	return p, desc
+}
+
+// New 创建会话状态机插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
+func New() *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin())
 }
 
 // NewMachine creates a new Machine definition with a default 10-minute timeout.

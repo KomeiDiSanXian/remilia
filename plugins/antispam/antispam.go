@@ -73,39 +73,29 @@ type Plugin struct {
 	banMu   sync.RWMutex
 }
 
-// New creates the anti-spam plugin descriptor.
+// NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
 // Use NewPlugin() if you need a direct reference to the Plugin API (e.g. in tests).
-func New(cfg Config) *plugin.PluginDescriptor {
-	_, desc := NewPlugin(cfg)
-	return desc
-}
-
-// NewPlugin creates the anti-spam plugin and returns both the Plugin API and its descriptor.
-func NewPlugin(cfg Config) (*Plugin, *plugin.PluginDescriptor) {
-	if cfg.UserRate <= 0 {
-		cfg.UserRate = DefaultConfig().UserRate
-	}
-	if cfg.UserBurst <= 0 {
-		cfg.UserBurst = DefaultConfig().UserBurst
-	}
-	if cfg.GroupRate <= 0 {
-		cfg.GroupRate = DefaultConfig().GroupRate
-	}
-	if cfg.GroupBurst <= 0 {
-		cfg.GroupBurst = DefaultConfig().GroupBurst
-	}
-
+// NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := antispam.NewPlugin(antispam.DefaultConfig())
+//	pm.RegisterV2(antispam.Descriptor(p))
+//	engine.OnGroupAt(p.Rule())
+func NewPlugin(cfg Config) *Plugin {
+	cfg = normalizeConfig(cfg)
 	userCache, _ := lru.New[string, *rate.Limiter](50000)
 	groupCache, _ := lru.New[string, *rate.Limiter](10000)
-
-	p := &Plugin{
+	return &Plugin{
 		cfg:     cfg,
 		userRL:  userCache,
 		groupRL: groupCache,
 		banList: make(map[string]banEntry),
 	}
+}
 
-	desc := &plugin.PluginDescriptor{
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "antispam",
 		Version:     "1.0.0",
 		Author:      "Remilia Team",
@@ -114,19 +104,54 @@ func NewPlugin(cfg Config) (*Plugin, *plugin.PluginDescriptor) {
 		Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
 		Deps:        []string{},
 		HelpText: `反垃圾插件使用说明：
-  spam := ctx.MustGet("antispam").(*antispam.Plugin)
-  spam.Ban(userID, 10*time.Minute)
-  spam.Unban(userID)
-  spam.IsBanned(userID)
-  engine.OnGroupAt(spam.Rule())`,
+  p := antispam.NewPlugin(antispam.DefaultConfig())
+  pm.RegisterV2(antispam.Descriptor(p))
+  p.Ban(userID, 10*time.Minute)
+  engine.OnGroupAt(p.Rule())`,
 		Setup: func(ctx *plugin.SetupContext) error {
 			logger.Infof("[AntiSpam] Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
-				cfg.UserRate, cfg.GroupRate, cfg.BanOnViolation)
+				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
 			ctx.Manager.GetContainer().Register("antispam", p)
 			return nil
 		},
 	}
-	return p, desc
+}
+
+// New 创建反垃圾插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
+func New(cfg Config) *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin(cfg))
+}
+
+// Get 从插件管理器中获取已注册的 AntiSpam 插件实例（类型安全）。
+// 需在 pm.RegisterV2(New(cfg)) 之后调用。
+func Get(pm *plugin.Manager) *Plugin {
+	v, ok := pm.GetContainer().Get("antispam")
+	if !ok {
+		panic("antispam: plugin not registered; call pm.RegisterV2(antispam.New(cfg)) first")
+	}
+	p, ok := v.(*Plugin)
+	if !ok {
+		panic("antispam: unexpected type in container")
+	}
+	return p
+}
+
+func normalizeConfig(cfg Config) Config {
+	d := DefaultConfig()
+	if cfg.UserRate <= 0 {
+		cfg.UserRate = d.UserRate
+	}
+	if cfg.UserBurst <= 0 {
+		cfg.UserBurst = d.UserBurst
+	}
+	if cfg.GroupRate <= 0 {
+		cfg.GroupRate = d.GroupRate
+	}
+	if cfg.GroupBurst <= 0 {
+		cfg.GroupBurst = d.GroupBurst
+	}
+	return cfg
 }
 
 // Rule 返回可直接传入 engine.On() / engine.OnGroupAt() 的规则函数。

@@ -50,21 +50,19 @@ type Plugin struct {
 	nextID JobID
 }
 
-// New creates the scheduler plugin descriptor.
-// Use NewPlugin() if you need a direct reference to the Plugin API.
-func New() *plugin.PluginDescriptor {
-	_, desc := NewPlugin()
-	return desc
+// NewPlugin 创建并返回一个 Scheduler Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := scheduler.NewPlugin()
+//	pm.RegisterV2(scheduler.Descriptor(p))
+//	p.Every(time.Minute, fn) // 直接调用
+func NewPlugin() *Plugin {
+	return &Plugin{jobs: make(map[JobID]*jobEntry)}
 }
 
-// NewPlugin creates the scheduler plugin and returns both the Plugin API and its descriptor.
-// This is the preferred constructor when you need to call scheduler methods directly (e.g. in tests).
-func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
-	p := &Plugin{
-		jobs: make(map[JobID]*jobEntry),
-	}
-
-	desc := &plugin.PluginDescriptor{
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "scheduler",
 		Version:     "1.0.0",
 		Author:      "Remilia Team",
@@ -73,10 +71,11 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 		Tags:        []string{"定时", "调度", "cron"},
 		Deps:        []string{},
 		HelpText: `计划任务插件使用说明：
-  sched := ctx.MustGet("scheduler").(*scheduler.Plugin)
-  sched.Every(5*time.Minute, func() { ... })        // 固定间隔
-  sched.Cron("0 9 * * *", func() { ... })           // cron 表达式
-  sched.Remove(id)                                  // 移除任务`,
+  p := scheduler.NewPlugin()
+  pm.RegisterV2(scheduler.Descriptor(p))
+  p.Every(5*time.Minute, func() { ... })
+  p.Cron("0 9 * * *", func() { ... })
+  p.Remove(id)`,
 
 		Setup: func(ctx *plugin.SetupContext) error {
 			logger.Info("[Scheduler] Loading scheduler plugin...")
@@ -89,7 +88,6 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 
 		Teardown: func() error {
 			logger.Info("[Scheduler] Stopping scheduler...")
-			// Stop ticker-based goroutines
 			p.mu.Lock()
 			for _, entry := range p.jobs {
 				if entry.stopCh != nil {
@@ -97,7 +95,6 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 				}
 			}
 			p.mu.Unlock()
-			// Stop cron scheduler
 			if p.c != nil {
 				stopCtx := p.c.Stop()
 				<-stopCtx.Done()
@@ -106,7 +103,26 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 			return nil
 		},
 	}
-	return p, desc
+}
+
+// New 创建计划任务插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
+func New() *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin())
+}
+
+// Get 从插件管理器中获取已注册的 Scheduler 插件实例（类型安全）。
+// 需在 pm.RegisterV2(New()) 之后调用。
+func Get(pm *plugin.Manager) *Plugin {
+	v, ok := pm.GetContainer().Get("scheduler")
+	if !ok {
+		panic("scheduler: plugin not registered; call pm.RegisterV2(scheduler.New()) first")
+	}
+	p, ok := v.(*Plugin)
+	if !ok {
+		panic("scheduler: unexpected type in container")
+	}
+	return p
 }
 
 // Every 注册固定间隔任务，返回可用于 Remove 的 JobID。

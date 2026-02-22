@@ -6,22 +6,14 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/conversation"
 	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
-func newConvPlugin(t *testing.T) *conversation.Plugin {
-	t.Helper()
-	p, desc := conversation.NewPlugin()
-	eng := engine.NewEngine()
-	pm := plugin.NewManager(eng)
-	if err := pm.RegisterV2(desc); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	return p
+// conversation.Plugin 无 Setup 初始化逻辑，直接 NewPlugin() 即可，无需走 manager 注册流程。
+func newConvPlugin() *conversation.Plugin {
+	return conversation.NewPlugin()
 }
 func makeC2CCtxUser(userID, content string, api *testbot.MockAPI) *context.Context {
 	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
@@ -30,7 +22,7 @@ func makeC2CCtxUser(userID, content string, api *testbot.MockAPI) *context.Conte
 	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, api)
 }
 func TestConversation_StartAndAdvance(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	var step1Called, step2Called, doneCalled bool
 	m := p.NewMachine("test_flow").
@@ -70,7 +62,7 @@ func TestConversation_StartAndAdvance(t *testing.T) {
 	}
 }
 func TestConversation_InSession_Rule(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	m := p.NewMachine("rule_test").Step("s1", "", func(ctx *context.Context, s *conversation.Session) error { return nil })
 	rule := p.InSession("rule_test")
@@ -83,7 +75,7 @@ func TestConversation_InSession_Rule(t *testing.T) {
 	}
 }
 func TestConversation_ErrStepDone(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	doneCalled := false
 	m := p.NewMachine("done_test").
@@ -101,7 +93,7 @@ func TestConversation_ErrStepDone(t *testing.T) {
 	}
 }
 func TestConversation_Cancel(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	m := p.NewMachine("cancel_test").Step("s1", "", func(ctx *context.Context, s *conversation.Session) error { return nil })
 	p.Start(makeC2CCtxUser("u4", "/start", api), m)
@@ -111,7 +103,7 @@ func TestConversation_Cancel(t *testing.T) {
 	}
 }
 func TestConversation_SessionExpiry(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	m := p.NewMachine("expiry_test").
 		WithTimeout(30*time.Millisecond).
@@ -124,7 +116,7 @@ func TestConversation_SessionExpiry(t *testing.T) {
 	}
 }
 func TestConversation_ActiveSessions(t *testing.T) {
-	p := newConvPlugin(t)
+	p := newConvPlugin()
 	api := testbot.NewMockAPI()
 	m1 := p.NewMachine("as_m1").Step("s", "", func(ctx *context.Context, s *conversation.Session) error { return nil })
 	m2 := p.NewMachine("as_m2").Step("s", "", func(ctx *context.Context, s *conversation.Session) error { return nil })

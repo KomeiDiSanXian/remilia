@@ -58,26 +58,25 @@ type Plugin struct {
 	bundles sync.Map // locale -> *bundle
 }
 
-// New 创建 i18n 插件描述符
-// New creates the i18n plugin descriptor.
-// Use NewPlugin() to also get a direct reference to the Plugin API.
-func New(cfg Config) *plugin.PluginDescriptor {
-	_, desc := NewPlugin(cfg)
-	return desc
-}
-
-// NewPlugin creates the i18n plugin and returns both the Plugin API and its descriptor.
-func NewPlugin(cfg Config) (*Plugin, *plugin.PluginDescriptor) {
+// NewPlugin 创建并返回一个已初始化的 i18n Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
+//	pm.RegisterV2(i18n.Descriptor(p))
+//	p.LoadBytes("zh-CN", data)
+func NewPlugin(cfg Config) *Plugin {
 	if cfg.DefaultLocale == "" {
 		cfg.DefaultLocale = "zh-CN"
 	}
 	if cfg.Fallback == "" {
 		cfg.Fallback = cfg.DefaultLocale
 	}
+	return &Plugin{cfg: cfg}
+}
 
-	p := &Plugin{cfg: cfg}
-
-	desc := &plugin.PluginDescriptor{
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "i18n",
 		Version:     "1.0.0",
 		Author:      "Remilia Team",
@@ -86,15 +85,15 @@ func NewPlugin(cfg Config) (*Plugin, *plugin.PluginDescriptor) {
 		Tags:        []string{"i18n", "国际化", "多语言"},
 		Deps:        []string{},
 		HelpText: `i18n 插件使用说明：
-  t := ctx.MustGet("i18n").(*i18n.Plugin)
-  msg := t.T(ctx, "key")
-  msg := t.T(ctx, "key", map[string]any{"k":"v"})
-  t.SetLocale(ctx, "en-US")`,
+  p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
+  pm.RegisterV2(i18n.Descriptor(p))
+  p.T(ctx, "key")
+  p.SetLocale(ctx, "en-US")`,
 
 		Setup: func(setupCtx *plugin.SetupContext) error {
-			logger.Infof("[i18n] Loading locales from '%s', default=%s", cfg.LocaleDir, cfg.DefaultLocale)
-			if cfg.LocaleDir != "" {
-				if err := p.loadDir(cfg.LocaleDir); err != nil {
+			logger.Infof("[i18n] Loading locales from '%s', default=%s", p.cfg.LocaleDir, p.cfg.DefaultLocale)
+			if p.cfg.LocaleDir != "" {
+				if err := p.loadDir(p.cfg.LocaleDir); err != nil {
 					logger.WithError(err).Warn("[i18n] Failed to load locale dir, continuing with empty bundles")
 				}
 			}
@@ -104,13 +103,32 @@ func NewPlugin(cfg Config) (*Plugin, *plugin.PluginDescriptor) {
 		},
 
 		Reload: func(setupCtx *plugin.SetupContext) error {
-			if cfg.LocaleDir != "" {
-				return p.loadDir(cfg.LocaleDir)
+			if p.cfg.LocaleDir != "" {
+				return p.loadDir(p.cfg.LocaleDir)
 			}
 			return nil
 		},
 	}
-	return p, desc
+}
+
+// New 创建 i18n 插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
+func New(cfg Config) *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin(cfg))
+}
+
+// Get 从插件管理器中获取已注册的 i18n 插件实例（类型安全）。
+// 需在 pm.RegisterV2(New(cfg)) 之后调用。
+func Get(pm *plugin.Manager) *Plugin {
+	v, ok := pm.GetContainer().Get("i18n")
+	if !ok {
+		panic("i18n: plugin not registered; call pm.RegisterV2(i18n.New(cfg)) first")
+	}
+	p, ok := v.(*Plugin)
+	if !ok {
+		panic("i18n: unexpected type in container")
+	}
+	return p
 }
 
 // loadDir 加载目录中所有 *.yaml 语言文件

@@ -64,17 +64,21 @@ type userEntry struct {
 	count    int64
 }
 
-// New creates the stats plugin descriptor.
+// NewPlugin 创建并返回一个 Stats Plugin 实例。
 // Use NewPlugin() if you need a direct reference to the Plugin API (e.g. in tests).
-func New() *plugin.PluginDescriptor {
-	_, desc := NewPlugin()
-	return desc
+// NewPlugin 创建并返回一个 Stats Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := stats.NewPlugin()
+//	pm.RegisterV2(stats.Descriptor(p))
+//	engine.Use(p.Middleware())
+func NewPlugin() *Plugin {
+	return &Plugin{}
 }
 
-// NewPlugin creates the stats plugin and returns both the Plugin API and its descriptor.
-func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
-	p := &Plugin{}
-	desc := &plugin.PluginDescriptor{
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
 		Name:        "stats",
 		Version:     "1.0.0",
 		Author:      "Remilia Team",
@@ -83,18 +87,36 @@ func NewPlugin() (*Plugin, *plugin.PluginDescriptor) {
 		Tags:        []string{"统计", "分析", "监控"},
 		Deps:        []string{},
 		HelpText: `统计插件使用说明：
-  engine.Use(statsPlugin.Middleware())
-  sp := ctx.MustGet("stats").(*stats.Plugin)
-  top := sp.TopCommands(10)
-  active := sp.ActiveUsers(stats.Today)
-  total := sp.TotalMessages()`,
+  p := stats.NewPlugin()
+  pm.RegisterV2(stats.Descriptor(p))
+  engine.Use(p.Middleware())
+  p.TopCommands(10)`,
 		Setup: func(setupCtx *plugin.SetupContext) error {
 			logger.Info("[Stats] Plugin loaded")
 			setupCtx.Manager.GetContainer().Register("stats", p)
 			return nil
 		},
 	}
-	return p, desc
+}
+
+// New 创建统计插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
+func New() *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin())
+}
+
+// Get 从插件管理器中获取已注册的 Stats 插件实例（类型安全）。
+// 需在 pm.RegisterV2(New()) 之后调用。
+func Get(pm *plugin.Manager) *Plugin {
+	v, ok := pm.GetContainer().Get("stats")
+	if !ok {
+		panic("stats: plugin not registered; call pm.RegisterV2(stats.New()) first")
+	}
+	p, ok := v.(*Plugin)
+	if !ok {
+		panic("stats: unexpected type in container")
+	}
+	return p
 }
 
 // Middleware 返回自动统计中间件，应挂载到 engine
