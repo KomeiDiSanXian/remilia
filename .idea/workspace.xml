@@ -4,32 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: simplify worker goroutine management and improve concurrency calculations">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/code-review-2026-02-22.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/openapi/dto/pool.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/openapi/dto/pool_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/compat_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/pool/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/pool/pool_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/protocol/webhook/webhook.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: enhance context handling and improve payload management for webhook processing">
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -208,6 +184,18 @@
       <pattern value="^\QTestPlugin_SubcommandDefinitions\E$" />
       <method v="2" />
     </configuration>
+    <configuration name="github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$/plugins/dev/debug" />
+      <root_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/plugins/dev/debug" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$" />
+      <framework value="gotest" />
+      <pattern value="^\QTestPlugin_SubcommandRegistration\E$" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort" />
@@ -251,7 +239,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement adaptive sampling and degradation metrics for improved observability and performance" />
     <MESSAGE value="test: update container initialization tests for improved validation and error handling" />
     <MESSAGE value="refactor: simplify loop constructs and improve variable initialization in multiple files" />
     <MESSAGE value="feat: introduce type-safe atomic value wrapper to eliminate type assertions" />
@@ -276,7 +263,8 @@
     <MESSAGE value="feat: add producer concurrency cap for unlimited path in throughput benchmark" />
     <MESSAGE value="refactor: optimize context handling and event decoding for improved performance" />
     <MESSAGE value="refactor: simplify worker goroutine management and improve concurrency calculations" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: simplify worker goroutine management and improve concurrency calculations" />
+    <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: enhance context handling and improve payload management for webhook processing" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

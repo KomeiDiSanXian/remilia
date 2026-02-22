@@ -291,26 +291,17 @@ func (a *pumpAdapter) InjectEvent(p *dto.Payload) {
 	}
 }
 
-// payloadPool recycles *dto.Payload objects (including their Detail []byte)
-// to reduce per-event heap allocation in the benchmark producers.
-var payloadPool = sync.Pool{
-	New: func() any {
-		return &dto.Payload{Detail: make([]byte, 0, 256)}
-	},
-}
-
+// acquirePayload obtains a *dto.Payload from dto's own pool and fills in the
+// benchmark fields. Ownership is transferred to bot.handleEvent which will
+// call dto.ReleasePayload after processing — do NOT call dto.ReleasePayload
+// (or any custom release) inside the event handler.
 func acquirePayload(id dto.EventID, wid int) *dto.Payload {
-	p := payloadPool.Get().(*dto.Payload)
+	p := dto.AcquirePayload()
 	p.ID = id
 	p.Type = dto.C2CMessageCreate
 	p.Operation = dto.Dispatch
-	p.Detail = fmt.Appendf(p.Detail[:0], `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, id, wid)
+	p.Detail = fmt.Appendf(p.Detail, `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, id, wid)
 	return p
-}
-
-func releasePayload(p *dto.Payload) {
-	p.Detail = p.Detail[:0]
-	payloadPool.Put(p)
 }
 
 // detailPool recycles the []byte slices used for Payload.Detail in the
@@ -483,10 +474,12 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		}
 		m.recordLatency(time.Since(t0).Nanoseconds())
 		m.processed.Add(1)
-		// Return the Payload to the pool now that we have finished decoding it.
-		if p := ctx.GetEvent(); p != nil {
-			releasePayload(p)
-		}
+		// NOTE: Do NOT release the payload here. bot.handleEvent() owns the
+		// payload lifetime and calls dto.ReleasePayload after ProcessEvent
+		// returns. Releasing it inside the handler causes a use-after-free:
+		// the payload is recycled by a producer while ctx still holds a
+		// reference to it, corrupting the event.Type string and causing a
+		// nil-pointer panic in the map lookup inside ProcessEvent.
 		return nil
 	})
 	// ── Adapter + Bot ──
