@@ -3,6 +3,7 @@ package pluginstore_test
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -107,10 +108,5 @@ func TestHasStorage(t *testing.T) {
 	}
 }
 func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }

@@ -21,6 +21,7 @@ package i18n
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -275,9 +276,7 @@ func (p *Plugin) Tn(ctx *eventctx.Context, key string, count int, args map[strin
 	}
 	// 合并参数，自动注入 Count
 	merged := map[string]any{"Count": count}
-	for k, v := range args {
-		merged[k] = v
-	}
+	maps.Copy(merged, args)
 	return p.render(locale, usedKey, text, merged)
 }
 

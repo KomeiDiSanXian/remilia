@@ -77,7 +77,7 @@ func TestI18n_TemplateCache(t *testing.T) {
 	ctx := makePlainCtx()
 
 	// 多次调用，应全部返回正确结果（命中缓存）
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if got := p.T(ctx, "tpl", map[string]any{"name": "World"}); got != "Hello World" {
 			t.Errorf("call %d: expected 'Hello World', got %q", i, got)
 		}

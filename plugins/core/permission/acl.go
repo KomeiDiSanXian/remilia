@@ -2,6 +2,7 @@ package permission
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 )
 
@@ -209,13 +210,9 @@ func (acl *AccessControlList) ExportSnapshot() (mode int, list map[string]bool, 
 	defer acl.mu.RUnlock()
 
 	listCopy := make(map[string]bool, len(acl.list))
-	for k, v := range acl.list {
-		listCopy[k] = v
-	}
+	maps.Copy(listCopy, acl.list)
 	notesCopy := make(map[string]string, len(acl.notes))
-	for k, v := range acl.notes {
-		notesCopy[k] = v
-	}
+	maps.Copy(notesCopy, acl.notes)
 	return int(acl.mode), listCopy, notesCopy
 }
 
@@ -226,11 +223,7 @@ func (acl *AccessControlList) LoadSnapshot(mode int, list map[string]bool, notes
 
 	acl.mode = ListMode(mode)
 	acl.list = make(map[string]bool, len(list))
-	for k, v := range list {
-		acl.list[k] = v
-	}
+	maps.Copy(acl.list, list)
 	acl.notes = make(map[string]string, len(notes))
-	for k, v := range notes {
-		acl.notes[k] = v
-	}
+	maps.Copy(acl.notes, notes)
 }

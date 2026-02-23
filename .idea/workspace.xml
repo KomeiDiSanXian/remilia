@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement strict dependency management for plugin registration" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add unit tests for plugin storage functionality" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -237,8 +237,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
-    <MESSAGE value="feat: add event processing duration logging and improve configuration change listener management" />
     <MESSAGE value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
     <MESSAGE value="feat: implement unified root context management for Bot lifecycle and background goroutines" />
     <MESSAGE value="fix: improve concurrency handling in adaptive rate limiter and enhance config watcher stability" />
@@ -262,7 +260,9 @@
     <MESSAGE value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
     <MESSAGE value="feat: implement persistence for permission data with export and load functionality" />
     <MESSAGE value="feat: implement strict dependency management for plugin registration" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement strict dependency management for plugin registration" />
+    <MESSAGE value="feat: add enable, disable, and unload commands for plugin management" />
+    <MESSAGE value="test: add unit tests for plugin storage functionality" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: add unit tests for plugin storage functionality" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
