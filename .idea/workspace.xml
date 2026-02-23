@@ -4,24 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency">
-      <change afterPath="$PROJECT_DIR$/core/context/rules_new_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/core/permission/persist.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/core/permission/persist_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis-2026-02-22.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis-2026-02-22.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/permission/acl.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/acl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/i18n/i18n.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement strict dependency management for plugin registration" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -254,8 +237,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: replace traditional for loops with range for improved readability in tests and state management" />
-    <MESSAGE value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
     <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
     <MESSAGE value="feat: add event processing duration logging and improve configuration change listener management" />
     <MESSAGE value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
@@ -279,7 +260,9 @@
     <MESSAGE value="feat: enhance storage plugins with optional persistence and session management" />
     <MESSAGE value="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains" />
     <MESSAGE value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
-    <option name="LAST_COMMIT_MESSAGE" value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
+    <MESSAGE value="feat: implement persistence for permission data with export and load functionality" />
+    <MESSAGE value="feat: implement strict dependency management for plugin registration" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement strict dependency management for plugin registration" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

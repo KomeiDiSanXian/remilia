@@ -202,6 +202,54 @@ func (p *Plugin) saveBanList() {
 	logger.Infof("[AntiSpam] Saved %d ban entries to storage", len(entries))
 }
 
+// BanEntry 封禁条目（公开查询用）
+type BanEntry struct {
+	UserID    string
+	Until     time.Time // zero if permanent
+	Permanent bool
+}
+
+// AntiSpamStats 限流统计摘要
+type AntiSpamStats struct {
+	BanCount          int
+	UserLimiterCount  int
+	GroupLimiterCount int
+}
+
+// ListBans 返回所有当前有效的封禁记录（过期的自动跳过）
+func (p *Plugin) ListBans() []BanEntry {
+	p.banMu.Lock()
+	defer p.banMu.Unlock()
+
+	now := time.Now()
+	result := make([]BanEntry, 0, len(p.banList))
+	for userID, e := range p.banList {
+		if !e.until.IsZero() && e.until.Before(now) {
+			delete(p.banList, userID) // 顺手清理过期的
+			continue
+		}
+		result = append(result, BanEntry{
+			UserID:    userID,
+			Until:     e.until,
+			Permanent: e.until.IsZero(),
+		})
+	}
+	return result
+}
+
+// Stats 返回限流统计摘要
+func (p *Plugin) Stats() AntiSpamStats {
+	p.banMu.RLock()
+	banCount := len(p.banList)
+	p.banMu.RUnlock()
+
+	return AntiSpamStats{
+		BanCount:          banCount,
+		UserLimiterCount:  p.userRL.Len(),
+		GroupLimiterCount: p.groupRL.Len(),
+	}
+}
+
 // SetStorage 手动设置持久化后端（用于在 Setup 后注入 storage）
 func (p *Plugin) SetStorage(s storageBackend) {
 	p.storage = s

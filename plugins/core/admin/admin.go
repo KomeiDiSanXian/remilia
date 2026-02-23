@@ -167,12 +167,7 @@ func (p *Plugin) registerPluginCommand(eng *engine.Engine) {
 				Description: "查看插件详情",
 				Usage:       "/plugin info <插件名>",
 				Arguments: []*command.Argument{
-					{
-						Name:        "name",
-						Type:        command.ArgTypeString,
-						Description: "插件名称",
-						Required:    true,
-					},
+					{Name: "name", Type: command.ArgTypeString, Description: "插件名称", Required: true},
 				},
 				Examples: []string{"/plugin info help", "/plugin info permission"},
 			},
@@ -181,14 +176,36 @@ func (p *Plugin) registerPluginCommand(eng *engine.Engine) {
 				Description: "重载插件",
 				Usage:       "/plugin reload <插件名>",
 				Arguments: []*command.Argument{
-					{
-						Name:        "name",
-						Type:        command.ArgTypeString,
-						Description: "插件名称",
-						Required:    true,
-					},
+					{Name: "name", Type: command.ArgTypeString, Description: "插件名称", Required: true},
 				},
 				Examples: []string{"/plugin reload help"},
+			},
+			{
+				Name:        "disable",
+				Description: "禁用插件（暂停响应，保留注册状态，可通过 enable 恢复）",
+				Usage:       "/plugin disable <插件名>",
+				Arguments: []*command.Argument{
+					{Name: "name", Type: command.ArgTypeString, Description: "插件名称", Required: true},
+				},
+				Examples: []string{"/plugin disable antispam"},
+			},
+			{
+				Name:        "enable",
+				Description: "启用已禁用的插件（恢复事件响应）",
+				Usage:       "/plugin enable <插件名>",
+				Arguments: []*command.Argument{
+					{Name: "name", Type: command.ArgTypeString, Description: "插件名称", Required: true},
+				},
+				Examples: []string{"/plugin enable antispam"},
+			},
+			{
+				Name:        "unload",
+				Description: "卸载插件（完全移除，需重启才能重新加载）",
+				Usage:       "/plugin unload <插件名>",
+				Arguments: []*command.Argument{
+					{Name: "name", Type: command.ArgTypeString, Description: "插件名称", Required: true},
+				},
+				Examples: []string{"/plugin unload debug"},
 			},
 		},
 	}
@@ -224,6 +241,12 @@ func (p *Plugin) handlePluginCommand(ctx *eventctx.Context) error {
 		return p.handlePluginInfo(ctx, args)
 	case "reload":
 		return p.handlePluginReload(ctx, args)
+	case "disable":
+		return p.handlePluginDisable(ctx, args)
+	case "enable":
+		return p.handlePluginEnable(ctx, args)
+	case "unload":
+		return p.handlePluginUnload(ctx, args)
 	default:
 		return p.reply(ctx, fmt.Sprintf("❌ 未知的子命令: %s\n使用 /plugin 查看帮助", subCommand))
 	}
@@ -237,7 +260,10 @@ func (p *Plugin) showPluginHelp(ctx *eventctx.Context) error {
 	msg.WriteString("可用命令:\n")
 	msg.WriteString("  /plugin list - 列出所有插件\n")
 	msg.WriteString("  /plugin info <插件名> - 查看插件详情\n")
-	msg.WriteString("  /plugin reload <插件名> - 重载插件\n")
+	msg.WriteString("  /plugin reload <插件名> - 热重载插件\n")
+	msg.WriteString("  /plugin disable <插件名> - 禁用插件（暂停响应，可恢复）\n")
+	msg.WriteString("  /plugin enable <插件名> - 启用已禁用的插件\n")
+	msg.WriteString("  /plugin unload <插件名> - 卸载插件（完全移除）\n")
 	return p.reply(ctx, msg.String())
 }
 
@@ -477,6 +503,72 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) e
 	}
 
 	return p.reply(ctx, fmt.Sprintf("✅ 插件 '%s' 重载成功", pluginName))
+}
+
+// handlePluginDisable 禁用插件（暂停响应，保留注册，可通过 enable 恢复）
+func (p *Plugin) handlePluginDisable(ctx *eventctx.Context, args *command.Args) error {
+	if p.PluginManager == nil {
+		return p.reply(ctx, "❌ 插件管理器未初始化")
+	}
+	if !p.checkPermission(ctx, "plugin.disable") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	pluginName := args.Get(1)
+	if pluginName == "" {
+		return p.reply(ctx, "用法: /plugin disable <插件名>")
+	}
+	if pluginName == "admin" {
+		return p.reply(ctx, "❌ 不能禁用 admin 插件自身")
+	}
+
+	if err := p.PluginManager.Disable(pluginName); err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 禁用失败: %v", err))
+	}
+	return p.reply(ctx, fmt.Sprintf("⏸️ 插件 '%s' 已禁用（Matcher 暂停响应，Container 服务保持可用）\n💡 使用 /plugin enable %s 恢复", pluginName, pluginName))
+}
+
+// handlePluginEnable 启用已禁用的插件
+func (p *Plugin) handlePluginEnable(ctx *eventctx.Context, args *command.Args) error {
+	if p.PluginManager == nil {
+		return p.reply(ctx, "❌ 插件管理器未初始化")
+	}
+	if !p.checkPermission(ctx, "plugin.enable") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	pluginName := args.Get(1)
+	if pluginName == "" {
+		return p.reply(ctx, "用法: /plugin enable <插件名>")
+	}
+
+	if err := p.PluginManager.Enable(pluginName); err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 启用失败: %v", err))
+	}
+	return p.reply(ctx, fmt.Sprintf("▶️ 插件 '%s' 已启用（Matcher 恢复响应）", pluginName))
+}
+
+// handlePluginUnload 卸载插件（完全移除）
+func (p *Plugin) handlePluginUnload(ctx *eventctx.Context, args *command.Args) error {
+	if p.PluginManager == nil {
+		return p.reply(ctx, "❌ 插件管理器未初始化")
+	}
+	if !p.checkPermission(ctx, "plugin.unload") && !p.hasAdminRole(ctx) {
+		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
+	}
+
+	pluginName := args.Get(1)
+	if pluginName == "" {
+		return p.reply(ctx, "用法: /plugin unload <插件名>")
+	}
+	if pluginName == "admin" {
+		return p.reply(ctx, "❌ 不能卸载 admin 插件自身")
+	}
+
+	if err := p.PluginManager.Unregister(pluginName); err != nil {
+		return p.reply(ctx, fmt.Sprintf("❌ 卸载失败: %v", err))
+	}
+	return p.reply(ctx, fmt.Sprintf("🗑️ 插件 '%s' 已卸载（Teardown 已执行，Container 已清理）", pluginName))
 }
 
 // handlePermGrant 处理权限授予命令

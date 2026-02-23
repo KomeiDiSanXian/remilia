@@ -200,6 +200,44 @@ func (e *Engine) RemoveGroup(groupName string) {
 	logger.Debugf("[engine] Removed matcher group: %s", groupName)
 }
 
+// DisableGroup 暂停指定分组的所有 Matcher 响应。
+//
+// 与 RemoveGroup 的区别：
+//   - RemoveGroup: 永久删除，无法恢复
+//   - DisableGroup: 仅标记为禁用，可通过 EnableGroup 恢复
+//
+// 此操作直接修改 Matcher 的 disabled 标志，无需创建新的 COW 状态。
+func (e *Engine) DisableGroup(groupName string) {
+	if groupName == "" {
+		return
+	}
+	state := e.state.Load()
+	matchers, ok := state.groupIndex[groupName]
+	if !ok {
+		return
+	}
+	for _, m := range matchers {
+		m.disable()
+	}
+	logger.Debugf("[engine] Disabled matcher group: %s (%d matchers)", groupName, len(matchers))
+}
+
+// EnableGroup 恢复指定分组的所有 Matcher 响应。
+func (e *Engine) EnableGroup(groupName string) {
+	if groupName == "" {
+		return
+	}
+	state := e.state.Load()
+	matchers, ok := state.groupIndex[groupName]
+	if !ok {
+		return
+	}
+	for _, m := range matchers {
+		m.enable()
+	}
+	logger.Debugf("[engine] Enabled matcher group: %s (%d matchers)", groupName, len(matchers))
+}
+
 // InvalidateSortedCache 失效指定事件类型的排序缓存（COW 写操作）
 //
 // 当 Matcher 的优先级被修改时调用此方法。
@@ -1006,14 +1044,48 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 		return
 	}
 
+	oldGroup := ""
+
 	// Update matcher fields.
 	m.rt.mu.Lock()
+	oldGroup = m.group
 	m.group = strings.TrimSpace(group)
 	if source != "" {
 		m.Source = source
 	}
 	m.invalidateCombinedChain()
 	m.rt.mu.Unlock()
+
+	// Update COW groupIndex so DisableGroup/EnableGroup can find this matcher.
+	if oldGroup != m.group {
+		e.writeMu.Lock()
+		oldState := e.state.Load()
+		newState := copyEngineState(oldState)
+
+		// Remove from old group
+		if oldGroup != "" {
+			filtered := make([]*Matcher, 0, len(newState.groupIndex[oldGroup]))
+			for _, gm := range newState.groupIndex[oldGroup] {
+				if gm != m {
+					filtered = append(filtered, gm)
+				}
+			}
+			if len(filtered) == 0 {
+				delete(newState.groupIndex, oldGroup)
+			} else {
+				newState.groupIndex[oldGroup] = filtered
+			}
+		}
+
+		// Add to new group
+		newGroupName := strings.TrimSpace(group)
+		if newGroupName != "" {
+			newState.groupIndex[newGroupName] = append(newState.groupIndex[newGroupName], m)
+		}
+
+		e.state.Store(newState)
+		e.writeMu.Unlock()
+	}
 
 	// Update middleware chain as group affects group middlewares.
 	e.rebuildMatcherChainCOW(m)

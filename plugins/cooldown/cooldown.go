@@ -182,3 +182,34 @@ func (p *Plugin) CleanExpired(maxAge time.Duration) int {
 	}
 	return count
 }
+
+// CooldownRecord 单条冷却记录（供查询使用）
+type CooldownRecord struct {
+	Command  string
+	LastUsed time.Time
+}
+
+// QueryUser 返回指定用户的所有冷却记录
+func (p *Plugin) QueryUser(userID string) []CooldownRecord {
+	prefix := userID + ":"
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	result := make([]CooldownRecord, 0)
+	for key, e := range p.records {
+		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+			result = append(result, CooldownRecord{
+				Command:  key[len(prefix):],
+				LastUsed: e.lastUsed,
+			})
+		}
+	}
+	return result
+}
+
+// ActiveCount 返回当前活跃冷却记录总数
+func (p *Plugin) ActiveCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.records)
+}

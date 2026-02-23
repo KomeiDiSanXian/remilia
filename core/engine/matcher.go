@@ -14,6 +14,7 @@ import (
 type matcherRuntime struct {
 	mu          sync.RWMutex
 	deleted     bool
+	disabled    bool // 暂停响应（不永久删除，可通过 EnableGroup 恢复）
 	useCount    int32
 	maxUseCount int32
 	createdAt   time.Time
@@ -165,6 +166,27 @@ func (m *Matcher) IsDeleted() bool {
 	return m.rt.deleted
 }
 
+// IsDisabled 返回 Matcher 是否处于暂停状态
+func (m *Matcher) IsDisabled() bool {
+	m.rt.mu.RLock()
+	defer m.rt.mu.RUnlock()
+	return m.rt.disabled
+}
+
+// disable 将 Matcher 标记为暂停（不影响 deleted）
+func (m *Matcher) disable() {
+	m.rt.mu.Lock()
+	m.rt.disabled = true
+	m.rt.mu.Unlock()
+}
+
+// enable 恢复 Matcher 响应
+func (m *Matcher) enable() {
+	m.rt.mu.Lock()
+	m.rt.disabled = false
+	m.rt.mu.Unlock()
+}
+
 // isNoop 检查是否为 noop matcher
 func (m *Matcher) isNoop() bool {
 	return m != nil && m.Source == "noop"
@@ -173,7 +195,7 @@ func (m *Matcher) isNoop() bool {
 // Match 检查事件是否匹配此 Matcher
 func (m *Matcher) Match(ctx *context.Context) bool {
 	m.rt.mu.RLock()
-	if m.rt.deleted {
+	if m.rt.deleted || m.rt.disabled {
 		m.rt.mu.RUnlock()
 		return false
 	}
@@ -186,16 +208,12 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 		}
 	}
 
-	// 双重检查：在匹配过程中可能被删除
+	// 双重检查：在匹配过程中可能被删除或禁用
 	m.rt.mu.RLock()
-	deleted := m.rt.deleted
+	skip := m.rt.deleted || m.rt.disabled
 	m.rt.mu.RUnlock()
 
-	if deleted {
-		return false
-	}
-
-	return true
+	return !skip
 }
 
 // Handle 设置 Matcher 的处理函数

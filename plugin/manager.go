@@ -32,6 +32,7 @@ type LifecycleListener interface {
 // Manager 插件管理器
 type Manager struct {
 	plugins     map[string]Plugin
+	disabled    map[string]bool // 已禁用（暂停响应）的插件集合
 	coordinator *engine.Engine
 	listeners   []LifecycleListener // 生命周期监听器列表
 	viper       *viper.Viper        // 全局配置
@@ -46,12 +47,85 @@ type Manager struct {
 func NewManager(coordinator *engine.Engine) *Manager {
 	return &Manager{
 		plugins:     make(map[string]Plugin),
+		disabled:    make(map[string]bool),
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
 		loadOrder:   make([]string, 0),
 		container:   NewContainer(),
 		eventBus:    NewEventBus(),
 	}
+}
+
+// Disable 禁用插件（暂停事件响应，但保持注册状态）。
+//
+// 与 Unregister 的区别：
+//   - Unregister: 完全移除插件，需要重新注册才能恢复
+//   - Disable: 仅标记为禁用，通过 Enable 即可恢复，不触发 Teardown，不影响 Container 中的服务
+//
+// 禁用后：
+//   - engine.Matcher 被挂起（engine.RemoveGroup 暂停分发）
+//   - IsDisabled(name) 返回 true
+//   - 可通过 Enable(name) 恢复
+func (pm *Manager) Disable(name string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	plugin, exists := pm.plugins[name]
+	if !exists {
+		return errutil.ErrPluginNotFound
+	}
+
+	if pm.disabled[name] {
+		logger.Warnf("[pluginManager] Plugin %s is already disabled", name)
+		return nil
+	}
+
+	// 检查插件是否已加载
+	if stateful, ok := plugin.(StatefulPlugin); ok {
+		if stateful.GetState() != Loaded {
+			return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, stateful.GetState())
+		}
+	}
+
+	// 暂停 engine 中该插件组的所有 Matcher 分发
+	if pm.coordinator != nil {
+		pm.coordinator.DisableGroup(name)
+	}
+
+	pm.disabled[name] = true
+	logger.Infof("[pluginManager] Plugin %s disabled (matchers paused, container intact)", name)
+	return nil
+}
+
+// Enable 启用已禁用的插件（恢复事件响应）。
+func (pm *Manager) Enable(name string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if _, exists := pm.plugins[name]; !exists {
+		return errutil.ErrPluginNotFound
+	}
+
+	if !pm.disabled[name] {
+		logger.Warnf("[pluginManager] Plugin %s is not disabled", name)
+		return nil
+	}
+
+	// 恢复 engine 中该插件组的 Matcher 分发
+	if pm.coordinator != nil {
+		pm.coordinator.EnableGroup(name)
+	}
+
+	delete(pm.disabled, name)
+	logger.Infof("[pluginManager] Plugin %s enabled (matchers resumed)", name)
+	return nil
+}
+
+// IsDisabled 检查插件是否被禁用（区别于 IsLoaded）
+func (pm *Manager) IsDisabled(name string) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.disabled[name]
 }
 
 // SetStrictDeps 设置严格依赖模式。

@@ -684,21 +684,19 @@ pm.RegisterV2(webhooknotify.New(webhooknotify.Config{
 
 ---
 
-### 4.9 🟡 `rate-limit-ui` — 限流状态查询插件 — ❌ **未实现**
+### 4.9 🟡 `rate-limit-ui` — 限流状态查询插件 — ✅ **已实现**
 
-**现状**: antispam 和 sendqueue 提供了限流功能，但没有面向管理员的限流状态查询接口，无法查看哪些用户/群触发了限流。
+**位置**: `plugins/ratelimitui/ratelimitui.go`
 
-**必要性**: **中等** — 运营需求，帮助管理员识别异常用户。
+> **状态**: 新增 `plugins/ratelimitui` 包。`Plugin` 聚合 `antispam` 和 `cooldown` 插件（可选绑定），提供 `/rl status [用户ID]`/`/rl bans`/`/rl stats`/`/rl unban`/`/rl reset` 命令。同时新增公开 API：`BindAntispam/BindCooldown/HasAntispam/HasCooldown/ListBanSummary/GetStats/Unban/ResetCooldown`。为 antispam 新增 `ListBans()/Stats()` 方法，为 cooldown 新增 `QueryUser()/ActiveCount()` 方法。8 个测试全部通过。
 
 ---
 
-### 4.10 🟡 `plugin-store` — 插件配置持久化插件
+### 4.10 🟡 `plugin-store` — 插件配置持久化插件 — ✅ **已实现**
 
-**现状**: 各个插件的运行时配置（如 antispam 封禁时长、scheduler 任务列表）无法持久化，重启后恢复默认值。
+**位置**: `plugins/pluginstore/pluginstore.go`
 
-**必要性**: **中等** — 避免每次重启后重新配置，提升运维体验。
-
-**期望设计**: 提供统一的"插件配置快照"机制，在 shutdown 时将各插件的 SaveState 结果序列化到 storage，启动时自动恢复。
+> **状态**: 新增 `plugins/pluginstore` 包。提供统一的跨重启状态快照机制：`RegisterFunc(name, save, restore)` 注册保存/恢复函数（调用后立即尝试从 storage 恢复），`Save(name)` 手动保存，`SaveAll()` 批量保存（Teardown 时自动调用），`Unregister(name)` 注销。导出 `StorageBackend` 接口供测试和外部实现。与 `PluginDescriptor.SaveState/RestoreState`（热重载内存传递）互补——pluginstore 负责持久化到 storage 插件，跨进程重启恢复。5 个测试全部通过。
 
 ---
 
@@ -742,6 +740,7 @@ pm.RegisterV2(webhooknotify.New(webhooknotify.Config{
 | 22 | **`audit-log` 审计日志插件**（4.7） | 新增 | 2天 | ✅ 已实现 |
 | 23 | UnregisterCascade 真正实现级联（2.9） | 缺陷 | 1天 | ✅ 已实现 |
 | 24 | 依赖检查验证状态为 Loaded（2.6） | 缺陷 | 0.5天 | ✅ 已实现 |
+| 25 | admin /plugin enable\|disable 命令（3.9） | 缺陷 | 1天 | ✅ 已实现 |
 
 ### ⚪ P3 — 长期规划
 
@@ -754,6 +753,8 @@ pm.RegisterV2(webhooknotify.New(webhooknotify.Config{
 | 29 | **`webhook-notify` 外部通知**（4.8） | 新增 | 业务集成需求 | ❌ 未实现 |
 | 30 | permission/ACL/验证码 拆分（3.15） | 重构 | 破坏性变更 | ✅ 已实现 |
 | 31 | 插件依赖版本约束（2.7 StrictMode） | 增强 | SetStrictDeps API | ✅ 已实现 |
+| 32 | **`rate-limit-ui` 限流状态查询**（4.9） | 新增 | antispam+cooldown 聚合 | ✅ 已实现 |
+| 33 | **`plugin-store` 插件配置持久化**（4.10） | 新增 | 跨重启快照 | ✅ 已实现 |
 
 ---
 
