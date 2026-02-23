@@ -1,0 +1,4 @@
+﻿welcome: "Welcome, {{.name}}! This is Remilia Bot."
+help.title: "Help Menu"
+cmd.ping: "🏓 Pong! Latency {{.latency}}ms"
+cmd.status: "📊 All systems normal. {{.count}} messages processed."

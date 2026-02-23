@@ -1,414 +1,88 @@
-# Remilia Examples
-
-本目录包含 Remilia 框架的各种示例，帮助你快速上手。
-
-**更新状态**: ✅ 全部14个示例已更新并测试通过 (2026-02-10)
-
+﻿# Remilia Examples
+本目录包含 Remilia 框架的示例代码，帮助你快速上手和深入理解各个功能模块。
 ---
-
-## 📚 示例列表
-
-### 🚀 入门示例
-
-#### [basic-bot](./basic-bot/) ⭐ 推荐新手
-最简单的 Bot 示例，展示基础功能。
-
-**功能**:
-- Echo 命令
-- Ping/Pong
-- 使用 BotBuilder
-- 使用简化中间件
-
-**适合**: 完全的新手，想要快速创建第一个Bot
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [middleware-example](./middleware-example/) ⭐ 推荐
-展示4种使用中间件的方式。
-
-**功能**:
-- 预定义中间件集
-- 简化工厂
-- 中间件构建器
-- 自定义配置
-
-**适合**: 想要了解中间件系统的开发者
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [debug-subcommand-demo](./debug-subcommand-demo/) ⭐ 新增
-展示 Debug 插件的子命令功能和最佳实践。
-
-**功能**:
-- 子命令架构演示
-- 8个调试子命令
-- 权限控制集成
-- 插件管理示例
-
-**适合**: 想要了解子命令模式和调试工具的开发者
-
-**状态**: ✅ 已创建，编译通过
-
----
-
-### 🎯 进阶示例
-
-#### [command-bot](./command-bot/)
-完整的命令系统示例。
-
-**功能**:
-- 命令注册
-- 多个命令演示
-- 帮助系统
-
-**适合**: 需要构建命令系统的开发者
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [plugin-example](./plugin-example/)
-插件开发示例。
-
-**功能**:
-- 插件创建
-- 插件生命周期
-- 多个插件协作
-
-**适合**: 想要开发插件的开发者
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [config_hotreload](./config_hotreload/)
-配置热更新示例。
-
-**功能**:
-- 配置文件监听
-- 动态更新配置
-- 配置变更回调
-
-**适合**: 需要配置热更新的开发者
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-### 🏭 生产实践示例
-
-#### [production-ready](./production-ready/) ⭐⭐⭐ 重要
-生产环境最佳实践。
-
-**功能**:
-- 生产级中间件配置
-- 完善的错误处理
-- 慢请求监控
-- 健康检查
-- 优雅关闭
-
-**适合**: 准备部署到生产环境的开发者
-
-**状态**: ✅ 新增，编译通过
-
----
-
-#### [error-handling](./error-handling/) ⭐⭐ 推荐
-完善的错误处理示例。
-
-**功能**:
-- 多种错误类型
-- 自定义错误
-- 重试机制
-- Panic恢复
-
-**适合**: 需要健壮错误处理的开发者
-
-**状态**: ✅ 新增，编译通过
-
----
-
-#### [metrics-monitoring](./metrics-monitoring/) ⭐⭐ 推荐
-性能监控示例。
-
-**功能**:
-- 请求统计
-- 延迟跟踪
-- 系统资源监控
-- 慢请求检测
-
-**适合**: 需要监控Bot性能的开发者
-
-**状态**: ✅ 新增，编译通过
-
----
-
-#### [async-tasks](./async-tasks/)
-异步任务处理示例。
-
-**功能**:
-- 异步任务创建
-- 状态跟踪
-- 进度更新
-- 任务管理
-
-**适合**: 需要处理长时间任务的开发者
-
-**状态**: ✅ 新增，编译通过
-
----
-
-### 🔧 专题示例
-
-#### [handler-chain](./handler-chain/)
-处理器链模式示例。
-
-**功能**:
-- 责任链模式
-- Handler 组合
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [help-discovery](./help-discovery/)
-自动帮助系统示例。
-
-**功能**:
-- 命令发现
-- 自动生成帮助
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [command-integration](./command-integration/)
-命令集成测试示例。
-
-**功能**:
-- 命令集成
-- 测试验证
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-#### [command-conflict-test](./command-conflict-test/)
-命令冲突测试示例。
-
-**功能**:
-- 冲突检测
-- 行为验证
-
-**状态**: ✅ 已更新，编译通过
-
----
-
-## 🎯 快速开始
-
-### 1. 选择示例
-
-根据你的需求选择合适的示例：
-
-- **第一次使用?** → [basic-bot](./basic-bot/)
-- **了解中间件?** → [middleware-example](./middleware-example/)
-- **构建命令系统?** → [command-bot](./command-bot/)
-- **开发插件?** → [plugin-example](./plugin-example/)
-
-### 2. 配置示例
-
-每个示例都有 `config.example.yaml`：
-
-```bash
-cd basic-bot
-cp config.example.yaml config.yaml
-# 编辑 config.yaml 填入你的机器人信息
-```
-
-### 3. 运行示例
-
-```bash
+## 综合示例 (推荐从这里开始)
+### [showcase](./showcase/) ⭐⭐ 最全示例
+一个**尽可能覆盖所有功能和现有插件**的单文件示例。阅读 `showcase/main.go` 可以了解几乎所有框架能力。
+**覆盖内容**:
+- BotBuilder 配置加载 & 构建
+- 生产级中间件套件 + 自定义中间件
+- 插件系统 v2（RegisterMultipleV2 自动拓扑排序 / StrictDeps 严格依赖模式 / LifecycleListener）
+- 所有内置插件：storage / permission / acl / verifycode / antispam / keywordfilter / cooldown / stats / auditlog / scheduler / i18n / ratelimitui / pluginstore / conversation / cache / help / admin
+- 命令系统（命令定义 / 子命令 / 帮助自动聚合）
+- EventBus（普通订阅 + 通配符订阅）
+- 插件 Disable/Enable 热控制
+- pluginstore 跨重启状态持久化
+**运行**:
+```sh
+cp ../../config.example.yaml ../../config.yaml
+# 编辑 config.yaml 填入 AppID / Token / AppSecret
 go run main.go
 ```
-
 ---
-
-## 📖 学习路径
-
-### 新手路径
-
-1. [basic-bot](./basic-bot/) - 创建第一个Bot
-2. [middleware-example](./middleware-example/) - 了解中间件
-3. [command-bot](./command-bot/) - 学习命令系统
-
-### 进阶路径
-
-1. [plugin-example](./plugin-example/) - 开发插件
-2. [config-integration](./config-integration/) - 配置管理
-3. [handler-chain](./handler-chain/) - 高级模式
-
+## 入门示例
+### [basic-bot](./basic-bot/)
+最简单的 Bot，适合完全的新手。演示 BotBuilder、命令注册、中间件使用。
+### [plugin-v2-demo](./plugin-v2-demo/)
+插件系统 v2 API 基础示例。演示无需继承的函数式插件写法（PluginDescriptor）、状态管理、热重载钩子。
+### [command-bot](./command-bot/)
+完整命令系统示例。演示命令注册、多命令协作、帮助系统。
 ---
-
-## 🔧 通用配置
-
-所有示例都使用相同的配置格式：
-
-```yaml
-bot:
-  app_id: 123456          # 你的 AppID
-  bot_id: 654321          # 你的机器人 QQ 号
-  token: "YOUR_TOKEN"     # 你的 Token
-  secret: "YOUR_SECRET"   # 你的 Secret
-
-server:
-  host: "0.0.0.0"
-  port: 8080
-
-log:
-  level: "info"           # trace, debug, info, warn, error
-  format: "text"          # json, text
-```
-
+## 进阶示例
+### [middleware-example](./middleware-example/)
+四种使用中间件的方式：预定义套件、简化工厂、构建器、自定义配置。
+### [plugin-example](./plugin-example/)
+传统 v1 插件开发（实现 Plugin 接口）。演示插件创建、生命周期、依赖管理。
+### [production-ready](./production-ready/)
+生产环境最佳实践配置：生产级中间件、错误处理、健康检查。
+### [error-handling](./error-handling/)
+错误处理完整演示：自定义错误类型、错误传播、panic 恢复、errutil 使用。
+### [sqlite-storage-demo](./sqlite-storage-demo/)
+SQLite 持久化存储：Storage 插件 SQLite 后端、JSON 存储、WAL 模式。
 ---
-
-## 📊 示例对比
-
-| 示例 | 难度 | 代码行数 | 学习时间 | 适用场景 | 状态 |
-|------|------|---------|---------|---------|------|
-| basic-bot | ⭐ 简单 | ~107 | 10分钟 | 快速上手 | ✅ |
-| middleware-example | ⭐⭐ 简单 | ~146 | 15分钟 | 了解中间件 | ✅ |
-| command-bot | ⭐⭐⭐ 中等 | ~165 | 20分钟 | 命令系统 | ✅ |
-| plugin-example | ⭐⭐⭐⭐ 中等 | ~236 | 30分钟 | 插件开发 | ✅ |
-| config_hotreload | ⭐⭐ 简单 | ~77 | 15分钟 | 配置管理 | ✅ |
-| **production-ready** | ⭐⭐⭐⭐⭐ 高级 | ~228 | 45分钟 | **生产部署** | ✅ |
-| **error-handling** | ⭐⭐⭐ 中等 | ~351 | 30分钟 | **错误处理** | ✅ |
-| **metrics-monitoring** | ⭐⭐⭐⭐ 高级 | ~321 | 40分钟 | **性能监控** | ✅ |
-| **async-tasks** | ⭐⭐⭐⭐ 高级 | ~285 | 35分钟 | **异步任务** | ✅ |
-| handler-chain | ⭐⭐⭐ 中等 | ~94 | 20分钟 | 高级模式 | ✅ |
-| help-discovery | ⭐⭐ 简单 | ~75 | 15分钟 | Help系统 | ✅ |
-| command-integration | ⭐⭐ 简单 | ~59 | 10分钟 | 集成测试 | ✅ |
-| command-conflict-test | ⭐⭐ 简单 | ~69 | 10分钟 | 冲突测试 | ✅ |
-
-**总计**: 13个示例，全部可用 ✅
-
-**新增**: 4个生产实践示例 🎉
-
+## 基础设施示例
+### [config_hotreload](./config_hotreload/) / [config-integration](./config-integration/)
+配置系统：YAML 加载、热重载（config.Watcher）、Viper 集成。
+### [logger-demo](./logger-demo/)
+日志系统：结构化日志、级别控制、多输出目标。
+### [metrics-monitoring](./metrics-monitoring/)
+性能监控：自定义 Metrics、请求统计、延迟追踪。
+### [tracing-demo](./tracing-demo/)
+分布式追踪：OpenTelemetry 集成。
+### [httpclient-demo](./httpclient-demo/)
+HTTP 客户端：重试策略、超时控制、中间件链。
+### [debug-subcommand-demo](./debug-subcommand-demo/)
+Debug 插件：子命令架构、运行时诊断、权限控制集成。
+### [help-discovery](./help-discovery/)
+Help 插件：命令自动发现、帮助文本生成。
+### [async-tasks](./async-tasks/) (在 showcase 内有更简洁的演示)
+异步任务处理：goroutine 管理、背压控制。
 ---
-
-## 💡 使用技巧
-
-### 1. 从简单开始
-
-不要直接跳到复杂示例，按顺序学习：
-```
-basic-bot → middleware-example → command-bot → plugin-example
-```
-
-### 2. 修改代码实验
-
-每个示例都鼓励你修改代码：
-- 添加新命令
-- 调整中间件配置
-- 尝试不同的组合
-
-### 3. 查看日志
-
-运行示例时注意观察日志输出，了解执行流程：
-```bash
-go run main.go 2>&1 | tee bot.log
-```
-
-### 4. 使用调试模式
-
-在 `config.yaml` 中设置：
-```yaml
-log:
-  level: "debug"  # 查看详细日志
-```
-
+## 性能基准
+### [benchmark](./benchmark/)
+吞吐量基准测试：引擎性能压测、并发处理基准。
 ---
-
-## 🐛 常见问题
-
-### Q: 示例无法启动
-
-**A**: 检查以下几点：
-1. 是否创建了 `config.yaml`
-2. 配置文件中的信息是否正确
-3. 端口是否被占用
-4. Go 版本是否 ≥ 1.19
-
-### Q: 修改代码后不生效
-
-**A**: 确保重新编译：
-```bash
-go clean -cache
-go run main.go
-```
-
-### Q: 找不到某个包
-
-**A**: 更新依赖：
-```bash
-go mod tidy
-go mod download
-```
-
-### Q: 机器人没有响应
-
-**A**: 检查：
-1. 机器人是否启动成功
-2. Webhook 地址是否正确配置
-3. 命令格式是否正确（如 `/ping`）
-4. 日志中是否有错误信息
-
+## 插件速查表
+| 插件 | 包路径 | 描述 |
+|------|--------|------|
+| storage | plugins/core/storage | KV 存储（内存/SQLite/Redis）|
+| permission | plugins/core/permission | RBAC 权限 + ACL + 验证码 |
+| cache | plugins/core/cache | LRU 内存缓存 |
+| help | plugins/core/help | 命令帮助自动聚合 |
+| admin | plugins/core/admin | 管理命令（/plugin /perm /acl /code）|
+| acl | plugins/acl | 独立黑白名单（区别于 permission 内置 ACL）|
+| verifycode | plugins/verifycode | 独立验证码授权 |
+| antispam | plugins/antispam | 用户/群限速 + 违规封禁 |
+| keywordfilter | plugins/keywordfilter | 关键词/正则过滤 |
+| cooldown | plugins/cooldown | 命令冷却时间 |
+| stats | plugins/stats | 命令调用统计 + 活跃用户 |
+| auditlog | plugins/auditlog | 操作审计日志 |
+| scheduler | plugins/scheduler | 定时任务（固定间隔 + Cron）|
+| i18n | plugins/i18n | 多语言支持（YAML 语言包 + 热重载）|
+| ratelimitui | plugins/ratelimitui | 限流状态查询（聚合 antispam+cooldown）|
+| pluginstore | plugins/pluginstore | 插件状态跨重启持久化 |
+| conversation | plugins/conversation | 多步对话状态机 |
+| broadcast | plugins/broadcast | 消息广播 |
+| sendqueue | plugins/sendqueue | 发送队列（限速/排队）|
 ---
-
-## 📚 相关文档
-
-### 入门文档
-- [快速开始](../docs/01-getting-started/GETTING_STARTED.md)
-- [故障排除](../docs/01-getting-started/TROUBLESHOOTING.md)
-
-### 用户指南
-- [最佳实践](../docs/02-user-guides/BEST_PRACTICES.md)
-- [工厂函数指南](../docs/02-user-guides/FACTORY_FUNCTIONS_GUIDE.md)
-- [配置快速参考](../docs/02-user-guides/CONFIGURATION_QUICKREF.md)
-
-### 架构设计
-- [并发事件处理](../docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md)
-- [插件系统设计](../docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md)
-
----
-
-## 🤝 贡献示例
-
-如果你创建了新的示例，欢迎贡献：
-
-1. 在 `examples/` 下创建新目录
-2. 添加 `main.go`、`config.example.yaml`、`README.md`
-3. 确保代码可运行
-4. 更新本 README
-
----
-
-## 📝 最佳实践
-
-所有示例遵循以下最佳实践：
-
-1. ✅ **使用 BotBuilder** - 流畅的创建接口
-2. ✅ **使用简化中间件** - ProductionSet/DevelopmentSet
-3. ✅ **配置文件驱动** - 所有配置来自 config.yaml
-4. ✅ **完善的日志** - 结构化日志记录
-5. ✅ **优雅关闭** - 使用 WaitForShutdown()
-6. ✅ **错误处理** - 完善的错误处理和恢复
-
----
-
-**最后更新**: 2026年2月5日  
-**示例总数**: 13个  
-**推荐起点**: [basic-bot](./basic-bot/) ⭐
+**更新时间**: 2026-02-23

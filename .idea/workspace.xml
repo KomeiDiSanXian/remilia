@@ -4,7 +4,31 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add unit tests for plugin storage functionality" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize: simplify map copying using built-in maps and slices packages">
+      <change afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/acl-demo/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-conflict-test/config.example.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-conflict-test/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-integration/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-integration/config.example.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/command-integration/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/core-plugins-demo/go.mod" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/core-plugins-demo/go.sum" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/core-plugins-demo/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/debug-demo/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/debug-demo/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/handler-chain/config.example.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/handler-chain/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-enhancements/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-metadata/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-metadata/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/test-help-fix/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/test/FIX_GUIDE.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/test/main.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/verification-code-demo/main.go" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -237,7 +261,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement error handling improvements using errutil package for better error wrapping and context management" />
     <MESSAGE value="feat: implement unified root context management for Bot lifecycle and background goroutines" />
     <MESSAGE value="fix: improve concurrency handling in adaptive rate limiter and enhance config watcher stability" />
     <MESSAGE value="refactor: optimize loop constructs for concurrency in tests and replace sort with slices package" />
@@ -262,7 +285,8 @@
     <MESSAGE value="feat: implement strict dependency management for plugin registration" />
     <MESSAGE value="feat: add enable, disable, and unload commands for plugin management" />
     <MESSAGE value="test: add unit tests for plugin storage functionality" />
-    <option name="LAST_COMMIT_MESSAGE" value="test: add unit tests for plugin storage functionality" />
+    <MESSAGE value="optimize: simplify map copying using built-in maps and slices packages" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize: simplify map copying using built-in maps and slices packages" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

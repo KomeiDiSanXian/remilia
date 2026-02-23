@@ -1,0 +1,4 @@
+﻿welcome: "欢迎, {{.name}}！这里是 Remilia Bot。"
+help.title: "帮助菜单"
+cmd.ping: "🏓 Pong！延迟 {{.latency}}ms"
+cmd.status: "📊 状态正常，已处理 {{.count}} 条消息"
