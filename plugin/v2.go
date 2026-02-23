@@ -676,8 +676,24 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 			}
 		}
 
-		// 如果有未声明的依赖，记录警告
 		if len(undeclaredDeps) > 0 {
+			if pm.strictDeps {
+				// 严格模式：拒绝注册，回滚
+				// Setup 已执行（有副作用），需调用 Unload 做清理
+				delete(pm.plugins, name)
+				pm.container.Remove(name)
+				pm.mu.Unlock()
+				// 在锁外执行 Teardown，避免死锁
+				if teardownErr := instance.Unload(pm.coordinator); teardownErr != nil {
+					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+				}
+				return fmt.Errorf(
+					"plugin %q uses undeclared dependencies %v (declared: %v); "+
+						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
+					name, undeclaredDeps, desc.Deps,
+				)
+			}
+			// 宽松模式：仅警告
 			logger.WithFields(logger.Fields{
 				"plugin":          name,
 				"undeclared_deps": undeclaredDeps,

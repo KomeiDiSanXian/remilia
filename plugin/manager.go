@@ -38,6 +38,7 @@ type Manager struct {
 	loadOrder   []string            // 插件加载顺序
 	container   *Container          // 依赖注入容器（v2）
 	eventBus    EventBus            // 插件间事件总线
+	strictDeps  bool                // 严格依赖模式：未声明依赖拒绝注册
 	mu          sync.RWMutex
 }
 
@@ -51,6 +52,26 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		container:   NewContainer(),
 		eventBus:    NewEventBus(),
 	}
+}
+
+// SetStrictDeps 设置严格依赖模式。
+//
+// 启用后（strictDeps=true），若插件在 Setup 中通过 Get/MustGet 访问了
+// 未在 Deps 字段声明的插件，注册时将返回错误而不是警告，
+// 防止隐式依赖导致拓扑排序失效或生命周期管理混乱。
+//
+// 默认关闭（向后兼容），新项目建议开启。
+func (pm *Manager) SetStrictDeps(enabled bool) {
+	pm.mu.Lock()
+	pm.strictDeps = enabled
+	pm.mu.Unlock()
+}
+
+// IsStrictDeps 返回当前严格依赖模式状态
+func (pm *Manager) IsStrictDeps() bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.strictDeps
 }
 
 // SetViper 设置全局配置（用于插件配置管理）并订阅变更事件，

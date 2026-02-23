@@ -200,11 +200,11 @@ for _, dep := range desc.Deps {
 
 ---
 
-### 2.7 🟡 插件 Deps 字段与实际运行时依赖不强绑定 — ❌ **未实现**
+### 2.7 🟡 插件 Deps 字段与实际运行时依赖不强绑定 — ✅ **已实现**
 
-**位置**: `plugin/v2.go`
+**位置**: `plugin/v2.go` + `plugin/manager.go`
 
-> **状态**: 未声明依赖的 MustGet 调用只产生警告（warn），不报错，也无 `StrictMode` 选项。
+> **状态**: 新增 `Manager.SetStrictDeps(true)` / `IsStrictDeps()` API。启用后，Setup 中通过 `Get/MustGet` 访问但未在 `Deps` 字段声明的插件，注册时返回错误（并调用 Teardown 清理 Setup 的副作用），拒绝注册。默认关闭（宽松模式仍只 warn），向后兼容。6 个新测试全部通过。
 
 **问题**:
 `PluginDescriptor.Deps` 只是声明性列表，框架仅在注册时检查依赖是否存在，**运行时 Setup 中 MustGet 的插件与 Deps 声明无强制关联**。一个插件可以在 Deps 中声明 `["cache"]`，但在 Setup 中 MustGet 了 `"storage"`，框架只会 warn 而不报错。
@@ -479,11 +479,11 @@ func newDebugPluginInternal() *Plugin {
 
 ---
 
-### 3.15 🟡 permission 插件的 ACL 与 RBAC 职责边界模糊 — ⚠️ **部分实现**
+### 3.15 🟡 permission 插件的 ACL 与 RBAC 职责边界模糊 — ✅ **已实现**
 
-**位置**: `plugins/core/permission/`
+**位置**: `plugins/core/permission/` + `plugins/acl/` + `plugins/verifycode/` + `plugins/core/admin/admin.go`
 
-> **状态**: 已创建独立的 `plugins/acl`（黑白名单 ACL 插件）和 `plugins/verifycode`（验证码插件）作为单独的插件包，可独立注册使用。原 `permission` 插件中的 ACL/验证码功能仍保留（向后兼容），admin 插件仍通过 permission 的方法管理 ACL 和验证码。完整迁移（移除 permission 中的耦合代码）为破坏性变更，尚未执行。
+> **状态**: 独立的 `plugins/acl`（黑白名单 ACL 插件）和 `plugins/verifycode`（验证码插件）已有完整实现，各自独立注册使用，支持持久化。admin 插件已完成拆分适配：`Plugin` 新增 `AclPlugin *acl.Plugin` 和 `VcPlugin *verifycode.Plugin` 可选字段，Setup 时自动从 container 绑定（若已注册），所有 `/acl` 和 `/code` 命令优先通过独立插件执行，回退到 permission 内置实现（向后兼容）。原 `permission` 插件中的 ACL/验证码代码保留以维持向后兼容。
 
 **问题**:
 `permission` 插件同时包含 RBAC（基于角色权限控制）、验证码系统和 ACL（访问控制列表），职责过重，代码量达到 496 行 + acl.go + verification.go。三个功能紧密耦合在同一插件中，测试和维护困难。
@@ -752,8 +752,8 @@ pm.RegisterV2(webhooknotify.New(webhooknotify.Config{
 | 27 | StatefulPlugin 写方法隐藏（2.8） | 设计 | 接口重构成本 | ✅ 已实现 |
 | 28 | **多 Bot 实例支持**（4.3） | 新增 | 架构改动较大 | ✅ 已实现 |
 | 29 | **`webhook-notify` 外部通知**（4.8） | 新增 | 业务集成需求 | ❌ 未实现 |
-| 30 | permission/ACL/验证码 拆分（3.15） | 重构 | 破坏性变更 | ⚠️ 部分实现 |
-| 31 | 插件依赖版本约束（2.7） | 增强 | 需 SemVer 支持 | ❌ 未实现 |
+| 30 | permission/ACL/验证码 拆分（3.15） | 重构 | 破坏性变更 | ✅ 已实现 |
+| 31 | 插件依赖版本约束（2.7 StrictMode） | 增强 | SetStrictDeps API | ✅ 已实现 |
 
 ---
 

@@ -12,14 +12,21 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/plugins/acl"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
+	"github.com/KomeiDiSanXian/remilia/plugins/verifycode"
 )
 
 // Plugin 管理插件
 type Plugin struct {
 	PluginManager *plugin.Manager
 	PermPlugin    *permission.Plugin
-	setupCtx      *plugin.SetupContext // 用于注册可追踪的 Matcher
+
+	// 独立插件（优先使用，若已注册）
+	AclPlugin *acl.Plugin
+	VcPlugin  *verifycode.Plugin
+
+	setupCtx *plugin.SetupContext // 用于注册可追踪的 Matcher
 }
 
 // New 创建管理插件（v2 API）
@@ -29,7 +36,7 @@ func New() *plugin.PluginDescriptor {
 
 	return &plugin.PluginDescriptor{
 		Name:        "admin",
-		Version:     "2.0.0",
+		Version:     "2.1.0",
 		Author:      "Remilia Team",
 		Description: "机器人管理核心插件，提供插件管理、权限管理和配置管理功能",
 		Category:    "系统",
@@ -80,6 +87,22 @@ func New() *plugin.PluginDescriptor {
 			v1Plugin.setupCtx = ctx // 保存 SetupContext 以便注册可追踪的命令
 			if permAPI != nil {
 				v1Plugin.PermPlugin = permAPI.(*permission.Plugin)
+			}
+
+			// 可选：绑定独立 ACL 插件（优先于 permission 内置 ACL）
+			if aclRaw, ok := ctx.Get("acl"); ok {
+				if aclPlugin, ok := aclRaw.(*acl.Plugin); ok {
+					v1Plugin.AclPlugin = aclPlugin
+					logger.Info("[AdminPlugin] Using standalone acl plugin for ACL commands")
+				}
+			}
+
+			// 可选：绑定独立 verifycode 插件（优先于 permission 内置验证码）
+			if vcRaw, ok := ctx.Get("verifycode"); ok {
+				if vcPlugin, ok := vcRaw.(*verifycode.Plugin); ok {
+					v1Plugin.VcPlugin = vcPlugin
+					logger.Info("[AdminPlugin] Using standalone verifycode plugin for /code commands")
+				}
 			}
 
 			// 加载插件
@@ -740,22 +763,16 @@ func (p *Plugin) showCodeHelp(ctx *eventctx.Context) error {
 
 // handleCodeGen 生成验证码
 func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限（只有管理员可以生成验证码）
 	if !p.checkPermission(ctx, "code.gen") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限才能生成验证码")
 	}
 
-	// 解析参数：/code gen <角色> [有效期] [最大使用次数]
-	role := args.Get(1) // Get(0)="gen", Get(1)=角色
+	role := args.Get(1)
 	if role == "" {
 		return p.reply(ctx, "❌ 请指定角色\n用法: /code gen <角色> [有效期] [最大使用次数]\n示例: /code gen admin 1h 0")
 	}
 
-	// 解析有效期（默认 30 分钟）
 	expiryStr := args.Get(2)
 	expiry := 30 * time.Minute
 	if expiryStr != "" {
@@ -766,10 +783,8 @@ func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error 
 		}
 	}
 
-	// 解析最大使用次数（默认 0，一次性）
 	maxUses := 0
-	maxUsesStr := args.Get(3)
-	if maxUsesStr != "" {
+	if maxUsesStr := args.Get(3); maxUsesStr != "" {
 		if n, err := command.ParseInt(maxUsesStr); err == nil {
 			maxUses = n
 		} else {
@@ -777,20 +792,32 @@ func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error 
 		}
 	}
 
-	// 生成验证码
+	// 优先使用独立 verifycode 插件
+	if p.VcPlugin != nil {
+		code, err := p.VcPlugin.Generate(verifycode.CodeConfig{
+			Role:    role,
+			TTL:     expiry,
+			MaxUses: maxUses,
+		})
+		if err != nil {
+			return p.reply(ctx, fmt.Sprintf("❌ 生成验证码失败: %v", err))
+		}
+		return p.reply(ctx, fmt.Sprintf("✅ 验证码已生成\n🔑 验证码: %s\n👤 授予角色: %s\n⏰ 有效期: %v\n💡 使用: /code verify %s", code, role, expiry, code))
+	}
+
+	// 回退：使用 permission 内置验证码
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	code, err := p.PermPlugin.GenerateVerificationCode(role, expiry, maxUses)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 生成验证码失败: %v", err))
 	}
-
-	// 格式化回复
 	var msg strings.Builder
 	msg.WriteString("✅ 验证码已生成\n")
-	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 	msg.WriteString(fmt.Sprintf("🔑 验证码: %s\n", code))
 	msg.WriteString(fmt.Sprintf("👤 授予角色: %s\n", role))
 	msg.WriteString(fmt.Sprintf("⏰ 有效期: %v\n", expiry))
-
 	if maxUses == 0 {
 		msg.WriteString("🎫 使用次数: 一次性\n")
 	} else if maxUses < 0 {
@@ -798,105 +825,102 @@ func (p *Plugin) handleCodeGen(ctx *eventctx.Context, args *command.Args) error 
 	} else {
 		msg.WriteString(fmt.Sprintf("🎫 使用次数: %d 次\n", maxUses))
 	}
-
-	msg.WriteString("\n💡 使用方法:\n")
-	msg.WriteString(fmt.Sprintf("  私聊机器人发送: /code verify %s\n", code))
-	msg.WriteString("\n⚠️ 请妥善保管验证码，不要泄露给他人！")
-
+	msg.WriteString(fmt.Sprintf("\n💡 使用: /code verify %s", code))
 	return p.reply(ctx, msg.String())
 }
 
 // handleCodeVerify 验证码验证
 func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
-	code := args.Get(1) // Get(0)="verify", Get(1)=验证码
+	code := args.Get(1)
 	if code == "" {
 		return p.reply(ctx, "❌ 请提供验证码\n用法: /code verify <验证码>")
 	}
-
 	userID := ctx.GetUserID()
 
-	// 验证并授予角色
+	// 优先使用独立 verifycode 插件
+	if p.VcPlugin != nil {
+		role, err := p.VcPlugin.Verify(userID, code)
+		if err != nil {
+			return p.reply(ctx, fmt.Sprintf("❌ 验证失败: %v", err))
+		}
+		return p.reply(ctx, fmt.Sprintf("✅ 验证成功！您已获得角色: %s", role))
+	}
+
+	// 回退：使用 permission 内置验证码
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	role, err := p.PermPlugin.VerifyAndGrantRole(code, userID)
 	if err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 验证失败: %v", err))
 	}
-
-	var msg strings.Builder
-	msg.WriteString("✅ 验证成功！\n")
-	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
-	msg.WriteString(fmt.Sprintf("🎉 您已获得角色: %s\n", role))
-	msg.WriteString(fmt.Sprintf("👤 用户ID: %s\n", userID))
-	msg.WriteString("\n💡 您现在可以使用该角色的所有权限！")
-
-	return p.reply(ctx, msg.String())
+	return p.reply(ctx, fmt.Sprintf("✅ 验证成功！您已获得角色: %s", role))
 }
 
 // handleCodeList 列出验证码
 func (p *Plugin) handleCodeList(ctx *eventctx.Context) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "code.list") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
+	if p.VcPlugin != nil {
+		codes := p.VcPlugin.ListValid()
+		if len(codes) == 0 {
+			return p.reply(ctx, "📋 当前没有有效的验证码")
+		}
+		var msg strings.Builder
+		msg.WriteString(fmt.Sprintf("📋 有效验证码列表 (共 %d 个)\n", len(codes)))
+		for i, c := range codes {
+			msg.WriteString(fmt.Sprintf("%d. %s → 角色: %s", i+1, c.Code, c.Role))
+			if c.ExpiresAt != nil {
+				msg.WriteString(fmt.Sprintf(" (过期: %s)", c.ExpiresAt.Format("15:04:05")))
+			}
+			msg.WriteString("\n")
+		}
+		return p.reply(ctx, msg.String())
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	codes := p.PermPlugin.ListVerificationCodes()
 	if len(codes) == 0 {
 		return p.reply(ctx, "📋 当前没有有效的验证码")
 	}
-
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("📋 有效验证码列表 (共 %d 个)\n", len(codes)))
-	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
-
 	for i, code := range codes {
-		msg.WriteString(fmt.Sprintf("%d. 验证码: %s\n", i+1, code.Code))
-		msg.WriteString(fmt.Sprintf("   角色: %s\n", code.Role))
-		msg.WriteString(fmt.Sprintf("   过期时间: %s\n", code.ExpiresAt.Format("2006-01-02 15:04:05")))
-
-		if code.MaxUses == 0 {
-			msg.WriteString(fmt.Sprintf("   使用情况: %d/1 (一次性)\n", code.UseCount))
-		} else if code.MaxUses < 0 {
-			msg.WriteString(fmt.Sprintf("   使用情况: %d/∞\n", code.UseCount))
-		} else {
-			msg.WriteString(fmt.Sprintf("   使用情况: %d/%d\n", code.UseCount, code.MaxUses))
-		}
-
-		if code.UsedBy != "" {
-			msg.WriteString(fmt.Sprintf("   最后使用者: %s\n", code.UsedBy))
-		}
-		msg.WriteString("\n")
+		msg.WriteString(fmt.Sprintf("%d. %s → 角色: %s (过期: %s)\n", i+1, code.Code, code.Role, code.ExpiresAt.Format("15:04:05")))
 	}
-
 	return p.reply(ctx, msg.String())
 }
 
 // handleCodeRevoke 撤销验证码
 func (p *Plugin) handleCodeRevoke(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "code.revoke") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	code := args.Get(1) // Get(0)="revoke", Get(1)=验证码
+	code := args.Get(1)
 	if code == "" {
 		return p.reply(ctx, "❌ 请提供验证码\n用法: /code revoke <验证码>")
 	}
 
+	if p.VcPlugin != nil {
+		if !p.VcPlugin.Revoke(code) {
+			return p.reply(ctx, fmt.Sprintf("❌ 验证码 %s 不存在", code))
+		}
+		return p.reply(ctx, fmt.Sprintf("✅ 验证码 %s 已撤销", code))
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	if err := p.PermPlugin.RevokeVerificationCode(code); err != nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 撤销失败: %v", err))
 	}
-
 	return p.reply(ctx, fmt.Sprintf("✅ 验证码 %s 已撤销", code))
 }
 
@@ -1029,21 +1053,35 @@ func (p *Plugin) showACLHelp(ctx *eventctx.Context) error {
 
 // handleACLMode 设置黑白名单模式
 func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
 	modeStr := args.Get(1) // Get(0)="mode", Get(1)=模式
+
+	// 独立 ACL 插件路径
+	if p.AclPlugin != nil {
+		if modeStr == "" {
+			currentMode := p.AclPlugin.GetMode()
+			return p.reply(ctx, fmt.Sprintf("当前模式: %s\n\n可用模式:\n- disabled (禁用)\n- blacklist (黑名单)\n- whitelist (白名单)\n\n用法: /acl mode <模式>", currentMode))
+		}
+		mode, err := acl.ParseMode(modeStr)
+		if err != nil {
+			return p.reply(ctx, fmt.Sprintf("❌ 无效的模式: %s\n可用模式: disabled, blacklist, whitelist", modeStr))
+		}
+		p.AclPlugin.SetMode(mode)
+		return p.reply(ctx, fmt.Sprintf("✅ 黑白名单模式已设置为: %s", mode))
+	}
+
+	// 回退：使用 permission 插件的内置 ACL
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	if modeStr == "" {
 		currentMode := p.PermPlugin.GetACLMode()
 		return p.reply(ctx, fmt.Sprintf("当前模式: %s\n\n可用模式:\n- disabled (禁用)\n- blacklist (黑名单)\n- whitelist (白名单)\n\n用法: /acl mode <模式>", currentMode.String()))
 	}
-
 	var mode permission.ListMode
 	switch strings.ToLower(modeStr) {
 	case "disabled", "disable", "off":
@@ -1055,14 +1093,11 @@ func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error 
 	default:
 		return p.reply(ctx, fmt.Sprintf("❌ 无效的模式: %s\n可用模式: disabled, blacklist, whitelist", modeStr))
 	}
-
 	p.PermPlugin.SetACLMode(mode)
-
 	var msg strings.Builder
 	msg.WriteString("✅ 黑白名单模式已设置\n")
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 	msg.WriteString(fmt.Sprintf("🔧 当前模式: %s\n\n", mode.String()))
-
 	switch mode {
 	case permission.ModeDisabled:
 		msg.WriteString("💡 说明: 黑白名单功能已禁用，所有用户都可以访问")
@@ -1079,24 +1114,17 @@ func (p *Plugin) handleACLMode(ctx *eventctx.Context, args *command.Args) error 
 
 // handleACLAdd 添加用户到黑白名单
 func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	userID := args.Get(1) // Get(0)="add", Get(1)=用户ID
+	userID := args.Get(1)
 	if userID == "" {
 		return p.reply(ctx, "❌ 请指定用户ID\n用法: /acl add <用户ID> [备注]")
 	}
-
-	// 获取备注（可选）
 	note := ""
 	if args.Len() > 2 {
-		// 将剩余参数作为备注
 		var noteArgs []string
 		for i := 2; i < args.Len(); i++ {
 			noteArgs = append(noteArgs, args.Get(i))
@@ -1104,48 +1132,45 @@ func (p *Plugin) handleACLAdd(ctx *eventctx.Context, args *command.Args) error {
 		note = strings.Join(noteArgs, " ")
 	}
 
+	if p.AclPlugin != nil {
+		p.AclPlugin.Add(userID, note)
+		return p.reply(ctx, fmt.Sprintf("✅ 用户 %s 已添加到 %s", userID, p.AclPlugin.GetMode()))
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	mode := p.PermPlugin.GetACLMode()
 	if mode == permission.ModeDisabled {
 		return p.reply(ctx, "❌ 黑白名单功能未启用\n请先使用 /acl mode 设置模式")
 	}
-
 	p.PermPlugin.AddToACL(userID, note)
-
-	var msg strings.Builder
-	msg.WriteString("✅ 用户已添加\n")
-	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
-	msg.WriteString(fmt.Sprintf("👤 用户ID: %s\n", userID))
-	msg.WriteString(fmt.Sprintf("🔧 模式: %s\n", mode.String()))
-	if note != "" {
-		msg.WriteString(fmt.Sprintf("📝 备注: %s\n", note))
-	}
-
-	switch mode {
-	case permission.ModeBlacklist:
-		msg.WriteString("\n⚠️ 该用户现在被禁止访问机器人")
-	case permission.ModeWhitelist:
-		msg.WriteString("\n✅ 该用户现在可以访问机器人")
-	}
-
-	return p.reply(ctx, msg.String())
+	return p.reply(ctx, fmt.Sprintf("✅ 已添加用户 '%s' 到 %s", userID, mode.String()))
 }
 
 // handleACLRemove 从黑白名单移除用户
 func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	userID := args.Get(1) // Get(0)="remove", Get(1)=用户ID
+	userID := args.Get(1)
 	if userID == "" {
 		return p.reply(ctx, "❌ 请指定用户ID\n用法: /acl remove <用户ID>")
 	}
 
+	if p.AclPlugin != nil {
+		removed := p.AclPlugin.Remove(userID)
+		if !removed {
+			return p.reply(ctx, fmt.Sprintf("❌ 用户 %s 不在列表中", userID))
+		}
+		return p.reply(ctx, fmt.Sprintf("✅ 已从列表中移除用户: %s", userID))
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	removed := p.PermPlugin.RemoveFromACL(userID)
 	if !removed {
 		return p.reply(ctx, fmt.Sprintf("❌ 用户 %s 不在列表中", userID))
@@ -1156,22 +1181,38 @@ func (p *Plugin) handleACLRemove(ctx *eventctx.Context, args *command.Args) erro
 
 // handleACLList 列出黑白名单中的所有用户
 func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.view") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
+	if p.AclPlugin != nil {
+		mode := p.AclPlugin.GetMode()
+		entries := p.AclPlugin.List()
+		var msg strings.Builder
+		msg.WriteString(fmt.Sprintf("📋 黑白名单 - %s模式 (%d 用户)\n", mode, len(entries)))
+		if len(entries) == 0 {
+			msg.WriteString("列表为空")
+		} else {
+			for i, e := range entries {
+				msg.WriteString(fmt.Sprintf("%d. %s", i+1, e.UserID))
+				if e.Remark != "" {
+					msg.WriteString(fmt.Sprintf(" (%s)", e.Remark))
+				}
+				msg.WriteString("\n")
+			}
+		}
+		return p.reply(ctx, msg.String())
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	mode := p.PermPlugin.GetACLMode()
 	users := p.PermPlugin.ListACL()
-
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("📋 黑白名单 - %s模式\n", mode.String()))
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
-
 	if len(users) == 0 {
 		msg.WriteString("列表为空")
 	} else {
@@ -1185,72 +1226,51 @@ func (p *Plugin) handleACLList(ctx *eventctx.Context) error {
 		}
 	}
 
-	switch mode {
-	case permission.ModeDisabled:
-		msg.WriteString("\n💡 黑白名单功能已禁用")
-	case permission.ModeBlacklist:
-		msg.WriteString("\n⚠️ 列表中的用户将被禁止访问")
-	case permission.ModeWhitelist:
-		msg.WriteString("\n✅ 只有列表中的用户可以访问")
-	}
-
 	return p.reply(ctx, msg.String())
 }
 
 // handleACLClear 清空黑白名单
 func (p *Plugin) handleACLClear(ctx *eventctx.Context) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.manage") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
+	if p.AclPlugin != nil {
+		count := p.AclPlugin.Count()
+		p.AclPlugin.Clear()
+		return p.reply(ctx, fmt.Sprintf("✅ 已清空黑白名单（移除 %d 个用户）", count))
+	}
+
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
 	count := p.PermPlugin.ClearACL()
-
-	var msg strings.Builder
-	msg.WriteString("✅ 黑白名单已清空\n")
-	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
-	msg.WriteString(fmt.Sprintf("🗑️  已移除 %d 个用户\n\n", count))
-	msg.WriteString("💡 黑白名单模式保持不变\n")
-	msg.WriteString("   使用 /acl mode 修改模式")
-
-	return p.reply(ctx, msg.String())
+	return p.reply(ctx, fmt.Sprintf("✅ 已清空黑白名单（移除 %d 个用户）", count))
 }
 
 // handleACLStats 查看黑白名单统计信息
 func (p *Plugin) handleACLStats(ctx *eventctx.Context) error {
-	if p.PermPlugin == nil {
-		return p.reply(ctx, "❌ 权限系统未初始化")
-	}
-
 	// 检查权限
 	if !p.checkPermission(ctx, "acl.view") && !p.hasAdminRole(ctx) {
 		return p.reply(ctx, "❌ 权限不足：需要管理员权限")
 	}
 
-	stats := p.PermPlugin.GetACLStats()
+	if p.AclPlugin != nil {
+		mode := p.AclPlugin.GetMode()
+		count := p.AclPlugin.Count()
+		return p.reply(ctx, fmt.Sprintf("📊 黑白名单统计\n🔧 模式: %s\n👥 用户数: %d", mode, count))
+	}
 
+	if p.PermPlugin == nil {
+		return p.reply(ctx, "❌ 权限系统未初始化")
+	}
+	stats := p.PermPlugin.GetACLStats()
 	var msg strings.Builder
 	msg.WriteString("📊 黑白名单统计\n")
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 	msg.WriteString(fmt.Sprintf("🔧 当前模式: %s\n", stats.Mode.String()))
-	msg.WriteString(fmt.Sprintf("👥 用户数量: %d\n\n", stats.UserCount))
-
-	switch stats.Mode {
-	case permission.ModeDisabled:
-		msg.WriteString("💡 功能状态: 已禁用\n")
-		msg.WriteString("   所有用户都可以访问")
-	case permission.ModeBlacklist:
-		msg.WriteString("⚠️  功能状态: 黑名单模式\n")
-		msg.WriteString(fmt.Sprintf("   %d 个用户被禁止访问", stats.UserCount))
-	case permission.ModeWhitelist:
-		msg.WriteString("✅ 功能状态: 白名单模式\n")
-		msg.WriteString(fmt.Sprintf("   只有 %d 个用户可以访问", stats.UserCount))
-	}
-
+	msg.WriteString(fmt.Sprintf("👥 用户数量: %d\n", stats.UserCount))
 	return p.reply(ctx, msg.String())
 }
 

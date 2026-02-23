@@ -7,11 +7,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
-// newTestManager 创建用于测试的 Manager（无 engine）
-func newTestManager() *Manager {
-	return NewManager(nil)
-}
-
 // makeSimpleDescriptor 创建一个最简单的插件描述符（无副作用的 Setup）
 func makeSimpleDescriptor(name string, deps []string) *PluginDescriptor {
 	return &PluginDescriptor{
@@ -133,4 +128,108 @@ func TestRegisterV2_MissingDependency(t *testing.T) {
 // newCoordinator 创建一个空的 engine 用于测试
 func newCoordinator() *engine.Engine {
 	return engine.NewEngine()
+}
+
+// ---- StrictDeps 测试 -------------------------------------------------------
+
+func TestSetStrictDeps_DefaultOff(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	if pm.IsStrictDeps() {
+		t.Error("strictDeps should be off by default")
+	}
+}
+
+func TestSetStrictDeps_Toggle(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	pm.SetStrictDeps(true)
+	if !pm.IsStrictDeps() {
+		t.Error("strictDeps should be on after SetStrictDeps(true)")
+	}
+	pm.SetStrictDeps(false)
+	if pm.IsStrictDeps() {
+		t.Error("strictDeps should be off after SetStrictDeps(false)")
+	}
+}
+
+// TestStrictDeps_UndeclaredDepBlocksRegistration verifies that in strict mode,
+// a plugin that calls MustGet on a dep not listed in Deps is rejected.
+func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	pm.SetStrictDeps(true)
+
+	// Register base plugin (no deps)
+	if err := pm.RegisterV2(makeSimpleDescriptor("base", nil)); err != nil {
+		t.Fatalf("register base: %v", err)
+	}
+
+	// Plugin that secretly uses "base" but doesn't declare it in Deps
+	sneaky := &PluginDescriptor{
+		Name: "sneaky",
+		Deps: []string{}, // intentionally empty
+		Setup: func(ctx *SetupContext) error {
+			ctx.Get("base") // undeclared dependency
+			return nil
+		},
+	}
+
+	err := pm.RegisterV2(sneaky)
+	if err == nil {
+		t.Fatal("expected error: undeclared dependency in strict mode")
+	}
+	if !strings.Contains(err.Error(), "undeclared") {
+		t.Errorf("expected 'undeclared' in error, got: %v", err)
+	}
+
+	// Plugin should not be registered
+	if pm.IsLoaded("sneaky") {
+		t.Error("sneaky plugin should not be registered after strict mode rejection")
+	}
+}
+
+// TestStrictDeps_DeclaredDepAllowed verifies correctly declared deps pass.
+func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	pm.SetStrictDeps(true)
+
+	pm.RegisterV2(makeSimpleDescriptor("base", nil))
+
+	honest := &PluginDescriptor{
+		Name: "honest",
+		Deps: []string{"base"}, // properly declared
+		Setup: func(ctx *SetupContext) error {
+			ctx.Get("base")
+			return nil
+		},
+	}
+
+	if err := pm.RegisterV2(honest); err != nil {
+		t.Fatalf("honest plugin should register: %v", err)
+	}
+	if !pm.IsLoaded("honest") {
+		t.Error("honest plugin should be loaded")
+	}
+}
+
+// TestStrictDeps_LenientModeAllowsUndeclared verifies default (lenient) mode still warns but doesn't fail.
+func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	// strictDeps defaults to false
+
+	pm.RegisterV2(makeSimpleDescriptor("base", nil))
+
+	lenient := &PluginDescriptor{
+		Name: "lenient",
+		Deps: []string{},
+		Setup: func(ctx *SetupContext) error {
+			ctx.Get("base") // undeclared — should only warn
+			return nil
+		},
+	}
+
+	if err := pm.RegisterV2(lenient); err != nil {
+		t.Fatalf("lenient mode should not error on undeclared dep: %v", err)
+	}
+	if !pm.IsLoaded("lenient") {
+		t.Error("lenient plugin should be loaded in non-strict mode")
+	}
 }
