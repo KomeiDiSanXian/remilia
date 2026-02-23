@@ -443,3 +443,78 @@ func OnAtBot(botOpenID string) Rule {
 		return strings.Contains(content, "<qqbot-at-user")
 	}
 }
+
+// ---- Group / Permission / Ban Rules ---------------------------------------
+
+// BannedChecker 封禁检查接口（由 antispam 插件等实现）
+// 此接口允许规则与具体封禁实现解耦。
+type BannedChecker interface {
+	// IsBanned 检查 userID 是否在封禁名单中
+	IsBanned(userID string) bool
+}
+
+// PermissionChecker 权限检查接口（由 permission 插件实现）
+type PermissionChecker interface {
+	// HasPermissionEx 检查 userID 是否拥有 resource:action 权限
+	HasPermissionEx(userID, resource, action string) bool
+}
+
+// InGroup 仅在指定群列表中触发。
+// 若 groupIDs 为空，则始终返回 false（保护性设计，避免意外放行所有群）。
+//
+// 注意：此规则仅适用于群消息事件（GroupAtMessageCreate）。
+//
+// 使用示例:
+//
+//	engine.OnGroupAt(InGroup("group-id-1", "group-id-2"), OnCommand("/admin")).Handle(...)
+func InGroup(groupIDs ...string) Rule {
+	if len(groupIDs) == 0 {
+		return func(*Context) bool { return false }
+	}
+	set := make(map[string]bool, len(groupIDs))
+	for _, id := range groupIDs {
+		set[id] = true
+	}
+	return func(ctx *Context) bool {
+		var event dto.GroupAtMessageCreateEvent
+		if err := ctx.DecodeEvent(&event); err != nil {
+			return false
+		}
+		return set[event.GroupOpenID]
+	}
+}
+
+// HasPermission 权限检查规则。
+// 要求消息发送者拥有指定的 resource:action 权限。
+//
+// 使用示例:
+//
+//	engine.OnGroupAt(
+//	    OnCommand("/ban"),
+//	    HasPermission(permPlugin, "user", "ban"),
+//	).Handle(banHandler)
+func HasPermission(checker PermissionChecker, resource, action string) Rule {
+	return func(ctx *Context) bool {
+		userID := ctx.GetUserID()
+		if userID == "" {
+			return false
+		}
+		return checker.HasPermissionEx(userID, resource, action)
+	}
+}
+
+// NotBanned 封禁名单检查规则。
+// 若消息发送者在封禁名单中，则规则返回 false（事件不匹配，Handler 不执行）。
+//
+// 使用示例:
+//
+//	engine.OnGroupAt(OnCommand("/sign"), NotBanned(antispamPlugin)).Handle(signHandler)
+func NotBanned(checker BannedChecker) Rule {
+	return func(ctx *Context) bool {
+		userID := ctx.GetUserID()
+		if userID == "" {
+			return true // 无法确定用户身份，放行
+		}
+		return !checker.IsBanned(userID)
+	}
+}

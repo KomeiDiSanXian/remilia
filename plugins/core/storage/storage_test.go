@@ -111,3 +111,24 @@ func TestSQLiteStorage_TTL(t *testing.T) {
 		t.Errorf("expected ErrExpired or ErrNotFound after TTL, got %v", err)
 	}
 }
+
+// TestSQLiteStorage_WALMode 验证 SQLite 初始化后 journal_mode 为 WAL
+func TestSQLiteStorage_WALMode(t *testing.T) {
+	s, err := storage.NewSQLiteStorage(t.TempDir() + "/wal.db")
+	if err != nil {
+		t.Fatalf("NewSQLiteStorage: %v", err)
+	}
+	defer s.Close()
+
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	mode, ok := stats["journal_mode"]
+	if !ok {
+		t.Fatal("Stats should include journal_mode")
+	}
+	if mode != "wal" {
+		t.Errorf("expected journal_mode=wal, got %q", mode)
+	}
+}

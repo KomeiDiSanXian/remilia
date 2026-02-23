@@ -591,9 +591,19 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 	// 检查依赖
 	for _, dep := range desc.Deps {
-		if _, exists := pm.plugins[dep]; !exists {
+		depPlugin, exists := pm.plugins[dep]
+		if !exists {
 			pm.mu.Unlock()
 			return fmt.Errorf("missing dependency: %s", dep)
+		}
+		// 验证依赖插件已完成加载（状态为 Loaded），防止并发注册时依赖方
+		// 获取到处于 Loading 状态的插件实例，导致 Setup 中 MustGet 行为异常
+		if stateful, ok := depPlugin.(StatefulPlugin); ok {
+			state := stateful.GetState()
+			if state != Loaded {
+				pm.mu.Unlock()
+				return fmt.Errorf("dependency '%s' is not ready (state: %s), please register plugins in dependency order", dep, state)
+			}
 		}
 	}
 
@@ -775,13 +785,22 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 		for _, dep := range desc.Deps {
 			// 检查依赖是否存在（可能已在 manager 中注册，或在当前批次中）
 			pm.mu.RLock()
-			_, existsInManager := pm.plugins[dep]
+			depPlugin, existsInManager := pm.plugins[dep]
 			pm.mu.RUnlock()
 
 			_, existsInBatch := descMap[dep]
 
 			if !existsInManager && !existsInBatch {
 				return nil, fmt.Errorf("plugin %s has missing dependency: %s", desc.Name, dep)
+			}
+
+			// 验证已注册的依赖插件状态（批次外的依赖必须已 Loaded）
+			if existsInManager && !existsInBatch {
+				if stateful, ok := depPlugin.(StatefulPlugin); ok {
+					if stateful.GetState() != Loaded {
+						return nil, fmt.Errorf("plugin %s dependency '%s' is not ready (state: %s)", desc.Name, dep, stateful.GetState())
+					}
+				}
 			}
 
 			// 只处理批次内的依赖关系

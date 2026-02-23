@@ -324,3 +324,51 @@ type PermissionManagerExt struct {
 
 // ErrPermissionDenied 权限拒绝错误
 var ErrPermissionDenied = errors.New("permission denied")
+
+// ExportUserRoles 导出所有用户的角色映射（用于持久化）
+func (pm *PermissionManager) ExportUserRoles() map[string][]string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	out := make(map[string][]string, len(pm.userRoles))
+	for userID, roles := range pm.userRoles {
+		rolesCopy := make([]string, len(roles))
+		copy(rolesCopy, roles)
+		out[userID] = rolesCopy
+	}
+	return out
+}
+
+// ExportUserPerms 导出所有用户的直接权限映射（用于持久化）
+func (pm *PermissionManager) ExportUserPerms() map[string][]Permission {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	out := make(map[string][]Permission, len(pm.userPerms))
+	for userID, perms := range pm.userPerms {
+		permsCopy := make([]Permission, len(perms))
+		copy(permsCopy, perms)
+		out[userID] = permsCopy
+	}
+	return out
+}
+
+// LoadUserRoles 批量恢复用户角色映射（用于从持久化存储恢复）
+// 此方法会替换当前的用户角色映射（不合并）
+func (pm *PermissionManager) LoadUserRoles(userRoles map[string][]string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	for userID, roles := range userRoles {
+		// 过滤掉不存在的角色
+		filtered := make([]string, 0, len(roles))
+		for _, r := range roles {
+			if _, ok := pm.roles[r]; ok {
+				filtered = append(filtered, r)
+			}
+		}
+		if len(filtered) > 0 {
+			pm.userRoles[userID] = filtered
+		}
+	}
+}

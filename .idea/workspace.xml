@@ -4,16 +4,23 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains">
-      <change beforePath="$PROJECT_DIR$/.idea/remilia.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/remilia.iml" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency">
+      <change afterPath="$PROJECT_DIR$/core/context/rules_new_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/persist.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/core/permission/persist_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/registry_trie_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry_trie_optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/trie.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/trie.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/trie_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/trie_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis-2026-02-22.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis-2026-02-22.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/acl.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/acl.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/i18n/i18n.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -247,7 +254,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: enhance cross-batch circular dependency detection in topologicalSortV2 and add corresponding tests" />
     <MESSAGE value="refactor: replace traditional for loops with range for improved readability in tests and state management" />
     <MESSAGE value="feat: implement caching mechanism in Help plugin for improved performance and reduced response time" />
     <MESSAGE value="fix: refine DLQ enqueue logic to ensure accurate recover handling and improve health check response for degraded status" />
@@ -272,7 +278,8 @@
     <MESSAGE value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
     <MESSAGE value="feat: enhance storage plugins with optional persistence and session management" />
     <MESSAGE value="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains" />
+    <MESSAGE value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
+    <option name="LAST_COMMIT_MESSAGE" value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

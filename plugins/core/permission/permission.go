@@ -10,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storageplugin "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // Plugin 权限系统插件 API
@@ -18,6 +19,7 @@ type Plugin struct {
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
 	cleanupStopChan chan struct{}
+	store           StorageBackend // 可选持久化后端（nil=纯内存）
 }
 
 // New 创建权限插件（v2 API）
@@ -75,6 +77,13 @@ API 使用 (v2):
 			roles := []string{"admin", "user", "guest", "moderator"}
 			logger.Infof("[PermissionPlugin] Loaded %d default roles", len(roles))
 
+			// 尝试绑定 storage 插件（可选依赖，用于持久化权限数据）
+			if sv, ok := ctx.Get("storage"); ok {
+				if storagePlugin, ok := sv.(*storageplugin.Plugin); ok {
+					pluginAPI.TryBindStorage(NewStorageAdapter(storagePlugin))
+				}
+			}
+
 			// 启动验证码清理协程
 			go cleanupExpiredCodesRoutine(verificationMgr, cleanupStopChan)
 			logger.Info("[PermissionPlugin] Started verification code cleanup routine")
@@ -88,6 +97,11 @@ API 使用 (v2):
 
 		Teardown: func() error {
 			logger.Info("[PermissionPlugin] Unloading permission plugin...")
+
+			// 持久化权限数据
+			if err := pluginAPI.saveToStorage(); err != nil {
+				logger.WithError(err).Warn("[PermissionPlugin] Failed to persist permission data")
+			}
 
 			// 停止清理协程
 			close(cleanupStopChan)
@@ -475,6 +489,11 @@ func (p *Plugin) ClearACL() int {
 // GetACLStats 获取黑白名单统计信息
 func (p *Plugin) GetACLStats() ACLStats {
 	return p.acl.Stats()
+}
+
+// SavePermissions 手动触发权限数据持久化（若未绑定 storage 则 no-op）
+func (p *Plugin) SavePermissions() error {
+	return p.saveToStorage()
 }
 
 // RequireACL 创建黑白名单检查中间件

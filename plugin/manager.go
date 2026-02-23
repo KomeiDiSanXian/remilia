@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"sync"
@@ -226,11 +227,61 @@ func (pm *Manager) ForceUnregister(name string) error {
 	return nil
 }
 
-// UnregisterCascade 级联卸载指定插件及所有依赖它的插件
-// 注意：v2 API 中依赖关系通过容器自动管理
+// UnregisterCascade 级联卸载指定插件及所有直接/间接依赖它的插件。
+//
+// 算法：
+//  1. 构建反向依赖图（谁依赖了 name）
+//  2. 拓扑排序，得到从"最外层依赖方"到"目标插件"的卸载顺序
+//  3. 按顺序逐一 Unregister
+//
+// 返回值：若目标插件不存在，返回 ErrPluginNotFound；
+// 若任意插件卸载失败，停止卸载并返回错误（已卸载的插件不会回滚）。
 func (pm *Manager) UnregisterCascade(name string) error {
-	// 直接卸载插件（v2 依赖通过容器管理，不需要级联）
-	return pm.Unregister(name)
+	pm.mu.RLock()
+	if _, exists := pm.plugins[name]; !exists {
+		pm.mu.RUnlock()
+		return errutil.ErrPluginNotFound
+	}
+
+	// 构建反向依赖图（dependents[A] = 所有声明依赖了 A 的插件名称集合）
+	dependents := make(map[string][]string)
+	for pName, p := range pm.plugins {
+		inst, ok := p.(*PluginInstance)
+		if !ok {
+			continue
+		}
+		for _, dep := range inst.desc.Deps {
+			dependents[dep] = append(dependents[dep], pName)
+		}
+	}
+	pm.mu.RUnlock()
+
+	// BFS/DFS 收集所有需要卸载的插件（包括 name 本身）
+	visited := make(map[string]bool)
+	var order []string
+	var dfs func(n string)
+	dfs = func(n string) {
+		if visited[n] {
+			return
+		}
+		visited[n] = true
+		// 先递归处理依赖方（依赖 n 的插件需要先卸载）
+		for _, dep := range dependents[n] {
+			dfs(dep)
+		}
+		order = append(order, n)
+	}
+	dfs(name)
+
+	logger.Infof("[pluginManager] UnregisterCascade: will unregister %d plugin(s) in order: %v", len(order), order)
+
+	for _, n := range order {
+		if err := pm.Unregister(n); err != nil {
+			logger.WithError(err).Errorf("[pluginManager] UnregisterCascade: failed to unregister plugin %s", n)
+			return fmt.Errorf("cascade unregister %s: %w", n, err)
+		}
+	}
+	return nil
 }
 
 // Reload 重新加载插件（热重载）

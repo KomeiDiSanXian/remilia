@@ -34,6 +34,12 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 		path: dbPath,
 	}
 
+	// 启用 WAL 模式，提升并发读写性能（读写不再互斥）
+	if err := storage.enableWAL(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
 	// 初始化表结构
 	if err := storage.initSchema(); err != nil {
 		db.Close()
@@ -41,6 +47,23 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 	}
 
 	return storage, nil
+}
+
+// enableWAL 启用 WAL（Write-Ahead Logging）模式
+// WAL 模式下读写不互斥，高并发场景下性能显著提升（2-3x）。
+// PRAGMA synchronous=NORMAL 在 WAL 模式下兼顾安全与性能。
+func (s *SQLiteStorage) enableWAL() error {
+	pragmas := []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA wal_autocheckpoint=1000",
+	}
+	for _, pragma := range pragmas {
+		if _, err := s.db.Exec(pragma); err != nil {
+			return fmt.Errorf("exec %q: %w", pragma, err)
+		}
+	}
+	return nil
 }
 
 // initSchema 初始化数据库表结构
@@ -307,6 +330,12 @@ func (s *SQLiteStorage) Stats() (map[string]any, error) {
 	}
 
 	stats["db_path"] = s.path
+
+	// 日志模式（WAL/DELETE 等）
+	var journalMode string
+	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err == nil {
+		stats["journal_mode"] = journalMode
+	}
 
 	return stats, nil
 }

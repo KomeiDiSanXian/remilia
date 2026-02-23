@@ -27,6 +27,8 @@ import (
 	"sync"
 	"text/template"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -35,6 +37,9 @@ import (
 
 // localeKey 存储用户语言偏好的 Context key
 const localeKey = "_i18n_locale"
+
+// templateCacheSize 模板 LRU 缓存容量（按 locale+key 独立缓存）
+const templateCacheSize = 2048
 
 // Config i18n 插件配置
 type Config struct {
@@ -56,6 +61,8 @@ type bundle struct {
 type Plugin struct {
 	cfg     Config
 	bundles sync.Map // locale -> *bundle
+	// tmplCache 预编译模板缓存，key 为 "locale\x00msgKey"，避免重复 Parse 开销
+	tmplCache *lru.Cache[string, *template.Template]
 }
 
 // NewPlugin 创建并返回一个已初始化的 i18n Plugin 实例。
@@ -71,7 +78,12 @@ func NewPlugin(cfg Config) *Plugin {
 	if cfg.Fallback == "" {
 		cfg.Fallback = cfg.DefaultLocale
 	}
-	return &Plugin{cfg: cfg}
+	cache, err := lru.New[string, *template.Template](templateCacheSize)
+	if err != nil {
+		// 仅当 size <= 0 时出错，此处不可能发生
+		panic(fmt.Sprintf("i18n: failed to create template cache: %v", err))
+	}
+	return &Plugin{cfg: cfg, tmplCache: cache}
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
@@ -168,14 +180,30 @@ func (p *Plugin) LoadFile(locale, path string) error {
 }
 
 // LoadBytes 从 YAML 字节加载 locale 翻译
+// 加载新语言包时清除该 locale 下的模板缓存，确保缓存一致性
 func (p *Plugin) LoadBytes(locale string, data []byte) error {
 	var msgs map[string]string
 	if err := yaml.Unmarshal(data, &msgs); err != nil {
 		return fmt.Errorf("i18n: parse yaml for %s: %w", locale, err)
 	}
 	p.bundles.Store(locale, &bundle{locale: locale, msgs: msgs})
+	// 清除该 locale 的模板缓存（语言包变更后旧缓存失效）
+	p.evictLocaleCache(locale)
 	logger.Debugf("[i18n] Loaded locale %s (%d messages)", locale, len(msgs))
 	return nil
+}
+
+// evictLocaleCache 清除指定 locale 对应的所有模板缓存
+func (p *Plugin) evictLocaleCache(locale string) {
+	if p.tmplCache == nil {
+		return
+	}
+	prefix := locale + "\x00"
+	for _, k := range p.tmplCache.Keys() {
+		if strings.HasPrefix(k, prefix) {
+			p.tmplCache.Remove(k)
+		}
+	}
 }
 
 // SetLocale 在 Context 中设置用户语言偏好（仅对当次请求有效）
@@ -198,21 +226,86 @@ func (p *Plugin) T(ctx *eventctx.Context, key string, args ...map[string]any) st
 	locale := p.GetLocale(ctx)
 	text := p.lookup(locale, key)
 	if text == "" {
-		return key // 返回 key 本身作为 fallback
+		return key
 	}
 	if len(args) == 0 {
 		return text
 	}
-	return p.render(text, args[0])
+	return p.render(locale, key, text, args[0])
 }
 
-// Tf 翻译并格式化（无 Context，使用默认 locale）
+// Tn 复数形式翻译。
+// locale 文件中用 ".one" / ".other"（以及 ".zero"、".two"、".few"、".many"）后缀区分复数形式：
+//
+//	items.one:   "{{.Count}} 个项目"
+//	items.other: "{{.Count}} 个项目"
+//	items.zero:  "没有项目"
+//
+// 规则：
+//   - count == 0 → key.zero（若不存在则 fallback 到 key.other）
+//   - count == 1 → key.one（若不存在则 fallback 到 key.other）
+//   - count == 2 → key.two（若不存在则 fallback 到 key.other）
+//   - count >= 3 → key.other（英语等大多数语言）
+//
+// 若 args 为 nil，则自动注入 {"Count": count}。
+func (p *Plugin) Tn(ctx *eventctx.Context, key string, count int, args map[string]any) string {
+	locale := p.GetLocale(ctx)
+	// 选择复数后缀候选列表（按优先级从高到低）
+	suffixes := pluralSuffixes(count)
+	var (
+		text    string
+		usedKey string
+	)
+	for _, suffix := range suffixes {
+		candidate := key + suffix
+		t := p.lookup(locale, candidate)
+		if t != "" {
+			text = t
+			usedKey = candidate
+			break
+		}
+	}
+	// 若所有带后缀的 key 均不存在，尝试不带后缀的原 key
+	if text == "" {
+		text = p.lookup(locale, key)
+		usedKey = key
+	}
+	if text == "" {
+		return key
+	}
+	// 合并参数，自动注入 Count
+	merged := map[string]any{"Count": count}
+	for k, v := range args {
+		merged[k] = v
+	}
+	return p.render(locale, usedKey, text, merged)
+}
+
+// pluralSuffixes 根据 count 返回复数后缀优先级列表
+func pluralSuffixes(count int) []string {
+	switch {
+	case count == 0:
+		return []string{".zero", ".other"}
+	case count == 1:
+		return []string{".one", ".other"}
+	case count == 2:
+		return []string{".two", ".other"}
+	case count >= 3 && count <= 4:
+		return []string{".few", ".other"}
+	case count >= 5 && count <= 19:
+		return []string{".many", ".other"}
+	default:
+		return []string{".other"}
+	}
+}
+
+// Tf 翻译并格式化（无 Context，使用指定 locale）
 func (p *Plugin) Tf(locale, key string, args map[string]any) string {
 	text := p.lookup(locale, key)
 	if text == "" {
 		return key
 	}
-	return p.render(text, args)
+	return p.render(locale, key, text, args)
 }
 
 func (p *Plugin) lookup(locale, key string) string {
@@ -232,14 +325,23 @@ func (p *Plugin) lookup(locale, key string) string {
 	return ""
 }
 
-func (p *Plugin) render(tmpl string, args map[string]any) string {
-	t, err := template.New("").Parse(tmpl)
-	if err != nil {
-		return tmpl
+// render 渲染模板，使用 LRU 缓存预编译结果
+func (p *Plugin) render(locale, key, tmplText string, args map[string]any) string {
+	cacheKey := locale + "\x00" + key
+	var t *template.Template
+	if cached, ok := p.tmplCache.Get(cacheKey); ok {
+		t = cached
+	} else {
+		var err error
+		t, err = template.New(key).Parse(tmplText)
+		if err != nil {
+			return tmplText
+		}
+		p.tmplCache.Add(cacheKey, t)
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, args); err != nil {
-		return tmpl
+		return tmplText
 	}
 	return buf.String()
 }

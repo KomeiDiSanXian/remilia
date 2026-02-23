@@ -201,3 +201,36 @@ type ACLStats struct {
 	Mode      ListMode
 	UserCount int
 }
+
+// ExportSnapshot 导出 ACL 快照（用于持久化）
+// 返回 (mode, list, notes)，均为值拷贝
+func (acl *AccessControlList) ExportSnapshot() (mode int, list map[string]bool, notes map[string]string) {
+	acl.mu.RLock()
+	defer acl.mu.RUnlock()
+
+	listCopy := make(map[string]bool, len(acl.list))
+	for k, v := range acl.list {
+		listCopy[k] = v
+	}
+	notesCopy := make(map[string]string, len(acl.notes))
+	for k, v := range acl.notes {
+		notesCopy[k] = v
+	}
+	return int(acl.mode), listCopy, notesCopy
+}
+
+// LoadSnapshot 从持久化快照恢复 ACL 数据（替换当前数据）
+func (acl *AccessControlList) LoadSnapshot(mode int, list map[string]bool, notes map[string]string) {
+	acl.mu.Lock()
+	defer acl.mu.Unlock()
+
+	acl.mode = ListMode(mode)
+	acl.list = make(map[string]bool, len(list))
+	for k, v := range list {
+		acl.list[k] = v
+	}
+	acl.notes = make(map[string]string, len(notes))
+	for k, v := range notes {
+		acl.notes[k] = v
+	}
+}
