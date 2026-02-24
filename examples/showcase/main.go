@@ -34,7 +34,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load("../../config.yaml")
+	cfg, err := config.Load("config.yaml")
 	if err != nil {
 		log.Fatalf("load config: %v", err)
 	}
@@ -138,6 +138,7 @@ func main() {
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("[showcase] stopped")
 	}
+	bot.WaitForShutdown()
 }
 func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{

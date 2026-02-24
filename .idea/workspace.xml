@@ -4,10 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement plugin dependency injection container and enhance plugin management interfaces">
-      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize: optimize loop constructs in test files and simplify role checking logic">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -81,6 +80,7 @@
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor": "Run",
+    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
     "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo.executor": "Run",
@@ -113,7 +113,7 @@
     "go.import.settings.migrated": "true",
     "go.sdk.automatically.set": "true",
     "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "C:/Users/Komei_DiSanXian",
+    "last_opened_file_path": "E:/project/Go/remilia/examples/showcase",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
@@ -125,6 +125,7 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\examples\showcase" />
       <recent name="E:\project\Go\remilia\examples\debug-demo" />
       <recent name="E:\project\Go\remilia\examples\plugin-metadata" />
     </key>
@@ -142,8 +143,19 @@
         <option value="GoApplicationRunConfiguration" />
       </set>
     </option>
+    <option name="configurationStatuses">
+      <map>
+        <entry key="GoApplicationRunConfiguration">
+          <value>
+            <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="FAILED" />
+            </map>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
-  <component name="RunManager" selected="Go 构建.go build debug-subcommand-demo">
+  <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase">
     <configuration name="go build debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="remilia" />
       <working_directory value="$PROJECT_DIR$/examples/debug-subcommand-demo" />
@@ -151,6 +163,15 @@
       <package value="debug-subcommand-demo" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/showcase" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/examples/showcase" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/showcase/main.go" />
       <method v="2" />
     </configuration>
     <configuration name="github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" type="GoTestRunConfiguration" factoryName="Go Test" temporary="true" nameIsGenerated="true">
@@ -167,6 +188,7 @@
     </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase" />
         <item itemvalue="Go 构建.go build debug-subcommand-demo" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
       </list>
@@ -205,7 +227,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: optimize context handling and event decoding for improved performance" />
     <MESSAGE value="refactor: simplify worker goroutine management and improve concurrency calculations" />
     <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
     <MESSAGE value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
@@ -230,7 +251,8 @@
     <MESSAGE value="docs: rename report files and archive outdated documents for better organization" />
     <MESSAGE value="feat: implement plugin dependency injection container and management interface" />
     <MESSAGE value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
+    <MESSAGE value="optimize: optimize loop constructs in test files and simplify role checking logic" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize: optimize loop constructs in test files and simplify role checking logic" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
