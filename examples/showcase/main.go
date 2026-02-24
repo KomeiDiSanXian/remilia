@@ -113,7 +113,7 @@ func main() {
 			logger.Infof("[showcase] cleaned %d cooldown records", n)
 		}
 	})
-	schedPlugin.CronNamed("daily-stats", "0 9 * * *", func() {
+	schedPlugin.CronNamed("daily-stats", "0 0 9 * * *", func() {
 		logger.Infof("[showcase] daily top5: %+v", statsPlugin.TopCommands(5))
 	})
 	bus := pm.GetEventBus()

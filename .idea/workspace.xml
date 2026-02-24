@@ -4,10 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: merge undeclared dependencies into instance descriptor for improved dependency tracking">
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add edge case tests for plugin dependency handling and improve error recovery in load function">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -149,7 +148,7 @@
         <entry key="GoApplicationRunConfiguration">
           <value>
             <map>
-              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="FAILED" />
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="STOPPED" />
             </map>
           </value>
         </entry>
@@ -228,8 +227,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: improve payload acquisition and management to prevent use-after-free errors" />
-    <MESSAGE value="refactor: enhance concurrency safety with additional locking mechanisms in dlq and engine" />
     <MESSAGE value="refactor: enhance concurrency safety and prevent signal channel leaks in shutdown handling" />
     <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
     <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
@@ -253,7 +250,9 @@
     <MESSAGE value="optimize: optimize loop constructs in test files and simplify role checking logic" />
     <MESSAGE value="fix: update config file path and enhance bot shutdown handling" />
     <MESSAGE value="feat: merge undeclared dependencies into instance descriptor for improved dependency tracking" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: merge undeclared dependencies into instance descriptor for improved dependency tracking" />
+    <MESSAGE value="feat: enhance dependency tracking by merging undeclared dependencies into instance descriptor" />
+    <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
