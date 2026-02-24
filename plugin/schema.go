@@ -77,7 +77,7 @@ func validateMapSchema(pluginName string, schema map[string]SchemaField, cfg Con
 // validateStructSchema 通过反射验证 struct 形式的 schema（仅检查必填性）
 func validateStructSchema(pluginName string, schema any, cfg Config) error {
 	rv := reflect.ValueOf(schema)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {

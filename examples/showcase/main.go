@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -156,11 +157,12 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 				SetDefinition(&command.Definition{Name: "status", Description: "Bot status", Category: "tools"}).
 				Handle(func(c *eventctx.Context) error {
 					top := sp.TopCommands(3)
-					msg := fmt.Sprintf("total=%d top3:", sp.TotalMessages())
+					var msg strings.Builder
+					msg.WriteString(fmt.Sprintf("total=%d top3:", sp.TotalMessages()))
 					for _, t := range top {
-						msg += fmt.Sprintf(" %s*%d", t.Command, t.Count)
+						msg.WriteString(fmt.Sprintf(" %s*%d", t.Command, t.Count))
 					}
-					return replyCtx(c, msg)
+					return replyCtx(c, msg.String())
 				})
 			// /daily — cooldown plugin demo (24h)
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/daily").

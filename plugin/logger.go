@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -102,9 +103,7 @@ func (l *pluginLogger) Debugf(format string, args ...any) {
 
 func (l *pluginLogger) WithField(key string, value any) PluginLogger {
 	newFields := make(logger.Fields, len(l.fields)+1)
-	for k, v := range l.fields {
-		newFields[k] = v
-	}
+	maps.Copy(newFields, l.fields)
 	newFields[key] = value
 	return &pluginLogger{
 		name:   l.name,

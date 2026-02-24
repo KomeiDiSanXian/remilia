@@ -26,11 +26,9 @@ func newGoroutineManager() *goroutineManager {
 // fn 接收一个 context.Context，当插件即将 Teardown 时该 ctx 会被 cancel。
 // 插件的 goroutine 应在 select 中监听 ctx.Done() 以响应退出信号。
 func (gm *goroutineManager) go_(fn func(ctx context.Context)) {
-	gm.wg.Add(1)
-	go func() {
-		defer gm.wg.Done()
+	gm.wg.Go(func() {
 		fn(gm.ctx)
-	}()
+	})
 }
 
 // stopAndWait 取消所有 goroutine 的 context 并等待它们全部退出。
