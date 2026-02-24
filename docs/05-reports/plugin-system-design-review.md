@@ -455,14 +455,31 @@ if err := pm.RegisterV2(desc); err != nil {
 
 ### 3.2 ⚠️ 存在的问题
 
-#### 【高】插件访问 Engine / Manager 的权限模型存在根本性缺陷
+#### 【高】~~插件访问 Engine / Manager 的权限模型存在根本性缺陷~~ ✅ 已解决（2026-02-25）
+
+**已实施方案（双层防护）**
+
+**第一层：接口层（编译期）** — `core/engine/reader.go`：新建 `engine.EngineReader` 接口，仅包含查询方法，`On/RegisterCommand/DeleteMatcher/Use` 等写方法不在接口中，编译器直接阻止调用。
+
+**第二层：运行时包装（防断言穿透）** — `core/engine/reader.go`：引入私有包装器 `engineReaderWrapper`，使 `coord.(*engine.Engine)` 类型断言在运行时永远失败，彻底封堵绕过路径。
+
+**`ManagerWriter` + `Privileged` 字段**：`plugin/manager_writer.go` 新建纯写视图接口；`PluginDescriptor.Privileged` 字段控制是否注入 `ctx.Admin`；未声明 `Privileged` 的插件 `ctx.Admin == nil`。
+
+**修正结果**：`help.Plugin.Engine` 改为 `engine.EngineReader`；`debug` 删除私有接口断言，改用 `ctx.Info`；`admin` 声明 `Privileged: true`，通过 `ctx.Admin` 合法调用写操作。
+
+**验证**：`plugin/permission_model_test.go`（5 个测试，全部通过）。
+
+---
+
+**原始问题描述**
 
 **问题的全貌**
 
 当前 `PluginInfo` 被设计为"只读视图"，但实际代码中存在两个相互矛盾的问题：
 
-1. **`Coordinator()` 返回完整 `*engine.Engine`**，调用方可以通过它注册/删除 Matcher���完全绕过只读承诺
+1. **`Coordinator()` 返回完整 `*engine.Engine`**，调用方可以通过它注册/删除 Matcher，完全绕过只读承诺
 2. **管理类插件（admin、debug）有合理的写需求，但框架没有提供合法路径**，导致它们通过"私有接口类型断言"绕过所有约束
+
 
 实际代码中三类插件的需求和当前的获取方式：
 
@@ -895,7 +912,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 |---|------|----------|---------|-----------|
 | H1 | `v2.go` 1652 行，职责混乱 | `plugin/v2.go` | 按职责拆分为 6 个子文件（见 §2.2） | 中（纯重组，无逻辑改动） |
 | H2 | `Metadata` 与 `PluginMeta` 字段重复，有转换开销 | `plugin/plugin.go` + `plugin/v2.go` | 合并结构，`PluginMeta` 改为类型别名 | 中（需更新所有使用方） |
-| H3 | 插件权限模型缺陷：`Coordinator()` 权限过大，admin/debug 只能通过私有接口断言绕过 | `plugin/plugin_info.go`、`plugin/v2.go`、`core/engine`、admin/debug 插件 | ① 引入 `engine.Reader` 只读接口替换 `Coordinator()` 返回类型；② 新增 `ManagerWriter` 接口 + `PluginDescriptor.Privileged` 字段；③ 删除 admin/debug 中所有私有接口断言绕过代码 | 中（涉及 core/engine、plugin 包和两个插件）|
+| H3 | ~~插件权限模型缺陷：`Coordinator()` 权限过大，admin/debug 只能通过私有接口断言绕过~~ ✅ 已解决 | `plugin/plugin_info.go`、`core/engine/reader.go`、admin/debug 插件 | ① `engine.EngineReader` 接口 + `engineReaderWrapper` 包装器（双层防护）；② `ManagerWriter` 接口 + `PluginDescriptor.Privileged` 字段；③ admin/debug 删除私有接口断言 | 已完成 |
 | H4 | `storage` 插件绕过 `ctx.Go` 管理 goroutine | `plugins/core/storage/storage.go` | 删除 `stopClean`，迁移至 `ctx.Go` | 小 |
 | H5 | `help` 插件 `return nil, nil` 反模式 | `plugins/core/help/help.go` | 返回 `*Plugin`，使其可被其他插件发现 | 小 |
 

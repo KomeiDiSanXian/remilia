@@ -17,11 +17,11 @@ import (
 
 // Plugin Debug调试插件
 type Plugin struct {
-	Engine        *engine.Engine       // Engine引用
-	PermPlugin    *permission.Plugin   // 权限插件依赖
-	DevMode       bool                 // 是否开启开发模式
-	PluginManager *plugin.Manager      // 插件管理器引用
-	setupCtx      *plugin.SetupContext // 用于注册可追踪的 Matcher
+	Engine     engine.EngineReader // Engine 只读视图（仅查询命令列表、Matcher 统计等）
+	PermPlugin *permission.Plugin
+	DevMode    bool
+	Info       plugin.PluginInfo // 插件系统只读视图
+	setupCtx   *plugin.SetupContext
 }
 
 // New 创建调试插件（v2 API）
@@ -69,15 +69,9 @@ func newDebugPluginInternal() *Plugin {
 
 // Load 加载插件
 func (p *Plugin) Load(ctx *plugin.SetupContext) error {
-	// 通过 ctx.Info 类型断言获取 Manager（debug 专用）
-	type managerProvider interface {
-		Manager() *plugin.Manager
-	}
-	if mp, ok := ctx.Info.(managerProvider); ok {
-		pm := mp.Manager()
-		p.PluginManager = pm
-		p.Engine = pm.Coordinator()
-	}
+	// 使用 ctx.Info 只读视图（无需私有接口断言）
+	p.Info = ctx.Info
+	p.Engine = ctx.Info.Coordinator()
 	p.setupCtx = ctx
 	p.registerDebugCommands(ctx)
 	return nil
@@ -86,11 +80,6 @@ func (p *Plugin) Load(ctx *plugin.SetupContext) error {
 // SetPermissionPlugin 设置权限插件
 func (p *Plugin) SetPermissionPlugin(pp *permission.Plugin) {
 	p.PermPlugin = pp
-}
-
-// SetPluginManager 设置插件管理器
-func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.PluginManager = pm
 }
 
 // SetDevMode 设置开发模式
@@ -506,16 +495,15 @@ func (p *Plugin) handleDebugCommands(ctx *eventctx.Context) error {
 
 // handleDebugPlugins 处理 /debug plugins 命令
 func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
-	// 检查权限
 	if !p.checkPermission(ctx, "debug.view") {
 		return p.reply(ctx, "❌ 权限不足：需要 debug.view 权限")
 	}
 
-	if p.PluginManager == nil {
+	if p.Info == nil {
 		return p.reply(ctx, "❌ 插件管理器未初始化")
 	}
 
-	plugins := p.PluginManager.ListWithMetadata()
+	plugins := p.Info.ListWithMetadata()
 
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("🔍 插件状态 (共 %d 个)\n", len(plugins)))
@@ -526,8 +514,7 @@ func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
 		msg.WriteString(fmt.Sprintf("  - 作者: %s\n", meta.Author))
 		msg.WriteString(fmt.Sprintf("  - 分类: %s\n", meta.Category))
 
-		// 如果插件实现了 StatefulPlugin，显示更多状态
-		if inst, ok := p.PluginManager.Get(name); ok {
+		if inst, ok := p.Info.Get(name); ok {
 			state := inst.GetState()
 			msg.WriteString(fmt.Sprintf("  - 状态: %v\n", state))
 
@@ -539,7 +526,6 @@ func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
 			}
 		}
 
-		// 依赖
 		if len(meta.Dependencies) > 0 {
 			msg.WriteString(fmt.Sprintf("  - 依赖: %s\n", strings.Join(meta.Dependencies, ", ")))
 		}
@@ -637,14 +623,13 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	}
 
 	// 插件统计
-	if p.PluginManager != nil {
-		plugins := p.PluginManager.ListWithMetadata()
+	if p.Info != nil {
+		plugins := p.Info.ListWithMetadata()
 		msg.WriteString(fmt.Sprintf("\n📦 插件总数: %d\n", len(plugins)))
 
-		// 按状态统计
 		stateCount := make(map[string]int)
 		for name := range plugins {
-			if inst, ok := p.PluginManager.Get(name); ok {
+			if inst, ok := p.Info.Get(name); ok {
 				state := inst.GetState()
 				stateCount[fmt.Sprintf("%v", state)]++
 			}

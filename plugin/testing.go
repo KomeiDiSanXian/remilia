@@ -7,30 +7,19 @@ import (
 )
 
 // TestSetupOptions 测试用 SetupContext 的可选配置
+//
+// Deprecated: 使用 plugintest.SetupOptions 替代（plugin/plugintest 子包）。
 type TestSetupOptions struct {
-	// Config 插件配置（nil 时不提供配置）
-	Config Config
-	// EventBus 事件总线（nil 时创建一个新的空总线）
-	EventBus EventBus
-	// Container 依赖容器（nil 时创建空容器）
+	Config    Config
+	EventBus  EventBus
 	Container *Container
-	// Engine 引擎（nil 时 ctx.Reg 为 no-op）
-	Engine *engine.Engine
+	Engine    *engine.Engine
 }
 
 // NewTestSetupContext 创建用于单元测试的 SetupContext。
 //
-// 生成的 ctx 与真实注册流程隔离：
-//   - ctx.Reg 默认为 no-op（不影响真实 engine）
-//   - ctx.Log 输出到标准日志
-//   - ctx.Info 为 nil-safe 空实现
-//   - ctx.Go 会实际调度 goroutine（可通过 StopTestSetupContext 停止）
-//
-// 使用示例：
-//
-//	ctx := plugin.NewTestSetupContext("myplugin", nil)
-//	defer plugin.StopTestSetupContext(ctx)
-//	api, err := myDescriptor.Setup(ctx)
+// Deprecated: 使用 plugintest.NewSetupContext 替代（plugin/plugintest 子包）。
+// 此函数保留以维持向后兼容性。
 func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContext {
 	if opts == nil {
 		opts = &TestSetupOptions{}
@@ -82,10 +71,8 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 }
 
 // StopTestSetupContext 停止 NewTestSetupContext 创建的 ctx 内的所有 goroutine。
-// 在测试 teardown 阶段调用，防止 goroutine 泄漏。
 //
-//	ctx := plugin.NewTestSetupContext("myplugin", nil)
-//	defer plugin.StopTestSetupContext(ctx)
+// Deprecated: 使用 plugintest.StopSetupContext 替代（plugin/plugintest 子包）。
 func StopTestSetupContext(ctx *SetupContext) {
 	if ctx != nil && ctx.goroutineMgr != nil {
 		ctx.goroutineMgr.stopAndWait()

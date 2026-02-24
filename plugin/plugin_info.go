@@ -31,9 +31,14 @@ type PluginInfo interface {
 	// GetLoadOrder 返回插件加载顺序
 	GetLoadOrder() []string
 
-	// Coordinator 返回底层 engine.Engine（供 help 等需要访问命令列表的插件使用）
-	// 比之前通过类型断言访问更安全，明确表示这是只读查询用途
-	Coordinator() *engine.Engine
+	// Get 获取指定插件的实例（用于查询运行时状态），不存在时返回 nil, false
+	Get(name string) (*PluginInstance, bool)
+
+	// Coordinator 返回 Engine 的只读视图，供查询命令列表、Matcher 统计等只读操作。
+	//
+	// 返回 engine.EngineReader 而非 *engine.Engine，
+	// 编译器强制阻止通过此接口调用任何写操作（On/RegisterCommand/DeleteMatcher 等）。
+	Coordinator() engine.EngineReader
 }
 
 // managerInfoView 基于 *Manager 实现 PluginInfo 只读视图
@@ -48,14 +53,19 @@ func newPluginInfo(m *Manager) PluginInfo {
 	return &managerInfoView{m: m}
 }
 
-func (v *managerInfoView) IsLoaded(name string) bool              { return v.m.IsLoaded(name) }
-func (v *managerInfoView) IsDisabled(name string) bool            { return v.m.IsDisabled(name) }
-func (v *managerInfoView) List() []string                         { return v.m.List() }
-func (v *managerInfoView) Count() int                             { return v.m.Count() }
-func (v *managerInfoView) GetMetadata(n string) (*Metadata, bool) { return v.m.GetMetadata(n) }
-func (v *managerInfoView) ListWithMetadata() map[string]*Metadata { return v.m.ListWithMetadata() }
-func (v *managerInfoView) GetLoadOrder() []string                 { return v.m.GetLoadOrder() }
-func (v *managerInfoView) Coordinator() *engine.Engine            { return v.m.Coordinator() }
+func (v *managerInfoView) IsLoaded(name string) bool               { return v.m.IsLoaded(name) }
+func (v *managerInfoView) IsDisabled(name string) bool             { return v.m.IsDisabled(name) }
+func (v *managerInfoView) List() []string                          { return v.m.List() }
+func (v *managerInfoView) Count() int                              { return v.m.Count() }
+func (v *managerInfoView) GetMetadata(n string) (*Metadata, bool)  { return v.m.GetMetadata(n) }
+func (v *managerInfoView) ListWithMetadata() map[string]*Metadata  { return v.m.ListWithMetadata() }
+func (v *managerInfoView) GetLoadOrder() []string                  { return v.m.GetLoadOrder() }
+func (v *managerInfoView) Get(name string) (*PluginInstance, bool) { return v.m.Get(name) }
+
+// Coordinator 返回包装后的只读视图，防止通过类型断言绕过只读限制。
+func (v *managerInfoView) Coordinator() engine.EngineReader {
+	return engine.NewEngineReader(v.m.Coordinator())
+}
 
 func (v *managerInfoView) GetStatus(name string) *Status {
 	s, err := v.m.GetStatus(name)
@@ -76,4 +86,5 @@ func (n *nullPluginInfo) Count() int                             { return 0 }
 func (n *nullPluginInfo) GetMetadata(_ string) (*Metadata, bool) { return nil, false }
 func (n *nullPluginInfo) ListWithMetadata() map[string]*Metadata { return nil }
 func (n *nullPluginInfo) GetLoadOrder() []string                 { return nil }
-func (n *nullPluginInfo) Coordinator() *engine.Engine            { return nil }
+func (n *nullPluginInfo) Get(_ string) (*PluginInstance, bool)   { return nil, false }
+func (n *nullPluginInfo) Coordinator() engine.EngineReader       { return nil }

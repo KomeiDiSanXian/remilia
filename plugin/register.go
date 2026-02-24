@@ -1,0 +1,525 @@
+package plugin
+
+import (
+	stdctx "context"
+	"fmt"
+
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+)
+
+// register.go — 插件注册：RegisterV2、批量注册、拓扑排序
+
+// RegisterV2 注册 v2 风格的插件（使用 PluginDescriptor）
+func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
+	if desc == nil {
+		return fmt.Errorf("plugin descriptor is nil")
+	}
+	if desc.Name == "" {
+		return fmt.Errorf("plugin name is required")
+	}
+	if desc.Setup == nil {
+		return fmt.Errorf("plugin setup function is required")
+	}
+
+	name := desc.Name
+
+	pm.mu.Lock()
+
+	if _, exists := pm.plugins[name]; exists {
+		pm.mu.Unlock()
+		logger.Warnf("[pluginManager] Plugin %s already registered", name)
+		return errutil.ErrPluginAlreadyExists
+	}
+
+	registeredList := func() []string {
+		names := make([]string, 0, len(pm.plugins))
+		for n := range pm.plugins {
+			names = append(names, n)
+		}
+		return names
+	}
+	for _, rawDep := range desc.Deps {
+		spec := parseDepSpec(rawDep)
+		depInst, exists := pm.plugins[spec.name]
+		if !exists {
+			pm.mu.Unlock()
+			return &PluginError{
+				PluginName:        name,
+				Operation:         "register",
+				Cause:             fmt.Errorf("missing required dependency %q", spec.name),
+				RegisteredPlugins: registeredList(),
+				Hint:              fmt.Sprintf("register %q before %q", spec.name, name),
+			}
+		}
+		state := depInst.GetState()
+		if state != Loaded {
+			pm.mu.Unlock()
+			return &PluginError{
+				PluginName:        name,
+				Operation:         "register",
+				Cause:             fmt.Errorf("dependency %q is not ready (state: %s)", spec.name, state),
+				RegisteredPlugins: registeredList(),
+				Hint:              "register plugins in dependency order",
+			}
+		}
+		if spec.constraint != "" {
+			ok, _ := checkVersionConstraint(depInst.desc.Version, spec.constraint)
+			if !ok {
+				pm.mu.Unlock()
+				return &VersionConstraintError{
+					Plugin:     name,
+					Dependency: spec.name,
+					Required:   spec.constraint,
+					Have:       depInst.desc.Version,
+				}
+			}
+		}
+	}
+
+	pm.ensureContainerInitialized()
+
+	var config Config
+	if pm.viper != nil {
+		config = NewPluginConfig(name, pm.viper)
+	}
+
+	if config != nil && desc.Advanced != nil && desc.Advanced.ConfigSchema != nil {
+		if schemaErr := ValidateConfigSchema(name, desc.Advanced.ConfigSchema, config); schemaErr != nil {
+			pm.mu.Unlock()
+			return schemaErr
+		}
+	}
+
+	instance := &PluginInstance{
+		desc:     desc,
+		state:    Unloaded,
+		matchers: make([]*engine.Matcher, 0),
+	}
+
+	// 根据 Privileged 字段决定是否注入管理视图
+	var adminView ManagerWriter
+	if desc.Privileged {
+		adminView = newManagerWriter(pm)
+	}
+
+	setupCtx := &SetupContext{
+		Reg:      newLiveRegistryWriter(pm.coordinator, name, instance),
+		Log:      newPluginLogger(name),
+		Info:     newPluginInfo(pm),
+		Admin:    adminView,
+		Config:   config,
+		EventBus: pm.eventBus,
+		setupContextInternal: setupContextInternal{
+			container:        pm.container,
+			pluginName:       name,
+			instance:         instance,
+			autoTrackEnabled: true,
+			eng:              pm.coordinator,
+		},
+	}
+	setupCtx.Go = func(fn func(ctx stdctx.Context)) {
+		if setupCtx.goroutineMgr != nil {
+			setupCtx.goroutineMgr.go_(fn)
+		}
+	}
+
+	instance.setupContext = setupCtx
+	instance.state = Loading
+	pm.plugins[name] = instance
+
+	pm.mu.Unlock()
+
+	loadErr := instance.load(pm.coordinator)
+
+	pm.mu.Lock()
+
+	if loadErr != nil {
+		delete(pm.plugins, name)
+		pm.container.Remove(name)
+		pm.mu.Unlock()
+		logger.WithError(loadErr).Errorf("[pluginManager] Failed to load plugin %s", name)
+		pm.notifyError(name, "load", loadErr)
+		return loadErr
+	}
+
+	trackedDeps := setupCtx.GetTrackedDependencies()
+	if len(trackedDeps) > 0 {
+		declaredDeps := make(map[string]bool)
+		for _, dep := range desc.Deps {
+			declaredDeps[dep] = true
+		}
+		undeclaredDeps := make([]string, 0)
+		for _, tracked := range trackedDeps {
+			if !declaredDeps[tracked] {
+				undeclaredDeps = append(undeclaredDeps, tracked)
+			}
+		}
+		if len(undeclaredDeps) > 0 {
+			if pm.strictDeps {
+				delete(pm.plugins, name)
+				pm.container.Remove(name)
+				pm.mu.Unlock()
+				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
+					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+				}
+				return fmt.Errorf(
+					"plugin %q uses undeclared dependencies %v (declared: %v); "+
+						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
+					name, undeclaredDeps, desc.Deps,
+				)
+			}
+			logger.WithFields(logger.Fields{
+				"plugin":          name,
+				"undeclared_deps": undeclaredDeps,
+				"declared_deps":   desc.Deps,
+			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
+		}
+	}
+
+	pm.loadOrder = append(pm.loadOrder, name)
+
+	if !pm.container.Has(name) {
+		pm.container.Register(name, instance)
+	}
+
+	pm.mu.Unlock()
+
+	logger.Infof("[pluginManager] Plugin %s registered (v2)", name)
+	pm.notifyLoaded(name)
+	return nil
+}
+
+// RegisterMultipleV2 批量注册多个 v2 插件，自动处理依赖顺序。
+// 任意插件注册失败时，已注册的插件不会自动回滚（使用 RegisterMultipleV2Atomic 获得原子保证）。
+func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+	sorted, err := pm.topologicalSortV2(descriptors)
+	if err != nil {
+		return fmt.Errorf("dependency resolution failed: %w", err)
+	}
+	for _, desc := range sorted {
+		if err := pm.RegisterV2(desc); err != nil {
+			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, err)
+		}
+	}
+	logger.Infof("[pluginManager] Successfully registered %d plugins in dependency order", len(sorted))
+	return nil
+}
+
+// RegisterMultipleV2Atomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
+func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+	sorted, err := pm.topologicalSortV2(descriptors)
+	if err != nil {
+		return &PluginError{
+			Operation: "batch register",
+			Cause:     err,
+			Hint:      "check for circular or missing dependencies",
+		}
+	}
+	registered := make([]string, 0, len(sorted))
+	for _, desc := range sorted {
+		if err := pm.RegisterV2(desc); err != nil {
+			for i := len(registered) - 1; i >= 0; i-- {
+				if rollbackErr := pm.Unregister(registered[i]); rollbackErr != nil {
+					logger.WithError(rollbackErr).Warnf("[pluginManager] Rollback failed for plugin %s", registered[i])
+				}
+			}
+			pm.mu.RLock()
+			existingNames := make([]string, 0, len(pm.plugins))
+			for n := range pm.plugins {
+				existingNames = append(existingNames, n)
+			}
+			pm.mu.RUnlock()
+			return &PluginError{
+				PluginName:        desc.Name,
+				Operation:         "register",
+				Cause:             err,
+				RegisteredPlugins: existingNames,
+				Hint:              "all previously registered plugins in this batch have been rolled back",
+			}
+		}
+		registered = append(registered, desc.Name)
+	}
+	logger.Infof("[pluginManager] Atomic registration of %d plugins succeeded", len(sorted))
+	return nil
+}
+
+// RegisterMultipleV2Smart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
+//
+// 限制：插件的 Setup 函数必须幂等（能安全多次调用而无副作用）。
+func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+
+	logger.Info("[pluginManager] Smart registration: inferring dependencies...")
+
+	inferredDeps := make(map[string][]string)
+	descMap := make(map[string]*PluginDescriptor)
+	for _, desc := range descriptors {
+		descMap[desc.Name] = desc
+	}
+
+	tempContainer := NewContainer()
+	pm.mu.RLock()
+	for name, plugin := range pm.plugins {
+		tempContainer.Register(name, plugin)
+	}
+	pm.mu.RUnlock()
+	for _, desc := range descriptors {
+		tempContainer.Register(desc.Name, &PluginInstance{desc: desc})
+	}
+
+	for _, desc := range descriptors {
+		setupCtx := &SetupContext{
+			Reg:  &noopRegistryWriter{},
+			Log:  newPluginLogger(desc.Name),
+			Info: newPluginInfo(pm),
+			setupContextInternal: setupContextInternal{
+				container:        tempContainer,
+				pluginName:       desc.Name,
+				autoTrackEnabled: true,
+			},
+		}
+		setupCtx.Go = func(fn func(ctx stdctx.Context)) {}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithFields(logger.Fields{
+						"plugin": desc.Name,
+						"panic":  r,
+					}).Debug("[pluginManager] Setup panicked during dependency inference (expected)")
+				}
+			}()
+			_, _ = desc.callSetup(setupCtx)
+		}()
+		tracked := setupCtx.GetTrackedDependencies()
+		if len(tracked) > 0 {
+			inferredDeps[desc.Name] = tracked
+		}
+	}
+
+	logger.Info("[pluginManager] Smart registration: sorting by dependencies...")
+
+	descriptorsWithDeps := make([]*PluginDescriptor, len(descriptors))
+	for i, desc := range descriptors {
+		descCopy := *desc
+		depsMap := make(map[string]bool)
+		for _, dep := range desc.Deps {
+			depsMap[dep] = true
+		}
+		for _, dep := range inferredDeps[desc.Name] {
+			depsMap[dep] = true
+		}
+		mergedDeps := make([]string, 0, len(depsMap))
+		for dep := range depsMap {
+			mergedDeps = append(mergedDeps, dep)
+		}
+		descCopy.Deps = mergedDeps
+		descriptorsWithDeps[i] = &descCopy
+	}
+
+	return pm.RegisterMultipleV2(descriptorsWithDeps)
+}
+
+// ValidateDependencies 验证一组插件的依赖关系（不注册）
+func (pm *Manager) ValidateDependencies(descriptors []*PluginDescriptor) error {
+	_, err := pm.topologicalSortV2(descriptors)
+	return err
+}
+
+// ensureContainerInitialized 确保依赖注入容器已初始化（须在持有 Manager 锁时调用）
+func (pm *Manager) ensureContainerInitialized() {
+	if pm.container == nil {
+		pm.container = NewContainer()
+	}
+	for pluginName, plugin := range pm.plugins {
+		if !pm.container.Has(pluginName) {
+			pm.container.Register(pluginName, plugin)
+		}
+	}
+	if !pm.container.Has("manager") {
+		pm.container.Register("manager", pm)
+	}
+	if !pm.container.Has("engine") {
+		pm.container.Register("engine", pm.coordinator)
+	}
+	if !pm.container.Has("coordinator") {
+		pm.container.Register("coordinator", pm.coordinator)
+	}
+}
+
+// topologicalSortV2 使用 Kahn 算法进行拓扑排序，检测循环依赖
+func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
+	descMap := make(map[string]*PluginDescriptor)
+	for _, desc := range descriptors {
+		if _, exists := descMap[desc.Name]; exists {
+			return nil, fmt.Errorf("duplicate plugin name: %s", desc.Name)
+		}
+		descMap[desc.Name] = desc
+	}
+
+	if err := pm.checkCrossBatchCyclicDependency(descriptors, descMap); err != nil {
+		return nil, err
+	}
+
+	inDegree := make(map[string]int)
+	graph := make(map[string][]string)
+	for name := range descMap {
+		inDegree[name] = 0
+		graph[name] = make([]string, 0)
+	}
+	for _, desc := range descriptors {
+		for _, dep := range desc.Deps {
+			pm.mu.RLock()
+			depInst, existsInManager := pm.plugins[dep]
+			pm.mu.RUnlock()
+			_, existsInBatch := descMap[dep]
+			if !existsInManager && !existsInBatch {
+				return nil, fmt.Errorf("plugin %s has missing dependency: %s", desc.Name, dep)
+			}
+			if existsInManager && !existsInBatch {
+				if depInst.GetState() != Loaded {
+					return nil, fmt.Errorf("plugin %s dependency '%s' is not ready (state: %s)", desc.Name, dep, depInst.GetState())
+				}
+			}
+			if existsInBatch {
+				inDegree[desc.Name]++
+				graph[dep] = append(graph[dep], desc.Name)
+			}
+		}
+	}
+
+	queue := make([]string, 0)
+	for name, degree := range inDegree {
+		if degree == 0 {
+			queue = append(queue, name)
+		}
+	}
+
+	result := make([]*PluginDescriptor, 0, len(descriptors))
+	processed := 0
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		result = append(result, descMap[current])
+		processed++
+		for _, dependent := range graph[current] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				queue = append(queue, dependent)
+			}
+		}
+	}
+
+	if processed != len(descriptors) {
+		unprocessed := make([]string, 0)
+		for name, degree := range inDegree {
+			if degree > 0 {
+				unprocessed = append(unprocessed, name)
+			}
+		}
+		return nil, fmt.Errorf("circular dependency detected among plugins: %v", unprocessed)
+	}
+	return result, nil
+}
+
+// checkCrossBatchCyclicDependency 检查跨批次循环依赖
+func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescriptor, descMap map[string]*PluginDescriptor) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	for _, desc := range descriptors {
+		for _, depName := range desc.Deps {
+			existingInst, existsInManager := pm.plugins[depName]
+			if !existsInManager {
+				continue
+			}
+			if err := pm.detectCycleThroughExisting(existingInst, desc.Name, descMap, make(map[string]bool)); err != nil {
+				return fmt.Errorf("cross-batch circular dependency: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func (pm *Manager) detectCycleThroughExisting(existingInst *PluginInstance, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) error {
+	pluginName := existingInst.Name()
+	if visited[pluginName] {
+		return nil
+	}
+	visited[pluginName] = true
+	for _, dep := range existingInst.dependencies() {
+		if dep == targetName {
+			return fmt.Errorf("plugin %s (registered) depends on %s (in batch), which depends on %s", pluginName, dep, pluginName)
+		}
+		if batchDesc, inBatch := batchPlugins[dep]; inBatch {
+			if pm.batchPluginDependsOn(batchDesc, targetName, batchPlugins, make(map[string]bool)) {
+				return fmt.Errorf("plugin %s (registered) -> %s (batch) -> %s (batch) forms a cycle", pluginName, dep, targetName)
+			}
+		}
+		if depInst, exists := pm.plugins[dep]; exists {
+			if err := pm.detectCycleThroughExisting(depInst, targetName, batchPlugins, visited); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (pm *Manager) batchPluginDependsOn(plugin *PluginDescriptor, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) bool {
+	if visited[plugin.Name] {
+		return false
+	}
+	visited[plugin.Name] = true
+	for _, dep := range plugin.Deps {
+		if dep == targetName {
+			return true
+		}
+		if depDesc, inBatch := batchPlugins[dep]; inBatch {
+			if pm.batchPluginDependsOn(depDesc, targetName, batchPlugins, visited) {
+				return true
+			}
+		}
+	}
+	return false
+}

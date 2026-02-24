@@ -17,7 +17,7 @@ import (
 
 // Plugin 管理插件
 type Plugin struct {
-	PluginManager *plugin.Manager
+	PluginManager plugin.ManagerWriter // 管理写视图（通过 ctx.Admin 注入）
 	PermPlugin    *permission.Plugin
 	AclPlugin     *acl.Plugin
 	VcPlugin      *verifycode.Plugin
@@ -28,9 +28,10 @@ type Plugin struct {
 func New() *plugin.PluginDescriptor {
 	v1Plugin := &Plugin{}
 	return &plugin.PluginDescriptor{
-		Name:    "admin",
-		Version: "2.1.0",
-		Deps:    []string{"permission"},
+		Name:       "admin",
+		Version:    "2.1.0",
+		Deps:       []string{"permission"},
+		Privileged: true, // 需要 ManagerWriter 权限（Reload/Disable/Enable/Unregister）
 		Meta: &plugin.PluginMeta{
 			Author:      "Remilia Team",
 			Description: "机器人管理核心插件，提供插件管理、权限管理和配置管理功能",
@@ -41,9 +42,8 @@ func New() *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading admin plugin (v2)...")
 			permAPI := ctx.MustGet("permission")
-			if mp, ok := ctx.Info.(interface{ Manager() *plugin.Manager }); ok {
-				v1Plugin.PluginManager = mp.Manager()
-			}
+			// 通过 ctx.Admin 获取管理写视图（合法路径，无需私有接口断言）
+			v1Plugin.PluginManager = ctx.Admin
 			v1Plugin.setupCtx = ctx
 			if permAPI != nil {
 				v1Plugin.PermPlugin = permAPI.(*permission.Plugin)
@@ -79,8 +79,8 @@ func (p *Plugin) Load(ctx *plugin.SetupContext) error {
 	return nil
 }
 
-// SetPluginManager 设置插件管理器
-func (p *Plugin) SetPluginManager(pm *plugin.Manager) { p.PluginManager = pm }
+// SetPluginManager 设置插件管理器（仅用于测试或外部初始化）
+func (p *Plugin) SetPluginManager(pm plugin.ManagerWriter) { p.PluginManager = pm }
 
 // SetPermissionPlugin 设置权限插件
 func (p *Plugin) SetPermissionPlugin(pp *permission.Plugin) { p.PermPlugin = pp }
@@ -204,13 +204,13 @@ func (p *Plugin) registerSystemCommands(ctx *plugin.SetupContext) {
 }
 
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
-	if p.PluginManager == nil {
+	if p.setupCtx == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
 	if !p.checkPermission(ctx, "plugin.list") {
 		return p.reply(ctx, "权限不足")
 	}
-	plugins := p.PluginManager.ListWithMetadata()
+	plugins := p.setupCtx.Info.ListWithMetadata()
 	var msg strings.Builder
 	msg.WriteString(fmt.Sprintf("已加载插件列表（共 %d 个）\n", len(plugins)))
 	categories := make(map[string][]*plugin.Metadata)
@@ -231,14 +231,14 @@ func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handlePluginInfo(ctx *eventctx.Context, args *command.Args) error {
-	if p.PluginManager == nil {
+	if p.setupCtx == nil {
 		return p.reply(ctx, "插件管理器未初始化")
 	}
 	name := args.Get(1)
 	if name == "" {
 		return p.reply(ctx, "用法: /plugin info <插件名>")
 	}
-	meta, ok := p.PluginManager.GetMetadata(name)
+	meta, ok := p.setupCtx.Info.GetMetadata(name)
 	if !ok || meta == nil {
 		return p.reply(ctx, fmt.Sprintf("插件 '%s' 不存在", name))
 	}
@@ -409,8 +409,8 @@ func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error
 func (p *Plugin) handleStatus(ctx *eventctx.Context) error {
 	var msg strings.Builder
 	msg.WriteString("机器人运行中\n")
-	if p.PluginManager != nil {
-		msg.WriteString(fmt.Sprintf("已加载插件: %d 个\n", len(p.PluginManager.List())))
+	if p.setupCtx != nil {
+		msg.WriteString(fmt.Sprintf("已加载插件: %d 个\n", p.setupCtx.Info.Count()))
 	}
 	return p.reply(ctx, msg.String())
 }

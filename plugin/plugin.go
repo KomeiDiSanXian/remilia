@@ -43,29 +43,39 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
-// Metadata 插件元数据
+// Metadata 插件元数据（统一结构）
+//
+// PluginDescriptor.Meta 字段使用此类型，Manager.GetMetadata 也返回此类型。
+// 两者共用同一结构，消除了之前 Metadata 与 PluginMeta 之间的字段拷贝开销。
 type Metadata struct {
-	// 基本信息
-	Name        string // 插件名称
-	Version     string // 版本号
-	Author      string // 作者
-	Description string // 描述
-	HelpText    string // 帮助文本
-
-	// 分类和标签
-	Category string   // 分类（如 "管理"、"娱乐"、"工具"）
-	Tags     []string // 标签
-
-	// 依赖信息
+	// --- 注册标识（框架在注册时自动填充，开发者无需手动设置）---
+	Name         string   // 插件名称
+	Version      string   // 版本号
 	Dependencies []string // 依赖的插件列表
 
-	// 可见性
-	Hidden bool // 是否在帮助中隐藏
+	// --- 显示信息（开发者在 PluginDescriptor.Meta 中填写）---
+	Author      string   // 作者
+	Description string   // 描述
+	HelpText    string   // 帮助文本
+	Category    string   // 分类（如 "管理"、"娱乐"、"工具"）
+	Tags        []string // 标签
+	Hidden      bool     // 是否在帮助中隐藏
 
-	// 联系方式（保留用于兼容性）
+	// --- 扩展信息（可选）---
 	Homepage   string // 主页
 	Repository string // 仓库地址
 }
+
+// PluginMeta 是 Metadata 的类型别名，用于 PluginDescriptor.Meta 字段。
+//
+// 两者完全相同，PluginMeta 仅作为语义上更清晰的名称供插件开发者使用：
+//
+//	Meta: &plugin.PluginMeta{
+//	    Author:      "Team",
+//	    Description: "My plugin",
+//	    Category:    "core",
+//	}
+type PluginMeta = Metadata
 
 // pluginInternal 插件内部接口（包私有）
 //
