@@ -220,10 +220,15 @@ func (pm *Manager) notifyLoaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
 	copy(listeners, pm.listeners)
+	bus := pm.eventBus
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginLoaded", func() { listener.OnPluginLoaded(name) })
+	}
+	// 向 EventBus 发布生命周期事件（Bug 2.8：help 插件订阅此事件以清空缓存）
+	if bus != nil {
+		_ = bus.Publish("plugin.loaded", name)
 	}
 }
 
@@ -232,10 +237,14 @@ func (pm *Manager) notifyUnloaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
 	copy(listeners, pm.listeners)
+	bus := pm.eventBus
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginUnloaded", func() { listener.OnPluginUnloaded(name) })
+	}
+	if bus != nil {
+		_ = bus.Publish("plugin.unloaded", name)
 	}
 }
 
@@ -244,10 +253,14 @@ func (pm *Manager) notifyReloaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
 	copy(listeners, pm.listeners)
+	bus := pm.eventBus
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
 		safeNotify(name, "OnPluginReloaded", func() { listener.OnPluginReloaded(name) })
+	}
+	if bus != nil {
+		_ = bus.Publish("plugin.reloaded", name)
 	}
 }
 

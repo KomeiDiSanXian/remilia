@@ -17,6 +17,7 @@ package broadcast
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
+
+// ErrAPINotSet 未调用 SetAPI 时发送会返回此错误
+var ErrAPINotSet = fmt.Errorf("broadcast: OpenAPI not set, call SetAPI() first")
 
 // Result 广播发送结果
 type Result struct {
@@ -72,6 +76,17 @@ type Plugin struct {
 type storageBackend interface {
 	Get(key string) ([]byte, error)
 	Set(key string, value []byte, ttl time.Duration) error
+}
+
+// NewPlugin 创建 Plugin 实例（用于测试或需要持有引用的场景）
+// 配合 Descriptor(p) 使用，或直接调用 p.SetAPI(api) / p.ToGroups(...)。
+func NewPlugin(cfg Config) *Plugin {
+	return &Plugin{
+		cfg:       cfg,
+		rl:        rate.NewLimiter(rate.Limit(cfg.Rate), cfg.Burst),
+		groupSubs: make(map[string]bool),
+		c2cSubs:   make(map[string]bool),
+	}
 }
 
 // New 创建广播插件描述符
@@ -156,8 +171,12 @@ func (p *Plugin) ToAll(groupIDs, openIDs []string, msg *dto.Message) (groupResul
 func (p *Plugin) send(targets []string, msg *dto.Message, isGroup bool) Result {
 	api := p.getAPI()
 	if api == nil {
-		logger.Error("[Broadcast] OpenAPI not set, call SetAPI() first")
-		return Result{Total: len(targets), Failed: len(targets)}
+		logger.Error("[Broadcast] " + ErrAPINotSet.Error())
+		errs := make([]error, len(targets))
+		for i := range errs {
+			errs[i] = ErrAPINotSet
+		}
+		return Result{Total: len(targets), Failed: len(targets), Errors: errs}
 	}
 
 	result := Result{Total: len(targets)}

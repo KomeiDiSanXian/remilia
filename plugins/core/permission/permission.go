@@ -22,6 +22,18 @@ type Plugin struct {
 	store           StorageBackend // 可选持久化后端（nil=纯内存）
 }
 
+// NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）
+// 通常应使用 New() 注册到插件管理器，通过 plugin.Require[permission.Plugin] 获取实例。
+func NewPlugin() *Plugin {
+	permManager := eventctx.NewPermissionManager()
+	initExtraRoles(permManager)
+	return &Plugin{
+		manager:         permManager,
+		verificationMgr: NewVerificationManager(),
+		acl:             NewAccessControlList(),
+	}
+}
+
 // New 创建权限插件（v2 API）
 func New() *plugin.PluginDescriptor {
 	// 创建核心组件（闭包捕获）

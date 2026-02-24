@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	stdctx "context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -21,6 +22,9 @@ var ErrStepDone = fmt.Errorf("conversation: session done")
 
 // ErrSessionNotFound is returned when no active session exists.
 var ErrSessionNotFound = fmt.Errorf("conversation: session not found")
+
+// gcInterval 过期会话后台 GC 间隔（Bug 2.4 修复）
+const gcInterval = 2 * time.Minute
 
 type step struct {
 	name   string
@@ -91,6 +95,22 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 					p.restoreSessions()
 				}
 			}
+			// 后台定期 GC 过期会话，防止 sync.Map 无限增长（Bug 2.4 修复）
+			ctx.Go(func(runCtx stdctx.Context) {
+				ticker := time.NewTicker(gcInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						removed := p.GC()
+						if removed > 0 {
+							ctx.Log.Infof("GC: removed %d expired sessions", removed)
+						}
+					case <-runCtx.Done():
+						return
+					}
+				}
+			})
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {

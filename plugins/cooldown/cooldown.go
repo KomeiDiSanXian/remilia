@@ -22,6 +22,7 @@
 package cooldown
 
 import (
+	stdctx "context"
 	"fmt"
 	"sync"
 	"time"
@@ -30,6 +31,14 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+)
+
+const (
+	// cleanupInterval 后台 GC goroutine 的运行间隔
+	cleanupInterval = 5 * time.Minute
+	// maxEntryAge 超过此时间未使用的冷却记录视为过期并清理
+	// 设为常见最大冷却时间的 2 倍（24h），确保已过期但从未被访问的记录被回收
+	maxEntryAge = 24 * time.Hour
 )
 
 // entry 冷却记录
@@ -74,6 +83,22 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
+			// 后台定期清理过期记录，防止 map 无限增长（Bug 2.2 修复）
+			ctx.Go(func(runCtx stdctx.Context) {
+				ticker := time.NewTicker(cleanupInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						removed := p.CleanExpired(maxEntryAge)
+						if removed > 0 {
+							ctx.Log.Infof("GC: removed %d expired cooldown entries", removed)
+						}
+					case <-runCtx.Done():
+						return
+					}
+				}
+			})
 			return p, nil
 		},
 	}

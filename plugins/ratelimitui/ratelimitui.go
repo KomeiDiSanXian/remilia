@@ -29,13 +29,18 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/antispam"
 	"github.com/KomeiDiSanXian/remilia/plugins/cooldown"
+	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
 )
+
+// defaultAdminRole 默认的管理员角色名，拥有该角色的用户可执行 unban/reset 等敏感操作
+const defaultAdminRole = "admin"
 
 // Plugin 限流状态查询插件
 type Plugin struct {
-	antispam *antispam.Plugin
-	cooldown *cooldown.Plugin
-	setupCtx *plugin.SetupContext
+	antispam   *antispam.Plugin
+	cooldown   *cooldown.Plugin
+	permission *permission.Plugin // 可选权限依赖（Bug 2.12 修复）
+	setupCtx   *plugin.SetupContext
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -79,6 +84,13 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 				if cp, ok := raw.(*cooldown.Plugin); ok {
 					p.cooldown = cp
 					ctx.Log.Info("Bound to cooldown plugin")
+				}
+			}
+			// 可选绑定 permission 插件，用于保护 unban/reset 等敏感命令（Bug 2.12 修复）
+			if raw, ok := ctx.Get("permission"); ok {
+				if pp, ok := raw.(*permission.Plugin); ok {
+					p.permission = pp
+					ctx.Log.Info("Bound to permission plugin (sensitive commands protected)")
 				}
 			}
 			p.registerCommands(ctx)
@@ -295,8 +307,35 @@ func (p *Plugin) handleStats(ctx *eventctx.Context) error {
 	return p.reply(ctx, msg.String())
 }
 
-// handleUnban 解封用户
+// isAdmin 检查调用者是否具备管理员权限（Bug 2.12 修复）
+// 若 permission 插件未绑定，放行（向后兼容）。
+func (p *Plugin) isAdmin(ctx *eventctx.Context) bool {
+	if p.permission == nil {
+		return true // permission 插件未加载时不做限制（配置缺失场景兼容）
+	}
+	userID := ctx.GetUserID()
+	if userID == "" {
+		return false
+	}
+	return p.permission.HasPermission(userID, defaultAdminRole+":manage") ||
+		containsRole(p.permission.GetUserRoles(userID), defaultAdminRole)
+}
+
+// containsRole 判断角色列表中是否包含指定角色
+func containsRole(roles []string, target string) bool {
+	for _, r := range roles {
+		if r == target {
+			return true
+		}
+	}
+	return false
+}
+
+// handleUnban 解封用户（需要 admin 权限）
 func (p *Plugin) handleUnban(ctx *eventctx.Context, args *command.Args) error {
+	if !p.isAdmin(ctx) {
+		return p.reply(ctx, "❌ 权限不足，需要 admin 角色")
+	}
 	if p.antispam == nil {
 		return p.reply(ctx, "❌ antispam 插件未加载")
 	}
@@ -308,8 +347,11 @@ func (p *Plugin) handleUnban(ctx *eventctx.Context, args *command.Args) error {
 	return p.reply(ctx, fmt.Sprintf("✅ 已解封用户: %s", userID))
 }
 
-// handleReset 重置用户命令冷却时间
+// handleReset 重置用户命令冷却时间（需要 admin 权限）
 func (p *Plugin) handleReset(ctx *eventctx.Context, args *command.Args) error {
+	if !p.isAdmin(ctx) {
+		return p.reply(ctx, "❌ 权限不足，需要 admin 角色")
+	}
 	if p.cooldown == nil {
 		return p.reply(ctx, "❌ cooldown 插件未加载")
 	}
@@ -341,11 +383,19 @@ func (p *Plugin) BindCooldown(cp *cooldown.Plugin) {
 	p.cooldown = cp
 }
 
+// BindPermission manually binds a permission plugin for admin checks.
+func (p *Plugin) BindPermission(pp *permission.Plugin) {
+	p.permission = pp
+}
+
 // HasAntispam returns true if an antispam plugin is bound.
 func (p *Plugin) HasAntispam() bool { return p.antispam != nil }
 
 // HasCooldown returns true if a cooldown plugin is bound.
 func (p *Plugin) HasCooldown() bool { return p.cooldown != nil }
+
+// HasPermission returns true if a permission plugin is bound.
+func (p *Plugin) HasPermissionPlugin() bool { return p.permission != nil }
 
 // BanSummary holds a ban record returned by ListBanSummary.
 type BanSummary struct {

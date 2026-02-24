@@ -17,6 +17,7 @@ package sendqueue
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -230,9 +231,14 @@ func (p *Plugin) process(workerID int, job sendJob) {
 	if sendErr != nil {
 		if job.attempt < p.cfg.MaxRetries {
 			job.attempt++
+			// 指数退避 + jitter：delay = RetryDelay * 2^(attempt-1) + random[0, RetryDelay)
+			// 防止重试风暴（Bug 2.11 修复）
+			backoff := p.cfg.RetryDelay * (1 << (job.attempt - 1))
+			jitter := time.Duration(rand.Int64N(int64(p.cfg.RetryDelay)))
+			retryAfter := backoff + jitter
 			logger.WithError(sendErr).Warnf("[SendQueue] worker=%d send failed (attempt %d/%d), retrying in %s",
-				workerID, job.attempt, p.cfg.MaxRetries, p.cfg.RetryDelay)
-			time.AfterFunc(p.cfg.RetryDelay, func() {
+				workerID, job.attempt, p.cfg.MaxRetries, retryAfter)
+			time.AfterFunc(retryAfter, func() {
 				select {
 				case p.queue <- job:
 				default:

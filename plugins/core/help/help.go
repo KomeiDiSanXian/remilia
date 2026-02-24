@@ -68,6 +68,20 @@ func New() *plugin.PluginDescriptor {
 			}
 			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").Handle(v1Plugin.handleHelp)
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/help").Handle(v1Plugin.handleHelp)
+
+			// 订阅插件生命周期事件，当插件加载/卸载/重载时立即清空缓存（Bug 2.8 修复）
+			if ctx.EventBus != nil {
+				for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
+					t := topic
+					if _, err := ctx.EventBus.Subscribe(t, func(_ any) {
+						ctx.Log.Debugf("Cache invalidated due to %s event", t)
+						v1Plugin.invalidateCache()
+					}); err != nil {
+						ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
+					}
+				}
+			}
+
 			ctx.Log.Info("Help plugin loaded")
 			return nil, nil
 		},
