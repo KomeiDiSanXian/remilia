@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ type PluginInstance struct {
 func (pi *PluginInstance) name() string { return pi.desc.Name }
 
 // load 加载插件（实现 pluginInternal）
-func (pi *PluginInstance) load(coordinator *engine.Engine) error {
+func (pi *PluginInstance) load(coordinator *engine.Engine) (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManager()
@@ -46,24 +47,38 @@ func (pi *PluginInstance) load(coordinator *engine.Engine) error {
 
 	startTime := time.Now()
 
-	api, err := pi.desc.callSetup(pi.setupContext)
-	if err != nil {
+	// 捕获 Setup 中的 panic（如 MustGet 找不到依赖），转换为错误返回。
+	// 不捕获会导致 panic 穿透 RegisterV2 直接崩溃整个进程。
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if e, ok := r.(error); ok {
+					loadErr = fmt.Errorf("plugin %q: Setup panicked: %w", pi.desc.Name, e)
+				} else {
+					loadErr = fmt.Errorf("plugin %q: Setup panicked: %v", pi.desc.Name, r)
+				}
+			}
+		}()
+		var api any
+		api, loadErr = pi.desc.callSetup(pi.setupContext)
+		if loadErr == nil && api != nil {
+			pi.mu.Lock()
+			pi.exportedAPI = api
+			pi.mu.Unlock()
+			if pi.setupContext != nil {
+				pi.setupContext.ExportAs(pi.desc.Name, api)
+			}
+		}
+	}()
+
+	if loadErr != nil {
 		gm.stopAndWait()
 		pi.mu.Lock()
 		pi.state = Error
-		pi.lastError = err
+		pi.lastError = loadErr
 		pi.goroutineMgr = nil
 		pi.mu.Unlock()
-		return err
-	}
-
-	if api != nil {
-		pi.mu.Lock()
-		pi.exportedAPI = api
-		pi.mu.Unlock()
-		if pi.setupContext != nil {
-			pi.setupContext.ExportAs(pi.desc.Name, api)
-		}
+		return loadErr
 	}
 
 	pi.mu.Lock()
