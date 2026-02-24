@@ -13,7 +13,7 @@ func TestConversation_GC_AutoCleanup(t *testing.T) {
 	p := NewPlugin()
 
 	// 添加 50 条过期会话（使用唯一 key）
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		key := fmt.Sprintf("expired:session:%d", i)
 		p.sessions.Store(key, &Session{
 			ID:        key,

@@ -4,25 +4,10 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: rename report files and archive outdated documents for better organization">
-      <change afterPath="$PROJECT_DIR$/core/engine/reader.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/container.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/descriptor.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/manager_writer.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/permission_model_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/plugintest/plugintest.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/plugin_info.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin_info.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/testing.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement plugin dependency injection container and enhance plugin management interfaces">
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -220,8 +205,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
-    <MESSAGE value="feat: add producer concurrency cap for unlimited path in throughput benchmark" />
     <MESSAGE value="refactor: optimize context handling and event decoding for improved performance" />
     <MESSAGE value="refactor: simplify worker goroutine management and improve concurrency calculations" />
     <MESSAGE value="refactor: enhance context handling and improve payload management for webhook processing" />
@@ -245,7 +228,9 @@
     <MESSAGE value="feat: add error handling for uninitialized API and implement plugin creation function" />
     <MESSAGE value="feat: add AsPluginInfo method for backward compatibility and enhance plugin descriptor creation" />
     <MESSAGE value="docs: rename report files and archive outdated documents for better organization" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: rename report files and archive outdated documents for better organization" />
+    <MESSAGE value="feat: implement plugin dependency injection container and management interface" />
+    <MESSAGE value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

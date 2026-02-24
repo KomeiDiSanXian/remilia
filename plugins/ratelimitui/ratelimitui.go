@@ -20,6 +20,7 @@ package ratelimitui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -323,12 +324,7 @@ func (p *Plugin) isAdmin(ctx *eventctx.Context) bool {
 
 // containsRole 判断角色列表中是否包含指定角色
 func containsRole(roles []string, target string) bool {
-	for _, r := range roles {
-		if r == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(roles, target)
 }
 
 // handleUnban 解封用户（需要 admin 权限）

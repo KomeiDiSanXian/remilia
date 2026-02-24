@@ -14,7 +14,7 @@ func TestCooldown_GC_AutoCleanup(t *testing.T) {
 
 	// 手动添加 100 条过期记录（使用唯一 key 避免覆盖）
 	p.mu.Lock()
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		key := fmt.Sprintf("user%d:cmd", i)
 		p.records[key] = &entry{lastUsed: time.Now().Add(-48 * time.Hour)} // 已过期 48h
 	}
