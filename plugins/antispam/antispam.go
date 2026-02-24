@@ -30,6 +30,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // Config 反垃圾配置
@@ -77,13 +78,7 @@ type Plugin struct {
 	groupRL *lru.Cache[string, *rate.Limiter]
 	banList map[string]banEntry
 	banMu   sync.RWMutex
-	storage storageBackend // 可选持久化后端
-}
-
-// storageBackend 用于封禁名单持久化的接口（避免直接依赖 storage 包）
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
+	storage storage.Client // 可选持久化后端
 }
 
 // NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
@@ -125,11 +120,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.loadBanList()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.loadBanList()
 			}
 			return p, nil
 		},
@@ -247,7 +240,7 @@ func (p *Plugin) Stats() AntiSpamStats {
 }
 
 // SetStorage 手动设置持久化后端（用于在 Setup 后注入 storage）
-func (p *Plugin) SetStorage(s storageBackend) {
+func (p *Plugin) SetStorage(s storage.Client) {
 	p.storage = s
 	p.loadBanList()
 }

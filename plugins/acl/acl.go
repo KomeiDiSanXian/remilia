@@ -27,6 +27,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // Mode ACL 模式
@@ -75,18 +76,12 @@ type Entry struct {
 	AddedAt time.Time `json:"added_at"`
 }
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
-
 // Plugin ACL 插件
 type Plugin struct {
 	mu      sync.RWMutex
 	mode    Mode
 	entries map[string]Entry // userID -> Entry
-	storage storageBackend
+	storage storage.Client
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -97,10 +92,46 @@ func NewPlugin() *Plugin {
 	}
 }
 
-// New 创建 ACL 插件描述符
+// New 创建 ACL 插件描述符（便捷入口）。
+// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
 func New() *plugin.PluginDescriptor {
-	p := NewPlugin()
-	return Descriptor(p)
+	return &plugin.PluginDescriptor{
+		Name:    "acl",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "黑白名单（ACL）访问控制插件",
+			Category:    "安全",
+			Tags:        []string{"安全", "访问控制", "黑白名单"},
+			HelpText: `ACL 插件使用说明：
+  p := acl.NewPlugin()
+  pm.RegisterV2(acl.Descriptor(p))
+  engine.OnGroupAt(p.Rule()).Handle(handler)
+  p.SetMode(acl.ModeBlacklist)
+  p.Add("userOpenID", "备注")`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			p := NewPlugin() // ← Plugin 在 Setup 内创建，可读取 Config
+			if ctx.Config != nil {
+				if modeStr := ctx.Config.GetString("mode", "disabled"); modeStr != "disabled" {
+					if mode, err := ParseMode(modeStr); err == nil {
+						p.mode = mode
+					}
+				}
+			}
+			ctx.Log.Info("Plugin loaded")
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.load()
+			}
+			return p, nil
+		},
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).save()
+			return nil
+		},
+	}
 }
 
 // Descriptor 从已有 Plugin 创建描述符
@@ -123,11 +154,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.load()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.load()
 			}
 			return p, nil
 		},

@@ -20,6 +20,20 @@ type Storage interface {
 	Clear() error
 }
 
+// Client 插件可选持久化最小接口
+//
+// 各需要可选持久化的插件（acl、antispam、auditlog 等）应将内部的
+// storageBackend 字段类型改为此接口，统一使用同一约束而非各自重复定义。
+//
+// *Plugin 实现了此接口，可直接赋值：
+//
+//	var c storage.Client = storagePluginInstance
+type Client interface {
+	Get(key string) ([]byte, error)
+	Set(key string, value []byte, ttl time.Duration) error
+	Delete(key string) error
+}
+
 // CleanableStorage 支持主动清理过期键的存储接口（可选实现）
 type CleanableStorage interface {
 	Storage

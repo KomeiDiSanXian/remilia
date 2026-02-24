@@ -377,8 +377,10 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 
 func TestRequire_PanicsOnMissing(t *testing.T) {
 	ctx := &SetupContext{
-		container:  NewContainer(),
-		pluginName: "test",
+		setupContextInternal: setupContextInternal{
+			container:  NewContainer(),
+			pluginName: "test",
+		},
 	}
 	assert.Panics(t, func() {
 		Require[struct{}](ctx, "nonexistent")
@@ -387,8 +389,10 @@ func TestRequire_PanicsOnMissing(t *testing.T) {
 
 func TestOptional_ReturnsNilOnMissing(t *testing.T) {
 	ctx := &SetupContext{
-		container:  NewContainer(),
-		pluginName: "test",
+		setupContextInternal: setupContextInternal{
+			container:  NewContainer(),
+			pluginName: "test",
+		},
 	}
 	v, ok := Optional[struct{}](ctx, "nonexistent")
 	assert.Nil(t, v)
@@ -399,7 +403,7 @@ func TestOptional_ReturnsValueWhenPresent(t *testing.T) {
 	type Svc struct{ X int }
 	c := NewContainer()
 	c.Register("svc", &Svc{X: 42})
-	ctx := &SetupContext{container: c, pluginName: "test"}
+	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: c, pluginName: "test"}}
 
 	v, ok := Optional[Svc](ctx, "svc")
 	require.True(t, ok)
@@ -408,7 +412,7 @@ func TestOptional_ReturnsValueWhenPresent(t *testing.T) {
 
 func TestExportAs_NilContainerSafe(t *testing.T) {
 	// container 为 nil 时不应 panic
-	ctx := &SetupContext{container: nil}
+	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: nil}}
 	assert.NotPanics(t, func() {
 		ctx.ExportAs("x", "value")
 	})

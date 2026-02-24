@@ -29,6 +29,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // CodeConfig 验证码配置
@@ -79,18 +80,14 @@ func (e *CodeEntry) IsValid() bool {
 // OnVerifyHook 验证成功后的回调（用于授予角色/权限）
 type OnVerifyHook func(userID, role string) error
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
+// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 // Plugin 验证码插件
 type Plugin struct {
 	mu       sync.RWMutex
 	codes    map[string]*CodeEntry // code -> entry
 	onVerify OnVerifyHook
-	storage  storageBackend
+	storage  storage.Client
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -125,11 +122,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.load()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.load()
 			}
 			return p, nil
 		},

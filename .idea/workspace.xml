@@ -4,22 +4,30 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize: correct goroutine management and improve string handling in commands">
-      <change afterPath="$PROJECT_DIR$/plugin/lifecycle_events_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/ratelimitui/permission_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/sendqueue/sendqueue_backoff_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add error handling for uninitialized API and implement plugin creation function">
+      <change afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-analysis.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/phase2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase2_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin_info.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin_info.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/acl/acl.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/acl/acl.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/antispam/antispam.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/auditlog/auditlog.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/auditlog/auditlog.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/conversation/conversation.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/pluginstore/pluginstore.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/pluginstore/pluginstore.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/pluginstore/pluginstore_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/pluginstore/pluginstore_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/verifycode/verifycode.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/verifycode/verifycode.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -217,7 +225,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: optimize loop constructs for concurrency in tests and replace sort with slices package" />
     <MESSAGE value="refactor: enhance throughput benchmark by restructuring scenarios and improving event handling" />
     <MESSAGE value="refactor: remove unused nullAPI mock implementation from throughput benchmark" />
     <MESSAGE value="feat: add system metrics sampling to throughput benchmark for enhanced performance analysis" />
@@ -242,7 +249,8 @@
     <MESSAGE value="optimize: simplify map copying using built-in maps and slices packages" />
     <MESSAGE value="feat: add support for plugin state management and lifecycle logging" />
     <MESSAGE value="optimize: correct goroutine management and improve string handling in commands" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize: correct goroutine management and improve string handling in commands" />
+    <MESSAGE value="feat: add error handling for uninitialized API and implement plugin creation function" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add error handling for uninitialized API and implement plugin creation function" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -24,6 +24,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // LogEntry 审计日志条目
@@ -48,19 +49,13 @@ func DefaultConfig() Config {
 	return Config{MaxMemoryEntries: 1000}
 }
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
-
 // Plugin 审计日志插件 API
 type Plugin struct {
 	cfg     Config
 	mu      sync.RWMutex
 	entries []LogEntry
 	nextID  int64
-	storage storageBackend
+	storage storage.Client
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -99,11 +94,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.loadFromStorage()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.loadFromStorage()
 			}
 			return p, nil
 		},

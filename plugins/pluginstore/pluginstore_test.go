@@ -29,6 +29,10 @@ func (f *fakeStorage) Set(key string, value []byte, _ time.Duration) error {
 	f.data[key] = value
 	return nil
 }
+func (f *fakeStorage) Delete(key string) error {
+	delete(f.data, key)
+	return nil
+}
 func TestRegisterFunc_SaveAndRestore(t *testing.T) {
 	p := pluginstore.NewPlugin()
 	fs := newFakeStorage()

@@ -59,10 +59,10 @@ func NewPlugin() *Plugin {
 	}
 }
 
-// New 创建冷却时间插件描述符
+// New 创建冷却时间插件描述符（便捷入口）。
+// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
 func New() *plugin.PluginDescriptor {
-	p := NewPlugin()
-	return Descriptor(p)
+	return Descriptor(NewPlugin())
 }
 
 // Descriptor 从已有 Plugin 创建描述符

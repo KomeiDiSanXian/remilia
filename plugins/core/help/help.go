@@ -28,8 +28,8 @@ const (
 //   - /help <插件名> - 显示指定插件的所有命令
 //   - /help <命令名> - 显示指定命令的详细信息
 type Plugin struct {
-	Engine        *engine.Engine  // 从 Engine 直接获取命令信息
-	PluginManager *plugin.Manager // 用于获取插件信息
+	Engine *engine.Engine    // 从 Engine 直接获取命令信息
+	Info   plugin.PluginInfo // 插件系统只读视图（替代 *plugin.Manager）
 
 	// 缓存
 	helpCache     map[string]string // key: "page:1", "plugin:cache", "command:help", "plugins"
@@ -60,12 +60,10 @@ func New() *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading help plugin")
-			if mp, ok := ctx.Info.(interface{ Manager() *plugin.Manager }); ok {
-				v1Plugin.PluginManager = mp.Manager()
-			}
-			if cp, ok := ctx.Info.(interface{ Coordinator() *engine.Engine }); ok {
-				v1Plugin.Engine = cp.Coordinator()
-			}
+			// 使用 PluginInfo 只读视图，不再持有 *plugin.Manager 完整权限
+			v1Plugin.Info = ctx.Info
+			v1Plugin.Engine = ctx.Info.Coordinator()
+
 			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").Handle(v1Plugin.handleHelp)
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/help").Handle(v1Plugin.handleHelp)
 
@@ -92,7 +90,7 @@ func New() *plugin.PluginDescriptor {
 func newHelpPluginInternal() *Plugin {
 	return &Plugin{
 		Engine:        nil, // 将在 Setup 时设置
-		PluginManager: nil, // 将在 Setup 时设置
+		Info:          nil, // ���在 Setup 时设置
 		helpCache:     make(map[string]string),
 		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
 		cacheExpiry:   time.Now(),
@@ -150,12 +148,13 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	return nil
 }
 
-// SetPluginManager 设置插件管理器（用于获取插件信息）
+// SetPluginManager 已废弃，保留用于向后兼容。请改用 ctx.Info（PluginInfo 只读接口）。
+// Deprecated: use ctx.Info instead.
 func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.PluginManager = pm
+	p.Info = pm.AsPluginInfo()
 }
 
-// handleHelp 处理帮助命令（v1）
+// handleHelp 处理帮助命令
 func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	content := ctx.GetMessageContent()
 
@@ -184,8 +183,8 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	}
 
 	// 检查是否是插件名
-	if p.PluginManager != nil {
-		plugins := p.PluginManager.List()
+	if p.Info != nil {
+		plugins := p.Info.List()
 		for _, pluginName := range plugins {
 			if strings.EqualFold(pluginName, target) {
 				return p.showPluginCommands(ctx, pluginName)
@@ -216,7 +215,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 
 	// 如果没有命令，显示插件列表
 	if len(commands) == 0 {
-		if p.PluginManager != nil {
+		if p.Info != nil {
 			logger.Info("[Plugin] No commands found, showing plugin list instead")
 			return p.showAllPlugins(ctx)
 		}
@@ -285,7 +284,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用方法:\n")
 	help.WriteString("  /help <命令名> - 查看命令详情\n")
-	if p.PluginManager != nil {
+	if p.Info != nil {
 		help.WriteString("  /help <插件名> - 查看插件的所有命令\n")
 	}
 	if totalPages > 1 {
@@ -310,11 +309,11 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
 		return p.sendMessage(ctx, cached)
 	}
 
-	if p.PluginManager == nil {
+	if p.Info == nil {
 		return p.sendMessage(ctx, "插件管理器不可用")
 	}
 
-	pluginsMetadata := p.PluginManager.ListWithMetadata()
+	pluginsMetadata := p.Info.ListWithMetadata()
 	if len(pluginsMetadata) == 0 {
 		return p.sendMessage(ctx, "当前没有加载任何插件")
 	}
@@ -407,8 +406,8 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 	help.WriteString(strings.Repeat("=", 30) + "\n\n")
 
 	// 显示插件元数据（如果有）
-	if p.PluginManager != nil {
-		if metadata, ok := p.PluginManager.GetMetadata(pluginName); ok && metadata != nil {
+	if p.Info != nil {
+		if metadata, ok := p.Info.GetMetadata(pluginName); ok && metadata != nil {
 			// 显示插件详细信息
 			if metadata.Description != "" {
 				help.WriteString(fmt.Sprintf("📝 描述: %s\n", metadata.Description))
@@ -688,9 +687,9 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 	} else {
 		msg.WriteString("💡 使用 /help 查看所有可用命令")
 
-		// 如果有插件管理器，显示可用插件
-		if p.PluginManager != nil {
-			plugins := p.PluginManager.List()
+		// 如果有插件信息，显示可用插件
+		if p.Info != nil {
+			plugins := p.Info.List()
 			if len(plugins) > 0 {
 				msg.WriteString("\n\n📦 可用插件:\n")
 				for _, pluginName := range plugins {

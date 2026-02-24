@@ -240,3 +240,33 @@ func (eb *eventBus) GetStats() EventBusStats {
 
 	return stats
 }
+
+// --- 类型安全的 EventBus 辅助函数 ---
+
+// Subscribe 以类型安全的方式订阅事件。
+// 只有当事件数据可以断言为 T 时，handler 才会被调用；类型不匹配的事件被静默忽略。
+//
+//	// 订阅字符串类型的 plugin.loaded 事件
+//	plugin.Subscribe[string](ctx.EventBus, "plugin.loaded", func(name string) {
+//	    log.Printf("plugin loaded: %s", name)
+//	})
+func Subscribe[T any](bus EventBus, topic string, handler func(T)) (Subscription, error) {
+	if bus == nil {
+		return nil, fmt.Errorf("eventbus: bus is nil")
+	}
+	return bus.Subscribe(topic, func(data any) {
+		if v, ok := data.(T); ok {
+			handler(v)
+		}
+	})
+}
+
+// PublishTyped 发布强类型事件（语义等同于 bus.Publish，增加编译期类型检查）。
+//
+//	plugin.PublishTyped(ctx.EventBus, "user.banned", userID)
+func PublishTyped[T any](bus EventBus, topic string, data T) error {
+	if bus == nil {
+		return fmt.Errorf("eventbus: bus is nil")
+	}
+	return bus.Publish(topic, data)
+}

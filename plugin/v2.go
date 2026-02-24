@@ -247,6 +247,22 @@ func (d *PluginDescriptor) getOnDependencyReloaded() func(string) {
 //   - [SetupContext.EventBus] — 插件间事件总线
 //   - [SetupContext.Get] / [SetupContext.MustGet] — 获取依赖（弱类型）
 //   - [Require] / [Optional]  — 获取依赖（类型安全，推荐）
+//
+// setupContextInternal 框架内部字段，外部 godoc 不可见。
+type setupContextInternal struct {
+	container        *Container
+	pluginName       string
+	instance         *PluginInstance
+	trackedDeps      map[string]bool
+	autoTrackEnabled bool
+	goroutineMgr     *goroutineManager
+	eng              *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
+}
+
+// SetupContext 插件 Setup 阶段的上下文。
+//
+// 通过此上下文注册命令、访问依赖、启动后台 goroutine 等。
+// 内部字段（框架专用）已隐藏，对外仅暴露公开 API。
 type SetupContext struct {
 	// Reg Matcher/Command 注册接口，DryRun 阶段自动变为 no-op。
 	Reg RegistryWriter
@@ -278,14 +294,8 @@ type SetupContext struct {
 	// EventBus 插件间事件总线
 	EventBus EventBus
 
-	// --- 内部字段（框架使用）---
-	container        *Container
-	pluginName       string
-	instance         *PluginInstance
-	trackedDeps      map[string]bool
-	autoTrackEnabled bool
-	goroutineMgr     *goroutineManager
-	eng              *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
+	// 内部字段（框架使用，外部不可访问）
+	setupContextInternal
 }
 
 // ExportAs 将插件 API 对象以指定名称导出到容器。
@@ -386,6 +396,22 @@ func Optional[T any](ctx *SetupContext, name string) (*T, bool) {
 		return nil, false
 	}
 	return typed, true
+}
+
+// Must 获取必需依赖（Require 的简洁别名，推荐使用）。
+// 类型安全，不存在或类型不符则 panic。
+//
+//	perm := plugin.Must[permission.Plugin](ctx, "permission")
+func Must[T any](ctx *SetupContext, name string) *T {
+	return Require[T](ctx, name)
+}
+
+// Try 获取可选依赖（Optional 的简洁别名，推荐使用）。
+// 类型安全，不存在时返回 nil, false。
+//
+//	if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
+func Try[T any](ctx *SetupContext, name string) (*T, bool) {
+	return Optional[T](ctx, name)
 }
 
 // Container 依赖注入容器
@@ -617,16 +643,18 @@ func (pi *PluginInstance) reload(coordinator *engine.Engine) error {
 
 	// 重新创建 SetupContext
 	newContext := &SetupContext{
-		Reg:              newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
-		Log:              newPluginLogger(oldContext.pluginName),
-		Info:             oldContext.Info,
-		Config:           oldContext.Config,
-		EventBus:         oldContext.EventBus,
-		container:        oldContext.container,
-		pluginName:       oldContext.pluginName,
-		instance:         oldContext.instance,
-		autoTrackEnabled: true,
-		eng:              oldContext.eng,
+		Reg:      newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
+		Log:      newPluginLogger(oldContext.pluginName),
+		Info:     oldContext.Info,
+		Config:   oldContext.Config,
+		EventBus: oldContext.EventBus,
+		setupContextInternal: setupContextInternal{
+			container:        oldContext.container,
+			pluginName:       oldContext.pluginName,
+			instance:         oldContext.instance,
+			autoTrackEnabled: true,
+			eng:              oldContext.eng,
+		},
 	}
 	newContext.Go = func(fn func(ctx stdctx.Context)) {
 		if newContext.goroutineMgr != nil {
@@ -1017,16 +1045,18 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 	// 构建 SetupContext
 	setupCtx := &SetupContext{
-		Reg:              newLiveRegistryWriter(pm.coordinator, name, instance),
-		Log:              newPluginLogger(name),
-		Info:             newPluginInfo(pm),
-		Config:           config,
-		EventBus:         pm.eventBus,
-		container:        pm.container,
-		pluginName:       name,
-		instance:         instance,
-		autoTrackEnabled: true,
-		eng:              pm.coordinator,
+		Reg:      newLiveRegistryWriter(pm.coordinator, name, instance),
+		Log:      newPluginLogger(name),
+		Info:     newPluginInfo(pm),
+		Config:   config,
+		EventBus: pm.eventBus,
+		setupContextInternal: setupContextInternal{
+			container:        pm.container,
+			pluginName:       name,
+			instance:         instance,
+			autoTrackEnabled: true,
+			eng:              pm.coordinator,
+		},
 	}
 	// Go 函数在 load() 时由 goroutineManager 注入，此处先设为 nil-safe 空实现
 	setupCtx.Go = func(fn func(ctx stdctx.Context)) {
@@ -1553,12 +1583,14 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 	for _, desc := range descriptors {
 		setupCtx := &SetupContext{
 			// 依赖推断阶段：注入 no-op RegistryWriter，所有注册操作无副作用
-			Reg:              &noopRegistryWriter{},
-			Log:              newPluginLogger(desc.Name),
-			Info:             newPluginInfo(pm),
-			container:        tempContainer,
-			pluginName:       desc.Name,
-			autoTrackEnabled: true,
+			Reg:  &noopRegistryWriter{},
+			Log:  newPluginLogger(desc.Name),
+			Info: newPluginInfo(pm),
+			setupContextInternal: setupContextInternal{
+				container:        tempContainer,
+				pluginName:       desc.Name,
+				autoTrackEnabled: true,
+			},
 		}
 		setupCtx.Go = func(fn func(ctx stdctx.Context)) { /* 推断阶段：no-op */ }
 

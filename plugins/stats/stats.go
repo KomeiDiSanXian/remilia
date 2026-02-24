@@ -28,6 +28,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // CommandStat 命令统计
@@ -58,14 +59,10 @@ type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
-	storage       storageBackend // 可选持久化后端
+	storage       storage.Client // 可选持久化后端
 }
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
+// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 type userEntry struct {
 	mu       sync.Mutex
@@ -103,15 +100,13 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Info("Plugin loaded")
-			if storageRaw, ok := setupCtx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.loadSnapshot()
-					// 使用 ctx.Go 启动生命周期绑定的自动保存 goroutine
-					setupCtx.Go(func(runCtx stdctx.Context) {
-						p.autoSaveWithCtx(runCtx, 5*time.Minute)
-					})
-				}
+			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
+				p.storage = sb
+				p.loadSnapshot()
+				// 使用 ctx.Go 启动生命周期绑定的自动保存 goroutine
+				setupCtx.Go(func(runCtx stdctx.Context) {
+					p.autoSaveWithCtx(runCtx, 5*time.Minute)
+				})
 			}
 			return p, nil
 		},

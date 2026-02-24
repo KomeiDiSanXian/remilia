@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // StepHandler is the function type for a conversation step.
@@ -55,15 +56,10 @@ type Session struct {
 type Plugin struct {
 	sessions sync.Map
 	machines sync.Map
-	storage  storageBackend // 可选持久化后端
+	storage  storage.Client // 可选持久化后端
 }
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-	Delete(key string) error
-}
+// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 // NewPlugin 创建并返回一个 Conversation Plugin 实例。
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
@@ -89,11 +85,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.restoreSessions()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.restoreSessions()
 			}
 			// 后台定期 GC 过期会话，防止 sync.Map 无限增长（Bug 2.4 修复）
 			ctx.Go(func(runCtx stdctx.Context) {

@@ -60,7 +60,7 @@ func TestSetupContext_Get(t *testing.T) {
 	container.Register("dep1", "value1")
 
 	ctx := &SetupContext{
-		container: container,
+		setupContextInternal: setupContextInternal{container: container},
 	}
 
 	// Test Get
@@ -80,7 +80,7 @@ func TestSetupContext_MustGet(t *testing.T) {
 	container.Register("dep1", "value1")
 
 	ctx := &SetupContext{
-		container: container,
+		setupContextInternal: setupContextInternal{container: container},
 	}
 
 	// Test MustGet success
@@ -112,7 +112,7 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		container: NewContainer(),
+		setupContextInternal: setupContextInternal{container: NewContainer()},
 	}
 
 	instance := &PluginInstance{
@@ -327,7 +327,7 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		container: NewContainer(),
+		setupContextInternal: setupContextInternal{container: NewContainer()},
 	}
 
 	instance := &PluginInstance{
@@ -361,7 +361,7 @@ func TestGetPlugin_TypeSafe(t *testing.T) {
 	container.Register("test", testPlugin)
 
 	ctx := &SetupContext{
-		container: container,
+		setupContextInternal: setupContextInternal{container: container},
 	}
 
 	// Test successful type-safe get

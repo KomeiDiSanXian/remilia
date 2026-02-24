@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"golang.org/x/time/rate"
 
@@ -28,6 +27,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // ErrAPINotSet 未调用 SetAPI 时发送会返回此错误
@@ -69,14 +69,10 @@ type Plugin struct {
 	subMu     sync.RWMutex
 
 	// 可选持久化后端
-	storage storageBackend
+	storage storage.Client
 }
 
-// storageBackend 用于订阅持久化（避免直接依赖 storage 包）
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
+// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 // NewPlugin 创建 Plugin 实例（用于测试或需要持有引用的场景）
 // 配合 Descriptor(p) 使用，或直接调用 p.SetAPI(api) / p.ToGroups(...)。
@@ -119,11 +115,9 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
-			if storageRaw, ok := setupCtx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					p.loadSubs()
-				}
+			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
+				p.storage = sb
+				p.loadSubs()
 			}
 			return p, nil
 		},

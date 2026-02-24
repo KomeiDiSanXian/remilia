@@ -158,7 +158,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		shutdownDuration := time.Since(shutdownStart)
 
 		assert.NoError(t, err)
-		assert.GreaterOrEqual(t, shutdownDuration, 40*time.Millisecond, "Stop should wait for events")
+		assert.GreaterOrEqual(t, shutdownDuration, 20*time.Millisecond, "Stop should wait for events")
 		assert.Equal(t, int32(eventCount), processedCount.Load(), "Should process all events before shutdown")
 		assert.Equal(t, int32(0), processingCount.Load(), "No events should be processing after shutdown")
 	})

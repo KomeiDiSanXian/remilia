@@ -26,10 +26,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // Stateful 插件实现此接口后，可被 pluginstore 自动发现并注册（可选）
@@ -47,11 +47,7 @@ type SaveFunc func() (any, error)
 // RestoreFunc 恢复状态函数
 type RestoreFunc func(state any) error
 
-// storageBackend 避免直接依赖 storage 包
-type storageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
+// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 type registration struct {
 	name    string
@@ -63,7 +59,7 @@ type registration struct {
 type Plugin struct {
 	mu      sync.RWMutex
 	regs    map[string]*registration
-	storage storageBackend
+	storage storage.Client
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -95,11 +91,9 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if storageRaw, ok := ctx.Get("storage"); ok {
-				if sb, ok := storageRaw.(storageBackend); ok {
-					p.storage = sb
-					ctx.Log.Info("Bound to storage plugin")
-				}
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				ctx.Log.Info("Bound to storage plugin")
 			}
 			return p, nil
 		},
@@ -245,15 +239,8 @@ func (p *Plugin) HasStorage() bool {
 	return p.storage != nil
 }
 
-// StorageBackend is the persistence interface used by pluginstore.
-// The storage plugin from plugins/core/storage automatically satisfies this interface.
-type StorageBackend interface {
-	Get(key string) ([]byte, error)
-	Set(key string, value []byte, ttl time.Duration) error
-}
-
-// SetStorageForTest sets the storage backend directly (for testing).
-// In production, storage is bound automatically from the container.
-func (p *Plugin) SetStorageForTest(sb StorageBackend) {
+// SetStorageForTest 直接绑定存储后端（仅用于测试）。
+// 生产环境中 storage 由容器自动绑定。
+func (p *Plugin) SetStorageForTest(sb storage.Client) {
 	p.storage = sb
 }

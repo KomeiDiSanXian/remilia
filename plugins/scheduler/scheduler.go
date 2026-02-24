@@ -16,6 +16,7 @@
 package scheduler
 
 import (
+	stdctx "context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -47,9 +48,9 @@ type JobRecord struct {
 type jobEntry struct {
 	id      JobID
 	name    string
-	cronID  cron.EntryID  // robfig/cron 条目 ID（仅用于 cron 调度）
-	stopCh  chan struct{} // 用于 ticker 调度的停止信号
-	running atomic.Bool   // 防重入标志
+	cronID  cron.EntryID      // robfig/cron 条目 ID（仅用于 cron 调度）
+	cancel  stdctx.CancelFunc // ticker 任务的独立取消函数（派生自 lifecycleCtx）
+	running atomic.Bool       // 防重入标志
 }
 
 // historySize 保存的最大历史记录数（环形缓冲）
@@ -61,6 +62,10 @@ type Plugin struct {
 	mu     sync.Mutex
 	jobs   map[JobID]*jobEntry
 	nextID JobID
+
+	// lifecycleCtx 由框架 goroutineManager 驱动，用于统一停止所有 ticker goroutine
+	lifecycleCtx    stdctx.Context
+	lifecycleCancel stdctx.CancelFunc
 
 	// 任务执行历史（环形缓冲）
 	historyMu sync.RWMutex
@@ -74,7 +79,12 @@ type Plugin struct {
 //	pm.RegisterV2(scheduler.Descriptor(p))
 //	p.Every(time.Minute, fn) // 直接调用
 func NewPlugin() *Plugin {
-	return &Plugin{jobs: make(map[JobID]*jobEntry)}
+	ctx, cancel := stdctx.WithCancel(stdctx.Background())
+	return &Plugin{
+		jobs:            make(map[JobID]*jobEntry),
+		lifecycleCtx:    ctx,
+		lifecycleCancel: cancel,
+	}
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
@@ -98,19 +108,29 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 			ctx.Log.Info("Loading scheduler plugin")
 			p.c = cron.New(cron.WithSeconds())
 			p.c.Start()
+			// 将框架生命周期 context 注入 Plugin，供后续 Every() 派生 job context 使用。
+			// 通过 ready channel 保证 Setup 返回前 lifecycleCtx 已切换完毕，
+			// 使调用者拿到已注册 Plugin 后调用 Every() 时使用的是框架 runCtx
+			ready := make(chan struct{})
+			ctx.Go(func(runCtx stdctx.Context) {
+				p.mu.Lock()
+				// 直接替换为 runCtx 的子 context，不取消旧 background context
+				// 旧 context 会在 NewPlugin 的 cancel 被调用时才结束（或随 GC 回收）
+				p.lifecycleCtx, p.lifecycleCancel = stdctx.WithCancel(runCtx)
+				p.mu.Unlock()
+				close(ready)
+				<-runCtx.Done()
+				// runCtx 结束时，lifecycleCtx（其子 context）也随之取消
+			})
+			<-ready // 等待 goroutine 完成 lifecycleCtx 切换后再返回
 			ctx.Log.Info("Scheduler plugin loaded")
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Stopping scheduler")
 			sched := ctx.API.(*Plugin)
-			sched.mu.Lock()
-			for _, entry := range sched.jobs {
-				if entry.stopCh != nil {
-					close(entry.stopCh)
-				}
-			}
-			sched.mu.Unlock()
+			// ticker goroutine 通过框架 goroutineManager 通过 lifecycleCtx 取消
+			// 此处只需停止 robfig/cron（负责 cron 表达式任务）
 			if sched.c != nil {
 				stopCtx := sched.c.Stop()
 				<-stopCtx.Done()
@@ -161,10 +181,12 @@ func (p *Plugin) every(name string, d time.Duration, fn JobFunc) JobID {
 	entry := &jobEntry{id: id, name: name}
 
 	if d < time.Second {
-		// For sub-second intervals, use a ticker goroutine
-		// since robfig/cron rounds up to 1 second minimum.
-		entry.stopCh = make(chan struct{})
+		// 固定间隔 < 1s：使用 goroutine + ticker
+		// 每个 job 有独立 context（派生自 lifecycleCtx），支持单独 Remove 和整体停止
+		jobCtx, jobCancel := stdctx.WithCancel(p.lifecycleCtx)
+		entry.cancel = jobCancel
 		go func() {
+			defer jobCancel() // 确保 context 资源被释放
 			ticker := time.NewTicker(d)
 			defer ticker.Stop()
 			wrapped := p.wrap(entry, fn)
@@ -172,13 +194,13 @@ func (p *Plugin) every(name string, d time.Duration, fn JobFunc) JobID {
 				select {
 				case <-ticker.C:
 					wrapped()
-				case <-entry.stopCh:
+				case <-jobCtx.Done():
 					return
 				}
 			}
 		}()
 	} else {
-		// Use cron.Schedule for >= 1s intervals
+		// >= 1s：交给 robfig/cron 管理，cancel 为 nil
 		cronID := p.c.Schedule(cron.Every(d), cron.FuncJob(p.wrap(entry, fn)))
 		entry.cronID = cronID
 	}
@@ -222,11 +244,11 @@ func (p *Plugin) Remove(id JobID) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if entry, ok := p.jobs[id]; ok {
-		if entry.stopCh != nil {
-			// Ticker-based job: signal goroutine to stop
-			close(entry.stopCh)
-		} else {
-			// Cron-based job
+		if entry.cancel != nil {
+			// ticker 任务：取消其独立 context，goroutine 随即退出
+			entry.cancel()
+		} else if entry.cronID != 0 {
+			// cron 任务：从 cron scheduler 移除
 			p.c.Remove(entry.cronID)
 		}
 		delete(p.jobs, id)

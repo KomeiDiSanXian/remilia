@@ -640,3 +640,9 @@ func (pm *Manager) GetEventBus() EventBus {
 	defer pm.mu.RUnlock()
 	return pm.eventBus
 }
+
+// AsPluginInfo 返回 Manager 的只读视图（PluginInfo 接口）。
+// 供向后兼容代码（如已废弃的 SetPluginManager）使用。
+func (pm *Manager) AsPluginInfo() PluginInfo {
+	return newPluginInfo(pm)
+}
