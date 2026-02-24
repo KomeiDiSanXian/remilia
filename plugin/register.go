@@ -175,6 +175,19 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 				"undeclared_deps": undeclaredDeps,
 				"declared_deps":   desc.Deps,
 			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
+
+			// 将追踪到的未声明依赖合并写回 desc.Deps，使框架后续所有基于
+			// desc.Deps 的机制（notifyDependents、UnregisterCascade、
+			// topologicalSortV2 跨批次检查）都能正确感知这些依赖关系。
+			//
+			// 不修改 desc.Deps（原始描述符保持只读），而是更新 instance.desc
+			// 的 Deps 字段（instance.desc 是框架运行时持有的副本）。
+			mergedDeps := make([]string, len(desc.Deps), len(desc.Deps)+len(undeclaredDeps))
+			copy(mergedDeps, desc.Deps)
+			mergedDeps = append(mergedDeps, undeclaredDeps...)
+			instance.desc = &PluginDescriptor{}
+			*instance.desc = *desc          // 浅拷贝描述符
+			instance.desc.Deps = mergedDeps // 替换为合并后的依赖列表
 		}
 	}
 
