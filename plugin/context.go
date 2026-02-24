@@ -11,13 +11,14 @@ import (
 
 // setupContextInternal 框架内部字段（外部 godoc 不可见）
 type setupContextInternal struct {
-	container        *Container
-	pluginName       string
-	instance         *PluginInstance
-	trackedDeps      map[string]bool
-	autoTrackEnabled bool
-	goroutineMgr     *goroutineManager
-	eng              *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
+	container           *Container
+	pluginName          string
+	instance            *PluginInstance
+	trackedDeps         map[string]bool // 必要依赖（Get 成功 + MustGet）
+	trackedOptionalDeps map[string]bool // 可选依赖（Get 成功但通过 ok 判断）
+	autoTrackEnabled    bool
+	goroutineMgr        *goroutineManager
+	eng                 *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
 }
 
 // SetupContext 插件 Setup 阶段的上下文。
@@ -84,30 +85,47 @@ func (ctx *SetupContext) ExportAs(name string, api any) {
 // Get 获取依赖插件（弱类型）
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
 // 推荐改用类型安全的 [Must] / [Try]。
+//
+// 追踪语义：只有在容器中找到该依赖时才追踪，且标记为可选依赖。
+// 若需要声明必要依赖，使用 MustGet / Must。
 func (ctx *SetupContext) Get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
+	v, ok := ctx.container.Get(name)
+	if ok && ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
+		// 找到时才追踪，且标记为可选（不影响 UnregisterCascade 级联语义）
+		if ctx.trackedOptionalDeps == nil {
+			ctx.trackedOptionalDeps = make(map[string]bool)
+		}
+		ctx.trackedOptionalDeps[name] = true
+	}
+	return v, ok
+}
+
+// MustGet 获取依赖插件（弱类型，不存在则 panic）
+// 推荐改用类型安全的 [Must]。
+//
+// 追踪语义：标记为必要依赖，影响 notifyDependents 和 UnregisterCascade。
+func (ctx *SetupContext) MustGet(name string) any {
+	v, ok := ctx.container.Get(name)
+	if !ok {
+		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
+	}
+	// 必要依赖追踪
 	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
 		if ctx.trackedDeps == nil {
 			ctx.trackedDeps = make(map[string]bool)
 		}
 		ctx.trackedDeps[name] = true
 	}
-	return ctx.container.Get(name)
-}
-
-// MustGet 获取依赖插件（弱类型，不存在则 panic）
-// 推荐改用类型安全的 [Must]。
-func (ctx *SetupContext) MustGet(name string) any {
-	v, ok := ctx.Get(name)
-	if !ok {
-		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
-	}
 	return v
 }
 
-// GetTrackedDependencies 获取自动跟踪到的依赖列表（框架内部使用）
+// GetTrackedDependencies 获取自动追踪到的必要依赖列表（框架内部使用）
+//
+// 必要依赖：通过 MustGet / Must 访问的依赖，合并到 instance.desc.Deps 中，
+// 影响 notifyDependents 和 UnregisterCascade 的行为。
 func (ctx *SetupContext) GetTrackedDependencies() []string {
 	if ctx.trackedDeps == nil {
 		return []string{}
@@ -119,15 +137,40 @@ func (ctx *SetupContext) GetTrackedDependencies() []string {
 	return deps
 }
 
+// GetTrackedOptionalDependencies 获取自动追踪到的可选依赖列表（框架内部使用）
+//
+// 可选依赖：通过 Get（有 ok 判断）访问且存在的依赖。
+// 用于 RegisterMultipleV2Smart 的依赖推断（拓扑排序），
+// 但不影响 notifyDependents 和 UnregisterCascade。
+func (ctx *SetupContext) GetTrackedOptionalDependencies() []string {
+	if ctx.trackedOptionalDeps == nil {
+		return []string{}
+	}
+	deps := make([]string, 0, len(ctx.trackedOptionalDeps))
+	for name := range ctx.trackedOptionalDeps {
+		deps = append(deps, name)
+	}
+	return deps
+}
+
 // --- 类型安全依赖获取 ---
 
 // GetPlugin 获取依赖插件（类型安全，返回 (*T, error)）
 //
+// 追踪语义：标记为必要依赖（与 Must 相同，区别仅在于错误处理方式）。
+//
 //	p, err := plugin.GetPlugin[permission.Plugin](ctx, "permission")
 func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
-	v, ok := ctx.Get(name)
+	// 先查容器，成功后追踪为必要依赖
+	v, ok := ctx.container.Get(name)
 	if !ok {
 		return nil, fmt.Errorf("plugin %q: dependency %q not found", ctx.pluginName, name)
+	}
+	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
+		if ctx.trackedDeps == nil {
+			ctx.trackedDeps = make(map[string]bool)
+		}
+		ctx.trackedDeps[name] = true
 	}
 	typed, ok := v.(*T)
 	if !ok {
@@ -158,10 +201,8 @@ func Optional[T any](ctx *SetupContext, name string) (*T, bool) {
 //
 //	perm := plugin.Must[permission.Plugin](ctx, "permission")
 func Must[T any](ctx *SetupContext, name string) *T {
-	v, ok := ctx.Get(name)
-	if !ok {
-		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
-	}
+	// 使用 MustGet 路径，确保被追踪为必要依赖
+	v := ctx.MustGet(name)
 	typed, ok := v.(*T)
 	if !ok {
 		panic(fmt.Sprintf("plugin %q: dependency %q has wrong type: expected *%T, got %T", ctx.pluginName, name, typed, v))
@@ -173,6 +214,7 @@ func Must[T any](ctx *SetupContext, name string) *T {
 //
 //	if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
 func Try[T any](ctx *SetupContext, name string) (*T, bool) {
+	// 使用 Get 路径，追踪为可选依赖
 	v, ok := ctx.Get(name)
 	if !ok {
 		return nil, false

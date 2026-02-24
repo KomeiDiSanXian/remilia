@@ -8,8 +8,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// TestUndeclaredDep_NotifiesDependents 验证 strictDeps=false + 未声明依赖时，
-// 框架仍能正确触发 OnDependencyReloaded 回调（依靠 instance.desc.Deps 合并修复）。
+// TestUndeclaredDep_NotifiesDependents 验证通过 MustGet 的未声明必要依赖
+// 被合并后能正确触发 OnDependencyReloaded 回调。
 func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
@@ -20,30 +20,23 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 
 	var notifiedDeclared, notifiedUndeclared atomic.Int32
 
-	// consumer-declared：正确声明了 Deps: ["base"]
 	_ = pm.RegisterV2(&plugin.PluginDescriptor{
 		Name: "consumer-declared",
 		Deps: []string{"base"},
 		Advanced: &plugin.PluginAdvanced{
 			OnDependencyReloaded: func(dep string) { notifiedDeclared.Add(1) },
 		},
-		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.MustGet("base")
-			return nil, nil
-		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) { ctx.MustGet("base"); return nil, nil },
 	})
 
-	// consumer-undeclared：strictDeps=false 时允许通过，但未声明 Deps。
-	// 修复后：框架将追踪到的 "base" 合并写回 instance.desc.Deps，
-	// notifyDependents 依赖 desc.Deps，因此也能正确通知。
 	_ = pm.RegisterV2(&plugin.PluginDescriptor{
 		Name: "consumer-undeclared",
-		Deps: []string{}, // 未声明
+		Deps: []string{},
 		Advanced: &plugin.PluginAdvanced{
 			OnDependencyReloaded: func(dep string) { notifiedUndeclared.Add(1) },
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.MustGet("base") // 实际使用了 base，框架追踪到该依赖
+			ctx.MustGet("base") // MustGet → 必要依赖 → 被合并到 desc.Deps
 			return nil, nil
 		},
 	})
@@ -52,19 +45,19 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	if notifiedDeclared.Load() == 0 {
-		t.Error("consumer-declared 应收到 OnDependencyReloaded 通知，但未收到")
+		t.Error("consumer-declared 应收到通知")
 	} else {
 		t.Log("✓ consumer-declared 收到通知")
 	}
 
 	if notifiedUndeclared.Load() == 0 {
-		t.Error("consumer-undeclared 应收到 OnDependencyReloaded 通知（修复后），但未收到")
+		t.Error("consumer-undeclared 应收到通知（MustGet 追踪为必要依赖后合并）")
 	} else {
-		t.Log("✓ consumer-undeclared 也收到通知（未声明依赖被自动合并到 instance.desc.Deps）")
+		t.Log("✓ consumer-undeclared 也收到通知（未声明必要依赖被自动合并）")
 	}
 }
 
-// TestUndeclaredDep_UnregisterCascade 验证 UnregisterCascade 能正确级联卸载未声明依赖的插件。
+// TestUndeclaredDep_UnregisterCascade 验证 MustGet 的未声明依赖方被正确级联卸载。
 func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
@@ -74,20 +67,16 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 	})
 
 	_ = pm.RegisterV2(&plugin.PluginDescriptor{
-		Name: "consumer-declared",
-		Deps: []string{"base"},
-		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.MustGet("base")
-			return nil, nil
-		},
+		Name:  "consumer-declared",
+		Deps:  []string{"base"},
+		Setup: func(ctx *plugin.SetupContext) (any, error) { ctx.MustGet("base"); return nil, nil },
 	})
 
-	// 未声明依赖——修复后 instance.desc.Deps 会被合并补全
 	_ = pm.RegisterV2(&plugin.PluginDescriptor{
 		Name: "consumer-undeclared",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.MustGet("base")
+			ctx.MustGet("base") // 必要 → 合并 → 级联
 			return nil, nil
 		},
 	})
@@ -95,61 +84,171 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 	_ = pm.UnregisterCascade("base")
 
 	if pm.IsLoaded("consumer-declared") {
-		t.Error("consumer-declared 应被级联卸载（声明了 Deps），但仍然存在")
+		t.Error("consumer-declared 应被级联卸载")
 	} else {
 		t.Log("✓ consumer-declared 被正确级联卸载")
 	}
 
 	if pm.IsLoaded("consumer-undeclared") {
-		t.Error("consumer-undeclared 应被级联卸载（未声明依赖被合并修复），但仍然存活")
+		t.Error("consumer-undeclared 应被级联卸载（MustGet 追踪为必要依赖）")
 	} else {
-		t.Log("✓ consumer-undeclared 也被正确级联卸载（未声明依赖自动合并后生效）")
+		t.Log("✓ consumer-undeclared 也被正确级联卸载")
 	}
 }
 
-// TestUndeclaredDep_TopologicalSort 验证批量注册时未声明依赖的插件不会先于依赖方注册。
+// TestUndeclaredDep_OptionalNotCascaded 验证 ctx.Get（可选依赖）不触发级联卸载。
+func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+		Name:  "optional-base",
+		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
+	})
+
+	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+		Name: "consumer-optional",
+		Deps: []string{},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			_, _ = ctx.Get("optional-base") // Get → 可选依赖 → 不参与级联
+			return nil, nil
+		},
+	})
+
+	_ = pm.UnregisterCascade("optional-base")
+
+	if pm.IsLoaded("consumer-optional") {
+		t.Log("✓ consumer-optional 不受级联卸载影响（Get 是可选依赖）")
+	} else {
+		t.Error("consumer-optional 不应被级联卸载（Get 访问的是可选依赖）")
+	}
+}
+
+// TestUndeclaredDep_OptionalNotNotified 验证 ctx.Get（可选依赖）不触发 OnDependencyReloaded。
+func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+		Name:  "optional-base",
+		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
+	})
+
+	var notified atomic.Int32
+
+	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+		Name: "consumer-optional",
+		Deps: []string{},
+		Advanced: &plugin.PluginAdvanced{
+			OnDependencyReloaded: func(dep string) { notified.Add(1) },
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			_, _ = ctx.Get("optional-base") // 可选
+			return nil, nil
+		},
+	})
+
+	_ = pm.Reload("optional-base")
+	time.Sleep(50 * time.Millisecond)
+
+	if notified.Load() > 0 {
+		t.Error("consumer-optional 不应收到 OnDependencyReloaded（Get 是可选依赖）")
+	} else {
+		t.Log("✓ consumer-optional 不收到通知（Get 追踪为可选依赖）")
+	}
+}
+
+// TestUndeclaredDep_TopologicalSort 验证批量注册未声明 Deps 的已知限制。
 func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	setupOrder := make([]string, 0, 2)
-	baseReady := false
 
 	base := &plugin.PluginDescriptor{
 		Name: "base-topo",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "base-topo")
-			baseReady = true
-			return "base-api", nil
+			return "api", nil
 		},
 	}
 
 	consumer := &plugin.PluginDescriptor{
 		Name: "consumer-topo",
-		Deps: []string{}, // 未声明，但 Setup 使用了 base-topo
+		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "consumer-topo")
-			v, ok := ctx.Get("base-topo")
-			if !ok || v == nil {
-				// 未声明 Deps 时，RegisterMultipleV2Atomic 的拓扑排序无法保证顺序，
-				// 这是已知限制（Smart 模式或手动声明 Deps 能解决）
-				t.Log("  注: 批量注册未声明 Deps 时顺序不保证（已知限制），建议使用 RegisterMultipleV2Smart 或声明 Deps）")
+			if _, ok := ctx.Get("base-topo"); !ok {
+				t.Log("  注: 批量注册未声明 Deps 时顺序不保证（已知限制，建议声明 Deps 或用 Smart 模式）")
 			}
 			return nil, nil
 		},
 	}
 
-	// RegisterMultipleV2Atomic 的拓扑排序只基于 Deps 字段，
-	// 未声明 Deps 时两者 inDegree 都为 0，顺序取决于 map 遍历（不确定）。
-	// 这是批量注册场景下的已知限制，单独 RegisterV2 场景不受影响。
-	err := pm.RegisterMultipleV2Atomic([]*plugin.PluginDescriptor{consumer, base})
-	if err != nil {
+	if err := pm.RegisterMultipleV2Atomic([]*plugin.PluginDescriptor{consumer, base}); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
-	t.Logf("注册顺序: %v（未声明 Deps 时拓扑排序不保证顺序）", setupOrder)
+	t.Logf("注册顺序: %v（未声明 Deps时拓扑排序不保证顺序）", setupOrder)
+}
 
-	// 验证修复的核心：注册完成后，consumer-topo 的 instance.desc.Deps 已被合并
-	// （单独 RegisterV2 场景已修复；批量场景由 RegisterMultipleV2Smart 处理）
-	if !baseReady {
-		t.Log("  base-topo 碰巧在 consumer-topo 之后注册，批量场景下属于已知限制")
+// TestUndeclaredDep_SmartMode 验证 Smart 模式能同时处理必要和可选依赖的拓扑排序。
+func TestUndeclaredDep_SmartMode(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	setupOrder := make([]string, 0, 3)
+
+	base := &plugin.PluginDescriptor{
+		Name: "sm-base",
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			setupOrder = append(setupOrder, "sm-base")
+			return "base-api", nil
+		},
+	}
+
+	optional := &plugin.PluginDescriptor{
+		Name: "sm-optional",
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			setupOrder = append(setupOrder, "sm-optional")
+			return "opt-api", nil
+		},
+	}
+
+	consumer := &plugin.PluginDescriptor{
+		Name: "sm-consumer",
+		Deps: []string{},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			setupOrder = append(setupOrder, "sm-consumer")
+			ctx.MustGet("sm-base")        // 必要
+			_, _ = ctx.Get("sm-optional") // 可选（仍影响排序）
+			return nil, nil
+		},
+	}
+
+	if err := pm.RegisterMultipleV2Smart([]*plugin.PluginDescriptor{consumer, base, optional}); err != nil {
+		t.Fatalf("Smart 注册失败: %v", err)
+	}
+
+	indexOf := func(name string) int {
+		// Smart 模式 DryRun 阶段会执行 Setup 一次，真正注册再执行一次，
+		// 取最后一次出现的位置（即真正的注册顺序）
+		last := -1
+		for i, n := range setupOrder {
+			if n == name {
+				last = i
+			}
+		}
+		return last
+	}
+
+	baseIdx, optIdx, consumerIdx := indexOf("sm-base"), indexOf("sm-optional"), indexOf("sm-consumer")
+	if baseIdx < 0 || optIdx < 0 || consumerIdx < 0 {
+		t.Fatalf("未找到所有插件: %v", setupOrder)
+	}
+	if consumerIdx < baseIdx {
+		t.Errorf("sm-base 应在 sm-consumer 之前，实际顺序: %v", setupOrder)
+	} else {
+		t.Logf("✓ Smart 模式正确推断必要依赖顺序: %v", setupOrder)
+	}
+	if consumerIdx < optIdx {
+		t.Errorf("sm-optional 应在 sm-consumer 之前，实际顺序: %v", setupOrder)
+	} else {
+		t.Logf("✓ Smart 模式同时处理可选依赖排序: %v", setupOrder)
 	}
 }

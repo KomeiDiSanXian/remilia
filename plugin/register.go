@@ -145,18 +145,32 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 	}
 
 	trackedDeps := setupCtx.GetTrackedDependencies()
-	if len(trackedDeps) > 0 {
+	trackedOptional := setupCtx.GetTrackedOptionalDependencies()
+
+	// 合并所有实际访问的依赖（必要 + 可选），用于 strictDeps 检查
+	allTracked := make(map[string]bool, len(trackedDeps)+len(trackedOptional))
+	for _, d := range trackedDeps {
+		allTracked[d] = true
+	}
+	for _, d := range trackedOptional {
+		allTracked[d] = true
+	}
+
+	if len(allTracked) > 0 {
 		declaredDeps := make(map[string]bool)
 		for _, dep := range desc.Deps {
 			declaredDeps[dep] = true
 		}
-		undeclaredDeps := make([]string, 0)
-		for _, tracked := range trackedDeps {
-			if !declaredDeps[tracked] {
-				undeclaredDeps = append(undeclaredDeps, tracked)
+
+		// 未声明的依赖（必要 + 可选）
+		undeclaredAll := make([]string, 0)
+		for dep := range allTracked {
+			if !declaredDeps[dep] {
+				undeclaredAll = append(undeclaredAll, dep)
 			}
 		}
-		if len(undeclaredDeps) > 0 {
+
+		if len(undeclaredAll) > 0 {
 			if pm.strictDeps {
 				delete(pm.plugins, name)
 				pm.container.Remove(name)
@@ -167,27 +181,34 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 				return fmt.Errorf(
 					"plugin %q uses undeclared dependencies %v (declared: %v); "+
 						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
-					name, undeclaredDeps, desc.Deps,
+					name, undeclaredAll, desc.Deps,
 				)
 			}
 			logger.WithFields(logger.Fields{
 				"plugin":          name,
-				"undeclared_deps": undeclaredDeps,
+				"undeclared_deps": undeclaredAll,
 				"declared_deps":   desc.Deps,
 			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
+		}
 
-			// 将追踪到的未声明依赖合并写回 desc.Deps，使框架后续所有基于
-			// desc.Deps 的机制（notifyDependents、UnregisterCascade、
-			// topologicalSortV2 跨批次检查）都能正确感知这些依赖关系。
-			//
-			// 不修改 desc.Deps（原始描述符保持只读），而是更新 instance.desc
-			// 的 Deps 字段（instance.desc 是框架运行时持有的副本）。
-			mergedDeps := make([]string, len(desc.Deps), len(desc.Deps)+len(undeclaredDeps))
+		// 将追踪到的未声明【必要】依赖合并写回 instance.desc.Deps。
+		// 只合并必要依赖（MustGet/Must/GetPlugin 访问的），影响：
+		//   - notifyDependents：依赖热重载时正确通知
+		//   - UnregisterCascade：被依赖卸载时正确级联
+		// 可选依赖（Get/Try 访问的）不合并，不触发级联卸载。
+		var undeclaredRequired []string
+		for _, d := range trackedDeps {
+			if !declaredDeps[d] {
+				undeclaredRequired = append(undeclaredRequired, d)
+			}
+		}
+		if len(undeclaredRequired) > 0 {
+			mergedDeps := make([]string, len(desc.Deps), len(desc.Deps)+len(undeclaredRequired))
 			copy(mergedDeps, desc.Deps)
-			mergedDeps = append(mergedDeps, undeclaredDeps...)
-			instance.desc = &PluginDescriptor{}
-			*instance.desc = *desc          // 浅拷贝描述符
-			instance.desc.Deps = mergedDeps // 替换为合并后的依赖列表
+			mergedDeps = append(mergedDeps, undeclaredRequired...)
+			newDesc := *desc
+			newDesc.Deps = mergedDeps
+			instance.desc = &newDesc
 		}
 	}
 
@@ -346,8 +367,20 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 			}()
 			_, _ = desc.callSetup(setupCtx)
 		}()
-		tracked := setupCtx.GetTrackedDependencies()
-		if len(tracked) > 0 {
+		// Smart 模式需要同时考虑必要依赖和可选依赖来确定拓扑顺序，
+		// 确保无论插件通过 Must/MustGet 还是 Try/Get 访问依赖，都能正确排序。
+		allTracked := make(map[string]bool)
+		for _, d := range setupCtx.GetTrackedDependencies() {
+			allTracked[d] = true
+		}
+		for _, d := range setupCtx.GetTrackedOptionalDependencies() {
+			allTracked[d] = true
+		}
+		if len(allTracked) > 0 {
+			tracked := make([]string, 0, len(allTracked))
+			for d := range allTracked {
+				tracked = append(tracked, d)
+			}
 			inferredDeps[desc.Name] = tracked
 		}
 	}
