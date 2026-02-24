@@ -106,39 +106,33 @@ func New() *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "acl",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "黑白名单（ACL）访问控制插件",
-		Category:    "安全",
-		Tags:        []string{"安全", "访问控制", "黑白名单"},
-		Deps:        []string{},
-		HelpText: `ACL 插件使用说明：
+		Name:    "acl",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "黑白名单（ACL）访问控制插件",
+			Category:    "安全",
+			Tags:        []string{"安全", "访问控制", "黑白名单"},
+			HelpText: `ACL 插件使用说明：
   p := acl.NewPlugin()
   pm.RegisterV2(acl.Descriptor(p))
   engine.OnGroupAt(p.Rule()).Handle(handler)
-
-  // 切换模式
   p.SetMode(acl.ModeBlacklist)
-  p.SetMode(acl.ModeWhitelist)
-
-  // 添加/移除用户
-  p.Add("userOpenID", "备注")
-  p.Remove("userOpenID")`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[ACL] Plugin loaded")
-			ctx.Manager.GetContainer().Register("acl", p)
-			// 可选持久化
-			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+  p.Add("userOpenID", "备注")`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
+			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.load()
 				}
 			}
-			return nil
+			return p, nil
 		},
-		Teardown: func() error {
-			p.save()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).save()
 			return nil
 		},
 	}

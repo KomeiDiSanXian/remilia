@@ -12,7 +12,7 @@ func makeSimpleDescriptor(name string, deps []string) *PluginDescriptor {
 	return &PluginDescriptor{
 		Name:  name,
 		Deps:  deps,
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 }
 
@@ -120,8 +120,8 @@ func TestRegisterV2_MissingDependency(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing dependency")
 	}
-	if !strings.Contains(err.Error(), "missing dependency") {
-		t.Errorf("expected 'missing dependency' error, got: %v", err)
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("expected 'missing' dependency error, got: %v", err)
 	}
 }
 
@@ -166,9 +166,9 @@ func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
 	sneaky := &PluginDescriptor{
 		Name: "sneaky",
 		Deps: []string{}, // intentionally empty
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Get("base") // undeclared dependency
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -196,9 +196,9 @@ func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
 	honest := &PluginDescriptor{
 		Name: "honest",
 		Deps: []string{"base"}, // properly declared
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Get("base")
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -220,9 +220,9 @@ func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
 	lenient := &PluginDescriptor{
 		Name: "lenient",
 		Deps: []string{},
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Get("base") // undeclared — should only warn
-			return nil
+			return nil, nil
 		},
 	}
 

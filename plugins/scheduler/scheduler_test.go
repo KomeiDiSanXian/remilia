@@ -20,8 +20,13 @@ func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 	if err := pm.RegisterV2(desc); err != nil {
 		t.Fatalf("RegisterV2: %v", err)
 	}
-	return p, func() { desc.Teardown() }
+	return p, func() {
+		if err := pm.Unregister("scheduler"); err != nil {
+			t.Logf("Unregister: %v", err)
+		}
+	}
 }
+
 func TestScheduler_Every(t *testing.T) {
 	p, stop := newSched(t)
 	defer stop()
@@ -89,3 +94,16 @@ func TestScheduler_PanicRecovery(t *testing.T) {
 		t.Error("scheduler should continue after panic in one job")
 	}
 }
+
+// noopLogger satisfies plugin.PluginLogger for tests without panicking on nil.
+type noopLogger struct{}
+
+func (noopLogger) Info(msg string)                               {}
+func (noopLogger) Infof(format string, args ...any)              {}
+func (noopLogger) Warn(msg string)                               {}
+func (noopLogger) Warnf(format string, args ...any)              {}
+func (noopLogger) Error(msg string, err error)                   {}
+func (noopLogger) Errorf(format string, args ...any)             {}
+func (noopLogger) Debug(msg string)                              {}
+func (noopLogger) Debugf(format string, args ...any)             {}
+func (noopLogger) WithField(k string, v any) plugin.PluginLogger { return noopLogger{} }

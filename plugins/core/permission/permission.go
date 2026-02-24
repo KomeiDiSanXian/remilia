@@ -1,6 +1,7 @@
 package permission
 
 import (
+	stdctx "context"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,7 +19,6 @@ type Plugin struct {
 	manager         *eventctx.PermissionManager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
-	cleanupStopChan chan struct{}
 	store           StorageBackend // 可选持久化后端（nil=纯内存）
 }
 
@@ -28,85 +28,56 @@ func New() *plugin.PluginDescriptor {
 	permManager := eventctx.NewPermissionManager()
 	verificationMgr := NewVerificationManager()
 	acl := NewAccessControlList()
-	cleanupStopChan := make(chan struct{})
 
-	// 初始化预定义角色
 	initExtraRoles(permManager)
 
-	// 创建 Plugin API 包装器
 	pluginAPI := &Plugin{
 		manager:         permManager,
 		verificationMgr: verificationMgr,
 		acl:             acl,
-		cleanupStopChan: cleanupStopChan,
 	}
 
 	return &plugin.PluginDescriptor{
-		Name:        "permission",
-		Version:     "3.0.0",
-		Author:      "Remilia Team",
-		Description: "基于角色的访问控制（RBAC）权限系统",
-		Category:    "核心",
-		Tags:        []string{"权限", "安全", "RBAC", "核心"},
-		Deps:        []string{},
-		HelpText: `权限系统使用说明：
-
-基于角色的访问控制（RBAC）：
-- 支持 Resource:Action 格式的权限
-- 支持角色继承和权限组合
-- 提供权限检查中间件
-- 支持通配符匹配
-
-预定义角色：
-- admin - 管理员（所有权限）
-- user  - 普通用户（命令执行权限）
-- guest - 访客（仅查询权限）
-- moderator - 版主（部分管理权限）
-
-API 使用 (v2):
-  perm := ctx.MustGet("permission").(*permission.Plugin)
-  perm.HasPermission(userID, resource, action) - 检查权限
-  perm.Grant(userID, resource, action) - 授予权限
-  perm.Revoke(userID, resource, action) - 撤销权限
-  perm.AssignRole(userID, role) - 分配角色`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[PermissionPlugin] Loading permission plugin (v2)...")
-
-			// 获取所有角色
+		Name:    "permission",
+		Version: "3.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "基于角色的访问控制（RBAC）权限系统",
+			Category:    "核心",
+			Tags:        []string{"权限", "安全", "RBAC", "核心"},
+			HelpText: `权限系统使用说明：
+  perm := plugin.Require[permission.Plugin](ctx, "permission")
+  perm.HasPermission(userID, resource, action)
+  perm.Grant(userID, resource, action)
+  perm.AssignRole(userID, role)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Loading permission plugin")
 			roles := []string{"admin", "user", "guest", "moderator"}
-			logger.Infof("[PermissionPlugin] Loaded %d default roles", len(roles))
+			ctx.Log.Infof("Loaded %d default roles", len(roles))
 
-			// 尝试绑定 storage 插件（可选依赖，用于持久化权限数据）
 			if sv, ok := ctx.Get("storage"); ok {
 				if storagePlugin, ok := sv.(*storageplugin.Plugin); ok {
 					pluginAPI.TryBindStorage(NewStorageAdapter(storagePlugin))
 				}
 			}
 
-			// 启动验证码清理协程
-			go cleanupExpiredCodesRoutine(verificationMgr, cleanupStopChan)
-			logger.Info("[PermissionPlugin] Started verification code cleanup routine")
-
-			// 注册 API 包装器到容器，使用插件名 "permission" 以便 MustGet("permission") 直接获取 *permission.Plugin
-			ctx.Manager.GetContainer().Register("permission", pluginAPI)
-
-			logger.Info("[PermissionPlugin] Permission plugin loaded successfully")
-			return nil
+			// 使用 ctx.Go 替代手动 goroutine + stopChan
+			ctx.Go(func(runCtx stdctx.Context) {
+				cleanupExpiredCodesRoutineCtx(verificationMgr, runCtx)
+			})
+			ctx.Log.Info("Started verification code cleanup routine")
+			ctx.Log.Info("Permission plugin loaded")
+			return pluginAPI, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[PermissionPlugin] Unloading permission plugin...")
-
-			// 持久化权限数据
-			if err := pluginAPI.saveToStorage(); err != nil {
-				logger.WithError(err).Warn("[PermissionPlugin] Failed to persist permission data")
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Unloading permission plugin")
+			p := ctx.API.(*Plugin)
+			if err := p.saveToStorage(); err != nil {
+				ctx.Log.Error("Failed to persist permission data", err)
 			}
-
-			// 停止清理协程
-			close(cleanupStopChan)
-
-			logger.Info("[PermissionPlugin] Permission plugin unloaded")
+			ctx.Log.Info("Permission plugin unloaded")
 			return nil
 		},
 	}
@@ -132,16 +103,14 @@ func initExtraRoles(permManager *eventctx.PermissionManager) {
 	permManager.RegisterRole(moderator)
 }
 
-// cleanupExpiredCodesRoutine 定期清理过期的验证码（独立函数）
+// cleanupExpiredCodesRoutine 定期清理过期的验证码（旧版，stopChan）
 func cleanupExpiredCodesRoutine(verificationMgr *VerificationManager, stopChan chan struct{}) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
-			count := verificationMgr.CleanupExpired()
-			if count > 0 {
+			if count := verificationMgr.CleanupExpired(); count > 0 {
 				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
 			}
 		case <-stopChan:
@@ -151,34 +120,42 @@ func cleanupExpiredCodesRoutine(verificationMgr *VerificationManager, stopChan c
 	}
 }
 
-// Load 加载插件（v1 API）
+// cleanupExpiredCodesRoutineCtx 定期清理过期的验证码（新版，context）
+func cleanupExpiredCodesRoutineCtx(verificationMgr *VerificationManager, ctx stdctx.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if count := verificationMgr.CleanupExpired(); count > 0 {
+				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
+			}
+		case <-ctx.Done():
+			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
+			return
+		}
+	}
+}
+
+// Load 加载插件（v1 API，保留向后兼容）
 func (p *Plugin) Load(eng *engine.Engine) error {
 	logger.Info("[PermissionPlugin] Loading permission plugin...")
-
-	// 获取所有角色
-	roles := []string{"admin", "user", "guest", "moderator"}
-	logger.Infof("[PermissionPlugin] Loaded %d default roles", len(roles))
-
-	// 启动验证码清理协程
-	go p.cleanupExpiredCodes()
-	logger.Info("[PermissionPlugin] Started verification code cleanup routine")
-
 	return nil
 }
 
-// Unload 卸载插件（v1 API）
+// Unload 卸载插件（v1 API，保留向后兼容）
 func (p *Plugin) Unload(eng *engine.Engine) error {
 	logger.Info("[PermissionPlugin] Unloading permission plugin...")
-
-	// 停止清理协程
-	close(p.cleanupStopChan)
-
 	return nil
 }
 
-// cleanupExpiredCodes 定期清理过期的验证码（v1 方法）
+// cleanupExpiredCodes 定期清理过期验证码（v1 辅助方法，已废弃）
 func (p *Plugin) cleanupExpiredCodes() {
-	cleanupExpiredCodesRoutine(p.verificationMgr, p.cleanupStopChan)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		p.verificationMgr.CleanupExpired()
+	}
 }
 
 // GetManager 获取底层的 PermissionManager

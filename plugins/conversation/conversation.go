@@ -74,27 +74,27 @@ func NewPlugin() *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "conversation",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "Multi-step conversation/FSM plugin with cross-message state tracking",
-		Category:    "core",
-		Tags:        []string{"conversation", "fsm", "session"},
-		Deps:        []string{},
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[Conversation] Plugin loaded")
-			ctx.Manager.GetContainer().Register("conversation", p)
-			// 可选：若 storage 已注册，则恢复持久化的会话
-			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+		Name:    "conversation",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "Multi-step conversation/FSM plugin with cross-message state tracking",
+			Category:    "core",
+			Tags:        []string{"conversation", "fsm", "session"},
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
+			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.restoreSessions()
 				}
 			}
-			return nil
+			return p, nil
 		},
-		Teardown: func() error {
-			p.persistSessions()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).persistSessions()
 			return nil
 		},
 	}

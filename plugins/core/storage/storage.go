@@ -80,50 +80,35 @@ func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
 	}
 
 	return &plugin.PluginDescriptor{
-		Name:        "storage",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "统一的数据存储抽象层，支持多种后端",
-		Category:    "核心",
-		Tags:        []string{"存储", "数据", "核心"},
-		Deps:        []string{},
-		HelpText: `存储插件使用说明：
-提供统一的 KV 存储接口，支持多种后端：
-- Memory - 内存存储（默认）
-- Redis - Redis 集群（待实现）
-- SQLite - 本地数据库（待实现）
-
-API 使用 (v2):
-  storagePlugin := ctx.MustGet("storage").(*storage.Plugin)
-  storagePlugin.Get(key) - 获取值
-  storagePlugin.Set(key, value, ttl) - 设置值
-  storagePlugin.Delete(key) - 删除值
-  storagePlugin.Exists(key) - 检查存在
-  storagePlugin.Keys(pattern) - 列出键`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[StoragePlugin] Loading storage plugin (v2)...")
-			logger.Infof("[StoragePlugin] Backend: %T", storage)
-
-			// 注册 API 包装器到容器，使用插件名 "storage" 以便 MustGet("storage") 直接获取 *storage.Plugin
-			ctx.Manager.GetContainer().Register("storage", pluginAPI)
-
-			// 启动后台定期清理协程（如果后端支持）
-			pluginAPI.stopClean = pluginAPI.startCleanRoutine()
-
-			logger.Info("[StoragePlugin] Storage plugin loaded successfully")
-			return nil
+		Name:    "storage",
+		Version: "2.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "统一的数据存储抽象层，支持多种后端",
+			Category:    "核心",
+			Tags:        []string{"存储", "数据", "核心"},
+			HelpText: `存储插件使用说明：
+  storagePlugin := plugin.Require[storage.Plugin](ctx, "storage")
+  storagePlugin.Get(key)
+  storagePlugin.Set(key, value, ttl)
+  storagePlugin.Delete(key)`,
 		},
 
-		Teardown: func() error {
-			logger.Info("[StoragePlugin] Unloading storage plugin...")
-			// 停止后台清理协程
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Infof("Loading storage plugin (backend=%T)", storage)
+			pluginAPI.stopClean = pluginAPI.startCleanRoutine()
+			return pluginAPI, nil
+		},
+
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Unloading storage plugin")
 			if pluginAPI.stopClean != nil {
 				close(pluginAPI.stopClean)
 				pluginAPI.stopClean = nil
 			}
 			if err := storage.Clear(); err != nil {
-				logger.WithError(err).Warn("[StoragePlugin] Failed to clear storage")
+				ctx.Log.Error("Failed to clear storage", err)
 			}
 			return nil
 		},

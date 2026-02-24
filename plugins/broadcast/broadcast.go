@@ -88,39 +88,32 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 	}
 
 	return &plugin.PluginDescriptor{
-		Name:        "broadcast",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "广播/推送插件，支持向多群和多用户批量发送消息",
-		Category:    "核心",
-		Tags:        []string{"广播", "推送", "通知"},
-		Deps:        []string{},
-		HelpText: `广播插件使用说明：
-  bc := ctx.MustGet("broadcast").(*broadcast.Plugin)
+		Name:    "broadcast",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "广播/推送插件，支持向多群和多用户批量发送消息",
+			Category:    "核心",
+			Tags:        []string{"广播", "推送", "通知"},
+			HelpText: `广播插件使用说明：
+  bc := plugin.Require[broadcast.Plugin](ctx, "broadcast")
   bc.SetAPI(api)
-  result := bc.ToGroups(groupIDs, msg)
-  result := bc.ToC2C(openIDs, msg)
-
-  // 订阅管理
-  bc.SubscribeGroup("group-openid")
-  bc.UnsubscribeGroup("group-openid")
-  bc.ToSubscribedGroups(msg)  // 向所有已订阅群广播`,
-
-		Setup: func(setupCtx *plugin.SetupContext) error {
-			logger.Infof("[Broadcast] Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
-			setupCtx.Manager.GetContainer().Register("broadcast", p)
-			// 可选：若 storage 插件已注册，则使用其持久化订阅数据
-			if storageRaw, ok := setupCtx.Manager.GetContainer().Get("storage"); ok {
+  bc.ToGroups(groupIDs, msg)
+  bc.ToSubscribedGroups(msg)`,
+		},
+		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
+			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
+			if storageRaw, ok := setupCtx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.loadSubs()
 				}
 			}
-			return nil
+			return p, nil
 		},
-
-		Teardown: func() error {
-			p.saveSubs()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).saveSubs()
 			return nil
 		},
 	}

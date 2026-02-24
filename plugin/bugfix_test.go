@@ -20,9 +20,9 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	slowPlugin := &PluginDescriptor{
 		Name:    "slow-plugin",
 		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			time.Sleep(100 * time.Millisecond) // 模拟慢速加载
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -43,13 +43,11 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 
 		plugin, exists := manager.Get("slow-plugin")
 		if exists && plugin != nil {
-			// 如果获取到了插件，应该是已加载状态
-			if stateful, ok := plugin.(StatefulPlugin); ok {
-				state := stateful.GetState()
-				if state == Loading {
-					errors <- ErrPluginLoading
-					return
-				}
+			// *PluginInstance 直接实现 StatefulPlugin，无需类型断言
+			state := plugin.GetState()
+			if state == Loading {
+				errors <- ErrPluginLoading
+				return
 			}
 		}
 		// 如果不存在或者已加载，都是正常的
@@ -72,10 +70,8 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	if !exists {
 		t.Fatal("Plugin should be loaded after waiting")
 	}
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		if stateful.GetState() != Loaded {
-			t.Errorf("Plugin state should be Loaded, got %v", stateful.GetState())
-		}
+	if plugin.GetState() != Loaded {
+		t.Errorf("Plugin state should be Loaded, got %v", plugin.GetState())
 	}
 }
 
@@ -124,10 +120,10 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 	desc := &PluginDescriptor{
 		Name:    "test-plugin",
 		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) error {
-			return nil
+		Setup: func(ctx *SetupContext) (any, error) {
+			return nil, nil
 		},
-		Teardown: func() error {
+		Teardown: func(ctx *TeardownContext) error {
 			time.Sleep(50 * time.Millisecond) // 模拟慢速卸载
 			return nil
 		},
@@ -138,13 +134,12 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 		t.Fatalf("Failed to register plugin: %v", err)
 	}
 
-	plugin, _ := manager.Get("test-plugin")
-	instance := plugin.(*PluginInstance)
+	instance, _ := manager.Get("test-plugin")
 
 	// 启动卸载
 	done := make(chan bool)
 	go func() {
-		_ = instance.Unload(eng)
+		_ = instance.unload(eng)
 		done <- true
 	}()
 
@@ -235,8 +230,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{}, // 暂时不声明依赖
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -248,7 +243,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		// 手动修改 A 的依赖为 B（模拟已注册插件后来依赖新插件的情况）
 		// 在实际场景中，这可能通过配置更新或动态依赖解析发生
 		subManager.mu.Lock()
-		if instance, ok := subManager.plugins["plugin-a"].(*PluginInstance); ok {
+		if instance, exists := subManager.plugins["plugin-a"]; exists {
 			instance.desc.Deps = []string{"plugin-b"}
 		}
 		subManager.mu.Unlock()
@@ -258,8 +253,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"}, // B 依赖 A
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -281,8 +276,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -296,7 +291,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 
 		// 修改 A 依赖 C
 		subManager.mu.Lock()
-		if instance, ok := subManager.plugins["plugin-a"].(*PluginInstance); ok {
+		if instance, exists := subManager.plugins["plugin-a"]; exists {
 			instance.desc.Deps = []string{"plugin-c"}
 		}
 		subManager.mu.Unlock()
@@ -305,8 +300,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -314,8 +309,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-c",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-b"},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -337,8 +332,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -352,8 +347,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 
@@ -361,8 +356,8 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			Name:    "plugin-c",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-b"},
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		}
 

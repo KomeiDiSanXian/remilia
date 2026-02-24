@@ -1,166 +1,339 @@
 package plugin
 
 import (
+	stdctx "context"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
-// PluginDescriptor 插件描述符（v2 简化 API）
+// PluginMeta 插件元数据（可选，影响 /help 显示）
 //
-// 使用函数式方法定义插件，无需继承，无需实现复杂接口。
-// 推荐使用此方式创建新插件。
+// 将 Author/Description/Category/Tags/HelpText/Hidden 从顶层字段迁移到此结构，
+// 减少 PluginDescriptor 的认知负担——大多数核心插件只需 Name/Deps/Setup/Teardown。
+type PluginMeta struct {
+	Author      string   // 作者
+	Description string   // 描述
+	HelpText    string   // 帮助文本
+	Category    string   // 分类
+	Tags        []string // 标签
+	Hidden      bool     // 是否在帮助中隐藏
+}
+
+// ReloadStrategy 定义插件热重载策略
+type ReloadStrategy int
+
+const (
+	// ReloadUnloadLoad 停机重载：先卸载旧实例（移除 Matcher、停止 goroutine），再加载新实例。
+	// 存在短暂不可用窗口，但支持完整的状态迁移（SaveState/RestoreState）。
+	// 这是默认策略（兼容旧行为）。
+	ReloadUnloadLoad ReloadStrategy = iota
+
+	// ReloadInPlace 原地重载：调用 Advanced.Reload 函数，插件自行处理状态迁移。
+	// 适合能在不停止旧 Matcher 的情况下完成状态更新的插件。
+	// 若 Advanced.Reload 为 nil，回退为 ReloadUnloadLoad。
+	ReloadInPlace
+
+	// ReloadBlueGreen 蓝绿重载：并行运行新实例的 Setup，完成后原子切换，最后停止旧实例。
+	// 零停机：切换过程中旧 Matcher 仍然处理消息，新实例就绪后一次性接管。
+	// 适合无状态或自带快照能力的插件。
+	ReloadBlueGreen
+)
+
+// PluginAdvanced 插件高级选项（可选）
+//
+// 热重载、状态迁移、依赖回调等高级功能。仅在需要时填写，减少普通插件的复杂度。
+type PluginAdvanced struct {
+	// Strategy 热重载策略（可选，默认 ReloadUnloadLoad）
+	Strategy ReloadStrategy
+
+	// Reload 自定义热重载函数（可选）
+	// 若为 nil 且 Strategy == ReloadInPlace，回退为 ReloadUnloadLoad。
+	// 若 Strategy == ReloadBlueGreen，此字段被忽略（框架自动处理）。
+	Reload ReloadFunc
+
+	// OnDependencyReloaded 依赖热重载通知回调（可选）
+	// 当本插件的某个依赖完成热重载后被调用
+	OnDependencyReloaded func(reloadedDep string)
+
+	// SaveState 热重载前保存内存态（可选，仅 ReloadUnloadLoad 策略生效）
+	SaveState SaveStateFunc
+
+	// RestoreState 热重载后恢复内存态（可选，仅 ReloadUnloadLoad 策略生效）
+	RestoreState RestoreStateFunc
+
+	// ConfigSchema 配置结构（可选）
+	// 可使用 map[string]plugin.SchemaField 或带 `schema:"required"` tag 的 struct 指针。
+	// 框架在插件注册时自动校验，校验失败返回 SchemaValidationError。
+	ConfigSchema any
+}
+
+// TeardownContext Teardown 阶段的上下文（P3-2）
+//
+// 新签名 TeardownFuncV3 的参数，提供 Teardown 阶段合理可用的资源，
+// 替代旧的无参数 `func() error` 闭包模式。
 //
 // 示例：
 //
-//	func NewMyPlugin() *PluginDescriptor {
-//	    return &PluginDescriptor{
-//	        Name:    "myplugin",
-//	        Version: "1.0.0",
-//	        Deps:    []string{"permission"},
-//	        Setup: func(ctx *SetupContext) error {
-//	            perm := ctx.MustGet("permission").(*permission.Plugin)
-//	            ctx.Engine.OnCommand(dto.C2CMessageCreate, "/hello").
-//	                Handle(func(c *eventctx.Context) error {
-//	                    return c.Reply("Hello!")
-//	                })
-//	            return nil
-//	        },
-//	    }
-//	}
-type PluginDescriptor struct {
-	// 基本信息
-	Name        string // 插件名称（必需）
-	Version     string // 版本号
-	Author      string // 作者
-	Description string // 描述
-	HelpText    string // 帮助文本
+//	Teardown: func(ctx *plugin.TeardownContext) error {
+//	    ctx.API.(*MyPlugin).Save()
+//	    ctx.Log.Info("plugin stopped")
+//	    return nil
+//	},
+type TeardownContext struct {
+	// API 是 SetupFuncV3 返回的插件 API 对象
+	// 旧签名（func() error）下此字段为 nil
+	API any
 
-	// 分类和标签
-	Category string   // 分类
-	Tags     []string // 标签
+	// Config 插件配置
+	Config Config
 
-	// 依赖
-	Deps []string // 依赖的插件列表
+	// EventBus 插件间事件总线
+	EventBus EventBus
 
-	// 生命周期钩子
-	Setup    SetupFunc    // 初始化函数（必需）
-	Teardown TeardownFunc // 清理函数（可选）
-	Reload   ReloadFunc   // 热重载函数（可选）
-
-	// 依赖热重载通知回调（可选）
-	// 当本插件依赖的某个插件完成热重载后，此函数会被调用。
-	// 可用于刷新缓存、重新获取依赖引用等。
-	// reloadedDep: 已完成重载的依赖插件名称
-	OnDependencyReloaded func(reloadedDep string)
-
-	// 状态保存/恢复钩子（用于热重载）
-	SaveState    SaveStateFunc    // 保存状态（可选）
-	RestoreState RestoreStateFunc // 恢复状态（可选）
-
-	// 配置
-	ConfigSchema any // 配置结构（可选）
-
-	// 可见性
-	Hidden bool // 是否在帮助中隐藏
+	// Log 带插件名前缀的日志器
+	Log PluginLogger
 }
-
-// SetupFunc 插件初始化函数
-// 插件应在此函数中：
-//   - 注册命令和事件处理器
-//   - 获取依赖插件
-//   - 初始化内部状态
-//   - 读取配置
-type SetupFunc func(ctx *SetupContext) error
-
-// TeardownFunc 插件清理函数
-// 插件应在此函数中：
-//   - 释放资源
-//   - 停止后台任务
-//   - 保存状态
-type TeardownFunc func() error
 
 // ReloadFunc 插件热重载函数
 // 实现热重载逻辑（可选）
 // 如果不实现，将使用默认的 Teardown + Setup 策略
-type ReloadFunc func(ctx *SetupContext) error
+type ReloadFunc = func(ctx *SetupContext) error
 
 // SaveStateFunc 插件状态保存函数
 // 在热重载前保存插件状态（可选）
 // 返回的状态数据将传递给 RestoreStateFunc
-type SaveStateFunc func() (any, error)
+type SaveStateFunc = func() (any, error)
 
 // RestoreStateFunc 插件状态恢复函数
 // 在热重载后恢复插件状态（可选）
 // 接收 SaveStateFunc 返回的状态数据
-type RestoreStateFunc func(state any) error
+type RestoreStateFunc = func(state any) error
 
-// SetupContext 插件初始化上下文
-// 提供插件初始化所需的所有资源
-type SetupContext struct {
-	Engine   *engine.Engine // 事件引擎
-	Manager  *Manager       // 插件管理器
-	Config   Config         // 插件配置
-	EventBus EventBus       // 插件间事件总线
+// PluginDescriptor 插件描述符
+//
+// # 最简用法（仅需 Name + Setup）
+//
+//	&plugin.PluginDescriptor{
+//	    Name:  "myplugin",
+//	    Setup: func(ctx *plugin.SetupContext) (any, error) {
+//	        p := NewPlugin()
+//	        return p, nil  // 框架自动导出到容器
+//	    },
+//	}
+//
+// # 完整用法（含元数据和高级选项）
+//
+//	&plugin.PluginDescriptor{
+//	    Name:    "myplugin",
+//	    Version: "1.0.0",
+//	    Deps:    []string{"storage"},
+//	    Meta: &plugin.PluginMeta{
+//	        Author:      "Team",
+//	        Description: "My plugin",
+//	        Category:    "core",
+//	    },
+//	    Setup:    func(ctx *plugin.SetupContext) (any, error) { ... },
+//	    Teardown: func(ctx *plugin.TeardownContext) error { ... },
+//	}
+type PluginDescriptor struct {
+	// Name 插件名称（必需，全局唯一）
+	Name string
 
-	// DryRun 为 true 时表示当前处于依赖推断阶段（由 RegisterMultipleV2Smart 使用）。
-	// Setup 函数应在 DryRun 为 true 时跳过有副作用的操作（注册命令、启动 goroutine 等），
-	// 仅执行 Get/MustGet 调用以暴露依赖关系。
-	DryRun bool
+	// Version 版本号（建议填写，格式：semver）
+	Version string
 
-	container        *Container      // 依赖注入容器
-	pluginName       string          // 当前插件名称（内部使用）
-	instance         *PluginInstance // 插件实例引用（内部使用）
-	trackedDeps      map[string]bool // 自动跟踪的依赖（内部使用）
-	autoTrackEnabled bool            // 是否启用自动依赖跟踪（内部使用）
+	// Deps 依赖的插件名称列表
+	// 框架保证 Deps 中的插件在本插件 Setup 前已完成加载
+	Deps []string
+
+	// Setup 插件初始化函数（必需）
+	// 签名：func(*SetupContext) (any, error)
+	// 返回值 any 是插件导出的 API 对象，框架自动注入容器。
+	// 若不导出 API（如纯命令注册插件），返回 nil, nil。
+	Setup func(*SetupContext) (any, error)
+
+	// Teardown 插件清理函数（可选）
+	// 签名：func(*TeardownContext) error
+	// TeardownContext 提供 API、Log、Config 等资源，无需闭包捕获。
+	Teardown func(*TeardownContext) error
+
+	// Meta 插件元数据（可选，影响 /help 显示）
+	Meta *PluginMeta
+
+	// Advanced 高级选项（可选）
+	// 包含 Reload/OnDependencyReloaded/SaveState/RestoreState/ConfigSchema
+	Advanced *PluginAdvanced
 }
 
-// Get 获取依赖插件
-// 返回插件实例和是否存在的标志
+// --- PluginDescriptor 辅助方法 ---
+
+// effectiveMeta 返回元数据（Meta 为 nil 时返回零值）
+func (d *PluginDescriptor) effectiveMeta() PluginMeta {
+	if d.Meta != nil {
+		return *d.Meta
+	}
+	return PluginMeta{}
+}
+
+// effectiveAdvanced 返回高级选项（Advanced 为 nil 时返回零值）
+func (d *PluginDescriptor) effectiveAdvanced() PluginAdvanced {
+	if d.Advanced != nil {
+		return *d.Advanced
+	}
+	return PluginAdvanced{}
+}
+
+// callSetup 调用 Setup 函数
+func (d *PluginDescriptor) callSetup(ctx *SetupContext) (any, error) {
+	if d.Setup == nil {
+		return nil, fmt.Errorf("plugin %q: Setup function is nil", d.Name)
+	}
+	return d.Setup(ctx)
+}
+
+// callTeardown 调用 Teardown 函数（nil 则跳过）
+func (d *PluginDescriptor) callTeardown(tctx *TeardownContext) error {
+	if d.Teardown == nil {
+		return nil
+	}
+	return d.Teardown(tctx)
+}
+
+// getReloadFunc 获取 Reload 函数
+func (d *PluginDescriptor) getReloadFunc() ReloadFunc {
+	if d.Advanced != nil {
+		return d.Advanced.Reload
+	}
+	return nil
+}
+
+// getSaveStateFunc 获取 SaveState 函数
+func (d *PluginDescriptor) getSaveStateFunc() SaveStateFunc {
+	if d.Advanced != nil {
+		return d.Advanced.SaveState
+	}
+	return nil
+}
+
+// getRestoreStateFunc 获取 RestoreState 函数
+func (d *PluginDescriptor) getRestoreStateFunc() RestoreStateFunc {
+	if d.Advanced != nil {
+		return d.Advanced.RestoreState
+	}
+	return nil
+}
+
+// getOnDependencyReloaded 获取 OnDependencyReloaded 回调
+func (d *PluginDescriptor) getOnDependencyReloaded() func(string) {
+	if d.Advanced != nil {
+		return d.Advanced.OnDependencyReloaded
+	}
+	return nil
+}
+
+// SetupContext 插件初始化上下文
 //
-// 注意：调用此方法会自动记录依赖关系，用于依赖验证
+//   - [SetupContext.Reg]      — Matcher/Command 注册（自动追踪）
+//   - [SetupContext.Log]      — 带插件名前缀的结构化日志
+//   - [SetupContext.Info]     — 插件系统只读视图
+//   - [SetupContext.Go]       — 生命周期绑定后台 goroutine
+//   - [SetupContext.Config]   — 插件配置
+//   - [SetupContext.EventBus] — 插件间事件总线
+//   - [SetupContext.Get] / [SetupContext.MustGet] — 获取依赖（弱类型）
+//   - [Require] / [Optional]  — 获取依赖（类型安全，推荐）
+type SetupContext struct {
+	// Reg Matcher/Command 注册接口，DryRun 阶段自动变为 no-op。
+	Reg RegistryWriter
+
+	// Log 带插件名前缀的结构化日志器。
+	Log PluginLogger
+
+	// Info 插件系统只读视图，可查询其他插件状态。
+	Info PluginInfo
+
+	// Go 启动一个与插件生命周期绑定的后台 goroutine。
+	// 框架在 Teardown 前自动 cancel 并等待所有 goroutine 退出。
+	//
+	//   ctx.Go(func(runCtx context.Context) {
+	//       ticker := time.NewTicker(time.Minute)
+	//       defer ticker.Stop()
+	//       for {
+	//           select {
+	//           case <-ticker.C: cleanup()
+	//           case <-runCtx.Done(): return
+	//           }
+	//       }
+	//   })
+	Go func(fn func(ctx stdctx.Context))
+
+	// Config 插件配置
+	Config Config
+
+	// EventBus 插件间事件总线
+	EventBus EventBus
+
+	// --- 内部字段（框架使用）---
+	container        *Container
+	pluginName       string
+	instance         *PluginInstance
+	trackedDeps      map[string]bool
+	autoTrackEnabled bool
+	goroutineMgr     *goroutineManager
+	eng              *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
+}
+
+// ExportAs 将插件 API 对象以指定名称导出到容器。
+//
+// 这是手动调用 ctx.Manager.GetContainer().Register(name, api) 的类型安全替代。
+// ExportAs 将插件 API 对象以指定名称导出到容器。
+//
+// 通常配合旧签名 Setup 使用；新签名 Setup 直接 return api, nil 即可，
+// 框架会自动以插件名为 key 注入容器。
+// 当需要以自定义 key（不同于插件名）导出时，仍可手动调用此方法。
+func (ctx *SetupContext) ExportAs(name string, api any) {
+	if ctx.container != nil {
+		ctx.container.Register(name, api)
+	}
+}
+
+// Get 获取依赖插件（弱类型）
+// 自动记录依赖关系，用于 Smart 注册的依赖推断。
+// 推荐改用类型安全的 [Require] / [Optional]。
 func (ctx *SetupContext) Get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
-
-	// 自动跟踪依赖
 	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
 		if ctx.trackedDeps == nil {
 			ctx.trackedDeps = make(map[string]bool)
 		}
 		ctx.trackedDeps[name] = true
 	}
-
 	return ctx.container.Get(name)
 }
 
-// MustGet 获取依赖插件（如果不存在则 panic）
-// 用于必需的依赖
-//
-// 注意：调用此方法会自动记录依赖关系，用于依赖验证
+// MustGet 获取依赖插件（弱类型，不存在则 panic）
+// 推荐改用类型安全的 [Require]。
 func (ctx *SetupContext) MustGet(name string) any {
-	plugin, ok := ctx.Get(name)
+	v, ok := ctx.Get(name)
 	if !ok {
-		panic(fmt.Sprintf("required dependency '%s' not found", name))
+		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
 	}
-	return plugin
+	return v
 }
 
-// GetTrackedDependencies 获取自动跟踪到的依赖列表
-// 返回在 Setup 函数中通过 Get/MustGet 调用的所有插件名称
+// GetTrackedDependencies 获取自动跟踪到的依赖列表（框架内部使用）
 func (ctx *SetupContext) GetTrackedDependencies() []string {
+
 	if ctx.trackedDeps == nil {
 		return []string{}
 	}
-
 	deps := make([]string, 0, len(ctx.trackedDeps))
 	for name := range ctx.trackedDeps {
 		deps = append(deps, name)
@@ -168,80 +341,71 @@ func (ctx *SetupContext) GetTrackedDependencies() []string {
 	return deps
 }
 
-// RegisterCommand 注册命令并自动追踪 Matcher
-// 推荐使用此方法替代直接调用 Engine.OnCommand，以便插件系统能够追踪注册的 Matcher
-func (ctx *SetupContext) RegisterCommand(eventType dto.EventType, pattern string, extraRules ...context.Rule) *engine.Matcher {
-	matcher := ctx.Engine.OnCommand(eventType, pattern, extraRules...)
+// --- 类型安全依赖获取 ---
 
-	if matcher != nil && ctx.pluginName != "" {
-		matcher.SetGroup(ctx.pluginName)
-		matcher.SetSource("plugin:" + ctx.pluginName)
-
-		// 追踪 matcher
-		if ctx.instance != nil {
-			ctx.instance.addMatcher(matcher)
-		}
-	}
-
-	return matcher
-}
-
-// RegisterMatcher 注册自定义 Matcher 并追踪
-// 推荐使用此方法替代直接调用 Engine.On，以便插件系统能够追踪注册的 Matcher
-func (ctx *SetupContext) RegisterMatcher(eventType dto.EventType, rules ...context.Rule) *engine.Matcher {
-	matcher := ctx.Engine.On(eventType, rules...)
-
-	if matcher != nil && ctx.pluginName != "" {
-		matcher.SetGroup(ctx.pluginName)
-		matcher.SetSource("plugin:" + ctx.pluginName)
-
-		// 追踪 matcher
-		if ctx.instance != nil {
-			ctx.instance.addMatcher(matcher)
-		}
-	}
-
-	return matcher
-}
-
-// GetPlugin 获取依赖插件（类型安全版本）
-// 自动进行类型转换，如果类型不匹配则返回错误
+// GetPlugin 获取依赖插件（类型安全，返回 (*T, error)）
+//
+//	p, err := plugin.GetPlugin[permission.Plugin](ctx, "permission")
 func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
-	plugin, ok := ctx.Get(name)
+	v, ok := ctx.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("plugin '%s' not found", name)
+		return nil, fmt.Errorf("plugin %q: dependency %q not found", ctx.pluginName, name)
 	}
-
-	typed, ok := plugin.(*T)
+	typed, ok := v.(*T)
 	if !ok {
-		return nil, fmt.Errorf("plugin '%s' has wrong type: expected *%T, got %T", name, typed, plugin)
+		return nil, fmt.Errorf("plugin %q: dependency %q has wrong type: expected *%T, got %T", ctx.pluginName, name, typed, v)
 	}
-
 	return typed, nil
 }
 
-// MustGetPlugin 获取依赖插件（类型安全版本，失败则 panic）
-func MustGetPlugin[T any](ctx *SetupContext, name string) *T {
-	plugin, err := GetPlugin[T](ctx, name)
-	if err != nil {
-		panic(err)
+// Require 获取必需依赖（类型安全，不存在或类型不符则 panic）
+//
+//	perm := plugin.Require[permission.Plugin](ctx, "permission")
+func Require[T any](ctx *SetupContext, name string) *T {
+	v, ok := ctx.Get(name)
+	if !ok {
+		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
 	}
-	return plugin
+	typed, ok := v.(*T)
+	if !ok {
+		panic(fmt.Sprintf("plugin %q: dependency %q has wrong type: expected *%T, got %T", ctx.pluginName, name, typed, v))
+	}
+	return typed
+}
+
+// Optional 获取可选依赖（类型安全，不存在时返回 nil, false）
+//
+//	if sb, ok := plugin.Optional[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
+func Optional[T any](ctx *SetupContext, name string) (*T, bool) {
+	v, ok := ctx.Get(name)
+	if !ok {
+		return nil, false
+	}
+	typed, ok := v.(*T)
+	if !ok {
+		return nil, false
+	}
+	return typed, true
 }
 
 // Container 依赖注入容器
 //
 // 支持两阶段使用模式：
 //  1. 注册阶段（Register/Remove）：使用 sync.Map 保证并发安全
-//  2. 冻结阶段（Freeze 后）：Get/Has 切换为无锁只读 map，读性能提升 2-3x
+//  2. 冻结阶段（Freeze 后）：Get/Has 切换为原子指针只读快照，读性能提升 2-3x
 //
-// 改进 3.5：插件全部加载完成后调用 Freeze()，后续 Get 无需任何锁操作。
+// 并发安全说明：
+//   - 冻结后调用 Register/Remove 会通过 snapshotMu 互斥地重建快照，
+//     再通过 atomic.Pointer 原子替换，确保 Get 读到的始终是完整一致的快照。
+//
+// 插件全部加载完成后调用 Freeze()，后续 Get 仅需一次原子 Load，无锁竞争。
 type Container struct {
-	services sync.Map // 注册阶段使用
+	services sync.Map // 注册阶段及冻结后的写操作
 
-	// 冻结后的只读快照
-	frozen    atomic.Bool
-	frozenMap map[string]any // 仅在 frozen==true 时访问，无锁读
+	// 冻结后的只读快照，使用 atomic.Pointer 原子替换，消除 data race
+	frozen     atomic.Bool
+	frozenMap  atomic.Pointer[map[string]any]
+	snapshotMu sync.Mutex // 保护 refreshSnapshot 的并发重建
 }
 
 // NewContainer 创建依赖注入容器
@@ -259,28 +423,35 @@ func (c *Container) Register(name string, service any) {
 }
 
 // Freeze 将容器切换为只读快照模式。
-// 调用后 Get/Has 使用无锁 map，性能提升 2-3x。
-// 冻结后仍可调用 Register/Remove，会自动刷新快照。
+// 调用后 Get/Has 使用原子指针快照，读性能提升 2-3x。
+// 冻结后仍可调用 Register/Remove，会自动原子替换快照。
 func (c *Container) Freeze() {
 	c.frozen.Store(true)
 	c.refreshSnapshot()
 }
 
-// refreshSnapshot 重建只读快照（需在 frozen==true 时调用）。
+// refreshSnapshot 重建只读快照并原子替换（并发安全）。
+// snapshotMu 防止多个 goroutine 同时重建导致读取到旧快照指针。
 func (c *Container) refreshSnapshot() {
+	c.snapshotMu.Lock()
+	defer c.snapshotMu.Unlock()
+
 	snapshot := make(map[string]any)
 	c.services.Range(func(k, v any) bool {
 		snapshot[k.(string)] = v
 		return true
 	})
-	c.frozenMap = snapshot
+	// 原子替换快照指针，Get 读取时不会看到部分更新
+	c.frozenMap.Store(&snapshot)
 }
 
-// Get 获取服务。冻结后使用无锁只读 map。
+// Get 获取服务。冻结后通过原子 Load 读取快照，无锁竞争。
 func (c *Container) Get(name string) (any, bool) {
 	if c.frozen.Load() {
-		v, ok := c.frozenMap[name]
-		return v, ok
+		if m := c.frozenMap.Load(); m != nil {
+			v, ok := (*m)[name]
+			return v, ok
+		}
 	}
 	return c.services.Load(name)
 }
@@ -300,6 +471,9 @@ func (c *Container) Remove(name string) {
 }
 
 // PluginInstance v2 插件实例
+//
+// 通过 [Manager.Get] 获取，可用于查询状态、元数据和已注册的 Matcher。
+// 生命周期操作（加载/卸载/重载）由 Manager 通过内部 pluginInternal 接口驱动。
 type PluginInstance struct {
 	desc         *PluginDescriptor
 	state        State
@@ -307,29 +481,53 @@ type PluginInstance struct {
 	matchers     []*engine.Matcher // 插件注册的匹配器
 	loadTime     time.Time         // 加载时间
 	lastError    error             // 最后的错误
+	goroutineMgr *goroutineManager // 生命周期绑定 goroutine 管理器
+	exportedAPI  any               // SetupFuncV3 返回的 API 对象（P3-1）
 	mu           sync.RWMutex
 }
 
-// Name 返回插件名称
-func (pi *PluginInstance) Name() string {
+// --- pluginInternal 实现（包私有，供 Manager 内部使用）---
+
+// name 返回插件名称（实现 pluginInternal）
+func (pi *PluginInstance) name() string {
 	return pi.desc.Name
 }
 
-// Load 加载插件（实现 Plugin 接口，用于兼容）
-func (pi *PluginInstance) Load(coordinator *engine.Engine) error {
+// load 加载插件（实现 pluginInternal）
+func (pi *PluginInstance) load(coordinator *engine.Engine) error {
 	pi.mu.Lock()
 	pi.state = Loading
+	gm := newGoroutineManager()
+	pi.goroutineMgr = gm
+	if pi.setupContext != nil {
+		pi.setupContext.goroutineMgr = gm
+		pi.setupContext.Go = gm.go_
+	}
 	pi.mu.Unlock()
 
 	startTime := time.Now()
 
-	// 调用 Setup 函数
-	if err := pi.desc.Setup(pi.setupContext); err != nil {
+	// 调用 Setup（支持新旧两种签名，P3-1）
+	api, err := pi.desc.callSetup(pi.setupContext)
+	if err != nil {
+		gm.stopAndWait()
 		pi.mu.Lock()
 		pi.state = Error
 		pi.lastError = err
+		pi.goroutineMgr = nil
 		pi.mu.Unlock()
 		return err
+	}
+
+	// 新签名：将 API 对象保存，框架自动 ExportAs（P3-1）
+	// 旧签名返回 nil，插件通过 ctx.ExportAs 手动导出（向后兼容）
+	if api != nil {
+		pi.mu.Lock()
+		pi.exportedAPI = api
+		pi.mu.Unlock()
+		if pi.setupContext != nil {
+			pi.setupContext.ExportAs(pi.desc.Name, api)
+		}
 	}
 
 	pi.mu.Lock()
@@ -341,22 +539,50 @@ func (pi *PluginInstance) Load(coordinator *engine.Engine) error {
 	return nil
 }
 
-// Unload 卸载插件（实现 Plugin 接口，用于兼容）
-func (pi *PluginInstance) Unload(coordinator *engine.Engine) error {
+// buildTeardownContext 构建 TeardownContext（P3-2）
+func (pi *PluginInstance) buildTeardownContext() *TeardownContext {
+	pi.mu.RLock()
+	api := pi.exportedAPI
+	pi.mu.RUnlock()
+
+	var cfg Config
+	var bus EventBus
+	if pi.setupContext != nil {
+		cfg = pi.setupContext.Config
+		bus = pi.setupContext.EventBus
+	}
+	return &TeardownContext{
+		API:      api,
+		Config:   cfg,
+		EventBus: bus,
+		Log:      newPluginLogger(pi.desc.Name),
+	}
+}
+
+// unload 卸载插件（实现 pluginInternal）
+func (pi *PluginInstance) unload(coordinator *engine.Engine) error {
 	pi.mu.Lock()
 	pi.state = Unloading
+	gm := pi.goroutineMgr
 	pi.mu.Unlock()
 
-	// 清理注册的匹配器
+	// Step 1: 停止所有生命周期绑定的 goroutine（在 Teardown 前）
+	if gm != nil {
+		gm.stopAndWait()
+	}
+
+	// Step 2: 清理 Matcher
 	if coordinator != nil {
 		coordinator.RemoveGroup(pi.desc.Name)
 	}
+	pi.mu.Lock()
+	pi.matchers = pi.matchers[:0]
+	pi.goroutineMgr = nil
+	pi.mu.Unlock()
 
-	// 调用 Teardown 函数（如果定义）
-	var err error
-	if pi.desc.Teardown != nil {
-		err = pi.desc.Teardown()
-	}
+	// Step 3: 调用 Teardown（支持新旧两种签名，P3-2）
+	tctx := pi.buildTeardownContext()
+	err := pi.desc.callTeardown(tctx)
 
 	pi.mu.Lock()
 	if err != nil {
@@ -364,112 +590,238 @@ func (pi *PluginInstance) Unload(coordinator *engine.Engine) error {
 		pi.lastError = err
 	} else {
 		pi.state = Unloaded
+		pi.exportedAPI = nil
 	}
 	pi.mu.Unlock()
 
 	return err
 }
 
-// Reload 重载插件（实现 Plugin 接口，用于兼容）
-func (pi *PluginInstance) Reload(coordinator *engine.Engine) error {
+// reload 重载插件（实现 pluginInternal）
+func (pi *PluginInstance) reload(coordinator *engine.Engine) error {
 	pi.mu.Lock()
 	oldContext := pi.setupContext
 	pi.state = Reloading
 	pi.mu.Unlock()
 
-	// 保存状态（如果定义了 SaveState 函数）
+	// 保存状态（P3：通过 effectiveAdvanced 获取钩子）
+	adv := pi.desc.effectiveAdvanced()
 	var savedState any
-	var saveErr error
-	if pi.desc.SaveState != nil {
-		savedState, saveErr = pi.desc.SaveState()
+	if adv.SaveState != nil {
+		var saveErr error
+		savedState, saveErr = adv.SaveState()
 		if saveErr != nil {
 			logger.WithError(saveErr).Warn("[plugin] Failed to save state before reload")
-			// 继续重载，但记录错误
-		} else {
-			logger.Infof("[plugin] State saved for plugin: %s", pi.desc.Name)
 		}
 	}
 
-	// 重新创建 SetupContext 以获取最新的容器状态
+	// 重新创建 SetupContext
 	newContext := &SetupContext{
-		Engine:     oldContext.Engine,
-		Manager:    oldContext.Manager,
-		Config:     oldContext.Config,
-		EventBus:   oldContext.EventBus,
-		container:  oldContext.container,
-		pluginName: oldContext.pluginName,
-		instance:   oldContext.instance,
+		Reg:              newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
+		Log:              newPluginLogger(oldContext.pluginName),
+		Info:             oldContext.Info,
+		Config:           oldContext.Config,
+		EventBus:         oldContext.EventBus,
+		container:        oldContext.container,
+		pluginName:       oldContext.pluginName,
+		instance:         oldContext.instance,
+		autoTrackEnabled: true,
+		eng:              oldContext.eng,
+	}
+	newContext.Go = func(fn func(ctx stdctx.Context)) {
+		if newContext.goroutineMgr != nil {
+			newContext.goroutineMgr.go_(fn)
+		}
 	}
 
 	pi.mu.Lock()
 	pi.setupContext = newContext
 	pi.mu.Unlock()
 
-	// 如果定义了自定义 Reload 函数，使用它
-	if pi.desc.Reload != nil {
-		if err := pi.desc.Reload(newContext); err != nil {
+	// P4-5: 根据 ReloadStrategy 选择重载策略
+	switch adv.Strategy {
+	case ReloadInPlace:
+		// 原地重载：调用 Advanced.Reload；若为 nil 则回退为 UnloadLoad
+		if adv.Reload != nil {
+			if err := adv.Reload(newContext); err != nil {
+				pi.mu.Lock()
+				pi.state = Error
+				pi.lastError = err
+				pi.mu.Unlock()
+				return err
+			}
 			pi.mu.Lock()
-			pi.state = Error
-			pi.lastError = err
+			pi.state = Loaded
+			pi.loadTime = time.Now()
+			pi.lastError = nil
 			pi.mu.Unlock()
+			return nil
+		}
+		// Reload 为 nil，回退为 UnloadLoad
+		fallthrough
+	case ReloadUnloadLoad:
+		// 停机重载（默认）：
+		// 向后兼容：若 Advanced.Reload 有值，优先调用它（等价于 ReloadInPlace 行为）
+		if adv.Reload != nil {
+			if err := adv.Reload(newContext); err != nil {
+				pi.mu.Lock()
+				pi.state = Error
+				pi.lastError = err
+				pi.mu.Unlock()
+				return err
+			}
+			pi.mu.Lock()
+			pi.state = Loaded
+			pi.loadTime = time.Now()
+			pi.lastError = nil
+			pi.mu.Unlock()
+			if savedState != nil && adv.RestoreState != nil {
+				if err := adv.RestoreState(savedState); err != nil {
+					logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
+				}
+			}
+			return nil
+		}
+		// 无自定义 Reload：执行完整 unload → load 流程
+		if err := pi.unload(coordinator); err != nil {
 			return err
 		}
-
-		pi.mu.Lock()
-		pi.state = Loaded
-		pi.loadTime = time.Now()
-		pi.lastError = nil
-		pi.mu.Unlock()
-
-		// 恢复状态（如果有保存的状态且定义了 RestoreState 函数）
-		if savedState != nil && pi.desc.RestoreState != nil {
-			if err := pi.desc.RestoreState(savedState); err != nil {
+		if err := pi.load(coordinator); err != nil {
+			return err
+		}
+		if savedState != nil && adv.RestoreState != nil {
+			if err := adv.RestoreState(savedState); err != nil {
 				logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
-			} else {
-				logger.Infof("[plugin] State restored for plugin: %s", pi.desc.Name)
 			}
 		}
-
-		return nil
-	}
-
-	// 默认策略：Unload + Load
-	if err := pi.Unload(coordinator); err != nil {
-		return err
-	}
-	if err := pi.Load(coordinator); err != nil {
-		return err
-	}
-
-	// 恢复状态（如果有保存的状态且定义了 RestoreState 函数）
-	if savedState != nil && pi.desc.RestoreState != nil {
-		if err := pi.desc.RestoreState(savedState); err != nil {
-			logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
-		} else {
-			logger.Infof("[plugin] State restored for plugin: %s", pi.desc.Name)
+	case ReloadBlueGreen:
+		// 蓝绿重载：并行运行新 Setup，就绪后原子切换，最后停止旧实例
+		if err := pi.reloadBlueGreen(coordinator, newContext); err != nil {
+			return err
+		}
+	default:
+		// 未知策略，回退为 UnloadLoad
+		if err := pi.unload(coordinator); err != nil {
+			return err
+		}
+		if err := pi.load(coordinator); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// Dependencies 返回依赖列表（实现 Plugin 接口，用于兼容）
-func (pi *PluginInstance) Dependencies() []string {
+// reloadBlueGreen 实现蓝绿（极短停机）重载策略（P4-5）
+//
+// 执行步骤：
+//  1. 新实例的 Setup 在临时 group（name+".__bg"）中注册 Matcher，旧实例继续处理消息
+//  2. 新 Setup 就绪后，RemoveGroup(name) 移除旧 Matcher（极短停机窗口）
+//  3. 将新 Matcher group 改回插件名，使其立即接管（停机窗口结束）
+//  4. 原子切换 pi 的内部状态指针
+//  5. 异步停止旧 goroutine 并调用旧 Teardown
+//
+// 与 ReloadUnloadLoad 对比：
+//   - 停机窗口从"整个 Setup 时间"缩短为"两次 engine 操作的间隔"（微秒级）
+//   - 新实例的初始化（可能涉及 I/O）在后台并行完成
+func (pi *PluginInstance) reloadBlueGreen(coordinator *engine.Engine, newContext *SetupContext) error {
+	pluginName := pi.desc.Name
+	tempGroup := pluginName + ".__bg"
+
+	// 构建新实例，注册时使用临时 group 避免与旧 Matcher 冲突
+	newInstance := &PluginInstance{
+		desc:         pi.desc,
+		state:        Unloaded,
+		matchers:     make([]*engine.Matcher, 0),
+		setupContext: newContext,
+	}
+	newContext.instance = newInstance
+	// 新 Matcher 注册到临时 group，旧实例继续在 pluginName group 处理消息
+	newContext.Reg = newLiveRegistryWriter(coordinator, tempGroup, newInstance)
+
+	// Step 1: 并行运行新 Setup（旧实例零影响地继续处理消息）
+	if err := newInstance.load(coordinator); err != nil {
+		if coordinator != nil {
+			coordinator.RemoveGroup(tempGroup)
+		}
+		return fmt.Errorf("blue-green reload: new instance setup failed: %w", err)
+	}
+
+	// Step 2+3: 极短停机窗口——移除旧 group，将新 Matcher 切换到实际 group
+	if coordinator != nil {
+		// 移除旧 Matcher（停机开始）
+		coordinator.RemoveGroup(pluginName)
+		// 将新 Matcher 的 group 从临时名改为实际插件名（停机结束）
+		newInstance.mu.RLock()
+		for _, m := range newInstance.matchers {
+			m.SetGroup(pluginName)
+		}
+		newInstance.mu.RUnlock()
+		// 清理临时 group 索引（Matcher 已改 group，此操作无害）
+		coordinator.RemoveGroup(tempGroup)
+	}
+
+	// Step 4: 原子切换内部状态
+	pi.mu.Lock()
+	oldGM := pi.goroutineMgr
+	oldAPI := pi.exportedAPI
+
+	newInstance.mu.RLock()
+	pi.matchers = newInstance.matchers
+	pi.goroutineMgr = newInstance.goroutineMgr
+	pi.exportedAPI = newInstance.exportedAPI
+	newInstance.mu.RUnlock()
+
+	pi.setupContext = newContext
+	pi.state = Loaded
+	pi.loadTime = time.Now()
+	pi.lastError = nil
+	pi.mu.Unlock()
+
+	// Step 5: 异步停止旧 goroutine 并调用旧 Teardown
+	go func() {
+		if oldGM != nil {
+			oldGM.stopAndWait()
+		}
+		tctx := &TeardownContext{
+			API:      oldAPI,
+			Config:   newContext.Config,
+			EventBus: newContext.EventBus,
+			Log:      newPluginLogger(pluginName),
+		}
+		if teardownErr := pi.desc.callTeardown(tctx); teardownErr != nil {
+			logger.WithError(teardownErr).Warnf("[plugin] Blue-green: old instance teardown failed for %s", pluginName)
+		}
+	}()
+
+	return nil
+}
+
+// dependencies 返回依赖列表（实现 pluginInternal）
+func (pi *PluginInstance) dependencies() []string {
 	return pi.desc.Deps
 }
 
-// Metadata 返回元数据（实现 MetadataProvider 接口）
+// --- 公开 API ---
+
+// Name 返回插件名称
+func (pi *PluginInstance) Name() string {
+	return pi.desc.Name
+}
+
+// Metadata 返回元数据
 func (pi *PluginInstance) Metadata() *Metadata {
+	m := pi.desc.effectiveMeta()
 	return &Metadata{
 		Name:         pi.desc.Name,
 		Version:      pi.desc.Version,
-		Author:       pi.desc.Author,
-		Description:  pi.desc.Description,
-		HelpText:     pi.desc.HelpText,
-		Category:     pi.desc.Category,
-		Tags:         pi.desc.Tags,
+		Author:       m.Author,
+		Description:  m.Description,
+		HelpText:     m.HelpText,
+		Category:     m.Category,
+		Tags:         m.Tags,
 		Dependencies: pi.desc.Deps,
-		Hidden:       pi.desc.Hidden,
+		Hidden:       m.Hidden,
 	}
 }
 
@@ -516,13 +868,15 @@ func (pi *PluginInstance) SetLastError(err error) {
 }
 
 // GetUptime 获取运行时长（实现 StatefulPlugin 接口）
+// Disabled 状态视为仍在运行，继续累计 uptime。
 func (pi *PluginInstance) GetUptime() time.Duration {
 	pi.mu.RLock()
 	loadTime := pi.loadTime
 	state := pi.state
 	pi.mu.RUnlock()
 
-	if state != Loaded || loadTime.IsZero() {
+	// Loaded 和 Disabled 都计算 uptime（禁用的插件仍在内存中保持状态）
+	if (state != Loaded && state != Disabled) || loadTime.IsZero() {
 		return 0
 	}
 
@@ -589,20 +943,50 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		return errutil.ErrPluginAlreadyExists
 	}
 
-	// 检查依赖
-	for _, dep := range desc.Deps {
-		depPlugin, exists := pm.plugins[dep]
+	// 检查依赖（P4-2: 富错误信息; P4-3: 版本约束检查）
+	registeredList := func() []string {
+		names := make([]string, 0, len(pm.plugins))
+		for n := range pm.plugins {
+			names = append(names, n)
+		}
+		return names
+	}
+	for _, rawDep := range desc.Deps {
+		spec := parseDepSpec(rawDep)
+		depInst, exists := pm.plugins[spec.name]
 		if !exists {
 			pm.mu.Unlock()
-			return fmt.Errorf("missing dependency: %s", dep)
+			return &PluginError{
+				PluginName:        name,
+				Operation:         "register",
+				Cause:             fmt.Errorf("missing required dependency %q", spec.name),
+				RegisteredPlugins: registeredList(),
+				Hint:              fmt.Sprintf("register %q before %q", spec.name, name),
+			}
 		}
-		// 验证依赖插件已完成加载（状态为 Loaded），防止并发注册时依赖方
-		// 获取到处于 Loading 状态的插件实例，导致 Setup 中 MustGet 行为异常
-		if stateful, ok := depPlugin.(StatefulPlugin); ok {
-			state := stateful.GetState()
-			if state != Loaded {
+		// 验证依赖插件已完成加载（状态为 Loaded）
+		state := depInst.GetState()
+		if state != Loaded {
+			pm.mu.Unlock()
+			return &PluginError{
+				PluginName:        name,
+				Operation:         "register",
+				Cause:             fmt.Errorf("dependency %q is not ready (state: %s)", spec.name, state),
+				RegisteredPlugins: registeredList(),
+				Hint:              "register plugins in dependency order",
+			}
+		}
+		// P4-3: 版本约束检查（仅当依赖规格包含 @ 约束时）
+		if spec.constraint != "" {
+			ok, _ := checkVersionConstraint(depInst.desc.Version, spec.constraint)
+			if !ok {
 				pm.mu.Unlock()
-				return fmt.Errorf("dependency '%s' is not ready (state: %s), please register plugins in dependency order", dep, state)
+				return &VersionConstraintError{
+					Plugin:     name,
+					Dependency: spec.name,
+					Required:   spec.constraint,
+					Have:       depInst.desc.Version,
+				}
 			}
 		}
 	}
@@ -616,6 +1000,14 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		config = NewPluginConfig(name, pm.viper)
 	}
 
+	// P4-4: ConfigSchema 验证（仅当 config 和 schema 均不为 nil 时）
+	if config != nil && desc.Advanced != nil && desc.Advanced.ConfigSchema != nil {
+		if schemaErr := ValidateConfigSchema(name, desc.Advanced.ConfigSchema, config); schemaErr != nil {
+			pm.mu.Unlock()
+			return schemaErr
+		}
+	}
+
 	// 创建插件实例
 	instance := &PluginInstance{
 		desc:     desc,
@@ -623,16 +1015,24 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		matchers: make([]*engine.Matcher, 0),
 	}
 
-	// 创建 SetupContext（设置插件名称和实例引用以支持 Matcher 追踪）
+	// 构建 SetupContext
 	setupCtx := &SetupContext{
-		Engine:           pm.coordinator,
-		Manager:          pm,
+		Reg:              newLiveRegistryWriter(pm.coordinator, name, instance),
+		Log:              newPluginLogger(name),
+		Info:             newPluginInfo(pm),
 		Config:           config,
 		EventBus:         pm.eventBus,
 		container:        pm.container,
 		pluginName:       name,
 		instance:         instance,
-		autoTrackEnabled: true, // 启用自动依赖跟踪
+		autoTrackEnabled: true,
+		eng:              pm.coordinator,
+	}
+	// Go 函数在 load() 时由 goroutineManager 注入，此处先设为 nil-safe 空实现
+	setupCtx.Go = func(fn func(ctx stdctx.Context)) {
+		if setupCtx.goroutineMgr != nil {
+			setupCtx.goroutineMgr.go_(fn)
+		}
 	}
 
 	instance.setupContext = setupCtx
@@ -645,7 +1045,7 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 	pm.mu.Unlock()
 
 	// 加载插件（在锁外执行，避免长时间持锁）
-	loadErr := instance.Load(pm.coordinator)
+	loadErr := instance.load(pm.coordinator)
 
 	pm.mu.Lock()
 
@@ -679,12 +1079,12 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		if len(undeclaredDeps) > 0 {
 			if pm.strictDeps {
 				// 严格模式：拒绝注册，回滚
-				// Setup 已执行（有副作用），需调用 Unload 做清理
+				// Setup 已执行（有副作用），需调用 unload 做清理
 				delete(pm.plugins, name)
 				pm.container.Remove(name)
 				pm.mu.Unlock()
 				// 在锁外执行 Teardown，避免死锁
-				if teardownErr := instance.Unload(pm.coordinator); teardownErr != nil {
+				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
 					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
 				}
 				return fmt.Errorf(
@@ -704,7 +1104,12 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 	// 加载成功，完成注册
 	pm.loadOrder = append(pm.loadOrder, name)
-	pm.container.Register(name, instance)
+
+	// 若插件在 Setup 中已通过 ExportAs 主动导出 API，则不覆盖容器中的值；
+	// 否则以 *PluginInstance 作为默认回退（向后兼容）。
+	if !pm.container.Has(name) {
+		pm.container.Register(name, instance)
+	}
 
 	pm.mu.Unlock()
 
@@ -769,6 +1174,72 @@ func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
 // 返回按依赖顺序排列的插件列表，如果存在循环依赖则返回错误
 //
 // 增强版本：检测批次内和跨批次的循环依赖
+// RegisterMultipleV2Atomic 原子批量注册：任意插件失败时，自动回滚已注册的插件。
+//
+// 与 RegisterMultipleV2 的区别：
+//   - RegisterMultipleV2       失败后保留已注册的插件（半初始化状态）
+//   - RegisterMultipleV2Atomic 失败后逆序回滚所有已注册的插件
+//
+// 使用示例：
+//
+//	if err := manager.RegisterMultipleV2Atomic(plugins); err != nil {
+//	   // 所有插件均未注册，系统处于干净状态
+//	   log.Fatalf("plugin batch registration failed: %v", err)
+//	}
+func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*PluginDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+	sorted, err := pm.topologicalSortV2(descriptors)
+	if err != nil {
+		return &PluginError{
+			Operation: "batch register",
+			Cause:     err,
+			Hint:      "check for circular or missing dependencies",
+		}
+	}
+	// 记录已成功注册的插件（用于失败时回滚）
+	registered := make([]string, 0, len(sorted))
+	for _, desc := range sorted {
+		if err := pm.RegisterV2(desc); err != nil {
+			// 注册失败，逆序回滚已注册的插件
+			for i := len(registered) - 1; i >= 0; i-- {
+				if rollbackErr := pm.Unregister(registered[i]); rollbackErr != nil {
+					logger.WithError(rollbackErr).Warnf("[pluginManager] Rollback failed for plugin %s", registered[i])
+				}
+			}
+			// 收集当前已注册的插件列表用于诊断
+			pm.mu.RLock()
+			existingNames := make([]string, 0, len(pm.plugins))
+			for n := range pm.plugins {
+				existingNames = append(existingNames, n)
+			}
+			pm.mu.RUnlock()
+			return &PluginError{
+				PluginName:        desc.Name,
+				Operation:         "register",
+				Cause:             err,
+				RegisteredPlugins: existingNames,
+				Hint:              "all previously registered plugins in this batch have been rolled back",
+			}
+		}
+		registered = append(registered, desc.Name)
+	}
+	logger.Infof("[pluginManager] Atomic registration of %d plugins succeeded", len(sorted))
+	return nil
+}
+
 func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
 	// 构建映射：名称 -> 描述符
 	descMap := make(map[string]*PluginDescriptor)
@@ -801,7 +1272,7 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 		for _, dep := range desc.Deps {
 			// 检查依赖是否存在（可能已在 manager 中注册，或在当前批次中）
 			pm.mu.RLock()
-			depPlugin, existsInManager := pm.plugins[dep]
+			depInst, existsInManager := pm.plugins[dep]
 			pm.mu.RUnlock()
 
 			_, existsInBatch := descMap[dep]
@@ -812,10 +1283,8 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 
 			// 验证已注册的依赖插件状态（批次外的依赖必须已 Loaded）
 			if existsInManager && !existsInBatch {
-				if stateful, ok := depPlugin.(StatefulPlugin); ok {
-					if stateful.GetState() != Loaded {
-						return nil, fmt.Errorf("plugin %s dependency '%s' is not ready (state: %s)", desc.Name, dep, stateful.GetState())
-					}
+				if depInst.GetState() != Loaded {
+					return nil, fmt.Errorf("plugin %s dependency '%s' is not ready (state: %s)", desc.Name, dep, depInst.GetState())
 				}
 			}
 
@@ -883,13 +1352,13 @@ func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescript
 	for _, desc := range descriptors {
 		// 检查它依赖的每个已注册插件
 		for _, depName := range desc.Deps {
-			existingPlugin, existsInManager := pm.plugins[depName]
+			existingInst, existsInManager := pm.plugins[depName]
 			if !existsInManager {
 				continue // 不是已注册插件，跳过
 			}
 
 			// 检查已注册插件是否（直接或间接）依赖批次中的插件
-			if err := pm.detectCycleThroughExisting(existingPlugin, desc.Name, descMap, make(map[string]bool)); err != nil {
+			if err := pm.detectCycleThroughExisting(existingInst, desc.Name, descMap, make(map[string]bool)); err != nil {
 				return fmt.Errorf("cross-batch circular dependency: %w", err)
 			}
 		}
@@ -899,12 +1368,12 @@ func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescript
 }
 
 // detectCycleThroughExisting 检测已注册插件是否依赖批次中的插件（可能形成循环）
-// existingPlugin: 已注册的插件
+// existingInst: 已注册的插件实例
 // targetName: 批次中的插件名称
 // batchPlugins: 批次中的插件映射
 // visited: 已访问的插件集合（防止无限递归）
-func (pm *Manager) detectCycleThroughExisting(existingPlugin Plugin, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) error {
-	pluginName := existingPlugin.Name()
+func (pm *Manager) detectCycleThroughExisting(existingInst *PluginInstance, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) error {
+	pluginName := existingInst.Name()
 
 	// 防止无限递归
 	if visited[pluginName] {
@@ -913,7 +1382,7 @@ func (pm *Manager) detectCycleThroughExisting(existingPlugin Plugin, targetName 
 	visited[pluginName] = true
 
 	// 获取已注册插件的依赖
-	deps := existingPlugin.Dependencies()
+	deps := existingInst.dependencies()
 
 	for _, dep := range deps {
 		// 如果已注册插件依赖批次中的插件，形成循环
@@ -924,7 +1393,6 @@ func (pm *Manager) detectCycleThroughExisting(existingPlugin Plugin, targetName 
 
 		// 如果依赖是批次中的其他插件
 		if batchDesc, inBatch := batchPlugins[dep]; inBatch {
-			// 检查批次中的这个插件是否依赖 targetName
 			if pm.batchPluginDependsOn(batchDesc, targetName, batchPlugins, make(map[string]bool)) {
 				return fmt.Errorf("plugin %s (registered) -> %s (batch) -> %s (batch) forms a cycle",
 					pluginName, dep, targetName)
@@ -932,8 +1400,8 @@ func (pm *Manager) detectCycleThroughExisting(existingPlugin Plugin, targetName 
 		}
 
 		// 如果依赖是另一个已注册插件，递归检查
-		if depPlugin, exists := pm.plugins[dep]; exists {
-			if err := pm.detectCycleThroughExisting(depPlugin, targetName, batchPlugins, visited); err != nil {
+		if depInst, exists := pm.plugins[dep]; exists {
+			if err := pm.detectCycleThroughExisting(depInst, targetName, batchPlugins, visited); err != nil {
 				return err
 			}
 		}
@@ -983,12 +1451,11 @@ func (pm *Manager) ValidateDependencies(descriptors []*PluginDescriptor) error {
 // ensureContainerInitialized 确保依赖注入容器已初始化
 // 此方法应该在持有 Manager 锁的情况下调用
 func (pm *Manager) ensureContainerInitialized() {
-	// 创建容器（如果不存在）
 	if pm.container == nil {
 		pm.container = NewContainer()
 	}
 
-	// 注册已存在的插件到容器
+	// 注册已存在的插件到容器（只在容器中没有该 key 时注入，保护 ExportAs 的值）
 	for pluginName, plugin := range pm.plugins {
 		if !pm.container.Has(pluginName) {
 			pm.container.Register(pluginName, plugin)
@@ -1085,23 +1552,20 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 	// 为每个插件推断依赖
 	for _, desc := range descriptors {
 		setupCtx := &SetupContext{
-			Engine:           pm.coordinator,
-			Manager:          pm,
-			Config:           nil,  // 推断阶段不提供配置
-			DryRun:           true, // 标记为干运行，Setup 函数应跳过有副作用的操作
+			// 依赖推断阶段：注入 no-op RegistryWriter，所有注册操作无副作用
+			Reg:              &noopRegistryWriter{},
+			Log:              newPluginLogger(desc.Name),
+			Info:             newPluginInfo(pm),
 			container:        tempContainer,
 			pluginName:       desc.Name,
-			instance:         nil,
 			autoTrackEnabled: true,
 		}
+		setupCtx.Go = func(fn func(ctx stdctx.Context)) { /* 推断阶段：no-op */ }
 
-		// 尝试调用 Setup 来跟踪依赖（忽略错误）
-		// Setup 函数应检查 ctx.DryRun == true 来跳过注册命令等副作用操作
+		// 调用 Setup 跟踪 Get/MustGet 访问了哪些依赖（忽略错误和 panic）
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					// Setup 可能会 panic（例如 MustGet 找不到依赖）
-					// 这是预期的，我们只关心 Get/MustGet 被调用了哪些插件
 					logger.WithFields(logger.Fields{
 						"plugin": desc.Name,
 						"panic":  r,
@@ -1110,7 +1574,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 			}()
 
 			// 忽略错误，我们只关心依赖跟踪
-			_ = desc.Setup(setupCtx)
+			_, _ = desc.callSetup(setupCtx)
 		}()
 
 		// 获取跟踪到的依赖

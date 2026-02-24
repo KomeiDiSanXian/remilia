@@ -23,6 +23,12 @@
 //	    }
 //	}
 //
+// # 公开类型说明
+//
+//   - [PluginDescriptor] — 插件定义（开发者使用）
+//   - [PluginInstance]   — 插件运行时实例（Manager 返回）
+//   - [Manager]          — 插件生命周期管理器
+//
 // # v1 API 已移除
 //
 // BasePlugin 和相关的 v1 API 已在 v2.0.0 中移除。
@@ -61,27 +67,25 @@ type Metadata struct {
 	Repository string // 仓库地址
 }
 
-// Plugin 插件接口
-// 所有插件必须实现此接口的基本方法
+// pluginInternal 插件内部接口（包私有）
 //
-// 注意: 推荐使用 v2 API (PluginDescriptor) 而不是直接实现此接口
-type Plugin interface {
-	// Name 返回插件名称
-	Name() string
+// 仅供 Manager 内部使用，统一驱动 PluginInstance 的生命周期。
+// 外部代码应使用 [PluginDescriptor] 定义插件，通过 [PluginInstance] 操作运行时实例。
+type pluginInternal interface {
+	// name 返回插件名称
+	name() string
 
-	// Load 加载插件
-	// 在此方法中应该注册事件处理器、初始化资源等
-	Load(coordinator *engine.Engine) error
+	// load 加载插件
+	load(coordinator *engine.Engine) error
 
-	// Unload 卸载插件
-	// 在此方法中应该清理资源、移除事件处理器等
-	Unload(coordinator *engine.Engine) error
+	// unload 卸载插件
+	unload(coordinator *engine.Engine) error
 
-	// Reload 重新加载插件（热重载）
-	Reload(coordinator *engine.Engine) error
+	// reload 重新加载插件
+	reload(coordinator *engine.Engine) error
 
-	// Dependencies 返回插件的依赖列表
-	Dependencies() []string
+	// dependencies 返回插件的依赖列表
+	dependencies() []string
 }
 
 // MetadataProvider 插件元数据提供者接口（可选实现）
@@ -144,6 +148,7 @@ type MatcherProvider interface {
 //   - func NewBasePlugin(name string) *BasePlugin
 //   - func NewBasePluginWithMetadata(metadata *Metadata) *BasePlugin
 //   - type EventAwarePlugin (v1 事件总线功能)
+//   - type Plugin (公开接口，已改为包内私有 pluginInternal)
 //
 // 请使用 v2 API (PluginDescriptor) 替代。
 // 迁移指南: docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md

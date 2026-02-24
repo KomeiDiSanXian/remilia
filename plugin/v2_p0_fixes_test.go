@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestP0Fix1_MatcherTracking tests that Matchers are properly tracked when using RegisterCommand
+// TestP0Fix1_MatcherTracking tests that Matchers are properly tracked when using ctx.Reg.RegisterCommand
 func TestP0Fix1_MatcherTracking(t *testing.T) {
 	eng := engine.NewEngine()
 	manager := NewManager(eng)
@@ -21,32 +21,23 @@ func TestP0Fix1_MatcherTracking(t *testing.T) {
 	desc := &PluginDescriptor{
 		Name:    "matcher-test",
 		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) error {
-			// Register some matchers using the new RegisterCommand method
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/cmd1")
-			ctx.RegisterCommand(dto.GroupAtMessageCreate, "/cmd2")
-
+		Setup: func(ctx *SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/cmd1")
+			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/cmd2")
 			matcherCount = 2
-			return nil
+			return nil, nil
 		},
 	}
 
 	err := manager.RegisterV2(desc)
 	require.NoError(t, err)
 
-	// Get the plugin instance
-	plugin, exists := manager.Get("matcher-test")
+	instance, exists := manager.Get("matcher-test")
 	require.True(t, exists)
 
-	// Cast to PluginInstance
-	instance, ok := plugin.(*PluginInstance)
-	require.True(t, ok)
-
-	// Verify matchers are tracked
 	matchers := instance.GetMatchers()
 	assert.Equal(t, matcherCount, len(matchers), "Expected %d matchers to be tracked", matcherCount)
 
-	// Verify matcher group and source are set correctly
 	for _, m := range matchers {
 		assert.Equal(t, "matcher-test", m.GetGroup())
 		assert.Equal(t, "plugin:matcher-test", m.GetSource())
@@ -61,10 +52,9 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	desc := &PluginDescriptor{
 		Name:    "stateful-test",
 		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) error {
-			// Simulate some work
+		Setup: func(ctx *SetupContext) (any, error) {
 			time.Sleep(10 * time.Millisecond)
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -72,44 +62,30 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	err := manager.RegisterV2(desc)
 	require.NoError(t, err)
 
-	// Get the plugin instance
-	plugin, exists := manager.Get("stateful-test")
+	inst, exists := manager.Get("stateful-test")
 	require.True(t, exists)
 
-	// Cast to StatefulPlugin (read-only public interface)
-	stateful, ok := plugin.(StatefulPlugin)
-	require.True(t, ok, "Plugin should implement StatefulPlugin")
+	assert.Equal(t, Loaded, inst.GetState())
 
-	// Test GetState
-	assert.Equal(t, Loaded, stateful.GetState())
-
-	// Test GetLoadTime
-	loadTime := stateful.GetLoadTime()
+	loadTime := inst.GetLoadTime()
 	assert.False(t, loadTime.IsZero(), "LoadTime should be set")
-	assert.True(t, loadTime.After(beforeLoad) || loadTime.Equal(beforeLoad), "LoadTime should be after or equal to beforeLoad")
+	assert.True(t, loadTime.After(beforeLoad) || loadTime.Equal(beforeLoad))
 
-	// Test GetLastError (should be nil after successful load)
-	assert.Nil(t, stateful.GetLastError())
+	assert.Nil(t, inst.GetLastError())
 
-	// Test GetUptime
-	uptime := stateful.GetUptime()
+	uptime := inst.GetUptime()
 	assert.Greater(t, uptime, time.Duration(0), "Uptime should be positive")
 
-	// Test SetLoadTime (write methods are via internal statefulPluginWriter)
-	writer, ok := plugin.(statefulPluginWriter)
-	require.True(t, ok, "Plugin should implement statefulPluginWriter")
 	newTime := time.Now().Add(-1 * time.Hour)
-	writer.SetLoadTime(newTime)
-	assert.Equal(t, newTime, stateful.GetLoadTime())
+	inst.SetLoadTime(newTime)
+	assert.Equal(t, newTime, inst.GetLoadTime())
 
-	// Test SetLastError
 	testErr := assert.AnError
-	writer.SetLastError(testErr)
-	assert.Equal(t, testErr, stateful.GetLastError())
+	inst.SetLastError(testErr)
+	assert.Equal(t, testErr, inst.GetLastError())
 
-	// Test SetState
-	writer.SetState(Error)
-	assert.Equal(t, Error, stateful.GetState())
+	inst.SetState(Error)
+	assert.Equal(t, Error, inst.GetState())
 }
 
 // TestP0Fix3_ReloadRecreatesContext tests that Reload recreates SetupContext
@@ -118,42 +94,29 @@ func TestP0Fix3_ReloadRecreatesContext(t *testing.T) {
 	manager := NewManager(eng)
 
 	setupCallCount := 0
-	var firstContext, secondContext *SetupContext
 
 	desc := &PluginDescriptor{
 		Name:    "reload-test",
 		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			setupCallCount++
-			if setupCallCount == 1 {
-				firstContext = ctx
-			} else if setupCallCount == 2 {
-				secondContext = ctx
-			}
-			return nil
+			return nil, nil
 		},
-		Reload: func(ctx *SetupContext) error {
-			setupCallCount++
-			secondContext = ctx
-			return nil
+		Advanced: &PluginAdvanced{
+			Reload: func(ctx *SetupContext) error {
+				setupCallCount++
+				return nil
+			},
 		},
 	}
 
-	// Initial load
 	err := manager.RegisterV2(desc)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCallCount)
-	require.NotNil(t, firstContext)
 
-	// Reload
 	err = manager.Reload("reload-test")
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupCallCount)
-	require.NotNil(t, secondContext)
-
-	// Verify that a new context was created
-	assert.NotNil(t, firstContext)
-	assert.NotNil(t, secondContext)
 }
 
 // TestP0Fix4_ConcurrentSafety tests concurrent registration
@@ -161,7 +124,6 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 	eng := engine.NewEngine()
 	manager := NewManager(eng)
 
-	// Try to register multiple plugins concurrently
 	done := make(chan bool, 10)
 
 	for i := range 10 {
@@ -169,14 +131,13 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 			desc := &PluginDescriptor{
 				Name:    "concurrent-test",
 				Version: "1.0.0",
-				Setup: func(ctx *SetupContext) error {
-					time.Sleep(10 * time.Millisecond) // Simulate work
-					return nil
+				Setup: func(ctx *SetupContext) (any, error) {
+					time.Sleep(10 * time.Millisecond)
+					return nil, nil
 				},
 			}
 
 			err := manager.RegisterV2(desc)
-			// Only one should succeed, others should get "already registered" error
 			if err != nil {
 				assert.ErrorIs(t, err, errutil.ErrPluginAlreadyExists)
 			}
@@ -184,17 +145,14 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all goroutines
 	for range 10 {
 		<-done
 	}
 
-	// Verify only one plugin was registered
 	plugin, exists := manager.Get("concurrent-test")
 	assert.True(t, exists)
 	assert.NotNil(t, plugin)
 
-	// Count total plugins
 	count := manager.Count()
 	assert.Equal(t, 1, count, "Only one plugin should be registered")
 }
@@ -204,40 +162,34 @@ func TestP0Fix_Integration(t *testing.T) {
 	eng := engine.NewEngine()
 	manager := NewManager(eng)
 
-	var capturedContext *SetupContext
+	reloadCalled := false
 
 	desc := &PluginDescriptor{
-		Name:        "integration-test",
-		Version:     "1.0.0",
-		Description: "Test all P0 fixes",
-		Setup: func(ctx *SetupContext) error {
-			capturedContext = ctx
-
-			// P0 Fix #1: Matcher tracking
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/test1")
-			ctx.RegisterCommand(dto.GroupAtMessageCreate, "/test2")
-
-			return nil
+		Name:    "integration-test",
+		Version: "1.0.0",
+		Meta: &PluginMeta{
+			Description: "Test all P0 fixes",
 		},
-		Reload: func(ctx *SetupContext) error {
-			// P0 Fix #3: Context recreation
-			capturedContext = ctx
-			return nil
+		Setup: func(ctx *SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/test1")
+			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/test2")
+			return nil, nil
+		},
+		Advanced: &PluginAdvanced{
+			Reload: func(ctx *SetupContext) error {
+				reloadCalled = true
+				return nil
+			},
 		},
 	}
 
 	beforeLoad := time.Now()
 
-	// Register plugin
 	err := manager.RegisterV2(desc)
 	require.NoError(t, err)
 
-	// Get plugin
-	plugin, exists := manager.Get("integration-test")
+	instance, exists := manager.Get("integration-test")
 	require.True(t, exists)
-
-	instance, ok := plugin.(*PluginInstance)
-	require.True(t, ok)
 
 	// P0 Fix #1: Verify matchers are tracked
 	matchers := instance.GetMatchers()
@@ -249,19 +201,13 @@ func TestP0Fix_Integration(t *testing.T) {
 	assert.True(t, instance.GetLoadTime().After(beforeLoad) || instance.GetLoadTime().Equal(beforeLoad))
 	assert.Nil(t, instance.GetLastError())
 
-	// Wait a bit to ensure uptime is measurable
 	time.Sleep(5 * time.Millisecond)
 	assert.Greater(t, instance.GetUptime(), time.Duration(0))
 
-	// P0 Fix #3: Reload and verify context recreation
-	oldContext := capturedContext
+	// P0 Fix #3: Reload
 	err = manager.Reload("integration-test")
 	require.NoError(t, err)
-	newContext := capturedContext
-
-	// Contexts should have the same manager and engine but be recreated
-	assert.Equal(t, oldContext.Manager, newContext.Manager)
-	assert.Equal(t, oldContext.Engine, newContext.Engine)
+	assert.True(t, reloadCalled, "Advanced.Reload should be called on Reload")
 
 	// P0 Fix #4: Concurrent safety - try duplicate registration
 	err = manager.RegisterV2(desc)

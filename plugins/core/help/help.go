@@ -44,36 +44,32 @@ func New() *plugin.PluginDescriptor {
 	v1Plugin := newHelpPluginInternal()
 
 	return &plugin.PluginDescriptor{
-		Name:        "help",
-		Version:     "2.0.0",
-		Author:      "Remilia",
-		Description: "提供命令和插件的帮助信息查询功能",
-		Category:    "系统",
-		Tags:        []string{"帮助", "文档", "命令"},
-		Deps:        []string{},
-		Hidden:      false,
-		HelpText: `帮助插件使用说明：
+		Name:    "help",
+		Version: "2.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia",
+			Description: "提供命令和插件的帮助信息查询功能",
+			Category:    "系统",
+			Tags:        []string{"帮助", "文档", "命令"},
+			HelpText: `帮助插件使用说明：
   /help - 显示所有命令列表
-  /help <页码> - 显示指定页的命令
-  /help plugins - 显示所有插件列表
-  /help <插件名> - 显示插件的详细信息
-  /help <命令名> - 显示命令的详细用法`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[Plugin] Loading help plugin (v2)...")
-
-			// 设置 Engine 和 PluginManager
-			v1Plugin.Engine = ctx.Engine
-			v1Plugin.PluginManager = ctx.Manager
-
-			// 使用 RegisterCommand 注册命令（使 Matcher 可被插件系统追踪）
-			ctx.RegisterCommand(dto.GroupAtMessageCreate, "/help").
-				Handle(v1Plugin.handleHelp)
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/help").
-				Handle(v1Plugin.handleHelp)
-
-			logger.Info("[Plugin] Help plugin loaded successfully")
-			return nil
+  /help <页码> - 指定页
+  /help plugins - 插件列表
+  /help <名称> - 详细信息`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Loading help plugin")
+			if mp, ok := ctx.Info.(interface{ Manager() *plugin.Manager }); ok {
+				v1Plugin.PluginManager = mp.Manager()
+			}
+			if cp, ok := ctx.Info.(interface{ Coordinator() *engine.Engine }); ok {
+				v1Plugin.Engine = cp.Coordinator()
+			}
+			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").Handle(v1Plugin.handleHelp)
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/help").Handle(v1Plugin.handleHelp)
+			ctx.Log.Info("Help plugin loaded")
+			return nil, nil
 		},
 	}
 }

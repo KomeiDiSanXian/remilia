@@ -30,9 +30,13 @@ type LifecycleListener interface {
 }
 
 // Manager 插件管理器
+//
+// plugins 字段改为 map[string]*PluginInstance，消除对 Plugin 公开接口的依赖：
+//   - 所有外部 API 直接返回 *PluginInstance，类型明确；
+//   - 内部生命周期调用通过 pluginInternal 私有接口驱动；
+//   - Disable/Enable 不再维护独立 disabled map，状态由 PluginInstance.state 字段管理。
 type Manager struct {
-	plugins     map[string]Plugin
-	disabled    map[string]bool // 已禁用（暂停响应）的插件集合
+	plugins     map[string]*PluginInstance
 	coordinator *engine.Engine
 	listeners   []LifecycleListener // 生命周期监听器列表
 	viper       *viper.Viper        // 全局配置
@@ -46,8 +50,7 @@ type Manager struct {
 // NewManager 创建插件管理器
 func NewManager(coordinator *engine.Engine) *Manager {
 	return &Manager{
-		plugins:     make(map[string]Plugin),
-		disabled:    make(map[string]bool),
+		plugins:     make(map[string]*PluginInstance),
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
 		loadOrder:   make([]string, 0),
@@ -56,35 +59,38 @@ func NewManager(coordinator *engine.Engine) *Manager {
 	}
 }
 
+// Coordinator 返回底层 engine（供需要直接访问 engine 的插件使用，如 debug）
+func (pm *Manager) Coordinator() *engine.Engine {
+	return pm.coordinator
+}
+
 // Disable 禁用插件（暂停事件响应，但保持注册状态）。
 //
 // 与 Unregister 的区别：
 //   - Unregister: 完全移除插件，需要重新注册才能恢复
-//   - Disable: 仅标记为禁用，通过 Enable 即可恢复，不触发 Teardown，不影响 Container 中的服务
+//   - Disable: 将状态置为 Disabled，通过 Enable 即可恢复，不触发 Teardown，不影响 Container 中的服务
 //
 // 禁用后：
-//   - engine.Matcher 被挂起（engine.RemoveGroup 暂停分发）
-//   - IsDisabled(name) 返回 true
+//   - engine.Matcher 被挂起（engine.DisableGroup 暂停分发）
+//   - GetState() 返回 Disabled
 //   - 可通过 Enable(name) 恢复
 func (pm *Manager) Disable(name string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	if !exists {
 		return errutil.ErrPluginNotFound
 	}
 
-	if pm.disabled[name] {
+	state := inst.GetState()
+	if state == Disabled {
 		logger.Warnf("[pluginManager] Plugin %s is already disabled", name)
 		return nil
 	}
 
-	// 检查插件是否已加载
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		if stateful.GetState() != Loaded {
-			return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, stateful.GetState())
-		}
+	if state != Loaded {
+		return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, state)
 	}
 
 	// 暂停 engine 中该插件组的所有 Matcher 分发
@@ -92,7 +98,8 @@ func (pm *Manager) Disable(name string) error {
 		pm.coordinator.DisableGroup(name)
 	}
 
-	pm.disabled[name] = true
+	// 状态直接写入 PluginInstance，不再维护独立 disabled map
+	inst.SetState(Disabled)
 	logger.Infof("[pluginManager] Plugin %s disabled (matchers paused, container intact)", name)
 	return nil
 }
@@ -102,12 +109,13 @@ func (pm *Manager) Enable(name string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	if _, exists := pm.plugins[name]; !exists {
+	inst, exists := pm.plugins[name]
+	if !exists {
 		return errutil.ErrPluginNotFound
 	}
 
-	if !pm.disabled[name] {
-		logger.Warnf("[pluginManager] Plugin %s is not disabled", name)
+	if inst.GetState() != Disabled {
+		logger.Warnf("[pluginManager] Plugin %s is not disabled (state: %s)", name, inst.GetState())
 		return nil
 	}
 
@@ -116,16 +124,20 @@ func (pm *Manager) Enable(name string) error {
 		pm.coordinator.EnableGroup(name)
 	}
 
-	delete(pm.disabled, name)
+	inst.SetState(Loaded)
 	logger.Infof("[pluginManager] Plugin %s enabled (matchers resumed)", name)
 	return nil
 }
 
-// IsDisabled 检查插件是否被禁用（区别于 IsLoaded）
+// IsDisabled 检查插件是否被禁用
 func (pm *Manager) IsDisabled(name string) bool {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	return pm.disabled[name]
+	inst, exists := pm.plugins[name]
+	pm.mu.RUnlock()
+	if !exists {
+		return false
+	}
+	return inst.GetState() == Disabled
 }
 
 // SetStrictDeps 设置严格依赖模式。
@@ -133,8 +145,6 @@ func (pm *Manager) IsDisabled(name string) bool {
 // 启用后（strictDeps=true），若插件在 Setup 中通过 Get/MustGet 访问了
 // 未在 Deps 字段声明的插件，注册时将返回错误而不是警告，
 // 防止隐式依赖导致拓扑排序失效或生命周期管理混乱。
-//
-// 默认关闭（向后兼容），新项目建议开启。
 func (pm *Manager) SetStrictDeps(enabled bool) {
 	pm.mu.Lock()
 	pm.strictDeps = enabled
@@ -166,18 +176,18 @@ func (pm *Manager) SetViper(v *viper.Viper) {
 // propagateConfigChange 向所有已加载插件的 Config 广播配置变更
 func (pm *Manager) propagateConfigChange() {
 	pm.mu.RLock()
-	plugins := make([]Plugin, 0, len(pm.plugins))
-	for _, p := range pm.plugins {
-		plugins = append(plugins, p)
+	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	for _, inst := range pm.plugins {
+		instances = append(instances, inst)
 	}
 	pm.mu.RUnlock()
 
-	for _, p := range plugins {
-		if configurable, ok := p.(ConfigurablePlugin); ok {
+	for _, inst := range instances {
+		if configurable, ok := any(inst).(ConfigurablePlugin); ok {
 			cfg := configurable.GetConfig()
 			if cfg != nil {
 				if err := cfg.Reload(); err != nil {
-					logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", p.Name())
+					logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", inst.Name())
 				}
 			}
 		}
@@ -196,7 +206,6 @@ func (pm *Manager) RemoveListener(listener LifecycleListener) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// 更安全的删除方式：创建新切片，避免索引越界风险
 	newListeners := make([]LifecycleListener, 0, len(pm.listeners))
 	for _, l := range pm.listeners {
 		if l != listener {
@@ -206,7 +215,7 @@ func (pm *Manager) RemoveListener(listener LifecycleListener) {
 	pm.listeners = newListeners
 }
 
-// notifyLoaded 通知监听器插件已加载
+// notifyLoaded 通知监听器插件已加载（P1-4: 每个回调加 panic recover）
 func (pm *Manager) notifyLoaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
@@ -214,11 +223,11 @@ func (pm *Manager) notifyLoaded(name string) {
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
-		listener.OnPluginLoaded(name)
+		safeNotify(name, "OnPluginLoaded", func() { listener.OnPluginLoaded(name) })
 	}
 }
 
-// notifyUnloaded 通知监听器插件已卸载
+// notifyUnloaded 通知监听器插件已卸载（P1-4: 每个回调加 panic recover）
 func (pm *Manager) notifyUnloaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
@@ -226,11 +235,11 @@ func (pm *Manager) notifyUnloaded(name string) {
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
-		listener.OnPluginUnloaded(name)
+		safeNotify(name, "OnPluginUnloaded", func() { listener.OnPluginUnloaded(name) })
 	}
 }
 
-// notifyReloaded 通知监听器插件已重载
+// notifyReloaded 通知监听器插件已重载（P1-4: 每个回调加 panic recover）
 func (pm *Manager) notifyReloaded(name string) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
@@ -238,11 +247,11 @@ func (pm *Manager) notifyReloaded(name string) {
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
-		listener.OnPluginReloaded(name)
+		safeNotify(name, "OnPluginReloaded", func() { listener.OnPluginReloaded(name) })
 	}
 }
 
-// notifyError 通知监听器插件操作发生错误
+// notifyError 通知监听器插件操作发生错误（P1-4: 每个回调加 panic recover）
 func (pm *Manager) notifyError(name string, operation string, err error) {
 	pm.mu.RLock()
 	listeners := make([]LifecycleListener, len(pm.listeners))
@@ -250,28 +259,29 @@ func (pm *Manager) notifyError(name string, operation string, err error) {
 	pm.mu.RUnlock()
 
 	for _, listener := range listeners {
-		listener.OnPluginError(name, operation, err)
+		safeNotify(name, "OnPluginError", func() { listener.OnPluginError(name, operation, err) })
 	}
 }
 
-// --- v1 API 已在 v2.0.0 中移除 ---
-//
-// 以下 v1 API 方法已被移除:
-//   - func (pm *Manager) Register(plugin Plugin) error
-//   - func (pm *Manager) RegisterWithDependencies(plugins []Plugin) error
-//   - func (pm *Manager) topologicalSort(plugins []Plugin) ([]Plugin, error)
-//   - func (pm *Manager) checkDependents(name string) []string
-//
-// 请使用 v2 API:
-//   - manager.RegisterV2(descriptor)
-//
-// 迁移指南: docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md
+// safeNotify 安全调用通知回调，捕获 panic 防止单个监听器崩溃影响整个通知链
+func safeNotify(pluginName, callback string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithFields(logger.Fields{
+				"plugin":   pluginName,
+				"callback": callback,
+				"panic":    r,
+			}).Error("[pluginManager] LifecycleListener panic recovered")
+		}
+	}()
+	fn()
+}
 
 // Unregister 注销插件，返回错误信息
 func (pm *Manager) Unregister(name string) error {
 	pm.mu.Lock()
 
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
 		logger.Warnf("[pluginManager] Plugin %s not found", name)
@@ -279,17 +289,17 @@ func (pm *Manager) Unregister(name string) error {
 	}
 
 	// 卸载插件
-	if err := plugin.Unload(pm.coordinator); err != nil {
-		// 修复 #13：Unload 失败时，标记插件为 Error 状态，
+	if err := inst.unload(pm.coordinator); err != nil {
+		// Unload 失败时，标记插件为 Error 状态，
 		// 防止插件在损坏状态下继续被 Reload/Get 等操作使用。
-		if stateful, ok := plugin.(statefulPluginWriter); ok {
-			stateful.SetState(Error)
-		}
-		pm.notifyError(name, "unload", err) // 通知监听器错误
+		inst.SetState(Error)
+		pm.mu.Unlock()
+		pm.notifyError(name, "unload", err)
 		return err
 	}
 
 	delete(pm.plugins, name)
+	pm.container.Remove(name)
 	pm.mu.Unlock()
 
 	logger.Infof("[pluginManager] Plugin %s unregistered", name)
@@ -307,14 +317,14 @@ func (pm *Manager) Unregister(name string) error {
 func (pm *Manager) ForceUnregister(name string) error {
 	pm.mu.Lock()
 
-	_, exists := pm.plugins[name]
-	if !exists {
+	if _, exists := pm.plugins[name]; !exists {
 		pm.mu.Unlock()
 		logger.Warnf("[pluginManager] ForceUnregister: plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
 	delete(pm.plugins, name)
+	pm.container.Remove(name)
 	pm.mu.Unlock()
 
 	logger.Warnf("[pluginManager] Plugin %s force unregistered (Unload skipped)", name)
@@ -326,7 +336,7 @@ func (pm *Manager) ForceUnregister(name string) error {
 //
 // 算法：
 //  1. 构建反向依赖图（谁依赖了 name）
-//  2. 拓扑排序，得到从"最外层依赖方"到"目标插件"的卸载顺序
+//  2. DFS 拓扑排序，得到从"最外层依赖方"到"目标插件"的卸载顺序
 //  3. 按顺序逐一 Unregister
 //
 // 返回值：若目标插件不存在，返回 ErrPluginNotFound；
@@ -340,18 +350,14 @@ func (pm *Manager) UnregisterCascade(name string) error {
 
 	// 构建反向依赖图（dependents[A] = 所有声明依赖了 A 的插件名称集合）
 	dependents := make(map[string][]string)
-	for pName, p := range pm.plugins {
-		inst, ok := p.(*PluginInstance)
-		if !ok {
-			continue
-		}
+	for pName, inst := range pm.plugins {
 		for _, dep := range inst.desc.Deps {
 			dependents[dep] = append(dependents[dep], pName)
 		}
 	}
 	pm.mu.RUnlock()
 
-	// BFS/DFS 收集所有需要卸载的插件（包括 name 本身）
+	// DFS 收集所有需要卸载的插件（包括 name 本身）
 	visited := make(map[string]bool)
 	var order []string
 	var dfs func(n string)
@@ -360,7 +366,6 @@ func (pm *Manager) UnregisterCascade(name string) error {
 			return
 		}
 		visited[n] = true
-		// 先递归处理依赖方（依赖 n 的插件需要先卸载）
 		for _, dep := range dependents[n] {
 			dfs(dep)
 		}
@@ -380,12 +385,9 @@ func (pm *Manager) UnregisterCascade(name string) error {
 }
 
 // Reload 重新加载插件（热重载）
-// 调用插件的 Reload() 方法进行原子性重载。
-// 插件可以选择实现原子性的 Reload()（失败时保持原状态），
-// 或者非原子性的 Reload()（如 BasePlugin 的默认实现：先 Unload 再 Load）。
 func (pm *Manager) Reload(name string) error {
 	pm.mu.RLock()
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	pm.mu.RUnlock()
 
 	if !exists {
@@ -395,79 +397,71 @@ func (pm *Manager) Reload(name string) error {
 
 	logger.Infof("[pluginManager] Reloading plugin %s", name)
 
-	// 调用插件的 Reload 方法，传递 coordinator
-	if err := plugin.Reload(pm.coordinator); err != nil {
+	if err := inst.reload(pm.coordinator); err != nil {
 		logger.WithError(err).Errorf("[pluginManager] Failed to reload plugin %s", name)
-		pm.notifyError(name, "reload", err) // 通知监听器错误
-		// Reload 失败时不删除插件，因为无法判断插件是否实现了原子性重载
-		// 调用方可以根据需要调用 Unregister 来删除插件
+		pm.notifyError(name, "reload", err)
 		return err
 	}
 
 	logger.Infof("[pluginManager] Plugin %s reloaded successfully", name)
-	pm.notifyReloaded(name) // 通知监听器
+	pm.notifyReloaded(name)
 
-	// 通知所有依赖了 name 插件的其他插件（依赖方通知）
+	// 通知所有依赖了 name 插件的其他插件
 	pm.notifyDependents(name)
 	return nil
 }
 
-// notifyDependents 通知依赖了 reloadedPlugin 的所有其他 v2 插件
+// notifyDependents 通知依赖了 reloadedPlugin 的所有其他插件
 func (pm *Manager) notifyDependents(reloadedPlugin string) {
 	pm.mu.RLock()
-	plugins := make(map[string]Plugin, len(pm.plugins))
-	maps.Copy(plugins, pm.plugins)
+	instances := make(map[string]*PluginInstance, len(pm.plugins))
+	maps.Copy(instances, pm.plugins)
 	pm.mu.RUnlock()
 
-	for depName, p := range plugins {
+	for depName, inst := range instances {
 		if depName == reloadedPlugin {
 			continue
 		}
-		// 只处理 PluginInstance（v2 插件）
-		inst, ok := p.(*PluginInstance)
-		if !ok {
+		if !slices.Contains(inst.desc.Deps, reloadedPlugin) {
 			continue
 		}
-		// 检查该插件是否依赖了刚重载的插件
-		if slices.Contains(inst.desc.Deps, reloadedPlugin) {
-			// 调用 OnDependencyReloaded 回调
-			if inst.desc.OnDependencyReloaded != nil {
-				logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
-				go func(cb func(string), dep string) {
-					defer func() {
-						if r := recover(); r != nil {
-							logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
-						}
-					}()
-					cb(dep)
-				}(inst.desc.OnDependencyReloaded, reloadedPlugin)
-			}
+		cb := inst.desc.getOnDependencyReloaded()
+		if cb == nil {
+			continue
 		}
+		logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
+		go func(cb func(string), dep string) {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
+				}
+			}()
+			cb(dep)
+		}(cb, reloadedPlugin)
 	}
 }
 
-// Get 获取插件
-func (pm *Manager) Get(name string) (Plugin, bool) {
+// Get 获取插件实例。
+// 若插件处于 Loading 状态（正在初始化），返回 nil, false，调用方需等待。
+func (pm *Manager) Get(name string) (*PluginInstance, bool) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	if !exists {
 		return nil, false
 	}
 
-	// 检查插件状态，如果正在加载则返回 false
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		if stateful.GetState() == Loading {
-			logger.Warnf("[pluginManager] Plugin %s is currently loading, please wait", name)
-			return nil, false
-		}
+	// 正在加载时不对外暴露
+	if inst.GetState() == Loading {
+		logger.Warnf("[pluginManager] Plugin %s is currently loading, please wait", name)
+		return nil, false
 	}
 
-	return plugin, true
+	return inst, true
 }
 
-// List 列出所有插件
+// List 列出所有插件名称
 func (pm *Manager) List() []string {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -480,26 +474,16 @@ func (pm *Manager) List() []string {
 }
 
 // GetMetadata 获取插件的元数据
-// 如果插件实现了 MetadataProvider 接口，返回详细元数据
-// 否则返回只包含名称的基本元数据
 func (pm *Manager) GetMetadata(name string) (*Metadata, bool) {
 	pm.mu.RLock()
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	pm.mu.RUnlock()
 
 	if !exists {
 		return nil, false
 	}
 
-	// 检查插件是否实现了 MetadataProvider 接口
-	if provider, ok := plugin.(MetadataProvider); ok {
-		return provider.Metadata(), true
-	}
-
-	// 返回基本元数据
-	return &Metadata{
-		Name: name,
-	}, true
+	return inst.Metadata(), true
 }
 
 // ListWithMetadata 列出所有插件及其元数据
@@ -508,14 +492,8 @@ func (pm *Manager) ListWithMetadata() map[string]*Metadata {
 	defer pm.mu.RUnlock()
 
 	result := make(map[string]*Metadata, len(pm.plugins))
-	for name, plugin := range pm.plugins {
-		if provider, ok := plugin.(MetadataProvider); ok {
-			result[name] = provider.Metadata()
-		} else {
-			result[name] = &Metadata{
-				Name: name,
-			}
-		}
+	for name, inst := range pm.plugins {
+		result[name] = inst.Metadata()
 	}
 	return result
 }
@@ -523,7 +501,7 @@ func (pm *Manager) ListWithMetadata() map[string]*Metadata {
 // GetStatus 获取插件状态
 func (pm *Manager) GetStatus(name string) (*Status, error) {
 	pm.mu.RLock()
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
 	pm.mu.RUnlock()
 
 	if !exists {
@@ -531,33 +509,14 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 	}
 
 	status := &Status{
-		Name: name,
-	}
-
-	// 如果插件支持状态管理，获取详细状态
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		status.State = stateful.GetState()
-		status.LoadTime = stateful.GetLoadTime()
-		status.LastError = stateful.GetLastError()
-		status.Uptime = stateful.GetUptime()
-	} else {
-		// 不支持状态管理，默认为已加载
-		status.State = Loaded
-	}
-
-	// 如果插件提供 Matcher 信息
-	if matcherProvider, ok := plugin.(MatcherProvider); ok {
-		status.MatcherCount = len(matcherProvider.GetMatchers())
-	}
-
-	// 如果插件提供元数据
-	if provider, ok := plugin.(MetadataProvider); ok {
-		status.Metadata = provider.Metadata()
-	}
-
-	// 填充 SaveState 是否已实现（v2 PluginInstance）
-	if inst, ok := plugin.(*PluginInstance); ok {
-		status.HasSaveState = inst.desc.SaveState != nil
+		Name:         name,
+		State:        inst.GetState(),
+		LoadTime:     inst.GetLoadTime(),
+		LastError:    inst.GetLastError(),
+		Uptime:       inst.GetUptime(),
+		MatcherCount: len(inst.GetMatchers()),
+		Metadata:     inst.Metadata(),
+		HasSaveState: inst.desc.effectiveAdvanced().SaveState != nil,
 	}
 
 	// 填充 EventBus 全局订阅数快照
@@ -587,27 +546,18 @@ func (pm *Manager) ListStatus() map[string]*Status {
 			result[name] = status
 		}
 	}
-
 	return result
 }
 
-// IsLoaded 检查插件是否已加载
+// IsLoaded 检查插件是否已加载（Loaded 状态）
 func (pm *Manager) IsLoaded(name string) bool {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
-	plugin, exists := pm.plugins[name]
+	inst, exists := pm.plugins[name]
+	pm.mu.RUnlock()
 	if !exists {
 		return false
 	}
-
-	// 如果插件支持状态管理，检查状态
-	if stateful, ok := plugin.(StatefulPlugin); ok {
-		return stateful.GetState() == Loaded
-	}
-
-	// 不支持状态管理，只要存在就认为已加载
-	return true
+	return inst.GetState() == Loaded
 }
 
 // GetLoadOrder 获取插件加载顺序
@@ -627,53 +577,30 @@ func (pm *Manager) Count() int {
 	return len(pm.plugins)
 }
 
-// AsLifecycleComponent 将插件转换为 lifecycle.Component
-// 这样插件可以被集成到统一的生命周期管理系统中
-//
-// 使用示例:
-//
-//	lifecycleManager := lifecycle.NewManager()
-//	plugin := NewMyPlugin()
-//	component := pluginManager.AsLifecycleComponent(plugin)
-//	lifecycleManager.Register(component)
-//
-// 注意: 这不会将插件注册到 pluginManager，只是创建适配器
-func (pm *Manager) AsLifecycleComponent(plugin Plugin) lifecycle.Component {
-	return NewPluginComponent(plugin, pm.coordinator, pm)
+// AsLifecycleComponent 将插件实例转换为 lifecycle.Component
+func (pm *Manager) AsLifecycleComponent(inst *PluginInstance) lifecycle.Component {
+	return NewPluginComponent(inst, pm.coordinator, pm)
 }
 
 // RegisterToLifecycle 将所有已注册的插件注册到 lifecycle.Manager
-// 这样可以利用 lifecycle 包的统一生命周期管理
-//
-// 使用示例:
-//
-//	pluginManager.Register(plugin1)
-//	pluginManager.Register(plugin2)
-//
-//	lifecycleManager := lifecycle.NewManager()
-//	pluginManager.RegisterToLifecycle(lifecycleManager)
-//
-//	lifecycleManager.Start(ctx)
 func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 	pm.mu.RLock()
-	plugins := make([]Plugin, 0, len(pm.plugins))
-	for _, plugin := range pm.plugins {
-		plugins = append(plugins, plugin)
+	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	for _, inst := range pm.plugins {
+		instances = append(instances, inst)
 	}
 	pm.mu.RUnlock()
 
-	// 按加载顺序注册
-	for _, plugin := range plugins {
-		component := pm.AsLifecycleComponent(plugin)
+	for _, inst := range instances {
+		component := pm.AsLifecycleComponent(inst)
 		lm.Register(component)
 	}
 
-	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(plugins))
+	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(instances))
 	return nil
 }
 
 // GetContainer 获取依赖注入容器（v2 API）
-// 允许插件直接访问容器进行高级操作
 func (pm *Manager) GetContainer() *Container {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -682,15 +609,8 @@ func (pm *Manager) GetContainer() *Container {
 
 // FreezeContainer 冻结依赖注入容器，切换为无锁只读模式。
 //
-// 改进 3.5：在所有插件通过 RegisterV2/RegisterMultipleV2 加载完成后调用此方法，
-// 后续 Get/Has 操作将使用无锁 map，读性能提升 2-3x。
-//
-// 注意：冻结后不能再调用 Register/Remove，否则会 panic。
-//
-// 示例：
-//
-//	manager.RegisterMultipleV2(plugins...)
-//	manager.FreezeContainer() // 所有插件加载完成，冻结容器
+// 在所有插件通过 RegisterV2/RegisterMultipleV2 加载完成后调用此方法，
+// 后续 Get/Has 操作将使用原子指针快照，读性能提升 2-3x。
 func (pm *Manager) FreezeContainer() {
 	pm.mu.RLock()
 	c := pm.container
@@ -702,12 +622,6 @@ func (pm *Manager) FreezeContainer() {
 }
 
 // GetEventBus 获取插件间事件总线
-//
-// 允许在 Setup 阶段之外（如外部组件）订阅或发布插件事件。
-// 使用示例:
-//
-//	bus := manager.GetEventBus()
-//	bus.Subscribe("my-topic", func(data any) { ... })
 func (pm *Manager) GetEventBus() EventBus {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()

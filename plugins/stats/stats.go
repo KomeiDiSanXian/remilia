@@ -17,6 +17,7 @@
 package stats
 
 import (
+	stdctx "context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -87,34 +88,35 @@ func NewPlugin() *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "stats",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "用户行为统计插件，记录命令调用次数和用户活跃度",
-		Category:    "核心",
-		Tags:        []string{"统计", "分析", "监控"},
-		Deps:        []string{},
-		HelpText: `统计插件使用说明：
-  p := stats.NewPlugin()
-  pm.RegisterV2(stats.Descriptor(p))
-  engine.Use(p.Middleware())
-  p.TopCommands(10)`,
-		Setup: func(setupCtx *plugin.SetupContext) error {
-			logger.Info("[Stats] Plugin loaded")
-			setupCtx.Manager.GetContainer().Register("stats", p)
-			// 可选：若 storage 已注册，则加载持久化的统计快照
-			if storageRaw, ok := setupCtx.Manager.GetContainer().Get("storage"); ok {
+		Name:    "stats",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "用户行为统计插件，记录命令调用次数和用户活跃度",
+			Category:    "核心",
+			Tags:        []string{"统计", "分析", "监控"},
+			HelpText: `统计插件使用说明：
+  pm.RegisterV2(stats.New())
+  engine.Use(statsPlugin.Middleware())
+  statsPlugin.TopCommands(10)`,
+		},
+		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
+			setupCtx.Log.Info("Plugin loaded")
+			if storageRaw, ok := setupCtx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.loadSnapshot()
-					// 每 5 分钟定期保存快照
-					go p.autoSave(5 * time.Minute)
+					// 使用 ctx.Go 启动生命周期绑定的自动保存 goroutine
+					setupCtx.Go(func(runCtx stdctx.Context) {
+						p.autoSaveWithCtx(runCtx, 5*time.Minute)
+					})
 				}
 			}
-			return nil
+			return p, nil
 		},
-		Teardown: func() error {
-			p.saveSnapshot()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).saveSnapshot()
 			return nil
 		},
 	}
@@ -312,13 +314,17 @@ func (p *Plugin) loadSnapshot() {
 	logger.Infof("[Stats] Loaded snapshot: total=%d commands=%d", snap.Total, len(snap.Commands))
 }
 
-func (p *Plugin) autoSave(interval time.Duration) {
+func (p *Plugin) autoSaveWithCtx(ctx stdctx.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for range ticker.C {
-		if p.storage == nil {
+	for {
+		select {
+		case <-ticker.C:
+			if p.storage != nil {
+				p.saveSnapshot()
+			}
+		case <-ctx.Done():
 			return
 		}
-		p.saveSnapshot()
 	}
 }

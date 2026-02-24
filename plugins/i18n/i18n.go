@@ -90,36 +90,35 @@ func NewPlugin(cfg Config) *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "i18n",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "国际化/本地化插件，支持多语言文本和热更新",
-		Category:    "核心",
-		Tags:        []string{"i18n", "国际化", "多语言"},
-		Deps:        []string{},
-		HelpText: `i18n 插件使用说明：
+		Name:    "i18n",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "国际化/本地化插件，支持多语言文本和热更新",
+			Category:    "核心",
+			Tags:        []string{"i18n", "国际化", "多语言"},
+			HelpText: `i18n 插件使用说明：
   p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
   pm.RegisterV2(i18n.Descriptor(p))
-  p.T(ctx, "key")
-  p.SetLocale(ctx, "en-US")`,
-
-		Setup: func(setupCtx *plugin.SetupContext) error {
-			logger.Infof("[i18n] Loading locales from '%s', default=%s", p.cfg.LocaleDir, p.cfg.DefaultLocale)
+  p.T(ctx, "key")`,
+		},
+		Advanced: &plugin.PluginAdvanced{
+			Reload: func(setupCtx *plugin.SetupContext) error {
+				if p.cfg.LocaleDir != "" {
+					return p.loadDir(p.cfg.LocaleDir)
+				}
+				return nil
+			},
+		},
+		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
+			setupCtx.Log.Infof("Loading locales from '%s', default=%s", p.cfg.LocaleDir, p.cfg.DefaultLocale)
 			if p.cfg.LocaleDir != "" {
 				if err := p.loadDir(p.cfg.LocaleDir); err != nil {
-					logger.WithError(err).Warn("[i18n] Failed to load locale dir, continuing with empty bundles")
+					setupCtx.Log.Error("Failed to load locale dir, continuing with empty bundles", err)
 				}
 			}
-			setupCtx.Manager.GetContainer().Register("i18n", p)
-			logger.Info("[i18n] Plugin loaded")
-			return nil
-		},
-
-		Reload: func(setupCtx *plugin.SetupContext) error {
-			if p.cfg.LocaleDir != "" {
-				return p.loadDir(p.cfg.LocaleDir)
-			}
-			return nil
+			return p, nil
 		},
 	}
 }

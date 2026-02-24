@@ -32,7 +32,7 @@ func TestDisable_ThenEnable(t *testing.T) {
 	pm.RegisterV2(&PluginDescriptor{
 		Name:  "alpha",
 		Deps:  nil,
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	if pm.IsDisabled("alpha") {
@@ -46,9 +46,17 @@ func TestDisable_ThenEnable(t *testing.T) {
 	if !pm.IsDisabled("alpha") {
 		t.Error("plugin should be disabled after Disable()")
 	}
-	// still registered
-	if !pm.IsLoaded("alpha") {
-		t.Error("plugin should remain in Loaded state after Disable()")
+	// P1-3: Disable 后状态变为 Disabled，IsLoaded 返回 false
+	// 但插件仍注册在 Manager 中（Count 不变）
+	if pm.IsLoaded("alpha") {
+		t.Error("plugin should NOT be in Loaded state after Disable() (state is Disabled)")
+	}
+	if _, exists := pm.Get("alpha"); !exists {
+		t.Error("plugin should still be accessible via Get() after Disable()")
+	}
+	inst, _ := pm.Get("alpha")
+	if inst.GetState() != Disabled {
+		t.Errorf("expected Disabled state, got %v", inst.GetState())
 	}
 
 	// Enable
@@ -64,7 +72,7 @@ func TestDisable_Idempotent(t *testing.T) {
 	pm := NewManager(engine.NewEngine())
 	pm.RegisterV2(&PluginDescriptor{
 		Name:  "beta",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	pm.Disable("beta")
@@ -78,7 +86,7 @@ func TestEnable_WhenNotDisabled(t *testing.T) {
 	pm := NewManager(engine.NewEngine())
 	pm.RegisterV2(&PluginDescriptor{
 		Name:  "gamma",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 	// Enable on a non-disabled plugin should not error
 	if err := pm.Enable("gamma"); err != nil {

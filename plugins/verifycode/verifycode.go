@@ -110,43 +110,31 @@ func New(onVerify OnVerifyHook) *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "verifycode",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "验证码插件，支持角色绑定、有效期和使用次数控制",
-		Category:    "安全",
-		Tags:        []string{"安全", "验证码", "授权"},
-		Deps:        []string{},
-		HelpText: `验证码插件使用说明：
-  vc := verifycode.NewPlugin(func(userID, role string) error {
-      // 授予角色
-      return permPlugin.SetRole(userID, role)
-  })
-  pm.RegisterV2(verifycode.Descriptor(vc))
-
-  // 生成验证码
-  code, _ := vc.Generate(verifycode.CodeConfig{
-      Role:    "vip",
-      TTL:     24 * time.Hour,
-      MaxUses: 1,  // 一次性
-  })
-
-  // 验证验证码
+		Name:    "verifycode",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "多用途验证码插件，支持角色授予、入群验证、自定义回调",
+			Category:    "核心",
+			Tags:        []string{"验证码", "安全", "授权"},
+			HelpText: `验证码插件使用说明：
+  vc := plugin.Require[verifycode.Plugin](ctx, "verifycode")
+  code, _ := vc.Generate(verifycode.CodeConfig{Role: "vip", TTL: 24*time.Hour})
   role, err := vc.Verify(userID, code)`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[VerifyCode] Plugin loaded")
-			ctx.Manager.GetContainer().Register("verifycode", p)
-			// 可选持久化
-			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
+			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.load()
 				}
 			}
-			return nil
+			return p, nil
 		},
-		Teardown: func() error {
-			p.save()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).save()
 			return nil
 		},
 	}

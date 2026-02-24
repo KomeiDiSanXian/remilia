@@ -141,16 +141,18 @@ func main() {
 func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
 		Name: "commands", Version: "1.0.0",
-		Description: "showcase command set",
-		Category:    "showcase",
-		Deps:        []string{"cooldown", "stats", "i18n", "verifycode", "conversation"},
-		Setup: func(ctx *plugin.SetupContext) error {
+		Meta: &plugin.PluginMeta{
+			Description: "showcase command set",
+			Category:    "showcase",
+		},
+		Deps: []string{"cooldown", "stats", "i18n", "verifycode", "conversation"},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// /ping
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/ping").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/ping").
 				SetDefinition(&command.Definition{Name: "ping", Description: "Pong!", Category: "tools"}).
 				Handle(func(c *eventctx.Context) error { return replyCtx(c, "Pong!") })
 			// /status — stats plugin demo
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/status").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/status").
 				SetDefinition(&command.Definition{Name: "status", Description: "Bot status", Category: "tools"}).
 				Handle(func(c *eventctx.Context) error {
 					top := sp.TopCommands(3)
@@ -161,7 +163,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, msg)
 				})
 			// /daily — cooldown plugin demo (24h)
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/daily").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/daily").
 				SetDefinition(&command.Definition{Name: "daily", Description: "Daily check-in (cooldown demo)", Category: "fun"}).
 				Handle(func(c *eventctx.Context) error {
 					uid := c.GetUserID()
@@ -172,7 +174,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, "checked in!")
 				})
 			// /lang — i18n locale switch
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/lang").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/lang").
 				SetDefinition(&command.Definition{
 					Name: "lang", Description: "Switch language (i18n)", Category: "settings",
 					Arguments: []*command.Argument{{Name: "locale", Type: command.ArgTypeString, Required: true}},
@@ -184,23 +186,23 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					if locale == "" {
 						return replyCtx(c, "usage: /lang <zh-CN|en>")
 					}
-					if raw, ok := ctx.Manager.GetContainer().Get("i18n"); ok {
+					if raw, ok := pm.GetContainer().Get("i18n"); ok {
 						raw.(*i18n.Plugin).SetLocale(c, locale)
 					}
 					return replyCtx(c, "language set: "+locale)
 				})
 			// /greet — i18n template render
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/greet").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").
 				SetDefinition(&command.Definition{Name: "greet", Description: "i18n greeting", Category: "demo"}).
 				Handle(func(c *eventctx.Context) error {
-					if raw, ok := ctx.Manager.GetContainer().Get("i18n"); ok {
+					if raw, ok := pm.GetContainer().Get("i18n"); ok {
 						t := raw.(*i18n.Plugin)
 						return replyCtx(c, t.T(c, "welcome", map[string]any{"name": c.GetUserID()}))
 					}
 					return replyCtx(c, "hello!")
 				})
 			// /verify — standalone verifycode plugin
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/verify").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/verify").
 				SetDefinition(&command.Definition{
 					Name: "verify", Description: "Redeem a verification code", Category: "access",
 					Arguments: []*command.Argument{{Name: "code", Type: command.ArgTypeString, Required: true}},
@@ -211,7 +213,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					if code == "" {
 						return replyCtx(c, "usage: /verify <code>")
 					}
-					raw, ok := ctx.Manager.GetContainer().Get("verifycode")
+					raw, ok := pm.GetContainer().Get("verifycode")
 					if !ok {
 						return replyCtx(c, "verifycode not loaded")
 					}
@@ -223,7 +225,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 				})
 			// /register — conversation multi-step flow
 			var regMachine *conversation.Machine
-			if raw, ok := ctx.Manager.GetContainer().Get("conversation"); ok {
+			if raw, ok := pm.GetContainer().Get("conversation"); ok {
 				conv := raw.(*conversation.Plugin)
 				regMachine = conv.NewMachine("register").
 					Step("name", "Enter your nickname:", func(c *eventctx.Context, s *conversation.Session) error {
@@ -238,23 +240,23 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 						return replyCtx(c, fmt.Sprintf("registered! name=%v email=%v", s.Data["name"], s.Data["email"]))
 					})
 				// dispatch handler for in-progress sessions
-				ctx.Engine.On(dto.C2CMessageCreate, conv.InSession("register")).
+				ctx.Reg.RegisterMatcher(dto.C2CMessageCreate, conv.InSession("register")).
 					Handle(conv.DispatchFor("register"))
 			}
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/register").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/register").
 				SetDefinition(&command.Definition{Name: "register", Description: "Multi-step registration (conversation demo)", Category: "demo"}).
 				Handle(func(c *eventctx.Context) error {
 					if regMachine == nil {
 						return replyCtx(c, "conversation not loaded")
 					}
-					raw, _ := ctx.Manager.GetContainer().Get("conversation")
+					raw, _ := pm.GetContainer().Get("conversation")
 					return raw.(*conversation.Plugin).Start(c, regMachine)
 				})
 			// /aclcheck — standalone acl plugin
-			ctx.RegisterCommand(dto.C2CMessageCreate, "/aclcheck").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/aclcheck").
 				SetDefinition(&command.Definition{Name: "aclcheck", Description: "Check ACL status (acl plugin)", Category: "security"}).
 				Handle(func(c *eventctx.Context) error {
-					raw, ok := ctx.Manager.GetContainer().Get("acl")
+					raw, ok := pm.GetContainer().Get("acl")
 					if !ok {
 						return replyCtx(c, "acl not loaded")
 					}
@@ -262,7 +264,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					allowed := p.IsAllowed(c.GetUserID())
 					return replyCtx(c, fmt.Sprintf("mode=%s user=%s allowed=%v", p.GetMode(), c.GetUserID(), allowed))
 				})
-			return nil
+			return nil, nil
 		},
 	}
 }

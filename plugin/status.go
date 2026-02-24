@@ -14,6 +14,7 @@ const (
 	Unloading              // 卸载中
 	Error                  // 错误状态
 	Reloading              // 重载中
+	Disabled               // 已禁用（Matcher 已暂停，Container 条目保留）
 )
 
 // String 返回状态字符串
@@ -31,6 +32,8 @@ func (s State) String() string {
 		return "Error"
 	case Reloading:
 		return "Reloading"
+	case Disabled:
+		return "Disabled"
 	default:
 		return "Unknown"
 	}

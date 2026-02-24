@@ -109,36 +109,32 @@ func NewPlugin(cfg Config) *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "antispam",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "反垃圾/防刷插件，用户和群组独立限速，支持违规封禁",
-		Category:    "核心",
-		Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
-		Deps:        []string{},
-		HelpText: `反垃圾插件使用说明：
+		Name:    "antispam",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "反垃圾/防刷插件，用户和群组独立限速，支持违规封禁",
+			Category:    "核心",
+			Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
+			HelpText: `反垃圾插件使用说明：
   p := antispam.NewPlugin(antispam.DefaultConfig())
   pm.RegisterV2(antispam.Descriptor(p))
-  p.Ban(userID, 10*time.Minute)
-  engine.OnGroupAt(p.Rule())`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Infof("[AntiSpam] Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
+  p.Ban(userID, 10*time.Minute)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
-			ctx.Manager.GetContainer().Register("antispam", p)
-
-			// 可选：若 storage 插件已注册，则加载持久化的封禁名单
-			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.loadBanList()
 				}
 			}
-			return nil
+			return p, nil
 		},
-
-		// 保存封禁名单到 storage（如果可用）
-		Teardown: func() error {
-			p.saveBanList()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).saveBanList()
 			return nil
 		},
 	}

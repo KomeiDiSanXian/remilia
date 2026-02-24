@@ -81,46 +81,32 @@ func New() *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "pluginstore",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "插件配置持久化插件，跨重启保存/恢复插件运行时状态",
-		Category:    "系统",
-		Tags:        []string{"持久化", "状态", "系统"},
-		Deps:        []string{},
-		HelpText: `插件配置持久化使用说明：
-
-  // 在需要持久化状态的插件 Setup 中：
-  store := ctx.MustGet("pluginstore").(*pluginstore.Plugin)
-  store.RegisterFunc("myplugin",
-      func() (any, error) { return myState, nil },       // 保存状态
-      func(v any) error { return loadFrom(v) },          // 恢复状态
-  )
-
-  // pluginstore 会在 Teardown 时自动保存所有注册的状态，
-  // 下次启动 Setup 时自动恢复。`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[PluginStore] Plugin loaded")
-			ctx.Manager.GetContainer().Register("pluginstore", p)
-
-			// 绑定 storage 后端
+		Name:    "pluginstore",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "插件配置持久化插件，跨重启保存/恢复插件运行时状态",
+			Category:    "系统",
+			Tags:        []string{"持久化", "状态", "系统"},
+			HelpText: `插件状态持久化使用说明：
+  store := plugin.Require[pluginstore.Plugin](ctx, "pluginstore")
+  store.RegisterFunc("myplugin", saveFunc, restoreFunc)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
 			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
-					logger.Info("[PluginStore] Bound to storage plugin")
+					ctx.Log.Info("Bound to storage plugin")
 				}
 			}
-
-			// 启动时尝试恢复所有已注册插件的状态
-			// 注意：此时可能还没有插件注册，其他插件在 Setup 中会调用 RegisterFunc 后立即恢复
-			return nil
+			return p, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[PluginStore] Saving all plugin states...")
-			saved, failed := p.SaveAll()
-			logger.Infof("[PluginStore] Saved %d plugin states, %d failed", saved, failed)
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ps := ctx.API.(*Plugin)
+			saved, failed := ps.SaveAll()
+			ctx.Log.Infof("Saved %d plugin states, %d failed", saved, failed)
 			return nil
 		},
 	}

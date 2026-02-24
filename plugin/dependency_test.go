@@ -13,9 +13,9 @@ func TestTopologicalSort_NoDependencies(t *testing.T) {
 	manager := NewManager(nil)
 
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-b", Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-c", Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "plugin-a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-b", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-c", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	sorted, err := manager.topologicalSortV2(plugins)
@@ -37,9 +37,9 @@ func TestTopologicalSort_SimpleDependency(t *testing.T) {
 	manager := NewManager(nil)
 
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-c", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-a", Setup: func(ctx *SetupContext) error { return nil }}, // 无依赖
-		{Name: "plugin-b", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "plugin-c", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }}, // 无依赖
+		{Name: "plugin-b", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	sorted, err := manager.topologicalSortV2(plugins)
@@ -58,9 +58,9 @@ func TestTopologicalSort_CircularDependency_Direct(t *testing.T) {
 
 	// A -> B -> C -> A (直接循环)
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Deps: []string{"plugin-c"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-b", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-c", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "plugin-a", Deps: []string{"plugin-c"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-b", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-c", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	_, err := manager.topologicalSortV2(plugins)
@@ -78,11 +78,11 @@ func TestTopologicalSort_CircularDependency_Indirect(t *testing.T) {
 	// B -> C -> E
 	// D -> E -> A (形成循环)
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-b", Deps: []string{"plugin-c", "plugin-d"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-c", Deps: []string{"plugin-e"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-d", Deps: []string{"plugin-e"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-e", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) error { return nil }}, // 循环！
+		{Name: "plugin-a", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-b", Deps: []string{"plugin-c", "plugin-d"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-c", Deps: []string{"plugin-e"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-d", Deps: []string{"plugin-e"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-e", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }}, // 循环！
 	}
 
 	_, err := manager.topologicalSortV2(plugins)
@@ -98,8 +98,8 @@ func TestTopologicalSort_MissingDependency(t *testing.T) {
 	manager := NewManager(nil)
 
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Deps: []string{"plugin-missing"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-b", Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "plugin-a", Deps: []string{"plugin-missing"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-b", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	_, err := manager.topologicalSortV2(plugins)
@@ -113,8 +113,8 @@ func TestTopologicalSort_DuplicateNames(t *testing.T) {
 	manager := NewManager(nil)
 
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "plugin-a", Setup: func(ctx *SetupContext) error { return nil }}, // 重复
+		{Name: "plugin-a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "plugin-a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }}, // 重复
 	}
 
 	_, err := manager.topologicalSortV2(plugins)
@@ -137,12 +137,12 @@ func TestTopologicalSort_ComplexDAG(t *testing.T) {
 	//    \ /
 	//     F
 	plugins := []*PluginDescriptor{
-		{Name: "f", Deps: []string{"d", "e"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "d", Deps: []string{"b", "c"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "e", Deps: []string{"b", "c"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "c", Deps: []string{"a"}, Setup: func(ctx *SetupContext) error { return nil }},
-		{Name: "a", Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "f", Deps: []string{"d", "e"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "d", Deps: []string{"b", "c"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "e", Deps: []string{"b", "c"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "c", Deps: []string{"a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+		{Name: "a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	sorted, err := manager.topologicalSortV2(plugins)
@@ -178,8 +178,8 @@ func TestValidateDependencies(t *testing.T) {
 
 	t.Run("valid dependencies", func(t *testing.T) {
 		plugins := []*PluginDescriptor{
-			{Name: "a", Setup: func(ctx *SetupContext) error { return nil }},
-			{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) error { return nil }},
+			{Name: "a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+			{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 		}
 		err := manager.ValidateDependencies(plugins)
 		assert.NoError(t, err)
@@ -187,8 +187,8 @@ func TestValidateDependencies(t *testing.T) {
 
 	t.Run("circular dependency", func(t *testing.T) {
 		plugins := []*PluginDescriptor{
-			{Name: "a", Deps: []string{"b"}, Setup: func(ctx *SetupContext) error { return nil }},
-			{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) error { return nil }},
+			{Name: "a", Deps: []string{"b"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
+			{Name: "b", Deps: []string{"a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 		}
 		err := manager.ValidateDependencies(plugins)
 		assert.Error(t, err)
@@ -214,7 +214,7 @@ func TestRegisterMultipleV2(t *testing.T) {
 	t.Run("empty name", func(t *testing.T) {
 		manager := NewManager(nil)
 		err := manager.RegisterMultipleV2([]*PluginDescriptor{
-			{Name: "", Setup: func(ctx *SetupContext) error { return nil }},
+			{Name: "", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "empty name")
@@ -235,7 +235,7 @@ func TestTopologicalSort_SelfDependency(t *testing.T) {
 	manager := NewManager(nil)
 
 	plugins := []*PluginDescriptor{
-		{Name: "plugin-a", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) error { return nil }},
+		{Name: "plugin-a", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
 	_, err := manager.topologicalSortV2(plugins)
@@ -274,7 +274,7 @@ func BenchmarkTopologicalSort(b *testing.B) {
 		plugins[i] = &PluginDescriptor{
 			Name:  fmt.Sprintf("plugin-%d", i),
 			Deps:  deps,
-			Setup: func(ctx *SetupContext) error { return nil },
+			Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 		}
 	}
 

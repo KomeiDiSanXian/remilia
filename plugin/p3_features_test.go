@@ -95,23 +95,21 @@ func TestDependencyReloadNotification(t *testing.T) {
 
 	// 注册基础插件
 	mgr.RegisterV2(&plugin.PluginDescriptor{
-		Name: "base",
-		Setup: func(ctx *plugin.SetupContext) error {
-			return nil
-		},
+		Name:  "base",
+		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
 	// 注册依赖方，设置 OnDependencyReloaded 回调
 	mgr.RegisterV2(&plugin.PluginDescriptor{
-		Name: "dependent",
-		Deps: []string{"base"},
-		Setup: func(ctx *plugin.SetupContext) error {
-			return nil
-		},
-		OnDependencyReloaded: func(dep string) {
-			mu.Lock()
-			notified = dep
-			mu.Unlock()
+		Name:  "dependent",
+		Deps:  []string{"base"},
+		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
+		Advanced: &plugin.PluginAdvanced{
+			OnDependencyReloaded: func(dep string) {
+				mu.Lock()
+				notified = dep
+				mu.Unlock()
+			},
 		},
 	})
 

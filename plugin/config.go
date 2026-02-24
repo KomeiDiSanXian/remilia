@@ -16,6 +16,12 @@ type Config interface {
 	GetInt(key string, defaultVal int) int
 	GetBool(key string, defaultVal bool) bool
 	GetDuration(key string, defaultVal time.Duration) time.Duration
+	// GetFloat64 获取浮点数配置
+	GetFloat64(key string, defaultVal float64) float64
+	// GetStringSlice 获取字符串切片配置
+	GetStringSlice(key string, defaultVal []string) []string
+	// GetStringMap 获取字符串键 map 配置
+	GetStringMap(key string, defaultVal map[string]any) map[string]any
 
 	Set(key string, value any) error
 
@@ -148,6 +154,53 @@ func (pc *pluginConfig) GetDuration(key string, defaultVal time.Duration) time.D
 	default:
 		return defaultVal
 	}
+}
+
+// GetFloat64 获取浮点数配置
+func (pc *pluginConfig) GetFloat64(key string, defaultVal float64) float64 {
+	val := pc.Get(key)
+	if val == nil {
+		return defaultVal
+	}
+
+	switch v := val.(type) {
+	case float64:
+		return v
+	case int64:
+		return float64(v)
+	case int:
+		return float64(v)
+	default:
+		return defaultVal
+	}
+}
+
+// GetStringSlice 获取字符串切片配置
+func (pc *pluginConfig) GetStringSlice(key string, defaultVal []string) []string {
+	val := pc.Get(key)
+	if val == nil {
+		return defaultVal
+	}
+
+	if slice, ok := val.([]string); ok {
+		return slice
+	}
+
+	return defaultVal
+}
+
+// GetStringMap 获取字符串键 map 配置
+func (pc *pluginConfig) GetStringMap(key string, defaultVal map[string]any) map[string]any {
+	val := pc.Get(key)
+	if val == nil {
+		return defaultVal
+	}
+
+	if m, ok := val.(map[string]any); ok {
+		return m
+	}
+
+	return defaultVal
 }
 
 // Set 设置配置值

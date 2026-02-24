@@ -84,38 +84,31 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "auditlog",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "操作审计日志插件，记录命令调用和管理操作",
-		Category:    "安全",
-		Tags:        []string{"安全", "审计", "日志"},
-		Deps:        []string{},
-		HelpText: `审计日志插件使用说明：
-  pm.RegisterV2(auditlog.New())
-  engine.Use(auditlogPlugin.Middleware())
-  
-  // 手动记录
-  al := ctx.MustGet("auditlog").(*auditlog.Plugin)
-  al.Record(ctx, "perm.grant", map[string]any{"role": "admin"})
-  
-  // 查询
-  entries := al.Recent(50)
-  entries = al.ByUser(userID, 20)`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[AuditLog] Plugin loaded")
-			ctx.Manager.GetContainer().Register("auditlog", p)
-			// 可选：若 storage 已注册，则持久化日志
-			if storageRaw, ok := ctx.Manager.GetContainer().Get("storage"); ok {
+		Name:    "auditlog",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "操作审计日志插件，记录命令调用和管理操作",
+			Category:    "安全",
+			Tags:        []string{"安全", "审计", "日志"},
+			HelpText: `审计日志插件使用说明：
+  al := plugin.Require[auditlog.Plugin](ctx, "auditlog")
+  al.Record(ctx, "perm.grant", ...)
+  entries := al.Recent(50)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
+			if storageRaw, ok := ctx.Get("storage"); ok {
 				if sb, ok := storageRaw.(storageBackend); ok {
 					p.storage = sb
 					p.loadFromStorage()
 				}
 			}
-			return nil
+			return p, nil
 		},
-		Teardown: func() error {
-			p.flushToStorage()
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).flushToStorage()
 			return nil
 		},
 	}

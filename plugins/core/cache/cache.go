@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -56,42 +55,30 @@ func NewV2WithCapacity(capacity int) *plugin.PluginDescriptor {
 	}
 
 	return &plugin.PluginDescriptor{
-		Name:        "cache",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "高性能 LRU 缓存插件，减少重复计算和外部请求",
-		Category:    "核心",
-		Tags:        []string{"缓存", "性能", "LRU", "核心"},
-		Deps:        []string{}, // storage 依赖改为可选
-		HelpText: `缓存插件使用说明：
-
-高性能 LRU 缓存，特性：
-- LRU 淘汰策略
-- TTL 过期支持
-- 缓存统计和监控
-- 线程安全
-
-API 使用 (v2):
-  cachePlugin := ctx.MustGet("cache").(*cache.Plugin)
-  cachePlugin.Set(key, value, ttl) - 设置缓存
-  cachePlugin.Get(key) - 获取缓存
-  cachePlugin.Delete(key) - 删除缓存
-  cachePlugin.Clear() - 清空缓存
-  cachePlugin.Stats() - 查看统计`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[CachePlugin] Loading cache plugin (v2)...")
-			logger.Infof("[CachePlugin] Capacity: %d", capacity)
-
-			// 注册 API 包装器到容器，使用插件名 "cache" 以便 MustGet("cache") 直接获取 *cache.Plugin
-			ctx.Manager.GetContainer().Register("cache", pluginAPI)
-
-			logger.Info("[CachePlugin] Cache plugin loaded successfully")
-			return nil
+		Name:    "cache",
+		Version: "2.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "高性能 LRU 缓存插件，减少重复计算和外部请求",
+			Category:    "核心",
+			Tags:        []string{"缓存", "性能", "LRU", "核心"},
+			HelpText: `缓存插件使用说明：
+  cachePlugin := plugin.Require[cache.Plugin](ctx, "cache")
+  cachePlugin.Set(key, value, ttl)
+  cachePlugin.Get(key)
+  cachePlugin.Delete(key)
+  cachePlugin.Clear()
+  cachePlugin.Stats()`,
 		},
 
-		Teardown: func() error {
-			logger.Info("[CachePlugin] Unloading cache plugin...")
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Infof("Loading cache plugin (capacity=%d)", capacity)
+			return pluginAPI, nil // 框架自动 ExportAs("cache", pluginAPI)
+		},
+
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Unloading cache plugin")
 			cache.Clear()
 			return nil
 		},

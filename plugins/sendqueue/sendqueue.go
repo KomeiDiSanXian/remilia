@@ -119,30 +119,30 @@ func New(cfg Config) *plugin.PluginDescriptor {
 	}
 
 	return &plugin.PluginDescriptor{
-		Name:        "sendqueue",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "异步消息发送队列，内置令牌桶频控，防止 API 被打满",
-		Category:    "核心",
-		Tags:        []string{"发送", "队列", "频控"},
-		Deps:        []string{},
-
-		Setup: func(setupCtx *plugin.SetupContext) error {
-			logger.Infof("[SendQueue] Starting %d workers (rate=%.1f/s burst=%d)", cfg.Workers, cfg.Rate, cfg.Burst)
+		Name:    "sendqueue",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "异步消息发送队列，内置令牌桶频控，防止 API 被打满",
+			Category:    "核心",
+			Tags:        []string{"发送", "队列", "频控"},
+		},
+		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
+			setupCtx.Log.Infof("Starting %d workers (rate=%.1f/s burst=%d)", cfg.Workers, cfg.Rate, cfg.Burst)
 			for i := range cfg.Workers {
 				p.wg.Add(1)
 				go p.worker(i)
 			}
-			setupCtx.Manager.GetContainer().Register("sendqueue", p)
-			logger.Info("[SendQueue] Plugin loaded")
-			return nil
+			setupCtx.Log.Info("Plugin loaded")
+			return p, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[SendQueue] Shutting down...")
-			p.cancel()
-			p.wg.Wait()
-			logger.Info("[SendQueue] Shutdown complete")
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Shutting down sendqueue")
+			sq := ctx.API.(*Plugin)
+			sq.cancel()
+			sq.wg.Wait()
+			ctx.Log.Info("Shutdown complete")
 			return nil
 		},
 	}

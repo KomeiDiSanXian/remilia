@@ -100,11 +100,11 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 
 	desc := &PluginDescriptor{
 		Name: "test-plugin",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			setupCalled = true
-			return nil
+			return nil, nil
 		},
-		Teardown: func() error {
+		Teardown: func(ctx *TeardownContext) error {
 			teardownCalled = true
 			return nil
 		},
@@ -112,7 +112,6 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		Engine:    eng,
 		container: NewContainer(),
 	}
 
@@ -124,13 +123,13 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 	}
 
 	// Test Load
-	err := instance.Load(eng)
+	err := instance.load(eng)
 	assert.NoError(t, err)
 	assert.True(t, setupCalled)
 	assert.Equal(t, Loaded, instance.GetState())
 
 	// Test Unload
-	err = instance.Unload(eng)
+	err = instance.unload(eng)
 	assert.NoError(t, err)
 	assert.True(t, teardownCalled)
 	assert.Equal(t, Unloaded, instance.GetState())
@@ -140,7 +139,7 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 func TestPluginInstance_StatefulInterface(t *testing.T) {
 	desc := &PluginDescriptor{
 		Name:  "test-plugin",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
 	instance := &PluginInstance{
@@ -178,15 +177,17 @@ func TestPluginInstance_StatefulInterface(t *testing.T) {
 // TestPluginInstance_Metadata tests MetadataProvider interface
 func TestPluginInstance_Metadata(t *testing.T) {
 	desc := &PluginDescriptor{
-		Name:        "test-plugin",
-		Version:     "1.0.0",
-		Author:      "Test Author",
-		Description: "Test Description",
-		Category:    "Test",
-		Tags:        []string{"tag1", "tag2"},
-		Deps:        []string{"dep1"},
-		Hidden:      true,
-		Setup:       func(ctx *SetupContext) error { return nil },
+		Name:    "test-plugin",
+		Version: "1.0.0",
+		Deps:    []string{"dep1"},
+		Meta: &PluginMeta{
+			Author:      "Test Author",
+			Description: "Test Description",
+			Category:    "Test",
+			Tags:        []string{"tag1", "tag2"},
+			Hidden:      true,
+		},
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
 	instance := &PluginInstance{
@@ -208,20 +209,18 @@ func TestManager_RegisterV2_Basic(t *testing.T) {
 
 	desc := &PluginDescriptor{
 		Name:  "test-plugin",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
 	err := manager.RegisterV2(desc)
 	assert.NoError(t, err)
 
 	// Verify plugin is registered
-	plugin, exists := manager.Get("test-plugin")
+	instance, exists := manager.Get("test-plugin")
 	assert.True(t, exists)
-	assert.Equal(t, "test-plugin", plugin.Name())
+	assert.Equal(t, "test-plugin", instance.Name())
 
 	// Verify plugin state
-	instance, ok := plugin.(*PluginInstance)
-	require.True(t, ok)
 	assert.Equal(t, Loaded, instance.GetState())
 }
 
@@ -233,7 +232,7 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 	// Register dependency plugin
 	dep := &PluginDescriptor{
 		Name:  "dep-plugin",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 	err := manager.RegisterV2(dep)
 	require.NoError(t, err)
@@ -242,12 +241,12 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 	main := &PluginDescriptor{
 		Name: "main-plugin",
 		Deps: []string{"dep-plugin"},
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			// Verify dependency is accessible
 			depPlugin, ok := ctx.Get("dep-plugin")
 			assert.True(t, ok)
 			assert.NotNil(t, depPlugin)
-			return nil
+			return nil, nil
 		},
 	}
 	err = manager.RegisterV2(main)
@@ -262,12 +261,12 @@ func TestManager_RegisterV2_MissingDependency(t *testing.T) {
 	desc := &PluginDescriptor{
 		Name:  "test-plugin",
 		Deps:  []string{"missing-dep"},
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
 	err := manager.RegisterV2(desc)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing dependency")
+	assert.Contains(t, err.Error(), "missing")
 }
 
 // TestManager_RegisterV2_DuplicatePlugin tests duplicate registration
@@ -277,7 +276,7 @@ func TestManager_RegisterV2_DuplicatePlugin(t *testing.T) {
 
 	desc := &PluginDescriptor{
 		Name:  "test-plugin",
-		Setup: func(ctx *SetupContext) error { return nil },
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
 	// First registration should succeed
@@ -296,8 +295,8 @@ func TestManager_RegisterV2_SetupError(t *testing.T) {
 
 	desc := &PluginDescriptor{
 		Name: "test-plugin",
-		Setup: func(ctx *SetupContext) error {
-			return assert.AnError
+		Setup: func(ctx *SetupContext) (any, error) {
+			return nil, assert.AnError
 		},
 	}
 
@@ -316,11 +315,11 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 
 	desc := &PluginDescriptor{
 		Name: "test-plugin",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			setupCount++
-			return nil
+			return nil, nil
 		},
-		Teardown: func() error {
+		Teardown: func(ctx *TeardownContext) error {
 			teardownCount++
 			return nil
 		},
@@ -328,7 +327,6 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		Engine:    eng,
 		container: NewContainer(),
 	}
 
@@ -340,12 +338,12 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 	}
 
 	// Load once
-	err := instance.Load(eng)
+	err := instance.load(eng)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCount)
 
 	// Reload should call Unload + Load
-	err = instance.Reload(eng)
+	err = instance.reload(eng)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, setupCount)
 	assert.Equal(t, 1, teardownCount)

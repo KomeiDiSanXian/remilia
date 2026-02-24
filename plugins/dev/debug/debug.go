@@ -30,56 +30,31 @@ func New() *plugin.PluginDescriptor {
 	v1Plugin := newDebugPluginInternal()
 
 	return &plugin.PluginDescriptor{
-		Name:        "debug",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "开发调试工具集合，提供事件查看、上下文检查、性能分析等功能",
-		Category:    "开发",
-		Tags:        []string{"调试", "开发", "性能"},
-		Deps:        []string{"permission"},
-		HelpText: `调试插件使用说明：
-
-事件调试：
-  /debug event - 显示当前事件的详细信息
-  /debug ctx - 显示当前上下文的所有信息
-  /debug matcher <命令> - 查看命令匹配器的详细信息
-
-系统调试：
-  /debug runtime - 显示运行时信息（goroutine、内存等）
-  /debug commands - 显示所有注册的命令
-  /debug plugins - 显示所有插件的状态
-
-性能分析：
-  /debug bench <命令> - 测试命令的执行性能
-
-开发模式功能：
-  - 自动记录所有事件
-  - 显示详细的调试信息
-  - 性能监控和分析`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[DebugPlugin] Loading debug plugin (v2)...")
-
-			// 获取依赖（但 v2 的 permission 返回 PluginInstance，暂时不处理）
+		Name:    "debug",
+		Version: "2.0.0",
+		Deps:    []string{"permission"},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "开发调试工具集合，提供事件查看、上下文检查、性能分析等功能",
+			Category:    "开发",
+			Tags:        []string{"调试", "开发", "性能"},
+			HelpText: `调试插件使用说明：
+  /debug event|ctx|matcher|runtime|commands|plugins|bench`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Loading debug plugin")
 			_ = ctx.MustGet("permission")
-
-			// 从配置读取 DevMode（默认 false，生产环境关闭）
 			if ctx.Config != nil {
 				v1Plugin.DevMode = ctx.Config.GetBool("dev_mode", false)
 			}
-
-			// 设置引用
-			v1Plugin.Engine = ctx.Engine
-			v1Plugin.PluginManager = ctx.Manager
-			v1Plugin.setupCtx = ctx // 保存 SetupContext 以便 registerDebugCommands 使用
-
-			// 加载插件
-			return v1Plugin.Load(ctx.Engine)
+			v1Plugin.setupCtx = ctx
+			if err := v1Plugin.Load(ctx); err != nil {
+				return nil, err
+			}
+			return nil, nil
 		},
-
-		Teardown: func() error {
-			// 清理资源
-			logger.Info("[DebugPlugin] Debug plugin unloaded")
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Debug plugin unloaded")
 			return nil
 		},
 	}
@@ -93,16 +68,18 @@ func newDebugPluginInternal() *Plugin {
 }
 
 // Load 加载插件
-func (p *Plugin) Load(eng *engine.Engine) error {
-	logger.Info("[DebugPlugin] Loading debug plugin...")
-
-	// 保存 Engine 引用
-	p.Engine = eng
-
-	// 注册调试命令（只支持私聊，避免泄露敏感信息）
-	p.registerDebugCommands(eng)
-
-	logger.Info("[DebugPlugin] Debug plugin loaded successfully")
+func (p *Plugin) Load(ctx *plugin.SetupContext) error {
+	// 通过 ctx.Info 类型断言获取 Manager（debug 专用）
+	type managerProvider interface {
+		Manager() *plugin.Manager
+	}
+	if mp, ok := ctx.Info.(managerProvider); ok {
+		pm := mp.Manager()
+		p.PluginManager = pm
+		p.Engine = pm.Coordinator()
+	}
+	p.setupCtx = ctx
+	p.registerDebugCommands(ctx)
 	return nil
 }
 
@@ -122,8 +99,7 @@ func (p *Plugin) SetDevMode(enabled bool) {
 }
 
 // registerDebugCommands 注册调试命令
-func (p *Plugin) registerDebugCommands(eng *engine.Engine) {
-	// 创建命令定义
+func (p *Plugin) registerDebugCommands(ctx *plugin.SetupContext) {
 	debugCmd := &command.Definition{
 		Name:        "debug",
 		Description: "开发调试工具集合",
@@ -131,90 +107,27 @@ func (p *Plugin) registerDebugCommands(eng *engine.Engine) {
 		Category:    "开发",
 		Aliases:     []string{"dbg"},
 		SubCommands: []*command.Definition{
+			{Name: "event", Description: "显示当前事件的详细信息", Usage: "/debug event", Examples: []string{"/debug event"}},
+			{Name: "ctx", Description: "显示当前上下文的所有信息", Usage: "/debug ctx", Examples: []string{"/debug ctx"}},
 			{
-				Name:        "event",
-				Description: "显示当前事件的详细信息",
-				Usage:       "/debug event",
-				Examples:    []string{"/debug event"},
+				Name: "matcher", Description: "查看命令匹配器的详细信息", Usage: "/debug matcher <命令名>",
+				Arguments: []*command.Argument{{Name: "command", Type: command.ArgTypeString, Description: "命令名称", Required: true}},
+				Examples:  []string{"/debug matcher help"},
 			},
+			{Name: "runtime", Description: "显示运行时信息", Usage: "/debug runtime", Examples: []string{"/debug runtime"}},
+			{Name: "commands", Description: "显示所有注册的命令", Usage: "/debug commands", Examples: []string{"/debug commands"}},
+			{Name: "plugins", Description: "显示所有插件的状态", Usage: "/debug plugins", Examples: []string{"/debug plugins"}},
 			{
-				Name:        "ctx",
-				Description: "显示当前上下文的所有信息",
-				Usage:       "/debug ctx",
-				Examples:    []string{"/debug ctx"},
+				Name: "bench", Description: "测试命令的执行性能", Usage: "/debug bench <命令名>",
+				Arguments: []*command.Argument{{Name: "command", Type: command.ArgTypeString, Description: "命令名称", Required: true}},
+				Examples:  []string{"/debug bench help"},
 			},
-			{
-				Name:        "matcher",
-				Description: "查看命令匹配器的详细信息",
-				Usage:       "/debug matcher <命令名>",
-				Arguments: []*command.Argument{
-					{
-						Name:        "command",
-						Type:        command.ArgTypeString,
-						Description: "要查看的命令名称",
-						Required:    true,
-					},
-				},
-				Examples: []string{"/debug matcher help", "/debug matcher weather"},
-			},
-			{
-				Name:        "runtime",
-				Description: "显示运行时信息(goroutine、内存等)",
-				Usage:       "/debug runtime",
-				Examples:    []string{"/debug runtime"},
-			},
-			{
-				Name:        "commands",
-				Description: "显示所有注册的命令",
-				Usage:       "/debug commands",
-				Examples:    []string{"/debug commands"},
-			},
-			{
-				Name:        "plugins",
-				Description: "显示所有插件的状态",
-				Usage:       "/debug plugins",
-				Examples:    []string{"/debug plugins"},
-			},
-			{
-				Name:        "bench",
-				Description: "测试命令的执行性能",
-				Usage:       "/debug bench <命令名>",
-				Arguments: []*command.Argument{
-					{
-						Name:        "command",
-						Type:        command.ArgTypeString,
-						Description: "要测试的命令名称",
-						Required:    true,
-					},
-				},
-				Examples: []string{"/debug bench help", "/debug bench weather"},
-			},
-			{
-				Name:        "stats",
-				Description: "显示系统统计信息",
-				Usage:       "/debug stats",
-				Examples:    []string{"/debug stats"},
-			},
+			{Name: "stats", Description: "显示系统统计信息", Usage: "/debug stats", Examples: []string{"/debug stats"}},
 		},
 	}
 
-	// 注册私聊命令
-	if p.setupCtx != nil {
-		p.setupCtx.RegisterCommand(dto.C2CMessageCreate, "/debug").
-			SetDefinition(debugCmd).
-			Handle(p.handleDebugCommand)
-		// 注册群聊命令（需要 @ 机器人）
-		p.setupCtx.RegisterCommand(dto.GroupAtMessageCreate, "/debug").
-			SetDefinition(debugCmd).
-			Handle(p.handleDebugCommand)
-	} else {
-		eng.OnCommand(dto.C2CMessageCreate, "/debug").
-			SetDefinition(debugCmd).
-			Handle(p.handleDebugCommand)
-		eng.OnCommand(dto.GroupAtMessageCreate, "/debug").
-			SetDefinition(debugCmd).
-			Handle(p.handleDebugCommand)
-	}
+	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
+	ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
 }
 
 // handleDebugCommand 统一处理 debug 命令
@@ -614,17 +527,15 @@ func (p *Plugin) handleDebugPlugins(ctx *eventctx.Context) error {
 		msg.WriteString(fmt.Sprintf("  - 分类: %s\n", meta.Category))
 
 		// 如果插件实现了 StatefulPlugin，显示更多状态
-		if plug, ok := p.PluginManager.Get(name); ok {
-			if stateful, ok := plug.(plugin.StatefulPlugin); ok {
-				state := stateful.GetState()
-				msg.WriteString(fmt.Sprintf("  - 状态: %v\n", state))
+		if inst, ok := p.PluginManager.Get(name); ok {
+			state := inst.GetState()
+			msg.WriteString(fmt.Sprintf("  - 状态: %v\n", state))
 
-				uptime := stateful.GetUptime()
-				msg.WriteString(fmt.Sprintf("  - 运行时长: %s\n", uptime.Round(time.Second)))
+			uptime := inst.GetUptime()
+			msg.WriteString(fmt.Sprintf("  - 运行时长: %s\n", uptime.Round(time.Second)))
 
-				if lastErr := stateful.GetLastError(); lastErr != nil {
-					msg.WriteString(fmt.Sprintf("  - 最后错误: %v\n", lastErr))
-				}
+			if lastErr := inst.GetLastError(); lastErr != nil {
+				msg.WriteString(fmt.Sprintf("  - 最后错误: %v\n", lastErr))
 			}
 		}
 
@@ -733,11 +644,9 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 		// 按状态统计
 		stateCount := make(map[string]int)
 		for name := range plugins {
-			if plug, ok := p.PluginManager.Get(name); ok {
-				if stateful, ok := plug.(plugin.StatefulPlugin); ok {
-					state := stateful.GetState()
-					stateCount[fmt.Sprintf("%v", state)]++
-				}
+			if inst, ok := p.PluginManager.Get(name); ok {
+				state := inst.GetState()
+				stateCount[fmt.Sprintf("%v", state)]++
 			}
 		}
 

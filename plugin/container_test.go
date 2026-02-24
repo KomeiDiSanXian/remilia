@@ -14,8 +14,8 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	// 注册第一个插件
 	plugin1 := &PluginDescriptor{
 		Name: "plugin1",
-		Setup: func(ctx *SetupContext) error {
-			return nil
+		Setup: func(ctx *SetupContext) (any, error) {
+			return nil, nil
 		},
 	}
 	err := manager.RegisterV2(plugin1)
@@ -35,8 +35,8 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	// 注册第二个插件
 	plugin2 := &PluginDescriptor{
 		Name: "plugin2",
-		Setup: func(ctx *SetupContext) error {
-			return nil
+		Setup: func(ctx *SetupContext) (any, error) {
+			return nil, nil
 		},
 	}
 	err = manager.RegisterV2(plugin2)
@@ -67,7 +67,7 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 	// 注册第一个插件
 	plugin1 := &PluginDescriptor{
 		Name: "plugin1",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			// 验证可以访问特殊服务
 			mgr, ok := ctx.Get("manager")
 			assert.True(t, ok, "Should be able to get manager")
@@ -77,7 +77,7 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 			_, _ = ctx.Get("engine")
 			_, _ = ctx.Get("coordinator")
 
-			return nil
+			return nil, nil
 		},
 	}
 	err := manager.RegisterV2(plugin1)
@@ -103,7 +103,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 
 	plugin := &PluginDescriptor{
 		Name: "test",
-		Setup: func(ctx *SetupContext) error {
+		Setup: func(ctx *SetupContext) (any, error) {
 			// 访问 manager
 			mgr, ok := ctx.Get("manager")
 			assert.True(t, ok)
@@ -119,7 +119,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 			assert.True(t, ok)
 			assert.Same(t, eng, coord)
 
-			return nil
+			return nil, nil
 		},
 	}
 
@@ -176,30 +176,30 @@ func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 	plugins := []*PluginDescriptor{
 		{
 			Name: "a",
-			Setup: func(ctx *SetupContext) error {
-				return nil
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
 			},
 		},
 		{
 			Name: "b",
 			Deps: []string{"a"},
-			Setup: func(ctx *SetupContext) error {
+			Setup: func(ctx *SetupContext) (any, error) {
 				// 应该能访问 a
 				_, ok := ctx.Get("a")
 				assert.True(t, ok)
-				return nil
+				return nil, nil
 			},
 		},
 		{
 			Name: "c",
 			Deps: []string{"a", "b"},
-			Setup: func(ctx *SetupContext) error {
+			Setup: func(ctx *SetupContext) (any, error) {
 				// 应该能访问 a 和 b
 				_, ok := ctx.Get("a")
 				assert.True(t, ok)
 				_, ok = ctx.Get("b")
 				assert.True(t, ok)
-				return nil
+				return nil, nil
 			},
 		},
 	}

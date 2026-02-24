@@ -73,29 +73,23 @@ func NewPlugin(cfg Config) *Plugin {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "keywordfilter",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "关键词过滤插件，屏蔽违禁/敏感内容",
-		Category:    "安全",
-		Tags:        []string{"安全", "过滤", "关键词"},
-		Deps:        []string{},
-		HelpText: `关键词过滤插件使用说明：
-  p := keywordfilter.NewPlugin(keywordfilter.Config{
-      Keywords: []string{"违禁词"},
-      OnMatch:  func(ctx, matched) error { return ctx.Reply(...) },
-  })
+		Name:    "keywordfilter",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "关键词过滤插件，屏蔽违禁/敏感内容",
+			Category:    "安全",
+			Tags:        []string{"安全", "过滤", "关键词"},
+			HelpText: `关键词过滤插件使用说明：
+  p := keywordfilter.NewPlugin(keywordfilter.Config{Keywords: []string{"违禁词"}})
   pm.RegisterV2(keywordfilter.Descriptor(p))
   engine.OnGroupAt(p.Rule()).Handle(handler)
-
-  // 动态管理关键词
-  p.AddKeyword("新敏感词")
-  p.RemoveKeyword("旧敏感词")`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Infof("[KeywordFilter] Loaded with %d keywords, %d patterns",
-				len(p.keywords), len(p.patterns))
-			ctx.Manager.GetContainer().Register("keywordfilter", p)
-			return nil
+  p.AddKeyword("新敏感词")`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Infof("Loaded with %d keywords, %d patterns", len(p.keywords), len(p.patterns))
+			return p, nil
 		},
 	}
 }

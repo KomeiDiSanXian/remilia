@@ -25,7 +25,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/antispam"
@@ -52,48 +51,41 @@ func New() *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 实例创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "ratelimitui",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "限流状态查询插件，聚合 antispam 和 cooldown 的运行时状态",
-		Category:    "运营",
-		Tags:        []string{"限流", "监控", "查询", "运营"},
-		Deps:        []string{},
-		HelpText: `限流状态查询插件使用说明：
-
-  /rl status [用户ID]  - 查询用户限流状态
-  /rl bans             - 列出所有封禁用户
-  /rl stats            - 查看限流统计摘要
-  /rl unban <用户ID>   - 解封用户（需要 antispam 插件）
-  /rl reset <用户ID> <命令> - 重置用户命令冷却（需要 cooldown 插件）`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[RateLimitUI] Plugin loaded")
-			ctx.Manager.GetContainer().Register("ratelimitui", p)
+		Name:    "ratelimitui",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "限流状态查询插件，聚合 antispam 和 cooldown 的运行时状态",
+			Category:    "运营",
+			Tags:        []string{"限流", "监控", "查询", "运营"},
+			HelpText: `限流状态查询插件使用说明：
+  /rl status [用户ID]
+  /rl bans
+  /rl stats
+  /rl unban <用户ID>
+  /rl reset <用户ID> <命令>`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
 			p.setupCtx = ctx
-
-			// 可选绑定 antispam 插件
 			if raw, ok := ctx.Get("antispam"); ok {
 				if ap, ok := raw.(*antispam.Plugin); ok {
 					p.antispam = ap
-					logger.Info("[RateLimitUI] Bound to antispam plugin")
+					ctx.Log.Info("Bound to antispam plugin")
 				}
 			}
-
-			// 可选绑定 cooldown 插件
 			if raw, ok := ctx.Get("cooldown"); ok {
 				if cp, ok := raw.(*cooldown.Plugin); ok {
 					p.cooldown = cp
-					logger.Info("[RateLimitUI] Bound to cooldown plugin")
+					ctx.Log.Info("Bound to cooldown plugin")
 				}
 			}
-
 			p.registerCommands(ctx)
-			return nil
+			return p, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[RateLimitUI] Plugin unloaded")
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Plugin unloaded")
 			return nil
 		},
 	}
@@ -149,7 +141,7 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 		},
 	}
 
-	ctx.RegisterCommand(dto.C2CMessageCreate, "/rl").
+	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/rl").
 		SetDefinition(rlCmd).
 		Handle(p.handleRLCommand)
 }

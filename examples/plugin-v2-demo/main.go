@@ -89,205 +89,145 @@ func registerPlugins(manager *plugin.Manager) {
 }
 
 // NewGreeterPlugin 创建问候插件（v2 风格）
-//
-// 演示：
-//   - 基本命令注册
-//   - 使用闭包管理状态
-//   - 无需结构体和继承
 func NewGreeterPlugin() *plugin.PluginDescriptor {
-	// 使用闭包捕获状态，无需结构体
 	greeting := "你好"
 
 	return &plugin.PluginDescriptor{
-		Name:        "greeter",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "简单的问候插件（v2 API 演示）",
-		Category:    "示例",
-		Tags:        []string{"问候", "演示"},
-
-		Setup: func(ctx *plugin.SetupContext) error {
+		Name:    "greeter",
+		Version: "2.0.0",
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "简单的问候插件（v2 API 演示）",
+			Category:    "示例",
+			Tags:        []string{"问候", "演示"},
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			logger.Info("[Greeter] Setting up plugin (v2)...")
 
-			// 注册 /greet 命令
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/greet").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").
 				Handle(func(c *eventctx.Context) error {
 					var event dto.C2CMessageCreateEvent
 					if err := c.DecodeEvent(&event); err != nil {
 						return err
 					}
-
 					response := greeting + ", " + event.Author.UserOpenID + "!"
-					_, err := c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: response,
-					})
+					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: response})
 					return err
 				})
 
-			// 注册 /setgreeting 命令
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/setgreeting").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").
 				Handle(func(c *eventctx.Context) error {
 					content := c.GetMessageContent()
-					if len(content) <= 13 { // "/setgreeting "
-						_, err := c.ReplyPrivate(&dto.Message{
-							Type:    dto.TextMessage,
-							Content: "用法: /setgreeting <问候语>",
-						})
+					if len(content) <= 13 {
+						_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "用法: /setgreeting <问候语>"})
 						return err
 					}
-
-					// 更新闭包中的变量
 					greeting = content[13:]
-					_, err := c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: "问候语已更新为: " + greeting,
-					})
+					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "问候语已更新为: " + greeting})
 					return err
 				})
 
 			logger.Info("[Greeter] Plugin setup complete")
-			return nil
+			return nil, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[Greeter] Tearing down plugin...")
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Greeter plugin torn down")
 			return nil
 		},
 	}
 }
 
 // NewCounterPlugin 创建计数器插件（v2 风格）
-//
-// 演示：
-//   - 状态管理
-//   - 多命令注册
-//   - 配置使用
 func NewCounterPlugin() *plugin.PluginDescriptor {
-	// 状态变量
 	count := 0
 
 	return &plugin.PluginDescriptor{
-		Name:        "counter",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "简单的计数器插件（v2 API 演示）",
-		Category:    "示例",
-		Tags:        []string{"计数器", "演示"},
-
-		Setup: func(ctx *plugin.SetupContext) error {
+		Name:    "counter",
+		Version: "2.0.0",
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "简单的计数器插件（v2 API 演示）",
+			Category:    "示例",
+			Tags:        []string{"计数器", "演示"},
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			logger.Info("[Counter] Setting up plugin (v2)...")
 
-			// 从配置读取初始值（如果有）
 			if ctx.Config != nil {
 				count = ctx.Config.GetInt("initial_value", 0)
 				logger.Infof("[Counter] Initial value from config: %d", count)
 			}
 
-			// /count - 增加计数
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/count").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/count").
 				Handle(func(c *eventctx.Context) error {
 					count++
-					_, err := c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: fmt.Sprintf("计数: %d", count),
-					})
+					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: fmt.Sprintf("计数: %d", count)})
 					return err
 				})
 
-			// /reset - 重置计数
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/reset").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/reset").
 				Handle(func(c *eventctx.Context) error {
 					count = 0
-					_, err := c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: "计数已重置",
-					})
+					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "计数已重置"})
 					return err
 				})
 
-			// /get - 获取当前计数
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/get").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/get").
 				Handle(func(c *eventctx.Context) error {
-					_, err := c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: fmt.Sprintf("当前计数: %d", count),
-					})
+					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: fmt.Sprintf("当前计数: %d", count)})
 					return err
 				})
 
 			logger.Info("[Counter] Plugin setup complete")
+			return nil, nil
+		},
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Infof("Counter plugin torn down (final count: %d)", count)
 			return nil
 		},
-
-		Teardown: func() error {
-			logger.Infof("[Counter] Tearing down plugin... (final count: %d)", count)
-			// 可以在这里保存状态到数据库
-			return nil
-		},
-
-		Reload: func(ctx *plugin.SetupContext) error {
-			logger.Info("[Counter] Reloading plugin...")
-			// 热重载：保持计数不变，只重新注册命令
-			// 注意：这是一个简化示例，实际应该更仔细地处理
-			return nil
+		Advanced: &plugin.PluginAdvanced{
+			Reload: func(ctx *plugin.SetupContext) error {
+				logger.Info("[Counter] Reloading plugin...")
+				return nil
+			},
 		},
 	}
 }
 
 // NewCalculatorPlugin 创建计算器插件（v2 风格）
-//
-// 演示：
-//   - 依赖其他插件（如果有的话）
-//   - 更复杂的命令处理
-//   - 错误处理
 func NewCalculatorPlugin() *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "calculator",
-		Version:     "2.0.0",
-		Author:      "Remilia Team",
-		Description: "简单的计算器插件（v2 API 演示）",
-		Category:    "工具",
-		Tags:        []string{"计算器", "工具"},
-		Deps:        []string{}, // 如果依赖 counter，可以写 []string{"counter"}
-
-		Setup: func(ctx *plugin.SetupContext) error {
+		Name:    "calculator",
+		Version: "2.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "简单的计算器插件（v2 API 演示）",
+			Category:    "工具",
+			Tags:        []string{"计算器", "工具"},
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			logger.Info("[Calculator] Setting up plugin (v2)...")
 
-			// 如果有依赖，可以这样获取：
-			// counter := ctx.MustGet("counter")
-
-			// /calc 命令
-			ctx.Engine.OnCommand(dto.C2CMessageCreate, "/calc").
+			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/calc").
 				Handle(func(c *eventctx.Context) error {
 					content := c.GetMessageContent()
-					if len(content) <= 6 { // "/calc "
-						_, err := c.ReplyPrivate(&dto.Message{
-							Type:    dto.TextMessage,
-							Content: "用法: /calc <表达式>\n示例: /calc 1 + 2",
-						})
+					if len(content) <= 6 {
+						_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "用法: /calc <表达式>\n示例: /calc 1 + 2"})
 						return err
 					}
-
 					expr := content[6:]
 					result, err := simpleCalc(expr)
 					if err != nil {
-						_, err2 := c.ReplyPrivate(&dto.Message{
-							Type:    dto.TextMessage,
-							Content: "计算错误: " + err.Error(),
-						})
+						_, err2 := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "计算错误: " + err.Error()})
 						return err2
 					}
-
-					_, err = c.ReplyPrivate(&dto.Message{
-						Type:    dto.TextMessage,
-						Content: fmt.Sprintf("%s = %d", expr, result),
-					})
+					_, err = c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: fmt.Sprintf("%s = %d", expr, result)})
 					return err
 				})
 
 			logger.Info("[Calculator] Plugin setup complete")
-			return nil
+			return nil, nil
 		},
 	}
 }

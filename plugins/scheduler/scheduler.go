@@ -80,43 +80,42 @@ func NewPlugin() *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "scheduler",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "计划任务插件，支持固定间隔和 cron 表达式两种调度方式",
-		Category:    "核心",
-		Tags:        []string{"定时", "调度", "cron"},
-		Deps:        []string{},
-		HelpText: `计划任务插件使用说明：
+		Name:    "scheduler",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "计划任务插件，支持固定间隔和 cron 表达式两种调度方式",
+			Category:    "核心",
+			Tags:        []string{"定时", "调度", "cron"},
+			HelpText: `计划任务插件使用说明：
   p := scheduler.NewPlugin()
   pm.RegisterV2(scheduler.Descriptor(p))
   p.Every(5*time.Minute, func() { ... })
-  p.Cron("0 9 * * *", func() { ... })
-  p.Remove(id)`,
-
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[Scheduler] Loading scheduler plugin...")
+  p.Cron("0 9 * * *", func() { ... })`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Loading scheduler plugin")
 			p.c = cron.New(cron.WithSeconds())
 			p.c.Start()
-			ctx.Manager.GetContainer().Register("scheduler", p)
-			logger.Info("[Scheduler] Scheduler plugin loaded")
-			return nil
+			ctx.Log.Info("Scheduler plugin loaded")
+			return p, nil
 		},
-
-		Teardown: func() error {
-			logger.Info("[Scheduler] Stopping scheduler...")
-			p.mu.Lock()
-			for _, entry := range p.jobs {
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("Stopping scheduler")
+			sched := ctx.API.(*Plugin)
+			sched.mu.Lock()
+			for _, entry := range sched.jobs {
 				if entry.stopCh != nil {
 					close(entry.stopCh)
 				}
 			}
-			p.mu.Unlock()
-			if p.c != nil {
-				stopCtx := p.c.Stop()
+			sched.mu.Unlock()
+			if sched.c != nil {
+				stopCtx := sched.c.Stop()
 				<-stopCtx.Done()
 			}
-			logger.Info("[Scheduler] Scheduler stopped")
+			ctx.Log.Info("Scheduler stopped")
 			return nil
 		},
 	}

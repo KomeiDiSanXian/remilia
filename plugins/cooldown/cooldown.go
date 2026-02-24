@@ -59,29 +59,22 @@ func New() *plugin.PluginDescriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 	return &plugin.PluginDescriptor{
-		Name:        "cooldown",
-		Version:     "1.0.0",
-		Author:      "Remilia Team",
-		Description: "命令冷却时间插件，支持用户级和命令级冷却控制",
-		Category:    "核心",
-		Tags:        []string{"冷却", "限速", "防刷"},
-		Deps:        []string{},
-		HelpText: `冷却时间插件使用说明：
+		Name:    "cooldown",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "命令冷却时间插件，支持用户级和命令级冷却控制",
+			Category:    "核心",
+			Tags:        []string{"冷却", "限速", "防刷"},
+			HelpText: `冷却时间插件使用说明：
   p := cooldown.NewPlugin()
   pm.RegisterV2(cooldown.Descriptor(p))
-
-  // 作为中间件
-  engine.OnCommand(...).Use(p.Middleware("cmd", 10*time.Second)).Handle(h)
-
-  // 手动检查
-  if !p.Allow(userID, "cmd", 10*time.Second) {
-      remaining := p.Remaining(userID, "cmd", 10*time.Second)
-      ctx.Reply(...)
-  }`,
-		Setup: func(ctx *plugin.SetupContext) error {
-			logger.Info("[Cooldown] Plugin loaded")
-			ctx.Manager.GetContainer().Register("cooldown", p)
-			return nil
+  engine.OnCommand(...).Use(p.Middleware("cmd", 10*time.Second)).Handle(h)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Info("Plugin loaded")
+			return p, nil
 		},
 	}
 }
