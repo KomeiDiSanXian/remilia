@@ -251,8 +251,8 @@ if cmdInfo != nil {
 
 ## 📚 相关文档
 
-- [Bug 分析与修复报告](./core-analysis-bugs-improvements.md)
-- [优化完成总结](./core-optimization-summary.md)
+- [Bug 分析与修复报告](core-analysis-bugs-improvements.md)
+- [优化完成总结](core-optimization-summary.md)
 - [Core Context API 文档](../../core/context/)
 - [Core Engine API 文档](../../core/engine/)
 
