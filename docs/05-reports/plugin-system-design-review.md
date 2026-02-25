@@ -1,6 +1,7 @@
 # Plugin 系统设计质量分析报告
 
 > **分析日期**：2026-02-24  
+> **最后更新**：2026-02-25（高优先级 + 中优先级 + 低优先级 L3/L4 全部完成）  
 > **分析范围**：`plugin/` 包（核心框架）+ `plugins/` 目录（内置插件实现）  
 > **项目状态**：未发布，可接受重构  
 
@@ -8,21 +9,20 @@
 
 ## 0. 执行摘要
 
-remilia 的插件系统整体设计思路**先进且完整**，v2 API 的函数式设计、三种热重载策略、原子批量注册、类型安全依赖获取等特性已达到生产级框架水准。但随着功能迭代，出现了**单文件过度膨胀**、**接口权限边界模糊**、**内置插件实现风格不统一**等问题。由于项目尚未发布，现在是解决这些问题的最佳时机。
+remilia 的插件系统整体设计思路**先进且完整**，v2 API 的函数式设计、三种热重载策略、原子批量注册、类型安全依赖获取等特性已达到生产级框架水准。经过 2026-02-25 的重构，**高优先级（H1~H5）、中优先级（M1~M7）和低优先级 L3/L4 全部已解决**，插件系统工程质量大幅提升。
 
-**总体评级**：**B+**（架构设计优秀，工程实现有可改进空间）
+**总体评级**：**A**（架构设计优秀，工程实现已达到优秀水准）
 
 | 维度 | 评分 | 说明 |
 |------|------|------|
-| API 设计（开发者体验） | A- | 函数式 v2 API 极简，泛型依赖获取优雅；部分命名有歧义 |
-| 内部架构（可维护性） | C+ | 单文件 1652 行，两个重复 Metadata 结构，职责混乱 |
-| 运行时可靠性 | B+ | panic recovery 全覆盖，原子回滚；有 2 处 goroutine 管理漏洞 |
-| 扩展性与灵活性 | B+ | 三种重载策略、状态迁移、蓝绿切换；缺少 Capabilities 声明 |
+| API 设计（开发者体验） | A | 函数式 v2 API 极简，泛型依赖获取优雅；`MustAs`/`TryAs` 支持面向接口；`GoNamed` 提升可观测性；`Config.Override` 语义清晰 |
+| 内部架构（可维护性） | A- | `v2.go` 已拆分为 6 个子文件；`Metadata/PluginMeta` 统一；策略边界清晰；`noopEventBus` 完善 DryRun 隔离 |
+| 运行时可靠性 | A | panic recovery 全覆盖，原子回滚；所有 goroutine 管理漏洞已修复；`Manager.Shutdown()` 保证进程退出安全 |
+| 扩展性与灵活性 | A- | 三种重载策略、状态迁移、蓝绿切换；`bundle` 包一键注册；`ExportInterface` + `MustAs`/`TryAs` 支持依赖倒置；仅剩 Capabilities（L1）待实现 |
 
 ---
 
 ## 1. 框架层面 API 设计质量（插件开发者视角）
-
 ### 1.1 ✅ 亮点设计
 
 #### 纯函数式 v2 API，彻底消除 BasePlugin 继承模式
@@ -910,11 +910,11 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 | # | 问题 | 所在文件 | 建议方案 | 估计工作量 |
 |---|------|----------|---------|-----------|
-| H1 | `v2.go` 1652 行，职责混乱 | `plugin/v2.go` | 按职责拆分为 6 个子文件（见 §2.2） | 中（纯重组，无逻辑改动） |
-| H2 | `Metadata` 与 `PluginMeta` 字段重复，有转换开销 | `plugin/plugin.go` + `plugin/v2.go` | 合并结构，`PluginMeta` 改为类型别名 | 中（需更新所有使用方） |
+| H1 | ~~`v2.go` 1652 行，职责混乱~~ ✅ 已解决 | `plugin/v2.go` | 按职责拆分为 6 个子文件（见 §2.2）；`v2.go` 现仅余 11 行注释 | 已完成 |
+| H2 | ~~`Metadata` 与 `PluginMeta` 字段重复，有转换开销~~ ✅ 已解决 | `plugin/plugin.go` + `plugin/descriptor.go` | 合并结构，`PluginMeta` 改为类型别名（`type PluginMeta = Metadata`） | 已完成 |
 | H3 | ~~插件权限模型缺陷：`Coordinator()` 权限过大，admin/debug 只能通过私有接口断言绕过~~ ✅ 已解决 | `plugin/plugin_info.go`、`core/engine/reader.go`、admin/debug 插件 | ① `engine.EngineReader` 接口 + `engineReaderWrapper` 包装器（双层防护）；② `ManagerWriter` 接口 + `PluginDescriptor.Privileged` 字段；③ admin/debug 删除私有接口断言 | 已完成 |
-| H4 | `storage` 插件绕过 `ctx.Go` 管理 goroutine | `plugins/core/storage/storage.go` | 删除 `stopClean`，迁移至 `ctx.Go` | 小 |
-| H5 | `help` 插件 `return nil, nil` 反模式 | `plugins/core/help/help.go` | 返回 `*Plugin`，使其可被其他插件发现 | 小 |
+| H4 | ~~`storage` 插件绕过 `ctx.Go` 管理 goroutine~~ ✅ 已解决 | `plugins/core/storage/storage.go` | 删除 `stopClean` 字段和 `startCleanRoutine` 方法，迁移至 `ctx.Go`（框架等待退出，与 cooldown 插件保持一致） | 已完成 |
+| H5 | ~~`help` 插件 `return nil, nil` 反模式~~ ✅ 已解决 | `plugins/core/help/help.go` | 返回 `*Plugin`，使其可被其他插件发现 | 已完成 |
 
 ### 5.2 中优先级（影响可用性 / 可靠性）
 
@@ -922,13 +922,13 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 | # | 问题 | 所在文件 | 建议方案 | 估计工作量 |
 |---|------|----------|---------|-----------|
-| M1 | `EventBus` 池大小硬编码 | `plugin/eventbus.go` | 提供 `NewEventBusWithOptions` | 小 |
-| M2 | `Config.Set()` 语义误导 | `plugin/config.go` | 重命名为 `Override()`，分离持久化接口 | 小（有 API breaking change） |
-| M3 | `ctx.Go` 无法命名 goroutine，调试困难 | `plugin/goroutine.go` | 增加 `GoNamed(name, fn)` + 可观测性接口 | 小 |
-| M4 | `testing.go` 污染主包导出符号 | `plugin/testing.go` | 迁移至 `plugin/plugintest` 子包 | 小（有 API breaking change） |
-| M5 | 重载策略与 `Reload` 字段语义重叠 | `plugin/v2.go` | 严格分离分支行为，增加注册时警告 | 小 |
-| M6 | `plugins/` 无统一注册入口 | `plugins/` | 新增 `plugins/bundle/bundle.go` | 小 |
-| M7 | `notifyDependents` goroutine 不受管控 | `plugin/manager.go` | 纳入 Manager 级别 goroutine 管理 | 小 |
+| M1 | ~~`EventBus` 池大小硬编码~~ ✅ 已解决 | `plugin/eventbus.go` | 新增 `EventBusOptions` + `NewEventBusWithOptions`；`Manager` 新增 `NewManagerWithEventBusOptions` 构造函数 | 已完成 |
+| M2 | ~~`Config.Set()` 语义误导~~ ✅ 已解决 | `plugin/config.go` | 新增 `Override()` 方法为主实现；`Set()` 改为调用 `Override()` 并标注 `Deprecated` | 已完成 |
+| M3 | ~~`ctx.Go` 无法命名 goroutine，调试困难~~ ✅ 已解决 | `plugin/goroutine.go` + `plugin/context.go` | 新增 `GoroutineInfo` 类型、`goNamed_` 方法、`SetupContext.GoNamed` 字段；`Manager.ListPluginGoroutines()` 提供可观测性查询 | 已完成 |
+| M4 | ~~`testing.go` 污染主包导出符号~~ ✅ 已解决 | `plugin/testing.go` | 迁移至 `plugin/plugintest` 子包；`testing.go` 中原函数保留并标注 `Deprecated` | 已完成 |
+| M5 | ~~重载策略与 `Reload` 字段语义重叠~~ ✅ 已解决 | `plugin/reload.go` + `plugin/register.go` | 严格分离分支行为：`ReloadInPlace` 调用 `adv.Reload`（nil 时降级并 Warn）；`ReloadUnloadLoad` 严格 unload→load，不检查 `adv.Reload`；注册时检测 Reload+Strategy 不匹配并 Warn | 已完成 |
+| M6 | ~~`plugins/` 无统一注册入口~~ ✅ 已解决 | `plugins/bundle/bundle.go`（新建） | 新增 `plugins/bundle` 包，提供 `Core()` 和 `All()` 函数 | 已完成 |
+| M7 | ~~`notifyDependents` goroutine 不受管控~~ ✅ 已解决 | `plugin/manager.go` | `Manager` 新增 `metaGM *goroutineManager` 字段管理元数据 goroutine；新增 `Shutdown()` 方法在进程退出时等待所有元数据 goroutine 退出 | 已完成 |
 
 ### 5.3 低优先级（代码整洁 / 长远扩展）
 
@@ -938,8 +938,8 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 |---|------|----------|---------|-----------|
 | L1 | 缺少 Capabilities 声明机制 | `plugin/v2.go` | `PluginDescriptor.Provides []string` + 查询 API | 中 |
 | L2 | `Require` 与 `Must` 完全重复 | `plugin/v2.go` | 废弃 `Require`，保留 `Must` | 小 |
-| L3 | Smart 模式可能有无法消除的副作用 | `plugin/v2.go` | 推断阶段注入 `noopEventBus`；文档说明幂等要求 | 小 |
-| L4 | 依赖获取绑定具体类型，违反 DIP | `plugin/v2.go` + 各插件 | 文档最佳实践 + 鼓励接口导出模式 | 小（文档 + 约定）|
+| L3 | ~~Smart 模式可能有无法消除的副作用~~ ✅ 已解决 | `plugin/eventbus.go` + `plugin/context.go` + `plugin/register.go` | ① 新增 `noopEventBus` 在推断阶段替换真实 EventBus，阻断订阅副作用；② `SetupContext.DryRun bool` 字段让插件可自行跳过外部 I/O 等副作用；③ 推断阶段 `ctx.Go`/`ctx.GoNamed` 已是 no-op | 已完成 |
+| L4 | ~~依赖获取绑定具体类型，违反 DIP~~ ✅ 已解决 | `plugin/context.go` + `plugins/core/storage/storage.go` | ① 新增 `MustAs[T]`（必需接口依赖）和 `TryAs[T]`（可选接口依赖）泛型函数；② 新增 `ExportInterface[T]` 辅助函数；③ `storage` 插件以示范形式导出 `storage.Client` 和 `storage.Storage` 接口 key | 已完成 |
 
 ---
 

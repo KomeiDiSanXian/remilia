@@ -1,12 +1,12 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -43,36 +43,8 @@ type CleanableStorage interface {
 
 // Plugin 存储插件 API
 type Plugin struct {
-	storage   Storage
-	mu        sync.RWMutex
-	stopClean chan struct{} // 停止后台清理协程的信号
-}
-
-// startCleanRoutine 启动后台定期清理协程（仅当 storage 实现了 CleanableStorage 时）
-func (p *Plugin) startCleanRoutine() chan struct{} {
-	cleanable, ok := p.storage.(CleanableStorage)
-	if !ok {
-		return nil
-	}
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				n, err := cleanable.CleanExpired()
-				if err != nil {
-					logger.WithError(err).Warn("[StoragePlugin] Background clean failed")
-				} else if n > 0 {
-					logger.Infof("[StoragePlugin] Cleaned %d expired keys", n)
-				}
-			case <-stop:
-				return
-			}
-		}
-	}()
-	return stop
+	storage Storage
+	mu      sync.RWMutex
 }
 
 // New 创建存储插件（v2 API）
@@ -111,16 +83,41 @@ func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
 
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loading storage plugin (backend=%T)", storage)
-			pluginAPI.stopClean = pluginAPI.startCleanRoutine()
+
+			// 后台清理：由框架管理生命周期（ctx.Go 会在 Teardown 前自动 cancel 并等待退出）
+			if cleanable, ok := storage.(CleanableStorage); ok {
+				ctx.Go(func(runCtx context.Context) {
+					ticker := time.NewTicker(time.Minute)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ticker.C:
+							n, err := cleanable.CleanExpired()
+							if err != nil {
+								ctx.Log.Error("Background clean failed", err)
+							} else if n > 0 {
+								ctx.Log.Infof("Cleaned %d expired keys", n)
+							}
+						case <-runCtx.Done():
+							return
+						}
+					}
+				})
+			}
+
+			// 以接口类型额外导出，供依赖接口而非具体类型的消费者使用（面向依赖倒置原则）：
+			//   plugin.MustAs[storage.Client](ctx, "storage.Client")
+			//   plugin.MustAs[storage.Storage](ctx, "storage.Storage")
+			plugin.ExportInterface[Client](ctx, "storage.Client", pluginAPI)
+			plugin.ExportInterface[Storage](ctx, "storage.Storage", pluginAPI)
+
+			// 主 key "storage" 导出 *Plugin 具体类型（return 自动注册）
 			return pluginAPI, nil
 		},
 
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Unloading storage plugin")
-			if pluginAPI.stopClean != nil {
-				close(pluginAPI.stopClean)
-				pluginAPI.stopClean = nil
-			}
+			// 无需手动停止 goroutine，框架已在此之前 cancel 并等待
 			if err := storage.Clear(); err != nil {
 				ctx.Log.Error("Failed to clear storage", err)
 			}

@@ -66,6 +66,9 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 	ctx.Go = func(fn func(runCtx stdctx.Context)) {
 		gm.go_(fn)
 	}
+	ctx.GoNamed = func(name string, fn func(runCtx stdctx.Context)) {
+		gm.goNamed_(name, fn)
+	}
 
 	return ctx
 }

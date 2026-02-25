@@ -23,6 +23,13 @@ type Config interface {
 	// GetStringMap 获取字符串键 map 配置
 	GetStringMap(key string, defaultVal map[string]any) map[string]any
 
+	// Override 覆盖内存中的配置值（仅本次运行有效，重启后失效）。
+	// 会立即触发通过 OnChange 注册的所有监听器。
+	Override(key string, value any) error
+
+	// Set 是 Override 的别名，已废弃，请使用 Override。
+	//
+	// Deprecated: 使用 Override 替代，语义更清晰（仅内存覆盖，不持久化）。
 	Set(key string, value any) error
 
 	// Reload 重载配置
@@ -203,8 +210,8 @@ func (pc *pluginConfig) GetStringMap(key string, defaultVal map[string]any) map[
 	return defaultVal
 }
 
-// Set 设置配置值
-func (pc *pluginConfig) Set(key string, value any) error {
+// Override 覆盖内存中的配置值（仅本次运行有效）
+func (pc *pluginConfig) Override(key string, value any) error {
 	pc.mu.Lock()
 	oldVal := pc.values[key]
 	pc.values[key] = value
@@ -218,6 +225,13 @@ func (pc *pluginConfig) Set(key string, value any) error {
 	}
 
 	return nil
+}
+
+// Set 设置配置值（仅覆盖内存，不持久化）
+//
+// Deprecated: 使用 Override 替代。
+func (pc *pluginConfig) Set(key string, value any) error {
+	return pc.Override(key, value)
 }
 
 // Reload 重载配置

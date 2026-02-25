@@ -37,11 +37,12 @@ func (pi *PluginInstance) name() string { return pi.desc.Name }
 func (pi *PluginInstance) load(coordinator *engine.Engine) (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
-	gm := newGoroutineManager()
+	gm := newGoroutineManagerForPlugin(pi.desc.Name)
 	pi.goroutineMgr = gm
 	if pi.setupContext != nil {
 		pi.setupContext.goroutineMgr = gm
 		pi.setupContext.Go = gm.go_
+		pi.setupContext.GoNamed = gm.goNamed_
 	}
 	pi.mu.Unlock()
 

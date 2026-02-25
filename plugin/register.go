@@ -98,6 +98,12 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		matchers: make([]*engine.Matcher, 0),
 	}
 
+	// 检测 Reload 函数与策略不匹配的配置错误
+	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
+		logger.Warnf("[pluginManager] Plugin %s: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
+			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace?", name, desc.Advanced.Strategy)
+	}
+
 	// 根据 Privileged 字段决定是否注入管理视图
 	var adminView ManagerWriter
 	if desc.Privileged {
@@ -122,6 +128,11 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 	setupCtx.Go = func(fn func(ctx stdctx.Context)) {
 		if setupCtx.goroutineMgr != nil {
 			setupCtx.goroutineMgr.go_(fn)
+		}
+	}
+	setupCtx.GoNamed = func(name string, fn func(ctx stdctx.Context)) {
+		if setupCtx.goroutineMgr != nil {
+			setupCtx.goroutineMgr.goNamed_(name, fn)
 		}
 	}
 
@@ -346,9 +357,11 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 
 	for _, desc := range descriptors {
 		setupCtx := &SetupContext{
-			Reg:  &noopRegistryWriter{},
-			Log:  newPluginLogger(desc.Name),
-			Info: newPluginInfo(pm),
+			Reg:      &noopRegistryWriter{},
+			Log:      newPluginLogger(desc.Name),
+			Info:     newPluginInfo(pm),
+			EventBus: newNoopEventBus(), // DryRun：避免向真实 EventBus 注册订阅
+			DryRun:   true,              // 明确告知插件当前处于推断阶段
 			setupContextInternal: setupContextInternal{
 				container:        tempContainer,
 				pluginName:       desc.Name,
@@ -356,6 +369,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 			},
 		}
 		setupCtx.Go = func(fn func(ctx stdctx.Context)) {}
+		setupCtx.GoNamed = func(name string, fn func(ctx stdctx.Context)) {}
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

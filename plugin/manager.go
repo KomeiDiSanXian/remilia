@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -44,6 +45,7 @@ type Manager struct {
 	container   *Container          // 依赖注入容器（v2）
 	eventBus    EventBus            // 插件间事件总线
 	strictDeps  bool                // 严格依赖模式：未声明依赖拒绝注册
+	metaGM      *goroutineManager   // 管理 notifyDependents 等元数据 goroutine
 	mu          sync.RWMutex
 }
 
@@ -56,7 +58,16 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		loadOrder:   make([]string, 0),
 		container:   NewContainer(),
 		eventBus:    NewEventBus(),
+		metaGM:      newGoroutineManagerForPlugin("manager"),
 	}
+}
+
+// NewManagerWithEventBusOptions 使用自定义 EventBus 选项创建插件管理器。
+// 适用于需要调整事件处理并发度的场景（高流量或低资源环境）。
+func NewManagerWithEventBusOptions(coordinator *engine.Engine, ebOpts EventBusOptions) *Manager {
+	pm := NewManager(coordinator)
+	pm.eventBus = NewEventBusWithOptions(ebOpts)
+	return pm
 }
 
 // Coordinator 返回底层 engine（供需要直接访问 engine 的插件使用，如 debug）
@@ -443,14 +454,15 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 			continue
 		}
 		logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
-		go func(cb func(string), dep string) {
+		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待
+		pm.metaGM.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", dep)
+					logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
 				}
 			}()
-			cb(dep)
-		}(cb, reloadedPlugin)
+			cb(reloadedPlugin)
+		})
 	}
 }
 
@@ -645,4 +657,38 @@ func (pm *Manager) GetEventBus() EventBus {
 // 供向后兼容代码（如已废弃的 SetPluginManager）使用。
 func (pm *Manager) AsPluginInfo() PluginInfo {
 	return newPluginInfo(pm)
+}
+
+// ListPluginGoroutines 返回所有插件的受管后台 goroutine 信息快照。
+//
+// 可用于调试（如 dump goroutine 列表、监控后台任务）。
+// 仅包含通过 ctx.Go / ctx.GoNamed 启动的 goroutine，不包含系统级 goroutine。
+func (pm *Manager) ListPluginGoroutines() []GoroutineInfo {
+	pm.mu.RLock()
+	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	for _, inst := range pm.plugins {
+		instances = append(instances, inst)
+	}
+	pm.mu.RUnlock()
+
+	var result []GoroutineInfo
+	for _, inst := range instances {
+		inst.mu.RLock()
+		gm := inst.goroutineMgr
+		inst.mu.RUnlock()
+		if gm != nil {
+			result = append(result, gm.listGoroutines()...)
+		}
+	}
+	return result
+}
+
+// Shutdown 停止 Manager 管理的所有内部后台 goroutine（如 notifyDependents 等元数据 goroutine）。
+//
+// 在进程退出前调用，防止 goroutine 泄漏导致 data race。
+// 注意：此方法不卸载插件（如需卸载，请先调用 UnregisterAll 或 UnregisterAllCascade）。
+func (pm *Manager) Shutdown() {
+	if pm.metaGM != nil {
+		pm.metaGM.stopAndWait()
+	}
 }

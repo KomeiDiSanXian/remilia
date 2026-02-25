@@ -4,9 +4,23 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add edge case tests for plugin dependency handling and improve error recovery in load function">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: correct cron schedule for daily stats logging">
+      <change afterPath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/bundle/bundle.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/goroutine.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/goroutine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/phase3_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase3_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/testing.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -72,57 +86,57 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "DefaultGoTemplateProperty": "Go File",
-    "Go 构建.go build debug-subcommand-demo.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestGlobalLogger.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestWithError.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_CascadingFailures.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_HighConcurrency.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_MemoryPressure.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_RandomFailures.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_ResourceExhaustion.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_SlowHandler.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_StressTest.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_TimeoutHandling.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.GoLinterPluginOnboarding": "true",
-    "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
-    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.analysis.ui.options.defaults": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "git-widget-placeholder": "master",
-    "go.import.settings.migrated": "true",
-    "go.sdk.automatically.set": "true",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "E:/project/Go/remilia/examples/showcase",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "run.code.analysis.last.selected.profile": "pProject Default",
-    "run.configurations.included.in.services": "true",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
+    &quot;Go 构建.go build debug-subcommand-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestGlobalLogger.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestWithError.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_CascadingFailures.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_HighConcurrency.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_MemoryPressure.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_RandomFailures.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_ResourceExhaustion.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_SlowHandler.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_StressTest.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_TimeoutHandling.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboardingV2&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.analysis.ui.options.defaults&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;E:/project/Go/remilia/examples/showcase&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
+    &quot;run.configurations.included.in.services&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="E:\project\Go\remilia\examples\showcase" />
@@ -227,7 +241,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: enhance concurrency safety and prevent signal channel leaks in shutdown handling" />
     <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
     <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
     <MESSAGE value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
@@ -252,7 +265,8 @@
     <MESSAGE value="feat: merge undeclared dependencies into instance descriptor for improved dependency tracking" />
     <MESSAGE value="feat: enhance dependency tracking by merging undeclared dependencies into instance descriptor" />
     <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
+    <MESSAGE value="fix: correct cron schedule for daily stats logging" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: correct cron schedule for daily stats logging" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -81,11 +81,27 @@ func (s *subscriptionImpl) Unsubscribe() error {
 	return s.bus.unsubscribeByID(s.topic, s.id)
 }
 
-// NewEventBus 创建事件总线
+// EventBusOptions EventBus 创建选项
+type EventBusOptions struct {
+	// WorkerPoolSize goroutine 池大小，控制事件处理的最大并发数。
+	// 默认值 100；小于等于 0 时使用默认值。
+	WorkerPoolSize int
+}
+
+// NewEventBus 创建事件总线（使用默认选项，池大小 100）
 func NewEventBus() EventBus {
+	return NewEventBusWithOptions(EventBusOptions{})
+}
+
+// NewEventBusWithOptions 使用指定选项创建事件总线
+func NewEventBusWithOptions(opts EventBusOptions) EventBus {
+	size := opts.WorkerPoolSize
+	if size <= 0 {
+		size = 100
+	}
 	return &eventBus{
 		subscribers: make(map[string][]subscriptionImpl),
-		workerPool:  make(chan struct{}, 100), // 限制最多 100 个并发 goroutine
+		workerPool:  make(chan struct{}, size),
 	}
 }
 
@@ -270,3 +286,30 @@ func PublishTyped[T any](bus EventBus, topic string, data T) error {
 	}
 	return bus.Publish(topic, data)
 }
+
+// --- DryRun no-op 实现 ---
+
+// noopSubscription DryRun 阶段的空订阅凭证
+type noopSubscription struct{ topic string }
+
+func (s *noopSubscription) Unsubscribe() error { return nil }
+func (s *noopSubscription) Topic() string      { return s.topic }
+
+// noopEventBus DryRun 阶段注入的空事件总线。
+//
+// 所有操作均为无副作用的空操作，避免推断阶段的 Setup 调用向真实 EventBus 注册订阅。
+// 插件代码无需感知 DryRun，直接使用 ctx.EventBus 即可。
+type noopEventBus struct{}
+
+func (n *noopEventBus) Publish(_ string, _ any) error { return nil }
+func (n *noopEventBus) Subscribe(topic string, _ EventHandler) (Subscription, error) {
+	return &noopSubscription{topic: topic}, nil
+}
+func (n *noopEventBus) SubscribeAll(_ EventHandler) (Subscription, error) {
+	return &noopSubscription{topic: "*"}, nil
+}
+func (n *noopEventBus) Unsubscribe(_ Subscription) error { return nil }
+func (n *noopEventBus) GetStats() EventBusStats          { return EventBusStats{} }
+
+// newNoopEventBus 创建 DryRun 阶段使用的空事件总线
+func newNoopEventBus() EventBus { return &noopEventBus{} }

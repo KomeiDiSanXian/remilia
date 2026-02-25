@@ -251,6 +251,7 @@ func TestP3_Advanced_ReloadInAdvanced(t *testing.T) {
 			return nil, nil
 		},
 		Advanced: &PluginAdvanced{
+			Strategy: ReloadInPlace, // 必须显式声明，否则 Reload 不会被调用
 			Reload: func(ctx *SetupContext) error {
 				reloadCalled = true
 				return nil
@@ -269,13 +270,14 @@ func TestP3_Advanced_FallbackToDeprecatedReload(t *testing.T) {
 
 	reloadCalled := false
 
-	// Reload is now only accessible via Advanced.Reload
+	// Reload 函数只有在 Strategy == ReloadInPlace 时才会被调用
 	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
 		Name: "p3-deprecated-reload",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil
 		},
 		Advanced: &PluginAdvanced{
+			Strategy: ReloadInPlace, // 必须显式声明
 			Reload: func(ctx *SetupContext) error {
 				reloadCalled = true
 				return nil

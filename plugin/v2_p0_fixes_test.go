@@ -176,6 +176,7 @@ func TestP0Fix_Integration(t *testing.T) {
 			return nil, nil
 		},
 		Advanced: &PluginAdvanced{
+			Strategy: ReloadInPlace, // 必须显式声明，否则 Reload 不会被调用
 			Reload: func(ctx *SetupContext) error {
 				reloadCalled = true
 				return nil

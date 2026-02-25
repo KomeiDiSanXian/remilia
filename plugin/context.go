@@ -27,6 +27,7 @@ type setupContextInternal struct {
 //   - [SetupContext.Log]      — 带插件名前缀的结构化日志
 //   - [SetupContext.Info]     — 插件系统只读视图
 //   - [SetupContext.Admin]    — 插件系统管理视图（仅 Privileged 插件可用）
+//   - [SetupContext.DryRun]   — 是否处于 Smart 依赖推断阶段（推断阶段不应产生副作用）
 //   - [SetupContext.Go]       — 生命周期绑定后台 goroutine
 //   - [SetupContext.Config]   — 插件配置
 //   - [SetupContext.EventBus] — 插件间事件总线
@@ -46,6 +47,27 @@ type SetupContext struct {
 	// 未声明 Privileged 的插件此字段为 nil；误用会在运行时立即 panic。
 	Admin ManagerWriter
 
+	// DryRun 标识当前 Setup 调用是否处于 RegisterMultipleV2Smart 的依赖推断阶段。
+	//
+	// 推断阶段框架会多次调用 Setup 以分析依赖关系。此时：
+	//   - ctx.Reg 已替换为 no-op（不会注册真实 Matcher）
+	//   - ctx.EventBus 已替换为 no-op（不会注册真实订阅）
+	//   - ctx.Go / ctx.GoNamed 均为 no-op（不会启动 goroutine）
+	//
+	// 对于大多数插件，无需检查此字段——框架已通过 no-op 替换消除了常见副作用。
+	// 仅当 Setup 中存在以下情况时才需要判断：
+	//   - 调用外部 HTTP/DB 请求（网络 I/O）
+	//   - 写入进程级全局变量
+	//   - 其他无法通过 no-op 消除的副作用
+	//
+	//	Setup: func(ctx *plugin.SetupContext) (any, error) {
+	//	    if !ctx.DryRun {
+	//	        p.metrics = initMetrics() // 仅在真实运行时初始化
+	//	    }
+	//	    return p, nil
+	//	},
+	DryRun bool
+
 	// Go 启动一个与插件生命周期绑定的后台 goroutine。
 	// 框架在 Teardown 前自动 cancel 并等待所有 goroutine 退出。
 	//
@@ -61,10 +83,16 @@ type SetupContext struct {
 	//   })
 	Go func(fn func(ctx stdctx.Context))
 
+	// GoNamed 启动一个带名称标签的生命周期绑定 goroutine。
+	// 名称用于调试时区分不同插件的后台任务（可通过 Manager.ListPluginGoroutines 查询）。
+	//
+	//   ctx.GoNamed("cleanup-gc", func(runCtx context.Context) { ... })
+	GoNamed func(name string, fn func(ctx stdctx.Context))
+
 	// Config 插件配置
 	Config Config
 
-	// EventBus 插件间事件总线
+	// EventBus 插件间事件总线。DryRun 阶段替换为 no-op，订阅操作不产生真实副作用。
 	EventBus EventBus
 
 	// 内部字段（框架使用，外部不可访问）
@@ -224,4 +252,67 @@ func Try[T any](ctx *SetupContext, name string) (*T, bool) {
 		return nil, false
 	}
 	return typed, ok
+}
+
+// MustAs 以接口类型获取必需依赖（面向接口，符合依赖倒置原则）。
+//
+// 与 [Must] 的区别：Must 返回 *T（具体指针类型），MustAs 返回 T（通常为接口类型），
+// 允许消费者只依赖接口契约而非具体实现。
+//
+//	// 仅依赖 storage.Client 接口，不依赖 *storage.Plugin 具体类型
+//	client := plugin.MustAs[storage.Client](ctx, "storage")
+//	client.Get("key")
+//
+// 若依赖不存在或类型不满足 T 接口，则 panic（带明确错误信息）。
+func MustAs[T any](ctx *SetupContext, name string) T {
+	v := ctx.MustGet(name)
+	typed, ok := v.(T)
+	if !ok {
+		var zero T
+		panic(fmt.Sprintf("plugin %q: dependency %q does not implement %T (got %T)", ctx.pluginName, name, zero, v))
+	}
+	return typed
+}
+
+// TryAs 以接口类型获取可选依赖（面向接口，符合依赖倒置原则）。
+//
+// 与 [Try] 的区别：Try 返回 *T（具体指针类型），TryAs 返回 T（通常为接口类型）。
+// 不存在时返回零值和 false；类型不满足时同样返回零值和 false。
+//
+//	// 可选接口依赖
+//	if client, ok := plugin.TryAs[storage.Client](ctx, "storage"); ok {
+//	    p.storage = client
+//	}
+func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
+	v, ok := ctx.Get(name)
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	typed, ok := v.(T)
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	return typed, true
+}
+
+// ExportInterface 将插件 API 以接口类型额外导出到容器。
+//
+// 配合 [MustAs] / [TryAs] 使用，让消费者可以通过接口而非具体类型访问依赖。
+// 通常在 Setup 末尾配合主 key 一起使用：
+//
+//	Setup: func(ctx *plugin.SetupContext) (any, error) {
+//	    p := NewPlugin()
+//	    // 主 key 导出具体类型（return p 自动以插件名注册）
+//	    // 额外以接口类型导出，供依赖接口的消费者使用
+//	    plugin.ExportInterface[storage.Client](ctx, "storage.Client", p)
+//	    plugin.ExportInterface[storage.Storage](ctx, "storage.Storage", p)
+//	    return p, nil
+//	},
+//
+//	// 消费者：面向接口，不依赖具体实现
+//	client := plugin.MustAs[storage.Client](ctx, "storage.Client")
+func ExportInterface[T any](ctx *SetupContext, key string, impl T) {
+	ctx.ExportAs(key, impl)
 }

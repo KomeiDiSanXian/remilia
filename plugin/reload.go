@@ -49,6 +49,11 @@ func (pi *PluginInstance) reload(coordinator *engine.Engine) error {
 			newContext.goroutineMgr.go_(fn)
 		}
 	}
+	newContext.GoNamed = func(name string, fn func(ctx stdctx.Context)) {
+		if newContext.goroutineMgr != nil {
+			newContext.goroutineMgr.goNamed_(name, fn)
+		}
+	}
 
 	pi.mu.Lock()
 	pi.setupContext = newContext
@@ -56,36 +61,15 @@ func (pi *PluginInstance) reload(coordinator *engine.Engine) error {
 
 	switch adv.Strategy {
 	case ReloadInPlace:
-		if adv.Reload != nil {
-			if err := adv.Reload(newContext); err != nil {
-				pi.mu.Lock()
-				pi.state = Error
-				pi.lastError = err
-				pi.mu.Unlock()
+		if adv.Reload == nil {
+			// ReloadInPlace 要求提供 Reload 函数；未提供时降级并给出明确警告
+			logger.Warnf("[plugin] %s: ReloadInPlace specified but Advanced.Reload is nil, falling back to ReloadUnloadLoad", pi.desc.Name)
+			if err := pi.unload(coordinator); err != nil {
 				return err
 			}
-			pi.mu.Lock()
-			pi.state = Loaded
-			pi.loadTime = time.Now()
-			pi.lastError = nil
-			pi.mu.Unlock()
-			return nil
-		}
-		fallthrough
-	case ReloadUnloadLoad:
-		if adv.Reload != nil {
-			if err := adv.Reload(newContext); err != nil {
-				pi.mu.Lock()
-				pi.state = Error
-				pi.lastError = err
-				pi.mu.Unlock()
+			if err := pi.load(coordinator); err != nil {
 				return err
 			}
-			pi.mu.Lock()
-			pi.state = Loaded
-			pi.loadTime = time.Now()
-			pi.lastError = nil
-			pi.mu.Unlock()
 			if savedState != nil && adv.RestoreState != nil {
 				if err := adv.RestoreState(savedState); err != nil {
 					logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
@@ -93,6 +77,21 @@ func (pi *PluginInstance) reload(coordinator *engine.Engine) error {
 			}
 			return nil
 		}
+		if err := adv.Reload(newContext); err != nil {
+			pi.mu.Lock()
+			pi.state = Error
+			pi.lastError = err
+			pi.mu.Unlock()
+			return err
+		}
+		pi.mu.Lock()
+		pi.state = Loaded
+		pi.loadTime = time.Now()
+		pi.lastError = nil
+		pi.mu.Unlock()
+		return nil
+	case ReloadUnloadLoad:
+		// 此分支严格执行 unload → load，不检查 adv.Reload（避免与 ReloadInPlace 语义混淆）
 		if err := pi.unload(coordinator); err != nil {
 			return err
 		}
