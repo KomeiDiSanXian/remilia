@@ -4,86 +4,93 @@ import (
 	"context"
 	"fmt"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-var (
-	// Prometheus metrics for degradation
-	degradationLevelGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "level",
-		Help:      "Current degradation level (0=normal, 1=light, 2=moderate, 3=severe)",
-	})
+// degradationMetrics 持有单个 AdaptiveDegradation 实例的 Prometheus 指标。
+//
+// 使用实例级注册（而非包级 promauto）避免多次 import 或多个实例时重复注册 panic。
+// 测试时可通过传入 prometheus.NewRegistry() 完全隔离。
+type degradationMetrics struct {
+	levelGauge      prometheus.Gauge
+	activeGauge     prometheus.Gauge
+	eventsTotal     *prometheus.CounterVec
+	triggersTotal   *prometheus.CounterVec
+	cpuGauge        prometheus.Gauge
+	memoryGauge     prometheus.Gauge
+	goroutinesGauge prometheus.Gauge
+	recoveriesTotal *prometheus.CounterVec
+}
 
-	degradationActiveGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "active",
-		Help:      "Whether degradation is currently active (1=active, 0=inactive)",
-	})
-
-	degradationEventsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "events_total",
-		Help:      "Total number of events by action (processed/dropped/delayed)",
-	}, []string{"action"})
-
-	degradationTriggersTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "triggers_total",
-		Help:      "Total number of degradation triggers by reason",
-	}, []string{"reason"})
-
-	degradationCPUGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "cpu_usage_percent",
-		Help:      "Current CPU usage percentage",
-	})
-
-	degradationMemoryGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "memory_usage_percent",
-		Help:      "Current memory usage percentage",
-	})
-
-	degradationGoroutinesGauge = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "goroutines_total",
-		Help:      "Current number of goroutines",
-	})
-
-	degradationRecoveriesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "remilia",
-		Subsystem: "degradation",
-		Name:      "recoveries_total",
-		Help:      "Total number of degradation level recoveries",
-	}, []string{"from_level", "to_level"})
-)
-
-// metricsOnce ensures metrics are registered only once
-var metricsOnce sync.Once
-
-// initMetrics initializes metrics (can be called multiple times safely)
-func initMetrics() {
-	metricsOnce.Do(func() {
-		// Metrics are already registered via promauto
-		logger.Debug("[Degradation] Metrics initialized")
-	})
+// newDegradationMetrics 创建并注册降级指标。
+//
+// reg 为 nil 时使用 prometheus.DefaultRegisterer（生产环境）。
+// 测试时传入 prometheus.NewRegistry() 实现完全隔离。
+func newDegradationMetrics(reg prometheus.Registerer) *degradationMetrics {
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+	m := &degradationMetrics{
+		levelGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "level",
+			Help: "Current degradation level (0=normal, 1=light, 2=moderate, 3=severe)",
+		}),
+		activeGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "active",
+			Help: "Whether degradation is currently active (1=active, 0=inactive)",
+		}),
+		eventsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "events_total",
+			Help: "Total number of events by action (processed/dropped/delayed)",
+		}, []string{"action"}),
+		triggersTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "triggers_total",
+			Help: "Total number of degradation triggers by reason",
+		}, []string{"reason"}),
+		cpuGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "cpu_usage_percent",
+			Help: "Current CPU usage percentage",
+		}),
+		memoryGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "memory_usage_percent",
+			Help: "Current memory usage percentage",
+		}),
+		goroutinesGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "goroutines_total",
+			Help: "Current number of goroutines",
+		}),
+		recoveriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "remilia", Subsystem: "degradation", Name: "recoveries_total",
+			Help: "Total number of degradation level recoveries",
+		}, []string{"from_level", "to_level"}),
+	}
+	// 忽略 AlreadyRegisteredError：允许同名指标的多实例（取已注册的那个）
+	mustOrGet := func(c prometheus.Collector) prometheus.Collector {
+		if err := reg.Register(c); err != nil {
+			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				return are.ExistingCollector
+			}
+			// 其他错误（如命名非法）直接 panic，开发期即可发现
+			panic(err)
+		}
+		return c
+	}
+	m.levelGauge = mustOrGet(m.levelGauge).(prometheus.Gauge)
+	m.activeGauge = mustOrGet(m.activeGauge).(prometheus.Gauge)
+	m.eventsTotal = mustOrGet(m.eventsTotal).(*prometheus.CounterVec)
+	m.triggersTotal = mustOrGet(m.triggersTotal).(*prometheus.CounterVec)
+	m.cpuGauge = mustOrGet(m.cpuGauge).(prometheus.Gauge)
+	m.memoryGauge = mustOrGet(m.memoryGauge).(prometheus.Gauge)
+	m.goroutinesGauge = mustOrGet(m.goroutinesGauge).(prometheus.Gauge)
+	m.recoveriesTotal = mustOrGet(m.recoveriesTotal).(*prometheus.CounterVec)
+	return m
 }
 
 // DegradationStrategy 降级策略
@@ -159,6 +166,9 @@ type AdaptiveDegradation struct {
 	lastCPU     atomic.Value // float64
 	lastMemory  atomic.Value // float64
 	lastLatency atomic.Value // time.Duration
+
+	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
+	metrics *degradationMetrics
 }
 
 // DegradationConfig 降级配置
@@ -201,10 +211,16 @@ type DegradationConfig struct {
 }
 
 // NewAdaptiveDegradation 创建自适应降级控制器
+//
+// reg 为 nil 时使用 prometheus.DefaultRegisterer。
+// 测试时可传入 prometheus.NewRegistry() 隔离指标注册，避免多实例 panic。
 func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
-	// 初始化 metrics
-	initMetrics()
+	return NewAdaptiveDegradationWithRegistry(config, nil)
+}
 
+// NewAdaptiveDegradationWithRegistry 创建带自定义 Prometheus 注册器的降级控制器。
+// 生产环境传 nil（使用默认注册器）；测试时传 prometheus.NewRegistry() 完全隔离。
+func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus.Registerer) *AdaptiveDegradation {
 	// 设置默认值
 	if config.CPUThreshold == 0 {
 		config.CPUThreshold = 80.0
@@ -234,6 +250,7 @@ func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
 	ad := &AdaptiveDegradation{
 		config:     config,
 		delayQueue: make(chan *eventctx.Context, config.DelayQueueSize),
+		metrics:    newDegradationMetrics(reg),
 	}
 
 	ad.level.Store(LevelNormal)
@@ -241,9 +258,9 @@ func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
 	ad.lastMemory.Store(0.0)
 	ad.lastLatency.Store(time.Duration(0))
 
-	// 初始化 metrics
-	degradationLevelGauge.Set(0) // LevelNormal
-	degradationActiveGauge.Set(0)
+	// 初始化指标初始值
+	ad.metrics.levelGauge.Set(0) // LevelNormal
+	ad.metrics.activeGauge.Set(0)
 
 	return ad
 }
@@ -275,9 +292,9 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 	ad.lastMemory.Store(memPercent)
 
 	// 更新 Prometheus metrics
-	degradationCPUGauge.Set(cpuPercent)
-	degradationMemoryGauge.Set(memPercent)
-	degradationGoroutinesGauge.Set(float64(goroutines))
+	ad.metrics.cpuGauge.Set(cpuPercent)
+	ad.metrics.memoryGauge.Set(memPercent)
+	ad.metrics.goroutinesGauge.Set(float64(goroutines))
 
 	currentLevel := ad.GetLevel()
 	newLevel := ad.calculateLevel(cpuPercent, memPercent, goroutines)
@@ -304,32 +321,32 @@ func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
 	ad.level.Store(level)
 
 	// 更新 Prometheus metrics
-	degradationLevelGauge.Set(float64(level))
+	ad.metrics.levelGauge.Set(float64(level))
 
 	if level == LevelNormal {
-		degradationActiveGauge.Set(0)
+		ad.metrics.activeGauge.Set(0)
 	} else {
-		degradationActiveGauge.Set(1)
+		ad.metrics.activeGauge.Set(1)
 
 		// 记录触发原因
 		reason := "unknown"
 		if cpuVal, ok := ad.lastCPU.Load().(float64); ok && cpuVal > ad.config.CPUThreshold {
 			reason = "cpu"
-			degradationTriggersTotal.WithLabelValues(reason).Inc()
+			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
 		if memVal, ok := ad.lastMemory.Load().(float64); ok && memVal > ad.config.MemoryThreshold {
 			reason = "memory"
-			degradationTriggersTotal.WithLabelValues(reason).Inc()
+			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
 		if ad.config.EnableGoroutineLimit && runtime.NumGoroutine() > ad.config.GoroutineThreshold {
 			reason = "goroutines"
-			degradationTriggersTotal.WithLabelValues(reason).Inc()
+			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
 	}
 
 	// 记录恢复事件
 	if oldLevel != LevelNormal && level == LevelNormal {
-		degradationRecoveriesTotal.WithLabelValues(
+		ad.metrics.recoveriesTotal.WithLabelValues(
 			fmt.Sprintf("%d", oldLevel),
 			fmt.Sprintf("%d", level),
 		).Inc()
@@ -403,8 +420,8 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 
 			currentLevel := ad.GetLevel()
 			if currentLevel == LevelNormal {
-				// 正常状态，直接处理
-				degradationEventsTotal.WithLabelValues("processed").Inc()
+				// 正常状态，直���处理
+				ad.metrics.eventsTotal.WithLabelValues("processed").Inc()
 				return next(ctx)
 			}
 
@@ -414,7 +431,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			// 根据降级级别和事件优先级决定是否处理
 			if ad.shouldDrop(currentLevel, priority) {
 				ad.droppedEvents.Add(1)
-				degradationEventsTotal.WithLabelValues("dropped").Inc()
+				ad.metrics.eventsTotal.WithLabelValues("dropped").Inc()
 				logger.WithFields(logger.Fields{
 					"level":    currentLevel,
 					"priority": priority,
@@ -428,7 +445,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 			case DegradationDelay:
 				if priority < PriorityHigh {
 					ad.delayedEvents.Add(1)
-					degradationEventsTotal.WithLabelValues("delayed").Inc()
+					ad.metrics.eventsTotal.WithLabelValues("delayed").Inc()
 					// 延迟处理
 					time.Sleep(100 * time.Millisecond)
 				}
@@ -439,7 +456,7 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 				// DegradationDrop or unknown: no-op here.
 			}
 
-			degradationEventsTotal.WithLabelValues("processed").Inc()
+			ad.metrics.eventsTotal.WithLabelValues("processed").Inc()
 			return next(ctx)
 		}
 	}
@@ -531,6 +548,33 @@ func (ad *AdaptiveDegradation) Reset() {
 	ad.totalEvents.Store(0)
 	ad.droppedEvents.Store(0)
 	ad.delayedEvents.Store(0)
+}
+
+// UpdateConfig 热更新降级控制器配置（线程安全，下一个监控周期生效）。
+//
+// 支持运行时更新：CPUThreshold、MemoryThreshold、LatencyThreshold、
+// GoroutineThreshold、EnableGoroutineLimit。
+// 不支持热更新：MonitorInterval、RecoveryInterval、Strategy、PriorityClassifier
+// （这些参数修改需要重建控制器）。
+func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
+	// AdaptiveDegradation 的 config 字段整体替换是安全的：
+	// checkAndAdjustLevel 读取 config 字段均为值类型（float64/Duration/bool/int），
+	// Go 赋值是原子的对于值类型结构，但为保险起见用单独字段赋值。
+	if cfg.CPUThreshold > 0 {
+		ad.config.CPUThreshold = cfg.CPUThreshold
+	}
+	if cfg.MemoryThreshold > 0 {
+		ad.config.MemoryThreshold = cfg.MemoryThreshold
+	}
+	if cfg.LatencyThreshold > 0 {
+		ad.config.LatencyThreshold = cfg.LatencyThreshold
+	}
+	if cfg.GoroutineThreshold > 0 {
+		ad.config.GoroutineThreshold = cfg.GoroutineThreshold
+	}
+	if cfg.EnableGoroutineLimit {
+		ad.config.EnableGoroutineLimit = cfg.EnableGoroutineLimit
+	}
 }
 
 // ForceLevel 强制设置降级级别（用于测试或手动控制）

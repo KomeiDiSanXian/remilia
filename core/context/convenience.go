@@ -54,8 +54,12 @@ func OnUserBlacklist(userIDs ...string) Rule {
 	}
 }
 
-// OnGroupWhitelist 创建群组白名单规�?
-// 只有在白名单中的群组才能匹配
+// OnGroupWhitelist 创建群组白名单规则（仅对群组消息有效）。
+// 只有在白名单中的群组才能匹配。
+//
+// 非群组消息（解码失败）视为「不适用此规则」，直接放行（返回 true），
+// 由其他规则或 EventType 规则负责过滤。
+// 若要严格限制仅处理群组消息，请在此规则之前添加 OnGroupAtMessage() 规则。
 //
 // 使用示例:
 //
@@ -72,14 +76,19 @@ func OnGroupWhitelist(groupIDs ...string) Rule {
 	return func(ctx *Context) bool {
 		var event dto.GroupAtMessageCreateEvent
 		if err := ctx.DecodeEvent(&event); err != nil {
-			return false
+			// 非群组消息，不适用此规则，放行
+			return true
 		}
 		return whitelist[event.GroupOpenID]
 	}
 }
 
-// OnGroupBlacklist 创建群组黑名单规�?
-// 在黑名单中的群组将被拒绝
+// OnGroupBlacklist 创建群组黑名单规则（仅对群组消息有效）。
+// 在黑名单中的群组将被拒绝。
+//
+// 非群组消息（解码失败）视为「不适用此规则」，直接放行（返回 true），
+// 由其他规则或 EventType 规则负责过滤。
+// 若要严格限制仅处理群组消息，请在此规则之前添加 OnGroupAtMessage() 规则。
 //
 // 使用示例:
 //
@@ -96,9 +105,10 @@ func OnGroupBlacklist(groupIDs ...string) Rule {
 	return func(ctx *Context) bool {
 		var event dto.GroupAtMessageCreateEvent
 		if err := ctx.DecodeEvent(&event); err != nil {
-			return true // 解码失败，放�?
+			// 非群组消息，不适用此规则，放行
+			return true
 		}
-		return !blacklist[event.GroupOpenID] // 不在黑名单中才放�?
+		return !blacklist[event.GroupOpenID] // 不在黑名单中才放行
 	}
 }
 

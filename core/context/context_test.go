@@ -144,9 +144,16 @@ func TestContext_SetGet(t *testing.T) {
 		ctx := NewContext(&dto.Payload{}, nil)
 
 		ctx.Set("key", "value")
-		ctx.Set("key", nil)
+		ctx.Set("key", nil) // nil is a no-op; key still holds "value"
 
-		_, ok := ctx.Get("key")
+		// key must still exist with original value (nil is no-op, not delete)
+		v, ok := ctx.Get("key")
+		assert.True(t, ok)
+		assert.Equal(t, "value", v)
+
+		// explicit delete removes the key
+		ctx.Delete("key")
+		_, ok = ctx.Get("key")
 		assert.False(t, ok)
 	})
 

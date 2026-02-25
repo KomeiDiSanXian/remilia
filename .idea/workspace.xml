@@ -4,25 +4,31 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support">
-      <change afterPath="$PROJECT_DIR$/docs/06-archived/plugin-system-quality-review-2.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/p2_fixes_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance plugin setup and teardown processes with improved error handling and structured logging">
+      <change afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/engine/engine_query.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/core-middleware-design-review.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/plugin-system-design-review.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/descriptor.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/descriptor.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/status.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/status.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/testing.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/bundle/bundle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/bundle/bundle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_coverage_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_error_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_error_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/extensions.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/extensions.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -243,7 +249,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
     <MESSAGE value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
     <MESSAGE value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
     <MESSAGE value="feat: enhance storage plugins with optional persistence and session management" />
@@ -268,7 +273,8 @@
     <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
     <MESSAGE value="fix: correct cron schedule for daily stats logging" />
     <MESSAGE value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
+    <MESSAGE value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

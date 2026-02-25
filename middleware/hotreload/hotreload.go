@@ -9,6 +9,8 @@
 //	bridge.WatchAdaptive(adaptiveLimiter)
 //	bridge.WatchRetry(configurableRetry)
 //	bridge.WatchCircuitBreaker(circuitBreaker)
+//	bridge.WatchDedup(dedupFilter)
+//	bridge.WatchDegradation(degradationCtrl)
 //	token := config.Subscribe(bridge.OnConfigChange)
 //	defer token.Cancel()
 package hotreload
@@ -28,6 +30,8 @@ type Bridge struct {
 	adaptives       []*middleware.AdaptiveRateLimiter
 	retries         []*middleware.ConfigurableRetry
 	circuitBreakers []*middleware.CircuitBreaker
+	dedups          []*middleware.DedupFilter
+	degradations    []*middleware.AdaptiveDegradation
 }
 
 // NewBridge 创建桥接器
@@ -55,6 +59,23 @@ func (b *Bridge) WatchRetry(cr *middleware.ConfigurableRetry) *Bridge {
 func (b *Bridge) WatchCircuitBreaker(cb *middleware.CircuitBreaker) *Bridge {
 	b.mu.Lock()
 	b.circuitBreakers = append(b.circuitBreakers, cb)
+	b.mu.Unlock()
+	return b
+}
+
+// WatchDedup 注册 DedupFilter 接收热更新（MaxSize、DefaultTTL 立即生效）
+func (b *Bridge) WatchDedup(df *middleware.DedupFilter) *Bridge {
+	b.mu.Lock()
+	b.dedups = append(b.dedups, df)
+	b.mu.Unlock()
+	return b
+}
+
+// WatchDegradation 注册 AdaptiveDegradation 接收热更新
+// （CPUThreshold、MemoryThreshold、LatencyThreshold 等下一监控周期生效）
+func (b *Bridge) WatchDegradation(ad *middleware.AdaptiveDegradation) *Bridge {
+	b.mu.Lock()
+	b.degradations = append(b.degradations, ad)
 	b.mu.Unlock()
 	return b
 }
@@ -87,6 +108,27 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 				MaxAttempts: rc.MaxAttempts,
 				BackoffBase: base,
 				BackoffMax:  max,
+			})
+		}
+	}
+
+	// 更新 DedupFilter（MaxSize、DefaultTTL）
+	if mc.DedupMaxSize > 0 || mc.DedupDefaultTTL != "" {
+		ttl := parseDuration(mc.DedupDefaultTTL, 0)
+		for _, df := range b.dedups {
+			df.UpdateConfig(middleware.DedupConfig{
+				MaxSize:    mc.DedupMaxSize,
+				DefaultTTL: ttl,
+			})
+		}
+	}
+
+	// 更新 AdaptiveDegradation（CPU/Memory 阈值）
+	if mc.DegradationCPUThreshold > 0 || mc.DegradationMemoryThreshold > 0 {
+		for _, ad := range b.degradations {
+			ad.UpdateConfig(middleware.DegradationConfig{
+				CPUThreshold:    mc.DegradationCPUThreshold,
+				MemoryThreshold: mc.DegradationMemoryThreshold,
 			})
 		}
 	}

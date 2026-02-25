@@ -107,23 +107,43 @@ type regexCacheStore struct {
 	maxSize int
 }
 
+// DefaultRegexCacheSize 是正则表达式 LRU 缓存的默认容量。
+// 对于大多数 Bot（< 500 个不同正则规则）此值足够，不会频繁淘汰。
+const DefaultRegexCacheSize = 1000
+
 var (
 	regexCache     *regexCacheStore
 	regexCacheOnce sync.Once
+	// regexCacheDesiredSize 允许在 initRegexCache 首次被调用前通过 SetRegexCacheSize 指定大小
+	regexCacheDesiredSize = DefaultRegexCacheSize
 )
 
-// initRegexCache 初始化正则表达式缓存
+// SetRegexCacheSize 在框架初始化前设置正则表达式 LRU 缓存的最大容量。
+//
+// 必须在**首次调用 OnRegex / OnRegexSafe 之前**调用，否则无效（缓存已初始化）。
+// 若未调用，默认使用 DefaultRegexCacheSize（1000）。
+//
+// 使用场景：
+//   - 小型 Bot（< 50 个正则规则）：传入较小值（如 64）节省内存
+//   - 大型 Bot（> 1000 个不同正则规则）：传入较大值避免频繁淘汰
+//
+// 注意：size <= 0 时静默忽略，保留当前值。
+func SetRegexCacheSize(size int) {
+	if size > 0 {
+		regexCacheDesiredSize = size
+	}
+}
+
+// initRegexCache 初始化正则表达式缓存（使用 regexCacheDesiredSize）
 func initRegexCache() {
 	regexCacheOnce.Do(func() {
-		// 创建一个新的 LRU 缓存，容量为 1000
-		cache, err := lru.New[string, *regexp.Regexp](1000)
+		cache, err := lru.New[string, *regexp.Regexp](regexCacheDesiredSize)
 		if err != nil {
-			// 理论上只有当 size <= 0 时才会返回错误，这里 panic 是安全的
 			panic(err)
 		}
 		regexCache = &regexCacheStore{
 			cache:   cache,
-			maxSize: 1000,
+			maxSize: regexCacheDesiredSize,
 		}
 	})
 }

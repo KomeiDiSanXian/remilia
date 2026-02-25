@@ -108,6 +108,48 @@ func SimpleCircuitBreaker() eventctx.Middleware {
 	return CircuitBreakerMiddleware(cb)
 }
 
+// SimpleRateLimit 创建简单固定速率限流中间件（全局共享，无 key 区分）。
+//
+// # 限流器选择指南
+//
+// 框架提供两种限流器，请根据场景选择：
+//
+//   - SimpleRateLimit / RateLimitTokenBucket（令牌桶）
+//     适用：已知固定峰值场景（如 "每秒最多 10 条消息"）
+//     特点：速率稳定、配置简单、无后台 goroutine
+//     参数：perSecond = 每秒允许的最大请求数（burst 自动设为 2 倍）
+//
+//   - NewManagedAdaptive / NewManagedAdaptiveWithContext（自适应）
+//     适用：峰值不确定、需根据 CPU/P99 延迟自动调整并发上限
+//     特点：弹性伸缩、无需手动调参，但有后台 goroutine（需 Stop/WithContext）
+//
+// 经验法则：
+//
+//	固定场景（如限制某命令调用频率）→ SimpleRateLimit
+//	高并发 Bot 保护整体系统负载   →  NewManagedAdaptiveWithContext(bot.Context())
+//
+// 使用示例:
+//
+//	// 全局限流：每秒最多处理 10 个事件
+//	engine.Use(middleware.SimpleRateLimit(10))
+//
+//	// 按用户限流（每用户每秒 2 次）
+//	engine.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
+//	    author := ctx.GetAuthor()
+//	    if author == nil { return "" }
+//	    return author.UserOpenID
+//	}))
+func SimpleRateLimit(perSecond float64) eventctx.Middleware {
+	if perSecond <= 0 {
+		perSecond = 1
+	}
+	burst := int(perSecond * 2)
+	if burst < 1 {
+		burst = 1
+	}
+	return RateLimitTokenBucket(int(perSecond), burst, nil)
+}
+
 // SimpleDedup 创建带默认配置的去重中间件
 //
 // 使用示例:

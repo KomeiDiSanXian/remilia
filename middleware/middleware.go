@@ -44,14 +44,13 @@ func Recover() eventctx.Middleware {
 		return func(ctx *eventctx.Context) (err error) {
 			defer func() {
 				if r := recover(); r != nil {
-					// 获取堆栈信息
-					stack := make([]byte, 4096)
-					length := runtime.Stack(stack, false)
+					// 获取堆栈信息（自适应缓冲区，避免深调用栈截断）
+					stack := captureStack()
 
 					// 记录详细日志
 					logger.WithFields(logger.Fields{
 						"panic":      r,
-						"stack":      string(stack[:length]),
+						"stack":      stack,
 						"event_type": ctx.GetEventType(),
 					}).Error("[Recover] Panic recovered")
 
@@ -61,6 +60,28 @@ func Recover() eventctx.Middleware {
 			}()
 			return next(ctx)
 		}
+	}
+}
+
+// captureStack 获取当前 goroutine 的完整堆栈信息。
+//
+// 使用自适应缓冲区（初始 4KB，不足时翻倍，上限 64KB）避免深调用栈截断。
+// 即使超过 64KB 上限，仍返回已捕获的内容并追加 "[stack truncated]" 标记。
+func captureStack() string {
+	buf := make([]byte, 4096)
+	for {
+		n := runtime.Stack(buf, false)
+		if n < len(buf) {
+			// 写入量 < 缓冲区大小，说明栈信息已完整写入
+			return string(buf[:n])
+		}
+		// 缓冲区被写满，可能截断——翻倍后重试
+		newSize := len(buf) * 2
+		if newSize > 64*1024 {
+			// 超过上限，返回已有内容并标记截断
+			return string(buf[:n]) + "\n[stack truncated: exceeded 64KB limit]"
+		}
+		buf = make([]byte, newSize)
 	}
 }
 
@@ -77,74 +98,38 @@ func Auth(allow func(ctx *eventctx.Context) bool) eventctx.Middleware {
 	}
 }
 
-// Timeout 创建一个超时控制中间件
+// Timeout 创建一个超时控制中间件。
+//
+// 通过向 ctx 注入带 deadline 的 stdCtx 来实现超时控制，handler 应监听
+// ctx.Context().Done() 来感知超时并提前退出。这与 Go 标准库 context 的
+// 取消语义完全一致，且不引入额外 goroutine（避免并发写同一 Context 的 race）。
+//
+// 注意：若 handler 完全不检查 ctx.Context().Done()（如纯 CPU 计算），
+// 则超时信号不会强制中断它——此时请在 handler 内部主动检查。
 //
 //	engine.Use(middleware.Timeout(5 * time.Second))
 func Timeout(timeout time.Duration) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			// 创建带超时的标准库 context
 			stdCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 			defer cancel()
 
-			// 保存原始 context
+			// 保存原始 context，处理完后恢复，避免影响后续中间件
 			originalCtx := ctx.Context()
-			defer ctx.SetStdContext(originalCtx) // 恢复原始 context
-
-			// 设置带超时的 context
 			ctx.SetStdContext(stdCtx)
+			defer ctx.SetStdContext(originalCtx)
 
-			// 创建带超时的 Context
-			done := make(chan error, 1)
-
-			// 使用 Timer 而不是 time.After，可以手动停止避免泄漏
-			timer := time.NewTimer(timeout)
-			defer timer.Stop() // 确保 timer 被停止，避免资源泄漏
-
-			// 在 goroutine 中执行
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						// 使用 select + default 防止超时后写入阻塞
-						select {
-						case done <- fmt.Errorf("panic in handler: %v", r):
-						default:
-							// 超时后 panic，记录日志避免丢失
-							logger.WithFields(logger.Fields{
-								"panic":      r,
-								"event_type": ctx.GetEventType(),
-							}).Warn("[Timeout] Panic occurred after timeout, error discarded")
-						}
-					}
-				}()
-
-				// 执行 handler，现在 handler 可以通过 ctx.Context() 访问带超时的 context
-				err := next(ctx)
-
-				// 使用 select + default 防止超时后写入阻塞
-				select {
-				case done <- err:
-				default:
-					// 超时后，主 goroutine 已经返回，不再写入
-					if err != nil {
-						logger.WithError(err).WithFields(logger.Fields{
-							"event_type": ctx.GetEventType(),
-						}).Warn("[Timeout] Error occurred after timeout, error discarded")
-					}
+			err := next(ctx) // 同步调用，无额外 goroutine
+			if err != nil {
+				if context.Cause(stdCtx) != nil || stdCtx.Err() != nil {
+					logger.WithFields(logger.Fields{
+						"timeout":    timeout,
+						"event_type": ctx.GetEventType(),
+					}).Warn("[Timeout] Handler execution timeout")
+					return fmt.Errorf("handler timeout after %v: %w", timeout, err)
 				}
-			}()
-
-			// 等待完成或超时
-			select {
-			case err := <-done:
-				return err
-			case <-timer.C:
-				logger.WithFields(logger.Fields{
-					"timeout":    timeout,
-					"event_type": ctx.GetEventType(),
-				}).Warn("[Timeout] Handler execution timeout")
-				return fmt.Errorf("handler timeout after %v", timeout)
 			}
+			return err
 		}
 	}
 }

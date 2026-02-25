@@ -1,0 +1,133 @@
+package engine
+
+// engine_query.go — 只读查询、统计、Snapshot/Restore、指标收集器
+//
+// 本文件包含所有不修改 Engine 状态的查询操作：
+//   - GetMatcherCount / GetTempMatcherCount / GetMaxMatchers / GetMatcherStats
+//   - SetMetricsCollector / GetMetricsCollector / GetCompiler / CompileAllMatchers
+//   - Snapshot / Restore
+//   - MatcherStats 类型定义
+
+import (
+	"strings"
+
+	"github.com/KomeiDiSanXian/remilia/infra/metrics"
+)
+
+// MatcherStats 匹配器统计
+type MatcherStats struct {
+	Total         int
+	Global        int
+	ByPlugin      map[string]int
+	GlobalEnabled bool
+}
+
+// ---- 计数与统计 --------------------------------------------------------------
+
+// GetMatcherCount 获取当前已注册的匹配器数量（COW 无锁读取）
+func (e *Engine) GetMatcherCount() int {
+	return len(e.state.Load().matchers)
+}
+
+// GetTempMatcherCount 获取当前已注册的临时匹配器数量
+func (e *Engine) GetTempMatcherCount() int {
+	return e.services.tempManager.Count()
+}
+
+// GetMaxMatchers 获取当前的匹配器数量上限（COW 无锁读取）
+func (e *Engine) GetMaxMatchers() int {
+	return e.state.Load().maxMatchers
+}
+
+// GetMatcherStats 获取匹配器统计信息（COW 无锁读取）
+func (e *Engine) GetMatcherStats() MatcherStats {
+	state := e.state.Load()
+	stats := MatcherStats{ByPlugin: make(map[string]int)}
+	stats.Total = len(state.matchers)
+
+	for _, m := range state.matchers {
+		if m.Source == "global" || m.Source == "" {
+			stats.Global++
+			continue
+		}
+		if after, ok := strings.CutPrefix(m.Source, "plugin:"); ok {
+			stats.ByPlugin[after]++
+		}
+	}
+
+	stats.GlobalEnabled = !state.block
+	return stats
+}
+
+// ---- 指标收集器 --------------------------------------------------------------
+
+// SetMetricsCollector 设置指标收集器
+func (e *Engine) SetMetricsCollector(mc *metrics.Collector) *Engine {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	e.services.metricsCollector.Store(mc)
+	return e
+}
+
+// GetMetricsCollector 获取指标收集器
+func (e *Engine) GetMetricsCollector() *metrics.Collector {
+	val := e.services.metricsCollector.Load()
+	if val == nil {
+		return nil
+	}
+	return val.(*metrics.Collector)
+}
+
+// ---- 编译器 ------------------------------------------------------------------
+
+// GetCompiler 获取 Matcher 编译器
+func (e *Engine) GetCompiler() *MatcherCompiler {
+	return e.services.compiler
+}
+
+// CompileAllMatchers 预编译所有 matchers 以提升性能。
+//
+// 编译后的 matchers 会按成本排序规则并缓存正则表达式等资源。
+// 编译是可选的优化，不编译也能正常工作。
+// 推荐在应用启动后或批量注册完成后调用一次。
+func (e *Engine) CompileAllMatchers() {
+	state := e.state.Load()
+	compiler := e.services.compiler
+	for _, m := range state.matchers {
+		compiler.Compile(m)
+	}
+}
+
+// ---- Snapshot / Restore -------------------------------------------------------
+
+// Snapshot 表示引擎状态的不透明快照
+type Snapshot struct {
+	data *engineSnapshot
+}
+
+// engineSnapshot 存储引擎状态快照的内部数据
+type engineSnapshot struct {
+	state      *engineState
+	middleware *middlewareState
+}
+
+// Snapshot 创建当前引擎状态的快照
+func (e *Engine) Snapshot() Snapshot {
+	return Snapshot{
+		data: &engineSnapshot{
+			state:      e.state.Load(),
+			middleware: e.middleware.Load(),
+		},
+	}
+}
+
+// Restore 从快照恢复引擎状态
+func (e *Engine) Restore(s Snapshot) {
+	if s.data == nil {
+		return
+	}
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	e.state.Store(s.data.state)
+	e.middleware.Store(s.data.middleware)
+}

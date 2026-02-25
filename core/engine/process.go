@@ -539,9 +539,41 @@ func extractCommand(content string) string {
 	return trimmed[:idx]
 }
 
-// mergeSortedMatchersSix merges 6 sorted matcher lists into dst
-// Lists 1, 2, 4, 5 are from State (Need "isTemp==1" check to skip)
-// Lists 3, 6 are from TempManager (Need "isTemp==0" check to skip)
+// mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
+// 输出结果同样按优先级升序排列（数值越小优先级越高）。
+//
+// # 6 路含义与优先级语义
+//
+// 6 路由两个维度组合而来：
+//
+//	维度 1 — 事件类型范围
+//	  Specific：EventType 与当前事件匹配的 Matcher（精确匹配，优先于通配）
+//	  Generic ：EventType == "" 的 Matcher（通配，匹配任意事件）
+//
+//	维度 2 — 存储位置
+//	  State (perm)：通过 registerMatcher 注册到 COW engineState 的永久 Matcher
+//	  State (cmd) ：同上但命中了 commandIndex 快速路径（已有 /cmd 前缀索引）
+//	  Temp        ：通过 OnTemp 注册到 TempManager 的临时 Matcher
+//
+//	                 Specific          Generic
+//	  State(perm)    l1=permSpecific   l4=permGeneric
+//	  State(cmd)     l2=cmdSpecific    l5=cmdGeneric
+//	  Temp           l3=tempSpecific   l6=tempGeneric
+//
+// # 合并算法
+//
+// 各子列表在进入此函数前已经按优先级排好序（由 sortMatchersByPriority 保证），
+// 因此这里**不是归并排序**，而是一个 6 路"选最小堆头"的线性合并：
+//  1. 对每个列表找到第一个"有效头"（跳过迁移到 Temp/State 的陈旧元素）
+//  2. 从所有有效头中选出优先级最小的，追加到 dst
+//  3. 重复直到所有列表耗尽
+//
+// 时间复杂度：O(N × 6) = O(N)，其中 N 为所有列表元素总和；6 为常数。
+//
+// # isStateSource 标志
+//
+// State 列表（l1/l2/l4/l5）中可能残留已被迁移到 TempManager 的元素（isTemp==1），
+// 需要跳过（避免双重执行）。Temp 列表（l3/l6）反之。
 func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
 	totalLen := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
 	// 优化：所有列表为空时直接返回

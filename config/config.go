@@ -86,6 +86,10 @@ type MiddlewareConfig struct {
 	SlowHandlerEnable        bool     `yaml:"slow_handler_enable" mapstructure:"slow_handler_enable"`
 	SlowHandlerThreshold     string   `yaml:"slow_handler_threshold" mapstructure:"slow_handler_threshold"`
 	Metrics                  bool     `yaml:"metrics" mapstructure:"metrics"`
+	// DegradationCPUThreshold CPU 使用率阈值（百分比，0-100），用于自适应降级热更新
+	DegradationCPUThreshold float64 `yaml:"degradation_cpu_threshold" mapstructure:"degradation_cpu_threshold"`
+	// DegradationMemoryThreshold 内存使用率阈值（百分比，0-100），用于自适应降级热更新
+	DegradationMemoryThreshold float64 `yaml:"degradation_memory_threshold" mapstructure:"degradation_memory_threshold"`
 }
 
 // DeadLetterConfig 死信队列配置

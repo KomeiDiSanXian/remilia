@@ -294,10 +294,13 @@ func TestTimeoutAdvanced(t *testing.T) {
 	})
 
 	t.Run("panic propagation", func(t *testing.T) {
-		mw := Timeout(100 * time.Millisecond)
-		handler := mw(mockPanicHandler("timeout panic"))
+		// 新实现中 Timeout 不捕获 panic（Recover() 负责）。
+		// 验证 Timeout + Recover 组合时 panic 被转换为错误。
+		panicHandler := mockPanicHandler("timeout panic")
+		withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
+		withRecover := Recover()(withTimeout)
 
-		err := handler(createTestContext())
+		err := withRecover(createTestContext())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "panic")
 	})

@@ -11,11 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockHandler creates a mock handler for testing
+// mockHandler creates a mock handler for testing.
+// It respects context cancellation so Timeout middleware works correctly.
 func mockHandler(err error, delay time.Duration) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {
 		if delay > 0 {
-			time.Sleep(delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Context().Done():
+				return ctx.Context().Err()
+			}
 		}
 		return err
 	}
@@ -149,14 +154,17 @@ func TestTimeout(t *testing.T) {
 	})
 
 	t.Run("panic in handler", func(t *testing.T) {
-		mw := Timeout(100 * time.Millisecond)
-		handler := mw(mockPanicHandler("timeout panic"))
+		// 新实现：Timeout 不捕获 panic，应由 Recover() 处理。
+		// 验证 Recover() + Timeout() 组合时 panic 被正确转换为错误。
+		panicHandler := mockPanicHandler("timeout panic")
+		withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
+		withRecover := Recover()(withTimeout)
 
 		ctx := createTestContext()
-		err := handler(ctx)
+		err := withRecover(ctx)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "panic in handler")
+		assert.Contains(t, err.Error(), "panic")
 	})
 }
 

@@ -333,6 +333,21 @@ func Dedup(filter *DedupFilter) eventctx.Middleware {
 	}
 }
 
+// UpdateConfig 热更新去重过滤器配置（线程安全，立即生效）。
+//
+// 仅更新 MaxSize、DefaultTTL 两项运行时可变参数。
+// CleanupInterval 变更需要重建过滤器（修改 ticker 代价较高）。
+func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if cfg.MaxSize > 0 {
+		f.maxSize = cfg.MaxSize
+	}
+	if cfg.DefaultTTL > 0 {
+		f.defaultTTL = cfg.DefaultTTL
+	}
+}
+
 // DedupWithReject 创建严格的去重中间件（拒绝缓存满的情况）
 //
 // 与 Dedup 的区别：

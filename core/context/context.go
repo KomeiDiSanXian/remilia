@@ -149,8 +149,13 @@ func (ctx *Context) Context() stdctx.Context {
 	return c
 }
 
-// SetStdContext 设置标准库 context
-// 用于中间件注入自定义 context（如注入 tracing context、超时控制等）
+// SetStdContext 设置标准库 context。
+//
+// 仅供中间件使用：注入 trace context（OpenTelemetry）或超时/deadline 控制。
+//
+// ⚠️ 不要通过 context.WithValue 传递业务数据——请使用 ctx.Set(key, value)。
+// 通过 context.WithValue 传递业务数据会导致类型不安全、可测试性下降，且不会被
+// ctx.Clone() 自动复制。
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	if ctx == nil {
 		logger.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
@@ -223,6 +228,12 @@ func (ctx *Context) Clone() *Context {
 }
 
 // isReservedUserStateKey reports whether key is reserved for framework internal use.
+//
+// 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。
+// 框架内部通过 ExtSet[T]/ExtGet[T]（类型键系统）存储的数据（如 parsedCommand、
+// commandArgsCache、retryMetadata、middlewareTrace）与字符串键系统完全隔离——
+// 即使用户调用 ctx.Set("parsed_command", v)，也不会覆盖框架存储的 parsedCommand。
+// 两套系统使用不同的底层 map，不存在任何键冲突风险。
 func isReservedUserStateKey(key string) bool {
 	k := strings.TrimSpace(key)
 	if k == "" {
@@ -328,6 +339,20 @@ func (ctx *Context) Ext() *Extensions {
 }
 
 // Set sets a user extensionState value (V2 sugar).
+//
+// # Key-value state system
+//
+// ctx.Set / ctx.Get 使用字符串键存储 handler 层的临时状态（在同一事件的不同 handler 间传递信息）。
+// 这是插件/handler 层推荐的状态存储方式，简单直观。
+//
+// 框架内部使用基于 reflect.Type 键的 ExtGet[T]/ExtSet[T] 存储强类型数据（如 retryMetadata、
+// middlewareTrace）。两套系统完全隔离，字符串键不会与类型键发生冲突或覆盖。
+// 插件开发者无需直接使用 ExtGet/ExtSet，除非在编写框架级中间件。
+//
+// # nil 值处理
+//
+// value 为 nil 时，Set 是一个空操作（不删除该键）。
+// 若要删除某个键，请显式调用 ctx.Delete(key)。
 func (ctx *Context) Set(key string, value any) {
 	if ctx == nil {
 		return
@@ -338,7 +363,8 @@ func (ctx *Context) Set(key string, value any) {
 	}
 
 	if value == nil {
-		ctx.Delete(key)
+		// nil 是空操作——若要删除某个键，请调用 ctx.Delete(key)
+		logger.WithField("key", key).Debug("[Context] Set(nil) is a no-op; use ctx.Delete(key) to remove a key")
 		return
 	}
 

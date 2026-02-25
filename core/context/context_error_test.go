@@ -431,9 +431,16 @@ func TestContextStateManagement(t *testing.T) {
 		ctx := NewContext(&dto.Payload{Type: "test"}, nil)
 
 		ctx.Set("key", "value")
-		ctx.Set("key", nil) // 应该删除
+		ctx.Set("key", nil) // nil 是 no-op，key 仍然存在
 
-		_, ok := ctx.Get("key")
+		// key 应仍然存在（nil 不删除）
+		v, ok := ctx.Get("key")
+		assert.True(t, ok)
+		assert.Equal(t, "value", v)
+
+		// 显式删除
+		ctx.Delete("key")
+		_, ok = ctx.Get("key")
 		assert.False(t, ok)
 	})
 

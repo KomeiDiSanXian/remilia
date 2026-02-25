@@ -32,17 +32,37 @@ type DeadLetterItem struct {
 	Source  string
 }
 
-// WithCleanupInterval 设置临时 Matcher 清理间隔
+// WithCleanupInterval 设置临时 Matcher 清理间隔。
+//
+// 默认值：DefaultTempMatcherCleanerInterval（1 分钟）。
+// 传入 0 可以完全禁用自动清理（不推荐，会导致一次性 Matcher 内存泄漏）。
 func WithCleanupInterval(interval time.Duration) Option {
 	return func(e *Engine) {
 		e.services.tempMatcherCleanerInterval = interval
 	}
 }
 
-// WithPendingDeleteBufferSize 设置批量删除通道的大小
+// WithPendingDeleteBufferSize 设置批量删除通道的缓冲大小。
+//
+// 默认值：DefaultPendingDeleteBufferSize（1000）。
+// 调高此值可减少高频删除时 DeleteMatcher 的阻塞概率，代价是更多内存占用。
 func WithPendingDeleteBufferSize(size int) Option {
 	return func(e *Engine) {
 		e.services.pendingDeleteCh = make(chan *Matcher, size)
+	}
+}
+
+// WithMaxMatchers 设置引擎允许注册的 Matcher 数量上限。
+//
+// 默认值：0（不限制）。
+// 设置为正整数可防止恶意或错误代码无限注册 Matcher 导致内存耗尽。
+// 达到上限后，新注册的 Matcher 会返回一个 noop Matcher（链式调用安全，但不实际执行）。
+func WithMaxMatchers(max int) Option {
+	return func(e *Engine) {
+		oldState := e.state.Load()
+		newState := copyEngineState(oldState)
+		newState.maxMatchers = max
+		e.state.Store(newState)
 	}
 }
 

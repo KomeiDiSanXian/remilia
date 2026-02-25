@@ -221,6 +221,12 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 // 此方法用于设置当 Matcher 匹配成功时要执行的处理函数。
 // Handler 接收一个 *context.Context 参数，返回 error。
 //
+// # 线程安全说明
+//
+// Handle 本身是线程安全的（内部使用 m.rt.mu 保护），注册到 Engine 后调用也不会 panic。
+// 但强烈建议**在注册（RegisterMatcher/On/OnC2C 等返回前）之前**完成所有链式配置，
+// 注册后修改 Handler 会触发中间件链重建并短暂影响并发执行中的请求，属于高代价操作。
+//
 // 最佳实践：
 //
 //	建议将 Handle 作为链式调用的最后一步，使代码逻辑更清晰。
@@ -397,7 +403,13 @@ func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 	return m
 }
 
-// Use 为当前 matcher 注册局部中间件
+// Use 为当前 matcher 注册局部中间件。
+//
+// # 线程安全说明
+//
+// Use 本身是线程安全的（内部使用 m.rt.mu 保护），注册到 Engine 后调用也不会 panic。
+// 但强烈建议**在注册之前**完成所有中间件配置：注册后调用 Use 会触发
+// 全局中间件链重建，对并发执行中的请求有短暂影响，属于高代价操作。
 func (m *Matcher) Use(mw ...Middleware) *Matcher {
 	if m.isNoop() {
 		return m

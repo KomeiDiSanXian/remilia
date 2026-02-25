@@ -306,7 +306,8 @@ func TestOnGroupWhitelist(t *testing.T) {
 		rule := OnGroupWhitelist("group1")
 		result := rule(ctx)
 
-		assert.False(t, result)
+		// 解码失败视为「不适用此规则」→ 放行（true）
+		assert.True(t, result)
 	})
 }
 
