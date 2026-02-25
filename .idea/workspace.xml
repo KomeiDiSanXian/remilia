@@ -4,31 +4,28 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance plugin setup and teardown processes with improved error handling and structured logging">
-      <change afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/engine_query.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/core-middleware-design-review.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: enhance context management with improved nil value handling and add metrics for degradation control">
+      <change afterPath="$PROJECT_DIR$/docs/04-development/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_coverage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_error_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_error_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/extensions.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/extensions.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/01-getting-started/GETTING_STARTED.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/01-getting-started/GETTING_STARTED.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/01-getting-started/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/01-getting-started/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/BEST_PRACTICES.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/BEST_PRACTICES.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/CONFIGURATION_QUICKREF.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/CONFIGURATION_QUICKREF.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_ENHANCEMENTS_GUIDE.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_ENHANCEMENTS_GUIDE.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_ENHANCEMENT_QUICKREF.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_HELP_SYSTEM.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_HELP_SYSTEM.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/02-user-guides/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/02-user-guides/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/03-architecture/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/03-architecture/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/03-architecture/plugin-dependency-management.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/04-development/plugin-best-practices.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/04-development/plugin-best-practices.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/06-archived/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/README.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -249,7 +246,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
     <MESSAGE value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
     <MESSAGE value="feat: enhance storage plugins with optional persistence and session management" />
     <MESSAGE value="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains" />
@@ -274,7 +270,8 @@
     <MESSAGE value="fix: correct cron schedule for daily stats logging" />
     <MESSAGE value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
     <MESSAGE value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
+    <MESSAGE value="feat: enhance context management with improved nil value handling and add metrics for degradation control" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: enhance context management with improved nil value handling and add metrics for degradation control" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

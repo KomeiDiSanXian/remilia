@@ -1,4 +1,7 @@
+> **最后更新**: 2026-02-25
+
 # 配置系统快速参考
+
 
 ## 如何使用新增的配置项
 
@@ -74,21 +77,36 @@ refreshAdvance, _ := time.ParseDuration(cfg.Token.RefreshAdvance)
 
 ```yaml
 engine:
-  temp_matcher_cleanup_interval: "5m"
-  pending_delete_buffer_size: 1000
-  matcher_pool_capacity: 16
+  temp_matcher_cleanup_interval: "5m"    # 默认 1m
+  pending_delete_buffer_size: 1000       # 默认 1000
+  pending_delete_process_interval: "100ms"
+  pending_delete_batch_size: 1000
+  matcher_pool_capacity: 16              # 默认 16
 ```
 
 ```go
-import "time"
-
 // 使用配置创建 Engine
-cleanupInterval, _ := time.ParseDuration(cfg.Engine.TempMatcherCleanupInterval)
-engine := engine.NewEngine(
-    engine.WithCleanupInterval(cleanupInterval),
-    engine.WithPendingDeleteBufferSize(cfg.Engine.PendingDeleteBufferSize),
+eng := engine.NewEngine(
+    engine.WithCleanupInterval(cleanupInterval),          // 默认 1m
+    engine.WithPendingDeleteBufferSize(1000),              // 默认 1000
+    engine.WithMaxMatchers(5000),                          // 默认 0（不限制）
+    engine.WithConfig(cfg.Engine),                         // 从配置文件一次性应用所有值
 )
 ```
+
+> **`WithMaxMatchers`（v2.0+）**: 设置 Matcher 注册上限。
+> 达到上限后新注册的 Matcher 返回 noop（链式调用安全，但不执行）。
+> 默认值 0 表示不限制。
+
+#### 正则缓存调优
+
+```go
+// 在首次调用 OnRegex/OnRegexSafe 之前设置（程序启动时）
+// 默认值：1000（适合大多数 Bot）
+context.SetRegexCacheSize(200)   // 小型 Bot，节省内存
+context.SetRegexCacheSize(5000)  // 大型 Bot，避免频繁淘汰
+```
+
 
 ### 3. 中间件配置
 
@@ -103,12 +121,25 @@ middleware:
   rate_limit_cleanup_interval: "5m"
 ```
 
+```go
+// 简单全局限流（每秒最多 N 个事件）
+engine.Use(middleware.SimpleRateLimit(10))
+
+// 按用户限流（每用户每秒 2 次）
+engine.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
+    author := ctx.GetAuthor()
+    if author == nil { return "" }
+    return author.UserOpenID
+}))
+```
+
 #### 去重配置
 
 ```yaml
 middleware:
   dedup_enable: true
-  dedup_default_ttl: "5m"
+  dedup_max_size: 10000           # 默认 10000
+  dedup_default_ttl: "5m"         # 默认 5m
   dedup_cleanup_interval: "1m"
 ```
 
@@ -118,6 +149,24 @@ middleware:
 middleware:
   slow_handler_enable: true
   slow_handler_threshold: "1s"  # 超过 1 秒记录警告
+```
+
+#### 自适应降级热更新阈值（v2.0+）
+
+```yaml
+middleware:
+  # 新增：通过 hotreload.Bridge.WatchDegradation 推送给 AdaptiveDegradation
+  degradation_cpu_threshold: 80.0       # CPU 超过此值触发降级（0-100）
+  degradation_memory_threshold: 85.0    # 内存超过此值触发降级（0-100）
+```
+
+```go
+// 在程序启动时建立热更新桥接
+bridge := hotreload.NewBridge()
+bridge.WatchDegradation(adaptiveDeg)   // 降级阈值热更新
+bridge.WatchDedup(dedupFilter)          // 去重 TTL/MaxSize 热更新
+token := bridge.Subscribe()             // 注册到 config.Watcher
+defer token.Cancel()
 ```
 
 ### 4. 高级功能：自适应降级

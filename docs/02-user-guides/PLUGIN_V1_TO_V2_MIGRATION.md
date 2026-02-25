@@ -1,364 +1,36 @@
-# Plugin v1 到 v2 迁移指南
+# Plugin v2 快速上手
 
-**创建日期**: 2026-02-19  
-**目标用户**: Remilia 插件开发者  
-**难度**: 简单
-
----
-
-## 📝 概述
-
-本指南帮助你将 v1 插件迁移到 v2 API。v2 API 提供了更简洁的代码、自动依赖注入和更好的类型安全。
-
-**迁移后的收益**:
-- ✅ 代码减少 60%
-- ✅ 无需继承 BasePlugin
-- ✅ 自动依赖注入
-- ✅ 自动 Matcher 追踪
-- ✅ 更符合 Go 习惯用法
+> **最后更新**: 2026-02-25  
+> **适用版本**: v2.0.0+  
+> **说明**: v1 `BasePlugin` 已在 v2.0.0 中完全移除。本文是 v2 API 的完整快速入门。
 
 ---
 
-## 🔄 迁移步骤
+## 最简示例
 
-### 步骤 1: 理解基本差异
-
-**v1 插件** (基于继承):
 ```go
-type MyPlugin struct {
-    *plugin.BasePlugin
-    state *MyState
-}
+package myplugin
 
-func NewMyPlugin() *MyPlugin {
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePlugin("myplugin"),
-        state:      &MyState{},
-    }
-}
+import (
+    "github.com/KomeiDiSanXian/remilia/plugin"
+    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
 
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    eng.OnCommand(dto.C2CMessageCreate, "/hello").
-        Handle(func(ctx *eventctx.Context) error {
-            // 使用 p.state
-            return ctx.Reply("Hello!")
-        })
-    return nil
-}
-
-func (p *MyPlugin) Unload(eng *engine.Engine) error {
-    return p.BasePlugin.Unload(eng)
-}
-```
-
-**v2 插件** (函数式):
-```go
 func New() *plugin.PluginDescriptor {
-    // 使用闭包捕获状态
-    state := &MyState{}
-    
+    p := &MyPlugin{}
     return &plugin.PluginDescriptor{
         Name:    "myplugin",
-        Version: "2.0.0",
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            // 使用 RegisterCommand 自动追踪
-            ctx.RegisterCommand(dto.C2CMessageCreate, "/hello").
-                Handle(func(c *eventctx.Context) error {
-                    // 使用 state
-                    return c.Reply("Hello!")
-                })
-            return nil
+        Version: "1.0.0",
+
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            ctx.Reg.On(dto.GroupAtMessageCreate, eventctx.OnCommand("/hello")).
+                Handle(p.handleHello)
+            return p, nil // 导出到容器；nil 也合法
         },
-        
-        Teardown: func() error {
-            // 清理 state
-            return nil
-        },
-    }
-}
-```
 
-### 步骤 2: 转换插件结构
-
-#### 1. 删除结构体定义
-```go
-// ❌ v1: 需要定义结构体
-type MyPlugin struct {
-    *plugin.BasePlugin
-    field1 string
-    field2 int
-}
-```
-
-```go
-// ✅ v2: 使用闭包捕获状态
-func New() *plugin.PluginDescriptor {
-    field1 := ""
-    field2 := 0
-    
-    return &plugin.PluginDescriptor{
-        // ...
-    }
-}
-```
-
-#### 2. 转换构造函数
-```go
-// ❌ v1
-func NewMyPlugin() *MyPlugin {
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePlugin("myplugin"),
-        field1:     "initial",
-    }
-}
-```
-
-```go
-// ✅ v2
-func New() *plugin.PluginDescriptor {
-    field1 := "initial"
-    
-    return &plugin.PluginDescriptor{
-        Name:    "myplugin",
-        Version: "2.0.0",
-        // ...
-    }
-}
-```
-
-#### 3. 转换 Load 方法
-```go
-// ❌ v1
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    eng.OnCommand(dto.C2CMessageCreate, "/cmd").
-        Handle(p.handleCommand)
-    return nil
-}
-
-func (p *MyPlugin) handleCommand(ctx *eventctx.Context) error {
-    // 使用 p.field1
-    return ctx.Reply(p.field1)
-}
-```
-
-```go
-// ✅ v2
-Setup: func(ctx *plugin.SetupContext) error {
-    // 使用 RegisterCommand 自动追踪
-    ctx.RegisterCommand(dto.C2CMessageCreate, "/cmd").
-        Handle(func(c *eventctx.Context) error {
-            // 直接使用闭包中的 field1
-            return c.Reply(field1)
-        })
-    return nil
-},
-```
-
-#### 4. 转换 Unload 方法
-```go
-// ❌ v1
-func (p *MyPlugin) Unload(eng *engine.Engine) error {
-    // 清理资源
-    p.field1 = ""
-    return p.BasePlugin.Unload(eng)
-}
-```
-
-```go
-// ✅ v2
-Teardown: func() error {
-    // 清理资源
-    field1 = ""
-    return nil
-},
-```
-
-### 步骤 3: 处理依赖
-
-#### v1: 手动依赖注入
-```go
-type MyPlugin struct {
-    *plugin.BasePlugin
-    dep *OtherPlugin
-}
-
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    // 需要手动获取依赖
-    // ...
-}
-```
-
-#### v2: 自动依赖注入
-```go
-func New() *plugin.PluginDescriptor {
-    return &plugin.PluginDescriptor{
-        Name: "myplugin",
-        Deps: []string{"otherplugin"},  // 声明依赖
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            // 自动注入
-            dep := ctx.MustGet("otherplugin").(*OtherPlugin)
-            
-            // 使用依赖
-            dep.DoSomething()
-            return nil
-        },
-    }
-}
-```
-
-### 步骤 4: 更新注册代码
-
-```go
-// ❌ v1
-plugin := NewMyPlugin()
-manager.Register(plugin)
-```
-
-```go
-// ✅ v2
-manager.RegisterV2(New())
-```
-
----
-
-## 📚 完整示例
-
-### 示例 1: 简单插件
-
-**v1 代码** (50 行):
-```go
-type EchoPlugin struct {
-    *plugin.BasePlugin
-}
-
-func NewEchoPlugin() *EchoPlugin {
-    return &EchoPlugin{
-        BasePlugin: plugin.NewBasePlugin("echo"),
-    }
-}
-
-func (p *EchoPlugin) Load(eng *engine.Engine) error {
-    eng.OnCommand(dto.C2CMessageCreate, "/echo").
-        Handle(func(ctx *eventctx.Context) error {
-            msg := ctx.GetPlainText()
-            return ctx.Reply("Echo: " + msg)
-        })
-    return nil
-}
-
-func (p *EchoPlugin) Unload(eng *engine.Engine) error {
-    return p.BasePlugin.Unload(eng)
-}
-```
-
-**v2 代码** (20 行):
-```go
-func New() *plugin.PluginDescriptor {
-    return &plugin.PluginDescriptor{
-        Name:        "echo",
-        Version:     "2.0.0",
-        Description: "Echo 插件",
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            ctx.RegisterCommand(dto.C2CMessageCreate, "/echo").
-                Handle(func(c *eventctx.Context) error {
-                    msg := c.GetPlainText()
-                    return c.Reply("Echo: " + msg)
-                })
-            return nil
-        },
-    }
-}
-```
-
-### 示例 2: 有状态的插件
-
-**v1 代码**:
-```go
-type CounterPlugin struct {
-    *plugin.BasePlugin
-    count atomic.Int64
-}
-
-func NewCounterPlugin() *CounterPlugin {
-    return &CounterPlugin{
-        BasePlugin: plugin.NewBasePlugin("counter"),
-    }
-}
-
-func (p *CounterPlugin) Load(eng *engine.Engine) error {
-    eng.OnCommand(dto.C2CMessageCreate, "/count").
-        Handle(func(ctx *eventctx.Context) error {
-            count := p.count.Add(1)
-            return ctx.Reply(fmt.Sprintf("Count: %d", count))
-        })
-    return nil
-}
-
-func (p *CounterPlugin) Unload(eng *engine.Engine) error {
-    return p.BasePlugin.Unload(eng)
-}
-```
-
-**v2 代码**:
-```go
-func New() *plugin.PluginDescriptor {
-    var count atomic.Int64  // 闭包捕获
-    
-    return &plugin.PluginDescriptor{
-        Name:    "counter",
-        Version: "2.0.0",
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            ctx.RegisterCommand(dto.C2CMessageCreate, "/count").
-                Handle(func(c *eventctx.Context) error {
-                    n := count.Add(1)
-                    return c.Reply(fmt.Sprintf("Count: %d", n))
-                })
-            return nil
-        },
-    }
-}
-```
-
-### 示例 3: 带依赖的插件
-
-**v1 代码**:
-```go
-type MyPlugin struct {
-    *plugin.BasePlugin
-    perm *permission.Plugin
-}
-
-func (p *MyPlugin) Dependencies() []string {
-    return []string{"permission"}
-}
-
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    // 需要手动获取依赖...
-}
-```
-
-**v2 代码**:
-```go
-func New() *plugin.PluginDescriptor {
-    return &plugin.PluginDescriptor{
-        Name: "myplugin",
-        Deps: []string{"permission"},
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            // 自动注入
-            perm := ctx.MustGet("permission").(*permission.Plugin)
-            
-            ctx.RegisterCommand(dto.C2CMessageCreate, "/admin").
-                Handle(func(c *eventctx.Context) error {
-                    if !perm.HasPermission(c.UserID, "admin") {
-                        return c.Reply("无权限")
-                    }
-                    return c.Reply("管理命令")
-                })
+        Teardown: func(ctx *plugin.TeardownContext) error {
+            ctx.Log.Info("myplugin stopped")
             return nil
         },
     }
@@ -367,198 +39,225 @@ func New() *plugin.PluginDescriptor {
 
 ---
 
-## ✅ 迁移检查清单
-
-### 代码修改
-- [ ] 删除结构体定义（使用闭包替代）
-- [ ] 转换构造函数为 `func New() *plugin.PluginDescriptor`
-- [ ] 将 `Load()` 转换为 `Setup` 函数
-- [ ] 将 `Unload()` 转换为 `Teardown` 函数（可选）
-- [ ] 使用 `ctx.RegisterCommand()` 替代 `eng.OnCommand()`
-- [ ] 声明依赖到 `Deps` 字段
-- [ ] 使用 `ctx.MustGet()` 获取依赖
-
-### 元数据
-- [ ] 添加 `Version` 字段
-- [ ] 添加 `Description` 字段
-- [ ] 添加 `Category` 和 `Tags`（可选）
-- [ ] 添加 `HelpText`（可选）
-
-### 注册
-- [ ] 使用 `manager.RegisterV2()` 替代 `manager.Register()`
-
-### 测试
-- [ ] 编译通过
-- [ ] 功能测试通过
-- [ ] 依赖注入正常工作
-
----
-
-## 🚨 常见问题
-
-### Q1: 如何在闭包中修改状态？
-```go
-func New() *plugin.PluginDescriptor {
-    count := 0  // 可以直接修改
-    
-    return &plugin.PluginDescriptor{
-        Setup: func(ctx *plugin.SetupContext) error {
-            ctx.RegisterCommand(dto.C2CMessageCreate, "/inc").
-                Handle(func(c *eventctx.Context) error {
-                    count++  // ✅ 可以直接修改
-                    return c.Reply(fmt.Sprintf("%d", count))
-                })
-            return nil
-        },
-    }
-}
-```
-
-### Q2: 如何共享状态给其他插件？
-```go
-Setup: func(ctx *plugin.SetupContext) error {
-    api := &MyPluginAPI{
-        DoSomething: func() { /* ... */ },
-    }
-    
-    // 注册到容器供其他插件使用
-    ctx.Manager.GetContainer().Register("myplugin_api", api)
-    return nil
-},
-```
-
-### Q3: v1 的 OnCommand 为什么不推荐？
-```go
-// ❌ 不推荐：无法追踪 Matcher
-ctx.Engine.OnCommand(dto.C2CMessageCreate, "/cmd")
-
-// ✅ 推荐：自动追踪，支持热重载
-ctx.RegisterCommand(dto.C2CMessageCreate, "/cmd")
-```
-
-### Q4: 如何实现热重载？
-```go
-func New() *plugin.PluginDescriptor {
-    config := &MyConfig{}
-    
-    return &plugin.PluginDescriptor{
-        Name: "myplugin",
-        
-        Setup: func(ctx *plugin.SetupContext) error {
-            config.Load()  // 加载配置
-            return nil
-        },
-        
-        Reload: func(ctx *plugin.SetupContext) error {
-            config.Reload()  // 重新加载配置
-            return nil
-        },
-    }
-}
-```
-
-### Q5: 并发安全吗？
-v2 API 的并发安全由你自己保证。对于共享状态，使用适当的同步机制：
+## PluginDescriptor 字段速查
 
 ```go
-func New() *plugin.PluginDescriptor {
-    var count atomic.Int64  // ✅ 原子类型
-    
-    // 或使用互斥锁
-    var (
-        mu    sync.Mutex
-        state map[string]string
-    )
-    
-    return &plugin.PluginDescriptor{
-        // ...
-    }
-}
-```
+&plugin.PluginDescriptor{
+    Name:       "myplugin",           // 必填，全局唯一
+    Version:    "1.0.0",              // 建议 semver
+    Deps:       []string{"storage"},  // 依赖插件名（顺序由框架保证）
+    Privileged: false,                // true = ctx.Admin 非 nil
 
----
+    Meta: &plugin.PluginMeta{
+        Author:      "Your Name",
+        Description: "插件功能简介",
+        HelpText:    "/cmd - 命令说明",
+        Category:    "工具",
+        Tags:        []string{"tag1"},
+        Hidden:      false,           // true = 不在 /help 中显示
+    },
 
-## 📊 v1 vs v2 对比
+    Setup:    func(ctx *plugin.SetupContext) (any, error) { ... },
+    Teardown: func(ctx *plugin.TeardownContext) error { ... },
 
-| 特性 | v1 | v2 | 改进 |
-|------|----|----|------|
-| 代码行数 | ~50 行 | ~20 行 | **-60%** |
-| 需要继承 | ✅ 是 | ❌ 否 | ✅ 简化 |
-| 样板代码 | 多 | 少 | **-70%** |
-| 依赖注入 | 手动 | 自动 | ✅ 简化 |
-| Matcher 追踪 | 手动 | 自动 | ✅ 新功能 |
-| 状态管理 | 字段 | 闭包 | ✅ 更灵活 |
-| 类型安全 | 低 | 高 | ✅ 提升 |
-| Go 惯用法 | ❌ 否 | ✅ 是 | ✅ 符合 |
-
----
-
-## 🎯 推荐实践
-
-### 1. 使用 RegisterCommand
-```go
-// ✅ 推荐
-ctx.RegisterCommand(dto.C2CMessageCreate, "/cmd")
-
-// ❌ 不推荐（无法追踪）
-ctx.Engine.OnCommand(dto.C2CMessageCreate, "/cmd")
-```
-
-### 2. 明确声明依赖
-```go
-return &plugin.PluginDescriptor{
-    Deps: []string{"permission", "storage"},  // ✅ 清晰
-    Setup: func(ctx *plugin.SetupContext) error {
-        perm := ctx.MustGet("permission")
-        storage := ctx.MustGet("storage")
-        // ...
+    Advanced: &plugin.PluginAdvanced{
+        Strategy:             plugin.ReloadInPlace,
+        Reload:               func(ctx *plugin.SetupContext) error { ... },
+        SaveState:            func() (any, error) { ... },
+        RestoreState:         func(state any) error { ... },
+        OnDependencyReloaded: func(depName string) { ... },
     },
 }
 ```
 
-### 3. 提供完整的元数据
+---
+
+## 注册插件
+
+### 单个注册
+
 ```go
-return &plugin.PluginDescriptor{
-    Name:        "myplugin",
-    Version:     "2.0.0",      // ✅ 版本号
-    Author:      "Your Name",  // ✅ 作者
-    Description: "...",        // ✅ 描述
-    Category:    "工具",       // ✅ 分类
-    Tags:        []string{},   // ✅ 标签
-    HelpText:    "...",        // ✅ 帮助文本
-}
+err := manager.RegisterV2(myplugin.New())
 ```
 
-### 4. 合理使用 Teardown
+### 批量注册（手动声明顺序，Deps 字段保证依赖校验）
+
 ```go
-Teardown: func() error {
-    // 只在需要时定义
-    // 关闭连接、保存状态、清理资源等
-    return nil
+err := plugin.RegisterMultipleV2Atomic(manager,
+    storage.New(),
+    cache.New(),    // Deps: ["storage"]
+    weather.New(),  // Deps: ["cache"]
+)
+```
+
+### Smart 注册（自动推断依赖 + 拓扑排序）
+
+```go
+// 无需手写 Deps，框架通过 DryRun 自动分析依赖图
+err := plugin.RegisterMultipleV2Smart(manager,
+    weather.New(),
+    admin.New(),
+    storage.New(), // 任意顺序
+)
+```
+
+> Smart 模式在 DryRun 阶段会多次执行 `Setup`。
+> 对于有全局副作用的初始化，用 `ctx.DryRun` 保护：
+> ```go
+> if !ctx.DryRun { p.metrics = initPrometheusMetrics() }
+> ```
+
+---
+
+## SetupContext 所有字段
+
+```go
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    // Matcher / Command 注册
+    ctx.Reg.On(dto.C2CMessageCreate).Handle(handler)
+    ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/cmd").Handle(handler)
+
+    // 带前缀结构化日志
+    ctx.Log.Info("starting")
+    ctx.Log.WithField("key", val).Warn("note")
+
+    // 插件系统只读视图
+    if !ctx.Info.IsLoaded("storage") {
+        return nil, fmt.Errorf("storage required")
+    }
+    reader := ctx.Info.Coordinator()       // engine.EngineReader（只读）
+    cmds   := reader.GetAllCommands()      // []engine.CommandInfo
+
+    // 依赖获取
+    store     := plugin.Require[storage.Plugin](ctx, "storage")
+    cache, ok := plugin.Optional[cache.Plugin](ctx, "cache")
+
+    // 插件配置
+    if ctx.Config != nil {
+        timeout := ctx.Config.GetDuration("timeout", 10*time.Second)
+        ctx.Config.OnChange(func(key string, old, newVal any) { })
+    }
+
+    // 事件总线
+    sub := ctx.EventBus.Subscribe("user.login", func(data any) { })
+    _ = sub // sub.Unsubscribe() 取消
+
+    // 生命周期绑定 goroutine
+    ctx.Go(func(runCtx context.Context) {
+        ticker := time.NewTicker(time.Minute)
+        defer ticker.Stop()
+        for {
+            select {
+            case <-ticker.C:    doWork()
+            case <-runCtx.Done(): return
+            }
+        }
+    })
+
+    // 管理写视图（仅 Privileged:true 时非 nil）
+    if ctx.Admin != nil {
+        _ = ctx.Admin.Reload("weather")
+        _ = ctx.Admin.Disable("debug")
+    }
+
+    return p, nil
 },
 ```
 
 ---
 
-## 📚 参考资料
+## 导出 API 给其他插件
 
-- **v2 快速参考**: `docs/05-reports/plugin-v2-quick-reference.md`
-- **v2 完成报告**: `docs/05-reports/plugin-v2-migration-complete.md`
-- **P0 修复报告**: `docs/05-reports/plugin-v2-p0-fixes-complete.md`
-- **示例代码**: `examples/plugin-v2-demo/`
+```go
+// 方式 1：直接返回（框架以 Name 注入容器，消费方用 plugin.Require[T] 获取）
+return &WeatherPlugin{}, nil
 
----
-
-## 🆘 需要帮助？
-
-如果在迁移过程中遇到问题：
-1. 查看 `examples/` 目录中的示例代码
-2. 阅读 v2 快速参考文档
-3. 检查错误日志
-4. 提交 Issue
+// 方式 2：按接口导出（消费方用 plugin.MustAs[WeatherAPI] 获取）
+plugin.ExportInterface[WeatherAPI](ctx, "weather", impl)
+return impl, nil
+```
 
 ---
 
-**最后更新**: 2026-02-19  
-**文档版本**: 1.0
+## 完整示例：天气插件
 
+```go
+package weather
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/plugin"
+)
+
+type Plugin struct {
+    apiKey  string
+    timeout time.Duration
+}
+
+func New() *plugin.PluginDescriptor {
+    p := &Plugin{}
+    return &plugin.PluginDescriptor{
+        Name:    "weather",
+        Version: "1.0.0",
+        Meta: &plugin.PluginMeta{
+            Description: "天气查询插件",
+            Category:    "工具",
+            HelpText:    "/weather <城市> — 查询天气",
+        },
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            if ctx.Config != nil {
+                p.apiKey  = ctx.Config.GetString("api_key", "")
+                p.timeout = ctx.Config.GetDuration("timeout", 10*time.Second)
+                ctx.Config.OnChange(func(key string, _, newVal any) {
+                    if key == "api_key" {
+                        if s, ok := newVal.(string); ok {
+                            p.apiKey = s
+                        }
+                    }
+                })
+            }
+
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/weather").
+                Handle(p.handleWeather)
+
+            ctx.Go(func(runCtx context.Context) {
+                ticker := time.NewTicker(time.Hour)
+                defer ticker.Stop()
+                for {
+                    select {
+                    case <-ticker.C:      p.prefetchCache()
+                    case <-runCtx.Done(): return
+                    }
+                }
+            })
+
+            return p, nil
+        },
+        Teardown: func(ctx *plugin.TeardownContext) error {
+            ctx.Log.Info("weather plugin stopped")
+            return nil
+        },
+    }
+}
+
+func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
+    cmd := ctx.GetParsedCommand()
+    if cmd == nil {
+        return ctx.Reply("用法：/weather <城市>")
+    }
+    city, _ := cmd.Args["city"]
+    result, err := p.fetch(city)
+    if err != nil {
+        return ctx.Reply(fmt.Sprintf("查询失败: %v", err))
+    }
+    return ctx.Reply(result)
+}
+
+func (p *Plugin) fetch(city string) (string, error) { /* ... */ return "", nil }
+func (p *Plugin) prefetchCache()                    { /* ... */ }
+```

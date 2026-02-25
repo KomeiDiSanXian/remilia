@@ -1,350 +1,173 @@
 # 插件帮助系统使用指南
 
-## 📚 目录
-
-- [概述](#概述)
-- [快速开始](#快速开始)
-- [创建带元数据的插件](#创建带元数据的插件)
-- [Help 插件使用](#help-插件使用)
-- [最佳实践](#最佳实践)
-- [常见问题](#常见问题)
+> **最后更新**: 2026-02-25  
+> **适用版本**: v2.0.0+
 
 ---
 
 ## 概述
 
-Remilia 框架现已支持完整的插件元数据系统，每个插件都可以提供：
+Remilia 框架提供完整的插件元数据与帮助系统，每个插件可以通过 `PluginMeta` 提供：
 
-- 📝 **名称和版本**：标识插件的基本信息
-- 👤 **作者信息**：显示插件的维护者
-- 📖 **描述和帮助文本**：提供详细的使用说明
-- 🏷️ **分类和标签**：便于组织和搜索
-- 🔗 **链接信息**：主页、仓库地址等
-- 📦 **依赖声明**：明确插件间的依赖关系
+- 名称 / 版本 / 作者
+- 描述与帮助文本
+- 分类和标签
+- 主页 / 仓库地址
 
-所有这些信息都可以通过统一的 Help 插件进行查询。
+这些信息由内置 `help` 插件自动聚合，响应 `/help` 命令。
 
 ---
 
 ## 快速开始
 
-### 1. 创建简单插件（无元数据）
-
-```go
-type MyPlugin struct {
-    *plugin.BasePlugin
-}
-
-func NewMyPlugin() *MyPlugin {
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePlugin("myplugin"),
-    }
-}
-
-func (p *MyPlugin) Load(eng *remilia.Engine) error {
-    matcher := eng.OnCommand(dto.C2CMessageCreate, "/mycommand").
-        Handle(p.handleCommand)
-    p.AddMatcher(matcher)
-    return nil
-}
-```
-
-### 2. 创建带元数据的插件（推荐）
-
-```go
-func NewMyPlugin() *MyPlugin {
-    metadata := &plugin.PluginMetadata{
-        Name:        "myplugin",
-        Version:     "1.0.0",
-        Author:      "Your Name",
-        Description: "这是一个示例插件",
-        HelpText: `插件使用说明：
-  /mycommand <参数> - 命令说明
-  
-示例：
-  /mycommand hello`,
-        Category:    "工具",
-        Tags:        []string{"示例", "工具"},
-    }
-
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
-    }
-}
-```
-
----
-
-## 创建带元数据的插件
-
-### 完整示例
+### 创建带元数据的插件
 
 ```go
 package myplugin
 
 import (
-    "github.com/KomeiDiSanXian/remilia"
-    "github.com/KomeiDiSanXian/remilia/command"
+    "github.com/KomeiDiSanXian/remilia/plugin"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
     "github.com/KomeiDiSanXian/remilia/openapi/dto"
-    "github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-type MyPlugin struct {
-    *plugin.BasePlugin
-}
+func New() *plugin.PluginDescriptor {
+    p := &MyPlugin{}
+    return &plugin.PluginDescriptor{
+        Name:    "myplugin",
+        Version: "1.0.0",
 
-func NewMyPlugin() *MyPlugin {
-    metadata := &plugin.PluginMetadata{
-        // 必填字段
-        Name:        "myplugin",
-        
-        // 推荐字段
-        Version:     "1.0.0",
-        Author:      "Your Name",
-        Description: "插件的简短描述（一句话）",
-        
-        // 详细帮助文本
-        HelpText: `这是详细的帮助文本，可以包含多行。
+        Meta: &plugin.PluginMeta{
+            Author:      "Your Name",
+            Description: "这是一个示例插件，提供 /echo 和 /ping 命令",
+            HelpText: `可用命令：
+  /echo <文本>  — 回显输入的文本
+  /ping         — 测试 Bot 是否在线`,
+            Category: "工具",
+            Tags:     []string{"示例", "工具"},
+            // Hidden: true  // 设为 true 则不在 /help 中显示
+        },
 
-使用方法：
-  /cmd1 <arg1> <arg2> - 功能描述
-  /cmd2 [可选参数] - 功能描述
-  
-示例：
-  /cmd1 hello world
-  /cmd2
-  
-注意事项：
-  - 注意事项1
-  - 注意事项2`,
-        
-        // 分类和标签
-        Category:    "工具",  // 推荐分类：系统、工具、娱乐、管理、生活
-        Tags:        []string{"消息", "工具", "API"},
-        
-        // 依赖声明
-        Dependencies: []string{"database", "cache"},
-        
-        // 可见性
-        Hidden:      false,  // true 表示在 help 中隐藏
-        
-        // 链接信息（可选）
-        Homepage:    "https://example.com/myplugin",
-        Repository:  "https://github.com/yourname/myplugin",
-    }
-
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePluginWithMetadata(metadata),
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/echo").Handle(p.handleEcho)
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/ping").Handle(p.handlePing)
+            return p, nil
+        },
     }
 }
 
-func (p *MyPlugin) Load(eng *remilia.Engine) error {
-    // 注册命令
-    m1 := eng.OnCommand(dto.C2CMessageCreate, "/cmd1").
-        Handle(p.handleCmd1)
-    p.AddMatcher(m1)
-    
-    m2 := eng.OnCommand(dto.C2CMessageCreate, "/cmd2").
-        Handle(p.handleCmd2)
-    p.AddMatcher(m2)
-    
-    return nil
+func (p *MyPlugin) handleEcho(ctx *eventctx.Context) error {
+    cmd := ctx.GetParsedCommand()
+    text, _ := cmd.Args["text"]
+    return ctx.Reply(text)
 }
 
-func (p *MyPlugin) handleCmd1(ctx *eventctx.Context) error {
-    // 命令处理逻辑
-    return nil
+func (p *MyPlugin) handlePing(ctx *eventctx.Context) error {
+    return ctx.Reply("Pong!")
 }
-
-func (p *MyPlugin) handleCmd2(ctx *eventctx.Context) error {
-    // 命令处理逻辑
-    return nil
-}
-
-// Dependencies 返回依赖列表
-func (p *MyPlugin) Dependencies() []string {
-    // 如果在元数据中已声明，这里会返回空
-    // 也可以在这里动态返回
-    return []string{}
-}
-```
-
-### 后续设置元数据
-
-如果需要在创建后修改元数据：
-
-```go
-plugin := plugin.NewBasePlugin("myplugin")
-
-metadata := &plugin.PluginMetadata{
-    Name:        "myplugin",
-    Version:     "1.0.0",
-    Description: "更新的描述",
-}
-
-plugin.SetMetadata(metadata)
 ```
 
 ---
 
-## Help 插件使用
-
-### 注册 Help 插件
+## Metadata 字段完整说明
 
 ```go
-// 创建命令注册表
-registry := command.NewCommandRegistry()
-
-// 创建 Help 插件
-helpPlugin := help.NewHelpPlugin(registry)
-
-// 设置插件管理器（可选，用于查询插件信息）
-helpPlugin.SetPluginManager(bot.PluginManager())
-
-// 注册插件
-bot.PluginManager().Register(helpPlugin)
+Meta: &plugin.PluginMeta{
+    Author:      "作者名",         // 显示在 /help 详情
+    Description: "简短功能描述",   // /help 列表视图
+    HelpText:    `详细帮助文本`,   // /help <name> 详情视图
+    Category:    "工具",           // 用于 /help 按分类列出
+    Tags:        []string{"tag"},  // 搜索标签
+    Hidden:      false,            // true = 不在 /help 中显示
+    Homepage:    "https://...",    // 可选
+    Repository:  "https://...",    // 可选
+},
 ```
 
-### Help 命令格式
+`Name` / `Version` / `Dependencies` 字段存在于 `plugin.Metadata` 结构（Manager 返回值），
+与 `PluginMeta` 共享同一底层类型，无需手动同步。
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 显示所有命令列表（第1页） |
-| `/help 2` | 显示第2页的命令 |
-| `/help plugins` | 显示所有插件及其元数据 |
-| `/help <插件名>` | 显示指定插件的详细信息 |
-| `/help <命令名>` | 显示指定命令的详细用法 |
+---
 
-### 示例输出
+## Help 插件 — 命令发现
 
-#### `/help plugins`
+内置 `help` 插件通过 `ctx.Info.Coordinator()` 的只读视图获取所有命令信息：
 
-```
-📦 已加载插件列表 (共 3 个)
-==============================
+```go
+reader := ctx.Info.Coordinator()  // engine.EngineReader
 
-【系统】
-  🔌 help v1.0.0
-     提供命令和插件的帮助信息查询功能
-     👤 Remilia | 🏷️  帮助, 文档, 命令
+// 获取所有已注册命令（不含 Hidden=true 的命令）
+commands := reader.GetAllCommands()  // []engine.CommandInfo
 
-【工具】
-  🔌 echo v1.0.0
-     一个简单的消息回显插件
-     👤 Example Team | 🏷️  消息, 工具, 示例
+// 按插件分组
+byPlugin := reader.GetCommandsByPlugin()  // map[string][]engine.CommandInfo
 
-【生活】
-  🔌 weather v2.1.0
-     查询城市天气信息
-     👤 Weather Team | 🏷️  天气, 生活, 信息
+// 按分类分组
+byCategory := reader.GetCommandsByCategory()  // map[string][]engine.CommandInfo
 
-==============================
-💡 使用方法:
-  /help <插件名> - 查看插件的详细信息和命令
-  /help <命令名> - 查看命令详情
+// 查找单个命令（支持别名）
+info := reader.FindCommand("/echo")  // *engine.CommandInfo 或 nil
 ```
 
-#### `/help echo`
+`engine.CommandInfo` 结构：
 
+```go
+type CommandInfo struct {
+    Command     string              // "/echo"
+    Description string
+    Usage       string
+    Aliases     []string
+    Category    string
+    Examples    []string
+    Permissions []string
+    Plugin      string              // 所属插件名
+    Source      string              // "plugin:myplugin"
+    EventType   dto.EventType
+    Definition  *command.Definition // 完整命令定义
+}
 ```
-🔌 插件【echo】信息
-==============================
 
-📝 描述: 一个简单的消息回显插件
-📌 版本: 1.0.0
-👤 作者: Example Team
-📂 分类: 工具
-🏷️  标签: 消息, 工具, 示例
-🏠 主页: https://example.com/echo-plugin
+---
 
-💡 帮助:
-回显插件使用说明：
-  /echo <消息> - 回显你发送的消息
-  /reverse <消息> - 反转消息内容
+## 自定义 Help 插件
 
-📋 提供的命令 (2 个):
+如果需要自定义帮助格式，实现一个 Privileged 或普通插件，
+通过 `ctx.Info.Coordinator()` 读取命令列表即可：
 
-  /echo
-    回显消息
-    用法: /echo <消息内容>
+```go
+func New() *plugin.PluginDescriptor {
+    return &plugin.PluginDescriptor{
+        Name: "myhelp",
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            reader := ctx.Info.Coordinator()
 
-  /reverse
-    反转消息
-    用法: /reverse <消息内容>
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").
+                Handle(func(c *eventctx.Context) error {
+                    cmds := reader.GetAllCommands()
+                    var sb strings.Builder
+                    sb.WriteString("📖 可用命令：\n")
+                    for _, cmd := range cmds {
+                        sb.WriteString(fmt.Sprintf("  %s — %s\n",
+                            cmd.Command, cmd.Description))
+                    }
+                    return c.Reply(sb.String())
+                })
 
-==============================
-💡 使用 /help <命令名> 查看命令的详细用法
+            return nil, nil
+        },
+    }
+}
 ```
 
 ---
 
 ## 最佳实践
 
-### 1. 元数据字段建议
-
-#### 必填字段
-- **Name**：简短、有意义的名称
-
-#### 强烈推荐字段
-- **Version**：使用语义化版本（如 1.0.0）
-- **Description**：一句话描述插件功能
-- **HelpText**：详细的使用说明
-
-#### 推荐字段
-- **Author**：便于用户联系
-- **Category**：便于分类查找
-- **Tags**：便于搜索过滤
-
-### 2. HelpText 编写规范
-
-```go
-HelpText: `插件名称使用说明：
-
-命令列表：
-  /cmd1 <必需参数> [可选参数] - 功能描述
-  /cmd2 - 功能描述
-
-使用示例：
-  /cmd1 hello world
-  /cmd2
-
-注意事项：
-  - 注意事项1
-  - 注意事项2
-
-更多信息：
-  访问 https://example.com/docs 查看完整文档`,
-```
-
-### 3. 分类建议
-
-推荐使用以下分类：
-
-- **系统**：框架核心功能（help、config 等）
-- **工具**：实用工具类（echo、format 等）
-- **娱乐**：娱乐功能（游戏、抽奖等）
-- **管理**：管理功能（权限、统计等）
-- **生活**：生活服务（天气、新闻等）
-- **开发**：开发调试工具
-
-### 4. 标签建议
-
-使用更细粒度的标签：
-
-```go
-Tags: []string{"消息处理", "文本工具", "API"}
-```
-
-### 5. 版本号规范
-
-使用语义化版本（Semantic Versioning）：
-
-- **主版本号**：不兼容的 API 修改
-- **次版本号**：向后兼容的功能性新增
-- **修订号**：向后兼容的问题修正
-
-示例：`1.2.3`
+1. **始终填写 `Description`**：这是 `/help` 列表视图的唯一文本
+2. **`HelpText` 换行对齐**：使用 `` ` `` 原始字符串保持缩进
+3. **合理设置 `Category`**：建议使用「工具」「管理」「娱乐」「系统」等
+4. **仅对系统内部命令设置 `Hidden: true`**
+5. **不要在 `HelpText` 中硬编码命令前缀**（前缀可配置）
 
 ---
 
@@ -413,4 +236,3 @@ func TestPluginMetadata(t *testing.T) {
 ✅ **开发友好**：简单的 API，清晰的文档
 
 开始为你的插件添加元数据吧！🚀
-

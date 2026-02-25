@@ -1,9 +1,73 @@
 # 并发事件分发优化说明
 
-> 日期: 2026-01-23  
+> **最后更新**: 2026-02-25  
+> 原始日期: 2026-01-23  
 > 优化类型: 性能提升 - 并发事件处理
 
 ---
+
+## Engine 内部架构
+
+### COW（Copy-on-Write）并发模型
+
+Engine 的状态管理采用 COW 模式，保证高性能无锁读取：
+
+```
+读操作（ProcessEvent）
+  └── state.Load()          ← 原子指针读取，无锁，5-6x 性能
+      └── matcherIndex[]    ← 不可变切片，安全并发读
+
+写操作（RegisterMatcher、DeleteMatcher 等）
+  └── writeMu.Lock()        ← 单一写锁
+      ├── copyEngineState() ← 复制旧状态
+      ├── 修改新状态
+      └── state.Store()     ← 原子指针替换
+```
+
+**性能特性**：
+- 读操作：完全无锁，零分配（O(1) 原子指针读取）
+- 写操作：O(N) COW 复制（N = Matcher 数量），适用于写少读多场景
+
+### Engine 文件结构（v2.0 拆分后）
+
+原 `engine.go`（1207 行）已拆分为四个职责清晰的文件：
+
+| 文件 | 行数 | 职责 |
+|------|------|------|
+| `engine.go` | 123 行 | 结构体 / `NewEngine` / `Shutdown` / `Close` |
+| `engine_matcher_ops.go` | 367 行 | Matcher 注册/删除/分组/迁移/索引维护 |
+| `engine_command.go` | 208 行 | 命令注册（`OnCommand` / `RegisterCommandDef`）/ 命令查询 |
+| `engine_query.go` | 97 行 | 只读统计 / 指标收集器 / `Snapshot`/`Restore` |
+
+### 6 路事件合并机制
+
+`ProcessEvent` 中使用 `mergeSortedMatchersSix` 将 6 个已排序的子列表合并：
+
+```
+                  Specific（精确匹配事件类型）  Generic（EventType == ""）
+State(permanent)  l1 = permSpecific            l4 = permGeneric
+State(command)    l2 = cmdSpecific             l5 = cmdGeneric
+TempManager       l3 = tempSpecific            l6 = tempGeneric
+```
+
+- **时间复杂度**: O(N×6) = O(N)，其中各子列表已预排序
+- **命令路由**: 消息以 `/` 开头时，先从 `commandIndex` 取出 l2/l5，跳过全量遍历
+- **Temp 隔离**: State 列表中残留的已迁移 Temp Matcher（isTemp==1）会被跳过
+
+### 三个索引的用途
+
+| 索引 | 驱动操作 |
+|------|---------|
+| `matcherIndex[EventType]` | `ProcessEvent` 按事件类型获取 Matcher 列表 |
+| `commandIndex[cmd][EventType]` | O(1) 命令路由（消息以 `/` 开头时使用） |
+| `groupIndex[group]` | `DisableGroup` / `EnableGroup` / `RemoveGroup` 批量操作 |
+
+> **Source vs group**：`Source`（如 `"plugin:admin"`）是只读标签，用于日志/统计；
+> `group` 是可变字段，驱动 `DisableGroup` 等操作。两者独立，不混用。
+
+---
+
+
 
 ## 🎯 性能提升
 

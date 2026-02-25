@@ -1,5 +1,9 @@
 # Configuration Hot-Reload Quick Reference
 
+> **最后更新**: 2026-02-25
+
+
+
 ## 快速开始
 
 ### 1. 基本使用（3行代码）
@@ -147,6 +151,58 @@ concurrency:
 ```
 
 **效果**: 保存文件后 100ms 内自动重载
+
+---
+
+## 中间件热更新（Bridge API）
+
+`hotreload.Bridge` 将配置变更推送给各中间件组件，无需重启进程：
+
+```go
+import "github.com/KomeiDiSanXian/remilia/middleware/hotreload"
+
+// 创建桥接器
+bridge := hotreload.NewBridge()
+
+// 注册需要热更新的中间件组件
+bridge.WatchRateLimit(tokenBucketMiddleware)   // 令牌桶限流
+bridge.WatchAdaptive(adaptiveController)        // 自适应限流
+bridge.WatchDedup(dedupFilter)                  // 去重过滤器（MaxSize / DefaultTTL）
+bridge.WatchDegradation(adaptiveDeg)            // 降级阈值（CPU / Memory threshold）
+
+// 订阅 Watcher 变更
+token := bridge.Subscribe()
+defer token.Cancel()
+
+// 启动监听
+watcher.Start()
+```
+
+### WatchDedup — 去重过滤器热更新
+
+当 `config.yaml` 中的 `middleware.dedup_max_size` 或 `middleware.dedup_default_ttl` 变更时，
+自动调用 `DedupFilter.UpdateConfig()`：
+
+```go
+// 可热更新的字段
+type DedupConfig struct {
+    MaxSize    int           // 缓存最大条数（0 = 不更新）
+    DefaultTTL time.Duration // 默认 TTL（0 = 不更新）
+    // CleanupInterval 变更需要重建过滤器，不支持热更新
+}
+```
+
+### WatchDegradation — 降级阈值热更新
+
+当 `config.yaml` 中的 `middleware.degradation_cpu_threshold` 或
+`middleware.degradation_memory_threshold` 变更时，
+自动调用 `AdaptiveDegradation.UpdateConfig()`：
+
+```yaml
+middleware:
+  degradation_cpu_threshold: 80.0     # CPU 使用率阈值（0-100）
+  degradation_memory_threshold: 85.0  # 内存使用率阈值（0-100）
+```
 
 ---
 

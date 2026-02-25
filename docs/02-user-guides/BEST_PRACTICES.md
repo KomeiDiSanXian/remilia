@@ -1,5 +1,8 @@
 # Remilia 最佳实践
 
+> **最后更新**: 2026-02-25  
+> **适用版本**: v2.0.0+
+
 本文档总结了使用 Remilia 框架开发 QQ 机器人的最佳实践和常见模式。
 
 ## 📋 目录
@@ -61,9 +64,14 @@ my-bot/
 // handlers/commands.go
 package handlers
 
+import (
+    "github.com/KomeiDiSanXian/remilia/core/engine"
+    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
+
 func RegisterCommands(eng *engine.Engine) {
-    eng.OnCommand("/help", HandleHelp)
-    eng.OnCommand("/weather", HandleWeather)
+    eng.OnCommand(dto.GroupAtMessageCreate, "/help").Handle(HandleHelp)
+    eng.OnCommand(dto.GroupAtMessageCreate, "/weather").Handle(HandleWeather)
 }
 
 // handlers/help.go
@@ -80,9 +88,11 @@ func main() {
     eng := engine.NewEngine()
     
     // 100+ 行的处理器定义...
-    eng.OnCommand("/help", func(ctx *eventctx.Context) error {
-        // 大量逻辑...
-    })
+    eng.OnCommand(dto.GroupAtMessageCreate, "/help",
+        func(ctx *eventctx.Context) error {
+            // 大量逻辑...
+            return nil
+        })
 }
 ```
 
@@ -171,7 +181,16 @@ func HandleCommand(ctx *eventctx.Context) error {
 #### ✅ DO
 
 ```go
-// 使用自适应限流
+// 简单全局限流（推荐默认选择）
+eng.Use(middleware.SimpleRateLimit(10)) // 每秒最多 10 个事件
+
+// 按用户/Group 限流
+eng.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
+    if a := ctx.GetAuthor(); a != nil { return a.UserOpenID }
+    return ""
+}))
+
+// 自适应限流（自动根据负载调整）
 config := middleware.DefaultAdaptiveConfig()
 config.MinConcurrency = 10
 config.MaxConcurrency = 500
@@ -179,19 +198,13 @@ config.MaxConcurrency = 500
 limiter := middleware.NewAdaptiveRateLimiter(config)
 limiter.Start()
 defer limiter.Stop()
-
 eng.Use(limiter.Middleware())
-
-// 监控限流状态
-go func() {
-    ticker := time.NewTicker(1 * time.Minute)
-    for range ticker.C {
-        stats := limiter.GetStats()
-        log.Printf("Rate limiter: limit=%d, load=%d, rejected=%d",
-            stats.CurrentLimit, stats.CurrentLoad, stats.RejectedRequests)
-    }
-}()
 ```
+
+> **选型建议**：
+> - 简单固定限流 → `SimpleRateLimit(n)`
+> - 按 key（用户/群组）限流 → `RateLimitTokenBucket`
+> - 根据 CPU/内存自动调整 → `NewAdaptiveRateLimiter`
 
 ### 使用 Context 控制超时
 
@@ -667,6 +680,79 @@ func BenchmarkHandleCommand(b *testing.B) {
     }
 }
 ```
+
+---
+
+## 9. Context 数据操作
+
+### ctx.Set / ctx.Delete 行为差异
+
+```go
+// ✅ 正确删除 key
+ctx.Delete("session")
+
+// ❌ 不会删除——ctx.Set(key, nil) 是 no-op，静默忽略
+ctx.Set("session", nil)
+```
+
+> `ctx.Set(key, nil)` 被设计为 no-op 是为了防止误删保留 key（框架内部 key 以
+> `_remilia_internal_` 为前缀），需要显式删除时必须调用 `ctx.Delete`。
+
+### 跨 Handler 传递数据
+
+```go
+// 在中间件中注入数据
+func AuthMiddleware() eventctx.Middleware {
+    return func(next eventctx.Handler) eventctx.Handler {
+        return func(ctx *eventctx.Context) error {
+            user := resolveUser(ctx)
+            ctx.Set("current_user", user)  // 注入
+            return next(ctx)
+        }
+    }
+}
+
+// 在 Handler 中读取
+func HandleCommand(ctx *eventctx.Context) error {
+    user, ok := ctx.Get("current_user")
+    if !ok {
+        return ctx.Reply("未登录")
+    }
+    u := user.(*User)
+    return ctx.Reply("你好, " + u.Name)
+}
+```
+
+---
+
+## 10. 插件开发
+
+使用 v2 `PluginDescriptor` API，无需继承 BasePlugin：
+
+```go
+func New() *plugin.PluginDescriptor {
+    p := &MyPlugin{}
+    return &plugin.PluginDescriptor{
+        Name:    "myplugin",
+        Version: "1.0.0",
+        Meta: &plugin.PluginMeta{
+            Description: "示例插件",
+            Category:    "工具",
+        },
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/cmd").
+                Handle(p.handle)
+            return p, nil
+        },
+        Teardown: func(ctx *plugin.TeardownContext) error {
+            ctx.Log.Info("stopped")
+            return nil
+        },
+    }
+}
+```
+
+详细指南：[插件开发最佳实践](../../04-development/plugin-best-practices.md)
 
 ---
 

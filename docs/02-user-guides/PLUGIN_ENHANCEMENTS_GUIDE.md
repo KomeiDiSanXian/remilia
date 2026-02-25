@@ -1,31 +1,41 @@
-# 插件系统增强功能快速参考
+# 插件系统功能速查
 
-## ✅ 已实现的三大功能
+> **最后更新**: 2026-02-25  
+> **适用版本**: v2.0.0+
 
-### 1. 插件配置管理
+---
 
-**读取配置**:
+## 1. 插件配置管理
+
+配置通过 `ctx.Config` 注入，来自 `config.yaml` 的 `plugins.<name>` 节。
+
 ```go
-config := p.GetConfig()
-apiKey := config.GetString("api_key", "default")
-timeout := config.GetDuration("timeout", 10*time.Second)
-retries := config.GetInt("max_retries", 3)
-enabled := config.GetBool("enabled", true)
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    cfg := ctx.Config  // 若 viper 未配置则为 nil
+    if cfg == nil {
+        return p, nil
+    }
+
+    apiKey  := cfg.GetString("api_key", "")
+    timeout := cfg.GetDuration("timeout", 10*time.Second)
+    retries := cfg.GetInt("max_retries", 3)
+    enabled := cfg.GetBool("enabled", true)
+    tags    := cfg.GetStringSlice("tags", nil)
+
+    // 配置变更回调（支持热更新）
+    cfg.OnChange(func(key string, oldVal, newVal any) {
+        logger.Infof("Config changed: %s = %v → %v", key, oldVal, newVal)
+    })
+
+    // 运行时覆盖（不写回文件）
+    _ = cfg.Override("debug", true)
+
+    return p, nil
+},
 ```
 
-**监听配置变化**:
-```go
-config.OnChange(func(key string, oldVal, newVal interface{}) {
-    logger.Infof("Config changed: %s = %v -> %v", key, oldVal, newVal)
-})
-```
+对应 `config.yaml`:
 
-**运行时修改配置**:
-```go
-config.Set("api_key", "new-key")
-```
-
-**配置文件格式**:
 ```yaml
 plugins:
   weather:
@@ -37,179 +47,121 @@ plugins:
 
 ---
 
-### 2. 插件状态查询
+## 2. 插件状态查询
 
-**查询单个插件状态**:
+通过 `ctx.Info`（`PluginInfo` 接口）查询，完全只读。
+
 ```go
-status, err := manager.GetStatus("weather")
-if err == nil {
+// 单个插件状态
+status := ctx.Info.GetStatus("weather")  // *plugin.Status 或 nil
+if status != nil {
     fmt.Printf("State: %s\n", status.State)
     fmt.Printf("Uptime: %v\n", status.Uptime)
-    fmt.Printf("Matchers: %d\n", status.MatcherCount)
 }
-```
 
-**列出所有插件状态**:
-```go
-statuses := manager.ListStatus()
-for name, status := range statuses {
-    fmt.Printf("%s: %s\n", name, status.State)
+// 批量查询
+all := ctx.Info.ListWithMetadata()  // map[string]*plugin.Metadata
+for name, meta := range all {
+    fmt.Printf("%s (%s): %s\n", name, meta.Version, meta.Description)
 }
-```
 
-**检查是否加载**:
-```go
-if manager.IsLoaded("weather") {
-    fmt.Println("Weather plugin is loaded")
+// 布尔检查
+if ctx.Info.IsLoaded("storage") { /* ... */ }
+if ctx.Info.IsDisabled("debug") { /* ... */ }
+
+// 加载顺序
+order := ctx.Info.GetLoadOrder()  // []string
+
+// 获取实例（查询运行时状态）
+inst, ok := ctx.Info.Get("cache")
+if ok {
+    fmt.Println(inst.GetState()) // Loaded / Unloaded / Error / ...
 }
-```
-
-**获取加载顺序**:
-```go
-order := manager.GetLoadOrder()
-fmt.Printf("Load order: %v\n", order)
-```
-
-**插件状态**:
-```go
-state := p.GetState()  // Unloaded/Loading/Loaded/Error/Reloading
-uptime := p.GetUptime()
-loadTime := p.GetLoadTime()
-lastError := p.GetLastError()
 ```
 
 ---
 
-### 3. 插件间通信 (事件总线)
+## 3. 管理操作（仅 Privileged 插件）
 
-**发布事件**:
-```go
-p.PublishEvent("user.login", map[string]string{
-    "user_id": "123",
-    "timestamp": time.Now().String(),
-})
-```
-
-**订阅事件**:
-```go
-sub, err := p.SubscribeEvent("user.login", func(data interface{}) {
-    loginData := data.(map[string]string)
-    logger.Infof("User %s logged in", loginData["user_id"])
-})
-```
-
-**取消订阅**:
-```go
-p.UnsubscribeEvent(sub)
-```
-
-**获取统计信息**:
-```go
-eventBus := p.GetEventBus()
-stats := eventBus.GetStats()
-fmt.Printf("Topics: %d, Subscriptions: %d, Published: %d\n",
-    stats.TopicCount, stats.SubscriptionCount, stats.PublishCount)
-```
-
----
-
-## 🔧 Manager 设置
-
-**启用配置管理**:
-```go
-v := viper.New()
-v.SetConfigFile("config.yaml")
-v.ReadInConfig()
-
-manager := plugin.NewManager(eng)
-manager.SetViper(v)  // 必须调用才能启用配置管理
-```
-
----
-
-## 📝 完整示例
+声明 `Privileged: true` 后，`ctx.Admin` 不为 nil：
 
 ```go
-package main
-
-import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    "github.com/KomeiDiSanXian/remilia/core/engine"
-    "github.com/spf13/viper"
-)
-
-type MyPlugin struct {
-    *plugin.BasePlugin
+&plugin.PluginDescriptor{
+    Name:       "admin",
+    Privileged: true,
+    Setup: func(ctx *plugin.SetupContext) (any, error) {
+        a := &Admin{info: ctx.Info, admin: ctx.Admin}
+        ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/admin reload").
+            Handle(a.handleReload)
+        return a, nil
+    },
 }
 
-func NewMyPlugin() *MyPlugin {
-    return &MyPlugin{
-        BasePlugin: plugin.NewBasePlugin("myplugin"),
+func (a *Admin) handleReload(ctx *eventctx.Context) error {
+    name := ctx.GetParsedCommand().Args["plugin"]
+    if err := a.admin.Reload(name); err != nil {
+        return ctx.Reply("重载失败: " + err.Error())
     }
+    return ctx.Reply("重载成功")
+}
+```
+
+| 方法 | 说明 |
+|------|------|
+| `ctx.Admin.Reload(name)` | 热重载插件 |
+| `ctx.Admin.Disable(name)` | 禁用（暂停 Matcher）|
+| `ctx.Admin.Enable(name)` | 启用 |
+| `ctx.Admin.Unregister(name)` | 完全注销 |
+| `ctx.Admin.ForceUnregister(name)` | 强制注销（忽略错误）|
+
+---
+
+## 4. 插件间事件总线
+
+通过 `ctx.EventBus` 发布/订阅插件间事件：
+
+```go
+// 发布方
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    p := &UserPlugin{bus: ctx.EventBus}
+    return p, nil
+},
+
+func (p *UserPlugin) onLogin(userID string) {
+    p.bus.Publish("user.login", UserLoginEvent{UserID: userID})
 }
 
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    // 1. 使用配置
-    config := p.GetConfig()
-    if config != nil {
-        apiKey := config.GetString("api_key", "")
-        config.OnChange(func(key string, old, new interface{}) {
-            // 配置变更处理
-        })
-    }
-    
-    // 2. 订阅事件
-    p.SubscribeEvent("system.ready", func(data interface{}) {
-        // 处理系统就绪事件
+// 订阅方
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    sub := ctx.EventBus.Subscribe("user.login", func(data any) {
+        evt := data.(UserLoginEvent)
+        logger.Infof("login: %s", evt.UserID)
     })
-    
-    // 3. 注册命令
-    p.OnCommand(eng, dto.C2CMessageCreate, "/mycommand").
-        Handle(func(ctx *context.Context) error {
-            // 发布事件
-            p.PublishEvent("command.executed", "mycommand")
-            return nil
-        })
-    
-    return nil
-}
-
-func main() {
-    // 创建引擎
-    eng := engine.NewEngine()
-    
-    // 创建管理器并设置配置
-    manager := plugin.NewManager(eng)
-    v := viper.New()
-    v.SetConfigFile("config.yaml")
-    v.ReadInConfig()
-    manager.SetViper(v)
-    
-    // 注册插件
-    plugin := NewMyPlugin()
-    manager.Register(plugin)
-    
-    // 查询状态
-    status, _ := manager.GetStatus("myplugin")
-    fmt.Printf("Plugin state: %s\n", status.State)
-}
+    // sub.Unsubscribe() 在 Teardown 中调用
+    return &NotifyPlugin{sub: sub}, nil
+},
 ```
 
 ---
 
-## 📊 测试
+## 5. Engine 只读视图
 
-所有功能已通过完整测试：
-```bash
-go test ./plugin/... -v
+通过 `ctx.Info.Coordinator()` 获取 `engine.EngineReader`，
+可以查询命令列表等只读信息，但**无法**调用 `On/RegisterCommand/DeleteMatcher` 等写操作：
+
+```go
+reader := ctx.Info.Coordinator()
+
+// 获取所有命令（用于 /help 生成等）
+cmds := reader.GetAllCommands()  // []engine.CommandInfo
+for _, cmd := range cmds {
+    fmt.Printf("%s — %s\n", cmd.Command, cmd.Description)
+}
+
+// 按分类/插件分组
+byPlugin   := reader.GetCommandsByPlugin()
+byCategory := reader.GetCommandsByCategory()
+
+// 查找命令
+info := reader.FindCommand("/weather")
 ```
-
-测试文件：`plugin/enhancement_test.go`
-
----
-
-## 📚 文档
-
-- **实施报告**: `docs/05-reports/PLUGIN_ENHANCEMENTS_IMPLEMENTATION.md`
-- **需求分析**: `docs/05-reports/PLUGIN_ENHANCEMENT_ANALYSIS.md`
-

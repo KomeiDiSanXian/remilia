@@ -1,8 +1,23 @@
 # 归档文档说明
 
+> **最后更新**: 2026-02-25
+
 本目录包含历史文档和已完成工作的记录，这些文档**不再主动维护**。
 
 ---
+
+## 🆕 最近归档（2026-02-25）
+
+以下文档在本次文档整理中移入归档：
+
+| 文档 | 原位置 | 归档原因 |
+|------|--------|---------|
+| `PLUGIN_ENHANCEMENT_QUICKREF.md` | `02-user-guides/` | 描述 v1-era `PluginContext` 提案接口，已被 `SetupContext` 字段完全取代 |
+| `plugin-dependency-management.md` | `03-architecture/` | 描述 `inject:` 标签方案和手动 `Dependencies()` 问题，已被 `PluginDescriptor.Deps` + `RegisterMultipleV2Smart` 彻底解决 |
+
+---
+
+
 
 ## 📦 归档策略
 
