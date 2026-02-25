@@ -553,6 +553,14 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 		status.EventBusSubscriptions = stats.SubscriptionCount
 	}
 
+	// 填充活跃 goroutine 数量
+	inst.mu.RLock()
+	gm := inst.goroutineMgr
+	inst.mu.RUnlock()
+	if gm != nil {
+		status.GoroutineCount = len(gm.listGoroutines())
+	}
+
 	return status, nil
 }
 

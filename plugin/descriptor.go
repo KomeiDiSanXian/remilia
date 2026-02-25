@@ -65,6 +65,10 @@ type PluginAdvanced struct {
 //	Teardown: func(ctx *plugin.TeardownContext) error {
 //	    ctx.API.(*MyPlugin).Save()
 //	    ctx.Log.Info("plugin stopped")
+//	    // 条件性清理：若依赖的存储插件仍在运行才执行持久化
+//	    if ctx.Info != nil && ctx.Info.IsLoaded("storage") {
+//	        ctx.API.(*MyPlugin).PersistData()
+//	    }
 //	    return nil
 //	},
 type TeardownContext struct {
@@ -79,6 +83,10 @@ type TeardownContext struct {
 
 	// Log 带插件名前缀的日志器
 	Log PluginLogger
+
+	// Info 插件系统只读视图（可能为 nil，使用前需判断）。
+	// 可用于 Teardown 时查询兄弟插件状态、决定是否执行条件性清理。
+	Info PluginInfo
 }
 
 // ReloadFunc 插件热重载函数

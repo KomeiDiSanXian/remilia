@@ -41,13 +41,11 @@ func New() *plugin.PluginDescriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading admin plugin (v2)...")
-			permAPI := ctx.MustGet("permission")
+			// 使用框架约定的 Must[T]，错误信息携带插件名和依赖名上下文
+			v1Plugin.PermPlugin = plugin.Must[permission.Plugin](ctx, "permission")
 			// 通过 ctx.Admin 获取管理写视图（合法路径，无需私有接口断言）
 			v1Plugin.PluginManager = ctx.Admin
 			v1Plugin.setupCtx = ctx
-			if permAPI != nil {
-				v1Plugin.PermPlugin = permAPI.(*permission.Plugin)
-			}
 			if raw, ok := ctx.Get("acl"); ok {
 				if ap, ok := raw.(*acl.Plugin); ok {
 					v1Plugin.AclPlugin = ap
@@ -60,7 +58,10 @@ func New() *plugin.PluginDescriptor {
 					ctx.Log.Info("Using standalone verifycode plugin")
 				}
 			}
-			return nil, v1Plugin.Load(ctx)
+			if err := v1Plugin.Load(ctx); err != nil {
+				return nil, err
+			}
+			return v1Plugin, nil // 导出到容器，供其他插件（如 monitor/auditlog）发现
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Admin plugin unloaded")

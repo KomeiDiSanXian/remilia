@@ -100,10 +100,13 @@ type noopLogger struct{}
 
 func (noopLogger) Info(msg string)                               {}
 func (noopLogger) Infof(format string, args ...any)              {}
+func (noopLogger) Infow(msg string, keysAndValues ...any)        {}
 func (noopLogger) Warn(msg string)                               {}
 func (noopLogger) Warnf(format string, args ...any)              {}
+func (noopLogger) Warnw(msg string, keysAndValues ...any)        {}
 func (noopLogger) Error(msg string, err error)                   {}
 func (noopLogger) Errorf(format string, args ...any)             {}
 func (noopLogger) Debug(msg string)                              {}
 func (noopLogger) Debugf(format string, args ...any)             {}
+func (noopLogger) Debugw(msg string, keysAndValues ...any)       {}
 func (noopLogger) WithField(k string, v any) plugin.PluginLogger { return noopLogger{} }

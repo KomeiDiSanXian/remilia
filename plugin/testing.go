@@ -7,8 +7,6 @@ import (
 )
 
 // TestSetupOptions 测试用 SetupContext 的可选配置
-//
-// Deprecated: 使用 plugintest.SetupOptions 替代（plugin/plugintest 子包）。
 type TestSetupOptions struct {
 	Config    Config
 	EventBus  EventBus
@@ -17,9 +15,6 @@ type TestSetupOptions struct {
 }
 
 // NewTestSetupContext 创建用于单元测试的 SetupContext。
-//
-// Deprecated: 使用 plugintest.NewSetupContext 替代（plugin/plugintest 子包）。
-// 此函数保留以维持向后兼容性。
 func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContext {
 	if opts == nil {
 		opts = &TestSetupOptions{}
@@ -74,8 +69,6 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 }
 
 // StopTestSetupContext 停止 NewTestSetupContext 创建的 ctx 内的所有 goroutine。
-//
-// Deprecated: 使用 plugintest.StopSetupContext 替代（plugin/plugintest 子包）。
 func StopTestSetupContext(ctx *SetupContext) {
 	if ctx != nil && ctx.goroutineMgr != nil {
 		ctx.goroutineMgr.stopAndWait()

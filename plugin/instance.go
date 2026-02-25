@@ -99,15 +99,18 @@ func (pi *PluginInstance) buildTeardownContext() *TeardownContext {
 
 	var cfg Config
 	var bus EventBus
+	var info PluginInfo
 	if pi.setupContext != nil {
 		cfg = pi.setupContext.Config
 		bus = pi.setupContext.EventBus
+		info = pi.setupContext.Info // 复用 Setup 阶段的 PluginInfo 只读视图
 	}
 	return &TeardownContext{
 		API:      api,
 		Config:   cfg,
 		EventBus: bus,
 		Log:      newPluginLogger(pi.desc.Name),
+		Info:     info,
 	}
 }
 
@@ -245,6 +248,18 @@ func (pi *PluginInstance) GetConfig() Config {
 		return pi.setupContext.Config
 	}
 	return nil
+}
+
+// GetAPI 返回 Setup 阶段导出的 API 对象。
+//
+// 框架以插件名为 key 将此对象注册到容器中；其他插件通过 [Must] / [Try] 获取的即为此对象。
+// 若插件尚未加载、Setup 返回 nil 或插件已卸载，则返回 nil。
+//
+// 常见用途：debug/monitor 类插件遍历所有插件实例并打印 API 类型信息。
+func (pi *PluginInstance) GetAPI() any {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.exportedAPI
 }
 
 // SetConfig 设置插件配置（实现 ConfigurablePlugin 接口）

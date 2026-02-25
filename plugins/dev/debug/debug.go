@@ -51,7 +51,7 @@ func New() *plugin.PluginDescriptor {
 			if err := v1Plugin.Load(ctx); err != nil {
 				return nil, err
 			}
-			return nil, nil
+			return v1Plugin, nil // 导出到容器，可被其他插件通过 Must[debug.Plugin] 发现
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Debug plugin unloaded")

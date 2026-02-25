@@ -4,23 +4,25 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix: correct cron schedule for daily stats logging">
-      <change afterPath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugins/bundle/bundle.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support">
+      <change afterPath="$PROJECT_DIR$/docs/06-archived/plugin-system-quality-review-2.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/p2_fixes_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/plugin-system-design-review.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/plugin-system-design-review.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/goroutine.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/goroutine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/descriptor.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/descriptor.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/logger.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/phase3_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase3_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/status.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/status.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/plugin/testing.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/storage/storage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/bundle/bundle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/bundle/bundle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -144,11 +146,11 @@
       <recent name="E:\project\Go\remilia\examples\plugin-metadata" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="E:\project\Go\remilia\plugin\plugintest" />
       <recent name="E:\project\Go\remilia\docs\06-archived" />
       <recent name="E:\project\Go\remilia\infra" />
       <recent name="E:\project\Go\remilia\plugins\core" />
       <recent name="E:\project\Go\remilia\lifecycle\v1_archived" />
-      <recent name="E:\project\Go\remilia\lifecycle" />
     </key>
   </component>
   <component name="RunDashboard">
@@ -241,7 +243,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: optimize backoff calculation to prevent integer overflow in retry logic" />
     <MESSAGE value="feat: add hot-reload support for middleware configurations and implement Redis storage" />
     <MESSAGE value="refactor: streamline plugin initialization and enhance descriptor generation for antispam, conversation, i18n, scheduler, and stats plugins" />
     <MESSAGE value="feat: implement BotManager for managing multiple Bot instances with lifecycle control" />
@@ -266,7 +267,8 @@
     <MESSAGE value="feat: enhance dependency tracking by merging undeclared dependencies into instance descriptor" />
     <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
     <MESSAGE value="fix: correct cron schedule for daily stats logging" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix: correct cron schedule for daily stats logging" />
+    <MESSAGE value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

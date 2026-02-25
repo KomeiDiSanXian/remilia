@@ -21,10 +21,12 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/acl"
 	"github.com/KomeiDiSanXian/remilia/plugins/cooldown"
+	"github.com/KomeiDiSanXian/remilia/plugins/core/admin"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/cache"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/help"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/storage"
+	"github.com/KomeiDiSanXian/remilia/plugins/dev/debug"
 )
 
 // Core 返回核心插件集合（建议所有 Bot 使用）。
@@ -58,4 +60,25 @@ func All() []*plugin.PluginDescriptor {
 	return append(Core(),
 		cooldown.New(),
 	)
+}
+
+// Dev 返回开发/管理插件集合（适合调试环境使用）。
+//
+// 包含：
+//   - admin — /plugin、/perm、/acl、/status 等管理命令（需要 permission 插件）
+//   - debug — /debug 调试命令集（需要 permission 插件）
+//
+// 两个插件都依赖 permission，通常与 Core() 一起使用：
+//
+//	pm.RegisterMultipleV2Atomic(bundle.Core())
+//	pm.RegisterMultipleV2Atomic(bundle.Dev())
+//
+// 或直接合并：
+//
+//	pm.RegisterMultipleV2Atomic(append(bundle.Core(), bundle.Dev()...))
+func Dev() []*plugin.PluginDescriptor {
+	return []*plugin.PluginDescriptor{
+		admin.New(),
+		debug.New(),
+	}
 }

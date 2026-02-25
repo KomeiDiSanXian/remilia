@@ -47,6 +47,7 @@ type pluginConfig struct {
 	pluginName string
 	viper      *viper.Viper
 	values     map[string]any
+	overrides  map[string]any // Override 写入的值，热重载后仍然保留（叠加在 viper 值之上）
 	handlers   []func(key string, oldVal, newVal any)
 	mu         sync.RWMutex
 }
@@ -80,6 +81,11 @@ func (pc *pluginConfig) loadFromGlobal() {
 	settings := pc.viper.Sub(prefix)
 	if settings != nil {
 		pc.values = settings.AllSettings()
+	}
+
+	// 重新叠加 override，确保热重载不会丢弃运行时覆盖的值
+	for k, v := range pc.overrides {
+		pc.values[k] = v
 	}
 }
 
@@ -210,16 +216,30 @@ func (pc *pluginConfig) GetStringMap(key string, defaultVal map[string]any) map[
 	return defaultVal
 }
 
-// Override 覆盖内存中的配置值（仅本次运行有效）
+// Override 在内存中覆盖配置值。
+//
+// 语义说明：
+//   - 仅影响本插件的 Config.Get* 方法，不写入底层 viper（不影响磁盘配置文件）。
+//   - 重启后失效（内存值不持久化）。
+//   - 热重载后持续有效：框架在 Reload() 后会将所有 override 值重新叠加回配置，
+//     确保运行时覆盖不会被配置文件静默覆盖。
+//   - 会立即触发通过 OnChange 注册的所有监听器。
+//
+// 若需要持久化配置变更，请直接修改配置文件并调用 config.Reload()。
 func (pc *pluginConfig) Override(key string, value any) error {
 	pc.mu.Lock()
 	oldVal := pc.values[key]
 	pc.values[key] = value
+	// 持久记录 override，确保热重载后仍然有效
+	if pc.overrides == nil {
+		pc.overrides = make(map[string]any)
+	}
+	pc.overrides[key] = value
 	handlers := make([]func(key string, oldVal, newVal any), len(pc.handlers))
 	copy(handlers, pc.handlers)
 	pc.mu.Unlock()
 
-	// 通知监听器
+	// 通知监听器（在锁外执行，避免死锁）
 	for _, handler := range handlers {
 		handler(key, oldVal, value)
 	}
