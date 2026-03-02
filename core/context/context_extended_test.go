@@ -907,28 +907,6 @@ func TestBug_MatchCommandWithEmptyContent(t *testing.T) {
 	assert.False(t, result)
 }
 
-func TestBug_PermissionWildcardEdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		pattern  string
-		value    string
-		expected bool
-	}{
-		{"empty pattern", "", "test", false},
-		{"empty value", "test", "", false},
-		{"both empty", "", "", false},
-		{"prefix without colon", "test*", "test:sub", false},
-		{"exact colon match", "test:", "test:", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := matchWithWildcard(tt.pattern, tt.value)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // Benchmark tests
 func BenchmarkPermissionMatch(b *testing.B) {
 	perm := Permission{Resource: "command:*", Action: "*"}

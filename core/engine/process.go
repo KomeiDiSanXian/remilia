@@ -263,20 +263,8 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	recordHandlerError := func(err error) {
 		logger.WithError(err).Debugf("[engine] Handler error in matcher: %s", m.Source)
 
-		val := e.services.metricsCollector.Load()
-
-		type eventDroppedProvider interface {
-			EventDroppedCounter() interface {
-				WithLabelValues(lvs ...string) interface{ Inc() }
-			}
-		}
-
-		if val != nil {
-			if p, ok := val.(eventDroppedProvider); ok {
-				if c := p.EventDroppedCounter(); c != nil {
-					c.WithLabelValues("handler_error").Inc()
-				}
-			}
+		if mc := e.services.metricsCollector.Load(); mc != nil {
+			mc.RecordEventDropped("handler_error")
 		}
 	}
 

@@ -12,8 +12,10 @@ import (
 )
 
 var (
-	// Logger Global logger instance
-	Logger zerolog.Logger
+	// globalLogger is the package-level zerolog instance. Access via the package-level
+	// convenience functions (Info, Debug, WithField, etc.). External callers must not
+	// depend on the zerolog.Logger type directly.
+	globalLogger zerolog.Logger
 
 	// logFile 保存当前打开的日志文件句柄，用于关闭和轮转
 	logFile   *os.File
@@ -112,8 +114,8 @@ func Init(cfg Config) error {
 
 	// Initialize global logger without Caller() to avoid performance overhead
 	// Caller will be added only for important log levels (Error, Fatal, Panic)
-	Logger = zerolog.New(multi).With().Timestamp().Logger()
-	log.Logger = Logger
+	globalLogger = zerolog.New(multi).With().Timestamp().Logger()
+	log.Logger = globalLogger
 
 	return nil
 }
@@ -248,7 +250,7 @@ func (l *LoggerWithFields) Fatalf(format string, v ...any) {
 
 // WithFields creates a logger with multiple fields
 func WithFields(fields Fields) *LoggerWithFields {
-	ctx := Logger.With()
+	ctx := globalLogger.With()
 	for k, v := range fields {
 		ctx = ctx.Interface(k, v)
 	}
@@ -258,14 +260,14 @@ func WithFields(fields Fields) *LoggerWithFields {
 // WithField creates a logger with a single field
 func WithField(key string, value any) *LoggerWithFields {
 	return &LoggerWithFields{
-		logger: Logger.With().Interface(key, value).Logger(),
+		logger: globalLogger.With().Interface(key, value).Logger(),
 	}
 }
 
 // WithError creates a logger with error field
 func WithError(err error) *LoggerWithFields {
 	return &LoggerWithFields{
-		logger: Logger.With().Err(err).Logger(),
+		logger: globalLogger.With().Err(err).Logger(),
 	}
 }
 
@@ -273,72 +275,72 @@ func WithError(err error) *LoggerWithFields {
 
 // Trace logs a trace message
 func Trace(msg string) {
-	Logger.Trace().Msg(msg)
+	globalLogger.Trace().Msg(msg)
 }
 
 // Tracef logs a formatted trace message
 func Tracef(format string, v ...any) {
-	Logger.Trace().Msgf(format, v...)
+	globalLogger.Trace().Msgf(format, v...)
 }
 
 // Debug logs a debug message
 func Debug(msg string) {
-	Logger.Debug().Msg(msg)
+	globalLogger.Debug().Msg(msg)
 }
 
 // Debugf logs a formatted debug message
 func Debugf(format string, v ...any) {
-	Logger.Debug().Msgf(format, v...)
+	globalLogger.Debug().Msgf(format, v...)
 }
 
 // Info logs an info message
 func Info(msg string) {
-	Logger.Info().Msg(msg)
+	globalLogger.Info().Msg(msg)
 }
 
 // Infof logs a formatted info message
 func Infof(format string, v ...any) {
-	Logger.Info().Msgf(format, v...)
+	globalLogger.Info().Msgf(format, v...)
 }
 
 // Warn logs a warning message
 func Warn(msg string) {
-	Logger.Warn().Msg(msg)
+	globalLogger.Warn().Msg(msg)
 }
 
 // Warnf logs a formatted warning message
 func Warnf(format string, v ...any) {
-	Logger.Warn().Msgf(format, v...)
+	globalLogger.Warn().Msgf(format, v...)
 }
 
 // Error logs an error message with caller information
 func Error(msg string) {
-	Logger.Error().Caller(1).Msg(msg)
+	globalLogger.Error().Caller(1).Msg(msg)
 }
 
 // Errorf logs a formatted error message with caller information
 func Errorf(format string, v ...any) {
-	Logger.Error().Caller(1).Msgf(format, v...)
+	globalLogger.Error().Caller(1).Msgf(format, v...)
 }
 
 // Fatal logs a fatal message with caller information and exits
 func Fatal(msg string) {
-	Logger.Fatal().Caller(1).Msg(msg)
+	globalLogger.Fatal().Caller(1).Msg(msg)
 }
 
 // Fatalf logs a formatted fatal message with caller information and exits
 func Fatalf(format string, v ...any) {
-	Logger.Fatal().Caller(1).Msgf(format, v...)
+	globalLogger.Fatal().Caller(1).Msgf(format, v...)
 }
 
 // Panic logs a panic message with caller information and panics
 func Panic(msg string) {
-	Logger.Panic().Caller(1).Msg(msg)
+	globalLogger.Panic().Caller(1).Msg(msg)
 }
 
 // Panicf logs a formatted panic message with caller information and panics
 func Panicf(format string, v ...any) {
-	Logger.Panic().Caller(1).Msgf(format, v...)
+	globalLogger.Panic().Caller(1).Msgf(format, v...)
 }
 
 // InitNop 初始化一个静默的 logger（丢弃所有输出）。
@@ -351,16 +353,16 @@ func Panicf(format string, v ...any) {
 //	    os.Exit(m.Run())
 //	}
 func InitNop() {
-	Logger = zerolog.Nop()
-	log.Logger = Logger
+	globalLogger = zerolog.Nop()
+	log.Logger = globalLogger
 }
 
 // InitTest 初始化一个仅输出 Error 及以上级别的测试 logger。
 // 相比 InitNop，保留了关键错误日志，便于测试时排查问题。
 func InitTest() {
 	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
-	Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
-	log.Logger = Logger
+	globalLogger = zerolog.New(os.Stderr).With().Timestamp().Logger()
+	log.Logger = globalLogger
 }
 
 func init() {

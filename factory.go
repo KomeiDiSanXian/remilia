@@ -8,35 +8,13 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 )
 
-// NewBotWithDefault 创建一个带默认配置的 Bot 实例
-// 如果提供了 opts 中包含 adapter，则使用自定义 adapter，否则创建默认 webhook adapter
-// 这个函数会自动初始化 OpenAPI client
+// NewBotWithDefault 创建一个带默认配置的 Bot 实例。
+//
+// 默认使用基于 webhook 的 adapter。若 opts 中包含 WithAdapter，该选项会覆盖默认 adapter。
+// opts 仅被应用一次，不存在重复初始化问题。
 func NewBotWithDefault(info *dto.BotInfo, opts ...Option) *Bot {
-	// 创建默认 engine
-	newEngine := engine.NewEngine()
-
-	// 创建 bot 但先不设置 adapter
-	bot := &Bot{
-		engine: newEngine,
-		config: &Config{
-			Name:    "remilia-bot",
-			Version: "0.9.0",
-			Debug:   false,
-		},
-	}
-
-	// 应用选项（可能包含 WithAdapter）
-	for _, opt := range opts {
-		opt(bot)
-	}
-
-	// 如果没有提供 adapter，创建默认的 webhook adapter
-	if bot.adapter == nil {
-		ctx := context.Background()
-		wh := webhook.NewWebhook(ctx, info)
-		bot.adapter = NewWebhookAdapter(wh)
-	}
-
-	// 使用 NewBotWithInfo 来初始化 OpenAPI
-	return NewBotWithInfo(bot.adapter, newEngine, info, opts...)
+	ctx := context.Background()
+	wh := webhook.NewWebhook(ctx, info)
+	adapter := NewWebhookAdapter(wh)
+	return NewBotWithInfo(adapter, engine.NewEngine(), info, opts...)
 }

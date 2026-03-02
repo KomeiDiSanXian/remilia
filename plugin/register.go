@@ -61,7 +61,7 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 				Operation:         "register",
 				Cause:             fmt.Errorf("dependency %q is not ready (state: %s)", spec.name, state),
 				RegisteredPlugins: registeredList(),
-				Hint:              "register plugins in dependency order",
+				Hint:              "register plugins in dependency order, or use plugin.Smart() / RegisterMultipleV2Atomic() for automatic ordering",
 			}
 		}
 		if spec.constraint != "" {

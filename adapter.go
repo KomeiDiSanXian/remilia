@@ -5,21 +5,17 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
-// Adapter connects an event source to the Bot
-// It is responsible for receiving events from external sources and delivering them to the bot
-type Adapter interface {
-	// Start starts the adapter and begins processing events
-	// The handleFunc will be called for each received event
-	Start(ctx context.Context, handleFunc func(*dto.Payload)) error
-
-	// Stop gracefully shuts down the adapter
-	Stop(ctx context.Context) error
-}
+// Adapter connects an event source to the Bot.
+// It is responsible for receiving events from external sources and delivering them to the bot.
+//
+// This is a type alias for engine.Adapter; both are identical and interchangeable.
+type Adapter = engine.Adapter
 
 // Webhook 是 webhook 的最小接口，只需要 EventStream
 type Webhook interface {

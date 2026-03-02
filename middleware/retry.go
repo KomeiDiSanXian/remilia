@@ -7,6 +7,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -43,7 +44,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 	if cfg.ShouldRetry == nil {
 		// 默认所有错误都重试（除了 BlockError）
 		cfg.ShouldRetry = func(err error) bool {
-			return err != nil && !engine.IsBlockError(err)
+			return err != nil && !errutil.IsBlockError(err)
 		}
 	}
 
@@ -111,7 +112,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 					if ctxErr := ctx.Context().Err(); ctxErr != nil {
 						return ctxErr
 					}
-					return engine.NewBlockError("retry canceled")
+					return errutil.NewBlockError("retry canceled")
 				}
 
 				// 再次检查 context 是否取消（在实际执行前）
@@ -125,7 +126,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 					if ctxErr := ctx.Context().Err(); ctxErr != nil {
 						return ctxErr
 					}
-					return engine.NewBlockError("retry canceled")
+					return errutil.NewBlockError("retry canceled")
 				default:
 					// Context 仍然有效，继续重试
 				}
@@ -170,7 +171,7 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterIte
 	}
 	if cfg.ShouldRetry == nil {
 		cfg.ShouldRetry = func(err error) bool {
-			return err != nil && !engine.IsBlockError(err)
+			return err != nil && !errutil.IsBlockError(err)
 		}
 	}
 

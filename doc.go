@@ -75,12 +75,10 @@ Bot configuration can be set via options:
 
 Adapter Interface:
 
-The Adapter interface connects event sources to the Bot:
-
-	type Adapter interface {
-	    Start(ctx context.Context, handleFunc func(*dto.Payload)) error
-	    Stop(ctx context.Context) error
-	}
+The Adapter interface (defined in core/engine and aliased in this package) connects
+event sources to the Bot. It has two methods:
+  - Start(ctx, handleFunc) error — begin receiving events and pass them to handleFunc
+  - Stop(ctx) error — gracefully shut down the event source
 
 You can use the built-in Webhook adapter or implement your own:
 

@@ -4,7 +4,7 @@ package engine
 //
 // 本文件包含所有不修改 Engine 状态的查询操作：
 //   - GetMatcherCount / GetTempMatcherCount / GetMaxMatchers / GetMatcherStats
-//   - SetMetricsCollector / GetMetricsCollector / GetCompiler / CompileAllMatchers
+//   - SetMetricsCollector / GetMetricsCollector
 //   - Snapshot / Restore
 //   - MatcherStats 类型定义
 
@@ -63,39 +63,13 @@ func (e *Engine) GetMatcherStats() MatcherStats {
 
 // SetMetricsCollector 设置指标收集器
 func (e *Engine) SetMetricsCollector(mc *metrics.Collector) *Engine {
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
 	e.services.metricsCollector.Store(mc)
 	return e
 }
 
 // GetMetricsCollector 获取指标收集器
 func (e *Engine) GetMetricsCollector() *metrics.Collector {
-	val := e.services.metricsCollector.Load()
-	if val == nil {
-		return nil
-	}
-	return val.(*metrics.Collector)
-}
-
-// ---- 编译器 ------------------------------------------------------------------
-
-// GetCompiler 获取 Matcher 编译器
-func (e *Engine) GetCompiler() *MatcherCompiler {
-	return e.services.compiler
-}
-
-// CompileAllMatchers 预编译所有 matchers 以提升性能。
-//
-// 编译后的 matchers 会按成本排序规则并缓存正则表达式等资源。
-// 编译是可选的优化，不编译也能正常工作。
-// 推荐在应用启动后或批量注册完成后调用一次。
-func (e *Engine) CompileAllMatchers() {
-	state := e.state.Load()
-	compiler := e.services.compiler
-	for _, m := range state.matchers {
-		compiler.Compile(m)
-	}
+	return e.services.metricsCollector.Load()
 }
 
 // ---- Snapshot / Restore -------------------------------------------------------

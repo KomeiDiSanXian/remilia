@@ -11,6 +11,21 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
+// BlockError, NewBlockError, and IsBlockError are defined in errutil and
+// re-exported here for backward compatibility. New code should import errutil directly.
+
+// BlockError indicates handler processing was blocked by middleware.
+// Deprecated: use errutil.BlockError directly.
+type BlockError = remiliaerrors.BlockError
+
+// NewBlockError creates a new BlockError with the given message.
+// Deprecated: use errutil.NewBlockError directly.
+var NewBlockError = remiliaerrors.NewBlockError
+
+// IsBlockError checks if an error is a BlockError.
+// Deprecated: use errutil.IsBlockError directly.
+var IsBlockError = remiliaerrors.IsBlockError
+
 // HandlerError is a framework error envelope for handler execution.
 //
 // Fields:
@@ -37,23 +52,6 @@ type HandlerError struct {
 }
 
 func (he HandlerError) Error() string { return he.Message }
-
-// BlockError indicates handler processing was blocked by middleware.
-// This is used as a control-flow error inside the framework.
-type BlockError struct {
-	Message string
-}
-
-func (be BlockError) Error() string { return be.Message }
-
-// NewBlockError creates a new BlockError with the given message.
-func NewBlockError(message string) error { return BlockError{Message: message} }
-
-// IsBlockError checks if an error is a BlockError.
-func IsBlockError(err error) bool {
-	var be BlockError
-	return errors.As(err, &be)
-}
 
 // WrapError builds a HandlerError used by the framework.
 func WrapError(err error, ctx *context.Context, m *Matcher, attempt int) error {

@@ -34,6 +34,7 @@ import (
 
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
@@ -96,7 +97,7 @@ func NewEngine(options ...Option) *Engine {
 	e.services.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
 	e.services.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
 	e.services.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
-	e.services.compiler = NewMatcherCompiler()
+	e.services.metricsCollector = infraatomic.NewValue[*inframetrics.Collector](nil)
 
 	// 初始化不可变状态
 	e.state = infraatomic.NewValue(newEngineState())

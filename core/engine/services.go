@@ -1,9 +1,10 @@
 package engine
 
 import (
-	"sync/atomic"
 	"time"
 
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
+	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
@@ -18,16 +19,15 @@ import (
 //
 // NOTE: this struct is internal and may change at any time.
 type engineServices struct {
-	metricsCollector atomic.Value // *MetricsCollector
+	// metricsCollector is a type-safe atomic pointer to the optional Prometheus
+	// metrics collector. nil means metrics are disabled.
+	metricsCollector *infraatomic.Value[*metrics.Collector]
 
 	// temp matcher lifecycle store
 	tempManager *tempMatcherManager
 
 	// matcher slice pool
 	matcherPool *infrapool.TypedPool[[]*Matcher]
-
-	// matcher compiler for optimization
-	compiler *MatcherCompiler
 
 	// temp cleaner config/state
 	tempMatcherCleanerStop     func()

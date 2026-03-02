@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// extensionState is the V2 user extensionState extension container.
+// extensionState is the user-facing string-keyed extension container.
 //
 // It is intentionally unexported. Access is via ctx.Set/ctx.Get/ctx.All.
 type extensionState struct {
@@ -24,38 +24,22 @@ type extensionState struct {
 	m  map[string]any
 }
 
-// retryMetadata stores retry attempt as a typed extension (V2 Phase 2).
-//
-// It replaces the legacy internalState key "_remilia_internal_retry_attempt".
-// During progressive migration we:
-//   - write only to this extension
-//   - read from this extension first, then fallback to legacy internalState
-//
-// This keeps the migration safe while allowing old code paths to be updated gradually.
+// retryMetadata stores the current retry attempt as a typed extension.
+// Set by the Retry middleware; read by GetRetryAttempt.
 type retryMetadata struct {
 	Attempt int
 }
 
-// middlewareTrace stores executed named middleware trace as a typed extension.
-//
-// It replaces legacy internalState key internalStateKeyMiddlewareTrace.
-// Migration rule:
-//   - write only to this extension (via SetMiddlewareTrace)
-//   - read this extension first, then fallback to legacy internalState
-//
-// Note: slice is treated as immutable snapshot per write.
+// middlewareTrace stores the executed named middleware trace as a typed extension.
+// Set by the engine's Named middleware tracing; read by GetMiddlewareTrace.
+// The slice is treated as an immutable snapshot per write.
 type middlewareTrace struct {
 	Trace []string
 }
 
-// parsedCommand stores parsed command as a typed extension.
-//
-// It replaces legacy internalState key stateKeyParsedCommand.
-// Migration rule:
-//   - write only to this extension
-//   - read this extension first, then fallback to legacy internalState
-//
-// Note: it stores pointer as-is; caller should treat it as immutable.
+// parsedCommand stores the parsed command as a typed extension.
+// Set by SetParsedCommand; read by GetParsedCommand.
+// The pointer is stored as-is; callers should treat it as immutable.
 type parsedCommand struct {
 	Cmd *command.Parsed
 }
@@ -231,8 +215,8 @@ func (ctx *Context) Clone() *Context {
 //
 // 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。
 // 框架内部通过 ExtSet[T]/ExtGet[T]（类型键系统）存储的数据（如 parsedCommand、
-// commandArgsCache、retryMetadata、middlewareTrace）与字符串键系统完全隔离——
-// 即使用户调用 ctx.Set("parsed_command", v)，也不会覆盖框架存储的 parsedCommand。
+// retryMetadata、middlewareTrace）与字符串键系统完全隔离——
+// 即使用户调用 ctx.Set("retry_attempt", v)，也不会覆盖框架存储的 retryMetadata。
 // 两套系统使用不同的底层 map，不存在任何键冲突风险。
 func isReservedUserStateKey(key string) bool {
 	k := strings.TrimSpace(key)
@@ -338,7 +322,7 @@ func (ctx *Context) Ext() *Extensions {
 	return ctx.extensions
 }
 
-// Set sets a user extensionState value (V2 sugar).
+// Set sets a user extensionState value.
 //
 // # Key-value state system
 //
@@ -392,7 +376,7 @@ func (ctx *Context) Delete(key string) {
 	s.mu.Unlock()
 }
 
-// Get gets a user extensionState value (V2 sugar).
+// Get gets a user extensionState value.
 func (ctx *Context) Get(key string) (any, bool) {
 	if ctx == nil {
 		return nil, false

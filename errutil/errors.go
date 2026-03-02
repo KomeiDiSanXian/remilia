@@ -5,6 +5,26 @@ import (
 	"fmt"
 )
 
+// BlockError indicates handler processing was blocked by middleware.
+// This is used as a control-flow error inside the framework.
+//
+// Middleware can return a BlockError to signal that processing should stop
+// without triggering retry logic. Use IsBlockError to check for this type.
+type BlockError struct {
+	Message string
+}
+
+func (be BlockError) Error() string { return be.Message }
+
+// NewBlockError creates a new BlockError with the given message.
+func NewBlockError(message string) error { return BlockError{Message: message} }
+
+// IsBlockError checks if an error is a BlockError.
+func IsBlockError(err error) bool {
+	var be BlockError
+	return errors.As(err, &be)
+}
+
 // Predefined framework/public errors.
 // These errors are stable and can be checked with errors.Is.
 var (
