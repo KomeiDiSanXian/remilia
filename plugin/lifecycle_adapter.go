@@ -12,12 +12,12 @@ import (
 // 这样插件可以被集成到统一的生命周期管理系统中
 type Component struct {
 	instance    *PluginInstance
-	coordinator *engine.Engine
+	coordinator engine.PluginCoordinator
 	manager     *Manager // 用于触发生命周期事件
 }
 
 // NewPluginComponent 创建插件生命周期组件适配器
-func NewPluginComponent(inst *PluginInstance, coordinator *engine.Engine, manager *Manager) lifecycle.Component {
+func NewPluginComponent(inst *PluginInstance, coordinator engine.PluginCoordinator, manager *Manager) lifecycle.Component {
 	return &Component{
 		instance:    inst,
 		coordinator: coordinator,

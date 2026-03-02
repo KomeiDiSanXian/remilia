@@ -13,6 +13,12 @@
 // The core/context package stores a *Manager in the typed-extension
 // store via PermissionManagerExt and exposes ctx.GetPermissionManager() /
 // ctx.SetPermissionManager() as convenience helpers.
+//
+// # 与 plugins/core/permission 的关系
+//
+// 本包是权限系统的**内核层**，只提供数据结构和算法，不依赖插件系统。
+// 如需在 Bot 中通过命令动态管理权限（/acl add/rm/list），
+// 请使用 plugins/core/permission 插件，它基于本包构建并提供命令界面。
 package permission
 
 import (

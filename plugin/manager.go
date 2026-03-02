@@ -32,7 +32,7 @@ type LifecycleListener interface {
 // Manager 插件管理器
 type Manager struct {
 	plugins        map[string]*PluginInstance
-	coordinator    *engine.Engine
+	coordinator    engine.PluginCoordinator
 	listeners      []LifecycleListener
 	configProvider ConfigProvider // 可选配置提供者，通过 WithConfigProvider 注入
 	loadOrder      []string
@@ -50,7 +50,7 @@ type Manager struct {
 //	pm := plugin.NewManager(eng,
 //	    plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)),
 //	)
-func NewManager(coordinator *engine.Engine, opts ...ManagerOption) *Manager {
+func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Manager {
 	m := &Manager{
 		plugins:     make(map[string]*PluginInstance),
 		coordinator: coordinator,
@@ -71,14 +71,14 @@ func NewManager(coordinator *engine.Engine, opts ...ManagerOption) *Manager {
 }
 
 // NewManagerWithEventBusOptions 使用自定义 EventBus 选项创建插件管理器。
-func NewManagerWithEventBusOptions(coordinator *engine.Engine, ebOpts EventBusOptions, opts ...ManagerOption) *Manager {
+func NewManagerWithEventBusOptions(coordinator engine.PluginCoordinator, ebOpts EventBusOptions, opts ...ManagerOption) *Manager {
 	pm := NewManager(coordinator, opts...)
 	pm.eventBus = NewEventBusWithOptions(ebOpts)
 	return pm
 }
 
-// Coordinator 返回底层 engine（供需要直接访问 engine 的插件使用，如 debug）
-func (pm *Manager) Coordinator() *engine.Engine {
+// Coordinator 返回底层协调器（供需要直接访问 engine 的插件使用，如 debug）
+func (pm *Manager) Coordinator() engine.PluginCoordinator {
 	return pm.coordinator
 }
 

@@ -17,6 +17,10 @@ type GoroutineInfo struct {
 	// Uptime 运行时长（从 StartTime 到查询时的时长）
 	// 由 ListAllGoroutines / ListPluginGoroutines 填充；零值表示未填充。
 	Uptime time.Duration
+	// IsAlive 标识该 goroutine 是否仍在运行。
+	// listGoroutines 只返回 IsAlive=true 的条目；
+	// goroutine 函数返回后框架自动将其置为 false，防止历史条目积累。
+	IsAlive bool
 }
 
 // goroutineManager 管理插件生命周期绑定的后台 goroutine。
@@ -53,26 +57,43 @@ func (gm *goroutineManager) go_(fn func(ctx context.Context)) {
 }
 
 // goNamed_ 启动一个命名的生命周期绑定 goroutine。
+// goroutine 退出时自动将对应条目的 IsAlive 置为 false，
+// 防止历史已退出条目在 listGoroutines 中长期积累（内存泄漏）。
 func (gm *goroutineManager) goNamed_(name string, fn func(ctx context.Context)) {
 	gm.mu.Lock()
+	idx := len(gm.goroutines)
 	gm.goroutines = append(gm.goroutines, GoroutineInfo{
 		Name:      name,
 		Plugin:    gm.pluginName,
 		StartTime: time.Now(),
+		IsAlive:   true,
 	})
 	gm.mu.Unlock()
 
 	gm.wg.Go(func() {
+		defer func() {
+			gm.mu.Lock()
+			gm.goroutines[idx].IsAlive = false
+			gm.mu.Unlock()
+		}()
 		fn(gm.ctx)
 	})
 }
 
-// listGoroutines 返回当前所有受管 goroutine 的快照（线程安全）。
+// listGoroutines 返回当前所有仍在运行的受管 goroutine 快照（线程安全）。
+// 只返回 IsAlive=true 的条目，已退出的 goroutine 不会出现在结果中。
 func (gm *goroutineManager) listGoroutines() []GoroutineInfo {
 	gm.mu.Lock()
 	defer gm.mu.Unlock()
-	result := make([]GoroutineInfo, len(gm.goroutines))
-	copy(result, gm.goroutines)
+	var result []GoroutineInfo
+	for _, g := range gm.goroutines {
+		if g.IsAlive {
+			result = append(result, g)
+		}
+	}
+	if result == nil {
+		result = []GoroutineInfo{}
+	}
 	return result
 }
 

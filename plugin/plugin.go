@@ -91,13 +91,13 @@ type pluginInternal interface {
 	name() string
 
 	// load 加载插件
-	load(coordinator *engine.Engine) error
+	load(coordinator engine.PluginCoordinator) error
 
 	// unload 卸载插件
-	unload(coordinator *engine.Engine) error
+	unload(coordinator engine.PluginCoordinator) error
 
 	// reload 重新加载插件
-	reload(coordinator *engine.Engine) error
+	reload(coordinator engine.PluginCoordinator) error
 
 	// dependencies 返回插件的依赖列表
 	dependencies() []string

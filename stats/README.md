@@ -1,6 +1,13 @@
 # Remilia Stats Package
 
-统计指标包，提供线程安全的统计数据收集功能。
+**基础统计原语**，提供零依赖、线程安全的统计数据收集功能，供框架内部组件使用。
+
+> **与 `plugins/stats` 的区别**
+>
+> | 包 | 定位 | 使用者 |
+> |---|---|---|
+> | `stats/`（本包）| 基础数据结构：Counter、Gauge、Histogram | 框架内部（如 `middleware/adaptive.go`）|
+> | `plugins/stats/` | 用户行为统计插件：命令次数、活跃 UV | Bot 业务层，通过插件系统注册 |
 
 ## 功能
 

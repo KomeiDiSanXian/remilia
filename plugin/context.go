@@ -18,7 +18,7 @@ type setupContextInternal struct {
 	trackedOptionalDeps map[string]bool // 可选依赖（Get 成功但通过 ok 判断）
 	autoTrackEnabled    bool
 	goroutineMgr        *goroutineManager
-	eng                 *engine.Engine // 注册 Matcher 的 engine（reload 时复用）
+	eng                 engine.PluginCoordinator // 注册 Matcher 的 engine（reload 时复用）
 }
 
 // SetupContext 插件 Setup 阶段的上下文。

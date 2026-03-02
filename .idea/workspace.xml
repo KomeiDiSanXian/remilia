@@ -4,11 +4,33 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: update architecture review document with completed tasks and enhance command system integration">
-      <change afterPath="$PROJECT_DIR$/plugin/eventbus_typed_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement type-safe EventBus with generics and enhance event handling">
+      <change afterPath="$PROJECT_DIR$/docs/03-architecture/permission-system.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/architecture-analysis-2026-03.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/plugins/stats/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/architecture-review-2026-03.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/architecture-review-2026-03.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/eventbus.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/eventbus.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_90_push_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_coverage_boost_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_boost_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_coverage_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_final_push_90_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/container_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/container_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/goroutine.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/goroutine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/plugin_info.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugin_info.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stats/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/stats/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -229,7 +251,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement strict dependency management for plugin registration" />
     <MESSAGE value="feat: add enable, disable, and unload commands for plugin management" />
     <MESSAGE value="test: add unit tests for plugin storage functionality" />
     <MESSAGE value="optimize: simplify map copying using built-in maps and slices packages" />
@@ -254,7 +275,8 @@
     <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
     <MESSAGE value="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling" />
     <MESSAGE value="feat: update architecture review document with completed tasks and enhance command system integration" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: update architecture review document with completed tasks and enhance command system integration" />
+    <MESSAGE value="feat: implement type-safe EventBus with generics and enhance event handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement type-safe EventBus with generics and enhance event handling" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

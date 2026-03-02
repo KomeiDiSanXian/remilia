@@ -34,7 +34,7 @@ type PluginInstance struct {
 func (pi *PluginInstance) name() string { return pi.desc.Name }
 
 // load 加载插件（实现 pluginInternal）
-func (pi *PluginInstance) load(coordinator *engine.Engine) (loadErr error) {
+func (pi *PluginInstance) load(coordinator engine.PluginCoordinator) (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
@@ -115,7 +115,7 @@ func (pi *PluginInstance) buildTeardownContext() *TeardownContext {
 }
 
 // unload 卸载插件（实现 pluginInternal）
-func (pi *PluginInstance) unload(coordinator *engine.Engine) error {
+func (pi *PluginInstance) unload(coordinator engine.PluginCoordinator) error {
 	pi.mu.Lock()
 	pi.state = Unloading
 	gm := pi.goroutineMgr

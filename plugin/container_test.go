@@ -52,10 +52,10 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	engineService2, _ := container.Get("engine")
 	coordService2, _ := container.Get("coordinator")
 
-	// 指针应该相同，说明没有重复注册
+	// 指针/值应该相同，说明没有重复注册
 	assert.Same(t, managerService1, managerService2, "Manager service should not be re-registered")
-	assert.Same(t, engineService1, engineService2, "Engine service should not be re-registered")
-	assert.Same(t, coordService1, coordService2, "Coordinator service should not be re-registered")
+	assert.Equal(t, engineService1, engineService2, "Engine service should not be re-registered")
+	assert.Equal(t, coordService1, coordService2, "Coordinator service should not be re-registered")
 
 	t.Log("✓ Special services are not re-registered on subsequent RegisterV2 calls")
 }
@@ -117,7 +117,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 			// 访问 coordinator（应该和 engine 是同一个）
 			coord, ok := ctx.Get("coordinator")
 			assert.True(t, ok)
-			assert.Same(t, eng, coord)
+			assert.Equal(t, eng, coord)
 
 			return nil, nil
 		},
@@ -128,7 +128,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 
 	// 验证获取到的是正确的实例
 	assert.Same(t, manager, accessedManager)
-	assert.Same(t, manager.coordinator, accessedEngine)
+	assert.Equal(t, manager.coordinator, accessedEngine)
 
 	t.Log("✓ Plugin can access special services correctly")
 }

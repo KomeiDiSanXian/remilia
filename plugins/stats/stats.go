@@ -1,12 +1,27 @@
 // Package stats 提供用户行为统计插件。
 //
-// 功能：
-//   - 自动记录命令调用次数（通过中间件）
+// # 与 stats/（根目录）的区别
+//
+// Remilia 统计相关代码分为两个层次：
+//
+//	stats/         — 基础统计原语，零外部依赖，供框架内部使用
+//	plugins/stats/ — 用户行为统计插件（本包），基于插件系统
+//
+// ## plugins/stats/（本包）
+//
+// 面向 **Bot 业务层**，统计用户与 Bot 的交互行为：
+//   - 自动记录命令调用次数（通过 Middleware() 挂载）
 //   - 记录活跃用户（按日/周/月统计 UV）
 //   - 查询 API：TopCommands / ActiveUsers / CommandCount
-//   - 数据存储在内存中（可选对接 storage 插件持久化）
+//   - 数据存储在内存中，可选对接 storage 插件持久化
 //
-// 使用示例:
+// ## stats/（基础原语）
+//
+// 提供 Counter、Gauge、Histogram、QuantileHistogram 等线程安全数据结构，
+// 供 middleware/adaptive.go 等框架内部组件使用，不涉及业务语义。
+// 参见：github.com/KomeiDiSanXian/remilia/stats
+//
+// # 使用示例
 //
 //	pm.RegisterV2(stats.New())
 //	// 挂载中间件：

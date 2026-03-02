@@ -1,3 +1,49 @@
+// Package permission 是权限系统的**管理插件**，提供面向用户的命令界面。
+//
+// # 与 core/permission 的区别
+//
+// Remilia 的权限系统分为两个层次，使用相同的包名但职责完全不同：
+//
+//	core/permission          — 权限原语层（框架内核）
+//	plugins/core/permission  — 权限管理插件层（本包）
+//
+// ## core/permission（框架内核）
+//
+// 定义 RBAC 的核心类型和逻辑，不依赖插件系统、不暴露任何命令：
+//   - Permission — (resource, action) 权限对，支持通配符
+//   - Role       — 权限集合，可被赋予用户
+//   - Manager    — 用户↔角色↔权限 映射表，线程安全
+//   - Provider   — 可选外部角色数据源接口
+//
+// ## plugins/core/permission（本包，管理插件）
+//
+// 基于 core/permission 构建，通过插件系统暴露管理命令，使 Bot 用户能够在聊天中
+// 动态管理权限，无需重启服务：
+//   - /acl add <user> <role>    — 为用户授予角色
+//   - /acl rm  <user> <role>    — 撤销用户角色
+//   - /acl list <user>          — 查询用户的角色和权限
+//   - 可选对接 storage 插件实现权限持久化
+//
+// # 快速使用
+//
+//	// 注册插件（自动创建 Manager 实例）
+//	pm.RegisterV2(permission.New())
+//
+//	// 在其他插件中获取权限 API
+//	perm := plugin.Must[permission.Plugin](ctx, "permission")
+//
+//	// 在事件处理中检查权限
+//	if !perm.CheckPermission(ctx, eventctx.NewPermission("admin", "kick")) {
+//	    ctx.Reply("权限不足")
+//	    return nil
+//	}
+//
+// # 依赖关系
+//
+//	plugins/core/permission
+//	    ├── core/permission      （权限原语，必须）
+//	    ├── core/context         （事件上下文，必须）
+//	    └── plugins/core/storage （持久化后端，可选）
 package permission
 
 import (

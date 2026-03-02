@@ -58,6 +58,33 @@ type MatcherCoordinator interface {
 	MatcherMigration
 }
 
+// PluginCoordinator 是插件系统对 Engine 的完整依赖接口。
+//
+// 包含插件生命周期管理所需的全部 Engine 操作：
+//   - Matcher 注册（On / OnCommand）
+//   - 分组管理（RemoveGroup / DisableGroup / EnableGroup）
+//   - 只读查询（嵌入 EngineReader，提供命令查询、Matcher 统计等）
+//
+// 使用此接口而非 *Engine 具体类型，可以：
+//  1. 在不引入完整 engine 包的情况下使用插件系统（轻量嵌入）
+//  2. 在单元测试中 mock Engine（避免集成测试的依赖）
+//  3. 遵循依赖倒置原则（plugin 依赖抽象，不依赖具体实现）
+//
+// *Engine 已实现该接口的全部方法，调用方无需任何修改。
+type PluginCoordinator interface {
+	EngineReader
+	// On 注册一个新的事件匹配器
+	On(eventType dto.EventType, rules ...context.Rule) *Matcher
+	// OnCommand 注册一个命令匹配器（自动开启 O(1) 分发优化）
+	OnCommand(eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *Matcher
+	// RemoveGroup 删除指定分组的所有 Matcher
+	RemoveGroup(groupName string)
+	// DisableGroup 禁用指定分组（暂停事件分发）
+	DisableGroup(groupName string)
+	// EnableGroup 启用指定分组（恢复事件分发）
+	EnableGroup(groupName string)
+}
+
 // Adapter connects an event source to the Bot
 type Adapter interface {
 	Start(ctx stdctx.Context, handleFunc func(*dto.Payload)) error

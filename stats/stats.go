@@ -1,3 +1,30 @@
+// Package stats 提供零依赖的基础统计原语，供框架内部组件使用。
+//
+// # 与 plugins/stats 的区别
+//
+// Remilia 统计相关代码分为两个层次：
+//
+//	stats/         — 基础统计原语（本包），零外部依赖
+//	plugins/stats/ — 用户行为统计插件，基于插件系统
+//
+// ## stats/（本包）
+//
+// 提供轻量、线程安全的统计数据结构，专为框架**内部组件**设计：
+//   - Counter         — 原子计数器（Inc/Add/Get/Reset）
+//   - Gauge           — 原子计量器（Set/Inc/Dec/Get）
+//   - Histogram       — 简单直方图（Count/Sum/Min/Max/Avg）
+//   - QuantileHistogram — 分位数直方图（P50/P90/P95/P99），使用环形缓冲区，O(1) 写入
+//
+// 典型使用者：middleware/adaptive.go（P99 延迟计算）、engine 内部性能统计
+//
+// ## plugins/stats/（插件层）
+//
+// 基于插件系统构建，面向**Bot 业务层**，记录用户行为数据：
+//   - 命令调用次数统计（TopCommands）
+//   - 活跃用户 UV（按日/周/月）
+//   - 可选对接 storage 插件实现持久化
+//
+// 参见：github.com/KomeiDiSanXian/remilia/plugins/stats
 package stats
 
 import (

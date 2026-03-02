@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
@@ -14,8 +15,7 @@ import (
 )
 
 // ============================================================================
-// Missing 0% Coverage Functions
-// ============================================================================
+// Engine Lifecycle & Component Tests
 
 func TestEngine_UpdateTempMatcherPriority_Used(t *testing.T) {
 	eng := NewEngine()
@@ -583,4 +583,73 @@ func TestEngine_GetMatchersForEvent_Specific(t *testing.T) {
 
 	// Should include C2C and generic matchers
 	assert.GreaterOrEqual(t, len(matchers), 2)
+}
+
+// ============================================================================
+// Async Component Lifecycle Tests
+// ============================================================================
+
+func TestEngine_AsyncComponents_StartStop(t *testing.T) {
+	eng := NewEngine(WithCleanupInterval(50*time.Millisecond), WithPendingDeleteBufferSize(10))
+	// Create expirable temp matchers to exercise the cleaner
+	for range 5 {
+		m := eng.OnTemp(dto.C2CMessageCreate)
+		m.rt.expiresAt = time.Now().Add(-1 * time.Second)
+	}
+	time.Sleep(150 * time.Millisecond)
+	// Queue pending deletes to exercise the batch processor
+	for range 10 {
+		m := eng.OnC2C()
+		eng.DeleteMatcher(m)
+	}
+	time.Sleep(100 * time.Millisecond)
+	c, cancel := stdctx.WithTimeout(stdctx.Background(), 500*time.Millisecond)
+	defer cancel()
+	err := eng.Shutdown(c)
+	assert.NoError(t, err)
+}
+
+func TestEngine_RemoveGroup_BeforeAndAfterAdd(t *testing.T) {
+	eng := NewEngine()
+	// RemoveGroup on non-existent group should be a safe no-op
+	eng.RemoveGroup("empty-before-add")
+	eng.WithMatcherGroupBatch(func() {
+		for range 5 {
+			m := eng.OnC2C()
+			eng.SetMatcherGroup(m, "large-group", "src")
+		}
+	})
+	eng.RemoveGroup("large-group")
+	assert.Equal(t, 0, eng.GetMatcherCount())
+}
+
+func TestEngine_InvokeHandler_ErrorAndNilHandler(t *testing.T) {
+	eng := NewEngine()
+	eng.OnC2C().Handle(func(c *ctx.Context) error {
+		return assert.AnError
+	})
+	payload := &dto.Payload{Type: dto.C2CMessageCreate}
+	// Handler returns error: engine should continue without panic
+	eng.ProcessEvent(ctx.NewContext(payload, nil))
+
+	// Matcher with nil Handler: should be skipped safely
+	eng2 := NewEngine()
+	m := eng2.OnC2C()
+	m.Handler = nil
+	eng2.ProcessEvent(ctx.NewContext(payload, nil))
+}
+
+func TestEngineState_CopyWithCommands(t *testing.T) {
+	state := newEngineState()
+	for i := range 10 {
+		m := &Matcher{EventType: dto.C2CMessageCreate, priority: uint(i * 10), group: "g1"}
+		if i%3 == 0 {
+			m.definition = &command.Definition{Name: "cmd"}
+		}
+		state.addMatcher(m)
+	}
+	copied := copyEngineState(state)
+	assert.Equal(t, len(state.matchers), len(copied.matchers))
+	assert.Equal(t, len(state.groupIndex), len(copied.groupIndex))
+	assert.Equal(t, len(state.commandIndex), len(copied.commandIndex))
 }

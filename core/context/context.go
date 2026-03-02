@@ -17,10 +17,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // extensionState is the user-facing string-keyed extension container.
@@ -195,7 +197,17 @@ func (ctx *Context) Ext() *Extensions {
 	return ctx.extensions
 }
 
-// Tracer returns the OpenTelemetry tracer for the context.
+// Tracer 返回当前事件的 OpenTelemetry Tracer。
+//
+// 从全局 TracerProvider 获取（通过 otel.GetTracerProvider()），
+// 确保在 infra/tracing 初始化后能返回真实的追踪 tracer，
+// 而非永远是 no-op。
+//
+// 使用场景：在 handler 中手动创建子 span：
+//
+//	tracer := ctx.Tracer()
+//	_, span := tracer.Start(ctx.Context(), "my-operation")
+//	defer span.End()
 func (ctx *Context) Tracer() trace.Tracer {
-	return trace.NewNoopTracerProvider().Tracer("")
+	return otel.GetTracerProvider().Tracer("remilia")
 }

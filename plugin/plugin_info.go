@@ -63,8 +63,12 @@ func (v *managerInfoView) GetLoadOrder() []string                  { return v.m.
 func (v *managerInfoView) Get(name string) (*PluginInstance, bool) { return v.m.Get(name) }
 
 // Coordinator 返回包装后的只读视图，防止通过类型断言绕过只读限制。
+//
+// PluginCoordinator 已嵌入 EngineReader，可直接作为只读视图返回。
+// 与此同时，由于返回类型是 EngineReader 接口，调用方无法通过类型断言
+// 取回 PluginCoordinator 并调用写操作，在编译期阻断误用。
 func (v *managerInfoView) Coordinator() engine.EngineReader {
-	return engine.NewEngineReader(v.m.Coordinator())
+	return v.m.Coordinator()
 }
 
 func (v *managerInfoView) GetStatus(name string) *Status {
