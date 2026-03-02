@@ -1,20 +1,26 @@
 package remilia
 
 import (
-	"context"
-
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 )
 
-// NewBotWithDefault 创建一个带默认配置的 Bot 实例。
+// NewBotWithDefault 创建一个带默认 Webhook 配置的 Bot 实例。
 //
-// 默认使用基于 webhook 的 adapter。若 opts 中包含 WithAdapter，该选项会覆盖默认 adapter。
-// opts 仅被应用一次，不存在重复初始化问题。
+// 简化 API（统一路径版本）：内部委托给 BotBuilder，与
+// NewBotBuilder().WithBotInfo(info).WithWebhook(addr).Build()
+// 在行为上完全等价。
+//
+// 若不需要指定 Webhook 地址，请直接使用 NewBotBuilder()。
 func NewBotWithDefault(info *dto.BotInfo, opts ...Option) *Bot {
-	ctx := context.Background()
-	wh := webhook.NewWebhook(ctx, info)
-	adapter := NewWebhookAdapter(wh)
-	return NewBotWithInfo(adapter, engine.NewEngine(), info, opts...)
+	b := NewBotBuilder().WithBotInfo(info)
+	for _, opt := range opts {
+		b.WithOption(opt)
+	}
+	bot, err := b.Build()
+	if err != nil {
+		// BotInfo 已设置但无 adapter：Build 不会报错（无 webhookAddr 也合法）；
+		// 若未来 Build 加更多验证，此处以 panic 告知用户（与旧行为一致）。
+		panic("[Bot] NewBotWithDefault failed: " + err.Error())
+	}
+	return bot
 }

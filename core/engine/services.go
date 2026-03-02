@@ -3,21 +3,13 @@ package engine
 import (
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
-// engineServices groups non-core Engine concerns:
-// - temp matcher lifecycle store
-// - pending delete queue
-// - matcher slice pool
-// - metrics collector holder
-//
-// The goal is to keep Engine'services core routing/matching state separate from
-// runtime/infra concerns while keeping the external Engine API stable.
-//
-// NOTE: this struct is internal and may change at any time.
+// engineServices groups non-core Engine concerns.
 type engineServices struct {
 	// metricsCollector is a type-safe atomic pointer to the optional Prometheus
 	// metrics collector. nil means metrics are disabled.
@@ -37,6 +29,12 @@ type engineServices struct {
 	// pending delete config/state
 	pendingDeleteCh              chan *Matcher
 	pendingDeleteStop            func()
-	pendingDeleteProcessInterval time.Duration // 批量删除处理间隔
-	pendingDeleteBatchSize       int           // 每次批量删除数量
+	pendingDeleteProcessInterval time.Duration
+	pendingDeleteBatchSize       int
+
+	// commandRegistry 是可选的 command.Registry，若已注入则 OnCommand/RegisterCommand
+	// 在更新 engine 内部 commandIndex 的同时自动同步注册到此 Registry，
+	// 消除双轨并行维护，使 Trie 前缀搜索与 /help 发现统一生效。
+	// nil 表示未使用 command.Registry（纯 commandIndex 模式，向后兼容）。
+	commandRegistry *command.Registry
 }

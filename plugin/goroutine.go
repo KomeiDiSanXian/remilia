@@ -14,6 +14,9 @@ type GoroutineInfo struct {
 	Plugin string
 	// StartTime goroutine 启动时间
 	StartTime time.Time
+	// Uptime 运行时长（从 StartTime 到查询时的时长）
+	// 由 ListAllGoroutines / ListPluginGoroutines 填充；零值表示未填充。
+	Uptime time.Duration
 }
 
 // goroutineManager 管理插件生命周期绑定的后台 goroutine。

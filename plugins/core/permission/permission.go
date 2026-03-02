@@ -313,7 +313,7 @@ func (p *Plugin) GetRole(roleName string) ([]string, error) {
 	}
 
 	// 转换为字符串列表
-	perms := role.Permissions
+	perms := role.Permissions()
 	result := make([]string, len(perms))
 	for i, perm := range perms {
 		result[i] = perm.String()

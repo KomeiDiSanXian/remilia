@@ -216,7 +216,7 @@ func TestRole(t *testing.T) {
 		role := NewRole("test-role", perm1, perm2)
 
 		assert.Equal(t, "test-role", role.Name)
-		assert.Equal(t, 2, len(role.Permissions))
+		assert.Equal(t, 2, len(role.Permissions()))
 	})
 
 	t.Run("AddPermission", func(t *testing.T) {
@@ -225,7 +225,7 @@ func TestRole(t *testing.T) {
 
 		role.AddPermission(perm)
 
-		assert.Equal(t, 1, len(role.Permissions))
+		assert.Equal(t, 1, len(role.Permissions()))
 		assert.True(t, role.HasPermission(perm))
 	})
 
@@ -235,7 +235,7 @@ func TestRole(t *testing.T) {
 
 		role.RemovePermission(perm)
 
-		assert.Equal(t, 0, len(role.Permissions))
+		assert.Equal(t, 0, len(role.Permissions()))
 		assert.False(t, role.HasPermission(perm))
 	})
 

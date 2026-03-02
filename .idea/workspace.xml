@@ -4,7 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/architecture-review-2026-03.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/architecture-review-2026-03.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/goroutine.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/goroutine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/permission/permission.go" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -224,7 +236,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
     <MESSAGE value="feat: implement persistence for permission data with export and load functionality" />
     <MESSAGE value="feat: implement strict dependency management for plugin registration" />
     <MESSAGE value="feat: add enable, disable, and unload commands for plugin management" />
@@ -249,7 +260,8 @@
     <MESSAGE value="docs: update documentation with recent changes and archive outdated files" />
     <MESSAGE value="refactor: streamline permission management by consolidating role and permission types into core/permission package" />
     <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
+    <MESSAGE value="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

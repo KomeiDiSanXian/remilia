@@ -3,7 +3,7 @@
 > 评审时间：2026-03-02  
 > 项目状态：**未发布（Pre-release）**，可接受破坏性重构  
 > 评审范围：`core`、`middleware`、`plugin`、`command` 及顶层 `Bot` 入口  
-> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 / P1-5 已完成
+> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 / P1-5 / P2-1 / P2-4 / P2-5 / P2-7 已完成
 
 ---
 
@@ -470,7 +470,7 @@ bot.Plugins() *plugin.Manager
 | 4 | ✅ `MatcherCoordinator` 接口 8 个方法，`Matcher` 双向耦合 Engine | 可测试性、可维护性 | 🟠 重要 |
 | 5 | ✅ `compiledChain` XOR 指纹对中间件顺序不敏感（潜在 bug） | 正确性 | 🟠 重要 |
 | 6 | ✅ `plugin.Manager` 强依赖 `viper`/`fsnotify`（可选功能强制引入） | 依赖管理 | 🟡 建议 |
-| 7 | 命令系统双轨：`engine.commandIndex` ↔ `command.Registry` 概念重复 | 一致性 | 🟡 建议 |
+| 7 | ✅ 命令系统双轨：`engine.commandIndex` ↔ `command.Registry` 概念重复 | 一致性 | 🟡 建议 |
 | 8 | 权限系统与插件描述符脱节，无声明式权限注册 | 安全模型 | 🟡 建议 |
 
 ---
@@ -636,122 +636,6 @@ pm := plugin.NewManager(eng)
 
 `RegisterV2` 重构为 5 个明确阶段（每阶段一行调用），函数主体从 ~80 行压缩到 ~50 行。
 
-**目标**：按职责分文件，降低单文件认知负荷。
-
-建议拆分方案：
-```
-core/context/
-  context.go       — 结构体定义 + 生命周期（NewContext/Reset/ReleaseContext）
-  decode.go        — 事件解码（DecodeEvent、decodeCache、gjson 相关）
-  cache.go         — 热路径缓存（GetMessageContent、GetAuthor）
-  extensions.go    — 扩展状态（Set/Get/All/ExtSet/ExtGet）
-  metadata.go      — 框架元数据（RetryAttempt、MiddlewareTrace、MatcherSource）
-```
-
----
-
-#### P1-2：裁剪 `MatcherCoordinator` 接口
-
-**文件**：`core/engine/types.go`、`core/engine/matcher.go`
-
-**目标**：减少 `Matcher` 对 `Engine` 的方法依赖，降低测试 mock 成本。
-
-```go
-// 当前：8 个方法
-// 建议：按使用频率分拆为两个接口
-
-// MatcherLifecycle - Matcher 需要调用的必要操作（4个）
-type MatcherLifecycle interface {
-    DeleteMatcher(m *Matcher)
-    RebuildMatcherChain(m *Matcher)
-    InvalidateSortedCache(eventType dto.EventType)
-    UpdateCommandCache(m *Matcher)
-}
-
-// MatcherMigration - 临时 Matcher 迁移（较少使用，可延迟注入）
-type MatcherMigration interface {
-    UpdateTempMatcherPriority(m *Matcher)
-    UpdateMatcherCommand(m *Matcher)
-    MigrateMatcherToTemp(m *Matcher)
-    MigrateMatcherFromTemp(m *Matcher)
-}
-```
-
----
-
-#### P1-3：修复 `compiledChain` XOR 指纹问题
-
-**文件**：`core/engine/matcher.go`
-
-**目标**：中间件链缓存的有效性验证对顺序敏感。
-
-```go
-// 当前：XOR 对顺序不敏感
-chainSig uint64  // XOR fingerprint of all middleware function pointers
-
-// 建议：改用有序哈希（滚动哈希或 FNV 链式）
-// 示例：
-func computeChainSig(mws []Middleware) uint64 {
-    var h uint64 = 0xcbf29ce484222325  // FNV offset basis
-    for _, mw := range mws {
-        ptr := reflect.ValueOf(mw).Pointer()
-        h = (h ^ ptr) * 0x100000001b3  // FNV prime，顺序敏感
-    }
-    return h
-}
-```
-
----
-
-#### P1-4：将 `plugin.Manager` 的 viper 依赖改为可选注入
-
-**文件**：`plugin/manager.go`、`plugin/config.go`
-
-**目标**：`Manager` 零依赖可用，`viper` 降为推荐实现。
-
-```go
-// 定义接口
-type ConfigProvider interface {
-    Get(key string) any
-    OnConfigChange(callback func())
-}
-
-// Manager 选项
-type ManagerOption func(*Manager)
-
-func WithConfigProvider(cp ConfigProvider) ManagerOption {
-    return func(m *Manager) { m.configProvider = cp }
-}
-
-// 用户可选择注入 viper
-viperProvider := plugin.NewViperConfigProvider(v)
-pm := plugin.NewManager(eng, plugin.WithConfigProvider(viperProvider))
-```
-
----
-
-#### P1-5：拆分 `plugin/register.go` 的单函数逻辑
-
-**文件**：`plugin/register.go`（586 行）
-
-**目标**：`RegisterV2` 编排逻辑清晰，各步骤可独立测试。
-
-```go
-// 建议拆分为独立函数：
-func validateDescriptor(desc *PluginDescriptor) error
-func checkDependencies(pm *Manager, desc *PluginDescriptor) error
-func validateVersionConstraints(pm *Manager, desc *PluginDescriptor) error
-func validateConfigSchema(desc *PluginDescriptor, cfg Config) error
-func runSetup(pm *Manager, desc *PluginDescriptor) (*PluginInstance, error)
-
-// RegisterV2 仅做编排：
-func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
-    if err := validateDescriptor(desc); err != nil { return err }
-    if err := checkDependencies(pm, desc); err != nil { return err }
-    if err := validateVersionConstraints(pm, desc); err != nil { return err }
-    // ...
-}
-```
 
 ---
 
@@ -759,152 +643,104 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 ---
 
-#### P2-1：统一命令系统，消除双轨
+#### P2-1：统一命令系统，消除双轨 ✅ 已完成（2026-03-02）
 
-**文件**：`core/engine/engine_command.go`、`command/registry.go`
+**变更文件**：`core/engine/services.go`、`core/engine/engine_command.go`
 
-**目标**：`engine.commandIndex`（O(1) 路由）与 `command.Registry`（Trie + 元数据）统一管理。
+**实际实现**：
 
-```
-建议方案：
-1. engine.commandIndex 保留（性能路由，内部实现细节）
-2. command.Registry 作为公共注册表（元数据、/help、Trie 搜索）
-3. 在 RegisterCommand 时同步更新两者，对用户透明
-4. 对外只暴露一套 API：ctx.Reg.RegisterCommand(...)
+- `engineServices` 新增 `commandRegistry *command.Registry` 字段（可选，nil 时向后兼容）
+- 新增 `Engine.SetCommandRegistry(reg *command.Registry)` 运行时注入 / `engine.WithCommandRegistry(reg)` 构造时 Option
+- 新增内部 `syncToRegistry(def, source)`：`OnCommand` / `RegisterCommandDef` / `RegisterCommandDefWithPrefix` 注册后自动同步到 Registry
+
+```go
+reg := command.NewCommandRegistry()
+eng := engine.NewEngine(engine.WithCommandRegistry(reg))
+eng.RegisterCommandDef(dto.GroupAtMessageCreate, &command.Definition{Name: "hello"})
+// commandIndex（O(1) 路由）和 Registry（Trie + /help）始终保持一致
+matches := reg.Search("/hel")    // Trie 前缀搜索
+cmd := eng.FindCommand("/hello") // commandIndex 精确查找
 ```
 
 ---
 
-#### P2-2：插件声明式权限注册
+#### P2-2：插件声明式权限注册（待实现）
 
-**文件**：`plugin/descriptor.go`、`core/permission/permission.go`
-
-**目标**：插件描述符中声明所需权限，框架自动注册。
-
-```go
-type PluginDescriptor struct {
-    // ...
-    
-    // RequiredPermissions 插件需要的权限点（声明式，框架自动注册）
-    // 格式：["command:weather:execute", "admin:config:read"]
-    RequiredPermissions []string
-}
-```
-
-加载插件时，框架自动调用 `permissionManager.RegisterCommandPermissions(pluginName, desc.RequiredPermissions)`。
+**文件**：`plugin/descriptor.go`、`core/permission/permission.go`  
+**目标**：`PluginDescriptor.RequiredPermissions []string`，加载时框架自动注册权限点。
 
 ---
 
-#### P2-3：中间件链运行时可观测性
+#### P2-3：中间件链运行时可观测性（待实现）
 
-**文件**：`core/engine/middleware.go`、新建 `middleware/registry.go`
+**文件**：`core/engine/middleware.go`  
+**目标**：运行时可查询当前 Engine 生效的中间件链（名称、顺序、来源）。
 
-**目标**：运行时可查询当前 Engine 生效的中间件链。
+---
+
+#### P2-4：全局 goroutine 状态视图 ✅ 已完成（2026-03-02）
+
+**变更文件**：`plugin/goroutine.go`、`plugin/manager.go`
+
+**实际实现**：
+
+- `GoroutineInfo` 新增 `Uptime time.Duration` 字段（查询时自动填充）
+- `ListPluginGoroutines` 保留为 `Deprecated`（委托给 `ListAllGoroutines`）
+- 新增 `Manager.ListAllGoroutines() []GoroutineInfo`：全局聚合视图，自动填充 Uptime
+- 新增 `Manager.GoroutineSummary() GoroutineSummary`：低开销统计（Total + ByPlugin map）
 
 ```go
-// middleware/registry.go
-type Registry struct {
-    entries []MiddlewareEntry
-    mu      sync.RWMutex
+goroutines := pm.ListAllGoroutines()
+for _, g := range goroutines {
+    fmt.Printf("[%s] %s — uptime: %v\n", g.Plugin, g.Name, g.Uptime)
 }
-
-type MiddlewareEntry struct {
-    Name  string
-    Scope string // "global" | "group:admin" | "matcher:xxxx"
-}
-
-// Engine 集成
-func (e *Engine) GetMiddlewareChain() []MiddlewareEntry
+summary := pm.GoroutineSummary()
+fmt.Printf("total=%d  by_plugin=%v\n", summary.Total, summary.ByPlugin)
 ```
 
 ---
 
-#### P2-4：全局 goroutine 状态视图
+#### P2-5：`permission.Role` 改用 map 存储，O(1) 查找 ✅ 已完成（2026-03-02）
 
-**文件**：`plugin/manager.go`、`plugin/goroutine.go`
+**变更文件**：`core/permission/permission.go`、`core/context/context_extended_test.go`、`plugins/core/permission/permission.go`
 
-**目标**：`Manager` 暴露所有插件的 goroutine 聚合视图。
+**实际实现**：
 
-```go
-// plugin/manager.go
-func (pm *Manager) ListAllGoroutines() []GoroutineInfo {
-    pm.mu.RLock()
-    defer pm.mu.RUnlock()
-    var result []GoroutineInfo
-    for _, inst := range pm.plugins {
-        result = append(result, inst.ListGoroutines()...)
-    }
-    return result
-}
-```
+| 项目 | 改动前 | 改动后 |
+|---|---|---|
+| `Role.permissions` | `[]Permission`（O(n)） | `map[string]Permission`（key="resource:action"） |
+| `HasPermission` | O(n) 全量扫描 | O(1) 精确匹配 + O(wildcards) 通配符回退 |
+| `AddPermission` | append | map 写（幂等） |
+| `RemovePermission` | O(n) 重建 slice | O(1) delete |
+| 外部访问 | `role.Permissions`（字段） | `role.Permissions()`（方法，返回副本） |
 
 ---
 
-#### P2-5：`permission.Role` 改用 map 存储，O(1) 查找
+#### P2-6：EventBus 泛型类型安全 API（待实现）
 
-**文件**：`core/permission/permission.go`
-
-```go
-type Role struct {
-    Name        string
-    permissions map[string]Permission  // key = "resource:action"
-    mu          sync.RWMutex
-}
-
-// HasPermission 从 O(n) 降为 O(1)
-func (r *Role) HasPermission(target Permission) bool {
-    r.mu.RLock()
-    defer r.mu.RUnlock()
-    // 先精确匹配，再通配符检查
-    if _, ok := r.permissions[target.String()]; ok {
-        return true
-    }
-    // 通配符回退...
-}
-```
+**文件**：`plugin/eventbus.go`  
+**目标**：`Subscribe[T any]` / `Publish[T any]` 泛型辅助函数，消除运行时类型断言。
 
 ---
 
-#### P2-6：EventBus 泛型类型安全 API
+#### P2-7：简化 Bot 构建路径（BotBuilder 统一入口）✅ 已完成（2026-03-02）
 
-**文件**：`plugin/eventbus.go`
+**变更文件**：`bot_builder.go`（新增 `WithPlugins`）、`factory.go`（`NewBotWithDefault` 委托给 BotBuilder）
 
-**目标**：发布订阅有编译期或运行期类型约束。
+**实际实现**：
 
-```go
-// 提供泛型辅助函数（Go 1.21+）
-func Subscribe[T any](bus EventBus, topic string, handler func(T)) {
-    bus.Subscribe(topic, func(payload any) {
-        if v, ok := payload.(T); ok {
-            handler(v)
-        }
-        // 类型不匹配时 panic 或记录错误，而非静默忽略
-    })
-}
-
-func Publish[T any](bus EventBus, topic string, payload T) {
-    bus.Publish(topic, payload)
-}
-```
-
----
-
-#### P2-7：简化 Bot 构建路径（保留 BotBuilder，废弃工厂函数）
-
-**文件**：`bot.go`、`factory.go`
-
-**目标**：统一为 `BotBuilder` 一条路径，`NewBot`/`NewBotWithInfo`/`NewBotWithDefault` 降级为 `BotBuilder` 的快捷包装。
+- `BotBuilder.WithPlugins(...)` 一步注册多个插件，`Build()` 自动调用 `RegisterMultipleV2Smart`
+- `NewBotWithDefault` 不再直接构建 adapter，统一委托给 `BotBuilder`
 
 ```go
-// 将三个工厂函数改为 BotBuilder 的语法糖
-// NewBot 保留签名兼容，内部委托给 BotBuilder
-func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
-    b, _ := NewBotBuilder().WithAdapter(adapter).WithEngine(engine).Build()
-    for _, opt := range opts {
-        opt(b)
-    }
-    return b
-}
+bot, err := remilia.NewBotBuilder().
+    WithBotInfo(info).
+    WithWebhook(":8080").
+    WithPlugins(myPlugin.New(), anotherPlugin.New()).
+    Build()
+
+bot.Start() // 自动触发所有插件 Setup（依赖序）
+bot.Stop()  // 自动触发所有插件 Teardown（逆序）
 ```
 
 ---
@@ -923,61 +759,47 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 
 ## 6. 总结与优先级决策
 
-### 推荐执行顺序
+### 当前完成状态（截至 2026-03-02）
 
 ```
-第一阶段（1-2周）：P0 修复，解决结构性问题
-  ① P0-3: 修复 BotBuilder 顺序依赖（改动最小，1天）
-  ② P0-2: 消除 middleware → core/engine 反向依赖（1-2天）
-  ③ P0-1: Bot 集成 plugin.Manager（影响最大，3-5天）
+✅ P0-1: Bot 集成 plugin.Manager
+✅ P0-2: 消除 middleware → core/engine 反向依赖
+✅ P0-3: 修复 BotBuilder 顺序依赖
+✅ P1-1: 拆分 core/context/context.go（685行 → 5文件）
+✅ P1-2: 裁剪 MatcherCoordinator 接口（8方法 → 2×4）
+✅ P1-3: 修复 compiledChain XOR 指纹 bug（改为 FNV-1a）
+✅ P1-4: plugin.Manager viper 依赖可选化（ConfigProvider 接口）
+✅ P1-5: 拆分 plugin/register.go 单函数逻辑
+✅ P2-1: 统一命令系统（syncToRegistry 双写）
+✅ P2-4: 全局 goroutine 状态视图（ListAllGoroutines + GoroutineSummary）
+✅ P2-5: permission.Role map 化（O(1) 查找）
+✅ P2-7: 简化 Bot 构建路径（WithPlugins + NewBotWithDefault 委托）
 
-第二阶段（2-3周）：P1 改善，提升可维护性
-  ④ P1-3: 修复 compiledChain XOR 指纹 bug（1天，安全优先）
-  ⑤ P1-1: 拆分 core/context/context.go（2天）
-  ⑥ P1-4: plugin.Manager viper 依赖可选化（1-2天）
-  ⑦ P1-5: 拆分 plugin/register.go（1-2天）
-  ⑧ P1-2: 裁剪 MatcherCoordinator 接口（1天）
-
-第三阶段（持续迭代）：P2 体验优化
-  ⑨ P2-1: 统一命令系统
-  ⑩ P2-5: permission.Role map 化
-  ⑪ P2-4: 全局 goroutine 视图
-  ⑫ P2-7: 简化 Bot 构建路径
-  ⑬ 其余 P2 项按需推进
+⏳ P2-2: 插件声明式权限注册（待实现）
+⏳ P2-3: 中间件链运行时可观测性（待实现）
+⏳ P2-6: EventBus 泛型类型安全 API（待实现）
+⏳ P3:   长期演进项目（按需推进）
 ```
-
-### 投入产出比评估
-
-| 改动 | 工作量 | 收益 |
-|---|---|---|
-| P0-1 Bot 集成插件 | 中（3-5天） | **极高**：解决最核心的用户体验问题 |
-| P0-2 消除反向依赖 | 小（1-2天） | 高：修复架构分层问题 |
-| P0-3 BotBuilder 顺序 | 极小（1天） | 中：修复 API 正确性 |
-| P1-3 XOR bug 修复 | 极小（半天） | 高：潜在正确性问题 |
-| P1-1 context 拆分 | 中（2天） | 中：提升可维护性，无功能变化 |
-| P1-4 viper 可选化 | 小（1-2天） | 中：减少不必要依赖 |
 
 ### 最终结论
 
-Remilia 框架的**内部机制质量较高**（COW 引擎、插件 DI 容器、热重载策略等），但**组件之间的集成质量偏低**（Bot ↔ Plugin 割裂、分层违规、API 不一致）。
+Remilia 框架的**内部机制质量较高**（COW 引擎、插件 DI 容器、热重载策略等）。经过本轮重构，**所有 P0/P1 结构性问题和主要 P2 体验问题均已解决**，框架现在具备：
 
-这是一个典型的"各模块内部优秀，但整体组装体验差"的问题，恰好是项目未发布阶段最值得投入重构的方向。
-
-**核心改造目标**：以 P0-1（Bot 集成插件）为核心，构建一套从 `BotBuilder` 出发、配置即完成、生命周期自动联动的插件开发体验：
+- **统一的 Bot 构建入口**：`BotBuilder.WithPlugins(...)` 一步到位
+- **正确的架构分层**：middleware → infra/dlq ← core/engine，无反向依赖
+- **O(1) 权限查找**：Role.permissions 改为 map
+- **命令系统双写一致**：commandIndex + Registry 自动同步
+- **全局可观测性**：ListAllGoroutines + GoroutineSummary
 
 ```go
-// 重构后期望的使用体验（示例）
+// 重构后的使用体验
 bot, err := remilia.NewBotBuilder().
     WithBotInfo(info).
     WithWebhook(":8080").
-    WithPlugins(
-        myPlugin1.New(),
-        myPlugin2.New(),
-    ).
+    WithPlugins(myPlugin1.New(), myPlugin2.New()).
     Build()
 
 bot.Start() // 自动触发所有插件 Setup
-// Ctrl+C
 bot.Stop()  // 自动触发所有插件 Teardown（逆序）
 ```
 

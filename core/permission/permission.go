@@ -70,51 +70,89 @@ func matchWithWildcard(pattern, value string) bool {
 	return pattern == value
 }
 
-// Role is a named set of Permissions.
+// Role is a named set of Permissions stored as a map for O(1) lookup.
+//
+// 变更（P2-5）：内部存储由 []Permission 改为 map[string]Permission，
+// key 为 Permission.String()（"resource:action"）。
+// HasPermission 从 O(n) 线性扫描降为 O(1) 精确匹配 + O(wildcards) 通配符回退。
+//
+// 外部 API 保持向后兼容：
+//   - NewRole(name, permissions...)：签名不变
+//   - AddPermission / RemovePermission：行为不变
+//   - HasPermission：行为不变，性能提升
+//   - Permissions()：返回 []Permission 切片副本（新增，替代直接访问字段）
 type Role struct {
 	Name        string
-	Permissions []Permission
+	permissions map[string]Permission // key = "resource:action"
 	mu          sync.RWMutex
 }
 
 // NewRole creates a Role with the given name and initial permission set.
-func NewRole(name string, permissions ...Permission) *Role {
-	return &Role{
+func NewRole(name string, perms ...Permission) *Role {
+	r := &Role{
 		Name:        name,
-		Permissions: permissions,
+		permissions: make(map[string]Permission, len(perms)),
 	}
+	for _, p := range perms {
+		r.permissions[p.String()] = p
+	}
+	return r
 }
 
-// AddPermission appends a permission to the role.
+// AddPermission appends a permission to the role (idempotent).
 func (r *Role) AddPermission(perm Permission) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.Permissions = append(r.Permissions, perm)
+	r.permissions[perm.String()] = perm
 }
 
-// RemovePermission removes all exact matches of perm from the role.
+// RemovePermission removes the exact permission from the role.
 func (r *Role) RemovePermission(perm Permission) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	filtered := make([]Permission, 0, len(r.Permissions))
-	for _, p := range r.Permissions {
-		if p.Resource != perm.Resource || p.Action != perm.Action {
-			filtered = append(filtered, p)
-		}
-	}
-	r.Permissions = filtered
+	delete(r.permissions, perm.String())
 }
 
 // HasPermission reports whether the role grants the target permission.
+//
+// 查找顺序（O(1) 精确匹配优先，再通配符回退）：
+//  1. 精确匹配（"resource:action"）
+//  2. 通配全局（"*:*"）
+//  3. 遍历通配符权限（含 "*" 的 Permission）
 func (r *Role) HasPermission(perm Permission) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, p := range r.Permissions {
-		if p.Match(perm) {
-			return true
+
+	// 1. 精确 key 匹配（O(1)）
+	if _, ok := r.permissions[perm.String()]; ok {
+		return true
+	}
+	// 2. 全局通配符 "*:*"（O(1)）
+	if _, ok := r.permissions["*:*"]; ok {
+		return true
+	}
+	// 3. 遍历含通配符的 Permission（数量通常极少）
+	for _, p := range r.permissions {
+		if p.Resource == "*" || p.Action == "*" ||
+			(len(p.Resource) > 2 && p.Resource[len(p.Resource)-2:] == ":*") {
+			if p.Match(perm) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// Permissions returns a snapshot of all permissions in the role as a slice.
+// The returned slice is a copy; modifying it does not affect the role.
+func (r *Role) Permissions() []Permission {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Permission, 0, len(r.permissions))
+	for _, p := range r.permissions {
+		out = append(out, p)
+	}
+	return out
 }
 
 // Provider is an optional interface for external authorization sources
@@ -239,7 +277,7 @@ func (pm *Manager) HasPermission(userID string, perm Permission) bool {
 		}
 	}
 
-	// 2. role permissions
+	// 2. role permissions（Role.HasPermission 内部 O(1) 精确匹配）
 	for _, roleName := range pm.userRoles[userID] {
 		if role, ok := pm.roles[roleName]; ok {
 			if role.HasPermission(perm) {
@@ -296,9 +334,7 @@ func (pm *Manager) GetUserPermissions(userID string) []Permission {
 	permissions = append(permissions, pm.userPerms[userID]...)
 	for _, roleName := range pm.userRoles[userID] {
 		if role, ok := pm.roles[roleName]; ok {
-			role.mu.RLock()
-			permissions = append(permissions, role.Permissions...)
-			role.mu.RUnlock()
+			permissions = append(permissions, role.Permissions()...)
 		}
 	}
 	return permissions
@@ -334,7 +370,7 @@ func (pm *Manager) ExportUserPerms() map[string][]Permission {
 
 // LoadUserRoles merges a persisted user→roles mapping back into the manager.
 // Roles that no longer exist in the manager's role registry are silently
-// filtered out.  Existing entries are preserved (this method does not replace).
+// filtered out. Existing entries are preserved (this method does not replace).
 func (pm *Manager) LoadUserRoles(userRoles map[string][]string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()

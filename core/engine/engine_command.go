@@ -57,7 +57,10 @@ func (e *Engine) OnCommand(eventType dto.EventType, cmdPattern string, extraRule
 		}
 	}
 
-	return e.registerMatcher(m)
+	registered := e.registerMatcher(m)
+	// 同步到可选的外部 Registry（Trie + 元数据）
+	e.syncToRegistry(registered.definition, registered.Source)
+	return registered
 }
 
 // RegisterCommand 注册一个高级命令定义（使用 "/" 作为默认前缀）
@@ -134,7 +137,8 @@ func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Defini
 			return nil
 		})
 	}
-
+	// syncToRegistry 已由 OnCommand 内部调用，此处更新带完整元数据的 def
+	e.syncToRegistry(def, m.Source)
 	return m
 }
 
@@ -183,7 +187,8 @@ func (e *Engine) RegisterCommandDefWithPrefix(
 			return nil
 		})
 	}
-
+	// 更新带完整元数据的 def 到 Registry
+	e.syncToRegistry(def, m.Source)
 	return m
 }
 
@@ -259,4 +264,73 @@ func (e *Engine) FindCommand(name string) *CommandInfo {
 		}
 	}
 	return nil
+}
+
+// ---- 命令注册表集成 ----------------------------------------------------------
+
+// SetCommandRegistry 注入外部 command.Registry，启用统一命令系统。
+//
+// 注入后，OnCommand / RegisterCommandDef 等方法会在更新内部 commandIndex 的同时，
+// 自动将命令的 Definition 同步注册到 Registry（Trie + 元数据），
+// 使 Trie 前缀搜索、/help 发现和 commandIndex O(1) 路由始终保持一致。
+//
+// 未注入时（默认），Engine 只维护 commandIndex，行为与旧版本完全兼容。
+//
+// 使用示例：
+//
+//	reg := command.NewCommandRegistry()
+//	eng := engine.NewEngine()
+//	eng.SetCommandRegistry(reg)
+//
+//	// 此后 OnCommand / RegisterCommandDef 均自动同步到 reg
+//	eng.OnCommand(dto.GroupAtMessageCreate, "/hello").
+//	    SetDescription("打招呼").
+//	    Handle(handler)
+//
+//	// Trie 前缀搜索和 /help 现在都能找到 "/hello"
+//	matches := reg.Search("/he")
+func (e *Engine) SetCommandRegistry(reg *command.Registry) {
+	e.writeMu.Lock()
+	e.services.commandRegistry = reg
+	e.writeMu.Unlock()
+}
+
+// CommandRegistry 返回已注入的 command.Registry，未注入时返回 nil。
+func (e *Engine) CommandRegistry() *command.Registry {
+	e.writeMu.Lock()
+	reg := e.services.commandRegistry
+	e.writeMu.Unlock()
+	return reg
+}
+
+// syncToRegistry 将 Matcher 的 Definition 同步注册到 commandRegistry（若已注入）。
+// 在 OnCommand / RegisterCommandDef / SetDefinition 后调用，source 为插件来源标签。
+// 如果 def 为 nil 或 Registry 未注入，此函数为空操作。
+func (e *Engine) syncToRegistry(def *command.Definition, source string) {
+	if def == nil || def.Name == "" {
+		return
+	}
+	e.writeMu.Lock()
+	reg := e.services.commandRegistry
+	e.writeMu.Unlock()
+	if reg == nil {
+		return
+	}
+	opts := command.RegisterOptions{Source: source}
+	if err := reg.RegisterWithOptions(def, opts); err != nil {
+		logger.WithError(err).WithField("command", def.Name).
+			Warn("[engine] Failed to sync command to Registry")
+	}
+}
+
+// WithCommandRegistry Engine 选项：注入 command.Registry。
+//
+// 与 SetCommandRegistry 等价，但可在 NewEngine 时一并传入：
+//
+//	reg := command.NewCommandRegistry()
+//	eng := engine.NewEngine(engine.WithCommandRegistry(reg))
+func WithCommandRegistry(reg *command.Registry) Option {
+	return func(e *Engine) {
+		e.services.commandRegistry = reg
+	}
 }
