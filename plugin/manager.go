@@ -11,8 +11,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/viper"
 )
 
 // LifecycleListener 插件生命周期监听器接口
@@ -31,27 +29,28 @@ type LifecycleListener interface {
 }
 
 // Manager 插件管理器
-//
-// plugins 字段改为 map[string]*PluginInstance，消除对 Plugin 公开接口的依赖：
-//   - 所有外部 API 直接返回 *PluginInstance，类型明确；
-//   - 内部生命周期调用通过 pluginInternal 私有接口驱动；
-//   - Disable/Enable 不再维护独立 disabled map，状态由 PluginInstance.state 字段管理。
 type Manager struct {
-	plugins     map[string]*PluginInstance
-	coordinator *engine.Engine
-	listeners   []LifecycleListener // 生命周期监听器列表
-	viper       *viper.Viper        // 全局配置
-	loadOrder   []string            // 插件加载顺序
-	container   *Container          // 依赖注入容器（v2）
-	eventBus    EventBus            // 插件间事件总线
-	strictDeps  bool                // 严格依赖模式：未声明依赖拒绝注册
-	metaGM      *goroutineManager   // 管理 notifyDependents 等元数据 goroutine
-	mu          sync.RWMutex
+	plugins        map[string]*PluginInstance
+	coordinator    *engine.Engine
+	listeners      []LifecycleListener
+	configProvider ConfigProvider // 可选配置提供者，通过 WithConfigProvider 注入
+	loadOrder      []string
+	container      *Container
+	eventBus       EventBus
+	strictDeps     bool
+	metaGM         *goroutineManager
+	mu             sync.RWMutex
 }
 
 // NewManager 创建插件管理器
-func NewManager(coordinator *engine.Engine) *Manager {
-	return &Manager{
+//
+// opts 为可选配置，例如通过 WithConfigProvider 注入配置源：
+//
+//	pm := plugin.NewManager(eng,
+//	    plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)),
+//	)
+func NewManager(coordinator *engine.Engine, opts ...ManagerOption) *Manager {
+	m := &Manager{
 		plugins:     make(map[string]*PluginInstance),
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
@@ -60,12 +59,19 @@ func NewManager(coordinator *engine.Engine) *Manager {
 		eventBus:    NewEventBus(),
 		metaGM:      newGoroutineManagerForPlugin("manager"),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	// 若注入了 ConfigProvider，订阅配置变更
+	if m.configProvider != nil {
+		m.configProvider.OnConfigChange(m.propagateConfigChange)
+	}
+	return m
 }
 
 // NewManagerWithEventBusOptions 使用自定义 EventBus 选项创建插件管理器。
-// 适用于需要调整事件处理并发度的场景（高流量或低资源环境）。
-func NewManagerWithEventBusOptions(coordinator *engine.Engine, ebOpts EventBusOptions) *Manager {
-	pm := NewManager(coordinator)
+func NewManagerWithEventBusOptions(coordinator *engine.Engine, ebOpts EventBusOptions, opts ...ManagerOption) *Manager {
+	pm := NewManager(coordinator, opts...)
 	pm.eventBus = NewEventBusWithOptions(ebOpts)
 	return pm
 }
@@ -169,19 +175,26 @@ func (pm *Manager) IsStrictDeps() bool {
 	return pm.strictDeps
 }
 
-// SetViper 设置全局配置（用于插件配置管理）并订阅变更事件，
-// 当底层配置文件变更时自动触发所有已加载插件的 Config.Reload() 和 OnChange 回调。
-func (pm *Manager) SetViper(v *viper.Viper) {
+// SetConfigProvider 设置全局配置提供者并订阅变更事件。
+//
+// 当底层配置源变更时自动触发所有已加载插件的 Config.Reload() 和 OnChange 回调。
+// 若已通过 WithConfigProvider 在构造时注入，则无需调用此方法。
+func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 	pm.mu.Lock()
-	pm.viper = v
+	pm.configProvider = cp
 	pm.mu.Unlock()
 
-	// 订阅 viper 配置变更事件，自动传播到所有插件配置
-	if v != nil {
-		v.OnConfigChange(func(_ fsnotify.Event) {
-			pm.propagateConfigChange()
-		})
+	if cp != nil {
+		cp.OnConfigChange(pm.propagateConfigChange)
 	}
+}
+
+// SetViper 已废弃，请使用 SetConfigProvider(plugin.NewViperConfigProvider(v))。
+//
+// Deprecated: 使用 NewManager(eng, plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)))
+// 或 pm.SetConfigProvider(plugin.NewViperConfigProvider(v)) 替代。
+func (pm *Manager) SetViper(_ any) {
+	logger.Warn("[pluginManager] SetViper is deprecated, use SetConfigProvider(plugin.NewViperConfigProvider(v)) instead")
 }
 
 // propagateConfigChange 向所有已加载插件的 Config 广播配置变更

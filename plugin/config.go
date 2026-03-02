@@ -44,15 +44,32 @@ type Config interface {
 
 // pluginConfig 插件配置实现
 type pluginConfig struct {
-	pluginName string
-	viper      *viper.Viper
-	values     map[string]any
-	overrides  map[string]any // Override 写入的值，热重载后仍然保留（叠加在 viper 值之上）
-	handlers   []func(key string, oldVal, newVal any)
-	mu         sync.RWMutex
+	pluginName     string
+	viper          *viper.Viper   // 向后兼容（若通过 NewPluginConfig 创建）
+	configProvider ConfigProvider // 推荐：通过 NewPluginConfigFromProvider 注入
+	values         map[string]any
+	overrides      map[string]any // Override 写入的值，热重载后仍然保留（叠加在 provider 值之上）
+	handlers       []func(key string, oldVal, newVal any)
+	mu             sync.RWMutex
 }
 
-// NewPluginConfig 创建插件配置
+// NewPluginConfigFromProvider 从 ConfigProvider 创建插件配置（推荐方式）。
+//
+// 相比 NewPluginConfig，不直接依赖 viper，可对接任意配置源。
+func NewPluginConfigFromProvider(pluginName string, provider ConfigProvider) Config {
+	pc := &pluginConfig{
+		pluginName:     pluginName,
+		configProvider: provider,
+		values:         make(map[string]any),
+		handlers:       make([]func(key string, oldVal, newVal any), 0),
+	}
+	pc.loadFromGlobal()
+	return pc
+}
+
+// NewPluginConfig 创建插件配置（向后兼容，直接使用 viper）。
+//
+// Deprecated: 推荐使用 NewPluginConfigFromProvider 配合 ViperConfigProvider。
 func NewPluginConfig(pluginName string, globalViper *viper.Viper) Config {
 	pc := &pluginConfig{
 		pluginName: pluginName,
@@ -60,23 +77,35 @@ func NewPluginConfig(pluginName string, globalViper *viper.Viper) Config {
 		values:     make(map[string]any),
 		handlers:   make([]func(key string, oldVal, newVal any), 0),
 	}
-
-	// 从全局配置加载插件配置
 	pc.loadFromGlobal()
 
 	return pc
 }
 
-// loadFromGlobal 从全局配置加载插件配置
+// loadFromGlobal 从配置源加载插件配置（支持 ConfigProvider 和 viper 两种来源）
 func (pc *pluginConfig) loadFromGlobal() {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
+	// 优先使用 ConfigProvider（新 API）
+	if pc.configProvider != nil {
+		if settings := pc.configProvider.Sub(pc.pluginName); settings != nil {
+			pc.values = settings
+		} else {
+			pc.values = make(map[string]any)
+		}
+		// 重新叠加 override
+		for k, v := range pc.overrides {
+			pc.values[k] = v
+		}
+		return
+	}
+
+	// 向后兼容：使用 viper
 	if pc.viper == nil {
 		return
 	}
 
-	// 读取 plugins.<pluginName> 下的所有配置
 	prefix := fmt.Sprintf("plugins.%s", pc.pluginName)
 	settings := pc.viper.Sub(prefix)
 	if settings != nil {

@@ -55,7 +55,11 @@ type Matcher struct {
 type compiledChain struct {
 	handlers   []context.Handler
 	handlerSig uintptr // pointer identity of the core handler at compile time
-	chainSig   uint64  // XOR fingerprint of all middleware function pointers
+	chainSig   uint64  // order-sensitive FNV fingerprint of middleware pointers
+	// chainSig uses FNV-1a chained hashing (see chainSignature in process.go),
+	// which is ORDER-SENSITIVE: [A,B] ≠ [B,A]. This correctly invalidates the
+	// cache when middleware is reordered, unlike the previous XOR approach where
+	// [A,B] and [B,A] produced identical fingerprints.
 }
 
 func (m *Matcher) copy() *Matcher {

@@ -13,20 +13,15 @@ import (
 
 // RegisterV2 注册 v2 风格的插件（使用 PluginDescriptor）
 func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
-	if desc == nil {
-		return fmt.Errorf("plugin descriptor is nil")
-	}
-	if desc.Name == "" {
-		return fmt.Errorf("plugin name is required")
-	}
-	if desc.Setup == nil {
-		return fmt.Errorf("plugin setup function is required")
+	// 阶段 1：基础合法性（无锁，无 Manager 状态依赖）
+	if err := validateDescriptor(desc); err != nil {
+		return err
 	}
 
 	name := desc.Name
-
 	pm.mu.Lock()
 
+	// 阶段 2：重复注册检查
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
 		logger.Warnf("[pluginManager] Plugin %s already registered", name)
@@ -40,56 +35,30 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		}
 		return names
 	}
-	for _, rawDep := range desc.Deps {
-		spec := parseDepSpec(rawDep)
-		depInst, exists := pm.plugins[spec.name]
-		if !exists {
-			pm.mu.Unlock()
-			return &PluginError{
-				PluginName:        name,
-				Operation:         "register",
-				Cause:             fmt.Errorf("missing required dependency %q", spec.name),
-				RegisteredPlugins: registeredList(),
-				Hint:              fmt.Sprintf("register %q before %q", spec.name, name),
-			}
-		}
-		state := depInst.GetState()
-		if state != Loaded {
-			pm.mu.Unlock()
-			return &PluginError{
-				PluginName:        name,
-				Operation:         "register",
-				Cause:             fmt.Errorf("dependency %q is not ready (state: %s)", spec.name, state),
-				RegisteredPlugins: registeredList(),
-				Hint:              "register plugins in dependency order, or use plugin.Smart() / RegisterMultipleV2Atomic() for automatic ordering",
-			}
-		}
-		if spec.constraint != "" {
-			ok, _ := checkVersionConstraint(depInst.desc.Version, spec.constraint)
-			if !ok {
-				pm.mu.Unlock()
-				return &VersionConstraintError{
-					Plugin:     name,
-					Dependency: spec.name,
-					Required:   spec.constraint,
-					Have:       depInst.desc.Version,
-				}
-			}
-		}
+
+	// 阶段 3：依赖存在性与就绪状态（须持锁）
+	if err := checkDependencies(pm, desc, registeredList); err != nil {
+		pm.mu.Unlock()
+		return err
+	}
+
+	// 阶段 4：版本约束（须持锁）
+	if err := validateVersionConstraints(pm, desc); err != nil {
+		pm.mu.Unlock()
+		return err
 	}
 
 	pm.ensureContainerInitialized()
 
 	var config Config
-	if pm.viper != nil {
-		config = NewPluginConfig(name, pm.viper)
+	if pm.configProvider != nil {
+		config = NewPluginConfigFromProvider(name, pm.configProvider)
 	}
 
-	if config != nil && desc.Advanced != nil && desc.Advanced.ConfigSchema != nil {
-		if schemaErr := ValidateConfigSchema(name, desc.Advanced.ConfigSchema, config); schemaErr != nil {
-			pm.mu.Unlock()
-			return schemaErr
-		}
+	// 阶段 5：ConfigSchema 校验（须持锁）
+	if err := validateConfigSchema(name, desc, config); err != nil {
+		pm.mu.Unlock()
+		return err
 	}
 
 	instance := &PluginInstance{

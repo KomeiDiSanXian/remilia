@@ -4,31 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: update documentation with recent changes and archive outdated files">
-      <change afterPath="$PROJECT_DIR$/core/permission/permission.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/permission/permission_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/architecture-quality-review.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_query.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_query.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher_compiler.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher_compiler_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -248,8 +224,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: enhance storage plugins with optional persistence and session management" />
-    <MESSAGE value="refactor: replace manual map copying with maps.Copy and simplify keyword checks using slices.Contains" />
     <MESSAGE value="typo: rename CommandMeta to Meta and CommandRegistry to Registry for consistency" />
     <MESSAGE value="feat: implement persistence for permission data with export and load functionality" />
     <MESSAGE value="feat: implement strict dependency management for plugin registration" />
@@ -273,7 +247,9 @@
     <MESSAGE value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
     <MESSAGE value="feat: enhance context management with improved nil value handling and add metrics for degradation control" />
     <MESSAGE value="docs: update documentation with recent changes and archive outdated files" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: update documentation with recent changes and archive outdated files" />
+    <MESSAGE value="refactor: streamline permission management by consolidating role and permission types into core/permission package" />
+    <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

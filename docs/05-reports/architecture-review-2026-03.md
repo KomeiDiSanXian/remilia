@@ -3,7 +3,7 @@
 > 评审时间：2026-03-02  
 > 项目状态：**未发布（Pre-release）**，可接受破坏性重构  
 > 评审范围：`core`、`middleware`、`plugin`、`command` 及顶层 `Bot` 入口  
-> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 已完成
+> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 / P1-5 已完成
 
 ---
 
@@ -467,9 +467,9 @@ bot.Plugins() *plugin.Manager
 | 1 | ✅ `Bot` 与 `plugin.Manager` 完全割裂，无生命周期联动 | 插件生态、用户体验 | 🔴 致命 |
 | 2 | ✅ `middleware` 反向导入 `core/engine`（`RetryWithDeadLetter`） | 架构分层、可测试性 | 🔴 严重 |
 | 3 | ✅ `BotBuilder.WithWebhook` 顺序依赖，违反 Builder 原则 | API 可用性 | 🟠 重要 |
-| 4 | `MatcherCoordinator` 接口 8 个方法，`Matcher` 双向耦合 Engine | 可测试性、可维护性 | 🟠 重要 |
-| 5 | `compiledChain` XOR 指纹对中间件顺序不敏感（潜在 bug） | 正确性 | 🟠 重要 |
-| 6 | `plugin.Manager` 强依赖 `viper`/`fsnotify`（可选功能强制引入） | 依赖管理 | 🟡 建议 |
+| 4 | ✅ `MatcherCoordinator` 接口 8 个方法，`Matcher` 双向耦合 Engine | 可测试性、可维护性 | 🟠 重要 |
+| 5 | ✅ `compiledChain` XOR 指纹对中间件顺序不敏感（潜在 bug） | 正确性 | 🟠 重要 |
+| 6 | ✅ `plugin.Manager` 强依赖 `viper`/`fsnotify`（可选功能强制引入） | 依赖管理 | 🟡 建议 |
 | 7 | 命令系统双轨：`engine.commandIndex` ↔ `command.Registry` 概念重复 | 一致性 | 🟡 建议 |
 | 8 | 权限系统与插件描述符脱节，无声明式权限注册 | 安全模型 | 🟡 建议 |
 
@@ -551,7 +551,90 @@ bot, err := remilia.NewBotBuilder().
 
 ---
 
-#### P1-1：拆分 `core/context/context.go`（685 行）
+#### P1-1：拆分 `core/context/context.go`（685 行）✅ 已完成（2026-03-02）
+
+**变更文件**：`core/context/context.go`（重写）、新增 `decode.go`、`state.go`、`metadata.go`、`permission.go`（补充方法）
+
+**实际实现**：
+| 文件 | 职责 |
+|---|---|
+| `context.go` | 结构体定义（Context / decodeCache / extensionState）、生命周期（NewContext / Clone / SetStdContext / Ext / Tracer） |
+| `decode.go` | 事件解码（DecodeEvent）、热路径缓存（GetMessageContent / GetAuthor）、消息发送（SendGroupMessage / ReplyGroup / ...） |
+| `state.go` | 字符串键扩展状态（Set / Get / Delete / All 及类型便捷方法） |
+| `metadata.go` | 框架内部元数据（RetryAttempt / MiddlewareTrace / ParsedCommand / GetMatcherSource） |
+| `permission.go` | 权限桥接方法（GetPermissionManager / SetPermissionManager） |
+
+原 685 行单文件 → 5 个文件，每文件职责单一，最大约 180 行。
+
+---
+
+#### P1-2：裁剪 `MatcherCoordinator` 接口 ✅ 已完成（2026-03-02）
+
+**变更文件**：`core/engine/types.go`
+
+**实际实现**：
+- `MatcherCoordinator`（8方法）拆分为两个子接口：
+  - `MatcherLifecycle`（4方法）：核心高频路径（Delete / RebuildChain / InvalidateCache / UpdateCommandCache）
+  - `MatcherMigration`（4方法）：临时 Matcher 迁移（UpdateTempPriority / UpdateCommand / MigrateToTemp / MigrateFromTemp）
+- `MatcherCoordinator = MatcherLifecycle + MatcherMigration`（组合，向后兼容）
+- 单元测试 Matcher 现在只需 mock 4 个方法即可覆盖核心路径
+
+---
+
+#### P1-3：修复 `compiledChain` XOR 指纹 bug ✅ 已完成（2026-03-02）
+
+**变更文件**：`core/engine/process.go`、`core/engine/matcher.go`
+
+**实际实现**：
+- `chainSignature` 从 XOR（顺序不敏感）改为 FNV-1a 链式哈希（顺序敏感）：
+  ```go
+  // 修复前（XOR）：[A,B] == [B,A]，会错误命中缓存
+  sig ^= uint64(reflect.ValueOf(m).Pointer())
+
+  // 修复后（FNV-1a chained）：[A,B] != [B,A]，顺序不同产生不同签名
+  h = (h ^ ptr) * fnvPrime
+  ```
+- `compiledChain.chainSig` 注释同步更新，说明已改为顺序敏感哈希
+
+---
+
+#### P1-4：plugin.Manager viper 依赖可选化 ✅ 已完成（2026-03-02）
+
+**变更文件**：`plugin/manager.go`（移除 viper/fsnotify import）、`plugin/config.go`（新增 configProvider 路径）、新增 `plugin/config_provider.go`
+
+**实际实现**：
+- 新增 `ConfigProvider` 接口（`Sub` / `OnConfigChange`），Manager 通过接口与配置源解耦
+- 新增 `ViperConfigProvider`：`ConfigProvider` 的 viper 实现，在 `config_provider.go` 中（仅此文件依赖 viper/fsnotify）
+- 新增 `ManagerOption` 函数类型和 `WithConfigProvider(cp ConfigProvider) ManagerOption`
+- `NewManager(eng, opts ...ManagerOption)` 支持可选注入
+- `Manager.SetConfigProvider(cp ConfigProvider)` 运行时注入
+- `Manager.SetViper(_ any)` 保留为 Deprecated 警告方法（向后兼容）
+- `plugin/manager.go` 不再直接 import `viper`/`fsnotify`
+
+```go
+// 新 API（推荐）
+pm := plugin.NewManager(eng,
+    plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)),
+)
+
+// 零配置（不使用任何配置文件）
+pm := plugin.NewManager(eng)
+```
+
+---
+
+#### P1-5：拆分 `plugin/register.go` 的单函数逻辑 ✅ 已完成（2026-03-02）
+
+**变更文件**：`plugin/register.go`（RegisterV2 简化）、新增 `plugin/register_validate.go`
+
+**实际实现**：
+新增 `register_validate.go` 包含 4 个独立验证函数：
+- `validateDescriptor(desc)`：基础合法性（无锁、无 Manager 依赖，可独立单测）
+- `checkDependencies(pm, desc, registeredList)`：依赖存在性与就绪状态
+- `validateVersionConstraints(pm, desc)`：依赖版本约束
+- `validateConfigSchema(name, desc, config)`：ConfigSchema 校验
+
+`RegisterV2` 重构为 5 个明确阶段（每阶段一行调用），函数主体从 ~80 行压缩到 ~50 行。
 
 **目标**：按职责分文件，降低单文件认知负荷。
 

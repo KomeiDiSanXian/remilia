@@ -36,3 +36,22 @@ var ErrPermissionDenied = coreperm.ErrPermissionDenied
 type PermissionManagerExt struct {
 	PM *PermissionManager
 }
+
+// GetPermissionManager 获取权限管理器（从 typed extensions）
+func (ctx *Context) GetPermissionManager() *PermissionManager {
+	if ctx == nil {
+		return nil
+	}
+	if ext, ok := ExtGet[PermissionManagerExt](ctx.Ext()); ok {
+		return ext.PM
+	}
+	return nil
+}
+
+// SetPermissionManager 设置权限管理器（到 typed extensions）
+func (ctx *Context) SetPermissionManager(pm *PermissionManager) {
+	if ctx == nil {
+		return
+	}
+	ExtSet(ctx.Ext(), PermissionManagerExt{PM: pm})
+}

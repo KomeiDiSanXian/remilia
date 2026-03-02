@@ -1,18 +1,25 @@
 package context
 
+// context.go — Context 结构体定义与核心生命周期
+//
+// 职责划分（拆分后）：
+//   - context.go    — 结构体定义、NewContext / Clone / SetStdContext / Ext / Tracer
+//   - decode.go     — 事件解码（DecodeEvent）、热路径缓存（GetMessageContent、GetAuthor）、消息发送
+//   - state.go      — 字符串键扩展状态（Set/Get/Delete/All 及类型便捷方法）
+//   - metadata.go   — 框架元数据（RetryAttempt、MiddlewareTrace、ParsedCommand、MatcherSource）
+//   - extensions.go — 类型键扩展存储（ExtGet/ExtSet/ExtGetOrInit）
+//   - permission.go — 权限桥接（GetPermissionManager/SetPermissionManager）
+//   - pool.go       — Context 对象池（AcquireContext/ReleaseContext）
+
 import (
 	stdctx "context"
-	"errors"
 	"maps"
-	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/tidwall/gjson"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -24,33 +31,8 @@ type extensionState struct {
 	m  map[string]any
 }
 
-// retryMetadata stores the current retry attempt as a typed extension.
-// Set by the Retry middleware; read by GetRetryAttempt.
-type retryMetadata struct {
-	Attempt int
-}
-
-// middlewareTrace stores the executed named middleware trace as a typed extension.
-// Set by the engine's Named middleware tracing; read by GetMiddlewareTrace.
-// The slice is treated as an immutable snapshot per write.
-type middlewareTrace struct {
-	Trace []string
-}
-
-// parsedCommand stores the parsed command as a typed extension.
-// Set by SetParsedCommand; read by GetParsedCommand.
-// The pointer is stored as-is; callers should treat it as immutable.
-type parsedCommand struct {
-	Cmd *command.Parsed
-}
-
 func newStateExt() *extensionState {
 	return &extensionState{m: make(map[string]any)}
-}
-
-// Matcher 定义 Matcher 的最小接口，用于避免循环依赖
-type Matcher interface {
-	GetSource() string
 }
 
 // decodeCache is a typed union that holds the result of the first successful
@@ -65,6 +47,11 @@ type decodeCache struct {
 	c2c     dto.C2CMessageCreateEvent
 	groupAt dto.GroupAtMessageCreateEvent
 	generic any // fallback for other event types
+}
+
+// Matcher 定义 Matcher 的最小接口，用于避免循环依赖
+type Matcher interface {
+	GetSource() string
 }
 
 // Context 上下文
@@ -115,7 +102,6 @@ func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.O
 }
 
 // Context 返回标准库 context.Context
-// 用于传递给标准库和第三方库的函数（如 database/sql, http.Client, grpc 等）
 func (ctx *Context) Context() stdctx.Context {
 	if ctx == nil {
 		logger.Error("[Context] CRITICAL: Context receiver is nil, returning Background()")
@@ -124,8 +110,6 @@ func (ctx *Context) Context() stdctx.Context {
 	ctx.ctxMu.RLock()
 	c := ctx.ctx
 	ctx.ctxMu.RUnlock()
-
-	// 正常情况下不应为 nil（NewContext 已初始化）
 	if c == nil {
 		logger.Warn("[Context] stdctx is unexpectedly nil, returning Background(). This may indicate a bug.")
 		return stdctx.Background()
@@ -136,10 +120,6 @@ func (ctx *Context) Context() stdctx.Context {
 // SetStdContext 设置标准库 context。
 //
 // 仅供中间件使用：注入 trace context（OpenTelemetry）或超时/deadline 控制。
-//
-// ⚠️ 不要通过 context.WithValue 传递业务数据——请使用 ctx.Set(key, value)。
-// 通过 context.WithValue 传递业务数据会导致类型不安全、可测试性下降，且不会被
-// ctx.Clone() 自动复制。
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	if ctx == nil {
 		logger.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
@@ -155,43 +135,31 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 }
 
 // Clone 克隆 Context 用于异步操作
-//
-// Clone 会创建一个新的 Context 实例，复制当前 Context 的所有字段。
-//
-// 重要：克隆的 Context 使用独立的 context.Background()，不会受原 Context 取消的影响。
-// 如果需要传播 trace 信息，会自动复制 trace span。
 func (ctx *Context) Clone() *Context {
-	// Clone the event to prevent mutation issues
 	var clonedEvent *dto.Payload
 	if ctx.event != nil {
 		clonedEvent = ctx.event.Clone()
 	}
 
-	// 创建独立的 context，避免级联取消
-	// 保留 deadline 和 values，但独立取消
 	newStdCtx := stdctx.Background()
 
-	// 复制 deadline（如果存在）
 	if deadline, ok := ctx.Context().Deadline(); ok {
 		var cancel stdctx.CancelFunc
 		newStdCtx, cancel = stdctx.WithDeadline(newStdCtx, deadline)
-		// 不保存 cancel，让 deadline 自动触发，避免需要手动管理
 		_ = cancel
 	}
 
-	// 复制 trace span（如果存在）
 	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
 		newStdCtx = trace.ContextWithSpan(newStdCtx, span)
 	}
 
 	newCtx := &Context{
-		ctx:     newStdCtx,   // 使用独立的 context
-		matcher: ctx.matcher, // 只读引用，安全
+		ctx:     newStdCtx,
+		matcher: ctx.matcher,
 		event:   clonedEvent,
-		api:     ctx.api, // 只读引用，安全
+		api:     ctx.api,
 	}
 
-	// Copy typed extensions snapshot.
 	if ex := ctx.Ext(); ex != nil {
 		dst := newCtx.Ext()
 		for k, v := range ex.Snapshot() {
@@ -199,7 +167,6 @@ func (ctx *Context) Clone() *Context {
 		}
 	}
 
-	// Deep copy V2 store (extensionState) so clone mutations don't affect original.
 	if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
 		s.mu.RLock()
 		cp := make(map[string]any, len(s.m))
@@ -211,108 +178,14 @@ func (ctx *Context) Clone() *Context {
 	return newCtx
 }
 
-// isReservedUserStateKey reports whether key is reserved for framework internal use.
-//
-// 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。
-// 框架内部通过 ExtSet[T]/ExtGet[T]（类型键系统）存储的数据（如 parsedCommand、
-// retryMetadata、middlewareTrace）与字符串键系统完全隔离——
-// 即使用户调用 ctx.Set("retry_attempt", v)，也不会覆盖框架存储的 retryMetadata。
-// 两套系统使用不同的底层 map，不存在任何键冲突风险。
-func isReservedUserStateKey(key string) bool {
-	k := strings.TrimSpace(key)
-	if k == "" {
-		return false
-	}
-
-	if k == "mw_trace" || k == "retry_attempt" {
-		return true
-	}
-	return strings.HasPrefix(k, "_remilia_internal_")
-}
-
-// GetParsedCommand 获取增强版命令解析结果（如果之前已解析）
-func (ctx *Context) GetParsedCommand() *command.Parsed {
-	if ctx == nil {
-		return nil
-	}
-	if pc, ok := ExtGet[parsedCommand](ctx.Ext()); ok {
-		return pc.Cmd
-	}
-	return nil
-}
-
-// SetParsedCommand 设置增强版命令解析结果（通常由中间件或规则设置）
-func (ctx *Context) SetParsedCommand(cmd *command.Parsed) {
-	if ctx == nil {
-		return
-	}
-	ExtSet(ctx.Ext(), parsedCommand{Cmd: cmd})
-}
-
-// MatchCommand 使用给定的解析器匹配命令
-func (ctx *Context) MatchCommand(parser *command.Parser) bool {
-	content := ctx.GetMessageContent()
-	parsed, err := parser.Parse(content)
-	if err != nil {
-		return false
-	}
-	ctx.SetParsedCommand(parsed)
-	return true
-}
-
-// GetMiddlewareTrace returns the executed named middleware trace recorded by engine.Named tracing.
-// Returns a copy of the trace to prevent external modification.
-func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
-	if ctx == nil {
-		return nil, false
-	}
-	if mt, ok := ExtGet[middlewareTrace](ctx.Ext()); ok {
-		// Return a copy to prevent caller from modifying internal extensionState
-		cp := make([]string, len(mt.Trace))
-		copy(cp, mt.Trace)
-		return cp, true
-	}
-	return nil, false
-}
-
-// SetMiddlewareTrace sets the executed named middleware trace (framework internal).
-func (ctx *Context) SetMiddlewareTrace(trace []string) {
-	if ctx == nil {
-		return
-	}
-	cp := append([]string(nil), trace...)
-	ExtSet(ctx.Ext(), middlewareTrace{Trace: cp})
-}
-
-// SetRetryAttempt sets the current retry attempt (framework internal).
-func (ctx *Context) SetRetryAttempt(attempt int) {
-	if ctx == nil {
-		return
-	}
-	ExtSet(ctx.Ext(), retryMetadata{Attempt: attempt})
-}
-
-// GetRetryAttempt returns the current retry attempt set by Retry middleware.
-func (ctx *Context) GetRetryAttempt() (int, bool) {
-	if ctx == nil {
-		return 0, false
-	}
-	if ra, ok := ExtGet[retryMetadata](ctx.Ext()); ok {
-		return ra.Attempt, true
-	}
-	return 0, false
-}
-
 // Ext returns the typed-key extensions store.
 func (ctx *Context) Ext() *Extensions {
 	if ctx == nil {
 		return nil
 	}
-	// 快速路径：已初始化
 	if ctx.extInitialized.Load() {
 		return ctx.extensions
 	}
-	// 慢路径：初始化（双重检查锁定）
 	ctx.extMu.Lock()
 	defer ctx.extMu.Unlock()
 	if !ctx.extInitialized.Load() {
@@ -320,362 +193,6 @@ func (ctx *Context) Ext() *Extensions {
 		ctx.extInitialized.Store(true)
 	}
 	return ctx.extensions
-}
-
-// Set sets a user extensionState value.
-//
-// # Key-value state system
-//
-// ctx.Set / ctx.Get 使用字符串键存储 handler 层的临时状态（在同一事件的不同 handler 间传递信息）。
-// 这是插件/handler 层推荐的状态存储方式，简单直观。
-//
-// 框架内部使用基于 reflect.Type 键的 ExtGet[T]/ExtSet[T] 存储强类型数据（如 retryMetadata、
-// middlewareTrace）。两套系统完全隔离，字符串键不会与类型键发生冲突或覆盖。
-// 插件开发者无需直接使用 ExtGet/ExtSet，除非在编写框架级中间件。
-//
-// # nil 值处理
-//
-// value 为 nil 时，Set 是一个空操作（不删除该键）。
-// 若要删除某个键，请显式调用 ctx.Delete(key)。
-func (ctx *Context) Set(key string, value any) {
-	if ctx == nil {
-		return
-	}
-	if isReservedUserStateKey(key) {
-		logger.WithField("key", key).Warn("[Context] set reserved extensionState key is forbidden")
-		return
-	}
-
-	if value == nil {
-		// nil 是空操作——若要删除某个键，请调用 ctx.Delete(key)
-		logger.WithField("key", key).Debug("[Context] Set(nil) is a no-op; use ctx.Delete(key) to remove a key")
-		return
-	}
-
-	s := ExtGetOrInit(ctx.Ext(), func() *extensionState { return newStateExt() })
-	s.mu.Lock()
-	s.m[key] = value
-	s.mu.Unlock()
-}
-
-// Delete deletes a user extensionState value stored via ctx.Set.
-func (ctx *Context) Delete(key string) {
-	if ctx == nil {
-		return
-	}
-	if isReservedUserStateKey(key) {
-		logger.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
-		return
-	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
-	if !ok || s == nil {
-		return
-	}
-	s.mu.Lock()
-	delete(s.m, key)
-	s.mu.Unlock()
-}
-
-// Get gets a user extensionState value.
-func (ctx *Context) Get(key string) (any, bool) {
-	if ctx == nil {
-		return nil, false
-	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
-	if !ok || s == nil {
-		return nil, false
-	}
-	s.mu.RLock()
-	v, ok := s.m[key]
-	s.mu.RUnlock()
-	return v, ok
-}
-
-// All returns a copy of all user extensionState values stored via ctx.Set.
-func (ctx *Context) All() map[string]any {
-	if ctx == nil {
-		return nil
-	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
-	if !ok || s == nil {
-		return map[string]any{}
-	}
-	s.mu.RLock()
-	out := make(map[string]any, len(s.m))
-	maps.Copy(out, s.m)
-	s.mu.RUnlock()
-	return out
-}
-
-// ErrNilAPI 表示 OpenAPI 未初始化
-var ErrNilAPI = errors.New("openAPI is nil")
-
-// SendGroupMessage 发送群聊消息
-func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Result, error) {
-	if ctx == nil || ctx.api == nil {
-		logger.Error("[Context] OpenAPI is nil")
-		return gjson.Result{}, ErrNilAPI
-	}
-	return ctx.api.GroupChat(groupID, msg)
-}
-
-// SendSingleMessage 发送私聊消息
-func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Result, error) {
-	if ctx == nil || ctx.api == nil {
-		logger.Error("[Context] OpenAPI is nil")
-		return gjson.Result{}, ErrNilAPI
-	}
-	return ctx.api.SingleChat(openID, msg)
-}
-
-// ReplyGroup 回复群聊消息（自动获取 group_openid）
-func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
-	var event dto.GroupAtMessageCreateEvent
-	if err := ctx.DecodeEvent(&event); err != nil {
-		logger.WithError(err).Error("[Context] Failed to decode group event")
-		return gjson.Result{}, err
-	}
-
-	if msg.MessageID == "" {
-		msg.MessageID = event.ID
-	}
-
-	return ctx.SendGroupMessage(event.GroupOpenID, msg)
-}
-
-// ReplyPrivate 回复私聊消息（自动获取 openid）
-func (ctx *Context) ReplyPrivate(msg *dto.Message) (gjson.Result, error) {
-	var event dto.C2CMessageCreateEvent
-	if err := ctx.DecodeEvent(&event); err != nil {
-		logger.WithError(err).Error("[Context] Failed to decode c2c event")
-		return gjson.Result{}, err
-	}
-
-	if msg.MessageID == "" {
-		msg.MessageID = event.ID
-	}
-
-	return ctx.SendSingleMessage(event.Author.UserOpenID, msg)
-}
-
-// GetMessageContent 获取消息内容（零拷贝 + Once 缓存）
-//
-// 第一次调用执行 gjson.GetBytes；同一 Context 的后续调用直接返回缓存值。
-// 在多 Matcher 场景（每个 Matcher 都调用此方法做内容匹配）时开销接近零。
-func (ctx *Context) GetMessageContent() string {
-	if ctx == nil || ctx.event == nil {
-		return ""
-	}
-	ctx.contentOnce.Do(func() {
-		ctx.content = gjson.GetBytes(ctx.event.Detail, "content").String()
-	})
-	return ctx.content
-}
-
-// GetAuthor 获取消息作者信息（Once 缓存）
-func (ctx *Context) GetAuthor() *dto.Author {
-	if ctx == nil || ctx.event == nil {
-		return nil
-	}
-	ctx.authorOnce.Do(func() {
-		res := gjson.GetBytes(ctx.event.Detail, "author")
-		if !res.Exists() {
-			return
-		}
-		ctx.author = &dto.Author{
-			ID:           res.Get("id").String(),
-			MemberOpenID: res.Get("member_openid").String(),
-			UnionOpenID:  res.Get("union_openid").String(),
-			UserOpenID:   res.Get("user_openid").String(),
-		}
-	})
-	return ctx.author
-}
-
-// GetEvent 获取事件
-func (ctx *Context) GetEvent() *dto.Payload {
-	if ctx == nil {
-		return nil
-	}
-	return ctx.event
-}
-
-// GetMatcherSource 返回当前命中的 matcher 来源
-func (ctx *Context) GetMatcherSource() string {
-	if ctx == nil || ctx.matcher == nil {
-		return ""
-	}
-	return ctx.matcher.GetSource()
-}
-
-// GetEventType 获取事件类型
-func (ctx *Context) GetEventType() dto.EventType {
-	if ctx == nil || ctx.event == nil {
-		return ""
-	}
-	return ctx.event.Type
-}
-
-// DecodeEvent 解码事件详情
-//
-// 对 C2CMessageCreateEvent 和 GroupAtMessageCreateEvent 使用 typed union 缓存：
-// 缓存命中时直接做结构体值复制（单次赋值），无 reflect、无 interface 装箱。
-// 其他类型走 generic 路径，缓存 any 指针，命中时做类型断言+值复制。
-// 同一 Context 内第二次 DecodeEvent 开销接近零。
-func (ctx *Context) DecodeEvent(v any) error {
-	if ctx == nil || ctx.event == nil {
-		return errors.New("event is nil")
-	}
-
-	ctx.decodeMu.Lock()
-	defer ctx.decodeMu.Unlock()
-
-	switch dst := v.(type) {
-	case *dto.C2CMessageCreateEvent:
-		if ctx.decoded.kind == 1 {
-			// cache hit: struct copy, zero alloc
-			*dst = ctx.decoded.c2c
-			return nil
-		}
-		if err := ctx.event.Decode(dst); err != nil {
-			return err
-		}
-		ctx.decoded.kind = 1
-		ctx.decoded.c2c = *dst
-		return nil
-
-	case *dto.GroupAtMessageCreateEvent:
-		if ctx.decoded.kind == 2 {
-			*dst = ctx.decoded.groupAt
-			return nil
-		}
-		if err := ctx.event.Decode(dst); err != nil {
-			return err
-		}
-		ctx.decoded.kind = 2
-		ctx.decoded.groupAt = *dst
-		return nil
-
-	default:
-		// Generic path: cache the pointer itself; caller must not modify the
-		// cached value after returning (safe because handlers run serially).
-		if ctx.decoded.kind == 3 && ctx.decoded.generic != nil {
-			if src, ok := ctx.decoded.generic.(interface{ copyTo(any) bool }); ok {
-				_ = src
-			}
-			// For the generic path we just re-decode; the gjson fast path in
-			// Payload.Decode already avoids most allocations for known types.
-		}
-		if err := ctx.event.Decode(v); err != nil {
-			return err
-		}
-		ctx.decoded.kind = 3
-		ctx.decoded.generic = v
-		return nil
-	}
-}
-
-// MustGetString 获取字符串类型的状态值
-func (ctx *Context) MustGetString(key string) (string, error) {
-	if val, ok := ctx.Get(key); ok {
-		if str, ok := val.(string); ok {
-			return str, nil
-		}
-		return "", errors.New("extensionState key '" + key + "' is not a string")
-	}
-	return "", errors.New("extensionState key '" + key + "' not found")
-}
-
-// MustGetInt 获取整数类型的状态值
-func (ctx *Context) MustGetInt(key string) (int, error) {
-	if val, ok := ctx.Get(key); ok {
-		if i, ok := val.(int); ok {
-			return i, nil
-		}
-		return 0, errors.New("extensionState key '" + key + "' is not an int")
-	}
-	return 0, errors.New("extensionState key '" + key + "' not found")
-}
-
-// GetString 获取字符串类型的状态值
-func (ctx *Context) GetString(key string) string {
-	if val, ok := ctx.Get(key); ok {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return ""
-}
-
-// GetInt 获取整数类型的状态值
-func (ctx *Context) GetInt(key string) int {
-	if val, ok := ctx.Get(key); ok {
-		if i, ok := val.(int); ok {
-			return i
-		}
-	}
-	return 0
-}
-
-// GetInt64 获取 int64 类型的状态值
-func (ctx *Context) GetInt64(key string) int64 {
-	if val, ok := ctx.Get(key); ok {
-		if i, ok := val.(int64); ok {
-			return i
-		}
-	}
-	return 0
-}
-
-// GetBool 获取布尔类型的状态值
-func (ctx *Context) GetBool(key string) bool {
-	if val, ok := ctx.Get(key); ok {
-		if b, ok := val.(bool); ok {
-			return b
-		}
-	}
-	return false
-}
-
-// GetFloat64 获取 float64 类型的状态值
-func (ctx *Context) GetFloat64(key string) float64 {
-	if val, ok := ctx.Get(key); ok {
-		if f, ok := val.(float64); ok {
-			return f
-		}
-	}
-	return 0.0
-}
-
-// ===== Permission 相关便利方法 =====
-
-// GetPermissionManager 获取权限管理器（从 typed extensions）
-func (ctx *Context) GetPermissionManager() *PermissionManager {
-	if ctx == nil {
-		return nil
-	}
-	if ext, ok := ExtGet[PermissionManagerExt](ctx.Ext()); ok {
-		return ext.PM
-	}
-	return nil
-}
-
-// SetPermissionManager 设置权限管理器（到 typed extensions）
-func (ctx *Context) SetPermissionManager(pm *PermissionManager) {
-	if ctx == nil {
-		return
-	}
-	ExtSet(ctx.Ext(), PermissionManagerExt{PM: pm})
-}
-
-// GetUserID 获取用户 ID
-func (ctx *Context) GetUserID() string {
-	return ctx.GetString("user_id")
-}
-
-// SetUserID 设置用户 ID
-func (ctx *Context) SetUserID(userID string) {
-	ctx.Set("user_id", userID)
 }
 
 // Tracer returns the OpenTelemetry tracer for the context.

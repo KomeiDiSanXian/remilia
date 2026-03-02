@@ -360,15 +360,26 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.
 	return handlers[0]
 }
 
-// chainSignature computes an XOR fingerprint of all middleware function pointers
-// in the chain. Two chains with the same length but different middleware will
-// produce different signatures, enabling content-aware cache invalidation.
+// chainSignature computes an order-sensitive fingerprint of all middleware
+// function pointers in the chain using FNV-1a chained hashing.
+//
+// Unlike XOR-based fingerprints, this is ORDER-SENSITIVE:
+//   - chain [A, B] and [B, A] produce different signatures
+//   - chain [A, A] and [A] produce different signatures
+//
+// This ensures that reordering middleware correctly invalidates the compiled
+// chain cache, preventing stale handler chains from being used.
 func chainSignature(chain []Middleware) uint64 {
-	var sig uint64
+	const (
+		fnvOffset uint64 = 0xcbf29ce484222325
+		fnvPrime  uint64 = 0x100000001b3
+	)
+	h := fnvOffset
 	for _, m := range chain {
-		sig ^= uint64(reflect.ValueOf(m).Pointer())
+		ptr := uint64(reflect.ValueOf(m).Pointer())
+		h = (h ^ ptr) * fnvPrime
 	}
-	return sig
+	return h
 }
 
 // handlerID returns a stable numeric identity for a Handler function value
