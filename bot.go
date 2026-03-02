@@ -17,6 +17,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 const (
@@ -28,14 +29,15 @@ const (
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
-	engine       *engine.Engine
-	adapter      Adapter
-	lifecycle    *lifecycle.Manager
-	health       *health.Check
-	config       *Config
-	openAPI      openapi.OpenAPI // OpenAPI client for sending messages
-	tokenManager *token.Manager  // Token manager for lifecycle management
-	botInfo      *dto.BotInfo    // 保存 BotInfo，用于 Start() 时延迟初始化 tokenManager
+	engine        *engine.Engine
+	adapter       Adapter
+	lifecycle     *lifecycle.Manager
+	health        *health.Check
+	config        *Config
+	openAPI       openapi.OpenAPI // OpenAPI client for sending messages
+	tokenManager  *token.Manager  // Token manager for lifecycle management
+	botInfo       *dto.BotInfo    // 保存 BotInfo，用于 Start() 时延迟初始化 tokenManager
+	pluginManager *plugin.Manager // 插件管理器（可选，通过 UsePlugins 注入）
 
 	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
 	// Start() 时创建，Stop() 时取消，确保所有依赖组件随 Bot 一起退出
@@ -239,6 +241,14 @@ func (b *Bot) Start() error {
 	_ = oldOpenAPI
 
 	logger.Info("[Bot] Started successfully")
+
+	// 若已注入插件管理器，触发所有插件的 Setup（注册 Matcher、启动 goroutine 等）
+	if b.pluginManager != nil {
+		if err := b.pluginManager.StartAll(b.rootCtx); err != nil {
+			logger.WithError(err).Warn("[Bot] Some plugins failed to start")
+		}
+	}
+
 	return nil
 }
 
@@ -333,7 +343,16 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 	logger.Info("[Bot] Shutting down...")
 
-	// 先停止 lifecycle（包括 adapter.Stop 和 engine.Shutdown）
+	// 先停止插件（按逆序 Teardown），在 lifecycle（adapter/engine）停止之前完成
+	// 保证插件的 Teardown 函数可以正常访问 engine 和 adapter
+	if b.pluginManager != nil {
+		logger.Debug("[Bot] Stopping plugin manager...")
+		if err := b.pluginManager.StopAll(ctx); err != nil {
+			logger.WithError(err).Warn("[Bot] Some plugins failed to stop cleanly")
+		}
+	}
+
+	// 停止 lifecycle（包括 adapter.Stop 和 engine.Shutdown）
 	err := b.lifecycle.Stop(ctx)
 
 	// 取消根 context：通知所有与 Bot 绑定的后台 goroutine（token manager、adaptive limiter 等）退出
@@ -361,6 +380,32 @@ func (b *Bot) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 	return b.Stop(ctx)
+}
+
+// UsePlugins 注入插件管理器，将其生命周期与 Bot 绑定。
+//
+// 调用后：
+//   - Bot.Start() 会自动触发所有已注册插件的 Setup
+//   - Bot.Stop() 会自动按逆序触发所有插件的 Teardown
+//   - 插件 goroutine 随 Bot.Stop() 统一回收，无泄露风险
+//
+// 必须在 Bot.Start() 之前调用，支持链式调用：
+//
+//	bot.UsePlugins(pm).Start()
+//
+// 若需在 Build 阶段注入，使用 BotBuilder.WithPluginManager(pm)。
+func (b *Bot) UsePlugins(pm *plugin.Manager) *Bot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.pluginManager = pm
+	return b
+}
+
+// Plugins 返回已注入的插件管理器，未注入时返回 nil。
+func (b *Bot) Plugins() *plugin.Manager {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.pluginManager
 }
 
 // Engine 返回 Bot 的 Engine 实例

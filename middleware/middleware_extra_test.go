@@ -8,7 +8,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -145,7 +145,7 @@ func TestDedupRejectExtra(t *testing.T) {
 
 func TestRetryDeadLetterExtra(t *testing.T) {
 	t.Run("sends to dead letter", func(t *testing.T) {
-		dlCh := make(chan engine.DeadLetterItem, 10)
+		dlCh := make(chan dlq.DeadLetterItem, 10)
 		mw := RetryWithDeadLetter(RetryConfig{MaxAttempts: 2, BackoffBase: 10 * time.Millisecond}, dlCh)
 		handler := mw(mockHandler(errors.New("fail"), 0))
 		err := handler(createTestContext())
@@ -160,7 +160,7 @@ func TestRetryDeadLetterExtra(t *testing.T) {
 	})
 
 	t.Run("no dead letter on success", func(t *testing.T) {
-		dlCh := make(chan engine.DeadLetterItem, 10)
+		dlCh := make(chan dlq.DeadLetterItem, 10)
 		mw := RetryWithDeadLetter(RetryConfig{MaxAttempts: 3, BackoffBase: 10 * time.Millisecond}, dlCh)
 		handler := mw(mockHandler(nil, 0))
 		err := handler(createTestContext())

@@ -3,23 +3,37 @@ package remilia
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // BotBuilder 提供流畅的Bot构建接口
 //
+// 链式调用顺序无关：WithWebhook 与 WithBotInfo 可任意顺序调用，
+// adapter 的实际创建统一延迟到 Build() 阶段完成。
+//
 // 使用示例:
 //
-//	bot := remilia.NewBotBuilder().
+//	bot, err := remilia.NewBotBuilder().
 //	    WithBotInfo(botInfo).
 //	    WithWebhook(":8080").
 //	    WithName("my-bot").
 //	    Build()
+//
+// 或顺序颠倒同样正确:
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithWebhook(":8080").
+//	    WithBotInfo(botInfo).
+//	    WithName("my-bot").
+//	    Build()
 type BotBuilder struct {
-	adapter  Adapter
-	engine   *engine.Engine
-	botInfo  *dto.BotInfo
-	options  []Option
-	hasError error
+	adapter       Adapter
+	engine        *engine.Engine
+	botInfo       *dto.BotInfo
+	webhookAddr   string          // 延迟创建：仅保存地址，Build() 时统一初始化 adapter
+	pluginManager *plugin.Manager // 可选，通过 WithPluginManager 注入
+	options       []Option
+	hasError      error
 }
 
 // NewBotBuilder 创建Bot构建器
@@ -46,14 +60,16 @@ func (b *BotBuilder) WithAdapter(adapter Adapter) *BotBuilder {
 
 // WithWebhook 快速创建Webhook适配器
 //
+// 与 WithBotInfo 顺序无关，可在 WithBotInfo 之前或之后调用。
+// adapter 的实际创建在 Build() 阶段统一完成。
+//
+// 注意：若同时调用了 WithAdapter，WithAdapter 会覆盖 WithWebhook。
+//
 // 使用示例:
 //
 //	builder.WithWebhook(":8080")
 func (b *BotBuilder) WithWebhook(addr string) *BotBuilder {
-	if b.botInfo != nil {
-		b.adapter = NewWebhookServerAdapter(addr, b.botInfo)
-	}
-	// 如果botInfo还没设置，稍后在Build时处理
+	b.webhookAddr = addr
 	return b
 }
 
@@ -87,10 +103,42 @@ func (b *BotBuilder) WithOption(opt Option) *BotBuilder {
 	return b
 }
 
+// WithPluginManager 注入插件管理器，将其生命周期与 Bot 绑定。
+//
+// Build() 后，Bot.Start() 会自动触发所有插件的 Setup，
+// Bot.Stop() 会自动按逆序触发所有插件的 Teardown。
+//
+// 使用示例:
+//
+//	pm := plugin.NewManager(eng)
+//	pm.RegisterV2(myPlugin.New())
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithBotInfo(info).
+//	    WithWebhook(":8080").
+//	    WithPluginManager(pm).
+//	    Build()
+func (b *BotBuilder) WithPluginManager(pm *plugin.Manager) *BotBuilder {
+	b.pluginManager = pm
+	return b
+}
+
 // Build 构建Bot实例
+//
+// Build() 负责完成所有延迟初始化逻辑：
+//   - 若设置了 WithWebhook 地址且有 BotInfo，自动创建 WebhookServerAdapter
+//   - WithWebhook 与 WithBotInfo 的调用顺序不影响结果
 //
 // 如果构建过程中有错误，返回nil和错误
 func (b *BotBuilder) Build() (*Bot, error) {
+	// Build 阶段统一完成 webhook adapter 初始化（与调用顺序无关）
+	if b.adapter == nil && b.webhookAddr != "" {
+		if b.botInfo == nil {
+			return nil, ErrBotInfoRequired
+		}
+		b.adapter = NewWebhookServerAdapter(b.webhookAddr, b.botInfo)
+	}
+
 	// 验证必需参数
 	if b.adapter == nil {
 		return nil, ErrAdapterRequired
@@ -106,6 +154,11 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		bot = NewBotWithInfo(b.adapter, b.engine, b.botInfo, b.options...)
 	} else {
 		bot = NewBot(b.adapter, b.engine, b.options...)
+	}
+
+	// 注入插件管理器（若已配置）
+	if b.pluginManager != nil {
+		bot.UsePlugins(b.pluginManager)
 	}
 
 	return bot, nil

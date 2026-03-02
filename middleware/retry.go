@@ -6,8 +6,8 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -140,15 +140,18 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 // RetryWithDeadLetter 带死信队列的重试中间件
 // 超过最大重试次数后，将事件发送到死信队列
 //
+// deadLetterCh 的元素类型为 infra/dlq.DeadLetterItem，
+// 不再依赖 core/engine，符合分层原则：middleware → infra/dlq（而非 middleware → core/engine）。
+//
 // 使用示例:
 //
 //	// 1. 创建死信队列 channel
-//	deadLetterCh := make(chan core.DeadLetterItem, 128)
+//	deadLetterCh := make(chan dlq.DeadLetterItem, 128)
 //
 //	// 2. 启动消费者处理死信
 //	go func() {
 //	    for item := range deadLetterCh {
-//	        consumer := core.FileDeadLetterConsumer{Path: "deadletter.log"}
+//	        consumer := dlq.FileDeadLetterConsumer{Path: "deadletter.log"}
 //	        consumer.Consume(item)
 //	    }
 //	}()
@@ -158,7 +161,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
-func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterItem) eventctx.Middleware {
+func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.DeadLetterItem) eventctx.Middleware {
 	// 初始化默认值
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 3
@@ -189,7 +192,7 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan engine.DeadLetterIte
 
 				source := ctx.GetMatcherSource()
 
-				item := engine.DeadLetterItem{
+				item := dlq.DeadLetterItem{
 					Event:   ctx.GetEvent(),
 					Err:     err,
 					Attempt: attempt,

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,7 +208,7 @@ func TestRetry_BackoffMax(t *testing.T) {
 func TestRetry_ShouldRetry(t *testing.T) {
 	t.Run("skip_non_retryable_error", func(t *testing.T) {
 		var callCount atomic.Int32
-		blockErr := engine.NewBlockError("non-retryable")
+		blockErr := errutil.NewBlockError("non-retryable")
 
 		handler := func(ctx *eventctx.Context) error {
 			callCount.Add(1)
