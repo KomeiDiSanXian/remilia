@@ -3,7 +3,7 @@
 > 评审时间：2026-03-02  
 > 项目状态：**未发布（Pre-release）**，可接受破坏性重构  
 > 评审范围：`core`、`middleware`、`plugin`、`command` 及顶层 `Bot` 入口  
-> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 / P1-5 / P2-1 / P2-4 / P2-5 / P2-7 已完成
+> 最后更新：2026-03-02 — P0-1 / P0-2 / P0-3 / P1-1 / P1-2 / P1-3 / P1-4 / P1-5 / P2-1 / P2-4 / P2-5 / P2-6 / P2-7 已完成
 
 ---
 
@@ -716,10 +716,45 @@ fmt.Printf("total=%d  by_plugin=%v\n", summary.Total, summary.ByPlugin)
 
 ---
 
-#### P2-6：EventBus 泛型类型安全 API（待实现）
+#### P2-6：EventBus 泛型类型安全 API ✅ 已完成（2026-03-02）
 
-**文件**：`plugin/eventbus.go`  
-**目标**：`Subscribe[T any]` / `Publish[T any]` 泛型辅助函数，消除运行时类型断言。
+**变更文件**：`plugin/eventbus.go`（泛型 API 完整重写）、新增 `plugin/eventbus_typed_test.go`（20 个测试）
+
+**实际实现**：
+
+| 函数 / 类型 | 签名 | 说明 |
+|---|---|---|
+| `Subscribe[T]` | `(bus, topic, func(T)) → (Subscription, error)` | 类型安全订阅；类型不匹配时静默跳过 |
+| `MustSubscribe[T]` | `(bus, topic, func(T)) → Subscription` | 订阅，失败 panic（适用于 Setup 阶段） |
+| `SubscribeAllTyped[T]` | `(bus, func(T)) → (Subscription, error)` | 通配符订阅，只接收 T 类型事件 |
+| `PublishTyped[T]` | `(bus, topic, T) → error` | 编译期类型检查的 Publish |
+| `MustPublishTyped[T]` | `(bus, topic, T)` | 发布，失败 panic |
+| `TypedChannel[T]` | struct | topic + type 绑定契约对象 |
+| `NewTypedChannel[T]` | `(bus, topic) → TypedChannel[T]` | 创建通道（bus 可为 nil，用于全局契约常量） |
+| `TypedChannel.WithBus` | `(bus) → TypedChannel[T]` | 绑定真实 EventBus（不修改原对象，线程安全） |
+| `TypedChannel.Publish` | `(T) → error` | 类型安全发布 |
+| `TypedChannel.Subscribe` | `(func(T)) → (Subscription, error)` | 类型安全订阅 |
+| `TypedChannel.MustPublish` | `(T)` | 发布，失败 panic |
+| `TypedChannel.MustSubscribe` | `(func(T)) → Subscription` | 订阅，失败 panic |
+
+**推荐用法（跨插件事件契约）**：
+
+```go
+// events.go — 在共享类型文件中定义契约（bus=nil 表示"待绑定"）
+var UserLoginEvent = plugin.NewTypedChannel[UserLogin](nil, "user.login")
+
+// 发布方 Plugin（Setup 阶段）
+ch := UserLoginEvent.WithBus(ctx.EventBus)
+ch.MustPublish(UserLogin{UserID: "alice", IP: "1.2.3.4"})
+
+// 订阅方 Plugin（Setup 阶段）
+ch := UserLoginEvent.WithBus(ctx.EventBus)
+ch.MustSubscribe(func(e UserLogin) {
+    log.Printf("user %s logged in from %s", e.UserID, e.IP)
+})
+```
+
+**向后兼容**：所有泛型函数构建在现有 `EventBus` 接口之上，旧代码无需修改。`EventHandler = func(any)` 的原始 API 继续有效。
 
 ---
 
@@ -775,9 +810,10 @@ bot.Stop()  // 自动触发所有插件 Teardown（逆序）
 ✅ P2-5: permission.Role map 化（O(1) 查找）
 ✅ P2-7: 简化 Bot 构建路径（WithPlugins + NewBotWithDefault 委托）
 
+✅ P2-6: EventBus 泛型类型安全 API（Subscribe[T] / TypedChannel[T]）
+
 ⏳ P2-2: 插件声明式权限注册（待实现）
 ⏳ P2-3: 中间件链运行时可观测性（待实现）
-⏳ P2-6: EventBus 泛型类型安全 API（待实现）
 ⏳ P3:   长期演进项目（按需推进）
 ```
 
@@ -790,6 +826,7 @@ Remilia 框架的**内部机制质量较高**（COW 引擎、插件 DI 容器、
 - **O(1) 权限查找**：Role.permissions 改为 map
 - **命令系统双写一致**：commandIndex + Registry 自动同步
 - **全局可观测性**：ListAllGoroutines + GoroutineSummary
+- **类型安全 EventBus**：`TypedChannel[T]` 跨插件事件契约，编译期类型保证
 
 ```go
 // 重构后的使用体验

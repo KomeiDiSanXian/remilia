@@ -257,18 +257,40 @@ func (eb *eventBus) GetStats() EventBusStats {
 	return stats
 }
 
-// --- 类型安全的 EventBus 辅助函数 ---
+// --- 类型安全的 EventBus 泛型辅助函数 (P2-6) ---
+//
+// 设计目标：
+//   - 消除 EventHandler(func(any)) 中的运行时类型断言
+//   - 提供编译期类型检查，类型不匹配时直接编译失败（而非运行时 panic/静默忽略）
+//   - 向后兼容：所有泛型函数均构建在现有 EventBus 接口之上，不破坏旧代码
+//
+// 推荐用法：
+//
+//	// 1. 函数级辅助（轻量）
+//	sub, err := plugin.Subscribe[MyEvent](ctx.EventBus, "my.event", func(e MyEvent) { ... })
+//	err = plugin.PublishTyped(ctx.EventBus, "my.event", MyEvent{...})
+//
+//	// 2. TypedChannel（强约束，推荐跨插件事件契约）
+//	ch := plugin.NewTypedChannel[MyEvent](ctx.EventBus, "my.event")
+//	sub, err := ch.Subscribe(func(e MyEvent) { ... })
+//	err  = ch.Publish(MyEvent{...})
 
 // Subscribe 以类型安全的方式订阅事件。
-// 只有当事件数据可以断言为 T 时，handler 才会被调用；类型不匹配的事件被静默忽略。
 //
-//	// 订阅字符串类型的 plugin.loaded 事件
-//	plugin.Subscribe[string](ctx.EventBus, "plugin.loaded", func(name string) {
+// 只有当事件数据可成功断言为 T 时，handler 才会被调用。
+// 类型不匹配的事件被静默跳过（不 panic、不报错），便于同一 topic 传递多种类型时分层处理。
+//
+// 示例：
+//
+//	sub, err := plugin.Subscribe[string](ctx.EventBus, "plugin.loaded", func(name string) {
 //	    log.Printf("plugin loaded: %s", name)
 //	})
 func Subscribe[T any](bus EventBus, topic string, handler func(T)) (Subscription, error) {
 	if bus == nil {
 		return nil, fmt.Errorf("eventbus: bus is nil")
+	}
+	if handler == nil {
+		return nil, fmt.Errorf("eventbus: handler is nil")
 	}
 	return bus.Subscribe(topic, func(data any) {
 		if v, ok := data.(T); ok {
@@ -277,14 +299,129 @@ func Subscribe[T any](bus EventBus, topic string, handler func(T)) (Subscription
 	})
 }
 
-// PublishTyped 发布强类型事件（语义等同于 bus.Publish，增加编译期类型检查）。
+// MustSubscribe 订阅事件，失败时 panic。
 //
-//	plugin.PublishTyped(ctx.EventBus, "user.banned", userID)
+// 适用于初始化阶段（Setup）确信不会失败的订阅；
+// 返回 Subscription 方便链式调用或显式取消。
+//
+// 示例：
+//
+//	sub := plugin.MustSubscribe[UserEvent](ctx.EventBus, "user.login", func(e UserEvent) {
+//	    // handle login
+//	})
+func MustSubscribe[T any](bus EventBus, topic string, handler func(T)) Subscription {
+	sub, err := Subscribe[T](bus, topic, handler)
+	if err != nil {
+		panic(fmt.Sprintf("eventbus: MustSubscribe[%T] on topic %q failed: %v", *new(T), topic, err))
+	}
+	return sub
+}
+
+// SubscribeAllTyped 以类型安全的方式订阅所有主题（通配符订阅）。
+//
+// 收到任意 topic 的事件后，若 data 可断言为 T，则调用 handler；否则静默跳过。
+// 适用于"监听所有同类事件"的场景，如统计所有 *MetricEvent 类型的事件。
+//
+// 示例：
+//
+//	plugin.SubscribeAllTyped[MetricEvent](ctx.EventBus, func(e MetricEvent) {
+//	    metrics.Record(e)
+//	})
+func SubscribeAllTyped[T any](bus EventBus, handler func(T)) (Subscription, error) {
+	if bus == nil {
+		return nil, fmt.Errorf("eventbus: bus is nil")
+	}
+	if handler == nil {
+		return nil, fmt.Errorf("eventbus: handler is nil")
+	}
+	return bus.SubscribeAll(func(data any) {
+		if v, ok := data.(T); ok {
+			handler(v)
+		}
+	})
+}
+
+// PublishTyped 发布强类型事件。
+//
+// 语义等同于 bus.Publish(topic, data)，但增加编译期类型检查：
+// 调用点的 data 类型必须与泛型参数 T 匹配，否则编译失败。
+//
+// 示例：
+//
+//	err := plugin.PublishTyped(ctx.EventBus, "user.banned", userID) // userID 为 string
 func PublishTyped[T any](bus EventBus, topic string, data T) error {
 	if bus == nil {
 		return fmt.Errorf("eventbus: bus is nil")
 	}
 	return bus.Publish(topic, data)
+}
+
+// MustPublishTyped 发布强类型事件，失败时 panic。
+//
+// 适用于确信 Publish 不会失败（无 worker pool 溢出风险）的场景。
+func MustPublishTyped[T any](bus EventBus, topic string, data T) {
+	if err := PublishTyped[T](bus, topic, data); err != nil {
+		panic(fmt.Sprintf("eventbus: MustPublishTyped[%T] on topic %q failed: %v", data, topic, err))
+	}
+}
+
+// TypedChannel 将 topic 与类型 T 绑定为一个具名契约对象。
+//
+// TypedChannel 是跨插件事件契约的推荐方式：
+//   - 在共享的 types 包（或插件公共接口）中定义 TypedChannel 常量
+//   - 发布方和订阅方引用同一个 TypedChannel，杜绝 topic 字符串拼写错误
+//   - 编译期保证发布和订阅的类型一致
+//
+// 示例（跨插件事件契约）：
+//
+//	// 在共享类型文件中定义（如 events.go）
+//	var UserLoginEvent = plugin.NewTypedChannel[UserLogin](nil, "user.login")
+//
+//	// 发布方（在 Setup 中绑定真实的 EventBus）
+//	ch := UserLoginEvent.WithBus(ctx.EventBus)
+//	ch.Publish(UserLogin{UserID: "u123"})
+//
+//	// 订阅方
+//	ch := UserLoginEvent.WithBus(ctx.EventBus)
+//	ch.Subscribe(func(e UserLogin) { ... })
+type TypedChannel[T any] struct {
+	bus   EventBus
+	topic string
+}
+
+// NewTypedChannel 创建绑定了 topic 的类型安全通道。
+//
+// bus 可为 nil（用于定义全局契约常量），使用前需调用 WithBus 绑定真实 EventBus。
+func NewTypedChannel[T any](bus EventBus, topic string) TypedChannel[T] {
+	return TypedChannel[T]{bus: bus, topic: topic}
+}
+
+// WithBus 返回绑定了指定 EventBus 的新 TypedChannel（不修改原对象，线程安全）。
+func (tc TypedChannel[T]) WithBus(bus EventBus) TypedChannel[T] {
+	return TypedChannel[T]{bus: bus, topic: tc.topic}
+}
+
+// Topic 返回此通道绑定的 topic 字符串。
+func (tc TypedChannel[T]) Topic() string { return tc.topic }
+
+// Publish 向此通道发布一条强类型消息。
+func (tc TypedChannel[T]) Publish(data T) error {
+	return PublishTyped[T](tc.bus, tc.topic, data)
+}
+
+// Subscribe 订阅此通道的强类型消息。
+func (tc TypedChannel[T]) Subscribe(handler func(T)) (Subscription, error) {
+	return Subscribe[T](tc.bus, tc.topic, handler)
+}
+
+// MustPublish 发布消息，失败时 panic。
+func (tc TypedChannel[T]) MustPublish(data T) {
+	MustPublishTyped[T](tc.bus, tc.topic, data)
+}
+
+// MustSubscribe 订阅消息，失败时 panic。
+func (tc TypedChannel[T]) MustSubscribe(handler func(T)) Subscription {
+	return MustSubscribe[T](tc.bus, tc.topic, handler)
 }
 
 // --- DryRun no-op 实现 ---
