@@ -85,7 +85,7 @@ Remilia 的架构设计文档，深入理解框架内部。
 
 ### 📊 [05-reports](./05-reports/) — 质量报告
 
-- **[core-middleware-design-review.md](./05-reports/core-middleware-design-review.md)** — Core & Middleware 设计评审（P0/P1/P2 全部完成）
+- **[core-middleware-design-review.md](06-archived/core-middleware-design-review.md)** — Core & Middleware 设计评审（P0/P1/P2 全部完成）
 
 ---
 
@@ -105,7 +105,7 @@ Remilia 的架构设计文档，深入理解框架内部。
 | 了解最佳实践 | [最佳实践](./02-user-guides/BEST_PRACTICES.md) |
 | 配置机器人 | [配置快速参考](./02-user-guides/CONFIGURATION_QUICKREF.md) |
 | 了解框架架构 | [并发事件处理](./03-architecture/CONCURRENT_EVENT_PROCESSING.md) |
-| 查看设计评审 | [Core & Middleware 评审](./05-reports/core-middleware-design-review.md) |
+| 查看设计评审 | [Core & Middleware 评审](06-archived/core-middleware-design-review.md) |
 
 ---
 

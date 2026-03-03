@@ -229,7 +229,7 @@ bot.WaitForShutdown()
 - [命令系统集成](./docs/03-architecture/COMMAND_INTEGRATION_PLAN.md) — 命令解析器
 
 #### 📊 质量报告
-- [Core & Middleware 设计评审](./docs/05-reports/core-middleware-design-review.md) — P0/P1/P2 全部完成
+- [Core & Middleware 设计评审](docs/06-archived/core-middleware-design-review.md) — P0/P1/P2 全部完成
 
 ---
 

@@ -158,7 +158,7 @@
 阅读：
 - 所有架构文档
 - [最佳实践](../02-user-guides/BEST_PRACTICES.md)
-- [设计评审报告](../05-reports/core-middleware-design-review.md)
+- [设计评审报告](../06-archived/core-middleware-design-review.md)
 
 ---
 
