@@ -16,16 +16,9 @@ import (
 
 // LifecycleListener 插件生命周期监听器接口
 type LifecycleListener interface {
-	// OnPluginLoaded 插件加载完成时调用
 	OnPluginLoaded(name string)
-
-	// OnPluginUnloaded 插件卸载完成时调用
 	OnPluginUnloaded(name string)
-
-	// OnPluginReloaded 插件重载完成时调用
 	OnPluginReloaded(name string)
-
-	// OnPluginError 插件操作发生错误时调用
 	OnPluginError(name string, operation string, err error)
 }
 
@@ -34,7 +27,7 @@ type Manager struct {
 	plugins        map[string]*PluginInstance
 	coordinator    engine.PluginCoordinator
 	listeners      []LifecycleListener
-	configProvider ConfigProvider // 可选配置提供者，通过 WithConfigProvider 注入
+	configProvider ConfigProvider
 	loadOrder      []string
 	container      *Container
 	eventBus       EventBus
@@ -63,7 +56,6 @@ func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Ma
 	for _, opt := range opts {
 		opt(m)
 	}
-	// 若注入了 ConfigProvider，订阅配置变更
 	if m.configProvider != nil {
 		m.configProvider.OnConfigChange(m.propagateConfigChange)
 	}
@@ -106,17 +98,13 @@ func (pm *Manager) Disable(name string) error {
 		logger.Warnf("[pluginManager] Plugin %s is already disabled", name)
 		return nil
 	}
-
 	if state != Loaded {
 		return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, state)
 	}
 
-	// 暂停 engine 中该插件组的所有 Matcher 分发
 	if pm.coordinator != nil {
 		pm.coordinator.DisableGroup(name)
 	}
-
-	// 状态直接写入 PluginInstance，不再维护独立 disabled map
 	inst.SetState(Disabled)
 	logger.Infof("[pluginManager] Plugin %s disabled (matchers paused, container intact)", name)
 	return nil
@@ -131,17 +119,14 @@ func (pm *Manager) Enable(name string) error {
 	if !exists {
 		return errutil.ErrPluginNotFound
 	}
-
 	if inst.GetState() != Disabled {
 		logger.Warnf("[pluginManager] Plugin %s is not disabled (state: %s)", name, inst.GetState())
 		return nil
 	}
 
-	// 恢复 engine 中该插件组的 Matcher 分发
 	if pm.coordinator != nil {
 		pm.coordinator.EnableGroup(name)
 	}
-
 	inst.SetState(Loaded)
 	logger.Infof("[pluginManager] Plugin %s enabled (matchers resumed)", name)
 	return nil
@@ -240,81 +225,6 @@ func (pm *Manager) RemoveListener(listener LifecycleListener) {
 	pm.listeners = newListeners
 }
 
-// notifyLoaded 通知监听器插件已加载（P1-4: 每个回调加 panic recover）
-func (pm *Manager) notifyLoaded(name string) {
-	pm.mu.RLock()
-	listeners := make([]LifecycleListener, len(pm.listeners))
-	copy(listeners, pm.listeners)
-	bus := pm.eventBus
-	pm.mu.RUnlock()
-
-	for _, listener := range listeners {
-		safeNotify(name, "OnPluginLoaded", func() { listener.OnPluginLoaded(name) })
-	}
-	// 向 EventBus 发布生命周期事件（Bug 2.8：help 插件订阅此事件以清空缓存）
-	if bus != nil {
-		_ = bus.Publish("plugin.loaded", name)
-	}
-}
-
-// notifyUnloaded 通知监听器插件已卸载（P1-4: 每个回调加 panic recover）
-func (pm *Manager) notifyUnloaded(name string) {
-	pm.mu.RLock()
-	listeners := make([]LifecycleListener, len(pm.listeners))
-	copy(listeners, pm.listeners)
-	bus := pm.eventBus
-	pm.mu.RUnlock()
-
-	for _, listener := range listeners {
-		safeNotify(name, "OnPluginUnloaded", func() { listener.OnPluginUnloaded(name) })
-	}
-	if bus != nil {
-		_ = bus.Publish("plugin.unloaded", name)
-	}
-}
-
-// notifyReloaded 通知监听器插件已重载（P1-4: 每个回调加 panic recover）
-func (pm *Manager) notifyReloaded(name string) {
-	pm.mu.RLock()
-	listeners := make([]LifecycleListener, len(pm.listeners))
-	copy(listeners, pm.listeners)
-	bus := pm.eventBus
-	pm.mu.RUnlock()
-
-	for _, listener := range listeners {
-		safeNotify(name, "OnPluginReloaded", func() { listener.OnPluginReloaded(name) })
-	}
-	if bus != nil {
-		_ = bus.Publish("plugin.reloaded", name)
-	}
-}
-
-// notifyError 通知监听器插件操作发生错误（P1-4: 每个回调加 panic recover）
-func (pm *Manager) notifyError(name string, operation string, err error) {
-	pm.mu.RLock()
-	listeners := make([]LifecycleListener, len(pm.listeners))
-	copy(listeners, pm.listeners)
-	pm.mu.RUnlock()
-
-	for _, listener := range listeners {
-		safeNotify(name, "OnPluginError", func() { listener.OnPluginError(name, operation, err) })
-	}
-}
-
-// safeNotify 安全调用通知回调，捕获 panic 防止单个监听器崩溃影响整个通知链
-func safeNotify(pluginName, callback string, fn func()) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WithFields(logger.Fields{
-				"plugin":   pluginName,
-				"callback": callback,
-				"panic":    r,
-			}).Error("[pluginManager] LifecycleListener panic recovered")
-		}
-	}()
-	fn()
-}
-
 // Unregister 注销插件，返回错误信息
 func (pm *Manager) Unregister(name string) error {
 	pm.mu.Lock()
@@ -326,10 +236,7 @@ func (pm *Manager) Unregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
-	// 卸载插件
 	if err := inst.unload(pm.coordinator); err != nil {
-		// Unload 失败时，标记插件为 Error 状态，
-		// 防止插件在损坏状态下继续被 Reload/Get 等操作使用。
 		inst.SetState(Error)
 		pm.mu.Unlock()
 		pm.notifyError(name, "unload", err)
@@ -341,7 +248,7 @@ func (pm *Manager) Unregister(name string) error {
 	pm.mu.Unlock()
 
 	logger.Infof("[pluginManager] Plugin %s unregistered", name)
-	pm.notifyUnloaded(name) // 通知监听器（在锁外）
+	pm.notifyUnloaded(name)
 	return nil
 }
 
@@ -490,13 +397,10 @@ func (pm *Manager) Get(name string) (*PluginInstance, bool) {
 	if !exists {
 		return nil, false
 	}
-
-	// 正在加载时不对外暴露
 	if inst.GetState() == Loading {
 		logger.Warnf("[pluginManager] Plugin %s is currently loading, please wait", name)
 		return nil, false
 	}
-
 	return inst, true
 }
 
@@ -521,7 +425,6 @@ func (pm *Manager) GetMetadata(name string) (*Metadata, bool) {
 	if !exists {
 		return nil, false
 	}
-
 	return inst.Metadata(), true
 }
 
@@ -558,7 +461,6 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 		HasSaveState: inst.desc.effectiveAdvanced().SaveState != nil,
 	}
 
-	// 填充 EventBus 全局订阅数快照
 	pm.mu.RLock()
 	bus := pm.eventBus
 	pm.mu.RUnlock()
@@ -567,7 +469,6 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 		status.EventBusSubscriptions = stats.SubscriptionCount
 	}
 
-	// 填充活跃 goroutine 数量
 	inst.mu.RLock()
 	gm := inst.goroutineMgr
 	inst.mu.RUnlock()
@@ -639,10 +540,8 @@ func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 	pm.mu.RUnlock()
 
 	for _, inst := range instances {
-		component := pm.AsLifecycleComponent(inst)
-		lm.Register(component)
+		lm.Register(pm.AsLifecycleComponent(inst))
 	}
-
 	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(instances))
 	return nil
 }
@@ -681,170 +580,5 @@ func (pm *Manager) AsPluginInfo() PluginInfo {
 	return newPluginInfo(pm)
 }
 
-// ListPluginGoroutines 返回所有插件的受管后台 goroutine 信息快照。
-//
-// 仅包含通过 ctx.Go / ctx.GoNamed 启动的 goroutine，不包含系统级 goroutine。
-// 每个条目的 Uptime 字段自动填充（查询时间 - StartTime）。
-//
-// Deprecated: 使用 ListAllGoroutines 替代（语义更清晰，两者功能相同）。
-func (pm *Manager) ListPluginGoroutines() []GoroutineInfo {
-	return pm.ListAllGoroutines()
-}
-
-// ListAllGoroutines 返回所有插件的受管后台 goroutine 全局聚合视图。
-//
-// 使用场景：
-//   - 调试：检查所有后台任务是否正常运行
-//   - 监控：接入指标系统，统计 goroutine 总数和各插件占比
-//   - 泄漏排查：对比 StartAll 前后的 goroutine 列表
-//
-// 返回值：
-//   - 按插件名排序的 GoroutineInfo 切片
-//   - 每条记录包含：Name、Plugin、StartTime、Uptime（查询时自动填充）
-//   - 若所有插件均无后台 goroutine，返回空切片（非 nil）
-//
-// 线程安全：内部使用 RLock，可并发调用。
-func (pm *Manager) ListAllGoroutines() []GoroutineInfo {
-	now := time.Now()
-
-	pm.mu.RLock()
-	instances := make([]*PluginInstance, 0, len(pm.plugins))
-	for _, inst := range pm.plugins {
-		instances = append(instances, inst)
-	}
-	pm.mu.RUnlock()
-
-	result := make([]GoroutineInfo, 0)
-	for _, inst := range instances {
-		inst.mu.RLock()
-		gm := inst.goroutineMgr
-		inst.mu.RUnlock()
-		if gm == nil {
-			continue
-		}
-		for _, g := range gm.listGoroutines() {
-			g.Uptime = now.Sub(g.StartTime)
-			result = append(result, g)
-		}
-	}
-	return result
-}
-
-// GoroutineSummary 汇总所有插件 goroutine 的统计信息。
-type GoroutineSummary struct {
-	// Total 受管 goroutine 总数
-	Total int
-	// ByPlugin 各插件的 goroutine 数量
-	ByPlugin map[string]int
-}
-
-// GoroutineSummary 返回所有插件 goroutine 的聚合统计（不返回详细列表，开销更低）。
-func (pm *Manager) GoroutineSummary() GoroutineSummary {
-	all := pm.ListAllGoroutines()
-	summary := GoroutineSummary{
-		Total:    len(all),
-		ByPlugin: make(map[string]int),
-	}
-	for _, g := range all {
-		summary.ByPlugin[g.Plugin]++
-	}
-	return summary
-}
-
-// StartAll 启动所有已通过 RegisterV2 预注册（Unloaded 状态）的插件。
-//
-// 通常由 Bot.Start() 自动调用，无需手动调用。
-// 若某个插件 Setup 失败，继续尝试其余插件并收集错误，最终返回合并错误。
-// 已处于 Loaded 状态的插件会跳过（幂等）。
-func (pm *Manager) StartAll(ctx context.Context) error {
-	pm.mu.RLock()
-	names := make([]string, len(pm.loadOrder))
-	copy(names, pm.loadOrder)
-	pm.mu.RUnlock()
-
-	var errs []error
-	for _, name := range names {
-		pm.mu.RLock()
-		inst, exists := pm.plugins[name]
-		pm.mu.RUnlock()
-		if !exists {
-			continue
-		}
-		if inst.GetState() == Loaded {
-			continue // 已加载，跳过
-		}
-		if err := inst.load(pm.coordinator); err != nil {
-			logger.WithError(err).Errorf("[pluginManager] StartAll: plugin %s failed to start", name)
-			pm.notifyError(name, "start", err)
-			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))
-		} else {
-			inst.SetState(Loaded)
-			pm.notifyLoaded(name)
-		}
-	}
-
-	if len(errs) > 0 {
-		msgs := make([]string, len(errs))
-		for i, e := range errs {
-			msgs[i] = e.Error()
-		}
-		return fmt.Errorf("StartAll: %d plugin(s) failed: %v", len(errs), msgs)
-	}
-	return nil
-}
-
-// StopAll 按逆加载顺序停止所有已加载插件，调用各插件的 Teardown。
-//
-// 通常由 Bot.Stop() 自动调用，无需手动调用。
-// 若某个插件 Teardown 失败，继续处理其余插件并收集错误。
-func (pm *Manager) StopAll(ctx context.Context) error {
-	pm.mu.RLock()
-	// 逆序：最后加载的最先卸载
-	order := make([]string, len(pm.loadOrder))
-	copy(order, pm.loadOrder)
-	pm.mu.RUnlock()
-
-	var errs []error
-	// 从后往前遍历
-	for i := len(order) - 1; i >= 0; i-- {
-		name := order[i]
-		pm.mu.RLock()
-		inst, exists := pm.plugins[name]
-		pm.mu.RUnlock()
-		if !exists {
-			continue
-		}
-		if inst.GetState() != Loaded && inst.GetState() != Disabled {
-			continue
-		}
-		if err := inst.unload(pm.coordinator); err != nil {
-			logger.WithError(err).Errorf("[pluginManager] StopAll: plugin %s failed to stop", name)
-			pm.notifyError(name, "stop", err)
-			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))
-		} else {
-			pm.notifyUnloaded(name)
-		}
-	}
-
-	// 停止 Manager 自身的后台 goroutine
-	pm.Shutdown()
-
-	if len(errs) > 0 {
-		msgs := make([]string, len(errs))
-		for i, e := range errs {
-			msgs[i] = e.Error()
-		}
-		return fmt.Errorf("StopAll: %d plugin(s) failed: %w", len(errs), errs[0])
-	}
-	return nil
-}
-
-// Shutdown 停止 Manager 管理的所有内部后台 goroutine（如 notifyDependents 等元数据 goroutine）。
-//
-// 在进程退出前调用，防止 goroutine 泄漏导致 data race。
-// 注意：此方法不卸载插件（如需卸载，请先调用 StopAll 或 UnregisterAll）。
-func (pm *Manager) Shutdown() {
-	if pm.metaGM != nil {
-		pm.metaGM.stopAndWait()
-	}
-}
+// unused import guard — time is used by manager_goroutines.go in the same package
+var _ = time.Now

@@ -163,7 +163,9 @@ func (rc *regexCacheStore) put(pattern string, re *regexp.Regexp) {
 // pattern: 正则表达式模式
 //
 // 注意:
-//   - 如果正则表达式无效会 panic，生产环境建议使用 OnRegexSafe
+//   - 如果正则表达式无效会 panic（内部使用 regexp.MustCompile）
+//   - 仅在模式为编译期已知的常量字符串时使用此函数
+//   - 处理用户输入或运行时拼接的模式时，请改用 [OnRegexSafe]（返回 error，不 panic）
 //   - 缓存最多保存 1000 个正则表达式，超过后会使用 LRU 策略淘汰
 //
 // 性能优化: 相同模式只编译一次，后续调用直接从缓存获取
@@ -188,10 +190,11 @@ func OnRegex(pattern string) Rule {
 	}
 }
 
-// OnRegexSafe 安全的正则表达式匹配(返回错误，带缓存)
+// OnRegexSafe 安全的正则表达式匹配（返回 error，带缓存）
 //
-// 用于处理用户输入的正则表达式或不确定的模式。
-// 与 OnRegex 不同，此方法在正则表达式无效时返回错误而不是 panic。
+// 用于处理用户输入的正则表达式或运行时拼接的不确定模式。
+// 与 [OnRegex] 不同，此函数在正则表达式无效时返回 (nil, error) 而不是 panic，
+// 适合生产环境中需要对外暴露正则配置的场景。
 //
 // 注意: 缓存最多保存 1000 个正则表达式，超过后会使用 LRU 策略淘汰
 func OnRegexSafe(pattern string) (Rule, error) {

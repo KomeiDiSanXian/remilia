@@ -171,7 +171,7 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 					}
 					if event != nil {
 						// 安全调用 handler
-						safeHandleEvent(handler, event)
+						safeHandle(handler, event)
 					}
 				}
 			}
@@ -262,10 +262,4 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 		logger.Warn("[WebhookServerAdapter] Stop timeout")
 		return ctx.Err()
 	}
-}
-
-// safeHandleEvent 安全地调用事件处理器，捕获 panic。
-// 改进 3.8：统一使用 adapter.go 中的 safeHandle，消除重复代码。
-func safeHandleEvent(handler func(*dto.Payload), event *dto.Payload) {
-	safeHandle(handler, event)
 }

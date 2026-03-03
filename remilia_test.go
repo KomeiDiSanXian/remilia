@@ -310,7 +310,6 @@ func TestBot_Engine(t *testing.T) {
 	bot := NewBot(adapter, eng)
 
 	assert.Equal(t, eng, bot.Engine())
-	assert.Equal(t, eng, bot.GetEngine())
 }
 
 // TestBot_Config tests getting config

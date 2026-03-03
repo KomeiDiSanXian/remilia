@@ -53,7 +53,12 @@ var (
 	ErrPluginLoadFailed    = errors.New("plugin load failed")
 	ErrPluginUnloadFailed  = errors.New("plugin unload failed")
 
-	// Bot errors
+	// Bot build errors（根包 errors.go 通过别名引用，保持 API 兼容）
+	ErrAdapterRequired = errors.New("adapter is required")
+	ErrEngineRequired  = errors.New("engine is required")
+	ErrBotInfoRequired = errors.New("bot info is required")
+
+	// Bot runtime errors
 	ErrBotAlreadyRunning  = errors.New("bot already running")
 	ErrBotNotRunning      = errors.New("bot not running")
 	ErrBotShutdownTimeout = errors.New("bot shutdown timeout")

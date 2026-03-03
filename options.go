@@ -7,6 +7,13 @@ import (
 // Option Bot 配置选项函数类型
 type Option func(*Bot)
 
+// ensureConfig 确保 b.config 不为 nil（内部工具函数）
+func ensureConfig(b *Bot) {
+	if b.config == nil {
+		b.config = &Config{}
+	}
+}
+
 // WithConfig 设置 Bot 配置
 func WithConfig(config *Config) Option {
 	return func(b *Bot) {
@@ -19,6 +26,7 @@ func WithConfig(config *Config) Option {
 // WithName 设置 Bot 名称
 func WithName(name string) Option {
 	return func(b *Bot) {
+		ensureConfig(b)
 		b.config.Name = name
 	}
 }
@@ -26,6 +34,7 @@ func WithName(name string) Option {
 // WithVersion 设置 Bot 版本
 func WithVersion(version string) Option {
 	return func(b *Bot) {
+		ensureConfig(b)
 		b.config.Version = version
 	}
 }
@@ -33,6 +42,7 @@ func WithVersion(version string) Option {
 // WithDebug 设置调试模式
 func WithDebug(debug bool) Option {
 	return func(b *Bot) {
+		ensureConfig(b)
 		b.config.Debug = debug
 	}
 }

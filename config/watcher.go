@@ -249,8 +249,17 @@ func (w *Watcher) reload() error {
 		return fmt.Errorf("failed to load new config: %w", err)
 	}
 
-	// 稳定性校验：等待 50ms 后再次读取，确认文件已完整写入
-	time.Sleep(50 * time.Millisecond)
+	// 稳定性校验：等待 50ms 后再次读取，确认文件已完整写入。
+	// 使用 context-aware 的等待，确保 Watcher 停止时可立即退出。
+	stabilityTimer := time.NewTimer(50 * time.Millisecond)
+	select {
+	case <-stabilityTimer.C:
+		// 正常等待完成，继续二次读取
+	case <-w.ctx.Done():
+		stabilityTimer.Stop()
+		return nil
+	}
+	stabilityTimer.Stop()
 	newConfig2, err2 := loadRaw(w.configPath)
 	if err2 != nil {
 		// 二次读取失败通常意味着文件仍在写入，保留第一次的结果继续尝试

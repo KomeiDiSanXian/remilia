@@ -446,8 +446,16 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 				if priority < PriorityHigh {
 					ad.delayedEvents.Add(1)
 					ad.metrics.eventsTotal.WithLabelValues("delayed").Inc()
-					// 延迟处理
-					time.Sleep(100 * time.Millisecond)
+					// 延迟处理：使用 context-aware 等待，避免 goroutine 在高并发下堆积
+					delayTimer := time.NewTimer(100 * time.Millisecond)
+					select {
+					case <-delayTimer.C:
+						// 延迟完成，继续处理
+					case <-ctx.Context().Done():
+						delayTimer.Stop()
+						return ctx.Context().Err()
+					}
+					delayTimer.Stop()
 				}
 			case DegradationSimplify:
 				// 简化处理（可以在业务层实现）

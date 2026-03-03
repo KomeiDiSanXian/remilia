@@ -97,7 +97,7 @@ func TestCaptureTrace(t *testing.T) {
 	tmpDir := t.TempDir()
 	filename := tmpDir + "/trace.out"
 
-	err := remilia.CaptureTrace(100*time.Millisecond, filename)
+	err := remilia.CaptureTrace(context.Background(), 100*time.Millisecond, filename)
 	assert.NoError(t, err)
 
 	// 验证文件创建

@@ -73,6 +73,17 @@ type DeadLetterQueue struct {
 }
 
 func NewDeadLetterQueue(config DeadLetterQueueConfig) *DeadLetterQueue {
+	return NewDeadLetterQueueWithContext(context.Background(), config)
+}
+
+// NewDeadLetterQueueWithContext 创建带父 context 的 DeadLetterQueue。
+//
+// 当父 context 取消时（例如 Bot.Stop() 触发 rootCtx 取消），DLQ 会停止
+// 接受新的入队请求，并等待已入队的消息处理完毕。
+// 推荐在 Bot 场景下使用此构造函数，将 DLQ 生命周期与 Bot 绑定：
+//
+//	dlq := dlq.NewDeadLetterQueueWithContext(bot.Context(), cfg)
+func NewDeadLetterQueueWithContext(parent context.Context, config DeadLetterQueueConfig) *DeadLetterQueue {
 	if config.MaxSize <= 0 {
 		config.MaxSize = 10000
 	}
@@ -80,7 +91,7 @@ func NewDeadLetterQueue(config DeadLetterQueueConfig) *DeadLetterQueue {
 		config.Workers = 1
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 
 	dlq := &DeadLetterQueue{
 		config:    config,

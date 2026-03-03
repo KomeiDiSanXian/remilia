@@ -226,40 +226,6 @@ type Component interface {
 	OnStop(ctx context.Context) error
 }
 
-// State 表示生命周期状态
-type State int
-
-const (
-	// StateCreated 组件已创建但未启动
-	StateCreated State = iota
-	// StateStarting 组件正在启动
-	StateStarting
-	// StateRunning 组件正在运行
-	StateRunning
-	// StateStopping 组件正在停止
-	StateStopping
-	// StateStopped 组件已停止
-	StateStopped
-)
-
-// String 返回状态的字符串表示
-func (s State) String() string {
-	switch s {
-	case StateCreated:
-		return "created"
-	case StateStarting:
-		return "starting"
-	case StateRunning:
-		return "running"
-	case StateStopping:
-		return "stopping"
-	case StateStopped:
-		return "stopped"
-	default:
-		return "unknown"
-	}
-}
-
 // ComponentStatus 记录单个组件的运行时状态
 type ComponentStatus struct {
 	Name    string
@@ -666,42 +632,4 @@ func (m *Manager) RunContext() (context.Context, bool) {
 	}
 
 	return nil, false
-}
-
-// StartError 表示启动错误
-type StartError struct {
-	Component string
-	Phase     string
-	Err       error
-}
-
-func (e *StartError) Error() string {
-	return fmt.Sprintf("Lifecycle: component '%s' %s failed: %v", e.Component, e.Phase, e.Err)
-}
-
-func (e *StartError) Unwrap() error {
-	return e.Err
-}
-
-// StopError 表示停止错误
-type StopError struct {
-	Err error
-}
-
-func (e *StopError) Error() string {
-	return fmt.Sprintf("Lifecycle: stop failed: %v", e.Err)
-}
-
-func (e *StopError) Unwrap() error {
-	return e.Err
-}
-
-// ErrInvalidState 表示无效的状态转换
-type ErrInvalidState struct {
-	Current  State
-	Expected State
-}
-
-func (e ErrInvalidState) Error() string {
-	return fmt.Sprintf("Lifecycle: invalid state: current=%s, expected=%s", e.Current, e.Expected)
 }

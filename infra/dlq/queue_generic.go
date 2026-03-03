@@ -102,7 +102,10 @@ type Queue[T any] struct {
 	closeOnce   sync.Once
 }
 
-// New creates a new generic dead letter queue.
+// New creates a new generic dead letter queue with context.Background() as parent.
+//
+// For Bot scenarios, use [NewWithContext] to bind the DLQ lifetime to the Bot's
+// root context so it stops automatically when the Bot stops.
 //
 // Default values:
 //   - MaxSize: 10000 if not specified
@@ -115,6 +118,17 @@ type Queue[T any] struct {
 //	    Workers: 2,
 //	})
 func New[T any](config Config[T]) *Queue[T] {
+	return NewWithContext[T](context.Background(), config)
+}
+
+// NewWithContext creates a new generic dead letter queue with the given parent context.
+//
+// When the parent context is cancelled (e.g. by Bot.Stop()), the DLQ stops
+// accepting new items and waits for already-queued items to be processed.
+// Recommended for Bot scenarios to tie the DLQ lifetime to the Bot:
+//
+//	dlq := dlq.NewWithContext[*MyData](bot.Context(), dlq.Config[*MyData]{...})
+func NewWithContext[T any](parent context.Context, config Config[T]) *Queue[T] {
 	if config.MaxSize <= 0 {
 		config.MaxSize = 10000
 	}
@@ -122,7 +136,7 @@ func New[T any](config Config[T]) *Queue[T] {
 		config.Workers = 1
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parent)
 
 	q := &Queue[T]{
 		config:       config,

@@ -11,16 +11,10 @@ import (
 // 在行为上完全等价。
 //
 // 若不需要指定 Webhook 地址，请直接使用 NewBotBuilder()。
-func NewBotWithDefault(info *dto.BotInfo, opts ...Option) *Bot {
+func NewBotWithDefault(info *dto.BotInfo, opts ...Option) (*Bot, error) {
 	b := NewBotBuilder().WithBotInfo(info)
 	for _, opt := range opts {
 		b.WithOption(opt)
 	}
-	bot, err := b.Build()
-	if err != nil {
-		// BotInfo 已设置但无 adapter：Build 不会报错（无 webhookAddr 也合法）；
-		// 若未来 Build 加更多验证，此处以 panic 告知用户（与旧行为一致）。
-		panic("[Bot] NewBotWithDefault failed: " + err.Error())
-	}
-	return bot
+	return b.Build()
 }

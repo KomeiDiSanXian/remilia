@@ -218,7 +218,13 @@ func (p *PprofServer) captureCPUProfile(timestamp string) error {
 		return err
 	}
 
-	time.Sleep(p.config.ProfileDuration)
+	// 使用 select 替代裸 time.Sleep，支持 Stop() 时提前中止 CPU 采集
+	timer := time.NewTimer(p.config.ProfileDuration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-p.stopCh:
+	}
 	pprof.StopCPUProfile()
 
 	return nil
@@ -329,7 +335,10 @@ func StartPprofServer(addr string) error {
 }
 
 // CaptureTrace 捕获执行追踪
-func CaptureTrace(duration time.Duration, filename string) error {
+//
+// ctx 可用于提前中止追踪（例如收到停止信号时）。
+// 传入 context.Background() 则等待完整的 duration。
+func CaptureTrace(ctx context.Context, duration time.Duration, filename string) error {
 	f, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -340,7 +349,12 @@ func CaptureTrace(duration time.Duration, filename string) error {
 		return err
 	}
 
-	time.Sleep(duration)
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 	trace.Stop()
 
 	return nil

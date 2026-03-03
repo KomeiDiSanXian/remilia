@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/spf13/viper"
@@ -298,16 +297,12 @@ func Load(path string) (*Config, error) {
 		return nil, errutil.Wrapf(err, "failed to parse config file")
 	}
 
-	// 验证必填字段
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	// 创建配置的副本以防止外部修改
 	cfgCopy := cfg
 	globalConfig.Store(&cfgCopy)
-
-	// 通知所有已注册的监听器
 	notifyListeners(&cfgCopy)
 
 	return &cfgCopy, nil
@@ -324,12 +319,11 @@ func Get() (*Config, bool) {
 	if !ok || cfg == nil {
 		return nil, false
 	}
-	// 返回副本以防止外部修改
 	cfgCopy := *cfg
 	return &cfgCopy, true
 }
 
-// MustGet 获取全局配置，如果未加载则panic
+// MustGet 获取全局配置，如果未加载则 panic
 // 仅在确定已加载配置的场景下使用
 func MustGet() *Config {
 	cfg, ok := Get()
@@ -339,468 +333,15 @@ func MustGet() *Config {
 	return cfg
 }
 
-// Validate 验证配置的有效性
-//
-// 验证规则：
-// - Bot 配置：必填字段验证
-// - Server 配置：端口范围验证
-// - Log 配置：级别和格式验证
-// - Concurrency 配置：参数范围验证
-// - Retry 配置：参数有效性验证
-// - Middleware 配置：参数合理性验证
-func (c *Config) Validate() error {
-	// 验证 Bot 配置
-	if err := c.Bot.Validate(); err != nil {
-		return fmt.Errorf("invalid bot config: %w", err)
-	}
-
-	// 验证 Server 配置
-	if err := c.Server.Validate(); err != nil {
-		return fmt.Errorf("invalid server config: %w", err)
-	}
-
-	// 验证 Log 配置
-	if err := c.Log.Validate(); err != nil {
-		return fmt.Errorf("invalid log config: %w", err)
-	}
-
-	// 验证 Concurrency 配置
-	if err := c.Concurrency.Validate(); err != nil {
-		return fmt.Errorf("invalid concurrency config: %w", err)
-	}
-
-	// 验证 Retry 配置
-	if err := c.Retry.Validate(); err != nil {
-		return fmt.Errorf("invalid retry config: %w", err)
-	}
-
-	// 验证 Middleware 配置
-	if err := c.Middleware.Validate(); err != nil {
-		return fmt.Errorf("invalid middleware config: %w", err)
-	}
-
-	// 验证 DeadLetter 配置
-	if err := c.DeadLetter.Validate(); err != nil {
-		return fmt.Errorf("invalid dead_letter config: %w", err)
-	}
-
-	// 验证 Webhook 配置
-	if err := c.Webhook.Validate(); err != nil {
-		return fmt.Errorf("invalid webhook config: %w", err)
-	}
-
-	// 验证 Token 配置
-	if err := c.Token.Validate(); err != nil {
-		return fmt.Errorf("invalid token config: %w", err)
-	}
-
-	// 验证 engine 配置
-	if err := c.Engine.Validate(); err != nil {
-		return fmt.Errorf("invalid engine config: %w", err)
-	}
-
-	// 验证 Degradation 配置
-	if err := c.Degradation.Validate(); err != nil {
-		return fmt.Errorf("invalid degradation config: %w", err)
-	}
-
-	// 验证 Tracing 配置
-	if err := c.Tracing.Validate(); err != nil {
-		return fmt.Errorf("invalid tracing config: %w", err)
-	}
-
-	return nil
-}
-
-// Validate 验证 Bot 配置
-func (bc *BotConfig) Validate() error {
-	if bc.AppID == 0 {
-		return fmt.Errorf("bot.app_id is required and must be non-zero")
-	}
-	if bc.BotID == 0 {
-		return fmt.Errorf("bot.bot_id is required and must be non-zero")
-	}
-	if bc.Token == "" {
-		return fmt.Errorf("bot.token is required and cannot be empty")
-	}
-	if bc.Secret == "" {
-		return fmt.Errorf("bot.secret is required and cannot be empty")
-	}
-	return nil
-}
-
-// Validate 验证 Server 配置
-func (sc *ServerConfig) Validate() error {
-	if sc.Port < 1 || sc.Port > 65535 {
-		return fmt.Errorf("server.port must be between 1-65535, got %d", sc.Port)
-	}
-	// Host 允许为空，默认为 0.0.0.0
-
-	// 验证 ShutdownTimeout 格式
-	if sc.ShutdownTimeout != "" {
-		if _, err := time.ParseDuration(sc.ShutdownTimeout); err != nil {
-			return fmt.Errorf("server.shutdown_timeout is not a valid duration: %w", err)
-		}
-	}
-	return nil
-}
-
-// Validate 验证 Log 配置
-func (lc *LogConfig) Validate() error {
-	validLevels := map[string]bool{
-		"debug": true, "info": true, "warn": true, "error": true, "fatal": true, "panic": true,
-	}
-	if lc.Level != "" && !validLevels[lc.Level] {
-		return fmt.Errorf("log.level must be one of [debug, info, warn, error, fatal, panic], got '%s'", lc.Level)
-	}
-
-	validFormats := map[string]bool{
-		"text": true, "json": true,
-	}
-	if lc.Format != "" && !validFormats[lc.Format] {
-		return fmt.Errorf("log.format must be one of [text, json], got '%s'", lc.Format)
-	}
-
-	return nil
-}
-
-// Validate 验证 Concurrency 配置
-func (cc *ConcurrencyConfig) Validate() error {
-	if cc.Limit < 0 {
-		return fmt.Errorf("concurrency.limit must be >= 0, got %d", cc.Limit)
-	}
-
-	validPolicies := map[string]bool{
-		"drop": true, "block": true, "trywait": true, "": true,
-	}
-	if !validPolicies[cc.Policy] {
-		return fmt.Errorf("concurrency.policy must be one of [drop, block, trywait], got '%s'", cc.Policy)
-	}
-
-	// 验证 WaitTimeout 格式（如果设置）
-	if cc.WaitTimeout != "" {
-		if _, err := time.ParseDuration(cc.WaitTimeout); err != nil {
-			return fmt.Errorf("concurrency.wait_timeout is not a valid duration: %w", err)
-		}
-	}
-
-	if cc.EventBuffer < 0 {
-		return fmt.Errorf("concurrency.event_buffer must be >= 0, got %d", cc.EventBuffer)
-	}
-
-	return nil
-}
-
-// Validate 验证 Retry 配置
-func (rc *RetryConfig) Validate() error {
-	if rc.Enable {
-		if rc.MaxAttempts < 1 {
-			return fmt.Errorf("retry.max_attempts must be >= 1 when retry is enabled, got %d", rc.MaxAttempts)
-		}
-
-		// 验证 BackoffBase 格式
-		if rc.BackoffBase != "" {
-			if _, err := time.ParseDuration(rc.BackoffBase); err != nil {
-				return fmt.Errorf("retry.backoff_base is not a valid duration: %w", err)
-			}
-		}
-
-		// 验证 BackoffMax 格式
-		if rc.BackoffMax != "" {
-			if _, err := time.ParseDuration(rc.BackoffMax); err != nil {
-				return fmt.Errorf("retry.backoff_max is not a valid duration: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-// Validate 验证 Middleware 配置
-func (mc *MiddlewareConfig) Validate() error {
-	if mc.RateLimit {
-		if mc.RateLimitRate < 0 {
-			return fmt.Errorf("middleware.rate_limit_rate must be >= 0, got %d", mc.RateLimitRate)
-		}
-		if mc.RateLimitBurst < 0 {
-			return fmt.Errorf("middleware.rate_limit_burst must be >= 0, got %d", mc.RateLimitBurst)
-		}
-		// 验证 RateLimitBucketTTL 格式
-		if mc.RateLimitBucketTTL != "" {
-			if _, err := time.ParseDuration(mc.RateLimitBucketTTL); err != nil {
-				return fmt.Errorf("middleware.rate_limit_bucket_ttl is not a valid duration: %w", err)
-			}
-		}
-		// 验证 RateLimitCleanupInterval 格式
-		if mc.RateLimitCleanupInterval != "" {
-			if _, err := time.ParseDuration(mc.RateLimitCleanupInterval); err != nil {
-				return fmt.Errorf("middleware.rate_limit_cleanup_interval is not a valid duration: %w", err)
-			}
-		}
-	}
-	if mc.DedupEnable {
-		// 验证 DedupDefaultTTL 格式
-		if mc.DedupDefaultTTL != "" {
-			if _, err := time.ParseDuration(mc.DedupDefaultTTL); err != nil {
-				return fmt.Errorf("middleware.dedup_default_ttl is not a valid duration: %w", err)
-			}
-		}
-		// 验证 DedupCleanupInterval 格式
-		if mc.DedupCleanupInterval != "" {
-			if _, err := time.ParseDuration(mc.DedupCleanupInterval); err != nil {
-				return fmt.Errorf("middleware.dedup_cleanup_interval is not a valid duration: %w", err)
-			}
-		}
-	}
-	if mc.SlowHandlerEnable {
-		// 验证 SlowHandlerThreshold 格式
-		if mc.SlowHandlerThreshold != "" {
-			if _, err := time.ParseDuration(mc.SlowHandlerThreshold); err != nil {
-				return fmt.Errorf("middleware.slow_handler_threshold is not a valid duration: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-// Validate 验证 DeadLetter 配置
-func (dlc *DeadLetterConfig) Validate() error {
-	if dlc.Enable {
-		validTargets := map[string]bool{
-			"file": true, "kafka": true, "webhook": true,
-		}
-		if !validTargets[dlc.Target] {
-			return fmt.Errorf("dead_letter.target must be one of [file, kafka, webhook], got '%s'", dlc.Target)
-		}
-
-		// 根据 target 类型验证相关配置
-		switch dlc.Target {
-		case "file":
-			if dlc.FilePath == "" {
-				return fmt.Errorf("dead_letter.file_path is required when target is 'file'")
-			}
-		case "kafka":
-			if len(dlc.KafkaBrokers) == 0 {
-				return fmt.Errorf("dead_letter.kafka_brokers is required when target is 'kafka'")
-			}
-			if dlc.KafkaTopic == "" {
-				return fmt.Errorf("dead_letter.kafka_topic is required when target is 'kafka'")
-			}
-		case "webhook":
-			if dlc.WebhookURL == "" {
-				return fmt.Errorf("dead_letter.webhook_url is required when target is 'webhook'")
-			}
-		}
-	}
-	return nil
-}
-
-// Validate 验证 Webhook 配置
-func (wc *WebhookConfig) Validate() error {
-	if wc.EventBuffer < 0 {
-		return fmt.Errorf("webhook.event_buffer must be >= 0, got %d", wc.EventBuffer)
-	}
-
-	if wc.WorkerCount < 0 {
-		return fmt.Errorf("webhook.worker_count must be >= 0, got %d", wc.WorkerCount)
-	}
-
-	if wc.DedupEnable {
-		// 验证分片数
-		if wc.Shards < 0 {
-			return fmt.Errorf("webhook.dedup_shards must be >= 0, got %d", wc.Shards)
-		}
-
-		// 验证 LifeWindow 格式
-		if wc.LifeWindow != "" {
-			if _, err := time.ParseDuration(wc.LifeWindow); err != nil {
-				return fmt.Errorf("webhook.dedup_life_window is not a valid duration: %w", err)
-			}
-		}
-
-		// 验证 CleanWindow 格式
-		if wc.CleanWindow != "" {
-			if _, err := time.ParseDuration(wc.CleanWindow); err != nil {
-				return fmt.Errorf("webhook.dedup_clean_window is not a valid duration: %w", err)
-			}
-		}
-
-		// 验证 MaxEntrySize
-		if wc.MaxEntrySize < 0 {
-			return fmt.Errorf("webhook.dedup_max_entry_size must be >= 0, got %d", wc.MaxEntrySize)
-		}
-
-		// 验证 HardMaxCacheSize
-		if wc.HardMaxCacheSize < 0 {
-			return fmt.Errorf("webhook.dedup_hard_max_size must be >= 0, got %d", wc.HardMaxCacheSize)
-		}
-
-		// 验证 MaxEntriesInWindow
-		if wc.MaxEntriesInWindow < 0 {
-			return fmt.Errorf("webhook.dedup_max_entries_in_window must be >= 0, got %d", wc.MaxEntriesInWindow)
-		}
-	}
-
-	return nil
-}
-
-// Validate 验证 Token 配置
-func (tc *TokenConfig) Validate() error {
-	// 验证 RetryDelay 格式
-	if tc.RetryDelay != "" {
-		if _, err := time.ParseDuration(tc.RetryDelay); err != nil {
-			return fmt.Errorf("token.retry_delay is not a valid duration: %w", err)
-		}
-	}
-
-	// 验证 RefreshAdvance 格式
-	if tc.RefreshAdvance != "" {
-		if _, err := time.ParseDuration(tc.RefreshAdvance); err != nil {
-			return fmt.Errorf("token.refresh_advance is not a valid duration: %w", err)
-		}
-	}
-
-	// 验证 MinRefreshRatio
-	if tc.MinRefreshRatio < 0 || tc.MinRefreshRatio > 1 {
-		return fmt.Errorf("token.min_refresh_ratio must be between 0 and 1, got %f", tc.MinRefreshRatio)
-	}
-
-	return nil
-}
-
-// Validate 验证 engine 配置
-func (ec *EngineConfig) Validate() error {
-	// 验证 TempMatcherCleanupInterval 格式
-	if ec.TempMatcherCleanupInterval != "" {
-		if _, err := time.ParseDuration(ec.TempMatcherCleanupInterval); err != nil {
-			return fmt.Errorf("engine.temp_matcher_cleanup_interval is not a valid duration: %w", err)
-		}
-	}
-
-	// 验证 PendingDeleteProcessInterval 格式
-	if ec.PendingDeleteProcessInterval != "" {
-		if _, err := time.ParseDuration(ec.PendingDeleteProcessInterval); err != nil {
-			return fmt.Errorf("engine.pending_delete_process_interval is not a valid duration: %w", err)
-		}
-	}
-
-	// 验证缓冲区大小
-	if ec.PendingDeleteBufferSize < 0 {
-		return fmt.Errorf("engine.pending_delete_buffer_size must be >= 0, got %d", ec.PendingDeleteBufferSize)
-	}
-
-	if ec.PendingDeleteBatchSize < 0 {
-		return fmt.Errorf("engine.pending_delete_batch_size must be >= 0, got %d", ec.PendingDeleteBatchSize)
-	}
-
-	if ec.MatcherPoolCapacity < 0 {
-		return fmt.Errorf("engine.matcher_pool_capacity must be >= 0, got %d", ec.MatcherPoolCapacity)
-	}
-
-	if ec.MatcherPoolMaxCapacity < 0 {
-		return fmt.Errorf("engine.matcher_pool_max_capacity must be >= 0, got %d", ec.MatcherPoolMaxCapacity)
-	}
-
-	if ec.TempMatcherShardCount < 0 {
-		return fmt.Errorf("engine.temp_matcher_shard_count must be >= 0, got %d", ec.TempMatcherShardCount)
-	}
-
-	return nil
-}
-
-// Validate 验证 Degradation 配置
-func (dc *DegradationConfig) Validate() error {
-	if dc.Enable {
-		// 验证阈值范围
-		if dc.CPUThreshold < 0 || dc.CPUThreshold > 100 {
-			return fmt.Errorf("degradation.cpu_threshold must be between 0 and 100, got %f", dc.CPUThreshold)
-		}
-
-		if dc.MemoryThreshold < 0 || dc.MemoryThreshold > 100 {
-			return fmt.Errorf("degradation.memory_threshold must be between 0 and 100, got %f", dc.MemoryThreshold)
-		}
-
-		// 验证时间格式
-		if dc.LatencyThreshold != "" {
-			if _, err := time.ParseDuration(dc.LatencyThreshold); err != nil {
-				return fmt.Errorf("degradation.latency_threshold is not a valid duration: %w", err)
-			}
-		}
-
-		if dc.MonitorInterval != "" {
-			if _, err := time.ParseDuration(dc.MonitorInterval); err != nil {
-				return fmt.Errorf("degradation.monitor_interval is not a valid duration: %w", err)
-			}
-		}
-
-		if dc.RecoveryInterval != "" {
-			if _, err := time.ParseDuration(dc.RecoveryInterval); err != nil {
-				return fmt.Errorf("degradation.recovery_interval is not a valid duration: %w", err)
-			}
-		}
-
-		// 验证队列大小和阈值
-		if dc.DelayQueueSize < 0 {
-			return fmt.Errorf("degradation.delay_queue_size must be >= 0, got %d", dc.DelayQueueSize)
-		}
-
-		if dc.GoroutineThreshold < 0 {
-			return fmt.Errorf("degradation.goroutine_threshold must be >= 0, got %d", dc.GoroutineThreshold)
-		}
-
-		// 验证策略
-		validStrategies := map[string]bool{
-			"drop": true, "delay": true, "simplify": true, "": true,
-		}
-		if !validStrategies[dc.Strategy] {
-			return fmt.Errorf("degradation.strategy must be one of [drop, delay, simplify], got '%s'", dc.Strategy)
-		}
-	}
-
-	return nil
-}
-
-// Validate 验证 Tracing 配置
-func (tc *TracingConfig) Validate() error {
-	if tc.Enable {
-		// 验证服务名称
-		if tc.ServiceName == "" {
-			return fmt.Errorf("tracing.service_name is required when tracing is enabled")
-		}
-
-		// 验证导出器类型
-		validExporters := map[string]bool{
-			"otlp": true, "tempo": true, "grafana": true,
-			"zipkin": true, "stdout": true, "console": true,
-		}
-		if !validExporters[tc.Exporter] {
-			return fmt.Errorf("tracing.exporter must be one of [otlp, tempo, grafana, zipkin, stdout, console], got '%s'", tc.Exporter)
-		}
-
-		// 验证端点（stdout/console 不需要端点）
-		if tc.Exporter != "stdout" && tc.Exporter != "console" && tc.Endpoint == "" {
-			return fmt.Errorf("tracing.endpoint is required when exporter is '%s'", tc.Exporter)
-		}
-
-		// 验证采样率
-		if tc.SamplingRate < 0 || tc.SamplingRate > 1 {
-			return fmt.Errorf("tracing.sampling_rate must be between 0 and 1, got %f", tc.SamplingRate)
-		}
-	}
-
-	return nil
-}
-
 // LoadDefault 尝试从默认位置加载配置
 // 按优先级查找: ./config.yaml -> ./config.yml -> 环境变量
 func LoadDefault() (*Config, error) {
-	// 尝试从文件加载
 	for _, path := range []string{"config.yaml", "config.yml"} {
 		if _, err := os.Stat(path); err == nil {
 			return Load(path)
 		}
 	}
 
-	// 尝试从环境变量加载
 	cfg := &Config{
 		Bot: BotConfig{
 			AppID:  getEnvUint64("BOT_APP_ID"),
@@ -839,11 +380,9 @@ func LoadViper(path string) (*Config, error) {
 		v.AddConfigPath("./config")
 	}
 
-	// 环境变量支持（如 BOT_APP_ID）
 	v.SetEnvPrefix("REMILIA")
 	v.AutomaticEnv()
 
-	// 允许 yaml/json/hcl 等
 	if err := v.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if !errors.As(err, &configFileNotFoundError) {
@@ -856,7 +395,6 @@ func LoadViper(path string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config via viper failed: %w", err)
 	}
 
-	// 若关键字段仍为空，尝试兼容已有 env 读取
 	if cfg.Bot.AppID == 0 || cfg.Bot.BotID == 0 || cfg.Bot.Token == "" || cfg.Bot.Secret == "" {
 		if fallback, err := LoadDefault(); err == nil {
 			cfg = *fallback

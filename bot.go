@@ -135,21 +135,16 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
 	b := NewBot(adapter, engine, opts...)
 
-	// 保存 botInfo，在 Start() 时使用 rootCtx 创建 tokenManager
-	// 避免在构造期创建后台 goroutine（此时还没有根 context）
 	if botInfo != nil {
+		// 仅存储 botInfo，延迟到 Start() 时再创建 tokenManager。
+		// 这样可以避免在构造阶段启动后台 goroutine（此时还没有根 context），
+		// 防止用户只构造 Bot 而不调用 Start() 时出现 goroutine 泄漏。
 		b.botInfo = botInfo
 
-		// 预初始化 openAPI client（openAPI 本身不启动 goroutine，只在调用时使用 tokenManager）
-		// tokenManager 的实际创建延迟到 Start()
-		tmpTokenManager := token.NewManagerWithContext(context.Background(), botInfo)
-		b.tokenManager = tmpTokenManager
-		b.openAPI = openapi.New(tmpTokenManager)
-
-		// 添加 Token Manager health checker
+		// 添加 Token Manager health checker（checker 本身不依赖 tokenManager 是否已启动）
 		b.health.AddChecker(NewTokenManagerHealthChecker(b))
 
-		logger.Info("[Bot] OpenAPI client initialized (token manager will rebind to root context on Start)")
+		logger.Info("[Bot] BotInfo stored; OpenAPI client and token manager will be initialized on Start()")
 	} else {
 		logger.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
 	}
@@ -184,7 +179,9 @@ func (b *Bot) Start() error {
 	// 修复 B3（完整版）：
 	// 1. 在锁内读取 oldManager/oldOpenAPI，并更新为新实例，消除 handleEvent 并发读写数据竞态
 	// 2. lifecycle.Start 失败后在失败路径回滚，保持 bot 可重启
-	// 3. rootCancel() 先于 oldManager.Stop()，确保新 manager 停止再处理旧 manager
+	//
+	// 注意：NewBotWithInfo 不再预创建 tokenManager，因此首次 Start() 时 oldManager == nil。
+	// 仅在 Bot.Stop() 后重新 Start()（热重启）时，oldManager 才非 nil。
 	var oldManager *token.Manager
 	var oldOpenAPI openapi.OpenAPI
 
@@ -342,9 +339,20 @@ func (b *Bot) Stop(ctx context.Context) error {
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Shutting down...")
+	return b.shutdownSequence(ctx, rootCancel)
+}
 
-	// 先停止插件（按逆序 Teardown），在 lifecycle（adapter/engine）停止之前完成
-	// 保证插件的 Teardown 函数可以正常访问 engine 和 adapter
+// shutdownSequence 执行有序的关闭流程：
+//
+//  1. 停止插件（逆序 Teardown），在 adapter/engine 停止前完成
+//     —— 保证插件 Teardown 期间仍可访问 engine 和 adapter
+//  2. 取消根 context（rootCancel）
+//     —— 通知 tokenManager 及所有与 rootCtx 绑定的后台 goroutine 退出
+//     —— 早于 lifecycle.Stop，使 goroutine 有机会在 adapter 停止前完成清理
+//  3. 停止 lifecycle（adapter.Stop + engine.Shutdown）
+//  4. tokenManager.Stop()（双重保险：rootCtx 已取消，此处确保同步等待退出）
+func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFunc) error {
+	// Step 1: 插件逆序 Teardown
 	if b.pluginManager != nil {
 		logger.Debug("[Bot] Stopping plugin manager...")
 		if err := b.pluginManager.StopAll(ctx); err != nil {
@@ -352,15 +360,15 @@ func (b *Bot) Stop(ctx context.Context) error {
 		}
 	}
 
-	// 停止 lifecycle（包括 adapter.Stop 和 engine.Shutdown）
-	err := b.lifecycle.Stop(ctx)
-
-	// 取消根 context：通知所有与 Bot 绑定的后台 goroutine（token manager、adaptive limiter 等）退出
+	// Step 2: 取消根 context，驱动所有绑定 goroutine（tokenManager、adaptiveRateLimiter 等）退出
 	if rootCancel != nil {
 		rootCancel()
 	}
 
-	// token manager.Stop() 保持向后兼容（rootCancel 已触发，这里是双重保险）
+	// Step 3: 停止 lifecycle（adapter.Stop + engine.Shutdown）
+	err := b.lifecycle.Stop(ctx)
+
+	// Step 4: tokenManager 同步兜底（rootCtx 已取消，此处等待其完全退出）
 	if b.tokenManager != nil {
 		logger.Debug("[Bot] Stopping token manager...")
 		b.tokenManager.Stop()
@@ -410,11 +418,6 @@ func (b *Bot) Plugins() *plugin.Manager {
 
 // Engine 返回 Bot 的 Engine 实例
 func (b *Bot) Engine() *engine.Engine {
-	return b.engine
-}
-
-// GetEngine 返回 Bot 的 Engine 实例（别名）
-func (b *Bot) GetEngine() *engine.Engine {
 	return b.engine
 }
 
