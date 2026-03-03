@@ -143,10 +143,7 @@ func SimpleRateLimit(perSecond float64) eventctx.Middleware {
 	if perSecond <= 0 {
 		perSecond = 1
 	}
-	burst := int(perSecond * 2)
-	if burst < 1 {
-		burst = 1
-	}
+	burst := max(int(perSecond*2), 1)
 	return RateLimitTokenBucket(int(perSecond), burst, nil)
 }
 

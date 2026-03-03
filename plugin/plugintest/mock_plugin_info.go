@@ -1,6 +1,8 @@
 package plugintest
 
 import (
+	"maps"
+
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -87,9 +89,7 @@ func (m *MockPluginInfo) ListWithMetadata() map[string]*plugin.Metadata {
 		return nil
 	}
 	result := make(map[string]*plugin.Metadata, len(m.Plugins))
-	for k, v := range m.Plugins {
-		result[k] = v
-	}
+	maps.Copy(result, m.Plugins)
 	return result
 }
 

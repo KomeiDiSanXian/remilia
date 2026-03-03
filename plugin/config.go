@@ -95,9 +95,7 @@ func (pc *pluginConfig) loadFromGlobal() {
 			pc.values = make(map[string]any)
 		}
 		// 重新叠加 override
-		for k, v := range pc.overrides {
-			pc.values[k] = v
-		}
+		maps.Copy(pc.values, pc.overrides)
 		return
 	}
 
@@ -113,9 +111,7 @@ func (pc *pluginConfig) loadFromGlobal() {
 	}
 
 	// 重新叠加 override，确保热重载不会丢弃运行时覆盖的值
-	for k, v := range pc.overrides {
-		pc.values[k] = v
-	}
+	maps.Copy(pc.values, pc.overrides)
 }
 
 // Get 获取配置值
