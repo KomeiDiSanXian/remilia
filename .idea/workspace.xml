@@ -4,34 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize: simplify value overrides using maps.Copy for improved readability and maintainability">
-      <change afterPath="$PROJECT_DIR$/config/validate.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/04-development/PRE_RELEASE_REVIEW.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lifecycle/errors.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lifecycle/state.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/manager_goroutines.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/manager_listeners.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement context-aware waiting in various components for improved stability and responsiveness">
       <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/queue_generic.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/queue_generic.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pprof.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pprof_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -252,7 +227,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add support for plugin state management and lifecycle logging" />
     <MESSAGE value="optimize: correct goroutine management and improve string handling in commands" />
     <MESSAGE value="feat: add error handling for uninitialized API and implement plugin creation function" />
     <MESSAGE value="feat: add AsPluginInfo method for backward compatibility and enhance plugin descriptor creation" />
@@ -277,7 +251,8 @@
     <MESSAGE value="feat: refactor plugin system to use PluginCoordinator interface for improved type safety and dependency management" />
     <MESSAGE value="docs: rename architecture reports and update README links to reflect new file structure" />
     <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
+    <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
