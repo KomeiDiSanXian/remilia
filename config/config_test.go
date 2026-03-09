@@ -493,7 +493,9 @@ func TestDeadLetterConfig_Validate(t *testing.T) {
 				KafkaBrokers: []string{"localhost:9092"},
 				KafkaTopic:   "dlq-topic",
 			},
-			wantErr: false,
+			// KafkaConsumer 尚未实现，配置验证应拒绝此 target
+			wantErr: true,
+			errMsg:  "not yet implemented",
 		},
 		{
 			name: "valid webhook target",
@@ -537,7 +539,7 @@ func TestDeadLetterConfig_Validate(t *testing.T) {
 				KafkaTopic: "topic",
 			},
 			wantErr: true,
-			errMsg:  "kafka_brokers is required",
+			errMsg:  "not yet implemented",
 		},
 		{
 			name: "kafka target without topic",
@@ -547,7 +549,7 @@ func TestDeadLetterConfig_Validate(t *testing.T) {
 				KafkaBrokers: []string{"localhost:9092"},
 			},
 			wantErr: true,
-			errMsg:  "kafka_topic is required",
+			errMsg:  "not yet implemented",
 		},
 		{
 			name: "webhook target without url",

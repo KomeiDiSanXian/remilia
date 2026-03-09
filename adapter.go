@@ -144,22 +144,3 @@ func (a *webhookAdapter) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-
-// NewWebhookAdapter creates a webhook adapter with built-in HTTP server
-// This is a convenience function that creates a WebhookServerAdapter
-//
-// 参数:
-//   - addr: HTTP server address, e.g., ":8080"
-//   - secret: webhook secret for signature verification (currently not used, reserved for future)
-//
-// 示例:
-//
-//	adapter := remilia.NewWebhookAdapter(":8080", "your-secret")
-//	bot := remilia.NewBot(adapter, engine)
-//	bot.Start()
-//
-// 注意: 如果你需要更多控制，使用 NewWebhookServerAdapter
-func NewWebhookAdapterWithServer(addr string, secret string) Adapter {
-	// TODO: 使用 secret 进行签名验证
-	return NewWebhookServerAdapter(addr, &dto.BotInfo{})
-}

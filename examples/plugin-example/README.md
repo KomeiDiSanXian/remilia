@@ -68,288 +68,175 @@ go run -tags example main.go
 
 ## 代码说明
 
-### 1. 创建插件
+> **注意**: v1 插件 API（`BasePlugin`）已在 v1.0.0 中完全移除。  
+> 以下示例均使用 **v2 API**（`PluginDescriptor`）。详见 [Plugin v2 迁移指南](../../docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)。
+
+### 1. 创建插件描述符
 
 ```go
+package myplugin
+
+import (
+    "github.com/KomeiDiSanXian/remilia/plugin"
+    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+)
+
+// GreeterPlugin 保存插件运行时状态
 type GreeterPlugin struct {
-    *plugin.BasePlugin  // 继承基础插件
-    greeting string     // 插件状态
+    greeting string
 }
 
-func NewGreeterPlugin() *GreeterPlugin {
-    return &GreeterPlugin{
-        BasePlugin: plugin.NewBasePlugin("greeter"),
-        greeting:   "你好",
+// New 返回插件描述符，供 pm.RegisterV2 使用
+func New() *plugin.PluginDescriptor {
+    p := &GreeterPlugin{greeting: "你好"}
+    return &plugin.PluginDescriptor{
+        Name:    "greeter",
+        Version: "1.0.0",
+        Meta: &plugin.PluginMeta{
+            Description: "问候插件",
+            Category:    "工具",
+        },
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/greet").
+                Handle(func(c *eventctx.Context) error {
+                    name := c.GetMessageContent()
+                    if name == "" {
+                        name = "朋友"
+                    }
+                    return c.Reply(p.greeting + ", " + name + "!")
+                })
+
+            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/setgreeting").
+                Handle(func(c *eventctx.Context) error {
+                    p.greeting = c.GetMessageContent()
+                    return c.Reply("问候语已更新: " + p.greeting)
+                })
+
+            return p, nil
+        },
     }
 }
 ```
 
-### 2. 实现 Load 方法
-
-```go
-func (p *GreeterPlugin) Load(eng *engine.Engine) error {
-    // 创建 Matcher
-    matcher := engine.NewMatcher().
-        OnCommand("/greet").
-        SetHandler(p.handleGreet)
-    
-    // 添加到插件
-    p.AddMatcher(matcher)
-    
-    // 注册到引擎
-    eng.RegisterMatcher(matcher)
-    
-    return nil
-}
-```
-
-### 3. 创建插件管理器
+### 2. 注册插件
 
 ```go
 manager := plugin.NewManager(eng)
-```
 
-### 4. 注册插件
+// 单个注册
+if err := manager.RegisterV2(myplugin.New()); err != nil {
+    log.Fatal(err)
+}
 
-```go
-greeter := NewGreeterPlugin()
-if err := manager.Register(greeter); err != nil {
+// 批量注册（自动按依赖顺序排序）
+if err := manager.RegisterMultipleV2Smart([]plugin.PluginDescriptor{
+    storage.New(),
+    myplugin.New(),   // 若依赖 storage，会自动在其后注册
+}); err != nil {
     log.Fatal(err)
 }
 ```
 
-### 5. 添加生命周期监听器
+### 3. 声明插件依赖
 
 ```go
-type LoggingListener struct{}
-
-func (l *LoggingListener) OnPluginLoaded(name string) {
-    log.Printf("Plugin %s loaded", name)
-}
-
-func (l *LoggingListener) OnPluginUnloaded(name string) {
-    log.Printf("Plugin %s unloaded", name)
-}
-
-func (l *LoggingListener) OnPluginReloaded(name string) {
-    log.Printf("Plugin %s reloaded", name)
-}
-
-func (l *LoggingListener) OnPluginError(name string, op string, err error) {
-    log.Printf("Plugin %s error in %s: %v", name, op, err)
-}
-
-manager.AddListener(&LoggingListener{})
-```
-
-## 高级特性
-
-### 1. 插件重载
-
-```go
-// 自定义重载逻辑，保持状态
-func (p *CounterPlugin) Reload(eng *engine.Engine) error {
-    // 保存状态
-    oldCount := p.count
-    
-    // 卸载
-    if err := p.Unload(eng); err != nil {
-        return err
+func New() *plugin.PluginDescriptor {
+    return &plugin.PluginDescriptor{
+        Name: "my-plugin",
+        Deps: []string{"storage"},  // 显式声明依赖
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            // 获取依赖的插件实例
+            storagePlugin := ctx.Require("storage")
+            _ = storagePlugin
+            return nil, nil
+        },
     }
-    
-    // 重新加载
-    if err := p.Load(eng); err != nil {
-        return err
+}
+```
+
+### 4. 使用生命周期钩子
+
+```go
+func New() *plugin.PluginDescriptor {
+    return &plugin.PluginDescriptor{
+        Name: "my-plugin",
+        Setup: func(ctx *plugin.SetupContext) (any, error) {
+            // 启动后台 goroutine（生命周期与 Bot 绑定）
+            ctx.Go(func() {
+                ticker := time.NewTicker(time.Minute)
+                defer ticker.Stop()
+                for {
+                    select {
+                    case <-ctx.Context().Done():
+                        return
+                    case <-ticker.C:
+                        // 定时任务
+                    }
+                }
+            })
+            return nil, nil
+        },
+        Advanced: &plugin.PluginAdvanced{
+            Teardown: func() error {
+                // 插件卸载时清理资源
+                return nil
+            },
+        },
     }
-    
-    // 恢复状态
-    p.count = oldCount
-    
-    return nil
-}
-
-// 手动触发重载
-manager.Reload("counter")
-```
-
-### 2. 插件依赖
-
-```go
-type DependentPlugin struct {
-    *plugin.BasePlugin
-}
-
-// 声明依赖
-func (p *DependentPlugin) Dependencies() []string {
-    return []string{"base-plugin", "utility-plugin"}
-}
-
-// 插件管理器会确保依赖插件先加载
-```
-
-### 3. 插件中间件
-
-```go
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    // 为插件的所有处理器添加中间件
-    p.Use(eng, 
-        middleware.Logging(),
-        customMiddleware(),
-    )
-    
-    // 注册处理器
-    matcher := engine.NewMatcher().OnCommand("/cmd")
-    p.AddMatcher(matcher)
-    eng.RegisterMatcher(matcher)
-    
-    return nil
-}
-```
-
-### 4. 插件卸载
-
-```go
-// 卸载单个插件
-manager.Unregister("greeter")
-
-// 级联卸载（包括依赖此插件的其他插件）
-manager.UnregisterCascade("base-plugin")
-```
-
-### 5. 插件信息查询
-
-```go
-// 列出所有插件
-plugins := manager.List()
-
-// 获取插件
-plugin, exists := manager.Get("greeter")
-
-// 检查插件是否已注册
-if manager.Has("greeter") {
-    log.Println("Greeter plugin is registered")
 }
 ```
 
 ## 插件开发最佳实践
 
-### 1. 资源清理
-
-```go
-func (p *MyPlugin) Unload(eng *engine.Engine) error {
-    // 清理资源
-    p.closeConnections()
-    p.stopTimers()
-    
-    // 调用基类卸载
-    return p.BasePlugin.Unload(eng)
-}
-```
-
-### 2. 错误处理
-
-```go
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    if err := p.initialize(); err != nil {
-        return fmt.Errorf("initialization failed: %w", err)
-    }
-    
-    // 继续加载...
-    return nil
-}
-```
-
-### 3. 并发安全
+### 1. 并发安全的状态管理
 
 ```go
 type SafePlugin struct {
-    *plugin.BasePlugin
     mu    sync.RWMutex
-    state map[string]interface{}
+    state map[string]any
 }
 
-func (p *SafePlugin) GetState(key string) interface{} {
+func (p *SafePlugin) get(key string) any {
     p.mu.RLock()
     defer p.mu.RUnlock()
     return p.state[key]
 }
 
-func (p *SafePlugin) SetState(key string, value interface{}) {
+func (p *SafePlugin) set(key string, value any) {
     p.mu.Lock()
     defer p.mu.Unlock()
     p.state[key] = value
 }
 ```
 
-### 4. 配置管理
+### 2. 错误处理
 
 ```go
-type ConfigurablePlugin struct {
-    *plugin.BasePlugin
-    config PluginConfig
-}
-
-type PluginConfig struct {
-    Enabled  bool
-    Timeout  time.Duration
-    MaxRetry int
-}
-
-func (p *ConfigurablePlugin) Load(eng *engine.Engine) error {
-    // 加载配置
-    p.config = loadConfig()
-    
-    if !p.config.Enabled {
-        return fmt.Errorf("plugin is disabled")
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    if err := initialize(); err != nil {
+        return nil, fmt.Errorf("greeter: initialization failed: %w", err)
     }
-    
-    // 继续加载...
-    return nil
-}
+    return &GreeterPlugin{}, nil
+},
 ```
 
-## 调试技巧
-
-### 1. 启用调试日志
+### 3. 日志记录（使用 infra/logger，而非 logrus）
 
 ```go
-logrus.SetLevel(logrus.DebugLevel)
-```
+import "github.com/KomeiDiSanXian/remilia/infra/logger"
 
-### 2. 添加详细日志
-
-```go
-func (p *MyPlugin) Load(eng *engine.Engine) error {
-    logrus.WithFields(logrus.Fields{
-        "plugin": p.Name(),
-        "status": "loading",
-    }).Debug("Plugin load started")
-    
-    // 加载逻辑...
-    
-    logrus.WithField("plugin", p.Name()).Info("Plugin loaded successfully")
-    return nil
-}
-```
-
-### 3. 监控插件状态
-
-```go
-// 定期打印插件状态
-go func() {
-    ticker := time.NewTicker(1 * time.Minute)
-    for range ticker.C {
-        plugins := manager.List()
-        log.Printf("Active plugins: %d", len(plugins))
-        for _, p := range plugins {
-            log.Printf("  - %s", p.Name())
-        }
-    }
-}()
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    logger.WithField("plugin", "greeter").Debug("Plugin setup started")
+    // ...
+    logger.WithField("plugin", "greeter").Info("Plugin setup completed")
+    return &GreeterPlugin{}, nil
+},
 ```
 
 ## 下一步
 
+- 查看 [plugin-v2-demo](../plugin-v2-demo) 了解更完整的 v2 API 演示
 - 查看 [middleware-example](../middleware-example) 了解中间件开发
-- 阅读 [插件系统增强方案](../../docs/PLUGIN_ENHANCEMENT_PROPOSAL.md) 了解未来规划
-- 查看 [plugin package](../../plugin/README.md) 了解更多 API
+- 阅读 [Plugin v2 迁移指南](../../docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
+- 查看 [showcase](../showcase) 了解所有内置插件的用法

@@ -21,22 +21,26 @@ Basic Usage:
 	    "github.com/KomeiDiSanXian/remilia/openapi/dto"
 	)
 
-	// Create engine and Adapter
+	// Create engine and register handlers
 	eng := engine.NewEngine()
-	adapter := myAdapter // implements remilia.Adapter
+	eng.OnCommand(dto.GroupAtMessageCreate, "/hello").
+	    Handle(func(ctx *eventctx.Context) error {
+	        return ctx.Reply("Hello!")
+	    })
 
-	// Register event handlers
-	eng.OnC2C(eventctx.OnCommand("hello")).Handle(func(ctx *eventctx.Context) error {
-	    ctx.ReplyPrivate(&dto.Message{Content: "Hello!"})
-	    return nil
-	})
-
-	// Create Bot
-	bot := remilia.NewBot(adapter, eng,
-	    remilia.WithName("my-bot"),
-	    remilia.WithVersion("1.0.0"),
-	    remilia.WithDebug(true),
-	)
+	// Build Bot via BotBuilder (recommended — returns error instead of panicking)
+	bot, err := remilia.NewBotBuilder().
+	    WithBotInfo(&dto.BotInfo{
+	        AppID:     123456,
+	        Token:     "your-token",
+	        AppSecret: "your-secret",
+	    }).
+	    WithWebhook(":8080").
+	    WithEngine(eng).
+	    Build()
+	if err != nil {
+	    log.Fatal(err)
+	}
 
 	// Start Bot
 	if err := bot.Start(); err != nil {
@@ -82,9 +86,12 @@ event sources to the Bot. It has two methods:
 
 You can use the built-in Webhook adapter or implement your own:
 
-	// Using Webhook adapter
-	webhook := myWebHook // implements remilia.Webhook interface
-	adapter := remilia.NewWebhookAdapter(webhook)
+	// Using Webhook adapter (wraps a custom Webhook implementation)
+	wh := myWebhook // implements remilia.Webhook interface
+	adapter := remilia.NewWebhookAdapter(wh)
+
+	// Using the built-in HTTP server adapter
+	adapter := remilia.SimpleWebhookAdapter(8080)
 
 For more information, see:
   - github.com/KomeiDiSanXian/remilia/core/engine - Core engine implementation

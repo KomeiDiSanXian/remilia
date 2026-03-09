@@ -186,12 +186,11 @@ func (dlc *DeadLetterConfig) Validate() error {
 			return fmt.Errorf("dead_letter.file_path is required when target is 'file'")
 		}
 	case "kafka":
-		if len(dlc.KafkaBrokers) == 0 {
-			return fmt.Errorf("dead_letter.kafka_brokers is required when target is 'kafka'")
-		}
-		if dlc.KafkaTopic == "" {
-			return fmt.Errorf("dead_letter.kafka_topic is required when target is 'kafka'")
-		}
+		// KafkaConsumer 当前为未完成的占位实现，启用会导致死信消息静默丢失。
+		// 待 Kafka 集成完成后替换为参数校验逻辑。
+		return fmt.Errorf("dead_letter.target 'kafka' is not yet implemented; " +
+			"using it will cause dead letter messages to be silently dropped — " +
+			"use 'file' or 'webhook' instead")
 	case "webhook":
 		if dlc.WebhookURL == "" {
 			return fmt.Errorf("dead_letter.webhook_url is required when target is 'webhook'")

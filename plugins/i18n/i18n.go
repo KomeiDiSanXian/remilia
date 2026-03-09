@@ -81,7 +81,7 @@ func NewPlugin(cfg Config) *Plugin {
 	}
 	cache, err := lru.New[string, *template.Template](templateCacheSize)
 	if err != nil {
-		// 仅当 size <= 0 时出错，此处不可能发生
+		// lru.New 仅在 size <= 0 时返回错误；templateCacheSize 为正数常量，此处实际永不触发。
 		panic(fmt.Sprintf("i18n: failed to create template cache: %v", err))
 	}
 	return &Plugin{cfg: cfg, tmplCache: cache}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -186,12 +185,14 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 		close(workersReady)
 	}()
 
-	// 等待 workers 就绪（最多等待 500ms 防止阻塞）
+	// 等待所有 workers 就绪后再绑定端口，确保 HTTP 服务器接收首批事件时 workers 已准备好。
+	// 使用父 ctx 控制超时（由调用方决定等待上限），消除硬编码 500ms 的不确定性。
 	select {
 	case <-workersReady:
 		logger.Debug("[WebhookServerAdapter] All workers ready")
-	case <-time.After(500 * time.Millisecond):
-		logger.Warn("[WebhookServerAdapter] Workers startup timeout, continuing anyway")
+	case <-a.ctx.Done():
+		logger.Warn("[WebhookServerAdapter] Context cancelled while waiting for workers")
+		return a.ctx.Err()
 	}
 
 	// 修复 B2：使用 net.Listen 预绑定端口，确定性地检测端口冲突，

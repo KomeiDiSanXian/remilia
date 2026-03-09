@@ -71,7 +71,13 @@ func (m *BotManager) Add(name string, bot *Bot) error {
 	return nil
 }
 
-// MustAdd 注册 Bot，失败时 panic。适用于初始化阶段确信配置正确的场景。
+// MustAdd 注册 Bot，失败时 panic。
+//
+// 此方法仅适用于程序 main() 初始化阶段，在配置已确认正确的前提下使用，
+// 目的是减少样板错误处理代码。
+//
+// 警告：请勿在运行时（如插件回调、HTTP handler、goroutine 中）调用此方法，
+// 否则 panic 将导致整个进程崩溃。运行时场景请使用 [BotManager.Add]。
 func (m *BotManager) MustAdd(name string, bot *Bot) *BotManager {
 	if err := m.Add(name, bot); err != nil {
 		panic(err)
@@ -88,6 +94,11 @@ func (m *BotManager) Get(name string) (*Bot, bool) {
 }
 
 // MustGet 按名称获取 Bot 实例，若不存在则 panic。
+//
+// 此方法仅适用于程序 main() 初始化阶段，在确信目标 Bot 已通过 Add/MustAdd 注册的前提下使用。
+//
+// 警告：请勿在运行时（如插件回调、HTTP handler、goroutine 中）调用此方法，
+// 否则 panic 将导致整个进程崩溃。运行时场景请使用 [BotManager.Get]。
 func (m *BotManager) MustGet(name string) *Bot {
 	bot, ok := m.Get(name)
 	if !ok {

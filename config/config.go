@@ -201,6 +201,12 @@ func (t *ListenerToken) Cancel() {
 	t.once.Do(func() { unsubscribeByID(t.id) })
 }
 
+// listenerEntries、changeListenersMu、listenerIDCounter 是包级全局状态。
+// 注意：在编写并行测试（t.Parallel()）时，若多个 goroutine 同时调用 Subscribe，
+// 监听器会互相叠加；每个测试函数应在结束时调用 UnsubscribeAll() 或使用 token.Cancel() 清理。
+// 示例（测试函数开头）：
+//
+//	t.Cleanup(config.UnsubscribeAll)
 var (
 	listenerEntries   []listenerEntry
 	changeListenersMu sync.RWMutex
@@ -237,7 +243,12 @@ func unsubscribeByID(id int64) {
 	}
 }
 
-// UnsubscribeAll 移除所有配置变更监听器（主要用于测试清理）
+// UnsubscribeAll 移除所有配置变更监听器。
+//
+// 主要用于测试清理，防止监听器跨测试用例泄漏。
+// 推荐在每个测试函数中注册清理：
+//
+//	t.Cleanup(config.UnsubscribeAll)
 func UnsubscribeAll() {
 	changeListenersMu.Lock()
 	listenerEntries = nil

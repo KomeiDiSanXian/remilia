@@ -245,23 +245,30 @@ func (w WebhookConsumer) Consume(item DeadLetterItem) {
 //	func (k *KafkaConsumer) Close() error {
 //	    return k.writer.Close()
 //	}
+//
+// KafkaConsumer 是 Kafka 死信消费者的预留接口实现。
+//
+// Deprecated: 此实现尚未完成，调用 Consume 时不会真正发送消息到 Kafka，
+// 仅打印错误日志。若在生产环境中配置 dead_letter.target: kafka，
+// 死信消息将会丢失。请勿在生产环境中使用，直至 Kafka 集成完成。
+//
+// 需要集成 Kafka 的项目请参考结构体上方的注释示例代码，引入
+// github.com/segmentio/kafka-go 或类似库自行实现 Consumer 接口。
 type KafkaConsumer struct {
 	Brokers []string
 	Topic   string
 }
 
-// Consume consumes a dead letter (placeholder implementation).
+// Consume 是 KafkaConsumer 的占位实现，不会真正发送消息到 Kafka。
 //
-// Note: This is a placeholder implementation that only logs a warning.
-// Actual projects need to import a Kafka client library and implement real message sending logic.
+// 此方法仅打印 ERROR 级别日志以提示配置错误。
+// 若需要真实的 Kafka 投递，请参考上方注释中的示例代码自行实现 [Consumer] 接口。
 func (k KafkaConsumer) Consume(item DeadLetterItem) {
 	logger.WithFields(logger.Fields{
 		"event_id":   string(item.Event.ID),
 		"event_type": item.Event.Type,
 		"brokers":    k.Brokers,
 		"topic":      k.Topic,
-	}).Warn("[DeadLetter] KafkaConsumer is a placeholder implementation - dead letter not actually sent to Kafka")
-
-	// TODO: Implement real Kafka sending logic
-	// See example code in comments above
+	}).Error("[DeadLetter] KafkaConsumer is NOT implemented — dead letter message dropped. " +
+		"Do NOT use KafkaConsumer in production until Kafka integration is complete.")
 }

@@ -59,6 +59,15 @@ type Config struct {
 }
 
 // NewBot 创建新的 Bot 实例
+//
+// 注意：若 adapter 或 engine 为 nil，此函数会直接 panic。
+// 推荐使用 [BotBuilder.Build] 代替，它返回错误而非 panic，
+// 可由调用方优雅处理：
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithAdapter(adapter).
+//	    WithEngine(engine).
+//	    Build()
 func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	// 验证必需参数
 	if adapter == nil {

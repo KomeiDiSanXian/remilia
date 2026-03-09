@@ -1,3 +1,19 @@
+// Package tracing 提供基于 OpenTelemetry 的分布式追踪支持。
+//
+// 主要功能：
+//   - 初始化 OTLP / Zipkin 追踪导出器
+//   - 自适应采样器（根据错误率动态调整采样率）
+//   - 与 Bot 生命周期绑定的 TracerProvider 管理
+//
+// 典型用法：
+//
+//	tp, err := tracing.NewTracerProvider(ctx, tracing.Config{
+//	    Exporter: "otlp",
+//	    Endpoint: "localhost:4317",
+//	    ServiceName: "my-bot",
+//	})
+//	if err != nil { log.Fatal(err) }
+//	defer tp.Shutdown(ctx)
 package tracing
 
 import (

@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -399,23 +400,14 @@ func TestE2E_GracefulShutdown(t *testing.T) {
 }
 
 // TestE2E_FullBotLifecycle 测试完整 Bot 生命周期
-// 注意：此测试需要完整的 Bot API，暂时跳过
+//
+// 此测试需要一个可访问的 Webhook 端点和有效的 QQ Bot 凭据，
+// 因此默认跳过。在以下条件下可启用：
+//   - 设置环境变量 E2E_BOT_TOKEN、E2E_BOT_SECRET、E2E_BOT_APPID
+//   - 使用 -run TestE2E_FullBotLifecycle 单独运行
 func TestE2E_FullBotLifecycle(t *testing.T) {
-	t.Skip("需要完整的 Bot API 支持，暂时跳过")
-
-	// TODO: 当 Bot API 完善后，取消注释并修复
-
-	//if testing.Short() {
-	//	t.Skip("跳过长时间运行的集成测试")
-	//}
-	//
-	//// 创建 Bot
-	//bot := remilia.NewBot(/* ... */)
-	//
-	//// 注册命令
-	//commandExecuted := false
-	//// bot.engine().OnCommand(...).Handle(...)
-	//
-	//// 启动、测试、停止
-
+	if os.Getenv("E2E_BOT_TOKEN") == "" {
+		t.Skip("跳过端到端测试：未设置 E2E_BOT_TOKEN 环境变量。" +
+			"需要有效的 QQ Bot 凭据才能运行此测试。")
+	}
 }

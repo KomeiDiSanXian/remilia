@@ -1,3 +1,19 @@
+// Package audit 提供结构化审计日志功能。
+//
+// 审计日志记录系统中的关键操作（用户登录、命令执行、权限变更、插件加载等），
+// 支持写入文件或自定义后端，可用于合规审查和安全分析。
+//
+// 典型用法：
+//
+//	logger := audit.NewLogger(audit.Config{
+//	    Enable:   true,
+//	    FilePath: "audit.log",
+//	})
+//	logger.Log(audit.Entry{
+//	    Action: audit.ActionCommandExecute,
+//	    Actor:  userID,
+//	    Level:  audit.LevelInfo,
+//	})
 package audit
 
 import (

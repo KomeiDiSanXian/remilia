@@ -38,3 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **主版本号**: 不兼容的 API 修改
 - **次版本号**: 向下兼容的功能性新增
 - **修订号**: 向下兼容的问题修正
+
+<!-- 版本比较链接 -->
+[Unreleased]: https://github.com/KomeiDiSanXian/remilia/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/KomeiDiSanXian/remilia/releases/tag/v1.0.0
+

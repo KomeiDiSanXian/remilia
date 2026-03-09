@@ -331,7 +331,7 @@ err := writer.WriteMessages(context.Background(), kafka.Message{
 ## 📚 依赖
 
 - `github.com/stretchr/testify` - 测试断言库
-- `github.com/sirupsen/logrus` - 日志记录
+- `github.com/rs/zerolog` - 结构化日志记录
 - Standard library:
   - `net/http/httptest` - HTTP 测试
   - `sync/atomic` - 原子操作

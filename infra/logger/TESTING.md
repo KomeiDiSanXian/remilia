@@ -205,7 +205,7 @@ go test -bench=BenchmarkComplexLogging -benchmem
 
 ```
 StructuredLogger
-├── entry (*logrus.Entry)
+├── entry (*zerolog.Logger)
 └── Methods
     ├── NewLogger(component string)
     ├── WithField(key, value)
@@ -289,7 +289,7 @@ logger.Info("service started")
 logger.WithField("user_id", "123").Info("user logged in")
 
 // 添加多个字段
-logger.WithFields(logrus.Fields{
+logger.WithFields(logger.Fields{
     "user_id": "123",
     "action":  "login",
     "status":  "success",
@@ -400,7 +400,7 @@ modified := original.WithField("key", "value")
    - 全局实例并发访问
 
 4. **日志钩子测试**
-   - Logrus Hook 集成
+   - zerolog Hook 集成
    - 错误上报测试
    - 日志过滤测试
 

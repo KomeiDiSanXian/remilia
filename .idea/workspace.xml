@@ -4,13 +4,30 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update Go version to 1.25.0 in go.mod for improved compatibility">
-      <change afterPath="$PROJECT_DIR$/version.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: update version to 1.0.0 and adjust related documentation for initial release">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/release-issues-v1.0.0.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/global/global.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/validate.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/04-development/PRE_RELEASE_REVIEW.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/PRE_RELEASE_REVIEW.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-example/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/audit/audit.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/TESTING.md" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/TESTING.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/logger/TESTING.md" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/TESTING.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/tracing/tracing.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/tracing.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/dto/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/dto/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/i18n/i18n.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/e2e_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/e2e_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/webhook_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/webhook_adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -231,7 +248,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add AsPluginInfo method for backward compatibility and enhance plugin descriptor creation" />
     <MESSAGE value="docs: rename report files and archive outdated documents for better organization" />
     <MESSAGE value="feat: implement plugin dependency injection container and management interface" />
     <MESSAGE value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
@@ -256,7 +272,8 @@
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
     <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
     <MESSAGE value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
+    <MESSAGE value="feat: update version to 1.0.0 and adjust related documentation for initial release" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: update version to 1.0.0 and adjust related documentation for initial release" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

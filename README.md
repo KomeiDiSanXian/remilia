@@ -54,7 +54,7 @@
 ### 📊 可观测性
 
 - **Prometheus 集成** — 完整的 metrics 暴露
-- **结构化日志** — 基于 logrus 的结构化日志
+- **结构化日志** — 基于 zerolog 的结构化日志
 - **健康检查** — HTTP 健康检查端点
 - **性能分析** — 内置 pprof 支持
 
@@ -66,7 +66,7 @@
 go get github.com/KomeiDiSanXian/remilia
 ```
 
-**要求**: Go 1.21+
+**要求**: Go 1.24+
 
 ---
 
@@ -93,7 +93,7 @@ func main() {
             return ctx.Reply("你说: " + ctx.GetMessageContent())
         })
 
-    adapter := remilia.NewWebhookAdapter(":8080", "your-secret")
+    adapter := remilia.SimpleWebhookAdapter(8080)
     bot := remilia.NewBot(adapter, eng)
     bot.Start()
     bot.WaitForShutdown()
@@ -193,7 +193,15 @@ middleware:
 cfg, err := config.Load("config.yaml")
 if err != nil { panic(err) }
 
-bot, err := remilia.NewBotFromConfig(cfg)
+bot, err := remilia.NewBotBuilder().
+    WithBotInfo(&dto.BotInfo{
+        AppID:     cfg.Bot.AppID,
+        BotAppID:  cfg.Bot.BotID,
+        Token:     cfg.Bot.Token,
+        AppSecret: cfg.Bot.Secret,
+    }).
+    WithWebhook(fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)).
+    Build()
 if err != nil { panic(err) }
 
 bot.Start()
@@ -235,14 +243,27 @@ bot.WaitForShutdown()
 
 ## 💡 示例
 
-查看 [examples](./examples) 目录获取更多示例：
+查看 [examples](./examples) 目录获取更多示例（完整说明见 [examples/README.md](./examples/README.md)）：
 
+- [showcase](./examples/showcase) ⭐ — 覆盖所有功能的综合示例（推荐从这里开始）
 - [基础 Bot](./examples/basic-bot) — 最简单的 bot 示例
 - [命令系统](./examples/command-bot) — 完整的命令处理示例
 - [插件开发](./examples/plugin-example) — 自定义插件示例（v2 API）
+- [Plugin v2 演示](./examples/plugin-v2-demo) — v2 插件完整演示
 - [中间件使用](./examples/middleware-example) — 中间件组合使用
 - [配置热更新](./examples/config_hotreload) — 配置热更新示例
-- [Plugin v2 演示](./examples/plugin-v2-demo) — v2 插件完整演示
+- [配置集成](./examples/config-integration) — Viper 集成
+- [错误处理](./examples/error-handling) — errutil 完整演示
+- [生产环境](./examples/production-ready) — 生产级最佳实践
+- [异步任务](./examples/async-tasks) — goroutine 管理与背压控制
+- [HTTP 客户端](./examples/httpclient-demo) — 重试/超时/中间件链
+- [日志系统](./examples/logger-demo) — 结构化日志多输出
+- [指标监控](./examples/metrics-monitoring) — Prometheus 自定义指标
+- [分布式追踪](./examples/tracing-demo) — OpenTelemetry 集成
+- [SQLite 存储](./examples/sqlite-storage-demo) — 持久化存储示例
+- [帮助发现](./examples/help-discovery) — Help 插件自动发现
+- [Debug 子命令](./examples/debug-subcommand-demo) — 运行时诊断
+- [性能基准](./examples/benchmark) — 引擎吞吐量压测
 
 ---
 
@@ -330,7 +351,7 @@ bot.WaitForShutdown()
 | 命令解析 | ~1-2 μs/op | Trie + commandIndex |
 | Context Pool | 0 allocs/op | 对象池复用 |
 
-测试环境: AMD Ryzen 7 5800H, 16GB RAM, Go 1.21
+测试环境: AMD Ryzen 7 5800H, 16GB RAM, Go 1.24
 
 ---
 

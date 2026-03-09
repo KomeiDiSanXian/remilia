@@ -118,7 +118,10 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 // getMatchersForEvent 获取用于匹配事件的匹配器列表（内部方法）
 // 使用索引优化，只返回相关事件类型的匹配器
 //
-// COW 模式：无锁读取
+// # COW 模式：无锁读取
+//
+// Deprecated: 此方法仅供测试 / 调试使用，不走命令索引、无排序、不含 TempMatcher，
+// 与 ProcessEvent 的匹配行为不一致。正式处理路径请使用 ProcessEvent。
 func (e *Engine) getMatchersForEvent(ctx *context.Context) []*Matcher {
 	// 无锁读取状态 - 无需类型断言
 	state := e.state.Load()
@@ -177,59 +180,63 @@ func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
 
 	// 处理每个事件
 	for _, event := range events {
-		ctx := context.AcquireContext(event, api)
-		eventType := ctx.GetEventType()
+		// 用匿名函数 + defer 包装每次迭代，确保 ReleaseContext 在 panic 路径也能执行，
+		// 避免 invokeHandler 内部未捕获的 panic 导致 Context 对象无法归还对象池（内存泄漏）。
+		func() {
+			ctx := context.AcquireContext(event, api)
+			defer context.ReleaseContext(ctx)
 
-		// 获取已排序的 permanent 匹配器（从缓存）
-		permSpecific := state.sortedCache[eventType]
-		permGeneric := state.sortedCache[""]
+			eventType := ctx.GetEventType()
 
-		// 尝试提取命令并获取命令优化匹配器
-		var cmdSpecific []*Matcher
-		var cmdGeneric []*Matcher
+			// 获取已排序的 permanent 匹配器（从缓存）
+			permSpecific := state.sortedCache[eventType]
+			permGeneric := state.sortedCache[""]
 
-		msgContent := ctx.GetMessageContent()
-		if msgContent != "" {
-			cmd := extractCommand(msgContent)
-			if cmd != "" {
-				if matchersMap, ok := state.commandIndex[cmd]; ok {
-					cmdSpecific = matchersMap[eventType]
-					cmdGeneric = matchersMap[""]
+			// 尝试提取命令并获取命令优化匹配器
+			var cmdSpecific []*Matcher
+			var cmdGeneric []*Matcher
+
+			msgContent := ctx.GetMessageContent()
+			if msgContent != "" {
+				cmd := extractCommand(msgContent)
+				if cmd != "" {
+					if matchersMap, ok := state.commandIndex[cmd]; ok {
+						cmdSpecific = matchersMap[eventType]
+						cmdGeneric = matchersMap[""]
+					}
 				}
 			}
-		}
 
-		// 获取已排序的 temp 匹配器（从TempManager）
-		tempSpecific := e.services.tempManager.Get(eventType)
-		tempGeneric := e.services.tempManager.Get("")
+			// 获取已排序的 temp 匹配器（从TempManager）
+			tempSpecific := e.services.tempManager.Get(eventType)
+			tempGeneric := e.services.tempManager.Get("")
 
-		// 重置切片长度
-		matchersToCheck = matchersToCheck[:0]
+			// 重置切片长度
+			matchersToCheck = matchersToCheck[:0]
 
-		// 合并 6 个已经排序的子列表
-		// 优先级顺序：
-		// 1. permSpecific (State, Normal)
-		// 2. cmdSpecific (State, Command)
-		// 3. tempSpecific (Temp)
-		// 4. permGeneric (State, Normal)
-		// 5. cmdGeneric (State, Command)
-		// 6. tempGeneric (Temp)
-		matchersToCheck = mergeSortedMatchersSix(matchersToCheck,
-			permSpecific, cmdSpecific, tempSpecific,
-			permGeneric, cmdGeneric, tempGeneric)
+			// 合并 6 个已经排序的子列表
+			// 优先级顺序：
+			// 1. permSpecific (State, Normal)
+			// 2. cmdSpecific (State, Command)
+			// 3. tempSpecific (Temp)
+			// 4. permGeneric (State, Normal)
+			// 5. cmdGeneric (State, Command)
+			// 6. tempGeneric (Temp)
+			matchersToCheck = mergeSortedMatchersSix(matchersToCheck,
+				permSpecific, cmdSpecific, tempSpecific,
+				permGeneric, cmdGeneric, tempGeneric)
 
-		// 匹配并执行对应的处理器
-		for _, m := range matchersToCheck {
-			if m.Match(ctx) {
-				setContextMatcher(ctx, m)
-				e.invokeHandler(ctx, m)
-				if m.isBlocking() || state.block {
-					break
+			// 匹配并执行对应的处理器
+			for _, m := range matchersToCheck {
+				if m.Match(ctx) {
+					setContextMatcher(ctx, m)
+					e.invokeHandler(ctx, m)
+					if m.isBlocking() || state.block {
+						break
+					}
 				}
 			}
-		}
-
-		context.ReleaseContext(ctx)
+		}()
 	}
 }
 
