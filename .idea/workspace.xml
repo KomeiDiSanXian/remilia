@@ -4,10 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: implement context-aware waiting in various components for improved stability and responsiveness">
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update module dependencies and workspace configuration for improved compatibility" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -227,7 +224,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize: correct goroutine management and improve string handling in commands" />
     <MESSAGE value="feat: add error handling for uninitialized API and implement plugin creation function" />
     <MESSAGE value="feat: add AsPluginInfo method for backward compatibility and enhance plugin descriptor creation" />
     <MESSAGE value="docs: rename report files and archive outdated documents for better organization" />
@@ -252,7 +248,8 @@
     <MESSAGE value="docs: rename architecture reports and update README links to reflect new file structure" />
     <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
+    <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore: update module dependencies and workspace configuration for improved compatibility" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
