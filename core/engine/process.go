@@ -44,75 +44,7 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 		}
 	}()
 
-	// 无锁读取状态 - 无需类型断言
-	state := e.state.Load()
-
-	eventType := ctx.GetEventType()
-
-	// 获取已排序的 permanent 匹配器（从缓存）
-	permSpecific := state.sortedCache[eventType]
-	permGeneric := state.sortedCache[""]
-
-	// 尝试提取命令并获取命令优化匹配器
-	var cmdSpecific []*Matcher
-	var cmdGeneric []*Matcher
-
-	msgContent := ctx.GetMessageContent()
-	if msgContent != "" {
-		cmd := extractCommand(msgContent)
-		if cmd != "" {
-			if matchersMap, ok := state.commandIndex[cmd]; ok {
-				cmdSpecific = matchersMap[eventType]
-				cmdGeneric = matchersMap[""]
-			}
-		}
-	}
-
-	// 获取已排序的 temp 匹配器（从TempManager）
-	tempSpecific := e.services.tempManager.Get(eventType)
-	tempGeneric := e.services.tempManager.Get("")
-
-	// 从池中获取切片
-	matchersToCheck := e.services.matcherPool.Get()
-	// 重置长度
-	matchersToCheck = matchersToCheck[:0]
-
-	// 确保由于 matchersToCheck 指向的是池化内存，处理完必须清理并归还
-	defer func() {
-		// 清理指针，防止内存泄漏
-		for i := range matchersToCheck {
-			matchersToCheck[i] = nil
-		}
-
-		// 如果容量过大，截断后再归还，避免内存无限增长
-		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
-			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
-		}
-		e.services.matcherPool.Put(matchersToCheck)
-	}()
-
-	// 合并 6 个已经排序的子列表
-	// 优先级顺序：
-	// 1. permSpecific (State, Normal)
-	// 2. cmdSpecific (State, Command)
-	// 3. tempSpecific (Temp)
-	// 4. permGeneric (State, Normal)
-	// 5. cmdGeneric (State, Command)
-	// 6. tempGeneric (Temp)
-	matchersToCheck = mergeSortedMatchersSix(matchersToCheck,
-		permSpecific, cmdSpecific, tempSpecific,
-		permGeneric, cmdGeneric, tempGeneric)
-
-	// 匹配并执行对应的处理器
-	for _, m := range matchersToCheck {
-		if m.Match(ctx) {
-			setContextMatcher(ctx, m)
-			e.invokeHandler(ctx, m)
-			if m.isBlocking() || state.block {
-				break
-			}
-		}
-	}
+	e.processEventContext(ctx)
 }
 
 // getMatchersForEvent 获取用于匹配事件的匹配器列表（内部方法）

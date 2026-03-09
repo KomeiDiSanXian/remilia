@@ -3,6 +3,7 @@ package remilia
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -19,14 +20,15 @@ import (
 //	WithPlugins(plugin1.New(), plugin2.New()).
 //	Build()
 type BotBuilder struct {
-	adapter        Adapter
-	engine         *engine.Engine
-	botInfo        *dto.BotInfo
-	webhookAddr    string                     // 延迟创建：仅保存地址，Build() 时统一初始化 adapter
-	pluginManager  *plugin.Manager            // 可选，通过 WithPluginManager 或 WithPlugins 注入
-	pendingPlugins []*plugin.PluginDescriptor // WithPlugins 收集的描述符，Build() 时批量注册
-	options        []Option
-	hasError       error
+	adapter          Adapter
+	engine           *engine.Engine
+	botInfo          *dto.BotInfo
+	webhookAddr      string                     // 延迟创建：仅保存地址，Build() 时统一初始化 adapter
+	pluginManager    *plugin.Manager            // 可选，通过 WithPluginManager 或 WithPlugins 注入
+	pendingPlugins   []*plugin.PluginDescriptor // WithPlugins 收集的描述符，Build() 时批量注册
+	platformRegistry *platform.Registry         // 可选，多平台适配器注册表
+	options          []Option
+	hasError         error
 }
 
 // NewBotBuilder 创建Bot构建器
@@ -126,6 +128,29 @@ func (b *BotBuilder) WithPlugins(descriptors ...*plugin.PluginDescriptor) *BotBu
 	return b
 }
 
+// WithPlatformRegistry 注入多平台适配器注册表。
+//
+// 注入后 Bot.Start() 会为每个已注册的平台适配器启动独立事件循环，
+// 事件通过 platform.Event 接口传递给框架，不再直接依赖 *dto.Payload。
+//
+// 可与 WithWebhook/WithAdapter 同时使用（旧 QQ 路径 + 新多平台路径并行）。
+//
+// 示例:
+//
+//	webhookConn := remilia.NewWebhookServerAdapter(":8080", botInfo)
+//	api := openapi.New(tokenManager)
+//	registry := platform.NewRegistry()
+//	registry.Register(qq.NewAdapter(webhookConn, api))
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithBotInfo(botInfo).
+//	    WithPlatformRegistry(registry).
+//	    Build()
+func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
+	b.platformRegistry = r
+	return b
+}
+
 // Build 构建Bot实例
 //
 // Build() 负责完成所有延迟初始化逻辑：
@@ -170,6 +195,10 @@ func (b *BotBuilder) Build() (*Bot, error) {
 	// 注入插件管理器（若已配置）
 	if b.pluginManager != nil {
 		bot.UsePlugins(b.pluginManager)
+	}
+	// 注入多平台适配器注册表（若已配置）
+	if b.platformRegistry != nil {
+		bot.UsePlatformRegistry(b.platformRegistry)
 	}
 	return bot, nil
 }

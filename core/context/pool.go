@@ -32,6 +32,8 @@ func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context {
 
 	ctx.event = event
 	ctx.api = api
+	ctx.platformEvent = nil  // 旧路径不使用
+	ctx.platformSender = nil // 旧路径不使用
 	ctx.matcher = nil
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
@@ -61,6 +63,10 @@ func ReleaseContext(ctx *Context) {
 	ctx.event = nil
 	ctx.api = nil
 	ctx.matcher = nil
+
+	// 清理平台无关字段
+	ctx.platformEvent = nil
+	ctx.platformSender = nil
 
 	if ctx.extensions != nil {
 		ctx.extensions.Clear()

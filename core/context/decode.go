@@ -79,8 +79,21 @@ func (ctx *Context) DecodeEvent(v any) error {
 //
 // 第一次调用执行 gjson.GetBytes；同一 Context 的后续调用直接返回缓存值。
 // 在多 Matcher 场景（每个 Matcher 都调用此方法做内容匹配）时开销接近零。
+//
+// 新路径（platform.Event）：直接返回 event.Content()，同样走 Once 缓存。
 func (ctx *Context) GetMessageContent() string {
-	if ctx == nil || ctx.event == nil {
+	if ctx == nil {
+		return ""
+	}
+	// 新路径：platform.Event 已在 populate 阶段解析好内容
+	if ctx.platformEvent != nil {
+		ctx.contentOnce.Do(func() {
+			ctx.content = ctx.platformEvent.Content()
+		})
+		return ctx.content
+	}
+	// 旧路径：从 dto.Payload.Detail 中用 gjson 提取
+	if ctx.event == nil {
 		return ""
 	}
 	ctx.contentOnce.Do(func() {
@@ -118,8 +131,18 @@ func (ctx *Context) GetEvent() *dto.Payload {
 }
 
 // GetEventType 获取事件类型
+//
+// 新路径（platform.Event）：将 RawType() 字符串转换为 dto.EventType，
+// 保持与 Engine 内部按 EventType 路由的兼容性。
+// 旧路径：直接返回 ctx.event.Type。
 func (ctx *Context) GetEventType() dto.EventType {
-	if ctx == nil || ctx.event == nil {
+	if ctx == nil {
+		return ""
+	}
+	if ctx.platformEvent != nil {
+		return dto.EventType(ctx.platformEvent.RawType())
+	}
+	if ctx.event == nil {
 		return ""
 	}
 	return ctx.event.Type

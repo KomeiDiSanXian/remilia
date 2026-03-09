@@ -19,6 +19,12 @@ import (
 // ErrNilAPI 表示 OpenAPI 未初始化
 var ErrNilAPI = errors.New("openAPI is nil")
 
+// ErrNilContext 表示 Context 接收者为 nil
+var ErrNilContext = errors.New("context is nil")
+
+// ErrNoPlatformSender 表示 Context 未绑定 platform.Sender（旧路径不支持此操作）
+var ErrNoPlatformSender = errors.New("no platform sender: use ReplyGroup/ReplyPrivate for legacy QQ path")
+
 // isReservedUserStateKey reports whether key is reserved for framework internal use.
 //
 // 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。

@@ -17,6 +17,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -38,6 +39,11 @@ type Bot struct {
 	tokenManager  *token.Manager  // Token manager for lifecycle management
 	botInfo       *dto.BotInfo    // 保存 BotInfo，用于 Start() 时延迟初始化 tokenManager
 	pluginManager *plugin.Manager // 插件管理器（可选，通过 UsePlugins 注入）
+
+	// platformRegistry 多平台适配器注册表（可选）
+	// 若注册了平台适配器，事件会通过 handlePlatformEvent 处理
+	// 与旧版 adapter（handleEvent）可同时使用
+	platformRegistry *platform.Registry
 
 	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
 	// Start() 时创建，Stop() 时取消，确保所有依赖组件随 Bot 一起退出
@@ -135,6 +141,25 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 			return b.engine.Shutdown(ctx)
 		},
 	))
+
+	// 若已注入多平台注册表，为每个平台适配器注册独立的生命周期组件
+	// 各平台适配器在独立 goroutine 中运行，ctx 取消时统一退出
+	if b.platformRegistry != nil {
+		for _, pa := range b.platformRegistry.All() {
+			pa := pa // capture
+			name := "platform:" + pa.Platform()
+			b.lifecycle.Register(lifecycle.NewSimpleComponent(
+				name,
+				nil,
+				func(ctx context.Context) error {
+					return pa.Start(ctx, b.handlePlatformEvent)
+				},
+				func(ctx context.Context) error {
+					return pa.Stop(ctx)
+				},
+			))
+		}
+	}
 
 	return b
 }
@@ -333,7 +358,78 @@ func (b *Bot) handleEvent(payload *dto.Payload) {
 	}
 }
 
-// Stop 优雅关闭 Bot
+// handlePlatformEvent 处理来自 platform.PlatformAdapter 的事件
+//
+// 直接调用 engine.ProcessPlatformEvent，不再降级到 *dto.Payload 路径。
+// Engine 内部通过 context.AcquireContextFromEvent 创建平台无关的 Context，
+// Handler 可通过 ctx.GetPlatformEvent() 访问原始事件，通过 ctx.Reply() 发送回复。
+func (b *Bot) handlePlatformEvent(event platform.Event) {
+	if event == nil {
+		logger.Warn("[Bot] Received nil platform event, skipping")
+		return
+	}
+
+	start := time.Now()
+
+	if b.config.Debug {
+		logger.WithFields(logger.Fields{
+			"platform": event.Platform(),
+			"kind":     string(event.Kind()),
+			"type":     event.RawType(),
+		}).Debug("[Bot] Platform event received")
+	}
+
+	// 获取该平台的 Sender
+	var sender platform.Sender
+	b.mu.RLock()
+	reg := b.platformRegistry
+	b.mu.RUnlock()
+	if reg != nil {
+		if pa, ok := reg.Get(event.Platform()); ok {
+			sender = pa.Sender()
+		}
+	}
+	if sender == nil {
+		sender = &platform.NoopSender{}
+	}
+
+	// 直接走新引擎路径：无 dto.Payload，无 openapi.OpenAPI
+	b.engine.ProcessPlatformEvent(event, sender)
+
+	if b.config.Debug {
+		logger.WithFields(logger.Fields{
+			"platform": event.Platform(),
+			"kind":     string(event.Kind()),
+			"elapsed":  time.Since(start),
+		}).Debug("[Bot] Platform event processed")
+	}
+}
+
+// UsePlatformRegistry 注入多平台适配器注册表
+//
+// 注入后 Bot.Start() 会为每个已注册的平台适配器启动独立事件循环。
+// 必须在 Bot.Start() 之前调用。
+//
+// 示例：
+//
+//	registry := platform.NewRegistry()
+//	registry.Register(qq.NewAdapter(webhookConn, api))
+//	registry.Register(discord.NewAdapter())
+//	bot.UsePlatformRegistry(registry)
+func (b *Bot) UsePlatformRegistry(r *platform.Registry) *Bot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.platformRegistry = r
+	return b
+}
+
+// PlatformRegistry 返回已注入的多平台注册表，未注入时返回 nil
+func (b *Bot) PlatformRegistry() *platform.Registry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.platformRegistry
+}
+
 func (b *Bot) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	if !b.running {

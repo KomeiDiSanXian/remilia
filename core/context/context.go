@@ -23,6 +23,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // extensionState is the user-facing string-keyed extension container.
@@ -62,6 +63,11 @@ type Context struct {
 	ctx     stdctx.Context // 标准库 context，用于超时控制、取消传播等
 	matcher Matcher        // Matcher 引用（使用 interface{} 避免循环依赖）
 	event   *dto.Payload
+
+	// --- 平台无关字段（新路径）---
+	// 由 AcquireContextFromEvent 填充，旧路径保持 nil
+	platformEvent  platform.Event  // 平台无关事件抽象
+	platformSender platform.Sender // 平台无关消息发送器
 
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
