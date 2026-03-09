@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Remilia Logo](https://img.shields.io/badge/Remilia-QQ%20Bot%20Framework-blue)
-![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
+![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
@@ -15,7 +15,7 @@
 
 ---
 
-## 🎉 v2.0.0
+## 🎉 v1.0.0
 
 > **✅ Plugin v2 API 正式版**
 >

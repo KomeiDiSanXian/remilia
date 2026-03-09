@@ -4,7 +4,14 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update module dependencies and workspace configuration for improved compatibility" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update Go version to 1.25.0 in go.mod for improved compatibility">
+      <change afterPath="$PROJECT_DIR$/version.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/global/global.go" beforeDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -224,7 +231,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add error handling for uninitialized API and implement plugin creation function" />
     <MESSAGE value="feat: add AsPluginInfo method for backward compatibility and enhance plugin descriptor creation" />
     <MESSAGE value="docs: rename report files and archive outdated documents for better organization" />
     <MESSAGE value="feat: implement plugin dependency injection container and management interface" />
@@ -249,7 +255,8 @@
     <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
     <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore: update module dependencies and workspace configuration for improved compatibility" />
+    <MESSAGE value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

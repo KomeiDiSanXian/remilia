@@ -74,7 +74,7 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 		lifecycle: lifecycle.NewManager(),
 		config: &Config{
 			Name:    "remilia-bot",
-			Version: "0.9.0",
+			Version: Version,
 			Debug:   false,
 		},
 	}
