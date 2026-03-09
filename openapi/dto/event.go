@@ -16,6 +16,21 @@ const (
 	FriendDel            EventType = "FRIEND_DEL"
 	C2CMsgReject         EventType = "C2C_MSG_REJECT"
 	C2CMsgReceive        EventType = "C2C_MSG_RECEIVE"
+
+	// Channel (频道) 事件类型
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/
+	ChannelCreate       EventType = "CHANNEL_CREATE"        // 子频道创建
+	ChannelUpdate       EventType = "CHANNEL_UPDATE"        // 子频道更新
+	ChannelDelete       EventType = "CHANNEL_DELETE"        // 子频道删除
+	GuildCreate         EventType = "GUILD_CREATE"          // 频道创建（机器人加入）
+	GuildUpdate         EventType = "GUILD_UPDATE"          // 频道信息变更
+	GuildDelete         EventType = "GUILD_DELETE"          // 频道删除（机器人退出）
+	GuildMemberAdd      EventType = "GUILD_MEMBER_ADD"      // 频道成员加入
+	GuildMemberUpdate   EventType = "GUILD_MEMBER_UPDATE"   // 频道成员更新
+	GuildMemberRemove   EventType = "GUILD_MEMBER_REMOVE"   // 频道成员移除
+	AtMessageCreate     EventType = "AT_MESSAGE_CREATE"     // 频道内 @机器人 消息
+	MessageCreate       EventType = "MESSAGE_CREATE"        // 频道内消息（需申请权限）
+	DirectMessageCreate EventType = "DIRECT_MESSAGE_CREATE" // 频道私信消息
 )
 
 // EventID is the ID of the event
@@ -132,4 +147,99 @@ type C2CMsgReceiveEvent struct {
 	UserOpRobotEvent
 }
 
-// TODO: Add channel event
+//// --- 频道（Guild / Channel）事件 ---
+//
+//// GuildEvent 频道基础事件（机器人加入/退出频道，或频道信息变更）
+////
+//// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/
+//type GuildEvent struct {
+//	ID          string `json:"id,omitempty"`           // 频道 ID
+//	Name        string `json:"name,omitempty"`         // 频道名称
+//	Description string `json:"description,omitempty"`  // 频道描述
+//	OwnerID     string `json:"owner_id,omitempty"`     // 创建人 ID
+//	JoinedAt    string `json:"joined_at,omitempty"`    // 机器人加入时间（RFC3339）
+//	MemberCount int    `json:"member_count,omitempty"` // 成员数量
+//}
+//
+//// GuildCreateEvent 机器人加入频道事件
+//type GuildCreateEvent struct {
+//	GuildEvent
+//}
+//
+//// GuildUpdateEvent 频道信息变更事件
+//type GuildUpdateEvent struct {
+//	GuildEvent
+//}
+//
+//// GuildDeleteEvent 机器人退出频道事件
+//type GuildDeleteEvent struct {
+//	GuildEvent
+//}
+//
+//// GuildMemberEvent 频道成员事件基础结构
+//type GuildMemberEvent struct {
+//	GuildID  string `json:"guild_id,omitempty"`   // 频道 ID
+//	UserID   string `json:"user_id,omitempty"`    // 用户 ID
+//	Nick     string `json:"nick,omitempty"`       // 用户在频道内昵称
+//	JoinedAt string `json:"joined_at,omitempty"`  // 加入时间（RFC3339）
+//	OpUserID string `json:"op_user_id,omitempty"` // 操作人 ID
+//}
+//
+//// GuildMemberAddEvent 频道成员加入事件
+//type GuildMemberAddEvent struct {
+//	GuildMemberEvent
+//}
+//
+//// GuildMemberUpdateEvent 频道成员更新事件
+//type GuildMemberUpdateEvent struct {
+//	GuildMemberEvent
+//}
+//
+//// GuildMemberRemoveEvent 频道成员移除事件
+//type GuildMemberRemoveEvent struct {
+//	GuildMemberEvent
+//}
+//
+//// ChannelEvent 子频道事件基础结构
+//type ChannelEvent struct {
+//	ID       string `json:"id,omitempty"`         // 子频道 ID
+//	GuildID  string `json:"guild_id,omitempty"`   // 所属频道 ID
+//	Name     string `json:"name,omitempty"`       // 子频道名称
+//	Type     int    `json:"type,omitempty"`       // 子频道类型
+//	SubType  int    `json:"sub_type,omitempty"`   // 子频道子类型
+//	Position int    `json:"position,omitempty"`   // 排序权重
+//	OpUserID string `json:"op_user_id,omitempty"` // 操作人 ID
+//}
+//
+//// ChannelCreateEvent 子频道创建事件
+//type ChannelCreateEvent struct {
+//	ChannelEvent
+//}
+//
+//// ChannelUpdateEvent 子频道更新事件
+//type ChannelUpdateEvent struct {
+//	ChannelEvent
+//}
+//
+//// ChannelDeleteEvent 子频道删除事件
+//type ChannelDeleteEvent struct {
+//	ChannelEvent
+//}
+//
+//// ChannelMessageCreateEvent 频道内 @机器人 或普通消息事件
+////
+//// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html
+//type ChannelMessageCreateEvent struct {
+//	MessageCreateEvent
+//	GuildID   string `json:"guild_id,omitempty"`   // 频道 ID
+//	ChannelID string `json:"channel_id,omitempty"` // 子频道 ID
+//}
+//
+//// DirectMessageCreateEvent 频道私信消息事件
+////
+//// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html
+//type DirectMessageCreateEvent struct {
+//	MessageCreateEvent
+//	GuildID   string `json:"guild_id,omitempty"`   // 私信会话频道 ID
+//	ChannelID string `json:"channel_id,omitempty"` // 私信子频道 ID
+//}
