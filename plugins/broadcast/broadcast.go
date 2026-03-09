@@ -4,14 +4,17 @@
 //   - 向多个群或用户批量发送消息
 //   - 内置发送速率控制（复用 sendqueue 或直接内置令牌桶）
 //   - 发送结果统计（成功/失败数）
-//   - 依赖 openapi.OpenAPI 进行实际发送
+//   - 支持平台无关的 platform.Sender（新路径）和 openapi.OpenAPI（旧 QQ 路径）
 //
-// 使用示例:
+// 推荐使用 SetSender 注入 platform.Sender，兼容所有平台：
 //
-//	pm.RegisterV2(broadcast.New())
-//	bc := ctx.MustGet("broadcast").(*broadcast.Plugin)
+//	bc.SetSender(ctx.GetPlatformSender())
+//	result := bc.Broadcast([]string{"chat001", "chat002"}, platform.TextMessage("公告"))
+//
+// 旧 QQ 路径（仍然有效）：
+//
 //	bc.SetAPI(ctx.GetAPI())
-//	result := bc.ToGroups([]string{"group1", "group2"}, dto.TextMsg("公告内容"))
+//	result := bc.ToGroups([]string{"group1"}, dto.TextMsg("公告"))
 package broadcast
 
 import (
@@ -26,6 +29,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
@@ -62,6 +66,9 @@ type Plugin struct {
 	rl  *rate.Limiter
 	api openapi.OpenAPI
 	mu  sync.RWMutex
+
+	// 平台无关发送器（新路径）
+	sender platform.Sender
 
 	// 订阅管理
 	groupSubs map[string]bool // groupOpenID -> subscribed
@@ -128,11 +135,24 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 	}
 }
 
-// SetAPI 设置 OpenAPI 实例（必须在使用前调用）
+// SetAPI 设置 OpenAPI 实例（QQ 旧路径，仍然有效）
+//
+// Deprecated: 推荐使用 SetSender(platform.Sender) 以支持多平台。
 func (p *Plugin) SetAPI(api openapi.OpenAPI) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.api = api
+}
+
+// SetSender 设置平台无关消息发送器（新路径，推荐使用）
+//
+// 示例：
+//
+//	bc.SetSender(ctx.GetPlatformSender())
+func (p *Plugin) SetSender(s platform.Sender) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sender = s
 }
 
 // getAPI 线程安全地获取 API
@@ -140,6 +160,64 @@ func (p *Plugin) getAPI() openapi.OpenAPI {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.api
+}
+
+// getSender 线程安全地获取平台发送器
+func (p *Plugin) getSender() platform.Sender {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.sender
+}
+
+// Broadcast 向多个会话发送消息（平台无关新路径）
+//
+// chatIDs 为目标会话 ID（群 ID 或用户 ID，取决于平台）。
+// 返回汇总的发送结果。
+func (p *Plugin) Broadcast(chatIDs []string, msg platform.OutboundMessage) Result {
+	s := p.getSender()
+	if s == nil {
+		errs := make([]error, len(chatIDs))
+		for i := range errs {
+			errs[i] = fmt.Errorf("broadcast: no sender set, call SetSender() first")
+		}
+		return Result{Total: len(chatIDs), Failed: len(chatIDs), Errors: errs}
+	}
+
+	result := Result{Total: len(chatIDs)}
+	var (
+		mu      sync.Mutex
+		success int64
+		failed  int64
+		errs    []error
+		wg      sync.WaitGroup
+		sem     = make(chan struct{}, p.cfg.Concurrency)
+	)
+
+	ctx := context.Background()
+	for _, chatID := range chatIDs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(id string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			_ = p.rl.Wait(ctx)
+			if err := s.Send(ctx, id, msg); err != nil {
+				atomic.AddInt64(&failed, 1)
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				logger.WithError(err).Warnf("[Broadcast] Failed to send to %s", id)
+			} else {
+				atomic.AddInt64(&success, 1)
+			}
+		}(chatID)
+	}
+	wg.Wait()
+	result.Success = int(success)
+	result.Failed = int(failed)
+	result.Errors = errs
+	logger.Infof("[Broadcast] Completed: total=%d success=%d failed=%d", result.Total, result.Success, result.Failed)
+	return result
 }
 
 // ToGroups 向多个群发送消息，返回汇总结果

@@ -36,11 +36,11 @@ type PlatformAdapter interface {
 	// Platform 返回平台标识符（小写，如 "qq"、"discord"、"telegram"）
 	Platform() string
 
-	// Start 启动适配器事件循环（阻塞，直到 ctx 取消或出错）
+	// StartPlatform 启动适配器事件循环（阻塞，直到 ctx 取消或出错）
 	//
 	// 每收到一个事件，调用 handler(event)。
 	// handler 应快速返回（框架内部会在 goroutine 中处理）。
-	Start(ctx stdctx.Context, handler func(Event)) error
+	StartPlatform(ctx stdctx.Context, handler func(Event)) error
 
 	// Stop 优雅停止适配器
 	Stop(ctx stdctx.Context) error
@@ -105,7 +105,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	errCh := make(chan error, len(adapters))
 	for _, a := range adapters {
 		go func() {
-			if err := a.Start(ctx, handler); err != nil {
+			if err := a.StartPlatform(ctx, handler); err != nil {
 				errCh <- fmt.Errorf("platform %s: %w", a.Platform(), err)
 			}
 		}()

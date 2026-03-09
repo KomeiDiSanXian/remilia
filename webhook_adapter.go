@@ -12,14 +12,20 @@ import (
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 )
 
-// WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器
+// WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器。
+//
+// 实现 engine.PlatformAdapter 接口（新路径）以及旧 engine.Adapter 接口（向后兼容）。
 type WebhookServerAdapter struct {
 	addr       string
 	botInfo    *dto.BotInfo
+	api        openapi.OpenAPI // 用于创建 QQ Sender
 	webhook    *webhook.Conn
 	server     *http.Server
 	ctx        context.Context
@@ -27,8 +33,26 @@ type WebhookServerAdapter struct {
 	wg         sync.WaitGroup
 	mu         sync.RWMutex
 	running    bool
-	workers    int // 并发事件处理的 worker 数量，默认为 1
-	bufferSize int // webhook event channel 的 buffer 大小
+	workers    int
+	bufferSize int
+}
+
+// Platform 实现 engine.PlatformAdapter
+func (a *WebhookServerAdapter) Platform() string { return qqplatform.PlatformID }
+
+// Sender 实现 engine.PlatformAdapter
+func (a *WebhookServerAdapter) Sender() platform.Sender {
+	if a.api != nil {
+		return qqplatform.NewSender(a.api)
+	}
+	return &platform.NoopSender{}
+}
+
+// WithAPI 注入 QQ OpenAPI client，用于通过 ctx.Reply() 发送消息。
+// 支持链式调用：adapter.WithAPI(api).Start(ctx, handler)
+func (a *WebhookServerAdapter) WithAPI(api openapi.OpenAPI) *WebhookServerAdapter {
+	a.api = api
+	return a
 }
 
 // NewWebhookServerAdapter 创建一个内置 HTTP 服务器的 Webhook 适配器（使用默认配置）
@@ -100,8 +124,26 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 	}
 }
 
-// Start 启动适配器（启动 HTTP 服务器和事件循环）
+// Start 启动适配器（旧签名，向后兼容）
+//
+// Deprecated: 请使用 StartPlatform 替代，可通过 ctx.Reply(platform.OutboundMessage) 发送消息。
 func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+	// 包装为 platform.Event handler
+	return a.startWithPlatformHandler(ctx, func(event platform.Event) {
+		if raw := event.RawPayload(); raw != nil {
+			if payload, ok := raw.(*dto.Payload); ok {
+				safeHandle(handler, payload)
+			}
+		}
+	})
+}
+
+// StartPlatform 实现 engine.PlatformAdapter.Start，接受 platform.Event handler
+func (a *WebhookServerAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+	return a.startWithPlatformHandler(ctx, handler)
+}
+
+func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, handler func(platform.Event)) error {
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
@@ -163,14 +205,14 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payl
 				case <-a.ctx.Done():
 					logger.Debugf("[WebhookServerAdapter] Worker #%d stopping", workerID)
 					return
-				case event, ok := <-eventStream:
+				case payload, ok := <-eventStream:
 					if !ok {
 						logger.Warnf("[WebhookServerAdapter] Worker #%d: event stream closed", workerID)
 						return
 					}
-					if event != nil {
-						// 安全调用 handler
-						safeHandle(handler, event)
+					if payload != nil {
+						event := qqplatform.NewEvent(payload)
+						safeHandlePlatform(handler, event)
 					}
 				}
 			}

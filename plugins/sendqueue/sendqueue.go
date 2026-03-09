@@ -1,17 +1,11 @@
-// Package sendqueue 提供消息发送队列与频控插件。
+// Package sendqueue provides an async message send queue with rate limiting.
 //
-// 功能：
-//   - 异步消息队列，避免阻塞事件处理主循环
-//   - 按 target（groupID / openID）独立令牌桶限速
-//   - 发送失败自动重试（区分 429 与永久错误）
-//   - 与 lifecycle 自动联动
+// Usage:
 //
-// 使用示例:
-//
-//	pm.RegisterV2(sendqueue.New(sendqueue.Config{Rate: 5, Burst: 10}))
-//	// 在 Handler 中：
-//	sq := ctx.MustGet("sendqueue").(*sendqueue.Plugin)
-//	sq.Enqueue("group_openid", msg)
+// pm.RegisterV2(sendqueue.New(sendqueue.Config{Rate: 5, Burst: 10}))
+// // In a Handler:
+// sq := ctx.MustGet("sendqueue").(*sendqueue.Plugin)
+// sq.Enqueue("chat_id", platform.TextMessage("hello"), nil)
 package sendqueue
 
 import (
@@ -21,16 +15,16 @@ import (
 	"sync"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"golang.org/x/time/rate"
-
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/time/rate"
 )
 
-// Config 发送队列配置
+// Config holds configuration for the send queue plugin.
 type Config struct {
 	// Rate 全局消息发送速率（条/秒）
 	Rate float64
@@ -50,43 +44,44 @@ type Config struct {
 	RetryDelay time.Duration
 }
 
-// DefaultConfig 默认配置
+// DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Rate:           10,
-		Burst:          20,
-		PerTargetRate:  2,
-		PerTargetBurst: 5,
-		QueueSize:      1000,
-		Workers:        4,
-		MaxRetries:     3,
-		RetryDelay:     500 * time.Millisecond,
+		Rate: 10, Burst: 20,
+		PerTargetRate: 2, PerTargetBurst: 5,
+		QueueSize: 1000, Workers: 4,
+		MaxRetries: 3, RetryDelay: 500 * time.Millisecond,
 	}
 }
 
-// sendJob 一条待发送任务
+// sendJob is one pending send task.
 type sendJob struct {
-	target  string // groupOpenID 或 userOpenID
-	isGroup bool   // true = 群消息, false = C2C
+	target  string
+	isGroup bool // legacy QQ path
 	msg     *dto.Message
 	api     openapi.OpenAPI
-	attempt int
+	// platform-agnostic path (preferred)
+	sender      platform.Sender
+	outbound    platform.OutboundMessage
+	usePlatform bool
+	attempt     int
 }
 
-// Plugin 消息发送队列插件 API
+// Plugin is the send queue plugin API.
 type Plugin struct {
-	cfg        Config
-	globalRL   *rate.Limiter
-	perTarget  *lru.Cache[string, *rate.Limiter]
-	queue      chan sendJob
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	mu         sync.Mutex
-	defaultAPI openapi.OpenAPI
+	cfg           Config
+	globalRL      *rate.Limiter
+	perTarget     *lru.Cache[string, *rate.Limiter]
+	queue         chan sendJob
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	mu            sync.Mutex
+	defaultAPI    openapi.OpenAPI
+	defaultSender platform.Sender
 }
 
-// New 创建发送队列插件
+// New creates a send queue plugin descriptor.
 func New(cfg Config) *plugin.PluginDescriptor {
 	if cfg.Rate <= 0 {
 		cfg.Rate = DefaultConfig().Rate
@@ -106,10 +101,8 @@ func New(cfg Config) *plugin.PluginDescriptor {
 	if cfg.RetryDelay <= 0 {
 		cfg.RetryDelay = DefaultConfig().RetryDelay
 	}
-
 	targetCache, _ := lru.New[string, *rate.Limiter](2000)
 	ctx, cancel := context.WithCancel(context.Background())
-
 	p := &Plugin{
 		cfg:       cfg,
 		globalRL:  rate.NewLimiter(rate.Limit(cfg.Rate), cfg.Burst),
@@ -118,7 +111,6 @@ func New(cfg Config) *plugin.PluginDescriptor {
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-
 	return &plugin.PluginDescriptor{
 		Name:    "sendqueue",
 		Version: "1.0.0",
@@ -149,29 +141,57 @@ func New(cfg Config) *plugin.PluginDescriptor {
 	}
 }
 
-// SetDefaultAPI 设置默认 OpenAPI 实例（通常在 Setup 中由 engine 注入）
+// SetDefaultAPI sets the default QQ OpenAPI client (legacy path).
+//
+// Deprecated: Use SetDefaultSender for multi-platform support.
 func (p *Plugin) SetDefaultAPI(api openapi.OpenAPI) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.defaultAPI = api
 }
 
-// EnqueueGroup 将群消息加入队列
+// SetDefaultSender sets the default platform-agnostic sender (recommended).
+func (p *Plugin) SetDefaultSender(s platform.Sender) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.defaultSender = s
+}
+
+// Enqueue adds a platform-agnostic message to the queue (recommended).
+//
+// If sender is nil, falls back to the default sender set via SetDefaultSender.
+func (p *Plugin) Enqueue(chatID string, msg platform.OutboundMessage, sender platform.Sender) error {
+	return p.enqueue(sendJob{
+		target:      chatID,
+		outbound:    msg,
+		sender:      sender,
+		usePlatform: true,
+	})
+}
+
+// EnqueueGroup adds a QQ group message to the queue (legacy path).
+//
+// Deprecated: Use Enqueue with platform.OutboundMessage.
 func (p *Plugin) EnqueueGroup(groupOpenID string, msg *dto.Message, api openapi.OpenAPI) error {
 	return p.enqueue(sendJob{target: groupOpenID, isGroup: true, msg: msg, api: api})
 }
 
-// EnqueueC2C 将私聊消息加入队列
+// EnqueueC2C adds a QQ C2C message to the queue (legacy path).
+//
+// Deprecated: Use Enqueue with platform.OutboundMessage.
 func (p *Plugin) EnqueueC2C(openID string, msg *dto.Message, api openapi.OpenAPI) error {
 	return p.enqueue(sendJob{target: openID, isGroup: false, msg: msg, api: api})
 }
 
 func (p *Plugin) enqueue(job sendJob) error {
-	if job.api == nil {
-		p.mu.Lock()
+	p.mu.Lock()
+	if !job.usePlatform && job.api == nil {
 		job.api = p.defaultAPI
-		p.mu.Unlock()
 	}
+	if job.usePlatform && job.sender == nil {
+		job.sender = p.defaultSender
+	}
+	p.mu.Unlock()
 	select {
 	case p.queue <- job:
 		return nil
@@ -212,7 +232,7 @@ func (p *Plugin) worker(id int) {
 func (p *Plugin) process(workerID int, job sendJob) {
 	// 全局限速等待
 	if err := p.globalRL.Wait(p.ctx); err != nil {
-		return // ctx cancelled
+		return
 	}
 	// per-target 限速等待
 	if rl := p.targetLimiter(job.target); rl != nil {
@@ -222,17 +242,21 @@ func (p *Plugin) process(workerID int, job sendJob) {
 	}
 
 	var sendErr error
-	if job.isGroup {
-		_, sendErr = job.api.GroupChat(job.target, job.msg)
+	if job.usePlatform && job.sender != nil {
+		sendErr = job.sender.Send(p.ctx, job.target, job.outbound)
+	} else if job.api != nil {
+		if job.isGroup {
+			_, sendErr = job.api.GroupChat(job.target, job.msg)
+		} else {
+			_, sendErr = job.api.SingleChat(job.target, job.msg)
+		}
 	} else {
-		_, sendErr = job.api.SingleChat(job.target, job.msg)
+		logger.Warnf("[SendQueue] worker=%d job has no sender or api, dropping target=%s", workerID, job.target)
+		return
 	}
-
 	if sendErr != nil {
 		if job.attempt < p.cfg.MaxRetries {
 			job.attempt++
-			// 指数退避 + jitter：delay = RetryDelay * 2^(attempt-1) + random[0, RetryDelay)
-			// 防止重试风暴（Bug 2.11 修复）
 			backoff := p.cfg.RetryDelay * (1 << (job.attempt - 1))
 			jitter := time.Duration(rand.Int64N(int64(p.cfg.RetryDelay)))
 			retryAfter := backoff + jitter
@@ -242,13 +266,13 @@ func (p *Plugin) process(workerID int, job sendJob) {
 				select {
 				case p.queue <- job:
 				default:
-					logger.Warnf("[SendQueue] retry queue full, dropping message to %s", job.target)
+					logger.Warnf("[SendQueue] retry queue full, dropping target=%s", job.target)
 				}
 			})
 		} else {
 			logger.WithError(sendErr).Errorf("[SendQueue] worker=%d max retries reached for target=%s", workerID, job.target)
 		}
 	} else {
-		logger.Debugf("[SendQueue] worker=%d sent to %s (isGroup=%v)", workerID, job.target, job.isGroup)
+		logger.Debugf("[SendQueue] worker=%d sent to %s", workerID, job.target)
 	}
 }

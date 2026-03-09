@@ -5,6 +5,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // Option Engine 配置选项函数类型
@@ -85,8 +86,29 @@ type PluginCoordinator interface {
 	EnableGroup(groupName string)
 }
 
-// Adapter connects an event source to the Bot
+// Adapter connects an event source to the Bot.
+//
+// Deprecated: Use PlatformAdapter instead. Adapter requires a QQ-specific
+// *dto.Payload handler and will be removed in a future major version.
+// Migrate to PlatformAdapter for platform-agnostic event handling.
 type Adapter interface {
 	Start(ctx stdctx.Context, handleFunc func(*dto.Payload)) error
 	Stop(ctx stdctx.Context) error
+}
+
+// PlatformAdapter 是平台无关的适配器接口，取代 Adapter。
+//
+// StartPlatform 的 handler 接受 platform.Event，不依赖任何特定平台的数据结构，
+// 使同一个 Bot 可以同时处理 QQ、Discord、Telegram 等多个平台的事件。
+//
+// 实现示例参见 platform/qq.Adapter 和根包的 WebhookServerAdapter。
+type PlatformAdapter interface {
+	// Platform 返回平台标识符（如 "qq"、"discord"）
+	Platform() string
+	// StartPlatform 启动事件接收循环，将事件以 platform.Event 形式回调给 handler
+	StartPlatform(ctx stdctx.Context, handler func(platform.Event)) error
+	// Stop 优雅停止
+	Stop(ctx stdctx.Context) error
+	// Sender 返回该平台的消息发送器
+	Sender() platform.Sender
 }

@@ -151,7 +151,7 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 				name,
 				nil,
 				func(ctx context.Context) error {
-					return pa.Start(ctx, b.handlePlatformEvent)
+					return pa.StartPlatform(ctx, b.handlePlatformEvent)
 				},
 				func(ctx context.Context) error {
 					return pa.Stop(ctx)

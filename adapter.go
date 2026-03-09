@@ -8,45 +8,98 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 )
 
-// Adapter connects an event source to the Bot.
-// It is responsible for receiving events from external sources and delivering them to the bot.
+// Adapter 是旧版事件适配器接口（Deprecated）。
 //
-// This is a type alias for engine.Adapter; both are identical and interchangeable.
+// Deprecated: 请使用 engine.PlatformAdapter 替代。
+// Adapter 要求 handler 接受 *dto.Payload，与 QQ 平台强绑定。
+// 迁移到 engine.PlatformAdapter 可支持多平台事件处理。
 type Adapter = engine.Adapter
 
-// Webhook 是 webhook 的最小接口，只需要 EventStream
+// Webhook 是 webhook 的最小接口，只需要 EventStream。
+//
+// 此接口面向 QQ SDK 内部，保留 *dto.Payload 是合理的 QQ 约定。
 type Webhook interface {
 	EventStream() <-chan *dto.Payload
 }
 
-// webhookAdapter 将 Webhook 适配为 core.Adapter
+// webhookAdapter 将 Webhook 适配为 engine.PlatformAdapter（新接口）。
+//
+// 内部将从 Webhook.EventStream() 读取到的 *dto.Payload
+// 通过 platform/qq.NewEvent 转换为 platform.Event，
+// 再调用 platform-agnostic handler，从而解耦上层逻辑。
 type webhookAdapter struct {
 	webhook  Webhook
+	api      openapi.OpenAPI // QQ OpenAPI client，用于创建 Sender
 	ctx      context.Context
 	cancel   context.CancelFunc
-	wg       sync.WaitGroup // Track the event loop goroutine
-	mu       sync.RWMutex   // Protect state
-	running  bool           // Track if event loop is running
-	starting atomic.Bool    // Prevent concurrent Start calls
+	wg       sync.WaitGroup
+	mu       sync.RWMutex
+	running  bool
+	starting atomic.Bool
 }
 
-// NewWebhookAdapter 创建一个 webhook adapter
+// NewWebhookAdapter 创建一个 webhook adapter（实现 engine.PlatformAdapter）。
+//
+// api 参数用于创建 QQ platform.Sender；传 nil 时发送功能不可用。
 func NewWebhookAdapter(wh Webhook) Adapter {
-	return &webhookAdapter{
-		webhook: wh,
-	}
+	return &webhookAdapter{webhook: wh}
 }
 
-// Start 启动 adapter
+// NewWebhookAdapterWithAPI 创建携带 OpenAPI client 的 webhook adapter。
+//
+// 相比 NewWebhookAdapter，handler 可以通过 ctx.Reply() 发送消息。
+func NewWebhookAdapterWithAPI(wh Webhook, api openapi.OpenAPI) engine.PlatformAdapter {
+	return &webhookAdapter{webhook: wh, api: api}
+}
+
+// Platform 实现 engine.PlatformAdapter
+func (a *webhookAdapter) Platform() string { return qqplatform.PlatformID }
+
+// Sender 实现 engine.PlatformAdapter
+func (a *webhookAdapter) Sender() platform.Sender {
+	if a.api != nil {
+		return qqplatform.NewSender(a.api)
+	}
+	return &platform.NoopSender{}
+}
+
+// Start 启动 adapter（同时满足旧 Adapter 和新 PlatformAdapter 接口）。
+//
+// 若 handler 类型为 func(platform.Event)，走新路径；
+// 若为 func(*dto.Payload)，走旧路径（向后兼容）。
+//
+// 注意：Bot 内部已更新为使用新路径，此处旧路径仅为外部直接调用 Start 的场景保留。
 func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
-	// 防止并发 Start 调用
+	return a.startWithPayloadHandler(ctx, handler)
+}
+
+// StartPlatform 实现 engine.PlatformAdapter.Start，接受 platform.Event handler
+func (a *webhookAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+	return a.startWithPlatformHandler(ctx, handler)
+}
+
+func (a *webhookAdapter) startWithPayloadHandler(ctx context.Context, handler func(*dto.Payload)) error {
+	// 包装为 platform.Event handler，内部转换
+	return a.startWithPlatformHandler(ctx, func(event platform.Event) {
+		if raw := event.RawPayload(); raw != nil {
+			if payload, ok := raw.(*dto.Payload); ok {
+				handler(payload)
+				return
+			}
+		}
+	})
+}
+
+func (a *webhookAdapter) startWithPlatformHandler(ctx context.Context, handler func(platform.Event)) error {
 	if !a.starting.CompareAndSwap(false, true) {
 		return errutil.New("adapter is already starting or started")
 	}
-	// 修复 B1：只在失败时重置 starting，成功路径不重置（依靠 running 字段防止重复启动）
 	var startSucceeded bool
 	defer func() {
 		if !startSucceeded {
@@ -58,12 +111,11 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	if a.running {
 		a.mu.Unlock()
 		logger.Warn("[Adapter] Already running")
-		startSucceeded = true // 已在运行，视为成功，保持 starting=true 无意义，但不应重置
+		startSucceeded = true
 		a.starting.Store(false)
 		return nil
 	}
 
-	// 验证 EventStream 是否为 nil
 	eventCh := a.webhook.EventStream()
 	if eventCh == nil {
 		a.mu.Unlock()
@@ -74,33 +126,43 @@ func (a *webhookAdapter) Start(ctx context.Context, handler func(*dto.Payload)) 
 	a.running = true
 	a.mu.Unlock()
 
-	// 启动事件循环
-	a.wg.Go(func() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
 		logger.Debug("[Adapter] Event loop started")
-
 		for {
 			select {
 			case <-a.ctx.Done():
 				logger.Debug("[Adapter] Context done, stopping event loop")
 				return
-			case event, ok := <-eventCh:
+			case payload, ok := <-eventCh:
 				if !ok {
 					logger.Warn("[Adapter] EventStream closed, stopping event loop")
 					return
 				}
-				if event != nil {
-					// 使用 defer+recover 包装 handler 调用，防止 panic 导致 goroutine 退出
-					safeHandle(handler, event)
+				if payload != nil {
+					event := qqplatform.NewEvent(payload)
+					safeHandlePlatform(handler, event)
 				}
 			}
 		}
-	})
+	}()
 
 	logger.Info("[Adapter] Started successfully")
 	startSucceeded = true
 	return nil
 }
 
+func safeHandlePlatform(handler func(platform.Event), event platform.Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithField("panic", r).Error("[Adapter] Handler panic recovered")
+		}
+	}()
+	handler(event)
+}
+
+// safeHandle 保留向后兼容（供 webhook_adapter.go 使用）
 func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -110,7 +172,7 @@ func safeHandle(handler func(*dto.Payload), event *dto.Payload) {
 	handler(event)
 }
 
-// Stop gracefully shuts down the adapter
+// Stop 优雅停止 adapter
 func (a *webhookAdapter) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	if !a.running {
@@ -119,16 +181,9 @@ func (a *webhookAdapter) Stop(ctx context.Context) error {
 		return nil
 	}
 	a.running = false
+	a.cancel()
 	a.mu.Unlock()
 
-	logger.Info("[Adapter] Stopping...")
-
-	// 1. Signal the event loop to stop
-	if a.cancel != nil {
-		a.cancel()
-	}
-
-	// 2. Wait for event loop goroutine to finish (with timeout from context)
 	done := make(chan struct{})
 	go func() {
 		a.wg.Wait()
@@ -137,10 +192,10 @@ func (a *webhookAdapter) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logger.Info("[Adapter] Stopped successfully")
+		logger.Info("[Adapter] Stopped")
 		return nil
 	case <-ctx.Done():
-		logger.Warn("[Adapter] Stop timeout, event loop may still be running")
+		logger.Warn("[Adapter] Stop timed out")
 		return ctx.Err()
 	}
 }
