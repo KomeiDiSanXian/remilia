@@ -146,7 +146,6 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	// 各平台适配器在独立 goroutine 中运行，ctx 取消时统一退出
 	if b.platformRegistry != nil {
 		for _, pa := range b.platformRegistry.All() {
-			pa := pa // capture
 			name := "platform:" + pa.Platform()
 			b.lifecycle.Register(lifecycle.NewSimpleComponent(
 				name,

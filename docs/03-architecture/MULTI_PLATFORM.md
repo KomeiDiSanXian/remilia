@@ -171,13 +171,72 @@ func (a *Adapter) Start(ctx context.Context, handler func(platform.Event)) error
 }
 ```
 
-## 迁移路径
+## 迁移路径（已完成）
 
-当前实现处于**过渡阶段**：
+迁移分三个阶段，**均已完成**：
 
-- `platform/qq` 的 `NewEvent` 将 `*dto.Payload` 包装为 `platform.Event`
-- `Bot.handlePlatformEvent` 目前将 `platform.Event` 还原为 `*dto.Payload`，再走原有引擎路径
-- 待 `core/engine` 直接支持 `platform.Event` 后，`handlePlatformEvent` 将直接调用新引擎，彻底消除耦合
+### 阶段一：platform/ 抽象层（已完成）
+
+新增 `platform/` 包，定义平台无关接口：
+- `platform.Event`、`platform.Sender`、`platform.PlatformAdapter`、`platform.Registry`
+- `platform/qq`：QQ 官方适配器实现
+- `platform/discord`、`platform/telegram`、`platform/wechat`：骨架（待社区贡献）
+
+### 阶段二：core/context 集成（已完成）
+
+新增 `core/context/platform_event.go`：
+- `AcquireContextFromEvent(event, sender)` — 从 `platform.Event` 创建 Context（无 dto.Payload）
+- `ReleaseContextFromEvent(ctx)` — 归还 Context 到对象池
+- `ctx.GetPlatformEvent()` — 返回绑定的 `platform.Event`
+- `ctx.GetPlatformSender()` — 返回绑定的 `platform.Sender`
+- `ctx.GetEventKind()` — 平台无关事件类别
+- `ctx.GetEventPlatform()` — 平台标识（"qq"/"discord"/...）
+- `ctx.Reply(OutboundMessage)` — 平台无关回复（旧路径返回 `ErrNoPlatformSender`）
+- `ctx.IsPlatformContext()` — 判断是否为新路径创建的 Context
+
+`GetMessageContent()` 和 `GetEventType()` 已升级为双路径：
+- 新路径优先读取 `platform.Event.Content()` / `platform.Event.RawType()`
+- 旧路径保持不变（读取 `dto.Payload.Detail`）
+
+### 阶段三：core/engine 解耦（已完成）
+
+新增 `core/engine/process_platform.go`：
+- `Engine.ProcessPlatformEvent(event, sender)` — 平台无关事件处理入口
+- 内部抽取 `Engine.processEventContext(ctx)` — 消除 `ProcessEvent` 与新方法的代码重复
+- `Bot.handlePlatformEvent` 直接调用 `Engine.ProcessPlatformEvent`，不再降级为 `*dto.Payload`
+
+**向后兼容保证**：
+- 旧的 `ProcessEvent(*context.Context)` 接口不变
+- 旧的 `handleEvent(*dto.Payload)` 路径不变
+- 现有 Handler 代码零修改继续运行
+
+## 新的完整数据流
+
+```
+平台适配器事件循环
+  │
+  ▼
+platform.PlatformAdapter.Start()
+  │  handler(platform.Event)
+  ▼
+Bot.handlePlatformEvent(event)
+  │  engine.ProcessPlatformEvent(event, sender)
+  ▼
+context.AcquireContextFromEvent(event, sender)
+  │  创建 *context.Context（无 dto.Payload）
+  ▼
+engine.processEventContext(ctx)
+  │  GetEventType() → event.RawType()
+  │  GetMessageContent() → event.Content()
+  ▼
+Matcher.Match(ctx) → Handler(ctx)
+  │  ctx.Reply(platform.OutboundMessage)
+  ▼
+platform.Sender.Send(ctx, chatID, msg)
+  │  各平台各自实现发送
+  ▼
+context.ReleaseContextFromEvent(ctx)  ← 归还对象池
+```
 
 ## 目录结构
 
@@ -200,5 +259,13 @@ platform/
     adapter.go      # Telegram 骨架（待实现）
   wechat/
     adapter.go      # 微信骨架（待实现）
+
+core/context/
+  platform_event.go      # 新增：AcquireContextFromEvent / GetPlatformEvent / Reply 等
+  platform_event_test.go # 新增：平台无关路径单元测试
+
+core/engine/
+  process_platform.go      # 新增：ProcessPlatformEvent / processEventContext（共享核心）
+  process_platform_test.go # 新增：多平台路由集成测试
 ```
 

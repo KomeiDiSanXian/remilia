@@ -104,7 +104,6 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 
 	errCh := make(chan error, len(adapters))
 	for _, a := range adapters {
-		a := a
 		go func() {
 			if err := a.Start(ctx, handler); err != nil {
 				errCh <- fmt.Errorf("platform %s: %w", a.Platform(), err)
