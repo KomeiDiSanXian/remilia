@@ -24,7 +24,7 @@ import (
 //
 // 与 ProcessEvent 的区别：
 //   - 不依赖 *dto.Payload 或 openapi.OpenAPI
-//   - Context 由 AcquireContextFromEvent 创建，GetEventType() 返回 platform.Event.RawType()
+//   - Context 由 AcquireContextFromEvent 创建，GetEventType() 返回 platform.EventKind 字符串
 //   - Handler 可通过 ctx.Reply(platform.OutboundMessage) 发送回复
 //   - Handler 同样可通过 ctx.GetEvent() 访问旧路径（返回 nil），或 ctx.GetPlatformEvent() 访问新路径
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender) {
@@ -118,6 +118,22 @@ func (e *Engine) processEventContext(ctx *context.Context) {
 			if m.isBlocking() || state.block {
 				break
 			}
+		}
+	}
+}
+
+// ProcessPlatformEventBatch 批量处理来自任意平台的事件（平台无关入口）。
+//
+// 是 ProcessPlatformEvent 的批量版本，与旧路径的 ProcessEventBatch 对称。
+// nil 事件将被跳过；sender 对整批事件共用（同一平台来源）。
+//
+// 示例（批量 Webhook 事件）：
+//
+//	e.ProcessPlatformEventBatch(events, adapter.Sender())
+func (e *Engine) ProcessPlatformEventBatch(events []platform.Event, sender platform.Sender) {
+	for _, event := range events {
+		if event != nil {
+			e.ProcessPlatformEvent(event, sender)
 		}
 	}
 }

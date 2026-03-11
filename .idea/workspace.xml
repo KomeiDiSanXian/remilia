@@ -4,11 +4,46 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: add channel and guild event types to event.go for enhanced functionality">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(platform): refine multi-platform adapter implementation and enhance documentation">
+      <change afterPath="$PROJECT_DIR$/docs/04-development/MIGRATION_TODO.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-progress.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/03-architecture/MULTI_PLATFORM.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/03-architecture/MULTI_PLATFORM.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/decode.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/decode.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/parse.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/parse.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/openapi/dto/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/openapi/dto/event.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/bridge.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/bridge.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/antispam/antispam.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/antispam/antispam_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/conversation/conversation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/admin/admin.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/dev/debug/debug.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/stats/stats.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/stats/stats_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -19,6 +54,9 @@
     <persistenceIdMap>
       <entry key="_E:/project/Go/remilia" value="36TLQeGOmpwUpqS0saqKC3pUilT" />
     </persistenceIdMap>
+  </component>
+  <component name="CopilotUserSelectedChatMode">
+    <option name="chatModeId" value="Agent" />
   </component>
   <component name="CopilotUserSelectedModel">
     <selectedModels>
@@ -121,7 +159,7 @@
     "nodejs_package_manager_path": "npm",
     "run.code.analysis.last.selected.profile": "pProject Default",
     "run.configurations.included.in.services": "true",
-    "settings.editor.selected.configurable": "terminal",
+    "settings.editor.selected.configurable": "com.github.copilot.settings.mcp.McpConfigurable",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -229,7 +267,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: implement plugin dependency injection container and enhance plugin management interfaces" />
     <MESSAGE value="optimize: optimize loop constructs in test files and simplify role checking logic" />
     <MESSAGE value="fix: update config file path and enhance bot shutdown handling" />
     <MESSAGE value="feat: merge undeclared dependencies into instance descriptor for improved dependency tracking" />
@@ -254,7 +291,8 @@
     <MESSAGE value="feat: update version to 1.0.0 and adjust related documentation for initial release" />
     <MESSAGE value="feat: enhance documentation and improve error handling in various components" />
     <MESSAGE value="feat: add channel and guild event types to event.go for enhanced functionality" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add channel and guild event types to event.go for enhanced functionality" />
+    <MESSAGE value="feat(platform): refine multi-platform adapter implementation and enhance documentation" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(platform): refine multi-platform adapter implementation and enhance documentation" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

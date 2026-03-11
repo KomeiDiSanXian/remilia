@@ -1,9 +1,7 @@
-// bridge.go — 将 PlatformAdapter 桥接到旧版 engine.Adapter 接口
+// bridge.go — 旧版 Adapter 桥接层（过渡期保留）
 //
-// 过渡期设计：
-//   - LegacyBridge 让新平台适配器无缝接入现有 Engine，无需修改 Engine 内部
-//   - 旧 QQ 适配器（webhookAdapter）仍可直接使用，零迁移成本
-//   - 待 Engine 彻底解耦后，本文件可直接删除
+// Deprecated: P2 引擎迁移完成后本文件将被删除。
+// 请使用 PlatformAdapter 接口替代 LegacyAdapter。
 package platform
 
 import (
@@ -13,12 +11,14 @@ import (
 )
 
 // LegacyEventHandler 是旧版事件处理函数的签名（与 engine.Adapter 兼容）
+//
+// Deprecated: 使用 func(Event) 替代。
 type LegacyEventHandler func(*dto.Payload)
 
 // LegacyAdapter 是旧版适配器接口（与 engine.Adapter 完全相同）
 //
-// 定义在此处是为了让 platform 包能独立使用 bridge，
-// 而不在此引入 engine 包（避免循环依赖）。
+// Deprecated: 使用 PlatformAdapter 替代。
+// 待所有 QQ 适配器迁移到 PlatformAdapter 后，本接口将被删除。
 type LegacyAdapter interface {
 	Start(ctx stdctx.Context, handleFunc func(*dto.Payload)) error
 	Stop(ctx stdctx.Context) error

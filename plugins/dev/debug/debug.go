@@ -9,8 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
 )
@@ -115,8 +114,7 @@ func (p *Plugin) registerDebugCommands(ctx *plugin.SetupContext) {
 		},
 	}
 
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
-	ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
+	ctx.Reg.RegisterCommand("", "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
 }
 
 // handleDebugCommand 统一处理 debug 命令
@@ -194,25 +192,9 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, permission string) bool 
 	return p.DevMode || p.PermPlugin.HasPermission(userID, permission) // 开发模式下允许所有权限，生产环境需要检查
 }
 
-// reply 发送消息
+// reply 发送消息（平台无关）
 func (p *Plugin) reply(ctx *eventctx.Context, message string) error {
-	eventType := ctx.GetEventType()
-	msg := &dto.Message{
-		Type:    dto.TextMessage,
-		Content: message,
-	}
-
-	switch eventType {
-	case dto.GroupAtMessageCreate:
-		_, err := ctx.ReplyGroup(msg)
-		return err
-	case dto.C2CMessageCreate:
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	default:
-		logger.WithField("event_type", eventType).Warn("[DebugPlugin] Unsupported event type for reply")
-		return fmt.Errorf("unsupported event type: %s", eventType)
-	}
+	return ctx.Reply(platform.TextMessage(message))
 }
 
 // handleDebugEvent 处理 /debug event 命令
@@ -469,7 +451,7 @@ func (p *Plugin) handleDebugCommands(ctx *eventctx.Context) error {
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 
 	// 按事件类型分组
-	cmdsByEvent := make(map[dto.EventType][]engine.CommandInfo)
+	cmdsByEvent := make(map[string][]engine.CommandInfo)
 	for _, cmdInfo := range commands {
 		cmdsByEvent[cmdInfo.EventType] = append(cmdsByEvent[cmdInfo.EventType], cmdInfo)
 	}
@@ -612,7 +594,7 @@ func (p *Plugin) handleDebugStats(ctx *eventctx.Context) error {
 	msg.WriteString(fmt.Sprintf("📝 命令总数: %d\n", len(commands)))
 
 	// 按事件类型统计
-	cmdsByEvent := make(map[dto.EventType]int)
+	cmdsByEvent := make(map[string]int)
 	for _, cmdInfo := range commands {
 		cmdsByEvent[cmdInfo.EventType]++
 	}

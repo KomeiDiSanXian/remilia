@@ -131,6 +131,8 @@ func (ctx *Context) GetEventPlatform() string {
 //   - 新路径：通过 platform.Sender 发送 platform.OutboundMessage
 //   - 旧路径：需要使用 ReplyGroup / ReplyPrivate（dto.Message 格式）
 //
+// ChatInfo（IsGroup 等）会自动注入到 Go context，供平台发送器路由使用。
+//
 // 示例：
 //
 //	ctx.Reply(platform.TextMessage("pong"))
@@ -141,11 +143,14 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) error {
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
 		return ErrNoPlatformSender
 	}
-	chatID := ctx.platformEvent.Chat().ID
-	return ctx.platformSender.Send(stdctx.Background(), chatID, msg)
+	chat := ctx.platformEvent.Chat()
+	goCtx := platform.WithChatInfo(stdctx.Background(), chat)
+	return ctx.platformSender.Send(goCtx, chat.ID, msg)
 }
 
-// ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）
+// ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
+//
+// ChatInfo 会叠加注入到 stdCtx 中，不会覆盖已有的超时/取消信号。
 func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) error {
 	if ctx == nil {
 		return ErrNilContext
@@ -153,8 +158,9 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
 		return ErrNoPlatformSender
 	}
-	chatID := ctx.platformEvent.Chat().ID
-	return ctx.platformSender.Send(stdCtx, chatID, msg)
+	chat := ctx.platformEvent.Chat()
+	goCtx := platform.WithChatInfo(stdCtx, chat)
+	return ctx.platformSender.Send(goCtx, chat.ID, msg)
 }
 
 // IsPlatformContext 返回此 Context 是否由新平台路径（platform.Event）创建

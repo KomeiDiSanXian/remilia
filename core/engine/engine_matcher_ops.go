@@ -52,8 +52,8 @@ func (e *Engine) DeleteAllMatchers() {
 
 	newState := copyEngineState(oldState)
 	newState.matchers = make([]*Matcher, 0)
-	newState.matcherIndex = make(map[dto.EventType][]*Matcher)
-	newState.sortedCache = make(map[dto.EventType][]*Matcher)
+	newState.matcherIndex = make(map[EventType][]*Matcher)
+	newState.sortedCache = make(map[EventType][]*Matcher)
 
 	e.state.Store(newState)
 
@@ -163,7 +163,7 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 // ---- 事件类型便捷注册 ---------------------------------------------------------
 
 // On 注册一个新的事件匹配器，显式指定事件类型（COW 写操作）
-func (e *Engine) On(eventType dto.EventType, rules ...context.Rule) *Matcher {
+func (e *Engine) On(eventType EventType, rules ...context.Rule) *Matcher {
 	matcher := &Matcher{
 		EventType:   eventType,
 		Rules:       rules,
@@ -209,7 +209,7 @@ func (e *Engine) OnFullMatch(text string, extraRules ...context.Rule) *Matcher {
 //
 // 专为高频创建/销毁的场景优化，避免 COW 的全量复制开销。
 // 临时 Matcher 默认为一次性（使用 1 次后删除）。
-func (e *Engine) OnTemp(eventType dto.EventType, rules ...context.Rule) *Matcher {
+func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 	matcher := &Matcher{
 		EventType:   eventType,
 		Rules:       rules,
@@ -230,7 +230,7 @@ func (e *Engine) OnTemp(eventType dto.EventType, rules ...context.Rule) *Matcher
 // ---- 状态修改操作 -------------------------------------------------------------
 
 // InvalidateSortedCache 失效指定事件类型的排序缓存（COW 写操作）
-func (e *Engine) InvalidateSortedCache(eventType dto.EventType) {
+func (e *Engine) InvalidateSortedCache(eventType EventType) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 

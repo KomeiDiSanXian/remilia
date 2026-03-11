@@ -2,9 +2,23 @@ package context
 
 import (
 	"slices"
-
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
+
+// groupChatID extracts the group/chat ID in a platform-agnostic way.
+// New path: reads from platform.Event.Chat().ID
+// Old path (QQ): decodes GroupAtMessageCreateEvent.GroupOpenID
+func groupChatID(ctx *Context) string {
+	if e := ctx.GetPlatformEvent(); e != nil {
+		return e.Chat().ID
+	}
+	var event struct {
+		GroupOpenID string `json:"group_openid"`
+	}
+	if err := ctx.DecodeEvent(&event); err != nil {
+		return ""
+	}
+	return event.GroupOpenID
+}
 
 // OnUserWhitelist 创建用户白名单规则
 // 只有在白名单中的用户才能匹配
@@ -22,11 +36,11 @@ func OnUserWhitelist(userIDs ...string) Rule {
 	}
 
 	return func(ctx *Context) bool {
-		author := ctx.GetAuthor()
-		if author == nil {
+		id := ctx.GetSenderInfo().ID
+		if id == "" {
 			return false
 		}
-		return whitelist[author.UserOpenID]
+		return whitelist[id]
 	}
 }
 
@@ -46,11 +60,11 @@ func OnUserBlacklist(userIDs ...string) Rule {
 	}
 
 	return func(ctx *Context) bool {
-		author := ctx.GetAuthor()
-		if author == nil {
-			return true // 没有作者信息，放行
+		id := ctx.GetSenderInfo().ID
+		if id == "" {
+			return true // 没有发送者信息，放行
 		}
-		return !blacklist[author.UserOpenID] // 不在黑名单中才放行
+		return !blacklist[id] // 不在黑名单中才放行
 	}
 }
 
@@ -74,12 +88,11 @@ func OnGroupWhitelist(groupIDs ...string) Rule {
 	}
 
 	return func(ctx *Context) bool {
-		var event dto.GroupAtMessageCreateEvent
-		if err := ctx.DecodeEvent(&event); err != nil {
-			// 非群组消息，不适用此规则，放行
-			return true
+		id := groupChatID(ctx)
+		if id == "" {
+			return true // 非群组消息，不适用此规则，放行
 		}
-		return whitelist[event.GroupOpenID]
+		return whitelist[id]
 	}
 }
 
@@ -103,12 +116,11 @@ func OnGroupBlacklist(groupIDs ...string) Rule {
 	}
 
 	return func(ctx *Context) bool {
-		var event dto.GroupAtMessageCreateEvent
-		if err := ctx.DecodeEvent(&event); err != nil {
-			// 非群组消息，不适用此规则，放行
-			return true
+		id := groupChatID(ctx)
+		if id == "" {
+			return true // 非群组消息，不适用此规则，放行
 		}
-		return !blacklist[event.GroupOpenID] // 不在黑名单中才放行
+		return !blacklist[id]
 	}
 }
 

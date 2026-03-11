@@ -56,10 +56,13 @@ func DefaultConfig() Config {
 
 // sendJob is one pending send task.
 type sendJob struct {
-	target  string
-	isGroup bool // legacy QQ path
-	msg     *dto.Message
-	api     openapi.OpenAPI
+	target string
+
+	// 旧路径（QQ 专属）——已废弃，使用下方 platform 字段代替
+	isGroup bool            // Deprecated: 使用 usePlatform=true + outbound 路径
+	msg     *dto.Message    // Deprecated: 使用 outbound platform.OutboundMessage 替代
+	api     openapi.OpenAPI // Deprecated: 使用 sender platform.Sender 替代
+
 	// platform-agnostic path (preferred)
 	sender      platform.Sender
 	outbound    platform.OutboundMessage

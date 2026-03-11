@@ -3,7 +3,6 @@ package plugin
 import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 // RegistryWriter Matcher/Command 注册接口
@@ -13,12 +12,15 @@ import (
 //
 // DryRun 模式下，框架注入 [noopRegistryWriter]，所有注册操作均为无副作用的空操作，
 // 插件代码无需判断 ctx.DryRun。
+//
+// eventType 为平台无关的事件类型字符串（如 "C2C_MESSAGE_CREATE"）或 dto.EventType 常量，
+// 传入空字符串 "" 表示通配所有事件类型。
 type RegistryWriter interface {
 	// RegisterCommand 注册命令 Matcher 并自动追踪
-	RegisterCommand(eventType dto.EventType, pattern string, extraRules ...context.Rule) *engine.Matcher
+	RegisterCommand(eventType string, pattern string, extraRules ...context.Rule) *engine.Matcher
 
 	// RegisterMatcher 注册自定义事件 Matcher 并自动追踪
-	RegisterMatcher(eventType dto.EventType, rules ...context.Rule) *engine.Matcher
+	RegisterMatcher(eventType string, rules ...context.Rule) *engine.Matcher
 }
 
 // --- 真实实现 ---
@@ -34,7 +36,7 @@ func newLiveRegistryWriter(eng engine.PluginCoordinator, name string, instance *
 	return &liveRegistryWriter{eng: eng, name: name, instance: instance}
 }
 
-func (r *liveRegistryWriter) RegisterCommand(eventType dto.EventType, pattern string, extraRules ...context.Rule) *engine.Matcher {
+func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, extraRules ...context.Rule) *engine.Matcher {
 	if r.eng == nil {
 		return nil
 	}
@@ -49,7 +51,7 @@ func (r *liveRegistryWriter) RegisterCommand(eventType dto.EventType, pattern st
 	return matcher
 }
 
-func (r *liveRegistryWriter) RegisterMatcher(eventType dto.EventType, rules ...context.Rule) *engine.Matcher {
+func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.Rule) *engine.Matcher {
 	if r.eng == nil {
 		return nil
 	}
@@ -72,10 +74,10 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType dto.EventType, rules ...c
 // 插件代码无需感知 DryRun，直接使用 ctx.Reg 即可。
 type noopRegistryWriter struct{}
 
-func (n *noopRegistryWriter) RegisterCommand(_ dto.EventType, _ string, _ ...context.Rule) *engine.Matcher {
+func (n *noopRegistryWriter) RegisterCommand(_ string, _ string, _ ...context.Rule) *engine.Matcher {
 	return nil
 }
 
-func (n *noopRegistryWriter) RegisterMatcher(_ dto.EventType, _ ...context.Rule) *engine.Matcher {
+func (n *noopRegistryWriter) RegisterMatcher(_ string, _ ...context.Rule) *engine.Matcher {
 	return nil
 }

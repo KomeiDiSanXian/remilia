@@ -220,17 +220,24 @@ func (p *Plugin) Broadcast(chatIDs []string, msg platform.OutboundMessage) Resul
 	return result
 }
 
-// ToGroups 向多个群发送消息，返回汇总结果
+// ToGroups 向多个群发送消息，返回汇总结果（QQ 旧路径）
+//
+// Deprecated: 使用 Broadcast(groupIDs, platform.TextMessage("...")) 替代，后者支持所有平台。
+// 需先调用 SetSender(sender)，无需调用 SetAPI。
 func (p *Plugin) ToGroups(groupIDs []string, msg *dto.Message) Result {
 	return p.send(groupIDs, msg, true)
 }
 
-// ToC2C 向多个用户发送私聊消息，返回汇总结果
+// ToC2C 向多个用户发送私聊消息，返回汇总结果（QQ 旧路径）
+//
+// Deprecated: 使用 Broadcast(openIDs, platform.TextMessage("...")) 替代，后者支持所有平台。
 func (p *Plugin) ToC2C(openIDs []string, msg *dto.Message) Result {
 	return p.send(openIDs, msg, false)
 }
 
-// ToAll 向 groups 和 c2c 用户同时广播
+// ToAll 向 groups 和 c2c 用户同时广播（QQ 旧路径）
+//
+// Deprecated: 分别调用 Broadcast(groupIDs, msg) 和 Broadcast(openIDs, msg) 替代。
 func (p *Plugin) ToAll(groupIDs, openIDs []string, msg *dto.Message) (groupResult, c2cResult Result) {
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -355,12 +362,16 @@ func (p *Plugin) ListC2CSubscribers() []string {
 	return out
 }
 
-// ToSubscribedGroups 向所有已订阅的群发送消息
+// ToSubscribedGroups 向所有已订阅的群发送消息（QQ 旧路径）
+//
+// Deprecated: 使用 Broadcast(ListGroupSubscribers(), platform.TextMessage("...")) 替代。
 func (p *Plugin) ToSubscribedGroups(msg *dto.Message) Result {
 	return p.ToGroups(p.ListGroupSubscribers(), msg)
 }
 
-// ToSubscribedC2C 向所有已订阅的用户发送私聊消息
+// ToSubscribedC2C 向所有已订阅的用户发送私聊消息（QQ 旧路径）
+//
+// Deprecated: 使用 Broadcast(ListC2CSubscribers(), platform.TextMessage("...")) 替代。
 func (p *Plugin) ToSubscribedC2C(msg *dto.Message) Result {
 	return p.ToC2C(p.ListC2CSubscribers(), msg)
 }

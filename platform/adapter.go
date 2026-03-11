@@ -6,6 +6,25 @@ import (
 	"sync"
 )
 
+// chatInfoContextKey 是向 Go context 注入 ChatInfo 的 key（平台无关）
+type chatInfoContextKey struct{}
+
+// WithChatInfo 将 ChatInfo 注入到 Go context，供下游发送器路由使用。
+//
+// 框架在调用 platform.Sender.Send 时会自动注入，
+// 平台发送器实现可通过 ChatInfoFromContext 读取。
+func WithChatInfo(ctx stdctx.Context, chat ChatInfo) stdctx.Context {
+	return stdctx.WithValue(ctx, chatInfoContextKey{}, chat)
+}
+
+// ChatInfoFromContext 从 Go context 中读取 ChatInfo。
+//
+// 若未注入，ok 返回 false。平台发送器应优先检查此值以决定路由方式（群聊/私聊）。
+func ChatInfoFromContext(ctx stdctx.Context) (ChatInfo, bool) {
+	chat, ok := ctx.Value(chatInfoContextKey{}).(ChatInfo)
+	return chat, ok
+}
+
 // Sender 是平台无关的消息发送接口。
 //
 // 各平台适配器实现此接口，将 OutboundMessage 转换并发送到目标会话。

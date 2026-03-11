@@ -1,7 +1,9 @@
 package dto
 
-// EventType is the type of the event
-type EventType string
+// EventType is the type of the event.
+// It is a type alias for string so that engine.EventType and dto.EventType
+// are interchangeable without explicit conversion.
+type EventType = string
 
 const (
 	Ready                EventType = "READY"

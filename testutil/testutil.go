@@ -5,13 +5,17 @@
 //	tb := testutil.New(t)
 //	tb.RegisterPlugin(myplugin.New())
 //
-//	// Send a virtual group @bot message
-//	resp := tb.SendGroupAt("user-openid-123", "group-openid-456", "/hello")
+//	// Send a virtual group @bot message (platform-agnostic, recommended)
+//	resp := tb.SendPlatformGroupAt("user-id-123", "group-id-456", "/hello")
 //	require.Equal(t, "Hello!", resp.FirstText())
 //
-//	// Send a virtual C2C (private) message
-//	resp = tb.SendC2C("user-openid-123", "/help")
+//	// Send a virtual C2C (private) message (platform-agnostic, recommended)
+//	resp = tb.SendPlatformC2C("user-id-123", "/help")
 //	require.Contains(t, resp.FirstText(), "帮助")
+//
+//	// Legacy QQ path (still supported)
+//	resp2 := tb.SendGroupAt("user-openid-123", "group-openid-456", "/hello")
+//	require.Equal(t, "Hello!", resp2.FirstText())
 package testutil
 
 import (
@@ -25,11 +29,12 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/tidwall/gjson"
 )
 
-// Response wraps captured replies with assertion helpers.
+// Response wraps captured replies with assertion helpers (QQ 旧路径).
 type Response struct {
 	replies []*dto.Message
 }
@@ -106,12 +111,59 @@ func (m *mockAPI) GroupReset(_, _ string) (gjson.Result, error)  { return gjson.
 
 var _ openapi.OpenAPI = (*mockAPI)(nil)
 
+// PlatformResponse wraps captured platform-agnostic outbound messages.
+type PlatformResponse struct {
+	messages []platform.OutboundMessage
+}
+
+// All returns all captured outbound messages.
+func (r *PlatformResponse) All() []platform.OutboundMessage { return r.messages }
+
+// Count returns the number of messages.
+func (r *PlatformResponse) Count() int { return len(r.messages) }
+
+// First returns the first message or zero value.
+func (r *PlatformResponse) First() platform.OutboundMessage {
+	if len(r.messages) == 0 {
+		return platform.OutboundMessage{}
+	}
+	return r.messages[0]
+}
+
+// FirstText returns the text of the first message.
+func (r *PlatformResponse) FirstText() string { return r.First().Text }
+
+// HasReply returns true if at least one message was captured.
+func (r *PlatformResponse) HasReply() bool { return len(r.messages) > 0 }
+
+// mockSender captures platform.OutboundMessage for platform-agnostic tests.
+type mockSender struct {
+	mu       sync.Mutex
+	messages []platform.OutboundMessage
+}
+
+func (s *mockSender) Send(_ stdctx.Context, _ string, msg platform.OutboundMessage) error {
+	s.mu.Lock()
+	s.messages = append(s.messages, msg)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *mockSender) drain() []platform.OutboundMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.messages
+	s.messages = nil
+	return out
+}
+
 // TestBot is a lightweight bot for unit tests — no real network, no webhook.
 type TestBot struct {
 	t          testing.TB
 	eng        *engine.Engine
 	mgr        *plugin.Manager
 	api        *mockAPI
+	sender     *mockSender
 	timeOffset time.Duration
 	timeMu     sync.RWMutex
 }
@@ -122,10 +174,11 @@ func New(t testing.TB) *TestBot {
 	eng := engine.NewEngine()
 	mgr := plugin.NewManager(eng)
 	tb := &TestBot{
-		t:   t,
-		eng: eng,
-		mgr: mgr,
-		api: &mockAPI{},
+		t:      t,
+		eng:    eng,
+		mgr:    mgr,
+		api:    &mockAPI{},
+		sender: &mockSender{},
 	}
 	t.Cleanup(func() { eng.Shutdown(stdctx.Background()) })
 	return tb
@@ -152,6 +205,18 @@ func (tb *TestBot) Engine() *engine.Engine { return tb.eng }
 
 // Manager returns the underlying plugin manager.
 func (tb *TestBot) Manager() *plugin.Manager { return tb.mgr }
+
+// SendPlatformEvent injects a platform.Event and returns captured platform replies.
+// This is the platform-agnostic counterpart to SendC2C / SendGroupAt.
+func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
+	tb.t.Helper()
+	tb.sender.drain()
+	ctx := botctx.AcquireContextFromEvent(event, tb.sender)
+	tb.eng.ProcessPlatformEvent(event, tb.sender)
+	botctx.ReleaseContextFromEvent(ctx)
+	time.Sleep(10 * time.Millisecond)
+	return &PlatformResponse{messages: tb.sender.drain()}
+}
 
 // SendC2C injects a virtual C2C (private chat) message and returns captured replies.
 func (tb *TestBot) SendC2C(userOpenID, content string) *Response {
@@ -224,4 +289,66 @@ func (tb *TestBot) groupAtPayload(userOpenID, groupOpenID, content string) *dto.
 		Detail:    raw,
 		Raw:       raw,
 	}
+}
+
+// ----- platform-agnostic test helpers -----
+
+// mockPlatformEvent is a simple platform.Event implementation for tests.
+type mockPlatformEvent struct {
+	kind    platform.EventKind
+	sender  platform.UserInfo
+	chat    platform.ChatInfo
+	content string
+	ts      time.Time
+}
+
+func (e *mockPlatformEvent) Platform() string          { return "test" }
+func (e *mockPlatformEvent) Kind() platform.EventKind  { return e.kind }
+func (e *mockPlatformEvent) RawType() string           { return string(e.kind) }
+func (e *mockPlatformEvent) Sender() platform.UserInfo { return e.sender }
+func (e *mockPlatformEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *mockPlatformEvent) Content() string           { return e.content }
+func (e *mockPlatformEvent) Timestamp() time.Time      { return e.ts }
+func (e *mockPlatformEvent) RawPayload() any           { return nil }
+
+// MakePlatformC2CEvent creates a platform-agnostic private chat (C2C) event for tests.
+//
+// userID is the sender's platform user ID; content is the message text.
+func MakePlatformC2CEvent(userID, content string) platform.Event {
+	return &mockPlatformEvent{
+		kind:    platform.EventKindPrivateMessage,
+		content: content,
+		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
+		chat:    platform.ChatInfo{ID: userID, IsGroup: false},
+		ts:      time.Now(),
+	}
+}
+
+// MakePlatformGroupEvent creates a platform-agnostic group message event for tests.
+//
+// userID is the sender's ID; groupID is the group/channel ID; content is the message text.
+func MakePlatformGroupEvent(userID, groupID, content string) platform.Event {
+	return &mockPlatformEvent{
+		kind:    platform.EventKindGroupMessage,
+		content: content,
+		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
+		chat:    platform.ChatInfo{ID: groupID, IsGroup: true},
+		ts:      time.Now(),
+	}
+}
+
+// SendPlatformC2C injects a platform-agnostic private chat (C2C) event and returns captured replies.
+//
+// This is the recommended replacement for SendC2C in new tests.
+func (tb *TestBot) SendPlatformC2C(userID, content string) *PlatformResponse {
+	tb.t.Helper()
+	return tb.SendPlatformEvent(MakePlatformC2CEvent(userID, content))
+}
+
+// SendPlatformGroupAt injects a platform-agnostic group message event and returns captured replies.
+//
+// This is the recommended replacement for SendGroupAt in new tests.
+func (tb *TestBot) SendPlatformGroupAt(userID, groupID, content string) *PlatformResponse {
+	tb.t.Helper()
+	return tb.SendPlatformEvent(MakePlatformGroupEvent(userID, groupID, content))
 }

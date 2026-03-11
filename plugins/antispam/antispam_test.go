@@ -2,11 +2,13 @@ package antispam_test
 
 import (
 	"encoding/json"
+	"testing"
+	"time"
+
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugins/antispam"
-	"testing"
-	"time"
+	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
 // antispam.Plugin 的初始化全在 NewPlugin() 中完成（不依赖 Setup），
@@ -14,6 +16,14 @@ import (
 func newAntiSpamPlugin(cfg antispam.Config) *antispam.Plugin {
 	return antispam.NewPlugin(cfg)
 }
+
+// makeC2CCtxPlatform 使用平台无关路径创建测试 Context（推荐）
+func makeC2CCtxPlatform(userID string) *context.Context {
+	event := testbot.MakePlatformC2CEvent(userID, "test")
+	return context.AcquireContextFromEvent(event, nil)
+}
+
+// makeC2CCtx 使用 QQ 旧路径创建测试 Context（保留向后兼容）
 func makeC2CCtx(userID string) *context.Context {
 	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
@@ -23,6 +33,7 @@ func makeC2CCtx(userID string) *context.Context {
 	})
 	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
 }
+
 func TestAntiSpam_Ban_Unban(t *testing.T) {
 	p := newAntiSpamPlugin(antispam.DefaultConfig())
 	p.Ban("uid1", 1*time.Hour)
@@ -52,6 +63,26 @@ func TestAntiSpam_PermanentBan(t *testing.T) {
 		t.Error("permanent ban should hold")
 	}
 }
+
+// TestAntiSpam_Rule_BlocksBanned_Platform tests the Rule using the platform-agnostic path.
+func TestAntiSpam_Rule_BlocksBanned_Platform(t *testing.T) {
+	p := newAntiSpamPlugin(antispam.Config{UserRate: 100, UserBurst: 100})
+	rule := p.Rule()
+	p.Ban("banned_user", 1*time.Hour)
+	if rule(makeC2CCtxPlatform("banned_user")) {
+		t.Error("rule should block banned user (platform path)")
+	}
+}
+
+// TestAntiSpam_Rule_AllowsNormal_Platform tests normal users pass via platform-agnostic path.
+func TestAntiSpam_Rule_AllowsNormal_Platform(t *testing.T) {
+	p := newAntiSpamPlugin(antispam.Config{UserRate: 100, UserBurst: 100})
+	rule := p.Rule()
+	if !rule(makeC2CCtxPlatform("normal_user")) {
+		t.Error("normal user should be allowed (platform path)")
+	}
+}
+
 func TestAntiSpam_Rule_BlocksBanned(t *testing.T) {
 	p := newAntiSpamPlugin(antispam.Config{UserRate: 100, UserBurst: 100})
 	rule := p.Rule()
@@ -70,7 +101,7 @@ func TestAntiSpam_Rule_AllowsNormal(t *testing.T) {
 func TestAntiSpam_Rule_RateLimits(t *testing.T) {
 	p := newAntiSpamPlugin(antispam.Config{UserRate: 1, UserBurst: 1})
 	rule := p.Rule()
-	ctx := makeC2CCtx("rl_user")
+	ctx := makeC2CCtxPlatform("rl_user")
 	if !rule(ctx) {
 		t.Error("first call should be allowed")
 	}

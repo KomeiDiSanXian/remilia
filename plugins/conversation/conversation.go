@@ -9,9 +9,9 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
+	"github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // StepHandler is the function type for a conversation step.
@@ -371,15 +371,7 @@ func extractUserID(ctx *eventctx.Context) string {
 	return ""
 }
 func sendPrompt(ctx *eventctx.Context, prompt string) {
-	msg := &dto.Message{Type: dto.TextMessage, Content: prompt}
-	switch ctx.GetEventType() {
-	case dto.GroupAtMessageCreate:
-		if _, err := ctx.ReplyGroup(msg); err != nil {
-			logger.WithError(err).Warn("[Conversation] Failed to send group prompt")
-		}
-	default:
-		if _, err := ctx.ReplyPrivate(msg); err != nil {
-			logger.WithError(err).Warn("[Conversation] Failed to send private prompt")
-		}
+	if err := ctx.Reply(platform.TextMessage(prompt)); err != nil {
+		logger.WithError(err).Warn("[Conversation] Failed to send prompt")
 	}
 }

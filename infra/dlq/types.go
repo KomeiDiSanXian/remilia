@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // DeadLetterItem represents a dead letter entry.
 //
-// NOTE: Although this package is an infrastructure package, it depends only on the
-// DTO layer (openapi/dto) and does not depend on the core remilia package.
-// This avoids circular dependencies.
+// Deprecated: Use Item[platform.Event] (PlatformEventItem) for new code.
+// DeadLetterItem is kept for backward compatibility with existing QQ consumers.
 type DeadLetterItem struct {
 	Event   *dto.Payload
 	Err     error
@@ -56,5 +56,28 @@ func MarshalDeadLetterItem(item DeadLetterItem) ([]byte, error) {
 			Source:  item.Source,
 			Attempt: item.Attempt,
 		},
+	})
+}
+
+// MarshalPlatformEventItem 序列化平台无关的死信队列条目。
+func MarshalPlatformEventItem(item Item[platform.Event]) ([]byte, error) {
+	errMsg := ""
+	if item.Err != nil {
+		errMsg = item.Err.Error()
+	}
+	id := ""
+	rawType := ""
+	plat := ""
+	if item.Data != nil {
+		rawType = item.Data.RawType()
+		plat = item.Data.Platform()
+	}
+
+	return json.Marshal(struct {
+		Event *DeadLetterEvent `json:"event"`
+		Error DeadLetterError  `json:"error"`
+	}{
+		Event: &DeadLetterEvent{ID: id, Type: plat + "/" + rawType},
+		Error: DeadLetterError{Message: errMsg, Source: item.Source, Attempt: item.Attempt},
 	})
 }

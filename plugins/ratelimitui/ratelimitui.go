@@ -26,7 +26,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/antispam"
 	"github.com/KomeiDiSanXian/remilia/plugins/cooldown"
@@ -154,7 +154,7 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 		},
 	}
 
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/rl").
+	ctx.Reg.RegisterCommand("", "/rl").
 		SetDefinition(rlCmd).
 		Handle(p.handleRLCommand)
 }
@@ -361,9 +361,7 @@ func (p *Plugin) handleReset(ctx *eventctx.Context, args *command.Args) error {
 }
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
-	msg := &dto.Message{Type: dto.TextMessage, Content: content}
-	_, err := ctx.ReplyPrivate(msg)
-	return err
+	return ctx.Reply(platform.TextMessage(content))
 }
 
 // ---- Public API (also useful for tests and other plugins) ------------------

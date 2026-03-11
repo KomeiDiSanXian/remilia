@@ -8,7 +8,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 type matcherRuntime struct {
@@ -27,7 +26,7 @@ type Matcher struct {
 	rt          matcherRuntime
 	isBlock     bool
 	priority    uint
-	EventType   dto.EventType
+	EventType   EventType
 	Rules       []context.Rule
 	Handler     context.Handler
 	coordinator MatcherCoordinator

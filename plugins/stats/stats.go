@@ -159,9 +159,9 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 			// 统计消息
 			p.totalMessages.Add(1)
 
-			// 统计用户
-			if author := ctx.GetAuthor(); author != nil && author.UserOpenID != "" {
-				p.recordUser(author.UserOpenID)
+			// 统计用户（平台无关：优先使用 GetSenderInfo()）
+			if info := ctx.GetSenderInfo(); info.ID != "" {
+				p.recordUser(info.ID)
 			}
 
 			// 统计命令（检测内容是否以 / 开头）

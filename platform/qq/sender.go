@@ -21,9 +21,10 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 
 // Send 将 OutboundMessage 转换并发送到 QQ 平台
 //
-// 根据 chatID 所属的会话类型（私聊/群聊），自动路由到对应 API。
-// 目前通过 ctx.Value(chatTypeKey) 判断会话类型（见 adapter.go 注入逻辑）；
-// 若未注入则按 chatID 前缀启发式判断（fallback）。
+// 路由优先级：
+//  1. platform.ChatInfoFromContext(ctx).IsGroup — 由框架 Reply() 自动注入（推荐）
+//  2. ctx.Value(chatTypeContextKey{}) — 旧版手动注入方式（Deprecated）
+//  3. Fallback：按群聊处理（大多数场景）
 func (s *qqSender) Send(ctx stdctx.Context, chatID string, msg platform.OutboundMessage) error {
 	if s.api == nil {
 		return fmt.Errorf("qq sender: openAPI client is nil")
@@ -31,7 +32,17 @@ func (s *qqSender) Send(ctx stdctx.Context, chatID string, msg platform.Outbound
 
 	dtoMsg := buildDTOMessage(msg)
 
-	// 从 context 中取出会话类型（由 adapter 注入）
+	// 优先：从 platform.ChatInfo（由框架 Reply 注入）读取会话类型
+	if chat, ok := platform.ChatInfoFromContext(ctx); ok {
+		if chat.IsGroup {
+			_, err := s.api.GroupChat(chatID, dtoMsg)
+			return err
+		}
+		_, err := s.api.SingleChat(chatID, dtoMsg)
+		return err
+	}
+
+	// 降级：旧版 chatTypeContextKey（手动注入，向后兼容）
 	if ct, ok := ctx.Value(chatTypeContextKey{}).(chatType); ok {
 		switch ct {
 		case chatTypeGroup:
@@ -81,7 +92,10 @@ func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 	return dtoMsg
 }
 
-// chatType 标记会话类型，注入到 context 中供 sender 路由
+// chatType 标记会话类型（旧版手动注入，已由 platform.ChatInfo 取代）
+//
+// Deprecated: 框架内部现通过 platform.WithChatInfo 自动注入 ChatInfo，
+// 无需手动维护 chatType。此类型仅保留以向后兼容旧代码。
 type chatType int
 
 const (
@@ -90,5 +104,7 @@ const (
 	chatTypeGroup
 )
 
-// chatTypeContextKey 是注入 chatType 的 context key
+// chatTypeContextKey 是旧版注入 chatType 的 context key
+//
+// Deprecated: 使用 platform.WithChatInfo / platform.ChatInfoFromContext。
 type chatTypeContextKey struct{}

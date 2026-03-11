@@ -8,7 +8,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/acl"
 	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
@@ -113,7 +113,7 @@ func (p *Plugin) registerPluginCommand(ctx *plugin.SetupContext) {
 				Examples:  []string{"/plugin unload debug"}},
 		},
 	}
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/plugin").
+	ctx.Reg.RegisterCommand("", "/plugin").
 		SetDefinition(pluginCmd).
 		Handle(p.handlePluginCommand)
 }
@@ -172,7 +172,7 @@ func (p *Plugin) registerPermCommand(ctx *plugin.SetupContext) {
 				}, Examples: []string{"/perm role USER123 admin"}},
 		},
 	}
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/perm").
+	ctx.Reg.RegisterCommand("", "/perm").
 		SetDefinition(permCmd).
 		Handle(p.handlePermCommand)
 }
@@ -200,8 +200,8 @@ func (p *Plugin) handlePermCommand(ctx *eventctx.Context) error {
 
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(ctx *plugin.SetupContext) {
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/status").Handle(p.handleStatus)
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/info").Handle(p.handleInfo)
+	ctx.Reg.RegisterCommand("", "/status").Handle(p.handleStatus)
+	ctx.Reg.RegisterCommand("", "/info").Handle(p.handleInfo)
 }
 
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
@@ -435,8 +435,7 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
 }
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
-	_, err := ctx.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: content})
-	return err
+	return ctx.Reply(platform.TextMessage(content))
 }
 
 // === 验证码相关功能 ===
@@ -464,8 +463,7 @@ func (p *Plugin) registerCodeCommand(ctx *plugin.SetupContext) {
 				Examples:  []string{"/code revoke ABC123"}},
 		},
 	}
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/code").SetDefinition(codeCmd).Handle(p.handleCodeCommand)
-	ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/code").SetDefinition(codeCmd).Handle(p.handleCodeCommand)
+	ctx.Reg.RegisterCommand("", "/code").SetDefinition(codeCmd).Handle(p.handleCodeCommand)
 }
 
 func (p *Plugin) handleCodeCommand(ctx *eventctx.Context) error {
@@ -627,7 +625,7 @@ func (p *Plugin) registerACLCommand(ctx *plugin.SetupContext) {
 			{Name: "stats", Description: "查看统计信息", Usage: "/acl stats", Examples: []string{"/acl stats"}},
 		},
 	}
-	ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/acl").
+	ctx.Reg.RegisterCommand("", "/acl").
 		SetDefinition(aclCmd).
 		Handle(p.handleACLCommand)
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 // MiddlewareTraceHook 中间件追踪钩子函数类型
@@ -22,20 +21,20 @@ type engineState struct {
 
 	// 匹配器索引（按事件类型分组）
 	// 此索引仅包含普通（非命令优化）的匹配器
-	matcherIndex map[dto.EventType][]*Matcher
+	matcherIndex map[EventType][]*Matcher
 
 	// 命令匹配器索引（按命令词 -> 事件类型分组）
-	// 优化：使用 map[string]map[dto.EventType][]*Matcher 结构
+	// 优化：使用 map[string]map[EventType][]*Matcher 结构
 	// 第一层 key 为命令词（如 "/ping"）
 	// 第二层 key 为事件类型（如 C2CMessageCreate），"" 表示通用类型
-	commandIndex map[string]map[dto.EventType][]*Matcher
+	commandIndex map[string]map[EventType][]*Matcher
 
 	// 分组索引（按组名分组）
 	// 用于快速删除特定组的所有匹配器
 	groupIndex map[string][]*Matcher
 
 	// 排序缓存（按优先级排序的匹配器）
-	sortedCache map[dto.EventType][]*Matcher
+	sortedCache map[EventType][]*Matcher
 
 	// 命令信息缓存（用于优化 GetAllCommands 性能）
 	// key 为命令名（如 "/ping"），value 为命令信息
@@ -77,10 +76,10 @@ type middlewareState struct {
 func newEngineState() *engineState {
 	return &engineState{
 		matchers:         make([]*Matcher, 0),
-		matcherIndex:     make(map[dto.EventType][]*Matcher),
-		commandIndex:     make(map[string]map[dto.EventType][]*Matcher),
+		matcherIndex:     make(map[EventType][]*Matcher),
+		commandIndex:     make(map[string]map[EventType][]*Matcher),
 		groupIndex:       make(map[string][]*Matcher),
-		sortedCache:      make(map[dto.EventType][]*Matcher),
+		sortedCache:      make(map[EventType][]*Matcher),
 		commandInfoCache: make(map[string]*CommandInfo),
 		block:            false,
 		maxMatchers:      0,
@@ -108,10 +107,10 @@ func copyEngineState(src *engineState) *engineState {
 	dst := &engineState{
 		// 使用 append 共享底层数组，只在修改时才会复制
 		matchers:         src.matchers[:len(src.matchers):len(src.matchers)],
-		matcherIndex:     make(map[dto.EventType][]*Matcher, len(src.matcherIndex)),
-		commandIndex:     make(map[string]map[dto.EventType][]*Matcher, len(src.commandIndex)),
+		matcherIndex:     make(map[EventType][]*Matcher, len(src.matcherIndex)),
+		commandIndex:     make(map[string]map[EventType][]*Matcher, len(src.commandIndex)),
 		groupIndex:       make(map[string][]*Matcher, len(src.groupIndex)),
-		sortedCache:      make(map[dto.EventType][]*Matcher, len(src.sortedCache)),
+		sortedCache:      make(map[EventType][]*Matcher, len(src.sortedCache)),
 		commandInfoCache: make(map[string]*CommandInfo, len(src.commandInfoCache)),
 		block:            src.block,
 		maxMatchers:      src.maxMatchers,
@@ -125,7 +124,7 @@ func copyEngineState(src *engineState) *engineState {
 
 	// 复制 commandIndex map (使用共享数组)
 	for cmd, eventMap := range src.commandIndex {
-		newEventMap := make(map[dto.EventType][]*Matcher, len(eventMap))
+		newEventMap := make(map[EventType][]*Matcher, len(eventMap))
 		for et, matchers := range eventMap {
 			newEventMap[et] = matchers[:len(matchers):len(matchers)]
 		}
@@ -175,10 +174,10 @@ func copyMiddlewareState(src *middlewareState) *middlewareState {
 // rebuildIndex 重建匹配器索引和排序缓存
 func (s *engineState) rebuildIndex() {
 	// 清空旧索引
-	s.matcherIndex = make(map[dto.EventType][]*Matcher)
-	s.commandIndex = make(map[string]map[dto.EventType][]*Matcher)
+	s.matcherIndex = make(map[EventType][]*Matcher)
+	s.commandIndex = make(map[string]map[EventType][]*Matcher)
 	s.groupIndex = make(map[string][]*Matcher)
-	s.sortedCache = make(map[dto.EventType][]*Matcher)
+	s.sortedCache = make(map[EventType][]*Matcher)
 	s.commandInfoCache = make(map[string]*CommandInfo)
 
 	// 重建索引
@@ -186,7 +185,7 @@ func (s *engineState) rebuildIndex() {
 		cmd := m.GetCommand()
 		if cmd != "" {
 			if s.commandIndex[cmd] == nil {
-				s.commandIndex[cmd] = make(map[dto.EventType][]*Matcher)
+				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 
@@ -283,7 +282,7 @@ func (s *engineState) addMatcher(m *Matcher) {
 	cmd := m.GetCommand()
 	if cmd != "" {
 		if s.commandIndex[cmd] == nil {
-			s.commandIndex[cmd] = make(map[dto.EventType][]*Matcher)
+			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 		}
 		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 		// 每次添加后重新排序（对于单个添加操作，这可以接受；批量添加应使用 rebuildIndex）
@@ -383,7 +382,7 @@ func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
 }
 
 // invalidateSortedCache 失效并重建指定事件类型的排序缓存
-func (s *engineState) invalidateSortedCache(eventType dto.EventType) {
+func (s *engineState) invalidateSortedCache(eventType EventType) {
 	// 重建指定事件类型的缓存
 	if matchers, ok := s.matcherIndex[eventType]; ok {
 		// 尝试重用现有 slice 容量

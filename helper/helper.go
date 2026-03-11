@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // BytesToString  unsafe 零拷贝转换, b不能被修改
@@ -43,11 +44,38 @@ func FNVHash(s string) string {
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-// ParseEvent 泛型事件解析器
+// ParseEvent 泛型事件解析器（QQ 专属）
+//
+// Deprecated: 此函数绑定 QQ *dto.Payload，新代码请直接使用 platform.Event 接口。
+// 若需访问 QQ 原始事件，使用 ctx.GetEvent() 后调用 Payload.Decode()。
 func ParseEvent[T any](p *dto.Payload) (*T, error) {
 	var event T
 	if err := p.Decode(&event); err != nil {
 		return nil, err
 	}
 	return &event, nil
+}
+
+// ExtractContent 从平台无关事件中提取消息文本内容。
+func ExtractContent(e platform.Event) string {
+	if e == nil {
+		return ""
+	}
+	return e.Content()
+}
+
+// ExtractSenderID 从平台无关事件中提取发送者 ID。
+func ExtractSenderID(e platform.Event) string {
+	if e == nil {
+		return ""
+	}
+	return e.Sender().ID
+}
+
+// ExtractChatID 从平台无关事件中提取会话 ID。
+func ExtractChatID(e platform.Event) string {
+	if e == nil {
+		return ""
+	}
+	return e.Chat().ID
 }

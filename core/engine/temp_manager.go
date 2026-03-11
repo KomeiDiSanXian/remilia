@@ -7,8 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
-
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 const tempMatcherShardCount = 8
@@ -41,14 +39,14 @@ func DefaultTempManagerConfig() TempManagerConfig {
 // tempMatcherShard holds a subset of temp matchers
 type tempMatcherShard struct {
 	mu           sync.RWMutex
-	matcherIndex map[dto.EventType][]*Matcher // Sorted by priority
-	expiration   *matcherHeap                 // Min-heap for expiration
-	byID         map[*Matcher]struct{}        // Fast existence check
+	matcherIndex map[EventType][]*Matcher // Sorted by priority
+	expiration   *matcherHeap             // Min-heap for expiration
+	byID         map[*Matcher]struct{}    // Fast existence check
 }
 
 func newTempMatcherShard() *tempMatcherShard {
 	return &tempMatcherShard{
-		matcherIndex: make(map[dto.EventType][]*Matcher),
+		matcherIndex: make(map[EventType][]*Matcher),
 		expiration:   &matcherHeap{},
 		byID:         make(map[*Matcher]struct{}),
 	}
@@ -205,7 +203,7 @@ func (m *tempMatcherManager) removeLocked(shard *tempMatcherShard, matcher *Matc
 
 // Get returns sorted matchers for an event type
 // Consolidates results from all shards
-func (m *tempMatcherManager) Get(eventType dto.EventType) []*Matcher {
+func (m *tempMatcherManager) Get(eventType EventType) []*Matcher {
 	// Collect from all shards
 	lists := make([][]*Matcher, 0, tempMatcherShardCount)
 	totalLen := 0

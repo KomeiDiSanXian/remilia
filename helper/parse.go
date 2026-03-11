@@ -4,8 +4,7 @@ import "github.com/KomeiDiSanXian/remilia/openapi/dto"
 
 // MustParseEvent parses an event or panics if parsing fails.
 //
-// This is useful in test setup or other scenarios where parsing failure
-// should immediately abort execution.
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // Example:
 //
@@ -20,6 +19,8 @@ func MustParseEvent[T any](p *dto.Payload) *T {
 }
 
 // ParseEventWithDefault parses an event and returns a default value if parsing fails.
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // This is useful when you want to provide a fallback value instead of handling errors.
 //
@@ -37,6 +38,8 @@ func ParseEventWithDefault[T any](p *dto.Payload, defaultValue T) T {
 }
 
 // TryParseEvent attempts to parse an event and returns (value, success bool).
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // This is useful when you want to handle parsing failure without error values.
 //
@@ -57,6 +60,8 @@ func TryParseEvent[T any](p *dto.Payload) (T, bool) {
 }
 
 // ParseEventSlice parses multiple payloads into a slice of events.
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // Returns an error if any payload fails to parse. The error indicates
 // which payload failed.
@@ -83,7 +88,9 @@ func ParseEventSlice[T any](payloads []*dto.Payload) ([]*T, error) {
 	return results, nil
 }
 
-// ParseEventSlicePartial parses multiple payloads and returns successfully parsed events.
+// ParseEventSlicePartial parses multiple payloads, skipping failed ones.
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // Unlike ParseEventSlice, this function doesn't fail on parse errors.
 // Instead, it skips failed payloads and returns all successful parses.
@@ -106,7 +113,9 @@ func ParseEventSlicePartial[T any](payloads []*dto.Payload) []*T {
 	return results
 }
 
-// FilterParseEvents filters and parses events in a single pass.
+// FilterParseEvents filters and parses payloads matching a predicate.
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // Only payloads that match the predicate are parsed.
 //
@@ -128,7 +137,9 @@ func FilterParseEvents[T any](payloads []*dto.Payload, predicate func(*dto.Paylo
 	return results
 }
 
-// MapParseEvents parses events and transforms them using a mapper function.
+// MapParseEvents maps parsed events using a mapper function.
+//
+// Deprecated: 绑定 QQ *dto.Payload。新平台请使用 platform.Event 接口。
 //
 // Example:
 //

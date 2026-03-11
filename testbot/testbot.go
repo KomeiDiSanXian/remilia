@@ -1,16 +1,19 @@
 package testbot
 
 import (
+	stdctx "context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/openapi"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/tidwall/gjson"
 )
@@ -83,18 +86,62 @@ func (m *MockAPI) LastSent() *SentMessage {
 	return &cp
 }
 
+// MockSender implements platform.Sender and captures outbound messages for test assertions.
+type MockSender struct {
+	mu   sync.Mutex
+	sent []platform.OutboundMessage
+}
+
+// NewMockSender creates a MockSender.
+func NewMockSender() *MockSender { return &MockSender{} }
+
+// Send implements platform.Sender.
+func (s *MockSender) Send(_ stdctx.Context, _ string, msg platform.OutboundMessage) error {
+	s.mu.Lock()
+	s.sent = append(s.sent, msg)
+	s.mu.Unlock()
+	return nil
+}
+
+// Sent returns a snapshot of all captured messages.
+func (s *MockSender) Sent() []platform.OutboundMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := make([]platform.OutboundMessage, len(s.sent))
+	copy(cp, s.sent)
+	return cp
+}
+
+// Clear clears captured messages.
+func (s *MockSender) Clear() {
+	s.mu.Lock()
+	s.sent = s.sent[:0]
+	s.mu.Unlock()
+}
+
+// LastSent returns the last captured outbound message text, or empty string.
+func (s *MockSender) LastText() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.sent) == 0 {
+		return ""
+	}
+	return s.sent[len(s.sent)-1].Text
+}
+
 // Bot is a lightweight test Bot that injects events directly without networking.
 type Bot struct {
 	eng     *engine.Engine
 	pm      *plugin.Manager
 	api     *MockAPI
+	sender  *MockSender
 	plugins []*plugin.PluginDescriptor
 }
 
 // New creates a test Bot.
 func New() *Bot {
 	eng := engine.NewEngine()
-	return &Bot{eng: eng, pm: plugin.NewManager(eng), api: NewMockAPI()}
+	return &Bot{eng: eng, pm: plugin.NewManager(eng), api: NewMockAPI(), sender: NewMockSender()}
 }
 
 // RegisterPlugin registers a plugin descriptor.
@@ -158,6 +205,68 @@ func (tb *Bot) inject(eventType dto.EventType, event any) {
 	tb.Inject(&dto.Payload{Operation: dto.Dispatch, Type: eventType, Detail: detail})
 }
 
+// SendPlatformEvent injects an arbitrary platform.Event and captures replies via MockSender.
+func (tb *Bot) SendPlatformEvent(event platform.Event) {
+	tb.sender.Clear()
+	tb.eng.ProcessPlatformEvent(event, tb.sender)
+}
+
+// SenderAPI returns the MockSender for platform-agnostic message assertions.
+func (tb *Bot) SenderAPI() *MockSender { return tb.sender }
+
+// MakePlatformC2CEvent creates a platform-agnostic private chat (C2C) event for tests.
+//
+// userID is the sender's platform user ID; content is the message text.
+func MakePlatformC2CEvent(userID, content string) platform.Event {
+	return &mockPlatformEvent{
+		kind:    platform.EventKindPrivateMessage,
+		content: content,
+		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
+		chat:    platform.ChatInfo{ID: userID, IsGroup: false},
+	}
+}
+
+// MakePlatformGroupEvent creates a platform-agnostic group message event for tests.
+//
+// userID is the sender's ID; groupID is the group/channel ID; content is the message text.
+func MakePlatformGroupEvent(userID, groupID, content string) platform.Event {
+	return &mockPlatformEvent{
+		kind:    platform.EventKindGroupMessage,
+		content: content,
+		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
+		chat:    platform.ChatInfo{ID: groupID, IsGroup: true},
+	}
+}
+
+// SendPlatformC2C simulates a platform-agnostic C2C (private) message.
+// Replies are captured in MockSender; use tb.SenderAPI() to assert.
+func (tb *Bot) SendPlatformC2C(userID, content string) {
+	tb.SendPlatformEvent(MakePlatformC2CEvent(userID, content))
+}
+
+// SendPlatformGroupAt simulates a platform-agnostic group message.
+// Replies are captured in MockSender; use tb.SenderAPI() to assert.
+func (tb *Bot) SendPlatformGroupAt(userID, groupID, content string) {
+	tb.SendPlatformEvent(MakePlatformGroupEvent(userID, groupID, content))
+}
+
+// mockPlatformEvent is a minimal platform.Event implementation for tests.
+type mockPlatformEvent struct {
+	kind    platform.EventKind
+	sender  platform.UserInfo
+	chat    platform.ChatInfo
+	content string
+}
+
+func (e *mockPlatformEvent) Platform() string          { return "test" }
+func (e *mockPlatformEvent) Kind() platform.EventKind  { return e.kind }
+func (e *mockPlatformEvent) RawType() string           { return string(e.kind) }
+func (e *mockPlatformEvent) Sender() platform.UserInfo { return e.sender }
+func (e *mockPlatformEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *mockPlatformEvent) Content() string           { return e.content }
+func (e *mockPlatformEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *mockPlatformEvent) RawPayload() any           { return nil }
+
 // AssertReplied asserts that a message containing substr was sent to target.
 func (tb *Bot) AssertReplied(t *testing.T, target, substr string) {
 	t.Helper()
@@ -191,4 +300,16 @@ func (tb *Bot) AssertSentCount(t *testing.T, n int) {
 // ClearSent clears the sent message log.
 func (tb *Bot) ClearSent() { tb.api.Clear() }
 
+// AssertPlatformReplied asserts that a platform message containing substr was sent.
+func (tb *Bot) AssertPlatformReplied(t *testing.T, substr string) {
+	t.Helper()
+	for _, msg := range tb.sender.Sent() {
+		if strings.Contains(msg.Text, substr) {
+			return
+		}
+	}
+	t.Errorf("testbot: no platform message containing %q; sent=%v", substr, tb.sender.Sent())
+}
+
 var _ openapi.OpenAPI = (*MockAPI)(nil)
+var _ platform.Sender = (*MockSender)(nil)

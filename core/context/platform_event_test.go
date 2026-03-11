@@ -68,11 +68,16 @@ func TestAcquireContextFromEvent_GetMessageContent(t *testing.T) {
 }
 
 func TestAcquireContextFromEvent_GetEventType(t *testing.T) {
+	// Architecture decision B: new-path GetEventType() returns the EventKind string,
+	// not the platform-specific raw type, so OnEventKind-based matchers work universally.
 	event := makeTestEvent("qq", string(dto.C2CMessageCreate), "", platform.EventKindPrivateMessage)
 	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
 	defer context.ReleaseContextFromEvent(ctx)
 
-	assert.Equal(t, dto.C2CMessageCreate, ctx.GetEventType())
+	// New path returns EventKind string ("PRIVATE_MESSAGE"), not raw type ("C2C_MESSAGE_CREATE")
+	assert.Equal(t, dto.EventType(string(platform.EventKindPrivateMessage)), ctx.GetEventType())
+	// Raw type is still accessible via GetPlatformEvent().RawType()
+	assert.Equal(t, string(dto.C2CMessageCreate), ctx.GetPlatformEvent().RawType())
 }
 
 func TestAcquireContextFromEvent_GetEventPlatform(t *testing.T) {

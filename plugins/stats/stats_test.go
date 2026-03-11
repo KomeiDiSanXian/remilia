@@ -7,12 +7,21 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugins/stats"
+	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
 // stats.Plugin 无 Setup 初始化逻辑，直接 NewPlugin() 即可，无需走 manager 注册流程。
 func newStatsPlugin() *stats.Plugin {
 	return stats.NewPlugin()
 }
+
+// makeCtxWithCommandPlatform 使用平台无关路径创建测试 Context（推荐）
+func makeCtxWithCommandPlatform(cmd, userID string) *context.Context {
+	event := testbot.MakePlatformC2CEvent(userID, cmd)
+	return context.AcquireContextFromEvent(event, nil)
+}
+
+// makeCtxWithCommand 使用 QQ 旧路径创建测试 Context（保留向后兼容）
 func makeCtxWithCommand(cmd, userID string) *context.Context {
 	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
@@ -22,25 +31,38 @@ func makeCtxWithCommand(cmd, userID string) *context.Context {
 	})
 	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
 }
+
 func TestStats_Middleware_RecordsCommand(t *testing.T) {
 	p := newStatsPlugin()
 	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
-	ctx := makeCtxWithCommand("/help", "user1")
+	ctx := makeCtxWithCommandPlatform("/help", "user1")
 	handler(ctx)
 	handler(ctx)
 	if p.CommandCount("/help") != 2 {
 		t.Errorf("expected 2, got %d", p.CommandCount("/help"))
 	}
 }
+
 func TestStats_Middleware_RecordsUser(t *testing.T) {
 	p := newStatsPlugin()
 	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
-	handler(makeCtxWithCommand("hello", "stats_u1"))
-	handler(makeCtxWithCommand("world", "stats_u2"))
+	handler(makeCtxWithCommandPlatform("hello", "stats_u1"))
+	handler(makeCtxWithCommandPlatform("world", "stats_u2"))
 	if len(p.ActiveUsers(stats.AllTime)) < 2 {
 		t.Errorf("expected >= 2 active users, got %d", len(p.ActiveUsers(stats.AllTime)))
 	}
 }
+
+func TestStats_Middleware_RecordsUser_QQ(t *testing.T) {
+	p := newStatsPlugin()
+	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
+	handler(makeCtxWithCommand("hello", "stats_u3"))
+	handler(makeCtxWithCommand("world", "stats_u4"))
+	if len(p.ActiveUsers(stats.AllTime)) < 2 {
+		t.Errorf("expected >= 2 active users (QQ path), got %d", len(p.ActiveUsers(stats.AllTime)))
+	}
+}
+
 func TestStats_TopCommands(t *testing.T) {
 	p := newStatsPlugin()
 	p.RecordCommand("/ping")
@@ -60,7 +82,7 @@ func TestStats_TotalMessages(t *testing.T) {
 	p := newStatsPlugin()
 	handler := p.Middleware()(func(ctx *context.Context) error { return nil })
 	for range 5 {
-		handler(makeCtxWithCommand("msg", "u"))
+		handler(makeCtxWithCommandPlatform("msg", "u"))
 	}
 	if p.TotalMessages() != 5 {
 		t.Errorf("expected 5, got %d", p.TotalMessages())

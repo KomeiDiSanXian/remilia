@@ -11,47 +11,91 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// OnEventType 匹配特定事件类型
-func OnEventType(eventType dto.EventType) Rule {
+// rules.go — 事件匹配规则函数库
+//
+// # 路由层次说明
+//
+// 本文件中的规则函数分为两类：
+//
+//  1. 平台无关规则（推荐，适用所有平台）：
+//     - [OnEventKind]：按 platform.EventKind 匹配，如 EventKindPrivateMessage / EventKindGroupMessage
+//     - [OnCommand]、[OnKeyword]、[OnRegex] 等内容规则：全平台有效
+//     - [OnUserWhitelist]、[OnUserBlacklist]：基于 GetSenderInfo().ID，全平台有效
+//
+//  2. QQ 专属规则（仅旧路径生效，将在未来版本移除）：
+//     - [OnC2CMessage]、[OnGroupAtMessage]、[OnGroupAddRobot]、[OnAtBot]
+//
+// # 迁移指南
+//
+// 旧写法（QQ 专属）：
+//
+//	engine.On(OnC2CMessage(), OnCommand("/ping")).Handle(handler)
+//
+// 新写法（多平台通用）：
+//
+//	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/ping")).Handle(handler)
+
+// OnEventType 匹配特定事件类型字符串（低级 API，通常不直接使用）
+//
+// 注意：新路径下 GetEventType() 返回 EventKind 字符串，旧路径返回平台原始类型字符串，
+// 两者不兼容。推荐使用 [OnEventKind] 代替。
+func OnEventType(eventType string) Rule {
 	return func(ctx *Context) bool {
 		return ctx.GetEventType() == eventType
 	}
 }
 
-// OnC2CMessage 匹配私聊消息
+// OnEventKind 匹配平台无关的事件类别（多平台推荐方式）。
 //
-// 旧用法(已废弃):
+// 对所有平台（QQ、Discord、Telegram 等）透明地生效。
+// 与 OnC2CMessage / OnGroupAtMessage 等 QQ 专属规则相比，此函数是首选。
 //
-//	engine.On(OnC2CMessage(), OnCommand("/ping")).Handle(handler)
+// 示例：
 //
-// 新推荐用法:
+//	// 私聊消息（所有平台）
+//	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/ping")).Handle(h)
+//	// 群组消息（所有平台）
+//	engine.On(OnEventKind(platform.EventKindGroupMessage), OnCommand("/help")).Handle(h)
+func OnEventKind(kind platform.EventKind) Rule {
+	return func(ctx *Context) bool {
+		return ctx.GetEventKind() == kind
+	}
+}
+
+// OnC2CMessage 匹配私聊消息（QQ 旧路径专属）
 //
-//	engine.OnC2C(OnCommand("/ping")).Handle(handler)
+// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效，新平台路径下不匹配。
+// 推荐改用：
+//
+//	engine.On(OnEventKind(platform.EventKindPrivateMessage), ...).Handle(handler)
 func OnC2CMessage() Rule {
 	return OnEventType(dto.C2CMessageCreate)
 }
 
-// OnGroupAtMessage 匹配被 @ 的群消息
+// OnGroupAtMessage 匹配被 @ 的群消息（QQ 旧路径专属）
 //
-// 旧用法(已废弃):
+// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效，新平台路径下不匹配。
+// 推荐改用：
 //
-//	engine.On(OnGroupAtMessage(), OnCommand("/ping")).Handle(handler)
-//
-// 新推荐用法:
-//
-//	engine.OnGroupAt(OnCommand("/ping")).Handle(handler)
+//	engine.On(OnEventKind(platform.EventKindGroupMessage), ...).Handle(handler)
 func OnGroupAtMessage() Rule {
 	return OnEventType(dto.GroupAtMessageCreate)
 }
 
-// OnGroupAddRobot 匹配机器人加入群聊事件
+// OnGroupAddRobot 匹配机器人加入群聊事件（QQ 旧路径专属）
+//
+// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效。
+// 推荐改用 OnEventKind(platform.EventKindNotice) 配合事件内容判断。
 func OnGroupAddRobot() Rule {
 	return OnEventType(dto.GroupAddRobot)
 }
 
-// OnGroupDelRobot 匹配机器人退出群聊事件
+// OnGroupDelRobot 匹配机器人退出群聊事件（QQ 旧路径专属）
+//
+// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效。
 func OnGroupDelRobot() Rule {
 	return OnEventType(dto.GroupDelRobot)
 }
@@ -421,20 +465,17 @@ func initCooldownStore() {
 // OnCooldown 创建用户级冷却时间规则。
 // 同一用户在 d 时间内只允许触发一次；冷却期间该规则返回 false，事件不匹配。
 //
-// keyFn 用于从 Context 中提取冷却 key（通常是 UserOpenID）。
-// 若 keyFn 为 nil，则默认使用 ctx.GetAuthor().UserOpenID。
+// keyFn 用于从 Context 中提取冷却 key（通常是用户 ID）。
+// 若 keyFn 为 nil，则默认使用 ctx.GetSenderInfo().ID（平台无关）。
 //
 // 使用示例:
 //
-//	engine.OnC2C(OnCommand("/sign"), OnCooldown(24*time.Hour, nil)).Handle(signHandler)
+//	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/sign"), OnCooldown(24*time.Hour, nil)).Handle(signHandler)
 func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
 	initCooldownStore()
 	if keyFn == nil {
 		keyFn = func(ctx *Context) string {
-			if a := ctx.GetAuthor(); a != nil {
-				return a.UserOpenID
-			}
-			return ""
+			return ctx.GetSenderInfo().ID
 		}
 	}
 	return func(ctx *Context) bool {
@@ -455,7 +496,11 @@ func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
 	}
 }
 
-// OnAtBot 匹配消息中包含 @Bot 标记的事件。
+// OnAtBot 匹配消息中包含 @Bot 标记的事件（QQ 专属 qqbot-at 格式）。
+//
+// Deprecated: 此规则基于 QQ 平台特定的 qqbot-at 标签格式，仅在 QQ 平台有效。
+// 其他平台请自行实现 @Bot 检测逻辑（通过 OnKeyword 或自定义 Rule）。
+//
 // botOpenID 为机器人自身的 OpenID，若为空则只要 content 中包含 qqbot-at 标签即视为 @Bot。
 func OnAtBot(botOpenID string) Rule {
 	return func(ctx *Context) bool {
@@ -499,6 +544,11 @@ func InGroup(groupIDs ...string) Rule {
 		set[id] = true
 	}
 	return func(ctx *Context) bool {
+		// 新路径：从 platform.Event 提取 chat ID
+		if e := ctx.GetPlatformEvent(); e != nil {
+			return set[e.Chat().ID]
+		}
+		// 旧路径（QQ 兼容）：解码 GroupAtMessageCreateEvent
 		var event dto.GroupAtMessageCreateEvent
 		if err := ctx.DecodeEvent(&event); err != nil {
 			return false

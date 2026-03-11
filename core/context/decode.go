@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/tidwall/gjson"
 )
 
@@ -103,6 +104,9 @@ func (ctx *Context) GetMessageContent() string {
 }
 
 // GetAuthor 获取消息作者信息（Once 缓存）
+//
+// Deprecated: 使用 GetSenderInfo() 替代，后者支持所有平台。
+// GetAuthor 仅在 QQ 旧路径下有效。
 func (ctx *Context) GetAuthor() *dto.Author {
 	if ctx == nil || ctx.event == nil {
 		return nil
@@ -122,7 +126,36 @@ func (ctx *Context) GetAuthor() *dto.Author {
 	return ctx.author
 }
 
-// GetEvent 获取事件
+// GetSenderInfo 获取发送者信息（平台无关，推荐使用）
+//
+// 新路径：从 platform.Event.Sender() 读取。
+// 旧路径（QQ）：从 GetAuthor() 映射为 platform.UserInfo。
+func (ctx *Context) GetSenderInfo() platform.UserInfo {
+	if ctx == nil {
+		return platform.UserInfo{}
+	}
+	if ctx.platformEvent != nil {
+		return ctx.platformEvent.Sender()
+	}
+	// QQ 旧路径
+	a := ctx.GetAuthor()
+	if a == nil {
+		return platform.UserInfo{}
+	}
+	id := a.UserOpenID
+	if id == "" {
+		id = a.MemberOpenID
+	}
+	if id == "" {
+		id = a.ID
+	}
+	return platform.UserInfo{ID: id}
+}
+
+// GetEvent 获取 QQ 原始事件 payload。
+//
+// Deprecated: 使用 ctx.GetPlatformEvent() 替代，后者支持所有平台。
+// 旧路径（QQ）下仍可用；新路径（platform.Event）下返回 nil。
 func (ctx *Context) GetEvent() *dto.Payload {
 	if ctx == nil {
 		return nil
@@ -130,17 +163,24 @@ func (ctx *Context) GetEvent() *dto.Payload {
 	return ctx.event
 }
 
-// GetEventType 获取事件类型
+// GetEventType 获取事件类型字符串，供 Engine 内部路由使用。
 //
-// 新路径（platform.Event）：将 RawType() 字符串转换为 dto.EventType，
-// 保持与 Engine 内部按 EventType 路由的兼容性。
-// 旧路径：直接返回 ctx.event.Type。
+// 架构说明（方案 B）：
+//   - 新路径（platform.Event）：返回 EventKind 字符串（如 "PRIVATE_MESSAGE"），
+//     屏蔽平台差异，使 OnEventKind() 规则对所有平台透明地生效。
+//   - 旧路径（dto.Payload）：返回平台原始 EventType（如 "C2C_MESSAGE_CREATE"），
+//     保持与现有 OnC2CMessage() / OnGroupAtMessage() 等 QQ 专属规则的兼容。
+//
+// 迁移指南：
+//   - 新代码请使用 OnEventKind(platform.EventKindPrivateMessage) 注册 Matcher
+//   - QQ 专属规则（OnC2CMessage 等）仅在旧路径下生效
 func (ctx *Context) GetEventType() dto.EventType {
 	if ctx == nil {
 		return ""
 	}
 	if ctx.platformEvent != nil {
-		return dto.EventType(ctx.platformEvent.RawType())
+		// 方案 B：使用 EventKind 字符串作为路由键，屏蔽平台差异
+		return string(ctx.platformEvent.Kind())
 	}
 	if ctx.event == nil {
 		return ""
@@ -148,7 +188,9 @@ func (ctx *Context) GetEventType() dto.EventType {
 	return ctx.event.Type
 }
 
-// SendGroupMessage 发送群聊消息
+// SendGroupMessage 发送群聊消息（QQ 旧路径）
+//
+// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
 func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Result, error) {
 	if ctx == nil || ctx.api == nil {
 		return gjson.Result{}, ErrNilAPI
@@ -156,7 +198,9 @@ func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Re
 	return ctx.api.GroupChat(groupID, msg)
 }
 
-// SendSingleMessage 发送私聊消息
+// SendSingleMessage 发送私聊消息（QQ 旧路径）
+//
+// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
 func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Result, error) {
 	if ctx == nil || ctx.api == nil {
 		return gjson.Result{}, ErrNilAPI
@@ -164,7 +208,9 @@ func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Re
 	return ctx.api.SingleChat(openID, msg)
 }
 
-// ReplyGroup 回复群聊消息（自动获取 group_openid）
+// ReplyGroup 回复群聊消息（自动获取 group_openid，QQ 旧路径）
+//
+// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
 func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
 	var event dto.GroupAtMessageCreateEvent
 	if err := ctx.DecodeEvent(&event); err != nil {
@@ -176,7 +222,9 @@ func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
 	return ctx.SendGroupMessage(event.GroupOpenID, msg)
 }
 
-// ReplyPrivate 回复私聊消息（自动获取 openid）
+// ReplyPrivate 回复私聊消息（自动获取 openid，QQ 旧路径）
+//
+// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
 func (ctx *Context) ReplyPrivate(msg *dto.Message) (gjson.Result, error) {
 	var event dto.C2CMessageCreateEvent
 	if err := ctx.DecodeEvent(&event); err != nil {

@@ -8,6 +8,14 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
+// EventType 平台无关的事件类型标识。
+//
+// 使用 string 的类型别名，与 dto.EventType（同为 string 别名）完全兼容，
+// 允许新平台无需导入 openapi/dto 即可注册事件匹配器。
+//
+// QQ 平台常量（dto.C2CMessageCreate 等）可直接传入，无需类型转换。
+type EventType = string
+
 // Option Engine 配置选项函数类型
 type Option func(*Engine)
 
@@ -27,7 +35,7 @@ type MatcherLifecycle interface {
 	// RebuildMatcherChain 重建 Matcher 的中间件链缓存（Handler 变更时调用）
 	RebuildMatcherChain(m *Matcher)
 	// InvalidateSortedCache 使指定事件类型的已排序 Matcher 缓存失效
-	InvalidateSortedCache(eventType dto.EventType)
+	InvalidateSortedCache(eventType EventType)
 	// UpdateCommandCache 更新命令索引缓存
 	UpdateCommandCache(m *Matcher)
 }
@@ -75,9 +83,9 @@ type MatcherCoordinator interface {
 type PluginCoordinator interface {
 	EngineReader
 	// On 注册一个新的事件匹配器
-	On(eventType dto.EventType, rules ...context.Rule) *Matcher
+	On(eventType EventType, rules ...context.Rule) *Matcher
 	// OnCommand 注册一个命令匹配器（自动开启 O(1) 分发优化）
-	OnCommand(eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *Matcher
+	OnCommand(eventType EventType, cmdPattern string, extraRules ...context.Rule) *Matcher
 	// RemoveGroup 删除指定分组的所有 Matcher
 	RemoveGroup(groupName string)
 	// DisableGroup 禁用指定分组（暂停事件分发）

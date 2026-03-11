@@ -6,29 +6,42 @@ It provides:
   - Lifecycle management (start/stop)
   - Health checking
   - Configuration management
-  - Integration with engine and Adapter
+  - Multi-platform event handling via platform.PlatformAdapter
 
-Basic Usage:
+# Platform-Agnostic Usage (Recommended)
+
+Register handlers using platform-agnostic event matching:
 
 	import (
 	    "context"
 	    "log"
-	    "time"
 
 	    "github.com/KomeiDiSanXian/remilia"
 	    "github.com/KomeiDiSanXian/remilia/core/engine"
 	    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+	    "github.com/KomeiDiSanXian/remilia/platform"
 	)
 
-	// Create engine and register handlers
 	eng := engine.NewEngine()
-	eng.OnCommand(dto.GroupAtMessageCreate, "/hello").
+
+	// Register a command handler that works on any platform
+	eng.OnCommand("", "/hello").
 	    Handle(func(ctx *eventctx.Context) error {
-	        return ctx.Reply("Hello!")
+	        return ctx.Reply(platform.TextMessage("Hello!"))
 	    })
 
-	// Build Bot via BotBuilder (recommended — returns error instead of panicking)
+	// Build Bot with a PlatformAdapter
+	bot, err := remilia.NewBotBuilder().
+	    WithPlatformAdapter(qqAdapter). // platform.PlatformAdapter
+	    WithEngine(eng).
+	    Build()
+
+# QQ-Specific Usage (Backward Compatible)
+
+For QQ bots, dto.BotInfo and the webhook adapter are still supported:
+
+	import "github.com/KomeiDiSanXian/remilia/openapi/dto"
+
 	bot, err := remilia.NewBotBuilder().
 	    WithBotInfo(&dto.BotInfo{
 	        AppID:     123456,
@@ -38,64 +51,36 @@ Basic Usage:
 	    WithWebhook(":8080").
 	    WithEngine(eng).
 	    Build()
-	if err != nil {
-	    log.Fatal(err)
-	}
 
-	// Start Bot
-	if err := bot.Start(); err != nil {
-	    log.Fatal(err)
-	}
+	// QQ convenience matchers (still work)
+	eng.OnC2C(eventctx.OnCommand("/ping")).Handle(pingHandler)
+	eng.OnGroupAt(eventctx.OnCommand("/hello")).Handle(helloHandler)
 
-	// Graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	bot.Stop(ctx)
+# Multi-Platform
 
-Health Checking:
+Connect multiple platforms to a single Bot instance:
+
+	bot, err := remilia.NewBotBuilder().
+	    WithPlatformAdapter(qqAdapter).
+	    WithPlatformAdapter(discordAdapter).
+	    WithEngine(eng).
+	    Build()
+
+# Adapter Interface
+
+Two adapter interfaces are supported:
+
+  - PlatformAdapter (recommended): platform-agnostic, handler receives platform.Event
+  - Adapter (deprecated): QQ-specific, handler receives *dto.Payload
+
+# Health Checking
 
 	status := bot.Health()
-	fmt.Printf("Status: %s\n", status.Status)
-	fmt.Printf("Uptime: %v\n", status.Uptime)
-	for name, component := range status.Components {
-	    fmt.Printf("  %s: %s - %s\n", name, component.Status, component.Message)
-	}
+	fmt.Printf("Status: %s, Uptime: %v\n", status.Status, status.Uptime)
 
-Lifecycle Management:
+# Lifecycle
 
-Bot uses the lifecycle package to manage component startup and shutdown:
-  - Components start in order
-  - Components stop in reverse order
-  - Failed startup triggers automatic rollback
-  - Stop continues even if a component fails
-
-Configuration:
-
-Bot configuration can be set via options:
-  - WithName(name) - Set bot name
-  - WithVersion(version) - Set bot version
-  - WithDebug(bool) - Enable debug logging
-  - WithConfig(*Config) - Set full configuration
-
-Adapter Interface:
-
-The Adapter interface (defined in core/engine and aliased in this package) connects
-event sources to the Bot. It has two methods:
-  - Start(ctx, handleFunc) error — begin receiving events and pass them to handleFunc
-  - Stop(ctx) error — gracefully shut down the event source
-
-You can use the built-in Webhook adapter or implement your own:
-
-	// Using Webhook adapter (wraps a custom Webhook implementation)
-	wh := myWebhook // implements remilia.Webhook interface
-	adapter := remilia.NewWebhookAdapter(wh)
-
-	// Using the built-in HTTP server adapter
-	adapter := remilia.SimpleWebhookAdapter(8080)
-
-For more information, see:
-  - github.com/KomeiDiSanXian/remilia/core/engine - Core engine implementation
-  - github.com/KomeiDiSanXian/remilia/core/context - Context and rules
-  - github.com/KomeiDiSanXian/remilia/lifecycle - Lifecycle management
+Bot uses the lifecycle package: components start in order, stop in reverse.
+Failed startup triggers automatic rollback.
 */
 package remilia

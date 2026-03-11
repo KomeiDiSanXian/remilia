@@ -284,13 +284,11 @@ func normalizeConfig(cfg Config) Config {
 
 // Rule 返回可直接传入 engine.On() / engine.OnGroupAt() 的规则函数。
 // 规则按顺序检查：封禁名单 → 用户限速 → 群组限速。
+//
+// 支持所有平台（新路径和旧 QQ 路径均可用）。
 func (p *Plugin) Rule() eventctx.Rule {
 	return func(ctx *eventctx.Context) bool {
-		author := ctx.GetAuthor()
-		userID := ""
-		if author != nil {
-			userID = author.UserOpenID
-		}
+		userID := ctx.GetSenderInfo().ID
 
 		// 1. 检查封禁名单
 		if userID != "" && p.IsBanned(userID) {
@@ -307,17 +305,18 @@ func (p *Plugin) Rule() eventctx.Rule {
 			}
 		}
 
-		// 3. 群组级限速
+		// 3. 群组级限速（仅群组消息）
 		if p.cfg.GroupRate > 0 {
-			var groupID string
-			var event interface{ GetGroupOpenID() string }
-			// 尝试从事件中提取 group open id
-			var gae any
-			if err := ctx.DecodeEvent(&gae); err == nil {
-				// 使用内容中提取（避免类型断言失败）
+			if e := ctx.GetPlatformEvent(); e != nil && e.Chat().IsGroup {
+				groupID := e.Chat().ID
+				if groupID != "" {
+					rl := p.getGroupLimiter(groupID)
+					if !rl.Allow() {
+						p.handleViolation(ctx, groupID, "group rate limit exceeded")
+						return false
+					}
+				}
 			}
-			_ = groupID
-			_ = event
 		}
 
 		return true

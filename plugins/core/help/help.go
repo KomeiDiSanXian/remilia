@@ -11,7 +11,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -62,8 +62,7 @@ func New() *plugin.PluginDescriptor {
 			p.Info = ctx.Info
 			p.Engine = ctx.Info.Coordinator()
 
-			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").Handle(p.handleHelp)
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/help").Handle(p.handleHelp)
+			ctx.Reg.RegisterCommand("", "/help").Handle(p.handleHelp)
 
 			// 订阅插件生命周期事件，当插件加载/卸载/重载时立即清空缓存
 			if ctx.EventBus != nil {
@@ -135,12 +134,8 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	// 保存 engine 引用以便后续获取命令信息
 	p.Engine = eng
 
-	// 注册 /help 命令
-	eng.OnCommand(dto.GroupAtMessageCreate, "/help").
-		Handle(p.handleHelp)
-
-	// 同时支持私聊
-	eng.OnCommand(dto.C2CMessageCreate, "/help").
+	// 注册 /help 命令（通配所有平台）
+	eng.OnCommand("", "/help").
 		Handle(p.handleHelp)
 
 	logger.Info("[Plugin] Help plugin loaded successfully")
@@ -702,25 +697,9 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 	return p.sendMessage(ctx, msg.String())
 }
 
-// sendMessage 根据事件类型自动选择发送消息的方式
+// sendMessage 发送消息（平台无关）
 func (p *Plugin) sendMessage(ctx *eventctx.Context, content string) error {
-	eventType := ctx.GetEventType()
-	msg := &dto.Message{
-		Type:    dto.TextMessage,
-		Content: content,
-	}
-
-	switch eventType {
-	case dto.GroupAtMessageCreate:
-		_, err := ctx.ReplyGroup(msg)
-		return err
-	case dto.C2CMessageCreate:
-		_, err := ctx.ReplyPrivate(msg)
-		return err
-	default:
-		logger.WithField("event_type", eventType).Warn("[Plugin] Unsupported event type for reply")
-		return fmt.Errorf("unsupported event type: %s", eventType)
-	}
+	return ctx.Reply(platform.TextMessage(content))
 }
 
 // Dependencies 返回插件依赖列表（帮助插件无依赖）

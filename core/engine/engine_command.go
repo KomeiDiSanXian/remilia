@@ -13,7 +13,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
 // CommandInfo 命令信息（用于 Help 生成和命令发现）
@@ -27,7 +26,7 @@ type CommandInfo struct {
 	Permissions []string            // 所需权限
 	Plugin      string              // 所属插件名
 	Source      string              // 来源标识（如 "plugin:help"）
-	EventType   dto.EventType       // 事件类型
+	EventType   EventType           // 事件类型
 	Definition  *command.Definition // 完整定义（直接使用 command.Definition）
 }
 
@@ -37,7 +36,7 @@ type CommandInfo struct {
 //
 // 此方法会自动创建一个 command.Definition 并将匹配器注册到 Hash Map 索引中，
 // 消息处理时仅需 O(1) 查找，无需遍历所有规则。
-func (e *Engine) OnCommand(eventType dto.EventType, cmdPattern string, extraRules ...context.Rule) *Matcher {
+func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ...context.Rule) *Matcher {
 	finalRules := make([]context.Rule, 0, len(extraRules)+1)
 	finalRules = append(finalRules, context.OnCommand(cmdPattern))
 	finalRules = append(finalRules, extraRules...)
@@ -105,7 +104,7 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 //	    Usage:       "/search <keyword>",
 //	}
 //	engine.RegisterCommandDef(dto.GroupAtMessageCreate, def)
-func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Definition, extraRules ...context.Rule) *Matcher {
+func (e *Engine) RegisterCommandDef(eventType EventType, def *command.Definition, extraRules ...context.Rule) *Matcher {
 	if def == nil {
 		logger.Warn("[engine] RegisterCommandDef: definition is nil")
 		return newNoopMatcher(e)
@@ -148,7 +147,7 @@ func (e *Engine) RegisterCommandDef(eventType dto.EventType, def *command.Defini
 //
 //	engine.RegisterCommandDefWithPrefix(dto.GroupAtMessageCreate, "!", def)
 func (e *Engine) RegisterCommandDefWithPrefix(
-	eventType dto.EventType,
+	eventType EventType,
 	prefix string,
 	def *command.Definition,
 	extraRules ...context.Rule,
