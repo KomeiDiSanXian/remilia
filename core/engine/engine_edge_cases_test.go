@@ -15,7 +15,7 @@ func TestEdgeCases(t *testing.T) {
 	eng.RemoveGroup("")
 	eng.SetMaxMatchers(100)
 	for range 5 {
-		eng.OnC2C()
+		eng.On(dto.C2CMessageCreate)
 	}
 	assert.Equal(t, 5, eng.GetMatcherCount())
 	stats := eng.GetMatcherStats()
@@ -27,14 +27,14 @@ func TestEdgeCases(t *testing.T) {
 }
 func TestMatcherEdges(t *testing.T) {
 	eng := NewEngine()
-	m := eng.OnC2C()
+	m := eng.On(dto.C2CMessageCreate)
 	m.Delete()
 	assert.True(t, m.IsDeleted())
-	m2 := eng.OnC2C()
+	m2 := eng.On(dto.C2CMessageCreate)
 	m2.rt.deleted = true
 	matched := m2.Match(ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
 	assert.False(t, matched)
-	m3 := eng.OnC2C()
+	m3 := eng.On(dto.C2CMessageCreate)
 	m3.Handle(nil)
 	m3.SetPriority(10)
 	m3.SetPriority(10)
@@ -46,7 +46,7 @@ func TestMatcherEdges(t *testing.T) {
 }
 func TestRestoreEdge(t *testing.T) {
 	eng := NewEngine()
-	eng.OnC2C()
+	eng.On(dto.C2CMessageCreate)
 	snap := eng.Snapshot()
 	eng.DeleteAllMatchers()
 	eng.Restore(snap)

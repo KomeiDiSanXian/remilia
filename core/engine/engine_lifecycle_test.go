@@ -58,7 +58,7 @@ func TestEngine_GetMetricsCollector_Initially(t *testing.T) {
 
 func TestEngine_UpdateMatcherCommand_Called(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	matcher.BindCommand("/newcmd")
 
 	eng.UpdateMatcherCommand(matcher)
@@ -69,7 +69,7 @@ func TestEngine_UpdateMatcherCommand_Called(t *testing.T) {
 
 func TestEngine_UpdateMatcherIndex_Called(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 
 	eng.UpdateMatcherIndex(matcher)
 
@@ -105,8 +105,8 @@ func TestEngine_WithMatcherGroupBatch_Used(t *testing.T) {
 	var m1, m2, m3 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.OnC2C()
-		m2 = eng.OnGroupAt()
+		m1 = eng.On(dto.C2CMessageCreate)
+		m2 = eng.On(dto.GroupAtMessageCreate)
 		m3 = eng.OnAny()
 
 		eng.SetMatcherGroup(m1, "batch-group", "s1")
@@ -129,7 +129,7 @@ func TestEngine_WithMatcherGroupBatch_NilFunction(t *testing.T) {
 func TestEngine_SetMatcherGroup_Used(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	eng.SetMatcherGroup(matcher, "my-group", "my-source")
 
 	assert.Equal(t, "my-group", matcher.group)
@@ -159,7 +159,7 @@ func TestEngine_ProcessEvent_WithCommandOptimization(t *testing.T) {
 	})
 
 	// Register normal matcher
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		executed = "normal"
 		return nil
 	})
@@ -189,7 +189,7 @@ func TestEngine_ProcessEvent_GenericMatchers(t *testing.T) {
 	})
 
 	// Specific matcher
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		atomic.AddInt32(&count, 1)
 		return nil
 	})
@@ -264,7 +264,7 @@ func TestEngine_RebuildMatcherChain_WithGenerationUpdate(t *testing.T) {
 
 	eng.Use(mw1)
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	eng.RebuildMatcherChain(matcher)
 
 	// Add more middleware
@@ -301,11 +301,11 @@ func TestEngine_UseForGroup_MultipleGroups(t *testing.T) {
 	eng.UseForGroup("group2", mw2)
 	eng.UseForGroup("group1", mw2) // Add second middleware to group1
 
-	m1 := eng.OnC2C()
+	m1 := eng.On(dto.C2CMessageCreate)
 	m1.group = "group1"
 	eng.RebuildMatcherChain(m1)
 
-	m2 := eng.OnC2C()
+	m2 := eng.On(dto.C2CMessageCreate)
 	m2.group = "group2"
 	eng.RebuildMatcherChain(m2)
 
@@ -330,7 +330,7 @@ func TestEngine_Named_Middleware(t *testing.T) {
 
 	eng.Use(mw)
 
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		order = append(order, "handler")
 		return nil
 	})
@@ -350,7 +350,7 @@ func TestEngine_Named_Middleware(t *testing.T) {
 func TestMatcher_SetTemp_Transitions(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	assert.False(t, matcher.IsTemp())
 
 	// Transition to temp
@@ -396,7 +396,7 @@ func TestMatcher_SetPriority_TempMatcher(t *testing.T) {
 func TestMatcher_Handle_WithCoordinator(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 
 	handler1 := func(c *ctx.Context) error {
 		return nil
@@ -468,8 +468,8 @@ func TestEngine_RemoveGroup_LogMessage(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.OnC2C()
-		m2 = eng.OnC2C()
+		m1 = eng.On(dto.C2CMessageCreate)
+		m2 = eng.On(dto.C2CMessageCreate)
 		eng.SetMatcherGroup(m1, "test-plugin", "s1")
 		eng.SetMatcherGroup(m2, "test-plugin", "s2")
 	})
@@ -488,7 +488,7 @@ func TestEngine_RemoveGroup_LogMessage(t *testing.T) {
 func TestEngine_Shutdown_WaitForEvents(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		time.Sleep(50 * time.Millisecond)
 		return nil
 	})
@@ -518,8 +518,8 @@ func TestEngine_Restore_WithGroups(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.OnC2C()
-		m2 = eng.OnC2C()
+		m1 = eng.On(dto.C2CMessageCreate)
+		m2 = eng.On(dto.C2CMessageCreate)
 		eng.SetMatcherGroup(m1, "plugin1", "s1")
 		eng.SetMatcherGroup(m2, "plugin2", "s2")
 	})
@@ -572,8 +572,8 @@ func TestEngine_Components_Stop(t *testing.T) {
 func TestEngine_GetMatchersForEvent_Specific(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
-	eng.OnGroupAt()
+	eng.On(dto.C2CMessageCreate)
+	eng.On(dto.GroupAtMessageCreate)
 	eng.OnAny()
 
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
@@ -599,7 +599,7 @@ func TestEngine_AsyncComponents_StartStop(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	// Queue pending deletes to exercise the batch processor
 	for range 10 {
-		m := eng.OnC2C()
+		m := eng.On(dto.C2CMessageCreate)
 		eng.DeleteMatcher(m)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -615,7 +615,7 @@ func TestEngine_RemoveGroup_BeforeAndAfterAdd(t *testing.T) {
 	eng.RemoveGroup("empty-before-add")
 	eng.WithMatcherGroupBatch(func() {
 		for range 5 {
-			m := eng.OnC2C()
+			m := eng.On(dto.C2CMessageCreate)
 			eng.SetMatcherGroup(m, "large-group", "src")
 		}
 	})
@@ -625,7 +625,7 @@ func TestEngine_RemoveGroup_BeforeAndAfterAdd(t *testing.T) {
 
 func TestEngine_InvokeHandler_ErrorAndNilHandler(t *testing.T) {
 	eng := NewEngine()
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		return assert.AnError
 	})
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
@@ -634,7 +634,7 @@ func TestEngine_InvokeHandler_ErrorAndNilHandler(t *testing.T) {
 
 	// Matcher with nil Handler: should be skipped safely
 	eng2 := NewEngine()
-	m := eng2.OnC2C()
+	m := eng2.On(dto.C2CMessageCreate)
 	m.Handler = nil
 	eng2.ProcessEvent(ctx.NewContext(payload, nil))
 }

@@ -90,7 +90,7 @@ func Auth(allow func(ctx *eventctx.Context) bool) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if !allow(ctx) {
-				logger.WithField("user", ctx.GetAuthor()).Warn("unauthorized")
+				logger.WithField("user", ctx.GetSenderInfo().ID).Warn("unauthorized")
 				return fmt.Errorf("unauthorized")
 			}
 			return next(ctx)

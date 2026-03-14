@@ -10,11 +10,13 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockAdapter is a test adapter
+// mockAdapter is a test adapter implementing engine.PlatformAdapter
 type mockAdapter struct {
 	startErr         error
 	shutdownErr      error
@@ -24,10 +26,10 @@ type mockAdapter struct {
 	events           chan *dto.Payload
 	mu               sync.Mutex
 
-	// Add context management
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+	handler func(platform.Event)
 }
 
 func newMockAdapter() *mockAdapter {
@@ -37,7 +39,11 @@ func newMockAdapter() *mockAdapter {
 	}
 }
 
-func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) error {
+func (m *mockAdapter) Platform() string { return "test" }
+
+func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+
+func (m *mockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	m.mu.Lock()
 	if m.startErr != nil {
 		m.mu.Unlock()
@@ -45,26 +51,23 @@ func (m *mockAdapter) Start(ctx context.Context, handleFunc func(*dto.Payload)) 
 	}
 	m.started = true
 	m.goroutineStarted = true
+	m.handler = handler
 
-	// Create independent context for long-running goroutine
-	// Don't use the ctx parameter as it's only for the start operation
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.mu.Unlock()
 
-	// Simulate event processing
 	go func() {
 		defer close(m.done)
-
 		for {
 			select {
 			case <-m.ctx.Done():
 				return
-			case event, ok := <-m.events:
+			case payload, ok := <-m.events:
 				if !ok {
 					return
 				}
-				if event != nil && handleFunc != nil {
-					handleFunc(event)
+				if payload != nil && handler != nil {
+					handler(qqplatform.NewEvent(payload))
 				}
 			}
 		}
@@ -85,9 +88,7 @@ func (m *mockAdapter) SendEvent(event *dto.Payload) {
 
 	select {
 	case m.events <- event:
-		// Event sent successfully
 	default:
-		// Channel full or closed, ignore
 	}
 }
 
@@ -108,18 +109,14 @@ func (m *mockAdapter) Stop(_ context.Context) error {
 	goroutineStarted := m.goroutineStarted
 	m.mu.Unlock()
 
-	// Cancel context first to stop the goroutine
 	if m.cancel != nil {
 		m.cancel()
 	}
 
-	// Only wait if goroutine was actually started
 	if goroutineStarted {
-		// Wait for goroutine to finish
 		<-m.done
 	}
 
-	// Then close the channel
 	close(m.events)
 
 	return nil
@@ -350,18 +347,18 @@ func TestBot_ConvenienceMethods(t *testing.T) {
 		assert.NotNil(t, matcher)
 	})
 
-	t.Run("OnC2C", func(t *testing.T) {
-		matcher := bot.OnC2C()
+	t.Run("OnEventKind_PrivateMessage", func(t *testing.T) {
+		matcher := bot.OnEventKind(platform.EventKindPrivateMessage)
 		assert.NotNil(t, matcher)
 	})
 
-	t.Run("OnGroupAt", func(t *testing.T) {
-		matcher := bot.OnGroupAt()
+	t.Run("OnEventKind_GroupMessage", func(t *testing.T) {
+		matcher := bot.OnEventKind(platform.EventKindGroupMessage)
 		assert.NotNil(t, matcher)
 	})
 
-	t.Run("On", func(t *testing.T) {
-		matcher := bot.On(dto.C2CMessageCreate)
+	t.Run("Engine_On", func(t *testing.T) {
+		matcher := bot.Engine().On(dto.C2CMessageCreate)
 		assert.NotNil(t, matcher)
 	})
 }
@@ -458,69 +455,6 @@ func TestHealthCheck(t *testing.T) {
 
 	healthCheck := bot.HealthCheck()
 	require.NotNil(t, healthCheck)
-}
-
-// TestWebhookAdapter tests webhook adapter
-func TestWebhookAdapter(t *testing.T) {
-	t.Run("create webhook adapter", func(t *testing.T) {
-		wh := &mockWebhook{
-			events: make(chan *dto.Payload, 10),
-		}
-
-		adapter := NewWebhookAdapter(wh)
-		require.NotNil(t, adapter)
-	})
-
-	t.Run("webhook adapter start and shutdown", func(t *testing.T) {
-		wh := &mockWebhook{
-			events: make(chan *dto.Payload, 10),
-		}
-
-		adapter := NewWebhookAdapter(wh)
-
-		var received []*dto.Payload
-		var mu sync.Mutex
-
-		ctx := t.Context()
-
-		err := adapter.Start(ctx, func(payload *dto.Payload) {
-			mu.Lock()
-			received = append(received, payload)
-			mu.Unlock()
-		})
-		require.NoError(t, err)
-
-		// Send test event
-		testEvent := &dto.Payload{
-			ID:   "test-1",
-			Type: "TEST_EVENT",
-		}
-		wh.events <- testEvent
-
-		time.Sleep(50 * time.Millisecond)
-
-		// Stop
-		shutdownCtx := context.Background()
-		err = adapter.Stop(shutdownCtx)
-		assert.NoError(t, err)
-
-		// Verify event received
-		mu.Lock()
-		defer mu.Unlock()
-		assert.Equal(t, 1, len(received))
-		if len(received) > 0 {
-			assert.Equal(t, "test-1", string(received[0].ID))
-		}
-	})
-}
-
-// mockWebhook is a test webhook
-type mockWebhook struct {
-	events chan *dto.Payload
-}
-
-func (m *mockWebhook) EventStream() <-chan *dto.Payload {
-	return m.events
 }
 
 // BenchmarkBot_Start benchmarks bot startup

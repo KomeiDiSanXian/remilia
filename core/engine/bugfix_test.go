@@ -84,7 +84,7 @@ func TestBugFix_ContextCloneDeadline(t *testing.T) {
 // TestBugFix_MatcherPoolTruncate 测试 Bug 3 的修复：Pool 截断逻辑
 func TestBugFix_MatcherPoolTruncate(t *testing.T) {
 	eng := NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	// 创建一个大容量的切片模拟场景
 	largeSlice := make([]*Matcher, 0, MaxMatcherPoolRetainCapacity*2)
@@ -102,7 +102,7 @@ func TestBugFix_MatcherPoolTruncate(t *testing.T) {
 // TestBugFix_InvalidateCombinedChain 测试 Bug 5 的修复：invalidateCombinedChain 清空缓存
 func TestBugFix_InvalidateCombinedChain(t *testing.T) {
 	eng := NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	// 创建 matcher
 	m := eng.On(dto.C2CMessageCreate)

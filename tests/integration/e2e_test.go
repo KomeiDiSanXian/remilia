@@ -20,7 +20,7 @@ import (
 func TestE2E_BasicCommandFlow(t *testing.T) {
 	// 1. 创建 engine
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 2. 注册命令
 	executed := false
@@ -51,7 +51,7 @@ func TestE2E_BasicCommandFlow(t *testing.T) {
 // TestE2E_CommandWithArguments 测试带参数的命令
 func TestE2E_CommandWithArguments(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 定义命令
 	def := &command.Definition{
@@ -103,7 +103,7 @@ func TestE2E_CommandWithArguments(t *testing.T) {
 // TestE2E_MiddlewareChain 测试中间件链
 func TestE2E_MiddlewareChain(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 记录中间件执行顺序
 	var order []string
@@ -155,7 +155,7 @@ func TestE2E_MiddlewareChain(t *testing.T) {
 // TestE2E_ErrorHandling 测试错误处理
 func TestE2E_ErrorHandling(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 注册会返回错误的命令
 	var handlerErr error
@@ -196,7 +196,7 @@ func TestE2E_AuditLogging(t *testing.T) {
 
 	// 创建 engine 并注册审计中间件
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 	eng.Use(audit.Middleware(auditLogger))
 
 	// 注册命令
@@ -229,7 +229,7 @@ func TestE2E_AuditLogging(t *testing.T) {
 // TestE2E_TempMatcher 测试临时匹配器
 func TestE2E_TempMatcher(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 注册临时匹配器（一次性）
 	executed := false
@@ -261,7 +261,7 @@ func TestE2E_TempMatcher(t *testing.T) {
 // TestE2E_ConcurrentEvents 测试并发事件处理
 func TestE2E_ConcurrentEvents(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 计数器（使用互斥锁保护）
 	var counter int32
@@ -306,7 +306,7 @@ func TestE2E_ConcurrentEvents(t *testing.T) {
 // TestE2E_BatchRegistration 测试批量注册
 func TestE2E_BatchRegistration(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 批量创建匹配器
 	matchers := make([]*engine.Matcher, 10)
@@ -330,7 +330,7 @@ func TestE2E_BatchRegistration(t *testing.T) {
 // TestE2E_PluginLifecycle 测试插件生命周期
 func TestE2E_PluginLifecycle(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 模拟插件注册多个命令
 	pluginName := "test-plugin"

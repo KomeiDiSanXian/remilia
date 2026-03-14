@@ -14,7 +14,7 @@ import (
 //   - decodeCache 类型联合体定义
 //   - DecodeEvent：事件解码（带 typed-union 缓存）
 //   - GetMessageContent：消息内容缓存（contentOnce）
-//   - GetAuthor：作者信息缓存（authorOnce）
+//   - GetSenderInfo：发送者信息缓存（authorOnce）
 //   - GetEvent / GetEventType：基础事件访问
 
 // DecodeEvent 解码事件详情
@@ -103,13 +103,20 @@ func (ctx *Context) GetMessageContent() string {
 	return ctx.content
 }
 
-// GetAuthor 获取消息作者信息（Once 缓存）
+// GetSenderInfo 获取发送者信息（平台无关，推荐使用）
 //
-// Deprecated: 使用 GetSenderInfo() 替代，后者支持所有平台。
-// GetAuthor 仅在 QQ 旧路径下有效。
-func (ctx *Context) GetAuthor() *dto.Author {
-	if ctx == nil || ctx.event == nil {
-		return nil
+// 新路径：从 platform.Event.Sender() 读取。
+// 旧路径（QQ）：从 event.Detail 解析 author 字段。
+func (ctx *Context) GetSenderInfo() platform.UserInfo {
+	if ctx == nil {
+		return platform.UserInfo{}
+	}
+	if ctx.platformEvent != nil {
+		return ctx.platformEvent.Sender()
+	}
+	// QQ 旧路径：从 payload.Detail 提取 author
+	if ctx.event == nil {
+		return platform.UserInfo{}
 	}
 	ctx.authorOnce.Do(func() {
 		res := gjson.GetBytes(ctx.event.Detail, "author")
@@ -123,39 +130,23 @@ func (ctx *Context) GetAuthor() *dto.Author {
 			UserOpenID:   res.Get("user_openid").String(),
 		}
 	})
-	return ctx.author
-}
-
-// GetSenderInfo 获取发送者信息（平台无关，推荐使用）
-//
-// 新路径：从 platform.Event.Sender() 读取。
-// 旧路径（QQ）：从 GetAuthor() 映射为 platform.UserInfo。
-func (ctx *Context) GetSenderInfo() platform.UserInfo {
-	if ctx == nil {
+	if ctx.author == nil {
 		return platform.UserInfo{}
 	}
-	if ctx.platformEvent != nil {
-		return ctx.platformEvent.Sender()
-	}
-	// QQ 旧路径
-	a := ctx.GetAuthor()
-	if a == nil {
-		return platform.UserInfo{}
-	}
-	id := a.UserOpenID
+	id := ctx.author.UserOpenID
 	if id == "" {
-		id = a.MemberOpenID
+		id = ctx.author.MemberOpenID
 	}
 	if id == "" {
-		id = a.ID
+		id = ctx.author.ID
 	}
 	return platform.UserInfo{ID: id}
 }
 
-// GetEvent 获取 QQ 原始事件 payload。
+// GetEvent 返回 QQ 原始事件 payload（供框架内部组件使用）。
 //
-// Deprecated: 使用 ctx.GetPlatformEvent() 替代，后者支持所有平台。
-// 旧路径（QQ）下仍可用；新路径（platform.Event）下返回 nil。
+// 新代码请使用 GetPlatformEvent()；此方法在旧路径（QQ dto.Payload）下返回 payload，
+// 在新路径（platform.Event）下返回 nil。
 func (ctx *Context) GetEvent() *dto.Payload {
 	if ctx == nil {
 		return nil
@@ -186,52 +177,4 @@ func (ctx *Context) GetEventType() dto.EventType {
 		return ""
 	}
 	return ctx.event.Type
-}
-
-// SendGroupMessage 发送群聊消息（QQ 旧路径）
-//
-// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
-func (ctx *Context) SendGroupMessage(groupID string, msg *dto.Message) (gjson.Result, error) {
-	if ctx == nil || ctx.api == nil {
-		return gjson.Result{}, ErrNilAPI
-	}
-	return ctx.api.GroupChat(groupID, msg)
-}
-
-// SendSingleMessage 发送私聊消息（QQ 旧路径）
-//
-// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
-func (ctx *Context) SendSingleMessage(openID string, msg *dto.Message) (gjson.Result, error) {
-	if ctx == nil || ctx.api == nil {
-		return gjson.Result{}, ErrNilAPI
-	}
-	return ctx.api.SingleChat(openID, msg)
-}
-
-// ReplyGroup 回复群聊消息（自动获取 group_openid，QQ 旧路径）
-//
-// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
-func (ctx *Context) ReplyGroup(msg *dto.Message) (gjson.Result, error) {
-	var event dto.GroupAtMessageCreateEvent
-	if err := ctx.DecodeEvent(&event); err != nil {
-		return gjson.Result{}, err
-	}
-	if msg.MessageID == "" {
-		msg.MessageID = event.ID
-	}
-	return ctx.SendGroupMessage(event.GroupOpenID, msg)
-}
-
-// ReplyPrivate 回复私聊消息（自动获取 openid，QQ 旧路径）
-//
-// Deprecated: 使用 ctx.Reply(platform.TextMessage("...")) 替代，后者支持所有平台。
-func (ctx *Context) ReplyPrivate(msg *dto.Message) (gjson.Result, error) {
-	var event dto.C2CMessageCreateEvent
-	if err := ctx.DecodeEvent(&event); err != nil {
-		return gjson.Result{}, err
-	}
-	if msg.MessageID == "" {
-		msg.MessageID = event.ID
-	}
-	return ctx.SendSingleMessage(event.Author.UserOpenID, msg)
 }

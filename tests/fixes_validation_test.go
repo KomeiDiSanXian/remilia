@@ -12,6 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -182,7 +183,9 @@ type mockAdapter struct {
 	startCallCount atomic.Int32
 }
 
-func (m *mockAdapter) Start(_ context.Context, _ func(*dto.Payload)) error {
+func (m *mockAdapter) Platform() string { return "test" }
+
+func (m *mockAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error {
 	m.startCallCount.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -190,12 +193,9 @@ func (m *mockAdapter) Start(_ context.Context, _ func(*dto.Payload)) error {
 	return nil
 }
 
-func (m *mockAdapter) Stop(_ context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.started = false
-	return nil
-}
+func (m *mockAdapter) Stop(_ context.Context) error { return nil }
+
+func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
 func (m *mockAdapter) GetStartCallCount() int32 {
 	return m.startCallCount.Load()

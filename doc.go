@@ -36,7 +36,7 @@ Register handlers using platform-agnostic event matching:
 	    WithEngine(eng).
 	    Build()
 
-# QQ-Specific Usage (Backward Compatible)
+# QQ-Specific Usage (Legacy QQ Path)
 
 For QQ bots, dto.BotInfo and the webhook adapter are still supported:
 
@@ -52,9 +52,9 @@ For QQ bots, dto.BotInfo and the webhook adapter are still supported:
 	    WithEngine(eng).
 	    Build()
 
-	// QQ convenience matchers (still work)
-	eng.OnC2C(eventctx.OnCommand("/ping")).Handle(pingHandler)
-	eng.OnGroupAt(eventctx.OnCommand("/hello")).Handle(helloHandler)
+	// Platform-agnostic matchers (recommended for all platforms)
+	eng.OnEventKind(platform.EventKindPrivateMessage, eventctx.OnCommand("/ping")).Handle(pingHandler)
+	eng.OnEventKind(platform.EventKindGroupMessage, eventctx.OnCommand("/hello")).Handle(helloHandler)
 
 # Multi-Platform
 
@@ -68,10 +68,9 @@ Connect multiple platforms to a single Bot instance:
 
 # Adapter Interface
 
-Two adapter interfaces are supported:
+One adapter interface is supported:
 
   - PlatformAdapter (recommended): platform-agnostic, handler receives platform.Event
-  - Adapter (deprecated): QQ-specific, handler receives *dto.Payload
 
 # Health Checking
 

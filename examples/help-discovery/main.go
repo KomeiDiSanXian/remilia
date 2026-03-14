@@ -9,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // 简化的Help Discovery示例
@@ -49,13 +50,8 @@ func main() {
 
 	// Help命令 - 列出所有命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		ctx.DecodeEvent(&c2c)
-
 		help := "可用命令:\n/cmd1 - 命令1\n/cmd2 - 命令2\n/cmd3 - 命令3\n/help - 帮助"
-		msg := &dto.Message{Type: dto.TextMessage, Content: help}
-		ctx.ReplyPrivate(msg)
-		return nil
+		return ctx.Reply(platform.TextMessage(help))
 	})
 
 	logger.Info("[HelpDiscovery] Started")
@@ -65,10 +61,6 @@ func main() {
 
 func simpleHandler(name string) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		ctx.DecodeEvent(&c2c)
-		msg := &dto.Message{Type: dto.TextMessage, Content: name + " executed"}
-		ctx.ReplyPrivate(msg)
-		return nil
+		return ctx.Reply(platform.TextMessage(name + " executed"))
 	}
 }

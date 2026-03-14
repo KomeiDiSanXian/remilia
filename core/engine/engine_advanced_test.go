@@ -22,7 +22,7 @@ func TestMatcher_TempOnce(t *testing.T) {
 		eng := NewEngine()
 
 		var count int32
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 1
 		matcher.rt.useCount = 0
@@ -56,7 +56,7 @@ func TestMatcher_TempN(t *testing.T) {
 		eng := NewEngine()
 
 		var count int32
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 3
 		matcher.rt.useCount = 0
@@ -81,7 +81,7 @@ func TestMatcher_TempN(t *testing.T) {
 		eng := NewEngine()
 
 		var count int32
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 0 // 0 means no auto-delete
 		matcher.Handle(func(c *ctx.Context) error {
@@ -102,7 +102,7 @@ func TestMatcher_TempUntil(t *testing.T) {
 	t.Run("expire after time", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.SetTemp(true)
 		matcher.rt.expiresAt = time.Now().Add(50 * time.Millisecond)
 		matcher.Handle(func(c *ctx.Context) error {
@@ -210,7 +210,7 @@ func TestEngine_UpdateMatcherCommand(t *testing.T) {
 	t.Run("update matcher command", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.BindCommand("/test")
 
 		eng.UpdateMatcherCommand(matcher)
@@ -223,7 +223,7 @@ func TestEngine_UpdateMatcherIndex(t *testing.T) {
 	t.Run("update matcher index", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		eng.UpdateMatcherIndex(matcher)
 
@@ -239,7 +239,7 @@ func TestEngine_MigrateMatcherToTemp(t *testing.T) {
 	t.Run("migrate permanent to temp", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		assert.False(t, matcher.IsTemp())
 
 		eng.MigrateMatcherToTemp(matcher)
@@ -281,7 +281,7 @@ func TestEngine_NamedMiddleware(t *testing.T) {
 
 		eng.Use(mw)
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
@@ -596,8 +596,8 @@ func TestEngine_PendingDeleteProcessor(t *testing.T) {
 		eng := NewEngine()
 
 		// Create and delete matchers
-		m1 := eng.OnC2C()
-		m2 := eng.OnC2C()
+		m1 := eng.On(dto.C2CMessageCreate)
+		m2 := eng.On(dto.C2CMessageCreate)
 
 		// Delete through engine
 		eng.DeleteMatcher(m1)

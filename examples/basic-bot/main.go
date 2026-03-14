@@ -10,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func main() {
@@ -74,24 +75,12 @@ func registerHandlers(eng *engine.Engine) {
 		if err := ctx.DecodeEvent(&c2c); err != nil {
 			return err
 		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "回声: " + c2c.Content,
-		}
-
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("回声: " + c2c.Content))
 	})
 
 	// Ping 命令
 	eng.OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "Pong! 🏓",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("Pong! 🏓"))
 	})
 
 	// Help 命令
@@ -100,13 +89,7 @@ func registerHandlers(eng *engine.Engine) {
 /echo <消息> - 回显你的消息
 /ping - 测试机器人是否在线
 /help - 显示此帮助信息`
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: help,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(help))
 	})
 
 	logger.Info("[BasicBot] Handlers registered")

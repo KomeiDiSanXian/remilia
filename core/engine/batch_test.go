@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	stdctx "context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -12,7 +13,7 @@ import (
 // TestBatchRegisterMatchers 测试批量注册匹配器
 func TestBatchRegisterMatchers(t *testing.T) {
 	e := engine.NewEngine()
-	defer e.Close()
+	defer e.Shutdown(stdctx.Background())
 
 	// 创建多个匹配器
 	matchers := make([]*engine.Matcher, 10)
@@ -42,7 +43,7 @@ func TestBatchRegisterMatchers(t *testing.T) {
 // TestBatchRegisterWithLimit 测试批量注册时的数量限制
 func TestBatchRegisterWithLimit(t *testing.T) {
 	e := engine.NewEngine()
-	defer e.Close()
+	defer e.Shutdown(stdctx.Background())
 
 	// 设置限制
 	e.SetMaxMatchers(5)
@@ -69,7 +70,7 @@ func TestBatchRegisterWithLimit(t *testing.T) {
 // TestBatchRegisterEmpty 测试批量注册空列表
 func TestBatchRegisterEmpty(t *testing.T) {
 	e := engine.NewEngine()
-	defer e.Close()
+	defer e.Shutdown(stdctx.Background())
 
 	matchers := []*engine.Matcher{}
 	registered := e.BatchRegisterMatchers(matchers)
@@ -81,7 +82,7 @@ func TestBatchRegisterEmpty(t *testing.T) {
 // BenchmarkSingleRegister 单个注册性能基准
 func BenchmarkSingleRegister(b *testing.B) {
 	e := engine.NewEngine()
-	defer e.Close()
+	defer e.Shutdown(stdctx.Background())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -94,7 +95,7 @@ func BenchmarkSingleRegister(b *testing.B) {
 // BenchmarkBatchRegister 批量注册性能基准
 func BenchmarkBatchRegister(b *testing.B) {
 	e := engine.NewEngine()
-	defer e.Close()
+	defer e.Shutdown(stdctx.Background())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

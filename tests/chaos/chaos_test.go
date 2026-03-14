@@ -23,7 +23,7 @@ func TestChaos_RandomFailures(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var successCount, failCount int32
 
@@ -67,7 +67,7 @@ func TestChaos_HighConcurrency(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var processedCount int32
 
@@ -116,7 +116,7 @@ func TestChaos_MemoryPressure(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 注册会分配大量内存的处理器
 	eng.OnCommand(dto.C2CMessageCreate, "/memory").Handle(func(ctx *rcontext.Context) error {
@@ -153,7 +153,7 @@ func TestChaos_RapidRegistrationUnregistration(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 快速注册和删除匹配器
 	const iterations = 1000
@@ -179,7 +179,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var wg sync.WaitGroup
 	duration := 5 * time.Second
@@ -246,7 +246,7 @@ func TestChaos_SlowHandler(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var slowCount, fastCount int32
 
@@ -303,7 +303,7 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var timeoutCount, successCount int32
 
@@ -356,7 +356,7 @@ func TestChaos_ResourceExhaustion(t *testing.T) {
 	// 设置较小的匹配器限制
 	eng := engine.NewEngine()
 	eng.SetMaxMatchers(100)
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 尝试注册超过限制的匹配器
 	for i := range 150 {
@@ -376,7 +376,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	var normalCount, degradedCount int32
 	degradeMode := int32(0)
@@ -429,7 +429,7 @@ func TestChaos_CascadingFailures(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	failureCount := int32(0)
 
@@ -489,7 +489,7 @@ func TestChaos_StressTest(t *testing.T) {
 	}
 
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	// 注册多个命令
 	for i := range 10 {

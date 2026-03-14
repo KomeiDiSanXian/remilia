@@ -7,6 +7,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,17 +19,17 @@ import (
 
 func TestIsBlockError(t *testing.T) {
 	t.Run("is block error", func(t *testing.T) {
-		err := NewBlockError("blocked")
-		assert.True(t, IsBlockError(err))
+		err := errutil.NewBlockError("blocked")
+		assert.True(t, errutil.IsBlockError(err))
 	})
 
 	t.Run("not block error", func(t *testing.T) {
 		err := errors.New("normal error")
-		assert.False(t, IsBlockError(err))
+		assert.False(t, errutil.IsBlockError(err))
 	})
 
 	t.Run("nil error", func(t *testing.T) {
-		assert.False(t, IsBlockError(nil))
+		assert.False(t, errutil.IsBlockError(nil))
 	})
 }
 
@@ -161,7 +162,7 @@ func TestEngine_ProcessEvent_WithMiddlewareTrace(t *testing.T) {
 		}
 
 		eng.Use(mw)
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
@@ -179,7 +180,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 		eng := NewEngine()
 
 		testErr := errors.New("handler error")
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return testErr
 		})
 
@@ -193,7 +194,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 	t.Run("handler panics", func(t *testing.T) {
 		eng := NewEngine()
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			panic("test panic")
 		})
 
@@ -213,7 +214,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 
 func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 
 	// Set block multiple times
 	matcher.SetBlock(true)
@@ -230,7 +231,7 @@ func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 	t.Run("update priority triggers invalidation", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		// Change priority multiple times
 		matcher.SetPriority(10)
@@ -316,7 +317,7 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 	t.Run("concurrent priority changes", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		var wg sync.WaitGroup
 		for i := range 50 {
@@ -339,7 +340,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 
 	t.Run("concurrent block changes", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		var wg sync.WaitGroup
 		for i := range 100 {
@@ -364,7 +365,7 @@ func TestEngine_ConcurrentGroupOperations(t *testing.T) {
 	// Create matchers
 	for range 20 {
 		wg.Go(func() {
-			m := eng.OnC2C()
+			m := eng.On(dto.C2CMessageCreate)
 			eng.SetMatcherGroup(m, "test-group", "source")
 		})
 	}
@@ -395,11 +396,11 @@ func TestMatcher_EnsureChain_MultipleGroups(t *testing.T) {
 	eng.UseForGroup("group1", mw1)
 	eng.UseForGroup("group2", mw1)
 
-	m1 := eng.OnC2C()
+	m1 := eng.On(dto.C2CMessageCreate)
 	m1.group = "group1"
 	eng.RebuildMatcherChain(m1)
 
-	m2 := eng.OnC2C()
+	m2 := eng.On(dto.C2CMessageCreate)
 	m2.group = "group2"
 	eng.RebuildMatcherChain(m2)
 
@@ -423,7 +424,7 @@ func TestEngine_UseForGroup_WithTrim(t *testing.T) {
 	// Test with spaces
 	eng.UseForGroup("  spaced-group  ", mw)
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	matcher.group = "  spaced-group  "
 	eng.RebuildMatcherChain(matcher)
 
@@ -440,14 +441,14 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 	var c2cCount, groupCount int
 	var mu sync.Mutex
 
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		mu.Lock()
 		c2cCount++
 		mu.Unlock()
 		return nil
 	})
 
-	eng.OnGroupAt().Handle(func(c *ctx.Context) error {
+	eng.On(dto.GroupAtMessageCreate).Handle(func(c *ctx.Context) error {
 		mu.Lock()
 		groupCount++
 		mu.Unlock()
@@ -477,7 +478,7 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	matcher.SetTemp(true)
 	matcher.rt.maxUseCount = 2
 
@@ -513,7 +514,7 @@ func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
 	}
 
 	eng.Use(mw)
-	eng.OnC2C()
+	eng.On(dto.C2CMessageCreate)
 
 	snapshot := eng.Snapshot()
 
@@ -531,7 +532,7 @@ func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
 func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	executed := false
 	matcher.Handle(func(c *ctx.Context) error {
 		executed = true
@@ -559,9 +560,9 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
 	eng := NewEngine()
 
-	m1 := eng.OnC2C()
-	m2 := eng.OnC2C()
-	m3 := eng.OnGroupAt()
+	m1 := eng.On(dto.C2CMessageCreate)
+	m2 := eng.On(dto.C2CMessageCreate)
+	m3 := eng.On(dto.GroupAtMessageCreate)
 
 	eng.SetMatcherGroup(m1, "plugin1", "source1")
 	eng.SetMatcherGroup(m2, "plugin1", "source2")
@@ -580,7 +581,7 @@ func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
 func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
+	eng.On(dto.C2CMessageCreate)
 	initialCount := eng.GetMatcherCount()
 
 	// Try to remove empty group name
@@ -593,7 +594,7 @@ func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
 func TestEngine_RemoveGroup_NonExistentGroup(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
+	eng.On(dto.C2CMessageCreate)
 	initialCount := eng.GetMatcherCount()
 
 	eng.RemoveGroup("non-existent-group")
@@ -609,8 +610,8 @@ func TestEngine_SetMaxMatchers_Enforcement(t *testing.T) {
 	eng := NewEngine()
 	eng.SetMaxMatchers(2)
 
-	eng.OnC2C()
-	eng.OnGroupAt()
+	eng.On(dto.C2CMessageCreate)
+	eng.On(dto.GroupAtMessageCreate)
 
 	// Try to add more (implementation dependent)
 	eng.OnAny()
@@ -625,7 +626,7 @@ func TestEngine_SetMaxMatchers_Zero(t *testing.T) {
 	eng.SetMaxMatchers(0) // No limit
 
 	for range 10 {
-		eng.OnC2C()
+		eng.On(dto.C2CMessageCreate)
 	}
 
 	assert.Equal(t, 10, eng.GetMatcherCount())

@@ -20,7 +20,7 @@ import (
 //	WithPlugins(plugin1.New(), plugin2.New()).
 //	Build()
 type BotBuilder struct {
-	adapter          Adapter
+	adapter          engine.PlatformAdapter
 	engine           *engine.Engine
 	botInfo          *dto.BotInfo
 	webhookAddr      string                     // 延迟创建：仅保存地址，Build() 时统一初始化 adapter
@@ -47,8 +47,14 @@ func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
 	return b
 }
 
-// WithAdapter 设置适配器
-func (b *BotBuilder) WithAdapter(adapter Adapter) *BotBuilder {
+// WithAdapter 设置适配器（接受 engine.PlatformAdapter）
+func (b *BotBuilder) WithAdapter(adapter engine.PlatformAdapter) *BotBuilder {
+	b.adapter = adapter
+	return b
+}
+
+// WithPlatformAdapter 设置平台适配器（WithAdapter 的语义明确版本）
+func (b *BotBuilder) WithPlatformAdapter(adapter engine.PlatformAdapter) *BotBuilder {
 	b.adapter = adapter
 	return b
 }

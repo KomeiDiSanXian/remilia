@@ -1,6 +1,7 @@
 package engine
 
 import (
+	stdctx "context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -10,7 +11,7 @@ import (
 // TestOptimization_GetAllCommandsCache 测试 GetAllCommands 缓存优化
 func TestOptimization_GetAllCommandsCache(t *testing.T) {
 	eng := NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	// 注册一些命令
 	def1 := &command.Definition{
@@ -79,7 +80,7 @@ func TestOptimization_GetAllCommandsCache(t *testing.T) {
 // BenchmarkGetAllCommands_WithCache 基准测试缓存版本
 func BenchmarkGetAllCommands_WithCache(b *testing.B) {
 	eng := NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	// 注册100个命令
 	for i := range 100 {

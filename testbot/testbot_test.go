@@ -5,6 +5,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
@@ -39,35 +40,26 @@ func TestMockAPI_Clear(t *testing.T) {
 }
 func TestBot_SendGroupAt_AssertReplied(t *testing.T) {
 	tb := testbot.New()
-	// Register a simple echo handler
-	tb.Engine().OnGroupAt(context.OnCommand("/echo")).Handle(func(ctx *context.Context) error {
+	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/echo")).Handle(func(ctx *context.Context) error {
 		content := ctx.GetMessageContent()
-		var gae dto.GroupAtMessageCreateEvent
-		_ = ctx.DecodeEvent(&gae)
-		msg := &dto.Message{Type: dto.TextMessage, Content: content}
-		_, err := ctx.ReplyGroup(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(content))
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	tb.SendGroupAt("group1", "user1", "/echo hello")
-	tb.AssertReplied(t, "group1", "/echo hello")
+	tb.SendPlatformGroupAt("user1", "group1", "/echo hello")
+	tb.AssertPlatformReplied(t, "/echo hello")
 }
 func TestBot_SendC2C(t *testing.T) {
 	tb := testbot.New()
-	tb.Engine().OnC2C(context.OnCommand("/ping")).Handle(func(ctx *context.Context) error {
-		msg := &dto.Message{Type: dto.TextMessage, Content: "pong"}
-		var ev dto.C2CMessageCreateEvent
-		_ = ctx.DecodeEvent(&ev)
-		_, err := ctx.SendSingleMessage(ev.Author.UserOpenID, msg)
-		return err
+	tb.Engine().OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(func(ctx *context.Context) error {
+		return ctx.Reply(platform.TextMessage("pong"))
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	tb.SendC2C("user42", "/ping")
-	tb.AssertReplied(t, "user42", "pong")
+	tb.SendPlatformC2C("user42", "/ping")
+	tb.AssertPlatformReplied(t, "pong")
 }
 func TestBot_AssertNotReplied(t *testing.T) {
 	tb := testbot.New()
@@ -79,18 +71,17 @@ func TestBot_AssertNotReplied(t *testing.T) {
 }
 func TestBot_AssertSentCount(t *testing.T) {
 	tb := testbot.New()
-	tb.Engine().OnGroupAt(context.OnKeyword("ping")).Handle(func(ctx *context.Context) error {
-		var ev dto.GroupAtMessageCreateEvent
-		_ = ctx.DecodeEvent(&ev)
-		_, err := ctx.ReplyGroup(&dto.Message{Content: "pong"})
-		return err
+	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnKeyword("ping")).Handle(func(ctx *context.Context) error {
+		return ctx.Reply(platform.TextMessage("pong"))
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	tb.SendGroupAt("g1", "u1", "ping")
-	tb.SendGroupAt("g1", "u1", "ping")
-	tb.AssertSentCount(t, 2)
+	tb.SendPlatformGroupAt("u1", "g1", "ping")
+	tb.SendPlatformGroupAt("u1", "g1", "ping")
+	if got := len(tb.SenderAPI().Sent()); got != 2 {
+		t.Errorf("expected 2 sent messages, got %d", got)
+	}
 }
 func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 	tb := testbot.New()
@@ -112,16 +103,15 @@ func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 }
 func TestBot_ClearSent(t *testing.T) {
 	tb := testbot.New()
-	tb.Engine().OnGroupAt(context.OnCommand("/hi")).Handle(func(ctx *context.Context) error {
-		var ev dto.GroupAtMessageCreateEvent
-		_ = ctx.DecodeEvent(&ev)
-		_, err := ctx.ReplyGroup(&dto.Message{Content: "hi"})
-		return err
+	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/hi")).Handle(func(ctx *context.Context) error {
+		return ctx.Reply(platform.TextMessage("hi"))
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	tb.SendGroupAt("g1", "u1", "/hi")
-	tb.ClearSent()
-	tb.AssertSentCount(t, 0)
+	tb.SendPlatformGroupAt("u1", "g1", "/hi")
+	tb.SenderAPI().Clear()
+	if got := len(tb.SenderAPI().Sent()); got != 0 {
+		t.Errorf("expected 0 sent messages after clear, got %d", got)
+	}
 }

@@ -360,15 +360,7 @@ func (p *Plugin) restoreSessions() {
 	logger.Infof("[Conversation] Restored %d sessions from storage", count)
 }
 func extractUserID(ctx *eventctx.Context) string {
-	if a := ctx.GetAuthor(); a != nil {
-		if a.UserOpenID != "" {
-			return a.UserOpenID
-		}
-		if a.MemberOpenID != "" {
-			return a.MemberOpenID
-		}
-	}
-	return ""
+	return ctx.GetSenderInfo().ID
 }
 func sendPrompt(ctx *eventctx.Context, prompt string) {
 	if err := ctx.Reply(platform.TextMessage(prompt)); err != nil {

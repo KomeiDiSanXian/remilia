@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -13,7 +14,7 @@ import (
 // BenchmarkEngineProcessEvent 基准测试：事件处理
 func BenchmarkEngineProcessEvent(b *testing.B) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	eng.OnCommand(dto.C2CMessageCreate, "/bench").Handle(func(ctx *rcontext.Context) error {
 		return nil
@@ -36,7 +37,7 @@ func BenchmarkEngineProcessEvent(b *testing.B) {
 // BenchmarkEngineProcessEventParallel 并行基准测试：事件处理
 func BenchmarkEngineProcessEventParallel(b *testing.B) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	eng.OnCommand(dto.C2CMessageCreate, "/bench").Handle(func(ctx *rcontext.Context) error {
 		return nil
@@ -66,7 +67,7 @@ func BenchmarkMatcherRegistration(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		eng := engine.NewEngine()
 		eng.OnCommand(dto.C2CMessageCreate, "/test")
-		eng.Close()
+		eng.Shutdown(context.Background())
 	}
 }
 
@@ -88,7 +89,7 @@ func BenchmarkBatchMatcherRegistration(b *testing.B) {
 			}
 		}
 		eng.BatchRegisterMatchers(matchers)
-		eng.Close()
+		eng.Shutdown(context.Background())
 	}
 }
 
@@ -202,7 +203,7 @@ func BenchmarkMiddlewareChain(b *testing.B) {
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
 			eng := engine.NewEngine()
-			defer eng.Close()
+			defer eng.Shutdown(context.Background())
 
 			// 添加多个中间件
 			for i := 0; i < tt.count; i++ {
@@ -297,7 +298,7 @@ func BenchmarkContextOperations(b *testing.B) {
 		b.ReportAllocs()
 
 		for i := 0; i < b.N; i++ {
-			_ = ctx.GetAuthor()
+			_ = ctx.GetSenderInfo()
 		}
 	})
 }
@@ -306,7 +307,7 @@ func BenchmarkContextOperations(b *testing.B) {
 func BenchmarkTempMatcherOperations(b *testing.B) {
 	b.Run("AddAndRemove", func(b *testing.B) {
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -321,7 +322,7 @@ func BenchmarkTempMatcherOperations(b *testing.B) {
 
 	b.Run("ProcessWithTemp", func(b *testing.B) {
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		// 添加临时匹配器
 		eng.OnTemp(dto.C2CMessageCreate, func(ctx *rcontext.Context) bool {
@@ -349,7 +350,7 @@ func BenchmarkTempMatcherOperations(b *testing.B) {
 func BenchmarkCOWOperations(b *testing.B) {
 	b.Run("SingleRegister", func(b *testing.B) {
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -363,7 +364,7 @@ func BenchmarkCOWOperations(b *testing.B) {
 
 	b.Run("BatchRegister", func(b *testing.B) {
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -386,7 +387,7 @@ func BenchmarkCOWOperations(b *testing.B) {
 // BenchmarkMemoryAllocation 基准测试：内存分配
 func BenchmarkMemoryAllocation(b *testing.B) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(context.Background())
 
 	eng.OnCommand(dto.C2CMessageCreate, "/alloc").Handle(func(ctx *rcontext.Context) error {
 		// 模拟一些内存分配
@@ -425,7 +426,7 @@ func BenchmarkComparisonTable(b *testing.B) {
 	for _, scenario := range scenarios {
 		b.Run(scenario.name, func(b *testing.B) {
 			eng := engine.NewEngine()
-			defer eng.Close()
+			defer eng.Shutdown(context.Background())
 
 			// 添加中间件
 			for i := 0; i < scenario.middlewareCount; i++ {

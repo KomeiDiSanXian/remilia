@@ -86,43 +86,6 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
-func TestEventContext(t *testing.T) {
-	event := &mockEvent{
-		platformID: "test",
-		kind:       platform.EventKindPrivateMessage,
-		rawType:    "TEST_EVENT",
-		content:    "hello world",
-		chat:       platform.ChatInfo{ID: "chat001", IsGroup: false},
-		sender:     platform.UserInfo{ID: "user001", DisplayName: "Alice"},
-	}
-
-	ctx := platform.NewEventContext(context.Background(), event, &platform.NoopSender{})
-
-	if ctx.Platform() != "test" {
-		t.Errorf("Platform: got %q", ctx.Platform())
-	}
-	if ctx.Event().Content() != "hello world" {
-		t.Errorf("Content: got %q", ctx.Event().Content())
-	}
-
-	// Set/Get
-	ctx.Set("key1", "value1")
-	v, ok := ctx.Get("key1")
-	if !ok || v != "value1" {
-		t.Errorf("Get: got %v, ok=%v", v, ok)
-	}
-
-	// Reply（NoopSender 不报错）
-	if err := ctx.Reply(platform.TextMessage("reply")); err != nil {
-		t.Errorf("Reply: %v", err)
-	}
-
-	// Send
-	if err := ctx.Send("otherchat", platform.TextMessage("msg")); err != nil {
-		t.Errorf("Send: %v", err)
-	}
-}
-
 func TestEventKindConstants(t *testing.T) {
 	kinds := []platform.EventKind{
 		platform.EventKindUnknown,

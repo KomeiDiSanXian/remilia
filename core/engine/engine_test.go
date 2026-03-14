@@ -89,7 +89,7 @@ func TestEngine_Close(t *testing.T) {
 		eng := NewEngine()
 
 		// Should not panic
-		eng.Close()
+		eng.Shutdown(stdctx.Background())
 	})
 }
 
@@ -122,7 +122,7 @@ func TestEngine_OnC2C(t *testing.T) {
 	t.Run("register C2C handler", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		require.NotNil(t, matcher)
 		assert.Equal(t, dto.C2CMessageCreate, matcher.EventType)
@@ -132,7 +132,7 @@ func TestEngine_OnC2C(t *testing.T) {
 		eng := NewEngine()
 
 		rule := func(c *ctx.Context) bool { return true }
-		matcher := eng.OnC2C(rule)
+		matcher := eng.On(dto.C2CMessageCreate, rule)
 
 		require.NotNil(t, matcher)
 		assert.Equal(t, dto.C2CMessageCreate, matcher.EventType)
@@ -144,7 +144,7 @@ func TestEngine_OnGroupAt(t *testing.T) {
 	t.Run("register GroupAt handler", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnGroupAt()
+		matcher := eng.On(dto.GroupAtMessageCreate)
 
 		require.NotNil(t, matcher)
 		assert.Equal(t, dto.GroupAtMessageCreate, matcher.EventType)
@@ -175,14 +175,14 @@ func TestEngine_On(t *testing.T) {
 
 func TestEngine_OnGroupAdd(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnGroupAdd()
+	matcher := eng.On(dto.GroupAddRobot)
 	require.NotNil(t, matcher)
 	assert.Equal(t, dto.GroupAddRobot, matcher.EventType)
 }
 
 func TestEngine_OnGroupDel(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnGroupDel()
+	matcher := eng.On(dto.GroupDelRobot)
 	require.NotNil(t, matcher)
 	assert.Equal(t, dto.GroupDelRobot, matcher.EventType)
 }
@@ -340,7 +340,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		eng := NewEngine()
 
 		executed := false
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			executed = true
 			return nil
 		})
@@ -359,7 +359,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		eng := NewEngine()
 
 		executed := false
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			executed = true
 			return nil
 		})
@@ -381,12 +381,12 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		executed1 := false
 		executed2 := false
 
-		eng.OnC2C().SetBlock(true).Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).SetBlock(true).Handle(func(c *ctx.Context) error {
 			executed1 = true
 			return nil
 		})
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			executed2 = true
 			return nil
 		})
@@ -408,21 +408,21 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		var executionOrder []int
 		var mu sync.Mutex
 
-		eng.OnC2C().SetPriority(10).Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).SetPriority(10).Handle(func(c *ctx.Context) error {
 			mu.Lock()
 			executionOrder = append(executionOrder, 10)
 			mu.Unlock()
 			return nil
 		})
 
-		eng.OnC2C().SetPriority(100).Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).SetPriority(100).Handle(func(c *ctx.Context) error {
 			mu.Lock()
 			executionOrder = append(executionOrder, 100)
 			mu.Unlock()
 			return nil
 		})
 
-		eng.OnC2C().SetPriority(50).Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).SetPriority(50).Handle(func(c *ctx.Context) error {
 			mu.Lock()
 			executionOrder = append(executionOrder, 50)
 			mu.Unlock()
@@ -450,7 +450,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		executed2 := false
 
 		// Matcher with failing rule
-		eng.OnC2C(func(c *ctx.Context) bool {
+		eng.On(dto.C2CMessageCreate, func(c *ctx.Context) bool {
 			return false
 		}).Handle(func(c *ctx.Context) error {
 			executed1 = true
@@ -458,7 +458,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		})
 
 		// Matcher with passing rule
-		eng.OnC2C(func(c *ctx.Context) bool {
+		eng.On(dto.C2CMessageCreate, func(c *ctx.Context) bool {
 			return true
 		}).Handle(func(c *ctx.Context) error {
 			executed2 = true
@@ -482,7 +482,7 @@ func TestEngine_ProcessEventBatch(t *testing.T) {
 		eng := NewEngine()
 
 		var count int32
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			atomic.AddInt32(&count, 1)
 			return nil
 		})
@@ -524,7 +524,7 @@ func TestEngine_Use(t *testing.T) {
 
 		eng.Use(mw)
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
@@ -570,7 +570,7 @@ func TestEngine_Use(t *testing.T) {
 
 		eng.Use(mw1, mw2)
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
@@ -613,7 +613,7 @@ func TestEngine_UseForGroup(t *testing.T) {
 		eng.Use(globalMw)
 		eng.UseForGroup("test-group", groupMw)
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		matcher.group = "test-group"
 		matcher.Handle(func(c *ctx.Context) error {
 			return nil
@@ -670,14 +670,14 @@ func TestEngine_SetBlock(t *testing.T) {
 		executed2 := false
 		var mu sync.Mutex
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			mu.Lock()
 			executed1 = true
 			mu.Unlock()
 			return nil
 		})
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			mu.Lock()
 			executed2 = true
 			mu.Unlock()
@@ -707,7 +707,7 @@ func TestEngine_DeleteMatcher(t *testing.T) {
 	t.Run("delete specific matcher", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 		initialCount := eng.GetMatcherCount()
 
 		eng.DeleteMatcher(matcher)
@@ -724,8 +724,8 @@ func TestEngine_DeleteAllMatchers(t *testing.T) {
 	t.Run("delete all matchers", func(t *testing.T) {
 		eng := NewEngine()
 
-		eng.OnC2C()
-		eng.OnGroupAt()
+		eng.On(dto.C2CMessageCreate)
+		eng.On(dto.GroupAtMessageCreate)
 		eng.OnAny()
 
 		eng.DeleteAllMatchers()
@@ -738,8 +738,8 @@ func TestEngine_DeleteAllMatchers(t *testing.T) {
 func TestEngine_DeleteMatchers(t *testing.T) {
 	eng := NewEngine()
 
-	m1 := eng.OnC2C()
-	m2 := eng.OnGroupAt()
+	m1 := eng.On(dto.C2CMessageCreate)
+	m2 := eng.On(dto.GroupAtMessageCreate)
 
 	initialCount := eng.GetMatcherCount()
 
@@ -752,7 +752,7 @@ func TestEngine_DeleteMatchers(t *testing.T) {
 func TestEngine_RemoveGroup(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	matcher.group = "test-group"
 
 	eng.RemoveGroup("test-group")
@@ -769,7 +769,7 @@ func TestMatcher_SetTemp(t *testing.T) {
 	t.Run("set temp status", func(t *testing.T) {
 		eng := NewEngine()
 
-		matcher := eng.OnC2C()
+		matcher := eng.On(dto.C2CMessageCreate)
 
 		assert.False(t, matcher.IsTemp())
 
@@ -799,7 +799,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		eng := NewEngine()
 
 		var count int32
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			atomic.AddInt32(&count, 1)
 			return nil
 		})
@@ -828,7 +828,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		// Register matchers concurrently
 		for range 50 {
 			wg.Go(func() {
-				eng.OnC2C().Handle(func(c *ctx.Context) error {
+				eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 					return nil
 				})
 			})
@@ -842,7 +842,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 	t.Run("concurrent read and write", func(t *testing.T) {
 		eng := NewEngine()
 
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
@@ -860,7 +860,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		// Concurrent writes (register matcher)
 		for range 10 {
 			wg.Go(func() {
-				eng.OnGroupAt().Handle(func(c *ctx.Context) error {
+				eng.On(dto.GroupAtMessageCreate).Handle(func(c *ctx.Context) error {
 					return nil
 				})
 			})
@@ -893,15 +893,6 @@ func TestHandlerError(t *testing.T) {
 	})
 }
 
-func TestBlockError(t *testing.T) {
-	t.Run("create block error", func(t *testing.T) {
-		be := NewBlockError("blocked by middleware")
-
-		require.NotNil(t, be)
-		assert.Contains(t, be.Error(), "blocked")
-	})
-}
-
 // ============================================================================
 // Matcher Stats Tests
 // ============================================================================
@@ -911,8 +902,8 @@ func TestEngine_GetMatcherCount(t *testing.T) {
 
 	assert.Equal(t, 0, eng.GetMatcherCount())
 
-	eng.OnC2C()
-	eng.OnGroupAt()
+	eng.On(dto.C2CMessageCreate)
+	eng.On(dto.GroupAtMessageCreate)
 
 	assert.Equal(t, 2, eng.GetMatcherCount())
 }
@@ -930,8 +921,8 @@ func TestEngine_GetTempMatcherCount(t *testing.T) {
 func TestEngine_GetMatcherStats(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
-	eng.OnGroupAt()
+	eng.On(dto.C2CMessageCreate)
+	eng.On(dto.GroupAtMessageCreate)
 	eng.OnTemp(dto.C2CMessageCreate)
 
 	stats := eng.GetMatcherStats()
@@ -955,8 +946,8 @@ func TestEngine_SetMaxMatchers(t *testing.T) {
 func TestEngine_Snapshot(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
-	eng.OnGroupAt()
+	eng.On(dto.C2CMessageCreate)
+	eng.On(dto.GroupAtMessageCreate)
 
 	snapshot := eng.Snapshot()
 
@@ -968,7 +959,7 @@ func TestEngine_Snapshot(t *testing.T) {
 func TestEngine_Restore(t *testing.T) {
 	eng := NewEngine()
 
-	eng.OnC2C()
+	eng.On(dto.C2CMessageCreate)
 	snapshot := eng.Snapshot()
 
 	eng.DeleteAllMatchers()
@@ -1011,7 +1002,7 @@ func TestExtractCommand(t *testing.T) {
 func BenchmarkEngine_ProcessEvent(b *testing.B) {
 	eng := NewEngine()
 
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		return nil
 	})
 
@@ -1033,7 +1024,7 @@ func BenchmarkEngine_RegisterMatcher(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		eng.OnC2C().Handle(func(c *ctx.Context) error {
+		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 	}
@@ -1042,7 +1033,7 @@ func BenchmarkEngine_RegisterMatcher(b *testing.B) {
 func BenchmarkEngine_ConcurrentProcess(b *testing.B) {
 	eng := NewEngine()
 
-	eng.OnC2C().Handle(func(c *ctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
 		return nil
 	})
 

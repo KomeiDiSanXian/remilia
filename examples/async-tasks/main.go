@@ -14,6 +14,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // 异步任务处理示例
@@ -142,11 +143,7 @@ func registerHandlers(bot *remilia.Bot) {
 		task := taskManager.CreateTask(c2c.Author.UserOpenID)
 
 		// 立即响应用户
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID),
-		}
-		ctx.ReplyPrivate(msg)
+		_ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID)))
 
 		// 异步执行任务
 		go executeAsyncTask(task.ID)
@@ -167,20 +164,11 @@ func registerHandlers(bot *remilia.Bot) {
 
 		task, exists := taskManager.GetTask(taskID)
 		if !exists {
-			msg := &dto.Message{
-				Type:    dto.TextMessage,
-				Content: "❌ 任务不存在\n使用 /list 查看所有任务",
-			}
-			ctx.ReplyPrivate(msg)
+			_ = ctx.Reply(platform.TextMessage("❌ 任务不存在\n使用 /list 查看所有任务"))
 			return nil
 		}
 
-		status := formatTaskStatus(task)
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: status,
-		}
-		ctx.ReplyPrivate(msg)
+		_ = ctx.Reply(platform.TextMessage(formatTaskStatus(task)))
 		return nil
 	})
 
@@ -202,11 +190,7 @@ func registerHandlers(bot *remilia.Bot) {
 		taskManager.mu.RUnlock()
 
 		if len(tasks) == 0 {
-			msg := &dto.Message{
-				Type:    dto.TextMessage,
-				Content: "📭 暂无任务",
-			}
-			ctx.ReplyPrivate(msg)
+			_ = ctx.Reply(platform.TextMessage("📭 暂无任务"))
 			return nil
 		}
 
@@ -216,11 +200,7 @@ func registerHandlers(bot *remilia.Bot) {
 			content.WriteString(fmt.Sprintf("• %s: %s (%d%%)\n", task.ID, task.Status, task.Progress))
 		}
 
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: content.String(),
-		}
-		ctx.ReplyPrivate(msg)
+		_ = ctx.Reply(platform.TextMessage(content.String()))
 		return nil
 	})
 

@@ -25,18 +25,18 @@ import (
 //     - [OnCommand]、[OnKeyword]、[OnRegex] 等内容规则：全平台有效
 //     - [OnUserWhitelist]、[OnUserBlacklist]：基于 GetSenderInfo().ID，全平台有效
 //
-//  2. QQ 专属规则（仅旧路径生效，将在未来版本移除）：
-//     - [OnC2CMessage]、[OnGroupAtMessage]、[OnGroupAddRobot]、[OnAtBot]
+//  2. QQ 路径兼容规则（仅旧路径生效，不推荐使用新代码）：
+//     - [InGroup]：从旧路径的 GroupAtMessageCreateEvent 提取群 ID
 //
 // # 迁移指南
 //
 // 旧写法（QQ 专属）：
 //
-//	engine.On(OnC2CMessage(), OnCommand("/ping")).Handle(handler)
+//	engine.On(dto.C2CMessageCreate, OnCommand("/ping")).Handle(handler)
 //
 // 新写法（多平台通用）：
 //
-//	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/ping")).Handle(handler)
+//	engine.OnEventKind(platform.EventKindPrivateMessage, OnCommand("/ping")).Handle(handler)
 
 // OnEventType 匹配特定事件类型字符串（低级 API，通常不直接使用）
 //
@@ -63,41 +63,6 @@ func OnEventKind(kind platform.EventKind) Rule {
 	return func(ctx *Context) bool {
 		return ctx.GetEventKind() == kind
 	}
-}
-
-// OnC2CMessage 匹配私聊消息（QQ 旧路径专属）
-//
-// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效，新平台路径下不匹配。
-// 推荐改用：
-//
-//	engine.On(OnEventKind(platform.EventKindPrivateMessage), ...).Handle(handler)
-func OnC2CMessage() Rule {
-	return OnEventType(dto.C2CMessageCreate)
-}
-
-// OnGroupAtMessage 匹配被 @ 的群消息（QQ 旧路径专属）
-//
-// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效，新平台路径下不匹配。
-// 推荐改用：
-//
-//	engine.On(OnEventKind(platform.EventKindGroupMessage), ...).Handle(handler)
-func OnGroupAtMessage() Rule {
-	return OnEventType(dto.GroupAtMessageCreate)
-}
-
-// OnGroupAddRobot 匹配机器人加入群聊事件（QQ 旧路径专属）
-//
-// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效。
-// 推荐改用 OnEventKind(platform.EventKindNotice) 配合事件内容判断。
-func OnGroupAddRobot() Rule {
-	return OnEventType(dto.GroupAddRobot)
-}
-
-// OnGroupDelRobot 匹配机器人退出群聊事件（QQ 旧路径专属）
-//
-// Deprecated: 仅在 QQ 旧路径（dto.Payload）下生效。
-func OnGroupDelRobot() Rule {
-	return OnEventType(dto.GroupDelRobot)
 }
 
 // OnCommand 匹配命令(以指定前缀开头的消息)
@@ -496,22 +461,6 @@ func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
 	}
 }
 
-// OnAtBot 匹配消息中包含 @Bot 标记的事件（QQ 专属 qqbot-at 格式）。
-//
-// Deprecated: 此规则基于 QQ 平台特定的 qqbot-at 标签格式，仅在 QQ 平台有效。
-// 其他平台请自行实现 @Bot 检测逻辑（通过 OnKeyword 或自定义 Rule）。
-//
-// botOpenID 为机器人自身的 OpenID，若为空则只要 content 中包含 qqbot-at 标签即视为 @Bot。
-func OnAtBot(botOpenID string) Rule {
-	return func(ctx *Context) bool {
-		content := ctx.GetMessageContent()
-		if botOpenID != "" {
-			return strings.Contains(content, `id="`+botOpenID+`"`)
-		}
-		return strings.Contains(content, "<qqbot-at-user")
-	}
-}
-
 // ---- Group / Permission / Ban Rules ---------------------------------------
 
 // BannedChecker 封禁检查接口（由 antispam 插件等实现）
@@ -548,12 +497,16 @@ func InGroup(groupIDs ...string) Rule {
 		if e := ctx.GetPlatformEvent(); e != nil {
 			return set[e.Chat().ID]
 		}
-		// 旧路径（QQ 兼容）：解码 GroupAtMessageCreateEvent
-		var event dto.GroupAtMessageCreateEvent
-		if err := ctx.DecodeEvent(&event); err != nil {
-			return false
+		// 旧路径（QQ）：从 GroupAtMessageCreateEvent 解码 GroupOpenID
+		if ctx != nil && ctx.GetEvent() != nil && ctx.GetEvent().Type == dto.GroupAtMessageCreate {
+			var event struct {
+				GroupOpenID string `json:"group_openid"`
+			}
+			if err := ctx.GetEvent().Decode(&event); err == nil {
+				return set[event.GroupOpenID]
+			}
 		}
-		return set[event.GroupOpenID]
+		return false
 	}
 }
 

@@ -5,212 +5,10 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 )
-
-// ============================================================================
-// Missing Coverage Tests - API Methods
-// ============================================================================
-
-// mockOpenAPI for testing
-type mockOpenAPI struct {
-	groupChatCalled  bool
-	singleChatCalled bool
-	lastGroupID      string
-	lastOpenID       string
-	lastMessage      *dto.Message
-	returnResult     string
-	returnError      error
-}
-
-func (m *mockOpenAPI) GroupChat(groupID string, msg *dto.Message) (gjson.Result, error) {
-	m.groupChatCalled = true
-	m.lastGroupID = groupID
-	m.lastMessage = msg
-	if m.returnError != nil {
-		return gjson.Result{}, m.returnError
-	}
-	return gjson.Parse(m.returnResult), nil
-}
-
-func (m *mockOpenAPI) SingleChat(openID string, msg *dto.Message) (gjson.Result, error) {
-	m.singleChatCalled = true
-	m.lastOpenID = openID
-	m.lastMessage = msg
-	if m.returnError != nil {
-		return gjson.Result{}, m.returnError
-	}
-	return gjson.Parse(m.returnResult), nil
-}
-
-func (m *mockOpenAPI) SingleRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
-	return gjson.Parse(m.returnResult), m.returnError
-}
-
-func (m *mockOpenAPI) GroupRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
-	return gjson.Parse(m.returnResult), m.returnError
-}
-
-func (m *mockOpenAPI) SingleReset(_, _ string) (gjson.Result, error) {
-	return gjson.Parse(m.returnResult), m.returnError
-}
-
-func (m *mockOpenAPI) GroupReset(_, _ string) (gjson.Result, error) {
-	return gjson.Parse(m.returnResult), m.returnError
-}
-
-func TestContext_SendGroupMessage(t *testing.T) {
-	t.Run("send success", func(t *testing.T) {
-		api := &mockOpenAPI{returnResult: `{"message_id":"123"}`}
-		ctx := NewContext(&dto.Payload{}, api)
-
-		msg := &dto.Message{Content: "test"}
-		result, err := ctx.SendGroupMessage("group123", msg)
-
-		assert.NoError(t, err)
-		assert.True(t, api.groupChatCalled)
-		assert.Equal(t, "group123", api.lastGroupID)
-		assert.Equal(t, "123", result.Get("message_id").String())
-	})
-
-	t.Run("nil api", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
-
-		msg := &dto.Message{Content: "test"}
-		_, err := ctx.SendGroupMessage("group123", msg)
-
-		require.Error(t, err)
-		assert.Equal(t, ErrNilAPI, err)
-	})
-
-	t.Run("nil context", func(t *testing.T) {
-		var ctx *Context
-		msg := &dto.Message{Content: "test"}
-		_, err := ctx.SendGroupMessage("group123", msg)
-
-		require.Error(t, err)
-		assert.Equal(t, ErrNilAPI, err)
-	})
-}
-
-func TestContext_SendSingleMessage(t *testing.T) {
-	t.Run("send success", func(t *testing.T) {
-		api := &mockOpenAPI{returnResult: `{"message_id":"456"}`}
-		ctx := NewContext(&dto.Payload{}, api)
-
-		msg := &dto.Message{Content: "test"}
-		result, err := ctx.SendSingleMessage("user123", msg)
-
-		assert.NoError(t, err)
-		assert.True(t, api.singleChatCalled)
-		assert.Equal(t, "user123", api.lastOpenID)
-		assert.Equal(t, "456", result.Get("message_id").String())
-	})
-
-	t.Run("nil api", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
-
-		msg := &dto.Message{Content: "test"}
-		_, err := ctx.SendSingleMessage("user123", msg)
-
-		require.Error(t, err)
-		assert.Equal(t, ErrNilAPI, err)
-	})
-}
-
-func TestContext_ReplyGroup(t *testing.T) {
-	t.Run("reply success", func(t *testing.T) {
-		// Create event with group info
-		event := dto.GroupAtMessageCreateEvent{
-			MessageCreateEvent: dto.MessageCreateEvent{
-				ID:      "event-1",
-				Content: "test",
-			},
-			GroupOpenID: "group123",
-		}
-
-		detail, _ := json.Marshal(event)
-		payload := &dto.Payload{
-			Type:   dto.GroupAtMessageCreate,
-			Detail: detail,
-		}
-
-		api := &mockOpenAPI{returnResult: `{"message_id":"789"}`}
-		ctx := NewContext(payload, api)
-
-		msg := &dto.Message{Content: "reply"}
-		_, err := ctx.ReplyGroup(msg)
-
-		assert.NoError(t, err)
-		assert.True(t, api.groupChatCalled)
-		assert.Equal(t, "group123", api.lastGroupID)
-		assert.Equal(t, dto.EventID("event-1"), api.lastMessage.MessageID)
-	})
-
-	t.Run("decode error", func(t *testing.T) {
-		payload := &dto.Payload{
-			Type:   dto.GroupAtMessageCreate,
-			Detail: []byte(`invalid json`),
-		}
-
-		api := &mockOpenAPI{}
-		ctx := NewContext(payload, api)
-
-		msg := &dto.Message{Content: "reply"}
-		_, err := ctx.ReplyGroup(msg)
-
-		require.Error(t, err)
-	})
-}
-
-func TestContext_ReplyPrivate(t *testing.T) {
-	t.Run("reply success", func(t *testing.T) {
-		// Create C2C event
-		event := dto.C2CMessageCreateEvent{
-			MessageCreateEvent: dto.MessageCreateEvent{
-				ID:      "event-2",
-				Content: "test",
-				Author: dto.Author{
-					UserOpenID: "user456",
-				},
-			},
-		}
-
-		detail, _ := json.Marshal(event)
-		payload := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: detail,
-		}
-
-		api := &mockOpenAPI{returnResult: `{"message_id":"999"}`}
-		ctx := NewContext(payload, api)
-
-		msg := &dto.Message{Content: "reply"}
-		_, err := ctx.ReplyPrivate(msg)
-
-		assert.NoError(t, err)
-		assert.True(t, api.singleChatCalled)
-		assert.Equal(t, "user456", api.lastOpenID)
-		assert.Equal(t, dto.EventID("event-2"), api.lastMessage.MessageID)
-	})
-
-	t.Run("decode error", func(t *testing.T) {
-		payload := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`invalid json`),
-		}
-
-		api := &mockOpenAPI{}
-		ctx := NewContext(payload, api)
-
-		msg := &dto.Message{Content: "reply"}
-		_, err := ctx.ReplyPrivate(msg)
-
-		require.Error(t, err)
-	})
-}
 
 // ============================================================================
 // Missing Coverage Tests - GetMatcherSource
@@ -353,7 +151,7 @@ func TestOnC2CMessage(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnC2CMessage()
+		rule := OnEventKind(platform.EventKindPrivateMessage)
 		result := rule(ctx)
 
 		assert.True(t, result)
@@ -363,7 +161,7 @@ func TestOnC2CMessage(t *testing.T) {
 		payload := &dto.Payload{Type: dto.GroupAtMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnC2CMessage()
+		rule := OnEventKind(platform.EventKindPrivateMessage)
 		result := rule(ctx)
 
 		assert.False(t, result)
@@ -375,7 +173,7 @@ func TestOnGroupAtMessage(t *testing.T) {
 		payload := &dto.Payload{Type: dto.GroupAtMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupAtMessage()
+		rule := OnEventKind(platform.EventKindGroupMessage)
 		result := rule(ctx)
 
 		assert.True(t, result)
@@ -385,7 +183,7 @@ func TestOnGroupAtMessage(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupAtMessage()
+		rule := OnEventKind(platform.EventKindGroupMessage)
 		result := rule(ctx)
 
 		assert.False(t, result)
@@ -397,7 +195,7 @@ func TestOnGroupAddRobot(t *testing.T) {
 		payload := &dto.Payload{Type: dto.GroupAddRobot}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupAddRobot()
+		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
 
 		assert.True(t, result)
@@ -407,7 +205,7 @@ func TestOnGroupAddRobot(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupAddRobot()
+		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
 
 		assert.False(t, result)
@@ -419,7 +217,7 @@ func TestOnGroupDelRobot(t *testing.T) {
 		payload := &dto.Payload{Type: dto.GroupDelRobot}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupDelRobot()
+		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
 
 		assert.True(t, result)
@@ -429,7 +227,7 @@ func TestOnGroupDelRobot(t *testing.T) {
 		payload := &dto.Payload{Type: dto.C2CMessageCreate}
 		ctx := NewContext(payload, nil)
 
-		rule := OnGroupDelRobot()
+		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
 
 		assert.False(t, result)

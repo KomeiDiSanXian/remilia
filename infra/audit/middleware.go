@@ -21,10 +21,9 @@ func Middleware(logger *Logger) context.Middleware {
 			start := time.Now()
 
 			// 提取用户信息
-			author := ctx.GetAuthor()
-			actor := "anonymous"
-			if author != nil && author.UserOpenID != "" {
-				actor = author.UserOpenID
+			actor := ctx.GetSenderInfo().ID
+			if actor == "" {
+				actor = "anonymous"
 			}
 
 			// 提取命令信息
@@ -49,7 +48,7 @@ func Middleware(logger *Logger) context.Middleware {
 				// 记录一般事件处理
 				// 从 event 中提取 channel_id 和 guild_id
 				metadata := map[string]any{
-					"event_type": string(ctx.GetEventType()),
+					"event_type": ctx.GetEventType(),
 				}
 
 				// 尝试从事件中提取更多信息
@@ -88,10 +87,9 @@ func CommandMiddleware(logger *Logger, commandName string) context.Middleware {
 		return func(ctx *context.Context) error {
 			start := time.Now()
 
-			author := ctx.GetAuthor()
-			actor := "anonymous"
-			if author != nil && author.UserOpenID != "" {
-				actor = author.UserOpenID
+			actor := ctx.GetSenderInfo().ID
+			if actor == "" {
+				actor = "anonymous"
 			}
 
 			err := next(ctx)

@@ -135,7 +135,7 @@ func (e *qqEvent) populateGuildMessage() {
 	}
 	e.chat = platform.ChatInfo{
 		ID:      chatID,
-		Name:    gjson.GetBytes(d, "channel_id").String(),
+		Name:    gjson.GetBytes(d, "channel_name").String(),
 		IsGroup: true,
 	}
 

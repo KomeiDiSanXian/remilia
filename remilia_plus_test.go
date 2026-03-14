@@ -12,6 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,10 +105,10 @@ func TestWebhookServerAdapter_StartStop(t *testing.T) {
 
 	adapter := NewWebhookServerAdapter(":0", info)
 
-	handler := func(payload *dto.Payload) {}
 	ctx := context.Background()
+	handler := func(_ platform.Event) {}
 
-	err := adapter.Start(ctx, handler)
+	err := adapter.StartPlatform(ctx, handler)
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)
@@ -130,13 +131,13 @@ func TestWebhookServerAdapter_DoubleStart(t *testing.T) {
 
 	adapter := NewWebhookServerAdapter(":0", info)
 
-	handler := func(payload *dto.Payload) {}
 	ctx := context.Background()
+	handler := func(_ platform.Event) {}
 
-	err := adapter.Start(ctx, handler)
+	err := adapter.StartPlatform(ctx, handler)
 	require.NoError(t, err)
 
-	err = adapter.Start(ctx, handler)
+	err = adapter.StartPlatform(ctx, handler)
 	assert.NoError(t, err)
 
 	_ = adapter.Stop(context.Background())

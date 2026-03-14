@@ -2,6 +2,7 @@ package fuzzing
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func FuzzEventPayload(f *testing.F) {
 
 		// 尝试各种操作
 		_ = ctx.GetEventType()
-		_ = ctx.GetAuthor()
+		_ = ctx.GetSenderInfo()
 		_ = ctx.GetEvent()
 	})
 }
@@ -110,7 +111,7 @@ func FuzzEngineProcessEvent(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, content string) {
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		// 注册一个通配命令
 		eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
@@ -311,7 +312,7 @@ func FuzzMiddlewareChain(f *testing.F) {
 		}
 
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		// 添加中间件
 		for range middlewareCount {
@@ -391,7 +392,7 @@ func FuzzConcurrentOperations(f *testing.F) {
 		}
 
 		eng := engine.NewEngine()
-		defer eng.Close()
+		defer eng.Shutdown(context.Background())
 
 		eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
 			return nil

@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // 错误处理示例
@@ -96,85 +97,41 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// 1. 成功场景
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/success").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return handleError(err, "Failed to decode event")
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "✅ Success! Everything works fine.",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("✅ Success! Everything works fine."))
 	})
 
 	// 2. 一般错误
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/error").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		// 模拟业务错误
 		err := errors.New("something went wrong")
 		return handleError(err, "Business logic error")
 	})
 
 	// 3. Panic场景（会被Recover中间件捕获）
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/panic").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		ctx.DecodeEvent(&c2c)
-
-		// 模拟panic
 		panic("intentional panic for testing")
 	})
 
 	// 4. 无效输入错误
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/invalid").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		// 模拟无效输入
 		err := &UserError{
 			Code:    400,
 			Message: "Invalid input provided",
 			Err:     ErrInvalidInput,
 		}
-
 		logger.WithError(err).Warn("[ErrorHandling] Invalid input")
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "❌ 错误: 输入无效，请检查后重试",
-		}
-		ctx.ReplyPrivate(msg)
+		_ = ctx.Reply(platform.TextMessage("❌ 错误: 输入无效，请检查后重试"))
 		return err
 	})
 
 	// 5. 资源不存在错误
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/notfound").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		// 模拟资源不存在
 		err := &UserError{
 			Code:    404,
 			Message: "Resource not found",
 			Err:     ErrResourceNotFound,
 		}
-
 		logger.WithError(err).Info("[ErrorHandling] Resource not found")
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "❌ 错误: 找不到请求的资源",
-		}
-		ctx.ReplyPrivate(msg)
+		_ = ctx.Reply(platform.TextMessage("❌ 错误: 找不到请求的资源"))
 		return err
 	})
 
@@ -184,58 +141,31 @@ func registerHandlers(bot *remilia.Bot) {
 		if err := ctx.DecodeEvent(&c2c); err != nil {
 			return err
 		}
-
-		// 模拟权限检查失败
 		if !checkPermission(c2c.Author.UserOpenID) {
 			err := &UserError{
 				Code:    403,
 				Message: "Permission denied",
 				Err:     ErrPermissionDenied,
 			}
-
 			logger.WithFields(logger.Fields{
 				"user": c2c.Author.UserOpenID,
 			}).Warn("[ErrorHandling] Permission denied")
-
-			msg := &dto.Message{
-				Type:    dto.TextMessage,
-				Content: "❌ 错误: 权限不足",
-			}
-			ctx.ReplyPrivate(msg)
+			_ = ctx.Reply(platform.TextMessage("❌ 错误: 权限不足"))
 			return err
 		}
-
 		return nil
 	})
 
 	// 7. 重试场景
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/retry").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		// 使用重试逻辑
 		err := retryOperation(func() error {
-			// 模拟可能失败的操作
 			return simulateUnstableOperation()
 		}, 3)
-
 		if err != nil {
-			msg := &dto.Message{
-				Type:    dto.TextMessage,
-				Content: "❌ 操作失败: " + err.Error(),
-			}
-			ctx.ReplyPrivate(msg)
+			_ = ctx.Reply(platform.TextMessage("❌ 操作失败: " + err.Error()))
 			return err
 		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "✅ 操作成功（经过重试）",
-		}
-		ctx.ReplyPrivate(msg)
-		return nil
+		return ctx.Reply(platform.TextMessage("✅ 操作成功（经过重试）"))
 	})
 
 	logger.Info("[ErrorHandling] Handlers registered")

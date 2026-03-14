@@ -10,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func main() {
@@ -68,69 +69,28 @@ func main() {
 func registerCommands(bot *remilia.Bot) {
 	// 1. 天气命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/weather").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "天气查询功能\n用法: /weather <城市>\n(实际天气查询待实现)",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("天气查询功能\n用法: /weather <城市>\n(实际天气查询待实现)"))
 	})
 
 	// 2. 计算器命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/calc").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "计算器功能\n用法: /calc <表达式>\n(实际计算待实现)",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("计算器功能\n用法: /calc <表达式>\n(实际计算待实现)"))
 	})
 
 	// 3. 搜索命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/search").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "搜索功能\n用法: /search <关键词>\n(实际搜索待实现)",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("搜索功能\n用法: /search <关键词>\n(实际搜索待实现)"))
 	})
 
 	// 4. 帮助命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
 		help := `可用命令:
 /weather - 查询天气
 /calc - 计算器
 /search - 搜索
 /help - 显示帮助
 /user - 用户信息`
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: help,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(help))
 	})
 
 	// 5. 用户信息命令
@@ -139,13 +99,7 @@ func registerCommands(bot *remilia.Bot) {
 		if err := ctx.DecodeEvent(&c2c); err != nil {
 			return err
 		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: fmt.Sprintf("你的用户ID: %s", c2c.Author.UserOpenID),
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", c2c.Author.UserOpenID)))
 	})
 
 	logger.Info("[CommandBot] Commands registered: /weather, /calc, /search, /help, /user")

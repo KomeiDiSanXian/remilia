@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 )
@@ -78,11 +79,11 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 
 // AdapterHealthChecker 检查 Adapter 状态
 type AdapterHealthChecker struct {
-	adapter Adapter
+	adapter engine.PlatformAdapter
 }
 
 // NewAdapterHealthChecker 创建 Adapter 健康检查器
-func NewAdapterHealthChecker(adapter Adapter) *AdapterHealthChecker {
+func NewAdapterHealthChecker(adapter engine.PlatformAdapter) *AdapterHealthChecker {
 	return &AdapterHealthChecker{adapter: adapter}
 }
 

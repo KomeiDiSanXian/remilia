@@ -16,7 +16,7 @@ import (
 func TestEngineRaceConditions(t *testing.T) {
 	t.Run("concurrent_register_and_delete", func(t *testing.T) {
 		engine := NewEngine()
-		defer engine.Close()
+		defer engine.Shutdown(stdctx.Background())
 
 		const goroutines = 10
 		const matchersPerGoroutine = 20
@@ -69,7 +69,7 @@ func TestEngineRaceConditions(t *testing.T) {
 
 	t.Run("concurrent_process_and_modify", func(t *testing.T) {
 		engine := NewEngine()
-		defer engine.Close()
+		defer engine.Shutdown(stdctx.Background())
 
 		var processCount atomic.Int32
 
@@ -209,8 +209,8 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		assert.NoError(t, err2)
 
 		// Close 方法也应该是安全的
-		engine.Close()
-		engine.Close()
+		engine.Shutdown(stdctx.Background())
+		engine.Shutdown(stdctx.Background())
 	})
 }
 
@@ -218,7 +218,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 func TestEngineMemoryLeaks(t *testing.T) {
 	t.Run("matcher_deletion_releases_memory", func(t *testing.T) {
 		engine := NewEngine()
-		defer engine.Close()
+		defer engine.Shutdown(stdctx.Background())
 
 		// 创建大量匹配器
 		const matcherCount = 1000
@@ -248,7 +248,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 
 	t.Run("temp_matcher_cleanup", func(t *testing.T) {
 		engine := NewEngine()
-		defer engine.Close()
+		defer engine.Shutdown(stdctx.Background())
 
 		// 创建一些一次性临时匹配器
 		const tempCount = 50

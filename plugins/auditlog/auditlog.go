@@ -109,16 +109,8 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 
 // Record 记录一条审计日志
 func (p *Plugin) Record(ctx *eventctx.Context, action string, meta ...map[string]any) {
-	userID := ""
-	groupID := ""
+	userID := ctx.GetSenderInfo().ID
 	content := ctx.GetMessageContent()
-
-	if author := ctx.GetAuthor(); author != nil {
-		userID = author.UserOpenID
-		if userID == "" {
-			userID = author.MemberOpenID
-		}
-	}
 
 	var m map[string]any
 	if len(meta) > 0 {
@@ -128,7 +120,6 @@ func (p *Plugin) Record(ctx *eventctx.Context, action string, meta ...map[string
 	p.append(LogEntry{
 		Timestamp: time.Now(),
 		UserID:    userID,
-		GroupID:   groupID,
 		Action:    action,
 		Content:   content,
 		Meta:      m,

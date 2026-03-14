@@ -13,6 +13,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugins/acl"
 	"github.com/KomeiDiSanXian/remilia/plugins/antispam"
@@ -272,13 +273,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 	}
 }
 func replyCtx(ctx *eventctx.Context, content string) error {
-	msg := &dto.Message{Type: dto.TextMessage, Content: content}
-	if ctx.GetEventType() == dto.GroupAtMessageCreate {
-		_, err := ctx.ReplyGroup(msg)
-		return err
-	}
-	_, err := ctx.ReplyPrivate(msg)
-	return err
+	return ctx.Reply(platform.TextMessage(content))
 }
 func requestCounterMiddleware() eventctx.Middleware {
 	var count int64

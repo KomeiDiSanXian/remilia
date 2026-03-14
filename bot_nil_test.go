@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -35,17 +35,10 @@ func TestNewBot_BothNil(t *testing.T) {
 	}, "NewBot should panic when both adapter and engine are nil")
 }
 
-// testAdapter is a minimal adapter implementation for testing
+// testAdapter is a minimal PlatformAdapter implementation for testing
 type testAdapter struct{}
 
-func (a *testAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
-	return nil
-}
-
-func (a *testAdapter) Stop(ctx context.Context) error {
-	return nil
-}
-
-func (a *testAdapter) GetHealth() map[string]any {
-	return nil
-}
+func (a *testAdapter) Platform() string                                              { return "test" }
+func (a *testAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error { return nil }
+func (a *testAdapter) Stop(_ context.Context) error                                  { return nil }
+func (a *testAdapter) Sender() platform.Sender                                       { return &platform.NoopSender{} }

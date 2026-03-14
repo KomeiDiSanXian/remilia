@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func main() {
@@ -102,43 +103,23 @@ func main() {
 func registerHandlers(eng *engine.Engine) {
 	// 快速响应命令
 	eng.OnCommand(dto.C2CMessageCreate, "/fast").Handle(func(ctx *eventctx.Context) error {
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "⚡ 快速响应！",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("⚡ 快速响应！"))
 	})
 
 	// 慢速响应命令（模拟耗时操作）
 	eng.OnCommand(dto.C2CMessageCreate, "/slow").Handle(func(ctx *eventctx.Context) error {
-		time.Sleep(2 * time.Second) // 模拟耗时操作
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "🐌 慢速响应（耗时2秒）",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		time.Sleep(2 * time.Second)
+		return ctx.Reply(platform.TextMessage("🐌 慢速响应（耗时2秒）"))
 	})
 
 	// 测试重复消息
 	eng.OnCommand(dto.C2CMessageCreate, "/dup").Handle(func(ctx *eventctx.Context) error {
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "此消息会被去重中间件处理",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("此消息会被去重中间件处理"))
 	})
 
-	// 查看中间件统计（如果使用了 ProductionSet）
+	// 查看中间件统计
 	eng.OnCommand(dto.C2CMessageCreate, "/stats").Handle(func(ctx *eventctx.Context) error {
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "中间件已启用:\n✓ Panic恢复\n✓ 日志记录\n✓ 自适应限流\n✓ 熔断器\n✓ 去重",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("中间件已启用:\n✓ Panic恢复\n✓ 日志记录\n✓ 自适应限流\n✓ 熔断器\n✓ 去重"))
 	})
 
 	logger.Info("[MiddlewareExample] Handlers registered")

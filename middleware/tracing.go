@@ -36,7 +36,7 @@ func DefaultTracingConfig() TracingConfig {
 		IncludeEventDetail: false,
 		MaxContentLength:   200,
 		SpanNameFunc: func(ctx *context.Context) string {
-			eventType := string(ctx.GetEventType())
+			eventType := ctx.GetEventType()
 			if eventType == "" {
 				return "event.process"
 			}
@@ -86,7 +86,7 @@ func Tracing(config TracingConfig) context.Middleware {
 
 			// 设置基本属性
 			attrs := []attribute.KeyValue{
-				attribute.String(tracing.AttrEventType, string(ctx.GetEventType())),
+				attribute.String(tracing.AttrEventType, ctx.GetEventType()),
 			}
 
 			// 添加事件 ID
@@ -95,10 +95,8 @@ func Tracing(config TracingConfig) context.Middleware {
 			}
 
 			// 添加用户信息
-			if author := ctx.GetAuthor(); author != nil {
-				if author.UserOpenID != "" {
-					attrs = append(attrs, attribute.String(tracing.AttrUserID, author.UserOpenID))
-				}
+			if senderID := ctx.GetSenderInfo().ID; senderID != "" {
+				attrs = append(attrs, attribute.String(tracing.AttrUserID, senderID))
 			}
 
 			// 添加 matcher 信息

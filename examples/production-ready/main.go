@@ -10,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // 生产环境示例
@@ -100,58 +101,26 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// Ping命令 - 健康检查
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "Pong! Bot is healthy.",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("Pong! Bot is healthy."))
 	})
 
 	// Status命令 - 系统状态
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/status").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
 		status := "✅ System Status: Healthy\n"
 		status += "📊 Uptime: Running\n"
 		status += "🔧 Version: 1.0.0\n"
 		status += "🌐 Environment: Production"
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: status,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(status))
 	})
 
 	// Help命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
 		help := "🤖 生产环境Bot\n\n"
 		help += "可用命令:\n"
 		help += "/ping - 健康检查\n"
 		help += "/status - 系统状态\n"
 		help += "/help - 帮助信息"
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: help,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(help))
 	})
 
 	logger.Info("[Production] Handlers registered")

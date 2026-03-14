@@ -27,7 +27,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	storage "github.com/KomeiDiSanXian/remilia/plugins/core/storage"
+	"github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 // Mode ACL 模式
@@ -264,14 +264,7 @@ func (p *Plugin) IsAllowed(userID string) bool {
 // Rule 返回可用于 engine.On() 的访问控制规则
 func (p *Plugin) Rule() eventctx.Rule {
 	return func(ctx *eventctx.Context) bool {
-		author := ctx.GetAuthor()
-		if author == nil {
-			return true
-		}
-		userID := author.UserOpenID
-		if userID == "" {
-			userID = author.MemberOpenID
-		}
+		userID := ctx.GetSenderInfo().ID
 		if userID == "" {
 			return true
 		}

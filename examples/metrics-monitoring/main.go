@@ -13,6 +13,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // 性能监控示例
@@ -92,67 +93,23 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// 快速响应命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "Pong! ⚡",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("Pong! ⚡"))
 	})
 
 	// 慢速响应命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/slow").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		// 模拟慢速操作
 		time.Sleep(2 * time.Second)
-
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: "Slow response 🐌",
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage("Slow response 🐌"))
 	})
 
 	// 统计信息命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/stats").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		stats := getMetricsReport()
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: stats,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(getMetricsReport()))
 	})
 
 	// 健康检查命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/health").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-
-		health := getHealthReport()
-		msg := &dto.Message{
-			Type:    dto.TextMessage,
-			Content: health,
-		}
-		_, err := ctx.ReplyPrivate(msg)
-		return err
+		return ctx.Reply(platform.TextMessage(getHealthReport()))
 	})
 
 	logger.Info("[Metrics] Handlers registered")

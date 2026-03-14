@@ -22,8 +22,8 @@ var ErrNilAPI = errors.New("openAPI is nil")
 // ErrNilContext 表示 Context 接收者为 nil
 var ErrNilContext = errors.New("context is nil")
 
-// ErrNoPlatformSender 表示 Context 未绑定 platform.Sender（旧路径不支持此操作）
-var ErrNoPlatformSender = errors.New("no platform sender: use ReplyGroup/ReplyPrivate for legacy QQ path")
+// ErrNoPlatformSender 表示 Context 未绑定 platform.Sender（需通过 PlatformAdapter 注入）
+var ErrNoPlatformSender = errors.New("no platform sender available: context was not created from a platform event")
 
 // isReservedUserStateKey reports whether key is reserved for framework internal use.
 //

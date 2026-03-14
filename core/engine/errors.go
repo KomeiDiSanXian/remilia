@@ -11,21 +11,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
-// BlockError, NewBlockError, and IsBlockError are defined in errutil and
-// re-exported here for backward compatibility. New code should import errutil directly.
-
-// BlockError indicates handler processing was blocked by middleware.
-// Deprecated: use errutil.BlockError directly.
-type BlockError = remiliaerrors.BlockError
-
-// NewBlockError creates a new BlockError with the given message.
-// Deprecated: use errutil.NewBlockError directly.
-var NewBlockError = remiliaerrors.NewBlockError
-
-// IsBlockError checks if an error is a BlockError.
-// Deprecated: use errutil.IsBlockError directly.
-var IsBlockError = remiliaerrors.IsBlockError
-
 // HandlerError is a framework error envelope for handler execution.
 //
 // Fields:
@@ -99,12 +84,12 @@ func FormatHandlerError(err error) string {
 	}
 
 	parts := make([]string, 0, 6)
-	parts = append(parts, fmt.Sprintf("Message: %services", he.Message))
-	parts = append(parts, fmt.Sprintf("Source: %services", he.Source))
+	parts = append(parts, fmt.Sprintf("Message: %s", he.Message))
+	parts = append(parts, fmt.Sprintf("Source: %s", he.Source))
 	parts = append(parts, fmt.Sprintf("Attempt: %d", he.Attempt))
 
 	if he.EventID != "" {
-		parts = append(parts, fmt.Sprintf("EventID: %services", he.EventID))
+		parts = append(parts, fmt.Sprintf("EventID: %s", he.EventID))
 	}
 	if len(he.Trace) > 0 {
 		parts = append(parts, fmt.Sprintf("Trace: %v", he.Trace))

@@ -31,7 +31,7 @@ const (
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
 	engine        *engine.Engine
-	adapter       Adapter
+	adapter       engine.PlatformAdapter
 	lifecycle     *lifecycle.Manager
 	health        *health.Check
 	config        *Config
@@ -42,7 +42,6 @@ type Bot struct {
 
 	// platformRegistry 多平台适配器注册表（可选）
 	// 若注册了平台适配器，事件会通过 handlePlatformEvent 处理
-	// 与旧版 adapter（handleEvent）可同时使用
 	platformRegistry *platform.Registry
 
 	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
@@ -74,17 +73,17 @@ type Config struct {
 //	    WithAdapter(adapter).
 //	    WithEngine(engine).
 //	    Build()
-func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
+func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *Bot {
 	// 验证必需参数
 	if adapter == nil {
 		logger.Panic("[Bot] adapter cannot be nil")
 	}
-	if engine == nil {
+	if e == nil {
 		logger.Panic("[Bot] engine cannot be nil")
 	}
 
 	b := &Bot{
-		engine:    engine,
+		engine:    e,
 		adapter:   adapter,
 		lifecycle: lifecycle.NewManager(),
 		config: &Config{
@@ -111,8 +110,8 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 	}
 
 	// 添加 engine checker
-	if engine != nil {
-		b.health.AddChecker(health.NewEngineHealthChecker(engine))
+	if e != nil {
+		b.health.AddChecker(health.NewEngineHealthChecker(e))
 	}
 
 	// 注册组件到生命周期管理器
@@ -120,8 +119,8 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 		"adapter",
 		nil, // onStart
 		func(ctx context.Context) error {
-			// onRun: adapter.Start 是阻塞的，适合在这里运行
-			return b.adapter.Start(ctx, b.handleEvent)
+			// onRun: adapter.StartPlatform 是阻塞的，适合在这里运行
+			return b.adapter.StartPlatform(ctx, b.handlePlatformEvent)
 		},
 		func(ctx context.Context) error {
 			// onStop
@@ -165,8 +164,8 @@ func NewBot(adapter Adapter, engine *engine.Engine, opts ...Option) *Bot {
 
 // NewBotWithInfo 创建带 OpenAPI 支持的 Bot 实例
 // 这个构造函数会自动初始化 OpenAPI client，用于发送消息
-func NewBotWithInfo(adapter Adapter, engine *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
-	b := NewBot(adapter, engine, opts...)
+func NewBotWithInfo(adapter engine.PlatformAdapter, eng *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
+	b := NewBot(adapter, eng, opts...)
 
 	if botInfo != nil {
 		// 仅存储 botInfo，延迟到 Start() 时再创建 tokenManager。
@@ -210,7 +209,7 @@ func (b *Bot) Start() error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	// 修复 B3（完整版）：
-	// 1. 在锁内读取 oldManager/oldOpenAPI，并更新为新实例，消除 handleEvent 并发读写数据竞态
+	// 1. 在锁内读取 oldManager/oldOpenAPI，并更新为新实例，消除并发读写数据竞态
 	// 2. lifecycle.Start 失败后在失败路径回滚，保持 bot 可重启
 	//
 	// 注意：NewBotWithInfo 不再预创建 tokenManager，因此首次 Start() 时 oldManager == nil。
@@ -301,60 +300,6 @@ func (b *Bot) Context() context.Context {
 		return b.rootCtx
 	}
 	return context.Background()
-}
-
-// handleEvent 处理事件
-func (b *Bot) handleEvent(payload *dto.Payload) {
-	// 修复 #17：防护 nil payload，虽然 adapter 层通常有保证，但防御性编程更健壮
-	if payload == nil {
-		logger.Warn("[Bot] Received nil payload, skipping")
-		return
-	}
-
-	start := time.Now()
-
-	// 在处理之前提前读取 payload 中的调试字段，避免 ReleasePayload 后 use-after-free
-	eventType := payload.Type
-	eventID := payload.ID
-
-	if b.config.Debug {
-		logger.WithFields(logger.Fields{
-			"type": eventType,
-			"id":   eventID,
-		}).Debug("[Bot] Event received")
-	}
-
-	// 安全检查：确保 openAPI client 已初始化
-	// 修复 B3：加 RLock 读取 openAPI，与 Start() 中锁内写入 b.openAPI 互斥，消除数据竞态
-	b.mu.RLock()
-	api := b.openAPI
-	b.mu.RUnlock()
-	if api == nil {
-		logger.Warn("[Bot] OpenAPI client not initialized, event processing may fail")
-		// 仍然继续处理，context 可以处理 nil API
-	}
-
-	// 从 pool 获取 Context，处理完毕后归还，减少 per-event 堆分配。
-	ctx := eventctx.AcquireContext(payload, api)
-
-	// 使用 engine 处理事件
-	b.engine.ProcessEvent(ctx)
-
-	// 归还 Context 到池（清空内部字段）
-	eventctx.ReleaseContext(ctx)
-
-	// 改进 3.3: 归还 Payload 到对象池，减少 GC 压力。
-	// 必须在 ReleaseContext 之后调用，确保 Context 不再持有 payload 引用。
-	dto.ReleasePayload(payload)
-
-	// 记录事件处理耗时（Debug 模式下记录，生产中可通过 metrics 上报）
-	if b.config.Debug {
-		logger.WithFields(logger.Fields{
-			"type":    eventType,
-			"id":      eventID,
-			"elapsed": time.Since(start),
-		}).Debug("[Bot] Event processed")
-	}
 }
 
 // handlePlatformEvent 处理来自 platform.PlatformAdapter 的事件
@@ -576,19 +521,13 @@ func (b *Bot) OnAny(rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnAny(rule...)
 }
 
-// OnC2C 注册处理私聊消息的规则（convenience method）
-func (b *Bot) OnC2C(rule ...eventctx.Rule) *engine.Matcher {
-	return b.engine.OnC2C(rule...)
-}
-
-// OnGroupAt 注册处理群@消息的规则（convenience method）
-func (b *Bot) OnGroupAt(rule ...eventctx.Rule) *engine.Matcher {
-	return b.engine.OnGroupAt(rule...)
-}
-
-// On 注册自定义规则（convenience method）
-func (b *Bot) On(eventType dto.EventType, rule ...eventctx.Rule) *engine.Matcher {
-	return b.engine.On(eventType, rule...)
+// OnEventKind 注册处理指定平台事件类别的规则（平台无关，推荐使用）
+//
+// 示例：
+//
+//	bot.OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(handler)
+func (b *Bot) OnEventKind(kind platform.EventKind, rule ...eventctx.Rule) *engine.Matcher {
+	return b.engine.OnEventKind(kind, rule...)
 }
 
 // WaitForShutdown 等待系统信号并优雅关闭

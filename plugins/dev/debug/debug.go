@@ -224,11 +224,6 @@ func (p *Plugin) handleDebugEvent(ctx *eventctx.Context) error {
 
 	// 用户信息
 	msg.WriteString(fmt.Sprintf("👤 用户ID: %s\n", ctx.GetUserID()))
-	if author := ctx.GetAuthor(); author != nil {
-		if author.ID != "" {
-			msg.WriteString(fmt.Sprintf("👤 作者ID: %s\n", author.ID))
-		}
-	}
 
 	// 原始数据（简化显示）
 	msg.WriteString("\n📦 原始事件:\n")

@@ -1,5 +1,107 @@
 # 多平台抽象层——进度报告与待办事项
 
+> 最后更新：2026-03-11  
+> 分支目标：将事件处理与消息发送从 QQ 官方数据结构（`dto.Payload` / `openapi.OpenAPI`）解耦，构建平台无关的抽象层，支持多平台（Discord、Telegram、微信等）。
+
+---
+
+## 一、已完成的内容
+
+| 模块 | 文件 | 说明 |
+|---|---|---|
+| 平台事件抽象 | `platform/event.go` | `Event` 接口、`EventKind` 枚举、`UserInfo`/`ChatInfo` 结构体 |
+| 出站消息抽象 | `platform/message.go` | `OutboundMessage` + 快捷构造函数 |
+| 适配器注册表 | `platform/adapter.go` | `PlatformAdapter`、`Sender`、`NoopSender`、`Registry`（含 `StartAll/StopAll`）、`WithChatInfo`/`ChatInfoFromContext` |
+| 平台上下文 | `platform/context.go` | `EventContext` 接口 + `baseEventContext` 实现 |
+| QQ 适配器 | `platform/qq/adapter.go` | 从 Webhook 读 `*dto.Payload`，转换为 `platform.Event`，原子并发控制 |
+| QQ 事件映射 | `platform/qq/event.go` | C2C、GroupAt、Guild、Notice、System 全类型映射 |
+| QQ 发送器 | `platform/qq/sender.go` | 优先通过 `platform.ChatInfoFromContext` 路由（已修复 chatType 注入缺口） |
+| 引擎平台路径 | `core/engine/process_platform.go` | `ProcessPlatformEvent` + `ProcessPlatformEventBatch`（新增批量接口） |
+| 平台上下文适配 | `core/context/platform_event.go` | `Reply`/`ReplyWithContext` 已自动注入 `ChatInfo`，修复私聊路由 |
+| 上下文双路径解码 | `core/context/decode.go` | `GetEventType()` 新路径返回 EventKind（架构决策 B）；旧方法加 Deprecated 注释 |
+| 平台无关规则 | `core/context/rules.go` | `OnEventKind` 文档完善，QQ 专属规则加 Deprecated；`OnCooldown` 使用 `GetSenderInfo()` |
+| 平台无关用户规则 | `core/context/convenience.go` | `OnUserWhitelist`/`OnUserBlacklist` 改为 `GetSenderInfo().ID`（已修复） |
+| Bot 平台入口 | `bot.go` `handlePlatformEvent` | 直接调用 `engine.ProcessPlatformEvent` |
+| Bot 注册器 | `bot_builder.go` `WithPlatformRegistry` | lifecycle 自动注册每个平台适配器 |
+| 测试基础设施 | `testutil/testutil.go` | 新增 `MakePlatformC2CEvent`/`MakePlatformGroupEvent`/`SendPlatformC2C`/`SendPlatformGroupAt` |
+| 测试基础设施 | `testbot/testbot.go` | 新增 `MakePlatformC2CEvent`/`MakePlatformGroupEvent`/`SendPlatformC2C`/`SendPlatformGroupAt` |
+| antispam 插件 | `plugins/antispam/antispam.go` | `Rule()`/`handleViolation` 改用 `GetSenderInfo()`，支持所有平台 |
+| antispam 测试 | `plugins/antispam/antispam_test.go` | 新增平台无关测试用例 |
+| stats 插件 | `plugins/stats/stats.go` | `Middleware()` 改用 `GetSenderInfo()`，支持所有平台 |
+| stats 测试 | `plugins/stats/stats_test.go` | 新增平台无关测试用例 |
+| sendqueue 插件 | `plugins/sendqueue/sendqueue.go` | 旧路径字段加 Deprecated 注释 |
+| broadcast 插件 | `plugins/broadcast/broadcast.go` | `ToGroups`/`ToC2C`/`ToAll`/`ToSubscribedGroups`/`ToSubscribedC2C` 加 Deprecated 注释 |
+
+---
+
+## 二、架构决策说明
+
+### 2.1 路由键统一方案（决策 B）
+
+**已实现**：`GetEventType()` 在新路径下返回 `EventKind` 字符串（如 `"PRIVATE_MESSAGE"`），而非平台原始类型（如 `"C2C_MESSAGE_CREATE"`）。
+
+效果：
+- `OnEventKind(platform.EventKindPrivateMessage)` 对所有平台统一生效
+- `OnC2CMessage()`（QQ 专属）只在旧路径下匹配，与新路径完全隔离
+- Discord/Telegram 等新平台按 `EventKind` 注册 Matcher，无需关心平台原始类型
+
+### 2.2 `*context.Context` 与 `platform.EventContext` 并存
+
+**维持现状**：Engine 内部继续使用 `*context.Context`，`platform.EventContext` 作为对外接口。待测试基础设施完全迁移后再评估深度切换。
+
+### 2.3 测试迁移策略
+
+- Plugin 单元测试：**全量新增**平台无关用例（保留旧 QQ 路径测试）
+- E2E 集成测试：**渐进迁移**（`tests/integration/e2e_test.go` 旧 QQ 用例保留，新功能使用平台无关写法）
+
+---
+
+## 三、仍需完成的内容（P3 及后续）
+
+### 3.1 平台适配器实现（骨架/存根）
+
+| 目录 | 状态 | 说明 |
+|---|---|---|
+| `platform/discord/` | 🚧 骨架 | `StartPlatform` 返回 `"not yet implemented"` |
+| `platform/telegram/` | 🚧 骨架 | 同上 |
+| `platform/wechat/` | 🚧 骨架 | 同上 |
+
+每个平台需实现：
+1. SDK 接入与认证
+2. 接收原始消息 → 包装为 `platform.Event`
+3. `platform.Sender` 实现（调用平台 API 发送消息）
+4. 完整的 `PlatformAdapter`（`StartPlatform` / `StopPlatform` / `Name`）
+
+### 3.2 E2E 集成测试迁移
+
+- `tests/integration/e2e_test.go`：16 处 `*dto.Payload` 构造建议逐步替换为 `testutil.MakePlatformC2CEvent` / `MakePlatformGroupEvent`
+
+### 3.3 `platform/bridge.go` 删除
+
+- 条件：所有旧路径插件和测试完成迁移后执行
+
+### 3.4 其他 QQ 专属插件迁移
+
+以下插件仍有少量 `GetAuthor` / `dto` 直接使用，可在后续版本逐步迁移：
+- `plugins/conversation/` — 测试用 `makeC2CCtxUser` 使用旧路径（功能本身无依赖）
+- `plugins/ratelimitui/`、`plugins/core/admin/` — 部分逻辑通过 `GetUserID()` 访问，已平台无关
+
+---
+
+## 四、当前分支完成度（更新后）
+
+| 维度 | 完成度 |
+|---|---|
+| 平台抽象接口定义 | ✅ 100% |
+| QQ 平台适配器 | ✅ 100%（chatType 注入缺口已修复） |
+| Engine 平台无关路径 | ✅ 100%（含 Batch 接口）|
+| Context 双路径支持 | ✅ 95%（旧方法已加 Deprecated，架构决策 B 已实现）|
+| 测试基础设施 | ✅ 70%（平台无关工厂函数已就绪，E2E 渐进迁移中）|
+| 核心插件平台无关化 | ✅ 90%（antispam、stats 已迁移）|
+| 技术债清理（Deprecated） | ✅ 90%（主要方法/字段已标注）|
+| 非 QQ 平台实现 | ❌ 0%（均为骨架存根，P3）|
+
+
 > 生成日期：2026-03-11  
 > 分支目标：将事件处理与消息发送从 QQ 官方数据结构（`dto.Payload` / `openapi.OpenAPI`）解耦，构建平台无关的抽象层，支持多平台（Discord、Telegram、微信等）。
 

@@ -11,7 +11,7 @@ import (
 
 func TestMatcherBuilders(t *testing.T) {
 	eng := NewEngine()
-	m := eng.OnC2C()
+	m := eng.On(dto.C2CMessageCreate)
 	m.Use(func(next ctx.Handler) ctx.Handler { return next })
 	m.Command("/test")
 	m.Keyword("hello")
@@ -38,7 +38,7 @@ func TestMiddlewareExtra(t *testing.T) {
 }
 func TestMatcherInternal(t *testing.T) {
 	eng := NewEngine()
-	m := eng.OnC2C()
+	m := eng.On(dto.C2CMessageCreate)
 	assert.False(t, m.deletedOrLocked())
 	m.invalidateCombinedChain()
 	m.setCombinedChain(nil, 0, 0)

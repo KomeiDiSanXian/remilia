@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// ctxMockAdapter 用于测试的 Adapter stub，阻塞直到 ctx 取消
+// ctxMockAdapter 用于测试的 PlatformAdapter stub，阻塞直到 ctx 取消
 type ctxMockAdapter struct {
 	startedCh chan struct{}
 }
@@ -19,7 +19,10 @@ type ctxMockAdapter struct {
 func newCtxMockAdapter() *ctxMockAdapter {
 	return &ctxMockAdapter{startedCh: make(chan struct{})}
 }
-func (a *ctxMockAdapter) Start(ctx context.Context, _ func(*dto.Payload)) error {
+
+func (a *ctxMockAdapter) Platform() string        { return "test" }
+func (a *ctxMockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+func (a *ctxMockAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
 	close(a.startedCh)
 	<-ctx.Done()
 	return nil

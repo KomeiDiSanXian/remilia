@@ -401,9 +401,9 @@ func (p *Plugin) getGroupLimiter(groupID string) *rate.Limiter {
 func (p *Plugin) handleViolation(ctx *eventctx.Context, id, reason string) {
 	logger.Warnf("[AntiSpam] Violation: %s id=%s", reason, id)
 	if p.cfg.BanOnViolation {
-		author := ctx.GetAuthor()
-		if author != nil && author.UserOpenID != "" {
-			p.Ban(author.UserOpenID, p.cfg.BanDuration)
+		userID := ctx.GetSenderInfo().ID
+		if userID != "" {
+			p.Ban(userID, p.cfg.BanDuration)
 		}
 	}
 	if p.cfg.OnViolation != nil {

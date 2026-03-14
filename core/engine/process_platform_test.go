@@ -2,13 +2,19 @@ package engine_test
 
 // process_platform_test.go — ProcessPlatformEvent 集成测试
 //
+// 架构决策 B：新路径 GetEventType() 返回 EventKind 字符串（如 "PRIVATE_MESSAGE"），
+// 而非平台原始类型（如 "C2C_MESSAGE_CREATE"）。
+// 因此，Matcher 注册时应使用 platform.EventKindXxx，而非 dto.C2CMessageCreate 等 QQ 专属常量。
+//
 // 验证：
-//   1. platform.Event 能正确路由到对应 EventType 的 Matcher
+//   1. platform.Event 按 EventKind 路由到正确的 Matcher
 //   2. ctx.GetMessageContent() 返回 event.Content()
 //   3. ctx.GetPlatformEvent() 返回原始 platform.Event
 //   4. ctx.Reply() 通过 Sender 发送消息
 //   5. nil event 不 panic
 //   6. 引擎关闭后拒绝处理
+//   7. 非 QQ 平台（Discord）按 EventKind 路由
+//   8. QQ 旧路径匹配器（dto.C2CMessageCreate）不匹配新路径事件
 
 import (
 	stdctx "context"
@@ -81,7 +87,29 @@ func newDiscordEvent(content string) platform.Event {
 
 // --- tests ---
 
-func TestProcessPlatformEvent_RoutesByEventType(t *testing.T) {
+// TestProcessPlatformEvent_RoutesByEventKind verifies architecture decision B:
+// new-path events are routed by EventKind string, not by raw platform type.
+func TestProcessPlatformEvent_RoutesByEventKind(t *testing.T) {
+	eng := engine.NewEngine()
+	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
+
+	var called atomic.Bool
+	// Register with EventKind string — the correct way for new-path events
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
+		called.Store(true)
+		return nil
+	})
+
+	eng.ProcessPlatformEvent(newPlatformC2CEvent("hello"), &platform.NoopSender{})
+	time.Sleep(20 * time.Millisecond)
+
+	assert.True(t, called.Load(), "Handler should be called when matched by EventKind PRIVATE_MESSAGE")
+}
+
+// TestProcessPlatformEvent_OldQQMatcher_DoesNotMatchNewPath verifies that QQ-specific
+// matchers (dto.C2CMessageCreate = "C2C_MESSAGE_CREATE") do NOT match new-path events
+// (architecture decision B intentionally separates old and new routing).
+func TestProcessPlatformEvent_OldQQMatcher_DoesNotMatchNewPath(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
@@ -94,7 +122,12 @@ func TestProcessPlatformEvent_RoutesByEventType(t *testing.T) {
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("hello"), &platform.NoopSender{})
 	time.Sleep(20 * time.Millisecond)
 
-	assert.True(t, called.Load(), "Handler should have been called for C2C_MESSAGE_CREATE")
+	assert.False(t, called.Load(), "QQ-specific (C2C_MESSAGE_CREATE) matcher must NOT match new-path events")
+}
+
+// Kept for naming consistency but now uses EventKind routing.
+func TestProcessPlatformEvent_RoutesByEventType(t *testing.T) {
+	TestProcessPlatformEvent_RoutesByEventKind(t)
 }
 
 func TestProcessPlatformEvent_GetMessageContent(t *testing.T) {
@@ -102,7 +135,7 @@ func TestProcessPlatformEvent_GetMessageContent(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
 	var got string
-	eng.On(dto.C2CMessageCreate).Handle(func(ctx *corectx.Context) error {
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
 		got = ctx.GetMessageContent()
 		return nil
 	})
@@ -118,7 +151,7 @@ func TestProcessPlatformEvent_GetPlatformEvent(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
 	var got platform.Event
-	eng.On(dto.C2CMessageCreate).Handle(func(ctx *corectx.Context) error {
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
 		got = ctx.GetPlatformEvent()
 		return nil
 	})
@@ -137,7 +170,7 @@ func TestProcessPlatformEvent_Reply(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
 	sender := &captureSender{}
-	eng.On(dto.C2CMessageCreate).Handle(func(ctx *corectx.Context) error {
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
 		return ctx.Reply(platform.TextMessage("pong"))
 	})
 
@@ -159,13 +192,15 @@ func TestProcessPlatformEvent_NilEvent_NoPanic(t *testing.T) {
 	})
 }
 
+// TestProcessPlatformEvent_NonQQPlatform verifies that Discord events are routed
+// by their EventKind ("GROUP_MESSAGE"), not by raw type ("MESSAGE_CREATE").
 func TestProcessPlatformEvent_NonQQPlatform(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
 	var called atomic.Bool
-	// Discord rawType = "MESSAGE_CREATE"
-	eng.On("MESSAGE_CREATE").Handle(func(ctx *corectx.Context) error {
+	// Register with EventKind — platform-agnostic routing
+	eng.On(string(platform.EventKindGroupMessage)).Handle(func(ctx *corectx.Context) error {
 		called.Store(true)
 		assert.Equal(t, "discord", ctx.GetEventPlatform())
 		return nil
@@ -174,7 +209,7 @@ func TestProcessPlatformEvent_NonQQPlatform(t *testing.T) {
 	eng.ProcessPlatformEvent(newDiscordEvent("hello discord"), &platform.NoopSender{})
 	time.Sleep(20 * time.Millisecond)
 
-	assert.True(t, called.Load(), "Discord event should be routed to MESSAGE_CREATE matcher")
+	assert.True(t, called.Load(), "Discord event should be routed by EventKind GROUP_MESSAGE")
 }
 
 func TestProcessPlatformEvent_AfterShutdown_NoPanic(t *testing.T) {
@@ -193,7 +228,7 @@ func TestProcessPlatformEvent_IsPlatformContext(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 
 	var isPlatform bool
-	eng.On(dto.C2CMessageCreate).Handle(func(ctx *corectx.Context) error {
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
 		isPlatform = ctx.IsPlatformContext()
 		return nil
 	})

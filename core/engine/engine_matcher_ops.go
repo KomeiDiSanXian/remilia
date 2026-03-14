@@ -3,7 +3,7 @@ package engine
 // engine_matcher_ops.go — Matcher 注册、删除、分组、迁移等写操作
 //
 // 本文件包含所有与 Matcher 生命周期相关的写操作：
-//   - 注册（On/OnC2C/OnGroupAt/OnTemp/BatchRegisterMatchers）
+//   - 注册（On/OnEventKind/OnTemp/BatchRegisterMatchers）
 //   - 删除（DeleteMatcher/DeleteMatchers/DeleteAllMatchers）
 //   - 分组（SetMatcherGroup/WithMatcherGroupBatch/RemoveGroup）
 //   - 状态修改（SetBlock/SetMaxMatchers/InvalidateSortedCache）
@@ -15,7 +15,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // noopMatcher 是一个空操作匹配器，用于在达到匹配器限制时返回。
@@ -179,24 +179,14 @@ func (e *Engine) OnAny(rules ...context.Rule) *Matcher {
 	return e.On("", rules...)
 }
 
-// OnC2C 是 On(dto.C2CMessageCreate, ...) 的便捷封装
-func (e *Engine) OnC2C(rules ...context.Rule) *Matcher {
-	return e.On(dto.C2CMessageCreate, rules...)
-}
-
-// OnGroupAt 是 On(dto.GroupAtMessageCreate, ...) 的便捷封装
-func (e *Engine) OnGroupAt(rules ...context.Rule) *Matcher {
-	return e.On(dto.GroupAtMessageCreate, rules...)
-}
-
-// OnGroupAdd 是 On(dto.GroupAddRobot, ...) 的便捷封装
-func (e *Engine) OnGroupAdd(rules ...context.Rule) *Matcher {
-	return e.On(dto.GroupAddRobot, rules...)
-}
-
-// OnGroupDel 是 On(dto.GroupDelRobot, ...) 的便捷封装
-func (e *Engine) OnGroupDel(rules ...context.Rule) *Matcher {
-	return e.On(dto.GroupDelRobot, rules...)
+// OnEventKind 注册处理指定平台事件类别的匹配器（平台无关，推荐使用）
+//
+// 示例：
+//
+//	engine.OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(handler)
+//	engine.OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/help")).Handle(handler)
+func (e *Engine) OnEventKind(kind platform.EventKind, rules ...context.Rule) *Matcher {
+	return e.On(string(kind), rules...)
 }
 
 // OnFullMatch 注册一个完全匹配器

@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -58,16 +56,10 @@ func DefaultConfig() Config {
 type sendJob struct {
 	target string
 
-	// 旧路径（QQ 专属）——已废弃，使用下方 platform 字段代替
-	isGroup bool            // Deprecated: 使用 usePlatform=true + outbound 路径
-	msg     *dto.Message    // Deprecated: 使用 outbound platform.OutboundMessage 替代
-	api     openapi.OpenAPI // Deprecated: 使用 sender platform.Sender 替代
-
-	// platform-agnostic path (preferred)
-	sender      platform.Sender
-	outbound    platform.OutboundMessage
-	usePlatform bool
-	attempt     int
+	// platform-agnostic path
+	sender   platform.Sender
+	outbound platform.OutboundMessage
+	attempt  int
 }
 
 // Plugin is the send queue plugin API.
@@ -80,7 +72,6 @@ type Plugin struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	mu            sync.Mutex
-	defaultAPI    openapi.OpenAPI
 	defaultSender platform.Sender
 }
 
@@ -144,15 +135,6 @@ func New(cfg Config) *plugin.PluginDescriptor {
 	}
 }
 
-// SetDefaultAPI sets the default QQ OpenAPI client (legacy path).
-//
-// Deprecated: Use SetDefaultSender for multi-platform support.
-func (p *Plugin) SetDefaultAPI(api openapi.OpenAPI) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.defaultAPI = api
-}
-
 // SetDefaultSender sets the default platform-agnostic sender (recommended).
 func (p *Plugin) SetDefaultSender(s platform.Sender) {
 	p.mu.Lock()
@@ -165,33 +147,15 @@ func (p *Plugin) SetDefaultSender(s platform.Sender) {
 // If sender is nil, falls back to the default sender set via SetDefaultSender.
 func (p *Plugin) Enqueue(chatID string, msg platform.OutboundMessage, sender platform.Sender) error {
 	return p.enqueue(sendJob{
-		target:      chatID,
-		outbound:    msg,
-		sender:      sender,
-		usePlatform: true,
+		target:   chatID,
+		outbound: msg,
+		sender:   sender,
 	})
-}
-
-// EnqueueGroup adds a QQ group message to the queue (legacy path).
-//
-// Deprecated: Use Enqueue with platform.OutboundMessage.
-func (p *Plugin) EnqueueGroup(groupOpenID string, msg *dto.Message, api openapi.OpenAPI) error {
-	return p.enqueue(sendJob{target: groupOpenID, isGroup: true, msg: msg, api: api})
-}
-
-// EnqueueC2C adds a QQ C2C message to the queue (legacy path).
-//
-// Deprecated: Use Enqueue with platform.OutboundMessage.
-func (p *Plugin) EnqueueC2C(openID string, msg *dto.Message, api openapi.OpenAPI) error {
-	return p.enqueue(sendJob{target: openID, isGroup: false, msg: msg, api: api})
 }
 
 func (p *Plugin) enqueue(job sendJob) error {
 	p.mu.Lock()
-	if !job.usePlatform && job.api == nil {
-		job.api = p.defaultAPI
-	}
-	if job.usePlatform && job.sender == nil {
+	if job.sender == nil {
 		job.sender = p.defaultSender
 	}
 	p.mu.Unlock()
@@ -245,16 +209,10 @@ func (p *Plugin) process(workerID int, job sendJob) {
 	}
 
 	var sendErr error
-	if job.usePlatform && job.sender != nil {
+	if job.sender != nil {
 		sendErr = job.sender.Send(p.ctx, job.target, job.outbound)
-	} else if job.api != nil {
-		if job.isGroup {
-			_, sendErr = job.api.GroupChat(job.target, job.msg)
-		} else {
-			_, sendErr = job.api.SingleChat(job.target, job.msg)
-		}
 	} else {
-		logger.Warnf("[SendQueue] worker=%d job has no sender or api, dropping target=%s", workerID, job.target)
+		logger.Warnf("[SendQueue] worker=%d job has no sender, dropping target=%s", workerID, job.target)
 		return
 	}
 	if sendErr != nil {

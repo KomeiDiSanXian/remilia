@@ -160,14 +160,6 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	}
 }
 
-// Close 停止 Engine 后台工作者并等待在途事件（无超时）。
-//
-// Deprecated-ish：优先使用 Shutdown(ctx) 以获得有界优雅关闭。
-// Close 保留向后兼容，执行无界等待。
-func (e *Engine) Close() {
-	_ = e.Shutdown(stdctx.Background())
-}
-
 // ---- 内部辅助 ---------------------------------------------------------------
 
 // removeMatcherFromStateSilently 从 State 移除 matcher，但不标记为已删除。

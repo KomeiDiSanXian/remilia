@@ -34,6 +34,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	mw "github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
@@ -229,7 +231,10 @@ type pumpAdapter struct {
 func newPumpAdapter(bufSize int) *pumpAdapter {
 	return &pumpAdapter{ch: make(chan *dto.Payload, bufSize)}
 }
-func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+func (a *pumpAdapter) Platform() string        { return "qq" }
+func (a *pumpAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+
+func (a *pumpAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	if !a.started.CompareAndSwap(false, true) {
 		return fmt.Errorf("pumpAdapter already started")
 	}
@@ -237,18 +242,14 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 	workers := runtime.NumCPU() * 2
 	for range workers {
 		a.wg.Go(func() {
-			// batch buffer: reused across iterations to avoid per-event alloc
 			batch := make([]*dto.Payload, 0, 64)
 			for {
-				// Block until at least one event arrives or context is done.
 				select {
 				case <-a.ctx.Done():
 					return
 				case ev := <-a.ch:
 					batch = append(batch, ev)
 				}
-				// Drain as many additional events as are immediately available
-				// (non-blocking), up to batch capacity.
 			drain:
 				for len(batch) < cap(batch) {
 					select {
@@ -258,11 +259,9 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(*dto.Payload)) err
 						break drain
 					}
 				}
-				// Process the batch
 				for _, ev := range batch {
-					handler(ev)
+					handler(qqplatform.NewEvent(ev))
 				}
-				// Reset slice length but keep backing array
 				batch = batch[:0]
 			}
 		})

@@ -175,14 +175,6 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 	}
 }
 
-// SetViper 已废弃，请使用 SetConfigProvider(plugin.NewViperConfigProvider(v))。
-//
-// Deprecated: 使用 NewManager(eng, plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)))
-// 或 pm.SetConfigProvider(plugin.NewViperConfigProvider(v)) 替代。
-func (pm *Manager) SetViper(_ any) {
-	logger.Warn("[pluginManager] SetViper is deprecated, use SetConfigProvider(plugin.NewViperConfigProvider(v)) instead")
-}
-
 // propagateConfigChange 向所有已加载插件的 Config 广播配置变更
 func (pm *Manager) propagateConfigChange() {
 	pm.mu.RLock()

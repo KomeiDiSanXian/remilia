@@ -155,11 +155,7 @@ func (p *Plugin) Reset(userID, command string) {
 func (p *Plugin) Middleware(command string, duration time.Duration) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			author := ctx.GetAuthor()
-			userID := ""
-			if author != nil {
-				userID = author.UserOpenID
-			}
+			userID := ctx.GetSenderInfo().ID
 			if userID == "" {
 				return next(ctx)
 			}
@@ -197,22 +193,22 @@ func (p *Plugin) CleanExpired(maxAge time.Duration) int {
 	return count
 }
 
-// CooldownRecord 单条冷却记录（供查询使用）
-type CooldownRecord struct {
+// Record 单条冷却记录（供查询使用）
+type Record struct {
 	Command  string
 	LastUsed time.Time
 }
 
 // QueryUser 返回指定用户的所有冷却记录
-func (p *Plugin) QueryUser(userID string) []CooldownRecord {
+func (p *Plugin) QueryUser(userID string) []Record {
 	prefix := userID + ":"
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	result := make([]CooldownRecord, 0)
+	result := make([]Record, 0)
 	for key, e := range p.records {
 		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
-			result = append(result, CooldownRecord{
+			result = append(result, Record{
 				Command:  key[len(prefix):],
 				LastUsed: e.lastUsed,
 			})

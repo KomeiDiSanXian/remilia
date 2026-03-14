@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	stdctx "context"
 	"fmt"
 	"sync"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // TestBugFix_RegisterV2ConcurrentAccess 测试 Bug 1 修复：RegisterV2 竞态条件
 func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	manager := NewManager(eng)
 
@@ -78,7 +79,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 // TestBugFix_RemoveListenerSafety 测试 Bug 2 修复：RemoveListener 安全性
 func TestBugFix_RemoveListenerSafety(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	manager := NewManager(eng)
 
@@ -112,7 +113,7 @@ func TestBugFix_RemoveListenerSafety(t *testing.T) {
 // TestBugFix_UnloadStateTransition 测试 Bug 3 修复：Unload 状态转换
 func TestBugFix_UnloadStateTransition(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	manager := NewManager(eng)
 
@@ -219,7 +220,7 @@ var ErrPluginLoading = fmt.Errorf("plugin is loading")
 // TestBugFix_CrossBatchCyclicDependency 测试 Bug 5 修复：跨批次循环依赖检测
 func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 
 	// 场景1：已注册插件 A，批次中插件 B 依赖 A，但 A 依赖 B（形成循环）
 	t.Run("DirectCrossBatchCycle", func(t *testing.T) {

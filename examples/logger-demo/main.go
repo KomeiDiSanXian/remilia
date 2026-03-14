@@ -10,6 +10,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 )
 
 func main() {
@@ -38,7 +40,7 @@ func main() {
 	bot := remilia.NewBot(mockAdapter, eng)
 
 	// 注册一个简单的消息处理器
-	eng.OnC2C().Handle(func(ctx *eventctx.Context) error {
+	eng.On(dto.C2CMessageCreate).Handle(func(ctx *eventctx.Context) error {
 		// 使用 logger.WithFields 添加结构化字段
 		logger.WithFields(logger.Fields{
 			"user_id":  "example_user",
@@ -62,18 +64,20 @@ func main() {
 	logger.Info("Bot stopped")
 }
 
-// MockAdapter 模拟适配器
+// MockAdapter 模拟适配器（实现 engine.PlatformAdapter）
 type MockAdapter struct{}
 
-func (m *MockAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
+func (m *MockAdapter) Platform() string        { return "qq" }
+func (m *MockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+
+func (m *MockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	logger.Info("[MockAdapter] Starting...")
 	go func() {
-		// 模拟发送一个事件
 		time.Sleep(1 * time.Second)
-		handler(&dto.Payload{
+		handler(qqplatform.NewEvent(&dto.Payload{
 			Type: dto.C2CMessageCreate,
 			ID:   "test_event_1",
-		})
+		}))
 	}()
 	return nil
 }

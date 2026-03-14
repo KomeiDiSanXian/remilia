@@ -207,7 +207,6 @@ func (tb *Bot) inject(eventType dto.EventType, event any) {
 
 // SendPlatformEvent injects an arbitrary platform.Event and captures replies via MockSender.
 func (tb *Bot) SendPlatformEvent(event platform.Event) {
-	tb.sender.Clear()
 	tb.eng.ProcessPlatformEvent(event, tb.sender)
 }
 

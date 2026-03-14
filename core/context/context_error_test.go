@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestContextErrorHandling 测试 Context 错误处理
@@ -19,7 +19,7 @@ func TestContextErrorHandling(t *testing.T) {
 		assert.NotPanics(t, func() {
 			_ = ctx.Context()
 			_ = ctx.GetMessageContent()
-			_ = ctx.GetAuthor()
+			_ = ctx.GetSenderInfo()
 			_ = ctx.GetEventType()
 			_ = ctx.GetEvent()
 		})
@@ -27,8 +27,8 @@ func TestContextErrorHandling(t *testing.T) {
 		// 这些操作在 nil context 上会安全返回
 		assert.Equal(t, stdctx.Background(), ctx.Context())
 		assert.Equal(t, "", ctx.GetMessageContent())
-		assert.Nil(t, ctx.GetAuthor())
-		assert.Equal(t, dto.EventType(""), ctx.GetEventType())
+		assert.Equal(t, platform.UserInfo{}, ctx.GetSenderInfo())
+		assert.Equal(t, "", ctx.GetEventType())
 		assert.Nil(t, ctx.GetEvent())
 	})
 
@@ -37,26 +37,9 @@ func TestContextErrorHandling(t *testing.T) {
 
 		// 应该返回合理的默认值
 		assert.Equal(t, "", ctx.GetMessageContent())
-		assert.Nil(t, ctx.GetAuthor())
-		assert.Equal(t, dto.EventType(""), ctx.GetEventType())
+		assert.Equal(t, platform.UserInfo{}, ctx.GetSenderInfo())
+		assert.Equal(t, "", ctx.GetEventType())
 		assert.Nil(t, ctx.GetEvent())
-	})
-
-	t.Run("nil_api_handling", func(t *testing.T) {
-		event := &dto.Payload{
-			Type: dto.C2CMessageCreate,
-			ID:   "test-event",
-		}
-		ctx := NewContext(event, nil)
-
-		// API 调用应该返回错误而不是 panic
-		_, err := ctx.SendGroupMessage("group-id", &dto.Message{Content: "test"})
-		assert.Error(t, err)
-		assert.Equal(t, ErrNilAPI, err)
-
-		_, err = ctx.SendSingleMessage("user-id", &dto.Message{Content: "test"})
-		assert.Error(t, err)
-		assert.Equal(t, ErrNilAPI, err)
 	})
 
 	t.Run("invalid_json_detail", func(t *testing.T) {
@@ -71,8 +54,8 @@ func TestContextErrorHandling(t *testing.T) {
 		content := ctx.GetMessageContent()
 		assert.Equal(t, "", content)
 
-		author := ctx.GetAuthor()
-		assert.Nil(t, author)
+		senderInfo := ctx.GetSenderInfo()
+		assert.Equal(t, platform.UserInfo{}, senderInfo)
 	})
 
 	t.Run("reserved_state_key_rejection", func(t *testing.T) {
@@ -167,7 +150,7 @@ func TestContextConcurrency(t *testing.T) {
 			go func() {
 				for range 100 {
 					_ = ctx.GetMessageContent()
-					_ = ctx.GetAuthor()
+					_ = ctx.GetSenderInfo()
 					_ = ctx.GetEventType()
 				}
 				done <- true
@@ -482,10 +465,8 @@ func TestContextMessageParsing(t *testing.T) {
 		content := ctx.GetMessageContent()
 		assert.Equal(t, "Hello, World!", content)
 
-		author := ctx.GetAuthor()
-		require.NotNil(t, author)
-		assert.Equal(t, "user-123", author.ID)
-		assert.Equal(t, "openid-456", author.UserOpenID)
+		senderInfo := ctx.GetSenderInfo()
+		assert.Equal(t, "openid-456", senderInfo.ID)
 	})
 
 	t.Run("parse_empty_content", func(t *testing.T) {
@@ -506,8 +487,8 @@ func TestContextMessageParsing(t *testing.T) {
 		}
 		ctx := NewContext(event, nil)
 
-		author := ctx.GetAuthor()
-		assert.Nil(t, author)
+		senderInfo := ctx.GetSenderInfo()
+		assert.Equal(t, platform.UserInfo{}, senderInfo)
 	})
 }
 

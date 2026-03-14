@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	stdctx "context"
 	"errors"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 
 func TestP3_SetupV3_AutoExport(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	type MyAPI struct{ Value int }
@@ -37,7 +38,7 @@ func TestP3_SetupV3_AutoExport(t *testing.T) {
 
 func TestP3_SetupV3_NilApiNotExported(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
@@ -56,7 +57,7 @@ func TestP3_SetupV3_NilApiNotExported(t *testing.T) {
 
 func TestP3_SetupV3_ErrorPropagates(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	sentinel := errors.New("setup failed")
@@ -75,7 +76,7 @@ func TestP3_SetupV3_ErrorPropagates(t *testing.T) {
 
 func TestP3_OldSetupFunc_StillWorks(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	type OldAPI struct{ Name string }
@@ -100,7 +101,7 @@ func TestP3_OldSetupFunc_StillWorks(t *testing.T) {
 
 func TestP3_TeardownV3_ReceivesAPI(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	type State struct{ Saved bool }
@@ -126,7 +127,7 @@ func TestP3_TeardownV3_ReceivesAPI(t *testing.T) {
 
 func TestP3_TeardownV3_LogAndConfigAvailable(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var teardownLog PluginLogger
@@ -155,7 +156,7 @@ func TestP3_TeardownV3_LogAndConfigAvailable(t *testing.T) {
 
 func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	teardownCalled := false
@@ -181,7 +182,7 @@ func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
 
 func TestP3_ExportAs_StillWorks(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	type Service struct{ ID string }
@@ -240,7 +241,7 @@ func TestP3_Meta_FallbackToDeprecatedFields(t *testing.T) {
 
 func TestP3_Advanced_ReloadInAdvanced(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	reloadCalled := false
@@ -265,7 +266,7 @@ func TestP3_Advanced_ReloadInAdvanced(t *testing.T) {
 
 func TestP3_Advanced_FallbackToDeprecatedReload(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	reloadCalled := false

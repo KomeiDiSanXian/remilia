@@ -12,6 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -107,9 +108,7 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 				if err := c.DecodeEvent(&c2c); err != nil {
 					return err
 				}
-				response := fmt.Sprintf("%s, %s!", greeting, c2c.Author.UserOpenID)
-				_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: response})
-				return err
+				return c.Reply(platform.TextMessage(fmt.Sprintf("%s, %s!", greeting, c2c.Author.UserOpenID)))
 			})
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").Handle(func(c *eventctx.Context) error {
@@ -118,12 +117,10 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 					return err
 				}
 				if c2c.Content == "/setgreeting" || c2c.Content == "" {
-					_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "用法: /setgreeting <问候语>"})
-					return err
+					return c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
 				}
 				greeting = "Hello"
-				_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "问候语已更新"})
-				return err
+				return c.Reply(platform.TextMessage("问候语已更新"))
 			})
 
 			logger.Info("[Greeter] Plugin loaded successfully (v2)")
@@ -155,32 +152,17 @@ func NewCounterPlugin() *plugin.PluginDescriptor {
 			logger.Info("[Counter] Loading plugin (v2)...")
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/count").Handle(func(c *eventctx.Context) error {
-				var c2c dto.C2CMessageCreateEvent
-				if err := c.DecodeEvent(&c2c); err != nil {
-					return err
-				}
 				currentCount := count.Add(1)
-				_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: fmt.Sprintf("计数: %d", currentCount)})
-				return err
+				return c.Reply(platform.TextMessage(fmt.Sprintf("计数: %d", currentCount)))
 			})
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/reset").Handle(func(c *eventctx.Context) error {
-				var c2c dto.C2CMessageCreateEvent
-				if err := c.DecodeEvent(&c2c); err != nil {
-					return err
-				}
 				count.Store(0)
-				_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: "计数已重置"})
-				return err
+				return c.Reply(platform.TextMessage("计数已重置"))
 			})
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/stats").Handle(func(c *eventctx.Context) error {
-				var c2c dto.C2CMessageCreateEvent
-				if err := c.DecodeEvent(&c2c); err != nil {
-					return err
-				}
-				_, err := c.ReplyPrivate(&dto.Message{Type: dto.TextMessage, Content: fmt.Sprintf("当前计数: %d", count.Load())})
-				return err
+				return c.Reply(platform.TextMessage(fmt.Sprintf("当前计数: %d", count.Load())))
 			})
 
 			logger.Info("[Counter] Plugin loaded successfully (v2)")

@@ -12,16 +12,6 @@ type GoroutineSummary struct {
 	ByPlugin map[string]int
 }
 
-// ListPluginGoroutines 返回所有插件的受管后台 goroutine 信息快照。
-//
-// 仅包含通过 ctx.Go / ctx.GoNamed 启动的 goroutine，不包含系统级 goroutine。
-// 每个条目的 Uptime 字段自动填充（查询时间 - StartTime）。
-//
-// Deprecated: 使用 ListAllGoroutines 替代（语义更清晰，两者功能相同）。
-func (pm *Manager) ListPluginGoroutines() []GoroutineInfo {
-	return pm.ListAllGoroutines()
-}
-
 // ListAllGoroutines 返回所有插件的受管后台 goroutine 全局聚合视图。
 //
 // 使用场景：

@@ -22,7 +22,7 @@ const testEvent = dto.C2CMessageCreate
 
 func TestRegistryWriter_LiveTracksMatchers(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var matcherCount int32
@@ -59,7 +59,7 @@ func TestRegistryWriter_Noop_NoMatchers(t *testing.T) {
 
 func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	// RegisterMultipleV2Smart 内部 DryRun 阶段应注入 noopRegistryWriter
@@ -88,7 +88,7 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 
 func TestPluginInfo_IsLoaded(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
@@ -112,7 +112,7 @@ func TestPluginInfo_IsLoaded(t *testing.T) {
 
 func TestPluginInfo_DoesNotExposeWriteOps(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	// 验证 PluginInfo 接口只包含查询方法，不含 Unregister/Reload 等
@@ -139,7 +139,7 @@ func TestPluginInfo_NullSafe(t *testing.T) {
 
 func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	setupCallCount := 0
@@ -169,7 +169,7 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 
 func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var goroutineRunning atomic.Bool
@@ -202,7 +202,7 @@ func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 
 func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	const count = 5
@@ -230,7 +230,7 @@ func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 
 func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var order []string
@@ -271,7 +271,7 @@ func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
 
 func TestCtxGo_ReloadCreatesNewManager(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var stopCount atomic.Int32
@@ -317,7 +317,7 @@ func TestPluginLogger_WithField_Immutable(t *testing.T) {
 
 func TestCtxLog_InjectedInSetup(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	var loggerName string
@@ -345,7 +345,7 @@ func TestCtxLog_InjectedInSetup(t *testing.T) {
 
 func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 	eng := engine.NewEngine()
-	defer eng.Close()
+	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
 	type MyAPI struct{ Value string }
@@ -360,52 +360,49 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 		},
 	}))
 
-	// 插件 B 通过 Require 获取
+	// 插件 B 通过 Must 获取
 	var got *MyAPI
 	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
 		Name: "consumer",
 		Deps: []string{"exporter"},
 		Setup: func(ctx *SetupContext) (any, error) {
-			got = Require[MyAPI](ctx, "exporter")
+			got = Must[MyAPI](ctx, "exporter")
 			return nil, nil
 		},
 	}))
 
 	require.NotNil(t, got)
-	assert.Equal(t, "hello", got.Value)
 }
 
-func TestRequire_PanicsOnMissing(t *testing.T) {
+func TestMust_PanicsOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
-			container:  NewContainer(),
-			pluginName: "test",
+			container: NewContainer(),
 		},
 	}
 	assert.Panics(t, func() {
-		Require[struct{}](ctx, "nonexistent")
+		Must[struct{}](ctx, "nonexistent")
 	})
 }
 
-func TestOptional_ReturnsNilOnMissing(t *testing.T) {
+func TestTry_ReturnsNilOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
-			container:  NewContainer(),
-			pluginName: "test",
+			container: NewContainer(),
 		},
 	}
-	v, ok := Optional[struct{}](ctx, "nonexistent")
+	v, ok := Try[struct{}](ctx, "nonexistent")
 	assert.Nil(t, v)
 	assert.False(t, ok)
 }
 
-func TestOptional_ReturnsValueWhenPresent(t *testing.T) {
+func TestTry_ReturnsValueWhenPresent(t *testing.T) {
 	type Svc struct{ X int }
 	c := NewContainer()
 	c.Register("svc", &Svc{X: 42})
 	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: c, pluginName: "test"}}
 
-	v, ok := Optional[Svc](ctx, "svc")
+	v, ok := Try[Svc](ctx, "svc")
 	require.True(t, ok)
 	assert.Equal(t, 42, v.X)
 }

@@ -207,24 +207,6 @@ func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
 	return typed, nil
 }
 
-// Require 获取必需依赖（类型安全，不存在或类型不符则 panic）
-//
-// Deprecated: 使用 Must 替代。
-//
-//	perm := plugin.Require[permission.Plugin](ctx, "permission")
-func Require[T any](ctx *SetupContext, name string) *T {
-	return Must[T](ctx, name)
-}
-
-// Optional 获取可选依赖（类型安全，不存在时返回 nil, false）
-//
-// Deprecated: 使用 Try 替代。
-//
-//	if sb, ok := plugin.Optional[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
-func Optional[T any](ctx *SetupContext, name string) (*T, bool) {
-	return Try[T](ctx, name)
-}
-
 // Must 获取必需依赖（类型安全，不存在或类型不符则 panic）
 //
 //	perm := plugin.Must[permission.Plugin](ctx, "permission")

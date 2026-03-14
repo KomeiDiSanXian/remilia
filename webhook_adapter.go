@@ -19,6 +19,15 @@ import (
 	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 )
 
+func safeHandlePlatform(handler func(platform.Event), event platform.Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithField("panic", r).Error("[Adapter] Handler panic recovered")
+		}
+	}()
+	handler(event)
+}
+
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器。
 //
 // 实现 engine.PlatformAdapter 接口（新路径）以及旧 engine.Adapter 接口（向后兼容）。
@@ -122,20 +131,6 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 		workers:    workers,
 		bufferSize: bufferSize,
 	}
-}
-
-// Start 启动适配器（旧签名，向后兼容）
-//
-// Deprecated: 请使用 StartPlatform 替代，可通过 ctx.Reply(platform.OutboundMessage) 发送消息。
-func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(*dto.Payload)) error {
-	// 包装为 platform.Event handler
-	return a.startWithPlatformHandler(ctx, func(event platform.Event) {
-		if raw := event.RawPayload(); raw != nil {
-			if payload, ok := raw.(*dto.Payload); ok {
-				safeHandle(handler, payload)
-			}
-		}
-	})
 }
 
 // StartPlatform 实现 engine.PlatformAdapter.Start，接受 platform.Event handler

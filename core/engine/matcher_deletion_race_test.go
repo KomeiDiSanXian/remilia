@@ -1,6 +1,7 @@
 package engine
 
 import (
+	stdctx "context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,7 +14,7 @@ import (
 // TestEngine_MatcherDeletionRaceCondition 测试 matcher 删除的竞态条件修复
 func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 	engine := NewEngine()
-	defer engine.Close()
+	defer engine.Shutdown(stdctx.Background())
 
 	// 创建多个临时 matcher，使用次数为 1
 	numMatchers := 100
@@ -83,7 +84,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 // TestEngine_ConcurrentMatcherDeletion 测试并发修改 matcher 状态
 func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 	engine := NewEngine()
-	defer engine.Close()
+	defer engine.Shutdown(stdctx.Background())
 
 	// 创建临时 matcher
 	m := &Matcher{
@@ -142,7 +143,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 // TestEngine_MatcherIsTemplToggle 测试 isTemp 标志切换场景
 func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	engine := NewEngine()
-	defer engine.Close()
+	defer engine.Shutdown(stdctx.Background())
 
 	// 创建 matcher
 	m := &Matcher{
@@ -199,7 +200,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 	engine := NewEngine(
 		WithPendingDeleteBufferSize(5), // 小缓冲区，更容易触发满的情况
 	)
-	defer engine.Close()
+	defer engine.Shutdown(stdctx.Background())
 
 	// 创建多个 matcher，使其进入 pending delete
 	numMatchers := 20
@@ -243,7 +244,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 	}
 
 	engine := NewEngine()
-	defer engine.Close()
+	defer engine.Shutdown(stdctx.Background())
 
 	// 创建大量临时 matcher
 	numMatchers := 1000

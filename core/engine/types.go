@@ -4,7 +4,6 @@ import (
 	stdctx "context"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -92,16 +91,6 @@ type PluginCoordinator interface {
 	DisableGroup(groupName string)
 	// EnableGroup 启用指定分组（恢复事件分发）
 	EnableGroup(groupName string)
-}
-
-// Adapter connects an event source to the Bot.
-//
-// Deprecated: Use PlatformAdapter instead. Adapter requires a QQ-specific
-// *dto.Payload handler and will be removed in a future major version.
-// Migrate to PlatformAdapter for platform-agnostic event handling.
-type Adapter interface {
-	Start(ctx stdctx.Context, handleFunc func(*dto.Payload)) error
-	Stop(ctx stdctx.Context) error
 }
 
 // PlatformAdapter 是平台无关的适配器接口，取代 Adapter。

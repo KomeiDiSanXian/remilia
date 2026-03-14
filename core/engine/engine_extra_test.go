@@ -23,8 +23,8 @@ func TestEngine_WithMatcherGroupBatch(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.OnC2C()
-		m2 = eng.OnGroupAt()
+		m1 = eng.On(dto.C2CMessageCreate)
+		m2 = eng.On(dto.GroupAtMessageCreate)
 		eng.SetMatcherGroup(m1, "test-plugin", "source1")
 		eng.SetMatcherGroup(m2, "test-plugin", "source2")
 	})
@@ -35,7 +35,7 @@ func TestEngine_WithMatcherGroupBatch(t *testing.T) {
 
 func TestEngine_SetMatcherGroup(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	eng.SetMatcherGroup(matcher, "my-plugin", "test-source")
 	assert.Equal(t, "my-plugin", matcher.group)
 	assert.Equal(t, "test-source", matcher.Source)
@@ -53,7 +53,7 @@ func TestEngine_Named(t *testing.T) {
 	})
 	require.NotNil(t, mw)
 	eng.Use(mw)
-	eng.OnC2C().Handle(func(c *ctx.Context) error { return nil })
+	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error { return nil })
 	payload := &dto.Payload{Type: dto.C2CMessageCreate}
 	context := ctx.NewContext(payload, nil)
 	eng.ProcessEvent(context)
@@ -66,8 +66,8 @@ func TestEngine_RemoveGroup_WithMatchers(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.OnC2C()
-		m2 = eng.OnC2C()
+		m1 = eng.On(dto.C2CMessageCreate)
+		m2 = eng.On(dto.C2CMessageCreate)
 		eng.SetMatcherGroup(m1, "plugin1", "s1")
 		eng.SetMatcherGroup(m2, "plugin1", "s2")
 	})
@@ -93,7 +93,7 @@ func TestMatcher_NoopBehavior(t *testing.T) {
 
 func TestMatcher_ReplaceHandler(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	var executed string
 
 	handler1 := func(c *ctx.Context) error {
@@ -147,7 +147,7 @@ func TestEngine_UseForGroup_Multiple(t *testing.T) {
 	eng.UseForGroup("test", mw1)
 	eng.UseForGroup("test", mw2)
 
-	matcher := eng.OnC2C()
+	matcher := eng.On(dto.C2CMessageCreate)
 	matcher.group = "test"
 	matcher.Handle(func(c *ctx.Context) error { return nil })
 	eng.RebuildMatcherChain(matcher)
