@@ -2,21 +2,22 @@ package plugin
 
 import (
 	stdctx "context"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_Override_PersistsAfterReload(t *testing.T) {
-	cfg := NewPluginConfig("testplugin", nil)
+	cfg := NewPluginConfigFromProvider("testplugin", nil)
 	require.NoError(t, cfg.Override("key", "overridden-value"))
 	require.NoError(t, cfg.Reload())
 	assert.Equal(t, "overridden-value", cfg.GetString("key", "default"),
 		"Override 值在 Reload 后应当持久保留")
 }
 func TestConfig_Override_MultipleKeys_AllPersist(t *testing.T) {
-	cfg := NewPluginConfig("testplugin", nil)
+	cfg := NewPluginConfigFromProvider("testplugin", nil)
 	require.NoError(t, cfg.Override("a", 42))
 	require.NoError(t, cfg.Override("b", true))
 	require.NoError(t, cfg.Override("c", "hello"))
@@ -26,7 +27,7 @@ func TestConfig_Override_MultipleKeys_AllPersist(t *testing.T) {
 	assert.Equal(t, "hello", cfg.GetString("c", ""))
 }
 func TestConfig_Override_OnChangeStillFires(t *testing.T) {
-	cfg := NewPluginConfig("testplugin", nil)
+	cfg := NewPluginConfigFromProvider("testplugin", nil)
 	var gotKey string
 	var gotNew any
 	cfg.OnChange(func(key string, oldVal, newVal any) { gotKey = key; gotNew = newVal })

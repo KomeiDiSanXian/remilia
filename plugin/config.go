@@ -1,12 +1,9 @@
 package plugin
 
 import (
-	"fmt"
 	"maps"
 	"sync"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 // Config 插件配置接口
@@ -27,11 +24,6 @@ type Config interface {
 	// 会立即触发通过 OnChange 注册的所有监听器。
 	Override(key string, value any) error
 
-	// Set 是 Override 的别名，已废弃，请使用 Override。
-	//
-	// Deprecated: 使用 Override 替代，语义更清晰（仅内存覆盖，不持久化）。
-	Set(key string, value any) error
-
 	// Reload 重载配置
 	Reload() error
 
@@ -45,7 +37,6 @@ type Config interface {
 // pluginConfig 插件配置实现
 type pluginConfig struct {
 	pluginName     string
-	viper          *viper.Viper   // 向后兼容（若通过 NewPluginConfig 创建）
 	configProvider ConfigProvider // 推荐：通过 NewPluginConfigFromProvider 注入
 	values         map[string]any
 	overrides      map[string]any // Override 写入的值，热重载后仍然保留（叠加在 provider 值之上）
@@ -67,51 +58,23 @@ func NewPluginConfigFromProvider(pluginName string, provider ConfigProvider) Con
 	return pc
 }
 
-// NewPluginConfig 创建插件配置（向后兼容，直接使用 viper）。
-//
-// Deprecated: 推荐使用 NewPluginConfigFromProvider 配合 ViperConfigProvider。
-func NewPluginConfig(pluginName string, globalViper *viper.Viper) Config {
-	pc := &pluginConfig{
-		pluginName: pluginName,
-		viper:      globalViper,
-		values:     make(map[string]any),
-		handlers:   make([]func(key string, oldVal, newVal any), 0),
-	}
-	pc.loadFromGlobal()
-
-	return pc
-}
-
-// loadFromGlobal 从配置源加载插件配置（支持 ConfigProvider 和 viper 两种来源）
+// loadFromGlobal 从配置源加载插件配置
 func (pc *pluginConfig) loadFromGlobal() {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	// 优先使用 ConfigProvider（新 API）
+	// ConfigProvider 路径（推荐方式）
 	if pc.configProvider != nil {
 		if settings := pc.configProvider.Sub(pc.pluginName); settings != nil {
 			pc.values = settings
 		} else {
 			pc.values = make(map[string]any)
 		}
-		// 重新叠加 override
+		// 重新叠加 override，确保热重载后不会丢弃运行时覆盖的值
 		maps.Copy(pc.values, pc.overrides)
 		return
 	}
-
-	// 向后兼容：使用 viper
-	if pc.viper == nil {
-		return
-	}
-
-	prefix := fmt.Sprintf("plugins.%s", pc.pluginName)
-	settings := pc.viper.Sub(prefix)
-	if settings != nil {
-		pc.values = settings.AllSettings()
-	}
-
-	// 重新叠加 override，确保热重载不会丢弃运行时覆盖的值
-	maps.Copy(pc.values, pc.overrides)
+	// 无 ConfigProvider：不清空 values，Override 值已在 values 中，Reload 是无操作
 }
 
 // Get 获取配置值
@@ -270,13 +233,6 @@ func (pc *pluginConfig) Override(key string, value any) error {
 	}
 
 	return nil
-}
-
-// Set 设置配置值（仅覆盖内存，不持久化）
-//
-// Deprecated: 使用 Override 替代。
-func (pc *pluginConfig) Set(key string, value any) error {
-	return pc.Override(key, value)
 }
 
 // Reload 重载配置

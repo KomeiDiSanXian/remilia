@@ -139,17 +139,13 @@ func (b *BotBuilder) WithPlugins(descriptors ...*plugin.PluginDescriptor) *BotBu
 // 注入后 Bot.Start() 会为每个已注册的平台适配器启动独立事件循环，
 // 事件通过 platform.Event 接口传递给框架，不再直接依赖 *dto.Payload。
 //
-// 可与 WithWebhook/WithAdapter 同时使用（旧 QQ 路径 + 新多平台路径并行）。
+// 当仅使用注册表时，可省略 WithWebhook/WithAdapter，Build() 不要求单一适配器存在：
 //
-// 示例:
-//
-//	webhookConn := remilia.NewWebhookServerAdapter(":8080", botInfo)
-//	api := openapi.New(tokenManager)
 //	registry := platform.NewRegistry()
 //	registry.Register(qq.NewAdapter(webhookConn, api))
+//	registry.Register(discord.NewAdapter())
 //
 //	bot, err := remilia.NewBotBuilder().
-//	    WithBotInfo(botInfo).
 //	    WithPlatformRegistry(registry).
 //	    Build()
 func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
@@ -163,6 +159,7 @@ func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
 //   - 若设置了 WithWebhook 地址且有 BotInfo，自动创建 WebhookServerAdapter
 //   - 若调用了 WithPlugins，自动创建/复用 plugin.Manager 并按依赖序批量注册插件
 //   - WithWebhook 与 WithBotInfo 的调用顺序不影响结果
+//   - 若使用 WithPlatformRegistry 代替 WithAdapter/WithWebhook，adapter 可以省略
 //
 // 如果构建过程中有错误，返回nil和错误
 func (b *BotBuilder) Build() (*Bot, error) {
@@ -174,8 +171,8 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		b.adapter = NewWebhookServerAdapter(b.webhookAddr, b.botInfo)
 	}
 
-	// 验证必需参数
-	if b.adapter == nil {
+	// 验证必需参数：需要至少一个事件来源（直接适配器或多平台注册表）
+	if b.adapter == nil && b.platformRegistry == nil {
 		return nil, ErrAdapterRequired
 	}
 

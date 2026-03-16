@@ -73,12 +73,12 @@ func OnUserBlacklist(userIDs ...string) Rule {
 //
 // 非群组消息（解码失败）视为「不适用此规则」，直接放行（返回 true），
 // 由其他规则或 EventType 规则负责过滤。
-// 若要严格限制仅处理群组消息，请在此规则之前添加 OnGroupAtMessage() 规则。
+// 若要严格限制仅处理群组消息，请在此规则之前添加 OnEventKind(platform.EventKindGroupMessage) 规则。
 //
 // 使用示例:
 //
 //	engine.On(
-//	    OnGroupAtMessage(),
+//	    OnEventKind(platform.EventKindGroupMessage),
 //	    OnGroupWhitelist("group1", "group2"),
 //	).Handle(handler)
 func OnGroupWhitelist(groupIDs ...string) Rule {
@@ -101,12 +101,12 @@ func OnGroupWhitelist(groupIDs ...string) Rule {
 //
 // 非群组消息（解码失败）视为「不适用此规则」，直接放行（返回 true），
 // 由其他规则或 EventType 规则负责过滤。
-// 若要严格限制仅处理群组消息，请在此规则之前添加 OnGroupAtMessage() 规则。
+// 若要严格限制仅处理群组消息，请在此规则之前添加 OnEventKind(platform.EventKindGroupMessage) 规则。
 //
 // 使用示例:
 //
 //	engine.On(
-//	    OnGroupAtMessage(),
+//	    OnEventKind(platform.EventKindGroupMessage),
 //	    OnGroupBlacklist("spam-group1", "spam-group2"),
 //	).Handle(handler)
 func OnGroupBlacklist(groupIDs ...string) Rule {

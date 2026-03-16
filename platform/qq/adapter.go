@@ -21,12 +21,18 @@ type Webhook interface {
 // It reads *dto.Payload from a Webhook, converts them to platform.Event via
 // NewEvent(), and invokes the framework-provided handler.
 //
-// Usage:
+// Usage (multi-platform registry, wrapping an existing webhook.Conn):
 //
-//	webhookConn := remilia.NewWebhookServerAdapter(":8080", botInfo)
+//	// webhookConn must implement EventStream() <-chan *dto.Payload
+//	// e.g. a *webhook.Conn from openapi/protocol/webhook
 //	qqAdapter := qq.NewAdapter(webhookConn, openAPIClient)
 //	registry := platform.NewRegistry()
 //	registry.Register(qqAdapter)
+//
+// For a self-contained QQ setup (single platform), use WebhookServerAdapter directly:
+//
+//	webhookServer := remilia.NewWebhookServerAdapter(":8080", botInfo)
+//	bot := remilia.NewBot(webhookServer, engine)
 type Adapter struct {
 	webhook Webhook
 	sender  platform.Sender

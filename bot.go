@@ -65,7 +65,8 @@ type Config struct {
 
 // NewBot 创建新的 Bot 实例
 //
-// 注意：若 adapter 或 engine 为 nil，此函数会直接 panic。
+// adapter 可以为 nil，当且仅当后续会通过 [Bot.UsePlatformRegistry] 注入多平台注册表。
+// 若 engine 为 nil，此函数会直接 panic。
 // 推荐使用 [BotBuilder.Build] 代替，它返回错误而非 panic，
 // 可由调用方优雅处理：
 //
@@ -73,10 +74,16 @@ type Config struct {
 //	    WithAdapter(adapter).
 //	    WithEngine(engine).
 //	    Build()
+//
+// 仅使用多平台注册表时可省略 adapter：
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithPlatformRegistry(registry).
+//	    Build()
 func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *Bot {
-	// 验证必需参数
+	// adapter 允许为 nil（多平台注册表模式下不需要单一适配器）
 	if adapter == nil {
-		logger.Panic("[Bot] adapter cannot be nil")
+		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
 	}
 	if e == nil {
 		logger.Panic("[Bot] engine cannot be nil")
@@ -115,18 +122,22 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 	}
 
 	// 注册组件到生命周期管理器
-	b.lifecycle.Register(lifecycle.NewSimpleComponent(
-		"adapter",
-		nil, // onStart
-		func(ctx context.Context) error {
-			// onRun: adapter.StartPlatform 是阻塞的，适合在这里运行
-			return b.adapter.StartPlatform(ctx, b.handlePlatformEvent)
-		},
-		func(ctx context.Context) error {
-			// onStop
-			return b.adapter.Stop(ctx)
-		},
-	))
+	// 主适配器（单平台模式）：仅在 adapter 非 nil 时注册
+	// 多平台注册表模式下 adapter 为 nil，各平台适配器通过下方 platformRegistry 注册
+	if b.adapter != nil {
+		b.lifecycle.Register(lifecycle.NewSimpleComponent(
+			"adapter",
+			nil, // onStart
+			func(ctx context.Context) error {
+				// onRun: adapter.StartPlatform 是阻塞的，适合在这里运行
+				return b.adapter.StartPlatform(ctx, b.handlePlatformEvent)
+			},
+			func(ctx context.Context) error {
+				// onStop
+				return b.adapter.Stop(ctx)
+			},
+		))
+	}
 
 	b.lifecycle.Register(lifecycle.NewSimpleComponent(
 		"engine",
@@ -323,15 +334,22 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		}).Debug("[Bot] Platform event received")
 	}
 
-	// 获取该平台的 Sender
+	// 获取该平台的 Sender：
+	// 1. 优先从 platformRegistry 中查找对应平台的 Sender
+	// 2. 若未找到，尝试 Bot.adapter.Sender()（单平台适配器模式）
+	// 3. 最终兜底使用 NoopSender（避免 nil 指针，但无法实际发送）
 	var sender platform.Sender
 	b.mu.RLock()
 	reg := b.platformRegistry
+	adp := b.adapter
 	b.mu.RUnlock()
 	if reg != nil {
 		if pa, ok := reg.Get(event.Platform()); ok {
 			sender = pa.Sender()
 		}
+	}
+	if sender == nil && adp != nil {
+		sender = adp.Sender()
 	}
 	if sender == nil {
 		sender = &platform.NoopSender{}

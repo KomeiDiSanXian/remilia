@@ -4,17 +4,12 @@
 //   - 向多个群或用户批量发送消息
 //   - 内置发送速率控制（复用 sendqueue 或直接内置令牌桶）
 //   - 发送结果统计（成功/失败数）
-//   - 支持平台无关的 platform.Sender（新路径）和 openapi.OpenAPI（旧 QQ 路径）
+//   - 支持平台无关的 platform.Sender，兼容 QQ、Discord、Telegram 等所有平台
 //
-// 推荐使用 SetSender 注入 platform.Sender，兼容所有平台：
+// 使用 SetSender 注入 platform.Sender，然后调用 Broadcast：
 //
 //	bc.SetSender(ctx.GetPlatformSender())
 //	result := bc.Broadcast([]string{"chat001", "chat002"}, platform.TextMessage("公告"))
-//
-// 旧 QQ 路径（仍然有效）：
-//
-//	bc.SetAPI(ctx.GetAPI())
-//	result := bc.ToGroups([]string{"group1"}, dto.TextMsg("公告"))
 package broadcast
 
 import (

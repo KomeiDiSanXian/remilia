@@ -4,7 +4,6 @@ import (
 	"time"
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
@@ -23,12 +22,6 @@ const (
 	// DefaultPendingDeleteBatchSize 默认每次批量删除数量
 	DefaultPendingDeleteBatchSize = 1000
 )
-
-// DeadLetterItem 代表死信队列中的一项。
-//
-// Deprecated: 请直接使用 infra/dlq.DeadLetterItem，此别名仅保留向后兼容。
-// middleware/retry.go 等包应直接依赖 infra/dlq，不再通过 core/engine 转接。
-type DeadLetterItem = dlq.DeadLetterItem
 
 // WithCleanupInterval 设置临时 Matcher 清理间隔。
 //

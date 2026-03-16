@@ -9,13 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNewBot_NilAdapter tests that NewBot panics when adapter is nil
+// TestNewBot_NilAdapter tests that NewBot does NOT panic when adapter is nil.
+// Nil adapter is valid for registry-only (multi-platform) usage.
 func TestNewBot_NilAdapter(t *testing.T) {
 	eng := engine.NewEngine()
 
-	assert.Panics(t, func() {
-		NewBot(nil, eng)
-	}, "NewBot should panic when adapter is nil")
+	assert.NotPanics(t, func() {
+		bot := NewBot(nil, eng)
+		assert.NotNil(t, bot)
+	}, "NewBot should not panic when adapter is nil (registry-only mode)")
 }
 
 // TestNewBot_NilEngine tests that NewBot panics when engine is nil
