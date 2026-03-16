@@ -3,7 +3,7 @@ package dto
 import (
 	"encoding/json"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/intents"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/intents"
 	"github.com/tidwall/gjson"
 )
 

@@ -1,4 +1,4 @@
-package remilia
+package qq
 
 import (
 	"context"
@@ -12,25 +12,15 @@ import (
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/openapi/protocol/webhook"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/protocol/webhook"
 )
-
-func safeHandlePlatform(handler func(platform.Event), event platform.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WithField("panic", r).Error("[Adapter] Handler panic recovered")
-		}
-	}()
-	handler(event)
-}
 
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器。
 //
-// 实现 engine.PlatformAdapter 接口（新路径）以及旧 engine.Adapter 接口（向后兼容）。
+// 实现 platform.PlatformAdapter 接口，绑定 QQ Webhook 协议并将事件转为 platform.Event。
 type WebhookServerAdapter struct {
 	addr       string
 	botInfo    *dto.BotInfo
@@ -46,13 +36,13 @@ type WebhookServerAdapter struct {
 	bufferSize int
 }
 
-// Platform 实现 engine.PlatformAdapter
-func (a *WebhookServerAdapter) Platform() string { return qqplatform.PlatformID }
+// Platform 实现 platform.PlatformAdapter
+func (a *WebhookServerAdapter) Platform() string { return PlatformID }
 
-// Sender 实现 engine.PlatformAdapter
+// Sender 实现 platform.PlatformAdapter
 func (a *WebhookServerAdapter) Sender() platform.Sender {
 	if a.api != nil {
-		return qqplatform.NewSender(a.api)
+		return NewSender(a.api)
 	}
 	return &platform.NoopSender{}
 }
@@ -72,18 +62,17 @@ func (a *WebhookServerAdapter) WithAPI(api openapi.OpenAPI) *WebhookServerAdapte
 //
 // 示例:
 //
-//	adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+//	adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 //	bot := remilia.NewBot(adapter, engine)
 //	bot.Start()
 func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAdapter {
-	// 使用默认配置
 	return NewWebhookServerAdapterWithConfig(addr, botInfo, config.WebhookConfig{
 		WorkerCount: 0,   // 0 = 使用 CPU 核心数
 		EventBuffer: 100, // 默认缓冲区大小
 	})
 }
 
-// SimpleWebhookAdapter 创建最简单的Webhook适配器
+// SimpleWebhookAdapter 创建最简单的 Webhook 适配器
 //
 // 使用默认配置，适合快速原型开发
 //
@@ -92,9 +81,9 @@ func NewWebhookServerAdapter(addr string, botInfo *dto.BotInfo) *WebhookServerAd
 //
 // 示例:
 //
-//	adapter := remilia.SimpleWebhookAdapter(8080)
+//	adapter := qq.SimpleWebhookAdapter(8080)
 //
-// 注意: 此适配器不包含botInfo，仅用于接收事件，不支持主动API调用
+// 注意: 此适配器不包含 botInfo，仅用于接收事件，不支持主动 API 调用
 func SimpleWebhookAdapter(port int) *WebhookServerAdapter {
 	return NewWebhookServerAdapter(fmt.Sprintf(":%d", port), nil)
 }
@@ -109,18 +98,18 @@ func SimpleWebhookAdapter(port int) *WebhookServerAdapter {
 // 示例:
 //
 //	cfg, _ := config.LoadDefault()
-//	adapter := remilia.NewWebhookServerAdapterWithConfig(":8080", global.Info, cfg.Webhook)
-//	bot := remilia.NewBot(adapter, engine)
+//	adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, cfg.Webhook)
+//	bot := remilia.NewBot(adapter, eng)
 //	bot.Start()
 func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhookConfig config.WebhookConfig) *WebhookServerAdapter {
 	workers := webhookConfig.WorkerCount
 	if workers <= 0 {
-		workers = runtime.NumCPU() // 0 表示使用 CPU 核心数
+		workers = runtime.NumCPU()
 	}
 
 	bufferSize := webhookConfig.EventBuffer
 	if bufferSize <= 0 {
-		bufferSize = 100 // 默认值
+		bufferSize = 100
 	}
 
 	logger.Infof("[WebhookServerAdapter] Config: workers=%d, buffer=%d", workers, bufferSize)
@@ -133,7 +122,7 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 	}
 }
 
-// StartPlatform 实现 engine.PlatformAdapter.Start，接受 platform.Event handler
+// StartPlatform 实现 platform.PlatformAdapter.StartPlatform，接受 platform.Event handler
 func (a *WebhookServerAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	return a.startWithPlatformHandler(ctx, handler)
 }
@@ -146,13 +135,11 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 		return nil
 	}
 
-	// 创建 context
 	a.ctx, a.cancel = context.WithCancel(ctx)
 
-	// 创建 webhook 连接，使用配置的 buffer 大小
 	bufferSize := a.bufferSize
 	if bufferSize <= 0 {
-		bufferSize = 100 // 默认值
+		bufferSize = 100
 	}
 	a.webhook = webhook.NewWithBuffer(a.ctx, a.botInfo, bufferSize)
 	if a.webhook == nil {
@@ -162,10 +149,9 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 
 	logger.Infof("[WebhookServerAdapter] Webhook buffer size: %d", bufferSize)
 
-	// 创建 HTTP 服务器
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", a.webhook.Handle)
-	mux.HandleFunc("/", a.webhook.Handle) // 兼容根路径
+	mux.HandleFunc("/", a.webhook.Handle)
 
 	a.server = &http.Server{
 		Addr:    a.addr,
@@ -175,13 +161,10 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 	a.running = true
 	a.mu.Unlock()
 
-	// 获取事件流
 	eventStream := a.webhook.EventStream()
 
-	// 先启动事件处理 workers，确保在 HTTP 服务器接收请求前已准备就绪
 	logger.Infof("[WebhookServerAdapter] Starting %d event workers", a.workers)
 
-	// 使用 channel 等待所有 workers 启动完成
 	workersReady := make(chan struct{})
 	workersStarted := make(chan struct{}, a.workers)
 
@@ -191,8 +174,6 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 		go func() {
 			defer a.wg.Done()
 			logger.Debugf("[WebhookServerAdapter] Event worker #%d started", workerID)
-
-			// 通知 worker 已启动
 			workersStarted <- struct{}{}
 
 			for {
@@ -206,15 +187,14 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 						return
 					}
 					if payload != nil {
-						event := qqplatform.NewEvent(payload)
-						safeHandlePlatform(handler, event)
+						event := NewEvent(payload)
+						safeInvoke(handler, event)
 					}
 				}
 			}
 		}()
 	}
 
-	// 等待所有 workers 启动
 	go func() {
 		for i := 0; i < a.workers; i++ {
 			<-workersStarted
@@ -222,8 +202,6 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 		close(workersReady)
 	}()
 
-	// 等待所有 workers 就绪后再绑定端口，确保 HTTP 服务器接收首批事件时 workers 已准备好。
-	// 使用父 ctx 控制超时（由调用方决定等待上限），消除硬编码 500ms 的不确定性。
 	select {
 	case <-workersReady:
 		logger.Debug("[WebhookServerAdapter] All workers ready")
@@ -232,11 +210,8 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 		return a.ctx.Err()
 	}
 
-	// 修复 B2：使用 net.Listen 预绑定端口，确定性地检测端口冲突，
-	// 消除原先 time.After(100ms) 竞态判断的不可靠性。
 	ln, err := net.Listen("tcp", a.addr)
 	if err != nil {
-		// 端口绑定失败（如端口被占用），立即清理 workers
 		a.cancel()
 		a.wg.Wait()
 		a.mu.Lock()
@@ -245,13 +220,10 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 		return errutil.Wrapf(err, "failed to bind address %s", a.addr)
 	}
 
-	// 端口已成功绑定，启动 HTTP 服务器（使用已绑定的 listener）
 	a.wg.Go(func() {
 		logger.Infof("[WebhookServerAdapter] Starting HTTP server on %s", a.addr)
-
 		if err := a.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[WebhookServerAdapter] HTTP server error")
-			// HTTP 服务器运行期间失败，取消所有 workers
 			a.cancel()
 		}
 	})
@@ -273,19 +245,16 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 
 	logger.Info("[WebhookServerAdapter] Stopping...")
 
-	// 1. 关闭 HTTP 服务器
 	if a.server != nil {
 		if err := a.server.Shutdown(ctx); err != nil {
 			logger.WithError(err).Warn("[WebhookServerAdapter] HTTP server shutdown error")
 		}
 	}
 
-	// 2. 取消 context（停止事件循环）
 	if a.cancel != nil {
 		a.cancel()
 	}
 
-	// 3. 等待所有 goroutine 完成
 	done := make(chan struct{})
 	go func() {
 		a.wg.Wait()

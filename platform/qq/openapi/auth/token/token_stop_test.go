@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestTokenManager_StopIdempotent 测试 Stop 方法的幂等性

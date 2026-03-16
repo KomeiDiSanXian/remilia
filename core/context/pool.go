@@ -4,8 +4,8 @@ import (
 	stdctx "context"
 	"sync"
 
-	"github.com/KomeiDiSanXian/remilia/openapi"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // contextPool is a sync.Pool for Context objects to reduce GC pressure

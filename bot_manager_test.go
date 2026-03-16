@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
+	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func makeBot(t *testing.T) *remilia.Bot {
 	t.Helper()
-	adapter := remilia.SimpleWebhookAdapter(0)
+	adapter := qq.SimpleWebhookAdapter(0)
 	bot, err := remilia.NewBotBuilder().
 		WithAdapter(adapter).
 		WithName("test-bot").
@@ -148,7 +149,7 @@ func TestBotManagerBuilder_AddBot(t *testing.T) {
 }
 func TestBotManagerBuilder_AddBuilder(t *testing.T) {
 	builder := remilia.NewBotBuilder().
-		WithAdapter(remilia.SimpleWebhookAdapter(0)).
+		WithAdapter(qq.SimpleWebhookAdapter(0)).
 		WithName("built-bot")
 	mgr, err := remilia.NewBotManagerBuilder().
 		AddBuilder("lazy", builder).
@@ -165,7 +166,7 @@ func TestBotManagerBuilder_AddBuilder_FailsOnBadBuilder(t *testing.T) {
 }
 func TestBotManagerBuilder_MixedEntries(t *testing.T) {
 	bot := makeBot(t)
-	builder := remilia.NewBotBuilder().WithAdapter(remilia.SimpleWebhookAdapter(0))
+	builder := remilia.NewBotBuilder().WithAdapter(qq.SimpleWebhookAdapter(0))
 	mgr, err := remilia.NewBotManagerBuilder().
 		AddBot("direct", bot).
 		AddBuilder("from-builder", builder).

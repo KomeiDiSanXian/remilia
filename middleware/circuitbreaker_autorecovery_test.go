@@ -6,7 +6,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestCircuitBreakerAutoRecovery 测试自动恢复功能

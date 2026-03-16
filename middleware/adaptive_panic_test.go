@@ -8,7 +8,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestAdaptiveRateLimiter_PanicRecovery 测试 handler panic 时信号量正确释放

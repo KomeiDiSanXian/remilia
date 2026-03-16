@@ -18,8 +18,8 @@ import (
 	stdctx "context"
 	"sync"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // AcquireContextFromEvent 从 platform.Event 获取 Context（新平台无关路径）

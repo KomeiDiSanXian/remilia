@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func TestDisableGroup_PausesMatchers(t *testing.T) {

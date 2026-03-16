@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestDLQBlockUntilSpaceDeadlock 测试 BlockUntilSpace 策略下的死锁修复

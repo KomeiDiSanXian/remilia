@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestTokenManagerStop 测试 Token Manager 的优雅关闭

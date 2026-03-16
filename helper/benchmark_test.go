@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // BenchmarkBytesToString 测试 BytesToString 性能

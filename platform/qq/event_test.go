@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func makePayload(t dto.EventType, detail any) *dto.Payload {

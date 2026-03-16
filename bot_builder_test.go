@@ -5,7 +5,8 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +14,7 @@ import (
 // TestBotBuilder tests the BotBuilder pattern
 func TestBotBuilder(t *testing.T) {
 	t.Run("MinimalBuild", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
 			WithAdapter(adapter).
@@ -42,7 +43,7 @@ func TestBotBuilder(t *testing.T) {
 
 	t.Run("WithCustomEngine", func(t *testing.T) {
 		customEngine := engine.NewEngine()
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
 			WithEngine(customEngine).
@@ -55,7 +56,7 @@ func TestBotBuilder(t *testing.T) {
 	})
 
 	t.Run("WithName", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
 			WithAdapter(adapter).
@@ -67,7 +68,7 @@ func TestBotBuilder(t *testing.T) {
 	})
 
 	t.Run("WithDebug", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
 			WithAdapter(adapter).
@@ -113,7 +114,7 @@ func TestBotBuilder_Errors(t *testing.T) {
 // TestBotBuilder_MustBuild tests the MustBuild method
 func TestBotBuilder_MustBuild(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 
 		assert.NotPanics(t, func() {
 			bot := remilia.NewBotBuilder().
@@ -133,12 +134,12 @@ func TestBotBuilder_MustBuild(t *testing.T) {
 // TestSimpleWebhookAdapter tests the simplified webhook adapter
 func TestSimpleWebhookAdapter(t *testing.T) {
 	t.Run("Create", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 		assert.NotNil(t, adapter)
 	})
 
 	t.Run("WithBot", func(t *testing.T) {
-		adapter := remilia.SimpleWebhookAdapter(8080)
+		adapter := qq.SimpleWebhookAdapter(8080)
 		engine := engine.NewEngine()
 
 		bot := remilia.NewBot(adapter, engine)
@@ -148,7 +149,7 @@ func TestSimpleWebhookAdapter(t *testing.T) {
 
 // BenchmarkBotBuilder benchmarks bot creation
 func BenchmarkBotBuilder(b *testing.B) {
-	adapter := remilia.SimpleWebhookAdapter(8080)
+	adapter := qq.SimpleWebhookAdapter(8080)
 
 	b.Run("Builder", func(b *testing.B) {
 		b.ReportAllocs()

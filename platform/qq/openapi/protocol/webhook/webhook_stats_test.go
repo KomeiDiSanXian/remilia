@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestWebhook_GetStats 测试获取统计信息

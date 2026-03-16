@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestOptimization_GetAllCommandsCache 测试 GetAllCommands 缓存优化

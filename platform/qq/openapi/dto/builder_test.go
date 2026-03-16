@@ -3,7 +3,7 @@ package dto_test
 import (
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func TestMessageBuilder_Text(t *testing.T) {

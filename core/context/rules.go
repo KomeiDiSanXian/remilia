@@ -10,8 +10,8 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // rules.go — 事件匹配规则函数库

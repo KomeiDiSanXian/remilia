@@ -2,8 +2,9 @@ package remilia
 
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -168,7 +169,7 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		if b.botInfo == nil {
 			return nil, ErrBotInfoRequired
 		}
-		b.adapter = NewWebhookServerAdapter(b.webhookAddr, b.botInfo)
+		b.adapter = qqplatform.NewWebhookServerAdapter(b.webhookAddr, b.botInfo)
 	}
 
 	// 验证必需参数：需要至少一个事件来源（直接适配器或多平台注册表）

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestAcquireReleasePayload 验证基本的获取/归还语义

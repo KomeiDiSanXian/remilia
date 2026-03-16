@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestBugFix_ExtractCommandWithWhitespace 测试 Bug 7 的修复：extractCommand 处理空白

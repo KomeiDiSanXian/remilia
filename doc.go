@@ -40,7 +40,7 @@ Register handlers using platform-agnostic event matching:
 
 For QQ bots, dto.BotInfo and the webhook adapter are still supported:
 
-	import "github.com/KomeiDiSanXian/remilia/openapi/dto"
+	import "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 
 	bot, err := remilia.NewBotBuilder().
 	    WithBotInfo(&dto.BotInfo{

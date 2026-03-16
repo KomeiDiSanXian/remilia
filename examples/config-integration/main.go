@@ -10,8 +10,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/openapi/auth/token"
-	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // 这个示例展示如何使用配置系统来创建和配置 Bot 的各个组件
@@ -64,7 +65,7 @@ func main() {
 
 	// 6. 使用配置创建 Webhook Adapter
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	adapter := remilia.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Webhook)
+	adapter := qq.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Webhook)
 
 	// 7. 创建 Bot
 	bot := remilia.NewBot(adapter, eng)

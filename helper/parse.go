@@ -1,6 +1,6 @@
 package helper
 
-import "github.com/KomeiDiSanXian/remilia/openapi/dto"
+import "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 
 // MustParseEvent parses an event or panics if parsing fails.
 //
