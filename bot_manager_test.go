@@ -16,7 +16,7 @@ func makeBot(t *testing.T) *remilia.Bot {
 	t.Helper()
 	adapter := qq.SimpleWebhookAdapter(0)
 	bot, err := remilia.NewBotBuilder().
-		WithAdapter(adapter).
+		WithPlatformAdapter(adapter).
 		WithName("test-bot").
 		Build()
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestBotManagerBuilder_AddBot(t *testing.T) {
 }
 func TestBotManagerBuilder_AddBuilder(t *testing.T) {
 	builder := remilia.NewBotBuilder().
-		WithAdapter(qq.SimpleWebhookAdapter(0)).
+		WithPlatformAdapter(qq.SimpleWebhookAdapter(0)).
 		WithName("built-bot")
 	mgr, err := remilia.NewBotManagerBuilder().
 		AddBuilder("lazy", builder).
@@ -166,7 +166,7 @@ func TestBotManagerBuilder_AddBuilder_FailsOnBadBuilder(t *testing.T) {
 }
 func TestBotManagerBuilder_MixedEntries(t *testing.T) {
 	bot := makeBot(t)
-	builder := remilia.NewBotBuilder().WithAdapter(qq.SimpleWebhookAdapter(0))
+	builder := remilia.NewBotBuilder().WithPlatformAdapter(qq.SimpleWebhookAdapter(0))
 	mgr, err := remilia.NewBotManagerBuilder().
 		AddBot("direct", bot).
 		AddBuilder("from-builder", builder).

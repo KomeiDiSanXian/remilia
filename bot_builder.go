@@ -48,13 +48,7 @@ func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
 	return b
 }
 
-// WithAdapter 设置适配器（接受 engine.PlatformAdapter）
-func (b *BotBuilder) WithAdapter(adapter engine.PlatformAdapter) *BotBuilder {
-	b.adapter = adapter
-	return b
-}
-
-// WithPlatformAdapter 设置平台适配器（WithAdapter 的语义明确版本）
+// WithPlatformAdapter 设置平台适配器
 func (b *BotBuilder) WithPlatformAdapter(adapter engine.PlatformAdapter) *BotBuilder {
 	b.adapter = adapter
 	return b

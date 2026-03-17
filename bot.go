@@ -152,24 +152,6 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 		},
 	))
 
-	// 若已注入多平台注册表，为每个平台适配器注册独立的生命周期组件
-	// 各平台适配器在独立 goroutine 中运行，ctx 取消时统一退出
-	if b.platformRegistry != nil {
-		for _, pa := range b.platformRegistry.All() {
-			name := "platform:" + pa.Platform()
-			b.lifecycle.Register(lifecycle.NewSimpleComponent(
-				name,
-				nil,
-				func(ctx context.Context) error {
-					return pa.StartPlatform(ctx, b.handlePlatformEvent)
-				},
-				func(ctx context.Context) error {
-					return pa.Stop(ctx)
-				},
-			))
-		}
-	}
-
 	return b
 }
 
@@ -239,6 +221,29 @@ func (b *Bot) Start() error {
 		b.tokenManager = newManager
 		b.openAPI = newOpenAPI
 		b.mu.Unlock()
+	}
+
+	// 若已注入多平台注册表，为每个平台适配器注册独立的生命周期组件。
+	// 此处（Start 阶段）注册而非 NewBot 阶段，是因为 UsePlatformRegistry 可在
+	// NewBot 之后、Start 之前调用（BotBuilder 的标准流程即如此）。
+	b.mu.RLock()
+	reg := b.platformRegistry
+	b.mu.RUnlock()
+	if reg != nil {
+		for _, pa := range reg.All() {
+			pa := pa
+			name := "platform:" + pa.Platform()
+			b.lifecycle.Register(lifecycle.NewSimpleComponent(
+				name,
+				nil,
+				func(ctx context.Context) error {
+					return pa.StartPlatform(ctx, b.handlePlatformEvent)
+				},
+				func(ctx context.Context) error {
+					return pa.Stop(ctx)
+				},
+			))
+		}
 	}
 
 	// 为 OnStart 阶段创建带超时的子 context（不影响 rootCtx）

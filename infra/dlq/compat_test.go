@@ -1,12 +1,9 @@
 package dlq
 
 import (
-	stdctx "context"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,179 +30,6 @@ func TestBackwardCompatibility(t *testing.T) {
 		var _ PayloadConsumer
 		var _ PayloadConfig
 	})
-}
-
-// TestItemConversion tests conversion between old and new types
-func TestItemConversion(t *testing.T) {
-	t.Run("DeadLetterItem to Item", func(t *testing.T) {
-		oldItem := DeadLetterItem{
-			Event: &dto.Payload{
-				ID:   "test-123",
-				Type: dto.C2CMessageCreate,
-			},
-			Err:     assert.AnError,
-			Attempt: 3,
-			Source:  "test-source",
-		}
-
-		newItem := DeadLetterItemToItem(oldItem)
-
-		assert.Equal(t, oldItem.Event, newItem.Data)
-		assert.Equal(t, oldItem.Err, newItem.Err)
-		assert.Equal(t, oldItem.Attempt, newItem.Attempt)
-		assert.Equal(t, oldItem.Source, newItem.Source)
-	})
-
-	t.Run("Item to DeadLetterItem", func(t *testing.T) {
-		newItem := Item[*dto.Payload]{
-			Data: &dto.Payload{
-				ID:   "test-456",
-				Type: dto.GroupAtMessageCreate,
-			},
-			Err:     assert.AnError,
-			Attempt: 2,
-			Source:  "new-source",
-		}
-
-		oldItem := ItemToDeadLetterItem(newItem)
-
-		assert.Equal(t, newItem.Data, oldItem.Event)
-		assert.Equal(t, newItem.Err, oldItem.Err)
-		assert.Equal(t, newItem.Attempt, oldItem.Attempt)
-		assert.Equal(t, newItem.Source, oldItem.Source)
-	})
-
-	t.Run("round trip conversion", func(t *testing.T) {
-		original := DeadLetterItem{
-			Event: &dto.Payload{
-				ID:   "round-trip",
-				Type: dto.C2CMessageCreate,
-			},
-			Err:     assert.AnError,
-			Attempt: 1,
-			Source:  "test",
-		}
-
-		// Convert to new type and back
-		newItem := DeadLetterItemToItem(original)
-		restored := ItemToDeadLetterItem(newItem)
-
-		assert.Equal(t, original.Event, restored.Event)
-		assert.Equal(t, original.Err, restored.Err)
-		assert.Equal(t, original.Attempt, restored.Attempt)
-		assert.Equal(t, original.Source, restored.Source)
-	})
-}
-
-// TestConsumerAdapter tests the consumer adapter
-func TestConsumerAdapter(t *testing.T) {
-	t.Run("adapter works with new queue", func(t *testing.T) {
-		// Create a legacy consumer
-		legacyConsumer := &mockLegacyConsumer{}
-
-		// Wrap it in an adapter
-		adapter := NewConsumerAdapter(legacyConsumer)
-
-		// Use with new generic queue
-		q := NewPayloadQueue(PayloadConfig{
-			MaxSize: 10,
-			Workers: 1,
-		})
-
-		q.AddConsumer(adapter)
-		q.Start()
-		defer q.Close(time.Second)
-
-		// Enqueue an item
-		err := q.Enqueue(Item[*dto.Payload]{
-			Data: &dto.Payload{
-				ID:   "adapter-test",
-				Type: dto.C2CMessageCreate,
-			},
-			Attempt: 1,
-		})
-		require.NoError(t, err)
-
-		// Wait for processing
-		time.Sleep(100 * time.Millisecond)
-
-		// Legacy consumer should have received it
-		assert.Equal(t, 1, legacyConsumer.getCount())
-		assert.Equal(t, "adapter-test", string(legacyConsumer.getLastItem().Event.ID))
-	})
-
-	t.Run("multiple legacy consumers", func(t *testing.T) {
-		consumer1 := &mockLegacyConsumer{}
-		consumer2 := &mockLegacyConsumer{}
-
-		q := NewPayloadQueue(PayloadConfig{
-			MaxSize: 10,
-			Workers: 1,
-		})
-
-		q.AddConsumer(NewConsumerAdapter(consumer1))
-		q.AddConsumer(NewConsumerAdapter(consumer2))
-		q.Start()
-		defer q.Close(time.Second)
-
-		q.Enqueue(Item[*dto.Payload]{
-			Data: &dto.Payload{ID: "multi-test"},
-		})
-
-		time.Sleep(100 * time.Millisecond)
-
-		assert.Equal(t, 1, consumer1.getCount())
-		assert.Equal(t, 1, consumer2.getCount())
-	})
-}
-
-// TestMigrationPath demonstrates migration from old to new API
-func TestMigrationPath(t *testing.T) {
-	t.Run("gradual migration", func(t *testing.T) {
-		// Step 1: Start with old API (still works)
-		oldQueue := NewDeadLetterQueue(DeadLetterQueueConfig{
-			MaxSize: 100,
-			Workers: 2,
-		})
-		defer oldQueue.Shutdown(stdctx.Background())
-
-		// Step 2: Use new generic API alongside
-		newQueue := NewPayloadQueue(PayloadConfig{
-			MaxSize: 100,
-			Workers: 2,
-		})
-		defer newQueue.Close(time.Second)
-
-		// Step 3: Both should work identically
-		assert.Equal(t, 100, oldQueue.config.MaxSize)
-		assert.Equal(t, 100, newQueue.config.MaxSize)
-	})
-}
-
-// Mock legacy consumer for testing
-type mockLegacyConsumer struct {
-	mu       sync.Mutex
-	count    int
-	lastItem DeadLetterItem
-}
-
-func (m *mockLegacyConsumer) Consume(item DeadLetterItem) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.count++
-	m.lastItem = item
-}
-
-func (m *mockLegacyConsumer) getCount() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.count
-}
-
-func (m *mockLegacyConsumer) getLastItem() DeadLetterItem {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.lastItem
 }
 
 // TestRealWorldScenarios demonstrates real-world use cases
@@ -296,5 +120,14 @@ func TestRealWorldScenarios(t *testing.T) {
 		})
 
 		assert.NoError(t, err)
+	})
+
+	t.Run("PlatformEventQueue works", func(t *testing.T) {
+		q := NewPlatformEventQueue(PlatformEventConfig{
+			MaxSize: 100,
+			Workers: 1,
+		})
+		defer q.Close(time.Second)
+		require.NotNil(t, q)
 	})
 }

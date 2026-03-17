@@ -47,30 +47,6 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	e.processEventContext(ctx)
 }
 
-// getMatchersForEvent 获取用于匹配事件的匹配器列表（内部方法）
-// 使用索引优化，只返回相关事件类型的匹配器
-//
-// # COW 模式：无锁读取
-//
-// Deprecated: 此方法仅供测试 / 调试使用，不走命令索引、无排序、不含 TempMatcher，
-// 与 ProcessEvent 的匹配行为不一致。正式处理路径请使用 ProcessEvent。
-func (e *Engine) getMatchersForEvent(ctx *context.Context) []*Matcher {
-	// 无锁读取状态 - 无需类型断言
-	state := e.state.Load()
-
-	eventType := ctx.GetEventType()
-	// 获取特定事件类型的匹配器
-	specificMatchers := state.matcherIndex[eventType]
-	// 加上通用匹配器（空字符串键）
-	genericMatchers := state.matcherIndex[""]
-
-	// 合并并返回
-	result := make([]*Matcher, 0, len(specificMatchers)+len(genericMatchers))
-	result = append(result, specificMatchers...)
-	result = append(result, genericMatchers...)
-	return result
-}
-
 // ProcessEventBatch 批量处理事件（COW 无锁版本）
 //
 // COW 模式优势：

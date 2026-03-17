@@ -101,8 +101,8 @@ func FormatHandlerError(err error) string {
 	return stringsJoin(parts, "\n")
 }
 
-// MarshalDeadLetterItem serializes a DeadLetterItem with a standardized HandlerError.
-func MarshalDeadLetterItem(item dlq.DeadLetterItem) ([]byte, error) {
+// MarshalDeadLetterItem serializes a PayloadItem with a standardized HandlerError.
+func MarshalDeadLetterItem(item dlq.PayloadItem) ([]byte, error) {
 	var herr HandlerError
 	var he HandlerError
 	if errors.As(item.Err, &he) {
@@ -113,7 +113,7 @@ func MarshalDeadLetterItem(item dlq.DeadLetterItem) ([]byte, error) {
 		Event *DeadLetterEvent `json:"event"`
 		Error HandlerError     `json:"error"`
 	}{
-		Event: &DeadLetterEvent{ID: string(item.Event.ID), Type: string(item.Event.Type)},
+		Event: &DeadLetterEvent{ID: string(item.Data.ID), Type: string(item.Data.Type)},
 		Error: herr,
 	})
 }

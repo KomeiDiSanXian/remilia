@@ -4,7 +4,46 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(platform): move OpenAPI interface for QQ platform integration" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs(platform): move report files for improved organization">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_manager_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_manager_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/wrapper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/benchmark_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/benchmark_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/helper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/parse.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/helper/parse_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/checkers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/deadletter.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/deadletter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pprof.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof.go" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -227,7 +266,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: enhance dependency tracking by merging undeclared dependencies into instance descriptor" />
     <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
     <MESSAGE value="fix: correct cron schedule for daily stats logging" />
     <MESSAGE value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
@@ -252,7 +290,8 @@
     <MESSAGE value="feat(platform): enhance platform-agnostic event handling and deprecate legacy methods" />
     <MESSAGE value="feat(platform): enhance multi-platform support by allowing nil adapter in Bot and updating related documentation" />
     <MESSAGE value="refactor(platform): move OpenAPI interface for QQ platform integration" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(platform): move OpenAPI interface for QQ platform integration" />
+    <MESSAGE value="docs(platform): move report files for improved organization" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs(platform): move report files for improved organization" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

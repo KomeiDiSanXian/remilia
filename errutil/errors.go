@@ -113,7 +113,7 @@ func RecoverError() error {
 	if r := recover(); r != nil {
 		switch v := r.(type) {
 		case error:
-			return WrapErrorf(v, "panic recovered")
+			return Wrap(v, "panic recovered")
 		case string:
 			return fmt.Errorf("panic recovered: %s", v)
 		default:
@@ -130,7 +130,7 @@ func NewValidationError(field, reason string) error {
 
 // NewConfigError creates a configuration error for a specific key.
 func NewConfigError(key, reason string) error {
-	return WrapErrorf(ErrConfigInvalid, fmt.Sprintf("config key '%s': %s", key, reason))
+	return fmt.Errorf("config key '%s': %s: %w", key, reason, ErrConfigInvalid)
 }
 
 // NewPluginError creates a plugin-specific error.

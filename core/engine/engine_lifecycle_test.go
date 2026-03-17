@@ -566,26 +566,6 @@ func TestEngine_Components_Stop(t *testing.T) {
 }
 
 // ============================================================================
-// GetMatchersForEvent Tests
-// ============================================================================
-
-func TestEngine_GetMatchersForEvent_Specific(t *testing.T) {
-	eng := NewEngine()
-
-	eng.On(dto.C2CMessageCreate)
-	eng.On(dto.GroupAtMessageCreate)
-	eng.OnAny()
-
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	context := ctx.NewContext(payload, nil)
-
-	matchers := eng.getMatchersForEvent(context)
-
-	// Should include C2C and generic matchers
-	assert.GreaterOrEqual(t, len(matchers), 2)
-}
-
-// ============================================================================
 // Async Component Lifecycle Tests
 // ============================================================================
 

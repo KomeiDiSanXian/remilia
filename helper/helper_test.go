@@ -1,12 +1,9 @@
 package helper
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestBytesToString 测试字节切片到字符串的转换
@@ -166,71 +163,4 @@ func TestFNVHash_Uniqueness(t *testing.T) {
 	}
 
 	assert.Equal(t, len(inputs), len(hashes))
-}
-
-// TestParseEvent 测试泛型事件解析
-func TestParseEvent(t *testing.T) {
-	type TestEvent struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
-		Content string `json:"content"`
-		Count   int    `json:"count"`
-	}
-
-	t.Run("valid event", func(t *testing.T) {
-		eventData := map[string]any{
-			"id": "test-123", "type": "message", "content": "Hello World", "count": 42,
-		}
-		jsonData, err := json.Marshal(eventData)
-		require.NoError(t, err)
-
-		payload := &dto.Payload{Detail: jsonData}
-		event, err := ParseEvent[TestEvent](payload)
-		require.NoError(t, err)
-		require.NotNil(t, event)
-
-		assert.Equal(t, "test-123", event.ID)
-		assert.Equal(t, "message", event.Type)
-		assert.Equal(t, "Hello World", event.Content)
-		assert.Equal(t, 42, event.Count)
-	})
-
-	t.Run("empty payload", func(t *testing.T) {
-		payload := &dto.Payload{Detail: []byte("{}")}
-		event, err := ParseEvent[TestEvent](payload)
-		require.NoError(t, err)
-		require.NotNil(t, event)
-		assert.Equal(t, "", event.ID)
-	})
-
-	t.Run("invalid json", func(t *testing.T) {
-		payload := &dto.Payload{Detail: []byte("invalid json")}
-		_, err := ParseEvent[TestEvent](payload)
-		assert.Error(t, err)
-	})
-}
-
-// TestParseEvent_DifferentTypes 测试不同类型的事件解析
-func TestParseEvent_DifferentTypes(t *testing.T) {
-	t.Run("nested event", func(t *testing.T) {
-		type Author struct {
-			Name string `json:"name"`
-			ID   string `json:"id"`
-		}
-		type NestedEvent struct {
-			Title  string `json:"title"`
-			Author Author `json:"author"`
-		}
-
-		jsonData, _ := json.Marshal(map[string]any{
-			"title": "Test", "author": map[string]any{"name": "John", "id": "123"},
-		})
-
-		payload := &dto.Payload{Detail: jsonData}
-		event, err := ParseEvent[NestedEvent](payload)
-
-		require.NoError(t, err)
-		assert.Equal(t, "Test", event.Title)
-		assert.Equal(t, "John", event.Author.Name)
-	})
 }

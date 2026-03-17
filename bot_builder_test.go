@@ -17,7 +17,7 @@ func TestBotBuilder(t *testing.T) {
 		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
-			WithAdapter(adapter).
+			WithPlatformAdapter(adapter).
 			Build()
 
 		require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestBotBuilder(t *testing.T) {
 
 		bot, err := remilia.NewBotBuilder().
 			WithEngine(customEngine).
-			WithAdapter(adapter).
+			WithPlatformAdapter(adapter).
 			Build()
 
 		require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestBotBuilder(t *testing.T) {
 		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
-			WithAdapter(adapter).
+			WithPlatformAdapter(adapter).
 			WithName("test-bot").
 			Build()
 
@@ -71,7 +71,7 @@ func TestBotBuilder(t *testing.T) {
 		adapter := qq.SimpleWebhookAdapter(8080)
 
 		bot, err := remilia.NewBotBuilder().
-			WithAdapter(adapter).
+			WithPlatformAdapter(adapter).
 			WithDebug(true).
 			Build()
 
@@ -118,7 +118,7 @@ func TestBotBuilder_MustBuild(t *testing.T) {
 
 		assert.NotPanics(t, func() {
 			bot := remilia.NewBotBuilder().
-				WithAdapter(adapter).
+				WithPlatformAdapter(adapter).
 				MustBuild()
 			assert.NotNil(t, bot)
 		})
@@ -155,7 +155,7 @@ func BenchmarkBotBuilder(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			_, _ = remilia.NewBotBuilder().
-				WithAdapter(adapter).
+				WithPlatformAdapter(adapter).
 				Build()
 		}
 	})

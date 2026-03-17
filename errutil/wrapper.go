@@ -5,44 +5,6 @@ import (
 	"fmt"
 )
 
-// ErrorWrapper wraps an error adding message and optional context.
-type ErrorWrapper struct {
-	Err     error
-	Message string
-	Context string
-}
-
-func (e *ErrorWrapper) Error() string {
-	if e.Context != "" {
-		return fmt.Sprintf("%s [context: %s]: %v", e.Message, e.Context, e.Err)
-	}
-	return fmt.Sprintf("%s: %v", e.Message, e.Err)
-}
-
-func (e *ErrorWrapper) Unwrap() error { return e.Err }
-
-// WrapErrorf wraps an error with a formatted message.
-// Returns nil if the input error is nil.
-//
-// Deprecated: 请使用 Wrap 或 Wrapf 替代，语义更清晰。
-func WrapErrorf(err error, message string) error {
-	if err == nil {
-		return nil
-	}
-	return &ErrorWrapper{Err: err, Message: message}
-}
-
-// WrapErrorWithContextf wraps an error with both a message and context string.
-// Returns nil if the input error is nil.
-//
-// Deprecated: 请使用 WrapWithContext 替代。
-func WrapErrorWithContextf(err error, message, context string) error {
-	if err == nil {
-		return nil
-	}
-	return &ErrorWrapper{Err: err, Message: message, Context: context}
-}
-
 // ─── 推荐 API ───────────────────────────────────────────────────────────────
 
 // New 创建新错误，替代 errors.New。
@@ -96,7 +58,10 @@ func WrapWithContext(err error, message, ctx string) error {
 	if err == nil {
 		return nil
 	}
-	return &ErrorWrapper{Err: err, Message: message, Context: ctx}
+	if ctx != "" {
+		return fmt.Errorf("%s [context: %s]: %w", message, ctx, err)
+	}
+	return fmt.Errorf("%s: %w", message, err)
 }
 
 // Is 是 errors.Is 的快捷方式。

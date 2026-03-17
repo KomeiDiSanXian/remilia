@@ -4,29 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
-
-// DeadLetterItem represents a dead letter entry.
-//
-// Deprecated: Use Item[platform.Event] (PlatformEventItem) for new code.
-// DeadLetterItem is kept for backward compatibility with existing QQ consumers.
-type DeadLetterItem struct {
-	Event   *dto.Payload
-	Err     error
-	Attempt int
-	Source  string
-}
-
-type DeadLetterConsumer interface {
-	Consume(item DeadLetterItem)
-}
-
-// DeadLetterEvent is a lightweight event representation for persistence.
-type DeadLetterEvent struct {
-	ID   string `json:"id"`
-	Type string `json:"type"`
-}
 
 // DeadLetterError is a simplified error representation for dead letter serialization.
 type DeadLetterError struct {
@@ -35,49 +13,48 @@ type DeadLetterError struct {
 	Attempt int    `json:"attempt,omitempty"`
 }
 
-// MarshalDeadLetterItem serializes a DeadLetterItem for persistence.
-// It creates a simplified JSON representation with event info and error details.
-func MarshalDeadLetterItem(item DeadLetterItem) ([]byte, error) {
-	errMsg := ""
-	if item.Err != nil {
-		errMsg = item.Err.Error()
-	}
-
-	return json.Marshal(struct {
-		Event *DeadLetterEvent `json:"event"`
-		Error DeadLetterError  `json:"error"`
-	}{
-		Event: &DeadLetterEvent{
-			ID:   string(item.Event.ID),
-			Type: string(item.Event.Type),
-		},
-		Error: DeadLetterError{
-			Message: errMsg,
-			Source:  item.Source,
-			Attempt: item.Attempt,
-		},
-	})
-}
-
 // MarshalPlatformEventItem 序列化平台无关的死信队列条目。
 func MarshalPlatformEventItem(item Item[platform.Event]) ([]byte, error) {
 	errMsg := ""
 	if item.Err != nil {
 		errMsg = item.Err.Error()
 	}
-	id := ""
-	rawType := ""
-	plat := ""
-	if item.Data != nil {
-		rawType = item.Data.RawType()
-		plat = item.Data.Platform()
+
+	rec := PlatformDeadLetterRecord{
+		Error: DeadLetterError{
+			Message: errMsg,
+			Source:  item.Source,
+			Attempt: item.Attempt,
+		},
 	}
 
-	return json.Marshal(struct {
-		Event *DeadLetterEvent `json:"event"`
-		Error DeadLetterError  `json:"error"`
-	}{
-		Event: &DeadLetterEvent{ID: id, Type: plat + "/" + rawType},
-		Error: DeadLetterError{Message: errMsg, Source: item.Source, Attempt: item.Attempt},
-	})
+	if item.Data != nil {
+		e := item.Data
+		rec.Event = &PlatformDeadLetterEvent{
+			Platform:      e.Platform(),
+			Kind:          string(e.Kind()),
+			RawType:       e.RawType(),
+			ChatID:        e.Chat().ID,
+			SenderID:      e.Sender().ID,
+			TimestampUnix: e.Timestamp().UnixMilli(),
+		}
+	}
+
+	return json.Marshal(rec)
+}
+
+// PlatformDeadLetterRecord 是平台无关死信条目的 JSON 表示。
+type PlatformDeadLetterRecord struct {
+	Event *PlatformDeadLetterEvent `json:"event"`
+	Error DeadLetterError          `json:"error"`
+}
+
+// PlatformDeadLetterEvent 记录来自 platform.Event 的可识别字段。
+type PlatformDeadLetterEvent struct {
+	Platform      string `json:"platform"`
+	Kind          string `json:"kind"`
+	RawType       string `json:"raw_type"`
+	ChatID        string `json:"chat_id,omitempty"`
+	SenderID      string `json:"sender_id,omitempty"`
+	TimestampUnix int64  `json:"timestamp_unix,omitempty"`
 }

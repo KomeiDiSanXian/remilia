@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	_ "net/http/pprof" // Import for side-effect: registers pprof handlers
@@ -127,7 +128,7 @@ func (p *PprofServer) Start() error {
 	// 启动服务器
 	go func() {
 		logger.Infof("[Pprof] Starting pprof server on %s", p.config.Addr)
-		if err := p.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := p.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[Pprof] Pprof server error")
 		}
 	}()
@@ -313,25 +314,6 @@ func (p *PprofServer) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, "Snapshot captured: %s\n", timestamp)
 	fmt.Fprintf(w, "Files will be saved to: %s\n", p.config.OutputDir)
-}
-
-// StartPprofServer starts the pprof HTTP server on the specified address.
-//
-// This function should be called explicitly if you need pprof profiling.
-// The pprof handlers are registered on the default http.ServeMux.
-//
-// Example:
-//
-//	go remilia.StartPprofServer("localhost:9001")
-//
-// To access profiles:
-//   - CPU profile: http://localhost:9001/debug/pprof/profile
-//   - Heap profile: http://localhost:9001/debug/pprof/heap
-//   - Goroutines: http://localhost:9001/debug/pprof/goroutine
-//
-// Deprecated: Use NewPprofServer with PprofConfig for more features
-func StartPprofServer(addr string) error {
-	return http.ListenAndServe(addr, nil)
 }
 
 // CaptureTrace 捕获执行追踪

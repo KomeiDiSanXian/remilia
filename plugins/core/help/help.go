@@ -142,12 +142,6 @@ func (p *Plugin) Load(eng *engine.Engine) error {
 	return nil
 }
 
-// SetPluginManager 已废弃，保留用于向后兼容。请改用 ctx.Info（PluginInfo 只读接口）。
-// Deprecated: use ctx.Info instead.
-func (p *Plugin) SetPluginManager(pm *plugin.Manager) {
-	p.Info = pm.AsPluginInfo()
-}
-
 // handleHelp 处理帮助命令
 func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	content := ctx.GetMessageContent()

@@ -277,14 +277,14 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 	h.Set(HeaderTimestamp, req.EventTs)
 	sign, err := c.Sign(h, helper.StringToBytes(req.PlainToken))
 	if err != nil {
-		return nil, errutil.WrapErrorf(err, "failed to sign the validation request")
+		return nil, errutil.Wrap(err, "failed to sign the validation request")
 	}
 	resp, err := json.Marshal(&dto.ValidationRsp{
 		PlainToken: req.PlainToken,
 		Signature:  hex.EncodeToString(sign),
 	})
 	if err != nil {
-		return nil, errutil.WrapErrorf(err, "failed to marshal the validation response")
+		return nil, errutil.Wrap(err, "failed to marshal the validation response")
 	}
 	return resp, nil
 }

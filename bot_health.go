@@ -147,22 +147,28 @@ func (c *TokenManagerHealthChecker) Check(_ context.Context) health.CheckResult 
 	}
 }
 
-// DLQHealthAdapter 将 *dlq.DeadLetterQueue 适配为 health.DLQStats 接口。
+// dlqStater is satisfied by any dlq.Queue[T].
+type dlqStater interface {
+	Stats() dlq.Stats
+}
+
+// DLQHealthAdapter 将任意 dlq.Queue[T] 适配为 health.DLQStats 接口。
 //
 // 这是解决 infra/health 不应直接依赖 infra/dlq 的适配器（Adapter Pattern）。
 // infra/health 只知道 health.DLQStats 接口，实际的 DLQ 类型在上层（bot 层）注入。
 //
 // 使用示例：
 //
-//	myDLQ := dlq.NewDeadLetterQueue(config)
-//	adapter := remilia.NewDLQHealthAdapter(myDLQ)
+//	q := dlq.NewPayloadQueue(dlq.PayloadConfig{...})
+//	adapter := remilia.NewDLQHealthAdapter(q)
 //	botHealth.AddChecker(health.NewDeadLetterQueueHealthChecker(adapter, 1000, 0.1))
 type DLQHealthAdapter struct {
-	q *dlq.DeadLetterQueue
+	q dlqStater
 }
 
-// NewDLQHealthAdapter 创建 DLQ 健康检查适配器
-func NewDLQHealthAdapter(q *dlq.DeadLetterQueue) *DLQHealthAdapter {
+// NewDLQHealthAdapter 创建 DLQ 健康检查适配器。
+// 接受任意实现了 Stats() dlq.Stats 的队列，例如 *dlq.PayloadQueue 或 *dlq.PlatformEventQueue。
+func NewDLQHealthAdapter(q dlqStater) *DLQHealthAdapter {
 	return &DLQHealthAdapter{q: q}
 }
 

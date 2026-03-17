@@ -7,7 +7,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestNew 测试 New 创建哨兵错误
@@ -60,12 +59,6 @@ func TestWrapWithContext(t *testing.T) {
 	assert.Contains(t, wrapped.Error(), "query failed")
 	assert.Contains(t, wrapped.Error(), "table=users")
 	assert.True(t, errors.Is(wrapped, sentinel))
-
-	// 可以用 errors.As 提取 ErrorWrapper
-	var ew *errutil.ErrorWrapper
-	require.True(t, errors.As(wrapped, &ew))
-	assert.Equal(t, "query failed", ew.Message)
-	assert.Equal(t, "table=users", ew.Context)
 }
 
 // TestWrapWithContext_NilReturnsNil
@@ -83,12 +76,12 @@ func TestIs(t *testing.T) {
 
 // TestAs 测试 As 泛型快捷方式
 func TestAs(t *testing.T) {
-	sentinel := errutil.New("db error")
-	wrapped := errutil.WrapWithContext(sentinel, "query failed", "table=users")
-
-	var ew *errutil.ErrorWrapper
-	assert.True(t, errutil.As(wrapped, &ew))
-	assert.Equal(t, "query failed", ew.Message)
+	sentinel := errutil.New("base error")
+	wrapped := errutil.Wrap(sentinel, "outer")
+	assert.True(t, errutil.Is(wrapped, sentinel))
+	// errors.As finds the underlying sentinel via the chain
+	var target interface{ Error() string }
+	assert.True(t, errutil.As(wrapped, &target))
 }
 
 // TestJoin 测试 Join
@@ -132,19 +125,4 @@ func TestPredefinedErrors(t *testing.T) {
 	assert.NotNil(t, errutil.ErrBotAlreadyRunning)
 	assert.NotNil(t, errutil.ErrRateLimitExceeded)
 	assert.NotNil(t, errutil.ErrCircuitBreakerOpen)
-}
-
-// TestErrorWrapper_Error 测试 ErrorWrapper 格式化
-func TestErrorWrapper_Error(t *testing.T) {
-	base := errutil.New("io error")
-
-	// 没有 Context
-	ew := &errutil.ErrorWrapper{Err: base, Message: "read failed"}
-	assert.Equal(t, "read failed: io error", ew.Error())
-
-	// 有 Context
-	ewCtx := &errutil.ErrorWrapper{Err: base, Message: "read failed", Context: "file=/tmp/foo"}
-	assert.Contains(t, ewCtx.Error(), "read failed")
-	assert.Contains(t, ewCtx.Error(), "file=/tmp/foo")
-	assert.Contains(t, ewCtx.Error(), "io error")
 }

@@ -17,7 +17,7 @@ import (
 
 func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("enqueues on error", func(t *testing.T) {
-		q := dlq.NewDeadLetterQueue(dlq.DeadLetterQueueConfig{
+		q := dlq.NewPayloadQueue(dlq.PayloadConfig{
 			MaxSize: 100,
 		})
 
@@ -35,7 +35,7 @@ func TestDeadLetterMiddleware(t *testing.T) {
 	})
 
 	t.Run("no enqueue on success", func(t *testing.T) {
-		q := dlq.NewDeadLetterQueue(dlq.DeadLetterQueueConfig{
+		q := dlq.NewPayloadQueue(dlq.PayloadConfig{
 			MaxSize: 100,
 		})
 

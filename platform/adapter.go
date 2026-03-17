@@ -4,6 +4,8 @@ import (
 	stdctx "context"
 	"fmt"
 	"sync"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // chatInfoContextKey 是向 Go context 注入 ChatInfo 的 key（平台无关）
@@ -121,11 +123,16 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 		return fmt.Errorf("platform registry: no adapters registered")
 	}
 
-	errCh := make(chan error, len(adapters))
+	var wg sync.WaitGroup
 	for _, a := range adapters {
+		a := a
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			if err := a.StartPlatform(ctx, handler); err != nil {
-				errCh <- fmt.Errorf("platform %s: %w", a.Platform(), err)
+				logger.WithFields(logger.Fields{
+					"platform": a.Platform(),
+				}).WithError(err).Error("[Registry] Platform adapter exited with error")
 			}
 		}()
 	}

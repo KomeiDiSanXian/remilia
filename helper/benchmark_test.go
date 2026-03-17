@@ -1,12 +1,9 @@
 package helper
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // BenchmarkBytesToString 测试 BytesToString 性能
@@ -104,25 +101,6 @@ func BenchmarkFNVHash(b *testing.B) {
 				_ = FNVHash(tt.data)
 			}
 		})
-	}
-}
-
-// BenchmarkParseEvent 测试 ParseEvent 性能
-func BenchmarkParseEvent(b *testing.B) {
-	type TestEvent struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
-		Content string `json:"content"`
-	}
-
-	jsonData, _ := json.Marshal(map[string]any{
-		"id": "test-123", "type": "message", "content": "Hello",
-	})
-	payload := &dto.Payload{Detail: jsonData}
-
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		_, _ = ParseEvent[TestEvent](payload)
 	}
 }
 

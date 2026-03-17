@@ -162,10 +162,12 @@ func (ctx *Context) Clone() *Context {
 	}
 
 	newCtx := &Context{
-		ctx:     newStdCtx,
-		matcher: ctx.matcher,
-		event:   clonedEvent,
-		api:     ctx.api,
+		ctx:            newStdCtx,
+		matcher:        ctx.matcher,
+		event:          clonedEvent,
+		api:            ctx.api,
+		platformEvent:  ctx.platformEvent,  // 保留平台无关事件引用
+		platformSender: ctx.platformSender, // 保留平台发送器，使 Reply() 在克隆后仍可用
 	}
 
 	if ex := ctx.Ext(); ex != nil {
