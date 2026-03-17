@@ -231,7 +231,6 @@ func (b *Bot) Start() error {
 	b.mu.RUnlock()
 	if reg != nil {
 		for _, pa := range reg.All() {
-			pa := pa
 			name := "platform:" + pa.Platform()
 			b.lifecycle.Register(lifecycle.NewSimpleComponent(
 				name,

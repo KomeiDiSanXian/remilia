@@ -125,16 +125,13 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 
 	var wg sync.WaitGroup
 	for _, a := range adapters {
-		a := a
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := a.StartPlatform(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Error("[Registry] Platform adapter exited with error")
 			}
-		}()
+		})
 	}
 
 	// 等待 ctx 取消

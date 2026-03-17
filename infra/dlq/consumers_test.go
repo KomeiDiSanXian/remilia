@@ -94,7 +94,7 @@ func TestPlatformFileConsumer_Consume_AppendMultiple(t *testing.T) {
 	path := filepath.Join(tmpDir, "multi.jsonl")
 	consumer := PlatformFileConsumer{Path: path}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		consumer.Consume(Item[platform.Event]{
 			Data:    makeTestPlatformEvent("discord", "message"),
 			Attempt: i + 1,
