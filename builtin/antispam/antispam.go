@@ -1,0 +1,412 @@
+// Package antispam 提供反垃圾/防刷插件。
+//
+// 功能：
+//   - 用户级令牌桶（按 UserOpenID 独立限速）
+//   - 群组级令牌桶（按 GroupOpenID 独立限速）
+//   - 违规临时封禁（可配置封禁时长）
+//   - 封禁名单管理（Ban/Unban/IsBanned）
+//   - 提供 Rule() 返回可直接用于 engine.On() 的规则函数
+//
+// 使用示例:
+//
+//	pm.RegisterV2(antispam.New(antispam.Config{
+//	    UserRate:   5, UserBurst: 8,
+//	    GroupRate:  20, GroupBurst: 30,
+//	    BanOnViolation: true, BanDuration: 5*time.Minute,
+//	}))
+//	// Handler 中：
+//	spam := ctx.MustGet("antispam").(*antispam.Plugin)
+//	engine.OnGroupAt(spam.Rule()).Handle(myHandler)
+package antispam
+
+import (
+	"encoding/json"
+	"sync"
+	"time"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/time/rate"
+
+	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/plugin"
+)
+
+// Config 反垃圾配置
+type Config struct {
+	// 用户级限速：每秒允许 UserRate 条，最大突发 UserBurst 条
+	UserRate  float64
+	UserBurst int
+	// 群组级限速
+	GroupRate  float64
+	GroupBurst int
+	// BanOnViolation 违规时是否自动封禁
+	BanOnViolation bool
+	// BanDuration 封禁时长，0 表示永久
+	BanDuration time.Duration
+	// OnViolation 违规回调（可选）
+	OnViolation func(ctx *eventctx.Context, reason string)
+}
+
+// DefaultConfig 默认配置
+func DefaultConfig() Config {
+	return Config{
+		UserRate:       5,
+		UserBurst:      10,
+		GroupRate:      30,
+		GroupBurst:     50,
+		BanOnViolation: true,
+		BanDuration:    5 * time.Minute,
+	}
+}
+
+// banEntry 封禁记录
+type banEntry struct {
+	until time.Time // zero = 永久
+}
+
+// banEntryJSON 用于 JSON 序列化的封禁记录（time.Time 不直接 JSON 友好）
+type banEntryJSON struct {
+	Until int64 `json:"until"` // Unix 时间戳（纳秒），0 = 永久
+}
+
+// Plugin 反垃圾插件 API
+type Plugin struct {
+	cfg     Config
+	userRL  *lru.Cache[string, *rate.Limiter]
+	groupRL *lru.Cache[string, *rate.Limiter]
+	banList map[string]banEntry
+	banMu   sync.RWMutex
+	storage storage.Client // 可选持久化后端
+}
+
+// NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
+// Use NewPlugin() if you need a direct reference to the Plugin API (e.g. in tests).
+// NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
+// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+//
+//	p := antispam.NewPlugin(antispam.DefaultConfig())
+//	pm.RegisterV2(antispam.Descriptor(p))
+//	engine.OnGroupAt(p.Rule())
+func NewPlugin(cfg Config) *Plugin {
+	cfg = normalizeConfig(cfg)
+	userCache, _ := lru.New[string, *rate.Limiter](50000)
+	groupCache, _ := lru.New[string, *rate.Limiter](10000)
+	return &Plugin{
+		cfg:     cfg,
+		userRL:  userCache,
+		groupRL: groupCache,
+		banList: make(map[string]banEntry),
+	}
+}
+
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+func Descriptor(p *Plugin) *plugin.PluginDescriptor {
+	return &plugin.PluginDescriptor{
+		Name:    "antispam",
+		Version: "1.0.0",
+		Deps:    []string{},
+		Meta: &plugin.PluginMeta{
+			Author:      "Remilia Team",
+			Description: "反垃圾/防刷插件，用户和群组独立限速，支持违规封禁",
+			Category:    "核心",
+			Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
+			HelpText: `反垃圾插件使用说明：
+  p := antispam.NewPlugin(antispam.DefaultConfig())
+  pm.RegisterV2(antispam.Descriptor(p))
+  p.Ban(userID, 10*time.Minute)`,
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
+				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
+			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
+				p.storage = sb
+				p.loadBanList()
+			}
+			return p, nil
+		},
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).saveBanList()
+			return nil
+		},
+	}
+}
+
+// loadBanList 从 storage 加载封禁名单
+func (p *Plugin) loadBanList() {
+	if p.storage == nil {
+		return
+	}
+	data, err := p.storage.Get("antispam:banlist")
+	if err != nil {
+		return // 键不存在或其他错误，忽略
+	}
+	var entries map[string]banEntryJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to load ban list")
+		return
+	}
+	p.banMu.Lock()
+	defer p.banMu.Unlock()
+	now := time.Now()
+	for id, e := range entries {
+		var until time.Time
+		if e.Until != 0 {
+			until = time.Unix(0, e.Until)
+			if until.Before(now) {
+				continue // 已过期，跳过
+			}
+		}
+		p.banList[id] = banEntry{until: until}
+	}
+	logger.Infof("[AntiSpam] Loaded %d ban entries from storage", len(p.banList))
+}
+
+// saveBanList 将封禁名单保存到 storage
+func (p *Plugin) saveBanList() {
+	if p.storage == nil {
+		return
+	}
+	p.banMu.RLock()
+	entries := make(map[string]banEntryJSON, len(p.banList))
+	now := time.Now()
+	for id, e := range p.banList {
+		if !e.until.IsZero() && e.until.Before(now) {
+			continue // 已过期，不保存
+		}
+		entries[id] = banEntryJSON{Until: e.until.UnixNano()}
+	}
+	p.banMu.RUnlock()
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to marshal ban list")
+		return
+	}
+	if err := p.storage.Set("antispam:banlist", data, 0); err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
+		return
+	}
+	logger.Infof("[AntiSpam] Saved %d ban entries to storage", len(entries))
+}
+
+// BanEntry 封禁条目（公开查询用）
+type BanEntry struct {
+	UserID    string
+	Until     time.Time // zero if permanent
+	Permanent bool
+}
+
+// AntiSpamStats 限流统计摘要
+type AntiSpamStats struct {
+	BanCount          int
+	UserLimiterCount  int
+	GroupLimiterCount int
+}
+
+// ListBans 返回所有当前有效的封禁记录（过期的自动跳过）
+func (p *Plugin) ListBans() []BanEntry {
+	p.banMu.Lock()
+	defer p.banMu.Unlock()
+
+	now := time.Now()
+	result := make([]BanEntry, 0, len(p.banList))
+	for userID, e := range p.banList {
+		if !e.until.IsZero() && e.until.Before(now) {
+			delete(p.banList, userID) // 顺手清理过期的
+			continue
+		}
+		result = append(result, BanEntry{
+			UserID:    userID,
+			Until:     e.until,
+			Permanent: e.until.IsZero(),
+		})
+	}
+	return result
+}
+
+// Stats 返回限流统计摘要
+func (p *Plugin) Stats() AntiSpamStats {
+	p.banMu.RLock()
+	banCount := len(p.banList)
+	p.banMu.RUnlock()
+
+	return AntiSpamStats{
+		BanCount:          banCount,
+		UserLimiterCount:  p.userRL.Len(),
+		GroupLimiterCount: p.groupRL.Len(),
+	}
+}
+
+// SetStorage 手动设置持久化后端（用于在 Setup 后注入 storage）
+func (p *Plugin) SetStorage(s storage.Client) {
+	p.storage = s
+	p.loadBanList()
+}
+
+// New 创建反垃圾插件描述符（便捷入口，内部创建 Plugin 实例）。
+// 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
+func New(cfg Config) *plugin.PluginDescriptor {
+	return Descriptor(NewPlugin(cfg))
+}
+
+// Get 从插件管理器中获取已注册的 AntiSpam 插件实例（类型安全）。
+// 需在 pm.RegisterV2(New(cfg)) 之后调用。
+func Get(pm *plugin.Manager) *Plugin {
+	v, ok := pm.GetContainer().Get("antispam")
+	if !ok {
+		panic("antispam: plugin not registered; call pm.RegisterV2(antispam.New(cfg)) first")
+	}
+	p, ok := v.(*Plugin)
+	if !ok {
+		panic("antispam: unexpected type in container")
+	}
+	return p
+}
+
+func normalizeConfig(cfg Config) Config {
+	d := DefaultConfig()
+	if cfg.UserRate <= 0 {
+		cfg.UserRate = d.UserRate
+	}
+	if cfg.UserBurst <= 0 {
+		cfg.UserBurst = d.UserBurst
+	}
+	if cfg.GroupRate <= 0 {
+		cfg.GroupRate = d.GroupRate
+	}
+	if cfg.GroupBurst <= 0 {
+		cfg.GroupBurst = d.GroupBurst
+	}
+	return cfg
+}
+
+// Rule 返回可直接传入 engine.On() / engine.OnGroupAt() 的规则函数。
+// 规则按顺序检查：封禁名单 → 用户限速 → 群组限速。
+//
+// 支持所有平台（新路径和旧 QQ 路径均可用）。
+func (p *Plugin) Rule() eventctx.Rule {
+	return func(ctx *eventctx.Context) bool {
+		userID := ctx.GetSenderInfo().ID
+
+		// 1. 检查封禁名单
+		if userID != "" && p.IsBanned(userID) {
+			logger.Debugf("[AntiSpam] Blocked banned user %s", userID)
+			return false
+		}
+
+		// 2. 用户级限速
+		if userID != "" && p.cfg.UserRate > 0 {
+			rl := p.getUserLimiter(userID)
+			if !rl.Allow() {
+				p.handleViolation(ctx, userID, "user rate limit exceeded")
+				return false
+			}
+		}
+
+		// 3. 群组级限速（仅群组消息）
+		if p.cfg.GroupRate > 0 {
+			if e := ctx.GetPlatformEvent(); e != nil && e.Chat().IsGroup {
+				groupID := e.Chat().ID
+				if groupID != "" {
+					rl := p.getGroupLimiter(groupID)
+					if !rl.Allow() {
+						p.handleViolation(ctx, groupID, "group rate limit exceeded")
+						return false
+					}
+				}
+			}
+		}
+
+		return true
+	}
+}
+
+// GroupRule 返回包含群组限速的规则（用于群消息场景）
+func (p *Plugin) GroupRule(getGroupID func(*eventctx.Context) string) eventctx.Rule {
+	return func(ctx *eventctx.Context) bool {
+		if !p.Rule()(ctx) {
+			return false
+		}
+		if p.cfg.GroupRate > 0 && getGroupID != nil {
+			groupID := getGroupID(ctx)
+			if groupID != "" {
+				rl := p.getGroupLimiter(groupID)
+				if !rl.Allow() {
+					p.handleViolation(ctx, groupID, "group rate limit exceeded")
+					return false
+				}
+			}
+		}
+		return true
+	}
+}
+
+// Ban 封禁用户，duration=0 表示永久
+func (p *Plugin) Ban(userID string, duration time.Duration) {
+	p.banMu.Lock()
+	var until time.Time
+	if duration > 0 {
+		until = time.Now().Add(duration)
+	}
+	p.banList[userID] = banEntry{until: until}
+	p.banMu.Unlock()
+	logger.Infof("[AntiSpam] Banned user %s until %v", userID, until)
+	go p.saveBanList() // 异步持久化
+}
+
+// Unban 解封用户
+func (p *Plugin) Unban(userID string) {
+	p.banMu.Lock()
+	delete(p.banList, userID)
+	p.banMu.Unlock()
+	logger.Infof("[AntiSpam] Unbanned user %s", userID)
+	go p.saveBanList() // 异步持久化
+}
+
+// IsBanned 检查用户是否被封禁（自动清理过期封禁）
+func (p *Plugin) IsBanned(userID string) bool {
+	p.banMu.Lock()
+	defer p.banMu.Unlock()
+	entry, ok := p.banList[userID]
+	if !ok {
+		return false
+	}
+	if !entry.until.IsZero() && time.Now().After(entry.until) {
+		delete(p.banList, userID)
+		return false
+	}
+	return true
+}
+
+func (p *Plugin) getUserLimiter(userID string) *rate.Limiter {
+	if rl, ok := p.userRL.Get(userID); ok {
+		return rl
+	}
+	rl := rate.NewLimiter(rate.Limit(p.cfg.UserRate), p.cfg.UserBurst)
+	p.userRL.Add(userID, rl)
+	return rl
+}
+
+func (p *Plugin) getGroupLimiter(groupID string) *rate.Limiter {
+	if rl, ok := p.groupRL.Get(groupID); ok {
+		return rl
+	}
+	rl := rate.NewLimiter(rate.Limit(p.cfg.GroupRate), p.cfg.GroupBurst)
+	p.groupRL.Add(groupID, rl)
+	return rl
+}
+
+func (p *Plugin) handleViolation(ctx *eventctx.Context, id, reason string) {
+	logger.Warnf("[AntiSpam] Violation: %s id=%s", reason, id)
+	if p.cfg.BanOnViolation {
+		userID := ctx.GetSenderInfo().ID
+		if userID != "" {
+			p.Ban(userID, p.cfg.BanDuration)
+		}
+	}
+	if p.cfg.OnViolation != nil {
+		p.cfg.OnViolation(ctx, reason)
+	}
+}

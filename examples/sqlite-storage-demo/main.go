@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/KomeiDiSanXian/remilia/plugins/core/storage"
 )
 
 func main() {

@@ -4,45 +4,110 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs(platform): move report files for improved organization">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_manager_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_manager_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/wrapper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/benchmark_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/benchmark_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/helper.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/helper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/helper_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/parse.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/parse_test.go" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/compat_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_blockuntilspace_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/dlq_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/dlq_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/types.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/health/checkers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/deadletter.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/deadletter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugins/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pprof.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(platform): update dead letter queue to use PayloadItem and improve platform event handling">
+      <change afterPath="$PROJECT_DIR$/builtin/acl/acl.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/acl/acl_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/antispam/antispam.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/antispam/antispam_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/auditlog/auditlog.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/auditlog/auditlog_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/bundle/bundle.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/conversation/conversation.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/conversation/conversation_gc_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/conversation/conversation_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/admin/admin.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/cache/cache.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/help/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/help/help.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/permission/acl.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/permission/persist.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/permission/persist_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/permission/verification.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/memory.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/redis.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/sqlite.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/storage.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/storage/storage_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/dev/debug/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/dev/debug/debug.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/i18n/i18n.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/pluginstore/pluginstore.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/pluginstore/pluginstore_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/ratelimitui/permission_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue_backoff_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/stats/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/stats/stats.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/stats/stats_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/verifycode/verifycode.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/verifycode/verifycode_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/acl/acl.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/acl/acl_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/antispam/antispam_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/auditlog/auditlog.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/auditlog/auditlog_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/broadcast/broadcast.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/broadcast/broadcast_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/bundle/bundle.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation_gc_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/conversation/conversation_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown_gc_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/cooldown/cooldown_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/admin/admin.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/cache/cache.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/help/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/help/help.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/acl.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/permission.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/persist.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/persist_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/permission/verification.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/memory.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/redis.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/sqlite.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/core/storage/storage_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/dev/debug/debug.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/i18n/i18n_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/keywordfilter/keywordfilter.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/keywordfilter/keywordfilter_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/pluginstore/pluginstore.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/pluginstore/pluginstore_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/permission_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/ratelimitui/ratelimitui_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/scheduler/scheduler_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/sendqueue/sendqueue.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/sendqueue/sendqueue_backoff_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/stats/stats_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/verifycode/verifycode.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugins/verifycode/verifycode_test.go" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -266,7 +331,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add edge case tests for plugin dependency handling and improve error recovery in load function" />
     <MESSAGE value="fix: correct cron schedule for daily stats logging" />
     <MESSAGE value="feat: implement bundle package for core plugin registration and enhance event bus with DryRun support" />
     <MESSAGE value="feat: enhance plugin setup and teardown processes with improved error handling and structured logging" />
@@ -291,7 +355,8 @@
     <MESSAGE value="feat(platform): enhance multi-platform support by allowing nil adapter in Bot and updating related documentation" />
     <MESSAGE value="refactor(platform): move OpenAPI interface for QQ platform integration" />
     <MESSAGE value="docs(platform): move report files for improved organization" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs(platform): move report files for improved organization" />
+    <MESSAGE value="refactor(platform): update dead letter queue to use PayloadItem and improve platform event handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(platform): update dead letter queue to use PayloadItem and improve platform event handling" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

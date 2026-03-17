@@ -4,6 +4,9 @@ import (
 	"os"
 
 	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/dev/debug"
 	"github.com/KomeiDiSanXian/remilia/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -11,9 +14,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/KomeiDiSanXian/remilia/plugins/core/help"
-	"github.com/KomeiDiSanXian/remilia/plugins/core/permission"
-	"github.com/KomeiDiSanXian/remilia/plugins/dev/debug"
 )
 
 func main() {
