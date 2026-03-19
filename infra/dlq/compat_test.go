@@ -8,30 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBackwardCompatibility tests backward compatibility with existing code
-func TestBackwardCompatibility(t *testing.T) {
-	t.Run("PayloadQueue alias works", func(t *testing.T) {
-		// Should be able to use PayloadQueue like the old DeadLetterQueue
-		var q *PayloadQueue
-		q = NewPayloadQueue(PayloadConfig{
-			MaxSize: 100,
-			Workers: 2,
-		})
-		defer q.Close(time.Second)
-
-		assert.NotNil(t, q)
-		assert.Equal(t, 100, q.config.MaxSize)
-	})
-
-	t.Run("type aliases work", func(t *testing.T) {
-		// These should compile without issues
-		var _ PayloadQueue
-		var _ PayloadItem
-		var _ PayloadConsumer
-		var _ PayloadConfig
-	})
-}
-
 // TestRealWorldScenarios demonstrates real-world use cases
 func TestRealWorldScenarios(t *testing.T) {
 	t.Run("HTTP request retry queue", func(t *testing.T) {

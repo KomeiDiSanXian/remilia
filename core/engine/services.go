@@ -9,8 +9,8 @@ import (
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
-// engineServices groups non-core Engine concerns.
-type engineServices struct {
+// services groups non-core Engine concerns.
+type services struct {
 	// metricsCollector is a type-safe atomic pointer to the optional Prometheus
 	// metrics collector. nil means metrics are disabled.
 	metricsCollector *infraatomic.Value[*metrics.Collector]

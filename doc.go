@@ -36,19 +36,23 @@ Register handlers using platform-agnostic event matching:
 	    WithEngine(eng).
 	    Build()
 
-# QQ-Specific Usage (Legacy QQ Path)
+# QQ Usage
 
-For QQ bots, dto.BotInfo and the webhook adapter are still supported:
+For QQ bots, create a [qq.WebhookServerAdapter] with the bot credentials and pass it to
+the builder. The adapter manages token refresh and message sending internally:
 
+	import "github.com/KomeiDiSanXian/remilia/platform/qq"
 	import "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 
+	botInfo := &dto.BotInfo{
+	    AppID:     123456,
+	    Token:     "your-token",
+	    AppSecret: "your-secret",
+	}
+	adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+
 	bot, err := remilia.NewBotBuilder().
-	    WithBotInfo(&dto.BotInfo{
-	        AppID:     123456,
-	        Token:     "your-token",
-	        AppSecret: "your-secret",
-	    }).
-	    WithWebhook(":8080").
+	    WithPlatformAdapter(adapter).
 	    WithEngine(eng).
 	    Build()
 
@@ -58,11 +62,16 @@ For QQ bots, dto.BotInfo and the webhook adapter are still supported:
 
 # Multi-Platform
 
-Connect multiple platforms to a single Bot instance:
+Connect multiple platforms to a single Bot instance via [platform.Registry].
+Each call to [BotBuilder.WithPlatformAdapter] overwrites the previous adapter;
+to register more than one platform, use [BotBuilder.WithPlatformRegistry]:
+
+	registry := platform.NewRegistry()
+	registry.Register(qqAdapter)    // platform.PlatformAdapter
+	registry.Register(discordAdapter)
 
 	bot, err := remilia.NewBotBuilder().
-	    WithPlatformAdapter(qqAdapter).
-	    WithPlatformAdapter(discordAdapter).
+	    WithPlatformRegistry(registry).
 	    WithEngine(eng).
 	    Build()
 

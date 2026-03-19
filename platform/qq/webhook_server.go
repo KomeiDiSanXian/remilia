@@ -14,6 +14,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/protocol/webhook"
 )
@@ -21,19 +22,25 @@ import (
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器。
 //
 // 实现 platform.PlatformAdapter 接口，绑定 QQ Webhook 协议并将事件转为 platform.Event。
+//
+// Token 生命周期：若构造时提供了 BotInfo 且未通过 WithAPI 显式注入 OpenAPI 客户端，
+// 则在每次 StartPlatform 调用时自动创建与传入 ctx 绑定的 token.Manager，
+// 并在 Stop 时同步等待其退出，无需外部管理。
 type WebhookServerAdapter struct {
-	addr       string
-	botInfo    *dto.BotInfo
-	api        openapi.OpenAPI // 用于创建 QQ Sender
-	webhook    *webhook.Conn
-	server     *http.Server
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	mu         sync.RWMutex
-	running    bool
-	workers    int
-	bufferSize int
+	addr        string
+	botInfo     *dto.BotInfo
+	api         openapi.OpenAPI // 用于创建 QQ Sender
+	apiExternal bool            // true if api was set via WithAPI (user-managed lifetime)
+	tokenMgr    *token.Manager  // non-nil when api was auto-created from botInfo
+	webhook     *webhook.Conn
+	server      *http.Server
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	mu          sync.RWMutex
+	running     bool
+	workers     int
+	bufferSize  int
 }
 
 // Platform 实现 platform.PlatformAdapter
@@ -47,10 +54,13 @@ func (a *WebhookServerAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
 
-// WithAPI 注入 QQ OpenAPI client，用于通过 ctx.Reply() 发送消息。
+// WithAPI 注入外部 QQ OpenAPI client，用于通过 ctx.Reply() 发送消息。
+//
+// 调用此方法后，适配器不会再自动创建 token.Manager，外部负责管理 API 客户端的生命周期。
 // 支持链式调用：adapter.WithAPI(api).Start(ctx, handler)
 func (a *WebhookServerAdapter) WithAPI(api openapi.OpenAPI) *WebhookServerAdapter {
 	a.api = api
+	a.apiExternal = true
 	return a
 }
 
@@ -136,6 +146,18 @@ func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, han
 	}
 
 	a.ctx, a.cancel = context.WithCancel(ctx)
+
+	// 若提供了 BotInfo 且未通过 WithAPI 注入外部 API，则自动创建 token.Manager。
+	// token.Manager 使用 a.ctx，其生命周期与本次 Start-Stop 周期完全绑定：
+	//   - Stop() 调用 a.cancel() → a.ctx 取消 → token 刷新 goroutine 退出
+	//   - Stop() 随后调用 a.tokenMgr.Stop() 同步等待退出
+	//   - 热重启时每次 Start() 都会创建新的 tokenMgr
+	if a.botInfo != nil && !a.apiExternal {
+		mgr := token.NewManagerWithContext(a.ctx, a.botInfo)
+		a.api = openapi.New(mgr)
+		a.tokenMgr = mgr
+		logger.Info("[WebhookServerAdapter] Token manager created from BotInfo")
+	}
 
 	bufferSize := a.bufferSize
 	if bufferSize <= 0 {
@@ -241,6 +263,7 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 		return nil
 	}
 	a.running = false
+	tokenMgr := a.tokenMgr
 	a.mu.Unlock()
 
 	logger.Info("[WebhookServerAdapter] Stopping...")
@@ -255,6 +278,7 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 		a.cancel()
 	}
 
+	// 等待事件 workers 和 HTTP server goroutine 退出
 	done := make(chan struct{})
 	go func() {
 		a.wg.Wait()
@@ -263,10 +287,21 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		logger.Info("[WebhookServerAdapter] Stopped successfully")
-		return nil
 	case <-ctx.Done():
-		logger.Warn("[WebhookServerAdapter] Stop timeout")
+		logger.Warn("[WebhookServerAdapter] Stop timeout waiting for workers")
 		return ctx.Err()
 	}
+
+	// 同步等待 auto-created token manager 完全退出（其 ctx 已被 a.cancel() 取消）
+	if tokenMgr != nil {
+		tokenMgr.Stop()
+		// 清理，使下次热重启能重新创建
+		a.mu.Lock()
+		a.tokenMgr = nil
+		a.api = nil
+		a.mu.Unlock()
+	}
+
+	logger.Info("[WebhookServerAdapter] Stopped successfully")
+	return nil
 }

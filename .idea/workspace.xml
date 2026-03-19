@@ -4,8 +4,37 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(event): add ID method for unique event identification across platforms">
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/multi-platform-audit.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs(reports): rename multi-platform-audit.md and update change list comment for clarity">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/qq/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/storage/storage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/config_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/validate.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_query.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_query.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/runtime.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/runtime.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/checkers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/checkers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -229,7 +258,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: update documentation with recent changes and archive outdated files" />
     <MESSAGE value="refactor: streamline permission management by consolidating role and permission types into core/permission package" />
     <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
     <MESSAGE value="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling" />
@@ -254,7 +282,8 @@
     <MESSAGE value="optimize: optimize goroutine usage in adapter initialization and improve loop iteration" />
     <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
     <MESSAGE value="feat(event): add ID method for unique event identification across platforms" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(event): add ID method for unique event identification across platforms" />
+    <MESSAGE value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

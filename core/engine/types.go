@@ -1,8 +1,6 @@
 package engine
 
 import (
-	stdctx "context"
-
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -93,19 +91,10 @@ type PluginCoordinator interface {
 	EnableGroup(groupName string)
 }
 
-// PlatformAdapter 是平台无关的适配器接口，取代 Adapter。
+// PlatformAdapter 是平台无关的适配器接口别名，等价于 platform.PlatformAdapter。
 //
-// StartPlatform 的 handler 接受 platform.Event，不依赖任何特定平台的数据结构，
-// 使同一个 Bot 可以同时处理 QQ、Discord、Telegram 等多个平台的事件。
+// 此处保留为类型别名，供已直接引用 engine.PlatformAdapter 的代码无缝过渡。
+// 新代码应直接使用 platform.PlatformAdapter。
 //
-// 实现示例参见 platform/qq.Adapter 和根包的 WebhookServerAdapter。
-type PlatformAdapter interface {
-	// Platform 返回平台标识符（如 "qq"、"discord"）
-	Platform() string
-	// StartPlatform 启动事件接收循环，将事件以 platform.Event 形式回调给 handler
-	StartPlatform(ctx stdctx.Context, handler func(platform.Event)) error
-	// Stop 优雅停止
-	Stop(ctx stdctx.Context) error
-	// Sender 返回该平台的消息发送器
-	Sender() platform.Sender
-}
+// 实现示例参见 platform/qq.Adapter 和 platform/qq.WebhookServerAdapter。
+type PlatformAdapter = platform.PlatformAdapter

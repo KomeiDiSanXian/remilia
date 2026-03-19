@@ -58,6 +58,14 @@ func NewWithBackend(storage Storage) *plugin.PluginDescriptor {
 	return NewV2WithBackend(storage)
 }
 
+// NewPlugin 创建独立的 Plugin 实例，直接包装存储后端。
+//
+// 适用于不需要插件系统生命周期管理的场景（如独立 demo、单元测试）。
+// 若需要生命周期管理，请使用 [NewWithBackend]，它返回 *plugin.PluginDescriptor。
+func NewPlugin(s Storage) *Plugin {
+	return &Plugin{storage: s}
+}
+
 // NewV2WithBackend 使用指定后端创建存储插件（v2 API）
 func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
 	// 创建 Plugin 包装器

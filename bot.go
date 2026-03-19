@@ -15,9 +15,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/auth/token"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -31,27 +28,22 @@ const (
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
 	engine        *engine.Engine
-	adapter       engine.PlatformAdapter
+	adapter       platform.PlatformAdapter
 	lifecycle     *lifecycle.Manager
 	health        *health.Check
 	config        *Config
-	openAPI       openapi.OpenAPI // OpenAPI client for sending messages
-	tokenManager  *token.Manager  // Token manager for lifecycle management
-	botInfo       *dto.BotInfo    // 保存 BotInfo，用于 Start() 时延迟初始化 tokenManager
 	pluginManager *plugin.Manager // 插件管理器（可选，通过 UsePlugins 注入）
 
 	// platformRegistry 多平台适配器注册表（可选）
-	// 若注册了平台适配器，事件会通过 handlePlatformEvent 处理
 	platformRegistry *platform.Registry
 
 	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
-	// Start() 时创建，Stop() 时取消，确保所有依赖组件随 Bot 一起退出
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 
 	mu        sync.RWMutex
 	running   bool
-	starting  bool // Prevents concurrent Start() calls
+	starting  bool
 	startTime time.Time
 	stopTime  time.Time
 }
@@ -90,9 +82,8 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 	}
 
 	b := &Bot{
-		engine:    e,
-		adapter:   adapter,
-		lifecycle: lifecycle.NewManager(),
+		engine:  e,
+		adapter: adapter,
 		config: &Config{
 			Name:    "remilia-bot",
 			Version: Version,
@@ -121,11 +112,23 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 		b.health.AddChecker(health.NewEngineHealthChecker(e))
 	}
 
-	// 注册组件到生命周期管理器
+	// 初始化 lifecycle 管理器并注册基础组件（adapter + engine）
+	b.buildBaseLifecycle()
+
+	return b
+}
+
+// buildBaseLifecycle 创建全新的 lifecycle.Manager 并注册 adapter 与 engine 基础组件。
+//
+// 在 NewBot 构造时以及每次 Start() 前均会调用，确保热重启（Stop → Start）时
+// lifecycle 状态从零开始，不存在重复注册的组件。
+func (b *Bot) buildBaseLifecycle() {
+	lm := lifecycle.NewManager()
+
 	// 主适配器（单平台模式）：仅在 adapter 非 nil 时注册
-	// 多平台注册表模式下 adapter 为 nil，各平台适配器通过下方 platformRegistry 注册
+	// 多平台注册表模式下 adapter 为 nil，各平台适配器在 Start() 时通过 platformRegistry 注册
 	if b.adapter != nil {
-		b.lifecycle.Register(lifecycle.NewSimpleComponent(
+		lm.Register(lifecycle.NewSimpleComponent(
 			"adapter",
 			nil, // onStart
 			func(ctx context.Context) error {
@@ -139,7 +142,7 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 		))
 	}
 
-	b.lifecycle.Register(lifecycle.NewSimpleComponent(
+	lm.Register(lifecycle.NewSimpleComponent(
 		"engine",
 		func(ctx context.Context) error {
 			// onStart: engine 初始化（如果需要）
@@ -152,29 +155,7 @@ func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *B
 		},
 	))
 
-	return b
-}
-
-// NewBotWithInfo 创建带 OpenAPI 支持的 Bot 实例
-// 这个构造函数会自动初始化 OpenAPI client，用于发送消息
-func NewBotWithInfo(adapter engine.PlatformAdapter, eng *engine.Engine, botInfo *dto.BotInfo, opts ...Option) *Bot {
-	b := NewBot(adapter, eng, opts...)
-
-	if botInfo != nil {
-		// 仅存储 botInfo，延迟到 Start() 时再创建 tokenManager。
-		// 这样可以避免在构造阶段启动后台 goroutine（此时还没有根 context），
-		// 防止用户只构造 Bot 而不调用 Start() 时出现 goroutine 泄漏。
-		b.botInfo = botInfo
-
-		// 添加 Token Manager health checker（checker 本身不依赖 tokenManager 是否已启动）
-		b.health.AddChecker(NewTokenManagerHealthChecker(b))
-
-		logger.Info("[Bot] BotInfo stored; OpenAPI client and token manager will be initialized on Start()")
-	} else {
-		logger.Warn("[Bot] BotInfo is nil, OpenAPI client not initialized")
-	}
-
-	return b
+	b.lifecycle = lm
 }
 
 // Start 启动 Bot
@@ -201,27 +182,9 @@ func (b *Bot) Start() error {
 	// Stop() 时调用 rootCancel 统一取消所有依赖组件
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
-	// 修复 B3（完整版）：
-	// 1. 在锁内读取 oldManager/oldOpenAPI，并更新为新实例，消除并发读写数据竞态
-	// 2. lifecycle.Start 失败后在失败路径回滚，保持 bot 可重启
-	//
-	// 注意：NewBotWithInfo 不再预创建 tokenManager，因此首次 Start() 时 oldManager == nil。
-	// 仅在 Bot.Stop() 后重新 Start()（热重启）时，oldManager 才非 nil。
-	var oldManager *token.Manager
-	var oldOpenAPI openapi.OpenAPI
-
-	if b.botInfo != nil {
-		newManager := token.NewManagerWithContext(rootCtx, b.botInfo)
-		newOpenAPI := openapi.New(newManager)
-
-		// 在锁内原子替换，与 handleEvent 的读操作互斥
-		b.mu.Lock()
-		oldManager = b.tokenManager
-		oldOpenAPI = b.openAPI
-		b.tokenManager = newManager
-		b.openAPI = newOpenAPI
-		b.mu.Unlock()
-	}
+	// 重建 lifecycle 管理器：每次 Start() 均从零开始注册组件。
+	// 这确保热重启（Stop → Start）时不会重复注册 adapter/engine 及平台适配器组件。
+	b.buildBaseLifecycle()
 
 	// 若已注入多平台注册表，为每个平台适配器注册独立的生命周期组件。
 	// 此处（Start 阶段）注册而非 NewBot 阶段，是因为 UsePlatformRegistry 可在
@@ -255,19 +218,9 @@ func (b *Bot) Start() error {
 	b.mu.Lock()
 	b.starting = false
 	if err != nil {
-		// 失败路径：回滚 tokenManager/openAPI 到旧值，使 bot 仍可重启
-		if b.botInfo != nil {
-			b.tokenManager = oldManager
-			b.openAPI = oldOpenAPI
-		}
 		b.mu.Unlock()
-
-		// 取消 rootCtx，停止新建的 tokenManager goroutine
+		// 取消 rootCtx，停止所有已通过 startHooks 启动的后台组件
 		rootCancel()
-		// 旧 manager 在整个过程中未受影响，异步停止即可（它的 context 仍是 context.Background()）
-		if oldManager != nil {
-			go oldManager.Stop()
-		}
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
@@ -276,13 +229,6 @@ func (b *Bot) Start() error {
 	b.rootCtx = rootCtx
 	b.rootCancel = rootCancel
 	b.mu.Unlock()
-
-	// 启动成功：旧 manager 已被新 manager 取代，异步停止
-	if oldManager != nil {
-		go oldManager.Stop()
-	}
-	// 旧 openAPI 无需关闭（它是无状态的 wrapper，持有的 tokenManager 即将停止）
-	_ = oldOpenAPI
 
 	logger.Info("[Bot] Started successfully")
 
@@ -415,13 +361,11 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 // shutdownSequence 执行有序的关闭流程：
 //
-//  1. 停止插件（逆序 Teardown），在 adapter/engine 停止前完成
-//     —— 保证插件 Teardown 期间仍可访问 engine 和 adapter
-//  2. 取消根 context（rootCancel）
-//     —— 通知 tokenManager 及所有与 rootCtx 绑定的后台 goroutine 退出
-//     —— 早于 lifecycle.Stop，使 goroutine 有机会在 adapter 停止前完成清理
+//  1. 停止插件（逆序 Teardown）
+//  2. 取消根 context，驱动所有与 rootCtx 绑定的后台 goroutine 退出
 //  3. 停止 lifecycle（adapter.Stop + engine.Shutdown）
-//  4. tokenManager.Stop()（双重保险：rootCtx 已取消，此处确保同步等待退出）
+//
+// 各平台适配器负责自身的资源清理（例如 QQ token manager 在 adapter.Stop 内停止）。
 func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFunc) error {
 	// Step 1: 插件逆序 Teardown
 	if b.pluginManager != nil {
@@ -431,19 +375,13 @@ func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFun
 		}
 	}
 
-	// Step 2: 取消根 context，驱动所有绑定 goroutine（tokenManager、adaptiveRateLimiter 等）退出
+	// Step 2: 取消根 context，驱动所有绑定 goroutine 退出
 	if rootCancel != nil {
 		rootCancel()
 	}
 
 	// Step 3: 停止 lifecycle（adapter.Stop + engine.Shutdown）
 	err := b.lifecycle.Stop(ctx)
-
-	// Step 4: tokenManager 同步兜底（rootCtx 已取消，此处等待其完全退出）
-	if b.tokenManager != nil {
-		logger.Debug("[Bot] Stopping token manager...")
-		b.tokenManager.Stop()
-	}
 
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")

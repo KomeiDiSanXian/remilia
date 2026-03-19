@@ -6,17 +6,14 @@ import (
 	"sync"
 )
 
-type engineRuntime struct {
+type runtime struct {
 	mu sync.Mutex
 
 	// registered components (best-effort). Order doesn't matter.
 	components []runtimeComponent
-
-	// eventDone is a channel closed when all in-flight events finish.
-	// We create it per Stop call.
 }
 
-func (rt *engineRuntime) register(c runtimeComponent) {
+func (rt *runtime) register(c runtimeComponent) {
 	if c == nil {
 		return
 	}
@@ -28,13 +25,13 @@ func (rt *engineRuntime) register(c runtimeComponent) {
 	rt.components = append(rt.components, c)
 }
 
-func (rt *engineRuntime) stopAll() {
+func (rt *runtime) stopAll() {
 	for _, c := range rt.components {
 		c.stop()
 	}
 }
 
-func (rt *engineRuntime) waitAll(ctx context.Context) error {
+func (rt *runtime) waitAll(ctx context.Context) error {
 	for _, c := range rt.components {
 		if err := c.wait(ctx); err != nil {
 			return err

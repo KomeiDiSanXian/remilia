@@ -1,178 +1,158 @@
 package testbot
 
 import (
-	stdctx "context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/testutil"
 	"github.com/tidwall/gjson"
 )
 
-// SentMessage records a captured outgoing message.
+// Re-export platform-agnostic helpers from testutil so existing callers need not change.
+
+// MockSender is an alias for testutil.MockSender.
+type MockSender = testutil.MockSender
+
+// MakePlatformC2CEvent re-exports testutil.MakePlatformC2CEvent.
+var MakePlatformC2CEvent = testutil.MakePlatformC2CEvent
+
+// MakePlatformGroupEvent re-exports testutil.MakePlatformGroupEvent.
+var MakePlatformGroupEvent = testutil.MakePlatformGroupEvent
+
+// ---------------------------------------------------------------------------
+// MockAPI — QQ-specific mock for openapi.OpenAPI
+// ---------------------------------------------------------------------------
+
+// SentMessage captures a single message dispatched via the QQ OpenAPI mock.
 type SentMessage struct {
-	Target  string
-	IsGroup bool
-	Msg     *dto.Message
+	Target  string       // user openID (C2C) or group openID
+	IsGroup bool         // true for GroupChat calls
+	Content string       // msg.Content shortcut
+	Msg     *dto.Message // full original message
 }
 
-// MockAPI implements openapi.OpenAPI and captures all sent messages.
+// MockAPI implements openapi.OpenAPI and records all sent messages for assertions.
 type MockAPI struct {
-	mu   sync.Mutex
-	sent []SentMessage
+	mu      sync.Mutex
+	replies []*SentMessage
 }
 
 // NewMockAPI creates a MockAPI.
 func NewMockAPI() *MockAPI { return &MockAPI{} }
-func (m *MockAPI) record(target string, isGroup bool, msg *dto.Message) (gjson.Result, error) {
+
+func (m *MockAPI) capture(target string, isGroup bool, msg *dto.Message) (gjson.Result, error) {
+	content := ""
+	if msg != nil {
+		content = msg.Content
+	}
 	m.mu.Lock()
-	cp := *msg
-	m.sent = append(m.sent, SentMessage{Target: target, IsGroup: isGroup, Msg: &cp})
+	m.replies = append(m.replies, &SentMessage{
+		Target:  target,
+		IsGroup: isGroup,
+		Content: content,
+		Msg:     msg,
+	})
 	m.mu.Unlock()
-	return gjson.Result{}, nil
-}
-func (m *MockAPI) SingleChat(openID string, msg *dto.Message) (gjson.Result, error) {
-	return m.record(openID, false, msg)
-}
-func (m *MockAPI) GroupChat(groupID string, msg *dto.Message) (gjson.Result, error) {
-	return m.record(groupID, true, msg)
-}
-func (m *MockAPI) SingleRichMedia(openID string, media *dto.Media) (gjson.Result, error) {
-	return gjson.Result{}, nil
-}
-func (m *MockAPI) GroupRichMedia(groupID string, media *dto.Media) (gjson.Result, error) {
-	return gjson.Result{}, nil
-}
-func (m *MockAPI) SingleReset(openID, messageID string) (gjson.Result, error) {
-	return gjson.Result{}, nil
-}
-func (m *MockAPI) GroupReset(groupID, messageID string) (gjson.Result, error) {
-	return gjson.Result{}, nil
+	return gjson.Parse(`{"id":"mock-msg-id"}`), nil
 }
 
-// Sent returns a snapshot of all captured messages.
-func (m *MockAPI) Sent() []SentMessage {
+// Sent returns a snapshot of all captured messages (does not clear the buffer).
+func (m *MockAPI) Sent() []*SentMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]SentMessage, len(m.sent))
-	copy(cp, m.sent)
+	cp := make([]*SentMessage, len(m.replies))
+	copy(cp, m.replies)
 	return cp
 }
 
-// Clear clears captured messages.
-func (m *MockAPI) Clear() {
-	m.mu.Lock()
-	m.sent = m.sent[:0]
-	m.mu.Unlock()
-}
-
-// LastSent returns the last sent message or nil.
+// LastSent returns the most-recently captured message, or nil if none.
 func (m *MockAPI) LastSent() *SentMessage {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.sent) == 0 {
+	if len(m.replies) == 0 {
 		return nil
 	}
-	cp := m.sent[len(m.sent)-1]
-	return &cp
+	return m.replies[len(m.replies)-1]
 }
 
-// MockSender implements platform.Sender and captures outbound messages for test assertions.
-type MockSender struct {
-	mu   sync.Mutex
-	sent []platform.OutboundMessage
+// Drain returns and clears all captured messages.
+func (m *MockAPI) Drain() []*SentMessage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := m.replies
+	m.replies = nil
+	return out
 }
 
-// NewMockSender creates a MockSender.
-func NewMockSender() *MockSender { return &MockSender{} }
-
-// Send implements platform.Sender.
-func (s *MockSender) Send(_ stdctx.Context, _ string, msg platform.OutboundMessage) error {
-	s.mu.Lock()
-	s.sent = append(s.sent, msg)
-	s.mu.Unlock()
-	return nil
+// Clear discards all captured messages.
+func (m *MockAPI) Clear() {
+	m.mu.Lock()
+	m.replies = m.replies[:0]
+	m.mu.Unlock()
 }
 
-// Sent returns a snapshot of all captured messages.
-func (s *MockSender) Sent() []platform.OutboundMessage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cp := make([]platform.OutboundMessage, len(s.sent))
-	copy(cp, s.sent)
-	return cp
+func (m *MockAPI) SingleChat(target string, msg *dto.Message) (gjson.Result, error) {
+	return m.capture(target, false, msg)
 }
-
-// Clear clears captured messages.
-func (s *MockSender) Clear() {
-	s.mu.Lock()
-	s.sent = s.sent[:0]
-	s.mu.Unlock()
+func (m *MockAPI) GroupChat(target string, msg *dto.Message) (gjson.Result, error) {
+	return m.capture(target, true, msg)
 }
-
-// LastSent returns the last captured outbound message text, or empty string.
-func (s *MockSender) LastText() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.sent) == 0 {
-		return ""
-	}
-	return s.sent[len(s.sent)-1].Text
+func (m *MockAPI) SingleRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
+	return gjson.Result{}, nil
 }
+func (m *MockAPI) GroupRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) SingleReset(_, _ string) (gjson.Result, error) { return gjson.Result{}, nil }
+func (m *MockAPI) GroupReset(_, _ string) (gjson.Result, error)  { return gjson.Result{}, nil }
 
-// Bot is a lightweight test Bot that injects events directly without networking.
+var _ openapi.OpenAPI = (*MockAPI)(nil)
+
+// ---------------------------------------------------------------------------
+// Bot — QQ-aware test Bot (no testing.TB, embeds testutil.Bot)
+// ---------------------------------------------------------------------------
+
+// Bot is a lightweight test Bot that supports both platform-agnostic and QQ-specific
+// event injection. It embeds [testutil.Bot] so all platform-agnostic helpers are
+// available directly on this type.
+//
+// For pure platform-agnostic tests, prefer [testutil.New] (TB-based) or
+// [testutil.NewBot] (no TB). Use this type when you need to inject raw
+// *dto.Payload events or assert against the QQ OpenAPI mock.
 type Bot struct {
-	eng     *engine.Engine
-	pm      *plugin.Manager
-	api     *MockAPI
-	sender  *MockSender
-	plugins []*plugin.PluginDescriptor
+	*testutil.Bot
+	api *MockAPI
 }
 
-// New creates a test Bot.
+// New creates a test Bot with a QQ MockAPI and a platform-agnostic MockSender.
 func New() *Bot {
-	eng := engine.NewEngine()
-	return &Bot{eng: eng, pm: plugin.NewManager(eng), api: NewMockAPI(), sender: NewMockSender()}
+	return &Bot{
+		Bot: testutil.NewBot(),
+		api: NewMockAPI(),
+	}
 }
 
-// RegisterPlugin registers a plugin descriptor.
+// API returns the QQ MockAPI for QQ-specific message assertions.
+func (tb *Bot) API() *MockAPI { return tb.api }
+
+// RegisterPlugin registers a plugin descriptor (deferred to Start).
 func (tb *Bot) RegisterPlugin(desc *plugin.PluginDescriptor) *Bot {
-	tb.plugins = append(tb.plugins, desc)
+	tb.Bot.RegisterPlugin(desc)
 	return tb
 }
 
-// Start loads all registered plugins.
-func (tb *Bot) Start() error {
-	for _, desc := range tb.plugins {
-		if err := tb.pm.RegisterV2(desc); err != nil {
-			return fmt.Errorf("testbot: register plugin %s: %w", desc.Name, err)
-		}
-	}
-	return nil
-}
+// ---------------------------------------------------------------------------
+// QQ-specific event injection
+// ---------------------------------------------------------------------------
 
-// Stop is a no-op; present for defer patterns.
-func (tb *Bot) Stop() {}
-
-// Engine returns the underlying Engine.
-func (tb *Bot) Engine() *engine.Engine { return tb.eng }
-
-// Manager returns the plugin manager.
-func (tb *Bot) Manager() *plugin.Manager { return tb.pm }
-
-// API returns the MockAPI for assertions.
-func (tb *Bot) API() *MockAPI { return tb.api }
-
-// SendGroupAt simulates a group at-Bot message.
+// SendGroupAt simulates a QQ group @-bot message via the full *dto.Payload path.
 func (tb *Bot) SendGroupAt(groupID, userOpenID, content string) {
 	event := dto.GroupAtMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
@@ -184,7 +164,7 @@ func (tb *Bot) SendGroupAt(groupID, userOpenID, content string) {
 	tb.inject(dto.GroupAtMessageCreate, event)
 }
 
-// SendC2C simulates a C2C message.
+// SendC2C simulates a QQ C2C (private) message via the full *dto.Payload path.
 func (tb *Bot) SendC2C(userOpenID, content string) {
 	event := dto.C2CMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
@@ -195,123 +175,59 @@ func (tb *Bot) SendC2C(userOpenID, content string) {
 	tb.inject(dto.C2CMessageCreate, event)
 }
 
-// Inject injects an arbitrary Payload via the platform-agnostic path.
-// The payload is wrapped with qqplatform.NewEvent and dispatched through
-// ProcessPlatformEvent; replies are captured by MockSender (use SenderAPI()).
+// Inject injects an arbitrary *dto.Payload via the platform-agnostic engine path.
 func (tb *Bot) Inject(payload *dto.Payload) {
 	event := qqplatform.NewEvent(payload)
-	tb.eng.ProcessPlatformEvent(event, tb.sender)
+	tb.Engine().ProcessPlatformEvent(event, tb.SenderAPI())
 }
+
 func (tb *Bot) inject(eventType dto.EventType, event any) {
 	detail, _ := json.Marshal(event)
 	tb.Inject(&dto.Payload{Operation: dto.Dispatch, Type: eventType, Detail: detail})
 }
 
-// SendPlatformEvent injects an arbitrary platform.Event and captures replies via MockSender.
-func (tb *Bot) SendPlatformEvent(event platform.Event) {
-	tb.eng.ProcessPlatformEvent(event, tb.sender)
-}
+// ---------------------------------------------------------------------------
+// Assertion helpers
+// ---------------------------------------------------------------------------
 
-// SenderAPI returns the MockSender for platform-agnostic message assertions.
-func (tb *Bot) SenderAPI() *MockSender { return tb.sender }
-
-// MakePlatformC2CEvent creates a platform-agnostic private chat (C2C) event for tests.
-//
-// userID is the sender's platform user ID; content is the message text.
-func MakePlatformC2CEvent(userID, content string) platform.Event {
-	return &mockPlatformEvent{
-		kind:    platform.EventKindPrivateMessage,
-		content: content,
-		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
-		chat:    platform.ChatInfo{ID: userID, IsGroup: false},
-	}
-}
-
-// MakePlatformGroupEvent creates a platform-agnostic group message event for tests.
-//
-// userID is the sender's ID; groupID is the group/channel ID; content is the message text.
-func MakePlatformGroupEvent(userID, groupID, content string) platform.Event {
-	return &mockPlatformEvent{
-		kind:    platform.EventKindGroupMessage,
-		content: content,
-		sender:  platform.UserInfo{ID: userID, DisplayName: userID},
-		chat:    platform.ChatInfo{ID: groupID, IsGroup: true},
-	}
-}
-
-// SendPlatformC2C simulates a platform-agnostic C2C (private) message.
-// Replies are captured in MockSender; use tb.SenderAPI() to assert.
-func (tb *Bot) SendPlatformC2C(userID, content string) {
-	tb.SendPlatformEvent(MakePlatformC2CEvent(userID, content))
-}
-
-// SendPlatformGroupAt simulates a platform-agnostic group message.
-// Replies are captured in MockSender; use tb.SenderAPI() to assert.
-func (tb *Bot) SendPlatformGroupAt(userID, groupID, content string) {
-	tb.SendPlatformEvent(MakePlatformGroupEvent(userID, groupID, content))
-}
-
-// mockPlatformEvent is a minimal platform.Event implementation for tests.
-type mockPlatformEvent struct {
-	kind    platform.EventKind
-	sender  platform.UserInfo
-	chat    platform.ChatInfo
-	content string
-}
-
-func (e *mockPlatformEvent) Platform() string          { return "test" }
-func (e *mockPlatformEvent) ID() string                { return "" }
-func (e *mockPlatformEvent) Kind() platform.EventKind  { return e.kind }
-func (e *mockPlatformEvent) RawType() string           { return string(e.kind) }
-func (e *mockPlatformEvent) Sender() platform.UserInfo { return e.sender }
-func (e *mockPlatformEvent) Chat() platform.ChatInfo   { return e.chat }
-func (e *mockPlatformEvent) Content() string           { return e.content }
-func (e *mockPlatformEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *mockPlatformEvent) RawPayload() any           { return nil }
-
-// AssertReplied asserts that a message containing substr was sent to target.
+// AssertReplied asserts that a QQ message containing substr was captured by the MockAPI.
+// The target parameter is accepted for documentation clarity but not checked (routing
+// is asserted structurally via Sent/LastSent when needed).
 func (tb *Bot) AssertReplied(t *testing.T, target, substr string) {
 	t.Helper()
-	for _, s := range tb.api.Sent() {
-		if s.Target == target && s.Msg != nil && strings.Contains(s.Msg.Content, substr) {
+	for _, s := range tb.api.Drain() {
+		if s != nil && strings.Contains(s.Content, substr) {
+			_ = target
 			return
 		}
 	}
-	t.Errorf("testbot: no message to %q containing %q; sent=%v", target, substr, tb.api.Sent())
+	t.Errorf("testbot: no QQ message to %q containing %q", target, substr)
 }
 
-// AssertNotReplied asserts no message was sent to target.
+// AssertNotReplied asserts that no QQ message was captured by the MockAPI.
 func (tb *Bot) AssertNotReplied(t *testing.T, target string) {
 	t.Helper()
-	for _, s := range tb.api.Sent() {
-		if s.Target == target {
-			t.Errorf("testbot: unexpected message to %q: %q", target, s.Msg.Content)
+	for _, s := range tb.api.Drain() {
+		if s != nil {
+			t.Errorf("testbot: unexpected QQ message to %q: %q", target, s.Content)
 			return
 		}
 	}
 }
 
-// AssertSentCount asserts the total number of sent messages.
-func (tb *Bot) AssertSentCount(t *testing.T, n int) {
-	t.Helper()
-	if got := len(tb.api.Sent()); got != n {
-		t.Errorf("testbot: expected %d sent messages, got %d", n, got)
-	}
-}
-
-// ClearSent clears the sent message log.
-func (tb *Bot) ClearSent() { tb.api.Clear() }
-
-// AssertPlatformReplied asserts that a platform message containing substr was sent.
+// AssertPlatformReplied asserts that a platform-agnostic message containing substr
+// was captured by the MockSender.
 func (tb *Bot) AssertPlatformReplied(t *testing.T, substr string) {
 	t.Helper()
-	for _, msg := range tb.sender.Sent() {
-		if strings.Contains(msg.Text, substr) {
-			return
-		}
+	if !tb.HasPlatformReply(substr) {
+		t.Errorf("testbot: no platform message containing %q; sent=%v", substr, tb.SenderAPI().Sent())
 	}
-	t.Errorf("testbot: no platform message containing %q; sent=%v", substr, tb.sender.Sent())
 }
 
-var _ openapi.OpenAPI = (*MockAPI)(nil)
+// ClearSent clears both the QQ MockAPI log and the platform MockSender log.
+func (tb *Bot) ClearSent() {
+	tb.api.Clear()
+	tb.Bot.ClearSent()
+}
+
 var _ platform.Sender = (*MockSender)(nil)

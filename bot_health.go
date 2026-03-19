@@ -111,42 +111,6 @@ func (c *AdapterHealthChecker) Check(_ context.Context) health.CheckResult {
 	}
 }
 
-// TokenManagerHealthChecker 检查 Token Manager 状态
-type TokenManagerHealthChecker struct {
-	bot *Bot
-}
-
-// NewTokenManagerHealthChecker 创建 Token Manager 健康检查器
-func NewTokenManagerHealthChecker(bot *Bot) *TokenManagerHealthChecker {
-	return &TokenManagerHealthChecker{bot: bot}
-}
-
-// Name 返回检查器名称
-func (c *TokenManagerHealthChecker) Name() string {
-	return "token_manager"
-}
-
-// Check 执行健康检查
-func (c *TokenManagerHealthChecker) Check(_ context.Context) health.CheckResult {
-	if c.bot.tokenManager == nil {
-		// Token Manager 是可选的
-		return health.CheckResult{
-			Status: health.Healthy,
-			Metadata: map[string]any{
-				"enabled": false,
-			},
-		}
-	}
-
-	// Token Manager 存在即认为健康
-	return health.CheckResult{
-		Status: health.Healthy,
-		Metadata: map[string]any{
-			"enabled": true,
-		},
-	}
-}
-
 // dlqStater is satisfied by any dlq.Queue[T].
 type dlqStater interface {
 	Stats() dlq.Stats

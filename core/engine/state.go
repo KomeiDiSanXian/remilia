@@ -11,11 +11,11 @@ import (
 // MiddlewareTraceHook 中间件追踪钩子函数类型
 type MiddlewareTraceHook func(name string, ctx *context.Context)
 
-// engineState 不可变的引擎状态（COW 模式）
+// state 不可变的引擎状态（COW 模式）
 //
 // 此结构体包含所有需要在读操作中访问的状态。
 // 写操作会复制整个状态，修改后原子替换。
-type engineState struct {
+type state struct {
 	// 核心匹配器列表
 	matchers []*Matcher
 
@@ -73,8 +73,8 @@ type middlewareState struct {
 }
 
 // newEngineState 创建新的引擎状态
-func newEngineState() *engineState {
-	return &engineState{
+func newEngineState() *state {
+	return &state{
 		matchers:         make([]*Matcher, 0),
 		matcherIndex:     make(map[EventType][]*Matcher),
 		commandIndex:     make(map[string]map[EventType][]*Matcher),
@@ -103,8 +103,8 @@ func newMiddlewareState() *middlewareState {
 //   - 只能使用 append 修改切片，不能就地修改（如 matchers[i] = xxx）
 //   - 所有修改操作（addMatcher、deleteMatcher 等）都正确使用 append
 //   - 这种策略在当前代码中是安全的，因为没有就地修改操作
-func copyEngineState(src *engineState) *engineState {
-	dst := &engineState{
+func copyEngineState(src *state) *state {
+	dst := &state{
 		// 使用 append 共享底层数组，只在修改时才会复制
 		matchers:         src.matchers[:len(src.matchers):len(src.matchers)],
 		matcherIndex:     make(map[EventType][]*Matcher, len(src.matcherIndex)),
@@ -172,7 +172,7 @@ func copyMiddlewareState(src *middlewareState) *middlewareState {
 }
 
 // rebuildIndex 重建匹配器索引和排序缓存
-func (s *engineState) rebuildIndex() {
+func (s *state) rebuildIndex() {
 	// 清空旧索引
 	s.matcherIndex = make(map[EventType][]*Matcher)
 	s.commandIndex = make(map[string]map[EventType][]*Matcher)
@@ -223,7 +223,7 @@ func (s *engineState) rebuildIndex() {
 }
 
 // rebuildCommandInfoCache 重建单个命令的缓存信息
-func (s *engineState) rebuildCommandInfoCache(m *Matcher, cmd string) {
+func (s *state) rebuildCommandInfoCache(m *Matcher, cmd string) {
 	// 获取定义
 	def := m.GetDefinition()
 
@@ -266,7 +266,7 @@ func (s *engineState) rebuildCommandInfoCache(m *Matcher, cmd string) {
 
 // rebuildCommandListCache 将 commandInfoCache 展开为有序切片并缓存。
 // 每次 commandInfoCache 变动后调用，保证 GetAllCommands 可 O(1) 复制返回。
-func (s *engineState) rebuildCommandListCache() {
+func (s *state) rebuildCommandListCache() {
 	list := make([]CommandInfo, 0, len(s.commandInfoCache))
 	for _, info := range s.commandInfoCache {
 		list = append(list, *info)
@@ -276,7 +276,7 @@ func (s *engineState) rebuildCommandListCache() {
 }
 
 // addMatcher 添加匹配器到状态
-func (s *engineState) addMatcher(m *Matcher) {
+func (s *state) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
 
 	cmd := m.GetCommand()
@@ -320,7 +320,7 @@ func (s *engineState) addMatcher(m *Matcher) {
 }
 
 // removeGroup 移除指定分组的所有匹配器
-func (s *engineState) removeGroup(groupName string) {
+func (s *state) removeGroup(groupName string) {
 	if groupName == "" {
 		return
 	}
@@ -344,7 +344,7 @@ func (s *engineState) removeGroup(groupName string) {
 }
 
 // deleteMatcher 从状态中删除匹配器
-func (s *engineState) deleteMatcher(m *Matcher) {
+func (s *state) deleteMatcher(m *Matcher) {
 	// 从 matchers 列表中删除
 	for i, matcher := range s.matchers {
 		if matcher == m {
@@ -358,7 +358,7 @@ func (s *engineState) deleteMatcher(m *Matcher) {
 }
 
 // deleteMatchers 从状态中批量删除匹配器
-func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
+func (s *state) deleteMatchers(matchersToDelete []*Matcher) {
 	if len(matchersToDelete) == 0 {
 		return
 	}
@@ -382,7 +382,7 @@ func (s *engineState) deleteMatchers(matchersToDelete []*Matcher) {
 }
 
 // invalidateSortedCache 失效并重建指定事件类型的排序缓存
-func (s *engineState) invalidateSortedCache(eventType EventType) {
+func (s *state) invalidateSortedCache(eventType EventType) {
 	// 重建指定事件类型的缓存
 	if matchers, ok := s.matcherIndex[eventType]; ok {
 		// 尝试重用现有 slice 容量

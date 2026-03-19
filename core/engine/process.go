@@ -360,7 +360,7 @@ func extractCommand(content string) string {
 //	  Generic ：EventType == "" 的 Matcher（通配，匹配任意事件）
 //
 //	维度 2 — 存储位置
-//	  State (perm)：通过 registerMatcher 注册到 COW engineState 的永久 Matcher
+//	  State (perm)：通过 registerMatcher 注册到 COW state 的永久 Matcher
 //	  State (cmd) ：同上但命中了 commandIndex 快速路径（已有 /cmd 前缀索引）
 //	  Temp        ：通过 OnTemp 注册到 TempManager 的临时 Matcher
 //

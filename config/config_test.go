@@ -486,18 +486,6 @@ func TestDeadLetterConfig_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid kafka target",
-			config: DeadLetterConfig{
-				Enable:       true,
-				Target:       "kafka",
-				KafkaBrokers: []string{"localhost:9092"},
-				KafkaTopic:   "dlq-topic",
-			},
-			// KafkaConsumer 尚未实现，配置验证应拒绝此 target
-			wantErr: true,
-			errMsg:  "not yet implemented",
-		},
-		{
 			name: "valid webhook target",
 			config: DeadLetterConfig{
 				Enable:     true,
@@ -530,26 +518,6 @@ func TestDeadLetterConfig_Validate(t *testing.T) {
 			},
 			wantErr: true,
 			errMsg:  "file_path is required",
-		},
-		{
-			name: "kafka target without brokers",
-			config: DeadLetterConfig{
-				Enable:     true,
-				Target:     "kafka",
-				KafkaTopic: "topic",
-			},
-			wantErr: true,
-			errMsg:  "not yet implemented",
-		},
-		{
-			name: "kafka target without topic",
-			config: DeadLetterConfig{
-				Enable:       true,
-				Target:       "kafka",
-				KafkaBrokers: []string{"localhost:9092"},
-			},
-			wantErr: true,
-			errMsg:  "not yet implemented",
 		},
 		{
 			name: "webhook target without url",

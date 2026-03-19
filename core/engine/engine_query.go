@@ -81,7 +81,7 @@ type Snapshot struct {
 
 // engineSnapshot 存储引擎状态快照的内部数据
 type engineSnapshot struct {
-	state      *engineState
+	state      *state
 	middleware *middlewareState
 }
 

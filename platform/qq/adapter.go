@@ -101,8 +101,10 @@ func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)
 			if payload != nil {
 				event := NewEvent(payload)
 				a.wg.Add(1)
-				safeInvoke(handler, event)
-				a.wg.Done()
+				go func() {
+					defer a.wg.Done()
+					safeInvoke(handler, event)
+				}()
 			}
 		}
 	}

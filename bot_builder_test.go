@@ -24,17 +24,17 @@ func TestBotBuilder(t *testing.T) {
 		assert.NotNil(t, bot)
 	})
 
-	t.Run("WithWebhook", func(t *testing.T) {
+	t.Run("WithQQAdapter", func(t *testing.T) {
 		botInfo := &dto.BotInfo{
 			QQNum:     54321,
 			AppID:     12345,
 			Token:     "test-token",
 			AppSecret: "test-secret",
 		}
+		adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
 		bot, err := remilia.NewBotBuilder().
-			WithBotInfo(botInfo).
-			WithWebhook(":8080").
+			WithPlatformAdapter(adapter).
 			Build()
 
 		require.NoError(t, err)
@@ -86,10 +86,10 @@ func TestBotBuilder(t *testing.T) {
 			Token:     "test-token",
 			AppSecret: "test-secret",
 		}
+		adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
 		bot, err := remilia.NewBotBuilder().
-			WithBotInfo(botInfo).
-			WithWebhook(":8080").
+			WithPlatformAdapter(adapter).
 			WithName("chained-bot").
 			WithVersion("1.0.0").
 			WithDebug(false).

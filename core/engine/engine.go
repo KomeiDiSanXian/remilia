@@ -53,17 +53,17 @@ import (
 //   - 适用场景：读多写少（完美匹配 Engine 使用模式）
 type Engine struct {
 	// 不可变状态（COW 模式）- 使用类型安全的泛型包装器
-	state      *infraatomic.Value[*engineState]     // 引擎核心状态
+	state      *infraatomic.Value[*state]           // 引擎核心状态
 	middleware *infraatomic.Value[*middlewareState] // 中间件配置
 
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
 
 	// services holds runtime/infra concerns (temp manager, pools, metrics, etc.)
-	services engineServices
+	services services
 
 	// runtime holds engine-owned background components.
-	runtime engineRuntime
+	runtime runtime
 
 	// eventWg tracks active event processing calls
 	eventWg sync.WaitGroup

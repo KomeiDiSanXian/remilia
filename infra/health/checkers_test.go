@@ -7,14 +7,13 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// dlqAdapter 在测试中将 *dlq.PayloadQueue 适配为 DLQStats 接口
-// （生产代码中该适配器在 bot/bot_health.go 中定义）
-type dlqAdapter struct{ q *dlq.PayloadQueue }
+// dlqAdapter adapts a *dlq.Queue[int] to the DLQStats interface used by the health checker.
+// Using int as the item type keeps infra/health free of platform-specific dependencies.
+type dlqAdapter struct{ q *dlq.Queue[int] }
 
 func (a *dlqAdapter) Stats() DLQStatsSnapshot {
 	s := a.q.Stats()
@@ -81,7 +80,7 @@ func TestDeadLetterQueueHealthChecker_Check_NilDLQ(t *testing.T) {
 }
 
 func TestDeadLetterQueueHealthChecker_Check_HealthyDLQ(t *testing.T) {
-	dlqInstance := dlq.NewPayloadQueue(dlq.PayloadConfig{MaxSize: 100, Workers: 2})
+	dlqInstance := dlq.New[int](dlq.Config[int]{MaxSize: 100, Workers: 2})
 	require.NotNil(t, dlqInstance)
 	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1)
 	ctx := stdctx.Background()
@@ -99,10 +98,10 @@ func TestDeadLetterQueueHealthChecker_Check_HealthyDLQ(t *testing.T) {
 }
 
 func TestDeadLetterQueueHealthChecker_Check_QueueSizeExceedsThreshold(t *testing.T) {
-	dlqInstance := dlq.NewPayloadQueue(dlq.PayloadConfig{MaxSize: 10, Workers: 1})
+	dlqInstance := dlq.New[int](dlq.Config[int]{MaxSize: 10, Workers: 1})
 	require.NotNil(t, dlqInstance)
 	for i := range 8 {
-		_ = dlqInstance.Enqueue(dlq.PayloadItem{Data: &dto.Payload{ID: dto.EventID("test-" + string(rune('0'+i)))}})
+		_ = dlqInstance.Enqueue(dlq.Item[int]{Data: i})
 	}
 	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 5, 0.1)
 	ctx := stdctx.Background()
@@ -150,7 +149,7 @@ func TestEngineHealthChecker_Integration(t *testing.T) {
 }
 
 func TestDeadLetterQueueHealthChecker_Integration(t *testing.T) {
-	dlqInstance := dlq.NewPayloadQueue(dlq.PayloadConfig{MaxSize: 100, Workers: 2})
+	dlqInstance := dlq.New[int](dlq.Config[int]{MaxSize: 100, Workers: 2})
 	require.NotNil(t, dlqInstance)
 	dlqInstance.Start()
 	defer func() {
@@ -171,7 +170,7 @@ func TestDeadLetterQueueHealthChecker_Integration(t *testing.T) {
 func TestMultipleCheckers_Integration(t *testing.T) {
 	eng := engine.NewEngine()
 	require.NotNil(t, eng)
-	dlqInstance := dlq.NewPayloadQueue(dlq.PayloadConfig{MaxSize: 100, Workers: 2})
+	dlqInstance := dlq.New[int](dlq.Config[int]{MaxSize: 100, Workers: 2})
 	require.NotNil(t, dlqInstance)
 	dlqInstance.Start()
 	defer func() {
@@ -203,7 +202,7 @@ func BenchmarkEngineHealthChecker(b *testing.B) {
 }
 
 func BenchmarkDeadLetterQueueHealthChecker(b *testing.B) {
-	dlqInstance := dlq.NewPayloadQueue(dlq.PayloadConfig{MaxSize: 100, Workers: 2})
+	dlqInstance := dlq.New[int](dlq.Config[int]{MaxSize: 100, Workers: 2})
 	checker := NewDeadLetterQueueHealthChecker(&dlqAdapter{dlqInstance}, 50, 0.1)
 	ctx := stdctx.Background()
 	b.ResetTimer()
