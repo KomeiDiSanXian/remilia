@@ -4,92 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(example): comment out main function and related imports for future fixes">
-      <change afterPath="$PROJECT_DIR$/core/context/testhelpers_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/testhelpers_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/04-development/decouple-context-from-qq-sdk.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/benchmark/helpers_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/chaos/helpers_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/integration/helpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/antispam/antispam_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/antispam/antispam_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/dev/debug/debug.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/stats/stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/stats/stats_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_clone_simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_simple_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_coverage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_coverage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_error_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_error_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/cooldown_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/cooldown_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/decode.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/decode.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules_new_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules_new_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/batch_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/batch_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/bugfix_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/disable_group_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/disable_group_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_extra_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/async-tasks/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/basic-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/command-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error-handling/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/logger-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/logger-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/audit/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker_autorecovery_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker_autorecovery_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_90_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/deadletter.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/deadletter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/ratelimit_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/ratelimit_race_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/tracing.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/tracing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/benchmark/benchmark_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/benchmark/benchmark_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/chaos/chaos_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/chaos/chaos_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/e2e_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/e2e_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(event): add ID method for unique event identification across platforms">
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/multi-platform-audit.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -313,7 +229,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: enhance context management with improved nil value handling and add metrics for degradation control" />
     <MESSAGE value="docs: update documentation with recent changes and archive outdated files" />
     <MESSAGE value="refactor: streamline permission management by consolidating role and permission types into core/permission package" />
     <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
@@ -338,7 +253,8 @@
     <MESSAGE value="refactor(platform): migrate plugins to use builtin packages for improved organization and consistency" />
     <MESSAGE value="optimize: optimize goroutine usage in adapter initialization and improve loop iteration" />
     <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore(example): comment out main function and related imports for future fixes" />
+    <MESSAGE value="feat(event): add ID method for unique event identification across platforms" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(event): add ID method for unique event identification across platforms" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
