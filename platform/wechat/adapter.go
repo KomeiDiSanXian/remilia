@@ -32,6 +32,7 @@ func (s *noopSender) Send(_ stdctx.Context, _ string, _ platform.OutboundMessage
 type wechatEvent struct{}
 
 func (e *wechatEvent) Platform() string          { return PlatformID }
+func (e *wechatEvent) ID() string                { return "" }
 func (e *wechatEvent) Kind() platform.EventKind  { return platform.EventKindUnknown }
 func (e *wechatEvent) RawType() string           { return "" }
 func (e *wechatEvent) Sender() platform.UserInfo { return platform.UserInfo{} }

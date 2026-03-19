@@ -4,14 +4,14 @@ import (
 	"testing"
 
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng := NewEngine()
 
 	triggered := false
-	m := eng.On(dto.C2CMessageCreate).
+	m := eng.On(string(platform.EventKindPrivateMessage)).
 		Handle(func(c *ctx.Context) error {
 			triggered = true
 			return nil
@@ -19,7 +19,7 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng.SetMatcherGroup(m, "testplugin", "test")
 
 	// Process once — should trigger
-	eng.ProcessEvent(ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
+	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if !triggered {
 		t.Fatal("handler should have been triggered before DisableGroup")
 	}
@@ -28,7 +28,7 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng.DisableGroup("testplugin")
 	triggered = false
 
-	eng.ProcessEvent(ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
+	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if triggered {
 		t.Error("handler should NOT trigger after DisableGroup")
 	}
@@ -38,7 +38,7 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 	eng := NewEngine()
 
 	triggered := false
-	m := eng.On(dto.C2CMessageCreate).
+	m := eng.On(string(platform.EventKindPrivateMessage)).
 		Handle(func(c *ctx.Context) error {
 			triggered = true
 			return nil
@@ -48,7 +48,7 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 	eng.DisableGroup("resume-plugin")
 	eng.EnableGroup("resume-plugin")
 
-	eng.ProcessEvent(ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
+	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if !triggered {
 		t.Error("handler should trigger after EnableGroup")
 	}
@@ -57,7 +57,7 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 func TestDisableGroup_DoesNotDeleteMatchers(t *testing.T) {
 	eng := NewEngine()
 
-	m := eng.On(dto.C2CMessageCreate).
+	m := eng.On(string(platform.EventKindPrivateMessage)).
 		Handle(func(c *ctx.Context) error { return nil })
 	eng.SetMatcherGroup(m, "persist-plugin", "test")
 

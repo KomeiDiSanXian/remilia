@@ -5,28 +5,21 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestAcquireReleaseContext tests basic acquire and release functionality
 func TestAcquireReleaseContext(t *testing.T) {
-	payload := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		Detail: []byte(`{
-			"content": "test message",
-			"author": {"user_openid": "user123"}
-		}`),
-	}
 
 	// Acquire context
-	ctx := context.AcquireContext(payload, nil)
+	ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	require.NotNil(t, ctx)
 
 	// Verify context is properly initialized
-	assert.Equal(t, payload, ctx.GetEvent())
-	assert.Equal(t, dto.C2CMessageCreate, ctx.GetEventType())
+	assert.NotNil(t, ctx.GetPlatformEvent())
+	assert.Equal(t, string(platform.EventKindPrivateMessage), ctx.GetEventType())
 
 	// Set some data
 	ctx.Set("key1", "value1")
@@ -38,7 +31,7 @@ func TestAcquireReleaseContext(t *testing.T) {
 	context.ReleaseContext(ctx)
 
 	// Acquire again - should be cleared
-	ctx2 := context.AcquireContext(payload, nil)
+	ctx2 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	require.NotNil(t, ctx2)
 
 	// Verify data is cleared
@@ -52,17 +45,14 @@ func TestAcquireReleaseContext(t *testing.T) {
 
 // TestContextPoolReuse tests that contexts are actually reused
 func TestContextPoolReuse(t *testing.T) {
-	payload := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-	}
 
 	// Get first context and note its address
-	ctx1 := context.AcquireContext(payload, nil)
+	ctx1 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	addr1 := &ctx1
 	context.ReleaseContext(ctx1)
 
 	// Get second context - should likely be the same object
-	ctx2 := context.AcquireContext(payload, nil)
+	ctx2 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	addr2 := &ctx2
 	context.ReleaseContext(ctx2)
 
@@ -74,10 +64,6 @@ func TestContextPoolReuse(t *testing.T) {
 
 // TestContextPoolConcurrent tests concurrent acquire and release
 func TestContextPoolConcurrent(t *testing.T) {
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
 
 	const numGoroutines = 100
 	const iterations = 100
@@ -92,7 +78,7 @@ func TestContextPoolConcurrent(t *testing.T) {
 
 			for j := range iterations {
 				// Acquire
-				ctx := context.AcquireContext(payload, nil)
+				ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 				if ctx == nil {
 					errors <- assert.AnError
 					return
@@ -125,18 +111,15 @@ func TestContextPoolConcurrent(t *testing.T) {
 
 // TestContextPoolDataIsolation ensures data doesn't leak between contexts
 func TestContextPoolDataIsolation(t *testing.T) {
-	payload := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-	}
 
 	// First context with data
-	ctx1 := context.AcquireContext(payload, nil)
+	ctx1 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	ctx1.Set("secret", "should_not_leak")
 	ctx1.Set("number", 42)
 	context.ReleaseContext(ctx1)
 
 	// Second context should not see first context's data
-	ctx2 := context.AcquireContext(payload, nil)
+	ctx2 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	defer context.ReleaseContext(ctx2)
 
 	val1, ok1 := ctx2.Get("secret")
@@ -157,12 +140,8 @@ func TestContextPoolNilRelease(t *testing.T) {
 
 // TestContextPoolWithExtensions tests that extensions are properly cleared
 func TestContextPoolWithExtensions(t *testing.T) {
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
 
-	ctx := context.AcquireContext(payload, nil)
+	ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 
 	// Set various data
 	ctx.Set("key1", "value1")
@@ -186,7 +165,7 @@ func TestContextPoolWithExtensions(t *testing.T) {
 	context.ReleaseContext(ctx)
 
 	// Acquire new context
-	ctx2 := context.AcquireContext(payload, nil)
+	ctx2 := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 	defer context.ReleaseContext(ctx2)
 
 	// Verify all data is cleared
@@ -211,15 +190,11 @@ func TestGetContextPoolStats(t *testing.T) {
 
 // BenchmarkContextCreation compares regular creation vs pool
 func BenchmarkContextCreation(b *testing.B) {
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
 
 	b.Run("Regular", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx := context.NewContext(payload, nil)
+			ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 			_ = ctx
 		}
 	})
@@ -227,7 +202,7 @@ func BenchmarkContextCreation(b *testing.B) {
 	b.Run("Pooled", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx := context.AcquireContext(payload, nil)
+			ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 			context.ReleaseContext(ctx)
 		}
 	})
@@ -235,15 +210,11 @@ func BenchmarkContextCreation(b *testing.B) {
 
 // BenchmarkContextPoolParallel benchmarks concurrent pool usage
 func BenchmarkContextPoolParallel(b *testing.B) {
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
 
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx := context.AcquireContext(payload, nil)
+			ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 			ctx.Set("test", "value")
 			_, _ = ctx.Get("test")
 			context.ReleaseContext(ctx)
@@ -253,15 +224,11 @@ func BenchmarkContextPoolParallel(b *testing.B) {
 
 // BenchmarkContextWithExtensions benchmarks context with extensions usage
 func BenchmarkContextWithExtensions(b *testing.B) {
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
 
 	b.Run("WithoutPool", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx := context.NewContext(payload, nil)
+			ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 			ctx.Set("key1", "value1")
 			ctx.Set("key2", 123)
 			_, _ = ctx.Get("key1")
@@ -272,7 +239,7 @@ func BenchmarkContextWithExtensions(b *testing.B) {
 	b.Run("WithPool", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			ctx := context.AcquireContext(payload, nil)
+			ctx := context.AcquireContextFromEvent(makeTestEvent("test", "PRIVATE_MESSAGE", "", platform.EventKindPrivateMessage), nil)
 			ctx.Set("key1", "value1")
 			ctx.Set("key2", 123)
 			_, _ = ctx.Get("key1")

@@ -8,36 +8,28 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewContext tests creating a new context
-func TestNewContext(t *testing.T) {
-	event := &dto.Payload{
-		ID:   "test-1",
-		Type: dto.C2CMessageCreate,
-	}
+// TestAcquireContextFromEvent tests creating a new context via the new path
+func TestAcquireContextFromEvent(t *testing.T) {
+	event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
 
-	ctx := NewContext(event, nil)
+	ctx := AcquireContextFromEvent(event, nil)
 
 	require.NotNil(t, ctx)
-	assert.NotNil(t, ctx.ctx)
-	assert.Equal(t, event, ctx.event)
-	assert.Nil(t, ctx.api)
+	assert.NotNil(t, ctx.GetPlatformEvent())
+	assert.Equal(t, "test-1", ctx.GetPlatformEvent().ID())
 }
 
-// TestNewContextWithContext tests creating context with custom stdlib context
-func TestNewContextWithContext(t *testing.T) {
-	event := &dto.Payload{
-		ID:   "test-1",
-		Type: dto.C2CMessageCreate,
-	}
-
+// TestAcquireContextFromEvent_WithStdCtx tests creating context then setting stdlib context
+func TestAcquireContextFromEvent_WithStdCtx(t *testing.T) {
 	stdCtx := t.Context()
 
-	ctx := NewContextWithContext(stdCtx, event, nil)
+	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx.SetStdContext(stdCtx)
 
 	require.NotNil(t, ctx)
 	assert.Equal(t, stdCtx, ctx.Context())
@@ -52,7 +44,7 @@ func TestContext_ContextNil(t *testing.T) {
 
 // TestContext_SetStdContext tests setting stdlib context
 func TestContext_SetStdContext(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	newCtx, cancel := stdctx.WithTimeout(stdctx.Background(), time.Second)
 	defer cancel()
@@ -71,16 +63,15 @@ func TestContext_SetStdContextNil(t *testing.T) {
 // TestContext_Clone tests cloning context
 func TestContext_Clone(t *testing.T) {
 	t.Run("basic clone", func(t *testing.T) {
-		event := &dto.Payload{ID: "test-1"}
-		ctx := NewContext(event, nil)
+		event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
+		ctx := AcquireContextFromEvent(event, nil)
 		ctx.Set("key1", "value1")
 		ctx.SetRetryAttempt(3)
 
 		cloned := ctx.Clone()
 
 		require.NotNil(t, cloned)
-		assert.Equal(t, ctx.event, cloned.event)
-		assert.Equal(t, ctx.api, cloned.api)
+		assert.Equal(t, ctx.GetPlatformEvent(), cloned.GetPlatformEvent())
 
 		// Verify extensionState is copied
 		val, ok := cloned.Get("key1")
@@ -94,7 +85,7 @@ func TestContext_Clone(t *testing.T) {
 	})
 
 	t.Run("cloned extensionState is independent", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		ctx.Set("key1", "original")
 
 		cloned := ctx.Clone()
@@ -113,7 +104,7 @@ func TestContext_Clone(t *testing.T) {
 // TestContext_SetGet tests Set/Get user extensionState
 func TestContext_SetGet(t *testing.T) {
 	t.Run("basic set and get", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ctx.Set("string", "value")
 		ctx.Set("int", 123)
@@ -133,7 +124,7 @@ func TestContext_SetGet(t *testing.T) {
 	})
 
 	t.Run("get non-existent key", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		val, ok := ctx.Get("non-existent")
 		assert.False(t, ok)
@@ -141,7 +132,7 @@ func TestContext_SetGet(t *testing.T) {
 	})
 
 	t.Run("set nil deletes key", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ctx.Set("key", "value")
 		ctx.Set("key", nil) // nil is a no-op; key still holds "value"
@@ -158,7 +149,7 @@ func TestContext_SetGet(t *testing.T) {
 	})
 
 	t.Run("set reserved key is forbidden", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		// These should be silently ignored
 		ctx.Set("_remilia_internal_test", "value")
@@ -182,7 +173,7 @@ func TestContext_SetGet(t *testing.T) {
 // TestContext_Delete tests deleting user extensionState
 func TestContext_Delete(t *testing.T) {
 	t.Run("delete existing key", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ctx.Set("key", "value")
 		ctx.Delete("key")
@@ -192,14 +183,14 @@ func TestContext_Delete(t *testing.T) {
 	})
 
 	t.Run("delete non-existent key", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		// Should not panic
 		ctx.Delete("non-existent")
 	})
 
 	t.Run("delete reserved key is forbidden", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		// Should be silently ignored
 		ctx.Delete("_remilia_internal_test")
@@ -210,7 +201,7 @@ func TestContext_Delete(t *testing.T) {
 // TestContext_Extensions tests Extensions store
 func TestContext_Extensions(t *testing.T) {
 	t.Run("get extensions", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ext := ctx.Ext()
 		require.NotNil(t, ext)
@@ -230,7 +221,7 @@ func TestContext_Extensions(t *testing.T) {
 // TestContext_ParsedCommand tests parsed command storage
 func TestContext_ParsedCommand(t *testing.T) {
 	t.Run("set and get parsed command", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		parsed := &command.Parsed{
 			CommandPath: []string{"test"},
@@ -246,7 +237,7 @@ func TestContext_ParsedCommand(t *testing.T) {
 	})
 
 	t.Run("get without set returns nil", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		result := ctx.GetParsedCommand()
 		assert.Nil(t, result)
@@ -264,7 +255,7 @@ func TestContext_ParsedCommand(t *testing.T) {
 // TestContext_MiddlewareTrace tests middleware trace
 func TestContext_MiddlewareTrace(t *testing.T) {
 	t.Run("set and get trace", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		trace := []string{"mw1", "mw2", "mw3"}
 		ctx.SetMiddlewareTrace(trace)
@@ -280,7 +271,7 @@ func TestContext_MiddlewareTrace(t *testing.T) {
 	})
 
 	t.Run("get without set", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		result, ok := ctx.GetMiddlewareTrace()
 		assert.False(t, ok)
@@ -300,7 +291,7 @@ func TestContext_MiddlewareTrace(t *testing.T) {
 // TestContext_RetryAttempt tests retry attempt storage
 func TestContext_RetryAttempt(t *testing.T) {
 	t.Run("set and get retry attempt", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ctx.SetRetryAttempt(5)
 
@@ -310,7 +301,7 @@ func TestContext_RetryAttempt(t *testing.T) {
 	})
 
 	t.Run("get without set", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		result, ok := ctx.GetRetryAttempt()
 		assert.False(t, ok)
@@ -329,7 +320,7 @@ func TestContext_RetryAttempt(t *testing.T) {
 
 // TestContext_ConcurrentAccess tests concurrent access to context
 func TestContext_ConcurrentAccess(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	var wg sync.WaitGroup
 
@@ -396,21 +387,20 @@ func TestExtensions_Concurrent(t *testing.T) {
 func TestRule_OnEventType(t *testing.T) {
 	tests := []struct {
 		name      string
-		eventType dto.EventType
-		ruleType  dto.EventType
+		eventKind platform.EventKind
+		ruleKind  platform.EventKind
 		expected  bool
 	}{
-		{"match C2C", dto.C2CMessageCreate, dto.C2CMessageCreate, true},
-		{"match GroupAt", dto.GroupAtMessageCreate, dto.GroupAtMessageCreate, true},
-		{"no match", dto.C2CMessageCreate, dto.GroupAtMessageCreate, false},
+		{"match private", platform.EventKindPrivateMessage, platform.EventKindPrivateMessage, true},
+		{"match group", platform.EventKindGroupMessage, platform.EventKindGroupMessage, true},
+		{"no match", platform.EventKindPrivateMessage, platform.EventKindGroupMessage, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event := &dto.Payload{Type: tt.eventType}
-			ctx := NewContext(event, nil)
+			ctx := AcquireContextFromEvent(newMockEvent(tt.eventKind), nil)
 
-			rule := OnEventType(tt.ruleType)
+			rule := OnEventType(string(tt.ruleKind))
 			result := rule(ctx)
 
 			assert.Equal(t, tt.expected, result)
@@ -645,7 +635,7 @@ func TestRule_OnUserWhitelist(t *testing.T) {
 	})
 
 	t.Run("no author", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnUserWhitelist("user1")
 		result := rule(ctx)
@@ -675,7 +665,7 @@ func TestRule_OnUserBlacklist(t *testing.T) {
 	})
 
 	t.Run("no author passes", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnUserBlacklist("banned1")
 		result := rule(ctx)
@@ -771,7 +761,7 @@ func TestExtensions_GetOrInit(t *testing.T) {
 
 // TestBug_CloneWithNilState tests clone with uninitialized extensionState
 func TestBug_CloneWithNilState(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 	// Don't initialize extensionState
 
 	cloned := ctx.Clone()
@@ -788,7 +778,7 @@ func TestBug_CloneWithNilState(t *testing.T) {
 
 // TestBug_SetThenDeleteReservedKey tests reserved key protection
 func TestBug_SetThenDeleteReservedKey(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	// Try to set and delete reserved keys
 	ctx.Set("_remilia_internal_secret", "should not work")
@@ -801,7 +791,7 @@ func TestBug_SetThenDeleteReservedKey(t *testing.T) {
 
 // TestBug_ConcurrentClone tests concurrent cloning
 func TestBug_ConcurrentClone(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 	ctx.Set("key", "value")
 
 	var wg sync.WaitGroup
@@ -861,33 +851,17 @@ func TestBug_EmptyKeyword(t *testing.T) {
 // Helper functions
 
 func createTestContextWithMessage(content string) *Context {
-	// Create proper JSON detail
-	detail := []byte(`{"content":"` + content + `"}`)
-
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: detail,
-	}
-
-	return NewContext(payload, nil)
+	return AcquireContextFromEvent(newMockEventWithContent(platform.EventKindPrivateMessage, content), nil)
 }
 
 func createTestContextWithAuthor(userID string) *Context {
-	// Create proper JSON detail with author
-	detail := []byte(`{"author":{"user_openid":"` + userID + `"}}`)
-
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: detail,
-	}
-
-	return NewContext(payload, nil)
+	return AcquireContextFromEvent(newMockEventWithSender(platform.EventKindPrivateMessage, userID), nil)
 }
 
 // Benchmark tests
 
 func BenchmarkContext_SetGet(b *testing.B) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -899,7 +873,7 @@ func BenchmarkContext_SetGet(b *testing.B) {
 }
 
 func BenchmarkContext_Clone(b *testing.B) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 	ctx.Set("key1", "value1")
 	ctx.Set("key2", "value2")
 

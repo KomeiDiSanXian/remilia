@@ -104,19 +104,12 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 			logger.Info("[Greeter] Loading plugin (v2)...")
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").Handle(func(c *eventctx.Context) error {
-				var c2c dto.C2CMessageCreateEvent
-				if err := c.DecodeEvent(&c2c); err != nil {
-					return err
-				}
-				return c.Reply(platform.TextMessage(fmt.Sprintf("%s, %s!", greeting, c2c.Author.UserOpenID)))
+				return c.Reply(platform.TextMessage(fmt.Sprintf("%s, %s!", greeting, c.GetSenderInfo().ID)))
 			})
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").Handle(func(c *eventctx.Context) error {
-				var c2c dto.C2CMessageCreateEvent
-				if err := c.DecodeEvent(&c2c); err != nil {
-					return err
-				}
-				if c2c.Content == "/setgreeting" || c2c.Content == "" {
+				content := c.GetMessageContent()
+				if content == "/setgreeting" || content == "" {
 					return c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
 				}
 				greeting = "Hello"

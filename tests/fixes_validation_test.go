@@ -12,10 +12,24 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// fixtureEvent 是 platform.Event 的最小测试桩，带有可配置的 ID。
+type fixtureEvent struct{ id string }
+
+func (e *fixtureEvent) Platform() string          { return "test" }
+func (e *fixtureEvent) Kind() platform.EventKind  { return platform.EventKindPrivateMessage }
+func (e *fixtureEvent) RawType() string           { return "TEST_EVENT" }
+func (e *fixtureEvent) Content() string           { return "" }
+func (e *fixtureEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{} }
+func (e *fixtureEvent) Sender() platform.UserInfo { return platform.UserInfo{} }
+func (e *fixtureEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *fixtureEvent) ID() string                { return e.id }
+func (e *fixtureEvent) RawPayload() any           { return nil }
+
+func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 
 // TestBotConcurrentStart tests that concurrent Start() calls don't cause race conditions
 func TestBotConcurrentStart(t *testing.T) {
@@ -88,21 +102,19 @@ func TestDedupStrictMode(t *testing.T) {
 			return nil
 		})
 
+		// 使用新路径（platform.Event）以便 Dedup 通过 GetPlatformEvent().ID() 识别事件
 		// Fill cache
-		event1 := &dto.Payload{ID: "event1"}
-		ctx1 := eventctx.NewContext(event1, nil)
-		err := handler(ctx1)
+		err := handler(eventctx.AcquireContextFromEvent(
+			newFixtureEvent("event1"), &platform.NoopSender{}))
 		require.NoError(t, err)
 
-		event2 := &dto.Payload{ID: "event2"}
-		ctx2 := eventctx.NewContext(event2, nil)
-		err = handler(ctx2)
+		err = handler(eventctx.AcquireContextFromEvent(
+			newFixtureEvent("event2"), &platform.NoopSender{}))
 		require.NoError(t, err)
 
 		// Cache is full, strict mode should reject
-		event3 := &dto.Payload{ID: "event3"}
-		ctx3 := eventctx.NewContext(event3, nil)
-		err = handler(ctx3)
+		err = handler(eventctx.AcquireContextFromEvent(
+			newFixtureEvent("event3"), &platform.NoopSender{}))
 		assert.Error(t, err, "Should reject event in strict mode when cache is full")
 	})
 }

@@ -4,20 +4,12 @@ import (
 	"slices"
 )
 
-// groupChatID extracts the group/chat ID in a platform-agnostic way.
-// New path: reads from platform.Event.Chat().ID
-// Old path (QQ): decodes GroupAtMessageCreateEvent.GroupOpenID
+// groupChatID extracts the group/chat ID from platform.Event.
 func groupChatID(ctx *Context) string {
 	if e := ctx.GetPlatformEvent(); e != nil {
 		return e.Chat().ID
 	}
-	var event struct {
-		GroupOpenID string `json:"group_openid"`
-	}
-	if err := ctx.DecodeEvent(&event); err != nil {
-		return ""
-	}
-	return event.GroupOpenID
+	return ""
 }
 
 // OnUserWhitelist 创建用户白名单规则

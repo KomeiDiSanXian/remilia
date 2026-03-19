@@ -466,11 +466,6 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	}
 	eng.On(dto.C2CMessageCreate).Handle(func(ctx *eventctx.Context) error {
 		t0 := time.Now()
-		var ev dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&ev); err != nil {
-			m.failed.Add(1)
-			return err
-		}
 		m.recordLatency(time.Since(t0).Nanoseconds())
 		m.processed.Add(1)
 		// NOTE: Do NOT release the payload here. bot.handleEvent() owns the

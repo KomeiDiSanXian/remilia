@@ -8,7 +8,6 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -325,19 +324,14 @@ func TestDedupMiddleware(t *testing.T) {
 		mw := Dedup(filter)
 		wrappedHandler := mw(handler)
 
-		event := &dto.Payload{
-			ID:   "event-1",
-			Type: "test",
-		}
-
-		// 第一次调用
-		ctx1 := eventctx.NewContext(event, nil)
+		// 使用新路径（AcquireContextFromEvent）以便 Dedup 能通过 GetPlatformEvent().ID() 识别重复事件
+		ctx1 := createPlatformContextWithID("event-1")
 		err := wrappedHandler(ctx1)
 		assert.NoError(t, err)
 		assert.Equal(t, int32(1), handlerCalled.Load())
 
-		// 第二次调用（重复）
-		ctx2 := eventctx.NewContext(event, nil)
+		// 第二次调用（重复事件 ID）
+		ctx2 := createPlatformContextWithID("event-1")
 		err = wrappedHandler(ctx2)
 		assert.NoError(t, err)
 		assert.Equal(t, int32(1), handlerCalled.Load(), "Handler should not be called for duplicate")
@@ -358,14 +352,11 @@ func TestDedupMiddleware(t *testing.T) {
 		wrappedHandler := mw(handler)
 
 		// 不同的事件
-		event1 := &dto.Payload{ID: "event-1", Type: "test"}
-		event2 := &dto.Payload{ID: "event-2", Type: "test"}
-
-		ctx1 := eventctx.NewContext(event1, nil)
+		ctx1 := createPlatformContextWithID("event-1")
 		err := wrappedHandler(ctx1)
 		assert.NoError(t, err)
 
-		ctx2 := eventctx.NewContext(event2, nil)
+		ctx2 := createPlatformContextWithID("event-2")
 		err = wrappedHandler(ctx2)
 		assert.NoError(t, err)
 
@@ -393,17 +384,11 @@ func TestDedupMiddleware(t *testing.T) {
 
 		// 填满缓存
 		for i := range 2 {
-			event := &dto.Payload{
-				ID:   dto.EventID(fmt.Sprintf("event-%d", i)),
-				Type: "test",
-			}
-			ctx := eventctx.NewContext(event, nil)
-			_ = wrappedHandler(ctx)
+			_ = wrappedHandler(createPlatformContextWithID(fmt.Sprintf("event-%d", i)))
 		}
 
 		// 添加第3个事件（缓存满）
-		event3 := &dto.Payload{ID: "event-3", Type: "test"}
-		ctx3 := eventctx.NewContext(event3, nil)
+		ctx3 := createPlatformContextWithID("event-3")
 		err := wrappedHandler(ctx3)
 
 		// 应该继续处理（带警告）
@@ -426,8 +411,7 @@ func TestDedupMiddleware(t *testing.T) {
 		wrappedHandler := mw(handler)
 
 		// 没有 ID 的事件
-		event := &dto.Payload{ID: "", Type: "test"}
-		ctx := eventctx.NewContext(event, nil)
+		ctx := createPlatformContextWithID("")
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)

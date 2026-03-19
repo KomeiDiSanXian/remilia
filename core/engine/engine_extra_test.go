@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,7 +12,7 @@ import (
 // Simple Command Test
 func TestEngine_OnCommand_Basic(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.OnCommand(dto.C2CMessageCreate, "/test")
+	matcher := eng.OnCommand(string(platform.EventKindPrivateMessage), "/test")
 	require.NotNil(t, matcher)
 	assert.Equal(t, "/test", matcher.GetCommand())
 }
@@ -23,8 +23,8 @@ func TestEngine_WithMatcherGroupBatch(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.On(dto.C2CMessageCreate)
-		m2 = eng.On(dto.GroupAtMessageCreate)
+		m1 = eng.On(string(platform.EventKindPrivateMessage))
+		m2 = eng.On(string(platform.EventKindGroupMessage))
 		eng.SetMatcherGroup(m1, "test-plugin", "source1")
 		eng.SetMatcherGroup(m2, "test-plugin", "source2")
 	})
@@ -35,7 +35,7 @@ func TestEngine_WithMatcherGroupBatch(t *testing.T) {
 
 func TestEngine_SetMatcherGroup(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	eng.SetMatcherGroup(matcher, "my-plugin", "test-source")
 	assert.Equal(t, "my-plugin", matcher.group)
 	assert.Equal(t, "test-source", matcher.Source)
@@ -53,9 +53,8 @@ func TestEngine_Named(t *testing.T) {
 	})
 	require.NotNil(t, mw)
 	eng.Use(mw)
-	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error { return nil })
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	context := ctx.NewContext(payload, nil)
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error { return nil })
+	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 	assert.True(t, executed)
 }
@@ -66,8 +65,8 @@ func TestEngine_RemoveGroup_WithMatchers(t *testing.T) {
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
-		m1 = eng.On(dto.C2CMessageCreate)
-		m2 = eng.On(dto.C2CMessageCreate)
+		m1 = eng.On(string(platform.EventKindPrivateMessage))
+		m2 = eng.On(string(platform.EventKindPrivateMessage))
 		eng.SetMatcherGroup(m1, "plugin1", "s1")
 		eng.SetMatcherGroup(m2, "plugin1", "s2")
 	})
@@ -93,7 +92,7 @@ func TestMatcher_NoopBehavior(t *testing.T) {
 
 func TestMatcher_ReplaceHandler(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	var executed string
 
 	handler1 := func(c *ctx.Context) error {
@@ -108,8 +107,7 @@ func TestMatcher_ReplaceHandler(t *testing.T) {
 	matcher.Handle(handler1)
 	matcher.Handle(handler2)
 
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	context := ctx.NewContext(payload, nil)
+	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 
 	assert.Equal(t, "handler2", executed)
@@ -147,13 +145,12 @@ func TestEngine_UseForGroup_Multiple(t *testing.T) {
 	eng.UseForGroup("test", mw1)
 	eng.UseForGroup("test", mw2)
 
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	matcher.group = "test"
 	matcher.Handle(func(c *ctx.Context) error { return nil })
 	eng.RebuildMatcherChain(matcher)
 
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	context := ctx.NewContext(payload, nil)
+	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 
 	assert.Contains(t, order, 1)

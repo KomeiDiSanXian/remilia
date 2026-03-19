@@ -1,12 +1,12 @@
 package i18n_test
 
 import (
-	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/i18n"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // i18n.Plugin 的初始化（含默认值设置）全在 NewPlugin() 中完成，
@@ -15,9 +15,21 @@ func newI18nPlugin(cfg i18n.Config) *i18n.Plugin {
 	return i18n.NewPlugin(cfg)
 }
 func makePlainCtx() *context.Context {
-	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{})
-	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
+	return context.AcquireContextFromEvent(&mockPlainEvent{}, nil)
 }
+
+// mockPlainEvent is a minimal platform.Event for i18n tests.
+type mockPlainEvent struct{}
+
+func (e *mockPlainEvent) Platform() string          { return "test" }
+func (e *mockPlainEvent) Kind() platform.EventKind  { return platform.EventKindPrivateMessage }
+func (e *mockPlainEvent) RawType() string           { return "PRIVATE_MESSAGE" }
+func (e *mockPlainEvent) Content() string           { return "" }
+func (e *mockPlainEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{} }
+func (e *mockPlainEvent) Sender() platform.UserInfo { return platform.UserInfo{} }
+func (e *mockPlainEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *mockPlainEvent) ID() string                { return "" }
+func (e *mockPlainEvent) RawPayload() any           { return nil }
 func TestI18n_LoadBytes_T(t *testing.T) {
 	p := newI18nPlugin(i18n.Config{DefaultLocale: "zh-CN"})
 	if err := p.LoadBytes("zh-CN", []byte("help: \"帮助菜单\"")); err != nil {

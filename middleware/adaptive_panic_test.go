@@ -8,7 +8,6 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestAdaptiveRateLimiter_PanicRecovery 测试 handler panic 时信号量正确释放
@@ -33,9 +32,7 @@ func TestAdaptiveRateLimiter_PanicRecovery(t *testing.T) {
 	wrappedHandler := mw(panicHandler)
 
 	// 创建测试 context
-	ctx := eventctx.NewContext(&dto.Payload{
-		Type: dto.C2CMessageCreate,
-	}, nil)
+	ctx := createTestContext()
 
 	// 执行多次，确保每次都能正确释放信号量
 	for range 10 {
@@ -55,8 +52,7 @@ func TestAdaptiveRateLimiter_PanicRecovery(t *testing.T) {
 	}
 
 	// 验证限流器仍然可以正常工作
-	testPayload := &dto.Payload{ID: "verification-test"}
-	testCtx := eventctx.NewContext(testPayload, nil)
+	testCtx := createTestContext()
 
 	err := mw(func(ctx *eventctx.Context) error {
 		return nil
@@ -107,9 +103,7 @@ func TestAdaptiveRateLimiter_ConcurrentPanicRecovery(t *testing.T) {
 	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			ctx := eventctx.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
+			ctx := createTestContext()
 			_ = wrappedHandler(ctx)
 		}(i)
 	}
@@ -165,9 +159,7 @@ func TestAdaptiveRateLimiter_SemaphoreNoLeak(t *testing.T) {
 	for i := range numGoroutines {
 		go func(id int) {
 			defer wg.Done()
-			ctx := eventctx.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
+			ctx := createTestContext()
 			_ = wrappedHandler(ctx)
 		}(i)
 	}
@@ -217,9 +209,7 @@ func TestAdaptiveRateLimiter_ErrorPropagation(t *testing.T) {
 
 	wrappedHandler := mw(handler)
 
-	ctx := eventctx.NewContext(&dto.Payload{
-		Type: dto.C2CMessageCreate,
-	}, nil)
+	ctx := createTestContext()
 
 	err := wrappedHandler(ctx)
 	if err != expectedErr {

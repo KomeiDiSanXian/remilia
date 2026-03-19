@@ -11,24 +11,29 @@ import (
 //
 // 注意：建议将此中间件放在重试中间件（Retry）的外层，
 // 这样只有在重试耗尽并最终返回错误时，才会进入死信队列。
-func DeadLetter(q *dlq.PayloadQueue) context.Middleware {
+func DeadLetter(q *dlq.PlatformEventQueue) context.Middleware {
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
 			err := next(ctx)
 			if err != nil && q != nil {
 				source := ctx.GetMatcherSource()
 				attempts, _ := ctx.GetRetryAttempt()
+				pe := ctx.GetPlatformEvent()
 
-				item := dlq.PayloadItem{
-					Data:    ctx.GetEvent(),
+				item := dlq.PlatformEventItem{
+					Data:    pe,
 					Err:     err,
 					Source:  source,
 					Attempt: attempts,
 				}
 
 				_ = q.Enqueue(item)
+				eventID := ""
+				if pe != nil {
+					eventID = pe.ID()
+				}
 				logger.WithError(err).WithFields(logger.Fields{
-					"event_id": item.Data.ID,
+					"event_id": eventID,
 					"source":   source,
 				}).Warn("[DeadLetter] Event sent to dead letter queue")
 			}

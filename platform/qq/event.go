@@ -149,8 +149,9 @@ func (e *qqEvent) populateGuildMessage() {
 // --- platform.Event 接口实现 ---
 
 func (e *qqEvent) Platform() string          { return PlatformID }
+func (e *qqEvent) ID() string                { return string(e.payload.ID) }
 func (e *qqEvent) Kind() platform.EventKind  { return e.kind }
-func (e *qqEvent) RawType() string           { return string(e.payload.Type) }
+func (e *qqEvent) RawType() string           { return e.payload.Type }
 func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
 func (e *qqEvent) Chat() platform.ChatInfo   { return e.chat }
 func (e *qqEvent) Content() string           { return e.content }

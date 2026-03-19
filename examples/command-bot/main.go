@@ -95,11 +95,7 @@ func registerCommands(bot *remilia.Bot) {
 
 	// 5. 用户信息命令
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/user").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-		return ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", c2c.Author.UserOpenID)))
+		return ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", ctx.GetSenderInfo().ID)))
 	})
 
 	logger.Info("[CommandBot] Commands registered: /weather, /calc, /search, /help, /user")

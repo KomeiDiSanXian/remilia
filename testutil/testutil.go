@@ -28,6 +28,7 @@ import (
 	botctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -162,7 +163,6 @@ type TestBot struct {
 	t          testing.TB
 	eng        *engine.Engine
 	mgr        *plugin.Manager
-	api        *mockAPI
 	sender     *mockSender
 	timeOffset time.Duration
 	timeMu     sync.RWMutex
@@ -177,7 +177,6 @@ func New(t testing.TB) *TestBot {
 		t:      t,
 		eng:    eng,
 		mgr:    mgr,
-		api:    &mockAPI{},
 		sender: &mockSender{},
 	}
 	t.Cleanup(func() { eng.Shutdown(stdctx.Background()) })
@@ -219,13 +218,21 @@ func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 }
 
 // SendC2C injects a virtual C2C (private chat) message and returns captured replies.
-func (tb *TestBot) SendC2C(userOpenID, content string) *Response {
+//
+// Deprecated: prefer SendPlatformC2C which uses the platform-agnostic path.
+// This method now internally uses ProcessPlatformEvent; replies are captured
+// via the platform.Sender and returned as *PlatformResponse.
+func (tb *TestBot) SendC2C(userOpenID, content string) *PlatformResponse {
 	tb.t.Helper()
 	return tb.dispatch(tb.c2cPayload(userOpenID, content))
 }
 
 // SendGroupAt injects a virtual group @Bot message and returns captured replies.
-func (tb *TestBot) SendGroupAt(userOpenID, groupOpenID, content string) *Response {
+//
+// Deprecated: prefer SendPlatformGroupAt which uses the platform-agnostic path.
+// This method now internally uses ProcessPlatformEvent; replies are captured
+// via the platform.Sender and returned as *PlatformResponse.
+func (tb *TestBot) SendGroupAt(userOpenID, groupOpenID, content string) *PlatformResponse {
 	tb.t.Helper()
 	return tb.dispatch(tb.groupAtPayload(userOpenID, groupOpenID, content))
 }
@@ -246,12 +253,12 @@ func (tb *TestBot) TimeOffset() time.Duration {
 
 // ----- internals -----
 
-func (tb *TestBot) dispatch(payload *dto.Payload) *Response {
-	tb.api.drain()
-	c := botctx.NewContext(payload, tb.api)
-	tb.eng.ProcessEvent(c)
+func (tb *TestBot) dispatch(payload *dto.Payload) *PlatformResponse {
+	tb.sender.drain()
+	event := qqplatform.NewEvent(payload)
+	tb.eng.ProcessPlatformEvent(event, tb.sender)
 	time.Sleep(10 * time.Millisecond)
-	return &Response{replies: tb.api.drain()}
+	return &PlatformResponse{messages: tb.sender.drain()}
 }
 
 func (tb *TestBot) c2cPayload(userOpenID, content string) *dto.Payload {
@@ -303,6 +310,7 @@ type mockPlatformEvent struct {
 }
 
 func (e *mockPlatformEvent) Platform() string          { return "test" }
+func (e *mockPlatformEvent) ID() string                { return "" }
 func (e *mockPlatformEvent) Kind() platform.EventKind  { return e.kind }
 func (e *mockPlatformEvent) RawType() string           { return string(e.kind) }
 func (e *mockPlatformEvent) Sender() platform.UserInfo { return e.sender }

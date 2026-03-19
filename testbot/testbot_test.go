@@ -66,8 +66,11 @@ func TestBot_AssertNotReplied(t *testing.T) {
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
-	tb.SendC2C("user1", "no handler for this")
-	tb.AssertNotReplied(t, "user1")
+	// 没有注册任何 handler，发送消息后不应产生任何回复
+	tb.SendPlatformC2C("user1", "no handler for this")
+	if got := len(tb.SenderAPI().Sent()); got != 0 {
+		t.Errorf("expected no replies for unhandled message, got %d", got)
+	}
 }
 func TestBot_AssertSentCount(t *testing.T) {
 	tb := testbot.New()
@@ -86,7 +89,9 @@ func TestBot_AssertSentCount(t *testing.T) {
 func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 	tb := testbot.New()
 	fired := false
-	tb.Engine().On(dto.GroupAddRobot).Handle(func(ctx *context.Context) error {
+	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindNotice，
+	// 新路径 GetEventType() 返回 EventKind 字符串，因此用 OnEventKind 匹配。
+	tb.Engine().OnEventKind(platform.EventKindNotice).Handle(func(ctx *context.Context) error {
 		fired = true
 		return nil
 	})

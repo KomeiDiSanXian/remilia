@@ -90,6 +90,12 @@ type Event interface {
 	// Timestamp 返回事件时间戳（尽力而为，平台不提供时返回零值）
 	Timestamp() time.Time
 
+	// ID 返回平台级别的唯一事件标识符。
+	//
+	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
+	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
+	ID() string
+
 	// RawPayload 返回原始平台 payload（类型断言后可访问平台特定字段）
 	//
 	// 示例（QQ 平台）:

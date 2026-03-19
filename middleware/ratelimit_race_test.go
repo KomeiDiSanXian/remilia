@@ -8,7 +8,6 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestRateLimitBucketRaceCondition 测试 Rate Limit Bucket 的并发竞态修复
@@ -16,7 +15,10 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 	// 创建限流中间件
 	var accessCount atomic.Int32
 	mw := RateLimitTokenBucket(10, 20, func(ctx *eventctx.Context) string {
-		return string(ctx.GetEvent().ID)
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			return pe.ID()
+		}
+		return ""
 	})
 
 	// 创建 handler
@@ -37,10 +39,7 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 			defer wg.Done()
 
 			for j := range iterations {
-				event := &dto.Payload{
-					ID: "same-event-id", // 所有 goroutine 使用相同 ID
-				}
-				ctx := eventctx.NewContext(event, nil)
+				ctx := createPlatformContextWithID("same-event-id") // 所有 goroutine 使用相同 ID
 
 				// 调用 handler（可能被限流）
 				_ = handler(ctx)
@@ -62,7 +61,10 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 // TestRateLimitBucketConcurrentKeys 测试多个不同 key 的并发访问
 func TestRateLimitBucketConcurrentKeys(t *testing.T) {
 	mw := RateLimitTokenBucket(100, 100, func(ctx *eventctx.Context) string {
-		return string(ctx.GetEvent().ID)
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			return pe.ID()
+		}
+		return ""
 	})
 
 	handler := mw(func(ctx *eventctx.Context) error {
@@ -80,10 +82,7 @@ func TestRateLimitBucketConcurrentKeys(t *testing.T) {
 			defer wg.Done()
 
 			for j := range keysPerGoroutine {
-				event := &dto.Payload{
-					ID: dto.EventID(fmt.Sprintf("event-%d-%d", goroutineID, j)),
-				}
-				ctx := eventctx.NewContext(event, nil)
+				ctx := createPlatformContextWithID(fmt.Sprintf("event-%d-%d", goroutineID, j))
 				_ = handler(ctx)
 			}
 		}(i)
@@ -112,8 +111,7 @@ func TestRateLimitBucketUpdateLastVisit(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			event := &dto.Payload{ID: "test-event"}
-			ctx := eventctx.NewContext(event, nil)
+			ctx := createPlatformContextWithID("test-event")
 			_ = handler(ctx)
 		}()
 	}
@@ -129,7 +127,10 @@ func TestRateLimitBucketStressTest(t *testing.T) {
 	}
 
 	mw := RateLimitTokenBucket(50, 100, func(ctx *eventctx.Context) string {
-		return string(ctx.GetEvent().ID)
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			return pe.ID()
+		}
+		return ""
 	})
 
 	handler := mw(func(ctx *eventctx.Context) error {
@@ -156,10 +157,7 @@ func TestRateLimitBucketStressTest(t *testing.T) {
 				case <-done:
 					return
 				default:
-					event := &dto.Payload{
-						ID: dto.EventID(fmt.Sprintf("worker-%d-event-%d", workerID, counter%10)),
-					}
-					ctx := eventctx.NewContext(event, nil)
+					ctx := createPlatformContextWithID(fmt.Sprintf("worker-%d-event-%d", workerID, counter%10))
 					_ = handler(ctx)
 					counter++
 				}
@@ -181,7 +179,10 @@ func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
 	}
 
 	mw := RateLimitTokenBucketWithConfig(config, 100, 100, func(ctx *eventctx.Context) string {
-		return string(ctx.GetEvent().ID)
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			return pe.ID()
+		}
+		return ""
 	})
 
 	handler := mw(func(ctx *eventctx.Context) error {
@@ -205,10 +206,7 @@ func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
 				case <-done:
 					return
 				default:
-					event := &dto.Payload{
-						ID: dto.EventID(fmt.Sprintf("event-%d-%d", id, counter)),
-					}
-					ctx := eventctx.NewContext(event, nil)
+					ctx := createPlatformContextWithID(fmt.Sprintf("event-%d-%d", id, counter))
 					_ = handler(ctx)
 					counter++
 					time.Sleep(10 * time.Millisecond)

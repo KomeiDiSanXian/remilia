@@ -6,7 +6,7 @@ import (
 	"time"
 
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +15,7 @@ func TestEdgeCases(t *testing.T) {
 	eng.RemoveGroup("")
 	eng.SetMaxMatchers(100)
 	for range 5 {
-		eng.On(dto.C2CMessageCreate)
+		eng.On(string(platform.EventKindPrivateMessage))
 	}
 	assert.Equal(t, 5, eng.GetMatcherCount())
 	stats := eng.GetMatcherStats()
@@ -27,14 +27,14 @@ func TestEdgeCases(t *testing.T) {
 }
 func TestMatcherEdges(t *testing.T) {
 	eng := NewEngine()
-	m := eng.On(dto.C2CMessageCreate)
+	m := eng.On(string(platform.EventKindPrivateMessage))
 	m.Delete()
 	assert.True(t, m.IsDeleted())
-	m2 := eng.On(dto.C2CMessageCreate)
+	m2 := eng.On(string(platform.EventKindPrivateMessage))
 	m2.rt.deleted = true
-	matched := m2.Match(ctx.NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil))
+	matched := m2.Match(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	assert.False(t, matched)
-	m3 := eng.On(dto.C2CMessageCreate)
+	m3 := eng.On(string(platform.EventKindPrivateMessage))
 	m3.Handle(nil)
 	m3.SetPriority(10)
 	m3.SetPriority(10)
@@ -46,7 +46,7 @@ func TestMatcherEdges(t *testing.T) {
 }
 func TestRestoreEdge(t *testing.T) {
 	eng := NewEngine()
-	eng.On(dto.C2CMessageCreate)
+	eng.On(string(platform.EventKindPrivateMessage))
 	snap := eng.Snapshot()
 	eng.DeleteAllMatchers()
 	eng.Restore(snap)

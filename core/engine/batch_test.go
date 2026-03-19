@@ -6,7 +6,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,7 +19,7 @@ func TestBatchRegisterMatchers(t *testing.T) {
 	matchers := make([]*engine.Matcher, 10)
 	for i := range 10 {
 		matchers[i] = &engine.Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []context.Rule{
 				func(ctx *context.Context) bool { return true },
 			},
@@ -52,7 +52,7 @@ func TestBatchRegisterWithLimit(t *testing.T) {
 	matchers := make([]*engine.Matcher, 10)
 	for i := range 10 {
 		matchers[i] = &engine.Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []context.Rule{
 				func(ctx *context.Context) bool { return true },
 			},
@@ -86,7 +86,7 @@ func BenchmarkSingleRegister(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e.On(dto.C2CMessageCreate, func(ctx *context.Context) bool {
+		e.On(string(platform.EventKindPrivateMessage), func(ctx *context.Context) bool {
 			return true
 		})
 	}
@@ -102,7 +102,7 @@ func BenchmarkBatchRegister(b *testing.B) {
 		matchers := make([]*engine.Matcher, 10)
 		for j := range 10 {
 			matchers[j] = &engine.Matcher{
-				EventType: dto.C2CMessageCreate,
+				EventType: string(platform.EventKindPrivateMessage),
 				Rules: []context.Rule{
 					func(ctx *context.Context) bool { return true },
 				},

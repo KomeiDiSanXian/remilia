@@ -6,7 +6,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,13 +33,43 @@ func mockPanicHandler(panicValue any) eventctx.Handler {
 	}
 }
 
-// createTestContext creates a test context
+// createTestContext creates a test context using the platform-agnostic path.
 func createTestContext() *eventctx.Context {
-	event := &dto.Payload{
-		ID:   "test-event",
-		Type: "TEST_EVENT",
+	event := &middlewareTestEvent{
+		id:      "test-event",
+		kind:    platform.EventKindPrivateMessage,
+		content: "TEST_EVENT",
 	}
-	return eventctx.NewContext(event, nil)
+	return eventctx.AcquireContextFromEvent(event, &platform.NoopSender{})
+}
+
+// ── 平台无关事件测试桩（供 dedup 等需要 GetPlatformEvent() 的中间件测试使用）──
+
+type middlewareTestEvent struct {
+	id      string
+	kind    platform.EventKind
+	content string
+}
+
+func (e *middlewareTestEvent) Platform() string          { return "test" }
+func (e *middlewareTestEvent) Kind() platform.EventKind  { return e.kind }
+func (e *middlewareTestEvent) RawType() string           { return string(e.kind) }
+func (e *middlewareTestEvent) Content() string           { return e.content }
+func (e *middlewareTestEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "chat-001"} }
+func (e *middlewareTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "sender-001"} }
+func (e *middlewareTestEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *middlewareTestEvent) ID() string                { return e.id }
+func (e *middlewareTestEvent) RawPayload() any           { return nil }
+
+// createPlatformContextWithID 创建带指定 eventID 的新路径 Context，
+// 供 Dedup 等依赖 GetPlatformEvent() 的中间件测试使用。
+func createPlatformContextWithID(id string) *eventctx.Context {
+	event := &middlewareTestEvent{
+		id:      id,
+		kind:    platform.EventKindPrivateMessage,
+		content: "test content",
+	}
+	return eventctx.AcquireContextFromEvent(event, &platform.NoopSender{})
 }
 
 // TestLogging tests the Logging middleware

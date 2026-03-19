@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -195,10 +195,12 @@ func (tb *Bot) SendC2C(userOpenID, content string) {
 	tb.inject(dto.C2CMessageCreate, event)
 }
 
-// Inject injects an arbitrary Payload.
+// Inject injects an arbitrary Payload via the platform-agnostic path.
+// The payload is wrapped with qqplatform.NewEvent and dispatched through
+// ProcessPlatformEvent; replies are captured by MockSender (use SenderAPI()).
 func (tb *Bot) Inject(payload *dto.Payload) {
-	ctx := context.NewContext(payload, tb.api)
-	tb.eng.ProcessEvent(ctx)
+	event := qqplatform.NewEvent(payload)
+	tb.eng.ProcessPlatformEvent(event, tb.sender)
 }
 func (tb *Bot) inject(eventType dto.EventType, event any) {
 	detail, _ := json.Marshal(event)
@@ -258,6 +260,7 @@ type mockPlatformEvent struct {
 }
 
 func (e *mockPlatformEvent) Platform() string          { return "test" }
+func (e *mockPlatformEvent) ID() string                { return "" }
 func (e *mockPlatformEvent) Kind() platform.EventKind  { return e.kind }
 func (e *mockPlatformEvent) RawType() string           { return string(e.kind) }
 func (e *mockPlatformEvent) Sender() platform.UserInfo { return e.sender }

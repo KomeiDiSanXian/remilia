@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func makeFakeContext() *Context {
-	return NewContext(&dto.Payload{Type: dto.C2CMessageCreate}, nil)
+	return AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 }
 func TestOnCooldown_AllowsFirst(t *testing.T) {
 	rule := OnCooldown(1*time.Second, func(c *Context) string { return "cd_user_first" })

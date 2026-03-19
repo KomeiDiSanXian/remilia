@@ -8,7 +8,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,8 +65,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 			MemoryThreshold: 85.0,
 			Strategy:        DegradationDrop,
 			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
-				event := ctx.GetEvent()
-				if event != nil && event.Type == "HIGH_PRIORITY" {
+				if ctx.GetMessageContent() == "HIGH_PRIORITY" {
 					return PriorityHigh
 				}
 				return PriorityLow
@@ -77,8 +76,7 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		mw := ad.Middleware()
 
 		handler := mw(func(ctx *eventctx.Context) error {
-			event := ctx.GetEvent()
-			if event != nil && event.Type == "HIGH_PRIORITY" {
+			if ctx.GetMessageContent() == "HIGH_PRIORITY" {
 				highPriorityCalls++
 			} else {
 				lowPriorityCalls++
@@ -87,12 +85,12 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		})
 
 		// Low priority
-		event1 := &dto.Payload{ID: "1", Type: "LOW_PRIORITY"}
-		_ = handler(eventctx.NewContext(event1, nil))
+		event1 := &middlewareTestEvent{id: "1", kind: platform.EventKindPrivateMessage, content: "LOW_PRIORITY"}
+		_ = handler(eventctx.AcquireContextFromEvent(event1, nil))
 
 		// High priority
-		event2 := &dto.Payload{ID: "2", Type: "HIGH_PRIORITY"}
-		_ = handler(eventctx.NewContext(event2, nil))
+		event2 := &middlewareTestEvent{id: "2", kind: platform.EventKindPrivateMessage, content: "HIGH_PRIORITY"}
+		_ = handler(eventctx.AcquireContextFromEvent(event2, nil))
 
 		assert.Equal(t, 1, lowPriorityCalls)
 		assert.Equal(t, 1, highPriorityCalls)
@@ -310,8 +308,7 @@ func TestAuthAdvancedExtra(t *testing.T) {
 
 	t.Run("auth with event inspection", func(t *testing.T) {
 		mw := Auth(func(ctx *eventctx.Context) bool {
-			event := ctx.GetEvent()
-			return event != nil && event.Type == "TEST_EVENT"
+			return ctx.GetMessageContent() == "TEST_EVENT"
 		})
 
 		handler := mw(mockHandler(nil, 0))
@@ -527,11 +524,11 @@ func TestDedupEdgeCases(t *testing.T) {
 
 		// Add more events than cache size
 		for i := range 5 {
-			event := &dto.Payload{
-				ID:   dto.EventID(rune('a' + i)),
-				Type: "TEST",
+			event := &middlewareTestEvent{
+				id:   string(rune('a' + i)),
+				kind: platform.EventKindPrivateMessage,
 			}
-			handler(eventctx.NewContext(event, nil))
+			_ = handler(eventctx.AcquireContextFromEvent(event, nil))
 		}
 	})
 
@@ -546,16 +543,16 @@ func TestDedupEdgeCases(t *testing.T) {
 		mw := Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
-		event := &dto.Payload{ID: "short-ttl", Type: "TEST"}
+		event := &middlewareTestEvent{id: "short-ttl", kind: platform.EventKindPrivateMessage}
 
 		// First
-		handler(eventctx.NewContext(event, nil))
+		_ = handler(eventctx.AcquireContextFromEvent(event, nil))
 
 		// Wait for TTL
 		time.Sleep(20 * time.Millisecond)
 
 		// Should be allowed again
-		handler(eventctx.NewContext(event, nil))
+		_ = handler(eventctx.AcquireContextFromEvent(event, nil))
 	})
 }
 
@@ -617,9 +614,8 @@ func TestRateLimitEdgeCases(t *testing.T) {
 
 	t.Run("custom key function", func(t *testing.T) {
 		mw := RateLimitTokenBucket(5, 5, func(ctx *eventctx.Context) string {
-			event := ctx.GetEvent()
-			if event != nil {
-				return string(event.ID)
+			if pe := ctx.GetPlatformEvent(); pe != nil {
+				return pe.ID()
 			}
 			return "default"
 		})
@@ -628,11 +624,11 @@ func TestRateLimitEdgeCases(t *testing.T) {
 
 		// Different events should have separate limits
 		for i := range 3 {
-			event := &dto.Payload{
-				ID:   dto.EventID(rune('a' + i)),
-				Type: "TEST",
+			event := &middlewareTestEvent{
+				id:   string(rune('a' + i)),
+				kind: platform.EventKindPrivateMessage,
 			}
-			ctx := eventctx.NewContext(event, nil)
+			ctx := eventctx.AcquireContextFromEvent(event, nil)
 			err := handler(ctx)
 			assert.NoError(t, err)
 		}
@@ -670,8 +666,8 @@ func TestMiddlewareIntegration(t *testing.T) {
 			),
 		)
 
-		event := &dto.Payload{ID: "integration", Type: "TEST"}
-		ctx := eventctx.NewContext(event, nil)
+		event := &middlewareTestEvent{id: "integration", kind: platform.EventKindPrivateMessage}
+		ctx := eventctx.AcquireContextFromEvent(event, nil)
 
 		err := handler(ctx)
 		assert.NoError(t, err)

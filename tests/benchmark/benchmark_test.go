@@ -8,7 +8,7 @@ import (
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // BenchmarkEngineProcessEvent 基准测试：事件处理
@@ -16,20 +16,15 @@ func BenchmarkEngineProcessEvent(b *testing.B) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(context.Background())
 
-	eng.OnCommand(dto.C2CMessageCreate, "/bench").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/bench").Handle(func(ctx *rcontext.Context) error {
 		return nil
 	})
-
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "/bench"}`),
-	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newBenchmarkContext("/bench")
 		eng.ProcessEvent(ctx)
 	}
 }
@@ -39,21 +34,16 @@ func BenchmarkEngineProcessEventParallel(b *testing.B) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(context.Background())
 
-	eng.OnCommand(dto.C2CMessageCreate, "/bench").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/bench").Handle(func(ctx *rcontext.Context) error {
 		return nil
 	})
-
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "/bench"}`),
-	}
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newBenchmarkContext("/bench")
 			eng.ProcessEvent(ctx)
 		}
 	})
@@ -66,7 +56,7 @@ func BenchmarkMatcherRegistration(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		eng := engine.NewEngine()
-		eng.OnCommand(dto.C2CMessageCreate, "/test")
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/test")
 		eng.Shutdown(context.Background())
 	}
 }
@@ -82,7 +72,7 @@ func BenchmarkBatchMatcherRegistration(b *testing.B) {
 		matchers := make([]*engine.Matcher, 100)
 		for j := range 100 {
 			matchers[j] = &engine.Matcher{
-				EventType: dto.C2CMessageCreate,
+				EventType: string(platform.EventKindPrivateMessage),
 				Rules: []rcontext.Rule{
 					func(ctx *rcontext.Context) bool { return true },
 				},
@@ -182,7 +172,6 @@ func BenchmarkTrieOperations(b *testing.B) {
 		b.ReportAllocs()
 
 		for i := 0; i < b.N; i++ {
-			// 使用前缀搜索
 			_ = trie.Search("/comm")
 		}
 	})
@@ -214,20 +203,15 @@ func BenchmarkMiddlewareChain(b *testing.B) {
 				})
 			}
 
-			eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
+			eng.OnCommand(string(platform.EventKindPrivateMessage), "/test").Handle(func(ctx *rcontext.Context) error {
 				return nil
 			})
-
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/test"}`),
-			}
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newBenchmarkContext("/test")
 				eng.ProcessEvent(ctx)
 			}
 		})
@@ -260,16 +244,8 @@ func BenchmarkLoggerOperations(b *testing.B) {
 
 // BenchmarkContextOperations 基准测试：Context 操作
 func BenchmarkContextOperations(b *testing.B) {
-	event := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		Detail: []byte(`{
-			"content": "test message",
-			"author": {"user_openid": "user123"}
-		}`),
-	}
-
 	b.Run("Get", func(b *testing.B) {
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newBenchmarkContext("test message")
 		ctx.Set("test_key", "test_value")
 
 		b.ResetTimer()
@@ -281,7 +257,7 @@ func BenchmarkContextOperations(b *testing.B) {
 	})
 
 	b.Run("Set", func(b *testing.B) {
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newBenchmarkContext("test message")
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -292,7 +268,7 @@ func BenchmarkContextOperations(b *testing.B) {
 	})
 
 	b.Run("GetAuthor", func(b *testing.B) {
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newBenchmarkContext("test message")
 
 		b.ResetTimer()
 		b.ReportAllocs()
@@ -313,7 +289,7 @@ func BenchmarkTempMatcherOperations(b *testing.B) {
 		b.ReportAllocs()
 
 		for i := 0; i < b.N; i++ {
-			matcher := eng.OnTemp(dto.C2CMessageCreate, func(ctx *rcontext.Context) bool {
+			matcher := eng.OnTemp(string(platform.EventKindPrivateMessage), func(ctx *rcontext.Context) bool {
 				return true
 			})
 			matcher.Delete()
@@ -325,22 +301,17 @@ func BenchmarkTempMatcherOperations(b *testing.B) {
 		defer eng.Shutdown(context.Background())
 
 		// 添加临时匹配器
-		eng.OnTemp(dto.C2CMessageCreate, func(ctx *rcontext.Context) bool {
+		eng.OnTemp(string(platform.EventKindPrivateMessage), func(ctx *rcontext.Context) bool {
 			return true
 		}).Handle(func(ctx *rcontext.Context) error {
 			return nil
 		})
 
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{"content": "test"}`),
-		}
-
 		b.ResetTimer()
 		b.ReportAllocs()
 
 		for i := 0; i < b.N; i++ {
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newBenchmarkContext("test")
 			eng.ProcessEvent(ctx)
 		}
 	})
@@ -356,7 +327,7 @@ func BenchmarkCOWOperations(b *testing.B) {
 		b.ReportAllocs()
 
 		for i := 0; i < b.N; i++ {
-			eng.On(dto.C2CMessageCreate, func(ctx *rcontext.Context) bool {
+			eng.On(string(platform.EventKindPrivateMessage), func(ctx *rcontext.Context) bool {
 				return true
 			})
 		}
@@ -373,7 +344,7 @@ func BenchmarkCOWOperations(b *testing.B) {
 			matchers := make([]*engine.Matcher, 10)
 			for j := range 10 {
 				matchers[j] = &engine.Matcher{
-					EventType: dto.C2CMessageCreate,
+					EventType: string(platform.EventKindPrivateMessage),
 					Rules: []rcontext.Rule{
 						func(ctx *rcontext.Context) bool { return true },
 					},
@@ -389,30 +360,24 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(context.Background())
 
-	eng.OnCommand(dto.C2CMessageCreate, "/alloc").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/alloc").Handle(func(ctx *rcontext.Context) error {
 		// 模拟一些内存分配
 		data := make([]byte, 1024)
 		_ = data
 		return nil
 	})
 
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "/alloc"}`),
-	}
-
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newBenchmarkContext("/alloc")
 		eng.ProcessEvent(ctx)
 	}
 }
 
 // BenchmarkComparisonTable 生成性能对比表
 func BenchmarkComparisonTable(b *testing.B) {
-	// 这个基准测试用于生成不同场景的性能对比数据
 	scenarios := []struct {
 		name            string
 		matcherCount    int
@@ -439,21 +404,16 @@ func BenchmarkComparisonTable(b *testing.B) {
 
 			// 添加匹配器
 			for i := 0; i < scenario.matcherCount; i++ {
-				eng.OnCommand(dto.C2CMessageCreate, "/cmd").Handle(func(ctx *rcontext.Context) error {
+				eng.OnCommand(string(platform.EventKindPrivateMessage), "/cmd").Handle(func(ctx *rcontext.Context) error {
 					return nil
 				})
-			}
-
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/cmd"}`),
 			}
 
 			b.ResetTimer()
 			b.ReportAllocs()
 
 			for i := 0; i < b.N; i++ {
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newBenchmarkContext("/cmd")
 				eng.ProcessEvent(ctx)
 			}
 		})

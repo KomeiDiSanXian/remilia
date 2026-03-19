@@ -5,13 +5,13 @@ import (
 	"time"
 
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestMatcherBuilders(t *testing.T) {
 	eng := NewEngine()
-	m := eng.On(dto.C2CMessageCreate)
+	m := eng.On(string(platform.EventKindPrivateMessage))
 	m.Use(func(next ctx.Handler) ctx.Handler { return next })
 	m.Command("/test")
 	m.Keyword("hello")
@@ -38,7 +38,7 @@ func TestMiddlewareExtra(t *testing.T) {
 }
 func TestMatcherInternal(t *testing.T) {
 	eng := NewEngine()
-	m := eng.On(dto.C2CMessageCreate)
+	m := eng.On(string(platform.EventKindPrivateMessage))
 	assert.False(t, m.deletedOrLocked())
 	m.invalidateCombinedChain()
 	m.setCombinedChain(nil, 0, 0)

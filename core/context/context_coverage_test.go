@@ -1,11 +1,9 @@
 package context
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +22,7 @@ func (m *mockMatcher) GetSource() string {
 
 func TestContext_GetMatcherSource(t *testing.T) {
 	t.Run("with matcher", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		ctx.matcher = &mockMatcher{source: "plugin:test"}
 
 		source := ctx.GetMatcherSource()
@@ -32,7 +30,7 @@ func TestContext_GetMatcherSource(t *testing.T) {
 	})
 
 	t.Run("nil matcher", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		source := ctx.GetMatcherSource()
 		assert.Equal(t, "", source)
@@ -44,40 +42,15 @@ func TestContext_GetMatcherSource(t *testing.T) {
 		source := ctx.GetMatcherSource()
 		assert.Equal(t, "", source)
 	})
-
-	//t.Run("matcher without Matcher", func(t *testing.T) {
-	//	ctx := NewContext(&dto.Payload{}, nil)
-	//	ctx.matcher = "not a matcher interface"
-	//
-	//	source := ctx.GetMatcherSource()
-	//	assert.Equal(t, "", source)
-	//})
 }
 
 // ============================================================================
 // Missing Coverage Tests - Group Rules
 // ============================================================================
 
-func createGroupEventContext(groupID string) *Context {
-	event := dto.GroupAtMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{
-			Content: "test",
-		},
-		GroupOpenID: groupID,
-	}
-
-	detail, _ := json.Marshal(event)
-	payload := &dto.Payload{
-		Type:   dto.GroupAtMessageCreate,
-		Detail: detail,
-	}
-
-	return NewContext(payload, nil)
-}
-
 func TestOnGroupWhitelist(t *testing.T) {
 	t.Run("group in whitelist", func(t *testing.T) {
-		ctx := createGroupEventContext("group1")
+		ctx := AcquireContextFromEvent(newMockGroupEvent("group1"), nil)
 
 		rule := OnGroupWhitelist("group1", "group2")
 		result := rule(ctx)
@@ -86,7 +59,7 @@ func TestOnGroupWhitelist(t *testing.T) {
 	})
 
 	t.Run("group not in whitelist", func(t *testing.T) {
-		ctx := createGroupEventContext("group3")
+		ctx := AcquireContextFromEvent(newMockGroupEvent("group3"), nil)
 
 		rule := OnGroupWhitelist("group1", "group2")
 		result := rule(ctx)
@@ -94,24 +67,19 @@ func TestOnGroupWhitelist(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("decode error", func(t *testing.T) {
-		payload := &dto.Payload{
-			Type:   dto.GroupAtMessageCreate,
-			Detail: []byte(`invalid json`),
-		}
-		ctx := NewContext(payload, nil)
+	t.Run("nil event", func(t *testing.T) {
+		ctx := newTestCtxEmpty()
 
 		rule := OnGroupWhitelist("group1")
 		result := rule(ctx)
 
-		// 解码失败视为「不适用此规则」→ 放行（true）
-		assert.True(t, result)
+		assert.True(t, result) // no event → treated as pass-through
 	})
 }
 
 func TestOnGroupBlacklist(t *testing.T) {
 	t.Run("group in blacklist", func(t *testing.T) {
-		ctx := createGroupEventContext("banned1")
+		ctx := AcquireContextFromEvent(newMockGroupEvent("banned1"), nil)
 
 		rule := OnGroupBlacklist("banned1", "banned2")
 		result := rule(ctx)
@@ -120,7 +88,7 @@ func TestOnGroupBlacklist(t *testing.T) {
 	})
 
 	t.Run("group not in blacklist", func(t *testing.T) {
-		ctx := createGroupEventContext("group1")
+		ctx := AcquireContextFromEvent(newMockGroupEvent("group1"), nil)
 
 		rule := OnGroupBlacklist("banned1", "banned2")
 		result := rule(ctx)
@@ -128,28 +96,23 @@ func TestOnGroupBlacklist(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("decode error passes", func(t *testing.T) {
-		payload := &dto.Payload{
-			Type:   dto.GroupAtMessageCreate,
-			Detail: []byte(`invalid json`),
-		}
-		ctx := NewContext(payload, nil)
+	t.Run("nil event passes", func(t *testing.T) {
+		ctx := newTestCtxEmpty()
 
 		rule := OnGroupBlacklist("banned1")
 		result := rule(ctx)
 
-		assert.True(t, result) // Decode error should pass
+		assert.True(t, result)
 	})
 }
 
 // ============================================================================
-// Missing Coverage Tests - Deprecated Event Rules
+// Missing Coverage Tests - EventKind Rules
 // ============================================================================
 
 func TestOnC2CMessage(t *testing.T) {
-	t.Run("match C2C message", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		ctx := NewContext(payload, nil)
+	t.Run("match private message", func(t *testing.T) {
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnEventKind(platform.EventKindPrivateMessage)
 		result := rule(ctx)
@@ -158,8 +121,7 @@ func TestOnC2CMessage(t *testing.T) {
 	})
 
 	t.Run("no match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.GroupAtMessageCreate}
-		ctx := NewContext(payload, nil)
+		ctx := newTestCtxWithKind(platform.EventKindGroupMessage)
 
 		rule := OnEventKind(platform.EventKindPrivateMessage)
 		result := rule(ctx)
@@ -169,9 +131,8 @@ func TestOnC2CMessage(t *testing.T) {
 }
 
 func TestOnGroupAtMessage(t *testing.T) {
-	t.Run("match GroupAt message", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.GroupAtMessageCreate}
-		ctx := NewContext(payload, nil)
+	t.Run("match group message", func(t *testing.T) {
+		ctx := newTestCtxWithKind(platform.EventKindGroupMessage)
 
 		rule := OnEventKind(platform.EventKindGroupMessage)
 		result := rule(ctx)
@@ -180,8 +141,7 @@ func TestOnGroupAtMessage(t *testing.T) {
 	})
 
 	t.Run("no match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		ctx := NewContext(payload, nil)
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnEventKind(platform.EventKindGroupMessage)
 		result := rule(ctx)
@@ -191,9 +151,8 @@ func TestOnGroupAtMessage(t *testing.T) {
 }
 
 func TestOnGroupAddRobot(t *testing.T) {
-	t.Run("match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.GroupAddRobot}
-		ctx := NewContext(payload, nil)
+	t.Run("match notice", func(t *testing.T) {
+		ctx := newTestCtxWithKind(platform.EventKindNotice)
 
 		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
@@ -202,8 +161,7 @@ func TestOnGroupAddRobot(t *testing.T) {
 	})
 
 	t.Run("no match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		ctx := NewContext(payload, nil)
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
@@ -213,9 +171,8 @@ func TestOnGroupAddRobot(t *testing.T) {
 }
 
 func TestOnGroupDelRobot(t *testing.T) {
-	t.Run("match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.GroupDelRobot}
-		ctx := NewContext(payload, nil)
+	t.Run("match notice", func(t *testing.T) {
+		ctx := newTestCtxWithKind(platform.EventKindNotice)
 
 		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
@@ -224,8 +181,7 @@ func TestOnGroupDelRobot(t *testing.T) {
 	})
 
 	t.Run("no match", func(t *testing.T) {
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		ctx := NewContext(payload, nil)
+		ctx := newTestCtxWithKind(platform.EventKindPrivateMessage)
 
 		rule := OnEventKind(platform.EventKindNotice)
 		result := rule(ctx)
@@ -239,7 +195,7 @@ func TestOnGroupDelRobot(t *testing.T) {
 // ============================================================================
 
 func TestContext_MustGetInt_ErrorBranches(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	t.Run("not found", func(t *testing.T) {
 		_, err := ctx.MustGetInt("nonexistent")

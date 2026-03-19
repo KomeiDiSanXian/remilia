@@ -26,7 +26,7 @@ import (
 //   - 不依赖 *dto.Payload 或 openapi.OpenAPI
 //   - Context 由 AcquireContextFromEvent 创建，GetEventType() 返回 platform.EventKind 字符串
 //   - Handler 可通过 ctx.Reply(platform.OutboundMessage) 发送回复
-//   - Handler 同样可通过 ctx.GetEvent() 访问旧路径（返回 nil），或 ctx.GetPlatformEvent() 访问新路径
+//   - Handler 可通过 ctx.GetPlatformEvent() 访问平台事件
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender) {
 	if event == nil {
 		logger.Warn("[engine] ProcessPlatformEvent: nil event, skipping")

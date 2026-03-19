@@ -1,12 +1,10 @@
 package stats_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/stats"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
@@ -21,15 +19,10 @@ func makeCtxWithCommandPlatform(cmd, userID string) *context.Context {
 	return context.AcquireContextFromEvent(event, nil)
 }
 
-// makeCtxWithCommand 使用 QQ 旧路径创建测试 Context（保留向后兼容）
+// makeCtxWithCommand 使用平台无关路径创建测试 Context
 func makeCtxWithCommand(cmd, userID string) *context.Context {
-	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{
-			Content: cmd,
-			Author:  dto.Author{UserOpenID: userID},
-		},
-	})
-	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
+	event := testbot.MakePlatformC2CEvent(userID, cmd)
+	return context.AcquireContextFromEvent(event, nil)
 }
 
 func TestStats_Middleware_RecordsCommand(t *testing.T) {

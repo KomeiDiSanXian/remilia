@@ -11,7 +11,7 @@ import (
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/audit"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,27 +24,16 @@ func TestE2E_BasicCommandFlow(t *testing.T) {
 
 	// 2. 注册命令
 	executed := false
-	eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/test").Handle(func(ctx *rcontext.Context) error {
 		executed = true
 		return nil
 	})
 
-	// 3. 创建测试事件
-	event := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		Detail: []byte(`{
-			"content": "/test",
-			"author": {
-				"user_openid": "test_user"
-			}
-		}`),
-	}
-
-	// 4. 处理事件
-	ctx := rcontext.NewContext(event, nil)
+	// 3. 处理事件
+	ctx := newIntegrationContext("/test")
 	eng.ProcessEvent(ctx)
 
-	// 5. 验证
+	// 4. 验证
 	assert.True(t, executed, "命令应该被执行")
 }
 
@@ -67,7 +56,7 @@ func TestE2E_CommandWithArguments(t *testing.T) {
 
 	// 注册命令
 	var receivedCity, receivedUnit string
-	eng.RegisterCommandDef(dto.C2CMessageCreate, def).Handle(func(ctx *rcontext.Context) error {
+	eng.RegisterCommandDef(string(platform.EventKindPrivateMessage), def).Handle(func(ctx *rcontext.Context) error {
 		parsed := ctx.GetParsedCommand()
 		if parsed != nil {
 			if city, ok := parsed.Arguments["city"]; ok {
@@ -80,19 +69,8 @@ func TestE2E_CommandWithArguments(t *testing.T) {
 		return nil
 	})
 
-	// 创建测试事件
-	event := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		Detail: []byte(`{
-			"content": "/weather Beijing --unit F",
-			"author": {
-				"user_openid": "test_user"
-			}
-		}`),
-	}
-
 	// 处理事件
-	ctx := rcontext.NewContext(event, nil)
+	ctx := newIntegrationContext("/weather Beijing --unit F")
 	eng.ProcessEvent(ctx)
 
 	// 验证
@@ -119,7 +97,7 @@ func TestE2E_MiddlewareChain(t *testing.T) {
 	})
 
 	// 注册命令并添加局部中间件
-	matcher := eng.OnCommand(dto.C2CMessageCreate, "/test")
+	matcher := eng.OnCommand(string(platform.EventKindPrivateMessage), "/test")
 	matcher.Use(func(next rcontext.Handler) rcontext.Handler {
 		return func(ctx *rcontext.Context) error {
 			order = append(order, "local_before")
@@ -134,11 +112,7 @@ func TestE2E_MiddlewareChain(t *testing.T) {
 	})
 
 	// 处理事件
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "/test"}`),
-	}
-	ctx := rcontext.NewContext(event, nil)
+	ctx := newIntegrationContext("/test")
 	eng.ProcessEvent(ctx)
 
 	// 验证执行顺序
@@ -159,17 +133,13 @@ func TestE2E_ErrorHandling(t *testing.T) {
 
 	// 注册会返回错误的命令
 	var handlerErr error
-	eng.OnCommand(dto.C2CMessageCreate, "/error").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/error").Handle(func(ctx *rcontext.Context) error {
 		handlerErr = assert.AnError
 		return handlerErr
 	})
 
 	// 处理事件
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "/error"}`),
-	}
-	ctx := rcontext.NewContext(event, nil)
+	ctx := newIntegrationContext("/error")
 	eng.ProcessEvent(ctx)
 
 	// 验证错误被记录
@@ -201,22 +171,13 @@ func TestE2E_AuditLogging(t *testing.T) {
 
 	// 注册命令
 	executed := false
-	eng.OnCommand(dto.C2CMessageCreate, "/audit_test").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/audit_test").Handle(func(ctx *rcontext.Context) error {
 		executed = true
 		return nil
 	})
 
 	// 处理事件
-	event := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		Detail: []byte(`{
-			"content": "/audit_test",
-			"author": {
-				"user_openid": "test_user"
-			}
-		}`),
-	}
-	ctx := rcontext.NewContext(event, nil)
+	ctx := newIntegrationContext("/audit_test")
 	eng.ProcessEvent(ctx)
 
 	// 验证
@@ -233,7 +194,7 @@ func TestE2E_TempMatcher(t *testing.T) {
 
 	// 注册临时匹配器（一次性）
 	executed := false
-	eng.OnTemp(dto.C2CMessageCreate, func(ctx *rcontext.Context) bool {
+	eng.OnTemp(string(platform.EventKindPrivateMessage), func(ctx *rcontext.Context) bool {
 		return true
 	}).Handle(func(ctx *rcontext.Context) error {
 		executed = true
@@ -241,11 +202,7 @@ func TestE2E_TempMatcher(t *testing.T) {
 	})
 
 	// 第一次处理 - 应该匹配
-	event := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
-	ctx := rcontext.NewContext(event, nil)
+	ctx := newIntegrationContext("test")
 	eng.ProcessEvent(ctx)
 	assert.True(t, executed)
 
@@ -253,7 +210,7 @@ func TestE2E_TempMatcher(t *testing.T) {
 	executed = false
 
 	// 第二次处理 - 临时匹配器应该已被删除
-	ctx2 := rcontext.NewContext(event, nil)
+	ctx2 := newIntegrationContext("test")
 	eng.ProcessEvent(ctx2)
 	assert.False(t, executed, "临时匹配器应该在第一次使用后被删除")
 }
@@ -267,7 +224,7 @@ func TestE2E_ConcurrentEvents(t *testing.T) {
 	var counter int32
 	var mu sync.Mutex
 
-	eng.OnCommand(dto.C2CMessageCreate, "/concurrent").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/concurrent").Handle(func(ctx *rcontext.Context) error {
 		mu.Lock()
 		counter++
 		mu.Unlock()
@@ -281,11 +238,7 @@ func TestE2E_ConcurrentEvents(t *testing.T) {
 
 	for range concurrency {
 		go func() {
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/concurrent"}`),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newIntegrationContext("/concurrent")
 			eng.ProcessEvent(ctx)
 			done <- struct{}{}
 		}()
@@ -312,7 +265,7 @@ func TestE2E_BatchRegistration(t *testing.T) {
 	matchers := make([]*engine.Matcher, 10)
 	for i := range 10 {
 		matchers[i] = &engine.Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []rcontext.Rule{
 				func(ctx *rcontext.Context) bool { return true },
 			},
@@ -338,7 +291,7 @@ func TestE2E_PluginLifecycle(t *testing.T) {
 	// 使用批量操作
 	eng.WithMatcherGroupBatch(func() {
 		for range 5 {
-			matcher := eng.OnCommand(dto.C2CMessageCreate, "/plugin_cmd")
+			matcher := eng.OnCommand(string(platform.EventKindPrivateMessage), "/plugin_cmd")
 			matcher.SetSource("plugin:" + pluginName)
 			eng.SetMatcherGroup(matcher, pluginName, "plugin:"+pluginName)
 		}
@@ -362,7 +315,7 @@ func TestE2E_GracefulShutdown(t *testing.T) {
 	processing := make(chan struct{})
 	done := make(chan struct{})
 
-	eng.OnCommand(dto.C2CMessageCreate, "/slow").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/slow").Handle(func(ctx *rcontext.Context) error {
 		processing <- struct{}{} // 通知开始处理
 		time.Sleep(100 * time.Millisecond)
 		done <- struct{}{} // 通知处理完成
@@ -371,11 +324,7 @@ func TestE2E_GracefulShutdown(t *testing.T) {
 
 	// 启动异步事件处理
 	go func() {
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{"content": "/slow"}`),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newIntegrationContext("/slow")
 		eng.ProcessEvent(ctx)
 	}()
 

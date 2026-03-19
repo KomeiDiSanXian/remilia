@@ -11,8 +11,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // ProcessEvent 处理事件（COW 无锁读取）
@@ -45,107 +43,6 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	}()
 
 	e.processEventContext(ctx)
-}
-
-// ProcessEventBatch 批量处理事件（COW 无锁版本）
-//
-// COW 模式优势：
-//   - 无锁读取：一次性获取状态快照
-//   - 高性能：避免所有锁操作
-//   - 简化实现：不需要复杂的缓存管理
-func (e *Engine) ProcessEventBatch(events []*dto.Payload, api openapi.OpenAPI) {
-	if len(events) == 0 {
-		return
-	}
-	// 与 ProcessEvent 相同的保护：用读锁保证"检查 shutdown → Add(1)"的原子性，
-	// 防止与 Shutdown() 的 shutdownMu.Lock + eventWg.Wait() 产生竞态。
-	e.shutdownMu.RLock()
-	if e.shutdown.Load() {
-		e.shutdownMu.RUnlock()
-		return
-	}
-	e.eventWg.Add(1)
-	e.shutdownMu.RUnlock()
-	defer e.eventWg.Done()
-
-	// 无锁读取状态（一次读取，处理所有事件）- 无需类型断言
-	state := e.state.Load()
-
-	// 从池中获取切片，整个批处理过程复用
-	matchersToCheck := e.services.matcherPool.Get()
-
-	defer func() {
-		// 清理指针
-		for i := range matchersToCheck {
-			matchersToCheck[i] = nil
-		}
-		// 如果容量过大，截断后再归还，避免内存无限增长
-		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
-			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
-		}
-		e.services.matcherPool.Put(matchersToCheck)
-	}()
-
-	// 处理每个事件
-	for _, event := range events {
-		// 用匿名函数 + defer 包装每次迭代，确保 ReleaseContext 在 panic 路径也能执行，
-		// 避免 invokeHandler 内部未捕获的 panic 导致 Context 对象无法归还对象池（内存泄漏）。
-		func() {
-			ctx := context.AcquireContext(event, api)
-			defer context.ReleaseContext(ctx)
-
-			eventType := ctx.GetEventType()
-
-			// 获取已排序的 permanent 匹配器（从缓存）
-			permSpecific := state.sortedCache[eventType]
-			permGeneric := state.sortedCache[""]
-
-			// 尝试提取命令并获取命令优化匹配器
-			var cmdSpecific []*Matcher
-			var cmdGeneric []*Matcher
-
-			msgContent := ctx.GetMessageContent()
-			if msgContent != "" {
-				cmd := extractCommand(msgContent)
-				if cmd != "" {
-					if matchersMap, ok := state.commandIndex[cmd]; ok {
-						cmdSpecific = matchersMap[eventType]
-						cmdGeneric = matchersMap[""]
-					}
-				}
-			}
-
-			// 获取已排序的 temp 匹配器（从TempManager）
-			tempSpecific := e.services.tempManager.Get(eventType)
-			tempGeneric := e.services.tempManager.Get("")
-
-			// 重置切片长度
-			matchersToCheck = matchersToCheck[:0]
-
-			// 合并 6 个已经排序的子列表
-			// 优先级顺序：
-			// 1. permSpecific (State, Normal)
-			// 2. cmdSpecific (State, Command)
-			// 3. tempSpecific (Temp)
-			// 4. permGeneric (State, Normal)
-			// 5. cmdGeneric (State, Command)
-			// 6. tempGeneric (Temp)
-			matchersToCheck = mergeSortedMatchersSix(matchersToCheck,
-				permSpecific, cmdSpecific, tempSpecific,
-				permGeneric, cmdGeneric, tempGeneric)
-
-			// 匹配并执行对应的处理器
-			for _, m := range matchersToCheck {
-				if m.Match(ctx) {
-					setContextMatcher(ctx, m)
-					e.invokeHandler(ctx, m)
-					if m.isBlocking() || state.block {
-						break
-					}
-				}
-			}
-		}()
-	}
 }
 
 // invokeHandler 封装调用处理器，通过中间件链执行
@@ -456,9 +353,7 @@ func extractCommand(content string) string {
 // mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
 // 输出结果同样按优先级升序排列（数值越小优先级越高）。
 //
-// # 6 路含义与优先级语义
-//
-// 6 路由两个维度组合而来：
+// # 6 路由两个维度组合而来：
 //
 //	维度 1 — 事件类型范围
 //	  Specific：EventType 与当前事件匹配的 Matcher（精确匹配，优先于通配）

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // TestCircuitBreakerAutoRecovery 测试自动恢复功能
@@ -38,8 +37,7 @@ func TestCircuitBreakerAutoRecovery(t *testing.T) {
 	wrappedHandler := middleware(handler)
 
 	// 创建测试 context
-	event := &dto.Payload{ID: "test-event"}
-	ctx := eventctx.NewContext(event, nil)
+	ctx := createTestContext()
 
 	// 1. 触发 3 次失败，打开熔断器
 	t.Log("Step 1: Trigger failures to open circuit")
@@ -120,8 +118,7 @@ func TestCircuitBreakerHalfOpenTimeout(t *testing.T) {
 	middleware := CircuitBreakerMiddleware(cb)
 	wrappedHandler := middleware(handler)
 
-	event := &dto.Payload{ID: "test"}
-	ctx := eventctx.NewContext(event, nil)
+	ctx := createTestContext()
 
 	// 触发失败，打开熔断器
 	for range 2 {
@@ -183,8 +180,7 @@ func TestCircuitBreakerSuccessThreshold(t *testing.T) {
 	middleware := CircuitBreakerMiddleware(cb)
 	wrappedHandler := middleware(handler)
 
-	event := &dto.Payload{ID: "test"}
-	ctx := eventctx.NewContext(event, nil)
+	ctx := createTestContext()
 
 	// 触发失败
 	for range 2 {
@@ -233,8 +229,7 @@ func TestCircuitBreakerStats(t *testing.T) {
 	middleware := CircuitBreakerMiddleware(cb)
 	wrappedHandler := middleware(handler)
 
-	event := &dto.Payload{ID: "test"}
-	ctx := eventctx.NewContext(event, nil)
+	ctx := createTestContext()
 
 	// 触发失败
 	wrappedHandler(ctx)

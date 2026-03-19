@@ -140,19 +140,18 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 // RetryWithDeadLetter 带死信队列的重试中间件
 // 超过最大重试次数后，将事件发送到死信队列
 //
-// deadLetterCh 的元素类型为 infra/dlq.PayloadItem（即 dlq.Item[*dto.Payload]），
-// 不再依赖 core/engine，符合分层原则：middleware → infra/dlq（而非 middleware → core/engine）。
+// deadLetterCh 的元素类型为 infra/dlq.PlatformEventItem（即 dlq.Item[platform.Event]），
+// 平台无关，符合分层原则：middleware → infra/dlq（而非 middleware → core/engine）。
 //
 // 使用示例:
 //
 //	// 1. 创建死信队列 channel
-//	deadLetterCh := make(chan dlq.PayloadItem, 128)
+//	deadLetterCh := make(chan dlq.PlatformEventItem, 128)
 //
 //	// 2. 启动消费者处理死信
 //	go func() {
 //	    for item := range deadLetterCh {
-//	        consumer := dlq.PlatformFileConsumer{Path: "deadletter.jsonl"}
-//	        consumer.Consume(dlq.PlatformEventItem{...}) // 或直接使用 PayloadQueue
+//	        // 处理死信条目
 //	    }
 //	}()
 //
@@ -161,7 +160,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
-func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.PayloadItem) eventctx.Middleware {
+func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.PlatformEventItem) eventctx.Middleware {
 	// 初始化默认值
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 3
@@ -192,8 +191,8 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.PayloadItem) eve
 
 				source := ctx.GetMatcherSource()
 
-				item := dlq.PayloadItem{
-					Data:    ctx.GetEvent(),
+				item := dlq.PlatformEventItem{
+					Data:    ctx.GetPlatformEvent(),
 					Err:     err,
 					Attempt: attempt,
 					Source:  source,

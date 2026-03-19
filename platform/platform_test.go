@@ -19,6 +19,7 @@ type mockEvent struct {
 }
 
 func (e *mockEvent) Platform() string          { return e.platformID }
+func (e *mockEvent) ID() string                { return "" }
 func (e *mockEvent) Kind() platform.EventKind  { return e.kind }
 func (e *mockEvent) RawType() string           { return e.rawType }
 func (e *mockEvent) Sender() platform.UserInfo { return e.sender }

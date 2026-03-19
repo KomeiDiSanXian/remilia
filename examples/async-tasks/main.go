@@ -134,13 +134,10 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// 启动异步任务
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/start").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
+		userID := ctx.GetSenderInfo().ID
 
 		// 创建任务
-		task := taskManager.CreateTask(c2c.Author.UserOpenID)
+		task := taskManager.CreateTask(userID)
 
 		// 立即响应用户
 		_ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID)))
@@ -153,10 +150,6 @@ func registerHandlers(bot *remilia.Bot) {
 
 	// 查询任务状态
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/status").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
 
 		// 简化：从Content中提取task_id（实际应该用命令解析）
 		// 这里假设用户输入 "/status task-xxx"
@@ -174,16 +167,13 @@ func registerHandlers(bot *remilia.Bot) {
 
 	// 列出所有任务
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/list").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
+		userID := ctx.GetSenderInfo().ID
 
 		// 获取所有任务
 		taskManager.mu.RLock()
 		tasks := make([]*Task, 0, len(taskManager.tasks))
 		for _, task := range taskManager.tasks {
-			if task.UserID == c2c.Author.UserOpenID {
+			if task.UserID == userID {
 				tasks = append(tasks, task)
 			}
 		}

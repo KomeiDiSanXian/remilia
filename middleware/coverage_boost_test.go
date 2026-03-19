@@ -17,7 +17,7 @@ import (
 
 func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("enqueues on error", func(t *testing.T) {
-		q := dlq.NewPayloadQueue(dlq.PayloadConfig{
+		q := dlq.NewPlatformEventQueue(dlq.PlatformEventConfig{
 			MaxSize: 100,
 		})
 
@@ -35,7 +35,7 @@ func TestDeadLetterMiddleware(t *testing.T) {
 	})
 
 	t.Run("no enqueue on success", func(t *testing.T) {
-		q := dlq.NewPayloadQueue(dlq.PayloadConfig{
+		q := dlq.NewPlatformEventQueue(dlq.PlatformEventConfig{
 			MaxSize: 100,
 		})
 
@@ -416,8 +416,8 @@ func TestMetricsAdvanced(t *testing.T) {
 func TestAuthAdvanced(t *testing.T) {
 	t.Run("complex authorization logic", func(t *testing.T) {
 		mw := Auth(func(ctx *eventctx.Context) bool {
-			// Simulate checking user roles
-			return ctx.GetEvent() != nil
+			// Simulate checking user roles via platform context
+			return ctx.IsPlatformContext()
 		})
 
 		handler := mw(mockHandler(nil, 0))

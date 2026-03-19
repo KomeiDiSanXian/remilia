@@ -254,12 +254,12 @@ func (d *DedupFilter) Clear() {
 func Dedup(filter *DedupFilter) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			event := ctx.GetEvent()
-			if event == nil {
+			pe := ctx.GetPlatformEvent()
+			if pe == nil {
 				return next(ctx)
 			}
 
-			eventID := string(event.ID)
+			eventID := pe.ID()
 			if eventID == "" {
 				// 没有 eventID，跳过去重检查
 				return next(ctx)
@@ -315,12 +315,12 @@ func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
 func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			event := ctx.GetEvent()
-			if event == nil {
+			pe := ctx.GetPlatformEvent()
+			if pe == nil {
 				return next(ctx)
 			}
 
-			eventID := string(event.ID)
+			eventID := pe.ID()
 			if eventID == "" {
 				return next(ctx)
 			}

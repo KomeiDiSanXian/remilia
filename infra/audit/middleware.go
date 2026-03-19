@@ -52,10 +52,8 @@ func Middleware(logger *Logger) context.Middleware {
 				}
 
 				// 尝试从事件中提取更多信息
-				event := ctx.GetEvent()
-				if event != nil {
-					// 可以根据需要添加更多字段
-					metadata["event_id"] = event.ID
+				if pe := ctx.GetPlatformEvent(); pe != nil {
+					metadata["event_id"] = pe.ID()
 				}
 
 				entry := &Entry{

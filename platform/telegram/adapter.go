@@ -32,6 +32,7 @@ func (s *noopSender) Send(_ stdctx.Context, _ string, _ platform.OutboundMessage
 type telegramEvent struct{}
 
 func (e *telegramEvent) Platform() string          { return PlatformID }
+func (e *telegramEvent) ID() string                { return "" }
 func (e *telegramEvent) Kind() platform.EventKind  { return platform.EventKindUnknown }
 func (e *telegramEvent) RawType() string           { return "" }
 func (e *telegramEvent) Sender() platform.UserInfo { return platform.UserInfo{} }

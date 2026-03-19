@@ -107,11 +107,7 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").
 				Handle(func(c *eventctx.Context) error {
-					var event dto.C2CMessageCreateEvent
-					if err := c.DecodeEvent(&event); err != nil {
-						return err
-					}
-					return c.Reply(platform.TextMessage(greeting + ", " + event.Author.UserOpenID + "!"))
+					return c.Reply(platform.TextMessage(greeting + ", " + c.GetSenderInfo().ID + "!"))
 				})
 
 			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").

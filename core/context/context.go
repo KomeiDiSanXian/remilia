@@ -2,14 +2,14 @@ package context
 
 // context.go — Context 结构体定义与核心生命周期
 //
-// 职责划分（拆分后）：
-//   - context.go    — 结构体定义、NewContext / Clone / SetStdContext / Ext / Tracer
-//   - decode.go     — 事件解码（DecodeEvent）、热路径缓存（GetMessageContent、GetAuthor）、消息发送
+// 职责划分：
+//   - context.go    — 结构体定义、Clone / SetStdContext / Ext / Tracer
+//   - decode.go     — 热路径缓存（GetMessageContent、GetSenderInfo），平台无关
 //   - state.go      — 字符串键扩展状态（Set/Get/Delete/All 及类型便捷方法）
 //   - metadata.go   — 框架元数据（RetryAttempt、MiddlewareTrace、ParsedCommand、MatcherSource）
 //   - extensions.go — 类型键扩展存储（ExtGet/ExtSet/ExtGetOrInit）
 //   - permission.go — 权限桥接（GetPermissionManager/SetPermissionManager）
-//   - pool.go       — Context 对象池（AcquireContext/ReleaseContext）
+//   - pool.go       — Context 对象池（ReleaseContext）
 
 import (
 	stdctx "context"
@@ -22,8 +22,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // extensionState is the user-facing string-keyed extension container.
@@ -38,20 +36,6 @@ func newStateExt() *extensionState {
 	return &extensionState{m: make(map[string]any)}
 }
 
-// decodeCache is a typed union that holds the result of the first successful
-// DecodeEvent call for this Context.  Using concrete fields instead of `any`
-// eliminates interface boxing, avoids a reflect.Type string allocation on
-// every call, and lets the GC scan the value without an extra indirection.
-//
-// Only one field is populated at a time; which one is indicated by kind.
-type decodeCache struct {
-	kind uint8 // 0=empty 1=C2C 2=GroupAt 3=generic
-
-	c2c     dto.C2CMessageCreateEvent
-	groupAt dto.GroupAtMessageCreateEvent
-	generic any // fallback for other event types
-}
-
 // Matcher 定义 Matcher 的最小接口，用于避免循环依赖
 type Matcher interface {
 	GetSource() string
@@ -62,10 +46,9 @@ type Context struct {
 	ctxMu   sync.RWMutex   // 保护 ctx 字段的读写锁
 	ctx     stdctx.Context // 标准库 context，用于超时控制、取消传播等
 	matcher Matcher        // Matcher 引用（使用 interface{} 避免循环依赖）
-	event   *dto.Payload
 
 	// --- 平台无关字段（新路径）---
-	// 由 AcquireContextFromEvent 填充，旧路径保持 nil
+	// 由 AcquireContextFromEvent 填充
 	platformEvent  platform.Event  // 平台无关事件抽象
 	platformSender platform.Sender // 平台无关消息发送器
 
@@ -73,40 +56,9 @@ type Context struct {
 	extMu          sync.Mutex
 	extensions     *Extensions
 
-	api openapi.OpenAPI
-
-	// --- decode cache (typed union, replaces any+string) ---
-	// Protected by decodeMu. A Context is processed by one handler chain at
-	// a time, so contention is essentially zero.
-	decodeMu sync.Mutex
-	decoded  decodeCache
-
-	// --- hot-path field caches ---
-	// These are populated lazily on first access and never cleared until
-	// ReleaseContext; they avoid repeated gjson.GetBytes calls when multiple
-	// matchers/handlers inspect the same field.
+	// --- hot-path field caches（通用）---
 	contentOnce sync.Once
 	content     string // cached GetMessageContent result
-
-	authorOnce sync.Once
-	author     *dto.Author // cached GetAuthor result
-}
-
-// NewContext 创建一个新的上下文
-func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context {
-	return &Context{
-		ctx:   stdctx.Background(),
-		event: event,
-		api:   api,
-	}
-}
-
-// NewContextWithContext 创建带自定义标准库 context 的上下文
-// 用于中间件需要注入自定义 context 的场景（如注入 trace context）
-func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.OpenAPI) *Context {
-	c := NewContext(event, api)
-	c.SetStdContext(ctx)
-	return c
 }
 
 // Context 返回标准库 context.Context
@@ -144,11 +96,6 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 
 // Clone 克隆 Context 用于异步操作
 func (ctx *Context) Clone() *Context {
-	var clonedEvent *dto.Payload
-	if ctx.event != nil {
-		clonedEvent = ctx.event.Clone()
-	}
-
 	newStdCtx := stdctx.Background()
 
 	if deadline, ok := ctx.Context().Deadline(); ok {
@@ -164,8 +111,6 @@ func (ctx *Context) Clone() *Context {
 	newCtx := &Context{
 		ctx:            newStdCtx,
 		matcher:        ctx.matcher,
-		event:          clonedEvent,
-		api:            ctx.api,
 		platformEvent:  ctx.platformEvent,  // 保留平台无关事件引用
 		platformSender: ctx.platformSender, // 保留平台发送器，使 Reply() 在克隆后仍可用
 	}

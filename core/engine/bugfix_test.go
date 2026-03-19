@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // TestBugFix_ExtractCommandWithWhitespace 测试 Bug 7 的修复：extractCommand 处理空白
@@ -42,12 +42,9 @@ func TestBugFix_ContextCloneDeadline(t *testing.T) {
 	stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 5*time.Second)
 	defer cancel()
 
-	payload := &dto.Payload{
-		Type:   dto.C2CMessageCreate,
-		Detail: []byte(`{"content": "test"}`),
-	}
-
-	ctx := context.NewContextWithContext(stdCtx, payload, nil)
+	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
+	ctx := context.AcquireContextFromEvent(evt, nil)
+	ctx.SetStdContext(stdCtx)
 
 	// 克隆
 	cloned := ctx.Clone()
@@ -105,7 +102,7 @@ func TestBugFix_InvalidateCombinedChain(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background())
 
 	// 创建 matcher
-	m := eng.On(dto.C2CMessageCreate)
+	m := eng.On(string(platform.EventKindPrivateMessage))
 
 	// 设置中间件并构建链
 	eng.Use(func(next context.Handler) context.Handler {

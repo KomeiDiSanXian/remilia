@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // TestTempManagerWatermarkCleanup 测试水位线触发清理
@@ -21,7 +21,7 @@ func TestTempManagerWatermarkCleanup(t *testing.T) {
 	// 添加 15 个匹配器
 	for i := range 15 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -54,7 +54,7 @@ func TestTempManagerCount(t *testing.T) {
 	// 添加匹配器
 	for i := range 5 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -83,7 +83,7 @@ func TestTempManagerCleanExpired(t *testing.T) {
 	// 添加过期的匹配器
 	for i := range 3 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -97,7 +97,7 @@ func TestTempManagerCleanExpired(t *testing.T) {
 	// 添加未过期的匹配器
 	for i := range 2 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -131,7 +131,7 @@ func TestTempManagerRemove(t *testing.T) {
 	matchers := make([]*Matcher, 0, 3)
 	for i := range 3 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -173,7 +173,7 @@ func TestTempManagerStats(t *testing.T) {
 	// 添加一些匹配器
 	for i := range 10 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -213,7 +213,7 @@ func TestTempManagerCleanToWatermark(t *testing.T) {
 	// 添加 60 个匹配器
 	for i := range 60 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -246,7 +246,7 @@ func BenchmarkTempManagerAdd(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -264,7 +264,7 @@ func BenchmarkTempManagerCount(b *testing.B) {
 	// 添加一些匹配器
 	for i := range 1000 {
 		matcher := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",

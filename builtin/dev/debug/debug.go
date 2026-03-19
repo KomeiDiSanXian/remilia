@@ -204,8 +204,8 @@ func (p *Plugin) handleDebugEvent(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 权限不足：需要 debug.view 权限")
 	}
 
-	event := ctx.GetEvent()
-	if event == nil {
+	pe := ctx.GetPlatformEvent()
+	if pe == nil {
 		return p.reply(ctx, "❌ 事件对象为空")
 	}
 
@@ -215,7 +215,7 @@ func (p *Plugin) handleDebugEvent(ctx *eventctx.Context) error {
 
 	// 基本信息
 	msg.WriteString(fmt.Sprintf("📋 事件类型: %s\n", ctx.GetEventType()))
-	msg.WriteString(fmt.Sprintf("🆔 事件ID: %s\n", event.ID))
+	msg.WriteString(fmt.Sprintf("🆔 事件ID: %s\n", pe.ID()))
 
 	// 消息内容
 	if content := ctx.GetMessageContent(); content != "" {
@@ -227,8 +227,8 @@ func (p *Plugin) handleDebugEvent(ctx *eventctx.Context) error {
 
 	// 原始数据（简化显示）
 	msg.WriteString("\n📦 原始事件:\n")
-	msg.WriteString(fmt.Sprintf("  - Type: %s\n", event.Type))
-	msg.WriteString(fmt.Sprintf("  - ID: %s\n", event.ID))
+	msg.WriteString(fmt.Sprintf("  - Type: %s\n", pe.RawType()))
+	msg.WriteString(fmt.Sprintf("  - ID: %s\n", pe.ID()))
 
 	return p.reply(ctx, msg.String())
 }

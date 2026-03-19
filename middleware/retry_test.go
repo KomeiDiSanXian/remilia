@@ -9,7 +9,6 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,7 +32,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)
@@ -60,7 +59,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
 		err := wrappedHandler(ctx)
 
 		assert.NoError(t, err)
@@ -85,7 +84,7 @@ func TestRetry_Basic(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -115,7 +114,8 @@ func TestRetry_ContextCancellation(t *testing.T) {
 
 		// 创建可取消的 context
 		stdCtx, cancel := context.WithCancel(context.Background())
-		ctx := eventctx.NewContextWithContext(stdCtx, &dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
+		ctx.SetStdContext(stdCtx)
 
 		// 在第一次失败后取消 context
 		go func() {
@@ -154,7 +154,7 @@ func TestRetry_BackoffExponential(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := createTestContext()
 	_ = wrappedHandler(ctx)
 
 	assert.Equal(t, int32(4), callCount.Load(), "Should try initial + 3 retries")
@@ -192,7 +192,7 @@ func TestRetry_BackoffMax(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := createTestContext()
 	_ = wrappedHandler(ctx)
 
 	require.Len(t, callTimes, 6) // initial + 5 retries
@@ -223,7 +223,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -256,7 +256,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+		ctx := createTestContext()
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
@@ -288,7 +288,7 @@ func TestRetry_RetryAttemptTracking(t *testing.T) {
 	mw := Retry(cfg)
 	wrappedHandler := mw(handler)
 
-	ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+	ctx := createTestContext()
 	err := wrappedHandler(ctx)
 
 	assert.NoError(t, err)
@@ -385,7 +385,7 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 
 	for range concurrency {
 		go func() {
-			ctx := eventctx.NewContext(&dto.Payload{Type: "test"}, nil)
+			ctx := createTestContext()
 			_ = wrappedHandler(ctx)
 			done <- true
 		}()

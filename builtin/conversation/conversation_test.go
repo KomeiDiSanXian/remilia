@@ -1,13 +1,11 @@
 package conversation_test
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/conversation"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
@@ -15,11 +13,9 @@ import (
 func newConvPlugin() *conversation.Plugin {
 	return conversation.NewPlugin()
 }
-func makeC2CCtxUser(userID, content string, api *testbot.MockAPI) *context.Context {
-	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{Content: content, Author: dto.Author{UserOpenID: userID}},
-	})
-	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, api)
+func makeC2CCtxUser(userID, content string, _ *testbot.MockAPI) *context.Context {
+	event := testbot.MakePlatformC2CEvent(userID, content)
+	return context.AcquireContextFromEvent(event, nil)
 }
 func TestConversation_StartAndAdvance(t *testing.T) {
 	p := newConvPlugin()

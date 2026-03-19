@@ -35,6 +35,7 @@ func (e *testPlatformEvent) Content() string           { return e.content }
 func (e *testPlatformEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: e.chatID} }
 func (e *testPlatformEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: e.senderID} }
 func (e *testPlatformEvent) Timestamp() time.Time      { return time.Unix(1700000000, 0) }
+func (e *testPlatformEvent) ID() string                { return "" }
 func (e *testPlatformEvent) RawPayload() any           { return nil }
 
 func makeTestPlatformEvent(platformID, rawType string) platform.Event {

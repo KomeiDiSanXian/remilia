@@ -42,9 +42,13 @@ func main() {
 	// 注册一个简单的消息处理器
 	eng.On(dto.C2CMessageCreate).Handle(func(ctx *eventctx.Context) error {
 		// 使用 logger.WithFields 添加结构化字段
+		eventID := ""
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			eventID = pe.ID()
+		}
 		logger.WithFields(logger.Fields{
 			"user_id":  "example_user",
-			"event_id": ctx.GetEvent().ID,
+			"event_id": eventID,
 		}).Info("Received C2C message")
 
 		return nil

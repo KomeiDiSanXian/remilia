@@ -12,7 +12,7 @@ import (
 
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +28,7 @@ func TestChaos_RandomFailures(t *testing.T) {
 	var successCount, failCount int32
 
 	// 注册会随机失败的处理器
-	eng.OnCommand(dto.C2CMessageCreate, "/chaos").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/chaos").Handle(func(ctx *rcontext.Context) error {
 		if rand.Float32() < 0.3 { // 30% 失败率
 			atomic.AddInt32(&failCount, 1)
 			return errors.New("random failure")
@@ -43,11 +43,7 @@ func TestChaos_RandomFailures(t *testing.T) {
 
 	for range totalRequests {
 		wg.Go(func() {
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/chaos"}`),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newChaosContext("/chaos")
 			eng.ProcessEvent(ctx)
 		})
 	}
@@ -71,7 +67,7 @@ func TestChaos_HighConcurrency(t *testing.T) {
 
 	var processedCount int32
 
-	eng.OnCommand(dto.C2CMessageCreate, "/concurrent").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/concurrent").Handle(func(ctx *rcontext.Context) error {
 		atomic.AddInt32(&processedCount, 1)
 		// 模拟一些工作
 		time.Sleep(time.Millisecond * time.Duration(rand.Intn(10)))
@@ -88,11 +84,7 @@ func TestChaos_HighConcurrency(t *testing.T) {
 	for range concurrency {
 		wg.Go(func() {
 			for range requestsPerWorker {
-				event := &dto.Payload{
-					Type:   dto.C2CMessageCreate,
-					Detail: []byte(`{"content": "/concurrent"}`),
-				}
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newChaosContext("/concurrent")
 				eng.ProcessEvent(ctx)
 			}
 		})
@@ -119,7 +111,7 @@ func TestChaos_MemoryPressure(t *testing.T) {
 	defer eng.Shutdown(context.Background())
 
 	// 注册会分配大量内存的处理器
-	eng.OnCommand(dto.C2CMessageCreate, "/memory").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/memory").Handle(func(ctx *rcontext.Context) error {
 		// 分配 1MB 内存
 		data := make([]byte, 1024*1024)
 		_ = data
@@ -133,11 +125,7 @@ func TestChaos_MemoryPressure(t *testing.T) {
 
 	for range concurrency {
 		wg.Go(func() {
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/memory"}`),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newChaosContext("/memory")
 			eng.ProcessEvent(ctx)
 		})
 	}
@@ -158,7 +146,7 @@ func TestChaos_RapidRegistrationUnregistration(t *testing.T) {
 	// 快速注册和删除匹配器
 	const iterations = 1000
 	for i := range iterations {
-		matcher := eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/cmd%d", i))
+		matcher := eng.OnCommand(string(platform.EventKindPrivateMessage), fmt.Sprintf("/cmd%d", i))
 
 		// 立即删除
 		if i%2 == 0 {
@@ -193,7 +181,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 			case <-stopCh:
 				return
 			default:
-				eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/cmd%d", i))
+				eng.OnCommand(string(platform.EventKindPrivateMessage), fmt.Sprintf("/cmd%d", i))
 				i++
 				time.Sleep(10 * time.Millisecond)
 			}
@@ -207,11 +195,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 			case <-stopCh:
 				return
 			default:
-				event := &dto.Payload{
-					Type:   dto.C2CMessageCreate,
-					Detail: []byte(`{"content": "/cmd0"}`),
-				}
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newChaosContext("/cmd0")
 				eng.ProcessEvent(ctx)
 				time.Sleep(5 * time.Millisecond)
 			}
@@ -251,14 +235,14 @@ func TestChaos_SlowHandler(t *testing.T) {
 	var slowCount, fastCount int32
 
 	// 慢处理器
-	eng.OnCommand(dto.C2CMessageCreate, "/slow").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/slow").Handle(func(ctx *rcontext.Context) error {
 		time.Sleep(500 * time.Millisecond)
 		atomic.AddInt32(&slowCount, 1)
 		return nil
 	})
 
 	// 快处理器
-	eng.OnCommand(dto.C2CMessageCreate, "/fast").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/fast").Handle(func(ctx *rcontext.Context) error {
 		atomic.AddInt32(&fastCount, 1)
 		return nil
 	})
@@ -281,11 +265,7 @@ func TestChaos_SlowHandler(t *testing.T) {
 				cmd = "/fast"
 			}
 
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: fmt.Appendf(nil, `{"content": "%s"}`, cmd),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newChaosContext(cmd)
 			eng.ProcessEvent(ctx)
 		}(i)
 	}
@@ -307,7 +287,7 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 
 	var timeoutCount, successCount int32
 
-	eng.OnCommand(dto.C2CMessageCreate, "/timeout").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/timeout").Handle(func(ctx *rcontext.Context) error {
 		// 检查 context 是否已超时
 		select {
 		case <-ctx.Context().Done():
@@ -328,16 +308,12 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 
 	for range totalRequests {
 		wg.Go(func() {
-
 			// 创建带超时的 context
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			stdCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
 
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/timeout"}`),
-			}
-			eventCtx := rcontext.NewContextWithContext(ctx, event, nil)
+			eventCtx := newChaosContext("/timeout")
+			eventCtx.SetStdContext(stdCtx)
 			eng.ProcessEvent(eventCtx)
 		})
 	}
@@ -360,7 +336,7 @@ func TestChaos_ResourceExhaustion(t *testing.T) {
 
 	// 尝试注册超过限制的匹配器
 	for i := range 150 {
-		eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/cmd%d", i))
+		eng.OnCommand(string(platform.EventKindPrivateMessage), fmt.Sprintf("/cmd%d", i))
 	}
 
 	// 验证不会超过限制
@@ -381,7 +357,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 	var normalCount, degradedCount int32
 	degradeMode := int32(0)
 
-	eng.OnCommand(dto.C2CMessageCreate, "/service").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/service").Handle(func(ctx *rcontext.Context) error {
 		if atomic.LoadInt32(&degradeMode) == 1 {
 			// 降级模式：快速返回简化结果
 			atomic.AddInt32(&degradedCount, 1)
@@ -396,11 +372,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 
 	// 第一阶段：正常处理
 	for range 20 {
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{"content": "/service"}`),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newChaosContext("/service")
 		eng.ProcessEvent(ctx)
 	}
 
@@ -409,11 +381,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 
 	// 第二阶段：降级处理
 	for range 30 {
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{"content": "/service"}`),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newChaosContext("/service")
 		eng.ProcessEvent(ctx)
 	}
 
@@ -434,7 +402,7 @@ func TestChaos_CascadingFailures(t *testing.T) {
 	failureCount := int32(0)
 
 	// 三个相互依赖的处理器
-	eng.OnCommand(dto.C2CMessageCreate, "/service1").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/service1").Handle(func(ctx *rcontext.Context) error {
 		// Service1 依赖 Service2
 		if atomic.LoadInt32(&failureCount) > 0 {
 			return errors.New("service1 failed due to service2 failure")
@@ -442,7 +410,7 @@ func TestChaos_CascadingFailures(t *testing.T) {
 		return nil
 	})
 
-	eng.OnCommand(dto.C2CMessageCreate, "/service2").Handle(func(ctx *rcontext.Context) error {
+	eng.OnCommand(string(platform.EventKindPrivateMessage), "/service2").Handle(func(ctx *rcontext.Context) error {
 		// Service2 可能失败
 		if rand.Float32() < 0.5 {
 			atomic.AddInt32(&failureCount, 1)
@@ -458,22 +426,14 @@ func TestChaos_CascadingFailures(t *testing.T) {
 
 		go func() {
 			defer wg.Done()
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/service2"}`),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newChaosContext("/service2")
 			eng.ProcessEvent(ctx)
 		}()
 
 		go func() {
 			defer wg.Done()
 			time.Sleep(10 * time.Millisecond) // 稍微延迟
-			event := &dto.Payload{
-				Type:   dto.C2CMessageCreate,
-				Detail: []byte(`{"content": "/service1"}`),
-			}
-			ctx := rcontext.NewContext(event, nil)
+			ctx := newChaosContext("/service1")
 			eng.ProcessEvent(ctx)
 		}()
 	}
@@ -494,7 +454,7 @@ func TestChaos_StressTest(t *testing.T) {
 	// 注册多个命令
 	for i := range 10 {
 		cmdNum := i
-		eng.OnCommand(dto.C2CMessageCreate, fmt.Sprintf("/stress%d", i)).Handle(func(ctx *rcontext.Context) error {
+		eng.OnCommand(string(platform.EventKindPrivateMessage), fmt.Sprintf("/stress%d", i)).Handle(func(ctx *rcontext.Context) error {
 			// 随机延迟
 			time.Sleep(time.Millisecond * time.Duration(rand.Intn(50)))
 
@@ -537,12 +497,7 @@ func TestChaos_StressTest(t *testing.T) {
 
 				// 随机选择命令
 				cmdNum := rand.Intn(10)
-				event := &dto.Payload{
-					Type:   dto.C2CMessageCreate,
-					Detail: fmt.Appendf(nil, `{"content": "/stress%d"}`, cmdNum),
-				}
-
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newChaosContext(fmt.Sprintf("/stress%d", cmdNum))
 				eng.ProcessEvent(ctx)
 
 				// 注意：由于 ProcessEvent 无返回值，我们统计总请求数

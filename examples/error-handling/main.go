@@ -137,18 +137,15 @@ func registerHandlers(bot *remilia.Bot) {
 
 	// 6. 权限错误
 	bot.Engine().OnCommand(dto.C2CMessageCreate, "/permission").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-		if !checkPermission(c2c.Author.UserOpenID) {
+		userID := ctx.GetSenderInfo().ID
+		if !checkPermission(userID) {
 			err := &UserError{
 				Code:    403,
 				Message: "Permission denied",
 				Err:     ErrPermissionDenied,
 			}
 			logger.WithFields(logger.Fields{
-				"user": c2c.Author.UserOpenID,
+				"user": userID,
 			}).Warn("[ErrorHandling] Permission denied")
 			_ = ctx.Reply(platform.TextMessage("❌ 错误: 权限不足"))
 			return err

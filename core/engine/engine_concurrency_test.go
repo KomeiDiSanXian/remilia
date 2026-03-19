@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,7 +28,7 @@ func TestEngineRaceConditions(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for range matchersPerGoroutine {
-					matcher := engine.On(dto.C2CMessageCreate, context.OnFullMatch("test"))
+					matcher := engine.On(string(platform.EventKindPrivateMessage), context.OnFullMatch("test"))
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
 					})
@@ -89,9 +89,7 @@ func TestEngineRaceConditions(t *testing.T) {
 		for range 5 {
 			wg.Go(func() {
 				for range 10 {
-					ctx := context.NewContext(&dto.Payload{
-						Type: dto.C2CMessageCreate,
-					}, nil)
+					ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 					engine.ProcessEvent(ctx)
 				}
 			})
@@ -139,9 +137,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		const eventCount = 5
 		for range eventCount {
 			go func() {
-				ctx := context.NewContext(&dto.Payload{
-					Type: dto.C2CMessageCreate,
-				}, nil)
+				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 			}()
 		}
@@ -175,9 +171,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 
 		// 启动事件处理
 		go func() {
-			ctx := context.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
+			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}()
 
@@ -253,7 +247,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 		// 创建一些一次性临时匹配器
 		const tempCount = 50
 		for range tempCount {
-			matcher := engine.OnTemp(dto.C2CMessageCreate)
+			matcher := engine.OnTemp(string(platform.EventKindPrivateMessage))
 			matcher.SetTempWithMaxUse(1)
 			matcher.Handle(func(ctx *context.Context) error {
 				return nil
@@ -265,9 +259,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 
 		// 触发所有匹配器（每个使用1次后应该被删除）
 		for range tempCount {
-			ctx := context.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
+			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}
 

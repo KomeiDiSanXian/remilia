@@ -11,37 +11,22 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // rules.go — 事件匹配规则函数库
 //
 // # 路由层次说明
 //
-// 本文件中的规则函数分为两类：
+// 本文件中的规则函数均为平台无关规则（适用所有平台）：
 //
-//  1. 平台无关规则（推荐，适用所有平台）：
-//     - [OnEventKind]：按 platform.EventKind 匹配，如 EventKindPrivateMessage / EventKindGroupMessage
-//     - [OnCommand]、[OnKeyword]、[OnRegex] 等内容规则：全平台有效
-//     - [OnUserWhitelist]、[OnUserBlacklist]：基于 GetSenderInfo().ID，全平台有效
-//
-//  2. QQ 路径兼容规则（仅旧路径生效，不推荐使用新代码）：
-//     - [InGroup]：从旧路径的 GroupAtMessageCreateEvent 提取群 ID
-//
-// # 迁移指南
-//
-// 旧写法（QQ 专属）：
-//
-//	engine.On(dto.C2CMessageCreate, OnCommand("/ping")).Handle(handler)
-//
-// 新写法（多平台通用）：
-//
-//	engine.OnEventKind(platform.EventKindPrivateMessage, OnCommand("/ping")).Handle(handler)
+//   - [OnEventKind]：按 platform.EventKind 匹配，如 EventKindPrivateMessage / EventKindGroupMessage
+//   - [OnCommand]、[OnKeyword]、[OnRegex] 等内容规则：全平台有效
+//   - [OnUserWhitelist]、[OnUserBlacklist]：基于 GetSenderInfo().ID，全平台有效
 
 // OnEventType 匹配特定事件类型字符串（低级 API，通常不直接使用）
 //
-// 注意：新路径下 GetEventType() 返回 EventKind 字符串，旧路径返回平台原始类型字符串，
-// 两者不兼容。推荐使用 [OnEventKind] 代替。
+// 注意：GetEventType() 返回 EventKind 字符串（如 "PRIVATE_MESSAGE"）。
+// 推荐使用 [OnEventKind] 代替。
 func OnEventType(eventType string) Rule {
 	return func(ctx *Context) bool {
 		return ctx.GetEventType() == eventType
@@ -493,18 +478,9 @@ func InGroup(groupIDs ...string) Rule {
 		set[id] = true
 	}
 	return func(ctx *Context) bool {
-		// 新路径：从 platform.Event 提取 chat ID
+		// 从 platform.Event 提取 chat ID
 		if e := ctx.GetPlatformEvent(); e != nil {
 			return set[e.Chat().ID]
-		}
-		// 旧路径（QQ）：从 GroupAtMessageCreateEvent 解码 GroupOpenID
-		if ctx != nil && ctx.GetEvent() != nil && ctx.GetEvent().Type == dto.GroupAtMessageCreate {
-			var event struct {
-				GroupOpenID string `json:"group_openid"`
-			}
-			if err := ctx.GetEvent().Decode(&event); err == nil {
-				return set[event.GroupOpenID]
-			}
 		}
 		return false
 	}

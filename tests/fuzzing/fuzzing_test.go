@@ -1,17 +1,41 @@
 package fuzzing
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// fuzzEvent is a minimal platform.Event stub for fuzz tests.
+type fuzzEvent struct {
+	content string
+	kind    platform.EventKind
+}
+
+func (e *fuzzEvent) Platform() string          { return "fuzz" }
+func (e *fuzzEvent) Kind() platform.EventKind  { return e.kind }
+func (e *fuzzEvent) RawType() string           { return string(e.kind) }
+func (e *fuzzEvent) Content() string           { return e.content }
+func (e *fuzzEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "fuzz-chat"} }
+func (e *fuzzEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "fuzz-sender"} }
+func (e *fuzzEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *fuzzEvent) ID() string                { return "fuzz-id" }
+func (e *fuzzEvent) RawPayload() any           { return nil }
+
+// newFuzzContext creates a platform context with the given content.
+func newFuzzContext(content string) *rcontext.Context {
+	return rcontext.AcquireContextFromEvent(&fuzzEvent{
+		content: content,
+		kind:    platform.EventKindPrivateMessage,
+	}, nil)
+}
 
 // FuzzEventPayload 模糊测试事件负载
 func FuzzEventPayload(f *testing.F) {
@@ -36,17 +60,13 @@ func FuzzEventPayload(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// 不应该 panic
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: data,
-		}
-
-		ctx := rcontext.NewContext(event, nil)
+		content := string(data)
+		ctx := newFuzzContext(content)
 
 		// 尝试各种操作
 		_ = ctx.GetEventType()
 		_ = ctx.GetSenderInfo()
-		_ = ctx.GetEvent()
+		_ = ctx.GetPlatformEvent()
 	})
 }
 
@@ -114,25 +134,11 @@ func FuzzEngineProcessEvent(f *testing.F) {
 		defer eng.Shutdown(context.Background())
 
 		// 注册一个通配命令
-		eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/test").Handle(func(ctx *rcontext.Context) error {
 			return nil
 		})
 
-		// 构造事件
-		detail := map[string]any{
-			"content": content,
-		}
-		detailBytes, err := json.Marshal(detail)
-		if err != nil {
-			return
-		}
-
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: detailBytes,
-		}
-
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext(content)
 
 		// 不应该 panic
 		eng.ProcessEvent(ctx)
@@ -157,11 +163,7 @@ func FuzzContextOperations(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, key, value string) {
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{}`),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext("")
 
 		// Set/Get 不应该 panic
 		ctx.Set(key, value)
@@ -240,16 +242,7 @@ func FuzzMatcherRules(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, content string) {
-		detail := map[string]any{
-			"content": content,
-		}
-		detailBytes, _ := json.Marshal(detail)
-
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: detailBytes,
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext(content)
 
 		// 测试各种规则
 		rules := []rcontext.Rule{
@@ -323,15 +316,11 @@ func FuzzMiddlewareChain(f *testing.F) {
 			})
 		}
 
-		eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/test").Handle(func(ctx *rcontext.Context) error {
 			return nil
 		})
 
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: []byte(`{"content": "/test"}`),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext("/test")
 
 		// 不应该 panic
 		eng.ProcessEvent(ctx)
@@ -364,17 +353,7 @@ func FuzzSpecialCharacters(f *testing.F) {
 		_, _ = command.ParseCommandLine(input)
 
 		// 测试 Context 操作
-		event := &dto.Payload{
-			Type: dto.C2CMessageCreate,
-			Detail: func() []byte {
-				buf := &bytes.Buffer{}
-				buf.WriteString(`{"content": "`)
-				buf.WriteString(input)
-				buf.WriteString(`"}`)
-				return buf.Bytes()
-			}(),
-		}
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext(input)
 		ctx.Set("test", input)
 		_, _ = ctx.Get("test")
 	})
@@ -394,7 +373,7 @@ func FuzzConcurrentOperations(f *testing.F) {
 		eng := engine.NewEngine()
 		defer eng.Shutdown(context.Background())
 
-		eng.OnCommand(dto.C2CMessageCreate, "/test").Handle(func(ctx *rcontext.Context) error {
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/test").Handle(func(ctx *rcontext.Context) error {
 			return nil
 		})
 
@@ -402,11 +381,7 @@ func FuzzConcurrentOperations(f *testing.F) {
 		done := make(chan struct{}, opCount)
 		for range opCount {
 			go func() {
-				event := &dto.Payload{
-					Type:   dto.C2CMessageCreate,
-					Detail: []byte(`{"content": "/test"}`),
-				}
-				ctx := rcontext.NewContext(event, nil)
+				ctx := newFuzzContext("/test")
 				eng.ProcessEvent(ctx)
 				done <- struct{}{}
 			}()
@@ -433,22 +408,8 @@ func FuzzMemoryBounds(f *testing.F) {
 
 		// 创建大内容
 		content := strings.Repeat("a", int(size))
-
-		detail := map[string]any{
-			"content": content,
-		}
-		detailBytes, err := json.Marshal(detail)
-		if err != nil {
-			return
-		}
-
-		event := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: detailBytes,
-		}
-
-		ctx := rcontext.NewContext(event, nil)
+		ctx := newFuzzContext(content)
 		// 不应该 panic 或 OOM
-		_ = ctx.GetEvent()
+		_ = ctx.GetPlatformEvent()
 	})
 }

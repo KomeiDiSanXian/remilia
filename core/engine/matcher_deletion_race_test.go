@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // TestEngine_MatcherDeletionRaceCondition 测试 matcher 删除的竞态条件修复
@@ -22,7 +22,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 
 	for range numMatchers {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []context.Rule{
 				context.OnFullMatch("test"),
 			},
@@ -50,10 +50,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 			defer wg.Done()
 
 			for range 10 {
-				ctx := context.NewContext(&dto.Payload{
-					Type: dto.C2CMessageCreate,
-				}, nil)
-
+				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 				time.Sleep(time.Millisecond)
 			}
@@ -88,7 +85,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 
 	// 创建临时 matcher
 	m := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules: []context.Rule{
 			context.OnFullMatch("test"),
 		},
@@ -114,10 +111,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ctx := context.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
-
+			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}(i)
 	}
@@ -147,7 +141,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 
 	// 创建 matcher
 	m := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules: []context.Rule{
 			context.OnFullMatch("test"),
 		},
@@ -169,9 +163,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	// Goroutine 1: 处理事件
 	wg.Go(func() {
 		for range 5 {
-			ctx := context.NewContext(&dto.Payload{
-				Type: dto.C2CMessageCreate,
-			}, nil)
+			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 			time.Sleep(10 * time.Millisecond)
 		}
@@ -207,7 +199,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 
 	for range numMatchers {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []context.Rule{
 				context.OnFullMatch("test"),
 			},
@@ -224,9 +216,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 		engine.services.tempManager.Add(m)
 
 		// 触发删除
-		ctx := context.NewContext(&dto.Payload{
-			Type: dto.C2CMessageCreate,
-		}, nil)
+		ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		engine.ProcessEvent(ctx)
 	}
 
@@ -250,7 +240,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 	numMatchers := 1000
 	for range numMatchers {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []context.Rule{
 				context.OnFullMatch("test"),
 			},
@@ -279,9 +269,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 			defer wg.Done()
 
 			for time.Since(startTime) < duration {
-				ctx := context.NewContext(&dto.Payload{
-					Type: dto.C2CMessageCreate,
-				}, nil)
+				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 			}
 		}(i)

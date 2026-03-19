@@ -49,6 +49,7 @@ func (e *stubEvent) Content() string           { return e.content }
 func (e *stubEvent) Chat() platform.ChatInfo   { return e.chat }
 func (e *stubEvent) Sender() platform.UserInfo { return e.sndr }
 func (e *stubEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *stubEvent) ID() string                { return "" }
 func (e *stubEvent) RawPayload() any           { return nil }
 
 type captureSender struct {

@@ -89,9 +89,9 @@ func Tracing(config TracingConfig) context.Middleware {
 				attribute.String(tracing.AttrEventType, ctx.GetEventType()),
 			}
 
-			// 添加事件 ID
-			if event := ctx.GetEvent(); event != nil && event.ID != "" {
-				attrs = append(attrs, attribute.String(tracing.AttrEventID, string(event.ID)))
+			// 添加事件 ID（平台无关路径）
+			if pe := ctx.GetPlatformEvent(); pe != nil && pe.ID() != "" {
+				attrs = append(attrs, attribute.String(tracing.AttrEventID, pe.ID()))
 			}
 
 			// 添加用户信息

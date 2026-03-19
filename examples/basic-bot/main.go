@@ -71,11 +71,7 @@ func main() {
 func registerHandlers(eng *engine.Engine) {
 	// Echo 命令 - 回显用户消息
 	eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(ctx *eventctx.Context) error {
-		var c2c dto.C2CMessageCreateEvent
-		if err := ctx.DecodeEvent(&c2c); err != nil {
-			return err
-		}
-		return ctx.Reply(platform.TextMessage("回声: " + c2c.Content))
+		return ctx.Reply(platform.TextMessage("回声: " + ctx.GetMessageContent()))
 	})
 
 	// Ping 命令

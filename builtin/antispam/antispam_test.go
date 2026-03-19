@@ -1,13 +1,11 @@
 package antispam_test
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/testbot"
 )
 
@@ -23,15 +21,10 @@ func makeC2CCtxPlatform(userID string) *context.Context {
 	return context.AcquireContextFromEvent(event, nil)
 }
 
-// makeC2CCtx 使用 QQ 旧路径创建测试 Context（保留向后兼容）
+// makeC2CCtx 使用平台无关路径创建测试 Context
 func makeC2CCtx(userID string) *context.Context {
-	detail, _ := json.Marshal(dto.C2CMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{
-			Content: "test",
-			Author:  dto.Author{UserOpenID: userID},
-		},
-	})
-	return context.NewContext(&dto.Payload{Type: dto.C2CMessageCreate, Detail: detail}, nil)
+	event := testbot.MakePlatformC2CEvent(userID, "test")
+	return context.AcquireContextFromEvent(event, nil)
 }
 
 func TestAntiSpam_Ban_Unban(t *testing.T) {

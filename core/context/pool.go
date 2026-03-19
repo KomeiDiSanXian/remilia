@@ -3,52 +3,15 @@ package context
 import (
 	stdctx "context"
 	"sync"
-
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
+
+// pool.go — Context 对象池
 
 // contextPool is a sync.Pool for Context objects to reduce GC pressure
 var contextPool = sync.Pool{
 	New: func() any {
 		return &Context{}
 	},
-}
-
-// AcquireContext gets a Context from the pool and initializes it
-//
-// Usage:
-//
-//	ctx := context.AcquireContext(payload, api)
-//	defer context.ReleaseContext(ctx)
-//	// ... use ctx
-//
-// Performance benefits:
-//   - Reduces GC pressure by ~50% under high load
-//   - Zero allocation after warm-up
-//   - Thread-safe via sync.Pool
-func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context {
-	ctx := contextPool.Get().(*Context)
-
-	ctx.event = event
-	ctx.api = api
-	ctx.platformEvent = nil  // 旧路径不使用
-	ctx.platformSender = nil // 旧路径不使用
-	ctx.matcher = nil
-	ctx.extensions = nil
-	ctx.extInitialized.Store(false)
-
-	// Reset typed decode cache
-	ctx.decoded = decodeCache{}
-
-	// Reset Once-based field caches by replacing with zero values.
-	// sync.Once cannot be reset directly; we store a fresh zero value.
-	ctx.contentOnce = sync.Once{}
-	ctx.content = ""
-	ctx.authorOnce = sync.Once{}
-	ctx.author = nil
-
-	return ctx
 }
 
 // ReleaseContext returns a Context to the pool after clearing sensitive data
@@ -60,11 +23,9 @@ func ReleaseContext(ctx *Context) {
 		return
 	}
 
-	ctx.event = nil
-	ctx.api = nil
 	ctx.matcher = nil
 
-	// 清理平台无关字段
+	// 平台无关字段清理
 	ctx.platformEvent = nil
 	ctx.platformSender = nil
 
@@ -73,14 +34,9 @@ func ReleaseContext(ctx *Context) {
 		ctx.extensions = nil
 	}
 
-	// Clear decode cache
-	ctx.decoded = decodeCache{}
-
-	// Clear field caches
+	// Clear content cache
 	ctx.contentOnce = sync.Once{}
 	ctx.content = ""
-	ctx.authorOnce = sync.Once{}
-	ctx.author = nil
 
 	ctx.ctxMu.Lock()
 	ctx.ctx = stdctx.Background()

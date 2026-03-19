@@ -1,14 +1,12 @@
 package engine
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	remiliaerrors "github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 )
 
 // HandlerError is a framework error envelope for handler execution.
@@ -53,9 +51,8 @@ func WrapError(err error, ctx *context.Context, m *Matcher, attempt int) error {
 
 	var eventID string
 	if ctx != nil {
-		event := ctx.GetEvent()
-		if event != nil {
-			eventID = string(event.ID)
+		if pe := ctx.GetPlatformEvent(); pe != nil {
+			eventID = pe.ID()
 		}
 	}
 
@@ -99,23 +96,6 @@ func FormatHandlerError(err error) string {
 	}
 
 	return stringsJoin(parts, "\n")
-}
-
-// MarshalDeadLetterItem serializes a PayloadItem with a standardized HandlerError.
-func MarshalDeadLetterItem(item dlq.PayloadItem) ([]byte, error) {
-	var herr HandlerError
-	var he HandlerError
-	if errors.As(item.Err, &he) {
-		herr = he
-	}
-
-	return json.Marshal(struct {
-		Event *DeadLetterEvent `json:"event"`
-		Error HandlerError     `json:"error"`
-	}{
-		Event: &DeadLetterEvent{ID: string(item.Data.ID), Type: string(item.Data.Type)},
-		Error: herr,
-	})
 }
 
 // DeadLetterEvent is a lightweight event representation for persistence.

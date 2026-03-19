@@ -1,14 +1,13 @@
 package context
 
 import (
-	"encoding/json"
 	"regexp"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +65,7 @@ func TestExecuteCommandDefinition(t *testing.T) {
 	})
 
 	t.Run("no parsed command", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		err := ExecuteCommandDefinition(ctx)
 		require.Error(t, err)
@@ -92,7 +91,7 @@ func TestExecuteCommandDefinition(t *testing.T) {
 // ============================================================================
 
 func TestWithCommand(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 	ext := WithCommand(ctx)
 
 	assert.NotNil(t, ext)
@@ -389,7 +388,7 @@ func TestPermissionManager_WithProvider(t *testing.T) {
 
 func TestContext_PermissionMethods(t *testing.T) {
 	t.Run("SetPermissionManager and GetPermissionManager", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 
 		ctx.SetPermissionManager(pm)
@@ -399,7 +398,7 @@ func TestContext_PermissionMethods(t *testing.T) {
 	})
 
 	t.Run("GetUserID and SetUserID", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		ctx.SetUserID("user123")
 
@@ -414,7 +413,7 @@ func TestContext_PermissionMethods(t *testing.T) {
 
 func TestOnHasPermission(t *testing.T) {
 	t.Run("has permission", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 		pm.GrantPermission("user1", Permission{Resource: "cmd", Action: "execute"})
 
@@ -428,7 +427,7 @@ func TestOnHasPermission(t *testing.T) {
 	})
 
 	t.Run("no permission", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 
 		ctx.SetPermissionManager(pm)
@@ -441,7 +440,7 @@ func TestOnHasPermission(t *testing.T) {
 	})
 
 	t.Run("no permission manager", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := OnHasPermission("cmd", "execute")
 		result := rule(ctx)
@@ -450,7 +449,7 @@ func TestOnHasPermission(t *testing.T) {
 	})
 
 	t.Run("no user ID", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 		ctx.SetPermissionManager(pm)
 
@@ -463,7 +462,7 @@ func TestOnHasPermission(t *testing.T) {
 
 func TestOnHasRole(t *testing.T) {
 	t.Run("has role", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 		_ = pm.AssignRole("user1", "admin")
 
@@ -477,7 +476,7 @@ func TestOnHasRole(t *testing.T) {
 	})
 
 	t.Run("no role", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		pm := NewPermissionManager()
 
 		ctx.SetPermissionManager(pm)
@@ -506,7 +505,7 @@ func TestOnRegexCompiled(t *testing.T) {
 
 func TestAnd(t *testing.T) {
 	t.Run("all true", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := And(
 			func(ctx *Context) bool { return true },
@@ -517,7 +516,7 @@ func TestAnd(t *testing.T) {
 	})
 
 	t.Run("one false", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := And(
 			func(ctx *Context) bool { return true },
@@ -528,7 +527,7 @@ func TestAnd(t *testing.T) {
 	})
 
 	t.Run("short circuit", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		called := false
 
 		rule := And(
@@ -546,7 +545,7 @@ func TestAnd(t *testing.T) {
 
 func TestOr(t *testing.T) {
 	t.Run("all false", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := Or(
 			func(ctx *Context) bool { return false },
@@ -557,7 +556,7 @@ func TestOr(t *testing.T) {
 	})
 
 	t.Run("one true", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := Or(
 			func(ctx *Context) bool { return false },
@@ -568,7 +567,7 @@ func TestOr(t *testing.T) {
 	})
 
 	t.Run("short circuit", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 		called := false
 
 		rule := Or(
@@ -586,7 +585,7 @@ func TestOr(t *testing.T) {
 
 func TestNot(t *testing.T) {
 	t.Run("invert true", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := Not(func(ctx *Context) bool { return true })
 
@@ -594,7 +593,7 @@ func TestNot(t *testing.T) {
 	})
 
 	t.Run("invert false", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := Not(func(ctx *Context) bool { return false })
 
@@ -604,7 +603,7 @@ func TestNot(t *testing.T) {
 
 func TestWithTimeout(t *testing.T) {
 	t.Run("fast rule", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := WithTimeout(
 			func(ctx *Context) bool { return true },
@@ -616,7 +615,7 @@ func TestWithTimeout(t *testing.T) {
 	})
 
 	t.Run("timeout exceeded", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := WithTimeout(
 			func(ctx *Context) bool {
@@ -631,7 +630,7 @@ func TestWithTimeout(t *testing.T) {
 	})
 
 	t.Run("panic recovery", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := WithTimeout(
 			func(ctx *Context) bool {
@@ -647,7 +646,7 @@ func TestWithTimeout(t *testing.T) {
 
 func TestMonitorRule(t *testing.T) {
 	t.Run("fast rule", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := MonitorRule("fast", func(ctx *Context) bool {
 			return true
@@ -658,7 +657,7 @@ func TestMonitorRule(t *testing.T) {
 	})
 
 	t.Run("slow rule logs warning", func(t *testing.T) {
-		ctx := NewContext(&dto.Payload{}, nil)
+		ctx := newTestCtx()
 
 		rule := MonitorRule("slow", func(ctx *Context) bool {
 			time.Sleep(20 * time.Millisecond)
@@ -717,7 +716,7 @@ func TestRegexCacheManagement(t *testing.T) {
 // ============================================================================
 
 func TestContext_TypedGetters(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	t.Run("MustGetString", func(t *testing.T) {
 		ctx.Set("key", "value")
@@ -781,53 +780,24 @@ func TestContext_TypedGetters(t *testing.T) {
 }
 
 func TestContext_MessageAndEvent(t *testing.T) {
-	t.Run("GetEvent", func(t *testing.T) {
-		event := &dto.Payload{ID: "test-1"}
-		ctx := NewContext(event, nil)
+	t.Run("GetPlatformEvent", func(t *testing.T) {
+		event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
+		ctx := AcquireContextFromEvent(event, nil)
 
-		retrieved := ctx.GetEvent()
+		retrieved := ctx.GetPlatformEvent()
 		assert.Equal(t, event, retrieved)
 	})
 
 	t.Run("GetEventType", func(t *testing.T) {
-		event := &dto.Payload{Type: dto.C2CMessageCreate}
-		ctx := NewContext(event, nil)
+		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		eventType := ctx.GetEventType()
-		assert.Equal(t, dto.C2CMessageCreate, eventType)
-	})
-
-	t.Run("DecodeEvent", func(t *testing.T) {
-		eventData := dto.MessageCreateEvent{
-			ID:      "test-1",
-			Content: "test content",
-		}
-
-		detail, _ := json.Marshal(eventData)
-		payload := &dto.Payload{
-			Type:   dto.C2CMessageCreate,
-			Detail: detail,
-		}
-
-		ctx := NewContext(payload, nil)
-
-		var decoded dto.MessageCreateEvent
-		err := ctx.DecodeEvent(&decoded)
-		assert.NoError(t, err)
-		assert.Equal(t, "test content", decoded.Content)
-	})
-
-	t.Run("DecodeEvent nil event", func(t *testing.T) {
-		ctx := NewContext(nil, nil)
-
-		var decoded dto.MessageCreateEvent
-		err := ctx.DecodeEvent(&decoded)
-		require.Error(t, err)
+		assert.Equal(t, string(platform.EventKindPrivateMessage), eventType)
 	})
 }
 
 func TestContext_All(t *testing.T) {
-	ctx := NewContext(&dto.Payload{}, nil)
+	ctx := newTestCtx()
 
 	ctx.Set("key1", "value1")
 	ctx.Set("key2", 123)

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // TestOptimization_GetAllCommandsCache 测试 GetAllCommands 缓存优化
@@ -30,9 +30,9 @@ func TestOptimization_GetAllCommandsCache(t *testing.T) {
 		Hidden:      true,
 	}
 
-	eng.RegisterCommandDef(dto.C2CMessageCreate, def1)
-	eng.RegisterCommandDef(dto.GroupAtMessageCreate, def2)
-	eng.RegisterCommandDef(dto.C2CMessageCreate, def3)
+	eng.RegisterCommandDef(string(platform.EventKindPrivateMessage), def1)
+	eng.RegisterCommandDef(string(platform.EventKindGroupMessage), def2)
+	eng.RegisterCommandDef(string(platform.EventKindPrivateMessage), def3)
 
 	// 获取所有命令
 	commands := eng.GetAllCommands()
@@ -88,7 +88,7 @@ func BenchmarkGetAllCommands_WithCache(b *testing.B) {
 			Name:        string(rune('a'+i%26)) + string(rune('0'+i/26)),
 			Description: "Test command",
 		}
-		eng.RegisterCommandDef(dto.C2CMessageCreate, def)
+		eng.RegisterCommandDef(string(platform.EventKindPrivateMessage), def)
 	}
 
 	b.ResetTimer()

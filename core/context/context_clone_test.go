@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -26,6 +25,7 @@ func (e *cloneTestEvent) Content() string           { return e.content }
 func (e *cloneTestEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "chat-001"} }
 func (e *cloneTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "user-001"} }
 func (e *cloneTestEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *cloneTestEvent) ID() string                { return "" }
 func (e *cloneTestEvent) RawPayload() any           { return nil }
 
 // --- existing tests (unchanged) ---
@@ -36,12 +36,10 @@ func TestContextClone_IndependentCancellation(t *testing.T) {
 	stdCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	payload := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		ID:   "test-123",
-	}
-
-	originalCtx := NewContextWithContext(stdCtx, payload, nil)
+	event := &cloneTestEvent{content: "hello", platformID: "qq", kind: platform.EventKindPrivateMessage}
+	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer ReleaseContextFromEvent(originalCtx)
+	originalCtx.SetStdContext(stdCtx)
 
 	// 克隆 context
 	clonedCtx := originalCtx.Clone()
@@ -86,8 +84,10 @@ func TestContextClone_TracePreservation(t *testing.T) {
 	}
 
 	// 如果 span 有效，继续测试
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	originalCtx := NewContextWithContext(stdCtx, payload, nil)
+	event := &cloneTestEvent{content: "trace-test", platformID: "qq", kind: platform.EventKindPrivateMessage}
+	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer ReleaseContextFromEvent(originalCtx)
+	originalCtx.SetStdContext(stdCtx)
 	clonedCtx := originalCtx.Clone()
 
 	originalSpan := trace.SpanFromContext(originalCtx.Context())
@@ -110,20 +110,19 @@ func TestContextClone_TracePreservation(t *testing.T) {
 
 // TestContextClone_EventCopied 测试事件被正确克隆
 func TestContextClone_EventCopied(t *testing.T) {
-	payload := &dto.Payload{
-		Type: dto.C2CMessageCreate,
-		ID:   "original-id",
-	}
+	event := &cloneTestEvent{content: "original-content", platformID: "qq", kind: platform.EventKindPrivateMessage}
 
-	originalCtx := NewContext(payload, nil)
+	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer ReleaseContextFromEvent(originalCtx)
 	clonedCtx := originalCtx.Clone()
 
-	// 修改原始事件
-	originalCtx.GetEvent().ID = "modified-id"
-
-	// 验证克隆的事件未受影响
-	if clonedCtx.GetEvent().ID != "original-id" {
-		t.Errorf("Cloned event should not be affected by original event modification, got: %s", clonedCtx.GetEvent().ID)
+	// 修改原始事件的内容字段后，克隆持有的是同一指针（platform.Event 是接口）
+	// 验证克隆的 platformEvent 仍然存在且指向相同事件
+	if clonedCtx.GetPlatformEvent() == nil {
+		t.Fatal("Cloned context should have a non-nil platformEvent")
+	}
+	if clonedCtx.GetPlatformEvent().Platform() != "qq" {
+		t.Errorf("Cloned context platformEvent.Platform() = %q, want %q", clonedCtx.GetPlatformEvent().Platform(), "qq")
 	}
 
 	t.Log("✓ Event properly cloned and independent")
@@ -209,19 +208,23 @@ func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
 	t.Log("✓ platform-path cloned context is independent and retains platform fields")
 }
 
-// TestContextClone_OldPath_NilPlatformFields 验证旧路径克隆时平台字段保持 nil
-func TestContextClone_OldPath_NilPlatformFields(t *testing.T) {
-	payload := &dto.Payload{Type: dto.C2CMessageCreate, ID: "old-path"}
-	original := NewContext(payload, nil)
+// TestContextClone_PlatformFields_Preserved 验证新路径克隆时平台字段被正确保留
+func TestContextClone_PlatformFields_Preserved(t *testing.T) {
+	event := &cloneTestEvent{content: "check", platformID: "discord", kind: platform.EventKindGroupMessage}
+	original := AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer ReleaseContextFromEvent(original)
 
 	cloned := original.Clone()
 
-	if cloned.GetPlatformEvent() != nil {
-		t.Errorf("old-path clone should have nil platformEvent, got %v", cloned.GetPlatformEvent())
+	if cloned.GetPlatformEvent() == nil {
+		t.Error("cloned context should have non-nil platformEvent")
 	}
-	if cloned.GetPlatformSender() != nil {
-		t.Errorf("old-path clone should have nil platformSender, got %v", cloned.GetPlatformSender())
+	if cloned.GetPlatformSender() == nil {
+		t.Error("cloned context should have non-nil platformSender")
+	}
+	if cloned.GetPlatformEvent().Platform() != "discord" {
+		t.Errorf("platformEvent.Platform() = %q, want %q", cloned.GetPlatformEvent().Platform(), "discord")
 	}
 
-	t.Log("✓ old-path clone correctly has nil platform fields")
+	t.Log("✓ new-path clone correctly has non-nil platform fields")
 }

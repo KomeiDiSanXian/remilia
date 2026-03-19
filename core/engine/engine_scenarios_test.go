@@ -8,7 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	ctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +36,7 @@ func TestIsBlockError(t *testing.T) {
 func TestWrapError(t *testing.T) {
 	t.Run("wrap error with context", func(t *testing.T) {
 		originalErr := errors.New("original error")
-		context := ctx.NewContext(&dto.Payload{}, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		matcher := &Matcher{Source: "test-source"}
 
 		wrappedErr := WrapError(originalErr, context, matcher, 1)
@@ -49,7 +49,7 @@ func TestWrapError(t *testing.T) {
 	})
 
 	t.Run("wrap nil error", func(t *testing.T) {
-		context := ctx.NewContext(&dto.Payload{}, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		matcher := &Matcher{Source: "test-source"}
 
 		wrappedErr := WrapError(nil, context, matcher, 0)
@@ -66,7 +66,7 @@ func TestWrapError(t *testing.T) {
 
 	t.Run("wrap with nil matcher", func(t *testing.T) {
 		originalErr := errors.New("test error")
-		context := ctx.NewContext(&dto.Payload{}, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		wrappedErr := WrapError(originalErr, context, nil, 0)
 		require.NotNil(t, wrappedErr)
@@ -108,7 +108,7 @@ func TestFormatHandlerError(t *testing.T) {
 func TestMatcher_CopyDetailed(t *testing.T) {
 	t.Run("copy with all fields", func(t *testing.T) {
 		original := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules: []ctx.Rule{
 				func(c *ctx.Context) bool { return true },
 				func(c *ctx.Context) bool { return false },
@@ -162,12 +162,11 @@ func TestEngine_ProcessEvent_WithMiddlewareTrace(t *testing.T) {
 		}
 
 		eng.Use(mw)
-		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
+		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
 			return nil
 		})
 
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		context := ctx.NewContext(payload, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		eng.ProcessEvent(context)
 
@@ -180,12 +179,11 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 		eng := NewEngine()
 
 		testErr := errors.New("handler error")
-		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
+		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
 			return testErr
 		})
 
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		context := ctx.NewContext(payload, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		// Should handle error gracefully
 		eng.ProcessEvent(context)
@@ -194,12 +192,11 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 	t.Run("handler panics", func(t *testing.T) {
 		eng := NewEngine()
 
-		eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
+		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
 			panic("test panic")
 		})
 
-		payload := &dto.Payload{Type: dto.C2CMessageCreate}
-		context := ctx.NewContext(payload, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		// Should recover from panic
 		assert.NotPanics(t, func() {
@@ -214,7 +211,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 
 func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 	eng := NewEngine()
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 	// Set block multiple times
 	matcher.SetBlock(true)
@@ -231,7 +228,7 @@ func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 	t.Run("update priority triggers invalidation", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.On(dto.C2CMessageCreate)
+		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		// Change priority multiple times
 		matcher.SetPriority(10)
@@ -247,7 +244,7 @@ func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 
 	t.Run("set priority on temp matcher", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.OnTemp(dto.C2CMessageCreate)
+		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 
 		matcher.SetPriority(50)
 
@@ -267,7 +264,7 @@ func TestEngineState_AddMatcher_WithCommand(t *testing.T) {
 	state := newEngineState()
 
 	m1 := &Matcher{
-		EventType:  dto.C2CMessageCreate,
+		EventType:  string(platform.EventKindPrivateMessage),
 		definition: &command.Definition{Name: "test"},
 		priority:   10,
 	}
@@ -276,14 +273,14 @@ func TestEngineState_AddMatcher_WithCommand(t *testing.T) {
 
 	// Verify command index is built
 	assert.NotNil(t, state.commandIndex["/test"])
-	assert.Equal(t, 1, len(state.commandIndex["/test"][dto.C2CMessageCreate]))
+	assert.Equal(t, 1, len(state.commandIndex["/test"][string(platform.EventKindPrivateMessage)]))
 }
 
 func TestEngineState_AddMatcher_WithGroup(t *testing.T) {
 	state := newEngineState()
 
 	m1 := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		group:     "plugin1",
 	}
 
@@ -296,9 +293,9 @@ func TestEngineState_AddMatcher_WithGroup(t *testing.T) {
 func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 	state := newEngineState()
 
-	m1 := &Matcher{EventType: dto.C2CMessageCreate, priority: 10}
-	m2 := &Matcher{EventType: dto.C2CMessageCreate, definition: &command.Definition{Name: "test"}, priority: 20}
-	m3 := &Matcher{EventType: dto.GroupAtMessageCreate, group: "plugin1", priority: 5}
+	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 10}
+	m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "test"}, priority: 20}
+	m3 := &Matcher{EventType: string(platform.EventKindGroupMessage), group: "plugin1", priority: 5}
 
 	state.matchers = []*Matcher{m1, m2, m3}
 	state.rebuildIndex()
@@ -317,7 +314,7 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 	t.Run("concurrent priority changes", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.On(dto.C2CMessageCreate)
+		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		var wg sync.WaitGroup
 		for i := range 50 {
@@ -340,7 +337,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 
 	t.Run("concurrent block changes", func(t *testing.T) {
 		eng := NewEngine()
-		matcher := eng.On(dto.C2CMessageCreate)
+		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		var wg sync.WaitGroup
 		for i := range 100 {
@@ -365,7 +362,7 @@ func TestEngine_ConcurrentGroupOperations(t *testing.T) {
 	// Create matchers
 	for range 20 {
 		wg.Go(func() {
-			m := eng.On(dto.C2CMessageCreate)
+			m := eng.On(string(platform.EventKindPrivateMessage))
 			eng.SetMatcherGroup(m, "test-group", "source")
 		})
 	}
@@ -396,11 +393,11 @@ func TestMatcher_EnsureChain_MultipleGroups(t *testing.T) {
 	eng.UseForGroup("group1", mw1)
 	eng.UseForGroup("group2", mw1)
 
-	m1 := eng.On(dto.C2CMessageCreate)
+	m1 := eng.On(string(platform.EventKindPrivateMessage))
 	m1.group = "group1"
 	eng.RebuildMatcherChain(m1)
 
-	m2 := eng.On(dto.C2CMessageCreate)
+	m2 := eng.On(string(platform.EventKindPrivateMessage))
 	m2.group = "group2"
 	eng.RebuildMatcherChain(m2)
 
@@ -424,7 +421,7 @@ func TestEngine_UseForGroup_WithTrim(t *testing.T) {
 	// Test with spaces
 	eng.UseForGroup("  spaced-group  ", mw)
 
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	matcher.group = "  spaced-group  "
 	eng.RebuildMatcherChain(matcher)
 
@@ -441,28 +438,28 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 	var c2cCount, groupCount int
 	var mu sync.Mutex
 
-	eng.On(dto.C2CMessageCreate).Handle(func(c *ctx.Context) error {
+	eng.OnEventKind(platform.EventKindPrivateMessage).Handle(func(c *ctx.Context) error {
 		mu.Lock()
 		c2cCount++
 		mu.Unlock()
 		return nil
 	})
 
-	eng.On(dto.GroupAtMessageCreate).Handle(func(c *ctx.Context) error {
+	eng.OnEventKind(platform.EventKindGroupMessage).Handle(func(c *ctx.Context) error {
 		mu.Lock()
 		groupCount++
 		mu.Unlock()
 		return nil
 	})
 
-	events := []*dto.Payload{
-		{Type: dto.C2CMessageCreate},
-		{Type: dto.GroupAtMessageCreate},
-		{Type: dto.C2CMessageCreate},
-		{Type: dto.GroupAtMessageCreate},
+	events := []platform.Event{
+		newTestPlatformEvent(platform.EventKindPrivateMessage),
+		newTestPlatformEvent(platform.EventKindGroupMessage),
+		newTestPlatformEvent(platform.EventKindPrivateMessage),
+		newTestPlatformEvent(platform.EventKindGroupMessage),
 	}
 
-	eng.ProcessEventBatch(events, nil)
+	eng.ProcessPlatformEventBatch(events, nil)
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -478,7 +475,7 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	matcher.SetTemp(true)
 	matcher.rt.maxUseCount = 2
 
@@ -488,11 +485,9 @@ func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 		return nil
 	})
 
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-
 	// Execute 3 times
 	for range 3 {
-		context := ctx.NewContext(payload, nil)
+		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 	}
 
@@ -514,7 +509,7 @@ func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
 	}
 
 	eng.Use(mw)
-	eng.On(dto.C2CMessageCreate)
+	eng.On(string(platform.EventKindPrivateMessage))
 
 	snapshot := eng.Snapshot()
 
@@ -532,7 +527,7 @@ func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
 func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 	eng := NewEngine()
 
-	matcher := eng.On(dto.C2CMessageCreate)
+	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	executed := false
 	matcher.Handle(func(c *ctx.Context) error {
 		executed = true
@@ -544,8 +539,7 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 	matcher.rt.deleted = true
 	matcher.rt.mu.Unlock()
 
-	payload := &dto.Payload{Type: dto.C2CMessageCreate}
-	context := ctx.NewContext(payload, nil)
+	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 	eng.ProcessEvent(context)
 
@@ -560,9 +554,9 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
 	eng := NewEngine()
 
-	m1 := eng.On(dto.C2CMessageCreate)
-	m2 := eng.On(dto.C2CMessageCreate)
-	m3 := eng.On(dto.GroupAtMessageCreate)
+	m1 := eng.On(string(platform.EventKindPrivateMessage))
+	m2 := eng.On(string(platform.EventKindPrivateMessage))
+	m3 := eng.On(string(platform.EventKindGroupMessage))
 
 	eng.SetMatcherGroup(m1, "plugin1", "source1")
 	eng.SetMatcherGroup(m2, "plugin1", "source2")
@@ -581,7 +575,7 @@ func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
 func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
 	eng := NewEngine()
 
-	eng.On(dto.C2CMessageCreate)
+	eng.On(string(platform.EventKindPrivateMessage))
 	initialCount := eng.GetMatcherCount()
 
 	// Try to remove empty group name
@@ -594,7 +588,7 @@ func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
 func TestEngine_RemoveGroup_NonExistentGroup(t *testing.T) {
 	eng := NewEngine()
 
-	eng.On(dto.C2CMessageCreate)
+	eng.On(string(platform.EventKindPrivateMessage))
 	initialCount := eng.GetMatcherCount()
 
 	eng.RemoveGroup("non-existent-group")
@@ -610,8 +604,8 @@ func TestEngine_SetMaxMatchers_Enforcement(t *testing.T) {
 	eng := NewEngine()
 	eng.SetMaxMatchers(2)
 
-	eng.On(dto.C2CMessageCreate)
-	eng.On(dto.GroupAtMessageCreate)
+	eng.On(string(platform.EventKindPrivateMessage))
+	eng.On(string(platform.EventKindGroupMessage))
 
 	// Try to add more (implementation dependent)
 	eng.OnAny()
@@ -626,7 +620,7 @@ func TestEngine_SetMaxMatchers_Zero(t *testing.T) {
 	eng.SetMaxMatchers(0) // No limit
 
 	for range 10 {
-		eng.On(dto.C2CMessageCreate)
+		eng.On(string(platform.EventKindPrivateMessage))
 	}
 
 	assert.Equal(t, 10, eng.GetMatcherCount())

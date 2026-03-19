@@ -38,6 +38,7 @@ func (s *noopSender) Send(_ stdctx.Context, _ string, _ platform.OutboundMessage
 type discordEvent struct{}
 
 func (e *discordEvent) Platform() string          { return PlatformID }
+func (e *discordEvent) ID() string                { return "" }
 func (e *discordEvent) Kind() platform.EventKind  { return platform.EventKindUnknown }
 func (e *discordEvent) RawType() string           { return "" }
 func (e *discordEvent) Sender() platform.UserInfo { return platform.UserInfo{} }

@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // TestCopyEngineState 测试状态复制的正确性
@@ -17,7 +17,7 @@ func TestCopyEngineState(t *testing.T) {
 	// 添加一些 matchers
 	for i := range 5 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -57,7 +57,7 @@ func TestCopyEngineStateCOW(t *testing.T) {
 	// 创建原始状态
 	src := newEngineState()
 	m1 := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test1",
@@ -70,7 +70,7 @@ func TestCopyEngineStateCOW(t *testing.T) {
 
 	// 修改目标状态
 	m2 := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test2",
@@ -120,7 +120,7 @@ func TestAddMatcherOptimization(t *testing.T) {
 
 	// 添加第一个 matcher
 	m1 := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test1",
@@ -129,11 +129,11 @@ func TestAddMatcherOptimization(t *testing.T) {
 	state.addMatcher(m1)
 
 	// 记录 sortedCache 的容量
-	oldCap := cap(state.sortedCache[dto.C2CMessageCreate])
+	oldCap := cap(state.sortedCache[string(platform.EventKindPrivateMessage)])
 
 	// 添加第二个 matcher
 	m2 := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test2",
@@ -142,14 +142,14 @@ func TestAddMatcherOptimization(t *testing.T) {
 	state.addMatcher(m2)
 
 	// 如果容量足够，应该重用
-	newCap := cap(state.sortedCache[dto.C2CMessageCreate])
+	newCap := cap(state.sortedCache[string(platform.EventKindPrivateMessage)])
 	if oldCap >= 2 && newCap != oldCap {
 		t.Logf("Capacity changed from %d to %d (reuse optimization may not have triggered)", oldCap, newCap)
 	}
 
 	// 验证功能正确性
-	if len(state.sortedCache[dto.C2CMessageCreate]) != 2 {
-		t.Errorf("sortedCache should have 2 matchers, got %d", len(state.sortedCache[dto.C2CMessageCreate]))
+	if len(state.sortedCache[string(platform.EventKindPrivateMessage)]) != 2 {
+		t.Errorf("sortedCache should have 2 matchers, got %d", len(state.sortedCache[string(platform.EventKindPrivateMessage)]))
 	}
 }
 
@@ -160,7 +160,7 @@ func TestInvalidateSortedCacheOptimization(t *testing.T) {
 	// 添加多个 matchers
 	for i := range 5 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -170,24 +170,24 @@ func TestInvalidateSortedCacheOptimization(t *testing.T) {
 	}
 
 	// 记录容量
-	oldCap := cap(state.sortedCache[dto.C2CMessageCreate])
+	oldCap := cap(state.sortedCache[string(platform.EventKindPrivateMessage)])
 
 	// 失效缓存
-	state.invalidateSortedCache(dto.C2CMessageCreate)
+	state.invalidateSortedCache(string(platform.EventKindPrivateMessage))
 
 	// 验证容量重用
-	newCap := cap(state.sortedCache[dto.C2CMessageCreate])
+	newCap := cap(state.sortedCache[string(platform.EventKindPrivateMessage)])
 	if newCap != oldCap {
 		t.Logf("Capacity changed from %d to %d (may allocate new if needed)", oldCap, newCap)
 	}
 
 	// 验证功能正确性
-	if len(state.sortedCache[dto.C2CMessageCreate]) != 5 {
-		t.Errorf("sortedCache should still have 5 matchers, got %d", len(state.sortedCache[dto.C2CMessageCreate]))
+	if len(state.sortedCache[string(platform.EventKindPrivateMessage)]) != 5 {
+		t.Errorf("sortedCache should still have 5 matchers, got %d", len(state.sortedCache[string(platform.EventKindPrivateMessage)]))
 	}
 
 	// 验证排序正确性
-	sorted := state.sortedCache[dto.C2CMessageCreate]
+	sorted := state.sortedCache[string(platform.EventKindPrivateMessage)]
 	for i := 1; i < len(sorted); i++ {
 		if sorted[i-1].getPriority() > sorted[i].getPriority() {
 			t.Errorf("sortedCache not properly sorted at index %d", i)
@@ -201,7 +201,7 @@ func BenchmarkCopyEngineState(b *testing.B) {
 	src := newEngineState()
 	for i := range 100 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -253,7 +253,7 @@ func BenchmarkAddMatcher(b *testing.B) {
 	// 预分配一些 matchers 以模拟真实场景
 	for i := range 50 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -265,7 +265,7 @@ func BenchmarkAddMatcher(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "bench",
@@ -284,7 +284,7 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 	// 添加 100 个 matchers
 	for i := range 100 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -295,7 +295,7 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		state.invalidateSortedCache(dto.C2CMessageCreate)
+		state.invalidateSortedCache(string(platform.EventKindPrivateMessage))
 	}
 }
 
@@ -305,7 +305,7 @@ func BenchmarkCOWModification(b *testing.B) {
 	src := newEngineState()
 	for i := range 50 {
 		m := &Matcher{
-			EventType: dto.C2CMessageCreate,
+			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
@@ -315,7 +315,7 @@ func BenchmarkCOWModification(b *testing.B) {
 	}
 
 	newMatcher := &Matcher{
-		EventType: dto.C2CMessageCreate,
+		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "new",
