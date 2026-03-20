@@ -3,12 +3,12 @@
 // 设计目标：
 //   - 将框架核心（engine、context）与具体平台（QQ官方、Discord、Telegram 等）解耦
 //   - 现有 QQ 适配器通过 platform/qq 包实现本接口，向后兼容
-//   - 新平台只需实现 PlatformAdapter + Event 接口，无需改动核心引擎
+//   - 新平台只需实现 Adapter + Event 接口，无需改动核心引擎
 //
 // 层次结构：
 //
 //	┌──────────────┐
-//	│   Bot/Engine │  使用 platform.Event / platform.PlatformAdapter
+//	│   Bot/Engine │  使用 platform.Event / platform.Adapter
 //	├──────────────┤
 //	│  platform/   │  接口定义（本包）
 //	├──────────────┤

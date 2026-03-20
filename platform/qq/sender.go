@@ -78,7 +78,7 @@ func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 }
 
 // QQCapabilities 是 QQ 平台的能力声明
-var QQCapabilities = platform.PlatformCapabilities{
+var QQCapabilities = platform.Capabilities{
 	Markdown:        true,
 	Buttons:         true,
 	MultiAttachment: false,

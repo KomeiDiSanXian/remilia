@@ -91,10 +91,10 @@ func (n *NoopSender) Send(_ stdctx.Context, _ OutboundMessage) error {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PlatformCapabilities
+// Capabilities
 // ────────────────────────────────────────────────────────────────────────────
 
-// PlatformCapabilities 声明平台支持的特性集合。
+// Capabilities 声明平台支持的特性集合。
 //
 // 平台适配器通过 Capabilities() 返回此结构，允许 Handler 在运行时
 // 做跨平台特性检测，实现"渐进增强"策略（优先使用丰富特性，降级到纯文本）。
@@ -107,7 +107,7 @@ func (n *NoopSender) Send(_ stdctx.Context, _ OutboundMessage) error {
 //	} else {
 //	    msg = platform.MarkdownMessage(myEmbed.Title + "\n" + myEmbed.Description)
 //	}
-type PlatformCapabilities struct {
+type Capabilities struct {
 	// Markdown 是否支持 Markdown 格式消息
 	Markdown bool
 	// Buttons 是否支持交互按钮（内联键盘等）
@@ -127,10 +127,10 @@ type PlatformCapabilities struct {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// PlatformAdapter
+// Adapter
 // ────────────────────────────────────────────────────────────────────────────
 
-// PlatformAdapter 是平台适配器的核心接口。
+// Adapter 是平台适配器的核心接口。
 //
 // 每个平台（QQ、Discord、Telegram 等）实现此接口，
 // 框架核心通过此接口接收事件和发送消息，不依赖任何平台 SDK。
@@ -138,15 +138,15 @@ type PlatformCapabilities struct {
 // 生命周期：
 //
 //	Start() ──→ [事件循环，持续调用 handler] ──→ Stop()
-type PlatformAdapter interface {
+type Adapter interface {
 	// Platform 返回平台标识符（小写，如 "qq"、"discord"、"telegram"）
 	Platform() string
 
-	// StartPlatform 启动适配器事件循环（阻塞，直到 ctx 取消或出错）
+	// Start 启动适配器事件循环（阻塞，直到 ctx 取消或出错）
 	//
 	// 每收到一个事件，调用 handler(event)。
 	// handler 应快速返回（框架内部会在 goroutine 中处理）。
-	StartPlatform(ctx stdctx.Context, handler func(Event)) error
+	Start(ctx stdctx.Context, handler func(Event)) error
 
 	// Stop 优雅停止适配器
 	Stop(ctx stdctx.Context) error
@@ -156,7 +156,7 @@ type PlatformAdapter interface {
 
 	// Capabilities 返回该平台支持的特性集合。
 	// 用于 Handler 做跨平台特性检测，实现渐进增强策略。
-	Capabilities() PlatformCapabilities
+	Capabilities() Capabilities
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -168,27 +168,27 @@ type PlatformAdapter interface {
 // 支持同时运行多个平台适配器，框架通过 Registry 管理它们的生命周期。
 type Registry struct {
 	mu       sync.RWMutex
-	adapters map[string]PlatformAdapter
+	adapters map[string]Adapter
 }
 
 // NewRegistry 创建空的适配器注册表
 func NewRegistry() *Registry {
 	return &Registry{
-		adapters: make(map[string]PlatformAdapter),
+		adapters: make(map[string]Adapter),
 	}
 }
 
 // Register 注册一个平台适配器
 //
 // 若同一平台已注册，会覆盖旧适配器。
-func (r *Registry) Register(adapter PlatformAdapter) {
+func (r *Registry) Register(adapter Adapter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.adapters[adapter.Platform()] = adapter
 }
 
 // Get 获取指定平台的适配器
-func (r *Registry) Get(platform string) (PlatformAdapter, bool) {
+func (r *Registry) Get(platform string) (Adapter, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	a, ok := r.adapters[platform]
@@ -196,10 +196,10 @@ func (r *Registry) Get(platform string) (PlatformAdapter, bool) {
 }
 
 // All 返回所有已注册适配器的快照（切片顺序不保证）
-func (r *Registry) All() []PlatformAdapter {
+func (r *Registry) All() []Adapter {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]PlatformAdapter, 0, len(r.adapters))
+	out := make([]Adapter, 0, len(r.adapters))
 	for _, a := range r.adapters {
 		out = append(out, a)
 	}
@@ -225,7 +225,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 
 	for _, a := range adapters {
 		wg.Go(func() {
-			if err := a.StartPlatform(ctx, handler); err != nil {
+			if err := a.Start(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Error("[Registry] Platform adapter exited with error")

@@ -51,7 +51,7 @@ func TestWebhookServerAdapter_StartStop(t *testing.T) {
 	ctx := context.Background()
 	handler := func(_ platform.Event) {}
 
-	err := adapter.StartPlatform(ctx, handler)
+	err := adapter.Start(ctx, handler)
 	require.NoError(t, err)
 
 	time.Sleep(100 * time.Millisecond)
@@ -70,10 +70,10 @@ func TestWebhookServerAdapter_DoubleStart(t *testing.T) {
 	ctx := context.Background()
 	handler := func(_ platform.Event) {}
 
-	err := adapter.StartPlatform(ctx, handler)
+	err := adapter.Start(ctx, handler)
 	require.NoError(t, err)
 
-	err = adapter.StartPlatform(ctx, handler)
+	err = adapter.Start(ctx, handler)
 	assert.NoError(t, err)
 
 	_ = adapter.Stop(context.Background())

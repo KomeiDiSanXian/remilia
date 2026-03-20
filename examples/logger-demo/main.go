@@ -68,16 +68,16 @@ func main() {
 	logger.Info("Bot stopped")
 }
 
-// MockAdapter 模拟适配器（实现 engine.PlatformAdapter）
+// MockAdapter 模拟适配器（实现 engine.Adapter）
 type MockAdapter struct{}
 
 func (m *MockAdapter) Platform() string        { return "qq" }
 func (m *MockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
-func (m *MockAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (m *MockAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
 
-func (m *MockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+func (m *MockAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
 	logger.Info("[MockAdapter] Starting...")
 	go func() {
 		time.Sleep(1 * time.Second)

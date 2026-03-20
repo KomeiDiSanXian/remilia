@@ -197,7 +197,7 @@ type mockAdapter struct {
 
 func (m *mockAdapter) Platform() string { return "test" }
 
-func (m *mockAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error {
+func (m *mockAdapter) Start(_ context.Context, _ func(platform.Event)) error {
 	m.startCallCount.Add(1)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -209,8 +209,8 @@ func (m *mockAdapter) Stop(_ context.Context) error { return nil }
 
 func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
-func (m *mockAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (m *mockAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
 
 func (m *mockAdapter) GetStartCallCount() int32 {

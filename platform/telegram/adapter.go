@@ -1,4 +1,4 @@
-// Package telegram is the platform.PlatformAdapter skeleton for Telegram.
+// Package telegram is the platform.Adapter skeleton for Telegram.
 //
 // Currently a placeholder — waiting for community contribution of a full
 // Telegram Bot API integration.
@@ -17,7 +17,7 @@ import (
 const PlatformID = "telegram"
 
 // Capabilities declares Telegram platform feature capabilities.
-var Capabilities = platform.PlatformCapabilities{
+var Capabilities = platform.Capabilities{
 	Markdown:        true,
 	Buttons:         true,
 	MultiAttachment: true,
@@ -34,13 +34,13 @@ type Adapter struct{}
 // NewAdapter creates a Telegram adapter (placeholder).
 func NewAdapter() *Adapter { return &Adapter{} }
 
-func (a *Adapter) Platform() string                            { return PlatformID }
-func (a *Adapter) Sender() platform.Sender                     { return &noopSender{} }
-func (a *Adapter) Stop(_ stdctx.Context) error                 { return nil }
-func (a *Adapter) Capabilities() platform.PlatformCapabilities { return Capabilities }
+func (a *Adapter) Platform() string                    { return PlatformID }
+func (a *Adapter) Sender() platform.Sender             { return &noopSender{} }
+func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
+func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
 
-// StartPlatform implements platform.PlatformAdapter (not yet implemented).
-func (a *Adapter) StartPlatform(_ stdctx.Context, _ func(platform.Event)) error {
+// StartPlatform implements platform.Adapter (not yet implemented).
+func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {
 	return fmt.Errorf("telegram adapter: not yet implemented")
 }
 

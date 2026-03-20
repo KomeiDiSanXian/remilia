@@ -1,4 +1,4 @@
-// Package wechat is the platform.PlatformAdapter skeleton for WeChat Work / WeChat Official Account.
+// Package wechat is the platform.Adapter skeleton for WeChat Work / WeChat Official Account.
 //
 // Currently, a placeholder — waiting for community contribution of a full
 // WeChat Bot API integration.
@@ -17,7 +17,7 @@ import (
 const PlatformID = "wechat"
 
 // Capabilities declares WeChat platform feature capabilities.
-var Capabilities = platform.PlatformCapabilities{
+var Capabilities = platform.Capabilities{
 	Markdown:        false,
 	Buttons:         true, // 模板消息/卡片消息支持
 	MultiAttachment: false,
@@ -34,12 +34,12 @@ type Adapter struct{}
 // NewAdapter creates a WeChat adapter (placeholder).
 func NewAdapter() *Adapter { return &Adapter{} }
 
-func (a *Adapter) Platform() string                            { return PlatformID }
-func (a *Adapter) Sender() platform.Sender                     { return &platform.NoopSender{} }
-func (a *Adapter) Stop(_ stdctx.Context) error                 { return nil }
-func (a *Adapter) Capabilities() platform.PlatformCapabilities { return Capabilities }
+func (a *Adapter) Platform() string                    { return PlatformID }
+func (a *Adapter) Sender() platform.Sender             { return &platform.NoopSender{} }
+func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
+func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
 
-// StartPlatform implements platform.PlatformAdapter (not yet implemented).
-func (a *Adapter) StartPlatform(_ stdctx.Context, _ func(platform.Event)) error {
+// StartPlatform implements platform.Adapter (not yet implemented).
+func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {
 	return fmt.Errorf("wechat adapter: not yet implemented")
 }

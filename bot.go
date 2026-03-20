@@ -28,7 +28,7 @@ const (
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理
 type Bot struct {
 	engine        *engine.Engine
-	adapter       platform.PlatformAdapter
+	adapter       platform.Adapter
 	lifecycle     *lifecycle.Manager
 	health        *health.Check
 	config        *Config
@@ -72,7 +72,7 @@ type Config struct {
 //	bot, err := remilia.NewBotBuilder().
 //	    WithPlatformRegistry(registry).
 //	    Build()
-func NewBot(adapter platform.PlatformAdapter, e *engine.Engine, opts ...Option) *Bot {
+func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
 	// adapter 允许为 nil（多平台注册表模式下不需要单一适配器）
 	if adapter == nil {
 		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
@@ -132,8 +132,8 @@ func (b *Bot) buildBaseLifecycle() {
 			"adapter",
 			nil, // onStart
 			func(ctx context.Context) error {
-				// onRun: adapter.StartPlatform 是阻塞的，适合在这里运行
-				return b.adapter.StartPlatform(ctx, b.handlePlatformEvent)
+				// onRun: adapter.Start 是阻塞的，适合在这里运行
+				return b.adapter.Start(ctx, b.handlePlatformEvent)
 			},
 			func(ctx context.Context) error {
 				// onStop
@@ -199,7 +199,7 @@ func (b *Bot) Start() error {
 				name,
 				nil,
 				func(ctx context.Context) error {
-					return pa.StartPlatform(ctx, b.handlePlatformEvent)
+					return pa.Start(ctx, b.handlePlatformEvent)
 				},
 				func(ctx context.Context) error {
 					return pa.Stop(ctx)
@@ -263,7 +263,7 @@ func (b *Bot) Context() context.Context {
 	return context.Background()
 }
 
-// handlePlatformEvent 处理来自 platform.PlatformAdapter 的事件
+// handlePlatformEvent 处理来自 platform.Adapter 的事件
 //
 // 直接调用 engine.ProcessPlatformEvent，不再降级到 *dto.Payload 路径。
 // Engine 内部通过 context.AcquireContextFromEvent 创建平台无关的 Context，

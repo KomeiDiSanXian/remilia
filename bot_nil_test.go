@@ -37,13 +37,13 @@ func TestNewBot_BothNil(t *testing.T) {
 	}, "NewBot should panic when both adapter and engine are nil")
 }
 
-// testAdapter is a minimal PlatformAdapter implementation for testing
+// testAdapter is a minimal Adapter implementation for testing
 type testAdapter struct{}
 
-func (a *testAdapter) Platform() string                                              { return "test" }
-func (a *testAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error { return nil }
-func (a *testAdapter) Stop(_ context.Context) error                                  { return nil }
-func (a *testAdapter) Sender() platform.Sender                                       { return &platform.NoopSender{} }
-func (a *testAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (a *testAdapter) Platform() string                                      { return "test" }
+func (a *testAdapter) Start(_ context.Context, _ func(platform.Event)) error { return nil }
+func (a *testAdapter) Stop(_ context.Context) error                          { return nil }
+func (a *testAdapter) Sender() platform.Sender                               { return &platform.NoopSender{} }
+func (a *testAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }

@@ -1,4 +1,4 @@
-// Package discord is the platform.PlatformAdapter skeleton for Discord.
+// Package discord is the platform.Adapter skeleton for Discord.
 //
 // Currently a placeholder — waiting for community contribution of a full
 // Discord Bot API integration.
@@ -17,7 +17,7 @@ import (
 const PlatformID = "discord"
 
 // Capabilities declares Discord platform feature capabilities.
-var Capabilities = platform.PlatformCapabilities{
+var Capabilities = platform.Capabilities{
 	Markdown:        true,
 	Buttons:         true,
 	MultiAttachment: true,
@@ -34,13 +34,13 @@ type Adapter struct{}
 // NewAdapter creates a Discord adapter (placeholder).
 func NewAdapter() *Adapter { return &Adapter{} }
 
-func (a *Adapter) Platform() string                            { return PlatformID }
-func (a *Adapter) Sender() platform.Sender                     { return &noopSender{} }
-func (a *Adapter) Stop(_ stdctx.Context) error                 { return nil }
-func (a *Adapter) Capabilities() platform.PlatformCapabilities { return Capabilities }
+func (a *Adapter) Platform() string                    { return PlatformID }
+func (a *Adapter) Sender() platform.Sender             { return &noopSender{} }
+func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
+func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
 
-// StartPlatform implements platform.PlatformAdapter (not yet implemented).
-func (a *Adapter) StartPlatform(_ stdctx.Context, _ func(platform.Event)) error {
+// StartPlatform implements platform.Adapter (not yet implemented).
+func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {
 	return fmt.Errorf("discord adapter: not yet implemented")
 }
 

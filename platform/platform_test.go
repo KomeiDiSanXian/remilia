@@ -285,10 +285,10 @@ func (a *mockCancelableAdapter) Platform() string { return a.platformID }
 func (a *mockCancelableAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
-func (a *mockCancelableAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (a *mockCancelableAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
-func (a *mockCancelableAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
+func (a *mockCancelableAdapter) Start(ctx context.Context, _ func(platform.Event)) error {
 	close(a.started)
 	<-ctx.Done()
 	return ctx.Err()
@@ -352,10 +352,10 @@ func (a *mockFatalAdapter) Platform() string { return a.platformID }
 func (a *mockFatalAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
-func (a *mockFatalAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (a *mockFatalAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
-func (a *mockFatalAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error {
+func (a *mockFatalAdapter) Start(_ context.Context, _ func(platform.Event)) error {
 	return a.startErr
 }
 func (a *mockFatalAdapter) Stop(_ context.Context) error { return nil }
@@ -385,10 +385,10 @@ func (a *mockErrorStopAdapter) Platform() string { return a.platformID }
 func (a *mockErrorStopAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
-func (a *mockErrorStopAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (a *mockErrorStopAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
-func (a *mockErrorStopAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
+func (a *mockErrorStopAdapter) Start(ctx context.Context, _ func(platform.Event)) error {
 	<-ctx.Done()
 	return ctx.Err()
 }

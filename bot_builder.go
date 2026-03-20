@@ -20,7 +20,7 @@ import (
 //	    WithPlugins(plugin1.New(), plugin2.New()).
 //	    Build()
 type BotBuilder struct {
-	adapter          platform.PlatformAdapter
+	adapter          platform.Adapter
 	engine           *engine.Engine
 	pluginManager    *plugin.Manager            // 可选，通过 WithPluginManager 或 WithPlugins 注入
 	pendingPlugins   []*plugin.PluginDescriptor // WithPlugins 收集的描述符，Build() 时批量注册
@@ -48,7 +48,7 @@ func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
 //
 // 每次调用会覆盖上一次设置的适配器；若需要同时运行多个平台，
 // 请改用 [BotBuilder.WithPlatformRegistry]。
-func (b *BotBuilder) WithPlatformAdapter(adapter platform.PlatformAdapter) *BotBuilder {
+func (b *BotBuilder) WithPlatformAdapter(adapter platform.Adapter) *BotBuilder {
 	b.adapter = adapter
 	return b
 }

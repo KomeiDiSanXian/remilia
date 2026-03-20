@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockAdapter is a test adapter implementing engine.PlatformAdapter
+// mockAdapter is a test adapter implementing engine.Adapter
 type mockAdapter struct {
 	startErr         error
 	shutdownErr      error
@@ -41,11 +41,11 @@ func (m *mockAdapter) Platform() string { return "test" }
 
 func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
-func (m *mockAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (m *mockAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
 
-func (m *mockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+func (m *mockAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
 	m.mu.Lock()
 	if m.startErr != nil {
 		m.mu.Unlock()

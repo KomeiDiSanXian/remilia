@@ -79,11 +79,11 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 
 // AdapterHealthChecker 检查 Adapter 状态
 type AdapterHealthChecker struct {
-	adapter platform.PlatformAdapter
+	adapter platform.Adapter
 }
 
 // NewAdapterHealthChecker 创建 Adapter 健康检查器
-func NewAdapterHealthChecker(adapter platform.PlatformAdapter) *AdapterHealthChecker {
+func NewAdapterHealthChecker(adapter platform.Adapter) *AdapterHealthChecker {
 	return &AdapterHealthChecker{adapter: adapter}
 }
 

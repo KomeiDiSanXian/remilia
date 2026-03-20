@@ -17,7 +17,7 @@ type Webhook interface {
 	EventStream() <-chan *dto.Payload
 }
 
-// Adapter is the QQ platform.PlatformAdapter implementation.
+// Adapter is the QQ platform.Adapter implementation.
 //
 // It reads *dto.Payload from a Webhook, converts them to platform.Event via
 // NewEvent(), and invokes the framework-provided handler.
@@ -75,14 +75,14 @@ func (a *Adapter) Platform() string { return PlatformID }
 func (a *Adapter) Sender() platform.Sender { return a.sender }
 
 // Capabilities returns QQ platform feature capabilities.
-func (a *Adapter) Capabilities() platform.PlatformCapabilities { return QQCapabilities }
+func (a *Adapter) Capabilities() platform.Capabilities { return QQCapabilities }
 
 // StartPlatform starts the QQ event loop.
 //
 // 使用有界 worker pool 处理事件，避免高频事件下无限创建 goroutine。
 // worker 数量默认为 runtime.NumCPU()，可通过 WithWorkers 调整。
 // Blocks until ctx is canceled or the stream is closed.
-func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)) error {
+func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error {
 	if !a.starting.CompareAndSwap(false, true) {
 		return nil
 	}

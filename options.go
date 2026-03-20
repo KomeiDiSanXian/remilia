@@ -49,7 +49,7 @@ func WithDebug(debug bool) Option {
 }
 
 // WithAdapter 设置自定义适配器
-func WithAdapter(adapter platform.PlatformAdapter) Option {
+func WithAdapter(adapter platform.Adapter) Option {
 	return func(b *Bot) {
 		b.adapter = adapter
 	}

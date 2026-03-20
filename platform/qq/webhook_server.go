@@ -21,7 +21,7 @@ import (
 
 // WebhookServerAdapter 是一个内置 HTTP 服务器的 Webhook 适配器。
 //
-// 实现 platform.PlatformAdapter 接口，绑定 QQ Webhook 协议并将事件转为 platform.Event。
+// 实现 platform.Adapter 接口，绑定 QQ Webhook 协议并将事件转为 platform.Event。
 //
 // Token 生命周期：若构造时提供了 BotInfo 且未通过 WithAPI 显式注入 OpenAPI 客户端，
 // 则在每次 StartPlatform 调用时自动创建与传入 ctx 绑定的 token.Manager，
@@ -43,10 +43,10 @@ type WebhookServerAdapter struct {
 	bufferSize  int
 }
 
-// Platform 实现 platform.PlatformAdapter
+// Platform 实现 platform.Adapter
 func (a *WebhookServerAdapter) Platform() string { return PlatformID }
 
-// Sender 实现 platform.PlatformAdapter
+// Sender 实现 platform.Adapter
 func (a *WebhookServerAdapter) Sender() platform.Sender {
 	if a.api != nil {
 		return NewSender(a.api)
@@ -55,7 +55,7 @@ func (a *WebhookServerAdapter) Sender() platform.Sender {
 }
 
 // Capabilities 返回 QQ 平台的特性声明
-func (a *WebhookServerAdapter) Capabilities() platform.PlatformCapabilities { return QQCapabilities }
+func (a *WebhookServerAdapter) Capabilities() platform.Capabilities { return QQCapabilities }
 
 // WithAPI 注入外部 QQ OpenAPI client，用于通过 ctx.Reply() 发送消息。
 //
@@ -135,8 +135,8 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 	}
 }
 
-// StartPlatform 实现 platform.PlatformAdapter.StartPlatform，接受 platform.Event handler
-func (a *WebhookServerAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+// StartPlatform 实现 platform.Adapter.Start，接受 platform.Event handler
+func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()

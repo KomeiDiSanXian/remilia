@@ -233,11 +233,11 @@ func newPumpAdapter(bufSize int) *pumpAdapter {
 }
 func (a *pumpAdapter) Platform() string        { return "qq" }
 func (a *pumpAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
-func (a *pumpAdapter) Capabilities() platform.PlatformCapabilities {
-	return platform.PlatformCapabilities{}
+func (a *pumpAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{}
 }
 
-func (a *pumpAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
+func (a *pumpAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
 	if !a.started.CompareAndSwap(false, true) {
 		return fmt.Errorf("pumpAdapter already started")
 	}

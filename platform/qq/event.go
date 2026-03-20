@@ -1,4 +1,4 @@
-// Package qq 是 QQ 官方机器人平台的 platform.PlatformAdapter 实现。
+// Package qq 是 QQ 官方机器人平台的 platform.Adapter 实现。
 //
 // 本包将 QQ 官方数据结构（dto.Payload、dto.C2CMessageCreateEvent 等）
 // 包装为 platform.Event，使框架核心不再直接依赖 QQ SDK 类型。
