@@ -14,15 +14,16 @@ import (
 // simpleTestEvent is a minimal platform.Event stub for simple_test.go
 type simpleTestEvent struct{}
 
-func (e *simpleTestEvent) Platform() string          { return "test" }
-func (e *simpleTestEvent) Kind() platform.EventKind  { return platform.EventKindPrivateMessage }
-func (e *simpleTestEvent) RawType() string           { return string(platform.EventKindPrivateMessage) }
-func (e *simpleTestEvent) Content() string           { return "test" }
-func (e *simpleTestEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "chat-001"} }
-func (e *simpleTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "sender-001"} }
-func (e *simpleTestEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *simpleTestEvent) ID() string                { return "simple-test-event" }
-func (e *simpleTestEvent) RawPayload() any           { return nil }
+func (e *simpleTestEvent) Platform() string                          { return "test" }
+func (e *simpleTestEvent) Kind() platform.EventKind                  { return platform.EventKindPrivateMessage }
+func (e *simpleTestEvent) RawType() string                           { return string(platform.EventKindPrivateMessage) }
+func (e *simpleTestEvent) Content() string                           { return "test" }
+func (e *simpleTestEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: "chat-001"} }
+func (e *simpleTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
+func (e *simpleTestEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *simpleTestEvent) ID() string                                { return "simple-test-event" }
+func (e *simpleTestEvent) RawPayload() any                           { return nil }
+func (e *simpleTestEvent) Attachments() []platform.InboundAttachment { return nil }
 
 // TestSimpleMiddleware tests simplified middleware factories
 func TestSimpleMiddleware(t *testing.T) {

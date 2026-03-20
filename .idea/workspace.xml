@@ -4,23 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(adapter): unify platform adapter management and enhance event processing">
-      <change beforePath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/testhelpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/testhelpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/testhelpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/testhelpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/benchmark/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/benchmark/helpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/chaos/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/chaos/helpers_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/helpers_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(tests): add Attachments method to event test structs for consistency">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -233,7 +218,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: update version to 1.0.0 and adjust related documentation for initial release" />
     <MESSAGE value="feat: enhance documentation and improve error handling in various components" />
     <MESSAGE value="feat: add channel and guild event types to event.go for enhanced functionality" />
     <MESSAGE value="feat(platform): refine multi-platform adapter implementation and enhance documentation" />
@@ -258,7 +242,8 @@
     <MESSAGE value="refactor(dlq): enhance type safety and unify dead letter queue item handling" />
     <MESSAGE value="refactor(adapter): unify sender implementation and improve platform abstraction" />
     <MESSAGE value="refactor(adapter): unify platform adapter management and enhance event processing" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(adapter): unify platform adapter management and enhance event processing" />
+    <MESSAGE value="chore(tests): add Attachments method to event test structs for consistency" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore(tests): add Attachments method to event test structs for consistency" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

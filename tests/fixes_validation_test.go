@@ -19,15 +19,16 @@ import (
 // fixtureEvent 是 platform.Event 的最小测试桩，带有可配置的 ID。
 type fixtureEvent struct{ id string }
 
-func (e *fixtureEvent) Platform() string          { return "test" }
-func (e *fixtureEvent) Kind() platform.EventKind  { return platform.EventKindPrivateMessage }
-func (e *fixtureEvent) RawType() string           { return "TEST_EVENT" }
-func (e *fixtureEvent) Content() string           { return "" }
-func (e *fixtureEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{} }
-func (e *fixtureEvent) Sender() platform.UserInfo { return platform.UserInfo{} }
-func (e *fixtureEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *fixtureEvent) ID() string                { return e.id }
-func (e *fixtureEvent) RawPayload() any           { return nil }
+func (e *fixtureEvent) Platform() string                          { return "test" }
+func (e *fixtureEvent) Kind() platform.EventKind                  { return platform.EventKindPrivateMessage }
+func (e *fixtureEvent) RawType() string                           { return "TEST_EVENT" }
+func (e *fixtureEvent) Content() string                           { return "" }
+func (e *fixtureEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{} }
+func (e *fixtureEvent) Sender() platform.UserInfo                 { return platform.UserInfo{} }
+func (e *fixtureEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *fixtureEvent) ID() string                                { return e.id }
+func (e *fixtureEvent) RawPayload() any                           { return nil }
+func (e *fixtureEvent) Attachments() []platform.InboundAttachment { return nil }
 
 func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 

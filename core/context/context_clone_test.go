@@ -18,15 +18,16 @@ type cloneTestEvent struct {
 	kind       platform.EventKind
 }
 
-func (e *cloneTestEvent) Platform() string          { return e.platformID }
-func (e *cloneTestEvent) Kind() platform.EventKind  { return e.kind }
-func (e *cloneTestEvent) RawType() string           { return "test.event" }
-func (e *cloneTestEvent) Content() string           { return e.content }
-func (e *cloneTestEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "chat-001"} }
-func (e *cloneTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "user-001"} }
-func (e *cloneTestEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *cloneTestEvent) ID() string                { return "" }
-func (e *cloneTestEvent) RawPayload() any           { return nil }
+func (e *cloneTestEvent) Platform() string                          { return e.platformID }
+func (e *cloneTestEvent) Kind() platform.EventKind                  { return e.kind }
+func (e *cloneTestEvent) RawType() string                           { return "test.event" }
+func (e *cloneTestEvent) Content() string                           { return e.content }
+func (e *cloneTestEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: "chat-001"} }
+func (e *cloneTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "user-001"} }
+func (e *cloneTestEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *cloneTestEvent) ID() string                                { return "" }
+func (e *cloneTestEvent) RawPayload() any                           { return nil }
+func (e *cloneTestEvent) Attachments() []platform.InboundAttachment { return nil }
 
 // --- existing tests (unchanged) ---
 

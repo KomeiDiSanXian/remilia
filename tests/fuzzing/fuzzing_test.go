@@ -19,15 +19,16 @@ type fuzzEvent struct {
 	kind    platform.EventKind
 }
 
-func (e *fuzzEvent) Platform() string          { return "fuzz" }
-func (e *fuzzEvent) Kind() platform.EventKind  { return e.kind }
-func (e *fuzzEvent) RawType() string           { return string(e.kind) }
-func (e *fuzzEvent) Content() string           { return e.content }
-func (e *fuzzEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: "fuzz-chat"} }
-func (e *fuzzEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "fuzz-sender"} }
-func (e *fuzzEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *fuzzEvent) ID() string                { return "fuzz-id" }
-func (e *fuzzEvent) RawPayload() any           { return nil }
+func (e *fuzzEvent) Platform() string                          { return "fuzz" }
+func (e *fuzzEvent) Kind() platform.EventKind                  { return e.kind }
+func (e *fuzzEvent) RawType() string                           { return string(e.kind) }
+func (e *fuzzEvent) Content() string                           { return e.content }
+func (e *fuzzEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: "fuzz-chat"} }
+func (e *fuzzEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "fuzz-sender"} }
+func (e *fuzzEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *fuzzEvent) ID() string                                { return "fuzz-id" }
+func (e *fuzzEvent) RawPayload() any                           { return nil }
+func (e *fuzzEvent) Attachments() []platform.InboundAttachment { return nil }
 
 // newFuzzContext creates a platform context with the given content.
 func newFuzzContext(content string) *rcontext.Context {

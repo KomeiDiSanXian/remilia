@@ -21,15 +21,16 @@ func makePlainCtx() *context.Context {
 // mockPlainEvent is a minimal platform.Event for i18n tests.
 type mockPlainEvent struct{}
 
-func (e *mockPlainEvent) Platform() string          { return "test" }
-func (e *mockPlainEvent) Kind() platform.EventKind  { return platform.EventKindPrivateMessage }
-func (e *mockPlainEvent) RawType() string           { return "PRIVATE_MESSAGE" }
-func (e *mockPlainEvent) Content() string           { return "" }
-func (e *mockPlainEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{} }
-func (e *mockPlainEvent) Sender() platform.UserInfo { return platform.UserInfo{} }
-func (e *mockPlainEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *mockPlainEvent) ID() string                { return "" }
-func (e *mockPlainEvent) RawPayload() any           { return nil }
+func (e *mockPlainEvent) Platform() string                          { return "test" }
+func (e *mockPlainEvent) Kind() platform.EventKind                  { return platform.EventKindPrivateMessage }
+func (e *mockPlainEvent) RawType() string                           { return "PRIVATE_MESSAGE" }
+func (e *mockPlainEvent) Content() string                           { return "" }
+func (e *mockPlainEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{} }
+func (e *mockPlainEvent) Sender() platform.UserInfo                 { return platform.UserInfo{} }
+func (e *mockPlainEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *mockPlainEvent) ID() string                                { return "" }
+func (e *mockPlainEvent) RawPayload() any                           { return nil }
+func (e *mockPlainEvent) Attachments() []platform.InboundAttachment { return nil }
 func TestI18n_LoadBytes_T(t *testing.T) {
 	p := newI18nPlugin(i18n.Config{DefaultLocale: "zh-CN"})
 	if err := p.LoadBytes("zh-CN", []byte("help: \"帮助菜单\"")); err != nil {
