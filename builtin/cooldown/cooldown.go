@@ -17,7 +17,7 @@
 //	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
 //	if !cd.Allow(userID, "sign", 24*time.Hour) {
 //	    remaining := cd.Remaining(userID, "sign", 24*time.Hour)
-//	    return ctx.Reply(dto.TextMsg(fmt.Sprintf("冷却中，还需等待 %s", remaining.Round(time.Second))))
+//	    return ctx.Reply(platform.TextMessage(fmt.Sprintf("冷却中，还需等待 %s", remaining.Round(time.Second))))
 //	}
 package cooldown
 

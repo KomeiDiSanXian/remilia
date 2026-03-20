@@ -16,7 +16,7 @@
 //	}))
 //	// Handler 中：
 //	spam := ctx.MustGet("antispam").(*antispam.Plugin)
-//	engine.OnGroupAt(spam.Rule()).Handle(myHandler)
+//	engine.On(string(platform.EventKindGroupMessage), spam.Rule()).Handle(myHandler)
 package antispam
 
 import (

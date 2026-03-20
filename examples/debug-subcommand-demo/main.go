@@ -12,6 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
+	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -120,9 +121,9 @@ func main() {
 
 	// 创建 Bot
 	logger.Info("🤖 创建 Bot...")
+	adapter := qq.NewWebhookServerAdapter(":9000", botInfo)
 	bot, err := remilia.NewBotBuilder().
-		WithBotInfo(botInfo).
-		WithWebhook(":9000").
+		WithPlatformAdapter(adapter).
 		WithEngine(eng).
 		Build()
 	if err != nil {

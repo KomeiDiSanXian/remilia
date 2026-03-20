@@ -13,7 +13,7 @@
 //
 //	pm.RegisterV2(acl.New())
 //	aclPlugin := ctx.MustGet("acl").(*acl.Plugin)
-//	engine.OnGroupAt(aclPlugin.Rule()).Handle(handler)
+//	engine.On(string(platform.EventKindGroupMessage), aclPlugin.Rule()).Handle(handler)
 package acl
 
 import (

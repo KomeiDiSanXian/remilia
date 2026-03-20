@@ -56,7 +56,7 @@ type Event interface {
 ```go
 type PlatformAdapter interface {
     Platform() string
-    Start(ctx context.Context, handler func(Event)) error
+    StartPlatform(ctx context.Context, handler func(Event)) error
     Stop(ctx context.Context) error
     Sender() Sender
 }
@@ -115,18 +115,16 @@ registry.Register(qqAdapter)
 
 // 构建 Bot
 bot, err := remilia.NewBotBuilder().
-    WithBotInfo(botInfo).
     WithPlatformRegistry(registry).
     Build()
 ```
 
-### 旧方式（零修改，继续兼容）
+### 单平台（QQ Webhook，推荐入门用法）
 
 ```go
-// 现有代码无需任何修改
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 bot, err := remilia.NewBotBuilder().
-    WithBotInfo(botInfo).
-    WithWebhook(":8080").
+    WithPlatformAdapter(adapter).
     Build()
 ```
 
@@ -158,7 +156,7 @@ type Adapter struct {
 
 func (a *Adapter) Platform() string { return "telegram" }
 
-func (a *Adapter) Start(ctx context.Context, handler func(platform.Event)) error {
+func (a *Adapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
     updates := a.bot.GetUpdatesChan(config)
     for {
         select {
@@ -216,7 +214,7 @@ func (a *Adapter) Start(ctx context.Context, handler func(platform.Event)) error
 平台适配器事件循环
   │
   ▼
-platform.PlatformAdapter.Start()
+platform.PlatformAdapter.StartPlatform()
   │  handler(platform.Event)
   ▼
 Bot.handlePlatformEvent(event)

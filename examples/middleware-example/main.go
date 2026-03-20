@@ -11,6 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
@@ -41,9 +42,9 @@ func main() {
 	}
 
 	// 创建 Bot
+	adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 	bot, err := remilia.NewBotBuilder().
-		WithBotInfo(botInfo).
-		WithWebhook(":8080").
+		WithPlatformAdapter(adapter).
 		WithName("middleware-example").
 		Build()
 	if err != nil {

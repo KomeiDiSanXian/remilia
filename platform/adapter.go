@@ -2,6 +2,7 @@ package platform
 
 import (
 	stdctx "context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -117,19 +118,28 @@ func (r *Registry) All() []PlatformAdapter {
 //
 // 每个适配器在独立 goroutine 中运行，ctx 取消时所有适配器退出。
 // handler 会收到来自所有平台的事件。
+// 若有适配器以非 context 取消的错误退出，StartAll 将返回该错误。
 func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	adapters := r.All()
 	if len(adapters) == 0 {
 		return fmt.Errorf("platform registry: no adapters registered")
 	}
 
-	var wg sync.WaitGroup
+	var (
+		mu   sync.Mutex
+		errs []error
+		wg   sync.WaitGroup
+	)
+
 	for _, a := range adapters {
 		wg.Go(func() {
 			if err := a.StartPlatform(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Error("[Registry] Platform adapter exited with error")
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("platform %s: %w", a.Platform(), err))
+				mu.Unlock()
 			}
 		})
 	}
@@ -139,6 +149,13 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	// 等待所有平台适配器 goroutine 完全退出后再返回，防止 goroutine 泄漏。
 	// 各适配器的 StartPlatform 应感知 ctx.Done() 并自行退出。
 	wg.Wait()
+
+	// 返回第一个非 context 取消/超时的错误
+	for _, err := range errs {
+		if !errors.Is(err, stdctx.Canceled) && !errors.Is(err, stdctx.DeadlineExceeded) {
+			return err
+		}
+	}
 	return nil
 }
 

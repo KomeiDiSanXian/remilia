@@ -16,8 +16,6 @@ import (
 //   - Set / Get / Delete / All
 //   - MustGetString / MustGetInt / GetString / GetInt / GetInt64 / GetBool / GetFloat64
 
-// ErrNilAPI 表示 OpenAPI 未初始化
-var ErrNilAPI = errors.New("openAPI is nil")
 
 // ErrNilContext 表示 Context 接收者为 nil
 var ErrNilContext = errors.New("context is nil")

@@ -12,13 +12,13 @@
 //	pm.RegisterV2(keywordfilter.New(keywordfilter.Config{
 //	    Keywords: []string{"违禁词1", "违禁词2"},
 //	    OnMatch: func(ctx *eventctx.Context, matched string) error {
-//	        return ctx.Reply(dto.TextMsg("消息含有违禁内容，已拦截"))
+//	        return ctx.Reply(platform.TextMessage("消息含有违禁内容，已拦截"))
 //	    },
 //	}))
 //
 //	// 作为规则使用
 //	kf := ctx.MustGet("keywordfilter").(*keywordfilter.Plugin)
-//	engine.OnGroupAt(kf.Rule()).Handle(handler)
+//	engine.On(string(platform.EventKindGroupMessage), kf.Rule()).Handle(handler)
 package keywordfilter
 
 import (

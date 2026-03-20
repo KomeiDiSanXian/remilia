@@ -30,6 +30,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -45,11 +46,11 @@ func main() {
 		log.Fatalf("init logger: %v", err)
 	}
 	bot, err := remilia.NewBotBuilder().
-		WithBotInfo(&dto.BotInfo{
+		WithPlatformAdapter(qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{
 			QQNum: cfg.Bot.BotID, AppID: cfg.Bot.AppID,
 			Token: cfg.Bot.Token, AppSecret: cfg.Bot.Secret,
-		}).
-		WithWebhook(":8080").WithName("showcase-bot").WithVersion("1.0.0").
+		})).
+		WithName("showcase-bot").WithVersion("1.0.0").
 		Build()
 	if err != nil {
 		log.Fatalf("build bot: %v", err)
