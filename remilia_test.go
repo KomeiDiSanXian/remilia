@@ -10,8 +10,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,7 +21,7 @@ type mockAdapter struct {
 	started          bool
 	shutdown         bool
 	goroutineStarted bool
-	events           chan *dto.Payload
+	events           chan platform.Event
 	mu               sync.Mutex
 
 	ctx     context.Context
@@ -34,7 +32,7 @@ type mockAdapter struct {
 
 func newMockAdapter() *mockAdapter {
 	return &mockAdapter{
-		events: make(chan *dto.Payload, 10),
+		events: make(chan platform.Event, 10),
 		done:   make(chan struct{}),
 	}
 }
@@ -62,12 +60,12 @@ func (m *mockAdapter) StartPlatform(ctx context.Context, handler func(platform.E
 			select {
 			case <-m.ctx.Done():
 				return
-			case payload, ok := <-m.events:
+			case event, ok := <-m.events:
 				if !ok {
 					return
 				}
-				if payload != nil && handler != nil {
-					handler(qqplatform.NewEvent(payload))
+				if event != nil && handler != nil {
+					handler(event)
 				}
 			}
 		}
@@ -76,7 +74,7 @@ func (m *mockAdapter) StartPlatform(ctx context.Context, handler func(platform.E
 	return nil
 }
 
-func (m *mockAdapter) SendEvent(event *dto.Payload) {
+func (m *mockAdapter) SendEvent(event platform.Event) {
 	m.mu.Lock()
 	started := m.started
 	shutdown := m.shutdown
@@ -358,7 +356,7 @@ func TestBot_ConvenienceMethods(t *testing.T) {
 	})
 
 	t.Run("Engine_On", func(t *testing.T) {
-		matcher := bot.Engine().On(dto.C2CMessageCreate)
+		matcher := bot.Engine().On("C2C_MESSAGE_CREATE")
 		assert.NotNil(t, matcher)
 	})
 }

@@ -175,10 +175,18 @@ func (tb *Bot) SendC2C(userOpenID, content string) {
 	tb.inject(dto.C2CMessageCreate, event)
 }
 
-// Inject injects an arbitrary *dto.Payload via the platform-agnostic engine path.
-func (tb *Bot) Inject(payload *dto.Payload) {
-	event := qqplatform.NewEvent(payload)
+// InjectEvent injects any platform.Event directly via the platform-agnostic engine path.
+// This is the preferred injection method for platform-agnostic tests.
+// For QQ-specific raw payload injection, use Inject instead.
+func (tb *Bot) InjectEvent(event platform.Event) {
 	tb.Engine().ProcessPlatformEvent(event, tb.SenderAPI())
+}
+
+// Inject injects an arbitrary *dto.Payload as a QQ platform event.
+// It is a thin QQ-specific convenience wrapper around InjectEvent.
+// For platform-agnostic injection, prefer InjectEvent.
+func (tb *Bot) Inject(payload *dto.Payload) {
+	tb.InjectEvent(qqplatform.NewEvent(payload))
 }
 
 func (tb *Bot) inject(eventType dto.EventType, event any) {

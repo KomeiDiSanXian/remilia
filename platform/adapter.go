@@ -144,8 +144,6 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 		})
 	}
 
-	// 等待 ctx 取消
-	<-ctx.Done()
 	// 等待所有平台适配器 goroutine 完全退出后再返回，防止 goroutine 泄漏。
 	// 各适配器的 StartPlatform 应感知 ctx.Done() 并自行退出。
 	wg.Wait()
@@ -160,11 +158,6 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 }
 
 // StopAll 依次停止所有已注册平台适配器，收集并合并错误。
-//
-// 注意：当通过 [Bot.UsePlatformRegistry] 或 [BotBuilder.WithPlatformRegistry] 将
-// Registry 注入到 Bot 时，Bot 的 lifecycle manager 会直接管理各适配器的生命周期，
-// 不会调用此方法。StopAll 仅供直接持有 Registry 并自行管理适配器生命周期的场景使用
-// （例如自定义框架集成或独立测试）。
 func (r *Registry) StopAll(ctx stdctx.Context) error {
 	adapters := r.All()
 	var errs []error

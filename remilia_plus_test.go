@@ -10,7 +10,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,10 +37,7 @@ func TestBot_HandleEvent(t *testing.T) {
 	// Give the bot time to fully start
 	time.Sleep(50 * time.Millisecond)
 
-	testEvent := &dto.Payload{
-		ID:   "test-event-1",
-		Type: dto.C2CMessageCreate,
-	}
+	testEvent := testutil.MakePlatformC2CEvent("test-user-1", "hello")
 
 	adapter.SendEvent(testEvent)
 
