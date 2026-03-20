@@ -35,17 +35,11 @@ type Adapter struct{}
 func NewAdapter() *Adapter { return &Adapter{} }
 
 func (a *Adapter) Platform() string                    { return PlatformID }
-func (a *Adapter) Sender() platform.Sender             { return &noopSender{} }
+func (a *Adapter) Sender() platform.Sender             { return &platform.NoopSender{} }
 func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
 func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
 
-// StartPlatform implements platform.Adapter (not yet implemented).
+// Start implements platform.Adapter (not yet implemented).
 func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {
 	return fmt.Errorf("discord adapter: not yet implemented")
-}
-
-type noopSender struct{}
-
-func (s *noopSender) Send(_ stdctx.Context, _ platform.OutboundMessage) error {
-	return fmt.Errorf("discord sender: not yet implemented")
 }

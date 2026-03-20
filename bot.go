@@ -302,6 +302,8 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		sender = adp.Sender()
 	}
 	if sender == nil {
+		logger.WithField("platform", event.Platform()).Warn(
+			"[Bot] No sender found for platform, all ctx.Reply() calls will be silently dropped")
 		sender = &platform.NoopSender{}
 	}
 

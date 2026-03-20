@@ -3,6 +3,7 @@ package qq
 import (
 	stdctx "context"
 	"fmt"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -24,6 +25,11 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 //
 // 目标会话信息从 ctx 的 ChatInfo 读取（由 Reply 或 platform.WithChatInfo 注入）。
 // 若 ctx 未携带 ChatInfo，返回 errutil.ErrNoChatInfo。
+//
+// 路由规则：
+//   - ChatInfo.ParentID 非空 → 频道消息（guild/channel），当前暂不支持，返回错误
+//   - ChatInfo.IsGroup == true  → 群聊（GroupChat API）
+//   - ChatInfo.IsGroup == false → 单聊（SingleChat API）
 func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
 	if s.api == nil {
 		return fmt.Errorf("qq sender: openAPI client is nil")
@@ -35,6 +41,11 @@ func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error 
 	}
 
 	dtoMsg := buildDTOMessage(msg)
+
+	// 频道消息（EventKindGuildMessage）需要独立的 Guild Channel API，暂不支持
+	if chat.ParentID != "" {
+		return fmt.Errorf("qq sender: guild channel message sending is not yet supported (guild_id=%s, channel_id=%s)", chat.ParentID, chat.ID)
+	}
 
 	if chat.IsGroup {
 		_, err := s.api.GroupChat(chat.ID, dtoMsg)
@@ -55,6 +66,19 @@ func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 	} else {
 		dtoMsg.Type = dto.TextMessage
 		dtoMsg.Content = msg.Text
+	}
+
+	// 处理 Mentions（@ 用户）：将用户 ID 列表转换为 QQ AT 标签，前置于正文
+	if len(msg.Mentions) > 0 {
+		var sb strings.Builder
+		for _, uid := range msg.Mentions {
+			sb.WriteString(dto.At(uid))
+		}
+		if dtoMsg.Type == dto.MarkdownMessage && dtoMsg.Markdown != nil {
+			dtoMsg.Markdown.Content = sb.String() + dtoMsg.Markdown.Content
+		} else {
+			dtoMsg.Content = sb.String() + dtoMsg.Content
+		}
 	}
 
 	// 回复消息 ID

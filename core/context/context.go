@@ -117,7 +117,12 @@ func (ctx *Context) Clone() *Context {
 
 	if ex := ctx.Ext(); ex != nil {
 		dst := newCtx.Ext()
+		// *extensionState 使用下方的深拷贝路径，此处跳过避免无效的浅拷贝写入
+		extStateType := extTypeOf[*extensionState]()
 		for k, v := range ex.Snapshot() {
+			if k == extStateType {
+				continue
+			}
 			dst.Set(k, v)
 		}
 	}

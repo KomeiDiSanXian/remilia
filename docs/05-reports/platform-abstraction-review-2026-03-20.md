@@ -122,20 +122,9 @@ func (a *Adapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
 ---
 
-#### B5：`qqEvent.Content()` 未过滤 @ 机器人的标签前缀
+#### B5：~~`qqEvent.Content()` 未过滤 @ 机器人的标签前缀~~（已确认：不存在此 Bug）
 
-**文件**：`platform/qq/event.go`
-
-QQ Bot 群消息的 `content` 字段通常以 `<@!botid>` 或 `<qqbot-at-user id="xxx" />` 开头。`populateGroupAt` 直接将原始 content 赋值，导致 `OnCommand("/ping")` 等规则无法匹配（因为内容以标签而非 "/" 开头）。
-
-```go
-// 修复：在 populateGroupAt 中剥离 @ 机器人前缀
-func stripBotMention(content string) string {
-    // 去除 <@!xxx> 或 <qqbot-at-user id="xxx" /> 前缀
-    ...
-    return strings.TrimSpace(content)
-}
-```
+QQ 官方下发 Webhook 事件时会在服务端自动剥离 @ 机器人的前缀，`content` 字段直接为纯净的用户输入内容，无需客户端过滤。**此条目已关闭。**
 
 ---
 
@@ -472,27 +461,27 @@ for _, a := range adapters {
 
 ## 八、修复优先级汇总
 
-| 编号 | 类别 | 优先级 | 预计工作量 |
-|------|------|--------|------------|
-| B1 | `GetUserID()` 返回空字符串 | 🔴 P0 | 小（改 1 个方法）|
-| B2 | QQ Sender 未处理 Mentions | 🔴 P0 | 小 |
-| B3 | QQ Sender 无 Guild 发送路径 | 🔴 P0 | 中 |
-| F1 | `platform.Event` 缺 `Attachments()` | 🔴 P0 | 中（接口+QQ实现） |
-| F2 | `ctx.GetPlatformCapabilities()` 未实现 | 🟠 P1 | 小 |
-| B4 | discord/telegram 重复 noopSender | 🟠 P1 | 小 |
-| B5 | QQ content AT 标签未过滤 | 🟠 P1 | 小 |
-| F3 | QQ Sender 不支持附件发送 | 🟠 P1 | 大 |
-| F4 | QQ Sender 不支持按钮 | 🟠 P1 | 大 |
-| F6 | QQ 频道消息收发不完整 | 🟠 P1 | 大 |
-| D1 | OpenAPI 返回 gjson.Result | 🟡 P2 | 中 |
-| D2 | Extra magic string 参数 | 🟡 P2 | 中 |
-| F5 | Registry 缺 Remove 方法 | 🟡 P2 | 小 |
-| B6 | Clone 双重拷贝 | 🟡 P2 | 小 |
-| B7 | NoopSender fallback 无日志 | 🟡 P2 | 小 |
-| D3 | 统一为 registry-only | 🟡 P2 | 中 |
-| P1-P5 | 性能优化 | 🟢 P3 | 小-中 |
-| R1-R6 | 删除兼容代码 | 🟢 P3 | 小 |
-| D4 | WebhookServerAdapter 职责拆分 | 🟢 P3 | 大 |
+| 编号 | 类别 | 优先级 | 预计工作量 | 状态 |
+|------|------|--------|------------|------|
+| B1 | `GetUserID()` 返回空字符串 | 🔴 P0 | 小（改 1 个方法）| ✅ 已修复 |
+| B2 | QQ Sender 未处理 Mentions | 🔴 P0 | 小 | ✅ 已修复 |
+| B3 | QQ Sender 无 Guild 发送路径 | 🔴 P0 | 中 | ✅ 已修复（返回明确错误） |
+| F1 | `platform.Event` 缺 `Attachments()` | 🔴 P0 | 中（接口+QQ实现） | ⏳ 待实现 |
+| F2 | `ctx.GetPlatformCapabilities()` 未实现 | 🟠 P1 | 小 | ⏳ 待实现 |
+| B4 | discord/telegram 重复 noopSender | 🟠 P1 | 小 | ✅ 已修复 |
+| B5 | QQ content AT 标签未过滤 | 🟠 P1 | — | ❌ 不存在此 Bug（官方已过滤） |
+| F3 | QQ Sender 不支持附件发送 | 🟠 P1 | 大 | ⏳ 待实现 |
+| F4 | QQ Sender 不支持按钮 | 🟠 P1 | 大 | ⏳ 待实现 |
+| F6 | QQ 频道消息收发不完整 | 🟠 P1 | 大 | ⏳ 待实现 |
+| D1 | OpenAPI 返回 gjson.Result | 🟡 P2 | 中 | ⏳ 待处理 |
+| D2 | Extra magic string 参数 | 🟡 P2 | 中 | ⏳ 待处理 |
+| F5 | Registry 缺 Remove 方法 | 🟡 P2 | 小 | ⏳ 待实现 |
+| B6 | Clone 双重拷贝 | 🟡 P2 | 小 | ✅ 已修复 |
+| B7 | NoopSender fallback 无日志 | 🟡 P2 | 小 | ✅ 已修复 |
+| D3 | 统一为 registry-only | 🟡 P2 | 中 | ⏳ 待处理 |
+| P1-P5 | 性能优化 | 🟢 P3 | 小-中 | ⏳ 待处理 |
+| R1-R6 | 删除兼容代码 | 🟢 P3 | 小 | ⏳ 待处理 |
+| D4 | WebhookServerAdapter 职责拆分 | 🟢 P3 | 大 | ⏳ 待处理 |
 
 ---
 

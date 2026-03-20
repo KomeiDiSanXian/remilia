@@ -190,8 +190,21 @@ func (ctx *Context) GetFloat64(key string) float64 {
 	return 0.0
 }
 
-// GetUserID 获取用户 ID
+// GetUserID 获取用户 ID。
+//
+// 优先从当前绑定的 platform.Event（平台路径）中读取发送者 ID，
+// 若不存在则 fallback 到字符串状态 store（兼容 ctx.SetUserID() 手动设置的场景）。
 func (ctx *Context) GetUserID() string {
+	if ctx == nil {
+		return ""
+	}
+	// 优先从平台事件获取（平台路径，无需手动调用 SetUserID）
+	if ctx.platformEvent != nil {
+		if id := ctx.platformEvent.Sender().ID; id != "" {
+			return id
+		}
+	}
+	// fallback：兼容手动 ctx.SetUserID() 的场景
 	return ctx.GetString("user_id")
 }
 
