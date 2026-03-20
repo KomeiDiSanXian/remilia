@@ -48,10 +48,19 @@ func WithDebug(debug bool) Option {
 	}
 }
 
-// WithAdapter 设置自定义适配器
+// WithAdapter 将平台适配器注册到 Bot 的内部 Registry。
+//
+// D3：Bot 不再有独立的 adapter 字段，所有适配器统一通过 platformRegistry 管理。
+// 若 Bot 尚未初始化 Registry，此方法会自动创建。
 func WithAdapter(adapter platform.Adapter) Option {
 	return func(b *Bot) {
-		b.adapter = adapter
+		if adapter == nil {
+			return
+		}
+		if b.platformRegistry == nil {
+			b.platformRegistry = platform.NewRegistry()
+		}
+		b.platformRegistry.Register(adapter)
 	}
 }
 

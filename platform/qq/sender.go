@@ -9,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/tidwall/gjson"
 )
 
 // qqSender 将 platform.Sender 接口桥接到 openapi.OpenAPI
@@ -23,13 +24,13 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 
 // Send 将 OutboundMessage 转换并发送到 QQ 平台。
 //
+// 路由规则：
+//   - ChatInfo.ParentID 非空 → 频道消息，暂不支持，返回明确错误
+//   - Attachments 非空（取第一个）→ 两步富媒体发送（上传后发送）
+//   - 其余 → Text / Markdown 文本消息
+//
 // 目标会话信息从 ctx 的 ChatInfo 读取（由 Reply 或 platform.WithChatInfo 注入）。
 // 若 ctx 未携带 ChatInfo，返回 errutil.ErrNoChatInfo。
-//
-// 路由规则：
-//   - ChatInfo.ParentID 非空 → 频道消息（guild/channel），当前暂不支持，返回错误
-//   - ChatInfo.IsGroup == true  → 群聊（GroupChat API）
-//   - ChatInfo.IsGroup == false → 单聊（SingleChat API）
 func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
 	if s.api == nil {
 		return fmt.Errorf("qq sender: openAPI client is nil")
@@ -40,13 +41,17 @@ func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error 
 		return errutil.ErrNoChatInfo
 	}
 
-	dtoMsg := buildDTOMessage(msg)
-
-	// 频道消息（EventKindGuildMessage）需要独立的 Guild Channel API，暂不支持
+	// 频道消息（ChatInfo.ParentID 非空）需要独立的 Guild Channel API，暂不支持
 	if chat.ParentID != "" {
 		return fmt.Errorf("qq sender: guild channel message sending is not yet supported (guild_id=%s, channel_id=%s)", chat.ParentID, chat.ID)
 	}
 
+	// 富媒体优先（QQ 不支持多附件，取第一个）
+	if len(msg.Attachments) > 0 {
+		return s.sendAttachment(ctx, chat, msg, msg.Attachments[0])
+	}
+
+	dtoMsg := buildDTOMessage(msg)
 	if chat.IsGroup {
 		_, err := s.api.GroupChat(chat.ID, dtoMsg)
 		return err
@@ -55,7 +60,71 @@ func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error 
 	return err
 }
 
-// buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message
+// sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
+func (s *qqSender) sendAttachment(_ stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) error {
+	if att.URL == "" && len(att.Data) == 0 {
+		return fmt.Errorf("qq sender: attachment has neither URL nor data")
+	}
+	if len(att.Data) > 0 {
+		return fmt.Errorf("qq sender: binary attachment upload is not yet supported; use URL attachment instead")
+	}
+
+	media := &dto.Media{
+		Type:       attachmentKindToFileType(att.Kind),
+		URL:        att.URL,
+		ActiveSend: false,
+	}
+
+	var (
+		uploadResult gjson.Result
+		err          error
+	)
+	if chat.IsGroup {
+		uploadResult, err = s.api.GroupRichMedia(chat.ID, media)
+	} else {
+		uploadResult, err = s.api.SingleRichMedia(chat.ID, media)
+	}
+	if err != nil {
+		return fmt.Errorf("qq sender: media upload failed: %w", err)
+	}
+
+	fileInfo := uploadResult.Get("file_info").String()
+	if fileInfo == "" {
+		return fmt.Errorf("qq sender: media upload returned empty file_info (response: %s)", uploadResult.Raw)
+	}
+
+	// 构建携带 file_info 的 MediaMessage
+	dtoMsg := buildDTOMessage(msg)
+	dtoMsg.Type = dto.MediaMessage
+	dtoMsg.Media = &dto.MediaResponse{FileInfo: fileInfo}
+	dtoMsg.Content = "" // 媒体消息不携带文本内容
+
+	if chat.IsGroup {
+		_, err = s.api.GroupChat(chat.ID, dtoMsg)
+	} else {
+		_, err = s.api.SingleChat(chat.ID, dtoMsg)
+	}
+	return err
+}
+
+// attachmentKindToFileType 将平台无关的附件类型映射到 QQ dto.FileType
+func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
+	switch kind {
+	case platform.AttachmentKindImage:
+		return dto.ImageFile
+	case platform.AttachmentKindVideo:
+		return dto.VideoFile
+	case platform.AttachmentKindAudio:
+		return dto.AudioFile
+	default:
+		return dto.File
+	}
+}
+
+// buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message。
+//
+// D2：QQ 专属扩展参数（MsgSeq/EventID）通过 qq.MessageExtra 类型安全传递，
+// 不再依赖 magic string key（"msg_seq"/"event_id"）。
 func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 	dtoMsg := &dto.Message{}
 
@@ -86,16 +155,13 @@ func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 		dtoMsg.MessageID = dto.EventID(msg.ReplyToID)
 	}
 
-	// 扩展字段
-	if v, ok := msg.Extra["msg_seq"]; ok {
-		if seq, ok2 := v.(uint64); ok2 {
-			dtoMsg.MessageSeq = seq
-		}
+	// D2：从类型安全的 MessageExtra 中提取 QQ 专属参数
+	extra := extractExtra(msg)
+	if extra.MsgSeq != 0 {
+		dtoMsg.MessageSeq = extra.MsgSeq
 	}
-	if v, ok := msg.Extra["event_id"]; ok {
-		if eid, ok2 := v.(string); ok2 {
-			dtoMsg.EventID = dto.EventID(eid)
-		}
+	if extra.EventID != "" {
+		dtoMsg.EventID = dto.EventID(extra.EventID)
 	}
 
 	return dtoMsg

@@ -125,11 +125,10 @@ func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
 
 // Build 构建Bot实例。
 //
-// 需要至少一个事件来源：通过 [BotBuilder.WithPlatformAdapter] 设置单平台适配器，
-// 或通过 [BotBuilder.WithPlatformRegistry] 注册多平台适配器。
-// 两者均未设置时返回 [ErrAdapterRequired]。
+// D3：内部统一使用 registry 模式。若只设置了单个适配器（WithPlatformAdapter），
+// Build() 会自动将其注册到 Registry 中，两种使用方式完全透明。
 func (b *BotBuilder) Build() (*Bot, error) {
-	// 验证必需参数：需要至少一个事件来源（直接适配器或多平台注册表）
+	// 需要至少一个事件来源
 	if b.adapter == nil && b.platformRegistry == nil {
 		return nil, ErrAdapterRequired
 	}
@@ -138,7 +137,6 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		b.engine = engine.NewEngine()
 	}
 
-	// 若有 WithPlugins 描述符，确保 PluginManager 存在并批量注册
 	if len(b.pendingPlugins) > 0 {
 		if b.pluginManager == nil {
 			b.pluginManager = plugin.NewManager(b.engine)
@@ -148,15 +146,22 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		}
 	}
 
-	bot := NewBot(b.adapter, b.engine, b.options...)
+	// 将单适配器合并到 registry（D3：统一来源）
+	reg := b.platformRegistry
+	if b.adapter != nil {
+		if reg == nil {
+			reg = platform.NewRegistry()
+		}
+		reg.Register(b.adapter)
+	}
 
-	// 注入插件管理器（若已配置）
+	// NewBot 传 nil adapter，registry 已经包含所有适配器
+	bot := NewBot(nil, b.engine, b.options...)
+	if reg != nil {
+		bot.UsePlatformRegistry(reg)
+	}
 	if b.pluginManager != nil {
 		bot.UsePlugins(b.pluginManager)
-	}
-	// 注入多平台适配器注册表（若已配置）
-	if b.platformRegistry != nil {
-		bot.UsePlatformRegistry(b.platformRegistry)
 	}
 	return bot, nil
 }

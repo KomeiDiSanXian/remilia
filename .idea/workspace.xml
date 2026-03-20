@@ -4,14 +4,38 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(dlq): enhance type safety and unify dead letter queue item handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(adapter): unify sender implementation and improve platform abstraction">
+      <change afterPath="$PROJECT_DIR$/platform/qq/extra.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/i18n/i18n_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_clone_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_clone_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/testhelpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/testhelpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/testhelpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/testhelpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/benchmark/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/benchmark/helpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/chaos/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/chaos/helpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fuzzing/fuzzing_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration/helpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/helpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -224,7 +248,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
     <MESSAGE value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
     <MESSAGE value="feat: update version to 1.0.0 and adjust related documentation for initial release" />
     <MESSAGE value="feat: enhance documentation and improve error handling in various components" />
@@ -249,7 +272,8 @@
     <MESSAGE value="refactor(permission): update permission type references to core package" />
     <MESSAGE value="refactor(middleware): update Middleware type references to context package" />
     <MESSAGE value="refactor(dlq): enhance type safety and unify dead letter queue item handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(dlq): enhance type safety and unify dead letter queue item handling" />
+    <MESSAGE value="refactor(adapter): unify sender implementation and improve platform abstraction" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(adapter): unify sender implementation and improve platform abstraction" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

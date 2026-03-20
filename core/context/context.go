@@ -49,8 +49,9 @@ type Context struct {
 
 	// --- 平台无关字段（新路径）---
 	// 由 AcquireContextFromEvent 填充
-	platformEvent  platform.Event  // 平台无关事件抽象
-	platformSender platform.Sender // 平台无关消息发送器
+	platformEvent  platform.Event        // 平台无关事件抽象
+	platformSender platform.Sender       // 平台无关消息发送器
+	platformCaps   platform.Capabilities // 平台能力声明（由 Engine 注入）
 
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
@@ -59,6 +60,14 @@ type Context struct {
 	// --- hot-path field caches（通用）---
 	contentOnce sync.Once
 	content     string // cached GetMessageContent result
+}
+
+// SetPlatformCapabilities 设置平台能力（框架内部，由 Engine.ProcessPlatformEvent 注入）
+func (ctx *Context) SetPlatformCapabilities(caps platform.Capabilities) {
+	if ctx == nil {
+		return
+	}
+	ctx.platformCaps = caps
 }
 
 // Context 返回标准库 context.Context

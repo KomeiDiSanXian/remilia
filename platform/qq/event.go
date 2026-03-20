@@ -16,12 +16,13 @@ const PlatformID = "qq"
 
 // qqEvent 将 QQ 的 *dto.Payload 包装为 platform.Event
 type qqEvent struct {
-	payload   *dto.Payload
-	kind      platform.EventKind
-	sender    platform.UserInfo
-	chat      platform.ChatInfo
-	content   string
-	timestamp time.Time
+	payload     *dto.Payload
+	kind        platform.EventKind
+	sender      platform.UserInfo
+	chat        platform.ChatInfo
+	content     string
+	timestamp   time.Time
+	attachments []platform.InboundAttachment
 }
 
 // NewEvent 从 QQ payload 创建 platform.Event
@@ -81,6 +82,7 @@ func (e *qqEvent) populateC2C() {
 		"author.user_openid",
 		"author.id",
 		"timestamp",
+		"attachments",
 	)
 	e.content = results[0].String()
 	userOpenID := results[1].String()
@@ -97,6 +99,7 @@ func (e *qqEvent) populateC2C() {
 			e.timestamp = t
 		}
 	}
+	e.attachments = parseAttachments(results[4])
 }
 
 func (e *qqEvent) populateGroupAt() {
@@ -110,6 +113,7 @@ func (e *qqEvent) populateGroupAt() {
 		"group_openid",
 		"group_name",
 		"timestamp",
+		"attachments",
 	)
 	e.content = results[0].String()
 	memberOpenID := results[1].String()
@@ -119,7 +123,7 @@ func (e *qqEvent) populateGroupAt() {
 	}
 	e.chat = platform.ChatInfo{
 		ID:      results[3].String(),
-		Name:    results[4].String(), // 填充群名称（如 payload 中存在）
+		Name:    results[4].String(),
 		IsGroup: true,
 	}
 	if ts := results[5].String(); ts != "" {
@@ -127,6 +131,7 @@ func (e *qqEvent) populateGroupAt() {
 			e.timestamp = t
 		}
 	}
+	e.attachments = parseAttachments(results[6])
 }
 
 func (e *qqEvent) populateGuildMessage() {
@@ -141,6 +146,7 @@ func (e *qqEvent) populateGuildMessage() {
 		"guild_id",
 		"channel_name",
 		"timestamp",
+		"attachments",
 	)
 	e.content = results[0].String()
 	e.sender = platform.UserInfo{
@@ -155,7 +161,7 @@ func (e *qqEvent) populateGuildMessage() {
 	}
 	e.chat = platform.ChatInfo{
 		ID:       chatID,
-		ParentID: guildID, // 修复：保留 guild_id（Bug #2 修复）
+		ParentID: guildID,
 		Name:     results[5].String(),
 		IsGroup:  true,
 	}
@@ -164,6 +170,30 @@ func (e *qqEvent) populateGuildMessage() {
 			e.timestamp = t
 		}
 	}
+	e.attachments = parseAttachments(results[7])
+}
+
+// parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。
+func parseAttachments(r gjson.Result) []platform.InboundAttachment {
+	if !r.IsArray() || len(r.Raw) == 0 {
+		return nil
+	}
+	var out []platform.InboundAttachment
+	r.ForEach(func(_, v gjson.Result) bool {
+		att := platform.InboundAttachment{
+			URL:      v.Get("url").String(),
+			MimeType: v.Get("content_type").String(),
+			Name:     v.Get("filename").String(),
+			Size:     int(v.Get("size").Int()),
+			Width:    int(v.Get("width").Int()),
+			Height:   int(v.Get("height").Int()),
+		}
+		if att.URL != "" || att.Name != "" {
+			out = append(out, att)
+		}
+		return true
+	})
+	return out
 }
 
 func (e *qqEvent) populateNoticeGroup() {
@@ -203,8 +233,6 @@ func (e *qqEvent) populateNoticeUser() {
 	}
 }
 
-// --- platform.Event 接口实现 ---
-
 func (e *qqEvent) Platform() string { return PlatformID }
 func (e *qqEvent) ID() string {
 	if e.payload == nil {
@@ -219,8 +247,9 @@ func (e *qqEvent) RawType() string {
 	}
 	return e.payload.Type
 }
-func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
-func (e *qqEvent) Chat() platform.ChatInfo   { return e.chat }
-func (e *qqEvent) Content() string           { return e.content }
-func (e *qqEvent) Timestamp() time.Time      { return e.timestamp }
-func (e *qqEvent) RawPayload() any           { return e.payload }
+func (e *qqEvent) Sender() platform.UserInfo                 { return e.sender }
+func (e *qqEvent) Chat() platform.ChatInfo                   { return e.chat }
+func (e *qqEvent) Content() string                           { return e.content }
+func (e *qqEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *qqEvent) Timestamp() time.Time                      { return e.timestamp }
+func (e *qqEvent) RawPayload() any                           { return e.payload }

@@ -89,6 +89,24 @@ type ChatInfo struct {
 	IsGroup bool
 }
 
+// InboundAttachment 入站消息中携带的附件（平台无关抽象）。
+//
+// 各平台填充能力不同，无法提供的字段返回零值。
+type InboundAttachment struct {
+	// URL 附件远程 URL（平台托管；部分平台的 URL 有时效，勿长期持有）
+	URL string
+	// MimeType MIME 类型，如 "image/png"（平台不提供时为空字符串）
+	MimeType string
+	// Name 文件名（平台不提供时为空字符串）
+	Name string
+	// Size 文件大小（字节），平台不提供时为 0
+	Size int
+	// Width 图片/视频宽度（像素），非媒体类型或平台不提供时为 0
+	Width int
+	// Height 图片/视频高度（像素），非媒体类型或平台不提供时为 0
+	Height int
+}
+
 // Event 是平台无关的事件抽象接口。
 //
 // 各平台适配器将原始 payload 包装为 Event 实现，
@@ -111,6 +129,11 @@ type Event interface {
 
 	// Content 返回消息文本内容（纯文本，不含平台特定格式）
 	Content() string
+
+	// Attachments 返回消息中携带的附件列表。
+	//
+	// 平台不支持附件或消息无附件时返回 nil。
+	Attachments() []InboundAttachment
 
 	// Timestamp 返回事件时间戳（尽力而为，平台不提供时返回零值）
 	Timestamp() time.Time

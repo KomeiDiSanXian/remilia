@@ -195,6 +195,20 @@ func (r *Registry) Get(platform string) (Adapter, bool) {
 	return a, ok
 }
 
+// Remove 注销指定平台的适配器，返回 true 表示成功移除，false 表示不存在。
+//
+// 注意：仅从注册表中移除，不调用 Stop()；若适配器正在运行，
+// 调用方应先调用 adapter.Stop() 再调用 Remove。
+func (r *Registry) Remove(platform string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.adapters[platform]; !ok {
+		return false
+	}
+	delete(r.adapters, platform)
+	return true
+}
+
 // All 返回所有已注册适配器的快照（切片顺序不保证）
 func (r *Registry) All() []Adapter {
 	r.mu.RLock()

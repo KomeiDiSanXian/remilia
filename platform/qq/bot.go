@@ -1,9 +1,6 @@
 package qq
 
 // bot.go — QQ 平台专属的 Bot 便捷构造函数。
-//
-// NewBotWithDefault 原位于根包 factory.go，已迁移至此。
-// 根包 remilia 不应依赖任何具体平台（QQ/Discord 等），平台专属 API 放在对应的 platform/xxx 包中。
 
 import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"

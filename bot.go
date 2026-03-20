@@ -19,25 +19,22 @@ import (
 )
 
 const (
-	// DefaultShutdownTimeout is the default timeout for graceful shutdown
 	DefaultShutdownTimeout = 30 * time.Second
-	// DefaultStartTimeout is the default timeout for component OnStart phase
-	DefaultStartTimeout = 30 * time.Second
+	DefaultStartTimeout    = 30 * time.Second
 )
 
-// Bot 是对 Engine 的高级封装，提供完整的生命周期管理
+// Bot 是对 Engine 的高级封装，提供完整的生命周期管理。
+//
+// D3：Bot 内部统一使用 platformRegistry 作为唯一的平台适配器来源，
+// 不再维护单独的 adapter 字段，消除双路径冗余逻辑。
 type Bot struct {
-	engine        *engine.Engine
-	adapter       platform.Adapter
-	lifecycle     *lifecycle.Manager
-	health        *health.Check
-	config        *Config
-	pluginManager *plugin.Manager // 插件管理器（可选，通过 UsePlugins 注入）
+	engine           *engine.Engine
+	lifecycle        *lifecycle.Manager
+	health           *health.Check
+	config           *Config
+	pluginManager    *plugin.Manager
+	platformRegistry *platform.Registry // 唯一事件来源（单/多平台均通过此注册表管理）
 
-	// platformRegistry 多平台适配器注册表（可选）
-	platformRegistry *platform.Registry
-
-	// 根 Context：Bot 运行期间所有后台 goroutine 的上级 context
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 
@@ -55,35 +52,17 @@ type Config struct {
 	Debug   bool
 }
 
-// NewBot 创建新的 Bot 实例
+// NewBot 创建新的 Bot 实例。
 //
-// adapter 可以为 nil，当且仅当后续会通过 [Bot.UsePlatformRegistry] 注入多平台注册表。
-// 若 engine 为 nil，此函数会直接 panic。
-// 推荐使用 [BotBuilder.Build] 代替，它返回错误而非 panic，
-// 可由调用方优雅处理：
-//
-//	bot, err := remilia.NewBotBuilder().
-//	    WithAdapter(adapter).
-//	    WithEngine(engine).
-//	    Build()
-//
-// 仅使用多平台注册表时可省略 adapter：
-//
-//	bot, err := remilia.NewBotBuilder().
-//	    WithPlatformRegistry(registry).
-//	    Build()
+// adapter 可以为 nil（仅使用多平台注册表时），非 nil 时会自动包装进内部 Registry。
+// 推荐使用 BotBuilder.Build() 代替直接调用。
 func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
-	// adapter 允许为 nil（多平台注册表模式下不需要单一适配器）
-	if adapter == nil {
-		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
-	}
 	if e == nil {
 		logger.Panic("[Bot] engine cannot be nil")
 	}
 
 	b := &Bot{
-		engine:  e,
-		adapter: adapter,
+		engine: e,
 		config: &Config{
 			Name:    "remilia-bot",
 			Version: Version,
@@ -91,70 +70,41 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
 		},
 	}
 
-	// 应用选项
+	// 应用选项（可能设置 platformRegistry 或其他字段）
 	for _, opt := range opts {
 		opt(b)
 	}
 
-	// 初始化健康检查
-	b.health = health.NewCheck()
-
-	// 添加 Bot 自己的 checker
-	b.health.AddChecker(NewBotStatusChecker(b))
-
-	// 添加 Adapter checker
+	// 若提供了单个适配器，自动注册到 Registry
 	if adapter != nil {
+		b.health = health.NewCheck()
 		b.health.AddChecker(NewAdapterHealthChecker(adapter))
+		if b.platformRegistry == nil {
+			b.platformRegistry = platform.NewRegistry()
+		}
+		b.platformRegistry.Register(adapter)
+	} else {
+		b.health = health.NewCheck()
+		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
 	}
 
-	// 添加 engine checker
-	if e != nil {
-		b.health.AddChecker(health.NewEngineHealthChecker(e))
-	}
-
-	// 初始化 lifecycle 管理器并注册基础组件（adapter + engine）
+	b.health.AddChecker(NewBotStatusChecker(b))
+	b.health.AddChecker(health.NewEngineHealthChecker(e))
 	b.buildBaseLifecycle()
-
 	return b
 }
 
-// buildBaseLifecycle 创建全新的 lifecycle.Manager 并注册 adapter 与 engine 基础组件。
+// buildBaseLifecycle 创建 lifecycle.Manager 并注册 engine 基础组件。
 //
-// 在 NewBot 构造时以及每次 Start() 前均会调用，确保热重启（Stop → Start）时
-// lifecycle 状态从零开始，不存在重复注册的组件。
+// 平台适配器组件在 Start() 时从 platformRegistry 动态注册，支持热重启。
 func (b *Bot) buildBaseLifecycle() {
 	lm := lifecycle.NewManager()
-
-	// 主适配器（单平台模式）：仅在 adapter 非 nil 时注册
-	// 多平台注册表模式下 adapter 为 nil，各平台适配器在 Start() 时通过 platformRegistry 注册
-	if b.adapter != nil {
-		lm.Register(lifecycle.NewSimpleComponent(
-			"adapter",
-			nil, // onStart
-			func(ctx context.Context) error {
-				// onRun: adapter.Start 是阻塞的，适合在这里运行
-				return b.adapter.Start(ctx, b.handlePlatformEvent)
-			},
-			func(ctx context.Context) error {
-				// onStop
-				return b.adapter.Stop(ctx)
-			},
-		))
-	}
-
 	lm.Register(lifecycle.NewSimpleComponent(
 		"engine",
-		func(ctx context.Context) error {
-			// onStart: engine 初始化（如果需要）
-			return nil
-		},
-		nil, // onRun: engine 没有阻塞循环，使用默认行为（等待 ctx.Done）
-		func(ctx context.Context) error {
-			// onStop
-			return b.engine.Shutdown(ctx)
-		},
+		func(ctx context.Context) error { return nil },
+		nil,
+		func(ctx context.Context) error { return b.engine.Shutdown(ctx) },
 	))
-
 	b.lifecycle = lm
 }
 
@@ -178,17 +128,12 @@ func (b *Bot) Start() error {
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
 
-	// 创建根 context：Bot 运行期间所有后台 goroutine 的上级
-	// Stop() 时调用 rootCancel 统一取消所有依赖组件
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
-	// 重建 lifecycle 管理器：每次 Start() 均从零开始注册组件。
-	// 这确保热重启（Stop → Start）时不会重复注册 adapter/engine 及平台适配器组件。
+	// 每次 Start() 重建 lifecycle，确保热重启不会重复注册组件
 	b.buildBaseLifecycle()
 
-	// 若已注入多平台注册表，为每个平台适配器注册独立的生命周期组件。
-	// 此处（Start 阶段）注册而非 NewBot 阶段，是因为 UsePlatformRegistry 可在
-	// NewBot 之后、Start 之前调用（BotBuilder 的标准流程即如此）。
+	// 为 platformRegistry 中的每个适配器注册独立的生命周期组件
 	b.mu.RLock()
 	reg := b.platformRegistry
 	b.mu.RUnlock()
@@ -208,18 +153,15 @@ func (b *Bot) Start() error {
 		}
 	}
 
-	// 为 OnStart 阶段创建带超时的子 context（不影响 rootCtx）
 	startCtx, startCancel := context.WithTimeout(rootCtx, DefaultStartTimeout)
 	defer startCancel()
 
-	// 将 rootCtx 传给 lifecycle.Start，使 OnRun goroutine 从 rootCtx 派生
 	err := b.lifecycle.Start(startCtx)
 
 	b.mu.Lock()
 	b.starting = false
 	if err != nil {
 		b.mu.Unlock()
-		// 取消 rootCtx，停止所有已通过 startHooks 启动的后台组件
 		rootCancel()
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
@@ -232,7 +174,6 @@ func (b *Bot) Start() error {
 
 	logger.Info("[Bot] Started successfully")
 
-	// 若已注入插件管理器，触发所有插件的 Setup（注册 Matcher、启动 goroutine 等）
 	if b.pluginManager != nil {
 		if err := b.pluginManager.StartAll(b.rootCtx); err != nil {
 			logger.WithError(err).Warn("[Bot] Some plugins failed to start")
@@ -263,11 +204,10 @@ func (b *Bot) Context() context.Context {
 	return context.Background()
 }
 
-// handlePlatformEvent 处理来自 platform.Adapter 的事件
+// handlePlatformEvent 处理来自 platform.Adapter 的事件。
 //
-// 直接调用 engine.ProcessPlatformEvent，不再降级到 *dto.Payload 路径。
-// Engine 内部通过 context.AcquireContextFromEvent 创建平台无关的 Context，
-// Handler 可通过 ctx.GetPlatformEvent() 访问原始事件，通过 ctx.Reply() 发送回复。
+// D3：统一通过 platformRegistry 查找 Sender 和 Capabilities，无双路径。
+// F2：将 Capabilities 注入 ProcessPlatformEvent，Handler 可通过 ctx.GetPlatformCapabilities() 获取。
 func (b *Bot) handlePlatformEvent(event platform.Event) {
 	if event == nil {
 		logger.Warn("[Bot] Received nil platform event, skipping")
@@ -284,31 +224,27 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		}).Debug("[Bot] Platform event received")
 	}
 
-	// 获取该平台的 Sender：
-	// 1. 优先从 platformRegistry 中查找对应平台的 Sender
-	// 2. 若未找到，尝试 Bot.adapter.Sender()（单平台适配器模式）
-	// 3. 最终兜底使用 NoopSender（避免 nil 指针，但无法实际发送）
 	var sender platform.Sender
+	var caps platform.Capabilities
+
 	b.mu.RLock()
 	reg := b.platformRegistry
-	adp := b.adapter
 	b.mu.RUnlock()
+
 	if reg != nil {
 		if pa, ok := reg.Get(event.Platform()); ok {
 			sender = pa.Sender()
+			caps = pa.Capabilities()
 		}
 	}
-	if sender == nil && adp != nil {
-		sender = adp.Sender()
-	}
+
 	if sender == nil {
 		logger.WithField("platform", event.Platform()).Warn(
 			"[Bot] No sender found for platform, all ctx.Reply() calls will be silently dropped")
 		sender = &platform.NoopSender{}
 	}
 
-	// 直接走新引擎路径：无 dto.Payload，无 openapi.OpenAPI
-	b.engine.ProcessPlatformEvent(event, sender)
+	b.engine.ProcessPlatformEvent(event, sender, caps)
 
 	if b.config.Debug {
 		logger.WithFields(logger.Fields{
@@ -319,17 +255,9 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	}
 }
 
-// UsePlatformRegistry 注入多平台适配器注册表
+// UsePlatformRegistry 注入多平台适配器注册表。
 //
-// 注入后 Bot.Start() 会为每个已注册的平台适配器启动独立事件循环。
 // 必须在 Bot.Start() 之前调用。
-//
-// 示例：
-//
-//	registry := platform.NewRegistry()
-//	registry.Register(qq.NewAdapter(webhookConn, api))
-//	registry.Register(discord.NewAdapter())
-//	bot.UsePlatformRegistry(registry)
 func (b *Bot) UsePlatformRegistry(r *platform.Registry) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -361,30 +289,17 @@ func (b *Bot) Stop(ctx context.Context) error {
 	return b.shutdownSequence(ctx, rootCancel)
 }
 
-// shutdownSequence 执行有序的关闭流程：
-//
-//  1. 停止插件（逆序 Teardown）
-//  2. 取消根 context，驱动所有与 rootCtx 绑定的后台 goroutine 退出
-//  3. 停止 lifecycle（adapter.Stop + engine.Shutdown）
-//
-// 各平台适配器负责自身的资源清理（例如 QQ token manager 在 adapter.Stop 内停止）。
 func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFunc) error {
-	// Step 1: 插件逆序 Teardown
 	if b.pluginManager != nil {
 		logger.Debug("[Bot] Stopping plugin manager...")
 		if err := b.pluginManager.StopAll(ctx); err != nil {
 			logger.WithError(err).Warn("[Bot] Some plugins failed to stop cleanly")
 		}
 	}
-
-	// Step 2: 取消根 context，驱动所有绑定 goroutine 退出
 	if rootCancel != nil {
 		rootCancel()
 	}
-
-	// Step 3: 停止 lifecycle（adapter.Stop + engine.Shutdown）
 	err := b.lifecycle.Stop(ctx)
-
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
@@ -394,25 +309,13 @@ func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFun
 }
 
 // Shutdown 使用默认超时时间优雅关闭 Bot
-// 这是 Stop 的便捷包装，使用 DefaultShutdownTimeout 作为超时时间
 func (b *Bot) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
 	defer cancel()
 	return b.Stop(ctx)
 }
 
-// UsePlugins 注入插件管理器，将其生命周期与 Bot 绑定。
-//
-// 调用后：
-//   - Bot.Start() 会自动触发所有已注册插件的 Setup
-//   - Bot.Stop() 会自动按逆序触发所有插件的 Teardown
-//   - 插件 goroutine 随 Bot.Stop() 统一回收，无泄露风险
-//
-// 必须在 Bot.Start() 之前调用，支持链式调用：
-//
-//	bot.UsePlugins(pm).Start()
-//
-// 若需在 Build 阶段注入，使用 BotBuilder.WithPluginManager(pm)。
+// UsePlugins 注入插件管理器
 func (b *Bot) UsePlugins(pm *plugin.Manager) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -420,7 +323,7 @@ func (b *Bot) UsePlugins(pm *plugin.Manager) *Bot {
 	return b
 }
 
-// Plugins 返回已注入的插件管理器，未注入时返回 nil。
+// Plugins 返回已注入的插件管理器
 func (b *Bot) Plugins() *plugin.Manager {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -428,9 +331,7 @@ func (b *Bot) Plugins() *plugin.Manager {
 }
 
 // Engine 返回 Bot 的 Engine 实例
-func (b *Bot) Engine() *engine.Engine {
-	return b.engine
-}
+func (b *Bot) Engine() *engine.Engine { return b.engine }
 
 // IsRunning 返回 Bot 是否正在运行
 func (b *Bot) IsRunning() bool {
@@ -443,14 +344,12 @@ func (b *Bot) IsRunning() bool {
 func (b *Bot) Uptime() time.Duration {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-
 	if !b.running {
 		if !b.stopTime.IsZero() {
 			return b.stopTime.Sub(b.startTime)
 		}
 		return 0
 	}
-
 	return time.Since(b.startTime)
 }
 
@@ -468,26 +367,18 @@ func (b *Bot) Health() health.CheckResponse {
 	return b.health.Check(ctx)
 }
 
-// HealthCheck 返回 health.Check 实例（用于高级配置）
-func (b *Bot) HealthCheck() *health.Check {
-	return b.health
-}
+// HealthCheck 返回 health.Check 实例
+func (b *Bot) HealthCheck() *health.Check { return b.health }
 
 // State 返回生命周期状态
-func (b *Bot) State() lifecycle.State {
-	return b.lifecycle.State()
-}
+func (b *Bot) State() lifecycle.State { return b.lifecycle.State() }
 
-// OnAny 注册处理所有事件的规则（convenience method）
+// OnAny 注册处理所有事件的规则
 func (b *Bot) OnAny(rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnAny(rule...)
 }
 
-// OnEventKind 注册处理指定平台事件类别的规则（平台无关，推荐使用）
-//
-// 示例：
-//
-//	bot.OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(handler)
+// OnEventKind 注册处理指定平台事件类别的规则（平台无关，推荐）
 func (b *Bot) OnEventKind(kind platform.EventKind, rule ...eventctx.Rule) *engine.Matcher {
 	return b.engine.OnEventKind(kind, rule...)
 }
@@ -496,7 +387,7 @@ func (b *Bot) OnEventKind(kind platform.EventKind, rule ...eventctx.Rule) *engin
 func (b *Bot) WaitForShutdown() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigCh) // 防止信号 channel 泄漏：函数返回后注销信号通知
+	defer signal.Stop(sigCh)
 
 	<-sigCh
 

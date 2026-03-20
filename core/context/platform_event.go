@@ -20,12 +20,12 @@ func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Cont
 
 	ctx.platformEvent = event
 	ctx.platformSender = sender
+	ctx.platformCaps = platform.Capabilities{} // 由 Engine 在 ProcessPlatformEvent 中注入
 	ctx.matcher = nil
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
 
-	// 确保 stdctx 始终非 nil；若池中对象是全新分配的（ctx.ctx == nil），
-	// 使用 Background() 初始化，避免 ctx.Context() 触发"unexpectedly nil"警告。
+	// 确保 stdctx 始终非 nil
 	ctx.ctxMu.Lock()
 	if ctx.ctx == nil {
 		ctx.ctx = stdctx.Background()
@@ -46,6 +46,7 @@ func ReleaseContextFromEvent(ctx *Context) {
 	}
 	ctx.platformEvent = nil
 	ctx.platformSender = nil
+	ctx.platformCaps = platform.Capabilities{}
 	ReleaseContext(ctx) // 复用原有清理逻辑
 }
 
@@ -134,6 +135,24 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	chat := ctx.platformEvent.Chat()
 	goCtx := platform.WithChatInfo(stdCtx, chat)
 	return ctx.platformSender.Send(goCtx, msg)
+}
+
+// GetPlatformCapabilities 返回当前平台的能力声明。
+//
+// 由框架在 Engine.ProcessPlatformEvent 调用时自动注入，Handler 可用此方法
+// 实现跨平台"渐进增强"策略（优先使用丰富特性，降级到纯文本）：
+//
+//	caps := ctx.GetPlatformCapabilities()
+//	if caps.Embeds {
+//	    ctx.Reply(platform.TextMessage("").WithEmbeds(embed))
+//	} else {
+//	    ctx.Reply(platform.MarkdownMessage(embed.Title + "\n" + embed.Description))
+//	}
+func (ctx *Context) GetPlatformCapabilities() platform.Capabilities {
+	if ctx == nil {
+		return platform.Capabilities{}
+	}
+	return ctx.platformCaps
 }
 
 // IsPlatformContext 返回此 Context 是否由平台路径（platform.Event）创建
