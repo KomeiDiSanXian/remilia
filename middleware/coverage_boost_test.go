@@ -7,6 +7,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,9 +18,7 @@ import (
 
 func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("enqueues on error", func(t *testing.T) {
-		q := dlq.NewPlatformEventQueue(dlq.PlatformEventConfig{
-			MaxSize: 100,
-		})
+		q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
 
 		mw := DeadLetter(q)
 		handler := mw(mockHandler(errors.New("dlq error"), 0))
@@ -35,9 +34,7 @@ func TestDeadLetterMiddleware(t *testing.T) {
 	})
 
 	t.Run("no enqueue on success", func(t *testing.T) {
-		q := dlq.NewPlatformEventQueue(dlq.PlatformEventConfig{
-			MaxSize: 100,
-		})
+		q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
 
 		mw := DeadLetter(q)
 		handler := mw(mockHandler(nil, 0))

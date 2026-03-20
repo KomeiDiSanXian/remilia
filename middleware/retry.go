@@ -9,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // RetryConfig 重试配置
@@ -160,7 +161,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
-func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.PlatformEventItem) eventctx.Middleware {
+func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.Item[platform.Event]) eventctx.Middleware {
 	// 初始化默认值
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 3
@@ -191,7 +192,7 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.PlatformEventIte
 
 				source := ctx.GetMatcherSource()
 
-				item := dlq.PlatformEventItem{
+				item := dlq.Item[platform.Event]{
 					Data:    ctx.GetPlatformEvent(),
 					Err:     err,
 					Attempt: attempt,

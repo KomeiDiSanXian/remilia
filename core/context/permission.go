@@ -3,13 +3,9 @@ package context
 import "github.com/KomeiDiSanXian/remilia/core/permission"
 
 // NewRole is re-exported from core/permission for backward compatibility.
-//
-//go:fix inline
 var NewRole = permission.NewRole
 
 // NewPermissionManager is re-exported from core/permission for backward compatibility.
-//
-//go:fix inline
 var NewPermissionManager = permission.NewPermissionManager
 
 // PermissionManagerExt stores a *PermissionManager in the Context typed-extension

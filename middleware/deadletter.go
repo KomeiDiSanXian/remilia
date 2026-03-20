@@ -4,6 +4,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // DeadLetter 创建死信队列中间件
@@ -11,7 +12,7 @@ import (
 //
 // 注意：建议将此中间件放在重试中间件（Retry）的外层，
 // 这样只有在重试耗尽并最终返回错误时，才会进入死信队列。
-func DeadLetter(q *dlq.PlatformEventQueue) context.Middleware {
+func DeadLetter(q *dlq.Queue[platform.Event]) context.Middleware {
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
 			err := next(ctx)
@@ -20,7 +21,7 @@ func DeadLetter(q *dlq.PlatformEventQueue) context.Middleware {
 				attempts, _ := ctx.GetRetryAttempt()
 				pe := ctx.GetPlatformEvent()
 
-				item := dlq.PlatformEventItem{
+				item := dlq.Item[platform.Event]{
 					Data:    pe,
 					Err:     err,
 					Source:  source,

@@ -4,8 +4,14 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(permission): update permission type references to core package">
-      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(middleware): update Middleware type references to context package">
+      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/compat_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/compat_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_boost_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_boost_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/deadletter.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/deadletter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -218,7 +224,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
     <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
     <MESSAGE value="chore: update Go version to 1.25.0 in go.mod for improved compatibility" />
@@ -243,7 +248,8 @@
     <MESSAGE value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
     <MESSAGE value="docs: remove archived docs" />
     <MESSAGE value="refactor(permission): update permission type references to core package" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(permission): update permission type references to core package" />
+    <MESSAGE value="refactor(middleware): update Middleware type references to context package" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(middleware): update Middleware type references to context package" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
