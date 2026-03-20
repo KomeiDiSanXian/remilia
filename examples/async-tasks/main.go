@@ -134,7 +134,7 @@ func main() {
 
 func registerHandlers(bot *remilia.Bot) {
 	// 启动异步任务
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/start").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/start").Handle(func(ctx *eventctx.Context) error {
 		userID := ctx.GetSenderInfo().ID
 
 		// 创建任务
@@ -150,7 +150,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// 查询任务状态
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/status").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/status").Handle(func(ctx *eventctx.Context) error {
 
 		// 简化：从Content中提取task_id（实际应该用命令解析）
 		// 这里假设用户输入 "/status task-xxx"
@@ -167,7 +167,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// 列出所有任务
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/list").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/list").Handle(func(ctx *eventctx.Context) error {
 		userID := ctx.GetSenderInfo().ID
 
 		// 获取所有任务

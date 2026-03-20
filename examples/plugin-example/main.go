@@ -104,11 +104,11 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			logger.Info("[Greeter] Loading plugin (v2)...")
 
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").Handle(func(c *eventctx.Context) error {
+			ctx.Reg.RegisterCommand("", "/greet").Handle(func(c *eventctx.Context) error {
 				return c.Reply(platform.TextMessage(fmt.Sprintf("%s, %s!", greeting, c.GetSenderInfo().ID)))
 			})
 
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/setgreeting").Handle(func(c *eventctx.Context) error {
+			ctx.Reg.RegisterCommand("", "/setgreeting").Handle(func(c *eventctx.Context) error {
 				content := c.GetMessageContent()
 				if content == "/setgreeting" || content == "" {
 					return c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
@@ -145,17 +145,17 @@ func NewCounterPlugin() *plugin.PluginDescriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			logger.Info("[Counter] Loading plugin (v2)...")
 
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/count").Handle(func(c *eventctx.Context) error {
+			ctx.Reg.RegisterCommand("", "/count").Handle(func(c *eventctx.Context) error {
 				currentCount := count.Add(1)
 				return c.Reply(platform.TextMessage(fmt.Sprintf("计数: %d", currentCount)))
 			})
 
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/reset").Handle(func(c *eventctx.Context) error {
+			ctx.Reg.RegisterCommand("", "/reset").Handle(func(c *eventctx.Context) error {
 				count.Store(0)
 				return c.Reply(platform.TextMessage("计数已重置"))
 			})
 
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/stats").Handle(func(c *eventctx.Context) error {
+			ctx.Reg.RegisterCommand("", "/stats").Handle(func(c *eventctx.Context) error {
 				return c.Reply(platform.TextMessage(fmt.Sprintf("当前计数: %d", count.Load())))
 			})
 

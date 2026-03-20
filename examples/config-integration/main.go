@@ -58,7 +58,7 @@ func main() {
 
 	// 5. 这里可以注册你的处理器
 	// 例如：
-	// eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(ctx *eventctx.Context) error {
+	// eng.OnCommand("", "/echo").Handle(func(ctx *eventctx.Context) error {
 	//     // 处理逻辑
 	//     return nil
 	// })

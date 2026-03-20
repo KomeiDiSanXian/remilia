@@ -97,23 +97,23 @@ func main() {
 
 func registerHandlers(bot *remilia.Bot) {
 	// 1. 成功场景
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/success").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/success").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("✅ Success! Everything works fine."))
 	})
 
 	// 2. 一般错误
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/error").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/error").Handle(func(ctx *eventctx.Context) error {
 		err := errors.New("something went wrong")
 		return handleError(err, "Business logic error")
 	})
 
 	// 3. Panic场景（会被Recover中间件捕获）
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/panic").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/panic").Handle(func(ctx *eventctx.Context) error {
 		panic("intentional panic for testing")
 	})
 
 	// 4. 无效输入错误
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/invalid").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/invalid").Handle(func(ctx *eventctx.Context) error {
 		err := &UserError{
 			Code:    400,
 			Message: "Invalid input provided",
@@ -125,7 +125,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// 5. 资源不存在错误
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/notfound").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/notfound").Handle(func(ctx *eventctx.Context) error {
 		err := &UserError{
 			Code:    404,
 			Message: "Resource not found",
@@ -137,7 +137,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// 6. 权限错误
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/permission").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/permission").Handle(func(ctx *eventctx.Context) error {
 		userID := ctx.GetSenderInfo().ID
 		if !checkPermission(userID) {
 			err := &UserError{
@@ -155,7 +155,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// 7. 重试场景
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/retry").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/retry").Handle(func(ctx *eventctx.Context) error {
 		err := retryOperation(func() error {
 			return simulateUnstableOperation()
 		}, 3)

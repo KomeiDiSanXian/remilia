@@ -152,11 +152,11 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 		Deps: []string{"cooldown", "stats", "i18n", "verifycode", "conversation"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// /ping
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/ping").
+			ctx.Reg.RegisterCommand("", "/ping").
 				SetDefinition(&command.Definition{Name: "ping", Description: "Pong!", Category: "tools"}).
 				Handle(func(c *eventctx.Context) error { return replyCtx(c, "Pong!") })
 			// /status — stats plugin demo
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/status").
+			ctx.Reg.RegisterCommand("", "/status").
 				SetDefinition(&command.Definition{Name: "status", Description: "Bot status", Category: "tools"}).
 				Handle(func(c *eventctx.Context) error {
 					top := sp.TopCommands(3)
@@ -168,7 +168,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, msg.String())
 				})
 			// /daily — cooldown plugin demo (24h)
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/daily").
+			ctx.Reg.RegisterCommand("", "/daily").
 				SetDefinition(&command.Definition{Name: "daily", Description: "Daily check-in (cooldown demo)", Category: "fun"}).
 				Handle(func(c *eventctx.Context) error {
 					uid := c.GetUserID()
@@ -179,7 +179,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, "checked in!")
 				})
 			// /lang — i18n locale switch
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/lang").
+			ctx.Reg.RegisterCommand("", "/lang").
 				SetDefinition(&command.Definition{
 					Name: "lang", Description: "Switch language (i18n)", Category: "settings",
 					Arguments: []*command.Argument{{Name: "locale", Type: command.ArgTypeString, Required: true}},
@@ -197,7 +197,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, "language set: "+locale)
 				})
 			// /greet — i18n template render
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/greet").
+			ctx.Reg.RegisterCommand("", "/greet").
 				SetDefinition(&command.Definition{Name: "greet", Description: "i18n greeting", Category: "demo"}).
 				Handle(func(c *eventctx.Context) error {
 					if raw, ok := pm.GetContainer().Get("i18n"); ok {
@@ -207,7 +207,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return replyCtx(c, "hello!")
 				})
 			// /verify — standalone verifycode plugin
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/verify").
+			ctx.Reg.RegisterCommand("", "/verify").
 				SetDefinition(&command.Definition{
 					Name: "verify", Description: "Redeem a verification code", Category: "access",
 					Arguments: []*command.Argument{{Name: "code", Type: command.ArgTypeString, Required: true}},
@@ -245,10 +245,10 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 						return replyCtx(c, fmt.Sprintf("registered! name=%v email=%v", s.Data["name"], s.Data["email"]))
 					})
 				// dispatch handler for in-progress sessions
-				ctx.Reg.RegisterMatcher(dto.C2CMessageCreate, conv.InSession("register")).
+				ctx.Reg.RegisterMatcher("", conv.InSession("register")).
 					Handle(conv.DispatchFor("register"))
 			}
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/register").
+			ctx.Reg.RegisterCommand("", "/register").
 				SetDefinition(&command.Definition{Name: "register", Description: "Multi-step registration (conversation demo)", Category: "demo"}).
 				Handle(func(c *eventctx.Context) error {
 					if regMachine == nil {
@@ -258,7 +258,7 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 					return raw.(*conversation.Plugin).Start(c, regMachine)
 				})
 			// /aclcheck — standalone acl plugin
-			ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/aclcheck").
+			ctx.Reg.RegisterCommand("", "/aclcheck").
 				SetDefinition(&command.Definition{Name: "aclcheck", Description: "Check ACL status (acl plugin)", Category: "security"}).
 				Handle(func(c *eventctx.Context) error {
 					raw, ok := pm.GetContainer().Get("acl")

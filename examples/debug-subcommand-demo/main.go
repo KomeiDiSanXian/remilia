@@ -76,7 +76,7 @@ func main() {
 	logger.Info("➕ 注册示例命令...")
 
 	// 示例命令 1: /hello
-	eng.OnCommand(dto.C2CMessageCreate, "/hello").
+	eng.OnCommand("", "/hello").
 		SetDescription("打招呼命令").
 		SetUsage("/hello").
 		SetCategory("示例").
@@ -87,7 +87,7 @@ func main() {
 		})
 
 	// 示例命令 2: /echo
-	eng.OnCommand(dto.C2CMessageCreate, "/echo").
+	eng.OnCommand("", "/echo").
 		SetDescription("回声命令").
 		SetUsage("/echo <消息>").
 		SetCategory("示例").
@@ -97,22 +97,13 @@ func main() {
 			return nil
 		})
 
-	// 示例命令 3: /weather（带群聊支持）
-	eng.OnCommand(dto.C2CMessageCreate, "/weather").
+	// 示例命令 3: /weather（私聊与群聊通用）
+	eng.OnCommand("", "/weather").
 		SetDescription("天气查询").
 		SetUsage("/weather <城市>").
 		SetCategory("工具").
 		Handle(func(ctx *eventctx.Context) error {
 			logger.Info("[/weather] 收到天气查询")
-			return nil
-		})
-
-	eng.OnCommand(dto.GroupAtMessageCreate, "/weather").
-		SetDescription("天气查询").
-		SetUsage("/weather <城市>").
-		SetCategory("工具").
-		Handle(func(ctx *eventctx.Context) error {
-			logger.Info("[/weather] 收到天气查询（群聊）")
 			return nil
 		})
 

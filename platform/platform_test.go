@@ -2,6 +2,8 @@ package platform_test
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,5 +192,225 @@ func TestEventKindConstants(t *testing.T) {
 		if k == "" {
 			t.Errorf("EventKind constant should not be empty")
 		}
+	}
+}
+
+// ---- WithChatInfo / ChatInfoFromContext -----------------------------------------------
+
+func TestWithChatInfo(t *testing.T) {
+	chat := platform.ChatInfo{ID: "chat-123", Name: "TestChat", IsGroup: true}
+	ctx := context.Background()
+
+	// 注入后可正确读取
+	ctx = platform.WithChatInfo(ctx, chat)
+	got, ok := platform.ChatInfoFromContext(ctx)
+	if !ok {
+		t.Fatal("ChatInfoFromContext: expected ok=true after WithChatInfo")
+	}
+	if got.ID != chat.ID {
+		t.Errorf("ChatInfo.ID: got %q, want %q", got.ID, chat.ID)
+	}
+	if got.Name != chat.Name {
+		t.Errorf("ChatInfo.Name: got %q, want %q", got.Name, chat.Name)
+	}
+	if got.IsGroup != chat.IsGroup {
+		t.Errorf("ChatInfo.IsGroup: got %v, want %v", got.IsGroup, chat.IsGroup)
+	}
+}
+
+func TestChatInfoFromContext_Empty(t *testing.T) {
+	_, ok := platform.ChatInfoFromContext(context.Background())
+	if ok {
+		t.Error("ChatInfoFromContext on empty context: expected ok=false")
+	}
+}
+
+func TestWithChatInfo_Overwrite(t *testing.T) {
+	first := platform.ChatInfo{ID: "first", IsGroup: false}
+	second := platform.ChatInfo{ID: "second", IsGroup: true}
+
+	ctx := platform.WithChatInfo(context.Background(), first)
+	ctx = platform.WithChatInfo(ctx, second)
+
+	got, ok := platform.ChatInfoFromContext(ctx)
+	if !ok {
+		t.Fatal("ChatInfoFromContext: expected ok=true")
+	}
+	if got.ID != second.ID {
+		t.Errorf("ChatInfo overwrite: got %q, want %q", got.ID, second.ID)
+	}
+}
+
+// ---- Registry.StartAll 并发行为 & ctx 取消 -------------------------------------------
+
+// mockCancelableAdapter 等待 ctx 取消后退出（模拟正常平台适配器）
+type mockCancelableAdapter struct {
+	platformID string
+	started    chan struct{}
+}
+
+func (a *mockCancelableAdapter) Platform() string { return a.platformID }
+func (a *mockCancelableAdapter) Sender() platform.Sender {
+	return &platform.NoopSender{}
+}
+func (a *mockCancelableAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
+	close(a.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (a *mockCancelableAdapter) Stop(_ context.Context) error { return nil }
+
+func TestRegistry_StartAll_CtxCancel(t *testing.T) {
+	reg := platform.NewRegistry()
+
+	a1 := &mockCancelableAdapter{platformID: "p1", started: make(chan struct{})}
+	a2 := &mockCancelableAdapter{platformID: "p2", started: make(chan struct{})}
+	reg.Register(a1)
+	reg.Register(a2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- reg.StartAll(ctx, func(platform.Event) {})
+	}()
+
+	// 等待两个适配器都已启动
+	select {
+	case <-a1.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("adapter p1 did not start in time")
+	}
+	select {
+	case <-a2.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("adapter p2 did not start in time")
+	}
+
+	cancel()
+
+	select {
+	case err := <-done:
+		// context.Canceled 应被过滤，返回 nil
+		if err != nil {
+			t.Errorf("StartAll after ctx cancel: expected nil, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("StartAll did not return in time after ctx cancel")
+	}
+}
+
+func TestRegistry_StartAll_NoAdapters(t *testing.T) {
+	reg := platform.NewRegistry()
+	err := reg.StartAll(context.Background(), func(platform.Event) {})
+	if err == nil {
+		t.Error("StartAll on empty registry: expected error, got nil")
+	}
+}
+
+// mockFatalAdapter 立即以非 ctx 错误退出（模拟适配器启动失败）
+type mockFatalAdapter struct {
+	platformID string
+	startErr   error
+}
+
+func (a *mockFatalAdapter) Platform() string { return a.platformID }
+func (a *mockFatalAdapter) Sender() platform.Sender {
+	return &platform.NoopSender{}
+}
+func (a *mockFatalAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error {
+	return a.startErr
+}
+func (a *mockFatalAdapter) Stop(_ context.Context) error { return nil }
+
+func TestRegistry_StartAll_AdapterFatalError(t *testing.T) {
+	reg := platform.NewRegistry()
+	reg.Register(&mockFatalAdapter{platformID: "fatal", startErr: errors.New("fatal adapter error")})
+
+	err := reg.StartAll(context.Background(), func(platform.Event) {})
+	if err == nil {
+		t.Fatal("StartAll: expected error from fatal adapter, got nil")
+	}
+	if !strings.Contains(err.Error(), "fatal adapter error") {
+		t.Errorf("StartAll: error should contain 'fatal adapter error', got: %v", err)
+	}
+}
+
+// ---- Registry.StopAll 错误聚合 -------------------------------------------------------
+
+// mockErrorStopAdapter Stop 时返回指定错误
+type mockErrorStopAdapter struct {
+	platformID string
+	stopErr    error
+}
+
+func (a *mockErrorStopAdapter) Platform() string { return a.platformID }
+func (a *mockErrorStopAdapter) Sender() platform.Sender {
+	return &platform.NoopSender{}
+}
+func (a *mockErrorStopAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (a *mockErrorStopAdapter) Stop(_ context.Context) error { return a.stopErr }
+
+func TestRegistry_StopAll_Errors(t *testing.T) {
+	reg := platform.NewRegistry()
+	reg.Register(&mockErrorStopAdapter{platformID: "ok-platform", stopErr: nil})
+	reg.Register(&mockErrorStopAdapter{platformID: "bad-platform", stopErr: errors.New("stop failed")})
+
+	err := reg.StopAll(context.Background())
+	if err == nil {
+		t.Fatal("StopAll: expected error when an adapter fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "stop failed") {
+		t.Errorf("StopAll: error should contain 'stop failed', got: %v", err)
+	}
+}
+
+func TestRegistry_StopAll_AllOK(t *testing.T) {
+	reg := platform.NewRegistry()
+	reg.Register(&mockErrorStopAdapter{platformID: "p1", stopErr: nil})
+	reg.Register(&mockErrorStopAdapter{platformID: "p2", stopErr: nil})
+
+	err := reg.StopAll(context.Background())
+	if err != nil {
+		t.Errorf("StopAll with no errors: expected nil, got %v", err)
+	}
+}
+
+func TestRegistry_Get(t *testing.T) {
+	reg := platform.NewRegistry()
+	adapter := &mockCancelableAdapter{platformID: "myplatform", started: make(chan struct{})}
+	reg.Register(adapter)
+
+	got, ok := reg.Get("myplatform")
+	if !ok {
+		t.Fatal("Registry.Get: expected ok=true for registered platform")
+	}
+	if got.Platform() != "myplatform" {
+		t.Errorf("Registry.Get: got platform %q, want %q", got.Platform(), "myplatform")
+	}
+
+	_, ok2 := reg.Get("nonexistent")
+	if ok2 {
+		t.Error("Registry.Get: expected ok=false for nonexistent platform")
+	}
+}
+
+func TestRegistry_Register_Overwrite(t *testing.T) {
+	reg := platform.NewRegistry()
+	old := &mockCancelableAdapter{platformID: "p", started: make(chan struct{})}
+	new_ := &mockFatalAdapter{platformID: "p", startErr: nil}
+
+	reg.Register(old)
+	reg.Register(new_) // 覆盖
+
+	got, ok := reg.Get("p")
+	if !ok {
+		t.Fatal("Registry.Get after overwrite: expected ok=true")
+	}
+	// 应该是新适配器（mockFatalAdapter）
+	if _, isFatal := got.(*mockFatalAdapter); !isFatal {
+		t.Error("Registry.Register overwrite: expected new adapter to replace old one")
 	}
 }

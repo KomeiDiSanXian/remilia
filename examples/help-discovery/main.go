@@ -44,12 +44,12 @@ func main() {
 	bot.Engine().Use(middleware.DevelopmentSet()...)
 
 	// 注册一些命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/cmd1").Handle(simpleHandler("Command 1"))
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/cmd2").Handle(simpleHandler("Command 2"))
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/cmd3").Handle(simpleHandler("Command 3"))
+	bot.Engine().OnCommand("", "/cmd1").Handle(simpleHandler("Command 1"))
+	bot.Engine().OnCommand("", "/cmd2").Handle(simpleHandler("Command 2"))
+	bot.Engine().OnCommand("", "/cmd3").Handle(simpleHandler("Command 3"))
 
 	// Help命令 - 列出所有命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
 		help := "可用命令:\n/cmd1 - 命令1\n/cmd2 - 命令2\n/cmd3 - 命令3\n/help - 帮助"
 		return ctx.Reply(platform.TextMessage(help))
 	})

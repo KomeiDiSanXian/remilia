@@ -101,12 +101,12 @@ func main() {
 // registerHandlers 注册业务处理器
 func registerHandlers(bot *remilia.Bot) {
 	// Ping命令 - 健康检查
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("Pong! Bot is healthy."))
 	})
 
 	// Status命令 - 系统状态
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/status").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/status").Handle(func(ctx *eventctx.Context) error {
 		status := "✅ System Status: Healthy\n"
 		status += "📊 Uptime: Running\n"
 		status += "🔧 Version: 1.0.0\n"
@@ -115,7 +115,7 @@ func registerHandlers(bot *remilia.Bot) {
 	})
 
 	// Help命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
 		help := "🤖 生产环境Bot\n\n"
 		help += "可用命令:\n"
 		help += "/ping - 健康检查\n"

@@ -69,22 +69,22 @@ func main() {
 
 func registerCommands(bot *remilia.Bot) {
 	// 1. 天气命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/weather").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/weather").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("天气查询功能\n用法: /weather <城市>\n(实际天气查询待实现)"))
 	})
 
 	// 2. 计算器命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/calc").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/calc").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("计算器功能\n用法: /calc <表达式>\n(实际计算待实现)"))
 	})
 
 	// 3. 搜索命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/search").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/search").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("搜索功能\n用法: /search <关键词>\n(实际搜索待实现)"))
 	})
 
 	// 4. 帮助命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
 		help := `可用命令:
 /weather - 查询天气
 /calc - 计算器
@@ -95,7 +95,7 @@ func registerCommands(bot *remilia.Bot) {
 	})
 
 	// 5. 用户信息命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/user").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/user").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", ctx.GetSenderInfo().ID)))
 	})
 

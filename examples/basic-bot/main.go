@@ -71,17 +71,17 @@ func main() {
 
 func registerHandlers(eng *engine.Engine) {
 	// Echo 命令 - 回显用户消息
-	eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(ctx *eventctx.Context) error {
+	eng.OnCommand("", "/echo").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("回声: " + ctx.GetMessageContent()))
 	})
 
 	// Ping 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
+	eng.OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("Pong! 🏓"))
 	})
 
 	// Help 命令
-	eng.OnCommand(dto.C2CMessageCreate, "/help").Handle(func(ctx *eventctx.Context) error {
+	eng.OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
 		help := `可用命令:
 /echo <消息> - 回显你的消息
 /ping - 测试机器人是否在线

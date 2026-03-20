@@ -93,23 +93,23 @@ func main() {
 
 func registerHandlers(bot *remilia.Bot) {
 	// 快速响应命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/ping").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage("Pong! ⚡"))
 	})
 
 	// 慢速响应命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/slow").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/slow").Handle(func(ctx *eventctx.Context) error {
 		time.Sleep(2 * time.Second)
 		return ctx.Reply(platform.TextMessage("Slow response 🐌"))
 	})
 
 	// 统计信息命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/stats").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/stats").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage(getMetricsReport()))
 	})
 
 	// 健康检查命令
-	bot.Engine().OnCommand(dto.C2CMessageCreate, "/health").Handle(func(ctx *eventctx.Context) error {
+	bot.Engine().OnCommand("", "/health").Handle(func(ctx *eventctx.Context) error {
 		return ctx.Reply(platform.TextMessage(getHealthReport()))
 	})
 
