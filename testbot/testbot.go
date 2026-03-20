@@ -15,16 +15,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Re-export platform-agnostic helpers from testutil so existing callers need not change.
-
-// MockSender is an alias for testutil.MockSender.
-type MockSender = testutil.MockSender
-
 // MakePlatformC2CEvent re-exports testutil.MakePlatformC2CEvent.
 var MakePlatformC2CEvent = testutil.MakePlatformC2CEvent
-
-// MakePlatformGroupEvent re-exports testutil.MakePlatformGroupEvent.
-var MakePlatformGroupEvent = testutil.MakePlatformGroupEvent
 
 // ---------------------------------------------------------------------------
 // MockAPI — QQ-specific mock for openapi.OpenAPI
@@ -238,4 +230,4 @@ func (tb *Bot) ClearSent() {
 	tb.Bot.ClearSent()
 }
 
-var _ platform.Sender = (*MockSender)(nil)
+var _ platform.Sender = (*testutil.MockSender)(nil)

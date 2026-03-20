@@ -4,13 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(tests): add Attachments method to various event test structs for consistency">
-      <change afterPath="$PROJECT_DIR$/platform/qq/webhook_conn.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t">
+      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -223,8 +218,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: add channel and guild event types to event.go for enhanced functionality" />
-    <MESSAGE value="feat(platform): refine multi-platform adapter implementation and enhance documentation" />
     <MESSAGE value="feat(platform): enhance platform-agnostic event handling and deprecate legacy methods" />
     <MESSAGE value="feat(platform): enhance multi-platform support by allowing nil adapter in Bot and updating related documentation" />
     <MESSAGE value="refactor(platform): move OpenAPI interface for QQ platform integration" />
@@ -248,7 +241,9 @@
     <MESSAGE value="refactor(adapter): unify platform adapter management and enhance event processing" />
     <MESSAGE value="chore(tests): add Attachments method to event test structs for consistency" />
     <MESSAGE value="chore(tests): add Attachments method to various event test structs for consistency" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore(tests): add Attachments method to various event test structs for consistency" />
+    <MESSAGE value="refactor(webhook): separate HTTP server and token management into WebhookConn" />
+    <MESSAGE value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
