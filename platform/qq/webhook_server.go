@@ -54,6 +54,9 @@ func (a *WebhookServerAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
 
+// Capabilities 返回 QQ 平台的特性声明
+func (a *WebhookServerAdapter) Capabilities() platform.PlatformCapabilities { return QQCapabilities }
+
 // WithAPI 注入外部 QQ OpenAPI client，用于通过 ctx.Reply() 发送消息。
 //
 // 调用此方法后，适配器不会再自动创建 token.Manager，外部负责管理 API 客户端的生命周期。
@@ -134,10 +137,6 @@ func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, webhoo
 
 // StartPlatform 实现 platform.PlatformAdapter.StartPlatform，接受 platform.Event handler
 func (a *WebhookServerAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
-	return a.startWithPlatformHandler(ctx, handler)
-}
-
-func (a *WebhookServerAdapter) startWithPlatformHandler(ctx context.Context, handler func(platform.Event)) error {
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()

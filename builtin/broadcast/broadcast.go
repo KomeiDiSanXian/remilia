@@ -137,21 +137,22 @@ func (p *Plugin) getSender() platform.Sender {
 	return p.sender
 }
 
-// Broadcast 向多个会话发送消息（平台无关新路径）
+// Broadcast 向多个会话发送消息（平台无关）。
 //
-// chatIDs 为目标会话 ID（群 ID 或用户 ID，取决于平台）。
+// chats 为目标会话列表（包含 ID 和 IsGroup 路由信息）。
+// 每个目标会话的 ChatInfo 会注入到 Go context，平台 Sender 通过 ChatInfoFromContext 路由。
 // 返回汇总的发送结果。
-func (p *Plugin) Broadcast(chatIDs []string, msg platform.OutboundMessage) Result {
+func (p *Plugin) Broadcast(chats []platform.ChatInfo, msg platform.OutboundMessage) Result {
 	s := p.getSender()
 	if s == nil {
-		errs := make([]error, len(chatIDs))
+		errs := make([]error, len(chats))
 		for i := range errs {
 			errs[i] = fmt.Errorf("broadcast: no sender set, call SetSender() first")
 		}
-		return Result{Total: len(chatIDs), Failed: len(chatIDs), Errors: errs}
+		return Result{Total: len(chats), Failed: len(chats), Errors: errs}
 	}
 
-	result := Result{Total: len(chatIDs)}
+	result := Result{Total: len(chats)}
 	var (
 		mu      sync.Mutex
 		success int64
@@ -161,24 +162,24 @@ func (p *Plugin) Broadcast(chatIDs []string, msg platform.OutboundMessage) Resul
 		sem     = make(chan struct{}, p.cfg.Concurrency)
 	)
 
-	ctx := context.Background()
-	for _, chatID := range chatIDs {
+	for _, chat := range chats {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(id string) {
+		go func(c platform.ChatInfo) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			_ = p.rl.Wait(ctx)
-			if err := s.Send(ctx, id, msg); err != nil {
+			sendCtx := platform.WithChatInfo(context.Background(), c)
+			_ = p.rl.Wait(sendCtx)
+			if err := s.Send(sendCtx, msg); err != nil {
 				atomic.AddInt64(&failed, 1)
 				mu.Lock()
 				errs = append(errs, err)
 				mu.Unlock()
-				logger.WithError(err).Warnf("[Broadcast] Failed to send to %s", id)
+				logger.WithError(err).Warnf("[Broadcast] Failed to send to %s", c.ID)
 			} else {
 				atomic.AddInt64(&success, 1)
 			}
-		}(chatID)
+		}(chat)
 	}
 	wg.Wait()
 	result.Success = int(success)
@@ -186,6 +187,28 @@ func (p *Plugin) Broadcast(chatIDs []string, msg platform.OutboundMessage) Resul
 	result.Errors = errs
 	logger.Infof("[Broadcast] Completed: total=%d success=%d failed=%d", result.Total, result.Success, result.Failed)
 	return result
+}
+
+// BroadcastToGroups 向多个群组会话广播消息（SetSender 后调用）。
+//
+// groupIDs 为群组 ID 列表（如 QQ 群 openID、Discord channel ID 等）。
+func (p *Plugin) BroadcastToGroups(groupIDs []string, msg platform.OutboundMessage) Result {
+	chats := make([]platform.ChatInfo, len(groupIDs))
+	for i, id := range groupIDs {
+		chats[i] = platform.ChatInfo{ID: id, IsGroup: true}
+	}
+	return p.Broadcast(chats, msg)
+}
+
+// BroadcastToUsers 向多个私聊用户广播消息（SetSender 后调用）。
+//
+// userIDs 为用户 ID 列表（如 QQ user_openid、Telegram user_id 等）。
+func (p *Plugin) BroadcastToUsers(userIDs []string, msg platform.OutboundMessage) Result {
+	chats := make([]platform.ChatInfo, len(userIDs))
+	for i, id := range userIDs {
+		chats[i] = platform.ChatInfo{ID: id, IsGroup: false}
+	}
+	return p.Broadcast(chats, msg)
 }
 
 // SubscribeGroup 将群加入广播订阅列表

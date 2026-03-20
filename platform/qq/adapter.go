@@ -2,6 +2,7 @@ package qq
 
 import (
 	stdctx "context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -31,11 +32,13 @@ type Webhook interface {
 //
 // For a self-contained QQ setup (single platform), use WebhookServerAdapter directly:
 //
-//	webhookServer := remilia.NewWebhookServerAdapter(":8080", botInfo)
-//	bot := remilia.NewBot(webhookServer, engine)
+//	webhookServer := qq.NewWebhookServerAdapter(":8080", botInfo)
+//	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(webhookServer).Build()
 type Adapter struct {
 	webhook Webhook
 	sender  platform.Sender
+	// workers 是事件处理 goroutine 数量（0 表示使用 runtime.NumCPU()）
+	workers int
 
 	ctx      stdctx.Context
 	cancel   stdctx.CancelFunc
@@ -56,16 +59,29 @@ func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
 	}
 }
 
+// WithWorkers 设置事件处理 worker goroutine 数量。
+//
+// 0 或负值表示使用 runtime.NumCPU()（默认行为）。
+// 链式调用：qq.NewAdapter(wh, api).WithWorkers(4)
+func (a *Adapter) WithWorkers(n int) *Adapter {
+	a.workers = n
+	return a
+}
+
 // Platform returns the platform identifier.
 func (a *Adapter) Platform() string { return PlatformID }
 
 // Sender returns the QQ message sender.
 func (a *Adapter) Sender() platform.Sender { return a.sender }
 
+// Capabilities returns QQ platform feature capabilities.
+func (a *Adapter) Capabilities() platform.PlatformCapabilities { return QQCapabilities }
+
 // StartPlatform starts the QQ event loop.
 //
-// Reads *dto.Payload from webhook.EventStream(), converts to platform.Event,
-// then calls handler. Blocks until ctx is canceled or the stream is closed.
+// 使用有界 worker pool 处理事件，避免高频事件下无限创建 goroutine。
+// worker 数量默认为 runtime.NumCPU()，可通过 WithWorkers 调整。
+// Blocks until ctx is canceled or the stream is closed.
 func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)) error {
 	if !a.starting.CompareAndSwap(false, true) {
 		return nil
@@ -86,23 +102,48 @@ func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)
 	a.running = true
 	a.mu.Unlock()
 
-	logger.Info("[qq.Adapter] Started")
+	// 计算 worker 数量
+	numWorkers := a.workers
+	if numWorkers <= 0 {
+		numWorkers = runtime.NumCPU()
+	}
 
+	logger.Infof("[qq.Adapter] Started with %d workers", numWorkers)
+
+	// 有界事件队列：缓冲区为 worker 数量的 2 倍，避免分发时阻塞
+	workCh := make(chan platform.Event, numWorkers*2)
+
+	// 启动固定数量的 worker goroutine
+	for i := 0; i < numWorkers; i++ {
+		a.wg.Go(func() {
+			for event := range workCh {
+				safeInvoke(handler, event)
+			}
+		})
+	}
+
+	// 主分发循环：从平台 channel 读取 payload，转换后投递到 workCh
 	for {
 		select {
 		case <-a.ctx.Done():
+			close(workCh)
 			logger.Debug("[qq.Adapter] Context done, stopping")
 			return nil
 		case payload, ok := <-eventCh:
 			if !ok {
+				close(workCh)
 				logger.Warn("[qq.Adapter] EventStream closed")
 				return nil
 			}
 			if payload != nil {
 				event := NewEvent(payload)
-				a.wg.Go(func() {
-					safeInvoke(handler, event)
-				})
+				// 投递事件；若 workCh 满（worker 来不及处理），等待或随 ctx 取消
+				select {
+				case workCh <- event:
+				case <-a.ctx.Done():
+					close(workCh)
+					return nil
+				}
 			}
 		}
 	}

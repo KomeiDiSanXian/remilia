@@ -28,23 +28,107 @@ func ChatInfoFromContext(ctx stdctx.Context) (ChatInfo, bool) {
 	return chat, ok
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Sender
+// ────────────────────────────────────────────────────────────────────────────
+
 // Sender 是平台无关的消息发送接口。
 //
-// 各平台适配器实现此接口，将 OutboundMessage 转换并发送到目标会话。
+// 目标会话信息（ChatInfo，包含 ID、IsGroup 等路由字段）由调用方
+// 通过 platform.WithChatInfo 注入到 ctx 中，Send 实现通过
+// platform.ChatInfoFromContext 读取，不再依赖额外的 chatID 参数。
+//
+// 使用示例（handler 内）：
+//
+//	ctx.Reply(platform.TextMessage("pong"))  // 框架自动注入 ChatInfo
+//
+// 直接调用（已知目标会话）：
+//
+//	sendCtx := platform.WithChatInfo(context.Background(), platform.ChatInfo{
+//	    ID:      "group-001",
+//	    IsGroup: true,
+//	})
+//	sender.Send(sendCtx, platform.TextMessage("公告"))
 type Sender interface {
-	// Send 发送消息到指定会话
+	// Send 发送消息。目标会话信息从 ctx 中的 ChatInfo 读取。
 	//
-	// chatID 为目标会话 ID（私聊为用户 openID，群聊为群 ID）
-	Send(ctx stdctx.Context, chatID string, msg OutboundMessage) error
+	// 若 ctx 未携带 ChatInfo，实现者应返回 errutil.ErrNoChatInfo。
+	Send(ctx stdctx.Context, msg OutboundMessage) error
+}
+
+// MessageEditor 可选接口，支持消息编辑的平台实现此接口。
+//
+// 使用前用类型断言检查支持：
+//
+//	if editor, ok := sender.(platform.MessageEditor); ok {
+//	    editor.Edit(ctx, messageID, newMsg)
+//	}
+type MessageEditor interface {
+	// Edit 编辑已发送的消息。
+	// chatID 为目标会话 ID，messageID 为平台原生消息 ID。
+	Edit(ctx stdctx.Context, messageID string, msg OutboundMessage) error
+}
+
+// MessageDeleter 可选接口，支持消息删除的平台实现此接口。
+//
+// 使用前用类型断言检查支持：
+//
+//	if deleter, ok := sender.(platform.MessageDeleter); ok {
+//	    deleter.Delete(ctx, messageID)
+//	}
+type MessageDeleter interface {
+	// Delete 删除/撤回已发送的消息。
+	// messageID 为平台原生消息 ID。
+	Delete(ctx stdctx.Context, messageID string) error
 }
 
 // NoopSender 空实现，用于测试或不需要发送能力的场景
 type NoopSender struct{}
 
 // Send 什么也不做，始终返回 nil
-func (n *NoopSender) Send(_ stdctx.Context, _ string, _ OutboundMessage) error {
+func (n *NoopSender) Send(_ stdctx.Context, _ OutboundMessage) error {
 	return nil
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// PlatformCapabilities
+// ────────────────────────────────────────────────────────────────────────────
+
+// PlatformCapabilities 声明平台支持的特性集合。
+//
+// 平台适配器通过 Capabilities() 返回此结构，允许 Handler 在运行时
+// 做跨平台特性检测，实现"渐进增强"策略（优先使用丰富特性，降级到纯文本）。
+//
+// 示例：
+//
+//	caps := ctx.GetPlatformCapabilities()
+//	if caps.Embeds {
+//	    msg = platform.TextMessage("").WithEmbeds(myEmbed)
+//	} else {
+//	    msg = platform.MarkdownMessage(myEmbed.Title + "\n" + myEmbed.Description)
+//	}
+type PlatformCapabilities struct {
+	// Markdown 是否支持 Markdown 格式消息
+	Markdown bool
+	// Buttons 是否支持交互按钮（内联键盘等）
+	Buttons bool
+	// MultiAttachment 是否支持在一条消息中发送多个附件
+	MultiAttachment bool
+	// MessageEdit 是否支持编辑已发送消息（实现 MessageEditor）
+	MessageEdit bool
+	// MessageDelete 是否支持删除/撤回消息（实现 MessageDeleter）
+	MessageDelete bool
+	// Embeds 是否支持富文本嵌入卡片
+	Embeds bool
+	// FileUpload 是否支持二进制文件直传（非 URL，Attachment.Data）
+	FileUpload bool
+	// GuildSupport 是否有服务器/频道层级（ChatInfo.ParentID 有效）
+	GuildSupport bool
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PlatformAdapter
+// ────────────────────────────────────────────────────────────────────────────
 
 // PlatformAdapter 是平台适配器的核心接口。
 //
@@ -69,7 +153,15 @@ type PlatformAdapter interface {
 
 	// Sender 返回该平台的消息发送接口
 	Sender() Sender
+
+	// Capabilities 返回该平台支持的特性集合。
+	// 用于 Handler 做跨平台特性检测，实现渐进增强策略。
+	Capabilities() PlatformCapabilities
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Registry
+// ────────────────────────────────────────────────────────────────────────────
 
 // Registry 多平台适配器注册表。
 //
@@ -144,8 +236,6 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 		})
 	}
 
-	// 等待所有平台适配器 goroutine 完全退出后再返回，防止 goroutine 泄漏。
-	// 各适配器的 StartPlatform 应感知 ctx.Done() 并自行退出。
 	wg.Wait()
 
 	// 返回第一个非 context 取消/超时的错误
@@ -157,17 +247,25 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	return nil
 }
 
-// StopAll 依次停止所有已注册平台适配器，收集并合并错误。
+// StopAll 并发停止所有已注册平台适配器，合并全部错误后返回。
+//
+// 所有适配器同时发起停止，总耗时取决于最慢的那一个（而非各平台停止时间之和）。
 func (r *Registry) StopAll(ctx stdctx.Context) error {
 	adapters := r.All()
-	var errs []error
+	var (
+		mu   sync.Mutex
+		errs []error
+		wg   sync.WaitGroup
+	)
 	for _, a := range adapters {
-		if err := a.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("platform %s stop: %w", a.Platform(), err))
-		}
+		wg.Go(func() {
+			if err := a.Stop(ctx); err != nil {
+				mu.Lock()
+				errs = append(errs, fmt.Errorf("platform %s stop: %w", a.Platform(), err))
+				mu.Unlock()
+			}
+		})
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("platform registry stop errors: %v", errs)
-	}
-	return nil
+	wg.Wait()
+	return errors.Join(errs...)
 }

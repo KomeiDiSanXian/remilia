@@ -89,9 +89,8 @@ func TestBot_AssertSentCount(t *testing.T) {
 func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 	tb := testbot.New()
 	fired := false
-	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindNotice，
-	// 新路径 GetEventType() 返回 EventKind 字符串，因此用 OnEventKind 匹配。
-	tb.Engine().OnEventKind(platform.EventKindNotice).Handle(func(ctx *context.Context) error {
+	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindMemberJoin（机器人被加入群组）。
+	tb.Engine().OnEventKind(platform.EventKindMemberJoin).Handle(func(ctx *context.Context) error {
 		fired = true
 		return nil
 	})

@@ -4,23 +4,45 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs(reports): rename multi-platform-audit.md and update change list comment for clarity">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(sender): remove chatID parameter from Send method and update related implementations">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit-2026-03-20.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/qq/bot.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/async-tasks/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/basic-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/command-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/config-integration/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/config-integration/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error-handling/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/help-discovery/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/help-discovery/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_nil_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_nil_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/broadcast/broadcast_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/03-architecture/MULTI_PLATFORM.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/03-architecture/MULTI_PLATFORM.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/examples/logger-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/logger-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/middleware-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/production-ready/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/production-ready/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/factory.go" beforeDir="false" afterPath="$PROJECT_DIR$/factory.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testutil/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -233,9 +255,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: streamline permission management by consolidating role and permission types into core/permission package" />
-    <MESSAGE value="feat: integrate plugin manager into Bot for lifecycle management and enhance plugin setup/teardown processes" />
-    <MESSAGE value="feat: refactor context management by splitting context-related logic into multiple files and enhancing event decoding and state handling" />
     <MESSAGE value="feat: update architecture review document with completed tasks and enhance command system integration" />
     <MESSAGE value="feat: implement type-safe EventBus with generics and enhance event handling" />
     <MESSAGE value="feat: refactor plugin system to use PluginCoordinator interface for improved type safety and dependency management" />
@@ -258,7 +277,10 @@
     <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
     <MESSAGE value="feat(event): add ID method for unique event identification across platforms" />
     <MESSAGE value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
+    <MESSAGE value="refactor(commands): update command registration to remove platform-specific message types" />
+    <MESSAGE value="optimize(adapter): simplify goroutine management in event handling" />
+    <MESSAGE value="refactor(sender): remove chatID parameter from Send method and update related implementations" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(sender): remove chatID parameter from Send method and update related implementations" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

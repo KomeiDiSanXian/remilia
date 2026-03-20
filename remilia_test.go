@@ -41,6 +41,10 @@ func (m *mockAdapter) Platform() string { return "test" }
 
 func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
+func (m *mockAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
+
 func (m *mockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	m.mu.Lock()
 	if m.startErr != nil {
@@ -397,16 +401,12 @@ func TestOptions(t *testing.T) {
 	t.Run("WithAdapter", func(t *testing.T) {
 		newAdapter := newMockAdapter()
 		bot := NewBot(adapter, eng, WithAdapter(newAdapter))
-		// Note: WithAdapter doesn't replace adapter in NewBot
-		// It's used in factory NewBotWithDefault() function
 		assert.NotNil(t, bot.adapter)
 	})
 
 	t.Run("WithEngine", func(t *testing.T) {
 		newEngine := engine.NewEngine()
 		bot := NewBot(adapter, eng, WithEngine(newEngine))
-		// Note: WithEngine doesn't replace engine in NewBot
-		// It's used in factory NewBotWithDefault() function
 		assert.NotNil(t, bot.engine)
 	})
 }

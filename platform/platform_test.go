@@ -43,10 +43,13 @@ func TestOutboundMessage(t *testing.T) {
 		t.Errorf("MarkdownMessage: got %q, want %q", md.Markdown, "# title")
 	}
 
-	// ImageMessage
+	// ImageMessage - now uses Attachments
 	img := platform.ImageMessage("https://example.com/img.png")
-	if img.ImageURL != "https://example.com/img.png" {
-		t.Errorf("ImageMessage: got %q", img.ImageURL)
+	if len(img.Attachments) == 0 || img.Attachments[0].URL != "https://example.com/img.png" {
+		t.Errorf("ImageMessage: got %+v", img.Attachments)
+	}
+	if img.Attachments[0].Kind != platform.AttachmentKindImage {
+		t.Errorf("ImageMessage: wrong kind %q", img.Attachments[0].Kind)
 	}
 
 	// WithReply
@@ -67,25 +70,48 @@ func TestOutboundMessage(t *testing.T) {
 }
 
 func TestOutboundMessage_RichMedia(t *testing.T) {
-	// AudioMessage
+	// AudioMessage - uses Attachments
 	audio := platform.AudioMessage("https://example.com/a.mp3")
-	if audio.AudioURL != "https://example.com/a.mp3" {
-		t.Errorf("AudioMessage: got %q", audio.AudioURL)
+	if len(audio.Attachments) == 0 || audio.Attachments[0].URL != "https://example.com/a.mp3" {
+		t.Errorf("AudioMessage: got %+v", audio.Attachments)
+	}
+	if audio.Attachments[0].Kind != platform.AttachmentKindAudio {
+		t.Errorf("AudioMessage: wrong kind %q", audio.Attachments[0].Kind)
 	}
 
 	// VideoMessage
 	video := platform.VideoMessage("https://example.com/v.mp4")
-	if video.VideoURL != "https://example.com/v.mp4" {
-		t.Errorf("VideoMessage: got %q", video.VideoURL)
+	if len(video.Attachments) == 0 || video.Attachments[0].URL != "https://example.com/v.mp4" {
+		t.Errorf("VideoMessage: got %+v", video.Attachments)
+	}
+	if video.Attachments[0].Kind != platform.AttachmentKindVideo {
+		t.Errorf("VideoMessage: wrong kind %q", video.Attachments[0].Kind)
 	}
 
 	// FileMessage
 	file := platform.FileMessage("https://example.com/doc.pdf", "doc.pdf")
-	if file.FileURL != "https://example.com/doc.pdf" {
-		t.Errorf("FileMessage URL: got %q", file.FileURL)
+	if len(file.Attachments) == 0 || file.Attachments[0].URL != "https://example.com/doc.pdf" {
+		t.Errorf("FileMessage URL: got %+v", file.Attachments)
 	}
-	if file.FileName != "doc.pdf" {
-		t.Errorf("FileMessage Name: got %q", file.FileName)
+	if file.Attachments[0].Name != "doc.pdf" {
+		t.Errorf("FileMessage Name: got %q", file.Attachments[0].Name)
+	}
+	if file.Attachments[0].Kind != platform.AttachmentKindFile {
+		t.Errorf("FileMessage Kind: got %q", file.Attachments[0].Kind)
+	}
+
+	// WithAttachments - multiple attachments
+	base := platform.TextMessage("multi")
+	multi := base.WithAttachments(
+		platform.Attachment{Kind: platform.AttachmentKindImage, URL: "https://img1.com"},
+		platform.Attachment{Kind: platform.AttachmentKindImage, URL: "https://img2.com"},
+	)
+	if len(multi.Attachments) != 2 {
+		t.Errorf("WithAttachments: expected 2 attachments, got %d", len(multi.Attachments))
+	}
+	// original unmodified
+	if len(base.Attachments) != 0 {
+		t.Error("WithAttachments should not modify original message")
 	}
 }
 
@@ -157,7 +183,7 @@ func TestButtonStyleConstants(t *testing.T) {
 
 func TestNoopSender(t *testing.T) {
 	s := &platform.NoopSender{}
-	err := s.Send(context.Background(), "chatid", platform.TextMessage("hello"))
+	err := s.Send(context.Background(), platform.TextMessage("hello"))
 	if err != nil {
 		t.Errorf("NoopSender.Send should return nil, got %v", err)
 	}
@@ -187,6 +213,12 @@ func TestEventKindConstants(t *testing.T) {
 		platform.EventKindNotice,
 		platform.EventKindRequest,
 		platform.EventKindSystem,
+		platform.EventKindInteraction,
+		platform.EventKindReaction,
+		platform.EventKindMemberJoin,
+		platform.EventKindMemberLeave,
+		platform.EventKindMessageUpdate,
+		platform.EventKindMessageDelete,
 	}
 	for _, k := range kinds {
 		if k == "" {
@@ -253,6 +285,9 @@ func (a *mockCancelableAdapter) Platform() string { return a.platformID }
 func (a *mockCancelableAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
+func (a *mockCancelableAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
 func (a *mockCancelableAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
 	close(a.started)
 	<-ctx.Done()
@@ -317,6 +352,9 @@ func (a *mockFatalAdapter) Platform() string { return a.platformID }
 func (a *mockFatalAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
+func (a *mockFatalAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
 func (a *mockFatalAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error {
 	return a.startErr
 }
@@ -346,6 +384,9 @@ type mockErrorStopAdapter struct {
 func (a *mockErrorStopAdapter) Platform() string { return a.platformID }
 func (a *mockErrorStopAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
+}
+func (a *mockErrorStopAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
 }
 func (a *mockErrorStopAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
 	<-ctx.Done()

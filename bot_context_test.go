@@ -22,6 +22,9 @@ func newCtxMockAdapter() *ctxMockAdapter {
 
 func (a *ctxMockAdapter) Platform() string        { return "test" }
 func (a *ctxMockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+func (a *ctxMockAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
 func (a *ctxMockAdapter) StartPlatform(ctx context.Context, _ func(platform.Event)) error {
 	close(a.startedCh)
 	<-ctx.Done()

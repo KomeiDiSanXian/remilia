@@ -209,6 +209,10 @@ func (m *mockAdapter) Stop(_ context.Context) error { return nil }
 
 func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 
+func (m *mockAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
+
 func (m *mockAdapter) GetStartCallCount() int32 {
 	return m.startCallCount.Load()
 }

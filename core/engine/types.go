@@ -2,7 +2,6 @@ package engine
 
 import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // EventType 平台无关的事件类型标识。
@@ -90,11 +89,3 @@ type PluginCoordinator interface {
 	// EnableGroup 启用指定分组（恢复事件分发）
 	EnableGroup(groupName string)
 }
-
-// PlatformAdapter 是平台无关的适配器接口别名，等价于 platform.PlatformAdapter。
-//
-// 此处保留为类型别名，供已直接引用 engine.PlatformAdapter 的代码无缝过渡。
-// 新代码应直接使用 platform.PlatformAdapter。
-//
-// 实现示例参见 platform/qq.Adapter 和 platform/qq.WebhookServerAdapter。
-type PlatformAdapter = platform.PlatformAdapter

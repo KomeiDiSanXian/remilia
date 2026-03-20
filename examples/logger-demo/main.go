@@ -73,6 +73,9 @@ type MockAdapter struct{}
 
 func (m *MockAdapter) Platform() string        { return "qq" }
 func (m *MockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
+func (m *MockAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}
 
 func (m *MockAdapter) StartPlatform(ctx context.Context, handler func(platform.Event)) error {
 	logger.Info("[MockAdapter] Starting...")

@@ -1,26 +1,12 @@
 package remilia
 
-import (
-	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
-)
-
-// NewBotWithDefault 创建一个带默认 Webhook 配置的 QQ Bot 实例。
+// factory.go — 此文件已清空。
 //
-// 这是一个 QQ 平台专属的便捷构造函数。内部创建 [qq.WebhookServerAdapter]（它自动管理
-// token 刷新等 QQ 认证逻辑），再委托给 [BotBuilder] 完成 Bot 构建，等价于：
+// NewBotWithDefault（QQ 平台专属便捷构造函数）已移至 platform/qq 包：
 //
-//	adapter := qq.NewWebhookServerAdapter(addr, info)
-//	bot, err := remilia.NewBotBuilder().
-//	    WithPlatformAdapter(adapter).
-//	    Build()
+//	bot, err := qq.NewBotWithDefault(":8080", botInfo)
 //
-// 若需要更多定制选项，请直接使用上述方式。
-func NewBotWithDefault(addr string, info *dto.BotInfo, opts ...Option) (*Bot, error) {
-	adapter := qqplatform.NewWebhookServerAdapter(addr, info)
-	b := NewBotBuilder().WithPlatformAdapter(adapter)
-	for _, opt := range opts {
-		b.WithOption(opt)
-	}
-	return b.Build()
-}
+// 或直接使用通用 BotBuilder（推荐方式）：
+//
+//	adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+//	bot, err := remilia.NewBotBuilder().WithPlatformAdapter(adapter).Build()

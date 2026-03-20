@@ -72,7 +72,7 @@ type Config struct {
 //	bot, err := remilia.NewBotBuilder().
 //	    WithPlatformRegistry(registry).
 //	    Build()
-func NewBot(adapter engine.PlatformAdapter, e *engine.Engine, opts ...Option) *Bot {
+func NewBot(adapter platform.PlatformAdapter, e *engine.Engine, opts ...Option) *Bot {
 	// adapter 允许为 nil（多平台注册表模式下不需要单一适配器）
 	if adapter == nil {
 		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")

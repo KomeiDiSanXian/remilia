@@ -44,3 +44,6 @@ func (a *testAdapter) Platform() string                                         
 func (a *testAdapter) StartPlatform(_ context.Context, _ func(platform.Event)) error { return nil }
 func (a *testAdapter) Stop(_ context.Context) error                                  { return nil }
 func (a *testAdapter) Sender() platform.Sender                                       { return &platform.NoopSender{} }
+func (a *testAdapter) Capabilities() platform.PlatformCapabilities {
+	return platform.PlatformCapabilities{}
+}

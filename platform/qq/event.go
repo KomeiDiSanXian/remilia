@@ -25,47 +25,47 @@ type qqEvent struct {
 }
 
 // NewEvent 从 QQ payload 创建 platform.Event
-//
-// 自动解析高频事件类型（C2C、GroupAt），其他类型懒解析。
 func NewEvent(payload *dto.Payload) platform.Event {
-	e := &qqEvent{
-		payload: payload,
-	}
+	e := &qqEvent{payload: payload}
 	e.populate()
 	return e
 }
 
-// populate 从 payload 中提取平台无关字段
 func (e *qqEvent) populate() {
 	if e.payload == nil {
 		e.kind = platform.EventKindUnknown
 		return
 	}
-
 	switch e.payload.Type {
 	case dto.C2CMessageCreate:
 		e.kind = platform.EventKindPrivateMessage
 		e.populateC2C()
-
 	case dto.GroupAtMessageCreate:
 		e.kind = platform.EventKindGroupMessage
 		e.populateGroupAt()
-
 	case dto.Ready, dto.Resumed:
 		e.kind = platform.EventKindSystem
-
-	case dto.GroupAddRobot, dto.GroupDelRobot, dto.GroupMsgReject, dto.GroupMsgReceive:
+	case dto.GroupAddRobot:
+		e.kind = platform.EventKindMemberJoin
+		e.populateNoticeGroup()
+	case dto.GroupDelRobot:
+		e.kind = platform.EventKindMemberLeave
+		e.populateNoticeGroup()
+	case dto.GroupMsgReject, dto.GroupMsgReceive:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeGroup()
-
-	case dto.FriendAdd, dto.FriendDel, dto.C2CMsgReject, dto.C2CMsgReceive:
+	case dto.FriendAdd:
+		e.kind = platform.EventKindMemberJoin
+		e.populateNoticeUser()
+	case dto.FriendDel:
+		e.kind = platform.EventKindMemberLeave
+		e.populateNoticeUser()
+	case dto.C2CMsgReject, dto.C2CMsgReceive:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeUser()
-
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
 		e.populateGuildMessage()
-
 	default:
 		e.kind = platform.EventKindUnknown
 	}
@@ -75,20 +75,24 @@ func (e *qqEvent) populateC2C() {
 	if e.payload.Detail == nil {
 		return
 	}
-	d := e.payload.Detail
-	e.content = gjson.GetBytes(d, "content").String()
-
-	userOpenID := gjson.GetBytes(d, "author.user_openid").String()
+	// 一次线性扫描提取所有字段（O(n) 而非 O(k×n)）
+	results := gjson.GetManyBytes(e.payload.Detail,
+		"content",
+		"author.user_openid",
+		"author.id",
+		"timestamp",
+	)
+	e.content = results[0].String()
+	userOpenID := results[1].String()
 	e.sender = platform.UserInfo{
 		ID:          userOpenID,
-		DisplayName: gjson.GetBytes(d, "author.id").String(),
+		DisplayName: results[2].String(),
 	}
 	e.chat = platform.ChatInfo{
 		ID:      userOpenID,
 		IsGroup: false,
 	}
-
-	if ts := gjson.GetBytes(d, "timestamp").String(); ts != "" {
+	if ts := results[3].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
@@ -99,21 +103,26 @@ func (e *qqEvent) populateGroupAt() {
 	if e.payload.Detail == nil {
 		return
 	}
-	d := e.payload.Detail
-	e.content = gjson.GetBytes(d, "content").String()
-
-	memberOpenID := gjson.GetBytes(d, "author.member_openid").String()
+	results := gjson.GetManyBytes(e.payload.Detail,
+		"content",
+		"author.member_openid",
+		"author.id",
+		"group_openid",
+		"group_name",
+		"timestamp",
+	)
+	e.content = results[0].String()
+	memberOpenID := results[1].String()
 	e.sender = platform.UserInfo{
 		ID:          memberOpenID,
-		DisplayName: gjson.GetBytes(d, "author.id").String(),
+		DisplayName: results[2].String(),
 	}
-	groupOpenID := gjson.GetBytes(d, "group_openid").String()
 	e.chat = platform.ChatInfo{
-		ID:      groupOpenID,
+		ID:      results[3].String(),
+		Name:    results[4].String(), // 填充群名称（如 payload 中存在）
 		IsGroup: true,
 	}
-
-	if ts := gjson.GetBytes(d, "timestamp").String(); ts != "" {
+	if ts := results[5].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
@@ -124,83 +133,92 @@ func (e *qqEvent) populateGuildMessage() {
 	if e.payload.Detail == nil {
 		return
 	}
-	d := e.payload.Detail
-	e.content = gjson.GetBytes(d, "content").String()
-
+	results := gjson.GetManyBytes(e.payload.Detail,
+		"content",
+		"author.id",
+		"author.username",
+		"channel_id",
+		"guild_id",
+		"channel_name",
+		"timestamp",
+	)
+	e.content = results[0].String()
 	e.sender = platform.UserInfo{
-		ID:          gjson.GetBytes(d, "author.id").String(),
-		DisplayName: gjson.GetBytes(d, "author.username").String(),
+		ID:          results[1].String(),
+		DisplayName: results[2].String(),
 	}
-	channelID := gjson.GetBytes(d, "channel_id").String()
-	guildID := gjson.GetBytes(d, "guild_id").String()
+	channelID := results[3].String()
+	guildID := results[4].String()
 	chatID := channelID
 	if chatID == "" {
 		chatID = guildID
 	}
 	e.chat = platform.ChatInfo{
-		ID:      chatID,
-		Name:    gjson.GetBytes(d, "channel_name").String(),
-		IsGroup: true,
+		ID:       chatID,
+		ParentID: guildID, // 修复：保留 guild_id（Bug #2 修复）
+		Name:     results[5].String(),
+		IsGroup:  true,
 	}
-
-	if ts := gjson.GetBytes(d, "timestamp").String(); ts != "" {
+	if ts := results[6].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
 	}
 }
 
-// populateNoticeGroup 从群通知类事件中提取平台无关字段。
-//
-// 适用于：GroupAddRobot、GroupDelRobot、GroupMsgReject、GroupMsgReceive。
-// 对应 dto.GroupOpRobotEvent 结构：group_openid、op_member_openid、timestamp（Unix 秒）。
 func (e *qqEvent) populateNoticeGroup() {
 	if e.payload.Detail == nil {
 		return
 	}
-	d := e.payload.Detail
-	groupOpenID := gjson.GetBytes(d, "group_openid").String()
+	results := gjson.GetManyBytes(e.payload.Detail,
+		"group_openid",
+		"op_member_openid",
+		"timestamp",
+	)
 	e.chat = platform.ChatInfo{
-		ID:      groupOpenID,
+		ID:      results[0].String(),
 		IsGroup: true,
 	}
-	opMemberOpenID := gjson.GetBytes(d, "op_member_openid").String()
 	e.sender = platform.UserInfo{
-		ID: opMemberOpenID,
+		ID: results[1].String(),
 	}
-	if ts := gjson.GetBytes(d, "timestamp").Int(); ts != 0 {
+	if ts := results[2].Int(); ts != 0 {
 		e.timestamp = time.Unix(ts, 0)
 	}
 }
 
-// populateNoticeUser 从用户通知类事件中提取平台无关字段。
-//
-// 适用于：FriendAdd、FriendDel、C2CMsgReject、C2CMsgReceive。
-// 对应 dto.UserOpRobotEvent 结构：openid、timestamp（Unix 秒）。
 func (e *qqEvent) populateNoticeUser() {
 	if e.payload.Detail == nil {
 		return
 	}
-	d := e.payload.Detail
-	openID := gjson.GetBytes(d, "openid").String()
-	e.sender = platform.UserInfo{
-		ID: openID,
-	}
-	e.chat = platform.ChatInfo{
-		ID:      openID,
-		IsGroup: false,
-	}
-	if ts := gjson.GetBytes(d, "timestamp").Int(); ts != 0 {
+	results := gjson.GetManyBytes(e.payload.Detail,
+		"openid",
+		"timestamp",
+	)
+	openID := results[0].String()
+	e.sender = platform.UserInfo{ID: openID}
+	e.chat = platform.ChatInfo{ID: openID, IsGroup: false}
+	if ts := results[1].Int(); ts != 0 {
 		e.timestamp = time.Unix(ts, 0)
 	}
 }
 
 // --- platform.Event 接口实现 ---
 
-func (e *qqEvent) Platform() string          { return PlatformID }
-func (e *qqEvent) ID() string                { return string(e.payload.ID) }
-func (e *qqEvent) Kind() platform.EventKind  { return e.kind }
-func (e *qqEvent) RawType() string           { return e.payload.Type }
+func (e *qqEvent) Platform() string { return PlatformID }
+func (e *qqEvent) ID() string {
+	if e.payload == nil {
+		return ""
+	}
+	return string(e.payload.ID)
+}
+func (e *qqEvent) Kind() platform.EventKind { return e.kind }
+func (e *qqEvent) RawType() string {
+	if e.payload == nil {
+		return ""
+	}
+	return e.payload.Type
+}
 func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
 func (e *qqEvent) Chat() platform.ChatInfo   { return e.chat }
 func (e *qqEvent) Content() string           { return e.content }

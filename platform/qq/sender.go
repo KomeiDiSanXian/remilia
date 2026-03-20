@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"fmt"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -19,29 +20,27 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 	return &qqSender{api: api}
 }
 
-// Send 将 OutboundMessage 转换并发送到 QQ 平台
+// Send 将 OutboundMessage 转换并发送到 QQ 平台。
 //
-// 路由：从 platform.ChatInfo（由框架 Reply() 自动注入）读取会话类型。
-// 若无 ChatInfo，Fallback 按群聊处理。
-func (s *qqSender) Send(ctx stdctx.Context, chatID string, msg platform.OutboundMessage) error {
+// 目标会话信息从 ctx 的 ChatInfo 读取（由 Reply 或 platform.WithChatInfo 注入）。
+// 若 ctx 未携带 ChatInfo，返回 errutil.ErrNoChatInfo。
+func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
 	if s.api == nil {
 		return fmt.Errorf("qq sender: openAPI client is nil")
 	}
 
-	dtoMsg := buildDTOMessage(msg)
-
-	// 从 platform.ChatInfo（由框架 Reply 注入）读取会话类型
-	if chat, ok := platform.ChatInfoFromContext(ctx); ok {
-		if chat.IsGroup {
-			_, err := s.api.GroupChat(chatID, dtoMsg)
-			return err
-		}
-		_, err := s.api.SingleChat(chatID, dtoMsg)
-		return err
+	chat, ok := platform.ChatInfoFromContext(ctx)
+	if !ok {
+		return errutil.ErrNoChatInfo
 	}
 
-	// Fallback：无法判断类型时，尝试群聊（大多数场景）
-	_, err := s.api.GroupChat(chatID, dtoMsg)
+	dtoMsg := buildDTOMessage(msg)
+
+	if chat.IsGroup {
+		_, err := s.api.GroupChat(chat.ID, dtoMsg)
+		return err
+	}
+	_, err := s.api.SingleChat(chat.ID, dtoMsg)
 	return err
 }
 
@@ -76,4 +75,16 @@ func buildDTOMessage(msg platform.OutboundMessage) *dto.Message {
 	}
 
 	return dtoMsg
+}
+
+// QQCapabilities 是 QQ 平台的能力声明
+var QQCapabilities = platform.PlatformCapabilities{
+	Markdown:        true,
+	Buttons:         true,
+	MultiAttachment: false,
+	MessageEdit:     false,
+	MessageDelete:   false,
+	Embeds:          false,
+	FileUpload:      true,
+	GuildSupport:    true,
 }

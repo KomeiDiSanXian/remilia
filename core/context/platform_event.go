@@ -24,6 +24,14 @@ func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Cont
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
 
+	// 确保 stdctx 始终非 nil；若池中对象是全新分配的（ctx.ctx == nil），
+	// 使用 Background() 初始化，避免 ctx.Context() 触发"unexpectedly nil"警告。
+	ctx.ctxMu.Lock()
+	if ctx.ctx == nil {
+		ctx.ctx = stdctx.Background()
+	}
+	ctx.ctxMu.Unlock()
+
 	// Reset content cache
 	ctx.contentOnce = sync.Once{}
 	ctx.content = ""
@@ -96,6 +104,7 @@ func (ctx *Context) GetEventPlatform() string {
 // Reply 向事件来源会话发送回复（平台无关方式）。
 //
 // ChatInfo（IsGroup 等）会自动注入到 Go context，供平台发送器路由使用。
+// 超时/截止时间由当前 Context 的标准库 context 控制（中间件注入的 Deadline 同样有效）。
 //
 // 示例：
 //
@@ -108,8 +117,8 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) error {
 		return ErrNoPlatformSender
 	}
 	chat := ctx.platformEvent.Chat()
-	goCtx := platform.WithChatInfo(stdctx.Background(), chat)
-	return ctx.platformSender.Send(goCtx, chat.ID, msg)
+	goCtx := platform.WithChatInfo(ctx.Context(), chat)
+	return ctx.platformSender.Send(goCtx, msg)
 }
 
 // ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
@@ -124,7 +133,7 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	}
 	chat := ctx.platformEvent.Chat()
 	goCtx := platform.WithChatInfo(stdCtx, chat)
-	return ctx.platformSender.Send(goCtx, chat.ID, msg)
+	return ctx.platformSender.Send(goCtx, msg)
 }
 
 // IsPlatformContext 返回此 Context 是否由平台路径（platform.Event）创建

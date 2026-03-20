@@ -57,7 +57,7 @@ type captureSender struct {
 	received []platform.OutboundMessage
 }
 
-func (s *captureSender) Send(_ stdctx.Context, _ string, msg platform.OutboundMessage) error {
+func (s *captureSender) Send(_ stdctx.Context, msg platform.OutboundMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.received = append(s.received, msg)

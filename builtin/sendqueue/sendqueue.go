@@ -54,7 +54,7 @@ func DefaultConfig() Config {
 
 // sendJob is one pending send task.
 type sendJob struct {
-	target string
+	chat platform.ChatInfo // 目标会话（含 ID 和 IsGroup 路由信息）
 
 	// platform-agnostic path
 	sender   platform.Sender
@@ -142,12 +142,13 @@ func (p *Plugin) SetDefaultSender(s platform.Sender) {
 	p.defaultSender = s
 }
 
-// Enqueue adds a platform-agnostic message to the queue (recommended).
+// Enqueue 将平台无关消息加入发送队列。
 //
-// If sender is nil, falls back to the default sender set via SetDefaultSender.
-func (p *Plugin) Enqueue(chatID string, msg platform.OutboundMessage, sender platform.Sender) error {
+// chat 指定目标会话（ID + IsGroup 路由信息），用于限流 key 和注入 ChatInfo。
+// 若 sender 为 nil，使用 SetDefaultSender 设置的默认发送器。
+func (p *Plugin) Enqueue(chat platform.ChatInfo, msg platform.OutboundMessage, sender platform.Sender) error {
 	return p.enqueue(sendJob{
-		target:   chatID,
+		chat:     chat,
 		outbound: msg,
 		sender:   sender,
 	})
@@ -201,8 +202,8 @@ func (p *Plugin) process(workerID int, job sendJob) {
 	if err := p.globalRL.Wait(p.ctx); err != nil {
 		return
 	}
-	// per-target 限速等待
-	if rl := p.targetLimiter(job.target); rl != nil {
+	// per-target 限速等待（以 chat.ID 为 key）
+	if rl := p.targetLimiter(job.chat.ID); rl != nil {
 		if err := rl.Wait(p.ctx); err != nil {
 			return
 		}
@@ -210,9 +211,11 @@ func (p *Plugin) process(workerID int, job sendJob) {
 
 	var sendErr error
 	if job.sender != nil {
-		sendErr = job.sender.Send(p.ctx, job.target, job.outbound)
+		// 注入 ChatInfo 到 context，供 Sender 路由使用
+		sendCtx := platform.WithChatInfo(p.ctx, job.chat)
+		sendErr = job.sender.Send(sendCtx, job.outbound)
 	} else {
-		logger.Warnf("[SendQueue] worker=%d job has no sender, dropping target=%s", workerID, job.target)
+		logger.Warnf("[SendQueue] worker=%d job has no sender, dropping target=%s", workerID, job.chat.ID)
 		return
 	}
 	if sendErr != nil {
@@ -227,13 +230,13 @@ func (p *Plugin) process(workerID int, job sendJob) {
 				select {
 				case p.queue <- job:
 				default:
-					logger.Warnf("[SendQueue] retry queue full, dropping target=%s", job.target)
+					logger.Warnf("[SendQueue] retry queue full, dropping target=%s", job.chat.ID)
 				}
 			})
 		} else {
-			logger.WithError(sendErr).Errorf("[SendQueue] worker=%d max retries reached for target=%s", workerID, job.target)
+			logger.WithError(sendErr).Errorf("[SendQueue] worker=%d max retries reached for target=%s", workerID, job.chat.ID)
 		}
 	} else {
-		logger.Debugf("[SendQueue] worker=%d sent to %s", workerID, job.target)
+		logger.Debugf("[SendQueue] worker=%d sent to %s", workerID, job.chat.ID)
 	}
 }

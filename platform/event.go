@@ -30,16 +30,34 @@ const (
 	EventKindUnknown EventKind = "UNKNOWN"
 	// EventKindPrivateMessage 私聊消息（QQ C2C、Telegram 私聊、Discord DM 等）
 	EventKindPrivateMessage EventKind = "PRIVATE_MESSAGE"
-	// EventKindGroupMessage 群组/频道消息（QQ 群、Discord 频道等）
+	// EventKindGroupMessage 群组消息（QQ 群、Discord 频道等）
 	EventKindGroupMessage EventKind = "GROUP_MESSAGE"
 	// EventKindGuildMessage 频道/服务器消息（QQ频道、Discord 服务器等）
 	EventKindGuildMessage EventKind = "GUILD_MESSAGE"
-	// EventKindNotice 通知类事件（入群、退群、好友添加等）
+	// EventKindNotice 通知类事件（通用，平台无法精确归类时使用）
 	EventKindNotice EventKind = "NOTICE"
 	// EventKindRequest 请求类事件（加好友请求、加群请求等）
 	EventKindRequest EventKind = "REQUEST"
 	// EventKindSystem 系统事件（Ready、Resumed 等）
 	EventKindSystem EventKind = "SYSTEM"
+	// EventKindInteraction 交互事件（按钮回调、斜杠命令、下拉菜单等）
+	//
+	// Discord Interaction、QQ 机器人 v2 按钮回调、Telegram 内联键盘回调。
+	EventKindInteraction EventKind = "INTERACTION"
+	// EventKindReaction 消息表情回应（添加或移除）
+	//
+	// Discord 表情回应、Telegram 表情回应、QQ 表情回应。
+	EventKindReaction EventKind = "REACTION"
+	// EventKindMemberJoin 成员加入群组/服务器事件
+	EventKindMemberJoin EventKind = "MEMBER_JOIN"
+	// EventKindMemberLeave 成员离开/被踢出群组/服务器事件
+	EventKindMemberLeave EventKind = "MEMBER_LEAVE"
+	// EventKindMessageUpdate 消息被编辑
+	//
+	// Discord 消息编辑、Telegram 消息编辑。
+	EventKindMessageUpdate EventKind = "MESSAGE_UPDATE"
+	// EventKindMessageDelete 消息被撤回/删除
+	EventKindMessageDelete EventKind = "MESSAGE_DELETE"
 )
 
 // UserInfo 代表消息发送者/用户的基本信息。
@@ -57,7 +75,14 @@ type UserInfo struct {
 // ChatInfo 代表消息所在会话的基本信息。
 type ChatInfo struct {
 	// ID 会话/群组/频道唯一标识
+	// 私聊：用户 ID；群组：群 ID；频道/话题：channel_id
 	ID string
+	// ParentID 父容器唯一标识（服务器/频道层级时使用）。
+	//
+	// 频道消息：guild_id / 服务器 ID
+	// Discord: guild_id；QQ 频道: guild_id
+	// 私聊和普通群组为空字符串。
+	ParentID string
 	// Name 会话名称（可选，部分平台不提供）
 	Name string
 	// IsGroup 是否为群组/频道消息（false = 私聊）

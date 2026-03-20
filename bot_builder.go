@@ -48,7 +48,7 @@ func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
 //
 // 每次调用会覆盖上一次设置的适配器；若需要同时运行多个平台，
 // 请改用 [BotBuilder.WithPlatformRegistry]。
-func (b *BotBuilder) WithPlatformAdapter(adapter engine.PlatformAdapter) *BotBuilder {
+func (b *BotBuilder) WithPlatformAdapter(adapter platform.PlatformAdapter) *BotBuilder {
 	b.adapter = adapter
 	return b
 }

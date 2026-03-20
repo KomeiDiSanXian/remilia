@@ -102,8 +102,8 @@ func TestAcquireContextFromEvent_Reply(t *testing.T) {
 	}
 	var got *msg
 
-	sender := &captureTestSender{fn: func(chatID string, m platform.OutboundMessage) {
-		got = &msg{chatID: chatID, text: m.Text}
+	sender := &captureTestSender{fn: func(chat platform.ChatInfo, m platform.OutboundMessage) {
+		got = &msg{chatID: chat.ID, text: m.Text}
 	}}
 
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "ping", platform.EventKindPrivateMessage)
@@ -152,12 +152,13 @@ func TestReleaseContextFromEvent_PoolReuse(t *testing.T) {
 // --- helper ---
 
 type captureTestSender struct {
-	fn func(chatID string, msg platform.OutboundMessage)
+	fn func(chat platform.ChatInfo, msg platform.OutboundMessage)
 }
 
-func (s *captureTestSender) Send(_ stdctx.Context, chatID string, msg platform.OutboundMessage) error {
+func (s *captureTestSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
 	if s.fn != nil {
-		s.fn(chatID, msg)
+		chat, _ := platform.ChatInfoFromContext(ctx)
+		s.fn(chat, msg)
 	}
 	return nil
 }

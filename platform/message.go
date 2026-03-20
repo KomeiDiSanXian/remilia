@@ -1,5 +1,91 @@
 package platform
 
+import "time"
+
+// ────────────────────────────────────────────────────────────────────────────
+// 附件（Attachment）
+// ────────────────────────────────────────────────────────────────────────────
+
+// AttachmentKind 附件媒体类型枚举。
+type AttachmentKind string
+
+const (
+	// AttachmentKindImage 图片
+	AttachmentKindImage AttachmentKind = "image"
+	// AttachmentKindAudio 音频/语音
+	AttachmentKindAudio AttachmentKind = "audio"
+	// AttachmentKindVideo 视频
+	AttachmentKindVideo AttachmentKind = "video"
+	// AttachmentKindFile  通用文件
+	AttachmentKindFile AttachmentKind = "file"
+)
+
+// Attachment 单个附件。
+//
+// URL 与 Data 互斥：
+//   - URL 非空 → 使用远程 URL 发送（平台支持时直接引用）
+//   - Data 非空 → 使用二进制直传（Telegram sendDocument、Discord 附件等）
+//
+// 两者均为空时，Sender 应将其忽略。
+type Attachment struct {
+	// Kind 附件媒体类型
+	Kind AttachmentKind
+	// URL 远程附件 URL（https://...）
+	URL string
+	// Data 本地二进制数据（直传，URL 为空时使用）
+	Data []byte
+	// MimeType MIME 类型，如 "image/png"（可选，辅助平台正确处理）
+	MimeType string
+	// Name 文件名（与 Data 或 FileURL 配合；平台不支持时可忽略）
+	Name string
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 富文本嵌入卡片（Embed）
+// ────────────────────────────────────────────────────────────────────────────
+
+// EmbedField Embed 内的单个字段行。
+type EmbedField struct {
+	// Name 字段标题
+	Name string
+	// Value 字段内容
+	Value string
+	// Inline 是否与相邻字段同行展示（Discord 支持，其他平台忽略）
+	Inline bool
+}
+
+// Embed 富文本嵌入卡片（Discord 风格，其他平台尽力映射）。
+//
+// 各平台支持程度：
+//   - Discord: 原生支持全部字段
+//   - Telegram: 映射为格式化文本消息，图片单独发送
+//   - QQ: 映射为 Markdown 或纯文本（仅 Title/Description/Fields）
+//   - 不支持的平台可安全忽略此字段
+type Embed struct {
+	// Title 标题
+	Title string
+	// Description 正文描述（支持 Markdown，平台不支持时降级为纯文本）
+	Description string
+	// URL 标题跳转链接（可选）
+	URL string
+	// Color 边框/主题颜色，十六进制整数，如 0x5865F2（Discord 蓝）
+	Color int
+	// Fields 字段列表
+	Fields []EmbedField
+	// ImageURL 正文大图 URL
+	ImageURL string
+	// ThumbnailURL 右上角缩略图 URL
+	ThumbnailURL string
+	// FooterText 页脚文本
+	FooterText string
+	// Timestamp 时间戳（显示在页脚，零值表示不展示）
+	Timestamp time.Time
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 交互按钮（Button）
+// ────────────────────────────────────────────────────────────────────────────
+
 // ButtonStyle 按钮样式枚举（各平台尽力映射到最接近的原生样式）
 type ButtonStyle string
 
@@ -16,7 +102,7 @@ const (
 
 // Button 代表一个平台无关的交互按钮。
 //
-// 适用于 Discord 消息组件、Telegram 内联键盘等。
+// 适用于 Discord 消息组件、Telegram 内联键盘、QQ 机器人键盘等。
 // 各平台 Sender 负责将此结构映射到平台特定格式；
 // 不支持按钮的平台可忽略此字段。
 type Button struct {
@@ -28,12 +114,29 @@ type Button struct {
 	URL string
 	// Style 按钮样式
 	Style ButtonStyle
+	// Disabled 按钮是否置灰不可点击（Discord/QQ 均支持）
+	Disabled bool
+	// Row 按钮所在行（0 起始）。
+	// Discord 最多 5 行，每行 5 个。0 表示由平台自动排列。
+	Row int
+	// Emoji 按钮前展示的 emoji（Discord 原生支持，其他平台忽略）
+	Emoji string
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 出站消息（OutboundMessage）
+// ────────────────────────────────────────────────────────────────────────────
 
 // OutboundMessage 是平台无关的出站消息模型。
 //
 // 各平台 Sender 将此结构体转换为平台特定的发送格式。
-// 未设置的字段会被忽略；平台不支持的字段（如 Markdown）会优雅降级为文本。
+// 未设置的字段会被忽略；平台不支持的字段会优雅降级。
+//
+// 字段优先级（平台支持时）：
+//  1. Embeds（最丰富）
+//  2. Attachments（富媒体）
+//  3. Markdown（格式文本）
+//  4. Text（纯文本，最广泛兼容）
 type OutboundMessage struct {
 	// Text 纯文本内容
 	Text string
@@ -41,20 +144,13 @@ type OutboundMessage struct {
 	// Markdown Markdown 格式内容（平台不支持时降级为 Text）
 	Markdown string
 
-	// ImageURL 图片 URL（富媒体消息）
-	ImageURL string
+	// Attachments 附件列表（图片/音频/视频/文件，支持多附件）
+	//
+	// 不支持多附件的平台（如 QQ）只处理第一个匹配当前能力的附件。
+	Attachments []Attachment
 
-	// AudioURL 音频/语音消息 URL
-	AudioURL string
-
-	// VideoURL 视频消息 URL
-	VideoURL string
-
-	// FileURL 文件消息 URL
-	FileURL string
-
-	// FileName 文件名（与 FileURL 配合使用；平台不支持时可忽略）
-	FileName string
+	// Embeds 富文本嵌入卡片列表（Discord 原生、其他平台降级处理）
+	Embeds []Embed
 
 	// Mentions 被 @ 用户的 ID 列表（平台内唯一标识符）
 	//
@@ -77,43 +173,61 @@ type OutboundMessage struct {
 	Extra map[string]any
 }
 
-// TextMessage 快速创建纯文本消息的便捷构造函数
+// ────────────────────────────────────────────────────────────────────────────
+// 工厂函数
+// ────────────────────────────────────────────────────────────────────────────
+
+// TextMessage 快速创建纯文本消息
 func TextMessage(text string) OutboundMessage {
 	return OutboundMessage{Text: text}
 }
 
-// MarkdownMessage 快速创建 Markdown 消息的便捷构造函数
+// MarkdownMessage 快速创建 Markdown 消息
 func MarkdownMessage(md string) OutboundMessage {
 	return OutboundMessage{Markdown: md}
 }
 
-// ImageMessage 快速创建图片消息的便捷构造函数
+// ImageMessage 快速创建图片消息（远程 URL）
 func ImageMessage(url string) OutboundMessage {
-	return OutboundMessage{ImageURL: url}
+	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindImage, URL: url}}}
 }
 
-// AudioMessage 快速创建音频/语音消息的便捷构造函数
+// AudioMessage 快速创建音频消息（远程 URL）
 func AudioMessage(url string) OutboundMessage {
-	return OutboundMessage{AudioURL: url}
+	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindAudio, URL: url}}}
 }
 
-// VideoMessage 快速创建视频消息的便捷构造函数
+// VideoMessage 快速创建视频消息（远程 URL）
 func VideoMessage(url string) OutboundMessage {
-	return OutboundMessage{VideoURL: url}
+	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindVideo, URL: url}}}
 }
 
-// FileMessage 快速创建文件消息的便捷构造函数
+// FileMessage 快速创建文件消息（远程 URL）
 func FileMessage(url, name string) OutboundMessage {
-	return OutboundMessage{FileURL: url, FileName: name}
+	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindFile, URL: url, Name: name}}}
 }
 
-// WithReply 为消息设置回复目标，返回新消息（不修改原消息）
+// FileDataMessage 快速创建文件消息（本地二进制直传）
+func FileDataMessage(data []byte, name, mimeType string) OutboundMessage {
+	return OutboundMessage{Attachments: []Attachment{{
+		Kind:     AttachmentKindFile,
+		Data:     data,
+		Name:     name,
+		MimeType: mimeType,
+	}}}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 链式 Builder 方法（返回新消息，不修改原消息）
+// ────────────────────────────────────────────────────────────────────────────
+
+// WithReply 设置回复目标消息 ID
 func (m OutboundMessage) WithReply(messageID string) OutboundMessage {
 	m.ReplyToID = messageID
 	return m
 }
 
-// WithMentions 为消息追加 @ 用户，返回新消息（不修改原消息）
+// WithMentions 追加 @ 用户 ID 列表
 func (m OutboundMessage) WithMentions(userIDs ...string) OutboundMessage {
 	n := make([]string, len(m.Mentions), len(m.Mentions)+len(userIDs))
 	copy(n, m.Mentions)
@@ -121,7 +235,7 @@ func (m OutboundMessage) WithMentions(userIDs ...string) OutboundMessage {
 	return m
 }
 
-// WithButtons 为消息追加交互按钮，返回新消息（不修改原消息）
+// WithButtons 追加交互按钮
 func (m OutboundMessage) WithButtons(buttons ...Button) OutboundMessage {
 	n := make([]Button, len(m.Buttons), len(m.Buttons)+len(buttons))
 	copy(n, m.Buttons)
@@ -129,7 +243,23 @@ func (m OutboundMessage) WithButtons(buttons ...Button) OutboundMessage {
 	return m
 }
 
-// WithExtra 为消息添加扩展字段，返回新消息（不修改原消息）
+// WithAttachments 追加附件
+func (m OutboundMessage) WithAttachments(attachments ...Attachment) OutboundMessage {
+	n := make([]Attachment, len(m.Attachments), len(m.Attachments)+len(attachments))
+	copy(n, m.Attachments)
+	m.Attachments = append(n, attachments...)
+	return m
+}
+
+// WithEmbeds 追加富文本卡片
+func (m OutboundMessage) WithEmbeds(embeds ...Embed) OutboundMessage {
+	n := make([]Embed, len(m.Embeds), len(m.Embeds)+len(embeds))
+	copy(n, m.Embeds)
+	m.Embeds = append(n, embeds...)
+	return m
+}
+
+// WithExtra 添加平台扩展字段
 func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 	if m.Extra == nil {
 		m.Extra = make(map[string]any)

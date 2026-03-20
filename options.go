@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // Option Bot 配置选项函数类型
@@ -48,7 +49,7 @@ func WithDebug(debug bool) Option {
 }
 
 // WithAdapter 设置自定义适配器
-func WithAdapter(adapter engine.PlatformAdapter) Option {
+func WithAdapter(adapter platform.PlatformAdapter) Option {
 	return func(b *Bot) {
 		b.adapter = adapter
 	}
