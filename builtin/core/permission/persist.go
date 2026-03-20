@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
-	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -72,7 +72,7 @@ func (p *Plugin) loadFromStorage() {
 		mgr := p.manager
 		for userID, perms := range permsSnap.UserPerms {
 			for _, pe := range perms {
-				mgr.GrantPermission(userID, eventctx.Permission{Resource: pe.Resource, Action: pe.Action})
+				mgr.GrantPermission(userID, permission.Permission{Resource: pe.Resource, Action: pe.Action})
 			}
 		}
 		logger.Infof("[PermissionPlugin] Loaded direct permissions for %d users", len(permsSnap.UserPerms))

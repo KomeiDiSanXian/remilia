@@ -8,6 +8,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	permission0 "github.com/KomeiDiSanXian/remilia/core/permission"
 )
 
 // mockStorageBackend 模拟存储后端（内存实现）
@@ -78,8 +79,8 @@ func TestPermissionManager_ExportLoadUserRoles(t *testing.T) {
 func TestPermissionManager_ExportUserPerms(t *testing.T) {
 	mgr := eventctx.NewPermissionManager()
 
-	mgr.GrantPermission("alice", eventctx.Permission{Resource: "post", Action: "create"})
-	mgr.GrantPermission("alice", eventctx.Permission{Resource: "post", Action: "delete"})
+	mgr.GrantPermission("alice", permission0.Permission{Resource: "post", Action: "create"})
+	mgr.GrantPermission("alice", permission0.Permission{Resource: "post", Action: "delete"})
 
 	exported := mgr.ExportUserPerms()
 	alicePerms, ok := exported["alice"]

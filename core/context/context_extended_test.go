@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -156,45 +157,45 @@ func TestParseCommand_Functional(t *testing.T) {
 // ============================================================================
 
 func TestPermission_String(t *testing.T) {
-	perm := Permission{Resource: "command", Action: "execute"}
+	perm := permission.Permission{Resource: "command", Action: "execute"}
 	assert.Equal(t, "command:execute", perm.String())
 }
 
 func TestPermission_Match(t *testing.T) {
 	tests := []struct {
 		name     string
-		perm     Permission
-		target   Permission
+		perm     permission.Permission
+		target   permission.Permission
 		expected bool
 	}{
 		{
 			name:     "exact match",
-			perm:     Permission{Resource: "command", Action: "execute"},
-			target:   Permission{Resource: "command", Action: "execute"},
+			perm:     permission.Permission{Resource: "command", Action: "execute"},
+			target:   permission.Permission{Resource: "command", Action: "execute"},
 			expected: true,
 		},
 		{
 			name:     "wildcard all",
-			perm:     Permission{Resource: "*", Action: "*"},
-			target:   Permission{Resource: "command", Action: "execute"},
+			perm:     permission.Permission{Resource: "*", Action: "*"},
+			target:   permission.Permission{Resource: "command", Action: "execute"},
 			expected: true,
 		},
 		{
 			name:     "resource prefix wildcard",
-			perm:     Permission{Resource: "command:*", Action: "execute"},
-			target:   Permission{Resource: "command:test", Action: "execute"},
+			perm:     permission.Permission{Resource: "command:*", Action: "execute"},
+			target:   permission.Permission{Resource: "command:test", Action: "execute"},
 			expected: true,
 		},
 		{
 			name:     "action wildcard",
-			perm:     Permission{Resource: "command", Action: "*"},
-			target:   Permission{Resource: "command", Action: "execute"},
+			perm:     permission.Permission{Resource: "command", Action: "*"},
+			target:   permission.Permission{Resource: "command", Action: "execute"},
 			expected: true,
 		},
 		{
 			name:     "no match",
-			perm:     Permission{Resource: "command", Action: "execute"},
-			target:   Permission{Resource: "query", Action: "view"},
+			perm:     permission.Permission{Resource: "command", Action: "execute"},
+			target:   permission.Permission{Resource: "query", Action: "view"},
 			expected: false,
 		},
 	}
@@ -209,8 +210,8 @@ func TestPermission_Match(t *testing.T) {
 
 func TestRole(t *testing.T) {
 	t.Run("NewRole", func(t *testing.T) {
-		perm1 := Permission{Resource: "cmd1", Action: "execute"}
-		perm2 := Permission{Resource: "cmd2", Action: "execute"}
+		perm1 := permission.Permission{Resource: "cmd1", Action: "execute"}
+		perm2 := permission.Permission{Resource: "cmd2", Action: "execute"}
 
 		role := NewRole("test-role", perm1, perm2)
 
@@ -220,7 +221,7 @@ func TestRole(t *testing.T) {
 
 	t.Run("AddPermission", func(t *testing.T) {
 		role := NewRole("test")
-		perm := Permission{Resource: "cmd", Action: "execute"}
+		perm := permission.Permission{Resource: "cmd", Action: "execute"}
 
 		role.AddPermission(perm)
 
@@ -229,7 +230,7 @@ func TestRole(t *testing.T) {
 	})
 
 	t.Run("RemovePermission", func(t *testing.T) {
-		perm := Permission{Resource: "cmd", Action: "execute"}
+		perm := permission.Permission{Resource: "cmd", Action: "execute"}
 		role := NewRole("test", perm)
 
 		role.RemovePermission(perm)
@@ -239,12 +240,12 @@ func TestRole(t *testing.T) {
 	})
 
 	t.Run("HasPermission", func(t *testing.T) {
-		perm := Permission{Resource: "cmd", Action: "execute"}
+		perm := permission.Permission{Resource: "cmd", Action: "execute"}
 		role := NewRole("test", perm)
 
 		assert.True(t, role.HasPermission(perm))
 
-		other := Permission{Resource: "other", Action: "execute"}
+		other := permission.Permission{Resource: "other", Action: "execute"}
 		assert.False(t, role.HasPermission(other))
 	})
 }
@@ -261,7 +262,7 @@ func TestPermissionManager(t *testing.T) {
 
 	t.Run("RegisterRole and GetRole", func(t *testing.T) {
 		pm := NewPermissionManager()
-		role := NewRole("custom", Permission{Resource: "test", Action: "execute"})
+		role := NewRole("custom", permission.Permission{Resource: "test", Action: "execute"})
 
 		pm.RegisterRole(role)
 
@@ -312,7 +313,7 @@ func TestPermissionManager(t *testing.T) {
 
 	t.Run("GrantPermission and RevokePermission", func(t *testing.T) {
 		pm := NewPermissionManager()
-		perm := Permission{Resource: "cmd", Action: "execute"}
+		perm := permission.Permission{Resource: "cmd", Action: "execute"}
 
 		pm.GrantPermission("user1", perm)
 		assert.True(t, pm.HasPermission("user1", perm))
@@ -326,13 +327,13 @@ func TestPermissionManager(t *testing.T) {
 		_ = pm.AssignRole("user1", "admin")
 
 		// Admin has wildcard permission
-		perm := Permission{Resource: "anything", Action: "do"}
+		perm := permission.Permission{Resource: "anything", Action: "do"}
 		assert.True(t, pm.HasPermission("user1", perm))
 	})
 
 	t.Run("GetUserPermissions", func(t *testing.T) {
 		pm := NewPermissionManager()
-		directPerm := Permission{Resource: "direct", Action: "execute"}
+		directPerm := permission.Permission{Resource: "direct", Action: "execute"}
 
 		pm.GrantPermission("user1", directPerm)
 		_ = pm.AssignRole("user1", "user")
@@ -345,7 +346,7 @@ func TestPermissionManager(t *testing.T) {
 // Mock PermissionProvider
 type mockPermissionProvider struct {
 	roles []string
-	perms []Permission
+	perms []permission.Permission
 	err   error
 }
 
@@ -353,7 +354,7 @@ func (m *mockPermissionProvider) GetUserRoles(_ string) ([]string, error) {
 	return m.roles, m.err
 }
 
-func (m *mockPermissionProvider) GetUserPermissions(_ string) ([]Permission, error) {
+func (m *mockPermissionProvider) GetUserPermissions(_ string) ([]permission.Permission, error) {
 	return m.perms, m.err
 }
 
@@ -361,12 +362,12 @@ func TestPermissionManager_WithProvider(t *testing.T) {
 	t.Run("SetPermissionProvider", func(t *testing.T) {
 		pm := NewPermissionManager()
 		provider := &mockPermissionProvider{
-			perms: []Permission{{Resource: "external", Action: "execute"}},
+			perms: []permission.Permission{{Resource: "external", Action: "execute"}},
 		}
 
 		pm.SetPermissionProvider(provider)
 
-		assert.True(t, pm.HasPermission("user1", Permission{Resource: "external", Action: "execute"}))
+		assert.True(t, pm.HasPermission("user1", permission.Permission{Resource: "external", Action: "execute"}))
 	})
 
 	t.Run("provider with roles", func(t *testing.T) {
@@ -378,7 +379,7 @@ func TestPermissionManager_WithProvider(t *testing.T) {
 		pm.SetPermissionProvider(provider)
 
 		// Admin role has wildcard permission
-		assert.True(t, pm.HasPermission("user1", Permission{Resource: "anything", Action: "do"}))
+		assert.True(t, pm.HasPermission("user1", permission.Permission{Resource: "anything", Action: "do"}))
 	})
 }
 
@@ -415,7 +416,7 @@ func TestOnHasPermission(t *testing.T) {
 	t.Run("has permission", func(t *testing.T) {
 		ctx := newTestCtx()
 		pm := NewPermissionManager()
-		pm.GrantPermission("user1", Permission{Resource: "cmd", Action: "execute"})
+		pm.GrantPermission("user1", permission.Permission{Resource: "cmd", Action: "execute"})
 
 		ctx.SetPermissionManager(pm)
 		ctx.SetUserID("user1")
@@ -832,7 +833,7 @@ func TestPermissionManager_Concurrent(t *testing.T) {
 	// Concurrent permission checks
 	for range 100 {
 		wg.Go(func() {
-			pm.HasPermission("user1", Permission{Resource: "test", Action: "execute"})
+			pm.HasPermission("user1", permission.Permission{Resource: "test", Action: "execute"})
 		})
 	}
 
@@ -849,14 +850,14 @@ func TestRole_Concurrent(t *testing.T) {
 	// Concurrent adds
 	for range 50 {
 		wg.Go(func() {
-			role.AddPermission(Permission{Resource: "test", Action: "execute"})
+			role.AddPermission(permission.Permission{Resource: "test", Action: "execute"})
 		})
 	}
 
 	// Concurrent checks
 	for range 50 {
 		wg.Go(func() {
-			role.HasPermission(Permission{Resource: "test", Action: "execute"})
+			role.HasPermission(permission.Permission{Resource: "test", Action: "execute"})
 		})
 	}
 
@@ -879,8 +880,8 @@ func TestBug_MatchCommandWithEmptyContent(t *testing.T) {
 
 // Benchmark tests
 func BenchmarkPermissionMatch(b *testing.B) {
-	perm := Permission{Resource: "command:*", Action: "*"}
-	target := Permission{Resource: "command:test", Action: "execute"}
+	perm := permission.Permission{Resource: "command:*", Action: "*"}
+	target := permission.Permission{Resource: "command:test", Action: "execute"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -891,7 +892,7 @@ func BenchmarkPermissionMatch(b *testing.B) {
 func BenchmarkPermissionManager_HasPermission(b *testing.B) {
 	pm := NewPermissionManager()
 	_ = pm.AssignRole("user1", "admin")
-	perm := Permission{Resource: "test", Action: "execute"}
+	perm := permission.Permission{Resource: "test", Action: "execute"}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

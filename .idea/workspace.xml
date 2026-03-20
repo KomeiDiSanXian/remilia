@@ -4,134 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(adapter): standardize platform adapter interface and capabilities structure">
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit-2026-03-20.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/multi-platform-audit.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/2026-02-06-code-review-fixes.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/2026-02-06-code-review.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/2026-02-06-test-fixes.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/ADVANCED_FEATURES_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/ADVANCED_FEATURES_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/BUG_AND_IMPROVEMENT_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/BUG_FIXES_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/BUG_FIXES_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/BUG_FIXES_QUICKREF_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CODE_QUALITY_ANALYSIS_2026_02_02.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CODE_QUALITY_IMPROVEMENTS_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CODE_QUALITY_INDEX_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/COMPILE_ERRORS_FIXED.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/COMPLETE_WORK_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CONFIGURATION_IMPROVEMENTS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CONFIGURATION_INDEX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CONFIGURATION_MIGRATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CONFIGURATION_SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CONFIG_HOTRELOAD_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/CORE-PLUGINS-IMPLEMENTATION-REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/Container测试修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/DAILY-SUMMARY-2026-02-08.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/DEBUG-PLUGIN-COMPLETION-REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/HELP-PLUGIN-FIX-SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/HELP_PLUGIN_IMPLEMENTATION_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/HTTPCLIENT-ENHANCEMENT-REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/IMPROVEMENTS_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/IMPROVEMENTS_FIX_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PACKAGE-STRUCTURE-ANALYSIS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PACKAGE-STRUCTURE-SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PERFORMANCE_OPTIMIZATION_REPORT_2026_02_05.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PERMISSION-PLUGIN-REFACTOR-REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN-DOCS-INDEX.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN-ECOSYSTEM-PLAN.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN-ECOSYSTEM-SUMMARY.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN-QUICKREF.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN-ROADMAP.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_ENHANCEMENTS_IMPLEMENTATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_ENHANCEMENT_ANALYSIS.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_ENHANCEMENT_QUICKREF.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_INTERFACE_REFACTORING.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_LIFECYCLE_INTEGRATION.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_METADATA_ENHANCEMENT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PLUGIN_V1_DEPRECATION_NOTICE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/PRE_RELEASE_REVIEW.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/Plugin依赖解析修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/SQLITE-STORAGE-IMPLEMENTATION-REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/TESTING_2026_02_01.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/TEST_FIX_FINAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/TEST_FIX_REPORT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/TRIE_TEST_FIX_FINAL.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/TestContextClone_TracePreservation修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/VERIFICATION_REPORT_2026_02_05.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK-SUMMARY-2026-02-07.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK-SUMMARY-2026-02-08-HTTPCLIENT.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK-SUMMARY-2026-02-08-REFACTOR.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK-SUMMARY-2026-02-08-SQLITE.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK-SUMMARY-2026-02-08.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/WORK_SUMMARY_2026_02_04.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/admin_plugin_subcommand_refactoring.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/architecture-analysis-2026-03.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/architecture-quality-review.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/architecture-review-2026-03.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/auto-dependency-injection-implementation.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/code-analysis-bug-and-improvements.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/code-review-2026-02-22.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/code-review-bugs-and-improvements.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/compilation-errors-fix.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/compilation-errors-fixed.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/comprehensive-bug-and-improvement-report.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/config-test-fix.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/context-generic-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/core-analysis-bugs-improvements.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/core-middleware-design-review.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/core-optimization-guide.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/core-optimization-summary.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/debug-plugin-subcommand-optimization.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/debug-subcommand-demo-creation.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/feature-gap-analysis-2026-02-22.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/generic-opportunities-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/help-plugin-complete-fix-report.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/help-plugin-fix-report.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/help-plugin-fix-verification.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/multi-platform-audit-2026-03-12.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/multi-platform-audit-2026-03-20.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/multi-platform-audit.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/phase-2-examples-migration-complete.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/phase-3-deprecation-complete-checklist.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/phase-4-v1-removal-complete.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/platform-abstraction-progress.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-analysis-bugs-improvements.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-critical-fixes-report.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-dependency-fix.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-dependency-management.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-improvements-implementation.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-interfaces-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-migration-final-summary.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-migration-guide.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-refactoring-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-analysis-2026-02-22.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-design-review.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-issues-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-issues.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-system-quality-review-2.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-fix-plan.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-implementation-summary.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-issues-analysis.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-migration-complete.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-p0-fixes-complete.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-quick-reference.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/plugin-v2-upgrade-summary.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/release-issues-v1.0.0.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/tracing-implementation-completed.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/v1-code-removal-complete.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/v1-removal-readiness-assessment.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/v2.0.0-RELEASE-NOTES.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/三项改进完成报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/中优先级问题修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/代码质量分析报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/修复总结.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/测试修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/06-archived/高优先级问题修复报告.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/README.md" beforeDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: remove archived docs">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-review-2026-03-20.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/permission/persist.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/persist.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/permission/persist_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/persist_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -344,7 +225,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat: refactor plugin system to use PluginCoordinator interface for improved type safety and dependency management" />
     <MESSAGE value="docs: rename architecture reports and update README links to reflect new file structure" />
     <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
@@ -369,7 +249,8 @@
     <MESSAGE value="refactor(sender): remove chatID parameter from Send method and update related implementations" />
     <MESSAGE value="refactor(platform): unify message sending interface and enhance capabilities structure" />
     <MESSAGE value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
+    <MESSAGE value="docs: remove archived docs" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: remove archived docs" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

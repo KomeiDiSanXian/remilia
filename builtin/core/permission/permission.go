@@ -56,13 +56,14 @@ import (
 	storageplugin "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // Plugin 权限系统插件 API
 type Plugin struct {
-	manager         *eventctx.PermissionManager
+	manager         *permission.Manager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
 	store           StorageBackend // 可选持久化后端（nil=纯内存）
@@ -71,7 +72,7 @@ type Plugin struct {
 // NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）
 // 通常应使用 New() 注册到插件管理器，通过 plugin.Require[permission.Plugin] 获取实例。
 func NewPlugin() *Plugin {
-	permManager := eventctx.NewPermissionManager()
+	permManager := permission.NewPermissionManager()
 	initExtraRoles(permManager)
 	return &Plugin{
 		manager:         permManager,
@@ -83,7 +84,7 @@ func NewPlugin() *Plugin {
 // New 创建权限插件（v2 API）
 func New() *plugin.PluginDescriptor {
 	// 创建核心组件（闭包捕获）
-	permManager := eventctx.NewPermissionManager()
+	permManager := permission.NewPermissionManager()
 	verificationMgr := NewVerificationManager()
 	acl := NewAccessControlList()
 
@@ -142,21 +143,21 @@ func New() *plugin.PluginDescriptor {
 }
 
 // initExtraRoles 初始化额外的预定义角色（保持向后兼容）
-func initExtraRoles(permManager *eventctx.PermissionManager) {
+func initExtraRoles(permManager *permission.Manager) {
 	// 重新定义 user 角色以匹配旧的权限格式
-	user := eventctx.NewRole("user",
-		eventctx.Permission{Resource: "command", Action: "use"},
-		eventctx.Permission{Resource: "message", Action: "send"},
+	user := permission.NewRole("user",
+		permission.Permission{Resource: "command", Action: "use"},
+		permission.Permission{Resource: "message", Action: "send"},
 	)
 	permManager.RegisterRole(user)
 
 	// Moderator 角色 - 部分管理权限
-	moderator := eventctx.NewRole("moderator",
-		eventctx.Permission{Resource: "message", Action: "delete"},
-		eventctx.Permission{Resource: "message", Action: "pin"},
-		eventctx.Permission{Resource: "user", Action: "mute"},
-		eventctx.Permission{Resource: "user", Action: "kick"},
-		eventctx.Permission{Resource: "command", Action: "use"},
+	moderator := permission.NewRole("moderator",
+		permission.Permission{Resource: "message", Action: "delete"},
+		permission.Permission{Resource: "message", Action: "pin"},
+		permission.Permission{Resource: "user", Action: "mute"},
+		permission.Permission{Resource: "user", Action: "kick"},
+		permission.Permission{Resource: "command", Action: "use"},
 	)
 	permManager.RegisterRole(moderator)
 }
@@ -217,54 +218,54 @@ func (p *Plugin) cleanupExpiredCodes() {
 }
 
 // GetManager 获取底层的 PermissionManager
-func (p *Plugin) GetManager() *eventctx.PermissionManager {
+func (p *Plugin) GetManager() *permission.Manager {
 	return p.manager
 }
 
 // HasPermission 检查用户是否拥有指定权限
 // 兼容旧 API：将字符串权限转换为 Resource:Action 格式
-func (p *Plugin) HasPermission(userID, permission string) bool {
+func (p *Plugin) HasPermission(userID, perm string) bool {
 	// 解析权限字符串
-	resource, action := parsePermission(permission)
-	perm := eventctx.Permission{Resource: resource, Action: action}
-	return p.manager.HasPermission(userID, perm)
+	resource, action := parsePermission(perm)
+	perm_ := permission.Permission{Resource: resource, Action: action}
+	return p.manager.HasPermission(userID, perm_)
 }
 
 // HasPermissionEx 检查用户是否拥有指定权限（新 API，使用 Resource:Action 格式）
 func (p *Plugin) HasPermissionEx(userID, resource, action string) bool {
-	perm := eventctx.Permission{Resource: resource, Action: action}
+	perm := permission.Permission{Resource: resource, Action: action}
 	return p.manager.HasPermission(userID, perm)
 }
 
 // Grant 授予用户权限（兼容旧 API）
-func (p *Plugin) Grant(userID, permission string) error {
-	resource, action := parsePermission(permission)
-	perm := eventctx.Permission{Resource: resource, Action: action}
-	p.manager.GrantPermission(userID, perm)
-	logger.Infof("[PermissionPlugin] Granted permission '%s' to user '%s'", permission, userID)
+func (p *Plugin) Grant(userID, perm string) error {
+	resource, action := parsePermission(perm)
+	perm_ := permission.Permission{Resource: resource, Action: action}
+	p.manager.GrantPermission(userID, perm_)
+	logger.Infof("[PermissionPlugin] Granted permission '%s' to user '%s'", perm, userID)
 	return nil
 }
 
 // GrantEx 授予用户权限（新 API）
 func (p *Plugin) GrantEx(userID, resource, action string) error {
-	perm := eventctx.Permission{Resource: resource, Action: action}
+	perm := permission.Permission{Resource: resource, Action: action}
 	p.manager.GrantPermission(userID, perm)
 	logger.Infof("[PermissionPlugin] Granted permission '%s:%s' to user '%s'", resource, action, userID)
 	return nil
 }
 
 // Revoke 撤销用户权限（兼容旧 API）
-func (p *Plugin) Revoke(userID, permission string) error {
-	resource, action := parsePermission(permission)
-	perm := eventctx.Permission{Resource: resource, Action: action}
-	p.manager.RevokePermission(userID, perm)
-	logger.Infof("[PermissionPlugin] Revoked permission '%s' from user '%s'", permission, userID)
+func (p *Plugin) Revoke(userID, perm string) error {
+	resource, action := parsePermission(perm)
+	perm_ := permission.Permission{Resource: resource, Action: action}
+	p.manager.RevokePermission(userID, perm_)
+	logger.Infof("[PermissionPlugin] Revoked permission '%s' from user '%s'", perm, userID)
 	return nil
 }
 
 // RevokeEx 撤销用户权限（新 API）
 func (p *Plugin) RevokeEx(userID, resource, action string) error {
-	perm := eventctx.Permission{Resource: resource, Action: action}
+	perm := permission.Permission{Resource: resource, Action: action}
 	p.manager.RevokePermission(userID, perm)
 	logger.Infof("[PermissionPlugin] Revoked permission '%s:%s' from user '%s'", resource, action, userID)
 	return nil
@@ -330,13 +331,13 @@ func (p *Plugin) GetUserRoles(userID string) []string {
 // DefineRole 定义新角色（兼容旧 API）
 func (p *Plugin) DefineRole(roleName string, permissions []string) error {
 	// 转换字符串权限为 Permission 对象
-	perms := make([]eventctx.Permission, len(permissions))
+	perms := make([]permission.Permission, len(permissions))
 	for i, perm := range permissions {
 		resource, action := parsePermission(perm)
-		perms[i] = eventctx.Permission{Resource: resource, Action: action}
+		perms[i] = permission.Permission{Resource: resource, Action: action}
 	}
 
-	role := eventctx.NewRole(roleName, perms...)
+	role := permission.NewRole(roleName, perms...)
 	p.manager.RegisterRole(role)
 
 	logger.Infof("[PermissionPlugin] Defined role '%s' with %d permissions", roleName, len(permissions))
@@ -344,8 +345,8 @@ func (p *Plugin) DefineRole(roleName string, permissions []string) error {
 }
 
 // DefineRoleEx 定义新角色（新 API）
-func (p *Plugin) DefineRoleEx(roleName string, permissions []eventctx.Permission) error {
-	role := eventctx.NewRole(roleName, permissions...)
+func (p *Plugin) DefineRoleEx(roleName string, permissions []permission.Permission) error {
+	role := permission.NewRole(roleName, permissions...)
 	p.manager.RegisterRole(role)
 	logger.Infof("[PermissionPlugin] Defined role '%s' with %d permissions", roleName, len(permissions))
 	return nil
@@ -396,11 +397,11 @@ func (p *Plugin) RequirePermissionEx(resource, action string) eventctx.Middlewar
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			userID := ctx.GetUserID()
-			perm := eventctx.Permission{Resource: resource, Action: action}
+			perm := permission.Permission{Resource: resource, Action: action}
 
 			if !p.manager.HasPermission(userID, perm) {
 				logger.Warnf("[PermissionPlugin] User '%s' lacks permission '%s:%s'", userID, resource, action)
-				return eventctx.ErrPermissionDenied
+				return permission.ErrPermissionDenied
 			}
 
 			return next(ctx)

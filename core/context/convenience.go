@@ -1,6 +1,7 @@
 package context
 
 import (
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"slices"
 )
 
@@ -126,7 +127,7 @@ func OnGroupBlacklist(groupIDs ...string) Rule {
 //	    OnHasPermission("admin", "manage"),
 //	).Handle(handler)
 func OnHasPermission(resource, action string) Rule {
-	perm := Permission{
+	perm := permission.Permission{
 		Resource: resource,
 		Action:   action,
 	}
