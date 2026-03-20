@@ -54,9 +54,13 @@ func (e *qqEvent) populate() {
 	case dto.Ready, dto.Resumed:
 		e.kind = platform.EventKindSystem
 
-	case dto.FriendAdd, dto.FriendDel, dto.C2CMsgReject, dto.C2CMsgReceive,
-		dto.GroupAddRobot, dto.GroupDelRobot, dto.GroupMsgReject, dto.GroupMsgReceive:
+	case dto.GroupAddRobot, dto.GroupDelRobot, dto.GroupMsgReject, dto.GroupMsgReceive:
 		e.kind = platform.EventKindNotice
+		e.populateNoticeGroup()
+
+	case dto.FriendAdd, dto.FriendDel, dto.C2CMsgReject, dto.C2CMsgReceive:
+		e.kind = platform.EventKindNotice
+		e.populateNoticeUser()
 
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
@@ -143,6 +147,51 @@ func (e *qqEvent) populateGuildMessage() {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
+	}
+}
+
+// populateNoticeGroup 从群通知类事件中提取平台无关字段。
+//
+// 适用于：GroupAddRobot、GroupDelRobot、GroupMsgReject、GroupMsgReceive。
+// 对应 dto.GroupOpRobotEvent 结构：group_openid、op_member_openid、timestamp（Unix 秒）。
+func (e *qqEvent) populateNoticeGroup() {
+	if e.payload.Detail == nil {
+		return
+	}
+	d := e.payload.Detail
+	groupOpenID := gjson.GetBytes(d, "group_openid").String()
+	e.chat = platform.ChatInfo{
+		ID:      groupOpenID,
+		IsGroup: true,
+	}
+	opMemberOpenID := gjson.GetBytes(d, "op_member_openid").String()
+	e.sender = platform.UserInfo{
+		ID: opMemberOpenID,
+	}
+	if ts := gjson.GetBytes(d, "timestamp").Int(); ts != 0 {
+		e.timestamp = time.Unix(ts, 0)
+	}
+}
+
+// populateNoticeUser 从用户通知类事件中提取平台无关字段。
+//
+// 适用于：FriendAdd、FriendDel、C2CMsgReject、C2CMsgReceive。
+// 对应 dto.UserOpRobotEvent 结构：openid、timestamp（Unix 秒）。
+func (e *qqEvent) populateNoticeUser() {
+	if e.payload.Detail == nil {
+		return
+	}
+	d := e.payload.Detail
+	openID := gjson.GetBytes(d, "openid").String()
+	e.sender = platform.UserInfo{
+		ID: openID,
+	}
+	e.chat = platform.ChatInfo{
+		ID:      openID,
+		IsGroup: false,
+	}
+	if ts := gjson.GetBytes(d, "timestamp").Int(); ts != 0 {
+		e.timestamp = time.Unix(ts, 0)
 	}
 }
 

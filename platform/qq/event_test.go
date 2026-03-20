@@ -114,6 +114,85 @@ func TestNewEvent_Notice(t *testing.T) {
 	}
 }
 
+func TestNewEvent_NoticeGroupFields(t *testing.T) {
+	groupEvents := []dto.EventType{
+		dto.GroupAddRobot,
+		dto.GroupDelRobot,
+		dto.GroupMsgReject,
+		dto.GroupMsgReceive,
+	}
+	for _, et := range groupEvents {
+		payload := makePayload(et, map[string]any{
+			"group_openid":    "group_001",
+			"op_member_openid": "member_abc",
+			"timestamp":       int64(1710000000),
+		})
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want Notice", et, event.Kind())
+		}
+		if !event.Chat().IsGroup {
+			t.Errorf("[%s] Chat.IsGroup: want true", et)
+		}
+		if event.Chat().ID != "group_001" {
+			t.Errorf("[%s] Chat.ID: got %q, want group_001", et, event.Chat().ID)
+		}
+		if event.Sender().ID != "member_abc" {
+			t.Errorf("[%s] Sender.ID: got %q, want member_abc", et, event.Sender().ID)
+		}
+		if event.Timestamp().IsZero() {
+			t.Errorf("[%s] Timestamp: should not be zero for unix ts=1710000000", et)
+		}
+	}
+}
+
+func TestNewEvent_NoticeUserFields(t *testing.T) {
+	userEvents := []dto.EventType{
+		dto.FriendAdd,
+		dto.FriendDel,
+		dto.C2CMsgReject,
+		dto.C2CMsgReceive,
+	}
+	for _, et := range userEvents {
+		payload := makePayload(et, map[string]any{
+			"openid":    "user_xyz",
+			"timestamp": int64(1710000000),
+		})
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want Notice", et, event.Kind())
+		}
+		if event.Chat().IsGroup {
+			t.Errorf("[%s] Chat.IsGroup: want false for user notice", et)
+		}
+		if event.Chat().ID != "user_xyz" {
+			t.Errorf("[%s] Chat.ID: got %q, want user_xyz", et, event.Chat().ID)
+		}
+		if event.Sender().ID != "user_xyz" {
+			t.Errorf("[%s] Sender.ID: got %q, want user_xyz", et, event.Sender().ID)
+		}
+		if event.Timestamp().IsZero() {
+			t.Errorf("[%s] Timestamp: should not be zero for unix ts=1710000000", et)
+		}
+	}
+}
+
+func TestNewEvent_NoticeEmptyDetail(t *testing.T) {
+	// 无 Detail 时不应 panic，字段保留零值
+	for _, et := range []dto.EventType{dto.GroupAddRobot, dto.FriendAdd} {
+		p := &dto.Payload{ID: "evt-nil", Type: et, Operation: dto.Dispatch, Detail: nil}
+		event := qq.NewEvent(p)
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q", et, event.Kind())
+		}
+		if event.Sender().ID != "" || event.Chat().ID != "" {
+			t.Errorf("[%s] fields should be empty with nil detail", et)
+		}
+	}
+}
+
 func TestNewEvent_NilPayload(t *testing.T) {
 	event := qq.NewEvent(nil)
 	if event.Kind() != platform.EventKindUnknown {

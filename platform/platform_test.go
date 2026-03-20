@@ -64,6 +64,95 @@ func TestOutboundMessage(t *testing.T) {
 	}
 }
 
+func TestOutboundMessage_RichMedia(t *testing.T) {
+	// AudioMessage
+	audio := platform.AudioMessage("https://example.com/a.mp3")
+	if audio.AudioURL != "https://example.com/a.mp3" {
+		t.Errorf("AudioMessage: got %q", audio.AudioURL)
+	}
+
+	// VideoMessage
+	video := platform.VideoMessage("https://example.com/v.mp4")
+	if video.VideoURL != "https://example.com/v.mp4" {
+		t.Errorf("VideoMessage: got %q", video.VideoURL)
+	}
+
+	// FileMessage
+	file := platform.FileMessage("https://example.com/doc.pdf", "doc.pdf")
+	if file.FileURL != "https://example.com/doc.pdf" {
+		t.Errorf("FileMessage URL: got %q", file.FileURL)
+	}
+	if file.FileName != "doc.pdf" {
+		t.Errorf("FileMessage Name: got %q", file.FileName)
+	}
+}
+
+func TestOutboundMessage_WithMentions(t *testing.T) {
+	base := platform.TextMessage("hi")
+	m1 := base.WithMentions("user1", "user2")
+	if len(m1.Mentions) != 2 || m1.Mentions[0] != "user1" || m1.Mentions[1] != "user2" {
+		t.Errorf("WithMentions: got %v", m1.Mentions)
+	}
+	// 链式追加
+	m2 := m1.WithMentions("user3")
+	if len(m2.Mentions) != 3 {
+		t.Errorf("WithMentions chained: got %d mentions", len(m2.Mentions))
+	}
+	// 不修改原消息（切片独立）
+	if len(base.Mentions) != 0 {
+		t.Error("WithMentions should not modify original message")
+	}
+	if len(m1.Mentions) != 2 {
+		t.Error("WithMentions chained should not mutate previous copy")
+	}
+}
+
+func TestOutboundMessage_WithButtons(t *testing.T) {
+	btn1 := platform.Button{ID: "btn1", Label: "OK", Style: platform.ButtonStylePrimary}
+	btn2 := platform.Button{ID: "btn2", Label: "Cancel", Style: platform.ButtonStyleSecondary}
+	btnLink := platform.Button{ID: "btn3", Label: "Docs", URL: "https://example.com", Style: platform.ButtonStyleLink}
+
+	base := platform.TextMessage("choose")
+	m1 := base.WithButtons(btn1, btn2)
+	if len(m1.Buttons) != 2 {
+		t.Errorf("WithButtons: got %d buttons", len(m1.Buttons))
+	}
+	if m1.Buttons[0].Style != platform.ButtonStylePrimary {
+		t.Errorf("Button[0].Style: got %q", m1.Buttons[0].Style)
+	}
+
+	// 链式追加
+	m2 := m1.WithButtons(btnLink)
+	if len(m2.Buttons) != 3 {
+		t.Errorf("WithButtons chained: got %d buttons", len(m2.Buttons))
+	}
+	if m2.Buttons[2].URL != "https://example.com" {
+		t.Errorf("ButtonStyleLink URL: got %q", m2.Buttons[2].URL)
+	}
+
+	// 不修改原消息
+	if len(base.Buttons) != 0 {
+		t.Error("WithButtons should not modify original message")
+	}
+	if len(m1.Buttons) != 2 {
+		t.Error("WithButtons chained should not mutate previous copy")
+	}
+}
+
+func TestButtonStyleConstants(t *testing.T) {
+	styles := []platform.ButtonStyle{
+		platform.ButtonStylePrimary,
+		platform.ButtonStyleSecondary,
+		platform.ButtonStyleDanger,
+		platform.ButtonStyleLink,
+	}
+	for _, s := range styles {
+		if s == "" {
+			t.Error("ButtonStyle constant should not be empty")
+		}
+	}
+}
+
 func TestNoopSender(t *testing.T) {
 	s := &platform.NoopSender{}
 	err := s.Send(context.Background(), "chatid", platform.TextMessage("hello"))
