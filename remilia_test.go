@@ -133,7 +133,8 @@ func TestNewBot(t *testing.T) {
 
 	require.NotNil(t, bot)
 	assert.NotNil(t, bot.engine)
-	assert.NotNil(t, bot.adapter)
+	// adapter is now wrapped in platformRegistry, no separate adapter field
+	assert.NotNil(t, bot.platformRegistry)
 	assert.NotNil(t, bot.lifecycle)
 	assert.NotNil(t, bot.health)
 	assert.NotNil(t, bot.config)
@@ -401,7 +402,8 @@ func TestOptions(t *testing.T) {
 	t.Run("WithAdapter", func(t *testing.T) {
 		newAdapter := newMockAdapter()
 		bot := NewBot(adapter, eng, WithAdapter(newAdapter))
-		assert.NotNil(t, bot.adapter)
+		// D3: WithAdapter registers into platformRegistry
+		assert.NotNil(t, bot.platformRegistry)
 	})
 
 	t.Run("WithEngine", func(t *testing.T) {

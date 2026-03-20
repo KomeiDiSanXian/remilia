@@ -20,15 +20,16 @@ type mockEvent struct {
 	content    string
 }
 
-func (e *mockEvent) Platform() string          { return e.platformID }
-func (e *mockEvent) ID() string                { return "" }
-func (e *mockEvent) Kind() platform.EventKind  { return e.kind }
-func (e *mockEvent) RawType() string           { return e.rawType }
-func (e *mockEvent) Sender() platform.UserInfo { return e.sender }
-func (e *mockEvent) Chat() platform.ChatInfo   { return e.chat }
-func (e *mockEvent) Content() string           { return e.content }
-func (e *mockEvent) Timestamp() time.Time      { return time.Time{} }
-func (e *mockEvent) RawPayload() any           { return nil }
+func (e *mockEvent) Platform() string                          { return e.platformID }
+func (e *mockEvent) ID() string                                { return "" }
+func (e *mockEvent) Kind() platform.EventKind                  { return e.kind }
+func (e *mockEvent) RawType() string                           { return e.rawType }
+func (e *mockEvent) Sender() platform.UserInfo                 { return e.sender }
+func (e *mockEvent) Chat() platform.ChatInfo                   { return e.chat }
+func (e *mockEvent) Content() string                           { return e.content }
+func (e *mockEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *mockEvent) Timestamp() time.Time                      { return time.Time{} }
+func (e *mockEvent) RawPayload() any                           { return nil }
 
 func TestOutboundMessage(t *testing.T) {
 	// TextMessage
