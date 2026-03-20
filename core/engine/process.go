@@ -134,7 +134,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 // identity of both the core handler and the middleware slice length.
 // When either changes the cache is rebuilt (rare: only on middleware
 // registration or handler hot-reload), so the fast path is alloc-free.
-func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.Handler) context.Handler {
+func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he context.Handler) context.Handler {
 	// Fast path: no middleware → call handler directly, zero overhead.
 	if len(chain) == 0 {
 		return he
@@ -181,7 +181,7 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []Middleware, he context.
 //
 // This ensures that reordering middleware correctly invalidates the compiled
 // chain cache, preventing stale handler chains from being used.
-func chainSignature(chain []Middleware) uint64 {
+func chainSignature(chain []context.Middleware) uint64 {
 	const (
 		fnvOffset uint64 = 0xcbf29ce484222325
 		fnvPrime  uint64 = 0x100000001b3

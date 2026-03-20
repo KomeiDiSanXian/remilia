@@ -18,9 +18,6 @@ type Option func(*Engine)
 // MatcherOption Matcher 配置选项函数类型
 type MatcherOption func(*Matcher)
 
-// Middleware 中间件函数类型
-type Middleware = context.Middleware
-
 // MatcherLifecycle 定义 Matcher 核心生命周期操作（高频调用路径）。
 //
 // 这 4 个方法是 Matcher 日常操作（删除、处理器重建、缓存失效、命令缓存更新）的最小集合。

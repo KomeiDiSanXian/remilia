@@ -234,7 +234,7 @@ func BenchmarkCopyMiddlewareState(b *testing.B) {
 	for i := range 5 {
 		groupName := "group" + string(rune('A'+i))
 		snap := &middlewareSnapshot{
-			chain: make([]Middleware, 10),
+			chain: make([]context.Middleware, 10),
 			gen:   uint64(i),
 		}
 		src.groupMiddlewares[groupName] = snap

@@ -40,7 +40,7 @@ func (e *Engine) ensureMatcherChainWithState(m *Matcher, mwState *middlewareStat
 
 	groupSnap := mwState.groupMiddlewares[groupName]
 	globalSnap := mwState.global
-	var groupChain []Middleware
+	var groupChain []context.Middleware
 	var groupGen uint64
 	if groupSnap != nil {
 		groupChain = groupSnap.chain
@@ -53,7 +53,7 @@ func (e *Engine) ensureMatcherChainWithState(m *Matcher, mwState *middlewareStat
 // Use 注册全局处理器中间件（COW 写操作）
 //
 // 中间件按添加顺序链式包裹
-func (e *Engine) Use(mw ...Middleware) *Engine {
+func (e *Engine) Use(mw ...context.Middleware) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
@@ -61,7 +61,7 @@ func (e *Engine) Use(mw ...Middleware) *Engine {
 
 	// 复制状态并追加中间件，递增代际号
 	newMwState := copyMiddlewareState(oldMwState)
-	newChain := append([]Middleware(nil), newMwState.global.chain...)
+	newChain := append([]context.Middleware(nil), newMwState.global.chain...)
 	newChain = append(newChain, mw...)
 	newMwState.global.chain = newChain
 	newMwState.global.gen++
@@ -82,7 +82,7 @@ func (e *Engine) Use(mw ...Middleware) *Engine {
 // UseForGroup 为指定分组注册中间件（COW 写操作）
 //
 // 仅该分组注册的 matcher 生效
-func (e *Engine) UseForGroup(groupName string, mw ...Middleware) *Engine {
+func (e *Engine) UseForGroup(groupName string, mw ...context.Middleware) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
@@ -97,10 +97,10 @@ func (e *Engine) UseForGroup(groupName string, mw ...Middleware) *Engine {
 	newMwState := copyMiddlewareState(oldMwState)
 	snap, ok := newMwState.groupMiddlewares[key]
 	if !ok {
-		snap = &middlewareSnapshot{chain: make([]Middleware, 0), gen: 1}
+		snap = &middlewareSnapshot{chain: make([]context.Middleware, 0), gen: 1}
 		newMwState.groupMiddlewares[key] = snap
 	}
-	newChain := append([]Middleware(nil), snap.chain...)
+	newChain := append([]context.Middleware(nil), snap.chain...)
 	newChain = append(newChain, mw...)
 	snap.chain = newChain
 	snap.gen++
@@ -137,7 +137,7 @@ func (e *Engine) ResetMiddlewares() *Engine {
 }
 
 // Named wraps a middleware with a name and triggers trace hook if configured.
-func (e *Engine) Named(name string, mw Middleware) Middleware {
+func (e *Engine) Named(name string, mw context.Middleware) context.Middleware {
 	name = strings.TrimSpace(name)
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {

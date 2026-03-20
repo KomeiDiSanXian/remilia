@@ -4,15 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: remove archived docs">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-review-2026-03-20.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/permission/persist.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/persist.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/permission/persist_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/persist_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context_extended_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context_extended_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/convenience.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/convenience.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/permission.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(permission): update permission type references to core package">
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -225,7 +218,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: rename architecture reports and update README links to reflect new file structure" />
     <MESSAGE value="optimize: simplify value overrides using maps.Copy for improved readability and maintainability" />
     <MESSAGE value="feat: implement context-aware waiting in various components for improved stability and responsiveness" />
     <MESSAGE value="chore: update module dependencies and workspace configuration for improved compatibility" />
@@ -250,7 +242,8 @@
     <MESSAGE value="refactor(platform): unify message sending interface and enhance capabilities structure" />
     <MESSAGE value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
     <MESSAGE value="docs: remove archived docs" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: remove archived docs" />
+    <MESSAGE value="refactor(permission): update permission type references to core package" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(permission): update permission type references to core package" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

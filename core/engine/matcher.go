@@ -32,7 +32,7 @@ type Matcher struct {
 	coordinator MatcherCoordinator
 	Source      string
 	group       string
-	middlewares []Middleware
+	middlewares []context.Middleware
 
 	combinedChain    atomic.Value // []Middleware  — the raw middleware slice
 	compiledHandlers atomic.Value // compiledChain — pre-built iterative handler slice
@@ -65,7 +65,7 @@ func (m *Matcher) copy() *Matcher {
 	newRules := make([]context.Rule, len(m.Rules))
 	copy(newRules, m.Rules)
 
-	newMiddlewares := make([]Middleware, len(m.middlewares))
+	newMiddlewares := make([]context.Middleware, len(m.middlewares))
 	copy(newMiddlewares, m.middlewares)
 
 	return &Matcher{
@@ -119,15 +119,15 @@ func (m *Matcher) IsTemp() bool {
 }
 
 // getCombinedChain 获取组合的中间件链（无锁读取）
-func (m *Matcher) getCombinedChain() []Middleware {
+func (m *Matcher) getCombinedChain() []context.Middleware {
 	if v := m.combinedChain.Load(); v != nil {
-		return v.([]Middleware)
+		return v.([]context.Middleware)
 	}
 	return nil
 }
 
 // getChainCache 返回链缓存及代际号的快照（线程安全）
-func (m *Matcher) getChainCache() ([]Middleware, uint64, uint64) {
+func (m *Matcher) getChainCache() ([]context.Middleware, uint64, uint64) {
 	m.cacheMu.RLock()
 	chain := m.getCombinedChain()
 	globalGen := m.cachedGen.global
@@ -137,7 +137,7 @@ func (m *Matcher) getChainCache() ([]Middleware, uint64, uint64) {
 }
 
 // setCombinedChain 设置组合的中间件链（写操作）
-func (m *Matcher) setCombinedChain(chain []Middleware, globalGen, groupGen uint64) {
+func (m *Matcher) setCombinedChain(chain []context.Middleware, globalGen, groupGen uint64) {
 	m.cacheMu.Lock()
 	m.cachedGen.global = globalGen
 	m.cachedGen.group = groupGen
@@ -413,7 +413,7 @@ func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 // Use 本身是线程安全的（内部使用 m.rt.mu 保护），注册到 Engine 后调用也不会 panic。
 // 但强烈建议**在注册之前**完成所有中间件配置：注册后调用 Use 会触发
 // 全局中间件链重建，对并发执行中的请求有短暂影响，属于高代价操作。
-func (m *Matcher) Use(mw ...Middleware) *Matcher {
+func (m *Matcher) Use(mw ...context.Middleware) *Matcher {
 	if m.isNoop() {
 		return m
 	}
@@ -500,14 +500,14 @@ func (m *Matcher) invalidateCombinedChain() {
 
 	m.cachedGen.global = 0
 	m.cachedGen.group = 0
-	var nilChain []Middleware
+	var nilChain []context.Middleware
 	m.combinedChain.Store(nilChain)
 	// Also invalidate the compiled iterative chain so it is rebuilt on next invoke.
 	m.compiledHandlers.Store((*compiledChain)(nil))
 }
 
 // ensureChain ensures the combined chain is cached and valid.
-func (m *Matcher) ensureChain(globalChain []Middleware, globalGen uint64, groupChain []Middleware, groupGen uint64) {
+func (m *Matcher) ensureChain(globalChain []context.Middleware, globalGen uint64, groupChain []context.Middleware, groupGen uint64) {
 	if m == nil {
 		return
 	}
@@ -531,7 +531,7 @@ func (m *Matcher) ensureChain(globalChain []Middleware, globalGen uint64, groupC
 	}
 
 	locals := m.middlewares
-	chain := make([]Middleware, 0, len(globalChain)+len(groupChain)+len(locals))
+	chain := make([]context.Middleware, 0, len(globalChain)+len(groupChain)+len(locals))
 	chain = append(chain, globalChain...)
 	chain = append(chain, groupChain...)
 	chain = append(chain, locals...)

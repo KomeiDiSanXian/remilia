@@ -25,7 +25,7 @@ var noopMatcher = &Matcher{
 	priority:    999,
 	Source:      "noop",
 	Rules:       []context.Rule{},
-	middlewares: []Middleware{},
+	middlewares: []context.Middleware{},
 }
 
 // newNoopMatcher 创建一个绑定了 coordinator 的 noop matcher。
@@ -35,7 +35,7 @@ func newNoopMatcher(e *Engine) *Matcher {
 		priority:    999,
 		Source:      "noop",
 		Rules:       []context.Rule{},
-		middlewares: []Middleware{},
+		middlewares: []context.Middleware{},
 		coordinator: e,
 	}
 }

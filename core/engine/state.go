@@ -54,7 +54,7 @@ type state struct {
 // middlewareSnapshot 表示不可变的中间件切片及其代际号
 // gen 每次修改对应切片时递增，用于缓存失效
 type middlewareSnapshot struct {
-	chain []Middleware
+	chain []context.Middleware
 	gen   uint64
 }
 
@@ -89,7 +89,7 @@ func newEngineState() *state {
 // newMiddlewareState 创建新的中间件状态
 func newMiddlewareState() *middlewareState {
 	return &middlewareState{
-		global:           middlewareSnapshot{chain: make([]Middleware, 0), gen: 1},
+		global:           middlewareSnapshot{chain: make([]context.Middleware, 0), gen: 1},
 		groupMiddlewares: make(map[string]*middlewareSnapshot),
 		traceHook:        nil,
 	}

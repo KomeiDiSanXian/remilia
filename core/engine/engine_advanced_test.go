@@ -505,7 +505,7 @@ func TestMatcher_EnsureChain(t *testing.T) {
 	t.Run("build chain on first call", func(t *testing.T) {
 		matcher := &Matcher{}
 
-		globalChain := []Middleware{
+		globalChain := []ctx.Middleware{
 			func(next ctx.Handler) ctx.Handler {
 				return func(c *ctx.Context) error {
 					return next(c)
@@ -523,7 +523,7 @@ func TestMatcher_EnsureChain(t *testing.T) {
 	t.Run("use cached chain if generation matches", func(t *testing.T) {
 		matcher := &Matcher{}
 
-		globalChain := []Middleware{
+		globalChain := []ctx.Middleware{
 			func(next ctx.Handler) ctx.Handler {
 				return func(c *ctx.Context) error {
 					return next(c)
@@ -546,7 +546,7 @@ func TestMatcher_EnsureChain(t *testing.T) {
 	t.Run("rebuild chain if generation changed", func(t *testing.T) {
 		matcher := &Matcher{}
 
-		globalChain1 := []Middleware{
+		globalChain1 := []ctx.Middleware{
 			func(next ctx.Handler) ctx.Handler {
 				return func(c *ctx.Context) error {
 					return next(c)
@@ -554,7 +554,7 @@ func TestMatcher_EnsureChain(t *testing.T) {
 			},
 		}
 
-		globalChain2 := []Middleware{
+		globalChain2 := []ctx.Middleware{
 			func(next ctx.Handler) ctx.Handler {
 				return func(c *ctx.Context) error {
 					return next(c)
@@ -647,7 +647,7 @@ func TestMatcher_Copy(t *testing.T) {
 			Rules: []ctx.Rule{
 				func(c *ctx.Context) bool { return true },
 			},
-			middlewares: []Middleware{
+			middlewares: []ctx.Middleware{
 				func(next ctx.Handler) ctx.Handler {
 					return func(c *ctx.Context) error {
 						return next(c)

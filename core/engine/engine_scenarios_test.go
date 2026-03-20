@@ -113,7 +113,7 @@ func TestMatcher_CopyDetailed(t *testing.T) {
 				func(c *ctx.Context) bool { return true },
 				func(c *ctx.Context) bool { return false },
 			},
-			middlewares: []Middleware{
+			middlewares: []ctx.Middleware{
 				func(next ctx.Handler) ctx.Handler {
 					return func(c *ctx.Context) error {
 						return next(c)
