@@ -52,8 +52,7 @@ func TestWebhookServerAdapter_New(t *testing.T) {
 func TestWebhookServerAdapter_StartStop(t *testing.T) {
 	adapter := NewWebhookServerAdapter(":0", newTestBotInfo())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	handler := func(_ platform.Event) {}
 
@@ -87,8 +86,7 @@ func TestWebhookServerAdapter_StartStop(t *testing.T) {
 func TestWebhookServerAdapter_DoubleStart(t *testing.T) {
 	adapter := NewWebhookServerAdapter(":0", newTestBotInfo())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	handler := func(_ platform.Event) {}
 

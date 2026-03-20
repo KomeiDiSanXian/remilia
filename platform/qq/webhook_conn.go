@@ -150,15 +150,13 @@ func (c *WebhookConn) start(ctx context.Context) error {
 		return errutil.Wrapf(err, "failed to bind address %s", c.addr)
 	}
 
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+	c.wg.Go(func() {
 		logger.Infof("[WebhookConn] HTTP server listening on %s", c.addr)
 		if err := c.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[WebhookConn] HTTP server error")
 			c.cancel()
 		}
-	}()
+	})
 
 	logger.Info("[WebhookConn] Started")
 	return nil
