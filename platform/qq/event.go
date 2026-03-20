@@ -5,6 +5,7 @@
 package qq
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -14,70 +15,83 @@ import (
 
 const PlatformID = "qq"
 
-// qqEvent 将 QQ 的 *dto.Payload 包装为 platform.Event
+// qqEvent 将 QQ 的 *dto.Payload 解析后的字段存储为平台无关类型。
+//
+// D5：不再持有 *dto.Payload 引用，populate 完成后立即将 payload 释放回对象池，
+// 避免事件对象长期持有池资源，降低 GC 压力。
 type qqEvent struct {
-	payload     *dto.Payload
 	kind        platform.EventKind
 	sender      platform.UserInfo
 	chat        platform.ChatInfo
 	content     string
 	timestamp   time.Time
 	attachments []platform.InboundAttachment
+	id          string // 对应 payload.ID，populate 后独立持有
+	rawType     string // 对应 payload.Type，populate 后独立持有
 }
 
-// NewEvent 从 QQ payload 创建 platform.Event
+// NewEvent 从 QQ payload 创建 platform.Event。
+//
+// D5：提取所有字段后立即调用 dto.ReleasePayload，将 payload 还给对象池。
+// 调用方在 NewEvent 返回后不得再访问 payload。
 func NewEvent(payload *dto.Payload) platform.Event {
-	e := &qqEvent{payload: payload}
-	e.populate()
+	e := &qqEvent{}
+	if payload == nil {
+		e.kind = platform.EventKindUnknown
+		return e
+	}
+	// 在 populate 前提取不依赖 Detail 的字段
+	e.id = string(payload.ID)
+	e.rawType = payload.Type
+	e.populateFrom(payload.Type, payload.Detail)
+	// 所有字段已拷贝到 e，立即释放 payload 回对象池
+	dto.ReleasePayload(payload)
 	return e
 }
 
-func (e *qqEvent) populate() {
-	if e.payload == nil {
-		e.kind = platform.EventKindUnknown
-		return
-	}
-	switch e.payload.Type {
+// populateFrom 根据事件类型解析 detail 字节并填充 e 的字段。
+func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
+	switch evType {
 	case dto.C2CMessageCreate:
 		e.kind = platform.EventKindPrivateMessage
-		e.populateC2C()
+		e.populateC2C(detail)
 	case dto.GroupAtMessageCreate:
 		e.kind = platform.EventKindGroupMessage
-		e.populateGroupAt()
+		e.populateGroupAt(detail)
 	case dto.Ready, dto.Resumed:
 		e.kind = platform.EventKindSystem
 	case dto.GroupAddRobot:
 		e.kind = platform.EventKindMemberJoin
-		e.populateNoticeGroup()
+		e.populateNoticeGroup(detail)
 	case dto.GroupDelRobot:
 		e.kind = platform.EventKindMemberLeave
-		e.populateNoticeGroup()
+		e.populateNoticeGroup(detail)
 	case dto.GroupMsgReject, dto.GroupMsgReceive:
 		e.kind = platform.EventKindNotice
-		e.populateNoticeGroup()
+		e.populateNoticeGroup(detail)
 	case dto.FriendAdd:
 		e.kind = platform.EventKindMemberJoin
-		e.populateNoticeUser()
+		e.populateNoticeUser(detail)
 	case dto.FriendDel:
 		e.kind = platform.EventKindMemberLeave
-		e.populateNoticeUser()
+		e.populateNoticeUser(detail)
 	case dto.C2CMsgReject, dto.C2CMsgReceive:
 		e.kind = platform.EventKindNotice
-		e.populateNoticeUser()
+		e.populateNoticeUser(detail)
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
-		e.populateGuildMessage()
+		e.populateGuildMessage(detail)
 	default:
 		e.kind = platform.EventKindUnknown
 	}
 }
 
-func (e *qqEvent) populateC2C() {
-	if e.payload.Detail == nil {
+func (e *qqEvent) populateC2C(detail json.RawMessage) {
+	if detail == nil {
 		return
 	}
 	// 一次线性扫描提取所有字段（O(n) 而非 O(k×n)）
-	results := gjson.GetManyBytes(e.payload.Detail,
+	results := gjson.GetManyBytes(detail,
 		"content",
 		"author.user_openid",
 		"author.id",
@@ -102,11 +116,11 @@ func (e *qqEvent) populateC2C() {
 	e.attachments = parseAttachments(results[4])
 }
 
-func (e *qqEvent) populateGroupAt() {
-	if e.payload.Detail == nil {
+func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
+	if detail == nil {
 		return
 	}
-	results := gjson.GetManyBytes(e.payload.Detail,
+	results := gjson.GetManyBytes(detail,
 		"content",
 		"author.member_openid",
 		"author.id",
@@ -134,11 +148,11 @@ func (e *qqEvent) populateGroupAt() {
 	e.attachments = parseAttachments(results[6])
 }
 
-func (e *qqEvent) populateGuildMessage() {
-	if e.payload.Detail == nil {
+func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
+	if detail == nil {
 		return
 	}
-	results := gjson.GetManyBytes(e.payload.Detail,
+	results := gjson.GetManyBytes(detail,
 		"content",
 		"author.id",
 		"author.username",
@@ -196,11 +210,11 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	return out
 }
 
-func (e *qqEvent) populateNoticeGroup() {
-	if e.payload.Detail == nil {
+func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {
+	if detail == nil {
 		return
 	}
-	results := gjson.GetManyBytes(e.payload.Detail,
+	results := gjson.GetManyBytes(detail,
 		"group_openid",
 		"op_member_openid",
 		"timestamp",
@@ -217,11 +231,11 @@ func (e *qqEvent) populateNoticeGroup() {
 	}
 }
 
-func (e *qqEvent) populateNoticeUser() {
-	if e.payload.Detail == nil {
+func (e *qqEvent) populateNoticeUser(detail json.RawMessage) {
+	if detail == nil {
 		return
 	}
-	results := gjson.GetManyBytes(e.payload.Detail,
+	results := gjson.GetManyBytes(detail,
 		"openid",
 		"timestamp",
 	)
@@ -233,23 +247,20 @@ func (e *qqEvent) populateNoticeUser() {
 	}
 }
 
-func (e *qqEvent) Platform() string { return PlatformID }
-func (e *qqEvent) ID() string {
-	if e.payload == nil {
-		return ""
-	}
-	return string(e.payload.ID)
-}
-func (e *qqEvent) Kind() platform.EventKind { return e.kind }
-func (e *qqEvent) RawType() string {
-	if e.payload == nil {
-		return ""
-	}
-	return e.payload.Type
-}
-func (e *qqEvent) Sender() platform.UserInfo                 { return e.sender }
-func (e *qqEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *qqEvent) Content() string                           { return e.content }
+func (e *qqEvent) Platform() string          { return PlatformID }
+func (e *qqEvent) ID() string                { return e.id }
+func (e *qqEvent) Kind() platform.EventKind  { return e.kind }
+func (e *qqEvent) RawType() string           { return e.rawType }
+func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
+func (e *qqEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *qqEvent) Content() string           { return e.content }
+
+// Attachments 返回消息中携带的附件列表。
 func (e *qqEvent) Attachments() []platform.InboundAttachment { return e.attachments }
 func (e *qqEvent) Timestamp() time.Time                      { return e.timestamp }
-func (e *qqEvent) RawPayload() any                           { return e.payload }
+
+// RawPayload 返回 nil。
+//
+// D5：payload 在 populate 完成后已立即释放回对象池，不再长期持有引用。
+// 需要访问 QQ 平台特定字段的代码应在 handler 内通过其他上下文获取。
+func (e *qqEvent) RawPayload() any { return nil }

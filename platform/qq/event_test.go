@@ -56,9 +56,9 @@ func TestNewEvent_C2C(t *testing.T) {
 	if event.Chat().ID != "openid_alice" {
 		t.Errorf("Chat.ID: got %q", event.Chat().ID)
 	}
-	// RawPayload 应返回原始 *dto.Payload
-	if _, ok := event.RawPayload().(*dto.Payload); !ok {
-		t.Error("RawPayload should return *dto.Payload")
+	// D5：RawPayload 返回 nil（payload 在 populate 后已释放到对象池）
+	if event.RawPayload() != nil {
+		t.Errorf("RawPayload should return nil after D5 pool optimization, got %T", event.RawPayload())
 	}
 	// Timestamp
 	if event.Timestamp().IsZero() {
