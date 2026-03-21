@@ -181,5 +181,5 @@ func platformEventFields(e platform.Event) (plat, rawType string) {
 	if e == nil {
 		return "", ""
 	}
-	return e.Platform(), e.RawType()
+	return e.Platform(), platform.RawType(e)
 }

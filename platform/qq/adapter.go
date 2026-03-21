@@ -77,7 +77,14 @@ func (a *Adapter) Sender() platform.Sender { return a.sender }
 // Capabilities returns QQ platform feature capabilities.
 func (a *Adapter) Capabilities() platform.Capabilities { return QQCapabilities }
 
-// StartPlatform starts the QQ event loop.
+// IsRunning 返回适配器当前是否处于运行状态。
+func (a *Adapter) IsRunning() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.running
+}
+
+// Start starts the QQ event loop.
 //
 // 使用有界 worker pool 处理事件，避免高频事件下无限创建 goroutine。
 // worker 数量默认为 runtime.NumCPU()，可通过 WithWorkers 调整。

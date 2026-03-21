@@ -38,6 +38,7 @@ func (a *Adapter) Platform() string                    { return PlatformID }
 func (a *Adapter) Sender() platform.Sender             { return &platform.NoopSender{} }
 func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
 func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
+func (a *Adapter) IsRunning() bool                     { return false }
 
 // StartPlatform implements platform.Adapter (not yet implemented).
 func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {

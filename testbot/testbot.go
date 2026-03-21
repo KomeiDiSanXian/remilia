@@ -1,6 +1,7 @@
 package testbot
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -90,20 +91,24 @@ func (m *MockAPI) Clear() {
 	m.mu.Unlock()
 }
 
-func (m *MockAPI) SingleChat(target string, msg *dto.Message) (gjson.Result, error) {
+func (m *MockAPI) SingleChat(_ context.Context, target string, msg *dto.Message) (gjson.Result, error) {
 	return m.capture(target, false, msg)
 }
-func (m *MockAPI) GroupChat(target string, msg *dto.Message) (gjson.Result, error) {
+func (m *MockAPI) GroupChat(_ context.Context, target string, msg *dto.Message) (gjson.Result, error) {
 	return m.capture(target, true, msg)
 }
-func (m *MockAPI) SingleRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
+func (m *MockAPI) SingleRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
-func (m *MockAPI) GroupRichMedia(_ string, _ *dto.Media) (gjson.Result, error) {
+func (m *MockAPI) GroupRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
-func (m *MockAPI) SingleReset(_, _ string) (gjson.Result, error) { return gjson.Result{}, nil }
-func (m *MockAPI) GroupReset(_, _ string) (gjson.Result, error)  { return gjson.Result{}, nil }
+func (m *MockAPI) SingleReset(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GroupReset(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
 
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 

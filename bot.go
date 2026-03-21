@@ -85,6 +85,7 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
 		b.platformRegistry.Register(adapter)
 	} else {
 		b.health = health.NewCheck()
+		// N5: registry-only 模式下，平台适配器 health checker 在 Start() 中注册
 		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
 	}
 
@@ -139,6 +140,8 @@ func (b *Bot) Start() error {
 	b.mu.RUnlock()
 	if reg != nil {
 		for _, pa := range reg.All() {
+			// N5: 为每个平台适配器注册独立的健康检查器
+			b.health.AddChecker(NewAdapterHealthChecker(pa))
 			name := "platform:" + pa.Platform()
 			b.lifecycle.Register(lifecycle.NewSimpleComponent(
 				name,
@@ -220,7 +223,7 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		logger.WithFields(logger.Fields{
 			"platform": event.Platform(),
 			"kind":     string(event.Kind()),
-			"type":     event.RawType(),
+			"type":     platform.RawType(event),
 		}).Debug("[Bot] Platform event received")
 	}
 

@@ -76,8 +76,8 @@ func TestAcquireContextFromEvent_GetEventType(t *testing.T) {
 
 	// New path returns EventKind string ("PRIVATE_MESSAGE"), not raw type ("C2C_MESSAGE_CREATE")
 	assert.Equal(t, string(platform.EventKindPrivateMessage), ctx.GetEventType())
-	// Raw type is still accessible via GetPlatformEvent().RawType()
-	assert.Equal(t, "C2C_MESSAGE_CREATE", ctx.GetPlatformEvent().RawType())
+	// Raw type is still accessible via platform.RawType() helper (optional RawEvent interface)
+	assert.Equal(t, "C2C_MESSAGE_CREATE", platform.RawType(ctx.GetPlatformEvent()))
 }
 
 func TestAcquireContextFromEvent_GetEventPlatform(t *testing.T) {

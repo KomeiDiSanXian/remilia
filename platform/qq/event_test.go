@@ -41,8 +41,8 @@ func TestNewEvent_C2C(t *testing.T) {
 	if event.Kind() != platform.EventKindPrivateMessage {
 		t.Errorf("Kind: got %q", event.Kind())
 	}
-	if event.RawType() != string(dto.C2CMessageCreate) {
-		t.Errorf("RawType: got %q", event.RawType())
+	if platform.RawType(event) != dto.C2CMessageCreate {
+		t.Errorf("RawType: got %q", platform.RawType(event))
 	}
 	if event.Content() != "hello bot" {
 		t.Errorf("Content: got %q", event.Content())
@@ -57,8 +57,8 @@ func TestNewEvent_C2C(t *testing.T) {
 		t.Errorf("Chat.ID: got %q", event.Chat().ID)
 	}
 	// D5：RawPayload 返回 nil（payload 在 populate 后已释放到对象池）
-	if event.RawPayload() != nil {
-		t.Errorf("RawPayload should return nil after D5 pool optimization, got %T", event.RawPayload())
+	if platform.RawPayload(event) != nil {
+		t.Errorf("RawPayload should return nil after D5 pool optimization, got %T", platform.RawPayload(event))
 	}
 	// Timestamp
 	if event.Timestamp().IsZero() {

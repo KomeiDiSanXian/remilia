@@ -295,6 +295,7 @@ func (a *mockCancelableAdapter) Start(ctx context.Context, _ func(platform.Event
 	return ctx.Err()
 }
 func (a *mockCancelableAdapter) Stop(_ context.Context) error { return nil }
+func (a *mockCancelableAdapter) IsRunning() bool              { return false }
 
 func TestRegistry_StartAll_CtxCancel(t *testing.T) {
 	reg := platform.NewRegistry()
@@ -360,6 +361,7 @@ func (a *mockFatalAdapter) Start(_ context.Context, _ func(platform.Event)) erro
 	return a.startErr
 }
 func (a *mockFatalAdapter) Stop(_ context.Context) error { return nil }
+func (a *mockFatalAdapter) IsRunning() bool              { return false }
 
 func TestRegistry_StartAll_AdapterFatalError(t *testing.T) {
 	reg := platform.NewRegistry()
@@ -394,6 +396,7 @@ func (a *mockErrorStopAdapter) Start(ctx context.Context, _ func(platform.Event)
 	return ctx.Err()
 }
 func (a *mockErrorStopAdapter) Stop(_ context.Context) error { return a.stopErr }
+func (a *mockErrorStopAdapter) IsRunning() bool              { return false }
 
 func TestRegistry_StopAll_Errors(t *testing.T) {
 	reg := platform.NewRegistry()

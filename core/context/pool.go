@@ -44,16 +44,3 @@ func ReleaseContext(ctx *Context) {
 
 	contextPool.Put(ctx)
 }
-
-type ContextPoolStats struct {
-	// Note: sync.Pool doesn't expose size metrics
-	// This is a placeholder for future instrumentation
-	PoolEnabled bool
-}
-
-// GetContextPoolStats returns current pool statistics
-func GetContextPoolStats() ContextPoolStats {
-	return ContextPoolStats{
-		PoolEnabled: true,
-	}
-}

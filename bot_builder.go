@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -130,7 +131,7 @@ func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
 func (b *BotBuilder) Build() (*Bot, error) {
 	// 需要至少一个事件来源
 	if b.adapter == nil && b.platformRegistry == nil {
-		return nil, ErrAdapterRequired
+		return nil, errutil.ErrAdapterRequired
 	}
 
 	if b.engine == nil {

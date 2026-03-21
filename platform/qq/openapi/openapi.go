@@ -2,6 +2,7 @@
 package openapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -20,17 +21,14 @@ type Client struct {
 
 // New 创建 OpenAPI 服务
 func New(manager *token.Manager) *Client {
-	return &Client{
-		tm: manager,
-	}
+	return &Client{tm: manager}
 }
 
-// Post 发送一个 post 请求到 url
-//
-// 会自动添加 Authorization 头
-func (api *Client) Post(url string, data any) (gjson.Result, error) {
+// Post 发送一个 post 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
+func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result, error) {
 	api.tm.WaitReady()
 	result, err := httpclient.Post(url).
+		SetContext(ctx).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
 		SetJSON(data).
 		DoJSON()
@@ -41,12 +39,11 @@ func (api *Client) Post(url string, data any) (gjson.Result, error) {
 	return result, nil
 }
 
-// Delete 发送一个 delete 请求到 url
-//
-// 会自动添加 Authorization 头
-func (api *Client) Delete(url string) (gjson.Result, error) {
+// Delete 发送一个 delete 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
+func (api *Client) Delete(ctx context.Context, url string) (gjson.Result, error) {
 	api.tm.WaitReady()
 	resp, err := httpclient.Delete(url).
+		SetContext(ctx).
 		SetHeader("Authorization", fmt.Sprintf("QQBot %s", api.tm.GetToken())).
 		SetHeader("Content-Type", "application/json").
 		Do()
@@ -62,60 +59,28 @@ func (api *Client) Delete(url string) (gjson.Result, error) {
 	return resp.JSON()
 }
 
-// SingleChat sends a message to a single chat
-//
-// openid can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8D%95%E8%81%8A
-func (api *Client) SingleChat(openid string, msg *dto.Message) (gjson.Result, error) {
-	return api.Post(fmt.Sprintf(constant.SingleChatURL, openid), msg)
+func (api *Client) SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.SingleChatURL, openid), msg)
 }
 
-// GroupChat sends a message to a group chat
-//
-// group_openid can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E7%BE%A4%E8%81%8A
-func (api *Client) GroupChat(groupOpenid string, msg *dto.Message) (gjson.Result, error) {
-	return api.Post(fmt.Sprintf(constant.GroupChatURL, groupOpenid), msg)
+func (api *Client) GroupChat(ctx context.Context, groupOpenid string, msg *dto.Message) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupChatURL, groupOpenid), msg)
 }
 
-// SingleRichMedia sends a rich media to a single chat
-//
-// openid can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html#%E7%94%A8%E4%BA%8E%E5%8D%95%E8%81%8A
-func (api *Client) SingleRichMedia(openid string, media *dto.Media) (gjson.Result, error) {
-	return api.Post(fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
+func (api *Client) SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
 }
 
-// GroupRichMedia sends a rich media to a group chat
-//
-// group_openid can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html#%E7%94%A8%E4%BA%8E%E7%BE%A4%E8%81%8A
-func (api *Client) GroupRichMedia(groupOpenid string, media *dto.Media) (gjson.Result, error) {
-	return api.Post(fmt.Sprintf(constant.GroupRichMediaURL, groupOpenid), media)
+func (api *Client) GroupRichMedia(ctx context.Context, groupOpenid string, media *dto.Media) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupRichMediaURL, groupOpenid), media)
 }
 
 // SingleReset resets a message in a single chat
-//
-// openid can be got from the "payload.detail"
-//
-// message_id can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E5%8D%95%E8%81%8A
-func (api *Client) SingleReset(openid, messageID string) (gjson.Result, error) {
-	return api.Delete(fmt.Sprintf(constant.SingleResetURL, openid, messageID))
+func (api *Client) SingleReset(ctx context.Context, openid, messageID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.SingleResetURL, openid, messageID))
 }
 
 // GroupReset resets a message in a group chat
-//
-// group_openid can be got from the "payload.detail"
-//
-// message_id can be got from the "payload.detail"
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E7%BE%A4%E8%81%8A
-func (api *Client) GroupReset(groupOpenid, messageID string) (gjson.Result, error) {
-	return api.Delete(fmt.Sprintf(constant.GroupResetURL, groupOpenid, messageID))
+func (api *Client) GroupReset(ctx context.Context, groupOpenid, messageID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.GroupResetURL, groupOpenid, messageID))
 }

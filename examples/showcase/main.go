@@ -15,7 +15,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/core/admin"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/cache"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
-	corepermission "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/i18n"
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
@@ -30,7 +30,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -59,7 +59,7 @@ func main() {
 	eng.Use(middleware.ProductionSet()...)
 	eng.Use(requestCounterMiddleware())
 	pm := plugin.NewManager(eng)
-	pm.SetStrictDeps(true)
+	pm.SetStrictDeps(false)
 	pm.AddListener(&lifecycleLogger{})
 	asPlugin := antispam.NewPlugin(antispam.Config{
 		UserRate: 5, UserBurst: 10, GroupRate: 30, GroupBurst: 50,
@@ -74,7 +74,7 @@ func main() {
 	rlPlugin.BindCooldown(cdPlugin)
 	if err := pm.RegisterMultipleV2([]*plugin.PluginDescriptor{
 		storage.New(),
-		corepermission.New(),
+		permission.New(),
 		acl.Descriptor(aclPlugin),
 		verifycode.New(func(userID, role string) error {
 			logger.Infof("[showcase] %s granted role %s via verifycode", userID, role)

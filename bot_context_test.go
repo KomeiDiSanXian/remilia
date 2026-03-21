@@ -31,6 +31,7 @@ func (a *ctxMockAdapter) Start(ctx context.Context, _ func(platform.Event)) erro
 	return nil
 }
 func (a *ctxMockAdapter) Stop(_ context.Context) error { return nil }
+func (a *ctxMockAdapter) IsRunning() bool              { return false }
 
 // waitBotRunning 等待 Bot 进入 running 状态
 func waitBotRunning(t *testing.T, b *Bot) {

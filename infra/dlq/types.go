@@ -33,7 +33,7 @@ func MarshalPlatformEventItem(item Item[platform.Event]) ([]byte, error) {
 		rec.Event = &PlatformDeadLetterEvent{
 			Platform:      e.Platform(),
 			Kind:          string(e.Kind()),
-			RawType:       e.RawType(),
+			RawType:       platform.RawType(e),
 			ChatID:        e.Chat().ID,
 			SenderID:      e.Sender().ID,
 			TimestampUnix: e.Timestamp().UnixMilli(),

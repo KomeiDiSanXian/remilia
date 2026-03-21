@@ -122,6 +122,7 @@ func (ctx *Context) Clone() *Context {
 		matcher:        ctx.matcher,
 		platformEvent:  ctx.platformEvent,  // 保留平台无关事件引用
 		platformSender: ctx.platformSender, // 保留平台发送器，使 Reply() 在克隆后仍可用
+		platformCaps:   ctx.platformCaps,   // B1 fix: 保留平台能力声明，避免克隆后渐进增强失效
 	}
 
 	if ex := ctx.Ext(); ex != nil {

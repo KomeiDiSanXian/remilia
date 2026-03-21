@@ -227,7 +227,7 @@ func (p *Plugin) handleDebugEvent(ctx *eventctx.Context) error {
 
 	// 原始数据（简化显示）
 	msg.WriteString("\n📦 原始事件:\n")
-	msg.WriteString(fmt.Sprintf("  - Type: %s\n", pe.RawType()))
+	msg.WriteString(fmt.Sprintf("  - Type: %s\n", platform.RawType(pe)))
 	msg.WriteString(fmt.Sprintf("  - ID: %s\n", pe.ID()))
 
 	return p.reply(ctx, msg.String())

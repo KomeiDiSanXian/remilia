@@ -5,6 +5,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -107,7 +108,7 @@ func TestBotBuilder_Errors(t *testing.T) {
 
 		assert.Error(t, err)
 		assert.Nil(t, bot)
-		assert.Equal(t, remilia.ErrAdapterRequired, err)
+		assert.Equal(t, errutil.ErrAdapterRequired, err)
 	})
 }
 

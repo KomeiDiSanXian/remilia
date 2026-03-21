@@ -1,35 +1,53 @@
-// Package dlq provides QQ-platform-specific dead letter queue type aliases.
+// Package dlq provides platform-agnostic dead letter queue type aliases for the QQ adapter.
 //
-// These aliases simplify working with DLQs that carry *dto.Payload events.
-// For platform-agnostic DLQs, use the generic types from [infra/dlq] directly
-// (e.g. dlq.Queue[platform.Event]).
+// After the D5 pool optimization, *dto.Payload objects are immediately returned
+// to the sync.Pool after NewEvent() completes, so storing *dto.Payload pointers
+// in a DLQ is unsafe. This package now exposes DLQ types based on platform.Event,
+// which are always safe to hold after event creation.
+//
+// For the rare case where raw QQ payload bytes need to be preserved for replay,
+// copy payload.Raw ([]byte) before NewEvent is called.
 package dlq
 
 import (
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// PayloadQueue is a dead letter queue for QQ *dto.Payload events.
+// EventQueue is a dead letter queue for platform.Event values from the QQ adapter.
+//
+// This is the safe replacement for the former PayloadQueue: platform.Event objects
+// are fully populated before the underlying *dto.Payload is released to the pool,
+// so they are safe to hold indefinitely.
 //
 // Example:
 //
-//	q := qqdlq.NewPayloadQueue(qqdlq.PayloadConfig{
+//	q := qqdlq.NewEventQueue(qqdlq.EventConfig{
 //	    MaxSize: 10000,
 //	    Workers: 4,
 //	})
-type PayloadQueue = dlq.Queue[*dto.Payload]
+//
+//go:fix inline
+type EventQueue = dlq.Queue[platform.Event]
 
-// PayloadItem is a type alias for dlq.Item[*dto.Payload].
-type PayloadItem = dlq.Item[*dto.Payload]
+// EventItem is a type alias for dlq.Item[platform.Event].
+//
+//go:fix inline
+type EventItem = dlq.Item[platform.Event]
 
-// PayloadConsumer is a type alias for dlq.Consumer[*dto.Payload].
-type PayloadConsumer = dlq.Consumer[*dto.Payload]
+// EventConsumer is a type alias for dlq.Consumer[platform.Event].
+//
+//go:fix inline
+type EventConsumer = dlq.Consumer[platform.Event]
 
-// PayloadConfig is a type alias for dlq.Config[*dto.Payload].
-type PayloadConfig = dlq.Config[*dto.Payload]
+// EventConfig is a type alias for dlq.Config[platform.Event].
+//
+//go:fix inline
+type EventConfig = dlq.Config[platform.Event]
 
-// NewPayloadQueue creates a new dead letter queue for *dto.Payload events.
-func NewPayloadQueue(config PayloadConfig) *PayloadQueue {
-	return dlq.New[*dto.Payload](config)
+// NewEventQueue creates a new dead letter queue for platform.Event values.
+//
+//go:fix inline
+func NewEventQueue(config EventConfig) *EventQueue {
+	return dlq.New[platform.Event](config)
 }

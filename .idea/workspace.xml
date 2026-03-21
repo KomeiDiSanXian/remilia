@@ -4,8 +4,50 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-audit.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_nil_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_nil_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/dev/debug/debug.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-review-2026-03-20.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/platform-abstraction-review-2026-03-20.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errors.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/logger-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/logger-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/consumers.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/consumers.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/dlq/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/dlq/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/dlq/compat.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/dto.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/iface.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/iface.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -145,6 +187,17 @@
         <option value="GoApplicationRunConfiguration" />
       </set>
     </option>
+    <option name="configurationStatuses">
+      <map>
+        <entry key="GoApplicationRunConfiguration">
+          <value>
+            <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="STOPPED" />
+            </map>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase">
     <configuration name="go build debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
@@ -179,8 +232,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase" />
+        <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
         <item itemvalue="Go 构建.go build debug-subcommand-demo" />
       </list>
     </recent_temporary>
@@ -218,7 +271,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(platform): enhance platform-agnostic event handling and deprecate legacy methods" />
     <MESSAGE value="feat(platform): enhance multi-platform support by allowing nil adapter in Bot and updating related documentation" />
     <MESSAGE value="refactor(platform): move OpenAPI interface for QQ platform integration" />
     <MESSAGE value="docs(platform): move report files for improved organization" />
@@ -243,7 +295,8 @@
     <MESSAGE value="chore(tests): add Attachments method to various event test structs for consistency" />
     <MESSAGE value="refactor(webhook): separate HTTP server and token management into WebhookConn" />
     <MESSAGE value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
+    <MESSAGE value="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

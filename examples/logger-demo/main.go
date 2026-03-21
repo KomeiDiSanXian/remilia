@@ -93,3 +93,5 @@ func (m *MockAdapter) Stop(ctx context.Context) error {
 	logger.Info("[MockAdapter] Stopping...")
 	return nil
 }
+
+func (m *MockAdapter) IsRunning() bool { return false }

@@ -77,7 +77,7 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 	}
 }
 
-// AdapterHealthChecker 检查 Adapter 状态
+// AdapterHealthChecker 检查 Adapter 运行状态
 type AdapterHealthChecker struct {
 	adapter platform.Adapter
 }
@@ -89,10 +89,13 @@ func NewAdapterHealthChecker(adapter platform.Adapter) *AdapterHealthChecker {
 
 // Name 返回检查器名称
 func (c *AdapterHealthChecker) Name() string {
+	if c.adapter != nil {
+		return "adapter:" + c.adapter.Platform()
+	}
 	return "adapter"
 }
 
-// Check 执行健康检查
+// Check 执行健康检查，通过 IsRunning() 判断适配器实际运行状态
 func (c *AdapterHealthChecker) Check(_ context.Context) health.CheckResult {
 	if c.adapter == nil {
 		return health.CheckResult{
@@ -101,12 +104,20 @@ func (c *AdapterHealthChecker) Check(_ context.Context) health.CheckResult {
 		}
 	}
 
-	// Adapter 存在即认为健康
-	// 如果需要更详细的检查，可以让 Adapter 接口实现 Healthchecker
+	if !c.adapter.IsRunning() {
+		return health.CheckResult{
+			Status: health.Unhealthy,
+			Error:  "adapter is not running",
+			Metadata: map[string]any{
+				"platform": c.adapter.Platform(),
+			},
+		}
+	}
+
 	return health.CheckResult{
 		Status: health.Healthy,
 		Metadata: map[string]any{
-			"type": "adapter",
+			"platform": c.adapter.Platform(),
 		},
 	}
 }

@@ -1,6 +1,7 @@
 package testbot_test
 
 import (
+	stdctx "context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -12,7 +13,7 @@ import (
 func TestMockAPI_SingleChat(t *testing.T) {
 	api := testbot.NewMockAPI()
 	msg := &dto.Message{Type: dto.TextMessage, Content: "hello"}
-	api.SingleChat("user1", msg)
+	api.SingleChat(stdctx.Background(), "user1", msg)
 	sent := api.Sent()
 	if len(sent) != 1 {
 		t.Fatalf("expected 1 sent, got %d", len(sent))
@@ -24,7 +25,7 @@ func TestMockAPI_SingleChat(t *testing.T) {
 func TestMockAPI_GroupChat(t *testing.T) {
 	api := testbot.NewMockAPI()
 	msg := &dto.Message{Type: dto.TextMessage, Content: "broadcast"}
-	api.GroupChat("group1", msg)
+	api.GroupChat(stdctx.Background(), "group1", msg)
 	last := api.LastSent()
 	if last == nil || last.Target != "group1" || !last.IsGroup {
 		t.Errorf("unexpected last sent: %+v", last)
@@ -32,7 +33,7 @@ func TestMockAPI_GroupChat(t *testing.T) {
 }
 func TestMockAPI_Clear(t *testing.T) {
 	api := testbot.NewMockAPI()
-	api.SingleChat("u", &dto.Message{Content: "x"})
+	api.SingleChat(stdctx.Background(), "u", &dto.Message{Content: "x"})
 	api.Clear()
 	if len(api.Sent()) != 0 {
 		t.Error("expected empty after Clear")

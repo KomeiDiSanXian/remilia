@@ -39,6 +39,9 @@ func (a *WebhookServerAdapter) Sender() platform.Sender { return a.conn.Sender()
 // Capabilities 实现 platform.Adapter。
 func (a *WebhookServerAdapter) Capabilities() platform.Capabilities { return QQCapabilities }
 
+// IsRunning 实现 platform.Adapter；委托给内部 Adapter 的运行状态。
+func (a *WebhookServerAdapter) IsRunning() bool { return a.adapter.IsRunning() }
+
 // WithAPI 注入外部 QQ OpenAPI client，委托给底层 WebhookConn。
 //
 // 支持链式调用：adapter.WithAPI(api).Start(ctx, handler)

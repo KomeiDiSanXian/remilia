@@ -182,12 +182,6 @@ func TestContextPoolWithExtensions(t *testing.T) {
 	assert.Nil(t, v3)
 }
 
-// TestGetContextPoolStats tests pool statistics
-func TestGetContextPoolStats(t *testing.T) {
-	stats := context.GetContextPoolStats()
-	assert.True(t, stats.PoolEnabled)
-}
-
 // BenchmarkContextCreation compares regular creation vs pool
 func BenchmarkContextCreation(b *testing.B) {
 

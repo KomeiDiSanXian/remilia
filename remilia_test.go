@@ -124,7 +124,11 @@ func (m *mockAdapter) Stop(_ context.Context) error {
 	return nil
 }
 
-// TestNewBot tests creating a new bot
+func (m *mockAdapter) IsRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.started && !m.shutdown
+}
 func TestNewBot(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()

@@ -284,6 +284,7 @@ func (a *pumpAdapter) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+func (a *pumpAdapter) IsRunning() bool { return a.cancel != nil }
 func (a *pumpAdapter) InjectEvent(p *dto.Payload) {
 	select {
 	case a.ch <- p:

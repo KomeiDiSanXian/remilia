@@ -207,6 +207,7 @@ func (m *mockAdapter) Start(_ context.Context, _ func(platform.Event)) error {
 }
 
 func (m *mockAdapter) Stop(_ context.Context) error { return nil }
+func (m *mockAdapter) IsRunning() bool              { return false }
 
 func (m *mockAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 

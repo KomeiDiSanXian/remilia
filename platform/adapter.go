@@ -12,20 +12,37 @@ import (
 // chatInfoContextKey 是向 Go context 注入 ChatInfo 的 key（平台无关）
 type chatInfoContextKey struct{}
 
+// eventIDContextKey 是向 Go context 注入触发事件 ID 的 key（用于被动回复）
+type eventIDContextKey struct{}
+
 // WithChatInfo 将 ChatInfo 注入到 Go context，供下游发送器路由使用。
-//
-// 框架在调用 platform.Sender.Send 时会自动注入，
-// 平台发送器实现可通过 ChatInfoFromContext 读取。
 func WithChatInfo(ctx stdctx.Context, chat ChatInfo) stdctx.Context {
 	return stdctx.WithValue(ctx, chatInfoContextKey{}, chat)
 }
 
 // ChatInfoFromContext 从 Go context 中读取 ChatInfo。
-//
-// 若未注入，ok 返回 false。平台发送器应优先检查此值以决定路由方式（群聊/私聊）。
 func ChatInfoFromContext(ctx stdctx.Context) (ChatInfo, bool) {
 	chat, ok := ctx.Value(chatInfoContextKey{}).(ChatInfo)
 	return chat, ok
+}
+
+// WithEventID 将触发事件 ID 注入到 Go context。
+//
+// 框架在调用 ctx.Reply() 时自动注入，供 QQ 等需要被动回复关联的平台使用。
+// 平台发送器可通过 [EventIDFromContext] 读取并自动填充回复关联字段。
+func WithEventID(ctx stdctx.Context, eventID string) stdctx.Context {
+	if eventID == "" {
+		return ctx
+	}
+	return stdctx.WithValue(ctx, eventIDContextKey{}, eventID)
+}
+
+// EventIDFromContext 从 Go context 中读取触发事件 ID。
+//
+// 若未注入或为空，ok 返回 false。
+func EventIDFromContext(ctx stdctx.Context) (string, bool) {
+	id, ok := ctx.Value(eventIDContextKey{}).(string)
+	return id, ok && id != ""
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -157,6 +174,12 @@ type Adapter interface {
 	// Capabilities 返回该平台支持的特性集合。
 	// 用于 Handler 做跨平台特性检测，实现渐进增强策略。
 	Capabilities() Capabilities
+
+	// IsRunning 返回适配器当前是否处于运行状态。
+	//
+	// 在 Start() 成功启动后返回 true，Stop() 完成后返回 false。
+	// 用于健康检查和监控，实现应保证并发安全。
+	IsRunning() bool
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -238,7 +261,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	)
 
 	for _, a := range adapters {
-		wg.Go(func() {
+		wg.Go(func() { // 这部分依赖 Go 1.22+ 语义（闭包捕获）
 			if err := a.Start(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),

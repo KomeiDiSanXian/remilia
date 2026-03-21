@@ -33,6 +33,27 @@ func OnEventType(eventType string) Rule {
 	}
 }
 
+// OnPlatform 匹配来自指定平台的事件（多平台架构下推荐使用）。
+//
+// 在同时运行多个平台适配器时，可通过此规则将某个命令限定到特定平台：
+//
+//	// 只在 QQ 平台响应 /ban 命令
+//	engine.OnEventKind(platform.EventKindGroupMessage,
+//	    OnPlatform("qq"),
+//	    OnCommand("/ban"),
+//	).Handle(banHandler)
+//
+//	// 只在 Discord 响应 /embed 命令（Discord 原生支持 Embeds）
+//	engine.OnEventKind(platform.EventKindGroupMessage,
+//	    OnPlatform("discord"),
+//	    OnCommand("/embed"),
+//	).Handle(embedHandler)
+func OnPlatform(platformID string) Rule {
+	return func(ctx *Context) bool {
+		return ctx.GetEventPlatform() == platformID
+	}
+}
+
 // OnEventKind 匹配平台无关的事件类别（多平台推荐方式）。
 //
 // 对所有平台（QQ、Discord、Telegram 等）透明地生效。

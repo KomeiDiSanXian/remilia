@@ -104,7 +104,8 @@ func (ctx *Context) GetEventPlatform() string {
 
 // Reply 向事件来源会话发送回复（平台无关方式）。
 //
-// ChatInfo（IsGroup 等）会自动注入到 Go context，供平台发送器路由使用。
+// ChatInfo（IsGroup 等）和触发事件 ID 会自动注入到 Go context，
+// 供平台发送器路由和被动回复关联使用（如 QQ 需要 event_id 标识来源事件）。
 // 超时/截止时间由当前 Context 的标准库 context 控制（中间件注入的 Deadline 同样有效）。
 //
 // 示例：
@@ -119,12 +120,16 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) error {
 	}
 	chat := ctx.platformEvent.Chat()
 	goCtx := platform.WithChatInfo(ctx.Context(), chat)
+	// D4: 自动注入触发事件 ID，供 QQ 等平台做被动回复关联（无需手动 ApplyExtra）
+	if eventID := ctx.platformEvent.ID(); eventID != "" {
+		goCtx = platform.WithEventID(goCtx, eventID)
+	}
 	return ctx.platformSender.Send(goCtx, msg)
 }
 
 // ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
 //
-// ChatInfo 会叠加注入到 stdCtx 中，不会覆盖已有的超时/取消信号。
+// ChatInfo 和触发事件 ID 会叠加注入到 stdCtx 中，不会覆盖已有的超时/取消信号。
 func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) error {
 	if ctx == nil {
 		return ErrNilContext
@@ -134,6 +139,10 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	}
 	chat := ctx.platformEvent.Chat()
 	goCtx := platform.WithChatInfo(stdCtx, chat)
+	// D4: 同样注入事件 ID
+	if eventID := ctx.platformEvent.ID(); eventID != "" {
+		goCtx = platform.WithEventID(goCtx, eventID)
+	}
 	return ctx.platformSender.Send(goCtx, msg)
 }
 

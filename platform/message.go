@@ -1,6 +1,9 @@
 package platform
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // 附件（Attachment）
@@ -229,41 +232,37 @@ func (m OutboundMessage) WithReply(messageID string) OutboundMessage {
 
 // WithMentions 追加 @ 用户 ID 列表
 func (m OutboundMessage) WithMentions(userIDs ...string) OutboundMessage {
-	n := make([]string, len(m.Mentions), len(m.Mentions)+len(userIDs))
-	copy(n, m.Mentions)
-	m.Mentions = append(n, userIDs...)
+	m.Mentions = append(slices.Clone(m.Mentions), userIDs...)
 	return m
 }
 
 // WithButtons 追加交互按钮
 func (m OutboundMessage) WithButtons(buttons ...Button) OutboundMessage {
-	n := make([]Button, len(m.Buttons), len(m.Buttons)+len(buttons))
-	copy(n, m.Buttons)
-	m.Buttons = append(n, buttons...)
+	m.Buttons = append(slices.Clone(m.Buttons), buttons...)
 	return m
 }
 
 // WithAttachments 追加附件
 func (m OutboundMessage) WithAttachments(attachments ...Attachment) OutboundMessage {
-	n := make([]Attachment, len(m.Attachments), len(m.Attachments)+len(attachments))
-	copy(n, m.Attachments)
-	m.Attachments = append(n, attachments...)
+	m.Attachments = append(slices.Clone(m.Attachments), attachments...)
 	return m
 }
 
 // WithEmbeds 追加富文本卡片
 func (m OutboundMessage) WithEmbeds(embeds ...Embed) OutboundMessage {
-	n := make([]Embed, len(m.Embeds), len(m.Embeds)+len(embeds))
-	copy(n, m.Embeds)
-	m.Embeds = append(n, embeds...)
+	m.Embeds = append(slices.Clone(m.Embeds), embeds...)
 	return m
 }
 
-// WithExtra 添加平台扩展字段
+// WithExtra 添加平台扩展字段（返回新消息，不修改原消息）
+//
+// 每次调用均创建独立的 Extra map，避免多个派生消息共享同一底层 map 导致的数据污染。
 func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
-	if m.Extra == nil {
-		m.Extra = make(map[string]any)
+	newExtra := make(map[string]any, len(m.Extra)+1)
+	for k, v := range m.Extra {
+		newExtra[k] = v
 	}
-	m.Extra[key] = value
+	newExtra[key] = value
+	m.Extra = newExtra
 	return m
 }

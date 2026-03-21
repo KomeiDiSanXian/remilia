@@ -47,7 +47,7 @@ func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Send
 				"panic":    r,
 				"platform": event.Platform(),
 				"kind":     string(event.Kind()),
-				"type":     event.RawType(),
+				"type":     platform.RawType(event),
 			}).Error("[engine] Unhandled panic in ProcessPlatformEvent recovered")
 		}
 	}()
