@@ -90,6 +90,32 @@ func (n *NoopSender) Send(_ stdctx.Context, _ SendRequest) error {
 	return nil
 }
 
+// GetEditor 安全获取适配器 Sender 的消息编辑接口。
+//
+// 若 Sender 未实现 [MessageEditor]，返回 (nil, false)。
+// 使用示例：
+//
+//	if editor, ok := platform.GetEditor(adapter); ok {
+//	    editor.Edit(ctx, messageID, newContent)
+//	}
+func GetEditor(a Adapter) (MessageEditor, bool) {
+	e, ok := a.Sender().(MessageEditor)
+	return e, ok
+}
+
+// GetDeleter 安全获取适配器 Sender 的消息删除接口。
+//
+// 若 Sender 未实现 [MessageDeleter]，返回 (nil, false)。
+// 使用示例：
+//
+//	if deleter, ok := platform.GetDeleter(adapter); ok {
+//	    deleter.Delete(ctx, messageID)
+//	}
+func GetDeleter(a Adapter) (MessageDeleter, bool) {
+	d, ok := a.Sender().(MessageDeleter)
+	return d, ok
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Capabilities
 // ────────────────────────────────────────────────────────────────────────────
@@ -175,6 +201,27 @@ type Adapter interface {
 	IsRunning() bool
 }
 
+// RecoverableAdapter 可选接口：支持感知断连事件的适配器实现此接口。
+//
+// 适配器在 Start() 内部自动重连时，每次意外断连应调用已注册的 fn，
+// 允许框架或应用层触发告警、更新监控指标等副作用。
+//
+// 使用示例：
+//
+//	if ra, ok := adapter.(platform.RecoverableAdapter); ok {
+//	    ra.OnDisconnect(func(err error) {
+//	        metrics.RecordDisconnect(adapter.Platform())
+//	        logger.Warnf("adapter %s disconnected: %v", adapter.Platform(), err)
+//	    })
+//	}
+type RecoverableAdapter interface {
+	Adapter
+	// OnDisconnect 注册断连回调。
+	// fn 在适配器每次意外断连时被调用，err 为断连原因。
+	// 多次调用将覆盖上一次注册的回调；传入 nil 表示取消回调。
+	OnDisconnect(fn func(err error))
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Registry
 // ────────────────────────────────────────────────────────────────────────────
@@ -226,14 +273,71 @@ func (r *Registry) Remove(platform string) bool {
 }
 
 // All 返回所有已注册适配器的快照（切片顺序不保证）
+//
+// 注册表为空时返回 nil，避免无谓的切片分配。
 func (r *Registry) All() []Adapter {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	if len(r.adapters) == 0 {
+		return nil
+	}
 	out := make([]Adapter, 0, len(r.adapters))
 	for _, a := range r.adapters {
 		out = append(out, a)
 	}
 	return out
+}
+
+// Len 返回已注册适配器数量，无需分配切片。
+func (r *Registry) Len() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.adapters)
+}
+
+// Replace 原子替换指定平台的适配器，返回被替换的旧适配器。
+//
+// 无论原有适配器是否存在，新适配器都会被注册。
+// 若该平台此前无适配器，returned old 为 nil，replaced 为 false。
+//
+// 典型用法（热替换运行中的适配器）：
+//
+//	old, ok := registry.Replace(newAdapter)
+//	if ok {
+//	    _ = old.Stop(ctx)
+//	}
+func (r *Registry) Replace(adapter Adapter) (old Adapter, replaced bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	old, replaced = r.adapters[adapter.Platform()]
+	r.adapters[adapter.Platform()] = adapter
+	return old, replaced
+}
+
+// SenderFor 返回指定平台的消息发送器。
+//
+// 若平台未注册，返回 (nil, false)。
+func (r *Registry) SenderFor(platform string) (Sender, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.adapters[platform]
+	if !ok {
+		return nil, false
+	}
+	return a.Sender(), true
+}
+
+// CapabilitiesFor 返回指定平台的能力声明。
+//
+// 若平台未注册，返回零值 Capabilities 和 false。
+func (r *Registry) CapabilitiesFor(platform string) (Capabilities, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.adapters[platform]
+	if !ok {
+		return Capabilities{}, false
+	}
+	return a.Capabilities(), true
 }
 
 // StartAll 并发启动所有已注册平台适配器
@@ -254,6 +358,14 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	)
 
 	for _, a := range adapters {
+		// F-8: 若适配器支持断连通知，注册框架侧的告警 hook
+		if ra, ok := a.(RecoverableAdapter); ok {
+			ra.OnDisconnect(func(err error) {
+				logger.WithFields(logger.Fields{
+					"platform": a.Platform(),
+				}).WithError(err).Warn("[Registry] Platform adapter disconnected, waiting for recovery")
+			})
+		}
 		wg.Go(func() { // wg.Go 是 Go 1.25 新增方法；循环变量按值捕获依赖 Go 1.22+ 语义。
 			if err := a.Start(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{

@@ -67,6 +67,15 @@ func (api *Client) GroupChat(ctx context.Context, groupOpenid string, msg *dto.M
 	return api.Post(ctx, fmt.Sprintf(constant.GroupChatURL, groupOpenid), msg)
 }
 
+// ChannelChat 向文字子频道发送消息。
+//
+// channelID 为子频道 ID（ChatInfo.ID），消息格式由 msg 中的非空字段推断：
+// Markdown > Content（文本）> Image（图片）。
+// 至少需要填充 Content、Embed、Ark、Image 或 Markdown 中的一个字段。
+func (api *Client) ChannelChat(ctx context.Context, channelID string, msg *dto.GuildMessage) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.ChannelChatURL, channelID), msg)
+}
+
 func (api *Client) SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
 }

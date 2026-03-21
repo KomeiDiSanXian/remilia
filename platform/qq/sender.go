@@ -48,9 +48,9 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 
 	msg := req.Message
 
-	// 频道消息（ChatInfo.ParentID 非空）需要独立的 Guild Channel API，暂不支持
+	// 频道消息（ChatInfo.ParentID 非空）使用频道专属 API
 	if chat.ParentID != "" {
-		return fmt.Errorf("qq sender: guild channel message sending is not yet supported (guild_id=%s, channel_id=%s)", chat.ParentID, chat.ID)
+		return s.sendGuildChannelMessage(ctx, chat, req.EventID, msg)
 	}
 
 	// 富媒体优先（QQ 不支持多附件，取第一个）
@@ -112,6 +112,79 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ev
 		_, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
 	}
 	return err
+}
+
+// sendGuildChannelMessage 向 QQ 文字子频道发送消息。
+//
+// 频道 API（POST /channels/{channel_id}/messages）与群聊/单聊 API 的主要差异：
+//   - 无 msg_type，格式由内容字段推断
+//   - 图片直接用 image URL，无需先上传
+//   - 被动消息用 msg_id（触发消息的 Message.id）
+//
+// chat.ID = channel_id，chat.ParentID = guild_id（用于日志，路由仍用 channel_id）。
+func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, eventID string, msg platform.OutboundMessage) error {
+	guildMsg := s.buildGuildDTOMessage(msg, eventID)
+	_, err := s.api.ChannelChat(ctx, chat.ID, guildMsg)
+	return err
+}
+
+// buildGuildDTOMessage 将 platform.OutboundMessage 转换为频道专属的 dto.GuildMessage。
+//
+// 优先级：Markdown > Text(Content) > Image(Attachment)
+// 被动消息：MsgID 优先使用 MessageExtra.EventID，其次使用 req.EventID。
+// 引用回复：ReplyToID 非空时设置 MessageReference（展示被引用消息气泡）。
+func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, eventID string) *dto.GuildMessage {
+	guildMsg := &dto.GuildMessage{}
+
+	// 消息内容优先级：Markdown > 纯文本
+	if msg.Markdown != "" {
+		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown}
+	} else {
+		guildMsg.Content = msg.Text
+	}
+
+	// @用户：将 Mentions 转为 QQ AT 内嵌标签，前置于正文
+	if len(msg.Mentions) > 0 {
+		var sb strings.Builder
+		for _, uid := range msg.Mentions {
+			sb.WriteString(dto.At(uid))
+		}
+		if guildMsg.Markdown != nil {
+			guildMsg.Markdown.Content = sb.String() + guildMsg.Markdown.Content
+		} else {
+			guildMsg.Content = sb.String() + guildMsg.Content
+		}
+	}
+
+	// 图片附件：频道 API 直接接受图片 URL，无需预先上传
+	// 非图片类型（音视频/文件）在频道消息中不支持，忽略
+	if len(msg.Attachments) > 0 {
+		att := msg.Attachments[0]
+		if att.Kind == platform.AttachmentKindImage && att.URL != "" {
+			guildMsg.Image = att.URL
+		}
+	}
+
+	// 被动消息关联：频道用 msg_id（来源消息的 Message.id）
+	// 优先使用手动 ApplyExtra 注入的值，其次 SendRequest.EventID
+	extra := extractExtra(msg)
+	resolvedMsgID := extra.EventID
+	if resolvedMsgID == "" {
+		resolvedMsgID = eventID
+	}
+	if resolvedMsgID != "" {
+		guildMsg.MsgID = resolvedMsgID
+	}
+
+	// 引用回复：展示消息气泡引用（不同于被动回复关联）
+	if msg.ReplyToID != "" {
+		guildMsg.MessageReference = &dto.MessageReference{
+			MessageID:             msg.ReplyToID,
+			IgnoreGetMessageError: true,
+		}
+	}
+
+	return guildMsg
 }
 
 // attachmentKindToFileType 将平台无关的附件类型映射到 QQ dto.FileType

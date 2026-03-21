@@ -228,6 +228,29 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 	return resp, nil
 }
 
+// dropPayload 归还 payload 到对象池并更新丢弃统计，触发高丢弃率告警。
+// 供 handleDispatch 在 channel 满时调用。
+func (c *Conn) dropPayload(payload *dto.Payload) {
+	dto.ReleasePayload(payload)
+	dropped := c.droppedEvents.Add(1)
+	total := c.totalEvents.Load()
+	dropRate := float64(dropped) / float64(total) * 100
+	logger.WithFields(logger.Fields{
+		"total_dropped": dropped,
+		"total_events":  total,
+		"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+		"channel_size":  len(c.eventChan),
+		"channel_cap":   cap(c.eventChan),
+	}).Warn("[Webhook] Event channel is full, dropping payload")
+
+	if dropRate > 5.0 {
+		logger.WithFields(logger.Fields{
+			"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
+			"total_dropped": dropped,
+		}).Error("[Webhook] High event drop rate detected!")
+	}
+}
+
 // handleDispatch 将 Dispatch 事件非阻塞投递到 eventChan。
 //
 // channel 满时立即丢弃（归还 payload 到对象池）并记录统计信息。
@@ -241,25 +264,7 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	case c.eventChan <- payload:
 		logger.Tracef("[Webhook] Dispatched payload %s:%s to the event channel", payload.Type, payload.ID)
 	default:
-		// channel 满，立即归还 payload 并记录丢弃统计
-		dto.ReleasePayload(payload)
-		dropped := c.droppedEvents.Add(1)
-		total := c.totalEvents.Load()
-		dropRate := float64(dropped) / float64(total) * 100
-		logger.WithFields(logger.Fields{
-			"total_dropped": dropped,
-			"total_events":  total,
-			"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
-			"channel_size":  len(c.eventChan),
-			"channel_cap":   cap(c.eventChan),
-		}).Warn("[Webhook] Event channel is full, dropping payload")
-
-		if dropRate > 5.0 {
-			logger.WithFields(logger.Fields{
-				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
-				"total_dropped": dropped,
-			}).Error("[Webhook] High event drop rate detected!")
-		}
+		c.dropPayload(payload)
 	}
 }
 

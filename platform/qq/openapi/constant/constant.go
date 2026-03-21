@@ -47,4 +47,12 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E7%BE%A4%E8%81%8A
 	GroupResetURL = OpenAPIURL + "/v2/groups/%s/messages/%s"
+
+	// ChannelChatURL POST /channels/{channel_id}/messages
+	//
+	// 发送消息到文字子频道，使用频道专属请求体（GuildMessage），
+	// 与群聊/单聊 API 的请求结构体完全不同。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/post_messages.html
+	ChannelChatURL = OpenAPIURL + "/channels/%s/messages"
 )

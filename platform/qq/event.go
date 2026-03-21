@@ -191,12 +191,18 @@ func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
 }
 
 // parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。
+//
+// 使用 r.Array() 预获取元素数量，一次性分配输出切片，避免 append 扩容。
 func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	if !r.IsArray() || len(r.Raw) == 0 {
 		return nil
 	}
-	var out []platform.InboundAttachment
-	r.ForEach(func(_, v gjson.Result) bool {
+	arr := r.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	out := make([]platform.InboundAttachment, 0, len(arr))
+	for _, v := range arr {
 		att := platform.InboundAttachment{
 			URL:      v.Get("url").String(),
 			MimeType: v.Get("content_type").String(),
@@ -208,8 +214,7 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 		if att.URL != "" || att.Name != "" {
 			out = append(out, att)
 		}
-		return true
-	})
+	}
 	return out
 }
 

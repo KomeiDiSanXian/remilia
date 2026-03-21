@@ -93,6 +93,9 @@ func (m *MockAPI) SingleChat(_ context.Context, target string, msg *dto.Message)
 func (m *MockAPI) GroupChat(_ context.Context, target string, msg *dto.Message) (gjson.Result, error) {
 	return m.capture(target, true, msg)
 }
+func (m *MockAPI) ChannelChat(_ context.Context, _ string, _ *dto.GuildMessage) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
 func (m *MockAPI) SingleRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }

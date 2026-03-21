@@ -4,27 +4,17 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-review.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(platform): enhance adapter capabilities with additional features and improve error handling">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-audit.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/platform-abstraction-audit.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/dedup_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/constant/constant.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/constant/constant.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/iface.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/iface.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_stats_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_conn.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_conn.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -248,7 +238,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize: optimize goroutine usage in adapter initialization and improve loop iteration" />
     <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
     <MESSAGE value="feat(event): add ID method for unique event identification across platforms" />
     <MESSAGE value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
@@ -273,7 +262,8 @@
     <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
     <MESSAGE value="chore(platform): remove bot.go" />
     <MESSAGE value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
+    <MESSAGE value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
