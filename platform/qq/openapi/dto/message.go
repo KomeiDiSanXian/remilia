@@ -28,17 +28,21 @@ const (
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF
 type Message struct {
-	Content    string          `json:"content,omitempty"`
-	Type       MessageType     `json:"msg_type"`
-	Markdown   *Markdown       `json:"markdown,omitempty"`
-	Keyboard   json.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
-	Ark        *Ark            `json:"ark,omitempty"`
-	Media      *MediaResponse  `json:"media,omitempty"`
-	EventID    EventID         `json:"event_id,omitempty"`
-	MessageID  EventID         `json:"msg_id,omitempty"`
-	MessageSeq uint64          `json:"msg_seq,omitempty"`
+	Content  string          `json:"content,omitempty"`
+	Type     MessageType     `json:"msg_type"`
+	Markdown *Markdown       `json:"markdown,omitempty"`
+	Keyboard json.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
+	Ark      *Ark            `json:"ark,omitempty"`
+	Media    *MediaResponse  `json:"media,omitempty"`
+	// MessageReference 消息引用（展示引用气泡），与 msg_id/event_id 独立，用于在消息中显示被引用消息。
+	// 与 GuildMessage.MessageReference 含义相同，但适用于 QQ 单聊与群聊场景。
+	MessageReference *MessageReference `json:"message_reference,omitempty"`
+	EventID          EventID           `json:"event_id,omitempty"`
+	MessageID        EventID           `json:"msg_id,omitempty"`
+	MessageSeq       uint64            `json:"msg_seq,omitempty"`
 	// IsWakeup 互动召回消息标志（2026/01/10 新增）
 	// 与 msg_id / event_id 互斥使用；用户主动对话后每周期最多下发 1 条召回消息。
+	// 仅适用于 QQ 单聊（C2C），群聊不支持此字段。
 	IsWakeup bool `json:"is_wakeup,omitempty"`
 }
 

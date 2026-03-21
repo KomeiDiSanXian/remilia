@@ -111,10 +111,10 @@ func (m *MockAPI) SingleReset(_ context.Context, _, _ string) (gjson.Result, err
 func (m *MockAPI) GroupReset(_ context.Context, _, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
-func (m *MockAPI) ChannelReset(_ context.Context, _, _ string) (gjson.Result, error) {
+func (m *MockAPI) ChannelReset(_ context.Context, _, _ string, _ bool) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
-func (m *MockAPI) DMReset(_ context.Context, _, _ string) (gjson.Result, error) {
+func (m *MockAPI) DMReset(_ context.Context, _, _ string, _ bool) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 

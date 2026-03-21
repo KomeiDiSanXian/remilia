@@ -111,6 +111,12 @@ type InboundAttachment struct {
 	Width int
 	// Height 图片/视频高度（像素），非媒体类型或平台不提供时为 0
 	Height int
+	// VoiceWavURL 语音附件的 WAV 格式播放链接（仅 QQ 平台语音消息携带）。
+	// 非语音类型或平台不提供时为空字符串。
+	VoiceWavURL string
+	// AsrText 语音附件的 ASR（自动语音识别）参考文本（仅 QQ 平台语音消息携带）。
+	// 非语音类型或平台不提供时为空字符串。
+	AsrText string
 }
 
 // Event 是平台无关的事件抽象接口（最小必要集合）。

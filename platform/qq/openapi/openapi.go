@@ -151,13 +151,17 @@ func (api *Client) GroupReset(ctx context.Context, groupOpenid, messageID string
 }
 
 // ChannelReset 撤回文字子频道消息（仅私域机器人可用）。
-func (api *Client) ChannelReset(ctx context.Context, channelID, messageID string) (gjson.Result, error) {
-	return api.Delete(ctx, fmt.Sprintf(constant.ChannelResetURL, channelID, messageID))
+// hidetip=true 时隐藏客户端侧的撤回灰条提示；false（默认）时显示。
+func (api *Client) ChannelReset(ctx context.Context, channelID, messageID string, hidetip bool) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.ChannelResetURL, channelID, messageID)
+	return api.Delete(ctx, fmt.Sprintf("%s?hidetip=%t", url, hidetip))
 }
 
-// DMReset 撤回频道私信消息（仅私域机器人可用）。
-func (api *Client) DMReset(ctx context.Context, guildID, messageID string) (gjson.Result, error) {
-	return api.Delete(ctx, fmt.Sprintf(constant.DMResetURL, guildID, messageID))
+// DMReset 撤回频道私信消息（仅私域机器人可用，只能撤回机器人自己发送的私信）。
+// hidetip=true 时隐藏客户端侧的撤回灰条提示；false（默认）时显示。
+func (api *Client) DMReset(ctx context.Context, guildID, messageID string, hidetip bool) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.DMResetURL, guildID, messageID)
+	return api.Delete(ctx, fmt.Sprintf("%s?hidetip=%t", url, hidetip))
 }
 
 // ── 互动事件 ────────────────────────────────────────────────────────────────

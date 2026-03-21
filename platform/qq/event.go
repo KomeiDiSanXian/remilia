@@ -346,12 +346,14 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	out := make([]platform.InboundAttachment, 0, len(arr))
 	for _, v := range arr {
 		att := platform.InboundAttachment{
-			URL:      v.Get("url").String(),
-			MimeType: v.Get("content_type").String(),
-			Name:     v.Get("filename").String(),
-			Size:     int(v.Get("size").Int()),
-			Width:    int(v.Get("width").Int()),
-			Height:   int(v.Get("height").Int()),
+			URL:         v.Get("url").String(),
+			MimeType:    v.Get("content_type").String(),
+			Name:        v.Get("filename").String(),
+			Size:        int(v.Get("size").Int()),
+			Width:       int(v.Get("width").Int()),
+			Height:      int(v.Get("height").Int()),
+			VoiceWavURL: v.Get("voice_wav_url").String(),
+			AsrText:     v.Get("asr_refer_text").String(),
 		}
 		if att.URL != "" || att.Name != "" {
 			out = append(out, att)

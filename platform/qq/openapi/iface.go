@@ -9,16 +9,16 @@ import (
 
 // OpenAPI is the interface of the openapi
 type OpenAPI interface {
-	SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error)          // SingleChat sends a message to the single chat
-	GroupChat(ctx context.Context, groupID string, msg *dto.Message) (gjson.Result, error)          // GroupChat sends a message to the group chat
-	ChannelChat(ctx context.Context, channelID string, msg *dto.GuildMessage) (gjson.Result, error) // ChannelChat sends a message to a guild text channel
-	DMChat(ctx context.Context, guildID string, msg *dto.GuildMessage) (gjson.Result, error)        // DMChat sends a message to a guild direct message (DM) session
-	SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error)     // SingleRichMedia sends a rich media to the single chat
-	GroupRichMedia(ctx context.Context, groupID string, media *dto.Media) (gjson.Result, error)     // GroupRichMedia sends a rich media to the group chat
-	SingleReset(ctx context.Context, openid, messageID string) (gjson.Result, error)                // SingleReset resets a message in the single chat
-	GroupReset(ctx context.Context, groupID, messageID string) (gjson.Result, error)                // GroupReset resets a message in the group chat
-	ChannelReset(ctx context.Context, channelID, messageID string) (gjson.Result, error)            // ChannelReset resets a message in a text channel（仅私域机器人）
-	DMReset(ctx context.Context, guildID, messageID string) (gjson.Result, error)                   // DMReset resets a message in a direct message channel（仅私域机器人）
+	SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error)             // SingleChat sends a message to the single chat
+	GroupChat(ctx context.Context, groupID string, msg *dto.Message) (gjson.Result, error)             // GroupChat sends a message to the group chat
+	ChannelChat(ctx context.Context, channelID string, msg *dto.GuildMessage) (gjson.Result, error)    // ChannelChat sends a message to a guild text channel
+	DMChat(ctx context.Context, guildID string, msg *dto.GuildMessage) (gjson.Result, error)           // DMChat sends a message to a guild direct message (DM) session
+	SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error)        // SingleRichMedia sends a rich media to the single chat
+	GroupRichMedia(ctx context.Context, groupID string, media *dto.Media) (gjson.Result, error)        // GroupRichMedia sends a rich media to the group chat
+	SingleReset(ctx context.Context, openid, messageID string) (gjson.Result, error)                   // SingleReset resets a message in the single chat
+	GroupReset(ctx context.Context, groupID, messageID string) (gjson.Result, error)                   // GroupReset resets a message in the group chat
+	ChannelReset(ctx context.Context, channelID, messageID string, hidetip bool) (gjson.Result, error) // ChannelReset resets a message in a text channel（仅私域机器人）; hidetip=true 隐藏撤回灰条提示
+	DMReset(ctx context.Context, guildID, messageID string, hidetip bool) (gjson.Result, error)        // DMReset resets a message in a direct message channel（仅私域机器人）; hidetip=true 隐藏撤回灰条提示
 
 	// ── 互动事件 ────────────────────────────────────────────────────────────
 
