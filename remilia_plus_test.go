@@ -10,7 +10,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
-	"github.com/KomeiDiSanXian/remilia/testutil"
+	"github.com/KomeiDiSanXian/remilia/testbot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +37,7 @@ func TestBot_HandleEvent(t *testing.T) {
 	// Give the bot time to fully start
 	time.Sleep(50 * time.Millisecond)
 
-	testEvent := testutil.MakePlatformC2CEvent("test-user-1", "hello")
+	testEvent := testbot.MakePlatformC2CEvent("test-user-1", "hello")
 
 	adapter.SendEvent(testEvent)
 

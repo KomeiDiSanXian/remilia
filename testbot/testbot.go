@@ -12,12 +12,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/KomeiDiSanXian/remilia/testutil"
 	"github.com/tidwall/gjson"
 )
-
-// MakePlatformC2CEvent re-exports testutil.MakePlatformC2CEvent.
-var MakePlatformC2CEvent = testutil.MakePlatformC2CEvent
 
 // ---------------------------------------------------------------------------
 // MockAPI — QQ-specific mock for openapi.OpenAPI
@@ -113,34 +109,34 @@ func (m *MockAPI) GroupReset(_ context.Context, _, _ string) (gjson.Result, erro
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 
 // ---------------------------------------------------------------------------
-// Bot — QQ-aware test Bot (no testing.TB, embeds testutil.Bot)
+// QQBot — QQ-aware test QQBot (no testing.TB, embeds testutil.Bot)
 // ---------------------------------------------------------------------------
 
-// Bot is a lightweight test Bot that supports both platform-agnostic and QQ-specific
+// QQBot is a lightweight test Bot that supports both platform-agnostic and QQ-specific
 // event injection. It embeds [testutil.Bot] so all platform-agnostic helpers are
 // available directly on this type.
 //
-// For pure platform-agnostic tests, prefer [testutil.New] (TB-based) or
+// For pure platform-agnostic tests, prefer [testutil.NewBot] (TB-based) or
 // [testutil.NewBot] (no TB). Use this type when you need to inject raw
 // *dto.Payload events or assert against the QQ OpenAPI mock.
-type Bot struct {
-	*testutil.Bot
+type QQBot struct {
+	*Bot
 	api *MockAPI
 }
 
-// New creates a test Bot with a QQ MockAPI and a platform-agnostic MockSender.
-func New() *Bot {
-	return &Bot{
-		Bot: testutil.NewBot(),
+// NewQQBot creates a test QQBot with a QQ MockAPI and a platform-agnostic MockSender.
+func NewQQBot() *QQBot {
+	return &QQBot{
+		Bot: NewBot(),
 		api: NewMockAPI(),
 	}
 }
 
 // API returns the QQ MockAPI for QQ-specific message assertions.
-func (tb *Bot) API() *MockAPI { return tb.api }
+func (tb *QQBot) API() *MockAPI { return tb.api }
 
 // RegisterPlugin registers a plugin descriptor (deferred to Start).
-func (tb *Bot) RegisterPlugin(desc *plugin.PluginDescriptor) *Bot {
+func (tb *QQBot) RegisterPlugin(desc *plugin.PluginDescriptor) *QQBot {
 	tb.Bot.RegisterPlugin(desc)
 	return tb
 }
@@ -150,7 +146,7 @@ func (tb *Bot) RegisterPlugin(desc *plugin.PluginDescriptor) *Bot {
 // ---------------------------------------------------------------------------
 
 // SendGroupAt simulates a QQ group @-bot message via the full *dto.Payload path.
-func (tb *Bot) SendGroupAt(groupID, userOpenID, content string) {
+func (tb *QQBot) SendGroupAt(groupID, userOpenID, content string) {
 	event := dto.GroupAtMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
 			Content: content,
@@ -162,7 +158,7 @@ func (tb *Bot) SendGroupAt(groupID, userOpenID, content string) {
 }
 
 // SendC2C simulates a QQ C2C (private) message via the full *dto.Payload path.
-func (tb *Bot) SendC2C(userOpenID, content string) {
+func (tb *QQBot) SendC2C(userOpenID, content string) {
 	event := dto.C2CMessageCreateEvent{
 		MessageCreateEvent: dto.MessageCreateEvent{
 			Content: content,
@@ -175,18 +171,18 @@ func (tb *Bot) SendC2C(userOpenID, content string) {
 // InjectEvent injects any platform.Event directly via the platform-agnostic engine path.
 // This is the preferred injection method for platform-agnostic tests.
 // For QQ-specific raw payload injection, use Inject instead.
-func (tb *Bot) InjectEvent(event platform.Event) {
+func (tb *QQBot) InjectEvent(event platform.Event) {
 	tb.Engine().ProcessPlatformEvent(event, tb.SenderAPI())
 }
 
 // Inject injects an arbitrary *dto.Payload as a QQ platform event.
 // It is a thin QQ-specific convenience wrapper around InjectEvent.
 // For platform-agnostic injection, prefer InjectEvent.
-func (tb *Bot) Inject(payload *dto.Payload) {
+func (tb *QQBot) Inject(payload *dto.Payload) {
 	tb.InjectEvent(qqplatform.NewEvent(payload))
 }
 
-func (tb *Bot) inject(eventType dto.EventType, event any) {
+func (tb *QQBot) inject(eventType dto.EventType, event any) {
 	detail, _ := json.Marshal(event)
 	tb.Inject(&dto.Payload{Operation: dto.Dispatch, Type: eventType, Detail: detail})
 }
@@ -198,7 +194,7 @@ func (tb *Bot) inject(eventType dto.EventType, event any) {
 // AssertReplied asserts that a QQ message containing substr was captured by the MockAPI.
 // The target parameter is accepted for documentation clarity but not checked (routing
 // is asserted structurally via Sent/LastSent when needed).
-func (tb *Bot) AssertReplied(t *testing.T, target, substr string) {
+func (tb *QQBot) AssertReplied(t *testing.T, target, substr string) {
 	t.Helper()
 	for _, s := range tb.api.Drain() {
 		if s != nil && strings.Contains(s.Content, substr) {
@@ -210,7 +206,7 @@ func (tb *Bot) AssertReplied(t *testing.T, target, substr string) {
 }
 
 // AssertNotReplied asserts that no QQ message was captured by the MockAPI.
-func (tb *Bot) AssertNotReplied(t *testing.T, target string) {
+func (tb *QQBot) AssertNotReplied(t *testing.T, target string) {
 	t.Helper()
 	for _, s := range tb.api.Drain() {
 		if s != nil {
@@ -222,7 +218,7 @@ func (tb *Bot) AssertNotReplied(t *testing.T, target string) {
 
 // AssertPlatformReplied asserts that a platform-agnostic message containing substr
 // was captured by the MockSender.
-func (tb *Bot) AssertPlatformReplied(t *testing.T, substr string) {
+func (tb *QQBot) AssertPlatformReplied(t *testing.T, substr string) {
 	t.Helper()
 	if !tb.HasPlatformReply(substr) {
 		t.Errorf("testbot: no platform message containing %q; sent=%v", substr, tb.SenderAPI().Sent())
@@ -230,9 +226,9 @@ func (tb *Bot) AssertPlatformReplied(t *testing.T, substr string) {
 }
 
 // ClearSent clears both the QQ MockAPI log and the platform MockSender log.
-func (tb *Bot) ClearSent() {
+func (tb *QQBot) ClearSent() {
 	tb.api.Clear()
 	tb.Bot.ClearSent()
 }
 
-var _ platform.Sender = (*testutil.MockSender)(nil)
+var _ platform.Sender = (*MockSender)(nil)

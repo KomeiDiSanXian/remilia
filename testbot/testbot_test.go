@@ -40,7 +40,7 @@ func TestMockAPI_Clear(t *testing.T) {
 	}
 }
 func TestBot_SendGroupAt_AssertReplied(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/echo")).Handle(func(ctx *context.Context) error {
 		content := ctx.GetMessageContent()
 		return ctx.Reply(platform.TextMessage(content))
@@ -52,7 +52,7 @@ func TestBot_SendGroupAt_AssertReplied(t *testing.T) {
 	tb.AssertPlatformReplied(t, "/echo hello")
 }
 func TestBot_SendC2C(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(func(ctx *context.Context) error {
 		return ctx.Reply(platform.TextMessage("pong"))
 	})
@@ -63,7 +63,7 @@ func TestBot_SendC2C(t *testing.T) {
 	tb.AssertPlatformReplied(t, "pong")
 }
 func TestBot_AssertNotReplied(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestBot_AssertNotReplied(t *testing.T) {
 	}
 }
 func TestBot_AssertSentCount(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnKeyword("ping")).Handle(func(ctx *context.Context) error {
 		return ctx.Reply(platform.TextMessage("pong"))
 	})
@@ -88,7 +88,7 @@ func TestBot_AssertSentCount(t *testing.T) {
 	}
 }
 func TestBot_Inject_ArbitraryPayload(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	fired := false
 	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindMemberJoin（机器人被加入群组）。
 	tb.Engine().OnEventKind(platform.EventKindMemberJoin).Handle(func(ctx *context.Context) error {
@@ -107,7 +107,7 @@ func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 	}
 }
 func TestBot_ClearSent(t *testing.T) {
-	tb := testbot.New()
+	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/hi")).Handle(func(ctx *context.Context) error {
 		return ctx.Reply(platform.TextMessage("hi"))
 	})

@@ -1,4 +1,4 @@
-// Package testutil provides platform-agnostic test helpers for Remilia Bot Framework.
+// Package testbot provides platform-agnostic test helpers for Remilia Bot Framework.
 //
 // Usage:
 //
@@ -12,7 +12,7 @@
 //	// Send a virtual C2C (private) message (platform-agnostic)
 //	resp = tb.SendPlatformC2C("user-id-123", "/help")
 //	require.Contains(t, resp.FirstText(), "帮助")
-package testutil
+package testbot
 
 import (
 	stdctx "context"
