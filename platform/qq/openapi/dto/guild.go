@@ -181,3 +181,48 @@ type InteractionResponse struct {
 	// Code 结果码：0=成功，1=操作失败，2=频繁，3=重复操作，4=无权限，5=仅管理员可操作
 	Code int `json:"code"`
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 频道管理：子频道 CRUD（仅私域机器人）
+// ────────────────────────────────────────────────────────────────────────────
+
+// ChannelRequest 创建/修改子频道请求体。
+//
+// 创建时 Name 为必填；修改时只需传需要更改的字段。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/channel/post_channels.html
+type ChannelRequest struct {
+	// Name 子频道名称（1~100 字符）
+	Name string `json:"name"`
+	// Type 子频道类型：0=文字，2=语音，4=分组，10000=直播，10001=应用，10002=论坛
+	Type int `json:"type,omitempty"`
+	// SubType 子类型（仅文字子频道有效）：0=闲聊，1=公告，2=攻略，3=开黑
+	SubType int `json:"sub_type,omitempty"`
+	// Position 排列顺序（数值越小越靠前，0 表示默认位置）
+	Position int `json:"position,omitempty"`
+	// ParentID 所属分组子频道 ID（type=4 的子频道）
+	ParentID string `json:"parent_id,omitempty"`
+	// PrivateType 私密类型：0=公开，1=管理员，2=群主及管理员+指定成员
+	PrivateType int `json:"private_type,omitempty"`
+	// SpeakPermission 发言权限：0=无效，1=所有人，2=群主及管理员+指定成员
+	SpeakPermission int `json:"speak_permission,omitempty"`
+	// ApplicationID 应用类型子频道的应用 ID（type=10001 时使用）
+	ApplicationID string `json:"application_id,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 频道私信（DM）会话
+// ────────────────────────────────────────────────────────────────────────────
+
+// DirectMessageSessionRequest 创建频道私信会话请求体。
+//
+// 发送频道私信前必须先调用 POST /users/@me/dms 创建会话，获取 guild_id，
+// 之后使用 POST /dms/{guild_id}/messages 发送消息。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/dms/post_dms.html
+type DirectMessageSessionRequest struct {
+	// RecipientID 目标用户的 user_id（频道成员 ID）
+	RecipientID string `json:"recipient_id"`
+	// SourceGuildID 来源频道 ID（发起私信的频道）
+	SourceGuildID string `json:"source_guild_id"`
+}

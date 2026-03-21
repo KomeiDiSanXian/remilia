@@ -126,6 +126,12 @@ func (api *Client) ChannelChat(ctx context.Context, channelID string, msg *dto.G
 	return api.Post(ctx, fmt.Sprintf(constant.ChannelChatURL, channelID), msg)
 }
 
+// DMChat 向频道私信（DM）会话发送消息。
+// guildID 为通过 CreateDirectMessageSession 创建会话后返回的私信 guild_id。
+func (api *Client) DMChat(ctx context.Context, guildID string, msg *dto.GuildMessage) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.DMChatURL, guildID), msg)
+}
+
 func (api *Client) SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
 }
@@ -159,6 +165,69 @@ func (api *Client) DMReset(ctx context.Context, guildID, messageID string) (gjso
 // RespondInteraction 回应 INTERACTION_CREATE 事件（PUT /interactions/{interaction_id}）。
 func (api *Client) RespondInteraction(ctx context.Context, interactionID string, code int) (gjson.Result, error) {
 	return api.Put(ctx, fmt.Sprintf(constant.InteractionURL, interactionID), &dto.InteractionResponse{Code: code})
+}
+
+// ── 频道管理 ─────────────────────────────────────────────────────────────────
+
+// GetMe 获取当前用户（机器人）详情。
+func (api *Client) GetMe(ctx context.Context) (gjson.Result, error) {
+	return api.Get(ctx, constant.UsersMeURL)
+}
+
+// GetMyGuilds 获取机器人已加入的频道列表（分页）。
+// before/after 为游标（guild_id），均为空时从头拉取；limit=0 时使用平台默认值（100）。
+func (api *Client) GetMyGuilds(ctx context.Context, before, after string, limit int) (gjson.Result, error) {
+	url := constant.UsersMeGuildsURL
+	sep := "?"
+	if before != "" {
+		url += sep + "before=" + before
+		sep = "&"
+	}
+	if after != "" {
+		url += sep + "after=" + after
+		sep = "&"
+	}
+	if limit > 0 {
+		url += fmt.Sprintf("%slimit=%d", sep, limit)
+	}
+	return api.Get(ctx, url)
+}
+
+// GetGuild 获取指定频道详情。
+func (api *Client) GetGuild(ctx context.Context, guildID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GuildURL, guildID))
+}
+
+// GetGuildChannels 获取频道下的子频道列表。
+func (api *Client) GetGuildChannels(ctx context.Context, guildID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GuildChannelsURL, guildID))
+}
+
+// GetChannel 获取子频道详情。
+func (api *Client) GetChannel(ctx context.Context, channelID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.ChannelURL, channelID))
+}
+
+// CreateGuildChannel 在频道内创建子频道（仅私域机器人）。
+func (api *Client) CreateGuildChannel(ctx context.Context, guildID string, req *dto.ChannelRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GuildChannelsURL, guildID), req)
+}
+
+// UpdateGuildChannel 修改子频道信息（仅私域机器人）。
+func (api *Client) UpdateGuildChannel(ctx context.Context, channelID string, req *dto.ChannelRequest) (gjson.Result, error) {
+	return api.Patch(ctx, fmt.Sprintf(constant.ChannelURL, channelID), req)
+}
+
+// DeleteGuildChannel 删除子频道（仅私域机器人）。
+func (api *Client) DeleteGuildChannel(ctx context.Context, channelID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.ChannelURL, channelID))
+}
+
+// CreateDirectMessageSession 创建频道私信会话。
+// 发送频道私信前必须先调用此接口获取 guild_id，
+// 之后使用 DMChat(guild_id, ...) 发送消息。
+func (api *Client) CreateDirectMessageSession(ctx context.Context, req *dto.DirectMessageSessionRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.UsersMeDMsURL, req)
 }
 
 // ── 频道成员 ────────────────────────────────────────────────────────────────

@@ -87,6 +87,12 @@ type ChatInfo struct {
 	Name string
 	// IsGroup 是否为群组/频道消息（false = 私聊）
 	IsGroup bool
+	// IsDM 是否为私信（Direct Message）会话。
+	//
+	// 与 IsGroup=true、ParentID 非空同时成立时，
+	// 表示这是一条频道私信（如 QQ DIRECT_MESSAGE_CREATE），
+	// 发送回复时应使用 DM 专属接口而非普通频道消息接口。
+	IsDM bool
 }
 
 // InboundAttachment 入站消息中携带的附件（平台无关抽象）。

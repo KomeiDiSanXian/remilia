@@ -12,6 +12,7 @@ type OpenAPI interface {
 	SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error)          // SingleChat sends a message to the single chat
 	GroupChat(ctx context.Context, groupID string, msg *dto.Message) (gjson.Result, error)          // GroupChat sends a message to the group chat
 	ChannelChat(ctx context.Context, channelID string, msg *dto.GuildMessage) (gjson.Result, error) // ChannelChat sends a message to a guild text channel
+	DMChat(ctx context.Context, guildID string, msg *dto.GuildMessage) (gjson.Result, error)        // DMChat sends a message to a guild direct message (DM) session
 	SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error)     // SingleRichMedia sends a rich media to the single chat
 	GroupRichMedia(ctx context.Context, groupID string, media *dto.Media) (gjson.Result, error)     // GroupRichMedia sends a rich media to the group chat
 	SingleReset(ctx context.Context, openid, messageID string) (gjson.Result, error)                // SingleReset resets a message in the single chat
@@ -25,6 +26,28 @@ type OpenAPI interface {
 	// interactionID 来自事件的 id 字段；code 为结果码（0=成功）。
 	// 必须在收到事件后尽快调用，否则客户端持续 loading 至超时。
 	RespondInteraction(ctx context.Context, interactionID string, code int) (gjson.Result, error)
+
+	// ── 频道管理（Channel Management）──────────────────────────────────────
+
+	// GetMe 获取当前用户（机器人）详情。
+	GetMe(ctx context.Context) (gjson.Result, error)
+	// GetMyGuilds 获取机器人已加入的频道列表（分页）。
+	// before/after 为翻页游标（guild_id），limit 为每页数量（默认100，最大100）。
+	GetMyGuilds(ctx context.Context, before, after string, limit int) (gjson.Result, error)
+	// GetGuild 获取指定频道详情。
+	GetGuild(ctx context.Context, guildID string) (gjson.Result, error)
+	// GetGuildChannels 获取频道下的子频道列表。
+	GetGuildChannels(ctx context.Context, guildID string) (gjson.Result, error)
+	// GetChannel 获取子频道详情。
+	GetChannel(ctx context.Context, channelID string) (gjson.Result, error)
+	// CreateGuildChannel 在频道内创建子频道（仅私域机器人）。
+	CreateGuildChannel(ctx context.Context, guildID string, req *dto.ChannelRequest) (gjson.Result, error)
+	// UpdateGuildChannel 修改子频道信息（仅私域机器人）。
+	UpdateGuildChannel(ctx context.Context, channelID string, req *dto.ChannelRequest) (gjson.Result, error)
+	// DeleteGuildChannel 删除子频道（仅私域机器人）。
+	DeleteGuildChannel(ctx context.Context, channelID string) (gjson.Result, error)
+	// CreateDirectMessageSession 创建频道私信会话（发送频道私信前必须先调用此接口获取 guild_id）。
+	CreateDirectMessageSession(ctx context.Context, req *dto.DirectMessageSessionRequest) (gjson.Result, error)
 
 	// ── 频道成员（仅私域机器人）──────────────────────────────────────────────
 

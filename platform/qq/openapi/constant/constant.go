@@ -222,4 +222,57 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html#%E5%9B%9E%E5%BA%94
 	InteractionURL = OpenAPIURL + "/interactions/%s"
+
+	// ── 频道管理（频道管理模块）────────────────────────────────────────────────
+
+	// UsersMeURL GET /users/@me
+	//
+	// 获取当前用户（机器人）详情。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/user/me.html
+	UsersMeURL = OpenAPIURL + "/users/@me"
+
+	// UsersMeGuildsURL GET /users/@me/guilds
+	//
+	// 获取机器人已加入的频道列表，支持分页（before/after/limit）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/guild/guilds.html
+	UsersMeGuildsURL = OpenAPIURL + "/users/@me/guilds"
+
+	// UsersMeDMsURL POST /users/@me/dms
+	//
+	// 创建私信会话（频道私信发送前需先调用此接口获取 guild_id）。
+	// 请求体：{"recipient_id": "<user_id>", "source_guild_id": "<guild_id>"}
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/dms/post_dms.html
+	UsersMeDMsURL = OpenAPIURL + "/users/@me/dms"
+
+	// GuildURL GET /guilds/{guild_id}
+	//
+	// 获取频道详情。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/guild/get_guild.html
+	GuildURL = OpenAPIURL + "/guilds/%s"
+
+	// GuildChannelsURL GET /guilds/{guild_id}/channels  |  POST /guilds/{guild_id}/channels
+	//
+	// GET：获取子频道列表；POST：创建子频道（仅私域机器人）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/channel/get_channels.html
+	GuildChannelsURL = OpenAPIURL + "/guilds/%s/channels"
+
+	// ChannelURL GET|PATCH|DELETE /channels/{channel_id}
+	//
+	// GET：获取子频道详情；PATCH：修改子频道；DELETE：删除子频道（仅私域机器人）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/channel/get_channel.html
+	ChannelURL = OpenAPIURL + "/channels/%s"
+
+	// DMChatURL POST /dms/{guild_id}/messages
+	//
+	// 向频道私信会话发送消息，请求体与文字子频道发消息参数一致。
+	// guild_id 为通过 UsersMeDMsURL 创建会话后返回的私信会话 ID。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E9%A2%91%E9%81%93%E7%A7%81%E4%BF%A1
+	DMChatURL = OpenAPIURL + "/dms/%s/messages"
 )

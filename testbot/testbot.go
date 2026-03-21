@@ -96,6 +96,9 @@ func (m *MockAPI) GroupChat(_ context.Context, target string, msg *dto.Message) 
 func (m *MockAPI) ChannelChat(_ context.Context, _ string, _ *dto.GuildMessage) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
+func (m *MockAPI) DMChat(_ context.Context, _ string, _ *dto.GuildMessage) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
 func (m *MockAPI) SingleRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -249,6 +252,35 @@ func (m *MockAPI) CreateThread(_ context.Context, _ string, _ *dto.ThreadRequest
 	return gjson.Result{}, nil
 }
 func (m *MockAPI) DeleteThread(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
+// ── 频道管理 ──────────────────────────────────────────────────────────────
+func (m *MockAPI) GetMe(_ context.Context) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetMyGuilds(_ context.Context, _, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGuild(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGuildChannels(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetChannel(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) CreateGuildChannel(_ context.Context, _ string, _ *dto.ChannelRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdateGuildChannel(_ context.Context, _ string, _ *dto.ChannelRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) DeleteGuildChannel(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) CreateDirectMessageSession(_ context.Context, _ *dto.DirectMessageSessionRequest) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 

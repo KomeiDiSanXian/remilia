@@ -81,9 +81,37 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 		e.populateNoticeUser(detail)
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
-		e.populateGuildMessage(detail)
+		e.populateGuildMessage(evType, detail)
 	case dto.InteractionCreate:
 		e.kind = platform.EventKindInteraction
+	// ── 频道（Guild）事件 ──────────────────────────────────────────────────
+	case dto.GuildCreate:
+		e.kind = platform.EventKindMemberJoin // 机器人加入频道
+		e.populateGuildEvent(detail)
+	case dto.GuildUpdate:
+		e.kind = platform.EventKindNotice
+		e.populateGuildEvent(detail)
+	case dto.GuildDelete:
+		e.kind = platform.EventKindMemberLeave // 机器人退出频道
+		e.populateGuildEvent(detail)
+	// ── 频道成员事件 ────────────────────────────────────────────────────────
+	case dto.GuildMemberAdd:
+		e.kind = platform.EventKindMemberJoin
+		e.populateGuildMemberEvent(detail)
+	case dto.GuildMemberUpdate:
+		e.kind = platform.EventKindNotice
+		e.populateGuildMemberEvent(detail)
+	case dto.GuildMemberRemove:
+		e.kind = platform.EventKindMemberLeave
+		e.populateGuildMemberEvent(detail)
+	// ── 子频道事件 ──────────────────────────────────────────────────────────
+	case dto.ChannelCreate, dto.ChannelUpdate, dto.ChannelDelete:
+		e.kind = platform.EventKindNotice
+		e.populateChannelEvent(detail)
+	// ── 消息撤回事件 ────────────────────────────────────────────────────────
+	case dto.MessageDeleteEvent:
+		e.kind = platform.EventKindMessageDelete
+		e.populateMessageDelete(detail)
 	default:
 		e.kind = platform.EventKindUnknown
 	}
@@ -149,7 +177,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	e.attachments = parseAttachments(results[5])
 }
 
-func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
+func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 	if detail == nil {
 		return
 	}
@@ -171,16 +199,31 @@ func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
 	}
 	channelID := results[3].String()
 	guildID := results[4].String()
-	chatID := channelID
-	if chatID == "" {
-		chatID = guildID
+
+	isDM := evType == dto.DirectMessageCreate
+	if isDM {
+		// 频道私信：以 guild_id 作为发送目标（POST /dms/{guild_id}/messages），
+		// channel_id 仅作辅助信息，不用于发送。
+		e.chat = platform.ChatInfo{
+			ID:       guildID, // 私信会话 ID（用于 DMChat）
+			ParentID: guildID,
+			Name:     results[5].String(),
+			IsGroup:  false,
+			IsDM:     true,
+		}
+	} else {
+		chatID := channelID
+		if chatID == "" {
+			chatID = guildID
+		}
+		e.chat = platform.ChatInfo{
+			ID:       chatID,
+			ParentID: guildID,
+			Name:     results[5].String(),
+			IsGroup:  true,
+		}
 	}
-	e.chat = platform.ChatInfo{
-		ID:       chatID,
-		ParentID: guildID,
-		Name:     results[5].String(),
-		IsGroup:  true,
-	}
+
 	if ts := results[6].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
@@ -188,6 +231,105 @@ func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
 	}
 	e.attachments = parseAttachments(results[7])
 	e.replyToID = results[8].String()
+}
+
+// populateGuildEvent 解析频道事件（机器人加入/退出/更新频道）。
+func (e *qqEvent) populateGuildEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"id",
+		"name",
+		"owner_id",
+		"joined_at",
+	)
+	guildID := results[0].String()
+	e.chat = platform.ChatInfo{
+		ID:      guildID,
+		Name:    results[1].String(),
+		IsGroup: true,
+	}
+	e.sender = platform.UserInfo{
+		ID: results[2].String(),
+	}
+	if ts := results[3].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
+	}
+}
+
+// populateGuildMemberEvent 解析频道成员事件（加入/更新/移除成员）。
+func (e *qqEvent) populateGuildMemberEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"guild_id",
+		"user.id",
+		"user.username",
+		"nick",
+		"joined_at",
+		"op_user_id",
+	)
+	e.chat = platform.ChatInfo{
+		ID:      results[0].String(),
+		IsGroup: true,
+	}
+	e.sender = platform.UserInfo{
+		ID:          results[1].String(),
+		DisplayName: results[2].String(),
+	}
+	if ts := results[4].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
+	}
+}
+
+// populateChannelEvent 解析子频道事件（创建/更新/删除子频道）。
+func (e *qqEvent) populateChannelEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"id",
+		"guild_id",
+		"name",
+		"op_user_id",
+	)
+	e.chat = platform.ChatInfo{
+		ID:       results[0].String(),
+		ParentID: results[1].String(),
+		Name:     results[2].String(),
+		IsGroup:  true,
+	}
+	e.sender = platform.UserInfo{
+		ID: results[3].String(),
+	}
+}
+
+// populateMessageDelete 解析频道消息撤回事件。
+func (e *qqEvent) populateMessageDelete(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"message.id",
+		"message.channel_id",
+		"message.guild_id",
+		"op_user.id",
+	)
+	e.id = results[0].String()
+	e.chat = platform.ChatInfo{
+		ID:       results[1].String(),
+		ParentID: results[2].String(),
+		IsGroup:  true,
+	}
+	e.sender = platform.UserInfo{
+		ID: results[3].String(),
+	}
 }
 
 // parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。

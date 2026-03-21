@@ -117,16 +117,21 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ev
 	return err
 }
 
-// sendGuildChannelMessage 向 QQ 文字子频道发送消息。
+// sendGuildChannelMessage 向 QQ 文字子频道或频道私信发送消息。
 //
-// 频道 API（POST /channels/{channel_id}/messages）与群聊/单聊 API 的主要差异：
-//   - 无 msg_type，格式由内容字段推断
-//   - 图片直接用 image URL，无需先上传
-//   - 被动消息用 msg_id（触发消息的 Message.id）
+// 路由规则：
+//   - chat.IsDM = true → 频道私信，使用 DMChat（POST /dms/{guild_id}/messages）
+//   - 其他 → 文字子频道，使用 ChannelChat（POST /channels/{channel_id}/messages）
 //
-// chat.ID = channel_id，chat.ParentID = guild_id（用于日志，路由仍用 channel_id）。
+// 频道私信时 chat.ID 存储的是 DM 会话的 guild_id（由 NewEvent/populateGuildMessage 填充）。
+// chat.ID = channel_id（文字子频道）或 guild_id（私信会话），chat.ParentID = guild_id。
 func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, eventID string, msg platform.OutboundMessage) error {
 	guildMsg := s.buildGuildDTOMessage(msg, eventID)
+	if chat.IsDM {
+		// 频道私信：chat.ID 为 DM 会话的 guild_id
+		_, err := s.api.DMChat(ctx, chat.ID, guildMsg)
+		return err
+	}
 	_, err := s.api.ChannelChat(ctx, chat.ID, guildMsg)
 	return err
 }
