@@ -586,6 +586,11 @@ func Put(url string) *Request {
 	return defaultClient.Put(url)
 }
 
+// Patch 使用默认客户端创建 PATCH 请求
+func Patch(url string) *Request {
+	return defaultClient.Patch(url)
+}
+
 // Delete 使用默认客户端创建 DELETE 请求
 func Delete(url string) *Request {
 	return defaultClient.Delete(url)

@@ -2,6 +2,7 @@ package qq
 
 import (
 	stdctx "context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync/atomic"
@@ -72,14 +73,16 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ev
 	if att.URL == "" && len(att.Data) == 0 {
 		return fmt.Errorf("qq sender: attachment has neither URL nor data")
 	}
-	if len(att.Data) > 0 {
-		return fmt.Errorf("qq sender: binary attachment upload is not yet supported; use URL attachment instead")
-	}
 
 	media := &dto.Media{
 		Type:       attachmentKindToFileType(att.Kind),
-		URL:        att.URL,
 		ActiveSend: false,
+	}
+	if len(att.Data) > 0 {
+		// 二进制数据通过 base64 编码后以 file_data 字段上传
+		media.FileData = base64.StdEncoding.EncodeToString(att.Data)
+	} else {
+		media.URL = att.URL
 	}
 
 	var (
@@ -253,11 +256,19 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string)
 		dtoMsg.EventID = dto.EventID(resolvedEventID)
 	}
 
+	// IsWakeup：互动召回消息，与 event_id/msg_id 互斥，仅在 extra 中显式开启时有效
+	if extra.IsWakeup {
+		dtoMsg.IsWakeup = true
+		// 召回消息不关联来源事件/消息，清除已设置的 ID 字段
+		dtoMsg.EventID = ""
+		dtoMsg.MessageID = ""
+	}
+
 	return dtoMsg
 }
 
-// QQCapabilities 是 QQ 平台的能力声明
-var QQCapabilities = platform.Capabilities{
+// Capabilities 是 QQ 平台的能力声明
+var Capabilities = platform.Capabilities{
 	Markdown:        true,
 	Buttons:         true,
 	MultiAttachment: false,

@@ -4,16 +4,24 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(platform): enhance adapter capabilities with additional features and improve error handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(platform): add support for guild channel messaging and enhance adapter interfaces">
+      <change afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/guild.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/httpclient/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/httpclient/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/extra.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/extra.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/openapi/constant/constant.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/constant/constant.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/event.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/payload.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/payload.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/openapi/iface.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/iface.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/intents/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/intents/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/intents/intents.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/intents/intents.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -238,7 +246,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
     <MESSAGE value="feat(event): add ID method for unique event identification across platforms" />
     <MESSAGE value="docs(reports): rename multi-platform-audit.md and update change list comment for clarity" />
     <MESSAGE value="refactor(commands): update command registration to remove platform-specific message types" />
@@ -263,7 +270,8 @@
     <MESSAGE value="chore(platform): remove bot.go" />
     <MESSAGE value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
     <MESSAGE value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
+    <MESSAGE value="feat(platform): add support for guild channel messaging and enhance adapter interfaces" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(platform): add support for guild channel messaging and enhance adapter interfaces" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

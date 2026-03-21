@@ -1,5 +1,7 @@
 package dto
 
+import "encoding/json"
+
 // MessageType ...
 type MessageType int
 
@@ -26,14 +28,18 @@ const (
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF
 type Message struct {
-	Content    string         `json:"content,omitempty"`
-	Type       MessageType    `json:"msg_type"`
-	Markdown   *Markdown      `json:"markdown,omitempty"`
-	Ark        *Ark           `json:"ark,omitempty"`
-	Media      *MediaResponse `json:"media,omitempty"`
-	EventID    EventID        `json:"event_id,omitempty"`
-	MessageID  EventID        `json:"msg_id,omitempty"`
-	MessageSeq uint64         `json:"msg_seq,omitempty"`
+	Content    string          `json:"content,omitempty"`
+	Type       MessageType     `json:"msg_type"`
+	Markdown   *Markdown       `json:"markdown,omitempty"`
+	Keyboard   json.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
+	Ark        *Ark            `json:"ark,omitempty"`
+	Media      *MediaResponse  `json:"media,omitempty"`
+	EventID    EventID         `json:"event_id,omitempty"`
+	MessageID  EventID         `json:"msg_id,omitempty"`
+	MessageSeq uint64          `json:"msg_seq,omitempty"`
+	// IsWakeup 互动召回消息标志（2026/01/10 新增）
+	// 与 msg_id / event_id 互斥使用；用户主动对话后每周期最多下发 1 条召回消息。
+	IsWakeup bool `json:"is_wakeup,omitempty"`
 }
 
 // Markdown ...
@@ -57,9 +63,14 @@ type Ark struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html#%E5%AF%8C%E5%AA%92%E4%BD%93%E6%B6%88%E6%81%AF
 type Media struct {
-	Type       FileType `json:"file_type"`
-	URL        string   `json:"url"`
-	ActiveSend bool     `json:"srv_send_msg"`
+	Type FileType `json:"file_type"`
+	URL  string   `json:"url,omitempty"`
+	// FileData base64 编码的二进制数据，与 URL 二选一
+	FileData string `json:"file_data,omitempty"`
+	// ActiveSend 已废弃 (2025-04-21)：主动推送能力已停用，设置 true 会返回错误。
+	// 请始终保持 false，改用两步发送（先上传获取 file_info，再通过发消息接口发送）。
+	// 官方公告：https://q.qq.com/miniapp#/news/detail/974e66a946a5e54c441ca983585a7aab
+	ActiveSend bool `json:"srv_send_msg"`
 }
 
 // MediaResponse ...
@@ -123,6 +134,8 @@ type GuildMessage struct {
 	EventID string `json:"event_id,omitempty"`
 	// Markdown Markdown 消息对象
 	Markdown *Markdown `json:"markdown,omitempty"`
+	// Keyboard 按钮对象（InlineKeyboard）
+	Keyboard json.RawMessage `json:"keyboard,omitempty"`
 }
 
 // MessageReference 引用消息对象。
@@ -159,4 +172,100 @@ type GuildEmbedMedia struct {
 type GuildEmbedField struct {
 	// Name 字段内容
 	Name string `json:"name,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 消息按钮（InlineKeyboard）
+// 发送时序列化后赋值给 Message.Keyboard（json.RawMessage）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html
+// ────────────────────────────────────────────────────────────────────────────
+
+// InlineKeyboard 按钮消息顶层结构。
+//
+// 两种使用方式：
+//   - 模板按钮：填 ID（申请模板后获得），Content 留空
+//   - 自定义按钮：填 Content（需内邀开通），ID 留空
+type InlineKeyboard struct {
+	// ID 申请的按钮模板 ID，与 Content 二选一
+	ID string `json:"id,omitempty"`
+	// Content 自定义按钮内容，与 ID 二选一
+	Content *InlineKeyboardContent `json:"content,omitempty"`
+}
+
+// InlineKeyboardContent 自定义按钮内容。
+type InlineKeyboardContent struct {
+	// Rows 按钮行，最多 5 行，每行最多 5 个按钮
+	Rows []KeyboardRow `json:"rows"`
+}
+
+// KeyboardRow 按钮行。
+type KeyboardRow struct {
+	// Buttons 该行中的按钮列表，最多 5 个
+	Buttons []KeyboardButton `json:"buttons"`
+}
+
+// KeyboardButton 单个按钮对象。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html#%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E5%8D%8F%E8%AE%AE
+type KeyboardButton struct {
+	// ID 按钮 ID，在一个 keyboard 消息内设置唯一，可不填
+	ID string `json:"id,omitempty"`
+	// RenderData 按钮展示样式
+	RenderData *KeyboardRenderData `json:"render_data"`
+	// Action 按钮点击操作
+	Action *KeyboardAction `json:"action"`
+}
+
+// KeyboardRenderData 按钮展示配置。
+type KeyboardRenderData struct {
+	// Label 按钮上的文字
+	Label string `json:"label"`
+	// VisitedLabel 点击后按钮上的文字
+	VisitedLabel string `json:"visited_label"`
+	// Style 按钮样式：0 灰色线框，1 蓝色线框
+	Style int `json:"style"`
+}
+
+// KeyboardAction 按钮操作配置。
+type KeyboardAction struct {
+	// Type 操作类型：0=跳转按钮（http/小程序 scheme），1=回调按钮（通知后台），2=指令按钮（插入输入框）
+	Type int `json:"type"`
+	// Permission 按钮可操作权限
+	Permission *KeyboardPermission `json:"permission"`
+	// Data 操作相关数据，跳转时为 URL，回调时透传给后台，指令时为指令文本
+	Data string `json:"data"`
+	// UnsupportTips 客户端不支持本 action 时弹出的 toast 文案
+	UnsupportTips string `json:"unsupport_tips"`
+	// Reply 指令按钮专有：是否带引用回复本消息，默认 false（v8983+）
+	Reply bool `json:"reply,omitempty"`
+	// Enter 指令按钮专有：点击后直接自动发送 data，默认 false（v8983+）
+	Enter bool `json:"enter,omitempty"`
+	// Anchor 指令按钮专有：1=唤起手Q选图器（仅手机端 v8983+，桌面端不支持）
+	Anchor int `json:"anchor,omitempty"`
+}
+
+// KeyboardPermission 按钮操作权限配置。
+type KeyboardPermission struct {
+	// Type 权限类型：0=指定用户，1=仅管理者，2=所有人，3=指定身份组（仅频道）
+	Type int `json:"type"`
+	// SpecifyUserIDs 有权限的用户 openID 列表（Type=0 时使用）
+	SpecifyUserIDs []string `json:"specify_user_ids,omitempty"`
+	// SpecifyRoleIDs 有权限的身份组 ID 列表（Type=3，仅频道场景）
+	SpecifyRoleIDs []string `json:"specify_role_ids,omitempty"`
+}
+
+// MarshalKeyboard 将 InlineKeyboard 序列化为 json.RawMessage，便于赋值给 Message.Keyboard。
+//
+// 示例：
+//
+//	kb := dto.MarshalKeyboard(&dto.InlineKeyboard{
+//	    Content: &dto.InlineKeyboardContent{
+//	        Rows: []dto.KeyboardRow{{Buttons: []dto.KeyboardButton{{...}}}},
+//	    },
+//	})
+//	msg.Keyboard = kb
+func MarshalKeyboard(kb *InlineKeyboard) json.RawMessage {
+	data, _ := json.Marshal(kb)
+	return data
 }

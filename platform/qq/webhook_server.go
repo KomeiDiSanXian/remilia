@@ -37,7 +37,7 @@ func (a *WebhookServerAdapter) Platform() string { return PlatformID }
 func (a *WebhookServerAdapter) Sender() platform.Sender { return a.conn.Sender() }
 
 // Capabilities 实现 platform.Adapter。
-func (a *WebhookServerAdapter) Capabilities() platform.Capabilities { return QQCapabilities }
+func (a *WebhookServerAdapter) Capabilities() platform.Capabilities { return Capabilities }
 
 // IsRunning 实现 platform.Adapter；委托给内部 Adapter 的运行状态。
 func (a *WebhookServerAdapter) IsRunning() bool { return a.adapter.IsRunning() }

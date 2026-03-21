@@ -82,6 +82,8 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
 		e.populateGuildMessage(detail)
+	case dto.InteractionCreate:
+		e.kind = platform.EventKindInteraction
 	default:
 		e.kind = platform.EventKindUnknown
 	}
@@ -126,7 +128,6 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		"author.member_openid",
 		"author.id",
 		"group_openid",
-		"group_name",
 		"timestamp",
 		"attachments",
 	)
@@ -138,15 +139,14 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	}
 	e.chat = platform.ChatInfo{
 		ID:      results[3].String(),
-		Name:    results[4].String(),
 		IsGroup: true,
 	}
-	if ts := results[5].String(); ts != "" {
+	if ts := results[4].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
 	}
-	e.attachments = parseAttachments(results[6])
+	e.attachments = parseAttachments(results[5])
 }
 
 func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {

@@ -71,7 +71,7 @@ func TestNewEvent_GroupAt(t *testing.T) {
 		"id":           "msg002",
 		"content":      "/ping",
 		"group_openid": "group001",
-		"group_name":   "test-group",
+		// group_name 不是官方 GROUP_AT_MESSAGE_CREATE 事件的字段，不应存在
 		"author": map[string]any{
 			"id":            "u002",
 			"member_openid": "member_openid_bob",
@@ -95,8 +95,9 @@ func TestNewEvent_GroupAt(t *testing.T) {
 	if event.Chat().ID != "group001" {
 		t.Errorf("Chat.ID: got %q", event.Chat().ID)
 	}
-	if event.Chat().Name != "test-group" {
-		t.Errorf("Chat.Name: got %q, want test-group", event.Chat().Name)
+	// GROUP_AT_MESSAGE_CREATE 事件不返回 group_name 字段，Chat.Name 应为空
+	if event.Chat().Name != "" {
+		t.Errorf("Chat.Name: got %q, want empty (group_name not in official API)", event.Chat().Name)
 	}
 }
 

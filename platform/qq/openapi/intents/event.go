@@ -22,7 +22,7 @@ const (
 	// GUILD_MESSAGES (1 << 9)
 
 	MessageCreate Event = "MESSAGE_CREATE"
-	MessageUpdate Event = "MESSAGE_UPDATE"
+	MessageDelete Event = "MESSAGE_DELETE"
 
 	// GUILD_MESSAGE_REACTIONS (1 << 10)
 

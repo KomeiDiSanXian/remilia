@@ -18,6 +18,7 @@ const (
 	FriendDel            EventType = "FRIEND_DEL"
 	C2CMsgReject         EventType = "C2C_MSG_REJECT"
 	C2CMsgReceive        EventType = "C2C_MSG_RECEIVE"
+	InteractionCreate    EventType = "INTERACTION_CREATE" // 互动事件（按钮回调等）
 
 	// Channel (频道) 事件类型
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/
@@ -32,6 +33,7 @@ const (
 	GuildMemberRemove   EventType = "GUILD_MEMBER_REMOVE"   // 频道成员移除
 	AtMessageCreate     EventType = "AT_MESSAGE_CREATE"     // 频道内 @机器人 消息
 	MessageCreate       EventType = "MESSAGE_CREATE"        // 频道内消息（需申请权限）
+	MessageDeleteEvent  EventType = "MESSAGE_DELETE"        // 频道消息删除（撤回）
 	DirectMessageCreate EventType = "DIRECT_MESSAGE_CREATE" // 频道私信消息
 )
 
@@ -49,12 +51,14 @@ type MessageCreateEvent struct {
 
 // Attachment represents an attachment in the event
 type Attachment struct {
-	Type     string `json:"content_type,omitempty"`
-	FileName string `json:"filename,omitempty"`
-	Height   int    `json:"height,omitempty"`
-	Width    int    `json:"width,omitempty"`
-	Size     int    `json:"size,omitempty"`
-	URL      string `json:"url,omitempty"`
+	Type         string `json:"content_type,omitempty"`
+	FileName     string `json:"filename,omitempty"`
+	Height       int    `json:"height,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Size         int    `json:"size,omitempty"`
+	URL          string `json:"url,omitempty"`
+	VoiceWavURL  string `json:"voice_wav_url,omitempty"`  // 语音文件链接（wav 格式）
+	AsrReferText string `json:"asr_refer_text,omitempty"` // 语音 ASR 参考结果
 }
 
 // Author represents the author of the event
@@ -126,6 +130,10 @@ type UserOpRobotEvent struct {
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E7%94%A8%E6%88%B7%E6%B7%BB%E5%8A%A0%E6%9C%BA%E5%99%A8%E4%BA%BA
 type FriendAddEvent struct {
 	UserOpRobotEvent
+	// Scene 加好友场景值：1000=默认，1001~1004=搜索/群/空间，2001~2004=分享链接
+	Scene int `json:"scene,omitempty"`
+	// SceneParam 开发者自定义的回调数据（机器人链接中的 callback_data）
+	SceneParam string `json:"scene_param,omitempty"`
 }
 
 // FriendDelEvent represents a friend delete event
@@ -147,6 +155,66 @@ type C2CMsgRejectEvent struct {
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E5%85%81%E8%AE%B8%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type C2CMsgReceiveEvent struct {
 	UserOpRobotEvent
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 互动事件（INTERACTION_CREATE）— 按钮回调 / 单聊快捷菜单
+//
+// intents: 1<<26
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html#%E4%BA%8B%E4%BB%B6
+// ────────────────────────────────────────────────────────────────────────────
+
+// InteractionCreateEvent INTERACTION_CREATE 事件载体。
+//
+// 用户点击消息按钮或单聊快捷菜单后，平台推送此事件。
+// 收到后必须调用 openapi.RespondInteraction 回应，否则客户端会一直 loading 至超时。
+type InteractionCreateEvent struct {
+	// ID 平台方事件 ID，可用于被动消息发送
+	ID string `json:"id"`
+	// Type 11=消息按钮，12=单聊快捷菜单
+	Type int `json:"type"`
+	// Scene 事件场景：c2c、group、guild
+	Scene string `json:"scene"`
+	// ChatType 0=频道，1=群聊，2=单聊
+	ChatType int `json:"chat_type"`
+	// Timestamp 触发时间（RFC3339）
+	Timestamp string `json:"timestamp"`
+	// GuildID 频道 openid（仅频道场景）
+	GuildID string `json:"guild_id,omitempty"`
+	// ChannelID 文字子频道 openid（仅频道场景）
+	ChannelID string `json:"channel_id,omitempty"`
+	// UserOpenID 触发用户 openid（仅单聊场景）
+	UserOpenID string `json:"user_openid,omitempty"`
+	// GroupOpenID 群 openid（仅群聊场景）
+	GroupOpenID string `json:"group_openid,omitempty"`
+	// GroupMemberOpenID 触发用户的群成员 openid（仅群聊场景）
+	GroupMemberOpenID string `json:"group_member_openid,omitempty"`
+	// Data 互动数据
+	Data *InteractionData `json:"data,omitempty"`
+	// Version 默认 1
+	Version int `json:"version"`
+}
+
+// InteractionData 互动事件数据。
+type InteractionData struct {
+	// Resolved 解析后的操作详情
+	Resolved *InteractionResolved `json:"resolved,omitempty"`
+	// Type 11=消息按钮，12=单聊快捷菜单
+	Type int `json:"type"`
+}
+
+// InteractionResolved 互动事件解析详情。
+type InteractionResolved struct {
+	// ButtonData 被点击按钮的 action.data 值
+	ButtonData string `json:"button_data,omitempty"`
+	// ButtonID 被点击按钮的 id 值
+	ButtonID string `json:"button_id,omitempty"`
+	// UserID 操作用户 userid（仅频道场景）
+	UserID string `json:"user_id,omitempty"`
+	// FeatureID 自定义菜单的按钮 id（仅自定义菜单，后台设置）
+	FeatureID string `json:"feature_id,omitempty"`
+	// MessageID 被操作消息 id（仅频道场景）
+	MessageID string `json:"message_id,omitempty"`
 }
 
 //// --- 频道（Guild / Channel）事件 ---

@@ -17,6 +17,10 @@ type MessageExtra struct {
 	MsgSeq uint64
 	// EventID 触发事件 ID，用于被动回复时关联来源事件
 	EventID string
+	// IsWakeup 互动召回消息（2026/01/10 新增）。
+	// 与 msg_id/event_id 互斥，用于在用户主动对话后的召回窗口内下发一条消息。
+	// 使用时不要同时设置 EventID，否则行为未定义。
+	IsWakeup bool
 }
 
 // qqExtraKey 是注入到 OutboundMessage.Extra 的键（包级私有常量）。

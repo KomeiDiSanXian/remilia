@@ -118,12 +118,14 @@ func decodeMessageCreateEvent(data []byte, e *MessageCreateEvent) {
 			for _, r := range results {
 				b := r.Raw
 				e.Attachments = append(e.Attachments, Attachment{
-					Type:     gjson.Get(b, "content_type").String(),
-					FileName: gjson.Get(b, "filename").String(),
-					Height:   int(gjson.Get(b, "height").Int()),
-					Width:    int(gjson.Get(b, "width").Int()),
-					Size:     int(gjson.Get(b, "size").Int()),
-					URL:      gjson.Get(b, "url").String(),
+					Type:         gjson.Get(b, "content_type").String(),
+					FileName:     gjson.Get(b, "filename").String(),
+					Height:       int(gjson.Get(b, "height").Int()),
+					Width:        int(gjson.Get(b, "width").Int()),
+					Size:         int(gjson.Get(b, "size").Int()),
+					URL:          gjson.Get(b, "url").String(),
+					VoiceWavURL:  gjson.Get(b, "voice_wav_url").String(),
+					AsrReferText: gjson.Get(b, "asr_refer_text").String(),
 				})
 			}
 		}

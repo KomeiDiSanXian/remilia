@@ -13,10 +13,10 @@ const (
 	Audit                 = 1 << 27
 	ForumsEvent           = 1 << 28
 	AudioAction           = 1 << 29
-	PubicGuildMessages    = 1 << 30
+	PublicGuildMessages   = 1 << 30
 
-	PrivateAll = Guilds | GuildMembers | GuildMessages | GuildMessageReactions | DirectMessage | GroupAndC2CEvent | Interaction | Audit | ForumsEvent | AudioAction | PubicGuildMessages
-	PublicAll  = Guilds | GuildMembers | GuildMessageReactions | DirectMessage | GroupAndC2CEvent | Interaction | Audit | AudioAction | PubicGuildMessages
+	PrivateAll = Guilds | GuildMembers | GuildMessages | GuildMessageReactions | DirectMessage | GroupAndC2CEvent | Interaction | Audit | ForumsEvent | AudioAction | PublicGuildMessages
+	PublicAll  = Guilds | GuildMembers | GuildMessageReactions | DirectMessage | GroupAndC2CEvent | Interaction | Audit | AudioAction | PublicGuildMessages
 )
 
 var Name = map[Intents]string{
@@ -30,7 +30,7 @@ var Name = map[Intents]string{
 	Audit:                 "MessageAudit",
 	ForumsEvent:           "ForumsEvent",
 	AudioAction:           "AudioAction",
-	PubicGuildMessages:    "PubicGuildMessages",
+	PublicGuildMessages:   "PublicGuildMessages",
 	PrivateAll:            "PrivateAll",
 	PublicAll:             "PublicAll",
 }
