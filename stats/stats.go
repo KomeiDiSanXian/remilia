@@ -71,13 +71,6 @@ func NewQuantileHistogramWithSize(maxSamples int) *QuantileHistogram {
 	}
 }
 
-func min64(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // Observe 记录一个观测值（纳秒或任意 int64 单位）
 //
 // 改进 #15：O(1) 写入，使用环形缓冲区 head 指针替换原来的 O(N) copy。

@@ -12,7 +12,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware"
-	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -119,6 +119,7 @@ func main() {
 		Build()
 	if err != nil {
 		logger.Fatal("创建 Bot 失败: " + err.Error())
+		return // 消除警告用
 	}
 
 	bot.Engine().Use(middleware.DevelopmentSet()...)

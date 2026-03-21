@@ -55,7 +55,6 @@ import (
 
 	storageplugin "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -162,24 +161,7 @@ func initExtraRoles(permManager *permission.Manager) {
 	permManager.RegisterRole(moderator)
 }
 
-// cleanupExpiredCodesRoutine 定期清理过期的验证码（旧版，stopChan）
-func cleanupExpiredCodesRoutine(verificationMgr *VerificationManager, stopChan chan struct{}) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			if count := verificationMgr.CleanupExpired(); count > 0 {
-				logger.Infof("[PermissionPlugin] Cleaned up %d expired verification codes", count)
-			}
-		case <-stopChan:
-			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
-			return
-		}
-	}
-}
-
-// cleanupExpiredCodesRoutineCtx 定期清理过期的验证码（新版，context）
+// cleanupExpiredCodesRoutineCtx 定期清理过期的验证码
 func cleanupExpiredCodesRoutineCtx(verificationMgr *VerificationManager, ctx stdctx.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -193,27 +175,6 @@ func cleanupExpiredCodesRoutineCtx(verificationMgr *VerificationManager, ctx std
 			logger.Info("[PermissionPlugin] Verification code cleanup routine stopped")
 			return
 		}
-	}
-}
-
-// Load 加载插件（v1 API，保留向后兼容）
-func (p *Plugin) Load(eng *engine.Engine) error {
-	logger.Info("[PermissionPlugin] Loading permission plugin...")
-	return nil
-}
-
-// Unload 卸载插件（v1 API，保留向后兼容）
-func (p *Plugin) Unload(eng *engine.Engine) error {
-	logger.Info("[PermissionPlugin] Unloading permission plugin...")
-	return nil
-}
-
-// cleanupExpiredCodes 定期清理过期验证码（v1 辅助方法，已废弃）
-func (p *Plugin) cleanupExpiredCodes() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		p.verificationMgr.CleanupExpired()
 	}
 }
 
