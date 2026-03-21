@@ -39,9 +39,9 @@ type MockSender struct {
 }
 
 // Send implements platform.Sender.
-func (s *MockSender) Send(_ stdctx.Context, msg platform.OutboundMessage) error {
+func (s *MockSender) Send(_ stdctx.Context, req platform.SendRequest) error {
 	s.mu.Lock()
-	s.messages = append(s.messages, msg)
+	s.messages = append(s.messages, req.Message)
 	s.mu.Unlock()
 	return nil
 }

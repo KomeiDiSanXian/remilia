@@ -184,7 +184,11 @@ func TestButtonStyleConstants(t *testing.T) {
 
 func TestNoopSender(t *testing.T) {
 	s := &platform.NoopSender{}
-	err := s.Send(context.Background(), platform.TextMessage("hello"))
+	req := platform.SendRequest{
+		Target:  platform.ChatInfo{ID: "test-chat", IsGroup: false},
+		Message: platform.TextMessage("hello"),
+	}
+	err := s.Send(context.Background(), req)
 	if err != nil {
 		t.Errorf("NoopSender.Send should return nil, got %v", err)
 	}
@@ -225,52 +229,6 @@ func TestEventKindConstants(t *testing.T) {
 		if k == "" {
 			t.Errorf("EventKind constant should not be empty")
 		}
-	}
-}
-
-// ---- WithChatInfo / ChatInfoFromContext -----------------------------------------------
-
-func TestWithChatInfo(t *testing.T) {
-	chat := platform.ChatInfo{ID: "chat-123", Name: "TestChat", IsGroup: true}
-	ctx := context.Background()
-
-	// 注入后可正确读取
-	ctx = platform.WithChatInfo(ctx, chat)
-	got, ok := platform.ChatInfoFromContext(ctx)
-	if !ok {
-		t.Fatal("ChatInfoFromContext: expected ok=true after WithChatInfo")
-	}
-	if got.ID != chat.ID {
-		t.Errorf("ChatInfo.ID: got %q, want %q", got.ID, chat.ID)
-	}
-	if got.Name != chat.Name {
-		t.Errorf("ChatInfo.Name: got %q, want %q", got.Name, chat.Name)
-	}
-	if got.IsGroup != chat.IsGroup {
-		t.Errorf("ChatInfo.IsGroup: got %v, want %v", got.IsGroup, chat.IsGroup)
-	}
-}
-
-func TestChatInfoFromContext_Empty(t *testing.T) {
-	_, ok := platform.ChatInfoFromContext(context.Background())
-	if ok {
-		t.Error("ChatInfoFromContext on empty context: expected ok=false")
-	}
-}
-
-func TestWithChatInfo_Overwrite(t *testing.T) {
-	first := platform.ChatInfo{ID: "first", IsGroup: false}
-	second := platform.ChatInfo{ID: "second", IsGroup: true}
-
-	ctx := platform.WithChatInfo(context.Background(), first)
-	ctx = platform.WithChatInfo(ctx, second)
-
-	got, ok := platform.ChatInfoFromContext(ctx)
-	if !ok {
-		t.Fatal("ChatInfoFromContext: expected ok=true")
-	}
-	if got.ID != second.ID {
-		t.Errorf("ChatInfo overwrite: got %q, want %q", got.ID, second.ID)
 	}
 }
 

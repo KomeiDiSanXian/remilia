@@ -9,40 +9,25 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// chatInfoContextKey 是向 Go context 注入 ChatInfo 的 key（平台无关）
-type chatInfoContextKey struct{}
+// ────────────────────────────────────────────────────────────────────────────
+// SendRequest
+// ────────────────────────────────────────────────────────────────────────────
 
-// eventIDContextKey 是向 Go context 注入触发事件 ID 的 key（用于被动回复）
-type eventIDContextKey struct{}
-
-// WithChatInfo 将 ChatInfo 注入到 Go context，供下游发送器路由使用。
-func WithChatInfo(ctx stdctx.Context, chat ChatInfo) stdctx.Context {
-	return stdctx.WithValue(ctx, chatInfoContextKey{}, chat)
-}
-
-// ChatInfoFromContext 从 Go context 中读取 ChatInfo。
-func ChatInfoFromContext(ctx stdctx.Context) (ChatInfo, bool) {
-	chat, ok := ctx.Value(chatInfoContextKey{}).(ChatInfo)
-	return chat, ok
-}
-
-// WithEventID 将触发事件 ID 注入到 Go context。
+// SendRequest 发送请求信封，将路由信息与消息内容显式捆绑。
 //
-// 框架在调用 ctx.Reply() 时自动注入，供 QQ 等需要被动回复关联的平台使用。
-// 平台发送器可通过 [EventIDFromContext] 读取并自动填充回复关联字段。
-func WithEventID(ctx stdctx.Context, eventID string) stdctx.Context {
-	if eventID == "" {
-		return ctx
-	}
-	return stdctx.WithValue(ctx, eventIDContextKey{}, eventID)
-}
+// 替代原先通过 context.WithValue 隐式注入 ChatInfo / EventID 的方式，
+// 使 Sender 接口的契约完全可见，并在编译期保证类型安全。
+type SendRequest struct {
+	// Target 目标会话信息（ID、IsGroup 等路由字段）。
+	// Target.ID 为空时，Sender 实现应返回 errutil.ErrNoChatInfo。
+	Target ChatInfo
 
-// EventIDFromContext 从 Go context 中读取触发事件 ID。
-//
-// 若未注入或为空，ok 返回 false。
-func EventIDFromContext(ctx stdctx.Context) (string, bool) {
-	id, ok := ctx.Value(eventIDContextKey{}).(string)
-	return id, ok && id != ""
+	// EventID 触发事件 ID，用于被动回复关联（如 QQ 需要此字段）。
+	// 不需要被动回复时留空；非 QQ 平台可忽略此字段。
+	EventID string
+
+	// Message 要发送的消息内容。
+	Message OutboundMessage
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -51,26 +36,24 @@ func EventIDFromContext(ctx stdctx.Context) (string, bool) {
 
 // Sender 是平台无关的消息发送接口。
 //
-// 目标会话信息（ChatInfo，包含 ID、IsGroup 等路由字段）由调用方
-// 通过 platform.WithChatInfo 注入到 ctx 中，Send 实现通过
-// platform.ChatInfoFromContext 读取，不再依赖额外的 chatID 参数。
+// 路由信息（目标会话 ChatInfo、被动回复关联 EventID）由 SendRequest
+// 显式传入，ctx 仅用于超时控制、取消传播和 OpenTelemetry tracing。
 //
-// 使用示例（handler 内）：
+// 使用示例（handler 内，框架自动构造 SendRequest）：
 //
-//	ctx.Reply(platform.TextMessage("pong"))  // 框架自动注入 ChatInfo
+//	ctx.Reply(platform.TextMessage("pong"))
 //
 // 直接调用（已知目标会话）：
 //
-//	sendCtx := platform.WithChatInfo(context.Background(), platform.ChatInfo{
-//	    ID:      "group-001",
-//	    IsGroup: true,
+//	sender.Send(context.Background(), platform.SendRequest{
+//	    Target:  platform.ChatInfo{ID: "group-001", IsGroup: true},
+//	    Message: platform.TextMessage("公告"),
 //	})
-//	sender.Send(sendCtx, platform.TextMessage("公告"))
 type Sender interface {
-	// Send 发送消息。目标会话信息从 ctx 中的 ChatInfo 读取。
+	// Send 发送消息。路由信息由 req 显式传入，ctx 仅用于取消/超时/tracing。
 	//
-	// 若 ctx 未携带 ChatInfo，实现者应返回 errutil.ErrNoChatInfo。
-	Send(ctx stdctx.Context, msg OutboundMessage) error
+	// 若 req.Target.ID 为空，实现者应返回 errutil.ErrNoChatInfo。
+	Send(ctx stdctx.Context, req SendRequest) error
 }
 
 // MessageEditor 可选接口，支持消息编辑的平台实现此接口。
@@ -103,7 +86,7 @@ type MessageDeleter interface {
 type NoopSender struct{}
 
 // Send 什么也不做，始终返回 nil
-func (n *NoopSender) Send(_ stdctx.Context, _ OutboundMessage) error {
+func (n *NoopSender) Send(_ stdctx.Context, _ SendRequest) error {
 	return nil
 }
 

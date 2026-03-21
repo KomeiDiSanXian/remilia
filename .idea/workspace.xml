@@ -4,8 +4,18 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(testbot): rename testutil to testbot and update related references">
-      <change beforePath="$PROJECT_DIR$/platform/qq/bot.go" beforeDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(platform): remove bot.go">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -229,7 +239,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(platform): update dead letter queue to use PayloadItem and improve platform event handling" />
     <MESSAGE value="refactor(platform): migrate plugins to use builtin packages for improved organization and consistency" />
     <MESSAGE value="optimize: optimize goroutine usage in adapter initialization and improve loop iteration" />
     <MESSAGE value="chore(example): comment out main function and related imports for future fixes" />
@@ -254,7 +263,8 @@
     <MESSAGE value="refactor(platform): implement IsRunning method for adapters and update related code" />
     <MESSAGE value="optimize(platform): optimize Extra map handling in OutboundMessage" />
     <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(testbot): rename testutil to testbot and update related references" />
+    <MESSAGE value="chore(platform): remove bot.go" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore(platform): remove bot.go" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

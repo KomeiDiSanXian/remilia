@@ -29,20 +29,22 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 //   - Attachments 非空（取第一个）→ 两步富媒体发送（上传后发送）
 //   - 其余 → Text / Markdown 文本消息
 //
-// 目标会话信息从 ctx 的 ChatInfo 读取（由 Reply 或 platform.WithChatInfo 注入）。
-// 若 ctx 未携带 ChatInfo，返回 errutil.ErrNoChatInfo。
+// 目标会话信息从 req.Target 读取（ChatInfo 类型，包含 ID、IsGroup 等路由字段）。
+// 若 req.Target.ID 为空，返回 errutil.ErrNoChatInfo。
 //
-// D4：若 MessageExtra.EventID 为空，自动从 ctx 读取触发事件 ID（由 ctx.Reply 注入），
-// 无需手动调用 qq.ApplyExtra。手动 ApplyExtra 仍然生效（优先级更高）。
-func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
+// req.EventID 为触发事件 ID，用于被动回复自动关联，框架通过 ctx.Reply 自动填充。
+// 若 MessageExtra.EventID（通过 ApplyExtra 手动注入）非空，则优先使用手动值。
+func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 	if s.api == nil {
 		return fmt.Errorf("qq sender: openAPI client is nil")
 	}
 
-	chat, ok := platform.ChatInfoFromContext(ctx)
-	if !ok {
+	chat := req.Target
+	if chat.ID == "" {
 		return errutil.ErrNoChatInfo
 	}
+
+	msg := req.Message
 
 	// 频道消息（ChatInfo.ParentID 非空）需要独立的 Guild Channel API，暂不支持
 	if chat.ParentID != "" {
@@ -51,10 +53,10 @@ func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error 
 
 	// 富媒体优先（QQ 不支持多附件，取第一个）
 	if len(msg.Attachments) > 0 {
-		return s.sendAttachment(ctx, chat, msg, msg.Attachments[0])
+		return s.sendAttachment(ctx, chat, req.EventID, msg, msg.Attachments[0])
 	}
 
-	dtoMsg := s.buildDTOMessage(ctx, msg)
+	dtoMsg := s.buildDTOMessage(msg, req.EventID)
 	if chat.IsGroup {
 		_, err := s.api.GroupChat(ctx, chat.ID, dtoMsg)
 		return err
@@ -64,7 +66,7 @@ func (s *qqSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error 
 }
 
 // sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
-func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) error {
+func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, eventID string, msg platform.OutboundMessage, att platform.Attachment) error {
 	if att.URL == "" && len(att.Data) == 0 {
 		return fmt.Errorf("qq sender: attachment has neither URL nor data")
 	}
@@ -97,7 +99,7 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 	}
 
 	// 构建携带 file_info 的 MediaMessage
-	dtoMsg := s.buildDTOMessage(ctx, msg)
+	dtoMsg := s.buildDTOMessage(msg, eventID)
 	dtoMsg.Type = dto.MediaMessage
 	dtoMsg.Media = &dto.MediaResponse{FileInfo: fileInfo}
 	dtoMsg.Content = "" // 媒体消息不携带文本内容
@@ -126,9 +128,9 @@ func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
 
 // buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message。
 //
-// D4：若 MessageExtra.EventID 为空，自动从 ctx（由 platform.WithEventID 注入）
-// 读取触发事件 ID，实现被动回复自动关联，无需手动 ApplyExtra。
-func (s *qqSender) buildDTOMessage(ctx stdctx.Context, msg platform.OutboundMessage) *dto.Message {
+// eventID 优先使用 MessageExtra.EventID（手动 ApplyExtra，优先级最高）；
+// 若为空，则使用传入的 eventID（由 SendRequest.EventID 自动携带，来自 ctx.Reply）。
+func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string) *dto.Message {
 	dtoMsg := &dto.Message{}
 
 	// 优先使用 Markdown，其次 Text
@@ -164,15 +166,13 @@ func (s *qqSender) buildDTOMessage(ctx stdctx.Context, msg platform.OutboundMess
 		dtoMsg.MessageSeq = extra.MsgSeq
 	}
 
-	// D4：EventID 优先使用手动注入的值；若为空，从 context 自动读取
-	eventID := extra.EventID
-	if eventID == "" {
-		if id, ok := platform.EventIDFromContext(ctx); ok {
-			eventID = id
-		}
+	// D4：EventID 优先使用手动注入的值（ApplyExtra）；若为空，使用来自 SendRequest 的值
+	resolvedEventID := extra.EventID
+	if resolvedEventID == "" {
+		resolvedEventID = eventID
 	}
-	if eventID != "" {
-		dtoMsg.EventID = dto.EventID(eventID)
+	if resolvedEventID != "" {
+		dtoMsg.EventID = dto.EventID(resolvedEventID)
 	}
 
 	return dtoMsg

@@ -58,10 +58,10 @@ type captureSender struct {
 	received []platform.OutboundMessage
 }
 
-func (s *captureSender) Send(_ stdctx.Context, msg platform.OutboundMessage) error {
+func (s *captureSender) Send(_ stdctx.Context, req platform.SendRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.received = append(s.received, msg)
+	s.received = append(s.received, req.Message)
 	return nil
 }
 

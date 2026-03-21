@@ -168,9 +168,10 @@ func (p *Plugin) Broadcast(chats []platform.ChatInfo, msg platform.OutboundMessa
 		go func(c platform.ChatInfo) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			sendCtx := platform.WithChatInfo(context.Background(), c)
-			_ = p.rl.Wait(sendCtx)
-			if err := s.Send(sendCtx, msg); err != nil {
+			ctx := context.Background()
+			_ = p.rl.Wait(ctx)
+			req := platform.SendRequest{Target: c, Message: msg}
+			if err := s.Send(ctx, req); err != nil {
 				atomic.AddInt64(&failed, 1)
 				mu.Lock()
 				errs = append(errs, err)

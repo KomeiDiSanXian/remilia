@@ -156,10 +156,9 @@ type captureTestSender struct {
 	fn func(chat platform.ChatInfo, msg platform.OutboundMessage)
 }
 
-func (s *captureTestSender) Send(ctx stdctx.Context, msg platform.OutboundMessage) error {
+func (s *captureTestSender) Send(_ stdctx.Context, req platform.SendRequest) error {
 	if s.fn != nil {
-		chat, _ := platform.ChatInfoFromContext(ctx)
-		s.fn(chat, msg)
+		s.fn(req.Target, req.Message)
 	}
 	return nil
 }

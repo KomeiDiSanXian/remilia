@@ -44,7 +44,7 @@ var (
 	ErrAdapterStopFailed   = errors.New("adapter stop failed")
 	ErrAdapterNotRunning   = errors.New("adapter not running")
 	ErrWebhookCreateFailed = errors.New("failed to create webhook connection")
-	ErrNoChatInfo          = errors.New("no ChatInfo in context: call platform.WithChatInfo before Send")
+	ErrNoChatInfo          = errors.New("no ChatInfo provided: ensure SendRequest.Target.ID is set before calling Send")
 
 	// Plugin errors
 	ErrPluginAlreadyExists = errors.New("plugin already exists")
