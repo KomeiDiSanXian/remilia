@@ -4,66 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(platform): optimize Extra map handling in OutboundMessage">
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/bundle/bundle.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/bundle/bundle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/admin/admin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/stats/stats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/validate.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/rules.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/rules.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/async-tasks/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/basic-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/command-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/config-integration/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/config-integration/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error-handling/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/logger-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/logger-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/middleware-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/production-ready/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/production-ready/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/tracing-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/tracing-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/audit/audit_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/audit/audit_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/dlq/queue_generic.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/dlq/queue_generic.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/tracing/tracing.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/tracing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/auth/token/token.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/auth/token/token.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager_lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_plus_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_plus_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/stats/stats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration/e2e_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration/e2e_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testutil/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testutil.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(testbot): rename testutil to testbot and update related references">
+      <change beforePath="$PROJECT_DIR$/platform/qq/bot.go" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -287,7 +229,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs(platform): move report files for improved organization" />
     <MESSAGE value="refactor(platform): update dead letter queue to use PayloadItem and improve platform event handling" />
     <MESSAGE value="refactor(platform): migrate plugins to use builtin packages for improved organization and consistency" />
     <MESSAGE value="optimize: optimize goroutine usage in adapter initialization and improve loop iteration" />
@@ -312,7 +253,8 @@
     <MESSAGE value="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender" />
     <MESSAGE value="refactor(platform): implement IsRunning method for adapters and update related code" />
     <MESSAGE value="optimize(platform): optimize Extra map handling in OutboundMessage" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(platform): optimize Extra map handling in OutboundMessage" />
+    <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(testbot): rename testutil to testbot and update related references" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
