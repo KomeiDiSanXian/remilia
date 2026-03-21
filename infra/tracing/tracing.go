@@ -1,7 +1,7 @@
 // Package tracing 提供基于 OpenTelemetry 的分布式追踪支持。
 //
 // 主要功能：
-//   - 初始化 OTLP / Zipkin 追踪导出器
+//   - 初始化 OTLP 追踪导出器
 //   - 自适应采样器（根据错误率动态调整采样率）
 //   - 与 Bot 生命周期绑定的 TracerProvider 管理
 //
@@ -24,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/exporters/zipkin"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -48,12 +47,11 @@ type Config struct {
 	// Environment 环境（dev, staging, prod）
 	Environment string
 
-	// Exporter 导出器类型（otlp, zipkin, stdout）
+	// Exporter 导出器类型（otlp, stdout）
 	Exporter string
 
 	// Endpoint 追踪后端地址
 	// OTLP: http://localhost:4318
-	// Zipkin: http://localhost:9411/api/v2/spans
 	Endpoint string
 
 	// SamplingRate 采样率 (0.0 - 1.0)
@@ -131,8 +129,6 @@ func NewProvider(config Config) (*Provider, error) {
 	switch config.Exporter {
 	case "otlp", "tempo", "grafana":
 		exporter, err = createOTLPExporter(config)
-	case "zipkin":
-		exporter, err = createZipkinExporter(config)
 	case "stdout", "console":
 		exporter, err = createStdoutExporter()
 	default:
@@ -218,11 +214,6 @@ func createOTLPExporter(config Config) (sdktrace.SpanExporter, error) {
 	}
 
 	return otlptracehttp.New(context.Background(), opts...)
-}
-
-// createZipkinExporter 创建 Zipkin 导出器
-func createZipkinExporter(config Config) (sdktrace.SpanExporter, error) {
-	return zipkin.New(config.Endpoint)
 }
 
 // createStdoutExporter 创建控制台输出导出器（用于调试）
