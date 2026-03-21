@@ -171,6 +171,26 @@ func (api *Client) RespondInteraction(ctx context.Context, interactionID string,
 	return api.Put(ctx, fmt.Sprintf(constant.InteractionURL, interactionID), &dto.InteractionResponse{Code: code})
 }
 
+// ── 表情表态（仅频道）────────────────────────────────────────────────────────
+
+// AddReaction 对频道消息发表表情表态（PUT /channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}）。
+func (api *Client) AddReaction(ctx context.Context, channelID, messageID string, emojiType int, emojiID string) (gjson.Result, error) {
+	return api.Put(ctx, fmt.Sprintf(constant.ChannelMessageReactionURL, channelID, messageID, emojiType, emojiID), nil)
+}
+
+// DeleteReaction 删除机器人的表情表态（DELETE /channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}）。
+func (api *Client) DeleteReaction(ctx context.Context, channelID, messageID string, emojiType int, emojiID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.ChannelMessageReactionURL, channelID, messageID, emojiType, emojiID))
+}
+
+// GetReactionUsers 获取消息表情表态的用户列表（GET /channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}）。
+// cookie 为分页游标（首次请求传空字符串），limit 为每页数量（默认 20，最大 50）。
+func (api *Client) GetReactionUsers(ctx context.Context, channelID, messageID string, emojiType int, emojiID, cookie string, limit int) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.ChannelMessageReactionURL, channelID, messageID, emojiType, emojiID)
+	url += fmt.Sprintf("?cookie=%s&limit=%d", cookie, limit)
+	return api.Get(ctx, url)
+}
+
 // ── 频道管理 ─────────────────────────────────────────────────────────────────
 
 // GetMe 获取当前用户（机器人）详情。

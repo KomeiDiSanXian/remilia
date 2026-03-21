@@ -27,6 +27,20 @@ type OpenAPI interface {
 	// 必须在收到事件后尽快调用，否则客户端持续 loading 至超时。
 	RespondInteraction(ctx context.Context, interactionID string, code int) (gjson.Result, error)
 
+	// ── 表情表态（仅频道，需 GUILD_MESSAGE_REACTIONS intent 1<<10）──────────
+
+	// AddReaction 对频道消息发表表情表态。
+	// emojiType：1=系统表情，2=emoji；emojiID 参考官方 Emoji 列表。
+	// 成功返回 HTTP 204，gjson.Result 为空。
+	AddReaction(ctx context.Context, channelID, messageID string, emojiType int, emojiID string) (gjson.Result, error)
+	// DeleteReaction 删除机器人对频道消息的表情表态。
+	// 成功返回 HTTP 204，gjson.Result 为空。
+	DeleteReaction(ctx context.Context, channelID, messageID string, emojiType int, emojiID string) (gjson.Result, error)
+	// GetReactionUsers 获取消息表情表态的用户列表（分页）。
+	// cookie：上次请求返回的分页游标，首次请求传空字符串；
+	// limit：每页数量，默认 20，最大 50（只在第一次请求时生效）。
+	GetReactionUsers(ctx context.Context, channelID, messageID string, emojiType int, emojiID, cookie string, limit int) (gjson.Result, error)
+
 	// ── 频道管理（Channel Management）──────────────────────────────────────
 
 	// GetMe 获取当前用户（机器人）详情。

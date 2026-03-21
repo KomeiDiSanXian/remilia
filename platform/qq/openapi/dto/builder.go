@@ -53,7 +53,7 @@ func (b *MessageBuilder) Markdown(content string) *MessageBuilder {
 }
 
 // MarkdownTemplate 使用模板 ID 设置 Markdown
-func (b *MessageBuilder) MarkdownTemplate(templateID string, params []map[string]any) *MessageBuilder {
+func (b *MessageBuilder) MarkdownTemplate(templateID string, params []MarkdownParam) *MessageBuilder {
 	b.markdown = &Markdown{
 		CustomTemplateID: templateID,
 		Params:           params,

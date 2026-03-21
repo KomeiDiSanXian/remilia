@@ -284,6 +284,17 @@ func (m *MockAPI) CreateDirectMessageSession(_ context.Context, _ *dto.DirectMes
 	return gjson.Result{}, nil
 }
 
+// ── 表情表态 ──────────────────────────────────────────────────────────────
+func (m *MockAPI) AddReaction(_ context.Context, _, _ string, _ int, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) DeleteReaction(_ context.Context, _, _ string, _ int, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetReactionUsers(_ context.Context, _, _ string, _ int, _, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 
 // ---------------------------------------------------------------------------

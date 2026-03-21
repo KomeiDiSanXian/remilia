@@ -6,22 +6,22 @@ package dto
 type EventType = string
 
 const (
-	Ready                EventType = "READY"
-	Resumed              EventType = "RESUMED"
-	C2CMessageCreate     EventType = "C2C_MESSAGE_CREATE"
-	GroupAtMessageCreate EventType = "GROUP_AT_MESSAGE_CREATE"
-	GroupAddRobot        EventType = "GROUP_ADD_ROBOT"
-	GroupDelRobot        EventType = "GROUP_DEL_ROBOT"
-	GroupMsgReject       EventType = "GROUP_MSG_REJECT"
-	GroupMsgReceive      EventType = "GROUP_MSG_RECEIVE"
-	FriendAdd            EventType = "FRIEND_ADD"
-	FriendDel            EventType = "FRIEND_DEL"
-	C2CMsgReject         EventType = "C2C_MSG_REJECT"
-	C2CMsgReceive        EventType = "C2C_MSG_RECEIVE"
-	InteractionCreate    EventType = "INTERACTION_CREATE" // 互动事件（按钮回调等）
+	Ready                 EventType = "READY"
+	Resumed               EventType = "RESUMED"
+	C2CMessageCreate      EventType = "C2C_MESSAGE_CREATE"
+	GroupAtMessageCreate  EventType = "GROUP_AT_MESSAGE_CREATE"
+	GroupAddRobot         EventType = "GROUP_ADD_ROBOT"
+	GroupDelRobot         EventType = "GROUP_DEL_ROBOT"
+	GroupMsgReject        EventType = "GROUP_MSG_REJECT"
+	GroupMsgReceive       EventType = "GROUP_MSG_RECEIVE"
+	FriendAdd             EventType = "FRIEND_ADD"
+	FriendDel             EventType = "FRIEND_DEL"
+	C2CMsgReject          EventType = "C2C_MSG_REJECT"
+	C2CMsgReceive         EventType = "C2C_MSG_RECEIVE"
+	InteractionCreate     EventType = "INTERACTION_CREATE"      // 互动事件（按钮回调等）
+	MessageReactionAdd    EventType = "MESSAGE_REACTION_ADD"    // 用户发表表情表态
+	MessageReactionRemove EventType = "MESSAGE_REACTION_REMOVE" // 用户取消表情表态
 
-	// Channel (频道) 事件类型
-	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/
 	ChannelCreate       EventType = "CHANNEL_CREATE"        // 子频道创建
 	ChannelUpdate       EventType = "CHANNEL_UPDATE"        // 子频道更新
 	ChannelDelete       EventType = "CHANNEL_DELETE"        // 子频道删除
@@ -215,6 +215,33 @@ type InteractionResolved struct {
 	FeatureID string `json:"feature_id,omitempty"`
 	// MessageID 被操作消息 id（仅频道场景）
 	MessageID string `json:"message_id,omitempty"`
+}
+
+// MessageReactionEvent 表情表态事件载体（MESSAGE_REACTION_ADD / MESSAGE_REACTION_REMOVE）。
+//
+// intents: GUILD_MESSAGE_REACTIONS = 1<<10
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html#事件
+type MessageReactionEvent struct {
+	// UserID 发表表情表态的用户 ID
+	UserID string `json:"user_id"`
+	// ChannelID 所在文字子频道 ID
+	ChannelID string `json:"channel_id"`
+	// GuildID 所在频道 ID
+	GuildID string `json:"guild_id"`
+	// Emoji 表情信息
+	Emoji struct {
+		// ID 表情 ID
+		ID string `json:"id"`
+		// Type 表情类型（1=系统表情，2=emoji）
+		Type int `json:"type"`
+	} `json:"emoji"`
+	// Target 被表态的消息/对象
+	Target struct {
+		// ID 被表态对象 ID（如消息 ID）
+		ID string `json:"id"`
+		// Type 被表态对象类型（0=默认消息）
+		Type int `json:"type"`
+	} `json:"target"`
 }
 
 //// --- 频道（Guild / Channel）事件 ---

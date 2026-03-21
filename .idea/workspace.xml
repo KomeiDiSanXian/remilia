@@ -4,14 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(platform): add support for channel management and direct messaging capabilities">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(platform): add support for voice message handling and enhance message reset functionality">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/iface.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/iface.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -235,7 +229,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(commands): update command registration to remove platform-specific message types" />
     <MESSAGE value="optimize(adapter): simplify goroutine management in event handling" />
     <MESSAGE value="refactor(sender): remove chatID parameter from Send method and update related implementations" />
     <MESSAGE value="refactor(platform): unify message sending interface and enhance capabilities structure" />
@@ -260,7 +253,8 @@
     <MESSAGE value="feat(platform): add support for guild channel messaging and enhance adapter interfaces" />
     <MESSAGE value="feat(platform): add support for interaction events and enhance message handling capabilities" />
     <MESSAGE value="feat(platform): add support for channel management and direct messaging capabilities" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(platform): add support for channel management and direct messaging capabilities" />
+    <MESSAGE value="feat(platform): add support for voice message handling and enhance message reset functionality" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(platform): add support for voice message handling and enhance message reset functionality" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

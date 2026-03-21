@@ -173,6 +173,11 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, eventID st
 		}
 	}
 
+	// 交互按钮：转换为 InlineKeyboard
+	if len(msg.Buttons) > 0 {
+		guildMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
+	}
+
 	// 被动消息关联：频道用 msg_id（来源消息的 Message.id）
 	// 优先使用手动 ApplyExtra 注入的值，其次 SendRequest.EventID
 	extra := extractExtra(msg)
@@ -238,6 +243,11 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string)
 		}
 	}
 
+	// 交互按钮：转换为 InlineKeyboard（QQ 按钮需附在 Markdown 消息上）
+	if len(msg.Buttons) > 0 {
+		dtoMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
+	}
+
 	// 回复消息 ID
 	if msg.ReplyToID != "" {
 		dtoMsg.MessageID = dto.EventID(msg.ReplyToID)
@@ -288,3 +298,92 @@ var Capabilities = platform.Capabilities{
 	MentionAll:      true,
 	VoiceChannel:    false,
 }
+
+// convertButtons 将平台无关的 []platform.Button 转换为 QQ InlineKeyboard。
+//
+// 行分组规则：
+//   - Button.Row > 0：Row 值相同的按钮分入同一行；
+//   - Button.Row == 0：每个按钮独占一行（安全默认值）。
+//
+// 最多 5 行，每行最多 5 个按钮（超出部分截断）。
+// 按钮样式映射：ButtonStylePrimary → style=1（蓝色），其余 → style=0（灰色）。
+// 按钮操作映射：ButtonStyleLink + URL → type=0（跳转），其余 → type=1（回调）。
+func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
+	const maxRows, maxPerRow = 5, 5
+
+	// 按 Row 分组，Row=0 的每个按钮独立一行（使用负递减 key 保证唯一且顺序靠后）
+	type rowEntry struct {
+		key     int
+		buttons []platform.Button
+	}
+	keyOrder := make([]int, 0, len(buttons))
+	rowMap := make(map[int][]platform.Button)
+	autoKey := 0 // 从 -1 递减，给 Row=0 的按钮分配唯一 key
+
+	for _, b := range buttons {
+		if b.Row == 0 {
+			autoKey--
+			rowMap[autoKey] = []platform.Button{b}
+			keyOrder = append(keyOrder, autoKey)
+		} else {
+			if _, exists := rowMap[b.Row]; !exists {
+				keyOrder = append(keyOrder, b.Row)
+			}
+			rowMap[b.Row] = append(rowMap[b.Row], b)
+		}
+	}
+
+	rows := make([]dto.KeyboardRow, 0, min(len(keyOrder), maxRows))
+	for _, key := range keyOrder {
+		if len(rows) >= maxRows {
+			break
+		}
+		btns := rowMap[key]
+		if len(btns) > maxPerRow {
+			btns = btns[:maxPerRow]
+		}
+		kbBtns := make([]dto.KeyboardButton, 0, len(btns))
+		for _, b := range btns {
+			style := 0
+			if b.Style == platform.ButtonStylePrimary {
+				style = 1
+			}
+			actionType := 1 // 默认回调
+			data := b.ID
+			if b.Style == platform.ButtonStyleLink && b.URL != "" {
+				actionType = 0 // 跳转
+				data = b.URL
+			}
+			kbBtns = append(kbBtns, dto.KeyboardButton{
+				ID: b.ID,
+				RenderData: &dto.KeyboardRenderData{
+					Label:        b.Label,
+					VisitedLabel: b.Label,
+					Style:        style,
+				},
+				Action: &dto.KeyboardAction{
+					Type: actionType,
+					Permission: &dto.KeyboardPermission{
+						Type: 2, // 所有人可操作
+					},
+					Data:          data,
+					UnsupportTips: "当前版本不支持此操作",
+				},
+			})
+		}
+		rows = append(rows, dto.KeyboardRow{Buttons: kbBtns})
+	}
+
+	return &dto.InlineKeyboard{
+		Content: &dto.InlineKeyboardContent{Rows: rows},
+	}
+}
+
+// min 辅助函数（Go 1.21+ 内置，保留以兼容旧版）
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+

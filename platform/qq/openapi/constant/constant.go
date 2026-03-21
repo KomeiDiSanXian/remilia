@@ -223,6 +223,18 @@ const (
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html#%E5%9B%9E%E5%BA%94
 	InteractionURL = OpenAPIURL + "/interactions/%s"
 
+	// ChannelMessageReactionURL PUT|DELETE|GET /channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}
+	//
+	// 频道消息表情表态相关接口（仅频道可用，需 GUILD_MESSAGE_REACTIONS intent 1<<10）：
+	//   - PUT：对指定消息发表表情表态
+	//   - DELETE：删除机器人自己的表情表态
+	//   - GET（需追加 ?cookie=&limit=）：获取发表该表情表态的用户列表
+	//
+	// type 参考 EmojiType（1=系统表情，2=emoji），id 为表情 ID。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html
+	ChannelMessageReactionURL = OpenAPIURL + "/channels/%s/messages/%s/reactions/%d/%s"
+
 	// ── 频道管理（频道管理模块）────────────────────────────────────────────────
 
 	// UsersMeURL GET /users/@me

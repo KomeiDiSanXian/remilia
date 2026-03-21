@@ -84,6 +84,11 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 		e.populateGuildMessage(evType, detail)
 	case dto.InteractionCreate:
 		e.kind = platform.EventKindInteraction
+		e.populateInteraction(detail)
+	// ── 表情表态事件 ────────────────────────────────────────────────────────
+	case dto.MessageReactionAdd, dto.MessageReactionRemove:
+		e.kind = platform.EventKindReaction
+		e.populateMessageReaction(detail)
 	// ── 频道（Guild）事件 ──────────────────────────────────────────────────
 	case dto.GuildCreate:
 		e.kind = platform.EventKindMemberJoin // 机器人加入频道
@@ -360,6 +365,104 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 		}
 	}
 	return out
+}
+
+// populateInteraction 解析 INTERACTION_CREATE 事件（按钮回调 / 快捷菜单）。
+//
+// scene 字段决定填充策略：
+//   - c2c：UserOpenID → sender & chat
+//   - group：GroupMemberOpenID → sender，GroupOpenID → chat
+//   - guild：resolved.user_id → sender，ChannelID + GuildID → chat
+//
+// e.id 被覆盖为交互事件体的 id（即 RespondInteraction 所需的 interactionID）。
+// e.content 被设置为按钮的 data 字段值（button_data），便于 handler 直接读取操作内容。
+func (e *qqEvent) populateInteraction(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"id",
+		"scene",
+		"chat_type",
+		"user_openid",
+		"group_openid",
+		"group_member_openid",
+		"guild_id",
+		"channel_id",
+		"data.resolved.button_data",
+		"data.resolved.user_id",
+		"timestamp",
+	)
+	// 覆盖 e.id 为 interaction body 中的 id（用于 RespondInteraction）
+	if id := results[0].String(); id != "" {
+		e.id = id
+	}
+	scene := results[1].String()
+	switch scene {
+	case "c2c":
+		uid := results[3].String()
+		e.sender = platform.UserInfo{ID: uid}
+		e.chat = platform.ChatInfo{ID: uid, IsGroup: false}
+	case "group":
+		e.sender = platform.UserInfo{ID: results[5].String()}
+		e.chat = platform.ChatInfo{ID: results[4].String(), IsGroup: true}
+	case "guild":
+		e.sender = platform.UserInfo{ID: results[9].String()}
+		e.chat = platform.ChatInfo{
+			ID:       results[7].String(),
+			ParentID: results[6].String(),
+			IsGroup:  true,
+		}
+	default:
+		// 未知 scene：尝试根据 chat_type 填充
+		chatType := int(results[2].Int())
+		switch chatType {
+		case 2: // 单聊
+			uid := results[3].String()
+			e.sender = platform.UserInfo{ID: uid}
+			e.chat = platform.ChatInfo{ID: uid, IsGroup: false}
+		case 1: // 群聊
+			e.sender = platform.UserInfo{ID: results[5].String()}
+			e.chat = platform.ChatInfo{ID: results[4].String(), IsGroup: true}
+		case 0: // 频道
+			e.sender = platform.UserInfo{ID: results[9].String()}
+			e.chat = platform.ChatInfo{
+				ID:       results[7].String(),
+				ParentID: results[6].String(),
+				IsGroup:  true,
+			}
+		}
+	}
+	// content 设为 button_data，方便 handler 直接获取回调数据
+	e.content = results[8].String()
+	if ts := results[10].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
+	}
+}
+
+// populateMessageReaction 解析表情表态事件（MESSAGE_REACTION_ADD / MESSAGE_REACTION_REMOVE）。
+//
+// e.content 被设置为表情 ID，便于 handler 判断具体表情。
+func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"user_id",
+		"channel_id",
+		"guild_id",
+		"emoji.id",
+	)
+	e.sender = platform.UserInfo{ID: results[0].String()}
+	e.chat = platform.ChatInfo{
+		ID:       results[1].String(),
+		ParentID: results[2].String(),
+		IsGroup:  true,
+	}
+	// content 设为 emoji.id，方便 handler 判断是哪个表情
+	e.content = results[3].String()
 }
 
 func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {

@@ -1,6 +1,9 @@
 package dto
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"net/url"
+)
 
 // MessageType ...
 type MessageType int
@@ -46,13 +49,21 @@ type Message struct {
 	IsWakeup bool `json:"is_wakeup,omitempty"`
 }
 
+// MarkdownParam Markdown 模版参数，{key, values} 键值对。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html#数据结构与协议
+type MarkdownParam struct {
+	Key    string   `json:"key"`
+	Values []string `json:"values"`
+}
+
 // Markdown ...
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/type/markdown.html#%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E5%8D%8F%E8%AE%AE
 type Markdown struct {
-	Content          string           `json:"content"`
-	CustomTemplateID string           `json:"custom_template_id"`
-	Params           []map[string]any `json:"params"`
+	Content          string          `json:"content,omitempty"`
+	CustomTemplateID string          `json:"custom_template_id,omitempty"`
+	Params           []MarkdownParam `json:"params,omitempty"`
 }
 
 // Ark ...
@@ -105,6 +116,54 @@ func At(openID string) string {
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#%E4%BD%BF%E7%94%A8-%E8%83%BD%E5%8A%9B
 func AtAll() string {
 	return "<qqbot-at-everyone />"
+}
+
+// CmdEnter 生成回车指令标签：点击后直接发送文本。
+//
+// 仅在 Markdown 消息中有效，不支持群聊和文字子频道。
+// text 最大 100 字符，会自动进行 URL 编码。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#指令操作
+func CmdEnter(text string) string {
+	return `<qqbot-cmd-enter text="` + url.QueryEscape(text) + `" />`
+}
+
+// CmdInput 生成参数指令标签：点击后将文本插入输入框。
+//
+// 仅在 Markdown 消息中有效。
+//   - text：插入输入框的文本，最大 100 字符，会自动 URL 编码；
+//   - show：消息中展示给用户的文本，为空时取 text 值；
+//   - reference：是否携带消息原文引用一并插入输入框。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#指令操作
+func CmdInput(text, show string, reference bool) string {
+	ref := "false"
+	if reference {
+		ref = "true"
+	}
+	if show == "" {
+		show = text
+	}
+	return `<qqbot-cmd-input text="` + url.QueryEscape(text) + `" show="` + url.QueryEscape(show) + `" reference="` + ref + `" />`
+}
+
+// ChannelLink 生成跳转子频道标签（仅频道可用）。
+//
+// 点击后跳转至同频道内指定子频道，仅支持当前频道内的子频道。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#跳转子频道
+func ChannelLink(channelID string) string {
+	return "<#" + channelID + ">"
+}
+
+// Emoji 生成系统表情内嵌标签（仅频道可用）。
+//
+// 仅支持 type=1 的系统表情；type=2 的 emoji 表情直接用字符串即可。
+// 具体表情 ID 参考官方 Emoji 列表。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html#表情
+func Emoji(id string) string {
+	return "<emoji:" + id + ">"
 }
 
 // ────────────────────────────────────────────────────────────────────────────
