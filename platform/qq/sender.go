@@ -378,12 +378,3 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 		Content: &dto.InlineKeyboardContent{Rows: rows},
 	}
 }
-
-// min 辅助函数（Go 1.21+ 内置，保留以兼容旧版）
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
