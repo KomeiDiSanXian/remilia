@@ -1,7 +1,6 @@
 package webhook
 
 import (
-	"context"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -12,21 +11,27 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// dummy webhook impl for Verify/Sign used by Conn methods if needed
-
-func TestNewWebhook_NoBigCacheFatal(t *testing.T) {
-	// We cannot easily trigger bigcache failure here, but NewWebhook should succeed and allow basic methods
-	ctx := context.Background()
+func TestNewWebhook(t *testing.T) {
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	wh := NewWebhook(ctx, info)
+	wh := NewWebhook(info)
 	assert.NotNil(t, wh)
 	assert.Equal(t, ":0", wh.Addr())
+	assert.Equal(t, 1, cap(wh.eventChan))
+}
+
+func TestNewWithBuffer_DefaultsToOne(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+
+	conn := NewWithBuffer(info, 0)
+	assert.Equal(t, 1, cap(conn.eventChan))
+
+	conn2 := NewWithBuffer(info, -5)
+	assert.Equal(t, 1, cap(conn2.eventChan))
 }
 
 func TestHandle_InvalidBody(t *testing.T) {
-	ctx := context.Background()
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	c := NewWebhook(ctx, info)
+	c := NewWebhook(info)
 	adapter := &testWebHook{Conn: c}
 
 	var body []byte // empty body will cause JSON unmarshal error
@@ -44,13 +49,10 @@ func TestHandle_InvalidBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
 
-func TestHandleDispatch_NoCache_Dispatches(t *testing.T) {
-	ctx := context.Background()
+func TestHandleDispatch_Dispatches(t *testing.T) {
 	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	c := NewWebhook(ctx, info)
-	c.bigCache = nil // force nil cache
+	c := NewWithBuffer(info, 10)
 	p := &dto.Payload{Type: dto.C2CMessageCreate, ID: "x", Raw: []byte("{}")}
-	// read from channel non-blocking
 	go c.handleDispatch(p)
 	select {
 	case got := <-c.EventStream():
@@ -58,6 +60,21 @@ func TestHandleDispatch_NoCache_Dispatches(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("timeout waiting for dispatched event")
 	}
+}
+
+func TestHandleDispatch_ChannelFull_DropsPayload(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWithBuffer(info, 0) // buffer=1（最小值）
+
+	// 填满 channel
+	first := &dto.Payload{Type: dto.C2CMessageCreate, ID: "first", Raw: []byte("{}")}
+	c.eventChan <- first
+
+	// 再投递一个，channel 满，应被丢弃
+	second := &dto.Payload{Type: dto.C2CMessageCreate, ID: "second", Raw: []byte("{}")}
+	c.handleDispatch(second)
+
+	assert.Equal(t, uint64(1), c.GetDroppedEventsCount())
 }
 
 type testWebHook struct{ *Conn }

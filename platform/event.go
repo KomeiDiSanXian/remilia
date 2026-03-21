@@ -208,6 +208,25 @@ type ReplyEvent interface {
 	ReplyToID() string
 }
 
+// MentionsEvent 是 @ 用户列表感知的可选接口。
+//
+// 消息中携带 @ 用户列表（QQ group_at_message、Discord mentions、
+// Telegram entities 中的 mention）时，适配器实现此接口。
+// 框架通过 [GetMentions] 帮助函数安全访问，无需直接断言。
+//
+// 使用示例：
+//
+//	if mentions := platform.GetMentions(event); len(mentions) > 0 {
+//	    for _, u := range mentions {
+//	        log.Printf("@ 了用户 %s (%s)", u.DisplayName, u.ID)
+//	    }
+//	}
+type MentionsEvent interface {
+	// Mentions 返回消息中 @ 的用户列表（不含机器人自身）。
+	// 无 @ 用户时返回 nil。
+	Mentions() []UserInfo
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 可选接口帮助函数
 // ────────────────────────────────────────────────────────────────────────────
@@ -250,4 +269,14 @@ func IsEdited(e Event) bool {
 		return ee.IsEdited()
 	}
 	return false
+}
+
+// GetMentions 安全获取消息中 @ 的用户列表。
+//
+// 若事件未实现 [MentionsEvent] 或消息没有 @ 用户，返回 nil。
+func GetMentions(e Event) []UserInfo {
+	if me, ok := e.(MentionsEvent); ok {
+		return me.Mentions()
+	}
+	return nil
 }

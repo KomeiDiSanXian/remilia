@@ -26,6 +26,11 @@ var Capabilities = platform.Capabilities{
 	Embeds:          false,
 	FileUpload:      true,
 	GuildSupport:    false,
+	Reactions:       false,
+	ThreadReply:     false,
+	TypingIndicator: false,
+	MentionAll:      false,
+	VoiceChannel:    false,
 }
 
 // Adapter is the WeChat platform adapter skeleton.
@@ -40,7 +45,7 @@ func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
 func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
 func (a *Adapter) IsRunning() bool                     { return false }
 
-// StartPlatform implements platform.Adapter (not yet implemented).
+// Start implements platform.Adapter (not yet implemented).
 func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {
 	return fmt.Errorf("wechat adapter: not yet implemented")
 }

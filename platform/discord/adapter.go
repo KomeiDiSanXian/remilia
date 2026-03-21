@@ -26,6 +26,11 @@ var Capabilities = platform.Capabilities{
 	Embeds:          true,
 	FileUpload:      true,
 	GuildSupport:    true,
+	Reactions:       true,
+	ThreadReply:     true,
+	TypingIndicator: true,
+	MentionAll:      true,
+	VoiceChannel:    true,
 }
 
 // Adapter is the Discord platform adapter skeleton.

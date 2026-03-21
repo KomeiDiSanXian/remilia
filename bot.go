@@ -23,6 +23,13 @@ const (
 	DefaultStartTimeout    = 30 * time.Second
 )
 
+// adapterCache 是每个平台适配器在启动时构建的只读快照，
+// 避免热路径中对 platformRegistry 加 RLock。
+type adapterCache struct {
+	sender platform.Sender
+	caps   platform.Capabilities
+}
+
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理。
 //
 // D3：Bot 内部统一使用 platformRegistry 作为唯一的平台适配器来源，
@@ -34,6 +41,10 @@ type Bot struct {
 	config           *Config
 	pluginManager    *plugin.Manager
 	platformRegistry *platform.Registry // 唯一事件来源（单/多平台均通过此注册表管理）
+
+	// adapterSnapshot 在 Start() 时构建，此后只读，用于热路径无锁访问。
+	// 仅在 Start() 内写入，在 handlePlatformEvent 中读取。
+	adapterSnapshot map[string]adapterCache
 
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
@@ -134,14 +145,26 @@ func (b *Bot) Start() error {
 	// 每次 Start() 重建 lifecycle，确保热重启不会重复注册组件
 	b.buildBaseLifecycle()
 
+	// 重建 health，防止热重启后健康检查器叠加重复（B-5）
+	b.health = health.NewCheck()
+	b.health.AddChecker(NewBotStatusChecker(b))
+	b.health.AddChecker(health.NewEngineHealthChecker(b.engine))
+
 	// 为 platformRegistry 中的每个适配器注册独立的生命周期组件
 	b.mu.RLock()
 	reg := b.platformRegistry
 	b.mu.RUnlock()
+
+	// 构建适配器快照（P-1），热路径直接读快照，无需每事件加 RLock
+	snapshot := make(map[string]adapterCache)
 	if reg != nil {
 		for _, pa := range reg.All() {
 			// N5: 为每个平台适配器注册独立的健康检查器
 			b.health.AddChecker(NewAdapterHealthChecker(pa))
+			snapshot[pa.Platform()] = adapterCache{
+				sender: pa.Sender(),
+				caps:   pa.Capabilities(),
+			}
 			name := "platform:" + pa.Platform()
 			b.lifecycle.Register(lifecycle.NewSimpleComponent(
 				name,
@@ -155,6 +178,9 @@ func (b *Bot) Start() error {
 			))
 		}
 	}
+	b.mu.Lock()
+	b.adapterSnapshot = snapshot
+	b.mu.Unlock()
 
 	startCtx, startCancel := context.WithTimeout(rootCtx, DefaultStartTimeout)
 	defer startCancel()
@@ -230,14 +256,15 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	var sender platform.Sender
 	var caps platform.Capabilities
 
+	// P-1: 读取启动时构建的快照，避免热路径每事件加 RLock
 	b.mu.RLock()
-	reg := b.platformRegistry
+	snapshot := b.adapterSnapshot
 	b.mu.RUnlock()
 
-	if reg != nil {
-		if pa, ok := reg.Get(event.Platform()); ok {
-			sender = pa.Sender()
-			caps = pa.Capabilities()
+	if snapshot != nil {
+		if c, ok := snapshot[event.Platform()]; ok {
+			sender = c.sender
+			caps = c.caps
 		}
 	}
 

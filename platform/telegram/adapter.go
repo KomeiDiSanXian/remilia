@@ -26,6 +26,11 @@ var Capabilities = platform.Capabilities{
 	Embeds:          false,
 	FileUpload:      true,
 	GuildSupport:    false,
+	Reactions:       true,
+	ThreadReply:     true,
+	TypingIndicator: true,
+	MentionAll:      false,
+	VoiceChannel:    false,
 }
 
 // Adapter is the Telegram platform adapter skeleton.

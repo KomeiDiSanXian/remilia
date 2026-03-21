@@ -25,12 +25,7 @@ func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Cont
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
 
-	// 确保 stdctx 始终非 nil
-	ctx.ctxMu.Lock()
-	if ctx.ctx == nil {
-		ctx.ctx = stdctx.Background()
-	}
-	ctx.ctxMu.Unlock()
+	// ctx.ctx 在 ReleaseContext 时已被设为 stdctx.Background()，无需再检查
 
 	// Reset content cache
 	ctx.contentOnce = sync.Once{}

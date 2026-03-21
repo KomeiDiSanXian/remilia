@@ -121,7 +121,7 @@ func (c *WebhookConn) start(ctx context.Context) error {
 		logger.Info("[WebhookConn] Token manager created from BotInfo")
 	}
 
-	c.webhookImpl = webhook.NewWithBuffer(c.ctx, c.botInfo, c.bufferSize)
+	c.webhookImpl = webhook.NewWithBuffer(c.botInfo, c.bufferSize)
 	if c.webhookImpl == nil {
 		c.cancel()
 		c.mu.Unlock()
@@ -201,12 +201,14 @@ func (c *WebhookConn) stop(ctx context.Context) error {
 	// 同步等待 auto-created token manager 完全退出
 	if tokenMgr != nil {
 		tokenMgr.Stop()
-		c.mu.Lock()
-		c.tokenMgr = nil
-		c.api = nil
-		c.webhookImpl = nil
-		c.mu.Unlock()
 	}
+	// 无论是否使用外部注入的 API，都必须清空相关字段，
+	// 避免热重启时 EventStream() 返回已关闭的旧 channel。
+	c.mu.Lock()
+	c.tokenMgr = nil
+	c.api = nil
+	c.webhookImpl = nil
+	c.mu.Unlock()
 
 	logger.Info("[WebhookConn] Stopped")
 	return nil

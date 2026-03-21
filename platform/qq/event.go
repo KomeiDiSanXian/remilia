@@ -28,6 +28,7 @@ type qqEvent struct {
 	attachments []platform.InboundAttachment
 	id          string // 对应 payload.ID，populate 后独立持有
 	rawType     string // 对应 payload.Type，populate 后独立持有
+	replyToID   string // 被回复消息 ID（仅频道消息有效）
 }
 
 // NewEvent 从 QQ payload 创建 platform.Event。
@@ -161,6 +162,7 @@ func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
 		"channel_name",
 		"timestamp",
 		"attachments",
+		"message_reference.message_id",
 	)
 	e.content = results[0].String()
 	e.sender = platform.UserInfo{
@@ -185,6 +187,7 @@ func (e *qqEvent) populateGuildMessage(detail json.RawMessage) {
 		}
 	}
 	e.attachments = parseAttachments(results[7])
+	e.replyToID = results[8].String()
 }
 
 // parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。
@@ -258,6 +261,12 @@ func (e *qqEvent) Content() string           { return e.content }
 // Attachments 返回消息中携带的附件列表。
 func (e *qqEvent) Attachments() []platform.InboundAttachment { return e.attachments }
 func (e *qqEvent) Timestamp() time.Time                      { return e.timestamp }
+
+// ReplyToID 实现 platform.ReplyEvent，返回被回复消息的平台原生 ID。
+//
+// 仅频道消息（AT_MESSAGE_CREATE 等）填充此字段；
+// 私聊和群消息不携带 message_reference，返回空字符串。
+func (e *qqEvent) ReplyToID() string { return e.replyToID }
 
 // RawPayload 返回 nil。
 //

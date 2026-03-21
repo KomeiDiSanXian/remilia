@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -14,7 +15,8 @@ import (
 
 // qqSender 将 platform.Sender 接口桥接到 openapi.OpenAPI
 type qqSender struct {
-	api openapi.OpenAPI
+	api    openapi.OpenAPI
+	msgSeq atomic.Uint64 // 自增消息序列号，QQ v2 API 防重放要求；手动 ApplyExtra 可覆盖
 }
 
 // NewSender 创建 QQ 平台的消息发送器
@@ -164,6 +166,9 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string)
 	extra := extractExtra(msg)
 	if extra.MsgSeq != 0 {
 		dtoMsg.MessageSeq = extra.MsgSeq
+	} else {
+		// 自动递增序列号，确保每条消息序号唯一（QQ v2 API 防重放要求）
+		dtoMsg.MessageSeq = s.msgSeq.Add(1)
 	}
 
 	// D4：EventID 优先使用手动注入的值（ApplyExtra）；若为空，使用来自 SendRequest 的值
@@ -188,4 +193,9 @@ var QQCapabilities = platform.Capabilities{
 	Embeds:          false,
 	FileUpload:      true,
 	GuildSupport:    true,
+	Reactions:       true,
+	ThreadReply:     true,
+	TypingIndicator: false,
+	MentionAll:      true,
+	VoiceChannel:    false,
 }

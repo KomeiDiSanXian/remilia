@@ -124,6 +124,16 @@ type Capabilities struct {
 	FileUpload bool
 	// GuildSupport 是否有服务器/频道层级（ChatInfo.ParentID 有效）
 	GuildSupport bool
+	// Reactions 是否支持表情回应（Discord/Telegram/QQ 均支持）
+	Reactions bool
+	// ThreadReply 是否支持消息回复链/引用回复
+	ThreadReply bool
+	// TypingIndicator 是否支持"正在输入"状态
+	TypingIndicator bool
+	// MentionAll 是否支持 @全体成员
+	MentionAll bool
+	// VoiceChannel 是否支持语音频道（Discord Stage/VC）
+	VoiceChannel bool
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -244,7 +254,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	)
 
 	for _, a := range adapters {
-		wg.Go(func() { // 这部分依赖 Go 1.22+ 语义（闭包捕获）
+		wg.Go(func() { // wg.Go 是 Go 1.25 新增方法；循环变量按值捕获依赖 Go 1.22+ 语义。
 			if err := a.Start(ctx, handler); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
@@ -258,13 +268,14 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 
 	wg.Wait()
 
-	// 返回第一个非 context 取消/超时的错误
+	// 收集全部非 context 取消/超时的错误，合并后返回
+	var fatalErrs []error
 	for _, err := range errs {
 		if !errors.Is(err, stdctx.Canceled) && !errors.Is(err, stdctx.DeadlineExceeded) {
-			return err
+			fatalErrs = append(fatalErrs, err)
 		}
 	}
-	return nil
+	return errors.Join(fatalErrs...)
 }
 
 // StopAll 并发停止所有已注册平台适配器，合并全部错误后返回。

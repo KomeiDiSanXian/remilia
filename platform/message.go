@@ -258,7 +258,12 @@ func (m OutboundMessage) WithEmbeds(embeds ...Embed) OutboundMessage {
 // WithExtra 添加平台扩展字段（返回新消息，不修改原消息）
 //
 // 每次调用均创建独立的 Extra map，避免多个派生消息共享同一底层 map 导致的数据污染。
+// 当原消息 Extra 为空时，直接创建单元素 map，跳过无用的 maps.Copy。
 func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
+	if len(m.Extra) == 0 {
+		m.Extra = map[string]any{key: value}
+		return m
+	}
 	newExtra := make(map[string]any, len(m.Extra)+1)
 	maps.Copy(newExtra, m.Extra)
 	newExtra[key] = value

@@ -1,7 +1,6 @@
 package webhook
 
 import (
-	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,13 +9,11 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/helper"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
-	"github.com/allegro/bigcache/v3"
 )
 
 // Webhook represents a webhook
@@ -33,7 +30,6 @@ type Conn struct {
 	info          *dto.BotInfo
 	mu            sync.Mutex
 	eventChan     chan *dto.Payload
-	bigCache      *bigcache.BigCache
 	droppedEvents atomic.Uint64 // Counter for dropped events
 	totalEvents   atomic.Uint64 // Counter for total events received
 }
@@ -65,84 +61,27 @@ func (c *Conn) GetStats() WebhookStats {
 	}
 }
 
-// DedupOptions represents the options for deduplication strategy
-type DedupOptions struct {
-	Enable           bool          // 是否启用去重
-	Shards           int           // BigCache 分片数，影响并发性能
-	LifeWindow       time.Duration // 去重窗口时长
-	CleanWindow      time.Duration // 清理间隔
-	MaxEntrySize     int           // 单个条目最大字节数
-	HardMaxCacheSize int           // 缓存最大内存限制（MB）
-}
-
-// NewWebhook creates a new connection to a webhook server.
-//
-// This is equivalent to NewWithBuffer(ctx, info, 1) with default dedup options.
+// NewWebhook creates a new connection to a webhook server with a buffer of 1.
 //
 // use it like this:
 //
-//	wh := webhook.NewWebhook(ctx, botInfo)
+//	wh := webhook.NewWebhook(botInfo)
 //	http.HandleFunc("/", wh.Handle)
-func NewWebhook(ctx context.Context, info *dto.BotInfo) *Conn {
-	return NewWithBuffer(ctx, info, 1)
+func NewWebhook(info *dto.BotInfo) *Conn {
+	return NewWithBuffer(info, 1)
 }
 
 // NewWithBuffer creates a new connection with specified event channel buffer size.
 //
-// This uses default dedup options with BigCache enabled.
-func NewWithBuffer(ctx context.Context, info *dto.BotInfo, buffer int) *Conn {
-	// 使用默认去重配置
-	return NewWithOptions(ctx, info, buffer, DedupOptions{
-		Enable:           true,
-		Shards:           1024,
-		LifeWindow:       5 * time.Minute,
-		CleanWindow:      1 * time.Minute,
-		MaxEntrySize:     4096,
-		HardMaxCacheSize: 1024,
-	})
-}
-
-// NewWithOptions allows configuring event channel buffer and dedup bigcache
-func NewWithOptions(ctx context.Context, info *dto.BotInfo, buffer int, opts DedupOptions) *Conn {
+// 事件去重由上层中间件负责，此处不做去重处理。
+func NewWithBuffer(info *dto.BotInfo, buffer int) *Conn {
 	if buffer <= 0 {
 		buffer = 1
-	}
-	var bigCache *bigcache.BigCache
-	if opts.Enable {
-		cfg := bigcache.Config{
-			Shards:             maxInt(opts.Shards, 64),
-			LifeWindow:         ifZeroDuration(opts.LifeWindow, 5*time.Minute),
-			CleanWindow:        ifZeroDuration(opts.CleanWindow, 1*time.Minute),
-			MaxEntriesInWindow: 1000 * 10 * 60, // 默认值，可根据 LifeWindow 动态计算
-			MaxEntrySize:       maxInt(opts.MaxEntrySize, 1024),
-			HardMaxCacheSize:   maxInt(opts.HardMaxCacheSize, 256),
-		}
-		bc, err := bigcache.New(ctx, cfg)
-		if err != nil {
-			logger.WithError(err).Warn("[Remilia] Failed to create BigCache, running without dedup cache")
-		} else {
-			bigCache = bc
-		}
 	}
 	return &Conn{
 		info:      info,
 		eventChan: make(chan *dto.Payload, buffer),
-		bigCache:  bigCache,
 	}
-}
-
-func maxInt(a, b int) int {
-	if a > 0 {
-		return a
-	}
-	return b
-}
-
-func ifZeroDuration(d, def time.Duration) time.Duration {
-	if d > 0 {
-		return d
-	}
-	return def
 }
 
 // Addr returns the address of the webhook server.
@@ -194,7 +133,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 改进 3.3: 从池中获取 Payload，减少 GC 压力
+	// 从池中获取 Payload，减少 GC 压力
 	payload := dto.AcquirePayload()
 	payload.Raw = b
 	if err := json.Unmarshal(b, payload); err != nil {
@@ -289,62 +228,25 @@ func (c *Conn) validationACK(req dto.ValidationReq, header http.Header) ([]byte,
 	return resp, nil
 }
 
+// handleDispatch 将 Dispatch 事件非阻塞投递到 eventChan。
+//
+// channel 满时立即丢弃（归还 payload 到对象池）并记录统计信息。
+// 事件去重由上层中间件负责，此处不做去重处理。
 func (c *Conn) handleDispatch(payload *dto.Payload) {
 	logger.Debug("[Webhook] Received the event from the server")
-	key := helper.FNVHash(fmt.Sprintf("%s:%s", payload.Type, payload.ID))
 
-	// 增加总事件计数
 	c.totalEvents.Add(1)
-
-	// 如果未启用 bigCache 或配置禁用，直接分发（非阻塞）
-	if c.bigCache == nil {
-		select {
-		case c.eventChan <- payload:
-			logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
-		default:
-			// 改进 3.3: channel full，payload 未进入 channel，立即归还
-			dto.ReleasePayload(payload)
-			dropped := c.droppedEvents.Add(1)
-			total := c.totalEvents.Load()
-			dropRate := float64(dropped) / float64(total) * 100
-			logger.WithFields(logger.Fields{
-				"payload_id":    "(released)",
-				"total_dropped": dropped,
-				"total_events":  total,
-				"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
-				"channel_size":  len(c.eventChan),
-				"channel_cap":   cap(c.eventChan),
-			}).Warn("[Webhook] Event channel is full, dropping payload")
-
-			if dropRate > 5.0 {
-				logger.WithFields(logger.Fields{
-					"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
-					"total_dropped": dropped,
-				}).Error("[Webhook] High event drop rate detected!")
-			}
-		}
-		return
-	}
-
-	if _, err := c.bigCache.Get(key); err == nil {
-		// 改进 3.3: 重复事件，payload 未使用，立即归还
-		dto.ReleasePayload(payload)
-		logger.Tracef("[Webhook] Payload %s already exists in the cache, skipping dispatch", key)
-		return
-	}
-	_ = c.bigCache.Set(key, payload.Raw)
 
 	select {
 	case c.eventChan <- payload:
-		logger.Tracef("[Webhook] Dispatched payload %s to the event channel", key)
+		logger.Tracef("[Webhook] Dispatched payload %s:%s to the event channel", payload.Type, payload.ID)
 	default:
-		// 改进 3.3: channel full，payload 未进入 channel，立即归还
+		// channel 满，立即归还 payload 并记录丢弃统计
 		dto.ReleasePayload(payload)
 		dropped := c.droppedEvents.Add(1)
 		total := c.totalEvents.Load()
 		dropRate := float64(dropped) / float64(total) * 100
 		logger.WithFields(logger.Fields{
-			"payload_id":    "(released)",
 			"total_dropped": dropped,
 			"total_events":  total,
 			"drop_rate":     fmt.Sprintf("%.2f%%", dropRate),
