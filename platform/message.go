@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"maps"
 	"slices"
 	"time"
 )
@@ -259,9 +260,7 @@ func (m OutboundMessage) WithEmbeds(embeds ...Embed) OutboundMessage {
 // 每次调用均创建独立的 Extra map，避免多个派生消息共享同一底层 map 导致的数据污染。
 func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 	newExtra := make(map[string]any, len(m.Extra)+1)
-	for k, v := range m.Extra {
-		newExtra[k] = v
-	}
+	maps.Copy(newExtra, m.Extra)
 	newExtra[key] = value
 	m.Extra = newExtra
 	return m
