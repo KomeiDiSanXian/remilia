@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"log"
 	"strings"
@@ -35,6 +36,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
+//go:embed locales/*.yaml
+var localeFS embed.FS
+
 func main() {
 	cfg, err := config.Load("config.yaml")
 	if err != nil {
@@ -46,7 +50,7 @@ func main() {
 		log.Fatalf("init logger: %v", err)
 	}
 	bot, err := remilia.NewBotBuilder().
-		WithPlatformAdapter(qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{
+		WithPlatformAdapter(qq.NewWebhookServerAdapter(":9000", &dto.BotInfo{
 			QQNum: cfg.Bot.BotID, AppID: cfg.Bot.AppID,
 			Token: cfg.Bot.Token, AppSecret: cfg.Bot.Secret,
 		})).
@@ -72,6 +76,7 @@ func main() {
 	rlPlugin := ratelimitui.NewPlugin()
 	rlPlugin.BindAntispam(asPlugin)
 	rlPlugin.BindCooldown(cdPlugin)
+	i18nPlugin := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
 	if err := pm.RegisterMultipleV2([]*plugin.PluginDescriptor{
 		storage.New(),
 		permission.New(),
@@ -91,7 +96,7 @@ func main() {
 		stats.Descriptor(statsPlugin),
 		auditlog.New(),
 		scheduler.Descriptor(schedPlugin),
-		i18n.New(i18n.Config{DefaultLocale: "zh-CN", LocaleDir: "locales/"}),
+		i18n.Descriptor(i18nPlugin),
 		ratelimitui.Descriptor(rlPlugin),
 		pluginstore.New(),
 		conversation.New(),
@@ -102,6 +107,18 @@ func main() {
 		log.Fatalf("register plugins: %v", err)
 	}
 	logger.Infof("[showcase] %d plugins loaded", pm.Count())
+	// Load locale files from the embedded FS (works regardless of working directory)
+	if entries, err := localeFS.ReadDir("locales"); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+				locale := strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
+				if data, readErr := localeFS.ReadFile("locales/" + name); readErr == nil {
+					_ = i18nPlugin.LoadBytes(locale, data)
+				}
+			}
+		}
+	}
 	eng.Use(statsPlugin.Middleware())
 	if ar, ok := pm.GetContainer().Get("auditlog"); ok {
 		eng.Use(ar.(*auditlog.Plugin).Middleware())
