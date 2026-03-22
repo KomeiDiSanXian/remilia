@@ -150,6 +150,64 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 	return nil
 }
 
+// Upsert registers or updates a command definition in the registry.
+// If the command is already registered, its metadata is updated in-place.
+// If the command is not yet registered, it is inserted.
+// This avoids the "already registered" error that occurs when RegisterCommandDef
+// first registers a bare definition via OnCommand and then tries to register the
+// full definition with metadata.
+func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
+	if def == nil || def.Name == "" {
+		return
+	}
+
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	if existing := cr.trie.ExactMatch(def.Name); existing != nil {
+		// Update existing metadata in-place
+		existing.Description = def.Description
+		existing.Usage = def.Usage
+		existing.Aliases = def.Aliases
+		existing.Definition = def
+		if opts.Category != "" {
+			existing.Category = opts.Category
+		}
+		if opts.Source != "" {
+			existing.Source = opts.Source
+		}
+		if opts.Priority != 0 {
+			existing.Priority = opts.Priority
+		}
+		cr.recompile()
+		return
+	}
+
+	// New registration
+	meta := &Meta{
+		Name:        def.Name,
+		Aliases:     def.Aliases,
+		Description: def.Description,
+		Usage:       def.Usage,
+		Category:    opts.Category,
+		Source:      opts.Source,
+		Definition:  def,
+		Priority:    opts.Priority,
+	}
+
+	if opts.Pattern != "" {
+		if pattern, err := regexp.Compile(opts.Pattern); err == nil {
+			meta.pattern = pattern
+		}
+	}
+
+	cr.trie.Insert(def.Name, meta)
+	for _, alias := range def.Aliases {
+		cr.aliases[alias] = def.Name
+	}
+	cr.recompile()
+}
+
 // Unregister 注销命令
 func (cr *Registry) Unregister(name string) error {
 	cr.mu.Lock()
@@ -317,7 +375,8 @@ func sortCommandsByPriority(commands []*Meta) {
 
 // ExtractCommandFast 快速提取命令名称
 // 使用预编译的正则表达式，性能提升约 50%
-var commandPattern = regexp.MustCompile(`^(/\w+)`)
+// 支持含连字符的命令名（如 /get-help、/sub-cmd）
+var commandPattern = regexp.MustCompile(`^(/[\w-]+)`)
 
 func ExtractCommandFast(content string) string {
 	content = strings.TrimSpace(content)

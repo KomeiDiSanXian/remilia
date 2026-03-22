@@ -4,8 +4,17 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(matcher): optimize priority handling with atomic operations and improve matcher performance">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test(matcher): update priority assertions to use uint64 for consistency">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/matching-optimization-bug-report.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/trie.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/trie.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -230,7 +239,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(platform): unify message sending interface and enhance capabilities structure" />
     <MESSAGE value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
     <MESSAGE value="docs: remove archived docs" />
     <MESSAGE value="refactor(permission): update permission type references to core package" />
@@ -255,7 +263,8 @@
     <MESSAGE value="feat(platform): add support for voice message handling and enhance message reset functionality" />
     <MESSAGE value="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions" />
     <MESSAGE value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
+    <MESSAGE value="test(matcher): update priority assertions to use uint64 for consistency" />
+    <option name="LAST_COMMIT_MESSAGE" value="test(matcher): update priority assertions to use uint64 for consistency" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

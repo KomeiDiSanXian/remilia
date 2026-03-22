@@ -56,7 +56,11 @@ func (e *Engine) DeleteAllMatchers() {
 	newState := copyEngineState(oldState)
 	newState.matchers = make([]*Matcher, 0)
 	newState.matcherIndex = make(map[EventType][]*Matcher)
+	newState.commandIndex = make(map[string]map[EventType][]*Matcher) // 修复：清理命令索引防止内存泄漏
+	newState.groupIndex = make(map[string][]*Matcher)                 // 修复：清理分组索引防止内存泄漏
 	newState.sortedCache = make(map[EventType][]*Matcher)
+	newState.commandInfoCache = make(map[string]*CommandInfo) // 修复：清理命令信息缓存
+	newState.commandListCache = nil                           // 修复：清理命令列表缓存
 
 	e.state.Store(newState)
 
@@ -467,6 +471,7 @@ func (e *Engine) UpdateCommandCache(m *Matcher) {
 
 	oldState := e.state.Load()
 	newState := copyEngineState(oldState)
+	// rebuildCommandInfoCache already calls rebuildCommandListCache internally
 	newState.rebuildCommandInfoCache(m, cmd)
 	e.state.Store(newState)
 }

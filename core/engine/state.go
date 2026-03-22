@@ -184,23 +184,23 @@ func (s *state) rebuildIndex() {
 	for _, m := range s.matchers {
 		cmd := m.GetCommand()
 		if cmd != "" {
-			m.commandIndexed = true // mark for Match() fast-path
+			m.commandIndexed.Store(true) // mark for Match() fast-path
 			if s.commandIndex[cmd] == nil {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 
-			// 重建命令信息缓存
-			s.rebuildCommandInfoCache(m, cmd)
+			// 仅更新 commandInfoCache，不触发列表缓存重建（O(N²) 修复）
+			s.updateCommandInfoCache(m, cmd)
 		} else {
 			// 仅当没有 command 时加入常规索引
 			et := m.EventType
 			s.matcherIndex[et] = append(s.matcherIndex[et], m)
 		}
 
-		// 更新分组索引
-		if m.group != "" {
-			s.groupIndex[m.group] = append(s.groupIndex[m.group], m)
+		// 更新分组索引（使用加锁访问器避免与 SetMatcherGroup 的数据竞态）
+		if grp := m.GetGroup(); grp != "" {
+			s.groupIndex[grp] = append(s.groupIndex[grp], m)
 		}
 	}
 
@@ -219,11 +219,48 @@ func (s *state) rebuildIndex() {
 		}
 	}
 
-	// 改进 3.7: 重建命令列表缓存
+	// 改进 3.7: 重建命令列表缓存（只调用一次，修复 O(N²) 问题）
 	s.rebuildCommandListCache()
 }
 
-// rebuildCommandInfoCache 重建单个命令的缓存信息
+// updateCommandInfoCache 更新单个命令的缓存信息（不重建列表缓存）。
+// 供 rebuildIndex 批量调用，避免 O(N²) 问题。
+// 调用者负责在全部更新完成后统一调用 rebuildCommandListCache。
+func (s *state) updateCommandInfoCache(m *Matcher, cmd string) {
+	def := m.GetDefinition()
+
+	if def != nil && def.Hidden {
+		delete(s.commandInfoCache, cmd)
+		return
+	}
+
+	info := &CommandInfo{
+		Command:    cmd,
+		EventType:  m.EventType,
+		Source:     m.GetSource(),
+		Definition: def,
+	}
+
+	if def != nil {
+		info.Description = def.Description
+		info.Usage = def.Usage
+		info.Aliases = def.Aliases
+		info.Category = def.Category
+		info.Examples = def.Examples
+		info.Permissions = def.Permissions
+	}
+
+	if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
+		info.Plugin = after
+	} else {
+		info.Plugin = "global"
+	}
+
+	s.commandInfoCache[cmd] = info
+}
+
+// rebuildCommandInfoCache 重建单个命令的缓存信息并同步更新列表缓存。
+// 供单次更新路径（addMatcher、UpdateCommandCache）使用。
 func (s *state) rebuildCommandInfoCache(m *Matcher, cmd string) {
 	// 获取定义
 	def := m.GetDefinition()
@@ -282,7 +319,7 @@ func (s *state) addMatcher(m *Matcher) {
 
 	cmd := m.GetCommand()
 	if cmd != "" {
-		m.commandIndexed = true // mark for Match() fast-path
+		m.commandIndexed.Store(true) // mark for Match() fast-path
 		if s.commandIndex[cmd] == nil {
 			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 		}
@@ -290,34 +327,24 @@ func (s *state) addMatcher(m *Matcher) {
 		// 每次添加后重新排序（对于单个添加操作，这可以接受；批量添加应使用 rebuildIndex）
 		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
 
-		// 更新命令信息缓存
+		// 更新命令信息缓存（含列表重建）
 		s.rebuildCommandInfoCache(m, cmd)
 	} else {
 		// 更新常规索引
 		et := m.EventType
 		s.matcherIndex[et] = append(s.matcherIndex[et], m)
 
-		// 更新排序缓存 - 优化：重用现有 slice 容量
+		// 更新排序缓存（cap 复用优化在 COW 模式下永不触发，直接分配）
 		matchers := s.matcherIndex[et]
-		// 检查是否需要重新分配
-		if cap(s.sortedCache[et]) >= len(matchers) {
-			// 重用现有容量
-			sorted := s.sortedCache[et][:len(matchers)]
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			s.sortedCache[et] = sorted
-		} else {
-			// 需要新分配
-			sorted := make([]*Matcher, len(matchers))
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			s.sortedCache[et] = sorted
-		}
+		sorted := make([]*Matcher, len(matchers))
+		copy(sorted, matchers)
+		sortMatchersByPriority(sorted)
+		s.sortedCache[et] = sorted
 	}
 
-	// 更新分组索引
-	if m.group != "" {
-		s.groupIndex[m.group] = append(s.groupIndex[m.group], m)
+	// 更新分组索引（使用加锁访问器避免与 SetMatcherGroup 的数据竞态）
+	if grp := m.GetGroup(); grp != "" {
+		s.groupIndex[grp] = append(s.groupIndex[grp], m)
 	}
 }
 
@@ -335,7 +362,7 @@ func (s *state) removeGroup(groupName string) {
 	// 过滤主列表
 	newMatchers := make([]*Matcher, 0, len(s.matchers))
 	for _, m := range s.matchers {
-		if m.group != groupName {
+		if m.GetGroup() != groupName {
 			newMatchers = append(newMatchers, m)
 		}
 	}

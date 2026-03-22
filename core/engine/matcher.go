@@ -38,7 +38,9 @@ type Matcher struct {
 	// created by OnCommand/RegisterCommandDef.  When true, Match() skips Rules[0]
 	// (the OnCommand prefix check) because the command was already matched via the
 	// commandIndex O(1) lookup — saving ~200 ms / 10 % CPU in the large scenario.
-	commandIndexed bool
+	// Uses atomic.Bool to prevent data races between rebuildIndex writes and
+	// concurrent Match() reads on shared *Matcher objects (COW shares pointers).
+	commandIndexed atomic.Bool
 	EventType      EventType
 	Rules          []context.Rule
 	Handler        context.Handler
@@ -84,18 +86,18 @@ func (m *Matcher) copy() *Matcher {
 	copy(newMiddlewares, m.middlewares)
 
 	newM := &Matcher{
-		rt:             matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
-		EventType:      m.EventType,
-		Rules:          newRules,
-		Handler:        m.Handler,
-		Source:         m.Source,
-		group:          m.group,
-		middlewares:    newMiddlewares,
-		definition:     m.definition, // 定义为指针，浅拷贝
-		commandIndexed: m.commandIndexed,
+		rt:          matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
+		EventType:   m.EventType,
+		Rules:       newRules,
+		Handler:     m.Handler,
+		Source:      m.Source,
+		group:       m.group,
+		middlewares: newMiddlewares,
+		definition:  m.definition, // 定义为指针，浅拷贝
 	}
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
+	newM.commandIndexed.Store(m.commandIndexed.Load())
 	return newM
 }
 
@@ -219,7 +221,7 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	rules := m.Rules
 	// Skip Rules[0] (the OnCommand prefix check) for command-indexed matchers:
 	// the commandIndex lookup already confirmed the command matches.
-	if m.commandIndexed && len(rules) > 0 {
+	if m.commandIndexed.Load() && len(rules) > 0 {
 		rules = rules[1:]
 	}
 	for _, rule := range rules {
@@ -302,11 +304,16 @@ func (m *Matcher) SetPriority(priority uint64) *Matcher {
 	coord := m.coordinator
 	muEvent := m.EventType
 	isTempManager := atomic.LoadInt32(&m.rt.isTemp) == 1
+	def := m.definition // read definition while holding lock
 	m.rt.mu.Unlock()
+
+	isCommandMatcher := def != nil && def.Name != ""
 
 	if changed && coord != nil {
 		if isTempManager {
 			coord.UpdateTempMatcherPriority(m)
+		} else if isCommandMatcher {
+			coord.UpdateMatcherIndex(m) // reorder commandIndex for command matchers
 		} else {
 			coord.InvalidateSortedCache(muEvent)
 		}

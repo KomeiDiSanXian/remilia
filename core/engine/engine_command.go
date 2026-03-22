@@ -42,12 +42,12 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	finalRules = append(finalRules, extraRules...)
 
 	m := &Matcher{
-		EventType:      eventType,
-		Rules:          finalRules,
-		coordinator:    e,
-		Source:         "global",
-		commandIndexed: true, // OnCommand rule (Rules[0]) is matched via commandIndex
+		EventType:   eventType,
+		Rules:       finalRules,
+		coordinator: e,
+		Source:      "global",
 	}
+	m.commandIndexed.Store(true) // OnCommand rule (Rules[0]) is matched via commandIndex
 	m.priority.Store(50)
 
 	cmdName := strings.TrimPrefix(strings.TrimSpace(cmdPattern), "/")
@@ -317,10 +317,10 @@ func (e *Engine) syncToRegistry(def *command.Definition, source string) {
 		return
 	}
 	opts := command.RegisterOptions{Source: source}
-	if err := reg.RegisterWithOptions(def, opts); err != nil {
-		logger.WithError(err).WithField("command", def.Name).
-			Warn("[engine] Failed to sync command to Registry")
-	}
+	// Upsert: register new or update existing entry (handles the case where
+	// OnCommand already registered a bare definition and RegisterCommandDef
+	// subsequently syncs the full definition with metadata).
+	reg.Upsert(def, opts)
 }
 
 // WithCommandRegistry Engine 选项：注入 command.Registry。

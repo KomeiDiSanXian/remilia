@@ -39,6 +39,8 @@ type MatcherLifecycle interface {
 type MatcherMigration interface {
 	// UpdateTempMatcherPriority 更新 TempManager 中 Matcher 的优先级
 	UpdateTempMatcherPriority(m *Matcher)
+	// UpdateMatcherIndex 强制更新匹配器的索引（命令 matcher 优先级变更时调用）
+	UpdateMatcherIndex(m *Matcher)
 	// UpdateMatcherCommand 更新 Matcher 的命令绑定
 	UpdateMatcherCommand(m *Matcher)
 	// MigrateMatcherToTemp 将 Matcher 从永久状态迁移到 TempManager

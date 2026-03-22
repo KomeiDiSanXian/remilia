@@ -58,7 +58,9 @@ func (t *Trie) Remove(name string, meta *Meta) {
 
 	node := t.root
 	runes := []rune(name)
+	// path[0] = root, path[1] = first-char node, ..., path[n] = last-char node
 	path := make([]*TrieNode, 0, len(runes)+1)
+	path = append(path, node)
 
 	// Navigate to the end node and collect path
 	for _, r := range runes {
@@ -69,12 +71,24 @@ func (t *Trie) Remove(name string, meta *Meta) {
 		path = append(path, node)
 	}
 
-	// Remove command from all nodes in the path
-	for _, n := range path {
+	// Remove command from all nodes in the path (excluding root)
+	for _, n := range path[1:] {
 		n.commands = removeCommandFromSlice(n.commands, meta)
 	}
 
 	node.isEnd = false
+
+	// Prune empty nodes from leaf to root to prevent memory leaks.
+	// A node is prunable when it has no commands, no children, and is not an end node.
+	for i := len(path) - 1; i > 0; i-- {
+		n := path[i]
+		if !n.isEnd && len(n.children) == 0 && len(n.commands) == 0 {
+			parent := path[i-1]
+			delete(parent.children, runes[i-1])
+		} else {
+			break // stop as soon as we find a non-empty node
+		}
+	}
 }
 
 // Search finds all commands with the given prefix
@@ -134,28 +148,6 @@ func (t *Trie) ExactMatch(name string) *Meta {
 	}
 
 	return nil
-}
-
-// collectCommands recursively collects all commands from a node and its children
-func (t *Trie) collectCommands(node *TrieNode, seen map[*Meta]bool, result *[]*Meta) {
-	if node == nil {
-		return
-	}
-
-	// Add commands from this node if it's an end node
-	if node.isEnd {
-		for _, cmd := range node.commands {
-			if !seen[cmd] {
-				seen[cmd] = true
-				*result = append(*result, cmd)
-			}
-		}
-	}
-
-	// Recursively collect from children
-	for _, child := range node.children {
-		t.collectCommands(child, seen, result)
-	}
 }
 
 // Clear removes all commands from the trie

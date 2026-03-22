@@ -441,8 +441,17 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 
 		for k := range 6 {
 			if idx[k] < lens[k] {
-				// At this point, lists[k][idx[k]] is a VALID candidate
-				p := lists[k][idx[k]].getPriority()
+				m := lists[k][idx[k]]
+				// Re-check isTemp to handle TOCTOU: another goroutine may have
+				// changed the matcher's isTemp status between phase 1 and phase 2.
+				isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
+				if isStateSource[k] && isTemp {
+					continue // migrated to temp since phase 1 – skip
+				}
+				if !isStateSource[k] && !isTemp {
+					continue // migrated from temp since phase 1 – skip
+				}
+				p := m.getPriority()
 				if p < minP {
 					minP = p
 					winner = k
@@ -453,6 +462,19 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 		if winner != -1 {
 			dst = append(dst, lists[winner][idx[winner]])
 			idx[winner]++
+		} else {
+			// All remaining candidates had their isTemp changed; advance all
+			// stale heads so the outer loop can re-evaluate.
+			for k := range 6 {
+				if idx[k] < lens[k] {
+					m := lists[k][idx[k]]
+					isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
+					stale := (isStateSource[k] && isTemp) || (!isStateSource[k] && !isTemp)
+					if stale {
+						idx[k]++
+					}
+				}
+			}
 		}
 	}
 	return dst
