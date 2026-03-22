@@ -33,11 +33,12 @@ type WebhookConn struct {
 	bufferSize  int
 
 	// 以下字段在 start() 中初始化
-	tokenMgr    *token.Manager
-	webhookImpl *webhook.Conn
-	server      *http.Server
-	ctx         context.Context
-	cancel      context.CancelFunc
+	tokenMgr     *token.Manager
+	webhookImpl  *webhook.Conn
+	server       *http.Server
+	ctx          context.Context
+	cancel       context.CancelFunc
+	cachedSender platform.Sender // start() 后缓存，避免每事件分配新 qqSender
 
 	wg      sync.WaitGroup
 	mu      sync.Mutex
@@ -76,14 +77,14 @@ func (c *WebhookConn) WithAPI(api openapi.OpenAPI) *WebhookConn {
 
 // Sender 返回该连接对应的消息发送器。
 //
-// 调用 start() 前若未注入 api，返回 NoopSender；
-// start() 后若 botInfo 非空，api 会自动初始化，Sender() 返回真实发送器。
+// start() 之前返回 NoopSender；start() 之后返回缓存的真实发送器，
+// 避免每次调用都分配新的 qqSender 实例。
 func (c *WebhookConn) Sender() platform.Sender {
 	c.mu.Lock()
-	api := c.api
+	s := c.cachedSender
 	c.mu.Unlock()
-	if api != nil {
-		return NewSender(api)
+	if s != nil {
+		return s
 	}
 	return &platform.NoopSender{}
 }
@@ -117,8 +118,11 @@ func (c *WebhookConn) start(ctx context.Context) error {
 	if c.botInfo != nil && !c.apiExternal {
 		mgr := token.NewManagerWithContext(c.ctx, c.botInfo)
 		c.api = openapi.New(mgr)
+		c.cachedSender = NewSender(c.api)
 		c.tokenMgr = mgr
 		logger.Info("[WebhookConn] Token manager created from BotInfo")
+	} else if c.apiExternal && c.api != nil {
+		c.cachedSender = NewSender(c.api)
 	}
 
 	c.webhookImpl = webhook.NewWithBuffer(c.botInfo, c.bufferSize)
@@ -207,6 +211,7 @@ func (c *WebhookConn) stop(ctx context.Context) error {
 	c.mu.Lock()
 	c.tokenMgr = nil
 	c.api = nil
+	c.cachedSender = nil
 	c.webhookImpl = nil
 	c.mu.Unlock()
 

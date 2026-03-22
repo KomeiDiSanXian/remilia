@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -35,7 +36,8 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 // 目标会话信息从 req.Target 读取（ChatInfo 类型，包含 ID、IsGroup 等路由字段）。
 // 若 req.Target.ID 为空，返回 errutil.ErrNoChatInfo。
 //
-// req.EventID 为触发事件 ID，用于被动回复自动关联，框架通过 ctx.Reply 自动填充。
+// 被动回复授权 token 由 ChatInfo.ReplyMsgID / ReplyEventID 携带，
+// 框架通过 ctx.Reply 自动填充，无需手动传入。
 // 若 MessageExtra.EventID（通过 ApplyExtra 手动注入）非空，则优先使用手动值。
 func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 	if s.api == nil {
@@ -51,25 +53,26 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 
 	// 频道消息（ChatInfo.ParentID 非空）使用频道专属 API
 	if chat.ParentID != "" {
-		return s.sendGuildChannelMessage(ctx, chat, req.EventID, msg)
+		return s.sendGuildChannelMessage(ctx, chat, msg)
 	}
 
 	// 富媒体优先（QQ 不支持多附件，取第一个）
 	if len(msg.Attachments) > 0 {
-		return s.sendAttachment(ctx, chat, req.EventID, msg, msg.Attachments[0])
+		return s.sendAttachment(ctx, chat, msg, msg.Attachments[0])
 	}
 
-	dtoMsg := s.buildDTOMessage(msg, req.EventID)
+	dtoMsg := s.buildDTOMessage(msg, chat)
 	if chat.IsGroup {
 		_, err := s.api.GroupChat(ctx, chat.ID, dtoMsg)
 		return err
 	}
-	_, err := s.api.SingleChat(ctx, chat.ID, dtoMsg)
+	res, err := s.api.SingleChat(ctx, chat.ID, dtoMsg)
+	logger.Debugf("qq sender: SingleChat response: %+v", res.Map())
 	return err
 }
 
 // sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
-func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, eventID string, msg platform.OutboundMessage, att platform.Attachment) error {
+func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) error {
 	if att.URL == "" && len(att.Data) == 0 {
 		return fmt.Errorf("qq sender: attachment has neither URL nor data")
 	}
@@ -104,7 +107,7 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ev
 	}
 
 	// 构建携带 file_info 的 MediaMessage
-	dtoMsg := s.buildDTOMessage(msg, eventID)
+	dtoMsg := s.buildDTOMessage(msg, chat)
 	dtoMsg.Type = dto.MediaMessage
 	dtoMsg.Media = &dto.MediaResponse{FileInfo: fileInfo}
 	dtoMsg.Content = "" // 媒体消息不携带文本内容
@@ -125,8 +128,8 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ev
 //
 // 频道私信时 chat.ID 存储的是 DM 会话的 guild_id（由 NewEvent/populateGuildMessage 填充）。
 // chat.ID = channel_id（文字子频道）或 guild_id（私信会话），chat.ParentID = guild_id。
-func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, eventID string, msg platform.OutboundMessage) error {
-	guildMsg := s.buildGuildDTOMessage(msg, eventID)
+func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage) error {
+	guildMsg := s.buildGuildDTOMessage(msg, chat)
 	if chat.IsDM {
 		// 频道私信：chat.ID 为 DM 会话的 guild_id
 		_, err := s.api.DMChat(ctx, chat.ID, guildMsg)
@@ -141,7 +144,7 @@ func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.Cha
 // 优先级：Markdown > Text(Content) > Image(Attachment)
 // 被动消息：MsgID 优先使用 MessageExtra.EventID，其次使用 req.EventID。
 // 引用回复：ReplyToID 非空时设置 MessageReference（展示被引用消息气泡）。
-func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, eventID string) *dto.GuildMessage {
+func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.GuildMessage {
 	guildMsg := &dto.GuildMessage{}
 
 	// 消息内容优先级：Markdown > 纯文本
@@ -178,12 +181,12 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, eventID st
 		guildMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
 	}
 
-	// 被动消息关联：频道用 msg_id（来源消息的 Message.id）
-	// 优先使用手动 ApplyExtra 注入的值，其次 SendRequest.EventID
+	// 被动消息关联：频道用 msg_id（来源消息的 Message.id / payload.ID）
+	// 优先使用手动 ApplyExtra 注入的值（extra.EventID），其次 ChatInfo.ReplyMsgID
 	extra := extractExtra(msg)
 	resolvedMsgID := extra.EventID
 	if resolvedMsgID == "" {
-		resolvedMsgID = eventID
+		resolvedMsgID = chat.ReplyMsgID // 频道消息：payload.ID 即 message id
 	}
 	if resolvedMsgID != "" {
 		guildMsg.MsgID = resolvedMsgID
@@ -214,11 +217,14 @@ func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
 	}
 }
 
-// buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message。
+// buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message（用于 C2C / 群聊）。
 //
-// eventID 优先使用 MessageExtra.EventID（手动 ApplyExtra，优先级最高）；
-// 若为空，则使用传入的 eventID（由 SendRequest.EventID 自动携带，来自 ctx.Reply）。
-func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string) *dto.Message {
+// 被动回复 ID 优先级：
+//   - msg_id：msg.ReplyToID（手动设置）> chat.ReplyMsgID（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 自动填充）
+//   - event_id：extra.EventID（手动 ApplyExtra）> chat.ReplyEventID（INTERACTION_CREATE / C2C_MSG_RECEIVE 等自动填充）
+//
+// 主动消息：ChatInfo.ReplyMsgID 和 ReplyEventID 均为空时，不设置 msg_id / event_id，即为主动消息。
+func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.Message {
 	dtoMsg := &dto.Message{}
 
 	// 优先使用 Markdown，其次 Text
@@ -248,9 +254,14 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string)
 		dtoMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
 	}
 
-	// 回复消息 ID
-	if msg.ReplyToID != "" {
-		dtoMsg.MessageID = dto.EventID(msg.ReplyToID)
+	// 回复消息 ID（msg_id）：被动回复授权 token（message-based）
+	// 优先级：msg.ReplyToID（手动设置）> chat.ReplyMsgID（框架从 C2C/Group 消息事件自动填充）
+	resolvedMsgID := msg.ReplyToID
+	if resolvedMsgID == "" {
+		resolvedMsgID = chat.ReplyMsgID
+	}
+	if resolvedMsgID != "" {
+		dtoMsg.MessageID = dto.EventID(resolvedMsgID)
 	}
 
 	// 提取 QQ 专属参数（手动 ApplyExtra 优先级最高）
@@ -262,10 +273,11 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, eventID string)
 		dtoMsg.MessageSeq = s.msgSeq.Add(1)
 	}
 
-	// D4：EventID 优先使用手动注入的值（ApplyExtra）；若为空，使用来自 SendRequest 的值
+	// event_id：被动回复授权 token（event-based，仅 INTERACTION_CREATE / C2C_MSG_RECEIVE 等）
+	// 优先级：extra.EventID（手动 ApplyExtra）> chat.ReplyEventID（框架从事件类型自动填充）
 	resolvedEventID := extra.EventID
 	if resolvedEventID == "" {
-		resolvedEventID = eventID
+		resolvedEventID = chat.ReplyEventID
 	}
 	if resolvedEventID != "" {
 		dtoMsg.EventID = dto.EventID(resolvedEventID)

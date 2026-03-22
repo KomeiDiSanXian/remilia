@@ -25,9 +25,12 @@ const (
 
 // adapterCache 是每个平台适配器在启动时构建的只读快照，
 // 避免热路径中对 platformRegistry 加 RLock。
+// adapterCache 是每个平台适配器在启动时构建的只读快照。
+// adapter 引用用于在事件到达时动态调用 Sender()，确保在 pa.Start() 初始化
+// client 之后总能拿到真实发送器（而非启动前的 NoopSender）。
 type adapterCache struct {
-	sender platform.Sender
-	caps   platform.Capabilities
+	adapter platform.Adapter
+	caps    platform.Capabilities
 }
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理。
@@ -162,8 +165,8 @@ func (b *Bot) Start() error {
 			// N5: 为每个平台适配器注册独立的健康检查器
 			b.health.AddChecker(NewAdapterHealthChecker(pa))
 			snapshot[pa.Platform()] = adapterCache{
-				sender: pa.Sender(),
-				caps:   pa.Capabilities(),
+				adapter: pa,
+				caps:    pa.Capabilities(),
 			}
 			name := "platform:" + pa.Platform()
 			b.lifecycle.Register(lifecycle.NewSimpleComponent(
@@ -263,7 +266,7 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 
 	if snapshot != nil {
 		if c, ok := snapshot[event.Platform()]; ok {
-			sender = c.sender
+			sender = c.adapter.Sender() // 动态获取，确保拿到 Start() 后初始化的真实发送器
 			caps = c.caps
 		}
 	}

@@ -17,14 +17,13 @@ import (
 //
 // 替代原先通过 context.WithValue 隐式注入 ChatInfo / EventID 的方式，
 // 使 Sender 接口的契约完全可见，并在编译期保证类型安全。
+//
+// 被动回复授权 token（如 QQ 的 msg_id / event_id）由 Target（ChatInfo）的
+// ReplyMsgID / ReplyEventID 字段携带，平台事件解析时自动填充。
 type SendRequest struct {
-	// Target 目标会话信息（ID、IsGroup 等路由字段）。
+	// Target 目标会话信息（ID、IsGroup、ReplyMsgID / ReplyEventID 等路由与回复字段）。
 	// Target.ID 为空时，Sender 实现应返回 errutil.ErrNoChatInfo。
 	Target ChatInfo
-
-	// EventID 触发事件 ID，用于被动回复关联（如 QQ 需要此字段）。
-	// 不需要被动回复时留空；非 QQ 平台可忽略此字段。
-	EventID string
 
 	// Message 要发送的消息内容。
 	Message OutboundMessage
@@ -36,8 +35,8 @@ type SendRequest struct {
 
 // Sender 是平台无关的消息发送接口。
 //
-// 路由信息（目标会话 ChatInfo、被动回复关联 EventID）由 SendRequest
-// 显式传入，ctx 仅用于超时控制、取消传播和 OpenTelemetry tracing。
+// 路由信息（目标会话 ChatInfo，含被动回复 token）由 SendRequest.Target 显式传入，
+// ctx 仅用于超时控制、取消传播和 OpenTelemetry tracing。
 //
 // 使用示例（handler 内，框架自动构造 SendRequest）：
 //

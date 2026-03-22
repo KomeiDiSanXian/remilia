@@ -93,6 +93,20 @@ type ChatInfo struct {
 	// 表示这是一条频道私信（如 QQ DIRECT_MESSAGE_CREATE），
 	// 发送回复时应使用 DM 专属接口而非普通频道消息接口。
 	IsDM bool
+
+	// ReplyMsgID 被动回复使用的消息 ID（message-based passive reply token）。
+	//
+	// 由平台事件解析时填充，表示触发本次对话的用户消息 ID。
+	// 发送接口将其填入平台的 msg_id 字段（如 QQ v2 API）。
+	// 为空时，表示不发起 message-based 被动回复（视为主动消息）。
+	ReplyMsgID string
+
+	// ReplyEventID 被动回复使用的事件 ID（event-based passive reply token）。
+	//
+	// 由平台事件解析时填充，表示触发本次对话的系统事件 ID。
+	// 发送接口将其填入平台的 event_id 字段（如 QQ v2 INTERACTION_CREATE、C2C_MSG_RECEIVE 等事件）。
+	// 为空时，表示不发起 event-based 被动回复。
+	ReplyEventID string
 }
 
 // InboundAttachment 入站消息中携带的附件（平台无关抽象）。

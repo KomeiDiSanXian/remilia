@@ -99,9 +99,12 @@ func (ctx *Context) GetEventPlatform() string {
 
 // Reply 向事件来源会话发送回复（平台无关方式）。
 //
-// ChatInfo（IsGroup 等）和触发事件 ID 通过 SendRequest 显式传递，
+// ChatInfo（IsGroup、ReplyMsgID、ReplyEventID 等）通过 SendRequest.Target 显式传递，
 // 不再注入到 Go context（ctx 仅保留超时/取消/tracing 用途）。
 // 超时/截止时间由当前 Context 的标准库 context 控制（中间件注入的 Deadline 同样有效）。
+//
+// 被动回复授权 token 已由平台事件解析时填入 ChatInfo.ReplyMsgID / ReplyEventID，
+// 无需在此处额外处理。
 //
 // 示例：
 //
@@ -115,7 +118,6 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) error {
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),
-		EventID: ctx.platformEvent.ID(),
 		Message: msg,
 	}
 	return ctx.platformSender.Send(ctx.Context(), req)
@@ -133,7 +135,6 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),
-		EventID: ctx.platformEvent.ID(),
 		Message: msg,
 	}
 	return ctx.platformSender.Send(stdCtx, req)

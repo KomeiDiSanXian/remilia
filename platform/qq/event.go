@@ -56,34 +56,54 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.C2CMessageCreate:
 		e.kind = platform.EventKindPrivateMessage
 		e.populateC2C(detail)
+		// ReplyMsgID 已在 populateC2C 中写入 ChatInfo
 	case dto.GroupAtMessageCreate:
 		e.kind = platform.EventKindGroupMessage
 		e.populateGroupAt(detail)
+		// ReplyMsgID 已在 populateGroupAt 中写入 ChatInfo
 	case dto.Ready, dto.Resumed:
 		e.kind = platform.EventKindSystem
 	case dto.GroupAddRobot:
 		e.kind = platform.EventKindMemberJoin
 		e.populateNoticeGroup(detail)
+		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
 	case dto.GroupDelRobot:
 		e.kind = platform.EventKindMemberLeave
 		e.populateNoticeGroup(detail)
-	case dto.GroupMsgReject, dto.GroupMsgReceive:
+		// GroupDelRobot 不支持被动回复
+	case dto.GroupMsgReject:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeGroup(detail)
+		// GroupMsgReject 不支持被动回复
+	case dto.GroupMsgReceive:
+		e.kind = platform.EventKindNotice
+		e.populateNoticeGroup(detail)
+		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
 	case dto.FriendAdd:
 		e.kind = platform.EventKindMemberJoin
 		e.populateNoticeUser(detail)
+		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
 	case dto.FriendDel:
 		e.kind = platform.EventKindMemberLeave
 		e.populateNoticeUser(detail)
-	case dto.C2CMsgReject, dto.C2CMsgReceive:
+		// FriendDel 不支持被动回复
+	case dto.C2CMsgReject:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeUser(detail)
+		// C2CMsgReject 不支持被动回复
+	case dto.C2CMsgReceive:
+		e.kind = platform.EventKindNotice
+		e.populateNoticeUser(detail)
+		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
 		e.populateGuildMessage(evType, detail)
+		// ReplyMsgID 已在 populateGuildMessage 中写入 ChatInfo
 	case dto.InteractionCreate:
 		e.kind = platform.EventKindInteraction
+		// 须在 populateInteraction 前保存 payload.ID 作为 event_id 被动回复 token，
+		// 因为 populateInteraction 会将 e.id 覆盖为 interaction body id。
+		e.chat.ReplyEventID = e.id
 		e.populateInteraction(detail)
 	// ── 表情表态事件 ────────────────────────────────────────────────────────
 	case dto.MessageReactionAdd, dto.MessageReactionRemove:
@@ -128,51 +148,23 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 	}
 	// 一次线性扫描提取所有字段（O(n) 而非 O(k×n)）
 	results := gjson.GetManyBytes(detail,
-		"content",
-		"author.user_openid",
-		"author.id",
-		"timestamp",
-		"attachments",
+		"id",                 // [0] 消息 ID（用于 msg_id 被动回复授权）
+		"content",            // [1]
+		"author.user_openid", // [2]
+		"author.id",          // [3]
+		"timestamp",          // [4]
+		"attachments",        // [5]
 	)
-	e.content = results[0].String()
-	userOpenID := results[1].String()
+	userOpenID := results[2].String()
+	e.content = results[1].String()
 	e.sender = platform.UserInfo{
 		ID:          userOpenID,
-		DisplayName: results[2].String(),
+		DisplayName: results[3].String(),
 	}
 	e.chat = platform.ChatInfo{
-		ID:      userOpenID,
-		IsGroup: false,
-	}
-	if ts := results[3].String(); ts != "" {
-		if t, err := time.Parse(time.RFC3339, ts); err == nil {
-			e.timestamp = t
-		}
-	}
-	e.attachments = parseAttachments(results[4])
-}
-
-func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
-	if detail == nil {
-		return
-	}
-	results := gjson.GetManyBytes(detail,
-		"content",
-		"author.member_openid",
-		"author.id",
-		"group_openid",
-		"timestamp",
-		"attachments",
-	)
-	e.content = results[0].String()
-	memberOpenID := results[1].String()
-	e.sender = platform.UserInfo{
-		ID:          memberOpenID,
-		DisplayName: results[2].String(),
-	}
-	e.chat = platform.ChatInfo{
-		ID:      results[3].String(),
-		IsGroup: true,
+		ID:         userOpenID,
+		IsGroup:    false,
+		ReplyMsgID: results[0].String(), // 消息 ID，用于 msg_id 被动回复
 	}
 	if ts := results[4].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -180,6 +172,38 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		}
 	}
 	e.attachments = parseAttachments(results[5])
+}
+
+func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"id",                   // [0] 消息 ID（用于 msg_id 被动回复授权）
+		"content",              // [1]
+		"author.member_openid", // [2]
+		"author.id",            // [3]
+		"group_openid",         // [4]
+		"timestamp",            // [5]
+		"attachments",          // [6]
+	)
+	e.content = results[1].String()
+	memberOpenID := results[2].String()
+	e.sender = platform.UserInfo{
+		ID:          memberOpenID,
+		DisplayName: results[3].String(),
+	}
+	e.chat = platform.ChatInfo{
+		ID:         results[4].String(),
+		IsGroup:    true,
+		ReplyMsgID: results[0].String(), // 消息 ID，用于 msg_id 被动回复
+	}
+	if ts := results[5].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
+	}
+	e.attachments = parseAttachments(results[6])
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
@@ -210,11 +234,12 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 		// 频道私信：以 guild_id 作为发送目标（POST /dms/{guild_id}/messages），
 		// channel_id 仅作辅助信息，不用于发送。
 		e.chat = platform.ChatInfo{
-			ID:       guildID, // 私信会话 ID（用于 DMChat）
-			ParentID: guildID,
-			Name:     results[5].String(),
-			IsGroup:  false,
-			IsDM:     true,
+			ID:         guildID, // 私信会话 ID（用于 DMChat）
+			ParentID:   guildID,
+			Name:       results[5].String(),
+			IsGroup:    false,
+			IsDM:       true,
+			ReplyMsgID: e.id, // 频道消息：payload.ID 即 message id，用于 msg_id 被动回复
 		}
 	} else {
 		chatID := channelID
@@ -222,10 +247,11 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 			chatID = guildID
 		}
 		e.chat = platform.ChatInfo{
-			ID:       chatID,
-			ParentID: guildID,
-			Name:     results[5].String(),
-			IsGroup:  true,
+			ID:         chatID,
+			ParentID:   guildID,
+			Name:       results[5].String(),
+			IsGroup:    true,
+			ReplyMsgID: e.id, // 频道消息：payload.ID 即 message id，用于 msg_id 被动回复
 		}
 	}
 

@@ -4,15 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(matcher): resolve data races by using atomic operations for commandIndexed and improve command registration handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(i18n): embed locale files and update i18n plugin integration for improved localization">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/disable_group_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/disable_group_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_extra_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_conn.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_conn.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -153,13 +153,34 @@
         <option value="GoApplicationRunConfiguration" />
       </set>
     </option>
+    <option name="configurationStatuses">
+      <map>
+        <entry key="GoApplicationRunConfiguration">
+          <value>
+            <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" value="STOPPED" />
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="STOPPED" />
+            </map>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
-  <component name="RunManager" selected="Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation">
+  <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo">
     <configuration name="go build debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
       <module name="remilia" />
       <working_directory value="$PROJECT_DIR$/examples/debug-subcommand-demo" />
       <kind value="PACKAGE" />
       <package value="debug-subcommand-demo" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" />
+      <method v="2" />
+    </configuration>
+    <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="remilia" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" />
       <directory value="$PROJECT_DIR$" />
       <filePath value="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" />
       <method v="2" />
@@ -199,8 +220,9 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase" />
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" />
+        <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
         <item itemvalue="Go 构建.go build debug-subcommand-demo" />
       </list>
@@ -251,9 +273,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="docs: remove archived docs" />
-    <MESSAGE value="refactor(permission): update permission type references to core package" />
-    <MESSAGE value="refactor(middleware): update Middleware type references to context package" />
     <MESSAGE value="refactor(dlq): enhance type safety and unify dead letter queue item handling" />
     <MESSAGE value="refactor(adapter): unify sender implementation and improve platform abstraction" />
     <MESSAGE value="refactor(adapter): unify platform adapter management and enhance event processing" />
@@ -276,7 +295,10 @@
     <MESSAGE value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
     <MESSAGE value="test(matcher): update priority assertions to use uint64 for consistency" />
     <MESSAGE value="fix(matcher): resolve data races by using atomic operations for commandIndexed and improve command registration handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix(matcher): resolve data races by using atomic operations for commandIndexed and improve command registration handling" />
+    <MESSAGE value="refactor(matcher): separate Handle method from matcher chain for clarity and prevent accidental overwrites" />
+    <MESSAGE value="fix(pool): initialize Context with background context to reduce nil pointer dereference risk" />
+    <MESSAGE value="feat(i18n): embed locale files and update i18n plugin integration for improved localization" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(i18n): embed locale files and update i18n plugin integration for improved localization" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
