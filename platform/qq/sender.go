@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -66,8 +65,7 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 		_, err := s.api.GroupChat(ctx, chat.ID, dtoMsg)
 		return err
 	}
-	res, err := s.api.SingleChat(ctx, chat.ID, dtoMsg)
-	logger.Debugf("qq sender: SingleChat response: %+v", res.Map())
+	_, err := s.api.SingleChat(ctx, chat.ID, dtoMsg)
 	return err
 }
 
