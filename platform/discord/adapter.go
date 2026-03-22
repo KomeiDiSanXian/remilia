@@ -165,18 +165,14 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 
 	workCh := make(chan platform.Event, a.workers*2)
 	for i := 0; i < a.workers; i++ {
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
+		a.wg.Go(func() {
 			for event := range workCh {
 				safeInvoke(handler, event)
 			}
-		}()
+		})
 	}
 
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
+	a.wg.Go(func() {
 		defer close(workCh)
 		for {
 			select {
@@ -193,7 +189,7 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 				return
 			}
 		}
-	}()
+	})
 
 	<-cancelCtx.Done()
 	a.wg.Wait()

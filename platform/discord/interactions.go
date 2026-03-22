@@ -208,13 +208,11 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 		return fmt.Errorf("discord interactions: failed to listen on %s: %w", a.config.Addr, err)
 	}
 
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
+	a.wg.Go(func() {
 		if err := a.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			logger.Errorf("[discord.InteractionsAdapter] HTTP server error: %v", err)
 		}
-	}()
+	})
 
 	logger.Infof("[discord.InteractionsAdapter] HTTP server listening on %s (path=%s, workers=%d)",
 		a.config.Addr, path, a.workers)
@@ -222,19 +220,15 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 	// Worker pool
 	workCh := make(chan platform.Event, a.workers*2)
 	for i := 0; i < a.workers; i++ {
-		a.wg.Add(1)
-		go func() {
-			defer a.wg.Done()
+		a.wg.Go(func() {
 			for event := range workCh {
 				safeInvoke(handler, event)
 			}
-		}()
+		})
 	}
 
 	// Dispatcher
-	a.wg.Add(1)
-	go func() {
-		defer a.wg.Done()
+	a.wg.Go(func() {
 		defer close(workCh)
 		for {
 			select {
@@ -251,7 +245,7 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 				return
 			}
 		}
-	}()
+	})
 
 	<-cancelCtx.Done()
 	a.wg.Wait()
