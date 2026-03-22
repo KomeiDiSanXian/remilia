@@ -35,7 +35,7 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 // 目标会话信息从 req.Target 读取（ChatInfo 类型，包含 ID、IsGroup 等路由字段）。
 // 若 req.Target.ID 为空，返回 errutil.ErrNoChatInfo。
 //
-// 被动回复授权 token 由 ChatInfo.ReplyMsgID / ReplyEventID 携带，
+// 被动回复授权 token 由 ChatInfo.Tokens 携带（键：TokenMsgID / TokenEventID），
 // 框架通过 ctx.Reply 自动填充，无需手动传入。
 // 若 MessageExtra.EventID（通过 ApplyExtra 手动注入）非空，则优先使用手动值。
 func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
@@ -180,11 +180,11 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platf
 	}
 
 	// 被动消息关联：频道用 msg_id（来源消息的 Message.id / payload.ID）
-	// 优先使用手动 ApplyExtra 注入的值（extra.EventID），其次 ChatInfo.ReplyMsgID
+	// 优先使用手动 ApplyExtra 注入的值（extra.EventID），其次 ChatInfo.Tokens[TokenMsgID]
 	extra := extractExtra(msg)
 	resolvedMsgID := extra.EventID
 	if resolvedMsgID == "" {
-		resolvedMsgID = chat.ReplyMsgID // 频道消息：payload.ID 即 message id
+		resolvedMsgID = chat.Tokens[TokenMsgID] // 频道消息：payload.ID 即 message id
 	}
 	if resolvedMsgID != "" {
 		guildMsg.MsgID = resolvedMsgID
@@ -218,10 +218,10 @@ func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
 // buildDTOMessage 将 platform.OutboundMessage 转换为 dto.Message（用于 C2C / 群聊）。
 //
 // 被动回复 ID 优先级：
-//   - msg_id：msg.ReplyToID（手动设置）> chat.ReplyMsgID（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 自动填充）
-//   - event_id：extra.EventID（手动 ApplyExtra）> chat.ReplyEventID（INTERACTION_CREATE / C2C_MSG_RECEIVE 等自动填充）
+//   - msg_id：msg.ReplyToID（手动设置）> chat.Tokens[TokenMsgID]（C2C_MESSAGE_CREATE / GROUP_AT_MESSAGE_CREATE 自动填充）
+//   - event_id：extra.EventID（手动 ApplyExtra）> chat.Tokens[TokenEventID]（INTERACTION_CREATE / C2C_MSG_RECEIVE 等自动填充）
 //
-// 主动消息：ChatInfo.ReplyMsgID 和 ReplyEventID 均为空时，不设置 msg_id / event_id，即为主动消息。
+// 主动消息：ChatInfo.Tokens 中无相应 token 时，不设置 msg_id / event_id，即为主动消息。
 func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.Message {
 	dtoMsg := &dto.Message{}
 
@@ -253,10 +253,10 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	}
 
 	// 回复消息 ID（msg_id）：被动回复授权 token（message-based）
-	// 优先级：msg.ReplyToID（手动设置）> chat.ReplyMsgID（框架从 C2C/Group 消息事件自动填充）
+	// 优先级：msg.ReplyToID（手动设置）> chat.Tokens[TokenMsgID]（框架从 C2C/Group 消息事件自动填充）
 	resolvedMsgID := msg.ReplyToID
 	if resolvedMsgID == "" {
-		resolvedMsgID = chat.ReplyMsgID
+		resolvedMsgID = chat.Tokens[TokenMsgID]
 	}
 	if resolvedMsgID != "" {
 		dtoMsg.MessageID = dto.EventID(resolvedMsgID)
@@ -272,10 +272,10 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	}
 
 	// event_id：被动回复授权 token（event-based，仅 INTERACTION_CREATE / C2C_MSG_RECEIVE 等）
-	// 优先级：extra.EventID（手动 ApplyExtra）> chat.ReplyEventID（框架从事件类型自动填充）
+	// 优先级：extra.EventID（手动 ApplyExtra）> chat.Tokens[TokenEventID]（框架从事件类型自动填充）
 	resolvedEventID := extra.EventID
 	if resolvedEventID == "" {
-		resolvedEventID = chat.ReplyEventID
+		resolvedEventID = chat.Tokens[TokenEventID]
 	}
 	if resolvedEventID != "" {
 		dtoMsg.EventID = dto.EventID(resolvedEventID)

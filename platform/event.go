@@ -94,24 +94,26 @@ type ChatInfo struct {
 	// 发送回复时应使用 DM 专属接口而非普通频道消息接口。
 	IsDM bool
 
-	// ReplyMsgID 被动回复使用的消息 ID（message-based passive reply token）。
+	// Tokens 平台专属授权令牌，用于平台内部路由或被动回复授权。
 	//
-	// 由平台事件解析时填充，表示触发本次对话的用户消息 ID。
-	// 发送接口将其填入平台的 msg_id 字段（如 QQ v2 API）。
-	// 为空时，表示不发起 message-based 被动回复（视为主动消息）。
-	ReplyMsgID string
-
-	// ReplyEventID 被动回复使用的事件 ID（event-based passive reply token）。
+	// 各平台适配器在解析事件时写入，平台 Sender 在发送时读取。
+	// 框架层 handler 通常无需直接访问此字段。
 	//
-	// 由平台事件解析时填充，表示触发本次对话的系统事件 ID。
-	// 发送接口将其填入平台的 event_id 字段（如 QQ v2 INTERACTION_CREATE、C2C_MSG_RECEIVE 等事件）。
-	// 为空时，表示不发起 event-based 被动回复。
-	ReplyEventID string
+	// 已知 token 键（见各平台 extra.go 中的常量定义）：
+	//   - QQ: TokenMsgID ("msg_id")、TokenEventID ("event_id")
+	//
+	// 读取 nil map 是安全的（返回空字符串），写入前须先初始化。
+	Tokens map[string]string
 }
 
 // InboundAttachment 入站消息中携带的附件（平台无关抽象）。
 //
 // 各平台填充能力不同，无法提供的字段返回零值。
+// 平台专属扩展元数据通过 Extra 字段携带，使用类型断言访问：
+//
+//	if meta, ok := att.Extra.(*qq.VoiceAttachmentMeta); ok {
+//	    // 访问 meta.WavURL、meta.AsrText（QQ 语音附件专属）
+//	}
 type InboundAttachment struct {
 	// URL 附件远程 URL（平台托管；部分平台的 URL 有时效，勿长期持有）
 	URL string
@@ -125,12 +127,11 @@ type InboundAttachment struct {
 	Width int
 	// Height 图片/视频高度（像素），非媒体类型或平台不提供时为 0
 	Height int
-	// VoiceWavURL 语音附件的 WAV 格式播放链接（仅 QQ 平台语音消息携带）。
-	// 非语音类型或平台不提供时为空字符串。
-	VoiceWavURL string
-	// AsrText 语音附件的 ASR（自动语音识别）参考文本（仅 QQ 平台语音消息携带）。
-	// 非语音类型或平台不提供时为空字符串。
-	AsrText string
+	// Extra 平台专属附件元数据（类型断言后访问，无扩展数据时为 nil）。
+	//
+	// 已知类型：
+	//   - *qq.VoiceAttachmentMeta：QQ 语音附件的 WAV 链接与 ASR 文本
+	Extra any
 }
 
 // Event 是平台无关的事件抽象接口（最小必要集合）。

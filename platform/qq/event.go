@@ -56,17 +56,17 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.C2CMessageCreate:
 		e.kind = platform.EventKindPrivateMessage
 		e.populateC2C(detail)
-		// ReplyMsgID 已在 populateC2C 中写入 ChatInfo
+		// TokenMsgID 已在 populateC2C 中写入 ChatInfo.Tokens
 	case dto.GroupAtMessageCreate:
 		e.kind = platform.EventKindGroupMessage
 		e.populateGroupAt(detail)
-		// ReplyMsgID 已在 populateGroupAt 中写入 ChatInfo
+		// TokenMsgID 已在 populateGroupAt 中写入 ChatInfo.Tokens
 	case dto.Ready, dto.Resumed:
 		e.kind = platform.EventKindSystem
 	case dto.GroupAddRobot:
 		e.kind = platform.EventKindMemberJoin
 		e.populateNoticeGroup(detail)
-		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
+		e.chat.Tokens = map[string]string{TokenEventID: e.id} // 支持 event_id 被动回复
 	case dto.GroupDelRobot:
 		e.kind = platform.EventKindMemberLeave
 		e.populateNoticeGroup(detail)
@@ -78,11 +78,11 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.GroupMsgReceive:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeGroup(detail)
-		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
+		e.chat.Tokens = map[string]string{TokenEventID: e.id} // 支持 event_id 被动回复
 	case dto.FriendAdd:
 		e.kind = platform.EventKindMemberJoin
 		e.populateNoticeUser(detail)
-		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
+		e.chat.Tokens = map[string]string{TokenEventID: e.id} // 支持 event_id 被动回复
 	case dto.FriendDel:
 		e.kind = platform.EventKindMemberLeave
 		e.populateNoticeUser(detail)
@@ -94,17 +94,19 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.C2CMsgReceive:
 		e.kind = platform.EventKindNotice
 		e.populateNoticeUser(detail)
-		e.chat.ReplyEventID = e.id // 支持 event_id 被动回复
+		e.chat.Tokens = map[string]string{TokenEventID: e.id} // 支持 event_id 被动回复
 	case dto.AtMessageCreate, dto.MessageCreate, dto.DirectMessageCreate:
 		e.kind = platform.EventKindGuildMessage
 		e.populateGuildMessage(evType, detail)
-		// ReplyMsgID 已在 populateGuildMessage 中写入 ChatInfo
+		// TokenMsgID 已在 populateGuildMessage 中写入 ChatInfo.Tokens
 	case dto.InteractionCreate:
 		e.kind = platform.EventKindInteraction
 		// 须在 populateInteraction 前保存 payload.ID 作为 event_id 被动回复 token，
-		// 因为 populateInteraction 会将 e.id 覆盖为 interaction body id。
-		e.chat.ReplyEventID = e.id
+		// 因为 populateInteraction 会将 e.id 覆盖为 interaction body id，
+		// 且会重新赋值 e.chat（覆盖任何此前对 chat 的设置）。
+		savedEventID := e.id
 		e.populateInteraction(detail)
+		e.chat.Tokens = map[string]string{TokenEventID: savedEventID}
 	// ── 表情表态事件 ────────────────────────────────────────────────────────
 	case dto.MessageReactionAdd, dto.MessageReactionRemove:
 		e.kind = platform.EventKindReaction
@@ -162,9 +164,9 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		DisplayName: results[3].String(),
 	}
 	e.chat = platform.ChatInfo{
-		ID:         userOpenID,
-		IsGroup:    false,
-		ReplyMsgID: results[0].String(), // 消息 ID，用于 msg_id 被动回复
+		ID:      userOpenID,
+		IsGroup: false,
+		Tokens:  map[string]string{TokenMsgID: results[0].String()}, // msg_id 被动回复
 	}
 	if ts := results[4].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -194,9 +196,9 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		DisplayName: results[3].String(),
 	}
 	e.chat = platform.ChatInfo{
-		ID:         results[4].String(),
-		IsGroup:    true,
-		ReplyMsgID: results[0].String(), // 消息 ID，用于 msg_id 被动回复
+		ID:      results[4].String(),
+		IsGroup: true,
+		Tokens:  map[string]string{TokenMsgID: results[0].String()}, // msg_id 被动回复
 	}
 	if ts := results[5].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
@@ -234,12 +236,12 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 		// 频道私信：以 guild_id 作为发送目标（POST /dms/{guild_id}/messages），
 		// channel_id 仅作辅助信息，不用于发送。
 		e.chat = platform.ChatInfo{
-			ID:         guildID, // 私信会话 ID（用于 DMChat）
-			ParentID:   guildID,
-			Name:       results[5].String(),
-			IsGroup:    false,
-			IsDM:       true,
-			ReplyMsgID: e.id, // 频道消息：payload.ID 即 message id，用于 msg_id 被动回复
+			ID:       guildID, // 私信会话 ID（用于 DMChat）
+			ParentID: guildID,
+			Name:     results[5].String(),
+			IsGroup:  false,
+			IsDM:     true,
+			Tokens:   map[string]string{TokenMsgID: e.id}, // payload.ID 即 message id，用于 msg_id 被动回复
 		}
 	} else {
 		chatID := channelID
@@ -247,11 +249,11 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 			chatID = guildID
 		}
 		e.chat = platform.ChatInfo{
-			ID:         chatID,
-			ParentID:   guildID,
-			Name:       results[5].String(),
-			IsGroup:    true,
-			ReplyMsgID: e.id, // 频道消息：payload.ID 即 message id，用于 msg_id 被动回复
+			ID:       chatID,
+			ParentID: guildID,
+			Name:     results[5].String(),
+			IsGroup:  true,
+			Tokens:   map[string]string{TokenMsgID: e.id}, // payload.ID 即 message id，用于 msg_id 被动回复
 		}
 	}
 
@@ -366,6 +368,8 @@ func (e *qqEvent) populateMessageDelete(detail json.RawMessage) {
 // parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。
 //
 // 使用 r.Array() 预获取元素数量，一次性分配输出切片，避免 append 扩容。
+// QQ 语音附件的专属字段（voice_wav_url、asr_refer_text）通过 Extra 字段
+// 以 *VoiceAttachmentMeta 类型携带，不污染平台无关的 InboundAttachment 结构体。
 func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	if !r.IsArray() || len(r.Raw) == 0 {
 		return nil
@@ -377,14 +381,18 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	out := make([]platform.InboundAttachment, 0, len(arr))
 	for _, v := range arr {
 		att := platform.InboundAttachment{
-			URL:         v.Get("url").String(),
-			MimeType:    v.Get("content_type").String(),
-			Name:        v.Get("filename").String(),
-			Size:        int(v.Get("size").Int()),
-			Width:       int(v.Get("width").Int()),
-			Height:      int(v.Get("height").Int()),
-			VoiceWavURL: v.Get("voice_wav_url").String(),
-			AsrText:     v.Get("asr_refer_text").String(),
+			URL:      v.Get("url").String(),
+			MimeType: v.Get("content_type").String(),
+			Name:     v.Get("filename").String(),
+			Size:     int(v.Get("size").Int()),
+			Width:    int(v.Get("width").Int()),
+			Height:   int(v.Get("height").Int()),
+		}
+		// QQ 专属语音元数据：通过 Extra 携带，不污染平台无关字段
+		wavURL := v.Get("voice_wav_url").String()
+		asrText := v.Get("asr_refer_text").String()
+		if wavURL != "" || asrText != "" {
+			att.Extra = &VoiceAttachmentMeta{WavURL: wavURL, AsrText: asrText}
 		}
 		if att.URL != "" || att.Name != "" {
 			out = append(out, att)

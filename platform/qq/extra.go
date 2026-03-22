@@ -2,6 +2,54 @@ package qq
 
 import "github.com/KomeiDiSanXian/remilia/platform"
 
+// ────────────────────────────────────────────────────────────────────────────
+// Passive Reply Token Keys
+// ────────────────────────────────────────────────────────────────────────────
+
+// QQ 被动回复授权 token 的键名，存储于 platform.ChatInfo.Tokens。
+//
+// 示例：
+//
+//	chat.Tokens[qq.TokenMsgID]   // msg_id 被动回复授权（C2C / 群消息）
+//	chat.Tokens[qq.TokenEventID] // event_id 被动回复授权（INTERACTION_CREATE 等）
+const (
+	// TokenMsgID 消息 ID 被动回复 token（QQ v2 API msg_id 字段）。
+	// 来源：C2C_MESSAGE_CREATE、GROUP_AT_MESSAGE_CREATE、频道消息事件的 payload.ID。
+	TokenMsgID = "msg_id"
+
+	// TokenEventID 事件 ID 被动回复 token（QQ v2 API event_id 字段）。
+	// 来源：INTERACTION_CREATE、GROUP_ADD_ROBOT、GROUP_MSG_RECEIVE、
+	//        FRIEND_ADD、C2C_MSG_RECEIVE 等事件的 payload.ID。
+	TokenEventID = "event_id"
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// VoiceAttachmentMeta
+// ────────────────────────────────────────────────────────────────────────────
+
+// VoiceAttachmentMeta 携带 QQ 平台语音附件的专属元数据。
+//
+// 当 platform.InboundAttachment.Extra 为 *VoiceAttachmentMeta 时，
+// 表示该附件是 QQ 语音消息。使用方式：
+//
+//	for _, att := range event.Attachments() {
+//	    if meta, ok := att.Extra.(*qq.VoiceAttachmentMeta); ok {
+//	        // 访问语音 WAV 链接和 ASR 识别文本
+//	        wavURL := meta.WavURL
+//	        text   := meta.AsrText
+//	    }
+//	}
+type VoiceAttachmentMeta struct {
+	// WavURL 语音文件的 WAV 格式播放链接（有时效，勿长期持有）
+	WavURL string
+	// AsrText 语音内容的 ASR（自动语音识别）参考文本
+	AsrText string
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MessageExtra
+// ────────────────────────────────────────────────────────────────────────────
+
 // MessageExtra 是 QQ 平台专属的消息扩展参数。
 //
 // 使用 ApplyExtra 将其注入到 platform.OutboundMessage，

@@ -19,9 +19,9 @@ import (
 // 使 Sender 接口的契约完全可见，并在编译期保证类型安全。
 //
 // 被动回复授权 token（如 QQ 的 msg_id / event_id）由 Target（ChatInfo）的
-// ReplyMsgID / ReplyEventID 字段携带，平台事件解析时自动填充。
+// Tokens 字段携带，平台事件解析时自动填充。
 type SendRequest struct {
-	// Target 目标会话信息（ID、IsGroup、ReplyMsgID / ReplyEventID 等路由与回复字段）。
+	// Target 目标会话信息（ID、IsGroup、Tokens 等路由与回复字段）。
 	// Target.ID 为空时，Sender 实现应返回 errutil.ErrNoChatInfo。
 	Target ChatInfo
 
@@ -60,12 +60,12 @@ type Sender interface {
 // 使用前用类型断言检查支持：
 //
 //	if editor, ok := sender.(platform.MessageEditor); ok {
-//	    editor.Edit(ctx, messageID, newMsg)
+//	    editor.Edit(ctx, chatID, messageID, newMsg)
 //	}
 type MessageEditor interface {
 	// Edit 编辑已发送的消息。
-	// chatID 为目标会话 ID，messageID 为平台原生消息 ID。
-	Edit(ctx stdctx.Context, messageID string, msg OutboundMessage) error
+	// chatID 为目标会话 ID（频道/群/私聊），messageID 为平台原生消息 ID。
+	Edit(ctx stdctx.Context, chatID, messageID string, msg OutboundMessage) error
 }
 
 // MessageDeleter 可选接口，支持消息删除的平台实现此接口。
@@ -73,12 +73,39 @@ type MessageEditor interface {
 // 使用前用类型断言检查支持：
 //
 //	if deleter, ok := sender.(platform.MessageDeleter); ok {
-//	    deleter.Delete(ctx, messageID)
+//	    deleter.Delete(ctx, chatID, messageID)
 //	}
 type MessageDeleter interface {
 	// Delete 删除/撤回已发送的消息。
-	// messageID 为平台原生消息 ID。
-	Delete(ctx stdctx.Context, messageID string) error
+	// chatID 为目标会话 ID，messageID 为平台原生消息 ID。
+	Delete(ctx stdctx.Context, chatID, messageID string) error
+}
+
+// ReactionSender 可选接口，支持表情回应操作的平台实现此接口。
+//
+// 使用前用类型断言检查支持：
+//
+//	if rs, ok := platform.GetReactionSender(adapter); ok {
+//	    rs.AddReaction(ctx, chatID, messageID, "👍")
+//	}
+type ReactionSender interface {
+	// AddReaction 为指定消息添加表情回应。
+	// chatID 为目标会话 ID，messageID 为平台原生消息 ID，emoji 为表情标识符或 Unicode。
+	AddReaction(ctx stdctx.Context, chatID, messageID, emoji string) error
+	// RemoveReaction 移除指定消息上的表情回应。
+	RemoveReaction(ctx stdctx.Context, chatID, messageID, emoji string) error
+}
+
+// TypingNotifier 可选接口，支持"正在输入"状态的平台实现此接口。
+//
+// 使用前用类型断言检查支持：
+//
+//	if tn, ok := platform.GetTypingNotifier(adapter); ok {
+//	    tn.SendTyping(ctx, chatID)
+//	}
+type TypingNotifier interface {
+	// SendTyping 向指定会话发送"正在输入"状态指示。
+	SendTyping(ctx stdctx.Context, chatID string) error
 }
 
 // NoopSender 空实现，用于测试或不需要发送能力的场景
@@ -95,7 +122,7 @@ func (n *NoopSender) Send(_ stdctx.Context, _ SendRequest) error {
 // 使用示例：
 //
 //	if editor, ok := platform.GetEditor(adapter); ok {
-//	    editor.Edit(ctx, messageID, newContent)
+//	    editor.Edit(ctx, chatID, messageID, newContent)
 //	}
 func GetEditor(a Adapter) (MessageEditor, bool) {
 	e, ok := a.Sender().(MessageEditor)
@@ -108,11 +135,37 @@ func GetEditor(a Adapter) (MessageEditor, bool) {
 // 使用示例：
 //
 //	if deleter, ok := platform.GetDeleter(adapter); ok {
-//	    deleter.Delete(ctx, messageID)
+//	    deleter.Delete(ctx, chatID, messageID)
 //	}
 func GetDeleter(a Adapter) (MessageDeleter, bool) {
 	d, ok := a.Sender().(MessageDeleter)
 	return d, ok
+}
+
+// GetReactionSender 安全获取适配器 Sender 的表情回应接口。
+//
+// 若 Sender 未实现 [ReactionSender]，返回 (nil, false)。
+// 使用示例：
+//
+//	if rs, ok := platform.GetReactionSender(adapter); ok {
+//	    rs.AddReaction(ctx, chatID, messageID, "👍")
+//	}
+func GetReactionSender(a Adapter) (ReactionSender, bool) {
+	rs, ok := a.Sender().(ReactionSender)
+	return rs, ok
+}
+
+// GetTypingNotifier 安全获取适配器 Sender 的"正在输入"接口。
+//
+// 若 Sender 未实现 [TypingNotifier]，返回 (nil, false)。
+// 使用示例：
+//
+//	if tn, ok := platform.GetTypingNotifier(adapter); ok {
+//	    tn.SendTyping(ctx, chatID)
+//	}
+func GetTypingNotifier(a Adapter) (TypingNotifier, bool) {
+	tn, ok := a.Sender().(TypingNotifier)
+	return tn, ok
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -208,17 +261,20 @@ type Adapter interface {
 // 使用示例：
 //
 //	if ra, ok := adapter.(platform.RecoverableAdapter); ok {
-//	    ra.OnDisconnect(func(err error) {
+//	    unregister := ra.OnDisconnect(func(err error) {
 //	        metrics.RecordDisconnect(adapter.Platform())
 //	        logger.Warnf("adapter %s disconnected: %v", adapter.Platform(), err)
 //	    })
+//	    defer unregister() // 不再需要时注销回调
 //	}
 type RecoverableAdapter interface {
 	Adapter
-	// OnDisconnect 注册断连回调。
+	// OnDisconnect 注册断连回调，返回注销函数。
+	//
 	// fn 在适配器每次意外断连时被调用，err 为断连原因。
-	// 多次调用将覆盖上一次注册的回调；传入 nil 表示取消回调。
-	OnDisconnect(fn func(err error))
+	// 多次调用将追加（而非覆盖）回调，互不影响。
+	// 调用返回的 unregister 函数可注销该特定回调；传入 nil 时为空操作。
+	OnDisconnect(fn func(err error)) (unregister func())
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -359,7 +415,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	for _, a := range adapters {
 		// F-8: 若适配器支持断连通知，注册框架侧的告警 hook
 		if ra, ok := a.(RecoverableAdapter); ok {
-			ra.OnDisconnect(func(err error) {
+			_ = ra.OnDisconnect(func(err error) {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Warn("[Registry] Platform adapter disconnected, waiting for recovery")
