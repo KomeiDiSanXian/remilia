@@ -30,9 +30,9 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 				return nil
 			},
 			coordinator: engine,
-			priority:    50,
 			Source:      "test",
 		}
+		m.priority.Store(50)
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
 
@@ -65,11 +65,9 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 	// 验证大部分临时 matcher 都已被使用（通过检查 deleted 标志）
 	deletedCount := 0
 	for _, m := range matchers {
-		m.rt.mu.RLock()
-		if m.rt.deleted {
+		if m.rt.deleted.Load() {
 			deletedCount++
 		}
-		m.rt.mu.RUnlock()
 	}
 
 	t.Logf("Deleted %d out of %d matchers", deletedCount, numMatchers)
@@ -94,9 +92,9 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 			return nil
 		},
 		coordinator: engine,
-		priority:    50,
 		Source:      "test",
 	}
+	m.priority.Store(50)
 	m.rt.maxUseCount = 5
 	atomic.StoreInt32(&m.rt.isTemp, 1)
 
@@ -123,9 +121,9 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 
 	// 验证 matcher 最终被正确删除
 	m.rt.mu.RLock()
-	deleted := m.rt.deleted
 	useCount := m.rt.useCount
 	m.rt.mu.RUnlock()
+	deleted := m.rt.deleted.Load()
 
 	if !deleted {
 		t.Logf("Warning: matcher not deleted, useCount=%d (might be expected if maxUseCount not reached)", useCount)
@@ -149,9 +147,9 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 			return nil
 		},
 		coordinator: engine,
-		priority:    50,
 		Source:      "test",
 	}
+	m.priority.Store(50)
 	m.rt.maxUseCount = 3
 	atomic.StoreInt32(&m.rt.isTemp, 1)
 
@@ -207,9 +205,9 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 				return nil
 			},
 			coordinator: engine,
-			priority:    50,
 			Source:      "test",
 		}
+		m.priority.Store(50)
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
 
@@ -248,9 +246,9 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 				return nil
 			},
 			coordinator: engine,
-			priority:    50,
 			Source:      "test",
 		}
+		m.priority.Store(50)
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
 		engine.services.tempManager.Add(m)

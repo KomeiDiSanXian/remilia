@@ -245,7 +245,7 @@ func TestMatcher_SetBlock(t *testing.T) {
 		require.NotNil(t, matcher)
 
 		matcher.rt.mu.RLock()
-		isBlock := matcher.isBlock
+		isBlock := matcher.isBlock.Load()
 		matcher.rt.mu.RUnlock()
 
 		assert.True(t, isBlock)

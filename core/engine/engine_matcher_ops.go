@@ -20,24 +20,27 @@ import (
 
 // noopMatcher 是一个空操作匹配器，用于在达到匹配器限制时返回。
 // 所有方法都返回自身，形成无操作链。
-var noopMatcher = &Matcher{
-	rt:          matcherRuntime{deleted: true},
-	priority:    999,
-	Source:      "noop",
-	Rules:       []context.Rule{},
-	middlewares: []context.Middleware{},
-}
+var noopMatcher = func() *Matcher {
+	m := &Matcher{
+		Source:      "noop",
+		Rules:       []context.Rule{},
+		middlewares: []context.Middleware{},
+	}
+	m.priority.Store(999)
+	m.rt.deleted.Store(true)
+	return m
+}()
 
-// newNoopMatcher 创建一个绑定了 coordinator 的 noop matcher。
 func newNoopMatcher(e *Engine) *Matcher {
-	return &Matcher{
-		rt:          matcherRuntime{deleted: true},
-		priority:    999,
+	m := &Matcher{
 		Source:      "noop",
 		Rules:       []context.Rule{},
 		middlewares: []context.Middleware{},
 		coordinator: e,
 	}
+	m.priority.Store(999)
+	m.rt.deleted.Store(true)
+	return m
 }
 
 // ---- 删除操作 ----------------------------------------------------------------
@@ -61,9 +64,7 @@ func (e *Engine) DeleteAllMatchers() {
 		if m == nil {
 			continue
 		}
-		m.rt.mu.Lock()
-		m.rt.deleted = true
-		m.rt.mu.Unlock()
+		m.rt.deleted.Store(true)
 	}
 }
 
@@ -168,9 +169,9 @@ func (e *Engine) On(eventType EventType, rules ...context.Rule) *Matcher {
 		EventType:   eventType,
 		Rules:       rules,
 		coordinator: e,
-		priority:    50,
 		Source:      "global",
 	}
+	matcher.priority.Store(50)
 	return e.registerMatcher(matcher)
 }
 
@@ -204,14 +205,13 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		EventType:   eventType,
 		Rules:       rules,
 		coordinator: e,
-		priority:    50,
 		Source:      "temp",
 		rt: matcherRuntime{
 			isTemp:      1,
 			maxUseCount: 1,
 		},
 	}
-
+	matcher.priority.Store(50)
 	e.services.tempManager.Add(matcher)
 	e.rebuildMatcherChainCOW(matcher)
 	return matcher

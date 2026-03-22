@@ -62,6 +62,17 @@ type Context struct {
 	content     string // cached GetMessageContent result
 }
 
+// SetMatcher 设置当前命中的 Matcher（框架内部，由 Engine 在 processEventContext 中注入）
+//
+// 使用已有的 context.Matcher 接口存储，无需任何堆分配：
+// *engine.Matcher 是指针类型，可直接内联存储于接口的 data word，完全 alloc-free。
+func (ctx *Context) SetMatcher(m Matcher) {
+	if ctx == nil {
+		return
+	}
+	ctx.matcher = m
+}
+
 // SetPlatformCapabilities 设置平台能力（框架内部，由 Engine.ProcessPlatformEvent 注入）
 func (ctx *Context) SetPlatformCapabilities(caps platform.Capabilities) {
 	if ctx == nil {

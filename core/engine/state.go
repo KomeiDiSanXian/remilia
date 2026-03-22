@@ -184,6 +184,7 @@ func (s *state) rebuildIndex() {
 	for _, m := range s.matchers {
 		cmd := m.GetCommand()
 		if cmd != "" {
+			m.commandIndexed = true // mark for Match() fast-path
 			if s.commandIndex[cmd] == nil {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
@@ -281,6 +282,7 @@ func (s *state) addMatcher(m *Matcher) {
 
 	cmd := m.GetCommand()
 	if cmd != "" {
+		m.commandIndexed = true // mark for Match() fast-path
 		if s.commandIndex[cmd] == nil {
 			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 		}

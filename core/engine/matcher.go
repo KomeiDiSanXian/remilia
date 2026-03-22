@@ -11,9 +11,13 @@ import (
 )
 
 type matcherRuntime struct {
+	// deleted and disabled are atomic so Match() and the early-return check in
+	// invokeHandler can read them without acquiring any lock.
+	// Writers still hold mu to keep composite updates (useCount + deleted) atomic.
+	deleted  atomic.Bool
+	disabled atomic.Bool
+
 	mu          sync.RWMutex
-	deleted     bool
-	disabled    bool // 暂停响应（不永久删除，可通过 EnableGroup 恢复）
 	useCount    int32
 	maxUseCount int32
 	createdAt   time.Time
@@ -23,20 +27,35 @@ type matcherRuntime struct {
 
 // Matcher 事件匹配器
 type Matcher struct {
-	rt          matcherRuntime
-	isBlock     bool
-	priority    uint
-	EventType   EventType
-	Rules       []context.Rule
-	Handler     context.Handler
-	coordinator MatcherCoordinator
-	Source      string
-	group       string
-	middlewares []context.Middleware
+	rt matcherRuntime
+	// priority and isBlock are hot-path fields read in mergeSortedMatchersSix and
+	// processEventContext respectively (1000× per event).  Using atomics eliminates
+	// the RWMutex.RLock/RUnlock pair in getPriority/isBlocking — the dominant CPU
+	// cost in those two functions (180 ms + 40 ms in the large-scenario profile).
+	priority atomic.Uint64
+	isBlock  atomic.Bool
+	// commandIndexed is set once (before the matcher is published) for matchers
+	// created by OnCommand/RegisterCommandDef.  When true, Match() skips Rules[0]
+	// (the OnCommand prefix check) because the command was already matched via the
+	// commandIndex O(1) lookup — saving ~200 ms / 10 % CPU in the large scenario.
+	commandIndexed bool
+	EventType      EventType
+	Rules          []context.Rule
+	Handler        context.Handler
+	coordinator    MatcherCoordinator
+	Source         string
+	group          string
+	middlewares    []context.Middleware
 
 	combinedChain    atomic.Value // []Middleware  — the raw middleware slice
 	compiledHandlers atomic.Value // compiledChain — pre-built iterative handler slice
-	cachedGen        struct {
+	// compiledVersion is a monotonically increasing counter that is bumped
+	// whenever the combined middleware chain OR the Handler changes.
+	// getOrBuildIterChain compares this counter instead of computing a
+	// reflect-based FNV fingerprint on every hot-path invocation.
+	compiledVersion atomic.Uint64
+
+	cachedGen struct {
 		global uint64
 		group  uint64
 	}
@@ -49,16 +68,12 @@ type Matcher struct {
 // [mw0_wrapper, mw1_wrapper, …, actual_handler].  invokeHandler iterates
 // through this slice instead of constructing nested closures on every call.
 //
-// The slice is keyed by the handler pointer that was active when it was
-// compiled; if the handler changes (hot-reload scenario) the entry is stale.
+// version mirrors m.compiledVersion at the time the chain was built.
+// On the fast path getOrBuildIterChain simply loads m.compiledVersion and
+// compares it against cc.version — zero reflect calls.
 type compiledChain struct {
-	handlers   []context.Handler
-	handlerSig uintptr // pointer identity of the core handler at compile time
-	chainSig   uint64  // order-sensitive FNV fingerprint of middleware pointers
-	// chainSig uses FNV-1a chained hashing (see chainSignature in process.go),
-	// which is ORDER-SENSITIVE: [A,B] ≠ [B,A]. This correctly invalidates the
-	// cache when middleware is reordered, unlike the previous XOR approach where
-	// [A,B] and [B,A] produced identical fingerprints.
+	handlers []context.Handler
+	version  uint64 // snapshot of m.compiledVersion when this chain was compiled
 }
 
 func (m *Matcher) copy() *Matcher {
@@ -68,18 +83,20 @@ func (m *Matcher) copy() *Matcher {
 	newMiddlewares := make([]context.Middleware, len(m.middlewares))
 	copy(newMiddlewares, m.middlewares)
 
-	return &Matcher{
-		rt:          matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
-		EventType:   m.EventType,
-		Rules:       newRules,
-		isBlock:     m.isBlock,
-		priority:    m.priority,
-		Handler:     m.Handler,
-		Source:      m.Source,
-		group:       m.group,
-		middlewares: newMiddlewares,
-		definition:  m.definition, // 定义为指针，浅拷贝
+	newM := &Matcher{
+		rt:             matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
+		EventType:      m.EventType,
+		Rules:          newRules,
+		Handler:        m.Handler,
+		Source:         m.Source,
+		group:          m.group,
+		middlewares:    newMiddlewares,
+		definition:     m.definition, // 定义为指针，浅拷贝
+		commandIndexed: m.commandIndexed,
 	}
+	newM.priority.Store(m.priority.Load())
+	newM.isBlock.Store(m.isBlock.Load())
+	return newM
 }
 
 // GetCommand 获取匹配器的触发命令
@@ -148,12 +165,12 @@ func (m *Matcher) setCombinedChain(chain []context.Middleware, globalGen, groupG
 // Delete 从所属引擎中删除该匹配器
 func (m *Matcher) Delete() {
 	m.rt.mu.Lock()
-	if m.rt.deleted {
+	if m.rt.deleted.Load() {
 		m.rt.mu.Unlock()
 		return
 	}
 
-	m.rt.deleted = true
+	m.rt.deleted.Store(true)
 	coordinator := m.coordinator
 	m.rt.mu.Unlock()
 
@@ -164,30 +181,22 @@ func (m *Matcher) Delete() {
 
 // IsDeleted 返回 matcher 是否已经被删除
 func (m *Matcher) IsDeleted() bool {
-	m.rt.mu.RLock()
-	defer m.rt.mu.RUnlock()
-	return m.rt.deleted
+	return m.rt.deleted.Load()
 }
 
 // IsDisabled 返回 Matcher 是否处于暂停状态
 func (m *Matcher) IsDisabled() bool {
-	m.rt.mu.RLock()
-	defer m.rt.mu.RUnlock()
-	return m.rt.disabled
+	return m.rt.disabled.Load()
 }
 
 // disable 将 Matcher 标记为暂停（不影响 deleted）
 func (m *Matcher) disable() {
-	m.rt.mu.Lock()
-	m.rt.disabled = true
-	m.rt.mu.Unlock()
+	m.rt.disabled.Store(true)
 }
 
 // enable 恢复 Matcher 响应
 func (m *Matcher) enable() {
-	m.rt.mu.Lock()
-	m.rt.disabled = false
-	m.rt.mu.Unlock()
+	m.rt.disabled.Store(false)
 }
 
 // isNoop 检查是否为 noop matcher
@@ -196,27 +205,30 @@ func (m *Matcher) isNoop() bool {
 }
 
 // Match 检查事件是否匹配此 Matcher
+//
+// 性能优化：
+//   - deleted/disabled 是 atomic.Bool，无需 RWMutex 即可读取。
+//   - Rules 在注册后不再修改，也无需加锁读取。
+//   - commandIndexed 为 true 时跳过 Rules[0]（OnCommand 前缀规则）——
+//     该规则已由 commandIndex O(1) 查找隐式验证，节省约 10% CPU。
 func (m *Matcher) Match(ctx *context.Context) bool {
-	m.rt.mu.RLock()
-	if m.rt.deleted || m.rt.disabled {
-		m.rt.mu.RUnlock()
+	if m.rt.deleted.Load() || m.rt.disabled.Load() {
 		return false
 	}
-	rs := m.Rules
-	m.rt.mu.RUnlock()
 
-	for _, rule := range rs {
+	rules := m.Rules
+	// Skip Rules[0] (the OnCommand prefix check) for command-indexed matchers:
+	// the commandIndex lookup already confirmed the command matches.
+	if m.commandIndexed && len(rules) > 0 {
+		rules = rules[1:]
+	}
+	for _, rule := range rules {
 		if !rule(ctx) {
 			return false
 		}
 	}
 
-	// 双重检查：在匹配过程中可能被删除或禁用
-	m.rt.mu.RLock()
-	skip := m.rt.deleted || m.rt.disabled
-	m.rt.mu.RUnlock()
-
-	return !skip
+	return !m.rt.deleted.Load()
 }
 
 // Handle 设置 Matcher 的处理函数
@@ -268,6 +280,8 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	}
 	m.rt.mu.Lock()
 	m.Handler = handler
+	// Bump version so getOrBuildIterChain rebuilds the compiled chain on next use.
+	m.compiledVersion.Add(1)
 	coord := m.coordinator
 	m.rt.mu.Unlock()
 	if coord != nil {
@@ -277,14 +291,14 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 }
 
 // SetPriority 设置 Matcher 的优先级
-func (m *Matcher) SetPriority(priority uint) *Matcher {
+func (m *Matcher) SetPriority(priority uint64) *Matcher {
 	if m.isNoop() {
 		return m
 	}
 
 	m.rt.mu.Lock()
-	changed := m.priority != priority
-	m.priority = priority
+	changed := m.priority.Load() != priority
+	m.priority.Store(priority)
 	coord := m.coordinator
 	muEvent := m.EventType
 	isTempManager := atomic.LoadInt32(&m.rt.isTemp) == 1
@@ -306,9 +320,7 @@ func (m *Matcher) SetBlock(block bool) *Matcher {
 	if m.isNoop() {
 		return m
 	}
-	m.rt.mu.Lock()
-	m.isBlock = block
-	m.rt.mu.Unlock()
+	m.isBlock.Store(block)
 	return m
 }
 
@@ -318,7 +330,7 @@ func (m *Matcher) SetTemp(temp bool) *Matcher {
 		return m
 	}
 	m.rt.mu.Lock()
-	if m.rt.deleted {
+	if m.rt.deleted.Load() {
 		m.rt.mu.Unlock()
 		return m
 	}
@@ -348,7 +360,7 @@ func (m *Matcher) SetTemp(temp bool) *Matcher {
 }
 
 func (m *Matcher) deletedOrLocked() bool {
-	return m.rt.deleted
+	return m.rt.deleted.Load()
 }
 
 // SetTempWithMaxUse 将 matcher 标记为临时匹配器
@@ -357,7 +369,7 @@ func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
 		return m
 	}
 	m.rt.mu.Lock()
-	if m.rt.deleted {
+	if m.rt.deleted.Load() {
 		m.rt.mu.Unlock()
 		return m
 	}
@@ -386,7 +398,7 @@ func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 		return m
 	}
 	m.rt.mu.Lock()
-	if m.rt.deleted {
+	if m.rt.deleted.Load() {
 		m.rt.mu.Unlock()
 		return m
 	}
@@ -502,8 +514,10 @@ func (m *Matcher) invalidateCombinedChain() {
 	m.cachedGen.group = 0
 	var nilChain []context.Middleware
 	m.combinedChain.Store(nilChain)
-	// Also invalidate the compiled iterative chain so it is rebuilt on next invoke.
 	m.compiledHandlers.Store((*compiledChain)(nil))
+	// Bump the version counter so the next getOrBuildIterChain call rebuilds
+	// the compiled handler chain without needing reflect fingerprinting.
+	m.compiledVersion.Add(1)
 }
 
 // ensureChain ensures the combined chain is cached and valid.
@@ -539,28 +553,25 @@ func (m *Matcher) ensureChain(globalChain []context.Middleware, globalGen uint64
 	m.cachedGen.global = globalGen
 	m.cachedGen.group = groupGen
 	m.combinedChain.Store(chain)
+	// Bump version: the combined chain changed, so the compiled handler chain
+	// must also be rebuilt on the next getOrBuildIterChain call.
+	m.compiledVersion.Add(1)
 }
 
-// getPriority returns priority in a threadsafe way.
+// getPriority returns priority in a threadsafe way (lock-free atomic load).
 func (m *Matcher) getPriority() uint {
 	if m == nil {
 		return 0
 	}
-	m.rt.mu.RLock()
-	p := m.priority
-	m.rt.mu.RUnlock()
-	return p
+	return uint(m.priority.Load())
 }
 
-// isBlocking returns whether matcher should block subsequent handlers.
+// isBlocking returns whether matcher should block subsequent handlers (lock-free atomic load).
 func (m *Matcher) isBlocking() bool {
 	if m == nil {
 		return false
 	}
-	m.rt.mu.RLock()
-	b := m.isBlock
-	m.rt.mu.RUnlock()
-	return b
+	return m.isBlock.Load()
 }
 
 // BindCommand 手动绑定触发命令

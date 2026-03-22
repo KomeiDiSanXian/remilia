@@ -296,9 +296,12 @@ func TestEngineState_RebuildIndex(t *testing.T) {
 		state := newEngineState()
 
 		// Add some matchers
-		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 10}
-		m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 20}
-		m3 := &Matcher{EventType: string(platform.EventKindGroupMessage), priority: 5}
+		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
+		m1.priority.Store(10)
+		m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
+		m2.priority.Store(20)
+		m3 := &Matcher{EventType: string(platform.EventKindGroupMessage)}
+		m3.priority.Store(5)
 
 		state.matchers = []*Matcher{m1, m2, m3}
 
@@ -314,8 +317,10 @@ func TestEngineState_RebuildIndex(t *testing.T) {
 	t.Run("rebuild with command matchers", func(t *testing.T) {
 		state := newEngineState()
 
-		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/test"}, priority: 10}
-		m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/help"}, priority: 20}
+		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/test"}}
+		m1.priority.Store(10)
+		m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/help"}}
+		m2.priority.Store(20)
 
 		state.matchers = []*Matcher{m1, m2}
 
@@ -482,7 +487,8 @@ func TestEngineState_InvalidateSortedCache(t *testing.T) {
 	t.Run("invalidate cache for specific event", func(t *testing.T) {
 		state := newEngineState()
 
-		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 10}
+		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
+		m1.priority.Store(10)
 		state.matchers = []*Matcher{m1}
 		state.rebuildIndex()
 
@@ -639,8 +645,6 @@ func TestMatcher_Copy(t *testing.T) {
 	t.Run("deep copy all fields", func(t *testing.T) {
 		original := &Matcher{
 			EventType:  string(platform.EventKindGroupMessage),
-			priority:   50,
-			isBlock:    true,
 			Source:     "original",
 			group:      "test-group",
 			definition: &command.Definition{Name: "test"},
@@ -656,13 +660,15 @@ func TestMatcher_Copy(t *testing.T) {
 			},
 		}
 		atomic.StoreInt32(&original.rt.isTemp, 1)
+		original.priority.Store(50)
+		original.isBlock.Store(true)
 
 		copied := original.copy()
 
 		require.NotNil(t, copied)
 		assert.Equal(t, original.EventType, copied.EventType)
-		assert.Equal(t, original.priority, copied.priority)
-		assert.Equal(t, original.isBlock, copied.isBlock)
+		assert.Equal(t, original.priority.Load(), copied.priority.Load())
+		assert.Equal(t, original.isBlock.Load(), copied.isBlock.Load())
 		assert.Equal(t, original.Source, copied.Source)
 		assert.Equal(t, original.group, copied.group)
 		assert.Equal(t, original.GetCommand(), copied.GetCommand())
@@ -681,13 +687,14 @@ func TestMatcher_Copy(t *testing.T) {
 // ============================================================================
 
 func TestMatcher_GetPriority(t *testing.T) {
-	matcher := &Matcher{priority: 42}
+	matcher := &Matcher{}
+	matcher.priority.Store(42)
 
 	matcher.rt.mu.RLock()
-	priority := matcher.priority
+	priority := matcher.priority.Load()
 	matcher.rt.mu.RUnlock()
 
-	assert.Equal(t, uint(42), priority)
+	assert.Equal(t, 42, priority)
 }
 
 func TestMatcher_IsNoop(t *testing.T) {
@@ -742,7 +749,7 @@ func TestMatcher_Match(t *testing.T) {
 				func(c *ctx.Context) bool { return true },
 			},
 		}
-		matcher.rt.deleted = true
+		matcher.rt.deleted.Store(true)
 
 		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		result := matcher.Match(context)

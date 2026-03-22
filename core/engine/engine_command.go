@@ -42,12 +42,13 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	finalRules = append(finalRules, extraRules...)
 
 	m := &Matcher{
-		EventType:   eventType,
-		Rules:       finalRules,
-		coordinator: e,
-		priority:    50,
-		Source:      "global",
+		EventType:      eventType,
+		Rules:          finalRules,
+		coordinator:    e,
+		Source:         "global",
+		commandIndexed: true, // OnCommand rule (Rules[0]) is matched via commandIndex
 	}
+	m.priority.Store(50)
 
 	cmdName := strings.TrimPrefix(strings.TrimSpace(cmdPattern), "/")
 	if cmdName != "" {

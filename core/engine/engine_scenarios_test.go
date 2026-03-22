@@ -218,9 +218,7 @@ func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 	matcher.SetBlock(false)
 	matcher.SetBlock(true)
 
-	matcher.rt.mu.RLock()
-	isBlock := matcher.isBlock
-	matcher.rt.mu.RUnlock()
+	isBlock := matcher.isBlock.Load()
 
 	assert.True(t, isBlock)
 }
@@ -230,14 +228,11 @@ func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 		eng := NewEngine()
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
-		// Change priority multiple times
 		matcher.SetPriority(10)
 		matcher.SetPriority(20)
 		matcher.SetPriority(30)
 
-		matcher.rt.mu.RLock()
-		priority := matcher.priority
-		matcher.rt.mu.RUnlock()
+		priority := uint(matcher.priority.Load())
 
 		assert.Equal(t, uint(30), priority)
 	})
@@ -248,9 +243,7 @@ func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 
 		matcher.SetPriority(50)
 
-		matcher.rt.mu.RLock()
-		priority := matcher.priority
-		matcher.rt.mu.RUnlock()
+		priority := uint(matcher.priority.Load())
 
 		assert.Equal(t, uint(50), priority)
 	})
@@ -266,8 +259,8 @@ func TestEngineState_AddMatcher_WithCommand(t *testing.T) {
 	m1 := &Matcher{
 		EventType:  string(platform.EventKindPrivateMessage),
 		definition: &command.Definition{Name: "test"},
-		priority:   10,
 	}
+	m1.priority.Store(10)
 
 	state.addMatcher(m1)
 
@@ -293,9 +286,12 @@ func TestEngineState_AddMatcher_WithGroup(t *testing.T) {
 func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 	state := newEngineState()
 
-	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 10}
-	m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "test"}, priority: 20}
-	m3 := &Matcher{EventType: string(platform.EventKindGroupMessage), group: "plugin1", priority: 5}
+	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
+	m1.priority.Store(10)
+	m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "test"}}
+	m2.priority.Store(20)
+	m3 := &Matcher{EventType: string(platform.EventKindGroupMessage), group: "plugin1"}
+	m3.priority.Store(5)
 
 	state.matchers = []*Matcher{m1, m2, m3}
 	state.rebuildIndex()
@@ -319,20 +315,17 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 		var wg sync.WaitGroup
 		for i := range 50 {
 			wg.Add(1)
-			go func(priority uint) {
+			go func(priority uint64) {
 				defer wg.Done()
 				matcher.SetPriority(priority)
-			}(uint(i))
+			}(uint64(i))
 		}
 
 		wg.Wait()
 
-		// Should not crash
-		matcher.rt.mu.RLock()
-		priority := matcher.priority
-		matcher.rt.mu.RUnlock()
+		priority := matcher.priority.Load()
 
-		assert.LessOrEqual(t, priority, uint(50))
+		assert.LessOrEqual(t, priority, 50)
 	})
 
 	t.Run("concurrent block changes", func(t *testing.T) {
@@ -535,9 +528,7 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 	})
 
 	// Mark as deleted
-	matcher.rt.mu.Lock()
-	matcher.rt.deleted = true
-	matcher.rt.mu.Unlock()
+	matcher.rt.deleted.Store(true)
 
 	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 

@@ -371,16 +371,13 @@ func TestMatcher_SetPriority_TempMatcher(t *testing.T) {
 	eng := NewEngine()
 
 	matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
-	initialPriority := uint(10)
+	initialPriority := uint64(10)
 	matcher.SetPriority(initialPriority)
 
-	// Change priority
-	newPriority := uint(50)
+	newPriority := uint64(50)
 	matcher.SetPriority(newPriority)
 
-	matcher.rt.mu.RLock()
-	priority := matcher.priority
-	matcher.rt.mu.RUnlock()
+	priority := uint(matcher.priority.Load())
 
 	assert.Equal(t, newPriority, priority)
 }
@@ -415,14 +412,14 @@ func TestEngineState_DeleteMatcher_FromIndices(t *testing.T) {
 	m1 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Source:    "test1",
-		priority:  10,
 	}
+	m1.priority.Store(10)
 
 	m2 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Source:    "test2",
-		priority:  20,
 	}
+	m2.priority.Store(20)
 
 	state.matchers = []*Matcher{m1, m2}
 	state.rebuildIndex()
@@ -437,8 +434,10 @@ func TestEngineState_DeleteMatcher_FromIndices(t *testing.T) {
 func TestEngineState_InvalidateSortedCache_Specific(t *testing.T) {
 	state := newEngineState()
 
-	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: 10}
-	m2 := &Matcher{EventType: string(platform.EventKindGroupMessage), priority: 20}
+	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
+	m1.SetPriority(10)
+	m2 := &Matcher{EventType: string(platform.EventKindGroupMessage)}
+	m2.SetPriority(20)
 
 	state.matchers = []*Matcher{m1, m2}
 	state.rebuildIndex()
@@ -529,19 +528,23 @@ func TestEngine_Restore_WithGroups(t *testing.T) {
 // ============================================================================
 
 func TestSortMatchersByPriority_StableSort(t *testing.T) {
-	m1 := &Matcher{priority: 10, Source: "m1"}
-	m2 := &Matcher{priority: 10, Source: "m2"}
-	m3 := &Matcher{priority: 5, Source: "m3"}
-	m4 := &Matcher{priority: 20, Source: "m4"}
+	m1 := &Matcher{Source: "m1"}
+	m1.priority.Store(10)
+	m2 := &Matcher{Source: "m2"}
+	m2.priority.Store(10)
+	m3 := &Matcher{Source: "m3"}
+	m3.priority.Store(5)
+	m4 := &Matcher{Source: "m4"}
+	m4.priority.Store(20)
 
 	matchers := []*Matcher{m1, m2, m3, m4}
 	sortMatchersByPriority(matchers)
 
 	// Should be sorted by priority (ascending)
-	assert.Equal(t, uint(5), matchers[0].priority)
-	assert.Equal(t, uint(10), matchers[1].priority)
-	assert.Equal(t, uint(10), matchers[2].priority)
-	assert.Equal(t, uint(20), matchers[3].priority)
+	assert.Equal(t, uint(5), uint(matchers[0].priority.Load()))
+	assert.Equal(t, uint(10), uint(matchers[1].priority.Load()))
+	assert.Equal(t, uint(10), uint(matchers[2].priority.Load()))
+	assert.Equal(t, uint(20), uint(matchers[3].priority.Load()))
 }
 
 // ============================================================================
@@ -612,7 +615,8 @@ func TestEngine_InvokeHandler_ErrorAndNilHandler(t *testing.T) {
 func TestEngineState_CopyWithCommands(t *testing.T) {
 	state := newEngineState()
 	for i := range 10 {
-		m := &Matcher{EventType: string(platform.EventKindPrivateMessage), priority: uint(i * 10), group: "g1"}
+		m := &Matcher{EventType: string(platform.EventKindPrivateMessage), group: "g1"}
+		m.SetPriority(uint64(i * 10))
 		if i%3 == 0 {
 			m.definition = &command.Definition{Name: "cmd"}
 		}

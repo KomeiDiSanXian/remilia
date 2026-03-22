@@ -25,9 +25,9 @@ func TestTempManagerWatermarkCleanup(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
 		matcher.rt.createdAt = time.Now().Add(time.Duration(i) * time.Millisecond)
+		matcher.priority.Store(64)
 		tm.Add(matcher)
 	}
 
@@ -58,8 +58,8 @@ func TestTempManagerCount(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		tm.Add(matcher)
 	}
 
@@ -87,8 +87,8 @@ func TestTempManagerCleanExpired(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		matcher.rt.expiresAt = now.Add(-1 * time.Hour) // 已过期
 		matcher.rt.createdAt = now
 		tm.Add(matcher)
@@ -101,8 +101,8 @@ func TestTempManagerCleanExpired(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i + 10),
 		}
+		matcher.priority.Store(uint64(i + 10))
 		matcher.rt.expiresAt = now.Add(1 * time.Hour) // 未过期
 		matcher.rt.createdAt = now
 		tm.Add(matcher)
@@ -135,8 +135,8 @@ func TestTempManagerRemove(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		matcher.rt.createdAt = time.Now()
 		tm.Add(matcher)
 		matchers = append(matchers, matcher)
@@ -177,8 +177,8 @@ func TestTempManagerStats(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		matcher.rt.createdAt = time.Now()
 		tm.Add(matcher)
 	}
@@ -217,8 +217,8 @@ func TestTempManagerCleanToWatermark(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		matcher.rt.createdAt = time.Now().Add(time.Duration(i) * time.Millisecond)
 		tm.Add(matcher)
 	}
@@ -250,8 +250,8 @@ func BenchmarkTempManagerAdd(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i % 100),
 		}
+		matcher.priority.Store(uint64(i % 100))
 		matcher.rt.createdAt = time.Now()
 		tm.Add(matcher)
 	}
@@ -268,8 +268,8 @@ func BenchmarkTempManagerCount(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		matcher.priority.Store(uint64(i))
 		matcher.rt.createdAt = time.Now()
 		tm.Add(matcher)
 	}

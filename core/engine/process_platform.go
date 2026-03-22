@@ -128,7 +128,7 @@ func (e *Engine) processEventContext(ctx *context.Context) {
 
 	for _, m := range matchersToCheck {
 		if m.Match(ctx) {
-			setContextMatcher(ctx, m)
+			ctx.SetMatcher(m)
 			e.invokeHandler(ctx, m)
 			if m.isBlocking() || state.block {
 				break

@@ -279,7 +279,7 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 			matcher := (*shard.expiration)[0]
 
 			// If expired or deleted
-			if matcher.rt.deleted || (!matcher.rt.expiresAt.IsZero() && now.After(matcher.rt.expiresAt)) {
+			if matcher.rt.deleted.Load() || (!matcher.rt.expiresAt.IsZero() && now.After(matcher.rt.expiresAt)) {
 				heap.Pop(shard.expiration)
 
 				// Verify services still in this shard and in index before removal

@@ -21,8 +21,8 @@ func TestCopyEngineState(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		m.priority.Store(uint64(i))
 		src.addMatcher(m)
 	}
 
@@ -54,28 +54,25 @@ func TestCopyEngineState(t *testing.T) {
 
 // TestCopyEngineStateCOW 测试 COW 行为
 func TestCopyEngineStateCOW(t *testing.T) {
-	// 创建原始状态
 	src := newEngineState()
 	m1 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test1",
-		priority:  10,
 	}
+	m1.priority.Store(10)
 	src.addMatcher(m1)
 
-	// 复制状态
 	dst := copyEngineState(src)
 
-	// 修改目标状态
 	m2 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test2",
-		priority:  20,
 	}
+	m2.priority.Store(20)
 	dst.addMatcher(m2)
 
 	// 验证原始状态未被修改
@@ -118,27 +115,24 @@ func TestCopyMiddlewareState(t *testing.T) {
 func TestAddMatcherOptimization(t *testing.T) {
 	state := newEngineState()
 
-	// 添加第一个 matcher
 	m1 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test1",
-		priority:  10,
 	}
+	m1.priority.Store(10)
 	state.addMatcher(m1)
 
-	// 记录 sortedCache 的容量
 	oldCap := cap(state.sortedCache[string(platform.EventKindPrivateMessage)])
 
-	// 添加第二个 matcher
 	m2 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "test2",
-		priority:  20,
 	}
+	m2.priority.Store(20)
 	state.addMatcher(m2)
 
 	// 如果容量足够，应该重用
@@ -164,8 +158,8 @@ func TestInvalidateSortedCacheOptimization(t *testing.T) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i * 10),
 		}
+		m.priority.Store(uint64(i * 10))
 		state.addMatcher(m)
 	}
 
@@ -205,8 +199,8 @@ func BenchmarkCopyEngineState(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		m.priority.Store(uint64(i))
 		src.addMatcher(m)
 	}
 
@@ -257,8 +251,8 @@ func BenchmarkAddMatcher(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		m.priority.Store(uint64(i))
 		state.addMatcher(m)
 	}
 
@@ -269,9 +263,8 @@ func BenchmarkAddMatcher(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "bench",
-			priority:  100,
 		}
-		// 创建新状态来测试
+		m.priority.Store(100)
 		stateCopy := copyEngineState(state)
 		stateCopy.addMatcher(m)
 	}
@@ -281,15 +274,14 @@ func BenchmarkAddMatcher(b *testing.B) {
 func BenchmarkInvalidateSortedCache(b *testing.B) {
 	state := newEngineState()
 
-	// 添加 100 个 matchers
 	for i := range 100 {
 		m := &Matcher{
 			EventType: string(platform.EventKindPrivateMessage),
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		m.priority.Store(uint64(i))
 		state.addMatcher(m)
 	}
 
@@ -301,7 +293,6 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 
 // BenchmarkCOWModification 基准测试：COW 修改性能
 func BenchmarkCOWModification(b *testing.B) {
-	// 创建初始状态
 	src := newEngineState()
 	for i := range 50 {
 		m := &Matcher{
@@ -309,8 +300,8 @@ func BenchmarkCOWModification(b *testing.B) {
 			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 			Handler:   func(ctx *context.Context) error { return nil },
 			Source:    "test",
-			priority:  uint(i),
 		}
+		m.priority.Store(uint64(i))
 		src.addMatcher(m)
 	}
 
@@ -319,8 +310,8 @@ func BenchmarkCOWModification(b *testing.B) {
 		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
 		Handler:   func(ctx *context.Context) error { return nil },
 		Source:    "new",
-		priority:  100,
 	}
+	newMatcher.priority.Store(100)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
