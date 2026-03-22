@@ -5,8 +5,8 @@ import "fmt"
 // descriptor.go — 插件描述符及相关类型定义
 //
 // 包含：
-//   - ReloadStrategy / PluginAdvanced / TeardownContext / 函数类型别名
-//   - PluginDescriptor 及其辅助方法
+//   - ReloadStrategy / Advanced / TeardownContext / 函数类型别名
+//   - Descriptor 及其辅助方法
 
 // ReloadStrategy 定义插件热重载策略
 type ReloadStrategy int
@@ -28,10 +28,10 @@ const (
 	ReloadBlueGreen
 )
 
-// PluginAdvanced 插件高级选项（可选）
+// Advanced 插件高级选项（可选）
 //
 // 热重载、状态迁移、依赖回调等高级功能。仅在需要时填写，减少普通插件的复杂度。
-type PluginAdvanced struct {
+type Advanced struct {
 	// Strategy 热重载策略（可选，默认 ReloadUnloadLoad）
 	Strategy ReloadStrategy
 
@@ -82,11 +82,11 @@ type TeardownContext struct {
 	EventBus EventBus
 
 	// Log 带插件名前缀的日志器
-	Log PluginLogger
+	Log Logger
 
 	// Info 插件系统只读视图（可能为 nil，使用前需判断）。
 	// 可用于 Teardown 时查询兄弟插件状态、决定是否执行条件性清理。
-	Info PluginInfo
+	Info Info
 }
 
 // ReloadFunc 插件热重载函数
@@ -101,11 +101,11 @@ type SaveStateFunc = func() (any, error)
 // 在热重载后恢复插件状态（可选），接收 SaveStateFunc 返回的状态数据
 type RestoreStateFunc = func(state any) error
 
-// PluginDescriptor 插件描述符
+// Descriptor 插件描述符
 //
 // # 最简用法（仅需 Name + Setup）
 //
-//	&plugin.PluginDescriptor{
+//	&plugin.Descriptor{
 //	    Name:  "myplugin",
 //	    Setup: func(ctx *plugin.SetupContext) (any, error) {
 //	        p := NewPlugin()
@@ -115,11 +115,11 @@ type RestoreStateFunc = func(state any) error
 //
 // # 完整用法（含元数据和高级选项）
 //
-//	&plugin.PluginDescriptor{
+//	&plugin.Descriptor{
 //	    Name:    "myplugin",
 //	    Version: "1.0.0",
 //	    Deps:    []string{"storage"},
-//	    Meta: &plugin.PluginMeta{
+//	    Meta: &plugin.Meta{
 //	        Author:      "Team",
 //	        Description: "My plugin",
 //	        Category:    "core",
@@ -127,7 +127,7 @@ type RestoreStateFunc = func(state any) error
 //	    Setup:    func(ctx *plugin.SetupContext) (any, error) { ... },
 //	    Teardown: func(ctx *plugin.TeardownContext) error { ... },
 //	}
-type PluginDescriptor struct {
+type Descriptor struct {
 	// Name 插件名称（必需，全局唯一）
 	Name string
 
@@ -159,33 +159,33 @@ type PluginDescriptor struct {
 	Teardown func(*TeardownContext) error
 
 	// Meta 插件元数据（可选，影响 /help 显示）
-	Meta *PluginMeta
+	Meta *Metadata
 
 	// Advanced 高级选项（可选）
 	// 包含 Reload/OnDependencyReloaded/SaveState/RestoreState/ConfigSchema
-	Advanced *PluginAdvanced
+	Advanced *Advanced
 }
 
-// --- PluginDescriptor 辅助方法 ---
+// --- Descriptor 辅助方法 ---
 
 // effectiveMeta 返回元数据（Meta 为 nil 时返回零值）
-func (d *PluginDescriptor) effectiveMeta() PluginMeta {
+func (d *Descriptor) effectiveMeta() Metadata {
 	if d.Meta != nil {
 		return *d.Meta
 	}
-	return PluginMeta{}
+	return Metadata{}
 }
 
 // effectiveAdvanced 返回高级选项（Advanced 为 nil 时返回零值）
-func (d *PluginDescriptor) effectiveAdvanced() PluginAdvanced {
+func (d *Descriptor) effectiveAdvanced() Advanced {
 	if d.Advanced != nil {
 		return *d.Advanced
 	}
-	return PluginAdvanced{}
+	return Advanced{}
 }
 
 // callSetup 调用 Setup 函数
-func (d *PluginDescriptor) callSetup(ctx *SetupContext) (any, error) {
+func (d *Descriptor) callSetup(ctx *SetupContext) (any, error) {
 	if d.Setup == nil {
 		return nil, fmt.Errorf("plugin %q: Setup function is nil", d.Name)
 	}
@@ -193,7 +193,7 @@ func (d *PluginDescriptor) callSetup(ctx *SetupContext) (any, error) {
 }
 
 // callTeardown 调用 Teardown 函数（nil 则跳过）
-func (d *PluginDescriptor) callTeardown(tctx *TeardownContext) error {
+func (d *Descriptor) callTeardown(tctx *TeardownContext) error {
 	if d.Teardown == nil {
 		return nil
 	}
@@ -201,7 +201,7 @@ func (d *PluginDescriptor) callTeardown(tctx *TeardownContext) error {
 }
 
 // getReloadFunc 获取 Reload 函数
-func (d *PluginDescriptor) getReloadFunc() ReloadFunc {
+func (d *Descriptor) getReloadFunc() ReloadFunc {
 	if d.Advanced != nil {
 		return d.Advanced.Reload
 	}
@@ -209,7 +209,7 @@ func (d *PluginDescriptor) getReloadFunc() ReloadFunc {
 }
 
 // getSaveStateFunc 获取 SaveState 函数
-func (d *PluginDescriptor) getSaveStateFunc() SaveStateFunc {
+func (d *Descriptor) getSaveStateFunc() SaveStateFunc {
 	if d.Advanced != nil {
 		return d.Advanced.SaveState
 	}
@@ -217,7 +217,7 @@ func (d *PluginDescriptor) getSaveStateFunc() SaveStateFunc {
 }
 
 // getRestoreStateFunc 获取 RestoreState 函数
-func (d *PluginDescriptor) getRestoreStateFunc() RestoreStateFunc {
+func (d *Descriptor) getRestoreStateFunc() RestoreStateFunc {
 	if d.Advanced != nil {
 		return d.Advanced.RestoreState
 	}
@@ -225,7 +225,7 @@ func (d *PluginDescriptor) getRestoreStateFunc() RestoreStateFunc {
 }
 
 // getOnDependencyReloaded 获取 OnDependencyReloaded 回调
-func (d *PluginDescriptor) getOnDependencyReloaded() func(string) {
+func (d *Descriptor) getOnDependencyReloaded() func(string) {
 	if d.Advanced != nil {
 		return d.Advanced.OnDependencyReloaded
 	}

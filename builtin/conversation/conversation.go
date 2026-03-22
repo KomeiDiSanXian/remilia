@@ -72,12 +72,12 @@ func NewPlugin() *Plugin {
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "conversation",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "Multi-step conversation/FSM plugin with cross-message state tracking",
 			Category:    "core",
@@ -116,7 +116,7 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 
 // New 创建会话状态机插件描述符（便捷入口，内部创建 Plugin 实例）。
 // 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return Descriptor(NewPlugin())
 }
 

@@ -5,8 +5,8 @@
 //   - pluginstore 在 shutdown 时触发所有已注册插件的 SaveState，将结果序列化到 storage
 //   - 启动时（Setup）从 storage 加载快照，逐一调用已注册插件的 RestoreState
 //
-// 与 PluginDescriptor.SaveState/RestoreState 的关系：
-//   - PluginDescriptor.SaveState/RestoreState 是热重载专用的内存传递（不持久化）
+// 与 Descriptor.SaveState/RestoreState 的关系：
+//   - Descriptor.SaveState/RestoreState 是热重载专用的内存传递（不持久化）
 //   - pluginstore 实现的是跨进程重启的持久化版本
 //
 // 使用示例:
@@ -70,17 +70,17 @@ func NewPlugin() *Plugin {
 }
 
 // New 创建插件配置持久化插件描述符
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return Descriptor(NewPlugin())
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "pluginstore",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "插件配置持久化插件，跨重启保存/恢复插件运行时状态",
 			Category:    "系统",

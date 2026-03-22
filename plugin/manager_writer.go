@@ -3,19 +3,19 @@ package plugin
 // manager_writer.go — 管理级别写视图接口
 //
 // ManagerWriter 是 Manager 对 Privileged 插件暴露的写视图，
-// 通过 SetupContext.Admin 注入，仅当 PluginDescriptor.Privileged == true 时非 nil。
+// 通过 SetupContext.Admin 注入，仅当 Descriptor.Privileged == true 时非 nil。
 //
-// 只读查询（插件列表、状态等）通过 SetupContext.Info（PluginInfo）访问。
+// 只读查询（插件列表、状态等）通过 SetupContext.Info（Info）访问。
 // 管理类插件同时拥有 ctx.Info（只读）和 ctx.Admin（可写）两个视图。
 
 // ManagerWriter 插件系统管理写视图，仅供声明了 Privileged: true 的插件使用。
 //
 // 只包含会影响系统运行状态的写操作。
-// 只读查询请通过 ctx.Info（PluginInfo）访问。
+// 只读查询请通过 ctx.Info（Info）访问。
 //
 // 示例（admin 插件）：
 //
-//	return &plugin.PluginDescriptor{
+//	return &plugin.Descriptor{
 //	    Name:       "admin",
 //	    Privileged: true,
 //	    Setup: func(ctx *plugin.SetupContext) (any, error) {

@@ -81,7 +81,7 @@ func NewPlugin() *Plugin {
 }
 
 // New 创建权限插件（v2 API）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	// 创建核心组件（闭包捕获）
 	permManager := permission.NewPermissionManager()
 	verificationMgr := NewVerificationManager()
@@ -95,11 +95,11 @@ func New() *plugin.PluginDescriptor {
 		acl:             acl,
 	}
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "permission",
 		Version: "3.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "基于角色的访问控制（RBAC）权限系统",
 			Category:    "核心",

@@ -39,8 +39,8 @@ import (
 //   - help     — /help 命令
 //
 // 插件已按依赖顺序排列，可直接传给 RegisterMultipleV2Atomic。
-func Core() []*plugin.PluginDescriptor {
-	return []*plugin.PluginDescriptor{
+func Core() []*plugin.Descriptor {
+	return []*plugin.Descriptor{
 		storage.New(),
 		cache.New(),
 		permission.New(),
@@ -56,7 +56,7 @@ func Core() []*plugin.PluginDescriptor {
 //
 // 需要额外配置的插件（antispam、auditlog、broadcast 等）不包含在此集合中，
 // 请手动 import 并调用对应的 New(cfg) 构造函数。
-func All() []*plugin.PluginDescriptor {
+func All() []*plugin.Descriptor {
 	return append(Core(),
 		cooldown.New(),
 	)
@@ -76,8 +76,8 @@ func All() []*plugin.PluginDescriptor {
 // 或直接合并：
 //
 //	pm.RegisterMultipleV2Atomic(append(bundle.Core(), bundle.Dev()...))
-func Dev() []*plugin.PluginDescriptor {
-	return []*plugin.PluginDescriptor{
+func Dev() []*plugin.Descriptor {
+	return []*plugin.Descriptor{
 		admin.New(),
 		debug.New(),
 	}

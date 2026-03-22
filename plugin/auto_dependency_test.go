@@ -11,7 +11,7 @@ import (
 func TestAutoTrackDependencies(t *testing.T) {
 	manager := NewManager(nil)
 
-	basePlugin := &PluginDescriptor{
+	basePlugin := &Descriptor{
 		Name:  "base",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
@@ -19,7 +19,7 @@ func TestAutoTrackDependencies(t *testing.T) {
 	require.NoError(t, err)
 
 	// dependent plugin accesses "base" via Get, auto-tracking the dependency.
-	depPlugin := &PluginDescriptor{
+	depPlugin := &Descriptor{
 		Name: "dependent",
 		Setup: func(ctx *SetupContext) (any, error) {
 			_, _ = ctx.Get("base")
@@ -36,13 +36,13 @@ func TestAutoTrackDependencies(t *testing.T) {
 func TestAutoTrackDependencies_MustGet(t *testing.T) {
 	manager := NewManager(nil)
 
-	err := manager.RegisterV2(&PluginDescriptor{
+	err := manager.RegisterV2(&Descriptor{
 		Name:  "auth",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 	require.NoError(t, err)
 
-	err = manager.RegisterV2(&PluginDescriptor{
+	err = manager.RegisterV2(&Descriptor{
 		Name: "permission",
 		Setup: func(ctx *SetupContext) (any, error) {
 			_ = ctx.MustGet("auth")
@@ -58,7 +58,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 	t.Run("auto infer simple dependency", func(t *testing.T) {
 		manager := NewManager(nil)
 
-		plugins := []*PluginDescriptor{
+		plugins := []*Descriptor{
 			{
 				Name: "permission",
 				Setup: func(ctx *SetupContext) (any, error) {
@@ -83,7 +83,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 	t.Run("detect inferred circular dependency", func(t *testing.T) {
 		manager := NewManager(nil)
 
-		plugins := []*PluginDescriptor{
+		plugins := []*Descriptor{
 			{
 				Name: "a",
 				Setup: func(ctx *SetupContext) (any, error) {
@@ -113,17 +113,17 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 func TestGetTrackedDependencies(t *testing.T) {
 	manager := NewManager(nil)
 
-	manager.RegisterV2(&PluginDescriptor{
+	manager.RegisterV2(&Descriptor{
 		Name:  "a",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
-	manager.RegisterV2(&PluginDescriptor{
+	manager.RegisterV2(&Descriptor{
 		Name:  "b",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	var trackedDeps []string
-	err := manager.RegisterV2(&PluginDescriptor{
+	err := manager.RegisterV2(&Descriptor{
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			_ = ctx.MustGet("a")
@@ -145,7 +145,7 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 	manager := NewManager(nil)
 
 	// Diamond: A -> B,C -> D
-	plugins := []*PluginDescriptor{
+	plugins := []*Descriptor{
 		{
 			Name: "d",
 			Setup: func(ctx *SetupContext) (any, error) {
@@ -202,17 +202,17 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 func TestDeclaredVsInferred(t *testing.T) {
 	manager := NewManager(nil)
 
-	manager.RegisterV2(&PluginDescriptor{
+	manager.RegisterV2(&Descriptor{
 		Name:  "a",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
-	manager.RegisterV2(&PluginDescriptor{
+	manager.RegisterV2(&Descriptor{
 		Name:  "b",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	// Declared dep on "a" but also uses "b" without declaring it.
-	err := manager.RegisterV2(&PluginDescriptor{
+	err := manager.RegisterV2(&Descriptor{
 		Name: "test",
 		Deps: []string{"a"},
 		Setup: func(ctx *SetupContext) (any, error) {

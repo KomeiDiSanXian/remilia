@@ -98,12 +98,12 @@ func NewPlugin() *Plugin {
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "stats",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "用户行为统计插件，记录命令调用次数和用户活跃度",
 			Category:    "核心",
@@ -134,7 +134,7 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 
 // New 创建统计插件描述符（便捷入口，内部创建 Plugin 实例）。
 // 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return Descriptor(NewPlugin())
 }
 

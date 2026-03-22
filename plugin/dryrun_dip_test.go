@@ -16,7 +16,7 @@ func TestDryRun_SmartInferenceSetsFlag(t *testing.T) {
 	var dryRunSeen bool
 	var realRunSeen bool
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name: "dryrun-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
@@ -28,7 +28,7 @@ func TestDryRun_SmartInferenceSetsFlag(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleV2Smart([]*PluginDescriptor{desc})
+	err := pm.RegisterMultipleV2Smart([]*Descriptor{desc})
 	require.NoError(t, err)
 
 	assert.True(t, dryRunSeen, "Smart 推断阶段应设置 ctx.DryRun = true")
@@ -41,7 +41,7 @@ func TestDryRun_NormalRegistrationFalse(t *testing.T) {
 
 	var dryRunVal bool = true // 预设为 true，看 Setup 是否把它清成 false
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "normal-reg",
 		Setup: func(ctx *SetupContext) (any, error) {
 			dryRunVal = ctx.DryRun
@@ -58,7 +58,7 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 
 	var subTopic string
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name: "eventbus-dryrun-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
@@ -72,7 +72,7 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, pm.RegisterMultipleV2Smart([]*PluginDescriptor{desc}))
+	require.NoError(t, pm.RegisterMultipleV2Smart([]*Descriptor{desc}))
 	assert.Equal(t, "test.topic", subTopic, "noopSubscription 应返回正确的 topic")
 
 	// 确认真实 EventBus 上没有该订阅
@@ -86,7 +86,7 @@ func TestDryRun_PluginCanSkipSideEffects(t *testing.T) {
 
 	sideEffectCallCount := 0
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name: "side-effect-guard",
 		Setup: func(ctx *SetupContext) (any, error) {
 			if !ctx.DryRun {
@@ -98,7 +98,7 @@ func TestDryRun_PluginCanSkipSideEffects(t *testing.T) {
 	}
 
 	// Smart 注册：DryRun 阶段不增加，真实注册阶段 +1
-	require.NoError(t, pm.RegisterMultipleV2Smart([]*PluginDescriptor{desc}))
+	require.NoError(t, pm.RegisterMultipleV2Smart([]*Descriptor{desc}))
 	assert.Equal(t, 1, sideEffectCallCount, "副作用应仅在真实运行时执行一次")
 }
 
@@ -120,7 +120,7 @@ func TestMustAs_Success(t *testing.T) {
 
 	impl := &testClientImpl{value: "hello"}
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "provider-mustas",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ExportInterface[testClientIface](ctx, "test.client", impl)
@@ -129,7 +129,7 @@ func TestMustAs_Success(t *testing.T) {
 	}))
 
 	var got testClientIface
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "consumer-mustas",
 		Setup: func(ctx *SetupContext) (any, error) {
 			got = MustAs[testClientIface](ctx, "test.client")
@@ -145,7 +145,7 @@ func TestMustAs_Success(t *testing.T) {
 func TestMustAs_Panic_NotFound(t *testing.T) {
 	pm := NewManager(nil)
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "panic-mustas",
 		Setup: func(ctx *SetupContext) (any, error) {
 			assert.Panics(t, func() {
@@ -161,14 +161,14 @@ func TestMustAs_Panic_WrongType(t *testing.T) {
 	pm := NewManager(nil)
 
 	// 先注册一个不实现 testClientIface 的插件
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "wrong-type-provider",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return "just a string", nil
 		},
 	}))
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "wrong-type-consumer",
 		Setup: func(ctx *SetupContext) (any, error) {
 			assert.Panics(t, func() {
@@ -185,7 +185,7 @@ func TestTryAs_Success(t *testing.T) {
 
 	impl := &testClientImpl{value: "world"}
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "provider-tryas",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ExportInterface[testClientIface](ctx, "test.client.opt", impl)
@@ -195,7 +195,7 @@ func TestTryAs_Success(t *testing.T) {
 
 	var got testClientIface
 	var found bool
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "consumer-tryas",
 		Setup: func(ctx *SetupContext) (any, error) {
 			got, found = TryAs[testClientIface](ctx, "test.client.opt")
@@ -212,7 +212,7 @@ func TestTryAs_Success(t *testing.T) {
 func TestTryAs_NotFound(t *testing.T) {
 	pm := NewManager(nil)
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "tryas-notfound",
 		Setup: func(ctx *SetupContext) (any, error) {
 			got, ok := TryAs[testClientIface](ctx, "nonexistent")
@@ -227,14 +227,14 @@ func TestTryAs_NotFound(t *testing.T) {
 func TestTryAs_WrongType(t *testing.T) {
 	pm := NewManager(nil)
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "tryas-wrong-provider",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return "just a string", nil
 		},
 	}))
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "tryas-wrong-consumer",
 		Setup: func(ctx *SetupContext) (any, error) {
 			got, ok := TryAs[testClientIface](ctx, "tryas-wrong-provider")
@@ -261,7 +261,7 @@ func TestExportInterface_MultipleKeys(t *testing.T) {
 
 	impl := &testFullImpl{data: "test-data"}
 
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "multi-interface-provider",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ExportInterface[testWriterIface](ctx, "multi.writer", impl)
@@ -272,7 +272,7 @@ func TestExportInterface_MultipleKeys(t *testing.T) {
 
 	var w testWriterIface
 	var r testReaderIface
-	require.NoError(t, pm.RegisterV2(&PluginDescriptor{
+	require.NoError(t, pm.RegisterV2(&Descriptor{
 		Name: "multi-interface-consumer",
 		Setup: func(ctx *SetupContext) (any, error) {
 			w = MustAs[testWriterIface](ctx, "multi.writer")

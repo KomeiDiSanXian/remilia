@@ -34,8 +34,8 @@ type Conn struct {
 	totalEvents   atomic.Uint64 // Counter for total events received
 }
 
-// WebhookStats contains statistics about webhook event processing
-type WebhookStats struct {
+// Stats contains statistics about webhook event processing
+type Stats struct {
 	TotalEvents   uint64  // 总接收事件数
 	DroppedEvents uint64  // 丢弃的事件数
 	DropRate      float64 // 丢弃率 (0-1)
@@ -44,7 +44,7 @@ type WebhookStats struct {
 }
 
 // GetStats returns current webhook statistics
-func (c *Conn) GetStats() WebhookStats {
+func (c *Conn) GetStats() Stats {
 	total := c.totalEvents.Load()
 	dropped := c.droppedEvents.Load()
 	dropRate := 0.0
@@ -52,7 +52,7 @@ func (c *Conn) GetStats() WebhookStats {
 		dropRate = float64(dropped) / float64(total)
 	}
 
-	return WebhookStats{
+	return Stats{
 		TotalEvents:   total,
 		DroppedEvents: dropped,
 		DropRate:      dropRate,

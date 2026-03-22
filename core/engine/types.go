@@ -67,7 +67,7 @@ type MatcherCoordinator interface {
 // 包含插件生命周期管理所需的全部 Engine 操作：
 //   - Matcher 注册（On / OnCommand）
 //   - 分组管理（RemoveGroup / DisableGroup / EnableGroup）
-//   - 只读查询（嵌入 EngineReader，提供命令查询、Matcher 统计等）
+//   - 只读查询（嵌入 Reader，提供命令查询、Matcher 统计等）
 //
 // 使用此接口而非 *Engine 具体类型，可以：
 //  1. 在不引入完整 engine 包的情况下使用插件系统（轻量嵌入）
@@ -76,7 +76,7 @@ type MatcherCoordinator interface {
 //
 // *Engine 已实现该接口的全部方法，调用方无需任何修改。
 type PluginCoordinator interface {
-	EngineReader
+	Reader
 	// On 注册一个新的事件匹配器
 	On(eventType EventType, rules ...context.Rule) *Matcher
 	// OnCommand 注册一个命令匹配器（自动开启 O(1) 分发优化）

@@ -179,7 +179,7 @@ func BenchmarkMiddlewareFactories(b *testing.B) {
 		}
 	})
 
-	b.Run("MiddlewareSet", func(b *testing.B) {
+	b.Run("Set", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			_ = middleware.NewMiddlewareSet().

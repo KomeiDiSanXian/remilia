@@ -10,7 +10,7 @@ import (
 //
 // 示例：
 //
-//	Advanced: &plugin.PluginAdvanced{
+//	Advanced: &plugin.Advanced{
 //	    ConfigSchema: map[string]plugin.SchemaField{
 //	        "mode":    {Type: "string", Required: true},
 //	        "timeout": {Type: "duration", Required: false},

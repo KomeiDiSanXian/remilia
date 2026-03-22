@@ -31,7 +31,7 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 		}
 	})
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name: "event-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil

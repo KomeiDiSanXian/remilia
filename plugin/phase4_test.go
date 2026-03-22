@@ -13,7 +13,7 @@ import (
 func TestRegisterMultipleV2Atomic_Success(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
 
-	descriptors := []*plugin.PluginDescriptor{
+	descriptors := []*plugin.Descriptor{
 		{Name: "base", Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
 		{Name: "mid", Deps: []string{"base"}, Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
 		{Name: "top", Deps: []string{"mid"}, Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
@@ -41,7 +41,7 @@ func TestRegisterMultipleV2Atomic_RollbackOnFailure(t *testing.T) {
 		return nil, errors.New("intentional setup failure")
 	}
 
-	descriptors := []*plugin.PluginDescriptor{
+	descriptors := []*plugin.Descriptor{
 		{Name: "ok1", Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
 		{Name: "ok2", Deps: []string{"ok1"}, Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
 		{Name: "fail", Deps: []string{"ok2"}, Setup: failSetup},
@@ -62,7 +62,7 @@ func TestRegisterMultipleV2Atomic_RollbackOnFailure(t *testing.T) {
 
 func TestRegisterMultipleV2Atomic_EmptySlice(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
-	if err := pm.RegisterMultipleV2Atomic([]*plugin.PluginDescriptor{}); err != nil {
+	if err := pm.RegisterMultipleV2Atomic([]*plugin.Descriptor{}); err != nil {
 		t.Fatalf("empty slice should succeed, got: %v", err)
 	}
 }
@@ -119,7 +119,7 @@ func TestRegisterV2_VersionConstraint_Satisfied(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
 
 	// Register v2.0.0 "auth"
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:    "auth",
 		Version: "2.0.0",
 		Setup:   func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
@@ -128,7 +128,7 @@ func TestRegisterV2_VersionConstraint_Satisfied(t *testing.T) {
 	}
 
 	// Register plugin that requires "auth@>=1.5.0" — should succeed
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:    "consumer",
 		Deps:    []string{"auth@>=1.5.0"},
 		Version: "1.0.0",
@@ -142,7 +142,7 @@ func TestRegisterV2_VersionConstraint_NotSatisfied(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
 
 	// Register v1.0.0 "auth"
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:    "auth",
 		Version: "1.0.0",
 		Setup:   func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
@@ -151,7 +151,7 @@ func TestRegisterV2_VersionConstraint_NotSatisfied(t *testing.T) {
 	}
 
 	// Register plugin that requires "auth@>=2.0.0" — should fail
-	err := pm.RegisterV2(&plugin.PluginDescriptor{
+	err := pm.RegisterV2(&plugin.Descriptor{
 		Name:    "consumer",
 		Deps:    []string{"auth@>=2.0.0"},
 		Version: "1.0.0",
@@ -176,7 +176,7 @@ func TestRegisterV2_VersionConstraint_NotSatisfied(t *testing.T) {
 func TestRegisterV2_VersionConstraint_Caret(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
 
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:    "lib",
 		Version: "2.3.1",
 		Setup:   func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
@@ -185,7 +185,7 @@ func TestRegisterV2_VersionConstraint_Caret(t *testing.T) {
 	}
 
 	// ^2.0.0 means major==2 and >=2.0.0 → 2.3.1 satisfies
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:  "app",
 		Deps:  []string{"lib@^2.0.0"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
@@ -199,14 +199,14 @@ func TestRegisterV2_VersionConstraint_Caret(t *testing.T) {
 func TestRegisterV2_MissingDepRichError(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
 
-	if err := pm.RegisterV2(&plugin.PluginDescriptor{
+	if err := pm.RegisterV2(&plugin.Descriptor{
 		Name:  "a",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	err := pm.RegisterV2(&plugin.PluginDescriptor{
+	err := pm.RegisterV2(&plugin.Descriptor{
 		Name:  "b",
 		Deps:  []string{"MISSING_DEP"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
@@ -246,7 +246,7 @@ func TestReloadStrategy_Constants(t *testing.T) {
 }
 
 func TestPluginAdvanced_ReloadStrategy_Field(t *testing.T) {
-	adv := &plugin.PluginAdvanced{
+	adv := &plugin.Advanced{
 		Strategy: plugin.ReloadBlueGreen,
 	}
 	if adv.Strategy != plugin.ReloadBlueGreen {

@@ -148,7 +148,7 @@ func (m *BotManager) Len() int {
 // 任何一个 Bot 启动失败都会记录错误，但不会阻止其他 Bot 的启动。
 // 若所有 Bot 均启动失败，返回聚合错误；若部分失败，同样返回聚合错误，
 // 调用方可通过 errors.Is / errors.As 检查具体失败项。
-func (m *BotManager) StartAll(ctx context.Context) error {
+func (m *BotManager) StartAll() error {
 	m.mu.RLock()
 	names := make([]string, len(m.order))
 	copy(names, m.order)
@@ -303,7 +303,7 @@ func (m *BotManager) RunningBots() []string {
 }
 
 // HealthAll 并发执行所有 Bot 的健康检查，以 map[name]CheckResponse 返回。
-func (m *BotManager) HealthAll(ctx context.Context) map[string]BotHealthResult {
+func (m *BotManager) HealthAll() map[string]BotHealthResult {
 	m.mu.RLock()
 	names := make([]string, len(m.order))
 	copy(names, m.order)

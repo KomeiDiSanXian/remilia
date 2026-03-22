@@ -25,14 +25,14 @@ type Plugin struct {
 }
 
 // New 创建管理插件（v2 API）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	v1Plugin := &Plugin{}
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:       "admin",
 		Version:    "2.1.0",
 		Deps:       []string{"permission"},
 		Privileged: true, // 需要 ManagerWriter 权限（Reload/Disable/Enable/Unregister）
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "机器人管理核心插件，提供插件管理、权限管理和配置管理功能",
 			Category:    "系统",

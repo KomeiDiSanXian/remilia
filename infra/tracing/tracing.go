@@ -225,7 +225,7 @@ func createStdoutExporter() (sdktrace.SpanExporter, error) {
 // stdoutExporter 简单的控制台导出器
 type stdoutExporter struct{}
 
-func (e *stdoutExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+func (e *stdoutExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {
 	for _, span := range spans {
 		logger.WithFields(logger.Fields{
 			"trace_id": span.SpanContext().TraceID().String(),
@@ -237,7 +237,7 @@ func (e *stdoutExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadO
 	return nil
 }
 
-func (e *stdoutExporter) Shutdown(ctx context.Context) error {
+func (e *stdoutExporter) Shutdown(context.Context) error {
 	return nil
 }
 

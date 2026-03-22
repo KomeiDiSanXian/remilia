@@ -18,7 +18,7 @@ func TestP0Fix1_MatcherTracking(t *testing.T) {
 
 	matcherCount := 0
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name:    "matcher-test",
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -49,7 +49,7 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	eng := engine.NewEngine()
 	manager := NewManager(eng)
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name:    "stateful-test",
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -95,14 +95,14 @@ func TestP0Fix3_ReloadRecreatesContext(t *testing.T) {
 
 	setupCallCount := 0
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name:    "reload-test",
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
 			setupCallCount++
 			return nil, nil
 		},
-		Advanced: &PluginAdvanced{
+		Advanced: &Advanced{
 			Reload: func(ctx *SetupContext) error {
 				setupCallCount++
 				return nil
@@ -128,7 +128,7 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 
 	for i := range 10 {
 		go func(id int) {
-			desc := &PluginDescriptor{
+			desc := &Descriptor{
 				Name:    "concurrent-test",
 				Version: "1.0.0",
 				Setup: func(ctx *SetupContext) (any, error) {
@@ -164,10 +164,10 @@ func TestP0Fix_Integration(t *testing.T) {
 
 	reloadCalled := false
 
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name:    "integration-test",
 		Version: "1.0.0",
-		Meta: &PluginMeta{
+		Meta: &Metadata{
 			Description: "Test all P0 fixes",
 		},
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -175,7 +175,7 @@ func TestP0Fix_Integration(t *testing.T) {
 			ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/test2")
 			return nil, nil
 		},
-		Advanced: &PluginAdvanced{
+		Advanced: &Advanced{
 			Strategy: ReloadInPlace, // 必须显式声明，否则 Reload 不会被调用
 			Reload: func(ctx *SetupContext) error {
 				reloadCalled = true

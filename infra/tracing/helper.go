@@ -90,7 +90,6 @@ func (h *SpanHelper) Span() trace.Span {
 
 // 预定义的属性键
 const (
-	// 事件相关
 	AttrEventID      = "remilia.event.id"
 	AttrEventType    = "remilia.event.type"
 	AttrEventContent = "remilia.event.content"
@@ -98,26 +97,21 @@ const (
 	AttrGuildID      = "remilia.event.guild_id"
 	AttrChannelID    = "remilia.event.channel_id"
 
-	// 匹配器相关
 	AttrMatcherName     = "remilia.matcher.name"
 	AttrMatcherPriority = "remilia.matcher.priority"
 	AttrMatcherSource   = "remilia.matcher.source"
 	AttrMatcherGroup    = "remilia.matcher.group"
 
-	// 中间件相关
 	AttrMiddlewareName = "remilia.middleware.name"
 	AttrMiddlewareType = "remilia.middleware.type"
 
-	// 命令相关
 	AttrCommandName = "remilia.command.name"
 	AttrCommandArgs = "remilia.command.args"
 
-	// 错误相关
 	AttrErrorType    = "remilia.error.type"
 	AttrErrorMessage = "remilia.error.message"
 	AttrErrorStack   = "remilia.error.stack"
 
-	// 性能相关
 	AttrDuration   = "remilia.duration_ms"
 	AttrRetryCount = "remilia.retry.count"
 	AttrQueueDepth = "remilia.queue.depth"

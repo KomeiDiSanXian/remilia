@@ -207,7 +207,7 @@ func (b *Bot) Start() error {
 	logger.Info("[Bot] Started successfully")
 
 	if b.pluginManager != nil {
-		if err := b.pluginManager.StartAll(b.rootCtx); err != nil {
+		if err := b.pluginManager.StartAll(); err != nil {
 			logger.WithError(err).Warn("[Bot] Some plugins failed to start")
 		}
 	}
@@ -325,7 +325,7 @@ func (b *Bot) Stop(ctx context.Context) error {
 func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFunc) error {
 	if b.pluginManager != nil {
 		logger.Debug("[Bot] Stopping plugin manager...")
-		if err := b.pluginManager.StopAll(ctx); err != nil {
+		if err := b.pluginManager.StopAll(); err != nil {
 			logger.WithError(err).Warn("[Bot] Some plugins failed to stop cleanly")
 		}
 	}

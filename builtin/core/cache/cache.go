@@ -40,12 +40,12 @@ type CacheStats struct {
 }
 
 // New 创建缓存插件（v2 API）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return NewV2WithCapacity(1000)
 }
 
 // NewV2WithCapacity 创建指定容量的缓存插件（v2 API）
-func NewV2WithCapacity(capacity int) *plugin.PluginDescriptor {
+func NewV2WithCapacity(capacity int) *plugin.Descriptor {
 	// 创建缓存实例（闭包捕获）
 	cache := NewLRUCache(capacity)
 
@@ -54,11 +54,11 @@ func NewV2WithCapacity(capacity int) *plugin.PluginDescriptor {
 		cache: cache,
 	}
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "cache",
 		Version: "2.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "高性能 LRU 缓存插件，减少重复计算和外部请求",
 			Category:    "核心",

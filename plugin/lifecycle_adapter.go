@@ -11,13 +11,13 @@ import (
 // Component 将插件实例适配为 lifecycle.Component
 // 这样插件可以被集成到统一的生命周期管理系统中
 type Component struct {
-	instance    *PluginInstance
+	instance    *Instance
 	coordinator engine.PluginCoordinator
 	manager     *Manager // 用于触发生命周期事件
 }
 
 // NewPluginComponent 创建插件生命周期组件适配器
-func NewPluginComponent(inst *PluginInstance, coordinator engine.PluginCoordinator, manager *Manager) lifecycle.Component {
+func NewPluginComponent(inst *Instance, coordinator engine.PluginCoordinator, manager *Manager) lifecycle.Component {
 	return &Component{
 		instance:    inst,
 		coordinator: coordinator,
@@ -31,7 +31,7 @@ func (pc *Component) Name() string {
 }
 
 // OnStart 启动时加载插件（实现 lifecycle.Component）
-func (pc *Component) OnStart(ctx context.Context) error {
+func (pc *Component) OnStart(context.Context) error {
 	name := pc.instance.Name()
 	logger.Infof("[Component] Starting plugin: %s", name)
 
@@ -65,7 +65,7 @@ func (pc *Component) OnRun(ctx context.Context) error {
 }
 
 // OnStop 停止时卸载插件（实现 lifecycle.Component）
-func (pc *Component) OnStop(ctx context.Context) error {
+func (pc *Component) OnStop(context.Context) error {
 	name := pc.instance.Name()
 	logger.Infof("[Component] Stopping plugin: %s", name)
 
@@ -86,6 +86,6 @@ func (pc *Component) OnStop(ctx context.Context) error {
 }
 
 // GetInstance 获取底层插件实例
-func (pc *Component) GetInstance() *PluginInstance {
+func (pc *Component) GetInstance() *Instance {
 	return pc.instance
 }

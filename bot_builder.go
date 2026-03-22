@@ -23,9 +23,9 @@ import (
 type BotBuilder struct {
 	adapter          platform.Adapter
 	engine           *engine.Engine
-	pluginManager    *plugin.Manager            // 可选，通过 WithPluginManager 或 WithPlugins 注入
-	pendingPlugins   []*plugin.PluginDescriptor // WithPlugins 收集的描述符，Build() 时批量注册
-	platformRegistry *platform.Registry         // 可选，多平台适配器注册表
+	pluginManager    *plugin.Manager      // 可选，通过 WithPluginManager 或 WithPlugins 注入
+	pendingPlugins   []*plugin.Descriptor // WithPlugins 收集的描述符，Build() 时批量注册
+	platformRegistry *platform.Registry   // 可选，多平台适配器注册表
 	options          []Option
 }
 
@@ -102,7 +102,7 @@ func (b *BotBuilder) WithPluginManager(pm *plugin.Manager) *BotBuilder {
 //	    WithPlatformAdapter(adapter).
 //	    WithPlugins(myPlugin.New(), anotherPlugin.New()).
 //	    Build()
-func (b *BotBuilder) WithPlugins(descriptors ...*plugin.PluginDescriptor) *BotBuilder {
+func (b *BotBuilder) WithPlugins(descriptors ...*plugin.Descriptor) *BotBuilder {
 	b.pendingPlugins = append(b.pendingPlugins, descriptors...)
 	return b
 }

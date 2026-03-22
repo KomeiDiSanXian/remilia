@@ -448,7 +448,7 @@ func (r *Request) doWithRetry(req *http.Request) (*http.Response, error) {
 		// 检查是否需要重试
 		if config.RetryCondition != nil && config.RetryCondition(resp, err) {
 			if resp != nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 			continue
 		}
@@ -514,7 +514,7 @@ func (r *Response) Bytes() ([]byte, error) {
 
 	body, err := io.ReadAll(r.Body)
 	// 无论读取成功与否，关闭 Body 释放连接
-	r.Body.Close()
+	_ = r.Body.Close()
 	if err != nil {
 		return nil, err
 	}

@@ -82,7 +82,7 @@ func NewPlugin(cfg Config) *Plugin {
 }
 
 // New 创建广播插件描述符
-func New(cfg ...Config) *plugin.PluginDescriptor {
+func New(cfg ...Config) *plugin.Descriptor {
 	c := DefaultConfig()
 	if len(cfg) > 0 {
 		c = cfg[0]
@@ -94,11 +94,11 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 		c2cSubs:   make(map[string]bool),
 	}
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "broadcast",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "广播/推送插件，支持向多群和多用户批量发送消息",
 			Category:    "核心",

@@ -29,7 +29,7 @@ func (pm *Manager) ListAllGoroutines() []GoroutineInfo {
 	now := time.Now()
 
 	pm.mu.RLock()
-	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	instances := make([]*Instance, 0, len(pm.plugins))
 	for _, inst := range pm.plugins {
 		instances = append(instances, inst)
 	}

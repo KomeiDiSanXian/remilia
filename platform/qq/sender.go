@@ -321,11 +321,6 @@ var Capabilities = platform.Capabilities{
 func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 	const maxRows, maxPerRow = 5, 5
 
-	// 按 Row 分组，Row=0 的每个按钮独立一行（使用负递减 key 保证唯一且顺序靠后）
-	type rowEntry struct {
-		key     int
-		buttons []platform.Button
-	}
 	keyOrder := make([]int, 0, len(buttons))
 	rowMap := make(map[int][]platform.Button)
 	autoKey := 0 // 从 -1 递减，给 Row=0 的按钮分配唯一 key

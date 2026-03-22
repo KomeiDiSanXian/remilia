@@ -88,12 +88,12 @@ func NewPlugin(cfg Config) *Plugin {
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "i18n",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "国际化/本地化插件，支持多语言文本和热更新",
 			Category:    "核心",
@@ -103,7 +103,7 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
   pm.RegisterV2(i18n.Descriptor(p))
   p.T(ctx, "key")`,
 		},
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			Reload: func(setupCtx *plugin.SetupContext) error {
 				if p.cfg.LocaleDir != "" {
 					return p.loadDir(p.cfg.LocaleDir)
@@ -125,7 +125,7 @@ func Descriptor(p *Plugin) *plugin.PluginDescriptor {
 
 // New 创建 i18n 插件描述符（便捷入口，内部创建 Plugin 实例）。
 // 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
-func New(cfg Config) *plugin.PluginDescriptor {
+func New(cfg Config) *plugin.Descriptor {
 	return Descriptor(NewPlugin(cfg))
 }
 

@@ -13,26 +13,26 @@ import (
 func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
 	var notifiedDeclared, notifiedUndeclared atomic.Int32
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "consumer-declared",
 		Deps: []string{"base"},
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			OnDependencyReloaded: func(dep string) { notifiedDeclared.Add(1) },
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { ctx.MustGet("base"); return nil, nil },
 	})
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "consumer-undeclared",
 		Deps: []string{},
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			OnDependencyReloaded: func(dep string) { notifiedUndeclared.Add(1) },
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -61,18 +61,18 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "consumer-declared",
 		Deps:  []string{"base"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { ctx.MustGet("base"); return nil, nil },
 	})
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "consumer-undeclared",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -100,12 +100,12 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "optional-base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
 	})
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "consumer-optional",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -127,17 +127,17 @@ func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
 func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "optional-base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
 	})
 
 	var notified atomic.Int32
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "consumer-optional",
 		Deps: []string{},
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			OnDependencyReloaded: func(dep string) { notified.Add(1) },
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -162,7 +162,7 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 
 	setupOrder := make([]string, 0, 2)
 
-	base := &plugin.PluginDescriptor{
+	base := &plugin.Descriptor{
 		Name: "base-topo",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "base-topo")
@@ -170,7 +170,7 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 		},
 	}
 
-	consumer := &plugin.PluginDescriptor{
+	consumer := &plugin.Descriptor{
 		Name: "consumer-topo",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -182,7 +182,7 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterMultipleV2Atomic([]*plugin.PluginDescriptor{consumer, base}); err != nil {
+	if err := pm.RegisterMultipleV2Atomic([]*plugin.Descriptor{consumer, base}); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
 	t.Logf("注册顺序: %v（未声明 Deps时拓扑排序不保证顺序）", setupOrder)
@@ -194,7 +194,7 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 
 	setupOrder := make([]string, 0, 3)
 
-	base := &plugin.PluginDescriptor{
+	base := &plugin.Descriptor{
 		Name: "sm-base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "sm-base")
@@ -202,7 +202,7 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		},
 	}
 
-	optional := &plugin.PluginDescriptor{
+	optional := &plugin.Descriptor{
 		Name: "sm-optional",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "sm-optional")
@@ -210,7 +210,7 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		},
 	}
 
-	consumer := &plugin.PluginDescriptor{
+	consumer := &plugin.Descriptor{
 		Name: "sm-consumer",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -221,7 +221,7 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterMultipleV2Smart([]*plugin.PluginDescriptor{consumer, base, optional}); err != nil {
+	if err := pm.RegisterMultipleV2Smart([]*plugin.Descriptor{consumer, base, optional}); err != nil {
 		t.Fatalf("Smart 注册失败: %v", err)
 	}
 

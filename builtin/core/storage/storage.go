@@ -49,35 +49,35 @@ type Plugin struct {
 
 // New 创建存储插件（v2 API）
 // 默认使用内存存储作为后端
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return NewV2WithBackend(NewMemoryStorage())
 }
 
 // NewWithBackend 使用指定后端创建存储插件（NewV2WithBackend 的别名）
-func NewWithBackend(storage Storage) *plugin.PluginDescriptor {
+func NewWithBackend(storage Storage) *plugin.Descriptor {
 	return NewV2WithBackend(storage)
 }
 
 // NewPlugin 创建独立的 Plugin 实例，直接包装存储后端。
 //
 // 适用于不需要插件系统生命周期管理的场景（如独立 demo、单元测试）。
-// 若需要生命周期管理，请使用 [NewWithBackend]，它返回 *plugin.PluginDescriptor。
+// 若需要生命周期管理，请使用 [NewWithBackend]，它返回 *plugin.Descriptor。
 func NewPlugin(s Storage) *Plugin {
 	return &Plugin{storage: s}
 }
 
 // NewV2WithBackend 使用指定后端创建存储插件（v2 API）
-func NewV2WithBackend(storage Storage) *plugin.PluginDescriptor {
+func NewV2WithBackend(storage Storage) *plugin.Descriptor {
 	// 创建 Plugin 包装器
 	pluginAPI := &Plugin{
 		storage: storage,
 	}
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "storage",
 		Version: "2.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "统一的数据存储抽象层，支持多种后端",
 			Category:    "核心",

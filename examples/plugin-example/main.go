@@ -88,13 +88,13 @@ func registerPlugins(manager *plugin.Manager, eng *engine.Engine) {
 
 // ===== Greeter Plugin (v2 API) =====
 
-func NewGreeterPlugin() *plugin.PluginDescriptor {
+func NewGreeterPlugin() *plugin.Descriptor {
 	greeting := "你好"
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "greeter",
 		Version: "2.0.0",
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia",
 			Description: "问候插件示例 - 演示 v2 API 的基本用法",
 			Category:    "示例",
@@ -129,13 +129,13 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 
 // ===== Counter Plugin (v2 API) =====
 
-func NewCounterPlugin() *plugin.PluginDescriptor {
+func NewCounterPlugin() *plugin.Descriptor {
 	var count atomic.Int64
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "counter",
 		Version: "2.0.0",
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia",
 			Description: "计数器插件示例 - 演示 v2 API 的状态管理",
 			Category:    "示例",

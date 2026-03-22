@@ -25,14 +25,14 @@ type RegistryWriter interface {
 
 // --- 真实实现 ---
 
-// liveRegistryWriter 正常运行阶段的 RegistryWriter，绑定到具体 engine 和 PluginInstance
+// liveRegistryWriter 正常运行阶段的 RegistryWriter，绑定到具体 engine 和 Instance
 type liveRegistryWriter struct {
 	eng      engine.PluginCoordinator
 	name     string
-	instance *PluginInstance
+	instance *Instance
 }
 
-func newLiveRegistryWriter(eng engine.PluginCoordinator, name string, instance *PluginInstance) RegistryWriter {
+func newLiveRegistryWriter(eng engine.PluginCoordinator, name string, instance *Instance) RegistryWriter {
 	return &liveRegistryWriter{eng: eng, name: name, instance: instance}
 }
 

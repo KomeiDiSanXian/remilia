@@ -29,7 +29,7 @@ func TestDisable_ThenEnable(t *testing.T) {
 	pm := NewManager(eng)
 
 	// register a simple plugin
-	pm.RegisterV2(&PluginDescriptor{
+	pm.RegisterV2(&Descriptor{
 		Name:  "alpha",
 		Deps:  nil,
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
@@ -70,7 +70,7 @@ func TestDisable_ThenEnable(t *testing.T) {
 
 func TestDisable_Idempotent(t *testing.T) {
 	pm := NewManager(engine.NewEngine())
-	pm.RegisterV2(&PluginDescriptor{
+	pm.RegisterV2(&Descriptor{
 		Name:  "beta",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
@@ -84,7 +84,7 @@ func TestDisable_Idempotent(t *testing.T) {
 
 func TestEnable_WhenNotDisabled(t *testing.T) {
 	pm := NewManager(engine.NewEngine())
-	pm.RegisterV2(&PluginDescriptor{
+	pm.RegisterV2(&Descriptor{
 		Name:  "gamma",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})

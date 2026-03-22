@@ -16,23 +16,23 @@ import (
 
 // Plugin Debug调试插件
 type Plugin struct {
-	Engine     engine.EngineReader // Engine 只读视图（仅查询命令列表、Matcher 统计等）
+	Engine     engine.Reader // Engine 只读视图（仅查询命令列表、Matcher 统计等）
 	PermPlugin *permission.Plugin
 	DevMode    bool
-	Info       plugin.PluginInfo // 插件系统只读视图
+	Info       plugin.Info // 插件系统只读视图
 	setupCtx   *plugin.SetupContext
 }
 
 // New 创建调试插件（v2 API）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	// 创建 v1 Plugin 实例
 	v1Plugin := newDebugPluginInternal()
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "debug",
 		Version: "2.0.0",
 		Deps:    []string{"permission"},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "开发调试工具集合，提供事件查看、上下文检查、性能分析等功能",
 			Category:    "开发",

@@ -8,8 +8,8 @@ import (
 )
 
 // makeSimpleDescriptor 创建一个最简单的插件描述符（无副作用的 Setup）
-func makeSimpleDescriptor(name string, deps []string) *PluginDescriptor {
-	return &PluginDescriptor{
+func makeSimpleDescriptor(name string, deps []string) *Descriptor {
+	return &Descriptor{
 		Name:  name,
 		Deps:  deps,
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
@@ -94,8 +94,8 @@ func TestRegisterV2_DependencyLoading_ShouldFail(t *testing.T) {
 	pm := NewManager(newCoordinator())
 
 	// 人为构造一个 "Loading" 状态的假插件放入 pm.plugins
-	fakeInst := &PluginInstance{
-		desc:     &PluginDescriptor{Name: "fake-loading"},
+	fakeInst := &Instance{
+		desc:     &Descriptor{Name: "fake-loading"},
 		state:    Loading,
 		matchers: nil,
 	}
@@ -163,7 +163,7 @@ func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
 	}
 
 	// Plugin that secretly uses "base" but doesn't declare it in Deps
-	sneaky := &PluginDescriptor{
+	sneaky := &Descriptor{
 		Name: "sneaky",
 		Deps: []string{}, // intentionally empty
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -193,7 +193,7 @@ func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
 
 	pm.RegisterV2(makeSimpleDescriptor("base", nil))
 
-	honest := &PluginDescriptor{
+	honest := &Descriptor{
 		Name: "honest",
 		Deps: []string{"base"}, // properly declared
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -217,7 +217,7 @@ func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
 
 	pm.RegisterV2(makeSimpleDescriptor("base", nil))
 
-	lenient := &PluginDescriptor{
+	lenient := &Descriptor{
 		Name: "lenient",
 		Deps: []string{},
 		Setup: func(ctx *SetupContext) (any, error) {

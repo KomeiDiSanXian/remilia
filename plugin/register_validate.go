@@ -4,7 +4,7 @@ import "fmt"
 
 // register_validate.go — RegisterV2 各阶段验证逻辑（拆分自 register.go）
 // validateDescriptor 检查描述符的基础合法性（无锁，无 Manager 依赖）。
-func validateDescriptor(desc *PluginDescriptor) error {
+func validateDescriptor(desc *Descriptor) error {
 	if desc == nil {
 		return fmt.Errorf("plugin descriptor is nil")
 	}
@@ -18,7 +18,7 @@ func validateDescriptor(desc *PluginDescriptor) error {
 }
 
 // checkDependencies 检查所有声明依赖的存在性与就绪状态。调用方须持有 pm.mu。
-func checkDependencies(pm *Manager, desc *PluginDescriptor, registeredList func() []string) error {
+func checkDependencies(pm *Manager, desc *Descriptor, registeredList func() []string) error {
 	name := desc.Name
 	for _, rawDep := range desc.Deps {
 		spec := parseDepSpec(rawDep)
@@ -47,7 +47,7 @@ func checkDependencies(pm *Manager, desc *PluginDescriptor, registeredList func(
 }
 
 // validateVersionConstraints 检查依赖的版本约束是否满足。调用方须持有 pm.mu。
-func validateVersionConstraints(pm *Manager, desc *PluginDescriptor) error {
+func validateVersionConstraints(pm *Manager, desc *Descriptor) error {
 	for _, rawDep := range desc.Deps {
 		spec := parseDepSpec(rawDep)
 		if spec.constraint == "" {
@@ -71,7 +71,7 @@ func validateVersionConstraints(pm *Manager, desc *PluginDescriptor) error {
 }
 
 // validateConfigSchema 若声明了 ConfigSchema，用当前 Config 校验。调用方须持有 pm.mu。
-func validateConfigSchema(name string, desc *PluginDescriptor, config Config) error {
+func validateConfigSchema(name string, desc *Descriptor, config Config) error {
 	if config == nil || desc.Advanced == nil || desc.Advanced.ConfigSchema == nil {
 		return nil
 	}

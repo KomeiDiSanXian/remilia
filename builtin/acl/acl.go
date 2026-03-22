@@ -94,12 +94,12 @@ func NewPlugin() *Plugin {
 
 // New 创建 ACL 插件描述符（便捷入口）。
 // 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
-func New() *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func New() *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "acl",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",
 			Category:    "安全",
@@ -135,12 +135,12 @@ func New() *plugin.PluginDescriptor {
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "acl",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",
 			Category:    "安全",

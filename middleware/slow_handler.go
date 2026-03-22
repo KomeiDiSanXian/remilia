@@ -57,7 +57,7 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 			// 检查是否超过阈值
 			if duration > config.Threshold {
 				// 获取处理器名称（使用事件类型作为标识）
-				handlerName := string(ctx.GetEventType())
+				handlerName := ctx.GetEventType()
 
 				// 记录日志
 				config.Logger(handlerName, duration, ctx)

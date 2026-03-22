@@ -18,19 +18,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// noopMatcher 是一个空操作匹配器，用于在达到匹配器限制时返回。
-// 所有方法都返回自身，形成无操作链。
-var noopMatcher = func() *Matcher {
-	m := &Matcher{
-		Source:      "noop",
-		Rules:       []context.Rule{},
-		middlewares: []context.Middleware{},
-	}
-	m.priority.Store(999)
-	m.rt.deleted.Store(true)
-	return m
-}()
-
 func newNoopMatcher(e *Engine) *Matcher {
 	m := &Matcher{
 		Source:      "noop",

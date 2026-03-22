@@ -2,18 +2,18 @@ package engine
 
 // reader.go — Engine 只读视图接口及包装器
 //
-// EngineReader 仅暴露查询类方法，不包含任何能修改 Engine 状态的操作。
+// Reader 仅暴露查询类方法，不包含任何能修改 Engine 状态的操作。
 // 供插件系统（plugin.PluginInfo.Coordinator()）使用。
 //
 // 关键设计：通过 engineReaderWrapper 包装 *Engine，
 // 使类型断言 coord.(*engine.Engine) 在运行时返回 false，
 // 从而在运行时层面也阻断写操作访问（而不仅依赖编译期接口检查）。
 
-// EngineReader 是 *Engine 的只读视图。
+// Reader 是 *Engine 的只读视图。
 //
 // 实现此接口的类型只允许读取 Engine 的状态，
 // 不能注册新 Matcher、删除 Matcher、修改中间件链或变更任何 Engine 配置。
-type EngineReader interface {
+type Reader interface {
 	// --- 命令查询 ---
 
 	// GetAllCommands 返回所有已注册命令的快照（只读）
@@ -59,14 +59,14 @@ type engineReaderWrapper struct {
 // NewEngineReader 将 *Engine 包装为只读视图。
 //
 // 传入 nil 时返回 nil，调用方应自行判断。
-func NewEngineReader(e *Engine) EngineReader {
+func NewEngineReader(e *Engine) Reader {
 	if e == nil {
 		return nil
 	}
 	return &engineReaderWrapper{e: e}
 }
 
-// --- EngineReader 接口实现（委托给 *Engine）---
+// --- Reader 接口实现（委托给 *Engine）---
 
 func (r *engineReaderWrapper) GetAllCommands() []CommandInfo        { return r.e.GetAllCommands() }
 func (r *engineReaderWrapper) FindCommand(name string) *CommandInfo { return r.e.FindCommand(name) }
@@ -81,5 +81,5 @@ func (r *engineReaderWrapper) GetMatcherStats() MatcherStats { return r.e.GetMat
 func (r *engineReaderWrapper) GetMaxMatchers() int           { return r.e.GetMaxMatchers() }
 func (r *engineReaderWrapper) GetTempMatcherCount() int      { return r.e.GetTempMatcherCount() }
 
-// 编译时断言：engineReaderWrapper 实现了 EngineReader
-var _ EngineReader = (*engineReaderWrapper)(nil)
+// 编译时断言：engineReaderWrapper 实现了 Reader
+var _ Reader = (*engineReaderWrapper)(nil)

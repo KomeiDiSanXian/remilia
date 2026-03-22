@@ -77,7 +77,7 @@ func main() {
 	rlPlugin.BindAntispam(asPlugin)
 	rlPlugin.BindCooldown(cdPlugin)
 	i18nPlugin := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-	if err := pm.RegisterMultipleV2([]*plugin.PluginDescriptor{
+	if err := pm.RegisterMultipleV2([]*plugin.Descriptor{
 		storage.New(),
 		permission.New(),
 		acl.Descriptor(aclPlugin),
@@ -159,10 +159,10 @@ func main() {
 	}
 	bot.WaitForShutdown()
 }
-func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name: "commands", Version: "1.0.0",
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Description: "showcase command set",
 			Category:    "showcase",
 		},

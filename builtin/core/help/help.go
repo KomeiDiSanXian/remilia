@@ -28,8 +28,8 @@ const (
 //   - /help <插件名> - 显示指定插件的所有命令
 //   - /help <命令名> - 显示指定命令的详细信息
 type Plugin struct {
-	Engine engine.EngineReader // Engine 只读视图（查询命令列表，不能注册/删除 Matcher）
-	Info   plugin.PluginInfo   // 插件系统只读视图
+	Engine engine.Reader // Engine 只读视图（查询命令列表，不能注册/删除 Matcher）
+	Info   plugin.Info   // 插件系统只读视图
 
 	// 缓存
 	helpCache     map[string]string
@@ -39,14 +39,14 @@ type Plugin struct {
 }
 
 // New 创建帮助插件（v2 API）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	p := newHelpPluginInternal()
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "help",
 		Version: "2.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia",
 			Description: "提供命令和插件的帮助信息查询功能",
 			Category:    "系统",

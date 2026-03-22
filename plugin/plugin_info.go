@@ -2,11 +2,11 @@ package plugin
 
 import "github.com/KomeiDiSanXian/remilia/core/engine"
 
-// PluginInfo 插件系统只读视图
+// Info 插件系统只读视图
 //
 // 通过 [SetupContext.Info] 访问，允许插件在 Setup 阶段查询其他插件的状态，
 // 但不能执行任何写操作（注册/卸载/重载）。
-type PluginInfo interface {
+type Info interface {
 	// IsLoaded 检查指定插件是否已加载（Loaded 状态）
 	IsLoaded(name string) bool
 
@@ -32,42 +32,42 @@ type PluginInfo interface {
 	GetLoadOrder() []string
 
 	// Get 获取指定插件的实例（用于查询运行时状态），不存在时返回 nil, false
-	Get(name string) (*PluginInstance, bool)
+	Get(name string) (*Instance, bool)
 
 	// Coordinator 返回 Engine 的只读视图，供查询命令列表、Matcher 统计等只读操作。
 	//
-	// 返回 engine.EngineReader 而非 *engine.Engine，
+	// 返回 engine.Reader 而非 *engine.Engine，
 	// 编译器强制阻止通过此接口调用任何写操作（On/RegisterCommand/DeleteMatcher 等）。
-	Coordinator() engine.EngineReader
+	Coordinator() engine.Reader
 }
 
-// managerInfoView 基于 *Manager 实现 PluginInfo 只读视图
+// managerInfoView 基于 *Manager 实现 Info 只读视图
 type managerInfoView struct {
 	m *Manager
 }
 
-func newPluginInfo(m *Manager) PluginInfo {
+func newPluginInfo(m *Manager) Info {
 	if m == nil {
 		return &nullPluginInfo{}
 	}
 	return &managerInfoView{m: m}
 }
 
-func (v *managerInfoView) IsLoaded(name string) bool               { return v.m.IsLoaded(name) }
-func (v *managerInfoView) IsDisabled(name string) bool             { return v.m.IsDisabled(name) }
-func (v *managerInfoView) List() []string                          { return v.m.List() }
-func (v *managerInfoView) Count() int                              { return v.m.Count() }
-func (v *managerInfoView) GetMetadata(n string) (*Metadata, bool)  { return v.m.GetMetadata(n) }
-func (v *managerInfoView) ListWithMetadata() map[string]*Metadata  { return v.m.ListWithMetadata() }
-func (v *managerInfoView) GetLoadOrder() []string                  { return v.m.GetLoadOrder() }
-func (v *managerInfoView) Get(name string) (*PluginInstance, bool) { return v.m.Get(name) }
+func (v *managerInfoView) IsLoaded(name string) bool              { return v.m.IsLoaded(name) }
+func (v *managerInfoView) IsDisabled(name string) bool            { return v.m.IsDisabled(name) }
+func (v *managerInfoView) List() []string                         { return v.m.List() }
+func (v *managerInfoView) Count() int                             { return v.m.Count() }
+func (v *managerInfoView) GetMetadata(n string) (*Metadata, bool) { return v.m.GetMetadata(n) }
+func (v *managerInfoView) ListWithMetadata() map[string]*Metadata { return v.m.ListWithMetadata() }
+func (v *managerInfoView) GetLoadOrder() []string                 { return v.m.GetLoadOrder() }
+func (v *managerInfoView) Get(name string) (*Instance, bool)      { return v.m.Get(name) }
 
 // Coordinator 返回包装后的只读视图，防止通过类型断言绕过只读限制。
 //
-// PluginCoordinator 已嵌入 EngineReader，可直接作为只读视图返回。
-// 与此同时，由于返回类型是 EngineReader 接口，调用方无法通过类型断言
+// PluginCoordinator 已嵌入 Reader，可直接作为只读视图返回。
+// 与此同时，由于返回类型是 Reader 接口，调用方无法通过类型断言
 // 取回 PluginCoordinator 并调用写操作，在编译期阻断误用。
-func (v *managerInfoView) Coordinator() engine.EngineReader {
+func (v *managerInfoView) Coordinator() engine.Reader {
 	return v.m.Coordinator()
 }
 
@@ -90,5 +90,5 @@ func (n *nullPluginInfo) Count() int                             { return 0 }
 func (n *nullPluginInfo) GetMetadata(_ string) (*Metadata, bool) { return nil, false }
 func (n *nullPluginInfo) ListWithMetadata() map[string]*Metadata { return nil }
 func (n *nullPluginInfo) GetLoadOrder() []string                 { return nil }
-func (n *nullPluginInfo) Get(_ string) (*PluginInstance, bool)   { return nil, false }
-func (n *nullPluginInfo) Coordinator() engine.EngineReader       { return nil }
+func (n *nullPluginInfo) Get(_ string) (*Instance, bool)         { return nil, false }
+func (n *nullPluginInfo) Coordinator() engine.Reader             { return nil }

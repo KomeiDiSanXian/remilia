@@ -57,7 +57,7 @@ type Plugin struct {
 }
 
 // New 创建关键词过滤插件描述符
-func New(cfg Config) *plugin.PluginDescriptor {
+func New(cfg Config) *plugin.Descriptor {
 	p := NewPlugin(cfg)
 	return Descriptor(p)
 }
@@ -71,12 +71,12 @@ func NewPlugin(cfg Config) *Plugin {
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "keywordfilter",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "关键词过滤插件，屏蔽违禁/敏感内容",
 			Category:    "安全",

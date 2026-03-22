@@ -13,7 +13,7 @@ import (
 type setupContextInternal struct {
 	container           *Container
 	pluginName          string
-	instance            *PluginInstance
+	instance            *Instance
 	trackedDeps         map[string]bool // 必要依赖（Get 成功 + MustGet）
 	trackedOptionalDeps map[string]bool // 可选依赖（Get 成功但通过 ok 判断）
 	autoTrackEnabled    bool
@@ -38,10 +38,10 @@ type SetupContext struct {
 	Reg RegistryWriter
 
 	// Log 带插件名前缀的结构化日志器。
-	Log PluginLogger
+	Log Logger
 
 	// Info 插件系统只读视图，可查询其他插件状态和 engine 命令列表。
-	Info PluginInfo
+	Info Info
 
 	// Admin 插件系统管理视图（仅 Privileged: true 的插件可用）。
 	// 未声明 Privileged 的插件此字段为 nil；误用会在运行时立即 panic。

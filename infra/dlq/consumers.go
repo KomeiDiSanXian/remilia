@@ -66,7 +66,7 @@ func postJSONWithRetry(url string, timeout time.Duration, maxRetries int, data [
 				Warn("[DeadLetter] Webhook request failed")
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}

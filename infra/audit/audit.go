@@ -61,35 +61,28 @@ func (l Level) String() string {
 type Action string
 
 const (
-	// 用户操作
 	ActionUserLogin    Action = "user.login"
 	ActionUserLogout   Action = "user.logout"
 	ActionUserRegister Action = "user.register"
 
-	// 命令操作
 	ActionCommandExecute Action = "command.execute"
 	ActionCommandFail    Action = "command.fail"
 
-	// 插件操作
 	ActionPluginLoad    Action = "plugin.load"
 	ActionPluginUnload  Action = "plugin.unload"
 	ActionPluginEnable  Action = "plugin.enable"
 	ActionPluginDisable Action = "plugin.disable"
 
-	// 配置操作
 	ActionConfigUpdate Action = "config.update"
 	ActionConfigReload Action = "config.reload"
 
-	// 系统操作
 	ActionSystemStart    Action = "system.start"
 	ActionSystemShutdown Action = "system.shutdown"
 	ActionSystemRestart  Action = "system.restart"
 
-	// 权限操作
 	ActionPermissionGrant  Action = "permission.grant"
 	ActionPermissionRevoke Action = "permission.revoke"
 
-	// 数据操作
 	ActionDataCreate Action = "data.create"
 	ActionDataRead   Action = "data.read"
 	ActionDataUpdate Action = "data.update"

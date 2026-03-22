@@ -18,7 +18,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	manager := NewManager(eng)
 
 	// 创建一个加载时间较长的插件
-	slowPlugin := &PluginDescriptor{
+	slowPlugin := &Descriptor{
 		Name:    "slow-plugin",
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -44,7 +44,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 
 		plugin, exists := manager.Get("slow-plugin")
 		if exists && plugin != nil {
-			// *PluginInstance 直接实现 StatefulPlugin，无需类型断言
+			// *Instance 直接实现 StatefulPlugin，无需类型断言
 			state := plugin.GetState()
 			if state == Loading {
 				errors <- ErrPluginLoading
@@ -118,7 +118,7 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 	manager := NewManager(eng)
 
 	// ��册一个简单插件
-	desc := &PluginDescriptor{
+	desc := &Descriptor{
 		Name:    "test-plugin",
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -227,7 +227,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		subManager := NewManager(eng)
 
 		// 先注册插件 A（依赖将在批次中注册的 B）
-		pluginA := &PluginDescriptor{
+		pluginA := &Descriptor{
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{}, // 暂时不声明依赖
@@ -250,7 +250,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		subManager.mu.Unlock()
 
 		// 批次注册插件 B（依赖 A）
-		pluginB := &PluginDescriptor{
+		pluginB := &Descriptor{
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"}, // B 依赖 A
@@ -260,7 +260,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultipleV2([]*PluginDescriptor{pluginB})
+		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB})
 		if err == nil {
 			t.Error("Should detect cross-batch circular dependency")
 		} else {
@@ -273,7 +273,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		subManager := NewManager(eng)
 
 		// 注册插件 A
-		pluginA := &PluginDescriptor{
+		pluginA := &Descriptor{
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{},
@@ -297,7 +297,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 		subManager.mu.Unlock()
 
-		pluginB := &PluginDescriptor{
+		pluginB := &Descriptor{
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"},
@@ -306,7 +306,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			},
 		}
 
-		pluginC := &PluginDescriptor{
+		pluginC := &Descriptor{
 			Name:    "plugin-c",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-b"},
@@ -316,7 +316,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultipleV2([]*PluginDescriptor{pluginB, pluginC})
+		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB, pluginC})
 		if err == nil {
 			t.Error("Should detect indirect cross-batch circular dependency")
 		} else {
@@ -329,7 +329,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		subManager := NewManager(eng)
 
 		// 注册插件 A（无依赖）
-		pluginA := &PluginDescriptor{
+		pluginA := &Descriptor{
 			Name:    "plugin-a",
 			Version: "1.0.0",
 			Deps:    []string{},
@@ -344,7 +344,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 批次注册插件 B（依赖 A，无循环）
-		pluginB := &PluginDescriptor{
+		pluginB := &Descriptor{
 			Name:    "plugin-b",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-a"},
@@ -353,7 +353,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			},
 		}
 
-		pluginC := &PluginDescriptor{
+		pluginC := &Descriptor{
 			Name:    "plugin-c",
 			Version: "1.0.0",
 			Deps:    []string{"plugin-b"},
@@ -363,7 +363,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该成功注册
-		err = subManager.RegisterMultipleV2([]*PluginDescriptor{pluginB, pluginC})
+		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB, pluginC})
 		if err != nil {
 			t.Errorf("Should not detect cycle in valid dependency chain: %v", err)
 		} else {

@@ -189,7 +189,7 @@ func TestBotManagerBuilder_MustBuild_Panics(t *testing.T) {
 }
 func TestBotManager_StartAll_Empty(t *testing.T) {
 	mgr := remilia.NewBotManager()
-	assert.NoError(t, mgr.StartAll(context.Background()))
+	assert.NoError(t, mgr.StartAll())
 }
 func TestBotManager_StopAll_NoneRunning(t *testing.T) {
 	mgr := remilia.NewBotManager()
@@ -202,9 +202,9 @@ func TestBotManager_HealthAll(t *testing.T) {
 	mgr := remilia.NewBotManager()
 	mgr.MustAdd("h1", makeBot(t))
 	mgr.MustAdd("h2", makeBot(t))
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	results := mgr.HealthAll(ctx)
+	results := mgr.HealthAll()
 	assert.Len(t, results, 2)
 	for _, name := range []string{"h1", "h2"} {
 		r, ok := results[name]

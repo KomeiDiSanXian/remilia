@@ -84,7 +84,7 @@ func Init(cfg Config) error {
 		logDir := filepath.Dir(cfg.FilePath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			// Fallback to console only
-			fmt.Fprintf(os.Stderr, "Failed to create log directory: %v, falling back to console only\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to create log directory: %v, falling back to console only\n", err)
 			cfg.File = false
 			cfg.Console = true
 		} else {
@@ -92,7 +92,7 @@ func Init(cfg Config) error {
 			file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 			if err != nil {
 				// Fallback to console only
-				fmt.Fprintf(os.Stderr, "Failed to open log file: %v, falling back to console only\n", err)
+				_, _ = fmt.Fprintf(os.Stderr, "Failed to open log file: %v, falling back to console only\n", err)
 				cfg.File = false
 				cfg.Console = true
 			} else {
@@ -170,103 +170,103 @@ func PutFields(f Fields) {
 // Fields is a helper type for structured logging fields
 type Fields map[string]any
 
-// LoggerWithFields wraps zerolog logger to provide logrus-like API
-type LoggerWithFields struct {
+// LogWithFields wraps zerolog logger to provide logrus-like API
+type LogWithFields struct {
 	logger zerolog.Logger
 }
 
 // WithField adds another field (chainable)
-func (l *LoggerWithFields) WithField(key string, value any) *LoggerWithFields {
-	return &LoggerWithFields{
+func (l *LogWithFields) WithField(key string, value any) *LogWithFields {
+	return &LogWithFields{
 		logger: l.logger.With().Interface(key, value).Logger(),
 	}
 }
 
 // WithFields adds multiple fields (chainable)
-func (l *LoggerWithFields) WithFields(fields Fields) *LoggerWithFields {
+func (l *LogWithFields) WithFields(fields Fields) *LogWithFields {
 	ctx := l.logger.With()
 	for k, v := range fields {
 		ctx = ctx.Interface(k, v)
 	}
-	return &LoggerWithFields{logger: ctx.Logger()}
+	return &LogWithFields{logger: ctx.Logger()}
 }
 
 // WithError adds an error field (chainable)
-func (l *LoggerWithFields) WithError(err error) *LoggerWithFields {
-	return &LoggerWithFields{
+func (l *LogWithFields) WithError(err error) *LogWithFields {
+	return &LogWithFields{
 		logger: l.logger.With().Err(err).Logger(),
 	}
 }
 
 // Info logs an info message
-func (l *LoggerWithFields) Info(msg string) {
+func (l *LogWithFields) Info(msg string) {
 	l.logger.Info().Msg(msg)
 }
 
 // Infof logs a formatted info message
-func (l *LoggerWithFields) Infof(format string, v ...any) {
+func (l *LogWithFields) Infof(format string, v ...any) {
 	l.logger.Info().Msgf(format, v...)
 }
 
 // Debug logs a debug message
-func (l *LoggerWithFields) Debug(msg string) {
+func (l *LogWithFields) Debug(msg string) {
 	l.logger.Debug().Msg(msg)
 }
 
 // Debugf logs a formatted debug message
-func (l *LoggerWithFields) Debugf(format string, v ...any) {
+func (l *LogWithFields) Debugf(format string, v ...any) {
 	l.logger.Debug().Msgf(format, v...)
 }
 
 // Warn logs a warning message
-func (l *LoggerWithFields) Warn(msg string) {
+func (l *LogWithFields) Warn(msg string) {
 	l.logger.Warn().Msg(msg)
 }
 
 // Warnf logs a formatted warning message
-func (l *LoggerWithFields) Warnf(format string, v ...any) {
+func (l *LogWithFields) Warnf(format string, v ...any) {
 	l.logger.Warn().Msgf(format, v...)
 }
 
 // Error logs an error message with caller information
-func (l *LoggerWithFields) Error(msg string) {
+func (l *LogWithFields) Error(msg string) {
 	l.logger.Error().Caller(1).Msg(msg)
 }
 
 // Errorf logs a formatted error message with caller information
-func (l *LoggerWithFields) Errorf(format string, v ...any) {
+func (l *LogWithFields) Errorf(format string, v ...any) {
 	l.logger.Error().Caller(1).Msgf(format, v...)
 }
 
 // Fatal logs a fatal message with caller information and exits
-func (l *LoggerWithFields) Fatal(msg string) {
+func (l *LogWithFields) Fatal(msg string) {
 	l.logger.Fatal().Caller(1).Msg(msg)
 }
 
 // Fatalf logs a formatted fatal message with caller information and exits
-func (l *LoggerWithFields) Fatalf(format string, v ...any) {
+func (l *LogWithFields) Fatalf(format string, v ...any) {
 	l.logger.Fatal().Caller(1).Msgf(format, v...)
 }
 
 // WithFields creates a logger with multiple fields
-func WithFields(fields Fields) *LoggerWithFields {
+func WithFields(fields Fields) *LogWithFields {
 	ctx := globalLogger.With()
 	for k, v := range fields {
 		ctx = ctx.Interface(k, v)
 	}
-	return &LoggerWithFields{logger: ctx.Logger()}
+	return &LogWithFields{logger: ctx.Logger()}
 }
 
 // WithField creates a logger with a single field
-func WithField(key string, value any) *LoggerWithFields {
-	return &LoggerWithFields{
+func WithField(key string, value any) *LogWithFields {
+	return &LogWithFields{
 		logger: globalLogger.With().Interface(key, value).Logger(),
 	}
 }
 
 // WithError creates a logger with error field
-func WithError(err error) *LoggerWithFields {
-	return &LoggerWithFields{
+func WithError(err error) *LogWithFields {
+	return &LogWithFields{
 		logger: globalLogger.With().Err(err).Logger(),
 	}
 }

@@ -12,7 +12,7 @@ import (
 // reload.go — 插件热重载逻辑：三种重载策略实现
 
 // reload 重载插件（实现 pluginInternal）
-func (pi *PluginInstance) reload(coordinator engine.PluginCoordinator) error {
+func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 	pi.mu.Lock()
 	oldContext := pi.setupContext
 	pi.state = Reloading
@@ -122,11 +122,11 @@ func (pi *PluginInstance) reload(coordinator engine.PluginCoordinator) error {
 // reloadBlueGreen 蓝绿重载策略：并行运行新实例，就绪后原子切换，最后停止旧实例。
 //
 // 停机窗口从"整个 Setup 时间"缩短为两次 engine 操作的微秒级间隔。
-func (pi *PluginInstance) reloadBlueGreen(coordinator engine.PluginCoordinator, newContext *SetupContext) error {
+func (pi *Instance) reloadBlueGreen(coordinator engine.PluginCoordinator, newContext *SetupContext) error {
 	pluginName := pi.desc.Name
 	tempGroup := pluginName + ".__bg"
 
-	newInstance := &PluginInstance{
+	newInstance := &Instance{
 		desc:         pi.desc,
 		state:        Unloaded,
 		matchers:     make([]*engine.Matcher, 0),

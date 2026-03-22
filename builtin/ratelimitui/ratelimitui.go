@@ -50,17 +50,17 @@ func NewPlugin() *Plugin {
 }
 
 // New 创建限流状态查询插件描述符（便捷入口）
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return Descriptor(NewPlugin())
 }
 
 // Descriptor 从已有 Plugin 实例创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "ratelimitui",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "限流状态查询插件，聚合 antispam 和 cooldown 的运行时状态",
 			Category:    "运营",

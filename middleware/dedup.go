@@ -135,67 +135,67 @@ func hashEventID(eventID string) uint64 {
 // 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
 //
 // 优化：使用 hash(eventID) 减少内存占用，字符串 -> uint64 可节省 50-70% 内存
-func (d *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
+func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	now := time.Now().UnixNano()
 	hash := hashEventID(eventID) // 计算哈希值
 
 	// 使用单个写锁保护整个操作，避免竞态条件
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	// 检查是否存在且未过期（使用哈希值查找）
-	if expireTime, exists := d.cache[hash]; exists {
+	if expireTime, exists := f.cache[hash]; exists {
 		if expireTime > now {
 			return true, nil // 重复且未过期
 		}
 		// 已过期，删除
-		delete(d.cache, hash)
+		delete(f.cache, hash)
 	}
 
 	// 检查缓存大小限制
-	if len(d.cache) >= d.maxSize {
+	if len(f.cache) >= f.maxSize {
 		// 缓存满载，尝试立即清理过期条目
 		logger.WithFields(logger.Fields{
-			"cache_size": len(d.cache),
-			"max_size":   d.maxSize,
+			"cache_size": len(f.cache),
+			"max_size":   f.maxSize,
 		}).Debug("[Dedup] Cache full, triggering immediate cleanup")
 
 		// 清理过期条目（已持有锁）
-		d.cleanExpiredLocked(now)
+		f.cleanExpiredLocked(now)
 
 		// 再次检查大小
-		if len(d.cache) >= d.maxSize {
+		if len(f.cache) >= f.maxSize {
 			logger.WithFields(logger.Fields{
-				"cache_size": len(d.cache),
-				"max_size":   d.maxSize,
+				"cache_size": len(f.cache),
+				"max_size":   f.maxSize,
 			}).Warn("[Dedup] Cache still full after cleanup")
-			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", len(d.cache), d.maxSize)
+			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", len(f.cache), f.maxSize)
 		}
 
-		logger.WithField("cache_size", len(d.cache)).Debug("[Dedup] Cache cleaned, space available")
+		logger.WithField("cache_size", len(f.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
 	// 添加到缓存 (使用纳秒以保留毫秒以下精度，使用哈希值存储)
-	d.cache[hash] = now + d.defaultTTL.Nanoseconds()
+	f.cache[hash] = now + f.defaultTTL.Nanoseconds()
 
 	return false, nil
 }
 
 // cleanExpired 清理过期条目
-func (d *DedupFilter) cleanExpired() {
+func (f *DedupFilter) cleanExpired() {
 	now := time.Now().UnixNano()
 
-	d.mu.Lock()
-	d.cleanExpiredLocked(now)
-	d.mu.Unlock()
+	f.mu.Lock()
+	f.cleanExpiredLocked(now)
+	f.mu.Unlock()
 }
 
 // cleanExpiredLocked 清理过期条目（内部方法，假设已持有锁）
-func (d *DedupFilter) cleanExpiredLocked(now int64) {
+func (f *DedupFilter) cleanExpiredLocked(now int64) {
 	toDelete := make([]uint64, 0) // 优化：使用 uint64 存储哈希值
 
 	// 收集过期的哈希值
-	for hash, expireTime := range d.cache {
+	for hash, expireTime := range f.cache {
 		if expireTime <= now {
 			toDelete = append(toDelete, hash)
 		}
@@ -204,7 +204,7 @@ func (d *DedupFilter) cleanExpiredLocked(now int64) {
 	// 删除过期条目
 	if len(toDelete) > 0 {
 		for _, hash := range toDelete {
-			delete(d.cache, hash)
+			delete(f.cache, hash)
 		}
 
 		logger.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
@@ -213,29 +213,29 @@ func (d *DedupFilter) cleanExpiredLocked(now int64) {
 
 // Stop 停止清理器
 // 多次调用是安全的，只会执行一次
-func (d *DedupFilter) Stop() {
-	d.stopOnce.Do(func() {
-		close(d.cleanupDone)
+func (f *DedupFilter) Stop() {
+	f.stopOnce.Do(func() {
+		close(f.cleanupDone)
 	})
 }
 
 // GetStats 获取统计信息
-func (d *DedupFilter) GetStats() map[string]any {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+func (f *DedupFilter) GetStats() map[string]any {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 
 	return map[string]any{
-		"cache_size": len(d.cache),
-		"max_size":   d.maxSize,
-		"ttl":        d.defaultTTL.String(),
+		"cache_size": len(f.cache),
+		"max_size":   f.maxSize,
+		"ttl":        f.defaultTTL.String(),
 	}
 }
 
 // Clear 清空缓存（用于测试）
-func (d *DedupFilter) Clear() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.cache = make(map[uint64]int64) // 使用 uint64 类型
+func (f *DedupFilter) Clear() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cache = make(map[uint64]int64) // 使用 uint64 类型
 }
 
 // Dedup 创建去重中间件

@@ -179,50 +179,50 @@ func SimpleDedupWithTTL(ttl time.Duration) eventctx.Middleware {
 	return Dedup(filter)
 }
 
-// MiddlewareSet 中间件集合，提供常用中间件组合
-type MiddlewareSet struct {
+// Set 中间件集合，提供常用中间件组合
+type Set struct {
 	middlewares []eventctx.Middleware
 }
 
 // NewMiddlewareSet 创建中间件集合
-func NewMiddlewareSet() *MiddlewareSet {
-	return &MiddlewareSet{
+func NewMiddlewareSet() *Set {
+	return &Set{
 		middlewares: make([]eventctx.Middleware, 0),
 	}
 }
 
 // WithLogging 添加日志中间件
-func (s *MiddlewareSet) WithLogging() *MiddlewareSet {
+func (s *Set) WithLogging() *Set {
 	s.middlewares = append(s.middlewares, Logging())
 	return s
 }
 
 // WithRecover 添加panic恢复中间件
-func (s *MiddlewareSet) WithRecover() *MiddlewareSet {
+func (s *Set) WithRecover() *Set {
 	s.middlewares = append(s.middlewares, Recover())
 	return s
 }
 
 // WithAdaptive 添加自适应限流中间件
-func (s *MiddlewareSet) WithAdaptive() *MiddlewareSet {
+func (s *Set) WithAdaptive() *Set {
 	s.middlewares = append(s.middlewares, SimpleAdaptive())
 	return s
 }
 
 // WithCircuitBreaker 添加熔断器中间件
-func (s *MiddlewareSet) WithCircuitBreaker() *MiddlewareSet {
+func (s *Set) WithCircuitBreaker() *Set {
 	s.middlewares = append(s.middlewares, SimpleCircuitBreaker())
 	return s
 }
 
 // WithDedup 添加去重中间件
-func (s *MiddlewareSet) WithDedup() *MiddlewareSet {
+func (s *Set) WithDedup() *Set {
 	s.middlewares = append(s.middlewares, SimpleDedup())
 	return s
 }
 
 // Build 返回所有中间件
-func (s *MiddlewareSet) Build() []eventctx.Middleware {
+func (s *Set) Build() []eventctx.Middleware {
 	return s.middlewares
 }
 

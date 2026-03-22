@@ -102,12 +102,12 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	// 更新 ConfigurableRetry
 	if rc.Enable {
 		base := parseDuration(rc.BackoffBase, 200*time.Millisecond)
-		max := parseDuration(rc.BackoffMax, 2*time.Second)
+		duration := parseDuration(rc.BackoffMax, 2*time.Second)
 		for _, cr := range b.retries {
 			cr.UpdateConfig(middleware.RetryConfig{
 				MaxAttempts: rc.MaxAttempts,
 				BackoffBase: base,
-				BackoffMax:  max,
+				BackoffMax:  duration,
 			})
 		}
 	}

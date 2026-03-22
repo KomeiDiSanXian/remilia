@@ -27,7 +27,7 @@ func PrometheusMetrics(namespace string) context.Middleware {
 			start := time.Now()
 			err := next(ctx)
 			el := time.Since(start)
-			evt := string(ctx.GetEventType())
+			evt := ctx.GetEventType()
 			requests.WithLabelValues(evt).Inc()
 			latency.WithLabelValues(evt).Observe(el.Seconds())
 			return err

@@ -67,7 +67,7 @@ func NewPlugin(cfg Config) *Plugin {
 }
 
 // New 创建审计日志插件描述符
-func New(cfg ...Config) *plugin.PluginDescriptor {
+func New(cfg ...Config) *plugin.Descriptor {
 	c := DefaultConfig()
 	if len(cfg) > 0 {
 		c = cfg[0]
@@ -77,12 +77,12 @@ func New(cfg ...Config) *plugin.PluginDescriptor {
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "auditlog",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "操作审计日志插件，记录命令调用和管理操作",
 			Category:    "安全",

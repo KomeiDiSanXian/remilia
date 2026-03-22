@@ -8,17 +8,17 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
-// instance.go — PluginInstance：运行时实例及公开 API
+// instance.go — Instance：运行时实例及公开 API
 //
 // 生命周期方法（load/unload）在此文件，
 // reload/reloadBlueGreen 独立于 reload.go。
 
-// PluginInstance v2 插件实例
+// Instance v2 插件实例
 //
 // 通过 [Manager.Get] 获取，可用于查询状态、元数据和已注册的 Matcher。
 // 生命周期操作（加载/卸载/重载）由 Manager 通过内部 pluginInternal 接口驱动。
-type PluginInstance struct {
-	desc         *PluginDescriptor
+type Instance struct {
+	desc         *Descriptor
 	state        State
 	setupContext *SetupContext
 	matchers     []*engine.Matcher // 插件注册的匹配器
@@ -31,10 +31,10 @@ type PluginInstance struct {
 
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
 
-func (pi *PluginInstance) name() string { return pi.desc.Name }
+func (pi *Instance) name() string { return pi.desc.Name }
 
 // load 加载插件（实现 pluginInternal）
-func (pi *PluginInstance) load(coordinator engine.PluginCoordinator) (loadErr error) {
+func (pi *Instance) load(engine.PluginCoordinator) (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
@@ -92,18 +92,18 @@ func (pi *PluginInstance) load(coordinator engine.PluginCoordinator) (loadErr er
 }
 
 // buildTeardownContext 构建 TeardownContext
-func (pi *PluginInstance) buildTeardownContext() *TeardownContext {
+func (pi *Instance) buildTeardownContext() *TeardownContext {
 	pi.mu.RLock()
 	api := pi.exportedAPI
 	pi.mu.RUnlock()
 
 	var cfg Config
 	var bus EventBus
-	var info PluginInfo
+	var info Info
 	if pi.setupContext != nil {
 		cfg = pi.setupContext.Config
 		bus = pi.setupContext.EventBus
-		info = pi.setupContext.Info // 复用 Setup 阶段的 PluginInfo 只读视图
+		info = pi.setupContext.Info // 复用 Setup 阶段的 Info 只读视图
 	}
 	return &TeardownContext{
 		API:      api,
@@ -115,7 +115,7 @@ func (pi *PluginInstance) buildTeardownContext() *TeardownContext {
 }
 
 // unload 卸载插件（实现 pluginInternal）
-func (pi *PluginInstance) unload(coordinator engine.PluginCoordinator) error {
+func (pi *Instance) unload(coordinator engine.PluginCoordinator) error {
 	pi.mu.Lock()
 	pi.state = Unloading
 	gm := pi.goroutineMgr
@@ -153,15 +153,15 @@ func (pi *PluginInstance) unload(coordinator engine.PluginCoordinator) error {
 }
 
 // dependencies 返回依赖列表（实现 pluginInternal）
-func (pi *PluginInstance) dependencies() []string { return pi.desc.Deps }
+func (pi *Instance) dependencies() []string { return pi.desc.Deps }
 
 // --- 公开 API ---
 
 // Name 返回插件名称
-func (pi *PluginInstance) Name() string { return pi.desc.Name }
+func (pi *Instance) Name() string { return pi.desc.Name }
 
 // Metadata 返回插件元数据
-func (pi *PluginInstance) Metadata() *Metadata {
+func (pi *Instance) Metadata() *Metadata {
 	m := pi.desc.effectiveMeta()
 	m.Name = pi.desc.Name
 	m.Version = pi.desc.Version
@@ -170,49 +170,49 @@ func (pi *PluginInstance) Metadata() *Metadata {
 }
 
 // GetState 获取插件状态（实现 StatefulPlugin 接口）
-func (pi *PluginInstance) GetState() State {
+func (pi *Instance) GetState() State {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	return pi.state
 }
 
 // SetState 设置插件状态（由 Manager 调用）
-func (pi *PluginInstance) SetState(state State) {
+func (pi *Instance) SetState(state State) {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	pi.state = state
 }
 
 // GetLoadTime 获取加载时间（实现 StatefulPlugin 接口）
-func (pi *PluginInstance) GetLoadTime() time.Time {
+func (pi *Instance) GetLoadTime() time.Time {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	return pi.loadTime
 }
 
 // SetLoadTime 设置加载时间（由 Manager 调用）
-func (pi *PluginInstance) SetLoadTime(t time.Time) {
+func (pi *Instance) SetLoadTime(t time.Time) {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	pi.loadTime = t
 }
 
 // GetLastError 获取最后的错误（实现 StatefulPlugin 接口）
-func (pi *PluginInstance) GetLastError() error {
+func (pi *Instance) GetLastError() error {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	return pi.lastError
 }
 
 // SetLastError 设置最后的错误（由 Manager 调用）
-func (pi *PluginInstance) SetLastError(err error) {
+func (pi *Instance) SetLastError(err error) {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	pi.lastError = err
 }
 
 // GetUptime 获取运行时长。Disabled 状态视为仍在运行，继续累计 uptime。
-func (pi *PluginInstance) GetUptime() time.Duration {
+func (pi *Instance) GetUptime() time.Duration {
 	pi.mu.RLock()
 	loadTime := pi.loadTime
 	state := pi.state
@@ -225,7 +225,7 @@ func (pi *PluginInstance) GetUptime() time.Duration {
 }
 
 // GetMatchers 获取插件注册的所有匹配器（实现 MatcherProvider 接口）
-func (pi *PluginInstance) GetMatchers() []*engine.Matcher {
+func (pi *Instance) GetMatchers() []*engine.Matcher {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	result := make([]*engine.Matcher, len(pi.matchers))
@@ -234,14 +234,14 @@ func (pi *PluginInstance) GetMatchers() []*engine.Matcher {
 }
 
 // addMatcher 添加 Matcher 到追踪列表（内部方法）
-func (pi *PluginInstance) addMatcher(matcher *engine.Matcher) {
+func (pi *Instance) addMatcher(matcher *engine.Matcher) {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	pi.matchers = append(pi.matchers, matcher)
 }
 
 // GetConfig 获取插件配置（实现 ConfigurablePlugin 接口）
-func (pi *PluginInstance) GetConfig() Config {
+func (pi *Instance) GetConfig() Config {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	if pi.setupContext != nil {
@@ -256,14 +256,14 @@ func (pi *PluginInstance) GetConfig() Config {
 // 若插件尚未加载、Setup 返回 nil 或插件已卸载，则返回 nil。
 //
 // 常见用途：debug/monitor 类插件遍历所有插件实例并打印 API 类型信息。
-func (pi *PluginInstance) GetAPI() any {
+func (pi *Instance) GetAPI() any {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	return pi.exportedAPI
 }
 
 // SetConfig 设置插件配置（实现 ConfigurablePlugin 接口）
-func (pi *PluginInstance) SetConfig(config Config) {
+func (pi *Instance) SetConfig(config Config) {
 	pi.mu.Lock()
 	defer pi.mu.Unlock()
 	if pi.setupContext != nil {

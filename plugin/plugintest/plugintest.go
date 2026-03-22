@@ -96,7 +96,7 @@ func NewSetupContextWithDeps(pluginName string, deps map[string]any, opts *Setup
 
 // RunSetup 快捷函数：创建 ctx，运行 Setup，返回 API 和错误，自动清理 goroutine。
 // 适用于只需要测试 Setup 逻辑而不关心上下文细节的场景。
-func RunSetup(desc *plugin.PluginDescriptor, opts *SetupOptions) (api any, err error, stop func()) {
+func RunSetup(desc *plugin.Descriptor, opts *SetupOptions) (api any, err error, stop func()) {
 	ctx := NewSetupContext(desc.Name, opts)
 	api, err = desc.Setup(ctx)
 	return api, err, func() { StopSetupContext(ctx) }

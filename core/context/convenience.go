@@ -1,8 +1,9 @@
 package context
 
 import (
-	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"slices"
+
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 )
 
 // groupChatID extracts the group/chat ID from platform.Event.

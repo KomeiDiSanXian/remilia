@@ -7,16 +7,16 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// TestPermissionModel_EngineReader 验证 PluginInfo.Coordinator() 返回只读视图。
+// TestPermissionModel_EngineReader 验证 Info.Coordinator() 返回只读视图。
 //
 // 这是权限模型的核心保证之一：普通插件通过 ctx.Info.Coordinator()
-// 只能拿到 engine.EngineReader 接口，无法调用任何写操作。
+// 只能拿到 engine.Reader 接口，无法调用任何写操作。
 func TestPermissionModel_EngineReader(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	var capturedCoordinator engine.EngineReader
+	var capturedCoordinator engine.Reader
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "reader-test",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			capturedCoordinator = ctx.Info.Coordinator()
@@ -28,17 +28,17 @@ func TestPermissionModel_EngineReader(t *testing.T) {
 		t.Skip("Coordinator returned nil (no engine attached), skipping type check")
 	}
 
-	// 关键：capturedCoordinator 必须是 engine.EngineReader，
+	// 关键：capturedCoordinator 必须是 engine.Reader，
 	// 编译器已经保证它不能是 *engine.Engine（因为接口不同）。
 	// 以下代码在编译期就无法通过，这就是类型系统的保证：
 	//
-	//   capturedCoordinator.On(...)              // 编译错误：EngineReader 没有 On 方法
+	//   capturedCoordinator.On(...)              // 编译错误：Reader 没有 On 方法
 	//   capturedCoordinator.RegisterCommand(...) // 编译错误
 	//   capturedCoordinator.DeleteMatcher(...)   // 编译错误
 	//   capturedCoordinator.RemoveGroup(...)     // 编译错误
 	//   capturedCoordinator.Use(...)             // 编译错误
 
-	t.Log("✓ ctx.Info.Coordinator() 返回 engine.EngineReader（只读），编译器阻止写操作")
+	t.Log("✓ ctx.Info.Coordinator() 返回 engine.Reader（只读），编译器阻止写操作")
 }
 
 // TestPermissionModel_AdminNilForUnprivileged 验证未声明 Privileged 的插件 ctx.Admin 为 nil。
@@ -46,7 +46,7 @@ func TestPermissionModel_AdminNilForUnprivileged(t *testing.T) {
 	pm := plugin.NewManager(nil)
 	var adminWasNil bool
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:       "unprivileged",
 		Privileged: false, // 显式声明（也是默认值）
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -66,7 +66,7 @@ func TestPermissionModel_AdminNotNilForPrivileged(t *testing.T) {
 	pm := plugin.NewManager(nil)
 	var adminNotNil bool
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:       "privileged-plugin",
 		Privileged: true, // 声明需要管理权限
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -87,14 +87,14 @@ func TestPermissionModel_AdminWriteOps(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	// 注册一个目标插件
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:  "target",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
 	var writerCanReload bool
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name:       "admin-test",
 		Deps:       []string{"target"},
 		Privileged: true,
@@ -120,14 +120,14 @@ func TestPermissionModel_AdminWriteOps(t *testing.T) {
 // 在正常注册流程中，插件不需要通过私有接口类型断言来获取 Manager 或 Engine 的写权限。
 //
 // 这个测试确保不存在任何合法的"绕过路径"：
-//   - ctx.Info 是 PluginInfo 接口 → 只读
-//   - ctx.Info.Coordinator() 返回 engine.EngineReader → 只读
+//   - ctx.Info 是 Info 接口 → 只读
+//   - ctx.Info.Coordinator() 返回 engine.Reader → 只读
 //   - ctx.Admin 是 ManagerWriter 接口 → 仅 Privileged 插件可用，且只有写方法
 //   - ctx.Reg 是 RegistryWriter 接口 → 仅注册当前插件的 Matcher，有权限边界
 func TestPermissionModel_NoPrivateInterfaceAssertions(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.PluginDescriptor{
+	_ = pm.RegisterV2(&plugin.Descriptor{
 		Name: "permission-check",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// ctx.Info 是接口，无法对其做类型断言拿到 *Manager
@@ -142,7 +142,7 @@ func TestPermissionModel_NoPrivateInterfaceAssertions(t *testing.T) {
 				t.Error("ctx.Info 不应实现私有 Manager() 方法，这意味着权限隔离被破坏")
 			}
 
-			// Coordinator() 返回 EngineReader，无法断言为 *engine.Engine
+			// Coordinator() 返回 Reader，无法断言为 *engine.Engine
 			coord := ctx.Info.Coordinator()
 			if coord != nil {
 				if _, ok := coord.(*engine.Engine); ok {

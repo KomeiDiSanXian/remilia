@@ -3,7 +3,6 @@ package plugin
 // manager_lifecycle.go — 插件管理器生命周期（StartAll / StopAll / Shutdown）
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -14,7 +13,7 @@ import (
 // 通常由 Bot.Start() 自动调用，无需手动调用。
 // 若某个插件 Setup 失败，继续尝试其余插件并收集错误，最终返回合并错误。
 // 已处于 Loaded 状态的插件会跳过（幂等）。
-func (pm *Manager) StartAll(ctx context.Context) error {
+func (pm *Manager) StartAll() error {
 	pm.mu.RLock()
 	names := make([]string, len(pm.loadOrder))
 	copy(names, pm.loadOrder)
@@ -55,7 +54,7 @@ func (pm *Manager) StartAll(ctx context.Context) error {
 //
 // 通常由 Bot.Stop() 自动调用，无需手动调用。
 // 若某个插件 Teardown 失败，继续处理其余插件并收集错误。
-func (pm *Manager) StopAll(ctx context.Context) error {
+func (pm *Manager) StopAll() error {
 	pm.mu.RLock()
 	// 逆序：最后加载的最先卸载
 	order := make([]string, len(pm.loadOrder))

@@ -76,7 +76,7 @@ type Plugin struct {
 }
 
 // New creates a send queue plugin descriptor.
-func New(cfg Config) *plugin.PluginDescriptor {
+func New(cfg Config) *plugin.Descriptor {
 	if cfg.Rate <= 0 {
 		cfg.Rate = DefaultConfig().Rate
 	}
@@ -105,11 +105,11 @@ func New(cfg Config) *plugin.PluginDescriptor {
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "sendqueue",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "异步消息发送队列，内置令牌桶频控，防止 API 被打满",
 			Category:    "核心",

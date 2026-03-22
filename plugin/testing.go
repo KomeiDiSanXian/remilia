@@ -32,8 +32,8 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 
 	gm := newGoroutineManager()
 
-	instance := &PluginInstance{
-		desc:  &PluginDescriptor{Name: pluginName},
+	instance := &Instance{
+		desc:  &Descriptor{Name: pluginName},
 		state: Unloaded,
 	}
 

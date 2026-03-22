@@ -126,12 +126,12 @@ func New(t testing.TB) *TestBot {
 		mgr:    mgr,
 		sender: &MockSender{},
 	}
-	t.Cleanup(func() { eng.Shutdown(stdctx.Background()) })
+	t.Cleanup(func() { _ = eng.Shutdown(stdctx.Background()) })
 	return tb
 }
 
 // RegisterPlugin registers a v2 plugin descriptor. Fails the test on error.
-func (tb *TestBot) RegisterPlugin(desc *plugin.PluginDescriptor) {
+func (tb *TestBot) RegisterPlugin(desc *plugin.Descriptor) {
 	tb.t.Helper()
 	if err := tb.mgr.RegisterV2(desc); err != nil {
 		tb.t.Fatalf("testutil: RegisterPlugin %q: %v", desc.Name, err)
@@ -139,7 +139,7 @@ func (tb *TestBot) RegisterPlugin(desc *plugin.PluginDescriptor) {
 }
 
 // RegisterPlugins registers multiple plugins, respecting dependency order.
-func (tb *TestBot) RegisterPlugins(descs ...*plugin.PluginDescriptor) {
+func (tb *TestBot) RegisterPlugins(descs ...*plugin.Descriptor) {
 	tb.t.Helper()
 	if err := tb.mgr.RegisterMultipleV2(descs); err != nil {
 		tb.t.Fatalf("testutil: RegisterPlugins: %v", err)
@@ -246,7 +246,7 @@ type Bot struct {
 	eng     *engine.Engine
 	mgr     *plugin.Manager
 	sender  *MockSender
-	plugins []*plugin.PluginDescriptor
+	plugins []*plugin.Descriptor
 }
 
 // NewBot creates a Bot for benchmarks or integration tests.
@@ -260,13 +260,13 @@ func NewBot() *Bot {
 }
 
 // RegisterPlugin appends a plugin descriptor; it is registered during [Bot.Start].
-func (b *Bot) RegisterPlugin(desc *plugin.PluginDescriptor) *Bot {
+func (b *Bot) RegisterPlugin(desc *plugin.Descriptor) *Bot {
 	b.plugins = append(b.plugins, desc)
 	return b
 }
 
 // RegisterPlugins appends multiple descriptors; they are registered during [Bot.Start].
-func (b *Bot) RegisterPlugins(descs ...*plugin.PluginDescriptor) *Bot {
+func (b *Bot) RegisterPlugins(descs ...*plugin.Descriptor) *Bot {
 	b.plugins = append(b.plugins, descs...)
 	return b
 }

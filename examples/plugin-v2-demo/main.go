@@ -91,13 +91,13 @@ func registerPlugins(manager *plugin.Manager) {
 }
 
 // NewGreeterPlugin 创建问候插件（v2 风格）
-func NewGreeterPlugin() *plugin.PluginDescriptor {
+func NewGreeterPlugin() *plugin.Descriptor {
 	greeting := "你好"
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "greeter",
 		Version: "2.0.0",
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "简单的问候插件（v2 API 演示）",
 			Category:    "示例",
@@ -132,13 +132,13 @@ func NewGreeterPlugin() *plugin.PluginDescriptor {
 }
 
 // NewCounterPlugin 创建计数器插件（v2 风格）
-func NewCounterPlugin() *plugin.PluginDescriptor {
+func NewCounterPlugin() *plugin.Descriptor {
 	count := 0
 
-	return &plugin.PluginDescriptor{
+	return &plugin.Descriptor{
 		Name:    "counter",
 		Version: "2.0.0",
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "简单的计数器插件（v2 API 演示）",
 			Category:    "示例",
@@ -176,7 +176,7 @@ func NewCounterPlugin() *plugin.PluginDescriptor {
 			ctx.Log.Infof("Counter plugin torn down (final count: %d)", count)
 			return nil
 		},
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			Reload: func(ctx *plugin.SetupContext) error {
 				logger.Info("[Counter] Reloading plugin...")
 				return nil
@@ -186,12 +186,12 @@ func NewCounterPlugin() *plugin.PluginDescriptor {
 }
 
 // NewCalculatorPlugin 创建计算器插件（v2 风格）
-func NewCalculatorPlugin() *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func NewCalculatorPlugin() *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "calculator",
 		Version: "2.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "简单的计算器插件（v2 API 演示）",
 			Category:    "工具",

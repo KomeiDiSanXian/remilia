@@ -12,7 +12,7 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	manager := NewManager(nil)
 
 	// 注册第一个插件
-	plugin1 := &PluginDescriptor{
+	plugin1 := &Descriptor{
 		Name: "plugin1",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil
@@ -33,7 +33,7 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	coordService1, _ := container.Get("coordinator")
 
 	// 注册第二个插件
-	plugin2 := &PluginDescriptor{
+	plugin2 := &Descriptor{
 		Name: "plugin2",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil
@@ -65,7 +65,7 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 	manager := NewManager(nil)
 
 	// 注册第一个插件
-	plugin1 := &PluginDescriptor{
+	plugin1 := &Descriptor{
 		Name: "plugin1",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 验证可以访问特殊服务
@@ -101,7 +101,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 	var accessedManager *Manager
 	var accessedEngine any
 
-	plugin := &PluginDescriptor{
+	plugin := &Descriptor{
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 访问 manager
@@ -173,7 +173,7 @@ func TestEnsureContainerInitialized_Idempotent(t *testing.T) {
 func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 	manager := NewManager(nil)
 
-	plugins := []*PluginDescriptor{
+	plugins := []*Descriptor{
 		{
 			Name: "a",
 			Setup: func(ctx *SetupContext) (any, error) {

@@ -60,7 +60,7 @@ func WithValidateOnly(validate bool) WatcherOption {
 }
 
 // NewWatcherWithContext creates a new configuration watcher whose lifetime is
-// bound to the provided parent context. When parent is cancelled (e.g. on
+// bound to the provided parent context. When parent is canceled (e.g. on
 // Bot shutdown), the watcher stops automatically without requiring an explicit
 // Stop() call. This follows the same WithContext pattern used by
 // AdaptiveRateLimiter, DedupFilter, and token.Manager.
@@ -96,7 +96,7 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 	// This handles cases where editors create temp files
 	dir := filepath.Dir(absPath)
 	if err := fsWatcher.Add(dir); err != nil {
-		fsWatcher.Close()
+		_ = fsWatcher.Close()
 		return nil, fmt.Errorf("failed to watch directory: %w", err)
 	}
 
@@ -120,7 +120,7 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 	cfg, err := Load(configPath)
 	if err != nil {
 		cancel()
-		fsWatcher.Close()
+		_ = fsWatcher.Close()
 		return nil, fmt.Errorf("failed to load initial config: %w", err)
 	}
 	w.currentConfig.Store(cfg)
@@ -312,7 +312,7 @@ func (w *Watcher) ForceReload() error {
 	return w.reload()
 }
 
-// Stats returns watcher statistics
+// WatcherStats returns watcher statistics
 type WatcherStats struct {
 	ReloadCount    int64
 	FailedCount    int64

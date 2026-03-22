@@ -99,18 +99,18 @@ func NewPlugin(onVerify OnVerifyHook) *Plugin {
 }
 
 // New 创建验证码插件描述符
-func New(onVerify OnVerifyHook) *plugin.PluginDescriptor {
+func New(onVerify OnVerifyHook) *plugin.Descriptor {
 	p := NewPlugin(onVerify)
 	return Descriptor(p)
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "verifycode",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "多用途验证码插件，支持角色授予、入群验证、自定义回调",
 			Category:    "核心",

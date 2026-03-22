@@ -61,17 +61,17 @@ func NewPlugin() *Plugin {
 
 // New 创建冷却时间插件描述符（便捷入口）。
 // 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
 	return Descriptor(NewPlugin())
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.PluginDescriptor {
-	return &plugin.PluginDescriptor{
+func Descriptor(p *Plugin) *plugin.Descriptor {
+	return &plugin.Descriptor{
 		Name:    "cooldown",
 		Version: "1.0.0",
 		Deps:    []string{},
-		Meta: &plugin.PluginMeta{
+		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "命令冷却时间插件，支持用户级和命令级冷却控制",
 			Category:    "核心",

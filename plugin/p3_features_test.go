@@ -94,17 +94,17 @@ func TestDependencyReloadNotification(t *testing.T) {
 	var mu sync.Mutex
 
 	// 注册基础插件
-	mgr.RegisterV2(&plugin.PluginDescriptor{
+	mgr.RegisterV2(&plugin.Descriptor{
 		Name:  "base",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
 	// 注册依赖方，设置 OnDependencyReloaded 回调
-	mgr.RegisterV2(&plugin.PluginDescriptor{
+	mgr.RegisterV2(&plugin.Descriptor{
 		Name:  "dependent",
 		Deps:  []string{"base"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
-		Advanced: &plugin.PluginAdvanced{
+		Advanced: &plugin.Advanced{
 			OnDependencyReloaded: func(dep string) {
 				mu.Lock()
 				notified = dep

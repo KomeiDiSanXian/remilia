@@ -11,8 +11,8 @@ import (
 
 // register.go — 插件注册：RegisterV2、批量注册、拓扑排序
 
-// RegisterV2 注册 v2 风格的插件（使用 PluginDescriptor）
-func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
+// RegisterV2 注册 v2 风格的插件（使用 Descriptor）
+func (pm *Manager) RegisterV2(desc *Descriptor) error {
 	// 阶段 1：基础合法性（无锁，无 Manager 状态依赖）
 	if err := validateDescriptor(desc); err != nil {
 		return err
@@ -61,7 +61,7 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 		return err
 	}
 
-	instance := &PluginInstance{
+	instance := &Instance{
 		desc:     desc,
 		state:    Unloaded,
 		matchers: make([]*engine.Matcher, 0),
@@ -207,7 +207,7 @@ func (pm *Manager) RegisterV2(desc *PluginDescriptor) error {
 
 // RegisterMultipleV2 批量注册多个 v2 插件，自动处理依赖顺序。
 // 任意插件注册失败时，已注册的插件不会自动回滚（使用 RegisterMultipleV2Atomic 获得原子保证）。
-func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
+func (pm *Manager) RegisterMultipleV2(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -236,7 +236,7 @@ func (pm *Manager) RegisterMultipleV2(descriptors []*PluginDescriptor) error {
 }
 
 // RegisterMultipleV2Atomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
-func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*PluginDescriptor) error {
+func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -290,7 +290,7 @@ func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*PluginDescriptor) err
 // RegisterMultipleV2Smart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
 //
 // 限制：插件的 Setup 函数必须幂等（能安全多次调用而无副作用）。
-func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) error {
+func (pm *Manager) RegisterMultipleV2Smart(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -309,7 +309,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 	logger.Info("[pluginManager] Smart registration: inferring dependencies...")
 
 	inferredDeps := make(map[string][]string)
-	descMap := make(map[string]*PluginDescriptor)
+	descMap := make(map[string]*Descriptor)
 	for _, desc := range descriptors {
 		descMap[desc.Name] = desc
 	}
@@ -321,7 +321,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 	}
 	pm.mu.RUnlock()
 	for _, desc := range descriptors {
-		tempContainer.Register(desc.Name, &PluginInstance{desc: desc})
+		tempContainer.Register(desc.Name, &Instance{desc: desc})
 	}
 
 	for _, desc := range descriptors {
@@ -370,7 +370,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 
 	logger.Info("[pluginManager] Smart registration: sorting by dependencies...")
 
-	descriptorsWithDeps := make([]*PluginDescriptor, len(descriptors))
+	descriptorsWithDeps := make([]*Descriptor, len(descriptors))
 	for i, desc := range descriptors {
 		descCopy := *desc
 		depsMap := make(map[string]bool)
@@ -392,7 +392,7 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*PluginDescriptor) erro
 }
 
 // ValidateDependencies 验证一组插件的依赖关系（不注册）
-func (pm *Manager) ValidateDependencies(descriptors []*PluginDescriptor) error {
+func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
 	_, err := pm.topologicalSortV2(descriptors)
 	return err
 }
@@ -419,8 +419,8 @@ func (pm *Manager) ensureContainerInitialized() {
 }
 
 // topologicalSortV2 使用 Kahn 算法进行拓扑排序，检测循环依赖
-func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*PluginDescriptor, error) {
-	descMap := make(map[string]*PluginDescriptor)
+func (pm *Manager) topologicalSortV2(descriptors []*Descriptor) ([]*Descriptor, error) {
+	descMap := make(map[string]*Descriptor)
 	for _, desc := range descriptors {
 		if _, exists := descMap[desc.Name]; exists {
 			return nil, fmt.Errorf("duplicate plugin name: %s", desc.Name)
@@ -466,7 +466,7 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 		}
 	}
 
-	result := make([]*PluginDescriptor, 0, len(descriptors))
+	result := make([]*Descriptor, 0, len(descriptors))
 	processed := 0
 	for len(queue) > 0 {
 		current := queue[0]
@@ -494,7 +494,7 @@ func (pm *Manager) topologicalSortV2(descriptors []*PluginDescriptor) ([]*Plugin
 }
 
 // checkCrossBatchCyclicDependency 检查跨批次循环依赖
-func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescriptor, descMap map[string]*PluginDescriptor) error {
+func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*Descriptor, descMap map[string]*Descriptor) error {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	for _, desc := range descriptors {
@@ -511,7 +511,7 @@ func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*PluginDescript
 	return nil
 }
 
-func (pm *Manager) detectCycleThroughExisting(existingInst *PluginInstance, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) error {
+func (pm *Manager) detectCycleThroughExisting(existingInst *Instance, targetName string, batchPlugins map[string]*Descriptor, visited map[string]bool) error {
 	pluginName := existingInst.Name()
 	if visited[pluginName] {
 		return nil
@@ -535,7 +535,7 @@ func (pm *Manager) detectCycleThroughExisting(existingInst *PluginInstance, targ
 	return nil
 }
 
-func (pm *Manager) batchPluginDependsOn(plugin *PluginDescriptor, targetName string, batchPlugins map[string]*PluginDescriptor, visited map[string]bool) bool {
+func (pm *Manager) batchPluginDependsOn(plugin *Descriptor, targetName string, batchPlugins map[string]*Descriptor, visited map[string]bool) bool {
 	if visited[plugin.Name] {
 		return false
 	}

@@ -24,7 +24,7 @@ type LifecycleListener interface {
 
 // Manager 插件管理器
 type Manager struct {
-	plugins        map[string]*PluginInstance
+	plugins        map[string]*Instance
 	coordinator    engine.PluginCoordinator
 	listeners      []LifecycleListener
 	configProvider ConfigProvider
@@ -45,7 +45,7 @@ type Manager struct {
 //	)
 func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		plugins:     make(map[string]*PluginInstance),
+		plugins:     make(map[string]*Instance),
 		coordinator: coordinator,
 		listeners:   make([]LifecycleListener, 0),
 		loadOrder:   make([]string, 0),
@@ -178,7 +178,7 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 // propagateConfigChange 向所有已加载插件的 Config 广播配置变更
 func (pm *Manager) propagateConfigChange() {
 	pm.mu.RLock()
-	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	instances := make([]*Instance, 0, len(pm.plugins))
 	for _, inst := range pm.plugins {
 		instances = append(instances, inst)
 	}
@@ -351,7 +351,7 @@ func (pm *Manager) Reload(name string) error {
 // notifyDependents 通知依赖了 reloadedPlugin 的所有其他插件
 func (pm *Manager) notifyDependents(reloadedPlugin string) {
 	pm.mu.RLock()
-	instances := make(map[string]*PluginInstance, len(pm.plugins))
+	instances := make(map[string]*Instance, len(pm.plugins))
 	maps.Copy(instances, pm.plugins)
 	pm.mu.RUnlock()
 
@@ -381,7 +381,7 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 
 // Get 获取插件实例。
 // 若插件处于 Loading 状态（正在初始化），返回 nil, false，调用方需等待。
-func (pm *Manager) Get(name string) (*PluginInstance, bool) {
+func (pm *Manager) Get(name string) (*Instance, bool) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
@@ -518,14 +518,14 @@ func (pm *Manager) Count() int {
 }
 
 // AsLifecycleComponent 将插件实例转换为 lifecycle.Component
-func (pm *Manager) AsLifecycleComponent(inst *PluginInstance) lifecycle.Component {
+func (pm *Manager) AsLifecycleComponent(inst *Instance) lifecycle.Component {
 	return NewPluginComponent(inst, pm.coordinator, pm)
 }
 
 // RegisterToLifecycle 将所有已注册的插件注册到 lifecycle.Manager
 func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 	pm.mu.RLock()
-	instances := make([]*PluginInstance, 0, len(pm.plugins))
+	instances := make([]*Instance, 0, len(pm.plugins))
 	for _, inst := range pm.plugins {
 		instances = append(instances, inst)
 	}
@@ -566,9 +566,9 @@ func (pm *Manager) GetEventBus() EventBus {
 	return pm.eventBus
 }
 
-// AsPluginInfo 返回 Manager 的只读视图（PluginInfo 接口）。
+// AsPluginInfo 返回 Manager 的只读视图（Info 接口）。
 // 供向后兼容代码（如已废弃的 SetPluginManager）使用。
-func (pm *Manager) AsPluginInfo() PluginInfo {
+func (pm *Manager) AsPluginInfo() Info {
 	return newPluginInfo(pm)
 }
 

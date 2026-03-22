@@ -119,11 +119,13 @@ func (m *MockAPI) DMReset(_ context.Context, _, _ string, _ bool) (gjson.Result,
 }
 
 // ── 互动事件 ──────────────────────────────────────────────────────────────
+
 func (m *MockAPI) RespondInteraction(_ context.Context, _ string, _ int) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 
 // ── 频道成员 ──────────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetChannelOnlineNums(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -141,6 +143,7 @@ func (m *MockAPI) DeleteGuildMember(_ context.Context, _, _ string, _ bool, _ in
 }
 
 // ── 频道身份组 ────────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetGuildRoles(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -173,6 +176,7 @@ func (m *MockAPI) UpdateChannelRolePermissions(_ context.Context, _, _ string, _
 }
 
 // ── 接口授权管理 ──────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetGuildAPIPermissions(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -181,6 +185,7 @@ func (m *MockAPI) RequestGuildAPIPermission(_ context.Context, _ string, _ *dto.
 }
 
 // ── 发言管理 ──────────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetGuildMessageSetting(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -195,6 +200,7 @@ func (m *MockAPI) MuteGuildMultiMembers(_ context.Context, _ string, _ *dto.Mult
 }
 
 // ── 内容管理：公告 ────────────────────────────────────────────────────────
+
 func (m *MockAPI) CreateGuildAnnounce(_ context.Context, _ string, _ *dto.CreateGuildAnnounceRequest) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -203,6 +209,7 @@ func (m *MockAPI) DeleteGuildAnnounce(_ context.Context, _, _ string) (gjson.Res
 }
 
 // ── 内容管理：精华消息 ────────────────────────────────────────────────────
+
 func (m *MockAPI) PinMessage(_ context.Context, _, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -214,6 +221,7 @@ func (m *MockAPI) GetPinnedMessages(_ context.Context, _ string) (gjson.Result, 
 }
 
 // ── 内容管理：日程 ────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetChannelSchedules(_ context.Context, _ string, _ uint64) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -231,6 +239,7 @@ func (m *MockAPI) DeleteChannelSchedule(_ context.Context, _, _ string) (gjson.R
 }
 
 // ── 内容管理：音频 ────────────────────────────────────────────────────────
+
 func (m *MockAPI) AudioControl(_ context.Context, _ string, _ *dto.AudioControlRequest) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -242,6 +251,7 @@ func (m *MockAPI) BotOffMic(_ context.Context, _ string) (gjson.Result, error) {
 }
 
 // ── 内容管理：论坛帖子 ────────────────────────────────────────────────────
+
 func (m *MockAPI) GetThreadList(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -256,6 +266,7 @@ func (m *MockAPI) DeleteThread(_ context.Context, _, _ string) (gjson.Result, er
 }
 
 // ── 频道管理 ──────────────────────────────────────────────────────────────
+
 func (m *MockAPI) GetMe(_ context.Context) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -285,6 +296,7 @@ func (m *MockAPI) CreateDirectMessageSession(_ context.Context, _ *dto.DirectMes
 }
 
 // ── 表情表态 ──────────────────────────────────────────────────────────────
+
 func (m *MockAPI) AddReaction(_ context.Context, _, _ string, _ int, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -325,7 +337,7 @@ func NewQQBot() *QQBot {
 func (tb *QQBot) API() *MockAPI { return tb.api }
 
 // RegisterPlugin registers a plugin descriptor (deferred to Start).
-func (tb *QQBot) RegisterPlugin(desc *plugin.PluginDescriptor) *QQBot {
+func (tb *QQBot) RegisterPlugin(desc *plugin.Descriptor) *QQBot {
 	tb.Bot.RegisterPlugin(desc)
 	return tb
 }
