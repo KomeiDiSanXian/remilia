@@ -10,7 +10,7 @@ import (
 // contextPool is a sync.Pool for Context objects to reduce GC pressure
 var contextPool = sync.Pool{
 	New: func() any {
-		return &Context{}
+		return &Context{ctx: stdctx.Background()}
 	},
 }
 
