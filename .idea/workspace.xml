@@ -4,14 +4,13 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo: rename for consistency and clarity">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(adapter): unify passive reply token handling and enhance ChatInfo structure for clarity">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/extra.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/extra.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -272,7 +271,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore(tests): add Attachments method to event test structs for consistency" />
     <MESSAGE value="chore(tests): add Attachments method to various event test structs for consistency" />
     <MESSAGE value="refactor(webhook): separate HTTP server and token management into WebhookConn" />
     <MESSAGE value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
@@ -297,7 +295,8 @@
     <MESSAGE value="refactor(adapter): enhance SendRequest structure for improved clarity and support for passive replies" />
     <MESSAGE value="refactor(sender): remove unnecessary logger import and debug statement for cleaner code" />
     <MESSAGE value="typo: rename for consistency and clarity" />
-    <option name="LAST_COMMIT_MESSAGE" value="typo: rename for consistency and clarity" />
+    <MESSAGE value="refactor(adapter): unify passive reply token handling and enhance ChatInfo structure for clarity" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(adapter): unify passive reply token handling and enhance ChatInfo structure for clarity" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

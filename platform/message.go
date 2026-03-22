@@ -72,8 +72,8 @@ type Embed struct {
 	Description string
 	// URL 标题跳转链接（可选）
 	URL string
-	// Color 边框/主题颜色，十六进制整数，如 0x5865F2（Discord 蓝）
-	Color int
+	// Color 边框/主题颜色，RGB 十六进制无符号整数，如 0x5865F2（Discord 蓝）
+	Color uint32
 	// Fields 字段列表
 	Fields []EmbedField
 	// ImageURL 正文大图 URL
@@ -104,6 +104,12 @@ const (
 	ButtonStyleLink ButtonStyle = "link"
 )
 
+// ButtonRowAuto 是 Button.Row 的零值，表示交由平台自动排列布局。
+//
+// Row=ButtonRowAuto 时，每个按钮各自独占一行（安全默认值）。
+// 需要将多个按钮排在同一行时，为它们指定相同的 Row 值（1 ～ 5）。
+const ButtonRowAuto = 0
+
 // Button 代表一个平台无关的交互按钮。
 //
 // 适用于 Discord 消息组件、Telegram 内联键盘、QQ 机器人键盘等。
@@ -120,8 +126,12 @@ type Button struct {
 	Style ButtonStyle
 	// Disabled 按钮是否置灰不可点击（Discord/QQ 均支持）
 	Disabled bool
-	// Row 按钮所在行（0 起始）。
-	// Discord 最多 5 行，每行 5 个。0 表示由平台自动排列。
+	// Row 按钮所在行。
+	//
+	//   - ButtonRowAuto（0，零值默认）：由平台自动排列，每个此值的按钮独占一行
+	//   - 1 ～ 5：显式行号，相同 Row 值的按钮排列在同一行（1 = 第一行）
+	//
+	// Discord 最多 5 行，每行最多 5 个按钮；超出部分截断。
 	Row int
 	// Emoji 按钮前展示的 emoji（Discord 原生支持，其他平台忽略）
 	Emoji string
@@ -269,4 +279,22 @@ func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 	newExtra[key] = value
 	m.Extra = newExtra
 	return m
+}
+
+// IsEmpty 报告消息是否没有任何可发送的内容。
+//
+// 当 Text、Markdown、Attachments、Embeds 均为空/nil 时返回 true。
+// Mentions、Buttons、Extra 等元数据字段不计入"内容"判断，
+// 因为单独存在时平台通常也不会发出有意义的消息。
+//
+// 典型用法（Sender 实现中防止发送空消息）：
+//
+//	if req.Message.IsEmpty() {
+//	    return errutil.ErrEmptyMessage
+//	}
+func (m OutboundMessage) IsEmpty() bool {
+	return m.Text == "" &&
+		m.Markdown == "" &&
+		len(m.Attachments) == 0 &&
+		len(m.Embeds) == 0
 }

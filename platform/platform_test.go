@@ -10,11 +10,11 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// mockEvent 用于测试的简单 Event 实现
+// mockEvent 仅实现 platform.Event 基础接口，不实现任何可选接口。
+// 用于测试帮助函数（RawType、GetReplyToID 等）在事件不支持可选接口时的 fallback 路径。
 type mockEvent struct {
 	platformID string
 	kind       platform.EventKind
-	rawType    string
 	sender     platform.UserInfo
 	chat       platform.ChatInfo
 	content    string
@@ -23,13 +23,30 @@ type mockEvent struct {
 func (e *mockEvent) Platform() string                          { return e.platformID }
 func (e *mockEvent) ID() string                                { return "" }
 func (e *mockEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *mockEvent) RawType() string                           { return e.rawType }
 func (e *mockEvent) Sender() platform.UserInfo                 { return e.sender }
 func (e *mockEvent) Chat() platform.ChatInfo                   { return e.chat }
 func (e *mockEvent) Content() string                           { return e.content }
 func (e *mockEvent) Attachments() []platform.InboundAttachment { return nil }
 func (e *mockEvent) Timestamp() time.Time                      { return time.Time{} }
-func (e *mockEvent) RawPayload() any                           { return nil }
+
+// mockRawEvent 在 mockEvent 基础上额外实现 platform.RawEvent 可选接口。
+// 用于测试帮助函数走"已实现可选接口"路径时的行为。
+type mockRawEvent struct {
+	mockEvent
+	rawType    string
+	rawPayload any
+}
+
+func (e *mockRawEvent) RawType() string { return e.rawType }
+func (e *mockRawEvent) RawPayload() any { return e.rawPayload }
+
+// mockReplyEvent 额外实现 platform.ReplyEvent 可选接口。
+type mockReplyEvent struct {
+	mockEvent
+	replyToID string
+}
+
+func (e *mockReplyEvent) ReplyToID() string { return e.replyToID }
 
 func TestOutboundMessage(t *testing.T) {
 	// TextMessage
@@ -415,5 +432,176 @@ func TestRegistry_Register_Overwrite(t *testing.T) {
 	// 应该是新适配器（mockFatalAdapter）
 	if _, isFatal := got.(*mockFatalAdapter); !isFatal {
 		t.Error("Registry.Register overwrite: expected new adapter to replace old one")
+	}
+}
+
+// ── 可选接口帮助函数（fallback 路径与实现路径） ────────────────────────────────
+
+func TestRawEventHelpers_Fallback(t *testing.T) {
+	// mockEvent 不实现 RawEvent → 帮助函数应走 fallback 返回零值
+	e := &mockEvent{platformID: "test"}
+
+	if got := platform.RawType(e); got != "" {
+		t.Errorf("RawType on non-RawEvent: want \"\", got %q", got)
+	}
+	if got := platform.RawPayload(e); got != nil {
+		t.Errorf("RawPayload on non-RawEvent: want nil, got %v", got)
+	}
+}
+
+func TestRawEventHelpers_Implemented(t *testing.T) {
+	// mockRawEvent 实现 RawEvent → 帮助函数应返回真实值
+	sentinel := struct{ v int }{v: 42}
+	e := &mockRawEvent{
+		mockEvent:  mockEvent{platformID: "test"},
+		rawType:    "MY_EVENT_TYPE",
+		rawPayload: sentinel,
+	}
+
+	if got := platform.RawType(e); got != "MY_EVENT_TYPE" {
+		t.Errorf("RawType on RawEvent: want %q, got %q", "MY_EVENT_TYPE", got)
+	}
+	if got := platform.RawPayload(e); got != sentinel {
+		t.Errorf("RawPayload on RawEvent: want sentinel, got %v", got)
+	}
+}
+
+func TestGetReplyToIDHelper(t *testing.T) {
+	// mockEvent 不实现 ReplyEvent → 返回 ""
+	plain := &mockEvent{}
+	if id := platform.GetReplyToID(plain); id != "" {
+		t.Errorf("GetReplyToID on non-ReplyEvent: want \"\", got %q", id)
+	}
+
+	// mockReplyEvent 实现 ReplyEvent → 返回真实值
+	reply := &mockReplyEvent{replyToID: "msg-xyz"}
+	if id := platform.GetReplyToID(reply); id != "msg-xyz" {
+		t.Errorf("GetReplyToID on ReplyEvent: want \"msg-xyz\", got %q", id)
+	}
+}
+
+// ── IsEmpty ──────────────────────────────────────────────────────────────────
+
+func TestOutboundMessage_IsEmpty(t *testing.T) {
+	cases := []struct {
+		name  string
+		msg   platform.OutboundMessage
+		empty bool
+	}{
+		{"zero value", platform.OutboundMessage{}, true},
+		{"text only", platform.TextMessage("hi"), false},
+		{"markdown only", platform.MarkdownMessage("# h"), false},
+		{"image only", platform.ImageMessage("https://img"), false},
+		{"embed only", platform.OutboundMessage{Embeds: []platform.Embed{{Title: "t"}}}, false},
+		{"mentions only", platform.OutboundMessage{Mentions: []string{"u1"}}, true},
+		{"buttons only", platform.OutboundMessage{Buttons: []platform.Button{{ID: "b"}}}, true},
+		{"extra only", platform.OutboundMessage{}.WithExtra("k", "v"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.msg.IsEmpty(); got != tc.empty {
+				t.Errorf("IsEmpty() = %v, want %v", got, tc.empty)
+			}
+		})
+	}
+}
+
+// ── Button.Row 语义 ──────────────────────────────────────────────────────────
+
+func TestButtonRowAuto(t *testing.T) {
+	// ButtonRowAuto 必须是整数零值，保证 Button{} 默认为自动排列
+	if platform.ButtonRowAuto != 0 {
+		t.Errorf("ButtonRowAuto should be 0 (zero value), got %d", platform.ButtonRowAuto)
+	}
+	btn := platform.Button{Label: "click"}
+	if btn.Row != platform.ButtonRowAuto {
+		t.Error("Default Button.Row should equal ButtonRowAuto")
+	}
+}
+
+// ── Embed.Color uint32 ───────────────────────────────────────────────────────
+
+func TestEmbedColor_IsUint32(t *testing.T) {
+	e := platform.Embed{Color: 0x5865F2}
+	if e.Color != 0x5865F2 {
+		t.Errorf("Embed.Color: want 0x5865F2, got %d", e.Color)
+	}
+	// 确认无法赋负值（uint32 不接受负数字面量，编译期保证）
+	var c platform.Embed
+	c.Color = 0xFFFFFF
+	if c.Color != 0xFFFFFF {
+		t.Errorf("Embed.Color max white: want 0xFFFFFF, got %d", c.Color)
+	}
+}
+
+// ── Registry.All() 始终非 nil ────────────────────────────────────────────────
+
+func TestRegistry_All_NeverNil(t *testing.T) {
+	reg := platform.NewRegistry()
+	got := reg.All()
+	if got == nil {
+		t.Error("Registry.All() on empty registry: should return non-nil slice, got nil")
+	}
+	if len(got) != 0 {
+		t.Errorf("Registry.All() on empty registry: want len=0, got len=%d", len(got))
+	}
+}
+
+// ── AdapterObserver / WithObserver ───────────────────────────────────────────
+
+// mockObserver 记录收到的 observer 调用，用于断言
+type mockObserver struct {
+	started     []string
+	stopped     []string
+	errors      [][2]string // [platform, errMsg]
+	disconnects []string
+}
+
+func (o *mockObserver) OnAdapterStarted(p string)    { o.started = append(o.started, p) }
+func (o *mockObserver) OnAdapterStopped(p string)    { o.stopped = append(o.stopped, p) }
+func (o *mockObserver) OnAdapterError(p, msg string) { o.errors = append(o.errors, [2]string{p, msg}) }
+func (o *mockObserver) OnAdapterDisconnect(p string, _ error) {
+	o.disconnects = append(o.disconnects, p)
+}
+
+func TestRegistry_WithObserver_StartStop(t *testing.T) {
+	obs := &mockObserver{}
+	reg := platform.NewRegistry().WithObserver(obs)
+
+	a := &mockFatalAdapter{platformID: "obs-platform", startErr: nil}
+	reg.Register(a)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消，让 Start 因 ctx 退出
+	_ = reg.StartAll(ctx, func(platform.Event) {})
+
+	if len(obs.started) != 1 || obs.started[0] != "obs-platform" {
+		t.Errorf("OnAdapterStarted: want [obs-platform], got %v", obs.started)
+	}
+	if len(obs.stopped) != 1 || obs.stopped[0] != "obs-platform" {
+		t.Errorf("OnAdapterStopped: want [obs-platform], got %v", obs.stopped)
+	}
+}
+
+func TestRegistry_WithObserver_FatalError(t *testing.T) {
+	obs := &mockObserver{}
+	reg := platform.NewRegistry().WithObserver(obs)
+	reg.Register(&mockFatalAdapter{platformID: "bad", startErr: errors.New("boom")})
+
+	_ = reg.StartAll(context.Background(), func(platform.Event) {})
+
+	if len(obs.errors) != 1 || obs.errors[0][0] != "bad" {
+		t.Errorf("OnAdapterError: want [{bad,...}], got %v", obs.errors)
+	}
+}
+
+func TestRegistry_WithObserver_Nil(t *testing.T) {
+	// 传入 nil observer 不应 panic
+	reg := platform.NewRegistry().WithObserver(nil)
+	reg.Register(&mockFatalAdapter{platformID: "p", startErr: nil})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := reg.StartAll(ctx, func(platform.Event) {}); err != nil {
+		t.Errorf("nil observer should not cause error: %v", err)
 	}
 }

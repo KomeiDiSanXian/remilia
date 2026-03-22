@@ -38,6 +38,11 @@ type Collector struct {
 	messageSent        *prometheus.CounterVec   // 消息发送次数，按类型和状态分类
 	messageLatency     *prometheus.HistogramVec // 消息发送延迟
 
+	// 平台适配器层指标
+	platformAdapterUp     *prometheus.GaugeVec   // 适配器运行状态（1=运行中，0=已停止），按平台
+	platformDisconnects   *prometheus.CounterVec // 意外断连次数，按平台
+	platformAdapterErrors *prometheus.CounterVec // fatal 错误退出次数，按平台
+
 	// Use atomic types for thread-safe access
 	internalPoolGets atomic.Uint64
 	internalPoolPuts atomic.Uint64
@@ -200,6 +205,24 @@ func NewMetricsCollectorWithRegistry(namespace string, registry prometheus.Regis
 		Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 	}, []string{"type"})
 
+	mc.platformAdapterUp = factory.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "platform_adapter_up",
+		Help:      "Whether the platform adapter is running (1 = running, 0 = stopped)",
+	}, []string{"platform"})
+
+	mc.platformDisconnects = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "platform_adapter_disconnects_total",
+		Help:      "Total number of unexpected disconnections per platform adapter",
+	}, []string{"platform"})
+
+	mc.platformAdapterErrors = factory.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "platform_adapter_errors_total",
+		Help:      "Total number of fatal errors causing a platform adapter to exit",
+	}, []string{"platform"})
+
 	return mc
 }
 
@@ -298,4 +321,45 @@ func (mc *Collector) RecordMessageSent(msgType, status string, duration time.Dur
 	if duration > 0 {
 		mc.messageLatency.WithLabelValues(msgType).Observe(duration.Seconds())
 	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PlatformAdapterObserver
+// ────────────────────────────────────────────────────────────────────────────
+
+// PlatformAdapterObserver 将平台适配器生命周期事件桥接到 Prometheus 指标。
+//
+// 它实现了 platform.AdapterObserver 接口（结构化鸭子类型，无需 import platform 包）。
+//
+// 使用示例：
+//
+//	reg := platform.NewRegistry().WithObserver(mc.PlatformObserver())
+type PlatformAdapterObserver struct {
+	mc *Collector
+}
+
+// PlatformObserver 返回一个实现 platform.AdapterObserver 的观察者实例，
+// 将事件映射到本 Collector 的平台适配器指标。
+func (mc *Collector) PlatformObserver() *PlatformAdapterObserver {
+	return &PlatformAdapterObserver{mc: mc}
+}
+
+// OnAdapterStarted 设置适配器运行状态为 1（running）。
+func (o *PlatformAdapterObserver) OnAdapterStarted(p string) {
+	o.mc.platformAdapterUp.WithLabelValues(p).Set(1)
+}
+
+// OnAdapterStopped 设置适配器运行状态为 0（stopped）。
+func (o *PlatformAdapterObserver) OnAdapterStopped(p string) {
+	o.mc.platformAdapterUp.WithLabelValues(p).Set(0)
+}
+
+// OnAdapterError 递增对应平台的 fatal 错误计数器。
+func (o *PlatformAdapterObserver) OnAdapterError(p, _ string) {
+	o.mc.platformAdapterErrors.WithLabelValues(p).Inc()
+}
+
+// OnAdapterDisconnect 递增对应平台的断连计数器。
+func (o *PlatformAdapterObserver) OnAdapterDisconnect(p string, _ error) {
+	o.mc.platformDisconnects.WithLabelValues(p).Inc()
 }

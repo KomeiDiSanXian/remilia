@@ -278,6 +278,31 @@ type RecoverableAdapter interface {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// AdapterObserver
+// ────────────────────────────────────────────────────────────────────────────
+
+// AdapterObserver 接收 Registry 适配器生命周期事件，用于可观测性集成。
+//
+// 所有方法均在调用方 goroutine 中**同步**执行，实现应保证非阻塞（如仅递增计数器）。
+// 如需进行耗时操作（日志写入、网络调用），请在实现内部使用异步队列。
+//
+// 使用示例（注册 metrics 观察者）：
+//
+//	reg := platform.NewRegistry().WithObserver(mc.PlatformObserver())
+//	reg.StartAll(ctx, handler)
+type AdapterObserver interface {
+	// OnAdapterStarted 适配器 goroutine 启动时调用（Start 开始阻塞前）。
+	OnAdapterStarted(platform string)
+	// OnAdapterStopped 适配器 goroutine 退出时调用（无论是否有错误）。
+	OnAdapterStopped(platform string)
+	// OnAdapterError 适配器以非 context 取消/超时错误退出时调用。
+	// errMsg 为 error.Error() 文本，避免直接传递 error 接口引起 alloc。
+	OnAdapterError(platform, errMsg string)
+	// OnAdapterDisconnect RecoverableAdapter 意外断连时调用。
+	OnAdapterDisconnect(platform string, err error)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Registry
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -287,12 +312,34 @@ type RecoverableAdapter interface {
 type Registry struct {
 	mu       sync.RWMutex
 	adapters map[string]Adapter
+	observer AdapterObserver // optional, nil = no-op
 }
 
 // NewRegistry 创建空的适配器注册表
 func NewRegistry() *Registry {
 	return &Registry{
 		adapters: make(map[string]Adapter),
+	}
+}
+
+// WithObserver 注册适配器生命周期观察者，返回 *Registry 支持链式调用。
+//
+// 必须在 StartAll 之前调用；并发调用是线程安全的（使用写锁）。
+// 传入 nil 表示清除当前观察者。
+func (r *Registry) WithObserver(o AdapterObserver) *Registry {
+	r.mu.Lock()
+	r.observer = o
+	r.mu.Unlock()
+	return r
+}
+
+// notifyObserver 内部帮助函数，持有读锁调用 observer。
+func (r *Registry) notifyObserver(fn func(AdapterObserver)) {
+	r.mu.RLock()
+	o := r.observer
+	r.mu.RUnlock()
+	if o != nil {
+		fn(o)
 	}
 }
 
@@ -329,13 +376,10 @@ func (r *Registry) Remove(platform string) bool {
 
 // All 返回所有已注册适配器的快照（切片顺序不保证）
 //
-// 注册表为空时返回 nil，避免无谓的切片分配。
+// 无论注册表是否为空，始终返回非 nil 切片，保持与 Go 惯例的一致性。
 func (r *Registry) All() []Adapter {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if len(r.adapters) == 0 {
-		return nil
-	}
 	out := make([]Adapter, 0, len(r.adapters))
 	for _, a := range r.adapters {
 		out = append(out, a)
@@ -419,13 +463,21 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Warn("[Registry] Platform adapter disconnected, waiting for recovery")
+				r.notifyObserver(func(o AdapterObserver) { o.OnAdapterDisconnect(a.Platform(), err) })
 			})
 		}
-		wg.Go(func() { // wg.Go 是 Go 1.25 新增方法；循环变量按值捕获依赖 Go 1.22+ 语义。
-			if err := a.Start(ctx, handler); err != nil {
+		wg.Go(func() {
+			r.notifyObserver(func(o AdapterObserver) { o.OnAdapterStarted(a.Platform()) })
+			err := a.Start(ctx, handler)
+			r.notifyObserver(func(o AdapterObserver) { o.OnAdapterStopped(a.Platform()) })
+			if err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Error("[Registry] Platform adapter exited with error")
+				// 仅对非 ctx 取消/超时的 fatal error 通知 observer（日常 ctx 退出不算错误）
+				if !errors.Is(err, stdctx.Canceled) && !errors.Is(err, stdctx.DeadlineExceeded) {
+					r.notifyObserver(func(o AdapterObserver) { o.OnAdapterError(a.Platform(), err.Error()) })
+				}
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("platform %s: %w", a.Platform(), err))
 				mu.Unlock()
