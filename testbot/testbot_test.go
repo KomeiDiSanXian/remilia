@@ -90,8 +90,8 @@ func TestBot_AssertSentCount(t *testing.T) {
 func TestBot_Inject_ArbitraryPayload(t *testing.T) {
 	tb := testbot.NewQQBot()
 	fired := false
-	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindMemberJoin（机器人被加入群组）。
-	tb.Engine().OnEventKind(platform.EventKindMemberJoin).Handle(func(ctx *context.Context) error {
+	// GroupAddRobot 在 platform/qq/event.go 中映射为 EventKindBotAdded（机器人被加入群组）。
+	tb.Engine().OnEventKind(platform.EventKindBotAdded).Handle(func(ctx *context.Context) error {
 		fired = true
 		return nil
 	})

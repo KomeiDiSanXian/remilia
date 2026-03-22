@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -27,6 +28,29 @@ type SendRequest struct {
 
 	// Message 要发送的消息内容。
 	Message OutboundMessage
+}
+
+// Validate 校验 SendRequest 是否合法，供 Sender 实现复用，避免重复检查。
+//
+// 当 Target.ID 为空时返回 [errutil.ErrNoChatInfo]；
+// 当 Message 没有任何可发送内容时返回 [errutil.ErrEmptyMessage]。
+//
+// 使用示例（Sender 实现）：
+//
+//	func (s *mySender) Send(ctx context.Context, req platform.SendRequest) error {
+//	    if err := req.Validate(); err != nil {
+//	        return err
+//	    }
+//	    // ... 平台特定发送逻辑
+//	}
+func (r SendRequest) Validate() error {
+	if r.Target.ID == "" {
+		return errutil.ErrNoChatInfo
+	}
+	if r.Message.IsEmpty() {
+		return errutil.ErrEmptyMessage
+	}
+	return nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -275,6 +299,67 @@ type RecoverableAdapter interface {
 	// 多次调用将追加（而非覆盖）回调，互不影响。
 	// 调用返回的 unregister 函数可注销该特定回调；传入 nil 时为空操作。
 	OnDisconnect(fn func(err error)) (unregister func())
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// BotIdentity（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// BotIdentity 是机器人自身身份信息的可选接口。
+//
+// 支持获取机器人自身 ID/名称的平台适配器应实现此接口，
+// 便于 Handler 做"防止自回复"判断、日志标注等操作。
+//
+// 使用示例：
+//
+//	// 防止自回复
+//	if botID := platform.GetBotID(adapter); botID != "" {
+//	    if event.Sender().ID == botID {
+//	        return // 忽略自身发出的消息
+//	    }
+//	}
+//
+//	// 直接类型断言（需要同时访问多个字段时更高效）
+//	if bi, ok := adapter.(platform.BotIdentity); ok {
+//	    log.Printf("bot %s (%s) online", bi.BotName(), bi.BotID())
+//	}
+type BotIdentity interface {
+	// BotID 返回机器人在当前平台的唯一标识符。
+	//
+	// 与 event.Sender().ID 对比可判断事件是否由机器人自身触发。
+	// 平台未提供或尚未连接时返回空字符串。
+	BotID() string
+
+	// BotName 返回机器人的显示名称（昵称/用户名）。
+	//
+	// 平台未提供时返回空字符串。
+	BotName() string
+}
+
+// GetBotID 安全获取适配器的机器人唯一 ID。
+//
+// 若适配器未实现 [BotIdentity] 或平台尚未返回 ID，返回空字符串。
+//
+// 使用示例：
+//
+//	if platform.GetBotID(adapter) == event.Sender().ID {
+//	    return // 忽略自身发出的消息
+//	}
+func GetBotID(a Adapter) string {
+	if bi, ok := a.(BotIdentity); ok {
+		return bi.BotID()
+	}
+	return ""
+}
+
+// GetBotName 安全获取适配器的机器人显示名称。
+//
+// 若适配器未实现 [BotIdentity]，返回空字符串。
+func GetBotName(a Adapter) string {
+	if bi, ok := a.(BotIdentity); ok {
+		return bi.BotName()
+	}
+	return ""
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -45,13 +45,16 @@ func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result
 }
 
 // Put 发送一个 put 请求到 url，自动添加 Authorization 头。
+// 若 data 为 nil，则发送无请求体的 PUT 请求（适用于如表情表态等不需要请求体的接口）。
 func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result, error) {
 	api.tm.WaitReady()
-	result, err := httpclient.Put(url).
+	req := httpclient.Put(url).
 		SetContext(ctx).
-		SetHeader("Authorization", api.authHeader()).
-		SetJSON(data).
-		DoJSON()
+		SetHeader("Authorization", api.authHeader())
+	if data != nil {
+		req = req.SetJSON(data)
+	}
+	result, err := req.DoJSON()
 	if err != nil {
 		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Put failed")
 		return gjson.Result{}, err

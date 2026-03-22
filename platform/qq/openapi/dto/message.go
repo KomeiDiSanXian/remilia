@@ -306,6 +306,12 @@ type KeyboardAction struct {
 	Enter bool `json:"enter,omitempty"`
 	// Anchor 指令按钮专有：1=唤起手Q选图器（仅手机端 v8983+，桌面端不支持）
 	Anchor int `json:"anchor,omitempty"`
+	// ClickLimit 【已弃用】可操作点击的次数，默认不限。
+	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
+	ClickLimit int `json:"click_limit,omitempty"`
+	// AtBotShowChannelList 【已弃用】指令按钮专有：弹出子频道选择器，默认 false。
+	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
+	AtBotShowChannelList bool `json:"at_bot_show_channel_list,omitempty"`
 }
 
 // KeyboardPermission 按钮操作权限配置。

@@ -40,7 +40,7 @@ type Attachment struct {
 	Data []byte
 	// MimeType MIME 类型，如 "image/png"（可选，辅助平台正确处理）
 	MimeType string
-	// Name 文件名（与 Data 或 FileURL 配合；平台不支持时可忽略）
+	// Name 文件名（与 Data 或 URL 配合；平台不支持时可忽略）
 	Name string
 }
 
@@ -135,6 +135,15 @@ type Button struct {
 	Row int
 	// Emoji 按钮前展示的 emoji（Discord 原生支持，其他平台忽略）
 	Emoji string
+	// Extra 平台专属按钮扩展字段。
+	//
+	// 用于携带通用字段无法表达的平台特定配置，各平台 Sender 通过类型断言读取。
+	// 不支持此字段的平台可安全忽略。
+	//
+	// 已知类型：
+	//   - *qq.ButtonExtra：QQ 按钮权限控制（visitable_user_id、enter_type 等）
+	//   - *telegram.InlineButtonExtra：Telegram switch_inline_query 等扩展字段
+	Extra any
 }
 
 // ────────────────────────────────────────────────────────────────────────────

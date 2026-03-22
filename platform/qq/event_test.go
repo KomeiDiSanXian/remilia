@@ -156,21 +156,21 @@ func TestNewEvent_SystemReady(t *testing.T) {
 }
 
 func TestNewEvent_Notice(t *testing.T) {
-	// GroupMsgReject/GroupMsgReceive/C2CMsgReject/C2CMsgReceive 属于通知类事件
+	// GroupMsgReject/GroupMsgReceive/C2CMsgReject/C2CMsgReceive 是消息权限变更事件
 	for _, et := range []dto.EventType{
 		dto.GroupMsgReject, dto.GroupMsgReceive,
 		dto.C2CMsgReject, dto.C2CMsgReceive,
 	} {
 		payload := makePayload(et, map[string]any{})
 		event := qq.NewEvent(payload)
-		if event.Kind() != platform.EventKindNotice {
-			t.Errorf("EventType %q kind: got %q, want Notice", et, event.Kind())
+		if event.Kind() != platform.EventKindMsgPermissionChange {
+			t.Errorf("EventType %q kind: got %q, want MsgPermissionChange", et, event.Kind())
 		}
 	}
 }
 
 func TestNewEvent_NoticeGroupFields(t *testing.T) {
-	// GroupMsgReject/GroupMsgReceive 是通知类事件，携带 group_openid 等字段
+	// GroupMsgReject/GroupMsgReceive 是消息权限变更事件，携带 group_openid 等字段
 	for _, et := range []dto.EventType{dto.GroupMsgReject, dto.GroupMsgReceive} {
 		payload := makePayload(et, map[string]any{
 			"group_openid":     "group_001",
@@ -179,8 +179,8 @@ func TestNewEvent_NoticeGroupFields(t *testing.T) {
 		})
 		event := qq.NewEvent(payload)
 
-		if event.Kind() != platform.EventKindNotice {
-			t.Errorf("[%s] Kind: got %q, want Notice", et, event.Kind())
+		if event.Kind() != platform.EventKindMsgPermissionChange {
+			t.Errorf("[%s] Kind: got %q, want MsgPermissionChange", et, event.Kind())
 		}
 		if !event.Chat().IsGroup {
 			t.Errorf("[%s] Chat.IsGroup: want true", et)
@@ -198,13 +198,13 @@ func TestNewEvent_NoticeGroupFields(t *testing.T) {
 }
 
 func TestNewEvent_MemberJoinLeaveGroupFields(t *testing.T) {
-	// GroupAddRobot/GroupDelRobot 是机器人加入/离开群组事件，映射为 MemberJoin/MemberLeave
+	// GroupAddRobot/GroupDelRobot 是机器人自身加入/离开群组事件，映射为 BotAdded/BotRemoved
 	memberEvents := []struct {
 		et   dto.EventType
 		kind platform.EventKind
 	}{
-		{dto.GroupAddRobot, platform.EventKindMemberJoin},
-		{dto.GroupDelRobot, platform.EventKindMemberLeave},
+		{dto.GroupAddRobot, platform.EventKindBotAdded},
+		{dto.GroupDelRobot, platform.EventKindBotRemoved},
 	}
 	for _, tc := range memberEvents {
 		payload := makePayload(tc.et, map[string]any{
@@ -233,13 +233,13 @@ func TestNewEvent_MemberJoinLeaveGroupFields(t *testing.T) {
 }
 
 func TestNewEvent_MemberJoinLeaveUserFields(t *testing.T) {
-	// FriendAdd/FriendDel 是好友关系变更（成员加入/离开）事件
+	// FriendAdd/FriendDel 是好友关系变更事件，映射为 FriendAdded/FriendRemoved
 	friendEvents := []struct {
 		et   dto.EventType
 		kind platform.EventKind
 	}{
-		{dto.FriendAdd, platform.EventKindMemberJoin},
-		{dto.FriendDel, platform.EventKindMemberLeave},
+		{dto.FriendAdd, platform.EventKindFriendAdded},
+		{dto.FriendDel, platform.EventKindFriendRemoved},
 	}
 	for _, tc := range friendEvents {
 		payload := makePayload(tc.et, map[string]any{
@@ -272,12 +272,12 @@ func TestNewEvent_NilDetail(t *testing.T) {
 		et   dto.EventType
 		kind platform.EventKind
 	}{
-		{dto.GroupAddRobot, platform.EventKindMemberJoin},
-		{dto.GroupDelRobot, platform.EventKindMemberLeave},
-		{dto.FriendAdd, platform.EventKindMemberJoin},
-		{dto.FriendDel, platform.EventKindMemberLeave},
-		{dto.GroupMsgReject, platform.EventKindNotice},
-		{dto.C2CMsgReject, platform.EventKindNotice},
+		{dto.GroupAddRobot, platform.EventKindBotAdded},
+		{dto.GroupDelRobot, platform.EventKindBotRemoved},
+		{dto.FriendAdd, platform.EventKindFriendAdded},
+		{dto.FriendDel, platform.EventKindFriendRemoved},
+		{dto.GroupMsgReject, platform.EventKindMsgPermissionChange},
+		{dto.C2CMsgReject, platform.EventKindMsgPermissionChange},
 	}
 	for _, tc := range cases {
 		p := &dto.Payload{ID: "evt-nil", Type: tc.et, Operation: dto.Dispatch, Detail: nil}
@@ -309,5 +309,164 @@ func TestNewEvent_UnknownType(t *testing.T) {
 	event := qq.NewEvent(payload)
 	if event.Kind() != platform.EventKindUnknown {
 		t.Errorf("Unknown type kind: got %q", event.Kind())
+	}
+}
+
+// ── 互动事件（INTERACTION_CREATE）────────────────────────────────────────────
+
+func TestNewEvent_Interaction_Button(t *testing.T) {
+	// type=11 消息按钮：content 应为 button_data
+	payload := makePayload(dto.InteractionCreate, map[string]any{
+		"id":          "interact001",
+		"type":        11,
+		"scene":       "c2c",
+		"chat_type":   2,
+		"user_openid": "user_abc",
+		"timestamp":   "2026-03-09T13:00:00Z",
+		"data": map[string]any{
+			"type": 11,
+			"resolved": map[string]any{
+				"button_data": "cmd_help",
+				"button_id":   "btn_1",
+				"user_id":     "",
+			},
+		},
+		"version": 1,
+	})
+
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindInteraction {
+		t.Errorf("Kind: got %q, want Interaction", event.Kind())
+	}
+	// id 应被覆盖为 interaction body 的 id
+	if event.ID() != "interact001" {
+		t.Errorf("ID: got %q, want interact001", event.ID())
+	}
+	// content 应为 button_data（type=11）
+	if event.Content() != "cmd_help" {
+		t.Errorf("Content: got %q, want cmd_help (button_data for type=11)", event.Content())
+	}
+	if event.Sender().ID != "user_abc" {
+		t.Errorf("Sender.ID: got %q, want user_abc", event.Sender().ID)
+	}
+	if event.Chat().IsGroup {
+		t.Error("c2c interaction chat should not be group")
+	}
+}
+
+func TestNewEvent_Interaction_QuickMenu(t *testing.T) {
+	// type=12 单聊快捷菜单：content 应为 feature_id
+	payload := makePayload(dto.InteractionCreate, map[string]any{
+		"id":          "interact002",
+		"type":        12,
+		"scene":       "c2c",
+		"chat_type":   2,
+		"user_openid": "user_xyz",
+		"timestamp":   "2026-03-09T13:00:00Z",
+		"data": map[string]any{
+			"type": 12,
+			"resolved": map[string]any{
+				"button_data": "",
+				"feature_id":  "menu_feature_001",
+			},
+		},
+		"version": 1,
+	})
+
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindInteraction {
+		t.Errorf("Kind: got %q, want Interaction", event.Kind())
+	}
+	// content 应为 feature_id（type=12 单聊快捷菜单）
+	if event.Content() != "menu_feature_001" {
+		t.Errorf("Content: got %q, want menu_feature_001 (feature_id for type=12)", event.Content())
+	}
+	if event.Sender().ID != "user_xyz" {
+		t.Errorf("Sender.ID: got %q, want user_xyz", event.Sender().ID)
+	}
+}
+
+func TestNewEvent_Interaction_GuildReplyToID(t *testing.T) {
+	// 频道场景下 replyToID 应为 data.resolved.message_id
+	payload := makePayload(dto.InteractionCreate, map[string]any{
+		"id":         "interact003",
+		"type":       11,
+		"scene":      "guild",
+		"chat_type":  0,
+		"guild_id":   "guild001",
+		"channel_id": "chan001",
+		"timestamp":  "2026-03-09T13:00:00Z",
+		"data": map[string]any{
+			"type": 11,
+			"resolved": map[string]any{
+				"button_data": "action_data",
+				"button_id":   "btn_2",
+				"user_id":     "author001",
+				"message_id":  "msg_origin_001",
+			},
+		},
+		"version": 1,
+	})
+
+	event := qq.NewEvent(payload)
+
+	replyEvent, ok := event.(interface{ ReplyToID() string })
+	if !ok {
+		t.Fatal("event should implement ReplyToID()")
+	}
+	// replyToID 应为被操作消息 ID
+	if replyEvent.ReplyToID() != "msg_origin_001" {
+		t.Errorf("ReplyToID: got %q, want msg_origin_001 (data.resolved.message_id)", replyEvent.ReplyToID())
+	}
+	if event.Content() != "action_data" {
+		t.Errorf("Content: got %q, want action_data", event.Content())
+	}
+}
+
+// ── 表情表态事件（MESSAGE_REACTION_ADD / REMOVE）──────────────────────────────
+
+func TestNewEvent_MessageReaction_ReplyToID(t *testing.T) {
+	for _, evType := range []dto.EventType{dto.MessageReactionAdd, dto.MessageReactionRemove} {
+		payload := makePayload(evType, map[string]any{
+			"user_id":    "user001",
+			"channel_id": "chan001",
+			"guild_id":   "guild001",
+			"emoji": map[string]any{
+				"id":   "277",
+				"type": 1,
+			},
+			"target": map[string]any{
+				"id":   "msg_reacted_001",
+				"type": 0,
+			},
+		})
+
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindReaction {
+			t.Errorf("[%s] Kind: got %q, want Reaction", evType, event.Kind())
+		}
+		if event.Content() != "277" {
+			t.Errorf("[%s] Content: got %q, want 277 (emoji.id)", evType, event.Content())
+		}
+		if event.Sender().ID != "user001" {
+			t.Errorf("[%s] Sender.ID: got %q, want user001", evType, event.Sender().ID)
+		}
+		if event.Chat().ID != "chan001" {
+			t.Errorf("[%s] Chat.ID: got %q, want chan001", evType, event.Chat().ID)
+		}
+		if event.Chat().ParentID != "guild001" {
+			t.Errorf("[%s] Chat.ParentID: got %q, want guild001", evType, event.Chat().ParentID)
+		}
+		replyEvent, ok := event.(interface{ ReplyToID() string })
+		if !ok {
+			t.Fatalf("[%s] event should implement ReplyToID()", evType)
+		}
+		// replyToID 应为被表态的消息 ID（target.id）
+		if replyEvent.ReplyToID() != "msg_reacted_001" {
+			t.Errorf("[%s] ReplyToID: got %q, want msg_reacted_001 (target.id)", evType, replyEvent.ReplyToID())
+		}
 	}
 }

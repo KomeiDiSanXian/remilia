@@ -34,7 +34,10 @@ const (
 	EventKindGroupMessage EventKind = "GROUP_MESSAGE"
 	// EventKindGuildMessage 频道/服务器消息（QQ频道、Discord 服务器等）
 	EventKindGuildMessage EventKind = "GUILD_MESSAGE"
-	// EventKindNotice 通知类事件（通用，平台无法精确归类时使用）
+	// EventKindNotice 通知类事件（通用兜底，平台无法精确归类时使用）。
+	//
+	// 优先使用下方的细粒度 Kind（BotAdded / FriendAdded 等）；
+	// 仅当确实无法归类时才使用此值，配合 platform.RawType(event) 做进一步区分。
 	EventKindNotice EventKind = "NOTICE"
 	// EventKindRequest 请求类事件（加好友请求、加群请求等）
 	EventKindRequest EventKind = "REQUEST"
@@ -48,16 +51,71 @@ const (
 	//
 	// Discord 表情回应、Telegram 表情回应、QQ 表情回应。
 	EventKindReaction EventKind = "REACTION"
-	// EventKindMemberJoin 成员加入群组/服务器事件
+	// EventKindMemberJoin 普通成员加入群组/服务器事件（非机器人自身）。
+	//
+	// 机器人自身被加入群组/频道请使用 [EventKindBotAdded]。
 	EventKindMemberJoin EventKind = "MEMBER_JOIN"
-	// EventKindMemberLeave 成员离开/被踢出群组/服务器事件
+	// EventKindMemberLeave 普通成员离开/被踢出群组/服务器事件（非机器人自身）。
+	//
+	// 机器人自身被移出群组/频道请使用 [EventKindBotRemoved]。
 	EventKindMemberLeave EventKind = "MEMBER_LEAVE"
+	// EventKindMemberUpdate 成员信息变更（昵称、角色、权限等）。
+	//
+	// QQ 频道 GuildMemberUpdate、Discord guild_member_update 等。
+	EventKindMemberUpdate EventKind = "MEMBER_UPDATE"
 	// EventKindMessageUpdate 消息被编辑
 	//
 	// Discord 消息编辑、Telegram 消息编辑。
 	EventKindMessageUpdate EventKind = "MESSAGE_UPDATE"
 	// EventKindMessageDelete 消息被撤回/删除
 	EventKindMessageDelete EventKind = "MESSAGE_DELETE"
+
+	// ── 机器人自身生命周期 ─────────────────────────────────────────────────
+
+	// EventKindBotAdded 机器人自身被加入某个群组/频道/服务器。
+	//
+	// QQ: GROUP_ADD_ROBOT（被加入群）、GUILD_CREATE（被加入频道）
+	// Discord: guild_create（机器人加入新服务器）
+	EventKindBotAdded EventKind = "BOT_ADDED"
+
+	// EventKindBotRemoved 机器人自身被移出群组/频道/服务器。
+	//
+	// QQ: GROUP_DEL_ROBOT（被移出群）、GUILD_DELETE（被移出频道）
+	// Discord: guild_delete（机器人离开服务器）
+	EventKindBotRemoved EventKind = "BOT_REMOVED"
+
+	// ── 好友/关注者 ────────────────────────────────────────────────────────
+
+	// EventKindFriendAdded 新好友/关注者。
+	//
+	// QQ: FRIEND_ADD（C2C 场景用户添加机器人为好友/关注）
+	EventKindFriendAdded EventKind = "FRIEND_ADDED"
+
+	// EventKindFriendRemoved 好友/关注者移除。
+	//
+	// QQ: FRIEND_DEL（C2C 场景用户删除机器人好友/取消关注）
+	EventKindFriendRemoved EventKind = "FRIEND_REMOVED"
+
+	// ── 消息权限变更 ───────────────────────────────────────────────────────
+
+	// EventKindMsgPermissionChange 消息权限变更（消息下发开启/关闭）。
+	//
+	// QQ: GROUP_MSG_REJECT（群关闭机器人消息）、GROUP_MSG_RECEIVE（群开启机器人消息）、
+	//     C2C_MSG_REJECT（C2C 关闭机器人消息）、  C2C_MSG_RECEIVE（C2C 开启机器人消息）
+	EventKindMsgPermissionChange EventKind = "MSG_PERMISSION_CHANGE"
+
+	// ── 频道/子频道 ────────────────────────────────────────────────────────
+
+	// EventKindChannelChange 子频道（channel）创建、更新或删除。
+	//
+	// QQ: CHANNEL_CREATE / CHANNEL_UPDATE / CHANNEL_DELETE
+	// Discord: channel_create / channel_update / channel_delete
+	EventKindChannelChange EventKind = "CHANNEL_CHANGE"
+
+	// EventKindGuildChange 服务器/频道（guild）信息更新（非加入/离开）。
+	//
+	// QQ: GUILD_UPDATE；Discord: guild_update
+	EventKindGuildChange EventKind = "GUILD_CHANGE"
 )
 
 // UserInfo 代表消息发送者/用户的基本信息。
