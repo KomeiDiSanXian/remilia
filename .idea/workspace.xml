@@ -4,18 +4,17 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(degradation): correct type assertion for AlreadyRegisteredError handling">
-      <change afterPath="$PROJECT_DIR$/platform/errors.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management">
+      <change afterPath="$PROJECT_DIR$/examples/discord-bot/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/discord/config.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/discord/event.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/discord/extra.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/discord/interactions.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/discord/sender.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/event_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/dto/message.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/openapi.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -276,7 +275,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(webhook): simplify goroutine management in WebhookConn and update tests to use context from t" />
     <MESSAGE value="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender" />
     <MESSAGE value="refactor(platform): implement IsRunning method for adapters and update related code" />
     <MESSAGE value="optimize(platform): optimize Extra map handling in OutboundMessage" />
@@ -301,7 +299,8 @@
     <MESSAGE value="refactor(adapter): unify passive reply token handling and enhance ChatInfo structure for clarity" />
     <MESSAGE value="feat(adapter): implement AdapterObserver for lifecycle event monitoring and enhance metrics integration" />
     <MESSAGE value="fix(degradation): correct type assertion for AlreadyRegisteredError handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix(degradation): correct type assertion for AlreadyRegisteredError handling" />
+    <MESSAGE value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
