@@ -22,6 +22,7 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	// 用读锁保护"检查 shutdown → eventWg.Add(1)"的原子性。
 	// Shutdown() 持有写锁完成 shutdown.Store(true) 后立即释放，
 	// 随后调用 eventWg.Wait()，此时已无法再进入此 RLock 区间并执行 Add(1)。
+	// 保证 shutdown 和 Add(1) 互斥，防止 Add 和 Wait 并发无序调用。
 	e.shutdownMu.RLock()
 	if e.shutdown.Load() {
 		e.shutdownMu.RUnlock()
@@ -31,13 +32,16 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 	e.shutdownMu.RUnlock()
 	defer e.eventWg.Done()
 
-	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃
+	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃。
+	// 同时覆盖 ProcessPlatformEvent 通过委托调用此函数的场景：
+	// ctx.GetEventPlatform() 在平台路径下返回平台标识，非平台路径返回 ""。
 	defer func() {
 		if r := recover(); r != nil {
 			logger.WithFields(logger.Fields{
 				"panic":      r,
 				"event_type": ctx.GetEventType(),
-			}).Error("[engine] Unhandled panic in ProcessEvent recovered")
+				"platform":   ctx.GetEventPlatform(),
+			}).Error("[engine] Unhandled panic in event processing recovered")
 		}
 	}()
 
@@ -74,7 +78,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	cv := m.compiledVersion.Load()
 	if v := m.compiledHandlers.Load(); v != nil {
 		if cc, ok := v.(*compiledChain); ok && cc != nil && cc.version == cv {
-			finalHandler = cc.handlers[0]
+			finalHandler = cc.head
 		}
 	}
 
@@ -178,6 +182,8 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 //   - Handle()：handler 更换时
 func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he context.Handler) context.Handler {
 	// Fast path: no middleware → call handler directly, zero overhead.
+	// No compiledChain stored: the handler itself is the final value,
+	// and it is returned directly from the slow path on every call.
 	if len(chain) == 0 {
 		return he
 	}
@@ -186,25 +192,34 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 
 	if v := m.compiledHandlers.Load(); v != nil {
 		if cc, ok := v.(*compiledChain); ok && cc != nil && cc.version == cv {
-			return cc.handlers[0]
+			return cc.head
 		}
 	}
 
-	// Slow path: build the compiled chain once.
-	// handlers[i] = chain[i](handlers[i+1]): each is a single closure
-	// allocated here, not on every invocation.
-	handlers := make([]context.Handler, len(chain)+1)
-	handlers[len(chain)] = he
+	// Slow path: compose the middleware chain once and cache only the head.
+	//
+	// We build right-to-left using a temporary local slice so each closure
+	// can capture the already-built "next" value:
+	//
+	//   tmp[N]   = he                       (actual handler)
+	//   tmp[N-1] = chain[N-1](tmp[N])       (innermost middleware)
+	//   ...
+	//   tmp[0]   = chain[0](tmp[1])         (outermost middleware)
+	//
+	// Only tmp[0] (head) is stored in compiledChain; tmp[1..N] are kept alive
+	// through the closure capture chain, not through the slice.
+	tmp := make([]context.Handler, len(chain)+1)
+	tmp[len(chain)] = he
 	for i := len(chain) - 1; i >= 0; i-- {
-		handlers[i] = chain[i](handlers[i+1])
+		tmp[i] = chain[i](tmp[i+1])
 	}
 
 	cc := &compiledChain{
-		handlers: handlers,
-		version:  cv,
+		head:    tmp[0],
+		version: cv,
 	}
 	m.compiledHandlers.Store(cc)
-	return handlers[0]
+	return tmp[0]
 }
 
 // startPendingDeleteProcessor 启动批量删除处理器
@@ -355,6 +370,11 @@ func extractCommand(content string) string {
 // mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
 // 输出结果同样按优先级升序排列（数值越小优先级越高）。
 //
+// State 列表（l1/l2/l4/l5）中可能残留已被迁移到 TempManager 的元素（isTemp==1），
+// 需要跳过（避免双重执行）。Temp 列表（l3/l6）反之。
+// mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
+// 输出结果同样按优先级升序排列（数值越小优先级越高）。
+//
 // # 6 路由两个维度组合而来：
 //
 //	维度 1 — 事件类型范围
@@ -374,12 +394,22 @@ func extractCommand(content string) string {
 // # 合并算法
 //
 // 各子列表在进入此函数前已经按优先级排好序（由 sortMatchersByPriority 保证），
-// 因此这里**不是归并排序**，而是一个 6 路"选最小堆头"的线性合并：
-//  1. 对每个列表找到第一个"有效头"（跳过迁移到 Temp/State 的陈旧元素）
-//  2. 从所有有效头中选出优先级最小的，追加到 dst
-//  3. 重复直到所有列表耗尽
+// 因此这里不是归并排序，而是一个 6 路"选最小堆头"的线性合并：
+//  1. 对每个列表找到第一个"有效头"（跳过 isTemp 状态不匹配的陈旧元素）
+//  2. 从所有有效头中选出优先级最小的 winner
+//  3. 对 winner 做一次 TOCTOU 二次确认；若已变陈旧则跳过并重试
+//  4. 重复直到所有列表耗尽
 //
 // 时间复杂度：O(N × 6) = O(N)，其中 N 为所有列表元素总和；6 为常数。
+//
+// # atomic.LoadInt32 次数分析
+//
+// 每次外层迭代（最多 N 次）：
+//   - Phase 1：每个未耗尽列表的头部 1 次 Load（共 ≤6 次）
+//   - Phase 2：不再对非 winner 执行 Load，仅对 winner 做 1 次 TOCTOU 确认
+//
+// 相比旧实现（Phase 1 ≤6 次 + Phase 2 ≤6 次 + fallback ≤6 次），
+// 每次外层迭代最多节省 5 次 LoadInt32；N=1000 时节省 ~5000 次原子读。
 //
 // # isStateSource 标志
 //
@@ -387,7 +417,6 @@ func extractCommand(content string) string {
 // 需要跳过（避免双重执行）。Temp 列表（l3/l6）反之。
 func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
 	totalLen := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
-	// 优化：所有列表为空时直接返回
 	if totalLen == 0 {
 		return dst[:0]
 	}
@@ -397,36 +426,24 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 	}
 	dst = dst[:0]
 
-	// Indices
-	idx := [6]int{0, 0, 0, 0, 0, 0}
+	idx := [6]int{}
 	lens := [6]int{len(l1), len(l2), len(l3), len(l4), len(l5), len(l6)}
 	lists := [6][]*Matcher{l1, l2, l3, l4, l5, l6}
-	// true if sourced from State (skip if isTemp), false if sourced from Temp (skip if !isTemp)
+	// true → State source（skip when isTemp==1）；false → Temp source（skip when isTemp==0）
 	isStateSource := [6]bool{true, true, false, true, true, false}
 
 	for {
-		// 1. Advance indices if current head items should be skipped
+		// ── Phase 1：推进各列表，跳过陈旧头部 ──────────────────────────────────────
+		// 每个非耗尽列表仅做 1 次 atomic.LoadInt32，与旧实现相同。
 		stop := true
 		for k := range 6 {
 			for idx[k] < lens[k] {
-				m := lists[k][idx[k]]
-				isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
-				shouldSkip := false
-				if isStateSource[k] {
-					if isTemp {
-						shouldSkip = true
-					}
-				} else {
-					if !isTemp {
-						shouldSkip = true
-					}
-				}
-
-				if shouldSkip {
-					idx[k]++
+				isTemp := atomic.LoadInt32(&lists[k][idx[k]].rt.isTemp) == 1
+				if (isStateSource[k] && isTemp) || (!isStateSource[k] && !isTemp) {
+					idx[k]++ // stale — skip
 				} else {
 					stop = false
-					break // Valid head found for list k
+					break // valid head found for list k
 				}
 			}
 		}
@@ -435,47 +452,42 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 			break
 		}
 
-		// 2. Find min priority among valid heads
+		// ── Phase 2：选出最低优先级的 winner ────────────────────────────────────────
+		// 各列表头部在 Phase 1 中已确认有效，此处直接按 priority 比较，
+		// 不对非 winner 执行 atomic.LoadInt32（相比旧实现节省 ≤5 次/迭代）。
 		minP := uint(999999999)
 		winner := -1
-
 		for k := range 6 {
 			if idx[k] < lens[k] {
-				m := lists[k][idx[k]]
-				// Re-check isTemp to handle TOCTOU: another goroutine may have
-				// changed the matcher's isTemp status between phase 1 and phase 2.
-				isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
-				if isStateSource[k] && isTemp {
-					continue // migrated to temp since phase 1 – skip
-				}
-				if !isStateSource[k] && !isTemp {
-					continue // migrated from temp since phase 1 – skip
-				}
-				p := m.getPriority()
-				if p < minP {
+				if p := lists[k][idx[k]].getPriority(); p < minP {
 					minP = p
 					winner = k
 				}
 			}
 		}
 
-		if winner != -1 {
-			dst = append(dst, lists[winner][idx[winner]])
-			idx[winner]++
-		} else {
-			// All remaining candidates had their isTemp changed; advance all
-			// stale heads so the outer loop can re-evaluate.
-			for k := range 6 {
-				if idx[k] < lens[k] {
-					m := lists[k][idx[k]]
-					isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
-					stale := (isStateSource[k] && isTemp) || (!isStateSource[k] && !isTemp)
-					if stale {
-						idx[k]++
-					}
-				}
-			}
+		// stop==false 保证至少一个列表非空，winner 必然 ≥ 0；此处仅作防御性保护。
+		if winner == -1 {
+			break
 		}
+
+		// ── TOCTOU 确认：仅对 winner 做一次二次 Load ─────────────────────────────
+		// 若 winner 在 Phase 1 与 Phase 2 之间发生 isTemp 迁移，则跳过并重试。
+		// 非 winner 即使发生迁移，下次外层迭代的 Phase 1 会自动处理。
+		//
+		// 正确性：
+		//  - 若 winner 仍有效 → emit，继续。
+		//  - 若 winner 变陈旧 → advance，外层循环重试；其他候选不受影响。
+		//  - 若非 winner 变陈旧且优先级更高（数值更小）→ 该非 winner 被错误选为 winner
+		//    → TOCTOU 检测到陈旧 → advance → 重试 → 真正 winner 在下次迭代被选中。
+		isTemp2 := atomic.LoadInt32(&lists[winner][idx[winner]].rt.isTemp) == 1
+		if (isStateSource[winner] && isTemp2) || (!isStateSource[winner] && !isTemp2) {
+			idx[winner]++ // winner became stale; skip and retry
+			continue
+		}
+
+		dst = append(dst, lists[winner][idx[winner]])
+		idx[winner]++
 	}
 	return dst
 }

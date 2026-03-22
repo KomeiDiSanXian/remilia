@@ -208,7 +208,9 @@ func TestMatcher_Handle(t *testing.T) {
 			return nil
 		}
 
-		matcher := eng.OnAny().Handle(handler)
+		// Handle is a terminal method (void return) — keep *Matcher from eng.OnAny()
+		matcher := eng.OnAny()
+		matcher.Handle(handler)
 
 		require.NotNil(t, matcher)
 		assert.NotNil(t, matcher.Handler)
@@ -228,7 +230,8 @@ func TestMatcher_Handle(t *testing.T) {
 			return expectedErr
 		}
 
-		matcher := eng.OnAny().Handle(handler)
+		matcher := eng.OnAny()
+		matcher.Handle(handler)
 
 		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		err := matcher.Handler(context)

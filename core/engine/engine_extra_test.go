@@ -85,11 +85,17 @@ func TestMatcher_NoopBehavior(t *testing.T) {
 	result = matcher.SetBlock(true)
 	assert.Equal(t, matcher, result)
 
+	// Handle is now a terminal (void) method; verify it does not panic on noop
+	// and does not set a handler (noop matchers are inert).
 	handler := func(c *ctx.Context) error { return nil }
-	result = matcher.Handle(handler)
-	assert.Equal(t, matcher, result)
+	matcher.Handle(handler)
+	assert.Nil(t, matcher.Handler, "noop matcher should not store a handler")
 }
 
+// TestMatcher_ReplaceHandler verifies that calling Handle twice on the *same*
+// *Matcher variable (two separate statements) intentionally replaces the handler.
+// Note: the chained form `.Handle(h1).Handle(h2)` is now a compile error because
+// Handle is a void terminal method — this test uses the deliberate two-statement form.
 func TestMatcher_ReplaceHandler(t *testing.T) {
 	eng := NewEngine()
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
@@ -105,7 +111,7 @@ func TestMatcher_ReplaceHandler(t *testing.T) {
 	}
 
 	matcher.Handle(handler1)
-	matcher.Handle(handler2)
+	matcher.Handle(handler2) // intentional replacement via separate statement
 
 	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)

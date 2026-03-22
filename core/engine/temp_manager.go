@@ -156,6 +156,15 @@ func (m *tempMatcherManager) Count() int {
 	return int(atomic.LoadInt32(&m.count))
 }
 
+// HasAny reports whether there are any temporary matchers registered.
+//
+// O(1) — single atomic load, avoids the 8-shard RLock/map-lookup path of Get.
+// Use this as a fast-path guard before calling Get to skip the shard scan
+// entirely when temp matchers are absent (the common case in production bots).
+func (m *tempMatcherManager) HasAny() bool {
+	return atomic.LoadInt32(&m.count) > 0
+}
+
 // CountAccurate returns accurate count by scanning all shards (slower)
 func (m *tempMatcherManager) CountAccurate() int {
 	count := 0

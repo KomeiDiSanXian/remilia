@@ -11,11 +11,11 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng := NewEngine()
 
 	triggered := false
-	m := eng.On(string(platform.EventKindPrivateMessage)).
-		Handle(func(c *ctx.Context) error {
-			triggered = true
-			return nil
-		})
+	m := eng.On(string(platform.EventKindPrivateMessage))
+	m.Handle(func(c *ctx.Context) error {
+		triggered = true
+		return nil
+	})
 	eng.SetMatcherGroup(m, "testplugin", "test")
 
 	// Process once — should trigger
@@ -38,11 +38,11 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 	eng := NewEngine()
 
 	triggered := false
-	m := eng.On(string(platform.EventKindPrivateMessage)).
-		Handle(func(c *ctx.Context) error {
-			triggered = true
-			return nil
-		})
+	m := eng.On(string(platform.EventKindPrivateMessage))
+	m.Handle(func(c *ctx.Context) error {
+		triggered = true
+		return nil
+	})
 	eng.SetMatcherGroup(m, "resume-plugin", "test")
 
 	eng.DisableGroup("resume-plugin")
@@ -57,8 +57,8 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 func TestDisableGroup_DoesNotDeleteMatchers(t *testing.T) {
 	eng := NewEngine()
 
-	m := eng.On(string(platform.EventKindPrivateMessage)).
-		Handle(func(c *ctx.Context) error { return nil })
+	m := eng.On(string(platform.EventKindPrivateMessage))
+	m.Handle(func(c *ctx.Context) error { return nil })
 	eng.SetMatcherGroup(m, "persist-plugin", "test")
 
 	stateBefore := eng.state.Load()

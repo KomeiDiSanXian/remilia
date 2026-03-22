@@ -66,16 +66,22 @@ type Matcher struct {
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
 }
 
-// compiledChain holds a pre-built slice of Handlers that correspond to
-// [mw0_wrapper, mw1_wrapper, …, actual_handler].  invokeHandler iterates
-// through this slice instead of constructing nested closures on every call.
+// compiledChain caches the outermost composed handler produced by
+// getOrBuildIterChain.
 //
-// version mirrors m.compiledVersion at the time the chain was built.
-// On the fast path getOrBuildIterChain simply loads m.compiledVersion and
-// compares it against cc.version — zero reflect calls.
+// Structure after building N middlewares + 1 handler:
+//
+//	head = chain[0](chain[1](...chain[N-1](handler)...))
+//
+// Each chain[i] returns a closure that captures chain[i+1]'s result as "next".
+// Calling head() executes the full chain through these closure captures —
+// no slice iteration needed; only head is stored here.
+//
+// version mirrors m.compiledVersion at build time; a version mismatch
+// triggers a rebuild on the next slow-path call.
 type compiledChain struct {
-	handlers []context.Handler
-	version  uint64 // snapshot of m.compiledVersion when this chain was compiled
+	head    context.Handler // entry point: outermost middleware wrapping the actual handler
+	version uint64          // snapshot of m.compiledVersion when this chain was compiled
 }
 
 func (m *Matcher) copy() *Matcher {
@@ -233,10 +239,20 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	return !m.rt.deleted.Load()
 }
 
-// Handle 设置 Matcher 的处理函数
+// Handle 设置 Matcher 的处理函数（终结点）
 //
-// 此方法用于设置当 Matcher 匹配成功时要执行的处理函数。
-// Handler 接收一个 *context.Context 参数，返回 error。
+// 此方法是 Matcher 配置链的**终结点**：调用后不再返回值，
+// 从编译期杜绝 `.Handle(h1).Handle(h2)` 这类误用——第二个 Handle
+// 会静默丢弃第一个 handler，造成难以察觉的 bug。
+//
+// 如需在 Handle 后访问 Matcher（如调用 SetTemp），
+// 请提前保存 eng.On(...) 返回的 *Matcher：
+//
+//	m := eng.OnCommand("/ping").SetPriority(100)
+//	m.Handle(func(ctx *context.Context) error {
+//	    return ctx.Reply("Pong!")
+//	})
+//	m.SetTemp(30 * time.Second) // 仍可操作 m
 //
 // # 线程安全说明
 //
@@ -244,41 +260,18 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 // 但强烈建议**在注册（RegisterMatcher/On/OnC2C 等返回前）之前**完成所有链式配置，
 // 注册后修改 Handler 会触发中间件链重建并短暂影响并发执行中的请求，属于高代价操作。
 //
-// 最佳实践：
-//
-//	建议将 Handle 作为链式调用的最后一步，使代码逻辑更清晰。
-//	配置方法（如 SetDescription、SetPriority、Use）应该在 Handle 之前调用。
-//
 // 推荐用法：
 //
 //	eng.OnCommand("/ping").
 //	    SetDescription("测试连接").
 //	    SetPriority(100).
 //	    Use(middleware.Logging()).
-//	    Handle(func(ctx *context.Context) error {  // ← 最后调用
+//	    Handle(func(ctx *context.Context) error {  // ← 终结点，无返回值
 //	        return ctx.Reply("Pong!")
 //	    })
-//
-// 分步配置：
-//
-//	m := eng.OnCommand("/admin")
-//	m.SetDescription("管理命令")
-//	m.Use(middleware.RequireAdmin())
-//	m.Handle(func(ctx *context.Context) error {  // ← 最后调用
-//	    return ctx.Reply("Admin panel")
-//	})
-//
-// 注意：
-//
-//	虽然 Handle 返回 *Matcher 支持继续链式调用，但不推荐在 Handle 之后
-//	继续配置其他属性，这会使代码逻辑不清晰。
-//
-// 返回：
-//
-//	返回 *Matcher 以支持链式调用。
-func (m *Matcher) Handle(handler context.Handler) *Matcher {
+func (m *Matcher) Handle(handler context.Handler) {
 	if m.isNoop() {
-		return m
+		return
 	}
 	m.rt.mu.Lock()
 	m.Handler = handler
@@ -289,7 +282,6 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 	if coord != nil {
 		coord.RebuildMatcherChain(m)
 	}
-	return m
 }
 
 // SetPriority 设置 Matcher 的优先级
