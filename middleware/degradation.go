@@ -75,7 +75,7 @@ func newDegradationMetrics(reg prometheus.Registerer) *degradationMetrics {
 	// 忽略 AlreadyRegisteredError：允许同名指标的多实例（取已注册的那个）
 	mustOrGet := func(c prometheus.Collector) prometheus.Collector {
 		if err := reg.Register(c); err != nil {
-			if are, ok := errors.AsType[*prometheus.AlreadyRegisteredError](err); ok {
+			if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
 				return are.ExistingCollector
 			}
 			// 其他错误（如命名非法）直接 panic，开发期即可发现
