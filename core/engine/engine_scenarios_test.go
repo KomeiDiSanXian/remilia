@@ -325,7 +325,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 
 		priority := matcher.priority.Load()
 
-		assert.LessOrEqual(t, priority, 50)
+		assert.LessOrEqual(t, priority, uint64(50))
 	})
 
 	t.Run("concurrent block changes", func(t *testing.T) {

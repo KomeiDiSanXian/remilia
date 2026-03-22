@@ -261,10 +261,10 @@ func TestMatcher_SetPriority(t *testing.T) {
 		require.NotNil(t, matcher)
 
 		matcher.rt.mu.RLock()
-		priority := matcher.priority
+		priority := matcher.priority.Load()
 		matcher.rt.mu.RUnlock()
 
-		assert.Equal(t, uint(100), priority)
+		assert.Equal(t, uint64(100), priority)
 	})
 }
 

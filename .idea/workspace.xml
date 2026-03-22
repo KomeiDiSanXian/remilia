@@ -4,24 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(matcher): optimize priority handling with atomic operations and improve matcher performance">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager_optimization_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -246,7 +230,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(sender): remove chatID parameter from Send method and update related implementations" />
     <MESSAGE value="refactor(platform): unify message sending interface and enhance capabilities structure" />
     <MESSAGE value="refactor(adapter): standardize platform adapter interface and capabilities structure" />
     <MESSAGE value="docs: remove archived docs" />
@@ -271,7 +254,8 @@
     <MESSAGE value="feat(platform): add support for channel management and direct messaging capabilities" />
     <MESSAGE value="feat(platform): add support for voice message handling and enhance message reset functionality" />
     <MESSAGE value="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions" />
+    <MESSAGE value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

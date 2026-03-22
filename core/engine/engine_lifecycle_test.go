@@ -377,7 +377,7 @@ func TestMatcher_SetPriority_TempMatcher(t *testing.T) {
 	newPriority := uint64(50)
 	matcher.SetPriority(newPriority)
 
-	priority := uint(matcher.priority.Load())
+	priority := matcher.priority.Load()
 
 	assert.Equal(t, newPriority, priority)
 }

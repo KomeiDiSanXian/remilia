@@ -694,7 +694,7 @@ func TestMatcher_GetPriority(t *testing.T) {
 	priority := matcher.priority.Load()
 	matcher.rt.mu.RUnlock()
 
-	assert.Equal(t, 42, priority)
+	assert.Equal(t, uint64(42), priority)
 }
 
 func TestMatcher_IsNoop(t *testing.T) {
