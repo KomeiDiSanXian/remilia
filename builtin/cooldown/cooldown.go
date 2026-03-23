@@ -5,7 +5,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(cooldown.New())
+//	pm.Register(cooldown.New())
 //
 //	// 作为中间件（在 Setup 中）：
 //	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
@@ -78,7 +78,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"冷却", "限速", "防刷"},
 			HelpText: `冷却时间插件使用说明：
   p := cooldown.NewPlugin()
-  pm.RegisterV2(cooldown.Descriptor(p))
+  pm.Register(cooldown.Descriptor(p))
   engine.OnCommand(...).Use(p.Middleware("cmd", 10*time.Second)).Handle(h)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {

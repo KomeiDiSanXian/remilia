@@ -23,7 +23,7 @@
 //
 // # 使用示例
 //
-//	pm.RegisterV2(stats.New())
+//	pm.Register(stats.New())
 //	// 挂载中间件：
 //	engine.Use(statsPlugin.Middleware())
 //	// 查询：
@@ -91,13 +91,13 @@ type userEntry struct {
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := stats.NewPlugin()
-//	pm.RegisterV2(stats.Descriptor(p))
+//	pm.Register(stats.Descriptor(p))
 //	engine.Use(p.Middleware())
 func NewPlugin() *Plugin {
 	return &Plugin{}
 }
 
-// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "stats",
@@ -109,7 +109,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Category:    "核心",
 			Tags:        []string{"统计", "分析", "监控"},
 			HelpText: `统计插件使用说明：
-  pm.RegisterV2(stats.New())
+  pm.Register(stats.New())
   engine.Use(statsPlugin.Middleware())
   statsPlugin.TopCommands(10)`,
 		},
@@ -139,11 +139,11 @@ func New() *plugin.Descriptor {
 }
 
 // Get 从插件管理器中获取已注册的 Stats 插件实例（类型安全）。
-// 需在 pm.RegisterV2(New()) 之后调用。
+// 需在 pm.Register(New()) 之后调用。
 func Get(pm *plugin.Manager) *Plugin {
 	v, ok := pm.GetContainer().Get("stats")
 	if !ok {
-		panic("stats: plugin not registered; call pm.RegisterV2(stats.New()) first")
+		panic("stats: plugin not registered; call pm.Register(stats.New()) first")
 	}
 	p, ok := v.(*Plugin)
 	if !ok {

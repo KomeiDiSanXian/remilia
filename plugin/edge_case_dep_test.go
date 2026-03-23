@@ -10,11 +10,11 @@ import (
 // --- 边缘情况 1：MustGet 访问根本不存在的插件 ---
 
 // TestEdge_MustGet_NonExistent 验证 MustGet 访问不存在插件时 panic 被框架捕获为注册错误。
-// 预期：Setup panic → loadErr → RegisterV2 返回错误，插件不进入注册表。
+// 预期：Setup panic → loadErr → Register 返回错误，插件不进入注册表。
 func TestEdge_MustGet_NonExistent(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "bad-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.MustGet("ghost") // ghost 根本不存在，应 panic
@@ -38,7 +38,7 @@ func TestEdge_Must_NonExistent(t *testing.T) {
 
 	type GhostPlugin struct{}
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "bad-plugin-must",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			_ = plugin.Must[GhostPlugin](ctx, "ghost") // 不存在，panic
@@ -61,7 +61,7 @@ func TestEdge_Must_NonExistent(t *testing.T) {
 func TestEdge_Get_NonExistent(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "safe-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			v, ok := ctx.Get("ghost") // 不存在，应安全返回 false
@@ -88,7 +88,7 @@ func TestEdge_Try_NonExistent(t *testing.T) {
 
 	type GhostPlugin struct{}
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "safe-try-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p, ok := plugin.Try[GhostPlugin](ctx, "ghost")
@@ -113,7 +113,7 @@ func TestEdge_DeclaredDep_NonExistent(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	setupCalled := false
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "needs-ghost",
 		Deps: []string{"ghost"}, // ghost 不存在
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -142,14 +142,14 @@ func TestEdge_DeclaredDep_LoadingState(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	// 注册一个正常插件作为基础
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:  "ready-dep",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
-	// 注意：Loading 状态只在 RegisterV2 执行过程中出现，
+	// 注意：Loading 状态只在 Register 执行过程中出现，
 	// 外部很难模拟，但可以验证 Loaded 状态的依赖是可以正常注册的
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "needs-ready",
 		Deps: []string{"ready-dep"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -169,7 +169,7 @@ func TestEdge_DeclaredDep_LoadingState(t *testing.T) {
 func TestEdge_Get_EmptyName(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "empty-name-test",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			v, ok := ctx.Get("") // 空名称
@@ -209,7 +209,7 @@ func TestEdge_Smart_MustGet_NonExistent(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleV2Smart([]*plugin.Descriptor{consumer, base})
+	err := pm.RegisterMultipleSmart([]*plugin.Descriptor{consumer, base})
 	if err != nil {
 		t.Fatalf("Smart 注册不应失败（不存在的可选依赖通过 Get 访问）: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestEdge_Smart_DryRun_PanicRecovered(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	// 预先注册一个插件（不在批次中）
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:  "pre-registered",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return "pre", nil },
 	})
@@ -242,7 +242,7 @@ func TestEdge_Smart_DryRun_PanicRecovered(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleV2Smart([]*plugin.Descriptor{consumer})
+	err := pm.RegisterMultipleSmart([]*plugin.Descriptor{consumer})
 	if err != nil {
 		t.Fatalf("Smart 注册不应失败: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestEdge_BatchAtomicWithMissingDep(t *testing.T) {
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	}
 
-	err := pm.RegisterMultipleV2Atomic([]*plugin.Descriptor{a, b})
+	err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{a, b})
 
 	if err == nil {
 		t.Fatal("应返回错误（batch-ghost 不存在）")
@@ -289,13 +289,13 @@ func TestEdge_NonStrict_MustGet_NonExistent_NoSideEffect(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	// 先注册一个正常插件
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:  "existing",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
 	})
 
 	// 注册一个会 panic 的插件（访问不存在依赖）
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "will-fail",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.MustGet("totally-nonexistent")
@@ -329,7 +329,7 @@ func TestEdge_GetPlugin_NonExistent(t *testing.T) {
 
 	type GhostPlugin struct{}
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "getplugin-test",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p, err := plugin.GetPlugin[GhostPlugin](ctx, "ghost")
@@ -352,7 +352,7 @@ func TestEdge_GetPlugin_NonExistent(t *testing.T) {
 func TestEdge_SelfDependency(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	err := pm.RegisterV2(&plugin.Descriptor{
+	err := pm.Register(&plugin.Descriptor{
 		Name: "self-dep",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// 尝试获取自身（不应追踪，Get 有 name != ctx.pluginName 检查）

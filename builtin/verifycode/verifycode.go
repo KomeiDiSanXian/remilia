@@ -11,7 +11,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(verifycode.New())
+//	pm.Register(verifycode.New())
 //	vc := ctx.MustGet("verifycode").(*verifycode.Plugin)
 //	code, _ := vc.Generate(verifycode.Config{Role: "vip", TTL: 24*time.Hour, MaxUses: 1})
 //	role, err := vc.Verify(userID, codeStr)

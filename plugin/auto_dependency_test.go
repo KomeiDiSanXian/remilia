@@ -15,7 +15,7 @@ func TestAutoTrackDependencies(t *testing.T) {
 		Name:  "base",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
-	err := manager.RegisterV2(basePlugin)
+	err := manager.Register(basePlugin)
 	require.NoError(t, err)
 
 	// dependent plugin accesses "base" via Get, auto-tracking the dependency.
@@ -27,7 +27,7 @@ func TestAutoTrackDependencies(t *testing.T) {
 		},
 	}
 
-	err = manager.RegisterV2(depPlugin)
+	err = manager.Register(depPlugin)
 	assert.NoError(t, err)
 	t.Log("✓ Dependency tracking works")
 }
@@ -36,13 +36,13 @@ func TestAutoTrackDependencies(t *testing.T) {
 func TestAutoTrackDependencies_MustGet(t *testing.T) {
 	manager := NewManager(nil)
 
-	err := manager.RegisterV2(&Descriptor{
+	err := manager.Register(&Descriptor{
 		Name:  "auth",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 	require.NoError(t, err)
 
-	err = manager.RegisterV2(&Descriptor{
+	err = manager.Register(&Descriptor{
 		Name: "permission",
 		Setup: func(ctx *SetupContext) (any, error) {
 			_ = ctx.MustGet("auth")
@@ -73,7 +73,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 			},
 		}
 
-		err := manager.RegisterMultipleV2Smart(plugins)
+		err := manager.RegisterMultipleSmart(plugins)
 		assert.NoError(t, err)
 		assert.True(t, manager.IsLoaded("auth"))
 		assert.True(t, manager.IsLoaded("permission"))
@@ -102,7 +102,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 			},
 		}
 
-		err := manager.RegisterMultipleV2Smart(plugins)
+		err := manager.RegisterMultipleSmart(plugins)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "circular dependency")
 		t.Log("✓ Circular dependency detected with smart registration")
@@ -113,17 +113,17 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 func TestGetTrackedDependencies(t *testing.T) {
 	manager := NewManager(nil)
 
-	manager.RegisterV2(&Descriptor{
+	manager.Register(&Descriptor{
 		Name:  "a",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
-	manager.RegisterV2(&Descriptor{
+	manager.Register(&Descriptor{
 		Name:  "b",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	var trackedDeps []string
-	err := manager.RegisterV2(&Descriptor{
+	err := manager.Register(&Descriptor{
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			_ = ctx.MustGet("a")
@@ -177,7 +177,7 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleV2Smart(plugins)
+	err := manager.RegisterMultipleSmart(plugins)
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("a"))
 	assert.True(t, manager.IsLoaded("b"))
@@ -202,17 +202,17 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 func TestDeclaredVsInferred(t *testing.T) {
 	manager := NewManager(nil)
 
-	manager.RegisterV2(&Descriptor{
+	manager.Register(&Descriptor{
 		Name:  "a",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
-	manager.RegisterV2(&Descriptor{
+	manager.Register(&Descriptor{
 		Name:  "b",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	})
 
 	// Declared dep on "a" but also uses "b" without declaring it.
-	err := manager.RegisterV2(&Descriptor{
+	err := manager.Register(&Descriptor{
 		Name: "test",
 		Deps: []string{"a"},
 		Setup: func(ctx *SetupContext) (any, error) {

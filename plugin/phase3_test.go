@@ -21,7 +21,7 @@ func TestP3_SetupV3_AutoExport(t *testing.T) {
 
 	type MyAPI struct{ Value int }
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-export",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return &MyAPI{Value: 42}, nil
@@ -41,7 +41,7 @@ func TestP3_SetupV3_NilApiNotExported(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-nil-export",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil // 纯命令注册插件，不导出 API
@@ -61,7 +61,7 @@ func TestP3_SetupV3_ErrorPropagates(t *testing.T) {
 	pm := NewManager(eng)
 
 	sentinel := errors.New("setup failed")
-	err := pm.RegisterV2(&Descriptor{
+	err := pm.Register(&Descriptor{
 		Name: "p3-error",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, sentinel
@@ -82,7 +82,7 @@ func TestP3_OldSetupFunc_StillWorks(t *testing.T) {
 	type OldAPI struct{ Name string }
 	api := &OldAPI{Name: "old"}
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-old-setup",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.ExportAs("p3-old-setup", api)
@@ -107,7 +107,7 @@ func TestP3_TeardownV3_ReceivesAPI(t *testing.T) {
 	type State struct{ Saved bool }
 	var capturedState *State
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-teardown",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return &State{Saved: false}, nil
@@ -133,7 +133,7 @@ func TestP3_TeardownV3_LogAndConfigAvailable(t *testing.T) {
 	var teardownLog Logger
 	var teardownConfig Config
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-teardown-ctx",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return "api-value", nil
@@ -161,7 +161,7 @@ func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
 
 	teardownCalled := false
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-old-teardown",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil
@@ -188,7 +188,7 @@ func TestP3_ExportAs_StillWorks(t *testing.T) {
 	type Service struct{ ID string }
 	svc := &Service{ID: "custom-name"}
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-manual-export",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 旧式：手动导出到自定义 key
@@ -246,7 +246,7 @@ func TestP3_Advanced_ReloadInAdvanced(t *testing.T) {
 
 	reloadCalled := false
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-advanced-reload",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil
@@ -272,7 +272,7 @@ func TestP3_Advanced_FallbackToDeprecatedReload(t *testing.T) {
 	reloadCalled := false
 
 	// Reload 函数只有在 Strategy == ReloadInPlace 时才会被调用
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-deprecated-reload",
 		Setup: func(ctx *SetupContext) (any, error) {
 			return nil, nil

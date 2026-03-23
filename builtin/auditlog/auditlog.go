@@ -8,7 +8,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(auditlog.New())
+//	pm.Register(auditlog.New())
 //	// 挂载中间件：
 //	engine.Use(auditlogPlugin.Middleware())
 //	// 手动记录：

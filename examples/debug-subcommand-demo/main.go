@@ -41,7 +41,7 @@ func main() {
 
 	// 1. 注册 Permission 插件（v2 API）
 	logger.Info("📦 加载 Permission 插件...")
-	if err := pm.RegisterV2(permission.New()); err != nil {
+	if err := pm.Register(permission.New()); err != nil {
 		logger.Fatal("注册 Permission 插件失败: " + err.Error())
 	}
 
@@ -62,13 +62,13 @@ func main() {
 
 	// 2. 注册 Debug 插件（v2 API）
 	logger.Info("🐛 加载 Debug 插件...")
-	if err := pm.RegisterV2(debug.New()); err != nil {
+	if err := pm.Register(debug.New()); err != nil {
 		logger.Fatal("注册 Debug 插件失败: " + err.Error())
 	}
 
 	// 3. 注册 Help 插件（v2 API）
 	logger.Info("📚 加载 Help 插件...")
-	if err := pm.RegisterV2(help.New()); err != nil {
+	if err := pm.Register(help.New()); err != nil {
 		logger.Fatal("注册 Help 插件失败: " + err.Error())
 	}
 

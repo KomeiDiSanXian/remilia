@@ -77,7 +77,7 @@ func main() {
 	rlPlugin.BindAntispam(asPlugin)
 	rlPlugin.BindCooldown(cdPlugin)
 	i18nPlugin := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-	if err := pm.RegisterMultipleV2([]*plugin.Descriptor{
+	if err := pm.RegisterMultiple([]*plugin.Descriptor{
 		storage.New(),
 		permission.New(),
 		acl.Descriptor(aclPlugin),
@@ -123,7 +123,7 @@ func main() {
 	if ar, ok := pm.GetContainer().Get("auditlog"); ok {
 		eng.Use(ar.(*auditlog.Plugin).Middleware())
 	}
-	if err := pm.RegisterV2(commandPlugin(pm, cdPlugin, statsPlugin)); err != nil {
+	if err := pm.Register(commandPlugin(pm, cdPlugin, statsPlugin)); err != nil {
 		log.Fatalf("register command plugin: %v", err)
 	}
 	schedPlugin.Every(5*time.Minute, func() {

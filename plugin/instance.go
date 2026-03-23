@@ -34,7 +34,7 @@ type Instance struct {
 func (pi *Instance) name() string { return pi.desc.Name }
 
 // load 加载插件（实现 pluginInternal）
-func (pi *Instance) load(engine.PluginCoordinator) (loadErr error) {
+func (pi *Instance) load() (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
@@ -49,7 +49,7 @@ func (pi *Instance) load(engine.PluginCoordinator) (loadErr error) {
 	startTime := time.Now()
 
 	// 捕获 Setup 中的 panic（如 MustGet 找不到依赖），转换为错误返回。
-	// 不捕获会导致 panic 穿透 RegisterV2 直接崩溃整个进程。
+	// 不捕获会导致 panic 穿透 Register 直接崩溃整个进程。
 	func() {
 		defer func() {
 			if r := recover(); r != nil {

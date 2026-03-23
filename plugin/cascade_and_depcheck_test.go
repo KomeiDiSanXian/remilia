@@ -20,7 +20,7 @@ func makeSimpleDescriptor(name string, deps []string) *Descriptor {
 
 func TestUnregisterCascade_NoDependents(t *testing.T) {
 	pm := NewManager(newCoordinator())
-	pm.RegisterV2(makeSimpleDescriptor("A", nil))
+	pm.Register(makeSimpleDescriptor("A", nil))
 
 	if err := pm.UnregisterCascade("A"); err != nil {
 		t.Fatalf("UnregisterCascade single plugin: %v", err)
@@ -32,9 +32,9 @@ func TestUnregisterCascade_NoDependents(t *testing.T) {
 
 func TestUnregisterCascade_WithDependents(t *testing.T) {
 	pm := NewManager(newCoordinator())
-	pm.RegisterV2(makeSimpleDescriptor("base", nil))
-	pm.RegisterV2(makeSimpleDescriptor("mid", []string{"base"}))
-	pm.RegisterV2(makeSimpleDescriptor("top", []string{"mid"}))
+	pm.Register(makeSimpleDescriptor("base", nil))
+	pm.Register(makeSimpleDescriptor("mid", []string{"base"}))
+	pm.Register(makeSimpleDescriptor("top", []string{"mid"}))
 
 	// 级联卸载 base，应同时卸载 mid 和 top
 	if err := pm.UnregisterCascade("base"); err != nil {
@@ -49,9 +49,9 @@ func TestUnregisterCascade_WithDependents(t *testing.T) {
 
 func TestUnregisterCascade_PartialTree(t *testing.T) {
 	pm := NewManager(newCoordinator())
-	pm.RegisterV2(makeSimpleDescriptor("A", nil))
-	pm.RegisterV2(makeSimpleDescriptor("B", nil))
-	pm.RegisterV2(makeSimpleDescriptor("C", []string{"A"}))
+	pm.Register(makeSimpleDescriptor("A", nil))
+	pm.Register(makeSimpleDescriptor("B", nil))
+	pm.Register(makeSimpleDescriptor("C", []string{"A"}))
 
 	// 卸载 A 应卸载 A 和 C，但 B 不受影响
 	if err := pm.UnregisterCascade("A"); err != nil {
@@ -82,10 +82,10 @@ func TestRegisterV2_DependencyMustBeLoaded(t *testing.T) {
 	pm := NewManager(newCoordinator())
 
 	// 注册 A（成功）
-	pm.RegisterV2(makeSimpleDescriptor("A", nil))
+	pm.Register(makeSimpleDescriptor("A", nil))
 
 	// 注册 B 依赖 A（A 已 Loaded，应成功）
-	if err := pm.RegisterV2(makeSimpleDescriptor("B", []string{"A"})); err != nil {
+	if err := pm.Register(makeSimpleDescriptor("B", []string{"A"})); err != nil {
 		t.Fatalf("B should register successfully when A is Loaded: %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestRegisterV2_DependencyLoading_ShouldFail(t *testing.T) {
 	pm.mu.Unlock()
 
 	// 尝试注册依赖 fake-loading 的插件，应失败（fake-loading 处于 Loading 状态）
-	err := pm.RegisterV2(makeSimpleDescriptor("dependent", []string{"fake-loading"}))
+	err := pm.Register(makeSimpleDescriptor("dependent", []string{"fake-loading"}))
 	if err == nil {
 		t.Fatal("expected error when dependency is in Loading state")
 	}
@@ -116,7 +116,7 @@ func TestRegisterV2_DependencyLoading_ShouldFail(t *testing.T) {
 func TestRegisterV2_MissingDependency(t *testing.T) {
 	pm := NewManager(newCoordinator())
 
-	err := pm.RegisterV2(makeSimpleDescriptor("X", []string{"missing-dep"}))
+	err := pm.Register(makeSimpleDescriptor("X", []string{"missing-dep"}))
 	if err == nil {
 		t.Fatal("expected error for missing dependency")
 	}
@@ -158,7 +158,7 @@ func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
 	pm.SetStrictDeps(true)
 
 	// Register base plugin (no deps)
-	if err := pm.RegisterV2(makeSimpleDescriptor("base", nil)); err != nil {
+	if err := pm.Register(makeSimpleDescriptor("base", nil)); err != nil {
 		t.Fatalf("register base: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterV2(sneaky)
+	err := pm.Register(sneaky)
 	if err == nil {
 		t.Fatal("expected error: undeclared dependency in strict mode")
 	}
@@ -191,7 +191,7 @@ func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
 	pm := NewManager(newCoordinator())
 	pm.SetStrictDeps(true)
 
-	pm.RegisterV2(makeSimpleDescriptor("base", nil))
+	pm.Register(makeSimpleDescriptor("base", nil))
 
 	honest := &Descriptor{
 		Name: "honest",
@@ -202,7 +202,7 @@ func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterV2(honest); err != nil {
+	if err := pm.Register(honest); err != nil {
 		t.Fatalf("honest plugin should register: %v", err)
 	}
 	if !pm.IsLoaded("honest") {
@@ -215,7 +215,7 @@ func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
 	pm := NewManager(newCoordinator())
 	// strictDeps defaults to false
 
-	pm.RegisterV2(makeSimpleDescriptor("base", nil))
+	pm.Register(makeSimpleDescriptor("base", nil))
 
 	lenient := &Descriptor{
 		Name: "lenient",
@@ -226,7 +226,7 @@ func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterV2(lenient); err != nil {
+	if err := pm.Register(lenient); err != nil {
 		t.Fatalf("lenient mode should not error on undeclared dep: %v", err)
 	}
 	if !pm.IsLoaded("lenient") {

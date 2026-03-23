@@ -51,8 +51,8 @@ func TestConversation_Descriptor_AutoGC(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	desc := New()
-	if err := pm.RegisterV2(desc); err != nil {
-		t.Fatalf("RegisterV2 failed: %v", err)
+	if err := pm.Register(desc); err != nil {
+		t.Fatalf("Register failed: %v", err)
 	}
 
 	inst, ok := pm.Get("conversation")

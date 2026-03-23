@@ -70,7 +70,7 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.
 
 // noopRegistryWriter DryRun 模式下的空操作 RegistryWriter
 // 所有注册调用均立即返回 nil，无任何副作用。
-// 框架内部在 RegisterMultipleV2Smart 依赖推断阶段注入此实现，
+// 框架内部在 RegisterMultipleSmart 依赖推断阶段注入此实现，
 // 插件代码无需感知 DryRun，直接使用 ctx.Reg 即可。
 type noopRegistryWriter struct{}
 

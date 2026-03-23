@@ -18,7 +18,7 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 			return nil, nil
 		},
 	}
-	err := manager.RegisterV2(plugin1)
+	err := manager.Register(plugin1)
 	require.NoError(t, err)
 
 	// 验证容器中的特殊服务
@@ -39,7 +39,7 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 			return nil, nil
 		},
 	}
-	err = manager.RegisterV2(plugin2)
+	err = manager.Register(plugin2)
 	require.NoError(t, err)
 
 	// 验证特殊服务仍然存在
@@ -57,7 +57,7 @@ func TestRegisterV2_NoRepeatedServiceRegistration(t *testing.T) {
 	assert.Equal(t, engineService1, engineService2, "Engine service should not be re-registered")
 	assert.Equal(t, coordService1, coordService2, "Coordinator service should not be re-registered")
 
-	t.Log("✓ Special services are not re-registered on subsequent RegisterV2 calls")
+	t.Log("✓ Special services are not re-registered on subsequent Register calls")
 }
 
 // TestRegisterV2_ContainerInitialization 测试容器的正确初始化
@@ -80,7 +80,7 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 			return nil, nil
 		},
 	}
-	err := manager.RegisterV2(plugin1)
+	err := manager.Register(plugin1)
 	require.NoError(t, err)
 
 	// 验证容器已初始化
@@ -123,7 +123,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterV2(plugin)
+	err := manager.Register(plugin)
 	require.NoError(t, err)
 
 	// 验证获取到的是正确的实例
@@ -137,7 +137,7 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 func TestEnsureContainerInitialized_Idempotent(t *testing.T) {
 	manager := NewManager(nil)
 
-	// 手动调用多次（模拟多次 RegisterV2）
+	// 手动调用多次（模拟多次 Register）
 	manager.mu.Lock()
 
 	manager.ensureContainerInitialized()
@@ -204,7 +204,7 @@ func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleV2(plugins)
+	err := manager.RegisterMultiple(plugins)
 	require.NoError(t, err)
 
 	// 验证所有插件共享同一个容器

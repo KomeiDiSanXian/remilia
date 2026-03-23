@@ -9,7 +9,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(antispam.New(antispam.Config{
+//	pm.Register(antispam.New(antispam.Config{
 //	    UserRate:   5, UserBurst: 8,
 //	    GroupRate:  20, GroupBurst: 30,
 //	    BanOnViolation: true, BanDuration: 5*time.Minute,
@@ -87,7 +87,7 @@ type Plugin struct {
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := antispam.NewPlugin(antispam.DefaultConfig())
-//	pm.RegisterV2(antispam.Descriptor(p))
+//	pm.Register(antispam.Descriptor(p))
 //	engine.OnGroupAt(p.Rule())
 func NewPlugin(cfg Config) *Plugin {
 	cfg = normalizeConfig(cfg)
@@ -101,7 +101,7 @@ func NewPlugin(cfg Config) *Plugin {
 	}
 }
 
-// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "antispam",
@@ -114,7 +114,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
 			HelpText: `反垃圾插件使用说明：
   p := antispam.NewPlugin(antispam.DefaultConfig())
-  pm.RegisterV2(antispam.Descriptor(p))
+  pm.Register(antispam.Descriptor(p))
   p.Ban(userID, 10*time.Minute)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -252,11 +252,11 @@ func New(cfg Config) *plugin.Descriptor {
 }
 
 // Get 从插件管理器中获取已注册的 AntiSpam 插件实例（类型安全）。
-// 需在 pm.RegisterV2(New(cfg)) 之后调用。
+// 需在 pm.Register(New(cfg)) 之后调用。
 func Get(pm *plugin.Manager) *Plugin {
 	v, ok := pm.GetContainer().Get("antispam")
 	if !ok {
-		panic("antispam: plugin not registered; call pm.RegisterV2(antispam.New(cfg)) first")
+		panic("antispam: plugin not registered; call pm.Register(antispam.New(cfg)) first")
 	}
 	p, ok := v.(*Plugin)
 	if !ok {

@@ -2,7 +2,7 @@ package plugin
 
 import "fmt"
 
-// register_validate.go — RegisterV2 各阶段验证逻辑（拆分自 register.go）
+// register_validate.go — Register 各阶段验证逻辑（拆分自 register.go）
 // validateDescriptor 检查描述符的基础合法性（无锁，无 Manager 依赖）。
 func validateDescriptor(desc *Descriptor) error {
 	if desc == nil {
@@ -39,7 +39,7 @@ func checkDependencies(pm *Manager, desc *Descriptor, registeredList func() []st
 				Operation:         "register",
 				Cause:             fmt.Errorf("dependency %q is not ready (state: %s)", spec.name, state),
 				RegisteredPlugins: registeredList(),
-				Hint:              "register plugins in dependency order, or use RegisterMultipleV2Atomic() for automatic ordering",
+				Hint:              "register plugins in dependency order, or use RegisterMultipleAtomic() for automatic ordering",
 			}
 		}
 	}

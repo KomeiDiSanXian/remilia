@@ -11,11 +11,11 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(ratelimitui.New())
+//	pm.Register(ratelimitui.New())
 //
 //	// 或持有引用：
 //	p := ratelimitui.NewPlugin()
-//	pm.RegisterV2(ratelimitui.Descriptor(p))
+//	pm.Register(ratelimitui.Descriptor(p))
 package ratelimitui
 
 import (

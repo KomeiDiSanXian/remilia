@@ -8,7 +8,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(scheduler.New())
+//	pm.Register(scheduler.New())
 //	// 在其他插件 Setup 中：
 //	sched := ctx.MustGet("scheduler").(*scheduler.Plugin)
 //	sched.Every(5*time.Minute, func() { /* cleanup */ })
@@ -76,7 +76,7 @@ type Plugin struct {
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := scheduler.NewPlugin()
-//	pm.RegisterV2(scheduler.Descriptor(p))
+//	pm.Register(scheduler.Descriptor(p))
 //	p.Every(time.Minute, fn) // 直接调用
 func NewPlugin() *Plugin {
 	ctx, cancel := stdctx.WithCancel(stdctx.Background())
@@ -87,7 +87,7 @@ func NewPlugin() *Plugin {
 	}
 }
 
-// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "scheduler",
@@ -100,7 +100,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"定时", "调度", "cron"},
 			HelpText: `计划任务插件使用说明：
   p := scheduler.NewPlugin()
-  pm.RegisterV2(scheduler.Descriptor(p))
+  pm.Register(scheduler.Descriptor(p))
   p.Every(5*time.Minute, func() { ... })
   p.Cron("0 9 * * *", func() { ... })`,
 		},
@@ -148,11 +148,11 @@ func New() *plugin.Descriptor {
 }
 
 // Get 从插件管理器中获取已注册的 Scheduler 插件实例（类型安全）。
-// 需在 pm.RegisterV2(New()) 之后调用。
+// 需在 pm.Register(New()) 之后调用。
 func Get(pm *plugin.Manager) *Plugin {
 	v, ok := pm.GetContainer().Get("scheduler")
 	if !ok {
-		panic("scheduler: plugin not registered; call pm.RegisterV2(scheduler.New()) first")
+		panic("scheduler: plugin not registered; call pm.Register(scheduler.New()) first")
 	}
 	p, ok := v.(*Plugin)
 	if !ok {

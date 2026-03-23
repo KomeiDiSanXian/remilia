@@ -9,10 +9,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// register.go — 插件注册：RegisterV2、批量注册、拓扑排序
+// register.go — 插件注册：Register、批量注册、拓扑排序
 
-// RegisterV2 注册 v2 风格的插件（使用 Descriptor）
-func (pm *Manager) RegisterV2(desc *Descriptor) error {
+// Register 注册 v2 风格的插件（使用 Descriptor）
+func (pm *Manager) Register(desc *Descriptor) error {
 	// 阶段 1：基础合法性（无锁，无 Manager 状态依赖）
 	if err := validateDescriptor(desc); err != nil {
 		return err
@@ -111,7 +111,7 @@ func (pm *Manager) RegisterV2(desc *Descriptor) error {
 
 	pm.mu.Unlock()
 
-	loadErr := instance.load(pm.coordinator)
+	loadErr := instance.load()
 
 	pm.mu.Lock()
 
@@ -205,9 +205,9 @@ func (pm *Manager) RegisterV2(desc *Descriptor) error {
 	return nil
 }
 
-// RegisterMultipleV2 批量注册多个 v2 插件，自动处理依赖顺序。
-// 任意插件注册失败时，已注册的插件不会自动回滚（使用 RegisterMultipleV2Atomic 获得原子保证）。
-func (pm *Manager) RegisterMultipleV2(descriptors []*Descriptor) error {
+// RegisterMultiple 批量注册多个 v2 插件，自动处理依赖顺序。
+// 任意插件注册失败时，已注册的插件不会自动回滚（使用 RegisterMultipleAtomic 获得原子保证）。
+func (pm *Manager) RegisterMultiple(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -222,12 +222,12 @@ func (pm *Manager) RegisterMultipleV2(descriptors []*Descriptor) error {
 			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
 		}
 	}
-	sorted, err := pm.topologicalSortV2(descriptors)
+	sorted, err := pm.topologicalSort(descriptors)
 	if err != nil {
 		return fmt.Errorf("dependency resolution failed: %w", err)
 	}
 	for _, desc := range sorted {
-		if err := pm.RegisterV2(desc); err != nil {
+		if err := pm.Register(desc); err != nil {
 			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, err)
 		}
 	}
@@ -235,8 +235,8 @@ func (pm *Manager) RegisterMultipleV2(descriptors []*Descriptor) error {
 	return nil
 }
 
-// RegisterMultipleV2Atomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
-func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*Descriptor) error {
+// RegisterMultipleAtomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
+func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -251,7 +251,7 @@ func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*Descriptor) error {
 			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
 		}
 	}
-	sorted, err := pm.topologicalSortV2(descriptors)
+	sorted, err := pm.topologicalSort(descriptors)
 	if err != nil {
 		return &PluginError{
 			Operation: "batch register",
@@ -261,7 +261,7 @@ func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*Descriptor) error {
 	}
 	registered := make([]string, 0, len(sorted))
 	for _, desc := range sorted {
-		if err := pm.RegisterV2(desc); err != nil {
+		if err := pm.Register(desc); err != nil {
 			for i := len(registered) - 1; i >= 0; i-- {
 				if rollbackErr := pm.Unregister(registered[i]); rollbackErr != nil {
 					logger.WithError(rollbackErr).Warnf("[pluginManager] Rollback failed for plugin %s", registered[i])
@@ -287,10 +287,10 @@ func (pm *Manager) RegisterMultipleV2Atomic(descriptors []*Descriptor) error {
 	return nil
 }
 
-// RegisterMultipleV2Smart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
+// RegisterMultipleSmart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
 //
 // 限制：插件的 Setup 函数必须幂等（能安全多次调用而无副作用）。
-func (pm *Manager) RegisterMultipleV2Smart(descriptors []*Descriptor) error {
+func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -388,12 +388,12 @@ func (pm *Manager) RegisterMultipleV2Smart(descriptors []*Descriptor) error {
 		descriptorsWithDeps[i] = &descCopy
 	}
 
-	return pm.RegisterMultipleV2(descriptorsWithDeps)
+	return pm.RegisterMultiple(descriptorsWithDeps)
 }
 
 // ValidateDependencies 验证一组插件的依赖关系（不注册）
 func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
-	_, err := pm.topologicalSortV2(descriptors)
+	_, err := pm.topologicalSort(descriptors)
 	return err
 }
 
@@ -418,8 +418,8 @@ func (pm *Manager) ensureContainerInitialized() {
 	}
 }
 
-// topologicalSortV2 使用 Kahn 算法进行拓扑排序，检测循环依赖
-func (pm *Manager) topologicalSortV2(descriptors []*Descriptor) ([]*Descriptor, error) {
+// topologicalSort 使用 Kahn 算法进行拓扑排序，检测循环依赖
+func (pm *Manager) topologicalSort(descriptors []*Descriptor) ([]*Descriptor, error) {
 	descMap := make(map[string]*Descriptor)
 	for _, desc := range descriptors {
 		if _, exists := descMap[desc.Name]; exists {

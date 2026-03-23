@@ -93,7 +93,7 @@ func (b *BotBuilder) WithPluginManager(pm *plugin.Manager) *BotBuilder {
 // WithPlugins 一步注册多个插件描述符，无需手动创建 plugin.Manager。
 //
 // Build() 阶段自动创建（或复用已有的）plugin.Manager 并批量注册，
-// 注册顺序自动按依赖拓扑排序（等同于 RegisterMultipleV2Smart）。
+// 注册顺序自动按依赖拓扑排序（等同于 RegisterMultipleSmart）。
 //
 // 这是框架推荐的最简洁插件集成方式：
 //
@@ -142,7 +142,7 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		if b.pluginManager == nil {
 			b.pluginManager = plugin.NewManager(b.engine)
 		}
-		if err := b.pluginManager.RegisterMultipleV2Smart(b.pendingPlugins); err != nil {
+		if err := b.pluginManager.RegisterMultipleSmart(b.pendingPlugins); err != nil {
 			return nil, err
 		}
 	}

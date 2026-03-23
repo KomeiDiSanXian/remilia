@@ -123,7 +123,7 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 	}
 
 	// Test Load
-	err := instance.load(eng)
+	err := instance.load()
 	assert.NoError(t, err)
 	assert.True(t, setupCalled)
 	assert.Equal(t, Loaded, instance.GetState())
@@ -212,7 +212,7 @@ func TestManager_RegisterV2_Basic(t *testing.T) {
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	assert.NoError(t, err)
 
 	// Verify plugin is registered
@@ -234,7 +234,7 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 		Name:  "dep-plugin",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
-	err := manager.RegisterV2(dep)
+	err := manager.Register(dep)
 	require.NoError(t, err)
 
 	// Register main plugin that depends on dep-plugin
@@ -249,7 +249,7 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 			return nil, nil
 		},
 	}
-	err = manager.RegisterV2(main)
+	err = manager.Register(main)
 	assert.NoError(t, err)
 }
 
@@ -264,7 +264,7 @@ func TestManager_RegisterV2_MissingDependency(t *testing.T) {
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "missing")
 }
@@ -280,11 +280,11 @@ func TestManager_RegisterV2_DuplicatePlugin(t *testing.T) {
 	}
 
 	// First registration should succeed
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	assert.NoError(t, err)
 
 	// Second registration should fail
-	err = manager.RegisterV2(desc)
+	err = manager.Register(desc)
 	assert.Error(t, err)
 }
 
@@ -300,7 +300,7 @@ func TestManager_RegisterV2_SetupError(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	assert.Error(t, err)
 
 	// Verify plugin was not registered
@@ -338,7 +338,7 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 	}
 
 	// Load once
-	err := instance.load(eng)
+	err := instance.load()
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCount)
 

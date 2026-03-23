@@ -4,17 +4,59 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management">
-      <change afterPath="$PROJECT_DIR$/examples/discord-bot/main.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/discord/config.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/discord/event.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/discord/extra.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/discord/interactions.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/discord/sender.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/acl/acl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/acl/acl.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/antispam/antispam.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/auditlog/auditlog.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/auditlog/auditlog.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/bundle/bundle.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/bundle/bundle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation_gc_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/i18n/i18n.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/i18n/i18n.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginstore/pluginstore.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginstore/pluginstore.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/scheduler/scheduler_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/stats/stats.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/verifycode/verifycode.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/verifycode/verifycode.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/auto_dependency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/auto_dependency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/container_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/container_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/dependency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/dependency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/disable_enable_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/disable_enable_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/edge_case_dep_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/edge_case_dep_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_events_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_events_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager_lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/p2_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/p2_fixes_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/p3_features_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/p3_features_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/permission_model_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/permission_model_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/phase2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase2_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/phase3_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase3_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/phase4_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase4_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register_validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register_validate.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/v2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/testbot/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testutil.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -83,58 +125,58 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "DefaultGoTemplateProperty": "Go File",
-    "Go 构建.go build debug-subcommand-demo.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor": "Run",
-    "Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestGlobalLogger.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestWithError.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_CascadingFailures.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_HighConcurrency.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_MemoryPressure.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_RandomFailures.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_ResourceExhaustion.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_SlowHandler.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_StressTest.executor": "Run",
-    "Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_TimeoutHandling.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.GoLinterPluginOnboarding": "true",
-    "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
-    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.analysis.ui.options.defaults": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "git-widget-placeholder": "master",
-    "go.import.settings.migrated": "true",
-    "go.sdk.automatically.set": "true",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "E:/project/Go/remilia/examples/showcase",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "run.code.analysis.last.selected.profile": "pProject Default",
-    "run.configurations.included.in.services": "true",
-    "settings.editor.selected.configurable": "com.github.copilot.settings.mcp.McpConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;DefaultGoTemplateProperty&quot;: &quot;Go File&quot;,
+    &quot;Go 构建.go build debug-subcommand-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/basic-bot.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/benchmark.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/plugin-metadata.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test-help-fix.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/test.executor&quot;: &quot;Run&quot;,
+    &quot;Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/tracing-demo.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestGlobalLogger.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/infra/logger 中的 TestWithError.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugin 中的 BenchmarkTopologicalSort.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandDefinitions.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_CascadingFailures.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_HighConcurrency.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_MemoryPressure.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_RandomFailures.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_ResourceExhaustion.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_SlowHandler.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_StressTest.executor&quot;: &quot;Run&quot;,
+    &quot;Go 测试.github.com/KomeiDiSanXian/remilia/tests/chaos 中的 TestChaos_TimeoutHandling.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboarding&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginOnboardingV2&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.analysis.ui.options.defaults&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;E:/project/Go/remilia/examples/showcase&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;run.code.analysis.last.selected.profile&quot;: &quot;pProject Default&quot;,
+    &quot;run.configurations.included.in.services&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.github.copilot.settings.mcp.McpConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="E:\project\Go\remilia\examples\showcase" />
@@ -275,8 +317,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(testbot): replace MockSender alias with direct reference to testutil.MockSender" />
-    <MESSAGE value="refactor(platform): implement IsRunning method for adapters and update related code" />
     <MESSAGE value="optimize(platform): optimize Extra map handling in OutboundMessage" />
     <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
     <MESSAGE value="chore(platform): remove bot.go" />
@@ -300,7 +340,9 @@
     <MESSAGE value="feat(adapter): implement AdapterObserver for lifecycle event monitoring and enhance metrics integration" />
     <MESSAGE value="fix(degradation): correct type assertion for AlreadyRegisteredError handling" />
     <MESSAGE value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
+    <MESSAGE value="feat(discord): add Discord platform adapter with Gateway and HTTP Interactions support" />
+    <MESSAGE value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

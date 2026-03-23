@@ -11,8 +11,8 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(storage.New())
-//	pm.RegisterV2(pluginstore.New())
+//	pm.Register(storage.New())
+//	pm.Register(pluginstore.New())
 //
 //	// 在你的插件 Setup 中：
 //	store := ctx.MustGet("pluginstore").(*pluginstore.Plugin)

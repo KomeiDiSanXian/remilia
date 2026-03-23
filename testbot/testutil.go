@@ -133,7 +133,7 @@ func New(t testing.TB) *TestBot {
 // RegisterPlugin registers a v2 plugin descriptor. Fails the test on error.
 func (tb *TestBot) RegisterPlugin(desc *plugin.Descriptor) {
 	tb.t.Helper()
-	if err := tb.mgr.RegisterV2(desc); err != nil {
+	if err := tb.mgr.Register(desc); err != nil {
 		tb.t.Fatalf("testutil: RegisterPlugin %q: %v", desc.Name, err)
 	}
 }
@@ -141,7 +141,7 @@ func (tb *TestBot) RegisterPlugin(desc *plugin.Descriptor) {
 // RegisterPlugins registers multiple plugins, respecting dependency order.
 func (tb *TestBot) RegisterPlugins(descs ...*plugin.Descriptor) {
 	tb.t.Helper()
-	if err := tb.mgr.RegisterMultipleV2(descs); err != nil {
+	if err := tb.mgr.RegisterMultiple(descs); err != nil {
 		tb.t.Fatalf("testutil: RegisterPlugins: %v", err)
 	}
 }
@@ -274,7 +274,7 @@ func (b *Bot) RegisterPlugins(descs ...*plugin.Descriptor) *Bot {
 // Start loads all registered plugins into the engine. Returns the first error encountered.
 func (b *Bot) Start() error {
 	for _, desc := range b.plugins {
-		if err := b.mgr.RegisterV2(desc); err != nil {
+		if err := b.mgr.Register(desc); err != nil {
 			return fmt.Errorf("testutil: Bot.Start register plugin %q: %w", desc.Name, err)
 		}
 	}

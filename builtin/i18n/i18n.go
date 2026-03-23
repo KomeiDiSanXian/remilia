@@ -4,7 +4,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(i18n.New(i18n.Config{
+//	pm.Register(i18n.New(i18n.Config{
 //	    DefaultLocale: "zh-CN",
 //	    LocaleDir:     "locales/",
 //	}))
@@ -70,7 +70,7 @@ type Plugin struct {
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-//	pm.RegisterV2(i18n.Descriptor(p))
+//	pm.Register(i18n.Descriptor(p))
 //	p.LoadBytes("zh-CN", data)
 func NewPlugin(cfg Config) *Plugin {
 	if cfg.DefaultLocale == "" {
@@ -87,7 +87,7 @@ func NewPlugin(cfg Config) *Plugin {
 	return &Plugin{cfg: cfg, tmplCache: cache}
 }
 
-// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "i18n",
@@ -100,7 +100,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"i18n", "国际化", "多语言"},
 			HelpText: `i18n 插件使用说明：
   p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-  pm.RegisterV2(i18n.Descriptor(p))
+  pm.Register(i18n.Descriptor(p))
   p.T(ctx, "key")`,
 		},
 		Advanced: &plugin.Advanced{
@@ -130,11 +130,11 @@ func New(cfg Config) *plugin.Descriptor {
 }
 
 // Get 从插件管理器中获取已注册的 i18n 插件实例（类型安全）。
-// 需在 pm.RegisterV2(New(cfg)) 之后调用。
+// 需在 pm.Register(New(cfg)) 之后调用。
 func Get(pm *plugin.Manager) *Plugin {
 	v, ok := pm.GetContainer().Get("i18n")
 	if !ok {
-		panic("i18n: plugin not registered; call pm.RegisterV2(i18n.New(cfg)) first")
+		panic("i18n: plugin not registered; call pm.Register(i18n.New(cfg)) first")
 	}
 	p, ok := v.(*Plugin)
 	if !ok {

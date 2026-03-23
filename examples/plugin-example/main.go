@@ -75,11 +75,11 @@ func main() {
 
 func registerPlugins(manager *plugin.Manager, eng *engine.Engine) {
 	// 使用 v2 API 注册插件
-	if err := manager.RegisterV2(NewGreeterPlugin()); err != nil {
+	if err := manager.Register(NewGreeterPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginExample] Failed to register greeter plugin")
 	}
 
-	if err := manager.RegisterV2(NewCounterPlugin()); err != nil {
+	if err := manager.Register(NewCounterPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginExample] Failed to register counter plugin")
 	}
 

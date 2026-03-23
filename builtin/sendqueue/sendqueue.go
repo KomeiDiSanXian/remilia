@@ -2,7 +2,7 @@
 //
 // Usage:
 //
-// pm.RegisterV2(sendqueue.New(sendqueue.Config{Rate: 5, Burst: 10}))
+// pm.Register(sendqueue.New(sendqueue.Config{Rate: 5, Burst: 10}))
 // // In a Handler:
 // sq := ctx.MustGet("sendqueue").(*sendqueue.Plugin)
 // sq.Enqueue("chat_id", platform.TextMessage("hello"), nil)

@@ -11,7 +11,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(acl.New())
+//	pm.Register(acl.New())
 //	aclPlugin := ctx.MustGet("acl").(*acl.Plugin)
 //	engine.On(string(platform.EventKindGroupMessage), aclPlugin.Rule()).Handle(handler)
 package acl
@@ -106,7 +106,7 @@ func New() *plugin.Descriptor {
 			Tags:        []string{"安全", "访问控制", "黑白名单"},
 			HelpText: `ACL 插件使用说明：
   p := acl.NewPlugin()
-  pm.RegisterV2(acl.Descriptor(p))
+  pm.Register(acl.Descriptor(p))
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.SetMode(acl.ModeBlacklist)
   p.Add("userOpenID", "备注")`,
@@ -147,7 +147,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "访问控制", "黑白名单"},
 			HelpText: `ACL 插件使用说明：
   p := acl.NewPlugin()
-  pm.RegisterV2(acl.Descriptor(p))
+  pm.Register(acl.Descriptor(p))
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.SetMode(acl.ModeBlacklist)
   p.Add("userOpenID", "备注")`,

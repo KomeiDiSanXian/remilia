@@ -18,7 +18,7 @@ func TestTopologicalSort_NoDependencies(t *testing.T) {
 		{Name: "plugin-c", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	sorted, err := manager.topologicalSortV2(plugins)
+	sorted, err := manager.topologicalSort(plugins)
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(sorted))
 
@@ -42,7 +42,7 @@ func TestTopologicalSort_SimpleDependency(t *testing.T) {
 		{Name: "plugin-b", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	sorted, err := manager.topologicalSortV2(plugins)
+	sorted, err := manager.topologicalSort(plugins)
 	require.NoError(t, err)
 	assert.Equal(t, 3, len(sorted))
 
@@ -63,7 +63,7 @@ func TestTopologicalSort_CircularDependency_Direct(t *testing.T) {
 		{Name: "plugin-c", Deps: []string{"plugin-b"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	_, err := manager.topologicalSortV2(plugins)
+	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "circular dependency detected")
 	t.Logf("Expected error: %v", err)
@@ -85,7 +85,7 @@ func TestTopologicalSort_CircularDependency_Indirect(t *testing.T) {
 		{Name: "plugin-e", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }}, // 循环！
 	}
 
-	_, err := manager.topologicalSortV2(plugins)
+	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "circular dependency detected")
 
@@ -102,7 +102,7 @@ func TestTopologicalSort_MissingDependency(t *testing.T) {
 		{Name: "plugin-b", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	_, err := manager.topologicalSortV2(plugins)
+	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "missing dependency")
 	assert.Contains(t, err.Error(), "plugin-missing")
@@ -117,7 +117,7 @@ func TestTopologicalSort_DuplicateNames(t *testing.T) {
 		{Name: "plugin-a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }}, // 重复
 	}
 
-	_, err := manager.topologicalSortV2(plugins)
+	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate plugin name")
 }
@@ -145,7 +145,7 @@ func TestTopologicalSort_ComplexDAG(t *testing.T) {
 		{Name: "a", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	sorted, err := manager.topologicalSortV2(plugins)
+	sorted, err := manager.topologicalSort(plugins)
 	require.NoError(t, err)
 	assert.Equal(t, 6, len(sorted))
 
@@ -200,20 +200,20 @@ func TestValidateDependencies(t *testing.T) {
 func TestRegisterMultipleV2(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultipleV2([]*Descriptor{})
+		err := manager.RegisterMultiple([]*Descriptor{})
 		assert.NoError(t, err)
 	})
 
 	t.Run("nil descriptor", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultipleV2([]*Descriptor{nil})
+		err := manager.RegisterMultiple([]*Descriptor{nil})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nil")
 	})
 
 	t.Run("empty name", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultipleV2([]*Descriptor{
+		err := manager.RegisterMultiple([]*Descriptor{
 			{Name: "", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 		})
 		assert.Error(t, err)
@@ -222,7 +222,7 @@ func TestRegisterMultipleV2(t *testing.T) {
 
 	t.Run("no setup function", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultipleV2([]*Descriptor{
+		err := manager.RegisterMultiple([]*Descriptor{
 			{Name: "test"},
 		})
 		assert.Error(t, err)
@@ -238,7 +238,7 @@ func TestTopologicalSort_SelfDependency(t *testing.T) {
 		{Name: "plugin-a", Deps: []string{"plugin-a"}, Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 	}
 
-	_, err := manager.topologicalSortV2(plugins)
+	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "circular dependency")
 }
@@ -280,7 +280,7 @@ func BenchmarkTopologicalSort(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := manager.topologicalSortV2(plugins)
+		_, err := manager.topologicalSort(plugins)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -38,7 +38,7 @@ func TestConfig_Override_OnChangeStillFires(t *testing.T) {
 func TestPluginInstance_GetAPI(t *testing.T) {
 	pm := NewManager(nil)
 	type myAPI struct{ Value string }
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "get-api-test",
 		Setup: func(ctx *SetupContext) (any, error) { return &myAPI{Value: "exported"}, nil },
 	}))
@@ -52,7 +52,7 @@ func TestPluginInstance_GetAPI(t *testing.T) {
 }
 func TestPluginInstance_GetAPI_NilWhenNotExported(t *testing.T) {
 	pm := NewManager(nil)
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "nil-api-plugin",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}))
@@ -63,7 +63,7 @@ func TestPluginInstance_GetAPI_NilWhenNotExported(t *testing.T) {
 func TestStatus_GoroutineCount(t *testing.T) {
 	pm := NewManager(nil)
 	ready := make(chan struct{})
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "goroutine-count-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.GoNamed("worker-1", func(runCtx stdctx.Context) {
@@ -84,7 +84,7 @@ func TestStatus_GoroutineCount(t *testing.T) {
 }
 func TestStatus_GoroutineCount_ZeroWhenNoGoroutines(t *testing.T) {
 	pm := NewManager(nil)
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "no-goroutine-plugin",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}))
@@ -95,11 +95,11 @@ func TestStatus_GoroutineCount_ZeroWhenNoGoroutines(t *testing.T) {
 func TestTeardownContext_InfoField(t *testing.T) {
 	pm := NewManager(nil)
 	var teardownInfoNotNil bool
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "teardown-info-provider",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}))
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "teardown-info-consumer",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 		Teardown: func(ctx *TeardownContext) error {

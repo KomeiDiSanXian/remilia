@@ -16,7 +16,7 @@ func TestPermissionModel_EngineReader(t *testing.T) {
 
 	var capturedCoordinator engine.Reader
 
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name: "reader-test",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			capturedCoordinator = ctx.Info.Coordinator()
@@ -46,7 +46,7 @@ func TestPermissionModel_AdminNilForUnprivileged(t *testing.T) {
 	pm := plugin.NewManager(nil)
 	var adminWasNil bool
 
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:       "unprivileged",
 		Privileged: false, // 显式声明（也是默认值）
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -66,7 +66,7 @@ func TestPermissionModel_AdminNotNilForPrivileged(t *testing.T) {
 	pm := plugin.NewManager(nil)
 	var adminNotNil bool
 
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:       "privileged-plugin",
 		Privileged: true, // 声明需要管理权限
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -87,14 +87,14 @@ func TestPermissionModel_AdminWriteOps(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
 	// 注册一个目标插件
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:  "target",
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 
 	var writerCanReload bool
 
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name:       "admin-test",
 		Deps:       []string{"target"},
 		Privileged: true,
@@ -127,7 +127,7 @@ func TestPermissionModel_AdminWriteOps(t *testing.T) {
 func TestPermissionModel_NoPrivateInterfaceAssertions(t *testing.T) {
 	pm := plugin.NewManager(nil)
 
-	_ = pm.RegisterV2(&plugin.Descriptor{
+	_ = pm.Register(&plugin.Descriptor{
 		Name: "permission-check",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// ctx.Info 是接口，无法对其做类型断言拿到 *Manager

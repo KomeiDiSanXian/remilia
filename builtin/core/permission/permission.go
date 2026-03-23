@@ -27,7 +27,7 @@
 // # 快速使用
 //
 //	// 注册插件（自动创建 Manager 实例）
-//	pm.RegisterV2(permission.New())
+//	pm.Register(permission.New())
 //
 //	// 在其他插件中获取权限 API
 //	perm := plugin.Must[permission.Plugin](ctx, "permission")

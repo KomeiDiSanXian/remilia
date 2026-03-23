@@ -65,13 +65,13 @@ type Plugin struct {
 // 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := conversation.NewPlugin()
-//	pm.RegisterV2(conversation.Descriptor(p))
+//	pm.Register(conversation.Descriptor(p))
 //	p.Start(ctx, machine)
 func NewPlugin() *Plugin {
 	return &Plugin{}
 }
 
-// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.RegisterV2 使用。
+// Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "conversation",

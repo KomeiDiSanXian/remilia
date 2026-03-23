@@ -1,17 +1,17 @@
 // Package bundle 提供内置插件的批量注册入口。
 //
-// 参考：一次性注册所有核心插件，无需逐一 import 和调用 RegisterV2。
+// 参考：一次性注册所有核心插件，无需逐一 import 和调用 Register。
 //
 // # 使用示例
 //
 //	// 注册全部核心插件（storage + cache + permission + acl + help）
-//	pm.RegisterMultipleV2Atomic(bundle.Core())
+//	pm.RegisterMultipleAtomic(bundle.Core())
 //
 //	// 注册所有内置插件
-//	pm.RegisterMultipleV2Atomic(bundle.All())
+//	pm.RegisterMultipleAtomic(bundle.All())
 //
 //	// 自定义组合（Core + 可选插件）
-//	pm.RegisterMultipleV2Atomic(append(bundle.Core(),
+//	pm.RegisterMultipleAtomic(append(bundle.Core(),
 //	    cooldown.New(),
 //	    antispam.New(antispam.Config{MaxCount: 5}),
 //	))
@@ -38,7 +38,7 @@ import (
 //   - acl      — 访问控制列表
 //   - help     — /help 命令
 //
-// 插件已按依赖顺序排列，可直接传给 RegisterMultipleV2Atomic。
+// 插件已按依赖顺序排列，可直接传给 RegisterMultipleAtomic。
 func Core() []*plugin.Descriptor {
 	return []*plugin.Descriptor{
 		storage.New(),
@@ -70,12 +70,12 @@ func All() []*plugin.Descriptor {
 //
 // 两个插件都依赖 permission，通常与 Core() 一起使用：
 //
-//	pm.RegisterMultipleV2Atomic(bundle.Core())
-//	pm.RegisterMultipleV2Atomic(bundle.Dev())
+//	pm.RegisterMultipleAtomic(bundle.Core())
+//	pm.RegisterMultipleAtomic(bundle.Dev())
 //
 // 或直接合并：
 //
-//	pm.RegisterMultipleV2Atomic(append(bundle.Core(), bundle.Dev()...))
+//	pm.RegisterMultipleAtomic(append(bundle.Core(), bundle.Dev()...))
 func Dev() []*plugin.Descriptor {
 	return []*plugin.Descriptor{
 		admin.New(),

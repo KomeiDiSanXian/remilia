@@ -29,7 +29,7 @@ func TestP0Fix1_MatcherTracking(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	require.NoError(t, err)
 
 	instance, exists := manager.Get("matcher-test")
@@ -59,7 +59,7 @@ func TestP0Fix2_StatefulPluginComplete(t *testing.T) {
 	}
 
 	beforeLoad := time.Now()
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	require.NoError(t, err)
 
 	inst, exists := manager.Get("stateful-test")
@@ -110,7 +110,7 @@ func TestP0Fix3_ReloadRecreatesContext(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCallCount)
 
@@ -137,7 +137,7 @@ func TestP0Fix4_ConcurrentSafety(t *testing.T) {
 				},
 			}
 
-			err := manager.RegisterV2(desc)
+			err := manager.Register(desc)
 			if err != nil {
 				assert.ErrorIs(t, err, errutil.ErrPluginAlreadyExists)
 			}
@@ -186,7 +186,7 @@ func TestP0Fix_Integration(t *testing.T) {
 
 	beforeLoad := time.Now()
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	require.NoError(t, err)
 
 	instance, exists := manager.Get("integration-test")
@@ -211,6 +211,6 @@ func TestP0Fix_Integration(t *testing.T) {
 	assert.True(t, reloadCalled, "Advanced.Reload should be called on Reload")
 
 	// P0 Fix #4: Concurrent safety - try duplicate registration
-	err = manager.RegisterV2(desc)
+	err = manager.Register(desc)
 	assert.ErrorIs(t, err, errutil.ErrPluginAlreadyExists)
 }

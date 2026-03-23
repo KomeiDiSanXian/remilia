@@ -47,7 +47,7 @@ type SetupContext struct {
 	// 未声明 Privileged 的插件此字段为 nil；误用会在运行时立即 panic。
 	Admin ManagerWriter
 
-	// DryRun 标识当前 Setup 调用是否处于 RegisterMultipleV2Smart 的依赖推断阶段。
+	// DryRun 标识当前 Setup 调用是否处于 RegisterMultipleSmart 的依赖推断阶段。
 	//
 	// 推断阶段框架会多次调用 Setup 以分析依赖关系。此时：
 	//   - ctx.Reg 已替换为 no-op（不会注册真实 Matcher）
@@ -168,7 +168,7 @@ func (ctx *SetupContext) GetTrackedDependencies() []string {
 // GetTrackedOptionalDependencies 获取自动追踪到的可选依赖列表（框架内部使用）
 //
 // 可选依赖：通过 Get（有 ok 判断）访问且存在的依赖。
-// 用于 RegisterMultipleV2Smart 的依赖推断（拓扑排序），
+// 用于 RegisterMultipleSmart 的依赖推断（拓扑排序），
 // 但不影响 notifyDependents 和 UnregisterCascade。
 func (ctx *SetupContext) GetTrackedOptionalDependencies() []string {
 	if ctx.trackedOptionalDeps == nil {

@@ -37,7 +37,7 @@ func (pc *Component) OnStart(context.Context) error {
 
 	pc.instance.SetState(Loading)
 
-	if err := pc.instance.load(pc.coordinator); err != nil {
+	if err := pc.instance.load(); err != nil {
 		logger.WithError(err).Errorf("[Component] Failed to load plugin: %s", name)
 		pc.instance.SetState(Error)
 		pc.instance.SetLastError(err)

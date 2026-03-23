@@ -10,7 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
-// TestBugFix_RegisterV2ConcurrentAccess 测试 Bug 1 修复：RegisterV2 竞态条件
+// TestBugFix_RegisterV2ConcurrentAccess 测试 Bug 1 修复：Register 竞态条件
 func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background())
@@ -32,7 +32,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 
 	// Goroutine 1: 注册插件
 	wg.Go(func() {
-		err := manager.RegisterV2(slowPlugin)
+		err := manager.Register(slowPlugin)
 		if err != nil {
 			errors <- err
 		}
@@ -130,7 +130,7 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterV2(desc)
+	err := manager.Register(desc)
 	if err != nil {
 		t.Fatalf("Failed to register plugin: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			},
 		}
 
-		err := subManager.RegisterV2(pluginA)
+		err := subManager.Register(pluginA)
 		if err != nil {
 			t.Fatalf("Failed to register plugin A: %v", err)
 		}
@@ -260,7 +260,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB})
+		err = subManager.RegisterMultiple([]*Descriptor{pluginB})
 		if err == nil {
 			t.Error("Should detect cross-batch circular dependency")
 		} else {
@@ -282,7 +282,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			},
 		}
 
-		err := subManager.RegisterV2(pluginA)
+		err := subManager.Register(pluginA)
 		if err != nil {
 			t.Fatalf("Failed to register plugin A: %v", err)
 		}
@@ -316,7 +316,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB, pluginC})
+		err = subManager.RegisterMultiple([]*Descriptor{pluginB, pluginC})
 		if err == nil {
 			t.Error("Should detect indirect cross-batch circular dependency")
 		} else {
@@ -338,7 +338,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 			},
 		}
 
-		err := subManager.RegisterV2(pluginA)
+		err := subManager.Register(pluginA)
 		if err != nil {
 			t.Fatalf("Failed to register plugin A: %v", err)
 		}
@@ -363,7 +363,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该成功注册
-		err = subManager.RegisterMultipleV2([]*Descriptor{pluginB, pluginC})
+		err = subManager.RegisterMultiple([]*Descriptor{pluginB, pluginC})
 		if err != nil {
 			t.Errorf("Should not detect cycle in valid dependency chain: %v", err)
 		} else {
@@ -371,5 +371,5 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 	})
 
-	t.Log("✓ Bug 5 已修复：topologicalSortV2 可以检测跨批次循环依赖")
+	t.Log("✓ Bug 5 已修复：topologicalSort 可以检测跨批次循环依赖")
 }

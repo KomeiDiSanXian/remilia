@@ -73,17 +73,17 @@ func main() {
 
 func registerPlugins(manager *plugin.Manager) {
 	// 1. Greeter 插件（v2 风格）
-	if err := manager.RegisterV2(NewGreeterPlugin()); err != nil {
+	if err := manager.Register(NewGreeterPlugin()); err != nil {
 		logger.WithError(err).Error("[V2Example] Failed to register greeter plugin")
 	}
 
 	// 2. Counter 插件（v2 风格）
-	if err := manager.RegisterV2(NewCounterPlugin()); err != nil {
+	if err := manager.Register(NewCounterPlugin()); err != nil {
 		logger.WithError(err).Error("[V2Example] Failed to register counter plugin")
 	}
 
 	// 3. Calculator 插件（v2 风格，演示更复杂的功能）
-	if err := manager.RegisterV2(NewCalculatorPlugin()); err != nil {
+	if err := manager.Register(NewCalculatorPlugin()); err != nil {
 		logger.WithError(err).Error("[V2Example] Failed to register calculator plugin")
 	}
 

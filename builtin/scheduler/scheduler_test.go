@@ -17,8 +17,8 @@ func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 	p := scheduler.NewPlugin()
 	desc := scheduler.Descriptor(p)
 	pm := plugin.NewManager(engine.NewEngine())
-	if err := pm.RegisterV2(desc); err != nil {
-		t.Fatalf("RegisterV2: %v", err)
+	if err := pm.Register(desc); err != nil {
+		t.Fatalf("Register: %v", err)
 	}
 	return p, func() {
 		if err := pm.Unregister("scheduler"); err != nil {

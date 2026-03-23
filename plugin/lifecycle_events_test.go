@@ -39,8 +39,8 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 	}
 
 	// Register → expect plugin.loaded
-	if err := pm.RegisterV2(desc); err != nil {
-		t.Fatalf("RegisterV2 failed: %v", err)
+	if err := pm.Register(desc); err != nil {
+		t.Fatalf("Register failed: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond) // EventBus is async
 	if v := loadedName.Load(); v == nil || v.(string) != "event-test" {

@@ -8,7 +8,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// StartAll 启动所有已通过 RegisterV2 预注册（Unloaded 状态）的插件。
+// StartAll 启动所有已通过 Register 预注册（Unloaded 状态）的插件。
 //
 // 通常由 Bot.Start() 自动调用，无需手动调用。
 // 若某个插件 Setup 失败，继续尝试其余插件并收集错误，最终返回合并错误。
@@ -30,7 +30,7 @@ func (pm *Manager) StartAll() error {
 		if inst.GetState() == Loaded {
 			continue // 已加载，跳过
 		}
-		if err := inst.load(pm.coordinator); err != nil {
+		if err := inst.load(); err != nil {
 			logger.WithError(err).Errorf("[pluginManager] StartAll: plugin %s failed to start", name)
 			pm.notifyError(name, "start", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))

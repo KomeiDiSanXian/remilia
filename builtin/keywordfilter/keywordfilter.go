@@ -9,7 +9,7 @@
 //
 // 使用示例:
 //
-//	pm.RegisterV2(keywordfilter.New(keywordfilter.Config{
+//	pm.Register(keywordfilter.New(keywordfilter.Config{
 //	    Keywords: []string{"违禁词1", "违禁词2"},
 //	    OnMatch: func(ctx *eventctx.Context, matched string) error {
 //	        return ctx.Reply(platform.TextMessage("消息含有违禁内容，已拦截"))
@@ -83,7 +83,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "过滤", "关键词"},
 			HelpText: `关键词过滤插件使用说明：
   p := keywordfilter.NewPlugin(keywordfilter.Config{Keywords: []string{"违禁词"}})
-  pm.RegisterV2(keywordfilter.Descriptor(p))
+  pm.Register(keywordfilter.Descriptor(p))
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.AddKeyword("新敏感词")`,
 		},

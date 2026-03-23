@@ -67,7 +67,7 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 			if err := pi.unload(coordinator); err != nil {
 				return err
 			}
-			if err := pi.load(coordinator); err != nil {
+			if err := pi.load(); err != nil {
 				return err
 			}
 			if savedState != nil && adv.RestoreState != nil {
@@ -95,7 +95,7 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 		if err := pi.unload(coordinator); err != nil {
 			return err
 		}
-		if err := pi.load(coordinator); err != nil {
+		if err := pi.load(); err != nil {
 			return err
 		}
 		if savedState != nil && adv.RestoreState != nil {
@@ -111,7 +111,7 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 		if err := pi.unload(coordinator); err != nil {
 			return err
 		}
-		if err := pi.load(coordinator); err != nil {
+		if err := pi.load(); err != nil {
 			return err
 		}
 	}
@@ -136,7 +136,7 @@ func (pi *Instance) reloadBlueGreen(coordinator engine.PluginCoordinator, newCon
 	newContext.Reg = newLiveRegistryWriter(coordinator, tempGroup, newInstance)
 
 	// Step 1: 并行运行新 Setup（旧实例继续处理消息）
-	if err := newInstance.load(coordinator); err != nil {
+	if err := newInstance.load(); err != nil {
 		if coordinator != nil {
 			coordinator.RemoveGroup(tempGroup)
 		}

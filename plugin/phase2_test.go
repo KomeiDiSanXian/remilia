@@ -26,7 +26,7 @@ func TestRegistryWriter_LiveTracksMatchers(t *testing.T) {
 	pm := NewManager(eng)
 
 	var matcherCount int32
-	err := pm.RegisterV2(&Descriptor{
+	err := pm.Register(&Descriptor{
 		Name: "rw-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			m1 := ctx.Reg.RegisterMatcher(testEvent)
@@ -62,10 +62,10 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
-	// RegisterMultipleV2Smart 内部 DryRun 阶段应注入 noopRegistryWriter
+	// RegisterMultipleSmart 内部 DryRun 阶段应注入 noopRegistryWriter
 	// 插件代码使用 ctx.Reg 注册时不应产生副作用
 	var liveRegCalled bool
-	err := pm.RegisterMultipleV2Smart([]*Descriptor{
+	err := pm.RegisterMultipleSmart([]*Descriptor{
 		{
 			Name: "smart-noop-test",
 			Setup: func(ctx *SetupContext) (any, error) {
@@ -91,13 +91,13 @@ func TestPluginInfo_IsLoaded(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name:  "info-base",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
 	}))
 
 	var infoResult bool
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "info-dependent",
 		Deps: []string{"info-base"},
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -143,7 +143,7 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 	pm := NewManager(eng)
 
 	setupCallCount := 0
-	err := pm.RegisterMultipleV2Smart([]*Descriptor{
+	err := pm.RegisterMultipleSmart([]*Descriptor{
 		{
 			Name: "no-dryrun-check",
 			Setup: func(ctx *SetupContext) (any, error) {
@@ -175,7 +175,7 @@ func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 	var goroutineRunning atomic.Bool
 	var goroutineDone atomic.Bool
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Go(func(runCtx stdctx.Context) {
@@ -208,7 +208,7 @@ func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 	const count = 5
 	var stopped atomic.Int32
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-multi-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			for range count {
@@ -242,7 +242,7 @@ func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
 		mu.Unlock()
 	}
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-order-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Go(func(runCtx stdctx.Context) {
@@ -276,7 +276,7 @@ func TestCtxGo_ReloadCreatesNewManager(t *testing.T) {
 
 	var stopCount atomic.Int32
 
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-reload-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.Go(func(runCtx stdctx.Context) {
@@ -321,7 +321,7 @@ func TestCtxLog_InjectedInSetup(t *testing.T) {
 	pm := NewManager(eng)
 
 	var loggerName string
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "log-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			require.NotNil(t, ctx.Log, "ctx.Log 应在 Setup 阶段注入")
@@ -352,7 +352,7 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 	myAPI := &MyAPI{Value: "hello"}
 
 	// 插件 A 通过 ExportAs 导出
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "exporter",
 		Setup: func(ctx *SetupContext) (any, error) {
 			ctx.ExportAs("exporter", myAPI)
@@ -362,7 +362,7 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 
 	// 插件 B 通过 Must 获取
 	var got *MyAPI
-	require.NoError(t, pm.RegisterV2(&Descriptor{
+	require.NoError(t, pm.Register(&Descriptor{
 		Name: "consumer",
 		Deps: []string{"exporter"},
 		Setup: func(ctx *SetupContext) (any, error) {

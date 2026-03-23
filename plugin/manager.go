@@ -547,7 +547,7 @@ func (pm *Manager) GetContainer() *Container {
 
 // FreezeContainer 冻结依赖注入容器，切换为无锁只读模式。
 //
-// 在所有插件通过 RegisterV2/RegisterMultipleV2 加载完成后调用此方法，
+// 在所有插件通过 Register/RegisterMultiple 加载完成后调用此方法，
 // 后续 Get/Has 操作将使用原子指针快照，读性能提升 2-3x。
 func (pm *Manager) FreezeContainer() {
 	pm.mu.RLock()
