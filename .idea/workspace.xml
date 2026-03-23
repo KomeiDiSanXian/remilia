@@ -4,60 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/acl/acl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/acl/acl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/antispam/antispam.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/auditlog/auditlog.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/auditlog/auditlog.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/bundle/bundle.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/bundle/bundle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation_gc_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/permission/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/permission/permission.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/i18n/i18n.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/i18n/i18n.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/keywordfilter/keywordfilter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/pluginstore/pluginstore.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginstore/pluginstore.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/scheduler/scheduler_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/scheduler/scheduler_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/stats/stats.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/stats/stats.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/verifycode/verifycode.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/verifycode/verifycode.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/debug-subcommand-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/auto_dependency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/auto_dependency_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/cascade_and_depcheck_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/container_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/container_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/dependency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/dependency_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/disable_enable_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/disable_enable_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/dryrun_dip_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/edge_case_dep_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/edge_case_dep_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_events_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_events_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager_lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/p2_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/p2_fixes_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/p3_features_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/p3_features_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/permission_model_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/permission_model_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/phase2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase2_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/phase3_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase3_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/phase4_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/phase4_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register_validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register_validate.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/undeclared_dep_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testutil.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -317,7 +264,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(platform): optimize Extra map handling in OutboundMessage" />
     <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
     <MESSAGE value="chore(platform): remove bot.go" />
     <MESSAGE value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
@@ -342,7 +288,8 @@
     <MESSAGE value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
     <MESSAGE value="feat(discord): add Discord platform adapter with Gateway and HTTP Interactions support" />
     <MESSAGE value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
+    <MESSAGE value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
+    <option name="LAST_COMMIT_MESSAGE" value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
