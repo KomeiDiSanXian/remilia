@@ -435,7 +435,10 @@ func processImage(src image.Image, o imageOpts, canvasWidth int) (image.Image, e
 }
 
 // circularClip returns a copy of src clipped to the largest inscribed circle.
-// Pixels outside the circle are transparent.
+// Pixels outside the circle are transparent (alpha = 0).
+//
+// Fast path: when src is *image.RGBA (always the case after processImage scaling),
+// pixels are copied directly via Pix slices, avoiding per-pixel interface allocations.
 func circularClip(src image.Image) image.Image {
 	b := src.Bounds()
 	size := b.Dx()
@@ -445,6 +448,28 @@ func circularClip(src image.Image) image.Image {
 	r := size / 2
 	r2 := r * r
 	out := image.NewRGBA(image.Rect(0, 0, size, size))
+
+	if rgba, ok := src.(*image.RGBA); ok {
+		// Fast path — zero interface allocations.
+		for y := 0; y < size; y++ {
+			srcRow := (b.Min.Y+y)*rgba.Stride + b.Min.X*4
+			dstRow := y * out.Stride
+			for x := 0; x < size; x++ {
+				dx, dy := x-r, y-r
+				if dx*dx+dy*dy <= r2 {
+					s := srcRow + x*4
+					d := dstRow + x*4
+					out.Pix[d] = rgba.Pix[s]
+					out.Pix[d+1] = rgba.Pix[s+1]
+					out.Pix[d+2] = rgba.Pix[s+2]
+					out.Pix[d+3] = rgba.Pix[s+3]
+				}
+			}
+		}
+		return out
+	}
+
+	// Slow path for non-RGBA source images.
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
 			dx, dy := x-r, y-r
@@ -458,11 +483,32 @@ func circularClip(src image.Image) image.Image {
 
 // roundedClip returns a copy of src with rounded corners of the given radius.
 // Pixels outside the rounded rectangle are transparent.
+//
+// Same fast/slow path strategy as [circularClip].
 func roundedClip(src image.Image, radius int) image.Image {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	r2 := radius * radius
+
+	if rgba, ok := src.(*image.RGBA); ok {
+		for y := 0; y < h; y++ {
+			srcRow := (b.Min.Y+y)*rgba.Stride + b.Min.X*4
+			dstRow := y * out.Stride
+			for x := 0; x < w; x++ {
+				if inRoundedRect(x, y, w, h, radius, r2) {
+					s := srcRow + x*4
+					d := dstRow + x*4
+					out.Pix[d] = rgba.Pix[s]
+					out.Pix[d+1] = rgba.Pix[s+1]
+					out.Pix[d+2] = rgba.Pix[s+2]
+					out.Pix[d+3] = rgba.Pix[s+3]
+				}
+			}
+		}
+		return out
+	}
+
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			if inRoundedRect(x, y, w, h, radius, r2) {

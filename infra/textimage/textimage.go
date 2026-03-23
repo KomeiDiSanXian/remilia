@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
@@ -19,9 +20,14 @@ import (
 )
 
 // Renderer converts text strings to raster images.
-// Create one with [New]; a single Renderer may be used concurrently for reading
-// (Render/RenderToPNG/…) after construction.
+// Create one with [New]; a single Renderer is safe for concurrent use —
+// a mutex serialises access to the underlying font face, whose internal
+// sfnt.Buffer is not goroutine-safe.
+// For maximum throughput under high concurrency, keep one Renderer per
+// goroutine or use [Canvas], which constructs its own temporary Renderer
+// per AddText call.
 type Renderer struct {
+	mu   sync.Mutex
 	face font.Face
 	opts Options
 }
@@ -50,7 +56,11 @@ func (r *Renderer) Close() error {
 // Render converts text to an [image.Image].
 // Newlines in text produce explicit line breaks; long lines are word-wrapped
 // when a finite maximum width is known (controlled by [WithSize] / [WithMaxWidth]).
+// Safe for concurrent use from multiple goroutines.
 func (r *Renderer) Render(text string) (image.Image, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	lines := r.wrapText(text)
 
 	metrics := r.face.Metrics()
