@@ -277,7 +277,21 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		sender = &platform.NoopSender{}
 	}
 
-	b.engine.ProcessPlatformEvent(event, sender, caps)
+	// F-9: 若适配器实现了 BotIdentity，注入 botID 供 ctx.IsFromSelf() 使用
+	botID := ""
+	if snapshot != nil {
+		if c, ok := snapshot[event.Platform()]; ok {
+			if bi, ok2 := c.adapter.(platform.BotIdentity); ok2 {
+				botID = bi.BotID()
+			}
+		}
+	}
+
+	if botID != "" {
+		b.engine.ProcessPlatformEventEx(event, sender, botID, caps)
+	} else {
+		b.engine.ProcessPlatformEvent(event, sender, caps)
+	}
 
 	if b.config.Debug {
 		logger.WithFields(logger.Fields{

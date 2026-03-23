@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -496,8 +497,10 @@ func TestOutboundMessage_IsEmpty(t *testing.T) {
 		{"markdown only", platform.MarkdownMessage("# h"), false},
 		{"image only", platform.ImageMessage("https://img"), false},
 		{"embed only", platform.OutboundMessage{Embeds: []platform.Embed{{Title: "t"}}}, false},
-		{"mentions only", platform.OutboundMessage{Mentions: []string{"u1"}}, true},
-		{"buttons only", platform.OutboundMessage{Buttons: []platform.Button{{ID: "b"}}}, true},
+		// P1修复: buttons-only 和 mentions-only 是合法的可发送消息，不应视为 empty
+		{"mentions only", platform.OutboundMessage{Mentions: []string{"u1"}}, false},
+		{"buttons only", platform.OutboundMessage{Buttons: []platform.Button{{ID: "b"}}}, false},
+		// Extra 仍然不计入内容
 		{"extra only", platform.OutboundMessage{}.WithExtra("k", "v"), true},
 	}
 	for _, tc := range cases {
@@ -606,5 +609,336 @@ func TestRegistry_WithObserver_Nil(t *testing.T) {
 	cancel()
 	if err := reg.StartAll(ctx, func(platform.Event) {}); err != nil {
 		t.Errorf("nil observer should not cause error: %v", err)
+	}
+}
+
+// ── AttachmentFromURL / AttachmentFromData 工厂函数 ──────────────────────────
+
+func TestAttachmentFromURL(t *testing.T) {
+	att := platform.AttachmentFromURL(platform.AttachmentKindImage, "https://example.com/img.png")
+	if att.Kind != platform.AttachmentKindImage {
+		t.Errorf("AttachmentFromURL Kind: got %q, want %q", att.Kind, platform.AttachmentKindImage)
+	}
+	if att.URL != "https://example.com/img.png" {
+		t.Errorf("AttachmentFromURL URL: got %q", att.URL)
+	}
+	if len(att.Data) != 0 {
+		t.Error("AttachmentFromURL should not set Data")
+	}
+}
+
+func TestAttachmentFromData(t *testing.T) {
+	data := []byte{0x89, 0x50, 0x4e, 0x47}
+	att := platform.AttachmentFromData(platform.AttachmentKindImage, data)
+	if att.Kind != platform.AttachmentKindImage {
+		t.Errorf("AttachmentFromData Kind: got %q, want %q", att.Kind, platform.AttachmentKindImage)
+	}
+	if len(att.Data) != len(data) {
+		t.Errorf("AttachmentFromData Data length: got %d, want %d", len(att.Data), len(data))
+	}
+	if att.URL != "" {
+		t.Error("AttachmentFromData should not set URL")
+	}
+}
+
+// ── SendRequest.Validate() 附件校验 ─────────────────────────────────────────
+
+func TestSendRequest_Validate_AttachmentBothSet(t *testing.T) {
+	req := platform.SendRequest{
+		Target: platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{
+			Attachments: []platform.Attachment{
+				{Kind: platform.AttachmentKindImage, URL: "https://img.example.com", Data: []byte{1, 2, 3}},
+			},
+		},
+	}
+	err := req.Validate()
+	if err == nil {
+		t.Fatal("Validate: expected error when attachment has both URL and Data set")
+	}
+	if !errors.Is(err, errutil.ErrInvalidMessage) {
+		t.Errorf("Validate: expected ErrInvalidMessage, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "attachment[0]") {
+		t.Errorf("Validate: error should mention attachment index, got: %v", err)
+	}
+}
+
+func TestSendRequest_Validate_AttachmentNeitherSet(t *testing.T) {
+	req := platform.SendRequest{
+		Target: platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{
+			Attachments: []platform.Attachment{
+				{Kind: platform.AttachmentKindFile}, // no URL, no Data
+			},
+		},
+	}
+	err := req.Validate()
+	if err == nil {
+		t.Fatal("Validate: expected error when attachment has neither URL nor Data")
+	}
+	if !errors.Is(err, errutil.ErrInvalidMessage) {
+		t.Errorf("Validate: expected ErrInvalidMessage, got %v", err)
+	}
+}
+
+func TestSendRequest_Validate_ValidURL(t *testing.T) {
+	req := platform.SendRequest{
+		Target: platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{
+			Attachments: []platform.Attachment{
+				platform.AttachmentFromURL(platform.AttachmentKindImage, "https://example.com/img.png"),
+			},
+		},
+	}
+	if err := req.Validate(); err != nil {
+		t.Errorf("Validate: unexpected error for valid URL attachment: %v", err)
+	}
+}
+
+func TestSendRequest_Validate_ValidData(t *testing.T) {
+	req := platform.SendRequest{
+		Target: platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{
+			Attachments: []platform.Attachment{
+				platform.AttachmentFromData(platform.AttachmentKindFile, []byte{1, 2, 3}),
+			},
+		},
+	}
+	if err := req.Validate(); err != nil {
+		t.Errorf("Validate: unexpected error for valid Data attachment: %v", err)
+	}
+}
+
+func TestSendRequest_Validate_ButtonsOnlyMessage(t *testing.T) {
+	// 纯按钮消息应通过 Validate（IsEmpty 修复后不再被拒绝）
+	req := platform.SendRequest{
+		Target: platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{
+			Buttons: []platform.Button{{ID: "btn1", Label: "Click Me", Style: platform.ButtonStylePrimary}},
+		},
+	}
+	if err := req.Validate(); err != nil {
+		t.Errorf("Validate: buttons-only message should be valid, got: %v", err)
+	}
+}
+
+func TestSendRequest_Validate_MentionsOnlyMessage(t *testing.T) {
+	// 纯 @ 消息应通过 Validate
+	req := platform.SendRequest{
+		Target:  platform.ChatInfo{ID: "chat-1"},
+		Message: platform.OutboundMessage{Mentions: []string{"user-abc"}},
+	}
+	if err := req.Validate(); err != nil {
+		t.Errorf("Validate: mentions-only message should be valid, got: %v", err)
+	}
+}
+
+// ── Emoji 结构体 ─────────────────────────────────────────────────────────────
+
+func TestEmojiKindConstants(t *testing.T) {
+	kinds := []platform.EmojiKind{
+		platform.EmojiKindUnicode,
+		platform.EmojiKindCustom,
+		platform.EmojiKindSystem,
+	}
+	for _, k := range kinds {
+		if k == "" {
+			t.Error("EmojiKind constant should not be empty")
+		}
+	}
+}
+
+func TestEmoji_ZeroValue(t *testing.T) {
+	var e platform.Emoji
+	if e.Kind != "" || e.ID != "" || e.Value != "" {
+		t.Error("Emoji zero value should have all empty fields")
+	}
+}
+
+func TestEmoji_Unicode(t *testing.T) {
+	e := platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"}
+	if e.Kind != platform.EmojiKindUnicode {
+		t.Errorf("Emoji.Kind: got %q, want %q", e.Kind, platform.EmojiKindUnicode)
+	}
+	if e.Value != "👍" {
+		t.Errorf("Emoji.Value: got %q, want %q", e.Value, "👍")
+	}
+}
+
+func TestEmoji_Custom(t *testing.T) {
+	e := platform.Emoji{Kind: platform.EmojiKindCustom, ID: "123456789", Value: "myEmoji"}
+	if e.Kind != platform.EmojiKindCustom {
+		t.Errorf("Emoji.Kind: got %q", e.Kind)
+	}
+	if e.ID != "123456789" {
+		t.Errorf("Emoji.ID: got %q", e.ID)
+	}
+	if e.Value != "myEmoji" {
+		t.Errorf("Emoji.Value: got %q", e.Value)
+	}
+}
+
+func TestEmoji_System(t *testing.T) {
+	// QQ 系统表情，仅需 ID
+	e := platform.Emoji{Kind: platform.EmojiKindSystem, ID: "405"}
+	if e.Kind != platform.EmojiKindSystem {
+		t.Errorf("Emoji.Kind: got %q", e.Kind)
+	}
+	if e.ID != "405" {
+		t.Errorf("Emoji.ID: got %q", e.ID)
+	}
+}
+
+// ── Capabilities 量化限制字段 ─────────────────────────────────────────────────
+
+func TestCapabilities_LimitFields_ZeroMeansUnknown(t *testing.T) {
+	// 零值 Capabilities 的所有限制字段应为 0
+	var caps platform.Capabilities
+	if caps.MaxTextLength != 0 {
+		t.Errorf("MaxTextLength zero value: want 0, got %d", caps.MaxTextLength)
+	}
+	if caps.MaxAttachmentMB != 0 {
+		t.Errorf("MaxAttachmentMB zero value: want 0, got %d", caps.MaxAttachmentMB)
+	}
+	if caps.MaxButtonsPerRow != 0 {
+		t.Errorf("MaxButtonsPerRow zero value: want 0, got %d", caps.MaxButtonsPerRow)
+	}
+	if caps.MaxButtonRows != 0 {
+		t.Errorf("MaxButtonRows zero value: want 0, got %d", caps.MaxButtonRows)
+	}
+	if caps.MaxEmbedFields != 0 {
+		t.Errorf("MaxEmbedFields zero value: want 0, got %d", caps.MaxEmbedFields)
+	}
+}
+
+func TestCapabilities_LimitFields_CanBeSet(t *testing.T) {
+	caps := platform.Capabilities{
+		MaxTextLength:    2000,
+		MaxAttachmentMB:  8,
+		MaxButtonsPerRow: 5,
+		MaxButtonRows:    5,
+		MaxEmbedFields:   25,
+	}
+	if caps.MaxTextLength != 2000 {
+		t.Errorf("MaxTextLength: want 2000, got %d", caps.MaxTextLength)
+	}
+	if caps.MaxAttachmentMB != 8 {
+		t.Errorf("MaxAttachmentMB: want 8, got %d", caps.MaxAttachmentMB)
+	}
+	if caps.MaxButtonsPerRow != 5 {
+		t.Errorf("MaxButtonsPerRow: want 5, got %d", caps.MaxButtonsPerRow)
+	}
+	if caps.MaxButtonRows != 5 {
+		t.Errorf("MaxButtonRows: want 5, got %d", caps.MaxButtonRows)
+	}
+	if caps.MaxEmbedFields != 25 {
+		t.Errorf("MaxEmbedFields: want 25, got %d", caps.MaxEmbedFields)
+	}
+}
+
+// ── Registry.StartAll 断连回调不累积 ─────────────────────────────────────────
+
+// mockRecoverableAdapter 实现 RecoverableAdapter，追踪 OnDisconnect 调用次数和注销次数。
+type mockRecoverableAdapter struct {
+	platformID    string
+	registerCount int
+	unregs        []func(error) // 记录已注册的回调（nil 表示已注销）
+}
+
+func (a *mockRecoverableAdapter) Platform() string                    { return a.platformID }
+func (a *mockRecoverableAdapter) Sender() platform.Sender             { return &platform.NoopSender{} }
+func (a *mockRecoverableAdapter) Capabilities() platform.Capabilities { return platform.Capabilities{} }
+func (a *mockRecoverableAdapter) Start(ctx context.Context, _ func(platform.Event)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (a *mockRecoverableAdapter) Stop(_ context.Context) error { return nil }
+func (a *mockRecoverableAdapter) IsRunning() bool              { return false }
+
+// OnDisconnect 实现 RecoverableAdapter；返回注销函数，注销时将对应槽位置 nil。
+func (a *mockRecoverableAdapter) OnDisconnect(fn func(error)) (unregister func()) {
+	a.registerCount++
+	idx := len(a.unregs)
+	a.unregs = append(a.unregs, fn)
+	return func() {
+		if idx < len(a.unregs) {
+			a.unregs[idx] = nil // 标记为已注销
+		}
+	}
+}
+
+// activeCallbacks 返回当前有效（未注销）的回调数量
+func (a *mockRecoverableAdapter) activeCallbacks() int {
+	n := 0
+	for _, f := range a.unregs {
+		if f != nil {
+			n++
+		}
+	}
+	return n
+}
+
+func TestRegistry_StartAll_DisconnectUnreg_NoAccumulation(t *testing.T) {
+	// 验证：多次调用 StartAll 时，旧的断连回调会被注销，不会累积
+	adapter := &mockRecoverableAdapter{platformID: "recoverable"}
+	reg := platform.NewRegistry()
+	reg.Register(adapter)
+
+	// 第一次 StartAll
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	go func() { done1 <- reg.StartAll(ctx1, func(platform.Event) {}) }()
+	cancel1()
+	<-done1
+
+	firstRegCount := adapter.registerCount
+	if firstRegCount != 1 {
+		t.Fatalf("after 1st StartAll: expected 1 OnDisconnect registration, got %d", firstRegCount)
+	}
+	// 第一次 StartAll 注册了 1 个回调
+	if adapter.activeCallbacks() != 1 {
+		t.Errorf("after 1st StartAll: expected 1 active callback, got %d", adapter.activeCallbacks())
+	}
+
+	// 第二次 StartAll：应先注销旧回调，再注册新回调
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done2 := make(chan error, 1)
+	go func() { done2 <- reg.StartAll(ctx2, func(platform.Event) {}) }()
+	cancel2()
+	<-done2
+
+	if adapter.registerCount != 2 {
+		t.Errorf("after 2nd StartAll: expected 2 total registrations, got %d", adapter.registerCount)
+	}
+	// 旧回调应已被注销，只有新注册的 1 个有效
+	if adapter.activeCallbacks() != 1 {
+		t.Errorf("after 2nd StartAll: expected 1 active callback (old unregistered), got %d", adapter.activeCallbacks())
+	}
+}
+
+func TestRegistry_StopAll_CleansUpDisconnectUnregs(t *testing.T) {
+	// 验证：StopAll 后断连回调被清理，释放 Registry 引用
+	adapter := &mockRecoverableAdapter{platformID: "recoverable-stop"}
+	reg := platform.NewRegistry()
+	reg.Register(adapter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- reg.StartAll(ctx, func(platform.Event) {}) }()
+	cancel()
+	<-done
+
+	if adapter.registerCount != 1 {
+		t.Fatalf("expected 1 registration before StopAll, got %d", adapter.registerCount)
+	}
+	if adapter.activeCallbacks() != 1 {
+		t.Fatalf("expected 1 active callback before StopAll, got %d", adapter.activeCallbacks())
+	}
+
+	// StopAll 应注销回调
+	_ = reg.StopAll(context.Background())
+	if adapter.activeCallbacks() != 0 {
+		t.Errorf("after StopAll: expected 0 active callbacks (all unregistered), got %d", adapter.activeCallbacks())
 	}
 }

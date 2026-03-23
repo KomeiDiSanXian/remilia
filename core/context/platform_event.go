@@ -21,6 +21,7 @@ func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Cont
 	ctx.platformEvent = event
 	ctx.platformSender = sender
 	ctx.platformCaps = platform.Capabilities{} // 由 Engine 在 ProcessPlatformEvent 中注入
+	ctx.botID = ""                             // 由 Engine 在 ProcessPlatformEventEx 中注入
 	ctx.matcher = nil
 	ctx.extensions = nil
 	ctx.extInitialized.Store(false)
@@ -42,6 +43,7 @@ func ReleaseContextFromEvent(ctx *Context) {
 	ctx.platformEvent = nil
 	ctx.platformSender = nil
 	ctx.platformCaps = platform.Capabilities{}
+	ctx.botID = ""
 	ReleaseContext(ctx) // 复用原有清理逻辑
 }
 
@@ -161,4 +163,47 @@ func (ctx *Context) IsPlatformContext() bool {
 		return false
 	}
 	return ctx.platformEvent != nil
+}
+
+// SetBotID 注入机器人自身的平台 ID（框架内部，由 Engine.ProcessPlatformEventEx 调用）。
+//
+// 注入后 IsFromSelf() 可正确判断事件是否由机器人自身触发。
+func (ctx *Context) SetBotID(id string) {
+	if ctx == nil {
+		return
+	}
+	ctx.botID = id
+}
+
+// GetBotID 返回注入的机器人自身平台 ID。
+//
+// 未注入时返回空字符串。
+func (ctx *Context) GetBotID() string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.botID
+}
+
+// IsFromSelf 报告当前事件是否由机器人自身触发。
+//
+// 需要引擎在 ProcessPlatformEventEx 中注入 botID 才能正常工作；
+// 未注入时始终返回 false（安全默认值，不会误过滤正常消息）。
+//
+// 典型用法（在 Handler 或中间件中防止自回复）：
+//
+//	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *context.Context) error {
+//	    if ctx.IsFromSelf() {
+//	        return nil // 忽略机器人自身发出的消息
+//	    }
+//	    // ... 正常处理
+//	})
+func (ctx *Context) IsFromSelf() bool {
+	if ctx == nil || ctx.botID == "" {
+		return false
+	}
+	if ctx.platformEvent == nil {
+		return false
+	}
+	return ctx.platformEvent.Sender().ID == ctx.botID
 }

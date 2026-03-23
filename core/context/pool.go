@@ -28,6 +28,7 @@ func ReleaseContext(ctx *Context) {
 	// 平台无关字段清理
 	ctx.platformEvent = nil
 	ctx.platformSender = nil
+	ctx.botID = ""
 
 	if ctx.extensions != nil {
 		ctx.extensions.Clear()

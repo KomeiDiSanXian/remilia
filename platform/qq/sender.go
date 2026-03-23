@@ -346,21 +346,28 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	return dtoMsg
 }
 
-// Capabilities 是 QQ 平台的能力声明
-var Capabilities = platform.Capabilities{
-	Markdown:        true,
-	Buttons:         true,
-	MultiAttachment: false,
-	MessageEdit:     false,
-	MessageDelete:   false,
-	Embeds:          false,
-	FileUpload:      true,
-	GuildSupport:    true,
-	Reactions:       true,
-	ThreadReply:     true,
-	TypingIndicator: false,
-	MentionAll:      true,
-	VoiceChannel:    false,
+// qqCapabilities 返回 QQ 平台的能力声明。
+//
+// 使用函数而非包级变量，保留运行时动态更新的能力（如连接后更新权限）。
+func qqCapabilities() platform.Capabilities {
+	return platform.Capabilities{
+		Markdown:        true,
+		Buttons:         true,
+		MultiAttachment: false,
+		MessageEdit:     false,
+		MessageDelete:   false,
+		Embeds:          false,
+		FileUpload:      true,
+		GuildSupport:    true,
+		Reactions:       true,
+		ThreadReply:     true,
+		TypingIndicator: false,
+		MentionAll:      true,
+		VoiceChannel:    false,
+		// QQ 按钮布局限制：最多 5 行，每行最多 5 个
+		MaxButtonsPerRow: 5,
+		MaxButtonRows:    5,
+	}
 }
 
 // convertButtons 将平台无关的 []platform.Button 转换为 QQ InlineKeyboard。

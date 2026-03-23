@@ -189,17 +189,35 @@ func (s *discordSender) Delete(_ stdctx.Context, chatID, messageID string) error
 
 // AddReaction implements platform.ReactionSender.
 //
-// emoji can be a Unicode character (e.g. "👍") or a custom emoji in
-// "name:id" format (e.g. "myEmoji:123456789").
-func (s *discordSender) AddReaction(_ stdctx.Context, chatID, messageID, emoji string) error {
-	return s.session.MessageReactionAdd(chatID, messageID, emoji)
+// emoji is mapped to the Discord wire format:
+//   - EmojiKindUnicode: emoji.Value (e.g. "👍")
+//   - EmojiKindCustom:  "name:id" format (e.g. "myEmoji:123456789")
+//   - EmojiKindSystem:  emoji.Value (fallback)
+func (s *discordSender) AddReaction(_ stdctx.Context, chatID, messageID string, emoji platform.Emoji) error {
+	return s.session.MessageReactionAdd(chatID, messageID, emojiToDiscord(emoji))
 }
 
 // RemoveReaction implements platform.ReactionSender.
 //
 // Removes the bot's own reaction (@me).
-func (s *discordSender) RemoveReaction(_ stdctx.Context, chatID, messageID, emoji string) error {
-	return s.session.MessageReactionRemove(chatID, messageID, emoji, "@me")
+func (s *discordSender) RemoveReaction(_ stdctx.Context, chatID, messageID string, emoji platform.Emoji) error {
+	return s.session.MessageReactionRemove(chatID, messageID, emojiToDiscord(emoji), "@me")
+}
+
+// emojiToDiscord converts a platform.Emoji to the Discord wire format.
+//
+// Discord expects:
+//   - Standard Unicode emoji as-is (e.g. "👍")
+//   - Custom guild emoji as "name:id" (e.g. "myEmoji:123456789")
+func emojiToDiscord(e platform.Emoji) string {
+	if e.Kind == platform.EmojiKindCustom && e.ID != "" {
+		name := e.Value
+		if name == "" {
+			return e.ID
+		}
+		return name + ":" + e.ID
+	}
+	return e.Value
 }
 
 // ────────────────────────────────────────────────────────────────────────────

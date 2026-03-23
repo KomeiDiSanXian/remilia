@@ -16,34 +16,43 @@ import (
 
 const PlatformID = "telegram"
 
-// Capabilities declares Telegram platform feature capabilities.
-var Capabilities = platform.Capabilities{
-	Markdown:        true,
-	Buttons:         true,
-	MultiAttachment: true,
-	MessageEdit:     true,
-	MessageDelete:   true,
-	Embeds:          false,
-	FileUpload:      true,
-	GuildSupport:    false,
-	Reactions:       true,
-	ThreadReply:     true,
-	TypingIndicator: true,
-	MentionAll:      false,
-	VoiceChannel:    false,
-}
-
 // Adapter is the Telegram platform adapter skeleton.
 type Adapter struct{}
 
 // NewAdapter creates a Telegram adapter (placeholder).
 func NewAdapter() *Adapter { return &Adapter{} }
 
-func (a *Adapter) Platform() string                    { return PlatformID }
-func (a *Adapter) Sender() platform.Sender             { return &platform.NoopSender{} }
-func (a *Adapter) Stop(_ stdctx.Context) error         { return nil }
-func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
-func (a *Adapter) IsRunning() bool                     { return false }
+func (a *Adapter) Platform() string { return PlatformID }
+func (a *Adapter) Sender() platform.Sender {
+	return &platform.NoopSender{}
+}
+func (a *Adapter) Stop(_ stdctx.Context) error { return nil }
+
+// Capabilities returns Telegram platform feature capabilities.
+//
+// 使用方法而非包级变量，保留运行时动态更新的能力。
+func (a *Adapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{
+		Markdown:        true,
+		Buttons:         true,
+		MultiAttachment: true,
+		MessageEdit:     true,
+		MessageDelete:   true,
+		Embeds:          false,
+		FileUpload:      true,
+		GuildSupport:    false,
+		Reactions:       true,
+		ThreadReply:     true,
+		TypingIndicator: true,
+		MentionAll:      false,
+		VoiceChannel:    false,
+		// Telegram 量化限制
+		MaxTextLength:   4096, // Telegram 消息文本上限
+		MaxAttachmentMB: 50,   // Telegram Bot API 文件上传上限
+	}
+}
+
+func (a *Adapter) IsRunning() bool { return false }
 
 // Start implements platform.Adapter (not yet implemented).
 func (a *Adapter) Start(_ stdctx.Context, _ func(platform.Event)) error {

@@ -52,6 +52,7 @@ type Context struct {
 	platformEvent  platform.Event        // 平台无关事件抽象
 	platformSender platform.Sender       // 平台无关消息发送器
 	platformCaps   platform.Capabilities // 平台能力声明（由 Engine 注入）
+	botID          string                // 机器人自身平台 ID（由 Engine 注入，供 IsFromSelf 使用）
 
 	extInitialized atomic.Bool
 	extMu          sync.Mutex

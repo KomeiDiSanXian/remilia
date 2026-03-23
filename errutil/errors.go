@@ -43,7 +43,8 @@ var (
 	ErrAdapterNotRunning   = errors.New("adapter not running")
 	ErrWebhookCreateFailed = errors.New("failed to create webhook connection")
 	ErrNoChatInfo          = errors.New("no ChatInfo provided: ensure SendRequest.Target.ID is set before calling Send")
-	ErrEmptyMessage        = errors.New("empty message: at least one of Text, Markdown, Attachments or Embeds must be set")
+	ErrEmptyMessage        = errors.New("empty message: at least one of Text, Markdown, Attachments, Embeds, Buttons or Mentions must be set")
+	ErrInvalidMessage      = errors.New("invalid message content")
 
 	ErrPluginAlreadyExists = errors.New("plugin already exists")
 	ErrPluginNotFound      = errors.New("plugin not found")

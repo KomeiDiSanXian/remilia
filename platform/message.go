@@ -240,6 +240,30 @@ func FileDataMessage(data []byte, name, mimeType string) OutboundMessage {
 	}}}
 }
 
+// AttachmentFromURL 用远程 URL 构造附件。
+//
+// URL 与 Data 互斥；需要二进制直传时请使用 [AttachmentFromData]。
+//
+// 使用示例：
+//
+//	att := platform.AttachmentFromURL(platform.AttachmentKindImage, "https://example.com/img.png")
+func AttachmentFromURL(kind AttachmentKind, url string) Attachment {
+	return Attachment{Kind: kind, URL: url}
+}
+
+// AttachmentFromData 用本地二进制数据构造附件。
+//
+// URL 与 Data 互斥；需要远程 URL 时请使用 [AttachmentFromURL]。
+//
+// 使用示例：
+//
+//	att := platform.AttachmentFromData(platform.AttachmentKindFile, pdfBytes)
+//	att.Name = "report.pdf"
+//	att.MimeType = "application/pdf"
+func AttachmentFromData(kind AttachmentKind, data []byte) Attachment {
+	return Attachment{Kind: kind, Data: data}
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 链式 Builder 方法（返回新消息，不修改原消息）
 // ────────────────────────────────────────────────────────────────────────────
@@ -292,9 +316,8 @@ func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 
 // IsEmpty 报告消息是否没有任何可发送的内容。
 //
-// 当 Text、Markdown、Attachments、Embeds 均为空/nil 时返回 true。
-// Mentions、Buttons、Extra 等元数据字段不计入"内容"判断，
-// 因为单独存在时平台通常也不会发出有意义的消息。
+// 当 Text、Markdown、Attachments、Embeds、Buttons、Mentions 均为空/nil 时返回 true。
+// Extra 等纯元数据字段不计入"内容"判断，因为单独存在时平台无法发出有意义的消息。
 //
 // 典型用法（Sender 实现中防止发送空消息）：
 //
@@ -305,5 +328,7 @@ func (m OutboundMessage) IsEmpty() bool {
 	return m.Text == "" &&
 		m.Markdown == "" &&
 		len(m.Attachments) == 0 &&
-		len(m.Embeds) == 0
+		len(m.Embeds) == 0 &&
+		len(m.Buttons) == 0 && // 纯按钮消息（Discord 组件面板等）是合法的
+		len(m.Mentions) == 0 // 纯 @ 消息在部分平台/频道场景合法
 }

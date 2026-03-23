@@ -4,40 +4,26 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(sender): ensure content field is populated for group chat media messages">
-      <change afterPath="$PROJECT_DIR$/docs/04-development/platform-interface-design-issues.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/qq/result.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(sender): update Send method to return SendResult and handle errors appropriately">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/broadcast/broadcast.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/admin/admin.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/admin/admin.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/dev/debug/debug.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/dev/debug/debug.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/ratelimitui/ratelimitui.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/sendqueue/sendqueue.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/context/platform_event.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/context/platform_event_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/platform_event_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/async-tasks/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/async-tasks/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/basic-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/basic-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/command-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/command-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/discord-bot/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/discord-bot/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/error-handling/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/error-handling/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/help-discovery/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/help-discovery/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/metrics-monitoring/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/middleware-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/middleware-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-example/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-example/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/plugin-v2-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/production-ready/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/production-ready/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/discord/interactions.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/interactions.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/discord/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/message.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testbot_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testbot_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/testbot/testutil.go" beforeDir="false" afterPath="$PROJECT_DIR$/testbot/testutil.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/webhook_server.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/webhook_server.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/telegram/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/telegram/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/wechat/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/wechat/adapter.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -298,7 +284,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
     <MESSAGE value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
     <MESSAGE value="feat(platform): add support for guild channel messaging and enhance adapter interfaces" />
     <MESSAGE value="feat(platform): add support for interaction events and enhance message handling capabilities" />
@@ -323,7 +308,8 @@
     <MESSAGE value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
     <MESSAGE value="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity" />
     <MESSAGE value="fix(sender): ensure content field is populated for group chat media messages" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix(sender): ensure content field is populated for group chat media messages" />
+    <MESSAGE value="fix(sender): update Send method to return SendResult and handle errors appropriately" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix(sender): update Send method to return SendResult and handle errors appropriately" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -75,7 +75,7 @@ func (a *Adapter) Platform() string { return PlatformID }
 func (a *Adapter) Sender() platform.Sender { return a.sender }
 
 // Capabilities returns QQ platform feature capabilities.
-func (a *Adapter) Capabilities() platform.Capabilities { return Capabilities }
+func (a *Adapter) Capabilities() platform.Capabilities { return qqCapabilities() }
 
 // IsRunning 返回适配器当前是否处于运行状态。
 func (a *Adapter) IsRunning() bool {

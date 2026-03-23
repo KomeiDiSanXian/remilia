@@ -162,3 +162,70 @@ func (s *captureTestSender) Send(_ stdctx.Context, req platform.SendRequest) (pl
 	}
 	return platform.SendResult{}, nil
 }
+
+// ── IsFromSelf ────────────────────────────────────────────────────────────────
+
+func TestIsFromSelf_NoBotID(t *testing.T) {
+	// botID 未注入 → 始终返回 false（安全默认值）
+	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hi", platform.EventKindPrivateMessage)
+	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "user123"}
+
+	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer context.ReleaseContextFromEvent(ctx)
+
+	assert.False(t, ctx.IsFromSelf(), "IsFromSelf should return false when botID is not set")
+}
+
+func TestIsFromSelf_BotIDSet_Match(t *testing.T) {
+	// botID 与事件 sender ID 相同 → 机器人自身发出
+	event := makeTestEvent("discord", "MESSAGE_CREATE", "hello", platform.EventKindGroupMessage)
+	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "bot-001"}
+
+	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer context.ReleaseContextFromEvent(ctx)
+
+	ctx.SetBotID("bot-001")
+	assert.True(t, ctx.IsFromSelf(), "IsFromSelf should return true when senderID == botID")
+}
+
+func TestIsFromSelf_BotIDSet_NoMatch(t *testing.T) {
+	// botID 与事件 sender ID 不同 → 非机器人自身发出
+	event := makeTestEvent("discord", "MESSAGE_CREATE", "hello", platform.EventKindGroupMessage)
+	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "user-xyz"}
+
+	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer context.ReleaseContextFromEvent(ctx)
+
+	ctx.SetBotID("bot-001")
+	assert.False(t, ctx.IsFromSelf(), "IsFromSelf should return false when senderID != botID")
+}
+
+func TestIsFromSelf_GetBotID(t *testing.T) {
+	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "", platform.EventKindPrivateMessage)
+	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer context.ReleaseContextFromEvent(ctx)
+
+	assert.Equal(t, "", ctx.GetBotID(), "GetBotID should return empty before SetBotID")
+	ctx.SetBotID("my-bot-id")
+	assert.Equal(t, "my-bot-id", ctx.GetBotID(), "GetBotID should return injected ID")
+}
+
+func TestIsFromSelf_NilContext(t *testing.T) {
+	var ctx *context.Context
+	assert.False(t, ctx.IsFromSelf(), "IsFromSelf on nil context should return false")
+	assert.Equal(t, "", ctx.GetBotID(), "GetBotID on nil context should return empty")
+}
+
+func TestAcquireContextFromEvent_BotIDReset(t *testing.T) {
+	// 从池中重新获取的 Context，botID 应被清零
+	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hello", platform.EventKindPrivateMessage)
+
+	ctx1 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	ctx1.SetBotID("bot-abc")
+	assert.Equal(t, "bot-abc", ctx1.GetBotID())
+	context.ReleaseContextFromEvent(ctx1) // 归还到池
+
+	ctx2 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
+	defer context.ReleaseContextFromEvent(ctx2)
+	assert.Equal(t, "", ctx2.GetBotID(), "botID should be reset after pool reuse")
+}

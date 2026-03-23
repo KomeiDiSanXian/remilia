@@ -68,7 +68,8 @@ type SendRequest struct {
 // Validate 校验 SendRequest 是否合法，供 Sender 实现复用，避免重复检查。
 //
 // 当 Target.ID 为空时返回 [errutil.ErrNoChatInfo]；
-// 当 Message 没有任何可发送内容时返回 [errutil.ErrEmptyMessage]。
+// 当 Message 没有任何可发送内容时返回 [errutil.ErrEmptyMessage]；
+// 当附件同时设置 URL 和 Data（互斥），或两者均为空时返回 [errutil.ErrInvalidMessage]。
 //
 // 使用示例（Sender 实现）：
 //
@@ -84,6 +85,14 @@ func (r SendRequest) Validate() error {
 	}
 	if r.Message.IsEmpty() {
 		return errutil.ErrEmptyMessage
+	}
+	for i, att := range r.Message.Attachments {
+		if att.URL != "" && len(att.Data) > 0 {
+			return fmt.Errorf("%w: attachment[%d] has both URL and Data set (mutually exclusive)", errutil.ErrInvalidMessage, i)
+		}
+		if att.URL == "" && len(att.Data) == 0 {
+			return fmt.Errorf("%w: attachment[%d] must have either URL or Data", errutil.ErrInvalidMessage, i)
+		}
 	}
 	return nil
 }
@@ -149,14 +158,53 @@ type MessageDeleter interface {
 // 使用前用类型断言检查支持：
 //
 //	if rs, ok := platform.GetReactionSender(adapter); ok {
-//	    rs.AddReaction(ctx, chatID, messageID, "👍")
+//	    rs.AddReaction(ctx, chatID, messageID, platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"})
 //	}
+
+// EmojiKind 平台无关的 emoji 种类枚举。
+type EmojiKind string
+
+const (
+	// EmojiKindUnicode 标准 Unicode 表情（如 "👍"），Value 字段填 Unicode 字符
+	EmojiKindUnicode EmojiKind = "unicode"
+	// EmojiKindCustom 平台自定义表情（如 Discord 的 name:id 格式），需 ID + Value
+	EmojiKindCustom EmojiKind = "custom"
+	// EmojiKindSystem 平台内置系统表情（如 QQ 内置表情，需 ID 字段）
+	EmojiKindSystem EmojiKind = "system"
+)
+
+// Emoji 平台无关的表情标识，用于 ReactionSender 接口。
+//
+// 各平台 Sender 根据 Kind 将其映射到平台特定格式：
+//   - Discord:  unicode → Value 直接传入；custom → "Value:ID"
+//   - Telegram: unicode → Value；custom → 自定义 emoji ID
+//   - QQ:       system  → (emojiType=1, emojiID=ID)；unicode → (emojiType=2, emojiID=Value)
+//
+// 使用示例：
+//
+//	// Unicode 点赞
+//	platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"}
+//	// Discord 自定义 emoji
+//	platform.Emoji{Kind: platform.EmojiKindCustom, ID: "123456789", Value: "myEmoji"}
+//	// QQ 内置系统表情（表情 ID=405）
+//	platform.Emoji{Kind: platform.EmojiKindSystem, ID: "405"}
+type Emoji struct {
+	// Kind 表情种类
+	Kind EmojiKind
+	// ID 平台内部 emoji ID。
+	// 标准 Unicode 表情此字段为空，直接使用 Value。
+	ID string
+	// Value emoji 字面量或名称。
+	// Unicode 表情填字符本身（如 "👍"）；自定义表情填显示名称（如 "myEmoji"）。
+	Value string
+}
+
 type ReactionSender interface {
 	// AddReaction 为指定消息添加表情回应。
-	// chatID 为目标会话 ID，messageID 为平台原生消息 ID，emoji 为表情标识符或 Unicode。
-	AddReaction(ctx stdctx.Context, chatID, messageID, emoji string) error
+	// chatID 为目标会话 ID，messageID 为平台原生消息 ID，emoji 为平台无关表情标识。
+	AddReaction(ctx stdctx.Context, chatID, messageID string, emoji Emoji) error
 	// RemoveReaction 移除指定消息上的表情回应。
-	RemoveReaction(ctx stdctx.Context, chatID, messageID, emoji string) error
+	RemoveReaction(ctx stdctx.Context, chatID, messageID string, emoji Emoji) error
 }
 
 // TypingNotifier 可选接口，支持"正在输入"状态的平台实现此接口。
@@ -211,7 +259,7 @@ func GetDeleter(a Adapter) (MessageDeleter, bool) {
 // 使用示例：
 //
 //	if rs, ok := platform.GetReactionSender(adapter); ok {
-//	    rs.AddReaction(ctx, chatID, messageID, "👍")
+//	    rs.AddReaction(ctx, chatID, messageID, platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"})
 //	}
 func GetReactionSender(a Adapter) (ReactionSender, bool) {
 	rs, ok := a.Sender().(ReactionSender)
@@ -275,6 +323,24 @@ type Capabilities struct {
 	MentionAll bool
 	// VoiceChannel 是否支持语音频道（Discord Stage/VC）
 	VoiceChannel bool
+
+	// ── 量化限制（0 = 无已知限制或平台未公开）────────────────────────────
+
+	// MaxTextLength 单条文本消息最大字符数。
+	// 例：Discord=2000，Telegram=4096，QQ=0（未公开）。
+	MaxTextLength int
+	// MaxAttachmentMB 单个附件最大大小（MB）。
+	// 例：Discord=8，Telegram=50，QQ=0（未公开）。
+	MaxAttachmentMB int
+	// MaxButtonsPerRow 每行最多按钮数（0=无已知限制）。
+	// 例：Discord/QQ=5。
+	MaxButtonsPerRow int
+	// MaxButtonRows 最多按钮行数（0=无已知限制）。
+	// 例：Discord/QQ=5。
+	MaxButtonRows int
+	// MaxEmbedFields 单个 Embed 最多字段数（0=无已知限制）。
+	// 例：Discord=25。
+	MaxEmbedFields int
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -437,12 +503,18 @@ type Registry struct {
 	mu       sync.RWMutex
 	adapters map[string]Adapter
 	observer AdapterObserver // optional, nil = no-op
+
+	// disconnectUnregs 保存每个平台 RecoverableAdapter 的断连回调注销函数。
+	// StartAll 每次启动前先调用旧的注销函数，再注册新的，防止多次调用时回调累积。
+	// StopAll 完成后统一清理，释放对 Registry 的引用，避免 GC 泄漏。
+	disconnectUnregs map[string]func()
 }
 
 // NewRegistry 创建空的适配器注册表
 func NewRegistry() *Registry {
 	return &Registry{
-		adapters: make(map[string]Adapter),
+		adapters:         make(map[string]Adapter),
+		disconnectUnregs: make(map[string]func()),
 	}
 }
 
@@ -581,14 +653,25 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	)
 
 	for _, a := range adapters {
-		// F-8: 若适配器支持断连通知，注册框架侧的告警 hook
+		// 若适配器支持断连通知，注册框架侧的告警 hook。
+		// 先注销旧的注册（防止多次调用 StartAll 时回调累积），再注册新的。
 		if ra, ok := a.(RecoverableAdapter); ok {
-			_ = ra.OnDisconnect(func(err error) {
+			r.mu.Lock()
+			if old, exists := r.disconnectUnregs[a.Platform()]; exists && old != nil {
+				old() // 注销旧回调，释放对 Registry 的引用
+			}
+			r.mu.Unlock()
+
+			unregister := ra.OnDisconnect(func(err error) {
 				logger.WithFields(logger.Fields{
 					"platform": a.Platform(),
 				}).WithError(err).Warn("[Registry] Platform adapter disconnected, waiting for recovery")
 				r.notifyObserver(func(o AdapterObserver) { o.OnAdapterDisconnect(a.Platform(), err) })
 			})
+
+			r.mu.Lock()
+			r.disconnectUnregs[a.Platform()] = unregister
+			r.mu.Unlock()
 		}
 		wg.Go(func() {
 			r.notifyObserver(func(o AdapterObserver) { o.OnAdapterStarted(a.Platform()) })
@@ -624,6 +707,7 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 // StopAll 并发停止所有已注册平台适配器，合并全部错误后返回。
 //
 // 所有适配器同时发起停止，总耗时取决于最慢的那一个（而非各平台停止时间之和）。
+// 停止完成后统一清理断连回调注销函数，释放对 Registry 的内部引用，避免 GC 泄漏。
 func (r *Registry) StopAll(ctx stdctx.Context) error {
 	adapters := r.All()
 	var (
@@ -641,5 +725,16 @@ func (r *Registry) StopAll(ctx stdctx.Context) error {
 		})
 	}
 	wg.Wait()
+
+	// 所有适配器已停止，注销断连回调，释放闭包对 Registry 的引用
+	r.mu.Lock()
+	for k, unreg := range r.disconnectUnregs {
+		if unreg != nil {
+			unreg()
+		}
+		delete(r.disconnectUnregs, k)
+	}
+	r.mu.Unlock()
+
 	return errors.Join(errs...)
 }

@@ -18,21 +18,31 @@ import (
 // PlatformID is the unique identifier for the Discord platform.
 const PlatformID = "discord"
 
-// Capabilities declares the feature set supported by Discord.
-var Capabilities = platform.Capabilities{
-	Markdown:        true,
-	Buttons:         true,
-	MultiAttachment: true,
-	MessageEdit:     true,
-	MessageDelete:   true,
-	Embeds:          true,
-	FileUpload:      true,
-	GuildSupport:    true,
-	Reactions:       true,
-	ThreadReply:     true,
-	TypingIndicator: true,
-	MentionAll:      true,
-	VoiceChannel:    true,
+// discordCapabilities 返回 Discord 平台的能力声明。
+//
+// 使用函数而非包级变量，保留运行时动态更新的能力（如 Nitro 附件大小上限）。
+func discordCapabilities() platform.Capabilities {
+	return platform.Capabilities{
+		Markdown:        true,
+		Buttons:         true,
+		MultiAttachment: true,
+		MessageEdit:     true,
+		MessageDelete:   true,
+		Embeds:          true,
+		FileUpload:      true,
+		GuildSupport:    true,
+		Reactions:       true,
+		ThreadReply:     true,
+		TypingIndicator: true,
+		MentionAll:      true,
+		VoiceChannel:    true,
+		// Discord 量化限制（免费账号保守值）
+		MaxTextLength:    2000, // Discord 普通消息文本上限
+		MaxAttachmentMB:  8,    // 免费账号单文件上限（Nitro 为 50/500 MB）
+		MaxButtonsPerRow: 5,    // Discord 组件行最多 5 个按钮
+		MaxButtonRows:    5,    // Discord 消息最多 5 行组件
+		MaxEmbedFields:   25,   // Discord Embed 最多 25 个 fields
+	}
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -111,7 +121,7 @@ func (a *GatewayAdapter) Platform() string { return PlatformID }
 func (a *GatewayAdapter) Sender() platform.Sender { return a.sender }
 
 // Capabilities returns Discord platform feature capabilities.
-func (a *GatewayAdapter) Capabilities() platform.Capabilities { return Capabilities }
+func (a *GatewayAdapter) Capabilities() platform.Capabilities { return discordCapabilities() }
 
 // IsRunning returns true if the Gateway connection is active.
 func (a *GatewayAdapter) IsRunning() bool {

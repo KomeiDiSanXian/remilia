@@ -46,6 +46,36 @@ func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Send
 	e.ProcessEvent(ctx)
 }
 
+// ProcessPlatformEventEx 是 ProcessPlatformEvent 的扩展版本，额外注入机器人自身 ID。
+//
+// botID 非空时会注入 ctx，使 ctx.IsFromSelf() 能正确判断事件是否由机器人自身触发。
+//
+// 典型用法（Bot 层，适配器实现了 platform.BotIdentity）：
+//
+//	botID := ""
+//	if bi, ok := adapter.(platform.BotIdentity); ok {
+//	    botID = bi.BotID()
+//	}
+//	eng.ProcessPlatformEventEx(event, adapter.Sender(), botID, adapter.Capabilities())
+func (e *Engine) ProcessPlatformEventEx(event platform.Event, sender platform.Sender, botID string, caps ...platform.Capabilities) {
+	if event == nil {
+		logger.Warn("[engine] ProcessPlatformEventEx: nil event, skipping")
+		return
+	}
+
+	ctx := context.AcquireContextFromEvent(event, sender)
+	defer context.ReleaseContextFromEvent(ctx)
+
+	if botID != "" {
+		ctx.SetBotID(botID)
+	}
+	if len(caps) > 0 {
+		ctx.SetPlatformCapabilities(mergePlatformCaps(caps))
+	}
+
+	e.ProcessEvent(ctx)
+}
+
 // ProcessPlatformEventBatch 批量处理来自任意平台的事件（平台无关入口）。
 //
 // nil 事件将被跳过；sender 和 caps 对整批事件共用（同一平台来源）。
@@ -57,13 +87,15 @@ func (e *Engine) ProcessPlatformEventBatch(events []platform.Event, sender platf
 	}
 }
 
-// mergePlatformCaps 将多个 Capabilities 的布尔字段取 OR，返回能力并集。
+// mergePlatformCaps 将多个 Capabilities 合并为一个。
 //
-// 设计意图：多适配器或多来源的能力声明通过并集合并，
-// 避免因"只取第一个"而遗漏某些来源宣告的能力。
+// 布尔字段取 OR（能力并集），量化限制字段取最小非零值（更严格的约束优先）：
+//   - 若两方都声明了限制，取更小值（更保守）
+//   - 若一方为 0（未知），取另一方的值
 func mergePlatformCaps(caps []platform.Capabilities) platform.Capabilities {
 	var m platform.Capabilities
 	for _, c := range caps {
+		// 布尔能力取 OR（并集）
 		m.Markdown = m.Markdown || c.Markdown
 		m.Buttons = m.Buttons || c.Buttons
 		m.MultiAttachment = m.MultiAttachment || c.MultiAttachment
@@ -77,8 +109,30 @@ func mergePlatformCaps(caps []platform.Capabilities) platform.Capabilities {
 		m.TypingIndicator = m.TypingIndicator || c.TypingIndicator
 		m.MentionAll = m.MentionAll || c.MentionAll
 		m.VoiceChannel = m.VoiceChannel || c.VoiceChannel
+		// 量化限制取最小非零值（0=未知，有值时取更保守的一方）
+		m.MaxTextLength = minNonZero(m.MaxTextLength, c.MaxTextLength)
+		m.MaxAttachmentMB = minNonZero(m.MaxAttachmentMB, c.MaxAttachmentMB)
+		m.MaxButtonsPerRow = minNonZero(m.MaxButtonsPerRow, c.MaxButtonsPerRow)
+		m.MaxButtonRows = minNonZero(m.MaxButtonRows, c.MaxButtonRows)
+		m.MaxEmbedFields = minNonZero(m.MaxEmbedFields, c.MaxEmbedFields)
 	}
 	return m
+}
+
+// minNonZero 返回 a、b 中较小的非零值。
+// 若两者都为 0（均未知），返回 0。
+// 若只有一个非零，返回那个值（有约束者优先）。
+func minNonZero(a, b int) int {
+	if a == 0 {
+		return b
+	}
+	if b == 0 {
+		return a
+	}
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // processEventContext 是 ProcessEvent 的核心路由逻辑。

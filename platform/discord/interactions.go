@@ -147,7 +147,7 @@ func (a *InteractionsAdapter) Sender() platform.Sender {
 }
 
 // Capabilities returns Discord platform feature capabilities.
-func (a *InteractionsAdapter) Capabilities() platform.Capabilities { return Capabilities }
+func (a *InteractionsAdapter) Capabilities() platform.Capabilities { return discordCapabilities() }
 
 // IsRunning returns true if the HTTP server is active.
 func (a *InteractionsAdapter) IsRunning() bool {
