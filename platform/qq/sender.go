@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -25,27 +26,24 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 	return &qqSender{api: api}
 }
 
-// Send 将 OutboundMessage 转换并发送到 QQ 平台。
+// Send 将 OutboundMessage 转换并发送到 QQ 平台，返回平台响应摘要。
 //
 // 路由规则：
-//   - ChatInfo.ParentID 非空 → 频道消息，暂不支持，返回明确错误
-//   - Attachments 非空（取第一个）→ 两步富媒体发送（上传后发送）
+//   - ChatInfo.ParentID 非空 → 频道消息（子频道 / 频道私信）
+//   - Attachments 非空（取第一个）→ 两步富媒体发送（上传 → 发送）
 //   - 其余 → Text / Markdown 文本消息
 //
-// 目标会话信息从 req.Target 读取（ChatInfo 类型，包含 ID、IsGroup 等路由字段）。
-// 若 req.Target.ID 为空，返回 errutil.ErrNoChatInfo。
-//
-// 被动回复授权 token 由 ChatInfo.Tokens 携带（键：TokenMsgID / TokenEventID），
-// 框架通过 ctx.Reply 自动填充，无需手动传入。
-// 若 MessageExtra.EventID（通过 ApplyExtra 手动注入）非空，则优先使用手动值。
-func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
+// SendResult.Raw 类型为 *QQSendResult，包含完整的 QQ 平台响应字段。
+// 富媒体两步发送时，上传阶段（FileInfo、FileUUID、TTL）与发送阶段（MessageID）
+// 均合并在同一个 *QQSendResult 中返回。
+func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if s.api == nil {
-		return fmt.Errorf("qq sender: openAPI client is nil")
+		return platform.SendResult{}, fmt.Errorf("qq sender: openAPI client is nil")
 	}
 
 	chat := req.Target
 	if chat.ID == "" {
-		return errutil.ErrNoChatInfo
+		return platform.SendResult{}, errutil.ErrNoChatInfo
 	}
 
 	msg := req.Message
@@ -61,18 +59,26 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) error {
 	}
 
 	dtoMsg := s.buildDTOMessage(msg, chat)
+	var (
+		raw gjson.Result
+		err error
+	)
 	if chat.IsGroup {
-		_, err := s.api.GroupChat(ctx, chat.ID, dtoMsg)
-		return err
+		raw, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
+	} else {
+		raw, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
 	}
-	_, err := s.api.SingleChat(ctx, chat.ID, dtoMsg)
-	return err
+	if err != nil {
+		return platform.SendResult{}, err
+	}
+	return buildSendResult(raw), nil
 }
 
 // sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
-func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) error {
+// 返回的 SendResult.Raw(*QQSendResult) 同时包含上传响应和发送响应的字段。
+func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
 	if att.URL == "" && len(att.Data) == 0 {
-		return fmt.Errorf("qq sender: attachment has neither URL nor data")
+		return platform.SendResult{}, fmt.Errorf("qq sender: attachment has neither URL nor data")
 	}
 
 	media := &dto.Media{
@@ -80,7 +86,6 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 		ActiveSend: false,
 	}
 	if len(att.Data) > 0 {
-		// 二进制数据通过 base64 编码后以 file_data 字段上传
 		media.FileData = base64.StdEncoding.EncodeToString(att.Data)
 	} else {
 		media.URL = att.URL
@@ -96,12 +101,12 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 		uploadResult, err = s.api.SingleRichMedia(ctx, chat.ID, media)
 	}
 	if err != nil {
-		return fmt.Errorf("qq sender: media upload failed: %w", err)
+		return platform.SendResult{}, fmt.Errorf("qq sender: media upload failed: %w", err)
 	}
 
 	fileInfo := uploadResult.Get("file_info").String()
 	if fileInfo == "" {
-		return fmt.Errorf("qq sender: media upload returned empty file_info (response: %s)", uploadResult.Raw)
+		return platform.SendResult{}, fmt.Errorf("qq sender: media upload returned empty file_info (response: %s)", uploadResult.Raw)
 	}
 
 	// 构建携带 file_info 的 MediaMessage
@@ -113,35 +118,76 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 	if !chat.IsGroup {
 		dtoMsg.Content = ""
 	} else if dtoMsg.Content == "" {
-		// 无文本内容时以空格兜底，确保 JSON 序列化后 content 字段存在。
 		dtoMsg.Content = " "
 	}
 
+	var sendResult gjson.Result
 	if chat.IsGroup {
-		_, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
+		sendResult, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
 	} else {
-		_, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
+		sendResult, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
 	}
-	return err
+	if err != nil {
+		return platform.SendResult{}, err
+	}
+
+	// 合并上传响应与发送响应
+	return buildSendResultFromUpload(uploadResult, sendResult), nil
 }
 
 // sendGuildChannelMessage 向 QQ 文字子频道或频道私信发送消息。
-//
-// 路由规则：
-//   - chat.IsDM = true → 频道私信，使用 DMChat（POST /dms/{guild_id}/messages）
-//   - 其他 → 文字子频道，使用 ChannelChat（POST /channels/{channel_id}/messages）
-//
-// 频道私信时 chat.ID 存储的是 DM 会话的 guild_id（由 NewEvent/populateGuildMessage 填充）。
-// chat.ID = channel_id（文字子频道）或 guild_id（私信会话），chat.ParentID = guild_id。
-func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage) error {
+func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage) (platform.SendResult, error) {
 	guildMsg := s.buildGuildDTOMessage(msg, chat)
+	var (
+		raw gjson.Result
+		err error
+	)
 	if chat.IsDM {
-		// 频道私信：chat.ID 为 DM 会话的 guild_id
-		_, err := s.api.DMChat(ctx, chat.ID, guildMsg)
-		return err
+		raw, err = s.api.DMChat(ctx, chat.ID, guildMsg)
+	} else {
+		raw, err = s.api.ChannelChat(ctx, chat.ID, guildMsg)
 	}
-	_, err := s.api.ChannelChat(ctx, chat.ID, guildMsg)
-	return err
+	if err != nil {
+		return platform.SendResult{}, err
+	}
+	return buildSendResult(raw), nil
+}
+
+// buildSendResult 从普通发送响应构建 platform.SendResult。
+func buildSendResult(raw gjson.Result) platform.SendResult {
+	qqResult := &QQSendResult{
+		MessageID: raw.Get("id").String(),
+	}
+	if ts := raw.Get("timestamp").Int(); ts > 0 {
+		qqResult.Timestamp = time.Unix(ts, 0)
+	}
+	return platform.SendResult{
+		MessageID: qqResult.MessageID,
+		Timestamp: qqResult.Timestamp,
+		Platform:  "qq",
+		Raw:       qqResult,
+	}
+}
+
+// buildSendResultFromUpload 合并富媒体上传响应与消息发送响应，构建 platform.SendResult。
+func buildSendResultFromUpload(uploadRaw, sendRaw gjson.Result) platform.SendResult {
+	qqResult := &QQSendResult{
+		// 来自发送响应
+		MessageID: sendRaw.Get("id").String(),
+		// 来自上传响应
+		FileUUID: uploadRaw.Get("file_uuid").String(),
+		FileInfo: uploadRaw.Get("file_info").String(),
+		TTL:      int(uploadRaw.Get("ttl").Int()),
+	}
+	if ts := sendRaw.Get("timestamp").Int(); ts > 0 {
+		qqResult.Timestamp = time.Unix(ts, 0)
+	}
+	return platform.SendResult{
+		MessageID: qqResult.MessageID,
+		Timestamp: qqResult.Timestamp,
+		Platform:  "qq",
+		Raw:       qqResult,
+	}
 }
 
 // buildGuildDTOMessage 将 platform.OutboundMessage 转换为频道专属的 dto.GuildMessage。

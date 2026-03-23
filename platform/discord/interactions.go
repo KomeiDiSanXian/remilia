@@ -501,20 +501,20 @@ type syncResult struct {
 	resp []byte
 }
 
-func (s *syncInteractionSender) Send(_ stdctx.Context, req platform.SendRequest) error {
+func (s *syncInteractionSender) Send(_ stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	msg := req.Message
 	extra := extractExtra(msg)
 	resp := buildInteractionResponse(msg, extra)
 
 	respBytes, err := json.Marshal(resp)
 	if err != nil {
-		return fmt.Errorf("discord sync sender: marshal error: %w", err)
+		return platform.SendResult{}, fmt.Errorf("discord sync sender: marshal error: %w", err)
 	}
 
 	s.once.Do(func() {
 		s.resultCh <- syncResult{resp: respBytes}
 	})
-	return nil
+	return platform.SendResult{Platform: "discord"}, nil
 }
 
 // newSyncInteractionEvent creates an event whose Chat.Tokens encode a special

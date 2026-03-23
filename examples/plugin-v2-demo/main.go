@@ -108,17 +108,20 @@ func NewGreeterPlugin() *plugin.Descriptor {
 
 			ctx.Reg.RegisterCommand("", "/greet").
 				Handle(func(c *eventctx.Context) error {
-					return c.Reply(platform.TextMessage(greeting + ", " + c.GetSenderInfo().ID + "!"))
+					_, err := c.Reply(platform.TextMessage(greeting + ", " + c.GetSenderInfo().ID + "!"))
+					return err
 				})
 
 			ctx.Reg.RegisterCommand("", "/setgreeting").
 				Handle(func(c *eventctx.Context) error {
 					content := c.GetMessageContent()
 					if len(content) <= 13 {
-						return c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
+						_, err := c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
+						return err
 					}
 					greeting = content[13:]
-					return c.Reply(platform.TextMessage("问候语已更新为: " + greeting))
+					_, err := c.Reply(platform.TextMessage("问候语已更新为: " + greeting))
+					return err
 				})
 
 			logger.Info("[Greeter] Plugin setup complete")
@@ -155,18 +158,21 @@ func NewCounterPlugin() *plugin.Descriptor {
 			ctx.Reg.RegisterCommand("", "/count").
 				Handle(func(c *eventctx.Context) error {
 					count++
-					return c.Reply(platform.TextMessage(fmt.Sprintf("计数: %d", count)))
+					_, err := c.Reply(platform.TextMessage(fmt.Sprintf("计数: %d", count)))
+					return err
 				})
 
 			ctx.Reg.RegisterCommand("", "/reset").
 				Handle(func(c *eventctx.Context) error {
 					count = 0
-					return c.Reply(platform.TextMessage("计数已重置"))
+					_, err := c.Reply(platform.TextMessage("计数已重置"))
+					return err
 				})
 
 			ctx.Reg.RegisterCommand("", "/get").
 				Handle(func(c *eventctx.Context) error {
-					return c.Reply(platform.TextMessage(fmt.Sprintf("当前计数: %d", count)))
+					_, err := c.Reply(platform.TextMessage(fmt.Sprintf("当前计数: %d", count)))
+					return err
 				})
 
 			logger.Info("[Counter] Plugin setup complete")
@@ -204,14 +210,17 @@ func NewCalculatorPlugin() *plugin.Descriptor {
 				Handle(func(c *eventctx.Context) error {
 					content := c.GetMessageContent()
 					if len(content) <= 6 {
-						return c.Reply(platform.TextMessage("用法: /calc <表达式>\n示例: /calc 1 + 2"))
+						_, err := c.Reply(platform.TextMessage("用法: /calc <表达式>\n示例: /calc 1 + 2"))
+						return err
 					}
 					expr := content[6:]
 					result, err := simpleCalc(expr)
 					if err != nil {
-						return c.Reply(platform.TextMessage("计算错误: " + err.Error()))
+						_, err = c.Reply(platform.TextMessage("计算错误: " + err.Error()))
+						return err
 					}
-					return c.Reply(platform.TextMessage(fmt.Sprintf("%s = %d", expr, result)))
+					_, err = c.Reply(platform.TextMessage(fmt.Sprintf("%s = %d", expr, result)))
+					return err
 				})
 
 			logger.Info("[Calculator] Plugin setup complete")

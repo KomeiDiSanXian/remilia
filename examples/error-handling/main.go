@@ -98,7 +98,8 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// 1. 成功场景
 	bot.Engine().OnCommand("", "/success").Handle(func(ctx *eventctx.Context) error {
-		return ctx.Reply(platform.TextMessage("✅ Success! Everything works fine."))
+		_, err := ctx.Reply(platform.TextMessage("✅ Success! Everything works fine."))
+		return err
 	})
 
 	// 2. 一般错误
@@ -120,7 +121,7 @@ func registerHandlers(bot *remilia.Bot) {
 			Err:     ErrInvalidInput,
 		}
 		logger.WithError(err).Warn("[ErrorHandling] Invalid input")
-		_ = ctx.Reply(platform.TextMessage("❌ 错误: 输入无效，请检查后重试"))
+		_, _ = ctx.Reply(platform.TextMessage("❌ 错误: 输入无效，请检查后重试"))
 		return err
 	})
 
@@ -132,7 +133,7 @@ func registerHandlers(bot *remilia.Bot) {
 			Err:     ErrResourceNotFound,
 		}
 		logger.WithError(err).Info("[ErrorHandling] Resource not found")
-		_ = ctx.Reply(platform.TextMessage("❌ 错误: 找不到请求的资源"))
+		_, _ = ctx.Reply(platform.TextMessage("❌ 错误: 找不到请求的资源"))
 		return err
 	})
 
@@ -148,7 +149,7 @@ func registerHandlers(bot *remilia.Bot) {
 			logger.WithFields(logger.Fields{
 				"user": userID,
 			}).Warn("[ErrorHandling] Permission denied")
-			_ = ctx.Reply(platform.TextMessage("❌ 错误: 权限不足"))
+			_, _ = ctx.Reply(platform.TextMessage("❌ 错误: 权限不足"))
 			return err
 		}
 		return nil
@@ -160,10 +161,11 @@ func registerHandlers(bot *remilia.Bot) {
 			return simulateUnstableOperation()
 		}, 3)
 		if err != nil {
-			_ = ctx.Reply(platform.TextMessage("❌ 操作失败: " + err.Error()))
+			_, _ = ctx.Reply(platform.TextMessage("❌ 操作失败: " + err.Error()))
 			return err
 		}
-		return ctx.Reply(platform.TextMessage("✅ 操作成功（经过重试）"))
+		_, err = ctx.Reply(platform.TextMessage("✅ 操作成功（经过重试）"))
+		return err
 	})
 
 	logger.Info("[ErrorHandling] Handlers registered")

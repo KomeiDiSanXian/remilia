@@ -212,7 +212,7 @@ func (p *Plugin) process(workerID int, job sendJob) {
 	var sendErr error
 	if job.sender != nil {
 		req := platform.SendRequest{Target: job.chat, Message: job.outbound}
-		sendErr = job.sender.Send(p.ctx, req)
+		_, sendErr = job.sender.Send(p.ctx, req)
 	} else {
 		logger.Warnf("[SendQueue] worker=%d job has no sender, dropping target=%s", workerID, job.chat.ID)
 		return

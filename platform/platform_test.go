@@ -205,9 +205,12 @@ func TestNoopSender(t *testing.T) {
 		Target:  platform.ChatInfo{ID: "test-chat", IsGroup: false},
 		Message: platform.TextMessage("hello"),
 	}
-	err := s.Send(context.Background(), req)
+	result, err := s.Send(context.Background(), req)
 	if err != nil {
-		t.Errorf("NoopSender.Send should return nil, got %v", err)
+		t.Errorf("NoopSender.Send should return nil error, got %v", err)
+	}
+	if result.MessageID != "" {
+		t.Errorf("NoopSender.Send should return empty SendResult, got MessageID=%q", result.MessageID)
 	}
 }
 

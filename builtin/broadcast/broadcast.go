@@ -171,7 +171,7 @@ func (p *Plugin) Broadcast(chats []platform.ChatInfo, msg platform.OutboundMessa
 			ctx := context.Background()
 			_ = p.rl.Wait(ctx)
 			req := platform.SendRequest{Target: c, Message: msg}
-			if err := s.Send(ctx, req); err != nil {
+			if _, err := s.Send(ctx, req); err != nil {
 				atomic.AddInt64(&failed, 1)
 				mu.Lock()
 				errs = append(errs, err)

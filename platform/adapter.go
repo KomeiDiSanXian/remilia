@@ -5,10 +5,45 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
+
+// ────────────────────────────────────────────────────────────────────────────
+// SendResult
+// ────────────────────────────────────────────────────────────────────────────
+
+// SendResult 消息发送成功后的响应摘要。
+//
+// MessageID 与 Timestamp 是各平台响应中最常用的热点字段，直接暴露为强类型，
+// 可以直接用于撤回（MessageDeleter.Delete）、编辑（MessageEditor.Edit）及日志追踪。
+//
+// 平台专属的额外字段（如 QQ 富媒体的 file_info / ttl）通过 Raw 携带，
+// 调用方用类型断言按需访问：
+//
+//	if r, ok := result.Raw.(*qq.QQSendResult); ok {
+//	    fileInfo := r.FileInfo // 富媒体 file_info token
+//	}
+//
+// 已知 Raw 类型：
+//   - *qq.QQSendResult：QQ 平台响应（含 FileInfo、FileUUID、TTL 等富媒体字段）
+type SendResult struct {
+	// MessageID 平台返回的已发送消息唯一 ID。
+	// 用于后续撤回/编辑等操作。富媒体上传且 srv_send_msg=false 时为空字符串。
+	MessageID string
+
+	// Timestamp 平台确认的消息发送时间（零值表示平台未返回）。
+	Timestamp time.Time
+
+	// Platform 来源平台标识符（如 "qq"、"discord"、"telegram"）。
+	Platform string
+
+	// Raw 平台专属响应的完整原始数据，由各平台适配器负责填充。
+	// 调用方通过类型断言获取平台特定字段；不需要平台特定字段时可忽略。
+	Raw any
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // SendRequest
@@ -73,10 +108,14 @@ func (r SendRequest) Validate() error {
 //	    Message: platform.TextMessage("公告"),
 //	})
 type Sender interface {
-	// Send 发送消息。路由信息由 req 显式传入，ctx 仅用于取消/超时/tracing。
+	// Send 发送消息，返回平台响应摘要与错误。
+	//
+	// 成功时 SendResult.MessageID 包含平台分配的消息 ID（可用于撤回/编辑）；
+	// 平台未返回 ID 时 MessageID 为空字符串（不影响发送本身的成功状态）。
+	// 路由信息由 req 显式传入，ctx 仅用于取消/超时/tracing。
 	//
 	// 若 req.Target.ID 为空，实现者应返回 errutil.ErrNoChatInfo。
-	Send(ctx stdctx.Context, req SendRequest) error
+	Send(ctx stdctx.Context, req SendRequest) (SendResult, error)
 }
 
 // MessageEditor 可选接口，支持消息编辑的平台实现此接口。
@@ -135,9 +174,9 @@ type TypingNotifier interface {
 // NoopSender 空实现，用于测试或不需要发送能力的场景
 type NoopSender struct{}
 
-// Send 什么也不做，始终返回 nil
-func (n *NoopSender) Send(_ stdctx.Context, _ SendRequest) error {
-	return nil
+// Send 什么也不做，始终返回零值 SendResult 和 nil
+func (n *NoopSender) Send(_ stdctx.Context, _ SendRequest) (SendResult, error) {
+	return SendResult{}, nil
 }
 
 // GetEditor 安全获取适配器 Sender 的消息编辑接口。

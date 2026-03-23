@@ -164,7 +164,7 @@ func (p *Plugin) Middleware(command string, duration time.Duration) eventctx.Mid
 				remaining := p.Remaining(userID, command, duration)
 				logger.Debugf("[Cooldown] User %s is in cooldown for %s, remaining: %s", userID, command, remaining.Round(time.Second))
 				msg := fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", remaining.Round(time.Second))
-				_ = ctx.Reply(platform.TextMessage(msg))
+				_, _ = ctx.Reply(platform.TextMessage(msg))
 				return nil
 			}
 			return next(ctx)

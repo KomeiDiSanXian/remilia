@@ -291,7 +291,8 @@ func commandPlugin(pm *plugin.Manager, cd *cooldown.Plugin, sp *stats.Plugin) *p
 	}
 }
 func replyCtx(ctx *eventctx.Context, content string) error {
-	return ctx.Reply(platform.TextMessage(content))
+	_, err := ctx.Reply(platform.TextMessage(content))
+	return err
 }
 func requestCounterMiddleware() eventctx.Middleware {
 	var count int64

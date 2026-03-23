@@ -94,23 +94,27 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// 快速响应命令
 	bot.Engine().OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
-		return ctx.Reply(platform.TextMessage("Pong! ⚡"))
+		_, err := ctx.Reply(platform.TextMessage("Pong! ⚡"))
+		return err
 	})
 
 	// 慢速响应命令
 	bot.Engine().OnCommand("", "/slow").Handle(func(ctx *eventctx.Context) error {
 		time.Sleep(2 * time.Second)
-		return ctx.Reply(platform.TextMessage("Slow response 🐌"))
+		_, err := ctx.Reply(platform.TextMessage("Slow response 🐌"))
+		return err
 	})
 
 	// 统计信息命令
 	bot.Engine().OnCommand("", "/stats").Handle(func(ctx *eventctx.Context) error {
-		return ctx.Reply(platform.TextMessage(getMetricsReport()))
+		_, err := ctx.Reply(platform.TextMessage(getMetricsReport()))
+		return err
 	})
 
 	// 健康检查命令
 	bot.Engine().OnCommand("", "/health").Handle(func(ctx *eventctx.Context) error {
-		return ctx.Reply(platform.TextMessage(getHealthReport()))
+		_, err := ctx.Reply(platform.TextMessage(getHealthReport()))
+		return err
 	})
 
 	logger.Info("[Metrics] Handlers registered")

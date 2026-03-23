@@ -363,7 +363,7 @@ func extractUserID(ctx *eventctx.Context) string {
 	return ctx.GetSenderInfo().ID
 }
 func sendPrompt(ctx *eventctx.Context, prompt string) {
-	if err := ctx.Reply(platform.TextMessage(prompt)); err != nil {
+	if _, err := ctx.Reply(platform.TextMessage(prompt)); err != nil {
 		logger.WithError(err).Warn("[Conversation] Failed to send prompt")
 	}
 }

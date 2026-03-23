@@ -435,7 +435,8 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
 }
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
-	return ctx.Reply(platform.TextMessage(content))
+	_, err := ctx.Reply(platform.TextMessage(content))
+	return err
 }
 
 // === 验证码相关功能 ===

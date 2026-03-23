@@ -141,7 +141,7 @@ func registerHandlers(bot *remilia.Bot) {
 		task := taskManager.CreateTask(userID)
 
 		// 立即响应用户
-		_ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 任务已创建\n任务ID: %s\n\n使用 /status %s 查询进度", task.ID, task.ID)))
 
 		// 异步执行任务
 		go executeAsyncTask(task.ID)
@@ -158,11 +158,11 @@ func registerHandlers(bot *remilia.Bot) {
 
 		task, exists := taskManager.GetTask(taskID)
 		if !exists {
-			_ = ctx.Reply(platform.TextMessage("❌ 任务不存在\n使用 /list 查看所有任务"))
+			_, _ = ctx.Reply(platform.TextMessage("❌ 任务不存在\n使用 /list 查看所有任务"))
 			return nil
 		}
 
-		_ = ctx.Reply(platform.TextMessage(formatTaskStatus(task)))
+		_, _ = ctx.Reply(platform.TextMessage(formatTaskStatus(task)))
 		return nil
 	})
 
@@ -181,7 +181,7 @@ func registerHandlers(bot *remilia.Bot) {
 		taskManager.mu.RUnlock()
 
 		if len(tasks) == 0 {
-			_ = ctx.Reply(platform.TextMessage("📭 暂无任务"))
+			_, _ = ctx.Reply(platform.TextMessage("📭 暂无任务"))
 			return nil
 		}
 
@@ -191,7 +191,7 @@ func registerHandlers(bot *remilia.Bot) {
 			content.WriteString(fmt.Sprintf("• %s: %s (%d%%)\n", task.ID, task.Status, task.Progress))
 		}
 
-		_ = ctx.Reply(platform.TextMessage(content.String()))
+		_, _ = ctx.Reply(platform.TextMessage(content.String()))
 		return nil
 	})
 

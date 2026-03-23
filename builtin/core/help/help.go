@@ -693,7 +693,8 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 
 // sendMessage 发送消息（平台无关）
 func (p *Plugin) sendMessage(ctx *eventctx.Context, content string) error {
-	return ctx.Reply(platform.TextMessage(content))
+	_, err := ctx.Reply(platform.TextMessage(content))
+	return err
 }
 
 // Dependencies 返回插件依赖列表（帮助插件无依赖）

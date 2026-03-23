@@ -51,7 +51,8 @@ func main() {
 	// Help命令 - 列出所有命令
 	bot.Engine().OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
 		help := "可用命令:\n/cmd1 - 命令1\n/cmd2 - 命令2\n/cmd3 - 命令3\n/help - 帮助"
-		return ctx.Reply(platform.TextMessage(help))
+		_, err := ctx.Reply(platform.TextMessage(help))
+		return err
 	})
 
 	logger.Info("[HelpDiscovery] Started")
@@ -61,6 +62,7 @@ func main() {
 
 func simpleHandler(name string) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {
-		return ctx.Reply(platform.TextMessage(name + " executed"))
+		_, err := ctx.Reply(platform.TextMessage(name + " executed"))
+		return err
 	}
 }

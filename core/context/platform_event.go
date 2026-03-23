@@ -97,24 +97,23 @@ func (ctx *Context) GetEventPlatform() string {
 	return ""
 }
 
-// Reply 向事件来源会话发送回复（平台无关方式）。
+// Reply 向事件来源会话发送回复（平台无关方式），返回平台响应摘要。
 //
-// ChatInfo（IsGroup、Tokens 等）通过 SendRequest.Target 显式传递，
-// 不再注入到 Go context（ctx 仅保留超时/取消/tracing 用途）。
-// 超时/截止时间由当前 Context 的标准库 context 控制（中间件注入的 Deadline 同样有效）。
+// 返回的 SendResult.MessageID 可直接用于定时撤回、编辑等后续操作：
 //
-// 被动回复授权 token 已由平台事件解析时填入 ChatInfo.Tokens，
-// 无需在此处额外处理。
-//
-// 示例：
-//
-//	ctx.Reply(platform.TextMessage("pong"))
-func (ctx *Context) Reply(msg platform.OutboundMessage) error {
+//	result, err := ctx.Reply(platform.TextMessage("pong"))
+//	if err != nil { return err }
+//	time.AfterFunc(10*time.Second, func() {
+//	    if deleter, ok := ctx.GetPlatformSender().(platform.MessageDeleter); ok {
+//	        _ = deleter.Delete(context.Background(), chat.ID, result.MessageID)
+//	    }
+//	})
+func (ctx *Context) Reply(msg platform.OutboundMessage) (platform.SendResult, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return platform.SendResult{}, ErrNilContext
 	}
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
-		return ErrNoPlatformSender
+		return platform.SendResult{}, ErrNoPlatformSender
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),
@@ -124,14 +123,12 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) error {
 }
 
 // ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
-//
-// ChatInfo 和 Tokens 通过 SendRequest 显式传递，不依赖 ctx 携带路由信息。
-func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) error {
+func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) (platform.SendResult, error) {
 	if ctx == nil {
-		return ErrNilContext
+		return platform.SendResult{}, ErrNilContext
 	}
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
-		return ErrNoPlatformSender
+		return platform.SendResult{}, ErrNoPlatformSender
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),

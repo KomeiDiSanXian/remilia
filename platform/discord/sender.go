@@ -93,14 +93,16 @@ func (s *discordSender) storeInteraction(i *discordgo.Interaction) {
 // Routing:
 //   - req.Target.Tokens[TokenInteractionID] is set → interaction response / follow-up
 //   - Otherwise → regular channel message
-func (s *discordSender) Send(_ stdctx.Context, req platform.SendRequest) error {
+//
+// SendResult.MessageID is the Discord snowflake message ID.
+func (s *discordSender) Send(_ stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if s.session == nil {
-		return fmt.Errorf("discord sender: session is nil")
+		return platform.SendResult{}, fmt.Errorf("discord sender: session is nil")
 	}
 
 	chat := req.Target
 	if chat.ID == "" {
-		return errutil.ErrNoChatInfo
+		return platform.SendResult{}, errutil.ErrNoChatInfo
 	}
 
 	msg := req.Message
@@ -109,16 +111,24 @@ func (s *discordSender) Send(_ stdctx.Context, req platform.SendRequest) error {
 	// Interaction response path
 	interactionID := chat.Tokens[TokenInteractionID]
 	if interactionID != "" {
-		return s.sendInteractionResponse(interactionID, msg, extra)
+		return platform.SendResult{Platform: "discord"}, s.sendInteractionResponse(interactionID, msg, extra)
 	}
 
 	// Regular channel message
 	ms := buildMessageSend(msg, extra)
 	if msg.IsEmpty() {
-		return errutil.ErrEmptyMessage
+		return platform.SendResult{}, errutil.ErrEmptyMessage
 	}
-	_, err := s.session.ChannelMessageSendComplex(chat.ID, ms)
-	return err
+	sent, err := s.session.ChannelMessageSendComplex(chat.ID, ms)
+	if err != nil {
+		return platform.SendResult{}, err
+	}
+	result := platform.SendResult{
+		Platform:  "discord",
+		MessageID: sent.ID,
+		Timestamp: sent.Timestamp,
+	}
+	return result, nil
 }
 
 // sendInteractionResponse sends the first response or a follow-up for an interaction.

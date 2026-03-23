@@ -114,7 +114,7 @@ func TestAcquireContextFromEvent_Reply(t *testing.T) {
 	ctx := context.AcquireContextFromEvent(event, sender)
 	defer context.ReleaseContextFromEvent(ctx)
 
-	err := ctx.Reply(platform.TextMessage("pong"))
+	_, err := ctx.Reply(platform.TextMessage("pong"))
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "user_abc", got.chatID)
@@ -127,7 +127,7 @@ func TestAcquireContextFromEvent_ReplyWithContext(t *testing.T) {
 	ctx := context.AcquireContextFromEvent(event, sender)
 	defer context.ReleaseContextFromEvent(ctx)
 
-	err := ctx.ReplyWithContext(stdctx.Background(), platform.TextMessage("hello"))
+	_, err := ctx.ReplyWithContext(stdctx.Background(), platform.TextMessage("hello"))
 	assert.NoError(t, err)
 }
 
@@ -156,9 +156,9 @@ type captureTestSender struct {
 	fn func(chat platform.ChatInfo, msg platform.OutboundMessage)
 }
 
-func (s *captureTestSender) Send(_ stdctx.Context, req platform.SendRequest) error {
+func (s *captureTestSender) Send(_ stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if s.fn != nil {
 		s.fn(req.Target, req.Message)
 	}
-	return nil
+	return platform.SendResult{}, nil
 }

@@ -58,11 +58,11 @@ type captureSender struct {
 	received []platform.OutboundMessage
 }
 
-func (s *captureSender) Send(_ stdctx.Context, req platform.SendRequest) error {
+func (s *captureSender) Send(_ stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.received = append(s.received, req.Message)
-	return nil
+	return platform.SendResult{}, nil
 }
 
 func newPlatformC2CEvent(content string) platform.Event {
@@ -173,7 +173,8 @@ func TestProcessPlatformEvent_Reply(t *testing.T) {
 
 	sender := &captureSender{}
 	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
-		return ctx.Reply(platform.TextMessage("pong"))
+		_, err := ctx.Reply(platform.TextMessage("pong"))
+		return err
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("ping"), sender)
