@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -264,7 +267,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(testbot): rename testutil to testbot and update related references" />
     <MESSAGE value="chore(platform): remove bot.go" />
     <MESSAGE value="refactor(platform): replace context-based ChatInfo and EventID with explicit SendRequest struct" />
     <MESSAGE value="refactor(platform): enhance adapter capabilities with additional features and improve error handling" />
@@ -289,7 +291,8 @@
     <MESSAGE value="feat(discord): add Discord platform adapter with Gateway and HTTP Interactions support" />
     <MESSAGE value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
     <MESSAGE value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
-    <option name="LAST_COMMIT_MESSAGE" value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
+    <MESSAGE value="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

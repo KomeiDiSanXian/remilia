@@ -108,7 +108,14 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 	dtoMsg := s.buildDTOMessage(msg, chat)
 	dtoMsg.Type = dto.MediaMessage
 	dtoMsg.Media = &dto.MediaResponse{FileInfo: fileInfo}
-	dtoMsg.Content = "" // 媒体消息不携带文本内容
+	// 群聊接口 content 字段为必填（API 文档标注"是"），不可清空。
+	// 单聊接口 content 为可选，媒体消息通常不携带文本内容。
+	if !chat.IsGroup {
+		dtoMsg.Content = ""
+	} else if dtoMsg.Content == "" {
+		// 无文本内容时以空格兜底，确保 JSON 序列化后 content 字段存在。
+		dtoMsg.Content = " "
+	}
 
 	if chat.IsGroup {
 		_, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
@@ -281,8 +288,9 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		dtoMsg.EventID = dto.EventID(resolvedEventID)
 	}
 
-	// IsWakeup：互动召回消息，与 event_id/msg_id 互斥，仅在 extra 中显式开启时有效
-	if extra.IsWakeup {
+	// IsWakeup：互动召回消息，与 event_id/msg_id 互斥，仅在 extra 中显式开启时有效。
+	// 注意：is_wakeup 字段仅 QQ 单聊（C2C）接口支持，群聊接口不存在此字段。
+	if extra.IsWakeup && !chat.IsGroup {
 		dtoMsg.IsWakeup = true
 		// 召回消息不关联来源事件/消息，清除已设置的 ID 字段
 		dtoMsg.EventID = ""
