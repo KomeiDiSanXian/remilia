@@ -13,9 +13,8 @@ var (
 	stackTraceEnabledOnce sync.Once
 )
 
-// ShouldCaptureStack checks if stack trace capture is enabled.
-// Stack traces can be enabled either by calling EnableStackTrace(true)
-// or by setting the REMILIA_STACK_TRACE environment variable to "true".
+// ShouldCaptureStack 检查是否启用了堆栈跟踪捕获。
+// 可通过调用 EnableStackTrace(true) 或将环境变量 REMILIA_STACK_TRACE 设为 "true" 来启用。
 func ShouldCaptureStack() bool {
 	if stackTraceEnabled {
 		return true
@@ -28,18 +27,18 @@ func ShouldCaptureStack() bool {
 	return stackTraceEnabled
 }
 
-// EnableStackTrace enables or disables stack trace capture globally.
+// EnableStackTrace 全局启用或禁用堆栈跟踪捕获。
 func EnableStackTrace(enabled bool) {
 	stackTraceEnabled = enabled
 }
 
-// IsStackTraceEnabled returns whether stack trace capture is currently enabled.
+// IsStackTraceEnabled 返回当前是否启用了堆栈跟踪捕获。
 func IsStackTraceEnabled() bool {
 	return stackTraceEnabled
 }
 
-// CaptureStack captures the current call stack and returns it as a string.
-// It filters out runtime and testing frames to keep the output clean.
+// CaptureStack 捕获当前调用栈并以字符串形式返回。
+// 会过滤掉 runtime 和 testing 帧，保持输出简洁。
 func CaptureStack() string {
 	const maxStackDepth = 32
 	var pcs [maxStackDepth]uintptr

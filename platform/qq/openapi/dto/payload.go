@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 )
 
-// OperationCode is the operation code of the payload
+// OperationCode 消息载荷的操作码
 type OperationCode byte
 
 const (
@@ -24,7 +24,7 @@ const (
 	HTTPCallbackValidation
 )
 
-// OperationCodeName is the name of the operation code
+// OperationCodeName 操作码名称映射
 var OperationCodeName = map[OperationCode]string{
 	Dispatch:               "Dispatch",
 	Heartbeat:              "Heartbeat",
@@ -38,14 +38,14 @@ var OperationCodeName = map[OperationCode]string{
 	HTTPCallbackValidation: "HTTPCallbackValidation",
 }
 
-// Payload is a struct that holds the payload of a request
+// Payload 保存请求载荷数据的结构体
 type Payload struct {
-	ID        EventID         `json:"id,omitempty"` // ID of the event
-	Operation OperationCode   `json:"op"`           // Operation code
-	Detail    json.RawMessage `json:"d,omitempty"`  // Detail of the event
-	Sequence  uint64          `json:"s,omitempty"`  // Sequence number
-	Type      EventType       `json:"t,omitempty"`  // Type of the event
-	Raw       []byte          `json:"-"`            // Raw is original payload bytes
+	ID        EventID         `json:"id,omitempty"` // 事件 ID
+	Operation OperationCode   `json:"op"`           // 操作码
+	Detail    json.RawMessage `json:"d,omitempty"`  // 事件详情
+	Sequence  uint64          `json:"s,omitempty"`  // 序列号
+	Type      EventType       `json:"t,omitempty"`  // 事件类型
+	Raw       []byte          `json:"-"`            // 原始载荷字节
 }
 
 // ReadyEvent is the struct for ready event

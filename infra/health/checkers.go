@@ -13,7 +13,7 @@ type EngineStats interface {
 	GetMatcherCount() int
 }
 
-// EngineHealthChecker checks engine basic status.
+// EngineHealthChecker 检查引擎的基本状态。
 //
 // 使用示例（在 bot 层注册）：
 //
@@ -22,16 +22,16 @@ type EngineHealthChecker struct {
 	engine EngineStats
 }
 
-// NewEngineHealthChecker creates a new EngineHealthChecker.
+// NewEngineHealthChecker 创建新的 EngineHealthChecker。
 // engine 参数接受任何实现了 EngineStats 接口的对象（如 *engine.Engine）。
 func NewEngineHealthChecker(engine EngineStats) *EngineHealthChecker {
 	return &EngineHealthChecker{engine: engine}
 }
 
-// Name returns the checker name.
+// Name 返回检查器名称。
 func (c *EngineHealthChecker) Name() string { return "engine" }
 
-// Check performs the health check.
+// Check 执行健康检查。
 func (c *EngineHealthChecker) Check(_ context.Context) CheckResult {
 	if c.engine == nil {
 		return CheckResult{Status: Unhealthy, Error: "engine is nil"}
@@ -58,7 +58,7 @@ type DLQStatsSnapshot struct {
 	Workers   int
 }
 
-// DeadLetterQueueHealthChecker checks DLQ backlog and drop rate.
+// DeadLetterQueueHealthChecker 检查死信队列积压情况和丢弃率。
 //
 // 使用示例：
 //
@@ -69,12 +69,12 @@ type DeadLetterQueueHealthChecker struct {
 	maxDroppedRate float64
 }
 
-// NewDeadLetterQueueHealthChecker creates a new DeadLetterQueueHealthChecker.
+// NewDeadLetterQueueHealthChecker 创建新的 DeadLetterQueueHealthChecker。
 //
-// Parameters:
+// 参数：
 //   - dlq: 实现了 DLQStats 接口的对象（如 *dlq.DeadLetterQueue 通过适配器包装）
-//   - maxQueueSize: maximum queue size threshold (default: 1000)
-//   - maxDroppedRate: maximum dropped rate threshold (default: 0.1 = 10%)
+//   - maxQueueSize: 队列大小阈值（默认：1000）
+//   - maxDroppedRate: 最大丢弃率阈值（默认：0.1 = 10%）
 func NewDeadLetterQueueHealthChecker(dlq DLQStats, maxQueueSize int, maxDroppedRate float64) *DeadLetterQueueHealthChecker {
 	if maxQueueSize <= 0 {
 		maxQueueSize = 1000
@@ -85,10 +85,10 @@ func NewDeadLetterQueueHealthChecker(dlq DLQStats, maxQueueSize int, maxDroppedR
 	return &DeadLetterQueueHealthChecker{dlq: dlq, maxQueueSize: maxQueueSize, maxDroppedRate: maxDroppedRate}
 }
 
-// Name returns the checker name.
+// Name 返回检查器名称。
 func (c *DeadLetterQueueHealthChecker) Name() string { return "dead_letter_queue" }
 
-// Check performs the health check.
+// Check 执行健康检查。
 func (c *DeadLetterQueueHealthChecker) Check(_ context.Context) CheckResult {
 	if c.dlq == nil {
 		return CheckResult{Status: Healthy, Metadata: map[string]any{"enabled": false}}

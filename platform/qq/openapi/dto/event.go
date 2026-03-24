@@ -1,8 +1,7 @@
 package dto
 
-// EventType is the type of the event.
-// It is a type alias for string so that engine.EventType and dto.EventType
-// are interchangeable without explicit conversion.
+// EventType 事件类型。
+// 它是 string 的类型别名，因此 engine.EventType 与 dto.EventType 可无需显式转换地互换使用。
 type EventType = string
 
 const (
@@ -37,10 +36,10 @@ const (
 	DirectMessageCreate EventType = "DIRECT_MESSAGE_CREATE" // 频道私信消息
 )
 
-// EventID is the ID of the event
+// EventID 事件 ID
 type EventID string
 
-// MessageCreateEvent is a struct that holds the event data
+// MessageCreateEvent 保存事件数据的结构体
 type MessageCreateEvent struct {
 	ID          EventID      `json:"id,omitempty"`
 	Content     string       `json:"content,omitempty"`
@@ -49,7 +48,7 @@ type MessageCreateEvent struct {
 	Author      Author       `json:"author"`
 }
 
-// Attachment represents an attachment in the event
+// Attachment 表示事件中的附件
 type Attachment struct {
 	Type         string `json:"content_type,omitempty"`
 	FileName     string `json:"filename,omitempty"`
@@ -61,22 +60,22 @@ type Attachment struct {
 	AsrReferText string `json:"asr_refer_text,omitempty"` // 语音 ASR 参考结果
 }
 
-// Author represents the author of the event
+// Author 表示事件的作者
 type Author struct {
 	ID           string `json:"id,omitempty"`
-	MemberOpenID string `json:"member_openid,omitempty"` // OpenID of the member
+	MemberOpenID string `json:"member_openid,omitempty"` // 成员 OpenID
 	UnionOpenID  string `json:"union_openid,omitempty"`
 	UserOpenID   string `json:"user_openid,omitempty"`
 }
 
-// C2CMessageCreateEvent represents a C2C message create event
+// C2CMessageCreateEvent 表示单聊消息创建事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E5%8D%95%E8%81%8A%E6%B6%88%E6%81%AF
 type C2CMessageCreateEvent struct {
 	MessageCreateEvent
 }
 
-// GroupAtMessageCreateEvent represents a group at message create event
+// GroupAtMessageCreateEvent 表示群聊 @机器人 消息事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E7%BE%A4%E8%81%8A-%E6%9C%BA%E5%99%A8%E4%BA%BA
 type GroupAtMessageCreateEvent struct {
@@ -84,48 +83,48 @@ type GroupAtMessageCreateEvent struct {
 	GroupOpenID string `json:"group_openid,omitempty"`
 }
 
-// GroupOpRobotEvent represents a group operation robot event
+// GroupOpRobotEvent 表示群操作机器人事件
 type GroupOpRobotEvent struct {
 	Timestamp      int    `json:"timestamp,omitempty"`
 	GroupOpenID    string `json:"group_openid,omitempty"`
-	OpMemberOpenID string `json:"op_member_openid,omitempty"` // Operator member who added the robot
+	OpMemberOpenID string `json:"op_member_openid,omitempty"` // 操作者成员 OpenID
 }
 
-// GroupAddRobotEvent represents a group add robot event
+// GroupAddRobotEvent 表示群添加机器人事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E6%9C%BA%E5%99%A8%E4%BA%BA%E5%8A%A0%E5%85%A5%E7%BE%A4%E8%81%8A
 type GroupAddRobotEvent struct {
 	GroupOpRobotEvent
 }
 
-// GroupDelRobotEvent represents a group remove robot event
+// GroupDelRobotEvent 表示群移除机器人事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E6%9C%BA%E5%99%A8%E4%BA%BA%E9%80%80%E5%87%BA%E7%BE%A4%E8%81%8A
 type GroupDelRobotEvent struct {
 	GroupOpRobotEvent
 }
 
-// GroupMsgRejectEvent represents a group message reject event
+// GroupMsgRejectEvent 表示群拒绝机器人消息事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E8%81%8A%E6%8B%92%E7%BB%9D%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type GroupMsgRejectEvent struct {
 	GroupOpRobotEvent
 }
 
-// GroupMsgReceiveEvent represents a group message receive event
+// GroupMsgReceiveEvent 表示群接受机器人消息事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E8%81%8A%E6%8E%A5%E5%8F%97%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type GroupMsgReceiveEvent struct {
 	GroupOpRobotEvent
 }
 
-// UserOpRobotEvent represents a user operation robot event
+// UserOpRobotEvent 表示用户操作机器人事件
 type UserOpRobotEvent struct {
 	Timestamp int    `json:"timestamp,omitempty"`
-	OpenID    string `json:"openid,omitempty"` // user who added the robot
+	OpenID    string `json:"openid,omitempty"` // 添加机器人的用户 OpenID
 }
 
-// FriendAddEvent represents a friend add event
+// FriendAddEvent 表示用户添加机器人好友事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E7%94%A8%E6%88%B7%E6%B7%BB%E5%8A%A0%E6%9C%BA%E5%99%A8%E4%BA%BA
 type FriendAddEvent struct {
@@ -136,21 +135,21 @@ type FriendAddEvent struct {
 	SceneParam string `json:"scene_param,omitempty"`
 }
 
-// FriendDelEvent represents a friend delete event
+// FriendDelEvent 表示用户删除机器人好友事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E7%94%A8%E6%88%B7%E5%88%A0%E9%99%A4%E6%9C%BA%E5%99%A8%E4%BA%BA
 type FriendDelEvent struct {
 	UserOpRobotEvent
 }
 
-// C2CMsgRejectEvent represents a C2C message reject event
+// C2CMsgRejectEvent 表示用户拒绝机器人主动消息事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E6%8B%92%E7%BB%9D%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type C2CMsgRejectEvent struct {
 	UserOpRobotEvent
 }
 
-// C2CMsgReceiveEvent represents a C2C message receive event
+// C2CMsgReceiveEvent 表示用户允许机器人主动消息事件
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/user/manage/event.html#%E5%85%81%E8%AE%B8%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type C2CMsgReceiveEvent struct {

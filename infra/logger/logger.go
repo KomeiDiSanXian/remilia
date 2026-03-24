@@ -12,9 +12,8 @@ import (
 )
 
 var (
-	// globalLogger is the package-level zerolog instance. Access via the package-level
-	// convenience functions (Info, Debug, WithField, etc.). External callers must not
-	// depend on the zerolog.Logger type directly.
+	// globalLogger 是包级别的 zerolog 实例。通过包级便捷函数（Info、Debug、WithField 等）访问。
+	// 外部调用方不应直接依赖 zerolog.Logger 类型。
 	globalLogger zerolog.Logger
 
 	// logFile 保存当前打开的日志文件句柄，用于关闭和轮转
@@ -22,16 +21,16 @@ var (
 	logFileMu sync.Mutex
 )
 
-// Config logger configuration
+// Config 日志配置
 type Config struct {
-	Level      string // log level: trace, debug, info, warn, error, fatal, panic
-	Console    bool   // enable console output
-	File       bool   // enable file output
-	FilePath   string // log file path
-	TimeFormat string // time format, default: "2006-01-02 15:04:05"
+	Level      string // 日志级别：trace, debug, info, warn, error, fatal, panic
+	Console    bool   // 是否启用控制台输出
+	File       bool   // 是否启用文件输出
+	FilePath   string // 日志文件路径
+	TimeFormat string // 时间格式，默认："2006-01-02 15:04:05"
 }
 
-// DefaultConfig returns default logger configuration
+// DefaultConfig 返回默认日志配置
 func DefaultConfig() Config {
 	return Config{
 		Level:      "info",
@@ -42,7 +41,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Init initializes the global logger with the given configuration
+// Init 使用指定配置初始化全局日志记录器
 func Init(cfg Config) error {
 	logFileMu.Lock()
 	// 关闭上一次打开的日志文件（如多次调用 Init 或热重载时防止 fd 泄漏）
@@ -51,48 +50,48 @@ func Init(cfg Config) error {
 		logFile = nil
 	}
 	logFileMu.Unlock()
-	// Set time format
+	// 设置时间格式
 	timeFormat := cfg.TimeFormat
 	if timeFormat == "" {
 		timeFormat = "2006-01-02 15:04:05"
 	}
 	zerolog.TimeFieldFormat = timeFormat
 
-	// Parse log level
+	// 解析日志级别
 	level, err := zerolog.ParseLevel(cfg.Level)
 	if err != nil {
 		level = zerolog.InfoLevel
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// Prepare writers
+	// 准备 Writer 列表
 	var writers []io.Writer
 
-	// Console output with colors
+	// 控制台输出（带颜色）
 	if cfg.Console {
 		consoleWriter := zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: timeFormat,
-			NoColor:    false, // Enable colors
+			NoColor:    false, // 启用颜色
 		}
 		writers = append(writers, consoleWriter)
 	}
 
-	// File output
+	// 文件输出
 	if cfg.File {
-		// Create logs directory if not exists
+		// 如目录不存在则创建
 		logDir := filepath.Dir(cfg.FilePath)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			// Fallback to console only
-			_, _ = fmt.Fprintf(os.Stderr, "Failed to create log directory: %v, falling back to console only\n", err)
+			// 回退到仅控制台输出
+			_, _ = fmt.Fprintf(os.Stderr, "无法创建日志目录：%v，回退到仅控制台输出\n", err)
 			cfg.File = false
 			cfg.Console = true
 		} else {
-			// Open log file
+			// 打开日志文件
 			file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 			if err != nil {
-				// Fallback to console only
-				_, _ = fmt.Fprintf(os.Stderr, "Failed to open log file: %v, falling back to console only\n", err)
+				// 回退到仅控制台输出
+				_, _ = fmt.Fprintf(os.Stderr, "无法打开日志文件：%v，回退到仅控制台输出\n", err)
 				cfg.File = false
 				cfg.Console = true
 			} else {
@@ -104,23 +103,23 @@ func Init(cfg Config) error {
 		}
 	}
 
-	// If no writers specified, use stdout
+	// 若无 Writer，则使用 stdout
 	if len(writers) == 0 {
 		writers = append(writers, os.Stdout)
 	}
 
-	// Create multi writer
+	// 创建多路 Writer
 	multi := io.MultiWriter(writers...)
 
-	// Initialize global logger without Caller() to avoid performance overhead
-	// Caller will be added only for important log levels (Error, Fatal, Panic)
+	// 初始化全局 logger，不附加 Caller() 以避免性能开销
+	// 仅在重要日志级别（Error、Fatal、Panic）时附加 Caller 信息
 	globalLogger = zerolog.New(multi).With().Timestamp().Logger()
 	log.Logger = globalLogger
 
 	return nil
 }
 
-// InitDefault initializes the logger with default configuration
+// InitDefault 使用默认配置初始化日志记录器
 func InitDefault() error {
 	return Init(DefaultConfig())
 }
@@ -167,22 +166,22 @@ func PutFields(f Fields) {
 	FieldsPool.Put(f)
 }
 
-// Fields is a helper type for structured logging fields
+// Fields 是结构化日志字段的辅助类型
 type Fields map[string]any
 
-// LogWithFields wraps zerolog logger to provide logrus-like API
+// LogWithFields 包装 zerolog logger，提供类似 logrus 的 API
 type LogWithFields struct {
 	logger zerolog.Logger
 }
 
-// WithField adds another field (chainable)
+// WithField 追加一个字段（支持链式调用）
 func (l *LogWithFields) WithField(key string, value any) *LogWithFields {
 	return &LogWithFields{
 		logger: l.logger.With().Interface(key, value).Logger(),
 	}
 }
 
-// WithFields adds multiple fields (chainable)
+// WithFields 追加多个字段（支持链式调用）
 func (l *LogWithFields) WithFields(fields Fields) *LogWithFields {
 	ctx := l.logger.With()
 	for k, v := range fields {
@@ -191,64 +190,64 @@ func (l *LogWithFields) WithFields(fields Fields) *LogWithFields {
 	return &LogWithFields{logger: ctx.Logger()}
 }
 
-// WithError adds an error field (chainable)
+// WithError 追加错误字段（支持链式调用）
 func (l *LogWithFields) WithError(err error) *LogWithFields {
 	return &LogWithFields{
 		logger: l.logger.With().Err(err).Logger(),
 	}
 }
 
-// Info logs an info message
+// Info 输出 info 级别日志
 func (l *LogWithFields) Info(msg string) {
 	l.logger.Info().Msg(msg)
 }
 
-// Infof logs a formatted info message
+// Infof 输出格式化 info 级别日志
 func (l *LogWithFields) Infof(format string, v ...any) {
 	l.logger.Info().Msgf(format, v...)
 }
 
-// Debug logs a debug message
+// Debug 输出 debug 级别日志
 func (l *LogWithFields) Debug(msg string) {
 	l.logger.Debug().Msg(msg)
 }
 
-// Debugf logs a formatted debug message
+// Debugf 输出格式化 debug 级别日志
 func (l *LogWithFields) Debugf(format string, v ...any) {
 	l.logger.Debug().Msgf(format, v...)
 }
 
-// Warn logs a warning message
+// Warn 输出 warn 级别日志
 func (l *LogWithFields) Warn(msg string) {
 	l.logger.Warn().Msg(msg)
 }
 
-// Warnf logs a formatted warning message
+// Warnf 输出格式化 warn 级别日志
 func (l *LogWithFields) Warnf(format string, v ...any) {
 	l.logger.Warn().Msgf(format, v...)
 }
 
-// Error logs an error message with caller information
+// Error 输出带调用位置信息的 error 级别日志
 func (l *LogWithFields) Error(msg string) {
 	l.logger.Error().Caller(1).Msg(msg)
 }
 
-// Errorf logs a formatted error message with caller information
+// Errorf 输出带调用位置信息的格式化 error 级别日志
 func (l *LogWithFields) Errorf(format string, v ...any) {
 	l.logger.Error().Caller(1).Msgf(format, v...)
 }
 
-// Fatal logs a fatal message with caller information and exits
+// Fatal 输出带调用位置信息的 fatal 级别日志并退出
 func (l *LogWithFields) Fatal(msg string) {
 	l.logger.Fatal().Caller(1).Msg(msg)
 }
 
-// Fatalf logs a formatted fatal message with caller information and exits
+// Fatalf 输出带调用位置信息的格式化 fatal 级别日志并退出
 func (l *LogWithFields) Fatalf(format string, v ...any) {
 	l.logger.Fatal().Caller(1).Msgf(format, v...)
 }
 
-// WithFields creates a logger with multiple fields
+// WithFields 创建带多个字段的 logger
 func WithFields(fields Fields) *LogWithFields {
 	ctx := globalLogger.With()
 	for k, v := range fields {
@@ -257,88 +256,88 @@ func WithFields(fields Fields) *LogWithFields {
 	return &LogWithFields{logger: ctx.Logger()}
 }
 
-// WithField creates a logger with a single field
+// WithField 创建带单个字段的 logger
 func WithField(key string, value any) *LogWithFields {
 	return &LogWithFields{
 		logger: globalLogger.With().Interface(key, value).Logger(),
 	}
 }
 
-// WithError creates a logger with error field
+// WithError 创建带错误字段的 logger
 func WithError(err error) *LogWithFields {
 	return &LogWithFields{
 		logger: globalLogger.With().Err(err).Logger(),
 	}
 }
 
-// Log level functions
+// 日志级别函数
 
-// Trace logs a trace message
+// Trace 输出 trace 级别日志
 func Trace(msg string) {
 	globalLogger.Trace().Msg(msg)
 }
 
-// Tracef logs a formatted trace message
+// Tracef 输出格式化 trace 级别日志
 func Tracef(format string, v ...any) {
 	globalLogger.Trace().Msgf(format, v...)
 }
 
-// Debug logs a debug message
+// Debug 输出 debug 级别日志
 func Debug(msg string) {
 	globalLogger.Debug().Msg(msg)
 }
 
-// Debugf logs a formatted debug message
+// Debugf 输出格式化 debug 级别日志
 func Debugf(format string, v ...any) {
 	globalLogger.Debug().Msgf(format, v...)
 }
 
-// Info logs an info message
+// Info 输出 info 级别日志
 func Info(msg string) {
 	globalLogger.Info().Msg(msg)
 }
 
-// Infof logs a formatted info message
+// Infof 输出格式化 info 级别日志
 func Infof(format string, v ...any) {
 	globalLogger.Info().Msgf(format, v...)
 }
 
-// Warn logs a warning message
+// Warn 输出 warn 级别日志
 func Warn(msg string) {
 	globalLogger.Warn().Msg(msg)
 }
 
-// Warnf logs a formatted warning message
+// Warnf 输出格式化 warn 级别日志
 func Warnf(format string, v ...any) {
 	globalLogger.Warn().Msgf(format, v...)
 }
 
-// Error logs an error message with caller information
+// Error 输出带调用位置信息的 error 级别日志
 func Error(msg string) {
 	globalLogger.Error().Caller(1).Msg(msg)
 }
 
-// Errorf logs a formatted error message with caller information
+// Errorf 输出带调用位置信息的格式化 error 级别日志
 func Errorf(format string, v ...any) {
 	globalLogger.Error().Caller(1).Msgf(format, v...)
 }
 
-// Fatal logs a fatal message with caller information and exits
+// Fatal 输出带调用位置信息的 fatal 级别日志并退出
 func Fatal(msg string) {
 	globalLogger.Fatal().Caller(1).Msg(msg)
 }
 
-// Fatalf logs a formatted fatal message with caller information and exits
+// Fatalf 输出带调用位置信息的格式化 fatal 级别日志并退出
 func Fatalf(format string, v ...any) {
 	globalLogger.Fatal().Caller(1).Msgf(format, v...)
 }
 
-// Panic logs a panic message with caller information and panics
+// Panic 输出带调用位置信息的 panic 级别日志并 panic
 func Panic(msg string) {
 	globalLogger.Panic().Caller(1).Msg(msg)
 }
 
-// Panicf logs a formatted panic message with caller information and panics
+// Panicf 输出带调用位置信息的格式化 panic 级别日志并 panic
 func Panicf(format string, v ...any) {
 	globalLogger.Panic().Caller(1).Msgf(format, v...)
 }
@@ -366,6 +365,6 @@ func InitTest() {
 }
 
 func init() {
-	// Initialize with default config on package load
+	// 包加载时使用默认配置初始化
 	_ = InitDefault()
 }

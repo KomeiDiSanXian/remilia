@@ -443,7 +443,7 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 					idx[k]++ // stale — skip
 				} else {
 					stop = false
-					break // valid head found for list k
+					break // 找到列表 k 的有效头部
 				}
 			}
 		}
@@ -482,7 +482,7 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 		//    → TOCTOU 检测到陈旧 → advance → 重试 → 真正 winner 在下次迭代被选中。
 		isTemp2 := atomic.LoadInt32(&lists[winner][idx[winner]].rt.isTemp) == 1
 		if (isStateSource[winner] && isTemp2) || (!isStateSource[winner] && !isTemp2) {
-			idx[winner]++ // winner became stale; skip and retry
+			idx[winner]++ // winner 已失效，跳过并重试
 			continue
 		}
 

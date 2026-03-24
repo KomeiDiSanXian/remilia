@@ -11,9 +11,9 @@ import (
 )
 
 type matcherRuntime struct {
-	// deleted and disabled are atomic so Match() and the early-return check in
-	// invokeHandler can read them without acquiring any lock.
-	// Writers still hold mu to keep composite updates (useCount + deleted) atomic.
+	// deleted 和 disabled 使用原子操作，使得 Match() 和 invokeHandler 的提前返回检查
+	// 无需持有任何锁即可读取。
+	// 写入时仍然需要持有 mu，以保证 useCount + deleted 的复合更新具有原子性。
 	deleted  atomic.Bool
 	disabled atomic.Bool
 
@@ -28,18 +28,18 @@ type matcherRuntime struct {
 // Matcher 事件匹配器
 type Matcher struct {
 	rt matcherRuntime
-	// priority and isBlock are hot-path fields read in mergeSortedMatchersSix and
-	// processEventContext respectively (1000× per event).  Using atomics eliminates
-	// the RWMutex.RLock/RUnlock pair in getPriority/isBlocking — the dominant CPU
-	// cost in those two functions (180 ms + 40 ms in the large-scenario profile).
+	// priority 和 isBlock 是热路径字段，分别在 mergeSortedMatchersSix 和
+	// processEventContext 中每事件读取约 1000 次。使用 atomic 可以避免
+	// getPriority/isBlocking 中原有的 RWMutex.RLock/RUnlock 对——
+	// 这是大规模测试剖析中两个函数的主要 CPU 开销（分别约 180ms 和 40ms）。
 	priority atomic.Uint64
 	isBlock  atomic.Bool
-	// commandIndexed is set once (before the matcher is published) for matchers
-	// created by OnCommand/RegisterCommandDef.  When true, Match() skips Rules[0]
-	// (the OnCommand prefix check) because the command was already matched via the
-	// commandIndex O(1) lookup — saving ~200 ms / 10 % CPU in the large scenario.
-	// Uses atomic.Bool to prevent data races between rebuildIndex writes and
-	// concurrent Match() reads on shared *Matcher objects (COW shares pointers).
+	// commandIndexed 在 OnCommand/RegisterCommandDef 创建的 matcher 发布之前设置一次。
+	// 为 true 时，Match() 会跳过 Rules[0]（OnCommand 前缀检查），
+	// 因为命令已通过 commandIndex 的 O(1) 查找隐式匹配——
+	// 在大规模场景中可节省约 200ms / 10% CPU。
+	// 使用 atomic.Bool 以防止 rebuildIndex 写操作与
+	// 共享 *Matcher 对象（COW 共享指针）的并发 Match() 读操作之间出现数据竞争。
 	commandIndexed atomic.Bool
 	EventType      EventType
 	Rules          []context.Rule
@@ -49,12 +49,11 @@ type Matcher struct {
 	group          string
 	middlewares    []context.Middleware
 
-	combinedChain    atomic.Value // []Middleware  — the raw middleware slice
-	compiledHandlers atomic.Value // compiledChain — pre-built iterative handler slice
-	// compiledVersion is a monotonically increasing counter that is bumped
-	// whenever the combined middleware chain OR the Handler changes.
-	// getOrBuildIterChain compares this counter instead of computing a
-	// reflect-based FNV fingerprint on every hot-path invocation.
+	combinedChain    atomic.Value // []Middleware  — 原始中间件切片
+	compiledHandlers atomic.Value // compiledChain — 预构建的迭代器处理链切片
+	// compiledVersion 是单调递增计数器，在组合中间件链或 Handler 变更时自增。
+	// getOrBuildIterChain 通过比较此计数器代替在每次热路径调用时
+	// 使用 reflect 计算 FNV 指纹来判断是否需要重建。
 	compiledVersion atomic.Uint64
 
 	cachedGen struct {
@@ -66,22 +65,21 @@ type Matcher struct {
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
 }
 
-// compiledChain caches the outermost composed handler produced by
-// getOrBuildIterChain.
+// compiledChain 缓存 getOrBuildIterChain 生成的最外层组合 handler。
 //
-// Structure after building N middlewares + 1 handler:
+// 构建 N 个中间件 + 1 个 handler 后的结构：
 //
 //	head = chain[0](chain[1](...chain[N-1](handler)...))
 //
-// Each chain[i] returns a closure that captures chain[i+1]'s result as "next".
-// Calling head() executes the full chain through these closure captures —
-// no slice iteration needed; only head is stored here.
+// 每个 chain[i] 返回一个捕获了 chain[i+1] 结果作为 "next" 的闭包。
+// 调用 head() 通过这些闭包捕获执行完整调用链——
+// 无需切片迭代，此处只存储 head。
 //
-// version mirrors m.compiledVersion at build time; a version mismatch
-// triggers a rebuild on the next slow-path call.
+// version 反映构建时 m.compiledVersion 的快照；版本不匹配
+// 会在下次慢路径调用时触发重建。
 type compiledChain struct {
-	head    context.Handler // entry point: outermost middleware wrapping the actual handler
-	version uint64          // snapshot of m.compiledVersion when this chain was compiled
+	head    context.Handler // 入口：包裹实际 handler 的最外层中间件
+	version uint64          // 编译时 m.compiledVersion 的快照
 }
 
 func (m *Matcher) copy() *Matcher {
@@ -138,7 +136,7 @@ func (m *Matcher) SetSource(source string) *Matcher {
 	return m
 }
 
-// IsTemp returns true if the matcher is a temporary matcher managed by TempManager.
+// IsTemp 若该 matcher 是由 TempManager 管理的临时 matcher，则返回 true。
 func (m *Matcher) IsTemp() bool {
 	return atomic.LoadInt32(&m.rt.isTemp) == 1
 }
@@ -225,8 +223,8 @@ func (m *Matcher) Match(ctx *context.Context) bool {
 	}
 
 	rules := m.Rules
-	// Skip Rules[0] (the OnCommand prefix check) for command-indexed matchers:
-	// the commandIndex lookup already confirmed the command matches.
+	// 对于通过命令索引匹配的 matcher，跳过 Rules[0]（OnCommand 前缀检查）：
+	// commandIndex 查找已确认命令匹配，无需重复检查。
 	if m.commandIndexed.Load() && len(rules) > 0 {
 		rules = rules[1:]
 	}
@@ -275,7 +273,7 @@ func (m *Matcher) Handle(handler context.Handler) {
 	}
 	m.rt.mu.Lock()
 	m.Handler = handler
-	// Bump version so getOrBuildIterChain rebuilds the compiled chain on next use.
+	// 自增版本号，使 getOrBuildIterChain 在下次使用时重建已编译的处理链。
 	m.compiledVersion.Add(1)
 	coord := m.coordinator
 	m.rt.mu.Unlock()
@@ -296,7 +294,7 @@ func (m *Matcher) SetPriority(priority uint64) *Matcher {
 	coord := m.coordinator
 	muEvent := m.EventType
 	isTempManager := atomic.LoadInt32(&m.rt.isTemp) == 1
-	def := m.definition // read definition while holding lock
+	def := m.definition // 持锁读取 definition
 	m.rt.mu.Unlock()
 
 	isCommandMatcher := def != nil && def.Name != ""
@@ -305,7 +303,7 @@ func (m *Matcher) SetPriority(priority uint64) *Matcher {
 		if isTempManager {
 			coord.UpdateTempMatcherPriority(m)
 		} else if isCommandMatcher {
-			coord.UpdateMatcherIndex(m) // reorder commandIndex for command matchers
+			coord.UpdateMatcherIndex(m) // 重排命令匹配器的 commandIndex
 		} else {
 			coord.InvalidateSortedCache(muEvent)
 		}
@@ -514,12 +512,12 @@ func (m *Matcher) invalidateCombinedChain() {
 	var nilChain []context.Middleware
 	m.combinedChain.Store(nilChain)
 	m.compiledHandlers.Store((*compiledChain)(nil))
-	// Bump the version counter so the next getOrBuildIterChain call rebuilds
-	// the compiled handler chain without needing reflect fingerprinting.
+	// 自增版本计数器，使下次 getOrBuildIterChain 调用重建
+	// 已编译的处理链，无需进行 reflect 指纹计算。
 	m.compiledVersion.Add(1)
 }
 
-// ensureChain ensures the combined chain is cached and valid.
+// ensureChain 确保组合中间件链已缓存且有效。
 func (m *Matcher) ensureChain(globalChain []context.Middleware, globalGen uint64, groupChain []context.Middleware, groupGen uint64) {
 	if m == nil {
 		return
@@ -552,12 +550,12 @@ func (m *Matcher) ensureChain(globalChain []context.Middleware, globalGen uint64
 	m.cachedGen.global = globalGen
 	m.cachedGen.group = groupGen
 	m.combinedChain.Store(chain)
-	// Bump version: the combined chain changed, so the compiled handler chain
-	// must also be rebuilt on the next getOrBuildIterChain call.
+	// 自增版本：组合链已变更，因此已编译的处理链
+	// 也需要在下次 getOrBuildIterChain 调用时重建。
 	m.compiledVersion.Add(1)
 }
 
-// getPriority returns priority in a threadsafe way (lock-free atomic load).
+// getPriority 以线程安全方式返回优先级（无锁原子读取）。
 func (m *Matcher) getPriority() uint {
 	if m == nil {
 		return 0
@@ -565,7 +563,7 @@ func (m *Matcher) getPriority() uint {
 	return uint(m.priority.Load())
 }
 
-// isBlocking returns whether matcher should block subsequent handlers (lock-free atomic load).
+// isBlocking 以线程安全方式返回 matcher 是否应阻塞后续处理器（无锁原子读取）。
 func (m *Matcher) isBlocking() bool {
 	if m == nil {
 		return false
@@ -599,7 +597,7 @@ func (m *Matcher) BindCommand(cmd string) *Matcher {
 	return m
 }
 
-// SetGroup sets the matcher group name.
+// SetGroup 设置 matcher 的分组名称。
 func (m *Matcher) SetGroup(group string) *Matcher {
 	m.rt.mu.Lock()
 	m.group = strings.TrimSpace(group)
@@ -614,7 +612,7 @@ func (m *Matcher) SetGroup(group string) *Matcher {
 	return m
 }
 
-// GetGroup returns the matcher group name.
+// GetGroup 返回 matcher 的分组名称。
 func (m *Matcher) GetGroup() string {
 	m.rt.mu.RLock()
 	g := m.group

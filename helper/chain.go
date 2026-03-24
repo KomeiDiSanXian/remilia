@@ -2,17 +2,16 @@ package helper
 
 import "strings"
 
-// ChainGeneric combines multiple functions with the same signature into a single function.
+// ChainGeneric 将多个具有相同签名的函数合并为一个函数。
 //
-// The functions are executed in order, and if any function returns an error,
-// the chain stops and returns that error immediately.
+// 函数按顺序执行，若任一函数返回错误，链式调用立即停止并返回该错误。
 //
-// This is a generic version that works with any context type, not just *context.Context.
-// For Remilia-specific context.Handler chaining, use the non-generic Chain function in handler.go.
+// 这是泛型版本，适用于任意上下文类型，而非仅限于 *context.Context。
+// 若要对 Remilia 专属的 context.Handler 进行链式调用，请使用 handler.go 中的非泛型 Chain 函数。
 //
-// Example:
+// 示例：
 //
-//	// For custom context types
+//	// 用于自定义上下文类型
 //	type MyContext struct { UserID string }
 //	handler := ChainGeneric[*MyContext](
 //	    validateInput,
@@ -20,7 +19,7 @@ import "strings"
 //	    executeLogic,
 //	)
 //
-//	// For HTTP Context
+//	// 用于 HTTP 上下文
 //	type HTTPContext struct { /* ... */ }
 //	httpHandler := ChainGeneric[*HTTPContext](
 //	    authMiddleware,
@@ -28,9 +27,9 @@ import "strings"
 //	    businessLogic,
 //	)
 //
-// Performance:
-//   - Zero allocation for empty or single-handler chains
-//   - Minimal overhead for multi-handler chains
+// 性能：
+//   - 空链或单处理器链零分配
+//   - 多处理器链极低额外开销
 func ChainGeneric[Ctx any](handlers ...func(Ctx) error) func(Ctx) error {
 	if len(handlers) == 0 {
 		return func(Ctx) error { return nil }
@@ -49,33 +48,30 @@ func ChainGeneric[Ctx any](handlers ...func(Ctx) error) func(Ctx) error {
 	}
 }
 
-// ChainWithNext combines middleware-style functions that accept a "next" handler.
+// ChainWithNext 将中间件风格（接受"next"处理器）的函数组合在一起。
 //
-// This is useful for building middleware chains where each middleware can decide
-// whether to call the next handler in the chain.
+// 适用于构建中间件链，每个中间件可决定是否调用链中的下一个处理器。
 //
-// Concurrency safety: Each invocation of the returned function creates its own
-// execution state, so it is safe to call the returned function concurrently.
-// However, each individual call chain must be executed sequentially (i.e., a
-// single middleware must NOT call next() from multiple goroutines concurrently).
+// 并发安全性：返回的函数每次调用都会创建独立的执行状态，因此可并发调用。
+// 但每条单独的调用链必须顺序执行（即单个中间件不得从多个 goroutine 并发调用 next()）。
 //
-// Example:
+// 示例：
 //
 //	middleware := ChainWithNext[*context.Context](
 //	    func(ctx *context.Context, next func(*context.Context) error) error {
-//	        // Pre-processing
+//	        // 前置处理
 //	        if err := validateAuth(ctx); err != nil {
 //	            return err
 //	        }
-//	        // Call next
+//	        // 调用下一个处理器
 //	        if err := next(ctx); err != nil {
 //	            return err
 //	        }
-//	        // Post-processing
+//	        // 后置处理
 //	        logRequest(ctx)
 //	        return nil
 //	    },
-//	    // ... more middlewares
+//	    // ... 更多中间件
 //	)
 func ChainWithNext[Ctx any](middlewares ...func(Ctx, func(Ctx) error) error) func(Ctx, func(Ctx) error) error {
 	if len(middlewares) == 0 {
@@ -99,11 +95,11 @@ func ChainWithNext[Ctx any](middlewares ...func(Ctx, func(Ctx) error) error) fun
 	}
 }
 
-// Pipe composes functions where the output of one becomes the input of the next.
+// Pipe 将函数组合成管道，前一个函数的输出作为后一个函数的输入。
 //
-// This is useful for building data transformation pipelines.
+// 适用于构建数据转换管道。
 //
-// Example:
+// 示例：
 //
 //	transform := Pipe[string](
 //	    strings.TrimSpace,
@@ -128,15 +124,15 @@ func Pipe[T any](funcs ...func(T) T) func(T) T {
 	}
 }
 
-// Compose is similar to Pipe but applies functions in reverse order.
+// Compose 与 Pipe 类似，但以逆序应用函数。
 //
-// This follows the mathematical function composition: (f ∘ g)(x) = f(g(x))
+// 遵循数学函数合成：(f ∘ g)(x) = f(g(x))
 //
-// Example:
+// 示例：
 //
 //	// f(g(h(x)))
 //	composed := Compose[string](f, g, h)
-//	result := composed(x)  // same as f(g(h(x)))
+//	result := composed(x)  // 等同于 f(g(h(x)))
 func Compose[T any](funcs ...func(T) T) func(T) T {
 	if len(funcs) == 0 {
 		return func(t T) T { return t }
@@ -154,9 +150,9 @@ func Compose[T any](funcs ...func(T) T) func(T) T {
 	}
 }
 
-// Filter filters a slice based on a predicate function.
+// Filter 根据谓词函数过滤切片。
 //
-// Example:
+// 示例：
 //
 //	numbers := []int{1, 2, 3, 4, 5}
 //	evens := Filter(numbers, func(n int) bool { return n%2 == 0 })
@@ -171,9 +167,9 @@ func Filter[T any](slice []T, predicate func(T) bool) []T {
 	return result
 }
 
-// Map transforms a slice by applying a function to each element.
+// Map 通过对每个元素应用函数来转换切片。
 //
-// Example:
+// 示例：
 //
 //	numbers := []int{1, 2, 3}
 //	doubled := Map(numbers, func(n int) int { return n * 2 })
@@ -186,9 +182,9 @@ func Map[T, R any](slice []T, fn func(T) R) []R {
 	return result
 }
 
-// Reduce reduces a slice to a single value using an accumulator function.
+// Reduce 使用累加器函数将切片归约为单个值。
 //
-// Example:
+// 示例：
 //
 //	numbers := []int{1, 2, 3, 4}
 //	sum := Reduce(numbers, 0, func(acc, n int) int { return acc + n })
@@ -201,9 +197,9 @@ func Reduce[T, R any](slice []T, initial R, fn func(R, T) R) R {
 	return result
 }
 
-// Find returns the first element that satisfies the predicate, or zero value if none found.
+// Find 返回满足谓词的第一个元素，若未找到则返回零值。
 //
-// Example:
+// 示例：
 //
 //	numbers := []int{1, 2, 3, 4, 5}
 //	found, ok := Find(numbers, func(n int) bool { return n > 3 })
@@ -218,11 +214,11 @@ func Find[T any](slice []T, predicate func(T) bool) (T, bool) {
 	return zero, false
 }
 
-// StringPipe creates a pipeline for string transformations.
+// StringPipe 创建字符串转换管道。
 //
-// This is a convenience function that pre-configures Pipe for strings.
+// 这是为字符串预配置 Pipe 的便捷函数。
 //
-// Example:
+// 示例：
 //
 //	slugify := StringPipe(
 //	    strings.TrimSpace,
@@ -234,7 +230,7 @@ func StringPipe(funcs ...func(string) string) func(string) string {
 	return Pipe(funcs...)
 }
 
-// StringReplace creates a function that replaces all occurrences of old with new.
+// StringReplace 创建一个将所有 old 替换为 new 的函数。
 func StringReplace(old, new string) func(string) string {
 	return func(s string) string {
 		return strings.ReplaceAll(s, old, new)

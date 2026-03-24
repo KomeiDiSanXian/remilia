@@ -12,7 +12,7 @@ import (
 // Collector collects prometheus metrics.
 type Collector struct {
 	namespace string
-	registry  prometheus.Registerer // Custom registry to avoid global collisions
+	registry  prometheus.Registerer // 自定义注册表，避免与全局注册冲突
 
 	deadLetterQueueSize    prometheus.Gauge
 	deadLetterConsumed     prometheus.Counter

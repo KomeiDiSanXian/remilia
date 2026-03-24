@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	_ "net/http/pprof" // Import for side-effect: registers pprof handlers
+	_ "net/http/pprof" // 副作用导入：自动注册 pprof HTTP 处理器
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -174,29 +174,29 @@ func (p *PprofServer) autoProfile() {
 func (p *PprofServer) captureProfiles() {
 	timestamp := time.Now().Format("20060102_150405")
 
-	// CPU profile
+	// CPU 性能分析
 	if err := p.captureCPUProfile(timestamp); err != nil {
 		logger.WithError(err).Error("[Pprof] Failed to capture CPU profile")
 	}
 
-	// Heap profile
+	// 堆内存分析
 	if err := p.captureHeapProfile(timestamp); err != nil {
 		logger.WithError(err).Error("[Pprof] Failed to capture heap profile")
 	}
 
-	// Goroutine profile
+	// Goroutine 分析
 	if err := p.captureGoroutineProfile(timestamp); err != nil {
 		logger.WithError(err).Error("[Pprof] Failed to capture goroutine profile")
 	}
 
-	// Mutex profile (if enabled)
+	// 互斥锁分析（如已启用）
 	if p.config.EnableMutex {
 		if err := p.captureMutexProfile(timestamp); err != nil {
 			logger.WithError(err).Error("[Pprof] Failed to capture mutex profile")
 		}
 	}
 
-	// Block profile (if enabled)
+	// 阻塞分析（如已启用）
 	if p.config.EnableBlock {
 		if err := p.captureBlockProfile(timestamp); err != nil {
 			logger.WithError(err).Error("[Pprof] Failed to capture block profile")

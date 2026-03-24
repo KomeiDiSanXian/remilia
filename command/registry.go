@@ -150,12 +150,11 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 	return nil
 }
 
-// Upsert registers or updates a command definition in the registry.
-// If the command is already registered, its metadata is updated in-place.
-// If the command is not yet registered, it is inserted.
-// This avoids the "already registered" error that occurs when RegisterCommandDef
-// first registers a bare definition via OnCommand and then tries to register the
-// full definition with metadata.
+// Upsert 注册或更新注册表中的命令定义。
+// 若命令已存在，则原地更新其元数据；
+// 若命令尚未注册，则直接插入。
+// 此方法可避免"already registered"错误——当 RegisterCommandDef 先通过 OnCommand
+// 注册了一个裸定义，随后又尝试注册带完整元数据的定义时，即会触发该错误。
 func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	if def == nil || def.Name == "" {
 		return
@@ -165,7 +164,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	defer cr.mu.Unlock()
 
 	if existing := cr.trie.ExactMatch(def.Name); existing != nil {
-		// Update existing metadata in-place
+		// 原地更新已有元数据
 		existing.Description = def.Description
 		existing.Usage = def.Usage
 		existing.Aliases = def.Aliases
@@ -183,7 +182,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 		return
 	}
 
-	// New registration
+	// 新建注册
 	meta := &Meta{
 		Name:        def.Name,
 		Aliases:     def.Aliases,

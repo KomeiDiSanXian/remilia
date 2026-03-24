@@ -36,12 +36,12 @@ func DefaultTempManagerConfig() TempManagerConfig {
 	}
 }
 
-// tempMatcherShard holds a subset of temp matchers
+// tempMatcherShard 持有一部分临时匹配器
 type tempMatcherShard struct {
 	mu           sync.RWMutex
-	matcherIndex map[EventType][]*Matcher // Sorted by priority
-	expiration   *matcherHeap             // Min-heap for expiration
-	byID         map[*Matcher]struct{}    // Fast existence check
+	matcherIndex map[EventType][]*Matcher // 按优先级排序
+	expiration   *matcherHeap             // 用于过期的最小堆
+	byID         map[*Matcher]struct{}    // 快速存在性检查
 }
 
 func newTempMatcherShard() *tempMatcherShard {

@@ -1,16 +1,15 @@
 /*
-Package remilia provides a high-level wrapper around the core engine with lifecycle management.
+Package remilia 是对核心引擎的高级封装，提供完整的生命周期管理。
 
-Bot is the main entry point for building event-driven applications with Remilia framework.
-It provides:
-  - Lifecycle management (start/stop)
-  - Health checking
-  - Configuration management
-  - Multi-platform event handling via platform.PlatformAdapter
+Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
+  - 生命周期管理（启动/停止）
+  - 健康检查
+  - 配置管理
+  - 通过 platform.PlatformAdapter 处理多平台事件
 
-# Platform-Agnostic Usage (Recommended)
+# 平台无关用法（推荐）
 
-Register handlers using platform-agnostic event matching:
+使用平台无关的事件匹配注册处理器：
 
 	import (
 	    "context"
@@ -24,22 +23,22 @@ Register handlers using platform-agnostic event matching:
 
 	eng := engine.NewEngine()
 
-	// Register a command handler that works on any platform
+	// 注册一个适用于任意平台的命令处理器
 	eng.OnCommand("", "/hello").
 	    Handle(func(ctx *eventctx.Context) error {
 	        return ctx.Reply(platform.TextMessage("Hello!"))
 	    })
 
-	// Build Bot with a PlatformAdapter
+	// 通过 PlatformAdapter 构建 Bot
 	bot, err := remilia.NewBotBuilder().
 	    WithPlatformAdapter(qqAdapter). // platform.PlatformAdapter
 	    WithEngine(eng).
 	    Build()
 
-# QQ Usage
+# QQ 用法
 
-For QQ bots, create a [qq.WebhookServerAdapter] with the bot credentials and pass it to
-the builder. The adapter manages token refresh and message sending internally:
+对于 QQ 机器人，使用 Bot 凭证创建 [qq.WebhookServerAdapter] 并传入构建器。
+适配器内部自动管理 Token 刷新和消息发送：
 
 	import "github.com/KomeiDiSanXian/remilia/platform/qq"
 	import "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -56,15 +55,15 @@ the builder. The adapter manages token refresh and message sending internally:
 	    WithEngine(eng).
 	    Build()
 
-	// Platform-agnostic matchers (recommended for all platforms)
+	// 平台无关匹配器（推荐用于所有平台）
 	eng.OnEventKind(platform.EventKindPrivateMessage, eventctx.OnCommand("/ping")).Handle(pingHandler)
 	eng.OnEventKind(platform.EventKindGroupMessage, eventctx.OnCommand("/hello")).Handle(helloHandler)
 
-# Multi-Platform
+# 多平台
 
-Connect multiple platforms to a single Bot instance via [platform.Registry].
-Each call to [BotBuilder.WithPlatformAdapter] overwrites the previous adapter;
-to register more than one platform, use [BotBuilder.WithPlatformRegistry]:
+通过 [platform.Registry] 将多个平台接入同一个 Bot 实例。
+每次调用 [BotBuilder.WithPlatformAdapter] 会覆盖前一个适配器；
+若需注册多个平台，请使用 [BotBuilder.WithPlatformRegistry]：
 
 	registry := platform.NewRegistry()
 	registry.Register(qqAdapter)    // platform.PlatformAdapter
@@ -75,20 +74,20 @@ to register more than one platform, use [BotBuilder.WithPlatformRegistry]:
 	    WithEngine(eng).
 	    Build()
 
-# Adapter Interface
+# 适配器接口
 
-One adapter interface is supported:
+支持一种适配器接口：
 
-  - PlatformAdapter (recommended): platform-agnostic, handler receives platform.Event
+  - PlatformAdapter（推荐）：平台无关，处理器接收 platform.Event
 
-# Health Checking
+# 健康检查
 
 	status := bot.Health()
 	fmt.Printf("Status: %s, Uptime: %v\n", status.Status, status.Uptime)
 
-# Lifecycle
+# 生命周期
 
-Bot uses the lifecycle package: components start in order, stop in reverse.
-Failed startup triggers automatic rollback.
+Bot 使用 lifecycle 包：组件按顺序启动，按逆序停止。
+启动失败会触发自动回滚。
 */
 package remilia

@@ -5,28 +5,28 @@ import (
 	"fmt"
 )
 
-// BlockError indicates handler processing was blocked by middleware.
-// This is used as a control-flow error inside the framework.
+// BlockError 表示处理器被中间件阻断。
+// 在框架内部作为控制流错误使用。
 //
-// Middleware can return a BlockError to signal that processing should stop
-// without triggering retry logic. Use IsBlockError to check for this type.
+// 中间件可返回 BlockError 以表示处理应停止，但不触发重试逻辑。
+// 使用 IsBlockError 检查此类型。
 type BlockError struct {
 	Message string
 }
 
 func (be BlockError) Error() string { return be.Message }
 
-// NewBlockError creates a new BlockError with the given message.
+// NewBlockError 创建带有指定消息的 BlockError。
 func NewBlockError(message string) error { return BlockError{Message: message} }
 
-// IsBlockError checks if an error is a BlockError.
+// IsBlockError 检查 error 是否为 BlockError。
 func IsBlockError(err error) bool {
 	var be BlockError
 	return errors.As(err, &be)
 }
 
-// Predefined framework/public errors.
-// These errors are stable and can be checked with errors.Is.
+// 预定义的框架/公共错误。
+// 这些错误是稳定的，可使用 errors.Is 进行检查。
 var (
 	ErrConfigInvalid     = errors.New("invalid configuration")
 	ErrMatcherNotFound   = errors.New("matcher not found")
@@ -86,16 +86,15 @@ var (
 	ErrTokenRefreshFailed = errors.New("token refresh failed")
 )
 
-// IsErrorType checks if an error matches a target error using errors.Is.
+// IsErrorType 使用 errors.Is 检查 error 是否与目标错误匹配。
 func IsErrorType(err, target error) bool {
 	return errors.Is(err, target)
 }
 
-// RecoverError converts a panic to an error.
-// This function is typically used in defer statements to recover from panics
-// and convert them into proper error values.
+// RecoverError 将 panic 转换为 error。
+// 通常在 defer 语句中使用，用于捕获 panic 并将其转换为合适的错误值。
 //
-// Example:
+// 示例：
 //
 //	defer func() {
 //	    if err := RecoverError(); err != nil {
@@ -116,17 +115,17 @@ func RecoverError() error {
 	return nil
 }
 
-// NewValidationError creates a validation error for a specific field.
+// NewValidationError 创建特定字段的验证错误。
 func NewValidationError(field, reason string) error {
 	return fmt.Errorf("validation failed for field '%s': %s", field, reason)
 }
 
-// NewConfigError creates a configuration error for a specific key.
+// NewConfigError 创建特定键的配置错误。
 func NewConfigError(key, reason string) error {
 	return fmt.Errorf("config key '%s': %s: %w", key, reason, ErrConfigInvalid)
 }
 
-// NewPluginError creates a plugin-specific error.
+// NewPluginError 创建插件专属错误。
 func NewPluginError(pluginName, message string) error {
 	return fmt.Errorf("plugin '%s': %s", pluginName, message)
 }

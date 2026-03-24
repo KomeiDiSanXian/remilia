@@ -1,76 +1,71 @@
-// Package atomic provides type-safe wrappers around sync/atomic primitives.
+// Package atomic 提供对 sync/atomic 原语的类型安全封装。
 package atomic
 
 import "sync/atomic"
 
-// Value is a type-safe wrapper around atomic.Value that eliminates the need
-// for type assertions at every Load() call.
+// Value 是对 atomic.Value 的类型安全泛型封装，无需在每次 Load() 调用时进行类型断言。
 //
-// Unlike sync/atomic.Value which accepts any type and requires runtime type assertions,
-// this generic wrapper provides compile-time type safety.
+// 与 sync/atomic.Value 接受任意类型并要求运行时类型断言不同，
+// 此泛型封装在编译期提供类型安全保证。
 //
-// Example:
+// 示例：
 //
 //	type Config struct {
 //	    Name string
 //	    Port int
 //	}
 //
-//	// Type-safe atomic value
+//	// 类型安全的原子值
 //	v := atomic.NewValue(&Config{Name: "app", Port: 8080})
 //
-//	// Load without type assertion
-//	cfg := v.Load()  // Returns *Config directly
+//	// 无需类型断言的 Load
+//	cfg := v.Load()  // 直接返回 *Config
 //
-//	// Store with compile-time type checking
+//	// 带编译期类型检查的 Store
 //	v.Store(&Config{Name: "new-app", Port: 9090})
 //
-// Performance:
-//   - Eliminates type assertion overhead (~5-10ns per operation)
-//   - Zero allocation on Load() operations
-//   - Same memory footprint as sync/atomic.Value
+// 性能：
+//   - 消除类型断言开销（每次操作约 5-10ns）
+//   - Load() 零分配
+//   - 内存占用与 sync/atomic.Value 相同
 type Value[T any] struct {
 	v atomic.Value
 }
 
-// NewValue creates a new type-safe atomic value initialized with the given value.
+// NewValue 创建一个以给定初始值初始化的类型安全原子值。
 //
-// The initial value must be provided to ensure the atomic.Value is properly initialized
-// with the correct type.
+// 必须提供初始值，以确保 atomic.Value 以正确的类型初始化。
 func NewValue[T any](initial T) *Value[T] {
 	av := &Value[T]{}
 	av.v.Store(initial)
 	return av
 }
 
-// Load returns the current value.
+// Load 返回当前值。
 //
-// This method provides type-safe access without requiring type assertions.
-// The returned value is guaranteed to be of type T at compile time.
+// 此方法提供类型安全访问，无需类型断言。
+// 返回值在编译期即保证为类型 T。
 func (av *Value[T]) Load() T {
 	return av.v.Load().(T)
 }
 
-// Store updates the value atomically.
+// Store 原子性地更新值。
 //
-// The compiler ensures that only values of type T can be stored,
-// preventing runtime type panics.
+// 编译器确保只有类型 T 的值可以被存储，防止运行时类型 panic。
 func (av *Value[T]) Store(val T) {
 	av.v.Store(val)
 }
 
-// Swap stores the new value and returns the old value atomically.
+// Swap 原子性地存储新值并返回旧值。
 //
-// This is a convenient way to update the value and retrieve the previous
-// value in a single atomic operation.
+// 在单次原子操作中更新值并获取前值的便捷方式。
 func (av *Value[T]) Swap(new T) (old T) {
 	return av.v.Swap(new).(T)
 }
 
-// CompareAndSwap executes the compare-and-swap operation for the value.
+// CompareAndSwap 对值执行比较并交换操作。
 //
-// Returns true if the swap was performed, false otherwise.
-// The swap is performed only if the current value equals the old value.
+// 仅当当前值等于 old 时执行交换，成功返回 true，否则返回 false。
 func (av *Value[T]) CompareAndSwap(old, new T) (swapped bool) {
 	return av.v.CompareAndSwap(old, new)
 }

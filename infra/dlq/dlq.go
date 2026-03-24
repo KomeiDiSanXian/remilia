@@ -10,7 +10,7 @@ import (
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 )
 
-// Error definitions
+// 预定义错误
 var (
 	ErrQueueClosed       = errors.New("queue is closed")
 	ErrQueueFull         = errors.New("queue is full")
@@ -18,16 +18,16 @@ var (
 	ErrCloseTimeout      = errors.New("close operation timed out")
 )
 
-// DropPolicy defines the behavior when the queue is full.
+// DropPolicy 定义队列满时的丢弃策略。
 type DropPolicy int
 
 const (
-	DropPolicyOldest          DropPolicy = iota // Drop the oldest item when full
-	DropPolicyNewest                            // Drop the new item when full
-	DropPolicyBlockUntilSpace                   // Block until space is available
+	DropPolicyOldest          DropPolicy = iota // 队列满时丢弃最旧的条目
+	DropPolicyNewest                            // 队列满时丢弃最新的条目
+	DropPolicyBlockUntilSpace                   // 阻塞直到有可用空间
 )
 
-// Stats holds current queue statistics.
+// Stats 保存当前队列统计信息。
 type Stats struct {
 	QueueSize  int
 	MaxSize    int
@@ -39,13 +39,13 @@ type Stats struct {
 	DropPolicy DropPolicy
 }
 
-// Item represents a generic dead letter entry.
+// Item 表示一个泛型死信条目。
 //
-// This is a type-safe version of DeadLetterItem that works with any data type.
+// 这是 DeadLetterItem 的类型安全版本，可与任意数据类型配合使用。
 //
-// Example:
+// 示例：
 //
-//	// For HTTP requests
+//	// 用于 HTTP 请求
 //	type FailedRequest struct {
 //	    URL     string
 //	    Body    []byte
@@ -58,36 +58,35 @@ type Stats struct {
 //	    Source:  "http-client",
 //	}
 type Item[T any] struct {
-	Data    T      // The failed data
-	Err     error  // The error that caused the failure
-	Attempt int    // Number of retry attempts
-	Source  string // Source identifier
+	Data    T      // 失败的数据
+	Err     error  // 导致失败的错误
+	Attempt int    // 重试次数
+	Source  string // 来源标识符
 }
 
-// Consumer consumes dead letter items of type T.
+// Consumer 消费类型为 T 的死信条目。
 //
-// Implementations should be thread-safe as they may be called
-// concurrently by multiple workers.
+// 实现应线程安全，因为可能被多个 worker 并发调用。
 type Consumer[T any] interface {
 	Consume(item Item[T])
 }
 
-// Config configures a generic dead letter queue.
+// Config 配置泛型死信队列。
 type Config[T any] struct {
-	MaxSize     int                                        // Maximum queue size
-	Workers     int                                        // Number of consumer workers
-	DropPolicy  DropPolicy                                 // Policy when queue is full
-	OnDropped   func(item Item[T], reason string)          // Callback when item is dropped
-	OnProcessed func(item Item[T], duration time.Duration) // Callback when item is processed
+	MaxSize     int                                        // 最大队列容量
+	Workers     int                                        // 消费者 worker 数量
+	DropPolicy  DropPolicy                                 // 队列满时的丢弃策略
+	OnDropped   func(item Item[T], reason string)          // 条目被丢弃时的回调
+	OnProcessed func(item Item[T], duration time.Duration) // 条目被处理时的回调
 }
 
-// Queue is a generic dead letter queue that can handle any data type.
+// Queue 是可处理任意数据类型的泛型死信队列。
 //
-// It provides the same functionality as DeadLetterQueue but with type safety.
+// 功能与 DeadLetterQueue 相同，但具有类型安全性。
 //
-// Example:
+// 示例：
 //
-//	// Create a DLQ for failed HTTP requests
+//	// 为失败的 HTTP 请求创建 DLQ
 //	type FailedRequest struct {
 //	    URL  string
 //	    Body []byte

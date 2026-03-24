@@ -22,7 +22,7 @@ type InstrumentedPool struct {
 	gets    atomic.Uint64
 	puts    atomic.Uint64
 	news    atomic.Uint64
-	resetMu sync.Mutex // Protect Reset operation for atomicity
+	resetMu sync.Mutex // 保护 Reset 操作的原子性
 }
 
 func NewInstrumentedPool(newFunc func() any) *InstrumentedPool {

@@ -24,9 +24,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// extensionState is the user-facing string-keyed extension container.
+// extensionState 是面向用户的字符串键扩展容器。
 //
-// It is intentionally unexported. Access is via ctx.Set/ctx.Get/ctx.All.
+// 刻意设为非导出类型，通过 ctx.Set/ctx.Get/ctx.All 访问。
 type extensionState struct {
 	mu sync.RWMutex
 	m  map[string]any
@@ -58,9 +58,9 @@ type Context struct {
 	extMu          sync.Mutex
 	extensions     *Extensions
 
-	// --- hot-path field caches（通用）---
+	// --- 热路径字段缓存（通用）---
 	contentOnce sync.Once
-	content     string // cached GetMessageContent result
+	content     string // GetMessageContent 的缓存结果
 }
 
 // SetMatcher 设置当前命中的 Matcher（框架内部，由 Engine 在 processEventContext 中注入）
@@ -160,7 +160,7 @@ func (ctx *Context) Clone() *Context {
 	return newCtx
 }
 
-// Ext returns the typed-key extensions store.
+// Ext 返回类型键扩展存储。
 func (ctx *Context) Ext() *Extensions {
 	if ctx == nil {
 		return nil

@@ -6,9 +6,9 @@ import (
 	"sync"
 )
 
-// Extensions is a typed-key extension store.
+// Extensions 是类型键扩展存储。
 //
-// It is a concurrency-safe container mapping `reflect.Type` -> `any`.
+// 这是一个并发安全的容器，映射 `reflect.Type` -> `any`。
 //
 // # 两套状态 API 使用指南
 //
@@ -47,7 +47,7 @@ func newExtensions() *Extensions {
 	return &Extensions{m: make(map[reflect.Type]any)}
 }
 
-// Get returns the extension value by its type.
+// Get 根据类型返回扩展值。
 func (e *Extensions) Get(t reflect.Type) (any, bool) {
 	if e == nil {
 		return nil, false
@@ -58,7 +58,7 @@ func (e *Extensions) Get(t reflect.Type) (any, bool) {
 	return v, ok
 }
 
-// Set sets the extension value by its type.
+// Set 根据类型设置扩展值。
 func (e *Extensions) Set(t reflect.Type, v any) {
 	if e == nil {
 		return
@@ -68,13 +68,13 @@ func (e *Extensions) Set(t reflect.Type, v any) {
 	e.mu.Unlock()
 }
 
-// GetOrInit returns the extension value by type, or initializes and stores it.
+// GetOrInit 根据类型返回扩展值，若不存在则初始化并存储。
 func (e *Extensions) GetOrInit(t reflect.Type, init func() any) any {
 	if e == nil {
 		return nil
 	}
 
-	// Fast path: read lock
+	// 快速路径：读锁
 	e.mu.RLock()
 	v, ok := e.m[t]
 	e.mu.RUnlock()
@@ -82,7 +82,7 @@ func (e *Extensions) GetOrInit(t reflect.Type, init func() any) any {
 		return v
 	}
 
-	// Slow path: write lock
+	// 慢速路径：写锁
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if v, ok := e.m[t]; ok {
@@ -93,7 +93,7 @@ func (e *Extensions) GetOrInit(t reflect.Type, init func() any) any {
 	return nv
 }
 
-// Snapshot returns a shallow copy of the current extension map.
+// Snapshot 返回当前扩展映射的浅拷贝。
 func (e *Extensions) Snapshot() map[reflect.Type]any {
 	if e == nil {
 		return nil
@@ -105,28 +105,28 @@ func (e *Extensions) Snapshot() map[reflect.Type]any {
 	return out
 }
 
-// Clear removes all extensions from the container.
-// This is used for cleaning up contexts before returning them to the pool.
+// Clear 从容器中移除所有扩展值。
+// 在将 context 归还对象池前用于清理。
 func (e *Extensions) Clear() {
 	if e == nil {
 		return
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	// Clear the map
+	// 清空 map
 	for k := range e.m {
 		delete(e.m, k)
 	}
 }
 
-// --- Generic helpers (package-level) ---
+// --- 泛型辅助函数（包级别）---
 
-// extTypeOf returns the reflect.Type key for T.
+// extTypeOf 返回 T 对应的 reflect.Type 键。
 func extTypeOf[T any]() reflect.Type {
 	return reflect.TypeFor[T]()
 }
 
-// ExtGet reads a typed extension value.
+// ExtGet 读取指定类型的扩展值。
 func ExtGet[T any](e *Extensions) (T, bool) {
 	var zero T
 	if e == nil {
@@ -143,7 +143,7 @@ func ExtGet[T any](e *Extensions) (T, bool) {
 	return tv, true
 }
 
-// ExtSet stores a typed extension value.
+// ExtSet 存储指定类型的扩展值。
 func ExtSet[T any](e *Extensions, v T) {
 	if e == nil {
 		return
@@ -151,7 +151,7 @@ func ExtSet[T any](e *Extensions, v T) {
 	e.Set(extTypeOf[T](), v)
 }
 
-// ExtGetOrInit returns a typed extension value or initializes it once.
+// ExtGetOrInit 返回指定类型的扩展值，若不存在则初始化一次。
 func ExtGetOrInit[T any](e *Extensions, init func() T) T {
 	var zero T
 	if e == nil {

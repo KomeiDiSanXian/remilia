@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Status represents overall health.
+// Status 表示整体健康状态。
 type Status string
 
 const (
@@ -65,13 +65,13 @@ func LevelToStatus(level Level) Status {
 	}
 }
 
-// Checker defines a single health check unit.
+// Checker 定义单个健康检查单元。
 type Checker interface {
 	Name() string
 	Check(ctx context.Context) CheckResult
 }
 
-// CheckResult is a single checker result.
+// CheckResult 是单个检查器的结果。
 type CheckResult struct {
 	Status   Status         `json:"status"`
 	Error    string         `json:"error,omitempty"`
@@ -79,11 +79,11 @@ type CheckResult struct {
 	Duration time.Duration  `json:"duration_ms"`
 }
 
-// Check manages multiple checkers and provides HTTP handlers.
+// Check 管理多个检查器并提供 HTTP 处理器。
 type Check struct {
 	checkers map[string]Checker
 	mu       sync.RWMutex
-	// timeout is applied to each checker.
+	// timeout 应用于每个检查器。
 	timeout time.Duration
 
 	// 结果缓存，避免高频调用时对所有 checker 并发执行

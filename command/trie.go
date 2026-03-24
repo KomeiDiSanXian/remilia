@@ -5,20 +5,20 @@ import (
 	"sync"
 )
 
-// TrieNode represents a node in the prefix tree
+// TrieNode 表示前缀树中的一个节点
 type TrieNode struct {
 	children map[rune]*TrieNode
 	commands []*Meta
 	isEnd    bool
 }
 
-// Trie is a prefix tree for efficient command lookup and completion
+// Trie 是一棵前缀树，用于高效的命令查找和补全
 type Trie struct {
 	root *TrieNode
 	mu   sync.RWMutex
 }
 
-// NewTrie creates a new Trie
+// NewTrie 创建一棵新的前缀树
 func NewTrie() *Trie {
 	return &Trie{
 		root: &TrieNode{
@@ -28,7 +28,7 @@ func NewTrie() *Trie {
 	}
 }
 
-// Insert adds a command to the trie
+// Insert 向前缀树中插入一个命令
 func (t *Trie) Insert(name string, meta *Meta) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -44,54 +44,54 @@ func (t *Trie) Insert(name string, meta *Meta) {
 			}
 		}
 		node = node.children[r]
-		// Add command to every prefix node for efficient prefix search
+		// 将命令加入每个前缀节点，以支持高效的前缀搜索
 		node.commands = append(node.commands, meta)
 	}
 
-	node.isEnd = true // Mark this as a complete command
+	node.isEnd = true // 标记为完整命令
 }
 
-// Remove removes a command from the trie
+// Remove 从前缀树中删除一个命令
 func (t *Trie) Remove(name string, meta *Meta) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	node := t.root
 	runes := []rune(name)
-	// path[0] = root, path[1] = first-char node, ..., path[n] = last-char node
+	// path[0] = root, path[1] = 第一个字符节点, ..., path[n] = 最后一个字符节点
 	path := make([]*TrieNode, 0, len(runes)+1)
 	path = append(path, node)
 
-	// Navigate to the end node and collect path
+	// 导航到末尾节点并收集路径
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return // Not found
+			return // 未找到
 		}
 		node = node.children[r]
 		path = append(path, node)
 	}
 
-	// Remove command from all nodes in the path (excluding root)
+	// 从路径中所有节点（不含 root）移除该命令
 	for _, n := range path[1:] {
 		n.commands = removeCommandFromSlice(n.commands, meta)
 	}
 
 	node.isEnd = false
 
-	// Prune empty nodes from leaf to root to prevent memory leaks.
-	// A node is prunable when it has no commands, no children, and is not an end node.
+	// 从叶节点向根节点修剪空节点，防止内存泄漏。
+	// 当节点无命令、无子节点且非末尾节点时，可被修剪。
 	for i := len(path) - 1; i > 0; i-- {
 		n := path[i]
 		if !n.isEnd && len(n.children) == 0 && len(n.commands) == 0 {
 			parent := path[i-1]
 			delete(parent.children, runes[i-1])
 		} else {
-			break // stop as soon as we find a non-empty node
+			break // 遇到非空节点即停止
 		}
 	}
 }
 
-// Search finds all commands with the given prefix
+// Search 查找所有具有给定前缀的命令
 func (t *Trie) Search(prefix string) []*Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -101,12 +101,12 @@ func (t *Trie) Search(prefix string) []*Meta {
 
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return nil // No match
+			return nil // 无匹配
 		}
 		node = node.children[r]
 	}
 
-	// Return commands at this prefix node
+	// 返回该前缀节点的命令列表
 	if len(node.commands) == 0 {
 		return nil
 	}
@@ -116,9 +116,9 @@ func (t *Trie) Search(prefix string) []*Meta {
 	return result
 }
 
-// ExactMatch finds a command by exact name match
-// Returns the command metadata if found, nil otherwise
-// Time complexity: O(m) where m is the length of the command name
+// ExactMatch 通过精确名称匹配查找命令
+// 找到则返回命令元数据，否则返回 nil
+// 时间复杂度：O(m)，m 为命令名称长度
 func (t *Trie) ExactMatch(name string) *Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -126,21 +126,21 @@ func (t *Trie) ExactMatch(name string) *Meta {
 	node := t.root
 	runes := []rune(name)
 
-	// Navigate to the end of the command name
+	// 导航至命令名称末尾
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return nil // No match
+			return nil // 无匹配
 		}
 		node = node.children[r]
 	}
 
-	// Check if this is a complete command (not just a prefix)
+	// 检查是否为完整命令（而非仅仅是前缀）
 	if !node.isEnd || len(node.commands) == 0 {
 		return nil
 	}
 
-	// Return the first command (should only be one for exact match)
-	// The commands slice at an end node should contain the command itself
+	// 返回第一个命令（精确匹配应只有一个）
+	// 末尾节点的 commands 切片应包含该命令本身
 	for _, cmd := range node.commands {
 		if cmd.Name == name {
 			return cmd
@@ -150,7 +150,7 @@ func (t *Trie) ExactMatch(name string) *Meta {
 	return nil
 }
 
-// Clear removes all commands from the trie
+// Clear 清空前缀树中的所有命令
 func (t *Trie) Clear() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -161,7 +161,7 @@ func (t *Trie) Clear() {
 	}
 }
 
-// GetStats returns statistics about the trie
+// GetStats 返回前缀树的统计信息
 func (t *Trie) GetStats() TrieStats {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -171,7 +171,7 @@ func (t *Trie) GetStats() TrieStats {
 	return stats
 }
 
-// TrieStats contains statistics about the trie
+// TrieStats 包含前缀树的统计信息
 type TrieStats struct {
 	NodeCount  int
 	MaxDepth   int
@@ -195,7 +195,7 @@ func (t *Trie) collectStats(node *TrieNode, depth int, stats *TrieStats) {
 	}
 }
 
-// removeCommandFromSlice removes a command from a slice
+// removeCommandFromSlice 从切片中移除指定命令
 func removeCommandFromSlice(slice []*Meta, meta *Meta) []*Meta {
 	result := make([]*Meta, 0, len(slice))
 	for _, cmd := range slice {
@@ -206,7 +206,7 @@ func removeCommandFromSlice(slice []*Meta, meta *Meta) []*Meta {
 	return result
 }
 
-// GetAllCommands returns all commands in the trie (sorted by priority)
+// GetAllCommands 返回前缀树中的所有命令（按优先级排序）
 func (t *Trie) GetAllCommands() []*Meta {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -216,7 +216,7 @@ func (t *Trie) GetAllCommands() []*Meta {
 
 	t.collectAllCommands(t.root, seen, &result)
 
-	// Sort by priority
+	// 按优先级排序
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Priority > result[j].Priority
 	})
@@ -229,7 +229,7 @@ func (t *Trie) collectAllCommands(node *TrieNode, seen map[*Meta]bool, result *[
 		return
 	}
 
-	// Add commands from this node
+	// 从当前节点收集命令
 	for _, cmd := range node.commands {
 		if !seen[cmd] && node.isEnd {
 			seen[cmd] = true
@@ -237,7 +237,7 @@ func (t *Trie) collectAllCommands(node *TrieNode, seen map[*Meta]bool, result *[
 		}
 	}
 
-	// Recursively collect from children
+	// 递归收集子节点的命令
 	for _, child := range node.children {
 		t.collectAllCommands(child, seen, result)
 	}

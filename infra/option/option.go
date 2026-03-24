@@ -1,13 +1,12 @@
-// Package option provides generic option pattern utilities.
+// Package option 提供通用的选项模式工具函数。
 //
-// The option pattern is a common Go idiom for configuring structs
-// with optional parameters. This package provides generic helpers
-// to make option patterns more reusable.
+// 选项模式是 Go 中常见的惯用法，用于通过可选参数配置结构体。
+// 本包提供泛型辅助函数，使选项模式更具复用性。
 package option
 
-// Option is a generic option function that modifies a configuration.
+// Option 是用于修改配置的泛型选项函数。
 //
-// Example:
+// 示例：
 //
 //	type Config struct {
 //	    Name    string
@@ -26,11 +25,11 @@ package option
 //	option.Apply(cfg, WithName("test"), WithTimeout(time.Second))
 type Option[T any] func(*T)
 
-// Apply applies all options to the target in order.
+// Apply 按顺序将所有选项应用到目标对象。
 //
-// This is the recommended way to apply options to a configuration struct.
+// 这是将选项应用到配置结构体的推荐方式。
 //
-// Example:
+// 示例：
 //
 //	cfg := &Config{Name: "default"}
 //	option.Apply(cfg,
@@ -45,9 +44,9 @@ func Apply[T any](target *T, options ...Option[T]) {
 	}
 }
 
-// ApplyNew creates a new instance and applies options to it.
+// ApplyNew 创建新实例并将选项应用到该实例。
 //
-// Example:
+// 示例：
 //
 //	cfg := option.ApplyNew(Config{Name: "default"},
 //	    WithName("custom"),
@@ -58,17 +57,17 @@ func ApplyNew[T any](initial T, options ...Option[T]) T {
 	return initial
 }
 
-// Conditional returns the option only if the condition is true.
+// Conditional 仅在条件为 true 时返回该选项。
 //
-// This is useful for conditionally applying options based on runtime conditions.
+// 适用于根据运行时条件有条件地应用选项。
 //
-// Example:
+// 示例：
 //
 //	cfg := &Config{}
 //	option.Apply(cfg,
 //	    WithName("app"),
-//	    option.Conditional(debugMode, WithTimeout(time.Hour)), // Only if debugMode
-//	    option.Conditional(!production, WithVerbose(true)),    // Only if not production
+//	    option.Conditional(debugMode, WithTimeout(time.Hour)), // 仅当 debugMode 为 true
+//	    option.Conditional(!production, WithVerbose(true)),    // 仅当非生产环境
 //	)
 func Conditional[T any](condition bool, opt Option[T]) Option[T] {
 	if condition {
@@ -77,20 +76,20 @@ func Conditional[T any](condition bool, opt Option[T]) Option[T] {
 	return func(*T) {} // No-op
 }
 
-// Compose combines multiple options into a single option.
+// Compose 将多个选项合并为单个选项。
 //
-// This is useful for creating reusable option sets.
+// 适用于创建可复用的选项集合。
 //
-// Example:
+// 示例：
 //
-//	// Define a set of production options
+//	// 定义一组生产环境选项
 //	productionOpts := option.Compose(
 //	    WithTimeout(30 * time.Second),
 //	    WithRetries(3),
 //	    WithLogging(false),
 //	)
 //
-//	// Use the composed option
+//	// 使用合并后的选项
 //	cfg := &Config{}
 //	option.Apply(cfg, productionOpts)
 func Compose[T any](options ...Option[T]) Option[T] {
@@ -99,9 +98,9 @@ func Compose[T any](options ...Option[T]) Option[T] {
 	}
 }
 
-// With creates a simple option that sets a value using a setter function.
+// With 使用 setter 函数创建一个简单的值设置选项。
 //
-// Example:
+// 示例：
 //
 //	WithName := option.With(func(c *Config, name string) {
 //	    c.Name = name
@@ -117,15 +116,15 @@ func With[T any, V any](setter func(*T, V)) func(V) Option[T] {
 	}
 }
 
-// WithDefault creates an option that only sets the value if the current value is zero.
+// WithDefault 创建一个仅在当前值为零值时才设置的选项。
 //
-// Example:
+// 示例：
 //
 //	cfg := &Config{Name: "existing"}
 //	option.Apply(cfg,
 //	    option.WithDefault(func(c *Config) *string { return &c.Name }, "default"),
 //	)
-//	// cfg.Name is still "existing" because it was not zero
+//	// cfg.Name 仍为 "existing"，因为它不是零值
 func WithDefault[T any, V comparable](getter func(*T) *V, value V) Option[T] {
 	return func(t *T) {
 		field := getter(t)
@@ -136,24 +135,23 @@ func WithDefault[T any, V comparable](getter func(*T) *V, value V) Option[T] {
 	}
 }
 
-// Chain returns an option that applies multiple options in sequence.
+// Chain 按顺序依次应用多个选项，返回合并后的单个选项。
 //
-// This is an alias for Compose, provided for clarity in certain contexts.
+// 这是 Compose 的别名，在某些场景下更具可读性。
 func Chain[T any](options ...Option[T]) Option[T] {
 	return Compose(options...)
 }
 
-// NoOp returns an option that does nothing.
+// NoOp 返回一个什么都不做的选项。
 //
-// This is useful as a placeholder or in conditional logic.
+// 适用于作为占位符或在条件逻辑中使用。
 func NoOp[T any]() Option[T] {
 	return func(*T) {}
 }
 
-// When returns opt if condition is true, otherwise returns NoOp.
+// When 若条件为 true 则返回 opt，否则返回 NoOp。
 //
-// This is a convenience function that's equivalent to Conditional
-// but can be more readable in some contexts.
+// 这是 Conditional 的便捷函数，在某些场景下可读性更好。
 func When[T any](condition bool, opt Option[T]) Option[T] {
 	if condition {
 		return opt
@@ -161,9 +159,9 @@ func When[T any](condition bool, opt Option[T]) Option[T] {
 	return NoOp[T]()
 }
 
-// Unless returns opt if condition is false, otherwise returns NoOp.
+// Unless 若条件为 false 则返回 opt，否则返回 NoOp。
 //
-// Example:
+// 示例：
 //
 //	option.Apply(cfg,
 //	    option.Unless(production, WithDebug(true)),
@@ -172,11 +170,11 @@ func Unless[T any](condition bool, opt Option[T]) Option[T] {
 	return When(!condition, opt)
 }
 
-// MapOption transforms an option from one type to another.
+// MapOption 将一种类型的选项转换为另一种类型的选项。
 //
-// This is useful when you have options for a nested struct.
+// 适用于为嵌套结构体提供选项。
 //
-// Example:
+// 示例：
 //
 //	type ServerConfig struct {
 //	    HTTP HTTPConfig
@@ -190,7 +188,7 @@ func Unless[T any](condition bool, opt Option[T]) Option[T] {
 //	    return func(c *HTTPConfig) { c.Port = port }
 //	}
 //
-//	// Map HTTPConfig option to ServerConfig option
+//	// 将 HTTPConfig 选项映射为 ServerConfig 选项
 //	serverOpt := option.MapOption(
 //	    func(s *ServerConfig) *HTTPConfig { return &s.HTTP },
 //	    WithHTTPPort(8080),

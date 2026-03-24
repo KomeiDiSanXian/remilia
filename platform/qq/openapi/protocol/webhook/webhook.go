@@ -16,25 +16,25 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
-// Webhook represents a webhook
+// Webhook 表示一个 Webhook 连接接口
 type Webhook interface {
-	Verify(header http.Header, body []byte) (bool, error) // Verify verifies the signature of the request
-	Sign(header http.Header, body []byte) ([]byte, error) // Sign signs the request
-	Handle(w http.ResponseWriter, r *http.Request)        // Handle handles the webhook request
-	Addr() string                                         // Addr returns the address of the webhook server
-	EventStream() <-chan *dto.Payload                     // EventStream returns a channel that emits events from the webhook server
+	Verify(header http.Header, body []byte) (bool, error) // Verify 验证请求签名
+	Sign(header http.Header, body []byte) ([]byte, error) // Sign 对请求进行签名
+	Handle(w http.ResponseWriter, r *http.Request)        // Handle 处理 Webhook 请求
+	Addr() string                                         // Addr 返回 Webhook 服务器地址
+	EventStream() <-chan *dto.Payload                     // EventStream 返回接收 Webhook 事件的 channel
 }
 
-// Conn represents a connection to a webhook server.
+// Conn 表示与 Webhook 服务器的连接。
 type Conn struct {
 	info          *dto.BotInfo
 	mu            sync.Mutex
 	eventChan     chan *dto.Payload
-	droppedEvents atomic.Uint64 // Counter for dropped events
-	totalEvents   atomic.Uint64 // Counter for total events received
+	droppedEvents atomic.Uint64 // 丢弃事件计数器
+	totalEvents   atomic.Uint64 // 总接收事件计数器
 }
 
-// Stats contains statistics about webhook event processing
+// Stats 包含 Webhook 事件处理的统计信息
 type Stats struct {
 	TotalEvents   uint64  // 总接收事件数
 	DroppedEvents uint64  // 丢弃的事件数
@@ -43,7 +43,7 @@ type Stats struct {
 	ChannelCap    int     // channel容量
 }
 
-// GetStats returns current webhook statistics
+// GetStats 返回当前 Webhook 统计信息
 func (c *Conn) GetStats() Stats {
 	total := c.totalEvents.Load()
 	dropped := c.droppedEvents.Load()

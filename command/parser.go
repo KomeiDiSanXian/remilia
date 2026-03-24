@@ -59,24 +59,24 @@ func ParseCommandLine(input string) (*Args, error) {
 	for i := 0; i < len(tokens); {
 		token := tokens[i]
 
-		// Handle long flags (--key or --key=value)
+		// 处理长标志（--key 或 --key=value）
 		if after, ok := strings.CutPrefix(token, "--"); ok {
 			key := after
 			if key == "" {
 				return nil, fmt.Errorf("invalid flag: %s", token)
 			}
 
-			// Check for --key=value format
+			// 检查 --key=value 格式
 			if eqIdx := strings.Index(key, "="); eqIdx > 0 {
 				args.Flags[key[:eqIdx]] = key[eqIdx+1:]
 				i++
 				continue
 			}
 
-			// Check if next token is a value (not another flag)
+			// 检查下一个 token 是否为值（而非另一个标志）
 			if i+1 < len(tokens) && !strings.HasPrefix(tokens[i+1], "--") && !isShortFlag(tokens[i+1]) {
-				// Accept next token as value
-				// This allows negative numbers like --days -1
+				// 接受下一个 token 作为值
+				// 允许负数，如 --days -1
 				args.Flags[key] = tokens[i+1]
 				i += 2
 			} else {
@@ -86,12 +86,12 @@ func ParseCommandLine(input string) (*Args, error) {
 			continue
 		}
 
-		// Handle short flags (-k or -k value)
+		// 处理短标志（-k 或 -k value）
 		if strings.HasPrefix(token, "-") && len(token) == 2 {
 			key := strings.TrimPrefix(token, "-")
-			// Check if next token exists and is not another flag
+			// 检查下一个 token 是否存在且不是另一个标志
 			if i+1 < len(tokens) && !strings.HasPrefix(tokens[i+1], "--") && !isShortFlag(tokens[i+1]) {
-				// Accept next token as value
+				// 接受下一个 token 作为值
 				args.Flags[key] = tokens[i+1]
 				i += 2
 			} else {
@@ -109,8 +109,8 @@ func ParseCommandLine(input string) (*Args, error) {
 	return args, nil
 }
 
-// isShortFlag checks if a token looks like a short flag (-x where x is a letter)
-// Returns false for negative numbers like -1, -42, -3.14
+// isShortFlag 检查 token 是否看起来像短标志（-x，x 为字母）
+// 对于负数（如 -1、-42、-3.14）返回 false
 func isShortFlag(token string) bool {
 	if !strings.HasPrefix(token, "-") {
 		return false
@@ -118,7 +118,7 @@ func isShortFlag(token string) bool {
 	if len(token) != 2 {
 		return false
 	}
-	// Check if the character after '-' is a letter (not a digit)
+	// 检查 '-' 后的字符是否为字母（而非数字）
 	char := token[1]
 	return (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')
 }
@@ -295,7 +295,7 @@ func ParseInt(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
-// Len returns argument count.
+// Len 返回位置参数数量
 func (args *Args) Len() int { return len(args.Positional) }
 
 func (args *Args) String() string { return args.Raw }

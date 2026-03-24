@@ -2,72 +2,72 @@ package textimage
 
 import "image/color"
 
-// Alignment specifies the horizontal text alignment within the image.
+// Alignment 指定图片内文本的水平对齐方式。
 type Alignment int
 
 const (
-	AlignLeft   Alignment = iota // default
-	AlignCenter                  // centered horizontally
-	AlignRight                   // flush right
+	AlignLeft   Alignment = iota // 默认：左对齐
+	AlignCenter                  // 水平居中
+	AlignRight                   // 右对齐
 )
 
-// Options holds all configuration for a [Renderer].
-// Use the With* functional-option helpers when calling [New].
+// Options 保存 [Renderer] 的全部配置。
+// 调用 [New] 时请使用 With* 函数式选项进行设置。
 type Options struct {
-	// Width of the output image in pixels.
-	// 0 (default) means auto-fit to content width.
+	// Width 是输出图片的像素宽度。
+	// 0（默认）表示自动适应内容宽度。
 	Width int
 
-	// Height of the output image in pixels.
-	// 0 (default) means auto-fit to content height.
+	// Height 是输出图片的像素高度。
+	// 0（默认）表示自动适应内容高度。
 	Height int
 
-	// FontSize is the font size in points. Default: 16.
+	// FontSize 是字体大小，单位为磅（pt）。默认：16。
 	FontSize float64
 
-	// DPI for font rendering. Default: 72.
+	// DPI 是字体光栅化时使用的 DPI。默认：72。
 	DPI float64
 
-	// FontPath is a filesystem path to a TrueType/OpenType font file (.ttf / .otf).
-	// Takes precedence over FontData.
-	// If both FontPath and FontData are empty, the built-in Go Regular font is used.
+	// FontPath 是 TrueType/OpenType 字体文件（.ttf / .otf）的文件系统路径。
+	// 优先级高于 FontData。
+	// 若 FontPath 和 FontData 均为空，则使用内置的 Go Regular 字体。
 	FontPath string
 
-	// FontData contains the raw bytes of a TrueType/OpenType font.
-	// Used when FontPath is empty.
+	// FontData 包含 TrueType/OpenType 字体的原始字节。
+	// 当 FontPath 为空时使用。
 	FontData []byte
 
-	// FontColor is the color of rendered text. Default: black.
+	// FontColor 是渲染文本的颜色。默认：黑色。
 	FontColor color.Color
 
-	// BgColor is the background fill color of the image. Default: white.
+	// BgColor 是图片的背景填充颜色。默认：白色。
 	BgColor color.Color
 
-	// PaddingX is the left/right padding in pixels. Default: 10.
+	// PaddingX 是左右内边距，单位像素。默认：10。
 	PaddingX int
 
-	// PaddingY is the top/bottom padding in pixels. Default: 10.
+	// PaddingY 是上下内边距，单位像素。默认：10。
 	PaddingY int
 
-	// LineHeight is a multiplier applied to the natural line height. Default: 1.4.
+	// LineHeight 是应用于自然行高的倍数（例如 1.5 表示 150% 行距）。默认：1.4。
 	LineHeight float64
 
-	// MaxWidth is the maximum line width in pixels used for word wrapping.
-	// 0 (default) means Width − 2×PaddingX when Width > 0, otherwise no wrapping.
+	// MaxWidth 是自动换行时的最大行宽，单位像素。
+	// 0（默认）表示当 Width > 0 时取 Width − 2×PaddingX，否则不换行。
 	MaxWidth int
 
-	// Align controls horizontal text alignment. Default: AlignLeft.
+	// Align 控制水平文本对齐方式。默认：AlignLeft。
 	Align Alignment
 
-	// TTCIndex is the zero-based index of the font to use inside a TrueType
-	// Collection (.ttc / .otc) file. Default: 0 (Regular weight).
+	// TTCIndex 是 TrueType Collection（.ttc / .otc）文件中要使用的字体的
+	// 零起始索引。默认：0（大多数 CJK 字体包中的 Regular 字重）。
 	TTCIndex int
 }
 
-// Option is a functional option for configuring a [Renderer].
+// Option 是用于配置 [Renderer] 的函数式选项。
 type Option func(*Options)
 
-// defaultOptions returns sensible defaults.
+// defaultOptions 返回合理的默认值。
 func defaultOptions() Options {
 	return Options{
 		FontSize:   16,
@@ -81,8 +81,8 @@ func defaultOptions() Options {
 	}
 }
 
-// WithSize sets the output image dimensions.
-// Set either value to 0 to let the renderer auto-fit that dimension.
+// WithSize 设置输出图片的尺寸。
+// 将任一值设为 0 可让渲染器自动适应该维度。
 func WithSize(width, height int) Option {
 	return func(o *Options) {
 		o.Width = width
@@ -90,37 +90,37 @@ func WithSize(width, height int) Option {
 	}
 }
 
-// WithFontSize sets the font size in points.
+// WithFontSize 设置字体大小，单位为磅。
 func WithFontSize(size float64) Option {
 	return func(o *Options) { o.FontSize = size }
 }
 
-// WithDPI sets the DPI used when rasterising the font.
+// WithDPI 设置字体光栅化时使用的 DPI。
 func WithDPI(dpi float64) Option {
 	return func(o *Options) { o.DPI = dpi }
 }
 
-// WithFontPath sets the filesystem path to a TTF/OTF font file.
+// WithFontPath 设置 TTF/OTF 字体文件的文件系统路径。
 func WithFontPath(path string) Option {
 	return func(o *Options) { o.FontPath = path }
 }
 
-// WithFontData sets the raw bytes of a TTF/OTF font.
+// WithFontData 设置 TTF/OTF 字体的原始字节数据。
 func WithFontData(data []byte) Option {
 	return func(o *Options) { o.FontData = data }
 }
 
-// WithFontColor sets the text color.
+// WithFontColor 设置文本颜色。
 func WithFontColor(c color.Color) Option {
 	return func(o *Options) { o.FontColor = c }
 }
 
-// WithBgColor sets the background color.
+// WithBgColor 设置背景颜色。
 func WithBgColor(c color.Color) Option {
 	return func(o *Options) { o.BgColor = c }
 }
 
-// WithPadding sets the horizontal (x) and vertical (y) padding in pixels.
+// WithPadding 设置水平（x）和垂直（y）内边距，单位像素。
 func WithPadding(x, y int) Option {
 	return func(o *Options) {
 		o.PaddingX = x
@@ -128,34 +128,33 @@ func WithPadding(x, y int) Option {
 	}
 }
 
-// WithLineHeight sets the line-height multiplier (e.g. 1.5 for 150% spacing).
+// WithLineHeight 设置行高倍数（例如 1.5 表示 150% 行距）。
 func WithLineHeight(h float64) Option {
 	return func(o *Options) { o.LineHeight = h }
 }
 
-// WithMaxWidth sets the maximum line width in pixels for word wrapping.
+// WithMaxWidth 设置自动换行的最大行宽，单位像素。
 func WithMaxWidth(w int) Option {
 	return func(o *Options) { o.MaxWidth = w }
 }
 
-// WithAlign sets the horizontal alignment.
+// WithAlign 设置水平对齐方式。
 func WithAlign(a Alignment) Option {
 	return func(o *Options) { o.Align = a }
 }
 
-// WithTTCIndex selects which font to use inside a TrueType Collection file.
-// The default index 0 is the Regular weight in most CJK bundles.
+// WithTTCIndex 选择 TrueType Collection 文件中要使用的字体。
+// 默认索引 0 在大多数 CJK 字体包中对应 Regular 字重。
 func WithTTCIndex(i int) Option {
 	return func(o *Options) { o.TTCIndex = i }
 }
 
-// WithCJKFont is a convenience option that calls [SystemCJKFontPath] and sets
-// [WithFontPath] automatically.  It returns the no-op option if no suitable
-// system CJK font can be found, and the caller should set a font manually.
+// WithCJKFont 是一个便捷选项，会自动调用 [SystemCJKFontPath] 并设置 [WithFontPath]。
+// 若未找到合适的系统 CJK 字体，则返回无操作选项，调用方应手动指定字体。
 func WithCJKFont() Option {
 	path := SystemCJKFontPath()
 	if path == "" {
-		return func(*Options) {} // no-op
+		return func(*Options) {} // 无操作
 	}
 	return WithFontPath(path)
 }

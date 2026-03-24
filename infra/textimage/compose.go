@@ -12,62 +12,59 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
-// ─── Image placement options ──────────────────────────────────────────────────
+// ─── 图片放置选项 ───────────────────────────────────────────────────────────────
 
-// ImageOption configures how an image is placed on a [Canvas].
+// ImageOption 配置图片在 [Canvas] 上的放置方式。
 type ImageOption func(*imageOpts)
 
 type imageOpts struct {
-	width    int       // scale to exact width (0 = auto)
-	height   int       // scale to exact height (0 = auto)
-	maxWidth int       // clamp to max width (0 = canvas width − 2×paddingX)
-	align    Alignment // horizontal alignment; default AlignLeft
-	paddingX int       // horizontal padding from canvas edges (left/right align)
-	paddingY int       // vertical padding above and below the image
-	circle   bool      // clip image to a circle (avatar style)
-	roundR   int       // rounded-corner radius in pixels (ignored when circle=true)
+	width    int       // 缩放到精确宽度（0 = 自动）
+	height   int       // 缩放到精确高度（0 = 自动）
+	maxWidth int       // 限制最大宽度（0 = 画布宽度 − 2×paddingX）
+	align    Alignment // 水平对齐方式，默认 AlignLeft
+	paddingX int       // 距画布左右边缘的水平内边距
+	paddingY int       // 图片上下的垂直内边距
+	circle   bool      // 将图片裁剪为圆形（头像样式）
+	roundR   int       // 圆角半径（像素），circle=true 时忽略
 }
 
-// WithImgWidth scales the image to an exact pixel width (height is proportional
-// unless WithImgHeight is also set).
+// WithImgWidth 将图片缩放到精确的像素宽度（若未同时设置 WithImgHeight，则高度等比缩放）。
 func WithImgWidth(w int) ImageOption { return func(o *imageOpts) { o.width = w } }
 
-// WithImgHeight scales the image to an exact pixel height (width is proportional
-// unless WithImgWidth is also set).
+// WithImgHeight 将图片缩放到精确的像素高度（若未同时设置 WithImgWidth，则宽度等比缩放）。
 func WithImgHeight(h int) ImageOption { return func(o *imageOpts) { o.height = h } }
 
-// WithImgMaxWidth clamps the image to at most w pixels wide before scaling.
-// Overrides the default of canvas-width − 2×paddingX.
+// WithImgMaxWidth 在缩放前将图片限制为最多 w 像素宽。
+// 覆盖默认值（画布宽度 − 2×paddingX）。
 func WithImgMaxWidth(w int) ImageOption { return func(o *imageOpts) { o.maxWidth = w } }
 
-// WithImgAlign sets the horizontal alignment of the image within the canvas row.
+// WithImgAlign 设置图片在画布行中的水平对齐方式。
 func WithImgAlign(a Alignment) ImageOption { return func(o *imageOpts) { o.align = a } }
 
-// WithImgPadding sets the horizontal (x) and vertical (y) padding around the image.
+// WithImgPadding 设置图片周围的水平（x）和垂直（y）内边距。
 func WithImgPadding(x, y int) ImageOption {
 	return func(o *imageOpts) { o.paddingX = x; o.paddingY = y }
 }
 
-// WithImgCircle clips the image to a circle. Useful for bot avatars.
-// The circle is inscribed in the shorter image dimension.
+// WithImgCircle 将图片裁剪为圆形，适合机器人头像。
+// 圆形内切于图片较短的那一边。
 func WithImgCircle() ImageOption { return func(o *imageOpts) { o.circle = true } }
 
-// WithImgRoundRadius clips the image corners with the given radius in pixels.
-// Ignored when [WithImgCircle] is also set.
+// WithImgRoundRadius 以给定像素半径对图片进行圆角裁剪。
+// 当同时设置了 [WithImgCircle] 时，此选项被忽略。
 func WithImgRoundRadius(r int) ImageOption { return func(o *imageOpts) { o.roundR = r } }
 
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
-// canvasBlock is an element that knows its rendered height and can paint itself
-// onto a destination image at a given y-offset.
+// canvasBlock 是一个知道自身渲染高度并能在指定 y 偏移处绘制自身的元素。
 type canvasBlock interface {
 	blockHeight() int
 	drawAt(dst *image.RGBA, yOffset, canvasWidth int)
 }
 
-// Canvas builds a composite image by stacking content blocks vertically.
+// Canvas 通过垂直堆叠内容块来构建合成图片。
 //
-// Typical usage:
+// 典型用法：
 //
 //	c, _ := textimage.NewCanvas(640, textimage.WithCJKFont(), textimage.WithFontSize(18))
 //	_ = c.AddImage(avatarImg, textimage.WithImgCircle(), textimage.WithImgWidth(80), textimage.WithImgAlign(textimage.AlignCenter))
@@ -79,13 +76,13 @@ type Canvas struct {
 	width   int
 	bgColor color.Color
 	blocks  []canvasBlock
-	opts    Options // canvas-level text defaults
+	opts    Options // 画布级文本默认选项
 }
 
-// NewCanvas creates a new Canvas with the given pixel width.
-// Canvas-level options (font, size, colors, padding …) serve as defaults for all
-// [Canvas.AddText] calls; they can be overridden per-block.
-// The canvas height grows automatically as blocks are added.
+// NewCanvas 以指定像素宽度创建新的 Canvas。
+// 画布级选项（字体、字号、颜色、内边距等）作为所有 [Canvas.AddText] 调用的默认值；
+// 可在每个块级别进行覆盖。
+// 画布高度随着块的添加而自动增长。
 func NewCanvas(width int, opts ...Option) (*Canvas, error) {
 	if width < 1 {
 		return nil, fmt.Errorf("textimage: canvas width must be ≥ 1, got %d", width)
@@ -97,16 +94,16 @@ func NewCanvas(width int, opts ...Option) (*Canvas, error) {
 	return &Canvas{width: width, bgColor: o.BgColor, opts: o}, nil
 }
 
-// AddSpacer appends px pixels of transparent vertical whitespace.
+// AddSpacer 在末尾追加 px 像素高度的透明垂直空白。
 func (c *Canvas) AddSpacer(px int) {
 	if px > 0 {
 		c.blocks = append(c.blocks, spacerBlock(px))
 	}
 }
 
-// AddText renders text and appends it as a full-width block.
-// The text is word-wrapped to the canvas width automatically.
-// Per-block options override the canvas-level defaults for this block only.
+// AddText 渲染文本并将其作为全宽块追加到画布。
+// 文本会自动按画布宽度进行自动换行。
+// 块级选项仅对当前块覆盖画布级默认值。
 func (c *Canvas) AddText(text string, opts ...Option) error {
 	o := c.opts
 	for _, fn := range opts {
@@ -127,8 +124,8 @@ func (c *Canvas) AddText(text string, opts ...Option) error {
 	return nil
 }
 
-// AddImage appends a pre-decoded image, optionally resized, aligned, or clipped.
-// By default the image is left-aligned and scaled down to fit the canvas width.
+// AddImage 追加一张已解码的图片，可选择调整大小、对齐或裁剪。
+// 默认情况下，图片左对齐，并缩小以适应画布宽度。
 func (c *Canvas) AddImage(src image.Image, opts ...ImageOption) error {
 	if src == nil {
 		return fmt.Errorf("textimage canvas AddImage: nil image")

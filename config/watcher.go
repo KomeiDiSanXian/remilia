@@ -12,12 +12,12 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// ReloadCallback is called when configuration is reloaded
-// It receives the old and new configuration
-// Return error to reject the new configuration
+// ReloadCallback 在配置重新加载时被调用。
+// 接收旧配置和新配置作为参数。
+// 返回 error 可拒绝应用新配置。
 type ReloadCallback func(oldConfig, newConfig *Config) error
 
-// Watcher watches configuration file for changes and triggers reload
+// Watcher 监听配置文件变更并触发重新加载
 type Watcher struct {
 	configPath string
 	watcher    *fsnotify.Watcher
@@ -30,42 +30,40 @@ type Watcher struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Configuration
+	// 配置项
 	debounceDelay time.Duration
-	validateOnly  bool // If true, only validate but don't apply
+	validateOnly  bool // 若为 true，则仅验证不应用
 
-	// Metrics
+	// 统计指标
 	reloadCount    atomic.Int64
 	failedCount    atomic.Int64
 	lastReloadTime atomic.Value // time.Time
 }
 
-// WatcherOption configures the Watcher
+// WatcherOption 用于配置 Watcher
 type WatcherOption func(*Watcher)
 
-// WithDebounceDelay sets the debounce delay for file change events
-// Default is 100ms to avoid multiple reloads for a single save
+// WithDebounceDelay 设置文件变更事件的防抖延迟。
+// 默认为 100ms，避免单次保存触发多次重载。
 func WithDebounceDelay(delay time.Duration) WatcherOption {
 	return func(w *Watcher) {
 		w.debounceDelay = delay
 	}
 }
 
-// WithValidateOnly enables validation-only mode
-// Configuration changes will be validated but not applied
+// WithValidateOnly 启用仅验证模式。
+// 配置变更将被验证但不会被应用。
 func WithValidateOnly(validate bool) WatcherOption {
 	return func(w *Watcher) {
 		w.validateOnly = validate
 	}
 }
 
-// NewWatcherWithContext creates a new configuration watcher whose lifetime is
-// bound to the provided parent context. When parent is canceled (e.g. on
-// Bot shutdown), the watcher stops automatically without requiring an explicit
-// Stop() call. This follows the same WithContext pattern used by
-// AdaptiveRateLimiter, DedupFilter, and token.Manager.
+// NewWatcherWithContext 创建一个与 parent context 生命周期绑定的配置监视器。
+// 当 parent 被取消时（如 Bot 关闭），监视器会自动停止，无需显式调用 Stop()。
+// 此方式与 AdaptiveRateLimiter、DedupFilter 和 token.Manager 使用的 WithContext 模式一致。
 //
-// Example:
+// 示例：
 //
 //	w, err := config.NewWatcherWithContext(bot.Context(), "config.yaml")
 func NewWatcherWithContext(parent context.Context, configPath string, opts ...WatcherOption) (*Watcher, error) {
@@ -80,7 +78,7 @@ func NewWatcherWithContext(parent context.Context, configPath string, opts ...Wa
 	return w, nil
 }
 
-// NewWatcher creates a new configuration watcher
+// NewWatcher 创建一个新的配置文件监视器
 func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 	absPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -92,8 +90,7 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 		return nil, fmt.Errorf("failed to create fs watcher: %w", err)
 	}
 
-	// Watch the directory instead of the file
-	// This handles cases where editors create temp files
+	// 监听目录而非文件本身，以兼容编辑器创建临时文件的情况
 	dir := filepath.Dir(absPath)
 	if err := fsWatcher.Add(dir); err != nil {
 		_ = fsWatcher.Close()
@@ -111,12 +108,12 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 		debounceDelay: 100 * time.Millisecond,
 	}
 
-	// Apply options
+	// 应用选项
 	for _, opt := range opts {
 		opt(w)
 	}
 
-	// Load initial configuration
+	// 加载初始配置
 	cfg, err := Load(configPath)
 	if err != nil {
 		cancel()
@@ -129,39 +126,39 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 	return w, nil
 }
 
-// AddCallback registers a callback to be called on configuration reload
-// Callbacks are executed in order of registration
+// AddCallback 注册一个在配置重载时调用的回调函数。
+// 回调按注册顺序依次执行。
 func (w *Watcher) AddCallback(callback ReloadCallback) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.callbacks = append(w.callbacks, callback)
 }
 
-// GetConfig returns the current configuration
+// GetConfig 返回当前配置
 func (w *Watcher) GetConfig() *Config {
 	return w.currentConfig.Load().(*Config)
 }
 
-// Start begins watching for configuration changes
+// Start 开始监听配置文件变更
 func (w *Watcher) Start() {
 	w.wg.Add(1)
 	go w.watchLoop()
 }
 
-// Stop stops watching for configuration changes
+// Stop 停止监听配置文件变更
 func (w *Watcher) Stop() error {
 	w.cancel()
 	w.wg.Wait()
 	return w.watcher.Close()
 }
 
-// watchLoop is the main event loop
+// watchLoop 是主事件循环
 func (w *Watcher) watchLoop() {
 	defer w.wg.Done()
 
 	logger.WithField("path", w.configPath).Info("[ConfigWatcher] Started watching configuration file")
 
-	// Debounce timer to avoid multiple reloads
+	// 防抖计时器，避免多次重载
 	var debounceTimer *time.Timer
 	var timerMu sync.Mutex
 
@@ -193,13 +190,13 @@ func (w *Watcher) watchLoop() {
 				return
 			}
 
-			// Only process events for our config file
+			// 只处理目标配置文件的事件
 			eventPath, err := filepath.Abs(event.Name)
 			if err != nil || eventPath != w.configPath {
 				continue
 			}
 
-			// Filter relevant events (Write, Create, Rename)
+			// 过滤相关事件（写入、创建、重命名）
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
 				continue
 			}
@@ -209,12 +206,12 @@ func (w *Watcher) watchLoop() {
 				"op":   event.Op.String(),
 			}).Debug("[ConfigWatcher] File change detected")
 
-			// Debounce: reset timer on each event
+			// 防抖：每次事件都重置计时器
 			timerMu.Lock()
 			if debounceTimer != nil {
-				// Properly stop timer and drain channel to prevent goroutine leak
+				// 正确停止计时器并 drain channel，防止 goroutine 泄漏
 				if !debounceTimer.Stop() {
-					// Timer already fired, drain the channel
+					// 计时器已触发，drain channel
 					select {
 					case <-debounceTimer.C:
 					default:
@@ -237,7 +234,7 @@ func (w *Watcher) watchLoop() {
 	}
 }
 
-// reload loads and applies new configuration
+// reload 加载并应用新配置
 func (w *Watcher) reload() error {
 	startTime := time.Now()
 
@@ -269,10 +266,10 @@ func (w *Watcher) reload() error {
 		newConfig = newConfig2
 	}
 
-	// Get current configuration
+	// 获取当前配置
 	oldConfig := w.currentConfig.Load().(*Config)
 
-	// Execute callbacks
+	// 执行回调
 	w.mu.RLock()
 	callbacks := append([]ReloadCallback(nil), w.callbacks...)
 	w.mu.RUnlock()
@@ -284,10 +281,10 @@ func (w *Watcher) reload() error {
 		}
 	}
 
-	// Apply new configuration if not in validate-only mode
+	// 非仅验证模式时应用新配置
 	if !w.validateOnly {
 		w.currentConfig.Store(newConfig)
-		// Update global config using atomic store
+		// 更新全局配置
 		globalConfig.Store(newConfig)
 		w.lastReloadTime.Store(time.Now())
 		w.reloadCount.Add(1)
@@ -307,19 +304,19 @@ func (w *Watcher) reload() error {
 	return nil
 }
 
-// ForceReload manually triggers a configuration reload
+// ForceReload 手动触发配置重载
 func (w *Watcher) ForceReload() error {
 	return w.reload()
 }
 
-// WatcherStats returns watcher statistics
+// WatcherStats 监视器统计信息
 type WatcherStats struct {
 	ReloadCount    int64
 	FailedCount    int64
 	LastReloadTime time.Time
 }
 
-// GetStats returns current watcher statistics
+// GetStats 返回当前监视器统计信息
 func (w *Watcher) GetStats() WatcherStats {
 	lastReload := w.lastReloadTime.Load()
 	var lastReloadTime time.Time
@@ -336,8 +333,8 @@ func (w *Watcher) GetStats() WatcherStats {
 
 // --- Helper functions for common use cases ---
 
-// WatchWithAutoRestart creates a watcher that automatically restarts components on config change
-// This is a convenience function for common patterns
+// WatchWithAutoRestart 创建一个在配置变更时自动重启组件的监视器。
+// 这是常见模式的便捷封装函数。
 func WatchWithAutoRestart(configPath string, restartFunc func(*Config) error) (*Watcher, error) {
 	watcher, err := NewWatcher(configPath)
 	if err != nil {
@@ -345,7 +342,7 @@ func WatchWithAutoRestart(configPath string, restartFunc func(*Config) error) (*
 	}
 
 	watcher.AddCallback(func(oldConfig, newConfig *Config) error {
-		// Check if restart is needed (compare critical fields)
+		// 检查是否需要重启（比较关键字段）
 		if needsRestart(oldConfig, newConfig) {
 			logger.Info("[ConfigWatcher] Configuration change requires restart")
 			return restartFunc(newConfig)
@@ -357,20 +354,20 @@ func WatchWithAutoRestart(configPath string, restartFunc func(*Config) error) (*
 	return watcher, nil
 }
 
-// needsRestart determines if configuration changes require component restart
+// needsRestart 判断配置变更是否需要重启组件
 func needsRestart(old, new *Config) bool {
-	// Bot configuration changes require restart
+	// Bot 配置变更需要重启
 	if old.Bot != new.Bot {
 		return true
 	}
 
-	// Server configuration changes require restart
+	// 服务器配置变更需要重启
 	if old.Server != new.Server {
 		return true
 	}
 
-	// Log level changes don't require restart (can be applied dynamically)
-	// Middleware changes may require restart depending on implementation
+	// 日志级别变更无需重启（可动态应用）
+	// 中间件变更是否需要重启取决于具体实现
 
 	return false
 }

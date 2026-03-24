@@ -4,14 +4,14 @@ package dto
 //
 // https://q.qq.com/qqbot/#/developer/developer-setting
 type BotInfo struct {
-	QQNum     uint64 // QQNum is the QQ number of the bot, used for identification
-	AppID     uint64 // AppID is the application ID of the bot, used for authentication
-	Token     string // Token is the token of the bot, used for authentication
-	AppSecret string // AppSecret is the app secret of the bot, used for signing requests
-	ServeAddr string // ServeAddr is the address of the webhook server, e.g. ":8080"
+	QQNum     uint64 // QQ 号，用于标识机器人身份
+	AppID     uint64 // 应用 ID，用于鉴权
+	Token     string // Token，用于鉴权
+	AppSecret string // App Secret，用于签名请求
+	ServeAddr string // Webhook 服务监听地址，如 ":8080"
 }
 
-// NewBotInfo creates a new bot info
+// NewBotInfo 创建新的 BotInfo
 func NewBotInfo(qqNum, appID uint64, token, appSecret string) *BotInfo {
 	b := &BotInfo{
 		QQNum:     qqNum,
@@ -20,7 +20,7 @@ func NewBotInfo(qqNum, appID uint64, token, appSecret string) *BotInfo {
 		AppSecret: appSecret,
 	}
 	if b.ServeAddr == "" {
-		b.ServeAddr = ":9000" // Default address for the webhook server
+		b.ServeAddr = ":9000" // Webhook 服务默认监听地址
 	}
 	return b
 }

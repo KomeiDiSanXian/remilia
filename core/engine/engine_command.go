@@ -47,7 +47,7 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 		coordinator: e,
 		Source:      "global",
 	}
-	m.commandIndexed.Store(true) // OnCommand rule (Rules[0]) is matched via commandIndex
+	m.commandIndexed.Store(true) // OnCommand 规则（Rules[0]）通过 commandIndex 进行匹配
 	m.priority.Store(50)
 
 	cmdName := strings.TrimPrefix(strings.TrimSpace(cmdPattern), "/")

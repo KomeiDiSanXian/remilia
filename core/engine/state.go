@@ -184,7 +184,7 @@ func (s *state) rebuildIndex() {
 	for _, m := range s.matchers {
 		cmd := m.GetCommand()
 		if cmd != "" {
-			m.commandIndexed.Store(true) // mark for Match() fast-path
+			m.commandIndexed.Store(true) // 标记以供 Match() 快速路径使用
 			if s.commandIndex[cmd] == nil {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
@@ -319,7 +319,7 @@ func (s *state) addMatcher(m *Matcher) {
 
 	cmd := m.GetCommand()
 	if cmd != "" {
-		m.commandIndexed.Store(true) // mark for Match() fast-path
+		m.commandIndexed.Store(true) // 标记以供 Match() 快速路径使用
 		if s.commandIndex[cmd] == nil {
 			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 		}
