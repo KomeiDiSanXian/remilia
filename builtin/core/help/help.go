@@ -20,6 +20,49 @@ const (
 	commandsPerPage = 10
 )
 
+// helpCmdDef 是 /help 命令的结构化定义，用于在命令列表中展示参数说明。
+var helpCmdDef = &command.Definition{
+	Name:        "help",
+	Aliases:     []string{"h"},
+	Description: "查看可用命令和插件信息",
+	Usage:       "/help [页码|命令名|插件名] [--text|-t]",
+	Category:    "系统",
+	Arguments: []*command.Argument{
+		{
+			Name:        "target",
+			Description: "页码、命令名或插件名（留空显示第1页命令列表）",
+			Type:        command.ArgTypeString,
+			Required:    false,
+		},
+	},
+	Flags: []*command.Flag{
+		{
+			Name:        "text",
+			ShortName:   "t",
+			Description: "以纯文字形式发送结果，不渲染图片",
+			Type:        command.ArgTypeBool,
+			Default:     false,
+		},
+	},
+	Examples: []string{
+		"/help",
+		"/help 2",
+		"/help weather",
+		"/help plugins",
+		"/help weather --text",
+		"/help 2 -t",
+	},
+}
+
+// PluginOption configures the help plugin at construction time.
+type PluginOption func(*Plugin)
+
+// WithImageRender controls whether help responses are rendered as images.
+// Image rendering is enabled by default; pass false to always use plain text.
+func WithImageRender(enabled bool) PluginOption {
+	return func(p *Plugin) { p.imageRender = enabled }
+}
+
 // Plugin 帮助插件，显示所有可用命令的帮助信息
 //
 // 支持以下命令格式：
@@ -31,6 +74,10 @@ type Plugin struct {
 	Engine engine.Reader // Engine 只读视图（查询命令列表，不能注册/删除 Matcher）
 	Info   plugin.Info   // 插件系统只读视图
 
+	// imageRender 控制是否以图片形式回复（默认 true）。
+	// 可通过 WithImageRender(false) 关闭，退回纯文字发送。
+	imageRender bool
+
 	// 缓存
 	helpCache     map[string]string
 	cacheMu       sync.RWMutex
@@ -39,8 +86,11 @@ type Plugin struct {
 }
 
 // New 创建帮助插件（v2 API）
-func New() *plugin.Descriptor {
+func New(opts ...PluginOption) *plugin.Descriptor {
 	p := newHelpPluginInternal()
+	for _, o := range opts {
+		o(p)
+	}
 
 	return &plugin.Descriptor{
 		Name:    "help",
@@ -62,7 +112,7 @@ func New() *plugin.Descriptor {
 			p.Info = ctx.Info
 			p.Engine = ctx.Info.Coordinator()
 
-			ctx.Reg.RegisterCommand("", "/help").Handle(p.handleHelp)
+			ctx.Reg.RegisterCommand("", "/help").SetDefinition(helpCmdDef).Handle(p.handleHelp)
 
 			// 订阅插件生命周期事件，当插件加载/卸载/重载时立即清空缓存
 			if ctx.EventBus != nil {
@@ -87,8 +137,9 @@ func New() *plugin.Descriptor {
 // newHelpPluginInternal 创建帮助插件内部实例
 func newHelpPluginInternal() *Plugin {
 	return &Plugin{
-		Engine:        nil, // 将在 Setup 时设置
-		Info:          nil, // ���在 Setup 时设置
+		Engine:        nil,  // 将在 Setup 时设置
+		Info:          nil,  // 将在 Setup 时设置
+		imageRender:   true, // 默认开启图片渲染
 		helpCache:     make(map[string]string),
 		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
 		cacheExpiry:   time.Now(),
@@ -149,25 +200,28 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	// 解析命令参数
 	args, err := command.ParseCommandLine(content)
 	if err != nil {
-		return p.sendMessage(ctx, "命令解析失败: "+err.Error())
+		return p.sendMessage(ctx, "命令解析失败: "+err.Error(), false)
 	}
 
 	// 获取第一个参数
 	target := args.Get(0)
 
+	// --text/-t flag：本次请求强制使用纯文字发送
+	forceText := args.GetFlagBool("text") || args.GetFlagBool("t")
+
 	if target == "" {
 		// 没有参数，显示第1页命令
-		return p.showCommandsPage(ctx, 1)
+		return p.showCommandsPage(ctx, 1, forceText)
 	}
 
 	// 特殊关键字：plugins
 	if strings.EqualFold(target, "plugins") || strings.EqualFold(target, "plugin") {
-		return p.showAllPlugins(ctx)
+		return p.showAllPlugins(ctx, forceText)
 	}
 
 	// 尝试解析为页码
 	if page, err := command.ParseInt(target); err == nil && page > 0 {
-		return p.showCommandsPage(ctx, page)
+		return p.showCommandsPage(ctx, page, forceText)
 	}
 
 	// 检查是否是插件名
@@ -175,7 +229,7 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 		plugins := p.Info.List()
 		for _, pluginName := range plugins {
 			if strings.EqualFold(pluginName, target) {
-				return p.showPluginCommands(ctx, pluginName)
+				return p.showPluginCommands(ctx, pluginName, forceText)
 			}
 		}
 	}
@@ -183,20 +237,20 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	// 尝试作为命令名查找（支持带或不带 / 前缀）
 	cmdName := strings.TrimPrefix(target, "/")
 	if cmdInfo := p.Engine.FindCommand(cmdName); cmdInfo != nil {
-		return p.showCommandDetail(ctx, cmdInfo)
+		return p.showCommandDetail(ctx, cmdInfo, forceText)
 	}
 
 	// 未找到，显示建议
-	return p.showCommandNotFound(ctx, target)
+	return p.showCommandNotFound(ctx, target, forceText)
 }
 
 // showCommandsPage 显示指定页的命令列表
-func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
+func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText bool) error {
 	// 尝试从缓存获取
 	cacheKey := fmt.Sprintf("page:%d", page)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for page: %d", page)
-		return p.sendMessage(ctx, cached)
+		return p.sendMessage(ctx, cached, forceText)
 	}
 
 	commands := p.Engine.GetAllCommands()
@@ -205,9 +259,9 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	if len(commands) == 0 {
 		if p.Info != nil {
 			logger.Info("[Plugin] No commands found, showing plugin list instead")
-			return p.showAllPlugins(ctx)
+			return p.showAllPlugins(ctx, forceText)
 		}
-		return p.sendMessage(ctx, "当前没有可用的命令和插件")
+		return p.sendMessage(ctx, "当前没有可用的命令和插件", forceText)
 	}
 
 	// 计算分页
@@ -285,25 +339,25 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int) error {
 	helpText := help.String()
 	p.setCachedHelp(cacheKey, helpText)
 
-	return p.sendMessage(ctx, helpText)
+	return p.sendMessage(ctx, helpText, forceText)
 }
 
 // showAllPlugins 显示所有插件的列表
-func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
+func (p *Plugin) showAllPlugins(ctx *eventctx.Context, forceText bool) error {
 	// 尝试从缓存获取
 	cacheKey := "plugins"
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debug("[help] Cache hit for plugins list")
-		return p.sendMessage(ctx, cached)
+		return p.sendMessage(ctx, cached, forceText)
 	}
 
 	if p.Info == nil {
-		return p.sendMessage(ctx, "插件管理器不可用")
+		return p.sendMessage(ctx, "插件管理器不可用", forceText)
 	}
 
 	pluginsMetadata := p.Info.ListWithMetadata()
 	if len(pluginsMetadata) == 0 {
-		return p.sendMessage(ctx, "当前没有加载任何插件")
+		return p.sendMessage(ctx, "当前没有加载任何插件", forceText)
 	}
 
 	var help strings.Builder
@@ -377,16 +431,16 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context) error {
 	helpText := help.String()
 	p.setCachedHelp(cacheKey, helpText)
 
-	return p.sendMessage(ctx, helpText)
+	return p.sendMessage(ctx, helpText, forceText)
 }
 
 // showPluginCommands 显示指定插件的所有命令
-func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) error {
+func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, forceText bool) error {
 	// 尝试从缓存获取
 	cacheKey := fmt.Sprintf("plugin:%s", pluginName)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for plugin: %s", pluginName)
-		return p.sendMessage(ctx, cached)
+		return p.sendMessage(ctx, cached, forceText)
 	}
 
 	var help strings.Builder
@@ -441,7 +495,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 
 	if len(pluginCommands) == 0 {
 		help.WriteString("该插件没有注册任何命令")
-		return p.sendMessage(ctx, help.String())
+		return p.sendMessage(ctx, help.String(), forceText)
 	}
 
 	help.WriteString(fmt.Sprintf("📋 提供的命令 (%d 个):\n\n", len(pluginCommands)))
@@ -476,17 +530,17 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string) er
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法")
 
-	return p.sendMessage(ctx, help.String())
+	return p.sendMessage(ctx, help.String(), forceText)
 }
 
 // showCommandDetail 显示特定命令的详细信息
-func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.CommandInfo) error {
+func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.CommandInfo, forceText bool) error {
 	// 尝试从缓存获取
 	cmdName := strings.TrimPrefix(cmdInfo.Command, "/")
 	cacheKey := fmt.Sprintf("command:%s", cmdName)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for command: %s", cmdName)
-		return p.sendMessage(ctx, cached)
+		return p.sendMessage(ctx, cached, forceText)
 	}
 
 	var detail strings.Builder
@@ -593,7 +647,7 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 	detailText := detail.String()
 	p.setCachedHelp(cacheKey, detailText)
 
-	return p.sendMessage(ctx, detailText)
+	return p.sendMessage(ctx, detailText, forceText)
 }
 
 // showCategoryCommands 显示特定分类下的所有命令
@@ -629,11 +683,11 @@ func (p *Plugin) showCategoryCommands(ctx *eventctx.Context, category string, co
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法")
 
-	return p.sendMessage(ctx, help.String())
+	return p.sendMessage(ctx, help.String(), false)
 }
 
 // showCommandNotFound 命令未找到时的提示
-func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error {
+func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, forceText bool) error {
 	var msg strings.Builder
 
 	msg.WriteString(fmt.Sprintf("❌ 未找到: %s\n\n", target))
@@ -688,16 +742,33 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string) error
 		}
 	}
 
-	return p.sendMessage(ctx, msg.String())
+	return p.sendMessage(ctx, msg.String(), forceText)
 }
 
-// sendMessage 发送消息（平台无关）
-func (p *Plugin) sendMessage(ctx *eventctx.Context, content string) error {
+// sendMessage 发送消息。
+// 当 imageRender 为 true 且 forceText 为 false 时，优先渲染为图片（含水印）发送，失败后自动降级为纯文字。
+// 当 imageRender 为 false 或 forceText 为 true 时，直接发送纯文字。
+func (p *Plugin) sendMessage(ctx *eventctx.Context, content string, forceText bool) error {
+	if p.imageRender && !forceText {
+		imgBytes, renderErr := renderHelpImage(content)
+		if renderErr == nil {
+			msg := platform.OutboundMessage{
+				Attachments: []platform.Attachment{{
+					Kind:     platform.AttachmentKindImage,
+					Data:     imgBytes,
+					Name:     "help.png",
+					MimeType: "image/png",
+				}},
+			}
+			if _, sendErr := ctx.Reply(msg); sendErr == nil {
+				return nil
+			}
+			// 图片发送失败，降级为文字
+			logger.Warnf("[help] image send failed, falling back to text")
+		} else {
+			logger.Debugf("[help] image render failed (%v), using text fallback", renderErr)
+		}
+	}
 	_, err := ctx.Reply(platform.TextMessage(content))
 	return err
-}
-
-// Dependencies 返回插件依赖列表（帮助插件无依赖）
-func (p *Plugin) Dependencies() []string {
-	return []string{}
 }

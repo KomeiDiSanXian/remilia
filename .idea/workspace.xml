@@ -4,17 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update comments to Chinese for better localization">
-      <change afterPath="$PROJECT_DIR$/infra/textimage/backdrop_bgimage_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/blur.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/gradient.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/new_features_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(textimage): add background image support with various fit modes and text backdrop options">
+      <change afterPath="$PROJECT_DIR$/builtin/core/help/help_image.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/core/help/help_image_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/textimage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/textimage-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/compose.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/compose.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/options.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/textimage.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/textimage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/help/help.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -161,6 +155,7 @@
         <entry key="GoApplicationRunConfiguration">
           <value>
             <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="STOPPED" />
               <entry key="go build github.com/KomeiDiSanXian/remilia/examples/textimage-demo" value="STOPPED" />
             </map>
           </value>
@@ -222,8 +217,8 @@
     </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/textimage-demo" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase" />
+        <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/textimage-demo" />
         <item itemvalue="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/tests/benchmark 中的 BenchmarkMemoryAllocation" />
         <item itemvalue="Go 测试.github.com/KomeiDiSanXian/remilia/plugins/dev/debug 中的 TestPlugin_SubcommandRegistration" />
@@ -275,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(platform): add support for channel management and direct messaging capabilities" />
     <MESSAGE value="feat(platform): add support for voice message handling and enhance message reset functionality" />
     <MESSAGE value="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions" />
     <MESSAGE value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
@@ -300,7 +294,8 @@
     <MESSAGE value="feat(textimage): add multi-platform support for CJK font rendering with system-specific font handling" />
     <MESSAGE value="test(bench): add benchmark tests for textimage package performance" />
     <MESSAGE value="chore: update comments to Chinese for better localization" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore: update comments to Chinese for better localization" />
+    <MESSAGE value="feat(textimage): add background image support with various fit modes and text backdrop options" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(textimage): add background image support with various fit modes and text backdrop options" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
