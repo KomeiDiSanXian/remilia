@@ -59,6 +59,16 @@ func ParseCommandLine(input string) (*Args, error) {
 	for i := 0; i < len(tokens); {
 		token := tokens[i]
 
+		// POSIX "--": stop flag parsing, all following tokens are positional.
+		if token == "--" {
+			i++
+			for i < len(tokens) {
+				args.Positional = append(args.Positional, tokens[i])
+				i++
+			}
+			break
+		}
+
 		// 处理长标志（--key 或 --key=value）
 		if after, ok := strings.CutPrefix(token, "--"); ok {
 			key := after

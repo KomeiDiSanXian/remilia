@@ -4,15 +4,13 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(help): implement image rendering for help responses with text fallback option">
-      <change afterPath="$PROJECT_DIR$/core/engine/alias_registrar_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/plugin/alias_registrar_plugin_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(engine): implement automatic alias registration for commands">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/builtin/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/help/help_image_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/help/help_image_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/enhanced_system.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/enhanced_system.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/enhanced_system_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/enhanced_system_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/parser.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/parser.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/parser_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/parser_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -274,7 +272,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore(dependencies): update go-sqlite3, OpenTelemetry, and yaml modules to latest versions" />
     <MESSAGE value="feat(matcher): optimize priority handling with atomic operations and improve matcher performance" />
     <MESSAGE value="test(matcher): update priority assertions to use uint64 for consistency" />
     <MESSAGE value="fix(matcher): resolve data races by using atomic operations for commandIndexed and improve command registration handling" />
@@ -299,7 +296,8 @@
     <MESSAGE value="chore: update comments to Chinese for better localization" />
     <MESSAGE value="feat(textimage): add background image support with various fit modes and text backdrop options" />
     <MESSAGE value="feat(help): implement image rendering for help responses with text fallback option" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(help): implement image rendering for help responses with text fallback option" />
+    <MESSAGE value="feat(engine): implement automatic alias registration for commands" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(engine): implement automatic alias registration for commands" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

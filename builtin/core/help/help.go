@@ -182,17 +182,19 @@ func (p *Plugin) invalidateCache() {
 func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	content := ctx.GetMessageContent()
 
-	// 解析命令参数
-	args, err := command.ParseCommandLine(content)
+	// 使用类型感知的结构化解析器（而非扁平的 ParseCommandLine），
+	// 确保 -t / --text 作为 bool flag 不会把紧跟的数字当作自己的值。
+	// 例如 `/help -t 2` 中，`2` 应当是页码而非 `-t` 的值。
+	parsed, err := command.ParseFromDefinition(content, helpCmdDef, "/")
 	if err != nil {
 		return p.sendMessage(ctx, "命令解析失败: "+err.Error(), false)
 	}
 
 	// 获取第一个参数
-	target := args.Get(0)
+	target := parsed.GetString("target")
 
 	// --text/-t flag：本次请求强制使用纯文字发送
-	forceText := args.GetFlagBool("text") || args.GetFlagBool("t")
+	forceText := parsed.GetBool("text")
 
 	if target == "" {
 		// 没有参数，显示第1页命令

@@ -199,12 +199,14 @@ func TestParseCommandLine(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name:          "empty flag",
+			// POSIX "--" terminates flag parsing; remaining tokens (none here) are
+			// positional.  This is valid, not an error.
+			name:          "double-dash end-of-flags sentinel",
 			input:         "/cmd --",
 			expectedCmd:   "/cmd",
 			expectedPos:   []string{},
 			expectedFlags: map[string]string{},
-			wantErr:       true,
+			wantErr:       false,
 		},
 		{
 			name:          "no tokens",

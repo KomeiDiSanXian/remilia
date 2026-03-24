@@ -121,7 +121,16 @@ func (p *Parser) Register(cmd *Definition) {
 
 // Parse 将输入字符串解析为 Parsed。
 //
-// 会先进行词法拆分（ParseCommandLine），再匹配命令/子命令，最后解析参数与标志并执行定义中的 Validator。
+// 流程：
+//  1. 词法拆分（tokenize）
+//  2. 匹配根命令名称
+//  3. 通过流式分层解析（parseHierarchical）将 flag 归属到其所在层级
+//  4. 对叶子层级执行参数绑定与 Validator
+//
+// flag 作用域规则（与 Cobra / GNU getopt 一致）：
+//   - flag 出现在子命令 token 之前 → 属于父命令
+//   - flag 出现在子命令 token 之后 → 属于子命令
+//   - "--" 终止 flag 解析，其后所有 token 均为位置参数
 func (p *Parser) Parse(input string) (*Parsed, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -133,18 +142,37 @@ func (p *Parser) Parse(input string) (*Parsed, error) {
 		return nil, err
 	}
 
-	cmdPath, def, remainingTokens := p.matchCommand(rawArgs)
-	if def == nil {
+	// Locate the root command definition.
+	cmdName := strings.TrimPrefix(rawArgs.Command, p.prefix)
+	var rootDef *Definition
+	for _, cmd := range p.rootCommands {
+		if cmd.Name == cmdName || contains(cmd.Aliases, cmdName) {
+			rootDef = cmd
+			break
+		}
+	}
+	if rootDef == nil {
 		return nil, fmt.Errorf("unknown command: %s", rawArgs.Command)
 	}
 
-	return parseRest(input, rawArgs, cmdPath, def, remainingTokens)
+	// Re-tokenize to obtain the raw token stream for hierarchical parsing.
+	// (ParseCommandLine already called tokenize internally, but does not expose
+	// the token slice — this second call is intentional and cheap.)
+	tokens, err := tokenize(input)
+	if err != nil {
+		return nil, err
+	}
+	levels := parseHierarchical(tokens[1:], rootDef)
+	return buildParsedFromLevels(input, rawArgs, levels)
 }
 
 // ParseFromDefinition 从给定的 rootDef 命令定义树解析输入字符串。
 //
-// 与 Parser.Parse 不同：该函数不依赖 Parser.Register 的根命令列表，而是直接以 rootDef 为根进行子命令匹配；
-// 同时会校验输入命令是否与 prefix+rootDef.Name（或其别名）一致。
+// 与 Parser.Parse 不同：该函数不依赖 Parser.Register 的根命令列表，而是直接以
+// rootDef 为根进行子命令匹配；同时会校验输入命令是否与 prefix+rootDef.Name
+// （或其别名）一致。
+//
+// flag 作用域规则与 Parser.Parse 完全相同（流式分层解析）。
 func ParseFromDefinition(input string, rootDef *Definition, prefix string) (*Parsed, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
@@ -164,77 +192,272 @@ func ParseFromDefinition(input string, rootDef *Definition, prefix string) (*Par
 		return nil, fmt.Errorf("command mismatch: expected %s, got %s", expectedCmd, rawArgs.Command)
 	}
 
-	cmdPath, def, remainingTokens := matchSubCommands(rawArgs, rootDef)
-	fullPath := append([]string{rootDef.Name}, cmdPath...)
-	return parseRest(input, rawArgs, fullPath, def, remainingTokens)
+	tokens, err := tokenize(input)
+	if err != nil {
+		return nil, err
+	}
+	levels := parseHierarchical(tokens[1:], rootDef)
+	return buildParsedFromLevels(input, rawArgs, levels)
 }
 
-func parseRest(input string, rawArgs *Args, cmdPath []string, def *Definition, remainingTokens []string) (*Parsed, error) {
+// cmdLevel holds the parsed data for one level of a command hierarchy.
+type cmdLevel struct {
+	def   *Definition
+	flags map[string]string // raw string flags scoped to this level
+	args  []string          // positional args for this level
+}
+
+// parseHierarchical processes the token slice left-to-right, assigning each flag
+// and positional argument to the command level where it appears.
+//
+// Design follows the Cobra / GNU getopt convention:
+//
+//   - A flag token (--key, --key=val, -k, -k val) belongs to the current level.
+//   - Bool flags never consume the following token as a value (Cobra behaviour).
+//     Use --flag=false to explicitly negate; bare --flag always means true.
+//   - A non-flag token is first tested as a subcommand name at the current level;
+//     on match the parser descends into the child level for all subsequent tokens.
+//   - If no subcommand matches, the token becomes a positional argument.
+//   - The POSIX "--" sentinel ends flag parsing; all following tokens are positional
+//     at the current level.
+//
+// This ensures that flags typed before a subcommand belong to the parent, while
+// flags typed after the subcommand belong to the child — no global reordering.
+func parseHierarchical(tokens []string, rootDef *Definition) []cmdLevel {
+	levels := []cmdLevel{{
+		def:   rootDef,
+		flags: make(map[string]string),
+		args:  make([]string, 0),
+	}}
+
+	i := 0
+	for i < len(tokens) {
+		token := tokens[i]
+		current := &levels[len(levels)-1]
+
+		// POSIX "--": stop flag parsing, treat all remaining tokens as positional.
+		if token == "--" {
+			i++
+			for i < len(tokens) {
+				current.args = append(current.args, tokens[i])
+				i++
+			}
+			break
+		}
+
+		// Long flag: --key  or  --key=value
+		if after, ok := strings.CutPrefix(token, "--"); ok && after != "" {
+			if eqIdx := strings.Index(after, "="); eqIdx > 0 {
+				// --key=value — always explicit, no ambiguity
+				current.flags[after[:eqIdx]] = after[eqIdx+1:]
+				i++
+				continue
+			}
+			// Bool flags only consume the next token when it is an unambiguous
+			// boolean literal (true/false/yes/no/on/off/1/0).  Any other token —
+			// including subcommand names — is left in the stream.
+			if isBoolFlag(current.def, after) {
+				if i+1 < len(tokens) && isBoolLiteral(tokens[i+1]) {
+					current.flags[after] = tokens[i+1]
+					i += 2
+				} else {
+					current.flags[after] = "true"
+					i++
+				}
+				continue
+			}
+			// String/int/… flag: consume next token as value if it does not look
+			// like a flag itself (same heuristic as ParseCommandLine).
+			if i+1 < len(tokens) && !hierarchyLooksLikeFlag(tokens[i+1]) {
+				current.flags[after] = tokens[i+1]
+				i += 2
+			} else {
+				current.flags[after] = "true"
+				i++
+			}
+			continue
+		}
+
+		// Short flag: -k  or  -k value  (single letter only, not a number)
+		if len(token) == 2 && token[0] == '-' && isAlphaRune(rune(token[1])) {
+			key := string(token[1])
+			if isBoolFlagShort(current.def, key) {
+				if i+1 < len(tokens) && isBoolLiteral(tokens[i+1]) {
+					current.flags[key] = tokens[i+1]
+					i += 2
+				} else {
+					current.flags[key] = "true"
+					i++
+				}
+				continue
+			}
+			if i+1 < len(tokens) && !hierarchyLooksLikeFlag(tokens[i+1]) {
+				current.flags[key] = tokens[i+1]
+				i += 2
+			} else {
+				current.flags[key] = "true"
+				i++
+			}
+			continue
+		}
+
+		// Non-flag token: attempt subcommand match at the current level first.
+		if len(current.def.SubCommands) > 0 {
+			if sub := findSubCmd(current.def.SubCommands, token); sub != nil {
+				levels = append(levels, cmdLevel{
+					def:   sub,
+					flags: make(map[string]string),
+					args:  make([]string, 0),
+				})
+				i++
+				continue
+			}
+		}
+
+		// Falls through to positional argument at the current level.
+		current.args = append(current.args, token)
+		i++
+	}
+
+	return levels
+}
+
+// buildParsedFromLevels constructs a Parsed from the hierarchical level chain.
+// Only the leaf level's flags and positional arguments are bound — each level
+// owns its own scope, matching Cobra / Click semantics.
+func buildParsedFromLevels(input string, rawArgs *Args, levels []cmdLevel) (*Parsed, error) {
+	leaf := levels[len(levels)-1]
+
+	path := make([]string, len(levels))
+	for i, l := range levels {
+		path[i] = l.def.Name
+	}
+
 	parsed := &Parsed{
 		Raw:         input,
-		CommandPath: cmdPath,
-		Definition:  def,
+		CommandPath: path,
+		Definition:  leaf.def,
 		Arguments:   make(map[string]any),
 		Flags:       make(map[string]any),
 		rawArgs:     rawArgs,
 	}
 
-	if err := parseArguments(parsed, remainingTokens, def); err != nil {
+	if err := parseArguments(parsed, leaf.args, leaf.def); err != nil {
 		return nil, err
 	}
-	if err := parseFlags(parsed, rawArgs, def); err != nil {
+	if err := parseFlagsFromMap(parsed, leaf.flags, leaf.def); err != nil {
 		return nil, err
 	}
-	if def.Validator != nil {
-		if err := def.Validator(parsed); err != nil {
+	if leaf.def.Validator != nil {
+		if err := leaf.def.Validator(parsed); err != nil {
 			return nil, fmt.Errorf("validation failed: %w", err)
 		}
 	}
 	return parsed, nil
 }
 
-func matchSubCommands(args *Args, rootDef *Definition) ([]string, *Definition, []string) {
-	var path []string
-	currentDef := rootDef
-	remainingArgs := args.Positional
-	argIndex := 0
-
-	for argIndex < len(remainingArgs) && len(currentDef.SubCommands) > 0 {
-		subCmdName := remainingArgs[argIndex]
-		matched := false
-		for _, subCmd := range currentDef.SubCommands {
-			if subCmd.Name == subCmdName || contains(subCmd.Aliases, subCmdName) {
-				path = append(path, subCmdName)
-				currentDef = subCmd
-				argIndex++
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			break
-		}
+// hierarchyLooksLikeFlag reports whether s is a flag token (starts with "-" and
+// the second character is a letter or "-"). Negative numbers such as -1, -3.14
+// are not considered flags.
+func hierarchyLooksLikeFlag(s string) bool {
+	if len(s) < 2 || s[0] != '-' {
+		return false
 	}
-	return path, currentDef, remainingArgs[argIndex:]
+	return isAlphaRune(rune(s[1])) || s[1] == '-'
 }
 
-func (p *Parser) matchCommand(args *Args) ([]string, *Definition, []string) {
-	cmdName := strings.TrimPrefix(args.Command, p.prefix)
+// isAlphaRune reports whether r is an ASCII letter.
+func isAlphaRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
 
-	var currentDef *Definition
-	for _, cmd := range p.rootCommands {
-		if cmd.Name == cmdName || contains(cmd.Aliases, cmdName) {
-			currentDef = cmd
-			break
+// isBoolFlag reports whether the long flag name is declared as ArgTypeBool in def.
+func isBoolFlag(def *Definition, name string) bool {
+	for _, f := range def.Flags {
+		if f.Name == name && f.Type == ArgTypeBool {
+			return true
 		}
 	}
-	if currentDef == nil {
-		return nil, nil, nil
-	}
+	return false
+}
 
-	subPath, finalDef, remaining := matchSubCommands(args, currentDef)
-	path := append([]string{currentDef.Name}, subPath...)
-	return path, finalDef, remaining
+// isBoolFlagShort reports whether the short flag name is declared as ArgTypeBool in def.
+func isBoolFlagShort(def *Definition, shortName string) bool {
+	for _, f := range def.Flags {
+		if f.ShortName == shortName && f.Type == ArgTypeBool {
+			return true
+		}
+	}
+	return false
+}
+
+// isBoolLiteral reports whether s is an unambiguous boolean literal.
+// These are the only values a bool flag will consume from the token stream;
+// any other adjacent token (e.g. a subcommand name) is left in place.
+func isBoolLiteral(s string) bool {
+	switch s {
+	case "true", "false", "1", "0", "yes", "no", "on", "off":
+		return true
+	}
+	return false
+}
+
+// findSubCmd returns the first Definition in cmds whose Name or Aliases matches name.
+func findSubCmd(cmds []*Definition, name string) *Definition {
+	for _, cmd := range cmds {
+		if cmd.Name == name || contains(cmd.Aliases, name) {
+			return cmd
+		}
+	}
+	return nil
+}
+
+// parseFlagsFromMap resolves and type-converts the raw string flags collected
+// for a single command level into parsed.Flags, validating required flags.
+func parseFlagsFromMap(parsed *Parsed, rawFlags map[string]string, def *Definition) error {
+	for _, flagDef := range def.Flags {
+		var rawValue string
+		var found bool
+
+		if rawValue, found = rawFlags[flagDef.Name]; !found && flagDef.ShortName != "" {
+			rawValue, found = rawFlags[flagDef.ShortName]
+		}
+
+		if flagDef.Type == ArgTypeStringSlice {
+			if found {
+				vals := strings.Fields(rawValue)
+				if flagDef.Required && len(vals) == 0 {
+					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
+				}
+				parsed.Flags[flagDef.Name] = vals
+			} else {
+				if flagDef.Required {
+					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
+				}
+				parsed.Flags[flagDef.Name] = flagDef.Default
+			}
+			continue
+		}
+
+		if found {
+			value, err := parseValue(rawValue, flagDef.Type)
+			if err != nil {
+				return fmt.Errorf("flag --%s: %w", flagDef.Name, err)
+			}
+			if flagDef.Validator != nil {
+				if err := flagDef.Validator(rawValue); err != nil {
+					return fmt.Errorf("flag --%s validation failed: %w", flagDef.Name, err)
+				}
+			}
+			parsed.Flags[flagDef.Name] = value
+		} else {
+			if flagDef.Required {
+				return fmt.Errorf("required flag --%s is missing", flagDef.Name)
+			}
+			parsed.Flags[flagDef.Name] = flagDef.Default
+		}
+	}
+	return nil
 }
 
 func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
@@ -274,56 +497,6 @@ func parseArguments(parsed *Parsed, tokens []string, def *Definition) error {
 			value = argDef.Default
 		}
 		parsed.Arguments[argDef.Name] = value
-	}
-	return nil
-}
-
-func parseFlags(parsed *Parsed, rawArgs *Args, def *Definition) error {
-	for _, flagDef := range def.Flags {
-		if flagDef.Type == ArgTypeStringSlice {
-			var rawValue string
-			var found bool
-			if rawValue, found = rawArgs.Flags[flagDef.Name]; !found && flagDef.ShortName != "" {
-				rawValue, found = rawArgs.Flags[flagDef.ShortName]
-			}
-			if found {
-				vals := strings.Fields(rawValue)
-				if flagDef.Required && len(vals) == 0 {
-					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
-				}
-				parsed.Flags[flagDef.Name] = vals
-			} else {
-				if flagDef.Required {
-					return fmt.Errorf("required flag --%s is missing", flagDef.Name)
-				}
-				parsed.Flags[flagDef.Name] = flagDef.Default
-			}
-			continue
-		}
-
-		var rawValue string
-		var found bool
-		if rawValue, found = rawArgs.Flags[flagDef.Name]; !found && flagDef.ShortName != "" {
-			rawValue, found = rawArgs.Flags[flagDef.ShortName]
-		}
-
-		if found {
-			value, err := parseValue(rawValue, flagDef.Type)
-			if err != nil {
-				return fmt.Errorf("flag --%s: %w", flagDef.Name, err)
-			}
-			if flagDef.Validator != nil {
-				if err := flagDef.Validator(rawValue); err != nil {
-					return fmt.Errorf("flag --%s validation failed: %w", flagDef.Name, err)
-				}
-			}
-			parsed.Flags[flagDef.Name] = value
-		} else {
-			if flagDef.Required {
-				return fmt.Errorf("required flag --%s is missing", flagDef.Name)
-			}
-			parsed.Flags[flagDef.Name] = flagDef.Default
-		}
 	}
 	return nil
 }

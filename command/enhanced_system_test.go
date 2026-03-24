@@ -480,7 +480,12 @@ func TestBoolParsing(t *testing.T) {
 		{"no", false, false},
 		{"on", true, false},
 		{"off", false, false},
-		{"invalid", false, true},
+		// "invalid" is not a recognised bool literal, so the type-aware parser
+		// does NOT consume it as the flag value.  Instead the flag is implicitly
+		// true and "invalid" becomes a positional argument (silently ignored here
+		// because the command defines no Arguments).  This matches Cobra / pflags
+		// behaviour: use --flag=value or an explicit bool literal for falsy values.
+		{"invalid", true, false},
 	}
 
 	for _, tt := range tests {
@@ -640,4 +645,124 @@ func TestInvalidFloatParsing(t *testing.T) {
 	_, err := ParseFromDefinition("/cmd not-a-float", def, "/")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "argument price")
+}
+
+// TestHierarchicalFlagScoping verifies that flags typed before a subcommand
+// token belong to the parent level and flags after it belong to the child level.
+// This is the Cobra / GNU getopt convention; the old global-extraction approach
+// would silently lose the parent-level flag.
+func TestHierarchicalFlagScoping(t *testing.T) {
+	// cmd tree:
+	//   /debug
+	//     └── runtime  (has --output flag)
+	//
+	// /debug itself has --verbose (bool) flag.
+	def := &Definition{
+		Name: "debug",
+		Flags: []*Flag{
+			{Name: "verbose", ShortName: "v", Type: ArgTypeBool},
+		},
+		SubCommands: []*Definition{
+			{
+				Name: "runtime",
+				Flags: []*Flag{
+					{Name: "output", ShortName: "o", Type: ArgTypeString},
+				},
+			},
+		},
+	}
+
+	parser := NewParser("/")
+	parser.Register(def)
+
+	t.Run("flag before subcommand belongs to parent (scoped, leaf wins)", func(t *testing.T) {
+		// --verbose appears before the subcommand → it is at the debug scope.
+		// The leaf (runtime) has --output after the subcommand.
+		parsed, err := parser.Parse("/debug --verbose runtime --output json")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"debug", "runtime"}, parsed.CommandPath)
+		// runtime's --output must be resolved correctly
+		assert.Equal(t, "json", parsed.GetString("output"))
+	})
+
+	t.Run("bool flag before subcommand does not consume subcommand as value", func(t *testing.T) {
+		// --verbose is a bool flag; "runtime" must NOT be eaten as its value.
+		parsed, err := parser.Parse("/debug --verbose runtime")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"debug", "runtime"}, parsed.CommandPath)
+	})
+
+	t.Run("bool flag with explicit false before subcommand", func(t *testing.T) {
+		parsed, err := parser.Parse("/debug --verbose false runtime --output log.txt")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"debug", "runtime"}, parsed.CommandPath)
+		assert.Equal(t, "log.txt", parsed.GetString("output"))
+	})
+
+	t.Run("flags after subcommand belong to child", func(t *testing.T) {
+		parsed, err := parser.Parse("/debug runtime --output result.txt")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"debug", "runtime"}, parsed.CommandPath)
+		assert.Equal(t, "result.txt", parsed.GetString("output"))
+	})
+
+	t.Run("flat command with flag at any position", func(t *testing.T) {
+		// /help has no subcommands — flags are free to appear anywhere.
+		helpDef := &Definition{
+			Name: "help",
+			Arguments: []*Argument{
+				{Name: "page", Type: ArgTypeInt, Default: 1},
+			},
+			Flags: []*Flag{
+				{Name: "topic", ShortName: "t", Type: ArgTypeString},
+			},
+		}
+		p := NewParser("/")
+		p.Register(helpDef)
+
+		parsed, err := p.Parse("/help 2 -t basics")
+		require.NoError(t, err)
+		assert.Equal(t, 2, parsed.GetInt("page"))
+		assert.Equal(t, "basics", parsed.GetString("topic"))
+	})
+}
+
+// TestPOSIXDoubleDash verifies that "--" terminates flag parsing and all
+// subsequent tokens are treated as positional arguments.
+func TestPOSIXDoubleDash(t *testing.T) {
+	def := &Definition{
+		Name: "run",
+		Arguments: []*Argument{
+			{Name: "args", Type: ArgTypeStringSlice},
+		},
+		Flags: []*Flag{
+			{Name: "detach", ShortName: "d", Type: ArgTypeBool},
+		},
+	}
+
+	parsed, err := ParseFromDefinition("/run -d -- --not-a-flag another", def, "/")
+	require.NoError(t, err)
+	assert.True(t, parsed.GetBool("detach"))
+	// "--not-a-flag" and "another" must be positional args, NOT flags
+	args := parsed.Arguments["args"].([]string)
+	assert.Equal(t, []string{"--not-a-flag", "another"}, args)
+}
+
+// TestBoolFlagEqualsSyntax verifies that --flag=false explicitly sets a bool
+// flag to false even with the type-aware parser.
+func TestBoolFlagEqualsSyntax(t *testing.T) {
+	def := &Definition{
+		Name: "cmd",
+		Flags: []*Flag{
+			{Name: "enabled", Type: ArgTypeBool},
+		},
+	}
+
+	parsed, err := ParseFromDefinition("/cmd --enabled=false", def, "/")
+	require.NoError(t, err)
+	assert.False(t, parsed.GetBool("enabled"))
+
+	parsed, err = ParseFromDefinition("/cmd --enabled=true", def, "/")
+	require.NoError(t, err)
+	assert.True(t, parsed.GetBool("enabled"))
 }
