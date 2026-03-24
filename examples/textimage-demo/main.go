@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -40,6 +41,11 @@ func main() {
 		{"08_warning_card", exWarningCard},
 		{"09_canvas_health_report", exCanvasHealthReport},
 		{"10_canvas_avatar_row", exCanvasAvatarRow},
+		{"11_bg_image_stretch", exBgImageStretch},
+		{"12_bg_frosted_glass", exBgFrostedGlass},
+		{"13_canvas_bg_health_report", exCanvasBgHealthReport},
+		{"14_multi_panel_bg", exMultiPanelBg},
+		{"15_new_features_showcase", exNewFeaturesShowcase},
 	}
 
 	for _, e := range examples {
@@ -368,4 +374,406 @@ func writeCanvasPNG(c *textimage.Canvas, path string) error {
 func fatal(msg string, err error) {
 	fmt.Fprintf(os.Stderr, "fatal: %s: %v\n", msg, err)
 	os.Exit(1)
+}
+
+// ─── example 11: 图片背景 + BgFitFill ────────────────────────────────────────
+//
+// 用合成的紫蓝渐变图作为背景，拉伸填充，白色文字直接叠加在图上。
+
+func exBgImageStretch(dir string) error {
+	bg := makeGradient(640, 200,
+		color.RGBA{R: 60, G: 20, B: 120, A: 255},
+		color.RGBA{R: 20, G: 80, B: 180, A: 255},
+	)
+	r, err := textimage.New(
+		textimage.WithCJKFont(),
+		textimage.WithSize(640, 200),
+		textimage.WithFontSize(28),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		textimage.WithPadding(30, 40),
+	)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return r.RenderToFile(filepath.Join(dir, "11_bg_image_stretch.png"), "Remilia Bot\n图片背景渲染演示")
+}
+
+// ─── example 12: 背景图 + 毛玻璃遮罩（圆角矩形） ─────────────────────────────
+//
+// 渐变背景 + 每行文字背后带圆角毛玻璃底板（blur 12 + 半透明黑 + 圆角 10px）。
+
+func exBgFrostedGlass(dir string) error {
+	bg := makeGradient(560, 0,
+		color.RGBA{R: 255, G: 120, B: 40, A: 255},
+		color.RGBA{R: 20, G: 160, B: 200, A: 255},
+	)
+	const msg = "系统状态  ·  毛玻璃遮罩\n\nCPU  3.2 %\n内存  48 MB / 256 MB\n延迟  12 ms\n状态  🟢 正常"
+
+	r, err := textimage.New(
+		textimage.WithCJKFont(),
+		textimage.WithSize(560, 0),
+		textimage.WithFontSize(19),
+		textimage.WithPadding(40, 28),
+		textimage.WithLineHeight(1.9),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		// 毛玻璃：模糊半径 12，叠加半透明黑色，圆角矩形形状
+		textimage.WithTextBackdrop(color.NRGBA{R: 0, G: 0, B: 0, A: 110}, 12),
+		textimage.WithTextBackdropPadding(14, 6),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 10),
+	)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return r.RenderToFile(filepath.Join(dir, "12_bg_frosted_glass.png"), msg)
+}
+
+// ─── example 13: Canvas + 图片背景 + 机器人自检报告 ──────────────────────────
+//
+// 完整的机器人自检场景：渐变背景图 + 圆形头像 + 系统报告文字（毛玻璃遮罩）。
+
+func exCanvasBgHealthReport(dir string) error {
+	const report = "Remilia Bot  ·  系统自检报告\n" +
+		"────────────────────────────────\n" +
+		"运行时间      72 小时 14 分\n" +
+		"内存占用      48 MB / 256 MB\n" +
+		"CPU 使用率   3.2 %\n" +
+		"处理消息数   1,024,388\n" +
+		"网络延迟      12 ms\n" +
+		"────────────────────────────────\n" +
+		"状态: 🟢 一切正常"
+
+	// 合成渐变背景（深蓝 → 深紫）。
+	bg := makeGradient(580, 400,
+		color.RGBA{R: 10, G: 20, B: 60, A: 255},
+		color.RGBA{R: 50, G: 10, B: 80, A: 255},
+	)
+	// 合成头像：蓝色圆形占位图。
+	avatar := makeCircleAvatar(96, color.RGBA{R: 80, G: 140, B: 230, A: 255})
+
+	c, err := textimage.NewCanvas(580,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(15),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(color.RGBA{R: 230, G: 235, B: 255, A: 255}),
+		textimage.WithPadding(24, 0),
+		textimage.WithLineHeight(1.75),
+		// 默认文字块不需要遮罩（会在 AddText 时按需覆盖）
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(20)
+
+	// 头像居中行。
+	if err := c.AddImage(avatar,
+		textimage.WithImgCircle(),
+		textimage.WithImgWidth(96),
+		textimage.WithImgAlign(textimage.AlignCenter),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(14)
+
+	// 报告文字 + 毛玻璃圆角矩形遮罩。
+	if err := c.AddText(report,
+		textimage.WithTextBackdrop(color.NRGBA{R: 0, G: 0, B: 20, A: 140}, 14),
+		textimage.WithTextBackdropPadding(16, 8),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 8),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(20)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "13_canvas_bg_health_report.png"))
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+// makeGradient 返回 w×h 的水平线性渐变图（from → to）。
+// h == 0 时高度设为 w / 3。
+func makeGradient(w, h int, from, to color.RGBA) image.Image {
+	if h <= 0 {
+		h = w / 3
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for x := 0; x < w; x++ {
+		t := float64(x) / float64(w-1)
+		r := uint8(math.Round(float64(from.R)*(1-t) + float64(to.R)*t))
+		g := uint8(math.Round(float64(from.G)*(1-t) + float64(to.G)*t))
+		b := uint8(math.Round(float64(from.B)*(1-t) + float64(to.B)*t))
+		for y := 0; y < h; y++ {
+			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
+		}
+	}
+	return img
+}
+
+// makeCircleAvatar 返回 size×size 的纯色填充图（用于模拟头像）。
+func makeCircleAvatar(size int, c color.RGBA) image.Image {
+	return makeSolidRGBA(size, size, c)
+}
+
+// ─── example 15: 新功能综合演示 ───────────────────────────────────────────────
+//
+// 演示五个新特性：
+//   1. LinearGradient / RadialGradient — 内置渐变背景，无需手动循环
+//   2. WithTextShadow              — 文字硬边/软化阴影
+//   3. Canvas.AddDivider           — 水平分隔线
+//   4. Canvas.AddProgressBar       — 进度条（CPU / 内存 / 延迟）
+//   5. WithImgOpacity              — 图片透明度（水印效果）
+
+func exNewFeaturesShowcase(dir string) error {
+	// ① 用内置渐变生成背景（深蓝 → 深紫 → 深青，斜 135°）
+	bg := textimage.LinearGradient(600, 520, 135,
+		textimage.Stop(0.0, color.RGBA{R: 10, G: 20, B: 60, A: 255}),
+		textimage.Stop(0.5, color.RGBA{R: 40, G: 10, B: 80, A: 255}),
+		textimage.Stop(1.0, color.RGBA{R: 5, G: 50, B: 70, A: 255}),
+	)
+
+	// ② 水印：半透明头像占位图叠加在画布左下（使用 WithImgOpacity）
+	watermark := makeSolidRGBA(80, 80, color.RGBA{R: 180, G: 180, B: 200, A: 255})
+
+	textClr := color.RGBA{R: 230, G: 235, B: 255, A: 255}
+	dimClr := color.RGBA{R: 150, G: 155, B: 180, A: 255}
+
+	c, err := textimage.NewCanvas(600,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(15),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(textClr),
+		textimage.WithPadding(28, 0),
+		textimage.WithLineHeight(1.75),
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(20)
+
+	// 标题行：圆形头像 + 机器人名称（含文字阴影）
+	avatar := makeSolidRGBA(72, 72, color.RGBA{R: 80, G: 130, B: 220, A: 255})
+	if err := c.AddRow(
+		textimage.RowItem{
+			Width: 80,
+			Image: avatar,
+			ImageOpts: []textimage.ImageOption{
+				textimage.WithImgCircle(),
+				textimage.WithImgAlign(textimage.AlignCenter),
+			},
+		},
+		textimage.RowItem{
+			Text: "Remilia Bot\nv2.1.0  ·  shard 0/1  ·  2026-03-24",
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(19),
+				textimage.WithLineHeight(1.5),
+				// ③ 文字软化阴影
+				textimage.WithTextShadow(color.RGBA{A: 180}, 1, 2, 4),
+			},
+		},
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(14)
+
+	// ④ 分隔线
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 100, G: 110, B: 160, A: 180}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(2),
+	)
+
+	c.AddSpacer(10)
+
+	// 系统指标文字（含文字阴影 + 毛玻璃遮罩）
+	if err := c.AddText("系统指标",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimClr),
+		textimage.WithTextShadow(color.RGBA{A: 150}, 1, 1, 2),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(4)
+
+	// ⑤ 进度条：CPU
+	if err := c.AddText("CPU  3.2 %",
+		textimage.WithFontSize(14),
+		textimage.WithTextShadow(color.RGBA{A: 160}, 1, 1, 2),
+	); err != nil {
+		return err
+	}
+	c.AddProgressBar(3.2, 100,
+		textimage.WithProgressFillColor(color.RGBA{R: 80, G: 210, B: 120, A: 255}),
+		textimage.WithProgressTrackColor(color.RGBA{R: 40, G: 45, B: 70, A: 220}),
+		textimage.WithProgressHeight(10),
+		textimage.WithProgressRadius(5),
+		textimage.WithProgressPadding(0, 2),
+	)
+
+	// 进度条：内存
+	if err := c.AddText("内存  48 / 256 MB  (18.8 %)",
+		textimage.WithFontSize(14),
+		textimage.WithTextShadow(color.RGBA{A: 160}, 1, 1, 2),
+	); err != nil {
+		return err
+	}
+	c.AddProgressBar(48, 256,
+		textimage.WithProgressFillColor(color.RGBA{R: 100, G: 160, B: 240, A: 255}),
+		textimage.WithProgressTrackColor(color.RGBA{R: 40, G: 45, B: 70, A: 220}),
+		textimage.WithProgressHeight(10),
+		textimage.WithProgressRadius(5),
+		textimage.WithProgressPadding(0, 2),
+	)
+
+	// 进度条：处理消息速率（告警红）
+	if err := c.AddText("QPS  87 / 100  (告警阈值 80 %)",
+		textimage.WithFontSize(14),
+		textimage.WithFontColor(color.RGBA{R: 255, G: 180, B: 140, A: 255}),
+		textimage.WithTextShadow(color.RGBA{A: 160}, 1, 1, 2),
+	); err != nil {
+		return err
+	}
+	c.AddProgressBar(87, 100,
+		textimage.WithProgressFillColor(color.RGBA{R: 230, G: 80, B: 60, A: 255}),
+		textimage.WithProgressTrackColor(color.RGBA{R: 40, G: 45, B: 70, A: 220}),
+		textimage.WithProgressHeight(10),
+		textimage.WithProgressRadius(5),
+		textimage.WithProgressPadding(0, 2),
+	)
+
+	c.AddSpacer(10)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 100, G: 110, B: 160, A: 120}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(2),
+	)
+	c.AddSpacer(8)
+
+	// 状态行（毛玻璃卡片 + 文字阴影）
+	if err := c.AddText("🟢  状态正常  ·  延迟 12 ms  ·  活跃用户 2,731",
+		textimage.WithFontSize(15),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithTextBackdrop(color.NRGBA{R: 30, G: 120, B: 60, A: 120}, 8),
+		textimage.WithTextBackdropPadding(20, 8),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 20),
+		textimage.WithTextBackdropMode(textimage.BackdropModeBlock),
+		textimage.WithTextShadow(color.RGBA{A: 200}, 0, 2, 3),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(12)
+
+	// 水印：半透明图片叠加在右侧（WithImgOpacity）
+	if err := c.AddImage(watermark,
+		textimage.WithImgWidth(40),
+		textimage.WithImgCircle(),
+		textimage.WithImgAlign(textimage.AlignRight),
+		textimage.WithImgOpacity(0.25),
+		textimage.WithImgPadding(28, 4),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(16)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "15_new_features_showcase.png"))
+}
+
+// ─── example 14: 背景图 + 多个独立毛玻璃文字面板 ─────────────────────────────
+//
+// 演示 BackdropModeBlock：在同一张背景图上，用 Canvas 垂直排列多个文字块，
+// 每个块都是独立的圆角毛玻璃卡片（blur + 半透明底色 + 圆角矩形）。
+// 这正是"背景图上画几块高斯模糊区域、在其中填充文字"的典型用法。
+
+func exMultiPanelBg(dir string) error {
+	// 斜向渐变背景（暖橙 → 深青）模拟真实场景背景图。
+	bg := makeGradient(620, 520,
+		color.RGBA{R: 220, G: 80, B: 20, A: 255},
+		color.RGBA{R: 10, G: 80, B: 140, A: 255},
+	)
+
+	c, err := textimage.NewCanvas(620,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(16),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(color.RGBA{R: 255, G: 255, B: 255, A: 255}),
+		textimage.WithPadding(32, 0),
+		textimage.WithLineHeight(1.8),
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(24)
+
+	// ── 面板 1：标题卡片（大字，亮色底板）────────────────────────────────────
+	if err := c.AddText(
+		"Remilia Bot  ·  系统自检",
+		textimage.WithFontSize(26),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithTextBackdrop(color.NRGBA{R: 255, G: 255, B: 255, A: 50}, 18),
+		textimage.WithTextBackdropPadding(20, 14),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 16),
+		textimage.WithTextBackdropMode(textimage.BackdropModeBlock),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	// ── 面板 2：系统指标（深色卡片，多行）────────────────────────────────────
+	if err := c.AddText(
+		"CPU 使用率    3.2 %\n内存占用      48 MB / 256 MB\n运行时间      72 小时 14 分\n处理消息数   1,024,388",
+		textimage.WithFontSize(15),
+		textimage.WithTextBackdrop(color.NRGBA{R: 0, G: 0, B: 0, A: 150}, 16),
+		textimage.WithTextBackdropPadding(24, 12),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 12),
+		textimage.WithTextBackdropMode(textimage.BackdropModeBlock),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	// ── 面板 3：警告信息（红色半透明底板）────────────────────────────────────
+	if err := c.AddText(
+		"⚠  检测到速率限制告警\n当前 QPS 已达阈值的 87 %，请关注。",
+		textimage.WithFontSize(15),
+		textimage.WithFontColor(color.RGBA{R: 255, G: 220, B: 180, A: 255}),
+		textimage.WithTextBackdrop(color.NRGBA{R: 160, G: 20, B: 0, A: 160}, 14),
+		textimage.WithTextBackdropPadding(24, 12),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 12),
+		textimage.WithTextBackdropMode(textimage.BackdropModeBlock),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	// ── 面板 4：状态标签（单行，椭圆形遮罩）──────────────────────────────────
+	if err := c.AddText(
+		"🟢  状态正常  ·  延迟 12 ms",
+		textimage.WithFontSize(16),
+		textimage.WithAlign(textimage.AlignCenter),
+		textimage.WithTextBackdrop(color.NRGBA{R: 20, G: 120, B: 40, A: 170}, 10),
+		textimage.WithTextBackdropPadding(32, 12),
+		textimage.WithTextBackdropShape(textimage.BackdropShapeRounded, 24),
+		textimage.WithTextBackdropMode(textimage.BackdropModeBlock),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(24)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "14_multi_panel_bg.png"))
 }

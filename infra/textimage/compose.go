@@ -18,14 +18,16 @@ import (
 type ImageOption func(*imageOpts)
 
 type imageOpts struct {
-	width    int       // 缩放到精确宽度（0 = 自动）
-	height   int       // 缩放到精确高度（0 = 自动）
-	maxWidth int       // 限制最大宽度（0 = 画布宽度 − 2×paddingX）
-	align    Alignment // 水平对齐方式，默认 AlignLeft
-	paddingX int       // 距画布左右边缘的水平内边距
-	paddingY int       // 图片上下的垂直内边距
-	circle   bool      // 将图片裁剪为圆形（头像样式）
-	roundR   int       // 圆角半径（像素），circle=true 时忽略
+	width      int       // 缩放到精确宽度（0 = 自动）
+	height     int       // 缩放到精确高度（0 = 自动）
+	maxWidth   int       // 限制最大宽度（0 = 画布宽度 − 2×paddingX）
+	align      Alignment // 水平对齐方式，默认 AlignLeft
+	paddingX   int       // 距画布左右边缘的水平内边距
+	paddingY   int       // 图片上下的垂直内边距
+	circle     bool      // 将图片裁剪为圆形（头像样式）
+	roundR     int       // 圆角半径（像素），circle=true 时忽略
+	opacity    float64   // 不透明度 [0.0, 1.0]，仅当 opacitySet=true 时有效
+	opacitySet bool      // true 表示调用方显式设置了 opacity
 }
 
 // WithImgWidth 将图片缩放到精确的像素宽度（若未同时设置 WithImgHeight，则高度等比缩放）。
@@ -54,6 +56,13 @@ func WithImgCircle() ImageOption { return func(o *imageOpts) { o.circle = true }
 // 当同时设置了 [WithImgCircle] 时，此选项被忽略。
 func WithImgRoundRadius(r int) ImageOption { return func(o *imageOpts) { o.roundR = r } }
 
+// WithImgOpacity 设置图片的整体不透明度（0.0 = 完全透明，1.0 = 完全不透明）。
+// 未调用此选项时默认为完全不透明。
+// 适合制作水印、叠加半透明装饰图等效果。
+func WithImgOpacity(alpha float64) ImageOption {
+	return func(o *imageOpts) { o.opacity = alpha; o.opacitySet = true }
+}
+
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 
 // canvasBlock 是一个知道自身渲染高度并能在指定 y 偏移处绘制自身的元素。
@@ -75,6 +84,8 @@ type canvasBlock interface {
 type Canvas struct {
 	width   int
 	bgColor color.Color
+	bgImage image.Image
+	bgFit   BgFitMode
 	blocks  []canvasBlock
 	opts    Options // 画布级文本默认选项
 }
@@ -91,7 +102,7 @@ func NewCanvas(width int, opts ...Option) (*Canvas, error) {
 	for _, fn := range opts {
 		fn(&o)
 	}
-	return &Canvas{width: width, bgColor: o.BgColor, opts: o}, nil
+	return &Canvas{width: width, bgColor: o.BgColor, bgImage: o.BgImage, bgFit: o.BgFit, opts: o}, nil
 }
 
 // AddSpacer 在末尾追加 px 像素高度的透明垂直空白。
@@ -101,26 +112,22 @@ func (c *Canvas) AddSpacer(px int) {
 	}
 }
 
-// AddText 渲染文本并将其作为全宽块追加到画布。
-// 文本会自动按画布宽度进行自动换行。
-// 块级选项仅对当前块覆盖画布级默认值。
+// AddText appends a text block to the canvas.
+// Text is NOT rendered immediately; rendering happens in [Canvas.Result] /
+// [Canvas.ResultPNG] / [Canvas.ResultJPEG], at which point backdrop blur
+// operates on the actual canvas pixels (including any BgImage).
+// Block-level options override the canvas defaults for this block only.
 func (c *Canvas) AddText(text string, opts ...Option) error {
 	o := c.opts
+	o.BgImage = nil // canvas owns the background; strip to avoid y=0 re-render
 	for _, fn := range opts {
 		fn(&o)
 	}
-	o.Width = c.width
-	o.Height = 0
-	r, err := New(func(t *Options) { *t = o })
+	block, err := newTextBlock(text, o, c.width)
 	if err != nil {
 		return fmt.Errorf("textimage canvas AddText: %w", err)
 	}
-	img, err := r.Render(text)
-	_ = r.Close()
-	if err != nil {
-		return fmt.Errorf("textimage canvas AddText: %w", err)
-	}
-	c.blocks = append(c.blocks, &imgBlock{img: img})
+	c.blocks = append(c.blocks, block)
 	return nil
 }
 
@@ -225,6 +232,7 @@ func (c *Canvas) AddRow(items ...RowItem) error {
 		switch {
 		case it.Text != "":
 			o := c.opts
+			o.BgImage = nil // row cells are pre-rendered; canvas owns the background
 			for _, fn := range it.TextOpts {
 				fn(&o)
 			}
@@ -295,6 +303,9 @@ func (c *Canvas) Result() image.Image {
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, c.width, totalH))
 	stdraw.Draw(dst, dst.Bounds(), image.NewUniform(c.bgColor), image.Point{}, stdraw.Src)
+	if c.bgImage != nil {
+		drawBgImage(dst, c.bgImage, c.bgFit)
+	}
 	y := 0
 	for _, b := range c.blocks {
 		b.drawAt(dst, y, c.width)
@@ -341,6 +352,48 @@ type spacerBlock int
 func (s spacerBlock) blockHeight() int               { return int(s) }
 func (s spacerBlock) drawAt(_ *image.RGBA, _, _ int) {}
 
+// textBlock stores raw text and rendering options for deferred rendering.
+// Unlike imgBlock, it renders directly onto the canvas image at drawAt time,
+// so backdrop blur operations see the actual canvas background pixels
+// (including any BgImage drawn by Canvas.Result).
+type textBlock struct {
+	text string
+	opts Options
+	h    int // pre-computed block height
+}
+
+// newTextBlock creates a textBlock, pre-computing its pixel height.
+// BgImage is stripped from opts because the canvas handles the background;
+// individual text blocks should not re-render it from y=0.
+func newTextBlock(text string, opts Options, canvasWidth int) (*textBlock, error) {
+	opts.Width = canvasWidth
+	opts.BgImage = nil // canvas owns the background
+	_, h, err := TextSize(text, func(o *Options) { *o = opts })
+	if err != nil {
+		return nil, err
+	}
+	if h < 1 {
+		h = 1
+	}
+	return &textBlock{text: text, opts: opts, h: h}, nil
+}
+
+func (b *textBlock) blockHeight() int { return b.h }
+
+// drawAt renders b.text directly onto dst at yOffset using the actual dst
+// pixels as the backdrop source. This ensures blur operates on the real
+// canvas background (BgColor + BgImage) rather than a stale per-block copy.
+func (b *textBlock) drawAt(dst *image.RGBA, yOffset, canvasWidth int) {
+	o := b.opts
+	o.Width = canvasWidth
+	r, err := New(func(t *Options) { *t = o })
+	if err != nil {
+		return
+	}
+	defer r.Close()
+	r.renderOnto(dst, yOffset, b.text)
+}
+
 // imgBlock holds a pre-rendered image together with alignment/padding metadata
 // for positioning on the canvas.
 type imgBlock struct {
@@ -365,7 +418,21 @@ func (b *imgBlock) drawAt(dst *image.RGBA, yOffset, canvasWidth int) {
 	}
 	srcB := b.img.Bounds()
 	destRect := srcB.Add(image.Pt(x, yOffset+b.opts.paddingY))
-	stdraw.Draw(dst, destRect, b.img, srcB.Min, stdraw.Over)
+
+	op := 1.0 // default: fully opaque
+	if b.opts.opacitySet {
+		op = b.opts.opacity
+	}
+	if op <= 0 {
+		return // fully transparent — skip
+	}
+	if op >= 1.0 {
+		stdraw.Draw(dst, destRect, b.img, srcB.Min, stdraw.Over)
+	} else {
+		alpha := uint8(op*255 + 0.5)
+		stdraw.DrawMask(dst, destRect, b.img, srcB.Min,
+			image.NewUniform(color.Alpha{A: alpha}), image.Point{}, stdraw.Over)
+	}
 }
 
 // ─── Image processing helpers ─────────────────────────────────────────────────
@@ -541,4 +608,229 @@ func inRoundedRect(x, y, w, h, radius, r2 int) bool {
 	}
 	dx, dy := x-cx, y-cy
 	return dx*dx+dy*dy <= r2
+}
+
+// ─── Divider ──────────────────────────────────────────────────────────────────
+
+// DividerOption configures a horizontal divider added by [Canvas.AddDivider].
+type DividerOption func(*dividerOpts)
+
+type dividerOpts struct {
+	lineColor color.Color
+	thickness int // line pixel height
+	insetX    int // horizontal inset from canvas edges on each side
+	paddingY  int // vertical space above and below the line
+}
+
+// WithDividerColor sets the divider line colour.
+func WithDividerColor(c color.Color) DividerOption {
+	return func(o *dividerOpts) { o.lineColor = c }
+}
+
+// WithDividerThickness sets the line height in pixels (default 1).
+func WithDividerThickness(px int) DividerOption {
+	return func(o *dividerOpts) { o.thickness = px }
+}
+
+// WithDividerInset sets how many pixels the line is inset from each canvas edge.
+func WithDividerInset(px int) DividerOption {
+	return func(o *dividerOpts) { o.insetX = px }
+}
+
+// WithDividerPadding sets the vertical space (pixels) above and below the line.
+func WithDividerPadding(py int) DividerOption {
+	return func(o *dividerOpts) { o.paddingY = py }
+}
+
+type dividerBlock struct {
+	canvasWidth int
+	opts        dividerOpts
+}
+
+func (b *dividerBlock) blockHeight() int { return b.opts.thickness + 2*b.opts.paddingY }
+func (b *dividerBlock) drawAt(dst *image.RGBA, yOffset, canvasWidth int) {
+	lineY := yOffset + b.opts.paddingY
+	x0 := b.opts.insetX
+	x1 := canvasWidth - b.opts.insetX
+	if x1 <= x0 {
+		return
+	}
+	dstB := dst.Bounds()
+	for y := lineY; y < lineY+b.opts.thickness; y++ {
+		if y < dstB.Min.Y || y >= dstB.Max.Y {
+			continue
+		}
+		for x := x0; x < x1; x++ {
+			if x >= dstB.Min.X && x < dstB.Max.X {
+				dst.Set(x, y, b.opts.lineColor)
+			}
+		}
+	}
+}
+
+// AddDivider appends a horizontal divider line to the canvas.
+//
+// Example:
+//
+//	c.AddDivider(
+//	    textimage.WithDividerColor(color.RGBA{R:80, G:80, B:80, A:180}),
+//	    textimage.WithDividerThickness(1),
+//	    textimage.WithDividerInset(24),
+//	    textimage.WithDividerPadding(8),
+//	)
+func (c *Canvas) AddDivider(opts ...DividerOption) {
+	do := dividerOpts{
+		lineColor: color.RGBA{R: 180, G: 180, B: 180, A: 200},
+		thickness: 1,
+		paddingY:  8,
+	}
+	for _, fn := range opts {
+		fn(&do)
+	}
+	c.blocks = append(c.blocks, &dividerBlock{canvasWidth: c.width, opts: do})
+}
+
+// ─── ProgressBar ──────────────────────────────────────────────────────────────
+
+// ProgressBarOption configures a progress bar added by [Canvas.AddProgressBar].
+type ProgressBarOption func(*progressBarOpts)
+
+type progressBarOpts struct {
+	fillColor  color.Color
+	trackColor color.Color
+	height     int
+	radius     int // rounded corner radius
+	paddingX   int // horizontal inset from canvas edges
+	paddingY   int // vertical space above and below the bar
+}
+
+// WithProgressFillColor sets the colour of the filled (progress) portion.
+func WithProgressFillColor(c color.Color) ProgressBarOption {
+	return func(o *progressBarOpts) { o.fillColor = c }
+}
+
+// WithProgressTrackColor sets the colour of the unfilled track background.
+func WithProgressTrackColor(c color.Color) ProgressBarOption {
+	return func(o *progressBarOpts) { o.trackColor = c }
+}
+
+// WithProgressHeight sets the bar height in pixels (default 12).
+func WithProgressHeight(px int) ProgressBarOption {
+	return func(o *progressBarOpts) { o.height = px }
+}
+
+// WithProgressRadius sets the rounded-corner radius of the bar (default 6).
+func WithProgressRadius(r int) ProgressBarOption {
+	return func(o *progressBarOpts) { o.radius = r }
+}
+
+// WithProgressPadding sets horizontal inset (x) and vertical spacing (y).
+func WithProgressPadding(x, y int) ProgressBarOption {
+	return func(o *progressBarOpts) { o.paddingX = x; o.paddingY = y }
+}
+
+type progressBlock struct {
+	value float64 // clamped to [0, 1]
+	opts  progressBarOpts
+}
+
+func (b *progressBlock) blockHeight() int { return b.opts.height + 2*b.opts.paddingY }
+
+func (b *progressBlock) drawAt(dst *image.RGBA, yOffset, canvasWidth int) {
+	px, py := b.opts.paddingX, b.opts.paddingY
+	barW := canvasWidth - 2*px
+	barH := b.opts.height
+	if barW < 1 || barH < 1 {
+		return
+	}
+
+	barRect := image.Rect(px, yOffset+py, px+barW, yOffset+py+barH).Intersect(dst.Bounds())
+	if barRect.Empty() {
+		return
+	}
+
+	// Draw track (full bar background).
+	drawFilledRoundedRect(dst, barRect, b.opts.radius, b.opts.trackColor)
+
+	// Draw fill — iterate only the fill columns but test against the full bar
+	// shape so corners are correctly rounded on both the fill and the track.
+	v := b.value
+	if v <= 0 {
+		return
+	}
+	if v > 1 {
+		v = 1
+	}
+	fillW := int(float64(barRect.Dx()) * v)
+	if fillW <= 0 {
+		return
+	}
+
+	r, r2 := b.opts.radius, b.opts.radius*b.opts.radius
+	fullW, fullH := barRect.Dx(), barRect.Dy()
+	for y := 0; y < fullH; y++ {
+		for x := 0; x < fillW; x++ {
+			if r == 0 || inRoundedRect(x, y, fullW, fullH, r, r2) {
+				dst.Set(barRect.Min.X+x, barRect.Min.Y+y, b.opts.fillColor)
+			}
+		}
+	}
+}
+
+// AddProgressBar appends a horizontal progress bar to the canvas.
+// value is the current level; max is the maximum (value/max is clamped to [0,1]).
+//
+// Example — CPU usage bar:
+//
+//	c.AddProgressBar(cpuPercent, 100,
+//	    textimage.WithProgressFillColor(color.RGBA{R:80, G:200, B:120, A:255}),
+//	    textimage.WithProgressTrackColor(color.RGBA{R:40, G:40, B:50, A:255}),
+//	    textimage.WithProgressHeight(14),
+//	    textimage.WithProgressRadius(7),
+//	    textimage.WithProgressPadding(24, 4),
+//	)
+func (c *Canvas) AddProgressBar(value, max float64, opts ...ProgressBarOption) {
+	po := progressBarOpts{
+		fillColor:  color.RGBA{R: 80, G: 160, B: 240, A: 255},
+		trackColor: color.RGBA{R: 50, G: 50, B: 60, A: 255},
+		height:     12,
+		radius:     6,
+		paddingY:   4,
+	}
+	for _, fn := range opts {
+		fn(&po)
+	}
+	v := 0.0
+	if max > 0 {
+		v = value / max
+	}
+	c.blocks = append(c.blocks, &progressBlock{value: v, opts: po})
+}
+
+// ─── Drawing helpers ──────────────────────────────────────────────────────────
+
+// drawFilledRoundedRect paints a filled rounded rectangle into dst.
+// All coordinates are in dst's absolute pixel space.
+func drawFilledRoundedRect(dst *image.RGBA, rect image.Rectangle, radius int, c color.Color) {
+	rect = rect.Intersect(dst.Bounds())
+	if rect.Empty() {
+		return
+	}
+	w, h := rect.Dx(), rect.Dy()
+	if radius <= 0 {
+		for y := rect.Min.Y; y < rect.Max.Y; y++ {
+			for x := rect.Min.X; x < rect.Max.X; x++ {
+				dst.Set(x, y, c)
+			}
+		}
+		return
+	}
+	r2 := radius * radius
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			if inRoundedRect(col, row, w, h, radius, r2) {
+				dst.Set(rect.Min.X+col, rect.Min.Y+row, c)
+			}
+		}
+	}
 }

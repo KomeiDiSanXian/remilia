@@ -1,6 +1,9 @@
 package textimage
 
-import "image/color"
+import (
+	"image"
+	"image/color"
+)
 
 // Alignment 指定图片内文本的水平对齐方式。
 type Alignment int
@@ -9,6 +12,45 @@ const (
 	AlignLeft   Alignment = iota // 默认：左对齐
 	AlignCenter                  // 水平居中
 	AlignRight                   // 右对齐
+)
+
+// BgFitMode 控制背景图片的缩放/平铺策略。
+type BgFitMode int
+
+const (
+	// BgFitStretch 将背景图片拉伸至画布大小（不保持比例）。
+	BgFitStretch BgFitMode = iota
+	// BgFitFill 等比缩放至能覆盖整个画布（超出部分居中裁剪）。
+	BgFitFill
+	// BgFitFit 等比缩放至完整显示于画布内（不足处以 BgColor 填充）。
+	BgFitFit
+	// BgFitCenter 不缩放，将原始图居中放置（超出部分裁剪，不足处留 BgColor）。
+	BgFitCenter
+	// BgFitTile 以原始尺寸平铺图片。
+	BgFitTile
+)
+
+// BackdropShape 控制文字背后遮罩（毛玻璃底色）的形状。
+type BackdropShape int
+
+const (
+	// BackdropShapeRect 矩形（默认）。
+	BackdropShapeRect BackdropShape = iota
+	// BackdropShapeRounded 圆角矩形，圆角半径由 TextBackdropRoundRadius 控制。
+	BackdropShapeRounded
+	// BackdropShapeEllipse 以矩形区域内切椭圆裁剪（宽高相等时即为圆形）。
+	BackdropShapeEllipse
+)
+
+// BackdropMode 控制遮罩的覆盖范围：逐行还是整块。
+type BackdropMode int
+
+const (
+	// BackdropModePerLine 每行文字各自绘制一块遮罩（默认）。
+	BackdropModePerLine BackdropMode = iota
+	// BackdropModeBlock 将全部文字行的包围盒合并为一块遮罩，整体绘制。
+	// 适合"文字面板"场景：背景图上放一块毛玻璃卡片，卡片内再填充文字。
+	BackdropModeBlock
 )
 
 // Options 保存 [Renderer] 的全部配置。
@@ -62,6 +104,49 @@ type Options struct {
 	// TTCIndex 是 TrueType Collection（.ttc / .otc）文件中要使用的字体的
 	// 零起始索引。默认：0（大多数 CJK 字体包中的 Regular 字重）。
 	TTCIndex int
+
+	// BgImage 是作为画布背景使用的图片。
+	// 非 nil 时，BgColor 仅用于填充 BgImage 未覆盖的区域（取决于 BgFit）。
+	BgImage image.Image
+
+	// BgFit 控制 BgImage 的缩放/对齐策略。默认：BgFitStretch。
+	BgFit BgFitMode
+
+	// TextBackdropColor 是在每行文字正后方绘制的半透明遮罩颜色。
+	// nil 或完全透明时不绘制遮罩。
+	// 典型用法：color.NRGBA{R:0, G:0, B:0, A:128} 表示半透明黑色。
+	TextBackdropColor color.Color
+
+	// TextBackdropBlur 是对文字遮罩区域下方背景像素应用的模糊半径（像素）。
+	// > 0 时先模糊背景、再叠加 TextBackdropColor 遮罩，形成毛玻璃效果。
+	// 0（默认）表示不模糊。
+	TextBackdropBlur int
+
+	// TextBackdropPadX / TextBackdropPadY 是遮罩在每行文字周围额外扩展的像素数。
+	TextBackdropPadX int
+	TextBackdropPadY int
+
+	// TextBackdropShape 控制遮罩的裁剪形状。默认：BackdropShapeRect（矩形）。
+	TextBackdropShape BackdropShape
+
+	// TextBackdropRoundRadius 是圆角矩形遮罩的圆角半径（像素）。
+	// 仅当 TextBackdropShape == BackdropShapeRounded 时有效。
+	TextBackdropRoundRadius int
+
+	// TextBackdropMode 控制遮罩覆盖范围。默认：BackdropModePerLine（逐行）。
+	// 设为 BackdropModeBlock 时，所有文字行共用一块整体遮罩（毛玻璃卡片效果）。
+	TextBackdropMode BackdropMode
+
+	// TextShadowColor 是文字阴影的颜色。nil 表示不绘制阴影。
+	TextShadowColor color.Color
+
+	// TextShadowOffsetX / TextShadowOffsetY 是阴影相对于文字的像素偏移。
+	// 正值分别对应向右 / 向下偏移。
+	TextShadowOffsetX int
+	TextShadowOffsetY int
+
+	// TextShadowBlur 是阴影的模糊半径（像素）。0 = 硬边阴影，>0 = 软化阴影。
+	TextShadowBlur int
 }
 
 // Option 是用于配置 [Renderer] 的函数式选项。
@@ -157,4 +242,64 @@ func WithCJKFont() Option {
 		return func(*Options) {} // 无操作
 	}
 	return WithFontPath(path)
+}
+
+// WithBgImage 将 img 设为画布背景，并以 fit 策略缩放/平铺。
+// 传入 nil 可清除背景图片（退回到纯色背景）。
+func WithBgImage(img image.Image, fit BgFitMode) Option {
+	return func(o *Options) {
+		o.BgImage = img
+		o.BgFit = fit
+	}
+}
+
+// WithTextBackdrop 在每行文字背后绘制半透明遮罩，颜色为 c。
+// 典型值：color.NRGBA{A: 160} 表示半透明黑色。
+// blurRadius > 0 时额外对遮罩下方的背景进行模糊（毛玻璃效果）。
+func WithTextBackdrop(c color.Color, blurRadius int) Option {
+	return func(o *Options) {
+		o.TextBackdropColor = c
+		o.TextBackdropBlur = blurRadius
+	}
+}
+
+// WithTextBackdropPadding 设置文字遮罩在每行文字四周额外扩展的像素数（x 水平，y 垂直）。
+func WithTextBackdropPadding(x, y int) Option {
+	return func(o *Options) {
+		o.TextBackdropPadX = x
+		o.TextBackdropPadY = y
+	}
+}
+
+// WithTextBackdropShape 设置遮罩的裁剪形状。
+// 对于 BackdropShapeRounded，roundRadius 指定圆角半径（像素）；其他形状忽略此参数。
+func WithTextBackdropShape(s BackdropShape, roundRadius int) Option {
+	return func(o *Options) {
+		o.TextBackdropShape = s
+		o.TextBackdropRoundRadius = roundRadius
+	}
+}
+
+// WithTextBackdropMode 设置遮罩覆盖范围。
+//   - BackdropModePerLine（默认）：每行各自绘制一块遮罩。
+//   - BackdropModeBlock：将所有文字行的包围盒合并为一块整体遮罩，
+//     形成"毛玻璃卡片"效果，适合背景图上多个独立文字面板场景。
+func WithTextBackdropMode(m BackdropMode) Option {
+	return func(o *Options) { o.TextBackdropMode = m }
+}
+
+// WithTextShadow 为文字添加投影效果。
+//   - c          — 阴影颜色（典型值：color.RGBA{A:180} 半透明黑）
+//   - offsetX    — 水平偏移像素（正值向右）
+//   - offsetY    — 垂直偏移像素（正值向下）
+//   - blurRadius — 模糊半径（0 = 硬边阴影；建议值 2–6 获得柔和效果）
+//
+// 阴影始终绘制在文字正下方，不受遮罩（Backdrop）影响。
+func WithTextShadow(c color.Color, offsetX, offsetY, blurRadius int) Option {
+	return func(o *Options) {
+		o.TextShadowColor = c
+		o.TextShadowOffsetX = offsetX
+		o.TextShadowOffsetY = offsetY
+		o.TextShadowBlur = blurRadius
+	}
 }
