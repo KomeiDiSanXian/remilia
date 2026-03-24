@@ -178,21 +178,6 @@ func (p *Plugin) invalidateCache() {
 	p.cacheExpiry = time.Now()
 }
 
-// Load 加载帮助插件（v1 API）
-func (p *Plugin) Load(eng *engine.Engine) error {
-	logger.Info("[Plugin] Loading help plugin...")
-
-	// 保存 engine 引用以便后续获取命令信息
-	p.Engine = eng
-
-	// 注册 /help 命令（通配所有平台）
-	eng.OnCommand("", "/help").
-		Handle(p.handleHelp)
-
-	logger.Info("[Plugin] Help plugin loaded successfully")
-	return nil
-}
-
 // handleHelp 处理帮助命令
 func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	content := ctx.GetMessageContent()

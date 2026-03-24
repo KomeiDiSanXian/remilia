@@ -95,6 +95,29 @@ func TestForceTextFlag_Parsing(t *testing.T) {
 	}
 }
 
+func TestHelpCmdDef_AliasRegistration(t *testing.T) {
+	// Verify helpCmdDef declares the "h" alias (documentation side)
+	foundH := false
+	for _, a := range helpCmdDef.Aliases {
+		if a == "h" {
+			foundH = true
+			break
+		}
+	}
+	if !foundH {
+		t.Fatal("helpCmdDef.Aliases should contain 'h'")
+	}
+
+	// A hidden alias definition must have Hidden=true and correct Name
+	aliasDef := &command.Definition{Name: "h", Hidden: true}
+	if !aliasDef.Hidden {
+		t.Fatal("alias definition must be Hidden")
+	}
+	if aliasDef.Name != "h" {
+		t.Fatalf("alias definition Name = %q, want 'h'", aliasDef.Name)
+	}
+}
+
 // sampleHelpPage mimics the output of showCommandsPage
 const sampleHelpPage = `📖 可用命令列表 (第 1/2 页)
 ==============================

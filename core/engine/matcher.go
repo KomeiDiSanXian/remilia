@@ -63,6 +63,12 @@ type Matcher struct {
 	cacheMu sync.RWMutex
 
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
+
+	// aliasRegistrar 由框架在 RegisterCommand 后注入，在 Handle() 第一次被调用时触发，
+	// 为 definition.Aliases 中的每个别名自动注册路由 Matcher。
+	// 触发后置 nil 以防止重复注册。
+	// 插件无需感知此字段——框架负责设置它。
+	aliasRegistrar func(*command.Definition, context.Handler)
 }
 
 // compiledChain 缓存 getOrBuildIterChain 生成的最外层组合 handler。
@@ -132,7 +138,13 @@ func (m *Matcher) GetSource() string {
 func (m *Matcher) SetSource(source string) *Matcher {
 	m.rt.mu.Lock()
 	m.Source = source
+	coord := m.coordinator
 	m.rt.mu.Unlock()
+	// Source 变更会影响 CommandInfo 的 Source/Plugin 字段；
+	// 触发 commandInfoCache 更新，使 GetAllCommands/FindCommand 反映新来源。
+	if coord != nil {
+		coord.UpdateCommandCache(m)
+	}
 	return m
 }
 
@@ -279,6 +291,17 @@ func (m *Matcher) Handle(handler context.Handler) {
 	m.rt.mu.Unlock()
 	if coord != nil {
 		coord.RebuildMatcherChain(m)
+	}
+
+	// 别名自动注册：由框架注入的回调，在 Handle() 首次调用时触发。
+	// 取出后立即置 nil，保证只触发一次，即使 Handle() 被多次调用也不会重入。
+	m.rt.mu.Lock()
+	registrar := m.aliasRegistrar
+	def := m.definition
+	m.aliasRegistrar = nil
+	m.rt.mu.Unlock()
+	if registrar != nil && def != nil && len(def.Aliases) > 0 {
+		registrar(def, handler)
 	}
 }
 
@@ -635,6 +658,19 @@ func (m *Matcher) SetDefinition(def *command.Definition) *Matcher {
 		coord.UpdateCommandCache(m)
 	}
 
+	return m
+}
+
+// SetAliasRegistrar 设置别名自动注册回调。
+// 由框架（liveRegistryWriter）在 RegisterCommand 后注入，插件代码无需调用此方法。
+// 回调在 Handle() 第一次被调用且 definition.Aliases 非空时触发，触发后置 nil 防止重入。
+func (m *Matcher) SetAliasRegistrar(fn func(*command.Definition, context.Handler)) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	m.rt.mu.Lock()
+	m.aliasRegistrar = fn
+	m.rt.mu.Unlock()
 	return m
 }
 

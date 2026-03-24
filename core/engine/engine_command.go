@@ -60,7 +60,50 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	registered := e.registerMatcher(m)
 	// 同步到可选的外部 Registry（Trie + 元数据）
 	e.syncToRegistry(registered.definition, registered.Source)
+
+	// 注入基础别名自动注册回调（引擎级，适用于 v1 API 或直接调用 Engine.OnCommand 的场景）。
+	// 通过 liveRegistryWriter.RegisterCommand 注册的 Matcher 会在此之后被 plugin 层
+	// 覆盖为插件感知版本（携带 Group/Source/instance 追踪）。
+	// 若没有 plugin 层覆盖，此基础版本负责为简单命令（1条规则）自动注册别名路由。
+	e.injectBaseAliasRegistrar(registered, eventType, extraRules)
+
 	return registered
+}
+
+// injectBaseAliasRegistrar 为 Matcher 注入引擎级别的基础别名注册回调。
+// 别名 Matcher 继承主命令的 EventType/Group/Source，但不具备插件实例追踪
+// （liveRegistryWriter 会用插件感知版本覆盖此回调）。
+// 仅对简单 OnCommand 匹配器（无额外规则）生效；带有额外解析规则的 Matcher
+// 需要其调用方自行管理别名（避免别名缺少必要的解析规则）。
+func (e *Engine) injectBaseAliasRegistrar(primary *Matcher, eventType EventType, extraRules []context.Rule) {
+	primary.SetAliasRegistrar(func(def *command.Definition, h context.Handler) {
+		if def == nil || len(def.Aliases) == 0 {
+			return
+		}
+		// 仅对不携带额外规则的简单命令自动注册别名。
+		// 带额外规则（如 ParseFromDefinition）的 Matcher 需要这些规则同步到别名，
+		// 此基础版本不复制规则，故跳过。liveRegistryWriter 覆盖版本会正确传递 extraRules。
+		if len(extraRules) > 0 {
+			return
+		}
+		primaryCmd := "/" + def.Name
+		for _, alias := range def.Aliases {
+			aliasPattern := "/" + alias
+			// 跳过已在 commandIndex 中存在的别名（避免覆盖已有注册）
+			state := e.state.Load()
+			if _, exists := state.commandIndex[aliasPattern]; exists {
+				logger.Warnf("[engine] alias route %s for %s already registered, skipping auto-registration",
+					aliasPattern, primaryCmd)
+				continue
+			}
+			aliasMatcher := e.OnCommand(eventType, aliasPattern)
+			aliasMatcher.SetGroup(primary.GetGroup())
+			aliasMatcher.SetSource(primary.GetSource())
+			aliasMatcher.SetDefinition(&command.Definition{Name: alias, Hidden: true})
+			aliasMatcher.Handle(h)
+			logger.Debugf("[engine] auto-registered alias route %s -> %s", aliasPattern, primaryCmd)
+		}
+	})
 }
 
 // RegisterCommand 注册一个高级命令定义（使用 "/" 作为默认前缀）

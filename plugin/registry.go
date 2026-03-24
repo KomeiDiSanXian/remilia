@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
@@ -47,8 +48,49 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		// 注入插件感知的别名自动注册回调。
+		// 回调在 Matcher.Handle() 首次被调用时触发，为 definition.Aliases 中的每个别名
+		// 自动注册独立的路由 Matcher（Hidden=true，不出现在命令列表）。
+		// 别名 Matcher 与主命令共享相同的 Group/Source 和 instance 追踪，
+		// 从而支持插件级别的 Disable/Enable 联动。
+		// 传入 extraRules 确保别名 Matcher 具有与主命令相同的额外规则（如权限检查）。
+		r.injectAliasRegistrar(matcher, eventType, extraRules)
 	}
 	return matcher
+}
+
+// injectAliasRegistrar 向 matcher 注入别名自动注册回调。
+// 当 matcher.Handle() 被调用且 definition.Aliases 非空时触发一次。
+func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, eventType string, extraRules []context.Rule) {
+	primary.SetAliasRegistrar(func(def *command.Definition, handler context.Handler) {
+		if def == nil || len(def.Aliases) == 0 {
+			return
+		}
+		primaryCmd := "/" + def.Name
+		for _, alias := range def.Aliases {
+			aliasPattern := "/" + alias
+			// 冲突检测：若别名已被其他命令（非当前主命令）占用则跳过
+			if existing := r.eng.FindCommand(alias); existing != nil && existing.Command != primaryCmd {
+				continue
+			}
+			// 通过 eng.OnCommand 注册别名路由
+			aliasMatcher := r.eng.OnCommand(eventType, aliasPattern, extraRules...)
+			if aliasMatcher == nil {
+				continue
+			}
+			// 别名 Matcher 与主命令同 Group/Source，以支持 Disable/Enable 联动
+			aliasMatcher.SetGroup(primary.GetGroup())
+			aliasMatcher.SetSource(primary.GetSource())
+			// Hidden=true：不出现在 GetAllCommands() / /help 命令列表中
+			aliasMatcher.SetDefinition(&command.Definition{Name: alias, Hidden: true})
+			// 与主命令共享同一 handler
+			aliasMatcher.Handle(handler)
+			// 注册到插件实例以便生命周期管理
+			if r.instance != nil {
+				r.instance.addMatcher(aliasMatcher)
+			}
+		}
+	})
 }
 
 func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.Rule) *engine.Matcher {
