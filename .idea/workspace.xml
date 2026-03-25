@@ -4,11 +4,18 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore: update comments to Chinese for better localization in adapter and openapi files">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(help): enhance caching mechanism for help and image responses with independent expiration">
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_darwin.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_linux.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_unix.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_unix_other.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_windows.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/coredump_windows_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/coredump/doc.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/help/help.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/help/help.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/textimage.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/textimage.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -131,6 +138,9 @@
   }
 }]]></component>
   <component name="RecentsManager">
+    <key name="GoDebugCoreDumpAction.RECENT_CORE_DUMP_KEY">
+      <recent name="C:\Users\Komei_DiSanXian\AppData\Local\Temp\___go_build_github_com_KomeiDiSanXian_remilia_examples_showcase.DMP" />
+    </key>
     <key name="CopyFile.RECENT_KEYS">
       <recent name="E:\project\Go\remilia\examples\showcase" />
       <recent name="E:\project\Go\remilia\examples\debug-demo" />
@@ -142,6 +152,9 @@
       <recent name="E:\project\Go\remilia\plugin\plugintest" />
       <recent name="E:\project\Go\remilia\infra" />
       <recent name="E:\project\Go\remilia\plugins\core" />
+    </key>
+    <key name="GoDebugCoreDumpAction.RECENT_EXECUTABLE_KEY">
+      <recent name="C:\Users\Komei_DiSanXian\AppData\Local\JetBrains\GoLand2025.3\tmp\GoLand\___go_build_github_com_KomeiDiSanXian_remilia_examples_showcase.exe" />
     </key>
   </component>
   <component name="RunDashboard">
@@ -270,7 +283,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(matcher): resolve data races by using atomic operations for commandIndexed and improve command registration handling" />
     <MESSAGE value="refactor(matcher): separate Handle method from matcher chain for clarity and prevent accidental overwrites" />
     <MESSAGE value="fix(pool): initialize Context with background context to reduce nil pointer dereference risk" />
     <MESSAGE value="feat(i18n): embed locale files and update i18n plugin integration for improved localization" />
@@ -295,7 +307,8 @@
     <MESSAGE value="feat(engine): implement automatic alias registration for commands" />
     <MESSAGE value="feat(parser): implement hierarchical flag scoping and enhance command parsing" />
     <MESSAGE value="chore: update comments to Chinese for better localization in adapter and openapi files" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore: update comments to Chinese for better localization in adapter and openapi files" />
+    <MESSAGE value="feat(help): enhance caching mechanism for help and image responses with independent expiration" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(help): enhance caching mechanism for help and image responses with independent expiration" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
