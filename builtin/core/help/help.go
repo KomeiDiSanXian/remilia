@@ -78,11 +78,17 @@ type Plugin struct {
 	// 可通过 WithImageRender(false) 关闭，退回纯文字发送。
 	imageRender bool
 
-	// 缓存
-	helpCache     map[string]string
-	cacheMu       sync.RWMutex
-	cacheExpiry   time.Time
+	// 缓存 — 每个条目独立维护过期时间
+	helpCache     map[string]cacheEntry[string]
+	imageCache    map[string]cacheEntry[[]byte]
+	cacheMu       sync.Mutex // 读写均用 Mutex，方便 lazy eviction
 	cacheDuration time.Duration
+}
+
+// cacheEntry 是一个带独立过期时间的缓存条目。
+type cacheEntry[T any] struct {
+	data      T
+	expiresAt time.Time
 }
 
 // New 创建帮助插件（v2 API）
@@ -140,24 +146,29 @@ func newHelpPluginInternal() *Plugin {
 		Engine:        nil,  // 将在 Setup 时设置
 		Info:          nil,  // 将在 Setup 时设置
 		imageRender:   true, // 默认开启图片渲染
-		helpCache:     make(map[string]string),
+		helpCache:     make(map[string]cacheEntry[string]),
+		imageCache:    make(map[string]cacheEntry[[]byte]),
 		cacheDuration: 5 * time.Minute, // 默认缓存 5 分钟
-		cacheExpiry:   time.Now(),
 	}
 }
 
-// getCachedHelp 获取缓存的帮助信息
+// getCachedHelp 获取缓存的帮助信息。
+// 过期条目会被惰性删除（连同同 key 的图片缓存），释放内存。
 func (p *Plugin) getCachedHelp(key string) (string, bool) {
-	p.cacheMu.RLock()
-	defer p.cacheMu.RUnlock()
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
 
-	// 检查缓存是否过期
-	if time.Now().After(p.cacheExpiry) {
+	entry, ok := p.helpCache[key]
+	if !ok {
 		return "", false
 	}
-
-	text, ok := p.helpCache[key]
-	return text, ok
+	if time.Now().After(entry.expiresAt) {
+		delete(p.helpCache, key)
+		delete(p.imageCache, key) // 同步清理对应的图片缓存
+		p.rebuildIfEmpty()
+		return "", false
+	}
+	return entry.data, true
 }
 
 // setCachedHelp 设置缓存的帮助信息
@@ -165,17 +176,59 @@ func (p *Plugin) setCachedHelp(key string, text string) {
 	p.cacheMu.Lock()
 	defer p.cacheMu.Unlock()
 
-	p.helpCache[key] = text
-	p.cacheExpiry = time.Now().Add(p.cacheDuration)
+	p.helpCache[key] = cacheEntry[string]{
+		data:      text,
+		expiresAt: time.Now().Add(p.cacheDuration),
+	}
 }
 
-// invalidateCache 清除所有缓存
+// getCachedImage 获取缓存的已渲染图片 PNG 字节。
+// 过期条目会被惰性删除，释放内存。
+func (p *Plugin) getCachedImage(key string) ([]byte, bool) {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+
+	entry, ok := p.imageCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(p.imageCache, key)
+		p.rebuildIfEmpty()
+		return nil, false
+	}
+	return entry.data, true
+}
+
+// setCachedImage 缓存已渲染的图片 PNG 字节
+func (p *Plugin) setCachedImage(key string, data []byte) {
+	p.cacheMu.Lock()
+	defer p.cacheMu.Unlock()
+
+	p.imageCache[key] = cacheEntry[[]byte]{
+		data:      data,
+		expiresAt: time.Now().Add(p.cacheDuration),
+	}
+}
+
+// rebuildIfEmpty 当两个 map 都为空时，用 make 重建以释放底层桶数组内存。
+// Go 的 map 桶只增不缩，delete/clear 不会归还桶内存，只有 make 新 map 才可以。
+// 必须在持有 cacheMu 的情况下调用。
+func (p *Plugin) rebuildIfEmpty() {
+	if len(p.helpCache) == 0 && len(p.imageCache) == 0 {
+		p.helpCache = make(map[string]cacheEntry[string])
+		p.imageCache = make(map[string]cacheEntry[[]byte])
+	}
+}
+
+// invalidateCache 清除所有缓存。
+// 使用 make 重建 map 而非 clear，确保底层桶数组内存被释放。
 func (p *Plugin) invalidateCache() {
 	p.cacheMu.Lock()
 	defer p.cacheMu.Unlock()
 
-	p.helpCache = make(map[string]string)
-	p.cacheExpiry = time.Now()
+	p.helpCache = make(map[string]cacheEntry[string])
+	p.imageCache = make(map[string]cacheEntry[[]byte])
 }
 
 // handleHelp 处理帮助命令
@@ -237,7 +290,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 	cacheKey := fmt.Sprintf("page:%d", page)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for page: %d", page)
-		return p.sendMessage(ctx, cached, forceText)
+		return p.sendMessage(ctx, cached, forceText, cacheKey)
 	}
 
 	commands := p.Engine.GetAllCommands()
@@ -326,7 +379,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 	helpText := help.String()
 	p.setCachedHelp(cacheKey, helpText)
 
-	return p.sendMessage(ctx, helpText, forceText)
+	return p.sendMessage(ctx, helpText, forceText, cacheKey)
 }
 
 // showAllPlugins 显示所有插件的列表
@@ -335,7 +388,7 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context, forceText bool) error {
 	cacheKey := "plugins"
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debug("[help] Cache hit for plugins list")
-		return p.sendMessage(ctx, cached, forceText)
+		return p.sendMessage(ctx, cached, forceText, cacheKey)
 	}
 
 	if p.Info == nil {
@@ -418,7 +471,7 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context, forceText bool) error {
 	helpText := help.String()
 	p.setCachedHelp(cacheKey, helpText)
 
-	return p.sendMessage(ctx, helpText, forceText)
+	return p.sendMessage(ctx, helpText, forceText, cacheKey)
 }
 
 // showPluginCommands 显示指定插件的所有命令
@@ -427,7 +480,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 	cacheKey := fmt.Sprintf("plugin:%s", pluginName)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for plugin: %s", pluginName)
-		return p.sendMessage(ctx, cached, forceText)
+		return p.sendMessage(ctx, cached, forceText, cacheKey)
 	}
 
 	var help strings.Builder
@@ -517,7 +570,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法")
 
-	return p.sendMessage(ctx, help.String(), forceText)
+	return p.sendMessage(ctx, help.String(), forceText, cacheKey)
 }
 
 // showCommandDetail 显示特定命令的详细信息
@@ -527,7 +580,7 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 	cacheKey := fmt.Sprintf("command:%s", cmdName)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
 		logger.Debugf("[help] Cache hit for command: %s", cmdName)
-		return p.sendMessage(ctx, cached, forceText)
+		return p.sendMessage(ctx, cached, forceText, cacheKey)
 	}
 
 	var detail strings.Builder
@@ -634,7 +687,7 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 	detailText := detail.String()
 	p.setCachedHelp(cacheKey, detailText)
 
-	return p.sendMessage(ctx, detailText, forceText)
+	return p.sendMessage(ctx, detailText, forceText, cacheKey)
 }
 
 // showCategoryCommands 显示特定分类下的所有命令
@@ -735,10 +788,39 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, force
 // sendMessage 发送消息。
 // 当 imageRender 为 true 且 forceText 为 false 时，优先渲染为图片（含水印）发送，失败后自动降级为纯文字。
 // 当 imageRender 为 false 或 forceText 为 true 时，直接发送纯文字。
-func (p *Plugin) sendMessage(ctx *eventctx.Context, content string, forceText bool) error {
+//
+// cacheKey 用于图片字节缓存的键（与文本缓存键相同）。留空则不启用图片缓存。
+func (p *Plugin) sendMessage(ctx *eventctx.Context, content string, forceText bool, cacheKey ...string) error {
 	if p.imageRender && !forceText {
+		// 尝试从缓存获取已渲染的图片字节
+		key := ""
+		if len(cacheKey) > 0 {
+			key = cacheKey[0]
+		}
+		if key != "" {
+			if cachedImg, ok := p.getCachedImage(key); ok {
+				logger.Debugf("[help] Image cache hit for key: %s", key)
+				msg := platform.OutboundMessage{
+					Attachments: []platform.Attachment{{
+						Kind:     platform.AttachmentKindImage,
+						Data:     cachedImg,
+						Name:     "help.png",
+						MimeType: "image/png",
+					}},
+				}
+				if _, sendErr := ctx.Reply(msg); sendErr == nil {
+					return nil
+				}
+				logger.Warnf("[help] cached image send failed, falling back to text")
+			}
+		}
+
 		imgBytes, renderErr := renderHelpImage(content)
 		if renderErr == nil {
+			// 缓存渲染结果
+			if key != "" {
+				p.setCachedImage(key, imgBytes)
+			}
 			msg := platform.OutboundMessage{
 				Attachments: []platform.Attachment{{
 					Kind:     platform.AttachmentKindImage,

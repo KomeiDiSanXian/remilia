@@ -62,6 +62,7 @@ func main() {
 	eng := bot.Engine()
 	eng.Use(middleware.ProductionSet()...)
 	eng.Use(requestCounterMiddleware())
+	eng.Use(processingTimeMiddleware())
 	pm := plugin.NewManager(eng)
 	pm.SetStrictDeps(false)
 	pm.AddListener(&lifecycleLogger{})
@@ -301,6 +302,23 @@ func requestCounterMiddleware() eventctx.Middleware {
 			count++
 			logger.Debugf("[showcase] req #%d", count)
 			return next(ctx)
+		}
+	}
+}
+func processingTimeMiddleware() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			start := time.Now()
+			err := next(ctx)
+			elapsed := time.Since(start)
+
+			cmd := ctx.GetMessageContent()
+			if len(cmd) > 30 {
+				cmd = cmd[:30] + "..."
+			}
+			logger.Infof("[perf] user=%s cmd=%q total=%v",
+				ctx.GetUserID(), cmd, elapsed)
+			return err
 		}
 	}
 }

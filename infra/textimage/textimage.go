@@ -338,9 +338,75 @@ func (r *Renderer) RenderToWriter(w interface{ Write([]byte) (int, error) }, tex
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
+// parsedFontCache caches the result of os.ReadFile + opentype.Parse to avoid
+// redundant disk I/O and font parsing.  Creating a new font.Face from a cached
+// *opentype.Font with different FaceOptions (size, DPI) is extremely cheap by
+// comparison.
+//
+// This cache is intentionally permanent (write-once, never evicted):
+//   - The key space is bounded by the number of distinct font paths used in the
+//     application — typically 1–2 entries — so the map bucket array stays tiny.
+//   - Parsed font objects are meant to live for the process lifetime.
+var (
+	parsedFontMu    sync.Mutex
+	parsedFontCache = make(map[string]*opentype.Font) // key: "path\x00index"
+)
+
+// getCachedFont returns a previously parsed *opentype.Font, or nil if not cached.
+func getCachedFont(key string) *opentype.Font {
+	parsedFontMu.Lock()
+	f := parsedFontCache[key]
+	parsedFontMu.Unlock()
+	return f
+}
+
+// setCachedFont stores a parsed *opentype.Font in the cache.
+func setCachedFont(key string, f *opentype.Font) {
+	parsedFontMu.Lock()
+	parsedFontCache[key] = f
+	parsedFontMu.Unlock()
+}
+
 // buildFace constructs a font.Face from the supplied options.
 // It supports both plain TTF/OTF files and TrueType Collection (.ttc) files.
+//
+// Font file reads and parsing results are cached globally so that repeated
+// calls with the same FontPath (common in Canvas multi-block rendering) only
+// hit the disk once.
 func buildFace(o Options) (font.Face, error) {
+	dpi := o.DPI
+	if dpi <= 0 {
+		dpi = 72
+	}
+	fontSize := o.FontSize
+	if fontSize <= 0 {
+		fontSize = 16
+	}
+	faceOpts := &opentype.FaceOptions{Size: fontSize, DPI: dpi}
+
+	// Fast path: check cache before any disk I/O.
+	// For FontPath-based fonts, we can resolve the cache key without reading the file.
+	if o.FontData == nil && o.FontPath != "" {
+		// Try both TTC and non-TTC cache keys; one of them will match on repeat calls.
+		ttcKey := fmt.Sprintf("%s\x00%d", o.FontPath, o.TTCIndex)
+		plainKey := o.FontPath
+		if cached := getCachedFont(ttcKey); cached != nil {
+			face, err := opentype.NewFace(cached, faceOpts)
+			if err != nil {
+				return nil, fmt.Errorf("create face from cached collection font: %w", err)
+			}
+			return face, nil
+		}
+		if cached := getCachedFont(plainKey); cached != nil {
+			face, err := opentype.NewFace(cached, faceOpts)
+			if err != nil {
+				return nil, fmt.Errorf("create face from cached font: %w", err)
+			}
+			return face, nil
+		}
+	}
+
+	// Slow path: read font data and parse.
 	var (
 		raw      []byte
 		fontPath string
@@ -360,22 +426,13 @@ func buildFace(o Options) (font.Face, error) {
 		raw = goregular.TTF
 	}
 
-	dpi := o.DPI
-	if dpi <= 0 {
-		dpi = 72
-	}
-	fontSize := o.FontSize
-	if fontSize <= 0 {
-		fontSize = 16
-	}
-	faceOpts := &opentype.FaceOptions{Size: fontSize, DPI: dpi}
-
 	if isTTC(fontPath, raw) {
+		idx := o.TTCIndex
+		cacheKey := fmt.Sprintf("%s\x00%d", fontPath, idx)
 		col, err := opentype.ParseCollection(raw)
 		if err != nil {
 			return nil, fmt.Errorf("parse font collection %q: %w", fontPath, err)
 		}
-		idx := o.TTCIndex
 		if idx < 0 || idx >= col.NumFonts() {
 			idx = 0
 		}
@@ -383,6 +440,7 @@ func buildFace(o Options) (font.Face, error) {
 		if err != nil {
 			return nil, fmt.Errorf("get font[%d] from collection: %w", idx, err)
 		}
+		setCachedFont(cacheKey, f)
 		face, err := opentype.NewFace(f, faceOpts)
 		if err != nil {
 			return nil, fmt.Errorf("create face from collection: %w", err)
@@ -390,10 +448,19 @@ func buildFace(o Options) (font.Face, error) {
 		return face, nil
 	}
 
+	cacheKey := fontPath // empty string for embedded default font
+	if cached := getCachedFont(cacheKey); cached != nil {
+		face, err := opentype.NewFace(cached, faceOpts)
+		if err != nil {
+			return nil, fmt.Errorf("create face from cached font: %w", err)
+		}
+		return face, nil
+	}
 	parsed, err := opentype.Parse(raw)
 	if err != nil {
 		return nil, fmt.Errorf("parse font: %w", err)
 	}
+	setCachedFont(cacheKey, parsed)
 	face, err := opentype.NewFace(parsed, faceOpts)
 	if err != nil {
 		return nil, fmt.Errorf("create face: %w", err)
