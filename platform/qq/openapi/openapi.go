@@ -1,4 +1,4 @@
-// Package openapi is qq bot openapi
+// Package openapi 提供 QQ 机器人 OpenAPI 客户端。
 package openapi
 
 import (
@@ -287,7 +287,7 @@ func (api *Client) DeleteGuildMember(ctx context.Context, guildID, userID string
 		AddBlacklist         bool `json:"add_blacklist"`
 		DeleteHistoryMsgDays int  `json:"delete_history_msg_days"`
 	}
-	// DELETE with body — use Post-like helper but with DELETE method via httpclient directly
+	// DELETE 请求需要 body，直接通过 httpclient 以 DELETE 方法发送（类似 Post helper）。
 	api.tm.WaitReady()
 	result, err := httpclient.Delete(fmt.Sprintf(constant.GuildMemberURL, guildID, userID)).
 		SetContext(ctx).

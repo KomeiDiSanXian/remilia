@@ -12,25 +12,25 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
-// Webhook is the minimal interface for a QQ webhook event source.
+// Webhook 是 QQ webhook 事件源所需的最简接口。
 type Webhook interface {
 	EventStream() <-chan *dto.Payload
 }
 
-// Adapter is the QQ platform.Adapter implementation.
+// Adapter 是 QQ 的 platform.Adapter 实现。
 //
-// It reads *dto.Payload from a Webhook, converts them to platform.Event via
-// NewEvent(), and invokes the framework-provided handler.
+// 它从 Webhook 中读取 *dto.Payload，经过 NewEvent() 转换为 platform.Event 后
+// 交给框架提供的 handler 处理。
 //
-// Usage (multi-platform registry, wrapping an existing webhook.Conn):
+// 多平台注册表用法示例（在已有 webhook.Conn 上注册）：
 //
-//	// webhookConn must implement EventStream() <-chan *dto.Payload
-//	// e.g. a *webhook.Conn from openapi/protocol/webhook
+//	// webhookConn 需实现 EventStream() <-chan *dto.Payload
+//	// 例如来自 openapi/protocol/webhook 的 *webhook.Conn
 //	qqAdapter := qq.NewAdapter(webhookConn, openAPIClient)
 //	registry := platform.NewRegistry()
 //	registry.Register(qqAdapter)
 //
-// For a self-contained QQ setup (single platform), use WebhookServerAdapter directly:
+// 单平台（自包含）场景可直接使用 WebhookServerAdapter：
 //
 //	webhookServer := qq.NewWebhookServerAdapter(":8080", botInfo)
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(webhookServer).Build()
@@ -48,10 +48,10 @@ type Adapter struct {
 	starting atomic.Bool
 }
 
-// NewAdapter creates a QQ platform adapter.
+// NewAdapter 创建 QQ 平台适配器。
 //
-// webhook is the event source (must implement EventStream()).
-// api is the QQ OpenAPI client used for sending messages; pass nil to disable sending.
+// webhook 是事件源（需实现 EventStream()）。
+// api 是用于发送消息的 QQ OpenAPI 客户端，传 nil 可禁用发送能力。
 func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
 	return &Adapter{
 		webhook: webhook,
@@ -84,11 +84,11 @@ func (a *Adapter) IsRunning() bool {
 	return a.running
 }
 
-// Start starts the QQ event loop.
+// Start 启动 QQ 事件循环。
 //
 // 使用有界 worker pool 处理事件，避免高频事件下无限创建 goroutine。
 // worker 数量默认为 runtime.NumCPU()，可通过 WithWorkers 调整。
-// Blocks until ctx is canceled or the stream is closed.
+// 直到 ctx 被取消或事件流关闭前此方法会一直阻塞。
 func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error {
 	if !a.starting.CompareAndSwap(false, true) {
 		return nil
@@ -156,7 +156,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 	}
 }
 
-// Stop gracefully stops the QQ adapter.
+// Stop 优雅关闭 QQ 适配器。
 func (a *Adapter) Stop(ctx stdctx.Context) error {
 	a.mu.Lock()
 	if !a.running {
