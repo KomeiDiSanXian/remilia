@@ -141,9 +141,9 @@ func TestSimpleWebhookAdapter(t *testing.T) {
 
 	t.Run("WithBot", func(t *testing.T) {
 		adapter := qq.SimpleWebhookAdapter(8080)
-		engine := engine.NewEngine()
+		newEngine := engine.NewEngine()
 
-		bot := remilia.NewBot(adapter, engine)
+		bot := remilia.NewBot(adapter, newEngine)
 		assert.NotNil(t, bot)
 	})
 }

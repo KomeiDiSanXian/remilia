@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -95,7 +96,7 @@ func (s *SQLiteStorage) Get(key string) ([]byte, error) {
 	query := `SELECT value, expires_at_ms FROM kv_store WHERE key = ?`
 	err := s.db.QueryRow(query, key).Scan(&value, &expiresAtMs)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {

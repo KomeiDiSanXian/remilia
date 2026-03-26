@@ -28,7 +28,7 @@ func (l *SimpleLogger) Errorf(format string, args ...interface{}) {
 }
 
 func main() {
-	fmt.Println("=== HTTP Client 演示 ===\n")
+	fmt.Println("=== HTTP Client 演示 ===")
 
 	// 1. 基本 GET 请求
 	fmt.Println("1️⃣  基本 GET 请求")

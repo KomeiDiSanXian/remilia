@@ -3,6 +3,7 @@ package conversation
 import (
 	stdctx "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -219,7 +220,7 @@ func (p *Plugin) advance(ctx *eventctx.Context, session *Session) error {
 		return nil
 	}
 	err := m.steps[session.StepIdx].handle(ctx, session)
-	if err == ErrStepDone {
+	if errors.Is(err, ErrStepDone) {
 		p.sessions.Delete(session.ID)
 		if m.onDone != nil {
 			return m.onDone(ctx, session)

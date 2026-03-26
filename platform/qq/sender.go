@@ -33,9 +33,9 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 //   - Attachments 非空（取第一个）→ 两步富媒体发送（上传 → 发送）
 //   - 其余 → Text / Markdown 文本消息
 //
-// SendResult.Raw 类型为 *QQSendResult，包含完整的 QQ 平台响应字段。
+// SendResult.Raw 类型为 *SendResult，包含完整的 QQ 平台响应字段。
 // 富媒体两步发送时，上传阶段（FileInfo、FileUUID、TTL）与发送阶段（MessageID）
-// 均合并在同一个 *QQSendResult 中返回。
+// 均合并在同一个 *SendResult 中返回。
 func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if s.api == nil {
 		return platform.SendResult{}, fmt.Errorf("qq sender: openAPI client is nil")
@@ -75,7 +75,7 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 }
 
 // sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
-// 返回的 SendResult.Raw(*QQSendResult) 同时包含上传响应和发送响应的字段。
+// 返回的 SendResult.Raw(*SendResult) 同时包含上传响应和发送响应的字段。
 func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
 	if att.URL == "" && len(att.Data) == 0 {
 		return platform.SendResult{}, fmt.Errorf("qq sender: attachment has neither URL nor data")
@@ -155,7 +155,7 @@ func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.Cha
 
 // buildSendResult 从普通发送响应构建 platform.SendResult。
 func buildSendResult(raw gjson.Result) platform.SendResult {
-	qqResult := &QQSendResult{
+	qqResult := &SendResult{
 		MessageID: raw.Get("id").String(),
 	}
 	if ts := raw.Get("timestamp").Int(); ts > 0 {
@@ -171,7 +171,7 @@ func buildSendResult(raw gjson.Result) platform.SendResult {
 
 // buildSendResultFromUpload 合并富媒体上传响应与消息发送响应，构建 platform.SendResult。
 func buildSendResultFromUpload(uploadRaw, sendRaw gjson.Result) platform.SendResult {
-	qqResult := &QQSendResult{
+	qqResult := &SendResult{
 		// 来自发送响应
 		MessageID: sendRaw.Get("id").String(),
 		// 来自上传响应

@@ -1,11 +1,12 @@
 package plugintest_test
 
 import (
+	"testing"
+
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/plugin/plugintest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestMockPluginInfo_IsLoaded(t *testing.T) {

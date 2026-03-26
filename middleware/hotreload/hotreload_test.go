@@ -1,11 +1,12 @@
 package hotreload_test
 
 import (
+	"testing"
+	"time"
+
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
-	"testing"
-	"time"
 )
 
 func TestBridge_OnConfigChange_UpdatesRetry(t *testing.T) {

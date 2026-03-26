@@ -145,6 +145,7 @@ func (r *Renderer) renderOntoLocked(dst *image.RGBA, yOffset int, lines []string
 			x = (imgW - lw) / 2
 		case AlignRight:
 			x = imgW - lw - r.opts.PaddingX
+		default:
 		}
 		layouts[i] = renderLine{x: x, y: y, w: lw}
 	}

@@ -1,6 +1,9 @@
 package platform
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // SendErrorCode
@@ -193,7 +196,7 @@ func NewSendError(code SendErrorCode, plt, chatID, msg string, retryAfter int, c
 func asErr(err error, target **SendError) bool {
 	// 手动实现 errors.As 的核心逻辑（无需额外 import）
 	for err != nil {
-		if se, ok := err.(*SendError); ok {
+		if se, ok := errors.AsType[*SendError](err); ok {
 			*target = se
 			return true
 		}

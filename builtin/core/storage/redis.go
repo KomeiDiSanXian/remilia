@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -59,7 +60,7 @@ func (r *RedisStorage) prefixed(key string) string {
 func (r *RedisStorage) Get(key string) ([]byte, error) {
 	ctx := context.Background()
 	val, err := r.client.Get(ctx, r.prefixed(key)).Bytes()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, ErrNotFound
 	}
 	if err != nil {

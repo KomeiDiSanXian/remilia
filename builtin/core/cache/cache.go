@@ -27,11 +27,11 @@ type LRUCache struct {
 	items    map[string]*list.Element
 	order    *list.List
 	mu       sync.RWMutex
-	stats    CacheStats
+	stats    Stats
 }
 
-// CacheStats 缓存统计
-type CacheStats struct {
+// Stats 缓存统计
+type Stats struct {
 	Hits        int64
 	Misses      int64
 	Evictions   int64
@@ -115,7 +115,7 @@ func (p *Plugin) Clear() {
 }
 
 // Stats 获取统计信息
-func (p *Plugin) Stats() CacheStats {
+func (p *Plugin) Stats() Stats {
 	return p.cache.Stats()
 }
 
@@ -219,11 +219,11 @@ func (c *LRUCache) Size() int {
 }
 
 // Stats 返回缓存统计
-func (c *LRUCache) Stats() CacheStats {
+func (c *LRUCache) Stats() Stats {
 	c.stats.mu.RLock()
 	defer c.stats.mu.RUnlock()
 
-	return CacheStats{
+	return Stats{
 		Hits:        c.stats.Hits,
 		Misses:      c.stats.Misses,
 		Evictions:   c.stats.Evictions,
@@ -298,7 +298,7 @@ func (c *LRUCache) recordExpiration() {
 }
 
 // HitRate 计算命中率
-func (s *CacheStats) HitRate() float64 {
+func (s *Stats) HitRate() float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

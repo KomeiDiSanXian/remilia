@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -212,7 +213,7 @@ func TestAdaptiveRateLimiter_ErrorPropagation(t *testing.T) {
 	ctx := createTestContext()
 
 	err := wrappedHandler(ctx)
-	if err != expectedErr {
+	if !errors.Is(err, expectedErr) {
 		t.Errorf("Expected error %v, got: %v", expectedErr, err)
 	}
 

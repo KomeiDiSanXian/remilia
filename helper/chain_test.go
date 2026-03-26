@@ -269,10 +269,10 @@ func TestMap(t *testing.T) {
 
 	t.Run("changes type", func(t *testing.T) {
 		numbers := []int{1, 2, 3}
-		strings := Map(numbers, func(n int) string {
+		s := Map(numbers, func(n int) string {
 			return "num" + string(rune('0'+n))
 		})
-		assert.Equal(t, []string{"num1", "num2", "num3"}, strings)
+		assert.Equal(t, []string{"num1", "num2", "num3"}, s)
 	})
 }
 

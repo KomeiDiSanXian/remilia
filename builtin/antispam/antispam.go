@@ -198,8 +198,8 @@ type BanEntry struct {
 	Permanent bool
 }
 
-// AntiSpamStats 限流统计摘要
-type AntiSpamStats struct {
+// Stats 限流统计摘要
+type Stats struct {
 	BanCount          int
 	UserLimiterCount  int
 	GroupLimiterCount int
@@ -227,12 +227,12 @@ func (p *Plugin) ListBans() []BanEntry {
 }
 
 // Stats 返回限流统计摘要
-func (p *Plugin) Stats() AntiSpamStats {
+func (p *Plugin) Stats() Stats {
 	p.banMu.RLock()
 	banCount := len(p.banList)
 	p.banMu.RUnlock()
 
-	return AntiSpamStats{
+	return Stats{
 		BanCount:          banCount,
 		UserLimiterCount:  p.userRL.Len(),
 		GroupLimiterCount: p.groupRL.Len(),

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -209,7 +210,7 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 	}
 
 	a.wg.Go(func() {
-		if err := a.server.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := a.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Errorf("[discord.InteractionsAdapter] HTTP server error: %v", err)
 		}
 	})

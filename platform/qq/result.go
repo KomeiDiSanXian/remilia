@@ -2,7 +2,7 @@ package qq
 
 import "time"
 
-// QQSendResult QQ 平台消息发送后的完整响应，存于 platform.SendResult.Raw。
+// SendResult QQ 平台消息发送后的完整响应，存于 platform.SendResult.Raw。
 //
 // 普通消息（单聊/群聊/频道）仅有 MessageID 和 Timestamp，富媒体字段为零值。
 // 富媒体两步发送时，上传阶段的响应（FileInfo、FileUUID、TTL）与
@@ -12,14 +12,14 @@ import "time"
 //
 //	result, err := ctx.Reply(msg)
 //	if err != nil { ... }
-//	if r, ok := result.Raw.(*qq.QQSendResult); ok {
+//	if r, ok := result.Raw.(*qq.SendResult); ok {
 //	    // 普通消息：使用 r.MessageID 撤回
 //	    // 富媒体：使用 r.FileInfo 缓存，避免重复上传
 //	    if r.FileInfo != "" {
 //	        cache.Set(key, r.FileInfo, time.Duration(r.TTL)*time.Second)
 //	    }
 //	}
-type QQSendResult struct {
+type SendResult struct {
 	// MessageID 已发送消息的唯一 ID。
 	// 用于调用 MessageDeleter.Delete 撤回消息。
 	// 富媒体上传（srv_send_msg=false）场景不返回此 ID。

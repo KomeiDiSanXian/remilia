@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== SQLite Storage Plugin 演示 ===\n")
+	fmt.Println("=== SQLite Storage Plugin 演示 ===")
 
 	// 创建数据目录
 	if err := os.MkdirAll("data", 0755); err != nil {
@@ -28,7 +28,7 @@ func main() {
 
 	// 通过 NewPlugin 直接创建存储插件（无需 lifecycle 系统）
 	storagePlugin := storage.NewPlugin(sqliteStorage)
-	fmt.Println("✅ SQLite Storage Plugin 已加载\n")
+	fmt.Println("✅ SQLite Storage Plugin 已加载")
 
 	// 1. 基本操作
 	fmt.Println("1️⃣  基本操作演示")

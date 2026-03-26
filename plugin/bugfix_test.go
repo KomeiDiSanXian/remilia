@@ -59,7 +59,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 
 	// 检查是否有错误
 	for err := range errors {
-		if err == ErrPluginLoading {
+		if errors.Is(err, ErrPluginLoading) {
 			t.Log("✓ Bug 1 已修复：正在加载的插件不会被 Get() 返回")
 		} else {
 			t.Errorf("Unexpected error: %v", err)

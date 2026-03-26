@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -107,7 +108,7 @@ func TestSQLiteStorage_TTL(t *testing.T) {
 	s.Set("expiring", []byte("v"), 30*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	_, err = s.Get("expiring")
-	if err != storage.ErrExpired && err != storage.ErrNotFound {
+	if !errors.Is(err, storage.ErrExpired) && !errors.Is(err, storage.ErrNotFound) {
 		t.Errorf("expected ErrExpired or ErrNotFound after TTL, got %v", err)
 	}
 }
