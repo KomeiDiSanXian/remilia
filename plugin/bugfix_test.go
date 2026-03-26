@@ -2,6 +2,7 @@ package plugin
 
 import (
 	stdctx "context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -28,13 +29,13 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	errors := make(chan error, 2)
+	errs := make(chan error, 2)
 
 	// Goroutine 1: 注册插件
 	wg.Go(func() {
 		err := manager.Register(slowPlugin)
 		if err != nil {
-			errors <- err
+			errs <- err
 		}
 	})
 
@@ -47,7 +48,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 			// *Instance 直接实现 StatefulPlugin，无需类型断言
 			state := plugin.GetState()
 			if state == Loading {
-				errors <- ErrPluginLoading
+				errs <- ErrPluginLoading
 				return
 			}
 		}
@@ -55,10 +56,10 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	})
 
 	wg.Wait()
-	close(errors)
+	close(errs)
 
 	// 检查是否有错误
-	for err := range errors {
+	for err := range errs {
 		if errors.Is(err, ErrPluginLoading) {
 			t.Log("✓ Bug 1 已修复：正在加载的插件不会被 Get() 返回")
 		} else {
