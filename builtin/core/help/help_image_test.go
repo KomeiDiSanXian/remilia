@@ -1,6 +1,7 @@
 package help
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -97,13 +98,7 @@ func TestForceTextFlag_Parsing(t *testing.T) {
 
 func TestHelpCmdDef_AliasRegistration(t *testing.T) {
 	// Verify helpCmdDef declares the "h" alias (documentation side)
-	foundH := false
-	for _, a := range helpCmdDef.Aliases {
-		if a == "h" {
-			foundH = true
-			break
-		}
-	}
+	foundH := slices.Contains(helpCmdDef.Aliases, "h")
 	if !foundH {
 		t.Fatal("helpCmdDef.Aliases should contain 'h'")
 	}

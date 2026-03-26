@@ -355,12 +355,12 @@ func TestRender_CJK_WrapWithSpaces(t *testing.T) {
 
 func makeGradientImage(w, h int, from, to color.RGBA) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for x := 0; x < w; x++ {
+	for x := range w {
 		t := float64(x) / float64(max1(w-1, 1))
 		r := uint8(float64(from.R)*(1-t) + float64(to.R)*t)
 		g := uint8(float64(from.G)*(1-t) + float64(to.G)*t)
 		b := uint8(float64(from.B)*(1-t) + float64(to.B)*t)
-		for y := 0; y < h; y++ {
+		for y := range h {
 			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
 		}
 	}

@@ -353,8 +353,8 @@ func exCanvasAvatarRow(dir string) error {
 // makeSolidRGBA returns a w×h image filled with c.
 func makeSolidRGBA(w, h int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.Set(x, y, c)
 		}
 	}
@@ -504,7 +504,7 @@ func makeGradient(w, h int, from, to color.RGBA) image.Image {
 		h = w / 3
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for x := 0; x < w; x++ {
+	for x := range w {
 		t := float64(x) / float64(w-1)
 		r := uint8(math.Round(float64(from.R)*(1-t) + float64(to.R)*t))
 		g := uint8(math.Round(float64(from.G)*(1-t) + float64(to.G)*t))

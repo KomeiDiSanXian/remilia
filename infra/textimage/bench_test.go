@@ -72,8 +72,8 @@ func solidImg(w, h int, c color.Color) image.Image {
 		B: uint8(b8 >> 8),
 		A: uint8(a8 >> 8),
 	}
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.Set(x, y, flat)
 		}
 	}
@@ -180,7 +180,6 @@ func BenchmarkRender_Multiline20(b *testing.B) {
 // BenchmarkRender_FontSizes shows how rasterisation cost scales with point size.
 func BenchmarkRender_FontSizes(b *testing.B) {
 	for _, size := range []float64{12, 16, 24, 36, 48} {
-		size := size
 		b.Run(fmt.Sprintf("pt%.0f", size), func(b *testing.B) {
 			r := textimage.MustNew(textimage.WithFontSize(size))
 			defer func() { _ = r.Close() }()
@@ -197,7 +196,6 @@ func BenchmarkRender_FontSizes(b *testing.B) {
 // BenchmarkRender_CanvasWidths shows memory allocation growth with canvas width.
 func BenchmarkRender_CanvasWidths(b *testing.B) {
 	for _, w := range []int{320, 480, 640, 960, 1280} {
-		w := w
 		b.Run(fmt.Sprintf("w%d", w), func(b *testing.B) {
 			r := textimage.MustNew(textimage.WithSize(w, 0))
 			defer func() { _ = r.Close() }()
@@ -309,7 +307,6 @@ func BenchmarkImgProcess_NoOp(b *testing.B) {
 // BenchmarkImgProcess_Scale measures CatmullRom downscaling at various source sizes.
 func BenchmarkImgProcess_Scale(b *testing.B) {
 	for _, sz := range []int{128, 256, 512, 1024} {
-		sz := sz
 		src := solidImg(sz, sz, color.Gray{Y: 128})
 		b.Run(fmt.Sprintf("src%d_to64", sz), func(b *testing.B) {
 			b.ReportAllocs()
@@ -325,7 +322,6 @@ func BenchmarkImgProcess_Scale(b *testing.B) {
 // BenchmarkImgProcess_CircleClip measures the optimised (zero-alloc) circle clip.
 func BenchmarkImgProcess_CircleClip(b *testing.B) {
 	for _, sz := range []int{64, 128, 256} {
-		sz := sz
 		src := solidImg(sz, sz, color.RGBA{R: 80, G: 120, B: 200, A: 255})
 		b.Run(fmt.Sprintf("sz%d", sz), func(b *testing.B) {
 			b.ReportAllocs()
@@ -341,7 +337,6 @@ func BenchmarkImgProcess_CircleClip(b *testing.B) {
 // BenchmarkImgProcess_RoundedCorners measures the optimised rounded-corner clip.
 func BenchmarkImgProcess_RoundedCorners(b *testing.B) {
 	for _, sz := range []int{64, 128, 256} {
-		sz := sz
 		src := solidImg(sz, sz, color.RGBA{G: 180, A: 255})
 		b.Run(fmt.Sprintf("sz%d_r12", sz), func(b *testing.B) {
 			b.ReportAllocs()
@@ -481,7 +476,6 @@ func BenchmarkCanvas_HealthReport_JPEG(b *testing.B) {
 func BenchmarkCanvas_Widths(b *testing.B) {
 	avatar := solidImg(80, 80, color.RGBA{R: 80, G: 120, B: 200, A: 255})
 	for _, w := range []int{320, 480, 640, 960} {
-		w := w
 		b.Run(fmt.Sprintf("w%d", w), func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()

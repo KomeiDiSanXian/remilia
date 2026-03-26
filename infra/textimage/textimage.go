@@ -671,8 +671,8 @@ func makeBackdropMask(w, h int, shape BackdropShape, roundR int) *image.Alpha {
 		cx, cy := w/2, h/2
 		a2 := float64(cx) * float64(cx)
 		b2 := float64(cy) * float64(cy)
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
+		for y := range h {
+			for x := range w {
 				dx, dy := float64(x-cx), float64(y-cy)
 				if dx*dx/a2+dy*dy/b2 <= 1.0 {
 					mask.SetAlpha(x, y, color.Alpha{A: 255})
@@ -680,13 +680,10 @@ func makeBackdropMask(w, h int, shape BackdropShape, roundR int) *image.Alpha {
 			}
 		}
 	case BackdropShapeRounded:
-		r := roundR
-		if r < 1 {
-			r = 1
-		}
+		r := max(roundR, 1)
 		r2 := r * r
-		for y := 0; y < h; y++ {
-			for x := 0; x < w; x++ {
+		for y := range h {
+			for x := range w {
 				if inRoundedRect(x, y, w, h, r, r2) {
 					mask.SetAlpha(x, y, color.Alpha{A: 255})
 				}

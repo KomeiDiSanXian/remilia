@@ -4,27 +4,8 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(coredump): implement core dump generation and platform-specific diagnostics">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/antispam/antispam.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/conversation/conversation.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/conversation/conversation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/cache/cache.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/cache/cache.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/storage/redis.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/storage/redis.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/storage/sqlite.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/storage/sqlite.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/storage/storage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/storage/storage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/httpclient-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/httpclient-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/sqlite-storage-demo/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/helper/chain_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/helper/chain_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/textimage.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/textimage.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_panic_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/hotreload/hotreload_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/hotreload/hotreload_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/interactions.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/interactions.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/result.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/result.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/sender.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: standardize error handling and rename types for clarity">
       <change beforePath="$PROJECT_DIR$/plugin/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/bugfix_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/plugintest/mock_plugin_info_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -292,7 +273,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(pool): initialize Context with background context to reduce nil pointer dereference risk" />
     <MESSAGE value="feat(i18n): embed locale files and update i18n plugin integration for improved localization" />
     <MESSAGE value="refactor(adapter): enhance SendRequest structure for improved clarity and support for passive replies" />
     <MESSAGE value="refactor(sender): remove unnecessary logger import and debug statement for cleaner code" />
@@ -317,7 +297,8 @@
     <MESSAGE value="chore: update comments to Chinese for better localization in adapter and openapi files" />
     <MESSAGE value="feat(help): enhance caching mechanism for help and image responses with independent expiration" />
     <MESSAGE value="feat(coredump): implement core dump generation and platform-specific diagnostics" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(coredump): implement core dump generation and platform-specific diagnostics" />
+    <MESSAGE value="refactor: standardize error handling and rename types for clarity" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: standardize error handling and rename types for clarity" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

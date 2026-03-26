@@ -202,10 +202,7 @@ func (c *Canvas) AddRow(items ...RowItem) error {
 			autoCount++
 		}
 	}
-	remaining := c.width - fixedTotal
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(c.width-fixedTotal, 0)
 	autoWidth := 0
 	if autoCount > 0 {
 		autoWidth = remaining / autoCount
@@ -505,20 +502,17 @@ func processImage(src image.Image, o imageOpts, canvasWidth int) (image.Image, e
 // pixels are copied directly via Pix slices, avoiding per-pixel interface allocations.
 func circularClip(src image.Image) image.Image {
 	b := src.Bounds()
-	size := b.Dx()
-	if b.Dy() < size {
-		size = b.Dy()
-	}
+	size := min(b.Dy(), b.Dx())
 	r := size / 2
 	r2 := r * r
 	out := image.NewRGBA(image.Rect(0, 0, size, size))
 
 	if rgba, ok := src.(*image.RGBA); ok {
 		// Fast path — zero interface allocations.
-		for y := 0; y < size; y++ {
+		for y := range size {
 			srcRow := (b.Min.Y+y)*rgba.Stride + b.Min.X*4
 			dstRow := y * out.Stride
-			for x := 0; x < size; x++ {
+			for x := range size {
 				dx, dy := x-r, y-r
 				if dx*dx+dy*dy <= r2 {
 					s := srcRow + x*4
@@ -534,8 +528,8 @@ func circularClip(src image.Image) image.Image {
 	}
 
 	// Slow path for non-RGBA source images.
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
+	for y := range size {
+		for x := range size {
 			dx, dy := x-r, y-r
 			if dx*dx+dy*dy <= r2 {
 				out.Set(x, y, src.At(b.Min.X+x, b.Min.Y+y))
@@ -556,10 +550,10 @@ func roundedClip(src image.Image, radius int) image.Image {
 	r2 := radius * radius
 
 	if rgba, ok := src.(*image.RGBA); ok {
-		for y := 0; y < h; y++ {
+		for y := range h {
 			srcRow := (b.Min.Y+y)*rgba.Stride + b.Min.X*4
 			dstRow := y * out.Stride
-			for x := 0; x < w; x++ {
+			for x := range w {
 				if inRoundedRect(x, y, w, h, radius, r2) {
 					s := srcRow + x*4
 					d := dstRow + x*4
@@ -573,8 +567,8 @@ func roundedClip(src image.Image, radius int) image.Image {
 		return out
 	}
 
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			if inRoundedRect(x, y, w, h, radius, r2) {
 				out.Set(x, y, src.At(b.Min.X+x, b.Min.Y+y))
 			}
@@ -768,8 +762,8 @@ func (b *progressBlock) drawAt(dst *image.RGBA, yOffset, canvasWidth int) {
 
 	r, r2 := b.opts.radius, b.opts.radius*b.opts.radius
 	fullW, fullH := barRect.Dx(), barRect.Dy()
-	for y := 0; y < fullH; y++ {
-		for x := 0; x < fillW; x++ {
+	for y := range fullH {
+		for x := range fillW {
 			if r == 0 || inRoundedRect(x, y, fullW, fullH, r, r2) {
 				dst.Set(barRect.Min.X+x, barRect.Min.Y+y, b.opts.fillColor)
 			}
@@ -826,8 +820,8 @@ func drawFilledRoundedRect(dst *image.RGBA, rect image.Rectangle, radius int, c 
 		return
 	}
 	r2 := radius * radius
-	for row := 0; row < h; row++ {
-		for col := 0; col < w; col++ {
+	for row := range h {
+		for col := range w {
 			if inRoundedRect(col, row, w, h, radius, r2) {
 				dst.Set(rect.Min.X+col, rect.Min.Y+row, c)
 			}
