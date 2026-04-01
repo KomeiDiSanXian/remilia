@@ -32,8 +32,8 @@
 package stats
 
 import (
+	"context"
 	stdctx "context"
-	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -74,7 +74,7 @@ type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
-	storage       storage.Client // 可选持久化后端
+	store         *storage.Store // 可选持久化后端
 }
 
 // storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
@@ -116,9 +116,8 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("stats")
 				p.loadSnapshot()
-				// 使用 ctx.Go 启动生命周期绑定的自动保存 goroutine
 				setupCtx.Go(func(runCtx stdctx.Context) {
 					p.autoSaveWithCtx(runCtx, 5*time.Minute)
 				})
@@ -283,7 +282,7 @@ type statsSnapshot struct {
 }
 
 func (p *Plugin) saveSnapshot() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	snap := statsSnapshot{
@@ -294,26 +293,17 @@ func (p *Plugin) saveSnapshot() {
 		snap.Commands[k.(string)] = v.(*atomic.Int64).Load()
 		return true
 	})
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return
-	}
-	if err := p.storage.Set("stats:snapshot", data, 0); err != nil {
+	if err := storage.Set(context.Background(), p.store, "snapshot", snap, 0); err != nil {
 		logger.WithError(err).Warn("[Stats] Failed to save snapshot")
 	}
 }
 
 func (p *Plugin) loadSnapshot() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("stats:snapshot")
+	snap, err := storage.Get[statsSnapshot](context.Background(), p.store, "snapshot")
 	if err != nil {
-		return
-	}
-	var snap statsSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		logger.WithError(err).Warn("[Stats] Failed to load snapshot")
 		return
 	}
 	p.totalMessages.Store(snap.Total)
@@ -330,7 +320,7 @@ func (p *Plugin) autoSaveWithCtx(ctx stdctx.Context, interval time.Duration) {
 	for {
 		select {
 		case <-ticker.C:
-			if p.storage != nil {
+			if p.store != nil {
 				p.saveSnapshot()
 			}
 		case <-ctx.Done():

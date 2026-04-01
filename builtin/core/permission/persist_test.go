@@ -1,44 +1,18 @@
 package permission_test
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	permission0 "github.com/KomeiDiSanXian/remilia/core/permission"
 )
 
-// mockStorageBackend 模拟存储后端（内存实现）
-type mockStorageBackend struct {
-	data map[string][]byte
+// newTestStore 创建用于测试的命名空间 Store（内存后端）
+func newTestStore(ns string) *storage.Store {
+	return storage.NewPlugin(storage.NewMemoryStorage()).NS(ns)
 }
-
-func newMockStorage() *mockStorageBackend {
-	return &mockStorageBackend{data: make(map[string][]byte)}
-}
-
-func (m *mockStorageBackend) GetJSON(key string, v any) error {
-	b, ok := m.data[key]
-	if !ok {
-		return fmt.Errorf("key not found: %s", key)
-	}
-	return json.Unmarshal(b, v)
-}
-
-func (m *mockStorageBackend) SetJSON(key string, v any, _ time.Duration) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	m.data[key] = b
-	return nil
-}
-
-// Ensure mockStorageBackend satisfies permission.StorageBackend at compile time
-var _ permission.StorageBackend = (*mockStorageBackend)(nil)
 
 // TestPermissionManager_ExportLoadUserRoles 验证用户角色的导出和加载
 func TestPermissionManager_ExportLoadUserRoles(t *testing.T) {

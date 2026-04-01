@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,7 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RedisStorage Redis 存储实现，满足 Storage 接口
+// RedisStorage Redis 存储实现，满足 Backend 接口
 type RedisStorage struct {
 	client    *redis.Client
 	keyPrefix string
@@ -37,7 +36,6 @@ func NewRedisStorage(cfg RedisConfig) (*RedisStorage, error) {
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
-	// 连通性检查
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
@@ -57,10 +55,9 @@ func (r *RedisStorage) prefixed(key string) string {
 }
 
 // Get 获取值
-func (r *RedisStorage) Get(key string) ([]byte, error) {
-	ctx := context.Background()
+func (r *RedisStorage) Get(ctx context.Context, key string) ([]byte, error) {
 	val, err := r.client.Get(ctx, r.prefixed(key)).Bytes()
-	if errors.Is(err, redis.Nil) {
+	if err == redis.Nil {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -70,25 +67,24 @@ func (r *RedisStorage) Get(key string) ([]byte, error) {
 }
 
 // Set 设置值，ttl=0 表示永不过期
-func (r *RedisStorage) Set(key string, value []byte, ttl time.Duration) error {
-	ctx := context.Background()
+func (r *RedisStorage) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	return r.client.Set(ctx, r.prefixed(key), value, ttl).Err()
 }
 
 // Delete 删除键
-func (r *RedisStorage) Delete(key string) error {
-	return r.client.Del(context.Background(), r.prefixed(key)).Err()
+func (r *RedisStorage) Delete(ctx context.Context, key string) error {
+	return r.client.Del(ctx, r.prefixed(key)).Err()
 }
 
 // Exists 检查键是否存在
-func (r *RedisStorage) Exists(key string) bool {
-	n, err := r.client.Exists(context.Background(), r.prefixed(key)).Result()
+func (r *RedisStorage) Exists(ctx context.Context, key string) bool {
+	n, err := r.client.Exists(ctx, r.prefixed(key)).Result()
 	return err == nil && n > 0
 }
 
-// Keys 按 glob 模式列出键（去除前缀后返回）
-func (r *RedisStorage) Keys(pattern string) ([]string, error) {
-	keys, err := r.client.Keys(context.Background(), r.prefixed(pattern)).Result()
+// Keys 按 glob 模式列出键（去除 keyPrefix 后返回）
+func (r *RedisStorage) Keys(ctx context.Context, pattern string) ([]string, error) {
+	keys, err := r.client.Keys(ctx, r.prefixed(pattern)).Result()
 	if err != nil {
 		return nil, fmt.Errorf("redis keys: %w", err)
 	}
@@ -100,8 +96,7 @@ func (r *RedisStorage) Keys(pattern string) ([]string, error) {
 }
 
 // Clear 清空所有以 keyPrefix 开头的键
-func (r *RedisStorage) Clear() error {
-	ctx := context.Background()
+func (r *RedisStorage) Clear(ctx context.Context) error {
 	keys, err := r.client.Keys(ctx, r.keyPrefix+"*").Result()
 	if err != nil {
 		return fmt.Errorf("redis keys: %w", err)

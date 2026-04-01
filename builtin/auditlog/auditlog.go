@@ -17,7 +17,7 @@
 package auditlog
 
 import (
-	"encoding/json"
+	"context"
 	"sync"
 	"time"
 
@@ -55,7 +55,7 @@ type Plugin struct {
 	mu      sync.RWMutex
 	entries []LogEntry
 	nextID  int64
-	storage storage.Client
+	store   *storage.Store // 可选持久化（nil=纯内存）
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -95,7 +95,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("auditlog")
 				p.loadFromStorage()
 			}
 			return p, nil
@@ -148,7 +148,7 @@ func (p *Plugin) append(entry LogEntry) {
 	p.entries = append(p.entries, entry)
 
 	// 异步持久化
-	if p.storage != nil {
+	if p.store != nil {
 		go p.flushToStorage()
 	}
 }
@@ -224,7 +224,7 @@ type storageData struct {
 }
 
 func (p *Plugin) flushToStorage() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -235,28 +235,21 @@ func (p *Plugin) flushToStorage() {
 	copy(d.Entries, p.entries)
 	p.mu.RUnlock()
 
-	data, err := json.Marshal(d)
-	if err != nil {
-		return
+	if err := storage.Set(context.Background(), p.store, "entries", d, 0); err != nil {
+		logger.WithError(err).Warn("[AuditLog] Failed to flush to storage")
 	}
-	_ = p.storage.Set("auditlog:entries", data, 0)
 }
 
 func (p *Plugin) loadFromStorage() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("auditlog:entries")
+	d, err := storage.Get[storageData](context.Background(), p.store, "entries")
 	if err != nil {
-		return
-	}
-	var d storageData
-	if err := json.Unmarshal(data, &d); err != nil {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	// 只保留 MaxMemoryEntries 条
 	if len(d.Entries) > p.cfg.MaxMemoryEntries {
 		d.Entries = d.Entries[len(d.Entries)-p.cfg.MaxMemoryEntries:]
 	}

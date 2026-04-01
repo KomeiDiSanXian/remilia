@@ -18,9 +18,9 @@
 package verifycode
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -87,7 +87,7 @@ type Plugin struct {
 	mu       sync.RWMutex
 	codes    map[string]*CodeEntry // code -> entry
 	onVerify OnVerifyHook
-	storage  storage.Client
+	store    *storage.Store // 可选持久化后端（nil=纯内存）
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -123,7 +123,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("verifycode")
 				p.load()
 			}
 			return p, nil
@@ -257,31 +257,28 @@ func generateCode() (string, error) {
 	return strings.ToUpper(hex.EncodeToString(b)), nil
 }
 
-// ----- 持久化 -----
-
 func (p *Plugin) save() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
-	data, err := json.Marshal(p.codes)
-	p.mu.RUnlock()
-	if err != nil {
-		return
+	codes := make(map[string]*CodeEntry, len(p.codes))
+	for k, v := range p.codes {
+		clone := *v
+		codes[k] = &clone
 	}
-	_ = p.storage.Set("verifycode:codes", data, 0)
+	p.mu.RUnlock()
+	if err := storage.Set(context.Background(), p.store, "codes", codes, 0); err != nil {
+		logger.WithError(err).Warn("[VerifyCode] Failed to save codes")
+	}
 }
 
 func (p *Plugin) load() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("verifycode:codes")
+	codes, err := storage.Get[map[string]*CodeEntry](context.Background(), p.store, "codes")
 	if err != nil {
-		return
-	}
-	var codes map[string]*CodeEntry
-	if err := json.Unmarshal(data, &codes); err != nil {
 		return
 	}
 	p.mu.Lock()

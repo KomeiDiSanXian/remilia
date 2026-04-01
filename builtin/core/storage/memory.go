@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"path/filepath"
 	"sync"
 	"time"
@@ -25,7 +26,7 @@ func NewMemoryStorage() *MemoryStorage {
 }
 
 // Get 获取值
-func (m *MemoryStorage) Get(key string) ([]byte, error) {
+func (m *MemoryStorage) Get(_ context.Context, key string) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -46,7 +47,7 @@ func (m *MemoryStorage) Get(key string) ([]byte, error) {
 }
 
 // Set 设置值
-func (m *MemoryStorage) Set(key string, value []byte, ttl time.Duration) error {
+func (m *MemoryStorage) Set(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -67,7 +68,7 @@ func (m *MemoryStorage) Set(key string, value []byte, ttl time.Duration) error {
 }
 
 // Delete 删除值
-func (m *MemoryStorage) Delete(key string) error {
+func (m *MemoryStorage) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -76,7 +77,7 @@ func (m *MemoryStorage) Delete(key string) error {
 }
 
 // Exists 检查键是否存在
-func (m *MemoryStorage) Exists(key string) bool {
+func (m *MemoryStorage) Exists(_ context.Context, key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -94,40 +95,35 @@ func (m *MemoryStorage) Exists(key string) bool {
 }
 
 // Keys 列出匹配的键
-func (m *MemoryStorage) Keys(pattern string) ([]string, error) {
+func (m *MemoryStorage) Keys(_ context.Context, pattern string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var keys []string
-	for key := range m.data {
+	for key, item := range m.data {
 		// 简单的通配符匹配
+		if !item.expiresAt.IsZero() && time.Now().After(item.expiresAt) {
+			continue
+		}
 		matched, err := filepath.Match(pattern, key)
 		if err != nil {
 			return nil, err
 		}
 		if matched {
-			// 检查是否过期
-			item := m.data[key]
-			if item.expiresAt.IsZero() || time.Now().Before(item.expiresAt) {
-				keys = append(keys, key)
-			}
+			keys = append(keys, key)
 		}
 	}
 
 	return keys, nil
 }
 
-// Clear 清空所有数据
-func (m *MemoryStorage) Clear() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.data = make(map[string]*memoryItem)
+// Close 关闭内存存储
+func (m *MemoryStorage) Close() error {
 	return nil
 }
 
 // CleanExpired 清理过期数据（实现 CleanableStorage 接口）
-func (m *MemoryStorage) CleanExpired() (int, error) {
+func (m *MemoryStorage) CleanExpired(_ context.Context) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

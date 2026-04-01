@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -86,15 +87,15 @@ func (s *SQLiteStorage) initSchema() error {
 }
 
 // Get 获取值
-func (s *SQLiteStorage) Get(key string) ([]byte, error) {
+func (s *SQLiteStorage) Get(ctx context.Context, key string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var value []byte
 	var expiresAtMs sql.NullInt64
 
-	query := `SELECT value, expires_at_ms FROM kv_store WHERE key = ?`
-	err := s.db.QueryRow(query, key).Scan(&value, &expiresAtMs)
+	err := s.db.QueryRowContext(ctx, `SELECT value, expires_at_ms FROM kv_store WHERE key = ?`, key).
+		Scan(&value, &expiresAtMs)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -106,7 +107,7 @@ func (s *SQLiteStorage) Get(key string) ([]byte, error) {
 	// 检查是否过期
 	if expiresAtMs.Valid && time.Now().UnixMilli() > expiresAtMs.Int64 {
 		// 异步删除过期键
-		go s.Delete(key)
+		go s.db.Exec(`DELETE FROM kv_store WHERE key = ?`, key) //nolint:errcheck
 		return nil, ErrExpired
 	}
 
@@ -117,7 +118,7 @@ func (s *SQLiteStorage) Get(key string) ([]byte, error) {
 }
 
 // Set 设置值
-func (s *SQLiteStorage) Set(key string, value []byte, ttl time.Duration) error {
+func (s *SQLiteStorage) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -133,16 +134,14 @@ func (s *SQLiteStorage) Set(key string, value []byte, ttl time.Duration) error {
 		expiresAtMs.Int64 = time.Now().Add(ttl).UnixMilli()
 	}
 
-	query := `
-	INSERT INTO kv_store (key, value, expires_at_ms, created_at_ms, updated_at_ms)
-	VALUES (?, ?, ?, ?, ?)
-	ON CONFLICT(key) DO UPDATE SET
-		value = excluded.value,
-		expires_at_ms = excluded.expires_at_ms,
-		updated_at_ms = excluded.updated_at_ms
-	`
-
-	_, err := s.db.Exec(query, key, valueCopy, expiresAtMs, nowMs, nowMs)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO kv_store (key, value, expires_at_ms, created_at_ms, updated_at_ms)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			value = excluded.value,
+			expires_at_ms = excluded.expires_at_ms,
+			updated_at_ms = excluded.updated_at_ms
+	`, key, valueCopy, expiresAtMs, nowMs, nowMs)
 	if err != nil {
 		return fmt.Errorf("failed to set key: %w", err)
 	}
@@ -151,12 +150,11 @@ func (s *SQLiteStorage) Set(key string, value []byte, ttl time.Duration) error {
 }
 
 // Delete 删除值
-func (s *SQLiteStorage) Delete(key string) error {
+func (s *SQLiteStorage) Delete(ctx context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := `DELETE FROM kv_store WHERE key = ?`
-	_, err := s.db.Exec(query, key)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM kv_store WHERE key = ?`, key)
 	if err != nil {
 		return fmt.Errorf("failed to delete key: %w", err)
 	}
@@ -165,13 +163,13 @@ func (s *SQLiteStorage) Delete(key string) error {
 }
 
 // Exists 检查键是否存在
-func (s *SQLiteStorage) Exists(key string) bool {
+func (s *SQLiteStorage) Exists(ctx context.Context, key string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var expiresAtMs sql.NullInt64
-	query := `SELECT expires_at_ms FROM kv_store WHERE key = ?`
-	err := s.db.QueryRow(query, key).Scan(&expiresAtMs)
+	err := s.db.QueryRowContext(ctx, `SELECT expires_at_ms FROM kv_store WHERE key = ?`, key).
+		Scan(&expiresAtMs)
 
 	if err != nil {
 		return false
@@ -186,20 +184,18 @@ func (s *SQLiteStorage) Exists(key string) bool {
 }
 
 // Keys 列出匹配的键
-func (s *SQLiteStorage) Keys(pattern string) ([]string, error) {
+func (s *SQLiteStorage) Keys(ctx context.Context, pattern string) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// 将通配符模式转换为 SQL LIKE 模式
 	sqlPattern := convertToSQLPattern(pattern)
 
-	query := `
-	SELECT key FROM kv_store 
-	WHERE key LIKE ? 
-	AND (expires_at_ms IS NULL OR expires_at_ms > ?)
-	`
-
-	rows, err := s.db.Query(query, sqlPattern, time.Now().UnixMilli())
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT key FROM kv_store
+		WHERE key LIKE ?
+		AND (expires_at_ms IS NULL OR expires_at_ms > ?)
+	`, sqlPattern, time.Now().UnixMilli())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query keys: %w", err)
 	}
@@ -236,22 +232,18 @@ func (s *SQLiteStorage) Clear() error {
 }
 
 // CleanExpired 清理过期数据
-func (s *SQLiteStorage) CleanExpired() (int, error) {
+func (s *SQLiteStorage) CleanExpired(ctx context.Context) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := `DELETE FROM kv_store WHERE expires_at_ms IS NOT NULL AND expires_at_ms <= ?`
-	result, err := s.db.Exec(query, time.Now().UnixMilli())
+	result, err := s.db.ExecContext(ctx,
+		`DELETE FROM kv_store WHERE expires_at_ms IS NOT NULL AND expires_at_ms <= ?`,
+		time.Now().UnixMilli())
 	if err != nil {
 		return 0, fmt.Errorf("failed to clean expired: %w", err)
 	}
-
 	count, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	return int(count), nil
+	return int(count), err
 }
 
 // Size 返回存储的键数量
@@ -260,16 +252,11 @@ func (s *SQLiteStorage) Size() (int, error) {
 	defer s.mu.RUnlock()
 
 	var count int
-	query := `
-	SELECT COUNT(*) FROM kv_store 
-	WHERE expires_at_ms IS NULL OR expires_at_ms > ?
-	`
-	err := s.db.QueryRow(query, time.Now().UnixMilli()).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get size: %w", err)
-	}
-
-	return count, nil
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM kv_store
+		WHERE expires_at_ms IS NULL OR expires_at_ms > ?
+	`, time.Now().UnixMilli()).Scan(&count)
+	return count, err
 }
 
 // Close 关闭数据库连接
@@ -286,11 +273,7 @@ func (s *SQLiteStorage) Compact() error {
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec("VACUUM")
-	if err != nil {
-		return fmt.Errorf("failed to compact database: %w", err)
-	}
-
-	return nil
+	return err
 }
 
 // Stats 获取数据库统计信息
@@ -302,42 +285,33 @@ func (s *SQLiteStorage) Stats() (map[string]any, error) {
 
 	// 总键数
 	var totalKeys int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM kv_store`).Scan(&totalKeys)
-	if err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM kv_store`).Scan(&totalKeys); err != nil {
 		return nil, err
 	}
 	stats["total_keys"] = totalKeys
 
 	// 有效键数（未过期）
 	var validKeys int
-	err = s.db.QueryRow(`
-		SELECT COUNT(*) FROM kv_store 
+	if err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM kv_store
 		WHERE expires_at_ms IS NULL OR expires_at_ms > ?
-	`, time.Now().UnixMilli()).Scan(&validKeys)
-	if err != nil {
+	`, time.Now().UnixMilli()).Scan(&validKeys); err != nil {
 		return nil, err
 	}
 	stats["valid_keys"] = validKeys
-
-	// 过期键数
 	stats["expired_keys"] = totalKeys - validKeys
 
-	// 数据库文件大小
 	var pageCount, pageSize int
-	err = s.db.QueryRow(`PRAGMA page_count`).Scan(&pageCount)
-	if err == nil {
-		s.db.QueryRow(`PRAGMA page_size`).Scan(&pageSize)
+	if err := s.db.QueryRow(`PRAGMA page_count`).Scan(&pageCount); err == nil {
+		s.db.QueryRow(`PRAGMA page_size`).Scan(&pageSize) //nolint:errcheck
 		stats["db_size_bytes"] = pageCount * pageSize
 	}
-
 	stats["db_path"] = s.path
 
-	// 日志模式（WAL/DELETE 等）
 	var journalMode string
 	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err == nil {
 		stats["journal_mode"] = journalMode
 	}
-
 	return stats, nil
 }
 
@@ -346,18 +320,16 @@ func convertToSQLPattern(pattern string) string {
 	if pattern == "*" {
 		return "%"
 	}
-
-	// 将 * 替换为 %
-	var sqlPattern strings.Builder
+	var b strings.Builder
 	for _, ch := range pattern {
-		if ch == '*' {
-			sqlPattern.WriteString("%")
-		} else if ch == '?' {
-			sqlPattern.WriteString("_")
-		} else {
-			sqlPattern.WriteString(string(ch))
+		switch ch {
+		case '*':
+			b.WriteByte('%')
+		case '?':
+			b.WriteByte('_')
+		default:
+			b.WriteRune(ch)
 		}
 	}
-
-	return sqlPattern.String()
+	return b.String()
 }

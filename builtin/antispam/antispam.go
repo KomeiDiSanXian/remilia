@@ -20,7 +20,7 @@
 package antispam
 
 import (
-	"encoding/json"
+	"context"
 	"sync"
 	"time"
 
@@ -78,7 +78,7 @@ type Plugin struct {
 	groupRL *lru.Cache[string, *rate.Limiter]
 	banList map[string]banEntry
 	banMu   sync.RWMutex
-	storage storage.Client // 可选持久化后端
+	store   *storage.Store // 可选持久化后端
 }
 
 // NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
@@ -121,7 +121,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("antispam")
 				p.loadBanList()
 			}
 			return p, nil
@@ -135,16 +135,11 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 
 // loadBanList 从 storage 加载封禁名单
 func (p *Plugin) loadBanList() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("antispam:banlist")
+	entries, err := storage.Get[map[string]banEntryJSON](context.Background(), p.store, "banlist")
 	if err != nil {
-		return // 键不存在或其他错误，忽略
-	}
-	var entries map[string]banEntryJSON
-	if err := json.Unmarshal(data, &entries); err != nil {
-		logger.WithError(err).Warn("[AntiSpam] Failed to load ban list")
 		return
 	}
 	p.banMu.Lock()
@@ -155,7 +150,7 @@ func (p *Plugin) loadBanList() {
 		if e.Until != 0 {
 			until = time.Unix(0, e.Until)
 			if until.Before(now) {
-				continue // 已过期，跳过
+				continue
 			}
 		}
 		p.banList[id] = banEntry{until: until}
@@ -165,7 +160,7 @@ func (p *Plugin) loadBanList() {
 
 // saveBanList 将封禁名单保存到 storage
 func (p *Plugin) saveBanList() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	p.banMu.RLock()
@@ -173,18 +168,13 @@ func (p *Plugin) saveBanList() {
 	now := time.Now()
 	for id, e := range p.banList {
 		if !e.until.IsZero() && e.until.Before(now) {
-			continue // 已过期，不保存
+			continue
 		}
 		entries[id] = banEntryJSON{Until: e.until.UnixNano()}
 	}
 	p.banMu.RUnlock()
 
-	data, err := json.Marshal(entries)
-	if err != nil {
-		logger.WithError(err).Warn("[AntiSpam] Failed to marshal ban list")
-		return
-	}
-	if err := p.storage.Set("antispam:banlist", data, 0); err != nil {
+	if err := storage.Set(context.Background(), p.store, "banlist", entries, 0); err != nil {
 		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
 		return
 	}
@@ -237,12 +227,6 @@ func (p *Plugin) Stats() Stats {
 		UserLimiterCount:  p.userRL.Len(),
 		GroupLimiterCount: p.groupRL.Len(),
 	}
-}
-
-// SetStorage 手动设置持久化后端（用于在 Setup 后注入 storage）
-func (p *Plugin) SetStorage(s storage.Client) {
-	p.storage = s
-	p.loadBanList()
 }
 
 // New 创建反垃圾插件描述符（便捷入口，内部创建 Plugin 实例）。

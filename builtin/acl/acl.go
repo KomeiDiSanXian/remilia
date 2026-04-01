@@ -17,7 +17,7 @@
 package acl
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"maps"
 	"strings"
@@ -81,7 +81,7 @@ type Plugin struct {
 	mu      sync.RWMutex
 	mode    Mode
 	entries map[string]Entry // userID -> Entry
-	storage storage.Client
+	store   *storage.Store   // 可选持久化（nil=纯内存）
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -122,7 +122,7 @@ func New() *plugin.Descriptor {
 			}
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("acl")
 				p.load()
 			}
 			return p, nil
@@ -155,7 +155,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("acl")
 				p.load()
 			}
 			return p, nil
@@ -284,7 +284,7 @@ type snapshot struct {
 }
 
 func (p *Plugin) save() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -295,23 +295,17 @@ func (p *Plugin) save() {
 	maps.Copy(snap.Entries, p.entries)
 	p.mu.RUnlock()
 
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return
+	if err := storage.Set(context.Background(), p.store, "data", snap, 0); err != nil {
+		logger.WithError(err).Warn("[ACL] Failed to save")
 	}
-	_ = p.storage.Set("acl:data", data, 0)
 }
 
 func (p *Plugin) load() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("acl:data")
+	snap, err := storage.Get[snapshot](context.Background(), p.store, "data")
 	if err != nil {
-		return
-	}
-	var snap snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
 		return
 	}
 	p.mu.Lock()

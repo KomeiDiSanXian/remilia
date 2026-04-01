@@ -23,6 +23,7 @@
 package pluginstore
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -57,9 +58,9 @@ type registration struct {
 
 // Plugin 插件配置持久化插件
 type Plugin struct {
-	mu      sync.RWMutex
-	regs    map[string]*registration
-	storage storage.Client
+	mu    sync.RWMutex
+	regs  map[string]*registration
+	store *storage.Store // 命名空间 Store（nil=无持久化）
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -92,7 +93,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("pluginstore")
 				ctx.Log.Info("Bound to storage plugin")
 			}
 			return p, nil
@@ -169,7 +170,7 @@ func (p *Plugin) SaveAll() (saved, failed int) {
 
 // doSave 执行保存逻辑
 func (p *Plugin) doSave(r *registration) error {
-	if p.storage == nil {
+	if p.store == nil {
 		return fmt.Errorf("pluginstore: no storage backend")
 	}
 
@@ -178,17 +179,16 @@ func (p *Plugin) doSave(r *registration) error {
 		return fmt.Errorf("pluginstore: SaveState for %s failed: %w", r.name, err)
 	}
 	if state == nil {
-		return nil // 无状态需保存
+		return nil
 	}
 
 	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("pluginstore: marshal for %s failed: %w", r.name, err)
 	}
-
-	key := "pluginstore:" + r.name
-	if err := p.storage.Set(key, data, 0); err != nil {
-		return fmt.Errorf("pluginstore: storage.Set for %s failed: %w", r.name, err)
+	// Use raw bytes since the state type is unknown at compile time.
+	if err := p.store.SetRaw(context.Background(), r.name, data, 0); err != nil {
+		return fmt.Errorf("pluginstore: store.SetRaw for %s failed: %w", r.name, err)
 	}
 
 	logger.Debugf("[PluginStore] Saved state for plugin %s (%d bytes)", r.name, len(data))
@@ -197,18 +197,15 @@ func (p *Plugin) doSave(r *registration) error {
 
 // tryRestore 尝试从 storage 恢复指定插件的状态
 func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 
-	key := "pluginstore:" + name
-	data, err := p.storage.Get(key)
+	data, err := p.store.GetRaw(context.Background(), name)
 	if err != nil {
-		// 键不存在或其他错误，忽略（首次启动正常现象）
 		return
 	}
 
-	// 反序列化为通用类型（让 RestoreFunc 负责强类型化）
 	var state any
 	if err := json.Unmarshal(data, &state); err != nil {
 		logger.WithError(err).Warnf("[PluginStore] Failed to unmarshal state for plugin %s", name)
@@ -236,11 +233,10 @@ func (p *Plugin) ListRegistered() []string {
 
 // HasStorage 返回是否已绑定 storage 后端
 func (p *Plugin) HasStorage() bool {
-	return p.storage != nil
+	return p.store != nil
 }
 
-// SetStorageForTest 直接绑定存储后端（仅用于测试）。
-// 生产环境中 storage 由容器自动绑定。
-func (p *Plugin) SetStorageForTest(sb storage.Client) {
-	p.storage = sb
+// SetStoreForTest 直接绑定命名空间 Store（仅用于测试）。
+func (p *Plugin) SetStoreForTest(store *storage.Store) {
+	p.store = store
 }

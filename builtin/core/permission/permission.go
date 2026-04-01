@@ -65,7 +65,7 @@ type Plugin struct {
 	manager         *permission.Manager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
-	store           StorageBackend // 可选持久化后端（nil=纯内存）
+	store           *storageplugin.Store // 可选持久化后端（nil=纯内存）
 }
 
 // NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）
@@ -117,7 +117,7 @@ func New() *plugin.Descriptor {
 
 			if sv, ok := ctx.Get("storage"); ok {
 				if storagePlugin, ok := sv.(*storageplugin.Plugin); ok {
-					pluginAPI.TryBindStorage(NewStorageAdapter(storagePlugin))
+					pluginAPI.TryBindStorage(storagePlugin.NS("permission"))
 				}
 			}
 

@@ -1,8 +1,8 @@
 package conversation
 
 import (
+	"context"
 	stdctx "context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -57,7 +57,7 @@ type Session struct {
 type Plugin struct {
 	sessions sync.Map
 	machines sync.Map
-	storage  storage.Client // 可选持久化后端
+	store    *storage.Store // 可选持久化后端
 }
 
 // storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
@@ -87,7 +87,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("conversation")
 				p.restoreSessions()
 			}
 			// 后台定期 GC 过期会话，防止 sync.Map 无限增长（Bug 2.4 修复）
@@ -314,7 +314,7 @@ func isExpired(s *Session) bool {
 
 // persistSessions 将所有活跃会话保存到 storage
 func (p *Plugin) persistSessions() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	sessions := make(map[string]*Session)
@@ -325,12 +325,7 @@ func (p *Plugin) persistSessions() {
 		}
 		return true
 	})
-	data, err := json.Marshal(sessions)
-	if err != nil {
-		logger.WithError(err).Warn("[Conversation] Failed to marshal sessions")
-		return
-	}
-	if err := p.storage.Set("conversation:sessions", data, 0); err != nil {
+	if err := storage.Set(context.Background(), p.store, "sessions", sessions, 0); err != nil {
 		logger.WithError(err).Warn("[Conversation] Failed to persist sessions")
 	} else {
 		logger.Infof("[Conversation] Persisted %d sessions", len(sessions))
@@ -339,16 +334,11 @@ func (p *Plugin) persistSessions() {
 
 // restoreSessions 从 storage 恢复会话
 func (p *Plugin) restoreSessions() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("conversation:sessions")
+	sessions, err := storage.Get[map[string]*Session](context.Background(), p.store, "sessions")
 	if err != nil {
-		return // 键不存在，忽略
-	}
-	var sessions map[string]*Session
-	if err := json.Unmarshal(data, &sessions); err != nil {
-		logger.WithError(err).Warn("[Conversation] Failed to restore sessions")
 		return
 	}
 	count := 0

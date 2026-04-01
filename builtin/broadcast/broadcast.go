@@ -14,7 +14,6 @@ package broadcast
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -65,10 +64,10 @@ type Plugin struct {
 	subMu     sync.RWMutex
 
 	// 可选持久化后端
-	storage storage.Client
+	store *storage.Store
 }
 
-// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
+// storageBackend 接口已合并至 storage.Store，见 plugins/core/storage
 
 // NewPlugin 创建 Plugin 实例（用于测试或需要持有引用的场景）
 // 配合 Descriptor(p) 使用，或直接调用 p.SetAPI(api) / p.ToGroups(...)。
@@ -111,7 +110,7 @@ func New(cfg ...Config) *plugin.Descriptor {
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
 			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
-				p.storage = sb
+				p.store = sb.NS("broadcast")
 				p.loadSubs()
 			}
 			return p, nil
@@ -272,30 +271,24 @@ type subSnapshot struct {
 }
 
 func (p *Plugin) saveSubs() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
 	snap := subSnapshot{
 		Groups: p.ListGroupSubscribers(),
 		C2Cs:   p.ListC2CSubscribers(),
 	}
-	data, err := json.Marshal(snap)
-	if err != nil {
-		return
+	if err := storage.Set(context.Background(), p.store, "subscriptions", snap, 0); err != nil {
+		logger.WithError(err).Warn("[Broadcast] Failed to save subscriptions")
 	}
-	_ = p.storage.Set("broadcast:subscriptions", data, 0)
 }
 
 func (p *Plugin) loadSubs() {
-	if p.storage == nil {
+	if p.store == nil {
 		return
 	}
-	data, err := p.storage.Get("broadcast:subscriptions")
+	snap, err := storage.Get[subSnapshot](context.Background(), p.store, "subscriptions")
 	if err != nil {
-		return
-	}
-	var snap subSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
 		return
 	}
 	p.subMu.Lock()
