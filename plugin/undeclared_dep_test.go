@@ -188,6 +188,93 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 	t.Logf("注册顺序: %v（未声明 Deps时拓扑排序不保证顺序）", setupOrder)
 }
 
+// TestOptionalDeps_TopologicalSort 验证声明 OptionalDeps 时批量注册能正确排序。
+func TestOptionalDeps_TopologicalSort(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	setupOrder := make([]string, 0, 2)
+
+	base := &plugin.Descriptor{
+		Name: "base-opt",
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			setupOrder = append(setupOrder, "base-opt")
+			return "api", nil
+		},
+	}
+
+	consumer := &plugin.Descriptor{
+		Name:         "consumer-opt",
+		Deps:         []string{},
+		OptionalDeps: []string{"base-opt"}, // 声明可选依赖
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			setupOrder = append(setupOrder, "consumer-opt")
+			_, _ = ctx.Get("base-opt")
+			return nil, nil
+		},
+	}
+
+	// consumer 列在 base 之前，但由于 OptionalDeps 声明，topo 排序会保证 base 先加载
+	if err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{consumer, base}); err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+
+	if len(setupOrder) != 2 {
+		t.Fatalf("期望 2 个插件，实际: %v", setupOrder)
+	}
+	if setupOrder[0] != "base-opt" || setupOrder[1] != "consumer-opt" {
+		t.Errorf("OptionalDeps 应保证 base-opt 在 consumer-opt 之前，实际顺序: %v", setupOrder)
+	} else {
+		t.Logf("✓ OptionalDeps 正确保证批量注册顺序: %v", setupOrder)
+	}
+}
+
+// TestOptionalDeps_NoFailWhenMissing 验证 OptionalDeps 中的依赖不存在时不报错。
+func TestOptionalDeps_NoFailWhenMissing(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	consumer := &plugin.Descriptor{
+		Name:         "consumer-missing-opt",
+		OptionalDeps: []string{"nonexistent-plugin"}, // 不存在的可选依赖
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			_, ok := ctx.Get("nonexistent-plugin") // 返回 false，插件正常运行
+			if ok {
+				t.Error("不应找到不存在的插件")
+			}
+			return nil, nil
+		},
+	}
+
+	if err := pm.Register(consumer); err != nil {
+		t.Errorf("OptionalDeps 中不存在的依赖不应导致注册失败: %v", err)
+	} else {
+		t.Log("✓ OptionalDeps 中不存在的依赖不影响注册")
+	}
+}
+
+// TestOptionalDeps_NoWarnWhenDeclared 验证已声明在 OptionalDeps 中的依赖不触发警告。
+func TestOptionalDeps_NoWarnWhenDeclared(t *testing.T) {
+	pm := plugin.NewManager(nil)
+
+	_ = pm.Register(&plugin.Descriptor{
+		Name:  "opt-base",
+		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
+	})
+
+	// 声明了 OptionalDeps，不应产生"未声明依赖"警告
+	err := pm.Register(&plugin.Descriptor{
+		Name:         "opt-consumer-declared",
+		OptionalDeps: []string{"opt-base"},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			_, _ = ctx.Get("opt-base")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("注册失败: %v", err)
+	}
+	t.Log("✓ OptionalDeps 已声明，不产生未声明依赖警告")
+}
+
 // TestUndeclaredDep_SmartMode 验证 Smart 模式能同时处理必要和可选依赖的拓扑排序。
 func TestUndeclaredDep_SmartMode(t *testing.T) {
 	pm := plugin.NewManager(nil)

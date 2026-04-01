@@ -134,9 +134,20 @@ type Descriptor struct {
 	// Version 版本号（建议填写，格式：semver）
 	Version string
 
-	// Deps 依赖的插件名称列表
-	// 框架保证 Deps 中的插件在本插件 Setup 前已完成加载
+	// Deps 依赖的插件名称列表（必须依赖）
+	// 框架保证 Deps 中的插件在本插件 Setup 前已完成加载。
+	// Deps 中列出的插件必须已注册且处于 Loaded 状态，否则注册失败。
+	// 适用于通过 plugin.Must / ctx.MustGet 访问的强依赖。
 	Deps []string
+
+	// OptionalDeps 可选依赖的插件名称列表（仅影响加载顺序）
+	// 与 Deps 的区别：
+	//   - Deps：依赖必须存在，否则注册失败；
+	//   - OptionalDeps：依赖存在时保证先加载，不存在时插件仍可正常注册。
+	// 适用于通过 plugin.Try / ctx.Get 访问的弱依赖（插件可在无该依赖的情况下正常运行）。
+	// 在 RegisterMultiple / RegisterMultipleAtomic 批量注册时，OptionalDeps 中
+	// 存在于同一批次的依赖会被纳入拓扑排序，确保可选依赖先于当前插件加载。
+	OptionalDeps []string
 
 	// Privileged 声明为管理类插件（可选，默认 false）
 	//

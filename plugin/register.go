@@ -126,12 +126,16 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	}
 
 	if len(allTracked) > 0 {
+		// 构建已声明的依赖集合（必要 + 可选，两者均算已声明）
 		declaredDeps := make(map[string]bool)
 		for _, dep := range desc.Deps {
 			declaredDeps[dep] = true
 		}
+		for _, dep := range desc.OptionalDeps {
+			declaredDeps[dep] = true
+		}
 
-		// 未声明的依赖（必要 + 可选）
+		// 未声明的依赖（必要 + 可选，均未出现在 Deps / OptionalDeps 中）
 		undeclaredAll := make([]string, 0)
 		for dep := range allTracked {
 			if !declaredDeps[dep] {
@@ -440,6 +444,13 @@ func (pm *Manager) topologicalSort(descriptors []*Descriptor) ([]*Descriptor, er
 				}
 			}
 			if existsInBatch {
+				inDegree[desc.Name]++
+				graph[dep] = append(graph[dep], desc.Name)
+			}
+		}
+		// OptionalDeps：仅当可选依赖存在于同一批次时才参与拓扑排序，不存在则静默跳过
+		for _, dep := range desc.OptionalDeps {
+			if _, existsInBatch := descMap[dep]; existsInBatch {
 				inDegree[desc.Name]++
 				graph[dep] = append(graph[dep], desc.Name)
 			}

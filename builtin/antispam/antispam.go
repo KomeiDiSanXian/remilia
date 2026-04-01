@@ -104,9 +104,10 @@ func NewPlugin(cfg Config) *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "antispam",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "antispam",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "反垃圾/防刷插件，用户和群组独立限速，支持违规封禁",

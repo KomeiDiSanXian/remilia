@@ -96,9 +96,10 @@ func NewPlugin() *Plugin {
 // 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
 func New() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "acl",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "acl",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",
@@ -137,9 +138,10 @@ func New() *plugin.Descriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "acl",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "acl",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",

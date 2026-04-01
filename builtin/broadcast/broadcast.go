@@ -94,9 +94,10 @@ func New(cfg ...Config) *plugin.Descriptor {
 	}
 
 	return &plugin.Descriptor{
-		Name:    "broadcast",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "broadcast",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "广播/推送插件，支持向多群和多用户批量发送消息",

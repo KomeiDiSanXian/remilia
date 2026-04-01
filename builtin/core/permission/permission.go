@@ -96,9 +96,10 @@ func New() *plugin.Descriptor {
 	}
 
 	return &plugin.Descriptor{
-		Name:    "permission",
-		Version: "3.0.0",
-		Deps:    []string{},
+		Name:         "permission",
+		Version:      "3.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "基于角色的访问控制（RBAC）权限系统",

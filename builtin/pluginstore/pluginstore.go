@@ -78,9 +78,10 @@ func New() *plugin.Descriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "pluginstore",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "pluginstore",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "插件配置持久化插件，跨重启保存/恢复插件运行时状态",

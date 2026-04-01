@@ -107,9 +107,10 @@ func New(onVerify OnVerifyHook) *plugin.Descriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "verifycode",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "verifycode",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "多用途验证码插件，支持角色授予、入群验证、自定义回调",

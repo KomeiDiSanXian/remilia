@@ -100,9 +100,10 @@ func NewPlugin() *Plugin {
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "stats",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "stats",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "用户行为统计插件，记录命令调用次数和用户活跃度",

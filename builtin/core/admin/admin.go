@@ -28,10 +28,11 @@ type Plugin struct {
 func New() *plugin.Descriptor {
 	v1Plugin := &Plugin{}
 	return &plugin.Descriptor{
-		Name:       "admin",
-		Version:    "2.1.0",
-		Deps:       []string{"permission"},
-		Privileged: true, // 需要 ManagerWriter 权限（Reload/Disable/Enable/Unregister）
+		Name:         "admin",
+		Version:      "2.1.0",
+		Deps:         []string{"permission"},
+		OptionalDeps: []string{"acl", "verifycode"}, // ctx.Get 弱依赖，存在时集成，不存在时跳过
+		Privileged:   true,                          // 需要 ManagerWriter 权限（Reload/Disable/Enable/Unregister）
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "机器人管理核心插件，提供插件管理、权限管理和配置管理功能",

@@ -57,9 +57,10 @@ func New() *plugin.Descriptor {
 // Descriptor 从已有 Plugin 实例创建描述符
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "ratelimitui",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "ratelimitui",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"antispam", "cooldown", "permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "限流状态查询插件，聚合 antispam 和 cooldown 的运行时状态",

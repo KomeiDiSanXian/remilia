@@ -79,9 +79,10 @@ func New(cfg ...Config) *plugin.Descriptor {
 // Descriptor 从已有 Plugin 创建描述符
 func Descriptor(p *Plugin) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:    "auditlog",
-		Version: "1.0.0",
-		Deps:    []string{},
+		Name:         "auditlog",
+		Version:      "1.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "操作审计日志插件，记录命令调用和管理操作",
