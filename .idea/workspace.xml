@@ -4,14 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: replace for loops with range for improved readability">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/core/storage/storage.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/core/storage/storage.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/reload.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/reload.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/testing.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/testing.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: use errors.Is for error comparison in RedisStorage.Get method">
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -277,9 +272,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(sender): remove unnecessary logger import and debug statement for cleaner code" />
-    <MESSAGE value="typo: rename for consistency and clarity" />
-    <MESSAGE value="refactor(adapter): unify passive reply token handling and enhance ChatInfo structure for clarity" />
     <MESSAGE value="feat(adapter): implement AdapterObserver for lifecycle event monitoring and enhance metrics integration" />
     <MESSAGE value="fix(degradation): correct type assertion for AlreadyRegisteredError handling" />
     <MESSAGE value="feat(adapter): add validation for SendRequest and introduce BotIdentity interface for enhanced bot management" />
@@ -302,7 +294,10 @@
     <MESSAGE value="refactor: standardize error handling and rename types for clarity" />
     <MESSAGE value="fix(tests): rename error channel for clarity and consistency" />
     <MESSAGE value="refactor: replace for loops with range for improved readability" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: replace for loops with range for improved readability" />
+    <MESSAGE value="refactor: streamline goroutine management in SetupContext for improved clarity" />
+    <MESSAGE value="refactor: replace storage.Client with storage.Store for improved consistency and type safety" />
+    <MESSAGE value="refactor: use errors.Is for error comparison in RedisStorage.Get method" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor: use errors.Is for error comparison in RedisStorage.Get method" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
