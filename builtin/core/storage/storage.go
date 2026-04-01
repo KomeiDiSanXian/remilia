@@ -301,11 +301,6 @@ func NewWithBackend(b Backend) *plugin.Descriptor {
 	}
 }
 
-// NewV2WithBackend is a deprecated alias for [NewWithBackend].
-//
-// Deprecated: Use [NewWithBackend] instead.
-func NewV2WithBackend(b Backend) *plugin.Descriptor { return NewWithBackend(b) }
-
 // ─── Sentinel errors ───────────────────────────────────────────────────────
 
 var (

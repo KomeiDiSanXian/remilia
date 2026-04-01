@@ -11,17 +11,6 @@ import (
 
 var bg = context.Background()
 
-// ─── NewWithBackend alias ───────────────────────────────────────────────────
-
-func TestNewWithBackend_Alias(t *testing.T) {
-	mem := storage.NewMemoryStorage()
-	desc1 := storage.NewWithBackend(mem)
-	desc2 := storage.NewV2WithBackend(mem)
-	if desc1.Name != desc2.Name {
-		t.Errorf("NewWithBackend should produce same descriptor as NewV2WithBackend")
-	}
-}
-
 // ─── Plugin.NS + generic Get/Set ───────────────────────────────────────────
 
 func TestPlugin_NS_GetSet(t *testing.T) {
