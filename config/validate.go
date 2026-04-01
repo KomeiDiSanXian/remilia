@@ -168,6 +168,12 @@ func (mc *MiddlewareConfig) Validate() error {
 			return fmt.Errorf("middleware.slow_handler_threshold is not a valid duration: %w", err)
 		}
 	}
+	if mc.DegradationCPUThreshold != 0 && (mc.DegradationCPUThreshold < 0 || mc.DegradationCPUThreshold > 100) {
+		return fmt.Errorf("middleware.degradation_cpu_threshold must be between 0 and 100, got %f", mc.DegradationCPUThreshold)
+	}
+	if mc.DegradationMemoryThreshold != 0 && (mc.DegradationMemoryThreshold < 0 || mc.DegradationMemoryThreshold > 100) {
+		return fmt.Errorf("middleware.degradation_memory_threshold must be between 0 and 100, got %f", mc.DegradationMemoryThreshold)
+	}
 	return nil
 }
 
@@ -203,26 +209,26 @@ func (wc *WebhookConfig) Validate() error {
 	}
 	if wc.DedupEnable {
 		if wc.Shards < 0 {
-			return fmt.Errorf("webhook.dedup_shards must be >= 0, got %d", wc.Shards)
+			return fmt.Errorf("webhook.shards must be >= 0, got %d", wc.Shards)
 		}
 		if wc.LifeWindow != "" {
 			if _, err := time.ParseDuration(wc.LifeWindow); err != nil {
-				return fmt.Errorf("webhook.dedup_life_window is not a valid duration: %w", err)
+				return fmt.Errorf("webhook.life_window is not a valid duration: %w", err)
 			}
 		}
 		if wc.CleanWindow != "" {
 			if _, err := time.ParseDuration(wc.CleanWindow); err != nil {
-				return fmt.Errorf("webhook.dedup_clean_window is not a valid duration: %w", err)
+				return fmt.Errorf("webhook.clean_window is not a valid duration: %w", err)
 			}
 		}
 		if wc.MaxEntrySize < 0 {
-			return fmt.Errorf("webhook.dedup_max_entry_size must be >= 0, got %d", wc.MaxEntrySize)
+			return fmt.Errorf("webhook.max_entry_size must be >= 0, got %d", wc.MaxEntrySize)
 		}
 		if wc.HardMaxCacheSize < 0 {
-			return fmt.Errorf("webhook.dedup_hard_max_size must be >= 0, got %d", wc.HardMaxCacheSize)
+			return fmt.Errorf("webhook.hard_max_cache_size must be >= 0, got %d", wc.HardMaxCacheSize)
 		}
 		if wc.MaxEntriesInWindow < 0 {
-			return fmt.Errorf("webhook.dedup_max_entries_in_window must be >= 0, got %d", wc.MaxEntriesInWindow)
+			return fmt.Errorf("webhook.max_entries_in_window must be >= 0, got %d", wc.MaxEntriesInWindow)
 		}
 	}
 	return nil

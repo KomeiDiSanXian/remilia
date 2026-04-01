@@ -1,4 +1,4 @@
-# Remilia Bot 配置文件示例 (v1.0.0)
+# Remilia Bot 配置文件示例 (v1.1.0)
 # 复制此文件为 config.yaml 并填入你的实际配置
 
 # ====================================
@@ -26,6 +26,10 @@ server:
 
   # Webhook 监听端口
   port: 8080
+
+  # 优雅关闭超时时间
+  # 格式: "5s", "10s", "30s" 等
+  shutdown_timeout: "10s"
 
 # ====================================
 # 日志配置
@@ -120,6 +124,12 @@ middleware:
   # v0.7.1+ 支持 Prometheus 集成
   metrics: true
 
+  # 自适应降级 CPU 阈值（百分比，0-100），支持热更新
+  degradation_cpu_threshold: 80.0
+
+  # 自适应降级内存阈值（百分比，0-100），支持热更新
+  degradation_memory_threshold: 85.0
+
 # ====================================
 # 死信队列配置（可选）
 # v0.7.0+ 支持失败事件持久化
@@ -161,27 +171,27 @@ webhook:
 
   # BigCache 分片数（2的幂次）
   # 推荐值: 1024（默认）
-  dedup_shards: 1024
+  shards: 1024
 
   # 去重缓存生命周期
   # 格式: "1m", "5m", "10m" 等
-  dedup_life_window: "5m"
+  life_window: "5m"
 
   # 清理过期条目的间隔时间
   # 格式: "30s", "1m", "5m" 等
-  dedup_clean_window: "1m"
+  clean_window: "1m"
 
   # 单个缓存条目的最大字节数
   # 推荐值: 1024-4096 bytes
-  dedup_max_entry_size: 4096
+  max_entry_size: 4096
 
   # 最大缓存大小（MB）
   # 推荐值: 50-200 MB
-  dedup_hard_max_size: 100
+  hard_max_cache_size: 100
 
   # BigCache 窗口内最大条目数
   # 推荐值: 600000（默认 1000*10*60）
-  dedup_max_entries_in_window: 600000
+  max_entries_in_window: 600000
 
 # ====================================
 # Token 管理器配置（可选）
@@ -267,10 +277,47 @@ degradation:
   strategy: "drop"
 
 # ====================================
+# 分布式追踪配置（可选）
+# v0.8.0+ 支持 OpenTelemetry 集成
+# ====================================
+tracing:
+  # 是否启用分布式追踪
+  enable: false
+
+  # 服务名称（用于追踪后端展示）
+  service_name: "remilia-bot"
+
+  # 服务版本
+  service_version: "1.0.0"
+
+  # 部署环境: dev, staging, prod
+  environment: "dev"
+
+  # 导出器类型: otlp（Tempo/Grafana）, zipkin, stdout
+  exporter: "otlp"
+
+  # 追踪后端地址
+  # OTLP (Tempo/Grafana): http://localhost:4318
+  # Zipkin: http://localhost:9411/api/v2/spans
+  endpoint: "http://localhost:4318"
+
+  # 采样率 (0.0 - 1.0)
+  # 1.0 = 全量采样，0.1 = 10% 采样
+  sampling_rate: 1.0
+
+  # 是否在 Span 中包含事件详情（内容、作者等）
+  include_event_detail: false
+
+  # 额外的 HTTP 请求头（用于 OTLP 认证，可选）
+  # headers:
+  #   Authorization: "Bearer your_token"
+  #   X-Custom-Header: "value"
+
+# ====================================
 # 配置说明
 # ====================================
 # 1. 必填配置: bot, server, log
-# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation
+# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation, tracing
 # 3. 环境变量支持:
 #    - BOT_APP_ID
 #    - BOT_BOT_ID
@@ -281,6 +328,9 @@ degradation:
 #    - webhook.worker_count: 控制并发处理能力（测试显示8并发可达6127 msg/s）
 #    - webhook.event_buffer: 控制事件缓冲区大小
 #    - engine.*: 控制引擎内部行为和性能
+# 6. 分布式追踪 (tracing):
+#    - 需要部署 Grafana Tempo 或 Zipkin 等后端
+#    - 生产环境建议设置 sampling_rate < 1.0 以降低开销
 #
 # 详细文档: docs/CONFIG.md, docs/CONFIGURATION_IMPROVEMENTS.md
 

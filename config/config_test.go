@@ -128,6 +128,17 @@ func TestServerConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "port must be between",
 		},
+		{
+			name:    "valid shutdown_timeout",
+			config:  ServerConfig{Host: "localhost", Port: 8080, ShutdownTimeout: "10s"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid shutdown_timeout",
+			config:  ServerConfig{Host: "localhost", Port: 8080, ShutdownTimeout: "not-a-duration"},
+			wantErr: true,
+			errMsg:  "shutdown_timeout",
+		},
 	}
 
 	for _, tt := range tests {
@@ -451,6 +462,30 @@ func TestMiddlewareConfig_Validate(t *testing.T) {
 			wantErr: true,
 			errMsg:  "rate_limit_burst",
 		},
+		{
+			name: "degradation_cpu_threshold out of range",
+			config: MiddlewareConfig{
+				DegradationCPUThreshold: 150.0,
+			},
+			wantErr: true,
+			errMsg:  "degradation_cpu_threshold",
+		},
+		{
+			name: "degradation_memory_threshold out of range",
+			config: MiddlewareConfig{
+				DegradationMemoryThreshold: -5.0,
+			},
+			wantErr: true,
+			errMsg:  "degradation_memory_threshold",
+		},
+		{
+			name: "valid degradation thresholds",
+			config: MiddlewareConfig{
+				DegradationCPUThreshold:    80.0,
+				DegradationMemoryThreshold: 85.0,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -589,7 +624,7 @@ func TestWebhookConfig_Validate(t *testing.T) {
 				Shards:      -1,
 			},
 			wantErr: true,
-			errMsg:  "dedup_shards",
+			errMsg:  "webhook.shards",
 		},
 		{
 			name: "invalid life_window",
@@ -598,7 +633,7 @@ func TestWebhookConfig_Validate(t *testing.T) {
 				LifeWindow:  "invalid",
 			},
 			wantErr: true,
-			errMsg:  "dedup_life_window",
+			errMsg:  "webhook.life_window",
 		},
 		{
 			name: "invalid clean_window",
@@ -607,7 +642,7 @@ func TestWebhookConfig_Validate(t *testing.T) {
 				CleanWindow: "not-duration",
 			},
 			wantErr: true,
-			errMsg:  "dedup_clean_window",
+			errMsg:  "webhook.clean_window",
 		},
 		{
 			name: "negative max_entry_size",
@@ -616,7 +651,7 @@ func TestWebhookConfig_Validate(t *testing.T) {
 				MaxEntrySize: -1,
 			},
 			wantErr: true,
-			errMsg:  "dedup_max_entry_size",
+			errMsg:  "webhook.max_entry_size",
 		},
 		{
 			name: "negative hard_max_cache_size",
@@ -625,7 +660,7 @@ func TestWebhookConfig_Validate(t *testing.T) {
 				HardMaxCacheSize: -1,
 			},
 			wantErr: true,
-			errMsg:  "dedup_hard_max_size",
+			errMsg:  "webhook.hard_max_cache_size",
 		},
 	}
 
