@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	stdctx "context"
 	"fmt"
 	"time"
 
@@ -43,16 +42,6 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 			autoTrackEnabled: true,
 			eng:              oldContext.eng,
 		},
-	}
-	newContext.Go = func(fn func(ctx stdctx.Context)) {
-		if newContext.goroutineMgr != nil {
-			newContext.goroutineMgr.go_(fn)
-		}
-	}
-	newContext.GoNamed = func(name string, fn func(ctx stdctx.Context)) {
-		if newContext.goroutineMgr != nil {
-			newContext.goroutineMgr.goNamed_(name, fn)
-		}
 	}
 
 	pi.mu.Lock()

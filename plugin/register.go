@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	stdctx "context"
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -93,16 +92,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 			autoTrackEnabled: true,
 			eng:              pm.coordinator,
 		},
-	}
-	setupCtx.Go = func(fn func(ctx stdctx.Context)) {
-		if setupCtx.goroutineMgr != nil {
-			setupCtx.goroutineMgr.go_(fn)
-		}
-	}
-	setupCtx.GoNamed = func(name string, fn func(ctx stdctx.Context)) {
-		if setupCtx.goroutineMgr != nil {
-			setupCtx.goroutineMgr.goNamed_(name, fn)
-		}
 	}
 
 	instance.setupContext = setupCtx
@@ -337,8 +326,6 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 				autoTrackEnabled: true,
 			},
 		}
-		setupCtx.Go = func(fn func(ctx stdctx.Context)) {}
-		setupCtx.GoNamed = func(name string, fn func(ctx stdctx.Context)) {}
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

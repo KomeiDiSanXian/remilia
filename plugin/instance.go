@@ -41,8 +41,6 @@ func (pi *Instance) load() (loadErr error) {
 	pi.goroutineMgr = gm
 	if pi.setupContext != nil {
 		pi.setupContext.goroutineMgr = gm
-		pi.setupContext.Go = gm.go_
-		pi.setupContext.GoNamed = gm.goNamed_
 	}
 	pi.mu.Unlock()
 

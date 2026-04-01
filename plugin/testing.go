@@ -1,8 +1,6 @@
 package plugin
 
 import (
-	stdctx "context"
-
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
@@ -57,12 +55,6 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 			autoTrackEnabled: true,
 			goroutineMgr:     gm,
 		},
-	}
-	ctx.Go = func(fn func(runCtx stdctx.Context)) {
-		gm.go_(fn)
-	}
-	ctx.GoNamed = func(name string, fn func(runCtx stdctx.Context)) {
-		gm.goNamed_(name, fn)
 	}
 
 	return ctx

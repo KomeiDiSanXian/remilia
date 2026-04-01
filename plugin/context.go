@@ -52,7 +52,7 @@ type SetupContext struct {
 	// 推断阶段框架会多次调用 Setup 以分析依赖关系。此时：
 	//   - ctx.Reg 已替换为 no-op（不会注册真实 Matcher）
 	//   - ctx.EventBus 已替换为 no-op（不会注册真实订阅）
-	//   - ctx.Go / ctx.GoNamed 均为 no-op（不会启动 goroutine）
+	//   - ctx.Go / ctx.GoNamed 自动退化为 no-op（goroutineMgr 未初始化）
 	//
 	// 对于大多数插件，无需检查此字段——框架已通过 no-op 替换消除了常见副作用。
 	// 仅当 Setup 中存在以下情况时才需要判断：
@@ -67,27 +67,6 @@ type SetupContext struct {
 	//	    return p, nil
 	//	},
 	DryRun bool
-
-	// Go 启动一个与插件生命周期绑定的后台 goroutine。
-	// 框架在 Teardown 前自动 cancel 并等待所有 goroutine 退出。
-	//
-	//   ctx.Go(func(runCtx context.Context) {
-	//       ticker := time.NewTicker(time.Minute)
-	//       defer ticker.Stop()
-	//       for {
-	//           select {
-	//           case <-ticker.C: cleanup()
-	//           case <-runCtx.Done(): return
-	//           }
-	//       }
-	//   })
-	Go func(fn func(ctx stdctx.Context))
-
-	// GoNamed 启动一个带名称标签的生命周期绑定 goroutine。
-	// 名称用于调试时区分不同插件的后台任务（可通过 Manager.ListPluginGoroutines 查询）。
-	//
-	//   ctx.GoNamed("cleanup-gc", func(runCtx context.Context) { ... })
-	GoNamed func(name string, fn func(ctx stdctx.Context))
 
 	// Config 插件配置
 	Config Config
@@ -107,6 +86,37 @@ type SetupContext struct {
 func (ctx *SetupContext) ExportAs(name string, api any) {
 	if ctx.container != nil {
 		ctx.container.Register(name, api)
+	}
+}
+
+// Go 启动一个与插件生命周期绑定的匿名后台 goroutine。
+// 框架在 Teardown 前自动 cancel 传入的 context 并等待所有 goroutine 退出。
+// DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op，不会启动 goroutine。
+//
+//	ctx.Go(func(runCtx context.Context) {
+//	    ticker := time.NewTicker(time.Minute)
+//	    defer ticker.Stop()
+//	    for {
+//	        select {
+//	        case <-ticker.C: cleanup()
+//	        case <-runCtx.Done(): return
+//	        }
+//	    }
+//	})
+func (ctx *SetupContext) Go(fn func(stdctx.Context)) {
+	if ctx.goroutineMgr != nil {
+		ctx.goroutineMgr.go_(fn)
+	}
+}
+
+// GoNamed 启动一个带名称标签的生命周期绑定后台 goroutine。
+// 名称用于调试时区分不同插件的后台任务（可通过 Manager.ListPluginGoroutines 查询）。
+// DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op，不会启动 goroutine。
+//
+//	ctx.GoNamed("cleanup-gc", func(runCtx context.Context) { ... })
+func (ctx *SetupContext) GoNamed(name string, fn func(stdctx.Context)) {
+	if ctx.goroutineMgr != nil {
+		ctx.goroutineMgr.goNamed_(name, fn)
 	}
 }
 
