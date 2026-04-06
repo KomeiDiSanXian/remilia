@@ -18,7 +18,6 @@
 package verifycode
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -27,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -80,37 +79,45 @@ func (e *CodeEntry) IsValid() bool {
 // OnVerifyHook 验证成功后的回调（用于授予角色/权限）
 type OnVerifyHook func(userID, role string) error
 
-// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
-
 // Plugin 验证码插件
 type Plugin struct {
 	mu       sync.RWMutex
 	codes    map[string]*CodeEntry // code -> entry
 	onVerify OnVerifyHook
-	store    *storage.Store // 可选持久化后端（nil=纯内存）
+	dataFile string // 持久化文件路径（空字符串=纯内存）
+}
+
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
 }
 
 // NewPlugin 创建 Plugin 实例
-func NewPlugin(onVerify OnVerifyHook) *Plugin {
-	return &Plugin{
+func NewPlugin(onVerify OnVerifyHook, opts ...Option) *Plugin {
+	p := &Plugin{
 		codes:    make(map[string]*CodeEntry),
 		onVerify: onVerify,
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // New 创建验证码插件描述符
-func New(onVerify OnVerifyHook) *plugin.Descriptor {
-	p := NewPlugin(onVerify)
-	return Descriptor(p)
+func New(onVerify OnVerifyHook, opts ...Option) *plugin.Descriptor {
+	return NewPlugin(onVerify, opts...).Descriptor()
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "verifycode",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "verifycode",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "多用途验证码插件，支持角色授予、入群验证、自定义回调",
@@ -123,10 +130,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("verifycode")
-				p.load()
-			}
+			p.load()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -259,7 +263,7 @@ func generateCode() (string, error) {
 }
 
 func (p *Plugin) save() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	p.mu.RLock()
@@ -269,21 +273,21 @@ func (p *Plugin) save() {
 		codes[k] = &clone
 	}
 	p.mu.RUnlock()
-	if err := storage.Set(context.Background(), p.store, "codes", codes, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, codes); err != nil {
 		logger.WithError(err).Warn("[VerifyCode] Failed to save codes")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	codes, err := storage.Get[map[string]*CodeEntry](context.Background(), p.store, "codes")
+	codes, err := jsonfile.Read[map[string]*CodeEntry](p.dataFile)
 	if err != nil {
 		return
 	}
 	p.mu.Lock()
 	p.codes = codes
 	p.mu.Unlock()
-	logger.Infof("[VerifyCode] Loaded %d codes from storage", len(codes))
+	logger.Infof("[VerifyCode] Loaded %d codes", len(codes))
 }

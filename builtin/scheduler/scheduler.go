@@ -73,10 +73,10 @@ type Plugin struct {
 }
 
 // NewPlugin 创建并返回一个 Scheduler Plugin 实例。
-// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+// 配合 p.Descriptor() 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := scheduler.NewPlugin()
-//	pm.Register(scheduler.Descriptor(p))
+//	pm.Register(p.Descriptor())
 //	p.Every(time.Minute, fn) // 直接调用
 func NewPlugin() *Plugin {
 	ctx, cancel := stdctx.WithCancel(stdctx.Background())
@@ -88,7 +88,7 @@ func NewPlugin() *Plugin {
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "scheduler",
 		Version: "1.0.0",
@@ -100,7 +100,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"定时", "调度", "cron"},
 			HelpText: `计划任务插件使用说明：
   p := scheduler.NewPlugin()
-  pm.Register(scheduler.Descriptor(p))
+  pm.Register(p.Descriptor())
   p.Every(5*time.Minute, func() { ... })
   p.Cron("0 9 * * *", func() { ... })`,
 		},
@@ -142,9 +142,9 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 }
 
 // New 创建计划任务插件描述符（便捷入口，内部创建 Plugin 实例）。
-// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
+// 若需要持有 Plugin 引用，改用 NewPlugin() + p.Descriptor()。
 func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+	return NewPlugin().Descriptor()
 }
 
 // Get 从插件管理器中获取已注册的 Scheduler 插件实例（类型安全）。

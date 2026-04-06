@@ -14,10 +14,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/conversation"
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/admin"
-	"github.com/KomeiDiSanXian/remilia/builtin/core/cache"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/i18n"
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
 	"github.com/KomeiDiSanXian/remilia/builtin/pluginstore"
@@ -79,29 +77,27 @@ func main() {
 	rlPlugin.BindCooldown(cdPlugin)
 	i18nPlugin := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
 	if err := pm.RegisterMultiple([]*plugin.Descriptor{
-		storage.New(),
 		permission.New(),
-		acl.Descriptor(aclPlugin),
+		aclPlugin.Descriptor(),
 		verifycode.New(func(userID, role string) error {
 			logger.Infof("[showcase] %s granted role %s via verifycode", userID, role)
 			return nil
 		}),
-		antispam.Descriptor(asPlugin),
+		asPlugin.Descriptor(),
 		keywordfilter.New(keywordfilter.Config{
 			Keywords: []string{"badword"},
 			OnMatch: func(ctx *eventctx.Context, matched string) error {
 				return replyCtx(ctx, "[blocked: "+matched+"]")
 			},
 		}),
-		cooldown.Descriptor(cdPlugin),
-		stats.Descriptor(statsPlugin),
+		cdPlugin.Descriptor(),
+		statsPlugin.Descriptor(),
 		auditlog.New(),
-		scheduler.Descriptor(schedPlugin),
-		i18n.Descriptor(i18nPlugin),
-		ratelimitui.Descriptor(rlPlugin),
+		schedPlugin.Descriptor(),
+		i18nPlugin.Descriptor(),
+		rlPlugin.Descriptor(),
 		pluginstore.New(),
 		conversation.New(),
-		cache.New(),
 		help.New(),
 		admin.New(),
 	}); err != nil {

@@ -15,7 +15,7 @@
 //
 //	// 或持有引用：
 //	p := ratelimitui.NewPlugin()
-//	pm.Register(ratelimitui.Descriptor(p))
+//	pm.Register(p.Descriptor())
 package ratelimitui
 
 import (
@@ -51,11 +51,11 @@ func NewPlugin() *Plugin {
 
 // New 创建限流状态查询插件描述符（便捷入口）
 func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+	return NewPlugin().Descriptor()
 }
 
 // Descriptor 从已有 Plugin 实例创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "ratelimitui",
 		Version:      "1.0.0",

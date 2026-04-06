@@ -67,10 +67,10 @@ type Plugin struct {
 }
 
 // NewPlugin 创建并返回一个已初始化的 i18n Plugin 实例。
-// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+// 配合 p.Descriptor() 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-//	pm.Register(i18n.Descriptor(p))
+//	pm.Register(p.Descriptor())
 //	p.LoadBytes("zh-CN", data)
 func NewPlugin(cfg Config) *Plugin {
 	if cfg.DefaultLocale == "" {
@@ -88,7 +88,7 @@ func NewPlugin(cfg Config) *Plugin {
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "i18n",
 		Version: "1.0.0",
@@ -100,7 +100,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"i18n", "国际化", "多语言"},
 			HelpText: `i18n 插件使用说明：
   p := i18n.NewPlugin(i18n.Config{DefaultLocale: "zh-CN"})
-  pm.Register(i18n.Descriptor(p))
+  pm.Register(p.Descriptor())
   p.T(ctx, "key")`,
 		},
 		Advanced: &plugin.Advanced{
@@ -126,7 +126,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 // New 创建 i18n 插件描述符（便捷入口，内部创建 Plugin 实例）。
 // 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
 func New(cfg Config) *plugin.Descriptor {
-	return Descriptor(NewPlugin(cfg))
+	return NewPlugin(cfg).Descriptor()
 }
 
 // Get 从插件管理器中获取已注册的 i18n 插件实例（类型安全）。

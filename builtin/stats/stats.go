@@ -33,14 +33,13 @@ package stats
 
 import (
 	"context"
-	stdctx "context"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -74,10 +73,8 @@ type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
-	store         *storage.Store // 可选持久化后端
+	dataFile      string // 持久化文件路径（空字符串=纯内存）
 }
-
-// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
 
 type userEntry struct {
 	mu       sync.Mutex
@@ -85,25 +82,34 @@ type userEntry struct {
 	count    int64
 }
 
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
+}
+
 // NewPlugin 创建并返回一个 Stats Plugin 实例。
-// Use NewPlugin() if you need a direct reference to the Plugin API (e.g. in tests).
-// NewPlugin 创建并返回一个 Stats Plugin 实例。
-// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+// 配合 p.Descriptor() 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := stats.NewPlugin()
-//	pm.Register(stats.Descriptor(p))
+//	pm.Register(p.Descriptor())
 //	engine.Use(p.Middleware())
-func NewPlugin() *Plugin {
-	return &Plugin{}
+func NewPlugin(opts ...Option) *Plugin {
+	p := &Plugin{}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "stats",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "stats",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "用户行为统计插件，记录命令调用次数和用户活跃度",
@@ -116,10 +122,9 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
-				p.store = sb.NS("stats")
-				p.loadSnapshot()
-				setupCtx.Go(func(runCtx stdctx.Context) {
+			p.loadSnapshot()
+			if p.dataFile != "" {
+				setupCtx.Go(func(runCtx context.Context) {
 					p.autoSaveWithCtx(runCtx, 5*time.Minute)
 				})
 			}
@@ -132,10 +137,9 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 	}
 }
 
-// New 创建统计插件描述符（便捷入口，内部创建 Plugin 实例）。
-// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
-func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+// New 创建统计插件描述符（便捷入口）。
+func New(opts ...Option) *plugin.Descriptor {
+	return NewPlugin(opts...).Descriptor()
 }
 
 // Get 从插件管理器中获取已注册的 Stats 插件实例（类型安全）。
@@ -283,7 +287,7 @@ type statsSnapshot struct {
 }
 
 func (p *Plugin) saveSnapshot() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	snap := statsSnapshot{
@@ -294,16 +298,16 @@ func (p *Plugin) saveSnapshot() {
 		snap.Commands[k.(string)] = v.(*atomic.Int64).Load()
 		return true
 	})
-	if err := storage.Set(context.Background(), p.store, "snapshot", snap, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, snap); err != nil {
 		logger.WithError(err).Warn("[Stats] Failed to save snapshot")
 	}
 }
 
 func (p *Plugin) loadSnapshot() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	snap, err := storage.Get[statsSnapshot](context.Background(), p.store, "snapshot")
+	snap, err := jsonfile.Read[statsSnapshot](p.dataFile)
 	if err != nil {
 		return
 	}
@@ -315,15 +319,13 @@ func (p *Plugin) loadSnapshot() {
 	logger.Infof("[Stats] Loaded snapshot: total=%d commands=%d", snap.Total, len(snap.Commands))
 }
 
-func (p *Plugin) autoSaveWithCtx(ctx stdctx.Context, interval time.Duration) {
+func (p *Plugin) autoSaveWithCtx(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if p.store != nil {
-				p.saveSnapshot()
-			}
+			p.saveSnapshot()
 		case <-ctx.Done():
 			return
 		}

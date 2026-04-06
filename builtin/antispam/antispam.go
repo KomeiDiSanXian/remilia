@@ -20,14 +20,13 @@
 package antispam
 
 import (
-	"context"
 	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -73,41 +72,50 @@ type banEntryJSON struct {
 
 // Plugin 反垃圾插件 API
 type Plugin struct {
-	cfg     Config
-	userRL  *lru.Cache[string, *rate.Limiter]
-	groupRL *lru.Cache[string, *rate.Limiter]
-	banList map[string]banEntry
-	banMu   sync.RWMutex
-	store   *storage.Store // 可选持久化后端
+	cfg      Config
+	userRL   *lru.Cache[string, *rate.Limiter]
+	groupRL  *lru.Cache[string, *rate.Limiter]
+	banList  map[string]banEntry
+	banMu    sync.RWMutex
+	dataFile string // 持久化文件路径（空字符串=纯内存）
+}
+
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
 }
 
 // NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
-// Use NewPlugin() if you need a direct reference to the Plugin API (e.g. in tests).
-// NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
-// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+// 配合 p.Descriptor() 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := antispam.NewPlugin(antispam.DefaultConfig())
-//	pm.Register(antispam.Descriptor(p))
+//	pm.Register(p.Descriptor())
 //	engine.OnGroupAt(p.Rule())
-func NewPlugin(cfg Config) *Plugin {
+func NewPlugin(cfg Config, opts ...Option) *Plugin {
 	cfg = normalizeConfig(cfg)
 	userCache, _ := lru.New[string, *rate.Limiter](50000)
 	groupCache, _ := lru.New[string, *rate.Limiter](10000)
-	return &Plugin{
+	p := &Plugin{
 		cfg:     cfg,
 		userRL:  userCache,
 		groupRL: groupCache,
 		banList: make(map[string]banEntry),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "antispam",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "antispam",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "反垃圾/防刷插件，用户和群组独立限速，支持违规封禁",
@@ -115,16 +123,13 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "防刷", "限速", "反垃圾"},
 			HelpText: `反垃圾插件使用说明：
   p := antispam.NewPlugin(antispam.DefaultConfig())
-  pm.Register(antispam.Descriptor(p))
+  pm.Register(p.Descriptor())
   p.Ban(userID, 10*time.Minute)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("antispam")
-				p.loadBanList()
-			}
+			p.loadBanList()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -134,12 +139,12 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 	}
 }
 
-// loadBanList 从 storage 加载封禁名单
+// loadBanList 从 JSON 文件加载封禁名单
 func (p *Plugin) loadBanList() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	entries, err := storage.Get[map[string]banEntryJSON](context.Background(), p.store, "banlist")
+	entries, err := jsonfile.Read[map[string]banEntryJSON](p.dataFile)
 	if err != nil {
 		return
 	}
@@ -156,12 +161,12 @@ func (p *Plugin) loadBanList() {
 		}
 		p.banList[id] = banEntry{until: until}
 	}
-	logger.Infof("[AntiSpam] Loaded %d ban entries from storage", len(p.banList))
+	logger.Infof("[AntiSpam] Loaded %d ban entries", len(p.banList))
 }
 
-// saveBanList 将封禁名单保存到 storage
+// saveBanList 将封禁名单保存到 JSON 文件
 func (p *Plugin) saveBanList() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	p.banMu.RLock()
@@ -175,11 +180,11 @@ func (p *Plugin) saveBanList() {
 	}
 	p.banMu.RUnlock()
 
-	if err := storage.Set(context.Background(), p.store, "banlist", entries, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, entries); err != nil {
 		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
 		return
 	}
-	logger.Infof("[AntiSpam] Saved %d ban entries to storage", len(entries))
+	logger.Infof("[AntiSpam] Saved %d ban entries", len(entries))
 }
 
 // BanEntry 封禁条目（公开查询用）
@@ -230,10 +235,10 @@ func (p *Plugin) Stats() Stats {
 	}
 }
 
-// New 创建反垃圾插件描述符（便捷入口，内部创建 Plugin 实例）。
+// New 创建反垃圾插件描述符（便捷入口）。
 // 若需要持有 Plugin 引用，改用 NewPlugin(cfg) + Descriptor()。
-func New(cfg Config) *plugin.Descriptor {
-	return Descriptor(NewPlugin(cfg))
+func New(cfg Config, opts ...Option) *plugin.Descriptor {
+	return NewPlugin(cfg, opts...).Descriptor()
 }
 
 // Get 从插件管理器中获取已注册的 AntiSpam 插件实例（类型安全）。

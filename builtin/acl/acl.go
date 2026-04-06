@@ -17,14 +17,13 @@
 package acl
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -78,28 +77,39 @@ type Entry struct {
 
 // Plugin ACL 插件
 type Plugin struct {
-	mu      sync.RWMutex
-	mode    Mode
-	entries map[string]Entry // userID -> Entry
-	store   *storage.Store   // 可选持久化（nil=纯内存）
+	mu       sync.RWMutex
+	mode     Mode
+	entries  map[string]Entry // userID -> Entry
+	dataFile string           // 持久化文件路径（空字符串=纯内存）
+}
+
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式（重启后数据丢失）。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
 }
 
 // NewPlugin 创建 Plugin 实例
-func NewPlugin() *Plugin {
-	return &Plugin{
+func NewPlugin(opts ...Option) *Plugin {
+	p := &Plugin{
 		mode:    ModeDisabled,
 		entries: make(map[string]Entry),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // New 创建 ACL 插件描述符（便捷入口）。
-// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
-func New() *plugin.Descriptor {
+// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + p.Descriptor()。
+func New(opts ...Option) *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "acl",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "acl",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",
@@ -107,13 +117,13 @@ func New() *plugin.Descriptor {
 			Tags:        []string{"安全", "访问控制", "黑白名单"},
 			HelpText: `ACL 插件使用说明：
   p := acl.NewPlugin()
-  pm.Register(acl.Descriptor(p))
+  pm.Register(p.Descriptor())
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.SetMode(acl.ModeBlacklist)
   p.Add("userOpenID", "备注")`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			p := NewPlugin() // ← Plugin 在 Setup 内创建，可读取 Config
+			p := NewPlugin(opts...) // ← Plugin 在 Setup 内创建，可读取 Config
 			if ctx.Config != nil {
 				if modeStr := ctx.Config.GetString("mode", "disabled"); modeStr != "disabled" {
 					if mode, err := ParseMode(modeStr); err == nil {
@@ -122,10 +132,7 @@ func New() *plugin.Descriptor {
 				}
 			}
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("acl")
-				p.load()
-			}
+			p.load()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -136,12 +143,11 @@ func New() *plugin.Descriptor {
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "acl",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "acl",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "黑白名单（ACL）访问控制插件",
@@ -149,17 +155,14 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "访问控制", "黑白名单"},
 			HelpText: `ACL 插件使用说明：
   p := acl.NewPlugin()
-  pm.Register(acl.Descriptor(p))
+  pm.Register(p.Descriptor())
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.SetMode(acl.ModeBlacklist)
   p.Add("userOpenID", "备注")`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("acl")
-				p.load()
-			}
+			p.load()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -286,7 +289,7 @@ type snapshot struct {
 }
 
 func (p *Plugin) save() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	p.mu.RLock()
@@ -297,16 +300,16 @@ func (p *Plugin) save() {
 	maps.Copy(snap.Entries, p.entries)
 	p.mu.RUnlock()
 
-	if err := storage.Set(context.Background(), p.store, "data", snap, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, snap); err != nil {
 		logger.WithError(err).Warn("[ACL] Failed to save")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	snap, err := storage.Get[snapshot](context.Background(), p.store, "data")
+	snap, err := jsonfile.Read[snapshot](p.dataFile)
 	if err != nil {
 		return
 	}

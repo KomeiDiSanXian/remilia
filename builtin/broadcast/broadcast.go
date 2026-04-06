@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -51,33 +51,38 @@ func DefaultConfig() Config {
 
 // Plugin 广播插件 API
 type Plugin struct {
-	cfg Config
-	rl  *rate.Limiter
-	mu  sync.RWMutex
-
-	// 平台无关发送器
+	cfg    Config
+	rl     *rate.Limiter
+	mu     sync.RWMutex
 	sender platform.Sender
 
-	// 订阅管理
-	groupSubs map[string]bool // groupOpenID -> subscribed
-	c2cSubs   map[string]bool // userOpenID -> subscribed
+	groupSubs map[string]bool
+	c2cSubs   map[string]bool
 	subMu     sync.RWMutex
 
-	// 可选持久化后端
-	store *storage.Store
+	dataFile string // 持久化文件路径（空字符串=纯内存）
 }
 
-// storageBackend 接口已合并至 storage.Store，见 plugins/core/storage
+// Option 配置选项
+type Option func(*Plugin)
 
-// NewPlugin 创建 Plugin 实例（用于测试或需要持有引用的场景）
-// 配合 Descriptor(p) 使用，或直接调用 p.SetAPI(api) / p.ToGroups(...)。
-func NewPlugin(cfg Config) *Plugin {
-	return &Plugin{
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
+}
+
+// NewPlugin 创建 Plugin 实例
+func NewPlugin(cfg Config, opts ...Option) *Plugin {
+	p := &Plugin{
 		cfg:       cfg,
 		rl:        rate.NewLimiter(rate.Limit(cfg.Rate), cfg.Burst),
 		groupSubs: make(map[string]bool),
 		c2cSubs:   make(map[string]bool),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // New 创建广播插件描述符
@@ -86,18 +91,15 @@ func New(cfg ...Config) *plugin.Descriptor {
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
-	p := &Plugin{
-		cfg:       c,
-		rl:        rate.NewLimiter(rate.Limit(c.Rate), c.Burst),
-		groupSubs: make(map[string]bool),
-		c2cSubs:   make(map[string]bool),
-	}
+	return NewPlugin(c).Descriptor()
+}
 
+// Descriptor 从已有 Plugin 创建描述符
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "broadcast",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "broadcast",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "广播/推送插件，支持向多群和多用户批量发送消息",
@@ -109,11 +111,8 @@ func New(cfg ...Config) *plugin.Descriptor {
   bc.Broadcast(chatIDs, platform.TextMessage("公告"))`,
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
-			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", c.Rate, c.Concurrency)
-			if sb, ok := plugin.Try[storage.Plugin](setupCtx, "storage"); ok {
-				p.store = sb.NS("broadcast")
-				p.loadSubs()
-			}
+			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", p.cfg.Rate, p.cfg.Concurrency)
+			p.loadSubs()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -272,23 +271,23 @@ type subSnapshot struct {
 }
 
 func (p *Plugin) saveSubs() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	snap := subSnapshot{
 		Groups: p.ListGroupSubscribers(),
 		C2Cs:   p.ListC2CSubscribers(),
 	}
-	if err := storage.Set(context.Background(), p.store, "subscriptions", snap, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, snap); err != nil {
 		logger.WithError(err).Warn("[Broadcast] Failed to save subscriptions")
 	}
 }
 
 func (p *Plugin) loadSubs() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	snap, err := storage.Get[subSnapshot](context.Background(), p.store, "subscriptions")
+	snap, err := jsonfile.Read[subSnapshot](p.dataFile)
 	if err != nil {
 		return
 	}

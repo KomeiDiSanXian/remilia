@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -46,32 +47,36 @@ type Config struct {
 	// OnMatch 匹配到关键词时的回调（返回非 nil 错误则中断处理链）
 	// 如果为 nil，匹配时只记录日志
 	OnMatch MatchHandler
+	// DataFile 持久化文件路径（JSON）。空字符串表示纯内存模式（重启后动态变更丢失）。
+	// 若文件存在，其内容将替代 Config 中的 Keywords/Patterns 作为初始状态。
+	DataFile string
 }
 
 // Plugin 关键词过滤插件 API
 type Plugin struct {
-	mu       sync.RWMutex
-	keywords []string         // 精确关键词（已规范化大小写）
-	patterns []*regexp.Regexp // 编译后的正则
-	cfg      Config
+	mu          sync.RWMutex
+	keywords    []string         // 精确关键词（已规范化大小写）
+	rawPatterns []string         // 原始正则表达式字符串（供持久化用）
+	patterns    []*regexp.Regexp // 编译后的正则
+	cfg         Config
+	dataFile    string // 持久化文件路径（来自 cfg.DataFile）
 }
 
 // New 创建关键词过滤插件描述符
 func New(cfg Config) *plugin.Descriptor {
-	p := NewPlugin(cfg)
-	return Descriptor(p)
+	return NewPlugin(cfg).Descriptor()
 }
 
 // NewPlugin 创建 Plugin 实例
 func NewPlugin(cfg Config) *Plugin {
-	p := &Plugin{cfg: cfg}
+	p := &Plugin{cfg: cfg, dataFile: cfg.DataFile}
 	p.setKeywords(cfg.Keywords)
 	p.setPatterns(cfg.Patterns)
 	return p
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "keywordfilter",
 		Version: "1.0.0",
@@ -83,13 +88,18 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"安全", "过滤", "关键词"},
 			HelpText: `关键词过滤插件使用说明：
   p := keywordfilter.NewPlugin(keywordfilter.Config{Keywords: []string{"违禁词"}})
-  pm.Register(keywordfilter.Descriptor(p))
+  pm.Register(p.Descriptor())
   engine.OnGroupAt(p.Rule()).Handle(handler)
   p.AddKeyword("新敏感词")`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loaded with %d keywords, %d patterns", len(p.keywords), len(p.patterns))
+			p.load(ctx)
 			return p, nil
+		},
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.API.(*Plugin).save()
+			return nil
 		},
 	}
 }
@@ -109,8 +119,9 @@ func (p *Plugin) setKeywords(keywords []string) {
 	p.keywords = normalized
 }
 
-// setPatterns 编译正则表达式
+// setPatterns 编译正则表达式并记录原始字符串（供持久化用）
 func (p *Plugin) setPatterns(patterns []string) {
+	p.rawPatterns = make([]string, 0, len(patterns))
 	compiled := make([]*regexp.Regexp, 0, len(patterns))
 	for _, pat := range patterns {
 		re, err := regexp.Compile(pat)
@@ -118,6 +129,7 @@ func (p *Plugin) setPatterns(patterns []string) {
 			logger.WithError(err).Warnf("[KeywordFilter] Invalid pattern: %s", pat)
 			continue
 		}
+		p.rawPatterns = append(p.rawPatterns, pat)
 		compiled = append(compiled, re)
 	}
 	p.patterns = compiled
@@ -132,11 +144,13 @@ func (p *Plugin) AddKeyword(keyword string) {
 		keyword = strings.ToLower(keyword)
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if slices.Contains(p.keywords, keyword) {
+		p.mu.Unlock()
 		return // 已存在
 	}
 	p.keywords = append(p.keywords, keyword)
+	p.mu.Unlock()
+	go p.save()
 	logger.Debugf("[KeywordFilter] Added keyword: %s", keyword)
 }
 
@@ -146,7 +160,6 @@ func (p *Plugin) RemoveKeyword(keyword string) {
 		keyword = strings.ToLower(keyword)
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	newKws := p.keywords[:0]
 	for _, kw := range p.keywords {
 		if kw != keyword {
@@ -154,6 +167,8 @@ func (p *Plugin) RemoveKeyword(keyword string) {
 		}
 	}
 	p.keywords = newKws
+	p.mu.Unlock()
+	go p.save()
 }
 
 // AddPattern 动态添加正则表达式
@@ -163,8 +178,10 @@ func (p *Plugin) AddPattern(pattern string) error {
 		return err
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.rawPatterns = append(p.rawPatterns, pattern)
 	p.patterns = append(p.patterns, re)
+	p.mu.Unlock()
+	go p.save()
 	return nil
 }
 
@@ -244,4 +261,69 @@ func (p *Plugin) PatternCount() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.patterns)
+}
+
+// ─── 持久化 ────────────────────────────────────────────────────────────────
+
+// kfSnapshot 是持久化文件的 JSON 格式
+type kfSnapshot struct {
+	// Keywords 保存规范化后的关键词列表（config 初始 + 动态添加 - 动态删除）
+	Keywords []string `json:"keywords"`
+	// Patterns 保存原始正则表达式字符串列表
+	Patterns []string `json:"patterns"`
+}
+
+// save 将当前关键词和正则列表持久化到 JSON 文件（异步调用）。
+// 若 dataFile 为空则静默跳过。
+func (p *Plugin) save() {
+	if p.dataFile == "" {
+		return
+	}
+	p.mu.RLock()
+	kws := make([]string, len(p.keywords))
+	copy(kws, p.keywords)
+	pats := make([]string, len(p.rawPatterns))
+	copy(pats, p.rawPatterns)
+	p.mu.RUnlock()
+
+	snap := kfSnapshot{Keywords: kws, Patterns: pats}
+	if err := jsonfile.Write(p.dataFile, snap); err != nil {
+		logger.WithError(err).Warn("[KeywordFilter] Failed to save data file")
+	}
+}
+
+// load 从 JSON 文件加载关键词和正则列表，替换当前内存状态（Setup 时调用）。
+// 若文件不存在则静默跳过（保持 config 初始值）。
+// 若文件存在，其内容将作为权威状态替换 Config.Keywords/Patterns。
+func (p *Plugin) load(ctx *plugin.SetupContext) {
+	if p.dataFile == "" {
+		return
+	}
+	snap, err := jsonfile.Read[kfSnapshot](p.dataFile)
+	if err != nil {
+		if !jsonfile.IsNotExist(err) {
+			ctx.Log.Warnf("[KeywordFilter] Failed to load data file: %v", err)
+		}
+		return
+	}
+
+	compiled := make([]*regexp.Regexp, 0, len(snap.Patterns))
+	validPats := snap.Patterns[:0]
+	for _, pat := range snap.Patterns {
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			ctx.Log.Warnf("[KeywordFilter] Skipping invalid pattern from file: %s: %v", pat, err)
+			continue
+		}
+		compiled = append(compiled, re)
+		validPats = append(validPats, pat)
+	}
+
+	p.mu.Lock()
+	p.keywords = snap.Keywords
+	p.rawPatterns = validPats
+	p.patterns = compiled
+	p.mu.Unlock()
+	ctx.Log.Infof("[KeywordFilter] Loaded %d keywords, %d patterns from data file",
+		len(snap.Keywords), len(validPats))
 }

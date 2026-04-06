@@ -53,7 +53,6 @@ import (
 	"strings"
 	"time"
 
-	storageplugin "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -65,7 +64,7 @@ type Plugin struct {
 	manager         *permission.Manager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
-	store           *storageplugin.Store // 可选持久化后端（nil=纯内存）
+	dataFile        string // 持久化文件路径（nil=纯内存）
 }
 
 // NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）
@@ -96,10 +95,9 @@ func New() *plugin.Descriptor {
 	}
 
 	return &plugin.Descriptor{
-		Name:         "permission",
-		Version:      "3.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "permission",
+		Version: "3.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "基于角色的访问控制（RBAC）权限系统",
@@ -116,12 +114,6 @@ func New() *plugin.Descriptor {
 			roles := []string{"admin", "user", "guest", "moderator"}
 			ctx.Log.Infof("Loaded %d default roles", len(roles))
 
-			if sv, ok := ctx.Get("storage"); ok {
-				if storagePlugin, ok := sv.(*storageplugin.Plugin); ok {
-					pluginAPI.TryBindStorage(storagePlugin.NS("permission"))
-				}
-			}
-
 			// 使用 ctx.Go 替代手动 goroutine + stopChan
 			ctx.Go(func(runCtx stdctx.Context) {
 				cleanupExpiredCodesRoutineCtx(verificationMgr, runCtx)
@@ -133,7 +125,7 @@ func New() *plugin.Descriptor {
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Unloading permission plugin")
 			p := ctx.API.(*Plugin)
-			if err := p.saveToStorage(); err != nil {
+			if err := p.saveToFile(); err != nil {
 				ctx.Log.Error("Failed to persist permission data", err)
 			}
 			ctx.Log.Info("Permission plugin unloaded")
@@ -489,9 +481,9 @@ func (p *Plugin) GetACLStats() ACLStats {
 	return p.acl.Stats()
 }
 
-// SavePermissions 手动触发权限数据持久化（若未绑定 storage 则 no-op）
+// SavePermissions 手动触发权限数据持久化（若未配置数据文件则 no-op）
 func (p *Plugin) SavePermissions() error {
-	return p.saveToStorage()
+	return p.saveToFile()
 }
 
 // RequireACL 创建黑白名单检查中间件

@@ -11,11 +11,11 @@ import (
 )
 
 // newSched 返回已完成 Setup 的 Plugin 和清理函数。
-// 使用 NewPlugin()+Descriptor() 模式，在注册前持有引用。
+// 使用 NewPlugin()+p.Descriptor() 模式，在注册前持有引用。
 func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 	t.Helper()
 	p := scheduler.NewPlugin()
-	desc := scheduler.Descriptor(p)
+	desc := p.Descriptor()
 	pm := plugin.NewManager(engine.NewEngine())
 	if err := pm.Register(desc); err != nil {
 		t.Fatalf("Register: %v", err)

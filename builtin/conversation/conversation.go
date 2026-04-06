@@ -2,13 +2,12 @@ package conversation
 
 import (
 	"context"
-	stdctx "context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -57,28 +56,37 @@ type Session struct {
 type Plugin struct {
 	sessions sync.Map
 	machines sync.Map
-	store    *storage.Store // 可选持久化后端
+	dataFile string // 持久化文件路径（空字符串=纯内存）
 }
 
-// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
+}
 
 // NewPlugin 创建并返回一个 Conversation Plugin 实例。
-// 配合 Descriptor(p) 使用，适合需要在注册前持有插件引用的场景（如测试）：
+// 配合 p.Descriptor() 使用，适合需要在注册前持有插件引用的场景（如测试）：
 //
 //	p := conversation.NewPlugin()
-//	pm.Register(conversation.Descriptor(p))
+//	pm.Register(p.Descriptor())
 //	p.Start(ctx, machine)
-func NewPlugin() *Plugin {
-	return &Plugin{}
+func NewPlugin(opts ...Option) *Plugin {
+	p := &Plugin{}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // Descriptor 根据已有 Plugin 实例生成插件描述符，供 pm.Register 使用。
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "conversation",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "conversation",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "Multi-step conversation/FSM plugin with cross-message state tracking",
@@ -87,12 +95,9 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("conversation")
-				p.restoreSessions()
-			}
-			// 后台定期 GC 过期会话，防止 sync.Map 无限增长（Bug 2.4 修复）
-			ctx.Go(func(runCtx stdctx.Context) {
+			p.restoreSessions()
+			// 后台定期 GC 过期会话，防止 sync.Map 无限增长
+			ctx.Go(func(runCtx context.Context) {
 				ticker := time.NewTicker(gcInterval)
 				defer ticker.Stop()
 				for {
@@ -116,10 +121,9 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 	}
 }
 
-// New 创建会话状态机插件描述符（便捷入口，内部创建 Plugin 实例）。
-// 若需要持有 Plugin 引用，改用 NewPlugin() + Descriptor()。
-func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+// New 创建会话状态机插件描述符（便捷入口）。
+func New(opts ...Option) *plugin.Descriptor {
+	return NewPlugin(opts...).Descriptor()
 }
 
 // NewMachine creates a new Machine definition with a default 10-minute timeout.
@@ -313,9 +317,9 @@ func isExpired(s *Session) bool {
 	return !s.ExpiresAt.IsZero() && time.Now().After(s.ExpiresAt)
 }
 
-// persistSessions 将所有活跃会话保存到 storage
+// persistSessions 将所有活跃会话保存到 JSON 文件
 func (p *Plugin) persistSessions() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
 	sessions := make(map[string]*Session)
@@ -326,19 +330,19 @@ func (p *Plugin) persistSessions() {
 		}
 		return true
 	})
-	if err := storage.Set(context.Background(), p.store, "sessions", sessions, 0); err != nil {
+	if err := jsonfile.Write(p.dataFile, sessions); err != nil {
 		logger.WithError(err).Warn("[Conversation] Failed to persist sessions")
 	} else {
 		logger.Infof("[Conversation] Persisted %d sessions", len(sessions))
 	}
 }
 
-// restoreSessions 从 storage 恢复会话
+// restoreSessions 从 JSON 文件恢复会话
 func (p *Plugin) restoreSessions() {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-	sessions, err := storage.Get[map[string]*Session](context.Background(), p.store, "sessions")
+	sessions, err := jsonfile.Read[map[string]*Session](p.dataFile)
 	if err != nil {
 		return
 	}
@@ -349,8 +353,9 @@ func (p *Plugin) restoreSessions() {
 			count++
 		}
 	}
-	logger.Infof("[Conversation] Restored %d sessions from storage", count)
+	logger.Infof("[Conversation] Restored %d sessions", count)
 }
+
 func extractUserID(ctx *eventctx.Context) string {
 	return ctx.GetSenderInfo().ID
 }

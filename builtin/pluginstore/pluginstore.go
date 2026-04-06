@@ -23,12 +23,11 @@
 package pluginstore
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -48,40 +47,53 @@ type SaveFunc func() (any, error)
 // RestoreFunc 恢复状态函数
 type RestoreFunc func(state any) error
 
-// storageBackend 接口已合并至 storage.Client，见 plugins/core/storage
-
 type registration struct {
 	name    string
 	save    SaveFunc
 	restore RestoreFunc
 }
 
+// pluginstoreFile is the on-disk format: map of plugin name → raw JSON state.
+type pluginstoreFile struct {
+	States map[string]json.RawMessage `json:"states"`
+}
+
 // Plugin 插件配置持久化插件
 type Plugin struct {
-	mu    sync.RWMutex
-	regs  map[string]*registration
-	store *storage.Store // 命名空间 Store（nil=无持久化）
+	mu       sync.RWMutex
+	regs     map[string]*registration
+	fileMu   sync.Mutex // guards read-modify-write on the data file
+	dataFile string     // 持久化文件路径（空字符串=无持久化）
+}
+
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示禁用持久化。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
 }
 
 // NewPlugin 创建 Plugin 实例
-func NewPlugin() *Plugin {
-	return &Plugin{
-		regs: make(map[string]*registration),
+func NewPlugin(opts ...Option) *Plugin {
+	p := &Plugin{regs: make(map[string]*registration)}
+	for _, o := range opts {
+		o(p)
 	}
+	return p
 }
 
 // New 创建插件配置持久化插件描述符
-func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+func New(opts ...Option) *plugin.Descriptor {
+	return NewPlugin(opts...).Descriptor()
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "pluginstore",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "pluginstore",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "插件配置持久化插件，跨重启保存/恢复插件运行时状态",
@@ -93,10 +105,6 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("pluginstore")
-				ctx.Log.Info("Bound to storage plugin")
-			}
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -109,19 +117,14 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 }
 
 // RegisterFunc 注册插件的保存/恢复函数。
-//
-// 调用后会立即尝试从 storage 恢复该插件的上一次状态（如果有）。
-// 适合在插件 Setup 中调用。
+// 调用后会立即尝试从文件恢复该插件的上一次状态（如果有）。
 func (p *Plugin) RegisterFunc(name string, save SaveFunc, restore RestoreFunc) {
 	if name == "" || save == nil || restore == nil {
 		return
 	}
-
 	p.mu.Lock()
 	p.regs[name] = &registration{name: name, save: save, restore: restore}
 	p.mu.Unlock()
-
-	// 立即尝试恢复
 	p.tryRestore(name, restore)
 }
 
@@ -130,7 +133,7 @@ func (p *Plugin) Register(name string, s Stateful) {
 	p.RegisterFunc(name, s.SaveState, s.RestoreState)
 }
 
-// Unregister 注销插件的状态管理（插件卸载时调用）
+// Unregister 注销插件的状态管理
 func (p *Plugin) Unregister(name string) {
 	p.mu.Lock()
 	delete(p.regs, name)
@@ -142,7 +145,6 @@ func (p *Plugin) Save(name string) error {
 	p.mu.RLock()
 	reg, ok := p.regs[name]
 	p.mu.RUnlock()
-
 	if !ok {
 		return fmt.Errorf("pluginstore: plugin %q not registered", name)
 	}
@@ -157,7 +159,6 @@ func (p *Plugin) SaveAll() (saved, failed int) {
 		regs = append(regs, r)
 	}
 	p.mu.RUnlock()
-
 	for _, r := range regs {
 		if err := p.doSave(r); err != nil {
 			logger.WithError(err).Warnf("[PluginStore] Failed to save state for plugin %s", r.name)
@@ -169,12 +170,10 @@ func (p *Plugin) SaveAll() (saved, failed int) {
 	return
 }
 
-// doSave 执行保存逻辑
 func (p *Plugin) doSave(r *registration) error {
-	if p.store == nil {
-		return fmt.Errorf("pluginstore: no storage backend")
+	if p.dataFile == "" {
+		return fmt.Errorf("pluginstore: no data file configured")
 	}
-
 	state, err := r.save()
 	if err != nil {
 		return fmt.Errorf("pluginstore: SaveState for %s failed: %w", r.name, err)
@@ -182,42 +181,48 @@ func (p *Plugin) doSave(r *registration) error {
 	if state == nil {
 		return nil
 	}
-
 	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("pluginstore: marshal for %s failed: %w", r.name, err)
 	}
-	// Use raw bytes since the state type is unknown at compile time.
-	if err := p.store.SetRaw(context.Background(), r.name, data, 0); err != nil {
-		return fmt.Errorf("pluginstore: store.SetRaw for %s failed: %w", r.name, err)
-	}
 
+	p.fileMu.Lock()
+	defer p.fileMu.Unlock()
+	current, err := jsonfile.Read[pluginstoreFile](p.dataFile)
+	if err != nil || current.States == nil {
+		current = pluginstoreFile{States: make(map[string]json.RawMessage)}
+	}
+	current.States[r.name] = json.RawMessage(data)
+	if err := jsonfile.Write(p.dataFile, current); err != nil {
+		return fmt.Errorf("pluginstore: write for %s failed: %w", r.name, err)
+	}
 	logger.Debugf("[PluginStore] Saved state for plugin %s (%d bytes)", r.name, len(data))
 	return nil
 }
 
-// tryRestore 尝试从 storage 恢复指定插件的状态
 func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
-	if p.store == nil {
+	if p.dataFile == "" {
 		return
 	}
-
-	data, err := p.store.GetRaw(context.Background(), name)
+	p.fileMu.Lock()
+	current, err := jsonfile.Read[pluginstoreFile](p.dataFile)
+	p.fileMu.Unlock()
 	if err != nil {
 		return
 	}
-
+	raw, ok := current.States[name]
+	if !ok {
+		return
+	}
 	var state any
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := json.Unmarshal(raw, &state); err != nil {
 		logger.WithError(err).Warnf("[PluginStore] Failed to unmarshal state for plugin %s", name)
 		return
 	}
-
 	if err := restore(state); err != nil {
 		logger.WithError(err).Warnf("[PluginStore] Failed to restore state for plugin %s", name)
 		return
 	}
-
 	logger.Infof("[PluginStore] Restored state for plugin %s", name)
 }
 
@@ -232,12 +237,12 @@ func (p *Plugin) ListRegistered() []string {
 	return names
 }
 
-// HasStorage 返回是否已绑定 storage 后端
+// HasStorage 报告是否已配置数据文件（兼容旧 API 名称）。
 func (p *Plugin) HasStorage() bool {
-	return p.store != nil
+	return p.dataFile != ""
 }
 
-// SetStoreForTest 直接绑定命名空间 Store（仅用于测试）。
-func (p *Plugin) SetStoreForTest(store *storage.Store) {
-	p.store = store
+// SetDataFileForTest 直接设置数据文件路径（仅用于测试）。
+func (p *Plugin) SetDataFileForTest(path string) {
+	p.dataFile = path
 }

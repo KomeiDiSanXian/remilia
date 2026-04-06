@@ -4,15 +4,9 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	permission0 "github.com/KomeiDiSanXian/remilia/core/permission"
 )
-
-// newTestStore 创建用于测试的命名空间 Store（内存后端）
-func newTestStore(ns string) *storage.Store {
-	return storage.NewPlugin(storage.NewMemoryStorage()).NS(ns)
-}
 
 // TestPermissionManager_ExportLoadUserRoles 验证用户角色的导出和加载
 func TestPermissionManager_ExportLoadUserRoles(t *testing.T) {

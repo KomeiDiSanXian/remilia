@@ -2,20 +2,21 @@ package pluginstore_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"slices"
 	"testing"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/pluginstore"
 )
 
-func newTestStore() *storage.Store {
-	return storage.NewPlugin(storage.NewMemoryStorage()).NS("pluginstore")
+func newTestDataFile(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "pluginstore_test.json")
 }
 
 func TestRegisterFunc_SaveAndRestore(t *testing.T) {
 	p := pluginstore.NewPlugin()
-	p.SetStoreForTest(newTestStore())
+	p.SetDataFileForTest(newTestDataFile(t))
 	type myState struct {
 		Counter int    `json:"counter"`
 		Name    string `json:"name"`
@@ -48,9 +49,10 @@ func TestRegisterFunc_SaveAndRestore(t *testing.T) {
 		t.Errorf("expected counter=42 name=hello, got counter=%d name=%s", restored.Counter, restored.Name)
 	}
 }
+
 func TestSaveAll_MultiplePugins(t *testing.T) {
 	p := pluginstore.NewPlugin()
-	p.SetStoreForTest(newTestStore())
+	p.SetDataFileForTest(newTestDataFile(t))
 	p.RegisterFunc("alpha", func() (any, error) { return map[string]any{"v": 1}, nil }, func(any) error { return nil })
 	p.RegisterFunc("beta", func() (any, error) { return map[string]any{"v": 2}, nil }, func(any) error { return nil })
 	saved, failed := p.SaveAll()
@@ -61,13 +63,15 @@ func TestSaveAll_MultiplePugins(t *testing.T) {
 		t.Errorf("expected 0 failed, got %d", failed)
 	}
 }
-func TestSave_NoStorage_ReturnsError(t *testing.T) {
+
+func TestSave_NoDataFile_ReturnsError(t *testing.T) {
 	p := pluginstore.NewPlugin()
 	p.RegisterFunc("x", func() (any, error) { return 1, nil }, func(any) error { return nil })
 	if err := p.Save("x"); err == nil {
-		t.Error("expected error when no storage bound")
+		t.Error("expected error when no data file configured")
 	}
 }
+
 func TestUnregister_RemovesPlugin(t *testing.T) {
 	p := pluginstore.NewPlugin()
 	p.RegisterFunc("z", func() (any, error) { return nil, nil }, func(any) error { return nil })
@@ -79,12 +83,13 @@ func TestUnregister_RemovesPlugin(t *testing.T) {
 		t.Error("z should not be registered after Unregister")
 	}
 }
+
 func TestHasStorage(t *testing.T) {
 	p := pluginstore.NewPlugin()
 	if p.HasStorage() {
 		t.Error("HasStorage should be false before binding")
 	}
-	p.SetStoreForTest(newTestStore())
+	p.SetDataFileForTest(newTestDataFile(t))
 	if !p.HasStorage() {
 		t.Error("HasStorage should be true after binding")
 	}

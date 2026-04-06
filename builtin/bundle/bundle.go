@@ -4,7 +4,7 @@
 //
 // # 使用示例
 //
-//	// 注册全部核心插件（storage + cache + permission + acl + help）
+//	// 注册全部核心插件（permission + acl + help）
 //	pm.RegisterMultipleAtomic(bundle.Core())
 //
 //	// 注册所有内置插件
@@ -21,10 +21,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/admin"
-	"github.com/KomeiDiSanXian/remilia/builtin/core/cache"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-	"github.com/KomeiDiSanXian/remilia/builtin/core/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/dev/debug"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -32,17 +30,13 @@ import (
 // Core 返回核心插件集合（建议所有 Bot 使用）。
 //
 // 包含：
-//   - storage  — 键值存储（内存后端，可替换）
-//   - cache    — 基于 storage 的缓存层
 //   - permission — 角色/权限管理
-//   - acl      — 访问控制列表
-//   - help     — /help 命令
+//   - acl        — 访问控制列表
+//   - help       — /help 命令
 //
 // 插件已按依赖顺序排列，可直接传给 RegisterMultipleAtomic。
 func Core() []*plugin.Descriptor {
 	return []*plugin.Descriptor{
-		storage.New(),
-		cache.New(),
 		permission.New(),
 		acl.New(),
 		help.New(),

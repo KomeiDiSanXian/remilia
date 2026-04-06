@@ -17,11 +17,10 @@
 package auditlog
 
 import (
-	"context"
 	"sync"
 	"time"
 
-	storage "github.com/KomeiDiSanXian/remilia/builtin/core/storage"
+	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -51,19 +50,31 @@ func DefaultConfig() Config {
 
 // Plugin 审计日志插件 API
 type Plugin struct {
-	cfg     Config
-	mu      sync.RWMutex
-	entries []LogEntry
-	nextID  int64
-	store   *storage.Store // 可选持久化（nil=纯内存）
+	cfg      Config
+	mu       sync.RWMutex
+	entries  []LogEntry
+	nextID   int64
+	dataFile string // 持久化文件路径（空字符串=纯内存）
+}
+
+// Option 配置选项
+type Option func(*Plugin)
+
+// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
+func WithDataFile(path string) Option {
+	return func(p *Plugin) { p.dataFile = path }
 }
 
 // NewPlugin 创建 Plugin 实例
-func NewPlugin(cfg Config) *Plugin {
-	return &Plugin{
+func NewPlugin(cfg Config, opts ...Option) *Plugin {
+	p := &Plugin{
 		cfg:     cfg,
 		entries: make([]LogEntry, 0, cfg.MaxMemoryEntries),
 	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p
 }
 
 // New 创建审计日志插件描述符
@@ -73,16 +84,15 @@ func New(cfg ...Config) *plugin.Descriptor {
 		c = cfg[0]
 	}
 	p := NewPlugin(c)
-	return Descriptor(p)
+	return p.Descriptor()
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:         "auditlog",
-		Version:      "1.0.0",
-		Deps:         []string{},
-		OptionalDeps: []string{"storage"},
+		Name:    "auditlog",
+		Version: "1.0.0",
+		Deps:    []string{},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "操作审计日志插件，记录命令调用和管理操作",
@@ -95,14 +105,11 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok {
-				p.store = sb.NS("auditlog")
-				p.loadFromStorage()
-			}
+			p.loadFromFile()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).flushToStorage()
+			ctx.API.(*Plugin).flushToFile()
 			return nil
 		},
 	}
@@ -149,8 +156,8 @@ func (p *Plugin) append(entry LogEntry) {
 	p.entries = append(p.entries, entry)
 
 	// 异步持久化
-	if p.store != nil {
-		go p.flushToStorage()
+	if p.dataFile != "" {
+		go p.flushToFile()
 	}
 }
 
@@ -224,8 +231,8 @@ type storageData struct {
 	NextID  int64      `json:"next_id"`
 }
 
-func (p *Plugin) flushToStorage() {
-	if p.store == nil {
+func (p *Plugin) flushToFile() {
+	if p.dataFile == "" {
 		return
 	}
 	p.mu.RLock()
@@ -236,16 +243,16 @@ func (p *Plugin) flushToStorage() {
 	copy(d.Entries, p.entries)
 	p.mu.RUnlock()
 
-	if err := storage.Set(context.Background(), p.store, "entries", d, 0); err != nil {
-		logger.WithError(err).Warn("[AuditLog] Failed to flush to storage")
+	if err := jsonfile.Write(p.dataFile, d); err != nil {
+		logger.WithError(err).Warn("[AuditLog] Failed to flush to file")
 	}
 }
 
-func (p *Plugin) loadFromStorage() {
-	if p.store == nil {
+func (p *Plugin) loadFromFile() {
+	if p.dataFile == "" {
 		return
 	}
-	d, err := storage.Get[storageData](context.Background(), p.store, "entries")
+	d, err := jsonfile.Read[storageData](p.dataFile)
 	if err != nil {
 		return
 	}
@@ -256,5 +263,5 @@ func (p *Plugin) loadFromStorage() {
 	}
 	p.entries = d.Entries
 	p.nextID = d.NextID
-	logger.Infof("[AuditLog] Loaded %d entries from storage", len(p.entries))
+	logger.Infof("[AuditLog] Loaded %d entries from file", len(p.entries))
 }

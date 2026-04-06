@@ -60,13 +60,13 @@ func NewPlugin() *Plugin {
 }
 
 // New 创建冷却时间插件描述符（便捷入口）。
-// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + Descriptor()。
+// 若需要在注册前持有 Plugin 引用（如测试），改用 NewPlugin() + p.Descriptor()。
 func New() *plugin.Descriptor {
-	return Descriptor(NewPlugin())
+	return NewPlugin().Descriptor()
 }
 
 // Descriptor 从已有 Plugin 创建描述符
-func Descriptor(p *Plugin) *plugin.Descriptor {
+func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "cooldown",
 		Version: "1.0.0",
@@ -78,7 +78,7 @@ func Descriptor(p *Plugin) *plugin.Descriptor {
 			Tags:        []string{"冷却", "限速", "防刷"},
 			HelpText: `冷却时间插件使用说明：
   p := cooldown.NewPlugin()
-  pm.Register(cooldown.Descriptor(p))
+  pm.Register(p.Descriptor())
   engine.OnCommand(...).Use(p.Middleware("cmd", 10*time.Second)).Handle(h)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
