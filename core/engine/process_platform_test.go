@@ -69,7 +69,7 @@ func newPlatformC2CEvent(content string) platform.Event {
 	return &stubEvent{
 		platformID: "qq",
 		kind:       platform.EventKindPrivateMessage,
-		rawType:    string(dto.C2CMessageCreate),
+		rawType:    dto.C2CMessageCreate,
 		content:    content,
 		chat:       platform.ChatInfo{ID: "user001", IsGroup: false},
 		sndr:       platform.UserInfo{ID: "user001"},

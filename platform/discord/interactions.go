@@ -128,7 +128,7 @@ func NewInteractionsAdapter(cfg InteractionsConfig) (*InteractionsAdapter, error
 		config:  cfg,
 		session: session,
 		sender:  sender,
-		pubKey:  ed25519.PublicKey(pubKeyBytes),
+		pubKey:  pubKeyBytes,
 		workers: workers,
 	}, nil
 }

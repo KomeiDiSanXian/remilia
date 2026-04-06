@@ -224,7 +224,7 @@ func TestManager_MultipleComponents(t *testing.T) {
 	comps := make([]*testComponent, numComponents)
 
 	for i := range numComponents {
-		comp := newTestComponent(string(rune('A' + i)))
+		comp := newTestComponent(string('A' + i))
 		comp.blockRun = true
 		comps[i] = comp
 		manager.Register(comp)

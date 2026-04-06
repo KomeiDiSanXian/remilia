@@ -85,7 +85,7 @@ func BenchmarkGetAllCommands_WithCache(b *testing.B) {
 	// 注册100个命令
 	for i := range 100 {
 		def := &command.Definition{
-			Name:        string(rune('a'+i%26)) + string(rune('0'+i/26)),
+			Name:        string('a'+i%26) + string('0'+i/26),
 			Description: "Test command",
 		}
 		eng.RegisterCommandDef(string(platform.EventKindPrivateMessage), def)

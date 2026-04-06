@@ -525,7 +525,7 @@ func TestDedupEdgeCases(t *testing.T) {
 		// Add more events than cache size
 		for i := range 5 {
 			event := &middlewareTestEvent{
-				id:   string(rune('a' + i)),
+				id:   string('a' + i),
 				kind: platform.EventKindPrivateMessage,
 			}
 			_ = handler(eventctx.AcquireContextFromEvent(event, nil))
@@ -625,7 +625,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 		// Different events should have separate limits
 		for i := range 3 {
 			event := &middlewareTestEvent{
-				id:   string(rune('a' + i)),
+				id:   string('a' + i),
 				kind: platform.EventKindPrivateMessage,
 			}
 			ctx := eventctx.AcquireContextFromEvent(event, nil)

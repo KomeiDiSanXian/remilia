@@ -29,7 +29,7 @@ func TestChainGeneric(t *testing.T) {
 	})
 
 	t.Run("multiple handlers execute in order", func(t *testing.T) {
-		order := []int{}
+		var order []int
 		h1 := func(x int) error {
 			order = append(order, 1)
 			return nil
@@ -50,7 +50,7 @@ func TestChainGeneric(t *testing.T) {
 	})
 
 	t.Run("stops on first error", func(t *testing.T) {
-		executed := []int{}
+		var executed []int
 		h1 := func(x int) error {
 			executed = append(executed, 1)
 			return nil
@@ -103,7 +103,7 @@ func TestChainWithNext(t *testing.T) {
 	})
 
 	t.Run("middleware can wrap next", func(t *testing.T) {
-		order := []string{}
+		var order []string
 		mw := func(x int, next func(int) error) error {
 			order = append(order, "before")
 			err := next(x)
@@ -122,7 +122,7 @@ func TestChainWithNext(t *testing.T) {
 	})
 
 	t.Run("multiple middlewares execute in order", func(t *testing.T) {
-		order := []int{}
+		var order []int
 		mw1 := func(x int, next func(int) error) error {
 			order = append(order, 1)
 			err := next(x)
@@ -235,7 +235,7 @@ func TestFilter(t *testing.T) {
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
-		numbers := []int{}
+		var numbers []int
 		result := Filter(numbers, func(n int) bool { return true })
 		assert.Equal(t, []int{}, result)
 	})
@@ -262,7 +262,7 @@ func TestMap(t *testing.T) {
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
-		numbers := []int{}
+		var numbers []int
 		result := Map(numbers, func(n int) int { return n * 2 })
 		assert.Equal(t, []int{}, result)
 	})
@@ -291,7 +291,7 @@ func TestReduce(t *testing.T) {
 	})
 
 	t.Run("empty slice returns initial", func(t *testing.T) {
-		numbers := []int{}
+		var numbers []int
 		result := Reduce(numbers, 42, func(acc, n int) int { return acc + n })
 		assert.Equal(t, 42, result)
 	})
@@ -320,7 +320,7 @@ func TestFind(t *testing.T) {
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
-		numbers := []int{}
+		var numbers []int
 		found, ok := Find(numbers, func(n int) bool { return true })
 		assert.False(t, ok)
 		assert.Equal(t, 0, found)

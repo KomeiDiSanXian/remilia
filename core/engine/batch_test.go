@@ -72,7 +72,7 @@ func TestBatchRegisterEmpty(t *testing.T) {
 	e := engine.NewEngine()
 	defer e.Shutdown(stdctx.Background())
 
-	matchers := []*engine.Matcher{}
+	var matchers []*engine.Matcher
 	registered := e.BatchRegisterMatchers(matchers)
 
 	assert.Equal(t, 0, len(registered))

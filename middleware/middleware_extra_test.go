@@ -82,7 +82,7 @@ func TestDedupExtra(t *testing.T) {
 
 		// Fill cache
 		for i := range 3 {
-			handler(createPlatformContextWithID(string(rune('a' + i))))
+			handler(createPlatformContextWithID(string('a' + i)))
 		}
 
 		stats := filter.GetStats()
@@ -438,7 +438,7 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 
 		// Add events
 		for i := range 5 {
-			handler(createPlatformContextWithID(string(rune('a' + i))))
+			handler(createPlatformContextWithID(string('a' + i)))
 		}
 
 		stats := filter.GetStats()

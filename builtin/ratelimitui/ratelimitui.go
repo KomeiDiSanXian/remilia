@@ -390,7 +390,7 @@ func (p *Plugin) HasAntispam() bool { return p.antispam != nil }
 // HasCooldown returns true if a cooldown plugin is bound.
 func (p *Plugin) HasCooldown() bool { return p.cooldown != nil }
 
-// HasPermission returns true if a permission plugin is bound.
+// HasPermissionPlugin returns true if a permission plugin is bound.
 func (p *Plugin) HasPermissionPlugin() bool { return p.permission != nil }
 
 // BanSummary holds a ban record returned by ListBanSummary.

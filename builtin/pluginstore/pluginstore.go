@@ -192,7 +192,7 @@ func (p *Plugin) doSave(r *registration) error {
 	if err != nil || current.States == nil {
 		current = pluginstoreFile{States: make(map[string]json.RawMessage)}
 	}
-	current.States[r.name] = json.RawMessage(data)
+	current.States[r.name] = data
 	if err := jsonfile.Write(p.dataFile, current); err != nil {
 		return fmt.Errorf("pluginstore: write for %s failed: %w", r.name, err)
 	}

@@ -263,7 +263,7 @@ func TestCheck_Check_ConcurrentExecution(t *testing.T) {
 	// 添加多个检查器，每个都有延迟
 	for i := range 5 {
 		check.AddChecker(&mockChecker{
-			name:   "checker" + string(rune('0'+i)),
+			name:   "checker" + string('0'+i),
 			delay:  50 * time.Millisecond,
 			result: CheckResult{Status: Healthy},
 		})

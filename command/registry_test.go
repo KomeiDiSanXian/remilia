@@ -274,7 +274,7 @@ func BenchmarkCommandRegistry_Lookup(b *testing.B) {
 	// 注册 100 个命令
 	for i := range 100 {
 		def := &Definition{
-			Name: "/cmd" + string(rune('0'+i%10)),
+			Name: "/cmd" + string('0'+i%10),
 		}
 		registry.Register(def)
 	}

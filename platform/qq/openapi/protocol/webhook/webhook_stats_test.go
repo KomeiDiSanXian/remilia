@@ -45,7 +45,7 @@ func TestWebhook_EventCounters(t *testing.T) {
 	for i := range 10 {
 		payload := &dto.Payload{
 			Type: dto.C2CMessageCreate,
-			ID:   dto.EventID(string(rune('A' + i))),
+			ID:   dto.EventID('A' + i),
 			Raw:  []byte("test"),
 		}
 		conn.handleDispatch(payload)
@@ -87,7 +87,7 @@ func TestWebhook_DropRateCalculation(t *testing.T) {
 	for i := range numEvents {
 		payload := &dto.Payload{
 			Type: dto.C2CMessageCreate,
-			ID:   dto.EventID(string(rune(i))),
+			ID:   dto.EventID(rune(i)),
 			Raw:  []byte("test"),
 		}
 		conn.handleDispatch(payload)
