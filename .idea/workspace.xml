@@ -4,33 +4,36 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor: simplify variable declarations in test files for improved readability">
-      <change afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_group_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/options.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/storage/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/storage/plugin_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/subscription/subscription.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/subscription/subscription_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/comparison-zerobotplugin.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/storage/memory.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/storage/options.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/storage/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/storage/storage.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/storage/storage_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/badge.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/badge_chart_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/chart.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/permission.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(storage): implement badge and bar chart rendering functionality">
+      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/comparison-zerobot-floattech.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/cache/ttl.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/cache/ttl_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/canvas/canvas.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/canvas/canvas_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/canvas/doc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/fs/lazy.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/fs/lazy_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/gif/doc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/gif/gif.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/gif/gif_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/webimage/doc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/webimage/webimage.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/webimage/webimage_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/decode.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/decode.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/textimage-demo/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/textimage-demo/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/options.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/registry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_optimization_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/compose.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/compose.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/coverage_90_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/coverage_90_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_stats_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/openapi/protocol/webhook/webhook_stats_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -289,7 +292,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(adapter): streamline goroutine management by replacing manual WaitGroup handling with a simplified Go method" />
     <MESSAGE value="typo(plugin): update registration method from RegisterV2 to Register across multiple files" />
     <MESSAGE value="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity" />
     <MESSAGE value="fix(sender): ensure content field is populated for group chat media messages" />
@@ -314,7 +316,8 @@
     <MESSAGE value="feat: update configuration for tracing and degradation thresholds" />
     <MESSAGE value="refactor: update plugin descriptor retrieval to use p.Descriptor() for consistency" />
     <MESSAGE value="refactor: simplify variable declarations in test files for improved readability" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor: simplify variable declarations in test files for improved readability" />
+    <MESSAGE value="feat(storage): implement badge and bar chart rendering functionality" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(storage): implement badge and bar chart rendering functionality" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

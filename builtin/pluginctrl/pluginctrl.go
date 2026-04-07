@@ -3,25 +3,39 @@
 // 功能：
 //   - 管理员通过聊天指令开启/关闭某个插件（仅对当前群生效）
 //   - 超级管理员可全局开启/关闭插件
+//   - 超级管理员可针对特定用户禁用/启用某插件（用户级黑名单）
+//   - 注册时声明冷却策略（对标 zbpctrl GroupLimit/UserLimit），由 Middleware 自动执行
 //   - 状态持久化（依赖 storage 插件；未注入时降级为内存模式，重启后丢失）
-//   - 提供 Rule(pluginName) 方法，可插入 engine.On() 的 Rule 列表实现自动过滤
+//   - 提供 Rule(pluginName) / RuleFull(pluginName) 方法，插入 engine.On() 的 Rule 列表
+//   - 提供 Middleware(pluginName) 方法，一步完成群开关 + 用户禁用 + 冷却检查
 //
-// 指令（默认，可通过 WithCommandPrefix 修改）：
+// 指令（默认，可通过 WithCommands / WithUserCommands 修改）：
 //
-//	开启 <插件名>    — 在当前群开启指定插件（群管理员）
-//	关闭 <插件名>    — 在当前群关闭指定插件（群管理员）
-//	服务列表         — 查看本群所有插件及开关状态（所有人）
-//	全局开启 <插件名> — 全局开启插件（超级管理员）
-//	全局关闭 <插件名> — 全局关闭插件（超级管理员）
+//	开启 <插件名>      — 在当前群开启指定插件（群管理员）
+//	关闭 <插件名>      — 在当前群关闭指定插件（群管理员）
+//	服务列表           — 查看本群所有插件及开关状态（所有人）
+//	全局开启 <插件名>  — 全局开启插件（超级管理员）
+//	全局关闭 <插件名>  — 全局关闭插件（超级管理员）
+//	禁用用户 <userID> <插件名> — 禁止指定用户使用某插件（超级管理员）
+//	启用用户 <userID> <插件名> — 解除对指定用户的禁用（超级管理员）
 //
 // 使用示例：
 //
 //	// 注册（storage 为可选依赖）
 //	pm.Register(pluginctrl.New(pluginctrl.WithSuperUsers("admin1", "admin2")))
 //
-//	// 在业务插件中注册带开关的命令
+//	// 在业务插件中注册带开关的命令（方式 A：使用 Rule，仅群开关）
 //	ctrl := plugin.Must[pluginctrl.Plugin](ctx, "pluginctrl")
 //	ctx.Reg.On(string(platform.EventKindGroupMessage), ctrl.Rule("myplugin")).
+//	    Handle(myHandler)
+//
+//	// 方式 B：使用 Middleware，自动处理群开关 + 用户禁用 + 冷却（推荐）
+//	ctrl.RegisterPolicy("myplugin", pluginctrl.PluginPolicy{
+//	    UserLimit:  10 * time.Second,
+//	    GroupLimit: 2 * time.Second,
+//	})
+//	ctx.Reg.On(string(platform.EventKindGroupMessage)).
+//	    Use(ctrl.Middleware("myplugin")).
 //	    Handle(myHandler)
 package pluginctrl
 
@@ -31,6 +45,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -48,28 +63,63 @@ type GroupPluginState struct {
 	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
 }
 
-// Plugin 逐群插件开关管理器。
+// UserPluginState 每个用户/插件对的禁用状态记录（GORM 模型）。
+//
+// Enabled=false 表示该用户被超级管理员禁止使用此插件。
+// 未设置（不存在记录）时默认允许使用（defaultUserEnabled=true）。
+type UserPluginState struct {
+	ID         uint      `gorm:"primaryKey;autoIncrement"`
+	UserID     string    `gorm:"uniqueIndex:idx_user_plugin;not null"`
+	PluginName string    `gorm:"uniqueIndex:idx_user_plugin;not null"`
+	Enabled    bool      `gorm:"not null"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"`
+}
+
+// PluginPolicy 注册时声明的插件冷却策略（对标 zbpctrl GroupLimit/UserLimit/GlobalLimit）。
+//
+// 通过 [Plugin.RegisterPolicy] 为插件声明策略后，
+// [Plugin.Middleware] 会自动在群开关 + 用户禁用检查通过后执行冷却检查。
+//
+// 零值字段（0）表示该维度不限制。
+type PluginPolicy struct {
+	// UserLimit 每用户冷却时间（0 = 不限制）
+	UserLimit time.Duration
+	// GroupLimit 每群共享冷却时间（0 = 不限制）
+	// 群内任意用户触发后，整个群进入冷却状态
+	GroupLimit time.Duration
+	// GlobalLimit 全局冷却时间（0 = 不限制）
+	GlobalLimit time.Duration
+}
+
+// Plugin 逐群/逐用户插件开关管理器。
 //
 // 通过 plugin.Must[pluginctrl.Plugin](ctx, "pluginctrl") 获取。
 type Plugin struct {
 	mu sync.RWMutex
 	// groupStates[groupID][pluginName] = enabled
-	// 未设置的插件默认为开启（defaultEnabled）
 	groupStates map[string]map[string]bool
 	// globalStates[pluginName] = enabled（超级管理员控制，优先级高于群开关）
 	globalStates map[string]bool
+	// userStates[userID][pluginName] = enabled（超级管理员控制，false = 禁用该用户）
+	userStates map[string]map[string]bool
+	// policies[pluginName] = *PluginPolicy（注册时声明的冷却策略）
+	policies map[string]*PluginPolicy
 
 	storage    storage.Client // 可选：持久化存储
 	superUsers map[string]bool
 	opts       *options
+	cd         *cooldown.Plugin // 内置冷却插件，供 Middleware 使用
 }
 
 func newPlugin(o *options) *Plugin {
 	p := &Plugin{
 		groupStates:  make(map[string]map[string]bool),
 		globalStates: make(map[string]bool),
+		userStates:   make(map[string]map[string]bool),
+		policies:     make(map[string]*PluginPolicy),
 		superUsers:   make(map[string]bool),
 		opts:         o,
+		cd:           cooldown.NewPlugin(),
 	}
 	for _, su := range o.superUsers {
 		p.superUsers[su] = true
@@ -216,24 +266,41 @@ func (p *Plugin) loadFromDB() {
 	if p.storage == nil {
 		return
 	}
-	var states []GroupPluginState
-	if err := p.storage.Find(&states); err != nil {
-		logger.WithError(err).Warn("[pluginctrl] Failed to load states from DB")
-		return
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, s := range states {
-		if s.GroupID == globalGroupID {
-			p.globalStates[s.PluginName] = s.Enabled
-			continue
+	// --- 群级状态 ---
+	var groupStates []GroupPluginState
+	if err := p.storage.Find(&groupStates); err != nil {
+		logger.WithError(err).Warn("[pluginctrl] Failed to load group states from DB")
+	} else {
+		p.mu.Lock()
+		for _, s := range groupStates {
+			if s.GroupID == globalGroupID {
+				p.globalStates[s.PluginName] = s.Enabled
+				continue
+			}
+			if _, ok := p.groupStates[s.GroupID]; !ok {
+				p.groupStates[s.GroupID] = make(map[string]bool)
+			}
+			p.groupStates[s.GroupID][s.PluginName] = s.Enabled
 		}
-		if _, ok := p.groupStates[s.GroupID]; !ok {
-			p.groupStates[s.GroupID] = make(map[string]bool)
-		}
-		p.groupStates[s.GroupID][s.PluginName] = s.Enabled
+		p.mu.Unlock()
+		logger.Infof("[pluginctrl] Loaded %d group-plugin states from DB", len(groupStates))
 	}
-	logger.Infof("[pluginctrl] Loaded %d group-plugin states from DB", len(states))
+
+	// --- 用户级状态 ---
+	var userStates []UserPluginState
+	if err := p.storage.Find(&userStates); err != nil {
+		logger.WithError(err).Warn("[pluginctrl] Failed to load user states from DB")
+	} else {
+		p.mu.Lock()
+		for _, s := range userStates {
+			if _, ok := p.userStates[s.UserID]; !ok {
+				p.userStates[s.UserID] = make(map[string]bool)
+			}
+			p.userStates[s.UserID][s.PluginName] = s.Enabled
+		}
+		p.mu.Unlock()
+		logger.Infof("[pluginctrl] Loaded %d user-plugin states from DB", len(userStates))
+	}
 }
 
 // ----- 权限检查辅助函数 -----
@@ -385,9 +452,9 @@ func New(opts ...Option) *plugin.Descriptor {
 				p.storage = client
 				ctx.Log.Info("Storage backend connected, plugin states will be persisted")
 				if !ctx.DryRun {
-					// 迁移表结构
-					if err := client.AutoMigrate(&GroupPluginState{}); err != nil {
-						ctx.Log.Warnf("Failed to migrate GroupPluginState table: %v", err)
+					// 迁移表结构（含新增的 UserPluginState 表）
+					if err := client.AutoMigrate(&GroupPluginState{}, &UserPluginState{}); err != nil {
+						ctx.Log.Warnf("Failed to migrate pluginctrl tables: %v", err)
 					} else {
 						p.loadFromDB()
 					}
@@ -417,4 +484,8 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	ctx.Reg.RegisterCommand("", "/"+o.globalEnableCmd).Handle(p.handleGlobalEnable)
 	// /<globalDisableCmd> <插件名>  ——  全局关闭 weather
 	ctx.Reg.RegisterCommand("", "/"+o.globalDisableCmd).Handle(p.handleGlobalDisable)
+	// /<userDisableCmd> <userID> <插件名>  ——  禁用用户 u123 weather
+	ctx.Reg.RegisterCommand("", "/"+o.userDisableCmd).Handle(p.handleUserDisable)
+	// /<userEnableCmd> <userID> <插件名>  ——  启用用户 u123 weather
+	ctx.Reg.RegisterCommand("", "/"+o.userEnableCmd).Handle(p.handleUserEnable)
 }

@@ -7,12 +7,16 @@ type options struct {
 	// defaultEnabled 插件未设置时的默认开关状态（默认 true）
 	defaultEnabled bool
 
-	// 指令文本（均可自定义）
+	// 群级/全局 指令文本（均可自定义）
 	enableCmd        string
 	disableCmd       string
 	listCmd          string
 	globalEnableCmd  string
 	globalDisableCmd string
+
+	// 用户级 指令文本
+	userDisableCmd string // 超级管理员禁用指定用户对某插件的访问
+	userEnableCmd  string // 超级管理员解除禁用
 }
 
 func defaultOptions() *options {
@@ -23,6 +27,8 @@ func defaultOptions() *options {
 		listCmd:          "服务列表",
 		globalEnableCmd:  "全局开启",
 		globalDisableCmd: "全局关闭",
+		userDisableCmd:   "禁用用户",
+		userEnableCmd:    "启用用户",
 	}
 }
 
@@ -30,7 +36,7 @@ func defaultOptions() *options {
 type Option func(*options)
 
 // WithSuperUsers 设置超级管理员用户 ID 列表。
-// 超级管理员可以使用"全局开启/关闭"指令，且不受群权限限制。
+// 超级管理员可以使用"全局开启/关闭"和"禁用/启用用户"指令，且不受群权限限制。
 func WithSuperUsers(userIDs ...string) Option {
 	return func(o *options) { o.superUsers = userIDs }
 }
@@ -41,7 +47,7 @@ func WithDefaultEnabled(enabled bool) Option {
 	return func(o *options) { o.defaultEnabled = enabled }
 }
 
-// WithCommands 自定义管理指令文本。
+// WithCommands 自定义群级和全局管理指令文本。
 //
 //	pluginctrl.WithCommands("enable", "disable", "plugins", "global-enable", "global-disable")
 func WithCommands(enable, disable, list, globalEnable, globalDisable string) Option {
@@ -60,6 +66,22 @@ func WithCommands(enable, disable, list, globalEnable, globalDisable string) Opt
 		}
 		if globalDisable != "" {
 			o.globalDisableCmd = globalDisable
+		}
+	}
+}
+
+// WithUserCommands 自定义用户级禁用/启用指令文本（默认 "禁用用户" / "启用用户"）。
+//
+// 这两个指令仅超级管理员可用，用于屏蔽特定用户对某插件的访问。
+//
+//	pluginctrl.WithUserCommands("ban-user", "unban-user")
+func WithUserCommands(disable, enable string) Option {
+	return func(o *options) {
+		if disable != "" {
+			o.userDisableCmd = disable
+		}
+		if enable != "" {
+			o.userEnableCmd = enable
 		}
 	}
 }

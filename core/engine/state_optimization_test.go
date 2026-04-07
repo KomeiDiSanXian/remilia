@@ -226,7 +226,7 @@ func BenchmarkCopyMiddlewareState(b *testing.B) {
 
 	// 添加 5 个分组中间件
 	for i := range 5 {
-		groupName := "group" + string('A'+i)
+		groupName := "group" + string(rune('A'+i))
 		snap := &middlewareSnapshot{
 			chain: make([]context.Middleware, 10),
 			gen:   uint64(i),
