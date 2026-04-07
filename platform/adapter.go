@@ -280,6 +280,124 @@ func GetTypingNotifier(a Adapter) (TypingNotifier, bool) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// GroupManager（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// GroupManager 可选接口：支持群成员管理操作的平台适配器 Sender 实现此接口。
+//
+// 不同平台对群管理的支持程度不同：
+//   - QQ：支持全部操作（通过 OneBot 协议）
+//   - Discord：支持踢出/禁言（通过 Guild 管理 API）
+//   - Telegram：支持踢出成员（ban/unban）
+//   - WeChat：通常不支持（返回 ErrNotSupported）
+//
+// 使用前用 [GetGroupManager] 检查支持：
+//
+//	if gm, ok := platform.GetGroupManager(adapter); ok {
+//	    _ = gm.KickMember(ctx, groupID, userID, false)
+//	}
+type GroupManager interface {
+	// KickMember 将指定用户踢出群组。
+	//
+	// permanent=true 时拉黑（禁止重新加入），false 时仅踢出。
+	// 平台不支持 permanent 时应忽略并返回 nil。
+	KickMember(ctx stdctx.Context, groupID, userID string, permanent bool) error
+
+	// BanMember 禁言/解禁指定用户。
+	//
+	// duration 为禁言时长；传入 0 表示解除禁言。
+	BanMember(ctx stdctx.Context, groupID, userID string, duration time.Duration) error
+
+	// SetAdmin 授予/撤销群内管理员身份。
+	//
+	// isAdmin=true 授予管理员；isAdmin=false 撤销。
+	// 平台不支持时返回 [ErrNotSupported]。
+	SetAdmin(ctx stdctx.Context, groupID, userID string, isAdmin bool) error
+}
+
+// GetGroupManager 安全获取适配器 Sender 的群成员管理接口。
+//
+// 若 Sender 未实现 [GroupManager]，返回 (nil, false)。
+func GetGroupManager(a Adapter) (GroupManager, bool) {
+	gm, ok := a.Sender().(GroupManager)
+	return gm, ok
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// InvitationHandler（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// InvitationHandler 可选接口：支持处理好友/群邀请请求的平台适配器 Sender 实现此接口。
+//
+// 使用前用 [GetInvitationHandler] 检查支持：
+//
+//	if ih, ok := platform.GetInvitationHandler(adapter); ok {
+//	    _ = ih.AcceptGroupInvite(ctx, inviteID)
+//	}
+type InvitationHandler interface {
+	// AcceptGroupInvite 接受群组邀请（inviteID 来自群邀请事件）。
+	AcceptGroupInvite(ctx stdctx.Context, inviteID string) error
+
+	// RejectGroupInvite 拒绝群组邀请（reason 不支持时忽略）。
+	RejectGroupInvite(ctx stdctx.Context, inviteID, reason string) error
+
+	// AcceptFriendRequest 接受好友申请（requestID 来自好友申请事件）。
+	AcceptFriendRequest(ctx stdctx.Context, requestID string) error
+
+	// RejectFriendRequest 拒绝好友申请。
+	RejectFriendRequest(ctx stdctx.Context, requestID, reason string) error
+}
+
+// GetInvitationHandler 安全获取适配器 Sender 的邀请处理接口。
+//
+// 若 Sender 未实现 [InvitationHandler]，返回 (nil, false)。
+func GetInvitationHandler(a Adapter) (InvitationHandler, bool) {
+	ih, ok := a.Sender().(InvitationHandler)
+	return ih, ok
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// AutoModerator（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// AutoModerator 可选接口：支持自动化内容审核/撤回的平台适配器 Sender 实现此接口。
+//
+// 与 [MessageDeleter] 的区别：
+//   - MessageDeleter：撤回**机器人自己**发送的消息
+//   - AutoModerator：撤回/屏蔽**他人**发送的消息（需管理员权限）
+//
+// 使用前用 [GetAutoModerator] 检查支持：
+//
+//	if am, ok := platform.GetAutoModerator(adapter); ok {
+//	    _ = am.DeleteMemberMessage(ctx, groupID, messageID)
+//	}
+type AutoModerator interface {
+	// DeleteMemberMessage 删除群成员发送的消息（机器人需有管理员权限）。
+	DeleteMemberMessage(ctx stdctx.Context, groupID, messageID string) error
+
+	// MuteAll 开启/关闭全体禁言（mute=true 开启，false 解除）。
+	// 平台不支持时返回 [ErrNotSupported]。
+	MuteAll(ctx stdctx.Context, groupID string, mute bool) error
+}
+
+// GetAutoModerator 安全获取适配器 Sender 的自动审核接口。
+//
+// 若 Sender 未实现 [AutoModerator]，返回 (nil, false)。
+func GetAutoModerator(a Adapter) (AutoModerator, bool) {
+	am, ok := a.Sender().(AutoModerator)
+	return am, ok
+}
+
+// ErrNotSupported 当平台不支持某个可选管理操作时，实现方应返回此错误。
+//
+// 示例（WeChat Sender 实现 GroupManager 接口但不支持 SetAdmin）：
+//
+//	func (s *wechatSender) SetAdmin(_ stdctx.Context, _, _ string, _ bool) error {
+//	    return platform.ErrNotSupported
+//	}
+var ErrNotSupported = errors.New("operation not supported by this platform")
+
+// ────────────────────────────────────────────────────────────────────────────
 // Capabilities
 // ────────────────────────────────────────────────────────────────────────────
 

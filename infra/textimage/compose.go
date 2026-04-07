@@ -230,6 +230,10 @@ func (c *Canvas) AddRow(items ...RowItem) error {
 		case it.Text != "":
 			o := c.opts
 			o.BgImage = nil // row cells are pre-rendered; canvas owns the background
+			// 使用透明背景：Canvas.Result() 已在调用 drawAt 前绘制好背景（含 BgImage），
+			// 文字单元格内容将以 Over 合成叠加到画布上，保留渐变/图片背景。
+			// 若调用方在 TextOpts 中显式设置了 WithBgColor，仍会生效（覆盖此默认值）。
+			o.BgColor = color.RGBA{0, 0, 0, 0}
 			for _, fn := range it.TextOpts {
 				fn(&o)
 			}
@@ -274,8 +278,9 @@ func (c *Canvas) AddRow(items ...RowItem) error {
 	}
 
 	// Composite cells side-by-side, each vertically centred.
+	// 行容器使用透明背景：Canvas.Result() 已提前绘制 BgColor + BgImage，
+	// 此处不再填充纯色，避免遮盖渐变背景图。
 	rowImg := image.NewRGBA(image.Rect(0, 0, c.width, maxH))
-	stdraw.Draw(rowImg, rowImg.Bounds(), image.NewUniform(c.bgColor), image.Point{}, stdraw.Src)
 	for _, cl := range cells {
 		b := cl.img.Bounds()
 		yOff := (maxH - b.Dy()) / 2

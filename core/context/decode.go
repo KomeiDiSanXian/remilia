@@ -37,3 +37,17 @@ func (ctx *Context) GetSenderInfo() platform.UserInfo {
 	}
 	return ctx.platformEvent.Sender()
 }
+
+// GetChatInfo 获取当前会话信息（平台无关）。
+//
+// 返回 platform.ChatInfo，包含 ID、IsGroup 等字段。
+// ctx 或底层事件为 nil 时返回零值。
+func (ctx *Context) GetChatInfo() platform.ChatInfo {
+	if ctx == nil {
+		return platform.ChatInfo{}
+	}
+	if ctx.platformEvent == nil {
+		return platform.ChatInfo{}
+	}
+	return ctx.platformEvent.Chat()
+}

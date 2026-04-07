@@ -46,6 +46,9 @@ func main() {
 		{"13_canvas_bg_health_report", exCanvasBgHealthReport},
 		{"14_multi_panel_bg", exMultiPanelBg},
 		{"15_new_features_showcase", exNewFeaturesShowcase},
+		{"16_badge_row", exBadgeRow},
+		{"17_bar_chart", exBarChart},
+		{"18_badge_and_chart_card", exBadgeAndChartCard},
 	}
 
 	for _, e := range examples {
@@ -776,4 +779,448 @@ func exMultiPanelBg(dir string) error {
 	c.AddSpacer(24)
 
 	return writeCanvasPNG(c, filepath.Join(dir, "14_multi_panel_bg.png"))
+}
+
+// ─── example 16: 徽章行（Badge Row）──────────────────────────────────────────
+//
+// 演示 Canvas.AddBadgeRow / AddBadge：
+//   - 多个彩色圆角标签横向排列
+//   - 通过 WithBadgeFontSize / WithBadgeRadius / WithBadgePadding 调节样式
+//   - 不同用途的配色方案：状态、版本、环境、告警
+
+func exBadgeRow(dir string) error {
+	bgDark := color.RGBA{R: 22, G: 22, B: 32, A: 255}
+	dimText := color.RGBA{R: 160, G: 165, B: 190, A: 255}
+	white := color.RGBA{R: 230, G: 235, B: 255, A: 255}
+
+	c, err := textimage.NewCanvas(560,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(15),
+		textimage.WithBgColor(bgDark),
+		textimage.WithFontColor(white),
+		textimage.WithPadding(20, 0),
+		textimage.WithLineHeight(1.6),
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	// ── 标题 ─────────────────────────────────────────────────────────────────
+	if err := c.AddText("徽章 / 标签  示例",
+		textimage.WithFontSize(20),
+		textimage.WithAlign(textimage.AlignCenter),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(10)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 80, G: 85, B: 120, A: 160}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(4),
+	)
+
+	// ── 场景一：服务运行状态 ──────────────────────────────────────────────────
+	if err := c.AddText("服务状态",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimText),
+	); err != nil {
+		return err
+	}
+	if err := c.AddBadgeRow(
+		[]textimage.BadgeItem{
+			{Text: "🟢 API Server", BgColor: color.RGBA{R: 40, G: 160, B: 80, A: 255}},
+			{Text: "🟢 Database", BgColor: color.RGBA{R: 40, G: 160, B: 80, A: 255}},
+			{Text: "🟡 Cache", BgColor: color.RGBA{R: 200, G: 140, B: 30, A: 255}},
+			{Text: "🔴 Queue", BgColor: color.RGBA{R: 190, G: 50, B: 50, A: 255}},
+		},
+		textimage.WithBadgeFontSize(13),
+		textimage.WithBadgeRadius(12),
+		textimage.WithBadgePadding(10, 5),
+		textimage.WithBadgeGap(8),
+		textimage.WithBadgeRowPadding(0, 6),
+	); err != nil {
+		return err
+	}
+
+	// ── 场景二：版本与环境 ────────────────────────────────────────────────────
+	if err := c.AddText("版本 / 环境",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimText),
+	); err != nil {
+		return err
+	}
+	if err := c.AddBadgeRow(
+		[]textimage.BadgeItem{
+			{Text: "v2.1.0", BgColor: color.RGBA{R: 70, G: 90, B: 200, A: 255}},
+			{Text: "Go 1.25", BgColor: color.RGBA{R: 0, G: 130, B: 160, A: 255}},
+			{Text: "production", BgColor: color.RGBA{R: 160, G: 60, B: 200, A: 255}},
+			{Text: "shard 0/1", BgColor: color.RGBA{R: 90, G: 90, B: 110, A: 255}},
+		},
+		textimage.WithBadgeFontSize(13),
+		textimage.WithBadgeRadius(10),
+		textimage.WithBadgePadding(10, 5),
+		textimage.WithBadgeGap(8),
+		textimage.WithBadgeRowPadding(0, 6),
+	); err != nil {
+		return err
+	}
+
+	// ── 场景三：功能标签（单行多样式）────────────────────────────────────────
+	if err := c.AddText("功能标签",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimText),
+	); err != nil {
+		return err
+	}
+	if err := c.AddBadgeRow(
+		[]textimage.BadgeItem{
+			{
+				Text:      "⭐ 核心",
+				BgColor:   color.RGBA{R: 200, G: 150, B: 20, A: 255},
+				TextColor: color.RGBA{R: 30, G: 20, B: 0, A: 255}, // 深色文字
+			},
+			{Text: "🔌 插件化", BgColor: color.RGBA{R: 60, G: 120, B: 200, A: 255}},
+			{Text: "🛡 多平台", BgColor: color.RGBA{R: 50, G: 160, B: 130, A: 255}},
+			{Text: "📊 可观测", BgColor: color.RGBA{R: 140, G: 60, B: 190, A: 255}},
+			{Text: "🔄 热重载", BgColor: color.RGBA{R: 80, G: 80, B: 100, A: 255}},
+		},
+		textimage.WithBadgeFontSize(13),
+		textimage.WithBadgeRadius(14),
+		textimage.WithBadgePadding(12, 6),
+		textimage.WithBadgeGap(6),
+		textimage.WithBadgeRowPadding(0, 6),
+	); err != nil {
+		return err
+	}
+
+	// ── 场景四：单个大号徽章居中（AddBadge 便捷方法）─────────────────────────
+	if err := c.AddText("单个徽章",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimText),
+	); err != nil {
+		return err
+	}
+	if err := c.AddBadge(
+		textimage.BadgeItem{
+			Text:      "🏆  今日最活跃用户：Alice",
+			BgColor:   color.RGBA{R: 200, G: 140, B: 20, A: 255},
+			TextColor: color.RGBA{R: 40, G: 20, B: 0, A: 255},
+		},
+		textimage.WithBadgeFontSize(15),
+		textimage.WithBadgeRadius(16),
+		textimage.WithBadgePadding(18, 8),
+		textimage.WithBadgeRowPadding(0, 6),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "16_badge_row.png"))
+}
+
+// ─── example 17: 横向条形图（Bar Chart）──────────────────────────────────────
+//
+// 演示 Canvas.AddBarChart：
+//   - 系统资源监控图表（CPU、内存、磁盘、网络）
+//   - 不同语义配色（绿/蓝/黄/红）
+//   - maxValue 自定义 vs 自动计算
+//   - WithBarShowValue / WithBarFontColor / WithBarLabelWidth 选项
+
+func exBarChart(dir string) error {
+	bgDark := color.RGBA{R: 18, G: 20, B: 30, A: 255}
+	white := color.RGBA{R: 225, G: 230, B: 255, A: 255}
+
+	c, err := textimage.NewCanvas(560,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(15),
+		textimage.WithBgColor(bgDark),
+		textimage.WithFontColor(white),
+		textimage.WithPadding(24, 0),
+		textimage.WithLineHeight(1.6),
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	// 标题
+	if err := c.AddText("系统资源监控  ·  2026-04-07  12:00",
+		textimage.WithFontSize(18),
+		textimage.WithAlign(textimage.AlignCenter),
+	); err != nil {
+		return err
+	}
+	c.AddSpacer(8)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 70, G: 80, B: 130, A: 160}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(4),
+	)
+
+	// ── 图表一：CPU / 内存 / 磁盘 / 网络（百分比）───────────────────────────
+	if err := c.AddText("资源占用 (%)",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(color.RGBA{R: 150, G: 155, B: 185, A: 255}),
+	); err != nil {
+		return err
+	}
+	c.AddSpacer(4)
+	if err := c.AddBarChart(
+		[]textimage.BarItem{
+			{Label: "CPU", Value: 32,
+				Color: color.RGBA{R: 80, G: 210, B: 120, A: 255}},
+			{Label: "内存", Value: 58,
+				Color: color.RGBA{R: 80, G: 160, B: 240, A: 255}},
+			{Label: "磁盘 I/O", Value: 71,
+				Color: color.RGBA{R: 240, G: 180, B: 60, A: 255}},
+			{Label: "网络带宽", Value: 89,
+				Color: color.RGBA{R: 230, G: 80, B: 70, A: 255}},
+		},
+		100,
+		textimage.WithBarHeight(18),
+		textimage.WithBarLabelWidth(90),
+		textimage.WithBarValueWidth(45),
+		textimage.WithBarSpacing(6),
+		textimage.WithBarFontSize(13),
+		textimage.WithBarFontColor(color.RGBA{R: 210, G: 215, B: 240, A: 255}),
+		textimage.WithBarPaddingX(0),
+		textimage.WithBarTrackColor(color.RGBA{R: 40, G: 45, B: 65, A: 230}),
+		textimage.WithBarShowValue(true),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(14)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 60, G: 65, B: 100, A: 120}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(2),
+	)
+
+	// ── 图表二：插件请求量（自动 maxValue，不显示数值）───────────────────────
+	if err := c.AddText("各插件请求量（近 1 小时）",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(color.RGBA{R: 150, G: 155, B: 185, A: 255}),
+	); err != nil {
+		return err
+	}
+	c.AddSpacer(4)
+	if err := c.AddBarChart(
+		[]textimage.BarItem{
+			{Label: "天气查询", Value: 1842},
+			{Label: "签到", Value: 3571},
+			{Label: "抽签", Value: 980},
+			{Label: "翻译", Value: 2234},
+			{Label: "AI 对话", Value: 4108},
+		},
+		0, // 自动取最大值
+		textimage.WithBarHeight(16),
+		textimage.WithBarLabelWidth(80),
+		textimage.WithBarSpacing(5),
+		textimage.WithBarFontSize(13),
+		textimage.WithBarFontColor(color.RGBA{R: 200, G: 205, B: 230, A: 255}),
+		textimage.WithBarPaddingX(0),
+		textimage.WithBarDefaultColor(color.RGBA{R: 100, G: 140, B: 220, A: 255}),
+		textimage.WithBarTrackColor(color.RGBA{R: 38, G: 42, B: 62, A: 220}),
+		textimage.WithBarValueWidth(55),
+		textimage.WithBarShowValue(true),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(18)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "17_bar_chart.png"))
+}
+
+// ─── example 18: 徽章 + 条形图综合卡片 ───────────────────────────────────────
+//
+// 将 Badge Row 与 Bar Chart 组合到一张完整的机器人状态卡片中，
+// 并配合渐变背景图、圆形头像、分隔线等元素呈现真实场景效果。
+
+func exBadgeAndChartCard(dir string) error {
+	// 深紫蓝渐变背景
+	bg := textimage.LinearGradient(620, 600, 135,
+		textimage.Stop(0.0, color.RGBA{R: 8, G: 12, B: 45, A: 255}),
+		textimage.Stop(0.5, color.RGBA{R: 30, G: 10, B: 60, A: 255}),
+		textimage.Stop(1.0, color.RGBA{R: 5, G: 35, B: 55, A: 255}),
+	)
+
+	avatar := makeSolidRGBA(80, 80, color.RGBA{R: 90, G: 140, B: 230, A: 255})
+
+	textClr := color.RGBA{R: 225, G: 230, B: 255, A: 255}
+	dimClr := color.RGBA{R: 145, G: 150, B: 185, A: 255}
+
+	c, err := textimage.NewCanvas(620,
+		textimage.WithCJKFont(),
+		textimage.WithFontSize(15),
+		textimage.WithBgImage(bg, textimage.BgFitFill),
+		textimage.WithFontColor(textClr),
+		textimage.WithPadding(28, 0),
+		textimage.WithLineHeight(1.7),
+	)
+	if err != nil {
+		return err
+	}
+
+	c.AddSpacer(20)
+
+	// ── 头部：头像 + 名称 + 版本 ─────────────────────────────────────────────
+	if err := c.AddRow(
+		textimage.RowItem{
+			Width: 88,
+			Image: avatar,
+			ImageOpts: []textimage.ImageOption{
+				textimage.WithImgCircle(),
+				textimage.WithImgWidth(72),
+				textimage.WithImgAlign(textimage.AlignCenter),
+			},
+		},
+		textimage.RowItem{
+			Text: "Remilia Bot\nv2.1.0  ·  shard 0/1  ·  2026-04-07",
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(20),
+				textimage.WithLineHeight(1.5),
+				textimage.WithTextShadow(color.RGBA{A: 160}, 1, 2, 3),
+			},
+		},
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(12)
+
+	// ── 徽章行：运行状态 ─────────────────────────────────────────────────────
+	if err := c.AddBadgeRow(
+		[]textimage.BadgeItem{
+			{Text: "🟢 在线", BgColor: color.RGBA{R: 35, G: 155, B: 75, A: 255}},
+			{Text: "⚡ v2.1.0", BgColor: color.RGBA{R: 60, G: 90, B: 200, A: 255}},
+			{Text: "production", BgColor: color.RGBA{R: 130, G: 50, B: 185, A: 255}},
+			{Text: "Go 1.25", BgColor: color.RGBA{R: 0, G: 120, B: 155, A: 255}},
+		},
+		textimage.WithBadgeFontSize(12),
+		textimage.WithBadgeRadius(10),
+		textimage.WithBadgePadding(10, 5),
+		textimage.WithBadgeGap(7),
+		textimage.WithBadgeRowPadding(0, 4),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(10)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 90, G: 100, B: 160, A: 140}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(3),
+	)
+	c.AddSpacer(8)
+
+	// ── 条形图：资源占用 ──────────────────────────────────────────────────────
+	if err := c.AddText("资源占用",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimClr),
+	); err != nil {
+		return err
+	}
+	c.AddSpacer(4)
+	if err := c.AddBarChart(
+		[]textimage.BarItem{
+			{Label: "CPU", Value: 32,
+				Color: color.RGBA{R: 75, G: 210, B: 115, A: 255}},
+			{Label: "内存", Value: 58,
+				Color: color.RGBA{R: 80, G: 160, B: 240, A: 255}},
+			{Label: "QPS", Value: 87,
+				Color: color.RGBA{R: 230, G: 90, B: 70, A: 255}},
+		},
+		100,
+		textimage.WithBarHeight(16),
+		textimage.WithBarLabelWidth(70),
+		textimage.WithBarValueWidth(42),
+		textimage.WithBarSpacing(5),
+		textimage.WithBarFontSize(13),
+		textimage.WithBarFontColor(color.RGBA{R: 205, G: 210, B: 240, A: 255}),
+		textimage.WithBarPaddingX(0),
+		textimage.WithBarTrackColor(color.RGBA{R: 35, G: 40, B: 65, A: 220}),
+		textimage.WithBarShowValue(true),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(10)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 70, G: 80, B: 130, A: 100}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(3),
+	)
+	c.AddSpacer(8)
+
+	// ── 条形图：近 1 小时各功能调用量 ────────────────────────────────────────
+	if err := c.AddText("功能调用量（近 1 小时）",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimClr),
+	); err != nil {
+		return err
+	}
+	c.AddSpacer(4)
+	if err := c.AddBarChart(
+		[]textimage.BarItem{
+			{Label: "AI 对话", Value: 4108},
+			{Label: "签到", Value: 3571},
+			{Label: "天气", Value: 1842},
+			{Label: "翻译", Value: 2234},
+		},
+		0,
+		textimage.WithBarHeight(15),
+		textimage.WithBarLabelWidth(75),
+		textimage.WithBarValueWidth(50),
+		textimage.WithBarSpacing(5),
+		textimage.WithBarFontSize(13),
+		textimage.WithBarFontColor(color.RGBA{R: 195, G: 200, B: 230, A: 255}),
+		textimage.WithBarPaddingX(0),
+		textimage.WithBarDefaultColor(color.RGBA{R: 95, G: 135, B: 215, A: 255}),
+		textimage.WithBarTrackColor(color.RGBA{R: 32, G: 37, B: 58, A: 215}),
+		textimage.WithBarShowValue(true),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(12)
+	c.AddDivider(
+		textimage.WithDividerColor(color.RGBA{R: 60, G: 70, B: 115, A: 100}),
+		textimage.WithDividerInset(0),
+		textimage.WithDividerPadding(2),
+	)
+	c.AddSpacer(8)
+
+	// ── 底部徽章：服务器节点状态 ──────────────────────────────────────────────
+	if err := c.AddText("节点状态",
+		textimage.WithFontSize(13),
+		textimage.WithFontColor(dimClr),
+	); err != nil {
+		return err
+	}
+	if err := c.AddBadgeRow(
+		[]textimage.BadgeItem{
+			{Text: "node-01 🟢", BgColor: color.RGBA{R: 35, G: 140, B: 70, A: 255}},
+			{Text: "node-02 🟢", BgColor: color.RGBA{R: 35, G: 140, B: 70, A: 255}},
+			{Text: "node-03 🟡", BgColor: color.RGBA{R: 185, G: 130, B: 25, A: 255}},
+			{Text: "node-04 🔴", BgColor: color.RGBA{R: 175, G: 45, B: 45, A: 255}},
+		},
+		textimage.WithBadgeFontSize(12),
+		textimage.WithBadgeRadius(8),
+		textimage.WithBadgePadding(9, 4),
+		textimage.WithBadgeGap(6),
+		textimage.WithBadgeRowPadding(0, 5),
+	); err != nil {
+		return err
+	}
+
+	c.AddSpacer(20)
+
+	return writeCanvasPNG(c, filepath.Join(dir, "18_badge_and_chart_card.png"))
 }

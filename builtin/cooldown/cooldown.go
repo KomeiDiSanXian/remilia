@@ -177,6 +177,133 @@ func (p *Plugin) GlobalAllow(command string, cooldown time.Duration) bool {
 	return p.Allow("__global__", command, cooldown)
 }
 
+// ─── 群级冷却 ─────────────────────────────────────────────────────────────────
+
+// GroupAllow 检查群组是否允许执行命令（群内所有用户共享冷却时间）。
+//
+// 与 Allow 不同，这里的 key 是群 ID 而非用户 ID，
+// 因此任何一个群成员触发命令后，该群整体进入冷却状态。
+func (p *Plugin) GroupAllow(groupID, command string, cooldown time.Duration) bool {
+	return p.Allow("__group__:"+groupID, command, cooldown)
+}
+
+// GroupRemaining 返回指定群组的命令冷却剩余时间（已过则返回 0）。
+func (p *Plugin) GroupRemaining(groupID, command string, cooldown time.Duration) time.Duration {
+	return p.Remaining("__group__:"+groupID, command, cooldown)
+}
+
+// GroupReset 重置指定群组对某命令的冷却时间。
+func (p *Plugin) GroupReset(groupID, command string) {
+	p.Reset("__group__:"+groupID, command)
+}
+
+// GroupMiddleware 返回群级冷却时间中间件。
+//
+// 与 [Plugin.Middleware] 不同，冷却时间在整个群内共享：
+// 只要群内任意用户触发了该命令，整个群进入冷却状态（直到冷却结束）。
+// 非群组消息（私聊）直接放行，不受此中间件影响。
+//
+// 使用示例：
+//
+//	engine.OnCommand(dto.GroupMessage, "/news").
+//	    Use(cd.GroupMiddleware("news", 10*time.Minute)).
+//	    Handle(newsHandler)
+func (p *Plugin) GroupMiddleware(command string, duration time.Duration) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			chat := ctx.GetChatInfo()
+			if chat.ID == "" || !chat.IsGroup {
+				// 私聊：不应用群级冷却，直接放行
+				return next(ctx)
+			}
+			if !p.GroupAllow(chat.ID, command, duration) {
+				remaining := p.GroupRemaining(chat.ID, command, duration)
+				logger.Debugf("[Cooldown] Group %s is in cooldown for %s, remaining: %s",
+					chat.ID, command, remaining.Round(time.Second))
+				msg := fmt.Sprintf("⏱ 该群冷却中，请在 %s 后再试", remaining.Round(time.Second))
+				_, _ = ctx.Reply(platform.TextMessage(msg))
+				return nil
+			}
+			return next(ctx)
+		}
+	}
+}
+
+// ─── 冷却策略 ─────────────────────────────────────────────────────────────────
+
+// Policy 描述一条命令的复合冷却策略，支持用户级、群级、全局三层限制。
+//
+// 三层按 GlobalLimit → GroupLimit → UserLimit 顺序检查（从最严到最细），
+// 任一层冷却中则拒绝，并告知用户相应剩余时间。
+//
+// 使用示例：
+//
+//	policy := cooldown.Policy{
+//	    Command:     "sign",
+//	    UserLimit:   24 * time.Hour,  // 每用户每天签到一次
+//	    GroupLimit:  0,               // 群级不限制
+//	    GlobalLimit: 0,               // 全局不限制
+//	}
+//	engine.OnCommand(dto.GroupMessage, "/sign").
+//	    Use(cd.PolicyMiddleware(policy)).
+//	    Handle(signHandler)
+type Policy struct {
+	// Command 命令名，用作冷却记录的 key（应与命令唯一标识一致）
+	Command string
+	// UserLimit 用户级冷却时间（0 表示不限制）
+	UserLimit time.Duration
+	// GroupLimit 群级冷却时间（0 表示不限制）
+	GroupLimit time.Duration
+	// GlobalLimit 全局冷却时间（0 表示不限制）
+	GlobalLimit time.Duration
+}
+
+// PolicyMiddleware 根据 Policy 生成复合冷却中间件。
+//
+// 检查顺序：全局 → 群组 → 用户，任一层冷却则中断并回复提示。
+func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			// 1. 全局冷却检查
+			if policy.GlobalLimit > 0 {
+				if !p.GlobalAllow(policy.Command, policy.GlobalLimit) {
+					remaining := p.Remaining("__global__", policy.Command, policy.GlobalLimit)
+					msg := fmt.Sprintf("⏱ 全局冷却中，请在 %s 后再试", remaining.Round(time.Second))
+					_, _ = ctx.Reply(platform.TextMessage(msg))
+					return nil
+				}
+			}
+			// 2. 群级冷却检查
+			if policy.GroupLimit > 0 {
+				chat := ctx.GetChatInfo()
+				if chat.IsGroup && chat.ID != "" {
+					if !p.GroupAllow(chat.ID, policy.Command, policy.GroupLimit) {
+						remaining := p.GroupRemaining(chat.ID, policy.Command, policy.GroupLimit)
+						msg := fmt.Sprintf("⏱ 该群冷却中，请在 %s 后再试", remaining.Round(time.Second))
+						_, _ = ctx.Reply(platform.TextMessage(msg))
+						return nil
+					}
+				}
+			}
+			// 3. 用户级冷却检查
+			if policy.UserLimit > 0 {
+				userID := ctx.GetSenderInfo().ID
+				if userID != "" {
+					if !p.Allow(userID, policy.Command, policy.UserLimit) {
+						remaining := p.Remaining(userID, policy.Command, policy.UserLimit)
+						logger.Debugf("[Cooldown] User %s is in cooldown for %s, remaining: %s",
+							userID, policy.Command, remaining.Round(time.Second))
+						msg := fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", remaining.Round(time.Second))
+						_, _ = ctx.Reply(platform.TextMessage(msg))
+						return nil
+					}
+				}
+			}
+			return next(ctx)
+		}
+	}
+}
+
 // CleanExpired 清理已过期的冷却记录（减少内存占用）
 func (p *Plugin) CleanExpired(maxAge time.Duration) int {
 	p.mu.Lock()
