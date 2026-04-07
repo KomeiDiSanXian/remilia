@@ -1,13 +1,14 @@
 package pluginctrl
 
-// pluginctrl_user.go — 用户级禁用 / PluginPolicy / Middleware / RuleFull
+// pluginctrl_user.go — 用户级禁用 / 全局封禁 / PluginPolicy / Middleware / RuleFull
 //
 // 本文件扩展 Plugin，实现以下功能：
 //  1. 用户级插件禁用（SetUserEnabled / IsUserEnabled / UserList）
-//  2. 插件冷却策略注册（RegisterPolicy / GetPolicy）
-//  3. Middleware：一步完成"群开关 + 用户禁用 + 冷却"全检查
-//  4. RuleFull：无消息的群+用户双检 Rule（用于引擎层过滤）
-//  5. 用户级指令处理（handleUserDisable / handleUserEnable）
+//  2. 全局用户封禁（BanUser / UnbanUser / IsBanned）
+//  3. 插件冷却策略注册（RegisterPolicy / GetPolicy）
+//  4. Middleware：一步完成"群静默 + 全局封禁 + 群开关 + 用户禁用 + 冷却"全检查
+//  5. RuleFull：群+用户双检 Rule（用于引擎层过滤）
+//  6. 用户级指令处理（handleUserDisable / handleUserEnable / handleBan / handleUnban）
 
 import (
 	"fmt"
@@ -69,6 +70,35 @@ func (p *Plugin) UserList(userID string) []UserPluginState {
 	return result
 }
 
+// ─── 全局用户封禁 API ─────────────────────────────────────────────────────────
+
+// BanUser 全局封禁指定用户，禁止其使用机器人的任何功能，并持久化。
+//
+// 全局封禁的优先级高于所有单插件状态检查。
+// Middleware 和 RuleFull 会在任何其他检查之前拒绝被封禁的用户。
+// 解除封禁请调用 [Plugin.UnbanUser]。
+func (p *Plugin) BanUser(userID string) error {
+	p.mu.Lock()
+	p.bannedUsers[userID] = true
+	p.mu.Unlock()
+	return p.persistUser(userID, globalBanPlugin, true)
+}
+
+// UnbanUser 解除对指定用户的全局封禁，并持久化。
+func (p *Plugin) UnbanUser(userID string) error {
+	p.mu.Lock()
+	delete(p.bannedUsers, userID)
+	p.mu.Unlock()
+	return p.persistUser(userID, globalBanPlugin, false)
+}
+
+// IsBanned 检查指定用户是否被全局封禁。
+func (p *Plugin) IsBanned(userID string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.bannedUsers[userID]
+}
+
 // ─── 持久化（用户级）─────────────────────────────────────────────────────────
 
 func (p *Plugin) persistUser(userID, pluginName string, enabled bool) error {
@@ -119,14 +149,18 @@ func (p *Plugin) GetPolicy(pluginName string) (*PluginPolicy, bool) {
 
 // ─── RuleFull ─────────────────────────────────────────────────────────────────
 
-// RuleFull 返回一个同时检查群级开关和用户级禁用的 Rule（无消息回复）。
+// RuleFull 返回一个全链路 Rule，按顺序检查：
+//  0. 群静默（silencedGroups）
+//  1. 全局用户封禁（bannedUsers）
+//  2. 用户级插件禁用（userStates）
+//  3. 群级插件开关（groupStates / globalStates）
 //
 // 与 [Plugin.Rule] 的区别：
-//   - Rule：仅检查群级开关（非群消息直接放行）
-//   - RuleFull：检查群级开关 + 用户级禁用（两者均需通过）
+//   - Rule：仅检查群级开关和群静默（非群消息直接放行）
+//   - RuleFull：额外检查全局用户封禁和用户级禁用
 //
 // 适合在 engine.On() 中使用，不需要自动回复拒绝消息的场景。
-// 若需要自动回复（如"你已被禁止使用该功能"），请改用 [Plugin.Middleware]。
+// 若需要自动回复（如"你已被封禁"），请改用 [Plugin.Middleware]。
 //
 //	ctx.Reg.On(string(platform.EventKindGroupMessage), ctrl.RuleFull("weather")).Handle(h)
 func (p *Plugin) RuleFull(pluginName string) eventctx.Rule {
@@ -134,11 +168,19 @@ func (p *Plugin) RuleFull(pluginName string) eventctx.Rule {
 		sender := ctx.GetSenderInfo()
 		chatInfo := ctx.GetChatInfo()
 
-		// 1. 用户级禁用检查（优先：用户被禁则直接拒绝，不论群状态）
+		// 0. 群静默检查（优先于所有其他检查）
+		if chatInfo.IsGroup && p.IsGroupSilenced(chatInfo.ID) {
+			return false
+		}
+		// 1. 全局用户封禁检查
+		if sender.ID != "" && p.IsBanned(sender.ID) {
+			return false
+		}
+		// 2. 用户级禁用检查（优先：用户被禁则直接拒绝，不论群状态）
 		if sender.ID != "" && !p.IsUserEnabled(sender.ID, pluginName) {
 			return false
 		}
-		// 2. 群级开关检查
+		// 3. 群级开关检查
 		if chatInfo.IsGroup && !p.IsEnabled(chatInfo.ID, pluginName) {
 			return false
 		}
@@ -150,9 +192,11 @@ func (p *Plugin) RuleFull(pluginName string) eventctx.Rule {
 
 // Middleware 返回一个一体化中间件，按顺序执行：
 //
-//  1. 群级开关检查（群消息）→ 失败时回复 "❌ 该功能在本群已关闭"
-//  2. 用户级禁用检查         → 失败时回复 "❌ 你已被禁止使用该功能"
-//  3. 冷却策略检查           → 若已通过 [Plugin.RegisterPolicy] 注册了策略，
+//  0. 群静默检查（群消息）→ 静默时静默放行（不回复）
+//  1. 全局用户封禁检查   → 失败时回复 "❌ 你已被封禁，无法使用机器人服务"
+//  2. 群级开关检查（群消息）→ 失败时回复 "❌ 该功能在本群已关闭"
+//  3. 用户级禁用检查       → 失败时回复 "❌ 你已被禁止使用该功能"
+//  4. 冷却策略检查         → 若已通过 [Plugin.RegisterPolicy] 注册了策略，
 //     按 GlobalLimit → GroupLimit → UserLimit 顺序检查，失败时回复冷却提示
 //
 // 这是推荐的使用方式（对标 zbpctrl 的 ctrl.Handler），
@@ -171,19 +215,30 @@ func (p *Plugin) Middleware(pluginName string) eventctx.Middleware {
 			chatInfo := ctx.GetChatInfo()
 			sender := ctx.GetSenderInfo()
 
-			// 1. 群级开关
+			// 0. 群静默检查（静默时直接 drop，不回复任何内容）
+			if chatInfo.IsGroup && p.IsGroupSilenced(chatInfo.ID) {
+				return nil
+			}
+
+			// 1. 全局用户封禁检查
+			if sender.ID != "" && p.IsBanned(sender.ID) {
+				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
+				return nil
+			}
+
+			// 2. 群级开关
 			if chatInfo.IsGroup && !p.IsEnabled(chatInfo.ID, pluginName) {
 				_, _ = ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
 				return nil
 			}
 
-			// 2. 用户级禁用
+			// 3. 用户级禁用
 			if sender.ID != "" && !p.IsUserEnabled(sender.ID, pluginName) {
 				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
 				return nil
 			}
 
-			// 3. 冷却检查（若有注册策略）
+			// 4. 冷却检查（若有注册策略）
 			if pol, ok := p.GetPolicy(pluginName); ok {
 				if !p.checkCooldown(ctx, pluginName, pol) {
 					return nil // 冷却消息已由 checkCooldown 发送
@@ -286,6 +341,56 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	_, _ = ctx.Reply(platform.TextMessage(
 		fmt.Sprintf("✅ 已%s用户 %s 对插件「%s」的访问", action, targetUserID, pluginName),
+	))
+	return nil
+}
+
+// ─── 全局封禁指令处理 ─────────────────────────────────────────────────────────
+
+// handleBan 处理"封禁 <userID>"指令：全局封禁指定用户。
+func (p *Plugin) handleBan(ctx *eventctx.Context) error {
+	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
+		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
+		return nil
+	}
+	args, err := command.ParseCommandLine(ctx.GetMessageContent())
+	if err != nil || len(args.Positional) == 0 {
+		_, _ = ctx.Reply(platform.TextMessage(
+			fmt.Sprintf("❌ 用法：/%s <用户ID>", p.opts.banCmd),
+		))
+		return nil
+	}
+	targetUserID := args.Positional[0]
+	if err := p.BanUser(targetUserID); err != nil {
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		return nil
+	}
+	_, _ = ctx.Reply(platform.TextMessage(
+		fmt.Sprintf("✅ 已全局封禁用户 %s，该用户无法使用机器人的任何功能", targetUserID),
+	))
+	return nil
+}
+
+// handleUnban 处理"解封 <userID>"指令：解除对指定用户的全局封禁。
+func (p *Plugin) handleUnban(ctx *eventctx.Context) error {
+	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
+		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
+		return nil
+	}
+	args, err := command.ParseCommandLine(ctx.GetMessageContent())
+	if err != nil || len(args.Positional) == 0 {
+		_, _ = ctx.Reply(platform.TextMessage(
+			fmt.Sprintf("❌ 用法：/%s <用户ID>", p.opts.unbanCmd),
+		))
+		return nil
+	}
+	targetUserID := args.Positional[0]
+	if err := p.UnbanUser(targetUserID); err != nil {
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		return nil
+	}
+	_, _ = ctx.Reply(platform.TextMessage(
+		fmt.Sprintf("✅ 已解除用户 %s 的全局封禁", targetUserID),
 	))
 	return nil
 }

@@ -4,22 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat: update string conversion in tests for improved clarity and consistency">
-      <change afterPath="$PROJECT_DIR$/infra/textimage/vector.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/infra/textimage/vector_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(gif, vector): simplify frame delay and diameter calculations">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/canvas/canvas.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/canvas/canvas.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/canvas/canvas_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/canvas/canvas_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/canvas/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/canvas/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/gif/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/gif/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/gif/gif.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/gif/gif.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/gif/gif_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/gif/gif_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/chart.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/chart.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/textimage/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/textimage/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/webimage/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/webimage/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/webimage/webimage.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/webimage/webimage.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/webimage/webimage_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/webimage/webimage_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/permission.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/permission.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/options.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/comparison-zerobot-floattech.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/comparison-zerobot-floattech.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/comparison-zerobotplugin.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/comparison-zerobotplugin.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -278,8 +271,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(iface): reorganize OpenAPI interface into functional sub-interfaces for clarity" />
-    <MESSAGE value="fix(sender): ensure content field is populated for group chat media messages" />
     <MESSAGE value="fix(sender): update Send method to return SendResult and handle errors appropriately" />
     <MESSAGE value="feat(textimage): add multi-platform support for CJK font rendering with system-specific font handling" />
     <MESSAGE value="test(bench): add benchmark tests for textimage package performance" />
@@ -303,7 +294,9 @@
     <MESSAGE value="refactor: simplify variable declarations in test files for improved readability" />
     <MESSAGE value="feat(storage): implement badge and bar chart rendering functionality" />
     <MESSAGE value="feat: update string conversion in tests for improved clarity and consistency" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: update string conversion in tests for improved clarity and consistency" />
+    <MESSAGE value="feat(vector): add VectorCanvas for advanced vector drawing capabilities" />
+    <MESSAGE value="optimize(gif, vector): simplify frame delay and diameter calculations" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize(gif, vector): simplify frame delay and diameter calculations" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

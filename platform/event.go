@@ -118,9 +118,27 @@ const (
 	EventKindGuildChange EventKind = "GUILD_CHANGE"
 )
 
+// GroupRole 发送者在当前群/频道中的角色等级。
+//
+// 仅在群组消息中有意义；私聊场景值为 GroupRoleUnknown。
+// 各平台填充能力不同：Discord 通过 Member.Permissions 推断；
+// QQ 群消息暂不在事件 payload 中提供（需额外 API 调用）。
+type GroupRole int
+
+const (
+	// GroupRoleUnknown 未知角色（平台未提供信息，或私聊场景）
+	GroupRoleUnknown GroupRole = 0
+	// GroupRoleMember 普通成员
+	GroupRoleMember GroupRole = 1
+	// GroupRoleAdmin 群管理员（具有管理群/频道权限的角色）
+	GroupRoleAdmin GroupRole = 2
+	// GroupRoleOwner 群主/服务器拥有者，或具有最高管理权限（Administrator）的成员
+	GroupRoleOwner GroupRole = 3
+)
+
 // UserInfo 代表消息发送者/用户的基本信息。
 //
-// 各平台填充能力不同，未知字段返回空字符串或 false。
+// 各平台填充能力不同，未知字段返回空字符串、false 或零值。
 type UserInfo struct {
 	// ID 平台内唯一用户标识（QQ openID、Telegram userID 等）
 	ID string
@@ -128,6 +146,9 @@ type UserInfo struct {
 	DisplayName string
 	// IsBot 是否为机器人账号
 	IsBot bool
+	// GroupRole 发送者在当前群/频道中的角色等级。
+	// 私聊场景或平台未提供时为 GroupRoleUnknown。
+	GroupRole GroupRole
 }
 
 // ChatInfo 代表消息所在会话的基本信息。

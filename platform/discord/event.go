@@ -85,6 +85,10 @@ func userFromDiscord(u *discordgo.User) platform.UserInfo {
 // memberFromDiscord converts a *discordgo.Member to platform.UserInfo.
 //
 // Prefers the guild nickname; falls back to GlobalName then Username.
+// GroupRole is inferred from Member.Permissions:
+//   - PermissionAdministrator set → GroupRoleOwner
+//   - PermissionManageGuild set  → GroupRoleAdmin
+//   - otherwise                  → GroupRoleMember
 func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 	if m == nil {
 		return platform.UserInfo{}
@@ -102,10 +106,19 @@ func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 			name = m.User.Username
 		}
 	}
+	// Infer group role from computed permissions (populated by Discord for guild messages
+	// and interaction events; defaults to GroupRoleMember when not provided).
+	role := platform.GroupRoleMember
+	if m.Permissions&discordgo.PermissionAdministrator != 0 {
+		role = platform.GroupRoleOwner
+	} else if m.Permissions&discordgo.PermissionManageGuild != 0 {
+		role = platform.GroupRoleAdmin
+	}
 	return platform.UserInfo{
 		ID:          id,
 		DisplayName: name,
 		IsBot:       isBot,
+		GroupRole:   role,
 	}
 }
 
