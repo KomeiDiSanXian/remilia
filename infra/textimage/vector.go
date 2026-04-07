@@ -66,10 +66,7 @@ func NewVectorCard(width int) *VectorCanvas {
 // 图片先等比缩放至直径大小（cover 语义），再以圆形路径裁剪。
 // 裁剪状态通过 Push/Pop 隔离，不影响后续绘制。
 func (c *VectorCanvas) DrawAvatar(img image.Image, cx, cy, radius float64) {
-	diam := int(math.Round(2 * radius))
-	if diam < 1 {
-		diam = 1
-	}
+	diam := max(int(math.Round(2*radius)), 1)
 	// 将源图缩放至圆形包围盒大小
 	scaled := image.NewRGBA(image.Rect(0, 0, diam, diam))
 	xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), img, img.Bounds(), xdraw.Over, nil)

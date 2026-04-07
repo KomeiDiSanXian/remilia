@@ -83,10 +83,7 @@ func (e *Encoder) AddPaletted(img *image.Paletted, delayMs int) {
 }
 
 func (e *Encoder) appendFrame(img *image.Paletted, delayMs int) {
-	delay := delayMs / 10
-	if delay < 1 {
-		delay = 1
-	}
+	delay := max(delayMs/10, 1)
 	e.frames = append(e.frames, img)
 	e.delays = append(e.delays, delay)
 	e.disposals = append(e.disposals, stdgif.DisposalBackground)
