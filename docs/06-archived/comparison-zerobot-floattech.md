@@ -2,7 +2,7 @@
 
 > 生成时间：2026-04-07  
 > 比较基准：wdvxdr1123/ZeroBot（主干）+ FloatTech 系列库 vs Remilia 当前工作区  
-> **报告定位**：本报告聚焦**框架层**（核心引擎 + 基础设施库），不讨论 ZeroBot-Plugin 中 90+ 业务插件的应用层差距，应用层差距请参阅 [`comparison-zerobotplugin.md`](./comparison-zerobotplugin.md)。
+> **报告定位**：本报告聚焦**框架层**（核心引擎 + 基础设施库），不讨论 ZeroBot-Plugin 中 90+ 业务插件的应用层差距，应用层差距请参阅 [`comparison-zerobotplugin.md`](comparison-zerobotplugin.md)。
 
 ---
 
