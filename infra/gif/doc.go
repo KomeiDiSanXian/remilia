@@ -1,33 +1,31 @@
-// Package gif provides a frame-by-frame GIF animation encoder.
+// Package gif 提供逐帧 GIF 动图编码器。
 //
-// It accepts any [image.Image] type and handles color-quantisation internally,
-// converting each frame to the 256-colour indexed format required by the GIF
-// specification.  Floyd-Steinberg dithering is applied by default to reduce
-// colour banding on gradients; it can be disabled with [WithDithering].
+// 支持传入任意 [image.Image] 类型，内部自动完成颜色量化，
+// 将每一帧转换为 GIF 规范要求的 256 色索引格式。
+// 默认启用 Floyd-Steinberg 抖动算法，减少渐变色带；
+// 可通过 [WithDithering] 关闭以换取更快的量化速度。
 //
-// # Quick start
+// # 快速开始
 //
-//	enc := gif.New(gif.WithLoopCount(0)) // loop forever
+//	enc := gif.New(gif.WithLoopCount(0)) // 0 = 无限循环
 //
 //	for _, img := range frames {
-//	    if err := enc.AddFrame(img, 50); err != nil { // 50 ms per frame
+//	    if err := enc.AddFrame(img, 50); err != nil { // 每帧 50 毫秒
 //	        return err
 //	    }
 //	}
 //
 //	data, err := enc.Bytes()
 //
-// # Palette
+// # 调色板
 //
-// By default a 216-color web-safe palette is used (6×6×6 RGB cube + 40 grey
-// shades, 256 entries total).  Supply a custom palette with [WithPalette]:
+// 默认使用 216 色网页安全调色板（6×6×6 RGB 立方体 + 40 级灰阶，共 256 色）。
+// 可通过 [WithPalette] 传入自定义调色板：
 //
-//	import "github.com/golang/freetype/raster" // just for illustration
 //	enc := gif.New(gif.WithPalette(myPalette))
 //
-// # Disposal method
+// # 帧处置方式
 //
-// Each frame uses [image/gif.DisposalBackground] (clear to background between
-// frames).  Override on a per-frame basis by calling [Encoder.AddPaletted]
-// directly.
+// 每帧默认使用 [image/gif.DisposalBackground]（帧间清除为背景色）。
+// 若需要逐帧精细控制处置方式，请直接调用 [Encoder.AddPaletted]。
 package gif

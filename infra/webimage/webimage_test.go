@@ -9,23 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── 测试辅助 ──────────────────────────────────────────────────────────────────
 
-// fakeRenderer returns a fixed payload and a nil error.
+// fakeRenderer 返回固定载荷，错误始终为 nil。
 type fakeRenderer struct{ payload []byte }
 
 func (f *fakeRenderer) Render(_ context.Context, _ string, _ bool, _ Options) ([]byte, error) {
 	return f.payload, nil
 }
 
-// errRenderer always returns an error.
+// errRenderer 始终返回指定错误。
 type errRenderer struct{ err error }
 
 func (e *errRenderer) Render(_ context.Context, _ string, _ bool, _ Options) ([]byte, error) {
 	return nil, e.err
 }
 
-// ─── New ──────────────────────────────────────────────────────────────────────
+// ─── New / 选项 ────────────────────────────────────────────────────────────────
 
 func TestNew_Defaults(t *testing.T) {
 	c := New()
@@ -37,8 +37,7 @@ func TestNew_Defaults(t *testing.T) {
 }
 
 func TestNew_WithRenderer(t *testing.T) {
-	payload := []byte("fake-png")
-	c := New(WithRenderer(&fakeRenderer{payload: payload}))
+	c := New(WithRenderer(&fakeRenderer{payload: []byte("fake-png")}))
 	assert.True(t, c.HasRenderer())
 }
 
@@ -50,13 +49,13 @@ func TestNew_WithDefaults(t *testing.T) {
 	assert.Equal(t, FormatJPEG, c.defaults.Format)
 }
 
-// ─── ErrNoRenderer ───────────────────────────────────────────────���────────────
+// ─── ErrNoRenderer ────────────────────────────────────────────────────────────
 
 func TestRender_NoRenderer_ReturnsErrNoRenderer(t *testing.T) {
 	c := New()
-	_, err := c.Render(context.Background(), "<h1>Hi</h1>")
+	_, err := c.Render(context.Background(), "<h1>你好</h1>")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNoRenderer), "error should wrap ErrNoRenderer")
+	assert.True(t, errors.Is(err, ErrNoRenderer), "错误应包装 ErrNoRenderer")
 }
 
 func TestRenderURL_NoRenderer_ReturnsErrNoRenderer(t *testing.T) {
@@ -66,13 +65,13 @@ func TestRenderURL_NoRenderer_ReturnsErrNoRenderer(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrNoRenderer))
 }
 
-// ─── Render / RenderURL with renderer ────────────────────────────────────────
+// ─── 有渲染器时的 Render / RenderURL ──────────────────────────────────────────
 
 func TestRender_WithRenderer_ReturnsPayload(t *testing.T) {
 	want := []byte{0x89, 0x50, 0x4E, 0x47} // fake "PNG" header
 	c := New(WithRenderer(&fakeRenderer{payload: want}))
 
-	got, err := c.Render(context.Background(), "<h1>Hello</h1>")
+	got, err := c.Render(context.Background(), "<h1>你好</h1>")
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }
@@ -109,25 +108,25 @@ func TestSetRenderer_AfterConstruction(t *testing.T) {
 	assert.Equal(t, []byte("ok"), got)
 }
 
-// ─── RendererFunc ─────────────────────────────────────────────────────────────
+// ─── RendererFunc 适配器 ───────────────────────────────────────────────────────
 
 func TestRendererFunc_Adapter(t *testing.T) {
 	called := false
 	rf := RendererFunc(func(_ context.Context, src string, isURL bool, _ Options) ([]byte, error) {
 		called = true
-		assert.Equal(t, "html-content", src)
+		assert.Equal(t, "html内容", src)
 		assert.False(t, isURL)
 		return []byte("result"), nil
 	})
 	c := New(WithRenderer(rf))
 
-	got, err := c.Render(context.Background(), "html-content")
+	got, err := c.Render(context.Background(), "html内容")
 	require.NoError(t, err)
 	assert.True(t, called)
 	assert.Equal(t, []byte("result"), got)
 }
 
-// ─── RenderOption overrides ───────────────────────────────────────────────────
+// ─── RenderOption 覆盖验证 ────────────────────────────────────────────────────
 
 func TestRenderOption_OverridesDefault(t *testing.T) {
 	var capturedOpts Options
@@ -157,17 +156,16 @@ func TestRenderOption_OverridesDefault(t *testing.T) {
 
 func TestRenderOption_DoesNotMutateDefaults(t *testing.T) {
 	c := New(WithDefaults(Options{Width: 1280, Height: 720}))
-	// Inject a no-op renderer so Render succeeds.
 	c.SetRenderer(RendererFunc(func(_ context.Context, _ string, _ bool, _ Options) ([]byte, error) {
 		return nil, nil
 	}))
 
 	_, _ = c.Render(context.Background(), "", WithWidth(4096))
-	// Client defaults must be unmodified after the call.
-	assert.Equal(t, 1280, c.defaults.Width, "defaults must not be mutated by per-call options")
+	// 调用完成后 Client 默认值不应被修改
+	assert.Equal(t, 1280, c.defaults.Width, "单次覆盖选项不应修改 Client 默认值")
 }
 
-// ─── isURL routing ────────────────────────────────────────────────────────────
+// ─── Render 与 RenderURL 的 isURL 路由 ────────────────────────────────────────
 
 func TestRenderVsRenderURL_IsURLFlag(t *testing.T) {
 	var gotIsURL bool
@@ -178,8 +176,8 @@ func TestRenderVsRenderURL_IsURLFlag(t *testing.T) {
 	c := New(WithRenderer(spy))
 
 	_, _ = c.Render(context.Background(), "<p/>")
-	assert.False(t, gotIsURL, "Render must pass srcIsURL=false")
+	assert.False(t, gotIsURL, "Render 应传递 srcIsURL=false")
 
 	_, _ = c.RenderURL(context.Background(), "https://example.com")
-	assert.True(t, gotIsURL, "RenderURL must pass srcIsURL=true")
+	assert.True(t, gotIsURL, "RenderURL 应传递 srcIsURL=true")
 }

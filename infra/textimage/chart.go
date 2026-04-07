@@ -163,10 +163,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 
 	// 每行高度 = barHeight + 2×barSpacingY
 	rowH := o.barHeight + 2*o.barSpacingY
-	totalH := rowH * len(items)
-	if totalH < 1 {
-		totalH = 1
-	}
+	totalH := max(rowH*len(items), 1)
 
 	canvasW := c.width
 	// 图表缓冲区使用透明背景：Canvas.Result() 已提前绘制 BgColor + BgImage，
@@ -199,10 +196,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 	if o.showValue && o.valueWidth > 0 {
 		valW = o.valueWidth + 4 // 4px bar→value 间距
 	}
-	barW := canvasW - barStartX - valW - o.paddingX
-	if barW < 4 {
-		barW = 4
-	}
+	barW := max(canvasW-barStartX-valW-o.paddingX, 4)
 	barRadius := o.barHeight / 2
 
 	for i, item := range items {
@@ -217,10 +211,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 			}
 			lb := labelImg.Bounds()
 			// 垂直居中于本行
-			labelY := barY + (o.barHeight-lb.Dy())/2
-			if labelY < 0 {
-				labelY = 0
-			}
+			labelY := max(barY+(o.barHeight-lb.Dy())/2, 0)
 			labelDest := lb.Add(image.Pt(labelStartX, labelY))
 			stdraw.Draw(img, labelDest, labelImg, lb.Min, stdraw.Over)
 		}
@@ -235,10 +226,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 			fillRatio = 1
 		}
 		if fillRatio > 0 {
-			fillW := int(float64(barW) * fillRatio)
-			if fillW < 1 {
-				fillW = 1
-			}
+			fillW := max(int(float64(barW)*fillRatio), 1)
 			fillColor := item.Color
 			if fillColor == nil {
 				fillColor = o.defaultColor
@@ -261,10 +249,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 			if verr == nil {
 				vb := valImg.Bounds()
 				valX := barStartX + barW + 4
-				valY := barY + (o.barHeight-vb.Dy())/2
-				if valY < 0 {
-					valY = 0
-				}
+				valY := max(barY+(o.barHeight-vb.Dy())/2, 0)
 				valDest := vb.Add(image.Pt(valX, valY))
 				stdraw.Draw(img, valDest, valImg, vb.Min, stdraw.Over)
 			}

@@ -52,6 +52,25 @@
 //	)
 //	pngBytes, _ := c.ResultPNG()
 //
+// # VectorCanvas（矢量绘图画布）
+//
+// [VectorCanvas] 是对 [github.com/fogleman/gg] 的 Bot 友好封装，
+// 提供纯光栅 Canvas 无法完成的矢量绘图能力：
+//
+//   - 任意路径（MoveTo / LineTo / CubicTo / ClosePath）
+//   - 变换矩阵（Translate / Rotate / Scale / Push / Pop）
+//   - 自定义裁剪（DrawCircle + Clip、任意路径裁剪）
+//   - 折线图 [VectorCanvas.DrawLineChart] / 面积图 [VectorCanvas.DrawLineChartFilled]
+//   - 雷达图 [VectorCanvas.DrawRadarChart] + 背景网格 [VectorCanvas.DrawRadarGrid]
+//   - 圆形头像 [VectorCanvas.DrawAvatar]（CSS cover 语义）
+//   - 圆角进度条 [VectorCanvas.DrawProgressBar]
+//
+// 创建：[NewVectorCanvas]（任意尺寸）或 [NewVectorCard]（黄金比例卡片）。
+// 输出：[VectorCanvas.ToPNG] / [VectorCanvas.ToJPEG] / [VectorCanvas.SavePNG] / [VectorCanvas.SaveJPEG]。
+//
+// 两种画布可以联合使用：先用 VectorCanvas 绘制矢量背景，
+// 再通过 Canvas.AddImageBytes 将其作为背景图传入块布局。
+//
 // # 系统字体辅助函数
 //
 // [SystemCJKFontPath] 返回当前操作系统上找到的最佳 CJK 字体路径。

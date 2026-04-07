@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ─── helpers ──────────────────────────────────────────────────────────────────
+// ─── 测试辅助函数 ──────────────────────────────────────────────────────────────
 
+// solidFrame 创建指定尺寸和颜色的纯色图片，用于测试帧。
 func solidFrame(w, h int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := range h {
@@ -23,23 +24,22 @@ func solidFrame(w, h int, c color.Color) image.Image {
 	return img
 }
 
-// decodeGIF is a test helper that parses the raw bytes and returns the decoded
-// *gif.GIF so tests can inspect frame count, delays, and loop count.
+// decodeGIF 解析 GIF 字节并返回 *gif.GIF，用于断言编码结果。
 func decodeGIF(t *testing.T, data []byte) *stdgif.GIF {
 	t.Helper()
 	g, err := stdgif.DecodeAll(bytes.NewReader(data))
-	require.NoError(t, err, "DecodeAll should succeed on valid GIF bytes")
+	require.NoError(t, err, "DecodeAll 应能解析合法 GIF 字节")
 	return g
 }
 
-// ─── New / options ────────────────────────────────────────────────────────────
+// ─── New / 选项 ────────────────────────────────────────────────────────────────
 
 func TestNew_Defaults(t *testing.T) {
 	enc := New()
-	assert.Equal(t, 0, enc.Len(), "no frames at creation")
-	assert.True(t, enc.dithering, "dithering enabled by default")
-	assert.Equal(t, 0, enc.loopCount, "loop forever by default")
-	assert.NotEmpty(t, enc.palette, "default palette must be non-empty")
+	assert.Equal(t, 0, enc.Len(), "初始帧数为 0")
+	assert.True(t, enc.dithering, "默认启用抖动")
+	assert.Equal(t, 0, enc.loopCount, "默认无限循环")
+	assert.NotEmpty(t, enc.palette, "默认调色板不为空")
 }
 
 func TestWithLoopCount(t *testing.T) {
@@ -95,7 +95,7 @@ func TestReset(t *testing.T) {
 
 	enc.Reset()
 	assert.Equal(t, 0, enc.Len())
-	// Settings should be preserved.
+	// 配置项应保持不变
 	assert.True(t, enc.dithering)
 	assert.Equal(t, 0, enc.loopCount)
 }
@@ -105,7 +105,7 @@ func TestReset(t *testing.T) {
 func TestBytes_EmptyReturnsError(t *testing.T) {
 	enc := New()
 	_, err := enc.Bytes()
-	assert.Error(t, err, "Bytes() on empty encoder must return an error")
+	assert.Error(t, err, "空编码器调用 Bytes() 应返回错误")
 }
 
 func TestBytes_SingleFrame(t *testing.T) {
@@ -114,8 +114,8 @@ func TestBytes_SingleFrame(t *testing.T) {
 
 	data, err := enc.Bytes()
 	require.NoError(t, err)
-	// GIF header "GIF89a"
 	require.GreaterOrEqual(t, len(data), 6)
+	// GIF 文件头：GIF89a
 	assert.Equal(t, "GIF89a", string(data[:6]))
 }
 
@@ -137,23 +137,23 @@ func TestBytes_MultiFrameDecodeRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 
 	g := decodeGIF(t, data)
-	assert.Len(t, g.Image, 3, "should have 3 frames")
+	assert.Len(t, g.Image, 3, "应有 3 帧")
 	assert.Equal(t, 3, g.LoopCount)
 
-	// GIF delay units are 100ths of a second; delayMs / 10 (min 1).
-	assert.Equal(t, 5, g.Delay[0], "50 ms → 5 units")
-	assert.Equal(t, 10, g.Delay[1], "100 ms → 10 units")
-	assert.Equal(t, 20, g.Delay[2], "200 ms → 20 units")
+	// GIF 延迟单位为 1/100 秒：delayMs / 10
+	assert.Equal(t, 5, g.Delay[0], "50ms → 5 单位")
+	assert.Equal(t, 10, g.Delay[1], "100ms → 10 单位")
+	assert.Equal(t, 20, g.Delay[2], "200ms → 20 单位")
 }
 
 func TestDelayFloor(t *testing.T) {
 	enc := New()
-	// Delay of 1 ms → rounded down to 0 units → clamped to 1 unit.
+	// 1ms 取整后为 0 单位，应截断至最小值 1
 	require.NoError(t, enc.AddFrame(solidFrame(4, 4, color.Black), 1))
 	assert.Equal(t, 1, enc.delays[0])
 }
 
-// ─── Dithering on/off ─────────────────────────────────────────────────────────
+// ─── 抖动开关 ─────────────────────────────────────────────────────────────────
 
 func TestDithering_DoesNotPanic(t *testing.T) {
 	img := solidFrame(64, 64, color.RGBA{R: 128, G: 64, B: 200, A: 255})
@@ -169,7 +169,7 @@ func TestDithering_DoesNotPanic(t *testing.T) {
 
 func TestDefaultPalette_Length(t *testing.T) {
 	p := defaultPalette()
-	assert.Equal(t, 256, len(p), "default palette must have 256 entries")
+	assert.Equal(t, 256, len(p), "默认调色板应有 256 个颜色条目")
 }
 
 func TestDefaultPalette_ContainsBlackAndWhite(t *testing.T) {
@@ -184,6 +184,6 @@ func TestDefaultPalette_ContainsBlackAndWhite(t *testing.T) {
 			hasWhite = true
 		}
 	}
-	assert.True(t, hasBlack, "palette should contain black")
-	assert.True(t, hasWhite, "palette should contain white")
+	assert.True(t, hasBlack, "调色板应包含黑色")
+	assert.True(t, hasWhite, "调色板应包含白色")
 }

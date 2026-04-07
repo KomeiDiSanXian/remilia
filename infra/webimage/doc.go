@@ -1,17 +1,15 @@
-// Package webimage provides HTML-to-image rendering through an injectable
-// [Renderer] interface.
+// Package webimage 通过可注入的 [Renderer] 接口提供 HTML→图片渲染能力。
 //
-// Because full HTML rendering requires a headless Chromium binary – a heavy
-// deployment dependency – this package deliberately keeps the core module
-// free of any browser driver.  You inject a concrete implementation at
-// construction time via [WithRenderer]:
+// 由于完整的 HTML 渲染需要无头 Chromium 二进制——这是一项较重的部署依赖——
+// 本包的核心模块刻意不引入任何浏览器驱动。
+// 调用方在构建 [Client] 时通过 [WithRenderer] 注入具体的渲染实现：
 //
 //	client := webimage.New(webimage.WithRenderer(myRenderer))
-//	png, err := client.Render(ctx, "<h1>Hello</h1>")
+//	png, err := client.Render(ctx, "<h1>你好</h1>")
 //
-// # Providing a renderer
+// # 注入渲染器
 //
-// The simplest way to adapt an existing function is [RendererFunc]:
+// 使用 [RendererFunc] 可以将普通函数直接适配为渲染器，无需定义具名类型：
 //
 //	import "github.com/chromedp/chromedp"
 //
@@ -44,18 +42,15 @@
 //
 //	client := webimage.New(webimage.WithRenderer(renderer))
 //
-// # Per-call options
-//
-// Width, height, and output quality can be adjusted on individual calls:
+// # 单次调用覆盖选项
 //
 //	png, err := client.Render(ctx, html,
 //	    webimage.WithWidth(1920),
 //	    webimage.WithHeight(1080),
 //	)
 //
-// # Error without renderer
+// # 无渲染器时的行为
 //
-// If no renderer is injected, every render call returns [ErrNoRenderer].
-// This makes it safe to create a default-value [Client] in configuration
-// structs without requiring a non-nil renderer at startup time.
+// 若未注入渲染器，每次调用均返回 [ErrNoRenderer]。
+// 这使得在配置结构体中持有默认值 [Client] 是安全的，无需在启动时强制要求非空渲染器。
 package webimage

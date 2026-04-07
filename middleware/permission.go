@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"fmt"
+	"slices"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
@@ -32,10 +33,8 @@ func RequireRole(role string) eventctx.Middleware {
 				return nil
 			}
 			userID := ctx.GetSenderInfo().ID
-			for _, r := range pm.GetUserRoles(userID) {
-				if r == role {
-					return next(ctx)
-				}
+			if slices.Contains(pm.GetUserRoles(userID), role) {
+				return next(ctx)
 			}
 			logger.Debugf("[Permission] User %q missing role %q", userID, role)
 			_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 权限不足，需要角色：%s", role)))
