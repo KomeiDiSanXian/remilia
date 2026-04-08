@@ -57,6 +57,7 @@ package pluginctrl
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -687,12 +688,7 @@ func (p *Plugin) isInfraPlugin(name string) bool {
 	if defaultInfraPlugins[name] {
 		return true
 	}
-	for _, excluded := range p.opts.excludedPlugins {
-		if excluded == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.opts.excludedPlugins, name)
 }
 
 // combinedGuard 返回引擎分组级访问管控中间件，按顺序检查：

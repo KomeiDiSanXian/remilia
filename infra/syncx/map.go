@@ -5,7 +5,10 @@
 //   - [Lazy]：基于 sync.Once 的泛型懒初始化容器。
 package syncx
 
-import "sync"
+import (
+	"maps"
+	"sync"
+)
 
 // Map 是基于 sync.RWMutex 的泛型并发映射。
 //
@@ -112,9 +115,7 @@ func (m *Map[K, V]) Clear() {
 func (m *Map[K, V]) Range(fn func(key K, val V) bool) {
 	m.mu.RLock()
 	snapshot := make(map[K]V, len(m.m))
-	for k, v := range m.m {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, m.m)
 	m.mu.RUnlock()
 
 	for k, v := range snapshot {

@@ -12,7 +12,7 @@ func TestLazy_Get(t *testing.T) {
 		return 42
 	})
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		v := l.Get()
 		if v != 42 {
 			t.Fatalf("expected 42, got %d", v)
@@ -39,7 +39,7 @@ func TestLazy_Concurrent(t *testing.T) {
 	wg.Add(goroutines)
 	results := make([]int, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(idx int) {
 			defer wg.Done()
 			results[idx] = l.Get()

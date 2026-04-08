@@ -143,7 +143,7 @@ func TestMap_Range(t *testing.T) {
 
 func TestMap_RangeEarlyExit(t *testing.T) {
 	var m Map[int, int]
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		m.Store(i, i)
 	}
 
@@ -222,10 +222,10 @@ func TestMap_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < ops; j++ {
+			for j := range ops {
 				key := j % 10
 				m.Store(key, id*ops+j)
 				m.Load(key)
