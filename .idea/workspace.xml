@@ -4,19 +4,23 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(tests, map): simplify loop constructs and enhance readability using range expressions">
-      <change afterPath="$PROJECT_DIR$/examples/milky-bot/main.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/adapter.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/api.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/client.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/config.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/event.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/extra.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/result.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/sender.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/types.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic">
+      <change afterPath="$PROJECT_DIR$/platform/satori/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/adapter.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/adapter_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/client.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/config.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/config_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/event.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/event_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/message_element.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/message_element_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/sender.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/types.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/webhook.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/webhook_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/satori/ws.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -275,8 +279,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(coredump): implement core dump generation and platform-specific diagnostics" />
-    <MESSAGE value="refactor: standardize error handling and rename types for clarity" />
     <MESSAGE value="fix(tests): rename error channel for clarity and consistency" />
     <MESSAGE value="refactor: replace for loops with range for improved readability" />
     <MESSAGE value="refactor: streamline goroutine management in SetupContext for improved clarity" />
@@ -300,7 +302,9 @@
     <MESSAGE value="test(vevent): add unit tests for event injection functionality" />
     <MESSAGE value="refactor(antispam, cooldown, health): replace sync.RWMutex with syncx.Map for improved concurrency" />
     <MESSAGE value="optimize(tests, map): simplify loop constructs and enhance readability using range expressions" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(tests, map): simplify loop constructs and enhance readability using range expressions" />
+    <MESSAGE value="feat(milky): implement Milky QQ protocol adapter with HTTP API and WebSocket support" />
+    <MESSAGE value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
+    <option name="LAST_COMMIT_MESSAGE" value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
