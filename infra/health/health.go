@@ -3,10 +3,11 @@ package health
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 )
 
 // Status 表示整体健康状态。
@@ -81,8 +82,7 @@ type CheckResult struct {
 
 // Check 管理多个检查器并提供 HTTP 处理器。
 type Check struct {
-	checkers map[string]Checker
-	mu       sync.RWMutex
+	checkers syncx.Map[string, Checker]
 	// timeout 应用于每个检查器。
 	timeout time.Duration
 
@@ -98,7 +98,6 @@ const DefaultCacheTTL = time.Second
 
 func NewCheck() *Check {
 	return &Check{
-		checkers: make(map[string]Checker),
 		timeout:  5 * time.Second,
 		cacheTTL: DefaultCacheTTL,
 	}
@@ -119,15 +118,11 @@ func (h *Check) SetCacheTTL(ttl time.Duration) *Check {
 }
 
 func (h *Check) AddChecker(checker Checker) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.checkers[checker.Name()] = checker
+	h.checkers.Store(checker.Name(), checker)
 }
 
 func (h *Check) RemoveChecker(name string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	delete(h.checkers, name)
+	h.checkers.Delete(name)
 }
 
 type CheckResponse struct {
@@ -148,10 +143,11 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 		return *cached
 	}
 
-	h.mu.RLock()
-	checkers := make(map[string]Checker, len(h.checkers))
-	maps.Copy(checkers, h.checkers)
-	h.mu.RUnlock()
+	checkers := make(map[string]Checker, h.checkers.Len())
+	h.checkers.Range(func(name string, c Checker) bool {
+		checkers[name] = c
+		return true
+	})
 
 	results := make(map[string]CheckResult)
 	overallLevel := HealthyLevel

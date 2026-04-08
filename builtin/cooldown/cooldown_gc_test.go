@@ -13,12 +13,10 @@ func TestCooldown_GC_AutoCleanup(t *testing.T) {
 	p := NewPlugin()
 
 	// 手动添加 100 条过期记录（使用唯一 key 避免覆盖）
-	p.mu.Lock()
 	for i := range 100 {
 		key := fmt.Sprintf("user%d:cmd", i)
-		p.records[key] = &entry{lastUsed: time.Now().Add(-48 * time.Hour)} // 已过期 48h
+		p.records.Store(key, &entry{lastUsed: time.Now().Add(-48 * time.Hour)}) // 已过期 48h
 	}
-	p.mu.Unlock()
 
 	if count := p.ActiveCount(); count != 100 {
 		t.Fatalf("expected 100 records before GC, got %d", count)
@@ -42,20 +40,18 @@ func TestCooldown_GC_KeepsActive(t *testing.T) {
 	p := NewPlugin()
 
 	// 添加活跃记录（刚使用）
-	p.mu.Lock()
-	p.records["active:cmd"] = &entry{lastUsed: time.Now()}
+	p.records.Store("active:cmd", &entry{lastUsed: time.Now()})
 	// 添加过期记录
-	p.records["expired:cmd"] = &entry{lastUsed: time.Now().Add(-48 * time.Hour)}
-	p.mu.Unlock()
+	p.records.Store("expired:cmd", &entry{lastUsed: time.Now().Add(-48 * time.Hour)})
 
 	removed := p.CleanExpired(maxEntryAge)
 	if removed != 1 {
 		t.Fatalf("expected 1 removed, got %d", removed)
 	}
-	if _, exists := p.records["active:cmd"]; !exists {
+	if !p.records.Has("active:cmd") {
 		t.Fatal("active record should not be removed by GC")
 	}
-	if _, exists := p.records["expired:cmd"]; exists {
+	if p.records.Has("expired:cmd") {
 		t.Fatal("expired record should have been removed by GC")
 	}
 }

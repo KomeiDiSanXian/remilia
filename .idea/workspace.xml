@@ -4,20 +4,35 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(pluginctrl): implement group silence and user ban functionalities">
-      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/autowire_lifecycle_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_autowire_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/engine/reset_group_middleware_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test(pluginctrl): add integration tests for autoWireListener behavior">
+      <change afterPath="$PROJECT_DIR$/builtin/job/doc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/job/job.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/job/plugin.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/job/plugin_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/vevent/vevent.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/vevent/vevent_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/syncx/lazy.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/syncx/lazy_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/syncx/map.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/syncx/map_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/cjk.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/doc.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/fuzzy.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/normalize.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/t2s.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/infra/zhtext/zhtext_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/synthetic.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/options.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager_writer.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_writer.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/antispam/antispam.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/antispam/antispam.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/cooldown/cooldown_gc_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.sum" beforeDir="false" afterPath="$PROJECT_DIR$/go.sum" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/canvas/canvas.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/canvas/canvas_test.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/canvas/doc.go" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/health/health_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/health/health_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -276,7 +291,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test(bench): add benchmark tests for textimage package performance" />
     <MESSAGE value="chore: update comments to Chinese for better localization" />
     <MESSAGE value="feat(textimage): add background image support with various fit modes and text backdrop options" />
     <MESSAGE value="feat(help): implement image rendering for help responses with text fallback option" />
@@ -301,7 +315,8 @@
     <MESSAGE value="optimize(gif, vector): simplify frame delay and diameter calculations" />
     <MESSAGE value="docs: rename report files for improved clarity and accessibility" />
     <MESSAGE value="feat(pluginctrl): implement group silence and user ban functionalities" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(pluginctrl): implement group silence and user ban functionalities" />
+    <MESSAGE value="test(pluginctrl): add integration tests for autoWireListener behavior" />
+    <option name="LAST_COMMIT_MESSAGE" value="test(pluginctrl): add integration tests for autoWireListener behavior" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

@@ -20,7 +20,6 @@
 package antispam
 
 import (
-	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -29,6 +28,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -75,8 +75,7 @@ type Plugin struct {
 	cfg      Config
 	userRL   *lru.Cache[string, *rate.Limiter]
 	groupRL  *lru.Cache[string, *rate.Limiter]
-	banList  map[string]banEntry
-	banMu    sync.RWMutex
+	banList  syncx.Map[string, banEntry]
 	dataFile string // 持久化文件路径（空字符串=纯内存）
 }
 
@@ -102,7 +101,6 @@ func NewPlugin(cfg Config, opts ...Option) *Plugin {
 		cfg:     cfg,
 		userRL:  userCache,
 		groupRL: groupCache,
-		banList: make(map[string]banEntry),
 	}
 	for _, o := range opts {
 		o(p)
@@ -148,8 +146,6 @@ func (p *Plugin) loadBanList() {
 	if err != nil {
 		return
 	}
-	p.banMu.Lock()
-	defer p.banMu.Unlock()
 	now := time.Now()
 	for id, e := range entries {
 		var until time.Time
@@ -159,9 +155,9 @@ func (p *Plugin) loadBanList() {
 				continue
 			}
 		}
-		p.banList[id] = banEntry{until: until}
+		p.banList.Store(id, banEntry{until: until})
 	}
-	logger.Infof("[AntiSpam] Loaded %d ban entries", len(p.banList))
+	logger.Infof("[AntiSpam] Loaded %d ban entries", p.banList.Len())
 }
 
 // saveBanList 将封禁名单保存到 JSON 文件
@@ -169,16 +165,15 @@ func (p *Plugin) saveBanList() {
 	if p.dataFile == "" {
 		return
 	}
-	p.banMu.RLock()
-	entries := make(map[string]banEntryJSON, len(p.banList))
+	entries := make(map[string]banEntryJSON, p.banList.Len())
 	now := time.Now()
-	for id, e := range p.banList {
+	p.banList.Range(func(id string, e banEntry) bool {
 		if !e.until.IsZero() && e.until.Before(now) {
-			continue
+			return true
 		}
 		entries[id] = banEntryJSON{Until: e.until.UnixNano()}
-	}
-	p.banMu.RUnlock()
+		return true
+	})
 
 	if err := jsonfile.Write(p.dataFile, entries); err != nil {
 		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
@@ -203,33 +198,32 @@ type Stats struct {
 
 // ListBans 返回所有当前有效的封禁记录（过期的自动跳过）
 func (p *Plugin) ListBans() []BanEntry {
-	p.banMu.Lock()
-	defer p.banMu.Unlock()
-
 	now := time.Now()
-	result := make([]BanEntry, 0, len(p.banList))
-	for userID, e := range p.banList {
+	var result []BanEntry
+	var expired []string
+
+	p.banList.Range(func(userID string, e banEntry) bool {
 		if !e.until.IsZero() && e.until.Before(now) {
-			delete(p.banList, userID) // 顺手清理过期的
-			continue
+			expired = append(expired, userID) // 收集过期记录，稍后清理
+			return true
 		}
 		result = append(result, BanEntry{
 			UserID:    userID,
 			Until:     e.until,
 			Permanent: e.until.IsZero(),
 		})
+		return true
+	})
+	for _, id := range expired {
+		p.banList.Delete(id)
 	}
 	return result
 }
 
 // Stats 返回限流统计摘要
 func (p *Plugin) Stats() Stats {
-	p.banMu.RLock()
-	banCount := len(p.banList)
-	p.banMu.RUnlock()
-
 	return Stats{
-		BanCount:          banCount,
+		BanCount:          p.banList.Len(),
 		UserLimiterCount:  p.userRL.Len(),
 		GroupLimiterCount: p.groupRL.Len(),
 	}
@@ -335,39 +329,36 @@ func (p *Plugin) GroupRule(getGroupID func(*eventctx.Context) string) eventctx.R
 
 // Ban 封禁用户，duration=0 表示永久
 func (p *Plugin) Ban(userID string, duration time.Duration) {
-	p.banMu.Lock()
 	var until time.Time
 	if duration > 0 {
 		until = time.Now().Add(duration)
 	}
-	p.banList[userID] = banEntry{until: until}
-	p.banMu.Unlock()
+	p.banList.Store(userID, banEntry{until: until})
 	logger.Infof("[AntiSpam] Banned user %s until %v", userID, until)
 	go p.saveBanList() // 异步持久化
 }
 
 // Unban 解封用户
 func (p *Plugin) Unban(userID string) {
-	p.banMu.Lock()
-	delete(p.banList, userID)
-	p.banMu.Unlock()
+	p.banList.Delete(userID)
 	logger.Infof("[AntiSpam] Unbanned user %s", userID)
 	go p.saveBanList() // 异步持久化
 }
 
 // IsBanned 检查用户是否被封禁（自动清理过期封禁）
 func (p *Plugin) IsBanned(userID string) bool {
-	p.banMu.Lock()
-	defer p.banMu.Unlock()
-	entry, ok := p.banList[userID]
-	if !ok {
-		return false
-	}
-	if !entry.until.IsZero() && time.Now().After(entry.until) {
-		delete(p.banList, userID)
-		return false
-	}
-	return true
+	var banned bool
+	p.banList.Compute(userID, func(e banEntry, exists bool) (banEntry, bool) {
+		if !exists {
+			return e, false // key 不存在，Compute 中 delete 是空操作
+		}
+		if !e.until.IsZero() && time.Now().After(e.until) {
+			return e, false // 已过期，删除并返回未封禁
+		}
+		banned = true
+		return e, true // 有效封禁，保留
+	})
+	return banned
 }
 
 func (p *Plugin) getUserLimiter(userID string) *rate.Limiter {

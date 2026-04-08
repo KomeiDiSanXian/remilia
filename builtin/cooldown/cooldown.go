@@ -24,11 +24,11 @@ package cooldown
 import (
 	stdctx "context"
 	"fmt"
-	"sync"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -48,15 +48,12 @@ type entry struct {
 
 // Plugin 冷却时间插件 API
 type Plugin struct {
-	mu      sync.RWMutex
-	records map[string]*entry // key: "userID:command"
+	records syncx.Map[string, *entry] // key: "userID:command"
 }
 
 // NewPlugin 创建 Plugin 实例
 func NewPlugin() *Plugin {
-	return &Plugin{
-		records: make(map[string]*entry),
-	}
+	return &Plugin{}
 }
 
 // New 创建冷却时间插件描述符（便捷入口）。
@@ -110,33 +107,28 @@ func cdKey(userID, command string) string {
 }
 
 // Allow 检查用户是否允许执行命令（冷却时间已到则重置计时并返回 true）
-func (p *Plugin) Allow(userID, command string, cooldown time.Duration) bool {
+func (p *Plugin) Allow(userID, command string, cooldownDur time.Duration) bool {
 	key := cdKey(userID, command)
 	now := time.Now()
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	e, exists := p.records[key]
-	if !exists || now.Sub(e.lastUsed) >= cooldown {
-		p.records[key] = &entry{lastUsed: now}
-		return true
-	}
-	return false
+	var allowed bool
+	p.records.Compute(key, func(e *entry, exists bool) (*entry, bool) {
+		if !exists || now.Sub(e.lastUsed) >= cooldownDur {
+			allowed = true
+			return &entry{lastUsed: now}, true
+		}
+		return e, true
+	})
+	return allowed
 }
 
 // Remaining 返回还需等待的时间（如果冷却已过则返回 0）
-func (p *Plugin) Remaining(userID, command string, cooldown time.Duration) time.Duration {
+func (p *Plugin) Remaining(userID, command string, cooldownDur time.Duration) time.Duration {
 	key := cdKey(userID, command)
-
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	e, exists := p.records[key]
+	e, exists := p.records.Load(key)
 	if !exists {
 		return 0
 	}
-	remaining := cooldown - time.Since(e.lastUsed)
+	remaining := cooldownDur - time.Since(e.lastUsed)
 	if remaining < 0 {
 		return 0
 	}
@@ -145,10 +137,7 @@ func (p *Plugin) Remaining(userID, command string, cooldown time.Duration) time.
 
 // Reset 重置用户对某命令的冷却时间
 func (p *Plugin) Reset(userID, command string) {
-	key := cdKey(userID, command)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	delete(p.records, key)
+	p.records.Delete(cdKey(userID, command))
 }
 
 // Middleware 返回可用于 engine.OnXxx().Use() 的冷却时间中间件
@@ -306,18 +295,18 @@ func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
 
 // CleanExpired 清理已过期的冷却记录（减少内存占用）
 func (p *Plugin) CleanExpired(maxAge time.Duration) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	threshold := time.Now().Add(-maxAge)
-	count := 0
-	for key, e := range p.records {
+	var toDelete []string
+	p.records.Range(func(key string, e *entry) bool {
 		if e.lastUsed.Before(threshold) {
-			delete(p.records, key)
-			count++
+			toDelete = append(toDelete, key)
 		}
+		return true
+	})
+	for _, k := range toDelete {
+		p.records.Delete(k)
 	}
-	return count
+	return len(toDelete)
 }
 
 // Record 单条冷却记录（供查询使用）
@@ -329,24 +318,20 @@ type Record struct {
 // QueryUser 返回指定用户的所有冷却记录
 func (p *Plugin) QueryUser(userID string) []Record {
 	prefix := userID + ":"
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	result := make([]Record, 0)
-	for key, e := range p.records {
+	var result []Record
+	p.records.Range(func(key string, e *entry) bool {
 		if len(key) > len(prefix) && key[:len(prefix)] == prefix {
 			result = append(result, Record{
 				Command:  key[len(prefix):],
 				LastUsed: e.lastUsed,
 			})
 		}
-	}
+		return true
+	})
 	return result
 }
 
 // ActiveCount 返回当前活跃冷却记录总数
 func (p *Plugin) ActiveCount() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return len(p.records)
+	return p.records.Len()
 }

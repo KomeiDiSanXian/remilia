@@ -41,7 +41,7 @@ func (m *mockChecker) Check(ctx context.Context) CheckResult {
 func TestNewCheck(t *testing.T) {
 	check := NewCheck()
 	require.NotNil(t, check)
-	assert.NotNil(t, check.checkers)
+	assert.Equal(t, 0, check.checkers.Len()) // 零值 syncx.Map 视为空
 	assert.Equal(t, 5*time.Second, check.timeout)
 }
 
@@ -62,14 +62,14 @@ func TestCheck_AddChecker(t *testing.T) {
 	checker2 := &mockChecker{name: "test2", result: CheckResult{Status: Healthy}}
 
 	check.AddChecker(checker1)
-	assert.Len(t, check.checkers, 1)
+	assert.Equal(t, 1, check.checkers.Len())
 
 	check.AddChecker(checker2)
-	assert.Len(t, check.checkers, 2)
+	assert.Equal(t, 2, check.checkers.Len())
 
 	// 验证检查器存在
-	assert.Contains(t, check.checkers, "test1")
-	assert.Contains(t, check.checkers, "test2")
+	assert.True(t, check.checkers.Has("test1"))
+	assert.True(t, check.checkers.Has("test2"))
 }
 
 // TestCheck_RemoveChecker 测试移除检查器
@@ -81,16 +81,16 @@ func TestCheck_RemoveChecker(t *testing.T) {
 
 	check.AddChecker(checker1)
 	check.AddChecker(checker2)
-	assert.Len(t, check.checkers, 2)
+	assert.Equal(t, 2, check.checkers.Len())
 
 	check.RemoveChecker("test1")
-	assert.Len(t, check.checkers, 1)
-	assert.NotContains(t, check.checkers, "test1")
-	assert.Contains(t, check.checkers, "test2")
+	assert.Equal(t, 1, check.checkers.Len())
+	assert.False(t, check.checkers.Has("test1"))
+	assert.True(t, check.checkers.Has("test2"))
 
 	// 移除不存在的检查器不应该出错
 	check.RemoveChecker("nonexistent")
-	assert.Len(t, check.checkers, 1)
+	assert.Equal(t, 1, check.checkers.Len())
 }
 
 // TestCheck_Check_AllHealthy 测试所有检查器都健康
@@ -498,7 +498,7 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 	}
 
 	// 验证最终状态
-	assert.LessOrEqual(t, len(check.checkers), 10)
+	assert.LessOrEqual(t, check.checkers.Len(), 10)
 }
 
 // BenchmarkCheck_Check 基准测试健康检查
