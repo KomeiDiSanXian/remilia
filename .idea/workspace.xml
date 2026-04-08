@@ -4,23 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic">
-      <change afterPath="$PROJECT_DIR$/platform/satori/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/adapter.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/adapter_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/client.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/config.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/config_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/event.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/event_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/message_element.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/message_element_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/sender.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/types.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/webhook.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/webhook_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/satori/ws.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -171,6 +157,17 @@
         <option value="GoApplicationRunConfiguration" />
       </set>
     </option>
+    <option name="configurationStatuses">
+      <map>
+        <entry key="GoApplicationRunConfiguration">
+          <value>
+            <map>
+              <entry key="go build github.com/KomeiDiSanXian/remilia/examples/showcase" value="STOPPED" />
+            </map>
+          </value>
+        </entry>
+      </map>
+    </option>
   </component>
   <component name="RunManager" selected="Go 构建.go build github.com/KomeiDiSanXian/remilia/examples/showcase">
     <configuration name="go build github.com/KomeiDiSanXian/remilia/examples/debug-subcommand-demo" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
@@ -279,7 +276,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(tests): rename error channel for clarity and consistency" />
     <MESSAGE value="refactor: replace for loops with range for improved readability" />
     <MESSAGE value="refactor: streamline goroutine management in SetupContext for improved clarity" />
     <MESSAGE value="refactor: replace storage.Client with storage.Store for improved consistency and type safety" />
@@ -304,7 +300,8 @@
     <MESSAGE value="optimize(tests, map): simplify loop constructs and enhance readability using range expressions" />
     <MESSAGE value="feat(milky): implement Milky QQ protocol adapter with HTTP API and WebSocket support" />
     <MESSAGE value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
+    <MESSAGE value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>
