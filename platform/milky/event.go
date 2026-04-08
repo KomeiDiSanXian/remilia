@@ -35,8 +35,8 @@ func encodeChatID(scene string, peerID int64) string {
 // decodeChatID 解析由 encodeChatID 生成的 chatID。
 // 返回 (scene, peerID, ok)，若格式无法识别则 ok=false。
 func decodeChatID(chatID string) (scene string, peerID int64, ok bool) {
-	idx := strings.Index(chatID, ":")
-	if idx < 0 {
+	before, after, ok0 := strings.Cut(chatID, ":")
+	if !ok0 {
 		// 旧格式 / 纯数字——视为未知 scene
 		n, err := strconv.ParseInt(chatID, 10, 64)
 		if err != nil {
@@ -44,11 +44,11 @@ func decodeChatID(chatID string) (scene string, peerID int64, ok bool) {
 		}
 		return "", n, true
 	}
-	n, err := strconv.ParseInt(chatID[idx+1:], 10, 64)
+	n, err := strconv.ParseInt(after, 10, 64)
 	if err != nil {
 		return "", 0, false
 	}
-	return chatID[:idx], n, true
+	return before, n, true
 }
 
 // ────────────────────────────────────────────────────────────────────────────

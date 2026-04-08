@@ -164,19 +164,15 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 
 	var wg sync.WaitGroup
 	for i := 0; i < a.workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for evt := range workCh {
 				safeInvoke(handler, evt)
 			}
-		}()
+		})
 	}
 
 	// 分发器：eventCh → workCh
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer close(workCh)
 		for {
 			select {
@@ -193,7 +189,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 				return
 			}
 		}
-	}()
+	})
 
 	// WebSocket 事件循环（含重连逻辑）
 	err := a.eventLoop(cancelCtx, eventCh)
