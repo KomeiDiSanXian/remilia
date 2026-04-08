@@ -41,6 +41,9 @@ type options struct {
 
 	// 服务列表图像渲染器（可选；nil 时降级为文本输出）
 	serviceListRenderer ServiceListRenderer
+
+	// excludedPlugins 跳过自动注入 combinedGuard 的插件名列表（追加到内置豁免列表）
+	excludedPlugins []string
 }
 
 func defaultOptions() *options {
@@ -180,4 +183,18 @@ func WithFlipDefaultCommand(cmd string) Option {
 //	})
 func WithServiceListRenderer(r ServiceListRenderer) Option {
 	return func(o *options) { o.serviceListRenderer = r }
+}
+
+// WithExcludedPlugins 追加不需要自动注入 combinedGuard 的插件名。
+//
+// pluginctrl 内置了一组基础设施插件豁免列表（storage、cooldown 等），
+// 此选项用于追加额外的豁免项（如自定义基础设施插件）。
+//
+//	pluginctrl.New(
+//	    pluginctrl.WithExcludedPlugins("my-infra-plugin", "another-core"),
+//	)
+func WithExcludedPlugins(names ...string) Option {
+	return func(o *options) {
+		o.excludedPlugins = append(o.excludedPlugins, names...)
+	}
 }

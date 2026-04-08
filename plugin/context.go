@@ -4,8 +4,20 @@ import (
 	stdctx "context"
 	"fmt"
 
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 )
+
+// engineMWRegistrar 是可选的引擎中间件注册接口。
+// *engine.Engine 实现此接口，允许 Privileged 插件向引擎注册/清除全局/分组中间件。
+// 使用接口而非具体类型，避免 plugin 包与 engine 包的紧耦合，且对 mock 友好。
+type engineMWRegistrar interface {
+	Use(mw ...corectx.Middleware) *engine.Engine
+	UseForGroup(groupName string, mw ...corectx.Middleware) *engine.Engine
+	// ResetGroupMiddleware 清除指定分组的中间件链。
+	// 配合 UseForGroup 实现幂等写：先 Reset 再 UseForGroup，防止重复追加。
+	ResetGroupMiddleware(groupName string) *engine.Engine
+}
 
 // context.go — Setup/Teardown 上下文及类型安全依赖获取
 
@@ -86,6 +98,74 @@ type SetupContext struct {
 func (ctx *SetupContext) ExportAs(name string, api any) {
 	if ctx.container != nil {
 		ctx.container.Register(name, api)
+	}
+}
+
+// UseEngineGlobal 为所有 Matcher 注册全局中间件（跨插件生效）。
+//
+// 仅供声明了 Privileged: true 的插件使用，用于注册跨切面守卫
+// （如全局封禁检查、群静默检查）。DryRun 阶段自动为 no-op。
+//
+// 注意：全局中间件对每个 Matcher 均生效，包括基础设施插件的 Matcher。
+// 若只需对特定插件生效，请使用 UseEngineForGroup。
+func (ctx *SetupContext) UseEngineGlobal(mw ...corectx.Middleware) {
+	if ctx.DryRun || ctx.eng == nil || len(mw) == 0 {
+		return
+	}
+	if e, ok := ctx.eng.(engineMWRegistrar); ok {
+		e.Use(mw...)
+	}
+}
+
+// UseEngineForGroup 为指定分组（即某个插件名）的所有 Matcher 注册中间件。
+//
+// 仅供声明了 Privileged: true 的插件使用，用于自动注入 per-plugin 访问管控守卫。
+// DryRun 阶段自动为 no-op。
+//
+// group 通常为目标插件的名称，与 Descriptor.Name 一致。
+func (ctx *SetupContext) UseEngineForGroup(group string, mw ...corectx.Middleware) {
+	if ctx.DryRun || ctx.eng == nil || group == "" || len(mw) == 0 {
+		return
+	}
+	if e, ok := ctx.eng.(engineMWRegistrar); ok {
+		e.UseForGroup(group, mw...)
+	}
+}
+
+// NewGroupMiddlewareApplier 返回一个可在 Setup 完成后调用的分组中间件注册函数。
+//
+// 返回的函数封装了对 engine.UseForGroup 的调用，供 LifecycleListener 在新插件
+// 加载时自动注入分组守卫，无需在 pluginctrl 之外暴露 engine 引用。
+//
+// DryRun 或引擎不支持时返回 no-op 函数。
+func (ctx *SetupContext) NewGroupMiddlewareApplier() func(group string, mw ...corectx.Middleware) {
+	e, ok := ctx.eng.(engineMWRegistrar)
+	if !ok {
+		return func(_ string, _ ...corectx.Middleware) {} // no-op：测试/DryRun 场景
+	}
+	return func(group string, mw ...corectx.Middleware) {
+		if group != "" && len(mw) > 0 {
+			e.UseForGroup(group, mw...)
+		}
+	}
+}
+
+// NewGroupMiddlewareResetter 返回一个可在 Setup 完成后调用的分组中间件清除函数。
+//
+// 返回的函数封装了对 engine.ResetGroupMiddleware 的调用，供 LifecycleListener 使用：
+//   - OnPluginLoaded：先 Reset 再 wire，保证幂等（避免 unload+re-register 双重守卫）
+//   - OnPluginUnloaded：调用 Reset 清除 phantom 中间件条目，防止内存持续累积
+//
+// DryRun 或引擎不支持时返回 no-op 函数。
+func (ctx *SetupContext) NewGroupMiddlewareResetter() func(group string) {
+	e, ok := ctx.eng.(engineMWRegistrar)
+	if !ok {
+		return func(_ string) {} // no-op
+	}
+	return func(group string) {
+		if group != "" {
+			e.ResetGroupMiddleware(group)
+		}
 	}
 }
 

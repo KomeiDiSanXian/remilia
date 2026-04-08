@@ -12,6 +12,12 @@
 //   - 提供 Rule(pluginName) / RuleFull(pluginName) 方法，插入 engine.On() 的 Rule 列表
 //   - 提供 Middleware(pluginName) 方法，一步完成群开关 + 用户禁用 + 冷却检查
 //
+// # 自动注入模式（推荐）
+//
+// pluginctrl 作为 Privileged 插件，会在 Setup 时自动将 combinedGuard 注册为
+// 每个业务插件分组的引擎级中间件，无需业务插件手动挂载 Middleware。
+// 业务插件只需正常注册，pluginctrl 自动为其提供完整的访问管控保护。
+//
 // 指令（默认，可通过 With* 选项修改）：
 //
 //	开启 <插件名>      — 在当前群开启指定插件（群管理员）
@@ -32,19 +38,21 @@
 //	// 注册（storage 为可选依赖）
 //	pm.Register(pluginctrl.New(pluginctrl.WithSuperUsers("admin1", "admin2")))
 //
-//	// 在业务插件中注册带开关的命令（方式 A：使用 Rule，仅群开关）
-//	ctrl := plugin.Must[pluginctrl.Plugin](ctx, "pluginctrl")
-//	ctx.Reg.On(string(platform.EventKindGroupMessage), ctrl.Rule("myplugin")).
-//	    Handle(myHandler)
-//
-//	// 方式 B：使用 Middleware，自动处理群开关 + 用户禁用 + 冷却（推荐）
-//	ctrl.RegisterPolicy("myplugin", pluginctrl.PluginPolicy{
-//	    UserLimit:  10 * time.Second,
-//	    GroupLimit: 2 * time.Second,
+//	// 业务插件无需任何 pluginctrl 相关代码，自动受保护
+//	pm.Register(&plugin.Descriptor{
+//	    Name: "weather",
+//	    Setup: func(ctx *plugin.SetupContext) (any, error) {
+//	        ctx.Reg.RegisterCommand(groupEvent, "/天气").Handle(handler) // 自动受 pluginctrl 管控
+//	        return p, nil
+//	    },
 //	})
-//	ctx.Reg.On(string(platform.EventKindGroupMessage)).
-//	    Use(ctrl.Middleware("myplugin")).
-//	    Handle(myHandler)
+//
+//	// 若需要冷却控制，仍可手动使用 Middleware（与自动注入兼容）：
+//	ctrl := plugin.Must[pluginctrl.Plugin](ctx, "pluginctrl")
+//	ctrl.RegisterPolicy("weather", pluginctrl.PluginPolicy{UserLimit: 10 * time.Second})
+//	ctx.Reg.RegisterCommand(groupEvent, "/天气").
+//	    Use(ctrl.CooldownOnly("weather")).  // 只挂冷却，其他由 combinedGuard 处理
+//	    Handle(handler)
 package pluginctrl
 
 import (
@@ -119,6 +127,16 @@ type Plugin struct {
 	bannedUsers map[string]bool
 	// pluginDefaults[pluginName] = bool 运行时翻转的每插件默认状态（FlipDefault 设置）
 	pluginDefaults map[string]bool
+
+	// groupWireFn 由 Setup 阶段从 ctx.NewGroupMiddlewareApplier() 获取，
+	// 用于在 LifecycleListener 中为新加载的插件自动注入 combinedGuard。
+	// 若为 nil（纯内存/测试模式），自动注入功能不可用。
+	groupWireFn func(group string, mw ...eventctx.Middleware)
+
+	// groupResetFn 由 Setup 阶段从 ctx.NewGroupMiddlewareResetter() 获取，
+	// 用于在插件卸载/重新注册前清除分组守卫，防止重复追加。
+	// 若为 nil（纯内存/测试模式），清除操作为 no-op。
+	groupResetFn func(group string)
 
 	storage    storage.Client // 可选：持久化存储
 	superUsers map[string]bool
@@ -650,6 +668,149 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 
 // ----- New -----
 
+// defaultInfraPlugins 内置豁免列表：这些插件不会被自动注入 combinedGuard。
+// 它们是框架基础设施插件，不应受业务管控逻辑的过滤。
+var defaultInfraPlugins = map[string]bool{
+	"pluginctrl": true,
+	"storage":    true,
+	"cooldown":   true,
+	"logger":     true,
+	"metrics":    true,
+	"tracing":    true,
+	"pprof":      true,
+	"scheduler":  true,
+	"auditlog":   true,
+}
+
+// isInfraPlugin 判断指定插件是否属于基础设施插件（豁免自动注入）。
+func (p *Plugin) isInfraPlugin(name string) bool {
+	if defaultInfraPlugins[name] {
+		return true
+	}
+	for _, excluded := range p.opts.excludedPlugins {
+		if excluded == name {
+			return true
+		}
+	}
+	return false
+}
+
+// combinedGuard 返回引擎分组级访问管控中间件，按顺序检查：
+//
+//  0. 超级管理员豁免（直接放行，确保超管始终可用管理命令）
+//  1. 群静默检查（静默群：静默 drop，不发任何回复）
+//  2. 全局封禁检查（封禁用户：回复提示后 drop）
+//  3. 群级插件开关（插件关闭：回复提示后 drop）
+//  4. 用户级插件禁用（用户被禁：回复提示后 drop）
+//
+// 注意：combinedGuard 不包含冷却检查。冷却属于 per-plugin UX 功能，
+// 请通过 RegisterPolicy + Middleware（或 CooldownOnly）显式挂载。
+// 这样可避免 combinedGuard 与 Middleware 共存时冷却计时器被重复推进的问题。
+func (p *Plugin) combinedGuard(pluginName string) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			chatInfo := ctx.GetChatInfo()
+			sender := ctx.GetSenderInfo()
+
+			// 0. 超级管理员豁免：bypass 所有检查
+			if sender.ID != "" && p.IsSuperUser(sender.ID) {
+				return next(ctx)
+			}
+
+			// 1. 群静默：静默 drop（不回复，避免在静默群中产生任何噪音）
+			if chatInfo.IsGroup && p.IsGroupSilenced(chatInfo.ID) {
+				return nil
+			}
+
+			// 2. 全局封禁
+			if sender.ID != "" && p.IsBanned(sender.ID) {
+				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
+				return nil
+			}
+
+			// 3. 群级插件开关
+			if chatInfo.IsGroup && !p.IsEnabled(chatInfo.ID, pluginName) {
+				_, _ = ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
+				return nil
+			}
+
+			// 4. 用户级插件禁用
+			if sender.ID != "" && !p.IsUserEnabled(sender.ID, pluginName) {
+				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
+				return nil
+			}
+
+			return next(ctx)
+		}
+	}
+}
+
+// CooldownOnly 返回仅执行冷却检查的中间件（不含其他访问控制逻辑）。
+//
+// 适用于已开启自动注入（combinedGuard）后仍需冷却控制的插件：
+// combinedGuard 处理 silence/ban/on-off/user-disable，
+// CooldownOnly 单独处理冷却，避免与 Middleware() 共存时的双重检查问题。
+//
+// 用法：
+//
+//	ctrl.RegisterPolicy("weather", pluginctrl.PluginPolicy{UserLimit: 10 * time.Second})
+//	ctx.Reg.RegisterCommand(groupEvent, "/天气").
+//	    Use(ctrl.CooldownOnly("weather")).
+//	    Handle(handler)
+func (p *Plugin) CooldownOnly(pluginName string) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			if pol, ok := p.GetPolicy(pluginName); ok {
+				if !p.checkCooldown(ctx, pluginName, pol) {
+					return nil
+				}
+			}
+			return next(ctx)
+		}
+	}
+}
+
+// autoWireListener 实现 plugin.LifecycleListener，
+// 在每个新业务插件加载时自动将 combinedGuard 注入其引擎分组中间件。
+//
+// 生命周期语义：
+//   - OnPluginLoaded：先 Reset 再 wire，保证幂等——处理 unload 后重新注册的场景，
+//     防止 engine.UseForGroup 追加第二个守卫导致重复执行
+//   - OnPluginUnloaded：清除 groupMiddlewares 中的 phantom 条目，避免内存持续累积
+//   - OnPluginReloaded：no-op。Reload 生命周期只触发 notifyReloaded（不触发 notifyLoaded），
+//     旧守卫闭包读取的是 *Plugin 的实时状态，无需重新注入
+type autoWireListener struct {
+	p *Plugin
+}
+
+func (l *autoWireListener) OnPluginLoaded(name string) {
+	if l.p.isInfraPlugin(name) || l.p.groupWireFn == nil {
+		return
+	}
+	// Reset 先于 wire：保证幂等
+	// 场景：插件曾被显式 Unregister 后再 Register，若跳过 Reset，
+	// UseForGroup 会追加第二个 combinedGuard，导致用户收到两条"❌"回复。
+	if l.p.groupResetFn != nil {
+		l.p.groupResetFn(name)
+	}
+	l.p.groupWireFn(name, l.p.combinedGuard(name))
+	logger.Debugf("[pluginctrl] Auto-wired combinedGuard for plugin %q", name)
+}
+
+func (l *autoWireListener) OnPluginUnloaded(name string) {
+	if l.p.isInfraPlugin(name) || l.p.groupResetFn == nil {
+		return
+	}
+	// 清除 phantom 条目：插件已卸载，其 Matcher 已通过 RemoveGroup 移除，
+	// 但 engine.middlewareState.groupMiddlewares 里的条目仍然存在（minor map leak）。
+	// 此处主动清理，确保内存不随插件频繁卸载而无限累积。
+	l.p.groupResetFn(name)
+	logger.Debugf("[pluginctrl] Cleaned up combinedGuard for unloaded plugin %q", name)
+}
+
+func (l *autoWireListener) OnPluginReloaded(_ string)                 {}
+func (l *autoWireListener) OnPluginError(_ string, _ string, _ error) {}
+
 // New 创建逐群插件开关管理器的描述符。
 //
 // 示例：
@@ -666,10 +827,11 @@ func New(opts ...Option) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "pluginctrl",
 		Version:      "1.0.0",
+		Privileged:   true, // 需要 ctx.Admin（AddLifecycleListener）和 ctx 引擎中间件注册能力
 		OptionalDeps: []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
-			Description: "逐群插件开关管理，支持持久化",
+			Description: "逐群插件开关管理，支持持久化；作为 Privileged 插件自动为所有业务插件注入访问管控中间件",
 			Category:    "管理",
 			Tags:        []string{"管理", "插件", "开关", "权限"},
 			HelpText: fmt.Sprintf(`逐群插件开关管理指令：
@@ -705,7 +867,28 @@ func New(opts ...Option) *plugin.Descriptor {
 			} else {
 				ctx.Log.Warn("No storage backend found, plugin states are in-memory only (lost on restart)")
 			}
+
 			if !ctx.DryRun {
+				// ── 自动注入阶段 ──────────────────────────────────────────────
+				// 1. 捕获引擎分组中间件注入/清除函数，供 autoWireListener 使用
+				p.groupWireFn = ctx.NewGroupMiddlewareApplier()
+				p.groupResetFn = ctx.NewGroupMiddlewareResetter()
+
+				// 2. 为 pluginctrl 加载前已存在的业务插件补充 combinedGuard
+				//    先 Reset 再 wire，保证幂等（处理 pluginctrl 热重载后重新注入的情况）
+				for _, name := range ctx.Info.List() {
+					if !p.isInfraPlugin(name) {
+						p.groupResetFn(name)
+						ctx.UseEngineForGroup(name, p.combinedGuard(name))
+						ctx.Log.Debugf("Retroactively wired combinedGuard for existing plugin %q", name)
+					}
+				}
+
+				// 3. 注册生命周期监听器，为后续加载的业务插件自动注入 combinedGuard
+				ctx.Admin.AddLifecycleListener(&autoWireListener{p: p})
+				ctx.Log.Info("Auto-wire enabled: combinedGuard will be injected for all user plugins")
+
+				// ── 管理指令注册 ───────────────────────────────────────────────
 				p.registerCommands(ctx)
 			}
 			return p, nil

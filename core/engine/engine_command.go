@@ -284,6 +284,14 @@ func (e *Engine) GetCommandsByCategory() map[string][]CommandInfo {
 
 // FindCommand 查找特定命令（支持别名）。
 // name 可以含或不含 "/" 前缀。
+//
+// 搜索策略：两阶段匹配，主命令名优先于别名：
+//  1. 第一阶段：按精确主命令名匹配（Command 字段），保证已注册的主命令始终被优先返回。
+//  2. 第二阶段：按命令的 Aliases 列表匹配。
+//
+// 两阶段分离的原因：当某个命令（如 /bar）尚未注册别名路由但已在 Definition.Aliases
+// 中声明了别名时，若混合搜索，FindCommand 可能在别名注册之前就通过别名列表找到 /bar，
+// 而非真正占用该名称的 /foo，导致冲突检测误判。
 func (e *Engine) FindCommand(name string) *CommandInfo {
 	commands := e.GetAllCommands()
 
@@ -292,17 +300,22 @@ func (e *Engine) FindCommand(name string) *CommandInfo {
 		searchName = "/" + searchName
 	}
 
-	for _, cmd := range commands {
-		if cmd.Command == searchName || cmd.Command == name {
-			return &cmd
+	// 第一阶段：按主命令名精确匹配
+	for i := range commands {
+		if commands[i].Command == searchName || commands[i].Command == name {
+			return &commands[i]
 		}
-		for _, alias := range cmd.Aliases {
+	}
+
+	// 第二阶段：按别名匹配
+	for i := range commands {
+		for _, alias := range commands[i].Aliases {
 			aliasWithSlash := alias
 			if !strings.HasPrefix(alias, "/") {
 				aliasWithSlash = "/" + alias
 			}
 			if aliasWithSlash == searchName || alias == name {
-				return &cmd
+				return &commands[i]
 			}
 		}
 	}

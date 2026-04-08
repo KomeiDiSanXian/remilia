@@ -41,6 +41,13 @@ type ManagerWriter interface {
 
 	// ForceUnregister 强制注销插件（忽略 Unload 错误，适用于 Error 状态的插件）
 	ForceUnregister(name string) error
+
+	// AddLifecycleListener 注册插件生命周期监听器。
+	//
+	// 监听器将在每次插件被加载、卸载、重载或发生错误时收到通知。
+	// 主要供访问控制类插件（如 pluginctrl）使用，以便在新插件加载时
+	// 自动注入 per-plugin 守卫中间件。
+	AddLifecycleListener(listener LifecycleListener)
 }
 
 // managerWriterImpl 将 *Manager 包装为 ManagerWriter（仅暴露写操作）
@@ -51,6 +58,9 @@ func (w *managerWriterImpl) Disable(name string) error         { return w.m.Disa
 func (w *managerWriterImpl) Enable(name string) error          { return w.m.Enable(name) }
 func (w *managerWriterImpl) Unregister(name string) error      { return w.m.Unregister(name) }
 func (w *managerWriterImpl) ForceUnregister(name string) error { return w.m.ForceUnregister(name) }
+func (w *managerWriterImpl) AddLifecycleListener(listener LifecycleListener) {
+	w.m.AddListener(listener)
+}
 
 // newManagerWriter 创建 Manager 的写视图（内部使用）
 func newManagerWriter(m *Manager) ManagerWriter {

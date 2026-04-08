@@ -4,15 +4,20 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="optimize(gif, vector): simplify frame delay and diameter calculations">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(pluginctrl): implement group silence and user ban functionalities">
+      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/autowire_lifecycle_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_autowire_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/engine/reset_group_middleware_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/options.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user.go" beforeDir="false" afterPath="$PROJECT_DIR$/builtin/pluginctrl/pluginctrl_user.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/comparison-zerobot-floattech.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/comparison-zerobot-floattech.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/comparison-zerobotplugin.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/comparison-zerobotplugin.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/event.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_command.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_command.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager_writer.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_writer.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -271,8 +276,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(sender): update Send method to return SendResult and handle errors appropriately" />
-    <MESSAGE value="feat(textimage): add multi-platform support for CJK font rendering with system-specific font handling" />
     <MESSAGE value="test(bench): add benchmark tests for textimage package performance" />
     <MESSAGE value="chore: update comments to Chinese for better localization" />
     <MESSAGE value="feat(textimage): add background image support with various fit modes and text backdrop options" />
@@ -296,7 +299,9 @@
     <MESSAGE value="feat: update string conversion in tests for improved clarity and consistency" />
     <MESSAGE value="feat(vector): add VectorCanvas for advanced vector drawing capabilities" />
     <MESSAGE value="optimize(gif, vector): simplify frame delay and diameter calculations" />
-    <option name="LAST_COMMIT_MESSAGE" value="optimize(gif, vector): simplify frame delay and diameter calculations" />
+    <MESSAGE value="docs: rename report files for improved clarity and accessibility" />
+    <MESSAGE value="feat(pluginctrl): implement group silence and user ban functionalities" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(pluginctrl): implement group silence and user ban functionalities" />
   </component>
   <component name="github-copilot-workspace">
     <instructionFileLocations>

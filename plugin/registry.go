@@ -43,8 +43,9 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 	}
 	matcher := r.eng.OnCommand(eventType, pattern, extraRules...)
 	if matcher != nil && r.name != "" {
-		matcher.SetGroup(r.name)
-		matcher.SetSource("plugin:" + r.name)
+		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
+		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
+		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
@@ -79,8 +80,8 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 				continue
 			}
 			// 别名 Matcher 与主命令同 Group/Source，以支持 Disable/Enable 联动
-			aliasMatcher.SetGroup(primary.GetGroup())
-			aliasMatcher.SetSource(primary.GetSource())
+			// SetMatcherGroup 同步更新 groupIndex，确保 RemoveGroup 能找到别名 Matcher。
+			r.eng.SetMatcherGroup(aliasMatcher, primary.GetGroup(), primary.GetSource())
 			// Hidden=true：不出现在 GetAllCommands() / /help 命令列表中
 			aliasMatcher.SetDefinition(&command.Definition{Name: alias, Hidden: true})
 			// 与主命令共享同一 handler
@@ -99,8 +100,9 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.
 	}
 	matcher := r.eng.On(eventType, rules...)
 	if matcher != nil && r.name != "" {
-		matcher.SetGroup(r.name)
-		matcher.SetSource("plugin:" + r.name)
+		// SetMatcherGroup 同步更新 engine 内部的 groupIndex，
+		// 确保 RemoveGroup/DisableGroup/EnableGroup 能正确找到此 Matcher。
+		r.eng.SetMatcherGroup(matcher, r.name, "plugin:"+r.name)
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}

@@ -136,6 +136,46 @@ func (e *Engine) ResetMiddlewares() *Engine {
 	return e
 }
 
+// ResetGroupMiddleware 清除指定分组的所有中间件（COW 写操作）。
+//
+// 通常与 UseForGroup 配合使用（先清除旧链，再注册新链），以实现幂等的分组中间件更新。
+// 典型场景：
+//   - 插件卸载时清除残留的守卫中间件，防止后续重新注册该插件时产生重复执行
+//   - pluginctrl 的 autoWireListener 在 OnPluginLoaded 前先 Reset，保证每次只注册一个守卫
+//
+// 若指定分组不存在中间件条目，此操作为 no-op。
+func (e *Engine) ResetGroupMiddleware(groupName string) *Engine {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+
+	key := strings.TrimSpace(groupName)
+	if key == "" {
+		return e
+	}
+
+	oldMwState := e.middleware.Load()
+	// 分组无条目时快速返回，避免不必要的 COW 复制
+	if _, exists := oldMwState.groupMiddlewares[key]; !exists {
+		return e
+	}
+
+	newMwState := copyMiddlewareState(oldMwState)
+	delete(newMwState.groupMiddlewares, key)
+	e.middleware.Store(newMwState)
+
+	// 失效该组中仍存活的 Matcher 缓存（理论上卸载时已无 Matcher，但防御性处理）
+	state := e.state.Load()
+	if groupMatchers, ok := state.groupIndex[key]; ok {
+		for _, m := range groupMatchers {
+			if m != nil {
+				m.invalidateCombinedChain()
+			}
+		}
+	}
+
+	return e
+}
+
 // Named wraps a middleware with a name and triggers trace hook if configured.
 func (e *Engine) Named(name string, mw context.Middleware) context.Middleware {
 	name = strings.TrimSpace(name)

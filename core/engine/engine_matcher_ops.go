@@ -339,6 +339,7 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 	m.rt.mu.Lock()
 	oldGroup = m.group
 	m.group = strings.TrimSpace(group)
+	sourceChanged := source != "" && m.Source != source
 	if source != "" {
 		m.Source = source
 	}
@@ -371,6 +372,13 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 
 		e.state.Store(newState)
 		e.writeMu.Unlock()
+	}
+
+	// Source 变更会影响 CommandInfo 的 Source/Plugin 字段；
+	// 同步更新 commandInfoCache，确保 GetAllCommands/FindCommand 反映新来源。
+	// 与 SetSource 的行为保持一致（SetSource 也调用 UpdateCommandCache）。
+	if sourceChanged {
+		e.UpdateCommandCache(m)
 	}
 
 	e.rebuildMatcherChainCOW(m)

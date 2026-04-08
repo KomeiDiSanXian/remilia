@@ -66,7 +66,7 @@ type MatcherCoordinator interface {
 //
 // 包含插件生命周期管理所需的全部 Engine 操作：
 //   - Matcher 注册（On / OnCommand）
-//   - 分组管理（RemoveGroup / DisableGroup / EnableGroup）
+//   - 分组管理（RemoveGroup / DisableGroup / EnableGroup / SetMatcherGroup）
 //   - 只读查询（嵌入 Reader，提供命令查询、Matcher 统计等）
 //
 // 使用此接口而非 *Engine 具体类型，可以：
@@ -87,4 +87,8 @@ type PluginCoordinator interface {
 	DisableGroup(groupName string)
 	// EnableGroup 启用指定分组（恢复事件分发）
 	EnableGroup(groupName string)
+	// SetMatcherGroup 将已注册的 Matcher 划入指定分组并更新来源标签，同时维护 Engine 内部的 groupIndex。
+	// 这是注册 Matcher 后设置分组的首选方法；与 Matcher.SetGroup 的区别在于此方法会同步更新
+	// groupIndex，确保 RemoveGroup / DisableGroup / EnableGroup 能正确找到该 Matcher。
+	SetMatcherGroup(m *Matcher, group, source string)
 }
