@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -207,6 +208,77 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	cr.recompile()
 }
 
+// RegisterBatch 批量注册命令，最终只调用一次 recompile()
+//
+// 若某个命令注册失败（如名称冲突），仅记录错误并跳过，继续注册其余命令。
+// 返回所有失败命令的名称及其错误（key 为命令名，返回 nil 表示全部成功）。
+func (cr *Registry) RegisterBatch(defs []*Definition, opts ...RegisterOptions) map[string]error {
+	if len(defs) == 0 {
+		return nil
+	}
+
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	var errs map[string]error
+	for i, def := range defs {
+		if def == nil || def.Name == "" {
+			continue
+		}
+		var opt RegisterOptions
+		if i < len(opts) {
+			opt = opts[i]
+		}
+
+		if existing := cr.trie.ExactMatch(def.Name); existing != nil {
+			if errs == nil {
+				errs = make(map[string]error)
+			}
+			errs[def.Name] = fmt.Errorf("command %s already registered", def.Name)
+			continue
+		}
+
+		aliasConflict := false
+		for _, alias := range def.Aliases {
+			if existingCmd, exists := cr.aliases[alias]; exists {
+				if errs == nil {
+					errs = make(map[string]error)
+				}
+				errs[def.Name] = fmt.Errorf("alias %s already used by command %s", alias, existingCmd)
+				aliasConflict = true
+				break
+			}
+		}
+		if aliasConflict {
+			continue
+		}
+
+		meta := &Meta{
+			Name:        def.Name,
+			Aliases:     def.Aliases,
+			Description: def.Description,
+			Usage:       def.Usage,
+			Category:    opt.Category,
+			Source:      opt.Source,
+			Definition:  def,
+			Priority:    opt.Priority,
+		}
+		if opt.Pattern != "" {
+			if pattern, err := regexp.Compile(opt.Pattern); err == nil {
+				meta.pattern = pattern
+			}
+		}
+		cr.trie.Insert(def.Name, meta)
+		for _, alias := range def.Aliases {
+			cr.aliases[alias] = def.Name
+		}
+	}
+
+	// 仅在批量注册完成后调用一次 recompile()（O(n) × n 中间快照）
+	cr.recompile()
+	return errs
+}
+
 // Unregister 注销命令
 func (cr *Registry) Unregister(name string) error {
 	cr.mu.Lock()
@@ -302,7 +374,6 @@ func (cr *Registry) ListByCategory(category string) []*Meta {
 }
 
 // GetStats 获取注册表统计信息
-// GetStats 获取注册表统计信息
 func (cr *Registry) GetStats() RegistryStats {
 	cr.mu.RLock()
 	compiled := cr.compiled.Load().(*compiledRegistry)
@@ -359,17 +430,11 @@ func (cr *Registry) recompile() {
 	cr.compiled.Store(newCompiled)
 }
 
-// sortCommandsByPriority 按优先级排序命令
+// sortCommandsByPriority 按优先级降序排列命令列表
 func sortCommandsByPriority(commands []*Meta) {
-	// 使用简单的冒泡排序（命令数量通常不多）
-	n := len(commands)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
-			if commands[j].Priority < commands[j+1].Priority {
-				commands[j], commands[j+1] = commands[j+1], commands[j]
-			}
-		}
-	}
+	slices.SortStableFunc(commands, func(a, b *Meta) int {
+		return b.Priority - a.Priority // 降序：优先级高的在前
+	})
 }
 
 // ExtractCommandFast 快速提取命令名称

@@ -43,9 +43,11 @@ type Matcher interface {
 
 // Context 上下文
 type Context struct {
-	ctxMu   sync.RWMutex   // 保护 ctx 字段的读写锁
-	ctx     stdctx.Context // 标准库 context，用于超时控制、取消传播等
-	matcher Matcher        // Matcher 引用（使用 interface{} 避免循环依赖）
+	ctxMu sync.RWMutex   // 保护 ctx 字段的读写锁
+	ctx   stdctx.Context // 标准库 context，用于超时控制、取消传播等
+	// cancel 持有 Clone() 中 WithDeadline 创建的取消函数，在 ReleaseContext() 时调用
+	cancel  stdctx.CancelFunc
+	matcher Matcher // Matcher 引用（使用 interface{} 避免循环依赖）
 
 	// --- 平台无关字段（新路径）---
 	// 由 AcquireContextFromEvent 填充
@@ -122,9 +124,45 @@ func (ctx *Context) Clone() *Context {
 	if deadline, ok := ctx.Context().Deadline(); ok {
 		var cancel stdctx.CancelFunc
 		newStdCtx, cancel = stdctx.WithDeadline(newStdCtx, deadline)
-		_ = cancel
+		// 存储 cancel 函数，在 ReleaseContext() 中调用以释放 runtime timer 资源
+		newCtx := &Context{
+			ctx:            newStdCtx,
+			cancel:         cancel, // 不再丢弃
+			matcher:        ctx.matcher,
+			platformEvent:  ctx.platformEvent,
+			platformSender: ctx.platformSender,
+			platformCaps:   ctx.platformCaps,
+		}
+
+		if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
+			newCtx.ctxMu.Lock()
+			newCtx.ctx = trace.ContextWithSpan(newStdCtx, span)
+			newCtx.ctxMu.Unlock()
+		}
+
+		if ex := ctx.Ext(); ex != nil {
+			dst := newCtx.Ext()
+			extStateType := extTypeOf[*extensionState]()
+			for k, v := range ex.Snapshot() {
+				if k == extStateType {
+					continue
+				}
+				dst.Set(k, v)
+			}
+		}
+
+		if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
+			s.mu.RLock()
+			cp := make(map[string]any, len(s.m))
+			maps.Copy(cp, s.m)
+			s.mu.RUnlock()
+			ExtSet(newCtx.Ext(), &extensionState{m: cp})
+		}
+
+		return newCtx
 	}
 
+	// 直接构建 newCtx，无 cancel 函数
 	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
 		newStdCtx = trace.ContextWithSpan(newStdCtx, span)
 	}
@@ -139,7 +177,6 @@ func (ctx *Context) Clone() *Context {
 
 	if ex := ctx.Ext(); ex != nil {
 		dst := newCtx.Ext()
-		// *extensionState 使用下方的深拷贝路径，此处跳过避免无效的浅拷贝写入
 		extStateType := extTypeOf[*extensionState]()
 		for k, v := range ex.Snapshot() {
 			if k == extStateType {

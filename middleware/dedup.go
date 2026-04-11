@@ -7,6 +7,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -149,7 +150,7 @@ func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 				"cache_size": len(f.cache),
 				"max_size":   f.maxSize,
 			}).Warn("[Dedup] Cache still full after cleanup")
-			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d)", len(f.cache), f.maxSize)
+			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d): %w", len(f.cache), f.maxSize, errutil.ErrDedupCacheFull)
 		}
 
 		logger.WithField("cache_size", len(f.cache)).Debug("[Dedup] Cache cleaned, space available")

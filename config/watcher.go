@@ -30,6 +30,14 @@ type Watcher struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
+	// parentCtx 用于与外部生命周期绑定（由 NewWatcherWithContext 设置）。
+	// watchLoop 监听其 Done() 信号，无需额外 goroutine。
+	parentCtx context.Context
+
+	// cleanupOnce 保证 cancel()+watcher.Close() 只执行一次
+	cleanupOnce sync.Once
+	cleanupErr  error
+
 	// 配置项
 	debounceDelay time.Duration
 	validateOnly  bool // 若为 true，则仅验证不应用
@@ -71,10 +79,7 @@ func NewWatcherWithContext(parent context.Context, configPath string, opts ...Wa
 	if err != nil {
 		return nil, err
 	}
-	go func() {
-		<-parent.Done()
-		_ = w.Stop()
-	}()
+	w.parentCtx = parent // 直接设置 parent ctx，watchLoop 内部监听（无额外 goroutine）
 	return w, nil
 }
 
@@ -105,6 +110,7 @@ func NewWatcher(configPath string, opts ...WatcherOption) (*Watcher, error) {
 		callbacks:     make([]ReloadCallback, 0),
 		ctx:           ctx,
 		cancel:        cancel,
+		parentCtx:     context.Background(), // 默认无 parent，watchLoop 不会因此退出
 		debounceDelay: 100 * time.Millisecond,
 	}
 
@@ -145,11 +151,20 @@ func (w *Watcher) Start() {
 	go w.watchLoop()
 }
 
+// doCleanup 执行幂等的清理操作：取消内部 ctx 并关闭 fsnotify watcher。
+// 由 Stop() 和 watchLoop 的 parent ctx 分支共同使用。
+func (w *Watcher) doCleanup() {
+	w.cleanupOnce.Do(func() {
+		w.cancel()
+		w.cleanupErr = w.watcher.Close()
+	})
+}
+
 // Stop 停止监听配置文件变更
 func (w *Watcher) Stop() error {
-	w.cancel()
+	w.doCleanup()
 	w.wg.Wait()
-	return w.watcher.Close()
+	return w.cleanupErr
 }
 
 // watchLoop 是主事件循环
@@ -183,6 +198,12 @@ func (w *Watcher) watchLoop() {
 		select {
 		case <-w.ctx.Done():
 			logger.Info("[ConfigWatcher] Stopped")
+			return
+
+		case <-w.parentCtx.Done():
+			// parent context 取消（如 Bot 关闭），执行清理后退出
+			logger.Info("[ConfigWatcher] Stopped (parent context cancelled)")
+			w.doCleanup()
 			return
 
 		case event, ok := <-w.watcher.Events:
@@ -236,6 +257,11 @@ func (w *Watcher) watchLoop() {
 
 // reload 加载并应用新配置
 func (w *Watcher) reload() error {
+	// 如果 watcher 已停止，直接返回，避免访问已关闭的资源
+	if w.ctx.Err() != nil {
+		return nil
+	}
+
 	startTime := time.Now()
 
 	// 修复 B7：使用 loadRaw 代替 Load，避免 Load 内部调用 notifyListeners 导致同一次

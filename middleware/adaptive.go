@@ -135,6 +135,9 @@ type AdaptiveConfig struct {
 	// 采样
 	SampleWindow   time.Duration `yaml:"sample_window" json:"sample_window"`     // 采样窗口
 	MetricsEnabled bool          `yaml:"metrics_enabled" json:"metrics_enabled"` // 是否启用指标采集
+	// MetricsSampleInterval 指标采集间隔
+	// 默认 0 表示使用 SampleWindow/12（SampleWindow=60s 时为 5s）
+	MetricsSampleInterval time.Duration `yaml:"metrics_sample_interval" json:"metrics_sample_interval"`
 }
 
 // DefaultAdaptiveConfig 返回默认配置
@@ -187,6 +190,17 @@ func NewAdaptiveRateLimiterWithContext(parent context.Context, config AdaptiveCo
 	}
 	if config.AdjustStep <= 0 {
 		config.AdjustStep = 10
+	}
+
+	if config.SampleWindow <= 0 {
+		config.SampleWindow = 60 * time.Second
+	}
+	// 默认使用 SampleWindow/12（e.g. 60s/12 = 5s）
+	if config.MetricsSampleInterval <= 0 {
+		config.MetricsSampleInterval = config.SampleWindow / 12
+		if config.MetricsSampleInterval <= 0 {
+			config.MetricsSampleInterval = 5 * time.Second
+		}
 	}
 
 	ctx, cancel := context.WithCancel(parent)
@@ -360,7 +374,7 @@ func (arl *AdaptiveRateLimiter) metricsLoop() {
 		return
 	}
 
-	ticker := time.NewTicker(5 * time.Second) // 每5秒采集一次
+	ticker := time.NewTicker(arl.config.MetricsSampleInterval)
 	defer ticker.Stop()
 
 	for {

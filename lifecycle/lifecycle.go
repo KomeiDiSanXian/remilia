@@ -260,9 +260,12 @@ type ComponentStatus struct {
 type Manager struct {
 	mu         sync.RWMutex
 	components []Component
-	state      State
-	startTime  time.Time
-	stopTime   time.Time
+	// startedComps 记录已成功经历 OnStart 的组件，Stop() 仅对这些组件调用 OnStop
+	// 运行时调用 Register() 添加的组件不在此列表中（它们从未经历 OnStart）
+	startedComps []Component
+	state        State
+	startTime    time.Time
+	stopTime     time.Time
 
 	// 运行时 context 管理
 	runCtx    context.Context
@@ -348,6 +351,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.state = StateStarting
 	m.startTime = time.Now()
 	components := m.components
+	m.startedComps = nil // 每次 Start() 重置（支持热重启）
 	m.mu.Unlock()
 
 	logger.WithFields(logger.Fields{
@@ -400,6 +404,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	m.runCtx, m.runCancel = context.WithCancel(parentCtx)
 	runCtx := m.runCtx
+	m.startedComps = startedComponents // 保存已成功 OnStart 的组件
 	m.state = StateRunning
 	m.mu.Unlock()
 
@@ -494,7 +499,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.runCancel()
 	}
 
-	components := m.components
+	components := m.startedComps // 仅对经历过 OnStart 的组件调用 OnStop
 	m.mu.Unlock()
 
 	logger.WithFields(logger.Fields{
@@ -521,7 +526,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		ctx = stopCtx
 	}
 
-	// 逆序调用 OnStop，收集所有错误
+	// 逆序调用 OnStop，仅对经历过 OnStart 的组件调用
 	var stopErrors []error
 	for i := len(components) - 1; i >= 0; i-- {
 		comp := components[i]

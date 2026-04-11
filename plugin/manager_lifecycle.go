@@ -98,7 +98,9 @@ func (pm *Manager) StopAll() error {
 
 // Shutdown 停止 Manager 管理的所有内部后台 goroutine（如 notifyDependents 等元数据 goroutine）。
 //
-// 在进程退出前调用，防止 goroutine 泄漏导致 data race。
+// StopAll() 内部会自动调用此方法。如果调用方未调用 StopAll()（例如仅做了 Unregister 操作），
+// 应在不再使用 Manager 时显式调用 Shutdown() 或 Close() 以防止 goroutine 泄漏。
+//
 // 注意：此方法不卸载插件（如需卸载，请先调用 StopAll 或 UnregisterAll）。
 func (pm *Manager) Shutdown() {
 	if pm.metaGM != nil {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -179,7 +180,7 @@ func (cb *CircuitBreaker) canExecute() error {
 				// 继续循环重新检查当前状态
 				continue
 			}
-			return fmt.Errorf("circuit breaker is open")
+			return errutil.ErrCircuitBreakerOpen
 
 		case StateHalfOpen:
 			// 检查半开状态是否超时
@@ -193,7 +194,7 @@ func (cb *CircuitBreaker) canExecute() error {
 						cb.lastFailure.Store(time.Now())
 						cb.setStateLocked(StateOpen)
 						cb.mu.Unlock()
-						return fmt.Errorf("circuit breaker is open")
+						return errutil.ErrCircuitBreakerOpen
 					}
 					cb.mu.Unlock()
 					// 状态已改变，继续循环重新检查

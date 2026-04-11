@@ -9,6 +9,9 @@ import (
 
 // TestDedupRaceConditionFix 验证 Bug #2 的修复：缓存满时的竞态条件
 // 这个测试专门针对高并发场景下，多个 goroutine 同时检查和添加缓存的情况
+//
+// 注意：此测试会产生大量 WRN [Dedup] Cache still full after cleanup 日志，
+// 这是预期行为——缓存满且无过期条目时触发 Warn 日志。这些日志不代表测试失败
 func TestDedupRaceConditionFix(t *testing.T) {
 	// 创建一个小缓存，容易触发满载情况
 	filter := NewDedupFilter(DedupConfig{

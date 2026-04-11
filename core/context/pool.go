@@ -34,8 +34,14 @@ func ReleaseContext(ctx *Context) {
 		ctx.extensions.Clear()
 		ctx.extensions = nil
 	}
-
+	// 重置 extInitialized，否则池化复用时快路径会返回 nil *Extensions
 	ctx.extInitialized.Store(false)
+
+	// 调用 Clone() 中存储的 cancel 函数，释放 WithDeadline 创建的 runtime timer
+	if ctx.cancel != nil {
+		ctx.cancel()
+		ctx.cancel = nil
+	}
 
 	// Clear content cache
 	ctx.contentOnce = sync.Once{}
