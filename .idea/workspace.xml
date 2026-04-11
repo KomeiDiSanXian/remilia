@@ -4,23 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(metrics): add MetricsSampleInterval to AdaptiveConfig and update metrics collection interval">
-      <change afterPath="$PROJECT_DIR$/config/watcher_debounce_race_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/context/pool_reset_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/middleware/circuitbreaker_race_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/command/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/cache/ttl.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/cache/ttl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/cache/ttl_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/cache/ttl_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(metrics): add MetricsSampleInterval to AdaptiveConfig and update metrics collection interval" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
