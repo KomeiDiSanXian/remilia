@@ -1,0 +1,306 @@
+package onebot
+
+import (
+	stdctx "context"
+	"fmt"
+	"net"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/gorilla/websocket"
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// ReverseWSAdapter
+// ────────────────────────────────────────────────────────────────────────────
+
+// ReverseWSAdapter 是一个 platform.Adapter，它监听来自 OneBot V11 实现的
+// 反向 WebSocket 连接。
+//
+// 通信流程：
+//
+//	OneBot 实现 ──WS 连接──▶ adapter（本适配器）
+//	OneBot 实现 ──── 事件 ──▶ adapter
+//	OneBot 实现 ◀─ API 调用 ── adapter（每个连接独立的 wsAPIClient）
+//
+// OneBot 实现须配置 ws_reverse.enable = true，并指向本适配器的 ListenAddr。
+//
+// 支持多个同时连接；所有连接的事件均分发给同一个 handler。
+type ReverseWSAdapter struct {
+	config Config
+
+	mu      sync.RWMutex
+	running bool
+	cancel  stdctx.CancelFunc
+	server  *http.Server
+
+	starting atomic.Bool
+	wg       sync.WaitGroup
+
+	// 活跃连接列表
+	connMu  sync.Mutex
+	conns   map[*wsConn]struct{}
+	handler func(platform.Event)
+
+	// 机器人身份（由第一个连接的客户端填充）
+	botID   string
+	botName string
+}
+
+// wsConn 将单个 WS 连接与其独立的 API 客户端封装在一起。
+type wsConn struct {
+	conn      *websocket.Conn
+	apiClient *wsAPIClient
+	sender    *onebotSender
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+// NewReverseWSAdapter 使用给定的 Config 创建 ReverseWSAdapter。
+func NewReverseWSAdapter(cfg Config) *ReverseWSAdapter {
+	return &ReverseWSAdapter{
+		config: cfg,
+		conns:  make(map[*wsConn]struct{}),
+	}
+}
+
+// ── platform.Adapter ────────────────────────────────────────────────────────
+
+// Platform 返回 "onebot"。
+func (a *ReverseWSAdapter) Platform() string { return PlatformID }
+
+// Sender 返回第一个活跃连接的发送器，若无连接则返回空操作发送器。
+func (a *ReverseWSAdapter) Sender() platform.Sender {
+	a.connMu.Lock()
+	defer a.connMu.Unlock()
+	for c := range a.conns {
+		return c.sender
+	}
+	return &platform.NoopSender{}
+}
+
+// Capabilities 返回 OneBot V11 平台的功能集。
+func (a *ReverseWSAdapter) Capabilities() platform.Capabilities {
+	return platform.Capabilities{
+		MessageDelete: true,
+		ThreadReply:   true,
+		MentionAll:    true,
+	}
+}
+
+// IsRunning 当 WS 服务器正在接受连接时返回 true。
+func (a *ReverseWSAdapter) IsRunning() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.running
+}
+
+// Start 开始监听传入的 WebSocket 连接。
+// 阻塞直到 ctx 被取消。
+func (a *ReverseWSAdapter) Start(ctx stdctx.Context, handler func(platform.Event)) error {
+	if !a.starting.CompareAndSwap(false, true) {
+		return nil
+	}
+	defer a.starting.Store(false)
+
+	a.mu.Lock()
+	if a.running {
+		a.mu.Unlock()
+		return nil
+	}
+	cancelCtx, cancel := stdctx.WithCancel(ctx)
+	a.cancel = cancel
+	a.running = true
+	a.handler = handler
+	a.mu.Unlock()
+
+	defer func() {
+		a.mu.Lock()
+		a.running = false
+		a.mu.Unlock()
+		cancel()
+	}()
+
+	listenAddr := a.config.ListenAddr
+	if listenAddr == "" {
+		listenAddr = ":8080"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", a.handleWS)
+
+	srv := &http.Server{
+		Addr:    listenAddr,
+		Handler: mux,
+	}
+
+	a.mu.Lock()
+	a.server = srv
+	a.mu.Unlock()
+
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("onebot reverse ws: listen %s: %w", listenAddr, err)
+	}
+
+	logger.Infof("[onebot.ReverseWSAdapter] Listening on %s", listenAddr)
+
+	// 在后台运行 HTTP 服务器
+	a.wg.Go(func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			logger.WithError(err).Error("[onebot.ReverseWSAdapter] Server error")
+		}
+	})
+
+	// 等待 ctx 取消
+	<-cancelCtx.Done()
+
+	shutCtx, shutCancel := stdctx.WithTimeout(stdctx.Background(), 5*time.Second)
+	defer shutCancel()
+	_ = srv.Shutdown(shutCtx)
+
+	// 关闭所有活跃连接
+	a.connMu.Lock()
+	for c := range a.conns {
+		_ = c.conn.Close()
+	}
+	a.connMu.Unlock()
+
+	a.wg.Wait()
+	return nil
+}
+
+// Stop 关闭监听服务器。
+func (a *ReverseWSAdapter) Stop(ctx stdctx.Context) error {
+	a.mu.Lock()
+	cancel := a.cancel
+	srv := a.server
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if srv != nil {
+		return srv.Shutdown(ctx)
+	}
+	return nil
+}
+
+// ── platform.BotIdentity ────────────────────────────────────────────────────
+
+// BotID 返回机器人的 QQ 号（来自第一个已连接的会话）。
+func (a *ReverseWSAdapter) BotID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botID
+}
+
+// BotName 返回机器人的昵称（来自第一个已连接的会话）。
+func (a *ReverseWSAdapter) BotName() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botName
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// HTTP / WebSocket 处理
+// ────────────────────────────────────────────────────────────────────────────
+
+// handleWS 将 HTTP 连接升级为 WebSocket 并处理事件。
+func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
+	// Token 验证
+	if a.config.Token != "" {
+		auth := r.Header.Get("Authorization")
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if token != a.config.Token {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		logger.WithError(err).Warn("[onebot.ReverseWSAdapter] Upgrade failed")
+		return
+	}
+
+	apiClient := newWSAPIClient(conn, a.config.apiTimeout())
+	sender := newSender(apiClient)
+	c := &wsConn{conn: conn, apiClient: apiClient, sender: sender}
+
+	a.connMu.Lock()
+	a.conns[c] = struct{}{}
+	a.connMu.Unlock()
+
+	logger.Infof("[onebot.ReverseWSAdapter] New connection from %s", r.RemoteAddr)
+
+	// 从第一个客户端获取机器人身份
+	a.mu.RLock()
+	hasBotID := a.botID != ""
+	a.mu.RUnlock()
+	if !hasBotID {
+		fetchCtx, cancel := stdctx.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if info, err := sender.GetLoginInfo(fetchCtx); err == nil {
+			a.mu.Lock()
+			a.botID = strconv.FormatInt(info.UserID, 10)
+			a.botName = info.Nickname
+			a.mu.Unlock()
+			logger.Infof("[onebot.ReverseWSAdapter] Bot: %s (%s)", info.Nickname, a.botID)
+		}
+	}
+
+	defer func() {
+		a.connMu.Lock()
+		delete(a.conns, c)
+		a.connMu.Unlock()
+		_ = conn.Close()
+		logger.Infof("[onebot.ReverseWSAdapter] Connection closed: %s", r.RemoteAddr)
+	}()
+
+	// 处理来自此连接的消息
+	eventCh := make(chan platform.Event, a.config.eventBufferSize())
+	a.wg.Go(func() {
+		defer close(eventCh)
+		for {
+			_, msg, err := conn.ReadMessage()
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					logger.WithError(err).Debug("[onebot.ReverseWSAdapter] Read error")
+				}
+				return
+			}
+			if isAPIResponse(msg) {
+				apiClient.routeResponse(msg)
+				continue
+			}
+			ev, err := parseEvent(msg)
+			if err != nil {
+				logger.WithError(err).Debug("[onebot.ReverseWSAdapter] Parse error")
+				continue
+			}
+			if ev.Kind() != platform.EventKindUnknown {
+				select {
+				case eventCh <- ev:
+				default:
+					logger.Warn("[onebot.ReverseWSAdapter] Event channel full, dropping event")
+				}
+			}
+		}
+	})
+
+	handler := a.handler
+	for ev := range eventCh {
+		if handler != nil {
+			safeDispatch(handler, ev)
+		}
+	}
+}

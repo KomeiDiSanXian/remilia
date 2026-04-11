@@ -5,9 +5,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(showcase): implement pprof server for performance profiling and add broadcast and subscription plugins">
+      <change afterPath="$PROJECT_DIR$/examples/onebot-bot/main.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/adapter.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/api.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/config.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/event.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/http_post.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/message.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/sender.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/types.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/platform/onebot/ws_reverse.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
