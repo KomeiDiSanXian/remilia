@@ -297,6 +297,5 @@ func (p *Provider) GetSamplingStats() *AdaptiveSamplerStats {
 		return nil
 	}
 
-	stats := p.adaptiveSampler.GetStats()
-	return &stats
+	return new(p.adaptiveSampler.GetStats())
 }

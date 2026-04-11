@@ -54,8 +54,7 @@ func (s *satoriSender) Send(ctx stdctx.Context, req platform.SendRequest) (platf
 	}
 	// 被动请求：将 referrer JSON 从 Tokens 还原为 *json.RawMessage
 	if raw, ok := req.Target.Tokens[TokenSatoriReferrer]; ok && raw != "" {
-		r := json.RawMessage(raw)
-		createReq.Referrer = &r
+		createReq.Referrer = new(json.RawMessage(raw))
 	}
 
 	msgs, err := s.client.MessageCreateWith(ctx, createReq)

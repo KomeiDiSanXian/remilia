@@ -178,13 +178,15 @@ func (m *Map[K, V]) Cap() int {
 //
 // 后台 GC goroutine 会自动周期性调用；也可在内存敏感场景下手动触发。
 // 此方法在持有写锁期间运行，调用期间会短暂阻塞 Get/Set。
+//
+// 过期判断使用 >= 语义（deadline == now 视为已过期），与 [Map.Get] 保持一致。
 func (m *Map[K, V]) GC() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
 	removed := 0
 	for k, e := range m.entries {
-		if now.After(e.deadline) {
+		if !now.Before(e.deadline) { // now >= deadline 视为已过期，与 Get 语义一致
 			delete(m.entries, k)
 			removed++
 		}

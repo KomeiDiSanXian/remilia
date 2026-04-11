@@ -21,20 +21,20 @@ func makeEvent(typ string, channelType ChannelType) *Event {
 		Channel: &Channel{
 			ID:   "ch-1",
 			Type: channelType,
-			Name: strPtr("test-channel"),
+			Name: new("test-channel"),
 		},
 		User: &User{
 			ID:   "u-123",
-			Name: strPtr("Alice"),
+			Name: new("Alice"),
 		},
 		Guild: &Guild{
 			ID:   "guild-1",
-			Name: strPtr("Test Guild"),
+			Name: new("Test Guild"),
 		},
 		Message: &Message{
 			ID:        "msg-abc",
-			Content:   strPtr("hello world"),
-			CreatedAt: int64Ptr(1_700_000_000_000),
+			Content:   new("hello world"),
+			CreatedAt: new(int64(1_700_000_000_000)),
 		},
 	}
 }
@@ -215,8 +215,8 @@ func TestConvertEvent_SenderFromMember(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
 	e.User = nil
 	e.Member = &GuildMember{
-		User: &User{ID: "m-999", Name: strPtr("Bob")},
-		Nick: strPtr("BobNick"),
+		User: &User{ID: "m-999", Name: new("Bob")},
+		Nick: new("BobNick"),
 	}
 	se := convertEvent(e, "p")
 	sender := se.Sender()
@@ -230,7 +230,7 @@ func TestConvertEvent_SenderFromMember(t *testing.T) {
 
 func TestConvertEvent_SenderBot(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
-	e.User.IsBot = boolPtr(true)
+	e.User.IsBot = new(true)
 	se := convertEvent(e, "p")
 	if !se.Sender().IsBot {
 		t.Error("Sender.IsBot should be true")
@@ -299,7 +299,7 @@ func TestConvertEvent_Timestamp(t *testing.T) {
 
 func TestConvertEvent_Attachments(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
-	e.Message.Content = strPtr(`<img src="https://example.com/img.png"/>`)
+	e.Message.Content = new(`<img src="https://example.com/img.png"/>`)
 	se := convertEvent(e, "p")
 	atts := se.Attachments()
 	if len(atts) != 1 {

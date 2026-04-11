@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -198,6 +199,22 @@ func (b *Bot) Start() error {
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
+	b.mu.Unlock()
+
+	// 在标记 running=true 之前启动插件，确保失败时可以原子回滚
+	if b.pluginManager != nil {
+		if err := b.pluginManager.StartAll(); err != nil {
+			logger.WithError(err).Error("[Bot] Failed to start plugins, rolling back")
+			// 回滚：停止已启动的 lifecycle 组件
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+			defer stopCancel()
+			_ = b.lifecycle.Stop(stopCtx)
+			rootCancel()
+			return fmt.Errorf("failed to start plugins: %w", err)
+		}
+	}
+
+	b.mu.Lock()
 	b.running = true
 	b.startTime = time.Now()
 	b.rootCtx = rootCtx
@@ -205,12 +222,6 @@ func (b *Bot) Start() error {
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")
-
-	if b.pluginManager != nil {
-		if err := b.pluginManager.StartAll(); err != nil {
-			logger.WithError(err).Warn("[Bot] Some plugins failed to start")
-		}
-	}
 
 	return nil
 }

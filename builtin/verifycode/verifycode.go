@@ -159,8 +159,7 @@ func (p *Plugin) Generate(cfg CodeConfig) (string, error) {
 	}
 
 	if cfg.TTL > 0 {
-		exp := time.Now().Add(cfg.TTL)
-		entry.ExpiresAt = &exp
+		entry.ExpiresAt = new(time.Now().Add(cfg.TTL))
 	}
 
 	p.mu.Lock()
@@ -232,8 +231,7 @@ func (p *Plugin) ListValid() []*CodeEntry {
 	result := make([]*CodeEntry, 0)
 	for _, e := range p.codes {
 		if e.IsValid() {
-			clone := *e
-			result = append(result, &clone)
+			result = append(result, new(*e))
 		}
 	}
 	return result
@@ -269,8 +267,7 @@ func (p *Plugin) save() {
 	p.mu.RLock()
 	codes := make(map[string]*CodeEntry, len(p.codes))
 	for k, v := range p.codes {
-		clone := *v
-		codes[k] = &clone
+		codes[k] = new(*v)
 	}
 	p.mu.RUnlock()
 	if err := jsonfile.Write(p.dataFile, codes); err != nil {

@@ -294,12 +294,10 @@ func buildMessageEdit(channelID, messageID string, msg platform.OutboundMessage,
 	}
 
 	if len(msg.Embeds) > 0 {
-		embeds := convertEmbeds(msg.Embeds)
-		me.Embeds = &embeds
+		me.Embeds = new(convertEmbeds(msg.Embeds))
 	}
 	if len(msg.Buttons) > 0 {
-		comps := convertButtons(msg.Buttons)
-		me.Components = &comps
+		me.Components = new(convertButtons(msg.Buttons))
 	}
 	if extra.AllowedMentions != nil {
 		me.AllowedMentions = buildAllowedMentions(extra.AllowedMentions)

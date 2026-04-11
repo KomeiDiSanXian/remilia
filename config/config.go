@@ -292,8 +292,7 @@ func loadRaw(path string) (*Config, error) {
 		return nil, err
 	}
 
-	cfgCopy := cfg
-	return &cfgCopy, nil
+	return new(cfg), nil
 }
 
 // Load 从文件加载配置
@@ -330,8 +329,7 @@ func Get() (*Config, bool) {
 	if !ok || cfg == nil {
 		return nil, false
 	}
-	cfgCopy := *cfg
-	return &cfgCopy, true
+	return new(*cfg), true
 }
 
 // MustGet 获取全局配置，如果未加载则 panic
@@ -395,8 +393,7 @@ func LoadViper(path string) (*Config, error) {
 	v.AutomaticEnv()
 
 	if err := v.ReadInConfig(); err != nil {
-		var configFileNotFoundError viper.ConfigFileNotFoundError
-		if !errors.As(err, &configFileNotFoundError) {
+		if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); !ok {
 			return nil, fmt.Errorf("load config via viper failed: %w", err)
 		}
 	}

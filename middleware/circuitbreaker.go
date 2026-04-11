@@ -224,6 +224,9 @@ func (cb *CircuitBreaker) canExecute() error {
 
 // onSuccess 记录成功
 func (cb *CircuitBreaker) onSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
 	state := cb.GetState()
 
 	switch state {
@@ -241,7 +244,7 @@ func (cb *CircuitBreaker) onSuccess() {
 			cb.failures.Store(0)
 			cb.successes.Store(0)
 			cb.halfOpenReqs.Store(0) // 重置半开请求计数，避免下次进入半开状态时计数残留
-			cb.setState(StateClosed)
+			cb.setStateLocked(StateClosed)
 			logger.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
 		} else {
 			logger.WithFields(logger.Fields{
@@ -254,6 +257,9 @@ func (cb *CircuitBreaker) onSuccess() {
 
 // onFailure 记录失败
 func (cb *CircuitBreaker) onFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
 	state := cb.GetState()
 	cb.lastFailure.Store(time.Now())
 
@@ -262,14 +268,14 @@ func (cb *CircuitBreaker) onFailure() {
 		// 闭合状态下失败，增加失败计数
 		failures := cb.failures.Add(1)
 		if failures >= int32(cb.config.MaxFailures) {
-			cb.setState(StateOpen)
+			cb.setStateLocked(StateOpen)
 			logger.WithField("failures", failures).Warn("[CircuitBreaker] Max failures reached, opening circuit")
 		}
 
 	case StateHalfOpen:
 		// 半开状态下失败，直接转为开启
 		cb.failures.Store(int32(cb.config.MaxFailures)) // 设置为最大值
-		cb.setState(StateOpen)
+		cb.setStateLocked(StateOpen)
 		logger.Warn("[CircuitBreaker] Failed in half-open state, reopening circuit")
 	}
 }

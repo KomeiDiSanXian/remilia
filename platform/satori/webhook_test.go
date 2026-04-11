@@ -143,8 +143,8 @@ func TestWebhookHTTPHandler_Event_Dispatched(t *testing.T) {
 		Type:      EventTypeMessageCreated,
 		Timestamp: 1_700_000_000_000,
 		Channel:   &Channel{ID: "ch-1", Type: ChannelTypeText},
-		User:      &User{ID: "u-1", Name: strPtr("Alice")},
-		Message:   &Message{ID: "msg-1", Content: strPtr("hello")},
+		User:      &User{ID: "u-1", Name: new("Alice")},
+		Message:   &Message{ID: "msg-1", Content: new("hello")},
 	}
 	req := makeWebhookRequest(t, OpcodeEvent, evt, "")
 	w := httptest.NewRecorder()

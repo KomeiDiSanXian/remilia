@@ -35,6 +35,8 @@ func ReleaseContext(ctx *Context) {
 		ctx.extensions = nil
 	}
 
+	ctx.extInitialized.Store(false)
+
 	// Clear content cache
 	ctx.contentOnce = sync.Once{}
 	ctx.content = ""

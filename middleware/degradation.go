@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -150,6 +151,7 @@ const (
 //	go deg.StartMonitor(context.Background())
 //	engine.Use(deg.Middleware())
 type AdaptiveDegradation struct {
+	mu     sync.RWMutex // 保护 config 字段的并发读写
 	config DegradationConfig
 
 	// 当前降级级别
@@ -283,6 +285,11 @@ func (ad *AdaptiveDegradation) StartMonitor(ctx context.Context) {
 
 // checkAndAdjustLevel 检查并调整降级级别
 func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
+	// 在读锁下快照 config，避免与 UpdateConfig() 的并发写入产生数据竞争
+	ad.mu.RLock()
+	cfg := ad.config
+	ad.mu.RUnlock()
+
 	// 获取系统指标
 	cpuPercent := ad.getCPUUsage()
 	memPercent := ad.getMemoryUsage()
@@ -298,10 +305,10 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 	ad.metrics.goroutinesGauge.Set(float64(goroutines))
 
 	currentLevel := ad.GetLevel()
-	newLevel := ad.calculateLevel(cpuPercent, memPercent, goroutines)
+	newLevel := ad.calculateLevel(cfg, cpuPercent, memPercent, goroutines)
 
 	if newLevel != currentLevel {
-		ad.setLevel(newLevel)
+		ad.setLevel(cfg, newLevel)
 		logger.WithFields(logger.Fields{
 			"from":       currentLevel,
 			"to":         newLevel,
@@ -310,14 +317,15 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 			"goroutines": goroutines,
 		}).Warn("[Degradation] Level changed")
 
-		if ad.config.OnLevelChange != nil {
-			ad.config.OnLevelChange(currentLevel, newLevel)
+		if cfg.OnLevelChange != nil {
+			cfg.OnLevelChange(currentLevel, newLevel)
 		}
 	}
 }
 
 // setLevel 设置降级级别并更新 metrics
-func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
+// cfg 应由调用方在持有 mu.RLock 时快照，以保证并发安全。
+func (ad *AdaptiveDegradation) setLevel(cfg DegradationConfig, level DegradationLevel) {
 	oldLevel := ad.GetLevel()
 	ad.level.Store(level)
 
@@ -331,15 +339,15 @@ func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
 
 		// 记录触发原因
 		reason := "unknown"
-		if cpuVal, ok := ad.lastCPU.Load().(float64); ok && cpuVal > ad.config.CPUThreshold {
+		if cpuVal, ok := ad.lastCPU.Load().(float64); ok && cpuVal > cfg.CPUThreshold {
 			reason = "cpu"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
-		if memVal, ok := ad.lastMemory.Load().(float64); ok && memVal > ad.config.MemoryThreshold {
+		if memVal, ok := ad.lastMemory.Load().(float64); ok && memVal > cfg.MemoryThreshold {
 			reason = "memory"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
-		if ad.config.EnableGoroutineLimit && runtime.NumGoroutine() > ad.config.GoroutineThreshold {
+		if cfg.EnableGoroutineLimit && runtime.NumGoroutine() > cfg.GoroutineThreshold {
 			reason = "goroutines"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
@@ -355,23 +363,24 @@ func (ad *AdaptiveDegradation) setLevel(level DegradationLevel) {
 }
 
 // calculateLevel 计算降级级别
-func (ad *AdaptiveDegradation) calculateLevel(cpuPercent, memPercent float64, goroutines int) DegradationLevel {
+// cfg 应由调用方在持有 mu.RLock 时快照，以保证并发安全。
+func (ad *AdaptiveDegradation) calculateLevel(cfg DegradationConfig, cpuPercent, memPercent float64, goroutines int) DegradationLevel {
 	// 计算负载分数（0-100）
 	score := 0.0
 
 	// CPU 权重 40%
-	if cpuPercent > ad.config.CPUThreshold {
-		score += (cpuPercent - ad.config.CPUThreshold) * 0.4
+	if cpuPercent > cfg.CPUThreshold {
+		score += (cpuPercent - cfg.CPUThreshold) * 0.4
 	}
 
 	// 内存权重 40%
-	if memPercent > ad.config.MemoryThreshold {
-		score += (memPercent - ad.config.MemoryThreshold) * 0.4
+	if memPercent > cfg.MemoryThreshold {
+		score += (memPercent - cfg.MemoryThreshold) * 0.4
 	}
 
 	// 协程数量权重 20%
-	if ad.config.EnableGoroutineLimit && goroutines > ad.config.GoroutineThreshold {
-		goroutinePercent := float64(goroutines-ad.config.GoroutineThreshold) / float64(ad.config.GoroutineThreshold) * 100
+	if cfg.EnableGoroutineLimit && goroutines > cfg.GoroutineThreshold {
+		goroutinePercent := float64(goroutines-cfg.GoroutineThreshold) / float64(cfg.GoroutineThreshold) * 100
 		score += goroutinePercent * 0.2
 	}
 
@@ -390,7 +399,7 @@ func (ad *AdaptiveDegradation) calculateLevel(cpuPercent, memPercent float64, go
 
 // getCPUUsage 获取 CPU 使用率
 func (ad *AdaptiveDegradation) getCPUUsage() float64 {
-	percent, err := cpu.Percent(time.Second, false)
+	percent, err := cpu.Percent(0, false)
 	if err != nil || len(percent) == 0 {
 		logger.WithError(err).Debug("[Degradation] Failed to get CPU usage")
 		return 0
@@ -566,9 +575,9 @@ func (ad *AdaptiveDegradation) Reset() {
 // 不支持热更新：MonitorInterval、RecoveryInterval、Strategy、PriorityClassifier
 // （这些参数修改需要重建控制器）。
 func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
-	// AdaptiveDegradation 的 config 字段整体替换是安全的：
-	// checkAndAdjustLevel 读取 config 字段均为值类型（float64/Duration/bool/int），
-	// Go 赋值是原子的对于值类型结构，但为保险起见用单独字段赋值。
+	// 持写锁保护多字段赋值，防止与 checkAndAdjustLevel() 的并发读取产生数据竞争
+	ad.mu.Lock()
+	defer ad.mu.Unlock()
 	if cfg.CPUThreshold > 0 {
 		ad.config.CPUThreshold = cfg.CPUThreshold
 	}
@@ -588,14 +597,18 @@ func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
 
 // ForceLevel 强制设置降级级别（用于测试或手动控制）
 func (ad *AdaptiveDegradation) ForceLevel(level DegradationLevel) {
+	ad.mu.RLock()
+	cfg := ad.config
+	ad.mu.RUnlock()
+
 	oldLevel := ad.GetLevel()
-	ad.setLevel(level)
+	ad.setLevel(cfg, level)
 	logger.WithFields(logger.Fields{
 		"from": oldLevel,
 		"to":   level,
 	}).Info("[Degradation] Force level change")
 
-	if ad.config.OnLevelChange != nil {
-		ad.config.OnLevelChange(oldLevel, level)
+	if cfg.OnLevelChange != nil {
+		cfg.OnLevelChange(oldLevel, level)
 	}
 }

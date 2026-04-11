@@ -117,7 +117,7 @@ func TestAdapter_BotID_AfterLogin(t *testing.T) {
 
 	// Simulate READY callback filling login
 	login := &Login{
-		User: &User{ID: "bot-001", Name: strPtr("MyBot")},
+		User: &User{ID: "bot-001", Name: new("MyBot")},
 	}
 	a.loginMu.Lock()
 	a.login = login

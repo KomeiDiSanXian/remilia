@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"time"
 
@@ -15,11 +14,9 @@ import (
 //
 // 使用内存缓存实现事件去重，防止重复处理相同事件。
 // 适用于防止重放攻击和重复消息处理。
-//
-// 优化: 使用 hash(eventID) 代替字符串键，内存占用减少 50-70%
 type DedupFilter struct {
 	mu          sync.RWMutex
-	cache       map[uint64]int64 // hash(eventID) -> expireTime，优化：使用 uint64 代替 string
+	cache       map[string]int64 // eventID -> expireTime（纳秒）
 	maxSize     int              // 最大缓存条目数
 	defaultTTL  time.Duration    // 默认过期时间
 	cleanupDone chan struct{}    // 清理器停止信号
@@ -85,7 +82,7 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 	}
 
 	filter := &DedupFilter{
-		cache:       make(map[uint64]int64, config.MaxSize/2), // 使用 uint64，预分配容量
+		cache:       make(map[string]int64, config.MaxSize/2),
 		maxSize:     config.MaxSize,
 		defaultTTL:  config.DefaultTTL,
 		cleanupDone: make(chan struct{}),
@@ -115,41 +112,24 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 	return filter
 }
 
-// hashEventID 使用 FNV-1a 算法将 eventID 转换为 uint64
-//
-// FNV-1a 特点：
-// - 速度快（比 SHA256 快 10x+）
-// - 分布均匀
-// - 冲突率低
-//
-// 注意：理论上存在哈希冲突可能，但概率极低（< 1/2^64）
-func hashEventID(eventID string) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(eventID)) // hash.Hash.Write never returns error
-	return h.Sum64()
-}
-
 // CheckDuplicate 检查事件是否重复
 //
 // 返回 true 表示事件已经存在（重复），false 表示首次出现。
 // 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
-//
-// 优化：使用 hash(eventID) 减少内存占用，字符串 -> uint64 可节省 50-70% 内存
 func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	now := time.Now().UnixNano()
-	hash := hashEventID(eventID) // 计算哈希值
 
 	// 使用单个写锁保护整个操作，避免竞态条件
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// 检查是否存在且未过期（使用哈希值查找）
-	if expireTime, exists := f.cache[hash]; exists {
+	// 检查是否存在且未过期
+	if expireTime, exists := f.cache[eventID]; exists {
 		if expireTime > now {
 			return true, nil // 重复且未过期
 		}
 		// 已过期，删除
-		delete(f.cache, hash)
+		delete(f.cache, eventID)
 	}
 
 	// 检查缓存大小限制
@@ -175,8 +155,8 @@ func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 		logger.WithField("cache_size", len(f.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
-	// 添加到缓存 (使用纳秒以保留毫秒以下精度，使用哈希值存储)
-	f.cache[hash] = now + f.defaultTTL.Nanoseconds()
+	// 添加到缓存（使用纳秒以保留毫秒以下精度）
+	f.cache[eventID] = now + f.defaultTTL.Nanoseconds()
 
 	return false, nil
 }
@@ -192,19 +172,19 @@ func (f *DedupFilter) cleanExpired() {
 
 // cleanExpiredLocked 清理过期条目（内部方法，假设已持有锁）
 func (f *DedupFilter) cleanExpiredLocked(now int64) {
-	toDelete := make([]uint64, 0) // 优化：使用 uint64 存储哈希值
+	toDelete := make([]string, 0)
 
-	// 收集过期的哈希值
-	for hash, expireTime := range f.cache {
+	// 收集过期的 eventID
+	for eventID, expireTime := range f.cache {
 		if expireTime <= now {
-			toDelete = append(toDelete, hash)
+			toDelete = append(toDelete, eventID)
 		}
 	}
 
 	// 删除过期条目
 	if len(toDelete) > 0 {
-		for _, hash := range toDelete {
-			delete(f.cache, hash)
+		for _, eventID := range toDelete {
+			delete(f.cache, eventID)
 		}
 
 		logger.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
@@ -235,7 +215,7 @@ func (f *DedupFilter) GetStats() map[string]any {
 func (f *DedupFilter) Clear() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cache = make(map[uint64]int64) // 使用 uint64 类型
+	f.cache = make(map[string]int64)
 }
 
 // Dedup 创建去重中间件

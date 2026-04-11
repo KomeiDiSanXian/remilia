@@ -446,8 +446,7 @@ func convertOutgoingSegment(s OutgoingSegment) *outgoingSegment {
 			Data: outgoingSegData{JSONPayload: seg.JSONPayload},
 		}
 	case *ForwardSegment:
-		s := buildForwardSegment(seg)
-		return &s
+		return new(buildForwardSegment(seg))
 	}
 	return nil
 }
@@ -528,8 +527,7 @@ func wrapSendError(err error, chatID, scene string) error {
 	if err == nil {
 		return nil
 	}
-	var apiErr *apiError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*apiError](err); ok {
 		code := platform.SendErrPlatform
 		switch apiErr.Retcode {
 		case -403:

@@ -307,14 +307,9 @@ func acquirePayload(id dto.EventID, wid int) *dto.Payload {
 	return p
 }
 
-// detailPool recycles the []byte slices used for Payload.Detail in the
-// benchmark producer goroutines.  The pool is sized to 256 bytes which is
-// sufficient for the bench JSON payload; larger allocations fall back to the
-// heap as usual.
 var detailPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 0, 256)
-		return &b
+		return new(make([]byte, 0, 256))
 	},
 }
 

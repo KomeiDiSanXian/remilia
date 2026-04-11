@@ -232,8 +232,7 @@ func customErrorHandlerMiddleware() eventctx.Middleware {
 			err := next(ctx)
 			if err != nil {
 				// 根据错误类型进行不同处理
-				var userErr *UserError
-				if errors.As(err, &userErr) {
+				if userErr, ok := errors.AsType[*UserError](err); ok {
 					logger.WithFields(logger.Fields{
 						"code":    userErr.Code,
 						"message": userErr.Message,
