@@ -29,7 +29,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
 	"github.com/KomeiDiSanXian/remilia/builtin/sendqueue"
 	"github.com/KomeiDiSanXian/remilia/builtin/stats"
-	builtin_storage "github.com/KomeiDiSanXian/remilia/builtin/storage"
+	builtinstorage "github.com/KomeiDiSanXian/remilia/builtin/storage"
 	"github.com/KomeiDiSanXian/remilia/builtin/subscription"
 	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
@@ -166,7 +166,7 @@ func main() {
 		help.New(),
 		admin.New(),
 		// ── 新插件 ──────────────────────────────────────────────────────────
-		builtin_storage.New(infrastorage.WithDSN("data/showcase.db")),
+		builtinstorage.New(infrastorage.WithDSN("data/showcase.db")),
 		bcPlugin.Descriptor(),
 		sqPlugin,
 		subPlugin.Descriptor(),

@@ -6,7 +6,6 @@ import (
 	"maps"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -571,6 +570,3 @@ func (pm *Manager) GetEventBus() EventBus {
 func (pm *Manager) AsPluginInfo() Info {
 	return newPluginInfo(pm)
 }
-
-// unused import guard — time is used by manager_goroutines.go in the same package
-var _ = time.Now
