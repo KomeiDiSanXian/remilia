@@ -7,12 +7,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// helpers to build test events
-
-func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
-func int64Ptr(i int64) *int64 { return &i }
-
 func makeEvent(typ string, channelType ChannelType) *Event {
 	return &Event{
 		SN:        42,

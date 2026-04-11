@@ -86,8 +86,7 @@ func validateStructSchema(pluginName string, schema any, cfg Config) error {
 	rt := rv.Type()
 	all := cfg.GetAll()
 
-	for i := range rt.NumField() {
-		field := rt.Field(i)
+	for field := range rt.Fields() {
 		if !field.IsExported() {
 			continue
 		}

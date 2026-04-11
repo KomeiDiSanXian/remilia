@@ -85,14 +85,12 @@ func TestCircuitBreakerRace_StateCycling(t *testing.T) {
 		// 阶段 1：并发触发失败，打开熔断器
 		var failWg sync.WaitGroup
 		for range 20 {
-			failWg.Add(1)
-			go func() {
-				defer failWg.Done()
+			failWg.Go(func() {
 				ctx := createTestContext()
 				handler := func(_ *eventctx.Context) error { return errors.New("err") }
 				mw := CircuitBreakerMiddleware(cb)
 				_ = mw(handler)(ctx)
-			}()
+			})
 		}
 		failWg.Wait()
 
@@ -103,9 +101,7 @@ func TestCircuitBreakerRace_StateCycling(t *testing.T) {
 		var successWg sync.WaitGroup
 		var successCount atomic.Int32
 		for range 20 {
-			successWg.Add(1)
-			go func() {
-				defer successWg.Done()
+			successWg.Go(func() {
 				ctx := createTestContext()
 				handler := func(_ *eventctx.Context) error { return nil }
 				mw := CircuitBreakerMiddleware(cb)
@@ -113,7 +109,7 @@ func TestCircuitBreakerRace_StateCycling(t *testing.T) {
 				if err == nil {
 					successCount.Add(1)
 				}
-			}()
+			})
 		}
 		successWg.Wait()
 
