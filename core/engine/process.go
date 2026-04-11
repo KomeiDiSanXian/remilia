@@ -13,24 +13,12 @@ import (
 )
 
 // ProcessEvent 处理事件（COW 无锁读取）
-//
-// 性能特性：
-//   - 完全无锁：通过 atomic.Load() 读取不可变状态
-//   - 零内存分配：直接使用已排序的匹配器切片（通过 sync.Pool）
-//   - 5-6x 性能提升：相比原有的 RWMutex 实现
 func (e *Engine) ProcessEvent(ctx *context.Context) {
-	// 用读锁保护"检查 shutdown → eventWg.Add(1)"的原子性。
-	// Shutdown() 持有写锁完成 shutdown.Store(true) 后立即释放，
-	// 随后调用 eventWg.Wait()，此时已无法再进入此 RLock 区间并执行 Add(1)。
-	// 保证 shutdown 和 Add(1) 互斥，防止 Add 和 Wait 并发无序调用。
-	e.shutdownMu.RLock()
-	if e.shutdown.Load() {
-		e.shutdownMu.RUnlock()
+	// 无锁门控：CAS 递增活跃计数；若已 shutdown 则直接返回
+	if !e.gate.acquire() {
 		return
 	}
-	e.eventWg.Add(1)
-	e.shutdownMu.RUnlock()
-	defer e.eventWg.Done()
+	defer e.gate.release()
 
 	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃。
 	// 同时覆盖 ProcessPlatformEvent 通过委托调用此函数的场景：

@@ -3,7 +3,10 @@
 > 审查日期：2026-04-11  
 > 审查范围：全项目（根包 + 所有子模块）  
 > Go 版本声明：go 1.25.0  
-> **修复日期：2026-04-11（Critical × 3，High × 5 全部修复）**
+> **修复日期：2026-04-11（Critical × 3，High × 5 全部修复）**  
+> **性能优化实施日期：2026-04-11（P-2 ~ P-6 已实施；P-1 文档化）**  
+> **测试覆盖度补全日期：2026-04-11（T-1 ~ T-4 全部完成）**  
+> **API/文档改进日期：2026-04-11（D-1 ~ D-4 全部完成）**
 
 ---
 
@@ -29,7 +32,9 @@
 | 高危（High） | 5 | ✅ 5 |
 | 中等（Medium） | 7 | ✅ 7 |
 | 低危（Low） | 5 | ✅ 5 |
-| 性能优化建议 | 6 | — |
+| 性能优化建议 | 6 | ✅ 5（P-1 文档化，P-2~P-6 已实施） |
+| 测试覆盖度 | 4 | ✅ 4 |
+| API/文档改进 | 4 | ✅ 4 |
 
 ---
 
@@ -410,99 +415,171 @@ func (w *Watcher) reload() error {
 
 ## 性能优化建议
 
-### P-1：`middleware/dedup.go` — 在高 TTL 场景下考虑用 bigcache/freecache 替换 map
+> **实施日期：2026-04-11（P-2 ~ P-6 已实施；P-1 文档化待后续版本评估）**
 
-当 MaxSize 很大（10000+）且 TTL 较长（分钟级）时，`map[uint64]int64` 的 GC 压力随条目数线性增长（Go GC 扫描每个 map 指针）。可考虑使用 `github.com/allegro/bigcache`（减少 GC 压力的 off-heap 缓存）或 LRU 策略的 `github.com/hashicorp/golang-lru/v2`（已是依赖项）替代当前实现。
+### 📝 [文档化] P-1：`middleware/dedup.go` — 在高 TTL 场景下考虑用 bigcache/freecache 替换 map
 
----
+当 MaxSize 很大（10000+）且 TTL 较长（分钟级）时，`map[string]int64` 的字符串键会被 Go GC 逐一扫描，GC 压力随条目数线性增长。可考虑使用 `github.com/allegro/bigcache`（减少 GC 压力的 off-heap 缓存）或 LRU 策略的 `github.com/hashicorp/golang-lru/v2`（已是依赖项）替代当前实现。
 
-### P-2：`command/registry.go` — `recompile()` 可引入 dirty 标志避免无效重建
-
-当 `Upsert` 更新已存在命令的字段，但优先级、别名均未变化时，`recompile()` 仍会重建完整快照。可添加 dirty 检测：
-
-```go
-if !changed {
-    return
-}
-cr.recompile()
-```
+**分析结论**：`expirable.LRU` 会将"缓存满时返回错误"改为"LRU 自动淘汰"，需同步更新 `TestDedupFilter_CacheFull/error_when_full_and_no_expired` 等测试用例，API 语义有破坏性变更，建议在下一个主版本迭代中统一评估。  
+**当前处置**：已在 `DedupFilter` 类型注释中补充 GC 压力说明及迁移路径文档，供后续版本参考。
 
 ---
 
-### P-3：`infra/cache/ttl.go` — `GC` 持有写锁期间遍历全表
+### ✅ [已实施] P-2：`command/registry.go` — `recompile()` 引入 dirty 标志避免无效重建
 
-`GC` 在写锁下遍历整张 map，期间所有 `Get`/`Set` 均被阻塞。对于大表（1万+ 条目），这会产生明显的 stop-the-world 停顿。可考虑分片（sharding）或使用两阶段策略（先读锁收集过期 key，再写锁批量删除）。
-
----
-
-### P-4：`middleware/degradation.go` — `setLevel()` 中每次触发都分配 metrics label 字符串
-
-```go
-fmt.Sprintf("%d", oldLevel)  // 每次状态变化都分配字符串
-```
-
-降级级别只有 4 种（0-3），可预分配固定字符串常量数组，避免 fmt.Sprintf 分配。
+**实施内容**：
+- `Upsert()` 新增 `needRecompile` 脏标志，仅当 **别名** 或 **优先级** 发生实质变化时才触发 `recompile()`；`Description/Usage/Category/Source` 等元数据字段通过 `*Meta` 指针直接反映，无需重建快照。
+- **同步修复**：原实现 `Upsert` 更新 `existing.Aliases` 时未同步 `cr.aliases` 底层映射，导致别名变更后的 `compiledRegistry.aliasMap` 与实际状态不符（查询别名永远返回旧值）。新实现在变更别名时正确删除旧条目、写入新条目后再调用 `recompile()`。
 
 ---
 
-### P-5：`core/engine/engine.go` — shutdownMu 读写锁路径
+### ✅ [已实施] P-3：`infra/cache/ttl.go` — `GC` 两阶段策略缩短写锁持有时长
 
-`ProcessPlatformEvent` 热路径持有 `shutdownMu.RLock()` 进行"检查 shutdown + eventWg.Add(1)"，虽然是读锁，但高并发下仍有竞争。可考虑将 `shutdown` 改为 `atomic.Uint32` + `eventWg` 替换为 `semaphore`，彻底无锁化热路径。
+**实施内容**：将原来"全程写锁遍历删除"重构为两阶段：
+1. **阶段 1（读锁）**：遍历收集所有过期 key，期间不阻塞 `Get`/`Set`
+2. **阶段 2（写锁）**：批量删除已收集的 key，同时二次校验（`!now.Before(e.deadline)`）防止误删在阶段 1 与阶段 2 之间被 `Set` 刷新的条目
+
+对于大表（1 万+ 条目），写锁持有时长从 O(n) 降至仅删除操作所需的 O(k)（k 为过期条目数），显著降低 `Get`/`Set` 停顿。
 
 ---
 
-### P-6：`middleware/adaptive.go` — `latencyHistogram.percentile()` 每次调用 Swap(0) 重置桶
+### ✅ [已实施] P-4：`middleware/degradation.go` — 预分配降级级别字符串消除 `setLevel()` 分配
 
-当 `percentile()` 在 metricsLoop 每 5s 调用一次时，会原子性清零所有 32 个桶。若 `adjustLoop` 与 `metricsLoop` 并发调用 `percentile()`，会丢失部分样本。建议引入双缓冲（ping-pong buffer）分离写入桶和读取桶，避免采样窗口内数据丢失。
+**实施内容**：新增包级常量数组 `degradationLevelStrings = [4]string{"0", "1", "2", "3"}` 及辅助函数 `degradationLevelStr(l DegradationLevel) string`，将 `setLevel()` 中两处 `fmt.Sprintf("%d", level)` 替换为零分配的数组查找。降级级别状态切换为 metrics 热路径，此优化消除每次切换时的堆分配。
+
+---
+
+### ✅ [已实施] P-5：`core/engine/engine.go` — 无锁 `eventGate` 替代 shutdownMu 读写锁
+
+**实施内容**：新增 `eventGate` 类型，将原有三字段：
+- `shutdown atomic.Bool`
+- `shutdownMu sync.RWMutex`
+- `eventWg sync.WaitGroup`
+
+合并为单个 `atomic.Int64`（`n`）+ `zeroCh chan struct{}`。
+
+**状态编码**：`n ≥ 0` 为活跃事件计数；`n < 0` 表示已触发 shutdown（加入 `eventGateShutdownSentinel = -1<<40`）。热路径 `ProcessEvent` 仅需一次 **CAS** 操作（`n := Load; if n<0 return; CAS(n, n+1)`），彻底消除原有 `RWMutex.RLock/RUnlock` 在高并发下的竞争开销。`Shutdown()` 调用 `gate.shutdown()` 后等待 `zeroCh` 关闭，语义与原实现完全等价。
+
+---
+
+### ✅ [已实施] P-6：`middleware/adaptive.go` — ping-pong 双缓冲分离写入与读取桶
+
+**实施内容**：`latencyHistogram` 由单缓冲改为 **ping-pong 双缓冲**：
+- `bufs [2][32]atomic.Int64` + `totals [2]atomic.Int64`：两套桶，交替使用
+- `active atomic.Uint32`：当前写入缓冲区索引（0 或 1）
+- `swapMu sync.Mutex`：保护 `percentile()` 中的缓冲区交换
+
+`observe()` 写入 `active` 缓冲区（无锁 Add）；`percentile()` 先通过 `swapMu` 原子切换 `active`，再读取已冻结的旧缓冲区并重置。避免了原实现中并发 `percentile()` 调用相互清零导致整个采样窗口数据丢失的问题。
 
 ---
 
 ## 测试覆盖度问题
 
-### T-1：`middleware/circuitbreaker.go` 缺少并发竞态测试
+### ✅ [已完成] T-1：`middleware/circuitbreaker.go` 并发竞态测试
 
-`onSuccess`/`onFailure` 与 `canExecute` 之间的并发路径（见 H-2）没有 `-race` 标志下的压力测试。建议添加：
+**文件**：`middleware/circuitbreaker_race_test.go`（新增）
 
-```go
-func TestCircuitBreakerRace(t *testing.T) {
-    // 100 goroutines 并发调用，同时触发 success/failure
-}
-```
+新增三个测试函数，覆盖 H-2 修复后的并发安全性：
 
-### T-2：`core/context/pool.go` 缺少 pool 复用测试
+- `TestCircuitBreakerRace`：100 goroutines 并发调用中间件（1/3 失败，2/3 成功），持续 200 次迭代，通过 `-race` 检测器验证 `onSuccess`/`onFailure` 与 `canExecute` 无数据竞争。
+- `TestCircuitBreakerRace_StateCycling`：5 轮 Closed→Open→HalfOpen→Closed 完整状态循环，验证计数器在并发竞争下的一致性。
+- `TestCircuitBreakerRace_ConcurrentResetAndFailure`：并发执行请求与手动 `Reset()`，验证 `mu` 写锁的正确保护。
 
-没有测试验证 `ReleaseContext` + `AcquireContext` 后池化对象的字段是否被正确清零（`extInitialized`、`content`、`platformEvent` 等）。
+运行命令：`go test -race ./middleware/ -run TestCircuitBreakerRace`
 
-### T-3：`infra/cache/ttl.go` 缺少 `deadline == now` 边界测试
+---
 
-未覆盖"条目恰好在 `now == deadline` 时的 `Get`/`GC` 语义不一致"（见 H-4）。
+### ✅ [已完成] T-2：`core/context/pool.go` pool 复用字段重置测试
 
-### T-4：`config/watcher.go` 缺少 Stop-after-debounce 竞态测试
+**文件**：`core/context/pool_reset_test.go`（新增，白盒测试，`package context`）
 
-未测试"debounce timer 触发后立即 Stop()"这一竞态场景（见 L-4）。
+新增六个测试函数，直接访问私有字段验证 C-3/M-5 修复：
+
+- `TestReleaseContext_ResetsExtInitialized`：直接断言 `ReleaseContext` 后 `ctx.extInitialized.Load() == false`，验证 C-3 核心修复。
+- `TestReleaseContext_CancelCalled`：断言带 deadline 的 `Clone()` 存储的 `cancel` 在 `ReleaseContext` 后被调用并置 nil（M-5 修复）。
+- `TestReleaseContext_ContentCacheReset`：验证 `content` 字段在 release 后清空。
+- `TestReleaseContext_PlatformFieldsReset`：验证 `platformEvent`/`platformSender`/`botID` 被清零。
+- `TestPoolReuse_ExtNotNil`：行为回归测试——池化复用后 `Ext()` 不得返回 nil。
+- `TestPoolReuse_MultiCycle`：10 轮 acquire-use-release 循环，验证无数据残留。
+
+---
+
+### ✅ [已完成] T-3：`infra/cache/ttl.go` `deadline == now` 边界测试
+
+**文件**：`infra/cache/ttl_test.go`（新增两个测试函数）
+
+- `TestMap_GC_DeadlineEqualsNow`：TTL=0 条目（deadline == Set 时刻的 now）验证 `Get` 返回 false 且 `GC` 删除（removed==1，Cap==0），直接覆盖 H-4 修复的 `>=` 语义一致性。
+- `TestMap_GC_SemanticMatchesGet`：混合 TTL 条目，比对 `Get` 认为过期的数量与 `GC` 实际删除数量相等，确保两个方法的过期判断逻辑完全一致。
+
+---
+
+### ✅ [已完成] T-4：`config/watcher.go` Stop-after-debounce 竞态测试
+
+**文件**：`config/watcher_debounce_race_test.go`（新增）
+
+新增四个测试函数，覆盖 L-4 修复的各种竞态场景：
+
+- `TestWatcherDebounceRace_StopBeforeTimerFires`：文件变更触发 300ms debounce，50ms 后 Stop()，350ms 后断言回调计数为 0——验证 `reload()` 检测到 `ctx.Err()` 后提前返回。
+- `TestWatcherDebounceRace_MultipleFileChanges`：5 次快速写入后在 debounce 窗口内 Stop()，验证回调次数 ≤ 1。
+- `TestWatcherDebounceRace_ReloadAfterStop_NoAccess`：Stop() 后直接调用 `ForceReload()`，断言不 panic 且返回 nil。
+- `TestWatcherDebounceRace_ConcurrentStopAndTimer`：5ms debounce + 2ms 后 Stop()，与 `-race` 检测器结合验证零竞争。
+
+运行命令：`go test -race ./config/ -run TestWatcherDebounceRace`
 
 ---
 
 ## API/文档改进建议
 
-### D-1：`lifecycle.Manager.Register()` 文档需强化运行时注册的危险性说明
+### ✅ [已完成] D-1：`lifecycle.Manager.Register()` 文档强化运行时注册说明
 
-当前文档："组件会被加入列表，但 OnRun 不会被执行"。应补充说明 `OnStop` **仍会被调用**，且调用方须确保 `OnStop` 的幂等性和对"从未经历 OnStart"情况的容错。
+**文件**：`lifecycle/lifecycle.go`
 
-### D-2：`middleware.DedupFilter` — 应在文档中明确 FNV 哈希碰撞风险
+更新了 `Register()` 方法的注释，明确说明 M-4 修复后的完整行为：
 
-当前注释仅说"冲突率低（< 1/2^64）"，但没有说明碰撞的实际影响（合法消息被丢弃）。建议在文档中加入此限制说明，并提供针对高安全场景的替代方案。
+> 运行时（StateRunning）调用的组件：**OnStart、OnRun、OnStop 均不执行**。  
+> `Stop()` 仅清理 `startedComps`（已成功完成 OnStart 的组件），运行时注册的组件不在其中。
 
-### D-3：`errutil` — 各模块应统一使用哨兵错误，而非 `fmt.Errorf` 字符串
+原文档仅说"OnRun 不会被执行"，可能误导调用方认为 OnStop 仍会被调用。新文档消除了这一歧义，并明确指出该限制对依赖 OnStart 初始化资源的 OnStop 实现的危险性。
 
-见 M-7，应建立全项目错误使用规范文档：
-- `errors.New(...)` 用于公共哨兵错误
-- `fmt.Errorf("...: %w", sentinel)` 用于添加上下文信息
-- 禁止直接 `fmt.Errorf("固定字符串")`（无法用 `errors.Is` 识别）
+---
 
-### D-4：`infra/cache/ttl.go` — `Len()` 的 O(n) 复杂度应在方法注释中标注
+### ✅ [已完成] D-2：`middleware.DedupFilter` — 更新哈希碰撞相关文档
 
-当前注释仅说"需要遍历所有条目"，但未明确标注 O(n) 复杂度，调用方可能在热路径误用。
+**文件**：`middleware/dedup.go`
+
+**H-3 修复后此建议已部分过时**：实现已从 `map[uint64]int64`（FNV-64a 哈希键）改为 `map[string]int64`（直接字符串键），哈希碰撞风险已彻底消除，不再需要碰撞风险说明。
+
+更新了 `DedupFilter` 类型注释：
+- 明确说明当前实现使用直接字符串键，消除碰撞风险（H-3 修复）
+- 保留 GC 压力说明（高容量长 TTL 场景的性能注意事项，P-1 文档化）
+
+---
+
+### ✅ [已完成] D-3：`errutil` — 建立全项目哨兵错误使用规范
+
+**文件**：`errutil/errors.go`
+
+在 `var` 块前新增详细的规范注释，明确以下约定（对应 M-7 修复）：
+
+1. 公共哨兵错误统一在 `errutil` 包用 `errors.New` 定义
+2. 添加上下文时使用 `fmt.Errorf("...: %w", errutil.ErrXxx)`（保留 `%w` 链）
+3. 禁止用固定字符串 `fmt.Errorf("...")` 替代哨兵（`errors.Is` 无法识别）
+4. 框架内部控制流错误（如 `BlockError`）使用具体类型 + `errors.As`
+5. 包私有错误可在包内独立定义，不强制导出到此包
+
+---
+
+### ✅ [已完成] D-4：`infra/cache/ttl.go` — `Len()` O(n) 复杂度文档
+
+**文件**：`infra/cache/ttl.go`
+
+已在 L-3 修复时完成：`Len()` 方法注释中已明确标注：
+
+> 此操作需要遍历所有条目，**时间复杂度 O(n)**，  
+> 包含已惰性失效但尚未被 GC 回收的过期条目不计入结果。
+
+无需额外修改。
 
 ---
 

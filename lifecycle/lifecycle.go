@@ -310,9 +310,21 @@ func NewManager(opts ...ManagerOption) *Manager {
 //
 // 组件将按照注册顺序启动，按照逆序停止。
 //
-// 注意：此方法只能在 Manager 启动之前调用（StateCreated 或 StateStopped 状态）。
-// 在 StateRunning 状态下调用时，组件会被加入列表，但 OnRun 不会被执行，
-// 仅会记录警告日志。如需动态添加组件，应在下次 Start 前注册。
+// # 运行时注册的限制（重要）
+//
+// 此方法只应在 Manager 启动之前调用（StateCreated 或 StateStopped 状态）。
+// 在 StateRunning 状态下调用时，组件会被加入 components 列表并记录警告日志，
+// 但存在以下限制：
+//
+//   - OnStart **不会**被调用（组件未经过启动阶段初始化）
+//   - OnRun  **不会**被调用（不参与当前运行时的 goroutine 管理）
+//   - OnStop **不会**被调用（Stop() 仅清理 startedComps，即已成功完成 OnStart 的组件）
+//
+// 因此，运行时注册的组件处于"仅登记"状态，不参与当前生命周期的任何阶段。
+// 它们将在下次 Start() 时完整走完 OnStart → OnRun → OnStop 生命周期。
+//
+// 若组件的 OnStop 依赖 OnStart 完成的初始化（如释放在 OnStart 中申请的资源），
+// 请务必避免运行时注册，以防 OnStop 在从未调用 OnStart 的情况下被意外触发。
 func (m *Manager) Register(comp Component) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -358,7 +370,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		"component_count": len(components),
 	}).Info("[Lifecycle] Starting components")
 
-	// Phase 1: 调用所有组件的 OnStart
+	// 调用所有组件的 OnStart
 	var startedComponents []Component
 	for i, comp := range components {
 		select {
@@ -394,7 +406,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		startedComponents = append(startedComponents, comp)
 	}
 
-	// Phase 2: 创建运行时 context 并启动所有组件的 OnRun
+	// 创建运行时 context 并启动所有组件的 OnRun
 	//
 	// 使用 context.WithoutCancel(ctx) 的父 context 派生 runCtx：
 	//   - 保留 ctx 的 Value 链（tracing、metadata 等）
@@ -518,7 +530,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		// 所有 OnRun 已完成
 	case <-ctx.Done():
 		// 等待 OnRun 超时，为 OnStop 创建新的独立 context
-		// 修复 B4：使用 context.WithoutCancel(ctx) 保留原始 ctx 的 Value 链（trace/metadata），
+		// 使用 context.WithoutCancel(ctx) 保留原始 ctx 的 Value 链（trace/metadata），
 		// 只剥离已过期的取消信号，避免 trace span 断链。
 		logger.Warn("[Lifecycle] Stop timeout waiting for OnRun, proceeding with OnStop using fresh context")
 		stopCtx, stopCancel := context.WithTimeout(context.WithoutCancel(ctx), m.stopTimeout)

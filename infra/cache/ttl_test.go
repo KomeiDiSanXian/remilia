@@ -277,6 +277,61 @@ func TestMap_BackgroundGC(t *testing.T) {
 	assert.True(t, m.Has("b"))
 }
 
+// ─── H-4 修复验证：GC 与 Get 的过期语义一致性 ─────────────────────────────────
+
+// TestMap_GC_DeadlineEqualsNow 验证 H-4 修复：
+// GC 使用 !now.Before(deadline)（>= 语义），与 Get 保持一致。
+// 修复前 GC 使用 now.After(deadline)（严格 >），导致 deadline==now 时
+// Get 返回 false（已过期）但 GC 不删除，造成内存残留。
+func TestMap_GC_DeadlineEqualsNow(t *testing.T) {
+	m := cache.New[string, int](0)
+	defer m.Stop()
+
+	// TTL=0 → deadline = time.Now().Add(0)，set 之后立即过期
+	m.Set("boundary", 42, 0)
+
+	// Get 应将 deadline<=now 视为过期（>= 语义）
+	_, ok := m.Get("boundary")
+	assert.False(t, ok, "Get: TTL=0 条目（deadline==now）应被视为已过期")
+
+	// GC 也应将同样条目删除（修复前 now.After(deadline) 严格大于，相等时不删）
+	removed := m.GC()
+	assert.Equal(t, 1, removed, "GC: TTL=0 条目应被 GC 删除（H-4 fix：>= 语义与 Get 一致）")
+	assert.Equal(t, 0, m.Cap(), "GC 后内部 map 应不含任何残留条目")
+}
+
+// TestMap_GC_SemanticMatchesGet 验证 GC 与 Get 对同一批条目的过期判断完全一致。
+// 向 map 写入多条不同 TTL 的条目，等待部分过期后，
+// 对比 Get 认为已过期的集合与 GC 实际删除的集合是否相等。
+func TestMap_GC_SemanticMatchesGet(t *testing.T) {
+	m := cache.New[string, int](0)
+	defer m.Stop()
+
+	m.Set("expired-1", 1, 1*time.Nanosecond)
+	m.Set("expired-2", 2, 1*time.Nanosecond)
+	m.Set("alive", 3, time.Hour)
+
+	// 等待 1ms 确保 expired-* 条目已过期
+	time.Sleep(time.Millisecond)
+
+	// 记录 Get 认为已过期的 key
+	expiredByGet := 0
+	for _, k := range []string{"expired-1", "expired-2", "alive"} {
+		_, ok := m.Get(k)
+		if !ok {
+			expiredByGet++
+		}
+	}
+	assert.Equal(t, 2, expiredByGet, "Get 应认为 2 个短 TTL 条目已过期")
+
+	// GC 删除的条目数应与 Get 过期数一致（H-4 fix：语义一致）
+	removed := m.GC()
+	assert.Equal(t, expiredByGet, removed,
+		"GC 删除数应与 Get 过期数相同（语义一致性验证）")
+	assert.Equal(t, 1, m.Cap(), "GC 后只剩 'alive' 条目")
+	assert.True(t, m.Has("alive"), "'alive' 条目不应被 GC 删除")
+}
+
 // ─── Stop 幂等 ─────────────────────────────────────────────────────────────────
 
 func TestMap_StopIdempotent(t *testing.T) {

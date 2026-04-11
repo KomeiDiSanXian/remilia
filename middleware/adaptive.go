@@ -15,15 +15,27 @@ import (
 
 // latencyHistogram 是一个轻量级固定桶直方图，用于计算 P99 延迟。
 // 无外部依赖，使用 32 个指数增长的桶覆盖 0.1ms ~ 10s。
-// 每个桶使用 atomic.Int64，读写均无锁。
+//
+// 引入 ping-pong 双缓冲机制，将写入桶（active）与读取桶（reading）分离。
+// observe() 始终写入当前 active 缓冲区；percentile() 先通过 swapMu + 原子写交换缓冲区，
+// 再对已冻结的旧缓冲区做读取+重置，从而避免采样窗口内数据丢失。
+//
+// 边界说明：在极短的 swap 窗口内（observe 已读取 active 但尚未写入）仍可能有少量
+// 样本写入旧缓冲区；对于限流器级别的近似指标，这属于可接受的误差。
 type latencyHistogram struct {
 	// 桶边界（纳秒），32 个桶，指数增长：~0.1ms, ~0.2ms, ~0.4ms … ~10s
 	bounds [32]int64
-	counts [32]atomic.Int64
-	total  atomic.Int64 // 总样本数，用于快速判断是否有数据
+
+	// 双缓冲（ping-pong）：active 为当前写入缓冲区索引（0 或 1）
+	bufs   [2][32]atomic.Int64
+	totals [2]atomic.Int64
+	active atomic.Uint32 // 当前写入缓冲区索引，0 或 1
+
+	// swapMu 保护 percentile() 中的缓冲区交换，确保同一时刻只有一个 swap 操作
+	swapMu sync.Mutex
 }
 
-// newLatencyHistogram 创建默认桶配置的直方图
+// newLatencyHistogram 创建默认桶配置的直方图（active 初始为缓冲区 0）
 func newLatencyHistogram() *latencyHistogram {
 	h := &latencyHistogram{}
 	// 生成 32 个指数桶：起点 100µs，公比 ~1.6，覆盖到 ~10s
@@ -35,7 +47,7 @@ func newLatencyHistogram() *latencyHistogram {
 	return h
 }
 
-// observe 记录一个延迟样本
+// observe 记录一个延迟样本（写入当前 active 缓冲区，无锁）
 func (h *latencyHistogram) observe(d time.Duration) {
 	ns := d.Nanoseconds()
 	if ns <= 0 {
@@ -49,24 +61,36 @@ func (h *latencyHistogram) observe(d time.Duration) {
 			break
 		}
 	}
-	h.counts[idx].Add(1)
-	h.total.Add(1)
+	// 写入当前 active 缓冲区。在极短的 swap 窗口内可能写入旧缓冲区，
+	// 这属于可接受的近似误差（不会丢失整批数据，仅有极少量样本时序偏移）。
+	active := h.active.Load()
+	h.bufs[active][idx].Add(1)
+	h.totals[active].Add(1)
 }
 
-// percentile 计算百分位数延迟（0-100），并重置所有桶。
+// percentile 计算百分位数延迟（0-100）并重置已读取的缓冲区。
+// 先通过 swapMu 交换 active 缓冲区，再读取已冻结的旧缓冲区，
+// 避免 observe() 和 percentile() 并发时整个采样窗口的数据丢失。
 // 如果无样本则返回 0。
 func (h *latencyHistogram) percentile(p float64) time.Duration {
-	total := h.total.Load()
+	// 交换缓冲区：swapMu 确保并发 percentile() 调用不会双重交换
+	h.swapMu.Lock()
+	readBuf := h.active.Load()
+	h.active.Store((readBuf + 1) % 2) // 切换写入目标到另一个缓冲区
+	h.swapMu.Unlock()
+
+	// 读取已冻结的旧缓冲区
+	total := h.totals[readBuf].Load()
 	if total == 0 {
 		return 0
 	}
 
-	// 读取并重置各桶
+	// 读取并重置各桶（Swap(0) 确保原子性，不会遗漏 observe 的写入）
 	counts := make([]int64, 32)
 	for i := range 32 {
-		counts[i] = h.counts[i].Swap(0)
+		counts[i] = h.bufs[readBuf][i].Swap(0)
 	}
-	h.total.Store(0)
+	h.totals[readBuf].Store(0)
 
 	// 计算目标排名
 	target := int64(float64(total)*p/100.0 + 0.5)

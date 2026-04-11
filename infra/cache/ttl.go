@@ -177,20 +177,36 @@ func (m *Map[K, V]) Cap() int {
 // GC 扫描并删除所有已过期条目，返回清理的条目数量。
 //
 // 后台 GC goroutine 会自动周期性调用；也可在内存敏感场景下手动触发。
-// 此方法在持有写锁期间运行，调用期间会短暂阻塞 Get/Set。
 //
 // 过期判断使用 >= 语义（deadline == now 视为已过期），与 [Map.Get] 保持一致。
 func (m *Map[K, V]) GC() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// 读锁下收集过期键，不阻塞并发的 Get/Set
 	now := time.Now()
-	removed := 0
+	m.mu.RLock()
+	var toDelete []K
 	for k, e := range m.entries {
-		if !now.Before(e.deadline) { // now >= deadline 视为已过期，与 Get 语义一致
+		if !now.Before(e.deadline) {
+			toDelete = append(toDelete, k)
+		}
+	}
+	m.mu.RUnlock()
+
+	if len(toDelete) == 0 {
+		return 0
+	}
+
+	// 写锁下批量删除，二次校验防止误删已被 Set 刷新的条目
+	now = time.Now()
+	m.mu.Lock()
+	removed := 0
+	for _, k := range toDelete {
+		if e, ok := m.entries[k]; ok && !now.Before(e.deadline) {
 			delete(m.entries, k)
 			removed++
 		}
 	}
+	m.mu.Unlock()
+
 	return removed
 }
 

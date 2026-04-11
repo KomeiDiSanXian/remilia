@@ -27,6 +27,27 @@ func IsBlockError(err error) bool {
 
 // 预定义的框架/公共错误。
 // 这些错误是稳定的，可使用 errors.Is 进行检查。
+//
+// # 全项目错误使用规范
+//
+// 为保证调用方可用 errors.Is/errors.As 精确匹配错误，全项目遵循以下规则：
+//
+//  1. 公共哨兵错误在此包用 errors.New 定义，不在业务逻辑中重新构造字符串。
+//
+//  2. 需要添加上下文信息时，用 fmt.Errorf 包裹哨兵错误（保留 %w 链）：
+//
+//     return fmt.Errorf("操作失败: %w", errutil.ErrCircuitBreakerOpen)
+//
+//  3. 禁止直接用固定字符串 fmt.Errorf 替代哨兵错误（无法被 errors.Is 识别）：
+//
+//     // ❌ 错误做法
+//     return fmt.Errorf("circuit breaker is open")
+//     // ✅ 正确做法
+//     return fmt.Errorf("circuit breaker is open: %w", errutil.ErrCircuitBreakerOpen)
+//
+//  4. 框架内部控制流错误（如 BlockError）使用具体类型，通过 errors.As 检查。
+//
+//  5. 包私有错误可以在包内用 errors.New 定义，不强制导出到此包。
 var (
 	ErrConfigInvalid     = errors.New("invalid configuration")
 	ErrMatcherNotFound   = errors.New("matcher not found")

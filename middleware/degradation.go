@@ -95,6 +95,19 @@ func newDegradationMetrics(reg prometheus.Registerer) *degradationMetrics {
 	return m
 }
 
+// degradationLevelStrings 预分配的降级级别字符串常量数组，与 DegradationLevel 枚举一一对应。
+// 避免 setLevel() 每次触发时调用 fmt.Sprintf 分配字符串（降级只有 4 种值）。
+var degradationLevelStrings = [4]string{"0", "1", "2", "3"}
+
+// degradationLevelStr 返回 DegradationLevel 对应的字符串，零堆内存分配。
+// 对于超出枚举范围的值（理论上不应出现）回退到 fmt.Sprintf。
+func degradationLevelStr(l DegradationLevel) string {
+	if i := int(l); i >= 0 && i < len(degradationLevelStrings) {
+		return degradationLevelStrings[i]
+	}
+	return fmt.Sprintf("%d", l)
+}
+
 // DegradationStrategy 降级策略
 type DegradationStrategy int
 
@@ -356,8 +369,8 @@ func (ad *AdaptiveDegradation) setLevel(cfg DegradationConfig, level Degradation
 	// 记录恢复事件
 	if oldLevel != LevelNormal && level == LevelNormal {
 		ad.metrics.recoveriesTotal.WithLabelValues(
-			fmt.Sprintf("%d", oldLevel),
-			fmt.Sprintf("%d", level),
+			degradationLevelStr(oldLevel),
+			degradationLevelStr(level),
 		).Inc()
 	}
 }

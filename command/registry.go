@@ -156,6 +156,9 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 // 若命令尚未注册，则直接插入。
 // 此方法可避免"already registered"错误——当 RegisterCommandDef 先通过 OnCommand
 // 注册了一个裸定义，随后又尝试注册带完整元数据的定义时，即会触发该错误。
+//
+// 引入 needRecompile 脏标志，仅当别名或优先级发生变化时才触发 recompile()，
+// 避免仅变更描述/用途等元数据时产生不必要的快照重建开销。
 func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	if def == nil || def.Name == "" {
 		return
@@ -165,10 +168,31 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	defer cr.mu.Unlock()
 
 	if existing := cr.trie.ExactMatch(def.Name); existing != nil {
-		// 原地更新已有元数据
+		needRecompile := false
+
+		// 别名变更：同步更新 cr.aliases（影响 compiledRegistry.aliasMap），标记重编译
+		if !slices.Equal(existing.Aliases, def.Aliases) {
+			// 移除旧别名
+			for _, alias := range existing.Aliases {
+				delete(cr.aliases, alias)
+			}
+			// 注册新别名
+			for _, alias := range def.Aliases {
+				cr.aliases[alias] = def.Name
+			}
+			existing.Aliases = def.Aliases
+			needRecompile = true
+		}
+
+		// 优先级变更：影响 commandList 排序，标记重编译
+		if opts.Priority != 0 && existing.Priority != opts.Priority {
+			existing.Priority = opts.Priority
+			needRecompile = true
+		}
+
+		// 以下字段通过 *Meta 指针直接反映到 compiledRegistry.commandMap，无需重编译
 		existing.Description = def.Description
 		existing.Usage = def.Usage
-		existing.Aliases = def.Aliases
 		existing.Definition = def
 		if opts.Category != "" {
 			existing.Category = opts.Category
@@ -176,10 +200,10 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 		if opts.Source != "" {
 			existing.Source = opts.Source
 		}
-		if opts.Priority != 0 {
-			existing.Priority = opts.Priority
+
+		if needRecompile {
+			cr.recompile()
 		}
-		cr.recompile()
 		return
 	}
 

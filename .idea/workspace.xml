@@ -4,14 +4,20 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(onebot): add initial implementation of OneBot V11 adapter with WebSocket and HTTP POST support">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(metrics): add MetricsSampleInterval to AdaptiveConfig and update metrics collection interval">
+      <change afterPath="$PROJECT_DIR$/config/watcher_debounce_race_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/context/pool_reset_test.go" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/middleware/circuitbreaker_race_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/pool.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/pool.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/infra/cache/ttl.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/cache/ttl.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/cache/ttl_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/cache/ttl_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
     </list>
@@ -285,8 +291,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: replace storage.Client with storage.Store for improved consistency and type safety" />
-    <MESSAGE value="refactor: use errors.Is for error comparison in RedisStorage.Get method" />
     <MESSAGE value="chore: update dependencies to latest versions for improved stability and performance" />
     <MESSAGE value="feat: update configuration for tracing and degradation thresholds" />
     <MESSAGE value="refactor: update plugin descriptor retrieval to use p.Descriptor() for consistency" />
@@ -310,7 +314,9 @@
     <MESSAGE value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
     <MESSAGE value="feat(showcase): implement pprof server for performance profiling and add broadcast and subscription plugins" />
     <MESSAGE value="feat(onebot): add initial implementation of OneBot V11 adapter with WebSocket and HTTP POST support" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(onebot): add initial implementation of OneBot V11 adapter with WebSocket and HTTP POST support" />
+    <MESSAGE value="fix(degradation, dedup): resolve data races and improve error handling in plugin management and deduplication logic" />
+    <MESSAGE value="feat(metrics): add MetricsSampleInterval to AdaptiveConfig and update metrics collection interval" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(metrics): add MetricsSampleInterval to AdaptiveConfig and update metrics collection interval" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

@@ -15,6 +15,17 @@ import (
 //
 // 使用内存缓存实现事件去重，防止重复处理相同事件。
 // 适用于防止重放攻击和重复消息处理。
+//
+// # 实现说明
+//
+// 内部使用 map[string]int64（eventID 字符串 → 过期时间戳纳秒）作为缓存。
+// 对于所有 eventID 唯一性要求严格的场景（包括高吞吐机器人）均可放心使用。
+//
+// # 性能注意事项
+//
+// 当 MaxSize > 10000 且 DefaultTTL 超过 1 分钟时，map[string]int64 中字符串键
+// 会被 Go GC 逐一扫描，GC 压力随条目数线性增长。高容量长 TTL 场景可考虑
+// 使用 bigcache/freecache 等减少 GC 压力的方案
 type DedupFilter struct {
 	mu          sync.RWMutex
 	cache       map[string]int64 // eventID -> expireTime（纳秒）
