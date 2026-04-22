@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -160,59 +161,59 @@ func TestServerConfig_Validate(t *testing.T) {
 func TestLogConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  LogConfig
+		config  logger.Config
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name:    "valid level - debug",
-			config:  LogConfig{Level: "debug", Format: "text"},
+			config:  logger.Config{Level: "debug", Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "valid level - info",
-			config:  LogConfig{Level: "info", Format: "json"},
+			config:  logger.Config{Level: "info", Format: "json"},
 			wantErr: false,
 		},
 		{
 			name:    "valid level - warn",
-			config:  LogConfig{Level: "warn", Format: "text"},
+			config:  logger.Config{Level: "warn", Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "valid level - error",
-			config:  LogConfig{Level: "error", Format: "text"},
+			config:  logger.Config{Level: "error", Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "valid level - fatal",
-			config:  LogConfig{Level: "fatal", Format: "text"},
+			config:  logger.Config{Level: "fatal", Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "valid level - panic",
-			config:  LogConfig{Level: "panic", Format: "text"},
+			config:  logger.Config{Level: "panic", Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "empty level is valid",
-			config:  LogConfig{Format: "text"},
+			config:  logger.Config{Format: "text"},
 			wantErr: false,
 		},
 		{
 			name:    "empty format is valid",
-			config:  LogConfig{Level: "info"},
+			config:  logger.Config{Level: "info"},
 			wantErr: false,
 		},
 		{
 			name:    "invalid level",
-			config:  LogConfig{Level: "trace", Format: "text"},
+			config:  logger.Config{Level: "verbose", Format: "text"},
 			wantErr: true,
 			errMsg:  "log.level",
 		},
 		{
 			name:    "invalid format",
-			config:  LogConfig{Level: "info", Format: "xml"},
+			config:  logger.Config{Level: "info", Format: "xml"},
 			wantErr: true,
 			errMsg:  "log.format",
 		},
@@ -428,61 +429,78 @@ func TestMiddlewareConfig_Validate(t *testing.T) {
 		{
 			name: "valid config",
 			config: MiddlewareConfig{
-				RateLimit:      true,
-				RateLimitRate:  100,
-				RateLimitBurst: 200,
+				RateLimit: RateLimitMiddlewareConfig{
+					Enable: true,
+					Rate:   100,
+					Burst:  200,
+				},
 			},
 			wantErr: false,
 		},
 		{
 			name: "rate limit disabled - no validation",
 			config: MiddlewareConfig{
-				RateLimit:      false,
-				RateLimitRate:  -1, // Should not be validated
-				RateLimitBurst: -1,
+				RateLimit: RateLimitMiddlewareConfig{
+					Enable: false,
+					Rate:   -1, // Should not be validated
+					Burst:  -1,
+				},
 			},
 			wantErr: false,
 		},
 		{
 			name: "negative rate",
 			config: MiddlewareConfig{
-				RateLimit:     true,
-				RateLimitRate: -1,
+				RateLimit: RateLimitMiddlewareConfig{
+					Enable: true,
+					Rate:   -1,
+				},
 			},
 			wantErr: true,
-			errMsg:  "rate_limit_rate",
+			errMsg:  "rate_limit.rate",
 		},
 		{
 			name: "negative burst",
 			config: MiddlewareConfig{
-				RateLimit:      true,
-				RateLimitRate:  100,
-				RateLimitBurst: -1,
+				RateLimit: RateLimitMiddlewareConfig{
+					Enable: true,
+					Rate:   100,
+					Burst:  -1,
+				},
 			},
 			wantErr: true,
-			errMsg:  "rate_limit_burst",
+			errMsg:  "rate_limit.burst",
 		},
 		{
-			name: "degradation_cpu_threshold out of range",
+			name: "degradation cpu_threshold out of range",
 			config: MiddlewareConfig{
-				DegradationCPUThreshold: 150.0,
+				Degradation: DegradationConfig{
+					Enable:       true,
+					CPUThreshold: 150.0,
+				},
 			},
 			wantErr: true,
-			errMsg:  "degradation_cpu_threshold",
+			errMsg:  "cpu_threshold",
 		},
 		{
-			name: "degradation_memory_threshold out of range",
+			name: "degradation memory_threshold out of range",
 			config: MiddlewareConfig{
-				DegradationMemoryThreshold: -5.0,
+				Degradation: DegradationConfig{
+					Enable:          true,
+					MemoryThreshold: -5.0,
+				},
 			},
 			wantErr: true,
-			errMsg:  "degradation_memory_threshold",
+			errMsg:  "memory_threshold",
 		},
 		{
 			name: "valid degradation thresholds",
 			config: MiddlewareConfig{
-				DegradationCPUThreshold:    80.0,
-				DegradationMemoryThreshold: 85.0,
+				Degradation: DegradationConfig{
+					Enable:          true,
+					CPUThreshold:    80.0,
+					MemoryThreshold: 85.0,
+				},
 			},
 			wantErr: false,
 		},
@@ -692,7 +710,7 @@ func TestConfig_Validate(t *testing.T) {
 			Host: "localhost",
 			Port: 8080,
 		},
-		Log: LogConfig{
+		Log: logger.Config{
 			Level:  "info",
 			Format: "json",
 		},
@@ -705,9 +723,11 @@ func TestConfig_Validate(t *testing.T) {
 			MaxAttempts: 3,
 		},
 		Middleware: MiddlewareConfig{
-			RateLimit:      true,
-			RateLimitRate:  100,
-			RateLimitBurst: 200,
+			RateLimit: RateLimitMiddlewareConfig{
+				Enable: true,
+				Rate:   100,
+				Burst:  200,
+			},
 		},
 		DeadLetter: DeadLetterConfig{
 			Enable:   true,

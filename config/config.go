@@ -1,3 +1,35 @@
+// Package config 是框架的配置聚合与反序列化层。
+//
+// # 职责边界
+//
+// config 包的唯一职责是：
+//  1. 从外部来源（YAML 文件、环境变量、Viper）读取原始配置
+//  2. 将原始配置反序列化为统一的 [Config] 结构体
+//  3. 通过全局 atomic.Value 提供并发安全的配置访问和热重载
+//  4. 向监听者广播配置变更事件
+//
+// config 包**不负责**将配置应用到具体基础设施组件（如初始化 logger、启动 server）。
+// 各 infra 包自行读取所需的配置节并完成初始化，config 包只提供数据。
+//
+// # 配置结构与 infra 包的对应关系
+//
+//	Config.Bot          → 平台适配器（zerobot-remilia/ 等具体实现读取）
+//	Config.Server       → infra/server
+//	Config.Log          → infra/logger（logger.Config，包含所有日志选项）
+//	Config.Concurrency  → infra/server（反压/并发控制）
+//	Config.Retry        → infra/dlq（死信队列重试）
+//	Config.Middleware   → middleware/ 包各组件（含降级配置）
+//	Config.DeadLetter   → infra/dlq
+//	Config.Webhook      → 平台 Webhook 适配器
+//	Config.Token        → 平台 Token 管理器
+//	Config.Engine       → core/engine（通过 config.EngineOptions() 转换为 engine.Option 列表）
+//	Config.Tracing      → infra/tracing（tracing.Config，含追踪所有选项）
+//	Config.Plugins      → builtin/ 各插件的自定义配置
+//
+// # 类型说明
+//
+// Log 字段直接使用 logger.Config，Tracing 字段直接使用 tracing.Config。
+// 调用方需要 import 对应的 infra 子包来引用这些类型。
 package config
 
 import (
@@ -9,6 +41,8 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -17,7 +51,7 @@ import (
 type Config struct {
 	Bot         BotConfig         `yaml:"bot" mapstructure:"bot"`
 	Server      ServerConfig      `yaml:"server" mapstructure:"server"`
-	Log         LogConfig         `yaml:"log" mapstructure:"log"`
+	Log         logger.Config     `yaml:"log" mapstructure:"log"`
 	Concurrency ConcurrencyConfig `yaml:"concurrency" mapstructure:"concurrency"`
 	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
 	Middleware  MiddlewareConfig  `yaml:"middleware" mapstructure:"middleware"`
@@ -25,11 +59,97 @@ type Config struct {
 	Webhook     WebhookConfig     `yaml:"webhook" mapstructure:"webhook"`
 	Token       TokenConfig       `yaml:"token" mapstructure:"token"`
 	Engine      EngineConfig      `yaml:"engine" mapstructure:"engine"`
-	Degradation DegradationConfig `yaml:"degradation" mapstructure:"degradation"`
-	Tracing     TracingConfig     `yaml:"tracing" mapstructure:"tracing"`
+	Tracing     tracing.Config    `yaml:"tracing" mapstructure:"tracing"`
+
+	// Plugins 业务插件的扩展配置节点。
+	//
+	// 键为插件名称，值为该插件的配置键值对（支持任意类型）。
+	// 业务插件通过此字段读取外部 API Key、开关等自定义配置，无需各自定义顶层配置结构体。
+	//
+	// 示例 config.yaml：
+	//
+	//   plugins:
+	//     weather:
+	//       api_key: "your-api-key"
+	//       timeout: 10
+	//     translate:
+	//       provider: "mymemory"
+	//       daily_limit: 1000
+	//
+	// 插件读取方式：
+	//
+	//   cfg, _ := config.Get()
+	//   apiKey, _ := cfg.PluginString("weather", "api_key")
+	//   timeout, _ := cfg.PluginInt("weather", "timeout")
+	Plugins map[string]map[string]any `yaml:"plugins" mapstructure:"plugins"`
 }
 
-// BotConfig Bot 配置
+// PluginConfig 返回指定插件的配置 map。
+// 若插件未配置，返回 nil, false。
+func (c *Config) PluginConfig(pluginName string) (map[string]any, bool) {
+	if c == nil || c.Plugins == nil {
+		return nil, false
+	}
+	m, ok := c.Plugins[pluginName]
+	return m, ok
+}
+
+// PluginString 读取插件配置中的字符串值。
+// 若未配置或类型不匹配，返回 "", false。
+func (c *Config) PluginString(pluginName, key string) (string, bool) {
+	m, ok := c.PluginConfig(pluginName)
+	if !ok {
+		return "", false
+	}
+	v, ok := m[key]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
+// PluginInt 读取插件配置中的整数值（支持 int / int64 / float64 → int 自动转换）。
+// 若未配置或类型不匹配，返回 0, false。
+func (c *Config) PluginInt(pluginName, key string) (int, bool) {
+	m, ok := c.PluginConfig(pluginName)
+	if !ok {
+		return 0, false
+	}
+	v, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	}
+	return 0, false
+}
+
+// PluginBool 读取插件配置中的布尔值。
+// 若未配置或类型不匹配，返回 false, false。
+func (c *Config) PluginBool(pluginName, key string) (bool, bool) {
+	m, ok := c.PluginConfig(pluginName)
+	if !ok {
+		return false, false
+	}
+	v, ok := m[key]
+	if !ok {
+		return false, false
+	}
+	b, ok := v.(bool)
+	return b, ok
+}
+
+// BotConfig Bot 平台凭证配置。
+//
+// 由平台适配器（如 zerobot-remilia/ 下的具体实现）在初始化时读取。
+// 框架核心不直接消费此配置，适配器通过 [Config.Bot] 取得后自行传入平台 SDK。
 type BotConfig struct {
 	AppID  uint64 `yaml:"app_id" mapstructure:"app_id"`
 	BotID  uint64 `yaml:"bot_id" mapstructure:"bot_id"`
@@ -37,17 +157,13 @@ type BotConfig struct {
 	Secret string `yaml:"secret" mapstructure:"secret"`
 }
 
-// ServerConfig 服务器配置
+// ServerConfig 服务器配置。
+//
+// 由 infra/server 包消费，通过 server.WithConfig(cfg.Server) 应用。
 type ServerConfig struct {
 	Host            string `yaml:"host" mapstructure:"host"`
 	Port            int    `yaml:"port" mapstructure:"port"`
 	ShutdownTimeout string `yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
-}
-
-// LogConfig 日志配置
-type LogConfig struct {
-	Level  string `yaml:"level" mapstructure:"level"`
-	Format string `yaml:"format" mapstructure:"format"`
 }
 
 // ConcurrencyConfig 并发/反压配置（可选）
@@ -58,7 +174,7 @@ type ConcurrencyConfig struct {
 	EventBuffer int    `yaml:"event_buffer" mapstructure:"event_buffer"`
 }
 
-// RetryConfig 重试与死信队列配置（可选）
+// RetryConfig 重试配置（可选）
 type RetryConfig struct {
 	Enable      bool   `yaml:"enable" mapstructure:"enable"`
 	MaxAttempts int    `yaml:"max_attempts" mapstructure:"max_attempts"`
@@ -66,32 +182,55 @@ type RetryConfig struct {
 	BackoffMax  string `yaml:"backoff_max" mapstructure:"backoff_max"`
 }
 
-// MiddlewareConfig 中间件开关（可选）
+// MiddlewareConfig 中间件配置。
+//
+// 各子字段对应一个独立中间件，使用嵌套结构以避免扁平命名的歧义。
+// 降级配置（Degradation）被纳入此结构，消除了原顶层 Config.Degradation 的重复定义。
 type MiddlewareConfig struct {
-	Logging                  bool     `yaml:"logging" mapstructure:"logging"`
-	Recover                  bool     `yaml:"recover" mapstructure:"recover"`
-	Auth                     bool     `yaml:"auth" mapstructure:"auth"`
-	AuthWhitelist            []string `yaml:"auth_whitelist" mapstructure:"auth_whitelist"`
-	RateLimit                bool     `yaml:"rate_limit" mapstructure:"rate_limit"`
-	RateLimitRate            int      `yaml:"rate_limit_rate" mapstructure:"rate_limit_rate"`
-	RateLimitBurst           int      `yaml:"rate_limit_burst" mapstructure:"rate_limit_burst"`
-	RateLimitMaxBuckets      int      `yaml:"rate_limit_max_buckets" mapstructure:"rate_limit_max_buckets"`
-	RateLimitBucketTTL       string   `yaml:"rate_limit_bucket_ttl" mapstructure:"rate_limit_bucket_ttl"`
-	RateLimitCleanupInterval string   `yaml:"rate_limit_cleanup_interval" mapstructure:"rate_limit_cleanup_interval"`
-	DedupEnable              bool     `yaml:"dedup_enable" mapstructure:"dedup_enable"`
-	DedupMaxSize             int      `yaml:"dedup_max_size" mapstructure:"dedup_max_size"`
-	DedupDefaultTTL          string   `yaml:"dedup_default_ttl" mapstructure:"dedup_default_ttl"`
-	DedupCleanupInterval     string   `yaml:"dedup_cleanup_interval" mapstructure:"dedup_cleanup_interval"`
-	SlowHandlerEnable        bool     `yaml:"slow_handler_enable" mapstructure:"slow_handler_enable"`
-	SlowHandlerThreshold     string   `yaml:"slow_handler_threshold" mapstructure:"slow_handler_threshold"`
-	Metrics                  bool     `yaml:"metrics" mapstructure:"metrics"`
-	// DegradationCPUThreshold CPU 使用率阈值（百分比，0-100），用于自适应降级热更新
-	DegradationCPUThreshold float64 `yaml:"degradation_cpu_threshold" mapstructure:"degradation_cpu_threshold"`
-	// DegradationMemoryThreshold 内存使用率阈值（百分比，0-100），用于自适应降级热更新
-	DegradationMemoryThreshold float64 `yaml:"degradation_memory_threshold" mapstructure:"degradation_memory_threshold"`
+	Logging     bool                        `yaml:"logging" mapstructure:"logging"`
+	Recover     bool                        `yaml:"recover" mapstructure:"recover"`
+	Metrics     bool                        `yaml:"metrics" mapstructure:"metrics"`
+	Auth        AuthMiddlewareConfig        `yaml:"auth" mapstructure:"auth"`
+	RateLimit   RateLimitMiddlewareConfig   `yaml:"rate_limit" mapstructure:"rate_limit"`
+	Dedup       DedupMiddlewareConfig       `yaml:"dedup" mapstructure:"dedup"`
+	SlowHandler SlowHandlerMiddlewareConfig `yaml:"slow_handler" mapstructure:"slow_handler"`
+	// Degradation 自适应降级配置（原 Config.Degradation，整合至此处，同时支持热更新）
+	Degradation DegradationConfig `yaml:"degradation" mapstructure:"degradation"`
 }
 
-// DeadLetterConfig 死信队列配置
+// AuthMiddlewareConfig 认证中间件配置
+type AuthMiddlewareConfig struct {
+	Enable    bool     `yaml:"enable" mapstructure:"enable"`
+	Whitelist []string `yaml:"whitelist" mapstructure:"whitelist"`
+}
+
+// RateLimitMiddlewareConfig 限流中间件配置
+type RateLimitMiddlewareConfig struct {
+	Enable          bool   `yaml:"enable" mapstructure:"enable"`
+	Rate            int    `yaml:"rate" mapstructure:"rate"`
+	Burst           int    `yaml:"burst" mapstructure:"burst"`
+	MaxBuckets      int    `yaml:"max_buckets" mapstructure:"max_buckets"`
+	BucketTTL       string `yaml:"bucket_ttl" mapstructure:"bucket_ttl"`
+	CleanupInterval string `yaml:"cleanup_interval" mapstructure:"cleanup_interval"`
+}
+
+// DedupMiddlewareConfig 去重中间件配置
+type DedupMiddlewareConfig struct {
+	Enable          bool   `yaml:"enable" mapstructure:"enable"`
+	MaxSize         int    `yaml:"max_size" mapstructure:"max_size"`
+	DefaultTTL      string `yaml:"default_ttl" mapstructure:"default_ttl"`
+	CleanupInterval string `yaml:"cleanup_interval" mapstructure:"cleanup_interval"`
+}
+
+// SlowHandlerMiddlewareConfig 慢处理器中间件配置
+type SlowHandlerMiddlewareConfig struct {
+	Enable    bool   `yaml:"enable" mapstructure:"enable"`
+	Threshold string `yaml:"threshold" mapstructure:"threshold"`
+}
+
+// DeadLetterConfig 死信队列配置。
+//
+// 由 infra/dlq 包消费。
 type DeadLetterConfig struct {
 	Enable       bool     `yaml:"enable" mapstructure:"enable"`
 	Target       string   `yaml:"target" mapstructure:"target"`
@@ -121,7 +260,10 @@ type WebhookConfig struct {
 	MaxEntriesInWindow int    `yaml:"max_entries_in_window" mapstructure:"max_entries_in_window"`
 }
 
-// EngineConfig engine 引擎配置
+// EngineConfig engine 引擎配置。
+//
+// 由 core/engine 包消费，通过 [EngineOptions](cfg.Engine) 转换为 engine.Option 列表后应用。
+// 字段含义和默认值参见 core/engine/config.go 中各 WithXxx Option 的文档。
 type EngineConfig struct {
 	TempMatcherCleanupInterval   string `yaml:"temp_matcher_cleanup_interval" mapstructure:"temp_matcher_cleanup_interval"`
 	PendingDeleteBufferSize      int    `yaml:"pending_delete_buffer_size" mapstructure:"pending_delete_buffer_size"`
@@ -132,7 +274,10 @@ type EngineConfig struct {
 	TempMatcherShardCount        int    `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
 }
 
-// DegradationConfig 自适应降级配置
+// DegradationConfig 自适应降级配置。
+//
+// 由 middleware/ 自适应降级组件消费。
+// 此类型嵌套在 [MiddlewareConfig.Degradation] 中（原顶层 Config.Degradation 已废弃）。
 type DegradationConfig struct {
 	Enable             bool    `yaml:"enable" mapstructure:"enable"`
 	CPUThreshold       float64 `yaml:"cpu_threshold" mapstructure:"cpu_threshold"`
@@ -143,38 +288,6 @@ type DegradationConfig struct {
 	DelayQueueSize     int     `yaml:"delay_queue_size" mapstructure:"delay_queue_size"`
 	GoroutineThreshold int     `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
-}
-
-// TracingConfig 分布式追踪配置
-type TracingConfig struct {
-	// Enable 是否启用追踪
-	Enable bool `yaml:"enable" mapstructure:"enable"`
-
-	// ServiceName 服务名称
-	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
-
-	// ServiceVersion 服务版本
-	ServiceVersion string `yaml:"service_version" mapstructure:"service_version"`
-
-	// Environment 环境（dev, staging, prod）
-	Environment string `yaml:"environment" mapstructure:"environment"`
-
-	// Exporter 导出器类型（otlp, zipkin, stdout）
-	Exporter string `yaml:"exporter" mapstructure:"exporter"`
-
-	// Endpoint 追踪后端地址
-	// OTLP (Tempo/Grafana): http://localhost:4318
-	// Zipkin: http://localhost:9411/api/v2/spans
-	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
-
-	// SamplingRate 采样率 (0.0 - 1.0)
-	SamplingRate float64 `yaml:"sampling_rate" mapstructure:"sampling_rate"`
-
-	// IncludeEventDetail 是否包含事件详情
-	IncludeEventDetail bool `yaml:"include_event_detail" mapstructure:"include_event_detail"`
-
-	// Headers 额外的 HTTP 头（用于 OTLP 认证）
-	Headers map[string]string `yaml:"headers" mapstructure:"headers"`
 }
 
 var globalConfig atomic.Value // stores *Config
@@ -362,7 +475,7 @@ func LoadDefault() (*Config, error) {
 			Host: getEnvDefault("SERVER_HOST", "0.0.0.0"),
 			Port: getEnvInt("SERVER_PORT", 8080),
 		},
-		Log: LogConfig{
+		Log: logger.Config{
 			Level:  strings.ToLower(getEnvDefault("LOG_LEVEL", "info")),
 			Format: strings.ToLower(getEnvDefault("LOG_FORMAT", "text")),
 		},

@@ -16,10 +16,10 @@ import (
 // 验证规则：
 // - Bot 配置：必填字段验证
 // - Server 配置：端口范围验证
-// - Log 配置：级别和格式验证
+// - Log 配置：级别和格式验证（委托给 logger.Config.Validate）
 // - Concurrency 配置：参数范围验证
 // - Retry 配置：参数有效性验证
-// - Middleware 配置：参数合理性验证
+// - Middleware 配置：参数合理性验证（含降级）
 func (c *Config) Validate() error {
 	validators := []struct {
 		name string
@@ -35,7 +35,6 @@ func (c *Config) Validate() error {
 		{"webhook", c.Webhook.Validate},
 		{"token", c.Token.Validate},
 		{"engine", c.Engine.Validate},
-		{"degradation", c.Degradation.Validate},
 		{"tracing", c.Tracing.Validate},
 	}
 	for _, v := range validators {
@@ -72,21 +71,6 @@ func (sc *ServerConfig) Validate() error {
 		if _, err := time.ParseDuration(sc.ShutdownTimeout); err != nil {
 			return fmt.Errorf("server.shutdown_timeout is not a valid duration: %w", err)
 		}
-	}
-	return nil
-}
-
-// Validate 验证 Log 配置
-func (lc *LogConfig) Validate() error {
-	validLevels := map[string]bool{
-		"debug": true, "info": true, "warn": true, "error": true, "fatal": true, "panic": true,
-	}
-	if lc.Level != "" && !validLevels[lc.Level] {
-		return fmt.Errorf("log.level must be one of [debug, info, warn, error, fatal, panic], got '%s'", lc.Level)
-	}
-	validFormats := map[string]bool{"text": true, "json": true}
-	if lc.Format != "" && !validFormats[lc.Format] {
-		return fmt.Errorf("log.format must be one of [text, json], got '%s'", lc.Format)
 	}
 	return nil
 }
@@ -131,50 +115,47 @@ func (rc *RetryConfig) Validate() error {
 	return nil
 }
 
-// Validate 验证 Middleware 配置
+// Validate 验证 MiddlewareConfig（含所有中间件子配置和降级配置）
 func (mc *MiddlewareConfig) Validate() error {
-	if mc.RateLimit {
-		if mc.RateLimitRate < 0 {
-			return fmt.Errorf("middleware.rate_limit_rate must be >= 0, got %d", mc.RateLimitRate)
+	rl := mc.RateLimit
+	if rl.Enable {
+		if rl.Rate < 0 {
+			return fmt.Errorf("middleware.rate_limit.rate must be >= 0, got %d", rl.Rate)
 		}
-		if mc.RateLimitBurst < 0 {
-			return fmt.Errorf("middleware.rate_limit_burst must be >= 0, got %d", mc.RateLimitBurst)
+		if rl.Burst < 0 {
+			return fmt.Errorf("middleware.rate_limit.burst must be >= 0, got %d", rl.Burst)
 		}
-		if mc.RateLimitBucketTTL != "" {
-			if _, err := time.ParseDuration(mc.RateLimitBucketTTL); err != nil {
-				return fmt.Errorf("middleware.rate_limit_bucket_ttl is not a valid duration: %w", err)
+		if rl.BucketTTL != "" {
+			if _, err := time.ParseDuration(rl.BucketTTL); err != nil {
+				return fmt.Errorf("middleware.rate_limit.bucket_ttl is not a valid duration: %w", err)
 			}
 		}
-		if mc.RateLimitCleanupInterval != "" {
-			if _, err := time.ParseDuration(mc.RateLimitCleanupInterval); err != nil {
-				return fmt.Errorf("middleware.rate_limit_cleanup_interval is not a valid duration: %w", err)
-			}
-		}
-	}
-	if mc.DedupEnable {
-		if mc.DedupDefaultTTL != "" {
-			if _, err := time.ParseDuration(mc.DedupDefaultTTL); err != nil {
-				return fmt.Errorf("middleware.dedup_default_ttl is not a valid duration: %w", err)
-			}
-		}
-		if mc.DedupCleanupInterval != "" {
-			if _, err := time.ParseDuration(mc.DedupCleanupInterval); err != nil {
-				return fmt.Errorf("middleware.dedup_cleanup_interval is not a valid duration: %w", err)
+		if rl.CleanupInterval != "" {
+			if _, err := time.ParseDuration(rl.CleanupInterval); err != nil {
+				return fmt.Errorf("middleware.rate_limit.cleanup_interval is not a valid duration: %w", err)
 			}
 		}
 	}
-	if mc.SlowHandlerEnable && mc.SlowHandlerThreshold != "" {
-		if _, err := time.ParseDuration(mc.SlowHandlerThreshold); err != nil {
-			return fmt.Errorf("middleware.slow_handler_threshold is not a valid duration: %w", err)
+	d := mc.Dedup
+	if d.Enable {
+		if d.DefaultTTL != "" {
+			if _, err := time.ParseDuration(d.DefaultTTL); err != nil {
+				return fmt.Errorf("middleware.dedup.default_ttl is not a valid duration: %w", err)
+			}
+		}
+		if d.CleanupInterval != "" {
+			if _, err := time.ParseDuration(d.CleanupInterval); err != nil {
+				return fmt.Errorf("middleware.dedup.cleanup_interval is not a valid duration: %w", err)
+			}
 		}
 	}
-	if mc.DegradationCPUThreshold != 0 && (mc.DegradationCPUThreshold < 0 || mc.DegradationCPUThreshold > 100) {
-		return fmt.Errorf("middleware.degradation_cpu_threshold must be between 0 and 100, got %f", mc.DegradationCPUThreshold)
+	sh := mc.SlowHandler
+	if sh.Enable && sh.Threshold != "" {
+		if _, err := time.ParseDuration(sh.Threshold); err != nil {
+			return fmt.Errorf("middleware.slow_handler.threshold is not a valid duration: %w", err)
+		}
 	}
-	if mc.DegradationMemoryThreshold != 0 && (mc.DegradationMemoryThreshold < 0 || mc.DegradationMemoryThreshold > 100) {
-		return fmt.Errorf("middleware.degradation_memory_threshold must be between 0 and 100, got %f", mc.DegradationMemoryThreshold)
-	}
-	return nil
+	return mc.Degradation.Validate()
 }
 
 // Validate 验证 DeadLetter 配置
@@ -283,7 +264,7 @@ func (ec *EngineConfig) Validate() error {
 	return nil
 }
 
-// Validate 验证 Degradation 配置
+// Validate 验证 DegradationConfig
 func (dc *DegradationConfig) Validate() error {
 	if !dc.Enable {
 		return nil
@@ -315,30 +296,6 @@ func (dc *DegradationConfig) Validate() error {
 	validStrategies := map[string]bool{"drop": true, "delay": true, "simplify": true, "": true}
 	if !validStrategies[dc.Strategy] {
 		return fmt.Errorf("degradation.strategy must be one of [drop, delay, simplify], got '%s'", dc.Strategy)
-	}
-	return nil
-}
-
-// Validate 验证 Tracing 配置
-func (tc *TracingConfig) Validate() error {
-	if !tc.Enable {
-		return nil
-	}
-	if tc.ServiceName == "" {
-		return fmt.Errorf("tracing.service_name is required when tracing is enabled")
-	}
-	validExporters := map[string]bool{
-		"otlp": true, "tempo": true, "grafana": true,
-		"zipkin": true, "stdout": true, "console": true,
-	}
-	if !validExporters[tc.Exporter] {
-		return fmt.Errorf("tracing.exporter must be one of [otlp, tempo, grafana, zipkin, stdout, console], got '%s'", tc.Exporter)
-	}
-	if tc.Exporter != "stdout" && tc.Exporter != "console" && tc.Endpoint == "" {
-		return fmt.Errorf("tracing.endpoint is required when exporter is '%s'", tc.Exporter)
-	}
-	if tc.SamplingRate < 0 || tc.SamplingRate > 1 {
-		return fmt.Errorf("tracing.sampling_rate must be between 0 and 1, got %f", tc.SamplingRate)
 	}
 	return nil
 }

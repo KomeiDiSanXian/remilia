@@ -35,9 +35,10 @@ retry:
   enable: true
   max_attempts: 3
 middleware:
-  rate_limit: true
-  rate_limit_rate: 100
-  rate_limit_burst: 200
+  rate_limit:
+    enable: true
+    rate: 100
+    burst: 200
 dead_letter:
   enable: false
 webhook:
@@ -224,7 +225,8 @@ concurrency:
 retry:
   enable: false
 middleware:
-  rate_limit: false
+  rate_limit:
+    enable: false
 dead_letter:
   enable: false
 webhook:
@@ -263,7 +265,8 @@ concurrency:
 retry:
   enable: false
 middleware:
-  rate_limit: false
+  rate_limit:
+    enable: false
 dead_letter:
   enable: false
 webhook:
@@ -375,7 +378,8 @@ concurrency:
 retry:
   enable: false
 middleware:
-  rate_limit: false
+  rate_limit:
+    enable: false
 dead_letter:
   enable: false
 webhook:

@@ -372,8 +372,10 @@ retry:
 middleware:
   logging: true
   recover: true
-  auth: false
-  rate_limit: false
+  auth:
+    enable: false
+  rate_limit:
+    enable: false
   metrics: true
 
 dead_letter:

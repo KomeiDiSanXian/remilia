@@ -114,10 +114,10 @@ type Engine struct {
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
 
-	// services holds runtime/infra concerns (temp manager, pools, metrics, etc.)
+	// services 持有运行时/基础设施关注点（临时 Matcher 管理器、对象池、Metrics 收集器等）
 	services services
 
-	// runtime holds engine-owned background components.
+	// runtime 持有引擎自有的后台组件（定期清理、待删除处理器等）
 	runtime runtime
 
 	// gate 是无锁事件处理门控（P-5 优化）。
@@ -128,8 +128,27 @@ type Engine struct {
 
 // NewEngine 创建一个新的事件引擎（COW 模式）
 //
-// 默认自动启动临时 Matcher 清理器，每 5 分钟清理一次。
-// 可以通过 WithCleanupInterval() 选项或 SetTempMatcherCleanInterval() 修改清理间隔。
+// # 后台 goroutine 说明（重要）
+//
+// NewEngine 默认在构造时启动以下后台 goroutine：
+//   - 临时 Matcher 清理器（每 1 分钟扫描并释放过期的一次性 Matcher）
+//   - 批量删除处理器（每 100ms 批量处理待删除的 Matcher）
+//
+// 调用方必须在使用结束后调用 [Engine.Shutdown] 以停止这些 goroutine，
+// 否则会导致 goroutine 泄漏。典型用法：
+//
+//	e := engine.NewEngine()
+//	defer e.Shutdown(ctx)  // 必须配对调用
+//
+// 在单元测试中，推荐使用 [WithNoBackgroundWorkers] 选项禁用后台 goroutine，
+// 避免测试结束后产生 goroutine 泄漏：
+//
+//	e := engine.NewEngine(engine.WithNoBackgroundWorkers())
+//
+// # 配置选项
+//
+// 可通过 WithCleanupInterval()、WithPendingDeleteProcessInterval() 等选项调整行为。
+// 传入 0 可以分别禁用对应的后台 goroutine。
 //
 // COW 模式优势：
 //   - 读操作无锁，性能提升 5-6x
@@ -170,8 +189,12 @@ func NewEngine(options ...Option) *Engine {
 		logger.Info("[engine] Temp matcher cleaner disabled by default configuration")
 	}
 
-	// 启动批量删除处理器
-	e.services.pendingDeleteStop = e.startPendingDeleteProcessor()
+	// 启动批量删除处理器（如果间隔 > 0）
+	if e.services.pendingDeleteProcessInterval > 0 {
+		e.services.pendingDeleteStop = e.startPendingDeleteProcessor()
+	} else {
+		logger.Info("[engine] Pending delete processor disabled by configuration")
+	}
 
 	// Register runtime components for unified shutdown semantics.
 	e.runtime.register(&tempCleanerComponent{e: e})
