@@ -107,11 +107,6 @@ var (
 	ErrTokenRefreshFailed = errors.New("token refresh failed")
 )
 
-// IsErrorType 使用 errors.Is 检查 error 是否与目标错误匹配。
-func IsErrorType(err, target error) bool {
-	return errors.Is(err, target)
-}
-
 // RecoverError 将 panic 转换为 error。
 // 通常在 defer 语句中使用，用于捕获 panic 并将其转换为合适的错误值。
 //
@@ -138,7 +133,7 @@ func RecoverError() error {
 
 // NewValidationError 创建特定字段的验证错误。
 func NewValidationError(field, reason string) error {
-	return fmt.Errorf("validation failed for field '%s': %s", field, reason)
+	return fmt.Errorf("validation failed for field '%s': %s: %w", field, reason, ErrConfigFieldInvalid)
 }
 
 // NewConfigError 创建特定键的配置错误。
@@ -148,5 +143,5 @@ func NewConfigError(key, reason string) error {
 
 // NewPluginError 创建插件专属错误。
 func NewPluginError(pluginName, message string) error {
-	return fmt.Errorf("plugin '%s': %s", pluginName, message)
+	return fmt.Errorf("plugin '%s': %s: %w", pluginName, message, ErrPluginLoadFailed)
 }

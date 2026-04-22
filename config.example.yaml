@@ -35,11 +35,27 @@ server:
 # 日志配置
 # ====================================
 log:
-  # 日志级别: debug, info, warn, error
+  # 日志级别: trace, debug, info, warn, error, fatal, panic
   level: "info"
 
-  # 日志输出格式: text, json
+  # 日志输出格式（向后兼容）: text（等价于 console=true）, json（等价于 console=false）
+  # 若同时设置了 console 字段，console 优先，此字段被忽略
   format: "text"
+
+  # 是否启用控制台输出（带颜色的人类可读格式）
+  # 与 format: "text" 等价，但优先级更高
+  # console: true
+
+  # 是否启用文件输出（JSON 格式写入 file_path）
+  # file: false
+
+  # 日志文件路径（file: true 时生效）
+  # 推荐值: "logs/remilia.log"
+  # file_path: "logs/remilia.log"
+
+  # 时间戳格式，使用 Go time.Format 规则
+  # 默认值: "2006-01-02 15:04:05"
+  # time_format: "2006-01-02 15:04:05"
 
 # ====================================
 # 并发控制配置（可选）
@@ -95,40 +111,49 @@ middleware:
   # 恢复中间件（捕获 panic）
   recover: true
 
-  # 认证中间件（用户/群组白名单）
-  auth: false
-  auth_whitelist:
-    - "user_id_1"
-    - "user_id_2"
-    - "group_id_1"
-
-  # 限流中间件（令牌桶算法）
-  rate_limit: false
-  rate_limit_rate: 100                      # 每秒生成的令牌数
-  rate_limit_burst: 200                     # 令牌桶容量（允许突发）
-  rate_limit_max_buckets: 10000             # 限流桶数量上限
-  rate_limit_bucket_ttl: "10m"              # 限流桶过期时间
-  rate_limit_cleanup_interval: "5m"         # 限流桶清理间隔
-
-  # 去重中间件
-  dedup_enable: false
-  dedup_max_size: 10000                     # 最大缓存条目数
-  dedup_default_ttl: "5m"                   # 默认去重 TTL
-  dedup_cleanup_interval: "1m"              # 清理间隔
-
-  # 慢处理器中间件（用于监控和调试）
-  slow_handler_enable: false
-  slow_handler_threshold: "1s"              # 慢处理阈值
-
   # 指标收集中间件（Prometheus）
-  # v0.7.1+ 支持 Prometheus 集成
   metrics: true
 
-  # 自适应降级 CPU 阈值（百分比，0-100），支持热更新
-  degradation_cpu_threshold: 80.0
+  # 认证中间件（用户/群组白名单）
+  auth:
+    enable: false
+    whitelist:
+      - "user_id_1"
+      - "user_id_2"
+      - "group_id_1"
 
-  # 自适应降级内存阈值（百分比，0-100），支持热更新
-  degradation_memory_threshold: 85.0
+  # 限流中间件（令牌桶算法）
+  rate_limit:
+    enable: false
+    rate: 100                       # 每秒生成的令牌数
+    burst: 200                      # 令牌桶容量（允许突发）
+    max_buckets: 10000              # 限流桶数量上限
+    bucket_ttl: "10m"               # 限流桶过期时间
+    cleanup_interval: "5m"          # 限流桶清理间隔
+
+  # 去重中间件
+  dedup:
+    enable: false
+    max_size: 10000                 # 最大缓存条目数
+    default_ttl: "5m"              # 默认去重 TTL
+    cleanup_interval: "1m"          # 清理间隔
+
+  # 慢处理器中间件（用于监控和调试）
+  slow_handler:
+    enable: false
+    threshold: "1s"                 # 慢处理阈值
+
+  # 自适应降级配置（含热更新，原 degradation 顶级节点）
+  degradation:
+    enable: false
+    cpu_threshold: 80.0             # CPU 使用率阈值（百分比，0-100）
+    memory_threshold: 85.0          # 内存使用率阈值（百分比，0-100）
+    latency_threshold: "500ms"      # 延迟阈值
+    monitor_interval: "5s"          # 监控间隔
+    recovery_interval: "10s"        # 恢复检查间隔
+    delay_queue_size: 1000          # 延迟队列大小（延迟策略使用）
+    goroutine_threshold: 10000      # 协程数量阈值
+    strategy: "drop"                # 降级策略: drop, delay, simplify
 
 # ====================================
 # 死信队列配置（可选）
@@ -241,40 +266,6 @@ engine:
   # 推荐值: 8-32（2的幂次）
   temp_matcher_shard_count: 8
 
-# ====================================
-# 自适应降级配置（高级功能，可选）
-# ====================================
-degradation:
-  # 是否启用自适应降级
-  enable: false
-
-  # CPU 使用率阈值（百分比，0-100）
-  # 超过此值开始降级
-  cpu_threshold: 80.0
-
-  # 内存使用率阈值（百分比，0-100）
-  memory_threshold: 85.0
-
-  # 延迟阈值
-  # 格式: "100ms", "500ms", "1s" 等
-  latency_threshold: "500ms"
-
-  # 监控间隔
-  # 格式: "1s", "5s", "10s" 等
-  monitor_interval: "5s"
-
-  # 恢复检查间隔
-  # 格式: "5s", "10s", "30s" 等
-  recovery_interval: "10s"
-
-  # 延迟队列大小（延迟策略使用）
-  delay_queue_size: 1000
-
-  # 协程数量阈值
-  goroutine_threshold: 10000
-
-  # 降级策略: drop（丢弃）, delay（延迟）, simplify（简化）
-  strategy: "drop"
 
 # ====================================
 # 分布式追踪配置（可选）
@@ -305,6 +296,20 @@ tracing:
   # 1.0 = 全量采样，0.1 = 10% 采样
   sampling_rate: 1.0
 
+  # 是否启用自适应采样（根据错误率和负载动态调整采样率）
+  # 启用后 sampling_rate 作为基础采样率
+  # use_adaptive_sampling: false
+
+  # 自适应采样器详细配置（仅 use_adaptive_sampling: true 时生效）
+  # adaptive_sampler:
+  #   base_sampling_rate: 0.1        # 基础采样率 (0.0-1.0)
+  #   min_sampling_rate: 0.01        # 最小采样率
+  #   max_sampling_rate: 1.0         # 最大采样率
+  #   error_threshold: 0.1           # 错误率阈值，超过时提高采样率
+  #   high_error_sampling_rate: 1.0  # 高错误率时的采样率
+  #   adjust_interval: "10s"         # 动态调整间隔
+  #   always_sample_errors: true     # 是否始终采样错误 Span
+
   # 是否在 Span 中包含事件详情（内容、作者等）
   include_event_detail: false
 
@@ -312,6 +317,19 @@ tracing:
   # headers:
   #   Authorization: "Bearer your_token"
   #   X-Custom-Header: "value"
+
+# ====================================
+# 插件扩展配置（可选）
+# 各业务插件通过此节读取自定义配置（API Key、开关等）
+# 键为插件名称，值为任意键值对
+# ====================================
+# plugins:
+#   weather:
+#     api_key: "your-weather-api-key"
+#     timeout: 10
+#   translate:
+#     provider: "mymemory"
+#     daily_limit: 1000
 
 # ====================================
 # 配置说明

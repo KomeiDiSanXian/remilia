@@ -147,6 +147,55 @@ func (m *Map[K, V]) Compute(key K, fn func(old V, exists bool) (newVal V, store 
 	return newVal, store
 }
 
+// GetOrCreate 返回 key 对应的值；若 key 不存在，则调用 newFn 创建、存储并返回新值。
+//
+// 使用读写双检锁（read→write double-check）保证并发安全：
+// 快路径仅需读锁，只有真正缺失时才升级写锁，并发创建只发生一次。
+//
+// newFn 在持有写锁时调用，不应在 newFn 内再操作同一 Map（会死锁）。
+func (m *Map[K, V]) GetOrCreate(key K, newFn func() V) V {
+	// 快路径：读锁下查找
+	m.mu.RLock()
+	if v, ok := m.m[key]; ok {
+		m.mu.RUnlock()
+		return v
+	}
+	m.mu.RUnlock()
+
+	// 慢路径：写锁 + double-check
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if v, ok := m.m[key]; ok {
+		return v
+	}
+	m.initLocked()
+	v := newFn()
+	m.m[key] = v
+	return v
+}
+
+// DeleteIf 按条件批量删除条目。
+//
+// 遍历所有条目，当 fn 返回 true 时删除该条目。
+// fn 在持有写锁期间调用，因此 fn 内部不应再操作同一 Map（会死锁）。
+//
+// 典型用途：定期 GC 超时的游戏会话。
+//
+//	store.DeleteIf(func(_ string, s *gameState) bool {
+//	    s.mu.Lock()
+//	    defer s.mu.Unlock()
+//	    return time.Since(s.StartTime) > 5*time.Minute
+//	})
+func (m *Map[K, V]) DeleteIf(fn func(key K, val V) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, v := range m.m {
+		if fn(k, v) {
+			delete(m.m, k)
+		}
+	}
+}
+
 // initLocked 在持有写锁的情况下懒初始化内部 map。
 func (m *Map[K, V]) initLocked() {
 	if m.m == nil {

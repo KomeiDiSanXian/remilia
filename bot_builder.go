@@ -23,6 +23,7 @@ import (
 type BotBuilder struct {
 	adapter          platform.Adapter
 	engine           *engine.Engine
+	engineOptions    []engine.Option      // 延迟传入 engine.NewEngine()，与 BotBuilder 作为唯一入口的设计保持一致
 	pluginManager    *plugin.Manager      // 可选，通过 WithPluginManager 或 WithPlugins 注入
 	pendingPlugins   []*plugin.Descriptor // WithPlugins 收集的描述符，Build() 时批量注册
 	platformRegistry *platform.Registry   // 可选，多平台适配器注册表
@@ -32,7 +33,6 @@ type BotBuilder struct {
 // NewBotBuilder 创建Bot构建器
 func NewBotBuilder() *BotBuilder {
 	return &BotBuilder{
-		engine:  engine.NewEngine(),
 		options: make([]Option, 0),
 	}
 }
@@ -42,6 +42,22 @@ func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
 	if eng != nil {
 		b.engine = eng
 	}
+	return b
+}
+
+// WithEngineOptions 传递 engine.Option 给 Build() 内部创建的 Engine。
+//
+// 这允许在不绕过 BotBuilder 的情况下自定义 Engine 行为，例如调整清理间隔：
+//
+//	bot, err := remilia.NewBotBuilder().
+//	    WithPlatformAdapter(adapter).
+//	    WithEngineOptions(engine.WithCleanupInterval(10 * time.Minute)).
+//	    Build()
+//
+// 注意：若已通过 [BotBuilder.WithEngine] 传入外部 Engine 实例，
+// 此方法设置的选项将被忽略（外部实例已完成初始化）。
+func (b *BotBuilder) WithEngineOptions(opts ...engine.Option) *BotBuilder {
+	b.engineOptions = append(b.engineOptions, opts...)
 	return b
 }
 
@@ -135,7 +151,7 @@ func (b *BotBuilder) Build() (*Bot, error) {
 	}
 
 	if b.engine == nil {
-		b.engine = engine.NewEngine()
+		b.engine = engine.NewEngine(b.engineOptions...)
 	}
 
 	if len(b.pendingPlugins) > 0 {
@@ -172,7 +188,7 @@ func (b *BotBuilder) Build() (*Bot, error) {
 func (b *BotBuilder) MustBuild() *Bot {
 	bot, err := b.Build()
 	if err != nil {
-		panic("failed to build bot: " + err.Error())
+		panic(err)
 	}
 	return bot
 }

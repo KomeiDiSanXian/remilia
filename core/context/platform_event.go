@@ -8,6 +8,7 @@ package context
 import (
 	stdctx "context"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -206,4 +207,104 @@ func (ctx *Context) IsFromSelf() bool {
 		return false
 	}
 	return ctx.platformEvent.Sender().ID == ctx.botID
+}
+
+// TryGetGroupMembers 尝试获取当前群的成员列表。
+//
+// 底层通过 platform.GroupInfoProvider 接口实现；若平台 Sender 不支持
+// 此接口，或当前不是群组会话，返回 (nil, false)。
+//
+// 使用场景：需要获取群成员列表时（如随机选择成员、统计等）。
+//
+// 注意：大型群组下成员列表可能很长，各平台可能有分页限制；
+// OneBot 通常可以返回完整列表。
+//
+// 使用示例：
+//
+//	members, ok := ctx.TryGetGroupMembers()
+//	if !ok {
+//	    // 平台不支持，降级到被动登记策略
+//	}
+//	for _, m := range members {
+//	    fmt.Println(m.DisplayName)
+//	}
+func (ctx *Context) TryGetGroupMembers() ([]platform.GroupMemberInfo, bool) {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil, false
+	}
+	chat := ctx.platformEvent.Chat()
+	if !chat.IsGroup || chat.ID == "" {
+		return nil, false
+	}
+	gip, ok := ctx.platformSender.(platform.GroupInfoProvider)
+	if !ok {
+		return nil, false
+	}
+	members, err := gip.GetGroupMemberList(ctx.Context(), chat.ID)
+	if err != nil {
+		return nil, false
+	}
+	return members, true
+}
+
+// TryDeleteMemberMessage 尝试撤回当前消息。
+// 底层通过 platform.AutoModerator 接口实现；若平台 Sender 不支持，
+// 或消息 ID 为空，静默返回 nil（不报错）。
+//
+// 使用场景：黑名单过滤、违禁词检测、自动审核等需要撤回他人消息的场景。
+//
+// 注意：撤回他人消息需要机器人具有群管理员权限；无权限时平台会返回错误。
+//
+// 使用示例：
+//
+//	// handler 内，检测违规消息后撤回
+//	if isSpam(ctx.GetMessageContent()) {
+//	    _ = ctx.TryDeleteMemberMessage()
+//	}
+func (ctx *Context) TryDeleteMemberMessage() error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	am, ok := ctx.platformSender.(platform.AutoModerator)
+	if !ok {
+		return nil // 平台不支持，静默忽略
+	}
+	msgID := ctx.platformEvent.ID()
+	if msgID == "" {
+		return nil // 无法定位消息，忽略
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	return am.DeleteMemberMessage(ctx.Context(), chatID, msgID)
+}
+
+// TryMuteMessageAuthor 尝试禁言当前消息的发送者。
+//
+// 底层通过 platform.GroupManager 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+// 使用场景：黑名单自动禁言、违规自动处罚等。
+//
+// 注意：需要机器人具有群管理员权限；在私聊场景中（非群组消息）此操作无意义，静默忽略。
+//
+// 使用示例：
+//
+//	if isSpam(ctx.GetMessageContent()) {
+//	    _ = ctx.TryMuteMessageAuthor(5 * time.Minute)
+//	}
+func (ctx *Context) TryMuteMessageAuthor(duration time.Duration) error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	chat := ctx.platformEvent.Chat()
+	if !chat.IsGroup {
+		return nil // 私聊场景忽略
+	}
+	gm, ok := ctx.platformSender.(platform.GroupManager)
+	if !ok {
+		return nil
+	}
+	userID := ctx.platformEvent.Sender().ID
+	if userID == "" {
+		return nil
+	}
+	return gm.BanMember(ctx.Context(), chat.ID, userID, duration)
 }

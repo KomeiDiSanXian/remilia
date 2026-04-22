@@ -39,7 +39,9 @@ func TestBridge_WatchAdaptive(t *testing.T) {
 	bridge := hotreload.NewBridge().WatchAdaptive(arl)
 	newCfg := &config.Config{
 		Middleware: config.MiddlewareConfig{
-			RateLimitBurst: 50,
+			RateLimit: config.RateLimitMiddlewareConfig{
+				Burst: 50,
+			},
 		},
 	}
 	// Should not panic

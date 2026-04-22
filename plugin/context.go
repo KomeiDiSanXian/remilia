@@ -3,6 +3,10 @@ package plugin
 import (
 	stdctx "context"
 	"fmt"
+	"sync"
+	"time"
+
+	"github.com/robfig/cron/v3"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -31,6 +35,10 @@ type setupContextInternal struct {
 	autoTrackEnabled    bool
 	goroutineMgr        *goroutineManager
 	eng                 engine.PluginCoordinator // 注册 Matcher 的 engine（reload 时复用）
+
+	// RegisterCron 懒初始化字段（framework #31）
+	cronInitOnce  sync.Once
+	cronScheduler *cron.Cron
 }
 
 // SetupContext 插件 Setup 阶段的上下文。
@@ -199,6 +207,84 @@ func (ctx *SetupContext) GoNamed(name string, fn func(stdctx.Context)) {
 		ctx.goroutineMgr.goNamed_(name, fn)
 	}
 }
+
+// After 注册一个一次性延迟任务（框架修复 #35）。
+//
+// d 之后调用 fn；若插件在 d 到期前被 Teardown，fn 被静默取消，不会调用。
+// name 用于调试标识（与 GoNamed 的 name 语义相同）。
+// DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op。
+//
+// 适用于"N分钟后执行一次"的场景（如定时提醒、倒计时），
+// 区别于 RegisterCron（重复执行）。
+//
+// 示例：
+//
+//	ctx.After("remind:"+userID, 5*time.Minute, func() {
+//	    sender.NotifyUser(ctx, userID, platform.TextMessage("提醒时间到！"))
+//	})
+func (ctx *SetupContext) After(name string, d time.Duration, fn func()) {
+	if ctx.goroutineMgr == nil {
+		return
+	}
+	ctx.goroutineMgr.goNamed_(name, func(runCtx stdctx.Context) {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-t.C:
+			fn()
+		case <-runCtx.Done():
+			// 插件 Teardown，静默取消
+		}
+	})
+}
+
+// RegisterCron 在插件 Setup 阶段注册生命周期绑定的 cron 定时任务。
+//
+// expr 为 cron 表达式，支持 6 段含秒格式（秒 分 时 日 月 周）
+// 和 5 段标准格式（分 时 日 月 周），由 robfig/cron/v3 解析。
+// fn 在每次触发时调用；插件 Teardown（goroutineManager 被 cancel）时 cron 自动停止。
+//
+// DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op，不启动任何任务。
+// 同一插件多次调用 RegisterCron 共享同一个 cron scheduler 实例（懒初始化）。
+//
+// 插件在 Setup 中直接注册内置定时任务，无需依赖外部 scheduler 插件，
+// 实现插件生命周期完全自包含（创建即启动，Teardown 自动停止）。
+//
+//	Setup: func(ctx *plugin.SetupContext) (any, error) {
+//	    // 每天凌晨2点清理过期数据
+//	    if err := ctx.RegisterCron("0 2 * * *", func() {
+//	        cleanup()
+//	    }); err != nil {
+//	        ctx.Log.Warnf("RegisterCron failed: %v", err)
+//	    }
+//	    return nil, nil
+//	},
+func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
+	if ctx.goroutineMgr == nil {
+		// DryRun 阶段或 goroutineMgr 未初始化，no-op
+		return nil
+	}
+
+	// 懒初始化：首次 RegisterCron 调用时创建 cron scheduler 并绑定生命周期
+	ctx.cronInitOnce.Do(func() {
+		c := cron.New(cron.WithSeconds())
+		c.Start()
+		ctx.cronScheduler = c
+		// 绑定插件生命周期：goroutineMgr cancel 时停止 cron
+		ctx.goroutineMgr.goNamed_("plugin-cron:"+ctx.pluginName, func(runCtx stdctx.Context) {
+			<-runCtx.Done()
+			stopCtx := ctx.cronScheduler.Stop()
+			<-stopCtx.Done()
+		})
+	})
+
+	if _, err := ctx.cronScheduler.AddFunc(expr, fn); err != nil {
+		return fmt.Errorf("plugin %q: RegisterCron invalid expr %q: %w", ctx.pluginName, expr, err)
+	}
+	return nil
+}
+
+// TODO: 待后续go1.27看看能不能有泛型方法改成类似 ctx.Get[permission.Plugin]("permission") 这样更安全的调用方式
 
 // Get 获取依赖插件（弱类型）
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
@@ -369,7 +455,7 @@ func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
 	return typed, true
 }
 
-// ExportInterface 将插件 API 以接口类型额外导出到容器。
+// ExportIface 将插件 API 以接口类型额外导出到容器。
 //
 // 配合 [MustAs] / [TryAs] 使用，让消费者可以通过接口而非具体类型访问依赖。
 // 通常在 Setup 末尾配合主 key 一起使用：
@@ -378,13 +464,13 @@ func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
 //	    p := NewPlugin()
 //	    // 主 key 导出具体类型（return p 自动以插件名注册）
 //	    // 额外以接口类型导出，供依赖接口的消费者使用
-//	    plugin.ExportInterface[storage.Client](ctx, "storage.Client", p)
-//	    plugin.ExportInterface[storage.Storage](ctx, "storage.Storage", p)
+//	    plugin.ExportIface[storage.Client](ctx, "storage.Client", p)
+//	    plugin.ExportIface[storage.Storage](ctx, "storage.Storage", p)
 //	    return p, nil
 //	},
 //
 //	// 消费者：面向接口，不依赖具体实现
 //	client := plugin.MustAs[storage.Client](ctx, "storage.Client")
-func ExportInterface[T any](ctx *SetupContext, key string, impl T) {
+func ExportIface[T any](ctx *SetupContext, key string, impl T) {
 	ctx.ExportAs(key, impl)
 }

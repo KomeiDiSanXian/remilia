@@ -117,6 +117,32 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	ctx.ctxMu.Unlock()
 }
 
+// copyExtensions 将 src 的两套扩展存储（类型键 + 字符串键）深拷贝到 dst。
+//
+// 两套存储分别对应：
+//   - 类型键（Extensions）：框架组件间强类型数据，跳过 *extensionState 条目（由字符串键路径单独拷贝）
+//   - 字符串键（extensionState）：插件/handler 层通用键值对，做 map 深拷贝保证隔离
+func copyExtensions(src, dst *Context) {
+	if ex := src.Ext(); ex != nil {
+		dstExt := dst.Ext()
+		extStateType := extTypeOf[*extensionState]()
+		for k, v := range ex.Snapshot() {
+			if k == extStateType {
+				continue
+			}
+			dstExt.Set(k, v)
+		}
+	}
+
+	if s, ok := ExtGet[*extensionState](src.Ext()); ok && s != nil {
+		s.mu.RLock()
+		cp := make(map[string]any, len(s.m))
+		maps.Copy(cp, s.m)
+		s.mu.RUnlock()
+		ExtSet(dst.Ext(), &extensionState{m: cp})
+	}
+}
+
 // Clone 克隆 Context 用于异步操作
 func (ctx *Context) Clone() *Context {
 	newStdCtx := stdctx.Background()
@@ -140,25 +166,7 @@ func (ctx *Context) Clone() *Context {
 			newCtx.ctxMu.Unlock()
 		}
 
-		if ex := ctx.Ext(); ex != nil {
-			dst := newCtx.Ext()
-			extStateType := extTypeOf[*extensionState]()
-			for k, v := range ex.Snapshot() {
-				if k == extStateType {
-					continue
-				}
-				dst.Set(k, v)
-			}
-		}
-
-		if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
-			s.mu.RLock()
-			cp := make(map[string]any, len(s.m))
-			maps.Copy(cp, s.m)
-			s.mu.RUnlock()
-			ExtSet(newCtx.Ext(), &extensionState{m: cp})
-		}
-
+		copyExtensions(ctx, newCtx)
 		return newCtx
 	}
 
@@ -175,25 +183,7 @@ func (ctx *Context) Clone() *Context {
 		platformCaps:   ctx.platformCaps,   // B1 fix: 保留平台能力声明，避免克隆后渐进增强失效
 	}
 
-	if ex := ctx.Ext(); ex != nil {
-		dst := newCtx.Ext()
-		extStateType := extTypeOf[*extensionState]()
-		for k, v := range ex.Snapshot() {
-			if k == extStateType {
-				continue
-			}
-			dst.Set(k, v)
-		}
-	}
-
-	if s, ok := ExtGet[*extensionState](ctx.Ext()); ok && s != nil {
-		s.mu.RLock()
-		cp := make(map[string]any, len(s.m))
-		maps.Copy(cp, s.m)
-		s.mu.RUnlock()
-		ExtSet(newCtx.Ext(), &extensionState{m: cp})
-	}
-
+	copyExtensions(ctx, newCtx)
 	return newCtx
 }
 

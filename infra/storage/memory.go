@@ -82,5 +82,14 @@ func (m *MemoryClient) Updates(_ any) error { return nil }
 // Where 返回自身（MemoryClient 不支持条件过滤）
 func (m *MemoryClient) Where(_ any, _ ...any) Client { return m }
 
+// Order 返回自身（MemoryClient 不支持排序）
+func (m *MemoryClient) Order(_ any) Client { return m }
+
+// Limit 返回自身（MemoryClient 不支持 LIMIT）
+func (m *MemoryClient) Limit(_ int) Client { return m }
+
+// Offset 返回自身（MemoryClient 不支持 OFFSET）
+func (m *MemoryClient) Offset(_ int) Client { return m }
+
 // DB 始终返回 nil（MemoryClient 没有 gorm.DB）
 func (m *MemoryClient) DB() *gorm.DB { return nil }

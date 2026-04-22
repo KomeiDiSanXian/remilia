@@ -53,8 +53,8 @@ func main() {
 	tokenMgr.WaitReady()
 	logger.Info("✓ Token is ready")
 
-	// 4. 使用配置创建 engine
-	eng := engine.NewEngine(engine.WithConfig(cfg.Engine))
+	// 4. 使用配置创建 engine（通过 config.EngineOptions 桥接，engine 包不再依赖 config 包）
+	eng := engine.NewEngine(config.EngineOptions(cfg.Engine)...)
 
 	// 5. 这里可以注册你的处理器
 	// 例如：

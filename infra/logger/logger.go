@@ -21,13 +21,34 @@ var (
 	logFileMu sync.Mutex
 )
 
-// Config 日志配置
+// Config 日志配置。
+//
+// 此类型同时作为 config.Config.Log 的配置结构体（config 包通过类型别名引用），
+// 因此所有字段均带有 yaml/mapstructure tag，可直接被 YAML 反序列化。
+//
+// Format 与 Console 字段的关系：
+//   - Format 为 YAML 向后兼容字段，"text" 等价于 Console=true，"json" 等价于 Console=false。
+//   - 若同时设置 Console 和 Format，Console 优先（Init 中显式处理）。
 type Config struct {
-	Level      string // 日志级别：trace, debug, info, warn, error, fatal, panic
-	Console    bool   // 是否启用控制台输出
-	File       bool   // 是否启用文件输出
-	FilePath   string // 日志文件路径
-	TimeFormat string // 时间格式，默认："2006-01-02 15:04:05"
+	// Level 日志级别：trace, debug, info, warn, error, fatal, panic
+	Level string `yaml:"level" mapstructure:"level"`
+
+	// Format 输出格式（向后兼容）："text"（人类可读）或 "json"（结构化）。
+	// 等效于设置 Console：Format="text" → Console=true；Format="json" → Console=false。
+	// 若已明确设置 Console，此字段将被忽略。
+	Format string `yaml:"format" mapstructure:"format"`
+
+	// Console 是否启用控制台输出（zerolog.ConsoleWriter，带颜色的人类可读格式）
+	Console bool `yaml:"console" mapstructure:"console"`
+
+	// File 是否启用文件输出（JSON 格式写入 FilePath）
+	File bool `yaml:"file" mapstructure:"file"`
+
+	// FilePath 日志文件路径（File=true 时生效）
+	FilePath string `yaml:"file_path" mapstructure:"file_path"`
+
+	// TimeFormat 时间戳格式，默认："2006-01-02 15:04:05"
+	TimeFormat string `yaml:"time_format" mapstructure:"time_format"`
 }
 
 // DefaultConfig 返回默认日志配置
@@ -41,6 +62,22 @@ func DefaultConfig() Config {
 	}
 }
 
+// Validate 验证日志配置有效性
+func (c *Config) Validate() error {
+	validLevels := map[string]bool{
+		"trace": true, "debug": true, "info": true,
+		"warn": true, "error": true, "fatal": true, "panic": true,
+	}
+	if c.Level != "" && !validLevels[c.Level] {
+		return fmt.Errorf("log.level must be one of [trace, debug, info, warn, error, fatal, panic], got '%s'", c.Level)
+	}
+	validFormats := map[string]bool{"": true, "text": true, "json": true}
+	if !validFormats[c.Format] {
+		return fmt.Errorf("log.format must be one of [text, json], got '%s'", c.Format)
+	}
+	return nil
+}
+
 // Init 使用指定配置初始化全局日志记录器
 func Init(cfg Config) error {
 	logFileMu.Lock()
@@ -50,6 +87,18 @@ func Init(cfg Config) error {
 		logFile = nil
 	}
 	logFileMu.Unlock()
+
+	// 将 Format 字段应用为 Console 的回退默认值（向后兼容 config.yaml 的 format: text/json）。
+	// 仅当 Console 和 File 均未显式设置时才生效，避免覆盖调用方的明确意图。
+	if !cfg.Console && !cfg.File {
+		switch cfg.Format {
+		case "text":
+			cfg.Console = true
+		case "json", "":
+			// json 模式：不用 ConsoleWriter，输出到 stdout（后续 len(writers)==0 时自动兜底）
+		}
+	}
+
 	// 设置时间格式
 	timeFormat := cfg.TimeFormat
 	if timeFormat == "" {

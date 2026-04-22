@@ -44,6 +44,7 @@ const (
 // entry 冷却记录
 type entry struct {
 	lastUsed time.Time
+	data     any // 可选的附加数据（由 AllowWithData 存储）
 }
 
 // Plugin 冷却时间插件 API
@@ -119,6 +120,43 @@ func (p *Plugin) Allow(userID, command string, cooldownDur time.Duration) bool {
 		return e, true
 	})
 	return allowed
+}
+
+// AllowWithData 与 Allow 相同，但在允许时同时存储 data。
+//
+// 当冷却期内再次调用时返回 false，data 参数被忽略（已存储的 data 不变）。
+// 典型用法：存储上次操作的结果，以便在冷却期内回显。
+//
+//	if p.AllowWithData(uid, "omikuji", 24*time.Hour, result) {
+//	    // 新的一次
+//	} else {
+//	    prev, _ := p.GetData(uid, "omikuji")
+//	    // 展示上次结果
+//	}
+func (p *Plugin) AllowWithData(userID, command string, cooldownDur time.Duration, data any) bool {
+	key := cdKey(userID, command)
+	now := time.Now()
+	var allowed bool
+	p.records.Compute(key, func(e *entry, exists bool) (*entry, bool) {
+		if !exists || now.Sub(e.lastUsed) >= cooldownDur {
+			allowed = true
+			return &entry{lastUsed: now, data: data}, true
+		}
+		return e, true
+	})
+	return allowed
+}
+
+// GetData 返回上次 AllowWithData 存储的附加数据。
+//
+// 若冷却记录不存在（从未允许过），返回 (nil, false)。
+func (p *Plugin) GetData(userID, command string) (any, bool) {
+	key := cdKey(userID, command)
+	e, exists := p.records.Load(key)
+	if !exists {
+		return nil, false
+	}
+	return e.data, true
 }
 
 // Remaining 返回还需等待的时间（如果冷却已过则返回 0）

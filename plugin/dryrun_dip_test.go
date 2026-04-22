@@ -123,7 +123,7 @@ func TestMustAs_Success(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "provider-mustas",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ExportInterface[testClientIface](ctx, "test.client", impl)
+			ExportIface[testClientIface](ctx, "test.client", impl)
 			return impl, nil
 		},
 	}))
@@ -188,7 +188,7 @@ func TestTryAs_Success(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "provider-tryas",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ExportInterface[testClientIface](ctx, "test.client.opt", impl)
+			ExportIface[testClientIface](ctx, "test.client.opt", impl)
 			return impl, nil
 		},
 	}))
@@ -264,8 +264,8 @@ func TestExportInterface_MultipleKeys(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "multi-interface-provider",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ExportInterface[testWriterIface](ctx, "multi.writer", impl)
-			ExportInterface[testReaderIface](ctx, "multi.reader", impl)
+			ExportIface[testWriterIface](ctx, "multi.writer", impl)
+			ExportIface[testReaderIface](ctx, "multi.reader", impl)
 			return impl, nil
 		},
 	}))

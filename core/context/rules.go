@@ -384,6 +384,21 @@ func MonitorRule(name string, rule Rule, threshold time.Duration) Rule {
 	}
 }
 
+// MustGetCachedRegexp 返回 pattern 对应的编译后正则表达式，与 [OnRegex] 共享同一 LRU 缓存。
+// pattern 无效时 panic，与 regexp.MustCompile 行为一致。
+//
+// 供框架层（如 plugin.RegisterRegex）在 setup 阶段使用：
+// 既保留 MustCompile 语义，又避免相同 pattern 被多处重复编译。
+func MustGetCachedRegexp(pattern string) *regexp.Regexp {
+	initRegexCache()
+	if re, ok := regexCache.get(pattern); ok {
+		return re
+	}
+	re := regexp.MustCompile(pattern)
+	regexCache.put(pattern, re)
+	return re
+}
+
 // ClearRegexCache 清空正则表达式缓存
 //
 // 主要用于测试或内存管理场景。
@@ -539,5 +554,108 @@ func NotBanned(checker BannedChecker) Rule {
 			return true // 无法确定用户身份，放行
 		}
 		return !checker.IsBanned(userID)
+	}
+}
+
+// OnTimeRange 时间段规则。
+//
+// 仅当服务器当前时间的 Hour（0-23）处于 [startHour, endHour] 区间内时，规则才匹配。
+// 支持跨午夜区间，例如 OnTimeRange(21, 3) 表示 21:00-03:59（晚间区间）。
+//
+// 典型用途：限制"晚安"命令仅在21:00-次日03:00之间响应，
+// 避免白天用户随意发"晚安"触发睡眠记录。
+//
+// 修复框架问题 #23：为 RegisterRegex / RegisterCommand 提供时间段过滤能力，
+// 插件无需在 Handler 内手动判断时间，直接在注册时附加此规则即可。
+//
+// 使用示例:
+//
+//	// 仅在晚上21点到凌晨3点响应"晚安"（跨午夜区间）
+//	ctx.Reg.RegisterRegex("", `^晚安$`, OnTimeRange(21, 3)).Handle(handleGoodNight)
+//
+//	// 仅在上午6点到中午12点响应"早安"
+//	ctx.Reg.RegisterRegex("", `^早安$`, OnTimeRange(6, 12)).Handle(handleGoodMorning)
+func OnTimeRange(startHour, endHour int) Rule {
+	return func(_ *Context) bool {
+		hour := time.Now().Hour()
+		if startHour <= endHour {
+			// 正常区间，如 6-12
+			return hour >= startHour && hour <= endHour
+		}
+		// 跨午夜区间，如 21-3
+		return hour >= startHour || hour <= endHour
+	}
+}
+
+// OnGroupAdminOrOwner 群管理员/群主权限规则。
+//
+// 仅当消息发送者是当前群的管理员（GroupRoleAdmin）或群主（GroupRoleOwner）时，规则才匹配。
+// 在私聊场景中，此规则始终返回 false（管理操作仅限群内）。
+//
+// 修复框架问题 #24：为管理员命令提供内置的权限规则，
+// 插件无需在 Handler 内手动比较 platform.UserInfo.GroupRole。
+//
+// 注意：部分平台（如 OneBot 的普通群消息）可能无法在事件 payload 中携带 GroupRole，
+// 此时 GroupRole == GroupRoleUnknown == 0，规则返回 false。
+// 如需支持此类场景，可通过额外调用 API 或存储历史身份来补充判断。
+//
+// 使用示例:
+//
+//	// 仅群管理员可以添加签池
+//	ctx.Reg.RegisterCommand("", "/添加签池", OnGroupAdminOrOwner()).Handle(handleAddSign)
+func OnGroupAdminOrOwner() Rule {
+	return func(ctx *Context) bool {
+		chat := ctx.GetChatInfo()
+		if !chat.IsGroup {
+			return false // 私聊不适用管理员规则
+		}
+		sender := ctx.GetSenderInfo()
+		return sender.GroupRole == platform.GroupRoleAdmin ||
+			sender.GroupRole == platform.GroupRoleOwner
+	}
+}
+
+// OnFromUser 匹配来自特定用户的消息（发送者 ID 等于 userID）。
+//
+// 适用于将某个命令永久限制为特定用户的场景（静态过滤）。
+// 若需根据运行时状态动态决定期望用户，请使用 [OnFromUserFunc]。
+//
+// 示例：
+//
+//	ctx.Reg.RegisterCommand("", "/管理", OnFromUser(adminID)).Handle(h)
+func OnFromUser(userID string) Rule {
+	return func(ctx *Context) bool {
+		return ctx.GetUserID() == userID
+	}
+}
+
+// OnFromUserFunc 匹配来自动态期望用户的消息。
+//
+// fn 在每次 dispatch 时被调用，返回当前期望的用户 ID：
+//   - 返回非空字符串：仅当发送者 ID 与其相等时规则匹配
+//   - 返回空字符串 ""：视为"无限制"，规则直接放行（任意用户均匹配）
+//
+// 空字符串放行语义使得"当前没有活跃状态"时 handler 仍能运行，从而给出友好提示。
+//
+// 适用于轮流制游戏等"当前期望用户随状态变化"的动态场景。
+//
+// 示例（五子棋轮流落子）：
+//
+//	ctx.Reg.RegisterCommand("", "/下",
+//	    context.OnFromUserFunc(func(c *context.Context) string {
+//	        state, ok := gameStore.Get(c.GetChatInfo().ID)
+//	        if !ok || !state.Active {
+//	            return "" // 无活跃棋局 → 放行，让 handler 给出提示
+//	        }
+//	        return state.CurrentPlayerID
+//	    }),
+//	).Handle(handleMove)
+func OnFromUserFunc(fn func(*Context) string) Rule {
+	return func(ctx *Context) bool {
+		expected := fn(ctx)
+		if expected == "" {
+			return true // 空字符串 → 无限制，放行
+		}
+		return ctx.GetUserID() == expected
 	}
 }

@@ -46,6 +46,7 @@ var ErrNotFound = errors.New("record not found")
 //
 //	client.Where("group_id = ?", gid).Find(&states)
 //	client.Where("group_id = ? AND plugin_name = ?", gid, name).First(&state)
+//	client.Where("group_id = ?", gid).Order("total_points DESC").Limit(10).Find(&records)
 type Client interface {
 	// AutoMigrate 自动创建/更新传入模型的表结构（幂等）
 	AutoMigrate(dst ...any) error
@@ -63,6 +64,16 @@ type Client interface {
 	Updates(values any) error
 	// Where 追加 WHERE 条件，返回新的 Client（支持链式调用，不修改原 Client）
 	Where(query any, args ...any) Client
+	// Order 追加 ORDER BY 子句，返回新的 Client（支持链式调用）。
+	//
+	// 示例：client.Where("group_id = ?", gid).Order("total_points DESC").Find(&records)
+	Order(value any) Client
+	// Limit 限制返回记录数，返回新的 Client（支持链式调用）。
+	//
+	// 示例：client.Order("created_at DESC").Limit(10).Find(&records)
+	Limit(limit int) Client
+	// Offset 跳过指定数量的记录（分页用），返回新的 Client。
+	Offset(offset int) Client
 	// DB 返回底层 *gorm.DB，以便使用 GORM 高级特性（事务、关联、Raw SQL 等）
 	DB() *gorm.DB
 }
@@ -124,6 +135,21 @@ func (p *Plugin) Updates(values any) error {
 // Where 追加 WHERE 条件，返回新的 Client（不修改原 Client）
 func (p *Plugin) Where(query any, args ...any) Client {
 	return &Plugin{db: p.db.Where(query, args...)}
+}
+
+// Order 追加 ORDER BY 子句，返回新的 Client
+func (p *Plugin) Order(value any) Client {
+	return &Plugin{db: p.db.Order(value)}
+}
+
+// Limit 限制返回记录数，返回新的 Client
+func (p *Plugin) Limit(limit int) Client {
+	return &Plugin{db: p.db.Limit(limit)}
+}
+
+// Offset 跳过指定数量的记录，返回新的 Client
+func (p *Plugin) Offset(offset int) Client {
+	return &Plugin{db: p.db.Offset(offset)}
 }
 
 // DB 返回底层 *gorm.DB，以便使用 GORM 高级特性

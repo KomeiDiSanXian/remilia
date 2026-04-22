@@ -15,6 +15,7 @@ import (
 
 // onebotSender 实现了以下 platform 接口：
 //   - platform.Sender
+//   - platform.SessionNotifier (NotifyUser / NotifyGroup 主动推送)
 //   - platform.MessageDeleter  (delete_msg)
 //   - platform.GroupManager    (kick / ban / set_admin)
 //   - platform.InvitationHandler (好友/群请求)
@@ -107,10 +108,36 @@ func (s *onebotSender) sendPrivate(ctx stdctx.Context, target platform.ChatInfo,
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// platform.SessionNotifier
+// ────────────────────────────────────────────────────────────────────────────
+
+// NotifyUser 向指定用户发送私聊消息，实现 platform.SessionNotifier。
+//
+// 与 Send 不同，此方法无需事件上下文，直接凭 userID 主动推送。
+func (s *onebotSender) NotifyUser(ctx stdctx.Context, userID string, msg platform.OutboundMessage) error {
+	_, err := s.Send(ctx, platform.SendRequest{
+		Target:  platform.ChatInfo{ID: userID, IsGroup: false},
+		Message: msg,
+	})
+	return err
+}
+
+// NotifyGroup 向指定群组发送消息，实现 platform.SessionNotifier。
+//
+// 机器人需已加入该群，否则平台将返回错误。
+func (s *onebotSender) NotifyGroup(ctx stdctx.Context, groupID string, msg platform.OutboundMessage) error {
+	_, err := s.Send(ctx, platform.SendRequest{
+		Target:  platform.ChatInfo{ID: groupID, IsGroup: true},
+		Message: msg,
+	})
+	return err
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // platform.MessageDeleter
 // ────────────────────────────────────────────────────────────────────────────
 
-// Delete 通过调用 delete_msg 实现 platform.MessageDeleter。
+// Delete 通过调用 delete_msg 实现 platform.MessageDeleter.
 //
 // chatID 参数被忽略（OneBot delete_msg 只需消息 ID）。
 func (s *onebotSender) Delete(ctx stdctx.Context, _ string, messageID string) error {

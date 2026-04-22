@@ -215,6 +215,27 @@ func ImageMessage(url string) OutboundMessage {
 	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindImage, URL: url}}}
 }
 
+// ImageDataMessage 快速创建图片消息（本地二进制直传）
+//
+// 适用于在内存中生成图片（如二维码、文字图片、验证码）后直接发送，
+// 无需先上传到文件服务器。
+//
+// mimeType 为图片 MIME 类型（如 "image/png"、"image/jpeg"），
+// name 为可选文件名（某些平台要求）。
+//
+// 示例：
+//
+//	pngBytes, _ := qrcode.Encode(content, qrcode.Medium, 256)
+//	msg := platform.ImageDataMessage(pngBytes, "qrcode.png", "image/png")
+func ImageDataMessage(data []byte, name, mimeType string) OutboundMessage {
+	return OutboundMessage{Attachments: []Attachment{{
+		Kind:     AttachmentKindImage,
+		Data:     data,
+		Name:     name,
+		MimeType: mimeType,
+	}}}
+}
+
 // AudioMessage 快速创建音频消息（远程 URL）
 func AudioMessage(url string) OutboundMessage {
 	return OutboundMessage{Attachments: []Attachment{{Kind: AttachmentKindAudio, URL: url}}}
@@ -312,6 +333,28 @@ func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 	newExtra[key] = value
 	m.Extra = newExtra
 	return m
+}
+
+// TruncateText 截断文本至指定字符数（按 Unicode rune 计算，非字节）。
+//
+// 若文本长度不超过 maxRunes，直接返回原字符串（无内存分配）。
+// 超出时返回截断后的文本加 "…" 后缀。
+//
+// 修复框架问题 #27：xhstext 发现生成文本可能超过平台消息长度限制，
+// 统一提供此工具函数避免各插件自行实现截断逻辑。
+//
+// 使用示例：
+//
+//	output := platform.TruncateText(longText, 500)
+func TruncateText(text string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	r := []rune(text)
+	if len(r) <= maxRunes {
+		return text
+	}
+	return string(r[:maxRunes]) + "…"
 }
 
 // IsEmpty 报告消息是否没有任何可发送的内容。

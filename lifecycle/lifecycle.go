@@ -143,6 +143,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -237,16 +238,21 @@ type ComponentStatus struct {
 // Manager 管理多个组件的生命周期
 //
 // Manager 提供统一的组件生命周期管理，包括：
-//   - 按顺序启动所有组件
+//   - 按注册顺序启动所有组件
 //   - 统一管理运行时 context
 //   - 逆序停止所有组件
-//   - 启动失败时自动回滚
+//   - 启动失败时自动回滚（回滚错误会聚合进返回值）
+//
+// # 组件启动顺序
+//
+// 组件按注册顺序串行启动，逆序停止。当前不支持声明式依赖（如"B 依赖 A"）
+// 和自动拓扑排序，调用方应手动保证注册顺序满足依赖关系。
+// 可使用 [Manager.RegisterOrdered] 在一处集中声明顺序，提高可读性。
 //
 // # 使用示例
 //
-//	manager := v2.NewManager()
-//	manager.Register(comp1)
-//	manager.Register(comp2)
+//	manager := lifecycle.NewManager()
+//	manager.RegisterOrdered(configComp, dbComp, serverComp)
 //
 //	// 启动
 //	if err := manager.Start(ctx); err != nil {
@@ -306,14 +312,22 @@ func NewManager(opts ...ManagerOption) *Manager {
 	return m
 }
 
-// Register 注册组件
+// Register 注册组件，返回 true 表示组件将完整参与当前（或下次）生命周期。
 //
 // 组件将按照注册顺序启动，按照逆序停止。
+//
+// # 返回值语义
+//
+//   - true：Manager 处于 StateCreated 或 StateStopped，组件已入队，
+//     下次 Start() 时将完整走完 OnStart → OnRun → OnStop。
+//   - false：Manager 处于 StateRunning，组件已入队但**本次运行周期内
+//     OnStart / OnRun / OnStop 均不会被调用**；下次 Start() 时才会生效。
+//     同时会打印 Warn 日志提示。
 //
 // # 运行时注册的限制（重要）
 //
 // 此方法只应在 Manager 启动之前调用（StateCreated 或 StateStopped 状态）。
-// 在 StateRunning 状态下调用时，组件会被加入 components 列表并记录警告日志，
+// 在 StateRunning 状态下调用时，组件会被加入 components 列表，
 // 但存在以下限制：
 //
 //   - OnStart **不会**被调用（组件未经过启动阶段初始化）
@@ -325,17 +339,56 @@ func NewManager(opts ...ManagerOption) *Manager {
 //
 // 若组件的 OnStop 依赖 OnStart 完成的初始化（如释放在 OnStart 中申请的资源），
 // 请务必避免运行时注册，以防 OnStop 在从未调用 OnStart 的情况下被意外触发。
-func (m *Manager) Register(comp Component) {
+//
+// 示例：
+//
+//	if ok := manager.Register(myComp); !ok {
+//	    // Manager 正在运行中，myComp 将在下次 Start() 时才生效
+//	    log.Warn("component registered but will not run until next Start()")
+//	}
+func (m *Manager) Register(comp Component) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.state == StateRunning {
 		logger.WithFields(logger.Fields{
 			"component": comp.Name(),
-		}).Warn("[Lifecycle] Register called while running: component OnRun will NOT be started until next Start()")
+		}).Warn("[Lifecycle] Register called while running: component OnStart/OnRun/OnStop will NOT be called in the current cycle; will take effect on next Start()")
+		m.components = append(m.components, comp)
+		return false
 	}
 
 	m.components = append(m.components, comp)
+	return true
+}
+
+// RegisterOrdered 按依赖顺序批量注册多个组件，返回每个组件的注册结果切片。
+//
+// 组件将按传入切片的顺序依次追加到注册列表，等价于多次调用 Register。
+// 返回值与传入组件一一对应：true 表示组件将参与当前（或下次）生命周期，
+// false 表示 Manager 处于运行状态，该组件在本次运行周期内不生效。
+//
+// 这是在当前"手动保证注册顺序"语义下的辅助方法，使调用方可以在一处
+// 显式声明组件的启动顺序，提高可读性：
+//
+//	results := manager.RegisterOrdered(
+//	    configComp,   // 第一个启动（无依赖）
+//	    databaseComp, // 依赖 config，第二个启动
+//	    serverComp,   // 依赖 database，最后启动
+//	)
+//	// 若 Manager 已在运行中，results 中对应项为 false
+//
+// # 关于完整依赖声明支持（TODO）
+//
+// 当前 Manager 不支持声明式依赖（如 "B 依赖 A"）并自动拓扑排序。
+// Plugin Manager 已实现拓扑排序，未来可考虑将相同机制引入 lifecycle.Manager。
+// 在此之前，调用方应确保传入的组件切片已按依赖先后排好序。
+func (m *Manager) RegisterOrdered(comps ...Component) []bool {
+	results := make([]bool, len(comps))
+	for i, c := range comps {
+		results[i] = m.Register(c)
+	}
+	return results
 }
 
 // Start 启动所有组件
@@ -375,12 +428,17 @@ func (m *Manager) Start(ctx context.Context) error {
 	for i, comp := range components {
 		select {
 		case <-ctx.Done():
-			// 超时，回滚
-			m.rollback(ctx, startedComponents)
+			// 启动阶段超时，回滚已启动的组件。
+			// rollbackErr 不为 nil 时说明回滚本身也有组件失败，包装进返回错误让上层感知。
+			rollbackErr := m.rollback(ctx, startedComponents)
 			m.mu.Lock()
 			m.state = StateCreated
 			m.mu.Unlock()
-			return fmt.Errorf("start timeout: %w", ctx.Err())
+			startErr := fmt.Errorf("start timeout: %w", ctx.Err())
+			if rollbackErr != nil {
+				return fmt.Errorf("%w; additionally rollback failed: %w", startErr, rollbackErr)
+			}
+			return startErr
 		default:
 		}
 
@@ -391,16 +449,21 @@ func (m *Manager) Start(ctx context.Context) error {
 				"error":     err,
 			}).Error("[Lifecycle] Component OnStart failed")
 
-			// 回滚已启动的组件
-			m.rollback(ctx, startedComponents)
+			// 回滚已启动的组件。
+			// rollbackErr 不为 nil 时说明回滚本身也有组件失败，包装进返回错误让上层感知。
+			rollbackErr := m.rollback(ctx, startedComponents)
 			m.mu.Lock()
 			m.state = StateCreated
 			m.mu.Unlock()
-			return &StartError{
+			startErr := &StartError{
 				Component: comp.Name(),
 				Phase:     "OnStart",
 				Err:       err,
 			}
+			if rollbackErr != nil {
+				return fmt.Errorf("%w; additionally rollback failed: %w", startErr, rollbackErr)
+			}
+			return startErr
 		}
 
 		startedComponents = append(startedComponents, comp)
@@ -461,21 +524,29 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// rollback 回滚已启动的组件
-func (m *Manager) rollback(startCtx context.Context, startedComponents []Component) {
+// rollback 回滚已启动的组件，逆序调用每个组件的 OnStop。
+//
+// 超时时间复用 m.stopTimeout（由 WithStopTimeout 配置，默认 10s），
+// 与 Stop() 阶段的 OnStop 超时保持一致，不再单独硬编码。
+//
+// 返回值：若回滚期间有一个或多个组件 OnStop 失败，返回聚合错误（类似 Stop() 的收集逻辑）。
+// 调用方应将此错误包含在原始启动错误中一并返回，方便上层感知"回滚是否干净"。
+func (m *Manager) rollback(startCtx context.Context, startedComponents []Component) error {
 	if len(startedComponents) == 0 {
-		return
+		return nil
 	}
 
 	logger.WithFields(logger.Fields{
 		"count": len(startedComponents),
 	}).Warn("[Lifecycle] Rolling back started components")
 
-	// 修复 #7：从调用方 ctx 派生（继承 Value 链），但剥离已过期的 deadline/cancel，
-	// 给 rollback 一个独立的 10s 超时。避免启动超时后 rollback 也立即失败。
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(startCtx), 10*time.Second)
+	// 从调用方 ctx 派生（继承 Value 链），但剥离已过期的 deadline/cancel，
+	// 给 rollback 一个独立超时（复用 m.stopTimeout，与 Stop() 阶段一致）。
+	// 避免启动超时后 rollback 也立即失败。
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(startCtx), m.stopTimeout)
 	defer cancel()
 
+	var rollbackErrs []error
 	for i := len(startedComponents) - 1; i >= 0; i-- {
 		comp := startedComponents[i]
 		if err := comp.OnStop(ctx); err != nil {
@@ -483,10 +554,19 @@ func (m *Manager) rollback(startCtx context.Context, startedComponents []Compone
 				"component": comp.Name(),
 				"error":     err,
 			}).Error("[Lifecycle] Component rollback failed")
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("rollback component %s: %w", comp.Name(), err))
 		}
 	}
 
+	if len(rollbackErrs) > 0 {
+		logger.WithFields(logger.Fields{
+			"failed_count": len(rollbackErrs),
+		}).Warn("[Lifecycle] Rollback completed with errors")
+		return errors.Join(rollbackErrs...)
+	}
+
 	logger.Info("[Lifecycle] Rollback completed successfully")
+	return nil
 }
 
 // Stop 停止所有组件
@@ -557,13 +637,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	// 如果有多个错误，返回组合错误
 	if len(stopErrors) > 0 {
-		if len(stopErrors) == 1 {
-			return &StopError{Err: stopErrors[0]}
-		}
-		// 多个错误，返回组合错误
-		return &StopError{
-			Err: fmt.Errorf("multiple components failed to stop: %v", stopErrors),
-		}
+		return &StopError{Err: errors.Join(stopErrors...)}
 	}
 
 	logger.Info("[Lifecycle] All components stopped successfully")

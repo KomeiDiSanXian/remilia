@@ -59,11 +59,19 @@ type Map[K comparable, V any] struct {
 //
 // gcInterval 为后台 GC goroutine 的运行间隔；传入 0 则禁用后台 GC（需手动调用 [Map.GC]）。
 //
-// 使用完毕后调用 [Map.Stop] 释放后台 goroutine，否则会导致 goroutine 泄漏。
-// 推荐配合 defer：
+// # 后台 goroutine 说明（重要）
+//
+// 当 gcInterval > 0 时，New 会在构造时启动一个后台 GC goroutine。
+// 调用方必须在使用结束后调用 [Map.Stop] 以停止该 goroutine，否则会导致 goroutine 泄漏。
+// 推荐配合 defer 使用：
 //
 //	m := cache.New[string, int](5 * time.Minute)
 //	defer m.Stop()
+//
+// 在单元测试中，推荐传入 0 禁用后台 GC 以避免 goroutine 泄漏：
+//
+//	m := cache.New[string, int](0) // 测试中禁用后台 GC
+//	m.GC()                         // 手动触发 GC
 func New[K comparable, V any](gcInterval time.Duration) *Map[K, V] {
 	m := &Map[K, V]{
 		entries: make(map[K]*ttlEntry[V]),

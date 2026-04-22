@@ -70,7 +70,7 @@ func New(opts ...infrastorage.Option) *plugin.Descriptor {
 			}
 			ctx.Log.Info("Database connected")
 			// 额外以接口类型导出，供消费者通过 plugin.MustAs[storage.Client] 获取
-			plugin.ExportInterface[infrastorage.Client](ctx, "storage", p)
+			plugin.ExportIface[infrastorage.Client](ctx, "storage", p)
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {

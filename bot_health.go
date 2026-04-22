@@ -6,6 +6,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
+	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -62,7 +63,7 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 		metadata["lifecycle_state"] = lifecycleState.String()
 
 		// 如果生命周期不是 Running 状态，标记为 Degraded
-		if lifecycleState.String() != "running" {
+		if lifecycleState != lifecycle.StateRunning {
 			return health.CheckResult{
 				Status:   health.Degraded,
 				Error:    "lifecycle not in running state",

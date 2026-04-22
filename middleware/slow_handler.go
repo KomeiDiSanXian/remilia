@@ -87,17 +87,17 @@ func SlowHandlerSimple(threshold time.Duration) context.Middleware {
 
 // SlowHandlerFromConfig 从配置创建慢处理器检测中间件
 //
-// 使用示例:
+// 使用示例：
 //
 //	cfg, _ := config.LoadDefault()
 //	engine.Use(middleware.SlowHandlerFromConfig(cfg.Middleware))
 func SlowHandlerFromConfig(cfg appconfig.MiddlewareConfig) context.Middleware {
 	threshold := 1 * time.Second
-	if cfg.SlowHandlerThreshold != "" {
-		if d, err := time.ParseDuration(cfg.SlowHandlerThreshold); err == nil {
+	if cfg.SlowHandler.Threshold != "" {
+		if d, err := time.ParseDuration(cfg.SlowHandler.Threshold); err == nil {
 			threshold = d
 		} else {
-			logger.WithError(err).Warn("[SlowHandler] Invalid slow_handler_threshold config, using default 1s")
+			logger.WithError(err).Warn("[SlowHandler] Invalid slow_handler.threshold config, using default 1s")
 		}
 	}
 

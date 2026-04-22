@@ -290,10 +290,13 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 	return e.services.tempMatcherCleanerInterval
 }
 
-// StartTempMatcherCleaner 启动临时 Matcher 清理器
+// StartTempMatcherCleaner 启动临时 Matcher 清理器。
 //
 // 定期检查并删除过期的临时 matcher（基于时间）。
 // 返回一个 stop 函数，调用它可以停止清理器。
+//
+// 幂等保护：若已有清理器在运行，会先停止旧的再以新间隔启动新的，
+// 保证任意时刻最多只有一个清理器 goroutine，防止两个清理器并发处理同一批过期 Matcher。
 //
 // 使用示例：
 //
@@ -302,11 +305,17 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 //	defer stop() // 程序退出时停止清理器
 //
 // 注意：
-//   - NewEngine() 会自动启动清理器，通常不需要手动调用
-//   - 如需修改清理间隔，使用 SetTempMatcherCleanInterval()
+//   - NewEngine() 会自动启动清理器，通常不需要手动调用此方法
+//   - 如需修改清理间隔，请优先使用 SetTempMatcherCleanInterval()
 //   - 清理器在后台 goroutine 中运行，不会阻塞
-//   - 多次调用会启动多个清理器，通常只需调用一次
 func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
+	// 防重复启动：若旧清理器仍在运行，先停止它再启动新的，
+	// 确保任意时刻最多只有一个清理器 goroutine 在运行。
+	if e.services.tempMatcherCleanerStop != nil {
+		e.services.tempMatcherCleanerStop()
+		e.services.tempMatcherCleanerStop = nil
+	}
+
 	ticker := time.NewTicker(interval)
 	done := make(chan struct{})
 	e.services.tempMatcherCleanerDone = done
@@ -324,12 +333,14 @@ func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 		}
 	}()
 
-	// 返回 stop 函数
-	return func() {
+	// 返回 stop 函数，并将其注册到 services，供下次调用时幂等停止
+	stopFn := func() {
 		once.Do(func() {
 			close(done)
 		})
 	}
+	e.services.tempMatcherCleanerStop = stopFn
+	return stopFn
 }
 
 // cleanExpiredMatchers 清理过期的临时 matcher（COW 无锁读取 + TempManager 堆）
@@ -355,11 +366,6 @@ func extractCommand(content string) string {
 	return trimmed[:idx]
 }
 
-// mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
-// 输出结果同样按优先级升序排列（数值越小优先级越高）。
-//
-// State 列表（l1/l2/l4/l5）中可能残留已被迁移到 TempManager 的元素（isTemp==1），
-// 需要跳过（避免双重执行）。Temp 列表（l3/l6）反之。
 // mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
 // 输出结果同样按优先级升序排列（数值越小优先级越高）。
 //

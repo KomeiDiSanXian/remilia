@@ -20,7 +20,7 @@ func main() {
 
 	// 1. 初始化追踪提供者
 	tracingConfig := tracing.Config{
-		Enabled:        true,
+		Enable:         true,
 		ServiceName:    "remilia-tracing-example",
 		ServiceVersion: "1.0.0",
 		Environment:    "development",

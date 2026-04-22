@@ -95,7 +95,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	// 更新 AdaptiveRateLimiter
 	for _, arl := range b.adaptives {
 		arl.UpdateConfig(middleware.AdaptiveConfig{
-			AdjustStep: mc.RateLimitBurst,
+			AdjustStep: mc.RateLimit.Burst,
 		})
 	}
 
@@ -113,22 +113,22 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	}
 
 	// 更新 DedupFilter（MaxSize、DefaultTTL）
-	if mc.DedupMaxSize > 0 || mc.DedupDefaultTTL != "" {
-		ttl := parseDuration(mc.DedupDefaultTTL, 0)
+	if mc.Dedup.MaxSize > 0 || mc.Dedup.DefaultTTL != "" {
+		ttl := parseDuration(mc.Dedup.DefaultTTL, 0)
 		for _, df := range b.dedups {
 			df.UpdateConfig(middleware.DedupConfig{
-				MaxSize:    mc.DedupMaxSize,
+				MaxSize:    mc.Dedup.MaxSize,
 				DefaultTTL: ttl,
 			})
 		}
 	}
 
 	// 更新 AdaptiveDegradation（CPU/Memory 阈值）
-	if mc.DegradationCPUThreshold > 0 || mc.DegradationMemoryThreshold > 0 {
+	if mc.Degradation.CPUThreshold > 0 || mc.Degradation.MemoryThreshold > 0 {
 		for _, ad := range b.degradations {
 			ad.UpdateConfig(middleware.DegradationConfig{
-				CPUThreshold:    mc.DegradationCPUThreshold,
-				MemoryThreshold: mc.DegradationMemoryThreshold,
+				CPUThreshold:    mc.Degradation.CPUThreshold,
+				MemoryThreshold: mc.Degradation.MemoryThreshold,
 			})
 		}
 	}

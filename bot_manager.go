@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -266,26 +267,85 @@ func (m *BotManager) Shutdown() error {
 	return m.StopAll(ctx)
 }
 
+// ShutdownAsync 在后台 goroutine 中发起优雅关闭，立即返回。
+//
+// 返回一个只读 channel，所有 Bot 关闭完成后会写入最终错误（nil 表示全部成功）。
+// 调用方可选择是否等待结果：
+//
+//	// 触发后不等待（fire-and-forget）
+//	mgr.ShutdownAsync()
+//
+//	// 触发后等待结果
+//	if err := <-mgr.ShutdownAsync(); err != nil {
+//	    log.Println("shutdown error:", err)
+//	}
+//
+// 适用于以下场景：
+//   - HTTP handler 收到 /shutdown 请求，需先响应 200 再后台关闭
+//   - 插件回调内部触发关闭（同步调用会在 lifecycle 链上死锁）
+//   - 与外部框架集成时对方不允许阻塞其事件循环
+//
+// 注意：多次调用是安全的，StopAll 对每个 Bot 的 Stop 调用均幂等。
+func (m *BotManager) ShutdownAsync() <-chan error {
+	ch := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+		defer cancel()
+		ch <- m.StopAll(ctx)
+	}()
+	return ch
+}
+
 // WaitForShutdown 阻塞直到收到 SIGINT/SIGTERM 信号，然后优雅停止所有 Bot。
 // 这是生产环境启动多 Bot 后的标准收尾调用。
 //
+// 收到第一个 SIGINT（Ctrl+C）或 SIGTERM 时，开始优雅关闭（等待后台清理完成）。
+// 若在优雅关闭期间再次收到 SIGINT，立即强制退出（os.Exit(1)），
+// 不再等待剩余清理工作——这与大多数 CLI 工具的行为一致。
+//
+// timeout 为可选参数，指定优雅关闭的超时时间；省略时使用 [DefaultShutdownTimeout]（30s）。
+// 若同一进程已有另一个 WaitForShutdown 处于监听状态，此次调用会直接返回并打印 Warn 日志。
+//
+// 若需要完全自定义 context（如携带 trace），请直接调用 [BotManager.StopAll]。
+//
 // 示例：
 //
-//	mgr.StartAll(ctx)
-//	mgr.WaitForShutdown() // 阻塞直到 Ctrl+C
-func (m *BotManager) WaitForShutdown() {
-	sigCh := make(chan os.Signal, 1)
+//	mgr.StartAll()
+//	mgr.WaitForShutdown()                    // 使用默认 30s 超时
+//	mgr.WaitForShutdown(60 * time.Second)    // 自定义超时
+func (m *BotManager) WaitForShutdown(timeout ...time.Duration) {
+	if !acquireShutdownListener("BotManager.WaitForShutdown") {
+		return
+	}
+	defer releaseShutdownListener()
+
+	shutdownTimeout := DefaultShutdownTimeout
+	if len(timeout) > 0 && timeout[0] > 0 {
+		shutdownTimeout = timeout[0]
+	}
+
+	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
 	<-sigCh
-	logger.Info("[BotManager] Received shutdown signal")
+	logger.Info("[BotManager] Received shutdown signal, shutting down gracefully... (press Ctrl+C again to force exit)")
 
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
-	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := m.StopAll(ctx); err != nil {
+			logger.WithError(err).Error("[BotManager] Shutdown completed with errors")
+		}
+	}()
 
-	if err := m.StopAll(ctx); err != nil {
-		logger.WithError(err).Error("[BotManager] Shutdown completed with errors")
+	select {
+	case <-done:
+	case <-sigCh:
+		logger.Warn("[BotManager] Forced exit by second signal")
+		os.Exit(1)
 	}
 }
 
@@ -397,8 +457,8 @@ func (e *BotManagerError) FailedBots() []string {
 //	    Add("test", testAdapter, &testBotInfo).
 //	    Build()
 type BotManagerBuilder struct {
-	entries  []botEntry
-	hasError error
+	entries   []botEntry
+	hasErrors []error // 收集所有 Add* 调用产生的错误（原先只保留第一个）
 }
 
 type botEntry struct {
@@ -414,7 +474,8 @@ func NewBotManagerBuilder() *BotManagerBuilder {
 
 // AddBot 向构建器中添加一个已构建的 Bot 实例。
 func (b *BotManagerBuilder) AddBot(name string, bot *Bot) *BotManagerBuilder {
-	if b.hasError != nil {
+	if bot == nil {
+		b.hasErrors = append(b.hasErrors, fmt.Errorf("botmanager: bot %q must not be nil", name))
 		return b
 	}
 	b.entries = append(b.entries, botEntry{name: name, bot: bot})
@@ -424,7 +485,8 @@ func (b *BotManagerBuilder) AddBot(name string, bot *Bot) *BotManagerBuilder {
 // AddBuilder 向构建器中添加一个 BotBuilder，Build() 时自动构建。
 // 这允许延迟构建，统一处理错误。
 func (b *BotManagerBuilder) AddBuilder(name string, builder *BotBuilder) *BotManagerBuilder {
-	if b.hasError != nil {
+	if builder == nil {
+		b.hasErrors = append(b.hasErrors, fmt.Errorf("botmanager: builder %q must not be nil", name))
 		return b
 	}
 	b.entries = append(b.entries, botEntry{name: name, builder: builder})
@@ -433,8 +495,8 @@ func (b *BotManagerBuilder) AddBuilder(name string, builder *BotBuilder) *BotMan
 
 // Build 构建 BotManager，返回错误（如有）。
 func (b *BotManagerBuilder) Build() (*BotManager, error) {
-	if b.hasError != nil {
-		return nil, b.hasError
+	if len(b.hasErrors) > 0 {
+		return nil, errors.Join(b.hasErrors...)
 	}
 
 	mgr := NewBotManager()
@@ -462,7 +524,7 @@ func (b *BotManagerBuilder) Build() (*BotManager, error) {
 func (b *BotManagerBuilder) MustBuild() *BotManager {
 	mgr, err := b.Build()
 	if err != nil {
-		panic("failed to build BotManager: " + err.Error())
+		panic(err)
 	}
 	return mgr
 }
