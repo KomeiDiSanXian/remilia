@@ -5,7 +5,7 @@ Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
   - 生命周期管理（启动/停止）
   - 健康检查
   - 配置管理
-  - 通过 platform.PlatformAdapter 处理多平台事件
+  - 通过 platform.Adapter 处理多平台事件
 
 # 平台无关用法（推荐）
 
@@ -29,9 +29,9 @@ Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
 	        return ctx.Reply(platform.TextMessage("Hello!"))
 	    })
 
-	// 通过 PlatformAdapter 构建 Bot
+	// 通过 platform.Adapter 构建 Bot
 	bot, err := remilia.NewBotBuilder().
-	    WithPlatformAdapter(qqAdapter). // platform.PlatformAdapter
+	    WithPlatformAdapter(qqAdapter). // platform.Adapter
 	    WithEngine(eng).
 	    Build()
 
@@ -78,7 +78,7 @@ Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
 
 支持一种适配器接口：
 
-  - PlatformAdapter（推荐）：平台无关，处理器接收 platform.Event
+  - platform.Adapter（推荐）：平台无关，处理器接收 platform.Event
 
 # 健康检查
 

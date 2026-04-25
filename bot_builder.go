@@ -173,7 +173,10 @@ func (b *BotBuilder) Build() (*Bot, error) {
 	}
 
 	// NewBot 传 nil adapter，registry 已经包含所有适配器
-	bot := NewBot(nil, b.engine, b.options...)
+	bot, err := NewBot(nil, b.engine, b.options...)
+	if err != nil {
+		return nil, err
+	}
 	if reg != nil {
 		bot.UsePlatformRegistry(reg)
 	}

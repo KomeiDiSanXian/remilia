@@ -75,7 +75,7 @@ webhook:
 	t.Run("file not found", func(t *testing.T) {
 		_, err := Load("nonexistent.yaml")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to read config file")
+		assert.Contains(t, err.Error(), "config file not found")
 	})
 
 	t.Run("invalid yaml", func(t *testing.T) {
@@ -99,9 +99,10 @@ bot:
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
+		// Bot 配置部分填写：app_id 已设置但 bot_id 缺失 → 触发验证失败
 		configContent := `
 bot:
-  app_id: 0
+  app_id: 123456
   bot_id: 0
 server:
   port: 8080
@@ -198,6 +199,8 @@ server:
 		os.Unsetenv("BOT_BOT_ID")
 		os.Unsetenv("BOT_TOKEN")
 		os.Unsetenv("BOT_SECRET")
+		// 设置部分 bot 字段以触发验证失败（app_id 已设置但 bot_id 缺失）
+		os.Setenv("BOT_APP_ID", "123456")
 
 		_, err := LoadDefault()
 		assert.Error(t, err)
@@ -285,13 +288,15 @@ webhook:
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "invalid.yaml")
 
-		// 配置缺少必填字段
+		// 无效端口触发验证失败（bot 字段全部填写以避免触发 LoadDefault 回退）
 		configContent := `
 bot:
-  app_id: 0
-  bot_id: 0
+  app_id: 123456
+  bot_id: 789012
+  token: "tok"
+  secret: "sec"
 server:
-  port: 8888
+  port: 99999
 `
 		err := os.WriteFile(configPath, []byte(configContent), 0644)
 		require.NoError(t, err)

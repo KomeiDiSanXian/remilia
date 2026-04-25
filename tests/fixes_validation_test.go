@@ -36,7 +36,7 @@ func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 func TestBotConcurrentStart(t *testing.T) {
 	eng := engine.NewEngine()
 	adapter := &mockAdapter{}
-	bot := remilia.NewBot(adapter, eng)
+	bot := remilia.MustNewBot(adapter, eng)
 
 	var wg sync.WaitGroup
 	errors := make([]error, 10)

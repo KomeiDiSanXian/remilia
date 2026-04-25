@@ -129,11 +129,11 @@ func (m *mockAdapter) IsRunning() bool {
 	defer m.mu.Unlock()
 	return m.started && !m.shutdown
 }
-func TestNewBot(t *testing.T) {
+func TestMustNewBot(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
 
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	require.NotNil(t, bot)
 	assert.NotNil(t, bot.engine)
@@ -150,7 +150,7 @@ func TestNewBot_WithOptions(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
 
-	bot := NewBot(adapter, eng,
+	bot := MustNewBot(adapter, eng,
 		WithName("test-bot"),
 		WithVersion("1.0.0"),
 		WithDebug(true),
@@ -167,7 +167,7 @@ func TestBot_Start(t *testing.T) {
 	t.Run("successful start", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		err := bot.Start()
 		require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestBot_Start(t *testing.T) {
 	t.Run("double start", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		err := bot.Start()
 		require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestBot_Start(t *testing.T) {
 		adapter := newMockAdapter()
 		adapter.startErr = errors.New("adapter start failed")
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		// In v2, adapter.Start() runs in OnRun (async), so Bot.Start() succeeds
 		err := bot.Start()
@@ -216,7 +216,7 @@ func TestBot_Shutdown(t *testing.T) {
 	t.Run("successful shutdown", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(50 * time.Millisecond)
@@ -230,7 +230,7 @@ func TestBot_Shutdown(t *testing.T) {
 	t.Run("shutdown when not running", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		ctx := context.Background()
 		err := bot.Stop(ctx)
@@ -241,7 +241,7 @@ func TestBot_Shutdown(t *testing.T) {
 		adapter := newMockAdapter()
 		adapter.shutdownErr = errors.New("shutdown failed")
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(50 * time.Millisecond)
@@ -257,7 +257,7 @@ func TestBot_Shutdown(t *testing.T) {
 func TestBot_IsRunning(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	assert.False(t, bot.IsRunning())
 
@@ -273,7 +273,7 @@ func TestBot_Uptime(t *testing.T) {
 	t.Run("uptime when running", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(100 * time.Millisecond)
@@ -287,7 +287,7 @@ func TestBot_Uptime(t *testing.T) {
 	t.Run("uptime when not started", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		uptime := bot.Uptime()
 		assert.Equal(t, time.Duration(0), uptime)
@@ -296,7 +296,7 @@ func TestBot_Uptime(t *testing.T) {
 	t.Run("uptime after shutdown", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(100 * time.Millisecond)
@@ -311,7 +311,7 @@ func TestBot_Uptime(t *testing.T) {
 func TestBot_Engine(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	assert.Equal(t, eng, bot.Engine())
 }
@@ -320,7 +320,7 @@ func TestBot_Engine(t *testing.T) {
 func TestBot_Config(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng, WithName("test-bot"))
+	bot := MustNewBot(adapter, eng, WithName("test-bot"))
 
 	config := bot.Config()
 	require.NotNil(t, config)
@@ -331,7 +331,7 @@ func TestBot_Config(t *testing.T) {
 func TestBot_State(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	state := bot.State()
 	assert.Equal(t, lifecycle.StateCreated, state)
@@ -347,7 +347,7 @@ func TestBot_State(t *testing.T) {
 func TestBot_ConvenienceMethods(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	t.Run("OnAny", func(t *testing.T) {
 		matcher := bot.OnAny()
@@ -382,37 +382,37 @@ func TestOptions(t *testing.T) {
 			Debug:   true,
 		}
 
-		bot := NewBot(adapter, eng, WithConfig(config))
+		bot := MustNewBot(adapter, eng, WithConfig(config))
 		assert.Equal(t, "custom-bot", bot.config.Name)
 		assert.Equal(t, "2.0.0", bot.config.Version)
 		assert.True(t, bot.config.Debug)
 	})
 
 	t.Run("WithName", func(t *testing.T) {
-		bot := NewBot(adapter, eng, WithName("named-bot"))
+		bot := MustNewBot(adapter, eng, WithName("named-bot"))
 		assert.Equal(t, "named-bot", bot.config.Name)
 	})
 
 	t.Run("WithVersion", func(t *testing.T) {
-		bot := NewBot(adapter, eng, WithVersion("3.0.0"))
+		bot := MustNewBot(adapter, eng, WithVersion("3.0.0"))
 		assert.Equal(t, "3.0.0", bot.config.Version)
 	})
 
 	t.Run("WithDebug", func(t *testing.T) {
-		bot := NewBot(adapter, eng, WithDebug(true))
+		bot := MustNewBot(adapter, eng, WithDebug(true))
 		assert.True(t, bot.config.Debug)
 	})
 
 	t.Run("WithAdapter", func(t *testing.T) {
 		newAdapter := newMockAdapter()
-		bot := NewBot(adapter, eng, WithAdapter(newAdapter))
+		bot := MustNewBot(adapter, eng, WithAdapter(newAdapter))
 		// D3: WithAdapter registers into platformRegistry
 		assert.NotNil(t, bot.platformRegistry)
 	})
 
 	t.Run("WithEngine", func(t *testing.T) {
 		newEngine := engine.NewEngine()
-		bot := NewBot(adapter, eng, WithEngine(newEngine))
+		bot := MustNewBot(adapter, eng, WithEngine(newEngine))
 		assert.NotNil(t, bot.engine)
 	})
 }
@@ -422,7 +422,7 @@ func TestHealthChecker(t *testing.T) {
 	t.Run("health when not running", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		health := bot.Health()
 		require.NotNil(t, health)
@@ -433,7 +433,7 @@ func TestHealthChecker(t *testing.T) {
 	t.Run("health when running", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(50 * time.Millisecond)
@@ -455,7 +455,7 @@ func TestHealthChecker(t *testing.T) {
 func TestHealthCheck(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	healthCheck := bot.HealthCheck()
 	require.NotNil(t, healthCheck)
@@ -470,7 +470,7 @@ func BenchmarkBot_Start(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 		_ = bot.Start()
 		_ = bot.Stop(context.Background())
 	}
@@ -480,7 +480,7 @@ func BenchmarkBot_Start(b *testing.B) {
 func BenchmarkBot_Health(b *testing.B) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 	_ = bot.Start()
 	defer func() { _ = bot.Stop(context.Background()) }()
 

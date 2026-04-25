@@ -45,8 +45,18 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate 验证 Bot 配置
+// Validate 验证 Bot 配置。
+//
+// Bot 配置采用宽松验证策略：仅当字段被显式设置时才做格式校验，
+// 零值字段视为"该平台不需要此凭证"（适配多平台场景）。
+// 各平台适配器在初始化时应自行检查所需字段的完整性。
 func (bc *BotConfig) Validate() error {
+	// Bot 配置整体未设置（全零值或仅通过环境变量部分设置）时跳过验证，
+	// 允许非 QQ 平台（Discord/Telegram 等）不提供这些字段。
+	if bc.AppID == 0 && bc.BotID == 0 && bc.Token == "" && bc.Secret == "" {
+		return nil
+	}
+	// 若部分设置了 QQ 凭证，则要求必填字段完整
 	if bc.AppID == 0 {
 		return fmt.Errorf("bot.app_id is required and must be non-zero")
 	}

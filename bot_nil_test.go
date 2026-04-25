@@ -15,7 +15,7 @@ func TestNewBot_NilAdapter(t *testing.T) {
 	eng := engine.NewEngine()
 
 	assert.NotPanics(t, func() {
-		bot := NewBot(nil, eng)
+		bot := MustNewBot(nil, eng)
 		assert.NotNil(t, bot)
 	}, "NewBot should not panic when adapter is nil (registry-only mode)")
 }
@@ -26,14 +26,14 @@ func TestNewBot_NilEngine(t *testing.T) {
 	adapter := &testAdapter{}
 
 	assert.Panics(t, func() {
-		NewBot(adapter, nil)
+		MustNewBot(adapter, nil)
 	}, "NewBot should panic when engine is nil")
 }
 
 // TestNewBot_BothNil tests that NewBot panics when both are nil
 func TestNewBot_BothNil(t *testing.T) {
 	assert.Panics(t, func() {
-		NewBot(nil, nil)
+		MustNewBot(nil, nil)
 	}, "NewBot should panic when both adapter and engine are nil")
 }
 

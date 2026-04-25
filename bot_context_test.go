@@ -48,7 +48,7 @@ func waitBotRunning(t *testing.T, b *Bot) {
 
 // TestBot_Context_BeforeStart Start 前 Context() 应返回不被取消的 context
 func TestBot_Context_BeforeStart(t *testing.T) {
-	b := NewBot(newCtxMockAdapter(), engine.NewEngine())
+	b := MustNewBot(newCtxMockAdapter(), engine.NewEngine())
 	ctx := b.Context()
 	assert.NotNil(t, ctx)
 	select {
@@ -61,7 +61,7 @@ func TestBot_Context_BeforeStart(t *testing.T) {
 // TestBot_Context_AfterStart Start 后 Context() 应存在且活跃
 func TestBot_Context_AfterStart(t *testing.T) {
 	adapter := newCtxMockAdapter()
-	b := NewBot(adapter, engine.NewEngine())
+	b := MustNewBot(adapter, engine.NewEngine())
 	go func() { _ = b.Start() }()
 	waitBotRunning(t, b)
 	ctx := b.Context()
@@ -79,7 +79,7 @@ func TestBot_Context_AfterStart(t *testing.T) {
 // TestBot_Context_CancelledAfterStop Stop 后 rootCtx 应被取消
 func TestBot_Context_CancelledAfterStop(t *testing.T) {
 	adapter := newCtxMockAdapter()
-	b := NewBot(adapter, engine.NewEngine())
+	b := MustNewBot(adapter, engine.NewEngine())
 	go func() { _ = b.Start() }()
 	// 等待 Bot 完全进入 running 状态（rootCtx 已赋值）
 	waitBotRunning(t, b)

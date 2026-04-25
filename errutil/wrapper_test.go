@@ -74,16 +74,6 @@ func TestIs(t *testing.T) {
 	assert.False(t, errutil.Is(wrapped, errutil.New("other")))
 }
 
-// TestAs 测试 As 泛型快捷方式
-func TestAs(t *testing.T) {
-	sentinel := errutil.New("base error")
-	wrapped := errutil.Wrap(sentinel, "outer")
-	assert.True(t, errutil.Is(wrapped, sentinel))
-	// errors.As finds the underlying sentinel via the chain
-	var target interface{ Error() string }
-	assert.True(t, errutil.As(wrapped, &target))
-}
-
 // TestJoin 测试 Join
 func TestJoin(t *testing.T) {
 	err1 := errutil.New("err1")

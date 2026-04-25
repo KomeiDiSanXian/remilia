@@ -290,7 +290,32 @@ type DegradationConfig struct {
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
 }
 
-var globalConfig atomic.Value // stores *Config
+// ConfigManager 管理配置的加载、存储和变更通知。
+//
+// 支持创建独立实例以隔离多 Bot 场景下的配置，同时保持包级便捷函数
+// 委托给默认全局实例，确保向后兼容。
+type ConfigManager struct {
+	config    atomic.Value // stores *Config
+	listeners []listenerEntry
+	mu        sync.RWMutex
+	idCounter atomic.Int64
+}
+
+// NewConfigManager 创建独立的配置管理器实例。
+//
+// 适用于需要为不同 Bot 实例隔离配置的场景：
+//
+//	prodMgr := config.NewConfigManager()
+//	prodCfg, _ := prodMgr.Load("prod.yaml")
+//
+//	stagingMgr := config.NewConfigManager()
+//	stagingCfg, _ := stagingMgr.Load("staging.yaml")
+func NewConfigManager() *ConfigManager {
+	return &ConfigManager{}
+}
+
+// defaultManager 是包级便捷函数委托的全局默认实例。
+var defaultManager = NewConfigManager()
 
 // ChangeListener 配置变更监听器函数类型
 // 当配置通过 Load 或 Reload 更新时被调用
@@ -306,135 +331,40 @@ type listenerEntry struct {
 // 调用 Cancel() 可精确移除对应的监听器，而不影响其他监听器。
 type ListenerToken struct {
 	id   int64
+	mgr  *ConfigManager
 	once sync.Once
 }
 
 // Cancel 注销此监听器。多次调用是安全的（幂等）。
 func (t *ListenerToken) Cancel() {
-	t.once.Do(func() { unsubscribeByID(t.id) })
+	t.once.Do(func() { t.mgr.unsubscribeByID(t.id) })
 }
 
-// listenerEntries、changeListenersMu、listenerIDCounter 是包级全局状态。
-// 注意：在编写并行测试（t.Parallel()）时，若多个 goroutine 同时调用 Subscribe，
-// 监听器会互相叠加；每个测试函数应在结束时调用 UnsubscribeAll() 或使用 token.Cancel() 清理。
-// 示例（测试函数开头）：
-//
-//	t.Cleanup(config.UnsubscribeAll)
-var (
-	listenerEntries   []listenerEntry
-	changeListenersMu sync.RWMutex
-	listenerIDCounter atomic.Int64
-)
+// ---------------------------------------------------------------------------
+// ConfigManager 方法
+// ---------------------------------------------------------------------------
 
-// Subscribe 注册配置变更监听器，返回可用于精确取消的 token。
-// 每次 Load 成功后会按注册顺序调用所有监听器。
-//
-// 使用示例:
-//
-//	token := config.Subscribe(func(cfg *config.Config) {
-//	    rateLimiter.Update(cfg.Middleware.RateLimitRate)
-//	})
-//	// 插件卸载时：
-//	defer token.Cancel()
-func Subscribe(listener ChangeListener) *ListenerToken {
-	id := listenerIDCounter.Add(1)
-	changeListenersMu.Lock()
-	listenerEntries = append(listenerEntries, listenerEntry{id: id, fn: listener})
-	changeListenersMu.Unlock()
-	return &ListenerToken{id: id}
-}
-
-// unsubscribeByID 按 ID 移除单个监听器（内部使用）
-func unsubscribeByID(id int64) {
-	changeListenersMu.Lock()
-	defer changeListenersMu.Unlock()
-	for i, e := range listenerEntries {
-		if e.id == id {
-			listenerEntries = append(listenerEntries[:i], listenerEntries[i+1:]...)
-			return
-		}
+// Load 从文件加载配置并存入管理器。
+func (m *ConfigManager) Load(path string) (*Config, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, errutil.Wrapf(err, "config file not found: %s", path)
 	}
-}
 
-// UnsubscribeAll 移除所有配置变更监听器。
-//
-// 主要用于测试清理，防止监听器跨测试用例泄漏。
-// 推荐在每个测试函数中注册清理：
-//
-//	t.Cleanup(config.UnsubscribeAll)
-func UnsubscribeAll() {
-	changeListenersMu.Lock()
-	listenerEntries = nil
-	changeListenersMu.Unlock()
-}
-
-// notifyListeners 通知所有已注册的监听器配置已变更
-func notifyListeners(cfg *Config) {
-	changeListenersMu.RLock()
-	snapshot := make([]listenerEntry, len(listenerEntries))
-	copy(snapshot, listenerEntries)
-	changeListenersMu.RUnlock()
-
-	for _, entry := range snapshot {
-		func(fn ChangeListener) {
-			defer func() {
-				if r := recover(); r != nil {
-					// 监听器 panic 不应影响配置加载流程
-					_ = r
-				}
-			}()
-			fn(cfg)
-		}(entry.fn)
-	}
-}
-
-// loadRaw 从文件读取并解析配置，不更新全局状态也不触发监听器。
-// 内部使用，供 Watcher 调用以避免双重通知（修复 B7）。
-func loadRaw(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	cfg, err := loadRaw(path)
 	if err != nil {
-		return nil, errutil.Wrapf(err, "failed to read config file")
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, errutil.Wrapf(err, "failed to parse config file")
-	}
-
-	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	return new(cfg), nil
-}
-
-// Load 从文件加载配置
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, errutil.Wrapf(err, "failed to read config file")
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, errutil.Wrapf(err, "failed to parse config file")
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	cfgCopy := cfg
-	globalConfig.Store(&cfgCopy)
-	notifyListeners(&cfgCopy)
+	cfgCopy := *cfg
+	m.config.Store(&cfgCopy)
+	m.notifyListeners(&cfgCopy)
 
 	return &cfgCopy, nil
 }
 
-// Get 获取全局配置（需要先调用 Load）
-// 返回配置副本和是否已加载的标志
-func Get() (*Config, bool) {
-	v := globalConfig.Load()
+// Get 获取管理器中的当前配置（需要先调用 Load）。
+func (m *ConfigManager) Get() (*Config, bool) {
+	v := m.config.Load()
 	if v == nil {
 		return nil, false
 	}
@@ -445,22 +375,20 @@ func Get() (*Config, bool) {
 	return new(*cfg), true
 }
 
-// MustGet 获取全局配置，如果未加载则 panic
-// 仅在确定已加载配置的场景下使用
-func MustGet() *Config {
-	cfg, ok := Get()
+// MustGet 获取管理器中的当前配置，未加载时 panic。
+func (m *ConfigManager) MustGet() *Config {
+	cfg, ok := m.Get()
 	if !ok {
-		panic("config not loaded, please call config.Load() first")
+		panic("config not loaded, please call Load() first")
 	}
 	return cfg
 }
 
-// LoadDefault 尝试从默认位置加载配置
-// 按优先级查找: ./config.yaml -> ./config.yml -> 环境变量
-func LoadDefault() (*Config, error) {
+// LoadDefault 从默认位置加载配置。
+func (m *ConfigManager) LoadDefault() (*Config, error) {
 	for _, path := range []string{"config.yaml", "config.yml"} {
 		if _, err := os.Stat(path); err == nil {
-			return Load(path)
+			return m.Load(path)
 		}
 	}
 
@@ -485,12 +413,12 @@ func LoadDefault() (*Config, error) {
 		return nil, fmt.Errorf("no config file found and environment variables incomplete: %w", err)
 	}
 
-	globalConfig.Store(cfg)
+	m.config.Store(cfg)
 	return cfg, nil
 }
 
-// LoadViper 使用 Viper 加载配置，支持 yaml/json/env，优先顺序：显式路径 -> 默认路径 -> 环境变量
-func LoadViper(path string) (*Config, error) {
+// LoadViper 使用 Viper 加载配置。
+func (m *ConfigManager) LoadViper(path string) (*Config, error) {
 	v := viper.New()
 
 	if path != "" {
@@ -517,7 +445,7 @@ func LoadViper(path string) (*Config, error) {
 	}
 
 	if cfg.Bot.AppID == 0 || cfg.Bot.BotID == 0 || cfg.Bot.Token == "" || cfg.Bot.Secret == "" {
-		if fallback, err := LoadDefault(); err == nil {
+		if fallback, err := m.LoadDefault(); err == nil {
 			cfg = *fallback
 		}
 	}
@@ -526,8 +454,104 @@ func LoadViper(path string) (*Config, error) {
 		return nil, err
 	}
 
-	globalConfig.Store(&cfg)
+	m.config.Store(&cfg)
 	return &cfg, nil
+}
+
+// Subscribe 注册配置变更监听器，返回可用于精确取消的 token。
+func (m *ConfigManager) Subscribe(listener ChangeListener) *ListenerToken {
+	id := m.idCounter.Add(1)
+	m.mu.Lock()
+	m.listeners = append(m.listeners, listenerEntry{id: id, fn: listener})
+	m.mu.Unlock()
+	return &ListenerToken{id: id, mgr: m}
+}
+
+// UnsubscribeAll 移除所有配置变更监听器（主要用于测试清理）。
+func (m *ConfigManager) UnsubscribeAll() {
+	m.mu.Lock()
+	m.listeners = nil
+	m.mu.Unlock()
+}
+
+// unsubscribeByID 按 ID 移除单个监听器（内部使用）
+func (m *ConfigManager) unsubscribeByID(id int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, e := range m.listeners {
+		if e.id == id {
+			m.listeners = append(m.listeners[:i], m.listeners[i+1:]...)
+			return
+		}
+	}
+}
+
+// notifyListeners 通知所有已注册的监听器配置已变更
+func (m *ConfigManager) notifyListeners(cfg *Config) {
+	m.mu.RLock()
+	snapshot := make([]listenerEntry, len(m.listeners))
+	copy(snapshot, m.listeners)
+	m.mu.RUnlock()
+
+	for _, entry := range snapshot {
+		func(fn ChangeListener) {
+			defer func() {
+				if r := recover(); r != nil {
+					_ = r
+				}
+			}()
+			fn(cfg)
+		}(entry.fn)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 包级便捷函数 — 委托给 defaultManager，保持向后兼容
+// ---------------------------------------------------------------------------
+
+// Load 从文件加载配置（使用默认管理器）。
+func Load(path string) (*Config, error) { return defaultManager.Load(path) }
+
+// Get 获取全局配置（使用默认管理器）。
+func Get() (*Config, bool) { return defaultManager.Get() }
+
+// MustGet 获取全局配置，未加载则 panic（使用默认管理器）。
+func MustGet() *Config { return defaultManager.MustGet() }
+
+// LoadDefault 从默认位置加载配置（使用默认管理器）。
+func LoadDefault() (*Config, error) { return defaultManager.LoadDefault() }
+
+// LoadViper 使用 Viper 加载配置（使用默认管理器）。
+func LoadViper(path string) (*Config, error) { return defaultManager.LoadViper(path) }
+
+// Subscribe 注册配置变更监听器（使用默认管理器）。
+func Subscribe(listener ChangeListener) *ListenerToken {
+	return defaultManager.Subscribe(listener)
+}
+
+// UnsubscribeAll 移除所有配置变更监听器（使用默认管理器）。
+func UnsubscribeAll() {
+	defaultManager.UnsubscribeAll()
+}
+
+// loadRaw 从文件读取并解析配置，不更新全局状态也不触发监听器。
+// 内部使用，供 Watcher 调用以避免双重通知（修复 B7）。
+func loadRaw(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errutil.Wrapf(err, "failed to read config file")
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, errutil.Wrapf(err, "failed to parse config file")
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	return new(cfg), nil
 }
 
 // 辅助函数

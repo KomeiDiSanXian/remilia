@@ -69,11 +69,6 @@ func Is(err, target error) bool {
 	return errors.Is(err, target)
 }
 
-// As 是 errors.As 的快捷方式。
-func As[T any](err error, target *T) bool {
-	return errors.As(err, target)
-}
-
 // Unwrap 是 errors.Unwrap 的快捷方式。
 func Unwrap(err error) error {
 	return errors.Unwrap(err)

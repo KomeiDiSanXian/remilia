@@ -19,7 +19,7 @@ import (
 func TestBot_HandleEvent(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	eventReceived := false
 	var mu sync.Mutex
@@ -65,7 +65,7 @@ func TestBotStatusChecker(t *testing.T) {
 	t.Run("stopped state", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		time.Sleep(50 * time.Millisecond)
@@ -81,7 +81,7 @@ func TestBotStatusChecker(t *testing.T) {
 	t.Run("running state metadata", func(t *testing.T) {
 		adapter := newMockAdapter()
 		eng := engine.NewEngine()
-		bot := NewBot(adapter, eng)
+		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
 		defer bot.Stop(context.Background())
@@ -104,7 +104,7 @@ func TestBot_WaitForShutdownSignal(t *testing.T) {
 
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	require.NoError(t, bot.Start())
 
@@ -140,7 +140,7 @@ func TestBot_WaitForShutdownSignal(t *testing.T) {
 func TestBot_ConcurrentHealth(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
-	bot := NewBot(adapter, eng)
+	bot := MustNewBot(adapter, eng)
 
 	require.NoError(t, bot.Start())
 	defer bot.Stop(context.Background())

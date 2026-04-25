@@ -310,13 +310,13 @@ func (w *Watcher) reload() error {
 	// 非仅验证模式时应用新配置
 	if !w.validateOnly {
 		w.currentConfig.Store(newConfig)
-		// 更新全局配置
-		globalConfig.Store(newConfig)
+		// 更新全局默认管理器
+		defaultManager.config.Store(newConfig)
 		w.lastReloadTime.Store(time.Now())
 		w.reloadCount.Add(1)
 
 		// 修复 B7：通知监听器仅在最终确认后调用一次（loadRaw 不触发通知）
-		notifyListeners(newConfig)
+		defaultManager.notifyListeners(newConfig)
 
 		duration := time.Since(startTime)
 		logger.WithFields(logger.Fields{

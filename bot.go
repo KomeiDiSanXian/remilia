@@ -100,9 +100,11 @@ type Config struct {
 //
 // adapter 可以为 nil（仅使用多平台注册表时），非 nil 时会自动包装进内部 Registry。
 // 推荐使用 BotBuilder.Build() 代替直接调用。
-func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
+//
+// 若 engine 为 nil，返回错误。编写测试或确信参数合法时可使用 [MustNewBot]。
+func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, error) {
 	if e == nil {
-		logger.Panic("[Bot] engine cannot be nil")
+		return nil, errutil.New("engine cannot be nil")
 	}
 
 	b := &Bot{
@@ -136,7 +138,16 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
 	b.health.AddChecker(NewBotStatusChecker(b))
 	b.health.AddChecker(health.NewEngineHealthChecker(e))
 	b.buildBaseLifecycle()
-	return b
+	return b, nil
+}
+
+// MustNewBot 同 [NewBot]，但失败时 panic。适用于初始化阶段且参数已确认合法的场景。
+func MustNewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) *Bot {
+	bot, err := NewBot(adapter, e, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return bot
 }
 
 // buildBaseLifecycle 创建 lifecycle.Manager 并注册 engine 基础组件。
@@ -154,6 +165,19 @@ func (b *Bot) buildBaseLifecycle() {
 }
 
 // Start 启动 Bot
+//
+// 并发安全设计（锁-解-锁模式）：
+//
+//   - 第一阶段持锁（快速）：检查 running/starting 标志，设置 starting=true
+//   - 解锁执行耗时操作（启动 lifecycle、注册组件），期间 IsRunning() 等读方法可正常访问
+//   - 第二阶段持锁（快速）：写入 running=true、startTime、rootCtx/rootCancel
+//
+// starting 标志在整过程中防止并发二次启动：任何 goroutine 在 starting==true 期间
+// 调用 Start() 都会被拒绝（返回 "bot is already starting"）。
+//
+// 若启动失败，starting 被重置为 false 且 running 保持 false，
+// 下次 Start() 调用可正常重试。rootCtx/rootCancel 在失败路径中已被 cancel，
+// 不会泄漏。
 func (b *Bot) Start() error {
 	// 并发安全：先用写锁检查并设置 starting 标志，随后解锁。
 	// 这是有意为之的"锁-解-锁"模式：

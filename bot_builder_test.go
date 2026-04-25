@@ -143,7 +143,7 @@ func TestSimpleWebhookAdapter(t *testing.T) {
 		adapter := qq.SimpleWebhookAdapter(8080)
 		newEngine := engine.NewEngine()
 
-		bot := remilia.NewBot(adapter, newEngine)
+		bot := remilia.MustNewBot(adapter, newEngine)
 		assert.NotNil(t, bot)
 	})
 }
@@ -165,7 +165,7 @@ func BenchmarkBotBuilder(b *testing.B) {
 		b.ReportAllocs()
 		eng := engine.NewEngine()
 		for i := 0; i < b.N; i++ {
-			_ = remilia.NewBot(adapter, eng)
+			_ = remilia.MustNewBot(adapter, eng)
 		}
 	})
 }

@@ -537,7 +537,7 @@ func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
 	return nil
 }
 
-// GetContainer 获取依赖注入容器（v2 API）
+// GetContainer 获取依赖注入容器
 func (pm *Manager) GetContainer() *Container {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -563,10 +563,4 @@ func (pm *Manager) GetEventBus() EventBus {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return pm.eventBus
-}
-
-// AsPluginInfo 返回 Manager 的只读视图（Info 接口）。
-// 供向后兼容代码（如已废弃的 SetPluginManager）使用。
-func (pm *Manager) AsPluginInfo() Info {
-	return newPluginInfo(pm)
 }

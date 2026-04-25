@@ -72,8 +72,8 @@ log:
 
 // TestGetBeforeLoad tests that Get() returns false when config is not loaded
 func TestGetBeforeLoad(t *testing.T) {
-	// Reset global config
-	globalConfig.Store((*Config)(nil))
+	// Reset default manager config
+	defaultManager.config.Store((*Config)(nil))
 
 	cfg, ok := Get()
 	assert.False(t, ok, "Get() should return false when config not loaded")
@@ -82,8 +82,8 @@ func TestGetBeforeLoad(t *testing.T) {
 
 // TestMustGetPanic tests that MustGet panics when config is not loaded
 func TestMustGetPanic(t *testing.T) {
-	// Reset global config
-	globalConfig.Store((*Config)(nil))
+	// Reset default manager config
+	defaultManager.config.Store((*Config)(nil))
 
 	assert.Panics(t, func() {
 		MustGet()
