@@ -392,6 +392,7 @@ func (b *Bot) Stop(ctx context.Context) error {
 	b.stopTime = time.Now()
 	rootCancel := b.rootCancel
 	b.rootCancel = nil
+	b.rootCtx = nil
 	b.mu.Unlock()
 
 	logger.Info("[Bot] Shutting down...")

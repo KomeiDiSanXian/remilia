@@ -68,7 +68,10 @@ func main() {
 	adapter := qq.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Webhook)
 
 	// 7. 创建 Bot
-	bot := remilia.NewBot(adapter, eng)
+	bot, err := remilia.NewBot(adapter, eng)
+	if err != nil {
+		logger.Fatalf("Failed to create bot: %v", err)
+	}
 
 	// 8. 启动 Bot
 	logger.Info("Starting bot...")

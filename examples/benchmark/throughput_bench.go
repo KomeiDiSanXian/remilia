@@ -479,7 +479,11 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	consumerWorkers := runtime.NumCPU() * 2
 	bufSize := max(s.Workers*max(s.RatePerW, 200)*2, 8192)
 	pump := newPumpAdapter(bufSize)
-	bot := remilia.NewBot(pump, eng)
+	bot, err := remilia.NewBot(pump, eng)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bot creation failed for %q: %v\n", s.Name, err)
+		os.Exit(1)
+	}
 	if err := bot.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "bot.Start failed for %q: %v\n", s.Name, err)
 		os.Exit(1)

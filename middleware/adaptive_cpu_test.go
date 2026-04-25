@@ -9,6 +9,9 @@ import (
 
 // TestAdaptiveRateLimiter_RealCPUMetrics 测试真实 CPU 指标采集
 func TestAdaptiveRateLimiter_RealCPUMetrics(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping real CPU metrics test (6s observation window) in short mode")
+	}
 	config := AdaptiveConfig{
 		MinConcurrency: 10,
 		MaxConcurrency: 100,
@@ -79,6 +82,10 @@ func TestAdaptiveRateLimiter_CPUFailureFallback(t *testing.T) {
 
 // TestAdaptiveRateLimiter_NoGoroutineBasedCPU 验证不再使用 goroutine 数量计算 CPU
 func TestAdaptiveRateLimiter_NoGoroutineBasedCPU(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping real CPU metrics test (6s observation window) in short mode")
+	}
+
 	// 这个测试确保我们使用了真实的 CPU 监控而不是 goroutine 计数
 
 	config := DefaultAdaptiveConfig()

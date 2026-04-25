@@ -239,6 +239,10 @@ func TestAdaptiveRateLimiter_StartStop(t *testing.T) {
 }
 
 func TestAdaptiveRateLimiter_MetricsCollection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping adaptive rate limiter metrics collection test (6s observation window) in short mode")
+	}
+
 	config := DefaultAdaptiveConfig()
 	config.MetricsEnabled = true
 

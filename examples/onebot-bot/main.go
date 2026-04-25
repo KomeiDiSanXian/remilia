@@ -151,7 +151,11 @@ func main() {
 	})
 
 	// ── 4. Build and start the bot ───────────────────────────────────────────
-	bot := remilia.NewBot(adapter, eng, remilia.WithName("onebot-example"))
+	bot, err := remilia.NewBot(adapter, eng, remilia.WithName("onebot-example"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bot creation error: %v\n", err)
+		os.Exit(1)
+	}
 
 	fmt.Printf("[bot] Starting, connecting to %s\n", wsURL)
 	if err := bot.Start(); err != nil {

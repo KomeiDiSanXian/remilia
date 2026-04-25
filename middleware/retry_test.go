@@ -297,6 +297,10 @@ func TestRetry_RetryAttemptTracking(t *testing.T) {
 
 // TestSleepWithContext_ResourceCleanup 测试 sleepWithContext 的资源清理
 func TestSleepWithContext_ResourceCleanup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping sleep timing-dependent tests in short mode")
+	}
+
 	t.Run("normal_completion", func(t *testing.T) {
 		ctx := context.Background()
 		start := time.Now()

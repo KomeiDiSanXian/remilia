@@ -4,94 +4,15 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(tests): add unit tests for Discord and Telegram adapters">
       <change afterPath="$PROJECT_DIR$/docs/05-reports/framework-review-2026-04.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/acrostic/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/answer/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/avatar/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/blacklist/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/breakrepeat/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/calc/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/chatcount/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/chess/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/choose/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/chrev/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/colorpick/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/countdown/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/cpstory/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/crypter/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/curse/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/dailynews/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/dice/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/dish/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/drawlots/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/driftbottle/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/eightball/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/emozi/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/fishing/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/funny/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/guessnumber/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/hitokoto/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/horoscope/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/idiom/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/joke/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/keywordreply/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/kfccrazythursday/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/lunarcalendar/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/math24/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/memo/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/moyu/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/nbnhhsh/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/niuniu/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/numeral/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/omikuji/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/pet/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/poetry/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/proverb/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/qqwife/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/qrcode/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/reborn/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/remind/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/robbery/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/rps/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/score/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/search/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/sleepmanage/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/slots/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/tarot/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/tiangou/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/timing/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/tongue/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/typingtest/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/unitconv/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/vote/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/wallet/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/wiki/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/wordchain/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/wordcount/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/wordle/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/xhstext/plugin.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/zerobot-remilia/plugins/zodiac/plugin.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_builder_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_context_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_context_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_nil_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_nil_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/config_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config_race_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/load_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/load_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/validate.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/validate.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/watcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/doc.go" beforeDir="false" afterPath="$PROJECT_DIR$/doc.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/wrapper.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/wrapper_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/wrapper_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_plus_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_plus_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -363,9 +284,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(storage): implement badge and bar chart rendering functionality" />
-    <MESSAGE value="feat: update string conversion in tests for improved clarity and consistency" />
-    <MESSAGE value="feat(vector): add VectorCanvas for advanced vector drawing capabilities" />
     <MESSAGE value="optimize(gif, vector): simplify frame delay and diameter calculations" />
     <MESSAGE value="docs: rename report files for improved clarity and accessibility" />
     <MESSAGE value="feat(pluginctrl): implement group silence and user ban functionalities" />
@@ -388,7 +306,10 @@
     <MESSAGE value="optimize(tests): simplify goroutine handling in circuit breaker tests and clean up unused helper functions" />
     <MESSAGE value="feat(config): add bridge functions for core/engine integration and enhance configuration structure" />
     <MESSAGE value="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination" />
+    <MESSAGE value="chore(docs): update Go version in README and adjust related requirements" />
+    <MESSAGE value="fix(register): refine comments in Register function for clarity" />
+    <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(tests): add unit tests for Discord and Telegram adapters" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

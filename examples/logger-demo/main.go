@@ -37,7 +37,10 @@ func main() {
 	mockAdapter := &MockAdapter{}
 
 	// 创建 Bot
-	bot := remilia.NewBot(mockAdapter, eng)
+	bot, err := remilia.NewBot(mockAdapter, eng)
+	if err != nil {
+		logger.Fatalf("Failed to create bot: %v", err)
+	}
 
 	// 注册一个简单的消息处理器
 	eng.OnAny().Handle(func(ctx *eventctx.Context) error {

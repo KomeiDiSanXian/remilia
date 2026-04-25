@@ -324,8 +324,33 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 		lastVisit time.Time
 	}
 
-	buckets := make(map[string]*bucketEntry)
-	var mu sync.RWMutex // 保护 buckets map
+	// 分片 map 减少热点锁竞争：每个 shard 持有独立的 map 和锁。
+	// 64 个分片（2^6）在 key 数量 > 1000 时显著降低写锁冲突概率。
+	const numShards = 64
+
+	type shard struct {
+		mu      sync.RWMutex
+		buckets map[string]*bucketEntry
+	}
+
+	shards := make([]*shard, numShards)
+	for i := range numShards {
+		shards[i] = &shard{
+			buckets: make(map[string]*bucketEntry),
+		}
+	}
+
+	// hashKey 将 string key 映射到 [0, numShards) 范围内的 shard 索引。
+	// 使用 FNV-1a 哈希（轻量、均匀），按位与代替取模（要求 numShards 为 2 的幂）。
+	hashKey := func(key string) int {
+		var h uint64 = 14695981039346656037 // FNV offset basis
+		for i := range len(key) {
+			h ^= uint64(key[i])
+			h *= 1099511628211 // FNV prime
+		}
+		return int(h & (numShards - 1))
+	}
+
 	// lastCleanup 用 atomic.Int64 存储 UnixNano，避免多个 goroutine 同时读写时的数据竞态。
 	// 无锁快速路径（检查是否需要清理）和有锁慢速路径（执行清理）都通过原子操作访问它。
 	var lastCleanup atomic.Int64
@@ -337,26 +362,25 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
 			return
 		}
-		mu.Lock()
-		// 重新检查（double-check），防止多个 goroutine 同时通过快速路径后重复清理
-		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
-			mu.Unlock()
-			return
-		}
-		for k, v := range buckets {
-			if now.Sub(v.lastVisit) > config.BucketTTL {
-				delete(buckets, k)
-			}
-		}
+		// 全部 shard 的清理持独立的 per-shard 写锁，不会形成全局瓶颈
 		lastCleanup.Store(nowNano)
-		// 如果仍超过上限，快速删除少量条目（无需线性排序）
-		for len(buckets) > config.MaxBuckets {
-			for k := range buckets {
-				delete(buckets, k)
-				break
+		for i := range numShards {
+			s := shards[i]
+			s.mu.Lock()
+			for k, v := range s.buckets {
+				if now.Sub(v.lastVisit) > config.BucketTTL {
+					delete(s.buckets, k)
+				}
 			}
+			// 如果仍超过上限，快速删除少量条目（无需线性排序）
+			for len(s.buckets) > config.MaxBuckets/numShards+1 {
+				for k := range s.buckets {
+					delete(s.buckets, k)
+					break
+				}
+			}
+			s.mu.Unlock()
 		}
-		mu.Unlock()
 	}
 
 	return func(next eventctx.Handler) eventctx.Handler {
@@ -371,23 +395,21 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 
 			lim := shared
 			if key != "" {
-				// 使用单个写锁保护整个 get-update-create 操作，避免竞态条件
-				mu.Lock()
-				entry, ok := buckets[key]
+				s := shards[hashKey(key)]
+				s.mu.Lock()
+				entry, ok := s.buckets[key]
 				if ok {
-					// 已存在，更新访问时间
 					entry.lastVisit = now
 					lim = entry.lim
 				} else {
-					// 不存在，创建新的
 					entry = &bucketEntry{
 						lim:       rate.NewLimiter(rate.Limit(ratePerSec), burst),
 						lastVisit: now,
 					}
-					buckets[key] = entry
+					s.buckets[key] = entry
 					lim = entry.lim
 				}
-				mu.Unlock()
+				s.mu.Unlock()
 			}
 
 			if !lim.Allow() {
