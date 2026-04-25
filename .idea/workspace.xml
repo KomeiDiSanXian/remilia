@@ -4,15 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(tests): add unit tests for Discord and Telegram adapters">
-      <change afterPath="$PROJECT_DIR$/docs/05-reports/framework-review-2026-04.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(tests): skip long-running tests in short mode for improved test efficiency">
+      <change beforePath="$PROJECT_DIR$/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/config_provider.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config_provider.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -284,7 +278,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(gif, vector): simplify frame delay and diameter calculations" />
     <MESSAGE value="docs: rename report files for improved clarity and accessibility" />
     <MESSAGE value="feat(pluginctrl): implement group silence and user ban functionalities" />
     <MESSAGE value="test(pluginctrl): add integration tests for autoWireListener behavior" />
@@ -309,7 +302,8 @@
     <MESSAGE value="chore(docs): update Go version in README and adjust related requirements" />
     <MESSAGE value="fix(register): refine comments in Register function for clarity" />
     <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(tests): add unit tests for Discord and Telegram adapters" />
+    <MESSAGE value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

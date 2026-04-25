@@ -1,38 +1,92 @@
 package plugin
 
 import (
-	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/viper"
+	"sync"
+
+	"github.com/KomeiDiSanXian/remilia/config"
 )
 
-// config_provider.go — 配置提供者接口与 viper 适配器
+// config_provider.go — 配置提供者接口与内置实现
 //
-// Manager 通过 ConfigProvider 接口获取配置，viper 是可选的推荐实现。
-// 若不需要配置热重载，可以不注入任何 ConfigProvider（Manager 零依赖可用）。
+// Manager 通过 ConfigProvider 接口获取插件配置（零外部依赖）。
+// 内置的 YAMLConfigProvider 基于 config.Config.Plugins 实现。
 //
 // 使用方式：
 //
-//	// 方式一（推荐）：通过 WithConfigProvider 注入 viper
-//	pm := plugin.NewManager(eng, plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)))
+//	// 方式一（推荐）：通过 WithConfigProvider 注入内置的 YAML 配置提供者
+//	cfg, _ := config.Load("config.yaml")
+//	pm := plugin.NewManager(eng,
+//	    plugin.WithConfigProvider(plugin.NewYAMLConfigProvider(cfg)),
+//	)
 //
 //	// 方式二：不注入，插件 Config 为 nil（适用于不需要配置的场景）
 //	pm := plugin.NewManager(eng)
 
 // ConfigProvider 是框架对外部配置源的抽象接口。
 //
-// Manager 通过此接口获取插件配置（不直接依赖 viper），
-// 使得框架核心可以在零 viper 依赖下运行。
-//
-// 标准实现：ViperConfigProvider（见下方）。
-// 自定义实现可对接任意配置源（etcd、consul、env 等）。
+// Manager 通过此接口获取插件配置，你可以实现此接口对接任意配置源
+// （etcd、consul、环境变量等）。
 type ConfigProvider interface {
-	// Sub 返回插件专属的配置视图（类似 viper.Sub）。
+	// Sub 返回插件专属的配置视图。
 	// 返回 nil 表示该插件没有专属配置。
 	Sub(pluginName string) map[string]any
 
-	// OnConfigChange 注册配置变更回调（配置文件/来源发生变化时触发）。
+	// OnConfigChange 注册配置变更回调。
 	// 若配置源不支持热监听，可以实现为空操作。
 	OnConfigChange(callback func())
+}
+
+// YAMLConfigProvider 是基于 config.Config 的内置 ConfigProvider 实现。
+//
+// 它从 config.Config.Plugins 中读取插件配置，支持通过 Subscribe 监听
+// 配置变更（配合 ConfigManager 的热重载能力）。
+type YAMLConfigProvider struct {
+	mu       sync.RWMutex
+	cfg      *config.Config
+	listener *config.ListenerToken
+	onChange func()
+}
+
+// NewYAMLConfigProvider 创建一个基于 config.Config 的插件配置提供者。
+//
+// 如果传入的 configManager 不为 nil，会自动订阅配置变更实现热更新。
+func NewYAMLConfigProvider(cfg *config.Config, configManager ...*config.ConfigManager) *YAMLConfigProvider {
+	p := &YAMLConfigProvider{cfg: cfg}
+	if len(configManager) > 0 && configManager[0] != nil {
+		p.listener = configManager[0].Subscribe(func(newCfg *config.Config) {
+			p.mu.Lock()
+			p.cfg = newCfg
+			p.mu.Unlock()
+			if p.onChange != nil {
+				p.onChange()
+			}
+		})
+	}
+	return p
+}
+
+// Sub 返回 plugins.<pluginName> 下的所有配置项。
+func (p *YAMLConfigProvider) Sub(pluginName string) map[string]any {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.cfg == nil {
+		return nil
+	}
+	cfg, _ := p.cfg.PluginConfig(pluginName)
+	return cfg
+}
+
+// OnConfigChange 注册配置变更回调。
+func (p *YAMLConfigProvider) OnConfigChange(callback func()) {
+	p.onChange = callback
+}
+
+// Stop 取消配置变更订阅。
+// 应在不再需要此提供者时调用，防止 listener 泄漏。
+func (p *YAMLConfigProvider) Stop() {
+	if p.listener != nil {
+		p.listener.Cancel()
+	}
 }
 
 // ManagerOption 是 Manager 的可选配置函数。
@@ -50,47 +104,4 @@ func WithConfigProvider(cp ConfigProvider) ManagerOption {
 	return func(m *Manager) {
 		m.configProvider = cp
 	}
-}
-
-// ViperConfigProvider 是 ConfigProvider 的 viper 实现。
-//
-// 使用示例：
-//
-//	v := viper.New()
-//	v.SetConfigFile("config.yaml")
-//	v.ReadInConfig()
-//	v.WatchConfig()
-//
-//	pm := plugin.NewManager(eng,
-//	    plugin.WithConfigProvider(plugin.NewViperConfigProvider(v)),
-//	)
-type ViperConfigProvider struct {
-	v *viper.Viper
-}
-
-// NewViperConfigProvider 创建基于 viper 的配置提供者。
-func NewViperConfigProvider(v *viper.Viper) *ViperConfigProvider {
-	return &ViperConfigProvider{v: v}
-}
-
-// Sub 返回 plugins.<pluginName> 下的所有配置项。
-func (vcp *ViperConfigProvider) Sub(pluginName string) map[string]any {
-	if vcp.v == nil {
-		return nil
-	}
-	sub := vcp.v.Sub("plugins." + pluginName)
-	if sub == nil {
-		return nil
-	}
-	return sub.AllSettings()
-}
-
-// OnConfigChange 订阅 viper 配置文件变更事件。
-func (vcp *ViperConfigProvider) OnConfigChange(callback func()) {
-	if vcp.v == nil {
-		return
-	}
-	vcp.v.OnConfigChange(func(_ fsnotify.Event) {
-		callback()
-	})
 }

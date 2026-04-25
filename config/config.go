@@ -3,7 +3,7 @@
 // # 职责边界
 //
 // config 包的唯一职责是：
-//  1. 从外部来源（YAML 文件、环境变量、Viper）读取原始配置
+//  1. 从外部来源（YAML 文件、环境变量）读取原始配置
 //  2. 将原始配置反序列化为统一的 [Config] 结构体
 //  3. 通过全局 atomic.Value 提供并发安全的配置访问和热重载
 //  4. 向监听者广播配置变更事件
@@ -33,7 +33,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -43,7 +42,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
@@ -417,47 +415,6 @@ func (m *ConfigManager) LoadDefault() (*Config, error) {
 	return cfg, nil
 }
 
-// LoadViper 使用 Viper 加载配置。
-func (m *ConfigManager) LoadViper(path string) (*Config, error) {
-	v := viper.New()
-
-	if path != "" {
-		v.SetConfigFile(path)
-	} else {
-		v.SetConfigName("config")
-		v.SetConfigType("yaml")
-		v.AddConfigPath(".")
-		v.AddConfigPath("./config")
-	}
-
-	v.SetEnvPrefix("REMILIA")
-	v.AutomaticEnv()
-
-	if err := v.ReadInConfig(); err != nil {
-		if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); !ok {
-			return nil, fmt.Errorf("load config via viper failed: %w", err)
-		}
-	}
-
-	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal config via viper failed: %w", err)
-	}
-
-	if cfg.Bot.AppID == 0 || cfg.Bot.BotID == 0 || cfg.Bot.Token == "" || cfg.Bot.Secret == "" {
-		if fallback, err := m.LoadDefault(); err == nil {
-			cfg = *fallback
-		}
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	m.config.Store(&cfg)
-	return &cfg, nil
-}
-
 // Subscribe 注册配置变更监听器，返回可用于精确取消的 token。
 func (m *ConfigManager) Subscribe(listener ChangeListener) *ListenerToken {
 	id := m.idCounter.Add(1)
@@ -520,9 +477,6 @@ func MustGet() *Config { return defaultManager.MustGet() }
 
 // LoadDefault 从默认位置加载配置（使用默认管理器）。
 func LoadDefault() (*Config, error) { return defaultManager.LoadDefault() }
-
-// LoadViper 使用 Viper 加载配置（使用默认管理器）。
-func LoadViper(path string) (*Config, error) { return defaultManager.LoadViper(path) }
 
 // Subscribe 注册配置变更监听器（使用默认管理器）。
 func Subscribe(listener ChangeListener) *ListenerToken {
