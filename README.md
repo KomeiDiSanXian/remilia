@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Remilia Logo](https://img.shields.io/badge/Remilia-QQ%20Bot%20Framework-blue)
-![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
+![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
@@ -66,7 +66,7 @@
 go get github.com/KomeiDiSanXian/remilia
 ```
 
-**要求**: Go 1.24+
+**要求**: Go 1.26+
 
 ---
 
@@ -78,23 +78,41 @@ go get github.com/KomeiDiSanXian/remilia
 package main
 
 import (
+    "fmt"
+
     "github.com/KomeiDiSanXian/remilia"
     "github.com/KomeiDiSanXian/remilia/core/engine"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
+    "github.com/KomeiDiSanXian/remilia/platform/qq"
+    "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func main() {
     eng := engine.NewEngine()
 
-    // 注册命令处理器
-    eng.OnCommand(dto.GroupAtMessageCreate, "/echo").
+    // 注册平台无关的命令处理器
+    eng.OnCommand(platform.EventKindGroupMessage, "/echo").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply("你说: " + ctx.GetMessageContent())
+            return ctx.Reply(platform.TextMessage("你说: " + ctx.GetMessageContent()))
         })
 
-    adapter := remilia.SimpleWebhookAdapter(8080)
-    bot := remilia.NewBot(adapter, eng)
+    // 创建 QQ 适配器（Webhook 模式）
+    botInfo := &dto.BotInfo{
+        AppID:     123456,
+        Token:     "your-token",
+        AppSecret: "your-secret",
+    }
+    adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+
+    bot, err := remilia.NewBotBuilder().
+        WithPlatformAdapter(adapter).
+        WithEngine(eng).
+        Build()
+    if err != nil {
+        panic(err)
+    }
+
     bot.Start()
     bot.WaitForShutdown()
 }
@@ -124,24 +142,23 @@ package myplugin
 import (
     "github.com/KomeiDiSanXian/remilia/plugin"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
 )
 
-func New() *plugin.PluginDescriptor {
-    p := &MyPlugin{}
-    return &plugin.PluginDescriptor{
+func New() *plugin.Descriptor {
+    return &plugin.Descriptor{
         Name:    "myplugin",
         Version: "1.0.0",
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Description: "我的第一个插件",
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/hello").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").
                 Handle(func(c *eventctx.Context) error {
-                    return c.Reply("Hello from plugin!")
+                    return c.Reply(platform.TextMessage("Hello from plugin!"))
                 })
-            return p, nil
+            return nil, nil
         },
     }
 }
@@ -151,14 +168,7 @@ func New() *plugin.PluginDescriptor {
 
 ```go
 manager := plugin.NewManager(eng)
-manager.RegisterV2(myplugin.New())
-
-// 或：批量注册，自动推断依赖顺序
-plugin.RegisterMultipleV2Smart(manager,
-    storage.New(),
-    cache.New(),
-    myplugin.New(),
-)
+manager.Register(myplugin.New())
 ```
 
 **完整指南**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
@@ -193,14 +203,18 @@ middleware:
 cfg, err := config.Load("config.yaml")
 if err != nil { panic(err) }
 
-bot, err := remilia.NewBotBuilder().
-    WithBotInfo(&dto.BotInfo{
+adapter := qq.NewWebhookServerAdapter(
+    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+    &dto.BotInfo{
         AppID:     cfg.Bot.AppID,
         BotAppID:  cfg.Bot.BotID,
         Token:     cfg.Bot.Token,
         AppSecret: cfg.Bot.Secret,
-    }).
-    WithWebhook(fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)).
+    },
+)
+
+bot, err := remilia.NewBotBuilder().
+    WithPlatformAdapter(adapter).
     Build()
 if err != nil { panic(err) }
 
@@ -351,7 +365,7 @@ bot.WaitForShutdown()
 | 命令解析 | ~1-2 μs/op | Trie + commandIndex |
 | Context Pool | 0 allocs/op | 对象池复用 |
 
-测试环境: AMD Ryzen 7 5800H, 16GB RAM, Go 1.24
+测试环境: AMD Ryzen 7 5800H, 16GB RAM, Go 1.26
 
 ---
 
