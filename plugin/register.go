@@ -10,9 +10,8 @@ import (
 
 // register.go — 插件注册：Register、批量注册、拓扑排序
 
-// Register 注册 v2 风格的插件（使用 Descriptor）
+// Register 注册插件（使用 Descriptor）
 func (pm *Manager) Register(desc *Descriptor) error {
-	// 阶段 1：基础合法性（无锁，无 Manager 状态依赖）
 	if err := validateDescriptor(desc); err != nil {
 		return err
 	}
@@ -20,7 +19,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	name := desc.Name
 	pm.mu.Lock()
 
-	// 阶段 2：重复注册检查
+	// 重复注册检查
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
 		logger.Warnf("[pluginManager] Plugin %s already registered", name)
@@ -35,13 +34,13 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		return names
 	}
 
-	// 阶段 3：依赖存在性与就绪状态（须持锁）
+	// 依赖存在性与就绪状态（须持锁）
 	if err := checkDependencies(pm, desc, registeredList); err != nil {
 		pm.mu.Unlock()
 		return err
 	}
 
-	// 阶段 4：版本约束（须持锁）
+	// 版本约束（须持锁）
 	if err := validateVersionConstraints(pm, desc); err != nil {
 		pm.mu.Unlock()
 		return err
