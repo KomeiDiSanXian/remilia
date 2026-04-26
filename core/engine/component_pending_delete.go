@@ -19,11 +19,16 @@ func (c *pendingDeleteComponent) stop() {
 }
 
 func (c *pendingDeleteComponent) wait(ctx context.Context) error {
-	// pending delete processor currently exposes no done channel; treat as immediate.
+	// 等待 pending delete processor goroutine 退出。
+	// 若 done 未设置（如测试中未初始化），则立即返回。
+	done := c.e.services.pendingDeleteDone
+	if done == nil {
+		return nil
+	}
 	select {
+	case <-done:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
-	default:
-		return nil
 	}
 }

@@ -57,6 +57,8 @@ type tempMatcherManager struct {
 	shards [tempMatcherShardCount]*tempMatcherShard
 	config TempManagerConfig
 	count  int32 // 原子计数，避免频繁加锁统计
+
+	cleanupWg sync.WaitGroup // 追踪水位线清理 goroutine，供 Shutdown 等待
 }
 
 func newTempMatcherManager() *tempMatcherManager {
@@ -144,10 +146,15 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	// 增加计数
 	newCount := atomic.AddInt32(&m.count, 1)
 
-	// 检查是否触发水位线清理
+	// 水位线清理：计数超过高水位时触发过期清理。
+	// 使用 goroutine 以避免在持有 shard 锁时尝试获取其他 shard 锁导致死锁。
+	// 通过 cleanupWg 追踪，Shutdown 时可等待清理完成。
 	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh {
-		// 释放锁后触发清理（避免死锁）
-		go m.cleanToWatermark()
+		m.cleanupWg.Add(1)
+		go func() {
+			defer m.cleanupWg.Done()
+			m.cleanToWatermark()
+		}()
 	}
 }
 

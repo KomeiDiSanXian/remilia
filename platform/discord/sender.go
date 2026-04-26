@@ -39,6 +39,9 @@ type discordSender struct {
 
 	intMu   sync.Mutex
 	pending map[string]*pendingInteraction // key: interaction ID
+
+	stopCh chan struct{} // closing signals cleanupLoop to exit
+	close  sync.Once     // ensures stopCh is closed exactly once
 }
 
 // newSender creates a discordSender wrapping the given discordgo session.
@@ -46,25 +49,39 @@ func newSender(session *discordgo.Session) *discordSender {
 	s := &discordSender{
 		session: session,
 		pending: make(map[string]*pendingInteraction),
+		stopCh:  make(chan struct{}),
 	}
 	go s.cleanupLoop()
 	return s
 }
 
 // cleanupLoop periodically removes expired interaction entries.
+// Exits when s.stopCh is closed (called by adapter Stop).
 func (s *discordSender) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		s.intMu.Lock()
-		now := time.Now()
-		for id, p := range s.pending {
-			if now.Sub(p.createdAt) > interactionTTL {
-				delete(s.pending, id)
+	for {
+		select {
+		case <-ticker.C:
+			s.intMu.Lock()
+			now := time.Now()
+			for id, p := range s.pending {
+				if now.Sub(p.createdAt) > interactionTTL {
+					delete(s.pending, id)
+				}
 			}
+			s.intMu.Unlock()
+		case <-s.stopCh:
+			return
 		}
-		s.intMu.Unlock()
 	}
+}
+
+// stopCleanup signals cleanupLoop to exit. Idempotent.
+func (s *discordSender) stopCleanup() {
+	s.close.Do(func() {
+		close(s.stopCh)
+	})
 }
 
 // storeInteraction registers a Discord interaction so the sender can dispatch

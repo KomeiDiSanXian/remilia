@@ -11,7 +11,7 @@ import (
 
 // Simple Command Test
 func TestEngine_OnCommand_Basic(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	matcher := eng.OnCommand(string(platform.EventKindPrivateMessage), "/test")
 	require.NotNil(t, matcher)
 	assert.Equal(t, "/test", matcher.GetCommand())
@@ -19,7 +19,7 @@ func TestEngine_OnCommand_Basic(t *testing.T) {
 
 // Group Tests
 func TestEngine_WithMatcherGroupBatch(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
@@ -34,7 +34,7 @@ func TestEngine_WithMatcherGroupBatch(t *testing.T) {
 }
 
 func TestEngine_SetMatcherGroup(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	eng.SetMatcherGroup(matcher, "my-plugin", "test-source")
 	assert.Equal(t, "my-plugin", matcher.group)
@@ -43,7 +43,7 @@ func TestEngine_SetMatcherGroup(t *testing.T) {
 
 // Named Middleware Test
 func TestEngine_Named(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	executed := false
 	mw := eng.Named("test-mw", func(next ctx.Handler) ctx.Handler {
 		return func(c *ctx.Context) error {
@@ -61,7 +61,7 @@ func TestEngine_Named(t *testing.T) {
 
 // RemoveGroup Tests
 func TestEngine_RemoveGroup_WithMatchers(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var m1, m2 *Matcher
 
 	eng.WithMatcherGroupBatch(func() {
@@ -97,7 +97,7 @@ func TestMatcher_NoopBehavior(t *testing.T) {
 // Note: the chained form `.Handle(h1).Handle(h2)` is now a compile error because
 // Handle is a void terminal method — this test uses the deliberate two-statement form.
 func TestMatcher_ReplaceHandler(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	var executed string
 
@@ -121,18 +121,18 @@ func TestMatcher_ReplaceHandler(t *testing.T) {
 
 // Nil Safety Tests
 func TestEngine_RebuildMatcherChain_NilSafe(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.RebuildMatcherChain(nil) // Should not panic
 }
 
 func TestEngine_SetMatcherGroup_NilSafe(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.SetMatcherGroup(nil, "test", "source") // Should not panic
 }
 
 // Multiple Middleware in Group
 func TestEngine_UseForGroup_Multiple(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var order []int
 
 	mw1 := func(next ctx.Handler) ctx.Handler {

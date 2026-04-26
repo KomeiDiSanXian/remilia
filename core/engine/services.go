@@ -29,6 +29,7 @@ type services struct {
 	// pending delete config/state
 	pendingDeleteCh              chan *Matcher
 	pendingDeleteStop            func()
+	pendingDeleteDone            chan struct{} // closed when processor goroutine exits
 	pendingDeleteProcessInterval time.Duration
 	pendingDeleteBatchSize       int
 

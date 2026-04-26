@@ -72,7 +72,7 @@ type Bot struct {
 	engine           *engine.Engine
 	lifecycle        *lifecycle.Manager
 	health           *health.Check
-	config           *Config
+	config           *BotMeta
 	pluginManager    *plugin.Manager
 	platformRegistry *platform.Registry // 唯一事件来源（单/多平台均通过此注册表管理）
 
@@ -83,6 +83,9 @@ type Bot struct {
 	// 与 core/engine 的 COW 设计保持一致。
 	adapterSnapshot atomic.Value // stores map[string]adapterCache
 
+	// pprofServer 可选性能分析服务器（通过 WithPprof 注入，Start/Stop 时自动管理）
+	pprofServer *PprofServer
+
 	mu sync.RWMutex
 
 	// started 标记 Bot 是否已成功 Start（防止重复 Start）。
@@ -90,8 +93,8 @@ type Bot struct {
 	started atomic.Bool
 }
 
-// Config Bot 配置
-type Config struct {
+// BotMeta Bot 元数据配置（区别于 config.Config 全量配置）。
+type BotMeta struct {
 	Name    string
 	Version string
 	Debug   bool
@@ -110,7 +113,7 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, e
 
 	b := &Bot{
 		engine: e,
-		config: &Config{
+		config: &BotMeta{
 			Name:    "remilia-bot",
 			Version: Version,
 			Debug:   false,
@@ -227,6 +230,15 @@ func (b *Bot) Start() error {
 	// 这样插件 Teardown 在平台连接断开之前执行，且在 lifecycle.Stop() 返回前 parentCtx 仍有效。
 	if b.pluginManager != nil {
 		b.lifecycle.Register(plugin.NewManagerComponent(b.pluginManager))
+	}
+
+	// 启动 pprof 服务器（如已配置）
+	if b.pprofServer != nil {
+		if err := b.pprofServer.Start(); err != nil {
+			b.started.Store(false)
+			logger.WithError(err).Error("[Bot] Failed to start pprof server")
+			return err
+		}
 	}
 
 	// 创建最外层 context，传入 lifecycle.Start。
@@ -352,8 +364,13 @@ func (b *Bot) PlatformRegistry() *platform.Registry {
 // 无需手动调用 pm.StopAll()。
 func (b *Bot) Stop(ctx context.Context) error {
 	logger.Info("[Bot] Shutting down...")
+
+	// 停止 pprof 服务器（如已启动）
+	if b.pprofServer != nil {
+		_ = b.pprofServer.Stop(ctx)
+	}
+
 	err := b.lifecycle.Stop(ctx)
-	b.started.Store(false)
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
@@ -428,8 +445,8 @@ func (b *Bot) Uptime() time.Duration {
 	return b.lifecycle.Uptime()
 }
 
-// Config 获取配置副本。
-func (b *Bot) Config() Config {
+// Config 获取 Bot 元数据副本。
+func (b *Bot) Config() BotMeta {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return *b.config

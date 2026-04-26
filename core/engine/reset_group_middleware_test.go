@@ -51,7 +51,7 @@ func groupEntryExists(e *Engine, groupName string) bool {
 // ResetGroupMiddleware on a group that was never registered is safe and
 // returns the engine for chaining.
 func TestResetGroupMiddleware_NoOp_WhenGroupAbsent(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	result := eng.ResetGroupMiddleware("nonexistent-group")
 
@@ -63,7 +63,7 @@ func TestResetGroupMiddleware_NoOp_WhenGroupAbsent(t *testing.T) {
 // TestResetGroupMiddleware_ClearsGroupEntry verifies that after UseForGroup
 // registers middleware for a group, ResetGroupMiddleware removes the entry.
 func TestResetGroupMiddleware_ClearsGroupEntry(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var n int32
 
 	eng.UseForGroup("weather", newCountingMiddleware(&n))
@@ -78,7 +78,7 @@ func TestResetGroupMiddleware_ClearsGroupEntry(t *testing.T) {
 // TestResetGroupMiddleware_Idempotent verifies that calling ResetGroupMiddleware
 // multiple times in a row is safe and does not panic.
 func TestResetGroupMiddleware_Idempotent(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var n int32
 	eng.UseForGroup("weather", newCountingMiddleware(&n))
 
@@ -94,7 +94,7 @@ func TestResetGroupMiddleware_Idempotent(t *testing.T) {
 // TestResetGroupMiddleware_EmptyGroupName_NoOp verifies that a blank / whitespace
 // group name is rejected as a no-op (matching UseForGroup semantics).
 func TestResetGroupMiddleware_EmptyGroupName_NoOp(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var n int32
 	eng.UseForGroup("real-group", newCountingMiddleware(&n))
 
@@ -125,7 +125,7 @@ func TestResetGroupMiddleware_PreventsDoubleExecution(t *testing.T) {
 
 	// ── Part A: demonstrate the bug (UseForGroup twice without Reset) ─────────
 	t.Run("double UseForGroup accumulates guards", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		var calls int32
 		mw := newCountingMiddleware(&calls)
 
@@ -146,7 +146,7 @@ func TestResetGroupMiddleware_PreventsDoubleExecution(t *testing.T) {
 
 	// ── Part B: Reset before re-wiring prevents the double execution ──────────
 	t.Run("Reset before UseForGroup keeps exactly one guard", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		var calls int32
 		mw := newCountingMiddleware(&calls)
 
@@ -175,7 +175,7 @@ func TestResetGroupMiddleware_NewMatcherPicksUpFreshChain(t *testing.T) {
 	const groupName = "weather"
 	eventType := string(platform.EventKindGroupMessage)
 
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	var callsA, callsB int32
 
 	// First registration cycle

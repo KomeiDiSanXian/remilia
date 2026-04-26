@@ -5,18 +5,33 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
+// WithPprof 注入 pprof 服务器，使其生命周期与 Bot 绑定（Start 时启动，Stop 时关闭）。
+//
+// 使用示例：
+//
+//	bot := remilia.NewBotBuilder().
+//	    WithOption(remilia.WithPprof(remilia.DefaultPprofConfig())).
+//	    Build()
+func WithPprof(cfg PprofConfig) Option {
+	return func(b *Bot) {
+		if cfg.Enabled {
+			b.pprofServer = NewPprofServer(cfg)
+		}
+	}
+}
+
 // Option Bot 配置选项函数类型
 type Option func(*Bot)
 
 // ensureConfig 确保 b.config 不为 nil（内部工具函数）
 func ensureConfig(b *Bot) {
 	if b.config == nil {
-		b.config = &Config{}
+		b.config = &BotMeta{}
 	}
 }
 
-// WithConfig 设置 Bot 配置
-func WithConfig(config *Config) Option {
+// WithConfig 设置 Bot 元数据
+func WithConfig(config *BotMeta) Option {
 	return func(b *Bot) {
 		if config != nil {
 			b.config = config

@@ -189,6 +189,9 @@ func (a *ForwardWSAdapter) OnDisconnect(fn func(error)) (unregister func()) {
 	}
 }
 
+// 编译时断言：ForwardWSAdapter 实现了 RecoverableAdapter
+var _ platform.RecoverableAdapter = (*ForwardWSAdapter)(nil)
+
 func (a *ForwardWSAdapter) notifyDisconnect(err error) {
 	a.disconnectMu.Lock()
 	fns := make([]func(error), len(a.disconnectFns))

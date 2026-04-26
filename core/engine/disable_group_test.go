@@ -8,7 +8,7 @@ import (
 )
 
 func TestDisableGroup_PausesMatchers(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	triggered := false
 	m := eng.On(string(platform.EventKindPrivateMessage))
@@ -35,7 +35,7 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 }
 
 func TestEnableGroup_ResumesMatchers(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	triggered := false
 	m := eng.On(string(platform.EventKindPrivateMessage))
@@ -55,7 +55,7 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 }
 
 func TestDisableGroup_DoesNotDeleteMatchers(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	m := eng.On(string(platform.EventKindPrivateMessage))
 	m.Handle(func(c *ctx.Context) error { return nil })
@@ -75,13 +75,13 @@ func TestDisableGroup_DoesNotDeleteMatchers(t *testing.T) {
 }
 
 func TestDisableGroup_NonExistent_NoError(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	// Should not panic
 	eng.DisableGroup("nonexistent-group")
 }
 
 func TestEnableGroup_NonExistent_NoError(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.EnableGroup("nonexistent-group")
 }
 

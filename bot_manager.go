@@ -394,7 +394,7 @@ func (m *BotManager) HealthAll() map[string]BotHealthResult {
 	return results
 }
 
-// BotHealthResult 单个 Bot 的健康检查结果
+// BotHealthResult 包含单个 Bot 的名称、运行状态和健康检查结果。
 type BotHealthResult struct {
 	Name      string
 	IsRunning bool
@@ -405,19 +405,29 @@ type BotHealthResult struct {
 // 错误类型
 // -----------------------------------------------------------------
 
-// BotError 代表单个 Bot 操作失败
+// BotError 代表 BotManager 中单个 Bot 的操作失败。
+//
+// 通过 errors.Is / errors.As 可以检查具体哪个 Bot 失败了：
+//
+//	var be remilia.BotError
+//	if errors.As(err, &be) {
+//	    log.Printf("bot %s failed: %v", be.Name, be.Err)
+//	}
 type BotError struct {
 	Name string
 	Err  error
 }
 
-func (e BotError) Error() string {
+func (e *BotError) Error() string {
 	return fmt.Sprintf("bot %q: %v", e.Name, e.Err)
 }
 
-func (e BotError) Unwrap() error { return e.Err }
+func (e *BotError) Unwrap() error { return e.Err }
 
-// BotManagerError 代表 BotManager 批量操作中的聚合错误
+// BotManagerError 代表 BotManager 批量操作（StartAll / StopAll）中的聚合错误。
+//
+// 通过 BotManagerError.FailedBots() 可获取所有失败 Bot 的名称列表。
+// 支持 errors.Is / errors.As 提取具体 Bot 的错误。
 type BotManagerError struct {
 	Op     string
 	Errors []BotError

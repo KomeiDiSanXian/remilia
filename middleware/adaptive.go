@@ -619,9 +619,17 @@ func (arl *AdaptiveRateLimiter) UpdateConfig(cfg AdaptiveConfig) {
 	logger.Info("[AdaptiveRateLimiter] Config updated via hot-reload")
 }
 
-// AdaptiveRateLimit 创建自适应限流中间件（便捷函数）
-func AdaptiveRateLimit(config AdaptiveConfig) eventctx.Middleware {
-	limiter := NewAdaptiveRateLimiter(config)
+// AdaptiveRateLimit 创建自适应限流中间件（便捷函数）。
+//
+// 注意：返回的中间件内部创建了一个独立的 AdaptiveRateLimiter，其后台 goroutine
+// 通过 parent 的取消来终止。请勿使用 context.Background() 作为 parent，
+// 否则后台 goroutine 将永久泄漏。推荐使用 Bot.Context()：
+//
+//	engine.Use(middleware.AdaptiveRateLimit(bot.Context(), config))
+//
+// 如需更精细的生命周期管理，请直接使用 NewAdaptiveRateLimiterWithContext + Start/Stop。
+func AdaptiveRateLimit(parent context.Context, config AdaptiveConfig) eventctx.Middleware {
+	limiter := NewAdaptiveRateLimiterWithContext(parent, config)
 	limiter.Start()
 	return limiter.Middleware()
 }

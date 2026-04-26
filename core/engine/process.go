@@ -218,6 +218,7 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 func (e *Engine) startPendingDeleteProcessor() func() {
 	ticker := time.NewTicker(DefaultPendingDeleteProcessInterval)
 	done := make(chan struct{})
+	e.services.pendingDeleteDone = done
 
 	go func() {
 		defer ticker.Stop()

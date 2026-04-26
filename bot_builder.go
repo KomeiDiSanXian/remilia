@@ -125,17 +125,34 @@ func (b *BotBuilder) WithPlugins(descriptors ...*plugin.Descriptor) *BotBuilder 
 
 // WithPlatformRegistry 注入多平台适配器注册表。
 //
-// 注入后 Bot.Start() 会为每个已注册的平台适配器启动独立事件循环。
-// 当仅使用注册表时，可省略 WithPlatformAdapter，Build() 不要求单一适配器存在：
+// 若此前已通过 WithPlatformAdapter 注册了单个适配器，此方法会先将其迁移到新注册表中，
+// 避免覆盖丢失。也支持多次调用——后调用的注册表会继承前一个的所有适配器：
 //
-//	registry := platform.NewRegistry()
-//	registry.Register(qq.NewAdapter(webhookConn, api))
-//	registry.Register(discord.NewAdapter())
-//
+//	// 方式一：仅注册表
 //	bot, err := remilia.NewBotBuilder().
-//	    WithPlatformRegistry(registry).
+//	    WithPlatformRegistry(platform.NewRegistry().Register(qqAdapter)).
+//	    Build()
+//
+//	// 方式二：单适配器扩充为注册表（自动合并）
+//	bot, err := remilia.NewBotBuilder().
+//	    WithPlatformAdapter(discordAdapter).
+//	    WithPlatformRegistry(registry.WithAdapter(qqAdapter)).  // registry 继承 discord
 //	    Build()
 func (b *BotBuilder) WithPlatformRegistry(r *platform.Registry) *BotBuilder {
+	if r == nil {
+		return b
+	}
+	// 若此前已有适配器通过 WithPlatformAdapter 注册，迁移到新 registry
+	if b.adapter != nil {
+		r.Register(b.adapter)
+		b.adapter = nil // 清除单适配器，由 registry 统一管理
+	}
+	// 若此前已有 registry，将其中的所有适配器迁移到新 registry
+	if b.platformRegistry != nil {
+		for _, a := range b.platformRegistry.All() {
+			r.Register(a)
+		}
+	}
 	b.platformRegistry = r
 	return b
 }

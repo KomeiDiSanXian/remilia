@@ -4,10 +4,41 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(engine): replace eventGate with shutdown flag and event wait group for improved performance and clarity">
+      <change afterPath="$PROJECT_DIR$/docs/05-reports/framework-review-v2-2026.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/alias_registrar_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/alias_registrar_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/bugfix_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/bugfix_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/component_pending_delete.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/component_pending_delete.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/disable_group_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/disable_group_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_edge_cases_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_scenarios_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/optimization_test.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/reset_group_middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/reset_group_middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/services.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/services.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/testhelpers_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/testhelpers_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/options.go" beforeDir="false" afterPath="$PROJECT_DIR$/options.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/sender.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/sender.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/onebot/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/schema.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/schema.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -279,7 +310,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(zhtext): add CJK text processing utilities including normalization and fuzzy matching" />
     <MESSAGE value="feat(vevent): add virtual event injection capabilities for testing and debugging" />
     <MESSAGE value="feat(job): implement structured background job system with support for one-time execution, retries, and job chaining" />
     <MESSAGE value="test(vevent): add unit tests for event injection functionality" />
@@ -304,7 +334,8 @@
     <MESSAGE value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
     <MESSAGE value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
     <MESSAGE value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
+    <MESSAGE value="refactor(engine): replace eventGate with shutdown flag and event wait group for improved performance and clarity" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(engine): replace eventGate with shutdown flag and event wait group for improved performance and clarity" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

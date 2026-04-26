@@ -376,7 +376,7 @@ func TestOptions(t *testing.T) {
 	eng := engine.NewEngine()
 
 	t.Run("WithConfig", func(t *testing.T) {
-		config := &Config{
+		config := &BotMeta{
 			Name:    "custom-bot",
 			Version: "2.0.0",
 			Debug:   true,

@@ -10,7 +10,7 @@ import (
 
 // TestOptimization_GetAllCommandsCache 测试 GetAllCommands 缓存优化
 func TestOptimization_GetAllCommandsCache(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	defer eng.Shutdown(stdctx.Background())
 
 	// 注册一些命令
@@ -79,7 +79,7 @@ func TestOptimization_GetAllCommandsCache(t *testing.T) {
 
 // BenchmarkGetAllCommands_WithCache 基准测试缓存版本
 func BenchmarkGetAllCommands_WithCache(b *testing.B) {
-	eng := NewEngine()
+	eng := newEngineForTest(b)
 	defer eng.Shutdown(stdctx.Background())
 
 	// 注册100个命令

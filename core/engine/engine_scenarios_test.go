@@ -152,7 +152,7 @@ func TestMatcher_CopyDetailed(t *testing.T) {
 
 func TestEngine_ProcessEvent_WithMiddlewareTrace(t *testing.T) {
 	t.Run("middleware trace is set", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		mw := func(next ctx.Handler) ctx.Handler {
 			return func(c *ctx.Context) error {
@@ -176,7 +176,7 @@ func TestEngine_ProcessEvent_WithMiddlewareTrace(t *testing.T) {
 
 func TestEngine_ProcessEvent_WithError(t *testing.T) {
 	t.Run("handler returns error", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		testErr := errors.New("handler error")
 		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
@@ -190,7 +190,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 	})
 
 	t.Run("handler panics", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
 			panic("test panic")
@@ -210,7 +210,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 // ============================================================================
 
 func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 	// Set block multiple times
@@ -225,7 +225,7 @@ func TestMatcher_SetBlock_WithCoordinator(t *testing.T) {
 
 func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 	t.Run("update priority triggers invalidation", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		matcher.SetPriority(10)
@@ -238,7 +238,7 @@ func TestMatcher_SetPriority_WithUpdate(t *testing.T) {
 	})
 
 	t.Run("set priority on temp matcher", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 
 		matcher.SetPriority(50)
@@ -309,7 +309,7 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 
 func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 	t.Run("concurrent priority changes", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		var wg sync.WaitGroup
@@ -329,7 +329,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 	})
 
 	t.Run("concurrent block changes", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
 		var wg sync.WaitGroup
@@ -348,7 +348,7 @@ func TestEngine_ConcurrentMatcherModification(t *testing.T) {
 }
 
 func TestEngine_ConcurrentGroupOperations(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	var wg sync.WaitGroup
 
@@ -375,7 +375,7 @@ func TestEngine_ConcurrentGroupOperations(t *testing.T) {
 // ============================================================================
 
 func TestMatcher_EnsureChain_MultipleGroups(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	mw1 := func(next ctx.Handler) ctx.Handler {
 		return func(c *ctx.Context) error {
@@ -403,7 +403,7 @@ func TestMatcher_EnsureChain_MultipleGroups(t *testing.T) {
 }
 
 func TestEngine_UseForGroup_WithTrim(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	mw := func(next ctx.Handler) ctx.Handler {
 		return func(c *ctx.Context) error {
@@ -426,7 +426,7 @@ func TestEngine_UseForGroup_WithTrim(t *testing.T) {
 // ============================================================================
 
 func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	var c2cCount, groupCount int
 	var mu sync.Mutex
@@ -466,7 +466,7 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 // ============================================================================
 
 func TestMatcher_TempWithMaxUseCount(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	matcher.SetTemp(true)
@@ -493,7 +493,7 @@ func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 // ============================================================================
 
 func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	mw := func(next ctx.Handler) ctx.Handler {
 		return func(c *ctx.Context) error {
@@ -518,7 +518,7 @@ func TestEngine_SnapshotRestore_WithMiddleware(t *testing.T) {
 // ============================================================================
 
 func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
 	executed := false
@@ -543,7 +543,7 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 // ============================================================================
 
 func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	m1 := eng.On(string(platform.EventKindPrivateMessage))
 	m2 := eng.On(string(platform.EventKindPrivateMessage))
@@ -564,7 +564,7 @@ func TestEngine_GetMatcherStats_WithPlugins(t *testing.T) {
 // ============================================================================
 
 func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	eng.On(string(platform.EventKindPrivateMessage))
 	initialCount := eng.GetMatcherCount()
@@ -577,7 +577,7 @@ func TestEngine_RemoveGroup_EmptyGroup(t *testing.T) {
 }
 
 func TestEngine_RemoveGroup_NonExistentGroup(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	eng.On(string(platform.EventKindPrivateMessage))
 	initialCount := eng.GetMatcherCount()
@@ -592,7 +592,7 @@ func TestEngine_RemoveGroup_NonExistentGroup(t *testing.T) {
 // ============================================================================
 
 func TestEngine_SetMaxMatchers_Enforcement(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.SetMaxMatchers(2)
 
 	eng.On(string(platform.EventKindPrivateMessage))
@@ -607,7 +607,7 @@ func TestEngine_SetMaxMatchers_Enforcement(t *testing.T) {
 }
 
 func TestEngine_SetMaxMatchers_Zero(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.SetMaxMatchers(0) // No limit
 
 	for range 10 {

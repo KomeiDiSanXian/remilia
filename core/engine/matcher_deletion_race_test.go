@@ -13,7 +13,7 @@ import (
 
 // TestEngine_MatcherDeletionRaceCondition 测试 matcher 删除的竞态条件修复
 func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
-	engine := NewEngine()
+	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
 	// 创建多个临时 matcher，使用次数为 1
@@ -78,7 +78,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 
 // TestEngine_ConcurrentMatcherDeletion 测试并发修改 matcher 状态
 func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
-	engine := NewEngine()
+	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
 	// 创建临时 matcher
@@ -134,7 +134,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 
 // TestEngine_MatcherIsTemplToggle 测试 isTemp 标志切换场景
 func TestEngine_MatcherIsTemplToggle(t *testing.T) {
-	engine := NewEngine()
+	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
 	// 创建 matcher
@@ -187,7 +187,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 
 // TestEngine_PendingDeleteChannel 测试 pending delete channel 的正确性
 func TestEngine_PendingDeleteChannel(t *testing.T) {
-	engine := NewEngine(
+	engine := newEngineForTest(t,
 		WithPendingDeleteBufferSize(5), // 小缓冲区，更容易触发满的情况
 	)
 	defer engine.Shutdown(stdctx.Background())
@@ -231,7 +231,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 		t.Skip("Skipping stress test in short mode")
 	}
 
-	engine := NewEngine()
+	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
 	// 创建大量临时 matcher

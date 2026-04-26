@@ -6,20 +6,45 @@ import (
 	"time"
 )
 
-// Config 插件配置接口
-type Config interface {
+// ConfigReader 是插件配置的只读视图。
+//
+// 大多数插件只需要此接口即可读取配置，
+// 无需依赖完整的 Config 接口（含 Override、Reload、OnChange）。
+// 可通过 `ctx.Config` 赋值给 `ConfigReader` 来收窄依赖。
+type ConfigReader interface {
+	// Get 获取指定 key 的原始值
 	Get(key string) any
+
+	// GetString 获取字符串配置，不存在时返回 defaultVal
 	GetString(key string, defaultVal string) string
+
+	// GetInt 获取整数配置，不存在时返回 defaultVal
 	GetInt(key string, defaultVal int) int
+
+	// GetBool 获取布尔配置，不存在时返回 defaultVal
 	GetBool(key string, defaultVal bool) bool
+
+	// GetDuration 获取时间段配置，不存在时返回 defaultVal
 	GetDuration(key string, defaultVal time.Duration) time.Duration
+
 	// GetFloat64 获取浮点数配置
 	GetFloat64(key string, defaultVal float64) float64
+
 	// GetStringSlice 获取字符串切片配置
 	GetStringSlice(key string, defaultVal []string) []string
+
 	// GetStringMap 获取字符串键 map 配置
 	GetStringMap(key string, defaultVal map[string]any) map[string]any
 
+	// GetAll 返回包含所有配置项的 map
+	GetAll() map[string]any
+}
+
+// ConfigMutator 是插件配置的变更接口。
+//
+// 包含运行时覆盖写入（Override）、热重载（Reload）、变更监听（OnChange）。
+// Manager 内部通过 ConfigurablePlugin 调用 Reload；高级插件可调用 Override 和 OnChange。
+type ConfigMutator interface {
 	// Override 覆盖内存中的配置值（仅本次运行有效，重启后失效）。
 	// 会立即触发通过 OnChange 注册的所有监听器。
 	Override(key string, value any) error
@@ -29,9 +54,15 @@ type Config interface {
 
 	// OnChange 监听配置变化
 	OnChange(handler func(key string, oldVal, newVal any))
+}
 
-	// GetAll 返回一个包含所有配置项的 map
-	GetAll() map[string]any
+// Config 是插件配置的完整接口，组合 [ConfigReader] 和 [ConfigMutator]。
+//
+// 向后兼容：现有代码继续使用 Config，无需任何改动。
+// 新代码可根据需要选择依赖 ConfigReader 或 ConfigMutator 作为更窄的接口。
+type Config interface {
+	ConfigReader
+	ConfigMutator
 }
 
 // pluginConfig 插件配置实现

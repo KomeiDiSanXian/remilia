@@ -213,10 +213,50 @@ type InboundAttachment struct {
 	Extra any
 }
 
+// EventIdentity 是事件路由和去重标识接口。
+//
+// 包含 Platform（路由到对应适配器）、Kind（事件分类路由）、
+// ID（去重/追踪）。中间件（dedup、retry、deadletter）通常只需此接口。
+type EventIdentity interface {
+	// Platform 返回平台标识符（如 "qq"、"discord"、"telegram"）
+	Platform() string
+
+	// Kind 返回平台无关的事件类别
+	Kind() EventKind
+
+	// ID 返回平台级别的唯一事件标识符。
+	//
+	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
+	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
+	ID() string
+}
+
+// EventBody 是事件的消息载荷接口。
+//
+// 包含 Content（文本内容）和 Attachments（附件列表）。
+// 只关心消息内容的插件可依赖此接口，无需依赖完整的 Event。
+type EventBody interface {
+	// Content 返回消息文本内容（纯文本，不含平台特定格式）
+	Content() string
+
+	// Attachments 返回消息中携带的附件列表。
+	//
+	// 平台不支持附件或消息无附件时返回 nil。
+	Attachments() []InboundAttachment
+}
+
 // Event 是平台无关的事件抽象接口（最小必要集合）。
+//
+// 组合 EventIdentity（路由/去重）和 EventBody（消息载荷），
+// 外加 Sender、Chat、Timestamp 三个独立方法。
 //
 // 各平台适配器将原始 payload 包装为 Event 实现，
 // 框架核心只依赖此接口，不直接引用任何平台特定结构体。
+//
+// 调用方可选择性收窄依赖：
+//   - 仅需去重追踪：依赖 EventIdentity（如 dedup 中间件）
+//   - 仅需消息内容：依赖 EventBody（如内容分析插件）
+//   - 完整事件处理：依赖 Event
 //
 // 平台特定或可选功能通过独立接口扩展：
 //   - [RawEvent]：访问平台原始类型字符串和 payload
@@ -234,17 +274,8 @@ type InboundAttachment struct {
 //	rawType := platform.RawType(event)   // 若不支持则返回 ""
 //	replyID := platform.GetReplyToID(event) // 若不支持则返回 ""
 type Event interface {
-	// Platform 返回平台标识符（如 "qq"、"discord"、"telegram"）
-	Platform() string
-
-	// Kind 返回平台无关的事件类别
-	Kind() EventKind
-
-	// ID 返回平台级别的唯一事件标识符。
-	//
-	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
-	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
-	ID() string
+	EventIdentity
+	EventBody
 
 	// Sender 返回消息发送者信息
 	Sender() UserInfo
@@ -252,16 +283,8 @@ type Event interface {
 	// Chat 返回消息所在会话信息
 	Chat() ChatInfo
 
-	// Content 返回消息文本内容（纯文本，不含平台特定格式）
-	Content() string
-
 	// Timestamp 返回事件时间戳（尽力而为，平台不提供时返回零值）
 	Timestamp() time.Time
-
-	// Attachments 返回消息中携带的附件列表。
-	//
-	// 平台不支持附件或消息无附件时返回 nil。
-	Attachments() []InboundAttachment
 }
 
 // ────────────────────────────────────────────────────────────────────────────

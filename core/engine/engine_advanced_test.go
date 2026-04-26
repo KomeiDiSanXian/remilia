@@ -19,7 +19,7 @@ import (
 
 func TestMatcher_TempOnce(t *testing.T) {
 	t.Run("auto delete after one execution", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		var count int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
@@ -51,7 +51,7 @@ func TestMatcher_TempOnce(t *testing.T) {
 
 func TestMatcher_TempN(t *testing.T) {
 	t.Run("execute N times then delete", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		var count int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
@@ -74,7 +74,7 @@ func TestMatcher_TempN(t *testing.T) {
 	})
 
 	t.Run("zero count means no auto-delete", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		var count int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
@@ -95,7 +95,7 @@ func TestMatcher_TempN(t *testing.T) {
 
 func TestMatcher_TempUntil(t *testing.T) {
 	t.Run("expire after time", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		matcher.SetTemp(true)
@@ -126,7 +126,7 @@ func TestMatcher_TempUntil(t *testing.T) {
 
 func TestEngine_SetMetricsCollector(t *testing.T) {
 	t.Run("set and get metrics collector", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 		collector := &metrics.Collector{}
 
 		result := eng.SetMetricsCollector(collector)
@@ -136,7 +136,7 @@ func TestEngine_SetMetricsCollector(t *testing.T) {
 	})
 
 	t.Run("set nil collector", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		eng.SetMetricsCollector(nil)
 
@@ -146,7 +146,7 @@ func TestEngine_SetMetricsCollector(t *testing.T) {
 
 func TestEngine_GetMetricsCollector(t *testing.T) {
 	t.Run("get without set", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		collector := eng.GetMetricsCollector()
 
@@ -160,7 +160,7 @@ func TestEngine_GetMetricsCollector(t *testing.T) {
 
 func TestEngine_EnableGlobalMatchers(t *testing.T) {
 	t.Run("enable global matchers", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		eng.EnableGlobalMatchers(true)
 
@@ -169,7 +169,7 @@ func TestEngine_EnableGlobalMatchers(t *testing.T) {
 	})
 
 	t.Run("disable global matchers", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		eng.EnableGlobalMatchers(false)
 
@@ -183,7 +183,7 @@ func TestEngine_EnableGlobalMatchers(t *testing.T) {
 
 func TestEngine_UpdateTempMatcherPriority(t *testing.T) {
 	t.Run("update temp matcher priority", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 		matcher.SetPriority(50)
@@ -201,7 +201,7 @@ func TestEngine_UpdateTempMatcherPriority(t *testing.T) {
 
 func TestEngine_UpdateMatcherCommand(t *testing.T) {
 	t.Run("update matcher command", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		matcher.BindCommand("/test")
@@ -214,7 +214,7 @@ func TestEngine_UpdateMatcherCommand(t *testing.T) {
 
 func TestEngine_UpdateMatcherIndex(t *testing.T) {
 	t.Run("update matcher index", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 
@@ -230,7 +230,7 @@ func TestEngine_UpdateMatcherIndex(t *testing.T) {
 
 func TestEngine_MigrateMatcherToTemp(t *testing.T) {
 	t.Run("migrate permanent to temp", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		assert.False(t, matcher.IsTemp())
@@ -243,7 +243,7 @@ func TestEngine_MigrateMatcherToTemp(t *testing.T) {
 
 func TestEngine_MigrateMatcherFromTemp(t *testing.T) {
 	t.Run("migrate temp to permanent", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 		assert.True(t, matcher.IsTemp())
@@ -260,7 +260,7 @@ func TestEngine_MigrateMatcherFromTemp(t *testing.T) {
 
 func TestEngine_NamedMiddleware(t *testing.T) {
 	t.Run("named middleware with trace", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		var traced []string
 
@@ -591,7 +591,7 @@ func TestMatcher_EnsureChain(t *testing.T) {
 
 func TestEngine_PendingDeleteProcessor(t *testing.T) {
 	t.Run("processor handles delete requests", func(t *testing.T) {
-		eng := NewEngine()
+		eng := newEngineForTest(t)
 
 		// Create and delete matchers
 		m1 := eng.On(string(platform.EventKindPrivateMessage))
@@ -616,7 +616,7 @@ func TestEngine_PendingDeleteProcessor(t *testing.T) {
 func TestEngine_TempMatcherCleaner(t *testing.T) {
 	t.Run("cleaner removes expired temp matchers", func(t *testing.T) {
 		// Create engine with short cleanup interval
-		eng := NewEngine(WithCleanupInterval(100 * time.Millisecond))
+		eng := newEngineForTest(t, WithCleanupInterval(100*time.Millisecond))
 
 		// Create expired temp matcher
 		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
@@ -629,7 +629,7 @@ func TestEngine_TempMatcherCleaner(t *testing.T) {
 	})
 
 	t.Run("cleaner respects disabled interval", func(t *testing.T) {
-		eng := NewEngine(WithCleanupInterval(0))
+		eng := newEngineForTest(t, WithCleanupInterval(0))
 
 		// Cleaner should be disabled
 		// Verify engine is created

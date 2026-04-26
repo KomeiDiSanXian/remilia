@@ -15,7 +15,7 @@ import (
 // TestEngineRaceConditions 测试并发注册和删除匹配器
 func TestEngineRaceConditions(t *testing.T) {
 	t.Run("concurrent_register_and_delete", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 		defer engine.Shutdown(stdctx.Background())
 
 		const goroutines = 10
@@ -68,7 +68,7 @@ func TestEngineRaceConditions(t *testing.T) {
 	})
 
 	t.Run("concurrent_process_and_modify", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 		defer engine.Shutdown(stdctx.Background())
 
 		var processCount atomic.Int32
@@ -118,7 +118,7 @@ func TestEngineRaceConditions(t *testing.T) {
 // TestEngineShutdownWithPendingEvents 测试关闭时的事件处理
 func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	t.Run("shutdown_waits_for_events", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 
 		var processedCount atomic.Int32
 		var processingCount atomic.Int32
@@ -160,7 +160,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	})
 
 	t.Run("shutdown_respects_context_timeout", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 
 		// 注册一个非常慢的处理器
 		matcher := engine.OnAny()
@@ -192,7 +192,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	})
 
 	t.Run("shutdown_is_idempotent", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 
 		// 第一次关闭
 		err1 := engine.Shutdown(stdctx.Background())
@@ -211,7 +211,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 // TestEngineMemoryLeaks 测试内存泄漏
 func TestEngineMemoryLeaks(t *testing.T) {
 	t.Run("matcher_deletion_releases_memory", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 		defer engine.Shutdown(stdctx.Background())
 
 		// 创建大量匹配器
@@ -241,7 +241,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 	})
 
 	t.Run("temp_matcher_cleanup", func(t *testing.T) {
-		engine := NewEngine()
+		engine := newEngineForTest(t)
 		defer engine.Shutdown(stdctx.Background())
 
 		// 创建一些一次性临时匹配器

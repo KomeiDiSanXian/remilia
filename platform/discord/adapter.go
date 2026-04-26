@@ -222,6 +222,11 @@ func (a *GatewayAdapter) Stop(_ stdctx.Context) error {
 		cancel()
 	}
 
+	// 停止 sender 的后台 cleanup goroutine
+	if a.sender != nil {
+		a.sender.stopCleanup()
+	}
+
 	if err := a.session.Close(); err != nil {
 		return fmt.Errorf("discord gateway: error closing session: %w", err)
 	}

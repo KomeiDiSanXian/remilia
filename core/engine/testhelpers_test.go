@@ -6,6 +6,8 @@ package engine
 // 迁移自旧路径（dto.Payload）测试，对应 Phase 3 前置条件。
 
 import (
+	"context"
+	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -52,4 +54,19 @@ func newTestPlatformEventWithContent(kind platform.EventKind, content string) pl
 		chatID:   "chat-001",
 		rawType:  string(kind),
 	}
+}
+
+// newEngineForTest 创建一个 Engine 并绑定测试生命周期。
+//
+// 默认禁用后台工作者（temp cleaner / pending delete），避免 goroutine 泄漏。
+// 测试结束时自动调用 Shutdown。同时适用于 *testing.T 和 *testing.B。
+func newEngineForTest(t testing.TB, opts ...Option) *Engine {
+	t.Helper()
+	e := NewEngine(append([]Option{WithNoBackgroundWorkers()}, opts...)...)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = e.Shutdown(ctx)
+	})
+	return e
 }

@@ -36,7 +36,7 @@ type SchemaField struct {
 //  2. 任意 struct 指针       — 通过反射读取字段名（字段必须导出），Required 默认为 false
 //
 // 返回首个验证错误，若全部通过则返回 nil。
-func ValidateConfigSchema(pluginName string, schema any, cfg Config) error {
+func ValidateConfigSchema(pluginName string, schema any, cfg ConfigReader) error {
 	if schema == nil || cfg == nil {
 		return nil
 	}
@@ -50,7 +50,7 @@ func ValidateConfigSchema(pluginName string, schema any, cfg Config) error {
 }
 
 // validateMapSchema 验证 map[string]SchemaField 形式的 schema
-func validateMapSchema(pluginName string, schema map[string]SchemaField, cfg Config) error {
+func validateMapSchema(pluginName string, schema map[string]SchemaField, cfg ConfigReader) error {
 	all := cfg.GetAll()
 	for field, def := range schema {
 		val, exists := all[field]
@@ -75,7 +75,7 @@ func validateMapSchema(pluginName string, schema map[string]SchemaField, cfg Con
 }
 
 // validateStructSchema 通过反射验证 struct 形式的 schema（仅检查必填性）
-func validateStructSchema(pluginName string, schema any, cfg Config) error {
+func validateStructSchema(pluginName string, schema any, cfg ConfigReader) error {
 	rv := reflect.ValueOf(schema)
 	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()

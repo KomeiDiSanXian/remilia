@@ -10,7 +10,7 @@ import (
 )
 
 func TestMatcherBuilders(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.On(string(platform.EventKindPrivateMessage))
 	m.Use(func(next ctx.Handler) ctx.Handler { return next })
 	m.Command("/test")
@@ -28,7 +28,7 @@ func TestMatcherBuilders(t *testing.T) {
 	assert.NotNil(t, m)
 }
 func TestMiddlewareExtra(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.Named("test", func(next ctx.Handler) ctx.Handler { return next })
 	eng.ResetMiddlewares()
 	eng.SetMiddlewareTraceHook(func(name string, c *ctx.Context) {})
@@ -37,7 +37,7 @@ func TestMiddlewareExtra(t *testing.T) {
 	assert.Equal(t, 10*time.Second, eng.GetTempMatcherCleanInterval())
 }
 func TestMatcherInternal(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.On(string(platform.EventKindPrivateMessage))
 	assert.False(t, m.deletedOrLocked())
 	m.invalidateCombinedChain()

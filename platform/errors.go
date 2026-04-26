@@ -5,6 +5,9 @@ import (
 	"fmt"
 )
 
+// 确保 asErr 使用标准 errors.As（Go 1.26 支持 AsType）
+// 不再手动遍历错误链
+
 // ────────────────────────────────────────────────────────────────────────────
 // SendErrorCode
 // ────────────────────────────────────────────────────────────────────────────
@@ -191,30 +194,16 @@ func NewSendError(code SendErrorCode, plt, chatID, msg string, retryAfter int, c
 	}
 }
 
-// asErr 是对 errors.As 的薄包装，避免在本包直接 import "errors" 产生循环依赖风险。
-// （实际上 platform 包不依赖 errors 循环，但保持单一 import 入口便于追踪）
+// asErr 对 errors.As 的薄包装，用于提取 *SendError。
+// Go 1.26 的标准 errors.As 已完全覆盖此功能。
 func asErr(err error, target **SendError) bool {
-	// 手动实现 errors.As 的核心逻辑（无需额外 import）
-	for err != nil {
-		if se, ok := errors.AsType[*SendError](err); ok {
-			*target = se
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		type multiUnwrapper interface{ Unwrap() []error }
-		switch u := err.(type) {
-		case multiUnwrapper:
-			for _, e := range u.Unwrap() {
-				if asErr(e, target) {
-					return true
-				}
-			}
-			return false
-		case unwrapper:
-			err = u.Unwrap()
-		default:
-			return false
-		}
+	if errors.As(err, target) {
+		return true
+	}
+	// Go 1.26 的 errors.AsType 支持泛型版本
+	if se, ok := errors.AsType[*SendError](err); ok {
+		*target = se
+		return true
 	}
 	return false
 }

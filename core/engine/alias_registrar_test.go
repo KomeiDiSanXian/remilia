@@ -23,7 +23,7 @@ import (
 // TestHandle_TriggersAliasRegistrar 验证 Handle() 调用时别名回调被触发。
 func TestHandle_TriggersAliasRegistrar(t *testing.T) {
 	var called int32
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/ping")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
 		atomic.AddInt32(&called, 1)
@@ -37,7 +37,7 @@ func TestHandle_TriggersAliasRegistrar(t *testing.T) {
 // TestHandle_AliasRegistrarCalledOnce 验证多次调用 Handle() 时回调只触发一次。
 func TestHandle_AliasRegistrarCalledOnce(t *testing.T) {
 	var called int32
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/ping2")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
 		atomic.AddInt32(&called, 1)
@@ -55,7 +55,7 @@ func TestHandle_AliasRegistrarCalledOnce(t *testing.T) {
 // TestHandle_NoAliases_RegistrarNotCalled 验证无别名时回调不触发。
 func TestHandle_NoAliases_RegistrarNotCalled(t *testing.T) {
 	var called int32
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/noalias")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
 		atomic.AddInt32(&called, 1)
@@ -82,7 +82,7 @@ func getFirstMatcherForCmd(s *state, cmd string) (*Matcher, bool) {
 
 // TestInjectBaseAliasRegistrar_RegistersAliasMatchers 验证基础别名注册会在引擎内创建别名 Matcher。
 func TestInjectBaseAliasRegistrar_RegistersAliasMatchers(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	primary := eng.OnCommand(string(platform.EventKindPrivateMessage), "/hello")
 	primary.SetGroup("mygroup")
 	primary.SetSource("plugin:myplugin")
@@ -102,7 +102,7 @@ func TestInjectBaseAliasRegistrar_RegistersAliasMatchers(t *testing.T) {
 
 // TestInjectBaseAliasRegistrar_AliasInheritsGroupAndSource 验证别名 Matcher 继承主命令的 Group/Source。
 func TestInjectBaseAliasRegistrar_AliasInheritsGroupAndSource(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	primary := eng.OnCommand(string(platform.EventKindPrivateMessage), "/greet")
 	primary.SetGroup("greetGroup")
 	primary.SetSource("plugin:greetPlugin")
@@ -121,7 +121,7 @@ func TestInjectBaseAliasRegistrar_AliasInheritsGroupAndSource(t *testing.T) {
 
 // TestInjectBaseAliasRegistrar_SkipsDuplicateAlias 验证已存在于 commandIndex 的别名被跳过。
 func TestInjectBaseAliasRegistrar_SkipsDuplicateAlias(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 
 	// 先注册 /dup
 	eng.OnCommand(string(platform.EventKindPrivateMessage), "/dup").
@@ -148,7 +148,7 @@ func TestInjectBaseAliasRegistrar_SkipsDuplicateAlias(t *testing.T) {
 
 // TestInjectBaseAliasRegistrar_SkipsWhenExtraRules 验证携带 extraRules 时基础别名注册跳过。
 func TestInjectBaseAliasRegistrar_SkipsWhenExtraRules(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	extraRule := func(c *ctx.Context) bool { return true }
 	primary := eng.OnCommand(string(platform.EventKindPrivateMessage), "/secure", extraRule)
 	primary.SetDefinition(&command.Definition{
@@ -166,7 +166,7 @@ func TestInjectBaseAliasRegistrar_SkipsWhenExtraRules(t *testing.T) {
 
 // TestSetAliasRegistrar_NilDefinition 验证 def 为 nil 时不 panic。
 func TestSetAliasRegistrar_NilDefinition(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/nildef")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
 		// 不应被调用（definition 为 nil 时）

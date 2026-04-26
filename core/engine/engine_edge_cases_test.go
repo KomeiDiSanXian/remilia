@@ -11,7 +11,7 @@ import (
 )
 
 func TestEdgeCases(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.RemoveGroup("")
 	eng.SetMaxMatchers(100)
 	for range 5 {
@@ -26,7 +26,7 @@ func TestEdgeCases(t *testing.T) {
 	assert.NoError(t, err)
 }
 func TestMatcherEdges(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	m := eng.On(string(platform.EventKindPrivateMessage))
 	m.Delete()
 	assert.True(t, m.IsDeleted())
@@ -45,7 +45,7 @@ func TestMatcherEdges(t *testing.T) {
 	assert.True(t, m3.IsTemp())
 }
 func TestRestoreEdge(t *testing.T) {
-	eng := NewEngine()
+	eng := newEngineForTest(t)
 	eng.On(string(platform.EventKindPrivateMessage))
 	snap := eng.Snapshot()
 	eng.DeleteAllMatchers()
