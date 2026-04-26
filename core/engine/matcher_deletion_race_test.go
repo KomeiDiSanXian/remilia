@@ -9,6 +9,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestEngine_MatcherDeletionRaceCondition 测试 matcher 删除的竞态条件修复
@@ -52,6 +53,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 			for range 10 {
 				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
+				// timing: simulated delay for race conditioning
 				time.Sleep(time.Millisecond)
 			}
 		}(i)
@@ -59,9 +61,8 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 
 	wg.Wait()
 
-	// 等待所有删除操作完成
-	time.Sleep(200 * time.Millisecond)
-
+	// Temp matcher deletion is inline (in invokeHandler), so after wg.Wait
+	// all temp matchers have already been removed from tempManager.
 	// 验证大部分临时 matcher 都已被使用（通过检查 deleted 标志）
 	deletedCount := 0
 	for _, m := range matchers {
@@ -88,6 +89,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 			context.OnFullMatch("test"),
 		},
 		Handler: func(ctx *context.Context) error {
+			// timing: simulated processing delay
 			time.Sleep(10 * time.Millisecond)
 			return nil
 		},
@@ -116,9 +118,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 
 	wg.Wait()
 
-	// 等待删除操作完成
-	time.Sleep(200 * time.Millisecond)
-
+	// Temp deletion is inline in invokeHandler, no need to wait.
 	// 验证 matcher 最终被正确删除
 	m.rt.mu.RLock()
 	useCount := m.rt.useCount
@@ -163,6 +163,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 		for range 5 {
 			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
+			// timing: simulated delay for race conditioning
 			time.Sleep(10 * time.Millisecond)
 		}
 	})
@@ -170,9 +171,11 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	// Goroutine 2: 随机修改 isTemp（模拟迁移场景）
 	wg.Go(func() {
 		for range 3 {
+			// timing: simulated delays for race conditioning
 			time.Sleep(15 * time.Millisecond)
 			// 模拟迁移：从 temp 到 state
 			atomic.StoreInt32(&m.rt.isTemp, 0)
+			// timing: simulated delay for race conditioning
 			time.Sleep(5 * time.Millisecond)
 			// 迁移回来
 			atomic.StoreInt32(&m.rt.isTemp, 1)
@@ -213,13 +216,15 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 
 		engine.services.tempManager.Add(m)
 
-		// 触发删除
-		ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		// 触发删除 (use "test" content to match OnFullMatch rule)
+		evt := newTestPlatformEventWithContent(platform.EventKindPrivateMessage, "test")
+		ctx := context.AcquireContextFromEvent(evt, nil)
 		engine.ProcessEvent(ctx)
 	}
 
-	// 等待批量删除处理器处理
-	time.Sleep(500 * time.Millisecond)
+	// Temp matchers are deleted inline in invokeHandler (tempManager.Remove).
+	// Verify all have been removed.
+	assert.Equal(t, 0, engine.GetTempMatcherCount())
 
 	// 验证没有死锁或 panic
 	t.Log("Test completed successfully")
@@ -275,7 +280,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 
 	wg.Wait()
 
-	// 等待清理完成
+	// timing: stress test settle time
 	time.Sleep(500 * time.Millisecond)
 
 	t.Log("Stress test completed successfully")

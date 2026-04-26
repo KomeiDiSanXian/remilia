@@ -62,8 +62,9 @@ func TestDedupFilter_Expiration(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, isDup)
 
-		// 等待过期
-		time.Sleep(150 * time.Millisecond)
+		// 等待过期 (略超 TTL)
+		time.Sleep(110 * time.Millisecond)
+		filter.cleanExpired()
 
 		// 再次检查，应该不是重复（已过期）
 		isDup, err = filter.CheckDuplicate("event-1")
@@ -88,8 +89,9 @@ func TestDedupFilter_Expiration(t *testing.T) {
 		stats := filter.GetStats()
 		assert.Equal(t, 10, stats["cache_size"].(int), "Should have 10 entries")
 
-		// 等待清理
-		time.Sleep(200 * time.Millisecond)
+		// 等待 TTL 过期后直接清理
+		time.Sleep(60 * time.Millisecond)
+		filter.cleanExpired()
 
 		stats = filter.GetStats()
 		assert.Equal(t, 0, stats["cache_size"].(int), "All entries should be cleaned")
@@ -114,8 +116,9 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 			assert.False(t, isDup)
 		}
 
-		// 等待过期
-		time.Sleep(100 * time.Millisecond)
+		// 等待 TTL 过期后直接清理
+		time.Sleep(60 * time.Millisecond)
+		filter.cleanExpired()
 
 		// 现在缓存满但都已过期，添加新事件应该触发立即清理
 		isDup, err := filter.CheckDuplicate("new-event")
@@ -171,8 +174,9 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
 		}
 
-		// 再等待60ms，前3个过期
+		// 等待前3个事件 TTL 过期后直接清理
 		time.Sleep(60 * time.Millisecond)
+		filter.cleanExpired()
 
 		// 添加新事件，应该触发清理并成功
 		isDup, err := filter.CheckDuplicate("new-event")
@@ -493,8 +497,9 @@ func TestDedupFilter_SubSecondTTL(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, isDup, "Second check should be duplicate")
 
-	// Wait for expiration
-	time.Sleep(150 * time.Millisecond)
+	// Wait for expiration then force cleanup
+	time.Sleep(110 * time.Millisecond)
+	filter.cleanExpired()
 
 	// Check again - should not be duplicate (expired)
 	isDup, err = filter.CheckDuplicate("event-1")

@@ -21,34 +21,28 @@ func TestBot_HandleEvent(t *testing.T) {
 	eng := engine.NewEngine()
 	bot := MustNewBot(adapter, eng)
 
-	eventReceived := false
-	var mu sync.Mutex
+	eventReceived := make(chan struct{})
 
 	eng.OnAny().Handle(func(ctx *eventctx.Context) error {
-		mu.Lock()
-		eventReceived = true
-		mu.Unlock()
+		close(eventReceived)
 		return nil
 	})
 
 	require.NoError(t, bot.Start())
 	defer bot.Stop(context.Background())
 
-	// Give the bot time to fully start
-	time.Sleep(50 * time.Millisecond)
+	waitBotRunning(t, bot)
+	<-adapter.ready // wait for adapter goroutine to enter select loop
 
 	testEvent := testbot.MakePlatformC2CEvent("test-user-1", "hello")
 
 	adapter.SendEvent(testEvent)
 
-	// Wait for event to be processed
-	time.Sleep(200 * time.Millisecond)
-
-	mu.Lock()
-	received := eventReceived
-	mu.Unlock()
-
-	assert.True(t, received, "Event should be received and handled")
+	select {
+	case <-eventReceived:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for event processing")
+	}
 }
 
 // TestAdapterHealthChecker tests nil adapter
@@ -68,7 +62,7 @@ func TestBotStatusChecker(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(50 * time.Millisecond)
+		waitBotRunning(t, bot)
 		_ = bot.Stop(context.Background())
 
 		checker := NewBotStatusChecker(bot)
@@ -109,12 +103,14 @@ func TestBot_WaitForShutdownSignal(t *testing.T) {
 	require.NoError(t, bot.Start())
 
 	done := make(chan bool)
+	started := make(chan struct{})
 	go func() {
+		close(started)
 		bot.WaitForShutdown()
 		done <- true
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	<-started
 	proc, err := os.FindProcess(os.Getpid())
 	if err != nil {
 		t.Skip("Cannot find process")

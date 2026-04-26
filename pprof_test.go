@@ -2,6 +2,7 @@ package remilia_test
 
 import (
 	"context"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -10,6 +11,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// waitPprofServer 轮询直到 pprof HTTP 服务器开始响应
+func waitPprofServer(t *testing.T, addr string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("pprof server did not start on %s within timeout", addr)
+}
 
 // TestPprofServer 测试 pprof 服务器
 func TestPprofServer(t *testing.T) {
@@ -26,8 +42,7 @@ func TestPprofServer(t *testing.T) {
 	err := server.Start()
 	assert.NoError(t, err)
 
-	// 等待服务器启动
-	time.Sleep(100 * time.Millisecond)
+	waitPprofServer(t, config.Addr)
 
 	// 停止服务器
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -78,7 +93,7 @@ func TestPprofAutoProfile(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 等待至少一次自动分析
-	time.Sleep(3 * time.Second)
+	time.Sleep(3 * time.Second) // timing: must exceed ProfileInterval (2s) for at least one cycle
 
 	// 停止服务器
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -123,7 +138,7 @@ func TestPprofMutexAndBlock(t *testing.T) {
 	err := server.Start()
 	assert.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
+	waitPprofServer(t, config.Addr)
 
 	// 停止服务器
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

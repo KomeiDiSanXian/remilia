@@ -36,11 +36,18 @@ log:
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
 
-	// 启动 Watcher
-	watcher.Start()
+	// 注册回调以检测意外的 reload
+	reloaded := make(chan struct{}, 1)
+	watcher.AddCallback(func(_, _ *Config) error {
+		select {
+		case reloaded <- struct{}{}:
+		default:
+		}
+		return nil
+	})
 
-	// 等待一小段时间确保 watcher 运行
-	time.Sleep(100 * time.Millisecond)
+	// 启动 Watcher（goroutine 通过 WaitGroup 与 Stop 同步）
+	watcher.Start()
 
 	// 停止 Watcher
 	if err := watcher.Stop(); err != nil {
@@ -64,8 +71,12 @@ log:
 		t.Fatalf("Failed to update test config: %v", err)
 	}
 
-	// 等待一段时间，确认没有 panic 或错误
-	time.Sleep(200 * time.Millisecond)
+	// 验证停止后不会触发 reload
+	select {
+	case <-reloaded:
+		t.Error("reload was triggered after Stop")
+	case <-time.After(200 * time.Millisecond):
+	}
 
 	t.Log("Watcher stopped and cleaned up successfully")
 }
@@ -96,8 +107,17 @@ log:
 		t.Fatalf("Failed to create watcher: %v", err)
 	}
 
+	// 注册回调以检测意外的 reload
+	reloaded := make(chan struct{}, 1)
+	watcher.AddCallback(func(_, _ *Config) error {
+		select {
+		case reloaded <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
 	watcher.Start()
-	time.Sleep(100 * time.Millisecond)
 
 	// 修改文件触发 debounce timer
 	updatedConfig := `bot:
@@ -116,15 +136,27 @@ log:
 		t.Fatalf("Failed to update config: %v", err)
 	}
 
+	// 等待 fsnotify 传递事件（仍在 debounce 窗口内，debounce=500ms）
+	time.Sleep(50 * time.Millisecond)
+
+	// 确保 debounce 尚未完成（测试条件有效）
+	select {
+	case <-reloaded:
+		t.Fatal("debounce completed before Stop, test conditions invalid")
+	default:
+	}
+
 	// 在 timer 触发前停止 watcher
-	time.Sleep(100 * time.Millisecond)
 	if err := watcher.Stop(); err != nil {
 		t.Fatalf("Failed to stop watcher: %v", err)
 	}
 
-	// 等待超过 debounce delay 的时间
-	// 如果 timer 回调检查了 context，它应该不会执行
-	time.Sleep(600 * time.Millisecond)
+	// 等待超过 debounce delay 的时间，验证 timer 未执行回调
+	select {
+	case <-reloaded:
+		t.Error("reload was triggered after Stop (timer cleanup failed)")
+	case <-time.After(600 * time.Millisecond):
+	}
 
 	t.Log("Timer cleanup handled correctly")
 }
@@ -156,7 +188,6 @@ log:
 	}
 
 	watcher.Start()
-	time.Sleep(100 * time.Millisecond)
 
 	// 多次调用 Stop
 	if err := watcher.Stop(); err != nil {

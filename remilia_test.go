@@ -28,12 +28,14 @@ type mockAdapter struct {
 	cancel  context.CancelFunc
 	done    chan struct{}
 	handler func(platform.Event)
+	ready   chan struct{} // closed when the select loop is entered
 }
 
 func newMockAdapter() *mockAdapter {
 	return &mockAdapter{
 		events: make(chan platform.Event, 10),
 		done:   make(chan struct{}),
+		ready:  make(chan struct{}),
 	}
 }
 
@@ -60,6 +62,7 @@ func (m *mockAdapter) Start(ctx context.Context, handler func(platform.Event)) e
 
 	go func() {
 		defer close(m.done)
+		close(m.ready)
 		for {
 			select {
 			case <-m.ctx.Done():
@@ -205,8 +208,7 @@ func TestBot_Start(t *testing.T) {
 		assert.True(t, bot.IsRunning(), "Bot should be running")
 
 		// The adapter error will be logged but not propagate to Bot.Start()
-		// Wait a bit and then stop
-		time.Sleep(100 * time.Millisecond)
+		waitBotRunning(t, bot)
 
 		_ = bot.Stop(context.Background())
 	})
@@ -220,7 +222,7 @@ func TestBot_Shutdown(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(50 * time.Millisecond)
+		waitBotRunning(t, bot)
 
 		ctx := context.Background()
 		err := bot.Stop(ctx)
@@ -245,7 +247,7 @@ func TestBot_Shutdown(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(50 * time.Millisecond)
+		waitBotRunning(t, bot)
 
 		ctx := context.Background()
 		err := bot.Stop(ctx)
@@ -277,7 +279,8 @@ func TestBot_Uptime(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(100 * time.Millisecond)
+		waitBotRunning(t, bot)
+		time.Sleep(100 * time.Millisecond) // timing: accumulate wall time for Uptime() assertion
 
 		uptime := bot.Uptime()
 		assert.GreaterOrEqual(t, uptime, 100*time.Millisecond)
@@ -300,7 +303,8 @@ func TestBot_Uptime(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(100 * time.Millisecond)
+		waitBotRunning(t, bot)
+		time.Sleep(100 * time.Millisecond) // timing: accumulate wall time for Uptime() assertion
 		_ = bot.Stop(context.Background())
 
 		uptime := bot.Uptime()
@@ -437,7 +441,8 @@ func TestHealthChecker(t *testing.T) {
 		bot := MustNewBot(adapter, eng)
 
 		require.NoError(t, bot.Start())
-		time.Sleep(50 * time.Millisecond)
+		waitBotRunning(t, bot)
+		waitBotHealthy(t, bot)
 
 		health := bot.Health()
 		require.NotNil(t, health)

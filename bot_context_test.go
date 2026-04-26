@@ -46,6 +46,18 @@ func waitBotRunning(t *testing.T, b *Bot) {
 	t.Fatal("bot did not reach running state in time")
 }
 
+func waitBotHealthy(t *testing.T, b *Bot) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if h := b.Health(); h.Status == "healthy" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("bot did not become healthy in time (last status: %s)", b.Health().Status)
+}
+
 // TestBot_Context_BeforeStart Start 前 Context() 应返回不被取消的 context
 func TestBot_Context_BeforeStart(t *testing.T) {
 	b := MustNewBot(newCtxMockAdapter(), engine.NewEngine())

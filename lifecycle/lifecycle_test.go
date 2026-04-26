@@ -77,8 +77,13 @@ func TestManager_BasicLifecycle(t *testing.T) {
 		t.Errorf("Expected state=running, got=%s", manager.State())
 	}
 
-	// Verify components were called
-	time.Sleep(50 * time.Millisecond)
+	// Wait for OnRun goroutines to start, then verify
+	for i := 0; i < 20; i++ {
+		if comp1.runCalled.Load() && comp2.runCalled.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !comp1.startCalled.Load() || !comp1.runCalled.Load() {
 		t.Error("comp1 not called")
 	}
@@ -170,8 +175,7 @@ func TestManager_StartError(t *testing.T) {
 		t.Errorf("Expected state=created after failure, got=%s", manager.State())
 	}
 
-	// Verify comp1 OnStop was called (rollback)
-	time.Sleep(100 * time.Millisecond)
+	// Verify comp1 OnStop was called (rollback is synchronous in Start)
 	if !comp1.stopCalled.Load() {
 		t.Error("comp1 OnStop not called during rollback")
 	}
@@ -235,8 +239,20 @@ func TestManager_MultipleComponents(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// Verify all components were called
-	time.Sleep(100 * time.Millisecond)
+	// Wait for OnRun goroutines to start, then verify
+	for i := 0; i < 20; i++ {
+		allStarted := true
+		for _, comp := range comps {
+			if !comp.runCalled.Load() {
+				allStarted = false
+				break
+			}
+		}
+		if allStarted {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	for i, comp := range comps {
 		if !comp.startCalled.Load() {
 			t.Errorf("Component %d OnStart not called", i)
@@ -290,8 +306,12 @@ func TestSimpleComponent(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
+	for i := 0; i < 20; i++ {
+		if runCalled.Load() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !startCalled.Load() || !runCalled.Load() {
 		t.Error("Start or Run not called")
 	}
@@ -368,8 +388,14 @@ func TestManager_ComponentStatuses(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// comp2 会快速退出（runErr 非空）
-	time.Sleep(100 * time.Millisecond)
+	// comp2 会快速退出（runErr 非空），等待状态更新
+	for i := 0; i < 20; i++ {
+		statuses := manager.ComponentStatuses()
+		if st, ok := statuses["comp2"]; ok && !st.Running {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 
 	statuses := manager.ComponentStatuses()
 	if len(statuses) != 2 {

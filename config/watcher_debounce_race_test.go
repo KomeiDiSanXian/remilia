@@ -28,6 +28,7 @@ func TestWatcherDebounceRace_StopBeforeTimerFires(t *testing.T) {
 	tmpFile := createTempConfigFile(t, validConfig)
 
 	var reloadCount atomic.Int32
+	reloaded := make(chan struct{}, 1)
 
 	// debounce 设为 300ms，给 Stop() 充足的时间在 timer 前调用
 	watcher, err := NewWatcher(tmpFile, WithDebounceDelay(300*time.Millisecond))
@@ -35,6 +36,10 @@ func TestWatcherDebounceRace_StopBeforeTimerFires(t *testing.T) {
 
 	watcher.AddCallback(func(_, _ *Config) error {
 		reloadCount.Add(1)
+		select {
+		case reloaded <- struct{}{}:
+		default:
+		}
 		return nil
 	})
 	watcher.Start()
@@ -60,8 +65,12 @@ log:
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, watcher.Stop())
 
-	// 等待超过 debounce delay，确认 timer 已触发
-	time.Sleep(350 * time.Millisecond)
+	// 等待超过 debounce delay，确认 timer 已触发并被 ctx.Err() 拦截
+	select {
+	case <-reloaded:
+		t.Error("callback invoked after Stop (ctx.Err() check failed)")
+	case <-time.After(350 * time.Millisecond):
+	}
 
 	// L-4 修复验证：timer 触发后 reload() 检测到 ctx 已取消，不执行回调
 	assert.Equal(t, int32(0), reloadCount.Load(),
@@ -76,16 +85,20 @@ func TestWatcherDebounceRace_MultipleFileChanges(t *testing.T) {
 	tmpFile := createTempConfigFile(t, validConfig)
 
 	var reloadCount atomic.Int32
+	reloaded := make(chan struct{}, 1)
 
 	watcher, err := NewWatcher(tmpFile, WithDebounceDelay(200*time.Millisecond))
 	require.NoError(t, err)
 
 	watcher.AddCallback(func(_, _ *Config) error {
 		reloadCount.Add(1)
+		select {
+		case reloaded <- struct{}{}:
+		default:
+		}
 		return nil
 	})
 	watcher.Start()
-	time.Sleep(20 * time.Millisecond)
 
 	// 快速写入多次，每次重置 debounce timer
 	for i := range 5 {
@@ -98,12 +111,22 @@ func TestWatcherDebounceRace_MultipleFileChanges(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// 在 debounce 窗口内停止
+	// 等待 fsnotify 事件传递，仍在 debounce 窗口内
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, watcher.Stop())
 
-	// 等待超过 debounce delay
-	time.Sleep(300 * time.Millisecond)
+	// 等待超过 debounce delay，验证 Stop 后无回调
+	select {
+	case <-reloaded:
+		// 可能发生在 Stop 前的最后一次 debounce 完成
+		// 这是允许的（reloadCount <= 1）
+	default:
+	}
+	select {
+	case <-reloaded:
+		t.Error("callback invoked after Stop (ctx.Err() check failed)")
+	case <-time.After(300 * time.Millisecond):
+	}
 
 	// 回调次数应为 0（所有 timer 均在 Stop 后触发，被 ctx.Err() 拦截）
 	// 或者 <= 1（极端情况下第一次写入刚好在 Stop 前完成 debounce）
@@ -139,8 +162,18 @@ func TestWatcherDebounceRace_ConcurrentStopAndTimer(t *testing.T) {
 	// createTempConfigFile 内部使用 t.TempDir()，无需手动 Remove
 	tmpFile := createTempConfigFile(t, validConfig)
 
+	reloaded := make(chan struct{}, 1)
 	watcher, err := NewWatcher(tmpFile, WithDebounceDelay(5*time.Millisecond))
 	require.NoError(t, err)
+
+	watcher.AddCallback(func(_, _ *Config) error {
+		select {
+		case reloaded <- struct{}{}:
+		default:
+		}
+		return nil
+	})
+
 	watcher.Start()
 
 	// 写入变更（触发 debounce timer，5ms 后触发）
@@ -150,8 +183,17 @@ func TestWatcherDebounceRace_ConcurrentStopAndTimer(t *testing.T) {
 	// 立即 Stop（与 timer 竞争）
 	_ = watcher.Stop()
 
-	// 等待确认 timer 已处理完毕
-	time.Sleep(20 * time.Millisecond)
+	// 等待确认 timer 已处理完毕（不应触发回调）
+	select {
+	case <-reloaded:
+		// 允许 Stop 前 timer 已触发（race 本身），用 -race 检测 data race
+	default:
+	}
+	select {
+	case <-reloaded:
+		t.Error("callback invoked after Stop (race condition in timer cleanup)")
+	case <-time.After(20 * time.Millisecond):
+	}
 
 	// 若无 panic 且 -race 无报告，则测试通过
 }

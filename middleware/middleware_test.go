@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,16 +238,23 @@ func TestConcurrencyLimit(t *testing.T) {
 
 	t.Run("drop policy - exceeds limit", func(t *testing.T) {
 		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
-		handler := mw(mockHandler(nil, 100*time.Millisecond))
 
-		// Start first request
+		// Signal when goroutine acquires the slot (only once)
+		started := make(chan struct{})
+		var startedOnce sync.Once
+		handler := mw(func(ctx *eventctx.Context) error {
+			startedOnce.Do(func() { close(started) })
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		})
+
+		// Start first request in background
 		done1 := make(chan error, 1)
 		go func() {
-			ctx1 := createTestContext()
-			done1 <- handler(ctx1)
+			done1 <- handler(createTestContext())
 		}()
 
-		time.Sleep(10 * time.Millisecond) // Ensure first request acquired token
+		<-started // Wait for first request to acquire token
 
 		// Second request should be dropped
 		ctx2 := createTestContext()
@@ -260,20 +268,26 @@ func TestConcurrencyLimit(t *testing.T) {
 
 	t.Run("block policy", func(t *testing.T) {
 		mw := ConcurrencyLimit(1, ConcurrencyBlock, 0)
-		handler := mw(mockHandler(nil, 50*time.Millisecond))
+
+		var startedOnce sync.Once
+		started := make(chan struct{})
+		handler := mw(func(ctx *eventctx.Context) error {
+			startedOnce.Do(func() { close(started) })
+			time.Sleep(50 * time.Millisecond)
+			return nil
+		})
 
 		start := time.Now()
 
-		// Start first request
+		// Start first request in background
 		done1 := make(chan error, 1)
 		go func() {
-			ctx1 := createTestContext()
-			done1 <- handler(ctx1)
+			done1 <- handler(createTestContext())
 		}()
 
-		time.Sleep(10 * time.Millisecond)
+		<-started // Wait for first request to acquire token
 
-		// Second request should block
+		// Second request should block until first completes
 		ctx2 := createTestContext()
 		err := handler(ctx2)
 
@@ -287,16 +301,22 @@ func TestConcurrencyLimit(t *testing.T) {
 
 	t.Run("try-wait policy - timeout", func(t *testing.T) {
 		mw := ConcurrencyLimit(1, ConcurrencyTryWait, 30*time.Millisecond)
-		handler := mw(mockHandler(nil, 100*time.Millisecond))
 
-		// Start first request
+		var startedOnce sync.Once
+		started := make(chan struct{})
+		handler := mw(func(ctx *eventctx.Context) error {
+			startedOnce.Do(func() { close(started) })
+			time.Sleep(100 * time.Millisecond)
+			return nil
+		})
+
+		// Start first request in background
 		done1 := make(chan error, 1)
 		go func() {
-			ctx1 := createTestContext()
-			done1 <- handler(ctx1)
+			done1 <- handler(createTestContext())
 		}()
 
-		time.Sleep(10 * time.Millisecond)
+		<-started // Wait for first request to acquire token
 
 		// Second request should timeout
 		ctx2 := createTestContext()
@@ -469,8 +489,8 @@ func TestCircuitBreaker(t *testing.T) {
 		_ = handler(ctx)
 		assert.Equal(t, StateOpen, cb.GetState())
 
-		// Wait for reset timeout
-		time.Sleep(60 * time.Millisecond)
+		// Advance lastFailure far enough so ResetTimeout "elapses"
+		cb.lastFailure.Store(time.Now().Add(-100 * time.Millisecond))
 
 		// Should be half-open now
 		successHandler := mw(mockHandler(nil, 0))

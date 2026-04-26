@@ -74,7 +74,7 @@ func TestCircuitBreaker_OpenToHalfOpen(t *testing.T) {
 	cb.onFailure()
 	assert.Equal(t, StateOpen, cb.GetState())
 
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 
 	err := cb.canExecute()
 	assert.NoError(t, err)
@@ -92,7 +92,7 @@ func TestCircuitBreaker_HalfOpenToClosed(t *testing.T) {
 	cb.onFailure()
 	assert.Equal(t, StateOpen, cb.GetState())
 
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	err := cb.canExecute()
 	assert.NoError(t, err)
 	assert.Equal(t, StateHalfOpen, cb.GetState())
@@ -112,7 +112,7 @@ func TestCircuitBreaker_HalfOpenToOpen(t *testing.T) {
 	cb.onFailure()
 	assert.Equal(t, StateOpen, cb.GetState())
 
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	err := cb.canExecute()
 	assert.NoError(t, err)
 	assert.Equal(t, StateHalfOpen, cb.GetState())
@@ -148,7 +148,7 @@ func TestCircuitBreaker_SuccessThreshold(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	require.NoError(t, cb.canExecute())
 	assert.Equal(t, StateHalfOpen, cb.GetState())
 
@@ -172,13 +172,14 @@ func TestCircuitBreaker_HalfOpenTimeout(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 
 	err := cb.canExecute()
 	assert.NoError(t, err)
 	assert.Equal(t, StateHalfOpen, cb.GetState())
 
-	time.Sleep(15 * time.Millisecond)
+	// Simulate HalfOpenTimeout elapsing
+	cb.halfOpenStarted.Store(time.Now().Add(-20 * time.Millisecond))
 
 	err = cb.canExecute()
 	assert.Error(t, err)
@@ -217,7 +218,7 @@ func TestCircuitBreaker_MiddlewareHalfOpenMaxRequests(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 
 	mw := CircuitBreakerMiddleware(cb)
 	handler := mw(mockHandler(nil, 0))
@@ -286,7 +287,7 @@ func TestCircuitBreaker_UpdateConfig_ResetTimeout(t *testing.T) {
 		ResetTimeout: 1 * time.Millisecond,
 	})
 
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	err := cb.canExecute()
 	assert.NoError(t, err)
 	assert.Equal(t, StateHalfOpen, cb.GetState())
@@ -302,7 +303,7 @@ func TestCircuitBreaker_UpdateConfig_ShrinkHalfOpenMaxRequests(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	require.NoError(t, cb.canExecute())
 	assert.Equal(t, StateHalfOpen, cb.GetState())
 
@@ -361,7 +362,7 @@ func TestCircuitBreaker_OnStateChange_HalfOpenToClosed(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	_ = cb.canExecute()
 	cb.onSuccess()
 
@@ -402,7 +403,7 @@ func TestCircuitBreaker_Stats_HalfOpen(t *testing.T) {
 	})
 
 	cb.onFailure()
-	time.Sleep(5 * time.Millisecond)
+	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 	_ = cb.canExecute()
 
 	stats := cb.Stats()

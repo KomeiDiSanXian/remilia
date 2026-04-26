@@ -32,6 +32,7 @@ func TestEngineRaceConditions(t *testing.T) {
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
 					})
+					// timing: simulated delay for race conditioning
 					time.Sleep(1 * time.Millisecond)
 				}
 			}(i)
@@ -55,6 +56,7 @@ func TestEngineRaceConditions(t *testing.T) {
 				end := min(start+matchersPerGoroutine, len(matchers))
 				for _, m := range matchers[start:end] {
 					engine.DeleteMatcher(m)
+					// timing: simulated delay for race conditioning
 					time.Sleep(1 * time.Millisecond)
 				}
 			}(i)
@@ -78,6 +80,7 @@ func TestEngineRaceConditions(t *testing.T) {
 			matcher := engine.OnAny()
 			matcher.Handle(func(ctx *context.Context) error {
 				processCount.Add(1)
+				// timing: simulated processing delay
 				time.Sleep(10 * time.Millisecond)
 				return nil
 			})
@@ -103,6 +106,7 @@ func TestEngineRaceConditions(t *testing.T) {
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
 					})
+					// timing: simulated delay for race conditioning
 					time.Sleep(5 * time.Millisecond)
 				}
 			})
@@ -127,6 +131,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		matcher := engine.OnAny()
 		matcher.Handle(func(ctx *context.Context) error {
 			processingCount.Add(1)
+			// timing: simulated processing delay
 			time.Sleep(100 * time.Millisecond)
 			processedCount.Add(1)
 			processingCount.Add(-1)
@@ -142,8 +147,10 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 			}()
 		}
 
-		// 等待事件开始处理
-		time.Sleep(50 * time.Millisecond)
+		// Wait for at least one event to start processing
+		assert.Eventually(t, func() bool {
+			return processingCount.Load() > 0
+		}, time.Second, 10*time.Millisecond)
 
 		// 确认有事件正在处理
 		assert.Greater(t, processingCount.Load(), int32(0), "Should have events processing")
@@ -165,18 +172,20 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		// 注册一个非常慢的处理器
 		matcher := engine.OnAny()
 		matcher.Handle(func(ctx *context.Context) error {
+			// timing: simulated processing delay
 			time.Sleep(10 * time.Second)
 			return nil
 		})
 
 		// 启动事件处理
+		started := make(chan struct{})
 		go func() {
+			close(started)
 			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}()
 
-		// 等待事件开始处理
-		time.Sleep(50 * time.Millisecond)
+		<-started
 
 		// 使用有超时的 context 关闭
 		ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
@@ -263,11 +272,9 @@ func TestEngineMemoryLeaks(t *testing.T) {
 			engine.ProcessEvent(ctx)
 		}
 
-		// 等待清理
-		time.Sleep(200 * time.Millisecond)
-
-		// 临时匹配器应该被清理
-		finalCount := engine.GetTempMatcherCount()
-		assert.Equal(t, 0, finalCount, "Used temp matchers should be cleaned")
+		// Wait for temp matchers to be cleaned
+		assert.Eventually(t, func() bool {
+			return engine.GetTempMatcherCount() == 0
+		}, time.Second, 50*time.Millisecond, "Used temp matchers should be cleaned")
 	})
 }

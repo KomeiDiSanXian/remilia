@@ -108,7 +108,7 @@ func TestMatcher_TempUntil(t *testing.T) {
 		ctx1 := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(ctx1)
 
-		// Wait for expiration
+		// timing: wait for TTL expiration
 		time.Sleep(100 * time.Millisecond)
 
 		// Matcher should be expired now
@@ -601,11 +601,10 @@ func TestEngine_PendingDeleteProcessor(t *testing.T) {
 		eng.DeleteMatcher(m1)
 		eng.DeleteMatcher(m2)
 
-		// Give processor time to work
-		time.Sleep(200 * time.Millisecond)
-
-		// Verify matchers were processed
-		assert.Equal(t, 0, eng.GetMatcherCount())
+		// Wait for pending delete processor to drain
+		assert.Eventually(t, func() bool {
+			return eng.GetMatcherCount() == 0
+		}, time.Second, 50*time.Millisecond)
 	})
 }
 
@@ -622,10 +621,8 @@ func TestEngine_TempMatcherCleaner(t *testing.T) {
 		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 		matcher.rt.expiresAt = time.Now().Add(-1 * time.Second) // Already expired
 
-		// Wait for cleaner to run
+		// timing: wait for cleaner ticker to fire (cleaner runs every 100ms)
 		time.Sleep(200 * time.Millisecond)
-
-		// Temp matcher should be cleaned
 	})
 
 	t.Run("cleaner respects disabled interval", func(t *testing.T) {

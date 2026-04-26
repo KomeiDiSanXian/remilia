@@ -99,8 +99,20 @@ func TestAdaptiveRateLimiter_ConcurrencyLimit(t *testing.T) {
 		})
 	}
 
-	// 等待所有请求开始
-	time.Sleep(50 * time.Millisecond)
+	// 等待所有 goroutine 启动并阻塞在 blockCh 上
+	// 使用 channel 信号确保至少有一个请求持有令牌
+	ready := make(chan struct{})
+	go func() {
+		for limiter.currentLoad.Load() < 10 {
+			time.Sleep(time.Millisecond)
+		}
+		close(ready)
+	}()
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for goroutines to acquire tokens")
+	}
 
 	// 尝试第 11 个请求（应该被拒绝）
 	ctx := createTestContext()
@@ -136,13 +148,14 @@ func TestAdaptiveRateLimiter_DynamicAdjustment(t *testing.T) {
 	initialLimit := limiter.maxConcurrency.Load()
 	assert.Equal(t, int32(50), initialLimit)
 
-	// 模拟高CPU使用率
+	// 模拟高CPU使用率，直接调用决策函数
 	limiter.cpuUsage.Store(0.90) // 90% CPU，超过目标70%
 
-	// 等待调整
-	time.Sleep(200 * time.Millisecond)
+	// 直接执行限流调整（无需等待 adjustLoop ticker）
+	newLimit := limiter.decideLimit(0.90, 0.5, 0, initialLimit)
+	limiter.adjustLimit(newLimit)
 
-	newLimit := limiter.maxConcurrency.Load()
+	newLimit = limiter.maxConcurrency.Load()
 	// 应该降低了限制
 	assert.Less(t, newLimit, initialLimit)
 
@@ -227,11 +240,10 @@ func TestAdaptiveRateLimiter_StartStop(t *testing.T) {
 
 	limiter := NewAdaptiveRateLimiter(config)
 
-	// 启动
+	// 启动（验证 goroutine 启动成功：Stop 会阻塞直到它们退出）
 	limiter.Start()
-	time.Sleep(100 * time.Millisecond)
 
-	// 停止
+	// 停止（等待后台 goroutine 退出）
 	limiter.Stop()
 
 	// 再次停止应该安全

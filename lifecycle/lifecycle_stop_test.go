@@ -51,9 +51,6 @@ func TestLifecycleManager_StopMultipleErrors(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	// 等待一小段时间
-	time.Sleep(50 * time.Millisecond)
-
 	// 停止
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
@@ -100,8 +97,6 @@ func TestLifecycleManager_StopSingleError(t *testing.T) {
 	if err := manager.Start(startCtx); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-
-	time.Sleep(50 * time.Millisecond)
 
 	// 停止
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)

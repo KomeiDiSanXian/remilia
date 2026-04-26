@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,8 +14,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// mockRetryDelay replaces sleepWithContext with a mock that records requested delays
+// and returns immediately (simulating completion). Returns a restore function.
+func mockRetryDelay(delays *[]time.Duration) func() {
+	orig := sleepWithContext
+	var mu sync.Mutex
+	sleepWithContext = func(ctx context.Context, d time.Duration) bool {
+		mu.Lock()
+		if delays != nil {
+			*delays = append(*delays, d)
+		}
+		mu.Unlock()
+		// If context is already canceled, report cancellation
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return false
+			default:
+			}
+		}
+		return true
+	}
+	return func() { sleepWithContext = orig }
+}
+
 // TestRetry_Basic 测试基本重试功能
 func TestRetry_Basic(t *testing.T) {
+	restore := mockRetryDelay(nil)
+	defer restore()
+
 	t.Run("success_without_retry", func(t *testing.T) {
 		var callCount atomic.Int32
 
@@ -136,12 +164,14 @@ func TestRetry_ContextCancellation(t *testing.T) {
 
 // TestRetry_BackoffExponential 测试指数退避
 func TestRetry_BackoffExponential(t *testing.T) {
+	var recordedDelays []time.Duration
+	restore := mockRetryDelay(&recordedDelays)
+	defer restore()
+
 	var callCount atomic.Int32
-	var callTimes []time.Time
 
 	handler := func(ctx *eventctx.Context) error {
 		callCount.Add(1)
-		callTimes = append(callTimes, time.Now())
 		return errors.New("error")
 	}
 
@@ -158,28 +188,33 @@ func TestRetry_BackoffExponential(t *testing.T) {
 	_ = wrappedHandler(ctx)
 
 	assert.Equal(t, int32(4), callCount.Load(), "Should try initial + 3 retries")
-	require.Len(t, callTimes, 4)
+	require.Len(t, recordedDelays, 3)
 
-	// 验证退避时间
+	// 验证记录的退避时间（而非实时测量）
 	// 第1次重试: ~50ms (50 * 2^0)
 	// 第2次重试: ~100ms (50 * 2^1)
 	// 第3次重试: ~200ms (50 * 2^2)
-
-	delay1 := callTimes[1].Sub(callTimes[0])
-	delay2 := callTimes[2].Sub(callTimes[1])
-	delay3 := callTimes[3].Sub(callTimes[2])
-
-	assert.True(t, delay1 >= 40*time.Millisecond && delay1 <= 70*time.Millisecond, "First delay should be ~50ms")
-	assert.True(t, delay2 >= 90*time.Millisecond && delay2 <= 120*time.Millisecond, "Second delay should be ~100ms")
-	assert.True(t, delay3 >= 190*time.Millisecond && delay3 <= 220*time.Millisecond, "Third delay should be ~200ms")
+	expected := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
+	for i, exp := range expected {
+		// 允许 ±5ms 误差（退避计算可能有微小舍入）
+		diff := recordedDelays[i] - exp
+		if diff < 0 {
+			diff = -diff
+		}
+		assert.LessOrEqual(t, diff, 5*time.Millisecond, "Retry %d delay should be ~%v, got %v", i+1, exp, recordedDelays[i])
+	}
 }
 
 // TestRetry_BackoffMax 测试最大退避时间限制
 func TestRetry_BackoffMax(t *testing.T) {
-	var callTimes []time.Time
+	var recordedDelays []time.Duration
+	restore := mockRetryDelay(&recordedDelays)
+	defer restore()
+
+	var callCount atomic.Int32
 
 	handler := func(ctx *eventctx.Context) error {
-		callTimes = append(callTimes, time.Now())
+		callCount.Add(1)
 		return errors.New("error")
 	}
 
@@ -195,17 +230,22 @@ func TestRetry_BackoffMax(t *testing.T) {
 	ctx := createTestContext()
 	_ = wrappedHandler(ctx)
 
-	require.Len(t, callTimes, 6) // initial + 5 retries
+	assert.Equal(t, int32(6), callCount.Load(), "Should try initial + 5 retries")
+	require.Len(t, recordedDelays, 5)
 
-	// 后续的延迟应该不超过 BackoffMax
-	for i := 3; i < len(callTimes); i++ {
-		delay := callTimes[i].Sub(callTimes[i-1])
-		assert.True(t, delay <= 160*time.Millisecond, "Delay should not exceed BackoffMax")
+	// 记录的延迟应该不超过 BackoffMax
+	for i, d := range recordedDelays {
+		assert.LessOrEqual(t, d, 160*time.Millisecond, "Delay %d should not exceed BackoffMax", i+1)
 	}
+	// 指数退避会被 BackoffMax 截断，高指数时所有值都应等于 BackoffMax
+	assert.Equal(t, 150*time.Millisecond, recordedDelays[4], "Last delay should be capped at BackoffMax")
 }
 
 // TestRetry_ShouldRetry 测试自定义重试条件
 func TestRetry_ShouldRetry(t *testing.T) {
+	restore := mockRetryDelay(nil)
+	defer restore()
+
 	t.Run("skip_non_retryable_error", func(t *testing.T) {
 		var callCount atomic.Int32
 		blockErr := errutil.NewBlockError("non-retryable")
@@ -267,6 +307,9 @@ func TestRetry_ShouldRetry(t *testing.T) {
 
 // TestRetry_RetryAttemptTracking 测试重试次数追踪
 func TestRetry_RetryAttemptTracking(t *testing.T) {
+	restore := mockRetryDelay(nil)
+	defer restore()
+
 	attempts := make([]int, 0)
 
 	handler := func(ctx *eventctx.Context) error {
@@ -368,6 +411,9 @@ func TestSleepWithContext_ResourceCleanup(t *testing.T) {
 
 // TestRetry_ConcurrentRetries 测试并发重试
 func TestRetry_ConcurrentRetries(t *testing.T) {
+	restore := mockRetryDelay(nil)
+	defer restore()
+
 	var totalCalls atomic.Int32
 
 	handler := func(ctx *eventctx.Context) error {

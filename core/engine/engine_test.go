@@ -719,11 +719,11 @@ func TestEngine_RemoveGroup(t *testing.T) {
 	eng := newEngineForTest(t)
 
 	matcher := eng.On(string(platform.EventKindPrivateMessage))
-	matcher.group = "test-group"
+	eng.SetMatcherGroup(matcher, "test-group", "")
 
 	eng.RemoveGroup("test-group")
 
-	time.Sleep(10 * time.Millisecond)
+	assert.Equal(t, 0, eng.GetMatcherCount())
 }
 
 // ============================================================================

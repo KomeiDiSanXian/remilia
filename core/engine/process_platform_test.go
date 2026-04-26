@@ -103,7 +103,6 @@ func TestProcessPlatformEvent_RoutesByEventKind(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("hello"), &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	assert.True(t, called.Load(), "Handler should be called when matched by EventKind PRIVATE_MESSAGE")
 }
@@ -122,7 +121,6 @@ func TestProcessPlatformEvent_OldQQMatcher_DoesNotMatchNewPath(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("hello"), &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	assert.False(t, called.Load(), "QQ-specific (C2C_MESSAGE_CREATE) matcher must NOT match new-path events")
 }
@@ -143,7 +141,6 @@ func TestProcessPlatformEvent_GetMessageContent(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("ping pong"), &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	assert.Equal(t, "ping pong", got)
 }
@@ -160,7 +157,6 @@ func TestProcessPlatformEvent_GetPlatformEvent(t *testing.T) {
 
 	original := newPlatformC2CEvent("check event ref")
 	eng.ProcessPlatformEvent(original, &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	require.NotNil(t, got)
 	assert.Equal(t, "check event ref", got.Content())
@@ -178,7 +174,6 @@ func TestProcessPlatformEvent_Reply(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("ping"), sender)
-	time.Sleep(20 * time.Millisecond)
 
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
@@ -210,7 +205,6 @@ func TestProcessPlatformEvent_NonQQPlatform(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newDiscordEvent("hello discord"), &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	assert.True(t, called.Load(), "Discord event should be routed by EventKind GROUP_MESSAGE")
 }
@@ -237,7 +231,6 @@ func TestProcessPlatformEvent_IsPlatformContext(t *testing.T) {
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("test"), &platform.NoopSender{})
-	time.Sleep(20 * time.Millisecond)
 
 	assert.True(t, isPlatform, "Context should be identified as platform context")
 }
