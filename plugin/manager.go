@@ -9,7 +9,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/lifecycle"
 )
 
 // LifecycleListener 插件生命周期监听器接口
@@ -530,27 +529,6 @@ func (pm *Manager) Count() int {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return len(pm.plugins)
-}
-
-// AsLifecycleComponent 将插件实例转换为 lifecycle.Component
-func (pm *Manager) AsLifecycleComponent(inst *Instance) lifecycle.Component {
-	return NewPluginComponent(inst, pm.coordinator, pm)
-}
-
-// RegisterToLifecycle 将所有已注册的插件注册到 lifecycle.Manager
-func (pm *Manager) RegisterToLifecycle(lm *lifecycle.Manager) error {
-	pm.mu.RLock()
-	instances := make([]*Instance, 0, len(pm.plugins))
-	for _, inst := range pm.plugins {
-		instances = append(instances, inst)
-	}
-	pm.mu.RUnlock()
-
-	for _, inst := range instances {
-		lm.Register(pm.AsLifecycleComponent(inst))
-	}
-	logger.Infof("[pluginManager] Registered %d plugins to lifecycle manager", len(instances))
-	return nil
 }
 
 // GetContainer 获取依赖注入容器
