@@ -11,28 +11,25 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
+const maxEventIDLength = 256
+
 // DedupFilter 事件去重过滤器
 //
 // 使用内存缓存实现事件去重，防止重复处理相同事件。
 // 适用于防止重放攻击和重复消息处理。
 //
-// # 实现说明
+// # 优化说明
 //
-// 内部使用 map[string]int64（eventID 字符串 → 过期时间戳纳秒）作为缓存。
-// 对于所有 eventID 唯一性要求严格的场景（包括高吞吐机器人）均可放心使用。
+// CheckDuplicate 使用 RWMutex 优化：重复（已存在且未过期）事件在 RLock 下检查，
+// 避免不必要的写锁竞争。仅新事件（需要写入）时升级为写锁。
 //
-// # 性能注意事项
-//
-// 当 MaxSize > 10000 且 DefaultTTL 超过 1 分钟时，map[string]int64 中字符串键
-// 会被 Go GC 逐一扫描，GC 压力随条目数线性增长。高容量长 TTL 场景可考虑
-// 使用 bigcache/freecache 等减少 GC 压力的方案
+// 超过 256 字符的 eventID 会被哈希后存储，防止超大 key 导致内存膨胀。
 type DedupFilter struct {
 	mu          sync.RWMutex
 	cache       map[string]int64 // eventID -> expireTime（纳秒）
 	maxSize     int              // 最大缓存条目数
 	defaultTTL  time.Duration    // 默认过期时间
 	cleanupDone chan struct{}    // 清理器停止信号
-	strictMode  bool             // 严格模式：cache满时是否拒绝事件
 	stopOnce    sync.Once        // 确保Stop只执行一次
 }
 
@@ -54,6 +51,9 @@ type DedupConfig struct {
 	// true: 拒绝事件，返回错误
 	// false: 允许事件通过（可能重复）
 	// 默认: false
+	//
+	// Deprecated: Use DedupWithRejectMiddleware instead.
+	// Dedup() 已不再读取此字段，请直接使用 DedupWithRejectMiddleware() 实现严格模式。
 	StrictMode bool
 }
 
@@ -98,11 +98,9 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 		maxSize:     config.MaxSize,
 		defaultTTL:  config.DefaultTTL,
 		cleanupDone: make(chan struct{}),
-		strictMode:  config.StrictMode,
 	}
 
-	// 启动后台清理 goroutine：通过调用 cleanup() 统一逻辑，避免与该方法的实现分叉。
-	// 同时监听 parent context（Bot 关闭）和 cleanupDone（手动 Stop()）。
+	// 启动后台清理 goroutine
 	interval := config.CleanupInterval
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -124,38 +122,67 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 	return filter
 }
 
+// normalizeEventID 对超长 eventID 进行哈希截断，防止 map key 过大导致内存膨胀
+func normalizeEventID(eventID string) string {
+	if len(eventID) > maxEventIDLength {
+		var h uint64
+		for i := 0; i < len(eventID); i++ {
+			h = h*131 + uint64(eventID[i])
+		}
+		return fmt.Sprintf("hash:%x", h)
+	}
+	return eventID
+}
+
 // CheckDuplicate 检查事件是否重复
 //
 // 返回 true 表示事件已经存在（重复），false 表示首次出现。
 // 如果缓存已满且事件不存在，会先尝试清理过期条目，清理后仍满则返回错误。
+//
+// 优化：重复事件（已存在且未过期）在 RLock 下检查，避免写锁竞争。
 func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	now := time.Now().UnixNano()
+	eventID = normalizeEventID(eventID)
 
-	// 使用单个写锁保护整个操作，避免竞态条件
+	// 快速路径：在 RLock 下检查重复
+	f.mu.RLock()
+	if expireTime, exists := f.cache[eventID]; exists {
+		if expireTime > now {
+			f.mu.RUnlock()
+			return true, nil // 重复且未过期
+		}
+	}
+	f.mu.RUnlock()
+
+	// 写路径
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// 检查是否存在且未过期
+	// Double-check 防止 race（RLock 释放到 Lock 获取之间的窗口）
 	if expireTime, exists := f.cache[eventID]; exists {
 		if expireTime > now {
-			return true, nil // 重复且未过期
+			return true, nil
 		}
-		// 已过期，删除
 		delete(f.cache, eventID)
 	}
 
 	// 检查缓存大小限制
 	if len(f.cache) >= f.maxSize {
-		// 缓存满载，尝试立即清理过期条目
 		logger.WithFields(logger.Fields{
 			"cache_size": len(f.cache),
 			"max_size":   f.maxSize,
 		}).Debug("[Dedup] Cache full, triggering immediate cleanup")
 
-		// 清理过期条目（已持有锁）
-		f.cleanExpiredLocked(now)
+		toDelete := make([]string, 0, len(f.cache)/4)
+		for eid, expireTime := range f.cache {
+			if expireTime <= now {
+				toDelete = append(toDelete, eid)
+			}
+		}
+		for _, eid := range toDelete {
+			delete(f.cache, eid)
+		}
 
-		// 再次检查大小
 		if len(f.cache) >= f.maxSize {
 			logger.WithFields(logger.Fields{
 				"cache_size": len(f.cache),
@@ -163,13 +190,10 @@ func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 			}).Warn("[Dedup] Cache still full after cleanup")
 			return false, fmt.Errorf("dedup cache full after cleanup (size: %d, max: %d): %w", len(f.cache), f.maxSize, errutil.ErrDedupCacheFull)
 		}
-
-		logger.WithField("cache_size", len(f.cache)).Debug("[Dedup] Cache cleaned, space available")
 	}
 
-	// 添加到缓存（使用纳秒以保留毫秒以下精度）
+	// 添加到缓存
 	f.cache[eventID] = now + f.defaultTTL.Nanoseconds()
-
 	return false, nil
 }
 
@@ -178,29 +202,16 @@ func (f *DedupFilter) cleanExpired() {
 	now := time.Now().UnixNano()
 
 	f.mu.Lock()
-	f.cleanExpiredLocked(now)
-	f.mu.Unlock()
-}
-
-// cleanExpiredLocked 清理过期条目（内部方法，假设已持有锁）
-func (f *DedupFilter) cleanExpiredLocked(now int64) {
-	toDelete := make([]string, 0)
-
-	// 收集过期的 eventID
-	for eventID, expireTime := range f.cache {
+	toDelete := make([]string, 0, len(f.cache)/4)
+	for eid, expireTime := range f.cache {
 		if expireTime <= now {
-			toDelete = append(toDelete, eventID)
+			toDelete = append(toDelete, eid)
 		}
 	}
-
-	// 删除过期条目
-	if len(toDelete) > 0 {
-		for _, eventID := range toDelete {
-			delete(f.cache, eventID)
-		}
-
-		logger.Debugf("[Dedup] Cleaned %d expired entries", len(toDelete))
+	for _, eid := range toDelete {
+		delete(f.cache, eid)
 	}
+	f.mu.Unlock()
 }
 
 // Stop 停止清理器
@@ -227,7 +238,7 @@ func (f *DedupFilter) GetStats() map[string]any {
 func (f *DedupFilter) Clear() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cache = make(map[string]int64)
+	f.cache = make(map[string]int64, f.maxSize/2)
 }
 
 // Dedup 创建去重中间件
@@ -253,30 +264,21 @@ func Dedup(filter *DedupFilter) eventctx.Middleware {
 
 			eventID := pe.ID()
 			if eventID == "" {
-				// 没有 eventID，跳过去重检查
 				return next(ctx)
 			}
 
 			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
-				// 缓存满了
-				if filter.strictMode {
-					// 严格模式：拒绝事件
-					logger.WithError(err).WithField("event_id", eventID).
-						Error("[Dedup] Cache full in strict mode, rejecting event")
-					return err
-				}
-				// 非严格模式：记录警告但继续处理
+				// 缓存满了，记录警告但继续处理
 				logger.WithError(err).WithField("event_id", eventID).
 					Warn("[Dedup] Cache full, processing event anyway (best-effort mode)")
 				return next(ctx)
 			}
 
 			if isDup {
-				// 重复事件，阻断处理
 				logger.WithField("event_id", eventID).
 					Debug("[Dedup] Duplicate event blocked")
-				return nil // 不返回错误，只是跳过处理
+				return nil
 			}
 
 			return next(ctx)
@@ -301,10 +303,16 @@ func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
 
 // DedupWithReject 创建严格的去重中间件（拒绝缓存满的情况）
 //
-// 与 Dedup 的区别：
-//   - 缓存满时返回错误，不处理事件
-//   - 适用于对数据一致性要求更高的场景
+// 与 Dedup 的区别：缓存满时返回错误，不处理事件。
+// 适用于对数据一致性要求更高的场景。
+//
+// Deprecated: 请使用 DedupWithRejectMiddleware 代替。
 func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
+	return DedupWithRejectMiddleware(filter)
+}
+
+// DedupWithRejectMiddleware 创建严格的去重中间件（拒绝缓存满的情况）
+func DedupWithRejectMiddleware(filter *DedupFilter) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			pe := ctx.GetPlatformEvent()
@@ -319,7 +327,6 @@ func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
 
 			isDup, err := filter.CheckDuplicate(eventID)
 			if err != nil {
-				// 缓存满了，返回错误
 				logger.WithError(err).WithField("event_id", eventID).
 					Error("[Dedup] Cache full, rejecting event")
 				return err

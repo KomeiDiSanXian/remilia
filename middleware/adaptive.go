@@ -9,6 +9,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/shirou/gopsutil/v3/cpu"
 )
@@ -286,7 +287,7 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 						"current_limit": limit,
 						"current_load":  current,
 					}).Warn("[AdaptiveRateLimiter] Request rejected")
-					return fmt.Errorf("adaptive rate limit exceeded (limit: %d)", limit)
+					return fmt.Errorf("adaptive rate limit exceeded (limit: %d): %w", limit, errutil.ErrRateLimitExceeded)
 				}
 				// 尝试原子增加负载，CAS 失败说明并发竞争，立即重试（无 sleep/yield）
 				if arl.currentLoad.CompareAndSwap(current, current+1) {
@@ -341,7 +342,12 @@ func (arl *AdaptiveRateLimiter) Middleware() eventctx.Middleware {
 func (arl *AdaptiveRateLimiter) adjustLoop() {
 	defer arl.wg.Done()
 
-	ticker := time.NewTicker(arl.config.AdjustInterval)
+	arl.mu.RLock()
+	adjustInterval := arl.config.AdjustInterval
+	cooldownPeriod := arl.config.CooldownPeriod
+	arl.mu.RUnlock()
+
+	ticker := time.NewTicker(adjustInterval)
 	defer ticker.Stop()
 
 	lastAdjustTime := time.Now()
@@ -353,7 +359,7 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 
 		case <-ticker.C:
 			// 冷却期检查
-			if time.Since(lastAdjustTime) < arl.config.CooldownPeriod {
+			if time.Since(lastAdjustTime) < cooldownPeriod {
 				continue
 			}
 
@@ -369,8 +375,13 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 				continue
 			}
 
+			// 快照 config 以避免在热路径中无锁读取 config 字段
+			arl.mu.RLock()
+			cfg := arl.config
+			arl.mu.RUnlock()
+
 			// 决策是否调整
-			newLimit := arl.decideLimit(cpuUsageVal, memory, latency, currentLimit)
+			newLimit := arl.decideLimitWithConfig(cfg, cpuUsageVal, memory, latency, currentLimit)
 
 			if newLimit != currentLimit {
 				arl.adjustLimit(newLimit)
@@ -382,8 +393,8 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 					"cpu":            fmt.Sprintf("%.2f%%", cpuUsageVal*100),
 					"memory":         fmt.Sprintf("%.2f%%", memory*100),
 					"latency_p99":    latency,
-					"target_cpu":     fmt.Sprintf("%.2f%%", arl.config.TargetCPU*100),
-					"target_latency": arl.config.TargetLatency,
+					"target_cpu":     fmt.Sprintf("%.2f%%", cfg.TargetCPU*100),
+					"target_latency": cfg.TargetLatency,
 				}).Info("[AdaptiveRateLimiter] Limit adjusted")
 			}
 		}
@@ -436,18 +447,31 @@ func (arl *AdaptiveRateLimiter) collectMetrics() {
 	}
 	arl.memoryUsage.Store(memUsage)
 
-	// 改进 3.1: 使用直方图计算真实 P99，替换 avg*1.5 近似方案
-	if p99 := arl.latencyHist.percentile(99); p99 > 0 {
+	// 使用直方图计算真实 P99
+	p99 := arl.latencyHist.percentile(99)
+	if p99 > 0 {
 		arl.latencyP99.Store(p99)
+	} else {
+		// 零流量或样本不足：延迟设为 0 表示无压力，
+		// 防止系统恢复后限流器仍维持高延迟模式限制。
+		arl.latencyP99.Store(time.Duration(0))
 	}
 }
 
-// decideLimit 决策新的限制值
+// decideLimit 决策新的限制值（使用 arl.config，注意调用方需持有 mu.RLock 或保证不并发写）
 func (arl *AdaptiveRateLimiter) decideLimit(cpu, memory float64, latency time.Duration, currentLimit int32) int32 {
+	arl.mu.RLock()
+	cfg := arl.config
+	arl.mu.RUnlock()
+	return arl.decideLimitWithConfig(cfg, cpu, memory, latency, currentLimit)
+}
+
+// decideLimitWithConfig 决策新的限制值（使用显式传入的 config 快照，无需锁）
+func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, memory float64, latency time.Duration, currentLimit int32) int32 {
 	// 计算压力得分（0-1，越大压力越大）
-	cpuPressure := cpu / arl.config.TargetCPU
-	memoryPressure := memory / arl.config.TargetMemory
-	latencyPressure := float64(latency) / float64(arl.config.TargetLatency)
+	cpuPressure := cpu / cfg.TargetCPU
+	memoryPressure := memory / cfg.TargetMemory
+	latencyPressure := float64(latency) / float64(cfg.TargetLatency)
 
 	// 取最大压力作为系统压力
 	systemPressure := maxFloat(cpuPressure, memoryPressure, latencyPressure)
@@ -456,27 +480,27 @@ func (arl *AdaptiveRateLimiter) decideLimit(cpu, memory float64, latency time.Du
 
 	if systemPressure > 1.2 {
 		// 压力过大，降低限制
-		newLimit = currentLimit - int32(arl.config.AdjustStep*2)
+		newLimit = currentLimit - int32(cfg.AdjustStep*2)
 	} else if systemPressure > 1.0 {
 		// 轻度压力，小幅降低
-		newLimit = currentLimit - int32(arl.config.AdjustStep)
+		newLimit = currentLimit - int32(cfg.AdjustStep)
 	} else if systemPressure < 0.7 {
 		// 压力很小，大幅提升
-		newLimit = currentLimit + int32(arl.config.AdjustStep*2)
+		newLimit = currentLimit + int32(cfg.AdjustStep*2)
 	} else if systemPressure < 0.85 {
 		// 压力适中偏低，小幅提升
-		newLimit = currentLimit + int32(arl.config.AdjustStep)
+		newLimit = currentLimit + int32(cfg.AdjustStep)
 	} else {
 		// 压力适中，保持不变
 		newLimit = currentLimit
 	}
 
 	// 限制在范围内
-	if newLimit < int32(arl.config.MinConcurrency) {
-		newLimit = int32(arl.config.MinConcurrency)
+	if newLimit < int32(cfg.MinConcurrency) {
+		newLimit = int32(cfg.MinConcurrency)
 	}
-	if newLimit > int32(arl.config.MaxConcurrency) {
-		newLimit = int32(arl.config.MaxConcurrency)
+	if newLimit > int32(cfg.MaxConcurrency) {
+		newLimit = int32(cfg.MaxConcurrency)
 	}
 
 	return newLimit

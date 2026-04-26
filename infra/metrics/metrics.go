@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -43,10 +42,6 @@ type Collector struct {
 	platformDisconnects   *prometheus.CounterVec // 意外断连次数，按平台
 	platformAdapterErrors *prometheus.CounterVec // fatal 错误退出次数，按平台
 
-	// Use atomic types for thread-safe access
-	internalPoolGets atomic.Uint64
-	internalPoolPuts atomic.Uint64
-	internalPoolNews atomic.Uint64
 }
 
 // NewMetricsCollector 创建使用独立 Prometheus Registry 的指标收集器。
@@ -276,24 +271,6 @@ func (mc *Collector) RecordEventDropped(reason string) {
 func (mc *Collector) RecordEventProcessed(eventType, source string, duration time.Duration) {
 	mc.eventProcessed.WithLabelValues(eventType, source).Inc()
 	mc.eventLatency.WithLabelValues(eventType).Observe(duration.Seconds())
-}
-
-type PoolMetricsSnapshot struct {
-	Gets    uint64
-	News    uint64
-	HitRate float64
-}
-
-func (mc *Collector) GetPoolMetrics() PoolMetricsSnapshot {
-	gets := mc.internalPoolGets.Load()
-	news := mc.internalPoolNews.Load()
-
-	hitRate := 0.0
-	if gets > 0 {
-		hitRate = float64(gets-news) / float64(gets)
-	}
-
-	return PoolMetricsSnapshot{Gets: gets, News: news, HitRate: hitRate}
 }
 
 // --- Bot 业务层指标 ---

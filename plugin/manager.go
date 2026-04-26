@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"sync"
 
@@ -349,13 +348,22 @@ func (pm *Manager) Reload(name string) error {
 
 // notifyDependents 通知依赖了 reloadedPlugin 的所有其他插件
 func (pm *Manager) notifyDependents(reloadedPlugin string) {
+	// 仅在锁下收集插件名，避免复制整个 map（maps.Copy 的 O(n) 开销）
 	pm.mu.RLock()
-	instances := make(map[string]*Instance, len(pm.plugins))
-	maps.Copy(instances, pm.plugins)
+	allNames := make([]string, 0, len(pm.plugins))
+	for name := range pm.plugins {
+		allNames = append(allNames, name)
+	}
 	pm.mu.RUnlock()
 
-	for depName, inst := range instances {
+	for _, depName := range allNames {
 		if depName == reloadedPlugin {
+			continue
+		}
+		pm.mu.RLock()
+		inst, exists := pm.plugins[depName]
+		pm.mu.RUnlock()
+		if !exists {
 			continue
 		}
 		if !slices.Contains(inst.desc.Deps, reloadedPlugin) {

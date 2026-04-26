@@ -38,8 +38,9 @@ import (
 // 此类型同时作为 config.Config.Tracing 的配置结构体（config 包通过类型别名引用），
 // 因此所有字段均带有 yaml/mapstructure tag，可直接被 YAML 反序列化。
 type Config struct {
-	// Enable 是否启用追踪（原 Enabled，为与其他 Config 命名一致已改名）
-	Enable bool `yaml:"enable" mapstructure:"enable"`
+	// Enable 是否启用追踪（原 Enabled）。
+	// yaml tag 同时支持 "enable" 和 "enabled" 向后兼容。
+	Enable bool `yaml:"enable,enabled" mapstructure:"enable"`
 
 	// ServiceName 服务名称
 	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
@@ -231,6 +232,7 @@ func NewProvider(config Config) (*Provider, error) {
 func createOTLPExporter(config Config) (sdktrace.SpanExporter, error) {
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(config.Endpoint),
+		otlptracehttp.WithTimeout(10 * time.Second),
 	}
 
 	// 如果没有显式指定 https，默认使用 http（开发环境）

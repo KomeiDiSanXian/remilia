@@ -175,9 +175,6 @@ type AdaptiveDegradation struct {
 	droppedEvents atomic.Int64
 	delayedEvents atomic.Int64
 
-	// 延迟队列（用于延迟策略）
-	delayQueue chan *eventctx.Context
-
 	// 监控指标
 	lastCPU     atomic.Value // float64
 	lastMemory  atomic.Value // float64
@@ -238,10 +235,13 @@ func NewAdaptiveDegradation(config DegradationConfig) *AdaptiveDegradation {
 // 生产环境传 nil（使用默认注册器）；测试时传 prometheus.NewRegistry() 完全隔离。
 func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus.Registerer) *AdaptiveDegradation {
 	// 设置默认值
-	if config.CPUThreshold == 0 {
+	// CPUThreshold ≤ 0 时使用默认值 80.0。
+	// 如需完全禁用 CPU 降级，请设置一个极大阈值（如 100.0）。
+	if config.CPUThreshold <= 0 {
 		config.CPUThreshold = 80.0
 	}
-	if config.MemoryThreshold == 0 {
+	// MemoryThreshold ≤ 0 时使用默认值 85.0。
+	if config.MemoryThreshold <= 0 {
 		config.MemoryThreshold = 85.0
 	}
 	if config.LatencyThreshold == 0 {
@@ -264,9 +264,8 @@ func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus
 	}
 
 	ad := &AdaptiveDegradation{
-		config:     config,
-		delayQueue: make(chan *eventctx.Context, config.DelayQueueSize),
-		metrics:    newDegradationMetrics(reg),
+		config:  config,
+		metrics: newDegradationMetrics(reg),
 	}
 
 	ad.level.Store(LevelNormal)
@@ -331,7 +330,18 @@ func (ad *AdaptiveDegradation) checkAndAdjustLevel() {
 		}).Warn("[Degradation] Level changed")
 
 		if cfg.OnLevelChange != nil {
-			cfg.OnLevelChange(currentLevel, newLevel)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WithFields(logger.Fields{
+							"panic": r,
+							"from":  currentLevel,
+							"to":    newLevel,
+						}).Error("[Degradation] OnLevelChange callback panicked")
+					}
+				}()
+				cfg.OnLevelChange(currentLevel, newLevel)
+			}()
 		}
 	}
 }
@@ -622,6 +632,17 @@ func (ad *AdaptiveDegradation) ForceLevel(level DegradationLevel) {
 	}).Info("[Degradation] Force level change")
 
 	if cfg.OnLevelChange != nil {
-		cfg.OnLevelChange(oldLevel, level)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithFields(logger.Fields{
+						"panic": r,
+						"from":  oldLevel,
+						"to":    level,
+					}).Error("[Degradation] OnLevelChange callback panicked in ForceLevel")
+				}
+			}()
+			cfg.OnLevelChange(oldLevel, level)
+		}()
 	}
 }

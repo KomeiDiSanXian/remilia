@@ -288,48 +288,6 @@ func TestRecordEventProcessed(t *testing.T) {
 	assert.Equal(t, float64(2), value)
 }
 
-// TestGetPoolMetrics tests getting pool metrics snapshot
-func TestGetPoolMetrics(t *testing.T) {
-	collector := NewMetricsCollector("test_" + t.Name())
-
-	t.Run("initial state", func(t *testing.T) {
-		snapshot := collector.GetPoolMetrics()
-		assert.Equal(t, uint64(0), snapshot.Gets)
-		assert.Equal(t, uint64(0), snapshot.News)
-		assert.Equal(t, 0.0, snapshot.HitRate)
-	})
-
-	t.Run("with gets but no news", func(t *testing.T) {
-		collector.internalPoolGets.Store(100)
-		collector.internalPoolNews.Store(0)
-
-		snapshot := collector.GetPoolMetrics()
-		assert.Equal(t, uint64(100), snapshot.Gets)
-		assert.Equal(t, uint64(0), snapshot.News)
-		assert.Equal(t, 1.0, snapshot.HitRate)
-	})
-
-	t.Run("with gets and news", func(t *testing.T) {
-		collector.internalPoolGets.Store(100)
-		collector.internalPoolNews.Store(20)
-
-		snapshot := collector.GetPoolMetrics()
-		assert.Equal(t, uint64(100), snapshot.Gets)
-		assert.Equal(t, uint64(20), snapshot.News)
-		assert.Equal(t, 0.8, snapshot.HitRate)
-	})
-
-	t.Run("all news (0% hit rate)", func(t *testing.T) {
-		collector.internalPoolGets.Store(50)
-		collector.internalPoolNews.Store(50)
-
-		snapshot := collector.GetPoolMetrics()
-		assert.Equal(t, uint64(50), snapshot.Gets)
-		assert.Equal(t, uint64(50), snapshot.News)
-		assert.Equal(t, 0.0, snapshot.HitRate)
-	})
-}
-
 // TestEventDroppedCounter tests backward compatibility method
 func TestEventDroppedCounter(t *testing.T) {
 	collector := NewMetricsCollector("test_" + t.Name())
@@ -458,20 +416,6 @@ func BenchmarkRecordRetryAttempt(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		collector.RecordRetryAttempt(i%10, 100*time.Millisecond)
-	}
-}
-
-// BenchmarkGetPoolMetrics benchmarks pool metrics retrieval
-func BenchmarkGetPoolMetrics(b *testing.B) {
-	collector := NewMetricsCollector("bench")
-	collector.internalPoolGets.Store(1000)
-	collector.internalPoolNews.Store(200)
-
-	b.ResetTimer()
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		_ = collector.GetPoolMetrics()
 	}
 }
 

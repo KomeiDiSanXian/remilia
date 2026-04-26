@@ -73,7 +73,6 @@ func TestDedupStrictMode(t *testing.T) {
 			MaxSize:         2,
 			DefaultTTL:      time.Minute,
 			CleanupInterval: time.Hour, // Disable auto cleanup
-			StrictMode:      false,
 		})
 		defer filter.Stop()
 
@@ -89,21 +88,19 @@ func TestDedupStrictMode(t *testing.T) {
 		assert.False(t, isDup, "Should not be marked as duplicate")
 	})
 
-	t.Run("StrictMode=true rejects events when cache is full", func(t *testing.T) {
+	t.Run("DedupWithRejectMiddleware rejects events when cache is full", func(t *testing.T) {
 		filter := middleware.NewDedupFilter(middleware.DedupConfig{
 			MaxSize:         2,
 			DefaultTTL:      time.Minute,
 			CleanupInterval: time.Hour,
-			StrictMode:      true,
 		})
 		defer filter.Stop()
 
-		mw := middleware.Dedup(filter)
+		mw := middleware.DedupWithRejectMiddleware(filter)
 		handler := mw(func(ctx *eventctx.Context) error {
 			return nil
 		})
 
-		// 使用新路径（platform.Event）以便 Dedup 通过 GetPlatformEvent().ID() 识别事件
 		// Fill cache
 		err := handler(eventctx.AcquireContextFromEvent(
 			newFixtureEvent("event1"), &platform.NoopSender{}))

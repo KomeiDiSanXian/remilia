@@ -131,17 +131,62 @@ func RecoverError() error {
 	return nil
 }
 
+// ValidationError 结构化验证错误，支持调用方通过 errors.As 提取字段名和原因。
+type ValidationError struct {
+	Field  string
+	Reason string
+}
+
+func (e *ValidationError) Error() string {
+	return fmt.Sprintf("validation failed for field '%s': %s", e.Field, e.Reason)
+}
+
+func (e *ValidationError) Unwrap() error {
+	return ErrConfigFieldInvalid
+}
+
 // NewValidationError 创建特定字段的验证错误。
+// 返回 *ValidationError 类型，可通过 errors.As 提取结构化信息。
 func NewValidationError(field, reason string) error {
-	return fmt.Errorf("validation failed for field '%s': %s: %w", field, reason, ErrConfigFieldInvalid)
+	return &ValidationError{Field: field, Reason: reason}
+}
+
+// ConfigError 结构化配置错误。
+type ConfigError struct {
+	Key    string
+	Reason string
+}
+
+func (e *ConfigError) Error() string {
+	return fmt.Sprintf("config key '%s': %s", e.Key, e.Reason)
+}
+
+func (e *ConfigError) Unwrap() error {
+	return ErrConfigInvalid
 }
 
 // NewConfigError 创建特定键的配置错误。
+// 返回 *ConfigError 类型，可通过 errors.As 提取结构化信息。
 func NewConfigError(key, reason string) error {
-	return fmt.Errorf("config key '%s': %s: %w", key, reason, ErrConfigInvalid)
+	return &ConfigError{Key: key, Reason: reason}
+}
+
+// PluginError 结构化插件错误。
+type PluginError struct {
+	PluginName string
+	Message    string
+}
+
+func (e *PluginError) Error() string {
+	return fmt.Sprintf("plugin '%s': %s", e.PluginName, e.Message)
+}
+
+func (e *PluginError) Unwrap() error {
+	return ErrPluginLoadFailed
 }
 
 // NewPluginError 创建插件专属错误。
+// 返回 *PluginError 类型，可通过 errors.As 提取结构化信息。
 func NewPluginError(pluginName, message string) error {
-	return fmt.Errorf("plugin '%s': %s: %w", pluginName, message, ErrPluginLoadFailed)
+	return &PluginError{PluginName: pluginName, Message: message}
 }

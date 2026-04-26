@@ -20,8 +20,6 @@ import (
 // - 负载高时降低采样率（减轻系统压力）
 // - 始终采样错误的span
 type AdaptiveSampler struct {
-	mu sync.RWMutex
-
 	// 基础采样率
 	baseSamplingRate float64
 
@@ -32,13 +30,17 @@ type AdaptiveSampler struct {
 	totalSpans atomic.Int64
 	errorSpans atomic.Int64
 	lastReset  time.Time
-	resetMu    sync.Mutex
 
 	// 配置
 	config AdaptiveSamplerConfig
 
-	// 基础采样器
-	baseSampler sdktrace.Sampler
+	// 缓存 ParentBased + TraceIDRatioBased 动态采样器，仅在 currentSamplingRate 变化时重建
+	// 避免每次 ShouldSample 调用都分配 2 个堆对象
+	dynamicSampler atomic.Value // sdktrace.Sampler
+
+	// 保护 lastReset 和统计重置的互斥锁
+	// 与 StartMonitor 共享，避免双重重置
+	resetMu sync.Mutex
 }
 
 // AdaptiveSamplerConfig 自适应采样器配置
@@ -105,53 +107,48 @@ func NewAdaptiveSampler(config AdaptiveSamplerConfig) *AdaptiveSampler {
 		baseSamplingRate: config.BaseSamplingRate,
 		lastReset:        time.Now(),
 		config:           config,
-		baseSampler:      sdktrace.ParentBased(sdktrace.TraceIDRatioBased(config.BaseSamplingRate)),
 	}
 
 	sampler.currentSamplingRate.Store(config.BaseSamplingRate)
+	sampler.rebuildDynamicSampler(config.BaseSamplingRate)
 
 	return sampler
+}
+
+// rebuildDynamicSampler 重建缓存的动态采样器。仅在采样率变化时调用。
+func (as *AdaptiveSampler) rebuildDynamicSampler(rate float64) {
+	as.dynamicSampler.Store(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(rate)))
 }
 
 // ShouldSample 实现 sdktrace.Sampler 接口
 func (as *AdaptiveSampler) ShouldSample(p sdktrace.SamplingParameters) sdktrace.SamplingResult {
 	as.totalSpans.Add(1)
 
-	// 检查是否需要重置统计
-	as.maybeResetStats()
-
-	// 始终采样错误（如果配置启用）
-	if as.config.AlwaysSampleErrors {
-		// 检查 span 是否包含错误标记
-		for _, attr := range p.Attributes {
-			if attr.Key == "error" || attr.Key == "exception" {
-				as.errorSpans.Add(1)
-				return sdktrace.SamplingResult{
-					Decision:   sdktrace.RecordAndSample,
-					Tracestate: trace.SpanContextFromContext(p.ParentContext).TraceState(),
-				}
-			}
+	// 检查 span 是否包含错误标记（合并 AlwaysSampleErrors 检查和错误计数，O(1n) 替代 O(2n)）
+	hasError := false
+	for _, attr := range p.Attributes {
+		if attr.Key == "error" || attr.Key == "exception" {
+			hasError = true
+			break
 		}
 	}
 
-	// 获取当前采样率
-	currentRate := as.currentSamplingRate.Load().(float64)
+	// 始终采样错误（如果配置启用）
+	if hasError && as.config.AlwaysSampleErrors {
+		as.errorSpans.Add(1)
+		return sdktrace.SamplingResult{
+			Decision:   sdktrace.RecordAndSample,
+			Tracestate: trace.SpanContextFromContext(p.ParentContext).TraceState(),
+		}
+	}
 
-	// 使用动态采样率创建临时采样器
-	dynamicSampler := sdktrace.ParentBased(
-		sdktrace.TraceIDRatioBased(currentRate),
-	)
-
-	result := dynamicSampler.ShouldSample(p)
+	// 使用缓存的动态采样器（避免每次调用分配）
+	ds := as.dynamicSampler.Load().(sdktrace.Sampler)
+	result := ds.ShouldSample(p)
 
 	// 如果是错误span，记录统计
-	if result.Decision == sdktrace.RecordAndSample {
-		for _, attr := range p.Attributes {
-			if attr.Key == "error" || attr.Key == "exception" {
-				as.errorSpans.Add(1)
-				break
-			}
-		}
+	if hasError && result.Decision == sdktrace.RecordAndSample {
+		as.errorSpans.Add(1)
 	}
 
 	return result
@@ -159,8 +156,8 @@ func (as *AdaptiveSampler) ShouldSample(p sdktrace.SamplingParameters) sdktrace.
 
 // Description 实现 sdktrace.Sampler 接口
 func (as *AdaptiveSampler) Description() string {
-	currentRate := as.currentSamplingRate.Load().(float64)
-	return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(currentRate)).Description()
+	ds := as.dynamicSampler.Load().(sdktrace.Sampler)
+	return ds.Description()
 }
 
 // AdjustSamplingRate 调整采样率（由监控协程调用）
@@ -201,34 +198,12 @@ func (as *AdaptiveSampler) AdjustSamplingRate() {
 	oldRate := as.currentSamplingRate.Load().(float64)
 	if oldRate != newRate {
 		as.currentSamplingRate.Store(newRate)
+		as.rebuildDynamicSampler(newRate)
 		logger.WithFields(logger.Fields{
 			"old_rate": oldRate,
 			"new_rate": newRate,
 		}).Info("[Tracing] Sampling rate adjusted")
 	}
-}
-
-// maybeResetStats 可能重置统计数据
-func (as *AdaptiveSampler) maybeResetStats() {
-	if time.Since(as.lastReset) < as.config.AdjustInterval {
-		return
-	}
-
-	as.resetMu.Lock()
-	defer as.resetMu.Unlock()
-
-	// Double-check
-	if time.Since(as.lastReset) < as.config.AdjustInterval {
-		return
-	}
-
-	// 调整采样率
-	as.AdjustSamplingRate()
-
-	// 重置统计
-	as.totalSpans.Store(0)
-	as.errorSpans.Store(0)
-	as.lastReset = time.Now()
 }
 
 // GetCurrentSamplingRate 获取当前采样率
@@ -265,6 +240,9 @@ type AdaptiveSamplerStats struct {
 }
 
 // StartMonitor 启动监控协程（自动调整采样率）
+//
+// 这是"重置统计 + 调整采样率"的唯一路径，不再有 Hot Path（ShouldSample 内）的
+// maybeResetStats 重置逻辑，避免双重重置。
 func (as *AdaptiveSampler) StartMonitor(ctx context.Context) {
 	ticker := time.NewTicker(as.config.AdjustInterval)
 	defer ticker.Stop()
@@ -274,10 +252,8 @@ func (as *AdaptiveSampler) StartMonitor(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			as.AdjustSamplingRate()
-
-			// 重置统计
 			as.resetMu.Lock()
+			as.AdjustSamplingRate()
 			as.totalSpans.Store(0)
 			as.errorSpans.Store(0)
 			as.lastReset = time.Now()

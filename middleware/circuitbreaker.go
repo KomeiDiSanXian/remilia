@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // CircuitBreakerState 熔断器状态
@@ -22,6 +24,48 @@ const (
 	// StateHalfOpen 半开状态：尝试恢复
 	StateHalfOpen CircuitBreakerState = "half-open"
 )
+
+// circuitBreakerMetrics 持有 CircuitBreaker 的 Prometheus 指标
+type circuitBreakerMetrics struct {
+	stateGauge  prometheus.Gauge
+	tripsTotal  prometheus.Counter
+	rejectTotal prometheus.Counter
+}
+
+func newCircuitBreakerMetrics(namespace string) *circuitBreakerMetrics {
+	return &circuitBreakerMetrics{
+		stateGauge: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: namespace, Subsystem: "circuitbreaker", Name: "state",
+			Help: "Circuit breaker state (0=closed, 1=half-open, 2=open)",
+		}),
+		tripsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Subsystem: "circuitbreaker", Name: "trips_total",
+			Help: "Total number of circuit breaker trips (closed→open transitions)",
+		}),
+		rejectTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Subsystem: "circuitbreaker", Name: "rejected_total",
+			Help: "Total number of requests rejected by open circuit breaker",
+		}),
+	}
+}
+
+func registerCircuitBreakerMetrics(reg prometheus.Registerer, m *circuitBreakerMetrics) {
+	if reg == nil {
+		reg = prometheus.DefaultRegisterer
+	}
+	mustOrGet := func(c prometheus.Collector) prometheus.Collector {
+		if err := reg.Register(c); err != nil {
+			if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
+				return are.ExistingCollector
+			}
+			panic(err)
+		}
+		return c
+	}
+	m.stateGauge = mustOrGet(m.stateGauge).(prometheus.Gauge)
+	m.tripsTotal = mustOrGet(m.tripsTotal).(prometheus.Counter)
+	m.rejectTotal = mustOrGet(m.rejectTotal).(prometheus.Counter)
+}
 
 // CircuitBreaker 熔断器
 //
@@ -55,6 +99,9 @@ type CircuitBreaker struct {
 
 	// 保护状态转换的互斥锁
 	mu sync.Mutex
+
+	// Prometheus 指标
+	metrics *circuitBreakerMetrics
 }
 
 // CircuitBreakerConfig 熔断器配置
@@ -80,6 +127,9 @@ type CircuitBreakerConfig struct {
 
 	// OnStateChange 状态变化回调（可选）
 	OnStateChange func(from, to CircuitBreakerState)
+
+	// Registerer 自定义 Prometheus 注册器（可选，nil 时使用 DefaultRegisterer）
+	Registerer prometheus.Registerer
 }
 
 // NewCircuitBreaker 创建一个新的熔断器
@@ -100,12 +150,19 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 		config.HalfOpenTimeout = 10 * time.Second // 默认 10 秒
 	}
 
+	metrics := newCircuitBreakerMetrics("remilia")
+	registerCircuitBreakerMetrics(config.Registerer, metrics)
+
 	cb := &CircuitBreaker{
-		config: config,
+		config:  config,
+		metrics: metrics,
 	}
 	cb.state.Store(StateClosed)
 	cb.lastFailure.Store(time.Time{})
 	cb.halfOpenStarted.Store(time.Time{})
+
+	// 初始化 Prometheus 指标
+	cb.metrics.stateGauge.Set(0) // 0 = closed
 
 	return cb
 }
@@ -139,6 +196,14 @@ func (cb *CircuitBreaker) setStateLocked(newState CircuitBreakerState) {
 
 	cb.state.Store(newState)
 
+	// 更新 Prometheus 指标
+	cb.metrics.stateGauge.Set(float64(stateToInt(newState)))
+
+	// 记录熔断触发事件
+	if newState == StateOpen {
+		cb.metrics.tripsTotal.Inc()
+	}
+
 	logger.WithFields(logger.Fields{
 		"from": oldState,
 		"to":   newState,
@@ -146,6 +211,19 @@ func (cb *CircuitBreaker) setStateLocked(newState CircuitBreakerState) {
 
 	if cb.config.OnStateChange != nil {
 		cb.config.OnStateChange(oldState, newState)
+	}
+}
+
+func stateToInt(s CircuitBreakerState) int {
+	switch s {
+	case StateClosed:
+		return 0
+	case StateHalfOpen:
+		return 1
+	case StateOpen:
+		return 2
+	default:
+		return -1
 	}
 }
 
@@ -180,6 +258,7 @@ func (cb *CircuitBreaker) canExecute() error {
 				// 继续循环重新检查当前状态
 				continue
 			}
+			cb.metrics.rejectTotal.Inc()
 			return errutil.ErrCircuitBreakerOpen
 
 		case StateHalfOpen:

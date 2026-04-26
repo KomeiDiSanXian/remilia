@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -18,7 +19,8 @@ var (
 
 	// defaultLogger 是包级默认 Logger 实例。所有包级函数（Info、Debug、WithField 等）
 	// 均委托给此实例。可通过 SetLogger() 替换，或创建独立 Logger 实例实现日志隔离。
-	defaultLogger *Logger
+	// 使用 atomic.Pointer 保护并发读写安全（避免 SetLogger 与包级函数之间的数据竞争）。
+	defaultLogger atomic.Pointer[Logger]
 
 	// logFile 保存当前打开的日志文件句柄，用于关闭和轮转
 	logFile   *os.File
@@ -106,12 +108,12 @@ func SetLevel(level string) error {
 // SetLogger 替换包级默认 Logger 实例。
 // 多 Bot 实例场景可独立创建 Logger 并替换默认值。
 func SetLogger(l *Logger) {
-	defaultLogger = l
+	defaultLogger.Store(l)
 }
 
 // DefaultLogger 返回当前包级默认 Logger 实例。
 func DefaultLogger() *Logger {
-	return defaultLogger
+	return defaultLogger.Load()
 }
 
 // Zap 返回底层 zerolog.Logger（供适配器/桥接使用）。
@@ -287,7 +289,7 @@ func Init(cfg Config) error {
 			cfg.Console = true
 		} else {
 			// 打开日志文件
-			file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+			file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 			if err != nil {
 				// 回退到仅控制台输出
 				_, _ = fmt.Fprintf(os.Stderr, "无法打开日志文件：%v，回退到仅控制台输出\n", err)
@@ -314,7 +316,7 @@ func Init(cfg Config) error {
 	// 仅在重要日志级别（Error、Fatal、Panic）时附加 Caller 信息
 	globalLogger = zerolog.New(multi).With().Timestamp().Logger()
 	log.Logger = globalLogger
-	defaultLogger = &Logger{l: globalLogger}
+	defaultLogger.Store(&Logger{l: globalLogger})
 
 	return nil
 }
@@ -449,89 +451,89 @@ func (l *LogWithFields) Fatalf(format string, v ...any) {
 
 // WithFields 创建带多个字段的 logger
 func WithFields(fields Fields) *LogWithFields {
-	return defaultLogger.WithFields(fields)
+	return defaultLogger.Load().WithFields(fields)
 }
 
 // WithField 创建带单个字段的 logger
 func WithField(key string, value any) *LogWithFields {
-	return defaultLogger.WithField(key, value)
+	return defaultLogger.Load().WithField(key, value)
 }
 
 // WithError 创建带错误字段的 logger
 func WithError(err error) *LogWithFields {
-	return defaultLogger.WithError(err)
+	return defaultLogger.Load().WithError(err)
 }
 
 // 日志级别函数 — 委托给 defaultLogger
 
 // Trace 输出 trace 级别日志
 func Trace(msg string) {
-	defaultLogger.Trace(msg)
+	defaultLogger.Load().Trace(msg)
 }
 
 // Tracef 输出格式化 trace 级别日志
 func Tracef(format string, v ...any) {
-	defaultLogger.Tracef(format, v...)
+	defaultLogger.Load().Tracef(format, v...)
 }
 
 // Debug 输出 debug 级别日志
 func Debug(msg string) {
-	defaultLogger.Debug(msg)
+	defaultLogger.Load().Debug(msg)
 }
 
 // Debugf 输出格式化 debug 级别日志
 func Debugf(format string, v ...any) {
-	defaultLogger.Debugf(format, v...)
+	defaultLogger.Load().Debugf(format, v...)
 }
 
 // Info 输出 info 级别日志
 func Info(msg string) {
-	defaultLogger.Info(msg)
+	defaultLogger.Load().Info(msg)
 }
 
 // Infof 输出格式化 info 级别日志
 func Infof(format string, v ...any) {
-	defaultLogger.Infof(format, v...)
+	defaultLogger.Load().Infof(format, v...)
 }
 
 // Warn 输出 warn 级别日志
 func Warn(msg string) {
-	defaultLogger.Warn(msg)
+	defaultLogger.Load().Warn(msg)
 }
 
 // Warnf 输出格式化 warn 级别日志
 func Warnf(format string, v ...any) {
-	defaultLogger.Warnf(format, v...)
+	defaultLogger.Load().Warnf(format, v...)
 }
 
 // Error 输出带调用位置信息的 error 级别日志
 func Error(msg string) {
-	defaultLogger.Error(msg)
+	defaultLogger.Load().Error(msg)
 }
 
 // Errorf 输出带调用位置信息的格式化 error 级别日志
 func Errorf(format string, v ...any) {
-	defaultLogger.Errorf(format, v...)
+	defaultLogger.Load().Errorf(format, v...)
 }
 
 // Fatal 输出带调用位置信息的 fatal 级别日志并退出
 func Fatal(msg string) {
-	defaultLogger.Fatal(msg)
+	defaultLogger.Load().Fatal(msg)
 }
 
 // Fatalf 输出带调用位置信息的格式化 fatal 级别日志并退出
 func Fatalf(format string, v ...any) {
-	defaultLogger.Fatalf(format, v...)
+	defaultLogger.Load().Fatalf(format, v...)
 }
 
 // Panic 输出带调用位置信息的 panic 级别日志并 panic
 func Panic(msg string) {
-	defaultLogger.Panic(msg)
+	defaultLogger.Load().Panic(msg)
 }
 
 // Panicf 输出带调用位置信息的格式化 panic 级别日志并 panic
 func Panicf(format string, v ...any) {
-	defaultLogger.Panicf(format, v...)
+	defaultLogger.Load().Panicf(format, v...)
 }
 
 // InitNop 初始化一个静默的 logger（丢弃所有输出）。
@@ -546,7 +548,7 @@ func Panicf(format string, v ...any) {
 func InitNop() {
 	globalLogger = zerolog.Nop()
 	log.Logger = globalLogger
-	defaultLogger = &Logger{l: globalLogger}
+	defaultLogger.Store(&Logger{l: globalLogger})
 }
 
 // InitTest 初始化一个仅输出 Error 及以上级别的测试 logger。
@@ -555,7 +557,7 @@ func InitTest() {
 	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 	globalLogger = zerolog.New(os.Stderr).With().Timestamp().Logger()
 	log.Logger = globalLogger
-	defaultLogger = &Logger{l: globalLogger}
+	defaultLogger.Store(&Logger{l: globalLogger})
 }
 
 func init() {

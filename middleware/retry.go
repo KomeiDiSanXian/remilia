@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -161,6 +162,15 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
+// retryDroppedCount 是全局的死信队列丢弃计数，用于基础可观测性。
+// 可通过 prometheus 采集暴露在 /metrics 端点上的指标做补充。
+var retryDroppedCount atomic.Int64
+
+// RetryDroppedCount 返回死信队列满时丢弃的事件总数。
+func RetryDroppedCount() int64 {
+	return retryDroppedCount.Load()
+}
+
 func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.Item[platform.Event]) eventctx.Middleware {
 	// 初始化默认值
 	if cfg.MaxAttempts <= 0 {
@@ -208,9 +218,13 @@ func RetryWithDeadLetter(cfg RetryConfig, deadLetterCh chan dlq.Item[platform.Ev
 						"attempts":   attempt,
 					}).Warn("[Retry] Event sent to dead letter queue")
 				default:
+					retryDroppedCount.Add(1)
 					logger.WithError(err).
-						WithField("event_type", ctx.GetEventType()).
-						Error("[Retry] Dead letter queue full, dropping event")
+						WithFields(logger.Fields{
+							"event_type":    ctx.GetEventType(),
+							"source":        source,
+							"total_dropped": retryDroppedCount.Load(),
+						}).Error("[Retry] Dead letter queue full, dropping event (consider increasing channel buffer size)")
 				}
 			}
 
@@ -256,14 +270,25 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 }
 
 // ConfigurableRetry wraps Retry with a mutable config for hot-reload support.
+// Pre-builds the middleware closure once to avoid per-request allocation.
 type ConfigurableRetry struct {
-	mu  sync.RWMutex
-	cfg RetryConfig
+	mu         sync.RWMutex
+	cfg        RetryConfig
+	middleware eventctx.Middleware // 预构建的中间件，仅 config 变更时重建
 }
 
 // NewConfigurableRetry creates a hot-reloadable retry middleware wrapper.
+// Pre-builds the middleware function to avoid per-request closure allocation.
 func NewConfigurableRetry(cfg RetryConfig) *ConfigurableRetry {
-	return &ConfigurableRetry{cfg: cfg}
+	cr := &ConfigurableRetry{cfg: cfg}
+	cr.rebuildMiddleware()
+	return cr
+}
+
+// rebuildMiddleware 预构建中间件闭包
+func (cr *ConfigurableRetry) rebuildMiddleware() {
+	cfg := cr.cfg
+	cr.middleware = Retry(cfg)
 }
 
 // UpdateConfig updates the retry configuration at runtime (thread-safe).
@@ -279,17 +304,13 @@ func (cr *ConfigurableRetry) UpdateConfig(cfg RetryConfig) {
 	if cfg.BackoffMax > 0 {
 		cr.cfg.BackoffMax = cfg.BackoffMax
 	}
+	cr.rebuildMiddleware()
 	logger.Info("[ConfigurableRetry] Config updated via hot-reload")
 }
 
-// Middleware returns the eventctx.Middleware function.
+// Middleware returns the eventctx.Middleware function (pre-built, no per-request allocation).
 func (cr *ConfigurableRetry) Middleware() eventctx.Middleware {
-	return func(next eventctx.Handler) eventctx.Handler {
-		return func(ctx *eventctx.Context) error {
-			cr.mu.RLock()
-			cfg := cr.cfg
-			cr.mu.RUnlock()
-			return Retry(cfg)(next)(ctx)
-		}
-	}
+	cr.mu.RLock()
+	defer cr.mu.RUnlock()
+	return cr.middleware
 }
