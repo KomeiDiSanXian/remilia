@@ -258,11 +258,19 @@ func (pm *Manager) ForceUnregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
+	// 先释放锁再清理 engine 端资源，避免在持有 Manager 锁的情况下操作 engine
+	pm.mu.Unlock()
+
+	if pm.coordinator != nil {
+		pm.coordinator.RemoveGroup(name)
+	}
+
+	pm.mu.Lock()
 	delete(pm.plugins, name)
 	pm.container.Remove(name)
 	pm.mu.Unlock()
 
-	logger.Warnf("[pluginManager] Plugin %s force unregistered (Unload skipped)", name)
+	logger.Warnf("[pluginManager] Plugin %s force unregistered (Unload skipped, engine group/cleanup done)", name)
 	pm.notifyUnloaded(name)
 	return nil
 }

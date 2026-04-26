@@ -139,7 +139,8 @@ func TestMustNewBot(t *testing.T) {
 	assert.NotNil(t, bot.engine)
 	// adapter is now wrapped in platformRegistry, no separate adapter field
 	assert.NotNil(t, bot.platformRegistry)
-	assert.NotNil(t, bot.lifecycle)
+	// lifecycle is lazily initialized in Start(), nil before that
+	assert.Nil(t, bot.lifecycle)
 	assert.NotNil(t, bot.health)
 	assert.NotNil(t, bot.config)
 	assert.False(t, bot.IsRunning())

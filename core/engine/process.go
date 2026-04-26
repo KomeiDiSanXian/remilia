@@ -241,7 +241,7 @@ func (e *Engine) startPendingDeleteProcessor() func() {
 // processPendingDeletes 处理待删除的匹配器（批量删除）
 func (e *Engine) processPendingDeletes() {
 	var matchersToDelete []*Matcher
-	limit := DefaultPendingDeleteBatchSize // 每次最多处理
+	limit := e.services.pendingDeleteBatchSize // 每次最多处理
 
 loop:
 	for range limit {
@@ -368,53 +368,44 @@ func extractCommand(content string) string {
 	return trimmed[:idx]
 }
 
-// mergeSortedMatchersSix 将 6 个**已按优先级排序**的 Matcher 子列表合并到 dst 中，
-// 输出结果同样按优先级升序排列（数值越小优先级越高）。
+// mergeSortedMatchersSix 将 6 个已按优先级排序的 Matcher 子列表合并。
 //
-// # 6 路由两个维度组合而来：
-//
-//	维度 1 — 事件类型范围
-//	  Specific：EventType 与当前事件匹配的 Matcher（精确匹配，优先于通配）
-//	  Generic ：EventType == "" 的 Matcher（通配，匹配任意事件）
-//
-//	维度 2 — 存储位置
-//	  State (perm)：通过 registerMatcher 注册到 COW state 的永久 Matcher
-//	  State (cmd) ：同上但命中了 commandIndex 快速路径（已有 /cmd 前缀索引）
-//	  Temp        ：通过 OnTemp 注册到 TempManager 的临时 Matcher
-//
-//	                 Specific          Generic
-//	  State(perm)    l1=permSpecific   l4=permGeneric
-//	  State(cmd)     l2=cmdSpecific    l5=cmdGeneric
-//	  Temp           l3=tempSpecific   l6=tempGeneric
-//
-// # 合并算法
-//
-// 标准 k-way merge：每轮从 6 个子列表头部选出优先级最小的元素。各列表在进入此函数前
-// 已经按优先级排好序（由 sortMatchersByPriority 保证）。没有 stale-entry 跳过逻辑：
-// isTemp 迁移的竞态窗口极窄，双重执行的后果（handler 重复调用）对于大多数 handler
-// 是幂等可接受的。简化解法比带 TOCTOU 检测的版本快约 50%。
+// delegator to mergeKSortedMatchers for the common 6-list case.
 func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
-	total := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
+	return mergeKSortedMatchers(dst, [][]*Matcher{l1, l2, l3, l4, l5, l6})
+}
+
+// mergeKSortedMatchers 将 K 个已按优先级排序的 Matcher 子列表合并到 dst 中，
+// 输出结果同样按优先级升序排列。
+//
+// dst 复用调用方提供的切片容量以减少分配；若容量不足则重新分配。
+func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
+	total := 0
+	for _, l := range lists {
+		total += len(l)
+	}
 	if total == 0 {
-		return dst[:0]
+		if dst != nil {
+			return dst[:0]
+		}
+		return nil
 	}
 	if cap(dst) < total {
 		dst = make([]*Matcher, 0, total)
 	}
 	dst = dst[:0]
 
-	idx := [6]int{}
-	lens := [6]int{len(l1), len(l2), len(l3), len(l4), len(l5), len(l6)}
-	lists := [6][]*Matcher{l1, l2, l3, l4, l5, l6}
+	k := len(lists)
+	idx := make([]int, k)
 
 	for {
 		minP := uint(999999999)
 		winner := -1
-		for k := range 6 {
-			if idx[k] < lens[k] {
-				if p := lists[k][idx[k]].getPriority(); p < minP {
+		for j := 0; j < k; j++ {
+			if idx[j] < len(lists[j]) {
+				if p := lists[j][idx[j]].getPriority(); p < minP {
 					minP = p
-					winner = k
+					winner = j
 				}
 			}
 		}

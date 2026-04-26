@@ -4,12 +4,19 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add unit tests for admin, debug, and middleware components">
-      <change afterPath="$PROJECT_DIR$/middleware/degradation_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/milky/milky_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/onebot/onebot_test.go" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/platform/wechat/wechat_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test: add unit tests for AdaptiveDegradation middleware functionality">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/command/trie.go" beforeDir="false" afterPath="$PROJECT_DIR$/command/trie.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_methods_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/temp_manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/temp_manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -268,7 +275,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(antispam, cooldown, health): replace sync.RWMutex with syncx.Map for improved concurrency" />
     <MESSAGE value="optimize(tests, map): simplify loop constructs and enhance readability using range expressions" />
     <MESSAGE value="feat(milky): implement Milky QQ protocol adapter with HTTP API and WebSocket support" />
     <MESSAGE value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
@@ -293,7 +299,8 @@
     <MESSAGE value="refactor(engine): enhance pending delete processing with done channel and cleanup management" />
     <MESSAGE value="refactor(config): restructure bot configuration to use nested qq structure for improved clarity" />
     <MESSAGE value="test: add unit tests for admin, debug, and middleware components" />
-    <option name="LAST_COMMIT_MESSAGE" value="test: add unit tests for admin, debug, and middleware components" />
+    <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
+    <option name="LAST_COMMIT_MESSAGE" value="test: add unit tests for AdaptiveDegradation middleware functionality" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

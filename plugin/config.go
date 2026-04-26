@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"maps"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -266,9 +267,42 @@ func (pc *pluginConfig) Override(key string, value any) error {
 	return nil
 }
 
-// Reload 重载配置
+// Reload 重载配置并通知 OnChange 监听器。
+//
+// 加载新配置后与旧值比较，对存在变化的 key 逐个调用 OnChange 注册的回调。
 func (pc *pluginConfig) Reload() error {
+	// 先取旧值，释放锁，再调用 loadFromGlobal（避免 loadFromGlobal 内部锁与 pc.mu 死锁）
+	pc.mu.Lock()
+	oldValues := make(map[string]any, len(pc.values))
+	maps.Copy(oldValues, pc.values)
+	handlers := make([]func(key string, oldVal, newVal any), len(pc.handlers))
+	copy(handlers, pc.handlers)
+	pc.mu.Unlock()
+
 	pc.loadFromGlobal()
+
+	pc.mu.RLock()
+	newValues := make(map[string]any, len(pc.values))
+	maps.Copy(newValues, pc.values)
+	pc.mu.RUnlock()
+
+	// 通知监听器（在锁外执行，避免死锁）
+	for key, newVal := range newValues {
+		oldVal, existed := oldValues[key]
+		if !existed || !reflect.DeepEqual(oldVal, newVal) {
+			for _, h := range handlers {
+				h(key, oldVal, newVal)
+			}
+		}
+	}
+	for key, oldVal := range oldValues {
+		if _, exists := newValues[key]; !exists {
+			for _, h := range handlers {
+				h(key, oldVal, nil)
+			}
+		}
+	}
+
 	return nil
 }
 

@@ -44,11 +44,10 @@ func (t *Trie) Insert(name string, meta *Meta) {
 			}
 		}
 		node = node.children[r]
-		// 将命令加入每个前缀节点，以支持高效的前缀搜索
-		node.commands = append(node.commands, meta)
 	}
 
-	node.isEnd = true // 标记为完整命令
+	node.commands = append(node.commands, meta)
+	node.isEnd = true
 }
 
 // Remove 从前缀树中删除一个命令
@@ -58,35 +57,32 @@ func (t *Trie) Remove(name string, meta *Meta) {
 
 	node := t.root
 	runes := []rune(name)
-	// path[0] = root, path[1] = 第一个字符节点, ..., path[n] = 最后一个字符节点
 	path := make([]*TrieNode, 0, len(runes)+1)
 	path = append(path, node)
 
-	// 导航到末尾节点并收集路径
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return // 未找到
+			return
 		}
 		node = node.children[r]
 		path = append(path, node)
 	}
 
-	// 从路径中所有节点（不含 root）移除该命令
-	for _, n := range path[1:] {
-		n.commands = removeCommandFromSlice(n.commands, meta)
+	// 仅从终端节点移除命令
+	node.commands = removeCommandFromSlice(node.commands, meta)
+
+	if len(node.commands) == 0 {
+		node.isEnd = false
 	}
 
-	node.isEnd = false
-
-	// 从叶节点向根节点修剪空节点，防止内存泄漏。
-	// 当节点无命令、无子节点且非末尾节点时，可被修剪。
+	// 从叶节点向根节点修剪空节点
 	for i := len(path) - 1; i > 0; i-- {
 		n := path[i]
 		if !n.isEnd && len(n.children) == 0 && len(n.commands) == 0 {
 			parent := path[i-1]
 			delete(parent.children, runes[i-1])
 		} else {
-			break // 遇到非空节点即停止
+			break
 		}
 	}
 }
@@ -101,19 +97,37 @@ func (t *Trie) Search(prefix string) []*Meta {
 
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return nil // 无匹配
+			return nil
 		}
 		node = node.children[r]
 	}
 
-	// 返回该前缀节点的命令列表
-	if len(node.commands) == 0 {
+	// DFS 收集该前缀下所有终端节点的命令
+	var result []*Meta
+	seen := make(map[*Meta]bool)
+	t.collectTerminalCommands(node, seen, &result)
+	if len(result) == 0 {
 		return nil
 	}
-
-	result := make([]*Meta, len(node.commands))
-	copy(result, node.commands)
 	return result
+}
+
+// collectTerminalCommands DFS 收集所有终端节点的命令
+func (t *Trie) collectTerminalCommands(node *TrieNode, seen map[*Meta]bool, result *[]*Meta) {
+	if node == nil {
+		return
+	}
+	if node.isEnd {
+		for _, cmd := range node.commands {
+			if !seen[cmd] {
+				seen[cmd] = true
+				*result = append(*result, cmd)
+			}
+		}
+	}
+	for _, child := range node.children {
+		t.collectTerminalCommands(child, seen, result)
+	}
 }
 
 // ExactMatch 通过精确名称匹配查找命令
@@ -126,28 +140,19 @@ func (t *Trie) ExactMatch(name string) *Meta {
 	node := t.root
 	runes := []rune(name)
 
-	// 导航至命令名称末尾
 	for _, r := range runes {
 		if node.children[r] == nil {
-			return nil // 无匹配
+			return nil
 		}
 		node = node.children[r]
 	}
 
-	// 检查是否为完整命令（而非仅仅是前缀）
 	if !node.isEnd || len(node.commands) == 0 {
 		return nil
 	}
 
-	// 返回第一个命令（精确匹配应只有一个）
-	// 末尾节点的 commands 切片应包含该命令本身
-	for _, cmd := range node.commands {
-		if cmd.Name == name {
-			return cmd
-		}
-	}
-
-	return nil
+	// 终端节点的第一个命令即为精确匹配
+	return node.commands[0]
 }
 
 // Clear 清空前缀树中的所有命令
@@ -195,15 +200,19 @@ func (t *Trie) collectStats(node *TrieNode, depth int, stats *TrieStats) {
 	}
 }
 
-// removeCommandFromSlice 从切片中移除指定命令
+// removeCommandFromSlice 从切片中移除指定命令（原地过滤，避免分配）
 func removeCommandFromSlice(slice []*Meta, meta *Meta) []*Meta {
-	result := make([]*Meta, 0, len(slice))
+	n := 0
 	for _, cmd := range slice {
 		if cmd != meta {
-			result = append(result, cmd)
+			slice[n] = cmd
+			n++
 		}
 	}
-	return result
+	for i := n; i < len(slice); i++ {
+		slice[i] = nil
+	}
+	return slice[:n]
 }
 
 // GetAllCommands 返回前缀树中的所有命令（按优先级排序）

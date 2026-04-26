@@ -11,6 +11,12 @@ import (
 
 const tempMatcherShardCount = 8
 
+// FNV-1a hash constants
+const (
+	fnvOffset64 = 14695981039346656037
+	fnvPrime64  = 1099511628211
+)
+
 // TempManagerConfig 临时匹配器管理器配置
 type TempManagerConfig struct {
 	// WatermarkHigh 高水位线，达到后触发清理
@@ -86,15 +92,11 @@ func (m *tempMatcherManager) getShard(matcher *Matcher) *tempMatcherShard {
 
 // hashPtr implements FNV-1a hash for pointer values
 func hashPtr(ptr uintptr) uintptr {
-	const (
-		offset64 = 14695981039346656037
-		prime64  = 1099511628211
-	)
-	hash := uint64(offset64)
+	hash := uint64(fnvOffset64)
 	// Hash the pointer value byte by byte
 	for i := range 8 {
 		hash ^= uint64((ptr >> (i * 8)) & 0xFF)
-		hash *= prime64
+		hash *= fnvPrime64
 	}
 	return uintptr(hash)
 }
@@ -245,37 +247,9 @@ func (m *tempMatcherManager) Get(eventType EventType) []*Matcher {
 	return mergeKLists(lists, totalLen)
 }
 
-// mergeKLists merges multiple sorted matcher lists into one
-func mergeKLists(lists [][]*Matcher, totalLen int) []*Matcher {
-	res := make([]*Matcher, 0, totalLen)
-	indices := make([]int, len(lists))
-
-	// Since K is small (8), linear scan for min is efficient enough
-	for {
-		minP := uint(999999999)
-		winner := -1
-
-		for k, list := range lists {
-			if indices[k] < len(list) {
-				p := list[indices[k]].getPriority()
-				// Stable sort: if priorities are equal, we should strictly speaking preserve order based on... shards?
-				// Since shards are random, order between shards is arbitrary but consistent.
-				// We pick the first one encountered (lowest k).
-				if p < minP {
-					minP = p
-					winner = k
-				}
-			}
-		}
-
-		if winner == -1 {
-			break
-		}
-
-		res = append(res, lists[winner][indices[winner]])
-		indices[winner]++
-	}
-	return res
+// mergeKLists merges multiple sorted matcher lists into one (delegates to common util).
+func mergeKLists(lists [][]*Matcher, _ int) []*Matcher {
+	return mergeKSortedMatchers(nil, lists)
 }
 
 // CleanExpired removes expired matchers and returns them

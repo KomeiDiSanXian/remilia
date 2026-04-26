@@ -223,82 +223,53 @@ func (s *state) rebuildIndex() {
 	s.rebuildCommandListCache()
 }
 
+// buildCommandInfo 从 Matcher 构造 CommandInfo（消除 updateCommandInfoCache 与 rebuildCommandInfoCache 的重复）
+func buildCommandInfo(m *Matcher, cmd string) *CommandInfo {
+	def := m.GetDefinition()
+	info := &CommandInfo{
+		Command:    cmd,
+		EventType:  m.EventType,
+		Source:     m.GetSource(),
+		Definition: def,
+	}
+	if def != nil {
+		info.Description = def.Description
+		info.Usage = def.Usage
+		info.Aliases = def.Aliases
+		info.Category = def.Category
+		info.Examples = def.Examples
+		info.Permissions = def.Permissions
+	}
+	if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
+		info.Plugin = after
+	} else {
+		info.Plugin = "global"
+	}
+	return info
+}
+
 // updateCommandInfoCache 更新单个命令的缓存信息（不重建列表缓存）。
 // 供 rebuildIndex 批量调用，避免 O(N²) 问题。
 // 调用者负责在全部更新完成后统一调用 rebuildCommandListCache。
 func (s *state) updateCommandInfoCache(m *Matcher, cmd string) {
 	def := m.GetDefinition()
-
 	if def != nil && def.Hidden {
 		delete(s.commandInfoCache, cmd)
 		return
 	}
-
-	info := &CommandInfo{
-		Command:    cmd,
-		EventType:  m.EventType,
-		Source:     m.GetSource(),
-		Definition: def,
-	}
-
-	if def != nil {
-		info.Description = def.Description
-		info.Usage = def.Usage
-		info.Aliases = def.Aliases
-		info.Category = def.Category
-		info.Examples = def.Examples
-		info.Permissions = def.Permissions
-	}
-
-	if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
-		info.Plugin = after
-	} else {
-		info.Plugin = "global"
-	}
-
-	s.commandInfoCache[cmd] = info
+	s.commandInfoCache[cmd] = buildCommandInfo(m, cmd)
 }
 
 // rebuildCommandInfoCache 重建单个命令的缓存信息并同步更新列表缓存。
 // 供单次更新路径（addMatcher、UpdateCommandCache）使用。
 func (s *state) rebuildCommandInfoCache(m *Matcher, cmd string) {
-	// 获取定义
 	def := m.GetDefinition()
-
-	// 跳过隐藏命令
 	if def != nil && def.Hidden {
-		// 如果命令被标记为隐藏，从缓存中删除
 		delete(s.commandInfoCache, cmd)
-		s.rebuildCommandListCache() // 改进 3.7: 同步更新列表缓存
+		s.rebuildCommandListCache()
 		return
 	}
-
-	info := &CommandInfo{
-		Command:    cmd,
-		EventType:  m.EventType,
-		Source:     m.GetSource(),
-		Definition: def,
-	}
-
-	// 从定义填充字段
-	if def != nil {
-		info.Description = def.Description
-		info.Usage = def.Usage
-		info.Aliases = def.Aliases
-		info.Category = def.Category
-		info.Examples = def.Examples
-		info.Permissions = def.Permissions
-	}
-
-	// 提取插件名
-	if after, ok := strings.CutPrefix(m.GetSource(), "plugin:"); ok {
-		info.Plugin = after
-	} else {
-		info.Plugin = "global"
-	}
-
-	s.commandInfoCache[cmd] = info
-	// 改进 3.7: 命令信息变化后重建列表缓存
+	s.commandInfoCache[cmd] = buildCommandInfo(m, cmd)
 	s.rebuildCommandListCache()
 }
 

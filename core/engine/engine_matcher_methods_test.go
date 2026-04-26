@@ -39,7 +39,7 @@ func TestMiddlewareExtra(t *testing.T) {
 func TestMatcherInternal(t *testing.T) {
 	eng := newEngineForTest(t)
 	m := eng.On(string(platform.EventKindPrivateMessage))
-	assert.False(t, m.deletedOrLocked())
+	assert.False(t, m.IsDeleted())
 	m.invalidateCombinedChain()
 	m.setCombinedChain(nil, 0, 0)
 	copied := m.copy()

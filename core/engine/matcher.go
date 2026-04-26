@@ -379,10 +379,6 @@ func (m *Matcher) SetTemp(temp bool) *Matcher {
 	return m
 }
 
-func (m *Matcher) deletedOrLocked() bool {
-	return m.rt.deleted.Load()
-}
-
 // SetTempWithMaxUse 将 matcher 标记为临时匹配器
 func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
 	if m.isNoop() {

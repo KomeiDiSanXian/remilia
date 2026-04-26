@@ -141,7 +141,6 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, e
 
 	b.health.AddChecker(NewBotStatusChecker(b))
 	b.health.AddChecker(health.NewEngineHealthChecker(e))
-	b.buildBaseLifecycle()
 	return b, nil
 }
 
@@ -264,6 +263,9 @@ func (b *Bot) Start() error {
 //
 // Start() 之前调用返回 context.Background()。
 func (b *Bot) Context() context.Context {
+	if b.lifecycle == nil {
+		return context.Background()
+	}
 	return b.lifecycle.ParentContext()
 }
 
@@ -370,6 +372,11 @@ func (b *Bot) Stop(ctx context.Context) error {
 		_ = b.pprofServer.Stop(ctx)
 	}
 
+	if b.lifecycle == nil {
+		logger.Warn("[Bot] lifecycle not initialized, stop skipped")
+		return nil
+	}
+
 	err := b.lifecycle.Stop(ctx)
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
@@ -436,12 +443,18 @@ func (b *Bot) Engine() *engine.Engine { return b.engine }
 // IsRunning 返回 Bot 是否正在运行。
 // 委托给 lifecycle.State()，等价于 lifecycle.StateRunning。
 func (b *Bot) IsRunning() bool {
+	if b.lifecycle == nil {
+		return false
+	}
 	return b.lifecycle.State() == lifecycle.StateRunning
 }
 
 // Uptime 返回 Bot 运行时间。
 // 委托给 lifecycle.Uptime()，该函数正确处理运行/停止两种状态的时长计算。
 func (b *Bot) Uptime() time.Duration {
+	if b.lifecycle == nil {
+		return 0
+	}
 	return b.lifecycle.Uptime()
 }
 
@@ -463,7 +476,12 @@ func (b *Bot) Health() health.CheckResponse {
 func (b *Bot) HealthCheck() *health.Check { return b.health }
 
 // State 返回生命周期状态
-func (b *Bot) State() lifecycle.State { return b.lifecycle.State() }
+func (b *Bot) State() lifecycle.State {
+	if b.lifecycle == nil {
+		return lifecycle.StateCreated
+	}
+	return b.lifecycle.State()
+}
 
 // OnAny 注册处理所有事件的规则
 func (b *Bot) OnAny(rule ...eventctx.Rule) *engine.Matcher {

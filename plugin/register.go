@@ -144,12 +144,15 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 		if len(undeclaredAll) > 0 {
 			if pm.strictDeps {
-				delete(pm.plugins, name)
-				pm.container.Remove(name)
+				// 先释放锁再调用 unload，避免持有 pm.mu 期间执行 Teardown
 				pm.mu.Unlock()
 				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
 					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
 				}
+				pm.mu.Lock()
+				delete(pm.plugins, name)
+				pm.container.Remove(name)
+				pm.mu.Unlock()
 				return fmt.Errorf(
 					"plugin %q uses undeclared dependencies %v (declared: %v); "+
 						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
