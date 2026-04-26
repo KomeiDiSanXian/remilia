@@ -162,6 +162,7 @@ func Retry(cfg RetryConfig) eventctx.Middleware {
 //	    middleware.RetryConfig{MaxAttempts: 3, ...},
 //	    deadLetterCh,
 //	))
+//
 // retryDroppedCount 是全局的死信队列丢弃计数，用于基础可观测性。
 // 可通过 prometheus 采集暴露在 /metrics 端点上的指标做补充。
 var retryDroppedCount atomic.Int64
@@ -254,7 +255,8 @@ func ErrorHandler(handler func(ctx *eventctx.Context, err error)) eventctx.Middl
 	}
 }
 
-func sleepWithContext(ctx context.Context, d time.Duration) bool {
+// sleepWithContext sleeps for the given duration, returning false if the context is canceled.
+var sleepWithContext = func(ctx context.Context, d time.Duration) bool {
 	if ctx == nil {
 		time.Sleep(d)
 		return true

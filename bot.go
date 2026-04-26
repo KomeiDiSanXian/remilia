@@ -438,6 +438,9 @@ func (b *Bot) Plugins() *plugin.Manager {
 }
 
 // Engine 返回 Bot 的 Engine 实例
+//
+// 无需加锁：b.engine 在 NewBot 中设置一次且永不修改。
+// 与 Config()/Plugins() 不同，这些字段通过 Use* 方法支持运行时注入。
 func (b *Bot) Engine() *engine.Engine { return b.engine }
 
 // IsRunning 返回 Bot 是否正在运行。

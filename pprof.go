@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	_ "net/http/pprof" // 副作用导入：自动注册 pprof HTTP 处理器
+	netpprof "net/http/pprof"
 	"os"
 	"runtime"
 	"runtime/pprof"
@@ -109,12 +109,13 @@ func (p *PprofServer) Start() error {
 	// 创建 HTTP 服务器
 	mux := http.NewServeMux()
 
-	// 注册 pprof 路由
-	mux.HandleFunc("/debug/pprof/", http.DefaultServeMux.ServeHTTP)
-	mux.HandleFunc("/debug/pprof/cmdline", http.DefaultServeMux.ServeHTTP)
-	mux.HandleFunc("/debug/pprof/profile", http.DefaultServeMux.ServeHTTP)
-	mux.HandleFunc("/debug/pprof/symbol", http.DefaultServeMux.ServeHTTP)
-	mux.HandleFunc("/debug/pprof/trace", http.DefaultServeMux.ServeHTTP)
+	// 注册 pprof 路由（使用 net/http/pprof 导出的 Handler）
+	// 注意：不依赖 _ "net/http/pprof" 的 init() 副作用，仅在启用时注册路由
+	mux.HandleFunc("/debug/pprof/", netpprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", netpprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", netpprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", netpprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", netpprof.Trace)
 
 	// 添加自定义端点
 	mux.HandleFunc("/debug/pprof/stats", p.handleStats)

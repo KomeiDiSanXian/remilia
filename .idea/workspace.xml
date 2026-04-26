@@ -4,13 +4,33 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(manager): enhance config provider handling and improve concurrency safety">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="docs: update performance analysis and benchmark documentation for clarity and accuracy">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_ANALYSIS.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_ANALYSIS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/TEST_RESULTS.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/TEST_RESULTS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_builder.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_builder.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher_debounce_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher_debounce_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/watcher_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/config/watcher_lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_advanced_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_concurrency_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/matcher_deletion_race_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process_platform_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process_platform_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_stop_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_stop_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_cpu_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/adaptive_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/dedup_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_extra_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_extra_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/middleware_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/middleware/retry_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pprof.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pprof_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/pprof_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_plus_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_plus_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/remilia_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/remilia_test.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -269,7 +289,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
     <MESSAGE value="feat(showcase): implement pprof server for performance profiling and add broadcast and subscription plugins" />
     <MESSAGE value="feat(onebot): add initial implementation of OneBot V11 adapter with WebSocket and HTTP POST support" />
     <MESSAGE value="fix(degradation, dedup): resolve data races and improve error handling in plugin management and deduplication logic" />
@@ -294,7 +313,8 @@
     <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
     <MESSAGE value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
     <MESSAGE value="refactor(manager): enhance config provider handling and improve concurrency safety" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(manager): enhance config provider handling and improve concurrency safety" />
+    <MESSAGE value="docs: update performance analysis and benchmark documentation for clarity and accuracy" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: update performance analysis and benchmark documentation for clarity and accuracy" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

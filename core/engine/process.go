@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,11 +14,12 @@ import (
 )
 
 // ProcessEvent 处理事件（COW 无锁读取）
+//
+// eventWg 保证 Shutdown 等待所有正在处理的事件完成：
+//   - eventWg.Add 在函数入口，确保 Shutdown 的 eventWg.Wait 看到所有活跃事件
+//   - 无 shutdown 检查：生命周期保证适配器在 engine 之前停止，关闭时无新事件
+//   - 若事件在 adapter 停止后到达，eventWg 也会等待其完成
 func (e *Engine) ProcessEvent(ctx *context.Context) {
-	// 检查 shutdown 标志；已关闭则跳过（无锁原子读，比 eventGate CAS 轻量约 3 倍）
-	if e.shutdown.Load() {
-		return
-	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
@@ -28,6 +30,7 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 		if r := recover(); r != nil {
 			logger.WithFields(logger.Fields{
 				"panic":      r,
+				"stack":      string(debug.Stack()),
 				"event_type": ctx.GetEventType(),
 				"platform":   ctx.GetEventPlatform(),
 			}).Error("[engine] Unhandled panic in event processing recovered")

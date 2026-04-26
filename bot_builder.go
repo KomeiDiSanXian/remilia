@@ -3,6 +3,7 @@ package remilia
 import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -38,10 +39,15 @@ func NewBotBuilder() *BotBuilder {
 }
 
 // WithEngine 设置自定义Engine
+//
+// 传入 nil 会被忽略并触发 warning，Build() 将创建默认 Engine。
 func (b *BotBuilder) WithEngine(eng *engine.Engine) *BotBuilder {
-	if eng != nil {
-		b.engine = eng
+	if eng == nil {
+		logger.Warn("[BotBuilder] WithEngine called with nil Engine; Build() will create a default Engine. " +
+			"If you intend to use default options, omit WithEngine entirely.")
+		return b
 	}
+	b.engine = eng
 	return b
 }
 
