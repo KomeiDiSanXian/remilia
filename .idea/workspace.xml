@@ -4,11 +4,10 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -280,7 +279,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor: remove canvas" />
     <MESSAGE value="feat(zhtext): add CJK text processing utilities including normalization and fuzzy matching" />
     <MESSAGE value="feat(vevent): add virtual event injection capabilities for testing and debugging" />
     <MESSAGE value="feat(job): implement structured background job system with support for one-time execution, retries, and job chaining" />
@@ -305,7 +303,8 @@
     <MESSAGE value="refactor(config): remove Viper integration and simplify config provider implementation" />
     <MESSAGE value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
     <MESSAGE value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
+    <MESSAGE value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

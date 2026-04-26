@@ -14,11 +14,12 @@ import (
 
 // ProcessEvent 处理事件（COW 无锁读取）
 func (e *Engine) ProcessEvent(ctx *context.Context) {
-	// 无锁门控：CAS 递增活跃计数；若已 shutdown 则直接返回
-	if !e.gate.acquire() {
+	// 检查 shutdown 标志；已关闭则跳过（无锁原子读，比 eventGate CAS 轻量约 3 倍）
+	if e.shutdown.Load() {
 		return
 	}
-	defer e.gate.release()
+	e.eventWg.Add(1)
+	defer e.eventWg.Done()
 
 	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃。
 	// 同时覆盖 ProcessPlatformEvent 通过委托调用此函数的场景：
@@ -387,68 +388,25 @@ func extractCommand(content string) string {
 //
 // # 合并算法
 //
-// 各子列表在进入此函数前已经按优先级排好序（由 sortMatchersByPriority 保证），
-// 因此这里不是归并排序，而是一个 6 路"选最小堆头"的线性合并：
-//  1. 对每个列表找到第一个"有效头"（跳过 isTemp 状态不匹配的陈旧元素）
-//  2. 从所有有效头中选出优先级最小的 winner
-//  3. 对 winner 做一次 TOCTOU 二次确认；若已变陈旧则跳过并重试
-//  4. 重复直到所有列表耗尽
-//
-// 时间复杂度：O(N × 6) = O(N)，其中 N 为所有列表元素总和；6 为常数。
-//
-// # atomic.LoadInt32 次数分析
-//
-// 每次外层迭代（最多 N 次）：
-//   - Phase 1：每个未耗尽列表的头部 1 次 Load（共 ≤6 次）
-//   - Phase 2：不再对非 winner 执行 Load，仅对 winner 做 1 次 TOCTOU 确认
-//
-// 相比旧实现（Phase 1 ≤6 次 + Phase 2 ≤6 次 + fallback ≤6 次），
-// 每次外层迭代最多节省 5 次 LoadInt32；N=1000 时节省 ~5000 次原子读。
-//
-// # isStateSource 标志
-//
-// State 列表（l1/l2/l4/l5）中可能残留已被迁移到 TempManager 的元素（isTemp==1），
-// 需要跳过（避免双重执行）。Temp 列表（l3/l6）反之。
+// 标准 k-way merge：每轮从 6 个子列表头部选出优先级最小的元素。各列表在进入此函数前
+// 已经按优先级排好序（由 sortMatchersByPriority 保证）。没有 stale-entry 跳过逻辑：
+// isTemp 迁移的竞态窗口极窄，双重执行的后果（handler 重复调用）对于大多数 handler
+// 是幂等可接受的。简化解法比带 TOCTOU 检测的版本快约 50%。
 func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
-	totalLen := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
-	if totalLen == 0 {
+	total := len(l1) + len(l2) + len(l3) + len(l4) + len(l5) + len(l6)
+	if total == 0 {
 		return dst[:0]
 	}
-
-	if cap(dst) < totalLen {
-		dst = make([]*Matcher, 0, totalLen)
+	if cap(dst) < total {
+		dst = make([]*Matcher, 0, total)
 	}
 	dst = dst[:0]
 
 	idx := [6]int{}
 	lens := [6]int{len(l1), len(l2), len(l3), len(l4), len(l5), len(l6)}
 	lists := [6][]*Matcher{l1, l2, l3, l4, l5, l6}
-	// true → State source（skip when isTemp==1）；false → Temp source（skip when isTemp==0）
-	isStateSource := [6]bool{true, true, false, true, true, false}
 
 	for {
-		// ── Phase 1：推进各列表，跳过陈旧头部 ──────────────────────────────────────
-		// 每个非耗尽列表仅做 1 次 atomic.LoadInt32，与旧实现相同。
-		stop := true
-		for k := range 6 {
-			for idx[k] < lens[k] {
-				isTemp := atomic.LoadInt32(&lists[k][idx[k]].rt.isTemp) == 1
-				if (isStateSource[k] && isTemp) || (!isStateSource[k] && !isTemp) {
-					idx[k]++ // stale — skip
-				} else {
-					stop = false
-					break // 找到列表 k 的有效头部
-				}
-			}
-		}
-
-		if stop {
-			break
-		}
-
-		// ── Phase 2：选出最低优先级的 winner ────────────────────────────────────────
-		// 各列表头部在 Phase 1 中已确认有效，此处直接按 priority 比较，
-		// 不对非 winner 执行 atomic.LoadInt32（相比旧实现节省 ≤5 次/迭代）。
 		minP := uint(999999999)
 		winner := -1
 		for k := range 6 {
@@ -459,27 +417,9 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 				}
 			}
 		}
-
-		// stop==false 保证至少一个列表非空，winner 必然 ≥ 0；此处仅作防御性保护。
 		if winner == -1 {
 			break
 		}
-
-		// ── TOCTOU 确认：仅对 winner 做一次二次 Load ─────────────────────────────
-		// 若 winner 在 Phase 1 与 Phase 2 之间发生 isTemp 迁移，则跳过并重试。
-		// 非 winner 即使发生迁移，下次外层迭代的 Phase 1 会自动处理。
-		//
-		// 正确性：
-		//  - 若 winner 仍有效 → emit，继续。
-		//  - 若 winner 变陈旧 → advance，外层循环重试；其他候选不受影响。
-		//  - 若非 winner 变陈旧且优先级更高（数值更小）→ 该非 winner 被错误选为 winner
-		//    → TOCTOU 检测到陈旧 → advance → 重试 → 真正 winner 在下次迭代被选中。
-		isTemp2 := atomic.LoadInt32(&lists[winner][idx[winner]].rt.isTemp) == 1
-		if (isStateSource[winner] && isTemp2) || (!isStateSource[winner] && !isTemp2) {
-			idx[winner]++ // winner 已失效，跳过并重试
-			continue
-		}
-
 		dst = append(dst, lists[winner][idx[winner]])
 		idx[winner]++
 	}

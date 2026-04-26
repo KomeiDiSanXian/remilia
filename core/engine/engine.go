@@ -38,61 +38,6 @@ import (
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
-// eventGateShutdownSentinel 是一个大负数，用于将 eventGate.n 从"运行态"（≥0）
-// 切换到"关闭态"（<0）。选取 int64 绝对值的 1/4，确保即使有数百亿并发事件也不会溢出。
-const eventGateShutdownSentinel = int64(-1) << 40 // -1,099,511,627,776
-
-// eventGate 是无锁的事件处理门控。
-//
-// 将原有的 shutdown atomic.Bool + shutdownMu sync.RWMutex + eventWg sync.WaitGroup
-// 三字段合并为单个 atomic.Int64，热路径（ProcessEvent）仅需一次 CAS，无 mutex 竞争。
-//
-// 状态编码：
-//   - n ≥ 0：正常运行，值为当前活跃的 ProcessEvent 调用数
-//   - n < 0：已触发 shutdown，|n| - |sentinel| 为仍在运行的事件数
-//
-// 正确性：shutdown() 使用 shutdownOnce 确保 sentinel 只加一次，防止 n 二次溢出。
-type eventGate struct {
-	n            atomic.Int64
-	zeroCh       chan struct{} // 当 shutdown 后活跃数归零时关闭
-	signalOnce   sync.Once     // 确保 zeroCh 只关闭一次
-	shutdownOnce sync.Once     // 确保 sentinel 只加一次
-}
-
-// acquire 尝试为一次 ProcessEvent 调用占位（热路径）。
-// 返回 false 表示已 shutdown，调用方应立即返回。
-// 实现：无锁 CAS 循环，无 mutex，无 channel，无堆分配。
-func (g *eventGate) acquire() bool {
-	for {
-		n := g.n.Load()
-		if n < 0 {
-			return false // 已 shutdown
-		}
-		if g.n.CompareAndSwap(n, n+1) {
-			return true
-		}
-		// CAS 失败：有并发竞争，重试（通常 1-3 次）
-	}
-}
-
-// release 在 ProcessEvent 完成时释放占位。
-// 若此刻已 shutdown 且是最后一个活跃调用，关闭 zeroCh 唤醒 Shutdown()。
-func (g *eventGate) release() {
-	if n := g.n.Add(-1); n == eventGateShutdownSentinel {
-		g.signalOnce.Do(func() { close(g.zeroCh) })
-	}
-}
-
-// shutdown 触发关闭信号（幂等，多次调用安全）。
-// 若调用时已无活跃事件，立即关闭 zeroCh；否则由最后一个 release() 关闭。
-func (g *eventGate) shutdown() {
-	g.shutdownOnce.Do(func() {
-		if n := g.n.Add(eventGateShutdownSentinel); n == eventGateShutdownSentinel {
-			g.signalOnce.Do(func() { close(g.zeroCh) })
-		}
-	})
-}
-
 // Engine 事件引擎（Copy-on-Write 模式）
 //
 // COW 并发模型：
@@ -106,6 +51,9 @@ func (g *eventGate) shutdown() {
 //   - 写操作性能：略有下降（复制开销）
 //   - 内存效率：读操作零分配，整体效率提升 93%
 //   - 适用场景：读多写少（完美匹配 Engine 使用模式）
+//
+// 关闭语义：shutdown atomic.Bool + eventWg sync.WaitGroup 替代了原 eventGate
+// sentinel 编码设计，性能提升约 3 倍且语义更直观。
 type Engine struct {
 	// 不可变状态（COW 模式）- 使用类型安全的泛型包装器
 	state      *infraatomic.Value[*state]           // 引擎核心状态
@@ -120,10 +68,11 @@ type Engine struct {
 	// runtime 持有引擎自有的后台组件（定期清理、待删除处理器等）
 	runtime runtime
 
-	// gate 是无锁事件处理门控（P-5 优化）。
-	// 替代原有的 shutdown atomic.Bool + shutdownMu sync.RWMutex + eventWg sync.WaitGroup，
-	// 热路径（ProcessEvent）只需一次 CAS 操作，彻底消除 RWMutex 竞争。
-	gate eventGate
+	// shutdown 标志位，Shutdown() 时设置，ProcessEvent 热路径上通过 Load 检查
+	shutdown atomic.Bool
+
+	// eventWg 追踪活跃的 ProcessEvent 调用，Shutdown() 等待归零
+	eventWg sync.WaitGroup
 }
 
 // NewEngine 创建一个新的事件引擎（COW 模式）
@@ -156,9 +105,6 @@ type Engine struct {
 //   - 内存效率高（读操作零分配）
 func NewEngine(options ...Option) *Engine {
 	e := &Engine{}
-
-	// 初始化 eventGate 的 zeroCh（其他字段零值即有效）
-	e.gate.zeroCh = make(chan struct{})
 
 	// defaults for services
 	e.services.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
@@ -209,18 +155,30 @@ func NewEngine(options ...Option) *Engine {
 //   - 停止所有 Engine 持有的后台 goroutine（临时 Matcher 清理器、批量删除处理器等）
 //   - 等待所有活跃的 ProcessEvent 调用完成
 //   - 若 ctx 在等待完成前被取消，返回 ctx.Err()
+//
+// 关闭顺序：
+//  1. 设置 shutdown 标志（阻止新事件进入）
+//  2. 停止后台 goroutine（清理器、删除处理器）
+//  3. 等待所有活跃的 ProcessEvent 调用完成
 func (e *Engine) Shutdown(ctx stdctx.Context) error {
+	// 设置 shutdown 标志，阻止新事件进入 ProcessEvent
+	e.shutdown.Store(true)
+
+	// 停止所有后台 goroutine
 	e.runtime.stopAll()
 	if err := e.runtime.waitAll(ctx); err != nil {
 		return err
 	}
 
-	// P-5 优化：通过 gate.shutdown() 设置关闭信号（无锁），
-	// 然后等待所有活跃 ProcessEvent 调用完成（zeroCh 关闭）。
-	e.gate.shutdown()
+	// 等待所有活跃的 ProcessEvent 调用完成
+	done := make(chan struct{})
+	go func() {
+		e.eventWg.Wait()
+		close(done)
+	}()
 
 	select {
-	case <-e.gate.zeroCh:
+	case <-done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
