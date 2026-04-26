@@ -150,11 +150,9 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	// 使用 goroutine 以避免在持有 shard 锁时尝试获取其他 shard 锁导致死锁。
 	// 通过 cleanupWg 追踪，Shutdown 时可等待清理完成。
 	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh {
-		m.cleanupWg.Add(1)
-		go func() {
-			defer m.cleanupWg.Done()
+		m.cleanupWg.Go(func() {
 			m.cleanToWatermark()
-		}()
+		})
 	}
 }
 

@@ -18,10 +18,11 @@ func TestLoad(t *testing.T) {
 
 		configContent := `
 bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "test-token"
-  secret: "test-secret"
+  qq:
+    app_id: 123456
+    bot_id: 789012
+    token: "test-token"
+    secret: "test-secret"
 server:
   host: "localhost"
   port: 8080
@@ -53,10 +54,10 @@ webhook:
 		assert.NotNil(t, cfg)
 
 		// 验证配置内容
-		assert.Equal(t, uint64(123456), cfg.Bot.AppID)
-		assert.Equal(t, uint64(789012), cfg.Bot.BotID)
-		assert.Equal(t, "test-token", cfg.Bot.Token)
-		assert.Equal(t, "test-secret", cfg.Bot.Secret)
+		assert.Equal(t, uint64(123456), cfg.Bot.QQ.AppID)
+		assert.Equal(t, uint64(789012), cfg.Bot.QQ.BotID)
+		assert.Equal(t, "test-token", cfg.Bot.QQ.Token)
+		assert.Equal(t, "test-secret", cfg.Bot.QQ.Secret)
 		assert.Equal(t, "localhost", cfg.Server.Host)
 		assert.Equal(t, 8080, cfg.Server.Port)
 		assert.Equal(t, "info", cfg.Log.Level)
@@ -69,7 +70,7 @@ webhook:
 		// 验证全局配置已设置
 		globalCfg, ok := Get()
 		assert.True(t, ok)
-		assert.Equal(t, cfg.Bot.Token, globalCfg.Bot.Token)
+		assert.Equal(t, cfg.Bot.QQ.Token, globalCfg.Bot.QQ.Token)
 	})
 
 	t.Run("file not found", func(t *testing.T) {
@@ -99,11 +100,12 @@ bot:
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "config.yaml")
 
-		// Bot 配置部分填写：app_id 已设置但 bot_id 缺失 → 触发验证失败
+		// QQ 配置部分填写：app_id 已设置但 bot_id 缺失 → 触发验证失败
 		configContent := `
 bot:
-  app_id: 123456
-  bot_id: 0
+  qq:
+    app_id: 123456
+    bot_id: 0
 server:
   port: 8080
 `
@@ -119,10 +121,10 @@ server:
 func TestLoadDefault(t *testing.T) {
 	// 保存原始环境变量
 	originalEnv := map[string]string{
-		"BOT_APP_ID":  os.Getenv("BOT_APP_ID"),
-		"BOT_BOT_ID":  os.Getenv("BOT_BOT_ID"),
-		"BOT_TOKEN":   os.Getenv("BOT_TOKEN"),
-		"BOT_SECRET":  os.Getenv("BOT_SECRET"),
+		"QQ_APP_ID":   os.Getenv("QQ_APP_ID"),
+		"QQ_BOT_ID":   os.Getenv("QQ_BOT_ID"),
+		"QQ_TOKEN":    os.Getenv("QQ_TOKEN"),
+		"QQ_SECRET":   os.Getenv("QQ_SECRET"),
 		"SERVER_HOST": os.Getenv("SERVER_HOST"),
 		"SERVER_PORT": os.Getenv("SERVER_PORT"),
 		"LOG_LEVEL":   os.Getenv("LOG_LEVEL"),
@@ -148,10 +150,11 @@ func TestLoadDefault(t *testing.T) {
 
 		configContent := `
 bot:
-  app_id: 111111
-  bot_id: 222222
-  token: "default-token"
-  secret: "default-secret"
+  qq:
+    app_id: 111111
+    bot_id: 222222
+    token: "default-token"
+    secret: "default-secret"
 server:
   port: 9090
 `
@@ -160,8 +163,8 @@ server:
 
 		cfg, err := LoadDefault()
 		require.NoError(t, err)
-		assert.Equal(t, uint64(111111), cfg.Bot.AppID)
-		assert.Equal(t, uint64(222222), cfg.Bot.BotID)
+		assert.Equal(t, uint64(111111), cfg.Bot.QQ.AppID)
+		assert.Equal(t, uint64(222222), cfg.Bot.QQ.BotID)
 	})
 
 	t.Run("load from environment variables", func(t *testing.T) {
@@ -172,18 +175,18 @@ server:
 		os.Chdir(tmpDir)
 
 		// 设置环境变量
-		os.Setenv("BOT_APP_ID", "333333")
-		os.Setenv("BOT_BOT_ID", "444444")
-		os.Setenv("BOT_TOKEN", "env-token")
-		os.Setenv("BOT_SECRET", "env-secret")
+		os.Setenv("QQ_APP_ID", "333333")
+		os.Setenv("QQ_BOT_ID", "444444")
+		os.Setenv("QQ_TOKEN", "env-token")
+		os.Setenv("QQ_SECRET", "env-secret")
 		os.Setenv("SERVER_PORT", "7070")
 
 		cfg, err := LoadDefault()
 		require.NoError(t, err)
-		assert.Equal(t, uint64(333333), cfg.Bot.AppID)
-		assert.Equal(t, uint64(444444), cfg.Bot.BotID)
-		assert.Equal(t, "env-token", cfg.Bot.Token)
-		assert.Equal(t, "env-secret", cfg.Bot.Secret)
+		assert.Equal(t, uint64(333333), cfg.Bot.QQ.AppID)
+		assert.Equal(t, uint64(444444), cfg.Bot.QQ.BotID)
+		assert.Equal(t, "env-token", cfg.Bot.QQ.Token)
+		assert.Equal(t, "env-secret", cfg.Bot.QQ.Secret)
 		assert.Equal(t, 7070, cfg.Server.Port)
 	})
 
@@ -195,12 +198,12 @@ server:
 		os.Chdir(tmpDir)
 
 		// 清除环境变量
-		os.Unsetenv("BOT_APP_ID")
-		os.Unsetenv("BOT_BOT_ID")
-		os.Unsetenv("BOT_TOKEN")
-		os.Unsetenv("BOT_SECRET")
-		// 设置部分 bot 字段以触发验证失败（app_id 已设置但 bot_id 缺失）
-		os.Setenv("BOT_APP_ID", "123456")
+		os.Unsetenv("QQ_APP_ID")
+		os.Unsetenv("QQ_BOT_ID")
+		os.Unsetenv("QQ_TOKEN")
+		os.Unsetenv("QQ_SECRET")
+		// 设置部分 qq 字段以触发验证失败（app_id 已设置但 bot_id 缺失）
+		os.Setenv("QQ_APP_ID", "123456")
 
 		_, err := LoadDefault()
 		assert.Error(t, err)
@@ -271,10 +274,11 @@ func TestGet(t *testing.T) {
 
 	configContent := `
 bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "get-test-token"
-  secret: "get-test-secret"
+  qq:
+    app_id: 123456
+    bot_id: 789012
+    token: "get-test-token"
+    secret: "get-test-secret"
 server:
   port: 8080
 log:
@@ -301,6 +305,6 @@ webhook:
 	// 验证 Get 返回相同的配置
 	globalCfg, ok := Get()
 	assert.True(t, ok)
-	assert.Equal(t, cfg.Bot.Token, globalCfg.Bot.Token)
-	assert.Equal(t, "get-test-token", globalCfg.Bot.Token)
+	assert.Equal(t, cfg.Bot.QQ.Token, globalCfg.Bot.QQ.Token)
+	assert.Equal(t, "get-test-token", globalCfg.Bot.QQ.Token)
 }

@@ -13,7 +13,13 @@
 //
 // # 配置结构与 infra 包的对应关系
 //
-//	Config.Bot          → 平台适配器（zerobot-remilia/ 等具体实现读取）
+//	Config.Bot.QQ       → QQ 平台适配器（platform/qq）
+//	Config.Bot.OneBot   → OneBot V11 适配器（platform/onebot）
+//	Config.Bot.Discord  → Discord 适配器（platform/discord）
+//	Config.Bot.Satori   → Satori 协议适配器（platform/satori）
+//	Config.Bot.Milky    → Milky QQ 适配器（platform/milky）
+//	Config.Bot.Telegram → Telegram 适配器（platform/telegram，预留）
+//	Config.Bot.WeChat   → 微信适配器（platform/wechat，预留）
 //	Config.Server       → infra/server
 //	Config.Log          → infra/logger（logger.Config，包含所有日志选项）
 //	Config.Concurrency  → infra/server（反压/并发控制）
@@ -144,15 +150,85 @@ func (c *Config) PluginBool(pluginName, key string) (bool, bool) {
 	return b, ok
 }
 
-// BotConfig Bot 平台凭证配置。
+// BotConfig 各平台适配器的配置容器。
 //
-// 由平台适配器（如 zerobot-remilia/ 下的具体实现）在初始化时读取。
-// 框架核心不直接消费此配置，适配器通过 [Config.Bot] 取得后自行传入平台 SDK。
+// 每个字段对应一个已支持的平台的配置结构体，均使用指针 + omitempty，
+// 未使用的平台不会出现在 YAML 中。
+// 所有平台均未配置时，整体 BotConfig 留空（全零值），不会触发验证错误。
 type BotConfig struct {
+	QQ       *QQConfig       `yaml:"qq,omitempty" mapstructure:"qq,omitempty"`
+	OneBot   *OneBotConfig   `yaml:"onebot,omitempty" mapstructure:"onebot,omitempty"`
+	Discord  *DiscordConfig  `yaml:"discord,omitempty" mapstructure:"discord,omitempty"`
+	Satori   *SatoriConfig   `yaml:"satori,omitempty" mapstructure:"satori,omitempty"`
+	Milky    *MilkyConfig    `yaml:"milky,omitempty" mapstructure:"milky,omitempty"`
+	Telegram *TelegramConfig `yaml:"telegram,omitempty" mapstructure:"telegram,omitempty"`
+	WeChat   *WeChatConfig   `yaml:"wechat,omitempty" mapstructure:"wechat,omitempty"`
+}
+
+// QQConfig QQ 机器人平台凭证配置。
+//
+// 由 QQ 平台适配器（platform/qq）在初始化时读取。
+// 非 QQ 平台无需填写此配置节。
+type QQConfig struct {
 	AppID  uint64 `yaml:"app_id" mapstructure:"app_id"`
 	BotID  uint64 `yaml:"bot_id" mapstructure:"bot_id"`
 	Token  string `yaml:"token" mapstructure:"token"`
 	Secret string `yaml:"secret" mapstructure:"secret"`
+}
+
+// OneBotConfig OneBot V11 协议适配器配置。
+type OneBotConfig struct {
+	URL        string `yaml:"url,omitempty" mapstructure:"url,omitempty"`
+	ListenAddr string `yaml:"listen_addr,omitempty" mapstructure:"listen_addr,omitempty"`
+	Token      string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
+	Secret     string `yaml:"secret,omitempty" mapstructure:"secret,omitempty"`
+}
+
+// DiscordConfig Discord 平台适配器配置。
+type DiscordConfig struct {
+	Token string `yaml:"token" mapstructure:"token"`
+}
+
+// SatoriConfig Satori 协议适配器配置。
+type SatoriConfig struct {
+	ServerURL string `yaml:"server_url" mapstructure:"server_url"`
+	Token     string `yaml:"token,omitempty" mapstructure:"token,omitempty"`
+	Platform  string `yaml:"platform,omitempty" mapstructure:"platform,omitempty"`
+	UserID    string `yaml:"user_id,omitempty" mapstructure:"user_id,omitempty"`
+}
+
+// MilkyConfig Milky QQ 协议适配器配置。
+type MilkyConfig struct {
+	BaseURL     string `yaml:"base_url" mapstructure:"base_url"`
+	AccessToken string `yaml:"access_token,omitempty" mapstructure:"access_token,omitempty"`
+}
+
+// TelegramConfig Telegram 平台适配器配置（预留）。
+type TelegramConfig struct{}
+
+// WeChatConfig 微信平台适配器配置（预留）。
+type WeChatConfig struct{}
+
+// HasChanged 检测 BotConfig 中已启用的平台配置是否发生了变更。
+// 用于决定是否需要重启 Bot（例如热重载时凭证变更）。
+func (bc *BotConfig) HasChanged(other *BotConfig) bool {
+	return !ptrEqual(bc.QQ, other.QQ) ||
+		!ptrEqual(bc.OneBot, other.OneBot) ||
+		!ptrEqual(bc.Discord, other.Discord) ||
+		!ptrEqual(bc.Satori, other.Satori) ||
+		!ptrEqual(bc.Milky, other.Milky)
+}
+
+// ptrEqual 比较两个同类型指针的值是否相等。
+// 均为 nil 时返回 true；一个 nil 一个非 nil 时返回 false。
+func ptrEqual[T comparable](a, b *T) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
 
 // ServerConfig 服务器配置。
@@ -370,7 +446,37 @@ func (m *ConfigManager) Get() (*Config, bool) {
 	if !ok || cfg == nil {
 		return nil, false
 	}
-	return new(*cfg), true
+	c := new(*cfg)
+	// Deep copy BotConfig pointer fields so external mutation cannot affect stored config
+	if cfg.Bot.QQ != nil {
+		qq := *cfg.Bot.QQ
+		c.Bot.QQ = &qq
+	}
+	if cfg.Bot.OneBot != nil {
+		ob := *cfg.Bot.OneBot
+		c.Bot.OneBot = &ob
+	}
+	if cfg.Bot.Discord != nil {
+		d := *cfg.Bot.Discord
+		c.Bot.Discord = &d
+	}
+	if cfg.Bot.Satori != nil {
+		s := *cfg.Bot.Satori
+		c.Bot.Satori = &s
+	}
+	if cfg.Bot.Milky != nil {
+		mc := *cfg.Bot.Milky
+		c.Bot.Milky = &mc
+	}
+	if cfg.Bot.Telegram != nil {
+		tc := *cfg.Bot.Telegram
+		c.Bot.Telegram = &tc
+	}
+	if cfg.Bot.WeChat != nil {
+		wc := *cfg.Bot.WeChat
+		c.Bot.WeChat = &wc
+	}
+	return c, true
 }
 
 // MustGet 获取管理器中的当前配置，未加载时 panic。
@@ -392,10 +498,12 @@ func (m *ConfigManager) LoadDefault() (*Config, error) {
 
 	cfg := &Config{
 		Bot: BotConfig{
-			AppID:  getEnvUint64("BOT_APP_ID"),
-			BotID:  getEnvUint64("BOT_BOT_ID"),
-			Token:  os.Getenv("BOT_TOKEN"),
-			Secret: os.Getenv("BOT_SECRET"),
+			QQ: &QQConfig{
+				AppID:  getEnvUint64("QQ_APP_ID"),
+				BotID:  getEnvUint64("QQ_BOT_ID"),
+				Token:  os.Getenv("QQ_TOKEN"),
+				Secret: os.Getenv("QQ_SECRET"),
+			},
 		},
 		Server: ServerConfig{
 			Host: getEnvDefault("SERVER_HOST", "0.0.0.0"),

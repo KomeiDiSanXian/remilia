@@ -45,29 +45,91 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate 验证 Bot 配置。
+// Validate 验证 Bot 配置容器，遍历所有已启用的平台子配置。
 //
-// Bot 配置采用宽松验证策略：仅当字段被显式设置时才做格式校验，
-// 零值字段视为"该平台不需要此凭证"（适配多平台场景）。
+// Bot 配置采用宽松验证策略：所有平台子字段均为 nil 时跳过验证，
+// 允许用户在未连接任何平台的情况下运行框架（如仅使用测试适配器）。
 // 各平台适配器在初始化时应自行检查所需字段的完整性。
 func (bc *BotConfig) Validate() error {
-	// Bot 配置整体未设置（全零值或仅通过环境变量部分设置）时跳过验证，
-	// 允许非 QQ 平台（Discord/Telegram 等）不提供这些字段。
-	if bc.AppID == 0 && bc.BotID == 0 && bc.Token == "" && bc.Secret == "" {
+	type namedValidator struct {
+		name string
+		fn   func() error
+	}
+	var validators []namedValidator
+
+	if bc.QQ != nil {
+		validators = append(validators, namedValidator{"bot.qq", bc.QQ.Validate})
+	}
+	// 其余平台目前仅做非空判断，未来可按需扩展 Validate
+	if bc.OneBot != nil {
+		validators = append(validators, namedValidator{"bot.onebot", bc.OneBot.Validate})
+	}
+	if bc.Discord != nil {
+		validators = append(validators, namedValidator{"bot.discord", bc.Discord.Validate})
+	}
+	if bc.Satori != nil {
+		validators = append(validators, namedValidator{"bot.satori", bc.Satori.Validate})
+	}
+	if bc.Milky != nil {
+		validators = append(validators, namedValidator{"bot.milky", bc.Milky.Validate})
+	}
+
+	for _, v := range validators {
+		if err := v.fn(); err != nil {
+			return fmt.Errorf("invalid %s config: %w", v.name, err)
+		}
+	}
+	return nil
+}
+
+// Validate 验证 QQ 平台配置。
+//
+// QQ 配置采用宽松验证策略：全部字段零值时跳过验证，
+// 零值字段视为"不需要 QQ 平台"。
+func (qc *QQConfig) Validate() error {
+	if qc.AppID == 0 && qc.BotID == 0 && qc.Token == "" && qc.Secret == "" {
 		return nil
 	}
-	// 若部分设置了 QQ 凭证，则要求必填字段完整
-	if bc.AppID == 0 {
-		return fmt.Errorf("bot.app_id is required and must be non-zero")
+	if qc.AppID == 0 {
+		return fmt.Errorf("qq.app_id is required and must be non-zero")
 	}
-	if bc.BotID == 0 {
-		return fmt.Errorf("bot.bot_id is required and must be non-zero")
+	if qc.BotID == 0 {
+		return fmt.Errorf("qq.bot_id is required and must be non-zero")
 	}
-	if bc.Token == "" {
-		return fmt.Errorf("bot.token is required and cannot be empty")
+	if qc.Token == "" {
+		return fmt.Errorf("qq.token is required and cannot be empty")
 	}
-	if bc.Secret == "" {
-		return fmt.Errorf("bot.secret is required and cannot be empty")
+	if qc.Secret == "" {
+		return fmt.Errorf("qq.secret is required and cannot be empty")
+	}
+	return nil
+}
+
+// Validate 验证 OneBot 配置。
+func (oc *OneBotConfig) Validate() error {
+	return nil // 目前 OneBot 无强校验，适配器自行处理
+}
+
+// Validate 验证 Discord 配置。
+func (dc *DiscordConfig) Validate() error {
+	if dc.Token == "" {
+		return fmt.Errorf("discord.token is required and cannot be empty")
+	}
+	return nil
+}
+
+// Validate 验证 Satori 配置。
+func (sc *SatoriConfig) Validate() error {
+	if sc.ServerURL == "" {
+		return fmt.Errorf("satori.server_url is required and cannot be empty")
+	}
+	return nil
+}
+
+// Validate 验证 Milky 配置。
+func (mc *MilkyConfig) Validate() error {
+	if mc.BaseURL == "" {
+		return fmt.Errorf("milky.base_url is required and cannot be empty")
 	}
 	return nil
 }

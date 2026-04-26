@@ -28,9 +28,9 @@ func main() {
 	}
 
 	botInfo := &dto.BotInfo{
-		AppID:     cfg.Bot.AppID,
-		Token:     cfg.Bot.Token,
-		AppSecret: cfg.Bot.Secret,
+		AppID:     cfg.Bot.QQ.AppID,
+		Token:     cfg.Bot.QQ.Token,
+		AppSecret: cfg.Bot.QQ.Secret,
 	}
 
 	// 创建 engine

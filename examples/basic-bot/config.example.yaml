@@ -2,10 +2,11 @@
 # 请填入你的机器人信息
 
 bot:
-  app_id: 123456          # 替换为你的 AppID
-  bot_id: 654321          # 替换为你的机器人 QQ 号
-  token: "YOUR_TOKEN"     # 替换为你的 Token
-  secret: "YOUR_SECRET"   # 替换为你的 Secret
+  qq:
+    app_id: 123456          # 替换为你的 AppID
+    bot_id: 654321          # 替换为你的机器人 QQ 号
+    token: "YOUR_TOKEN"     # 替换为你的 Token
+    secret: "YOUR_SECRET"   # 替换为你的 Secret
 
 server:
   host: "0.0.0.0"

@@ -57,7 +57,7 @@ func main() {
 	// 打印初始配置
 	cfg := watcher.GetConfig()
 	logger.WithFields(logger.Fields{
-		"app_id":      cfg.Bot.AppID,
+		"app_id":      cfg.Bot.QQ.AppID,
 		"log_level":   cfg.Log.Level,
 		"port":        cfg.Server.Port,
 		"concurrency": cfg.Concurrency.Limit,

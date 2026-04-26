@@ -86,8 +86,8 @@ func main() {
 
 	bot, err := remilia.NewBotBuilder().
 		WithPlatformAdapter(qq.NewWebhookServerAdapter(":9000", &dto.BotInfo{
-			QQNum: cfg.Bot.BotID, AppID: cfg.Bot.AppID,
-			Token: cfg.Bot.Token, AppSecret: cfg.Bot.Secret,
+			QQNum: cfg.Bot.QQ.BotID, AppID: cfg.Bot.QQ.AppID,
+			Token: cfg.Bot.QQ.Token, AppSecret: cfg.Bot.QQ.Secret,
 		})).
 		WithName("showcase-bot").WithVersion("1.0.0").
 		Build()

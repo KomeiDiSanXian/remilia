@@ -37,10 +37,10 @@ func main() {
 
 	// 2. 创建 Bot 信息
 	botInfo := &dto.BotInfo{
-		AppID:     cfg.Bot.AppID,
-		QQNum:     cfg.Bot.BotID,
-		Token:     cfg.Bot.Token,
-		AppSecret: cfg.Bot.Secret,
+		AppID:     cfg.Bot.QQ.AppID,
+		QQNum:     cfg.Bot.QQ.BotID,
+		Token:     cfg.Bot.QQ.Token,
+		AppSecret: cfg.Bot.QQ.Secret,
 		ServeAddr: fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 	}
 

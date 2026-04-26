@@ -8,17 +8,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestBotConfig_Validate 测试 Bot 配置验证
-func TestBotConfig_Validate(t *testing.T) {
+// TestQQConfig_Validate 测试 QQ 平台配置验证
+func TestQQConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  BotConfig
+		config  QQConfig
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: BotConfig{
+			config: QQConfig{
 				AppID:  123456,
 				BotID:  789012,
 				Token:  "test-token",
@@ -28,7 +28,7 @@ func TestBotConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing app_id",
-			config: BotConfig{
+			config: QQConfig{
 				BotID:  789012,
 				Token:  "test-token",
 				Secret: "test-secret",
@@ -38,7 +38,7 @@ func TestBotConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing bot_id",
-			config: BotConfig{
+			config: QQConfig{
 				AppID:  123456,
 				Token:  "test-token",
 				Secret: "test-secret",
@@ -48,7 +48,7 @@ func TestBotConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing token",
-			config: BotConfig{
+			config: QQConfig{
 				AppID:  123456,
 				BotID:  789012,
 				Secret: "test-secret",
@@ -58,7 +58,7 @@ func TestBotConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "missing secret",
-			config: BotConfig{
+			config: QQConfig{
 				AppID: 123456,
 				BotID: 789012,
 				Token: "test-token",
@@ -699,61 +699,66 @@ func TestWebhookConfig_Validate(t *testing.T) {
 
 // TestConfig_Validate 测试完整配置验证
 func TestConfig_Validate(t *testing.T) {
-	validConfig := Config{
-		Bot: BotConfig{
-			AppID:  123456,
-			BotID:  789012,
-			Token:  "test-token",
-			Secret: "test-secret",
-		},
-		Server: ServerConfig{
-			Host: "localhost",
-			Port: 8080,
-		},
-		Log: logger.Config{
-			Level:  "info",
-			Format: "json",
-		},
-		Concurrency: ConcurrencyConfig{
-			Limit:  100,
-			Policy: "drop",
-		},
-		Retry: RetryConfig{
-			Enable:      true,
-			MaxAttempts: 3,
-		},
-		Middleware: MiddlewareConfig{
-			RateLimit: RateLimitMiddlewareConfig{
-				Enable: true,
-				Rate:   100,
-				Burst:  200,
+	newValidConfig := func() Config {
+		return Config{
+			Bot: BotConfig{
+				QQ: &QQConfig{
+					AppID:  123456,
+					BotID:  789012,
+					Token:  "test-token",
+					Secret: "test-secret",
+				},
 			},
-		},
-		DeadLetter: DeadLetterConfig{
-			Enable:   true,
-			Target:   "file",
-			FilePath: "/tmp/dlq.log",
-		},
-		Webhook: WebhookConfig{
-			EventBuffer: 1000,
-		},
+			Server: ServerConfig{
+				Host: "localhost",
+				Port: 8080,
+			},
+			Log: logger.Config{
+				Level:  "info",
+				Format: "json",
+			},
+			Concurrency: ConcurrencyConfig{
+				Limit:  100,
+				Policy: "drop",
+			},
+			Retry: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 3,
+			},
+			Middleware: MiddlewareConfig{
+				RateLimit: RateLimitMiddlewareConfig{
+					Enable: true,
+					Rate:   100,
+					Burst:  200,
+				},
+			},
+			DeadLetter: DeadLetterConfig{
+				Enable:   true,
+				Target:   "file",
+				FilePath: "/tmp/dlq.log",
+			},
+			Webhook: WebhookConfig{
+				EventBuffer: 1000,
+			},
+		}
 	}
 
 	t.Run("valid complete config", func(t *testing.T) {
-		err := validConfig.Validate()
+		cfg := newValidConfig()
+		err := cfg.Validate()
 		assert.NoError(t, err)
 	})
 
-	t.Run("invalid bot config", func(t *testing.T) {
-		cfg := validConfig
-		cfg.Bot.Token = ""
+	t.Run("invalid qq config", func(t *testing.T) {
+		cfg := newValidConfig()
+		cfg.Bot.QQ.Token = ""
 		err := cfg.Validate()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "bot config")
+		assert.Contains(t, err.Error(), "qq config")
 	})
 
 	t.Run("invalid server config", func(t *testing.T) {
-		cfg := validConfig
+		cfg := newValidConfig()
 		cfg.Server.Port = 0
 		err := cfg.Validate()
 		assert.Error(t, err)
@@ -761,7 +766,7 @@ func TestConfig_Validate(t *testing.T) {
 	})
 
 	t.Run("invalid log config", func(t *testing.T) {
-		cfg := validConfig
+		cfg := newValidConfig()
 		cfg.Log.Level = "invalid"
 		err := cfg.Validate()
 		assert.Error(t, err)
@@ -786,10 +791,11 @@ func TestSubscribe_NotifiesOnLoad(t *testing.T) {
 	// 创建临时配置文件
 	content := `
 bot:
-  app_id: 123456
-  bot_id: 789012
-  token: "test-token"
-  secret: "test-secret"
+  qq:
+    app_id: 123456
+    bot_id: 789012
+    token: "test-token"
+    secret: "test-secret"
 server:
   port: 8080
 `
@@ -802,7 +808,7 @@ server:
 	assert.NoError(t, err)
 	assert.Equal(t, 1, called)
 	assert.NotNil(t, receivedCfg)
-	assert.Equal(t, uint64(123456), receivedCfg.Bot.AppID)
+	assert.Equal(t, uint64(123456), receivedCfg.Bot.QQ.AppID)
 }
 
 // TestSubscribe_MultipleListeners 测试多个监听器
@@ -817,10 +823,11 @@ func TestSubscribe_MultipleListeners(t *testing.T) {
 
 	content := `
 bot:
-  app_id: 111
-  bot_id: 222
-  token: "t"
-  secret: "s"
+  qq:
+    app_id: 111
+    bot_id: 222
+    token: "t"
+    secret: "s"
 server:
   port: 8080
 `
@@ -850,10 +857,11 @@ func TestSubscribe_PanicInListenerDoesNotBreakLoad(t *testing.T) {
 
 	content := `
 bot:
-  app_id: 111
-  bot_id: 222
-  token: "t"
-  secret: "s"
+  qq:
+    app_id: 111
+    bot_id: 222
+    token: "t"
+    secret: "s"
 server:
   port: 8080
 `

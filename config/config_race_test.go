@@ -16,10 +16,11 @@ func TestConfigRaceCondition(t *testing.T) {
 	tmpFile := t.TempDir() + "/config.yaml"
 	configContent := `
 bot:
-  app_id: 12345
-  bot_id: 67890
-  token: "test_token"
-  secret: "test_secret"
+  qq:
+    app_id: 12345
+    bot_id: 67890
+    token: "test_token"
+    secret: "test_secret"
 server:
   host: "0.0.0.0"
   port: 8080
@@ -28,17 +29,16 @@ log:
   format: "json"
 `
 	err := os.WriteFile(tmpFile, []byte(configContent), 0644)
-	assert.NoError(t, err)
+
+	defer os.Remove(tmpFile)
 
 	// Load initial config
-	_, err = Load(tmpFile)
+	cfg, err := Load(tmpFile)
 	assert.NoError(t, err)
-
-	// Simulate concurrent reads and writes
+	assert.NotNil(t, cfg)
+	// Many concurrent readers
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
-
-	// Start multiple readers
 	for range 10 {
 		wg.Go(func() {
 			for {
@@ -46,10 +46,7 @@ log:
 				case <-stop:
 					return
 				default:
-					cfg, ok := Get()
-					if ok {
-						_ = cfg.Bot.AppID
-					}
+					_ = cfg.Bot.QQ.AppID
 					time.Sleep(time.Millisecond)
 				}
 			}
@@ -95,10 +92,11 @@ func TestGetReturnsCopy(t *testing.T) {
 	tmpFile := t.TempDir() + "/config.yaml"
 	configContent := `
 bot:
-  app_id: 12345
-  bot_id: 67890
-  token: "test_token"
-  secret: "test_secret"
+  qq:
+    app_id: 12345
+    bot_id: 67890
+    token: "test_token"
+    secret: "test_secret"
 server:
   host: "0.0.0.0"
   port: 8080
@@ -116,12 +114,12 @@ log:
 	assert.True(t, ok1)
 
 	// Modify the returned config
-	cfg1.Bot.AppID = 99999
+	cfg1.Bot.QQ.AppID = 99999
 
 	// Get config again
 	cfg2, ok2 := Get()
 	assert.True(t, ok2)
 
 	// Original should not be modified
-	assert.Equal(t, uint64(12345), cfg2.Bot.AppID, "Get() should return a copy, external modification should not affect it")
+	assert.Equal(t, uint64(12345), cfg2.Bot.QQ.AppID, "Get() should return a copy, external modification should not affect it")
 }

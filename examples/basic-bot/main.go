@@ -34,10 +34,10 @@ func main() {
 
 	// 创建 BotInfo
 	botInfo := &dto.BotInfo{
-		QQNum:     cfg.Bot.BotID,
-		AppID:     cfg.Bot.AppID,
-		Token:     cfg.Bot.Token,
-		AppSecret: cfg.Bot.Secret,
+		QQNum:     cfg.Bot.QQ.BotID,
+		AppID:     cfg.Bot.QQ.AppID,
+		Token:     cfg.Bot.QQ.Token,
+		AppSecret: cfg.Bot.QQ.Secret,
 	}
 
 	// 使用 BotBuilder 创建 Bot

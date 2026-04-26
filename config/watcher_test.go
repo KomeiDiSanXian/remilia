@@ -23,7 +23,7 @@ func TestWatcher_NewWatcher(t *testing.T) {
 
 		cfg := watcher.GetConfig()
 		assert.NotNil(t, cfg)
-		assert.Equal(t, uint64(123456), cfg.Bot.AppID)
+		assert.Equal(t, uint64(123456), cfg.Bot.QQ.AppID)
 	})
 
 	t.Run("invalid_path", func(t *testing.T) {
@@ -63,10 +63,11 @@ func TestWatcher_FileChangeDetection(t *testing.T) {
 	// Modify the config file
 	newConfig := `
 bot:
-  app_id: 999999
-  bot_id: 888888
-  token: "new-token"
-  secret: "new-secret"
+  qq:
+    app_id: 999999
+    bot_id: 888888
+    token: "new-token"
+    secret: "new-secret"
 
 server:
   host: "0.0.0.0"
@@ -89,9 +90,9 @@ log:
 
 	// Verify new config is loaded
 	cfg := watcher.GetConfig()
-	assert.Equal(t, uint64(999999), cfg.Bot.AppID)
-	assert.Equal(t, uint64(888888), cfg.Bot.BotID)
-	assert.Equal(t, "new-token", cfg.Bot.Token)
+	assert.Equal(t, uint64(999999), cfg.Bot.QQ.AppID)
+	assert.Equal(t, uint64(888888), cfg.Bot.QQ.BotID)
+	assert.Equal(t, "new-token", cfg.Bot.QQ.Token)
 	assert.Equal(t, 9090, cfg.Server.Port)
 }
 
@@ -149,10 +150,11 @@ func TestWatcher_ValidateOnly(t *testing.T) {
 	// Modify config
 	newConfig := `
 bot:
-  app_id: 999999
-  bot_id: 888888
-  token: "new-token"
-  secret: "new-secret"
+  qq:
+    app_id: 999999
+    bot_id: 888888
+    token: "new-token"
+    secret: "new-secret"
 
 server:
   host: "0.0.0.0"
@@ -306,13 +308,14 @@ func TestWatchWithAutoRestart(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Stop()
 
-	// Change Bot config (requires restart)
+	// Change QQ config (requires restart)
 	newConfig := `
 bot:
-  app_id: 999999
-  bot_id: 888888
-  token: "new-token"
-  secret: "new-secret"
+  qq:
+    app_id: 999999
+    bot_id: 888888
+    token: "new-token"
+    secret: "new-secret"
 
 server:
   host: "0.0.0.0"
@@ -344,10 +347,11 @@ func createTempConfigFile(t *testing.T, content string) string {
 
 const validConfig = `
 bot:
-  app_id: 123456
-  bot_id: 654321
-  token: "test-token"
-  secret: "test-secret"
+  qq:
+    app_id: 123456
+    bot_id: 654321
+    token: "test-token"
+    secret: "test-secret"
 
 server:
   host: "0.0.0.0"
@@ -393,8 +397,9 @@ webhook:
 
 const invalidConfig = `
 bot:
-  app_id: 0  # Invalid: must be non-zero
-  token: ""  # Invalid: must be non-empty
+  qq:
+    app_id: 0  # Invalid: must be non-zero
+    token: ""  # Invalid: must be non-empty
 
 server:
   port: 99999  # Invalid: out of range

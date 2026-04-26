@@ -382,8 +382,8 @@ func WatchWithAutoRestart(configPath string, restartFunc func(*Config) error) (*
 
 // needsRestart 判断配置变更是否需要重启组件
 func needsRestart(old, new *Config) bool {
-	// Bot 配置变更需要重启
-	if old.Bot != new.Bot {
+	// 平台配置变更需要重启
+	if old.Bot.HasChanged(&new.Bot) {
 		return true
 	}
 

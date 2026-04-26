@@ -2,20 +2,50 @@
 # 复制此文件为 config.yaml 并填入你的实际配置
 
 # ====================================
-# Bot 基础配置（必填）
+# Bot 平台配置
+# 选择你需要使用的平台，填入对应的密钥和连接参数。
+# 未使用的平台可以删除或留空。
 # ====================================
 bot:
-  # Bot 的 AppID
-  app_id: 123456789
+  # ----- QQ 机器人（QQ 官方 API / Webhook）-----
+  qq:
+    app_id: 123456789
+    bot_id: 987654321
+    token: "your_qq_bot_token"
+    secret: "your_qq_bot_secret"
 
-  # Bot 的 BotID
-  bot_id: 987654321
+  # ----- OneBot V11 协议（go-cqhttp / NapCat 等）-----
+  # onebot:
+  #   # 正向 WS 连接地址（ModeForwardWS）
+  #   url: "ws://127.0.0.1:6700"
+  #   # 反向 WS / HTTP POST 监听地址（ModeReverseWS / ModeHTTPPost）
+  #   listen_addr: ":8080"
+  #   # 访问令牌（OneBot 配置了 access_token 时需要）
+  #   token: "your_onebot_token"
+  #   # HTTP POST 事件验签密钥（仅 ModeHTTPPost）
+  #   secret: "your_onebot_secret"
 
-  # Bot 的 Token（请妥善保管，不要提交到代码仓库）
-  token: "your_bot_token_here"
+  # ----- Discord Bot（Gateway WebSocket）-----
+  # discord:
+  #   token: "your_discord_bot_token"
 
-  # Bot 的 AppSecret（请妥善保管，不要提交到代码仓库）
-  secret: "your_bot_secret_here"
+  # ----- Satori 协议（Chronocat / Lagrange 等）-----
+  # satori:
+  #   server_url: "http://localhost:5140"
+  #   token: "your_satori_token"
+  #   platform: "chronocat"
+  #   user_id: "1234567890"
+
+  # ----- Milky QQ 协议（NTQQ 协议端）-----
+  # milky:
+  #   base_url: "http://127.0.0.1:6700"
+  #   access_token: "your_milky_token"
+
+  # ----- Telegram（预留）-----
+  # telegram: {}
+
+  # ----- 微信（预留）-----
+  # wechat: {}
 
 # ====================================
 # 服务器配置
@@ -336,11 +366,11 @@ tracing:
 # ====================================
 # 1. 必填配置: bot, server, log
 # 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation, tracing
-# 3. 环境变量支持:
-#    - BOT_APP_ID
-#    - BOT_BOT_ID
-#    - BOT_TOKEN
-#    - BOT_SECRET
+# 3. 环境变量支持（仅 QQ 平台，无配置文件时生效）:
+#    - QQ_APP_ID
+#    - QQ_BOT_ID
+#    - QQ_TOKEN
+#    - QQ_SECRET
 # 4. 配置热重载: 使用 config.Watch() 监听配置变更
 # 5. 性能调优:
 #    - webhook.worker_count: 控制并发处理能力（测试显示8并发可达6127 msg/s）
