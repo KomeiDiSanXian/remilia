@@ -62,6 +62,10 @@ type adapterCache struct {
 
 // Bot 是对 Engine 的高级封装，提供完整的生命周期管理。
 //
+// 生命周期完全委托给 lifecycle.Manager，Bot 只存储配置和组件引用。
+// Bot.Start() 创建最外层 context 并交给 lifecycle，Bot.Stop() 委托给 lifecycle.Stop()。
+// lifecycle 管理双层 context：parentCtx（bot 根）→ runCtx（组件运行时）。
+//
 // D3：Bot 内部统一使用 platformRegistry 作为唯一的平台适配器来源，
 // 不再维护单独的 adapter 字段，消除双路径冗余逻辑。
 type Bot struct {
@@ -79,14 +83,11 @@ type Bot struct {
 	// 与 core/engine 的 COW 设计保持一致。
 	adapterSnapshot atomic.Value // stores map[string]adapterCache
 
-	rootCtx    context.Context
-	rootCancel context.CancelFunc
+	mu sync.RWMutex
 
-	mu        sync.RWMutex
-	running   bool
-	starting  bool
-	startTime time.Time
-	stopTime  time.Time
+	// started 标记 Bot 是否已成功 Start（防止重复 Start）。
+	// 委托给 lifecycle.State 不可靠——buildBaseLifecycle 每次创建新 Manager。
+	started atomic.Bool
 }
 
 // Config Bot 配置
@@ -164,47 +165,22 @@ func (b *Bot) buildBaseLifecycle() {
 	b.lifecycle = lm
 }
 
-// Start 启动 Bot
+// Start 启动 Bot。
 //
-// 并发安全设计（锁-解-锁模式）：
-//
-//   - 第一阶段持锁（快速）：检查 running/starting 标志，设置 starting=true
-//   - 解锁执行耗时操作（启动 lifecycle、注册组件），期间 IsRunning() 等读方法可正常访问
-//   - 第二阶段持锁（快速）：写入 running=true、startTime、rootCtx/rootCancel
-//
-// starting 标志在整过程中防止并发二次启动：任何 goroutine 在 starting==true 期间
-// 调用 Start() 都会被拒绝（返回 "bot is already starting"）。
-//
-// 若启动失败，starting 被重置为 false 且 running 保持 false，
-// 下次 Start() 调用可正常重试。rootCtx/rootCancel 在失败路径中已被 cancel，
-// 不会泄漏。
+// 生命周期由 lifecycle.Manager 管理，Bot 只负责：
+//  1. 构建 adapter snapshot 和注册 lifecycle 组件
+//  2. 创建最外层 context（作为 lifecycle.Start 的入参——lifecycle 内部剥离超时后存储为 parentCtx）
+//  3. 委托 lifecycle.Start
 func (b *Bot) Start() error {
-	// 并发安全：先用写锁检查并设置 starting 标志，随后解锁。
-	// 这是有意为之的"锁-解-锁"模式：
-	//   1. 快速持锁完成状态检查，避免长时间阻塞其他读操作（如 IsRunning）
-	//   2. 解锁后执行耗时的 lifecycle.Start / pluginManager.StartAll，
-	//      期间其他 goroutine 仍可读取 Bot 状态（如健康检查）
-	//   3. 启动成功后再次加锁写入 running=true
-	// starting 标志在整个过程中防止并发二次启动。
-	b.mu.Lock()
-	if b.running {
-		b.mu.Unlock()
+	if !b.started.CompareAndSwap(false, true) {
 		logger.Warn("[Bot] Already running")
 		return nil
 	}
-	if b.starting {
-		b.mu.Unlock()
-		return errutil.New("bot is already starting")
-	}
-	b.starting = true
-	b.mu.Unlock()
 
 	logger.WithFields(logger.Fields{
 		"name":    b.config.Name,
 		"version": b.config.Version,
 	}).Info("[Bot] Starting...")
-
-	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	// 每次 Start() 重建 lifecycle，确保热重启不会重复注册组件
 	b.buildBaseLifecycle()
@@ -248,54 +224,35 @@ func (b *Bot) Start() error {
 	// 将 pluginManager 注册为 lifecycle 的最后一个组件（4.1 fix）。
 	// 注册顺序：engine → platform adapters → plugin-manager
 	// 停止顺序（逆序）：plugin-manager → platform adapters → engine
-	// 这样插件 Teardown 在平台连接断开之前执行，且在 lifecycle.Stop() 返回前 rootCtx 仍有效。
+	// 这样插件 Teardown 在平台连接断开之前执行，且在 lifecycle.Stop() 返回前 parentCtx 仍有效。
 	if b.pluginManager != nil {
 		b.lifecycle.Register(plugin.NewManagerComponent(b.pluginManager))
 	}
 
-	startCtx, startCancel := context.WithTimeout(rootCtx, DefaultStartTimeout)
+	// 创建最外层 context，传入 lifecycle.Start。
+	// lifecycle 内部剥离超时后存储为 parentCtx，再派生 runCtx。
+	startCtx, startCancel := context.WithTimeout(context.Background(), DefaultStartTimeout)
 	defer startCancel()
 
-	err := b.lifecycle.Start(startCtx)
-
-	b.mu.Lock()
-	b.starting = false
-	if err != nil {
-		b.mu.Unlock()
-		rootCancel()
+	if err := b.lifecycle.Start(startCtx); err != nil {
+		b.started.Store(false)
 		logger.WithError(err).Error("[Bot] Failed to start")
 		return err
 	}
-	b.running = true
-	b.startTime = time.Now()
-	b.rootCtx = rootCtx
-	b.rootCancel = rootCancel
-	b.mu.Unlock()
 
 	logger.Info("[Bot] Started successfully")
-
 	return nil
 }
 
 // Context 返回 Bot 的根 context。
 //
-// 此 context 在 Bot.Start() 时创建，Bot.Stop() 时取消。
-// 可用于：
-//   - 创建与 Bot 生命周期绑定的后台 goroutine
-//   - 初始化 AdaptiveRateLimiter 等组件，使其随 Bot 自动退出
+// 等价于 lifecycle.ParentContext()，是 Bot 生命周期的最外层 context：
+//   - Start() 期间创建，Stop() 中 OnStop 全部完成后取消
+//   - 可用于创建与 Bot 生命周期绑定的后台 goroutine、初始化 AdaptiveRateLimiter 等
 //
-// 示例：
-//
-//	arl := middleware.NewAdaptiveRateLimiterWithContext(bot.Context(), config)
-//
-// 注意：在 Bot.Start() 调用之前，此方法返回 context.Background()。
+// Start() 之前调用返回 context.Background()。
 func (b *Bot) Context() context.Context {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if b.rootCtx != nil {
-		return b.rootCtx
-	}
-	return context.Background()
+	return b.lifecycle.ParentContext()
 }
 
 // handlePlatformEvent 处理来自 platform.Adapter 的事件。
@@ -381,50 +338,22 @@ func (b *Bot) PlatformRegistry() *platform.Registry {
 	return b.platformRegistry
 }
 
+// Stop 优雅停止 Bot。
+//
+// 生命周期完全委托给 lifecycle.Stop()，其内部顺序为：
+//  1. 取消 runCtx → 通知所有 OnRun goroutine 退出
+//  2. 逆序调用各组件的 OnStop：
+//     a. plugin-manager → 所有插件 Teardown（parentCtx 仍有效，可访问平台 API）
+//     b. platform adapters → 平台连接断开
+//     c. engine shutdown
+//  3. 取消 parentCtx（Bot 根 context）
+//
+// 注意：已注册为 lifecycle.Component 的组件（含 pluginManager）由 lifecycle 自动管理，
+// 无需手动调用 pm.StopAll()。
 func (b *Bot) Stop(ctx context.Context) error {
-	b.mu.Lock()
-	if !b.running {
-		b.mu.Unlock()
-		logger.Warn("[Bot] Not running")
-		return nil
-	}
-	b.running = false
-	b.stopTime = time.Now()
-	rootCancel := b.rootCancel
-	b.rootCancel = nil
-	b.rootCtx = nil
-	b.mu.Unlock()
-
 	logger.Info("[Bot] Shutting down...")
-	return b.shutdownSequence(ctx, rootCancel)
-}
-
-// shutdownSequence 执行有序关闭序列。
-//
-// 停止顺序（严格遵守，不得随意调整）：
-//  1. lifecycle.Stop()  — 统一停止所有 lifecycle 组件（逆注册顺序）：
-//     a. plugin-manager OnStop → pm.StopAll() → 所有插件 Teardown
-//     b. platform adapters OnStop → 平台连接断开
-//     c. engine OnStop
-//     插件 Teardown 在此阶段运行，rootCtx 尚未取消，可正常访问平台 API。
-//  2. rootCancel()      — lifecycle 完全停止后才取消 rootCtx，
-//     通知所有持有 rootCtx 的后台 goroutine 退出。
-//
-// lifecycle.Stop() 返回的错误包含了插件停止失败的详细信息（4.2 fix：不再静默吞噬），
-// 会被传递给 Bot.Stop() 的调用方。
-//
-// 注意：pluginManager 已作为 lifecycle.Component 注册（4.1 fix），
-// 无需再手动调用 pm.StopAll()，lifecycle.Stop() 会自动触发。
-func (b *Bot) shutdownSequence(ctx context.Context, rootCancel context.CancelFunc) error {
-	// lifecycle.Stop() 负责停止所有组件（含插件、适配器、engine）
-	// 此时 rootCtx 尚未取消，插件 Teardown 可安全访问外部资源
 	err := b.lifecycle.Stop(ctx)
-
-	// lifecycle 完全停止后再取消 rootCtx
-	if rootCancel != nil {
-		rootCancel()
-	}
-
+	b.started.Store(false)
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
@@ -487,24 +416,16 @@ func (b *Bot) Plugins() *plugin.Manager {
 // Engine 返回 Bot 的 Engine 实例
 func (b *Bot) Engine() *engine.Engine { return b.engine }
 
-// IsRunning 返回 Bot 是否正在运行
+// IsRunning 返回 Bot 是否正在运行。
+// 委托给 lifecycle.State()，等价于 lifecycle.StateRunning。
 func (b *Bot) IsRunning() bool {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.running
+	return b.lifecycle.State() == lifecycle.StateRunning
 }
 
-// Uptime 返回 Bot 运行时间
+// Uptime 返回 Bot 运行时间。
+// 委托给 lifecycle.Uptime()，该函数正确处理运行/停止两种状态的时长计算。
 func (b *Bot) Uptime() time.Duration {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if !b.running {
-		if !b.stopTime.IsZero() {
-			return b.stopTime.Sub(b.startTime)
-		}
-		return 0
-	}
-	return time.Since(b.startTime)
+	return b.lifecycle.Uptime()
 }
 
 // Config 获取配置副本。

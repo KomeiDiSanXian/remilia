@@ -4,13 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_health.go" beforeDir="false" afterPath="$PROJECT_DIR$/bot_health.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -282,7 +280,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test(pluginctrl): add integration tests for autoWireListener behavior" />
     <MESSAGE value="refactor: remove canvas" />
     <MESSAGE value="feat(zhtext): add CJK text processing utilities including normalization and fuzzy matching" />
     <MESSAGE value="feat(vevent): add virtual event injection capabilities for testing and debugging" />
@@ -307,7 +304,8 @@
     <MESSAGE value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
     <MESSAGE value="refactor(config): remove Viper integration and simplify config provider implementation" />
     <MESSAGE value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
+    <MESSAGE value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

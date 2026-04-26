@@ -2,7 +2,6 @@ package remilia
 
 import (
 	"context"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
@@ -27,22 +26,19 @@ func (c *BotStatusChecker) Name() string {
 
 // Check 执行健康检查
 func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
-	c.bot.mu.RLock()
-	running := c.bot.running
-	startTime := c.bot.startTime
-	stopTime := c.bot.stopTime
-	c.bot.mu.RUnlock()
+	config := c.bot.Config()
+	running := c.bot.IsRunning()
+	uptime := c.bot.Uptime()
 
 	metadata := map[string]any{
-		"name":    c.bot.config.Name,
-		"version": c.bot.config.Version,
+		"name":    config.Name,
+		"version": config.Version,
 	}
 
 	// Bot 未运行
 	if !running {
-		if !stopTime.IsZero() {
-			metadata["stop_time"] = stopTime
-			metadata["last_uptime"] = stopTime.Sub(startTime).String()
+		if uptime > 0 {
+			metadata["last_uptime"] = uptime.String()
 		}
 		return health.CheckResult{
 			Status:   health.Unhealthy,
@@ -52,8 +48,6 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 	}
 
 	// Bot 正在运行
-	uptime := time.Since(startTime)
-	metadata["start_time"] = startTime
 	metadata["uptime"] = uptime.String()
 	metadata["uptime_seconds"] = uptime.Seconds()
 

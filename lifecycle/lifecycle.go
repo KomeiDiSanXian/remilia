@@ -273,6 +273,10 @@ type Manager struct {
 	startTime    time.Time
 	stopTime     time.Time
 
+	// 父级 context（最外层，Bot 的 root context）
+	parentCtx    context.Context
+	parentCancel context.CancelFunc
+
 	// 运行时 context 管理
 	runCtx    context.Context
 	runCancel context.CancelFunc
@@ -469,15 +473,17 @@ func (m *Manager) Start(ctx context.Context) error {
 		startedComponents = append(startedComponents, comp)
 	}
 
-	// 创建运行时 context 并启动所有组件的 OnRun
+	// 创建 parent / run 双层 context 并启动所有组件的 OnRun
 	//
-	// 使用 context.WithoutCancel(ctx) 的父 context 派生 runCtx：
-	//   - 保留 ctx 的 Value 链（tracing、metadata 等）
-	//   - 剥离 OnStart 阶段的超时/截止时间（避免 runCtx 被启动超时取消）
-	//   - runCtx 仅由 Stop() 调用 runCancel 来取消
-	parentCtx := context.WithoutCancel(ctx)
+	// parentCtx 是最外层 context（Bot 的 root context），剥离 OnStart 阶段的超时/截止时间，
+	// 但保留 ctx 的 Value 链（tracing、metadata 等）。
+	// parentCtx 在 Stop() 中 OnStop 全部完成后才被取消，确保 OnStop 期间外部资源仍可用。
+	//
+	// runCtx 从 parentCtx 派生，由 Stop() 首先取消以通知所有 OnRun goroutine 退出。
+	base := context.WithoutCancel(ctx)
 	m.mu.Lock()
-	m.runCtx, m.runCancel = context.WithCancel(parentCtx)
+	m.parentCtx, m.parentCancel = context.WithCancel(base)
+	m.runCtx, m.runCancel = context.WithCancel(m.parentCtx)
 	runCtx := m.runCtx
 	m.startedComps = startedComponents // 保存已成功 OnStart 的组件
 	m.state = StateRunning
@@ -631,6 +637,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 		}
 	}
 
+	// OnStop 全部完成后，取消 parentCtx（最外层 context，原 Bot 的 rootCtx）
+	if m.parentCancel != nil {
+		m.parentCancel()
+	}
+
 	m.mu.Lock()
 	m.state = StateStopped
 	m.mu.Unlock()
@@ -703,6 +714,26 @@ func (m *Manager) ComponentCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.components)
+}
+
+// ParentContext 返回父级 context（Bot 的根 context）。
+//
+// 与 RunContext 的区别：
+//   - ParentContext 是最外层 context，贯穿 Bot 整个生命周期，在 Stop() 的 OnStop 阶段后取消。
+//     OnStop 执行期间 parentCtx 仍然有效，供插件安全访问平台 API。
+//   - RunContext 是组件运行时 context，在 Stop() 开始时取消（早于 OnStop）。
+//
+// Bot 层应使用此方法而非 RunContext，确保外部组件（AdaptiveRateLimiter 等）
+// 的生命周期与 Bot 的最外层 context 绑定。
+//
+// Start() 之前调用此方法返回 context.Background()。
+func (m *Manager) ParentContext() context.Context {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.parentCtx != nil {
+		return m.parentCtx
+	}
+	return context.Background()
 }
 
 // RunContext 返回运行时 context
