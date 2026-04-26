@@ -78,7 +78,7 @@ func TestManager_BasicLifecycle(t *testing.T) {
 	}
 
 	// Wait for OnRun goroutines to start, then verify
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if comp1.runCalled.Load() && comp2.runCalled.Load() {
 			break
 		}
@@ -240,7 +240,7 @@ func TestManager_MultipleComponents(t *testing.T) {
 	}
 
 	// Wait for OnRun goroutines to start, then verify
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		allStarted := true
 		for _, comp := range comps {
 			if !comp.runCalled.Load() {
@@ -306,7 +306,7 @@ func TestSimpleComponent(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if runCalled.Load() {
 			break
 		}
@@ -389,7 +389,7 @@ func TestManager_ComponentStatuses(t *testing.T) {
 	}
 
 	// comp2 会快速退出（runErr 非空），等待状态更新
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		statuses := manager.ComponentStatuses()
 		if st, ok := statuses["comp2"]; ok && !st.Running {
 			break

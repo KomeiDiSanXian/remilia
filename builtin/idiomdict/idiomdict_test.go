@@ -53,7 +53,7 @@ func TestIdiomdict_Random_ReturnsValidIdiom(t *testing.T) {
 
 func TestIdiomdict_Random_ReturnsDifferentValues(t *testing.T) {
 	results := make(map[string]int)
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		results[Random()]++
 	}
 	assert.GreaterOrEqual(t, len(results), 2)

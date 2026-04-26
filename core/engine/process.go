@@ -404,7 +404,7 @@ func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
 	for {
 		minP := uint(999999999)
 		winner := -1
-		for j := 0; j < k; j++ {
+		for j := range k {
 			if idx[j] < len(lists[j]) {
 				if p := lists[j][idx[j]].getPriority(); p < minP {
 					minP = p
