@@ -37,7 +37,7 @@
 
 ### 🚀 核心能力
 
-- **高性能引擎** — COW 并发模型，无锁读取，支持海量消息（8 workers 可达 6000+ msg/s）
+- **高性能引擎** — COW 并发模型，无锁读取，单实例吞吐量 500,000+ msg/s
 - **插件系统** — v2 函数式插件，热重载（InPlace / BlueGreen 策略），自动依赖排序
 - **中间件机制** — 限流 / 重试 / 降级 / 死信队列 / 去重，支持热更新阈值
 - **命令解析** — Trie 树 + commandIndex 双索引，O(1) 命令路由
@@ -360,12 +360,16 @@ bot.WaitForShutdown()
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 消息吞吐量（8 workers）| ~6,000 msg/s | Webhook 多 worker 并发 |
-| Engine ProcessEvent | ~5-6 μs/op | COW 无锁读取 |
-| 命令解析 | ~1-2 μs/op | Trie + commandIndex |
+| 消息吞吐量（空 Handler） | **~475,000 msg/s** | 16 核 CPU 80%，COW 无锁并发 |
+| 含 1K Matcher (20K msg/s) | **100% @ 10% CPU** | 6 路合并排序，匹配开销可预测 |
+| Engine ProcessEvent | ~5-6 μs/op | COW 无锁读取 + 6 路合并排序 |
+| 命令解析 | ~1-2 μs/op | Trie + commandIndex 双索引 O(1) |
 | Context Pool | 0 allocs/op | 对象池复用 |
+| 堆内存（50,000 msg/s）| ~12-14 MB | 极低内存占用，无泄漏 |
 
-测试环境: AMD Ryzen 7 5800H, 16GB RAM, Go 1.26
+测试环境: 16 CPU, 32 GB RAM, Go 1.26.1, GOMAXPROCS=16
+
+> 详细测试报告: [examples/benchmark](examples/benchmark/)
 
 ---
 

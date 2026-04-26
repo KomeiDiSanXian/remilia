@@ -4,9 +4,13 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(manager): enhance config provider handling and improve concurrency safety">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_ANALYSIS.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/PERFORMANCE_ANALYSIS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/TEST_RESULTS.md" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/TEST_RESULTS.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/benchmark/throughput_bench.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -265,7 +269,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
     <MESSAGE value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
     <MESSAGE value="feat(showcase): implement pprof server for performance profiling and add broadcast and subscription plugins" />
     <MESSAGE value="feat(onebot): add initial implementation of OneBot V11 adapter with WebSocket and HTTP POST support" />
@@ -290,7 +293,8 @@
     <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
     <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
     <MESSAGE value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
+    <MESSAGE value="refactor(manager): enhance config provider handling and improve concurrency safety" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(manager): enhance config provider handling and improve concurrency safety" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

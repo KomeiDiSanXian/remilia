@@ -2,16 +2,16 @@
 //
 // Usage:
 //
-// cd examples/benchmark && go run throughput_bench.go
-// cd examples/benchmark && go run throughput_bench.go -duration 15s -suite quick
-// cd examples/benchmark && go run throughput_bench.go -suite full -output results.json
+//	cd examples/benchmark && go run throughput_bench.go
+//	cd examples/benchmark && go run throughput_bench.go -duration 15s -suite quick
+//	cd examples/benchmark && go run throughput_bench.go -suite full -output results.json
 //
 // Flags:
 //
-// -duration   per-scenario test duration (default 10s)
-// -suite      "quick" | "standard" | "full"  (default standard)
-// -middleware whether to enable middleware (default true)
-// -output     path to write JSON results (optional)
+//	-duration   per-scenario test duration (default 10s)
+//	-suite      "quick" | "standard" | "full"  (default standard)
+//	-middleware whether to enable middleware (default true)
+//	-output     path to write JSON results (optional)
 package main
 
 import (
@@ -34,36 +34,69 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	mw "github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	qqplatform "github.com/KomeiDiSanXian/remilia/platform/qq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 )
 
 // ─────────────────────────────────────────────────────────────
+// benchEvent — pooled, platform-agnostic Event implementation
+// ─────────────────────────────────────────────────────────────
+
+type benchEvent struct {
+	platform string
+	kind     platform.EventKind
+	id       string
+	content  string
+	sender   platform.UserInfo
+	chat     platform.ChatInfo
+	ts       time.Time
+}
+
+func acquireBenchEvent() *benchEvent {
+	return benchEventPool.Get().(*benchEvent)
+}
+
+func releaseBenchEvent(e *benchEvent) {
+	*e = benchEvent{}
+	benchEventPool.Put(e)
+}
+
+var benchEventPool = sync.Pool{
+	New: func() any { return &benchEvent{} },
+}
+
+func (e *benchEvent) Platform() string                          { return e.platform }
+func (e *benchEvent) Kind() platform.EventKind                  { return e.kind }
+func (e *benchEvent) ID() string                                { return e.id }
+func (e *benchEvent) Content() string                           { return e.content }
+func (e *benchEvent) Sender() platform.UserInfo                 { return e.sender }
+func (e *benchEvent) Chat() platform.ChatInfo                   { return e.chat }
+func (e *benchEvent) Timestamp() time.Time                      { return e.ts }
+func (e *benchEvent) Attachments() []platform.InboundAttachment { return nil }
+
+// ─────────────────────────────────────────────────────────────
 // System metrics sampler
 // ─────────────────────────────────────────────────────────────
-// sysSampler polls system-level and Go runtime metrics at a fixed interval.
-// It runs in a background goroutine for the duration of each scenario.
 type sysSampler struct {
 	mu      sync.Mutex
 	samples []sysSample
 	stop    chan struct{}
 	done    chan struct{}
 }
+
 type sysSample struct {
 	ts             time.Time
-	cpuSysPct      float64 // system-wide CPU %
-	cpuProcPct     float64 // this process CPU %
-	memSysUsedMB   float64 // OS-level used RAM (MB)
-	memSysUsedPct  float64 // OS-level RAM %
-	heapAllocMB    float64 // Go heap in-use (MB)
-	heapSysMB      float64 // Go heap obtained from OS (MB)
-	stackInUseMB   float64 // Go stacks (MB)
+	cpuSysPct      float64
+	cpuProcPct     float64
+	memSysUsedMB   float64
+	memSysUsedPct  float64
+	heapAllocMB    float64
+	heapSysMB      float64
+	stackInUseMB   float64
 	goroutines     int
 	gcRuns         uint32
-	gcPauseTotalMs float64 // cumulative GC pause (ms)
+	gcPauseTotalMs float64
 }
 
 func newSysSampler() *sysSampler {
@@ -72,6 +105,7 @@ func newSysSampler() *sysSampler {
 		done: make(chan struct{}),
 	}
 }
+
 func (s *sysSampler) Start(interval time.Duration) {
 	proc, _ := process.NewProcess(int32(os.Getpid()))
 	go func() {
@@ -88,10 +122,12 @@ func (s *sysSampler) Start(interval time.Duration) {
 		}
 	}()
 }
+
 func (s *sysSampler) Stop() {
 	close(s.stop)
 	<-s.done
 }
+
 func (s *sysSampler) collect(t time.Time, proc *process.Process) {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
@@ -104,17 +140,14 @@ func (s *sysSampler) collect(t time.Time, proc *process.Process) {
 		gcRuns:         ms.NumGC,
 		gcPauseTotalMs: float64(ms.PauseTotalNs) / 1e6,
 	}
-	// system-wide CPU (non-blocking: 0 interval = since last call)
 	if pcts, err := cpu.Percent(0, false); err == nil && len(pcts) > 0 {
 		sample.cpuSysPct = pcts[0]
 	}
-	// this-process CPU
 	if proc != nil {
 		if pct, err := proc.CPUPercent(); err == nil {
 			sample.cpuProcPct = pct
 		}
 	}
-	// system RAM
 	if vmStat, err := mem.VirtualMemory(); err == nil {
 		sample.memSysUsedMB = float64(vmStat.Used) / 1e6
 		sample.memSysUsedPct = vmStat.UsedPercent
@@ -124,31 +157,24 @@ func (s *sysSampler) collect(t time.Time, proc *process.Process) {
 	s.mu.Unlock()
 }
 
-// sysStats aggregates all collected samples into summary statistics.
 type sysStats struct {
-	// CPU
-	CpuSysAvgPct  float64
-	CpuSysMaxPct  float64
-	CpuProcAvgPct float64
-	CpuProcMaxPct float64
-	// OS RAM
+	CpuSysAvgPct     float64
+	CpuSysMaxPct     float64
+	CpuProcAvgPct    float64
+	CpuProcMaxPct    float64
 	MemSysUsedAvgMB  float64
 	MemSysUsedMaxMB  float64
 	MemSysUsedAvgPct float64
 	MemSysUsedMaxPct float64
-	// Go heap
-	HeapAllocAvgMB float64
-	HeapAllocMaxMB float64
-	HeapSysMaxMB   float64
-	// Go stack
-	StackInUseMaxMB float64
-	// Goroutines
-	GoroutinesAvg float64
-	GoroutinesMax int
-	// GC
-	GCRuns         uint32
-	GCPauseDeltaMs float64 // GC pause added during this scenario
-	GCPauseAvgMs   float64 // avg per GC run during scenario
+	HeapAllocAvgMB   float64
+	HeapAllocMaxMB   float64
+	HeapSysMaxMB     float64
+	StackInUseMaxMB  float64
+	GoroutinesAvg    float64
+	GoroutinesMax    int
+	GCRuns           uint32
+	GCPauseDeltaMs   float64
+	GCPauseAvgMs     float64
 }
 
 func (s *sysSampler) Aggregate() sysStats {
@@ -160,7 +186,6 @@ func (s *sysSampler) Aggregate() sysStats {
 		return sysStats{}
 	}
 	var st sysStats
-	// GC delta: compare first and last sample
 	st.GCRuns = samples[len(samples)-1].gcRuns - samples[0].gcRuns
 	gcPauseDelta := samples[len(samples)-1].gcPauseTotalMs - samples[0].gcPauseTotalMs
 	st.GCPauseDeltaMs = gcPauseDelta
@@ -216,10 +241,10 @@ func (s *sysSampler) Aggregate() sysStats {
 }
 
 // ─────────────────────────────────────────────────────────────
-// pumpAdapter
+// pumpAdapter — pumps platform.Events into the bot
 // ─────────────────────────────────────────────────────────────
 type pumpAdapter struct {
-	ch       chan *dto.Payload
+	ch       chan platform.Event
 	ctx      context.Context
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
@@ -229,9 +254,10 @@ type pumpAdapter struct {
 }
 
 func newPumpAdapter(bufSize int) *pumpAdapter {
-	return &pumpAdapter{ch: make(chan *dto.Payload, bufSize)}
+	return &pumpAdapter{ch: make(chan platform.Event, bufSize)}
 }
-func (a *pumpAdapter) Platform() string        { return "qq" }
+
+func (a *pumpAdapter) Platform() string        { return "bench" }
 func (a *pumpAdapter) Sender() platform.Sender { return &platform.NoopSender{} }
 func (a *pumpAdapter) Capabilities() platform.Capabilities {
 	return platform.Capabilities{}
@@ -245,7 +271,7 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(platform.Event)) e
 	workers := runtime.NumCPU() * 2
 	for range workers {
 		a.wg.Go(func() {
-			batch := make([]*dto.Payload, 0, 64)
+			batch := make([]platform.Event, 0, 64)
 			for {
 				select {
 				case <-a.ctx.Done():
@@ -263,7 +289,10 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(platform.Event)) e
 					}
 				}
 				for _, ev := range batch {
-					handler(qqplatform.NewEvent(ev))
+					handler(ev)
+					if be, ok := ev.(*benchEvent); ok {
+						releaseBenchEvent(be)
+					}
 				}
 				batch = batch[:0]
 			}
@@ -271,6 +300,7 @@ func (a *pumpAdapter) Start(ctx context.Context, handler func(platform.Event)) e
 	}
 	return nil
 }
+
 func (a *pumpAdapter) Stop(ctx context.Context) error {
 	if a.cancel != nil {
 		a.cancel()
@@ -284,78 +314,46 @@ func (a *pumpAdapter) Stop(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
 func (a *pumpAdapter) IsRunning() bool { return a.cancel != nil }
-func (a *pumpAdapter) InjectEvent(p *dto.Payload) {
+
+func (a *pumpAdapter) InjectEvent(ev platform.Event) {
 	select {
-	case a.ch <- p:
+	case a.ch <- ev:
 		a.injected.Add(1)
 	default:
 		a.dropped.Add(1)
 	}
 }
 
-// acquirePayload obtains a *dto.Payload from dto's own pool and fills in the
-// benchmark fields. Ownership is transferred to bot.handleEvent which will
-// call dto.ReleasePayload after processing — do NOT call dto.ReleasePayload
-// (or any custom release) inside the event handler.
-func acquirePayload(id dto.EventID, wid int) *dto.Payload {
-	p := dto.AcquirePayload()
-	p.ID = id
-	p.Type = dto.C2CMessageCreate
-	p.Operation = dto.Dispatch
-	p.Detail = fmt.Appendf(p.Detail, `{"id":%q,"content":"bench","author":{"user_openid":"u%d"}}`, id, wid)
-	return p
-}
-
-var detailPool = sync.Pool{
-	New: func() any {
-		return new(make([]byte, 0, 256))
-	},
-}
-
-func acquireDetail() []byte {
-	return *detailPool.Get().(*[]byte)
-}
-
-func releaseDetail(b []byte) {
-	b = b[:0]
-	detailPool.Put(&b)
-}
-
+// ─────────────────────────────────────────────────────────────
+// Scenario
+// ─────────────────────────────────────────────────────────────
 type Scenario struct {
-	Name     string
-	Workers  int
-	RatePerW int           // msg/s per worker; 0 = unlimited
-	Duration time.Duration // 0 = use global flag
-	WithMW   bool
-	// ProdConcurrency caps how many producer goroutines may be
-	// simultaneously active in the unlimited (RatePerW==0) path.
-	// 0 means "use default": GOMAXPROCS/2, minimum 1.
-	// This prevents producers from starving the adapter workers
-	// (consumers) for OS threads when all goroutines compete for
-	// the same P slots.
+	Name            string
+	Workers         int
+	RatePerW        int
+	Duration        time.Duration
+	WithMW          bool
 	ProdConcurrency int
+	NumMatchers     int // extra matchers to stress-test merge+match pipeline
 }
 
 func (s Scenario) targetRate() int { return s.Workers * s.RatePerW }
 
-// prodConcurrency returns the effective producer concurrency cap for
-// the unlimited path, resolving the zero-value default.
 func (s Scenario) prodConcurrency() int {
 	if s.RatePerW > 0 {
-		// rate-limited path does not need a cap
 		return s.Workers
 	}
 	if s.ProdConcurrency > 0 {
 		return s.ProdConcurrency
 	}
-	// Default: leave half the Ps for the adapter/engine consumer workers.
 	n := max(runtime.GOMAXPROCS(0)/2, 1)
 	return n
 }
 
 // ─────────────────────────────────────────────────────────────
-// Per-run event metrics (lock-free)
+// runMetrics — lock-free per-run counters
 // ─────────────────────────────────────────────────────────────
 type runMetrics struct {
 	sent      atomic.Int64
@@ -372,6 +370,7 @@ func newRunMetrics() *runMetrics {
 	m.latMin.Store(math.MaxInt64)
 	return m
 }
+
 func (m *runMetrics) recordLatency(ns int64) {
 	m.latSum.Add(ns)
 	m.latCount.Add(1)
@@ -390,25 +389,20 @@ func (m *runMetrics) recordLatency(ns int64) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ScenarioResult — JSON-serialisable output
+// ScenarioResult
 // ─────────────────────────────────────────────────────────────
-
 type ScenarioResult struct {
-	// ── Identity ──
-	Name          string  `json:"name"`
-	Workers       int     `json:"workers"`
-	RatePerWorker int     `json:"rate_per_worker"`
-	TargetRate    int     `json:"target_rate_per_s"`
-	DurationSecs  float64 `json:"duration_secs"`
-	GOMAXPROCS    int     `json:"gomaxprocs"`
-	GoVersion     string  `json:"go_version"`
-	IsUnlimited   bool    `json:"is_unlimited"`
-	// ProdConcurrency is the semaphore width used in the unlimited path
-	// (how many producer goroutines may hold the CPU simultaneously).
-	ProdConcurrency int `json:"prod_concurrency"`
-	// ConsumerWorkers is the number of adapter dispatch goroutines.
-	ConsumerWorkers int `json:"consumer_workers"`
-	// ── Throughput ──
+	Name            string  `json:"name"`
+	Workers         int     `json:"workers"`
+	RatePerWorker   int     `json:"rate_per_worker"`
+	TargetRate      int     `json:"target_rate_per_s"`
+	DurationSecs    float64 `json:"duration_secs"`
+	GOMAXPROCS      int     `json:"gomaxprocs"`
+	GoVersion       string  `json:"go_version"`
+	IsUnlimited     bool    `json:"is_unlimited"`
+	ProdConcurrency int     `json:"prod_concurrency"`
+	ConsumerWorkers int     `json:"consumer_workers"`
+
 	EventsSent       int64   `json:"events_sent"`
 	EventsProcessed  int64   `json:"events_processed"`
 	EventsFailed     int64   `json:"events_failed"`
@@ -418,35 +412,29 @@ type ScenarioResult struct {
 	ThroughputActual float64 `json:"throughput_actual_per_s"`
 	ThroughputTarget float64 `json:"throughput_target_per_s"`
 	AchievementPct   float64 `json:"achievement_pct"`
-	// ── Handler latency ──
+
 	AvgLatencyMs float64 `json:"avg_latency_ms"`
 	MinLatencyMs float64 `json:"min_latency_ms"`
 	MaxLatencyMs float64 `json:"max_latency_ms"`
-	// ── CPU ──
-	CpuSysAvgPct  float64 `json:"cpu_sys_avg_pct"`
-	CpuSysMaxPct  float64 `json:"cpu_sys_max_pct"`
-	CpuProcAvgPct float64 `json:"cpu_proc_avg_pct"`
-	CpuProcMaxPct float64 `json:"cpu_proc_max_pct"`
-	// ── OS memory ──
+
+	CpuSysAvgPct     float64 `json:"cpu_sys_avg_pct"`
+	CpuSysMaxPct     float64 `json:"cpu_sys_max_pct"`
+	CpuProcAvgPct    float64 `json:"cpu_proc_avg_pct"`
+	CpuProcMaxPct    float64 `json:"cpu_proc_max_pct"`
 	MemSysUsedAvgMB  float64 `json:"mem_sys_used_avg_mb"`
 	MemSysUsedMaxMB  float64 `json:"mem_sys_used_max_mb"`
 	MemSysUsedAvgPct float64 `json:"mem_sys_used_avg_pct"`
 	MemSysUsedMaxPct float64 `json:"mem_sys_used_max_pct"`
-	// ── Go heap ──
-	HeapAllocAvgMB float64 `json:"heap_alloc_avg_mb"`
-	HeapAllocMaxMB float64 `json:"heap_alloc_max_mb"`
-	HeapSysMaxMB   float64 `json:"heap_sys_max_mb"`
-	// ── Go stack ──
-	StackInUseMaxMB float64 `json:"stack_in_use_max_mb"`
-	// ── Goroutines ──
-	GoroutinesAvg float64 `json:"goroutines_avg"`
-	GoroutinesMax int     `json:"goroutines_max"`
-	// ── GC ──
-	GCRuns         uint32  `json:"gc_runs"`
-	GCPauseDeltaMs float64 `json:"gc_pause_delta_ms"`
-	GCPauseAvgMs   float64 `json:"gc_pause_avg_per_gc"`
-	// ── Engine ──
-	EngineMatchers int `json:"engine_matchers"`
+	HeapAllocAvgMB   float64 `json:"heap_alloc_avg_mb"`
+	HeapAllocMaxMB   float64 `json:"heap_alloc_max_mb"`
+	HeapSysMaxMB     float64 `json:"heap_sys_max_mb"`
+	StackInUseMaxMB  float64 `json:"stack_in_use_max_mb"`
+	GoroutinesAvg    float64 `json:"goroutines_avg"`
+	GoroutinesMax    int     `json:"goroutines_max"`
+	GCRuns           uint32  `json:"gc_runs"`
+	GCPauseDeltaMs   float64 `json:"gc_pause_delta_ms"`
+	GCPauseAvgMs     float64 `json:"gc_pause_avg_per_gc"`
+	EngineMatchers   int     `json:"engine_matchers"`
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -458,28 +446,34 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		dur = s.Duration
 	}
 	m := newRunMetrics()
-	// ── Engine + handler ──
+
 	eng := engine.NewEngine()
 	if s.WithMW {
 		eng.Use(mw.Recover())
 	}
-	eng.On(dto.C2CMessageCreate).Handle(func(ctx *eventctx.Context) error {
+	// Register extra matchers to stress the merge+match pipeline.
+	for i := range s.NumMatchers {
+		if i%2 == 0 {
+			eng.OnEventKind(platform.EventKindPrivateMessage) // matches; incurs Match() call
+		} else {
+			eng.OnEventKind(platform.EventKindGroupMessage) // does not match; adds cache + merge cost
+		}
+	}
+	eng.OnEventKind(platform.EventKindPrivateMessage).Handle(func(ctx *eventctx.Context) error {
 		t0 := time.Now()
-		m.recordLatency(time.Since(t0).Nanoseconds())
 		m.processed.Add(1)
-		// NOTE: Do NOT release the payload here. bot.handleEvent() owns the
-		// payload lifetime and calls dto.ReleasePayload after ProcessEvent
-		// returns. Releasing it inside the handler causes a use-after-free:
-		// the payload is recycled by a producer while ctx still holds a
-		// reference to it, corrupting the event.Type string and causing a
-		// nil-pointer panic in the map lookup inside ProcessEvent.
+		m.recordLatency(time.Since(t0).Nanoseconds())
 		return nil
 	})
-	// ── Adapter + Bot ──
+
 	consumerWorkers := runtime.NumCPU() * 2
 	bufSize := max(s.Workers*max(s.RatePerW, 200)*2, 8192)
 	pump := newPumpAdapter(bufSize)
-	bot, err := remilia.NewBot(pump, eng)
+
+	bot, err := remilia.NewBotBuilder().
+		WithPlatformAdapter(pump).
+		WithEngine(eng).
+		Build()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bot creation failed for %q: %v\n", s.Name, err)
 		os.Exit(1)
@@ -488,15 +482,13 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		fmt.Fprintf(os.Stderr, "bot.Start failed for %q: %v\n", s.Name, err)
 		os.Exit(1)
 	}
-	time.Sleep(150 * time.Millisecond) // warm-up
-	// ── Start system sampler ──
-	// First cpu.Percent call initializes the per-process baseline; discard.
+	time.Sleep(150 * time.Millisecond)
+
 	_, _ = cpu.Percent(0, false)
 	time.Sleep(50 * time.Millisecond)
 	sampler := newSysSampler()
-	sampler.Start(250 * time.Millisecond) // sample every 250 ms
+	sampler.Start(250 * time.Millisecond)
 
-	// ── Produce events ──
 	prodCtx, prodCancel := context.WithTimeout(context.Background(), dur)
 	defer prodCancel()
 	start := time.Now()
@@ -505,9 +497,6 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	isUnlimited := s.RatePerW == 0
 	prodCap := s.prodConcurrency()
 
-	// semaphore: only used in the unlimited path to cap how many
-	// producers are simultaneously running (not just goroutine-alive).
-	// Sized to prodCap; producers acquire before injecting, release after.
 	var sema chan struct{}
 	if isUnlimited {
 		sema = make(chan struct{}, prodCap)
@@ -525,22 +514,17 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 			var seq int64
 			for {
 				if s.RatePerW > 0 {
-					// ── rate-limited path (unchanged) ──
 					select {
 					case <-prodCtx.Done():
 						return
 					case <-ticker.C:
 					}
 				} else {
-					// ── unlimited path: semaphore instead of Gosched spin ──
-					// First check context cheaply.
 					select {
 					case <-prodCtx.Done():
 						return
 					default:
 					}
-					// Block until a slot is free; this yields the P to other
-					// goroutines (consumers) while we wait, instead of spinning.
 					select {
 					case <-prodCtx.Done():
 						return
@@ -549,18 +533,17 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 				}
 
 				seq++
-				// Build the EventID string in a pool buffer to avoid fmt.Sprintf alloc.
-				idBuf := acquireDetail()
-				idBuf = fmt.Appendf(idBuf, "w%d-s%d", wid, seq)
-				eid := dto.EventID(idBuf)
-				releaseDetail(idBuf)
-
-				payload := acquirePayload(eid, wid)
-				pump.InjectEvent(payload)
+				ev := acquireBenchEvent()
+				ev.platform = "bench"
+				ev.kind = platform.EventKindPrivateMessage
+				ev.id = fmt.Sprintf("w%d-s%d", wid, seq)
+				ev.content = "bench"
+				ev.sender = platform.UserInfo{ID: fmt.Sprintf("u%d", wid)}
+				ev.chat = platform.ChatInfo{ID: fmt.Sprintf("c%d", wid)}
+				ev.ts = time.Now()
+				pump.InjectEvent(ev)
 				m.sent.Add(1)
 
-				// Release semaphore slot after inject (not after handler finishes —
-				// we measure the channel-send cost, not the downstream processing).
 				if isUnlimited {
 					<-sema
 				}
@@ -569,7 +552,7 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	}
 	prodWg.Wait()
 	elapsed := time.Since(start)
-	// ── Drain in-flight events (up to 3 s) ──
+
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		inFlight := m.sent.Load() - m.processed.Load() - m.failed.Load() - pump.dropped.Load()
@@ -578,13 +561,13 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	// ── Stop sampler & bot ──
+
 	sampler.Stop()
 	sys := sampler.Aggregate()
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopCancel()
 	_ = bot.Stop(stopCtx)
-	// ── Aggregate event metrics ──
+
 	sent := m.sent.Load()
 	processed := m.processed.Load()
 	failed := m.failed.Load()
@@ -609,17 +592,16 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 	}
 	matcherStats := eng.GetMatcherStats()
 	return ScenarioResult{
-		Name:            s.Name,
-		Workers:         s.Workers,
-		RatePerWorker:   s.RatePerW,
-		TargetRate:      s.targetRate(),
-		DurationSecs:    secs,
-		GOMAXPROCS:      runtime.GOMAXPROCS(0),
-		GoVersion:       runtime.Version(),
-		IsUnlimited:     isUnlimited,
-		ProdConcurrency: prodCap,
-		ConsumerWorkers: consumerWorkers,
-		// throughput
+		Name:             s.Name,
+		Workers:          s.Workers,
+		RatePerWorker:    s.RatePerW,
+		TargetRate:       s.targetRate(),
+		DurationSecs:     secs,
+		GOMAXPROCS:       runtime.GOMAXPROCS(0),
+		GoVersion:        runtime.Version(),
+		IsUnlimited:      isUnlimited,
+		ProdConcurrency:  prodCap,
+		ConsumerWorkers:  consumerWorkers,
 		EventsSent:       sent,
 		EventsProcessed:  processed,
 		EventsFailed:     failed,
@@ -632,7 +614,6 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 		AvgLatencyMs:     avgLat,
 		MinLatencyMs:     minLat,
 		MaxLatencyMs:     maxLat,
-		// system
 		CpuSysAvgPct:     sys.CpuSysAvgPct,
 		CpuSysMaxPct:     sys.CpuSysMaxPct,
 		CpuProcAvgPct:    sys.CpuProcAvgPct,
@@ -659,13 +640,13 @@ func runScenario(s Scenario, globalDur time.Duration) ScenarioResult {
 // ─────────────────────────────────────────────────────────────
 func buildSuites() map[string][]Scenario {
 	ncpu := runtime.NumCPU()
-	// Default unlimited prod-concurrency: half of GOMAXPROCS, at least 1.
 	unlimProd := max(ncpu/2, 1)
 	return map[string][]Scenario{
 		"quick": {
-			{Name: "low    (100 msg/s)", Workers: 10, RatePerW: 10},
-			{Name: "mid   (5000 msg/s)", Workers: 100, RatePerW: 50},
-			{Name: "high (20000 msg/s)", Workers: 400, RatePerW: 50},
+			{Name: "low         (100 msg/s, 0 matchers)", Workers: 10, RatePerW: 10},
+			{Name: "mid        (5000 msg/s, 0 matchers)", Workers: 100, RatePerW: 50},
+			{Name: "high     (20000 msg/s, 0 matchers)", Workers: 400, RatePerW: 50},
+			{Name: "matcher  (20000 msg/s, 1K)", Workers: 400, RatePerW: 50, NumMatchers: 1000},
 			{
 				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
 				Workers:         ncpu * 4,
@@ -674,11 +655,18 @@ func buildSuites() map[string][]Scenario {
 			},
 		},
 		"standard": {
-			{Name: "smoke      (100 msg/s)", Workers: 10, RatePerW: 10},
-			{Name: "medium    (1000 msg/s)", Workers: 50, RatePerW: 20},
-			{Name: "high      (5000 msg/s)", Workers: 100, RatePerW: 50},
-			{Name: "stress   (20000 msg/s)", Workers: 400, RatePerW: 50},
-			{Name: "extreme  (50000 msg/s)", Workers: 1000, RatePerW: 50},
+			{Name: "smoke      (100 msg/s, 0 matchers)", Workers: 10, RatePerW: 10},
+			{Name: "medium    (1000 msg/s, 0 matchers)", Workers: 50, RatePerW: 20},
+			{Name: "high      (5000 msg/s, 0 matchers)", Workers: 100, RatePerW: 50},
+			{Name: "stress   (20000 msg/s, 0 matchers)", Workers: 400, RatePerW: 50},
+			{Name: "extreme  (50000 msg/s, 0 matchers)", Workers: 1000, RatePerW: 50},
+			// matcher scaling at 20K msg/s
+			{Name: "matcher-100   (20K/100)", Workers: 400, RatePerW: 50, NumMatchers: 100},
+			{Name: "matcher-1K    (20K/1K)", Workers: 400, RatePerW: 50, NumMatchers: 1000},
+			{Name: "matcher-5K    (20K/5K)", Workers: 400, RatePerW: 50, NumMatchers: 5000},
+			// matcher scaling at 50K msg/s
+			{Name: "matcher-100   (50K/100)", Workers: 1000, RatePerW: 50, NumMatchers: 100},
+			{Name: "matcher-1K    (50K/1K)", Workers: 1000, RatePerW: 50, NumMatchers: 1000},
 			{
 				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
 				Workers:         ncpu * 4,
@@ -687,15 +675,21 @@ func buildSuites() map[string][]Scenario {
 			},
 		},
 		"full": {
-			{Name: "smoke       (100 msg/s)", Workers: 10, RatePerW: 10},
-			{Name: "light       (500 msg/s)", Workers: 25, RatePerW: 20},
-			{Name: "medium     (1000 msg/s)", Workers: 50, RatePerW: 20},
-			{Name: "moderate   (2000 msg/s)", Workers: 100, RatePerW: 20},
-			{Name: "high       (5000 msg/s)", Workers: 100, RatePerW: 50},
-			{Name: "stress    (10000 msg/s)", Workers: 200, RatePerW: 50},
-			{Name: "heavy     (20000 msg/s)", Workers: 400, RatePerW: 50},
-			{Name: "extreme   (50000 msg/s)", Workers: 1000, RatePerW: 50},
-			{Name: "max      (100000 msg/s)", Workers: 2000, RatePerW: 50},
+			{Name: "smoke       (100 msg/s, 0 matchers)", Workers: 10, RatePerW: 10},
+			{Name: "light       (500 msg/s, 0 matchers)", Workers: 25, RatePerW: 20},
+			{Name: "medium     (1000 msg/s, 0 matchers)", Workers: 50, RatePerW: 20},
+			{Name: "moderate   (2000 msg/s, 0 matchers)", Workers: 100, RatePerW: 20},
+			{Name: "high       (5000 msg/s, 0 matchers)", Workers: 100, RatePerW: 50},
+			{Name: "stress    (10000 msg/s, 0 matchers)", Workers: 200, RatePerW: 50},
+			{Name: "heavy     (20000 msg/s, 0 matchers)", Workers: 400, RatePerW: 50},
+			{Name: "extreme   (50000 msg/s, 0 matchers)", Workers: 1000, RatePerW: 50},
+			{Name: "max      (100000 msg/s, 0 matchers)", Workers: 2000, RatePerW: 50},
+			// matcher scaling through throughput range
+			{Name: "m100     (1000 msg/s, 100 matchers)", Workers: 50, RatePerW: 20, NumMatchers: 100},
+			{Name: "m100    (5000 msg/s, 100 matchers)", Workers: 100, RatePerW: 50, NumMatchers: 100},
+			{Name: "m1K    (20000 msg/s, 1K matchers)", Workers: 400, RatePerW: 50, NumMatchers: 1000},
+			{Name: "m5K    (20000 msg/s, 5K matchers)", Workers: 400, RatePerW: 50, NumMatchers: 5000},
+			{Name: "m10K   (20000 msg/s, 10K matchers)", Workers: 400, RatePerW: 50, NumMatchers: 10000},
 			{
 				Name:            fmt.Sprintf("unlimited  (%d workers, sema=%d)", ncpu*4, unlimProd),
 				Workers:         ncpu * 4,
@@ -707,7 +701,7 @@ func buildSuites() map[string][]Scenario {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Printing helpers
+// Printing
 // ─────────────────────────────────────────────────────────────
 const bar = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -721,10 +715,12 @@ func printBanner(suite string, dur time.Duration, withMW bool, gcPct int) {
 	fmt.Printf("  Suite: %-12s  Duration/scenario: %-8v  Middleware: %v  GOGC: %d\n", suite, dur, withMW, gcPct)
 	fmt.Println(bar)
 }
+
 func printScenarioTitle(i int, name string) {
 	fmt.Printf("\n  ▶  Scenario %d: %s\n", i+1, name)
 	fmt.Println("  " + strings.Repeat("─", 60))
 }
+
 func printResult(r ScenarioResult) {
 	tgtStr := "unlimited (no rate limit)"
 	achieveStr := "-"
@@ -732,11 +728,8 @@ func printResult(r ScenarioResult) {
 		tgtStr = fmt.Sprintf("%d msg/s", r.TargetRate)
 		achieveStr = fmt.Sprintf("%.1f%%", r.AchievementPct)
 	}
-	// ── Throughput ──
 	fmt.Printf("  %-26s %s\n", "Target rate:", tgtStr)
 	if r.IsUnlimited {
-		// Show how CPU slots are divided between producers and consumers
-		// so the reader understands the fairness budget.
 		fmt.Printf("  %-26s prod sema=%d  consumers=%d  (GOMAXPROCS=%d)\n",
 			"Concurrency split:", r.ProdConcurrency, r.ConsumerWorkers, r.GOMAXPROCS)
 	}
@@ -752,22 +745,18 @@ func printResult(r ScenarioResult) {
 	if r.EventsDropped > 0 {
 		fmt.Printf("  %-26s %d  (%.1f%% backpressure)\n", "Events dropped:", r.EventsDropped, r.DropRatePct)
 	}
-	// ── Handler latency ──
 	fmt.Println()
 	fmt.Printf("  %-26s %.4f ms\n", "Handler latency (avg):", r.AvgLatencyMs)
 	fmt.Printf("  %-26s %.4f ms  /  %.4f ms\n", "Handler latency (min/max):", r.MinLatencyMs, r.MaxLatencyMs)
-	// ── CPU ──
 	fmt.Println()
 	fmt.Printf("  %-26s %.1f%%  (peak %.1f%%)\n", "CPU system (avg/peak):", r.CpuSysAvgPct, r.CpuSysMaxPct)
 	fmt.Printf("  %-26s %.1f%%  (peak %.1f%%)\n", "CPU process (avg/peak):", r.CpuProcAvgPct, r.CpuProcMaxPct)
-	// ── Memory ──
 	fmt.Println()
 	fmt.Printf("  %-26s %.1f MB  (peak %.1f MB  /  %.1f%%)\n",
 		"OS RAM used (avg):", r.MemSysUsedAvgMB, r.MemSysUsedMaxMB, r.MemSysUsedMaxPct)
 	fmt.Printf("  %-26s avg %.1f MB  /  peak %.1f MB  (sys %.1f MB)\n",
 		"Go heap alloc:", r.HeapAllocAvgMB, r.HeapAllocMaxMB, r.HeapSysMaxMB)
 	fmt.Printf("  %-26s peak %.2f MB\n", "Go stack in-use:", r.StackInUseMaxMB)
-	// ── Goroutines & GC ──
 	fmt.Println()
 	fmt.Printf("  %-26s avg %.0f  /  peak %d\n", "Goroutines:", r.GoroutinesAvg, r.GoroutinesMax)
 	if r.GCRuns > 0 {
@@ -778,12 +767,12 @@ func printResult(r ScenarioResult) {
 	}
 	fmt.Printf("  %-26s %d\n", "Engine matchers:", r.EngineMatchers)
 }
+
 func printSummary(results []ScenarioResult) {
 	fmt.Println()
 	fmt.Println(bar)
 	fmt.Println("  Results Summary")
 	fmt.Println(bar)
-	// Throughput table
 	fmt.Printf("  %-36s  %12s  %12s  %9s  %11s  %10s  %11s\n",
 		"Scenario", "Target(msg/s)", "Actual(msg/s)", "Success%", "AvgLat(ms)",
 		"CpuProc%", "HeapAlloc(MB)")
@@ -798,7 +787,6 @@ func printSummary(results []ScenarioResult) {
 			r.AvgLatencyMs, r.CpuProcAvgPct, r.HeapAllocAvgMB)
 	}
 	fmt.Println(bar)
-	// Saturation hint
 	satIdx := -1
 	for i, r := range results {
 		if r.TargetRate > 0 && r.AchievementPct >= 90 {
@@ -826,12 +814,10 @@ func main() {
 	gcPctFlag := flag.Int("gcpercent", 100, "GOGC value (100=default, 200=less frequent GC, -1=off)")
 	flag.Parse()
 
-	// Apply GC tuning before any allocation.
 	if *gcPctFlag != 100 {
 		debug.SetGCPercent(*gcPctFlag)
 	}
 
-	// Silence framework logs so they don't skew timing measurements.
 	_ = logger.Init(logger.Config{Level: "error", Console: false})
 	suites := buildSuites()
 	scenarios, ok := suites[*suiteFlag]
@@ -850,7 +836,6 @@ func main() {
 		printResult(r)
 		results = append(results, r)
 		if i < len(scenarios)-1 {
-			// Cool-down: let GC finish, OS reclaim RSS, etc.
 			runtime.GC()
 			time.Sleep(1 * time.Second)
 		}
