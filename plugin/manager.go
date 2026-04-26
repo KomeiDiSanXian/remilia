@@ -162,32 +162,68 @@ func (pm *Manager) IsStrictDeps() bool {
 //
 // 当底层配置源变更时自动触发所有已加载插件的 Config.Reload() 和 OnChange 回调。
 // 若已通过 WithConfigProvider 在构造时注入，则无需调用此方法。
+//
+// 并发安全说明：
+//   - 单次调用内部：全程持有 pm.mu.Lock，先全量替换插件 Config，再注册回调，
+//     确保回调即使同步触发也能看到最新数据
+//   - 并发调用：pm.mu.Lock 保证串行化，后调用完全覆盖前调用
+//   - 与 Register 并发：Register 也在 pm.mu.Lock 内读 configProvider，原子可见
+//   - 与 propagateConfigChange 并发：RLock 会被 Lock 阻塞，等待替换完成后执行
+//
+// 若旧 provider 实现了 Stop() 方法，会自动调用以取消其监听，
+// 防止旧回调残留导致的双重通知。
 func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 	pm.mu.Lock()
-	pm.configProvider = cp
-	pm.mu.Unlock()
 
+	// Phase 1: 停止旧 provider 的订阅
+	if oldProvider := pm.configProvider; oldProvider != nil {
+		if s, ok := oldProvider.(interface{ Stop() }); ok {
+			s.Stop()
+		}
+	}
+
+	// Phase 2: 设置新引用
+	pm.configProvider = cp
+
+	// Phase 3: 先全量替换已有插件的 Config（在注册回调之前执行）。
+	// 这样即使 Phase 4 同步触发 propagateConfigChange，看到的数据也是最新的。
+	if cp != nil {
+		for _, inst := range pm.plugins {
+			newConfig := NewPluginConfigFromProvider(inst.Name(), cp)
+			inst.SetConfig(newConfig)
+		}
+	}
+
+	// Phase 4: 注册回调。
+	// 若用户实现的 OnConfigChange 同步触发回调，propagateConfigChange 的 TryRLock
+	// 会失败返回并跳过，因为 pm.mu 仍被当前 goroutine 持有。
 	if cp != nil {
 		cp.OnConfigChange(pm.propagateConfigChange)
 	}
+
+	pm.mu.Unlock()
 }
 
 // propagateConfigChange 向所有已加载插件的 Config 广播配置变更
+//
+// 使用 TryRLock 避免 SetConfigProvider 持有写锁时同步触发导致死锁。
+// 若锁被写操作持有，直接返回（Phase 3 的全量替换已保证数据最新）。
 func (pm *Manager) propagateConfigChange() {
-	pm.mu.RLock()
+	if !pm.mu.TryRLock() {
+		return
+	}
+	defer pm.mu.RUnlock()
+
 	instances := make([]*Instance, 0, len(pm.plugins))
 	for _, inst := range pm.plugins {
 		instances = append(instances, inst)
 	}
-	pm.mu.RUnlock()
 
 	for _, inst := range instances {
-		if configurable, ok := any(inst).(ConfigurablePlugin); ok {
-			cfg := configurable.GetConfig()
-			if cfg != nil {
-				if err := cfg.Reload(); err != nil {
-					logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", inst.Name())
-				}
+		cfg := inst.GetConfig()
+		if cfg != nil {
+			if err := cfg.Reload(); err != nil {
+				logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", inst.Name())
 			}
 		}
 	}

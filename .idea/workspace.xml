@@ -4,8 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(bot, config): improve lifecycle handling and enhance config reload logic">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -264,7 +265,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(milky): implement Milky QQ protocol adapter with HTTP API and WebSocket support" />
     <MESSAGE value="optimize(adapter, event): simplify goroutine management and improve chat ID parsing logic" />
     <MESSAGE value="feat(satori): add initial implementation of Satori protocol adapter with configuration and WebSocket support" />
     <MESSAGE value="feat(showcase): implement pprof server for performance profiling and add broadcast and subscription plugins" />
@@ -289,7 +289,8 @@
     <MESSAGE value="test: add unit tests for admin, debug, and middleware components" />
     <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
     <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
+    <MESSAGE value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>
