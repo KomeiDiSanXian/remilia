@@ -34,7 +34,7 @@ type setupContextInternal struct {
 	trackedOptionalDeps map[string]bool // 可选依赖（Get 成功但通过 ok 判断）
 	autoTrackEnabled    bool
 	goroutineMgr        *goroutineManager
-	eng                 engine.PluginCoordinator // 注册 Matcher 的 engine（reload 时复用）
+	eng                 registryBackend // 注册 Matcher 的 engine（reload 时复用，同时满足 MatcherWriter + Reader）
 
 	// RegisterCron 懒初始化字段（framework #31）
 	cronInitOnce  sync.Once

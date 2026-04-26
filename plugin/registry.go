@@ -108,14 +108,21 @@ type RegistryWriter interface {
 
 // --- 真实实现 ---
 
+// registryBackend 是 liveRegistryWriter 对 engine 的完整依赖。
+// 组合 MatcherWriter（注册） + Reader（FindCommand 用于别名冲突检测）。
+type registryBackend interface {
+	engine.MatcherWriter
+	engine.Reader
+}
+
 // liveRegistryWriter 正常运行阶段的 RegistryWriter，绑定到具体 engine 和 Instance
 type liveRegistryWriter struct {
-	eng      engine.PluginCoordinator
+	eng      registryBackend
 	name     string
 	instance *Instance
 }
 
-func newLiveRegistryWriter(eng engine.PluginCoordinator, name string, instance *Instance) RegistryWriter {
+func newLiveRegistryWriter(eng registryBackend, name string, instance *Instance) RegistryWriter {
 	return &liveRegistryWriter{eng: eng, name: name, instance: instance}
 }
 

@@ -113,7 +113,7 @@ func (pi *Instance) buildTeardownContext() *TeardownContext {
 }
 
 // unload 卸载插件（实现 pluginInternal）
-func (pi *Instance) unload(coordinator engine.PluginCoordinator) error {
+func (pi *Instance) unload(coordinator engine.GroupWriter) error {
 	pi.mu.Lock()
 	pi.state = Unloading
 	gm := pi.goroutineMgr

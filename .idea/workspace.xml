@@ -4,20 +4,13 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(config): remove Viper integration and simplify config provider implementation">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/errutil/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/errutil/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/logger/logger.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/logger/logger.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/metrics_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/metrics_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/tracing/adaptive_sampler.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/adaptive_sampler.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/tracing/tracing.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/tracing/tracing.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/adaptive.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/adaptive.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/retry.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/retry.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/fixes_validation_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/tests/fixes_validation_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/engine/types.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/types.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/context.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/registry.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/registry.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -289,7 +282,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="feat(pluginctrl): implement group silence and user ban functionalities" />
     <MESSAGE value="test(pluginctrl): add integration tests for autoWireListener behavior" />
     <MESSAGE value="refactor: remove canvas" />
     <MESSAGE value="feat(zhtext): add CJK text processing utilities including normalization and fuzzy matching" />
@@ -314,7 +306,8 @@
     <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
     <MESSAGE value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
     <MESSAGE value="refactor(config): remove Viper integration and simplify config provider implementation" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(config): remove Viper integration and simplify config provider implementation" />
+    <MESSAGE value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

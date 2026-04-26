@@ -62,33 +62,45 @@ type MatcherCoordinator interface {
 	MatcherMigration
 }
 
-// PluginCoordinator 是插件系统对 Engine 的完整依赖接口。
+// MatcherWriter 是 Engine 的 Matcher 注册接口。
 //
-// 包含插件生命周期管理所需的全部 Engine 操作：
-//   - Matcher 注册（On / OnCommand）
-//   - 分组管理（RemoveGroup / DisableGroup / EnableGroup / SetMatcherGroup）
-//   - 只读查询（嵌入 Reader，提供命令查询、Matcher 统计等）
-//
-// 使用此接口而非 *Engine 具体类型，可以：
-//  1. 在不引入完整 engine 包的情况下使用插件系统（轻量嵌入）
-//  2. 在单元测试中 mock Engine（避免集成测试的依赖）
-//  3. 遵循依赖倒置原则（plugin 依赖抽象，不依赖具体实现）
-//
-// *Engine 已实现该接口的全部方法，调用方无需任何修改。
-type PluginCoordinator interface {
-	Reader
+// 插件系统中 liveRegistryWriter 仅依赖此接口（3 个方法），
+// 无需 mock 完整的 PluginCoordinator（10 个方法）。
+type MatcherWriter interface {
 	// On 注册一个新的事件匹配器
 	On(eventType EventType, rules ...context.Rule) *Matcher
 	// OnCommand 注册一个命令匹配器（自动开启 O(1) 分发优化）
 	OnCommand(eventType EventType, cmdPattern string, extraRules ...context.Rule) *Matcher
+	// SetMatcherGroup 将已注册的 Matcher 划入指定分组并更新来源标签，同时维护 Engine 内部的 groupIndex。
+	// 这是注册 Matcher 后设置分组的首选方法；与 Matcher.SetGroup 的区别在于此方法会同步更新
+	// groupIndex，确保 RemoveGroup / DisableGroup / EnableGroup 能正确找到该 Matcher。
+	SetMatcherGroup(m *Matcher, group, source string)
+}
+
+// GroupWriter 是 Engine 的插件分组管理接口。
+//
+// Instance.unload 仅依赖此接口中的 RemoveGroup，Manager 依赖完整分组管理。
+type GroupWriter interface {
 	// RemoveGroup 删除指定分组的所有 Matcher
 	RemoveGroup(groupName string)
 	// DisableGroup 禁用指定分组（暂停事件分发）
 	DisableGroup(groupName string)
 	// EnableGroup 启用指定分组（恢复事件分发）
 	EnableGroup(groupName string)
-	// SetMatcherGroup 将已注册的 Matcher 划入指定分组并更新来源标签，同时维护 Engine 内部的 groupIndex。
-	// 这是注册 Matcher 后设置分组的首选方法；与 Matcher.SetGroup 的区别在于此方法会同步更新
-	// groupIndex，确保 RemoveGroup / DisableGroup / EnableGroup 能正确找到该 Matcher。
-	SetMatcherGroup(m *Matcher, group, source string)
+}
+
+// PluginCoordinator 是插件系统对 Engine 的完整依赖接口。
+//
+// 组合 MatcherWriter（3 方法）+ GroupWriter（3 方法）+ Reader（8 方法），
+// 共 10 个方法。按职责拆分后，调用方可按需依赖更小的子接口：
+//   - liveRegistryWriter → MatcherWriter（3 方法）
+//   - Instance.unload    → GroupWriter（仅使用 RemoveGroup, 1 方法）
+//   - Manager            → GroupWriter（4 方法）或 PluginCoordinator（完整）
+//   - plugin_info.go     → Reader（8 方法，已通过 NewEngineReader 包装）
+//
+// *Engine 已同时实现上述所有接口，调用方零修改。
+type PluginCoordinator interface {
+	MatcherWriter
+	GroupWriter
+	Reader
 }
