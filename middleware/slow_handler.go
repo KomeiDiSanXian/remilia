@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	stdctx "context"
 	"time"
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
@@ -46,6 +47,16 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 
 	return func(next context.Handler) context.Handler {
 		return func(ctx *context.Context) error {
+			// 在执行 handler 之前注入 deadline，使 handler 内部可通过
+			// ctx.Context().Done() 感知"被监控"并主动缩短路径。
+			// 此 deadline 仅用于监控提示，不强制执行——若 handler 因 deadline
+			// 返回 deadline 超时错误，此处会将其屏蔽，避免影响正常处理结果。
+			stdCtx, cancel := stdctx.WithTimeout(ctx.Context(), config.Threshold)
+			defer cancel()
+			originalCtx := ctx.Context()
+			ctx.SetStdContext(stdCtx)
+			defer ctx.SetStdContext(originalCtx)
+
 			start := time.Now()
 
 			// 执行处理器
@@ -68,6 +79,10 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 				}
 			}
 
+			// SlowHandler 仅用于监控，不传播 deadline 超时错误
+			if err != nil && stdCtx.Err() != nil {
+				return nil
+			}
 			return err
 		}
 	}

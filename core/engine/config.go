@@ -27,7 +27,7 @@ const (
 // 传入 0 可以完全禁用自动清理（不推荐，会导致一次性 Matcher 内存泄漏）。
 func WithCleanupInterval(interval time.Duration) Option {
 	return func(e *Engine) {
-		e.services.tempMatcherCleanerInterval = interval
+		e.internals.tempMatcherCleanerInterval = interval
 	}
 }
 
@@ -38,7 +38,7 @@ func WithCleanupInterval(interval time.Duration) Option {
 // 禁用后 Matcher 仍会被标记删除，只是不会被后台批量清理）。
 func WithPendingDeleteProcessInterval(interval time.Duration) Option {
 	return func(e *Engine) {
-		e.services.pendingDeleteProcessInterval = interval
+		e.internals.pendingDeleteProcessInterval = interval
 	}
 }
 
@@ -59,8 +59,8 @@ func WithPendingDeleteProcessInterval(interval time.Duration) Option {
 // 注意：生产环境请勿使用此选项，会导致过期 Matcher 无法自动回收。
 func WithNoBackgroundWorkers() Option {
 	return func(e *Engine) {
-		e.services.tempMatcherCleanerInterval = 0
-		e.services.pendingDeleteProcessInterval = 0
+		e.internals.tempMatcherCleanerInterval = 0
+		e.internals.pendingDeleteProcessInterval = 0
 	}
 }
 
@@ -70,7 +70,7 @@ func WithNoBackgroundWorkers() Option {
 // 调高此值可减少高频删除时 DeleteMatcher 的阻塞概率，代价是更多内存占用。
 func WithPendingDeleteBufferSize(size int) Option {
 	return func(e *Engine) {
-		e.services.pendingDeleteCh = make(chan *Matcher, size)
+		e.internals.pendingDeleteCh = make(chan *Matcher, size)
 	}
 }
 
@@ -94,7 +94,7 @@ func WithMaxMatchers(max int) Option {
 func WithPendingDeleteBatchSize(size int) Option {
 	return func(e *Engine) {
 		if size > 0 {
-			e.services.pendingDeleteBatchSize = size
+			e.internals.pendingDeleteBatchSize = size
 		}
 	}
 }
@@ -106,7 +106,7 @@ func WithPendingDeleteBatchSize(size int) Option {
 func WithMatcherPoolCapacity(capacity int) Option {
 	return func(e *Engine) {
 		if capacity > 0 {
-			e.services.matcherPool = infrapool.New(func() []*Matcher {
+			e.internals.matcherPool = infrapool.New(func() []*Matcher {
 				return make([]*Matcher, 0, capacity)
 			})
 		}

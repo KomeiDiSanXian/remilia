@@ -579,7 +579,7 @@ func TestEngine_AsyncComponents_StartStop(t *testing.T) {
 			},
 		}
 		m.priority.Store(50)
-		eng.services.tempManager.Add(m)
+		eng.internals.tempManager.Add(m)
 	}
 	// Wait for cleaner to remove expired matchers
 	assert.Eventually(t, func() bool {

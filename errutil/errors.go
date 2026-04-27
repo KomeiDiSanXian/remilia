@@ -82,9 +82,11 @@ var (
 	ErrBotNotRunning      = errors.New("bot not running")
 	ErrBotShutdownTimeout = errors.New("bot shutdown timeout")
 
-	ErrComponentStartFailed   = errors.New("component start failed")
-	ErrComponentStopFailed    = errors.New("component stop failed")
-	ErrComponentNotRegistered = errors.New("component not registered")
+	ErrComponentStartFailed   = errors.New("lifecycle: component start failed")
+	ErrComponentStopFailed    = errors.New("lifecycle: component stop failed")
+	ErrComponentNotRegistered = errors.New("lifecycle: component not registered")
+	ErrComponentStartTimeout  = errors.New("lifecycle: component start timeout")
+	ErrComponentStopTimeout   = errors.New("lifecycle: component stop timeout")
 
 	ErrConfigFieldRequired = errors.New("config field is required")
 	ErrConfigFieldInvalid  = errors.New("config field value is invalid")
@@ -172,6 +174,10 @@ func NewConfigError(key, reason string) error {
 }
 
 // PluginError 结构化插件错误。
+//
+// Deprecated: 请使用 plugin.PluginError（定义于 plugin/errors.go），
+// 它提供更丰富的诊断上下文（Operation、Hint、RegisteredPlugins）。
+// errutil.PluginError 仅保留以兼容旧代码，新代码不应使用。
 type PluginError struct {
 	PluginName string
 	Message    string
@@ -186,6 +192,8 @@ func (e *PluginError) Unwrap() error {
 }
 
 // NewPluginError 创建插件专属错误。
+//
+// Deprecated: 使用 plugin.PluginError（import "github.com/KomeiDiSanXian/remilia/plugin"）。
 // 返回 *PluginError 类型，可通过 errors.As 提取结构化信息。
 func NewPluginError(pluginName, message string) error {
 	return &PluginError{PluginName: pluginName, Message: message}

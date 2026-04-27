@@ -37,7 +37,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
 
-		engine.services.tempManager.Add(m)
+		engine.internals.tempManager.Add(m)
 		matchers = append(matchers, m)
 	}
 
@@ -100,7 +100,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 	m.rt.maxUseCount = 5
 	atomic.StoreInt32(&m.rt.isTemp, 1)
 
-	engine.services.tempManager.Add(m)
+	engine.internals.tempManager.Add(m)
 
 	// 启动多个 goroutine 并发访问
 	var wg sync.WaitGroup
@@ -153,7 +153,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	m.rt.maxUseCount = 3
 	atomic.StoreInt32(&m.rt.isTemp, 1)
 
-	engine.services.tempManager.Add(m)
+	engine.internals.tempManager.Add(m)
 
 	// 模拟在处理过程中 isTemp 被修改的情况
 	var wg sync.WaitGroup
@@ -214,7 +214,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
 
-		engine.services.tempManager.Add(m)
+		engine.internals.tempManager.Add(m)
 
 		// 触发删除 (use "test" content to match OnFullMatch rule)
 		evt := newTestPlatformEventWithContent(platform.EventKindPrivateMessage, "test")
@@ -256,7 +256,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 		m.priority.Store(50)
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
-		engine.services.tempManager.Add(m)
+		engine.internals.tempManager.Add(m)
 	}
 
 	// 高并发处理

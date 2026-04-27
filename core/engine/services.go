@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"context"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -9,10 +12,17 @@ import (
 	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
-// services groups non-core Engine concerns.
-type services struct {
-	// metricsCollector is a type-safe atomic pointer to the optional Prometheus
-	// metrics collector. nil means metrics are disabled.
+// engineInternals 集中管理 Engine 的非核心基础设施状态：
+//   - 运行时组件（后台 goroutine 管理）
+//   - 基础设施关注点（临时 Matcher 管理器、对象池、Metrics 收集器等）
+//
+// 合并原 services 和 runtime 两个结构体，减少 Engine 顶层字段数量。
+type engineInternals struct {
+	// runtime 组件管理（后台 goroutine 生命周期）
+	runtimeMu    sync.Mutex
+	runtimeComps []runtimeComponent
+
+	// metricsCollector 是可选 Prometheus 采集器的原子指针
 	metricsCollector *infraatomic.Value[*metrics.Collector]
 
 	// temp matcher lifecycle store
@@ -29,13 +39,35 @@ type services struct {
 	// pending delete config/state
 	pendingDeleteCh              chan *Matcher
 	pendingDeleteStop            func()
-	pendingDeleteDone            chan struct{} // closed when processor goroutine exits
+	pendingDeleteDone            chan struct{}
 	pendingDeleteProcessInterval time.Duration
 	pendingDeleteBatchSize       int
 
-	// commandRegistry 是可选的 command.Registry，若已注入则 OnCommand/RegisterCommand
-	// 在更新 engine 内部 commandIndex 的同时自动同步注册到此 Registry，
-	// 消除双轨并行维护，使 Trie 前缀搜索与 /help 发现统一生效。
-	// nil 表示未使用 command.Registry（纯 commandIndex 模式，向后兼容）。
+	// commandRegistry 是可选的 command.Registry
 	commandRegistry *command.Registry
+}
+
+func (e *engineInternals) register(c runtimeComponent) {
+	if c == nil {
+		return
+	}
+	if slices.Contains(e.runtimeComps, c) {
+		return
+	}
+	e.runtimeComps = append(e.runtimeComps, c)
+}
+
+func (e *engineInternals) stopAll() {
+	for _, c := range e.runtimeComps {
+		c.stop()
+	}
+}
+
+func (e *engineInternals) waitAll(ctx context.Context) error {
+	for _, c := range e.runtimeComps {
+		if err := c.wait(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

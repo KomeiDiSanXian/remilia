@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"container/heap"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -102,7 +103,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	recordHandlerError := func(err error) {
 		logger.WithError(err).Debugf("[engine] Handler error in matcher: %s", m.Source)
 
-		if mc := e.services.metricsCollector.Load(); mc != nil {
+		if mc := e.internals.metricsCollector.Load(); mc != nil {
 			mc.RecordEventDropped("handler_error")
 		}
 	}
@@ -146,7 +147,7 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			m.rt.deleted.Store(true)
 			m.rt.mu.Unlock()
 
-			e.services.tempManager.Remove(m)
+			e.internals.tempManager.Remove(m)
 			return
 		}
 	}
@@ -219,7 +220,7 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 func (e *Engine) startPendingDeleteProcessor() func() {
 	ticker := time.NewTicker(DefaultPendingDeleteProcessInterval)
 	done := make(chan struct{})
-	e.services.pendingDeleteDone = done
+	e.internals.pendingDeleteDone = done
 
 	go func() {
 		defer ticker.Stop()
@@ -242,12 +243,12 @@ func (e *Engine) startPendingDeleteProcessor() func() {
 // processPendingDeletes 处理待删除的匹配器（批量删除）
 func (e *Engine) processPendingDeletes() {
 	var matchersToDelete []*Matcher
-	limit := e.services.pendingDeleteBatchSize // 每次最多处理
+	limit := e.internals.pendingDeleteBatchSize // 每次最多处理
 
 loop:
 	for range limit {
 		select {
-		case m := <-e.services.pendingDeleteCh:
+		case m := <-e.internals.pendingDeleteCh:
 			if m != nil {
 				matchersToDelete = append(matchersToDelete, m)
 			}
@@ -275,14 +276,14 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 	defer e.writeMu.Unlock()
 
 	// Stop existing cleaner if running
-	if e.services.tempMatcherCleanerStop != nil {
-		e.services.tempMatcherCleanerStop()
-		e.services.tempMatcherCleanerStop = nil
+	if e.internals.tempMatcherCleanerStop != nil {
+		e.internals.tempMatcherCleanerStop()
+		e.internals.tempMatcherCleanerStop = nil
 	}
 
-	e.services.tempMatcherCleanerInterval = interval
+	e.internals.tempMatcherCleanerInterval = interval
 	if interval > 0 {
-		e.services.tempMatcherCleanerStop = e.StartTempMatcherCleaner(interval)
+		e.internals.tempMatcherCleanerStop = e.StartTempMatcherCleaner(interval)
 	}
 
 	return e
@@ -290,7 +291,7 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 
 // GetTempMatcherCleanInterval 获取当前的临时 Matcher 清理间隔
 func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
-	return e.services.tempMatcherCleanerInterval
+	return e.internals.tempMatcherCleanerInterval
 }
 
 // StartTempMatcherCleaner 启动临时 Matcher 清理器。
@@ -314,14 +315,14 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 	// 防重复启动：若旧清理器仍在运行，先停止它再启动新的，
 	// 确保任意时刻最多只有一个清理器 goroutine 在运行。
-	if e.services.tempMatcherCleanerStop != nil {
-		e.services.tempMatcherCleanerStop()
-		e.services.tempMatcherCleanerStop = nil
+	if e.internals.tempMatcherCleanerStop != nil {
+		e.internals.tempMatcherCleanerStop()
+		e.internals.tempMatcherCleanerStop = nil
 	}
 
 	ticker := time.NewTicker(interval)
 	done := make(chan struct{})
-	e.services.tempMatcherCleanerDone = done
+	e.internals.tempMatcherCleanerDone = done
 	var once sync.Once
 
 	go func() {
@@ -342,14 +343,14 @@ func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 			close(done)
 		})
 	}
-	e.services.tempMatcherCleanerStop = stopFn
+	e.internals.tempMatcherCleanerStop = stopFn
 	return stopFn
 }
 
 // cleanExpiredMatchers 清理过期的临时 matcher（COW 无锁读取 + TempManager 堆）
 func (e *Engine) cleanExpiredMatchers() {
 	// 1. 清理 TempManager 中的过期 matcher (高效堆实现)
-	tempExpired := e.services.tempManager.CleanExpired()
+	tempExpired := e.internals.tempManager.CleanExpired()
 	for _, m := range tempExpired {
 		m.rt.deleted.Store(true)
 	}
@@ -376,8 +377,34 @@ func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) [
 	return mergeKSortedMatchers(dst, [][]*Matcher{l1, l2, l3, l4, l5, l6})
 }
 
+// heapItem 是合并 K 个有序列表时堆中的元素，包含候选 Matcher 及其来源列表索引。
+type heapItem struct {
+	matcher *Matcher
+	listIdx int // 来源子列表在 lists 中的索引
+}
+
+// priorityHeap 实现 container/heap.Interface，按 Matcher 优先级升序排列。
+type priorityHeap []heapItem
+
+func (h priorityHeap) Len() int { return len(h) }
+func (h priorityHeap) Less(i, j int) bool {
+	return h[i].matcher.getPriority() < h[j].matcher.getPriority()
+}
+func (h priorityHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *priorityHeap) Push(x any)   { *h = append(*h, x.(heapItem)) }
+func (h *priorityHeap) Pop() any {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[:n-1]
+	return x
+}
+
 // mergeKSortedMatchers 将 K 个已按优先级排序的 Matcher 子列表合并到 dst 中，
 // 输出结果同样按优先级升序排列。
+//
+// 使用最小堆（container/heap）实现 O(N log K) 合并，优于线性扫描的 O(K·N)。
+// 在当前 K=6 时差异不大，但代码更简洁且易于扩展到更多路合并。
 //
 // dst 复用调用方提供的切片容量以减少分配；若容量不足则重新分配。
 func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
@@ -398,24 +425,28 @@ func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
 
 	k := len(lists)
 	idx := make([]int, k)
+	pq := make(priorityHeap, 0, k)
 
-	for {
-		var minP uint = 0
-		winner := -1
-		for j := range k {
-			if idx[j] < len(lists[j]) {
-				p := lists[j][idx[j]].getPriority()
-				if winner == -1 || p < minP {
-					minP = p
-					winner = j
-				}
-			}
+	// 初始化堆：取每个列表的首个元素
+	for j := range k {
+		if len(lists[j]) > 0 {
+			pq = append(pq, heapItem{matcher: lists[j][0], listIdx: j})
+			idx[j] = 1
 		}
-		if winner == -1 {
-			break
-		}
-		dst = append(dst, lists[winner][idx[winner]])
-		idx[winner]++
 	}
+	heap.Init(&pq)
+
+	for pq.Len() > 0 {
+		item := heap.Pop(&pq).(heapItem)
+		dst = append(dst, item.matcher)
+		if idx[item.listIdx] < len(lists[item.listIdx]) {
+			heap.Push(&pq, heapItem{
+				matcher: lists[item.listIdx][idx[item.listIdx]],
+				listIdx: item.listIdx,
+			})
+			idx[item.listIdx]++
+		}
+	}
+
 	return dst
 }

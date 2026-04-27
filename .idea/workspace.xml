@@ -4,32 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="test(engine): add comprehensive tests for matcher functionality and behavior">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/context/context.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/context/context.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/process.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/process.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/code-review-2026-04.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/code-review-2026-04.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/event-processing-optimization.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/event-processing-optimization.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/framework-review-v2-2026.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/framework-review-v2-2026.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/platform-abstraction-review.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/platform-abstraction-review.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/qq-api-coverage.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/06-archived/qq-api-coverage.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/infra/metrics/compat.go" beforeDir="false" afterPath="$PROJECT_DIR$/infra/metrics/compat.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/lifecycle/lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/circuitbreaker.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/circuitbreaker.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/dedup.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/dedup.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/degradation.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/degradation.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/middleware.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/middleware.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/middleware/simple_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/middleware/simple_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/descriptor.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/descriptor.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/lifecycle_adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/v2_p0_fixes_test.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -295,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore(deps): update Go version to 1.26 and upgrade dependencies" />
     <MESSAGE value="optimize(tests): simplify goroutine handling in circuit breaker tests and clean up unused helper functions" />
     <MESSAGE value="feat(config): add bridge functions for core/engine integration and enhance configuration structure" />
     <MESSAGE value="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination" />
@@ -320,7 +294,8 @@
     <MESSAGE value="refactor(tests): optimize test synchronization and improve debounce handling" />
     <MESSAGE value="refactor(tests): simplify loop constructs in test cases for improved readability" />
     <MESSAGE value="test(engine): add comprehensive tests for matcher functionality and behavior" />
-    <option name="LAST_COMMIT_MESSAGE" value="test(engine): add comprehensive tests for matcher functionality and behavior" />
+    <MESSAGE value="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

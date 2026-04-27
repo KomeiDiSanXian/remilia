@@ -347,14 +347,14 @@ func (e *Engine) FindCommand(name string) *CommandInfo {
 //	matches := reg.Search("/he")
 func (e *Engine) SetCommandRegistry(reg *command.Registry) {
 	e.writeMu.Lock()
-	e.services.commandRegistry = reg
+	e.internals.commandRegistry = reg
 	e.writeMu.Unlock()
 }
 
 // CommandRegistry 返回已注入的 command.Registry，未注入时返回 nil。
 func (e *Engine) CommandRegistry() *command.Registry {
 	e.writeMu.Lock()
-	reg := e.services.commandRegistry
+	reg := e.internals.commandRegistry
 	e.writeMu.Unlock()
 	return reg
 }
@@ -367,7 +367,7 @@ func (e *Engine) syncToRegistry(def *command.Definition, source string) {
 		return
 	}
 	e.writeMu.Lock()
-	reg := e.services.commandRegistry
+	reg := e.internals.commandRegistry
 	e.writeMu.Unlock()
 	if reg == nil {
 		return
@@ -387,6 +387,6 @@ func (e *Engine) syncToRegistry(def *command.Definition, source string) {
 //	eng := engine.NewEngine(engine.WithCommandRegistry(reg))
 func WithCommandRegistry(reg *command.Registry) Option {
 	return func(e *Engine) {
-		e.services.commandRegistry = reg
+		e.internals.commandRegistry = reg
 	}
 }

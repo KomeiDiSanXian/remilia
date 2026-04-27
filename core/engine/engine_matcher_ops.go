@@ -203,7 +203,7 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		},
 	}
 	matcher.priority.Store(50)
-	e.services.tempManager.Add(matcher)
+	e.internals.tempManager.Add(matcher)
 	e.rebuildMatcherChainCOW(matcher)
 	return matcher
 }
@@ -388,20 +388,20 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 
 // UpdateTempMatcherPriority 更新临时 matcher 的优先级（内部方法）
 func (e *Engine) UpdateTempMatcherPriority(m *Matcher) {
-	e.services.tempManager.Remove(m)
-	e.services.tempManager.Add(m)
+	e.internals.tempManager.Remove(m)
+	e.internals.tempManager.Add(m)
 }
 
 // MigrateMatcherToTemp 将 matcher 迁移到 TempManager
 func (e *Engine) MigrateMatcherToTemp(m *Matcher) {
-	e.services.tempManager.Add(m)
+	e.internals.tempManager.Add(m)
 	e.removeMatcherFromStateSilently(m)
 }
 
 // MigrateMatcherFromTemp 将 matcher 从 TempManager 迁移到 State
 func (e *Engine) MigrateMatcherFromTemp(m *Matcher) {
 	e.addMatcherToStateSilently(m)
-	e.services.tempManager.Remove(m)
+	e.internals.tempManager.Remove(m)
 }
 
 // ---- 索引维护 ----------------------------------------------------------------

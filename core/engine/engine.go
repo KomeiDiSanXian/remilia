@@ -62,11 +62,9 @@ type Engine struct {
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
 
-	// services 持有运行时/基础设施关注点（临时 Matcher 管理器、对象池、Metrics 收集器等）
-	services services
-
-	// runtime 持有引擎自有的后台组件（定期清理、待删除处理器等）
-	runtime runtime
+	// internals 集中管理非核心基础设施：（临时 Matcher 管理器、对象池、
+	// Metrics 收集器、后台 goroutine 生命周期管理等）。
+	internals engineInternals
 
 	// shutdown 标志位，Shutdown() 时设置，ProcessEvent 热路径上通过 Load 检查
 	shutdown atomic.Bool
@@ -106,13 +104,13 @@ type Engine struct {
 func NewEngine(options ...Option) *Engine {
 	e := &Engine{}
 
-	// defaults for services
-	e.services.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
-	e.services.tempManager = newTempMatcherManager()
-	e.services.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
-	e.services.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
-	e.services.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
-	e.services.metricsCollector = infraatomic.NewValue[*inframetrics.Collector](nil)
+	// defaults for internals
+	e.internals.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
+	e.internals.tempManager = newTempMatcherManager()
+	e.internals.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
+	e.internals.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
+	e.internals.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
+	e.internals.metricsCollector = infraatomic.NewValue[*inframetrics.Collector](nil)
 
 	// 初始化不可变状态
 	e.state = infraatomic.NewValue(newEngineState())
@@ -124,27 +122,27 @@ func NewEngine(options ...Option) *Engine {
 	}
 
 	// 如果未通过选项配置，则使用默认的 pendingDeleteCh
-	if e.services.pendingDeleteCh == nil {
-		e.services.pendingDeleteCh = make(chan *Matcher, DefaultPendingDeleteBufferSize)
+	if e.internals.pendingDeleteCh == nil {
+		e.internals.pendingDeleteCh = make(chan *Matcher, DefaultPendingDeleteBufferSize)
 	}
 
 	// 自动启动临时 Matcher 清理器（如果间隔 > 0）
-	if e.services.tempMatcherCleanerInterval > 0 {
-		e.services.tempMatcherCleanerStop = e.StartTempMatcherCleaner(e.services.tempMatcherCleanerInterval)
+	if e.internals.tempMatcherCleanerInterval > 0 {
+		e.internals.tempMatcherCleanerStop = e.StartTempMatcherCleaner(e.internals.tempMatcherCleanerInterval)
 	} else {
 		logger.Info("[engine] Temp matcher cleaner disabled by default configuration")
 	}
 
 	// 启动批量删除处理器（如果间隔 > 0）
-	if e.services.pendingDeleteProcessInterval > 0 {
-		e.services.pendingDeleteStop = e.startPendingDeleteProcessor()
+	if e.internals.pendingDeleteProcessInterval > 0 {
+		e.internals.pendingDeleteStop = e.startPendingDeleteProcessor()
 	} else {
 		logger.Info("[engine] Pending delete processor disabled by configuration")
 	}
 
 	// Register runtime components for unified shutdown semantics.
-	e.runtime.register(&tempCleanerComponent{e: e})
-	e.runtime.register(&pendingDeleteComponent{e: e})
+	e.internals.register(&tempCleanerComponent{e: e})
+	e.internals.register(&pendingDeleteComponent{e: e})
 
 	return e
 }
@@ -165,8 +163,8 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	e.shutdown.Store(true)
 
 	// 停止所有后台 goroutine
-	e.runtime.stopAll()
-	if err := e.runtime.waitAll(ctx); err != nil {
+	e.internals.stopAll()
+	if err := e.internals.waitAll(ctx); err != nil {
 		return err
 	}
 

@@ -164,13 +164,13 @@ func (e *Engine) processEventContext(ctx *context.Context) {
 
 	// 获取 temp 匹配器（O4：HasAny() 快速跳过空 tempManager，避免 8 次 RLock）
 	var tempSpecific, tempGeneric []*Matcher
-	if e.services.tempManager.HasAny() {
-		tempSpecific = e.services.tempManager.Get(eventType)
-		tempGeneric = e.services.tempManager.Get("")
+	if e.internals.tempManager.HasAny() {
+		tempSpecific = e.internals.tempManager.Get(eventType)
+		tempGeneric = e.internals.tempManager.Get("")
 	}
 
 	// 从池中获取切片
-	matchersToCheck := e.services.matcherPool.Get()
+	matchersToCheck := e.internals.matcherPool.Get()
 	matchersToCheck = matchersToCheck[:0]
 
 	defer func() {
@@ -180,7 +180,7 @@ func (e *Engine) processEventContext(ctx *context.Context) {
 		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
 			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
 		}
-		e.services.matcherPool.Put(matchersToCheck)
+		e.internals.matcherPool.Put(matchersToCheck)
 	}()
 
 	matchersToCheck = mergeSortedMatchersSix(matchersToCheck,

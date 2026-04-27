@@ -28,6 +28,31 @@
 //	    }
 //	}
 //
+// # 文件职责速览
+//
+//   - plugin.go           — 包文档、公开类型（Metadata、接口）
+//   - descriptor.go       — Descriptor 结构体、热重载策略、Advanced 选项
+//   - instance.go         — 插件运行时实例（状态、Matcher、生命周期）
+//   - manager.go          — 插件管理器（注册、禁用、启用、热重载）
+//   - manager_lifecycle.go — StartAll / StopAll / Shutdown（批处理生命周期）
+//   - manager_writer.go    — ManagerWriter（管理员视角的写操作视图）
+//   - register.go         — Register / RegisterMultiple / 拓扑排序
+//   - register_validate.go — 描述符合法性校验、依赖检查、ConfigSchema 校验
+//   - container.go        — 依赖注入容器（Get / Must / Register / Freeze）
+//   - eventbus.go         — 事件总线（插件间发布/订阅）
+//   - goroutine.go        — 生命周期绑定的后台 goroutine（ctx.Go）
+//   - config.go           — 插件配置（Reload / OnChange / Get）
+//   - config_provider.go  — 配置提供者接口（Provider / ViperProvider）
+//   - reload.go           — 热重载策略（UnloadLoad / InPlace / BlueGreen）
+//   - schema.go           — ConfigSchema 校验（SchemaField、ValidateConfigSchema）
+//   - errors.go           — 插件错误类型
+//   - status.go           — 插件状态枚举
+//   - version.go          — 插件版本号
+//   - logger.go           — 带插件名前缀的日志器
+//   - lifecycle_adapter.go — plugin.Manager → lifecycle.Component 适配器
+//   - plugin_info.go      — Info 接口（只读视图）
+//   - plugintest/         — 插件测试辅助工具
+//
 // # 公开类型说明
 //
 //   - [Descriptor] — 插件定义（开发者使用）

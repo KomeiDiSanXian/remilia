@@ -195,6 +195,22 @@ func (d *Descriptor) effectiveAdvanced() Advanced {
 	return Advanced{}
 }
 
+// Validate 校验插件描述符的配置结构。
+// 可在注册前独立调用（如 CI/linter 环境），无需运行时上下文。
+// 当前校验项：Name 非空、Setup 非 nil、ConfigSchema 合法性。
+// 注册时也会自动调用此方法，双重校验提供防御性保护。
+func (d *Descriptor) Validate() error {
+	if err := validateDescriptor(d); err != nil {
+		return err
+	}
+	if d.Advanced != nil && d.Advanced.ConfigSchema != nil {
+		if err := ValidateConfigSchema(d.Name, d.Advanced.ConfigSchema, nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // callSetup 调用 Setup 函数
 func (d *Descriptor) callSetup(ctx *SetupContext) (any, error) {
 	if d.Setup == nil {

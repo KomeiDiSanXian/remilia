@@ -298,7 +298,7 @@ func TestProcessPendingDeletes(t *testing.T) {
 	e := newEngineForTest(t)
 	m := &Matcher{Source: "test"}
 	m.rt.deleted.Store(true) // invokeHandler sets this before sending to channel
-	e.services.pendingDeleteCh <- m
+	e.internals.pendingDeleteCh <- m
 	e.processPendingDeletes()
 	// After processing, the matcher should be removed from the engine state
 	assert.Equal(t, 0, len(e.state.Load().matchers))

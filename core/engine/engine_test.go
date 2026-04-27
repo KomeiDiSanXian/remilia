@@ -25,30 +25,30 @@ func TestEngine_NewEngine(t *testing.T) {
 		require.NotNil(t, eng)
 		assert.NotNil(t, eng.state.Load())
 		assert.NotNil(t, eng.middleware.Load())
-		assert.NotNil(t, eng.services.tempManager)
-		assert.NotNil(t, eng.services.matcherPool)
-		assert.NotNil(t, eng.services.pendingDeleteCh)
+		assert.NotNil(t, eng.internals.tempManager)
+		assert.NotNil(t, eng.internals.matcherPool)
+		assert.NotNil(t, eng.internals.pendingDeleteCh)
 	})
 
 	t.Run("with custom cleanup interval", func(t *testing.T) {
 		eng := newEngineForTest(t, WithCleanupInterval(1*time.Minute))
 
 		require.NotNil(t, eng)
-		assert.Equal(t, 1*time.Minute, eng.services.tempMatcherCleanerInterval)
+		assert.Equal(t, 1*time.Minute, eng.internals.tempMatcherCleanerInterval)
 	})
 
 	t.Run("with zero cleanup interval", func(t *testing.T) {
 		eng := newEngineForTest(t, WithCleanupInterval(0))
 
 		require.NotNil(t, eng)
-		assert.Equal(t, time.Duration(0), eng.services.tempMatcherCleanerInterval)
+		assert.Equal(t, time.Duration(0), eng.internals.tempMatcherCleanerInterval)
 	})
 
 	t.Run("with custom pending delete buffer", func(t *testing.T) {
 		eng := newEngineForTest(t, WithPendingDeleteBufferSize(500))
 
 		require.NotNil(t, eng)
-		assert.Equal(t, 500, cap(eng.services.pendingDeleteCh))
+		assert.Equal(t, 500, cap(eng.internals.pendingDeleteCh))
 	})
 }
 

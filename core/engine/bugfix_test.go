@@ -85,10 +85,10 @@ func TestBugFix_MatcherPoolTruncate(t *testing.T) {
 
 	// 创建一个大容量的切片模拟场景
 	largeSlice := make([]*Matcher, 0, MaxMatcherPoolRetainCapacity*2)
-	eng.services.matcherPool.Put(largeSlice)
+	eng.internals.matcherPool.Put(largeSlice)
 
 	// 从池中获取
-	retrieved := eng.services.matcherPool.Get()
+	retrieved := eng.internals.matcherPool.Get()
 
 	// 验证容量被限制
 	if cap(retrieved) > MaxMatcherPoolRetainCapacity*2 {

@@ -269,7 +269,9 @@ func TestSlowHandlerExtra(t *testing.T) {
 		handler := mw(mockHandler(nil, 100*time.Millisecond))
 		handler(createTestContext())
 		assert.True(t, logged)
-		assert.GreaterOrEqual(t, loggedDuration, 100*time.Millisecond)
+		// handler 被 deadline 打断（~50ms 超时），duration 接近 threshold 而非 100ms
+		assert.GreaterOrEqual(t, loggedDuration, 40*time.Millisecond)
+		assert.Less(t, loggedDuration, 100*time.Millisecond)
 	})
 
 	t.Run("does not log fast handler", func(t *testing.T) {

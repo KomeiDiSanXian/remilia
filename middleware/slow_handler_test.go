@@ -47,10 +47,14 @@ func TestSlowHandler(t *testing.T) {
 		ctx := createTestContext()
 		err := handler(ctx)
 
+		// SlowHandler 注入的 deadline 会使 handler 提前返回（约 20ms 后超时），
+		// 但超时错误会被 SlowHandler 屏蔽，返回 nil。
 		assert.NoError(t, err)
 		assert.True(t, callbackCalled, "should trigger for slow handler")
 		assert.Equal(t, ctx.GetEventType(), capturedName)
-		assert.GreaterOrEqual(t, capturedDuration, 100*time.Millisecond)
+		// handler 被 deadline 打断，实际耗时接近 threshold 而非完整的 100ms
+		assert.GreaterOrEqual(t, capturedDuration, 15*time.Millisecond)
+		assert.Less(t, capturedDuration, 100*time.Millisecond)
 	})
 
 	t.Run("zero threshold defaults to 1s and does not trigger for fast handler", func(t *testing.T) {
@@ -143,9 +147,11 @@ func TestSlowHandlerCustomCallback(t *testing.T) {
 		ctx := createTestContext()
 		err := handler(ctx)
 
+		// handler 被 deadline 打断（~10ms），duration 接近 threshold 而非 80ms
 		assert.NoError(t, err)
 		assert.Equal(t, ctx.GetEventType(), calledName)
-		assert.GreaterOrEqual(t, calledDuration, 80*time.Millisecond)
+		assert.GreaterOrEqual(t, calledDuration, 8*time.Millisecond)
+		assert.Less(t, calledDuration, 80*time.Millisecond)
 		assert.Same(t, ctx, calledCtx)
 	})
 }

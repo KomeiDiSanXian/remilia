@@ -11,9 +11,9 @@ func (c *pendingDeleteComponent) stop() {
 		return
 	}
 	c.e.writeMu.Lock()
-	if c.e.services.pendingDeleteStop != nil {
-		c.e.services.pendingDeleteStop()
-		c.e.services.pendingDeleteStop = nil
+	if c.e.internals.pendingDeleteStop != nil {
+		c.e.internals.pendingDeleteStop()
+		c.e.internals.pendingDeleteStop = nil
 	}
 	c.e.writeMu.Unlock()
 }
@@ -21,7 +21,7 @@ func (c *pendingDeleteComponent) stop() {
 func (c *pendingDeleteComponent) wait(ctx context.Context) error {
 	// 等待 pending delete processor goroutine 退出。
 	// 若 done 未设置（如测试中未初始化），则立即返回。
-	done := c.e.services.pendingDeleteDone
+	done := c.e.internals.pendingDeleteDone
 	if done == nil {
 		return nil
 	}

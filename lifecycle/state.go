@@ -33,3 +33,14 @@ func (s State) String() string {
 		return "unknown"
 	}
 }
+
+// IsTerminal 返回该状态是否为终止状态（状态机到达后不再转换）。
+// 当前仅 StateStopped 为终止状态。
+func (s State) IsTerminal() bool {
+	return s == StateStopped
+}
+
+// IsRunning 返回该状态是否为运行中状态。
+func (s State) IsRunning() bool {
+	return s == StateRunning
+}

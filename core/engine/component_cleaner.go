@@ -11,9 +11,9 @@ func (c *tempCleanerComponent) stop() {
 		return
 	}
 	c.e.writeMu.Lock()
-	if c.e.services.tempMatcherCleanerStop != nil {
-		c.e.services.tempMatcherCleanerStop()
-		c.e.services.tempMatcherCleanerStop = nil
+	if c.e.internals.tempMatcherCleanerStop != nil {
+		c.e.internals.tempMatcherCleanerStop()
+		c.e.internals.tempMatcherCleanerStop = nil
 	}
 	c.e.writeMu.Unlock()
 }
@@ -26,7 +26,7 @@ func (c *tempCleanerComponent) wait(ctx context.Context) error {
 	// 原实现直接返回 nil，导致 Engine.Shutdown() 可能在 cleaner goroutine 退出前返回，
 	// 造成 goroutine 泄漏（goleak 可检出）。
 	c.e.writeMu.Lock()
-	done := c.e.services.tempMatcherCleanerDone
+	done := c.e.internals.tempMatcherCleanerDone
 	c.e.writeMu.Unlock()
 
 	if done == nil {

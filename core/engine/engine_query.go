@@ -31,7 +31,7 @@ func (e *Engine) GetMatcherCount() int {
 
 // GetTempMatcherCount 获取当前已注册的临时匹配器数量
 func (e *Engine) GetTempMatcherCount() int {
-	return e.services.tempManager.Count()
+	return e.internals.tempManager.Count()
 }
 
 // GetMaxMatchers 获取当前的匹配器数量上限（COW 无锁读取）
@@ -63,13 +63,13 @@ func (e *Engine) GetMatcherStats() MatcherStats {
 
 // SetMetricsCollector 设置指标收集器
 func (e *Engine) SetMetricsCollector(mc *metrics.Collector) *Engine {
-	e.services.metricsCollector.Store(mc)
+	e.internals.metricsCollector.Store(mc)
 	return e
 }
 
 // GetMetricsCollector 获取指标收集器
 func (e *Engine) GetMetricsCollector() *metrics.Collector {
-	return e.services.metricsCollector.Load()
+	return e.internals.metricsCollector.Load()
 }
 
 // ---- Snapshot / Restore -------------------------------------------------------

@@ -85,6 +85,10 @@ func (pm *Manager) Disable(name string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	if pm.coordinator == nil {
+		return fmt.Errorf("cannot disable plugin %q: manager has no engine coordinator; Register Engine before use", name)
+	}
+
 	inst, exists := pm.plugins[name]
 	if !exists {
 		return errutil.ErrPluginNotFound
@@ -99,9 +103,7 @@ func (pm *Manager) Disable(name string) error {
 		return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, state)
 	}
 
-	if pm.coordinator != nil {
-		pm.coordinator.DisableGroup(name)
-	}
+	pm.coordinator.DisableGroup(name)
 	inst.SetState(Disabled)
 	logger.Infof("[pluginManager] Plugin %s disabled (matchers paused, container intact)", name)
 	return nil
@@ -112,6 +114,10 @@ func (pm *Manager) Enable(name string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	if pm.coordinator == nil {
+		return fmt.Errorf("cannot enable plugin %q: manager has no engine coordinator; Register Engine before use", name)
+	}
+
 	inst, exists := pm.plugins[name]
 	if !exists {
 		return errutil.ErrPluginNotFound
@@ -121,9 +127,7 @@ func (pm *Manager) Enable(name string) error {
 		return nil
 	}
 
-	if pm.coordinator != nil {
-		pm.coordinator.EnableGroup(name)
-	}
+	pm.coordinator.EnableGroup(name)
 	inst.SetState(Loaded)
 	logger.Infof("[pluginManager] Plugin %s enabled (matchers resumed)", name)
 	return nil
