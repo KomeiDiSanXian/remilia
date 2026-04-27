@@ -83,7 +83,7 @@
 |---|------|------|------|------|
 | P1 | **Minor** | `Descriptor.effectiveMeta()` 在 Meta 为 nil 时返回零值 `Metadata{}`，但调用方无法区分"未设置 Meta"和"显式设置了空 Metadata"。这在 /help 命令可能产生空条目。 | `plugin/descriptor.go:183-188` | ✅ 已修复：改为返回 `*Metadata`（nil 指针） |
 | P2 | **Minor** | `Descriptor.getReloadFunc()`、`getSaveStateFunc()` 等 getter 方法与 `effectiveAdvanced()` 功能重叠。 | `plugin/descriptor.go:215-244` | ✅ 已修复：删除 4 个冗余 getter 保留 `getOnDependencyReloaded` |
-| P3 | **Minor** | `Register()` 在检测到 undeclared required deps 时执行写时拷贝合并依赖，但拓扑排序基于原始 desc，新增的合并依赖不影响已排好的顺序。这是一个已知限制：依赖是在 Setup 过程中发现的，无法在排序前获知。 | `plugin/register.go:181-187` | ❌ 已知限制（需更复杂重构） |
+| P3 | **Minor** | `Register()` 在检测到 undeclared required deps 时执行写时拷贝合并依赖，但拓扑排序基于原始 desc，新增的合并依赖不影响已排好的顺序。现已修复：(1) 新增 `rectifyLoadOrder` 在批量注册后修正 `loadOrder`；(2) `RegisterMultipleSmart` 通过 DryRun 预先推断依赖，合并到 Deps 后再排序（Setup 必须幂等）；(3) `Instance.depsModified` 标记精简事后修正范围。 | `plugin/register.go` | ✅ 已修复 |
 | P4 | **Minor** | `SetConfigProvider` 在持有 `pm.mu.Lock` 的情况下调用 `s.Stop()`（旧 provider 停止），若 `Stop()` 内部重新获取锁或执行长时间操作，可能导致死锁或锁持有时间过长。 | `plugin/manager.go:179-181` | ✅ 已修复：移出锁外执行 Stop |
 | P5 | **Info** | `Descriptor.callSetup` 在 Setup 为 nil 时返回错误，但 `validateDescriptor` 应该已经拦截了这个情况。作为防御性代码是好的，但存在双重检查。 | `plugin/descriptor.go:199-203` | ❌ 未处理（防御性设计） |
 | P6 | **Info** | `NewPluginConfigFromProvider` 在 `Register()` 中被调用时持有 `pm.mu.Lock`。若 config provider 的实现涉及 I/O，会长时间阻塞其他 registered 操作。 | `plugin/register.go:53` | ❌ 未处理（需要更大的架构调整） |
@@ -141,8 +141,8 @@
 
 ### 修复状态 & 后续优先级
 
-**本轮已修复项（共 27 项）：**
-P4、M1、M2、M3、M5、M6、C1、C2、C3、P1、P2、X1、L1、LO2、LO3、MO1、MO2、MO3、MO5、CO2、CO3、CO4、PO1、PO3、PO4、PO5、XO3
+**本轮已修复项（共 28 项）：**
+P3、P4、M1、M2、M3、M5、M6、C1、C2、C3、C4、P1、P2、X1、L1、LO2、LO3、MO1、MO2、MO3、MO5、CO2、CO3、CO4、PO1、PO3、PO4、PO5、XO3
 
 **待处理优先级建议：**
 

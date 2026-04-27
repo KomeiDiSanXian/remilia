@@ -4,14 +4,11 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(workspace): update changelist comments for improved clarity and consistency">
-      <change beforePath="$PROJECT_DIR$/core/engine/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_lifecycle_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/engine_matcher_ops.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state_optimization_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_optimization_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/engine/state_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/core/engine/state_test.go" afterDir="false" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(engine): optimize state management with selective copy-on-write methods">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/05-reports/code-review-report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/code-review-report.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -278,7 +275,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination" />
     <MESSAGE value="chore(docs): update Go version in README and adjust related requirements" />
     <MESSAGE value="fix(register): refine comments in Register function for clarity" />
     <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
@@ -303,7 +299,8 @@
     <MESSAGE value="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
     <MESSAGE value="refactor(engine): consolidate services into engineInternals for improved structure and management" />
     <MESSAGE value="refactor(workspace): update changelist comments for improved clarity and consistency" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(workspace): update changelist comments for improved clarity and consistency" />
+    <MESSAGE value="refactor(engine): optimize state management with selective copy-on-write methods" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(engine): optimize state management with selective copy-on-write methods" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

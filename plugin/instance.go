@@ -27,6 +27,10 @@ type Instance struct {
 	goroutineMgr *goroutineManager // 生命周期绑定 goroutine 管理器
 	exportedAPI  any               // Setup 返回的 API 对象
 	mu           sync.RWMutex
+
+	// depsModified 标记 Register 是否通过 COW 合并了未声明依赖。
+	// 供 RegisterMultiple 在事后修复 loadOrder 时快速跳过无需修正的插件。
+	depsModified bool
 }
 
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
