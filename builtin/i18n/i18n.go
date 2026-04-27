@@ -104,6 +104,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   p.T(ctx, "key")`,
 		},
 		Advanced: &plugin.Advanced{
+			Strategy: plugin.ReloadInPlace,
 			Reload: func(setupCtx *plugin.SetupContext) error {
 				if p.cfg.LocaleDir != "" {
 					return p.loadDir(p.cfg.LocaleDir)
