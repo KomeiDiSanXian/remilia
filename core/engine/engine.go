@@ -191,10 +191,7 @@ func (e *Engine) removeMatcherFromStateSilently(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.deleteMatcher(m)
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withDeletedMatcher(m))
 }
 
 // addMatcherToStateSilently 将 matcher 重新加入 State。
@@ -203,8 +200,5 @@ func (e *Engine) addMatcherToStateSilently(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.addMatcher(m)
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withAddedMatcher(m))
 }

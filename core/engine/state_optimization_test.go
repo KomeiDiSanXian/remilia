@@ -3,6 +3,7 @@ package engine
 import (
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -27,7 +28,7 @@ func TestCopyEngineState(t *testing.T) {
 	}
 
 	// 复制状态
-	dst := copyEngineState(src)
+	dst := src.clone()
 
 	// 验证复制正确性
 	if dst.maxMatchers != src.maxMatchers {
@@ -64,7 +65,7 @@ func TestCopyEngineStateCOW(t *testing.T) {
 	m1.priority.Store(10)
 	src.addMatcher(m1)
 
-	dst := copyEngineState(src)
+	dst := src.clone()
 
 	m2 := &Matcher{
 		EventType: string(platform.EventKindPrivateMessage),
@@ -206,7 +207,35 @@ func BenchmarkCopyEngineState(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = copyEngineState(src)
+		_ = src.clone()
+	}
+}
+
+// BenchmarkWithBlock 基准测试：SetBlock 性能（O(1)，不复制任何 map）
+func BenchmarkWithBlock(b *testing.B) {
+	src := newEngineState()
+	for i := range 10000 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withBlock(true)
+	}
+}
+
+// BenchmarkWithMaxMatchers 基准测试：SetMaxMatchers 性能（O(1)，不复制任何 map）
+func BenchmarkWithMaxMatchers(b *testing.B) {
+	src := newEngineState()
+	for i := range 10000 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withMaxMatchers(500)
 	}
 }
 
@@ -240,33 +269,79 @@ func BenchmarkCopyMiddlewareState(b *testing.B) {
 	}
 }
 
-// BenchmarkAddMatcher 基准测试：添加 matcher 性能
-func BenchmarkAddMatcher(b *testing.B) {
-	state := newEngineState()
-
-	// 预分配一些 matchers 以模拟真实场景
+// BenchmarkAddMatcher 基准测试：添加 matcher 性能（旧方式：clone + mutate）
+func BenchmarkAddMatcherOld(b *testing.B) {
+	src := newEngineState()
 	for i := range 50 {
-		m := &Matcher{
-			EventType: string(platform.EventKindPrivateMessage),
-			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
-			Handler:   func(ctx *context.Context) error { return nil },
-			Source:    "test",
-		}
+		m := &Matcher{EventType: "evt", Source: "bench"}
 		m.priority.Store(uint64(i))
-		state.addMatcher(m)
+		src.addMatcher(m)
 	}
+	newMatcher := &Matcher{EventType: "evt", Source: "bench"}
+	newMatcher.priority.Store(100)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m := &Matcher{
-			EventType: string(platform.EventKindPrivateMessage),
-			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
-			Handler:   func(ctx *context.Context) error { return nil },
-			Source:    "bench",
-		}
-		m.priority.Store(100)
-		stateCopy := copyEngineState(state)
-		stateCopy.addMatcher(m)
+		dst := src.clone()
+		dst.addMatcher(newMatcher)
+	}
+}
+
+// BenchmarkWithAddedMatcher 基准测试：添加 matcher 性能（新方式：withAddedMatcher）
+func BenchmarkWithAddedMatcher(b *testing.B) {
+	src := newEngineState()
+	for i := range 50 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	newMatcher := &Matcher{EventType: "evt", Source: "bench"}
+	newMatcher.priority.Store(100)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withAddedMatcher(newMatcher)
+	}
+}
+
+// BenchmarkWithAddedMatcherLarge 基准测试：大状态（10000 matchers）+ 添加 matcher
+func BenchmarkWithAddedMatcherLarge(b *testing.B) {
+	src := newEngineState()
+	for i := range 10000 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	newMatcher := &Matcher{EventType: "evt", Source: "bench"}
+	newMatcher.priority.Store(100)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withAddedMatcher(newMatcher)
+	}
+}
+
+// BenchmarkWithAddedCommandMatcher 基准测试：添加 command matcher（需要复制 commandIndex）
+func BenchmarkWithAddedCommandMatcher(b *testing.B) {
+	src := newEngineState()
+	for i := range 50 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	for i := range 20 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.definition = &command.Definition{Name: "existing"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	newCmdMatcher := &Matcher{EventType: "evt2", Source: "bench"}
+	newCmdMatcher.definition = &command.Definition{Name: "newcmd"}
+	newCmdMatcher.priority.Store(100)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withAddedMatcher(newCmdMatcher)
 	}
 }
 
@@ -291,32 +366,65 @@ func BenchmarkInvalidateSortedCache(b *testing.B) {
 	}
 }
 
-// BenchmarkCOWModification 基准测试：COW 修改性能
-func BenchmarkCOWModification(b *testing.B) {
+// BenchmarkCOWModificationOld 基准测试：COW 修改性能（旧方式：clone + mutate）
+func BenchmarkCOWModificationOld(b *testing.B) {
 	src := newEngineState()
 	for i := range 50 {
-		m := &Matcher{
-			EventType: string(platform.EventKindPrivateMessage),
-			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
-			Handler:   func(ctx *context.Context) error { return nil },
-			Source:    "test",
-		}
+		m := &Matcher{EventType: "evt", Source: "bench"}
 		m.priority.Store(uint64(i))
 		src.addMatcher(m)
 	}
-
-	newMatcher := &Matcher{
-		EventType: string(platform.EventKindPrivateMessage),
-		Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
-		Handler:   func(ctx *context.Context) error { return nil },
-		Source:    "new",
-	}
+	newMatcher := &Matcher{EventType: "evt", Source: "bench"}
 	newMatcher.priority.Store(100)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// COW 流程：复制 -> 修改
-		dst := copyEngineState(src)
+		dst := src.clone()
 		dst.addMatcher(newMatcher)
+	}
+}
+
+// BenchmarkCOWModificationNew 基准测试：COW 修改性能（新方式：withAddedMatcher）
+func BenchmarkCOWModificationNew(b *testing.B) {
+	src := newEngineState()
+	for i := range 50 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	newMatcher := &Matcher{EventType: "evt", Source: "bench"}
+	newMatcher.priority.Store(100)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withAddedMatcher(newMatcher)
+	}
+}
+
+// BenchmarkWithSetBlockLarge 基准测试：大状态 SetBlock（旧方式需要全量 copy，新方式 O(1)）
+func BenchmarkWithSetBlockLarge(b *testing.B) {
+	src := newEngineState()
+	for i := range 10000 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withBlock(true)
+	}
+}
+
+// BenchmarkWithInvalidatedSortedCache 基准测试：sortedCache 失效
+func BenchmarkWithInvalidatedSortedCache(b *testing.B) {
+	src := newEngineState()
+	for i := range 1000 {
+		m := &Matcher{EventType: "evt", Source: "bench"}
+		m.priority.Store(uint64(i))
+		src.addMatcher(m)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = src.withInvalidatedSortedCache("evt")
 	}
 }

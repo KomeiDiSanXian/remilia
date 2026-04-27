@@ -637,7 +637,7 @@ func TestEngineState_CopyWithCommands(t *testing.T) {
 		}
 		state.addMatcher(m)
 	}
-	copied := copyEngineState(state)
+	copied := state.clone()
 	assert.Equal(t, len(state.matchers), len(copied.matchers))
 	assert.Equal(t, len(state.groupIndex), len(copied.groupIndex))
 	assert.Equal(t, len(state.commandIndex), len(copied.commandIndex))

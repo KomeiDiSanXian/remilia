@@ -70,10 +70,7 @@ func Recover() eventctx.Middleware {
 // 先通过 runtime.Stack(nil, false) 获取所需缓冲区大小，再一次性分配。
 // 避免自适应翻倍循环中的多次分配。上限 64KB，超过时截断并标记。
 func captureStack() string {
-	size := runtime.Stack(nil, false)
-	if size > 64*1024 {
-		size = 64 * 1024
-	}
+	size := min(runtime.Stack(nil, false), 64*1024)
 	buf := make([]byte, size)
 	n := runtime.Stack(buf, false)
 	if n == size && size >= 64*1024 {

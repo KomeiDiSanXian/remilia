@@ -40,16 +40,7 @@ func (e *Engine) DeleteAllMatchers() {
 	oldState := e.state.Load()
 	oldMatchers := append([]*Matcher(nil), oldState.matchers...)
 
-	newState := copyEngineState(oldState)
-	newState.matchers = make([]*Matcher, 0)
-	newState.matcherIndex = make(map[EventType][]*Matcher)
-	newState.commandIndex = make(map[string]map[EventType][]*Matcher) // 修复：清理命令索引防止内存泄漏
-	newState.groupIndex = make(map[string][]*Matcher)                 // 修复：清理分组索引防止内存泄漏
-	newState.sortedCache = make(map[EventType][]*Matcher)
-	newState.commandInfoCache = make(map[string]*CommandInfo) // 修复：清理命令信息缓存
-	newState.commandListCache = nil                           // 修复：清理命令列表缓存
-
-	e.state.Store(newState)
+	e.state.Store(oldState.withClearedMatchers())
 
 	for _, m := range oldMatchers {
 		if m == nil {
@@ -64,10 +55,8 @@ func (e *Engine) DeleteMatcher(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.deleteMatcher(m)
-	e.state.Store(newState)
+	state := e.state.Load()
+	e.state.Store(state.withDeletedMatcher(m))
 }
 
 // DeleteMatchers 批量删除匹配器（COW 写操作）
@@ -76,9 +65,7 @@ func (e *Engine) DeleteMatchers(matchers []*Matcher) {
 	defer e.writeMu.Unlock()
 
 	state := e.state.Load()
-	newState := copyEngineState(state)
-	newState.deleteMatchers(matchers)
-	e.state.Store(newState)
+	e.state.Store(state.withDeletedMatchers(matchers))
 }
 
 // ---- 注册操作 ----------------------------------------------------------------
@@ -96,9 +83,7 @@ func (e *Engine) registerMatcher(m *Matcher) *Matcher {
 		return newNoopMatcher(e)
 	}
 
-	newState := copyEngineState(oldState)
-	newState.addMatcher(m)
-	e.state.Store(newState)
+	e.state.Store(oldState.withAddedMatcher(m))
 
 	e.rebuildMatcherChainCOW(m)
 	return m
@@ -138,11 +123,7 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 		matchers = matchers[:available]
 	}
 
-	newState := copyEngineState(oldState)
-	for _, m := range matchers {
-		newState.addMatcher(m)
-	}
-	e.state.Store(newState)
+	e.state.Store(oldState.withBatchMatchers(matchers))
 
 	for _, m := range matchers {
 		e.rebuildMatcherChainCOW(m)
@@ -215,10 +196,8 @@ func (e *Engine) InvalidateSortedCache(eventType EventType) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.invalidateSortedCache(eventType)
-	e.state.Store(newState)
+	state := e.state.Load()
+	e.state.Store(state.withInvalidatedSortedCache(eventType))
 }
 
 // SetBlock 设置引擎的阻塞状态（COW 写操作）
@@ -226,10 +205,7 @@ func (e *Engine) SetBlock(block bool) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.block = block
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withBlock(block))
 	return e
 }
 
@@ -239,10 +215,7 @@ func (e *Engine) SetMaxMatchers(limit int) *Engine {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.maxMatchers = limit
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withMaxMatchers(limit))
 	return e
 }
 
@@ -263,9 +236,7 @@ func (e *Engine) RemoveGroup(groupName string) {
 		return
 	}
 
-	newState := copyEngineState(state)
-	newState.removeGroup(groupName)
-	e.state.Store(newState)
+	e.state.Store(state.withRemovedGroup(groupName))
 
 	logger.Debugf("[engine] Removed matcher group: %s", groupName)
 }
@@ -322,10 +293,7 @@ func (e *Engine) WithMatcherGroupBatch(fn func()) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	newState.rebuildIndex()
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withRebuiltIndex())
 }
 
 // SetMatcherGroup 将已注册的 matcher 划入指定 group 并更新来源标签。
@@ -348,29 +316,8 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 
 	if oldGroup != m.group {
 		e.writeMu.Lock()
-		oldState := e.state.Load()
-		newState := copyEngineState(oldState)
-
-		if oldGroup != "" {
-			filtered := make([]*Matcher, 0, len(newState.groupIndex[oldGroup]))
-			for _, gm := range newState.groupIndex[oldGroup] {
-				if gm != m {
-					filtered = append(filtered, gm)
-				}
-			}
-			if len(filtered) == 0 {
-				delete(newState.groupIndex, oldGroup)
-			} else {
-				newState.groupIndex[oldGroup] = filtered
-			}
-		}
-
 		newGroupName := strings.TrimSpace(group)
-		if newGroupName != "" {
-			newState.groupIndex[newGroupName] = append(newState.groupIndex[newGroupName], m)
-		}
-
-		e.state.Store(newState)
+		e.state.Store(e.state.Load().withSetMatcherGroup(m, oldGroup, newGroupName))
 		e.writeMu.Unlock()
 	}
 
@@ -421,34 +368,7 @@ func (e *Engine) UpdateMatcherIndex(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-
-	if m == nil {
-		newState.rebuildIndex()
-		e.state.Store(newState)
-		return
-	}
-
-	cmd := m.GetCommand()
-	et := m.EventType
-
-	if cmd != "" {
-		if cmdMap, ok := newState.commandIndex[cmd]; ok {
-			if matchers, ok := cmdMap[et]; ok {
-				sortMatchersByPriority(matchers)
-			}
-		}
-	} else {
-		if matchers, ok := newState.matcherIndex[et]; ok {
-			sorted := make([]*Matcher, len(matchers))
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			newState.sortedCache[et] = sorted
-		}
-	}
-
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withUpdatedMatcherIndex(m))
 }
 
 // UpdateCommandCache 更新指定 matcher 的命令缓存（COW 写操作）
@@ -464,9 +384,5 @@ func (e *Engine) UpdateCommandCache(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
-	oldState := e.state.Load()
-	newState := copyEngineState(oldState)
-	// rebuildCommandInfoCache already calls rebuildCommandListCache internally
-	newState.rebuildCommandInfoCache(m, cmd)
-	e.state.Store(newState)
+	e.state.Store(e.state.Load().withUpdatedCommandCache(m))
 }

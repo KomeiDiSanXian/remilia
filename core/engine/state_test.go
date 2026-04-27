@@ -38,7 +38,7 @@ func TestCopyEngineState_Semantics(t *testing.T) {
 		src.matchers = append(src.matchers, m)
 		src.matcherIndex["test"] = []*Matcher{m}
 
-		dst := copyEngineState(src)
+		dst := src.clone()
 		assert.Equal(t, 1, len(dst.matchers))
 		assert.Same(t, m, dst.matchers[0])
 	})
@@ -49,7 +49,7 @@ func TestCopyEngineState_Semantics(t *testing.T) {
 		m2 := &Matcher{EventType: "b"}
 		src.matchers = append(src.matchers, m1, m2)
 
-		dst := copyEngineState(src)
+		dst := src.clone()
 		dst.matchers = append(dst.matchers, &Matcher{EventType: "c"})
 
 		assert.Equal(t, 2, len(src.matchers))
@@ -62,7 +62,7 @@ func TestCopyEngineState_Semantics(t *testing.T) {
 		src.matcherIndex["t"] = []*Matcher{m}
 		src.sortedCache["t"] = []*Matcher{m}
 
-		dst := copyEngineState(src)
+		dst := src.clone()
 		assert.Same(t, dst.matcherIndex["t"][0], m)
 		assert.Same(t, dst.sortedCache["t"][0], m)
 	})
@@ -70,7 +70,7 @@ func TestCopyEngineState_Semantics(t *testing.T) {
 	t.Run("copies commandInfoCache", func(t *testing.T) {
 		src := newEngineState()
 		src.commandInfoCache["/ping"] = &CommandInfo{Command: "/ping"}
-		dst := copyEngineState(src)
+		dst := src.clone()
 		assert.Equal(t, "/ping", dst.commandInfoCache["/ping"].Command)
 	})
 
@@ -78,7 +78,7 @@ func TestCopyEngineState_Semantics(t *testing.T) {
 		src := newEngineState()
 		m := &Matcher{EventType: "t"}
 		src.commandIndex["/ping"] = map[EventType][]*Matcher{"t": {m}}
-		dst := copyEngineState(src)
+		dst := src.clone()
 		require.Contains(t, dst.commandIndex, "/ping")
 		assert.Same(t, m, dst.commandIndex["/ping"]["t"][0])
 	})

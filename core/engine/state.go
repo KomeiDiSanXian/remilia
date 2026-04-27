@@ -14,7 +14,7 @@ type MiddlewareTraceHook func(name string, ctx *context.Context)
 // state 不可变的引擎状态（COW 模式）
 //
 // 此结构体包含所有需要在读操作中访问的状态。
-// 写操作会复制整个状态，修改后原子替换。
+// 写操作会在新 state 中共享不变部分、只复制需要修改的 map。
 type state struct {
 	// 核心匹配器列表
 	matchers []*Matcher
@@ -95,81 +95,465 @@ func newMiddlewareState() *middlewareState {
 	}
 }
 
-// copyEngineState 深拷贝引擎状态
-// 使用 COW 策略，共享底层数组以减少内存分配
-//
-// 安全性说明：
-//   - 使用 [:len:len] 限制容量，确保 append 操作会触发新分配
-//   - 只能使用 append 修改切片，不能就地修改（如 matchers[i] = xxx）
-//   - 所有修改操作（addMatcher、deleteMatcher 等）都正确使用 append
-//   - 这种策略在当前代码中是安全的，因为没有就地修改操作
-func copyEngineState(src *state) *state {
-	dst := &state{
-		// 使用 append 共享底层数组，只在修改时才会复制
-		matchers:         src.matchers[:len(src.matchers):len(src.matchers)],
-		matcherIndex:     make(map[EventType][]*Matcher, len(src.matcherIndex)),
-		commandIndex:     make(map[string]map[EventType][]*Matcher, len(src.commandIndex)),
-		groupIndex:       make(map[string][]*Matcher, len(src.groupIndex)),
-		sortedCache:      make(map[EventType][]*Matcher, len(src.sortedCache)),
-		commandInfoCache: make(map[string]*CommandInfo, len(src.commandInfoCache)),
-		block:            src.block,
-		maxMatchers:      src.maxMatchers,
-	}
+// ============================================================================
+// Map 复制辅助函数（COW 语义）
+// ============================================================================
 
-	// 复制 matcherIndex map - 使用 reslice 共享底层数组
-	for k, v := range src.matcherIndex {
-		// 通过限制容量，确保 append 会触发新分配（真正的 COW）
-		dst.matcherIndex[k] = v[:len(v):len(v)]
+// copyMatcherIndex 复制 matcherIndex，子切片共享底层数组（cap=len 确保 COW）
+func copyMatcherIndex(src map[EventType][]*Matcher) map[EventType][]*Matcher {
+	if src == nil {
+		return nil
 	}
+	dst := make(map[EventType][]*Matcher, len(src))
+	for k, v := range src {
+		dst[k] = v[:len(v):len(v)]
+	}
+	return dst
+}
 
-	// 复制 commandIndex map (使用共享数组)
-	for cmd, eventMap := range src.commandIndex {
+// copyCommandIndex 复制 commandIndex，内层 map 和子切片都 COW
+func copyCommandIndex(src map[string]map[EventType][]*Matcher) map[string]map[EventType][]*Matcher {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]map[EventType][]*Matcher, len(src))
+	for cmd, eventMap := range src {
 		newEventMap := make(map[EventType][]*Matcher, len(eventMap))
 		for et, matchers := range eventMap {
 			newEventMap[et] = matchers[:len(matchers):len(matchers)]
 		}
-		dst.commandIndex[cmd] = newEventMap
+		dst[cmd] = newEventMap
+	}
+	return dst
+}
+
+// copyGroupIndex 复制 groupIndex，子切片共享底层数组
+func copyGroupIndex(src map[string][]*Matcher) map[string][]*Matcher {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string][]*Matcher, len(src))
+	for k, v := range src {
+		dst[k] = v[:len(v):len(v)]
+	}
+	return dst
+}
+
+// ============================================================================
+// with* 方法 — 选择性 COW，只复制需要修改的 map
+// ============================================================================
+
+// clone 完整深拷贝所有 map（仅在测试中使用，生产代码使用 with* 方法做选择性 COW）
+func (s *state) clone() *state {
+	dst := &state{
+		matchers:         s.matchers[:len(s.matchers):len(s.matchers)],
+		matcherIndex:     copyMatcherIndex(s.matcherIndex),
+		commandIndex:     copyCommandIndex(s.commandIndex),
+		groupIndex:       copyGroupIndex(s.groupIndex),
+		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
+		commandInfoCache: make(map[string]*CommandInfo, len(s.commandInfoCache)),
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+	}
+	maps.Copy(dst.commandInfoCache, s.commandInfoCache)
+	return dst
+}
+
+// withBlock 仅修改 block 字段，共享所有 map
+func (s *state) withBlock(block bool) *state {
+	return &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		sortedCache:      s.sortedCache,
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            block,
+		maxMatchers:      s.maxMatchers,
+	}
+}
+
+// withMaxMatchers 仅修改 maxMatchers 字段，共享所有 map
+func (s *state) withMaxMatchers(max int) *state {
+	return &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		sortedCache:      s.sortedCache,
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      max,
+	}
+}
+
+// withClearedMatchers 清空所有匹配器和索引
+func (s *state) withClearedMatchers() *state {
+	return &state{
+		matchers:         make([]*Matcher, 0),
+		matcherIndex:     make(map[EventType][]*Matcher),
+		commandIndex:     make(map[string]map[EventType][]*Matcher),
+		groupIndex:       make(map[string][]*Matcher),
+		sortedCache:      make(map[EventType][]*Matcher),
+		commandInfoCache: make(map[string]*CommandInfo),
+		commandListCache: nil,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+	}
+}
+
+// withAddedMatcher 添加一个匹配器，仅复制需要的 map
+func (s *state) withAddedMatcher(m *Matcher) *state {
+	cmd := m.GetCommand()
+	et := m.EventType
+	grp := m.GetGroup()
+
+	dst := &state{
+		matchers:         append(s.matchers[:len(s.matchers):len(s.matchers)], m),
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
 	}
 
-	// 复制 groupIndex map - 共享底层数组
-	for k, v := range src.groupIndex {
-		dst.groupIndex[k] = v[:len(v):len(v)]
+	if cmd != "" {
+		m.commandIndexed.Store(true)
+		dst.sortedCache = s.sortedCache
+		dst.matcherIndex = s.matcherIndex
+		dst.commandIndex = s.copyCommandIndexWithEntry(cmd, et, m)
+		dst.rebuildCommandInfoCache(m, cmd)
+	} else {
+		dst.sortedCache = copySortedCacheForInvalidation(s.sortedCache)
+		dst.matcherIndex = copyMatcherIndex(s.matcherIndex)
+		dst.matcherIndex[et] = append(dst.matcherIndex[et][:len(dst.matcherIndex[et]):len(dst.matcherIndex[et])], m)
+		dst.commandIndex = s.commandIndex
+
+		matchers := dst.matcherIndex[et]
+		sorted := make([]*Matcher, len(matchers))
+		copy(sorted, matchers)
+		sortMatchersByPriority(sorted)
+		dst.sortedCache[et] = sorted
 	}
 
-	// 复制 sortedCache map - 共享底层数组
-	for k, v := range src.sortedCache {
-		dst.sortedCache[k] = v[:len(v):len(v)]
+	if grp != "" {
+		dst.groupIndex = copyGroupIndex(s.groupIndex)
+		dst.groupIndex[grp] = append(dst.groupIndex[grp][:len(dst.groupIndex[grp]):len(dst.groupIndex[grp])], m)
+	} else {
+		dst.groupIndex = s.groupIndex
 	}
-
-	// 复制 commandInfoCache - 浅拷贝指针（CommandInfo 是只读的）
-	maps.Copy(dst.commandInfoCache, src.commandInfoCache)
 
 	return dst
 }
 
-// copyMiddlewareState 深拷贝中间件状态
-// 使用 COW 策略，共享底层数组以减少内存分配
-func copyMiddlewareState(src *middlewareState) *middlewareState {
-	dst := &middlewareState{
-		global: middlewareSnapshot{
-			// 共享底层数组，限制容量实现 COW
-			chain: src.global.chain[:len(src.global.chain):len(src.global.chain)],
-			gen:   src.global.gen,
-		},
-		groupMiddlewares: make(map[string]*middlewareSnapshot, len(src.groupMiddlewares)),
-		traceHook:        src.traceHook,
+// copyCommandIndexWithEntry 复制 commandIndex 并添加一个新条目
+func (s *state) copyCommandIndexWithEntry(cmd string, et EventType, m *Matcher) map[string]map[EventType][]*Matcher {
+	dst := make(map[string]map[EventType][]*Matcher, len(s.commandIndex))
+	for c, eventMap := range s.commandIndex {
+		newEventMap := make(map[EventType][]*Matcher, len(eventMap))
+		for e, matchers := range eventMap {
+			newEventMap[e] = matchers[:len(matchers):len(matchers)]
+		}
+		dst[c] = newEventMap
+	}
+	if _, ok := dst[cmd]; !ok {
+		dst[cmd] = make(map[EventType][]*Matcher)
+	}
+	dst[cmd][et] = append(dst[cmd][et][:len(dst[cmd][et]):len(dst[cmd][et])], m)
+	sortMatchersByPriority(dst[cmd][et])
+	return dst
+}
+
+// withBatchMatchers 批量添加多个匹配器，仅复制一次 maps
+func (s *state) withBatchMatchers(matchers []*Matcher) *state {
+	if len(matchers) == 0 {
+		return s
 	}
 
-	// 复制分组中间件 - 使用共享数组
-	for k, v := range src.groupMiddlewares {
-		dst.groupMiddlewares[k] = &middlewareSnapshot{
-			chain: v.chain[:len(v.chain):len(v.chain)],
-			gen:   v.gen,
+	dst := &state{
+		matchers:         append(s.matchers[:len(s.matchers):len(s.matchers)], matchers...),
+		matcherIndex:     copyMatcherIndex(s.matcherIndex),
+		commandIndex:     copyCommandIndex(s.commandIndex),
+		groupIndex:       copyGroupIndex(s.groupIndex),
+		sortedCache:      make(map[EventType][]*Matcher),
+		commandInfoCache: maps.Clone(s.commandInfoCache),
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+	}
+
+	for _, m := range matchers {
+		cmd := m.GetCommand()
+		et := m.EventType
+		grp := m.GetGroup()
+
+		if cmd != "" {
+			m.commandIndexed.Store(true)
+			if dst.commandIndex[cmd] == nil {
+				dst.commandIndex[cmd] = make(map[EventType][]*Matcher)
+			}
+			dst.commandIndex[cmd][et] = append(dst.commandIndex[cmd][et], m)
+		} else {
+			dst.matcherIndex[et] = append(dst.matcherIndex[et], m)
+		}
+
+		if grp != "" {
+			dst.groupIndex[grp] = append(dst.groupIndex[grp], m)
+		}
+	}
+
+	for eventType, mats := range dst.matcherIndex {
+		sortMatchersByPriority(mats)
+		sorted := make([]*Matcher, len(mats))
+		copy(sorted, mats)
+		dst.sortedCache[eventType] = sorted
+	}
+
+	for _, eventMap := range dst.commandIndex {
+		for _, mats := range eventMap {
+			sortMatchersByPriority(mats)
+		}
+	}
+
+	dst.rebuildCommandListCache()
+	return dst
+}
+
+// withDeletedMatcher 删除一个匹配器（内部通过 rebuildIndex 重建所有索引）
+func (s *state) withDeletedMatcher(m *Matcher) *state {
+	idx := -1
+	for i, matcher := range s.matchers {
+		if matcher == m {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return s
+	}
+
+	dst := &state{
+		matchers:    make([]*Matcher, 0, len(s.matchers)-1),
+		block:       s.block,
+		maxMatchers: s.maxMatchers,
+	}
+	dst.matchers = append(dst.matchers, s.matchers[:idx]...)
+	dst.matchers = append(dst.matchers, s.matchers[idx+1:]...)
+	dst.rebuildIndex()
+	return dst
+}
+
+// withDeletedMatchers 批量删除匹配器（内部通过 rebuildIndex 重建所有索引）
+func (s *state) withDeletedMatchers(matchersToDelete []*Matcher) *state {
+	if len(matchersToDelete) == 0 {
+		return s
+	}
+
+	toDelete := make(map[*Matcher]struct{}, len(matchersToDelete))
+	for _, m := range matchersToDelete {
+		toDelete[m] = struct{}{}
+	}
+
+	estimated := max(len(s.matchers)-len(matchersToDelete), 0)
+	dst := &state{
+		matchers:    make([]*Matcher, 0, estimated),
+		block:       s.block,
+		maxMatchers: s.maxMatchers,
+	}
+	for _, m := range s.matchers {
+		if _, ok := toDelete[m]; !ok {
+			dst.matchers = append(dst.matchers, m)
+		}
+	}
+	dst.rebuildIndex()
+	return dst
+}
+
+// withRemovedGroup 删除指定分组的所有匹配器
+func (s *state) withRemovedGroup(groupName string) *state {
+	if groupName == "" {
+		return s
+	}
+
+	dst := &state{
+		matchers:    make([]*Matcher, 0, len(s.matchers)),
+		block:       s.block,
+		maxMatchers: s.maxMatchers,
+	}
+	for _, m := range s.matchers {
+		if m.GetGroup() != groupName {
+			dst.matchers = append(dst.matchers, m)
+		}
+	}
+
+	if len(dst.matchers) == len(s.matchers) {
+		return s
+	}
+
+	dst.rebuildIndex()
+	return dst
+}
+
+// withRebuiltIndex 从 matchers 重建所有索引
+func (s *state) withRebuiltIndex() *state {
+	dst := &state{
+		matchers:    s.matchers,
+		block:       s.block,
+		maxMatchers: s.maxMatchers,
+	}
+	dst.rebuildIndex()
+	return dst
+}
+
+// withInvalidatedSortedCache 仅重建 sortedCache 中指定事件类型的条目
+func (s *state) withInvalidatedSortedCache(eventType EventType) *state {
+	dst := &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
+	}
+
+	dst.invalidateSortedCache(eventType)
+
+	if eventType != "" {
+		if _, exists := dst.sortedCache[""]; !exists {
+			if mats, ok := dst.matcherIndex[""]; ok {
+				sorted := make([]*Matcher, len(mats))
+				copy(sorted, mats)
+				sortMatchersByPriority(sorted)
+				dst.sortedCache[""] = sorted
+			}
 		}
 	}
 
 	return dst
 }
+
+// copySortedCacheForInvalidation 复制 sortedCache（共享子切片）
+func copySortedCacheForInvalidation(src map[EventType][]*Matcher) map[EventType][]*Matcher {
+	dst := make(map[EventType][]*Matcher, len(src))
+	for k, v := range src {
+		dst[k] = v[:len(v):len(v)]
+	}
+	return dst
+}
+
+// withUpdatedMatcherIndex 仅更新 affected matcher 的索引
+func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
+	if m == nil {
+		return s.withRebuiltIndex()
+	}
+
+	cmd := m.GetCommand()
+	et := m.EventType
+
+	dst := &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+	}
+
+	if cmd != "" {
+		// 需要复制 commandIndex 以防就地排序破坏共享
+		if _, ok := s.commandIndex[cmd]; ok {
+			if _, ok := s.commandIndex[cmd][et]; ok {
+				dst.commandIndex = copyCommandIndex(s.commandIndex)
+				sortMatchersByPriority(dst.commandIndex[cmd][et])
+			}
+		}
+	} else {
+		if matchers, ok := dst.matcherIndex[et]; ok {
+			sorted := make([]*Matcher, len(matchers))
+			copy(sorted, matchers)
+			sortMatchersByPriority(sorted)
+			dst.sortedCache[et] = sorted
+		}
+	}
+
+	return dst
+}
+
+// withUpdatedCommandCache 仅更新指定 matcher 的命令缓存
+func (s *state) withUpdatedCommandCache(m *Matcher) *state {
+	cmd := m.GetCommand()
+	if cmd == "" {
+		return s
+	}
+
+	dst := &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		groupIndex:       s.groupIndex,
+		sortedCache:      s.sortedCache,
+		commandInfoCache: maps.Clone(s.commandInfoCache),
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+	}
+	dst.rebuildCommandInfoCache(m, cmd)
+	return dst
+}
+
+// withSetMatcherGroup 更新 groupIndex（单个 matcher 分组变更）
+func (s *state) withSetMatcherGroup(m *Matcher, oldGroup, newGroup string) *state {
+	dst := &state{
+		matchers:         s.matchers,
+		matcherIndex:     s.matcherIndex,
+		commandIndex:     s.commandIndex,
+		sortedCache:      s.sortedCache,
+		commandInfoCache: s.commandInfoCache,
+		commandListCache: s.commandListCache,
+		commandListVer:   s.commandListVer,
+		block:            s.block,
+		maxMatchers:      s.maxMatchers,
+		groupIndex:       copyGroupIndex(s.groupIndex),
+	}
+
+	if oldGroup != "" {
+		filtered := make([]*Matcher, 0, len(dst.groupIndex[oldGroup]))
+		for _, gm := range dst.groupIndex[oldGroup] {
+			if gm != m {
+				filtered = append(filtered, gm)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(dst.groupIndex, oldGroup)
+		} else {
+			dst.groupIndex[oldGroup] = filtered
+		}
+	}
+
+	if newGroup != "" {
+		dst.groupIndex[newGroup] = append(dst.groupIndex[newGroup], m)
+	}
+
+	return dst
+}
+
+// ============================================================================
+// 原变更方法（仅供测试和新 state 内部使用）
+// ============================================================================
 
 // rebuildIndex 重建匹配器索引和排序缓存
 func (s *state) rebuildIndex() {
@@ -179,12 +563,14 @@ func (s *state) rebuildIndex() {
 	s.groupIndex = make(map[string][]*Matcher)
 	s.sortedCache = make(map[EventType][]*Matcher)
 	s.commandInfoCache = make(map[string]*CommandInfo)
+	s.commandListCache = nil
+	s.commandListVer = 0
 
 	// 重建索引
 	for _, m := range s.matchers {
 		cmd := m.GetCommand()
 		if cmd != "" {
-			m.commandIndexed.Store(true) // 标记以供 Match() 快速路径使用
+			m.commandIndexed.Store(true)
 			if s.commandIndex[cmd] == nil {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
@@ -284,28 +670,23 @@ func (s *state) rebuildCommandListCache() {
 	s.commandListVer++
 }
 
-// addMatcher 添加匹配器到状态
+// addMatcher 添加匹配器到状态（仅供测试用，生产代码使用 withAddedMatcher）
 func (s *state) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
 
 	cmd := m.GetCommand()
 	if cmd != "" {
-		m.commandIndexed.Store(true) // 标记以供 Match() 快速路径使用
+		m.commandIndexed.Store(true)
 		if s.commandIndex[cmd] == nil {
 			s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 		}
 		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
-		// 每次添加后重新排序（对于单个添加操作，这可以接受；批量添加应使用 rebuildIndex）
 		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
-
-		// 更新命令信息缓存（含列表重建）
 		s.rebuildCommandInfoCache(m, cmd)
 	} else {
-		// 更新常规索引
 		et := m.EventType
 		s.matcherIndex[et] = append(s.matcherIndex[et], m)
 
-		// 更新排序缓存（cap 复用优化在 COW 模式下永不触发，直接分配）
 		matchers := s.matcherIndex[et]
 		sorted := make([]*Matcher, len(matchers))
 		copy(sorted, matchers)
@@ -313,24 +694,20 @@ func (s *state) addMatcher(m *Matcher) {
 		s.sortedCache[et] = sorted
 	}
 
-	// 更新分组索引（使用加锁访问器避免与 SetMatcherGroup 的数据竞态）
 	if grp := m.GetGroup(); grp != "" {
 		s.groupIndex[grp] = append(s.groupIndex[grp], m)
 	}
 }
 
-// removeGroup 移除指定分组的所有匹配器
+// removeGroup 移除指定分组的所有匹配器（仅供测试用，生产代码使用 withRemovedGroup）
 func (s *state) removeGroup(groupName string) {
 	if groupName == "" {
 		return
 	}
-
-	// 如果组不存在，无需操作
 	if _, ok := s.groupIndex[groupName]; !ok {
 		return
 	}
 
-	// 过滤主列表
 	newMatchers := make([]*Matcher, 0, len(s.matchers))
 	for _, m := range s.matchers {
 		if m.GetGroup() != groupName {
@@ -338,54 +715,49 @@ func (s *state) removeGroup(groupName string) {
 		}
 	}
 	s.matchers = newMatchers
-
-	// 重建所有索引
 	s.rebuildIndex()
 }
 
-// deleteMatcher 从状态中删除匹配器
+// deleteMatcher 从状态中删除匹配器（仅供测试用，生产代码使用 withDeletedMatcher）
 func (s *state) deleteMatcher(m *Matcher) {
-	// 从 matchers 列表中删除
-	for i, matcher := range s.matchers {
-		if matcher == m {
-			s.matchers = append(s.matchers[:i], s.matchers[i+1:]...)
-			break
-		}
-	}
-
-	// 重建索引（简单实现，可以优化为局部更新）
+	s.matchers = deleteFromSlice(s.matchers, m)
 	s.rebuildIndex()
 }
 
-// deleteMatchers 从状态中批量删除匹配器
+// deleteMatchers 从状态中批量删除匹配器（仅供测试用，生产代码使用 withDeletedMatchers）
 func (s *state) deleteMatchers(matchersToDelete []*Matcher) {
 	if len(matchersToDelete) == 0 {
 		return
 	}
 
-	toDelete := make(map[*Matcher]bool)
+	toDelete := make(map[*Matcher]struct{}, len(matchersToDelete))
 	for _, m := range matchersToDelete {
-		toDelete[m] = true
+		toDelete[m] = struct{}{}
 	}
 
-	// Filter services.matchers in place
-	newMatchers := s.matchers[:0]
+	newMatchers := make([]*Matcher, 0, len(s.matchers))
 	for _, m := range s.matchers {
-		if !toDelete[m] {
+		if _, ok := toDelete[m]; !ok {
 			newMatchers = append(newMatchers, m)
 		}
 	}
 	s.matchers = newMatchers
-
-	// Rebuild index
 	s.rebuildIndex()
+}
+
+// deleteFromSlice 删除切片中第一个匹配的元素（辅助函数）
+func deleteFromSlice[T comparable](slice []T, elem T) []T {
+	for i, v := range slice {
+		if v == elem {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
 }
 
 // invalidateSortedCache 失效并重建指定事件类型的排序缓存
 func (s *state) invalidateSortedCache(eventType EventType) {
-	// 重建指定事件类型的缓存
 	if matchers, ok := s.matcherIndex[eventType]; ok {
-		// 尝试重用现有 slice 容量
 		if existing, exists := s.sortedCache[eventType]; exists && cap(existing) >= len(matchers) {
 			sorted := existing[:len(matchers)]
 			copy(sorted, matchers)
@@ -398,11 +770,9 @@ func (s *state) invalidateSortedCache(eventType EventType) {
 			s.sortedCache[eventType] = sorted
 		}
 	} else {
-		// 如果该类型没有 matchers，确保从 cache 中移除 (safe delete)
 		delete(s.sortedCache, eventType)
 	}
 
-	// 如果是具体事件类型，也需要重建通用匹配器缓存
 	if eventType != "" {
 		if matchers, ok := s.matcherIndex[""]; ok {
 			if existing, exists := s.sortedCache[""]; exists && cap(existing) >= len(matchers) {
@@ -424,4 +794,28 @@ func sortMatchersByPriority(matchers []*Matcher) {
 	sort.Slice(matchers, func(i, j int) bool {
 		return matchers[i].getPriority() < matchers[j].getPriority()
 	})
+}
+
+// copyMiddlewareState 深拷贝中间件状态
+// 使用 COW 策略，共享底层数组以减少内存分配
+func copyMiddlewareState(src *middlewareState) *middlewareState {
+	dst := &middlewareState{
+		global: middlewareSnapshot{
+			// 共享底层数组，限制容量实现 COW
+			chain: src.global.chain[:len(src.global.chain):len(src.global.chain)],
+			gen:   src.global.gen,
+		},
+		groupMiddlewares: make(map[string]*middlewareSnapshot, len(src.groupMiddlewares)),
+		traceHook:        src.traceHook,
+	}
+
+	// 复制分组中间件 - 使用共享数组
+	for k, v := range src.groupMiddlewares {
+		dst.groupMiddlewares[k] = &middlewareSnapshot{
+			chain: v.chain[:len(v.chain):len(v.chain)],
+			gen:   v.gen,
+		}
+	}
+
+	return dst
 }

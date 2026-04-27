@@ -81,10 +81,7 @@ func WithPendingDeleteBufferSize(size int) Option {
 // 达到上限后，新注册的 Matcher 会返回一个 noop Matcher（链式调用安全，但不实际执行）。
 func WithMaxMatchers(max int) Option {
 	return func(e *Engine) {
-		oldState := e.state.Load()
-		newState := copyEngineState(oldState)
-		newState.maxMatchers = max
-		e.state.Store(newState)
+		e.state.Store(e.state.Load().withMaxMatchers(max))
 	}
 }
 
