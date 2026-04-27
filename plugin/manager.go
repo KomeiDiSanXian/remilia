@@ -168,17 +168,15 @@ func (pm *Manager) IsStrictDeps() bool {
 // 若已通过 WithConfigProvider 在构造时注入，则无需调用此方法。
 //
 // 并发安全说明：
-//   - 单次调用内部：全程持有 pm.mu.Lock，先全量替换插件 Config，再注册回调，
-//     确保回调即使同步触发也能看到最新数据
-//   - 并发调用：pm.mu.Lock 保证串行化，后调用完全覆盖前调用
-//   - 与 Register 并发：Register 也在 pm.mu.Lock 内读 configProvider，原子可见
-//   - 与 propagateConfigChange 并发：RLock 会被 Lock 阻塞，等待替换完成后执行
-//
-// 若旧 provider 实现了 Stop() 方法，会自动调用以取消其监听，
-// 防止旧回调残留导致的双重通知。
+//   - 旧 provider 的 Stop() 在锁外执行（防止 Stop 中 I/O 阻塞其他操作）
+//   - Config 构造（NewPluginConfigFromProvider → Sub()）在锁外执行（可能 I/O）
+//   - 锁内仅执行指针赋值：configProvider 替换、inst.SetConfig（字段赋值）
+//   - 与 Register 的 Lock#1 可能重叠：Register 会读到旧的 configProvider，
+//     但 Register 在 Lock#2 时 Store 实例，Lock#3 中 SetConfigProvider 已更新配置
+//   - 若 SetConfigProvider 中发现新注册的插件未包含在事先收集的插件列表中，
+//     也不影响正确性——该插件使用最新的 configProvider 读取配置
 func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
-	// Phase 1: 先断开旧 provider 的监听、释放资源（不持锁）。
-	// 避免在持有 pm.mu 的情况下执行外部代码（Stop 可能阻塞）。
+	// Phase 1: 断开旧 provider 的监听（锁外执行 Stop）
 	var oldStopFn func()
 	pm.mu.Lock()
 	if oldProvider := pm.configProvider; oldProvider != nil {
@@ -187,28 +185,41 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 		}
 	}
 	pm.mu.Unlock()
-
 	if oldStopFn != nil {
 		oldStopFn()
 	}
 
-	// Phase 2–4: 持锁执行替换原子操作
+	// Phase 2: 替换 provider + 收集插件名（锁内，短操作）
 	pm.mu.Lock()
-
 	pm.configProvider = cp
+	names := make([]string, 0, len(pm.plugins))
+	for name := range pm.plugins {
+		names = append(names, name)
+	}
+	pm.mu.Unlock()
 
+	// Phase 3: 构造 Config（锁外，可能 I/O）
+	type nameConfig struct {
+		name   string
+		config Config
+	}
+	newCfgs := make([]nameConfig, 0, len(names))
 	if cp != nil {
-		for _, inst := range pm.plugins {
-			newConfig := NewPluginConfigFromProvider(inst.Name(), cp)
-			inst.SetConfig(newConfig)
+		for _, name := range names {
+			newCfgs = append(newCfgs, nameConfig{name, NewPluginConfigFromProvider(name, cp)})
 		}
 	}
 
-	// 注册回调（此时已释放写锁，propagateConfigChange 的 TryRLock 不会有死锁风险）
+	// Phase 4: 应用 Config + 注册回调（锁内）
+	pm.mu.Lock()
 	if cp != nil {
+		for _, nc := range newCfgs {
+			if inst, ok := pm.plugins[nc.name]; ok {
+				inst.SetConfig(nc.config)
+			}
+		}
 		cp.OnConfigChange(pm.propagateConfigChange)
 	}
-
 	pm.mu.Unlock()
 }
 

@@ -11,15 +11,25 @@ import (
 // register.go — 插件注册：Register、批量注册、拓扑排序
 
 // Register 注册插件（使用 Descriptor）
+//
+// 锁策略（三段式，最小化锁持有时间）：
+//
+//	Lock #1: 重复检查 + 依赖校验 + 版本约束
+//	(解锁)  ←  I/O：NewPluginConfigFromProvider / validateConfigSchema
+//	Lock #2: 再次重复检查 + pm.plugins[name] = instance
+//	(解锁)
+//	instance.load()  ← 已在锁外
+//	Lock #3: 错误清理 / 依赖合并 / loadOrder / container.Register
 func (pm *Manager) Register(desc *Descriptor) error {
 	if err := validateDescriptor(desc); err != nil {
 		return err
 	}
 
 	name := desc.Name
+
+	// ========== Lock #1: 快速校验 ==========
 	pm.mu.Lock()
 
-	// 重复注册检查
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
 		logger.Warnf("[pluginManager] Plugin %s already registered", name)
@@ -34,13 +44,11 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		return names
 	}
 
-	// 依赖存在性与就绪状态（须持锁）
 	if err := checkDependencies(pm, desc, registeredList); err != nil {
 		pm.mu.Unlock()
 		return err
 	}
 
-	// 版本约束（须持锁）
 	if err := validateVersionConstraints(pm, desc); err != nil {
 		pm.mu.Unlock()
 		return err
@@ -48,31 +56,36 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 	pm.ensureContainerInitialized()
 
-	var config Config
-	if pm.configProvider != nil {
-		config = NewPluginConfigFromProvider(name, pm.configProvider)
-	}
+	// 在锁内读取 configProvider，移出锁外调用（I/O 可能阻塞）
+	cp := pm.configProvider
 
-	// 阶段 5：ConfigSchema 校验（须持锁）
-	if err := validateConfigSchema(name, desc, config); err != nil {
-		pm.mu.Unlock()
-		return err
-	}
-
-	instance := &Instance{
-		desc:     desc,
-		state:    Unloaded,
-		matchers: make([]*engine.Matcher, 0),
-	}
-
-	// 检测 Reload 函数与策略不匹配的配置错误
+	// Reload/Strategy 检测（仅读 desc，不需要锁，但已在锁内顺手完成）
 	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
 		pm.mu.Unlock()
 		return fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
 			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace?", name, desc.Advanced.Strategy)
 	}
 
-	// 根据 Privileged 字段决定是否注入管理视图
+	pm.mu.Unlock()
+	// ========== Lock #1 结束 ==========
+
+	// ========== 无锁区：Config 构造（可能 I/O）+ Schema 校验 ==========
+	var config Config
+	if cp != nil {
+		config = NewPluginConfigFromProvider(name, cp)
+	}
+
+	if err := validateConfigSchema(name, desc, config); err != nil {
+		return err
+	}
+
+	// ========== 无锁区：实例 + SetupContext 构建（纯内存操作）==========
+	instance := &Instance{
+		desc:     desc,
+		state:    Unloaded,
+		matchers: make([]*engine.Matcher, 0),
+	}
+
 	var adminView ManagerWriter
 	if desc.Privileged {
 		adminView = newManagerWriter(pm)
@@ -96,12 +109,22 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 	instance.setupContext = setupCtx
 	instance.state = Loading
+
+	// ========== Lock #2: 存入 plugins 表（短）==========
+	pm.mu.Lock()
+	// 二次重复检查：Lock#1~Lock#2 窗口期可能已被其他 Register 抢占注册同名插件
+	if _, exists := pm.plugins[name]; exists {
+		pm.mu.Unlock()
+		return errutil.ErrPluginAlreadyExists
+	}
 	pm.plugins[name] = instance
-
 	pm.mu.Unlock()
+	// ========== Lock #2 结束 ==========
 
+	// ========== 无锁区：执行 Setup ==========
 	loadErr := instance.load()
 
+	// ========== Lock #3: 最终化 ==========
 	pm.mu.Lock()
 
 	if loadErr != nil {
@@ -116,7 +139,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	trackedDeps := setupCtx.GetTrackedDependencies()
 	trackedOptional := setupCtx.GetTrackedOptionalDependencies()
 
-	// 合并所有实际访问的依赖（必要 + 可选），用于 strictDeps 检查
 	allTracked := make(map[string]bool, len(trackedDeps)+len(trackedOptional))
 	for _, d := range trackedDeps {
 		allTracked[d] = true
@@ -126,7 +148,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	}
 
 	if len(allTracked) > 0 {
-		// 构建已声明的依赖集合（必要 + 可选，两者均算已声明）
 		declaredDeps := make(map[string]bool)
 		for _, dep := range desc.Deps {
 			declaredDeps[dep] = true
@@ -135,7 +156,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 			declaredDeps[dep] = true
 		}
 
-		// 未声明的依赖（必要 + 可选，均未出现在 Deps / OptionalDeps 中）
 		undeclaredAll := make([]string, 0)
 		for dep := range allTracked {
 			if !declaredDeps[dep] {
@@ -145,7 +165,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 		if len(undeclaredAll) > 0 {
 			if pm.strictDeps {
-				// 先释放锁再调用 unload，避免持有 pm.mu 期间执行 Teardown
 				pm.mu.Unlock()
 				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
 					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
@@ -167,11 +186,6 @@ func (pm *Manager) Register(desc *Descriptor) error {
 			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
 		}
 
-		// 将追踪到的未声明【必要】依赖合并写回 instance.desc.Deps。
-		// 只合并必要依赖（MustGet/Must/GetPlugin 访问的），影响：
-		//   - notifyDependents：依赖热重载时正确通知
-		//   - UnregisterCascade：被依赖卸载时正确级联
-		// 可选依赖（Get/Try 访问的）不合并，不触发级联卸载。
 		var undeclaredRequired []string
 		for _, d := range trackedDeps {
 			if !declaredDeps[d] {
@@ -196,6 +210,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	}
 
 	pm.mu.Unlock()
+	// ========== Lock #3 结束 ==========
 
 	logger.Infof("[pluginManager] Plugin %s registered (v2)", name)
 	pm.notifyLoaded(name)

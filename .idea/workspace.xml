@@ -4,12 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(engine): optimize state management with selective copy-on-write methods">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/05-reports/code-review-report.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/05-reports/code-review-report.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/instance.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/instance.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(register): enhance dependency management with improved load order rectification and inference" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -275,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore(docs): update Go version in README and adjust related requirements" />
     <MESSAGE value="fix(register): refine comments in Register function for clarity" />
     <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
     <MESSAGE value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
@@ -300,7 +294,8 @@
     <MESSAGE value="refactor(engine): consolidate services into engineInternals for improved structure and management" />
     <MESSAGE value="refactor(workspace): update changelist comments for improved clarity and consistency" />
     <MESSAGE value="refactor(engine): optimize state management with selective copy-on-write methods" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(engine): optimize state management with selective copy-on-write methods" />
+    <MESSAGE value="refactor(register): enhance dependency management with improved load order rectification and inference" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(register): enhance dependency management with improved load order rectification and inference" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>
