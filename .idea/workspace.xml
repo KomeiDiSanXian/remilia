@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(engine): consolidate services into engineInternals for improved structure and management" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -270,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="optimize(tests): simplify goroutine handling in circuit breaker tests and clean up unused helper functions" />
     <MESSAGE value="feat(config): add bridge functions for core/engine integration and enhance configuration structure" />
     <MESSAGE value="fix(config): rename tracing config field from Enabled to Enable and update related comments&#10;refactor(middleware): restructure RateLimit configuration and update related comments&#10;feat(bot): add asynchronous shutdown method for graceful bot termination" />
     <MESSAGE value="chore(docs): update Go version in README and adjust related requirements" />
@@ -295,7 +294,8 @@
     <MESSAGE value="refactor(tests): simplify loop constructs in test cases for improved readability" />
     <MESSAGE value="test(engine): add comprehensive tests for matcher functionality and behavior" />
     <MESSAGE value="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(middleware): simplify circuit breaker state transition logic and enhance metrics registration" />
+    <MESSAGE value="refactor(engine): consolidate services into engineInternals for improved structure and management" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(engine): consolidate services into engineInternals for improved structure and management" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>
