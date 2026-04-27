@@ -143,46 +143,44 @@ func copyExtensions(src, dst *Context) {
 	}
 }
 
+// cloneBase 创建 Context 的基础拷贝（共享字段），不含扩展存储。
+// 若原始 context 有 deadline，为其创建独立的 cancel 函数。
+func (ctx *Context) cloneBase() *Context {
+	baseCtx := stdctx.Background()
+	var cancel stdctx.CancelFunc
+	if deadline, ok := ctx.Context().Deadline(); ok {
+		baseCtx, cancel = stdctx.WithDeadline(baseCtx, deadline)
+	}
+	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
+		if cancel != nil {
+			newCtx := &Context{
+				ctx:            baseCtx,
+				cancel:         cancel,
+				matcher:        ctx.matcher,
+				platformEvent:  ctx.platformEvent,
+				platformSender: ctx.platformSender,
+				platformCaps:   ctx.platformCaps,
+			}
+			newCtx.ctxMu.Lock()
+			newCtx.ctx = trace.ContextWithSpan(newCtx.ctx, span)
+			newCtx.ctxMu.Unlock()
+			return newCtx
+		}
+		baseCtx = trace.ContextWithSpan(baseCtx, span)
+	}
+	return &Context{
+		ctx:            baseCtx,
+		cancel:         cancel,
+		matcher:        ctx.matcher,
+		platformEvent:  ctx.platformEvent,
+		platformSender: ctx.platformSender,
+		platformCaps:   ctx.platformCaps,
+	}
+}
+
 // Clone 克隆 Context 用于异步操作
 func (ctx *Context) Clone() *Context {
-	newStdCtx := stdctx.Background()
-
-	if deadline, ok := ctx.Context().Deadline(); ok {
-		var cancel stdctx.CancelFunc
-		newStdCtx, cancel = stdctx.WithDeadline(newStdCtx, deadline)
-		// 存储 cancel 函数，在 ReleaseContext() 中调用以释放 runtime timer 资源
-		newCtx := &Context{
-			ctx:            newStdCtx,
-			cancel:         cancel, // 不再丢弃
-			matcher:        ctx.matcher,
-			platformEvent:  ctx.platformEvent,
-			platformSender: ctx.platformSender,
-			platformCaps:   ctx.platformCaps,
-		}
-
-		if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
-			newCtx.ctxMu.Lock()
-			newCtx.ctx = trace.ContextWithSpan(newStdCtx, span)
-			newCtx.ctxMu.Unlock()
-		}
-
-		copyExtensions(ctx, newCtx)
-		return newCtx
-	}
-
-	// 直接构建 newCtx，无 cancel 函数
-	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
-		newStdCtx = trace.ContextWithSpan(newStdCtx, span)
-	}
-
-	newCtx := &Context{
-		ctx:            newStdCtx,
-		matcher:        ctx.matcher,
-		platformEvent:  ctx.platformEvent,  // 保留平台无关事件引用
-		platformSender: ctx.platformSender, // 保留平台发送器，使 Reply() 在克隆后仍可用
-		platformCaps:   ctx.platformCaps,   // B1 fix: 保留平台能力声明，避免克隆后渐进增强失效
-	}
-
+	newCtx := ctx.cloneBase()
 	copyExtensions(ctx, newCtx)
 	return newCtx
 }

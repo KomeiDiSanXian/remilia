@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
@@ -74,24 +74,14 @@ func newDegradationMetrics(reg prometheus.Registerer) *degradationMetrics {
 		}, []string{"from_level", "to_level"}),
 	}
 	// 忽略 AlreadyRegisteredError：允许同名指标的多实例（取已注册的那个）
-	mustOrGet := func(c prometheus.Collector) prometheus.Collector {
-		if err := reg.Register(c); err != nil {
-			if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
-				return are.ExistingCollector
-			}
-			// 其他错误（如命名非法）直接 panic，开发期即可发现
-			panic(err)
-		}
-		return c
-	}
-	m.levelGauge = mustOrGet(m.levelGauge).(prometheus.Gauge)
-	m.activeGauge = mustOrGet(m.activeGauge).(prometheus.Gauge)
-	m.eventsTotal = mustOrGet(m.eventsTotal).(*prometheus.CounterVec)
-	m.triggersTotal = mustOrGet(m.triggersTotal).(*prometheus.CounterVec)
-	m.cpuGauge = mustOrGet(m.cpuGauge).(prometheus.Gauge)
-	m.memoryGauge = mustOrGet(m.memoryGauge).(prometheus.Gauge)
-	m.goroutinesGauge = mustOrGet(m.goroutinesGauge).(prometheus.Gauge)
-	m.recoveriesTotal = mustOrGet(m.recoveriesTotal).(*prometheus.CounterVec)
+	m.levelGauge = inframetrics.MustRegisterOrGet(reg, m.levelGauge).(prometheus.Gauge)
+	m.activeGauge = inframetrics.MustRegisterOrGet(reg, m.activeGauge).(prometheus.Gauge)
+	m.eventsTotal = inframetrics.MustRegisterOrGet(reg, m.eventsTotal).(*prometheus.CounterVec)
+	m.triggersTotal = inframetrics.MustRegisterOrGet(reg, m.triggersTotal).(*prometheus.CounterVec)
+	m.cpuGauge = inframetrics.MustRegisterOrGet(reg, m.cpuGauge).(prometheus.Gauge)
+	m.memoryGauge = inframetrics.MustRegisterOrGet(reg, m.memoryGauge).(prometheus.Gauge)
+	m.goroutinesGauge = inframetrics.MustRegisterOrGet(reg, m.goroutinesGauge).(prometheus.Gauge)
+	m.recoveriesTotal = inframetrics.MustRegisterOrGet(reg, m.recoveriesTotal).(*prometheus.CounterVec)
 	return m
 }
 

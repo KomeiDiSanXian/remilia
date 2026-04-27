@@ -179,12 +179,12 @@ type Descriptor struct {
 
 // --- Descriptor 辅助方法 ---
 
-// effectiveMeta 返回元数据（Meta 为 nil 时返回零值）
-func (d *Descriptor) effectiveMeta() Metadata {
+// effectiveMeta 返回元数据指针（Meta 为 nil 时返回 nil）
+func (d *Descriptor) effectiveMeta() *Metadata {
 	if d.Meta != nil {
-		return *d.Meta
+		return d.Meta
 	}
-	return Metadata{}
+	return nil
 }
 
 // effectiveAdvanced 返回高级选项（Advanced 为 nil 时返回零值）
@@ -209,30 +209,6 @@ func (d *Descriptor) callTeardown(tctx *TeardownContext) error {
 		return nil
 	}
 	return d.Teardown(tctx)
-}
-
-// getReloadFunc 获取 Reload 函数
-func (d *Descriptor) getReloadFunc() ReloadFunc {
-	if d.Advanced != nil {
-		return d.Advanced.Reload
-	}
-	return nil
-}
-
-// getSaveStateFunc 获取 SaveState 函数
-func (d *Descriptor) getSaveStateFunc() SaveStateFunc {
-	if d.Advanced != nil {
-		return d.Advanced.SaveState
-	}
-	return nil
-}
-
-// getRestoreStateFunc 获取 RestoreState 函数
-func (d *Descriptor) getRestoreStateFunc() RestoreStateFunc {
-	if d.Advanced != nil {
-		return d.Advanced.RestoreState
-	}
-	return nil
 }
 
 // getOnDependencyReloaded 获取 OnDependencyReloaded 回调

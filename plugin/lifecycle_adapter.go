@@ -38,7 +38,16 @@ func (mc *ManagerComponent) Name() string {
 }
 
 // OnStart 调用 pm.StartAll()，按拓扑顺序 Setup 所有已注册插件（实现 lifecycle.Component）。
-func (mc *ManagerComponent) OnStart(_ context.Context) error {
+// ctx 用于控制操作的超时，发生超时时返回 ctx.Err()。
+//
+// 注意：pm.StartAll() 当前不接受 context 参数，超时需要在调用层通过 ctx.Done 检查。
+// TODO: 将 context.Context 参数传递给 pm.StartAll()，使超时控制传递到插件 Setup。
+func (mc *ManagerComponent) OnStart(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	return mc.pm.StartAll()
 }
 
@@ -51,6 +60,15 @@ func (mc *ManagerComponent) OnRun(ctx context.Context) error {
 }
 
 // OnStop 调用 pm.StopAll()，逆序 Teardown 所有插件（实现 lifecycle.Component）。
-func (mc *ManagerComponent) OnStop(_ context.Context) error {
+// ctx 用于控制操作的超时。
+//
+// 注意：pm.StopAll() 当前不接受 context 参数。
+// TODO: 将 context.Context 参数传递给 pm.StopAll()，使超时控制传递到插件 Teardown。
+func (mc *ManagerComponent) OnStop(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	return mc.pm.StopAll()
 }

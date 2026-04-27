@@ -17,9 +17,12 @@ import (
 //
 // eventWg 保证 Shutdown 等待所有正在处理的事件完成：
 //   - eventWg.Add 在函数入口，确保 Shutdown 的 eventWg.Wait 看到所有活跃事件
-//   - 无 shutdown 检查：生命周期保证适配器在 engine 之前停止，关闭时无新事件
+//   - 若 Shutdown 已调用（shutdown 标志已设置），直接返回，避免关闭后的事件流入处理
 //   - 若事件在 adapter 停止后到达，eventWg 也会等待其完成
 func (e *Engine) ProcessEvent(ctx *context.Context) {
+	if e.shutdown.Load() {
+		return
+	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
@@ -131,24 +134,19 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	if atomic.LoadInt32(&m.rt.isTemp) == 0 {
 		return
 	}
+	// 临时 matcher：按使用次数自动删除。
+	// 此时已通过 isTemp == 1 检查（第 134 行），且 m.rt.mu 保护 useCount/deleted 的原子性。
+	if atomic.LoadInt32(&m.rt.isTemp) == 0 {
+		return
+	}
 	m.rt.mu.Lock()
-	if atomic.LoadInt32(&m.rt.isTemp) == 1 && m.rt.maxUseCount > 0 && !m.rt.deleted.Load() {
+	if m.rt.maxUseCount > 0 && !m.rt.deleted.Load() {
 		m.rt.useCount++
 		if m.rt.useCount >= m.rt.maxUseCount {
 			m.rt.deleted.Store(true)
-			isTemp := atomic.LoadInt32(&m.rt.isTemp) == 1
 			m.rt.mu.Unlock()
 
-			engine := e
-			if isTemp {
-				engine.services.tempManager.Remove(m)
-			} else {
-				select {
-				case engine.services.pendingDeleteCh <- m:
-				default:
-					logger.Debugf("[engine] Pending delete channel full, matcher %p (source: %s) marked for cleanup", m, m.Source)
-				}
-			}
+			e.services.tempManager.Remove(m)
 			return
 		}
 	}
@@ -402,11 +400,12 @@ func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
 	idx := make([]int, k)
 
 	for {
-		minP := uint(999999999)
+		var minP uint = 0
 		winner := -1
 		for j := range k {
 			if idx[j] < len(lists[j]) {
-				if p := lists[j][idx[j]].getPriority(); p < minP {
+				p := lists[j][idx[j]].getPriority()
+				if winner == -1 || p < minP {
 					minP = p
 					winner = j
 				}

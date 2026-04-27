@@ -157,7 +157,6 @@ func SimpleDedup() eventctx.Middleware {
 		MaxSize:         10000,
 		DefaultTTL:      5 * time.Minute,
 		CleanupInterval: time.Minute,
-		StrictMode:      false,
 	}
 	filter := NewDedupFilter(config)
 	return Dedup(filter)
@@ -173,7 +172,6 @@ func SimpleDedupWithTTL(ttl time.Duration) eventctx.Middleware {
 		MaxSize:         10000,
 		DefaultTTL:      ttl,
 		CleanupInterval: time.Minute,
-		StrictMode:      false,
 	}
 	filter := NewDedupFilter(config)
 	return Dedup(filter)
@@ -221,6 +219,24 @@ func (s *Set) WithDedup() *Set {
 	return s
 }
 
+// WithTimeout 添加超时控制中间件
+func (s *Set) WithTimeout(timeout time.Duration) *Set {
+	s.middlewares = append(s.middlewares, Timeout(timeout))
+	return s
+}
+
+// WithRequestID 添加请求 ID 中间件
+func (s *Set) WithRequestID() *Set {
+	s.middlewares = append(s.middlewares, RequestID())
+	return s
+}
+
+// WithRetry 添加重试中间件
+func (s *Set) WithRetry(cfg RetryConfig) *Set {
+	s.middlewares = append(s.middlewares, Retry(cfg))
+	return s
+}
+
 // Build 返回所有中间件
 func (s *Set) Build() []eventctx.Middleware {
 	return s.middlewares
@@ -230,10 +246,12 @@ func (s *Set) Build() []eventctx.Middleware {
 //
 // 中间件执行顺序（从外到内）：
 //  1. Recover:        panic 恢复（最外层，保证任何 panic 都能被捕获）
-//  2. Dedup:          去重过滤（在限流前过滤重复请求，避免浪费配额）
-//  3. CircuitBreaker: 熔断器（在限流前熔断，快速失败）
-//  4. Adaptive:       自适应限流
-//  5. Logging:        日志记录（最内层，记录实际处理的请求）
+//  2. RequestID:      请求链路追踪 ID
+//  3. Timeout:        超时控制（避免 handler 无限等待）
+//  4. Dedup:          去重过滤（在限流前过滤重复请求，避免浪费配额）
+//  5. CircuitBreaker: 熔断器（在限流前熔断，快速失败）
+//  6. Adaptive:       自适应限流
+//  7. Logging:        日志记录（最内层，记录实际处理的请求）
 //
 // 使用示例:
 //
@@ -241,6 +259,8 @@ func (s *Set) Build() []eventctx.Middleware {
 func ProductionSet() []eventctx.Middleware {
 	return NewMiddlewareSet().
 		WithRecover().
+		WithRequestID().
+		WithTimeout(30 * time.Second).
 		WithDedup().
 		WithCircuitBreaker().
 		WithAdaptive().

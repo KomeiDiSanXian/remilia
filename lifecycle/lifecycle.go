@@ -681,17 +681,19 @@ func (m *Manager) ComponentStatuses() map[string]ComponentStatus {
 	return result
 }
 
-// HasUnhealthyComponents 检查是否有组件意外退出（OnRun 返回 error）
-func (m *Manager) HasUnhealthyComponents() bool {
+// HasUnhealthyComponents 检查是否有组件意外退出（OnRun 返回 error）。
+// 返回的字符串切片包含所有不健康组件的名称，可通过 len() 判断是否存在不健康组件。
+func (m *Manager) HasUnhealthyComponents() ([]string, bool) {
 	m.compStatusMu.RLock()
 	defer m.compStatusMu.RUnlock()
 
+	var unhealthy []string
 	for _, st := range m.compStatuses {
 		if !st.Running && st.ExitErr != nil {
-			return true
+			unhealthy = append(unhealthy, st.Name)
 		}
 	}
-	return false
+	return unhealthy, len(unhealthy) > 0
 }
 
 // Uptime 返回运行时间

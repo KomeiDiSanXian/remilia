@@ -103,6 +103,7 @@ func TestP0Fix3_ReloadRecreatesContext(t *testing.T) {
 			return nil, nil
 		},
 		Advanced: &Advanced{
+			Strategy: ReloadInPlace,
 			Reload: func(ctx *SetupContext) error {
 				setupCallCount++
 				return nil

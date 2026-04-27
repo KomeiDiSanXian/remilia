@@ -67,7 +67,8 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 	// 检测 Reload 函数与策略不匹配的配置错误
 	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
-		logger.Warnf("[pluginManager] Plugin %s: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
 			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace?", name, desc.Advanced.Strategy)
 	}
 

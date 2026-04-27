@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -10,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -50,21 +50,9 @@ func newCircuitBreakerMetrics(namespace string) *circuitBreakerMetrics {
 }
 
 func registerCircuitBreakerMetrics(reg prometheus.Registerer, m *circuitBreakerMetrics) {
-	if reg == nil {
-		reg = prometheus.DefaultRegisterer
-	}
-	mustOrGet := func(c prometheus.Collector) prometheus.Collector {
-		if err := reg.Register(c); err != nil {
-			if are, ok := errors.AsType[prometheus.AlreadyRegisteredError](err); ok {
-				return are.ExistingCollector
-			}
-			panic(err)
-		}
-		return c
-	}
-	m.stateGauge = mustOrGet(m.stateGauge).(prometheus.Gauge)
-	m.tripsTotal = mustOrGet(m.tripsTotal).(prometheus.Counter)
-	m.rejectTotal = mustOrGet(m.rejectTotal).(prometheus.Counter)
+	m.stateGauge = inframetrics.MustRegisterOrGet(reg, m.stateGauge).(prometheus.Gauge)
+	m.tripsTotal = inframetrics.MustRegisterOrGet(reg, m.tripsTotal).(prometheus.Counter)
+	m.rejectTotal = inframetrics.MustRegisterOrGet(reg, m.rejectTotal).(prometheus.Counter)
 }
 
 // CircuitBreaker 熔断器
@@ -238,68 +226,83 @@ func (cb *CircuitBreaker) canExecute() error {
 			return nil
 
 		case StateOpen:
-			// 检查是否可以进入半开状态
-			lastFail := cb.lastFailure.Load().(time.Time)
-			if !lastFail.IsZero() && time.Since(lastFail) >= cb.config.ResetTimeout {
-				// 尝试转换到半开状态 - 需要使用锁保护这个复杂操作
-				cb.mu.Lock()
-				// 再次检查状态（double-check）
-				if cb.GetState() == StateOpen {
-					// 转换状态
-					cb.halfOpenReqs.Store(1) // Count this request
-					cb.successes.Store(0)    // 重置成功计数
-					cb.halfOpenStarted.Store(time.Now())
-					cb.setStateLocked(StateHalfOpen)
-					cb.mu.Unlock()
-					return nil
-				}
-				// 状态已被其他请求改变，释放锁后重新检查
-				cb.mu.Unlock()
-				// 继续循环重新检查当前状态
+			if ok := cb.tryTransitionToHalfOpen(); ok {
+				return nil
+			}
+			// 检查后发现状态已被其他 goroutine 改变，重新循环检查
+			if cb.GetState() != StateOpen {
 				continue
 			}
 			cb.metrics.rejectTotal.Inc()
 			return errutil.ErrCircuitBreakerOpen
 
 		case StateHalfOpen:
-			// 检查半开状态是否超时
-			halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
-			if !halfOpenStart.IsZero() && cb.config.HalfOpenTimeout > 0 {
-				if time.Since(halfOpenStart) >= cb.config.HalfOpenTimeout {
-					// 半开状态超时，使用锁保护状态转换
-					cb.mu.Lock()
-					// Double-check 状态
-					if cb.GetState() == StateHalfOpen {
-						cb.lastFailure.Store(time.Now())
-						cb.setStateLocked(StateOpen)
-						cb.mu.Unlock()
-						return errutil.ErrCircuitBreakerOpen
-					}
-					cb.mu.Unlock()
-					// 状态已改变，继续循环重新检查
-					continue
-				}
+			if err := cb.checkHalfOpenExpired(); err != nil {
+				return err
 			}
-
-			// 半开状态下限制请求数量 - 使用 CAS 确保原子性，限制重试次数
-			for range 100 {
-				current := cb.halfOpenReqs.Load()
-				if current >= int32(cb.config.HalfOpenMaxRequests) {
-					return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
-				}
-				// 原子地增加计数
-				if cb.halfOpenReqs.CompareAndSwap(current, current+1) {
-					return nil
-				}
-				// CAS 失败，重试
+			if err := cb.acquireHalfOpenSlot(); err != nil {
+				return err
 			}
-			// CAS 重试次数过多，返回错误
-			return fmt.Errorf("circuit breaker: too many concurrent state transitions")
+			return nil
 
 		default:
 			return fmt.Errorf("unknown circuit breaker state: %s", state)
 		}
 	}
+}
+
+// tryTransitionToHalfOpen 检查熔断器是否应过渡到半开状态。
+// 若成功过渡返回 true；若因并发争用需要重试返回 false。
+func (cb *CircuitBreaker) tryTransitionToHalfOpen() bool {
+	lastFail := cb.lastFailure.Load().(time.Time)
+	if lastFail.IsZero() || time.Since(lastFail) < cb.config.ResetTimeout {
+		return false
+	}
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.GetState() != StateOpen {
+		return false // 状态已被其他请求改变
+	}
+	cb.halfOpenReqs.Store(1)
+	cb.successes.Store(0)
+	cb.halfOpenStarted.Store(time.Now())
+	cb.setStateLocked(StateHalfOpen)
+	logger.Debug("[CircuitBreaker] Transitioned from open to half-open")
+	return true
+}
+
+// checkHalfOpenExpired 检查半开状态是否已超时，超时则切回开启并返回错误。
+func (cb *CircuitBreaker) checkHalfOpenExpired() error {
+	halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
+	if halfOpenStart.IsZero() || cb.config.HalfOpenTimeout <= 0 {
+		return nil
+	}
+	if time.Since(halfOpenStart) < cb.config.HalfOpenTimeout {
+		return nil
+	}
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.GetState() != StateHalfOpen {
+		return nil // 状态已被其他请求改变
+	}
+	cb.lastFailure.Store(time.Now())
+	cb.setStateLocked(StateOpen)
+	logger.Debug("[CircuitBreaker] Half-open timeout expired, reopening")
+	return errutil.ErrCircuitBreakerOpen
+}
+
+// acquireHalfOpenSlot 在半开状态下原子获取一个请求槽。
+func (cb *CircuitBreaker) acquireHalfOpenSlot() error {
+	for range 100 {
+		current := cb.halfOpenReqs.Load()
+		if current >= int32(cb.config.HalfOpenMaxRequests) {
+			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
+		}
+		if cb.halfOpenReqs.CompareAndSwap(current, current+1) {
+			return nil
+		}
+	}
+	return fmt.Errorf("circuit breaker: too many concurrent state transitions")
 }
 
 // onSuccess 记录成功

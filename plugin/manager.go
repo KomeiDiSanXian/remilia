@@ -173,20 +173,26 @@ func (pm *Manager) IsStrictDeps() bool {
 // 若旧 provider 实现了 Stop() 方法，会自动调用以取消其监听，
 // 防止旧回调残留导致的双重通知。
 func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
+	// Phase 1: 先断开旧 provider 的监听、释放资源（不持锁）。
+	// 避免在持有 pm.mu 的情况下执行外部代码（Stop 可能阻塞）。
+	var oldStopFn func()
 	pm.mu.Lock()
-
-	// Phase 1: 停止旧 provider 的订阅
 	if oldProvider := pm.configProvider; oldProvider != nil {
 		if s, ok := oldProvider.(interface{ Stop() }); ok {
-			s.Stop()
+			oldStopFn = s.Stop
 		}
 	}
+	pm.mu.Unlock()
 
-	// Phase 2: 设置新引用
+	if oldStopFn != nil {
+		oldStopFn()
+	}
+
+	// Phase 2–4: 持锁执行替换原子操作
+	pm.mu.Lock()
+
 	pm.configProvider = cp
 
-	// Phase 3: 先全量替换已有插件的 Config（在注册回调之前执行）。
-	// 这样即使 Phase 4 同步触发 propagateConfigChange，看到的数据也是最新的。
 	if cp != nil {
 		for _, inst := range pm.plugins {
 			newConfig := NewPluginConfigFromProvider(inst.Name(), cp)
@@ -194,9 +200,7 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 		}
 	}
 
-	// Phase 4: 注册回调。
-	// 若用户实现的 OnConfigChange 同步触发回调，propagateConfigChange 的 TryRLock
-	// 会失败返回并跳过，因为 pm.mu 仍被当前 goroutine 持有。
+	// 注册回调（此时已释放写锁，propagateConfigChange 的 TryRLock 不会有死锁风险）
 	if cp != nil {
 		cp.OnConfigChange(pm.propagateConfigChange)
 	}

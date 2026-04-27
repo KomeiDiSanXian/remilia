@@ -112,7 +112,7 @@ func TestPredefinedSets(t *testing.T) {
 	t.Run("ProductionSet", func(t *testing.T) {
 		middlewares := middleware.ProductionSet()
 		assert.NotEmpty(t, middlewares)
-		assert.Len(t, middlewares, 5) // Recover, Logging, Adaptive, CircuitBreaker, Dedup
+		assert.Len(t, middlewares, 7) // Recover, RequestID, Timeout, Dedup, CircuitBreaker, Adaptive, Logging
 	})
 
 	t.Run("DevelopmentSet", func(t *testing.T) {
@@ -220,12 +220,12 @@ func TestManagedAdaptiveWithLimit_Works(t *testing.T) {
 	managed.Stop()
 }
 
-// TestProductionSet_MiddlewareOrder 测试 ProductionSet 中间件顺序
-// 顺序应为: Recover → Dedup → CircuitBreaker → Adaptive → Logging
+// TestProductionSet_MiddlewareOrder 测试 ProductionSet 中间件数量
+// 顺序应为: Recover → RequestID → Timeout → Dedup → CircuitBreaker → Adaptive → Logging
 func TestProductionSet_MiddlewareOrder(t *testing.T) {
 	middlewares := middleware.ProductionSet()
-	// ProductionSet 应包含 5 个中间件
-	assert.Equal(t, 5, len(middlewares), "ProductionSet should have 5 middlewares")
+	// ProductionSet 应包含 7 个中间件
+	assert.Equal(t, 7, len(middlewares), "ProductionSet should have 7 middlewares")
 }
 
 // TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled 测试父 context 取消时自动退出

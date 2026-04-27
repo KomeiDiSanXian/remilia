@@ -43,18 +43,9 @@ type DedupConfig struct {
 	// 默认: 5 分钟
 	DefaultTTL time.Duration
 
-	// CleanupInterval 清理过期条目的间隔
+	// CleanupInterval 清理间隔
 	// 默认: 1 分钟
 	CleanupInterval time.Duration
-
-	// StrictMode 严格模式：cache 满时拒绝处理事件而不是允许通过
-	// true: 拒绝事件，返回错误
-	// false: 允许事件通过（可能重复）
-	// 默认: false
-	//
-	// Deprecated: Use DedupWithRejectMiddleware instead.
-	// Dedup() 已不再读取此字段，请直接使用 DedupWithRejectMiddleware() 实现严格模式。
-	StrictMode bool
 }
 
 // DefaultDedupConfig 返回默认配置

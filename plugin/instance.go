@@ -161,10 +161,13 @@ func (pi *Instance) Name() string { return pi.desc.Name }
 // Metadata 返回插件元数据
 func (pi *Instance) Metadata() *Metadata {
 	m := pi.desc.effectiveMeta()
+	if m == nil {
+		m = &Metadata{}
+	}
 	m.Name = pi.desc.Name
 	m.Version = pi.desc.Version
 	m.Dependencies = pi.desc.Deps
-	return &m
+	return m
 }
 
 // GetState 获取插件状态（实现 StatefulPlugin 接口）

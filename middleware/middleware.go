@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"runtime"
 	"sync"
@@ -65,24 +67,19 @@ func Recover() eventctx.Middleware {
 
 // captureStack 获取当前 goroutine 的完整堆栈信息。
 //
-// 使用自适应缓冲区（初始 4KB，不足时翻倍，上限 64KB）避免深调用栈截断。
-// 即使超过 64KB 上限，仍返回已捕获的内容并追加 "[stack truncated]" 标记。
+// 先通过 runtime.Stack(nil, false) 获取所需缓冲区大小，再一次性分配。
+// 避免自适应翻倍循环中的多次分配。上限 64KB，超过时截断并标记。
 func captureStack() string {
-	buf := make([]byte, 4096)
-	for {
-		n := runtime.Stack(buf, false)
-		if n < len(buf) {
-			// 写入量 < 缓冲区大小，说明栈信息已完整写入
-			return string(buf[:n])
-		}
-		// 缓冲区被写满，可能截断——翻倍后重试
-		newSize := len(buf) * 2
-		if newSize > 64*1024 {
-			// 超过上限，返回已有内容并标记截断
-			return string(buf[:n]) + "\n[stack truncated: exceeded 64KB limit]"
-		}
-		buf = make([]byte, newSize)
+	size := runtime.Stack(nil, false)
+	if size > 64*1024 {
+		size = 64 * 1024
 	}
+	buf := make([]byte, size)
+	n := runtime.Stack(buf, false)
+	if n == size && size >= 64*1024 {
+		return string(buf[:n]) + "\n[stack truncated: exceeded 64KB limit]"
+	}
+	return string(buf[:n])
 }
 
 // Auth 简单鉴权：阻止非白名单用户（示例）
@@ -120,14 +117,12 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 			defer ctx.SetStdContext(originalCtx)
 
 			err := next(ctx) // 同步调用，无额外 goroutine
-			if err != nil {
-				if context.Cause(stdCtx) != nil || stdCtx.Err() != nil {
-					logger.WithFields(logger.Fields{
-						"timeout":    timeout,
-						"event_type": ctx.GetEventType(),
-					}).Warn("[Timeout] Handler execution timeout")
-					return fmt.Errorf("handler timeout after %v: %w", timeout, err)
-				}
+			if err != nil && stdCtx.Err() != nil {
+				logger.WithFields(logger.Fields{
+					"timeout":    timeout,
+					"event_type": ctx.GetEventType(),
+				}).Warn("[Timeout] Handler execution timeout")
+				return fmt.Errorf("handler timeout after %v: %w", timeout, err)
 			}
 			return err
 		}
@@ -231,8 +226,15 @@ const (
 func RequestID() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			// 生成唯一 ID（使用时间戳 + 随机数）
-			requestID := fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
+			// 生成唯一 ID（16 字节 crypto/rand + hex 编码，防碰撞 + 防时间回拨）
+			var b [16]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				logger.WithError(err).Warn("[RequestID] Failed to generate random ID, falling back to timestamp")
+				requestID := fmt.Sprintf("%d", time.Now().UnixNano())
+				ctx.Set(CtxKeyRequestID, requestID)
+				return next(ctx)
+			}
+			requestID := hex.EncodeToString(b[:])
 
 			// 存储到 Context（V2 sugar）
 			ctx.Set(CtxKeyRequestID, requestID)
@@ -372,11 +374,32 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 					delete(s.buckets, k)
 				}
 			}
-			// 如果仍超过上限，快速删除少量条目（无需线性排序）
-			for len(s.buckets) > config.MaxBuckets/numShards+1 {
-				for k := range s.buckets {
-					delete(s.buckets, k)
-					break
+			// 如果仍超过上限，淘汰最久未访问的条目（LRU），
+			// 避免 map 迭代顺序不可预测导致误删高频活跃 bucket。
+			maxPerShard := config.MaxBuckets/numShards + 1
+			if len(s.buckets) > maxPerShard {
+				var eldestKey string
+				var eldestTime time.Time
+				first := true
+				overflow := len(s.buckets) - maxPerShard
+				for k, v := range s.buckets {
+					if first || v.lastVisit.Before(eldestTime) {
+						eldestKey = k
+						eldestTime = v.lastVisit
+					}
+					first = false
+				}
+				delete(s.buckets, eldestKey)
+				// 若仍超额（极端情况），再次淘汰
+				if overflow > 1 {
+					for k, v := range s.buckets {
+						if first || v.lastVisit.Before(eldestTime) {
+							eldestKey = k
+							eldestTime = v.lastVisit
+						}
+						first = false
+					}
+					delete(s.buckets, eldestKey)
 				}
 			}
 			s.mu.Unlock()

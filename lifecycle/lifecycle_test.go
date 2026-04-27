@@ -415,8 +415,8 @@ func TestManager_ComponentStatuses(t *testing.T) {
 	}
 
 	// HasUnhealthyComponents 应返回 true
-	if !manager.HasUnhealthyComponents() {
-		t.Error("should have unhealthy components")
+	if names, unhealthy := manager.HasUnhealthyComponents(); !unhealthy {
+		t.Error("should have unhealthy components, got names:", names)
 	}
 
 	// 正常停止
@@ -444,8 +444,8 @@ func TestManager_ComponentStatuses_AllHealthy(t *testing.T) {
 		t.Error("comp should be running")
 	}
 
-	if manager.HasUnhealthyComponents() {
-		t.Error("should not have unhealthy components")
+	if names, unhealthy := manager.HasUnhealthyComponents(); unhealthy {
+		t.Error("should not have unhealthy components, got names:", names)
 	}
 
 	_ = manager.Stop(context.Background())
