@@ -107,16 +107,17 @@
 | # | 级别 | 描述 | 状态 |
 |---|------|------|------|
 | X1 | **Minor** | **Prometheus 重复注册模式重复**：`degradation.go:77-86` 和 `circuitbreaker.go:56-68` 实现了完全相同的 `mustOrGet` 逻辑。建议提取为 `infra/metrics` 包的公开函数 `MustRegisterOrGet`。 | ✅ 已修复 |
-| X2 | **Minor** | **缺少 context 超时传播的一致性**：`lifecycle.Start()` 使用 `context.WithoutCancel(ctx)` 剥离超时后启动 OnRun，意味着 OnRun 不受原始 ctx 超时控制——这是有意设计。但 `NewDedupFilterWithContext` 则原生接受外部 context 取消。两种模式缺少文档统一说明，新增组件容易混淆。 | ❌ 未处理（需统一文档） |
+| X2 | **Minor** | **缺少 context 超时传播的一致性**：`lifecycle.Start()` 使用 `context.WithoutCancel(ctx)` 剥离超时后启动 OnRun，意味着 OnRun 不受原始 ctx 超时控制——这是有意设计。但 `NewDedupFilterWithContext` 则原生接受外部 context 取消。两种模式缺少文档统一说明，新增组件容易混淆。 | ✅ 已修复：新增 `docs/03-architecture/CONTEXT_PROPAGATION.md` 统一说明两种模式及选择指南 |
 | X3 | **Info** | **测试覆盖率**：`lifecycle/` 和 `middleware/` 在 Race 检测下有专门的 `*_race_test.go` 测试文件，但 `core/context/` 缺少对应的 race 测试。`Context.Clone()` 的并发安全性值得专门验证。 | ❌ 待实现 |
 
 ### 5.2 架构建议
 
 | # | 建议 | 说明 |
 |---|------|------|
-| XO1 | **统一 "WithContext" 模式命名**：`AdaptiveRateLimiter` 使用 `WithContext`、`DedupFilter` 使用 `WithContext`、但 `CircuitBreaker` 缺少此类构造。统一命名，确保所有有后台 goroutine 的组件都提供 `WithContext(parent context.Context)` 变体。 | API 一致性 |
+| XO1 | **统一 "WithContext" 模式命名**：`AdaptiveRateLimiter` 使用 `WithContext`、`DedupFilter` 使用 `WithContext`、但 `CircuitBreaker` 缺少此类构造。统一命名，确保所有有后台 goroutine 的组件都提供 `WithContext(parent context.Context)` 变体。 | API 一致性 | ✅ 已新增架构文档 `docs/03-architecture/CONTEXT_PROPAGATION.md`，详细说明两种 Context 传播模式及选择指南 |
 | XO2 | **增加集成测试**：当前各模块有完整单元测试，但缺少端到端测试（Bot → Lifecycle → Engine → Plugin 全流程）。可在 `tests/integration/` 下增加一个 `full_lifecycle_test.go`。 | 回归保护 |
 | XO3 | **考虑统一错误类型**：`plugin/errors.go`、`lifecycle/errors.go`、`errutil/` 各自定义错误类型。已采取的步骤：(1) `errutil.PluginError` 标记为 Deprecated，引导使用 `plugin.PluginError`；(2) 在 `errutil` 中新增 `ErrComponentStartTimeout` / `ErrComponentStopTimeout` 哨兵；(3) `StopError` 关联 `errutil.ErrComponentStopFailed`。 | 错误处理一致性 | ✅ 部分完成 |
+| XO4 | **Context 传播模式文档**：新增 `docs/03-architecture/CONTEXT_PROPAGATION.md`，统一说明 Lifecycle 分层架构和 WithContext 绑定模式两种 Context 传播路径，包含对比表、选择指南、常见错误。 | 降低混淆风险 | ✅ 已实现 |
 
 ---
 
@@ -141,8 +142,11 @@
 
 ### 修复状态 & 后续优先级
 
-**本轮已修复项（共 29 项）：**
-P3、P4、P6、M1、M2、M3、M5、M6、C1、C2、C3、C4、P1、P2、X1、L1、LO2、LO3、MO1、MO2、MO3、MO5、CO2、CO3、CO4、PO1、PO3、PO4、PO5、XO3
+**本轮已修复项（共 31 项）：**
+P3、P4、P6、M1、M2、M3、M5、M6、C1、C2、C3、C4、P1、P2、X1、X2、L1、LO2、LO3、MO1、MO2、MO3、MO5、CO2、CO3、CO4、PO1、PO3、PO4、PO5、XO3、XO4
+
+**本轮新增文档：**
+- `docs/03-architecture/CONTEXT_PROPAGATION.md` — Context 传播模式与最佳实践
 
 **待处理优先级建议：**
 

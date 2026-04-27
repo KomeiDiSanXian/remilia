@@ -75,17 +75,16 @@
 
 ---
 
-### [COMMAND_INTEGRATION_PLAN.md](./COMMAND_INTEGRATION_PLAN.md) 📝
-**命令系统集成**
+### [CONTEXT_PROPAGATION.md](./CONTEXT_PROPAGATION.md) 🔗
+**Context 传播模式**
 
 详解：
-- 命令解析器架构
-- Trie 树优化
-- 命令注册表
-- 命令路由机制
-- 性能基准测试
+- Lifecycle 分层架构（WithoutCancel + parentCtx/runCtx）
+- WithContext 组件绑定模式
+- 两种模式的对比与选择指南
+- 最佳实践与常见错误
 
-**适合**: 需要使用或扩展命令系统的开发者
+**适合**: 所有需要理解 Context 生命周期的开发者
 
 ---
 

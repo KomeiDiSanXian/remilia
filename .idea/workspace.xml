@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(register): enhance dependency management with improved load order rectification and inference" />
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="refactor(register): improve load order management and reduce lock contention during config updates" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -270,7 +270,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix(register): refine comments in Register function for clarity" />
     <MESSAGE value="feat(tests): add unit tests for Discord and Telegram adapters" />
     <MESSAGE value="feat(tests): skip long-running tests in short mode for improved test efficiency" />
     <MESSAGE value="refactor(config): remove Viper integration and simplify config provider implementation" />
@@ -295,7 +294,8 @@
     <MESSAGE value="refactor(workspace): update changelist comments for improved clarity and consistency" />
     <MESSAGE value="refactor(engine): optimize state management with selective copy-on-write methods" />
     <MESSAGE value="refactor(register): enhance dependency management with improved load order rectification and inference" />
-    <option name="LAST_COMMIT_MESSAGE" value="refactor(register): enhance dependency management with improved load order rectification and inference" />
+    <MESSAGE value="refactor(register): improve load order management and reduce lock contention during config updates" />
+    <option name="LAST_COMMIT_MESSAGE" value="refactor(register): improve load order management and reduce lock contention during config updates" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>
