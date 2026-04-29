@@ -4,13 +4,7 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): implement DisconnectNotifier for unified disconnect handling">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager_lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/manager_listeners.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_listeners.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
-    </list>
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="typo(pluginctrl): standardize logger prefix to use &quot;PluginCtrl&quot;" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -282,9 +276,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
-    <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
-    <MESSAGE value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
     <MESSAGE value="refactor(manager): enhance config provider handling and improve concurrency safety" />
     <MESSAGE value="docs: update performance analysis and benchmark documentation for clarity and accuracy" />
     <MESSAGE value="refactor(bot, pprof): improve pprof handler registration and enhance logging in event processing" />
@@ -307,7 +298,10 @@
     <MESSAGE value="feat(adapter): add VoiceChannel option to configuration" />
     <MESSAGE value="feat(adapter): implement bot identity fetching and enhance capabilities" />
     <MESSAGE value="feat(adapter): implement DisconnectNotifier for unified disconnect handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): implement DisconnectNotifier for unified disconnect handling" />
+    <MESSAGE value="typo(pluginManager): standardize logger prefix to use &quot;PluginManager&quot;" />
+    <MESSAGE value="typo(lifecycleLogger): standardize logger prefix to use &quot;Lifecycle&quot;" />
+    <MESSAGE value="typo(pluginctrl): standardize logger prefix to use &quot;PluginCtrl&quot;" />
+    <option name="LAST_COMMIT_MESSAGE" value="typo(pluginctrl): standardize logger prefix to use &quot;PluginCtrl&quot;" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

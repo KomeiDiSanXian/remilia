@@ -540,10 +540,7 @@ func (pm *Manager) rectifyLoadOrder(instances []*Instance) {
 			}
 		}
 		// 在 dependent 前面插入 dep
-		insertAt := instPos
-		if insertAt > len(newOrder) {
-			insertAt = len(newOrder)
-		}
+		insertAt := min(instPos, len(newOrder))
 		newOrder = append(newOrder[:insertAt], append([]string{p.dep}, newOrder[insertAt:]...)...)
 		pm.loadOrder = newOrder
 
