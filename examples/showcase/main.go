@@ -165,7 +165,6 @@ func main() {
 		conversation.New(),
 		help.New(),
 		admin.New(),
-		// ── 新插件 ──────────────────────────────────────────────────────────
 		builtinstorage.New(infrastorage.WithDSN("data/showcase.db")),
 		bcPlugin.Descriptor(),
 		sqPlugin,
