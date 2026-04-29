@@ -34,6 +34,7 @@ func milkyCapabilities() platform.Capabilities {
 		ThreadReply:     true,
 		TypingIndicator: false,
 		MentionAll:      true,
+		VoiceChannel:    false,
 	}
 }
 
