@@ -139,6 +139,10 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.MessageDeleteEvent:
 		e.kind = platform.EventKindMessageDelete
 		e.populateMessageDelete(detail)
+	// ── 消息审核事件 ────────────────────────────────────────────────────────
+	case dto.MessageAudit:
+		e.kind = platform.EventKindMessageAudit
+		e.populateMessageAudit(detail)
 	default:
 		e.kind = platform.EventKindUnknown
 	}
@@ -362,6 +366,33 @@ func (e *qqEvent) populateMessageDelete(detail json.RawMessage) {
 	}
 	e.sender = platform.UserInfo{
 		ID: results[3].String(),
+	}
+}
+
+// populateMessageAudit 解析消息审核事件（MESSAGE_AUDIT）。
+func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"audit_id",     // [0]
+		"message_id",   // [1]
+		"guild_id",     // [2]
+		"channel_id",   // [3]
+		"audit_result", // [4]
+		"create_time",  // [5]
+	)
+	e.id = results[1].String() // 被审核的消息 ID
+	e.chat = platform.ChatInfo{
+		ID:       results[3].String(),
+		ParentID: results[2].String(),
+		IsGroup:  true,
+	}
+	e.content = results[0].String() // audit_id 作为 content 供 handler 匹配
+	if ts := results[5].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
 	}
 }
 

@@ -34,6 +34,7 @@ const (
 	MessageCreate       EventType = "MESSAGE_CREATE"        // 频道内消息（需申请权限）
 	MessageDeleteEvent  EventType = "MESSAGE_DELETE"        // 频道消息删除（撤回）
 	DirectMessageCreate EventType = "DIRECT_MESSAGE_CREATE" // 频道私信消息
+	MessageAudit        EventType = "MESSAGE_AUDIT"         // 消息审核结果
 )
 
 // EventID 事件 ID
@@ -352,4 +353,33 @@ type MessageDeleteEventData struct {
 	OpUser struct {
 		ID string `json:"id,omitempty"`
 	} `json:"op_user"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 消息审核事件（MESSAGE_AUDIT）
+//
+// 主动消息推送后，平台异步审核结果通过此事件回调。
+// intents: GUILD_MESSAGE_AUDIT
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/post_messages.html
+// ────────────────────────────────────────────────────────────────────────────
+
+// MessageAudited 消息审核结果。
+//
+// audit_result 取值：
+//   - 0：未审核（审核中）
+//   - 1：审核通过
+//   - 2：审核拒绝
+type MessageAudited struct {
+	// AuditID 审核唯一标识
+	AuditID string `json:"audit_id,omitempty"`
+	// MessageID 被审核的消息 ID
+	MessageID string `json:"message_id,omitempty"`
+	// GuildID 频道 ID
+	GuildID string `json:"guild_id,omitempty"`
+	// ChannelID 子频道 ID
+	ChannelID string `json:"channel_id,omitempty"`
+	// AuditResult 审核结果：0=未审核，1=通过，2=拒绝
+	AuditResult int `json:"audit_result,omitempty"`
+	// CreateTime 审核时间（RFC3339 格式）
+	CreateTime string `json:"create_time,omitempty"`
 }

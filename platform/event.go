@@ -116,6 +116,13 @@ const (
 	//
 	// QQ: GUILD_UPDATE；Discord: guild_update
 	EventKindGuildChange EventKind = "GUILD_CHANGE"
+
+	// ── 消息审核 ───────────────────────────────────────────────────────────
+
+	// EventKindMessageAudit 消息审核结果通知。
+	//
+	// QQ: MESSAGE_AUDIT（主动消息推送后的审核结果回调）
+	EventKindMessageAudit EventKind = "MESSAGE_AUDIT"
 )
 
 // GroupRole 发送者在当前群/频道中的角色等级。
