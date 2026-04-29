@@ -86,6 +86,11 @@ type WebhookAdapter struct {
 	// META 信令到达后更新的代理路由 URL 列表（实验性）
 	proxyMu   sync.RWMutex
 	proxyURLs []string
+
+	// BotIdentity（从配置直接获取）
+	// RecoverableAdapter
+	disconnMu  sync.Mutex
+	disconnFns []func(error)
 }
 
 // NewWebhookAdapter 根据给定配置创建一个新的 WebhookAdapter。
@@ -214,6 +219,34 @@ func (a *WebhookAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	}
 }
 
+// ── platform.BotIdentity ─────────────────────────────────────────────────────
+
+// BotID 返回机器人的用户 ID（来自 cfg.UserID）。
+func (a *WebhookAdapter) BotID() string { return a.cfg.UserID }
+
+// BotName 返回机器人显示名称（WebHook 模式下无名称信息）。
+func (a *WebhookAdapter) BotName() string { return "" }
+
+// ── platform.RecoverableAdapter ──────────────────────────────────────────────
+
+// OnDisconnect 注册一个回调函数，在 webhook 服务发生通信错误时调用。
+func (a *WebhookAdapter) OnDisconnect(fn func(error)) (unregister func()) {
+	if fn == nil {
+		return func() {}
+	}
+	a.disconnMu.Lock()
+	idx := len(a.disconnFns)
+	a.disconnFns = append(a.disconnFns, fn)
+	a.disconnMu.Unlock()
+	return func() {
+		a.disconnMu.Lock()
+		if idx < len(a.disconnFns) {
+			a.disconnFns[idx] = nil
+		}
+		a.disconnMu.Unlock()
+	}
+}
+
 // Stop 优雅地关闭 WebHook HTTP 服务端。
 func (a *WebhookAdapter) Stop(ctx stdctx.Context) error {
 	a.mu.Lock()
@@ -338,4 +371,8 @@ func (a *WebhookAdapter) ProxyURLs() []string {
 // 编译期接口断言
 // ─────────────────────────────────────────────────────────────────────────────
 
-var _ platform.Adapter = (*WebhookAdapter)(nil)
+var (
+	_ platform.Adapter            = (*WebhookAdapter)(nil)
+	_ platform.BotIdentity        = (*WebhookAdapter)(nil)
+	_ platform.RecoverableAdapter = (*WebhookAdapter)(nil)
+)

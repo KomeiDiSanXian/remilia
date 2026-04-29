@@ -195,6 +195,24 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			}
 			return
 
+		case "link":
+			// 外部资源链接：渲染为 "链接: url"，同时加入附件
+			src := attrs["src"]
+			if src == "" {
+				src = attrs["url"]
+			}
+			if src != "" {
+				text.WriteString("[链接: " + src + "]")
+				*attachments = append(*attachments, platform.InboundAttachment{
+					URL:  src,
+					Name: attrs["title"],
+				})
+			}
+			for c := n.FirstChild; c != nil; c = c.NextSibling {
+				traverseNodes(c, text, attachments)
+			}
+			return
+
 		case "file":
 			att := platform.InboundAttachment{
 				URL:  attrs["src"],
