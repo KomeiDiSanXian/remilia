@@ -41,6 +41,8 @@ const PlatformID = "satori"
 //   - platform.RecoverableAdapter（通过 OnDisconnect）
 //   - platform.BotIdentity        （通过从 Login 获取 BotID / BotName）
 type Adapter struct {
+	platform.DisconnectNotifier
+
 	cfg    Config
 	client *Client
 	sender *satoriSender
@@ -59,10 +61,6 @@ type Adapter struct {
 	// READY / META 信令到达后填充的代理路由 URL 列表（实验性）
 	proxyMu   sync.RWMutex
 	proxyURLs []string
-
-	// 断线回调（RecoverableAdapter 接口）
-	disconnMu  sync.Mutex
-	disconnFns []func(error)
 }
 
 // NewAdapter 根据给定配置创建一个新的 Satori Adapter。
@@ -97,17 +95,15 @@ func (a *Adapter) Platform() string {
 // Sender 返回 Satori 消息发送器。
 func (a *Adapter) Sender() platform.Sender { return a.sender }
 
-// Capabilities 返回基于 Satori 平台的功能特性集合。
-// 由于 Satori 是协议抽象层，此处上报较广泛的能力集；
-// 实际支持情况取决于底层 SDK 和具体平台。
-func (a *Adapter) Capabilities() platform.Capabilities {
+// satoriCapabilities 返回 Satori 平台的功能特性集合。
+func satoriCapabilities() platform.Capabilities {
 	return platform.Capabilities{
 		Markdown:        true,
-		Buttons:         true, // Satori 中为实验性功能
+		Buttons:         true,
 		MultiAttachment: true,
 		MessageEdit:     true,
 		MessageDelete:   true,
-		FileUpload:      true, // 通过 upload.create API 实现（实验性）
+		FileUpload:      true,
 		GuildSupport:    true,
 		Reactions:       true,
 		ThreadReply:     true,
@@ -115,6 +111,9 @@ func (a *Adapter) Capabilities() platform.Capabilities {
 		MentionAll:      true,
 	}
 }
+
+// Capabilities 返回 Satori 平台的功能特性集合。
+func (a *Adapter) Capabilities() platform.Capabilities { return satoriCapabilities() }
 
 // IsRunning 当 Adapter 的 WebSocket 循环处于活动状态时返回 true。
 func (a *Adapter) IsRunning() bool {
@@ -151,17 +150,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 		a.mu.Unlock()
 	}()
 
-	onDisconnect := func(err error) {
-		a.disconnMu.Lock()
-		fns := make([]func(error), len(a.disconnFns))
-		copy(fns, a.disconnFns)
-		a.disconnMu.Unlock()
-		for _, fn := range fns {
-			fn(err)
-		}
-	}
-
-	ws := newWSConn(a.cfg, a.Platform(), handler, onDisconnect)
+	ws := newWSConn(a.cfg, a.Platform(), handler, a.NotifyDisconnect)
 	// 设置 READY 回调：解析登录信息，更新 BotID/BotName。
 	ws.onReady = func(logins []*Login) {
 		a.loginMu.Lock()
@@ -220,33 +209,7 @@ func (a *Adapter) Stop(_ stdctx.Context) error {
 	return nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// platform.RecoverableAdapter
-// ─────────────────────────────────────────────────────────────────────────────
-
-// OnDisconnect 注册一个回调函数，当 WebSocket 连接意外断开时调用。
-// 返回一个用于注销该回调的函数。
-func (a *Adapter) OnDisconnect(fn func(error)) (unregister func()) {
-	if fn == nil {
-		return func() {}
-	}
-	a.disconnMu.Lock()
-	a.disconnFns = append(a.disconnFns, fn)
-	idx := len(a.disconnFns) - 1
-	a.disconnMu.Unlock()
-
-	return func() {
-		a.disconnMu.Lock()
-		defer a.disconnMu.Unlock()
-		if idx < len(a.disconnFns) {
-			a.disconnFns[idx] = nil
-		}
-	}
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// platform.BotIdentity
-// ─────────────────────────────────────────────────────────────────────────────
+// ── platform.BotIdentity ─────────────────────────────────────────────────────
 
 // BotID 返回从 Satori SDK 登录信息中获取的机器人用户 ID。
 // 若尚未收到登录信息，则回退到 cfg.UserID。

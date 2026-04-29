@@ -33,6 +33,8 @@ import (
 //
 // 支持多个同时连接；所有连接的事件均分发给同一个 handler。
 type ReverseWSAdapter struct {
+	platform.DisconnectNotifier
+
 	config Config
 
 	mu      sync.RWMutex
@@ -44,9 +46,10 @@ type ReverseWSAdapter struct {
 	wg       sync.WaitGroup
 
 	// 活跃连接列表
-	connMu  sync.Mutex
-	conns   map[*wsConn]struct{}
-	handler func(platform.Event)
+	connMu      sync.Mutex
+	conns       map[*wsConn]struct{}
+	primarySndr platform.Sender // 第一个连接的 sender，避免遍历 map
+	handler     func(platform.Event)
 
 	// 机器人身份（由第一个连接的客户端填充）
 	botID   string
@@ -81,8 +84,8 @@ func (a *ReverseWSAdapter) Platform() string { return PlatformID }
 func (a *ReverseWSAdapter) Sender() platform.Sender {
 	a.connMu.Lock()
 	defer a.connMu.Unlock()
-	for c := range a.conns {
-		return c.sender
+	if a.primarySndr != nil {
+		return a.primarySndr
 	}
 	return &platform.NoopSender{}
 }
@@ -232,6 +235,9 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	a.connMu.Lock()
 	a.conns[c] = struct{}{}
+	if a.primarySndr == nil {
+		a.primarySndr = sender
+	}
 	a.connMu.Unlock()
 
 	logger.Infof("[onebot.ReverseWSAdapter] New connection from %s", r.RemoteAddr)
@@ -255,6 +261,14 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		a.connMu.Lock()
 		delete(a.conns, c)
+		if a.primarySndr == sender {
+			// 重新查找下一个连接的 sender
+			a.primarySndr = nil
+			for cc := range a.conns {
+				a.primarySndr = cc.sender
+				break
+			}
+		}
 		a.connMu.Unlock()
 		_ = conn.Close()
 		logger.Infof("[onebot.ReverseWSAdapter] Connection closed: %s", r.RemoteAddr)
@@ -278,7 +292,7 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			ev, err := parseEvent(msg)
 			if err != nil {
-				logger.WithError(err).Debug("[onebot.ReverseWSAdapter] Parse error")
+				logger.WithError(err).Warn("[onebot.ReverseWSAdapter] Failed to parse event")
 				continue
 			}
 			if ev.Kind() != platform.EventKindUnknown {

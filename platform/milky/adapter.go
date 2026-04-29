@@ -57,22 +57,21 @@ func milkyCapabilities() platform.Capabilities {
 //	})
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(adapter).Build()
 type Adapter struct {
+	platform.DisconnectNotifier
+
 	cfg     Config
 	client  *milkyClient
 	sender  *milkySender
 	workers int
 
-	mu      sync.RWMutex
-	running bool
-	cancel  stdctx.CancelFunc
+	mu       sync.RWMutex
+	running  bool
+	cancel   stdctx.CancelFunc
+	starting atomic.Bool
 
 	// 机器人身份信息（首次连接时通过 get_login_info 填充）
 	botID   atomic.Value // string
 	botName atomic.Value // string
-
-	// RecoverableAdapter
-	disconnectMu  sync.Mutex
-	disconnectFns []func(error)
 }
 
 // NewAdapter 使用给定配置创建 Adapter。
@@ -135,6 +134,11 @@ func (a *Adapter) BotName() string {
 // 阻塞直到 ctx 被取消或发生致命错误。
 // 根据 Config.ReconnectDelay 和 Config.MaxReconnect 配置，在网络断开时自动重连。
 func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error {
+	if !a.starting.CompareAndSwap(false, true) {
+		return nil
+	}
+	defer a.starting.Store(false)
+
 	a.mu.Lock()
 	if a.running {
 		a.mu.Unlock()
@@ -237,7 +241,7 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 			logger.WithFields(logger.Fields{"platform": PlatformID}).
 				WithError(err).
 				Warn("[milky.Adapter] WebSocket dial failed, will retry")
-			a.notifyDisconnect(err)
+			a.NotifyDisconnect(err)
 
 			attempts++
 			if a.cfg.MaxReconnect > 0 && attempts > a.cfg.MaxReconnect {
@@ -266,7 +270,7 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 		logger.WithFields(logger.Fields{"platform": PlatformID}).
 			WithError(disconnectErr).
 			Warn("[milky.Adapter] WebSocket disconnected, reconnecting...")
-		a.notifyDisconnect(disconnectErr)
+		a.NotifyDisconnect(disconnectErr)
 
 		select {
 		case <-time.After(delay):
@@ -296,13 +300,12 @@ func (a *Adapter) dial(ctx stdctx.Context, wsURL string) (*websocket.Conn, error
 
 // readLoop 从 WebSocket 连接中持续读取 JSON 事件，直到连接关闭或 ctx 被取消。
 func (a *Adapter) readLoop(ctx stdctx.Context, conn *websocket.Conn, eventCh chan<- platform.Event) error {
-	errCh := make(chan error, 1)
-
+	readDone := make(chan error, 1)
 	go func() {
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
-				errCh <- err
+				readDone <- err
 				return
 			}
 
@@ -315,57 +318,19 @@ func (a *Adapter) readLoop(ctx stdctx.Context, conn *websocket.Conn, eventCh cha
 			select {
 			case eventCh <- evt:
 			case <-ctx.Done():
-				errCh <- ctx.Err()
+				readDone <- ctx.Err()
 				return
 			}
 		}
 	}()
 
 	select {
-	case err := <-errCh:
+	case err := <-readDone:
 		return err
 	case <-ctx.Done():
-		// 发送关闭帧
-		_ = conn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-			time.Now().Add(time.Second),
-		)
+		_ = conn.Close()
+		<-readDone // 等待读取 goroutine 退出
 		return ctx.Err()
-	}
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// platform.RecoverableAdapter
-// ────────────────────────────────────────────────────────────────────────────
-
-// OnDisconnect 注册一个回调函数，在意外断开连接时触发。
-func (a *Adapter) OnDisconnect(fn func(error)) (unregister func()) {
-	if fn == nil {
-		return func() {}
-	}
-	a.disconnectMu.Lock()
-	idx := len(a.disconnectFns)
-	a.disconnectFns = append(a.disconnectFns, fn)
-	a.disconnectMu.Unlock()
-	return func() {
-		a.disconnectMu.Lock()
-		defer a.disconnectMu.Unlock()
-		if idx < len(a.disconnectFns) {
-			a.disconnectFns[idx] = nil
-		}
-	}
-}
-
-func (a *Adapter) notifyDisconnect(err error) {
-	a.disconnectMu.Lock()
-	fns := make([]func(error), len(a.disconnectFns))
-	copy(fns, a.disconnectFns)
-	a.disconnectMu.Unlock()
-	for _, fn := range fns {
-		if fn != nil {
-			fn(err)
-		}
 	}
 }
 
@@ -417,12 +382,7 @@ func buildWSURL(baseURL, accessToken string) string {
 
 // safeInvoke 调用 handler，并捕获 panic 以防止 worker 崩溃。
 func safeInvoke(handler func(platform.Event), event platform.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("[milky] panic in event handler: %v", r)
-		}
-	}()
-	handler(event)
+	platform.SafeDispatch(handler, event)
 }
 
 // minDuration 返回两个时间段中较小的一个。

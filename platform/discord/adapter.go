@@ -57,6 +57,8 @@ func discordCapabilities() platform.Capabilities {
 //	adapter, err := discord.NewAdapter("BOT_TOKEN")
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(adapter).Build()
 type GatewayAdapter struct {
+	platform.DisconnectNotifier
+
 	session *discordgo.Session
 	sender  *discordSender
 	config  GatewayConfig
@@ -68,9 +70,6 @@ type GatewayAdapter struct {
 	wg      sync.WaitGroup
 
 	starting atomic.Bool
-
-	disconnectMu  sync.Mutex
-	disconnectFns []func(error)
 }
 
 // NewAdapter creates a GatewayAdapter with default configuration for the given token.
@@ -158,7 +157,7 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 
 	a.session.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {
 		logger.Warn("[discord.GatewayAdapter] Disconnected from Gateway")
-		a.notifyDisconnect(fmt.Errorf("discord: gateway disconnected"))
+		a.NotifyDisconnect(fmt.Errorf("discord: gateway disconnected"))
 	})
 
 	if err := a.session.Open(); err != nil {
@@ -202,6 +201,7 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	})
 
 	<-cancelCtx.Done()
+	close(eventCh)
 	a.wg.Wait()
 
 	a.mu.Lock()
@@ -247,36 +247,6 @@ func (a *GatewayAdapter) BotName() string {
 		return a.session.State.User.Username
 	}
 	return ""
-}
-
-// OnDisconnect implements platform.RecoverableAdapter.
-func (a *GatewayAdapter) OnDisconnect(fn func(error)) (unregister func()) {
-	if fn == nil {
-		return func() {}
-	}
-	a.disconnectMu.Lock()
-	idx := len(a.disconnectFns)
-	a.disconnectFns = append(a.disconnectFns, fn)
-	a.disconnectMu.Unlock()
-	return func() {
-		a.disconnectMu.Lock()
-		defer a.disconnectMu.Unlock()
-		if idx < len(a.disconnectFns) {
-			a.disconnectFns[idx] = nil
-		}
-	}
-}
-
-func (a *GatewayAdapter) notifyDisconnect(err error) {
-	a.disconnectMu.Lock()
-	fns := make([]func(error), len(a.disconnectFns))
-	copy(fns, a.disconnectFns)
-	a.disconnectMu.Unlock()
-	for _, fn := range fns {
-		if fn != nil {
-			fn(err)
-		}
-	}
 }
 
 // 编译期接口断言
@@ -379,10 +349,5 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 
 // safeInvoke calls handler, recovering from any panics to prevent worker crashes.
 func safeInvoke(handler func(platform.Event), event platform.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("[discord] panic in event handler: %v", r)
-		}
-	}()
-	handler(event)
+	platform.SafeDispatch(handler, event)
 }

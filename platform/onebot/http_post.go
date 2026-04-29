@@ -196,6 +196,7 @@ func (a *HTTPPostAdapter) fetchBotIdentity(ctx stdctx.Context) {
 	defer cancel()
 	info, err := a.sender.GetLoginInfo(fetchCtx)
 	if err != nil {
+		logger.WithError(err).Warn("[onebot.HTTPPostAdapter] Failed to fetch bot identity")
 		return
 	}
 	a.mu.Lock()
@@ -235,7 +236,7 @@ func (a *HTTPPostAdapter) handlePost(w http.ResponseWriter, r *http.Request) {
 	// 解析事件
 	ev, err := parseEvent(body)
 	if err != nil {
-		logger.WithError(err).Debug("[onebot.HTTPPostAdapter] Failed to parse event")
+		logger.WithError(err).Warn("[onebot.HTTPPostAdapter] Failed to parse event")
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

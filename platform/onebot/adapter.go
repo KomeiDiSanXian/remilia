@@ -35,6 +35,8 @@ import (
 //
 //	adapter := onebot.NewForwardWSAdapter(onebot.DefaultConfig("ws://127.0.0.1:6700"))
 type ForwardWSAdapter struct {
+	platform.DisconnectNotifier
+
 	config    Config
 	sender    *onebotSender
 	apiClient *wsAPIClient // 与 sender 共享，重连时更新
@@ -50,10 +52,6 @@ type ForwardWSAdapter struct {
 	// 连接成功后设置的机器人身份信息
 	botID   string
 	botName string
-
-	// 断线回调（RecoverableAdapter）
-	disconnectMu  sync.Mutex
-	disconnectFns []func(error)
 }
 
 // NewForwardWSAdapter 使用给定的 Config 创建 ForwardWSAdapter。
@@ -174,43 +172,11 @@ func (a *ForwardWSAdapter) BotName() string {
 	return a.botName
 }
 
-// ── platform.RecoverableAdapter ─────────────────────────────────────────────
-
-// OnDisconnect 注册一个在意外断线时触发的回调函数。
-func (a *ForwardWSAdapter) OnDisconnect(fn func(error)) (unregister func()) {
-	if fn == nil {
-		return func() {}
-	}
-	a.disconnectMu.Lock()
-	idx := len(a.disconnectFns)
-	a.disconnectFns = append(a.disconnectFns, fn)
-	a.disconnectMu.Unlock()
-	return func() {
-		a.disconnectMu.Lock()
-		if idx < len(a.disconnectFns) {
-			a.disconnectFns[idx] = nil
-		}
-		a.disconnectMu.Unlock()
-	}
-}
-
 // 编译时断言
 var (
 	_ platform.RecoverableAdapter = (*ForwardWSAdapter)(nil)
 	_ platform.BotIdentity        = (*ForwardWSAdapter)(nil)
 )
-
-func (a *ForwardWSAdapter) notifyDisconnect(err error) {
-	a.disconnectMu.Lock()
-	fns := make([]func(error), len(a.disconnectFns))
-	copy(fns, a.disconnectFns)
-	a.disconnectMu.Unlock()
-	for _, fn := range fns {
-		if fn != nil {
-			fn(err)
-		}
-	}
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // 重连循环
@@ -249,7 +215,7 @@ func (a *ForwardWSAdapter) runWithReconnect(ctx stdctx.Context, handler func(pla
 		}
 		if err != nil {
 			logger.WithError(err).Warn("[onebot.ForwardWSAdapter] Connection lost")
-			a.notifyDisconnect(err)
+			a.NotifyDisconnect(err)
 			attempt++
 		} else {
 			attempt = 0
@@ -351,7 +317,7 @@ func (a *ForwardWSAdapter) receiveLoop(
 
 		ev, err := parseEvent(msg)
 		if err != nil {
-			logger.WithError(err).Debug("[onebot.ForwardWSAdapter] Failed to parse event")
+			logger.WithError(err).Warn("[onebot.ForwardWSAdapter] Failed to parse event")
 			continue
 		}
 
@@ -404,12 +370,7 @@ func isAPIResponse(msg []byte) bool {
 	return probe.Retcode != nil || probe.Echo != nil
 }
 
-// safeDispatch 调用 handler，并恢复任何 panic 以防止崩溃。
+// safeDispatch 是 platform.SafeDispatch 的封装，供本包使用。
 func safeDispatch(handler func(platform.Event), ev platform.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.Errorf("[onebot] panic in event handler: %v", r)
-		}
-	}()
-	handler(ev)
+	platform.SafeDispatch(handler, ev)
 }

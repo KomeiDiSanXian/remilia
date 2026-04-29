@@ -194,16 +194,11 @@ func NewSendError(code SendErrorCode, plt, chatID, msg string, retryAfter int, c
 	}
 }
 
-// asErr 对 errors.As 的薄包装，用于提取 *SendError。
-// Go 1.26 的标准 errors.As 已完全覆盖此功能。
+// asErr 使用 Go 1.26 的 errors.AsType 提取 *SendError。
 func asErr(err error, target **SendError) bool {
-	if errors.As(err, target) {
-		return true
-	}
-	// Go 1.26 的 errors.AsType 支持泛型版本
-	if se, ok := errors.AsType[*SendError](err); ok {
+	se, ok := errors.AsType[*SendError](err)
+	if ok {
 		*target = se
-		return true
 	}
-	return false
+	return ok
 }

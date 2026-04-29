@@ -192,16 +192,7 @@ func TestAdapter_OnDisconnect_Register(t *testing.T) {
 	called := 0
 	unreg := a.OnDisconnect(func(err error) { called++ })
 
-	// Manually trigger all disconnect fns
-	a.disconnMu.Lock()
-	fns := make([]func(error), len(a.disconnFns))
-	copy(fns, a.disconnFns)
-	a.disconnMu.Unlock()
-	for _, fn := range fns {
-		if fn != nil {
-			fn(nil)
-		}
-	}
+	a.NotifyDisconnect(nil)
 
 	if called != 1 {
 		t.Errorf("OnDisconnect callback: called %d times, want 1", called)
@@ -211,15 +202,7 @@ func TestAdapter_OnDisconnect_Register(t *testing.T) {
 	unreg()
 	called = 0
 
-	a.disconnMu.Lock()
-	fns2 := make([]func(error), len(a.disconnFns))
-	copy(fns2, a.disconnFns)
-	a.disconnMu.Unlock()
-	for _, fn := range fns2 {
-		if fn != nil {
-			fn(nil)
-		}
-	}
+	a.NotifyDisconnect(nil)
 	if called != 0 {
 		t.Errorf("after Unregister: called %d times, want 0", called)
 	}
@@ -228,11 +211,16 @@ func TestAdapter_OnDisconnect_Register(t *testing.T) {
 func TestAdapter_OnDisconnect_NilCallback(t *testing.T) {
 	cfg := DefaultConfig("http://localhost:5140", "p", "u")
 	a, _ := NewAdapter(cfg)
-	unreg := a.OnDisconnect(nil) // should not panic
-	if unreg == nil {
-		t.Error("OnDisconnect(nil) should return a no-op unregister func, not nil")
-	}
-	unreg() // calling it should not panic
+
+	// nil callback should not panic
+	unreg := a.OnDisconnect(nil)
+	unreg()
+
+	// Should also not panic when nil is in the list and we fire
+	_ = a.OnDisconnect(nil)
+	_ = a.OnDisconnect(func(err error) {})
+
+	a.NotifyDisconnect(nil)
 }
 
 // ─── Stop with no running goroutine ──────────────────────────────────────────

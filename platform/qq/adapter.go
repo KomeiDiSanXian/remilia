@@ -234,12 +234,7 @@ func (a *Adapter) fetchBotIdentity(ctx stdctx.Context) {
 }
 
 func safeInvoke(handler func(platform.Event), event platform.Event) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WithField("panic", r).Error("[qq.Adapter] Handler panic recovered")
-		}
-	}()
-	handler(event)
+	platform.SafeDispatch(handler, event)
 }
 
 // ── 编译期接口断言 ────────────────────────────────────────────────────────────

@@ -72,6 +72,8 @@ func DefaultWebhookConfig(listenAddr, platform, userID string) WebhookConfig {
 // 它启动一个 HTTP 服务端监听来自 Satori SDK 的事件推送。
 // SDK 必须配置为向本 Adapter 的 URL 推送事件。
 type WebhookAdapter struct {
+	platform.DisconnectNotifier
+
 	cfg    WebhookConfig
 	client *Client       // 可选；通过 WithSendConfig 设置以支持 API 调用
 	sender *satoriSender // 若未配置 client 则为 nil
@@ -86,11 +88,6 @@ type WebhookAdapter struct {
 	// META 信令到达后更新的代理路由 URL 列表（实验性）
 	proxyMu   sync.RWMutex
 	proxyURLs []string
-
-	// BotIdentity（从配置直接获取）
-	// RecoverableAdapter
-	disconnMu  sync.Mutex
-	disconnFns []func(error)
 }
 
 // NewWebhookAdapter 根据给定配置创建一个新的 WebhookAdapter。
@@ -204,7 +201,7 @@ func (a *WebhookAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			a.notifyDisconnect(err)
+			a.NotifyDisconnect(err)
 			errCh <- err
 		} else {
 			errCh <- nil
@@ -227,38 +224,6 @@ func (a *WebhookAdapter) BotID() string { return a.cfg.UserID }
 
 // BotName 返回机器人显示名称（WebHook 模式下无名称信息）。
 func (a *WebhookAdapter) BotName() string { return "" }
-
-// ── platform.RecoverableAdapter ──────────────────────────────────────────────
-
-// OnDisconnect 注册一个回调函数，在 webhook 服务发生通信错误时调用。
-func (a *WebhookAdapter) OnDisconnect(fn func(error)) (unregister func()) {
-	if fn == nil {
-		return func() {}
-	}
-	a.disconnMu.Lock()
-	idx := len(a.disconnFns)
-	a.disconnFns = append(a.disconnFns, fn)
-	a.disconnMu.Unlock()
-	return func() {
-		a.disconnMu.Lock()
-		if idx < len(a.disconnFns) {
-			a.disconnFns[idx] = nil
-		}
-		a.disconnMu.Unlock()
-	}
-}
-
-func (a *WebhookAdapter) notifyDisconnect(err error) {
-	a.disconnMu.Lock()
-	fns := make([]func(error), len(a.disconnFns))
-	copy(fns, a.disconnFns)
-	a.disconnMu.Unlock()
-	for _, fn := range fns {
-		if fn != nil {
-			fn(err)
-		}
-	}
-}
 
 // Stop 优雅地关闭 WebHook HTTP 服务端。
 func (a *WebhookAdapter) Stop(ctx stdctx.Context) error {

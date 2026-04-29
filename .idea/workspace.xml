@@ -4,9 +4,18 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): add VoiceChannel option to configuration">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): implement bot identity fetching and enhance capabilities">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/send.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/send.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/errors.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/milky/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/milky/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/onebot/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/onebot/http_post.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/http_post.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/onebot/ws_reverse.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/ws_reverse.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/satori/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/adapter.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/satori/adapter_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/adapter_test.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/satori/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/webhook.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -284,7 +293,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(config): restructure bot configuration to use nested qq structure for improved clarity" />
     <MESSAGE value="test: add unit tests for admin, debug, and middleware components" />
     <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
     <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
@@ -309,7 +317,8 @@
     <MESSAGE value="feat(bot): add bot identity fetching and support for new message types" />
     <MESSAGE value="feat(webhook): add bot identity methods and disconnect callback support" />
     <MESSAGE value="feat(adapter): add VoiceChannel option to configuration" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): add VoiceChannel option to configuration" />
+    <MESSAGE value="feat(adapter): implement bot identity fetching and enhance capabilities" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): implement bot identity fetching and enhance capabilities" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>
