@@ -380,7 +380,7 @@ func (p *Plugin) loadFromDB() {
 	// --- 群级状态（含静默、翻转默认） ---
 	var groupStates []GroupPluginState
 	if err := p.storage.Find(&groupStates); err != nil {
-		logger.WithError(err).Warn("[pluginctrl] Failed to load group states from DB")
+		logger.WithError(err).Warn("[PluginCtrl] Failed to load group states from DB")
 	} else {
 		p.mu.Lock()
 		for _, s := range groupStates {
@@ -407,13 +407,13 @@ func (p *Plugin) loadFromDB() {
 			}
 		}
 		p.mu.Unlock()
-		logger.Infof("[pluginctrl] Loaded %d group-plugin states from DB", len(groupStates))
+		logger.Infof("[PluginCtrl] Loaded %d group-plugin states from DB", len(groupStates))
 	}
 
 	// --- 用户级状态（含全局封禁） ---
 	var userStates []UserPluginState
 	if err := p.storage.Find(&userStates); err != nil {
-		logger.WithError(err).Warn("[pluginctrl] Failed to load user states from DB")
+		logger.WithError(err).Warn("[PluginCtrl] Failed to load user states from DB")
 	} else {
 		p.mu.Lock()
 		for _, s := range userStates {
@@ -433,7 +433,7 @@ func (p *Plugin) loadFromDB() {
 			}
 		}
 		p.mu.Unlock()
-		logger.Infof("[pluginctrl] Loaded %d user-plugin states from DB", len(userStates))
+		logger.Infof("[PluginCtrl] Loaded %d user-plugin states from DB", len(userStates))
 	}
 }
 
@@ -645,7 +645,7 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 			return nil
 		}
 		if err != nil {
-			logger.Warnf("[pluginctrl] ServiceListRenderer failed: %v, falling back to text", err)
+			logger.Warnf("[PluginCtrl] ServiceListRenderer failed: %v, falling back to text", err)
 		}
 	}
 
@@ -790,7 +790,7 @@ func (l *autoWireListener) OnPluginLoaded(name string) {
 		l.p.groupResetFn(name)
 	}
 	l.p.groupWireFn(name, l.p.combinedGuard(name))
-	logger.Debugf("[pluginctrl] Auto-wired combinedGuard for plugin %q", name)
+	logger.Debugf("[PluginCtrl] Auto-wired combinedGuard for plugin %q", name)
 }
 
 func (l *autoWireListener) OnPluginUnloaded(name string) {
@@ -801,7 +801,7 @@ func (l *autoWireListener) OnPluginUnloaded(name string) {
 	// 但 engine.middlewareState.groupMiddlewares 里的条目仍然存在（minor map leak）。
 	// 此处主动清理，确保内存不随插件频繁卸载而无限累积。
 	l.p.groupResetFn(name)
-	logger.Debugf("[pluginctrl] Cleaned up combinedGuard for unloaded plugin %q", name)
+	logger.Debugf("[PluginCtrl] Cleaned up combinedGuard for unloaded plugin %q", name)
 }
 
 func (l *autoWireListener) OnPluginReloaded(_ string)                 {}
