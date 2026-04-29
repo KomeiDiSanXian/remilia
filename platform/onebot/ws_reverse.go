@@ -304,3 +304,9 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+// 编译期接口断言
+var (
+	_ platform.Adapter     = (*ReverseWSAdapter)(nil)
+	_ platform.BotIdentity = (*ReverseWSAdapter)(nil)
+)

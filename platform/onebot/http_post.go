@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,6 +54,9 @@ type HTTPPostAdapter struct {
 	server  *http.Server
 	handler func(platform.Event)
 
+	botID   string
+	botName string
+
 	starting atomic.Bool
 	wg       sync.WaitGroup
 }
@@ -83,6 +87,22 @@ func (a *HTTPPostAdapter) Capabilities() platform.Capabilities {
 		ThreadReply:   true,
 		MentionAll:    true,
 	}
+}
+
+// ── platform.BotIdentity ─────────────────────────────────────────────────────
+
+// BotID 返回机器人的 QQ 号。
+func (a *HTTPPostAdapter) BotID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botID
+}
+
+// BotName 返回机器人的昵称。
+func (a *HTTPPostAdapter) BotName() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botName
 }
 
 // IsRunning 当 HTTP 服务器处于活跃状态时返回 true。
@@ -122,6 +142,9 @@ func (a *HTTPPostAdapter) Start(ctx stdctx.Context, handler func(platform.Event)
 	if listenAddr == "" {
 		listenAddr = ":8080"
 	}
+
+	// 异步获取机器人身份信息（尽力而为）
+	go a.fetchBotIdentity(cancelCtx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.handlePost)
@@ -171,6 +194,20 @@ func (a *HTTPPostAdapter) Stop(ctx stdctx.Context) error {
 		return srv.Shutdown(ctx)
 	}
 	return nil
+}
+
+// fetchBotIdentity 调用 get_login_info 以填充 botID 和 botName。
+func (a *HTTPPostAdapter) fetchBotIdentity(ctx stdctx.Context) {
+	fetchCtx, cancel := stdctx.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	info, err := a.sender.GetLoginInfo(fetchCtx)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	a.botID = strconv.FormatInt(info.UserID, 10)
+	a.botName = info.Nickname
+	a.mu.Unlock()
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -314,6 +351,12 @@ func GetQuickOpEvent(ev platform.Event) *quickOpEvent {
 // ────────────────────────────────────────────────────────────────────────────
 // HMAC-SHA1 验签
 // ────────────────────────────────────────────────────────────────────────────
+
+// 编译期接口断言
+var (
+	_ platform.Adapter     = (*HTTPPostAdapter)(nil)
+	_ platform.BotIdentity = (*HTTPPostAdapter)(nil)
+)
 
 // verifyHMACSHA1 验证 X-Signature 头部与请求体的 HMAC-SHA1 是否匹配。
 // 头部格式为 "sha1=<hex摘要>"。

@@ -460,6 +460,17 @@ func (s *onebotSender) GetGroupMemberList(ctx stdctx.Context, groupID int64) ([]
 	return result, nil
 }
 
+// GetGroupAtAllRemain 查询群 @全体成员 剩余次数。
+func (s *onebotSender) GetGroupAtAllRemain(ctx stdctx.Context, groupID int64) (*GetGroupAtAllRemainResult, error) {
+	var result GetGroupAtAllRemainResult
+	if err := callDecoded(ctx, s.api, "get_group_at_all_remain", GetGroupAtAllRemainParams{
+		GroupID: groupID,
+	}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // GetGroupHonorInfo 获取群荣誉信息。
 // honorType 可为 "talkative"、"performer"、"legend"、"strong_newbie"、"emotion" 或 "all"。
 func (s *onebotSender) GetGroupHonorInfo(ctx stdctx.Context, groupID int64, honorType string) (*GroupHonorInfo, error) {

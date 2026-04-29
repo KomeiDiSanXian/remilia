@@ -4,10 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="fix(i18n): fix missing reload strategy and improve locale directory handling">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(gitignore): add entries for data and profile directories">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples/showcase/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/examples/showcase/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/event.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/event.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/onebot/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/message.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -285,9 +284,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(config): remove Viper integration and simplify config provider implementation" />
-    <MESSAGE value="feat(metrics): add Prometheus metrics for circuit breaker and retry mechanisms" />
-    <MESSAGE value="refactor(plugin): replace PluginCoordinator with more granular interfaces for improved dependency management" />
     <MESSAGE value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
     <MESSAGE value="refactor(engine): replace eventGate with shutdown flag and event wait group for improved performance and clarity" />
     <MESSAGE value="refactor(engine): enhance pending delete processing with done channel and cleanup management" />
@@ -310,7 +306,10 @@
     <MESSAGE value="refactor(register): improve load order management and reduce lock contention during config updates" />
     <MESSAGE value="refactor(docs): add documentation for context propagation patterns and best practices" />
     <MESSAGE value="fix(i18n): fix missing reload strategy and improve locale directory handling" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix(i18n): fix missing reload strategy and improve locale directory handling" />
+    <MESSAGE value="feat(miniapp): add encryption and signature verification for QQ MiniApp data" />
+    <MESSAGE value="typo(main): remove commented section for clarity and maintainability" />
+    <MESSAGE value="chore(gitignore): add entries for data and profile directories" />
+    <option name="LAST_COMMIT_MESSAGE" value="chore(gitignore): add entries for data and profile directories" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

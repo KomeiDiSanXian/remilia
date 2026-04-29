@@ -23,10 +23,11 @@ import "encoding/json"
 // ────────────────────────────────────────────────────────────────────────────
 
 const (
-	PostTypeMessage   = "message"
-	PostTypeNotice    = "notice"
-	PostTypeRequest   = "request"
-	PostTypeMetaEvent = "meta_event"
+	PostTypeMessage     = "message"
+	PostTypeMessageSent = "message_sent"
+	PostTypeNotice      = "notice"
+	PostTypeRequest     = "request"
+	PostTypeMetaEvent   = "meta_event"
 )
 
 // 消息类型常量
@@ -59,6 +60,7 @@ const (
 	NoticeTypeFriendAdd     = "friend_add"
 	NoticeTypeGroupRecall   = "group_recall"
 	NoticeTypeFriendRecall  = "friend_recall"
+	NoticeTypeFriendRemove  = "friend_remove"
 	NoticeTypeNotify        = "notify"
 )
 
@@ -183,6 +185,10 @@ type PrivateMessageEvent struct {
 	MessageType string        `json:"message_type"`
 	SubType     string        `json:"sub_type"` // friend, group, other
 	MessageID   int32         `json:"message_id"`
+	MessageSeq  int32         `json:"message_seq,omitempty"` // 消息序列号
+	RealID      int32         `json:"real_id,omitempty"`     // 真实消息 ID
+	TargetID    int64         `json:"target_id,omitempty"`   // 机器人自身发出的消息目标
+	TempSource  int32         `json:"temp_source,omitempty"` // 临时会话来源
 	UserID      int64         `json:"user_id"`
 	Message     MessageChain  `json:"message"`
 	RawMessage  string        `json:"raw_message"`
@@ -196,6 +202,9 @@ type GroupMessageEvent struct {
 	MessageType string         `json:"message_type"`
 	SubType     string         `json:"sub_type"` // normal, anonymous, notice
 	MessageID   int32          `json:"message_id"`
+	MessageSeq  int32          `json:"message_seq,omitempty"` // 消息序列号
+	RealID      int32          `json:"real_id,omitempty"`     // 真实消息 ID
+	TargetID    int64          `json:"target_id,omitempty"`   // 机器人自身发出的消息目标
 	GroupID     int64          `json:"group_id"`
 	UserID      int64          `json:"user_id"`
 	Anonymous   *AnonymousInfo `json:"anonymous"` // 非匿名时为 nil
@@ -608,4 +617,16 @@ type GetVersionInfoResult struct {
 // SetRestartParams 是 set_restart 的请求参数。
 type SetRestartParams struct {
 	Delay int `json:"delay,omitempty"` // 延迟毫秒数，默认 0
+}
+
+// GetGroupAtAllRemainParams 是 get_group_at_all_remain 的请求参数。
+type GetGroupAtAllRemainParams struct {
+	GroupID int64 `json:"group_id"`
+}
+
+// GetGroupAtAllRemainResult 是 get_group_at_all_remain 的响应数据。
+type GetGroupAtAllRemainResult struct {
+	CanAtAll                 bool `json:"can_at_all"`
+	RemainAtAllCountForGroup int  `json:"remain_at_all_count_for_group"`
+	RemainAtAllCountForUin   int  `json:"remain_at_all_count_for_uin"`
 }

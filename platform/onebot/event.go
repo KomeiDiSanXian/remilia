@@ -78,7 +78,7 @@ func parseEvent(raw []byte) (platform.Event, error) {
 	}
 
 	switch base.PostType {
-	case PostTypeMessage:
+	case PostTypeMessage, PostTypeMessageSent:
 		return parseMessageEvent(raw)
 	case PostTypeNotice:
 		return parseNoticeEvent(raw)
@@ -247,6 +247,15 @@ func parseNoticeEvent(raw []byte) (platform.Event, error) {
 	case NoticeTypeFriendAdd:
 		e.kind = platform.EventKindFriendAdded
 		e.rawType = "notice/friend_add"
+		e.chat = platform.ChatInfo{
+			ID:      strconv.FormatInt(ev.UserID, 10),
+			IsGroup: false,
+			IsDM:    true,
+		}
+
+	case NoticeTypeFriendRemove:
+		e.kind = platform.EventKindFriendRemoved
+		e.rawType = "notice/friend_remove"
 		e.chat = platform.ChatInfo{
 			ID:      strconv.FormatInt(ev.UserID, 10),
 			IsGroup: false,

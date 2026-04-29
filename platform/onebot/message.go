@@ -34,6 +34,12 @@ const (
 	SegTypeNode      = "node"      // 合并转发节点（发送）
 	SegTypeXML       = "xml"
 	SegTypeJSON      = "json"
+
+	// 扩展段类型（常见 OneBot 实现提供的扩展）
+	SegTypeMface    = "mface"    // 商城表情（带 emoji_package_id / emoji_id / key）
+	SegTypeMarkdown = "markdown" // Markdown 消息
+	SegTypeKeyboard = "keyboard" // 按钮交互
+	SegTypeFile     = "file"     // 文件（含 url, path, file_size 等）
 )
 
 // MessageSegment 表示 OneBot V11 消息中的单个消息段。
@@ -177,6 +183,28 @@ func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
 					URL:      u,
 					MimeType: "video/*",
 					Name:     s.Data["file"],
+				})
+			}
+		case SegTypeMface:
+			// 商城表情：若有 url 则作为附件处理
+			if u := s.Data["url"]; u != "" {
+				result = append(result, platform.InboundAttachment{
+					URL:      u,
+					MimeType: "image/*",
+					Name:     s.Data["summary"],
+				})
+			}
+		case SegTypeFile:
+			// 文件段：优先使用 url，回退到本地 path
+			u := s.Data["url"]
+			if u == "" {
+				u = s.Data["path"]
+			}
+			if u != "" {
+				result = append(result, platform.InboundAttachment{
+					URL:      u,
+					MimeType: "application/octet-stream",
+					Name:     s.Data["name"],
 				})
 			}
 		}
@@ -368,13 +396,14 @@ func OutboundToChain(msg platform.OutboundMessage) MessageChain {
 		})
 	}
 
-	// 主文本内容（优先使用 Markdown 格式）
-	text := msg.Markdown
-	if text == "" {
-		text = msg.Text
-	}
-	if text != "" {
-		chain = append(chain, textSegment(text))
+	// 主文本内容（优先使用 Markdown 段类型，否则回退到文本段）
+	if msg.Markdown != "" {
+		chain = append(chain, MessageSegment{
+			Type: SegTypeMarkdown,
+			Data: map[string]string{"content": msg.Markdown},
+		})
+	} else if msg.Text != "" {
+		chain = append(chain, textSegment(msg.Text))
 	}
 
 	// 附件 — 根据 MIME 类型映射为图片/语音/视频
@@ -408,6 +437,11 @@ func attachmentToSegment(att platform.Attachment) MessageSegment {
 		return MessageSegment{
 			Type: SegTypeVideo,
 			Data: map[string]string{"file": att.URL},
+		}
+	case strings.HasPrefix(mime, "application/") || strings.HasPrefix(mime, "text/"):
+		return MessageSegment{
+			Type: SegTypeFile,
+			Data: map[string]string{"file": att.URL, "name": att.Name},
 		}
 	default:
 		// 不支持的类型；尽力当作图片处理
