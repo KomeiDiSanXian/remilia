@@ -13,3 +13,7 @@ config.yml
 secrets/
 
 .idea/
+
+data/
+
+profile/
