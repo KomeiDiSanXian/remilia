@@ -73,7 +73,7 @@ func safeNotify(pluginName, callback string, fn func()) {
 				"plugin":   pluginName,
 				"callback": callback,
 				"panic":    r,
-			}).Error("[pluginManager] LifecycleListener panic recovered")
+			}).Error("[PluginManager] LifecycleListener panic recovered")
 		}
 	}()
 	fn()

@@ -4,18 +4,12 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): implement bot identity fetching and enhance capabilities">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): implement DisconnectNotifier for unified disconnect handling">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/discord/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/discord/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/errors.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/errors.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/milky/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/milky/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/onebot/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/onebot/http_post.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/http_post.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/onebot/ws_reverse.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/ws_reverse.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/qq/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/qq/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/satori/adapter.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/adapter.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/satori/adapter_test.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/adapter_test.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/satori/webhook.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/satori/webhook.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager_lifecycle.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_lifecycle.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/manager_listeners.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/manager_listeners.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/plugin/register.go" beforeDir="false" afterPath="$PROJECT_DIR$/plugin/register.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -143,11 +137,6 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
-  <component name="QodanaReportsService">
-    <option name="descriptions">
-      <ReportDescription localRun="true" path="C:\Users\Komei_DiSanXian\AppData\Local\Temp\qodana_output\qodana.sarif.json" reportGuid="ec583e3c-6643-4095-bce8-3363c964e80a" reportId="remilia/qodana/2026-04-06" />
-    </option>
-  </component>
   <component name="RecentsManager">
     <key name="GoDebugCoreDumpAction.RECENT_CORE_DUMP_KEY">
       <recent name="C:\Users\Komei_DiSanXian\AppData\Local\Temp\___go_build_github_com_KomeiDiSanXian_remilia_examples_showcase.DMP" />
@@ -293,7 +282,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="test: add unit tests for admin, debug, and middleware components" />
     <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
     <MESSAGE value="refactor(bot, config): improve lifecycle handling and enhance config reload logic" />
     <MESSAGE value="refactor(lifecycle): streamline plugin lifecycle management and remove redundant code" />
@@ -318,7 +306,8 @@
     <MESSAGE value="feat(webhook): add bot identity methods and disconnect callback support" />
     <MESSAGE value="feat(adapter): add VoiceChannel option to configuration" />
     <MESSAGE value="feat(adapter): implement bot identity fetching and enhance capabilities" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): implement bot identity fetching and enhance capabilities" />
+    <MESSAGE value="feat(adapter): implement DisconnectNotifier for unified disconnect handling" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): implement DisconnectNotifier for unified disconnect handling" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

@@ -96,7 +96,7 @@ func (pm *Manager) Disable(name string) error {
 
 	state := inst.GetState()
 	if state == Disabled {
-		logger.Warnf("[pluginManager] Plugin %s is already disabled", name)
+		logger.Warnf("[PluginManager] Plugin %s is already disabled", name)
 		return nil
 	}
 	if state != Loaded {
@@ -105,7 +105,7 @@ func (pm *Manager) Disable(name string) error {
 
 	pm.coordinator.DisableGroup(name)
 	inst.SetState(Disabled)
-	logger.Infof("[pluginManager] Plugin %s disabled (matchers paused, container intact)", name)
+	logger.Infof("[PluginManager] Plugin %s disabled (matchers paused, container intact)", name)
 	return nil
 }
 
@@ -123,13 +123,13 @@ func (pm *Manager) Enable(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 	if inst.GetState() != Disabled {
-		logger.Warnf("[pluginManager] Plugin %s is not disabled (state: %s)", name, inst.GetState())
+		logger.Warnf("[PluginManager] Plugin %s is not disabled (state: %s)", name, inst.GetState())
 		return nil
 	}
 
 	pm.coordinator.EnableGroup(name)
 	inst.SetState(Loaded)
-	logger.Infof("[pluginManager] Plugin %s enabled (matchers resumed)", name)
+	logger.Infof("[PluginManager] Plugin %s enabled (matchers resumed)", name)
 	return nil
 }
 
@@ -276,7 +276,7 @@ func (pm *Manager) Unregister(name string) error {
 	inst, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
-		logger.Warnf("[pluginManager] Plugin %s not found", name)
+		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
@@ -291,7 +291,7 @@ func (pm *Manager) Unregister(name string) error {
 	pm.container.Remove(name)
 	pm.mu.Unlock()
 
-	logger.Infof("[pluginManager] Plugin %s unregistered", name)
+	logger.Infof("[PluginManager] Plugin %s unregistered", name)
 	pm.notifyUnloaded(name)
 	return nil
 }
@@ -308,7 +308,7 @@ func (pm *Manager) ForceUnregister(name string) error {
 
 	if _, exists := pm.plugins[name]; !exists {
 		pm.mu.Unlock()
-		logger.Warnf("[pluginManager] ForceUnregister: plugin %s not found", name)
+		logger.Warnf("[PluginManager] ForceUnregister: plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
@@ -324,7 +324,7 @@ func (pm *Manager) ForceUnregister(name string) error {
 	pm.container.Remove(name)
 	pm.mu.Unlock()
 
-	logger.Warnf("[pluginManager] Plugin %s force unregistered (Unload skipped, engine group/cleanup done)", name)
+	logger.Warnf("[PluginManager] Plugin %s force unregistered (Unload skipped, engine group/cleanup done)", name)
 	pm.notifyUnloaded(name)
 	return nil
 }
@@ -370,11 +370,11 @@ func (pm *Manager) UnregisterCascade(name string) error {
 	}
 	dfs(name)
 
-	logger.Infof("[pluginManager] UnregisterCascade: will unregister %d plugin(s) in order: %v", len(order), order)
+	logger.Infof("[PluginManager] UnregisterCascade: will unregister %d plugin(s) in order: %v", len(order), order)
 
 	for _, n := range order {
 		if err := pm.Unregister(n); err != nil {
-			logger.WithError(err).Errorf("[pluginManager] UnregisterCascade: failed to unregister plugin %s", n)
+			logger.WithError(err).Errorf("[PluginManager] UnregisterCascade: failed to unregister plugin %s", n)
 			return fmt.Errorf("cascade unregister %s: %w", n, err)
 		}
 	}
@@ -388,19 +388,19 @@ func (pm *Manager) Reload(name string) error {
 	pm.mu.RUnlock()
 
 	if !exists {
-		logger.Warnf("[pluginManager] Plugin %s not found", name)
+		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
 
-	logger.Infof("[pluginManager] Reloading plugin %s", name)
+	logger.Infof("[PluginManager] Reloading plugin %s", name)
 
 	if err := inst.reload(pm.coordinator); err != nil {
-		logger.WithError(err).Errorf("[pluginManager] Failed to reload plugin %s", name)
+		logger.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
 		pm.notifyError(name, "reload", err)
 		return err
 	}
 
-	logger.Infof("[pluginManager] Plugin %s reloaded successfully", name)
+	logger.Infof("[PluginManager] Plugin %s reloaded successfully", name)
 	pm.notifyReloaded(name)
 
 	// 通知所有依赖了 name 插件的其他插件
@@ -435,12 +435,12 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 		if cb == nil {
 			continue
 		}
-		logger.Infof("[pluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
+		logger.Infof("[PluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
 		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待
 		pm.metaGM.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.WithField("panic", r).Errorf("[pluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
+					logger.WithField("panic", r).Errorf("[PluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
 				}
 			}()
 			cb(reloadedPlugin)
@@ -459,7 +459,7 @@ func (pm *Manager) Get(name string) (*Instance, bool) {
 		return nil, false
 	}
 	if inst.GetState() == Loading {
-		logger.Warnf("[pluginManager] Plugin %s is currently loading, please wait", name)
+		logger.Warnf("[PluginManager] Plugin %s is currently loading, please wait", name)
 		return nil, false
 	}
 	return inst, true
@@ -604,7 +604,7 @@ func (pm *Manager) FreezeContainer() {
 	if c != nil {
 		c.Freeze()
 	}
-	logger.Info("[pluginManager] Container frozen, Get/Has now use lock-free read")
+	logger.Info("[PluginManager] Container frozen, Get/Has now use lock-free read")
 }
 
 // GetEventBus 获取插件间事件总线

@@ -31,7 +31,7 @@ func (pm *Manager) StartAll() error {
 			continue // 已加载，跳过
 		}
 		if err := inst.load(); err != nil {
-			logger.WithError(err).Errorf("[pluginManager] StartAll: plugin %s failed to start", name)
+			logger.WithError(err).Errorf("[PluginManager] StartAll: plugin %s failed to start", name)
 			pm.notifyError(name, "start", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))
 		} else {
@@ -75,7 +75,7 @@ func (pm *Manager) StopAll() error {
 			continue
 		}
 		if err := inst.unload(pm.coordinator); err != nil {
-			logger.WithError(err).Errorf("[pluginManager] StopAll: plugin %s failed to stop", name)
+			logger.WithError(err).Errorf("[PluginManager] StopAll: plugin %s failed to stop", name)
 			pm.notifyError(name, "stop", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))
 		} else {

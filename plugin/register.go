@@ -32,7 +32,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		logger.Warnf("[pluginManager] Plugin %s already registered", name)
+		logger.Warnf("[PluginManager] Plugin %s already registered", name)
 		return errutil.ErrPluginAlreadyExists
 	}
 
@@ -131,7 +131,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		delete(pm.plugins, name)
 		pm.container.Remove(name)
 		pm.mu.Unlock()
-		logger.WithError(loadErr).Errorf("[pluginManager] Failed to load plugin %s", name)
+		logger.WithError(loadErr).Errorf("[PluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", loadErr)
 		return loadErr
 	}
@@ -167,7 +167,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 			if pm.strictDeps {
 				pm.mu.Unlock()
 				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
-					logger.WithError(teardownErr).Warnf("[pluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+					logger.WithError(teardownErr).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
 				}
 				pm.mu.Lock()
 				delete(pm.plugins, name)
@@ -183,7 +183,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 				"plugin":          name,
 				"undeclared_deps": undeclaredAll,
 				"declared_deps":   desc.Deps,
-			}).Warn("[pluginManager] Plugin uses dependencies not declared in Deps field")
+			}).Warn("[PluginManager] Plugin uses dependencies not declared in Deps field")
 		}
 
 		var undeclaredRequired []string
@@ -212,7 +212,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	pm.mu.Unlock()
 	// ========== Lock #3 结束 ==========
 
-	logger.Infof("[pluginManager] Plugin %s registered (v2)", name)
+	logger.Infof("[PluginManager] Plugin %s registered (v2)", name)
 	pm.notifyLoaded(name)
 	return nil
 }
@@ -254,7 +254,7 @@ func (pm *Manager) RegisterMultiple(descriptors []*Descriptor) error {
 		}
 	}
 	pm.rectifyLoadOrder(registered)
-	logger.Infof("[pluginManager] Successfully registered %d plugins in dependency order", len(sorted))
+	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(sorted))
 	return nil
 }
 
@@ -288,7 +288,7 @@ func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
 		if err := pm.Register(desc); err != nil {
 			for i := len(registered) - 1; i >= 0; i-- {
 				if rollbackErr := pm.Unregister(registered[i]); rollbackErr != nil {
-					logger.WithError(rollbackErr).Warnf("[pluginManager] Rollback failed for plugin %s", registered[i])
+					logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", registered[i])
 				}
 			}
 			pm.mu.RLock()
@@ -311,7 +311,7 @@ func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
 		}
 	}
 	pm.rectifyLoadOrder(registeredInsts)
-	logger.Infof("[pluginManager] Atomic registration of %d plugins succeeded", len(sorted))
+	logger.Infof("[PluginManager] Atomic registration of %d plugins succeeded", len(sorted))
 	return nil
 }
 
@@ -336,7 +336,7 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 		}
 	}
 
-	logger.Info("[pluginManager] Smart registration: inferring dependencies...")
+	logger.Info("[PluginManager] Smart registration: inferring dependencies...")
 
 	inferred := pm.dryRunInferDeps(descriptors)
 	enriched := mergeInferredDeps(descriptors, inferred)
@@ -355,7 +355,7 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 		}
 	}
 	pm.rectifyLoadOrder(registered)
-	logger.Infof("[pluginManager] Smart registration of %d plugins succeeded", len(sorted))
+	logger.Infof("[PluginManager] Smart registration of %d plugins succeeded", len(sorted))
 	return nil
 }
 
@@ -399,7 +399,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 					logger.WithFields(logger.Fields{
 						"plugin": desc.Name,
 						"panic":  r,
-					}).Debug("[pluginManager] DryRun: Setup panicked during dependency inference")
+					}).Debug("[PluginManager] DryRun: Setup panicked during dependency inference")
 				}
 			}()
 			_, _ = desc.callSetup(setupCtx)
@@ -530,7 +530,7 @@ func (pm *Manager) rectifyLoadOrder(instances []*Instance) {
 		logger.WithFields(logger.Fields{
 			"dep":       p.dep,
 			"dependent": p.dependent,
-		}).Warn("[pluginManager] Fixing load order: moving dependency before dependent")
+		}).Warn("[PluginManager] Fixing load order: moving dependency before dependent")
 
 		// 从 loadOrder 中移除 dep
 		newOrder := make([]string, 0, len(pm.loadOrder))
