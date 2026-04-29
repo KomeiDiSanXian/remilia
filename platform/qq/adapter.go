@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -37,6 +38,7 @@ type Webhook interface {
 type Adapter struct {
 	webhook Webhook
 	sender  platform.Sender
+	api     openapi.OpenAPI
 	// workers 是事件处理 goroutine 数量（0 表示使用 runtime.NumCPU()）
 	workers int
 
@@ -46,6 +48,10 @@ type Adapter struct {
 	mu       sync.RWMutex
 	running  bool
 	starting atomic.Bool
+
+	// BotIdentity
+	botID   string
+	botName string
 }
 
 // NewAdapter 创建 QQ 平台适配器。
@@ -56,6 +62,7 @@ func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
 	return &Adapter{
 		webhook: webhook,
 		sender:  NewSender(api),
+		api:     api,
 	}
 }
 
@@ -66,6 +73,22 @@ func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
 func (a *Adapter) WithWorkers(n int) *Adapter {
 	a.workers = n
 	return a
+}
+
+// ── platform.BotIdentity ─────────────────────────────────────────────────────
+
+// BotID 返回机器人在 QQ 平台的唯一标识符。
+func (a *Adapter) BotID() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botID
+}
+
+// BotName 返回机器人的 QQ 昵称。
+func (a *Adapter) BotName() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.botName
 }
 
 // Platform returns the platform identifier.
@@ -108,6 +131,9 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 	a.ctx, a.cancel = stdctx.WithCancel(ctx)
 	a.running = true
 	a.mu.Unlock()
+
+	// 异步获取机器人身份（尽力而为）
+	go a.fetchBotIdentity(a.ctx)
 
 	// 计算 worker 数量
 	numWorkers := a.workers
@@ -183,6 +209,30 @@ func (a *Adapter) Stop(ctx stdctx.Context) error {
 	}
 }
 
+// fetchBotIdentity 调用 GetMe 以填充 botID 和 botName。
+func (a *Adapter) fetchBotIdentity(ctx stdctx.Context) {
+	if a.api == nil {
+		return
+	}
+	fetchCtx, cancel := stdctx.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	result, err := a.api.GetMe(fetchCtx)
+	if err != nil {
+		logger.WithError(err).Debug("[qq.Adapter] Could not fetch bot identity")
+		return
+	}
+	id := result.Get("id").String()
+	name := result.Get("username").String()
+	if id == "" {
+		return
+	}
+	a.mu.Lock()
+	a.botID = id
+	a.botName = name
+	a.mu.Unlock()
+	logger.Infof("[qq.Adapter] Bot identity: %s (%s)", name, id)
+}
+
 func safeInvoke(handler func(platform.Event), event platform.Event) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -191,3 +241,10 @@ func safeInvoke(handler func(platform.Event), event platform.Event) {
 	}()
 	handler(event)
 }
+
+// ── 编译期接口断言 ────────────────────────────────────────────────────────────
+
+var (
+	_ platform.Adapter     = (*Adapter)(nil)
+	_ platform.BotIdentity = (*Adapter)(nil)
+)

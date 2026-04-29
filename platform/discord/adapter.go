@@ -279,6 +279,13 @@ func (a *GatewayAdapter) notifyDisconnect(err error) {
 	}
 }
 
+// 编译期接口断言
+var (
+	_ platform.Adapter            = (*GatewayAdapter)(nil)
+	_ platform.BotIdentity        = (*GatewayAdapter)(nil)
+	_ platform.RecoverableAdapter = (*GatewayAdapter)(nil)
+)
+
 // Session returns the underlying *discordgo.Session for advanced operations
 // such as registering slash commands or joining voice channels.
 //

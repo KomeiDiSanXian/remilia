@@ -405,6 +405,11 @@ func buildWSURL(baseURL, accessToken string) string {
 		u.Scheme = "ws"
 	}
 	u.Path = "/event"
+	if accessToken != "" {
+		q := u.Query()
+		q.Set("access_token", accessToken)
+		u.RawQuery = q.Encode()
+	}
 	// access_token 优先通过 Authorization 请求头传递，
 	// 也支持通过 query 参数作为备用方案。
 	return u.String()

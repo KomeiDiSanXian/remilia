@@ -88,13 +88,7 @@ func (a *ReverseWSAdapter) Sender() platform.Sender {
 }
 
 // Capabilities 返回 OneBot V11 平台的功能集。
-func (a *ReverseWSAdapter) Capabilities() platform.Capabilities {
-	return platform.Capabilities{
-		MessageDelete: true,
-		ThreadReply:   true,
-		MentionAll:    true,
-	}
-}
+func (a *ReverseWSAdapter) Capabilities() platform.Capabilities { return onebotCapabilities() }
 
 // IsRunning 当 WS 服务器正在接受连接时返回 true。
 func (a *ReverseWSAdapter) IsRunning() bool {

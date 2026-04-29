@@ -81,13 +81,7 @@ func (a *HTTPPostAdapter) Platform() string { return PlatformID }
 func (a *HTTPPostAdapter) Sender() platform.Sender { return a.sender }
 
 // Capabilities 返回 OneBot V11 平台的功能集。
-func (a *HTTPPostAdapter) Capabilities() platform.Capabilities {
-	return platform.Capabilities{
-		MessageDelete: true,
-		ThreadReply:   true,
-		MentionAll:    true,
-	}
-}
+func (a *HTTPPostAdapter) Capabilities() platform.Capabilities { return onebotCapabilities() }
 
 // ── platform.BotIdentity ─────────────────────────────────────────────────────
 

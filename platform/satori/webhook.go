@@ -204,6 +204,7 @@ func (a *WebhookAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	errCh := make(chan error, 1)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			a.notifyDisconnect(err)
 			errCh <- err
 		} else {
 			errCh <- nil
@@ -244,6 +245,18 @@ func (a *WebhookAdapter) OnDisconnect(fn func(error)) (unregister func()) {
 			a.disconnFns[idx] = nil
 		}
 		a.disconnMu.Unlock()
+	}
+}
+
+func (a *WebhookAdapter) notifyDisconnect(err error) {
+	a.disconnMu.Lock()
+	fns := make([]func(error), len(a.disconnFns))
+	copy(fns, a.disconnFns)
+	a.disconnMu.Unlock()
+	for _, fn := range fns {
+		if fn != nil {
+			fn(err)
+		}
 	}
 }
 

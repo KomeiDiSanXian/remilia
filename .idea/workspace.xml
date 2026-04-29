@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="chore(gitignore): add entries for data and profile directories">
+    <list default="true" id="4ed011b5-34e1-4787-8ac7-acf45972a648" name="更改" comment="feat(adapter): add VoiceChannel option to configuration">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/platform/onebot/message.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/onebot/message.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/platform/send.go" beforeDir="false" afterPath="$PROJECT_DIR$/platform/send.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -284,9 +284,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="refactor(bot): delegate lifecycle management to lifecycle.Manager and simplify context handling" />
-    <MESSAGE value="refactor(engine): replace eventGate with shutdown flag and event wait group for improved performance and clarity" />
-    <MESSAGE value="refactor(engine): enhance pending delete processing with done channel and cleanup management" />
     <MESSAGE value="refactor(config): restructure bot configuration to use nested qq structure for improved clarity" />
     <MESSAGE value="test: add unit tests for admin, debug, and middleware components" />
     <MESSAGE value="test: add unit tests for AdaptiveDegradation middleware functionality" />
@@ -309,7 +306,10 @@
     <MESSAGE value="feat(miniapp): add encryption and signature verification for QQ MiniApp data" />
     <MESSAGE value="typo(main): remove commented section for clarity and maintainability" />
     <MESSAGE value="chore(gitignore): add entries for data and profile directories" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore(gitignore): add entries for data and profile directories" />
+    <MESSAGE value="feat(bot): add bot identity fetching and support for new message types" />
+    <MESSAGE value="feat(webhook): add bot identity methods and disconnect callback support" />
+    <MESSAGE value="feat(adapter): add VoiceChannel option to configuration" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat(adapter): add VoiceChannel option to configuration" />
   </component>
   <component name="VgoModernizerVersionTracker">
     <upgrades>

@@ -82,8 +82,9 @@ func (a *ForwardWSAdapter) Sender() platform.Sender {
 	return &platform.NoopSender{}
 }
 
-// Capabilities 返回 OneBot V11 平台的功能集。
-func (a *ForwardWSAdapter) Capabilities() platform.Capabilities {
+// onebotCapabilities 返回 OneBot V11 平台的功能集。
+// 所有三种通信模式（ForwardWS / HTTPPost / ReverseWS）共享相同的能力。
+func onebotCapabilities() platform.Capabilities {
 	return platform.Capabilities{
 		MessageDelete:   true,
 		ThreadReply:     true,
@@ -92,8 +93,12 @@ func (a *ForwardWSAdapter) Capabilities() platform.Capabilities {
 		MessageEdit:     false,
 		MultiAttachment: false,
 		FileUpload:      false,
+		VoiceChannel:    false,
 	}
 }
+
+// Capabilities 返回 OneBot V11 平台的功能集。
+func (a *ForwardWSAdapter) Capabilities() platform.Capabilities { return onebotCapabilities() }
 
 // IsRunning 当 WS 连接处于活跃状态时返回 true。
 func (a *ForwardWSAdapter) IsRunning() bool {
@@ -189,8 +194,11 @@ func (a *ForwardWSAdapter) OnDisconnect(fn func(error)) (unregister func()) {
 	}
 }
 
-// 编译时断言：ForwardWSAdapter 实现了 RecoverableAdapter
-var _ platform.RecoverableAdapter = (*ForwardWSAdapter)(nil)
+// 编译时断言
+var (
+	_ platform.RecoverableAdapter = (*ForwardWSAdapter)(nil)
+	_ platform.BotIdentity        = (*ForwardWSAdapter)(nil)
+)
 
 func (a *ForwardWSAdapter) notifyDisconnect(err error) {
 	a.disconnectMu.Lock()
