@@ -91,9 +91,9 @@ TempManager       l3 = tempSpecific            l6 = tempGeneric
 
 **主要变更**:
 1. ✅ 添加 `workers` 字段控制并发数
-2. ✅ 新增构造函数 `NewWebhookServerAdapterWithWorkers()`
+2. ✅ 新增 `Adapter.WithWorkers(n)` 方法
 3. ✅ 修改事件循环，使用多个 worker goroutine 并发处理
-4. ✅ 保持向后兼容（默认 workers=1）
+4. ✅ 保持向后兼容（默认 workers = 当前平台 CPU 核心数）
 
 ### 核心代码
 
@@ -136,10 +136,9 @@ bot.Start()
 
 ```go
 // 使用 8 个 worker，获得 8 倍性能提升
-adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: 8})
 bot := remilia.NewBot(adapter, engine)
 bot.Start()
-```
 
 **性能**: ~6,000 msg/s
 
@@ -150,7 +149,7 @@ import "runtime"
 
 // 使用 CPU 核心数作为 worker 数量
 workers := runtime.NumCPU()
-adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, workers)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: workers})
 ```
 
 ---
@@ -170,7 +169,7 @@ adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, workers)
 
 1. **从 4 个 worker 开始**
    ```go
-   adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 4)
+   adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: 4})
    ```
 
 2. **根据实际负载调整**
@@ -283,7 +282,7 @@ go func() {
 adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
 // 修改后
-adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: 8})
 ```
 
 **步骤 2**: 测试验证
@@ -306,7 +305,7 @@ adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
 // 回滚到单 worker
 adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 // 或
-adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 1)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: 1})
 ```
 
 ---
@@ -339,7 +338,7 @@ adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 1)
 ### v0.9.1 (2026-01-23)
 
 **新增**:
-- ✅ `NewWebhookServerAdapterWithWorkers()` 构造函数
+- ✅ `Adapter.WithWorkers()` 构造方法
 - ✅ 并发事件处理支持
 - ✅ 性能提升 8 倍（使用 8 workers）
 
@@ -410,7 +409,7 @@ workers := runtime.NumCPU()
 
 **立即使用**:
 ```go
-adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, config.WebhookConfig{WorkerCount: 8})
 ```
 
 ---

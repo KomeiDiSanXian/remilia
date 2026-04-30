@@ -100,12 +100,12 @@ m.Handle(complexHandler)
 ```go
 // ✅ 最佳实践：简单命令使用完整链式
 func registerPingCommand(eng *engine.Engine) {
-    eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
+    eng.OnCommand(platform.EventKindGroupMessage, "/ping").
         SetDescription("测试机器人连接").
         SetCategory("系统").
         SetUsage("/ping").
         Handle(func(ctx *context.Context) error {
-            return ctx.Reply("Pong! 🏓")
+            return ctx.Reply(platform.TextMessage("Pong! 🏓"))
         })
 }
 ```

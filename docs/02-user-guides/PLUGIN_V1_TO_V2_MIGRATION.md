@@ -17,9 +17,9 @@ import (
     "github.com/KomeiDiSanXian/remilia/openapi/dto"
 )
 
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
     p := &MyPlugin{}
-    return &plugin.PluginDescriptor{
+    return &plugin.Descriptor{
         Name:    "myplugin",
         Version: "1.0.0",
 
@@ -39,16 +39,16 @@ func New() *plugin.PluginDescriptor {
 
 ---
 
-## PluginDescriptor 字段速查
+## Descriptor 字段速查
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name:       "myplugin",           // 必填，全局唯一
     Version:    "1.0.0",              // 建议 semver
     Deps:       []string{"storage"},  // 依赖插件名（顺序由框架保证）
     Privileged: false,                // true = ctx.Admin 非 nil
 
-    Meta: &plugin.PluginMeta{
+    Meta: &plugin.Metadata{
         Author:      "Your Name",
         Description: "插件功能简介",
         HelpText:    "/cmd - 命令说明",
@@ -60,7 +60,7 @@ func New() *plugin.PluginDescriptor {
     Setup:    func(ctx *plugin.SetupContext) (any, error) { ... },
     Teardown: func(ctx *plugin.TeardownContext) error { ... },
 
-    Advanced: &plugin.PluginAdvanced{
+    Advanced: &plugin.Advanced{
         Strategy:             plugin.ReloadInPlace,
         Reload:               func(ctx *plugin.SetupContext) error { ... },
         SaveState:            func() (any, error) { ... },
@@ -129,7 +129,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
     if !ctx.Info.IsLoaded("storage") {
         return nil, fmt.Errorf("storage required")
     }
-    reader := ctx.Info.Coordinator()       // engine.EngineReader（只读）
+    reader := ctx.Info.Coordinator()       // engine.Reader（只读）
     cmds   := reader.GetAllCommands()      // []engine.CommandInfo
 
     // 依赖获取
@@ -203,12 +203,12 @@ type Plugin struct {
     timeout time.Duration
 }
 
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
     p := &Plugin{}
-    return &plugin.PluginDescriptor{
+    return &plugin.Descriptor{
         Name:    "weather",
         Version: "1.0.0",
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Description: "天气查询插件",
             Category:    "工具",
             HelpText:    "/weather <城市> — 查询天气",

@@ -132,20 +132,19 @@ ngrok http 8080
 #### 检查 Matcher 是否注册
 ```go
 // 添加调试日志
-eng.OnCommand("/test", func(ctx *eventctx.Context) error {
+eng.OnCommand(platform.EventKindGroupMessage, "/test").Handle(func(ctx *eventctx.Context) error {
     log.Info("Test command received")
-    return ctx.Reply("Test reply")
+    return ctx.Reply(platform.TextMessage("Test reply"))
 })
 
-// 打印所有注册的 Matcher
-matchers := eng.GetMatchers()
-log.Info("Registered matchers:", len(matchers))
+// 打印 Matcher 数量
+log.Info("Matcher count:", eng.GetMatcherCount())
 ```
 
 #### 检查命令格式
 ```go
 // 确保命令格式正确
-text := ctx.GetPlainText()
+text := ctx.GetMessageContent()
 log.Info("Received text:", text)
 
 // 使用命令提取
@@ -572,7 +571,7 @@ logrus.SetFormatter(&logrus.JSONFormatter{})
 eng.Use(middleware.RequestID())
 
 // 在处理器中获取
-eng.OnMessage(func(ctx *eventctx.Context) error {
+eng.On("", context.OnAny()).Handle(func(ctx *eventctx.Context) error {
     requestID, _ := ctx.Get(middleware.CtxKeyRequestID)
     log := logrus.WithField("request_id", requestID)
     

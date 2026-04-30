@@ -7,7 +7,7 @@
 
 ## 概述
 
-Remilia 框架提供完整的插件元数据与帮助系统，每个插件可以通过 `PluginMeta` 提供：
+Remilia 框架提供完整的插件元数据与帮助系统，每个插件可以通过 `Metadata` 提供：
 
 - 名称 / 版本 / 作者
 - 描述与帮助文本
@@ -28,16 +28,16 @@ package myplugin
 import (
     "github.com/KomeiDiSanXian/remilia/plugin"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
 )
 
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
     p := &MyPlugin{}
-    return &plugin.PluginDescriptor{
+    return &plugin.Descriptor{
         Name:    "myplugin",
         Version: "1.0.0",
 
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Author:      "Your Name",
             Description: "这是一个示例插件，提供 /echo 和 /ping 命令",
             HelpText: `可用命令：
@@ -49,8 +49,8 @@ func New() *plugin.PluginDescriptor {
         },
 
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/echo").Handle(p.handleEcho)
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/ping").Handle(p.handlePing)
+ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/echo").Handle(p.handleEcho)
+ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/ping").Handle(p.handlePing)
             return p, nil
         },
     }
@@ -59,11 +59,11 @@ func New() *plugin.PluginDescriptor {
 func (p *MyPlugin) handleEcho(ctx *eventctx.Context) error {
     cmd := ctx.GetParsedCommand()
     text, _ := cmd.Args["text"]
-    return ctx.Reply(text)
+    return ctx.Reply(platform.TextMessage(text))
 }
 
 func (p *MyPlugin) handlePing(ctx *eventctx.Context) error {
-    return ctx.Reply("Pong!")
+	return ctx.Reply(platform.TextMessage("Pong!"))
 }
 ```
 
@@ -72,7 +72,7 @@ func (p *MyPlugin) handlePing(ctx *eventctx.Context) error {
 ## Metadata 字段完整说明
 
 ```go
-Meta: &plugin.PluginMeta{
+Meta: &plugin.Metadata{
     Author:      "作者名",         // 显示在 /help 详情
     Description: "简短功能描述",   // /help 列表视图
     HelpText:    `详细帮助文本`,   // /help <name> 详情视图
@@ -84,8 +84,8 @@ Meta: &plugin.PluginMeta{
 },
 ```
 
-`Name` / `Version` / `Dependencies` 字段存在于 `plugin.Metadata` 结构（Manager 返回值），
-与 `PluginMeta` 共享同一底层类型，无需手动同步。
+`Name` / `Version` / `Dependencies` 字段同样存在于 `plugin.Metadata` 结构中，
+由 Manager 自动填充，无需手动同步。
 
 ---
 
@@ -94,7 +94,7 @@ Meta: &plugin.PluginMeta{
 内置 `help` 插件通过 `ctx.Info.Coordinator()` 的只读视图获取所有命令信息：
 
 ```go
-reader := ctx.Info.Coordinator()  // engine.EngineReader
+reader := ctx.Info.Coordinator()  // engine.Reader
 
 // 获取所有已注册命令（不含 Hidden=true 的命令）
 commands := reader.GetAllCommands()  // []engine.CommandInfo
@@ -135,13 +135,13 @@ type CommandInfo struct {
 通过 `ctx.Info.Coordinator()` 读取命令列表即可：
 
 ```go
-func New() *plugin.PluginDescriptor {
-    return &plugin.PluginDescriptor{
+func New() *plugin.Descriptor {
+    return &plugin.Descriptor{
         Name: "myhelp",
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             reader := ctx.Info.Coordinator()
 
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/help").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/help").
                 Handle(func(c *eventctx.Context) error {
                     cmds := reader.GetAllCommands()
                     var sb strings.Builder

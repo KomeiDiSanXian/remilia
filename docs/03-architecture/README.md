@@ -26,7 +26,7 @@
 **内置插件系统设计**
 
 学习：
-- 插件系统架构（v2 PluginDescriptor）
+- 插件系统架构（v2 Descriptor）
 - 插件生命周期管理
 - PluginInfo / ManagerWriter 权限模型
 - 依赖管理与注入
@@ -40,7 +40,7 @@
 
 了解：
 - 自动帮助文档生成
-- 命令发现机制（EngineReader 只读视图）
+- 命令发现机制（Reader 只读视图）
 - 文档格式化
 - 扩展性设计
 
@@ -108,7 +108,7 @@
 ├─────────────────────────────────────────┤
 │      Context (请求上下文 + 扩展)          │
 ├───────��─────────────────────────────────┤
-│   Plugin System (v2 PluginDescriptor)   │
+│   Plugin System (v2 Descriptor)        │
 │  descriptor / context / container      │
 │  instance / reload / register          │
 └─────────────────────────────────────────┘
@@ -120,7 +120,7 @@
 - **中间件模式**: 请求处理链
 - **责任链模式**: Matcher 匹配
 - **读写分离**: PluginInfo（只读）/ ManagerWriter（写）
-- **函数式插件**: PluginDescriptor 替代继承
+- **函数式插件**: Descriptor 替代继承
 
 ---
 

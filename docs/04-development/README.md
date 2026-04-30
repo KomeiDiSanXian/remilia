@@ -12,7 +12,7 @@
 **插件开发最佳实践**
 
 涵盖：
-- 插件文件结构规范（v2 PluginDescriptor）
+- 插件文件结构规范（v2 Descriptor）
 - 依赖声明与 Smart 注册
 - 错误处理模式
 - 后台 goroutine 生命周期管理（ctx.Go）

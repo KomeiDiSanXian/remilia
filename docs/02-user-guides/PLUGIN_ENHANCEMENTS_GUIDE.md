@@ -86,7 +86,7 @@ if ok {
 声明 `Privileged: true` 后，`ctx.Admin` 不为 nil：
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name:       "admin",
     Privileged: true,
     Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -146,7 +146,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ## 5. Engine 只读视图
 
-通过 `ctx.Info.Coordinator()` 获取 `engine.EngineReader`，
+通过 `ctx.Info.Coordinator()` 获取 `engine.Reader`，
 可以查询命令列表等只读信息，但**无法**调用 `On/RegisterCommand/DeleteMatcher` 等写操作：
 
 ```go

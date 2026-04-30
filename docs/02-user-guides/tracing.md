@@ -85,13 +85,16 @@ tracing:
 ### 1. 自动追踪（推荐）
 
 ```go
-// 在 Bot 启动时启用追踪中间件
+// 在 Engine 上启用追踪中间件
 func main() {
-    bot := remilia.NewBot()
+    eng := engine.NewEngine()
     
     // 添加追踪中间件（会自动追踪所有事件）
-    bot.Use(middleware.Tracing(middleware.DefaultTracingConfig()))
+    eng.Use(middleware.Tracing(middleware.DefaultTracingConfig()))
     
+    // 创建适配器并启动
+    adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
+    bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(adapter).WithEngine(eng).Build()
     bot.Start()
 }
 ```
@@ -114,11 +117,9 @@ func MyMiddleware() context.Middleware {
 
 ```go
 // 追踪命令处理器
-engine.OnCommand("/ping").Handle(
+eng.OnCommand(platform.EventKindGroupMessage, "/ping").Handle(
     middleware.TracingHandler("ping", func(ctx *context.Context) error {
-        return ctx.ReplyGroup(&dto.Message{
-            Content: "Pong!",
-        })
+        return ctx.Reply(platform.TextMessage("Pong!"))
     }),
 )
 ```
@@ -206,8 +207,8 @@ tracing:
 结合日志记录 trace ID，实现日志和 trace 的关联：
 
 ```go
-bot.Use(middleware.Logging())  // 日志中间件
-bot.Use(middleware.Tracing(middleware.DefaultTracingConfig()))  // 追踪中间件
+eng.Use(middleware.Logging())  // 日志中间件
+eng.Use(middleware.Tracing(middleware.DefaultTracingConfig()))  // 追踪中间件
 ```
 
 日志输出会自动包含 `trace_id` 和 `span_id` 字段。

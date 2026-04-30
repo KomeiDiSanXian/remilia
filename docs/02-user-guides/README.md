@@ -28,7 +28,7 @@
 **Plugin v2 快速上手**
 
 学习：
-- PluginDescriptor 完整字段说明
+- Descriptor 完整字段说明
 - SetupContext 所有字段（Reg / Log / Info / Admin / Config / EventBus / Go / DryRun）
 - 三种注册方式（Register / RegisterMultipleAtomic / RegisterMultipleSmart）
 - 依赖获取（Require / Optional / MustAs）
@@ -42,7 +42,7 @@
 **插件接口速查**
 
 速查：
-- PluginDescriptor / PluginMeta 结构
+- Descriptor / Metadata 结构
 - SetupContext 字段表格
 - PluginInfo 只读查询接口
 - ManagerWriter 管理写视图
@@ -73,8 +73,8 @@
 **插件帮助系统**
 
 了解：
-- PluginMeta 字段说明
-- Help 插件命令发现（EngineReader / GetAllCommands）
+- Metadata 字段说明
+- Help 插件命令发现（Reader / GetAllCommands）
 - 自定义 Help 插件实现
 - 最佳实践
 

@@ -276,37 +276,44 @@
 package main
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugins/core/permission"
+    "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+    "github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 func main() {
-    // 创建权限插件
-    permPlugin := permission.New()
-    
+    eng := engine.NewEngine()
+    pm := plugin.NewManager(eng)
+
+    // 注册权限插件
+    pm.Register(permission.New())
+
+    // 获取插件实例
+    p := plugin.Must[permission.Plugin](pm.Info(), "permission")
+
     // 1. 设置黑名单模式
-    permPlugin.SetACLMode(permission.ModeBlacklist)
+    p.SetACLMode(permission.ModeBlacklist)
     
     // 2. 添加用户到黑名单
-    permPlugin.AddToACL("USER123", "违规用户")
-    permPlugin.AddToACL("USER456", "垃圾信息")
+    p.AddToACL("USER123", "违规用户")
+    p.AddToACL("USER456", "垃圾信息")
     
     // 3. 检查用户是否允许访问
-    allowed, reason := permPlugin.IsUserAllowed("USER123")
+    allowed, reason := p.IsUserAllowed("USER123")
     if !allowed {
         println("用户被拒绝:", reason)
     }
     
     // 4. 列出所有用户
-    users := permPlugin.ListACL()
+    users := p.ListACL()
     for _, user := range users {
         println("User:", user.UserID, "Note:", user.Note)
     }
     
     // 5. 移除用户
-    permPlugin.RemoveFromACL("USER456")
+    p.RemoveFromACL("USER456")
     
     // 6. 获取统计信息
-    stats := permPlugin.GetACLStats()
+    stats := p.GetACLStats()
     println("Mode:", stats.Mode.String())
     println("Count:", stats.UserCount)
 }
@@ -316,11 +323,11 @@ func main() {
 
 ```go
 // 在全局中间件中使用
-engine.Use(permPlugin.RequireACL())
+eng.Use(p.RequireACL())
 
 // 或在特定命令中使用
-engine.OnCommand(dto.C2CMessageCreate, "/sensitive").
-    Use(permPlugin.RequireACL()).
+eng.OnCommand(platform.EventKindC2CMessage, "/sensitive").
+    Use(p.RequireACL()).
     Handle(handler)
 ```
 
@@ -378,7 +385,7 @@ func (acl *AccessControlList) IsAllowed(userID string) (bool, string) {
 ### 运行测试
 
 ```bash
-cd plugins/core/permission
+cd builtin/core/permission
 go test -v -run TestAccessControlList
 ```
 
@@ -400,9 +407,9 @@ go test -v -run TestAccessControlList
 ### 运行演示
 
 ```bash
-cd examples/acl-demo
-go build
-./acl-demo
+# 查看 examples/showcase 中的 ACL 使用示例
+cd examples/showcase
+go run .
 ```
 
 ## 与其他功能的集成

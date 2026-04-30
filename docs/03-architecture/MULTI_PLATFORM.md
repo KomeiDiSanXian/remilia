@@ -39,15 +39,26 @@
 
 ```go
 type Event interface {
-    Platform()   string        // 平台标识，如 "qq"、"discord"
-    ID()         string        // 平台级唯一事件 ID（用于去重/追踪）
-    Kind()       EventKind     // 平台无关的事件类别（私聊、群聊、通知等）
-    RawType()    string        // 平台原始事件类型字符串
-    Sender()     UserInfo      // 发送者信息
-    Chat()       ChatInfo      // 会话信息（含 ParentID 支持层级结构）
-    Content()    string        // 消息文本内容
-    Timestamp()  time.Time     // 事件时间戳
-    RawPayload() any           // 原始 payload（类型断言访问平台特定字段）
+    // EventIdentity 平台标识与事件分类
+    Platform() string     // 平台标识，如 "qq"、"discord"
+    ID()       string     // 平台级唯一事件 ID（用于去重/追踪）
+    Kind()     EventKind  // 平台无关的事件类别（私聊、群聊、通知等）
+
+    // EventBody 事件正文
+    Content() string   // 消息文本内容
+    Attachments() []Attachment
+
+    // 发送者和会话
+    Sender() UserInfo    // 发送者信息
+    Chat()   ChatInfo    // 会话信息
+
+    Timestamp() time.Time // 事件时间戳
+}
+
+// 可选接口：访问平台原始数据
+type RawEvent interface {
+    RawType()    string  // 平台原始事件类型字符串
+    RawPayload() any     // 原始 payload（类型断言访问平台特定字段）
 }
 ```
 
@@ -62,26 +73,26 @@ type ChatInfo struct {
 }
 ```
 
-### `platform.PlatformAdapter`
+### `platform.Adapter`
 
 平台适配器的核心接口：
 
 ```go
-type PlatformAdapter interface {
+type Adapter interface {
     Platform()     string
     StartPlatform(ctx context.Context, handler func(Event)) error
     Stop(ctx context.Context) error
     Sender()       Sender
-    Capabilities() PlatformCapabilities  // 平台特性声明
+    Capabilities() Capabilities  // 平台特性声明
 }
 ```
 
-### `platform.PlatformCapabilities`
+### `platform.Capabilities`
 
 平台特性声明，用于 Handler 做渐进增强决策：
 
 ```go
-type PlatformCapabilities struct {
+type Capabilities struct {
     Markdown        bool  // 是否支持 Markdown
     Buttons         bool  // 是否支持交互按钮
     MultiAttachment bool  // 是否支持多附件
@@ -101,7 +112,7 @@ type PlatformCapabilities struct {
 ```go
 type Sender interface {
     // 目标会话信息从 ctx 中的 ChatInfo 读取（由 Reply / WithChatInfo 注入）
-    Send(ctx context.Context, msg OutboundMessage) error
+    Send(ctx context.Context, req SendRequest) (SendResult, error)
 }
 
 // 可选接口：支持消息编辑的平台实现此接口

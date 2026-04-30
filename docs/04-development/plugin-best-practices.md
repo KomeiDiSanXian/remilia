@@ -18,13 +18,13 @@ type Plugin struct {
     cache  *cachePlugin.Plugin
 }
 
-func New() *plugin.PluginDescriptor {
-    p := &Plugin{}
-    return &plugin.PluginDescriptor{
+func New() *plugin.Descriptor {
+    p := &MyPlugin{}
+    return &plugin.Descriptor{
         Name:    "weather",
         Version: "1.0.0",
         Deps:    []string{"cache"}, // 明确声明依赖
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Description: "天气查询",
             Category:    "工具",
         },
@@ -66,12 +66,12 @@ func main() {
 ### ✅ 推荐：在 `Deps` 中声明
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name: "admin",
     Deps: []string{"permission", "storage"}, // 明确声明所有依赖
     Setup: func(ctx *plugin.SetupContext) (any, error) {
-        perm    := plugin.Require[permission.Plugin](ctx, "permission")
-        storage := plugin.Require[storage.Plugin](ctx, "storage")
+        perm    := plugin.Must[permission.Plugin](ctx, "permission")
+        storage := plugin.Must[storage.Plugin](ctx, "storage")
         // ...
     },
 }
@@ -191,7 +191,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 **必须声明 `Privileged: true`**，并通过 `ctx.Admin` 访问：
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name:       "admin",
     Privileged: true,  // ← 显式声明，代码审查可见
     Setup: func(ctx *plugin.SetupContext) (any, error) {

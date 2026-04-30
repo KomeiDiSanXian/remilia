@@ -85,7 +85,7 @@ errutil / openapi/dto（基础层）
 ### 插件加载错误
 
 ```go
-func (pm *Manager) loadPlugin(desc *PluginDescriptor) error {
+func (pm *Manager) loadPlugin(desc *plugin.Descriptor) error {
     if err := desc.Setup(ctx); err != nil {
         // 包装具体错误，保留上下文
         return errutil.Wrapf(err, "plugin %s setup failed", desc.Name)

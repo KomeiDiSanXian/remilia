@@ -7,16 +7,16 @@
 
 ## 核心描述符
 
-所有插件通过 `PluginDescriptor` 定义，**无需继承任何基类**。
+所有插件通过 `Descriptor` 定义，**无需继承任何基类**。
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name:    "myplugin",          // 必填，全局唯一
     Version: "1.0.0",             // 建议填写（semver）
     Deps:    []string{"storage"}, // 前置依赖
 
     // 元数据（影响 /help 显示）
-    Meta: &plugin.PluginMeta{
+    Meta: &plugin.Metadata{
         Author:      "Team",
         Description: "我的插件",
         HelpText:    "/hello - 打招呼",
@@ -27,7 +27,7 @@
     // 初始化（必填）
     Setup: func(ctx *plugin.SetupContext) (any, error) {
         p := &MyPlugin{}
-        ctx.Reg.On(dto.GroupAtMessageCreate).Handle(p.handle)
+        ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").Handle(p.handle)
         return p, nil // 导出到容器（nil 也合法）
     },
 
@@ -59,24 +59,24 @@
 
 ```go
 // 事件匹配器
-ctx.Reg.On(dto.GroupAtMessageCreate, context.OnCommand("/ping")).
+ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/ping").
     Handle(func(c *eventctx.Context) error {
-        return c.Reply("Pong!")
+        return c.Reply(platform.TextMessage("Pong!"))
     })
 
 // 命令匹配器（自动 O(1) 索引）
-ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/status").
+ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/status").
     Handle(p.handleStatus)
 ```
 
 ### 依赖获取
 
 ```go
-// Require[T]：找不到则 panic（推荐用于必要依赖）
-store := plugin.Require[storage.Plugin](ctx, "storage")
+// Must[T]：找不到则 panic（推荐用于必要依赖）
+store := plugin.Must[storage.Plugin](ctx, "storage")
 
-// Optional[T]：找不到返回 nil, false
-cache, ok := plugin.Optional[cache.Plugin](ctx, "cache")
+// Try[T]：找不到返回 nil, false
+cache, ok := plugin.Try[cache.Plugin](ctx, "cache")
 
 // MustAs[T]：目标是接口类型时使用
 var writer io.Writer = plugin.MustAs[io.Writer](ctx, "log-writer")
@@ -98,10 +98,10 @@ ctx.Info.Count()                    // int
 ctx.Info.GetMetadata("weather")     // *plugin.Metadata, bool
 ctx.Info.ListWithMetadata()         // map[string]*plugin.Metadata
 ctx.Info.GetLoadOrder()             // []string
-ctx.Info.Get("storage")             // *plugin.PluginInstance, bool
+ctx.Info.Get("storage")             // *plugin.Instance, bool
 
 // Engine 只读视图（不能调用任何写操作）
-reader := ctx.Info.Coordinator()    // engine.EngineReader
+reader := ctx.Info.Coordinator()    // engine.Reader
 cmds   := reader.GetAllCommands()   // []engine.CommandInfo
 ```
 
@@ -112,7 +112,7 @@ cmds   := reader.GetAllCommands()   // []engine.CommandInfo
 声明 `Privileged: true` 后，`ctx.Admin` 为非 nil，可调用写操作：
 
 ```go
-&plugin.PluginDescriptor{
+&plugin.Descriptor{
     Name:       "admin",
     Privileged: true,   // ← 声明需要管理权限
     Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -155,7 +155,7 @@ Teardown: func(ctx *plugin.TeardownContext) error {
 ## Advanced 高级选项
 
 ```go
-Advanced: &plugin.PluginAdvanced{
+Advanced: &plugin.Advanced{
     // 热重载策略
     Strategy: plugin.ReloadInPlace,     // 默认：原地重载
     // Strategy: plugin.ReloadBlueGreen  // 蓝绿重载（先启动新实例再停旧实例）

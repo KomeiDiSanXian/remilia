@@ -727,15 +727,14 @@ func HandleCommand(ctx *eventctx.Context) error {
 
 ## 10. 插件开发
 
-使用 v2 `PluginDescriptor` API，无需继承 BasePlugin：
+使用 v2 `Descriptor` API，无需继承：
 
 ```go
-func New() *plugin.PluginDescriptor {
+func New() *plugin.Descriptor {
     p := &MyPlugin{}
-    return &plugin.PluginDescriptor{
-        Name:    "myplugin",
-        Version: "1.0.0",
-        Meta: &plugin.PluginMeta{
+    return &plugin.Descriptor{
+
+        Meta: &plugin.Metadata{
             Description: "示例插件",
             Category:    "工具",
         },

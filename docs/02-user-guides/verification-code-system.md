@@ -310,15 +310,23 @@ package main
 
 import (
     "time"
-    "github.com/KomeiDiSanXian/remilia/plugins/core/permission"
+    "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+    "github.com/KomeiDiSanXian/remilia/plugin"
+    "github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
 func main() {
-    // 创建权限插件
-    permPlugin := permission.New()
+    eng := engine.NewEngine()
+    pm := plugin.NewManager(eng)
+
+    // 注册权限插件
+    pm.Register(permission.New())
+
+    // 获取插件实例
+    p := plugin.Must[permission.Plugin](pm.Info(), "permission")
     
     // 生成验证码
-    code, err := permPlugin.GenerateVerificationCode(
+    code, err := p.GenerateVerificationCode(
         "admin",           // 角色
         1*time.Hour,       // 有效期
         0,                 // 一次性使用
@@ -330,7 +338,7 @@ func main() {
     println("验证码:", code)
     
     // 验证并授予角色
-    role, err := permPlugin.VerifyAndGrantRole(code, "USER_ID_HERE")
+    role, err := p.VerifyAndGrantRole(code, "USER_ID_HERE")
     if err != nil {
         panic(err)
     }
@@ -338,7 +346,7 @@ func main() {
     println("授予角色:", role)
     
     // 列出所有验证码
-    codes := permPlugin.ListVerificationCodes()
+    codes := p.ListVerificationCodes()
     for _, c := range codes {
         println("Code:", c.Code, "Role:", c.Role)
     }
@@ -350,7 +358,7 @@ func main() {
 运行测试：
 
 ```bash
-cd plugins/core/permission
+cd builtin/core/permission
 go test -v
 ```
 
@@ -371,13 +379,13 @@ go test -v
 ### 推荐配置
 
 ```go
-// 生产环境推荐配置
-config := VerificationConfig{
-    DefaultExpiry:   30 * time.Minute,  // 默认30分钟
-    MaxExpiry:       24 * time.Hour,     // 最长24小时
-    CleanupInterval: 5 * time.Minute,    // 每5分钟清理
-    CodeLength:      6,                   // 6位验证码
-}
+// 生产环境推荐配置参数
+const (
+    defaultExpiry   = 30 * time.Minute  // 默认30分钟
+    maxExpiry       = 24 * time.Hour    // 最长24小时
+    cleanupInterval = 5 * time.Minute   // 每5分钟清理
+    codeLength      = 6                 // 6位验证码
+)
 ```
 
 ### 不同场景配置

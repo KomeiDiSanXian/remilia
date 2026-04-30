@@ -15,7 +15,7 @@ Remilia 的权限系统分为**两个层次**，包名相同但职责完全不�
 └─────────────────────────┬─────────────────────────────────────┘
                           │ 使用
 ┌─────────────────────────▼─────────────────────────────────────┐
-│            plugins/core/permission  （管理插件层）               │
+│            builtin/core/permission  （管理插件层）               │
 │                                                               │
 │  · Plugin struct — 插件 API 对象                               │
 │  · /acl add/rm/list 命令                                       │
@@ -66,9 +66,9 @@ if pm != nil {
 
 ---
 
-## `plugins/core/permission`：权限管理插件（插件层）
+## `builtin/core/permission`：权限管理插件（插件层）
 
-**包路径**：`github.com/KomeiDiSanXian/remilia/plugins/core/permission`
+**包路径**：`github.com/KomeiDiSanXian/remilia/builtin/core/permission`
 
 **职责**：基于 `core/permission` 构建，向 Bot 用户暴露运行时权限管理命令。
 
@@ -94,7 +94,7 @@ pm.Register(permission.New()) // 自动通过 Try[storage.Plugin] 获取存储�
 **在其他插件中使用**：
 
 ```go
-import permission "github.com/KomeiDiSanXian/remilia/plugins/core/permission"
+import permission "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     perm := plugin.Must[permission.Plugin](ctx, "permission")
@@ -117,6 +117,6 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 |---|---|
 | 为什么有两个 `permission` 包？ | 一个是数据结构（内核），一个是功能插件（应用层），职责分离 |
 | 我只需要在代码中做权限检查，用哪个？ | 用 `core/permission` 的 `Manager`，通过 `ctx.GetPermissionManager()` 访问 |
-| 我需要用户在聊天中管理权限，用哪个？ | 注册 `plugins/core/permission` 插件，通过 `/acl` 命令管理 |
+| 我需要用户在聊天中管理权限，用哪个？ | 注册 `builtin/core/permission` 插件，通过 `/acl` 命令管理 |
 | 两者能混用吗？ | 可以。插件层内部使用内核层的 `Manager`，通过 `ctx.SetPermissionManager` 注入到 Context |
 
