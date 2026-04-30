@@ -1,6 +1,7 @@
 package broadcast_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/broadcast"
@@ -28,7 +29,7 @@ func TestBroadcast_NewPlugin(t *testing.T) {
 func TestBroadcast_BroadcastNoSender(t *testing.T) {
 	p := broadcast.NewPlugin(broadcast.DefaultConfig())
 
-	result := p.Broadcast([]platform.ChatInfo{{ID: "chat001"}, {ID: "chat002"}}, platform.TextMessage("test"))
+	result := p.Broadcast(context.Background(), []platform.ChatInfo{{ID: "chat001"}, {ID: "chat002"}}, platform.TextMessage("test"))
 	if result.Total != 2 {
 		t.Errorf("expected Total=2, got %d", result.Total)
 	}

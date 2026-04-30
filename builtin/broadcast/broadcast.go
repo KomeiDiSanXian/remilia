@@ -18,13 +18,16 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"golang.org/x/time/rate"
-
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"golang.org/x/time/rate"
 )
+
+// defaultBroadcastCtx 返回内部使用的 context。
+// 当调用方未提供 ctx 时（如 BroadcastToGroups/BroadcastToUsers），使用 Background()。
+var defaultBroadcastCtx = context.Background
 
 // Result 广播发送结果
 type Result struct {
@@ -141,7 +144,7 @@ func (p *Plugin) getSender() platform.Sender {
 // chats 为目标会话列表（包含 ID 和 IsGroup 路由信息）。
 // 每个目标会话的 ChatInfo 会注入到 Go context，平台 Sender 通过 ChatInfoFromContext 路由。
 // 返回汇总的发送结果。
-func (p *Plugin) Broadcast(chats []platform.ChatInfo, msg platform.OutboundMessage) Result {
+func (p *Plugin) Broadcast(ctx context.Context, chats []platform.ChatInfo, msg platform.OutboundMessage) Result {
 	s := p.getSender()
 	if s == nil {
 		errs := make([]error, len(chats))
@@ -167,7 +170,6 @@ func (p *Plugin) Broadcast(chats []platform.ChatInfo, msg platform.OutboundMessa
 		go func(c platform.ChatInfo) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			ctx := context.Background()
 			_ = p.rl.Wait(ctx)
 			req := platform.SendRequest{Target: c, Message: msg}
 			if _, err := s.Send(ctx, req); err != nil {
@@ -197,7 +199,16 @@ func (p *Plugin) BroadcastToGroups(groupIDs []string, msg platform.OutboundMessa
 	for i, id := range groupIDs {
 		chats[i] = platform.ChatInfo{ID: id, IsGroup: true}
 	}
-	return p.Broadcast(chats, msg)
+	return p.Broadcast(defaultBroadcastCtx(), chats, msg)
+}
+
+// BroadcastToGroupsWithContext 支持传入 context 的版本。
+func (p *Plugin) BroadcastToGroupsWithContext(ctx context.Context, groupIDs []string, msg platform.OutboundMessage) Result {
+	chats := make([]platform.ChatInfo, len(groupIDs))
+	for i, id := range groupIDs {
+		chats[i] = platform.ChatInfo{ID: id, IsGroup: true}
+	}
+	return p.Broadcast(ctx, chats, msg)
 }
 
 // BroadcastToUsers 向多个私聊用户广播消息（SetSender 后调用）。
@@ -208,7 +219,16 @@ func (p *Plugin) BroadcastToUsers(userIDs []string, msg platform.OutboundMessage
 	for i, id := range userIDs {
 		chats[i] = platform.ChatInfo{ID: id, IsGroup: false}
 	}
-	return p.Broadcast(chats, msg)
+	return p.Broadcast(defaultBroadcastCtx(), chats, msg)
+}
+
+// BroadcastToUsersWithContext 支持传入 context 的版本。
+func (p *Plugin) BroadcastToUsersWithContext(ctx context.Context, userIDs []string, msg platform.OutboundMessage) Result {
+	chats := make([]platform.ChatInfo, len(userIDs))
+	for i, id := range userIDs {
+		chats[i] = platform.ChatInfo{ID: id, IsGroup: false}
+	}
+	return p.Broadcast(ctx, chats, msg)
 }
 
 // SubscribeGroup 将群加入广播订阅列表

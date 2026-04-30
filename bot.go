@@ -388,7 +388,7 @@ func (b *Bot) Stop(ctx context.Context) error {
 
 // Shutdown 使用默认超时时间优雅关闭 Bot
 func (b *Bot) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+	ctx, cancel := context.WithTimeout(b.Context(), DefaultShutdownTimeout)
 	defer cancel()
 	return b.Stop(ctx)
 }
@@ -415,7 +415,7 @@ func (b *Bot) Shutdown() error {
 func (b *Bot) ShutdownAsync() <-chan error {
 	ch := make(chan error, 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+		ctx, cancel := context.WithTimeout(b.Context(), DefaultShutdownTimeout)
 		defer cancel()
 		ch <- b.Stop(ctx)
 	}()
@@ -470,7 +470,7 @@ func (b *Bot) Config() BotMeta {
 
 // Health 健康检查
 func (b *Bot) Health() health.CheckResponse {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(b.Context(), 5*time.Second)
 	defer cancel()
 	return b.health.Check(ctx)
 }
@@ -529,7 +529,7 @@ func (b *Bot) WaitForShutdown(timeout ...time.Duration) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		ctx, cancel := context.WithTimeout(b.Context(), shutdownTimeout)
 		defer cancel()
 		if err := b.Stop(ctx); err != nil {
 			logger.WithError(err).Error("[Bot] Shutdown failed")

@@ -408,7 +408,7 @@ func commandPlugin(
 					if len(groups) == 0 {
 						return replyCtx(c, "暂无订阅群，使用 /bcsub 先订阅当前群")
 					}
-					result := bc.BroadcastToGroups(groups, platform.TextMessage(text))
+					result := bc.BroadcastToGroupsWithContext(c.Context(), groups, platform.TextMessage(text))
 					return replyCtx(c, fmt.Sprintf("广播完成: total=%d success=%d failed=%d",
 						result.Total, result.Success, result.Failed))
 				})
