@@ -24,13 +24,14 @@ import "context"
 //	        // 只读查询通过 ctx.Info
 //	        plugins := ctx.Info.List()
 //	        // 写操作通过 ctx.Admin
-//	        if err := ctx.Admin.Reload("help"); err != nil { ... }
+//	        if err := ctx.Admin.Reload(ctx, "help"); err != nil { ... }
 //	        return p, nil
 //	    },
 //	}
 type ManagerWriter interface {
 	// Reload 热重载指定插件
-	Reload(name string) error
+	// ctx 用于控制超时：若 context 到期，返回 ctx.Err()。
+	Reload(ctx context.Context, name string) error
 
 	// Disable 禁用插件（暂停 Matcher 分发，保留容器条目）
 	Disable(name string) error
@@ -39,7 +40,8 @@ type ManagerWriter interface {
 	Enable(name string) error
 
 	// Unregister 注销插件（完全卸载）
-	Unregister(name string) error
+	// ctx 用于控制超时：若 context 到期，返回 ctx.Err()。
+	Unregister(ctx context.Context, name string) error
 
 	// ForceUnregister 强制注销插件（忽略 Unload 错误，适用于 Error 状态的插件）
 	ForceUnregister(name string) error
@@ -55,10 +57,10 @@ type ManagerWriter interface {
 // managerWriterImpl 将 *Manager 包装为 ManagerWriter（仅暴露写操作）
 type managerWriterImpl struct{ m *Manager }
 
-func (w *managerWriterImpl) Reload(name string) error          { return w.m.Reload(context.Background(), name) }
-func (w *managerWriterImpl) Disable(name string) error         { return w.m.Disable(name) }
-func (w *managerWriterImpl) Enable(name string) error          { return w.m.Enable(name) }
-func (w *managerWriterImpl) Unregister(name string) error      { return w.m.Unregister(context.Background(), name) }
+func (w *managerWriterImpl) Reload(ctx context.Context, name string) error    { return w.m.Reload(ctx, name) }
+func (w *managerWriterImpl) Disable(name string) error                        { return w.m.Disable(name) }
+func (w *managerWriterImpl) Enable(name string) error                         { return w.m.Enable(name) }
+func (w *managerWriterImpl) Unregister(ctx context.Context, name string) error { return w.m.Unregister(ctx, name) }
 func (w *managerWriterImpl) ForceUnregister(name string) error { return w.m.ForceUnregister(name) }
 func (w *managerWriterImpl) AddLifecycleListener(listener LifecycleListener) {
 	w.m.AddListener(listener)

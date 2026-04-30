@@ -268,7 +268,7 @@ func (p *Plugin) handlePluginReload(ctx *eventctx.Context, args *command.Args) e
 	if name == "" {
 		return p.reply(ctx, "用法: /plugin reload <插件名>")
 	}
-	if err := p.PluginManager.Reload(name); err != nil {
+	if err := p.PluginManager.Reload(ctx.Context(), name); err != nil {
 		return p.reply(ctx, fmt.Sprintf("重载失败: %v", err))
 	}
 	return p.reply(ctx, fmt.Sprintf("插件 '%s' 重载成功", name))
@@ -325,7 +325,7 @@ func (p *Plugin) handlePluginUnload(ctx *eventctx.Context, args *command.Args) e
 	if name == "admin" {
 		return p.reply(ctx, "不能卸载 admin 插件自身")
 	}
-	if err := p.PluginManager.Unregister(name); err != nil {
+	if err := p.PluginManager.Unregister(ctx.Context(), name); err != nil {
 		return p.reply(ctx, fmt.Sprintf("卸载失败: %v", err))
 	}
 	return p.reply(ctx, fmt.Sprintf("插件 '%s' 已卸载", name))
