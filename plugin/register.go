@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -122,7 +123,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	// ========== Lock #2 结束 ==========
 
 	// ========== 无锁区：执行 Setup ==========
-	loadErr := instance.load()
+	loadErr := instance.load(context.Background())
 
 	// ========== Lock #3: 最终化 ==========
 	pm.mu.Lock()
@@ -166,7 +167,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		if len(undeclaredAll) > 0 {
 			if pm.strictDeps {
 				pm.mu.Unlock()
-				if teardownErr := instance.unload(pm.coordinator); teardownErr != nil {
+				if teardownErr := instance.unload(context.Background(), pm.coordinator); teardownErr != nil {
 					logger.WithError(teardownErr).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
 				}
 				pm.mu.Lock()

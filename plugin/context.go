@@ -284,7 +284,7 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 	return nil
 }
 
-// TODO: 待后续go1.27看看能不能有泛型方法改成类似 ctx.Get[permission.Plugin]("permission") 这样更安全的调用方式
+// 未来展望：待 Go 支持泛型方法后，可改为 ctx.Get[permission.Plugin]("permission") 的调用方式。
 
 // Get 获取依赖插件（弱类型）
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。

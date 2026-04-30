@@ -222,14 +222,14 @@ func diagnose() {}
 //	TLS/g 完全损坏           ❌ 回调跳板失效，无法进入 Go 代码
 //	RaiseFailFastException   ❌ 绕过 VEH（依赖 debug.SetCrashOutput）
 //
-// 理想替代方案（TODO）：
+// 理想替代方案（外部进程架构，类似 Chromium crashpad）：
 //
-//   外部 dump 进程（类似 Chromium crashpad 架构）：
-//     1. Enable() 时启动一个独立的监控进程，通过 named pipe 保持心跳
-//     2. VEH handler 仅做一件事：向 pipe 写入崩溃信号（几个字节，极小开销）
-//     3. 监控进程调用 MiniDumpWriteDump(targetProcess, ...) —— 从外部 dump
-//     4. 外部进程拥有干净的上下文，不受 Go runtime / 切栈 / TLS 损坏影响
-//   这是工业级 crash reporter 的标准做法，但增加了进程管理和 IPC 复杂度。
+//   1. Enable() 时启动一个独立的监控进程，通过 named pipe 保持心跳
+//   2. VEH handler 仅向 pipe 写入崩溃信号（几个字节，极小开销）
+//   3. 监控进程调用 MiniDumpWriteDump(targetProcess, ...) —— 从外部 dump
+//   4. 外部进程拥有干净的上下文，不受 Go runtime / 切栈 / TLS 损坏影响
+//   这是工业级 crash reporter 的标准做法，但增加了进程管理和 IPC 的复杂度。
+//   当前基于 VEH 的实现已满足大部分需求，此方案作为未来架构改进方向。
 
 //go:nosplit
 func vehHandler(info unsafe.Pointer) uintptr {

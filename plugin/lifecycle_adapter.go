@@ -11,9 +11,9 @@ import (
 // 通过将 ManagerComponent 注册到 lifecycle.Manager 中，
 // 插件的 Setup/Teardown 生命周期与平台适配器、engine 统一管理：
 //
-//   - OnStart：调用 pm.StartAll()，按拓扑顺序 Setup 所有插件
+//   - OnStart：调用 pm.StartAll(ctx)，按拓扑顺序 Setup 所有插件
 //   - OnRun  ：阻塞等待停止信号（插件通过 engine 的 Matcher 响应事件）
-//   - OnStop ：调用 pm.StopAll()，逆序 Teardown 所有插件
+//   - OnStop ：调用 pm.StopAll(ctx)，逆序 Teardown 所有插件
 //
 // 这是集成插件生命周期与 framework 的唯一推荐方式。
 //
@@ -21,7 +21,7 @@ import (
 //
 //	lm.Register(plugin.NewManagerComponent(pm))
 //
-// 注意：使用 ManagerComponent 后，无需再手动调用 pm.StartAll()/StopAll()，
+// 注意：使用 ManagerComponent 后，无需再手动调用 pm.StartAll() / StopAll()，
 // lifecycle.Manager 会在 Start/Stop 时自动触发。
 type ManagerComponent struct {
 	pm *Manager
@@ -39,16 +39,9 @@ func (mc *ManagerComponent) Name() string {
 
 // OnStart 调用 pm.StartAll()，按拓扑顺序 Setup 所有已注册插件（实现 lifecycle.Component）。
 // ctx 用于控制操作的超时，发生超时时返回 ctx.Err()。
-//
-// 注意：pm.StartAll() 当前不接受 context 参数，超时需要在调用层通过 ctx.Done 检查。
-// TODO: 将 context.Context 参数传递给 pm.StartAll()，使超时控制传递到插件 Setup。
+// 超时控制会传递到插件 Setup 函数。
 func (mc *ManagerComponent) OnStart(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	return mc.pm.StartAll()
+	return mc.pm.StartAll(ctx)
 }
 
 // OnRun 阻塞等待生命周期停止信号（实现 lifecycle.Component）。
@@ -61,14 +54,7 @@ func (mc *ManagerComponent) OnRun(ctx context.Context) error {
 
 // OnStop 调用 pm.StopAll()，逆序 Teardown 所有插件（实现 lifecycle.Component）。
 // ctx 用于控制操作的超时。
-//
-// 注意：pm.StopAll() 当前不接受 context 参数。
-// TODO: 将 context.Context 参数传递给 pm.StopAll()，使超时控制传递到插件 Teardown。
+// 超时控制会传递到插件 Teardown 函数。
 func (mc *ManagerComponent) OnStop(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	return mc.pm.StopAll()
+	return mc.pm.StopAll(ctx)
 }

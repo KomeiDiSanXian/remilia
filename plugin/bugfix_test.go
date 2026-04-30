@@ -141,7 +141,7 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 	// 启动卸载
 	done := make(chan bool)
 	go func() {
-		_ = instance.unload(eng)
+		_ = instance.unload(stdctx.Background(), eng)
 		done <- true
 	}()
 

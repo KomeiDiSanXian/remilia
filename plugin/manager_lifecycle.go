@@ -3,6 +3,7 @@ package plugin
 // manager_lifecycle.go — 插件管理器生命周期（StartAll / StopAll / Shutdown）
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -13,7 +14,8 @@ import (
 // 通常由 Bot.Start() 自动调用，无需手动调用。
 // 若某个插件 Setup 失败，继续尝试其余插件并收集错误，最终返回合并错误。
 // 已处于 Loaded 状态的插件会跳过（幂等）。
-func (pm *Manager) StartAll() error {
+// ctx 用于控制超时：若 context 在插件 Setup 完成前到期，返回 ctx.Err()。
+func (pm *Manager) StartAll(ctx context.Context) error {
 	pm.mu.RLock()
 	names := make([]string, len(pm.loadOrder))
 	copy(names, pm.loadOrder)
@@ -21,6 +23,11 @@ func (pm *Manager) StartAll() error {
 
 	var errs []error
 	for _, name := range names {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		pm.mu.RLock()
 		inst, exists := pm.plugins[name]
 		pm.mu.RUnlock()
@@ -30,7 +37,7 @@ func (pm *Manager) StartAll() error {
 		if inst.GetState() == Loaded {
 			continue // 已加载，跳过
 		}
-		if err := inst.load(); err != nil {
+		if err := inst.load(ctx); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] StartAll: plugin %s failed to start", name)
 			pm.notifyError(name, "start", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))
@@ -54,7 +61,8 @@ func (pm *Manager) StartAll() error {
 //
 // 通常由 Bot.Stop() 自动调用，无需手动调用。
 // 若某个插件 Teardown 失败，继续处理其余插件并收集错误。
-func (pm *Manager) StopAll() error {
+// ctx 用于控制超时：若 context 在插件 Teardown 完成前到期，返回 ctx.Err()。
+func (pm *Manager) StopAll(ctx context.Context) error {
 	pm.mu.RLock()
 	// 逆序：最后加载的最先卸载
 	order := make([]string, len(pm.loadOrder))
@@ -64,6 +72,11 @@ func (pm *Manager) StopAll() error {
 	var errs []error
 	// 从后往前遍历
 	for i := len(order) - 1; i >= 0; i-- {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		name := order[i]
 		pm.mu.RLock()
 		inst, exists := pm.plugins[name]
@@ -74,7 +87,7 @@ func (pm *Manager) StopAll() error {
 		if inst.GetState() != Loaded && inst.GetState() != Disabled {
 			continue
 		}
-		if err := inst.unload(pm.coordinator); err != nil {
+		if err := inst.unload(ctx, pm.coordinator); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] StopAll: plugin %s failed to stop", name)
 			pm.notifyError(name, "stop", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))

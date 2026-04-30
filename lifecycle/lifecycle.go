@@ -382,11 +382,11 @@ func (m *Manager) Register(comp Component) bool {
 //	)
 //	// 若 Manager 已在运行中，results 中对应项为 false
 //
-// # 关于完整依赖声明支持（TODO）
+// # 关于完整依赖声明支持
 //
-// 当前 Manager 不支持声明式依赖（如 "B 依赖 A"）并自动拓扑排序。
-// Plugin Manager 已实现拓扑排序，未来可考虑将相同机制引入 lifecycle.Manager。
-// 在此之前，调用方应确保传入的组件切片已按依赖先后排好序。
+// 当前 Manager 不支持声明式依赖（如 "B 依赖 A"）并自动拓扑排序，
+// 调用方应确保传入的组件切片已按依赖先后排好序。
+// Plugin Manager 已实现拓扑排序，需要时可参考其实现将相同机制引入 lifecycle.Manager。
 func (m *Manager) RegisterOrdered(comps ...Component) []bool {
 	results := make([]bool, len(comps))
 	for i, c := range comps {

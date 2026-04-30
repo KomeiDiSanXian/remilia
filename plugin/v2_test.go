@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -123,13 +124,13 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 	}
 
 	// Test Load
-	err := instance.load()
+	err := instance.load(context.Background())
 	assert.NoError(t, err)
 	assert.True(t, setupCalled)
 	assert.Equal(t, Loaded, instance.GetState())
 
 	// Test Unload
-	err = instance.unload(eng)
+	err = instance.unload(context.Background(), eng)
 	assert.NoError(t, err)
 	assert.True(t, teardownCalled)
 	assert.Equal(t, Unloaded, instance.GetState())
@@ -338,7 +339,7 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 	}
 
 	// Load once
-	err := instance.load()
+	err := instance.load(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCount)
 

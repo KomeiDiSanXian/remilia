@@ -280,7 +280,7 @@ func (pm *Manager) Unregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
-	if err := inst.unload(pm.coordinator); err != nil {
+	if err := inst.unload(context.Background(), pm.coordinator); err != nil {
 		inst.SetState(Error)
 		pm.mu.Unlock()
 		pm.notifyError(name, "unload", err)

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -38,7 +39,8 @@ type Instance struct {
 func (pi *Instance) name() string { return pi.desc.Name }
 
 // load 加载插件（实现 pluginInternal）
-func (pi *Instance) load() (loadErr error) {
+// ctx 用于控制超时：若 context 在 Setup 完成前到期则返回 ctx.Err()。
+func (pi *Instance) load(ctx context.Context) (loadErr error) {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
@@ -50,9 +52,9 @@ func (pi *Instance) load() (loadErr error) {
 
 	startTime := time.Now()
 
-	// 捕获 Setup 中的 panic（如 MustGet 找不到依赖），转换为错误返回。
-	// 不捕获会导致 panic 穿透 Register 直接崩溃整个进程。
-	func() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
 				if e, ok := r.(error); ok {
@@ -73,6 +75,12 @@ func (pi *Instance) load() (loadErr error) {
 			}
 		}
 	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	if loadErr != nil {
 		gm.stopAndWait()
@@ -117,7 +125,8 @@ func (pi *Instance) buildTeardownContext() *TeardownContext {
 }
 
 // unload 卸载插件（实现 pluginInternal）
-func (pi *Instance) unload(coordinator engine.GroupWriter) error {
+// ctx 用于控制超时：若 context 到期，跳过剩余步骤并返回 ctx.Err()。
+func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) error {
 	pi.mu.Lock()
 	pi.state = Unloading
 	gm := pi.goroutineMgr
@@ -126,6 +135,12 @@ func (pi *Instance) unload(coordinator engine.GroupWriter) error {
 	// Step 1: 停止所有生命周期绑定的 goroutine（在 Teardown 前）
 	if gm != nil {
 		gm.stopAndWait()
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 	}
 
 	// Step 2: 清理 Matcher
