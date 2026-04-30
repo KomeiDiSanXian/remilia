@@ -1,0 +1,39 @@
+# Remilia 文档
+
+欢迎使用 Remilia 文档！本目录包含框架的完整文档。
+
+## 📖 文档导航
+
+### 🚀 新手入门
+
+- [快速开始指南](./01-getting-started/GETTING_STARTED.md) — 10 分钟上手
+- [故障排除](./01-getting-started/TROUBLESHOOTING.md) — 常见问题解答
+
+### 🔌 插件开发
+
+- [Plugin v2 快速上手](./02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md) — 从零开始写插件
+- [插件接口速查](./02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md) — API 签名速查
+- [插件开发最佳实践](./04-development/plugin-best-practices.md) — 规范与模式
+
+### 📖 用户指南
+
+- [最佳实践](./02-user-guides/BEST_PRACTICES.md) — 推荐的使用模式
+- [配置快速参考](./02-user-guides/CONFIGURATION_QUICKREF.md) — 配置项速查
+- [配置热更新](./02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md) — Bridge API
+- [Matcher 链式调用](./02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md) — 高级模式
+
+### 🏗️ 架构设计
+
+- [并发事件处理](./03-architecture/CONCURRENT_EVENT_PROCESSING.md) — COW 并发模型
+- [插件系统设计](./03-architecture/BUILTIN_PLUGINS_DESIGN.md) — 插件架构详解
+- [命令系统集成](./03-architecture/COMMAND_INTEGRATION_PLAN.md) — 命令解析器
+- [多平台抽象](./03-architecture/MULTI_PLATFORM.md) — 跨平台适配器设计
+
+### 🛠️ 开发指南
+
+- [开发说明](./04-development/DEVELOPMENT_README.md) — 项目开发指引
+- [从 v1 迁移到 v2](./02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md) — 插件迁移指南
+
+---
+
+*完整文档持续更新中。如有问题请提交 [GitHub Issue](https://github.com/KomeiDiSanXian/remilia/issues)。*
