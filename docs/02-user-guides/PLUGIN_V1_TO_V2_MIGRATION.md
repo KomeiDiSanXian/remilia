@@ -77,16 +77,18 @@ func New() *plugin.PluginDescriptor {
 ### 单个注册
 
 ```go
-err := manager.RegisterV2(myplugin.New())
+err := manager.Register(myplugin.New())
 ```
 
 ### 批量注册（手动声明顺序，Deps 字段保证依赖校验）
 
 ```go
-err := plugin.RegisterMultipleV2Atomic(manager,
-    storage.New(),
-    cache.New(),    // Deps: ["storage"]
-    weather.New(),  // Deps: ["cache"]
+err := manager.RegisterMultipleAtomic(
+    []*plugin.Descriptor{
+        storage.New(),
+        cache.New(),    // Deps: ["storage"]
+        weather.New(),  // Deps: ["cache"]
+    },
 )
 ```
 
@@ -94,10 +96,12 @@ err := plugin.RegisterMultipleV2Atomic(manager,
 
 ```go
 // 无需手写 Deps，框架通过 DryRun 自动分析依赖图
-err := plugin.RegisterMultipleV2Smart(manager,
-    weather.New(),
-    admin.New(),
-    storage.New(), // 任意顺序
+err := manager.RegisterMultipleSmart(
+    []*plugin.Descriptor{
+        weather.New(),
+        admin.New(),
+        storage.New(), // 任意顺序
+    },
 )
 ```
 

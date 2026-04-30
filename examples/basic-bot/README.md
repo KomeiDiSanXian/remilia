@@ -49,9 +49,9 @@ go run main.go
 ### 使用 BotBuilder
 
 ```go
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 bot, err := remilia.NewBotBuilder().
-    WithBotInfo(botInfo).
-    WithWebhook(":8080").
+    WithPlatformAdapter(adapter).
     WithName("basic-bot").
     Build()
 ```
@@ -66,7 +66,7 @@ bot.Engine().Use(middleware.DevelopmentSet()...)
 ### 注册命令处理器
 
 ```go
-eng.OnCommand(dto.C2CMessageCreate, "/echo").Handle(func(ctx *eventctx.Context) error {
+eng.OnCommand(platform.EventKindC2CMessage, "/echo").Handle(func(ctx *eventctx.Context) error {
     // 处理命令
 })
 ```
@@ -189,7 +189,7 @@ eng.OnCommand("/echo", func(ctx *eventctx.Context) error {
 ### 创建适配器
 
 ```go
-adapter := remilia.NewWebhookAdapter(":8080", secret)
+adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
 ```
 
 Webhook 适配器负责接收 QQ 官方的事件推送。

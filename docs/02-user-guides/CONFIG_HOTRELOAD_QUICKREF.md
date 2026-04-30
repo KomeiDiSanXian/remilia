@@ -387,10 +387,9 @@ vim config.yaml
 
 ## 更多资源
 
-- 📖 [完整文档](./CONFIG_HOTRELOAD_IMPLEMENTATION.md)
 - 💡 [使用示例](../examples/config_hotreload/main.go)
 - 🔧 [配置模板](../config.example.yaml)
 
 ---
 
-**最后更新**: 2026-01-23
+**最后更新**: 2026-02-25

@@ -87,30 +87,30 @@ type GreeterPlugin struct {
     greeting string
 }
 
-// New 返回插件描述符，供 pm.RegisterV2 使用
-func New() *plugin.PluginDescriptor {
+// New 返回插件描述符，供 pm.Register 使用
+func New() *plugin.Descriptor {
     p := &GreeterPlugin{greeting: "你好"}
-    return &plugin.PluginDescriptor{
+    return &plugin.Descriptor{
         Name:    "greeter",
         Version: "1.0.0",
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Description: "问候插件",
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/greet").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/greet").
                 Handle(func(c *eventctx.Context) error {
                     name := c.GetMessageContent()
                     if name == "" {
                         name = "朋友"
                     }
-                    return c.Reply(p.greeting + ", " + name + "!")
+                    return c.Reply(platform.TextMessage(p.greeting + ", " + name + "!"))
                 })
 
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/setgreeting").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/setgreeting").
                 Handle(func(c *eventctx.Context) error {
                     p.greeting = c.GetMessageContent()
-                    return c.Reply("问候语已更新: " + p.greeting)
+                    return c.Reply(platform.TextMessage("问候语已更新: " + p.greeting))
                 })
 
             return p, nil
@@ -125,15 +125,17 @@ func New() *plugin.PluginDescriptor {
 manager := plugin.NewManager(eng)
 
 // 单个注册
-if err := manager.RegisterV2(myplugin.New()); err != nil {
+if err := manager.Register(myplugin.New()); err != nil {
     log.Fatal(err)
 }
 
 // 批量注册（自动按依赖顺序排序）
-if err := manager.RegisterMultipleV2Smart([]plugin.PluginDescriptor{
-    storage.New(),
-    myplugin.New(),   // 若依赖 storage，会自动在其后注册
-}); err != nil {
+if err := manager.RegisterMultipleSmart(
+    []*plugin.Descriptor{
+        storage.New(),
+        myplugin.New(),   // 若依赖 storage，会自动在其后注册
+    },
+); err != nil {
     log.Fatal(err)
 }
 ```

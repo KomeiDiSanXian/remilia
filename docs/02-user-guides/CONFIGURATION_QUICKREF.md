@@ -410,11 +410,8 @@ if err := watcher.Start(); err != nil {
 
 ## 相关文档
 
-- [配置改进详细分析](./CONFIGURATION_IMPROVEMENTS.md)
-- [配置改进总结](./CONFIGURATION_SUMMARY.md)
 - [配置示例文件](../config.example.yaml)
-- [性能测试报告](./PERFORMANCE_TEST_REPORT.md) (如果存在)
 
 ---
 
-*最后更新: 2026-01-24*
+*最后更新: 2026-02-25*

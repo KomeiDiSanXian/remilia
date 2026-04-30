@@ -142,7 +142,7 @@ func NewMyPlugin() *plugin.PluginDescriptor {
 4. 将结构体字段改为闭包变量
 5. 移除所有 `inject` 标签，使用 `ctx.MustGet()` 获取依赖
 6. 移除所有 Setter 方法（如 `SetPluginManager`）
-7. 使用 `manager.RegisterV2()` 而不是 `manager.Register()`
+7. 使用 `manager.Register()` 注册插件（v2 API 已稳定为正式 API）
 
 ## 注意事项
 

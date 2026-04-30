@@ -149,15 +149,13 @@
 
 ### 想要开发插件？
 阅读：
-- [插件系统设计](./BUILTIN_PLUGINS_DESIGN.md) - 理解插件架构
-- [插件增强架构参考](./PLUGIN_ENHANCEMENT_PROPOSAL.md) - 已实现的增强
 - [插件接口速查](../02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md)
+- [插件开发最佳实践](../04-development/plugin-best-practices.md)
 
 ### 想要贡献代码？
 阅读：
 - 所有架构文档
 - [最佳实践](../02-user-guides/BEST_PRACTICES.md)
-- [设计评审报告](../06-archived/core-middleware-design-review.md)
 
 ---
 

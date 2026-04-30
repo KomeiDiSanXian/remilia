@@ -134,10 +134,10 @@ defer eng.Shutdown(context.Background())
 ### 4. 使用配置创建 Webhook Adapter
 
 ```go
-import "github.com/KomeiDiSanXian/remilia"
+import "github.com/KomeiDiSanXian/remilia/platform/qq"
 
 // 使用配置创建 Webhook Adapter
-adapter := remilia.NewWebhookServerAdapterWithConfig(
+adapter := qq.NewWebhookServerAdapterWithConfig(
     fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
     botInfo,
     cfg.Webhook,
@@ -167,12 +167,12 @@ bot.Shutdown(ctx)
 
 ```go
 // 旧的方式（仍然支持）
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 tokenMgr := token.NewManager(botInfo)
 eng := engine.NewEngine()
 
 // 新的方式（推荐）
-adapter := remilia.NewWebhookServerAdapterWithConfig(":8080", botInfo, cfg.Webhook)
+adapter := qq.NewWebhookServerAdapterWithConfig(":8080", botInfo, cfg.Webhook)
 tokenMgr := token.NewManagerWithConfig(botInfo, cfg.Token)
 eng := engine.NewEngine(engine.WithConfig(cfg.Engine))
 ```

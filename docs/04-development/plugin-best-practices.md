@@ -221,7 +221,7 @@ func TestMyPlugin(t *testing.T) {
     defer env.Close()
 
     // 注册并加载插件
-    err := env.Manager.RegisterV2(myplugin.New())
+    err := env.Manager.Register(myplugin.New())
     require.NoError(t, err)
 
     // 发送测试事件

@@ -1,6 +1,6 @@
 # 工厂函数简化指南
 
-**最后更新**: 2026年2月5日
+**最后更新**: 2026年4月30日
 
 本文档说明Remilia框架中简化的工厂函数使用方法。
 
@@ -22,9 +22,9 @@
 最灵活且清晰的方式：
 
 ```go
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 bot, err := remilia.NewBotBuilder().
-    WithBotInfo(botInfo).
-    WithWebhook(":8080").
+    WithPlatformAdapter(adapter).
     WithName("my-bot").
     WithDebug(true).
     Build()
@@ -36,28 +36,31 @@ if err != nil {
 如果确信配置正确，可以使用`MustBuild()`:
 
 ```go
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 bot := remilia.NewBotBuilder().
-    WithBotInfo(botInfo).
-    WithWebhook(":8080").
+    WithPlatformAdapter(adapter).
     MustBuild() // 配置错误会panic
 ```
 
 ### 方式2: 直接使用工厂函数
 
-#### 简单Bot（无API调用能力）
+#### 使用 Builder（推荐）
 
 ```go
-adapter := remilia.NewWebhookServerAdapter(":8080", nil)
-engine := engine.NewEngine()
-bot := remilia.NewBot(adapter, engine)
+adapter := qq.NewWebhookServerAdapter(":8080", nil)
+eng := engine.NewEngine()
+bot, err := remilia.NewBotBuilder().
+    WithPlatformAdapter(adapter).
+    WithEngine(eng).
+    Build()
 ```
 
-#### 完整Bot（支持API调用）
+#### 使用 NewBot（简单场景）
 
 ```go
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
-engine := engine.NewEngine()
-bot := remilia.NewBotWithInfo(adapter, engine, botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+eng := engine.NewEngine()
+bot, err := remilia.NewBot(adapter, eng)
 ```
 
 ### 对比说明
@@ -65,8 +68,7 @@ bot := remilia.NewBotWithInfo(adapter, engine, botInfo)
 | 方式 | 优点 | 缺点 | 适用场景 |
 |------|------|------|----------|
 | Builder | 最清晰，最灵活 | 略微冗长 | 生产环境，复杂配置 |
-| NewBot | 简单直接 | 参数较多 | 简单场景 |
-| NewBotWithInfo | 完整功能 | 需要理解两个构造函数 | 需要API调用 |
+| NewBot | 简单直接 | 扩展性有限 | 简单场景 |
 
 ---
 
@@ -77,7 +79,7 @@ bot := remilia.NewBotWithInfo(adapter, engine, botInfo)
 #### 生产环境
 
 ```go
-engine.Use(middleware.ProductionSet()...)
+eng.Use(middleware.ProductionSet()...)
 ```
 
 包含：Recover + Logging + Adaptive + CircuitBreaker + Dedup
@@ -85,15 +87,13 @@ engine.Use(middleware.ProductionSet()...)
 #### 开发环境
 
 ```go
-engine.Use(middleware.DevelopmentSet()...)
+eng.Use(middleware.DevelopmentSet()...)
 ```
-
-包含：Recover + Logging
 
 #### 测试环境
 
 ```go
-engine.Use(middleware.BasicSet()...)
+eng.Use(middleware.BasicSet()...)
 ```
 
 仅包含：Recover
@@ -165,23 +165,19 @@ engine.Use(arl.Middleware())
 #### 方式1: 最简单（无botInfo）
 
 ```go
-adapter := remilia.SimpleWebhookAdapter(8080)
+adapter := qq.SimpleWebhookAdapter(8080)
 ```
 
 #### 方式2: 带botInfo
 
 ```go
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 ```
 
 #### 方式3: 完全自定义
 
 ```go
-config := config.WebhookConfig{
-    WorkerCount: 4,
-    EventBuffer: 200,
-}
-adapter := remilia.NewWebhookServerAdapterWithConfig(":8080", botInfo, config)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 ```
 
 ---
@@ -194,7 +190,7 @@ adapter := remilia.NewWebhookServerAdapterWithConfig(":8080", botInfo, config)
 
 ```go
 // 创建中间件（需要了解所有配置参数）
-config := middleware.AdaptiveConfig{
+cfg := middleware.AdaptiveConfig{
     MinConcurrency: 10,
     MaxConcurrency: 1000,
     InitialLimit:   100,
@@ -207,13 +203,26 @@ config := middleware.AdaptiveConfig{
     SampleWindow:   60 * time.Second,
     MetricsEnabled: true,
 }
-arl := middleware.NewAdaptiveRateLimiter(config)
+arl := middleware.NewAdaptiveRateLimiter(cfg)
 arl.Start()
 
 // 创建Bot（参数较多）
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
-engine := engine.NewEngine()
-bot := remilia.NewBotWithInfo(adapter, engine, botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+eng := engine.NewEngine()
+bot, err := remilia.NewBot(adapter, eng)
+```
+
+#### 之后（简化）
+
+```go
+// 使用预定义中间件集
+eng.Use(middleware.ProductionSet()...)
+
+// 使用Builder创建Bot
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+bot := remilia.NewBotBuilder().
+    WithPlatformAdapter(adapter).
+    MustBuild()
 ```
 
 #### 之后（简化）
@@ -239,12 +248,12 @@ bot := remilia.NewBotBuilder().
 
 | 功能 | 推荐工厂 | 示例 |
 |------|----------|------|
-| 创建Bot | `NewBotBuilder()` | `NewBotBuilder().WithBotInfo(info).WithWebhook(":8080").Build()` |
-| 中间件集 | `ProductionSet()` | `engine.Use(middleware.ProductionSet()...)` |
-| 自适应限流 | `SimpleAdaptive()` | `engine.Use(middleware.SimpleAdaptive())` |
-| 熔断器 | `SimpleCircuitBreaker()` | `engine.Use(middleware.SimpleCircuitBreaker())` |
-| 去重 | `SimpleDedup()` | `engine.Use(middleware.SimpleDedup())` |
-| Webhook | `NewWebhookServerAdapter()` | `NewWebhookServerAdapter(":8080", botInfo)` |
+| 创建Bot | `NewBotBuilder()` | `NewBotBuilder().WithPlatformAdapter(adapter).Build()` |
+| 中间件集 | `ProductionSet()` | `eng.Use(middleware.ProductionSet()...)` |
+| 自适应限流 | `SimpleAdaptive()` | `eng.Use(middleware.SimpleAdaptive())` |
+| 熔断器 | `SimpleCircuitBreaker()` | `eng.Use(middleware.SimpleCircuitBreaker())` |
+| 去重 | `SimpleDedup()` | `eng.Use(middleware.SimpleDedup())` |
+| Webhook (QQ) | `qq.NewWebhookServerAdapter()` | `qq.NewWebhookServerAdapter(":8080", botInfo)` |
 
 ---
 
@@ -254,15 +263,16 @@ bot := remilia.NewBotBuilder().
 
 ```go
 func main() {
+    adapter := qq.SimpleWebhookAdapter(8080)
     bot := remilia.NewBotBuilder().
-        WithWebhook(":8080").
+        WithPlatformAdapter(adapter).
         MustBuild()
     
     bot.Engine().Use(middleware.DevelopmentSet()...)
     
     // 注册处理器
     bot.Engine().OnMessage(func(ctx *eventctx.Context) error {
-        return ctx.Reply("Hello!")
+        return ctx.Reply(platform.TextMessage("Hello!"))
     })
     
     bot.Start()
@@ -283,9 +293,9 @@ func main() {
     }
     
     // 创建Bot
+    adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
     bot := remilia.NewBotBuilder().
-        WithBotInfo(botInfo).
-        WithWebhook(":8080").
+        WithPlatformAdapter(adapter).
         WithName("production-bot").
         MustBuild()
     
@@ -308,9 +318,9 @@ func main() {
 ```go
 func main() {
     // 使用Builder + 自定义中间件
+    adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
     bot := remilia.NewBotBuilder().
-        WithBotInfo(botInfo).
-        WithWebhook(":8080").
+        WithPlatformAdapter(adapter).
         Build()
     
     // 自定义中间件组合
@@ -367,4 +377,4 @@ func main() {
 ---
 
 **最后更新**: 2026年2月5日  
-**适用版本**: v0.9.0+
+**适用版本**: v1.0.0+

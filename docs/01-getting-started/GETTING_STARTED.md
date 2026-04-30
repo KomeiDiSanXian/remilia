@@ -1,14 +1,14 @@
 # Remilia 快速上手指南
 
-> **最后更新**: 2026-02-25  
-> **适用版本**: v2.0.0+
+> **最后更新**: 2026-04-30  
+> **适用版本**: v1.0.0+
 
-欢迎使用 Remilia！本指南将帮助你在 10 分钟内创建并运行你的第一个 QQ 机器人。
+欢迎使用 Remilia！本指南将帮助你在 10 分钟内创建并运行你的第一个机器人。
 
 ## 📋 前置要求
 
-- Go 1.21 或更高版本
-- QQ 机器人账号（从 [QQ 开放平台](https://bot.q.qq.com/) 申请）
+- Go 1.26 或更高版本
+- 一个机器人平台账号（如 [QQ 开放平台](https://bot.q.qq.com/)）
 - 基础的 Go 语言知识
 
 ## 🚀 5 分钟快速开始
@@ -40,7 +40,9 @@ import (
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
     "github.com/KomeiDiSanXian/remilia/core/engine"
     "github.com/KomeiDiSanXian/remilia/middleware"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
+    "github.com/KomeiDiSanXian/remilia/platform/qq"
+    "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func main() {
@@ -54,16 +56,27 @@ func main() {
     )
 
     // 注册命令处理器
-    eng.OnCommand(dto.GroupAtMessageCreate, "/hello").
+    eng.OnCommand(platform.EventKindGroupMessage, "/hello").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply("Hello, World!")
+            return ctx.Reply(platform.TextMessage("Hello, World!"))
         })
 
-    // 创建 Webhook 适配器
-    adapter := remilia.NewWebhookAdapter(":8080", "your-webhook-secret")
+    // 创建 QQ Webhook 适配器
+    botInfo := &dto.BotInfo{
+        AppID:     123456,
+        Token:     "your-token",
+        AppSecret: "your-secret",
+    }
+    adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
-    // 创建并启动 Bot
-    bot := remilia.NewBot(adapter, eng)
+    // 使用 Builder 创建并启动 Bot
+    bot, err := remilia.NewBotBuilder().
+        WithPlatformAdapter(adapter).
+        WithEngine(eng).
+        Build()
+    if err != nil {
+        panic(err)
+    }
     bot.Start()
     bot.WaitForShutdown()
 }
@@ -75,9 +88,9 @@ func main() {
 go run main.go
 ```
 
-### 步骤 5: 配置 Webhook
+### 步骤 5: 配置平台 Webhook
 
-在 QQ 机器人管理后台配置 Webhook 地址：
+在对应机器人管理后台配置 Webhook 地址（以 QQ 为例）：
 ```
 http://your-server:8080/webhook
 ```
@@ -124,11 +137,11 @@ Matcher 定义了事件的匹配规则和处理器。
 
 ```go
 // 命令匹配（自动 O(1) 分发索引）
-eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
+eng.OnCommand(platform.EventKindGroupMessage, "/ping").
     Handle(handler)
 
 // 事件类型匹配 + 额外规则
-eng.On(dto.C2CMessageCreate, context.OnFullMatch("hello")).
+eng.On(platform.EventKindC2CMessage, context.OnFullMatch("hello")).
     Handle(handler)
 
 // 通配（所有事件类型）
@@ -156,10 +169,11 @@ eng.Use(
 
 ### Adapter（适配器）
 
-适配器负责与 QQ 官方 API 通信。
+适配器负责与平台 API 通信。以 QQ 为例：
 
 ```go
-adapter := remilia.NewWebhookAdapter(":8080", "secret")
+botInfo := &dto.BotInfo{AppID: 123456, Token: "your-token", AppSecret: "your-secret"}
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 ```
 
 ---
@@ -177,7 +191,9 @@ import (
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
     "github.com/KomeiDiSanXian/remilia/core/engine"
     "github.com/KomeiDiSanXian/remilia/middleware"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
+    "github.com/KomeiDiSanXian/remilia/platform/qq"
+    "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 func main() {
@@ -192,31 +208,38 @@ func main() {
     )
 
     // 命令注册
-    eng.OnCommand(dto.GroupAtMessageCreate, "/echo").
+    eng.OnCommand(platform.EventKindGroupMessage, "/echo").
         Handle(func(ctx *eventctx.Context) error {
             text := ctx.GetMessageContent()
-            return ctx.Reply("你说: " + text)
+            return ctx.Reply(platform.TextMessage("你说: " + text))
         })
 
-    eng.OnCommand(dto.GroupAtMessageCreate, "/time").
+    eng.OnCommand(platform.EventKindGroupMessage, "/time").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply("当前时间: " + time.Now().Format("2006-01-02 15:04:05"))
+            return ctx.Reply(platform.TextMessage("当前时间: " + time.Now().Format("2006-01-02 15:04:05")))
         })
 
-    eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
+    eng.OnCommand(platform.EventKindGroupMessage, "/ping").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply("Pong! 🏓")
+            return ctx.Reply(platform.TextMessage("Pong! 🏓"))
         })
 
     // 事件处理器
-    eng.On(dto.GroupAtMessageCreate).
+    eng.On(platform.EventKindGroupMessage).
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(fmt.Sprintf("收到消息: %s", ctx.GetMessageContent()))
+            return ctx.Reply(platform.TextMessage(fmt.Sprintf("收到消息: %s", ctx.GetMessageContent())))
         })
 
+    // 创建适配器
+    botInfo := &dto.BotInfo{AppID: 123456, Token: "your-token", AppSecret: "your-secret"}
+    adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
+
     // 启动
-    adapter := remilia.NewWebhookAdapter(":8080", "your-secret")
-    bot := remilia.NewBot(adapter, eng)
+    bot, err := remilia.NewBotBuilder().
+        WithPlatformAdapter(adapter).
+        WithEngine(eng).
+        Build()
+    if err != nil { panic(err) }
     bot.Start()
     bot.WaitForShutdown()
 }
@@ -295,24 +318,28 @@ eng.Use(ctrl.Middleware())
 package main
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
+    "github.com/KomeiDiSanXian/remilia"
+    "github.com/KomeiDiSanXian/remilia/core/engine"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/plugin"
+    "github.com/KomeiDiSanXian/remilia/platform"
+    "github.com/KomeiDiSanXian/remilia/platform/qq"
+    "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
 // 定义插件
-func newMyPlugin() *plugin.PluginDescriptor {
-    return &plugin.PluginDescriptor{
+func newMyPlugin() *plugin.Descriptor {
+    return &plugin.Descriptor{
         Name:    "my-plugin",
         Version: "1.0.0",
-        Meta: &plugin.PluginMeta{
+        Meta: &plugin.Metadata{
             Description: "示例插件",
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/myplugin").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/myplugin").
                 Handle(func(c *eventctx.Context) error {
-                    return c.Reply("My Plugin is working!")
+                    return c.Reply(platform.TextMessage("My Plugin is working!"))
                 })
             return nil, nil
         },
@@ -324,10 +351,14 @@ func main() {
     manager := plugin.NewManager(eng)
 
     // 注册插件
-    _ = manager.RegisterV2(newMyPlugin())
+    manager.Register(newMyPlugin())
 
-    adapter := remilia.NewWebhookAdapter(":8080", "secret")
-    bot := remilia.NewBot(adapter, eng)
+    adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
+    bot, err := remilia.NewBotBuilder().
+        WithPlatformAdapter(adapter).
+        WithEngine(eng).
+        Build()
+    if err != nil { panic(err) }
     bot.Start()
     bot.WaitForShutdown()
 }

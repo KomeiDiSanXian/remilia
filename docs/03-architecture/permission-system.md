@@ -84,11 +84,11 @@ if pm != nil {
 
 ```go
 // 仅注册权限管理插件（内存模式，重启丢失）
-pm.RegisterV2(permission.New())
+pm.Register(permission.New())
 
 // 带持久化（先注册 storage 插件）
-pm.RegisterV2(storage.New())
-pm.RegisterV2(permission.New()) // 自动通过 Try[storage.Plugin] 获取存储后端
+pm.Register(storage.New())
+pm.Register(permission.New()) // 自动通过 Try[storage.Plugin] 获取存储后端
 ```
 
 **在其他插件中使用**：

@@ -30,7 +30,7 @@
 学习：
 - PluginDescriptor 完整字段说明
 - SetupContext 所有字段（Reg / Log / Info / Admin / Config / EventBus / Go / DryRun）
-- 三种注册方式（RegisterV2 / Atomic / Smart）
+- 三种注册方式（Register / RegisterMultipleAtomic / RegisterMultipleSmart）
 - 依赖获取（Require / Optional / MustAs）
 - 完整示例：天气插件
 

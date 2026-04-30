@@ -22,7 +22,7 @@
 
 ```go
 // 1. 注册插件
-pm.RegisterV2(stats.New())
+pm.Register(stats.New())
 
 // 2. 挂载中间件（自动统计所有事件）
 engine.Use(statsPlugin.Middleware())
@@ -40,7 +40,7 @@ total := sp.TotalMessages()
 // 先注册 storage 插件
 pm.RegisterV2(storage.New())
 // stats 插件会自动检测并使用 storage 后端
-pm.RegisterV2(stats.New())
+pm.Register(stats.New())
 ```
 
 ## API

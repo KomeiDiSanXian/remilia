@@ -97,7 +97,7 @@ sudo ufw allow 8080
 #### 3. 检查签名验证
 ```go
 // 临时禁用签名验证进行测试
-adapter := remilia.NewWebhookAdapter(":8080", "")  // 空 secret
+adapter := qq.SimpleWebhookAdapter(8080)
 
 // 添加日志
 eng.Use(func(next eventctx.Handler) eventctx.Handler {

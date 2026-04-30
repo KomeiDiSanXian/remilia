@@ -30,7 +30,6 @@
 1. **入门**: [快速上手](../02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
 2. **进阶**: [插件接口速查](../02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md)
 3. **规范**: [插件开发最佳实践](./plugin-best-practices.md)
-4. **架构**: [插件系统设计](../03-architecture/BUILTIN_PLUGINS_DESIGN.md)
 
 ---
 

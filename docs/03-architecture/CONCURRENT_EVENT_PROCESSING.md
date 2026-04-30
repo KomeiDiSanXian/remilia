@@ -125,7 +125,7 @@ for i := 0; i < a.workers; i++ {
 
 ```go
 // 向后兼容，保持原有性能
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 bot := remilia.NewBot(adapter, engine)
 bot.Start()
 ```
@@ -136,7 +136,7 @@ bot.Start()
 
 ```go
 // 使用 8 个 worker，获得 8 倍性能提升
-adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
 bot := remilia.NewBot(adapter, engine)
 bot.Start()
 ```
@@ -150,7 +150,7 @@ import "runtime"
 
 // 使用 CPU 核心数作为 worker 数量
 workers := runtime.NumCPU()
-adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, workers)
+adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, workers)
 ```
 
 ---
@@ -170,7 +170,7 @@ adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, workers)
 
 1. **从 4 个 worker 开始**
    ```go
-   adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 4)
+   adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 4)
    ```
 
 2. **根据实际负载调整**
@@ -280,10 +280,10 @@ go func() {
 
 ```go
 // 修改前
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
 // 修改后
-adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
 ```
 
 **步骤 2**: 测试验证
@@ -304,9 +304,9 @@ adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
 
 ```go
 // 回滚到单 worker
-adapter := remilia.NewWebhookServerAdapter(":8080", botInfo)
+adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 // 或
-adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 1)
+adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 1)
 ```
 
 ---
@@ -410,7 +410,7 @@ workers := runtime.NumCPU()
 
 **立即使用**:
 ```go
-adapter := remilia.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
+adapter := qq.NewWebhookServerAdapterWithWorkers(":8080", botInfo, 8)
 ```
 
 ---

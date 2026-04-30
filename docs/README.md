@@ -25,13 +25,12 @@
 ### 🏗️ 架构设计
 
 - [并发事件处理](./03-architecture/CONCURRENT_EVENT_PROCESSING.md) — COW 并发模型
-- [插件系统设计](./03-architecture/BUILTIN_PLUGINS_DESIGN.md) — 插件架构详解
-- [命令系统集成](./03-architecture/COMMAND_INTEGRATION_PLAN.md) — 命令解析器
 - [多平台抽象](./03-architecture/MULTI_PLATFORM.md) — 跨平台适配器设计
+- [权限系统架构](./03-architecture/permission-system.md) — RBAC 权限模型
 
 ### 🛠️ 开发指南
 
-- [开发说明](./04-development/DEVELOPMENT_README.md) — 项目开发指引
+- [开发说明](./04-development/README.md) — 项目开发指引
 - [从 v1 迁移到 v2](./02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md) — 插件迁移指南
 
 ---

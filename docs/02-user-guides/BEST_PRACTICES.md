@@ -655,7 +655,7 @@ func TestBotIntegration(t *testing.T) {
     eng := engine.NewEngine()
     RegisterHandlers(eng)
     
-    adapter := remilia.NewWebhookAdapter(":0", "test-secret")
+    adapter := qq.NewWebhookServerAdapter(":0", &dto.BotInfo{AppID: 123456})
     bot := remilia.NewBot(adapter, eng)
     
     // 启动
@@ -841,9 +841,8 @@ http.Handle("/metrics", promhttp.Handler())
 
 ## 📚 相关文档
 
-- [快速上手](./GETTING_STARTED.md)
-- [性能调优](./PERFORMANCE_TUNING.md)
-- [故障排查](./TROUBLESHOOTING.md)
+- [快速上手](../01-getting-started/GETTING_STARTED.md)
+- [故障排查](../01-getting-started/TROUBLESHOOTING.md)
 
 ---
 
