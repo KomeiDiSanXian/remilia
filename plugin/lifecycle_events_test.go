@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 	}
 
 	// Reload → expect plugin.reloaded
-	if err := pm.Reload("event-test"); err != nil {
+	if err := pm.Reload(context.Background(), "event-test"); err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -57,7 +58,7 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 	}
 
 	// Unregister → expect plugin.unloaded
-	if err := pm.Unregister("event-test"); err != nil {
+	if err := pm.Unregister(context.Background(), "event-test"); err != nil {
 		t.Fatalf("Unregister failed: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)

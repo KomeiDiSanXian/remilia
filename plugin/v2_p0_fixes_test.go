@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -115,7 +116,7 @@ func TestP0Fix3_ReloadRecreatesContext(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, setupCallCount)
 
-	err = manager.Reload("reload-test")
+	err = manager.Reload(context.Background(), "reload-test")
 	require.NoError(t, err)
 	assert.Equal(t, 2, setupCallCount)
 }
@@ -207,7 +208,7 @@ func TestP0Fix_Integration(t *testing.T) {
 	assert.Greater(t, instance.GetUptime(), time.Duration(0))
 
 	// P0 Fix #3: Reload
-	err = manager.Reload("integration-test")
+	err = manager.Reload(context.Background(), "integration-test")
 	require.NoError(t, err)
 	assert.True(t, reloadCalled, "Advanced.Reload should be called on Reload")
 

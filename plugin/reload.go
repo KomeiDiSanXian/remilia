@@ -12,7 +12,8 @@ import (
 // reload.go — 插件热重载逻辑：三种重载策略实现
 
 // reload 重载插件（实现 pluginInternal）
-func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
+// ctx 用于控制超时：若 context 到期，跳过卸载/加载步骤并返回 ctx.Err()。
+func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordinator) error {
 	pi.mu.Lock()
 	oldContext := pi.setupContext
 	pi.state = Reloading
@@ -54,10 +55,10 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 		if adv.Reload == nil {
 			// ReloadInPlace 要求提供 Reload 函数；未提供时降级并给出明确警告
 			logger.Warnf("[plugin] %s: ReloadInPlace specified but Advanced.Reload is nil, falling back to ReloadUnloadLoad", pi.desc.Name)
-			if err := pi.unload(context.Background(), coordinator); err != nil {
+			if err := pi.unload(ctx, coordinator); err != nil {
 				return err
 			}
-			if err := pi.load(context.Background()); err != nil {
+			if err := pi.load(ctx); err != nil {
 				return err
 			}
 			if savedState != nil && adv.RestoreState != nil {
@@ -82,10 +83,10 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 		return nil
 	case ReloadUnloadLoad:
 		// 此分支严格执行 unload → load，不检查 adv.Reload（避免与 ReloadInPlace 语义混淆）
-		if err := pi.unload(context.Background(), coordinator); err != nil {
+		if err := pi.unload(ctx, coordinator); err != nil {
 			return err
 		}
-		if err := pi.load(context.Background()); err != nil {
+		if err := pi.load(ctx); err != nil {
 			return err
 		}
 		if savedState != nil && adv.RestoreState != nil {
@@ -94,14 +95,14 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 			}
 		}
 	case ReloadBlueGreen:
-		if err := pi.reloadBlueGreen(coordinator, newContext); err != nil {
+		if err := pi.reloadBlueGreen(ctx, coordinator, newContext); err != nil {
 			return err
 		}
 	default:
-		if err := pi.unload(context.Background(), coordinator); err != nil {
+		if err := pi.unload(ctx, coordinator); err != nil {
 			return err
 		}
-		if err := pi.load(context.Background()); err != nil {
+		if err := pi.load(ctx); err != nil {
 			return err
 		}
 	}
@@ -112,7 +113,7 @@ func (pi *Instance) reload(coordinator engine.PluginCoordinator) error {
 // reloadBlueGreen 蓝绿重载策略：并行运行新实例，就绪后原子切换，最后停止旧实例。
 //
 // 停机窗口从"整个 Setup 时间"缩短为两次 engine 操作的微秒级间隔。
-func (pi *Instance) reloadBlueGreen(coordinator engine.PluginCoordinator, newContext *SetupContext) error {
+func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.PluginCoordinator, newContext *SetupContext) error {
 	pluginName := pi.desc.Name
 	tempGroup := pluginName + ".__bg"
 
@@ -126,7 +127,7 @@ func (pi *Instance) reloadBlueGreen(coordinator engine.PluginCoordinator, newCon
 	newContext.Reg = newLiveRegistryWriter(coordinator, tempGroup, newInstance)
 
 	// Step 1: 并行运行新 Setup（旧实例继续处理消息）
-	if err := newInstance.load(context.Background()); err != nil {
+	if err := newInstance.load(ctx); err != nil {
 		if coordinator != nil {
 			coordinator.RemoveGroup(tempGroup)
 		}

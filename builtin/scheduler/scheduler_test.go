@@ -1,6 +1,7 @@
 package scheduler_test
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 		t.Fatalf("Register: %v", err)
 	}
 	return p, func() {
-		if err := pm.Unregister("scheduler"); err != nil {
+		if err := pm.Unregister(context.Background(), "scheduler"); err != nil {
 			t.Logf("Unregister: %v", err)
 		}
 	}

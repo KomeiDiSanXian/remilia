@@ -107,7 +107,7 @@ func TestTeardownContext_InfoField(t *testing.T) {
 			return nil
 		},
 	}))
-	require.NoError(t, pm.Unregister("teardown-info-consumer"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "teardown-info-consumer"))
 	assert.True(t, teardownInfoNotNil, "TeardownContext.Info 应为非 nil")
 }
 func TestPluginLogger_Infow_DoesNotPanic(t *testing.T) {

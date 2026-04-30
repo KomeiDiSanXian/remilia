@@ -344,7 +344,7 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 	assert.Equal(t, 1, setupCount)
 
 	// Reload should call Unload + Load
-	err = instance.reload(eng)
+	err = instance.reload(context.Background(), eng)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, setupCount)
 	assert.Equal(t, 1, teardownCount)

@@ -1,5 +1,7 @@
 package plugin
 
+import "context"
+
 // manager_writer.go — 管理级别写视图接口
 //
 // ManagerWriter 是 Manager 对 Privileged 插件暴露的写视图，
@@ -53,10 +55,10 @@ type ManagerWriter interface {
 // managerWriterImpl 将 *Manager 包装为 ManagerWriter（仅暴露写操作）
 type managerWriterImpl struct{ m *Manager }
 
-func (w *managerWriterImpl) Reload(name string) error          { return w.m.Reload(name) }
+func (w *managerWriterImpl) Reload(name string) error          { return w.m.Reload(context.Background(), name) }
 func (w *managerWriterImpl) Disable(name string) error         { return w.m.Disable(name) }
 func (w *managerWriterImpl) Enable(name string) error          { return w.m.Enable(name) }
-func (w *managerWriterImpl) Unregister(name string) error      { return w.m.Unregister(name) }
+func (w *managerWriterImpl) Unregister(name string) error      { return w.m.Unregister(context.Background(), name) }
 func (w *managerWriterImpl) ForceUnregister(name string) error { return w.m.ForceUnregister(name) }
 func (w *managerWriterImpl) AddLifecycleListener(listener LifecycleListener) {
 	w.m.AddListener(listener)

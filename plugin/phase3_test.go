@@ -120,7 +120,7 @@ func TestP3_TeardownV3_ReceivesAPI(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Unregister("p3-teardown"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "p3-teardown"))
 	require.NotNil(t, capturedState)
 	assert.True(t, capturedState.Saved, "TeardownContext.API 应包含 Setup 返回的对象")
 }
@@ -145,7 +145,7 @@ func TestP3_TeardownV3_LogAndConfigAvailable(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Unregister("p3-teardown-ctx"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "p3-teardown-ctx"))
 	assert.NotNil(t, teardownLog, "TeardownContext.Log 应被注入")
 	_ = teardownConfig // Config 可能为 nil（未配置），但不应 panic
 }
@@ -172,7 +172,7 @@ func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Unregister("p3-old-teardown"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "p3-old-teardown"))
 	assert.True(t, teardownCalled, "旧签名 Teardown 应被调用")
 }
 
@@ -260,7 +260,7 @@ func TestP3_Advanced_ReloadInAdvanced(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Reload("p3-advanced-reload"))
+	require.NoError(t, pm.Reload(stdctx.Background(), "p3-advanced-reload"))
 	assert.True(t, reloadCalled, "Advanced.Reload 应被调用")
 }
 
@@ -286,6 +286,6 @@ func TestP3_Advanced_FallbackToDeprecatedReload(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Reload("p3-deprecated-reload"))
+	require.NoError(t, pm.Reload(stdctx.Background(), "p3-deprecated-reload"))
 	assert.True(t, reloadCalled, "Advanced.Reload 应被调用")
 }

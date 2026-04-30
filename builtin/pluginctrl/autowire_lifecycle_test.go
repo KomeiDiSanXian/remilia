@@ -113,7 +113,7 @@ func TestAutoWire_Reload_GuardPersists(t *testing.T) {
 	require.NoError(t, ctrl.SetGroupEnabled("g1", "weather", false))
 
 	// 热重载 weather（触发 notifyReloaded，OnPluginReloaded no-op）
-	require.NoError(t, pm.Reload("weather"))
+	require.NoError(t, pm.Reload(stdctx.Background(), "weather"))
 
 	// 重置计数器（reload 后 Setup 重新执行，绑定同一个 &handlerCalls）
 	atomic.StoreInt32(&handlerCalls, 0)
@@ -169,7 +169,7 @@ func TestAutoWire_UnloadThenReregister_GuardRewiredOnce(t *testing.T) {
 
 	// ── 卸载 weather ───────────────────────────────────────────────────
 	// OnPluginUnloaded 触发 → groupResetFn("weather") 清除 phantom entry
-	require.NoError(t, pm.Unregister("weather"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "weather"))
 
 	// ── 第二轮：重注册 + 验证 guard 仍然有效（回归验证） ─────────────
 	// OnPluginLoaded 触发 → reset-before-wire → chain = [guard]（不会双重追加）

@@ -269,8 +269,9 @@ func (pm *Manager) RemoveListener(listener LifecycleListener) {
 	pm.listeners = newListeners
 }
 
-// Unregister 注销插件，返回错误信息
-func (pm *Manager) Unregister(name string) error {
+// Unregister 注销插件，返回错误信息。
+// ctx 用于控制超时：若 context 在 Teardown 完成前到期，返回 ctx.Err()。
+func (pm *Manager) Unregister(ctx context.Context, name string) error {
 	pm.mu.Lock()
 
 	inst, exists := pm.plugins[name]
@@ -280,7 +281,7 @@ func (pm *Manager) Unregister(name string) error {
 		return errutil.ErrPluginNotFound
 	}
 
-	if err := inst.unload(context.Background(), pm.coordinator); err != nil {
+	if err := inst.unload(ctx, pm.coordinator); err != nil {
 		inst.SetState(Error)
 		pm.mu.Unlock()
 		pm.notifyError(name, "unload", err)
@@ -338,7 +339,7 @@ func (pm *Manager) ForceUnregister(name string) error {
 //
 // 返回值：若目标插件不存在，返回 ErrPluginNotFound；
 // 若任意插件卸载失败，停止卸载并返回错误（已卸载的插件不会回滚）。
-func (pm *Manager) UnregisterCascade(name string) error {
+func (pm *Manager) UnregisterCascade(ctx context.Context, name string) error {
 	pm.mu.RLock()
 	if _, exists := pm.plugins[name]; !exists {
 		pm.mu.RUnlock()
@@ -373,7 +374,7 @@ func (pm *Manager) UnregisterCascade(name string) error {
 	logger.Infof("[PluginManager] UnregisterCascade: will unregister %d plugin(s) in order: %v", len(order), order)
 
 	for _, n := range order {
-		if err := pm.Unregister(n); err != nil {
+		if err := pm.Unregister(ctx, n); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] UnregisterCascade: failed to unregister plugin %s", n)
 			return fmt.Errorf("cascade unregister %s: %w", n, err)
 		}
@@ -382,7 +383,7 @@ func (pm *Manager) UnregisterCascade(name string) error {
 }
 
 // Reload 重新加载插件（热重载）
-func (pm *Manager) Reload(name string) error {
+func (pm *Manager) Reload(ctx context.Context, name string) error {
 	pm.mu.RLock()
 	inst, exists := pm.plugins[name]
 	pm.mu.RUnlock()
@@ -394,7 +395,7 @@ func (pm *Manager) Reload(name string) error {
 
 	logger.Infof("[PluginManager] Reloading plugin %s", name)
 
-	if err := inst.reload(pm.coordinator); err != nil {
+	if err := inst.reload(ctx, pm.coordinator); err != nil {
 		logger.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
 		pm.notifyError(name, "reload", err)
 		return err

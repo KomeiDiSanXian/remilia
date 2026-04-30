@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func TestDependencyReloadNotification(t *testing.T) {
 	})
 
 	// 重载 base 插件
-	if err := mgr.Reload("base"); err != nil {
+	if err := mgr.Reload(context.Background(), "base"); err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
 

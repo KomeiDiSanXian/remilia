@@ -1,6 +1,7 @@
 package cooldown
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func TestCooldown_Descriptor_AutoGC(t *testing.T) {
 	}
 
 	// 卸载时 goroutine 应随之停止（GoroutineManager 负责）
-	if err := pm.Unregister("cooldown"); err != nil {
+	if err := pm.Unregister(context.Background(), "cooldown"); err != nil {
 		t.Fatalf("Unregister failed: %v", err)
 	}
 

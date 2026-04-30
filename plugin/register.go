@@ -288,7 +288,7 @@ func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
 	for _, desc := range sorted {
 		if err := pm.Register(desc); err != nil {
 			for i := len(registered) - 1; i >= 0; i-- {
-				if rollbackErr := pm.Unregister(registered[i]); rollbackErr != nil {
+				if rollbackErr := pm.Unregister(context.Background(), registered[i]); rollbackErr != nil {
 					logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", registered[i])
 				}
 			}

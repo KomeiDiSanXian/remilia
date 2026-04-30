@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 		},
 	})
 
-	_ = pm.Reload("base")
+	_ = pm.Reload(context.Background(), "base")
 	time.Sleep(50 * time.Millisecond)
 
 	if notifiedDeclared.Load() == 0 {
@@ -81,7 +82,7 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 		},
 	})
 
-	_ = pm.UnregisterCascade("base")
+	_ = pm.UnregisterCascade(context.Background(), "base")
 
 	if pm.IsLoaded("consumer-declared") {
 		t.Error("consumer-declared 应被级联卸载")
@@ -114,7 +115,7 @@ func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
 		},
 	})
 
-	_ = pm.UnregisterCascade("optional-base")
+	_ = pm.UnregisterCascade(context.Background(), "optional-base")
 
 	if pm.IsLoaded("consumer-optional") {
 		t.Log("✓ consumer-optional 不受级联卸载影响（Get 是可选依赖）")
@@ -146,7 +147,7 @@ func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
 		},
 	})
 
-	_ = pm.Reload("optional-base")
+	_ = pm.Reload(context.Background(), "optional-base")
 	time.Sleep(50 * time.Millisecond)
 
 	if notified.Load() > 0 {

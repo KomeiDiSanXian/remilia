@@ -48,7 +48,7 @@ func TestDebug_UnloadReregister(t *testing.T) {
 	fmt.Printf("[DEBUG] After g2 event (first round): handlerCalls=%d\n", atomic.LoadInt32(&handlerCalls))
 
 	// Unregister
-	require.NoError(t, pm.Unregister("weather"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "weather"))
 	fmt.Println("[DEBUG] After unregister")
 
 	// Re-register

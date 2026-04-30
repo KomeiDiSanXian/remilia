@@ -159,7 +159,7 @@ func TestAutoWire_UnloadReregister_NoDoubleGuard(t *testing.T) {
 	assert.Equal(t, 1, cs.calls(), "first load: guard must fire exactly once")
 
 	// ── Unload ────────────────────────────────────────────────────────────────
-	require.NoError(t, pm.Unregister("weather"),
+	require.NoError(t, pm.Unregister(stdctx.Background(), "weather"),
 		"Unregister must succeed and trigger OnPluginUnloaded → groupResetFn")
 
 	// ── Re-register (regression scenario) ────────────────────────────────────
@@ -202,7 +202,7 @@ func TestAutoWire_MultipleReloadCycles_GuardAlwaysOnce(t *testing.T) {
 		assert.Equal(t, 1, cs.calls(),
 			"cycle %d: combinedGuard must fire exactly once", i)
 
-		require.NoError(t, pm.Unregister("weather"), "cycle %d: Unregister must succeed", i)
+		require.NoError(t, pm.Unregister(stdctx.Background(), "weather"), "cycle %d: Unregister must succeed", i)
 	}
 }
 
@@ -222,7 +222,7 @@ func TestAutoWire_PhantomEntry_AbsentAfterUnload(t *testing.T) {
 	require.NoError(t, ctrl.SetGroupEnabled("group1", "weather", false))
 
 	// Unload the plugin — both its matchers and its group middleware are removed
-	require.NoError(t, pm.Unregister("weather"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "weather"))
 
 	// No weather matchers exist → the guard never applies → 0 replies
 	cs := &countingSender{}

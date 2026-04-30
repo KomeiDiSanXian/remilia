@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -63,7 +64,7 @@ func TestConversation_Descriptor_AutoGC(t *testing.T) {
 		t.Fatalf("expected Loaded, got %s", inst.GetState())
 	}
 
-	if err := pm.Unregister("conversation"); err != nil {
+	if err := pm.Unregister(context.Background(), "conversation"); err != nil {
 		t.Fatalf("Unregister failed: %v", err)
 	}
 

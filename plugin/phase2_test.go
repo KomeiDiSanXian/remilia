@@ -193,7 +193,7 @@ func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 	}, 500*time.Millisecond, 5*time.Millisecond)
 
 	// 卸载插件：框架应 cancel goroutine 的 context 并等待退出
-	err := pm.Unregister("go-test")
+	err := pm.Unregister(stdctx.Background(), "go-test")
 	require.NoError(t, err)
 
 	// goroutine 应在 Unregister 完成后已退出
@@ -221,7 +221,7 @@ func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 		},
 	}))
 
-	err := pm.Unregister("go-multi-test")
+	err := pm.Unregister(stdctx.Background(), "go-multi-test")
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(count), stopped.Load(),
@@ -257,7 +257,7 @@ func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
 		},
 	}))
 
-	require.NoError(t, pm.Unregister("go-order-test"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "go-order-test"))
 
 	mu.Lock()
 	got := make([]string, len(order))
@@ -288,13 +288,13 @@ func TestCtxGo_ReloadCreatesNewManager(t *testing.T) {
 	}))
 
 	// Reload 应先停止旧 goroutine，再启动新 goroutine
-	require.NoError(t, pm.Reload("go-reload-test"))
+	require.NoError(t, pm.Reload(stdctx.Background(), "go-reload-test"))
 	// 旧 goroutine 在 reload 的 unload 阶段已停止
 	assert.Equal(t, int32(1), stopCount.Load(),
 		"Reload 应先停止旧 goroutine（count=1），再启动新 goroutine")
 
 	// 再次卸载，新的 goroutine 也应停止
-	require.NoError(t, pm.Unregister("go-reload-test"))
+	require.NoError(t, pm.Unregister(stdctx.Background(), "go-reload-test"))
 	assert.Equal(t, int32(2), stopCount.Load(),
 		"第二次卸载应停止 Reload 后启动的新 goroutine（count=2）")
 }

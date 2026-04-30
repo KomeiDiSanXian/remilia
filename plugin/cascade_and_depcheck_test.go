@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -22,7 +23,7 @@ func TestUnregisterCascade_NoDependents(t *testing.T) {
 	pm := NewManager(newCoordinator())
 	pm.Register(makeSimpleDescriptor("A", nil))
 
-	if err := pm.UnregisterCascade("A"); err != nil {
+	if err := pm.UnregisterCascade(context.Background(), "A"); err != nil {
 		t.Fatalf("UnregisterCascade single plugin: %v", err)
 	}
 	if pm.IsLoaded("A") {
@@ -37,7 +38,7 @@ func TestUnregisterCascade_WithDependents(t *testing.T) {
 	pm.Register(makeSimpleDescriptor("top", []string{"mid"}))
 
 	// 级联卸载 base，应同时卸载 mid 和 top
-	if err := pm.UnregisterCascade("base"); err != nil {
+	if err := pm.UnregisterCascade(context.Background(), "base"); err != nil {
 		t.Fatalf("UnregisterCascade: %v", err)
 	}
 	for _, name := range []string{"base", "mid", "top"} {
@@ -54,7 +55,7 @@ func TestUnregisterCascade_PartialTree(t *testing.T) {
 	pm.Register(makeSimpleDescriptor("C", []string{"A"}))
 
 	// 卸载 A 应卸载 A 和 C，但 B 不受影响
-	if err := pm.UnregisterCascade("A"); err != nil {
+	if err := pm.UnregisterCascade(context.Background(), "A"); err != nil {
 		t.Fatalf("UnregisterCascade: %v", err)
 	}
 	if pm.IsLoaded("A") {
@@ -70,7 +71,7 @@ func TestUnregisterCascade_PartialTree(t *testing.T) {
 
 func TestUnregisterCascade_NotFound(t *testing.T) {
 	pm := NewManager(newCoordinator())
-	err := pm.UnregisterCascade("nonexistent")
+	err := pm.UnregisterCascade(context.Background(), "nonexistent")
 	if err == nil {
 		t.Error("expected error for nonexistent plugin")
 	}
