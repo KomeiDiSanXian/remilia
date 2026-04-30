@@ -74,7 +74,7 @@ func main() {
 }
 
 func registerPlugins(manager *plugin.Manager, eng *engine.Engine) {
-	// 使用 v2 API 注册插件
+	// 注册插件
 	if err := manager.Register(NewGreeterPlugin()); err != nil {
 		logger.WithError(err).Error("[PluginExample] Failed to register greeter plugin")
 	}
@@ -83,7 +83,7 @@ func registerPlugins(manager *plugin.Manager, eng *engine.Engine) {
 		logger.WithError(err).Error("[PluginExample] Failed to register counter plugin")
 	}
 
-	logger.Info("[PluginExample] All plugins registered (v2): greeter, counter")
+	logger.Info("[PluginExample] All plugins registered: greeter, counter")
 }
 
 // ===== Greeter Plugin (v2 API) =====

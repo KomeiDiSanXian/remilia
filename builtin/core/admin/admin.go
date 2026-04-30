@@ -24,7 +24,7 @@ type Plugin struct {
 	setupCtx      *plugin.SetupContext
 }
 
-// New 创建管理插件（v2 API）
+// New 创建管理插件
 func New() *plugin.Descriptor {
 	v1Plugin := &Plugin{}
 	return &plugin.Descriptor{
@@ -41,7 +41,7 @@ func New() *plugin.Descriptor {
 			HelpText:    "使用 /plugin, /perm, /code, /acl, /status, /info 进行管理操作",
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.Log.Info("Loading admin plugin (v2)...")
+			ctx.Log.Info("Loading admin plugin...")
 			// 使用框架约定的 Must[T]，错误信息携带插件名和依赖名上下文
 			v1Plugin.PermPlugin = plugin.Must[permission.Plugin](ctx, "permission")
 			// 通过 ctx.Admin 获取管理写视图（合法路径，无需私有接口断言）
