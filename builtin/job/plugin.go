@@ -16,7 +16,7 @@ import (
 // 通过 plugin.Must[*job.Plugin](ctx, "job") 获取。
 type Plugin struct {
 	mu   sync.RWMutex
-	jobs map[JobID]*entry
+	jobs map[ID]*entry
 
 	// lifecycleCtx 绑定 Bot 生命周期；Bot 停止时所有 pending 作业收到取消信号。
 	lifecycleCtx    stdctx.Context
@@ -37,13 +37,13 @@ type entry struct {
 func NewPlugin() *Plugin {
 	ctx, cancel := stdctx.WithCancel(stdctx.Background())
 	return &Plugin{
-		jobs:            make(map[JobID]*entry),
+		jobs:            make(map[ID]*entry),
 		lifecycleCtx:    ctx,
 		lifecycleCancel: cancel,
 	}
 }
 
-func newEntry(id JobID, name string) *entry {
+func newEntry(id ID, name string) *entry {
 	return &entry{
 		info: Info{
 			ID:          id,
@@ -61,7 +61,7 @@ func (p *Plugin) register(e *entry) {
 	p.mu.Unlock()
 }
 
-func (p *Plugin) getEntry(id JobID) (*entry, bool) {
+func (p *Plugin) getEntry(id ID) (*entry, bool) {
 	p.mu.RLock()
 	e, ok := p.jobs[id]
 	p.mu.RUnlock()
@@ -73,12 +73,12 @@ func (p *Plugin) getEntry(id JobID) (*entry, bool) {
 // Once 提交一次性作业，可选延迟。
 //
 // 返回作业 ID，可用于 [Wait]、[Cancel]、[Info] 等操作。
-func (p *Plugin) Once(name string, fn Func, opts ...Option) JobID {
+func (p *Plugin) Once(name string, fn Func, opts ...Option) ID {
 	cfg := defaultConfig()
 	for _, o := range opts {
 		o(&cfg)
 	}
-	id := JobID(uuid.NewString())
+	id := ID(uuid.NewString())
 	e := newEntry(id, name)
 	p.register(e)
 	go p.runOnce(e, fn, cfg)
@@ -88,14 +88,14 @@ func (p *Plugin) Once(name string, fn Func, opts ...Option) JobID {
 // Retry 提交带自动重试的作业。
 //
 // 等效于 Once + WithMaxRetries(n) + WithBackoff(strategy)。
-func (p *Plugin) Retry(name string, fn Func, opts ...Option) JobID {
+func (p *Plugin) Retry(name string, fn Func, opts ...Option) ID {
 	return p.Once(name, fn, opts...)
 }
 
 // Chain 提交顺序链：fns 依次执行，任意步骤返回非 nil error 则整链失败。
 //
 // 整条链作为一个作业追踪，对外呈现单一 JobID。
-func (p *Plugin) Chain(name string, fns ...Func) JobID {
+func (p *Plugin) Chain(name string, fns ...Func) ID {
 	return p.Once(name, func(ctx stdctx.Context) error {
 		for i, fn := range fns {
 			if err := fn(ctx); err != nil {
@@ -111,7 +111,7 @@ func (p *Plugin) Chain(name string, fns ...Func) JobID {
 // 若作业已开始执行（StatusRunning），调用会触发 ctx 取消信号，
 // 但是否真正中止取决于 fn 是否正确响应 ctx.Done()。
 // 返回 true 表示取消信号已发送，false 表示作业 ID 不存在或已终态。
-func (p *Plugin) Cancel(id JobID) bool {
+func (p *Plugin) Cancel(id ID) bool {
 	e, ok := p.getEntry(id)
 	if !ok {
 		return false
@@ -129,7 +129,7 @@ func (p *Plugin) Cancel(id JobID) bool {
 
 // Info 返回指定作业的状态快照（不可变副本）。
 // 第二个返回值为 false 表示作业 ID 不存在。
-func (p *Plugin) Info(id JobID) (Info, bool) {
+func (p *Plugin) Info(id ID) (Info, bool) {
 	e, ok := p.getEntry(id)
 	if !ok {
 		return Info{}, false
@@ -147,7 +147,7 @@ func (p *Plugin) Info(id JobID) (Info, bool) {
 //   - info.LastError：作业失败时的最终错误
 //   - ctx.Err()：等待超时或 ctx 被取消
 //   - ErrJobNotFound：作业 ID 不存在
-func (p *Plugin) Wait(ctx stdctx.Context, id JobID) error {
+func (p *Plugin) Wait(ctx stdctx.Context, id ID) error {
 	e, ok := p.getEntry(id)
 	if !ok {
 		return fmt.Errorf("job %q not found", id)

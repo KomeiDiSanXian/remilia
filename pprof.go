@@ -282,7 +282,7 @@ func (p *PprofServer) captureBlockProfile(timestamp string) error {
 }
 
 // handleStats 处理统计信息请求
-func (p *PprofServer) handleStats(w http.ResponseWriter, r *http.Request) {
+func (p *PprofServer) handleStats(w http.ResponseWriter, _ *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -306,7 +306,7 @@ func (p *PprofServer) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSnapshot 处理快照请求
-func (p *PprofServer) handleSnapshot(w http.ResponseWriter, r *http.Request) {
+func (p *PprofServer) handleSnapshot(w http.ResponseWriter, _ *http.Request) {
 	timestamp := time.Now().Format("20060102_150405")
 
 	go func() {

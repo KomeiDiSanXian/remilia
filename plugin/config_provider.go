@@ -50,7 +50,7 @@ type YAMLConfigProvider struct {
 // NewYAMLConfigProvider 创建一个基于 config.Config 的插件配置提供者。
 //
 // 如果传入的 configManager 不为 nil，会自动订阅配置变更实现热更新。
-func NewYAMLConfigProvider(cfg *config.Config, configManager ...*config.ConfigManager) *YAMLConfigProvider {
+func NewYAMLConfigProvider(cfg *config.Config, configManager ...*config.Manager) *YAMLConfigProvider {
 	p := &YAMLConfigProvider{cfg: cfg}
 	if len(configManager) > 0 && configManager[0] != nil {
 		p.listener = configManager[0].Subscribe(func(newCfg *config.Config) {

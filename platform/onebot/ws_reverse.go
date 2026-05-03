@@ -2,6 +2,7 @@ package onebot
 
 import (
 	stdctx "context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -152,7 +153,7 @@ func (a *ReverseWSAdapter) Start(ctx stdctx.Context, handler func(platform.Event
 
 	// 在后台运行 HTTP 服务器
 	a.wg.Go(func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[onebot.ReverseWSAdapter] Server error")
 		}
 	})

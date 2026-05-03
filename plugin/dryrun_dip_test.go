@@ -39,7 +39,7 @@ func TestDryRun_SmartInferenceSetsFlag(t *testing.T) {
 func TestDryRun_NormalRegistrationFalse(t *testing.T) {
 	pm := NewManager(nil)
 
-	var dryRunVal bool = true // 预设为 true，看 Setup 是否把它清成 false
+	var dryRunVal = true // 预设为 true，看 Setup 是否把它清成 false
 
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "normal-reg",

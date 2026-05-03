@@ -388,9 +388,6 @@ func (a *InteractionsAdapter) handleWithSyncWindow(
 		ackTimeout = 2500 * time.Millisecond
 	}
 
-	// Flusher lets us detect if the client disconnects.
-	type httpFlusher interface{ Flush() }
-
 	// syncResp collects the first response from the handler.
 	resultCh := make(chan syncResult, 1)
 

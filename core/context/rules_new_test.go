@@ -12,7 +12,7 @@ type mockPermChecker struct {
 	allow bool
 }
 
-func (m *mockPermChecker) HasPermissionEx(userID, resource, action string) bool {
+func (m *mockPermChecker) HasPermissionEx(_, _, _ string) bool {
 	return m.allow
 }
 

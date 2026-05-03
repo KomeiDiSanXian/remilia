@@ -298,6 +298,8 @@ func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
 // 适用于对数据一致性要求更高的场景。
 //
 // Deprecated: 请使用 DedupWithRejectMiddleware 代替。
+//
+//go:fix inline
 func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
 	return DedupWithRejectMiddleware(filter)
 }

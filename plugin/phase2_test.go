@@ -116,7 +116,7 @@ func TestPluginInfo_DoesNotExposeWriteOps(t *testing.T) {
 	pm := NewManager(eng)
 
 	// 验证 Info 接口只包含查询方法，不含 Unregister/Reload 等
-	var info Info = newPluginInfo(pm)
+	var info = newPluginInfo(pm)
 	_ = info.List()
 	_ = info.Count()
 	_ = info.IsLoaded("x")
@@ -305,7 +305,7 @@ func TestCtxGo_ReloadCreatesNewManager(t *testing.T) {
 
 func TestPluginLogger_Interface(t *testing.T) {
 	// 验证 pluginLogger 实现 Logger 接口
-	var _ Logger = newPluginLogger("test")
+	var _ = newPluginLogger("test")
 }
 
 func TestPluginLogger_WithField_Immutable(t *testing.T) {

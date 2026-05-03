@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -254,37 +253,4 @@ func formatTaskStatus(task *Task) string {
 	status += fmt.Sprintf("更新时间: %s", task.UpdatedAt.Format("15:04:05"))
 
 	return status
-}
-
-// executeTaskWithContext 带Context的任务执行（可取消）
-func executeTaskWithContext(ctx context.Context, taskID string) error {
-	logger.WithFields(logger.Fields{
-		"task_id": taskID,
-	}).Info("[AsyncTasks] Task started with context")
-
-	taskManager.UpdateTask(taskID, "running", 0, "")
-
-	// 模拟可取消的长时间任务
-	for i := range 10 {
-		select {
-		case <-ctx.Done():
-			// 任务被取消
-			logger.WithFields(logger.Fields{
-				"task_id": taskID,
-			}).Warn("[AsyncTasks] Task cancelled")
-			taskManager.UpdateTask(taskID, "cancelled", i*10, "Task was cancelled")
-			return ctx.Err()
-		case <-time.After(1 * time.Second):
-			// 继续执行
-			progress := (i + 1) * 10
-			taskManager.UpdateTask(taskID, "running", progress, "Processing...")
-		}
-	}
-
-	taskManager.UpdateTask(taskID, "completed", 100, "Success")
-	logger.WithFields(logger.Fields{
-		"task_id": taskID,
-	}).Info("[AsyncTasks] Task completed")
-
-	return nil
 }

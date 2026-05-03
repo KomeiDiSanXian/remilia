@@ -64,7 +64,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
 		pm.mu.Unlock()
 		return fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
-			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace?", name, desc.Advanced.Strategy)
+			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy)
 	}
 
 	pm.mu.Unlock()

@@ -80,7 +80,7 @@ func (m *MockAdapter) Capabilities() platform.Capabilities {
 	return platform.Capabilities{}
 }
 
-func (m *MockAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
+func (m *MockAdapter) Start(_ context.Context, handler func(platform.Event)) error {
 	logger.Info("[MockAdapter] Starting...")
 	go func() {
 		time.Sleep(1 * time.Second)
@@ -92,7 +92,7 @@ func (m *MockAdapter) Start(ctx context.Context, handler func(platform.Event)) e
 	return nil
 }
 
-func (m *MockAdapter) Stop(ctx context.Context) error {
+func (m *MockAdapter) Stop(_ context.Context) error {
 	logger.Info("[MockAdapter] Stopping...")
 	return nil
 }

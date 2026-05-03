@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// JobID 作业唯一标识（字符串，方便与外部系统集成）。
-type JobID string
+// ID 作业唯一标识（字符串，方便与外部系统集成）。
+type ID string
 
 // Status 作业当前状态。
 type Status int
@@ -48,7 +48,7 @@ type Func func(ctx stdctx.Context) error
 // Info 作业状态快照（不可变）。
 type Info struct {
 	// ID 作业唯一标识
-	ID JobID
+	ID ID
 	// Name 作业名称（调用者设置，用于日志/调试）
 	Name string
 	// Status 当前状态

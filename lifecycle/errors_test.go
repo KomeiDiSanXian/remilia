@@ -63,7 +63,7 @@ func TestStartError_Unwrap(t *testing.T) {
 	t.Run("returns wrapped error", func(t *testing.T) {
 		inner := errors.New("inner error")
 		e := &StartError{Component: "x", Phase: "y", Err: inner}
-		if got := e.Unwrap(); got != inner {
+		if got := e.Unwrap(); !errors.Is(got, inner) {
 			t.Errorf("StartError.Unwrap() = %v, want %v", got, inner)
 		}
 	})
@@ -97,7 +97,7 @@ func TestStartError_As(t *testing.T) {
 	if !errors.As(outer, &target) {
 		t.Fatal("errors.As should match *StartError")
 	}
-	if target.Component != "x" || target.Phase != "y" || target.Err != inner {
+	if target.Component != "x" || target.Phase != "y" || !errors.Is(inner, target.Err) {
 		t.Error("target fields mismatch")
 	}
 }
@@ -144,7 +144,7 @@ func TestStopError_Unwrap(t *testing.T) {
 	t.Run("returns wrapped error", func(t *testing.T) {
 		inner := errors.New("inner error")
 		e := &StopError{Err: inner}
-		if got := e.Unwrap(); got != inner {
+		if got := e.Unwrap(); !errors.Is(got, inner) {
 			t.Errorf("StopError.Unwrap() = %v, want %v", got, inner)
 		}
 	})

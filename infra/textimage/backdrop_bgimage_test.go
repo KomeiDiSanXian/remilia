@@ -4,7 +4,6 @@ package textimage_test
 // word-wrap — all features added after the initial release.
 
 import (
-	"image"
 	"image/color"
 	"testing"
 
@@ -346,30 +345,4 @@ func TestRender_CJK_WrapWithSpaces(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	assertNonZeroImage(t, img)
-}
-
-// ─── helpers (local) ─────────────────────────────────────────────────────────
-
-// makeSolidImage is defined in compose_test.go as makeSolidImage; reuse it here
-// via the shared test package textimage_test. No re-declaration needed.
-
-func makeGradientImage(w, h int, from, to color.RGBA) image.Image {
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for x := range w {
-		t := float64(x) / float64(max1(w-1, 1))
-		r := uint8(float64(from.R)*(1-t) + float64(to.R)*t)
-		g := uint8(float64(from.G)*(1-t) + float64(to.G)*t)
-		b := uint8(float64(from.B)*(1-t) + float64(to.B)*t)
-		for y := range h {
-			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
-		}
-	}
-	return img
-}
-
-func max1(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

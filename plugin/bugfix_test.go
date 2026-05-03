@@ -210,10 +210,10 @@ type mockListener struct {
 	errors   int
 }
 
-func (m *mockListener) OnPluginLoaded(name string)                             { m.loaded++ }
-func (m *mockListener) OnPluginUnloaded(name string)                           { m.unloaded++ }
-func (m *mockListener) OnPluginReloaded(name string)                           { m.reloaded++ }
-func (m *mockListener) OnPluginError(name string, operation string, err error) { m.errors++ }
+func (m *mockListener) OnPluginLoaded(_ string)                   { m.loaded++ }
+func (m *mockListener) OnPluginUnloaded(_ string)                 { m.unloaded++ }
+func (m *mockListener) OnPluginReloaded(_ string)                 { m.reloaded++ }
+func (m *mockListener) OnPluginError(_ string, _ string, _ error) { m.errors++ }
 
 // ErrPluginLoading 插件正在加载错误（用于测试）
 var ErrPluginLoading = fmt.Errorf("plugin is loading")

@@ -10,15 +10,15 @@ import "time"
 type Mode int
 
 const (
-	// ModeForwardWS（默认）：适配器主动连接 OneBot WS 服务端。
+	// ModeForwardWS （默认）：适配器主动连接 OneBot WS 服务端。
 	// OneBot 实现须开启 ws.enable = true 并暴露 WS 端点。
 	ModeForwardWS Mode = iota
 
-	// ModeReverseWS：适配器监听；由 OneBot 实现反向连接到适配器。
+	// ModeReverseWS ：适配器监听；由 OneBot 实现反向连接到适配器。
 	// OneBot 实现须开启 ws_reverse.enable = true。
 	ModeReverseWS
 
-	// ModeHTTPPost：适配器监听 HTTP POST 事件上报。
+	// ModeHTTPPost ：适配器监听 HTTP POST 事件上报。
 	// OneBot 实现须开启 http_post.enable = true。
 	// API 调用通过 HTTP 发往 OneBot HTTP 服务器（需要配置 APIURL）。
 	ModeHTTPPost

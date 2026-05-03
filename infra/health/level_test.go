@@ -49,7 +49,7 @@ func (m *MockChecker) Name() string {
 	return m.name
 }
 
-func (m *MockChecker) Check(ctx context.Context) health.CheckResult {
+func (m *MockChecker) Check(_ context.Context) health.CheckResult {
 	return health.CheckResult{
 		Status: m.status,
 	}

@@ -47,7 +47,7 @@ func (m *mockAdapter) Capabilities() platform.Capabilities {
 	return platform.Capabilities{}
 }
 
-func (m *mockAdapter) Start(ctx context.Context, handler func(platform.Event)) error {
+func (m *mockAdapter) Start(_ context.Context, handler func(platform.Event)) error {
 	m.mu.Lock()
 	if m.startErr != nil {
 		m.mu.Unlock()

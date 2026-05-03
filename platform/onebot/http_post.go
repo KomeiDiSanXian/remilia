@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -159,7 +160,7 @@ func (a *HTTPPostAdapter) Start(ctx stdctx.Context, handler func(platform.Event)
 	logger.Infof("[onebot.HTTPPostAdapter] Listening on %s", listenAddr)
 
 	a.wg.Go(func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[onebot.HTTPPostAdapter] Server error")
 		}
 	})
@@ -333,15 +334,6 @@ func (e *quickOpEvent) SetRemark(remark string) { e.qop.set("remark", remark) }
 
 // SetReason 设置拒绝原因（请求事件）。
 func (e *quickOpEvent) SetReason(reason string) { e.qop.set("reason", reason) }
-
-// GetQuickOpEvent 安全地从 platform.Event 中提取 *quickOpEvent。
-// 若事件未被包装则返回 nil。
-func GetQuickOpEvent(ev platform.Event) *quickOpEvent {
-	if qoe, ok := ev.(*quickOpEvent); ok {
-		return qoe
-	}
-	return nil
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // HMAC-SHA1 验签

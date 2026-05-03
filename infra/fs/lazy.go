@@ -255,14 +255,17 @@ func (r *LazyResource) download(ctx context.Context, rawURL string) (string, err
 	var tmpFile *os.File
 	if tmpPath != "" {
 		tmpFile, err = os.Create(tmpPath)
+		if err != nil {
+			return "", fmt.Errorf("create temp file: %w", err)
+		}
 	} else {
 		// LocalPath 未指定：使用系统临时目录
 		tmpFile, err = os.CreateTemp("", "remilia-lazy-*")
+		if err != nil {
+			return "", fmt.Errorf("create temp file: %w", err)
+		}
 		tmpPath = tmpFile.Name()
 		localPath = tmpPath // 临时文件即最终路径，无需 rename
-	}
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
 	}
 
 	if _, err = io.Copy(tmpFile, resp.Body); err != nil {

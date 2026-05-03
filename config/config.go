@@ -364,11 +364,11 @@ type DegradationConfig struct {
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
 }
 
-// ConfigManager 管理配置的加载、存储和变更通知。
+// Manager 管理配置的加载、存储和变更通知。
 //
 // 支持创建独立实例以隔离多 Bot 场景下的配置，同时保持包级便捷函数
 // 委托给默认全局实例，确保向后兼容。
-type ConfigManager struct {
+type Manager struct {
 	config    atomic.Value // stores *Config
 	listeners []listenerEntry
 	mu        sync.RWMutex
@@ -384,8 +384,8 @@ type ConfigManager struct {
 //
 //	stagingMgr := config.NewConfigManager()
 //	stagingCfg, _ := stagingMgr.Load("staging.yaml")
-func NewConfigManager() *ConfigManager {
-	return &ConfigManager{}
+func NewConfigManager() *Manager {
+	return &Manager{}
 }
 
 // defaultManager 是包级便捷函数委托的全局默认实例。
@@ -405,7 +405,7 @@ type listenerEntry struct {
 // 调用 Cancel() 可精确移除对应的监听器，而不影响其他监听器。
 type ListenerToken struct {
 	id   int64
-	mgr  *ConfigManager
+	mgr  *Manager
 	once sync.Once
 }
 
@@ -419,7 +419,7 @@ func (t *ListenerToken) Cancel() {
 // ---------------------------------------------------------------------------
 
 // Load 从文件加载配置并存入管理器。
-func (m *ConfigManager) Load(path string) (*Config, error) {
+func (m *Manager) Load(path string) (*Config, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, errutil.Wrapf(err, "config file not found: %s", path)
 	}
@@ -437,7 +437,7 @@ func (m *ConfigManager) Load(path string) (*Config, error) {
 }
 
 // Get 获取管理器中的当前配置（需要先调用 Load）。
-func (m *ConfigManager) Get() (*Config, bool) {
+func (m *Manager) Get() (*Config, bool) {
 	v := m.config.Load()
 	if v == nil {
 		return nil, false
@@ -480,7 +480,7 @@ func (m *ConfigManager) Get() (*Config, bool) {
 }
 
 // MustGet 获取管理器中的当前配置，未加载时 panic。
-func (m *ConfigManager) MustGet() *Config {
+func (m *Manager) MustGet() *Config {
 	cfg, ok := m.Get()
 	if !ok {
 		panic("config not loaded, please call Load() first")
@@ -489,7 +489,7 @@ func (m *ConfigManager) MustGet() *Config {
 }
 
 // LoadDefault 从默认位置加载配置。
-func (m *ConfigManager) LoadDefault() (*Config, error) {
+func (m *Manager) LoadDefault() (*Config, error) {
 	for _, path := range []string{"config.yaml", "config.yml"} {
 		if _, err := os.Stat(path); err == nil {
 			return m.Load(path)
@@ -524,7 +524,7 @@ func (m *ConfigManager) LoadDefault() (*Config, error) {
 }
 
 // Subscribe 注册配置变更监听器，返回可用于精确取消的 token。
-func (m *ConfigManager) Subscribe(listener ChangeListener) *ListenerToken {
+func (m *Manager) Subscribe(listener ChangeListener) *ListenerToken {
 	id := m.idCounter.Add(1)
 	m.mu.Lock()
 	m.listeners = append(m.listeners, listenerEntry{id: id, fn: listener})
@@ -533,14 +533,14 @@ func (m *ConfigManager) Subscribe(listener ChangeListener) *ListenerToken {
 }
 
 // UnsubscribeAll 移除所有配置变更监听器（主要用于测试清理）。
-func (m *ConfigManager) UnsubscribeAll() {
+func (m *Manager) UnsubscribeAll() {
 	m.mu.Lock()
 	m.listeners = nil
 	m.mu.Unlock()
 }
 
 // unsubscribeByID 按 ID 移除单个监听器（内部使用）
-func (m *ConfigManager) unsubscribeByID(id int64) {
+func (m *Manager) unsubscribeByID(id int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, e := range m.listeners {
@@ -552,7 +552,7 @@ func (m *ConfigManager) unsubscribeByID(id int64) {
 }
 
 // notifyListeners 通知所有已注册的监听器配置已变更
-func (m *ConfigManager) notifyListeners(cfg *Config) {
+func (m *Manager) notifyListeners(cfg *Config) {
 	m.mu.RLock()
 	snapshot := make([]listenerEntry, len(m.listeners))
 	copy(snapshot, m.listeners)

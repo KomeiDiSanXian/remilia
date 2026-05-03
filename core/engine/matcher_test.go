@@ -34,15 +34,15 @@ type mockCoordinator struct {
 	commandCacheUpdated bool
 }
 
-func (c *mockCoordinator) DeleteMatcher(m *Matcher)             { c.deleteCalled = true }
-func (c *mockCoordinator) RebuildMatcherChain(m *Matcher)       { c.rebuildCalled = true }
+func (c *mockCoordinator) DeleteMatcher(_ *Matcher)             { c.deleteCalled = true }
+func (c *mockCoordinator) RebuildMatcherChain(_ *Matcher)       { c.rebuildCalled = true }
 func (c *mockCoordinator) InvalidateSortedCache(et EventType)   { c.invalidated = string(et) }
-func (c *mockCoordinator) MigrateMatcherToTemp(m *Matcher)      { c.migratedToTemp = true }
-func (c *mockCoordinator) MigrateMatcherFromTemp(m *Matcher)    { c.migratedFromTemp = true }
-func (c *mockCoordinator) UpdateTempMatcherPriority(m *Matcher) { c.priorityUpdated = true }
-func (c *mockCoordinator) UpdateMatcherIndex(m *Matcher)        {}
-func (c *mockCoordinator) UpdateMatcherCommand(m *Matcher)      { c.commandUpdated = true }
-func (c *mockCoordinator) UpdateCommandCache(m *Matcher)        { c.commandCacheUpdated = true }
+func (c *mockCoordinator) MigrateMatcherToTemp(_ *Matcher)      { c.migratedToTemp = true }
+func (c *mockCoordinator) MigrateMatcherFromTemp(_ *Matcher)    { c.migratedFromTemp = true }
+func (c *mockCoordinator) UpdateTempMatcherPriority(_ *Matcher) { c.priorityUpdated = true }
+func (c *mockCoordinator) UpdateMatcherIndex(_ *Matcher)        {}
+func (c *mockCoordinator) UpdateMatcherCommand(_ *Matcher)      { c.commandUpdated = true }
+func (c *mockCoordinator) UpdateCommandCache(_ *Matcher)        { c.commandCacheUpdated = true }
 
 func testContext() *context.Context {
 	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)

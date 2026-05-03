@@ -233,7 +233,7 @@ func (c *Canvas) AddRow(items ...RowItem) error {
 			// 使用透明背景：Canvas.Result() 已在调用 drawAt 前绘制好背景（含 BgImage），
 			// 文字单元格内容将以 Over 合成叠加到画布上，保留渐变/图片背景。
 			// 若调用方在 TextOpts 中显式设置了 WithBgColor，仍会生效（覆盖此默认值）。
-			o.BgColor = color.RGBA{0, 0, 0, 0}
+			o.BgColor = color.RGBA{}
 			for _, fn := range it.TextOpts {
 				fn(&o)
 			}

@@ -32,7 +32,7 @@ func (c *testComponent) Name() string {
 	return c.name
 }
 
-func (c *testComponent) OnStart(ctx context.Context) error {
+func (c *testComponent) OnStart(_ context.Context) error {
 	c.startCalled.Store(true)
 	return c.startErr
 }
@@ -49,7 +49,7 @@ func (c *testComponent) OnRun(ctx context.Context) error {
 	return c.runErr
 }
 
-func (c *testComponent) OnStop(ctx context.Context) error {
+func (c *testComponent) OnStop(_ context.Context) error {
 	c.stopCalled.Store(true)
 	return c.stopErr
 }

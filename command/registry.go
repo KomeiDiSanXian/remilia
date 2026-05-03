@@ -467,6 +467,8 @@ var commandPattern = regexp.MustCompile(`^(/[\w-]+)`)
 // ExtractCommandFast 快速提取命令名称（默认使用 "/" 前缀）
 //
 // Deprecated: 推荐使用 ExtractCommandFastWithPrefix，可自定义前缀。
+//
+//go:fix inline
 func ExtractCommandFast(content string) string {
 	return ExtractCommandFastWithPrefix(content, "/")
 }
@@ -499,6 +501,8 @@ func ExtractCommandFastWithPrefix(content string, prefix string) string {
 // ExtractCommandAndArgs 同时提取命令和参数（默认使用 "/" 前缀）
 //
 // Deprecated: 推荐使用 ExtractCommandAndArgsWithPrefix，可自定义前缀。
+//
+//go:fix inline
 func ExtractCommandAndArgs(content string) (command string, args string) {
 	return ExtractCommandAndArgsWithPrefix(content, "/")
 }
@@ -533,6 +537,8 @@ func ExtractCommandAndArgsWithPrefix(content string, prefix string) (command str
 // ValidateCommandName 验证命令名称（默认使用 "/" 前缀）
 //
 // Deprecated: 推荐使用 ValidateCommandNameWithPrefix，可自定义前缀。
+//
+//go:fix inline
 func ValidateCommandName(name string) error {
 	return ValidateCommandNameWithPrefix(name, "/")
 }
