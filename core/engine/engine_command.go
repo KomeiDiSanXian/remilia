@@ -36,6 +36,9 @@ type CommandInfo struct {
 //
 // 此方法会自动创建一个 command.Definition 并将匹配器注册到 Hash Map 索引中，
 // 消息处理时仅需 O(1) 查找，无需遍历所有规则。
+//
+// cmdPattern 应包含前缀，如 "/help" 或 "!help"。
+// 第一个字符被视为触发前缀，剩余部分为命令名。
 func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ...context.Rule) *Matcher {
 	finalRules := make([]context.Rule, 0, len(extraRules)+1)
 	finalRules = append(finalRules, context.OnCommand(cmdPattern))
@@ -50,10 +53,15 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	m.commandIndexed.Store(true) // OnCommand 规则（Rules[0]）通过 commandIndex 进行匹配
 	m.priority.Store(50)
 
-	cmdName := strings.TrimPrefix(strings.TrimSpace(cmdPattern), "/")
-	if cmdName != "" {
-		m.definition = &command.Definition{
-			Name: cmdName,
+	trimmedPattern := strings.TrimSpace(cmdPattern)
+	if trimmedPattern != "" {
+		// 第一个字符为触发前缀
+		m.triggerPrefix = string(trimmedPattern[0])
+		cmdName := trimmedPattern[1:]
+		if cmdName != "" {
+			m.definition = &command.Definition{
+				Name: cmdName,
+			}
 		}
 	}
 
@@ -86,9 +94,13 @@ func (e *Engine) injectBaseAliasRegistrar(primary *Matcher, eventType EventType,
 		if len(extraRules) > 0 {
 			return
 		}
-		primaryCmd := "/" + def.Name
+		prefix := primary.triggerPrefix
+		if prefix == "" {
+			prefix = "/"
+		}
+		primaryCmd := prefix + def.Name
 		for _, alias := range def.Aliases {
-			aliasPattern := "/" + alias
+			aliasPattern := prefix + alias
 			// 跳过已在 commandIndex 中存在的别名（避免覆盖已有注册）
 			state := e.state.Load()
 			if _, exists := state.commandIndex[aliasPattern]; exists {
@@ -140,6 +152,8 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 //  2. 设置 Definition 到 Matcher
 //  3. 设置 Handler（如果 Definition 中有定义）
 //
+// 默认使用 "/" 前缀，如需自定义前缀请使用 RegisterCommandDefWithPrefix。
+//
 // 示例:
 //
 //	def := &command.Definition{
@@ -149,40 +163,7 @@ func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definitio
 //	}
 //	engine.RegisterCommandDef(dto.GroupAtMessageCreate, def)
 func (e *Engine) RegisterCommandDef(eventType EventType, def *command.Definition, extraRules ...context.Rule) *Matcher {
-	if def == nil {
-		logger.Warn("[engine] RegisterCommandDef: definition is nil")
-		return newNoopMatcher(e)
-	}
-
-	trigger := "/" + def.Name
-
-	parseRule := func(ctx *context.Context) bool {
-		content := ctx.GetMessageContent()
-		parsed, err := command.ParseFromDefinition(content, def, "/")
-		if err != nil {
-			logger.WithError(err).WithField("trigger", trigger).Debug("[engine] Command parse failed")
-			return false
-		}
-		ctx.SetParsedCommand(parsed)
-		return true
-	}
-
-	finalRules := make([]context.Rule, 0, len(extraRules)+1)
-	finalRules = append(finalRules, parseRule)
-	finalRules = append(finalRules, extraRules...)
-
-	m := e.OnCommand(eventType, trigger, finalRules...)
-	m.SetDefinition(def)
-
-	if def.Handler != nil {
-		m.Handle(func(ctx *context.Context) error {
-			def.Handler(ctx)
-			return nil
-		})
-	}
-	// syncToRegistry 已由 OnCommand 内部调用，此处更新带完整元数据的 def
-	e.syncToRegistry(def, m.Source)
-	return m
+	return e.RegisterCommandDefWithPrefix(eventType, "/", def, extraRules...)
 }
 
 // RegisterCommandDefWithPrefix 带自定义前缀的 RegisterCommandDef。
@@ -282,8 +263,8 @@ func (e *Engine) GetCommandsByCategory() map[string][]CommandInfo {
 	return grouped
 }
 
-// FindCommand 查找特定命令（支持别名）。
-// name 可以含或不含 "/" 前缀。
+// FindCommand 查找特定命令（支持别名和自定义前缀）。
+// name 可以含前缀（如 "/help" 或 "!help"）或不含前缀（如 "help"）。
 //
 // 搜索策略：两阶段匹配，主命令名优先于别名：
 //  1. 第一阶段：按精确主命令名匹配（Command 字段），保证已注册的主命令始终被优先返回。
@@ -292,17 +273,37 @@ func (e *Engine) GetCommandsByCategory() map[string][]CommandInfo {
 // 两阶段分离的原因：当某个命令（如 /bar）尚未注册别名路由但已在 Definition.Aliases
 // 中声明了别名时，若混合搜索，FindCommand 可能在别名注册之前就通过别名列表找到 /bar，
 // 而非真正占用该名称的 /foo，导致冲突检测误判。
+//
+// 支持自定义前缀：无论命令注册时使用什么前缀（如 "!" 或 "#"），
+// 只要传入完整的触发词（如 "!help"）或不含前缀的名称（如 "help"）均可匹配。
 func (e *Engine) FindCommand(name string) *CommandInfo {
 	commands := e.GetAllCommands()
-
-	searchName := name
-	if !strings.HasPrefix(searchName, "/") {
-		searchName = "/" + searchName
+	if len(commands) == 0 {
+		return nil
 	}
 
 	// 第一阶段：按主命令名精确匹配
+	// 先尝试 name 本身（匹配完整触发词如 "/help"、"!help"）
 	for i := range commands {
-		if commands[i].Command == searchName || commands[i].Command == name {
+		if commands[i].Command == name {
+			return &commands[i]
+		}
+	}
+
+	// 再尝试补齐 "/" 前缀（向后兼容：FindCommand("help") 匹配 "/help"）
+	searchName := "/" + name
+	for i := range commands {
+		if commands[i].Command == searchName {
+			return &commands[i]
+		}
+	}
+
+	// 最后按 Definition.Name 匹配（支持任意前缀：FindCommand("stats") 匹配 "$stats"）
+	for i := range commands {
+		if commands[i].Definition != nil && commands[i].Definition.Name == name {
+			return &commands[i]
+		}
+		if commands[i].Definition != nil && commands[i].Definition.Name == searchName {
 			return &commands[i]
 		}
 	}
@@ -310,11 +311,12 @@ func (e *Engine) FindCommand(name string) *CommandInfo {
 	// 第二阶段：按别名匹配
 	for i := range commands {
 		for _, alias := range commands[i].Aliases {
-			aliasWithSlash := alias
-			if !strings.HasPrefix(alias, "/") {
-				aliasWithSlash = "/" + alias
+			// 尝试别名本身
+			if alias == name || alias == searchName {
+				return &commands[i]
 			}
-			if aliasWithSlash == searchName || alias == name {
+			// 尝试补齐 "/" 前缀的别名
+			if "/"+alias == name || "/"+alias == searchName {
 				return &commands[i]
 			}
 		}

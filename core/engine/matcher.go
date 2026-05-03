@@ -64,6 +64,11 @@ type Matcher struct {
 
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
 
+	// triggerPrefix 是命令的触发前缀（如 "/" 或 "!"），
+	// 在 OnCommand/RegisterCommandDef 时从 cmdPattern 的第一个字符提取。
+	// 用于 GetCommand()、bindCommand 和别名注册等需要还原命令字符串的场景。
+	triggerPrefix string
+
 	// aliasRegistrar 由框架在 RegisterCommand 后注入，在 Handle() 第一次被调用时触发，
 	// 为 definition.Aliases 中的每个别名自动注册路由 Matcher。
 	// 触发后置 nil 以防止重复注册。
@@ -111,19 +116,38 @@ func (m *Matcher) copy() *Matcher {
 	return newM
 }
 
-// GetCommand 获取匹配器的触发命令
+// GetCommand 获取匹配器的触发命令（含前缀，如 "/help" 或 "!help"）
 func (m *Matcher) GetCommand() string {
 	if m == nil {
 		return ""
 	}
 	m.rt.mu.RLock()
 	def := m.definition
+	prefix := m.triggerPrefix
 	m.rt.mu.RUnlock()
 
 	if def != nil && def.Name != "" {
-		return "/" + def.Name
+		if prefix == "" {
+			prefix = "/"
+		}
+		return prefix + def.Name
 	}
 	return ""
+}
+
+// GetPrefix 获取匹配器的触发前缀（如 "/" 或 "!"）。
+// 若未显式设置，返回 "/"（保持向后兼容）。
+func (m *Matcher) GetPrefix() string {
+	if m == nil {
+		return "/"
+	}
+	m.rt.mu.RLock()
+	prefix := m.triggerPrefix
+	m.rt.mu.RUnlock()
+	if prefix == "" {
+		return "/"
+	}
+	return prefix
 }
 
 // GetSource 获取匹配器的来源标识（实现 context.Matcher）
@@ -590,17 +614,24 @@ func (m *Matcher) isBlocking() bool {
 	return m.isBlock.Load()
 }
 
-// BindCommand 手动绑定触发命令
+// BindCommand 手动绑定触发命令（向后兼容：仅剥离 "/" 前缀）
 //
-// 此方法会自动创建或更新 Definition.Name
+// 此方法会自动创建或更新 Definition.Name。
+// cmd 应包含 "/" 前缀（如 "/help"），或仅命令名（如 "help"）。
+// 若第一个字符为 "/"，则自动剥离并设置 triggerPrefix 为 "/"。
+// 如需自定义前缀，请使用 RegisterCommandWithPrefix。
 func (m *Matcher) BindCommand(cmd string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
 
 	m.rt.mu.Lock()
-	cmdName := strings.TrimPrefix(strings.TrimSpace(cmd), "/")
-	if cmdName != "" {
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed != "" {
+		cmdName := strings.TrimPrefix(trimmed, "/")
+		if len(trimmed) > len(cmdName) {
+			m.triggerPrefix = "/"
+		}
 		if m.definition == nil {
 			m.definition = &command.Definition{Name: cmdName}
 		} else {

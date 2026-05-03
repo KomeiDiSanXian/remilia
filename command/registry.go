@@ -461,43 +461,65 @@ func sortCommandsByPriority(commands []*Meta) {
 	})
 }
 
-// ExtractCommandFast 快速提取命令名称
-// 使用预编译的正则表达式，性能提升约 50%
-// 支持含连字符的命令名（如 /get-help、/sub-cmd）
+// commandPattern 预编译正则，匹配以 / 开头的命令名（保留向后兼容）
 var commandPattern = regexp.MustCompile(`^(/[\w-]+)`)
 
+// ExtractCommandFast 快速提取命令名称（默认使用 "/" 前缀）
+//
+// Deprecated: 推荐使用 ExtractCommandFastWithPrefix，可自定义前缀。
 func ExtractCommandFast(content string) string {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return ""
-	}
-
-	// 快速路径：检查第一个字符
-	if content[0] != '/' {
-		return ""
-	}
-
-	// 使用预编译的正则表达式
-	if match := commandPattern.FindString(content); match != "" {
-		return match
-	}
-
-	return ""
+	return ExtractCommandFastWithPrefix(content, "/")
 }
 
-// ExtractCommandAndArgs 同时提取命令和参数
-func ExtractCommandAndArgs(content string) (command string, args string) {
+// ExtractCommandFastWithPrefix 使用自定义前缀快速提取命令名称
+//
+// 示例：
+//
+//	ExtractCommandFastWithPrefix("!help arg1", "!")   // returns "!help"
+//	ExtractCommandFastWithPrefix("/help arg1", "/")    // returns "/help"
+func ExtractCommandFastWithPrefix(content string, prefix string) string {
 	content = strings.TrimSpace(content)
-	if content == "" {
+	if content == "" || prefix == "" {
+		return ""
+	}
+
+	if !strings.HasPrefix(content, prefix) {
+		return ""
+	}
+
+	// 查找第一个空白字符
+	spaceIdx := strings.IndexAny(content, " \t\n")
+	if spaceIdx == -1 {
+		return content
+	}
+
+	return content[:spaceIdx]
+}
+
+// ExtractCommandAndArgs 同时提取命令和参数（默认使用 "/" 前缀）
+//
+// Deprecated: 推荐使用 ExtractCommandAndArgsWithPrefix，可自定义前缀。
+func ExtractCommandAndArgs(content string) (command string, args string) {
+	return ExtractCommandAndArgsWithPrefix(content, "/")
+}
+
+// ExtractCommandAndArgsWithPrefix 使用自定义前缀同时提取命令和参数
+//
+// 示例：
+//
+//	ExtractCommandAndArgsWithPrefix("!help foo bar", "!")  // returns "!help", "foo bar"
+//	ExtractCommandAndArgsWithPrefix("hello", "!")           // returns "", "hello"
+func ExtractCommandAndArgsWithPrefix(content string, prefix string) (command string, args string) {
+	content = strings.TrimSpace(content)
+	if content == "" || prefix == "" {
 		return "", ""
 	}
 
-	// 快速路径：检查第一个字符
-	if content[0] != '/' {
+	if !strings.HasPrefix(content, prefix) {
 		return "", content
 	}
 
-	// 查找第一个空格
+	// 查找第一个空白字符
 	spaceIdx := strings.IndexAny(content, " \t\n")
 	if spaceIdx == -1 {
 		return content, ""
@@ -508,24 +530,40 @@ func ExtractCommandAndArgs(content string) (command string, args string) {
 	return
 }
 
-// ValidateCommandName 验证命令名称
+// ValidateCommandName 验证命令名称（默认使用 "/" 前缀）
+//
+// Deprecated: 推荐使用 ValidateCommandNameWithPrefix，可自定义前缀。
 func ValidateCommandName(name string) error {
+	return ValidateCommandNameWithPrefix(name, "/")
+}
+
+// ValidateCommandNameWithPrefix 验证命令名称（支持自定义前缀）
+//
+// name 应包含前缀，如 "/help" 或 "!help"。
+// prefix 指定期望的前缀。
+//
+// 示例：
+//
+//	ValidateCommandNameWithPrefix("/help", "/")   // nil
+//	ValidateCommandNameWithPrefix("!help", "!")   // nil
+//	ValidateCommandNameWithPrefix("help", "/")     // error: 不以 / 开头
+func ValidateCommandNameWithPrefix(name string, prefix string) error {
 	if name == "" {
 		return fmt.Errorf("command name cannot be empty")
 	}
 
-	if !strings.HasPrefix(name, "/") {
-		return fmt.Errorf("command name must start with /")
+	if !strings.HasPrefix(name, prefix) {
+		return fmt.Errorf("command name must start with %s", prefix)
 	}
 
-	if len(name) == 1 {
+	if len(name) == len(prefix) {
 		return fmt.Errorf("command name too short")
 	}
 
-	// 检查非法字符
-	for i, r := range name[1:] {
+	// 检查非法字符（跳过前缀部分）
+	for i, r := range name[len(prefix):] {
 		if !isValidCommandChar(r) {
-			return fmt.Errorf("invalid character at position %d: %c", i+1, r)
+			return fmt.Errorf("invalid character at position %d: %c", i+len(prefix)+1, r)
 		}
 	}
 

@@ -347,9 +347,13 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 			help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 			if len(cmd.Aliases) > 0 {
+				prefix := "/"
+				if len(cmd.Command) > 0 {
+					prefix = string(cmd.Command[0])
+				}
 				aliases := make([]string, len(cmd.Aliases))
 				for i, alias := range cmd.Aliases {
-					aliases[i] = "/" + alias
+					aliases[i] = prefix + alias
 				}
 				help.WriteString(fmt.Sprintf(" (%s)", strings.Join(aliases, ", ")))
 			}
@@ -549,9 +553,13 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 		help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 		if len(cmd.Aliases) > 0 {
+			prefix := "/"
+			if len(cmd.Command) > 0 {
+				prefix = string(cmd.Command[0])
+			}
 			aliases := make([]string, len(cmd.Aliases))
 			for i, alias := range cmd.Aliases {
-				aliases[i] = "/" + alias
+				aliases[i] = prefix + alias
 			}
 			help.WriteString(fmt.Sprintf(" (%s)", strings.Join(aliases, ", ")))
 		}

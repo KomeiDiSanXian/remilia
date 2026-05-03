@@ -156,9 +156,13 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 		if def == nil || len(def.Aliases) == 0 {
 			return
 		}
-		primaryCmd := "/" + def.Name
+		prefix := primary.GetPrefix()
+		if prefix == "" {
+			prefix = "/"
+		}
+		primaryCmd := prefix + def.Name
 		for _, alias := range def.Aliases {
-			aliasPattern := "/" + alias
+			aliasPattern := prefix + alias
 			// 冲突检测：若别名已被其他命令（非当前主命令）占用则跳过
 			if existing := r.eng.FindCommand(alias); existing != nil && existing.Command != primaryCmd {
 				continue
