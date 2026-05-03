@@ -45,8 +45,14 @@ func NewValue[T any](initial T) *Value[T] {
 //
 // 此方法提供类型安全访问，无需类型断言。
 // 返回值在编译期即保证为类型 T。
+// 若尚未 Store 过任何值，返回 T 的零值
 func (av *Value[T]) Load() T {
-	return av.v.Load().(T)
+	v := av.v.Load()
+	if v == nil {
+		var zero T
+		return zero
+	}
+	return v.(T)
 }
 
 // Store 原子性地更新值。
