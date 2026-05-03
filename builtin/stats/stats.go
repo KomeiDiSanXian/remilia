@@ -38,6 +38,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -168,11 +169,12 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 				p.recordUser(info.ID)
 			}
 
-			// 统计命令（检测内容是否以 / 开头）
+			// 统计命令（检测首词是否以非字母/数字开头——即命令前缀）
 			content := strings.TrimSpace(ctx.GetMessageContent())
-			if strings.HasPrefix(content, "/") {
-				fields := strings.Fields(content)
-				if len(fields) > 0 {
+			fields := strings.Fields(content)
+			if len(fields) > 0 {
+				first := []rune(fields[0])[0]
+				if !unicode.IsLetter(first) && !unicode.IsDigit(first) {
 					p.recordCommand(fields[0])
 				}
 			}

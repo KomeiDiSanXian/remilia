@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -625,9 +626,11 @@ func (m *Matcher) BindCommand(cmd string) *Matcher {
 	m.rt.mu.Lock()
 	trimmed := strings.TrimSpace(cmd)
 	if trimmed != "" {
-		cmdName := strings.TrimPrefix(trimmed, "/")
-		if len(trimmed) > len(cmdName) {
-			m.triggerPrefix = "/"
+		first := rune(trimmed[0])
+		cmdName := trimmed
+		if !unicode.IsLetter(first) && !unicode.IsDigit(first) {
+			m.triggerPrefix = string(first)
+			cmdName = trimmed[1:]
 		}
 		if m.definition == nil {
 			m.definition = &command.Definition{Name: cmdName}
