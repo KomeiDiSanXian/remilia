@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
@@ -24,7 +25,7 @@ type AdaptiveSampler struct {
 	baseSamplingRate float64
 
 	// 当前动态采样率
-	currentSamplingRate atomic.Value // float64
+	currentSamplingRate infraatomic.Value[float64]
 
 	// 错误率统计
 	totalSpans atomic.Int64
@@ -36,7 +37,7 @@ type AdaptiveSampler struct {
 
 	// 缓存 ParentBased + TraceIDRatioBased 动态采样器，仅在 currentSamplingRate 变化时重建
 	// 避免每次 ShouldSample 调用都分配 2 个堆对象
-	dynamicSampler atomic.Value // sdktrace.Sampler
+	dynamicSampler infraatomic.Value[sdktrace.Sampler]
 
 	// 保护 lastReset 和统计重置的互斥锁
 	// 与 StartMonitor 共享，避免双重重置
@@ -143,7 +144,7 @@ func (as *AdaptiveSampler) ShouldSample(p sdktrace.SamplingParameters) sdktrace.
 	}
 
 	// 使用缓存的动态采样器（避免每次调用分配）
-	ds := as.dynamicSampler.Load().(sdktrace.Sampler)
+	ds := as.dynamicSampler.Load()
 	result := ds.ShouldSample(p)
 
 	// 如果是错误span，记录统计
@@ -156,7 +157,7 @@ func (as *AdaptiveSampler) ShouldSample(p sdktrace.SamplingParameters) sdktrace.
 
 // Description 实现 sdktrace.Sampler 接口
 func (as *AdaptiveSampler) Description() string {
-	ds := as.dynamicSampler.Load().(sdktrace.Sampler)
+	ds := as.dynamicSampler.Load()
 	return ds.Description()
 }
 
@@ -177,7 +178,7 @@ func (as *AdaptiveSampler) AdjustSamplingRate() {
 		newRate = as.config.HighErrorSamplingRate
 		logger.WithFields(logger.Fields{
 			"error_rate":  errorRate,
-			"old_rate":    as.currentSamplingRate.Load().(float64),
+			"old_rate":    as.currentSamplingRate.Load(),
 			"new_rate":    newRate,
 			"total_spans": total,
 			"errors":      errors,
@@ -195,7 +196,7 @@ func (as *AdaptiveSampler) AdjustSamplingRate() {
 		newRate = as.config.MaxSamplingRate
 	}
 
-	oldRate := as.currentSamplingRate.Load().(float64)
+	oldRate := as.currentSamplingRate.Load()
 	if oldRate != newRate {
 		as.currentSamplingRate.Store(newRate)
 		as.rebuildDynamicSampler(newRate)
@@ -208,7 +209,7 @@ func (as *AdaptiveSampler) AdjustSamplingRate() {
 
 // GetCurrentSamplingRate 获取当前采样率
 func (as *AdaptiveSampler) GetCurrentSamplingRate() float64 {
-	return as.currentSamplingRate.Load().(float64)
+	return as.currentSamplingRate.Load()
 }
 
 // GetStats 获取统计信息

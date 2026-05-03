@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
+
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 )
 
 // Registry 是一个高性能的命令注册表
@@ -23,7 +26,7 @@ type Registry struct {
 
 	// 快速查找
 	mu       sync.RWMutex
-	compiled atomic.Value // *compiledRegistry
+	compiled infraatomic.Value[*compiledRegistry]
 
 	// 统计信息
 	lookupCount atomic.Int64
@@ -50,7 +53,7 @@ type Meta struct {
 
 	// 统计
 	callCount atomic.Int64
-	lastCall  atomic.Value // time.Time
+	lastCall  infraatomic.Value[time.Time]
 
 	// 优先级（用于冲突解决）
 	Priority int
@@ -331,7 +334,7 @@ func (cr *Registry) Unregister(name string) error {
 func (cr *Registry) Lookup(nameOrAlias string) (*Meta, bool) {
 	cr.lookupCount.Add(1)
 
-	compiled := cr.compiled.Load().(*compiledRegistry)
+	compiled := cr.compiled.Load()
 
 	// 先查找命令名
 	if meta, exists := compiled.commandMap[nameOrAlias]; exists {
@@ -356,7 +359,7 @@ func (cr *Registry) Lookup(nameOrAlias string) (*Meta, bool) {
 
 // LookupByPattern 通过正则模式查找命令
 func (cr *Registry) LookupByPattern(input string) []*Meta {
-	compiled := cr.compiled.Load().(*compiledRegistry)
+	compiled := cr.compiled.Load()
 
 	matches := make([]*Meta, 0)
 	for _, meta := range compiled.commandList {
@@ -379,13 +382,13 @@ func (cr *Registry) Complete(prefix string) []*Meta {
 
 // List 列出所有命令
 func (cr *Registry) List() []*Meta {
-	compiled := cr.compiled.Load().(*compiledRegistry)
+	compiled := cr.compiled.Load()
 	return compiled.commandList
 }
 
 // ListByCategory 按分类列出命令
 func (cr *Registry) ListByCategory(category string) []*Meta {
-	compiled := cr.compiled.Load().(*compiledRegistry)
+	compiled := cr.compiled.Load()
 
 	result := make([]*Meta, 0)
 	for _, meta := range compiled.commandList {
@@ -400,7 +403,7 @@ func (cr *Registry) ListByCategory(category string) []*Meta {
 // GetStats 获取注册表统计信息
 func (cr *Registry) GetStats() RegistryStats {
 	cr.mu.RLock()
-	compiled := cr.compiled.Load().(*compiledRegistry)
+	compiled := cr.compiled.Load()
 	commandCount := len(compiled.commandMap)
 	aliasCount := len(cr.aliases)
 	cr.mu.RUnlock()

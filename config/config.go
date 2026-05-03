@@ -46,6 +46,7 @@ import (
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"gopkg.in/yaml.v3"
@@ -369,7 +370,7 @@ type DegradationConfig struct {
 // 支持创建独立实例以隔离多 Bot 场景下的配置，同时保持包级便捷函数
 // 委托给默认全局实例，确保向后兼容。
 type Manager struct {
-	config    atomic.Value // stores *Config
+	config    infraatomic.Value[*Config]
 	listeners []listenerEntry
 	mu        sync.RWMutex
 	idCounter atomic.Int64
@@ -438,12 +439,8 @@ func (m *Manager) Load(path string) (*Config, error) {
 
 // Get 获取管理器中的当前配置（需要先调用 Load）。
 func (m *Manager) Get() (*Config, bool) {
-	v := m.config.Load()
-	if v == nil {
-		return nil, false
-	}
-	cfg, ok := v.(*Config)
-	if !ok || cfg == nil {
+	cfg := m.config.Load()
+	if cfg == nil {
 		return nil, false
 	}
 	c := new(*cfg)

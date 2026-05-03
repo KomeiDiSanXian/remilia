@@ -12,6 +12,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
@@ -81,7 +82,7 @@ type Bot struct {
 	//   - Start() 内写入一次（Store）
 	//   - handlePlatformEvent 热路径只需 Load()，无任何锁开销
 	// 与 core/engine 的 COW 设计保持一致。
-	adapterSnapshot atomic.Value // stores map[string]adapterCache
+	adapterSnapshot infraatomic.Value[map[string]adapterCache]
 
 	// pprofServer 可选性能分析服务器（通过 WithPprof 注入，Start/Stop 时自动管理）
 	pprofServer *PprofServer
@@ -295,7 +296,7 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 
 	// P-1: 读取启动时构建的快照（atomic.Value.Load，零锁，热路径无 RLock 开销）。
 	// 同一次 Load 同时取出 sender、caps 和 botID，避免重复 map 查找（原先两次查找已合并）。
-	snapshot, _ := b.adapterSnapshot.Load().(map[string]adapterCache)
+	snapshot := b.adapterSnapshot.Load()
 
 	if snapshot != nil {
 		if c, ok := snapshot[event.Platform()]; ok {

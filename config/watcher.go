@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/fsnotify/fsnotify"
 )
@@ -24,7 +25,7 @@ type Watcher struct {
 	callbacks  []ReloadCallback
 	mu         sync.RWMutex
 
-	currentConfig atomic.Value // *Config
+	currentConfig infraatomic.Value[*Config]
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -45,7 +46,7 @@ type Watcher struct {
 	// 统计指标
 	reloadCount    atomic.Int64
 	failedCount    atomic.Int64
-	lastReloadTime atomic.Value // time.Time
+	lastReloadTime infraatomic.Value[time.Time]
 }
 
 // WatcherOption 用于配置 Watcher
@@ -142,7 +143,7 @@ func (w *Watcher) AddCallback(callback ReloadCallback) {
 
 // GetConfig 返回当前配置
 func (w *Watcher) GetConfig() *Config {
-	return w.currentConfig.Load().(*Config)
+	return w.currentConfig.Load()
 }
 
 // Start 开始监听配置文件变更
@@ -293,7 +294,7 @@ func (w *Watcher) reload() error {
 	}
 
 	// 获取当前配置
-	oldConfig := w.currentConfig.Load().(*Config)
+	oldConfig := w.currentConfig.Load()
 
 	// 执行回调
 	w.mu.RLock()
@@ -344,16 +345,10 @@ type WatcherStats struct {
 
 // GetStats 返回当前监视器统计信息
 func (w *Watcher) GetStats() WatcherStats {
-	lastReload := w.lastReloadTime.Load()
-	var lastReloadTime time.Time
-	if lastReload != nil {
-		lastReloadTime = lastReload.(time.Time)
-	}
-
 	return WatcherStats{
 		ReloadCount:    w.reloadCount.Load(),
 		FailedCount:    w.failedCount.Load(),
-		LastReloadTime: lastReloadTime,
+		LastReloadTime: w.lastReloadTime.Load(),
 	}
 }
 

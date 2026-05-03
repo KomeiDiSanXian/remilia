@@ -8,6 +8,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/prometheus/client_golang/prometheus"
@@ -80,10 +81,10 @@ type CircuitBreaker struct {
 	// 原子操作字段
 	failures        atomic.Int32 // 当前失败次数
 	successes       atomic.Int32 // 半开状态下的连续成功次数
-	state           atomic.Value // CircuitBreakerState
-	lastFailure     atomic.Value // time.Time
-	halfOpenReqs    atomic.Int32 // 半开状态下的请求数
-	halfOpenStarted atomic.Value // time.Time - 半开状态开始时间
+	state           infraatomic.Value[CircuitBreakerState]
+	lastFailure     infraatomic.Value[time.Time]
+	halfOpenReqs    atomic.Int32                 // 半开状态下的请求数
+	halfOpenStarted infraatomic.Value[time.Time] // 半开状态开始时间
 
 	// 保护状态转换的互斥锁
 	mu sync.Mutex
@@ -157,7 +158,7 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 
 // GetState 获取当前状态
 func (cb *CircuitBreaker) GetState() CircuitBreakerState {
-	return cb.state.Load().(CircuitBreakerState)
+	return cb.state.Load()
 }
 
 // GetFailures 获取当前失败次数
@@ -177,7 +178,7 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 // setStateLocked 在已持有 mu 的情况下设置状态。
 // 供 canExecute 等已持锁路径调用，避免重复加锁。
 func (cb *CircuitBreaker) setStateLocked(newState CircuitBreakerState) {
-	oldState := cb.state.Load().(CircuitBreakerState)
+	oldState := cb.state.Load()
 	if oldState == newState {
 		return
 	}
@@ -254,7 +255,7 @@ func (cb *CircuitBreaker) canExecute() error {
 // tryTransitionToHalfOpen 检查熔断器是否应过渡到半开状态。
 // 若成功过渡返回 true；若因并发争用需要重试返回 false。
 func (cb *CircuitBreaker) tryTransitionToHalfOpen() bool {
-	lastFail := cb.lastFailure.Load().(time.Time)
+	lastFail := cb.lastFailure.Load()
 	if lastFail.IsZero() || time.Since(lastFail) < cb.config.ResetTimeout {
 		return false
 	}
@@ -273,7 +274,7 @@ func (cb *CircuitBreaker) tryTransitionToHalfOpen() bool {
 
 // checkHalfOpenExpired 检查半开状态是否已超时，超时则切回开启并返回错误。
 func (cb *CircuitBreaker) checkHalfOpenExpired() error {
-	halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
+	halfOpenStart := cb.halfOpenStarted.Load()
 	if halfOpenStart.IsZero() || cb.config.HalfOpenTimeout <= 0 {
 		return nil
 	}
@@ -432,8 +433,8 @@ func (cb *CircuitBreaker) UpdateConfig(cfg CircuitBreakerConfig) {
 
 // Stats 获取熔断器统计信息
 func (cb *CircuitBreaker) Stats() CircuitBreakerStats {
-	lastFail := cb.lastFailure.Load().(time.Time)
-	halfOpenStart := cb.halfOpenStarted.Load().(time.Time)
+	lastFail := cb.lastFailure.Load()
+	halfOpenStart := cb.halfOpenStarted.Load()
 	return CircuitBreakerStats{
 		State:             cb.GetState(),
 		Failures:          cb.GetFailures(),

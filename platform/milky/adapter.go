@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/gorilla/websocket"
@@ -70,8 +71,8 @@ type Adapter struct {
 	starting atomic.Bool
 
 	// 机器人身份信息（首次连接时通过 get_login_info 填充）
-	botID   atomic.Value // string
-	botName atomic.Value // string
+	botID   infraatomic.Value[string]
+	botName infraatomic.Value[string]
 }
 
 // NewAdapter 使用给定配置创建 Adapter。
@@ -115,14 +116,12 @@ func (a *Adapter) IsRunning() bool {
 
 // BotID 实现 platform.BotIdentity，返回机器人的 QQ 号。
 func (a *Adapter) BotID() string {
-	v, _ := a.botID.Load().(string)
-	return v
+	return a.botID.Load()
 }
 
 // BotName 实现 platform.BotIdentity，返回机器人的 QQ 昵称。
 func (a *Adapter) BotName() string {
-	v, _ := a.botName.Load().(string)
-	return v
+	return a.botName.Load()
 }
 
 // ────────────────────────────────────────────────────────────────────────────

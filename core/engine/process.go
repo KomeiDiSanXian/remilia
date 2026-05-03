@@ -72,10 +72,8 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 	// 完全零锁、零 reflect、零额外函数调用。
 	var finalHandler context.Handler
 	cv := m.compiledVersion.Load()
-	if v := m.compiledHandlers.Load(); v != nil {
-		if cc, ok := v.(*compiledChain); ok && cc != nil && cc.version == cv {
-			finalHandler = cc.head
-		}
+	if cc := m.compiledHandlers.Load(); cc != nil && cc.version == cv {
+		finalHandler = cc.head
 	}
 
 	// ── 慢速路径：链首次构建 或 handler/middleware 变更后重建 ──────────────────
@@ -181,10 +179,8 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 
 	cv := m.compiledVersion.Load()
 
-	if v := m.compiledHandlers.Load(); v != nil {
-		if cc, ok := v.(*compiledChain); ok && cc != nil && cc.version == cv {
-			return cc.head
-		}
+	if cc := m.compiledHandlers.Load(); cc != nil && cc.version == cv {
+		return cc.head
 	}
 
 	// Slow path: compose the middleware chain once and cache only the head.

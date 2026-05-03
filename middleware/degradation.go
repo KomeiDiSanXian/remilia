@@ -9,6 +9,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/prometheus/client_golang/prometheus"
@@ -158,7 +159,7 @@ type AdaptiveDegradation struct {
 	config DegradationConfig
 
 	// 当前降级级别
-	level atomic.Value // DegradationLevel
+	level infraatomic.Value[DegradationLevel]
 
 	// 统计信息
 	totalEvents   atomic.Int64
@@ -166,9 +167,9 @@ type AdaptiveDegradation struct {
 	delayedEvents atomic.Int64
 
 	// 监控指标
-	lastCPU     atomic.Value // float64
-	lastMemory  atomic.Value // float64
-	lastLatency atomic.Value // time.Duration
+	lastCPU     infraatomic.Value[float64]
+	lastMemory  infraatomic.Value[float64]
+	lastLatency infraatomic.Value[time.Duration]
 
 	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
 	metrics *degradationMetrics
@@ -352,11 +353,11 @@ func (ad *AdaptiveDegradation) setLevel(cfg DegradationConfig, level Degradation
 
 		// 记录触发原因
 		reason := "unknown"
-		if cpuVal, ok := ad.lastCPU.Load().(float64); ok && cpuVal > cfg.CPUThreshold {
+		if cpuVal := ad.lastCPU.Load(); cpuVal > cfg.CPUThreshold {
 			reason = "cpu"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
-		if memVal, ok := ad.lastMemory.Load().(float64); ok && memVal > cfg.MemoryThreshold {
+		if memVal := ad.lastMemory.Load(); memVal > cfg.MemoryThreshold {
 			reason = "memory"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()
 		}
@@ -432,7 +433,7 @@ func (ad *AdaptiveDegradation) getMemoryUsage() float64 {
 
 // GetLevel 获取当前降级级别
 func (ad *AdaptiveDegradation) GetLevel() DegradationLevel {
-	return ad.level.Load().(DegradationLevel)
+	return ad.level.Load()
 }
 
 // Middleware 返回降级中间件
@@ -556,8 +557,8 @@ func (ad *AdaptiveDegradation) Stats() DegradationStats {
 		DroppedEvents: dropped,
 		DelayedEvents: delayed,
 		DropRate:      dropRate,
-		CPU:           ad.lastCPU.Load().(float64),
-		Memory:        ad.lastMemory.Load().(float64),
+		CPU:           ad.lastCPU.Load(),
+		Memory:        ad.lastMemory.Load(),
 		Goroutines:    runtime.NumGoroutine(),
 	}
 }

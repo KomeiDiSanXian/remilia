@@ -8,6 +8,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 )
 
 type matcherRuntime struct {
@@ -49,8 +50,8 @@ type Matcher struct {
 	group          string
 	middlewares    []context.Middleware
 
-	combinedChain    atomic.Value // []Middleware  — 原始中间件切片
-	compiledHandlers atomic.Value // compiledChain — 预构建的迭代器处理链切片
+	combinedChain    infraatomic.Value[[]context.Middleware] // 原始中间件切片
+	compiledHandlers infraatomic.Value[*compiledChain]       // 预构建的迭代器处理链切片
 	// compiledVersion 是单调递增计数器，在组合中间件链或 Handler 变更时自增。
 	// getOrBuildIterChain 通过比较此计数器代替在每次热路径调用时
 	// 使用 reflect 计算 FNV 指纹来判断是否需要重建。
@@ -179,10 +180,7 @@ func (m *Matcher) IsTemp() bool {
 
 // getCombinedChain 获取组合的中间件链（无锁读取）
 func (m *Matcher) getCombinedChain() []context.Middleware {
-	if v := m.combinedChain.Load(); v != nil {
-		return v.([]context.Middleware)
-	}
-	return nil
+	return m.combinedChain.Load()
 }
 
 // getChainCache 返回链缓存及代际号的快照（线程安全）
@@ -552,8 +550,7 @@ func (m *Matcher) invalidateCombinedChain() {
 
 	m.cachedGen.global = 0
 	m.cachedGen.group = 0
-	var nilChain []context.Middleware
-	m.combinedChain.Store(nilChain)
+	m.combinedChain.Store(nil)
 	m.compiledHandlers.Store((*compiledChain)(nil))
 	// 自增版本计数器，使下次 getOrBuildIterChain 调用重建
 	// 已编译的处理链，无需进行 reflect 指纹计算。

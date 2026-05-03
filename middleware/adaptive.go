@@ -10,6 +10,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/shirou/gopsutil/v3/cpu"
 )
@@ -122,9 +123,9 @@ type AdaptiveRateLimiter struct {
 	currentLoad    atomic.Int32
 
 	// 系统指标
-	cpuUsage    atomic.Value // float64
-	memoryUsage atomic.Value // float64
-	latencyP99  atomic.Value // time.Duration
+	cpuUsage    infraatomic.Value[float64]
+	memoryUsage infraatomic.Value[float64]
+	latencyP99  infraatomic.Value[time.Duration]
 
 	// 改进 3.1: 使用固定桶直方图替换 latencySum/latencyCount + avg*1.5 近似
 	latencyHist *latencyHistogram
@@ -523,26 +524,17 @@ func (arl *AdaptiveRateLimiter) adjustLimit(newLimit int32) {
 
 // getCPUUsage 获取 CPU 使用率
 func (arl *AdaptiveRateLimiter) getCPUUsage() float64 {
-	if v := arl.cpuUsage.Load(); v != nil {
-		return v.(float64)
-	}
-	return 0.0
+	return arl.cpuUsage.Load()
 }
 
 // getMemoryUsage 获取内存使用率
 func (arl *AdaptiveRateLimiter) getMemoryUsage() float64 {
-	if v := arl.memoryUsage.Load(); v != nil {
-		return v.(float64)
-	}
-	return 0.0
+	return arl.memoryUsage.Load()
 }
 
 // getLatencyP99 获取 P99 延迟
 func (arl *AdaptiveRateLimiter) getLatencyP99() time.Duration {
-	if v := arl.latencyP99.Load(); v != nil {
-		return v.(time.Duration)
-	}
-	return 0
+	return arl.latencyP99.Load()
 }
 
 // GetStats 获取统计信息
