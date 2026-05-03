@@ -293,19 +293,7 @@ func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
 }
 
 // DedupWithReject 创建严格的去重中间件（拒绝缓存满的情况）
-//
-// 与 Dedup 的区别：缓存满时返回错误，不处理事件。
-// 适用于对数据一致性要求更高的场景。
-//
-// Deprecated: 请使用 DedupWithRejectMiddleware 代替。
-//
-//go:fix inline
 func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
-	return DedupWithRejectMiddleware(filter)
-}
-
-// DedupWithRejectMiddleware 创建严格的去重中间件（拒绝缓存满的情况）
-func DedupWithRejectMiddleware(filter *DedupFilter) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			pe := ctx.GetPlatformEvent()

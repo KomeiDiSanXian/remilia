@@ -461,25 +461,13 @@ func sortCommandsByPriority(commands []*Meta) {
 	})
 }
 
-// commandPattern 预编译正则，匹配以 / 开头的命令名（保留向后兼容）
-var commandPattern = regexp.MustCompile(`^(/[\w-]+)`)
-
-// ExtractCommandFast 快速提取命令名称（默认使用 "/" 前缀）
-//
-// Deprecated: 推荐使用 ExtractCommandFastWithPrefix，可自定义前缀。
-//
-//go:fix inline
-func ExtractCommandFast(content string) string {
-	return ExtractCommandFastWithPrefix(content, "/")
-}
-
-// ExtractCommandFastWithPrefix 使用自定义前缀快速提取命令名称
+// ExtractCommandFast 使用自定义前缀快速提取命令名称
 //
 // 示例：
 //
-//	ExtractCommandFastWithPrefix("!help arg1", "!")   // returns "!help"
-//	ExtractCommandFastWithPrefix("/help arg1", "/")    // returns "/help"
-func ExtractCommandFastWithPrefix(content string, prefix string) string {
+//	ExtractCommandFast("!help arg1", "!")   // returns "!help"
+//	ExtractCommandFast("/help arg1", "/")    // returns "/help"
+func ExtractCommandFast(content string, prefix string) string {
 	content = strings.TrimSpace(content)
 	if content == "" || prefix == "" {
 		return ""
@@ -498,22 +486,13 @@ func ExtractCommandFastWithPrefix(content string, prefix string) string {
 	return content[:spaceIdx]
 }
 
-// ExtractCommandAndArgs 同时提取命令和参数（默认使用 "/" 前缀）
-//
-// Deprecated: 推荐使用 ExtractCommandAndArgsWithPrefix，可自定义前缀。
-//
-//go:fix inline
-func ExtractCommandAndArgs(content string) (command string, args string) {
-	return ExtractCommandAndArgsWithPrefix(content, "/")
-}
-
-// ExtractCommandAndArgsWithPrefix 使用自定义前缀同时提取命令和参数
+// ExtractCommandAndArgs 使用自定义前缀同时提取命令和参数
 //
 // 示例：
 //
-//	ExtractCommandAndArgsWithPrefix("!help foo bar", "!")  // returns "!help", "foo bar"
-//	ExtractCommandAndArgsWithPrefix("hello", "!")           // returns "", "hello"
-func ExtractCommandAndArgsWithPrefix(content string, prefix string) (command string, args string) {
+//	ExtractCommandAndArgs("!help foo bar", "!")  // returns "!help", "foo bar"
+//	ExtractCommandAndArgs("hello", "!")           // returns "", "hello"
+func ExtractCommandAndArgs(content string, prefix string) (command string, args string) {
 	content = strings.TrimSpace(content)
 	if content == "" || prefix == "" {
 		return "", ""
@@ -534,26 +513,17 @@ func ExtractCommandAndArgsWithPrefix(content string, prefix string) (command str
 	return
 }
 
-// ValidateCommandName 验证命令名称（默认使用 "/" 前缀）
-//
-// Deprecated: 推荐使用 ValidateCommandNameWithPrefix，可自定义前缀。
-//
-//go:fix inline
-func ValidateCommandName(name string) error {
-	return ValidateCommandNameWithPrefix(name, "/")
-}
-
-// ValidateCommandNameWithPrefix 验证命令名称（支持自定义前缀）
+// ValidateCommandName 验证命令名称（支持自定义前缀）
 //
 // name 应包含前缀，如 "/help" 或 "!help"。
 // prefix 指定期望的前缀。
 //
 // 示例：
 //
-//	ValidateCommandNameWithPrefix("/help", "/")   // nil
-//	ValidateCommandNameWithPrefix("!help", "!")   // nil
-//	ValidateCommandNameWithPrefix("help", "/")     // error: 不以 / 开头
-func ValidateCommandNameWithPrefix(name string, prefix string) error {
+//	ValidateCommandName("/help", "/")   // nil
+//	ValidateCommandName("!help", "!")   // nil
+//	ValidateCommandName("help", "/")     // error: 不以 / 开头
+func ValidateCommandName(name string, prefix string) error {
 	if name == "" {
 		return fmt.Errorf("command name cannot be empty")
 	}

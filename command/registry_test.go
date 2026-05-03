@@ -191,81 +191,6 @@ func TestCommandRegistry_Stats(t *testing.T) {
 	assert.InDelta(t, 0.666, stats.HitRate, 0.01)
 }
 
-func TestExtractCommandFast(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"simple_command", "/hello world", "/hello"},
-		{"command_only", "/test", "/test"},
-		{"command_with_numbers", "/cmd123 arg", "/cmd123"},
-		{"command_with_underscore", "/my_command", "/my_command"},
-		{"no_command", "hello world", ""},
-		{"empty_string", "", ""},
-		{"whitespace_prefix", "  /test", "/test"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := ExtractCommandFast(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestExtractCommandAndArgs(t *testing.T) {
-	tests := []struct {
-		name            string
-		input           string
-		expectedCommand string
-		expectedArgs    string
-	}{
-		{"command_with_args", "/weather Beijing", "/weather", "Beijing"},
-		{"command_only", "/help", "/help", ""},
-		{"command_with_multiple_args", "/search foo bar baz", "/search", "foo bar baz"},
-		{"no_command", "hello world", "", "hello world"},
-		{"whitespace_handling", "/cmd   arg1   arg2", "/cmd", "arg1   arg2"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cmd, args := ExtractCommandAndArgs(tt.input)
-			assert.Equal(t, tt.expectedCommand, cmd)
-			assert.Equal(t, tt.expectedArgs, args)
-		})
-	}
-}
-
-func TestValidateCommandName(t *testing.T) {
-	tests := []struct {
-		name      string
-		cmdName   string
-		shouldErr bool
-	}{
-		{"valid_simple", "/hello", false},
-		{"valid_with_numbers", "/cmd123", false},
-		{"valid_with_underscore", "/my_command", false},
-		{"valid_with_dash", "/my-command", false},
-		{"invalid_no_slash", "command", true},
-		{"invalid_empty", "", true},
-		{"invalid_only_slash", "/", true},
-		{"invalid_with_space", "/hello world", true},
-		{"invalid_special_char", "/hello@world", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCommandName(tt.cmdName)
-			if tt.shouldErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 // Benchmark tests
 
 func BenchmarkCommandRegistry_Lookup(b *testing.B) {
@@ -290,6 +215,6 @@ func BenchmarkExtractCommandFast(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ExtractCommandFast(input)
+		ExtractCommandFast(input, "/")
 	}
 }

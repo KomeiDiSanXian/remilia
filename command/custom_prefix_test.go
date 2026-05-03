@@ -26,7 +26,7 @@ func TestExtractCommandFastWithPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractCommandFastWithPrefix(tt.content, tt.prefix)
+			got := ExtractCommandFast(tt.content, tt.prefix)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -49,7 +49,7 @@ func TestExtractCommandAndArgsWithPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotCmd, gotArgs := ExtractCommandAndArgsWithPrefix(tt.content, tt.prefix)
+			gotCmd, gotArgs := ExtractCommandAndArgs(tt.content, tt.prefix)
 			assert.Equal(t, tt.wantCmd, gotCmd)
 			assert.Equal(t, tt.wantArgs, gotArgs)
 		})
@@ -76,7 +76,7 @@ func TestValidateCommandNameWithPrefix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCommandNameWithPrefix(tt.cmdName, tt.prefix)
+			err := ValidateCommandName(tt.cmdName, tt.prefix)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -84,27 +84,4 @@ func TestValidateCommandNameWithPrefix(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestBackwardCompatibility(t *testing.T) {
-	t.Run("ExtractCommandFast still works with /", func(t *testing.T) {
-		assert.Equal(t, "/help", ExtractCommandFast("/help arg"))
-		assert.Equal(t, "", ExtractCommandFast("!help arg"))
-	})
-
-	t.Run("ExtractCommandAndArgs still works with /", func(t *testing.T) {
-		cmd, args := ExtractCommandAndArgs("/help foo")
-		assert.Equal(t, "/help", cmd)
-		assert.Equal(t, "foo", args)
-
-		cmd, args = ExtractCommandAndArgs("!help foo")
-		assert.Equal(t, "", cmd)
-		assert.Equal(t, "!help foo", args)
-	})
-
-	t.Run("ValidateCommandName still works with /", func(t *testing.T) {
-		assert.NoError(t, ValidateCommandName("/help"))
-		assert.Error(t, ValidateCommandName("!help"))
-		assert.Error(t, ValidateCommandName("help"))
-	})
 }

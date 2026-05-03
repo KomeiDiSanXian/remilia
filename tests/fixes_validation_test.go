@@ -96,7 +96,7 @@ func TestDedupStrictMode(t *testing.T) {
 		})
 		defer filter.Stop()
 
-		mw := middleware.DedupWithRejectMiddleware(filter)
+		mw := middleware.DedupWithReject(filter)
 		handler := mw(func(ctx *eventctx.Context) error {
 			return nil
 		})
