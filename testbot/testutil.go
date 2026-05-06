@@ -159,7 +159,7 @@ func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 	ctx := botctx.AcquireContextFromEvent(event, tb.sender)
 	tb.eng.ProcessPlatformEvent(event, tb.sender)
 	botctx.ReleaseContextFromEvent(ctx)
-	time.Sleep(10 * time.Millisecond)
+	tb.eng.WaitForAsyncHandlers()
 	return &PlatformResponse{messages: tb.sender.drain()}
 }
 
@@ -296,6 +296,7 @@ func (b *Bot) SenderAPI() *MockSender { return b.sender }
 // SendPlatformEvent injects a platform.Event directly into the engine.
 func (b *Bot) SendPlatformEvent(event platform.Event) {
 	b.eng.ProcessPlatformEvent(event, b.sender)
+	b.eng.WaitForAsyncHandlers()
 }
 
 // SendPlatformC2C simulates a platform-agnostic private (C2C) message.

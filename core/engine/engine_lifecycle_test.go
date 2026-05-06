@@ -238,6 +238,7 @@ func TestEngine_ProcessEventBatch_AllEventTypes(t *testing.T) {
 	}
 
 	eng.ProcessPlatformEventBatch(events, nil)
+	eng.WaitForAsyncHandlers()
 
 	assert.Equal(t, 4, len(eventTypes))
 }

@@ -45,6 +45,12 @@ type engineInternals struct {
 
 	// commandRegistry 是可选的 command.Registry
 	commandRegistry *command.Registry
+
+	// execPoolCfg 是 ExecPool 的配置，在 NewEngine 中由选项设置后创建 pool
+	execPoolCfg ExecPoolConfig
+	// execPool 是自适应 ExecPool，用于执行被判定为"慢"的 handler。
+	// 由 NewEngine 在选项应用后初始化，Shutdown 时 Drain。
+	execPool *ExecPool
 }
 
 func (e *engineInternals) register(c runtimeComponent) {

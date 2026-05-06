@@ -453,6 +453,7 @@ func TestEngine_ProcessEventBatch_WithMixedEvents(t *testing.T) {
 	}
 
 	eng.ProcessPlatformEventBatch(events, nil)
+	eng.WaitForAsyncHandlers()
 
 	mu.Lock()
 	defer mu.Unlock()

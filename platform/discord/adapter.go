@@ -6,7 +6,6 @@ package discord
 import (
 	stdctx "context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -58,17 +57,15 @@ func discordCapabilities() platform.Capabilities {
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(adapter).Build()
 type GatewayAdapter struct {
 	platform.DisconnectNotifier
-
+	config  GatewayConfig
 	session *discordgo.Session
 	sender  *discordSender
-	config  GatewayConfig
-	workers int
 
-	mu      sync.RWMutex
-	running bool
-	cancel  stdctx.CancelFunc
-	wg      sync.WaitGroup
-
+	ctx      stdctx.Context
+	cancel   stdctx.CancelFunc
+	wg       sync.WaitGroup
+	mu       sync.RWMutex
+	running  bool
 	starting atomic.Bool
 }
 
@@ -100,16 +97,13 @@ func NewGatewayAdapter(cfg GatewayConfig) (*GatewayAdapter, error) {
 		session.Identify.LargeThreshold = cfg.LargeThreshold
 	}
 
-	workers := cfg.WorkerCount
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
+	logger.Infof("[discord.GatewayAdapter] Creating adapter: intents=%d",
+		cfg.Intents)
 
 	return &GatewayAdapter{
+		config:  cfg,
 		session: session,
 		sender:  newSender(session),
-		config:  cfg,
-		workers: workers,
 	}, nil
 }
 
@@ -169,31 +163,18 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 		return fmt.Errorf("discord gateway: failed to open connection: %w", err)
 	}
 
-	logger.Infof("[discord.GatewayAdapter] Gateway connected (workers=%d, intents=%d)",
-		a.workers, a.config.Intents)
+	logger.Infof("[discord.GatewayAdapter] Gateway connected, intents=%d", a.config.Intents)
 
-	workCh := make(chan platform.Event, a.workers*2)
-	for i := 0; i < a.workers; i++ {
-		a.wg.Go(func() {
-			for event := range workCh {
-				safeInvoke(handler, event)
-			}
-		})
-	}
-
+	// 事件分发 goroutine：从 eventCh 读取事件，直接调用 handler。
+	// 并发控制由 Engine 的 ExecPool 负责。
 	a.wg.Go(func() {
-		defer close(workCh)
 		for {
 			select {
 			case event, ok := <-eventCh:
 				if !ok {
 					return
 				}
-				select {
-				case workCh <- event:
-				case <-cancelCtx.Done():
-					return
-				}
+				safeInvoke(handler, event)
 			case <-cancelCtx.Done():
 				return
 			}

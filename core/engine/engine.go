@@ -116,10 +116,16 @@ func NewEngine(options ...Option) *Engine {
 	e.state = infraatomic.NewValue(newEngineState())
 	e.middleware = infraatomic.NewValue(newMiddlewareState())
 
-	// 应用用户自定义的选项
+	// ExecPool 默认配置
+	e.internals.execPoolCfg = DefaultExecPoolConfig()
+
+	// 应用用户自定义的选项（可能修改 execPoolCfg）
 	for _, opt := range options {
 		opt(e)
 	}
+
+	// 根据选项后的配置创建 ExecPool
+	e.internals.execPool = NewExecPool(e.internals.execPoolCfg)
 
 	// 如果未通过选项配置，则使用默认的 pendingDeleteCh
 	if e.internals.pendingDeleteCh == nil {
@@ -168,6 +174,13 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return err
 	}
 
+	// Drain ExecPool（等待慢 handler 完成）
+	if e.internals.execPool != nil {
+		if err := e.internals.execPool.Drain(ctx); err != nil {
+			return err
+		}
+	}
+
 	// 等待所有活跃的 ProcessEvent 调用完成
 	done := make(chan struct{})
 	go func() {
@@ -180,6 +193,18 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// WaitForAsyncHandlers 等待所有已提交到 ExecPool 的异步 handler 完成。
+//
+// 主要用于测试：ProcessPlatformEvent 可能将 handler offload 到 ExecPool
+// 异步执行。调用此方法确保所有异步 handler 执行完毕后再检查结果。
+//
+// 注意：此方法不停止 ExecPool，后续仍可继续提交新任务。
+func (e *Engine) WaitForAsyncHandlers() {
+	if e.internals.execPool != nil {
+		e.internals.execPool.Wait()
 	}
 }
 

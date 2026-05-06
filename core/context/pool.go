@@ -14,42 +14,15 @@ var contextPool = sync.Pool{
 	},
 }
 
-// ReleaseContext returns a Context to the pool after clearing sensitive data
+// ReleaseContext 归还 Context 到对象池（降低 refCount）。
+//
+// 等同于调用 ctx.Release()，保留此函数仅用于兼容已有调用点。
+// 新代码应优先使用 ctx.Release()。
 //
 // IMPORTANT: The context must not be used after calling ReleaseContext.
-// This is enforced by clearing all fields.
 func ReleaseContext(ctx *Context) {
 	if ctx == nil {
 		return
 	}
-
-	ctx.matcher = nil
-
-	// 平台无关字段清理
-	ctx.platformEvent = nil
-	ctx.platformSender = nil
-	ctx.botID = ""
-
-	if ctx.extensions != nil {
-		ctx.extensions.Clear()
-		ctx.extensions = nil
-	}
-	// 重置 extInitialized，否则池化复用时快路径会返回 nil *Extensions
-	ctx.extInitialized.Store(false)
-
-	// 调用 Clone() 中存储的 cancel 函数，释放 WithDeadline 创建的 runtime timer
-	if ctx.cancel != nil {
-		ctx.cancel()
-		ctx.cancel = nil
-	}
-
-	// Clear content cache
-	ctx.contentOnce = sync.Once{}
-	ctx.content = ""
-
-	ctx.ctxMu.Lock()
-	ctx.ctx = stdctx.Background()
-	ctx.ctxMu.Unlock()
-
-	contextPool.Put(ctx)
+	ctx.Release()
 }

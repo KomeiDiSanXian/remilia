@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -71,13 +70,9 @@ func SimpleWebhookAdapter(port int) *WebhookServerAdapter {
 
 // NewWebhookServerAdapterWithConfig 使用指定配置创建 WebhookServerAdapter。
 func NewWebhookServerAdapterWithConfig(addr string, botInfo *dto.BotInfo, cfg config.WebhookConfig) *WebhookServerAdapter {
-	workers := cfg.WorkerCount
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
 	conn := NewWebhookConnWithConfig(addr, botInfo, cfg)
-	adapter := NewAdapter(conn, nil).WithWorkers(workers)
-	logger.Infof("[WebhookServerAdapter] Config: workers=%d, buffer=%d", workers, conn.bufferSize)
+	adapter := NewAdapter(conn, nil)
+	logger.Infof("[WebhookServerAdapter] Started, buffer=%d", conn.bufferSize)
 	return &WebhookServerAdapter{conn: conn, adapter: adapter}
 }
 

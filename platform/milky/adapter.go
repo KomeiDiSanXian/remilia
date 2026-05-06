@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -60,10 +59,9 @@ func milkyCapabilities() platform.Capabilities {
 type Adapter struct {
 	platform.DisconnectNotifier
 
-	cfg     Config
-	client  *milkyClient
-	sender  *milkySender
-	workers int
+	cfg    Config
+	client *milkyClient
+	sender *milkySender
 
 	mu       sync.RWMutex
 	running  bool
@@ -84,17 +82,11 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	}
 	cfg = cfg.withDefaults()
 
-	workers := cfg.WorkerCount
-	if workers <= 0 {
-		workers = runtime.NumCPU()
-	}
-
 	client := newMilkyClient(cfg)
 	return &Adapter{
-		cfg:     cfg,
-		client:  client,
-		sender:  newSender(client),
-		workers: workers,
+		cfg:    cfg,
+		client: client,
+		sender: newSender(client),
 	}, nil
 }
 
@@ -158,37 +150,24 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 	// 在后台获取机器人身份信息——尽力而为，不阻塞
 	go a.fetchBotIdentity(cancelCtx)
 
-	// 工作协程池
+	// 缓冲事件通道，用于解耦 WebSocket 读取与事件分发
 	bufSize := a.cfg.EventBufferSize
 	if bufSize <= 0 {
 		bufSize = 128
 	}
 	eventCh := make(chan platform.Event, bufSize)
-	workCh := make(chan platform.Event, a.workers*2)
 
+	// 事件分发 goroutine：从 eventCh 读取，直接调用 handler。
+	// 并发控制由 Engine 的 ExecPool 负责。
 	var wg sync.WaitGroup
-	for i := 0; i < a.workers; i++ {
-		wg.Go(func() {
-			for evt := range workCh {
-				safeInvoke(handler, evt)
-			}
-		})
-	}
-
-	// 分发器：eventCh → workCh
 	wg.Go(func() {
-		defer close(workCh)
 		for {
 			select {
 			case evt, ok := <-eventCh:
 				if !ok {
 					return
 				}
-				select {
-				case workCh <- evt:
-				case <-cancelCtx.Done():
-					return
-				}
+				safeInvoke(handler, evt)
 			case <-cancelCtx.Done():
 				return
 			}
@@ -257,7 +236,7 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 
 		attempts = 0
 		delay = a.cfg.ReconnectDelay
-		logger.Infof("[milky.Adapter] WebSocket connected to %s (workers=%d)", a.cfg.BaseURL, a.workers)
+		logger.Infof("[milky.Adapter] WebSocket connected to %s", a.cfg.BaseURL)
 
 		disconnectErr := a.readLoop(ctx, conn, eventCh)
 		conn.Close()

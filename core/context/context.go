@@ -63,6 +63,73 @@ type Context struct {
 	// --- 热路径字段缓存（通用）---
 	contentOnce sync.Once
 	content     string // GetMessageContent 的缓存结果
+
+	// --- 引用计数（异步 offload 支持）---
+	// AcquireContextFromEvent 设 refCount = 1。
+	// 同步路径：processEventContext 结束时 Release 使 refCount 归零。
+	// 异步 offload 路径：Retain 增加引用，offload 的 handler 执行完 Release。
+	// Clone 创建的 Context 独立持有 refCount = 1。
+	refCount atomic.Int64
+}
+
+// Retain 增加 Context 的引用计数，延长生命周期。
+//
+// 与 Release 配对使用。每调用一次 Retain，必须对应一次 Release。
+// 当 refCount 归零时，Context 自动清理并归还对象池。
+//
+// 典型用法（异步 offload）：
+//
+//	ctx.Retain()
+//	pool.Submit(func() {
+//	    defer ctx.Release()
+//	    invokeHandler(ctx, m)
+//	})
+func (ctx *Context) Retain() {
+	if ctx == nil {
+		return
+	}
+	ctx.refCount.Add(1)
+}
+
+// Release 减少 Context 引用计数。归零时自动清理并归还对象池。
+//
+// 禁止在 Release 后继续使用 Context。
+func (ctx *Context) Release() {
+	if ctx == nil {
+		return
+	}
+	if ctx.refCount.Add(-1) < 0 {
+		logger.Error("[Context] Release: refCount underflow (double-free detected)")
+		return
+	}
+	if ctx.refCount.Load() == 0 {
+		ctx.reset()
+		contextPool.Put(ctx)
+	}
+}
+
+// reset 清理 Context 所有字段，使其可安全复用到对象池。
+func (ctx *Context) reset() {
+	if ctx.cancel != nil {
+		ctx.cancel()
+		ctx.cancel = nil
+	}
+	ctx.matcher = nil
+	ctx.platformEvent = nil
+	ctx.platformSender = nil
+	ctx.platformCaps = platform.Capabilities{}
+	ctx.botID = ""
+	if ctx.extensions != nil {
+		ctx.extensions.Clear()
+		ctx.extensions = nil
+	}
+	ctx.extInitialized.Store(false)
+	ctx.contentOnce = sync.Once{}
+	ctx.content = ""
+	ctx.refCount.Store(0)
+	ctx.ctxMu.Lock()
+	ctx.ctx = stdctx.Background()
+	ctx.ctxMu.Unlock()
 }
 
 // SetMatcher 设置当前命中的 Matcher（框架内部，由 Engine 在 processEventContext 中注入）
@@ -161,6 +228,7 @@ func (ctx *Context) cloneBase() *Context {
 				platformSender: ctx.platformSender,
 				platformCaps:   ctx.platformCaps,
 			}
+			newCtx.refCount.Store(1)
 			newCtx.ctxMu.Lock()
 			newCtx.ctx = trace.ContextWithSpan(newCtx.ctx, span)
 			newCtx.ctxMu.Unlock()
@@ -168,7 +236,7 @@ func (ctx *Context) cloneBase() *Context {
 		}
 		baseCtx = trace.ContextWithSpan(baseCtx, span)
 	}
-	return &Context{
+	newCtx := &Context{
 		ctx:            baseCtx,
 		cancel:         cancel,
 		matcher:        ctx.matcher,
@@ -176,6 +244,8 @@ func (ctx *Context) cloneBase() *Context {
 		platformSender: ctx.platformSender,
 		platformCaps:   ctx.platformCaps,
 	}
+	newCtx.refCount.Store(1)
+	return newCtx
 }
 
 // Clone 克隆 Context 用于异步操作

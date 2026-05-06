@@ -46,6 +46,7 @@ func TestEngine_OnCommand_CustomPrefix(t *testing.T) {
 		// 发送 "$hello world" 消息触发
 		evt := newTestPlatformEventWithContent("", "$hello world")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load(), "command with $ prefix should dispatch")
 	})
 
@@ -61,6 +62,7 @@ func TestEngine_OnCommand_CustomPrefix(t *testing.T) {
 
 		evt := newTestPlatformEventWithContent("", ".status show all")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load(), "command with . prefix should dispatch")
 	})
 
@@ -74,9 +76,9 @@ func TestEngine_OnCommand_CustomPrefix(t *testing.T) {
 				return nil
 			})
 
-		// bang prefix should NOT trigger slash command
 		evt := newTestPlatformEventWithContent("", "!ping")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.False(t, called.Load(), "wrong prefix should not trigger command")
 	})
 }
@@ -103,6 +105,7 @@ func TestEngine_RegisterCommandWithPrefix(t *testing.T) {
 		// 验证 dispatch
 		evt := newTestPlatformEventWithContent("", "!greet world")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load())
 	})
 }
@@ -131,6 +134,7 @@ func TestEngine_RegisterCommandDefWithPrefix(t *testing.T) {
 		// 主命令 dispatch
 		evt := newTestPlatformEventWithContent("", "!search keyword")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load(), "main command with ! prefix should dispatch")
 	})
 
@@ -149,12 +153,14 @@ func TestEngine_RegisterCommandDefWithPrefix(t *testing.T) {
 		called.Store(false)
 		evt := newTestPlatformEventWithContent("", "!search keyword")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load(), "main command with ! prefix should dispatch")
 
 		// 别名 dispatch（OnCommand 级别自动注册别名，共享同一 handler）
 		called.Store(false)
 		evt2 := newTestPlatformEventWithContent("", "!s")
 		eng.ProcessPlatformEvent(evt2, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load(), "alias !s with ! prefix should dispatch")
 	})
 
@@ -193,6 +199,7 @@ func TestEngine_BackwardCompatibility(t *testing.T) {
 
 		evt := newTestPlatformEventWithContent("", "/ping")
 		eng.ProcessPlatformEvent(evt, nil)
+		eng.WaitForAsyncHandlers()
 		assert.True(t, called.Load())
 
 		// GetCommand still returns "/ping"

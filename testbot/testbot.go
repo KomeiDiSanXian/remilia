@@ -374,6 +374,7 @@ func (tb *QQBot) SendC2C(userOpenID, content string) {
 // For QQ-specific raw payload injection, use Inject instead.
 func (tb *QQBot) InjectEvent(event platform.Event) {
 	tb.Engine().ProcessPlatformEvent(event, tb.SenderAPI())
+	tb.Engine().WaitForAsyncHandlers()
 }
 
 // Inject injects an arbitrary *dto.Payload as a QQ platform event.

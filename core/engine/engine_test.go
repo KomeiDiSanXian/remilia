@@ -474,6 +474,7 @@ func TestEngine_ProcessEventBatch(t *testing.T) {
 		}
 
 		eng.ProcessPlatformEventBatch(events, nil)
+		eng.WaitForAsyncHandlers()
 
 		assert.Equal(t, int32(3), atomic.LoadInt32(&count))
 	})

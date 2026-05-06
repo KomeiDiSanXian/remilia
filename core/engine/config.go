@@ -19,6 +19,11 @@ const (
 	DefaultPendingDeleteProcessInterval = 100 * time.Millisecond
 	// DefaultPendingDeleteBatchSize 默认每次批量删除数量
 	DefaultPendingDeleteBatchSize = 1000
+
+	// DefaultExecPoolMaxConcurrency 默认 ExecPool 最大并发 goroutine 数
+	DefaultExecPoolMaxConcurrency = 64
+	// DefaultExecPoolQueueSize 默认 ExecPool 等待队列大小
+	DefaultExecPoolQueueSize = 128
 )
 
 // WithCleanupInterval 设置临时 Matcher 清理间隔。
@@ -61,6 +66,27 @@ func WithNoBackgroundWorkers() Option {
 	return func(e *Engine) {
 		e.internals.tempMatcherCleanerInterval = 0
 		e.internals.pendingDeleteProcessInterval = 0
+	}
+}
+
+// WithExecPoolMaxConcurrency 设置 ExecPool 的最大并发 goroutine 数。
+//
+// 默认值：DefaultExecPoolMaxConcurrency（64）。
+// 此值控制同时执行慢 handler 的最大 goroutine 数量。
+// 调高可提升并发吞吐，但会增加 goroutine 调度压力和内存使用。
+func WithExecPoolMaxConcurrency(maxConcurrency int) Option {
+	return func(e *Engine) {
+		e.internals.execPoolCfg.MaxConcurrency = maxConcurrency
+	}
+}
+
+// WithExecPoolQueueSize 设置 ExecPool 的等待队列大小。
+//
+// 默认值：DefaultExecPoolQueueSize（128）。
+// 队列满时新任务会 fallback 到同步执行，不会阻塞调用方。
+func WithExecPoolQueueSize(queueSize int) Option {
+	return func(e *Engine) {
+		e.internals.execPoolCfg.QueueSize = queueSize
 	}
 }
 

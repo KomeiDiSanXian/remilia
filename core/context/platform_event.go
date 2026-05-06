@@ -33,19 +33,18 @@ func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Cont
 	ctx.contentOnce = sync.Once{}
 	ctx.content = ""
 
+	ctx.refCount.Store(1) // 基引用，由 processEventContext 在结束时 Release
 	return ctx
 }
 
-// ReleaseContextFromEvent 归还由 AcquireContextFromEvent 获取的 Context
+// ReleaseContextFromEvent 等价于 ctx.Release()。
+//
+// 保留此函数用于兼容已有调用点。新代码应优先使用 ctx.Release()。
 func ReleaseContextFromEvent(ctx *Context) {
 	if ctx == nil {
 		return
 	}
-	ctx.platformEvent = nil
-	ctx.platformSender = nil
-	ctx.platformCaps = platform.Capabilities{}
-	ctx.botID = ""
-	ReleaseContext(ctx) // 复用原有清理逻辑
+	ctx.Release()
 }
 
 // GetPlatformEvent 返回当前 Context 绑定的 platform.Event。

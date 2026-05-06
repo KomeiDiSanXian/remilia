@@ -20,18 +20,30 @@ import (
 //   - eventWg.Add 在函数入口，确保 Shutdown 的 eventWg.Wait 看到所有活跃事件
 //   - 若 Shutdown 已调用（shutdown 标志已设置），直接返回，避免关闭后的事件流入处理
 //   - 若事件在 adapter 停止后到达，eventWg 也会等待其完成
+// ProcessEvent 处理事件（始终同步执行）。
+//
+// 与 ProcessPlatformEvent 不同，此方法不会将 handler offload 到 ExecPool，
+// 保证同步语义。调用前 ctx.refCount 必须 >= 1，调用后 ctx.Release() 由内部管理。
 func (e *Engine) ProcessEvent(ctx *context.Context) {
+	e.processEventGuard(ctx, false)
+}
+
+// processEventGuard 是 ProcessEvent 和 ProcessPlatformEvent 的通用防护层：
+// shutdown 检查、eventWg 计数、panic 恢复。
+func (e *Engine) processEventGuard(ctx *context.Context, allowPool bool) {
 	if e.shutdown.Load() {
+		ctx.Release()
 		return
 	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
-	// 顶层 panic 保护，防止任何未捕获的 panic 导致 goroutine 崩溃。
-	// 同时覆盖 ProcessPlatformEvent 通过委托调用此函数的场景：
-	// ctx.GetEventPlatform() 在平台路径下返回平台标识，非平台路径返回 ""。
+	var released bool
 	defer func() {
 		if r := recover(); r != nil {
+			if !released {
+				ctx.Release()
+			}
 			logger.WithFields(logger.Fields{
 				"panic":      r,
 				"stack":      string(debug.Stack()),
@@ -41,7 +53,12 @@ func (e *Engine) ProcessEvent(ctx *context.Context) {
 		}
 	}()
 
-	e.processEventContext(ctx)
+	if allowPool {
+		e.processEventContextWithPool(ctx, true)
+	} else {
+		e.processEventContextWithPool(ctx, false)
+	}
+	released = true
 }
 
 // invokeHandler 封装调用处理器，通过中间件链执行

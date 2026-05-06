@@ -71,6 +71,10 @@ type Matcher struct {
 	// 用于 GetCommand()、bindCommand 和别名注册等需要还原命令字符串的场景。
 	triggerPrefix string
 
+	// execProfile 跟踪此 matcher 的执行耗时，用于自适应决定走同步还是 ExecPool。
+	// nil 表示尚未初始化（首次执行时延迟创建）。
+	execProfile *ExecProfile
+
 	// aliasRegistrar 由框架在 RegisterCommand 后注入，在 Handle() 第一次被调用时触发，
 	// 为 definition.Aliases 中的每个别名自动注册路由 Matcher。
 	// 触发后置 nil 以防止重复注册。
