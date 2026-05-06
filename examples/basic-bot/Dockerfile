@@ -14,11 +14,11 @@ ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
 
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/KomeiDiSanXian/remilia.Version=${VERSION} -X main.commit=${GIT_COMMIT} -X main.date=${BUILD_TIME}" \
-    -o /bin/remilia .
+    -o /bin/basic-bot ./examples/basic-bot/
 
 FROM scratch
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /bin/remilia /remilia
+COPY --from=builder /bin/basic-bot /basic-bot
 
-ENTRYPOINT ["/remilia"]
+ENTRYPOINT ["/basic-bot"]
