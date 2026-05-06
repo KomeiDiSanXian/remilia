@@ -258,17 +258,17 @@ engine.go 800+ 行            core/engine/                   core/engine/
 
 关键洞察：`temp_manager.go` 的引入是为了隔离"临时 Matcher"（一次性/带过期时间）与永久 Matcher。如果没有这个隔离，每次事件处理都需要遍历所有临时 Matcher 检查过期，导致性能不可预测。
 
-## 第三阶段：Context 改造 → Pool 化 + 平台无关
+## 第三阶段：Context 改造 → Pool 化 + 平台无关 → 去 Pool
 
 **驱动因素**：
 - Context 在高并发下大量创建/销毁，GC 压力大
 - Context 仍紧耦合 `dto.Payload` 和 `openapi.OpenAPI`
 - 需要支持平台无关的事件传递
 
-### Context Pool
+### Context Pool（已废弃）
 
 ```go
-// 引入对象池，高并发下显著降低 GC 压力
+// 引入对象池，高并发下显著降低 GC 压力（V2 阶段）
 var contextPool = sync.Pool{
     New: func() any { return &Context{state: make(State)} },
 }
@@ -281,18 +281,48 @@ func ReleaseContext(ctx *Context) {
     ctx.reset()
     contextPool.Put(ctx)
 }
-
-// 扩展为双路径
-func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
-    ctx := contextPool.Get().(*Context)
-    ctx.platformEvent = event
-    ctx.platformSender = sender
-    ctx.isPlatformPath = true
-    return ctx
-}
 ```
 
-性能提升：`0 allocs/op`，无 GC 压力。
+性能提升：池化后 `0 allocs/op`，无 GC 压力。
+
+### 去 Pool 决策（V4 阶段）
+
+池化虽然降低了 GC 压力，但引入了一个严重的安全问题：
+
+```go
+// 插件开发者可能写出这样的代码
+go func() {
+    ctx.Reply("hi")  // ctx 可能已被池回收 → 发送到错误会话
+}()
+```
+
+**核心矛盾**：池化 + goroutine 捕获 = Use-After-Free。`sync.Pool` 回收的 Context 可能被分配给下一个事件，而之前事件中 goroutine 捕获的 `*Context` 指针指向的对象已经属于新事件。
+
+技术选型数据：
+
+| 方案 | 分配 | 安全性 | 复杂度 |
+|------|------|--------|--------|
+| sync.Pool 池化 | 0 alloc/event | ❌ UAF | 中(refCount/Retain/reset) |
+| 新鲜分配 &Context{} | 272 B/event, 1 alloc | ✅ 安全 | 低 |
+| 双层 + 世代号 | 80 B/event, 1 alloc | ✅ 检测 | 高(atomics + generation) |
+
+以 474k msg/s 吞吐量计算，新鲜分配增加 1.8% CPU + 114 MB/s 分配率。Go GC 可轻松处理（稳定态下 < 0.5% 开销），因此选择**完全去池化**。
+
+同时消除了池化衍生的复杂机制：
+- **`ctxMu sync.RWMutex`** — 用于保护 std context，但池化回收是它存在的唯一原因。去池化后中间件在 handler 前串行执行 SetStdContext，goroutine 只读，无需锁
+- **`refCount / Retain()`** — 用于 ExecPool offload 路径确保池不回收运行中的 Context。去池化后不需要
+- **`reset()`** — 用于清空池对象的旧事件数据。去池化后不需要
+- **`Release()` / `ReleaseContext()` / `ReleaseContextFromEvent()`** — 池化时代的"归还"操作。去池化后已删除
+
+```go
+// V4（当前）：每事件新鲜分配，不复用
+func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
+    return &Context{
+        platformEvent:  event,
+        platformSender: sender,
+    }
+}
+```
 
 ### Context 平台无关化
 
@@ -472,12 +502,18 @@ platform/milky/     # Milky QQ 协议
 4. 所有测试 21 个新增
 
 ```go
-// 新增平台无关入口
+// 新增平台无关入口（V3）
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender) {
     ctx := context.NewContextFromEvent(event, sender)
-    defer context.ReleaseContextFromEvent(ctx)
     e.processEventContext(ctx)
 }
+
+// V4 统一入口：ProcessEvent 和 ProcessPlatformEvent 共用 ExecPool 自适应路径
+// 慢 handler 自动 offload，池满 fallback 同步
+func (e *Engine) ProcessEvent(ctx *context.Context) {
+    e.processEventGuard(ctx)
+}
+// ProcessPlatformEvent 同样走 processEventGuard
 ```
 
 ## 第六阶段：生命周期系统化
@@ -556,7 +592,101 @@ infra/
 └── fs/          # 懒加载文件系统
 ```
 
-## 演进总结
+## 第八阶段：去池化 + ExecPool 统一 + Context 精简
+
+**驱动因素**：
+- Context 池化导致 UAF：goroutine 捕获的 `*Context` 引用可能在池回收后指向新事件
+- `ProcessEvent` 和 `ProcessPlatformEvent` 两套路径增加了不必要的复杂性
+- 池化衍生的 `ctxMu`/`refCount`/`Retain`/`reset` 等机制成为技术债务
+
+### 去 Pool 决策
+
+**性能基准**（474k msg/s 吞吐量下实际测试）：
+
+| 方案 | 耗时 | 内存 | 每事件 |
+|------|------|------|--------|
+| sync.Pool 池化 | ~69 ns | 32 B | 2 allocs |
+| 新鲜分配 &Context{} | ~107 ns | 272 B | 3 allocs |
+| **差异** | **+38 ns (+55%)** | **+240 B** | **+1 alloc** |
+
+全链路（引擎级）：~417 ns → ~456 ns（**+9%**）。换算到 474k msg/s 吞吐量：
+- CPU：18 ms/s = **1.8%**
+- 分配率：129 MB/s（vs 池化 15 MB/s），**Go GC 零压力**
+
+**结论：1.8% CPU 开销换取完全安全的 goroutine 生命周期，值得。**
+
+### 删除的机制
+
+| 旧机制 | 代码量 | 用途 | 替代 |
+|--------|--------|------|------|
+| `sync.Pool` | 3 行 | 池化复用 | 无 |
+| `refCount` | 2 字段 + 2 方法 | 跟踪引用 | 无 |
+| `Retain()` | 5 行 | offload 前加引用 | 无 |
+| `reset()` | 22 行 | 清空旧数据防泄漏 | 无 |
+| `Release()` | 12 行 | 归还到池 | 无 |
+| `ReleaseContext()` | 8 行 | 兼容 wrapper | 无 |
+| `ReleaseContextFromEvent()` | 8 行 | 兼容 wrapper | 无 |
+| `ctxMu sync.RWMutex` | 12 行 | 保护 std context | `atomic.Pointer[ctxHolder]` |
+
+### ProcessEvent 统一
+
+原有两个入口：
+- `ProcessEvent` → 同步，不走池（用于内部测试）
+- `ProcessPlatformEvent` → 自适应 ExecPool
+
+现在统一为一个：**所有入口均走 ExecPool 自适应路径**。慢 handler 自动 offload，池满时 fallback 同步。
+
+```go
+// V4：统一入口
+func (e *Engine) ProcessEvent(ctx *context.Context) {
+    e.processEventGuard(ctx)
+}
+
+func (e *Engine) ProcessPlatformEvent(...) {
+    ctx := context.NewContextFromEvent(event, sender)
+    e.processEventGuard(ctx)
+}
+```
+
+### ExecProfile 算法的演进
+
+```
+V1: 默认同步，慢后提升（保守）                      → 第一次 handler 固定同步
+V2: 默认池化，怀疑所有 handler 慢（激进）              → 第一次 handler 就 offload
+V3 (当前): 默认池化 + 数据驱动降级                    → 慢 handler 自适应
+```
+
+当前执行流程：
+
+```
+ShouldPool():
+  promoted     → 走池 ✓
+  数据不足      → 走池 ✓（默认怀疑慢）
+  p50 > 50ms   → promoted，走池 ✓
+  p50 < 25ms & 连续 10 次快 → ExecDirect
+  其他          → 走池 ✓
+```
+
+测试环境通过 `WithExecPoolDisabled()` 选项禁用池，确保所有 handler 同步执行：
+```go
+eng := engine.NewEngine(engine.WithExecPoolDisabled())
+```
+
+### `NewContextFromEvent` → `Cancel()`
+
+Clone 仍然保留（用途：创建与中间件超时隔离的异步副本）。Clone 内部通过 `context.WithCancel`/`WithDeadline` 创建独立的 context 链，cancel 函数存储在 `Context.cancel` 字段。调用 `ctx.Cancel()` 可主动释放。不调用也不泄露——GC finalizer 会在 `*Context` 不可达后自动关闭 done channel。
+
+```go
+// 异步操作的标准模式
+func handler(ctx *Context) error {
+    clone := ctx.Clone()        // 隔离中间件超时
+    go func() {
+        defer clone.Cancel()    // 主动释放（可选）
+        // ... 长时间操作
+    }()
+    return nil
+}
+```
 
 ```
 2025-11    ZeroBot 启蒙——深度使用 → 发现瓶颈 → 萌生自研想法
@@ -589,6 +719,14 @@ infra/
     ├── 内置 25+ 插件
     ├── textimage 引擎
     └── v1.0.0 发布
+    │
+2026-05    V4 重构
+    │
+    ├── Context 去池化（新鲜分配，消除 UAF）
+    ├── ProcessEvent 统一（全部走 ExecPool）
+    ├── ctxMu → atomic.Pointer（无锁 std context）
+    ├── 删除 refCount/Retain/reset/Release 全套机制
+    └── ExecPool 默认池化（怀疑所有 handler 慢）
 ```
 
 ### 关键决策时刻
@@ -598,7 +736,7 @@ infra/
 | COW 引擎 | 写时复制 + atomic.Value | ZeroBot 的 sync.Mutex | 读多写少场景，5-6x 性能提升 |
 | 插件 v2 | 函数式 Descriptor | ZeroBot 的 init() 全局注册 | 解耦、可测试、灵活 |
 | 多平台抽象 | Adapter 接口 | ZeroBot 的 OneBot 单平台 | 跨平台 Handler 复用 |
-| Context Pool | sync.Pool | ZeroBot 每次都 new Ctx | 0 allocs/op 是硬性要求 |
+| Context Pool | → 新鲜分配（V4） | sync.Pool | 池化导致 UAF，goroutine 不安全。474k msg/s 下 1.8% 开销可接受 |
 | 生命周期 | lifecycle 独立包 | ZeroBot 无生命周期，Bot 内手工编排 | 组件化、可复用的生命周期管理 |
 | 日志 | zerolog | ZeroBot 无零分配要求 | 零分配日志对性能关键 |
 | O(1) 命令路由 | commandIndex + Trie | ZeroBot 线性扫描 O(n) | 100+ 命令时延迟不增长 |

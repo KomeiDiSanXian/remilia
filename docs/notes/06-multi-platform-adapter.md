@@ -328,25 +328,18 @@ type Context struct {
 ```
 
 ```go
-// 两种创建方式
-func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context {
-    return &Context{event: event, api: api, isPlatformPath: false}
-}
-
+// V4（当前）：每事件新分配，不复用
 func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
-    ctx := contextPool.Get().(*Context)
-    ctx.platformEvent = event
-    ctx.platformSender = sender
-    ctx.isPlatformPath = true
-    return ctx
+    return &Context{
+        platformEvent:  event,
+        platformSender: sender,
+    }
 }
 ```
 
 ```go
-// Handler 中的兼容处理
+// Handler 中的兼容处理（V3 之前有双路径 isPlatformPath 判断，V4 完全抛弃旧路径）
 func (ctx *Context) Reply(msg interface{}) error {
-    if ctx.isPlatformPath {
-        return ctx.platformSender.SendMessage(...)  // 新路径
     }
     return ctx.api.SendMessage(...)                   // 旧路径
 }

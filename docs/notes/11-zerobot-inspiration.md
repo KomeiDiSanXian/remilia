@@ -522,7 +522,12 @@ ctx.event = event
 
 // ─── Remilia V3 — Pool + 平台抽象 ───
 ctx := NewContextFromEvent(event, sender)
-defer ReleaseContext(ctx)
+
+// ─── Remilia V4 — 去池化，新鲜分配 ───
+func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
+    return &Context{platformEvent: event, platformSender: sender}
+}
+// 去池化原因：池化 + go 关键字 = UAF。474k msg/s 下 1.8% CPU 开销可接受
 ```
 
 ---
@@ -560,7 +565,7 @@ defer ReleaseContext(ctx)
 | Prometheus 指标 + OpenTelemetry 追踪 | 无 | **能力扩展** |
 | 配置热重载（fsnotify + Bridge 推模式） | 无 | **能力扩展** |
 | infra 基础设施（atomic/pool/health/tracing/textimage/dlq...） | 仅有 utils/helper | **能力扩展** |
-| Context Pool（0 allocs/op） | 每次都 new | **性能优化** |
+| Context Pool（已废弃 V4）→ 新鲜分配 | 每次都 new | **安全性优先 → UAF 消除。1.8% 开销可接受** |
 | zerolog 零分配日志 | 普通日志 | **性能优化** |
 | 500+ 测试文件，>90% 关键路径覆盖率 | 单一 all_test.go | **工程质量** |
 | BlueGreen 热重载 + InPlace 热重载 | unload-load 单策略 | **运维能力** |

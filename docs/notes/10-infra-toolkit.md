@@ -400,23 +400,25 @@ type Value[T any] struct { inner atomic.Value }
 var engineStateValue = NewValue[*state](nil)
 ```
 
-**`infra/pool`** 从 `*Context` 特定池变为泛型：
+**`infra/pool`** 从 `*Context` 特定池变为泛型（注意：V4 阶段已移除事件 Context 的池化）：
 
 ```go
-// V1 — 专用池
+// V1 — 专用池（V3 之前用于事件 Context）
 type ContextPool struct {
     pool sync.Pool  // 只能放 *Context
 }
 func (p *ContextPool) Get() *Context { ... }
 
-// V2 — 泛型池
+// V2 — 泛型池（V3 阶段，事件 Context 仍池化）
 type TypedPool[T any] struct {
     pool  sync.Pool
     reset func(T) T  // 可选重置函数
 }
-// 可用于任何类型
+// 可用于 matcher 等非事件类型
 matcherPool := NewTypedPool(func() []*Matcher { return make([]*Matcher, 0, 32) })
-contextPool := NewTypedPool(func() *Context { return &Context{state: make(State)} })
+
+// V4 — 事件 Context 去池化，infra/pool 仅用于非事件类型（如 matcher slice 池）
+// 去池化原因：池化 + goroutine 捕获 = Use-After-Free
 ```
 
 **`infra/syncx.Map`** 从 `string→any` 变为泛型：
