@@ -193,19 +193,31 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 			needRecompile = true
 		}
 
-		// COW: 创建副本再修改，避免与 Lookup 返回的 *Meta 指针产生并发读写竞争
-		existingCopy := *existing
-		existing = &existingCopy
-		cr.trie.Insert(def.Name, existing)
-		existing.Description = def.Description
-		existing.Usage = def.Usage
-		existing.Definition = def
+		// COW: 手动创建新副本（avoid copying atomic.Int64 / infraatomic.Value 'noCopy' fields）
+		newMeta := &Meta{
+			Name:        existing.Name,
+			Aliases:     existing.Aliases,
+			Description: def.Description,
+			Usage:       def.Usage,
+			Definition:  def,
+			Priority:    existing.Priority,
+			pattern:     existing.pattern,
+		}
 		if opts.Category != "" {
-			existing.Category = opts.Category
+			newMeta.Category = opts.Category
+		} else {
+			newMeta.Category = existing.Category
 		}
 		if opts.Source != "" {
-			existing.Source = opts.Source
+			newMeta.Source = opts.Source
+		} else {
+			newMeta.Source = existing.Source
 		}
+		// Preserve atomic stats from the original meta
+		newMeta.callCount.Store(existing.callCount.Load())
+		newMeta.lastCall.Store(existing.lastCall.Load())
+		existing = newMeta
+		cr.trie.Insert(def.Name, existing)
 
 		if needRecompile {
 			cr.recompile()
