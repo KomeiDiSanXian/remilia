@@ -72,15 +72,15 @@ func newMockEventWithSender(kind platform.EventKind, senderID string) *mockEvent
 
 // newTestCtx 创建一个用于测试的 Context（私聊消息类型）。
 func newTestCtx() *Context {
-	return AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	return NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 }
 
 // newTestCtxWithKind 创建指定事件类型的测试 Context。
 func newTestCtxWithKind(kind platform.EventKind) *Context {
-	return AcquireContextFromEvent(newMockEvent(kind), nil)
+	return NewContextFromEvent(newMockEvent(kind), nil)
 }
 
 // newTestCtxEmpty 创建一个无事件的测试 Context（用于只测试 Context 状态管理的场景）。
 func newTestCtxEmpty() *Context {
-	return AcquireContextFromEvent(nil, nil)
+	return NewContextFromEvent(nil, nil)
 }

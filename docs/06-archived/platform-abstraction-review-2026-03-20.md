@@ -24,7 +24,7 @@
 | `qq.qqEvent` | ✅ 完整 | gjson 一次扫描，C2C/Group/Guild/Notice |
 | `qq.qqSender` | ⚠️ 部分 | 仅支持 Text/Markdown，缺附件/按钮/@/Guild |
 | `engine.ProcessPlatformEvent` | ✅ 完整 | 按 EventKind 路由，复用核心逻辑 |
-| `context.AcquireContextFromEvent` | ✅ 完整 | 对象池，平台无关初始化 |
+| `context.NewContextFromEvent` | ✅ 完整 | 对象池，平台无关初始化 |
 | `ctx.Reply()` / `ctx.ReplyWithContext()` | ✅ 完整 | ChatInfo 自动注入 |
 | `ctx.GetPlatformEvent()` / `GetEventKind()` 等 | ✅ 完整 | 全路径可访问 |
 | `BotBuilder.WithPlatformAdapter/Registry` | ✅ 完整 | 单/多平台两种模式 |

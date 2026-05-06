@@ -32,7 +32,7 @@ func (e *fuzzEvent) Attachments() []platform.InboundAttachment { return nil }
 
 // newFuzzContext creates a platform context with the given content.
 func newFuzzContext(content string) *rcontext.Context {
-	return rcontext.AcquireContextFromEvent(&fuzzEvent{
+	return rcontext.NewContextFromEvent(&fuzzEvent{
 		content: content,
 		kind:    platform.EventKindPrivateMessage,
 	}, nil)

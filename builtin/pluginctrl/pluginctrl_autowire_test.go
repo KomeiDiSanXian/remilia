@@ -65,7 +65,7 @@ func (s *countingSender) reset()     { atomic.StoreInt32(&s.n, 0) }
 
 // newAWGroupEvent creates an engine context whose replies go to cs.
 func newAWGroupEvent(groupID string, cs *countingSender) *eventctx.Context {
-	return eventctx.AcquireContextFromEvent(
+	return eventctx.NewContextFromEvent(
 		&awTestEvent{groupID: groupID, userID: "user1"},
 		cs,
 	)
@@ -107,7 +107,7 @@ func weatherDesc(handlerCalled *int32) *plugin.Descriptor {
 // after a normal first-time plugin registration, the combinedGuard that
 // autoWireListener injects fires exactly once per event.
 func TestAutoWire_NormalLoad_GuardFiredOnce(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	t.Cleanup(func() { _ = eng.Shutdown(stdctx.Background()) })
 	pm := plugin.NewManager(eng)
 
@@ -140,7 +140,7 @@ func TestAutoWire_NormalLoad_GuardFiredOnce(t *testing.T) {
 // Before the fix, step 2 skipped the Reset, so step 3 appended a SECOND guard
 // and the user received two replies.
 func TestAutoWire_UnloadReregister_NoDoubleGuard(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	t.Cleanup(func() { _ = eng.Shutdown(stdctx.Background()) })
 	pm := plugin.NewManager(eng)
 
@@ -181,7 +181,7 @@ func TestAutoWire_UnloadReregister_NoDoubleGuard(t *testing.T) {
 // TestAutoWire_MultipleReloadCycles_GuardAlwaysOnce verifies that the fix
 // holds across several consecutive unload/re-register cycles.
 func TestAutoWire_MultipleReloadCycles_GuardAlwaysOnce(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	t.Cleanup(func() { _ = eng.Shutdown(stdctx.Background()) })
 	pm := plugin.NewManager(eng)
 
@@ -210,7 +210,7 @@ func TestAutoWire_MultipleReloadCycles_GuardAlwaysOnce(t *testing.T) {
 // plugin its "weather" group no longer has matchers wired, so an incoming event
 // does not trigger any guard-related reply.
 func TestAutoWire_PhantomEntry_AbsentAfterUnload(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	t.Cleanup(func() { _ = eng.Shutdown(stdctx.Background()) })
 	pm := plugin.NewManager(eng)
 

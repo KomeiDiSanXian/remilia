@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	botctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -156,9 +155,7 @@ func (tb *TestBot) Manager() *plugin.Manager { return tb.mgr }
 func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 	tb.t.Helper()
 	tb.sender.drain()
-	ctx := botctx.AcquireContextFromEvent(event, tb.sender)
 	tb.eng.ProcessPlatformEvent(event, tb.sender)
-	botctx.ReleaseContextFromEvent(ctx)
 	tb.eng.WaitForAsyncHandlers()
 	return &PlatformResponse{messages: tb.sender.drain()}
 }

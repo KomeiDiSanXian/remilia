@@ -170,7 +170,7 @@ ctx := NewContext(&dto.Payload{
 //
 // 迁移状态追踪：
 //   - engine/process.go:ProcessEventBatch → 待迁移到 ProcessPlatformEvent
-//   - 所有测试中的 NewContext(dto.Payload, ...) → 待迁移到 AcquireContextFromEvent
+//   - 所有测试中的 NewContext(dto.Payload, ...) → 待迁移到 NewContextFromEvent
 //
 // 禁止：在此文件以外的 core/context/*.go 中新增任何 platform/qq 导入。
 
@@ -187,7 +187,7 @@ import (
 
 // NewContext 创建绑定 QQ dto.Payload 的 Context（旧路径）。
 //
-// Deprecated: 新代码请使用 AcquireContextFromEvent(event platform.Event, sender platform.Sender)。
+// Deprecated: 新代码请使用 NewContextFromEvent(event platform.Event, sender platform.Sender)。
 // 此函数在所有调用方迁移完成后将被删除。
 func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context { ... }
 
@@ -198,7 +198,7 @@ func NewContextWithContext(ctx stdctx.Context, event *dto.Payload, api openapi.O
 
 // AcquireContext 从对象池获取 QQ Context（旧路径）。
 //
-// Deprecated: 新代码请使用 AcquireContextFromEvent。
+// Deprecated: 新代码请使用 NewContextFromEvent。
 func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context { ... }
 
 // ── 二、QQ 专属 Context 访问方法 ──────────────────────────────────────────
@@ -488,7 +488,7 @@ func (a *qqAdapterImpl) cloneAdapter() legacyQQAdapter {
 
 ```go
 // pool.go（修改后，无 QQ 导入）
-// AcquireContextFromEvent 已在 platform_event.go，无需改动
+// NewContextFromEvent 已在 platform_event.go，无需改动
 
 // legacy_qq.go 中新增：
 func AcquireContext(event *dto.Payload, api openapi.OpenAPI) *Context {
@@ -715,7 +715,7 @@ func TestNewPathContext_NoQQDependency(t *testing.T) {
         kind:    platform.EventKindPrivateMessage,
         content: "hello",
     }
-    ctx := AcquireContextFromEvent(mockEvent, nil)
+    ctx := NewContextFromEvent(mockEvent, nil)
     assert.Equal(t, "hello", ctx.GetMessageContent())
     assert.Equal(t, platform.EventKindPrivateMessage, ctx.GetEventKind())
 }
@@ -734,7 +734,7 @@ go list -f '{{.Imports}}' ./core/context/ | grep -v "platform/qq"
 
 ## 9. 迁移指南（调用方）
 
-### 9.1 `AcquireContext` → `AcquireContextFromEvent`
+### 9.1 `AcquireContext` → `NewContextFromEvent`
 
 **旧写法（需迁移）：**
 ```go
@@ -744,7 +744,7 @@ defer context.ReleaseContext(ctx)
 
 **新写法：**
 ```go
-ctx := context.AcquireContextFromEvent(platformEvent, platformSender)
+ctx := context.NewContextFromEvent(platformEvent, platformSender)
 defer context.ReleaseContextFromEvent(ctx)
 ```
 

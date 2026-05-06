@@ -17,7 +17,7 @@ import (
 func TestAcquireContextFromEvent(t *testing.T) {
 	event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
 
-	ctx := AcquireContextFromEvent(event, nil)
+	ctx := NewContextFromEvent(event, nil)
 
 	require.NotNil(t, ctx)
 	assert.NotNil(t, ctx.GetPlatformEvent())
@@ -28,7 +28,7 @@ func TestAcquireContextFromEvent(t *testing.T) {
 func TestAcquireContextFromEvent_WithStdCtx(t *testing.T) {
 	stdCtx := t.Context()
 
-	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	ctx.SetStdContext(stdCtx)
 
 	require.NotNil(t, ctx)
@@ -64,7 +64,7 @@ func TestContext_SetStdContextNil(t *testing.T) {
 func TestContext_Clone(t *testing.T) {
 	t.Run("basic clone", func(t *testing.T) {
 		event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 		ctx.Set("key1", "value1")
 		ctx.SetRetryAttempt(3)
 
@@ -398,7 +398,7 @@ func TestRule_OnEventType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := AcquireContextFromEvent(newMockEvent(tt.eventKind), nil)
+			ctx := NewContextFromEvent(newMockEvent(tt.eventKind), nil)
 
 			rule := OnEventType(string(tt.ruleKind))
 			result := rule(ctx)
@@ -851,11 +851,11 @@ func TestBug_EmptyKeyword(t *testing.T) {
 // Helper functions
 
 func createTestContextWithMessage(content string) *Context {
-	return AcquireContextFromEvent(newMockEventWithContent(platform.EventKindPrivateMessage, content), nil)
+	return NewContextFromEvent(newMockEventWithContent(platform.EventKindPrivateMessage, content), nil)
 }
 
 func createTestContextWithAuthor(userID string) *Context {
-	return AcquireContextFromEvent(newMockEventWithSender(platform.EventKindPrivateMessage, userID), nil)
+	return NewContextFromEvent(newMockEventWithSender(platform.EventKindPrivateMessage, userID), nil)
 }
 
 // Benchmark tests

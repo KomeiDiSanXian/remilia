@@ -50,7 +50,7 @@ func TestContext_GetMatcherSource(t *testing.T) {
 
 func TestOnGroupWhitelist(t *testing.T) {
 	t.Run("group in whitelist", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockGroupEvent("group1"), nil)
+		ctx := NewContextFromEvent(newMockGroupEvent("group1"), nil)
 
 		rule := OnGroupWhitelist("group1", "group2")
 		result := rule(ctx)
@@ -59,7 +59,7 @@ func TestOnGroupWhitelist(t *testing.T) {
 	})
 
 	t.Run("group not in whitelist", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockGroupEvent("group3"), nil)
+		ctx := NewContextFromEvent(newMockGroupEvent("group3"), nil)
 
 		rule := OnGroupWhitelist("group1", "group2")
 		result := rule(ctx)
@@ -79,7 +79,7 @@ func TestOnGroupWhitelist(t *testing.T) {
 
 func TestOnGroupBlacklist(t *testing.T) {
 	t.Run("group in blacklist", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockGroupEvent("banned1"), nil)
+		ctx := NewContextFromEvent(newMockGroupEvent("banned1"), nil)
 
 		rule := OnGroupBlacklist("banned1", "banned2")
 		result := rule(ctx)
@@ -88,7 +88,7 @@ func TestOnGroupBlacklist(t *testing.T) {
 	})
 
 	t.Run("group not in blacklist", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockGroupEvent("group1"), nil)
+		ctx := NewContextFromEvent(newMockGroupEvent("group1"), nil)
 
 		rule := OnGroupBlacklist("banned1", "banned2")
 		result := rule(ctx)

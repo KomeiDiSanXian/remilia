@@ -16,13 +16,13 @@ func newStatsPlugin() *stats.Plugin {
 // makeCtxWithCommandPlatform 使用平台无关路径创建测试 Context（推荐）
 func makeCtxWithCommandPlatform(cmd, userID string) *context.Context {
 	event := testbot.MakePlatformC2CEvent(userID, cmd)
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 
 // makeCtxWithCommand 使用平台无关路径创建测试 Context
 func makeCtxWithCommand(cmd, userID string) *context.Context {
 	event := testbot.MakePlatformC2CEvent(userID, cmd)
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 
 func TestStats_Middleware_RecordsCommand(t *testing.T) {

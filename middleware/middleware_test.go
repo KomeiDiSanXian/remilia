@@ -41,7 +41,7 @@ func createTestContext() *eventctx.Context {
 		kind:    platform.EventKindPrivateMessage,
 		content: "TEST_EVENT",
 	}
-	return eventctx.AcquireContextFromEvent(event, &platform.NoopSender{})
+	return eventctx.NewContextFromEvent(event, &platform.NoopSender{})
 }
 
 // ── 平台无关事件测试桩（供 dedup 等需要 GetPlatformEvent() 的中间件测试使用）──
@@ -71,7 +71,7 @@ func createPlatformContextWithID(id string) *eventctx.Context {
 		kind:    platform.EventKindPrivateMessage,
 		content: "test content",
 	}
-	return eventctx.AcquireContextFromEvent(event, &platform.NoopSender{})
+	return eventctx.NewContextFromEvent(event, &platform.NoopSender{})
 }
 
 // TestLogging tests the Logging middleware

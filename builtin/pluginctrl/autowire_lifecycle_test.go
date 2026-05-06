@@ -27,7 +27,7 @@ import (
 
 // makeGroupCtx 创建指定群和用户的群消息上下文（使用 NoopSender，回复被丢弃）。
 func makeGroupCtx(groupID, userID string) *eventctx.Context {
-	return eventctx.AcquireContextFromEvent(
+	return eventctx.NewContextFromEvent(
 		&pcTestEvent{groupID: groupID, userID: userID, isGroup: true, content: "/weather"},
 		&platform.NoopSender{},
 	)
@@ -66,7 +66,7 @@ func getPluginCtrl(t *testing.T, pm *plugin.Manager) *pluginctrl.Plugin {
 //   - 关闭 weather 后，指定群的事件被 guard 拦截（handler 不执行）
 //   - 其他未关闭的群的事件正常通过（handler 执行）
 func TestAutoWire_NormalLoad_GuardBlocks(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 
@@ -99,7 +99,7 @@ func TestAutoWire_NormalLoad_GuardBlocks(t *testing.T) {
 //   - OnPluginReloaded 是 no-op，不重新注入 guard
 //   - 已有 guard 的闭包持有 *Plugin 指针，直接读取当前状态，热重载后仍然有效
 func TestAutoWire_Reload_GuardPersists(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 
@@ -146,7 +146,7 @@ func TestAutoWire_Reload_GuardPersists(t *testing.T) {
 // 本测试通过完整的 load → block → unload → re-register → block 验证全生命周期：
 // guard 在每次重注册后正确生效，系统行为与初次注册一致。
 func TestAutoWire_UnloadThenReregister_GuardRewiredOnce(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 
@@ -195,7 +195,7 @@ func TestAutoWire_UnloadThenReregister_GuardRewiredOnce(t *testing.T) {
 //   - pluginctrl 随后注册，Setup 遍历已有插件并补充注入
 //   - 之后 guard 对 weather 的管控与正常注册顺序完全相同
 func TestAutoWire_RetroactiveWire_WeatherRegisteredFirst(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 
@@ -227,7 +227,7 @@ func TestAutoWire_RetroactiveWire_WeatherRegisteredFirst(t *testing.T) {
 // TestAutoWire_SuperUserBypass 验证超级管理员即使在插件关闭的群也能通过 guard。
 // combinedGuard 的第 0 步是超级管理员豁免。
 func TestAutoWire_SuperUserBypass(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 
@@ -256,7 +256,7 @@ func TestAutoWire_SuperUserBypass(t *testing.T) {
 // TestAutoWire_InfraPlugin_NotWired 验证 isInfraPlugin 返回 true 的插件不会被
 // autoWireListener 注入 guard（通过 WithExcludedPlugins 将测试插件加入豁免列表）。
 func TestAutoWire_InfraPlugin_NotWired(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 

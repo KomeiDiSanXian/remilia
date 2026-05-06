@@ -328,7 +328,7 @@ func TestDedupMiddleware(t *testing.T) {
 		mw := Dedup(filter)
 		wrappedHandler := mw(handler)
 
-		// 使用新路径（AcquireContextFromEvent）以便 Dedup 能通过 GetPlatformEvent().ID() 识别重复事件
+		// 使用新路径（NewContextFromEvent）以便 Dedup 能通过 GetPlatformEvent().ID() 识别重复事件
 		ctx1 := createPlatformContextWithID("event-1")
 		err := wrappedHandler(ctx1)
 		assert.NoError(t, err)

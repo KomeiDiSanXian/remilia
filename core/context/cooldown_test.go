@@ -8,7 +8,7 @@ import (
 )
 
 func makeFakeContext() *Context {
-	return AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	return NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 }
 func TestOnCooldown_AllowsFirst(t *testing.T) {
 	rule := OnCooldown(1*time.Second, func(c *Context) string { return "cd_user_first" })

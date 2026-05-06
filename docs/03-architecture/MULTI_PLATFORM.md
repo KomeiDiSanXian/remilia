@@ -305,7 +305,7 @@ Bot.handlePlatformEvent(event)
   │  获取该平台的 Sender（从 Registry 或 adapter.Sender()）
   │  engine.ProcessPlatformEvent(event, sender)
   ▼
-context.AcquireContextFromEvent(event, sender)
+context.NewContextFromEvent(event, sender)
   │  创建 *context.Context（ctx.ctx = Background()）
   ▼
 engine.processEventContext(ctx)
@@ -347,7 +347,7 @@ platform/
     adapter.go      # WeChat 骨架（待社区贡献）
 
 core/context/
-  platform_event.go      # AcquireContextFromEvent / Reply / GetEventKind 等
+  platform_event.go      # NewContextFromEvent / Reply / GetEventKind 等
   platform_event_test.go # 平台无关路径单元测试
 
 core/engine/

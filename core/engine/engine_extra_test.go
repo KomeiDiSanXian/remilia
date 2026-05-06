@@ -54,7 +54,7 @@ func TestEngine_Named(t *testing.T) {
 	require.NotNil(t, mw)
 	eng.Use(mw)
 	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error { return nil })
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 	assert.True(t, executed)
 }
@@ -113,7 +113,7 @@ func TestMatcher_ReplaceHandler(t *testing.T) {
 	matcher.Handle(handler1)
 	matcher.Handle(handler2) // intentional replacement via separate statement
 
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 
 	assert.Equal(t, "handler2", executed)
@@ -156,7 +156,7 @@ func TestEngine_UseForGroup_Multiple(t *testing.T) {
 	matcher.Handle(func(c *ctx.Context) error { return nil })
 	eng.RebuildMatcherChain(matcher)
 
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 	eng.ProcessEvent(context)
 
 	assert.Contains(t, order, 1)

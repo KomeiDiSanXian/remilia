@@ -498,49 +498,49 @@ func TestDefaultPriorityClassifier(t *testing.T) {
 
 	t.Run("MESSAGE_CREATE returns PriorityNormal", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("MESSAGE_CREATE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityNormal, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("GROUP_AT_MESSAGE_CREATE returns PriorityHigh", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("GROUP_AT_MESSAGE_CREATE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("C2C_MESSAGE_CREATE returns PriorityHigh", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("C2C_MESSAGE_CREATE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("GUILD_CREATE returns PriorityCritical", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("GUILD_CREATE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("GUILD_DELETE returns PriorityCritical", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("GUILD_DELETE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("GROUP_ADD_ROBOT returns PriorityCritical", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("GROUP_ADD_ROBOT")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("GROUP_DEL_ROBOT returns PriorityCritical", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("GROUP_DEL_ROBOT")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityCritical, defaultPriorityClassifier(ctx))
 	})
 
 	t.Run("INTERACTION_CREATE returns PriorityHigh", func(t *testing.T) {
 		evt := &middlewareTestEvent{id: "1", kind: platform.EventKind("INTERACTION_CREATE")}
-		ctx := eventctx.AcquireContextFromEvent(evt, nil)
+		ctx := eventctx.NewContextFromEvent(evt, nil)
 		assert.Equal(t, PriorityHigh, defaultPriorityClassifier(ctx))
 	})
 }

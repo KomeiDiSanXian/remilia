@@ -38,8 +38,7 @@ func TestContextClone_IndependentCancellation(t *testing.T) {
 	defer cancel()
 
 	event := &cloneTestEvent{content: "hello", platformID: "qq", kind: platform.EventKindPrivateMessage}
-	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer ReleaseContextFromEvent(originalCtx)
+	originalCtx := NewContextFromEvent(event, &platform.NoopSender{})
 	originalCtx.SetStdContext(stdCtx)
 
 	// 克隆 context
@@ -86,8 +85,7 @@ func TestContextClone_TracePreservation(t *testing.T) {
 
 	// 如果 span 有效，继续测试
 	event := &cloneTestEvent{content: "trace-test", platformID: "qq", kind: platform.EventKindPrivateMessage}
-	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer ReleaseContextFromEvent(originalCtx)
+	originalCtx := NewContextFromEvent(event, &platform.NoopSender{})
 	originalCtx.SetStdContext(stdCtx)
 	clonedCtx := originalCtx.Clone()
 
@@ -113,8 +111,7 @@ func TestContextClone_TracePreservation(t *testing.T) {
 func TestContextClone_EventCopied(t *testing.T) {
 	event := &cloneTestEvent{content: "original-content", platformID: "qq", kind: platform.EventKindPrivateMessage}
 
-	originalCtx := AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer ReleaseContextFromEvent(originalCtx)
+	originalCtx := NewContextFromEvent(event, &platform.NoopSender{})
 	clonedCtx := originalCtx.Clone()
 
 	// 修改原始事件的内容字段后，克隆持有的是同一指针（platform.Event 是接口）
@@ -129,16 +126,14 @@ func TestContextClone_EventCopied(t *testing.T) {
 	t.Log("✓ Event properly cloned and independent")
 }
 
-// --- 新平台路径（AcquireContextFromEvent）克隆测试 ---
+// --- 新平台路径（NewContextFromEvent）克隆测试 ---
 
 // TestContextClone_PlatformEvent_Preserved 验证 Clone() 保留 platformEvent（Fix 4.1）
 func TestContextClone_PlatformEvent_Preserved(t *testing.T) {
 	event := &cloneTestEvent{content: "hello", platformID: "qq", kind: platform.EventKindPrivateMessage}
 	sender := &platform.NoopSender{}
 
-	original := AcquireContextFromEvent(event, sender)
-	defer ReleaseContextFromEvent(original)
-
+	original := NewContextFromEvent(event, sender)
 	cloned := original.Clone()
 
 	// platformEvent 必须被保留
@@ -160,9 +155,7 @@ func TestContextClone_PlatformSender_Preserved(t *testing.T) {
 	event := &cloneTestEvent{content: "ping", platformID: "discord", kind: platform.EventKindGroupMessage}
 	sender := &platform.NoopSender{}
 
-	original := AcquireContextFromEvent(event, sender)
-	defer ReleaseContextFromEvent(original)
-
+	original := NewContextFromEvent(event, sender)
 	cloned := original.Clone()
 
 	if cloned.GetPlatformSender() == nil {
@@ -181,9 +174,8 @@ func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
 	stdCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	original := AcquireContextFromEvent(event, sender)
+	original := NewContextFromEvent(event, sender)
 	original.SetStdContext(stdCtx)
-	defer ReleaseContextFromEvent(original)
 
 	cloned := original.Clone()
 
@@ -212,8 +204,7 @@ func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
 // TestContextClone_PlatformFields_Preserved 验证新路径克隆时平台字段被正确保留
 func TestContextClone_PlatformFields_Preserved(t *testing.T) {
 	event := &cloneTestEvent{content: "check", platformID: "discord", kind: platform.EventKindGroupMessage}
-	original := AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer ReleaseContextFromEvent(original)
+	original := NewContextFromEvent(event, &platform.NoopSender{})
 
 	cloned := original.Clone()
 

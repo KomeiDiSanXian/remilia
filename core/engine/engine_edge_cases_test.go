@@ -32,7 +32,7 @@ func TestMatcherEdges(t *testing.T) {
 	assert.True(t, m.IsDeleted())
 	m2 := eng.On(string(platform.EventKindPrivateMessage))
 	m2.rt.deleted.Store(true)
-	matched := m2.Match(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	matched := m2.Match(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	assert.False(t, matched)
 	m3 := eng.On(string(platform.EventKindPrivateMessage))
 	m3.Handle(nil)

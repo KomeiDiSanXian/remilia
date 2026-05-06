@@ -13,7 +13,7 @@
 | `platform/` | 核心接口定义：`Event`、`Sender`、`PlatformAdapter`、`Registry`、`OutboundMessage`、`EventContext` |
 | `platform/qq/` | QQ 完整适配器 |
 | `platform/discord/` `telegram/` `wechat/` | 骨架适配器 |
-| `core/context/platform_event.go` | `AcquireContextFromEvent`、`Reply(OutboundMessage)` 等 |
+| `core/context/platform_event.go` | `NewContextFromEvent`、`Reply(OutboundMessage)` 等 |
 | `core/engine/process_platform.go` | `ProcessPlatformEvent` |
 | `adapter.go` / `webhook_adapter.go` | `StartPlatform` 新路径 |
 | `bot.go` | `handlePlatformEvent` |
@@ -123,7 +123,7 @@ ctx.Reply(platform.TextMessage("hello"))
 | `platform/` | 核心接口定义：`Event`、`Sender`、`PlatformAdapter`、`Registry`、`OutboundMessage`、`EventContext` |
 | `platform/qq/` | QQ 完整适配器：`QQEvent`（包装 `*dto.Payload`）、`QQSender`、`Adapter` |
 | `platform/discord/` `telegram/` `wechat/` | 骨架适配器（占位，待实现） |
-| `core/context/platform_event.go` | `AcquireContextFromEvent` / `ReleaseContextFromEvent`、`GetPlatformEvent`、`GetEventKind`、`GetEventPlatform`、`Reply(OutboundMessage)` |
+| `core/context/platform_event.go` | `NewContextFromEvent` / `ReleaseContextFromEvent`、`GetPlatformEvent`、`GetEventKind`、`GetEventPlatform`、`Reply(OutboundMessage)` |
 | `core/engine/process_platform.go` | `ProcessPlatformEvent`、共享 `processEventContext` |
 | `core/engine/types.go` | `PlatformAdapter` 接口加入，`Adapter`（旧）标记 Deprecated |
 | `adapter.go` / `webhook_adapter.go` | 添加 `StartPlatform`，QQ 兼容路径保留 |

@@ -283,7 +283,7 @@ func ReleaseContext(ctx *Context) {
 }
 
 // 扩展为双路径
-func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Context {
+func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
     ctx := contextPool.Get().(*Context)
     ctx.platformEvent = event
     ctx.platformSender = sender
@@ -474,7 +474,7 @@ platform/milky/     # Milky QQ 协议
 ```go
 // 新增平台无关入口
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender) {
-    ctx := context.AcquireContextFromEvent(event, sender)
+    ctx := context.NewContextFromEvent(event, sender)
     defer context.ReleaseContextFromEvent(ctx)
     e.processEventContext(ctx)
 }

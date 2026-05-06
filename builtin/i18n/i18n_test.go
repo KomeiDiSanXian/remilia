@@ -15,7 +15,7 @@ func newI18nPlugin(cfg i18n.Config) *i18n.Plugin {
 	return i18n.NewPlugin(cfg)
 }
 func makePlainCtx() *context.Context {
-	return context.AcquireContextFromEvent(&mockPlainEvent{}, nil)
+	return context.NewContextFromEvent(&mockPlainEvent{}, nil)
 }
 
 // mockPlainEvent is a minimal platform.Event for i18n tests.

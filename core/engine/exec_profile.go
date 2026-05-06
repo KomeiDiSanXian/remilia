@@ -49,9 +49,7 @@ type ExecProfile struct {
 //   - promoted → 走池
 //   - 数据不足 → 走池（默认怀疑所有 handler 都是慢的）
 //   - p50 > threshold → 提升并走池
-//   - p50 >= threshold → 提升并走池
 //   - 数据充足且 p50 < threshold/2 且连续快 → 降级并走同步
-//   - 其他 → 保持当前状态
 func (p *ExecProfile) ShouldPool() ExecClass {
 	if p.promoted.Load() {
 		return ExecClassPool
@@ -93,9 +91,6 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 		}
 	}
 
-	if p.promoted.Load() {
-		return ExecClassPool
-	}
 	return ExecClassPool
 }
 

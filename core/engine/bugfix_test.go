@@ -43,7 +43,7 @@ func TestBugFix_ContextCloneDeadline(t *testing.T) {
 	defer cancel()
 
 	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(evt, nil)
+	ctx := context.NewContextFromEvent(evt, nil)
 	ctx.SetStdContext(stdCtx)
 
 	// 克隆

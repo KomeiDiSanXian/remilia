@@ -30,5 +30,5 @@ func newChaosEvent(content string) platform.Event {
 
 // newChaosContext creates a *rcontext.Context from a platform event with given content.
 func newChaosContext(content string) *rcontext.Context {
-	return rcontext.AcquireContextFromEvent(newChaosEvent(content), nil)
+	return rcontext.NewContextFromEvent(newChaosEvent(content), nil)
 }

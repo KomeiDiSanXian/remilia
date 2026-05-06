@@ -30,5 +30,5 @@ func newIntegrationEvent(content string) platform.Event {
 
 // newIntegrationContext creates a *rcontext.Context with the given message content.
 func newIntegrationContext(content string) *rcontext.Context {
-	return rcontext.AcquireContextFromEvent(newIntegrationEvent(content), nil)
+	return rcontext.NewContextFromEvent(newIntegrationEvent(content), nil)
 }

@@ -1,7 +1,5 @@
 package context_test
 
-// platform_event_test.go — 平台无关 Context 新路径测试
-
 import (
 	stdctx "context"
 	"testing"
@@ -12,8 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// --- stub ---
 
 type testPlatformEvent struct {
 	platformID string
@@ -45,58 +41,46 @@ func makeTestEvent(platformID, rawType, content string, kind platform.EventKind)
 	}
 }
 
-// --- AcquireContextFromEvent ---
-
-func TestAcquireContextFromEvent_BasicFields(t *testing.T) {
+func TestNewContextFromEvent_BasicFields(t *testing.T) {
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hello", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
 	assert.True(t, ctx.IsPlatformContext())
 	assert.Equal(t, event, ctx.GetPlatformEvent())
 	assert.NotNil(t, ctx.GetPlatformSender())
 }
 
-func TestAcquireContextFromEvent_GetMessageContent(t *testing.T) {
+func TestNewContextFromEvent_GetMessageContent(t *testing.T) {
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "test content", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
 	assert.Equal(t, "test content", ctx.GetMessageContent())
-	// 二次调用走 Once 缓存，不应再调用 event.Content()
 	assert.Equal(t, "test content", ctx.GetMessageContent())
 }
 
-func TestAcquireContextFromEvent_GetEventType(t *testing.T) {
-	// Architecture decision B: new-path GetEventType() returns the EventKind string,
-	// not the platform-specific raw type, so OnEventKind-based matchers work universally.
+func TestNewContextFromEvent_GetEventType(t *testing.T) {
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
-	// New path returns EventKind string ("PRIVATE_MESSAGE"), not raw type ("C2C_MESSAGE_CREATE")
 	assert.Equal(t, string(platform.EventKindPrivateMessage), ctx.GetEventType())
-	// Raw type is still accessible via platform.RawType() helper (optional RawEvent interface)
 	assert.Equal(t, "C2C_MESSAGE_CREATE", platform.RawType(ctx.GetPlatformEvent()))
 }
 
-func TestAcquireContextFromEvent_GetEventPlatform(t *testing.T) {
+func TestNewContextFromEvent_GetEventPlatform(t *testing.T) {
 	event := makeTestEvent("discord", "MESSAGE_CREATE", "", platform.EventKindGroupMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
 	assert.Equal(t, "discord", ctx.GetEventPlatform())
 }
 
-func TestAcquireContextFromEvent_GetEventKind(t *testing.T) {
+func TestNewContextFromEvent_GetEventKind(t *testing.T) {
 	event := makeTestEvent("telegram", "PRIVATE_MSG", "", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
 	assert.Equal(t, platform.EventKindPrivateMessage, ctx.GetEventKind())
 }
 
-func TestAcquireContextFromEvent_Reply(t *testing.T) {
+func TestNewContextFromEvent_Reply(t *testing.T) {
 	type msg struct {
 		chatID string
 		text   string
@@ -108,12 +92,9 @@ func TestAcquireContextFromEvent_Reply(t *testing.T) {
 	}}
 
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "ping", platform.EventKindPrivateMessage)
-	// 重写 event 的 chat.ID
 	event.(*testPlatformEvent).chat.ID = "user_abc"
 
-	ctx := context.AcquireContextFromEvent(event, sender)
-	defer context.ReleaseContextFromEvent(ctx)
-
+	ctx := context.NewContextFromEvent(event, sender)
 	_, err := ctx.Reply(platform.TextMessage("pong"))
 	require.NoError(t, err)
 	require.NotNil(t, got)
@@ -121,36 +102,14 @@ func TestAcquireContextFromEvent_Reply(t *testing.T) {
 	assert.Equal(t, "pong", got.text)
 }
 
-func TestAcquireContextFromEvent_ReplyWithContext(t *testing.T) {
+func TestNewContextFromEvent_ReplyWithContext(t *testing.T) {
 	sender := &captureTestSender{}
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hi", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, sender)
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, sender)
 
 	_, err := ctx.ReplyWithContext(stdctx.Background(), platform.TextMessage("hello"))
 	assert.NoError(t, err)
 }
-
-// --- Pool reuse ---
-
-func TestReleaseContextFromEvent_PoolReuse(t *testing.T) {
-	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "msg", platform.EventKindPrivateMessage)
-
-	ctx1 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	ptr1 := ctx1
-	context.ReleaseContextFromEvent(ctx1)
-
-	ctx2 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	ptr2 := ctx2
-	context.ReleaseContextFromEvent(ctx2)
-
-	// 池化后应复用同一对象（不保证，但通常成立）
-	_ = ptr1
-	_ = ptr2
-	// 主要验证 Release 后不会 panic 且可以再次 Acquire
-}
-
-// --- helper ---
 
 type captureTestSender struct {
 	fn func(chat platform.ChatInfo, msg platform.OutboundMessage)
@@ -163,69 +122,43 @@ func (s *captureTestSender) Send(_ stdctx.Context, req platform.SendRequest) (pl
 	return platform.SendResult{}, nil
 }
 
-// ── IsFromSelf ────────────────────────────────────────────────────────────────
-
 func TestIsFromSelf_NoBotID(t *testing.T) {
-	// botID 未注入 → 始终返回 false（安全默认值）
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hi", platform.EventKindPrivateMessage)
 	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "user123"}
 
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
-
-	assert.False(t, ctx.IsFromSelf(), "IsFromSelf should return false when botID is not set")
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
+	assert.False(t, ctx.IsFromSelf())
 }
 
 func TestIsFromSelf_BotIDSet_Match(t *testing.T) {
-	// botID 与事件 sender ID 相同 → 机器人自身发出
 	event := makeTestEvent("discord", "MESSAGE_CREATE", "hello", platform.EventKindGroupMessage)
 	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "bot-001"}
 
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
-
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 	ctx.SetBotID("bot-001")
-	assert.True(t, ctx.IsFromSelf(), "IsFromSelf should return true when senderID == botID")
+	assert.True(t, ctx.IsFromSelf())
 }
 
 func TestIsFromSelf_BotIDSet_NoMatch(t *testing.T) {
-	// botID 与事件 sender ID 不同 → 非机器人自身发出
 	event := makeTestEvent("discord", "MESSAGE_CREATE", "hello", platform.EventKindGroupMessage)
 	event.(*testPlatformEvent).sender = platform.UserInfo{ID: "user-xyz"}
 
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
-
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 	ctx.SetBotID("bot-001")
-	assert.False(t, ctx.IsFromSelf(), "IsFromSelf should return false when senderID != botID")
+	assert.False(t, ctx.IsFromSelf())
 }
 
 func TestIsFromSelf_GetBotID(t *testing.T) {
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "", platform.EventKindPrivateMessage)
-	ctx := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx)
+	ctx := context.NewContextFromEvent(event, &platform.NoopSender{})
 
-	assert.Equal(t, "", ctx.GetBotID(), "GetBotID should return empty before SetBotID")
+	assert.Equal(t, "", ctx.GetBotID())
 	ctx.SetBotID("my-bot-id")
-	assert.Equal(t, "my-bot-id", ctx.GetBotID(), "GetBotID should return injected ID")
+	assert.Equal(t, "my-bot-id", ctx.GetBotID())
 }
 
 func TestIsFromSelf_NilContext(t *testing.T) {
 	var ctx *context.Context
-	assert.False(t, ctx.IsFromSelf(), "IsFromSelf on nil context should return false")
-	assert.Equal(t, "", ctx.GetBotID(), "GetBotID on nil context should return empty")
-}
-
-func TestAcquireContextFromEvent_BotIDReset(t *testing.T) {
-	// 从池中重新获取的 Context，botID 应被清零
-	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hello", platform.EventKindPrivateMessage)
-
-	ctx1 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	ctx1.SetBotID("bot-abc")
-	assert.Equal(t, "bot-abc", ctx1.GetBotID())
-	context.ReleaseContextFromEvent(ctx1) // 归还到池
-
-	ctx2 := context.AcquireContextFromEvent(event, &platform.NoopSender{})
-	defer context.ReleaseContextFromEvent(ctx2)
-	assert.Equal(t, "", ctx2.GetBotID(), "botID should be reset after pool reuse")
+	assert.False(t, ctx.IsFromSelf())
+	assert.Equal(t, "", ctx.GetBotID())
 }

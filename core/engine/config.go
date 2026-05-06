@@ -135,3 +135,12 @@ func WithMatcherPoolCapacity(capacity int) Option {
 		}
 	}
 }
+
+// WithExecPoolDisabled 禁用 ExecPool，所有 handler 同步执行。
+//
+// 适用于单元测试等需要确定性同步行为的场景。
+func WithExecPoolDisabled() Option {
+	return func(e *Engine) {
+		e.internals.execPoolCfg.MaxConcurrency = 0
+	}
+}

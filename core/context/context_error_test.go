@@ -32,7 +32,7 @@ func TestContextErrorHandling(t *testing.T) {
 	})
 
 	t.Run("nil_event_handling", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(nil, nil)
+		ctx := NewContextFromEvent(nil, nil)
 
 		// 应该返回合理的默认值
 		assert.Equal(t, "", ctx.GetMessageContent())
@@ -43,7 +43,7 @@ func TestContextErrorHandling(t *testing.T) {
 
 	t.Run("invalid_json_detail", func(t *testing.T) {
 		event := newMockEvent(platform.EventKindPrivateMessage)
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 
 		// should return empty values without panic
 		content := ctx.GetMessageContent()
@@ -54,7 +54,7 @@ func TestContextErrorHandling(t *testing.T) {
 	})
 
 	t.Run("reserved_state_key_rejection", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 尝试设置保留键
 		ctx.Set("mw_trace", "value")
@@ -76,7 +76,7 @@ func TestContextErrorHandling(t *testing.T) {
 // TestContextConcurrency 测试 Context 并发安全
 func TestContextConcurrency(t *testing.T) {
 	t.Run("concurrent_set_get", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		const goroutines = 10
 		const operations = 100
@@ -106,7 +106,7 @@ func TestContextConcurrency(t *testing.T) {
 	})
 
 	t.Run("concurrent_extensions_access", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		const goroutines = 10
 		done := make(chan bool, goroutines)
@@ -129,7 +129,7 @@ func TestContextConcurrency(t *testing.T) {
 	})
 
 	t.Run("concurrent_context_operations", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		const goroutines = 10
 		done := make(chan bool, goroutines)
@@ -156,7 +156,7 @@ func TestContextConcurrency(t *testing.T) {
 // TestContextClone 测试 Context 克隆
 func TestContextClone(t *testing.T) {
 	t.Run("clone_preserves_state", func(t *testing.T) {
-		original := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		original := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 设置一些状态
 		original.Set("key1", "value1")
@@ -181,7 +181,7 @@ func TestContextClone(t *testing.T) {
 	})
 
 	t.Run("clone_is_independent", func(t *testing.T) {
-		original := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		original := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 		original.Set("key", "original")
 
 		cloned := original.Clone()
@@ -207,7 +207,7 @@ func TestContextClone(t *testing.T) {
 	})
 
 	t.Run("clone_with_nil_state", func(t *testing.T) {
-		original := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		original := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		cloned := original.Clone()
 
@@ -225,7 +225,7 @@ func TestContextClone(t *testing.T) {
 // TestContextStdContext 测试标准�?context 集成
 func TestContextStdContext(t *testing.T) {
 	t.Run("context_with_timeout", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 设置带超时的 context
 		stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
@@ -250,7 +250,7 @@ func TestContextStdContext(t *testing.T) {
 	})
 
 	t.Run("context_with_cancel", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		stdCtx, cancel := stdctx.WithCancel(stdctx.Background())
 		ctx.SetStdContext(stdCtx)
@@ -269,7 +269,7 @@ func TestContextStdContext(t *testing.T) {
 	})
 
 	t.Run("nil_context_handling", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 设置 nil context
 		ctx.SetStdContext(nil)
@@ -284,7 +284,7 @@ func TestContextStdContext(t *testing.T) {
 // TestContextMiddlewareTrace 测试中间件追踪
 func TestContextMiddlewareTrace(t *testing.T) {
 	t.Run("set_and_get_trace", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		trace := []string{"mw1", "mw2", "mw3"}
 		ctx.SetMiddlewareTrace(trace)
@@ -295,7 +295,7 @@ func TestContextMiddlewareTrace(t *testing.T) {
 	})
 
 	t.Run("trace_is_copied", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		originalTrace := []string{"mw1", "mw2"}
 		ctx.SetMiddlewareTrace(originalTrace)
@@ -311,7 +311,7 @@ func TestContextMiddlewareTrace(t *testing.T) {
 	})
 
 	t.Run("get_nonexistent_trace", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		trace, ok := ctx.GetMiddlewareTrace()
 		assert.False(t, ok)
@@ -322,7 +322,7 @@ func TestContextMiddlewareTrace(t *testing.T) {
 // TestContextRetryAttempt 测试重试次数追踪
 func TestContextRetryAttempt(t *testing.T) {
 	t.Run("set_and_get_attempt", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		for i := 0; i <= 5; i++ {
 			ctx.SetRetryAttempt(i)
@@ -333,7 +333,7 @@ func TestContextRetryAttempt(t *testing.T) {
 	})
 
 	t.Run("get_nonexistent_attempt", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		attempt, ok := ctx.GetRetryAttempt()
 		assert.False(t, ok)
@@ -344,7 +344,7 @@ func TestContextRetryAttempt(t *testing.T) {
 // TestContextParsedCommand 测试命令解析
 func TestContextParsedCommand(t *testing.T) {
 	t.Run("set_and_get_parsed_command", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 这里简化测试，实际的 Parsed 类型来自 command 包
 		// 我们只测试 set/get 机制
@@ -355,7 +355,7 @@ func TestContextParsedCommand(t *testing.T) {
 	})
 
 	t.Run("get_nonexistent_command", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		parsed := ctx.GetParsedCommand()
 		assert.Nil(t, parsed)
@@ -365,7 +365,7 @@ func TestContextParsedCommand(t *testing.T) {
 // TestContextStateManagement 测试状态管理
 func TestContextStateManagement(t *testing.T) {
 	t.Run("all_returns_copy", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		ctx.Set("key1", "value1")
 		ctx.Set("key2", 42)
@@ -384,7 +384,7 @@ func TestContextStateManagement(t *testing.T) {
 	})
 
 	t.Run("delete_key", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		ctx.Set("key", "value")
 		_, ok := ctx.Get("key")
@@ -396,7 +396,7 @@ func TestContextStateManagement(t *testing.T) {
 	})
 
 	t.Run("set_nil_value_deletes", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		ctx.Set("key", "value")
 		ctx.Set("key", nil) // nil 是 no-op，key 仍然存在
@@ -413,7 +413,7 @@ func TestContextStateManagement(t *testing.T) {
 	})
 
 	t.Run("empty_state", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		all := ctx.All()
 		assert.NotNil(t, all)
@@ -424,7 +424,7 @@ func TestContextStateManagement(t *testing.T) {
 // TestContextMatcher 测试 Matcher 引用
 func TestContextMatcher(t *testing.T) {
 	t.Run("get_matcher_source", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 默认应该返回空
 		source := ctx.GetMatcherSource()
@@ -438,19 +438,19 @@ func TestContextMessageParsing(t *testing.T) {
 	t.Run("parse_valid_message", func(t *testing.T) {
 		event := newMockEventWithContent(platform.EventKindPrivateMessage, "Hello, World!")
 		event.sender = platform.UserInfo{ID: "openid-456"}
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 		content := ctx.GetMessageContent()
 		assert.Equal(t, "Hello, World!", content)
 		senderInfo := ctx.GetSenderInfo()
 		assert.Equal(t, "openid-456", senderInfo.ID)
 	})
 	t.Run("parse_empty_content", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 		content := ctx.GetMessageContent()
 		assert.Equal(t, "", content)
 	})
 	t.Run("parse_missing_author", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 		senderInfo := ctx.GetSenderInfo()
 		assert.Equal(t, platform.UserInfo{}, senderInfo)
 	})
@@ -459,20 +459,20 @@ func TestContextMessageParsing(t *testing.T) {
 // BenchmarkContextOperations Context operations benchmark
 func BenchmarkContextOperations(b *testing.B) {
 	event := newMockEvent(platform.EventKindPrivateMessage)
-	b.Run("AcquireContextFromEvent", func(b *testing.B) {
+	b.Run("NewContextFromEvent", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			_ = AcquireContextFromEvent(event, nil)
+			_ = NewContextFromEvent(event, nil)
 		}
 	})
 	b.Run("GetMessageContent", func(b *testing.B) {
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_ = ctx.GetMessageContent()
 		}
 	})
 	b.Run("SetGet", func(b *testing.B) {
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			ctx.Set("key", i)
@@ -480,7 +480,7 @@ func BenchmarkContextOperations(b *testing.B) {
 		}
 	})
 	b.Run("Clone", func(b *testing.B) {
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 		ctx.Set("key1", "value1")
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {

@@ -15,7 +15,7 @@ import (
 )
 
 func TestDebug_UnloadReregister(t *testing.T) {
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(stdctx.Background()) //nolint:errcheck
 	pm := plugin.NewManager(eng)
 

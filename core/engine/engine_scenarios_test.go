@@ -36,7 +36,7 @@ func TestIsBlockError(t *testing.T) {
 func TestWrapError(t *testing.T) {
 	t.Run("wrap error with context", func(t *testing.T) {
 		originalErr := errors.New("original error")
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		matcher := &Matcher{Source: "test-source"}
 
 		wrappedErr := WrapError(originalErr, context, matcher, 1)
@@ -49,7 +49,7 @@ func TestWrapError(t *testing.T) {
 	})
 
 	t.Run("wrap nil error", func(t *testing.T) {
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		matcher := &Matcher{Source: "test-source"}
 
 		wrappedErr := WrapError(nil, context, matcher, 0)
@@ -66,7 +66,7 @@ func TestWrapError(t *testing.T) {
 
 	t.Run("wrap with nil matcher", func(t *testing.T) {
 		originalErr := errors.New("test error")
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		wrappedErr := WrapError(originalErr, context, nil, 0)
 		require.NotNil(t, wrappedErr)
@@ -166,7 +166,7 @@ func TestEngine_ProcessEvent_WithMiddlewareTrace(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		eng.ProcessEvent(context)
 
@@ -183,7 +183,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 			return testErr
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		// Should handle error gracefully
 		eng.ProcessEvent(context)
@@ -196,7 +196,7 @@ func TestEngine_ProcessEvent_WithError(t *testing.T) {
 			panic("test panic")
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		// Should recover from panic
 		assert.NotPanics(t, func() {
@@ -481,7 +481,7 @@ func TestMatcher_TempWithMaxUseCount(t *testing.T) {
 
 	// Execute 3 times
 	for range 3 {
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 	}
 
@@ -531,7 +531,7 @@ func TestEngine_ProcessEvent_MatcherDeleted(t *testing.T) {
 	// Mark as deleted
 	matcher.rt.deleted.Store(true)
 
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 	eng.ProcessEvent(context)
 

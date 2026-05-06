@@ -92,7 +92,7 @@ func TestEngineRaceConditions(t *testing.T) {
 		for range 5 {
 			wg.Go(func() {
 				for range 10 {
-					ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+					ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 					engine.ProcessEvent(ctx)
 				}
 			})
@@ -142,7 +142,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		const eventCount = 5
 		for range eventCount {
 			go func() {
-				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 			}()
 		}
@@ -181,7 +181,7 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		started := make(chan struct{})
 		go func() {
 			close(started)
-			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}()
 
@@ -268,7 +268,7 @@ func TestEngineMemoryLeaks(t *testing.T) {
 
 		// 触发所有匹配器（每个使用1次后应该被删除）
 		for range tempCount {
-			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}
 

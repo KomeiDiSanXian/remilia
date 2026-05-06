@@ -62,7 +62,7 @@ func newTestPlatformEventWithContent(kind platform.EventKind, content string) pl
 // 测试结束时自动调用 Shutdown。同时适用于 *testing.T 和 *testing.B。
 func newEngineForTest(t testing.TB, opts ...Option) *Engine {
 	t.Helper()
-	e := NewEngine(append([]Option{WithNoBackgroundWorkers()}, opts...)...)
+	e := NewEngine(append([]Option{WithNoBackgroundWorkers(), WithExecPoolDisabled()}, opts...)...)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

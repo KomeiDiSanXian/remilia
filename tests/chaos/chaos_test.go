@@ -22,7 +22,7 @@ func TestChaos_RandomFailures(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var successCount, failCount int32
@@ -62,7 +62,7 @@ func TestChaos_HighConcurrency(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var processedCount int32
@@ -107,7 +107,7 @@ func TestChaos_MemoryPressure(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	// 注册会分配大量内存的处理器
@@ -140,7 +140,7 @@ func TestChaos_RapidRegistrationUnregistration(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	// 快速注册和删除匹配器
@@ -166,7 +166,7 @@ func TestChaos_MixedOperations(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var wg sync.WaitGroup
@@ -229,7 +229,7 @@ func TestChaos_SlowHandler(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var slowCount, fastCount int32
@@ -282,7 +282,7 @@ func TestChaos_TimeoutHandling(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var timeoutCount, successCount int32
@@ -330,7 +330,7 @@ func TestChaos_ResourceExhaustion(t *testing.T) {
 	}
 
 	// 设置较小的匹配器限制
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	eng.SetMaxMatchers(100)
 	defer eng.Shutdown(context.Background())
 
@@ -351,7 +351,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	var normalCount, degradedCount int32
@@ -375,6 +375,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 		ctx := newChaosContext("/service")
 		eng.ProcessEvent(ctx)
 	}
+	eng.WaitForAsyncHandlers()
 
 	// 模拟高负载，触发降级
 	atomic.StoreInt32(&degradeMode, 1)
@@ -384,6 +385,7 @@ func TestChaos_GracefulDegradation(t *testing.T) {
 		ctx := newChaosContext("/service")
 		eng.ProcessEvent(ctx)
 	}
+	eng.WaitForAsyncHandlers()
 
 	t.Logf("正常模式: %d, 降级模式: %d", normalCount, degradedCount)
 	assert.Equal(t, int32(20), normalCount)
@@ -396,7 +398,7 @@ func TestChaos_CascadingFailures(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	failureCount := int32(0)
@@ -448,7 +450,7 @@ func TestChaos_StressTest(t *testing.T) {
 		t.Skip("跳过混沌测试")
 	}
 
-	eng := engine.NewEngine()
+	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 	defer eng.Shutdown(context.Background())
 
 	// 注册多个命令

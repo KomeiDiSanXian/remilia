@@ -43,14 +43,14 @@ func (e *pcTestEvent) Chat() platform.ChatInfo {
 func (e *pcTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: e.userID} }
 
 func newPCCtx(groupID, userID string) *eventctx.Context {
-	return eventctx.AcquireContextFromEvent(
+	return eventctx.NewContextFromEvent(
 		&pcTestEvent{groupID: groupID, userID: userID, isGroup: true},
 		&platform.NoopSender{},
 	)
 }
 
 func newPCPrivateCtx(userID string) *eventctx.Context {
-	return eventctx.AcquireContextFromEvent(
+	return eventctx.NewContextFromEvent(
 		&pcTestEvent{userID: userID, isGroup: false},
 		&platform.NoopSender{},
 	)

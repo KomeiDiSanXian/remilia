@@ -4,7 +4,7 @@ package engine
 //
 // ProcessPlatformEvent 是 ProcessEvent 的平台无关入口：
 //   - 接受 platform.Event + platform.Sender，无 dto.Payload / openapi.OpenAPI 依赖
-//   - 内部通过 context.AcquireContextFromEvent 创建 *context.Context，交由 ProcessEvent 处理
+//   - 内部通过 context.NewContextFromEvent 创建 *context.Context，交由 ProcessEvent 处理
 //   - shutdown 保护、eventWg 计数、panic 恢复等生命周期职责统一由 ProcessEvent 承担
 //
 // 能力注入：
@@ -20,54 +20,31 @@ import (
 )
 
 // ProcessPlatformEvent 处理来自任意平台的事件（平台无关入口）
-//
-// 参数：
-//   - event  — 平台适配器包装的 platform.Event（QQ/Discord/Telegram 等）
-//   - sender — 对应平台的消息发送器，注入 Context 供 Handler 调用 ctx.Reply()
-//   - caps   — （可选）一个或多个平台能力声明；多个时取 OR 并集注入 ctx
-//
-// 典型用法：
-//
-//	eng.ProcessPlatformEvent(event, adapter.Sender(), adapter.Capabilities())
-//
-// Context 生命周期：AcquireContextFromEvent 设置 refCount=1，
-// processEventContext 结束时 Release 使归零（同步路径立即归还，异步 offload 路径由池 goroutine 归还）。
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender, caps ...platform.Capabilities) {
 	if event == nil {
 		logger.Warn("[engine] ProcessPlatformEvent: nil event, skipping")
 		return
 	}
 
-	ctx := context.AcquireContextFromEvent(event, sender)
+	ctx := context.NewContextFromEvent(event, sender)
 
 	if len(caps) > 0 {
 		ctx.SetPlatformCapabilities(mergePlatformCaps(caps))
 	}
 
-	// 使用 processEventGuard(allowPool=true) 处理事件：
-	// shutdown 保护、eventWg、panic 恢复、以及自适应 ExecPool offload。
-	// ctx.Release() 在 processEventContextWithPool 内部管理。
-	e.processEventGuard(ctx, true)
+	e.processEventGuard(ctx)
 }
 
 // ProcessPlatformEventEx 是 ProcessPlatformEvent 的扩展版本，额外注入机器人自身 ID。
 //
 // botID 非空时会注入 ctx，使 ctx.IsFromSelf() 能正确判断事件是否由机器人自身触发。
-//
-// 典型用法（Bot 层，适配器实现了 platform.BotIdentity）：
-//
-//	botID := ""
-//	if bi, ok := adapter.(platform.BotIdentity); ok {
-//	    botID = bi.BotID()
-//	}
-//	eng.ProcessPlatformEventEx(event, adapter.Sender(), botID, adapter.Capabilities())
 func (e *Engine) ProcessPlatformEventEx(event platform.Event, sender platform.Sender, botID string, caps ...platform.Capabilities) {
 	if event == nil {
 		logger.Warn("[engine] ProcessPlatformEventEx: nil event, skipping")
 		return
 	}
 
-	ctx := context.AcquireContextFromEvent(event, sender)
+	ctx := context.NewContextFromEvent(event, sender)
 
 	if botID != "" {
 		ctx.SetBotID(botID)
@@ -76,7 +53,7 @@ func (e *Engine) ProcessPlatformEventEx(event platform.Event, sender platform.Se
 		ctx.SetPlatformCapabilities(mergePlatformCaps(caps))
 	}
 
-	e.processEventGuard(ctx, true)
+	e.processEventGuard(ctx)
 }
 
 // ProcessPlatformEventBatch 批量处理来自任意平台的事件（平台无关入口）。
@@ -138,24 +115,9 @@ func minNonZero(a, b int) int {
 	return b
 }
 
-// processEventContext 是 ProcessEvent 的核心路由逻辑（同步版本）。
-//
-// 由 ProcessEvent 调用，所有 handler 均同步执行。
-// Context 生命周期：末尾 ctx.Release() 使 refCount 归零。
-func (e *Engine) processEventContext(ctx *context.Context) {
-	e.processEventContextWithPool(ctx, false)
-}
-
-// processEventContextWithPool 是 processEventContext 的增强版本，
-// 支持将慢 handler 自动 offload 到 ExecPool。
-//
-// allowPool=true 时（由 ProcessPlatformEvent 使用）：
-//   - 默认走同步（向后兼容）
-//   - 一旦检测到 handler 慢（p50 > threshold），后续调用自动走 ExecPool
-//   - 池满时 fallback 同步执行
-//
-// allowPool=false 时（由 ProcessEvent 使用）：全部同步，保证 ProcessEvent 的同步语义。
-func (e *Engine) processEventContextWithPool(ctx *context.Context, allowPool bool) {
+// processEventContextWithPool 是事件核心路由逻辑。
+// 慢 handler 自动 offload 到 ExecPool，池满时 fallback 同步。
+func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 	state := e.state.Load()
 
 	eventType := ctx.GetEventType()
@@ -202,67 +164,36 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context, allowPool boo
 
 	execPool := e.internals.execPool
 	blockAll := state.block
-	offloaded := false
 	for _, m := range matchersToCheck {
 		if !m.Match(ctx) {
 			continue
 		}
 		ctx.SetMatcher(m)
 
-		usePool := allowPool
-
-		// 仅在 allowPool 时检查 ExecProfile
-		if usePool {
-			profile := m.execProfile
-			if profile == nil {
-				profile = &ExecProfile{}
-				m.execProfile = profile
-			}
-			usePool = profile.ShouldPool() == ExecClassPool
+		profile := m.execProfile
+		if profile == nil {
+			profile = &ExecProfile{}
+			m.execProfile = profile
 		}
 
-		if usePool {
-			// 慢路径：offload 到 ExecPool
-			// refCount 此时 = 1（AcquireContextFromEvent 的基引用）。
-			// Retain 后 = 2，池 goroutine 中 Release 两次：
-			//   第 1 次：归还 Retain（2→1）
-			//   第 2 次：归还基引用（1→0 → 回 pool）
-			ctx.Retain()
+		if profile.ShouldPool() == ExecClassPool {
 			if execPool != nil && execPool.TrySubmit(func() {
 				start := time.Now()
 				e.invokeHandler(ctx, m)
-				profile := m.execProfile
-				if profile != nil {
-					profile.Record(time.Since(start))
+				if p := m.execProfile; p != nil {
+					p.Record(time.Since(start))
 				}
-				ctx.Release() // 归还 Retain
-				ctx.Release() // 归还基引用
 			}) {
-				offloaded = true
-			} else {
-				ctx.Release() // 撤销 Retain（基引用仍在）
-				usePool = false
+				continue
 			}
 		}
 
-		if !usePool {
-			// 快路径：同步执行，零额外开销
-			start := time.Now()
-			e.invokeHandler(ctx, m)
-			if allowPool {
-				if profile := m.execProfile; profile != nil {
-					profile.Record(time.Since(start))
-				}
-			}
-		}
+		start := time.Now()
+		e.invokeHandler(ctx, m)
+		profile.Record(time.Since(start))
 
 		if m.isBlocking() || blockAll {
 			break
 		}
 	}
-
-	if offloaded {
-		return
-	}
-	ctx.Release()
 }

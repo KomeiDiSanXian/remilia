@@ -27,7 +27,7 @@ func TestDefaultTracingConfig(t *testing.T) {
 	assert.Equal(t, "event.PRIVATE_MESSAGE", name)
 
 	// SpanNameFunc falls back to "event.process" when no event
-	emptyCtx := eventctx.AcquireContextFromEvent(nil, nil)
+	emptyCtx := eventctx.NewContextFromEvent(nil, nil)
 	name = cfg.SpanNameFunc(emptyCtx)
 	assert.Equal(t, "event.process", name)
 }

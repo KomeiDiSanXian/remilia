@@ -29,11 +29,11 @@ func (m *mockBannedChecker) IsBanned(userID string) bool {
 // ---- helpers -------------------------------------------------------------
 
 func makeGroupAtContext(groupID string) *Context {
-	return AcquireContextFromEvent(newMockGroupEvent(groupID), nil)
+	return NewContextFromEvent(newMockGroupEvent(groupID), nil)
 }
 
 func makeC2CContextWithUserID(userID string) *Context {
-	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	ctx.SetUserID(userID)
 	return ctx
 }
@@ -67,7 +67,7 @@ func TestInGroup_EmptyList_AlwaysFalse(t *testing.T) {
 func TestInGroup_WrongEventType_ReturnsFalse(t *testing.T) {
 	rule := InGroup("grp-001")
 	// C2C message �?cannot decode as GroupAtMessageCreateEvent
-	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	if rule(ctx) {
 		t.Error("InGroup should return false for non-group event types")
 	}
@@ -96,7 +96,7 @@ func TestHasPermission_Denied(t *testing.T) {
 func TestHasPermission_EmptyUserID_ReturnsFalse(t *testing.T) {
 	checker := &mockPermChecker{allow: true}
 	rule := HasPermission(checker, "post", "create")
-	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	// No user ID set
 	if rule(ctx) {
 		t.Error("HasPermission should return false when userID is empty")
@@ -126,7 +126,7 @@ func TestNotBanned_Banned(t *testing.T) {
 func TestNotBanned_EmptyUserID_Allows(t *testing.T) {
 	checker := &mockBannedChecker{banned: map[string]bool{"": true}}
 	rule := NotBanned(checker)
-	ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	// Empty userID �?passthrough
 	if !rule(ctx) {
 		t.Error("NotBanned should allow when userID is empty (cannot determine identity)")

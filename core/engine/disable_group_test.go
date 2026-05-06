@@ -19,7 +19,7 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng.SetMatcherGroup(m, "testplugin", "test")
 
 	// Process once — should trigger
-	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	eng.ProcessEvent(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if !triggered {
 		t.Fatal("handler should have been triggered before DisableGroup")
 	}
@@ -28,7 +28,7 @@ func TestDisableGroup_PausesMatchers(t *testing.T) {
 	eng.DisableGroup("testplugin")
 	triggered = false
 
-	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	eng.ProcessEvent(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if triggered {
 		t.Error("handler should NOT trigger after DisableGroup")
 	}
@@ -48,7 +48,7 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 	eng.DisableGroup("resume-plugin")
 	eng.EnableGroup("resume-plugin")
 
-	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	eng.ProcessEvent(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 	if !triggered {
 		t.Error("handler should trigger after EnableGroup")
 	}

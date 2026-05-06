@@ -216,7 +216,7 @@ func TestMatcher_Handle(t *testing.T) {
 		assert.NotNil(t, matcher.Handler)
 
 		// Test handler execution
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		err := matcher.Handler(context)
 		assert.NoError(t, err)
 		assert.True(t, executed)
@@ -233,7 +233,7 @@ func TestMatcher_Handle(t *testing.T) {
 		matcher := eng.OnAny()
 		matcher.Handle(handler)
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		err := matcher.Handler(context)
 		assert.Equal(t, expectedErr, err)
 	})
@@ -348,7 +348,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.True(t, executed)
@@ -364,7 +364,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 		})
 
 		// Different event type
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindGroupMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindGroupMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.False(t, executed)
@@ -386,7 +386,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.True(t, executed1)
@@ -420,7 +420,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		// Priority design: LOWER number = HIGHER priority (like Linux nice value)
@@ -449,7 +449,7 @@ func TestEngine_ProcessEvent(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.False(t, executed1)
@@ -509,7 +509,7 @@ func TestEngine_Use(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.True(t, executed)
@@ -553,7 +553,7 @@ func TestEngine_Use(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		assert.Equal(t, []int{1, 2, 3, 4}, order)
@@ -598,7 +598,7 @@ func TestEngine_UseForGroup(t *testing.T) {
 		// Rebuild chain to apply group middleware
 		eng.RebuildMatcherChain(matcher)
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		mu.Lock()
@@ -658,7 +658,7 @@ func TestEngine_SetBlock(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		mu.Lock()
@@ -775,7 +775,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		// Process 100 events concurrently
 		for range 100 {
 			wg.Go(func() {
-				context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				eng.ProcessEvent(context)
 			})
 		}
@@ -813,7 +813,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 		// Concurrent reads (ProcessEvent)
 		for range 50 {
 			wg.Go(func() {
-				context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				eng.ProcessEvent(context)
 			})
 		}
@@ -967,7 +967,7 @@ func BenchmarkEngine_ProcessEvent(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 	}
 }
@@ -996,7 +996,7 @@ func BenchmarkEngine_ConcurrentProcess(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			eng.ProcessEvent(context)
 		}
 	})

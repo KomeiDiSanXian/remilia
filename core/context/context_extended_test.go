@@ -783,14 +783,14 @@ func TestContext_TypedGetters(t *testing.T) {
 func TestContext_MessageAndEvent(t *testing.T) {
 	t.Run("GetPlatformEvent", func(t *testing.T) {
 		event := newMockEventWithID(platform.EventKindPrivateMessage, "test-1")
-		ctx := AcquireContextFromEvent(event, nil)
+		ctx := NewContextFromEvent(event, nil)
 
 		retrieved := ctx.GetPlatformEvent()
 		assert.Equal(t, event, retrieved)
 	})
 
 	t.Run("GetEventType", func(t *testing.T) {
-		ctx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		eventType := ctx.GetEventType()
 		assert.Equal(t, string(platform.EventKindPrivateMessage), eventType)

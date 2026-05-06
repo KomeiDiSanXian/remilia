@@ -137,7 +137,7 @@ func TestResetGroupMiddleware_PreventsDoubleExecution(t *testing.T) {
 		eng.UseForGroup(groupName, mw) // second wire – doubles the guard
 
 		event := newTestPlatformEvent(platform.EventKindGroupMessage)
-		c := ctx.AcquireContextFromEvent(event, nil)
+		c := ctx.NewContextFromEvent(event, nil)
 		eng.ProcessEvent(c)
 
 		assert.Equal(t, int32(2), atomic.LoadInt32(&calls),
@@ -160,7 +160,7 @@ func TestResetGroupMiddleware_PreventsDoubleExecution(t *testing.T) {
 		eng.UseForGroup(groupName, mw)      // re-wire exactly one guard
 
 		event := newTestPlatformEvent(platform.EventKindGroupMessage)
-		c := ctx.AcquireContextFromEvent(event, nil)
+		c := ctx.NewContextFromEvent(event, nil)
 		eng.ProcessEvent(c)
 
 		assert.Equal(t, int32(1), atomic.LoadInt32(&calls),
@@ -189,7 +189,7 @@ func TestResetGroupMiddleware_NewMatcherPicksUpFreshChain(t *testing.T) {
 	eng.On(eventType).SetGroup(groupName).Handle(func(_ *ctx.Context) error { return nil })
 
 	event := newTestPlatformEvent(platform.EventKindGroupMessage)
-	c := ctx.AcquireContextFromEvent(event, nil)
+	c := ctx.NewContextFromEvent(event, nil)
 	eng.ProcessEvent(c)
 
 	assert.Equal(t, int32(0), atomic.LoadInt32(&callsA),

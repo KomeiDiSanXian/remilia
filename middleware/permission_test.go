@@ -39,7 +39,7 @@ func createPermCtx(senderID string, isGroup bool) *eventctx.Context {
 		chat:     platform.ChatInfo{ID: "chat-001", IsGroup: isGroup},
 		sender:   platform.UserInfo{ID: senderID},
 	}
-	return eventctx.AcquireContextFromEvent(event, &platform.NoopSender{})
+	return eventctx.NewContextFromEvent(event, &platform.NoopSender{})
 }
 
 func createPermCtxWithPM(senderID string) *eventctx.Context {

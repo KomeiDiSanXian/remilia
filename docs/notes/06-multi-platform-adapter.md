@@ -333,7 +333,7 @@ func NewContext(event *dto.Payload, api openapi.OpenAPI) *Context {
     return &Context{event: event, api: api, isPlatformPath: false}
 }
 
-func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Context {
+func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
     ctx := contextPool.Get().(*Context)
     ctx.platformEvent = event
     ctx.platformSender = sender
@@ -391,7 +391,7 @@ type Registry struct {
 ```go
 // V2 — 新增平台无关入口
 func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Sender, caps ...platform.Capabilities) {
-    ctx := context.AcquireContextFromEvent(event, sender)
+    ctx := context.NewContextFromEvent(event, sender)
     defer context.ReleaseContextFromEvent(ctx)
     if len(caps) > 0 {
         ctx.SetPlatformCapabilities(mergePlatformCaps(caps))

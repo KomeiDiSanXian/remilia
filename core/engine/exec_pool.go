@@ -47,7 +47,10 @@ func DefaultExecPoolConfig() ExecPoolConfig {
 // 池中的 goroutine 是 lazily 创建的——只有任务到达时才创建，
 // 通过 sem channel 限制最大并发数。空闲时 goroutine 退出。
 func NewExecPool(cfg ExecPoolConfig) *ExecPool {
-	if cfg.MaxConcurrency <= 0 {
+	if cfg.MaxConcurrency == 0 {
+		return nil
+	}
+	if cfg.MaxConcurrency < 0 {
 		cfg.MaxConcurrency = 64
 	}
 	if cfg.QueueSize <= 0 {

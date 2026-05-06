@@ -102,16 +102,16 @@ func TestDedupStrictMode(t *testing.T) {
 		})
 
 		// Fill cache
-		err := handler(eventctx.AcquireContextFromEvent(
+		err := handler(eventctx.NewContextFromEvent(
 			newFixtureEvent("event1"), &platform.NoopSender{}))
 		require.NoError(t, err)
 
-		err = handler(eventctx.AcquireContextFromEvent(
+		err = handler(eventctx.NewContextFromEvent(
 			newFixtureEvent("event2"), &platform.NoopSender{}))
 		require.NoError(t, err)
 
 		// Cache is full, strict mode should reject
-		err = handler(eventctx.AcquireContextFromEvent(
+		err = handler(eventctx.NewContextFromEvent(
 			newFixtureEvent("event3"), &platform.NoopSender{}))
 		assert.Error(t, err, "Should reject event in strict mode when cache is full")
 	})

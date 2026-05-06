@@ -46,11 +46,7 @@ func (c *mockCoordinator) UpdateCommandCache(_ *Matcher)        { c.commandCache
 
 func testContext() *context.Context {
 	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
-	return context.AcquireContextFromEvent(evt, nil)
-}
-
-func releaseCtx(ctx *context.Context) {
-	context.ReleaseContextFromEvent(ctx)
+	return context.NewContextFromEvent(evt, nil)
 }
 
 func TestMatcher_CopySemantics(t *testing.T) {
@@ -86,7 +82,6 @@ func TestMatcher_MatchLogic(t *testing.T) {
 	t.Run("deleted matcher never matches", func(t *testing.T) {
 		m := matcherWithEventType("test")
 		ctx := testContext()
-		defer releaseCtx(ctx)
 
 		assert.True(t, m.Match(ctx))
 		m.rt.deleted.Store(true)
@@ -96,7 +91,6 @@ func TestMatcher_MatchLogic(t *testing.T) {
 	t.Run("disabled matcher never matches", func(t *testing.T) {
 		m := matcherWithEventType("test")
 		ctx := testContext()
-		defer releaseCtx(ctx)
 
 		m.disable()
 		assert.False(t, m.Match(ctx))
@@ -109,7 +103,6 @@ func TestMatcher_MatchLogic(t *testing.T) {
 		called := false
 		m.Rules = []context.Rule{func(ctx *context.Context) bool { called = true; return true }}
 		ctx := testContext()
-		defer releaseCtx(ctx)
 
 		assert.True(t, m.Match(ctx))
 		assert.True(t, called)
@@ -119,7 +112,6 @@ func TestMatcher_MatchLogic(t *testing.T) {
 		m := matcherWithEventType("test")
 		m.Rules = []context.Rule{func(ctx *context.Context) bool { return false }}
 		ctx := testContext()
-		defer releaseCtx(ctx)
 
 		assert.False(t, m.Match(ctx))
 	})
@@ -134,7 +126,6 @@ func TestMatcher_MatchLogic(t *testing.T) {
 		}
 		m.commandIndexed.Store(true)
 		ctx := testContext()
-		defer releaseCtx(ctx)
 
 		assert.True(t, m.Match(ctx))
 		assert.False(t, skipped)
@@ -144,7 +135,7 @@ func TestMatcher_MatchLogic(t *testing.T) {
 	t.Run("match checks deleted after rules", func(t *testing.T) {
 		m := matcherWithEventType("test")
 		ctx := testContext()
-		defer releaseCtx(ctx)
+
 		assert.True(t, m.Match(ctx))
 
 		m.rt.deleted.Store(true)

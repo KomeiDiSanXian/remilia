@@ -122,7 +122,7 @@ func TestInvokeHandler_DeletedSkipped(t *testing.T) {
 	m := &Matcher{Source: "test"}
 	m.rt.deleted.Store(true)
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 }
 
@@ -135,7 +135,7 @@ func TestInvokeHandler_CallsHandler(t *testing.T) {
 		return nil
 	})
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 	assert.True(t, called)
 }
@@ -147,7 +147,7 @@ func TestInvokeHandler_ErrorRecorded(t *testing.T) {
 		return assert.AnError
 	})
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 }
 
@@ -155,7 +155,7 @@ func TestInvokeHandler_NilHandlerReturnsEarly(t *testing.T) {
 	e := newEngineForTest(t)
 	m := &Matcher{Source: "test"}
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 }
 
@@ -185,7 +185,7 @@ func TestInvokeHandler_MiddlewareChainOrder(t *testing.T) {
 		return nil
 	})
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 	assert.Equal(t, []string{"mw1_before", "mw2_before", "handler", "mw2_after", "mw1_after"}, order)
 }
@@ -196,7 +196,7 @@ func TestInvokeHandler_TempMatcherAutoDeletes(t *testing.T) {
 	m.Handle(func(ctx *corectx.Context) error { return nil })
 	m.SetTempWithMaxUse(1)
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 	assert.True(t, m.rt.deleted.Load())
 }
@@ -209,11 +209,10 @@ func TestInvokeHandler_TempMatcherUseLimit(t *testing.T) {
 	for i := range 2 {
 		ctx := testContext()
 		e.invokeHandler(ctx, m)
-		releaseCtx(ctx)
 		assert.False(t, m.rt.deleted.Load(), "not deleted at use %d", i+1)
 	}
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 	assert.True(t, m.rt.deleted.Load())
 }
@@ -225,7 +224,7 @@ func TestInvokeHandler_PanicRecovered(t *testing.T) {
 		panic("test panic")
 	})
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	assert.NotPanics(t, func() { e.invokeHandler(ctx, m) })
 }
 
@@ -238,7 +237,7 @@ func TestInvokeHandler_FastPath(t *testing.T) {
 		return nil
 	})
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	e.invokeHandler(ctx, m)
 	assert.Equal(t, int32(1), count.Load())
 	e.invokeHandler(ctx, m)
@@ -251,7 +250,7 @@ func TestGetOrBuildIterChain_NoChain(t *testing.T) {
 	h := func(ctx *corectx.Context) error { called = true; return nil }
 	result := e.getOrBuildIterChain(&Matcher{}, nil, h)
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	result(ctx)
 	assert.True(t, called)
 }
@@ -269,7 +268,7 @@ func TestGetOrBuildIterChain_WithMiddleware(t *testing.T) {
 	matcher := &Matcher{}
 	result := e.getOrBuildIterChain(matcher, []corectx.Middleware{mw}, h)
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	result(ctx)
 	assert.Equal(t, []string{"mw", "handler"}, order)
 }
@@ -287,7 +286,7 @@ func TestGetOrBuildIterChain_CacheReuse(t *testing.T) {
 
 	// Both result1 and result2 should invoke the same underlying handler
 	ctx := testContext()
-	defer releaseCtx(ctx)
+
 	result1(ctx)
 	assert.Equal(t, 1, count)
 	result2(ctx)
@@ -312,9 +311,8 @@ func TestProcessEvent_EventWg(t *testing.T) {
 		return nil
 	})
 	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
-	ctx := corectx.AcquireContextFromEvent(evt, nil)
+	ctx := corectx.NewContextFromEvent(evt, nil)
 	e.ProcessEvent(ctx)
-	corectx.ReleaseContextFromEvent(ctx)
 	assert.True(t, handled)
 }
 
@@ -327,7 +325,7 @@ func TestProcessEvent_ShutdownWaits(t *testing.T) {
 	})
 	const n = 10
 	for range n {
-		ctx := corectx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		ctx := corectx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		go e.ProcessEvent(ctx)
 	}
 	time.Sleep(50 * time.Millisecond)

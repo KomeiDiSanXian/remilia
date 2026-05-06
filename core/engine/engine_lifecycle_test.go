@@ -165,7 +165,7 @@ func TestEngine_ProcessEvent_WithCommandOptimization(t *testing.T) {
 	})
 
 	// Send event with command
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 	eng.ProcessEvent(context)
 
@@ -190,7 +190,7 @@ func TestEngine_ProcessEvent_GenericMatchers(t *testing.T) {
 		return nil
 	})
 
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 	eng.ProcessEvent(context)
 
@@ -212,7 +212,7 @@ func TestEngine_ProcessEvent_TempMatcherExecution(t *testing.T) {
 
 	// Execute multiple times
 	for range 5 {
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 	}
 
@@ -329,7 +329,7 @@ func TestEngine_Named_Middleware(t *testing.T) {
 		return nil
 	})
 
-	context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+	context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 	eng.ProcessEvent(context)
 
@@ -490,7 +490,7 @@ func TestEngine_Shutdown_WaitForEvents(t *testing.T) {
 	started := make(chan struct{})
 	go func() {
 		close(started)
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 	}()
 	<-started
@@ -619,13 +619,13 @@ func TestEngine_InvokeHandler_ErrorAndNilHandler(t *testing.T) {
 		return assert.AnError
 	})
 	// Handler returns error: engine should continue without panic
-	eng.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	eng.ProcessEvent(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 
 	// Matcher with nil Handler: should be skipped safely
 	eng2 := newEngineForTest(t)
 	m := eng2.On(string(platform.EventKindPrivateMessage))
 	m.Handler = nil
-	eng2.ProcessEvent(ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
+	eng2.ProcessEvent(ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil))
 }
 
 func TestEngineState_CopyWithCommands(t *testing.T) {

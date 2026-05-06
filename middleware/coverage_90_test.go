@@ -86,11 +86,11 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 
 		// Low priority
 		event1 := &middlewareTestEvent{id: "1", kind: platform.EventKindPrivateMessage, content: "LOW_PRIORITY"}
-		_ = handler(eventctx.AcquireContextFromEvent(event1, nil))
+		_ = handler(eventctx.NewContextFromEvent(event1, nil))
 
 		// High priority
 		event2 := &middlewareTestEvent{id: "2", kind: platform.EventKindPrivateMessage, content: "HIGH_PRIORITY"}
-		_ = handler(eventctx.AcquireContextFromEvent(event2, nil))
+		_ = handler(eventctx.NewContextFromEvent(event2, nil))
 
 		assert.Equal(t, 1, lowPriorityCalls)
 		assert.Equal(t, 1, highPriorityCalls)
@@ -528,7 +528,7 @@ func TestDedupEdgeCases(t *testing.T) {
 				id:   string(rune('a' + i)),
 				kind: platform.EventKindPrivateMessage,
 			}
-			_ = handler(eventctx.AcquireContextFromEvent(event, nil))
+			_ = handler(eventctx.NewContextFromEvent(event, nil))
 		}
 	})
 
@@ -546,13 +546,13 @@ func TestDedupEdgeCases(t *testing.T) {
 		event := &middlewareTestEvent{id: "short-ttl", kind: platform.EventKindPrivateMessage}
 
 		// First
-		_ = handler(eventctx.AcquireContextFromEvent(event, nil))
+		_ = handler(eventctx.NewContextFromEvent(event, nil))
 
 		// Wait for TTL
 		time.Sleep(20 * time.Millisecond)
 
 		// Should be allowed again
-		_ = handler(eventctx.AcquireContextFromEvent(event, nil))
+		_ = handler(eventctx.NewContextFromEvent(event, nil))
 	})
 }
 
@@ -628,7 +628,7 @@ func TestRateLimitEdgeCases(t *testing.T) {
 				id:   string(rune('a' + i)),
 				kind: platform.EventKindPrivateMessage,
 			}
-			ctx := eventctx.AcquireContextFromEvent(event, nil)
+			ctx := eventctx.NewContextFromEvent(event, nil)
 			err := handler(ctx)
 			assert.NoError(t, err)
 		}
@@ -667,7 +667,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 		)
 
 		event := &middlewareTestEvent{id: "integration", kind: platform.EventKindPrivateMessage}
-		ctx := eventctx.AcquireContextFromEvent(event, nil)
+		ctx := eventctx.NewContextFromEvent(event, nil)
 
 		err := handler(ctx)
 		assert.NoError(t, err)

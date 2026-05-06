@@ -30,5 +30,5 @@ func newBenchmarkEvent(content string) platform.Event {
 
 // newBenchmarkContext creates a *rcontext.Context from a platform event with given content.
 func newBenchmarkContext(content string) *rcontext.Context {
-	return rcontext.AcquireContextFromEvent(newBenchmarkEvent(content), nil)
+	return rcontext.NewContextFromEvent(newBenchmarkEvent(content), nil)
 }

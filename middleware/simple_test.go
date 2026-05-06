@@ -147,7 +147,7 @@ func TestMiddlewareExecution(t *testing.T) {
 		}
 
 		// Create test context
-		ctx := eventctx.AcquireContextFromEvent(&simpleTestEvent{}, &platform.NoopSender{})
+		ctx := eventctx.NewContextFromEvent(&simpleTestEvent{}, &platform.NoopSender{})
 
 		// Execute
 		err := wrapped(ctx)

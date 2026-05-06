@@ -1,15 +1,6 @@
 package context
 
 // context.go — Context 结构体定义与核心生命周期
-//
-// 职责划分：
-//   - context.go    — 结构体定义、Clone / SetStdContext / Ext / Tracer
-//   - decode.go     — 热路径缓存（GetMessageContent、GetSenderInfo），平台无关
-//   - state.go      — 字符串键扩展状态（Set/Get/Delete/All 及类型便捷方法）
-//   - metadata.go   — 框架元数据（RetryAttempt、MiddlewareTrace、ParsedCommand、MatcherSource）
-//   - extensions.go — 类型键扩展存储（ExtGet/ExtSet/ExtGetOrInit）
-//   - permission.go — 权限桥接（GetPermissionManager/SetPermissionManager）
-//   - pool.go       — Context 对象池（ReleaseContext）
 
 import (
 	stdctx "context"
@@ -20,13 +11,10 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // extensionState 是面向用户的字符串键扩展容器。
-//
-// 刻意设为非导出类型，通过 ctx.Set/ctx.Get/ctx.All 访问。
 type extensionState struct {
 	mu sync.RWMutex
 	m  map[string]any
@@ -41,95 +29,44 @@ type Matcher interface {
 	GetSource() string
 }
 
-// Context 上下文
-type Context struct {
-	ctxMu sync.RWMutex   // 保护 ctx 字段的读写锁
-	ctx   stdctx.Context // 标准库 context，用于超时控制、取消传播等
-	// cancel 持有 Clone() 中 WithDeadline 创建的取消函数，在 ReleaseContext() 时调用
-	cancel  stdctx.CancelFunc
-	matcher Matcher // Matcher 引用（使用 interface{} 避免循环依赖）
+// ctxHolder 包装 context.Context，使 atomic.Pointer 能存储不同类型的 context。
+type ctxHolder struct {
+	Context stdctx.Context
+}
 
-	// --- 平台无关字段（新路径）---
-	// 由 AcquireContextFromEvent 填充
-	platformEvent  platform.Event        // 平台无关事件抽象
-	platformSender platform.Sender       // 平台无关消息发送器
-	platformCaps   platform.Capabilities // 平台能力声明（由 Engine 注入）
-	botID          string                // 机器人自身平台 ID（由 Engine 注入，供 IsFromSelf 使用）
+// Context 上下文。每事件新鲜分配，不复用。
+type Context struct {
+	// 标准库 context，由中间件通过 SetStdContext 注入
+	stdCtx atomic.Pointer[ctxHolder]
+
+	// cancel 由 Clone 设置，可调用 Cancel() 主动释放 Clone 的 context
+	cancel stdctx.CancelFunc
+
+	matcher        Matcher
+	platformEvent  platform.Event
+	platformSender platform.Sender
+	platformCaps   platform.Capabilities
+	botID          string
 
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
 	extensions     *Extensions
 
-	// --- 热路径字段缓存（通用）---
 	contentOnce sync.Once
-	content     string // GetMessageContent 的缓存结果
-
-	// --- 引用计数（异步 offload 支持）---
-	// AcquireContextFromEvent 设 refCount = 1。
-	// 同步路径：processEventContext 结束时 Release 使 refCount 归零。
-	// 异步 offload 路径：Retain 增加引用，offload 的 handler 执行完 Release。
-	// Clone 创建的 Context 独立持有 refCount = 1。
-	refCount atomic.Int64
+	content     string
 }
 
-// Retain 增加 Context 的引用计数，延长生命周期。
-//
-// 与 Release 配对使用。每调用一次 Retain，必须对应一次 Release。
-// 当 refCount 归零时，Context 自动清理并归还对象池。
-//
-// 典型用法（异步 offload）：
-//
-//	ctx.Retain()
-//	pool.Submit(func() {
-//	    defer ctx.Release()
-//	    invokeHandler(ctx, m)
-//	})
-func (ctx *Context) Retain() {
+// Cancel 主动释放 Clone 创建的 context 资源。
+// 对非 Clone 的 Context 调用无效果。
+// 不调用也不会泄露 — GC 会在 Context 不可达后自动清理。
+func (ctx *Context) Cancel() {
 	if ctx == nil {
 		return
 	}
-	ctx.refCount.Add(1)
-}
-
-// Release 减少 Context 引用计数。归零时自动清理并归还对象池。
-//
-// 禁止在 Release 后继续使用 Context。
-func (ctx *Context) Release() {
-	if ctx == nil {
-		return
-	}
-	if ctx.refCount.Add(-1) < 0 {
-		logger.Error("[Context] Release: refCount underflow (double-free detected)")
-		return
-	}
-	if ctx.refCount.Load() == 0 {
-		ctx.reset()
-		contextPool.Put(ctx)
-	}
-}
-
-// reset 清理 Context 所有字段，使其可安全复用到对象池。
-func (ctx *Context) reset() {
 	if ctx.cancel != nil {
 		ctx.cancel()
 		ctx.cancel = nil
 	}
-	ctx.matcher = nil
-	ctx.platformEvent = nil
-	ctx.platformSender = nil
-	ctx.platformCaps = platform.Capabilities{}
-	ctx.botID = ""
-	if ctx.extensions != nil {
-		ctx.extensions.Clear()
-		ctx.extensions = nil
-	}
-	ctx.extInitialized.Store(false)
-	ctx.contentOnce = sync.Once{}
-	ctx.content = ""
-	ctx.refCount.Store(0)
-	ctx.ctxMu.Lock()
-	ctx.ctx = stdctx.Background()
-	ctx.ctxMu.Unlock()
 }
 
 // SetMatcher 设置当前命中的 Matcher（框架内部，由 Engine 在 processEventContext 中注入）
@@ -154,17 +91,13 @@ func (ctx *Context) SetPlatformCapabilities(caps platform.Capabilities) {
 // Context 返回标准库 context.Context
 func (ctx *Context) Context() stdctx.Context {
 	if ctx == nil {
-		logger.Error("[Context] CRITICAL: Context receiver is nil, returning Background()")
 		return stdctx.Background()
 	}
-	ctx.ctxMu.RLock()
-	c := ctx.ctx
-	ctx.ctxMu.RUnlock()
-	if c == nil {
-		logger.Warn("[Context] stdctx is unexpectedly nil, returning Background(). This may indicate a bug.")
+	h := ctx.stdCtx.Load()
+	if h == nil {
 		return stdctx.Background()
 	}
-	return c
+	return h.Context
 }
 
 // SetStdContext 设置标准库 context。
@@ -172,16 +105,12 @@ func (ctx *Context) Context() stdctx.Context {
 // 仅供中间件使用：注入 trace context（OpenTelemetry）或超时/deadline 控制。
 func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 	if ctx == nil {
-		logger.Error("[Context] CRITICAL: Cannot call SetStdContext on nil receiver")
 		return
 	}
 	if stdCtx == nil {
-		logger.Warn("[Context] Attempting to set nil stdctx, using Background() instead")
 		stdCtx = stdctx.Background()
 	}
-	ctx.ctxMu.Lock()
-	ctx.ctx = stdCtx
-	ctx.ctxMu.Unlock()
+	ctx.stdCtx.Store(&ctxHolder{Context: stdCtx})
 }
 
 // copyExtensions 将 src 的两套扩展存储（类型键 + 字符串键）深拷贝到 dst。
@@ -211,41 +140,31 @@ func copyExtensions(src, dst *Context) {
 }
 
 // cloneBase 创建 Context 的基础拷贝（共享字段），不含扩展存储。
-// 若原始 context 有 deadline，为其创建独立的 cancel 函数。
+// 克隆始终独立于原始 Context：不会被原始的 cancel 影响。
 func (ctx *Context) cloneBase() *Context {
-	baseCtx := stdctx.Background()
-	var cancel stdctx.CancelFunc
-	if deadline, ok := ctx.Context().Deadline(); ok {
-		baseCtx, cancel = stdctx.WithDeadline(baseCtx, deadline)
-	}
-	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
-		if cancel != nil {
-			newCtx := &Context{
-				ctx:            baseCtx,
-				cancel:         cancel,
-				matcher:        ctx.matcher,
-				platformEvent:  ctx.platformEvent,
-				platformSender: ctx.platformSender,
-				platformCaps:   ctx.platformCaps,
-			}
-			newCtx.refCount.Store(1)
-			newCtx.ctxMu.Lock()
-			newCtx.ctx = trace.ContextWithSpan(newCtx.ctx, span)
-			newCtx.ctxMu.Unlock()
-			return newCtx
-		}
-		baseCtx = trace.ContextWithSpan(baseCtx, span)
-	}
-	newCtx := &Context{
-		ctx:            baseCtx,
-		cancel:         cancel,
+	base := &Context{
 		matcher:        ctx.matcher,
 		platformEvent:  ctx.platformEvent,
 		platformSender: ctx.platformSender,
 		platformCaps:   ctx.platformCaps,
+		botID:          ctx.botID,
 	}
-	newCtx.refCount.Store(1)
-	return newCtx
+
+	var indepCtx stdctx.Context
+	var cancel stdctx.CancelFunc
+	if deadline, ok := ctx.Context().Deadline(); ok {
+		indepCtx, cancel = stdctx.WithDeadline(stdctx.Background(), deadline)
+	} else {
+		indepCtx, cancel = stdctx.WithCancel(stdctx.Background())
+	}
+	base.cancel = cancel
+
+	if span := trace.SpanFromContext(ctx.Context()); span.SpanContext().IsValid() {
+		indepCtx = trace.ContextWithSpan(indepCtx, span)
+	}
+	base.SetStdContext(indepCtx)
+
+	return base
 }
 
 // Clone 克隆 Context 用于异步操作

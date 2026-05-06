@@ -16,11 +16,11 @@ func newConvPlugin() *conversation.Plugin {
 }
 func makeC2CCtxUser(userID, content string, _ *testbot.MockAPI) *context.Context {
 	event := testbot.MakePlatformC2CEvent(userID, content)
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 func makeGroupCtxUser(userID, groupID, content string) *context.Context {
 	event := testbot.MakePlatformGroupEvent(userID, groupID, content)
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 func TestConversation_StartAndAdvance(t *testing.T) {
 	p := newConvPlugin()

@@ -521,7 +521,7 @@ ctx := contextPool.Get().(*Context)
 ctx.event = event
 
 // ─── Remilia V3 — Pool + 平台抽象 ───
-ctx := AcquireContextFromEvent(event, sender)
+ctx := NewContextFromEvent(event, sender)
 defer ReleaseContext(ctx)
 ```
 

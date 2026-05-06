@@ -491,7 +491,7 @@ var adapterSnapshot map[string]adapterCache
 
 ---
 
-### P-2 `AcquireContextFromEvent` 中多余的 `ctxMu.Lock()`（中优先级）
+### P-2 `NewContextFromEvent` 中多余的 `ctxMu.Lock()`（中优先级）
 
 **位置**：`core/context/platform_event.go:25–29`
 
@@ -656,7 +656,7 @@ type qqEvent struct {
 | F-5 | QQ MsgSeq 无自动管理机制 | `sender.go`, `extra.go` |
 | F-6 | `Event` 接口缺少 `Mentions()`/`MentionsEvent` | `event.go` |
 | P-1 | 热路径 `handlePlatformEvent` 每事件 RLock，建议缓存 sender/caps snapshot | `bot.go` |
-| P-2 | `AcquireContextFromEvent` 中多余 `ctxMu.Lock()` | `platform_event.go` |
+| P-2 | `NewContextFromEvent` 中多余 `ctxMu.Lock()` | `platform_event.go` |
 | P-5 | `WithExtra` 空 map 时跳过 `maps.Copy` | `message.go` |
 
 ### 🟢 可延后（发布后迭代）

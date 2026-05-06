@@ -14,51 +14,34 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// ProcessEvent 处理事件（COW 无锁读取）
+// ProcessEvent 处理事件（COW 无锁读取）。
 //
-// eventWg 保证 Shutdown 等待所有正在处理的事件完成：
-//   - eventWg.Add 在函数入口，确保 Shutdown 的 eventWg.Wait 看到所有活跃事件
-//   - 若 Shutdown 已调用（shutdown 标志已设置），直接返回，避免关闭后的事件流入处理
-//   - 若事件在 adapter 停止后到达，eventWg 也会等待其完成
-// ProcessEvent 处理事件（始终同步执行）。
-//
-// 与 ProcessPlatformEvent 不同，此方法不会将 handler offload 到 ExecPool，
-// 保证同步语义。调用前 ctx.refCount 必须 >= 1，调用后 ctx.Release() 由内部管理。
+// 慢 handler 自动 offload 到 ExecPool，池满时 fallback 同步。
 func (e *Engine) ProcessEvent(ctx *context.Context) {
-	e.processEventGuard(ctx, false)
+	e.processEventGuard(ctx)
 }
 
 // processEventGuard 是 ProcessEvent 和 ProcessPlatformEvent 的通用防护层：
 // shutdown 检查、eventWg 计数、panic 恢复。
-func (e *Engine) processEventGuard(ctx *context.Context, allowPool bool) {
+func (e *Engine) processEventGuard(ctx *context.Context) {
 	if e.shutdown.Load() {
-		ctx.Release()
 		return
 	}
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 
-	var released bool
 	defer func() {
 		if r := recover(); r != nil {
-			if !released {
-				ctx.Release()
-			}
 			logger.WithFields(logger.Fields{
 				"panic":      r,
 				"stack":      string(debug.Stack()),
 				"event_type": ctx.GetEventType(),
-				"platform":   ctx.GetEventPlatform(),
+				"platform":   ctx.GetPlatformEvent(),
 			}).Error("[engine] Unhandled panic in event processing recovered")
 		}
 	}()
 
-	if allowPool {
-		e.processEventContextWithPool(ctx, true)
-	} else {
-		e.processEventContextWithPool(ctx, false)
-	}
-	released = true
+	e.processEventContextWithPool(ctx)
 }
 
 // invokeHandler 封装调用处理器，通过中间件链执行

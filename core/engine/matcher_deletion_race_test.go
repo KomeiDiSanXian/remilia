@@ -51,7 +51,7 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 			defer wg.Done()
 
 			for range 10 {
-				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 				// timing: simulated delay for race conditioning
 				time.Sleep(time.Millisecond)
@@ -111,7 +111,7 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}(i)
 	}
@@ -161,7 +161,7 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 	// Goroutine 1: 处理事件
 	wg.Go(func() {
 		for range 5 {
-			ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 			// timing: simulated delay for race conditioning
 			time.Sleep(10 * time.Millisecond)
@@ -218,7 +218,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 
 		// 触发删除 (use "test" content to match OnFullMatch rule)
 		evt := newTestPlatformEventWithContent(platform.EventKindPrivateMessage, "test")
-		ctx := context.AcquireContextFromEvent(evt, nil)
+		ctx := context.NewContextFromEvent(evt, nil)
 		engine.ProcessEvent(ctx)
 	}
 
@@ -272,7 +272,7 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 			defer wg.Done()
 
 			for time.Since(startTime) < duration {
-				ctx := context.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 			}
 		}(i)

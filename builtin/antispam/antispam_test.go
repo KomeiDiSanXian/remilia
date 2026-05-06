@@ -18,13 +18,13 @@ func newAntiSpamPlugin(cfg antispam.Config) *antispam.Plugin {
 // makeC2CCtxPlatform 使用平台无关路径创建测试 Context（推荐）
 func makeC2CCtxPlatform(userID string) *context.Context {
 	event := testbot.MakePlatformC2CEvent(userID, "test")
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 
 // makeC2CCtx 使用平台无关路径创建测试 Context
 func makeC2CCtx(userID string) *context.Context {
 	event := testbot.MakePlatformC2CEvent(userID, "test")
-	return context.AcquireContextFromEvent(event, nil)
+	return context.NewContextFromEvent(event, nil)
 }
 
 func TestAntiSpam_Ban_Unban(t *testing.T) {

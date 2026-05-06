@@ -10,7 +10,7 @@ import (
 // TestContextClone_Simple 简单的克隆测试
 func TestContextClone_Simple(t *testing.T) {
 	event := newMockEventWithID(platform.EventKindPrivateMessage, "test-123")
-	originalCtx := AcquireContextFromEvent(event, nil)
+	originalCtx := NewContextFromEvent(event, nil)
 	clonedCtx := originalCtx.Clone()
 
 	if clonedCtx == nil {
@@ -28,7 +28,7 @@ func TestContextClone_Simple(t *testing.T) {
 func TestContextClone_IndependentContext(t *testing.T) {
 	stdCtx, cancel := context.WithCancel(context.Background())
 
-	originalCtx := AcquireContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+	originalCtx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 	originalCtx.SetStdContext(stdCtx)
 	clonedCtx := originalCtx.Clone()
 

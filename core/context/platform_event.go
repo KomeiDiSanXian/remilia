@@ -1,50 +1,22 @@
 package context
 
 // platform_event.go — platform.Event 集成层
-//
-// Context 通过 AcquireContextFromEvent 绑定 platform.Event，
-// 所有平台均使用此路径。
 
 import (
 	stdctx "context"
-	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// AcquireContextFromEvent 从 platform.Event 获取 Context
+// NewContextFromEvent 从 platform.Event 创建 Context。
 //
-// 与 ReleaseContextFromEvent 配对使用，从对象池获取 Context 并初始化。
-func AcquireContextFromEvent(event platform.Event, sender platform.Sender) *Context {
-	ctx := contextPool.Get().(*Context)
-
-	ctx.platformEvent = event
-	ctx.platformSender = sender
-	ctx.platformCaps = platform.Capabilities{} // 由 Engine 在 ProcessPlatformEvent 中注入
-	ctx.botID = ""                             // 由 Engine 在 ProcessPlatformEventEx 中注入
-	ctx.matcher = nil
-	ctx.extensions = nil
-	ctx.extInitialized.Store(false)
-
-	// ctx.ctx 在 ReleaseContext 时已被设为 stdctx.Background()，无需再检查
-
-	// Reset content cache
-	ctx.contentOnce = sync.Once{}
-	ctx.content = ""
-
-	ctx.refCount.Store(1) // 基引用，由 processEventContext 在结束时 Release
-	return ctx
-}
-
-// ReleaseContextFromEvent 等价于 ctx.Release()。
-//
-// 保留此函数用于兼容已有调用点。新代码应优先使用 ctx.Release()。
-func ReleaseContextFromEvent(ctx *Context) {
-	if ctx == nil {
-		return
+// 每次调用均新鲜分配。
+func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context {
+	return &Context{
+		platformEvent:  event,
+		platformSender: sender,
 	}
-	ctx.Release()
 }
 
 // GetPlatformEvent 返回当前 Context 绑定的 platform.Event。

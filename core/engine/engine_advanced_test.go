@@ -32,7 +32,7 @@ func TestMatcher_TempOnce(t *testing.T) {
 		})
 
 		// First execution
-		ctx1 := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		ctx1 := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(ctx1)
 		assert.Equal(t, int32(1), atomic.LoadInt32(&count))
 
@@ -65,7 +65,7 @@ func TestMatcher_TempN(t *testing.T) {
 
 		// Execute 5 times
 		for range 5 {
-			context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			eng.ProcessEvent(context)
 		}
 
@@ -85,7 +85,7 @@ func TestMatcher_TempN(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(context)
 
 		// With maxUseCount=0, handler should still execute (no auto-delete)
@@ -105,7 +105,7 @@ func TestMatcher_TempUntil(t *testing.T) {
 		})
 
 		// Execute before expiration
-		ctx1 := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		ctx1 := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(ctx1)
 
 		// timing: wait for TTL expiration
@@ -278,7 +278,7 @@ func TestEngine_NamedMiddleware(t *testing.T) {
 			return nil
 		})
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 
 		eng.ProcessEvent(context)
 
@@ -720,7 +720,7 @@ func TestMatcher_Match(t *testing.T) {
 			},
 		}
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		result := matcher.Match(context)
 
 		assert.True(t, result)
@@ -734,7 +734,7 @@ func TestMatcher_Match(t *testing.T) {
 			},
 		}
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		result := matcher.Match(context)
 
 		assert.False(t, result)
@@ -748,7 +748,7 @@ func TestMatcher_Match(t *testing.T) {
 		}
 		matcher.rt.deleted.Store(true)
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		result := matcher.Match(context)
 
 		assert.False(t, result)
@@ -759,7 +759,7 @@ func TestMatcher_Match(t *testing.T) {
 			Rules: []ctx.Rule{},
 		}
 
-		context := ctx.AcquireContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		result := matcher.Match(context)
 
 		assert.True(t, result)

@@ -454,9 +454,8 @@ func TestEngine_MatcherLifecycle(t *testing.T) {
 		})
 
 		evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
-		ctx2 := corectx.AcquireContextFromEvent(evt, nil)
+		ctx2 := corectx.NewContextFromEvent(evt, nil)
 		eng2.ProcessEvent(ctx2)
-		corectx.ReleaseContextFromEvent(ctx2)
 
 		assert.True(t, mu1)
 		assert.True(t, mu2)

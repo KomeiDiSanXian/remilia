@@ -43,7 +43,7 @@ func TestDedupExtra(t *testing.T) {
 			return nil
 		})
 
-		// 使用新路径（AcquireContextFromEvent）以便 Dedup 能识别重复事件 ID
+		// 使用新路径（NewContextFromEvent）以便 Dedup 能识别重复事件 ID
 		handler(createPlatformContextWithID("same"))
 		handler(createPlatformContextWithID("same"))
 
