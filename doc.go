@@ -1,6 +1,10 @@
 /*
 Package remilia 是对核心引擎的高级封装，提供完整的生命周期管理。
 
+Remilia 受 wdvxdr1123/ZeroBot 架构启发，但为完全独立的实现。
+本项目不包含 ZeroBot 的任何受版权保护的代码。
+ZeroBot 是 GPL-3.0 许可的开源项目：https://github.com/wdvxdr1123/ZeroBot
+
 Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
   - 生命周期管理（启动/停止）
   - 健康检查

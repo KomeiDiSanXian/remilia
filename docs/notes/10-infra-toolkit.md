@@ -1,5 +1,7 @@
 # 基础设施工具包——小而美的通用组件
 
+> **ZeroBot 基因**：ZeroBot 仅有 `utils/helper`（零拷贝字符串转换工具）和 `utils/async`（固定 worker 池）。Remilia 的 `infra/` 全套工具包（atomic/pool/health/metrics/tracing/textimage/dlq...）是从零独立设计的。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#7-remilia-有但-zerobot-没有的)。
+
 Remilia 的 `infra/` 目录包含了 20+ 个独立的基础设施包，每个包解决一个特定问题。它们既可以作为框架的一部分使用，也完全可以单独提取出来复用到其他项目。
 
 ## 1. 并发原语

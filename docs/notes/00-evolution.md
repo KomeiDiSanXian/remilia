@@ -2,6 +2,102 @@
 
 > 这个框架不是一天建成的。从 2025 年 12 月的第一个 commit 到今天，经历了数百次重构。
 > 回顾演进路径，可以看到每个阶段解决的核心问题以及背后的设计决策。
+> 而一切的起点，来自对 [wdvxdr1123/ZeroBot](https://github.com/wdvxdr1123/ZeroBot) 的研读与借鉴。
+
+## 第零阶段：ZeroBot 启蒙——从使用者到创作者
+
+**关键词**：学习借鉴、模式识别、意识到天花板
+
+### 起点：为什么要看 ZeroBot？
+
+Remilia 最初的作者是 ZeroBot 的深度用户。ZeroBot 是一个优雅的 OneBot 框架——小而美、API 简洁、上手快。但在实际使用中，逐渐遇到了瓶颈：
+
+1. **单平台锁定**：ZeroBot 紧绑 OneBot 协议，无法对接 Discord/Telegram
+2. **性能天花板**：事件路由是线性扫描，100+ Matcher 后延迟不可控
+3. **无基础设施**：熔断、限流、链路追踪等企业级能力全无
+4. **插件系统原始**：基于 `init()` + 全局变量，无法热重载、无法 DI
+5. **生命周期空白**：启动关闭全靠手动编排
+
+这些痛点催生了一个想法：**能不能以 ZeroBot 的设计为起点，构建一个更通用、更健壮、多平台支持的框架？**
+
+### ZeroBot 的核心架构
+
+```
+ZeroBot/
+├── bot.go          # 主入口：Run/RunAndBlock，事件处理循环
+├── api.go          # OneBot API 绑定
+├── context.go      # Ctx：Send、SendChain、Echo、FutureEvent
+├── engine.go       # Engine：On* 触发器工厂 + Matcher 管理
+├── matcher.go      # Matcher、Rule、Handler、State、Priority
+├── types.go        # Event、User、File、Group 等类型
+├── rules.go        # PrefixRule、CommandRule、RegexRule
+├── event_channel.go # FutureEvent：交互式事件等待
+├── pattern.go      # 链式消息段匹配器
+├── driver/         # 通信驱动（wsclient/wsserver/http）
+└── message/        # 消息段模型 + CQ 码编解码
+```
+
+核心事件流：
+
+```
+OneBot 实现 → Driver → json.Unmarshal → Event
+    → match(ctx, matcherList)  [线性扫描，按优先级排序]
+    → preHandler → Rules → midHandler → Handler → postHandler
+    → ctx.Send() / ctx.CallAction()
+```
+
+### 从 ZeroBot 继承的设计基因
+
+| ZeroBot 模式 | Remilia 继承方式 | 后续演变 |
+|---|---|---|
+| Matcher + Rule + Handler 三元组 | 概念完全继承，类型签名几乎一致 | 新增 commandIndex O(1) 路由 + TempManager 分片 |
+| Engine 作为 Matcher 容器 | 继承，但改为 COW 不可变状态 | atomic.Value + 泛型，消除锁竞争 |
+| Priority 优先级排序 | 继承 | 扩展为 6 路合并排序 + 缓存失效 |
+| preHandler / midHandler / postHandler | 继承管道概念 | 扩展为三层洋葱模型 + 版本计数器优化 |
+| Ctx.Send() / Ctx.CallAction() | 保持相同的调用风格 | 扩展 platform.Sender 跨平台发送 |
+| FutureEvent 临时匹配器 | 继承 | 抽离为 TempManager 独立管理 |
+| Event 预处理（IsToMe、At 检测） | 继承 | 平台无关化，每个 Adapter 各自实现 |
+
+### 最初的 Remilia 长什么样？
+
+```go
+// 第一个 commit 的 bot.go — 与 ZeroBot 高度相似
+type Bot struct {
+    wh     webhook.WebHook          // QQ Webhook → 参考 ZeroBot 的 driver
+    tm     *token.Manager           // QQ Token
+    api    openapi.OpenAPI          // QQ OpenAPI  → 参考 ZeroBot 的 APICaller
+    engine *Engine                  // Engine       → 概念源于 ZeroBot
+}
+
+// 第一个 commit 的 context.go — 几乎就是 ZeroBot Ctx 的翻版
+type Context struct {
+    event *dto.Payload    // 参考 ZeroBot Event
+    api   openapi.OpenAPI // 参考 ZeroBot APICaller
+    state State           // 完全复制 ZeroBot State
+}
+```
+
+最初的目标是：**做 ZeroBot 能做的事，但做到更好**。后来目标变成了：**做 ZeroBot 做不到的事**。
+
+### 从借鉴到超越的关键分叉点
+
+| 决策 | ZeroBot 做法 | Remilia 最初做法 | 最终演进 |
+|------|-------------|-----------------|---------|
+| 并发模型 | sync.Mutex | sync.RWMutex | COW + atomic.Value（完全无锁读） |
+| 平台支持 | 仅 QQ/OneBot | 仅 QQ(openapi) | 7 个平台适配器 + 插件系统 |
+| 插件系统 | init() 全局注册 | 继承 BasePlugin | 函数式 Descriptor + DI 容器 |
+| 生命周期 | 无 | Bot 内嵌管理 | lifecycle 独立包 |
+| 中间件 | pre/mid/post 三阶段 | 同左 | 洋葱模型 + 企业级中间件 |
+| 路由 | 线性 O(n) | 线性 O(n) | commandIndex O(1) + 6 路合并 |
+| 日志 | 简单日志 | logrus | zerolog 零分配 |
+| 观测 | 无 | 无 | Prometheus + OTel + Health |
+
+### 参考文档
+
+关于 ZeroBot 与 Remilia 的详细逐项对比（代码级），请参阅：
+- [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md) — 本文的姊妹篇，完整技术对比
+- [`../06-archived/comparison-zerobot-floattech.md`](../06-archived/comparison-zerobot-floattech.md) — 框架层与 FloatTech 系列库对比
+- [`../06-archived/comparison-zerobotplugin.md`](../06-archived/comparison-zerobotplugin.md) — 业务插件层对比
 
 ## 第一阶段：Monolithic QQ Bot（初始态）
 
@@ -463,15 +559,22 @@ infra/
 ## 演进总结
 
 ```
-2025-12    Monolithic QQ Bot (根包、dto.Payload、logrus、v1 插件)
+2025-11    ZeroBot 启蒙——深度使用 → 发现瓶颈 → 萌生自研想法
     │
+    ├── 研究 ZeroBot 架构（Matcher/Engine/Context 模式）
+    ├── 识别 ZeroBot 天花板（单平台/O(n)路由/无生命周期）
+    └── 初期目标："做 ZeroBot 能做的事，但做得更好"
+    │
+2025-12    Monolithic QQ Bot (根包、dto.Payload、logrus、v1 插件)
+    │                           ↑ 保留了 ZeroBot 的核心模式，
+    │                           但开始使用不同技术栈
     ├── 引擎抽取 core/engine
     ├── Context 池化
     ├── 插件描述符 + 依赖注入
     │
 2026-01    多引擎 + Context v2
     │
-    ├── platform/adapter 抽象
+    ├── platform/adapter 抽象  ← 此时已决定"超越 ZeroBot"
     ├── 日志替换 zerolog
     ├── lifecycle 独立包
     │
@@ -492,9 +595,11 @@ infra/
 
 | 决策 | 当时的选择 | 替代方案 | 为什么 |
 |------|-----------|---------|--------|
-| COW 引擎 | 写时复制 + atomic.Value | sync.RWMutex | 读多写少场景，5-6x 性能提升 |
-| 插件 v2 | 函数式 Descriptor | 保留继承模式 | 解耦、可测试、灵活 |
-| 多平台抽象 | Adapter 接口 | 各自为政 | 跨平台 Handler 复用 |
-| Context Pool | sync.Pool | 每次都 new | 0 allocs/op 是硬性要求 |
-| 生命周期 | lifecycle 独立包 | Bot 内部管理 | 组件化、可复用的生命周期管理 |
-| 日志 | zerolog | 保留 logrus | 零分配日志对性能关键 |
+| COW 引擎 | 写时复制 + atomic.Value | ZeroBot 的 sync.Mutex | 读多写少场景，5-6x 性能提升 |
+| 插件 v2 | 函数式 Descriptor | ZeroBot 的 init() 全局注册 | 解耦、可测试、灵活 |
+| 多平台抽象 | Adapter 接口 | ZeroBot 的 OneBot 单平台 | 跨平台 Handler 复用 |
+| Context Pool | sync.Pool | ZeroBot 每次都 new Ctx | 0 allocs/op 是硬性要求 |
+| 生命周期 | lifecycle 独立包 | ZeroBot 无生命周期，Bot 内手工编排 | 组件化、可复用的生命周期管理 |
+| 日志 | zerolog | ZeroBot 无零分配要求 | 零分配日志对性能关键 |
+| O(1) 命令路由 | commandIndex + Trie | ZeroBot 线性扫描 O(n) | 100+ 命令时延迟不增长 |
+| 中间件链 | 洋葱模型 + 三层级 | ZeroBot pre/mid/post 三阶段 | 从"三阶段"升级为"可组合链" |

@@ -1,5 +1,7 @@
 # 插件系统 v2——函数式、依赖注入、蓝绿部署
 
+> **ZeroBot 基因**：ZeroBot 的"插件"通过 `init()` + `StoreMatcher()` 全局注册实现，没有生命周期、依赖注入或热重载。Remilia v1 继承此模式，v2 才彻底重写为 Descriptor 模式。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#35-关键分叉点-④插件系统)。
+
 ## 设计哲学
 
 v1 插件系统采用经典的面相对象继承模式：`BasePlugin` 基类 + 子类覆写生命周期方法。这种方式虽然直观，但随着功能增长暴露出一系列问题：

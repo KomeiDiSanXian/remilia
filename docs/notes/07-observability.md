@@ -1,5 +1,7 @@
 # 可观测性体系——指标、追踪、日志、健康检查
 
+> **ZeroBot 基因**：ZeroBot 无任何可观测性基础设施（无指标、无追踪、日志仅限简单打印）。这是 Remilia 从零独立设计的能力。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#7-remilia-有但-zerobot-没有的)。
+
 ## 设计理念
 
 可观测性不是事后补丁，而是框架的一等公民。Remilia 提供了四维可观测性：

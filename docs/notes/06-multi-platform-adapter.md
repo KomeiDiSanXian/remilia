@@ -1,5 +1,7 @@
 # 多平台适配器体系——平台无关的事件驱动抽象
 
+> **ZeroBot 基因**：这是 Remilia 与 ZeroBot 最大的结构性差异。ZeroBot 是 QQ/OneBot 单平台框架，`Event` 字段直接对应 OneBot JSON。多平台抽象是 Remilia 从"借鉴"走向"超越"的最关键一步。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#34-关键分叉点-③平台抽象)。
+
 ## 设计动机
 
 机器人框架天然需要支持多平台：QQ、Discord、Telegram、微信等。每个平台的 API 风格、通信协议、消息格式各不相同。框架的目标是让**业务逻辑完全与平台解耦**——同一个 Handler 可以在任意平台上运行。

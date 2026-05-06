@@ -1,5 +1,7 @@
 # 配置管理与热更新——运行时动态调整
 
+> **ZeroBot 基因**：ZeroBot 无配置热更新能力——配置在启动时一次性加载。这是 Remilia 从零独立设计的能力。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#7-remilia-有但-zerobot-没有的)。
+
 ## 设计目标
 
 1. **零重启配置更新**：修改配置文件后，Bot 无需重启即可生效

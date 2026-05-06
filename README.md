@@ -1,4 +1,12 @@
+<div align="center">
+
 # Remilia
+
+</div>
+
+> Remilia 受 [wdvxdr1123/ZeroBot](https://github.com/wdvxdr1123/ZeroBot) 架构启发，
+> 但为 **完全独立的实现**，不包含 ZeroBot 的任何受版权保护的代码。
+> ZeroBot 是 GPL-3.0 许可的开源项目。
 
 <div align="center">
 

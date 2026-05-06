@@ -1,5 +1,7 @@
 # COW（Copy-On-Write）无锁引擎——高性能事件处理核心
 
+> **ZeroBot 基因**：ZeroBot 的 Engine 使用 `sync.Mutex` 保护匹配器列表。COW 引擎是对这一模式的彻底重构——从"有锁共享"变为"无锁不可变"。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#32-关键分叉点-①并发模型) 了解分叉动机。
+
 ## 问题背景
 
 在机器人框架中，事件引擎是最核心的组件。它需要：

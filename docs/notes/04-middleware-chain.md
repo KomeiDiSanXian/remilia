@@ -1,5 +1,7 @@
 # 中间件链与自适应能力——可观测性、弹性、热更新
 
+> **ZeroBot 基因**：ZeroBot 有硬编码的三阶段管道（preHandler/midHandler/postHandler），所有 Matcher 共用一套。Remilia 将其进化为可组合的洋葱模型中间件链。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#36-关键分叉点-⑤中间件)。
+
 ## 设计理念
 
 中间件是 Remilia 框架的"弹性层"，采用经典的**洋葱模型**设计：

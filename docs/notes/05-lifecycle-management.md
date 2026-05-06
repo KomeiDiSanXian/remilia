@@ -1,5 +1,7 @@
 # 生命周期管理——优雅启动、有序关闭
 
+> **ZeroBot 基因**：ZeroBot 完全没有生命周期管理——Engine 在 `init()` 中注册，Bot 的启动关闭全靠 `main()` 里手工编排。这是 Remilia 从零独立设计的能力。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#7-remilia-有但-zerobot-没有的)。
+
 ## 设计目标
 
 一个分布式系统组件的生命周期管理需要解决：

@@ -1,5 +1,7 @@
 # 命令系统——双索引 O(1) 路由 + 前缀树补全
 
+> **ZeroBot 基因**：ZeroBot 通过 `CommandRule("cmd")` 将命令匹配混入普通 Rule 中，与其他 Matcher 一起线性扫描。Remilia 引入 `commandIndex` 独立索引 + Trie 前缀树，将命令路由从 O(n) 降至 O(1)。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#44-rule规则)。
+
 ## 架构概览
 
 命令系统是框架中最频繁使用的功能。Remilia 使用**双索引**策略：

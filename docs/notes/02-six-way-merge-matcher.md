@@ -1,5 +1,7 @@
 # 六路合并智能匹配器路由——从 O(n) 到可预测延迟
 
+> **ZeroBot 基因**：ZeroBot 使用单一 `[]*Matcher` 线性扫描 + 每次注册全量排序。Remilia 将其拆分为三大索引（matcherIndex/commandIndex/groupIndex）+ 惰性缓存。参阅 [`11-zerobot-inspiration.md`](11-zerobot-inspiration.md#33-关键分叉点-②路由算法)。
+
 ## 问题背景
 
 事件驱动框架的核心问题之一：事件到达后，需要从大量匹配器（Matcher）中找到那些应该处理该事件的匹配器。最朴素的做法是**线性遍历**——遍历所有匹配器，逐一检查规则是否匹配。当匹配器数量达到数千甚至上万时，线性遍历的延迟变得不可预测。

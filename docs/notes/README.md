@@ -10,7 +10,7 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 
 | # | 主题 | 核心内容 |
 |---|------|----------|
-| 00 | [架构演进之路](00-evolution.md) | 从 QQ 专用 Bot 到通用框架的 7 个阶段演进，每个阶段的动机和决策 |
+| 00 | [架构演进之路](00-evolution.md) | 从 ZeroBot 启蒙到通用框架的 8 个阶段演进，每个阶段的动机和决策 |
 | 01 | [COW 无锁引擎](01-cow-engine.md) | `atomic.Value` + 不可变状态，读操作完全无锁，475K msg/s 吞吐 |
 | 02 | [六路合并匹配器路由](02-six-way-merge-matcher.md) | commandIndex O(1) + 6 路排序 + TempManager 分片 |
 | 03 | [插件系统 v2](03-plugin-system-v2.md) | 函数式描述符、依赖注入容器、蓝绿热重载、读写分离权限 |
@@ -21,6 +21,7 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 08 | [命令系统](08-command-system.md) | 双索引 O(1) 路由 + Trie 前缀树补全 + 别名自动注册 |
 | 09 | [配置管理与热更新](09-config-hotreload.md) | fsnotify 目录监听、防抖合并、Bridge 推模式中间件更新 |
 | 10 | [基础设施工具包](10-infra-toolkit.md) | 20+ 独立包（并发原语、存储、图像、中文处理等） |
+| 11 | [ZeroBot 基因溯源](11-zerobot-inspiration.md) | ZeroBot 架构对比、遗传基因图谱、关键分叉分析、逐组件深度对比 |
 
 ## 架构思路
 
@@ -114,18 +115,20 @@ plugin.Descriptor{
 
 **推荐阅读路径**：
 1. [架构演进总览](../03-architecture/ARCHITECTURE_EVOLUTION.md) — 宏观脉络
-2. [演进故事](00-evolution.md) — 7 个阶段的完整故事
-3. 各模块技术笔记（01-10）— 每个模块的迭代细节
+2. [演进故事](00-evolution.md) — 8 个阶段的完整故事（含 ZeroBot 启蒙）
+3. [ZeroBot 基因溯源](11-zerobot-inspiration.md) — 了解框架设计理念的来源
+4. 各模块技术笔记（01-10）— 每个模块的迭代细节
 
 ## 如何阅读
 
 推荐阅读顺序：
 
 1. **先读 [00-evolution.md](00-evolution.md)** — 了解框架从何而来，每个设计决策的上下文
-2. **再读 [01-cow-engine.md](01-cow-engine.md) 和 [02-six-way-merge-matcher.md](02-six-way-merge-matcher.md)** — 理解核心引擎的设计
-3. **读 [03-plugin-system-v2.md](03-plugin-system-v2.md)** — 插件系统是框架最大的特色
-4. **读 [05-lifecycle-management.md](05-lifecycle-management.md)** — 理解组件如何被管理
-5. **其余可按兴趣阅读**
+2. **读 [11-zerobot-inspiration.md](11-zerobot-inspiration.md)** — 理解 ZeroBot 基因对我们设计的影响（本文所有笔记都标注了 ZeroBot 遗传关系）
+3. **再读 [01-cow-engine.md](01-cow-engine.md) 和 [02-six-way-merge-matcher.md](02-six-way-merge-matcher.md)** — 理解核心引擎的设计
+4. **读 [03-plugin-system-v2.md](03-plugin-system-v2.md)** — 插件系统是框架最大的特色
+5. **读 [05-lifecycle-management.md](05-lifecycle-management.md)** — 理解组件如何被管理
+6. **其余可按兴趣阅读**
 
 > 💡 每篇笔记都独立成文，可以直接用于博客发表。如果发布博客，建议将 [00-evolution.md](00-evolution.md) 作为开篇，先讲故事的"为什么"，再讲技术的"怎么做"。
 
