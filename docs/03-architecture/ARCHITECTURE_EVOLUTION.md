@@ -121,17 +121,17 @@ type Bot struct {
 
 | 主题 | 笔记链接 | 核心迭代内容 |
 |------|---------|------------|
-| COW 无锁引擎 | [notes/01-cow-engine.md](../../notes/01-cow-engine.md) | `atomic.Value` 裸用 → 泛型封装 → eventGate sentinel → shutdown+WaitGroup |
-| 六路合并路由 | [notes/02-six-way-merge-matcher.md](../../notes/02-six-way-merge-matcher.md) | 线性遍历 → COW+索引 → commandIndex → TempManager |
-| 插件系统 v2 | [notes/03-plugin-system-v2.md](../../notes/03-plugin-system-v2.md) | 继承模式 → 函数式 Descriptor → DryRun → BlueGreen |
-| 中间件链 | [notes/04-middleware-chain.md](../../notes/04-middleware-chain.md) | 全局无缓存 → 三层+代际号 → 版本计数器 → 迭代构建 |
-| 生命周期管理 | [notes/05-lifecycle-management.md](../../notes/05-lifecycle-management.md) | Bot 内嵌 → lifecycle 包 → 双层 Context → 状态机+回滚 |
-| 多平台适配器 | [notes/06-multi-platform-adapter.md](../../notes/06-multi-platform-adapter.md) | QQ 紧耦合 → 双路径 → 三大抽象 → 6 适配器 |
-| 可观测性体系 | [notes/07-observability.md](../../notes/07-observability.md) | logrus → zerolog → 自定义 Registry → 自适应采样 |
-| 命令系统 | [notes/08-command-system.md](../../notes/08-command-system.md) | 引擎内嵌 → commandIndex → Trie → 别名+Fuzz |
-| 配置热更新 | [notes/09-config-hotreload.md](../../notes/09-config-hotreload.md) | Viper → 纯 YAML → fsnotify → Bridge → 生命周期绑定 |
-| 基础设施工具包 | [notes/10-infra-toolkit.md](../../notes/10-infra-toolkit.md) | 散落各处 → 按功能提取 → 泛型化 → 跨平台 |
-| 完整演进故事 | [notes/00-evolution.md](../../notes/00-evolution.md) | 7 个阶段的完整演进脉络 |
+| COW 无锁引擎 | [notes/01-cow-engine.md](../notes/01-cow-engine.md) | `atomic.Value` 裸用 → 泛型封装 → eventGate sentinel → shutdown+WaitGroup |
+| 六路合并路由 | [notes/02-six-way-merge-matcher.md](../notes/02-six-way-merge-matcher.md) | 线性遍历 → COW+索引 → commandIndex → TempManager |
+| 插件系统 v2 | [notes/03-plugin-system-v2.md](../notes/03-plugin-system-v2.md) | 继承模式 → 函数式 Descriptor → DryRun → BlueGreen |
+| 中间件链 | [notes/04-middleware-chain.md](../notes/04-middleware-chain.md) | 全局无缓存 → 三层+代际号 → 版本计数器 → 迭代构建 |
+| 生命周期管理 | [notes/05-lifecycle-management.md](../notes/05-lifecycle-management.md) | Bot 内嵌 → lifecycle 包 → 双层 Context → 状态机+回滚 |
+| 多平台适配器 | [notes/06-multi-platform-adapter.md](../notes/06-multi-platform-adapter.md) | QQ 紧耦合 → 双路径 → 三大抽象 → 6 适配器 |
+| 可观测性体系 | [notes/07-observability.md](../notes/07-observability.md) | logrus → zerolog → 自定义 Registry → 自适应采样 |
+| 命令系统 | [notes/08-command-system.md](../notes/08-command-system.md) | 引擎内嵌 → commandIndex → Trie → 别名+Fuzz |
+| 配置热更新 | [notes/09-config-hotreload.md](../notes/09-config-hotreload.md) | Viper → 纯 YAML → fsnotify → Bridge → 生命周期绑定 |
+| 基础设施工具包 | [notes/10-infra-toolkit.md](../notes/10-infra-toolkit.md) | 散落各处 → 按功能提取 → 泛型化 → 跨平台 |
+| 完整演进故事 | [notes/00-evolution.md](../notes/00-evolution.md) | 7 个阶段的完整演进脉络 |
 
 ---
 
