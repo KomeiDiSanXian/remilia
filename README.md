@@ -156,7 +156,7 @@ import (
 func New() *plugin.Descriptor {
     return &plugin.Descriptor{
         Name:    "myplugin",
-        Version: "1.0.0",
+        Version: "1.1.0",
         Meta: &plugin.Metadata{
             Description: "我的第一个插件",
             Category:    "工具",
