@@ -27,6 +27,8 @@
 - [并发事件处理](./03-architecture/CONCURRENT_EVENT_PROCESSING.md) — COW 并发模型
 - [多平台抽象](./03-architecture/MULTI_PLATFORM.md) — 跨平台适配器设计
 - [权限系统架构](./03-architecture/permission-system.md) — RBAC 权限模型
+- [架构演进总览](./03-architecture/ARCHITECTURE_EVOLUTION.md) — 7 个阶段演进 + 设计原则
+- [架构笔记](../../notes/) 📝 — 各模块 V0→当前 详细迭代记录（含代码对比，适合博客）
 
 ### 🛠️ 开发指南
 

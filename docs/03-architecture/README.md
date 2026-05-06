@@ -1,6 +1,6 @@
 # 架构设计
 
-> **最后更新**: 2026-02-25
+> **最后更新**: 2026-05-05
 
 本目录包含 Remilia 的架构设计文档，帮助你深入理解框架内部。
 
@@ -116,11 +116,15 @@
 
 ### 关键设计模式
 
-- **COW 模式**: Engine 状态管理，无锁读取
-- **中间件模式**: 请求处理链
-- **责任链模式**: Matcher 匹配
-- **读写分离**: PluginInfo（只读）/ ManagerWriter（写）
-- **函数式插件**: Descriptor 替代继承
+| 模式 | 应用位置 | 说明 |
+|------|---------|------|
+| **COW** | Engine 状态 | 读操作无锁，写时复制 |
+| **Adapter** | platform/ | 统一多平台接口 |
+| **Descriptor** | 插件系统 | 纯数据替代继承 |
+| **洋葱模型** | 中间件链 | 请求/响应包裹 |
+| **状态机** | lifecycle | 五态转换 + 回滚 |
+| **Strategy** | 热重载 | 三种策略可选 |
+| **Sharding** | TempManager | 8 分片减少锁粒度 |
 
 ---
 
@@ -133,10 +137,32 @@
 ### 中级：深入组件设计
 1. [插件系统设计](./BUILTIN_PLUGINS_DESIGN.md)
 2. [命令系统集成](./COMMAND_INTEGRATION_PLAN.md)
+3. [多平台抽象](./MULTI_PLATFORM.md)
+4. [Context 传播模式](./CONTEXT_PROPAGATION.md)
 
 ### 高级：参与架构演进
 1. [插件增强架构参考](./PLUGIN_ENHANCEMENT_PROPOSAL.md)
 2. [Help 插件设计](./HELP_PLUGIN_DESIGN.md)
+3. **[架构演进总览](./ARCHITECTURE_EVOLUTION.md)** — 理解"为什么"
+
+> 每个模块的 V0→当前 详细迭代记录在 [notes/](../../notes/) 目录中（含代码对比），强烈建议结合阅读。
+
+---
+
+### [ARCHITECTURE_EVOLUTION.md](./ARCHITECTURE_EVOLUTION.md) 📈
+**架构演进总览**
+
+阅读：
+- 7 个阶段的完整演进脉络
+- 五大核心架构原则
+- 各模块迭代路径一览
+- 架构图与设计模式总结
+
+**适合**: 想要理解"为什么这样设计"的架构研究者
+
+---
+
+> 💡 每个模块的详细迭代过程（含 V0→当前 的代码对比）在独立的 `notes/` 目录中，适合作为技术博客发布。
 
 ---
 
