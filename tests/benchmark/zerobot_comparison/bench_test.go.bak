@@ -1,0 +1,333 @@
+package zerobot_comparison
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+	_ "unsafe"
+
+	"github.com/sirupsen/logrus"
+	zero "github.com/wdvxdr1123/ZeroBot"
+
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/platform"
+)
+
+// ────────────────────────────────────────────────────────────────────────────
+// ZeroBot: link internal processEventAsync to avoid Run() global state issues
+// ────────────────────────────────────────────────────────────────────────────
+
+//go:linkname zbProcessEvent github.com/wdvxdr1123/ZeroBot.processEventAsync
+func zbProcessEvent(response []byte, caller zero.APICaller, maxwait time.Duration)
+
+type zbCaller struct{}
+
+func (zbCaller) CallAPI(_ context.Context, _ zero.APIRequest) (zero.APIResponse, error) {
+	return zero.APIResponse{}, nil
+}
+
+func init() {
+	logrus.SetLevel(logrus.ErrorLevel)
+	zero.BotConfig = zero.Config{
+		CommandPrefix: "/",
+		NickName:      []string{"bot"},
+	}
+}
+
+func zbSendEvent(data []byte) {
+	zbProcessEvent(data, zbCaller{}, time.Minute)
+}
+
+func buildCmdJSON(cmd string) []byte {
+	d, _ := json.Marshal(map[string]any{
+		"post_type":    "message",
+		"message_type": "group",
+		"detail_type":  "group",
+		"sub_type":     "normal",
+		"user_id":      12345,
+		"group_id":     67890,
+		"message":      []any{map[string]any{"type": "text", "data": map[string]string{"text": cmd}}},
+		"self_id":      99999,
+		"sender":       map[string]any{"user_id": 12345, "nickname": "t", "role": "member"},
+	})
+	return d
+}
+
+func buildNormalJSON(msg string) []byte {
+	d, _ := json.Marshal(map[string]any{
+		"post_type":    "message",
+		"message_type": "group",
+		"detail_type":  "group",
+		"sub_type":     "normal",
+		"user_id":      12345,
+		"group_id":     67890,
+		"message":      []any{map[string]any{"type": "text", "data": map[string]string{"text": msg}}},
+		"self_id":      99999,
+		"sender":       map[string]any{"user_id": 12345, "nickname": "t", "role": "member"},
+	})
+	return d
+}
+
+// spinWait spins until *addr >= target, using pure atomic load (no Sleep).
+// runtime.Gosched() yields CPU to other goroutines when busy-waiting.
+func spinWait(addr *atomic.Int64, target int64) {
+	for addr.Load() < target {
+		runtime.Gosched()
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Remilia mock event
+// ────────────────────────────────────────────────────────────────────────────
+
+type benchEvent struct {
+	content string
+	kind    platform.EventKind
+}
+
+func (e benchEvent) Platform() string                        { return "bench" }
+func (e benchEvent) Kind() platform.EventKind                 { return e.kind }
+func (e benchEvent) ID() string                               { return "ev-1" }
+func (e benchEvent) Content() string                          { return e.content }
+func (e benchEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e benchEvent) Sender() platform.UserInfo                { return platform.UserInfo{ID: "123"} }
+func (e benchEvent) Chat() platform.ChatInfo {
+	return platform.ChatInfo{ID: "456", IsGroup: true, IsDM: false}
+}
+func (e benchEvent) Timestamp() time.Time { return time.Now() }
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1. Registration
+// ════════════════════════════════════════════════════════════════════════════
+
+func BenchmarkRegistration(b *testing.B) {
+	for _, n := range []int{10, 50, 200} {
+		b.Run(fmt.Sprintf("ZeroBot-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				eng := zero.New()
+				for j := 0; j < n; j++ {
+					eng.OnMessage(zero.OnlyGroup).Handle(func(*zero.Ctx) {})
+				}
+				eng.Delete()
+			}
+		})
+
+		b.Run(fmt.Sprintf("Remilia-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				eng := engine.NewEngine()
+				for j := 0; j < n; j++ {
+					eng.OnEventKind(platform.EventKindGroupMessage).
+						Handle(func(*eventctx.Context) error { return nil })
+				}
+			}
+		})
+	}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 2. Command routing
+// ════════════════════════════════════════════════════════════════════════════
+
+func BenchmarkCommandRouting(b *testing.B) {
+	for _, n := range []int{10, 50, 200, 1000} {
+		b.Run(fmt.Sprintf("ZeroBot-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			var completed atomic.Int64
+			eng := zero.New()
+			for j := 0; j < n; j++ {
+				eng.OnCommand(fmt.Sprintf("cmd%d", j)).Handle(func(*zero.Ctx) {
+					completed.Add(1)
+				})
+			}
+			data := buildCmdJSON("/cmd0")
+			b.ResetTimer()
+			completed.Store(0)
+			for i := 0; i < b.N; i++ {
+				zbSendEvent(data)
+			}
+			spinWait(&completed, int64(b.N))
+			eng.Delete()
+		})
+
+		b.Run(fmt.Sprintf("Remilia-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			eng := engine.NewEngine()
+			for j := 0; j < n; j++ {
+				eng.OnCommand("", fmt.Sprintf("/cmd%d", j)).
+					Handle(func(*eventctx.Context) error { return nil })
+			}
+			ev := benchEvent{content: "/cmd0", kind: platform.EventKindGroupMessage}
+			sender := &platform.NoopSender{}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				eng.ProcessPlatformEvent(ev, sender)
+			}
+		})
+	}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 3. Normal (non-command) routing
+// ════════════════════════════════════════════════════════════════════════════
+
+func BenchmarkNormalRouting(b *testing.B) {
+	for _, n := range []int{10, 50, 200, 1000} {
+		b.Run(fmt.Sprintf("ZeroBot-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			var completed atomic.Int64
+			eng := zero.New()
+			for j := 0; j < n-1; j++ {
+				eng.OnMessage(zero.OnlyPrivate).Handle(func(*zero.Ctx) {})
+			}
+			eng.OnMessage(zero.OnlyGroup).Handle(func(*zero.Ctx) {
+				completed.Add(1)
+			})
+			data := buildNormalJSON("hello")
+			b.ResetTimer()
+			completed.Store(0)
+			for i := 0; i < b.N; i++ {
+				zbSendEvent(data)
+			}
+			spinWait(&completed, int64(b.N))
+			eng.Delete()
+		})
+
+		b.Run(fmt.Sprintf("Remilia-%d", n), func(b *testing.B) {
+			b.ReportAllocs()
+			eng := engine.NewEngine()
+			for j := 0; j < n-1; j++ {
+				eng.OnEventKind(platform.EventKindPrivateMessage).
+					Handle(func(*eventctx.Context) error { return nil })
+			}
+			eng.OnEventKind(platform.EventKindGroupMessage).
+				Handle(func(*eventctx.Context) error { return nil })
+			ev := benchEvent{content: "hello", kind: platform.EventKindGroupMessage}
+			sender := &platform.NoopSender{}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				eng.ProcessPlatformEvent(ev, sender)
+			}
+		})
+	}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4. Concurrent routing (1 worker only — ZeroBot doesn't scale to more)
+// ════════════════════════════════════════════════════════════════════════════
+
+func BenchmarkConcurrentRouting(b *testing.B) {
+	n := 200
+	for _, c := range []int{1} {
+		b.Run(fmt.Sprintf("ZeroBot-%dworker", c), func(b *testing.B) {
+			b.ReportAllocs()
+			eng := zero.New()
+			var completed atomic.Int64
+			for j := 0; j < n; j++ {
+				eng.OnCommand(fmt.Sprintf("cmd%d", j)).Handle(func(*zero.Ctx) {
+					completed.Add(1)
+				})
+			}
+			data := buildCmdJSON("/cmd0")
+			b.ResetTimer()
+			completed.Store(0)
+			var wg sync.WaitGroup
+			perWorker := b.N / c
+			for i := 0; i < c; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for j := 0; j < perWorker; j++ {
+						zbSendEvent(data)
+					}
+				}()
+			}
+			wg.Wait()
+			spinWait(&completed, int64(b.N))
+			eng.Delete()
+		})
+
+		b.Run(fmt.Sprintf("Remilia-%dworker", c), func(b *testing.B) {
+			b.ReportAllocs()
+			eng := engine.NewEngine()
+			for j := 0; j < n; j++ {
+				eng.OnCommand("", fmt.Sprintf("/cmd%d", j)).
+					Handle(func(*eventctx.Context) error { return nil })
+			}
+			ev := benchEvent{content: "/cmd0", kind: platform.EventKindGroupMessage}
+			sender := &platform.NoopSender{}
+			b.ResetTimer()
+			var wg sync.WaitGroup
+			perWorker := b.N / c
+			for i := 0; i < c; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for j := 0; j < perWorker; j++ {
+						eng.ProcessPlatformEvent(ev, sender)
+					}
+				}()
+			}
+			wg.Wait()
+		})
+	}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5. Throughput (events/s via manual measurement)
+// ════════════════════════════════════════════════════════════════════════════
+
+func BenchmarkThroughput(b *testing.B) {
+	for _, n := range []int{10, 200} {
+		eng := zero.New()
+		var completed atomic.Int64
+		for j := 0; j < n; j++ {
+			eng.OnCommand(fmt.Sprintf("cmd%d", j)).Handle(func(*zero.Ctx) {
+				completed.Add(1)
+			})
+		}
+		data := buildCmdJSON("/cmd0")
+		for i := 0; i < 1000; i++ {
+			zbSendEvent(data)
+		}
+		spinWait(&completed, 1000)
+		count := 50000
+		completed.Store(0)
+		start := time.Now()
+		for i := 0; i < count; i++ {
+			zbSendEvent(data)
+		}
+		spinWait(&completed, int64(count))
+		elapsed := time.Since(start)
+		b.Run(fmt.Sprintf("ZeroBot-%d", n), func(b *testing.B) {
+			b.ReportMetric(float64(count)/elapsed.Seconds(), "events/s")
+		})
+		eng.Delete()
+
+		eng2 := engine.NewEngine()
+		for j := 0; j < n; j++ {
+			eng2.OnCommand("", fmt.Sprintf("/cmd%d", j)).
+				Handle(func(*eventctx.Context) error { return nil })
+		}
+		ev := benchEvent{content: "/cmd0", kind: platform.EventKindGroupMessage}
+		sender := &platform.NoopSender{}
+		for i := 0; i < 1000; i++ {
+			eng2.ProcessPlatformEvent(ev, sender)
+		}
+		start = time.Now()
+		for i := 0; i < count; i++ {
+			eng2.ProcessPlatformEvent(ev, sender)
+		}
+		elapsed = time.Since(start)
+		b.Run(fmt.Sprintf("Remilia-%d", n), func(b *testing.B) {
+			b.ReportMetric(float64(count)/elapsed.Seconds(), "events/s")
+		})
+	}
+}
