@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/syncx"
@@ -83,8 +84,8 @@ type CheckResult struct {
 // Check 管理多个检查器并提供 HTTP 处理器。
 type Check struct {
 	checkers syncx.Map[string, Checker]
-	// timeout 应用于每个检查器。
-	timeout time.Duration
+	// timeout 应用于每个检查器（atomic 保护，避免与 SetTimeout 竞态）。
+	timeout atomic.Int64
 
 	// 结果缓存，避免高频调用时对所有 checker 并发执行
 	cacheMu      sync.RWMutex
@@ -97,22 +98,26 @@ type Check struct {
 const DefaultCacheTTL = time.Second
 
 func NewCheck() *Check {
-	return &Check{
-		timeout:  5 * time.Second,
+	c := &Check{
 		cacheTTL: DefaultCacheTTL,
 	}
+	c.timeout.Store(int64(5 * time.Second))
+	return c
 }
 
 func (h *Check) SetTimeout(timeout time.Duration) *Check {
-	h.timeout = timeout
+	h.timeout.Store(int64(timeout))
 	return h
 }
 
 // SetCacheTTL 设置健康检查结果缓存时间。
 // 设为 0 禁用缓存（每次调用都执行所有 checker）。
+// 变更 TTL 时会清空过期缓存，防止重新启用后返回旧数据。
 func (h *Check) SetCacheTTL(ttl time.Duration) *Check {
 	h.cacheMu.Lock()
 	h.cacheTTL = ttl
+	h.cachedResult = nil
+	h.cacheTime = time.Time{}
 	h.cacheMu.Unlock()
 	return h
 }
@@ -159,7 +164,7 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 		wg.Add(1)
 		go func(name string, checker Checker) {
 			defer wg.Done()
-			checkCtx, cancel := context.WithTimeout(ctx, h.timeout)
+			checkCtx, cancel := context.WithTimeout(ctx, time.Duration(h.timeout.Load()))
 			defer cancel()
 
 			start := time.Now()

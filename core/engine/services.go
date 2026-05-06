@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -19,7 +18,6 @@ import (
 // 合并原 services 和 runtime 两个结构体，减少 Engine 顶层字段数量。
 type engineInternals struct {
 	// runtime 组件管理（后台 goroutine 生命周期）
-	runtimeMu    sync.Mutex
 	runtimeComps []runtimeComponent
 
 	// metricsCollector 是可选 Prometheus 采集器的原子指针

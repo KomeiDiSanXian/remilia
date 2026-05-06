@@ -168,16 +168,12 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 		if !m.Match(ctx) {
 			continue
 		}
-		ctx.SetMatcher(m)
 
 		profile := m.execProfile
-		if profile == nil {
-			profile = &ExecProfile{}
-			m.execProfile = profile
-		}
 
-		if profile.ShouldPool() == ExecClassPool {
+		if profile != nil && profile.ShouldPool() == ExecClassPool {
 			if execPool != nil && execPool.TrySubmit(func() {
+				ctx.SetMatcher(m)
 				start := time.Now()
 				e.invokeHandler(ctx, m)
 				if p := m.execProfile; p != nil {
@@ -188,9 +184,12 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 			}
 		}
 
+		ctx.SetMatcher(m)
 		start := time.Now()
 		e.invokeHandler(ctx, m)
-		profile.Record(time.Since(start))
+		if profile != nil {
+			profile.Record(time.Since(start))
+		}
 
 		if m.isBlocking() || blockAll {
 			break

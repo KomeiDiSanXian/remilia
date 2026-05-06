@@ -78,7 +78,9 @@ func (p *YAMLConfigProvider) Sub(pluginName string) map[string]any {
 
 // OnConfigChange 注册配置变更回调。
 func (p *YAMLConfigProvider) OnConfigChange(callback func()) {
+	p.mu.Lock()
 	p.onChange = callback
+	p.mu.Unlock()
 }
 
 // Stop 取消配置变更订阅。

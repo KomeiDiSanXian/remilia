@@ -446,32 +446,25 @@ func (m *Manager) Get() (*Config, bool) {
 	c := new(*cfg)
 	// Deep copy BotConfig pointer fields so external mutation cannot affect stored config
 	if cfg.Bot.QQ != nil {
-		qq := *cfg.Bot.QQ
-		c.Bot.QQ = &qq
+		c.Bot.QQ = new(*cfg.Bot.QQ)
 	}
 	if cfg.Bot.OneBot != nil {
-		ob := *cfg.Bot.OneBot
-		c.Bot.OneBot = &ob
+		c.Bot.OneBot = new(*cfg.Bot.OneBot)
 	}
 	if cfg.Bot.Discord != nil {
-		d := *cfg.Bot.Discord
-		c.Bot.Discord = &d
+		c.Bot.Discord = new(*cfg.Bot.Discord)
 	}
 	if cfg.Bot.Satori != nil {
-		s := *cfg.Bot.Satori
-		c.Bot.Satori = &s
+		c.Bot.Satori = new(*cfg.Bot.Satori)
 	}
 	if cfg.Bot.Milky != nil {
-		mc := *cfg.Bot.Milky
-		c.Bot.Milky = &mc
+		c.Bot.Milky = new(*cfg.Bot.Milky)
 	}
 	if cfg.Bot.Telegram != nil {
-		tc := *cfg.Bot.Telegram
-		c.Bot.Telegram = &tc
+		c.Bot.Telegram = new(*cfg.Bot.Telegram)
 	}
 	if cfg.Bot.WeChat != nil {
-		wc := *cfg.Bot.WeChat
-		c.Bot.WeChat = &wc
+		c.Bot.WeChat = new(*cfg.Bot.WeChat)
 	}
 	return c, true
 }

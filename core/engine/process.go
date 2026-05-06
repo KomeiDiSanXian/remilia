@@ -128,13 +128,8 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 		recordHandlerError(err)
 	}
 
-	// 临时 matcher：按使用次数自动删除
-	// Fast path: non-temp matchers (the vast majority) skip the write-lock entirely.
-	if atomic.LoadInt32(&m.rt.isTemp) == 0 {
-		return
-	}
 	// 临时 matcher：按使用次数自动删除。
-	// 此时已通过 isTemp == 1 检查（第 134 行），且 m.rt.mu 保护 useCount/deleted 的原子性。
+	// Fast path: non-temp matchers (the vast majority) skip the write-lock entirely.
 	if atomic.LoadInt32(&m.rt.isTemp) == 0 {
 		return
 	}

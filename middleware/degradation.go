@@ -173,6 +173,8 @@ type AdaptiveDegradation struct {
 
 	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
 	metrics *degradationMetrics
+
+	started atomic.Bool // 防止 StartMonitor 重复调用
 }
 
 // DegradationConfig 降级配置
@@ -271,8 +273,11 @@ func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus
 	return ad
 }
 
-// StartMonitor 启动监控
+// StartMonitor 启动监控（幂等，可安全重复调用）。
 func (ad *AdaptiveDegradation) StartMonitor(ctx context.Context) {
+	if !ad.started.CompareAndSwap(false, true) {
+		return
+	}
 	ticker := time.NewTicker(ad.config.MonitorInterval)
 	defer ticker.Stop()
 

@@ -256,7 +256,13 @@ func (cb *CircuitBreaker) canExecute() error {
 // 若成功过渡返回 true；若因并发争用需要重试返回 false。
 func (cb *CircuitBreaker) tryTransitionToHalfOpen() bool {
 	lastFail := cb.lastFailure.Load()
-	if lastFail.IsZero() || time.Since(lastFail) < cb.config.ResetTimeout {
+	if lastFail.IsZero() {
+		return false
+	}
+	cb.mu.Lock()
+	resetTimeout := cb.config.ResetTimeout
+	cb.mu.Unlock()
+	if time.Since(lastFail) < resetTimeout {
 		return false
 	}
 	cb.mu.Lock()
@@ -275,10 +281,16 @@ func (cb *CircuitBreaker) tryTransitionToHalfOpen() bool {
 // checkHalfOpenExpired 检查半开状态是否已超时，超时则切回开启并返回错误。
 func (cb *CircuitBreaker) checkHalfOpenExpired() error {
 	halfOpenStart := cb.halfOpenStarted.Load()
-	if halfOpenStart.IsZero() || cb.config.HalfOpenTimeout <= 0 {
+	if halfOpenStart.IsZero() {
 		return nil
 	}
-	if time.Since(halfOpenStart) < cb.config.HalfOpenTimeout {
+	cb.mu.Lock()
+	halfOpenTimeout := cb.config.HalfOpenTimeout
+	cb.mu.Unlock()
+	if halfOpenTimeout <= 0 {
+		return nil
+	}
+	if time.Since(halfOpenStart) < halfOpenTimeout {
 		return nil
 	}
 	cb.mu.Lock()
@@ -294,9 +306,12 @@ func (cb *CircuitBreaker) checkHalfOpenExpired() error {
 
 // acquireHalfOpenSlot 在半开状态下原子获取一个请求槽。
 func (cb *CircuitBreaker) acquireHalfOpenSlot() error {
+	cb.mu.Lock()
+	halfOpenMaxReqs := cb.config.HalfOpenMaxRequests
+	cb.mu.Unlock()
 	for range 100 {
 		current := cb.halfOpenReqs.Load()
-		if current >= int32(cb.config.HalfOpenMaxRequests) {
+		if current >= int32(halfOpenMaxReqs) {
 			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
 		}
 		if cb.halfOpenReqs.CompareAndSwap(current, current+1) {

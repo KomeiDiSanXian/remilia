@@ -193,7 +193,10 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 			needRecompile = true
 		}
 
-		// 以下字段通过 *Meta 指针直接反映到 compiledRegistry.commandMap，无需重编译
+		// COW: 创建副本再修改，避免与 Lookup 返回的 *Meta 指针产生并发读写竞争
+		existingCopy := *existing
+		existing = &existingCopy
+		cr.trie.Insert(def.Name, existing)
 		existing.Description = def.Description
 		existing.Usage = def.Usage
 		existing.Definition = def
@@ -225,6 +228,8 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	if opts.Pattern != "" {
 		if pattern, err := regexp.Compile(opts.Pattern); err == nil {
 			meta.pattern = pattern
+		} else {
+			panic(err)
 		}
 	}
 

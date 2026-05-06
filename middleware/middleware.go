@@ -374,21 +374,11 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 			// 如果仍超过上限，淘汰最久未访问的条目（LRU），
 			// 避免 map 迭代顺序不可预测导致误删高频活跃 bucket。
 			maxPerShard := config.MaxBuckets/numShards + 1
-			if len(s.buckets) > maxPerShard {
-				var eldestKey string
-				var eldestTime time.Time
-				first := true
-				overflow := len(s.buckets) - maxPerShard
-				for k, v := range s.buckets {
-					if first || v.lastVisit.Before(eldestTime) {
-						eldestKey = k
-						eldestTime = v.lastVisit
-					}
-					first = false
-				}
-				delete(s.buckets, eldestKey)
-				// 若仍超额（极端情况），再次淘汰
-				if overflow > 1 {
+			if overflow := len(s.buckets) - maxPerShard; overflow > 0 {
+				for range overflow {
+					var eldestKey string
+					var eldestTime time.Time
+					first := true
 					for k, v := range s.buckets {
 						if first || v.lastVisit.Before(eldestTime) {
 							eldestKey = k

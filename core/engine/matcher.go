@@ -114,7 +114,8 @@ func (m *Matcher) copy() *Matcher {
 		Source:      m.Source,
 		group:       m.group,
 		middlewares: newMiddlewares,
-		definition:  m.definition, // 定义为指针，浅拷贝
+		definition:  m.definition,
+		execProfile: m.execProfile,
 	}
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
@@ -161,7 +162,10 @@ func (m *Matcher) GetSource() string {
 	if m == nil {
 		return ""
 	}
-	return m.Source
+	m.rt.mu.RLock()
+	s := m.Source
+	m.rt.mu.RUnlock()
+	return s
 }
 
 // SetSource 设置匹配器的来源标识

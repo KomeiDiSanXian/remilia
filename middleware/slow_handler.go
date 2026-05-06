@@ -79,11 +79,16 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 				}
 			}
 
-			// SlowHandler 仅用于监控，不传播 deadline 超时错误
-			if err != nil && stdCtx.Err() != nil {
-				return nil
+			// SlowHandler 仅用于监控，不传播 deadline 超时错误。
+			// 仅当错误本身是 deadline 超时或 context 取消时才屏蔽，
+			// 保留 handler 返回的其他真实业务错误。
+			if err != nil {
+				if stdCtx.Err() != nil {
+					return nil
+				}
+				return err
 			}
-			return err
+			return nil
 		}
 	}
 }

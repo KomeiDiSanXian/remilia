@@ -42,7 +42,7 @@ func TestNewCheck(t *testing.T) {
 	check := NewCheck()
 	require.NotNil(t, check)
 	assert.Equal(t, 0, check.checkers.Len()) // 零值 syncx.Map 视为空
-	assert.Equal(t, 5*time.Second, check.timeout)
+	assert.Equal(t, 5*time.Second, time.Duration(check.timeout.Load()))
 }
 
 // TestCheck_SetTimeout 测试设置超时
@@ -50,7 +50,7 @@ func TestCheck_SetTimeout(t *testing.T) {
 	check := NewCheck()
 
 	result := check.SetTimeout(10 * time.Second)
-	assert.Equal(t, 10*time.Second, check.timeout)
+	assert.Equal(t, 10*time.Second, time.Duration(check.timeout.Load()))
 	assert.Equal(t, check, result) // 验证链式调用
 }
 

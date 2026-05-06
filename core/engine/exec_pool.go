@@ -76,6 +76,11 @@ func (p *ExecPool) Wait() {
 //   - 如果池中有空闲 slot，立即启动 goroutine 执行。
 //   - 如果池满但有队列空间，任务排队等待。
 //   - 如果池满且队列满，返回 false（调用方应 fallback 同步执行）。
+//
+// 队列停滞预防：
+//
+//	每个执行完直接任务的 goroutine 会在退出前尝试 drain 队列，
+//	确保已入队的任务最终会被处理，无需依赖独立的 drain goroutine。
 func (p *ExecPool) TrySubmit(task func()) bool {
 	if p.stopped.Load() {
 		return false
@@ -92,6 +97,8 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 				p.wg.Done()
 			}()
 			task()
+			// 执行完毕后尝试 drain 队列中的剩余任务
+			p.drainQueue()
 		}()
 		return true
 	default:
@@ -101,27 +108,16 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 	// 尝试入队（非阻塞）
 	select {
 	case p.queue <- task:
-		if !p.stopped.Load() {
-			select {
-			case p.sem <- struct{}{}:
-				p.wg.Add(1)
-				go func() {
-					defer func() {
-						<-p.sem
-						p.wg.Done()
-					}()
-					p.drainQueue()
-				}()
-			default:
-			}
-		}
 		return true
 	default:
 		return false
 	}
 }
 
-// drainQueue 从队列中消费任务，直到队列为空或池停止。
+// drainQueue 从队列中消费任务，直到队列为空。
+//
+// 由已完成直接任务的 goroutine 调用，确保队列任务不会停滞。
+// 由于队列消费时持有令牌，其他 goroutine 的 drainQueue 不会重复消费。
 func (p *ExecPool) drainQueue() {
 	for {
 		select {
@@ -136,8 +132,12 @@ func (p *ExecPool) drainQueue() {
 // Drain 等待所有正在执行的任务完成，直到超时或 context 取消。
 //
 // 应在 shutdown 时调用。调用后不应再提交新任务。
+// 在等待执行中 goroutine 之前，会先消费队列中的剩余任务。
 func (p *ExecPool) Drain(ctx context.Context) error {
 	p.stopped.Store(true)
+
+	// 先消费队列中可能残留的任务（当没有活跃 goroutine 来 drain 时）
+	p.drainQueue()
 
 	done := make(chan struct{})
 	go func() {

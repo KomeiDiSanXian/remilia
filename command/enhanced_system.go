@@ -530,10 +530,14 @@ func parseValue(s string, t ArgType) (any, error) {
 // 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回空字符串。
 func (p *Parsed) GetString(name string) string {
 	if val, ok := p.Arguments[name]; ok && val != nil {
-		return val.(string)
+		if s, ok := val.(string); ok {
+			return s
+		}
 	}
 	if val, ok := p.Flags[name]; ok && val != nil {
-		return val.(string)
+		if s, ok := val.(string); ok {
+			return s
+		}
 	}
 	return ""
 }
@@ -543,10 +547,14 @@ func (p *Parsed) GetString(name string) string {
 // 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 0。
 func (p *Parsed) GetInt(name string) int {
 	if val, ok := p.Arguments[name]; ok && val != nil {
-		return val.(int)
+		if i, ok := val.(int); ok {
+			return i
+		}
 	}
 	if val, ok := p.Flags[name]; ok && val != nil {
-		return val.(int)
+		if i, ok := val.(int); ok {
+			return i
+		}
 	}
 	return 0
 }
@@ -556,10 +564,14 @@ func (p *Parsed) GetInt(name string) int {
 // 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 false。
 func (p *Parsed) GetBool(name string) bool {
 	if val, ok := p.Arguments[name]; ok && val != nil {
-		return val.(bool)
+		if b, ok := val.(bool); ok {
+			return b
+		}
 	}
 	if val, ok := p.Flags[name]; ok && val != nil {
-		return val.(bool)
+		if b, ok := val.(bool); ok {
+			return b
+		}
 	}
 	return false
 }
@@ -569,10 +581,14 @@ func (p *Parsed) GetBool(name string) bool {
 // 优先从 Arguments 中查找，其次从 Flags 中查找；若不存在或为 nil 则返回 0。
 func (p *Parsed) GetFloat(name string) float64 {
 	if val, ok := p.Arguments[name]; ok && val != nil {
-		return val.(float64)
+		if f, ok := val.(float64); ok {
+			return f
+		}
 	}
 	if val, ok := p.Flags[name]; ok && val != nil {
-		return val.(float64)
+		if f, ok := val.(float64); ok {
+			return f
+		}
 	}
 	return 0
 }

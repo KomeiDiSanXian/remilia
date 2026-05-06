@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"sort"
+	"slices"
 	"sync/atomic"
 	"time"
 )
@@ -62,10 +62,10 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 
 	// 计算 p50
 	sorted := make([]time.Duration, n)
-	for i := uint64(0); i < n; i++ {
+	for i := range n {
 		sorted[i] = p.results[i%execProfileWindowSize]
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	p50 := sorted[n/2]
 
 	threshold := defaultSlowThreshold

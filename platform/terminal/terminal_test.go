@@ -640,7 +640,7 @@ func TestAdapter_IsRunning(t *testing.T) {
 	}()
 
 	// 轮询运行状态
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if a.IsRunning() {
 			break
 		}

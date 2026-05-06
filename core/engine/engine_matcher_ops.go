@@ -24,6 +24,7 @@ func newNoopMatcher(e *Engine) *Matcher {
 		Rules:       []context.Rule{},
 		middlewares: []context.Middleware{},
 		coordinator: e,
+		execProfile: &ExecProfile{},
 	}
 	m.priority.Store(999)
 	m.rt.deleted.Store(true)
@@ -142,6 +143,7 @@ func (e *Engine) On(eventType EventType, rules ...context.Rule) *Matcher {
 		Rules:       rules,
 		coordinator: e,
 		Source:      "global",
+		execProfile: &ExecProfile{},
 	}
 	matcher.priority.Store(50)
 	return e.registerMatcher(matcher)
@@ -178,6 +180,7 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		Rules:       rules,
 		coordinator: e,
 		Source:      "temp",
+		execProfile: &ExecProfile{},
 		rt: matcherRuntime{
 			isTemp:      1,
 			maxUseCount: 1,
@@ -340,15 +343,21 @@ func (e *Engine) UpdateTempMatcherPriority(m *Matcher) {
 }
 
 // MigrateMatcherToTemp 将 matcher 迁移到 TempManager
+//
+// 先移除状态再添加到 TempManager，避免并发 ProcessEvent 过程中
+// matcher 同时在两个位置出现导致双倍执行。
+// 迁移窗口内该 matcher 可能短暂丢失事件——属于可接受行为。
 func (e *Engine) MigrateMatcherToTemp(m *Matcher) {
-	e.internals.tempManager.Add(m)
 	e.removeMatcherFromStateSilently(m)
+	e.internals.tempManager.Add(m)
 }
 
 // MigrateMatcherFromTemp 将 matcher 从 TempManager 迁移到 State
+//
+// 先从 TempManager 移除再添加到状态，防止并发 ProcessEvent 双倍执行。
 func (e *Engine) MigrateMatcherFromTemp(m *Matcher) {
-	e.addMatcherToStateSilently(m)
 	e.internals.tempManager.Remove(m)
+	e.addMatcherToStateSilently(m)
 }
 
 // ---- 索引维护 ----------------------------------------------------------------

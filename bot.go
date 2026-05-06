@@ -165,7 +165,9 @@ func (b *Bot) buildBaseLifecycle() {
 		nil,
 		func(ctx context.Context) error { return b.engine.Shutdown(ctx) },
 	))
+	b.mu.Lock()
 	b.lifecycle = lm
+	b.mu.Unlock()
 }
 
 // Start 启动 Bot。
@@ -189,9 +191,11 @@ func (b *Bot) Start() error {
 	b.buildBaseLifecycle()
 
 	// 重建 health，防止热重启后健康检查器叠加重复（B-5）
+	b.mu.Lock()
 	b.health = health.NewCheck()
 	b.health.AddChecker(NewBotStatusChecker(b))
 	b.health.AddChecker(health.NewEngineHealthChecker(b.engine))
+	b.mu.Unlock()
 
 	// 为 platformRegistry 中的每个适配器注册独立的生命周期组件
 	b.mu.RLock()
@@ -264,10 +268,13 @@ func (b *Bot) Start() error {
 //
 // Start() 之前调用返回 context.Background()。
 func (b *Bot) Context() context.Context {
-	if b.lifecycle == nil {
+	b.mu.RLock()
+	lm := b.lifecycle
+	b.mu.RUnlock()
+	if lm == nil {
 		return context.Background()
 	}
-	return b.lifecycle.ParentContext()
+	return lm.ParentContext()
 }
 
 // handlePlatformEvent 处理来自 platform.Adapter 的事件。
@@ -373,12 +380,15 @@ func (b *Bot) Stop(ctx context.Context) error {
 		_ = b.pprofServer.Stop(ctx)
 	}
 
-	if b.lifecycle == nil {
+	b.mu.RLock()
+	lm := b.lifecycle
+	b.mu.RUnlock()
+	if lm == nil {
 		logger.Warn("[Bot] lifecycle not initialized, stop skipped")
 		return nil
 	}
 
-	err := b.lifecycle.Stop(ctx)
+	err := lm.Stop(ctx)
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
@@ -447,19 +457,25 @@ func (b *Bot) Engine() *engine.Engine { return b.engine }
 // IsRunning 返回 Bot 是否正在运行。
 // 委托给 lifecycle.State()，等价于 lifecycle.StateRunning。
 func (b *Bot) IsRunning() bool {
-	if b.lifecycle == nil {
+	b.mu.RLock()
+	lm := b.lifecycle
+	b.mu.RUnlock()
+	if lm == nil {
 		return false
 	}
-	return b.lifecycle.State() == lifecycle.StateRunning
+	return lm.State() == lifecycle.StateRunning
 }
 
 // Uptime 返回 Bot 运行时间。
 // 委托给 lifecycle.Uptime()，该函数正确处理运行/停止两种状态的时长计算。
 func (b *Bot) Uptime() time.Duration {
-	if b.lifecycle == nil {
+	b.mu.RLock()
+	lm := b.lifecycle
+	b.mu.RUnlock()
+	if lm == nil {
 		return 0
 	}
-	return b.lifecycle.Uptime()
+	return lm.Uptime()
 }
 
 // Config 获取 Bot 元数据副本。
@@ -473,18 +489,29 @@ func (b *Bot) Config() BotMeta {
 func (b *Bot) Health() health.CheckResponse {
 	ctx, cancel := context.WithTimeout(b.Context(), 5*time.Second)
 	defer cancel()
-	return b.health.Check(ctx)
+	b.mu.RLock()
+	h := b.health
+	b.mu.RUnlock()
+	return h.Check(ctx)
 }
 
 // HealthCheck 返回 health.Check 实例
-func (b *Bot) HealthCheck() *health.Check { return b.health }
+func (b *Bot) HealthCheck() *health.Check {
+	b.mu.RLock()
+	h := b.health
+	b.mu.RUnlock()
+	return h
+}
 
 // State 返回生命周期状态
 func (b *Bot) State() lifecycle.State {
-	if b.lifecycle == nil {
+	b.mu.RLock()
+	lm := b.lifecycle
+	b.mu.RUnlock()
+	if lm == nil {
 		return lifecycle.StateCreated
 	}
-	return b.lifecycle.State()
+	return lm.State()
 }
 
 // OnAny 注册处理所有事件的规则

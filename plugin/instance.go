@@ -105,21 +105,23 @@ func (pi *Instance) load(ctx context.Context) (loadErr error) {
 func (pi *Instance) buildTeardownContext() *TeardownContext {
 	pi.mu.RLock()
 	api := pi.exportedAPI
+	setupCtx := pi.setupContext
+	name := pi.desc.Name
 	pi.mu.RUnlock()
 
 	var cfg Config
 	var bus EventBus
 	var info Info
-	if pi.setupContext != nil {
-		cfg = pi.setupContext.Config
-		bus = pi.setupContext.EventBus
-		info = pi.setupContext.Info // 复用 Setup 阶段的 Info 只读视图
+	if setupCtx != nil {
+		cfg = setupCtx.Config
+		bus = setupCtx.EventBus
+		info = setupCtx.Info
 	}
 	return &TeardownContext{
 		API:      api,
 		Config:   cfg,
 		EventBus: bus,
-		Log:      newPluginLogger(pi.desc.Name),
+		Log:      newPluginLogger(name),
 		Info:     info,
 	}
 }

@@ -152,11 +152,14 @@ func SimpleRateLimit(perSecond float64) eventctx.Middleware {
 // 使用示例:
 //
 //	engine.Use(middleware.SimpleDedup())
+//
+// 注意：此便捷函数创建的过滤器不会启动后台清理 goroutine，
+// 过期条目会在 CheckDuplicate 路径满时被内联清理。
+// 如需后台主动清理，请使用 NewDedupFilterWithContext + Dedup 组合。
 func SimpleDedup() eventctx.Middleware {
 	config := DedupConfig{
-		MaxSize:         10000,
-		DefaultTTL:      5 * time.Minute,
-		CleanupInterval: time.Minute,
+		MaxSize:    10000,
+		DefaultTTL: 5 * time.Minute,
 	}
 	filter := NewDedupFilter(config)
 	return Dedup(filter)
@@ -167,11 +170,12 @@ func SimpleDedup() eventctx.Middleware {
 // 使用示例:
 //
 //	engine.Use(middleware.SimpleDedupWithTTL(5 * time.Minute))
+//
+// 注意：此便捷函数创建的过滤器不会启动后台清理 goroutine。
 func SimpleDedupWithTTL(ttl time.Duration) eventctx.Middleware {
 	config := DedupConfig{
-		MaxSize:         10000,
-		DefaultTTL:      ttl,
-		CleanupInterval: time.Minute,
+		MaxSize:    10000,
+		DefaultTTL: ttl,
 	}
 	filter := NewDedupFilter(config)
 	return Dedup(filter)

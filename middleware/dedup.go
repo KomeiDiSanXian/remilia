@@ -57,12 +57,24 @@ func DefaultDedupConfig() DedupConfig {
 	}
 }
 
-// NewDedupFilter 创建新的去重过滤器（使用 context.Background() 作为根 context）
+// NewDedupFilter 创建简单的去重过滤器（无后台 goroutine）。
 //
-// 注意：调用方应在不再使用时调用 filter.Stop() 释放后台 goroutine。
-// 若想让 goroutine 与外部生命周期自动联动，请使用 NewDedupFilterWithContext。
+// 与 NewDedupFilterWithContext 不同，此函数不会启动后台清理 goroutine，
+// 过期条目会在 CheckDuplicate 路径满时被内联清理。
+// 如需后台主动清理及生命周期联动，请使用 NewDedupFilterWithContext。
 func NewDedupFilter(config DedupConfig) *DedupFilter {
-	return NewDedupFilterWithContext(context.Background(), config)
+	if config.MaxSize <= 0 {
+		config.MaxSize = 10000
+	}
+	if config.DefaultTTL <= 0 {
+		config.DefaultTTL = 5 * time.Minute
+	}
+	return &DedupFilter{
+		cache:       make(map[string]int64, config.MaxSize/2),
+		maxSize:     config.MaxSize,
+		defaultTTL:  config.DefaultTTL,
+		cleanupDone: make(chan struct{}),
+	}
 }
 
 // NewDedupFilterWithContext 创建与外部 context 联动的去重过滤器。

@@ -425,14 +425,16 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 		}
 		pm.mu.RLock()
 		inst, exists := pm.plugins[depName]
-		pm.mu.RUnlock()
 		if !exists {
+			pm.mu.RUnlock()
 			continue
 		}
-		if !slices.Contains(inst.desc.Deps, reloadedPlugin) {
-			continue
-		}
+		deps := inst.desc.Deps
 		cb := inst.desc.getOnDependencyReloaded()
+		pm.mu.RUnlock()
+		if !slices.Contains(deps, reloadedPlugin) {
+			continue
+		}
 		if cb == nil {
 			continue
 		}

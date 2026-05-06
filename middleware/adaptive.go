@@ -139,6 +139,9 @@ type AdaptiveRateLimiter struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	mu     sync.RWMutex
+
+	// startOnce 防止 Start() 重复调用产生多个后台 goroutine
+	startOnce sync.Once
 }
 
 // AdaptiveConfig 自适应限流配置
@@ -246,17 +249,19 @@ func NewAdaptiveRateLimiterWithContext(parent context.Context, config AdaptiveCo
 	return arl
 }
 
-// Start 启动自适应调整
+// Start 启动自适应调整（幂等，可安全重复调用）。
 func (arl *AdaptiveRateLimiter) Start() {
-	arl.wg.Add(2)
-	go arl.adjustLoop()
-	go arl.metricsLoop()
+	arl.startOnce.Do(func() {
+		arl.wg.Add(2)
+		go arl.adjustLoop()
+		go arl.metricsLoop()
 
-	logger.WithFields(logger.Fields{
-		"initial_limit": arl.config.InitialLimit,
-		"min":           arl.config.MinConcurrency,
-		"max":           arl.config.MaxConcurrency,
-	}).Info("[AdaptiveRateLimiter] Started")
+		logger.WithFields(logger.Fields{
+			"initial_limit": arl.config.InitialLimit,
+			"min":           arl.config.MinConcurrency,
+			"max":           arl.config.MaxConcurrency,
+		}).Info("[AdaptiveRateLimiter] Started")
+	})
 }
 
 // Stop 停止自适应调整

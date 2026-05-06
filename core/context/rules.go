@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -119,7 +120,7 @@ func OnSuffix(suffix string) Rule {
 // 使用 LRU 策略限制缓存大小，防止内存泄漏和 DoS 攻击
 type regexCacheStore struct {
 	cache   *lru.Cache[string, *regexp.Regexp]
-	maxSize int
+	maxSize atomic.Int64
 }
 
 // DefaultRegexCacheSize 是正则表达式 LRU 缓存的默认容量。
@@ -130,8 +131,13 @@ var (
 	regexCache     *regexCacheStore
 	regexCacheOnce sync.Once
 	// regexCacheDesiredSize 允许在 initRegexCache 首次被调用前通过 SetRegexCacheSize 指定大小
-	regexCacheDesiredSize = DefaultRegexCacheSize
+	// 使用 init() 而非声明时初始化，避免 "var regexCacheDesiredSize atomic.Int64 = ..." 的语法限制
+	regexCacheDesiredSize atomic.Int64
 )
+
+func init() {
+	regexCacheDesiredSize.Store(DefaultRegexCacheSize)
+}
 
 // SetRegexCacheSize 在框架初始化前设置正则表达式 LRU 缓存的最大容量。
 //
@@ -145,21 +151,26 @@ var (
 // 注意：size <= 0 时静默忽略，保留当前值。
 func SetRegexCacheSize(size int) {
 	if size > 0 {
-		regexCacheDesiredSize = size
+		regexCacheDesiredSize.Store(int64(size))
 	}
 }
 
 // initRegexCache 初始化正则表达式缓存（使用 regexCacheDesiredSize）
 func initRegexCache() {
 	regexCacheOnce.Do(func() {
-		cache, err := lru.New[string, *regexp.Regexp](regexCacheDesiredSize)
+		desired := int(regexCacheDesiredSize.Load())
+		if desired <= 0 {
+			desired = DefaultRegexCacheSize
+		}
+		cache, err := lru.New[string, *regexp.Regexp](desired)
 		if err != nil {
 			panic(err)
 		}
 		regexCache = &regexCacheStore{
 			cache:   cache,
-			maxSize: regexCacheDesiredSize,
+			maxSize: atomic.Int64{},
 		}
+		regexCache.maxSize.Store(int64(desired))
 	})
 }
 
@@ -417,7 +428,7 @@ func GetRegexCacheSize() int {
 // GetRegexCacheMaxSize 获取正则表达式缓存最大容量
 func GetRegexCacheMaxSize() int {
 	initRegexCache()
-	return regexCache.maxSize
+	return int(regexCache.maxSize.Load())
 }
 
 // SetRegexCacheMaxSize 设置正则表达式缓存最大容量
@@ -427,7 +438,7 @@ func SetRegexCacheMaxSize(size int) {
 	}
 	initRegexCache()
 	regexCache.cache.Resize(size)
-	regexCache.maxSize = size
+	regexCache.maxSize.Store(int64(size))
 }
 
 // ---- Cooldown Rule --------------------------------------------------------
