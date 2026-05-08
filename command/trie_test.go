@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/trie"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTrie(t *testing.T) {
-	trie := NewTrie()
+	trie := trie.New[*Meta]()
 
 	// Test Insert and Search
 	t.Run("Insert and Search", func(t *testing.T) {
@@ -109,7 +110,7 @@ func TestCommandRegistryWithTrie(t *testing.T) {
 }
 
 func BenchmarkTrieInsert(b *testing.B) {
-	trie := NewTrie()
+	trie := trie.New[*Meta]()
 	meta := &Meta{Name: "/test"}
 
 	b.ResetTimer()
@@ -119,7 +120,7 @@ func BenchmarkTrieInsert(b *testing.B) {
 }
 
 func BenchmarkTrieSearch(b *testing.B) {
-	trie := NewTrie()
+	trie := trie.New[*Meta]()
 	for i := range 100 {
 		meta := &Meta{Name: fmt.Sprintf("/cmd%d", i)}
 		trie.Insert(meta.Name, meta)

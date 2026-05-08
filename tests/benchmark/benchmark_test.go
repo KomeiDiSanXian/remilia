@@ -8,6 +8,7 @@ import (
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/trie"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -141,7 +142,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 	b.Run("Insert", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			trie := command.NewTrie()
+			trie := trie.New[*command.Meta]()
 			for j := range 100 {
 				trie.Insert("/command"+string(rune(j)), nil)
 			}
@@ -149,7 +150,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 	})
 
 	b.Run("Search", func(b *testing.B) {
-		trie := command.NewTrie()
+		trie := trie.New[*command.Meta]()
 		for j := range 100 {
 			trie.Insert("/command"+string(rune(j)), nil)
 		}
@@ -163,7 +164,7 @@ func BenchmarkTrieOperations(b *testing.B) {
 	})
 
 	b.Run("PrefixSearch", func(b *testing.B) {
-		trie := command.NewTrie()
+		trie := trie.New[*command.Meta]()
 		for j := range 100 {
 			trie.Insert("/command"+string(rune(j)), nil)
 		}

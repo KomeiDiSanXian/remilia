@@ -10,6 +10,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	rcontext "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/trie"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -190,7 +191,7 @@ func FuzzTrieOperations(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input string) {
-		trie := command.NewTrie()
+		trie := trie.New[*command.Meta]()
 
 		// Insert 不应该 panic
 		trie.Insert(input, nil)

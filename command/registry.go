@@ -11,6 +11,7 @@ import (
 	"time"
 
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
+	"github.com/KomeiDiSanXian/remilia/infra/trie"
 )
 
 // Registry 是一个高性能的命令注册表
@@ -19,7 +20,7 @@ import (
 // 优化: 使用单一 Trie 树索引，移除冗余的 commands map，减少 40-50% 内存占用
 type Registry struct {
 	// 索引结构 - 统一使用 Trie 树
-	trie *Trie // Trie 树用于精确查找和前缀搜索
+	trie *trie.Trie[*Meta] // Trie 树用于精确查找和前缀搜索
 
 	// 别名映射（保留 map，因为别名不需要前缀搜索）
 	aliases map[string]string // alias -> command name
@@ -74,7 +75,7 @@ type compiledRegistry struct {
 // NewCommandRegistry 创建新的命令注册表
 func NewCommandRegistry() *Registry {
 	cr := &Registry{
-		trie:    NewTrie(),
+		trie:    trie.New[*Meta](),
 		aliases: make(map[string]string),
 	}
 	cr.compiled.Store(&compiledRegistry{

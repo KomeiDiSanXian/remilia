@@ -3,13 +3,14 @@ package command
 import (
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/infra/trie"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestTrieExactMatch 测试 Trie 的精确匹配功能
 func TestTrieExactMatch(t *testing.T) {
-	trie := NewTrie()
+	trie := trie.New[*Meta]()
 
 	// 注册命令
 	def1 := &Definition{Name: "/help"}
