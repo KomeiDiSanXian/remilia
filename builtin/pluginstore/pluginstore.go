@@ -24,10 +24,12 @@ package pluginstore
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -64,14 +66,21 @@ type Plugin struct {
 	regs     map[string]*registration
 	fileMu   sync.Mutex // guards read-modify-write on the data file
 	dataFile string     // 持久化文件路径（空字符串=无持久化）
+	store    kv.Store   // LevelDB 存储（优先级高于 dataFile）
 }
 
 // Option 配置选项
 type Option func(*Plugin)
 
 // WithDataFile 设置 JSON 持久化文件路径。空字符串表示禁用持久化。
+// 与 WithStore/WithLevelDB 互斥，优先级低于 WithStore。
 func WithDataFile(path string) Option {
 	return func(p *Plugin) { p.dataFile = path }
+}
+
+// WithStore 设置 KV 存储后端（如 LevelDB）。优先级高于 WithDataFile。
+func WithStore(s kv.Store) Option {
+	return func(p *Plugin) { p.store = s }
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -171,9 +180,6 @@ func (p *Plugin) SaveAll() (saved, failed int) {
 }
 
 func (p *Plugin) doSave(r *registration) error {
-	if p.dataFile == "" {
-		return fmt.Errorf("pluginstore: no data file configured")
-	}
 	state, err := r.save()
 	if err != nil {
 		return fmt.Errorf("pluginstore: SaveState for %s failed: %w", r.name, err)
@@ -184,6 +190,18 @@ func (p *Plugin) doSave(r *registration) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("pluginstore: marshal for %s failed: %w", r.name, err)
+	}
+
+	if p.store != nil {
+		if err := p.store.Set([]byte(r.name), data); err != nil {
+			return fmt.Errorf("pluginstore: write for %s failed: %w", r.name, err)
+		}
+		logger.Debugf("[PluginStore] Saved state for plugin %s (%d bytes)", r.name, len(data))
+		return nil
+	}
+
+	if p.dataFile == "" {
+		return fmt.Errorf("pluginstore: no storage configured")
 	}
 
 	p.fileMu.Lock()
@@ -201,6 +219,18 @@ func (p *Plugin) doSave(r *registration) error {
 }
 
 func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
+	if p.store != nil {
+		raw, err := p.store.Get([]byte(name))
+		if errors.Is(err, kv.ErrNotFound) {
+			return
+		}
+		if err != nil {
+			logger.WithError(err).Warnf("[PluginStore] Failed to read state for plugin %s", name)
+			return
+		}
+		p.restoreFromRaw(name, raw, restore)
+		return
+	}
 	if p.dataFile == "" {
 		return
 	}
@@ -214,6 +244,10 @@ func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
 	if !ok {
 		return
 	}
+	p.restoreFromRaw(name, raw, restore)
+}
+
+func (p *Plugin) restoreFromRaw(name string, raw []byte, restore RestoreFunc) {
 	var state any
 	if err := json.Unmarshal(raw, &state); err != nil {
 		logger.WithError(err).Warnf("[PluginStore] Failed to unmarshal state for plugin %s", name)
@@ -237,9 +271,9 @@ func (p *Plugin) ListRegistered() []string {
 	return names
 }
 
-// HasStorage 报告是否已配置数据文件（兼容旧 API 名称）。
+// HasStorage 报告是否已配置持久化后端。
 func (p *Plugin) HasStorage() bool {
-	return p.dataFile != ""
+	return p.store != nil || p.dataFile != ""
 }
 
 // SetDataFileForTest 直接设置数据文件路径（仅用于测试）。
