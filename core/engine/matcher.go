@@ -633,7 +633,7 @@ func (m *Matcher) BindCommand(cmd string) *Matcher {
 	m.rt.mu.Lock()
 	trimmed := strings.TrimSpace(cmd)
 	if trimmed != "" {
-		prefix, cmdName := SplitCommandPattern(trimmed)
+		prefix, cmdName := context.SplitCommandPattern(trimmed)
 		m.triggerPrefix = prefix
 		if m.definition == nil {
 			m.definition = &command.Definition{Name: cmdName}

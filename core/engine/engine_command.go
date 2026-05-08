@@ -55,7 +55,7 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 
 	trimmedPattern := strings.TrimSpace(cmdPattern)
 	if trimmedPattern != "" {
-		prefix, cmdName := SplitCommandPattern(trimmedPattern)
+		prefix, cmdName := context.SplitCommandPattern(trimmedPattern)
 		m.triggerPrefix = prefix
 		if cmdName != "" {
 			m.definition = &command.Definition{

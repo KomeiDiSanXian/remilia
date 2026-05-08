@@ -346,7 +346,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 			help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 			if len(cmd.Aliases) > 0 {
-				prefix, _ := engine.SplitCommandPattern(cmd.Command)
+				prefix, _ := eventctx.SplitCommandPattern(cmd.Command)
 				aliases := make([]string, len(cmd.Aliases))
 				for i, alias := range cmd.Aliases {
 					aliases[i] = prefix + alias
@@ -549,7 +549,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 		help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 		if len(cmd.Aliases) > 0 {
-			prefix, _ := engine.SplitCommandPattern(cmd.Command)
+			prefix, _ := eventctx.SplitCommandPattern(cmd.Command)
 			aliases := make([]string, len(cmd.Aliases))
 			for i, alias := range cmd.Aliases {
 				aliases[i] = prefix + alias
@@ -677,7 +677,7 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 				detail.WriteString(fmt.Sprintf("  %s - %s\n",
 					subCmd.Name, subCmd.Description))
 			}
-			prefix, cmdName := engine.SplitCommandPattern(cmdInfo.Command)
+			prefix, cmdName := eventctx.SplitCommandPattern(cmdInfo.Command)
 			detail.WriteString(fmt.Sprintf("\n使用 %s%s/<子命令> 查看子命令详情\n",
 				prefix, cmdName))
 		}
@@ -737,13 +737,13 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, force
 	var suggestions []string
 
 	// 去除用户输入中可能携带的命令前缀字符
-	_, searchTerm := engine.SplitCommandPattern(target)
+	_, searchTerm := eventctx.SplitCommandPattern(target)
 	if searchTerm == "" {
 		searchTerm = target
 	}
 
 	for _, cmd := range allCommands {
-		_, cmdName := engine.SplitCommandPattern(cmd.Command)
+		_, cmdName := eventctx.SplitCommandPattern(cmd.Command)
 		// 前缀匹配
 		if strings.HasPrefix(cmdName, searchTerm) {
 			suggestions = append(suggestions, cmd.Command)
@@ -756,7 +756,7 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, force
 	// 如果前缀匹配没有结果，尝试包含匹配
 	if len(suggestions) == 0 {
 		for _, cmd := range allCommands {
-			_, cmdName := engine.SplitCommandPattern(cmd.Command)
+			_, cmdName := eventctx.SplitCommandPattern(cmd.Command)
 			if strings.Contains(cmdName, searchTerm) {
 				suggestions = append(suggestions, cmd.Command)
 				if len(suggestions) >= 5 {
