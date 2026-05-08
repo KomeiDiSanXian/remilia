@@ -5,7 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -66,9 +65,9 @@ type Matcher struct {
 
 	definition *command.Definition // 命令定义（可选，包含所有元数据）
 
-	// triggerPrefix 是命令的触发前缀（如 "/" 或 "!"），
-	// 在 OnCommand/RegisterCommandDef 时从 cmdPattern 的第一个字符提取。
-	// 用于 GetCommand()、bindCommand 和别名注册等需要还原命令字符串的场景。
+	// triggerPrefix 是命令的触发前缀（如 "/"、"!"、"$#"），
+	// 在 OnCommand/RegisterCommandDef 时从 cmdPattern 的开头非字母数字序列提取。
+	// 用于 GetCommand()、BindCommand 和别名注册等需要还原命令字符串的场景。
 	triggerPrefix string
 
 	// execProfile 跟踪此 matcher 的执行耗时，用于自适应决定走同步还是 ExecPool。
@@ -620,11 +619,11 @@ func (m *Matcher) isBlocking() bool {
 	return m.isBlock.Load()
 }
 
-// BindCommand 手动绑定触发命令（向后兼容：仅剥离 "/" 前缀）
+// BindCommand 手动绑定触发命令
 //
 // 此方法会自动创建或更新 Definition.Name。
-// cmd 应包含 "/" 前缀（如 "/help"），或仅命令名（如 "help"）。
-// 若第一个字符为 "/"，则自动剥离并设置 triggerPrefix 为 "/"。
+// cmd 应包含前缀（如 "/help"、"!!admin"），或仅命令名（如 "help"）。
+// 开头的连续非字母数字字符会被识别为前缀并自动剥离。
 // 如需自定义前缀，请使用 RegisterCommandWithPrefix。
 func (m *Matcher) BindCommand(cmd string) *Matcher {
 	if m.isNoop() {
@@ -634,12 +633,8 @@ func (m *Matcher) BindCommand(cmd string) *Matcher {
 	m.rt.mu.Lock()
 	trimmed := strings.TrimSpace(cmd)
 	if trimmed != "" {
-		first := rune(trimmed[0])
-		cmdName := trimmed
-		if !unicode.IsLetter(first) && !unicode.IsDigit(first) {
-			m.triggerPrefix = string(first)
-			cmdName = trimmed[1:]
-		}
+		prefix, cmdName := SplitCommandPattern(trimmed)
+		m.triggerPrefix = prefix
 		if m.definition == nil {
 			m.definition = &command.Definition{Name: cmdName}
 		} else {

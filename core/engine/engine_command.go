@@ -55,9 +55,8 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 
 	trimmedPattern := strings.TrimSpace(cmdPattern)
 	if trimmedPattern != "" {
-		// 第一个字符为触发前缀
-		m.triggerPrefix = string(trimmedPattern[0])
-		cmdName := trimmedPattern[1:]
+		prefix, cmdName := SplitCommandPattern(trimmedPattern)
+		m.triggerPrefix = prefix
 		if cmdName != "" {
 			m.definition = &command.Definition{
 				Name: cmdName,
