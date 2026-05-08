@@ -331,10 +331,7 @@ func (p *Plugin) handleDebugMatcher(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 请指定要查看的命令名称\n用法: /debug matcher <命令>")
 	}
 
-	// 去除命令前缀
-	cmdName = strings.TrimPrefix(cmdName, "/")
-
-	// 查找命令
+	// 查找命令（FindCommand 自动处理各种命令前缀）
 	cmdInfo := p.Engine.FindCommand(cmdName)
 	if cmdInfo == nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 未找到命令: %s", cmdName))
@@ -534,10 +531,7 @@ func (p *Plugin) handleDebugBench(ctx *eventctx.Context) error {
 		return p.reply(ctx, "❌ 请指定要测试的命令\n用法: /debug bench <命令>")
 	}
 
-	// 去除命令前缀
-	cmdName = strings.TrimPrefix(cmdName, "/")
-
-	// 查找命令
+	// 查找命令（FindCommand 自动处理各种命令前缀）
 	cmdInfo := p.Engine.FindCommand(cmdName)
 	if cmdInfo == nil {
 		return p.reply(ctx, fmt.Sprintf("❌ 未找到命令: %s", cmdName))

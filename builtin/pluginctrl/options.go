@@ -16,6 +16,8 @@ type options struct {
 	superUsers []string
 	// defaultEnabled 插件未设置时的默认开关状态（默认 true）
 	defaultEnabled bool
+	// commandPrefix 管理指令的触发前缀（默认 "/"）
+	commandPrefix string
 
 	// 群级/全局 指令文本（均可自定义）
 	enableCmd        string
@@ -49,6 +51,7 @@ type options struct {
 func defaultOptions() *options {
 	return &options{
 		defaultEnabled:   true,
+		commandPrefix:    "/",
 		enableCmd:        "开启",
 		disableCmd:       "关闭",
 		listCmd:          "服务列表",
@@ -183,6 +186,19 @@ func WithFlipDefaultCommand(cmd string) Option {
 //	})
 func WithServiceListRenderer(r ServiceListRenderer) Option {
 	return func(o *options) { o.serviceListRenderer = r }
+}
+
+// WithCommandPrefix 自定义管理指令的触发前缀（默认 "/"）。
+//
+//	pluginctrl.New(
+//	    pluginctrl.WithCommandPrefix("!"),
+//	)
+func WithCommandPrefix(prefix string) Option {
+	return func(o *options) {
+		if prefix != "" {
+			o.commandPrefix = prefix
+		}
+	}
 }
 
 // WithExcludedPlugins 追加不需要自动注入 combinedGuard 的插件名。

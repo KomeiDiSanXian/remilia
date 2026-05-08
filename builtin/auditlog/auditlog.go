@@ -17,11 +17,15 @@
 package auditlog
 
 import (
+	"slices"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -55,6 +59,7 @@ type Plugin struct {
 	entries  []LogEntry
 	nextID   int64
 	dataFile string // 持久化文件路径（空字符串=纯内存）
+	Engine   engine.Reader
 }
 
 // Option 配置选项
@@ -105,6 +110,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
+			p.Engine = ctx.Info.Coordinator()
 			p.loadFromFile()
 			return p, nil
 		},
@@ -166,13 +172,33 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			content := ctx.GetMessageContent()
-			if len(content) > 0 && content[0] == '/' {
+			if p.isCommand(content) {
 				p.Record(ctx, "command", map[string]any{"cmd": content})
 			}
 			return next(ctx)
 		}
 	}
 }
+
+// isCommand 检查消息是否匹配已注册的某个命令触发词
+func (p *Plugin) isCommand(content string) bool {
+	if p.Engine == nil {
+		return false
+	}
+	trimmed := strings.TrimLeftFunc(content, unicode.IsSpace)
+	if trimmed == "" {
+		return false
+	}
+	commands := p.Engine.GetAllCommands()
+	for _, cmd := range commands {
+		if cmd.Command != "" && strings.HasPrefix(trimmed, cmd.Command) {
+			return true
+		}
+	}
+	return false
+}
+
+// Recent 查询最近 n 条日志，如果 n <=0 则返回全部日志
 func (p *Plugin) Recent(n int) []LogEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -197,9 +223,7 @@ func (p *Plugin) ByUser(userID string, n int) []LogEntry {
 		}
 	}
 	// reverse
-	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-		result[i], result[j] = result[j], result[i]
-	}
+	slices.Reverse(result)
 	return result
 }
 

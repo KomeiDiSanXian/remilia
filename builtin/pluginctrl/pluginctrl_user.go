@@ -322,7 +322,7 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) < 2 {
 		_, _ = ctx.Reply(platform.TextMessage(
-			fmt.Sprintf("❌ 用法：/%s <用户ID> <插件名>", verb),
+			fmt.Sprintf("❌ 用法：%s%s <用户ID> <插件名>", p.opts.commandPrefix, verb),
 		))
 		return nil
 	}
@@ -356,7 +356,7 @@ func (p *Plugin) handleBan(ctx *eventctx.Context) error {
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
 		_, _ = ctx.Reply(platform.TextMessage(
-			fmt.Sprintf("❌ 用法：/%s <用户ID>", p.opts.banCmd),
+			fmt.Sprintf("❌ 用法：%s%s <用户ID>", p.opts.commandPrefix, p.opts.banCmd),
 		))
 		return nil
 	}
@@ -380,7 +380,7 @@ func (p *Plugin) handleUnban(ctx *eventctx.Context) error {
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
 		_, _ = ctx.Reply(platform.TextMessage(
-			fmt.Sprintf("❌ 用法：/%s <用户ID>", p.opts.unbanCmd),
+			fmt.Sprintf("❌ 用法：%s%s <用户ID>", p.opts.commandPrefix, p.opts.unbanCmd),
 		))
 		return nil
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -274,9 +275,8 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 		}
 	}
 
-	// 尝试作为命令名查找（支持带或不带 / 前缀）
-	cmdName := strings.TrimPrefix(target, "/")
-	if cmdInfo := p.Engine.FindCommand(cmdName); cmdInfo != nil {
+	// 尝试作为命令名查找（支持带或不带前缀）
+	if cmdInfo := p.Engine.FindCommand(target); cmdInfo != nil {
 		return p.showCommandDetail(ctx, cmdInfo, forceText)
 	}
 
@@ -347,7 +347,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 			help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 			if len(cmd.Aliases) > 0 {
-				prefix := "/"
+				prefix := ""
 				if len(cmd.Command) > 0 {
 					prefix = string(cmd.Command[0])
 				}
@@ -553,7 +553,7 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 		help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
 		if len(cmd.Aliases) > 0 {
-			prefix := "/"
+			prefix := ""
 			if len(cmd.Command) > 0 {
 				prefix = string(cmd.Command[0])
 			}
@@ -584,10 +584,9 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 // showCommandDetail 显示特定命令的详细信息
 func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.CommandInfo, forceText bool) error {
 	// 尝试从缓存获取
-	cmdName := strings.TrimPrefix(cmdInfo.Command, "/")
-	cacheKey := fmt.Sprintf("command:%s", cmdName)
+	cacheKey := fmt.Sprintf("command:%s", cmdInfo.Command)
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
-		logger.Debugf("[help] Cache hit for command: %s", cmdName)
+		logger.Debugf("[help] Cache hit for command: %s", cmdInfo.Command)
 		return p.sendMessage(ctx, cached, forceText, cacheKey)
 	}
 
@@ -685,9 +684,13 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 				detail.WriteString(fmt.Sprintf("  %s - %s\n",
 					subCmd.Name, subCmd.Description))
 			}
-			cmdName := strings.TrimPrefix(cmdInfo.Command, "/")
-			detail.WriteString(fmt.Sprintf("\n使用 /help %s/<子命令> 查看子命令详情\n",
-				cmdName))
+			prefix := ""
+			if len(cmdInfo.Command) > 0 {
+				prefix = string(cmdInfo.Command[0])
+			}
+			cmdName := strings.TrimPrefix(cmdInfo.Command, prefix)
+			detail.WriteString(fmt.Sprintf("\n使用 %s%s/<子命令> 查看子命令详情\n",
+				prefix, cmdName))
 		}
 	}
 
@@ -743,10 +746,21 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, force
 	// 尝试提供相似命令建议
 	allCommands := p.Engine.GetAllCommands()
 	var suggestions []string
-	searchTerm := strings.TrimPrefix(target, "/")
+
+	// 去除用户输入中可能携带的命令前缀字符
+	searchTerm := target
+	if len(searchTerm) > 0 {
+		first := rune(searchTerm[0])
+		if !unicode.IsLetter(first) && !unicode.IsDigit(first) {
+			searchTerm = searchTerm[1:]
+		}
+	}
 
 	for _, cmd := range allCommands {
-		cmdName := strings.TrimPrefix(cmd.Command, "/")
+		cmdName := cmd.Command
+		if len(cmdName) > 1 {
+			cmdName = cmdName[1:] // 跳过前缀字符
+		}
 		// 前缀匹配
 		if strings.HasPrefix(cmdName, searchTerm) {
 			suggestions = append(suggestions, cmd.Command)
@@ -759,7 +773,10 @@ func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, force
 	// 如果前缀匹配没有结果，尝试包含匹配
 	if len(suggestions) == 0 {
 		for _, cmd := range allCommands {
-			cmdName := strings.TrimPrefix(cmd.Command, "/")
+			cmdName := cmd.Command
+			if len(cmdName) > 1 {
+				cmdName = cmdName[1:] // 跳过前缀字符
+			}
 			if strings.Contains(cmdName, searchTerm) {
 				suggestions = append(suggestions, cmd.Command)
 				if len(suggestions) >= 5 {

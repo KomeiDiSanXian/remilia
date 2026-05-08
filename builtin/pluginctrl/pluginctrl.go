@@ -479,7 +479,7 @@ func (p *Plugin) handleToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：/%s <插件名>", verb)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
 		return nil
 	}
 	pluginName := args.Positional[0]
@@ -514,7 +514,7 @@ func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：/%s <插件名>", verb)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
 		return nil
 	}
 	pluginName := args.Positional[0]
@@ -548,7 +548,7 @@ func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 			_, _ = ctx.Reply(platform.TextMessage("✅ 已将本群设置为静默状态"))
 			return nil
 		}
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：/%s [群ID]", p.opts.silenceCmd)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.silenceCmd)))
 		return nil
 	}
 	groupID := args.Positional[0]
@@ -577,7 +577,7 @@ func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 			_, _ = ctx.Reply(platform.TextMessage("✅ 已恢复本群的响应"))
 			return nil
 		}
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：/%s [群ID]", p.opts.resumeCmd)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.resumeCmd)))
 		return nil
 	}
 	groupID := args.Positional[0]
@@ -597,7 +597,7 @@ func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：/%s <插件名>", p.opts.flipDefaultCmd)))
+		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, p.opts.flipDefaultCmd)))
 		return nil
 	}
 	pluginName := args.Positional[0]
@@ -897,28 +897,28 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	o := p.opts
 	groupEvent := string(platform.EventKindGroupMessage)
 
-	// /<enableCmd> <插件名>  ——  开启 weather（群管理员）
-	ctx.Reg.RegisterCommand(groupEvent, "/"+o.enableCmd).Handle(p.handleEnable)
-	// /<disableCmd> <插件名>  ——  关闭 weather（群管理员）
-	ctx.Reg.RegisterCommand(groupEvent, "/"+o.disableCmd).Handle(p.handleDisable)
-	// /<listCmd>  ——  服务列表
-	ctx.Reg.RegisterCommand(groupEvent, "/"+o.listCmd).Handle(p.handleServiceList)
-	// /<globalEnableCmd> <插件名>  ——  全局开启 weather（超级管理员，私聊或群均可）
-	ctx.Reg.RegisterCommand("", "/"+o.globalEnableCmd).Handle(p.handleGlobalEnable)
-	// /<globalDisableCmd> <插件名>  ——  全局关闭 weather
-	ctx.Reg.RegisterCommand("", "/"+o.globalDisableCmd).Handle(p.handleGlobalDisable)
-	// /<userDisableCmd> <userID> <插件名>  ——  禁用用户 u123 weather
-	ctx.Reg.RegisterCommand("", "/"+o.userDisableCmd).Handle(p.handleUserDisable)
-	// /<userEnableCmd> <userID> <插件名>  ——  启用用户 u123 weather
-	ctx.Reg.RegisterCommand("", "/"+o.userEnableCmd).Handle(p.handleUserEnable)
-	// /<silenceCmd> [群ID]  ——  沉默 / 沉默 group123
-	ctx.Reg.RegisterCommand("", "/"+o.silenceCmd).Handle(p.handleSilence)
-	// /<resumeCmd> [群ID]   ——  响应 / 响应 group123
-	ctx.Reg.RegisterCommand("", "/"+o.resumeCmd).Handle(p.handleResume)
-	// /<banCmd> <userID>    ——  封禁 u123
-	ctx.Reg.RegisterCommand("", "/"+o.banCmd).Handle(p.handleBan)
-	// /<unbanCmd> <userID>  ——  解封 u123
-	ctx.Reg.RegisterCommand("", "/"+o.unbanCmd).Handle(p.handleUnban)
-	// /<flipDefaultCmd> <插件名>  ——  反转默认 weather
-	ctx.Reg.RegisterCommand("", "/"+o.flipDefaultCmd).Handle(p.handleFlipDefault)
+	// <prefix><enableCmd> <插件名>  ——  开启 weather（群管理员）
+	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.enableCmd).Handle(p.handleEnable)
+	// <prefix><disableCmd> <插件名>  ——  关闭 weather（群管理员）
+	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.disableCmd).Handle(p.handleDisable)
+	// <prefix><listCmd>  ——  服务列表
+	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.listCmd).Handle(p.handleServiceList)
+	// <prefix><globalEnableCmd> <插件名>  ——  全局开启 weather（超级管理员，私聊或群均可）
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.globalEnableCmd).Handle(p.handleGlobalEnable)
+	// <prefix><globalDisableCmd> <插件名>  ——  全局关闭 weather
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.globalDisableCmd).Handle(p.handleGlobalDisable)
+	// <prefix><userDisableCmd> <userID> <插件名>  ——  禁用用户 u123 weather
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.userDisableCmd).Handle(p.handleUserDisable)
+	// <prefix><userEnableCmd> <userID> <插件名>  ——  启用用户 u123 weather
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.userEnableCmd).Handle(p.handleUserEnable)
+	// <prefix><silenceCmd> [群ID]  ——  沉默 / 沉默 group123
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.silenceCmd).Handle(p.handleSilence)
+	// <prefix><resumeCmd> [群ID]   ——  响应 / 响应 group123
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.resumeCmd).Handle(p.handleResume)
+	// <prefix><banCmd> <userID>    ——  封禁 u123
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.banCmd).Handle(p.handleBan)
+	// <prefix><unbanCmd> <userID>  ——  解封 u123
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.unbanCmd).Handle(p.handleUnban)
+	// <prefix><flipDefaultCmd> <插件名>  ——  反转默认 weather
+	ctx.Reg.RegisterCommand("", o.commandPrefix+o.flipDefaultCmd).Handle(p.handleFlipDefault)
 }
