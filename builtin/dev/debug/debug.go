@@ -194,8 +194,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, permission string) bool 
 
 // reply 发送消息（平台无关）
 func (p *Plugin) reply(ctx *eventctx.Context, message string) error {
-	_, err := ctx.Reply(platform.TextMessage(message))
-	return err
+	return ctx.ReplyText(message)
 }
 
 // handleDebugEvent 处理 /debug event 命令

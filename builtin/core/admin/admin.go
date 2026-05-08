@@ -201,8 +201,8 @@ func (p *Plugin) handlePermCommand(ctx *eventctx.Context) error {
 
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(ctx *plugin.SetupContext) {
-	ctx.Reg.RegisterCommand("", "/status").Handle(p.handleStatus)
-	ctx.Reg.RegisterCommand("", "/info").Handle(p.handleInfo)
+	ctx.OnCommand("", "/status", p.handleStatus)
+	ctx.OnCommand("", "/info", p.handleInfo)
 }
 
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {

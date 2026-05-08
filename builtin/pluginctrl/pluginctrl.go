@@ -465,13 +465,11 @@ func (p *Plugin) handleDisable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isGroupAdmin(ctx) {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要管理员权限"))
-		return nil
+		return ctx.ReplyError("权限不足，需要管理员权限")
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 该指令仅在群内使用"))
-		return nil
+		return ctx.ReplyError("该指令仅在群内使用")
 	}
 	verb := p.opts.enableCmd
 	if !enable {
@@ -504,9 +502,8 @@ func (p *Plugin) handleGlobalDisable(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
-	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
-		return nil
+	if !p.IsSuperUser(ctx.GetSenderID()) {
+		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	verb := p.opts.globalEnableCmd
 	if !enable {
@@ -532,9 +529,8 @@ func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 
 // handleSilence 处理"沉默 [群ID]"指令：将指定群（或当前群）设为静默状态。
 func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
-		return nil
+	if !p.IsSuperUser(ctx.GetSenderID()) {
+		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -562,9 +558,8 @@ func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 
 // handleResume 处理"响应 [群ID]"指令：解除指定群（或当前群）的静默状态。
 func (p *Plugin) handleResume(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
-		return nil
+	if !p.IsSuperUser(ctx.GetSenderID()) {
+		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -591,9 +586,8 @@ func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 
 // handleFlipDefault 处理"反转默认 <插件名>"指令：翻转插件的默认启用状态。
 func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderInfo().ID) {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足，需要超级管理员权限"))
-		return nil
+	if !p.IsSuperUser(ctx.GetSenderID()) {
+		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -897,28 +891,16 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	o := p.opts
 	groupEvent := string(platform.EventKindGroupMessage)
 
-	// <prefix><enableCmd> <插件名>  ——  开启 weather（群管理员）
-	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.enableCmd).Handle(p.handleEnable)
-	// <prefix><disableCmd> <插件名>  ——  关闭 weather（群管理员）
-	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.disableCmd).Handle(p.handleDisable)
-	// <prefix><listCmd>  ——  服务列表
-	ctx.Reg.RegisterCommand(groupEvent, o.commandPrefix+o.listCmd).Handle(p.handleServiceList)
-	// <prefix><globalEnableCmd> <插件名>  ——  全局开启 weather（超级管理员，私聊或群均可）
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.globalEnableCmd).Handle(p.handleGlobalEnable)
-	// <prefix><globalDisableCmd> <插件名>  ——  全局关闭 weather
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.globalDisableCmd).Handle(p.handleGlobalDisable)
-	// <prefix><userDisableCmd> <userID> <插件名>  ——  禁用用户 u123 weather
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.userDisableCmd).Handle(p.handleUserDisable)
-	// <prefix><userEnableCmd> <userID> <插件名>  ——  启用用户 u123 weather
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.userEnableCmd).Handle(p.handleUserEnable)
-	// <prefix><silenceCmd> [群ID]  ——  沉默 / 沉默 group123
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.silenceCmd).Handle(p.handleSilence)
-	// <prefix><resumeCmd> [群ID]   ——  响应 / 响应 group123
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.resumeCmd).Handle(p.handleResume)
-	// <prefix><banCmd> <userID>    ——  封禁 u123
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.banCmd).Handle(p.handleBan)
-	// <prefix><unbanCmd> <userID>  ——  解封 u123
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.unbanCmd).Handle(p.handleUnban)
-	// <prefix><flipDefaultCmd> <插件名>  ——  反转默认 weather
-	ctx.Reg.RegisterCommand("", o.commandPrefix+o.flipDefaultCmd).Handle(p.handleFlipDefault)
+	ctx.OnCommand(groupEvent, o.commandPrefix+o.enableCmd, p.handleEnable)
+	ctx.OnCommand(groupEvent, o.commandPrefix+o.disableCmd, p.handleDisable)
+	ctx.OnCommand(groupEvent, o.commandPrefix+o.listCmd, p.handleServiceList)
+	ctx.OnCommand(groupEvent, o.commandPrefix+o.globalEnableCmd, p.handleGlobalEnable)
+	ctx.OnCommand(groupEvent, o.commandPrefix+o.globalDisableCmd, p.handleGlobalDisable)
+	ctx.OnCommand("", o.commandPrefix+o.userDisableCmd, p.handleUserDisable)
+	ctx.OnCommand("", o.commandPrefix+o.userEnableCmd, p.handleUserEnable)
+	ctx.OnCommand("", o.commandPrefix+o.silenceCmd, p.handleSilence)
+	ctx.OnCommand("", o.commandPrefix+o.resumeCmd, p.handleResume)
+	ctx.OnCommand("", o.commandPrefix+o.banCmd, p.handleBan)
+	ctx.OnCommand("", o.commandPrefix+o.unbanCmd, p.handleUnban)
+	ctx.OnCommand("", o.commandPrefix+o.flipDefaultCmd, p.handleFlipDefault)
 }
