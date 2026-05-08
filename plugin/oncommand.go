@@ -32,19 +32,59 @@ func (ctx *SetupContext) OnCommand(eventType, cmdPattern string, handler corectx
 
 // OnCommandDef 注册一个增强命令定义（带参数/标志/子命令）的快捷方式。
 //
-// 等价于 ctx.Reg.RegisterCommand(eventType, trigger).SetDefinition(def).Handle(corectx.ExecuteCommandDefinition)，
-// 但更简洁。trigger 为包含前缀的完整命令模式如 "/search"。
+// 和 OnCommand 的区别：OnCommandDef 会自动设置 ParseFromDefinition 解析规则，
+// 使得 def 中定义的 Arguments/Flags 能被正确解析，通过 ctx.GetParsedCommand() 获取。
+//
+// def.Handler 为命令处理函数，签名为 func(any)，运行时传入的是 *Context：
+//
+//	def.Handler = func(ctx any) {
+//	    c := ctx.(*corectx.Context)
+//	    keyword := c.GetParsedCommand().GetString("keyword")
+//	    c.ReplyText("搜索: " + keyword)
+//	}
+//	ctx.OnCommandDef("", "/search", def)
+//
+// trigger 为包含前缀的完整命令模式如 "/search"。
+func (ctx *SetupContext) OnCommandDef(eventType, trigger string, def *command.Definition, extraRules ...corectx.Rule) *engine.Matcher {
+	allRules := make([]corectx.Rule, 0, 1+len(extraRules))
+	allRules = append(allRules, corectx.OnParseCommand(def))
+	allRules = append(allRules, extraRules...)
+
+	m := ctx.Reg.RegisterCommand(eventType, trigger, allRules...)
+	if m == nil {
+		return nil
+	}
+	m.SetDefinition(def)
+
+	if def.Handler != nil {
+		m.Handle(func(c *corectx.Context) error {
+			def.Handler(c)
+			return nil
+		})
+	}
+	return m
+}
+
+// OnCommandDefWith 注册增强命令定义，直接绑定 corectx.Handler（无需通过 def.Handler 做类型断言）。
+//
+// 和 OnCommandDef 的区别：handler 是直接传入的 corectx.Handler，签名是 func(*Context) error，
+// 无需将 any 类型断言为 *Context。
 //
 // 使用示例：
 //
-//	def := command.NewDef("search").
-//	    Description("搜索内容").
-//	    Arg("keyword", "搜索关键词", true).
-//	    Build()
-//	ctx.OnCommandDef("", "/search", def)
-func (ctx *SetupContext) OnCommandDef(eventType, trigger string, def *command.Definition, extraRules ...corectx.Rule) *engine.Matcher {
-	m := ctx.Reg.RegisterCommand(eventType, trigger, extraRules...)
-	m.SetDefinition(def)
-	m.Handle(corectx.ExecuteCommandDefinition)
+//	ctx.OnCommandDefWith("", "/search",
+//	    command.NewDef("search").
+//	        Arg("keyword", "搜索关键词", true).
+//	        Build(),
+//	    func(c *corectx.Context) error {
+//	        keyword := c.GetParsedCommand().GetString("keyword")
+//	        return c.ReplyText("搜索结果: " + keyword)
+//	    },
+//	)
+func (ctx *SetupContext) OnCommandDefWith(eventType, trigger string, def *command.Definition, handler corectx.Handler, extraRules ...corectx.Rule) *engine.Matcher {
+	m := ctx.OnCommandDef(eventType, trigger, def, extraRules...)
+	if m != nil {
+		m.Handle(handler)
+	}
 	return m
 }

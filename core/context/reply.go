@@ -43,3 +43,10 @@ func (ctx *Context) ReplySuccess(text string) error {
 func (ctx *Context) GetSenderID() string {
 	return ctx.GetSenderInfo().ID
 }
+
+// GetDisplayName 返回消息发送者的显示名称。
+//
+// 等价于 ctx.GetSenderInfo().DisplayName。
+func (ctx *Context) GetDisplayName() string {
+	return ctx.GetSenderInfo().DisplayName
+}

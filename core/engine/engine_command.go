@@ -125,19 +125,7 @@ func (e *Engine) RegisterCommand(cmd *command.Definition, rules ...context.Rule)
 // RegisterCommandWithPrefix 带自定义前缀的 RegisterCommand
 func (e *Engine) RegisterCommandWithPrefix(prefix string, cmd *command.Definition, rs ...context.Rule) *Matcher {
 	trigger := prefix + cmd.Name
-
-	parseRule := func(ctx *context.Context) bool {
-		content := ctx.GetMessageContent()
-		parsed, err := command.ParseFromDefinition(content, cmd, prefix)
-		if err != nil {
-			logger.WithError(err).WithField("trigger", trigger).Debug("[engine] Command parse match failed")
-			return false
-		}
-		ctx.SetParsedCommand(parsed)
-		return true
-	}
-
-	finalRules := append([]context.Rule{parseRule}, rs...)
+	finalRules := append([]context.Rule{context.OnParseCommand(cmd)}, rs...)
 	m := e.OnCommand("", trigger, finalRules...)
 	m.SetDefinition(cmd)
 	m.Handle(context.ExecuteCommandDefinition)
@@ -186,19 +174,8 @@ func (e *Engine) RegisterCommandDefWithPrefix(
 
 	trigger := prefix + def.Name
 
-	parseRule := func(ctx *context.Context) bool {
-		content := ctx.GetMessageContent()
-		parsed, err := command.ParseFromDefinition(content, def, prefix)
-		if err != nil {
-			logger.WithError(err).WithField("trigger", trigger).Debug("[engine] Command parse failed")
-			return false
-		}
-		ctx.SetParsedCommand(parsed)
-		return true
-	}
-
 	finalRules := make([]context.Rule, 0, len(extraRules)+1)
-	finalRules = append(finalRules, parseRule)
+	finalRules = append(finalRules, context.OnParseCommand(def))
 	finalRules = append(finalRules, extraRules...)
 
 	m := e.OnCommand(eventType, trigger, finalRules...)
