@@ -84,7 +84,7 @@ func newTestPlugin() *pluginctrl.Plugin {
 	)
 }
 
-func newTestPluginWithStorage(db storage.Client) *pluginctrl.Plugin {
+func newTestPluginWithStorage(db *storage.Plugin) *pluginctrl.Plugin {
 	return pluginctrl.NewPluginWithStorage(
 		db,
 		pluginctrl.WithSuperUsers("admin1"),

@@ -139,7 +139,7 @@ type Plugin struct {
 	// 若为 nil（纯内存/测试模式），清除操作为 no-op。
 	groupResetFn func(group string)
 
-	storage    storage.Client // 可选：持久化存储
+	storage    *storage.Plugin // 可选：持久化存储
 	superUsers map[string]bool
 	opts       *options
 	cd         *cooldown.Plugin // 内置冷却插件，供 Middleware 使用
@@ -174,7 +174,7 @@ func NewPlugin(opts ...Option) *Plugin {
 }
 
 // NewPluginWithStorage 创建带存储后端的 Plugin 实例（不注册指令，供直接使用或测试）。
-func NewPluginWithStorage(client storage.Client, opts ...Option) *Plugin {
+func NewPluginWithStorage(client *storage.Plugin, opts ...Option) *Plugin {
 	p := NewPlugin(opts...)
 	p.storage = client
 	return p
@@ -843,7 +843,7 @@ func New(opts ...Option) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// 尝试获取存储（可选依赖）
-			if client, ok := plugin.TryAs[storage.Client](ctx, "storage"); ok {
+			if client, ok := plugin.TryAs[*storage.Plugin](ctx, "storage"); ok {
 				p.storage = client
 				ctx.Log.Info("Storage backend connected, plugin states will be persisted")
 				if !ctx.DryRun {

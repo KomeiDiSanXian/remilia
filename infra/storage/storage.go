@@ -37,16 +37,10 @@ import (
 // 对 gorm.ErrRecordNotFound 的统一封装，消费者无需直接依赖 gorm。
 var ErrNotFound = errors.New("record not found")
 
-// Client 最小化存储客户端接口。
+// Client 最小化持久化接口。
 //
-// *Plugin 实现此接口。消费者通过 plugin.MustAs[storage.Client](ctx, "storage")
-// 获取，无需直接依赖 *Plugin 具体类型（遵循依赖倒置原则）。
-//
-// 链式调用示例：
-//
-//	client.Where("group_id = ?", gid).Find(&states)
-//	client.Where("group_id = ? AND plugin_name = ?", gid, name).First(&state)
-//	client.Where("group_id = ?", gid).Order("total_points DESC").Limit(10).Find(&records)
+// *Plugin 实现此接口。消费者通过插件系统或直接传入 *Plugin 使用。
+// 链式查询（Where/Order/Limit/Offset）和底层 DB 访问仅由 *Plugin 提供，不属于此接口。
 type Client interface {
 	// AutoMigrate 自动创建/更新传入模型的表结构（幂等）
 	AutoMigrate(dst ...any) error
@@ -62,20 +56,6 @@ type Client interface {
 	Delete(value any, conds ...any) error
 	// Updates 更新非零字段（传 struct）或所有字段（传 map）
 	Updates(values any) error
-	// Where 追加 WHERE 条件，返回新的 Client（支持链式调用，不修改原 Client）
-	Where(query any, args ...any) Client
-	// Order 追加 ORDER BY 子句，返回新的 Client（支持链式调用）。
-	//
-	// 示例：client.Where("group_id = ?", gid).Order("total_points DESC").Find(&records)
-	Order(value any) Client
-	// Limit 限制返回记录数，返回新的 Client（支持链式调用）。
-	//
-	// 示例：client.Order("created_at DESC").Limit(10).Find(&records)
-	Limit(limit int) Client
-	// Offset 跳过指定数量的记录（分页用），返回新的 Client。
-	Offset(offset int) Client
-	// DB 返回底层 *gorm.DB，以便使用 GORM 高级特性（事务、关联、Raw SQL 等）
-	DB() *gorm.DB
 }
 
 // Plugin 存储插件 API 对象，同时实现 Client 接口。
@@ -132,23 +112,23 @@ func (p *Plugin) Updates(values any) error {
 	return p.db.Updates(values).Error
 }
 
-// Where 追加 WHERE 条件，返回新的 Client（不修改原 Client）
-func (p *Plugin) Where(query any, args ...any) Client {
+// Where 追加 WHERE 条件，返回新的 *Plugin（不修改原 Plugin）
+func (p *Plugin) Where(query any, args ...any) *Plugin {
 	return &Plugin{db: p.db.Where(query, args...)}
 }
 
-// Order 追加 ORDER BY 子句，返回新的 Client
-func (p *Plugin) Order(value any) Client {
+// Order 追加 ORDER BY 子句，返回新的 *Plugin
+func (p *Plugin) Order(value any) *Plugin {
 	return &Plugin{db: p.db.Order(value)}
 }
 
-// Limit 限制返回记录数，返回新的 Client
-func (p *Plugin) Limit(limit int) Client {
+// Limit 限制返回记录数，返回新的 *Plugin
+func (p *Plugin) Limit(limit int) *Plugin {
 	return &Plugin{db: p.db.Limit(limit)}
 }
 
-// Offset 跳过指定数量的记录，返回新的 Client
-func (p *Plugin) Offset(offset int) Client {
+// Offset 跳过指定数量的记录，返回新的 *Plugin
+func (p *Plugin) Offset(offset int) *Plugin {
 	return &Plugin{db: p.db.Offset(offset)}
 }
 

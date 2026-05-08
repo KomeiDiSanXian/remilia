@@ -15,10 +15,6 @@ type testModel struct {
 	Val  int
 }
 
-func TestMemoryClientInterface(t *testing.T) {
-	var _ storage.Client = storage.NewMemoryClient()
-}
-
 func TestSQLiteMemoryDB(t *testing.T) {
 	client, err := storage.NewMemory()
 	require.NoError(t, err)

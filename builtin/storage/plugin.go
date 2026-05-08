@@ -33,11 +33,12 @@ import (
 // 默认使用 SQLite，DSN 为 "bot.db"。
 // 注册后，其他插件通过以下方式获取：
 //
-//	// 接口方式（推荐，降低耦合）
+//	// 接口方式（基础 CRUD）
 //	client := plugin.MustAs[storage.Client](ctx, "storage")
 //
-//	// 具体类型方式（需要 GORM 高级特性时）
-//	p := plugin.Must[storage.Plugin](ctx, "storage")
+//	// 具体类型方式（需要链式查询或 GORM 高级特性时）
+//	p := plugin.Must[*storage.Plugin](ctx, "storage")
+//	p.Where("...").First(...)
 //	p.DB().Transaction(...)
 //
 // 示例：
