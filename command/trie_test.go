@@ -22,15 +22,15 @@ func TestTrie(t *testing.T) {
 		trie.Insert("/hell", meta3)
 
 		// Search for "/hel" should return 3 commands
-		results := trie.Search("/hel")
+		results := trie.SearchPrefix("/hel")
 		assert.Equal(t, 3, len(results))
 
 		// Search for "/help" should return 1 command
-		results = trie.Search("/help")
+		results = trie.SearchPrefix("/help")
 		assert.Equal(t, 1, len(results))
 
 		// Search for "/x" should return empty
-		results = trie.Search("/x")
+		results = trie.SearchPrefix("/x")
 		assert.Nil(t, results)
 	})
 
@@ -40,11 +40,11 @@ func TestTrie(t *testing.T) {
 		meta1 := &Meta{Name: "/test"}
 		trie.Insert("/test", meta1)
 
-		results := trie.Search("/test")
+		results := trie.SearchPrefix("/test")
 		require.Equal(t, 1, len(results))
 
 		trie.Remove("/test", meta1)
-		results = trie.Search("/test")
+		results = trie.SearchPrefix("/test")
 		assert.Equal(t, 0, len(results))
 	})
 
@@ -54,7 +54,7 @@ func TestTrie(t *testing.T) {
 		trie.Insert("/cmd1", &Meta{Name: "/cmd1"})
 		trie.Insert("/cmd2", &Meta{Name: "/cmd2"})
 
-		stats := trie.GetStats()
+		stats := trie.Stats()
 		assert.Greater(t, stats.NodeCount, 0)
 		assert.Greater(t, stats.MaxDepth, 0)
 	})
@@ -127,6 +127,6 @@ func BenchmarkTrieSearch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = trie.Search("/cmd")
+		_ = trie.SearchPrefix("/cmd")
 	}
 }

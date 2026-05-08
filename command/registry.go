@@ -108,7 +108,7 @@ func (cr *Registry) RegisterWithOptions(def *Definition, opts RegisterOptions) e
 	defer cr.mu.Unlock()
 
 	// 检查命令名冲突（使用 Trie）
-	if existing := cr.trie.ExactMatch(def.Name); existing != nil {
+	if _, ok := cr.trie.ExactMatch(def.Name); ok {
 		return fmt.Errorf("command %s already registered", def.Name)
 	}
 
@@ -170,7 +170,7 @@ func (cr *Registry) Upsert(def *Definition, opts RegisterOptions) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
-	if existing := cr.trie.ExactMatch(def.Name); existing != nil {
+	if existing, ok := cr.trie.ExactMatch(def.Name); ok {
 		needRecompile := false
 
 		// 别名变更：同步更新 cr.aliases（影响 compiledRegistry.aliasMap），标记重编译
@@ -274,7 +274,7 @@ func (cr *Registry) RegisterBatch(defs []*Definition, opts ...RegisterOptions) m
 			opt = opts[i]
 		}
 
-		if existing := cr.trie.ExactMatch(def.Name); existing != nil {
+		if _, ok := cr.trie.ExactMatch(def.Name); ok {
 			if errs == nil {
 				errs = make(map[string]error)
 			}
@@ -328,8 +328,8 @@ func (cr *Registry) Unregister(name string) error {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 
-	meta := cr.trie.ExactMatch(name)
-	if meta == nil {
+	meta, ok := cr.trie.ExactMatch(name)
+	if !ok {
 		return fmt.Errorf("command %s not registered", name)
 	}
 
@@ -394,7 +394,7 @@ func (cr *Registry) LookupByPattern(input string) []*Meta {
 // 对于命令补全这种非高频操作，性能损失可以忽略（通常 < 1ms）
 func (cr *Registry) Complete(prefix string) []*Meta {
 	// 使用 Trie 进行前缀搜索
-	return cr.trie.Search(prefix)
+	return cr.trie.SearchPrefix(prefix)
 }
 
 // List 列出所有命令
@@ -450,7 +450,7 @@ type RegistryStats struct {
 // recompile 重新编译注册表（持有写锁时调用）
 func (cr *Registry) recompile() {
 	// 从 Trie 获取所有命令
-	allCommands := cr.trie.GetAllCommands()
+	allCommands := cr.trie.GetAll()
 
 	newCompiled := &compiledRegistry{
 		commandMap:  make(map[string]*Meta, len(allCommands)),
@@ -467,7 +467,7 @@ func (cr *Registry) recompile() {
 	// 复制别名映射
 	maps.Copy(newCompiled.aliasMap, cr.aliases)
 
-	// 按优先级排序命令列表（Trie.GetAllCommands 已经排序，但为了保险再排一次）
+	// 按优先级排序命令列表
 	sortCommandsByPriority(newCompiled.commandList)
 
 	// 原子更新

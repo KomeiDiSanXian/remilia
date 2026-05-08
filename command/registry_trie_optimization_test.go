@@ -26,26 +26,26 @@ func TestTrieExactMatch(t *testing.T) {
 	trie.Insert("/he", meta3)
 
 	t.Run("exact_match_found", func(t *testing.T) {
-		result := trie.ExactMatch("/help")
-		assert.NotNil(t, result)
+		result, ok := trie.ExactMatch("/help")
+		assert.True(t, ok)
 		assert.Equal(t, "/help", result.Name)
 	})
 
 	t.Run("exact_match_not_found", func(t *testing.T) {
-		result := trie.ExactMatch("/unknown")
-		assert.Nil(t, result)
+		_, ok := trie.ExactMatch("/unknown")
+		assert.False(t, ok)
 	})
 
 	t.Run("prefix_is_not_exact_match", func(t *testing.T) {
 		// "/hel" 是 "/hello" 的前缀，但不是精确匹配
-		result := trie.ExactMatch("/hel")
-		assert.Nil(t, result)
+		_, ok := trie.ExactMatch("/hel")
+		assert.False(t, ok)
 	})
 
 	t.Run("exact_match_vs_prefix", func(t *testing.T) {
 		// "/he" 既是独立命令，也是其他命令的前缀
-		result := trie.ExactMatch("/he")
-		assert.NotNil(t, result)
+		result, ok := trie.ExactMatch("/he")
+		assert.True(t, ok)
 		assert.Equal(t, "/he", result.Name)
 	})
 }
