@@ -594,6 +594,8 @@ Remilia 管线：新分配 Context → commandIndex O(1) 查找 → handler
 
 Remilia 的 `commandIndex` 是 **O(1)**，路由时间与 Matcher 数无关。ZeroBot 的 `CommandRule` 是 **O(n)**，每个额外 Matcher 增加 ~170ns。ZeroBot 的事件处理分配也随 Matcher 数线性增长，而 Remilia 恒定 416B/7 allocs（Context 去池化后新鲜分配，消除 UAF）。
 
+> **注意**：上表中的 Matcher 数指**引擎内注册总数**，而非"匹配同一命令的 Matcher 数"。`commandIndex` 按命令名精确查找，不同命令的 Matcher 互不干扰。若同一命令下注册了多个 Matcher（如 1000 个全部挂在 `/help`），延迟会随匹配数线性增长——引擎需逐个遍历、检查规则并执行。实测：同一命令 1→10→100→1000 Matcher，延迟从 339ns 增至 1.3→10.5→110μs。
+
 ### 8.2 普通事件路由
 
 ZeroBot 管线如前，但无命令前缀优化，需线性扫描所有 matcher。Remilia 使用 `matcherIndex` 按 EventType 预过滤 + 排序缓存。
@@ -604,6 +606,8 @@ ZeroBot 管线如前，但无命令前缀优化，需线性扫描所有 matcher�
 | 50        | 15,700         | 14KB, 180 allocs | **410** | 416B, 7 allocs | **38x** |
 | 200       | 35,500         | 49KB, 630 allocs | **410** | 416B, 7 allocs | **87x** |
 | 1000      | 166,000        | 237KB, 3030 allocs | **410** | 416B, 7 allocs | **405x** |
+
+> `matcherIndex` 按 EventType 分桶，同理：同一事件类型下注册的 Matcher 越多，匹配阶段开销越大；不同事件类型的 Matcher 完全隔离。
 
 ### 8.3 吞吐量
 
