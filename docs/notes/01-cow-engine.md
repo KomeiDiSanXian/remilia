@@ -111,7 +111,7 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 |------|-----|------|
 | 空 Handler 吞吐量 | **~475,000 msg/s** | 16 核 CPU 80%，GOMAXPROCS=16 |
 | ProcessEvent 延迟 | **~5-6 μs/op** | COW 无锁读取 + 6 路合并排序 |
-| Context 分配 | **0 allocs/op** | 对象池复用 |
+| Context 分配 | **~272 B/op, 3 allocs** | 新鲜分配（去池化，消除 UAF） |
 | 堆内存（50,000 msg/s） | **~12-14 MB** | 极低内存占用，无泄漏 |
 
 相比传统的 `sync.RWMutex` 实现，COW 模型在读多写少场景下性能提升约 **5-6 倍**，内存分配降低 **93%**。

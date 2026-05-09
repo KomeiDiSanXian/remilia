@@ -583,16 +583,16 @@ func NewContextFromEvent(event platform.Event, sender platform.Sender) *Context 
 ### 8.1 命令路由
 
 ZeroBot 管线：JSON unmarshal → 事件预处理 → matcherLock → 线性扫描 → goroutine-per-rule → handler  
-Remilia 管线：context pool 获取 → commandIndex O(1) 查找 → handler
+Remilia 管线：新分配 Context → commandIndex O(1) 查找 → handler
 
 | Matcher 数 | ZeroBot (ns/op) | 分配 | Remilia (ns/op) | 分配 | 差距 |
 |-----------|----------------|------|----------------|------|------|
-| 10        | 8,300          | 4.9KB, 62 allocs | **660** | 208B, 5 allocs | **12x** |
-| 50        | 16,300         | 14KB, 182 allocs | **410** | 208B, 5 allocs | **40x** |
-| 200       | 40,600         | 49KB, 632 allocs | **400** | 208B, 5 allocs | **101x** |
-| 1000      | 178,000        | 237KB, 3028 allocs | **390** | 208B, 5 allocs | **456x** |
+| 10        | 8,300          | 4.9KB, 62 allocs | **410** | 416B, 7 allocs | **20x** |
+| 50        | 16,300         | 14KB, 182 allocs | **410** | 416B, 7 allocs | **40x** |
+| 200       | 40,600         | 49KB, 632 allocs | **410** | 416B, 7 allocs | **99x** |
+| 1000      | 178,000        | 237KB, 3028 allocs | **410** | 416B, 7 allocs | **434x** |
 
-Remilia 的 `commandIndex` 是 **O(1)**，路由时间与 Matcher 数无关。ZeroBot 的 `CommandRule` 是 **O(n)**，每个额外 Matcher 增加 ~170ns。ZeroBot 的事件处理分配也随 Matcher 数线性增长，而 Remilia 恒定 208B/5 allocs。
+Remilia 的 `commandIndex` 是 **O(1)**，路由时间与 Matcher 数无关。ZeroBot 的 `CommandRule` 是 **O(n)**，每个额外 Matcher 增加 ~170ns。ZeroBot 的事件处理分配也随 Matcher 数线性增长，而 Remilia 恒定 416B/7 allocs（Context 去池化后新鲜分配，消除 UAF）。
 
 ### 8.2 普通事件路由
 
@@ -600,17 +600,17 @@ ZeroBot 管线如前，但无命令前缀优化，需线性扫描所有 matcher�
 
 | Matcher 数 | ZeroBot (ns/op) | 分配 | Remilia (ns/op) | 分配 | 差距 |
 |-----------|----------------|------|----------------|------|------|
-| 10        | 6,600          | 4.5KB, 60 allocs | **470** | 208B, 5 allocs | **14x** |
-| 50        | 15,700         | 14KB, 180 allocs | **370** | 208B, 5 allocs | **42x** |
-| 200       | 35,500         | 49KB, 630 allocs | **370** | 208B, 5 allocs | **96x** |
-| 1000      | 166,000        | 237KB, 3030 allocs | **345** | 208B, 5 allocs | **481x** |
+| 10        | 6,600          | 4.5KB, 60 allocs | **450** | 416B, 7 allocs | **15x** |
+| 50        | 15,700         | 14KB, 180 allocs | **410** | 416B, 7 allocs | **38x** |
+| 200       | 35,500         | 49KB, 630 allocs | **410** | 416B, 7 allocs | **87x** |
+| 1000      | 166,000        | 237KB, 3030 allocs | **410** | 416B, 7 allocs | **405x** |
 
 ### 8.3 吞吐量
 
 | 场景 | ZeroBot | Remilia | 差距 |
 |------|---------|---------|------|
-| 10 Matcher | 146K ev/s | **2.0M ev/s** | **13.7x** |
-| 200 Matcher | 24K ev/s | **2.38M ev/s** | **99x** |
+| 10 Matcher | 146K ev/s | **1.96M ev/s** | **13.4x** |
+| 200 Matcher | 24K ev/s | **2.34M ev/s** | **98x** |
 
 ### 8.4 注册 Matcher（冷路径）
 
