@@ -27,11 +27,16 @@ func (e *Engine) bumpVersion() {
 
 // ForkFrom 将引擎标记为指定模板引擎的子引擎。
 // 子引擎初始为空，首次事件时通过 syncTemplates 从模板同步 matcher。
+// 同时共享模板的 ExecPool，避免每个 channel 引擎独立创建线程池导致资源膨胀。
 func (e *Engine) ForkFrom(template *Engine, channelKey ChannelKey) {
 	e.fork = &forkState{
 		template:    template,
 		templateVer: template.Version(),
 		channelKey:  channelKey,
+	}
+	// 共享模板的 ExecPool，fork 子引擎不拥有独立的线程池
+	if template.internals.execPool != nil {
+		e.internals.execPool = template.internals.execPool
 	}
 	e.syncTemplates()
 }

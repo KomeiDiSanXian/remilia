@@ -112,6 +112,15 @@ func TestForkFrom_IndependentState(t *testing.T) {
 	_ = tmpl
 }
 
+func TestForkFrom_SharedExecPool(t *testing.T) {
+	tmpl := NewEngine()
+	child := NewEngine(WithNoBackgroundWorkers())
+	child.ForkFrom(tmpl, "test:share_pool")
+
+	assert.Same(t, tmpl.internals.execPool, child.internals.execPool,
+		"fork child should share template's ExecPool")
+}
+
 func TestForkFrom_NonForkEngine(t *testing.T) {
 	tmpl := NewEngine(WithNoBackgroundWorkers())
 	assert.False(t, tmpl.IsFork())

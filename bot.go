@@ -174,6 +174,23 @@ func (b *Bot) buildBaseLifecycle() {
 		nil,
 		func(ctx context.Context) error { return b.engine.Shutdown(ctx) },
 	))
+
+	// engineManager GC goroutine 绑定 Bot 生命周期
+	b.mu.RLock()
+	em := b.engineManager
+	b.mu.RUnlock()
+	if em != nil {
+		lm.Register(lifecycle.NewSimpleComponent(
+			"engine-manager",
+			nil,
+			nil,
+			func(ctx context.Context) error {
+				em.Close()
+				return nil
+			},
+		))
+	}
+
 	b.mu.Lock()
 	b.lifecycle = lm
 	b.mu.Unlock()
@@ -344,10 +361,12 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	}
 	ctx.SetPlatformCapabilities(caps)
 
-	if b.engineManager != nil {
-		b.engineManager.Dispatch(ctx)
-	} else if b.router != nil {
+	if b.router != nil {
+		// Router 做策略路由（FSM/Agent/Engine）。
+		// 若同时配了 engineManager，StrategyEngine 走 per-channel Engine。
 		b.router.Dispatch(ctx)
+	} else if b.engineManager != nil {
+		b.engineManager.Dispatch(ctx)
 	} else {
 		b.engine.ProcessEvent(ctx)
 	}
@@ -472,8 +491,13 @@ func (b *Bot) Plugins() *plugin.Manager {
 // 与 Config()/Plugins() 不同，这些字段通过 Use* 方法支持运行时注入。
 func (b *Bot) Engine() *engine.Engine { return b.engine }
 
-// UseRouter 注入策略路由层。注入后，handlePlatformEvent 在 engineManager 未启用时
-// 优先走 [router.Router.Dispatch]。若 engineManager 已注入，此方法被忽略。
+// UseRouter 注入策略路由层。通常与 [Bot.UseEngineManager] 组合使用：
+//
+//	router := router.New(eng, fsmEngine)
+//	router.WithEngineManager(em)
+//	bot.UseRouter(router).UseEngineManager(em)
+//
+// 同时注入后，Router 做策略路由，StrategyEngine 走 per-channel Engine 隔离。
 func (b *Bot) UseRouter(r *router.Router) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -482,8 +506,8 @@ func (b *Bot) UseRouter(r *router.Router) *Bot {
 }
 
 // UseEngineManager 注入 per-channel Engine 管理器。
-// engineManager 优先级高于 router：handlePlatformEvent 先检查 engineManager，
-// 其次检查 router，最后直接调 engine.ProcessEvent。
+// 与 [Bot.UseRouter] 组合时，Router 的 StrategyEngine 自动通过 EngineManager
+// 分派到各 channel 的独立 Engine。
 func (b *Bot) UseEngineManager(em *engine.EngineManager) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()

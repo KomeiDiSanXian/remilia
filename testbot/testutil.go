@@ -22,9 +22,12 @@ import (
 	"testing"
 	"time"
 
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/router"
 )
 
 // ---------------------------------------------------------------------------
@@ -109,6 +112,9 @@ type TestBot struct {
 	t          testing.TB
 	eng        *engine.Engine
 	mgr        *plugin.Manager
+	fsmMgr     *fsm.Manager
+	router     *router.Router
+	engMgr     *engine.EngineManager
 	sender     *MockSender
 	timeOffset time.Duration
 	timeMu     sync.RWMutex
@@ -145,17 +151,54 @@ func (tb *TestBot) RegisterPlugins(descs ...*plugin.Descriptor) {
 	}
 }
 
+// UseFSM 启用 FSM 引擎。需在首次 SendPlatformEvent 前调用。
+func (tb *TestBot) UseFSM() *TestBot {
+	tb.fsmMgr = fsm.NewManager(nil)
+	return tb
+}
+
+// UseRouter 启用策略路由层（含默认命令前缀 + FSM 规则）。需在首次 SendPlatformEvent 前调用。
+func (tb *TestBot) UseRouter() *TestBot {
+	if tb.fsmMgr == nil {
+		tb.fsmMgr = fsm.NewManager(nil)
+	}
+	tb.router = router.New(tb.eng, tb.fsmMgr.Engine())
+	tb.router.Route(router.WithCommandPrefix())
+	tb.router.Route(router.WithFSMRoute())
+	return tb
+}
+
+// UseEngineManager 启用 per-channel Engine 管理器。需在首次 SendPlatformEvent 前调用。
+func (tb *TestBot) UseEngineManager() *TestBot {
+	tb.engMgr = engine.NewEngineManager(tb.eng)
+	return tb
+}
+
 // Engine returns the underlying event engine for advanced usage.
 func (tb *TestBot) Engine() *engine.Engine { return tb.eng }
 
 // Manager returns the underlying plugin manager.
 func (tb *TestBot) Manager() *plugin.Manager { return tb.mgr }
 
+// FSMManager 返回 FSM 管理器，未启用时返回 nil。
+func (tb *TestBot) FSMManager() *fsm.Manager { return tb.fsmMgr }
+
 // SendPlatformEvent injects a platform.Event and returns captured platform replies.
+// 根据配置自动选择路由路径：Router > EngineManager > 直接 Engine。
 func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 	tb.t.Helper()
 	tb.sender.drain()
-	tb.eng.ProcessPlatformEvent(event, tb.sender)
+
+	if tb.router != nil {
+		ctx := corectx.NewContextFromEvent(event, tb.sender)
+		tb.router.Dispatch(ctx)
+	} else if tb.engMgr != nil {
+		ctx := corectx.NewContextFromEvent(event, tb.sender)
+		tb.engMgr.Dispatch(ctx)
+	} else {
+		tb.eng.ProcessPlatformEvent(event, tb.sender)
+	}
+
 	tb.eng.WaitForAsyncHandlers()
 	return &PlatformResponse{messages: tb.sender.drain()}
 }
@@ -242,6 +285,9 @@ func (tb *TestBot) SendPlatformGroupAt(userID, groupID, content string) *Platfor
 type Bot struct {
 	eng     *engine.Engine
 	mgr     *plugin.Manager
+	fsmMgr  *fsm.Manager
+	router  *router.Router
+	engMgr  *engine.EngineManager
 	sender  *MockSender
 	plugins []*plugin.Descriptor
 }
@@ -281,18 +327,55 @@ func (b *Bot) Start() error {
 // Stop is a no-op; present for symmetry with Start and defer patterns.
 func (b *Bot) Stop() {}
 
+// UseFSM 启用 FSM 引擎。需在 Start 前调用。
+func (b *Bot) UseFSM() *Bot {
+	b.fsmMgr = fsm.NewManager(nil)
+	return b
+}
+
+// UseRouter 启用策略路由层（含默认命令前缀 + FSM 规则）。需在 Start 前调用。
+func (b *Bot) UseRouter() *Bot {
+	if b.fsmMgr == nil {
+		b.fsmMgr = fsm.NewManager(nil)
+	}
+	b.router = router.New(b.eng, b.fsmMgr.Engine())
+	b.router.Route(router.WithCommandPrefix())
+	b.router.Route(router.WithFSMRoute())
+	return b
+}
+
+// UseEngineManager 启用 per-channel Engine 管理器。需在 Start 前调用。
+func (b *Bot) UseEngineManager() *Bot {
+	b.engMgr = engine.NewEngineManager(b.eng)
+	return b
+}
+
 // Engine returns the underlying event engine.
 func (b *Bot) Engine() *engine.Engine { return b.eng }
 
 // Manager returns the plugin manager.
 func (b *Bot) Manager() *plugin.Manager { return b.mgr }
 
+// FSMManager 返回 FSM 管理器，未启用时返回 nil。
+func (b *Bot) FSMManager() *fsm.Manager { return b.fsmMgr }
+
 // SenderAPI returns the MockSender for capturing and asserting outbound messages.
 func (b *Bot) SenderAPI() *MockSender { return b.sender }
 
 // SendPlatformEvent injects a platform.Event directly into the engine.
+// 根据配置自动选择路由路径：Router > EngineManager > 直接 Engine。
+// 注意：消息会累积在 MockSender 中，可通过 [Bot.ClearSent] 或 [Bot.SenderAPI].Clear 清空。
 func (b *Bot) SendPlatformEvent(event platform.Event) {
-	b.eng.ProcessPlatformEvent(event, b.sender)
+	if b.router != nil {
+		ctx := corectx.NewContextFromEvent(event, b.sender)
+		b.router.Dispatch(ctx)
+	} else if b.engMgr != nil {
+		ctx := corectx.NewContextFromEvent(event, b.sender)
+		b.engMgr.Dispatch(ctx)
+	} else {
+		b.eng.ProcessPlatformEvent(event, b.sender)
+	}
+
 	b.eng.WaitForAsyncHandlers()
 }
 

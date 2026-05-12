@@ -138,6 +138,34 @@ func TestEngineManager_NewChannelEngine_IsFork(t *testing.T) {
 	assert.True(t, chEngine.IsFork())
 }
 
+func TestEngineManager_AutoStartGC(t *testing.T) {
+	tmpl := NewEngine(WithNoBackgroundWorkers())
+	em := NewEngineManager(tmpl, WithMaxIdle(1*time.Hour))
+
+	em.Dispatch(mgrCtx("x", "gc_ch"))
+	key := MakeChannelKey("test", "gc_ch")
+	assert.NotNil(t, em.GetChannel(key))
+
+	em.instances.Delete(key)
+	assert.Nil(t, em.GetChannel(key), "engine should be removable via GC path")
+}
+
+func TestEngineManager_EvictIdle(t *testing.T) {
+	tmpl := NewEngine(WithNoBackgroundWorkers())
+	em := NewEngineManager(tmpl, WithMaxIdle(30*time.Minute))
+
+	em.Dispatch(mgrCtx("x", "evict_ch"))
+	key := MakeChannelKey("test", "evict_ch")
+	ch := em.GetChannel(key)
+	require.NotNil(t, ch)
+
+	em.evictIdle()
+	assert.NotNil(t, em.GetChannel(key), "active engine should not be evicted")
+
+	em.instances.Delete(key)
+	assert.Nil(t, em.GetChannel(key), "delete should remove engine")
+}
+
 func TestEngineManager_Stats(t *testing.T) {
 	template := NewEngine(WithNoBackgroundWorkers())
 	em := NewEngineManager(template)

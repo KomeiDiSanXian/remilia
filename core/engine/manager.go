@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -18,9 +17,9 @@ import (
 //	// bot.go 中优先走 em.Dispatch(ctx, event)
 //	// em 内部自动创建/复用 channel engine，懒同步模板变化
 type EngineManager struct {
-	template *Engine
+	template  *Engine
 	instances sync.Map
-	maxIdle  time.Duration
+	maxIdle   time.Duration
 
 	stopGC chan struct{}
 	once   sync.Once
@@ -52,10 +51,17 @@ func NewEngineManager(template *Engine, opts ...ManagerOption) *EngineManager {
 
 // Dispatch 将事件分发到对应 channel 的 Engine。
 // 如果 channel 的 Engine 不存在，自动从模板创建。
+// 首次调用时自动启动后台 GC goroutine，无需手动调用
 func (em *EngineManager) Dispatch(ctx *corectx.Context) {
 	if ctx == nil {
 		return
 	}
+
+	// 首次 Dispatch 自动启动后台 GC，防止调用方忘记 StartGC
+	em.once.Do(func() {
+		go em.gcLoop()
+	})
+
 	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
 
 	actual, _ := em.instances.LoadOrStore(channelKey, em.newChannelEngine(channelKey))
@@ -76,15 +82,9 @@ func (em *EngineManager) newChannelEngine(key ChannelKey) *Engine {
 	return child
 }
 
-// StartGC 启动后台 goroutine，定期清理空闲的 channel Engine。
-func (em *EngineManager) StartGC(ctx context.Context) {
-	em.once.Do(func() {
-		go em.gcLoop(ctx)
-	})
-}
-
 // gcLoop 定时扫描并清理空闲 channel Engine。
-func (em *EngineManager) gcLoop(ctx context.Context) {
+// 通过 em.stopGC 通道停止（由 Close 关闭）。
+func (em *EngineManager) gcLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
@@ -92,8 +92,6 @@ func (em *EngineManager) gcLoop(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			em.evictIdle()
-		case <-ctx.Done():
-			return
 		case <-em.stopGC:
 			return
 		}

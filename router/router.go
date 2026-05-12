@@ -47,9 +47,10 @@ type RouteRule struct {
 // Router 按顺序评估路由规则并将事件分发到相应的处理器。
 // 它是一个轻量的、无状态的协调器。
 type Router struct {
-	engine    *engine.Engine
-	fsmEngine *fsm.Engine
-	rules     []*RouteRule
+	engine        *engine.Engine
+	engineManager *engine.EngineManager
+	fsmEngine     *fsm.Engine
+	rules         []*RouteRule
 }
 
 // New 创建一个 Router，使用给定的 Engine 和可选的 FSM 引擎。
@@ -60,6 +61,14 @@ func New(e *engine.Engine, fsmEngine *fsm.Engine) *Router {
 		fsmEngine: fsmEngine,
 		rules:     make([]*RouteRule, 0),
 	}
+}
+
+// WithEngineManager 将 EngineManager 附加到 Router。
+// 设置后，StrategyEngine 规则通过 EngineManager 分派到 per-channel Engine，
+// 而非直接调 Engine.ProcessEvent。实现 Router + EngineManager 组合使用。
+func (r *Router) WithEngineManager(em *engine.EngineManager) *Router {
+	r.engineManager = em
+	return r
 }
 
 // Route 添加一条路由规则。规则按添加顺序评估（第一个匹配者胜出）。
@@ -83,7 +92,11 @@ func (r *Router) Dispatch(ctx *corectx.Context) {
 		}
 		switch rule.Strategy {
 		case StrategyEngine:
-			r.engine.ProcessEvent(ctx)
+			if r.engineManager != nil {
+				r.engineManager.Dispatch(ctx)
+			} else {
+				r.engine.ProcessEvent(ctx)
+			}
 			return
 		case StrategyFSM:
 			if r.fsmEngine != nil {
@@ -104,7 +117,11 @@ func (r *Router) Dispatch(ctx *corectx.Context) {
 	}
 
 	// Fallback: no rule matched or FSM/Agent fell through
-	r.engine.ProcessEvent(ctx)
+	if r.engineManager != nil {
+		r.engineManager.Dispatch(ctx)
+	} else {
+		r.engine.ProcessEvent(ctx)
+	}
 }
 
 // handleAgent 是 LLM Agent 路由的占位符。

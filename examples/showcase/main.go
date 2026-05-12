@@ -35,7 +35,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/middleware"
@@ -43,6 +45,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/router"
 )
 
 //go:embed locales/*.yaml
@@ -98,6 +101,18 @@ func main() {
 	eng.Use(middleware.ProductionSet()...)
 	eng.Use(requestCounterMiddleware())
 	eng.Use(processingTimeMiddleware())
+
+	// ── FSM + Router ──────────────────────────────────────────────────────────
+	fsmMgr := fsm.NewManager(nil)
+	rtr := router.New(eng, fsmMgr.Engine())
+	rtr.Route(router.WithCommandPrefix())
+	rtr.Route(router.WithFSMRoute())
+	bot.UseRouter(rtr)
+
+	// ── Per-Channel Engine ────────────────────────────────────────────────────
+	engMgr := engine.NewEngineManager(eng)
+	bot.UseEngineManager(engMgr)
+	rtr.WithEngineManager(engMgr)
 
 	pm := plugin.NewManager(eng)
 	pm.SetStrictDeps(false)
@@ -197,6 +212,43 @@ func main() {
 
 	if err := pm.Register(commandPlugin(pm, cdPlugin, statsPlugin, bcPlugin, subPlugin)); err != nil {
 		log.Fatalf("register command plugin: %v", err)
+	}
+
+	// ── FSM 多步骤表单 ───────────────────────────────────────────────────────
+	signupFSM := &fsm.FSM{
+		Name:    "signup", Initial: "idle",
+		Events: []fsm.Event{
+			{Name: "start", From: "idle", To: "ask_name",
+				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() == "/fsmsignup" },
+				Action: func(ctx *fsm.FSMContext) error {
+					_, e := ctx.Reply(platform.TextMessage("欢迎注册！请输入您的昵称："))
+					return e
+				}},
+			{Name: "input_name", From: "ask_name", To: "ask_age",
+				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() != "" },
+				Action: func(ctx *fsm.FSMContext) error {
+					ctx.Data["name"] = ctx.GetMessageContent()
+					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("你好 %s！请输入年龄：", ctx.Data["name"])))
+					return e
+				}},
+			{Name: "input_age", From: "ask_age", To: "done",
+				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() != "" },
+				Action: func(ctx *fsm.FSMContext) error {
+					ctx.Data["age"] = ctx.GetMessageContent()
+					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("注册成功！昵称：%s，年龄：%s", ctx.Data["name"], ctx.Data["age"])))
+					return e
+				}},
+			{Name: "cancel", From: "*", To: "idle",
+				Match:  func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() == "/cancel" },
+				Action: func(ctx *fsm.FSMContext) error {
+					_, e := ctx.Reply(platform.TextMessage("已取消注册"))
+					return e
+				}},
+		},
+		Timeout: 3 * time.Minute,
+	}
+	if err := fsmMgr.Register(&fsm.FSMDescriptor{Name: "signup", FSM: signupFSM}); err != nil {
+		log.Fatalf("register signup FSM: %v", err)
 	}
 
 	// 定时清理冷却记录
