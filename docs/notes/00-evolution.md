@@ -592,6 +592,109 @@ infra/
 └── fs/          # 懒加载文件系统
 ```
 
+## 第九阶段：FSM + Adaptive Router + WASM + Per-Channel Engine（v1.2.0）
+
+**驱动因素**：Bot 单引擎架构在多频道共享、多步对话、三方插件扩展三个方向上同时触到天花板。
+
+### 三大问题的统一解决
+
+| 问题 | 方案 | 文档 |
+|------|------|------|
+| 多频道共享 Engine，A 服命令影响 B 服 | Per-Channel Engine：按 guild/group 隔离 Engine 实例 | [`15-per-channel-engine.md`](15-per-channel-engine.md) |
+| 多步对话靠插件内部手写状态机 | FSM Engine：声明式状态机 + 会话管理 | [`12-fsm-engine.md`](12-fsm-engine.md) |
+| Engine 分发逻辑硬编码在 bot.go | Adaptive Router：策略化规则链 | [`13-adaptive-router.md`](13-adaptive-router.md) |
+| 插件无法安全加载第三方代码 | WASM Plugin：wazero 沙箱运行时 | [`14-wasm-plugin.md`](14-wasm-plugin.md) |
+
+### FSM Engine（`core/fsm/`）
+
+FSM Engine 将多步对话从"插件内手写状态映射表"提升为**声明式状态机描述**：
+
+```go
+descriptor := &fsm.FSMDescriptor{
+    Name: "registration",
+    FSM: &fsm.FSM{
+        Initial: StateIdle,
+        States:  []fsm.State{StateIdle, StateAwaitName, StateAwaitAge},
+        Transitions: []fsm.Transition{
+            {From: StateIdle,   Match: cmdMatch("/register"), Action: start},
+            {From: StateAwaitName, Action: collectName},
+            {From: "*",         Match: cmdMatch("/cancel"),  Action: cancel},
+        },
+    },
+}
+```
+
+关键设计：
+- `TryTransition` 按注册顺序遍历 Transition，匹配 `From` + `Match` 谓词，执行 Action
+- `From="*"` 通配符支持（如全局 `/cancel`）
+- `OnEnter`/`OnExit` 回调 + 失败回滚（状态一致性保证）
+- 会话过期 + 后台 Cleanup goroutine
+- `Storage` 接口 + `MemoryStorage` 默认实现
+
+### Adaptive Router（`router/`）
+
+Router 将 `bot.go` 中的硬编码 if/else 分发链抽象为可配置的 `RouteRule` 列表：
+
+```go
+router.AddRule(&router.RouteRule{
+    Name:     "commands",
+    Strategy: router.StrategyEngine,
+    Match:    router.WithCommandPrefix("/"),
+})
+router.AddRule(&router.RouteRule{
+    Name:     "fsm",
+    Strategy: router.StrategyFSM,
+    Match:    router.WithFSMRoute(fsmManager),
+})
+```
+
+三种策略：`Engine`（传统匹配器）、`FSM`（活跃会话）、`Agent`（预留）。
+最终 `bot.handlePlatformEvent` 采用三阶段路由：`engineManager > router > engine`。
+
+### WASM Plugin（`plugin/wasm/`）
+
+基于 wazero v1.11.0 的纯 Go WASM 运行时，提供真正的沙箱隔离：
+
+```
+Host (Go)          Guest (WASM)
+  │                    │
+  ├─ malloc ──────────→│  分配线性内存
+  │←────── ptr ───────┤
+  ├─ write JSON ──────→│  写入输入数据
+  ├─ plugin_handle ───→│  调用处理函数
+  │←────── JSON ──────┤  读取输出
+  │                    │
+  └─ remilia_host ────→│  宿主函数：log/get_config/reply
+```
+
+- Bridge 将 WASM `plugin_init` 返回的注册请求转为 Engine Matcher
+- TokenBucket 限流 + 内存上限沙箱
+- 独立 Manager（不修改 `plugin.Manager`）
+
+### Per-Channel Engine（`core/engine/`）
+
+每个频道（guild/group/private chat）获得独立的 Engine 实例：
+
+```go
+// template 定义全局匹配器
+forkEng := template.ForkFrom(template)
+forkEng.RegisterMatcher(channelOnlyMatcher)  // 仅该频道可见
+
+// 模板变更通过 syncTemplates 传播
+template.RegisterMatcher(globalMatcher)  // 所有 fork 延迟可见
+```
+
+- `Engine.fork` 新字段 + `templateVer` atomic.Int64 版本检测
+- `processEventGuard` 惰性同步：事件处理时发现模板版本变化才 sync
+- `EngineManager`: `sync.Map[ChannelKey]*Engine` + `evictIdle` GC + `Stats`
+- `bumpVersion` 在所有 matcher 变更操作末尾调用
+
+### 迭代历程
+
+| 版本 | 核心变化 |
+|------|---------|
+| v1.2.0 | FSM Engine + Adaptive Router + WASM Plugin + Per-Channel Engine |
+
 ## 第八阶段：去池化 + ExecPool 统一 + Context 精简
 
 **驱动因素**：

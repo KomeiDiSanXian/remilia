@@ -1,0 +1,143 @@
+package engine
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+)
+
+// EngineManager 管理 per-channel Engine 实例。
+// 每个 channel 拥有独立的 Engine，实现 matcher 隔离和 Block() 互不影响。
+//
+// 使用方式：
+//
+//	em := engine.NewEngineManager(templateEngine)
+//	// bot.go 中优先走 em.Dispatch(ctx, event)
+//	// em 内部自动创建/复用 channel engine，懒同步模板变化
+type EngineManager struct {
+	template *Engine
+	instances sync.Map
+	maxIdle  time.Duration
+
+	stopGC chan struct{}
+	once   sync.Once
+}
+
+// ManagerOption 配置 EngineManager 的选项。
+type ManagerOption func(*EngineManager)
+
+// WithMaxIdle 设置 channel engine 空闲淘汰时间。默认 30 分钟。
+func WithMaxIdle(d time.Duration) ManagerOption {
+	return func(em *EngineManager) {
+		em.maxIdle = d
+	}
+}
+
+// NewEngineManager 创建一个 EngineManager，使用 template 作为全局模板引擎。
+// 默认空闲淘汰时间为 30 分钟。
+func NewEngineManager(template *Engine, opts ...ManagerOption) *EngineManager {
+	em := &EngineManager{
+		template: template,
+		maxIdle:  30 * time.Minute,
+		stopGC:   make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(em)
+	}
+	return em
+}
+
+// Dispatch 将事件分发到对应 channel 的 Engine。
+// 如果 channel 的 Engine 不存在，自动从模板创建。
+func (em *EngineManager) Dispatch(ctx *corectx.Context) {
+	if ctx == nil {
+		return
+	}
+	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
+
+	actual, _ := em.instances.LoadOrStore(channelKey, em.newChannelEngine(channelKey))
+	chEngine := actual.(*Engine)
+
+	chEngine.ProcessEvent(ctx)
+}
+
+// newChannelEngine 从模板创建一个新的 channel Engine。
+func (em *EngineManager) newChannelEngine(key ChannelKey) *Engine {
+	child := NewEngine()
+	child.ForkFrom(em.template, key)
+
+	logger.WithFields(logger.Fields{
+		"channel": string(key),
+	}).Debug("[engine] Created per-channel engine")
+
+	return child
+}
+
+// StartGC 启动后台 goroutine，定期清理空闲的 channel Engine。
+func (em *EngineManager) StartGC(ctx context.Context) {
+	em.once.Do(func() {
+		go em.gcLoop(ctx)
+	})
+}
+
+// gcLoop 定时扫描并清理空闲 channel Engine。
+func (em *EngineManager) gcLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			em.evictIdle()
+		case <-ctx.Done():
+			return
+		case <-em.stopGC:
+			return
+		}
+	}
+}
+
+// evictIdle 清理所有超过 maxIdle 未使用的 channel Engine。
+func (em *EngineManager) evictIdle() {
+	now := time.Now().Unix()
+	threshold := now - int64(em.maxIdle.Seconds())
+
+	em.instances.Range(func(key, value any) bool {
+		chEngine := value.(*Engine)
+		if chEngine.LastUsed() < threshold {
+			em.instances.Delete(key)
+			logger.WithFields(logger.Fields{
+				"channel": string(key.(ChannelKey)),
+			}).Debug("[engine] Evicted idle per-channel engine")
+		}
+		return true
+	})
+}
+
+// GetChannel 返回指定 channel 的 Engine，不存在时返回 nil。
+func (em *EngineManager) GetChannel(key ChannelKey) *Engine {
+	if v, ok := em.instances.Load(key); ok {
+		return v.(*Engine)
+	}
+	return nil
+}
+
+// Stats 返回 EngineManager 的统计信息。
+func (em *EngineManager) Stats() map[string]any {
+	count := 0
+	em.instances.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return map[string]any{
+		"channel_count": count,
+	}
+}
+
+// Close 关闭 EngineManager，停止 GC。
+func (em *EngineManager) Close() {
+	close(em.stopGC)
+}

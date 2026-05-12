@@ -27,6 +27,13 @@ func (e *Engine) processEventGuard(ctx *context.Context) {
 	if e.shutdown.Load() {
 		return
 	}
+
+	// 懒同步：fork 子引擎检查模板版本是否变化
+	if e.fork != nil && e.fork.template.Version() != e.fork.templateVer {
+		e.syncTemplates()
+	}
+	e.touch()
+
 	e.eventWg.Add(1)
 	defer e.eventWg.Done()
 

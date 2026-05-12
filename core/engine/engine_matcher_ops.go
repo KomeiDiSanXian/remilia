@@ -58,6 +58,7 @@ func (e *Engine) DeleteMatcher(m *Matcher) {
 
 	state := e.state.Load()
 	e.state.Store(state.withDeletedMatcher(m))
+	e.bumpVersion()
 }
 
 // DeleteMatchers 批量删除匹配器（COW 写操作）
@@ -67,6 +68,7 @@ func (e *Engine) DeleteMatchers(matchers []*Matcher) {
 
 	state := e.state.Load()
 	e.state.Store(state.withDeletedMatchers(matchers))
+	e.bumpVersion()
 }
 
 // ---- 注册操作 ----------------------------------------------------------------
@@ -87,6 +89,7 @@ func (e *Engine) registerMatcher(m *Matcher) *Matcher {
 	e.state.Store(oldState.withAddedMatcher(m))
 
 	e.rebuildMatcherChainCOW(m)
+	e.bumpVersion()
 	return m
 }
 
@@ -125,6 +128,8 @@ func (e *Engine) BatchRegisterMatchers(matchers []*Matcher) []*Matcher {
 	}
 
 	e.state.Store(oldState.withBatchMatchers(matchers))
+
+	e.bumpVersion()
 
 	for _, m := range matchers {
 		e.rebuildMatcherChainCOW(m)
@@ -240,6 +245,7 @@ func (e *Engine) RemoveGroup(groupName string) {
 	}
 
 	e.state.Store(state.withRemovedGroup(groupName))
+	e.bumpVersion()
 
 	logger.Debugf("[engine] Removed matcher group: %s", groupName)
 }

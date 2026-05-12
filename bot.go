@@ -18,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/KomeiDiSanXian/remilia/router"
 )
 
 const (
@@ -76,6 +77,14 @@ type Bot struct {
 	config           *BotMeta
 	pluginManager    *plugin.Manager
 	platformRegistry *platform.Registry // 唯一事件来源（单/多平台均通过此注册表管理）
+
+	// engineManager 是可选的 per-channel Engine 管理器。
+	// 非 nil 时，handlePlatformEvent 优先走 engineManager.Dispatch。
+	engineManager *engine.EngineManager
+
+	// router 是可选的策略路由层。
+	// engineManager 为 nil 且 router 非 nil 时走 router.Dispatch。
+	router *router.Router
 
 	// adapterSnapshot 在 Start() 时构建，此后只读，用于热路径零锁访问。
 	// 使用 atomic.Value 存储 map[string]adapterCache 快照：
@@ -228,7 +237,7 @@ func (b *Bot) Start() error {
 
 	b.adapterSnapshot.Store(snapshot)
 
-	// 将 pluginManager 注册为 lifecycle 的最后一个组件（4.1 fix）。
+	// 将 pluginManager 注册为 lifecycle 的最后一个组件
 	// 注册顺序：engine → platform adapters → plugin-manager
 	// 停止顺序（逆序）：plugin-manager → platform adapters → engine
 	// 这样插件 Teardown 在平台连接断开之前执行，且在 lifecycle.Stop() 返回前 parentCtx 仍有效。
@@ -328,10 +337,19 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		sender = &platform.NoopSender{}
 	}
 
+	// 创建事件上下文（路由和直接 Engine 路径共享）
+	ctx := eventctx.NewContextFromEvent(event, sender)
 	if botID != "" {
-		b.engine.ProcessPlatformEventEx(event, sender, botID, caps)
+		ctx.SetBotID(botID)
+	}
+	ctx.SetPlatformCapabilities(caps)
+
+	if b.engineManager != nil {
+		b.engineManager.Dispatch(ctx)
+	} else if b.router != nil {
+		b.router.Dispatch(ctx)
 	} else {
-		b.engine.ProcessPlatformEvent(event, sender, caps)
+		b.engine.ProcessEvent(ctx)
 	}
 
 	if b.config.Debug {
@@ -453,6 +471,25 @@ func (b *Bot) Plugins() *plugin.Manager {
 // 无需加锁：b.engine 在 NewBot 中设置一次且永不修改。
 // 与 Config()/Plugins() 不同，这些字段通过 Use* 方法支持运行时注入。
 func (b *Bot) Engine() *engine.Engine { return b.engine }
+
+// UseRouter 注入策略路由层。注入后，handlePlatformEvent 在 engineManager 未启用时
+// 优先走 [router.Router.Dispatch]。若 engineManager 已注入，此方法被忽略。
+func (b *Bot) UseRouter(r *router.Router) *Bot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.router = r
+	return b
+}
+
+// UseEngineManager 注入 per-channel Engine 管理器。
+// engineManager 优先级高于 router：handlePlatformEvent 先检查 engineManager，
+// 其次检查 router，最后直接调 engine.ProcessEvent。
+func (b *Bot) UseEngineManager(em *engine.EngineManager) *Bot {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.engineManager = em
+	return b
+}
 
 // IsRunning 返回 Bot 是否正在运行。
 // 委托给 lifecycle.State()，等价于 lifecycle.StateRunning。
