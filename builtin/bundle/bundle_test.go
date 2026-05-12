@@ -17,7 +17,7 @@ func TestCoreReturnsExpectedPlugins(t *testing.T) {
 	assert.Len(t, plugins, 3)
 }
 
-func TestAllReturnsCorePlusCooldown(t *testing.T) {
+func TestAllReturnsAllPlugins(t *testing.T) {
 	all := All()
 	allNames := pluginNames(all)
 	coreNames := pluginNames(Core())
@@ -26,7 +26,11 @@ func TestAllReturnsCorePlusCooldown(t *testing.T) {
 		assert.Contains(t, allNames, name)
 	}
 	assert.Contains(t, allNames, "cooldown")
-	assert.Len(t, all, len(Core())+1)
+	assert.Contains(t, allNames, "welcome")
+	assert.Contains(t, allNames, "autoresponder")
+	assert.Contains(t, allNames, "moderation")
+	assert.Contains(t, allNames, "customcommands")
+	assert.Len(t, all, len(Core())+5)
 }
 
 func TestDevReturnsDevPlugins(t *testing.T) {
@@ -55,6 +59,10 @@ func TestAllOrderIsCorrect(t *testing.T) {
 	assert.Equal(t, "acl", names[1])
 	assert.Equal(t, "help", names[2])
 	assert.Equal(t, "cooldown", names[3])
+	assert.Equal(t, "welcome", names[4])
+	assert.Equal(t, "autoresponder", names[5])
+	assert.Equal(t, "moderation", names[6])
+	assert.Equal(t, "customcommands", names[7])
 }
 
 func TestDevOrderIsCorrect(t *testing.T) {

@@ -231,7 +231,7 @@ func (p *Plugin) ListValid() []*CodeEntry {
 	result := make([]*CodeEntry, 0)
 	for _, e := range p.codes {
 		if e.IsValid() {
-			result = append(result, new(*e))
+			result = append(result, e)
 		}
 	}
 	return result
@@ -267,7 +267,7 @@ func (p *Plugin) save() {
 	p.mu.RLock()
 	codes := make(map[string]*CodeEntry, len(p.codes))
 	for k, v := range p.codes {
-		codes[k] = new(*v)
+		codes[k] = v
 	}
 	p.mu.RUnlock()
 	if err := jsonfile.Write(p.dataFile, codes); err != nil {
