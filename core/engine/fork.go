@@ -38,6 +38,10 @@ func (e *Engine) ForkFrom(template *Engine, channelKey ChannelKey) {
 	if template.internals.execPool != nil {
 		e.internals.execPool = template.internals.execPool
 	}
+	// 同步模板的中间件链，使去重、限流等中间件对 fork 子引擎生效
+	if tmplMW := template.middleware.Load(); tmplMW != nil {
+		e.middleware.Store(copyMiddlewareState(tmplMW))
+	}
 	e.syncTemplates()
 }
 

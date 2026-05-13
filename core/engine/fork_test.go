@@ -121,6 +121,30 @@ func TestForkFrom_SharedExecPool(t *testing.T) {
 		"fork child should share template's ExecPool")
 }
 
+func TestForkFrom_SyncMiddleware(t *testing.T) {
+	tmpl := NewEngine(WithNoBackgroundWorkers())
+
+	var mwCalled int
+	testMW := func(next corectx.Handler) corectx.Handler {
+		return func(ctx *corectx.Context) error {
+			mwCalled++
+			return next(ctx)
+		}
+	}
+	tmpl.Use(testMW)
+
+	tmpl.OnCommand("PRIVATE_MESSAGE", "/ping").Handle(func(ctx *corectx.Context) error {
+		return nil
+	})
+
+	child := NewEngine(WithNoBackgroundWorkers())
+	child.ForkFrom(tmpl, "test:mw_sync")
+
+	child.ProcessEvent(forkCtx("/ping"))
+	child.WaitForAsyncHandlers()
+	assert.Equal(t, 1, mwCalled, "fork child should inherit template middleware")
+}
+
 func TestForkFrom_NonForkEngine(t *testing.T) {
 	tmpl := NewEngine(WithNoBackgroundWorkers())
 	assert.False(t, tmpl.IsFork())

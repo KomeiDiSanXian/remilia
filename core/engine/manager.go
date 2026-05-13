@@ -21,8 +21,9 @@ type EngineManager struct {
 	instances sync.Map
 	maxIdle   time.Duration
 
-	stopGC chan struct{}
-	once   sync.Once
+	stopGC   chan struct{}
+	once     sync.Once
+	createMu sync.Mutex // 保护并发首次创建，避免 newChannelEngine 重复执行
 }
 
 // ManagerOption 配置 EngineManager 的选项。
@@ -64,9 +65,22 @@ func (em *EngineManager) Dispatch(ctx *corectx.Context) {
 
 	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
 
-	actual, _ := em.instances.LoadOrStore(channelKey, em.newChannelEngine(channelKey))
-	chEngine := actual.(*Engine)
+	// 快速路径：channel 已存在
+	if actual, ok := em.instances.Load(channelKey); ok {
+		actual.(*Engine).ProcessEvent(ctx)
+		return
+	}
 
+	// 慢速路径：加锁创建，避免并发首次访问时 newChannelEngine 执行多次
+	em.createMu.Lock()
+	if actual, ok := em.instances.Load(channelKey); ok {
+		em.createMu.Unlock()
+		actual.(*Engine).ProcessEvent(ctx)
+		return
+	}
+	chEngine := em.newChannelEngine(channelKey)
+	em.instances.Store(channelKey, chEngine)
+	em.createMu.Unlock()
 	chEngine.ProcessEvent(ctx)
 }
 

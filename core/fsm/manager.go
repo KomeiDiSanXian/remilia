@@ -6,27 +6,20 @@ import (
 )
 
 var (
-	// ErrFSMDescriptorNameRequired is returned when an FSMDescriptor has an empty Name.
+	// ErrFSMDescriptorNameRequired 当 FSMDescriptor 的 Name 为空时返回。
 	ErrFSMDescriptorNameRequired = fmt.Errorf("fsm: FSMDescriptor.Name is required")
-	// ErrFSMDescriptorNilFSM is returned when an FSMDescriptor has a nil FSM field.
+	// ErrFSMDescriptorNilFSM 当 FSMDescriptor 的 FSM 字段为 nil 时返回。
 	ErrFSMDescriptorNilFSM = fmt.Errorf("fsm: FSMDescriptor.FSM is nil")
 )
 
-// Manager manages FSM descriptors and provides access to the underlying FSM engine.
-//
-// Usage:
-//
-//	mgr := fsm.NewManager(nil)
-//	mgr.Register(&fsm.FSMDescriptor{Name: "signup", FSM: signupFSM})
-//	eng := mgr.GetEngine()
+// Manager 管理 FSM descriptor 并提供对底层 FSM 引擎的访问。
 type Manager struct {
 	engine   *Engine
 	fsmDescs map[string]*FSMDescriptor
 	mu       sync.RWMutex
 }
 
-// NewManager creates an FSM manager with the given storage backend.
-// If storage is nil, [NewMemoryStorage] is used.
+// NewManager 创建一个使用指定存储后端的 FSM 管理器。如果 storage 为 nil，默认使用 [NewMemoryStorage]。
 func NewManager(storage Storage) *Manager {
 	if storage == nil {
 		storage = NewMemoryStorage()
@@ -37,12 +30,10 @@ func NewManager(storage Storage) *Manager {
 	}
 }
 
-// Register validates and registers an FSM descriptor.
-//
-// Returns an error if:
-//   - desc is nil or fails validation
-//   - an FSM descriptor with the same Name is already registered
-//   - the underlying FSM fails validation
+// Register 校验并注册一个 FSM descriptor。返回错误的情况：
+//   - desc 为 nil 或校验失败
+//   - 同名 FSM descriptor 已经注册
+//   - 底层 FSM 校验失败
 func (m *Manager) Register(desc *FSMDescriptor) error {
 	if desc == nil {
 		return fmt.Errorf("fsm: cannot register nil FSMDescriptor")
@@ -62,7 +53,7 @@ func (m *Manager) Register(desc *FSMDescriptor) error {
 	return nil
 }
 
-// Unregister removes an FSM descriptor from the manager and its FSM from the engine.
+// Unregister 从管理器中移除一个 FSM descriptor，并从引擎中移除其 FSM。
 func (m *Manager) Unregister(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -74,18 +65,17 @@ func (m *Manager) Unregister(name string) error {
 	return nil
 }
 
-// GetEngine returns the underlying FSM engine for direct access.
-// Most users should use [Engine] which is an alias for this method.
+// GetEngine 返回底层 FSM 引擎以供直接访问。大多数用户应使用 [Engine]——它是此方法的别名。
 func (m *Manager) GetEngine() *Engine {
 	return m.engine
 }
 
-// Engine is an alias for [Manager.GetEngine].
+// Engine 是 [Manager.GetEngine] 的别名。
 func (m *Manager) Engine() *Engine {
 	return m.engine
 }
 
-// ListDescriptors returns the names of all registered FSM descriptors.
+// ListDescriptors 返回所有已注册 FSM descriptor 的名称列表。
 func (m *Manager) ListDescriptors() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

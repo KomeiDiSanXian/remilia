@@ -2,20 +2,41 @@ package fsm
 
 import corectx "github.com/KomeiDiSanXian/remilia/core/context"
 
-// FSMContext is the context passed to [Event.Action], [FSM.OnEnter],
-// and [FSM.OnExit] callbacks.
+// FSMContext 是传递给 [Event.Action]、[FSM.OnEnter] 和 [FSM.OnExit] 回调的上下文。
 //
-// It embeds [corectx.Context] so that all methods like [corectx.Context.Reply],
-// [corectx.Context.GetMessageContent], etc. are directly available.
+// 它嵌入 [corectx.Context]，因此 [corectx.Context.Reply]、
+// [corectx.Context.GetMessageContent] 等方法可直接使用。
+//
+// # 终态规则
+//
+// 会话在 Action 或 OnEnter 结束后，按以下规则确定是否结束：
+//
+//   - event.To == "" 且 ended == true  → 终态（双保险，无冲突）
+//   - event.To == "" 且 ended == false → 终态（框架自动 Delete）
+//   - event.To != "" 且 ended == true  → 终态（用户显式 EndSession 优先于 To）
+//   - event.To != "" 且 ended == false → 正常迁移到 To
+//
+// 推荐做法：终态事件省略 To，框架自动结束会话，无需调 EndSession。
+// 若在 Action 中显式调用 EndSession，无论 To 是否为空都会结束会话。
 type FSMContext struct {
 	*corectx.Context
-	// SessionID is the unique identifier for this FSM session.
+	// SessionID 是此 FSM 会话的唯一标识。
 	SessionID string
-	// Current is the current state at the time the callback is invoked.
+	// Current 是回调被调用时的当前状态。
 	Current State
-	// Data is the session's user-defined key-value store. Modifications
-	// made here persist across transitions.
+	// Data 是会话的用户定义键值存储。在此做的修改会在迁移之间持久化。
 	Data map[string]any
-	// FSM is the FSM definition this session belongs to.
+	// FSM 是此会话所属的 FSM 定义。
 	FSM *FSM
+
+	engine *Engine
+	ended  bool
+}
+
+// EndSession 结束当前 FSM 会话。调用后无论 event.To 是否为空，框架都会结束会话。
+func (ctx *FSMContext) EndSession() {
+	ctx.ended = true
+	if ctx.engine != nil {
+		ctx.engine.EndSession(ctx.SessionID)
+	}
 }

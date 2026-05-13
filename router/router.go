@@ -18,6 +18,7 @@ import (
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Strategy 指示哪个处理器应处理匹配的事件。
@@ -101,11 +102,25 @@ func (r *Router) Dispatch(ctx *corectx.Context) {
 		case StrategyFSM:
 			if r.fsmEngine != nil {
 				sessionID := makeSessionID(ctx)
-				_, ok, _ := r.fsmEngine.TryTransition(ctx, sessionID)
+				// 1) 已有活跃会话 → 迁移
+				state, ok, err := r.fsmEngine.TryTransition(ctx, sessionID)
+				if err != nil {
+					logger.WithError(err).Warn("[router] FSM TryTransition error")
+				}
 				if ok {
+					logger.Debugf("[router] FSM transition: %s", state)
 					return
 				}
-				// FSM didn't transition; continue to next rule
+				// 2) 无活跃会话 → 尝试启动新 FSM 会话
+				started, err := r.fsmEngine.TryStartSession(ctx, sessionID)
+				if err != nil {
+					logger.WithError(err).Warn("[router] FSM TryStartSession error")
+				}
+				if started {
+					logger.Debug("[router] FSM session started")
+					return
+				}
+				// 均未命中 → fallthrough 到下一规则
 				continue
 			}
 		case StrategyAgent:

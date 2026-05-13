@@ -35,8 +35,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/core/engine"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
@@ -105,8 +105,10 @@ func main() {
 	// ── FSM + Router ──────────────────────────────────────────────────────────
 	fsmMgr := fsm.NewManager(nil)
 	rtr := router.New(eng, fsmMgr.Engine())
-	rtr.Route(router.WithCommandPrefix())
+	// FSM 优先：活跃会话或匹配启动事件的消息优先由 FSM 处理，
+	// 不命中时自动 fallthrough 到 WithCommandPrefix。
 	rtr.Route(router.WithFSMRoute())
+	rtr.Route(router.WithCommandPrefix())
 	bot.UseRouter(rtr)
 
 	// ── Per-Channel Engine ────────────────────────────────────────────────────
@@ -215,33 +217,55 @@ func main() {
 	}
 
 	// ── FSM 多步骤表单 ───────────────────────────────────────────────────────
+	// FSM 定义自包含：启动事件（idle→ask_name）由 Router 的 TryStartSession 自动检测。
+	// 开发者无需手动注册 Engine 命令或管理 fsm.Manager 引用。
 	signupFSM := &fsm.FSM{
-		Name:    "signup", Initial: "idle",
+		Name: "signup", Initial: "idle",
 		Events: []fsm.Event{
+			// cancel 放首位：通配符 From:* 必须优先于具体状态事件，
+			// 否则 "input_name"/"input_age" 的 Match(TrimSpace != "")
+			// 会在其他状态优先匹配，导致 cancel 永远无法触发。
+			{Name: "cancel", From: "*", To: "idle",
+				Match: func(ctx *eventctx.Context) bool {
+					return strings.TrimSpace(ctx.GetMessageContent()) == "/cancel"
+				},
+				Action: func(ctx *fsm.FSMContext) error {
+					_, e := ctx.Reply(platform.TextMessage("已取消注册"))
+					fsmMgr.Engine().EndSession(ctx.SessionID)
+					return e
+				}},
 			{Name: "start", From: "idle", To: "ask_name",
-				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() == "/fsmsignup" },
+				Match: func(ctx *eventctx.Context) bool {
+					return strings.TrimSpace(ctx.GetMessageContent()) == "/fsmsignup"
+				},
 				Action: func(ctx *fsm.FSMContext) error {
 					_, e := ctx.Reply(platform.TextMessage("欢迎注册！请输入您的昵称："))
 					return e
 				}},
 			{Name: "input_name", From: "ask_name", To: "ask_age",
-				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() != "" },
+				Match: func(ctx *eventctx.Context) bool { return strings.TrimSpace(ctx.GetMessageContent()) != "" },
 				Action: func(ctx *fsm.FSMContext) error {
-					ctx.Data["name"] = ctx.GetMessageContent()
+					ctx.Data["name"] = strings.TrimSpace(ctx.GetMessageContent())
 					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("你好 %s！请输入年龄：", ctx.Data["name"])))
 					return e
 				}},
-			{Name: "input_age", From: "ask_age", To: "done",
-				Match: func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() != "" },
+			{Name: "input_age", From: "ask_age",
+				// To 为空表示终态：Action 执行后自动结束会话
+				Match: func(ctx *eventctx.Context) bool { return strings.TrimSpace(ctx.GetMessageContent()) != "" },
 				Action: func(ctx *fsm.FSMContext) error {
-					ctx.Data["age"] = ctx.GetMessageContent()
+					ctx.Data["age"] = strings.TrimSpace(ctx.GetMessageContent())
 					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("注册成功！昵称：%s，年龄：%s", ctx.Data["name"], ctx.Data["age"])))
+					ctx.EndSession()
 					return e
 				}},
-			{Name: "cancel", From: "*", To: "idle",
-				Match:  func(ctx *eventctx.Context) bool { return ctx.GetMessageContent() == "/cancel" },
+			{Name: "cancel", From: "*",
+				// To 为空表示终态：Action 执行后自动结束会话
+				Match: func(ctx *eventctx.Context) bool {
+					return strings.TrimSpace(ctx.GetMessageContent()) == "/cancel"
+				},
 				Action: func(ctx *fsm.FSMContext) error {
 					_, e := ctx.Reply(platform.TextMessage("已取消注册"))
+					ctx.EndSession()
 					return e
 				}},
 		},

@@ -64,6 +64,8 @@ type Plugin struct {
 	bundles sync.Map // locale -> *bundle
 	// tmplCache 预编译模板缓存，key 为 "locale\x00msgKey"，避免重复 Parse 开销
 	tmplCache *lru.Cache[string, *template.Template]
+	// userLocales 持久化用户语言偏好，key 为 userID
+	userLocales sync.Map
 }
 
 // NewPlugin 创建并返回一个已初始化的 i18n Plugin 实例。
@@ -207,16 +209,26 @@ func (p *Plugin) evictLocaleCache(locale string) {
 	}
 }
 
-// SetLocale 在 Context 中设置用户语言偏好（仅对当次请求有效）
+// SetLocale 设置用户语言偏好，持久化到内存中，后续请求自动生效。
 func (p *Plugin) SetLocale(ctx *eventctx.Context, locale string) {
 	ctx.Set(localeKey, locale)
+	if uid := ctx.GetUserID(); uid != "" {
+		p.userLocales.Store(uid, locale)
+	}
 }
 
-// GetLocale 获取当前请求的语言
+// GetLocale 获取当前请求的语言。优先使用请求级别设置，其次读取持久化的用户偏好。
 func (p *Plugin) GetLocale(ctx *eventctx.Context) string {
 	if v, ok := ctx.Get(localeKey); ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
+		}
+	}
+	if uid := ctx.GetUserID(); uid != "" {
+		if v, ok := p.userLocales.Load(uid); ok {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
 		}
 	}
 	return p.cfg.DefaultLocale
