@@ -17,4 +17,4 @@ secrets/
 data/
 
 profile/
-bin/
+bin/*.exe
