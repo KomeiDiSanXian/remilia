@@ -1,14 +1,16 @@
 // Package router 提供轻量级的策略驱动事件分发层，
 // 位于 Bot 的平台事件处理器和底层 Engine 之间。
 //
-// Router 按顺序评估规则，决定事件应由标准 Engine、
-// FSM 引擎还是 Agent 处理。规则按优先级顺序评估，第一个匹配者胜出。
+// Router 按顺序评估规则，决定事件应由标准 Engine 还是 Agent 处理。
+// 规则按优先级顺序评估，第一个匹配者胜出。
 // 如果没有规则匹配，事件回退到标准 Engine，保持现有行为不变。
 //
-// 默认路由：
-//   - 命令（以非字母数字前缀开头的消息，如 "/"）→ Engine
-//   - 有活跃 FSM 会话的消息 → FSM 引擎（若无状态变更则回退到 Engine）
-//   - 其他所有消息 → Engine
+// FSM（有限状态机）是内建的一级路由，不受规则声明顺序影响：
+//   - 有活跃 FSM 会话的消息 → FSM 引擎优先处理
+//   - 匹配 FSM 启动事件的消息 → 自动创建会话
+//   - 其余消息 → 按用户声明的规则分发
+//
+// 用户无需将 WithFSMRoute 放首位——FSM 始终最先检查。
 package router
 
 import (
@@ -27,8 +29,6 @@ type Strategy int
 const (
 	// StrategyEngine 路由到标准 Engine。
 	StrategyEngine Strategy = iota
-	// StrategyFSM 路由到 FSM 引擎。
-	StrategyFSM
 	// StrategyAgent 路由到 LLM Agent（可选占位）。
 	StrategyAgent
 )
@@ -46,7 +46,7 @@ type RouteRule struct {
 }
 
 // Router 按顺序评估路由规则并将事件分发到相应的处理器。
-// 它是一个轻量的、无状态的协调器。
+// FSM 是内建的一级路由，不受规则声明顺序影响——始终最先检查。
 type Router struct {
 	engine        *engine.Engine
 	engineManager *engine.EngineManager
@@ -55,7 +55,7 @@ type Router struct {
 }
 
 // New 创建一个 Router，使用给定的 Engine 和可选的 FSM 引擎。
-// 如果 fsmEngine 为 nil，StrategyFSM 规则将回退到 Engine。
+// 如果 fsmEngine 为 nil，FSM 内建路由不会生效。
 func New(e *engine.Engine, fsmEngine *fsm.Engine) *Router {
 	return &Router{
 		engine:    e,
@@ -80,49 +80,28 @@ func (r *Router) Route(rule *RouteRule) {
 	r.rules = append(r.rules, rule)
 }
 
-// Dispatch 对所有规则评估上下文并路由到匹配的处理器。
-// 如果没有规则匹配，事件回退到标准 Engine（保持现有行为不变）。
+// Dispatch 分发事件。FSM 始终最先检查（不受规则顺序影响），
+// 然后按用户声明的规则顺序评估，最后回退到标准 Engine。
 func (r *Router) Dispatch(ctx *corectx.Context) {
 	if ctx == nil {
 		return
 	}
 
+	// FSM 是内建的一级路由，始终在用户规则之前检查。
+	// 用户无需关心 WithFSMRoute 的声明顺序。
+	if r.fsmEngine != nil && r.handleFSM(ctx) {
+		return
+	}
+
+	// 用户声明的规则
 	for _, rule := range r.rules {
 		if !rule.Match(ctx) {
 			continue
 		}
 		switch rule.Strategy {
 		case StrategyEngine:
-			if r.engineManager != nil {
-				r.engineManager.Dispatch(ctx)
-			} else {
-				r.engine.ProcessEvent(ctx)
-			}
+			r.dispatchToEngine(ctx)
 			return
-		case StrategyFSM:
-			if r.fsmEngine != nil {
-				sessionID := makeSessionID(ctx)
-				// 1) 已有活跃会话 → 迁移
-				state, ok, err := r.fsmEngine.TryTransition(ctx, sessionID)
-				if err != nil {
-					logger.WithError(err).Warn("[router] FSM TryTransition error")
-				}
-				if ok {
-					logger.Debugf("[router] FSM transition: %s", state)
-					return
-				}
-				// 2) 无活跃会话 → 尝试启动新 FSM 会话
-				started, err := r.fsmEngine.TryStartSession(ctx, sessionID)
-				if err != nil {
-					logger.WithError(err).Warn("[router] FSM TryStartSession error")
-				}
-				if started {
-					logger.Debug("[router] FSM session started")
-					return
-				}
-				// 均未命中 → fallthrough 到下一规则
-				continue
-			}
 		case StrategyAgent:
 			if r.handleAgent(ctx) {
 				return
@@ -131,7 +110,35 @@ func (r *Router) Dispatch(ctx *corectx.Context) {
 		}
 	}
 
-	// Fallback: no rule matched or FSM/Agent fell through
+	// Fallback: 无规则匹配
+	r.dispatchToEngine(ctx)
+}
+
+// handleFSM 先尝试迁移（已有会话），再尝试启动（匹配启动事件）。
+// 返回 true 表示 FSM 已处理该事件。
+func (r *Router) handleFSM(ctx *corectx.Context) bool {
+	sessionID := makeSessionID(ctx)
+	state, ok, err := r.fsmEngine.TryTransition(ctx, sessionID)
+	if err != nil {
+		logger.WithError(err).Warn("[router] FSM TryTransition error")
+	}
+	if ok {
+		logger.Debugf("[router] FSM transition: %s", state)
+		return true
+	}
+	started, err := r.fsmEngine.TryStartSession(ctx, sessionID)
+	if err != nil {
+		logger.WithError(err).Warn("[router] FSM TryStartSession error")
+	}
+	if started {
+		logger.Debug("[router] FSM session started")
+		return true
+	}
+	return false
+}
+
+// dispatchToEngine 通过 engineManager（如有）或直接调 Engine 分发事件。
+func (r *Router) dispatchToEngine(ctx *corectx.Context) {
 	if r.engineManager != nil {
 		r.engineManager.Dispatch(ctx)
 	} else {

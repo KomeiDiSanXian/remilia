@@ -30,20 +30,9 @@ func WithCommandPrefix() *RouteRule {
 	}
 }
 
-// WithFSMRoute 创建一条规则，将所有有活跃 FSM 会话的消息路由到 FSM 引擎。
-// 将此规则放在 [WithCommandPrefix] 之后，以便显式命令优先。
-//
-// FSM 引擎的 [TryTransition] 在 [Router.Dispatch] 内部调用；
-// 此规则的 Match 仅检查会话是否存在。
+// WithFSMRoute 保留用于向后兼容。FSM 现在始终最先检查，无需声明此规则。
 func WithFSMRoute() *RouteRule {
-	return &RouteRule{
-		Name:     "fsm_route",
-		Strategy: StrategyFSM,
-		Priority: 50,
-		Match: func(ctx *corectx.Context) bool {
-			return true
-		},
-	}
+	return nil
 }
 
 // WithCustom 创建一个具有任意匹配函数和给定策略的规则。name 用于调试。

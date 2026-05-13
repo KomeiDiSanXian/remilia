@@ -96,8 +96,8 @@ func TestRouter_FSM_Hit(t *testing.T) {
 	require.NoError(t, mgr.Register(&fsm.FSMDescriptor{Name: "test", FSM: formFSM}))
 	require.NoError(t, mgr.Engine().StartSession(ctx("start"), "test", "test:ch1"))
 
+	// FSM 是内建路由，无需声明 WithFSMRoute
 	r.Route(router.WithCommandPrefix())
-	r.Route(router.WithFSMRoute())
 
 	handled := false
 	eng.OnEventKind(platform.EventKindPrivateMessage).Handle(func(ctx *corectx.Context) error {
@@ -119,7 +119,6 @@ func TestRouter_FSM_NoSession_FallthroughToEngine(t *testing.T) {
 	r := router.New(eng, mgr.Engine())
 
 	r.Route(router.WithCommandPrefix())
-	r.Route(router.WithFSMRoute())
 
 	handled := false
 	eng.OnAny().Handle(func(ctx *corectx.Context) error {

@@ -102,11 +102,10 @@ func main() {
 	eng.Use(processingTimeMiddleware())
 
 	// ── FSM + Router ──────────────────────────────────────────────────────────
+	// FSM 是内建的一级路由，不受规则声明顺序影响。
+	// WithFSMRoute 不再需要声明，只需将 fsmEngine 传入 router.New 即可。
 	fsmMgr := fsm.NewManager(nil)
 	rtr := router.New(eng, fsmMgr.Engine())
-	// FSM 优先：活跃会话或匹配启动事件的消息优先由 FSM 处理，
-	// 不命中时自动 fallthrough 到 WithCommandPrefix。
-	rtr.Route(router.WithFSMRoute())
 	rtr.Route(router.WithCommandPrefix())
 	bot.UseRouter(rtr)
 
