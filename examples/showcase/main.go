@@ -14,7 +14,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/broadcast"
-	"github.com/KomeiDiSanXian/remilia/builtin/conversation"
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/admin"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
@@ -179,7 +178,6 @@ func main() {
 		i18nPlugin.Descriptor(),
 		rlPlugin.Descriptor(),
 		pluginstore.New(),
-		conversation.New(),
 		help.New(),
 		admin.New(),
 		builtinstorage.New(infrastorage.WithDSN("data/showcase.db")),
@@ -333,7 +331,7 @@ func commandPlugin(
 			Category:    "showcase",
 		},
 		Deps: []string{
-			"cooldown", "stats", "i18n", "verifycode", "conversation",
+			"cooldown", "stats", "i18n", "verifycode",
 			"broadcast", "sendqueue", "subscription", "job",
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -418,35 +416,6 @@ func commandPlugin(
 						return replyCtx(c, "failed: "+err.Error())
 					}
 					return replyCtx(c, "role granted: "+role)
-				})
-
-			// ── /register (conversation) ───────────────────────────────────
-			var regMachine *conversation.Machine
-			if raw, ok := pm.GetContainer().Get("conversation"); ok {
-				conv := raw.(*conversation.Plugin)
-				regMachine = conv.NewMachine("register").
-					Step("name", "Enter your nickname:", func(c *eventctx.Context, s *conversation.Session) error {
-						s.Data["name"] = c.GetMessageContent()
-						return nil
-					}).
-					Step("email", "Enter your email:", func(c *eventctx.Context, s *conversation.Session) error {
-						s.Data["email"] = c.GetMessageContent()
-						return nil
-					}).
-					Done(func(c *eventctx.Context, s *conversation.Session) error {
-						return replyCtx(c, fmt.Sprintf("registered! name=%v email=%v", s.Data["name"], s.Data["email"]))
-					})
-				ctx.Reg.RegisterMatcher("", conv.InSession("register")).
-					Handle(conv.DispatchFor("register"))
-			}
-			ctx.Reg.RegisterCommand("", "/register").
-				SetDefinition(&command.Definition{Name: "register", Description: "Multi-step registration (conversation demo)", Category: "demo"}).
-				Handle(func(c *eventctx.Context) error {
-					if regMachine == nil {
-						return replyCtx(c, "conversation not loaded")
-					}
-					raw, _ := pm.GetContainer().Get("conversation")
-					return raw.(*conversation.Plugin).Start(c, regMachine)
 				})
 
 			// ── /aclcheck ──────────────────────────────────────────────────
