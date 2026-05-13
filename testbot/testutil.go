@@ -164,7 +164,6 @@ func (tb *TestBot) UseRouter() *TestBot {
 	}
 	tb.router = router.New(tb.eng, tb.fsmMgr.Engine())
 	tb.router.Route(router.WithCommandPrefix())
-	tb.router.Route(router.WithFSMRoute())
 	return tb
 }
 
@@ -340,7 +339,6 @@ func (b *Bot) UseRouter() *Bot {
 	}
 	b.router = router.New(b.eng, b.fsmMgr.Engine())
 	b.router.Route(router.WithCommandPrefix())
-	b.router.Route(router.WithFSMRoute())
 	return b
 }
 

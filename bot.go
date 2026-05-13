@@ -362,8 +362,6 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	ctx.SetPlatformCapabilities(caps)
 
 	if b.router != nil {
-		// Router 做策略路由（FSM/Agent/Engine）。
-		// 若同时配了 engineManager，StrategyEngine 走 per-channel Engine。
 		b.router.Dispatch(ctx)
 	} else if b.engineManager != nil {
 		b.engineManager.Dispatch(ctx)
@@ -496,8 +494,6 @@ func (b *Bot) Engine() *engine.Engine { return b.engine }
 //	router := router.New(eng, fsmEngine)
 //	router.WithEngineManager(em)
 //	bot.UseRouter(router).UseEngineManager(em)
-//
-// 同时注入后，Router 做策略路由，StrategyEngine 走 per-channel Engine 隔离。
 func (b *Bot) UseRouter(r *router.Router) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -506,8 +502,6 @@ func (b *Bot) UseRouter(r *router.Router) *Bot {
 }
 
 // UseEngineManager 注入 per-channel Engine 管理器。
-// 与 [Bot.UseRouter] 组合时，Router 的 StrategyEngine 自动通过 EngineManager
-// 分派到各 channel 的独立 Engine。
 func (b *Bot) UseEngineManager(em *engine.EngineManager) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()

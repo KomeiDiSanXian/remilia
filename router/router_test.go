@@ -139,51 +139,61 @@ func TestRouter_PriorityOrder(t *testing.T) {
 
 	r.Route(&router.RouteRule{
 		Name: "first", Priority: 1,
-		Strategy: router.StrategyEngine,
 		Match: func(ctx *corectx.Context) bool {
 			order = append(order, "first")
+			return false
+		},
+		Handle: func(ctx *corectx.Context) bool {
+			order = append(order, "first_handled")
 			return false
 		},
 	})
 	r.Route(&router.RouteRule{
 		Name: "second", Priority: 2,
-		Strategy: router.StrategyEngine,
 		Match: func(ctx *corectx.Context) bool {
 			order = append(order, "second")
+			return true
+		},
+		Handle: func(ctx *corectx.Context) bool {
+			order = append(order, "second_handled")
 			return true
 		},
 	})
 
 	r.Dispatch(ctx("x"))
-	assert.Equal(t, []string{"first", "second"}, order)
+	assert.Equal(t, []string{"first", "second", "second_handled"}, order)
 }
 
 func TestRouter_MultipleRules_FirstWins(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	r := router.New(eng, nil)
 
-	var matched string
 	r.Route(&router.RouteRule{
-		Name: "alpha", Strategy: router.StrategyEngine,
+		Name: "alpha", Priority: 0,
 		Match: func(ctx *corectx.Context) bool {
 			return ctx.GetMessageContent() == "alpha"
 		},
+		// Handle nil → 自动 dispatchToEngine
 	})
 	r.Route(&router.RouteRule{
-		Name: "beta", Strategy: router.StrategyEngine,
+		Name: "beta", Priority: 1,
 		Match: func(ctx *corectx.Context) bool {
 			return ctx.GetMessageContent() == "alpha"
+		},
+		Handle: func(ctx *corectx.Context) bool {
+			return false // 不会被评估到
 		},
 	})
 
+	handled := false
 	eng.OnAny().Handle(func(ctx *corectx.Context) error {
-		matched = "engine"
+		handled = true
 		return nil
 	})
 
 	r.Dispatch(ctx("alpha"))
 	eng.WaitForAsyncHandlers()
-	assert.Equal(t, "engine", matched, "first matching rule should win")
+	assert.True(t, handled, "alpha rule should dispatch to engine")
 }
 
 func TestRouter_NilContext(t *testing.T) {
@@ -214,15 +224,14 @@ func TestRouter_Custom(t *testing.T) {
 	r := router.New(eng, nil)
 
 	var matched bool
-	r.Route(router.WithCustom("custom", router.StrategyEngine, func(ctx *corectx.Context) bool {
-		return ctx.GetMessageContent() == "custom"
-	}))
-	eng.OnAny().Handle(func(ctx *corectx.Context) error {
-		matched = true
-		return nil
-	})
+	r.Route(router.WithCustom("custom",
+		func(ctx *corectx.Context) bool { return ctx.GetMessageContent() == "custom" },
+		func(ctx *corectx.Context) bool {
+			matched = true
+			return true
+		},
+	))
 
 	r.Dispatch(ctx("custom"))
-	eng.WaitForAsyncHandlers()
 	assert.True(t, matched)
 }
