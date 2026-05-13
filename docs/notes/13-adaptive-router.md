@@ -1,205 +1,114 @@
-# Adaptive Router——策略化的事件分发层
+# Adaptive Router——优先级驱动的路由分发层
 
-> Bot 接收平台事件后需要决定交给谁处理：Engine（传统匹配器）、FSM（活跃会话）、还是 WASM（第三方插件）。随着新能力接入，Bot 中出现了 if/else 链式判断。Adaptive Router 将分发逻辑抽象为可配置的策略规则链，消除 Bot 与具体分发策略的耦合。
-
-## 问题背景
-
-在引入 FSM 和 WASM 之前，Bot 的事件分发路径很简单：
-
-```
-Adapter → Bot.handlePlatformEvent → Engine.ProcessPlatformEvent
-```
-
-每个新能力都要求在 `bot.go` 中增加一段硬编码判断：
-
-```go
-func (b *Bot) handlePlatformEvent(event platform.Event) {
-    // 1. 检查 FSM 活跃会话
-    if session := b.fsmManager.GetSession(sessionID); session != nil {
-        if changed, _ := b.fsmManager.TryTransition(session, event); changed {
-            return
-        }
-    }
-    // 2. 传给 Engine
-    b.engine.ProcessPlatformEvent(event, sender)
-}
-```
-
-问题：
-- **硬编码顺序**：FSM 必须在 Engine 之前检查，否则 Engine 会拦截消息
-- **不可扩展**：新增分发目标需要修改 Bot 核心代码
-- **难测试**：无法单独测试分发逻辑，必须构造完整 Bot
+> Bot 接收平台事件后需要决定交给谁处理：FSM（活跃会话/启动事件）、Engine（命令/消息）、Agent（预留）。
+> Router 将所有路由逻辑抽象为按 Priority 排序的 RouteRule 链，FSM 作为内建规则始终优先。
 
 ## 核心设计
 
-### Router + RouteRule
+### RouteRule
 
 ```go
-type Strategy string
-
-const (
-    StrategyEngine Strategy = "engine"
-    StrategyFSM    Strategy = "fsm"
-    StrategyAgent  Strategy = "agent"
-)
-
 type RouteRule struct {
-    Name     string
-    Strategy Strategy
-    Match    func(event platform.Event) bool
-    Priority int  // 数值越小优先级越高
+    Name     string                           // 调试标识
+    Priority int                              // 越小越优先
+    Match    func(ctx *corectx.Context) bool  // 判断是否适用
+    Handle   func(ctx *corectx.Context) bool  // 执行路由，true=已处理
 }
+```
 
+Handle 约定：
+- `Handle` 返回 `true` → 事件被消费，后续规则停止
+- `Handle` 返回 `false` → 继续评估下一规则
+- `Handle` 为 `nil` → `Route()` 自动设为 `dispatchToEngine`
+
+### Router
+
+```go
 type Router struct {
-    rules      []*RouteRule
-    mu         sync.RWMutex
-    engine     *engine.Engine
-    fsmManager *fsm.Manager
+    engine        *engine.Engine
+    engineManager *engine.EngineManager
+    fsmEngine     *fsm.Engine
+    rules         []*RouteRule
 }
 ```
 
-### 匹配规则工厂
+## Dispatch 流程
+
+```
+Dispatch(ctx)
+  ├── FSM Check (内建, Priority=-1000)
+  │   ├── TryTransition (活跃会话) → true → return
+  │   ├── TryStartSession (启动事件) → true → return
+  │   └── false → fallthrough
+  ├── User Rules (按 Priority 排序)
+  │   ├── WithCommandPrefix (Priority=0) → Match → Handle dispatchToEngine → return
+  │   └── 其他规则按序评估
+  └── Fallback → dispatchToEngine
+```
+
+FSM 是内建的一级路由，不受用户规则声明顺序影响。每次 Dispatch 都会先检查 FSM。
+
+### 路由优先级
+
+| 规则 | Priority | 说明 |
+|------|----------|------|
+| FSM（内建） | -1000 | 活跃会话迁移 / 启动事件 |
+| WithCommandPrefix | 0 | / 前缀命令路由到 Engine |
+| WithCustom | 100 | 用户自定义规则 |
+| Fallback | ∞ | 无规则匹配时走 dispatchToEngine |
+
+## 命名规则工厂
+
+### WithCommandPrefix
 
 ```go
-func WithCommandPrefix(prefixes ...string) func(event platform.Event) bool {
-    return func(event platform.Event) bool {
-        text := extractCommand(event.GetMessage())
-        cmd, _ := SplitCommandPattern(text)
-        for _, p := range prefixes {
-            if strings.HasPrefix(cmd, p) {
-                return true
-            }
-        }
-        return false
-    }
-}
-
-func WithFSMRoute(manager *fsm.Manager) func(event platform.Event) bool {
-    return func(event platform.Event) bool {
-        session, err := manager.GetSession(makeSessionID(event))
-        if err != nil || session == nil {
-            return false
-        }
-        newState, changed, err := manager.TryTransition(session, event)
-        if err != nil || !changed {
-            return false
-        }
-        return true
-    }
-}
+func WithCommandPrefix() *RouteRule
 ```
 
-`WithCommandPrefix` 使用 `extractCommand` + `SplitCommandPattern` 而不是简单的 `strings.HasPrefix`，确保命令前缀在段首匹配，避免误匹配子串。
+匹配带有命令前缀的消息（如 `/help`, `!!admin`）。
+使用 `extractCommand` + `SplitCommandPattern` 而非简单 `strings.HasPrefix`：
 
-`WithFSMRoute` 的"fallthrough"行为：尝试执行 TryTransition，只有状态实际改变（`changed == true`）才认为路由命中；否则继续评估后续规则。
+- `/help` → prefix="/" → 匹配
+- `!!admin` → prefix="!!" → 匹配
+- `hello` → prefix="" → 不匹配
+- `帮助` → prefix="" → 不匹配
 
-### 会话 ID 格式
+Handle 为 nil，由 Route() 自动设为 dispatchToEngine。
 
-```
-platform:chatID
-```
-
-示例：`qq:123456`, `discord:987654321`, `telegram:-1001234567890`
-
-### 分发入口
+### WithCustom
 
 ```go
-func (r *Router) Route(event platform.Event, sender platform.Sender) bool {
-    r.mu.RLock()
-    rules := r.rules
-    r.mu.RUnlock()
-
-    for _, rule := range rules {
-        if !rule.Match(event) {
-            continue
-        }
-        switch rule.Strategy {
-        case StrategyEngine:
-            r.engine.ProcessPlatformEvent(event, sender)
-            return true
-        case StrategyFSM:
-            return true  // 已由 WithFSMRoute 内部处理
-        case StrategyAgent:
-            // 预留：Agent 路由
-            return true
-        }
-    }
-    return false
-}
+func WithCustom(name string, match func(ctx) bool, handle func(ctx) bool) *RouteRule
 ```
 
-### Bot 中的三阶段路由
-
-```go
-func (b *Bot) handlePlatformEvent(event platform.Event) {
-    sessionID := makeSessionID(event)
-
-    // Phase 1: EngineManager 多引擎（per-channel isolation）
-    if b.engineManager != nil {
-        if eng := b.engineManager.GetOrCreate(sessionID); eng != nil {
-            eng.ProcessPlatformEvent(event, b.getSender(event))
-            return
-        }
-    }
-
-    // Phase 2: Router 策略链
-    if b.router != nil {
-        if b.router.Route(event, b.getSender(event)) {
-            return
-        }
-    }
-
-    // Phase 3: 默认 Engine（兼容旧行为）
-    b.engine.ProcessPlatformEvent(event, b.getSender(event))
-}
-```
-
-## 用法示例
-
-```go
-router := router.NewRouter(engine, fsmManager)
-
-// 命令路由到 Engine
-router.AddRule(&router.RouteRule{
-    Name:     "commands",
-    Strategy: router.StrategyEngine,
-    Match:    router.WithCommandPrefix("/"),
-    Priority: 10,
-})
-
-// FSM 活跃会话优先
-router.AddRule(&router.RouteRule{
-    Name:     "fsm-sessions",
-    Strategy: router.StrategyFSM,
-    Match:    router.WithFSMRoute(fsmManager),
-    Priority: 0,  // 最高优先级
-})
-
-bot.SetRouter(router)
-```
+完全自定义的匹配 + 处理。
 
 ## 文件清单
 
 ```
 router/
-├── router.go      # Router + RouteRule 核心定义
-├── match.go       # 匹配工厂函数（WithCommandPrefix, WithFSMRoute）
-├── session.go     # 会话 ID 工具
-└── router_test.go
+├── router.go      — Router、RouteRule、Dispatch、handleFSM、dispatchToEngine
+├── options.go     — WithCommandPrefix、WithCustom
+└── router_test.go — 10 tests
 ```
 
-## 依赖
+## 引擎分发
 
-- `core/engine`：RouteRule.Match 可调用 Engine.ProcessPlatformEvent
-- `core/fsm`：WithFSMRoute 使用 FSM Manager
-- `plugin/wasm`（预留）：StrategyAgent 预留
+dispatchToEngine 接收两个路径：
+
+1. **engineManager 非 nil** → `engineManager.Dispatch(ctx)`（per-channel 隔离）
+2. **engineManager 为 nil** → `engine.ProcessEvent(ctx)`（单引擎）
+
+## 回退行为
+
+所有规则均未匹配时，Router 调用 dispatchToEngine 保证事件不被丢弃。
 
 ## 设计权衡
 
 | 方面 | 选择 | 理由 |
 |------|------|------|
-| 规则顺序 | 显式 Priority 排序 | 避免隐式注册顺序错误 |
-| FSM 匹配 | Match 函数内部调用 TryTransition | 保持 Route 接口通用，不暴露 FSM 细节 |
-| fallthrough | WithFSMRoute 在未改变状态时返回 false | FSM 未命中时降级到 Engine |
-| 会话 ID 格式 | `platform:chatID` | 简单唯一，平台间无冲突 |
-| 三阶段路由 | engineManager > router > engine | 隔离 Channel 级引擎 vs 默认引擎 |
+| 规则排序 | Priority 排序 | 声明顺序无关，新增规则只需指定 Priority |
+| FSM 集成 | 内建规则，非用户声明 | 无需开发者关心路由顺序 |
+| Handle 自动补全 | Handle=nil → dispatchToEngine | 减少样板代码 |
+| WithCommandPrefix | Handle=nil | 匹配即路由到 Engine，无需显式处理器 |
+| dispatchToEngine | engineManager > engine | 通道隔离 vs 单引擎回退 |

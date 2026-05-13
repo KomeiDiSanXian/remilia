@@ -830,6 +830,31 @@ func handler(ctx *Context) error {
     ├── ctxMu → atomic.Pointer（无锁 std context）
     ├── 删除 refCount/Retain/reset/Release 全套机制
     └── ExecPool 默认池化（怀疑所有 handler 慢）
+    │
+2026-05    v1.2.x — 四阶段架构升级
+    │
+    ├── Phase 1: State Machine (core/fsm/)
+    │   ├── 声明式 FSM，替代 if state == x
+    │   ├── TryTransition / TryStartSession / EndSession
+    │   ├── 终端过渡语义 + ended 标记
+    │   └── FSMContext.EndSession() 直观清理
+    │
+    ├── Phase 2: Adaptive Router (router/)
+    │   ├── Priority 排序的 RouteRule 链
+    │   ├── FSM 作为内建规则（Priority=-1000）
+    │   ├── Handle 回调替代 Strategy 枚举
+    │   └── dispatchToEngine 统一 Engine/EngineManager 分发
+    │
+    ├── Phase 3: WASM Plugin (plugin/wasm/)
+    │   ├── wazero v1.11.0 沙箱运行时
+    │   ├── HostFuncRegistry + Bridge → Engine Matcher
+    │   └── TokenBucket 限流 + ResourceLimit
+    │
+    └── Phase 4: Per-Channel Engine (core/engine/)
+        ├── EngineManager + ForkFrom + syncTemplates
+        ├── createMu 保护并发首次创建
+        ├── ForkFrom 同步 middleware + ExecPool 共享
+        └── GC 首次 Dispatch 自动启动
 ```
 
 ### 关键决策时刻

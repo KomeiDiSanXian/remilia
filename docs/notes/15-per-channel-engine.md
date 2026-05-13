@@ -1,237 +1,110 @@
-# Per-Channel Engine——按频道隔离的事件引擎
+# Per-Channel Engine——通道级引擎隔离
 
-> 当同一个 Bot 接入多个 Discord 服务器或 QQ 群时，所有频道共享一个 Engine——A 频道的匹配器变更会影响 B 频道。Per-Channel Engine 为每个频道（guild/group/private chat）维护独立的 Engine 实例，支持模板同步和空闲回收。
-
-## 问题背景
-
-单引擎架构的共享问题：
-
-| 场景 | 问题 |
-|------|------|
-| 多服务器 | A 服的插件注册了 `/weather`，B 服也看到了这个命令 |
-| 频道级配置 | 每个频道的需求不同——A 服启用 moderation 插件，B 服禁用 |
-| 命令冲突 | 两个插件在不同频道注册了同名命令 |
-| 插件生命周期 | 一个频道的插件卸载不应影响其他频道 |
-
-解决方案：每个频道一个 Engine 实例，共享一个模板 Engine（定义全局匹配器）。
+> 每个群/用户拥有独立的 Engine 实例，matcher 列表隔离，Block() 互不影响，慢 handler 不互相拖累。
 
 ## 核心设计
-
-### engine.go 扩展
-
-```go
-type Engine struct {
-    // ... 原有字段
-
-    // v1.2.0 新增
-    templateVer atomic.Int64    // 模板版本号，检测是否需要 sync
-    fork        *forkState      // fork 状态（nil 表示非 fork 引擎）
-}
-
-type forkState struct {
-    template     *Engine        // 模板引擎引用
-    lastSyncVer  int64          // 上次同步的模板版本
-    syncedAt     time.Time
-}
-```
-
-### ForkFrom：创建频道引擎
-
-```go
-func (e *Engine) ForkFrom(template *Engine, opts ...Option) *Engine {
-    forked := e.forkFrom(template, opts...)
-    forked.syncTemplates()
-    return forked
-}
-
-func (e *Engine) forkFrom(template *Engine, opts ...Option) *Engine {
-    forked := &Engine{
-        state:       infraatomic.NewValue(template.state.Load()),
-        middleware:  infraatomic.NewValue(template.middleware.Load()),
-        writeMu:     sync.Mutex{},
-        shutdown:    atomic.Bool{},
-        eventWg:     sync.WaitGroup{},
-        templateVer: atomic.Int64{},
-        fork: &forkState{
-            template:    template,
-            lastSyncVer: 0,
-        },
-    }
-    for _, opt := range opts {
-        opt(forked)
-    }
-    return forked
-}
-```
-
-Fork 瞬间同步模板的 matcher 列表。此后，fork 引擎可以独立注册/删除匹配器（COW 复制自己的 state），模板的变更不会自动传播——通过 syncTemplates 机制按需同步。
-
-### syncTemplates：按需同步
-
-```go
-func (e *Engine) syncTemplates() {
-    if e.fork == nil {
-        return
-    }
-    template := e.fork.template
-    templateVer := template.templateVer.Load()
-    if e.fork.lastSyncVer == templateVer {
-        return
-    }
-    // 复制模板的 matcher 列表到当前引擎
-    templateState := template.state.Load()
-    currentState := e.state.Load()
-    merged := mergeMatchers(templateState.matchers, currentState.matchers)
-    e.state.Store(&state{
-        matchers:     merged,
-        matcherIndex: rebuildIndex(merged),
-        commandIndex: rebuildCommandIndex(merged),
-        groupIndex:   rebuildGroupIndex(merged),
-        block:        currentState.block,
-        maxMatchers:  currentState.maxMatchers,
-    })
-    e.fork.lastSyncVer = templateVer
-}
-```
-
-### bumpVersion：模板版本递增
-
-所有修改 matcher 的操作（registerMatcher, DeleteMatcher, DeleteMatchers, BatchRegisterMatchers, RemoveGroup）之后调用 `bumpVersion`：
-
-```go
-func (e *Engine) bumpVersion() {
-    e.templateVer.Add(1)
-}
-```
-
-### processEventGuard：惰性同步
-
-```go
-func (e *Engine) processEventGuard(ctx *context.Context) {
-    if e.fork != nil {
-        templateVer := e.fork.template.templateVer.Load()
-        if e.fork.lastSyncVer != templateVer {
-            e.syncTemplates()
-        }
-    }
-    // ... 原有事件处理逻辑
-}
-```
-
-在 `ProcessEvent` 入口处 check 模板版本，发现变更则触发 syncTemplates。保证每次事件处理时 matcher 列表是最新的。
 
 ### EngineManager
 
 ```go
-type ChannelKey struct {
-    Platform string
-    ChatID   string
-}
-
 type EngineManager struct {
-    engines       sync.Map    // map[ChannelKey]*Engine
-    template      *Engine     // 所有频道引擎的模板
-    evictDuration time.Duration  // 空闲回收时间
-    metrics       MetricsCollector
-}
-
-func (m *EngineManager) GetOrCreate(key ChannelKey) *Engine {
-    actual, loaded := m.engines.LoadOrStore(key, m.template.ForkFrom(m.template))
-    if !loaded {
-        m.metrics.OnEngineCreated()
-    }
-    return actual.(*Engine)
-}
-
-func (m *EngineManager) evictIdle() {
-    m.engines.Range(func(key, value any) bool {
-        eng := value.(*Engine)
-        // 检测是否空闲：最近一次事件处理时间 > evictDuration
-        if eng.IsIdle(m.evictDuration) {
-            m.engines.Delete(key)
-            m.metrics.OnEngineEvicted()
-        }
-        return true
-    })
-}
-
-func (m *EngineManager) Stats() EngineManagerStats {
-    stats := EngineManagerStats{}
-    m.engines.Range(func(key, value any) bool {
-        stats.TotalEngines++
-        stats.ActiveEngines++
-        return true
-    })
-    return stats
+    template  *Engine
+    instances sync.Map       // map[ChannelKey]*Engine
+    maxIdle   time.Duration
+    createMu  sync.Mutex     // 保护并发首次创建
+    stopGC    chan struct{}
+    once      sync.Once
 }
 ```
 
-### 完整路由
+- **template**：全局模板引擎，插件注册到此引擎
+- **instances**：per-channel 引擎实例池（惰性创建）
+- **createMu**：防止并发首次访问时重复创建
+- **GC**：首次 Dispatch 自动启动，每 5 分钟淘汰空闲引擎
+
+### Fork + syncTemplates
 
 ```go
-// bot.go 三阶段路由
-func (b *Bot) handlePlatformEvent(event platform.Event) {
-    key := makeChannelKey(event)
+func (e *Engine) ForkFrom(template *Engine, channelKey ChannelKey)
+```
 
-    // Phase 1: EngineManager — 频道级隔离
-    if b.engineManager != nil {
-        if eng := b.engineManager.GetOrCreate(key); eng != nil {
-            eng.ProcessPlatformEvent(event, b.getSender(event))
-            return
-        }
-    }
+ForkFrom 在创建子引擎时同步以下资源：
+- **Matchers**：从模板 COW 复制 matcher 列表（指针共享）
+- **Middleware**：通过 `copyMiddlewareState` 复制模板的中间件链
+- **ExecPool**：共享模板的线程池，避免每个 channel 独立创建
 
-    // Phase 2: Router — 策略链
-    if b.router != nil {
-        if b.router.Route(event, b.getSender(event)) {
-            return
-        }
-    }
+```
+template Engine                    channel Engine (fork)
+┌───────────────────┐           ┌──────────────────────┐
+│ state (matchers)  │──指针共享→│ state (matchers)     │
+│ middlewareState   │──COW复制→│ middlewareState       │
+│ ExecPool          │──指针共享→│ ExecPool (同一池)     │
+│ templateVer       │           │ fork.templateVer     │
+│                   │           │ fork.lastUsed        │
+└───────────────────┘           └──────────────────────┘
+```
 
-    // Phase 3: 默认 Engine — 兼容旧行为
-    b.engine.ProcessPlatformEvent(event, b.getSender(event))
+### 懒同步
+
+每次 ProcessEvent → processEventGuard 检查：
+```go
+if e.fork != nil && e.fork.template.Version() != e.fork.templateVer {
+    e.syncTemplates()
 }
 ```
 
-## 用法示例
+模板的 bumpVersion 在 matcher 增删改时自动递增（registerMatcher、DeleteMatcher、BatchRegisterMatchers、RemoveGroup 等写操作均埋点）。
+
+### GC 生命周期
+
+- 首次 Dispatch → `sync.Once` → `go gcLoop()`
+- `gcLoop` 每 5 分钟扫描 `sync.Map`，淘汰 `LastUsed > maxIdle` 的引擎
+- Bot.Stop → lifecycle 调用 `em.Close()` → 关闭 stopGC 通道 → gcLoop 退出
+
+### 并发安全
+
+首次访问同一 channel 时，`createMu` 确保 `newChannelEngine` 只执行一次：
 
 ```go
-// 创建模板引擎
-template := engine.NewEngine()
-
-// 创建 EngineManager
-em := engine.NewEngineManager(template, engine.WithEvictDuration(30*time.Minute))
-
-// 每个频道自动获得独立引擎
-// 修改模板会影响所有频道（通过 syncTemplates 同步）
-template.RegisterMatcher(myMatcher)
-
-// 频道级别的专属匹配器
-channelEng := em.GetOrCreate(channelKey)
-channelEng.RegisterMatcher(channelOnlyMatcher)  // 仅该频道可见
+em.createMu.Lock()
+if actual, ok := em.instances.Load(channelKey); ok {
+    em.createMu.Unlock()
+    actual.(*Engine).ProcessEvent(ctx)
+    return
+}
+chEngine := em.newChannelEngine(channelKey)
+em.instances.Store(channelKey, chEngine)
+em.createMu.Unlock()
 ```
+
+## 集成到 Bot
+
+```go
+engMgr := engine.NewEngineManager(template)
+bot.UseEngineManager(engMgr)
+rtr.WithEngineManager(engMgr)
+```
+
+handlePlatformEvent 中的路由：`router > engineManager > engine`
 
 ## 文件清单
 
 ```
 core/engine/
-├── fork.go          # ForkFrom, syncTemplates, bumpVersion, forkState
-├── manager.go       # EngineManager: GetOrCreate, evictIdle, Stats, Close
-├── channel.go       # ChannelKey, makeChannelKey, 频道工具函数
+├── channel.go   — ChannelKey, MakeChannelKey
+├── fork.go      — ForkFrom, syncTemplates, Version, bumpVersion, touch, IsFork, LastUsed, forkState
+├── manager.go   — EngineManager, Dispatch, newChannelEngine, GetChannel, Stats, Close, gcLoop, evictIdle
+├── fork_test.go     — 7 tests
+└── manager_test.go  — 7 tests
 ```
-
-## 依赖
-
-- `core/engine`：自身扩展，向后兼容
-- `router`：可选，若无 Router 则直接 fallback 到单引擎
 
 ## 设计权衡
 
 | 方面 | 选择 | 理由 |
 |------|------|------|
-| 同步策略 | 惰性同步（事件处理时检测版本） | 避免模板每次变更时广播到所有 fork |
-| 版本检测 | atomic.Int64 | 无锁，O(1) 检测 |
-| 空闲回收 | 独立 goroutine 定期 evictIdle | 防止频道数过多导致内存膨胀 |
-| COW 状态独立 | fork 引擎修改不影响模板 | 频道级隔离，不改模板逻辑 |
-| 三阶段路由 | engineManager > router > engine | 分层清晰，每个阶段各司其职 |
-| 模板变更传播 | syncTemplates 合并策略 | 模板 matcher + fork 独立 matcher 共存 |
+| matcher 同步 | 指针共享 + 懒同步 | 避免全量复制，版本变化时惰性更新 |
+| 中间件同步 | ForkFrom 时 COW 复制 | 使去重、限流等中间件对子引擎生效 |
+| ExecPool | 共享模板池 | 避免 1000 channel × 64 goroutine |
+| 创建竞态 | createMu | LoadOrStore 的 value 参数在 Go 中总是 eager evaluate |
+| GC 启动 | 首次 Dispatch 自动 | 无需调用方手动 StartGC |
+| 生命周期 | Bot.Stop → lifecycle → Close | GC goroutine 不泄漏 |
