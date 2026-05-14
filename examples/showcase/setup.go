@@ -56,16 +56,12 @@ func setupMiddleware(eng *engine.Engine) {
 	eng.Use(processingTimeMiddleware())    // 性能追踪
 }
 
-// setupRouter 配置三层路由架构。
+// setupRouter 配置路由层。
 // FSM 是内置一级路由（Priority=-1000），不受规则顺序影响。
 func setupRouter(bot *remilia.Bot, eng *engine.Engine) *fsm.Manager {
 	fsmMgr := fsm.NewManager(nil)
 	rtr := router.New(eng, fsmMgr.Engine())
 	rtr.Route(router.WithCommandPrefix())
-
-	engMgr := engine.NewEngineManager(eng)
-	bot.UseEngineManager(engMgr)
-	rtr.WithEngineManager(engMgr)
 	bot.UseRouter(rtr)
 	return fsmMgr
 }

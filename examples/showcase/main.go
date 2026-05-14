@@ -1,9 +1,9 @@
 // Package main 是 showcase 示例程序的入口。
 //
 // 此示例演示了 Remilia 框架的以下核心特性：
-//   - 三层路由架构（Router → EngineManager → Engine）
+//   - 路由层架构（Router → Engine）
 //   - FSM 有限状态机（内置一级路由）
-//   - Per-Channel Engine 隔离
+//   - Per-Channel Block 隔离（通过 Matcher.BlockForChannel）
 //   - 插件系统（25+ 内置插件）
 //   - 中间件链（去重、限流、超时追踪）
 //   - 事件总线与调度器

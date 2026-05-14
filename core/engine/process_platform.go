@@ -164,6 +164,8 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 
 	execPool := e.internals.execPool
 	blockAll := state.block
+	// 构造 channelKey 用于 per-channel Block 隔离。
+	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
 	for _, m := range matchersToCheck {
 		if !m.Match(ctx) {
 			continue
@@ -191,7 +193,7 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 			profile.Record(time.Since(start))
 		}
 
-		if m.isBlocking() || blockAll {
+		if m.isBlocking(channelKey) || blockAll {
 			break
 		}
 	}

@@ -114,7 +114,6 @@ type TestBot struct {
 	mgr        *plugin.Manager
 	fsmMgr     *fsm.Manager
 	router     *router.Router
-	engMgr     *engine.EngineManager
 	sender     *MockSender
 	timeOffset time.Duration
 	timeMu     sync.RWMutex
@@ -167,9 +166,11 @@ func (tb *TestBot) UseRouter() *TestBot {
 	return tb
 }
 
-// UseEngineManager 启用 per-channel Engine 管理器。需在首次 SendPlatformEvent 前调用。
+// UseEngineManager is deprecated. Per-channel blocking is now achieved via
+// Matcher.BlockForChannel without requiring separate Engine instances.
+// UseEngineManager 已弃用。per-channel 阻塞现在通过 Matcher.BlockForChannel 实现，
+// 无需单独的 Engine 实例。
 func (tb *TestBot) UseEngineManager() *TestBot {
-	tb.engMgr = engine.NewEngineManager(tb.eng)
 	return tb
 }
 
@@ -183,7 +184,7 @@ func (tb *TestBot) Manager() *plugin.Manager { return tb.mgr }
 func (tb *TestBot) FSMManager() *fsm.Manager { return tb.fsmMgr }
 
 // SendPlatformEvent injects a platform.Event and returns captured platform replies.
-// 根据配置自动选择路由路径：Router > EngineManager > 直接 Engine。
+// 根据配置自动选择路由路径：Router > 直接 Engine。
 func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 	tb.t.Helper()
 	tb.sender.drain()
@@ -191,9 +192,6 @@ func (tb *TestBot) SendPlatformEvent(event platform.Event) *PlatformResponse {
 	if tb.router != nil {
 		ctx := corectx.NewContextFromEvent(event, tb.sender)
 		tb.router.Dispatch(ctx)
-	} else if tb.engMgr != nil {
-		ctx := corectx.NewContextFromEvent(event, tb.sender)
-		tb.engMgr.Dispatch(ctx)
 	} else {
 		tb.eng.ProcessPlatformEvent(event, tb.sender)
 	}
@@ -286,7 +284,6 @@ type Bot struct {
 	mgr     *plugin.Manager
 	fsmMgr  *fsm.Manager
 	router  *router.Router
-	engMgr  *engine.EngineManager
 	sender  *MockSender
 	plugins []*plugin.Descriptor
 }
@@ -342,9 +339,10 @@ func (b *Bot) UseRouter() *Bot {
 	return b
 }
 
-// UseEngineManager 启用 per-channel Engine 管理器。需在 Start 前调用。
+// UseEngineManager is deprecated. Per-channel blocking is now achieved via
+// Matcher.BlockForChannel without requiring separate Engine instances.
+// UseEngineManager 已弃用。
 func (b *Bot) UseEngineManager() *Bot {
-	b.engMgr = engine.NewEngineManager(b.eng)
 	return b
 }
 
@@ -361,15 +359,11 @@ func (b *Bot) FSMManager() *fsm.Manager { return b.fsmMgr }
 func (b *Bot) SenderAPI() *MockSender { return b.sender }
 
 // SendPlatformEvent injects a platform.Event directly into the engine.
-// 根据配置自动选择路由路径：Router > EngineManager > 直接 Engine。
-// 注意：消息会累积在 MockSender 中，可通过 [Bot.ClearSent] 或 [Bot.SenderAPI].Clear 清空。
+// 根据配置自动选择路由路径：Router > 直接 Engine。
 func (b *Bot) SendPlatformEvent(event platform.Event) {
 	if b.router != nil {
 		ctx := corectx.NewContextFromEvent(event, b.sender)
 		b.router.Dispatch(ctx)
-	} else if b.engMgr != nil {
-		ctx := corectx.NewContextFromEvent(event, b.sender)
-		b.engMgr.Dispatch(ctx)
 	} else {
 		b.eng.ProcessPlatformEvent(event, b.sender)
 	}

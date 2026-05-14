@@ -40,10 +40,9 @@ type RouteRule struct {
 
 // Router 按优先级评估路由规则并将事件分发到对应的处理器。
 type Router struct {
-	engine        *engine.Engine
-	engineManager *engine.EngineManager
-	fsmEngine     *fsm.Engine
-	rules         []*RouteRule
+	engine    *engine.Engine
+	fsmEngine *fsm.Engine
+	rules     []*RouteRule
 }
 
 // New 创建一个 Router。若 fsmEngine 非 nil，自动注册一条 Priority=-1000 的 FSM 规则。
@@ -61,13 +60,6 @@ func New(e *engine.Engine, fsmEngine *fsm.Engine) *Router {
 			Handle:   r.handleFSM,
 		})
 	}
-	return r
-}
-
-// WithEngineManager 将 EngineManager 附加到 Router。
-// 设置后，Engine 路由通过 EngineManager 分派到 per-channel Engine。
-func (r *Router) WithEngineManager(em *engine.EngineManager) *Router {
-	r.engineManager = em
 	return r
 }
 
@@ -135,13 +127,9 @@ func (r *Router) handleFSM(ctx *corectx.Context) bool {
 	return false
 }
 
-// dispatchToEngine 通过 engineManager（如有）或直接调 Engine。
+// dispatchToEngine 直接调用引擎处理事件。
 func (r *Router) dispatchToEngine(ctx *corectx.Context) {
-	if r.engineManager != nil {
-		r.engineManager.Dispatch(ctx)
-	} else {
-		r.engine.ProcessEvent(ctx)
-	}
+	r.engine.ProcessEvent(ctx)
 }
 
 // extractCommand 从内容中提取第一个空白分隔的 token。

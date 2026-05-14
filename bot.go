@@ -78,12 +78,7 @@ type Bot struct {
 	pluginManager    *plugin.Manager
 	platformRegistry *platform.Registry // 唯一事件来源（单/多平台均通过此注册表管理）
 
-	// engineManager 是可选的 per-channel Engine 管理器。
-	// 非 nil 时，handlePlatformEvent 优先走 engineManager.Dispatch。
-	engineManager *engine.EngineManager
-
 	// router 是可选的策略路由层。
-	// engineManager 为 nil 且 router 非 nil 时走 router.Dispatch。
 	router *router.Router
 
 	// adapterSnapshot 在 Start() 时构建，此后只读，用于热路径零锁访问。
@@ -174,22 +169,6 @@ func (b *Bot) buildBaseLifecycle() {
 		nil,
 		func(ctx context.Context) error { return b.engine.Shutdown(ctx) },
 	))
-
-	// engineManager GC goroutine 绑定 Bot 生命周期
-	b.mu.RLock()
-	em := b.engineManager
-	b.mu.RUnlock()
-	if em != nil {
-		lm.Register(lifecycle.NewSimpleComponent(
-			"engine-manager",
-			nil,
-			nil,
-			func(ctx context.Context) error {
-				em.Close()
-				return nil
-			},
-		))
-	}
 
 	b.mu.Lock()
 	b.lifecycle = lm
@@ -363,8 +342,6 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 
 	if b.router != nil {
 		b.router.Dispatch(ctx)
-	} else if b.engineManager != nil {
-		b.engineManager.Dispatch(ctx)
 	} else {
 		b.engine.ProcessEvent(ctx)
 	}
@@ -489,23 +466,11 @@ func (b *Bot) Plugins() *plugin.Manager {
 // 与 Config()/Plugins() 不同，这些字段通过 Use* 方法支持运行时注入。
 func (b *Bot) Engine() *engine.Engine { return b.engine }
 
-// UseRouter 注入策略路由层。通常与 [Bot.UseEngineManager] 组合使用：
-//
-//	router := router.New(eng, fsmEngine)
-//	router.WithEngineManager(em)
-//	bot.UseRouter(router).UseEngineManager(em)
+// UseRouter 注入策略路由层。
 func (b *Bot) UseRouter(r *router.Router) *Bot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.router = r
-	return b
-}
-
-// UseEngineManager 注入 per-channel Engine 管理器。
-func (b *Bot) UseEngineManager(em *engine.EngineManager) *Bot {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.engineManager = em
 	return b
 }
 

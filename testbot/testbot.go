@@ -373,14 +373,11 @@ func (tb *QQBot) SendC2C(userOpenID, content string) {
 // InjectEvent injects any platform.Event directly via the platform-agnostic engine path.
 // This is the preferred injection method for platform-agnostic tests.
 // For QQ-specific raw payload injection, use Inject instead.
-// 根据配置自动选择路由路径：Router > EngineManager > 直接 Engine。
+// 根据配置自动选择路由路径：Router > 直接 Engine。
 func (tb *QQBot) InjectEvent(event platform.Event) {
 	if tb.router != nil {
 		ctx := corectx.NewContextFromEvent(event, tb.SenderAPI())
 		tb.router.Dispatch(ctx)
-	} else if tb.engMgr != nil {
-		ctx := corectx.NewContextFromEvent(event, tb.SenderAPI())
-		tb.engMgr.Dispatch(ctx)
 	} else {
 		tb.Engine().ProcessPlatformEvent(event, tb.SenderAPI())
 	}

@@ -71,13 +71,6 @@ type Engine struct {
 
 	// eventWg 追踪活跃的 ProcessEvent 调用，Shutdown() 等待归零
 	eventWg sync.WaitGroup
-
-	// templateVer 是 matcher 版本号，每次增删改 matcher 时递增。
-	// fork 子引擎通过比对 Version() 判断是否需要懒同步。
-	templateVer atomic.Int64
-
-	// fork 记录 fork 来源信息。nil 表示此引擎是全局模板引擎。
-	fork *forkState
 }
 
 // NewEngine 创建一个新的事件引擎（COW 模式）

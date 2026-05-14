@@ -35,6 +35,10 @@ type Matcher struct {
 	// 这是大规模测试剖析中两个函数的主要 CPU 开销（分别约 180ms 和 40ms）。
 	priority atomic.Uint64
 	isBlock  atomic.Bool
+	// channelBlocked 按 channel 维度覆盖全局 isBlock 行为。
+	// 若某 channel 在此 map 中存在且值为 true，仅该 channel 被阻塞。
+	// 用于替代 Per-Channel Engine 的集群隔离——无需 fork Engine 实例。
+	channelBlocked sync.Map // map[ChannelKey]bool
 	// commandIndexed 在 OnCommand/RegisterCommandDef 创建的 matcher 发布之前设置一次。
 	// 为 true 时，Match() 会跳过 Rules[0]（OnCommand 前缀检查），
 	// 因为命令已通过 commandIndex 的 O(1) 查找隐式匹配——
@@ -611,12 +615,32 @@ func (m *Matcher) getPriority() uint {
 	return uint(m.priority.Load())
 }
 
-// isBlocking 以线程安全方式返回 matcher 是否应阻塞后续处理器（无锁原子读取）。
-func (m *Matcher) isBlocking() bool {
+// isBlocking 以线程安全方式返回 matcher 是否应阻塞后续处理器。
+// 优先检查 per-channel 阻塞状态，再回退到全局 isBlock。
+func (m *Matcher) isBlocking(key ChannelKey) bool {
 	if m == nil {
 		return false
 	}
+	if key != "" {
+		if blocked, ok := m.channelBlocked.Load(key); ok && blocked.(bool) {
+			return true
+		}
+	}
 	return m.isBlock.Load()
+}
+
+// BlockForChannel 设置指定 channel 的阻塞状态，用于替代 Per-Channel Engine 的集群隔离。
+// 若想全局阻塞所有 channel，请使用 SetBlock。
+func (m *Matcher) BlockForChannel(key ChannelKey, block bool) *Matcher {
+	if m.isNoop() {
+		return m
+	}
+	if block {
+		m.channelBlocked.Store(key, true)
+	} else {
+		m.channelBlocked.Delete(key)
+	}
+	return m
 }
 
 // BindCommand 手动绑定触发命令

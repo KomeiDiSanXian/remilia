@@ -74,7 +74,7 @@ func TestMatcher_CopySemantics(t *testing.T) {
 		assert.Equal(t, "", (*Matcher)(nil).GetCommand())
 		assert.Equal(t, "", (*Matcher)(nil).GetSource())
 		assert.Equal(t, uint(0), (*Matcher)(nil).getPriority())
-		assert.False(t, (*Matcher)(nil).isBlocking())
+		assert.False(t, (*Matcher)(nil).isBlocking(""))
 	})
 }
 
@@ -552,7 +552,7 @@ func TestMatcher_ConcurrentAccess(t *testing.T) {
 			m.Match(testContext())
 			m.GetCommand()
 			m.GetSource()
-			m.isBlocking()
+			m.isBlocking("")
 			m.getPriority()
 		}
 		close(done)

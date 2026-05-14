@@ -145,8 +145,7 @@ func WithExecPoolDisabled() Option {
 	}
 }
 
-// WithSharedExecPool 设置共享的 ExecPool，适用于 fork 子引擎复用模板的线程池。
-// fork 子引擎通过此选项共享同一个 ExecPool，避免每个 channel 独立创建线程池导致的资源膨胀。
+// WithSharedExecPool 设置共享的 ExecPool，适用于多个 Engine 复用线程池的场景。
 func WithSharedExecPool(pool *ExecPool) Option {
 	return func(e *Engine) {
 		e.internals.execPool = pool
