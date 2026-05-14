@@ -33,7 +33,7 @@
 //	pm.Register(subPlugin.Descriptor())
 //
 //	// 3. 在 Handler 中管理订阅
-//	mgr := ctx.MustGet("subscription").(*subscription.Manager)
+//	mgrSvc := plugin.Service[*subscription.Manager](ctx, "subscription")
 //	id, err := mgr.Subscribe("my_source", "param", subscription.Target{ChatID: "group-001", IsGroup: true})
 package subscription
 

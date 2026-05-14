@@ -12,7 +12,7 @@
 //	// 挂载中间件：
 //	engine.Use(auditlogPlugin.Middleware())
 //	// 手动记录：
-//	al := ctx.MustGet("auditlog").(*auditlog.Plugin)
+//	alSvc := plugin.Service[*auditlog.Plugin](ctx, "auditlog")
 //	al.Record(ctx, "perm.grant", map[string]any{"target": userID, "role": "admin"})
 package auditlog
 

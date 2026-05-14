@@ -109,7 +109,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 	})
 }
 
-// TestGetTrackedDependencies tests the GetTrackedDependencies method.
+// TestGetTrackedDependencies tests the getTrackedDependencies method.
 func TestGetTrackedDependencies(t *testing.T) {
 	manager := NewManager(nil)
 
@@ -128,7 +128,7 @@ func TestGetTrackedDependencies(t *testing.T) {
 		Setup: func(ctx *SetupContext) (any, error) {
 			_ = ctx.mustGet("a")
 			_ = ctx.mustGet("b")
-			trackedDeps = ctx.GetTrackedDependencies()
+			trackedDeps = ctx.getTrackedDependencies()
 			return nil, nil
 		},
 	})
@@ -137,7 +137,7 @@ func TestGetTrackedDependencies(t *testing.T) {
 	assert.Len(t, trackedDeps, 2)
 	assert.Contains(t, trackedDeps, "a")
 	assert.Contains(t, trackedDeps, "b")
-	t.Log("✓ GetTrackedDependencies works")
+	t.Log("✓ getTrackedDependencies works")
 }
 
 // TestSmartRegistration_ComplexCase tests complex diamond-shaped dependency graphs.

@@ -10,7 +10,7 @@
 //
 //	pm.Register(scheduler.New())
 //	// 在其他插件 Setup 中：
-//	sched := ctx.MustGet("scheduler").(*scheduler.Plugin)
+//	schedSvc := plugin.Service[*scheduler.Plugin](ctx, "scheduler")
 //	sched.Every(5*time.Minute, func() { /* cleanup */ })
 //	sched.Cron("0 9 * * *", func() { /* daily report */ })
 package scheduler

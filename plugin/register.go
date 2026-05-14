@@ -137,8 +137,8 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		return loadErr
 	}
 
-	trackedDeps := setupCtx.GetTrackedDependencies()
-	trackedOptional := setupCtx.GetTrackedOptionalDependencies()
+	trackedDeps := setupCtx.getTrackedDependencies()
+	trackedOptional := setupCtx.getTrackedOptionalDependencies()
 
 	allTracked := make(map[string]bool, len(trackedDeps)+len(trackedOptional))
 	for _, d := range trackedDeps {
@@ -406,10 +406,10 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 			_, _ = desc.callSetup(setupCtx)
 		}()
 		allTracked := make(map[string]bool)
-		for _, d := range setupCtx.GetTrackedDependencies() {
+		for _, d := range setupCtx.getTrackedDependencies() {
 			allTracked[d] = true
 		}
-		for _, d := range setupCtx.GetTrackedOptionalDependencies() {
+		for _, d := range setupCtx.getTrackedOptionalDependencies() {
 			allTracked[d] = true
 		}
 		if len(allTracked) > 0 {

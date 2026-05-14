@@ -30,8 +30,8 @@ type setupContextInternal struct {
 	container           *Container
 	pluginName          string
 	instance            *Instance
-	trackedDeps         map[string]bool // 必要依赖（Get 成功 + MustGet）
-	trackedOptionalDeps map[string]bool // 可选依赖（Get 成功但通过 ok 判断）
+	trackedDeps         map[string]bool // 必要依赖（mustGet / Service）
+	trackedOptionalDeps map[string]bool // 可选依赖（get / TryService）
 	autoTrackEnabled    bool
 	goroutineMgr        *goroutineManager
 	eng                 registryBackend // 注册 Matcher 的 engine（reload 时复用，同时满足 MatcherWriter + Reader）
@@ -107,9 +107,8 @@ type SetupContext struct {
 
 // ExportAs 将插件 API 对象以指定名称导出到容器。
 //
-// 通常配合旧签名 Setup 使用；新签名 Setup 直接 return api, nil 即可，
-// 框架会自动以插件名为 key 注入容器。
-// 当需要以自定义 key（不同于插件名）导出时，仍可手动调用此方法。
+// Setup 直接 return api, nil 即可，框架会自动以插件名为 key 注入容器。
+// 当需要以自定义 key（不同于插件名）导出时，可手动调用此方法（如配合 [ExportIface] 以接口类型额外导出）。
 func (ctx *SetupContext) ExportAs(name string, api any) {
 	if ctx.container != nil {
 		ctx.container.Register(name, api)
@@ -328,11 +327,11 @@ func (ctx *SetupContext) mustGet(name string) any {
 	return v
 }
 
-// GetTrackedDependencies 获取自动追踪到的必要依赖列表（框架内部使用）
+// getTrackedDependencies 获取自动追踪到的必要依赖列表（框架内部使用）
 //
 // 必要依赖：通过 mustGet / Service / Must 访问的依赖，合并到 instance.desc.Deps 中，
 // 影响 notifyDependents 和 UnregisterCascade 的行为。
-func (ctx *SetupContext) GetTrackedDependencies() []string {
+func (ctx *SetupContext) getTrackedDependencies() []string {
 	if ctx.trackedDeps == nil {
 		return []string{}
 	}
@@ -343,12 +342,12 @@ func (ctx *SetupContext) GetTrackedDependencies() []string {
 	return deps
 }
 
-// GetTrackedOptionalDependencies 获取自动追踪到的可选依赖列表（框架内部使用）
+// getTrackedOptionalDependencies 获取自动追踪到的可选依赖列表（框架内部使用）
 //
 // 可选依赖：通过 get / TryService（有 ok 判断）访问且存在的依赖。
 // 用于 RegisterMultipleSmart 的依赖推断（拓扑排序），
 // 但不影响 notifyDependents 和 UnregisterCascade。
-func (ctx *SetupContext) GetTrackedOptionalDependencies() []string {
+func (ctx *SetupContext) getTrackedOptionalDependencies() []string {
 	if ctx.trackedOptionalDeps == nil {
 		return []string{}
 	}

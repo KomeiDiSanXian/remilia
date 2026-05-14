@@ -71,10 +71,10 @@ func TestP3_SetupV3_ErrorPropagates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// P3-1 向后兼容: 旧签名 func(*SetupContext) error 仍然工作
+// P3-1 ExportAs 自定义 key 导出
 // ---------------------------------------------------------------------------
 
-func TestP3_OldSetupFunc_StillWorks(t *testing.T) {
+func TestP3_ExportAs_CustomKey(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
@@ -151,10 +151,10 @@ func TestP3_TeardownV3_LogAndConfigAvailable(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// P3-2 向后兼容: 旧签名 func() error 仍然工作
+// P3-2 Teardown V2 签名仍兼容
 // ---------------------------------------------------------------------------
 
-func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
+func TestP3_TeardownV2_StillWorks(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
@@ -173,11 +173,11 @@ func TestP3_OldTeardownFunc_StillWorks(t *testing.T) {
 	}))
 
 	require.NoError(t, pm.Unregister(stdctx.Background(), "p3-old-teardown"))
-	assert.True(t, teardownCalled, "旧签名 Teardown 应被调用")
+	assert.True(t, teardownCalled, "V2 签名 Teardown 应被调用")
 }
 
 // ---------------------------------------------------------------------------
-// P3-3: ExportAs 已废弃但向后兼容（P3-1 自动导出后不再需要手动调用）
+// P3-3: ExportAs 自定义 key 导出（配合 ExportIface 使用）
 // ---------------------------------------------------------------------------
 
 func TestP3_ExportAs_StillWorks(t *testing.T) {

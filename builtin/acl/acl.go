@@ -12,7 +12,7 @@
 // 使用示例:
 //
 //	pm.Register(acl.New())
-//	aclPlugin := ctx.MustGet("acl").(*acl.Plugin)
+//	aclSvc := plugin.Service[*acl.Plugin](ctx, "acl")
 //	engine.On(string(platform.EventKindGroupMessage), aclPlugin.Rule()).Handle(handler)
 package acl
 

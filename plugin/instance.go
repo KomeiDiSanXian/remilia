@@ -283,7 +283,7 @@ func (pi *Instance) GetConfig() Config {
 
 // GetAPI 返回 Setup 阶段导出的 API 对象。
 //
-// 框架以插件名为 key 将此对象注册到容器中；其他插件通过 [Must] / [Try] 获取的即为此对象。
+// 框架以插件名为 key 将此对象注册到容器中；其他插件通过 [Service] / [TryService] 获取的即为此对象。
 // 若插件尚未加载、Setup 返回 nil 或插件已卸载，则返回 nil。
 //
 // 常见用途：debug/monitor 类插件遍历所有插件实例并打印 API 类型信息。

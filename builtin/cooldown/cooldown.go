@@ -8,13 +8,13 @@
 //	pm.Register(cooldown.New())
 //
 //	// 作为中间件（在 Setup 中）：
-//	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
+//	cdSvc := plugin.Service[*cooldown.Plugin](ctx, "cooldown")
 //	engine.OnCommand(dto.C2CMessageCreate, "/daily").
 //	    Use(cd.Middleware("daily", 24*time.Hour)).
 //	    Handle(dailyHandler)
 //
 //	// 手动检查（在 Handler 中）：
-//	cd := ctx.MustGet("cooldown").(*cooldown.Plugin)
+//	cdSvc := plugin.Service[*cooldown.Plugin](ctx, "cooldown")
 //	if !cd.Allow(userID, "sign", 24*time.Hour) {
 //	    remaining := cd.Remaining(userID, "sign", 24*time.Hour)
 //	    return ctx.Reply(platform.TextMessage(fmt.Sprintf("冷却中，还需等待 %s", remaining.Round(time.Second))))

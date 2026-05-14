@@ -146,7 +146,7 @@ func (pm *Manager) IsDisabled(name string) bool {
 
 // SetStrictDeps 设置严格依赖模式。
 //
-// 启用后（strictDeps=true），若插件在 Setup 中通过 Get/MustGet 访问了
+// 启用后（strictDeps=true），若插件在 Setup 中通过 [Service] / [TryService] 访问了
 // 未在 Deps 字段声明的插件，注册时将返回错误而不是警告，
 // 防止隐式依赖导致拓扑排序失效或生命周期管理混乱。
 func (pm *Manager) SetStrictDeps(enabled bool) {
