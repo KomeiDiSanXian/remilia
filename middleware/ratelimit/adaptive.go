@@ -490,6 +490,9 @@ func (arl *AdaptiveRateLimiter) decideLimitWithConfig(cfg AdaptiveConfig, cpu, m
 	} else if systemPressure > 1.0 {
 		// 轻度压力，小幅降低
 		newLimit = currentLimit - int32(cfg.AdjustStep)
+	} else if latency <= 0 {
+		// 无流量采样（latencyP99==0），不做上调防止空转膨胀
+		newLimit = currentLimit
 	} else if systemPressure < 0.7 {
 		// 压力很小，大幅提升
 		newLimit = currentLimit + int32(cfg.AdjustStep*2)
