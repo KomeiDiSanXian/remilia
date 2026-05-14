@@ -12,6 +12,10 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/middleware/ctxkeys"
+	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"golang.org/x/time/rate"
 )
 
@@ -46,17 +50,14 @@ func Recover() eventctx.Middleware {
 		return func(ctx *eventctx.Context) (err error) {
 			defer func() {
 				if r := recover(); r != nil {
-					// 获取堆栈信息（自适应缓冲区，避免深调用栈截断）
 					stack := captureStack()
 
-					// 记录详细日志
 					logger.WithFields(logger.Fields{
 						"panic":      r,
 						"stack":      stack,
 						"event_type": ctx.GetEventType(),
 					}).Error("[Recover] Panic recovered")
 
-					// 转换为错误
 					err = fmt.Errorf("panic recovered: %v", r)
 				}
 			}()
@@ -108,12 +109,11 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 			stdCtx, cancel := context.WithTimeout(ctx.Context(), timeout)
 			defer cancel()
 
-			// 保存原始 context，处理完后恢复，避免影响后续中间件
 			originalCtx := ctx.Context()
 			ctx.SetStdContext(stdCtx)
 			defer ctx.SetStdContext(originalCtx)
 
-			err := next(ctx) // 同步调用，无额外 goroutine
+			err := next(ctx)
 			if err != nil && stdCtx.Err() != nil {
 				logger.WithFields(logger.Fields{
 					"timeout":    timeout,
@@ -133,12 +133,20 @@ func Metrics() eventctx.Middleware {
 			start := time.Now()
 			err := next(ctx)
 			latency := time.Since(start)
-			// 简单日志打点，生产环境可使用 PrometheusMetrics 中间件
 			logger.WithError(err).WithField("latency_ms", latency.Milliseconds()).Debug("metrics")
 			return err
 		}
 	}
 }
+
+// ConcurrencyPolicy 并发策略
+type ConcurrencyPolicy int
+
+const (
+	ConcurrencyDrop    ConcurrencyPolicy = iota // 超过限制直接丢弃
+	ConcurrencyBlock                            // 超过限制阻塞等待
+	ConcurrencyTryWait                          // 超过限制等待一段时间，超时则丢弃
+)
 
 // ConcurrencyLimit 创建一个并发限制中间件
 //
@@ -149,10 +157,10 @@ func Metrics() eventctx.Middleware {
 //	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyTryWait, 200*time.Millisecond))
 func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) eventctx.Middleware {
 	if maxInFlight <= 0 {
-		maxInFlight = 100 // 默认值
+		maxInFlight = 100
 	}
 	if waitTimeout <= 0 && policy == ConcurrencyTryWait {
-		waitTimeout = 200 * time.Millisecond // 默认超时
+		waitTimeout = 200 * time.Millisecond
 	}
 
 	sema := make(chan struct{}, maxInFlight)
@@ -160,7 +168,6 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			// 尝试获取令牌
 			acquired := false
 			switch policy {
 			case ConcurrencyDrop:
@@ -193,7 +200,7 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 
 			if acquired {
 				defer func() {
-					<-sema // 释放信号量：从 channel 接收，释放一个令牌
+					<-sema
 				}()
 			}
 
@@ -201,15 +208,6 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 		}
 	}
 }
-
-// ConcurrencyPolicy 并发策略
-type ConcurrencyPolicy int
-
-const (
-	ConcurrencyDrop    ConcurrencyPolicy = iota // 超过限制直接丢弃
-	ConcurrencyBlock                            // 超过限制阻塞等待
-	ConcurrencyTryWait                          // 超过限制等待一段时间，超时则丢弃
-)
 
 // RequestID 请求 ID 中间件
 // 为每个请求生成唯一 ID，便于链路追踪和日志关联
@@ -223,23 +221,20 @@ const (
 func RequestID() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			// 生成唯一 ID（16 字节 crypto/rand + hex 编码，防碰撞 + 防时间回拨）
 			var b [16]byte
 			if _, err := rand.Read(b[:]); err != nil {
 				logger.WithError(err).Warn("[RequestID] Failed to generate random ID, falling back to timestamp")
 				requestID := fmt.Sprintf("%d", time.Now().UnixNano())
-				ctx.Set(CtxKeyRequestID, requestID)
+				ctx.Set(ctxkeys.CtxKeyRequestID, requestID)
 				return next(ctx)
 			}
 			requestID := hex.EncodeToString(b[:])
 
-			// 存储到 Context（V2 sugar）
-			ctx.Set(CtxKeyRequestID, requestID)
+			ctx.Set(ctxkeys.CtxKeyRequestID, requestID)
 
-			// 记录日志
 			logger.WithFields(logger.Fields{
-				CtxKeyRequestID: requestID,
-				"event_type":    ctx.GetEventType(),
+				ctxkeys.CtxKeyRequestID: requestID,
+				"event_type":            ctx.GetEventType(),
 			}).Debug("[RequestID] Generated")
 
 			return next(ctx)
@@ -317,14 +312,11 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 
 	shared := rate.NewLimiter(rate.Limit(ratePerSec), burst)
 
-	// 轻量级防泄漏：跟踪访问时间，超过上限时淘汰最久未访问的桶
 	type bucketEntry struct {
 		lim       *rate.Limiter
 		lastVisit time.Time
 	}
 
-	// 分片 map 减少热点锁竞争：每个 shard 持有独立的 map 和锁。
-	// 64 个分片（2^6）在 key 数量 > 1000 时显著降低写锁冲突概率。
 	const numShards = 64
 
 	type shard struct {
@@ -339,29 +331,23 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 		}
 	}
 
-	// hashKey 将 string key 映射到 [0, numShards) 范围内的 shard 索引。
-	// 使用 FNV-1a 哈希（轻量、均匀），按位与代替取模（要求 numShards 为 2 的幂）。
 	hashKey := func(key string) int {
-		var h uint64 = 14695981039346656037 // FNV offset basis
+		var h uint64 = 14695981039346656037
 		for i := range len(key) {
 			h ^= uint64(key[i])
-			h *= 1099511628211 // FNV prime
+			h *= 1099511628211
 		}
 		return int(h & (numShards - 1))
 	}
 
-	// lastCleanup 用 atomic.Int64 存储 UnixNano，避免多个 goroutine 同时读写时的数据竞态。
-	// 无锁快速路径（检查是否需要清理）和有锁慢速路径（执行清理）都通过原子操作访问它。
 	var lastCleanup atomic.Int64
 	lastCleanup.Store(time.Now().UnixNano())
 
 	cleanupIfNeeded := func(now time.Time) {
 		nowNano := now.UnixNano()
-		// 无锁快速路径：原子读，不满足间隔则直接返回
 		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
 			return
 		}
-		// 全部 shard 的清理持独立的 per-shard 写锁，不会形成全局瓶颈
 		lastCleanup.Store(nowNano)
 		for i := range numShards {
 			s := shards[i]
@@ -371,8 +357,6 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 					delete(s.buckets, k)
 				}
 			}
-			// 如果仍超过上限，淘汰最久未访问的条目（LRU），
-			// 避免 map 迭代顺序不可预测导致误删高频活跃 bucket。
 			maxPerShard := config.MaxBuckets/numShards + 1
 			if overflow := len(s.buckets) - maxPerShard; overflow > 0 {
 				for range overflow {
@@ -429,4 +413,163 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 			return next(ctx)
 		}
 	}
+}
+
+// SimpleRateLimit 创建简单固定速率限流中间件（全局共享，无 key 区分）。
+//
+// # 限流器选择指南
+//
+// 框架提供两种限流器，请根据场景选择：
+//
+//   - SimpleRateLimit / RateLimitTokenBucket（令牌桶）
+//     适用：已知固定峰值场景（如 "每秒最多 10 条消息"）
+//     特点：速率稳定、配置简单、无后台 goroutine
+//     参数：perSecond = 每秒允许的最大请求数（burst 自动设为 2 倍）
+//
+//   - NewManagedAdaptive / NewManagedAdaptiveWithContext（自适应）
+//     适用：峰值不确定、需根据 CPU/P99 延迟自动调整并发上限
+//     特点：弹性伸缩、无需手动调参，但有后台 goroutine（需 Stop/WithContext）
+//
+// 经验法则：
+//
+//	固定场景（如限制某命令调用频率）→ SimpleRateLimit
+//	高并发 Bot 保护整体系统负载   →  NewManagedAdaptiveWithContext(bot.Context())
+//
+// 使用示例:
+//
+//	// 全局限流：每秒最多处理 10 个事件
+//	engine.Use(middleware.SimpleRateLimit(10))
+//
+//	// 按用户限流（每用户每秒 2 次）
+//	engine.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
+//	    author := ctx.GetAuthor()
+//	    if author == nil { return "" }
+//	    return author.UserOpenID
+//	}))
+func SimpleRateLimit(perSecond float64) eventctx.Middleware {
+	if perSecond <= 0 {
+		perSecond = 1
+	}
+	burst := max(int(perSecond*2), 1)
+	return RateLimitTokenBucket(int(perSecond), burst, nil)
+}
+
+// Set 中间件集合，提供常用中间件组合
+type Set struct {
+	middlewares []eventctx.Middleware
+}
+
+// NewMiddlewareSet 创建中间件集合
+func NewMiddlewareSet() *Set {
+	return &Set{
+		middlewares: make([]eventctx.Middleware, 0),
+	}
+}
+
+// WithLogging 添加日志中间件
+func (s *Set) WithLogging() *Set {
+	s.middlewares = append(s.middlewares, Logging())
+	return s
+}
+
+// WithRecover 添加panic恢复中间件
+func (s *Set) WithRecover() *Set {
+	s.middlewares = append(s.middlewares, Recover())
+	return s
+}
+
+// WithAdaptive 添加自适应限流中间件
+func (s *Set) WithAdaptive() *Set {
+	s.middlewares = append(s.middlewares, ratelimit.SimpleAdaptive())
+	return s
+}
+
+// WithCircuitBreaker 添加熔断器中间件
+func (s *Set) WithCircuitBreaker() *Set {
+	s.middlewares = append(s.middlewares, resilience.SimpleCircuitBreaker())
+	return s
+}
+
+// WithDedup 添加去重中间件
+func (s *Set) WithDedup() *Set {
+	s.middlewares = append(s.middlewares, dedup.SimpleDedup())
+	return s
+}
+
+// WithTimeout 添加超时控制中间件
+func (s *Set) WithTimeout(timeout time.Duration) *Set {
+	s.middlewares = append(s.middlewares, Timeout(timeout))
+	return s
+}
+
+// WithRequestID 添加请求 ID 中间件
+func (s *Set) WithRequestID() *Set {
+	s.middlewares = append(s.middlewares, RequestID())
+	return s
+}
+
+// WithRetry 添加重试中间件
+func (s *Set) WithRetry(cfg resilience.RetryConfig) *Set {
+	s.middlewares = append(s.middlewares, resilience.Retry(cfg))
+	return s
+}
+
+// Build 返回所有中间件
+func (s *Set) Build() []eventctx.Middleware {
+	return s.middlewares
+}
+
+// ProductionSet 返回生产环境推荐的中间件组合
+//
+// 中间件执行顺序（从外到内）：
+//  1. Recover:        panic 恢复（最外层，保证任何 panic 都能被捕获）
+//  2. RequestID:      请求链路追踪 ID
+//  3. Timeout:        超时控制（避免 handler 无限等待）
+//  4. Dedup:          去重过滤（在限流前过滤重复请求，避免浪费配额）
+//  5. CircuitBreaker: 熔断器（在限流前熔断，快速失败）
+//  6. Adaptive:       自适应限流
+//  7. Logging:        日志记录（最内层，记录实际处理的请求）
+//
+// 使用示例:
+//
+//	engine.Use(middleware.ProductionSet()...)
+func ProductionSet() []eventctx.Middleware {
+	return NewMiddlewareSet().
+		WithRecover().
+		WithRequestID().
+		WithTimeout(30 * time.Second).
+		WithDedup().
+		WithCircuitBreaker().
+		WithAdaptive().
+		WithLogging().
+		Build()
+}
+
+// DevelopmentSet 返回开发环境推荐的中间件组合
+//
+// 包含：
+//   - Recover: panic恢复
+//   - Logging: 日志记录
+//
+// 使用示例:
+//
+//	engine.Use(middleware.DevelopmentSet()...)
+func DevelopmentSet() []eventctx.Middleware {
+	return NewMiddlewareSet().
+		WithRecover().
+		WithLogging().
+		Build()
+}
+
+// BasicSet 返回基础中间件组合
+//
+// 仅包含 Recover，适合测试环境
+//
+// 使用示例:
+//
+//	engine.Use(middleware.BasicSet()...)
+func BasicSet() []eventctx.Middleware {
+	return NewMiddlewareSet().
+		WithRecover().
+		Build()
 }

@@ -21,17 +21,20 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
-	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/degradation"
+	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 )
 
 // Bridge 配置热更新桥接器
 type Bridge struct {
 	mu              sync.RWMutex
-	adaptives       []*middleware.AdaptiveRateLimiter
-	retries         []*middleware.ConfigurableRetry
-	circuitBreakers []*middleware.CircuitBreaker
-	dedups          []*middleware.DedupFilter
-	degradations    []*middleware.AdaptiveDegradation
+	adaptives       []*ratelimit.AdaptiveRateLimiter
+	retries         []*resilience.ConfigurableRetry
+	circuitBreakers []*resilience.CircuitBreaker
+	dedups          []*dedup.DedupFilter
+	degradations    []*degradation.AdaptiveDegradation
 }
 
 // NewBridge 创建桥接器
@@ -40,7 +43,7 @@ func NewBridge() *Bridge {
 }
 
 // WatchAdaptive 注册 AdaptiveRateLimiter 接收热更新
-func (b *Bridge) WatchAdaptive(arl *middleware.AdaptiveRateLimiter) *Bridge {
+func (b *Bridge) WatchAdaptive(arl *ratelimit.AdaptiveRateLimiter) *Bridge {
 	b.mu.Lock()
 	b.adaptives = append(b.adaptives, arl)
 	b.mu.Unlock()
@@ -48,7 +51,7 @@ func (b *Bridge) WatchAdaptive(arl *middleware.AdaptiveRateLimiter) *Bridge {
 }
 
 // WatchRetry 注册 ConfigurableRetry 接收热更新
-func (b *Bridge) WatchRetry(cr *middleware.ConfigurableRetry) *Bridge {
+func (b *Bridge) WatchRetry(cr *resilience.ConfigurableRetry) *Bridge {
 	b.mu.Lock()
 	b.retries = append(b.retries, cr)
 	b.mu.Unlock()
@@ -56,7 +59,7 @@ func (b *Bridge) WatchRetry(cr *middleware.ConfigurableRetry) *Bridge {
 }
 
 // WatchCircuitBreaker 注册 CircuitBreaker 接收热更新
-func (b *Bridge) WatchCircuitBreaker(cb *middleware.CircuitBreaker) *Bridge {
+func (b *Bridge) WatchCircuitBreaker(cb *resilience.CircuitBreaker) *Bridge {
 	b.mu.Lock()
 	b.circuitBreakers = append(b.circuitBreakers, cb)
 	b.mu.Unlock()
@@ -64,7 +67,7 @@ func (b *Bridge) WatchCircuitBreaker(cb *middleware.CircuitBreaker) *Bridge {
 }
 
 // WatchDedup 注册 DedupFilter 接收热更新（MaxSize、DefaultTTL 立即生效）
-func (b *Bridge) WatchDedup(df *middleware.DedupFilter) *Bridge {
+func (b *Bridge) WatchDedup(df *dedup.DedupFilter) *Bridge {
 	b.mu.Lock()
 	b.dedups = append(b.dedups, df)
 	b.mu.Unlock()
@@ -73,7 +76,7 @@ func (b *Bridge) WatchDedup(df *middleware.DedupFilter) *Bridge {
 
 // WatchDegradation 注册 AdaptiveDegradation 接收热更新
 // （CPUThreshold、MemoryThreshold、LatencyThreshold 等下一监控周期生效）
-func (b *Bridge) WatchDegradation(ad *middleware.AdaptiveDegradation) *Bridge {
+func (b *Bridge) WatchDegradation(ad *degradation.AdaptiveDegradation) *Bridge {
 	b.mu.Lock()
 	b.degradations = append(b.degradations, ad)
 	b.mu.Unlock()
@@ -94,7 +97,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 
 	// 更新 AdaptiveRateLimiter
 	for _, arl := range b.adaptives {
-		arl.UpdateConfig(middleware.AdaptiveConfig{
+		arl.UpdateConfig(ratelimit.AdaptiveConfig{
 			AdjustStep: mc.RateLimit.Burst,
 		})
 	}
@@ -104,7 +107,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		base := parseDuration(rc.BackoffBase, 200*time.Millisecond)
 		duration := parseDuration(rc.BackoffMax, 2*time.Second)
 		for _, cr := range b.retries {
-			cr.UpdateConfig(middleware.RetryConfig{
+			cr.UpdateConfig(resilience.RetryConfig{
 				MaxAttempts: rc.MaxAttempts,
 				BackoffBase: base,
 				BackoffMax:  duration,
@@ -116,7 +119,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	if mc.Dedup.MaxSize > 0 || mc.Dedup.DefaultTTL != "" {
 		ttl := parseDuration(mc.Dedup.DefaultTTL, 0)
 		for _, df := range b.dedups {
-			df.UpdateConfig(middleware.DedupConfig{
+			df.UpdateConfig(dedup.DedupConfig{
 				MaxSize:    mc.Dedup.MaxSize,
 				DefaultTTL: ttl,
 			})
@@ -126,7 +129,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	// 更新 AdaptiveDegradation（CPU/Memory 阈值）
 	if mc.Degradation.CPUThreshold > 0 || mc.Degradation.MemoryThreshold > 0 {
 		for _, ad := range b.degradations {
-			ad.UpdateConfig(middleware.DegradationConfig{
+			ad.UpdateConfig(degradation.DegradationConfig{
 				CPUThreshold:    mc.Degradation.CPUThreshold,
 				MemoryThreshold: mc.Degradation.MemoryThreshold,
 			})

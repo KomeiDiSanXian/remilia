@@ -9,6 +9,10 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
+	dedup "github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	degradation "github.com/KomeiDiSanXian/remilia/middleware/degradation"
+	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
+	telemetry "github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,9 +25,9 @@ import (
 
 func TestDedupExtra(t *testing.T) {
 	t.Run("basic dedup", func(t *testing.T) {
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 		err1 := handler(createPlatformContextWithID("e1"))
 		assert.NoError(t, err1)
@@ -33,9 +37,9 @@ func TestDedupExtra(t *testing.T) {
 	})
 
 	t.Run("duplicate event skipped", func(t *testing.T) {
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 
 		callCount := 0
 		handler := mw(func(ctx *eventctx.Context) error {
@@ -52,9 +56,9 @@ func TestDedupExtra(t *testing.T) {
 	})
 
 	t.Run("empty event ID", func(t *testing.T) {
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		err := handler(createPlatformContextWithID(""))
@@ -62,9 +66,9 @@ func TestDedupExtra(t *testing.T) {
 	})
 
 	t.Run("nil event", func(t *testing.T) {
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		err := handler(createTestContext())
@@ -72,13 +76,13 @@ func TestDedupExtra(t *testing.T) {
 	})
 
 	t.Run("cache full", func(t *testing.T) {
-		filter := NewDedupFilter(DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         2,
 			DefaultTTL:      1 * time.Second,
 			CleanupInterval: 1 * time.Hour,
 		})
 		defer filter.Stop()
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		// Fill cache
@@ -93,9 +97,9 @@ func TestDedupExtra(t *testing.T) {
 
 func TestDedupRejectExtra(t *testing.T) {
 	t.Run("rejects duplicate", func(t *testing.T) {
-		filter := NewDedupFilter(DedupConfig{MaxSize: 100, DefaultTTL: 1 * time.Second, CleanupInterval: 1 * time.Hour})
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{MaxSize: 100, DefaultTTL: 1 * time.Second, CleanupInterval: 1 * time.Hour})
 		defer filter.Stop()
-		mw := DedupWithReject(filter)
+		mw := dedup.DedupWithReject(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		err1 := handler(createPlatformContextWithID("dup"))
@@ -112,20 +116,20 @@ func TestDedupRejectExtra(t *testing.T) {
 	})
 
 	t.Run("allows after TTL", func(t *testing.T) {
-		filter := NewDedupFilter(DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         100,
 			DefaultTTL:      50 * time.Millisecond,
 			CleanupInterval: 20 * time.Millisecond,
 		})
 		defer filter.Stop()
-		mw := DedupWithReject(filter)
+		mw := dedup.DedupWithReject(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		err1 := handler(createPlatformContextWithID("ttl"))
 		assert.NoError(t, err1)
 
 		time.Sleep(60 * time.Millisecond)
-		filter.cleanExpired()
+		filter.Clear()
 
 		err2 := handler(createPlatformContextWithID("ttl"))
 		assert.NoError(t, err2)
@@ -139,7 +143,7 @@ func TestDedupRejectExtra(t *testing.T) {
 func TestRetryDeadLetterExtra(t *testing.T) {
 	t.Run("sends to dead letter", func(t *testing.T) {
 		dlCh := make(chan dlq.Item[platform.Event], 10)
-		mw := RetryWithDeadLetter(RetryConfig{MaxAttempts: 2, BackoffBase: 10 * time.Millisecond}, dlCh)
+		mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 2, BackoffBase: 10 * time.Millisecond}, dlCh)
 		handler := mw(mockHandler(errors.New("fail"), 0))
 		err := handler(createPlatformContextWithID("dl-test"))
 		assert.Error(t, err)
@@ -154,7 +158,7 @@ func TestRetryDeadLetterExtra(t *testing.T) {
 
 	t.Run("no dead letter on success", func(t *testing.T) {
 		dlCh := make(chan dlq.Item[platform.Event], 10)
-		mw := RetryWithDeadLetter(RetryConfig{MaxAttempts: 3, BackoffBase: 10 * time.Millisecond}, dlCh)
+		mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 3, BackoffBase: 10 * time.Millisecond}, dlCh)
 		handler := mw(mockHandler(nil, 0))
 		err := handler(createTestContext())
 		assert.NoError(t, err)
@@ -176,7 +180,7 @@ func TestErrorHandlerExtra(t *testing.T) {
 	t.Run("captures error", func(t *testing.T) {
 		var captured error
 		var capturedCtx *eventctx.Context
-		mw := ErrorHandler(func(ctx *eventctx.Context, err error) {
+		mw := resilience.ErrorHandler(func(ctx *eventctx.Context, err error) {
 			captured = err
 			capturedCtx = ctx
 		})
@@ -189,7 +193,7 @@ func TestErrorHandlerExtra(t *testing.T) {
 
 	t.Run("no call on success", func(t *testing.T) {
 		called := false
-		mw := ErrorHandler(func(ctx *eventctx.Context, err error) {
+		mw := resilience.ErrorHandler(func(ctx *eventctx.Context, err error) {
 			called = true
 		})
 		handler := mw(mockHandler(nil, 0))
@@ -259,7 +263,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 	t.Run("logs slow handler", func(t *testing.T) {
 		logged := false
 		var loggedDuration time.Duration
-		mw := SlowHandler(SlowHandlerConfig{
+		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
 			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
@@ -276,7 +280,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 
 	t.Run("does not log fast handler", func(t *testing.T) {
 		logged := false
-		mw := SlowHandler(SlowHandlerConfig{
+		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
 			Threshold: 100 * time.Millisecond,
 			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
@@ -289,7 +293,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 
 	t.Run("calls OnSlowHandler callback", func(t *testing.T) {
 		called := false
-		mw := SlowHandler(SlowHandlerConfig{
+		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
 			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				called = true
@@ -302,7 +306,7 @@ func TestSlowHandlerExtra(t *testing.T) {
 }
 
 func TestSlowHandlerSimpleExtra(t *testing.T) {
-	mw := SlowHandlerSimple(50 * time.Millisecond)
+	mw := telemetry.SlowHandlerSimple(50 * time.Millisecond)
 	handler := mw(mockHandler(nil, 100*time.Millisecond))
 	err := handler(createTestContext())
 	assert.NoError(t, err)
@@ -314,14 +318,14 @@ func TestSlowHandlerSimpleExtra(t *testing.T) {
 
 func TestPrometheusExtra(t *testing.T) {
 	t.Run("records success metrics", func(t *testing.T) {
-		mw := PrometheusMetrics("test_success")
+		mw := telemetry.PrometheusMetrics("test_success")
 		handler := mw(mockHandler(nil, 10*time.Millisecond))
 		err := handler(createTestContext())
 		assert.NoError(t, err)
 	})
 
 	t.Run("records error metrics", func(t *testing.T) {
-		mw := PrometheusMetrics("test_error")
+		mw := telemetry.PrometheusMetrics("test_error")
 		handler := mw(mockHandler(errors.New("prom error"), 0))
 		err := handler(createTestContext())
 		assert.Error(t, err)
@@ -335,19 +339,19 @@ func TestPrometheusExtra(t *testing.T) {
 func TestSetGetDegraded(t *testing.T) {
 	t.Run("set and check degraded", func(t *testing.T) {
 		ctx := createTestContext()
-		assert.False(t, IsDegraded(ctx))
-		SetDegraded(ctx)
-		assert.True(t, IsDegraded(ctx))
+		assert.False(t, degradation.IsDegraded(ctx))
+		degradation.SetDegraded(ctx)
+		assert.True(t, degradation.IsDegraded(ctx))
 	})
 
 	t.Run("independent contexts", func(t *testing.T) {
 		ctx1 := createTestContext()
 		ctx2 := createTestContext()
 
-		SetDegraded(ctx1)
+		degradation.SetDegraded(ctx1)
 
-		assert.True(t, IsDegraded(ctx1))
-		assert.False(t, IsDegraded(ctx2))
+		assert.True(t, degradation.IsDegraded(ctx1))
+		assert.False(t, degradation.IsDegraded(ctx2))
 	})
 }
 
@@ -356,10 +360,10 @@ func TestSetGetDegraded(t *testing.T) {
 // ============================================================================
 
 func TestConcurrentDedup(t *testing.T) {
-	filter := NewDedupFilter(DefaultDedupConfig())
+	filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 	defer filter.Stop()
 
-	mw := Dedup(filter)
+	mw := dedup.Dedup(filter)
 	handler := mw(mockHandler(nil, 0))
 
 	var wg sync.WaitGroup
@@ -407,7 +411,7 @@ func TestConcurrentRateLimit(t *testing.T) {
 func TestMiddlewareEdgeCases(t *testing.T) {
 	t.Run("retry max attempts respected", func(t *testing.T) {
 		attempts := 0
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 3,
 			BackoffBase: 10 * time.Millisecond,
 		})
@@ -427,10 +431,10 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 	})
 
 	t.Run("dedup filter stats accuracy", func(t *testing.T) {
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
 
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		// Add events
@@ -468,10 +472,10 @@ func TestMiddlewareEdgeCases(t *testing.T) {
 // ============================================================================
 
 func BenchmarkDedupMiddleware(b *testing.B) {
-	filter := NewDedupFilter(DefaultDedupConfig())
+	filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 	defer filter.Stop()
 
-	mw := Dedup(filter)
+	mw := dedup.Dedup(filter)
 	handler := mw(mockHandler(nil, 0))
 
 	b.ResetTimer()
@@ -496,7 +500,7 @@ func BenchmarkRateLimitMiddleware(b *testing.B) {
 }
 
 func BenchmarkSlowHandlerMiddleware(b *testing.B) {
-	mw := SlowHandlerSimple(1 * time.Second)
+	mw := telemetry.SlowHandlerSimple(1 * time.Second)
 	handler := mw(mockHandler(nil, 0))
 	ctx := createTestContext()
 

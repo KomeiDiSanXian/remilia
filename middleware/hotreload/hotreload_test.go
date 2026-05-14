@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/middleware"
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
+	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 )
 
 func TestBridge_OnConfigChange_UpdatesRetry(t *testing.T) {
-	cr := middleware.NewConfigurableRetry(middleware.RetryConfig{
+	cr := resilience.NewConfigurableRetry(resilience.RetryConfig{
 		MaxAttempts: 1,
 		BackoffBase: 100 * time.Millisecond,
 	})
@@ -33,7 +34,7 @@ func TestBridge_OnConfigChange_Nil(t *testing.T) {
 	bridge.OnConfigChange(nil)
 }
 func TestBridge_WatchAdaptive(t *testing.T) {
-	arl := middleware.NewAdaptiveRateLimiter(middleware.DefaultAdaptiveConfig())
+	arl := ratelimit.NewAdaptiveRateLimiter(ratelimit.DefaultAdaptiveConfig())
 	arl.Start()
 	defer arl.Stop()
 	bridge := hotreload.NewBridge().WatchAdaptive(arl)
@@ -56,10 +57,10 @@ func TestBridge_Subscribe(t *testing.T) {
 	token.Cancel()
 }
 func TestConfigurableRetry_UpdateConfig(t *testing.T) {
-	cr := middleware.NewConfigurableRetry(middleware.RetryConfig{
+	cr := resilience.NewConfigurableRetry(resilience.RetryConfig{
 		MaxAttempts: 1,
 	})
-	cr.UpdateConfig(middleware.RetryConfig{MaxAttempts: 5})
+	cr.UpdateConfig(resilience.RetryConfig{MaxAttempts: 5})
 	// Verify the middleware function is returned without panic
 	mw := cr.Middleware()
 	if mw == nil {

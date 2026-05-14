@@ -9,6 +9,10 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	degradation "github.com/KomeiDiSanXian/remilia/middleware/degradation"
+	dedup "github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
+	telemetry "github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,29 +23,29 @@ import (
 
 func TestAdaptiveDegradationFull(t *testing.T) {
 	t.Run("new adaptive degradation", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
 			MonitorInterval: 100 * time.Millisecond,
-			Strategy:        DegradationDrop,
+			Strategy:        degradation.DegradationDrop,
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		assert.NotNil(t, ad)
-		assert.Equal(t, LevelNormal, ad.GetLevel())
+		assert.Equal(t, degradation.LevelNormal, ad.GetLevel())
 	})
 
 	t.Run("middleware normal level", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
-				return PriorityLow
+			Strategy:        degradation.DegradationDrop,
+			PriorityClassifier: func(ctx *eventctx.Context) degradation.EventPriority {
+				return degradation.PriorityLow
 			},
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
 		executed := false
@@ -60,19 +64,19 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		highPriorityCalls := 0
 		lowPriorityCalls := 0
 
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
+			Strategy:        degradation.DegradationDrop,
+			PriorityClassifier: func(ctx *eventctx.Context) degradation.EventPriority {
 				if ctx.GetMessageContent() == "HIGH_PRIORITY" {
-					return PriorityHigh
+					return degradation.PriorityHigh
 				}
-				return PriorityLow
+				return degradation.PriorityLow
 			},
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
 		handler := mw(func(ctx *eventctx.Context) error {
@@ -97,29 +101,29 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 	})
 
 	t.Run("get level", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
+			Strategy:        degradation.DegradationDrop,
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 
 		// Initially normal
-		assert.Equal(t, LevelNormal, ad.GetLevel())
+		assert.Equal(t, degradation.LevelNormal, ad.GetLevel())
 	})
 
 	t.Run("stats tracking", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
-				return PriorityLow
+			Strategy:        degradation.DegradationDrop,
+			PriorityClassifier: func(ctx *eventctx.Context) degradation.EventPriority {
+				return degradation.PriorityLow
 			},
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
 		handler := mw(func(ctx *eventctx.Context) error {
@@ -132,18 +136,18 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 		}
 
 		stats := ad.Stats()
-		assert.Equal(t, LevelNormal, stats.Level)
+		assert.Equal(t, degradation.LevelNormal, stats.Level)
 		assert.Equal(t, int64(5), stats.TotalEvents)
 	})
 
 	t.Run("reset stats", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
+			Strategy:        degradation.DegradationDrop,
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		mw := ad.Middleware()
 
 		handler := mw(func(ctx *eventctx.Context) error {
@@ -165,16 +169,16 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 	t.Run("on level change callback", func(t *testing.T) {
 		callbackSet := false
 
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
-			OnLevelChange: func(from, to DegradationLevel) {
+			Strategy:        degradation.DegradationDrop,
+			OnLevelChange: func(from, to degradation.DegradationLevel) {
 				callbackSet = true
 			},
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 
 		// Verify callback is set
 		assert.NotNil(t, ad)
@@ -184,51 +188,51 @@ func TestAdaptiveDegradationFull(t *testing.T) {
 
 func TestDegradationStrategies(t *testing.T) {
 	t.Run("drop strategy", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDrop,
-			PriorityClassifier: func(ctx *eventctx.Context) EventPriority {
-				return PriorityLow
+			Strategy:        degradation.DegradationDrop,
+			PriorityClassifier: func(ctx *eventctx.Context) degradation.EventPriority {
+				return degradation.PriorityLow
 			},
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		assert.NotNil(t, ad)
-		assert.Equal(t, DegradationDrop, cfg.Strategy)
+		assert.Equal(t, degradation.DegradationDrop, cfg.Strategy)
 	})
 
 	t.Run("delay strategy", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationDelay,
+			Strategy:        degradation.DegradationDelay,
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		assert.NotNil(t, ad)
-		assert.Equal(t, DegradationDelay, cfg.Strategy)
+		assert.Equal(t, degradation.DegradationDelay, cfg.Strategy)
 	})
 
 	t.Run("simplify strategy", func(t *testing.T) {
-		cfg := DegradationConfig{
+		cfg := degradation.DegradationConfig{
 			CPUThreshold:    80.0,
 			MemoryThreshold: 85.0,
-			Strategy:        DegradationSimplify,
+			Strategy:        degradation.DegradationSimplify,
 		}
 
-		ad := NewAdaptiveDegradation(cfg)
+		ad := degradation.NewAdaptiveDegradation(cfg)
 		assert.NotNil(t, ad)
-		assert.Equal(t, DegradationSimplify, cfg.Strategy)
+		assert.Equal(t, degradation.DegradationSimplify, cfg.Strategy)
 	})
 }
 
 func TestEventPriorities(t *testing.T) {
-	priorities := []EventPriority{
-		PriorityLow,
-		PriorityNormal,
-		PriorityHigh,
-		PriorityCritical,
+	priorities := []degradation.EventPriority{
+		degradation.PriorityLow,
+		degradation.PriorityNormal,
+		degradation.PriorityHigh,
+		degradation.PriorityCritical,
 	}
 
 	for _, p := range priorities {
@@ -420,7 +424,7 @@ func TestConcurrencyLimitEdgeCases(t *testing.T) {
 
 func TestRetryEdgeCases(t *testing.T) {
 	t.Run("zero max attempts", func(t *testing.T) {
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 0,
 			BackoffBase: 10 * time.Millisecond,
 		})
@@ -440,7 +444,7 @@ func TestRetryEdgeCases(t *testing.T) {
 	t.Run("very short backoff", func(t *testing.T) {
 		start := time.Now()
 
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 3,
 			BackoffBase: 1 * time.Millisecond,
 			BackoffMax:  5 * time.Millisecond,
@@ -458,7 +462,7 @@ func TestRetryEdgeCases(t *testing.T) {
 	t.Run("backoff max respected", func(t *testing.T) {
 		start := time.Now()
 
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 5,
 			BackoffBase: 100 * time.Millisecond,
 			BackoffMax:  50 * time.Millisecond, // Max is less than base * 2
@@ -476,11 +480,11 @@ func TestRetryEdgeCases(t *testing.T) {
 
 func TestCircuitBreakerEdgeCases(t *testing.T) {
 	t.Run("zero max failures", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 0,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 		handler := mw(mockHandler(errors.New("error"), 0))
 
 		// Should still work with zero max failures
@@ -488,18 +492,18 @@ func TestCircuitBreakerEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very short reset timeout", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures:  1,
 			ResetTimeout: 10 * time.Millisecond,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 
 		// Open circuit
 		failHandler := mw(mockHandler(errors.New("error"), 0))
 		failHandler(createTestContext())
 
-		assert.Equal(t, StateOpen, cb.GetState())
+		assert.Equal(t, resilience.StateOpen, cb.GetState())
 
 		// Wait for reset
 		time.Sleep(20 * time.Millisecond)
@@ -512,14 +516,14 @@ func TestCircuitBreakerEdgeCases(t *testing.T) {
 
 func TestDedupEdgeCases(t *testing.T) {
 	t.Run("very small cache", func(t *testing.T) {
-		filter := NewDedupFilter(DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         1,
 			DefaultTTL:      1 * time.Second,
 			CleanupInterval: 1 * time.Hour,
 		})
 		defer filter.Stop()
 
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		// Add more events than cache size
@@ -533,14 +537,14 @@ func TestDedupEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very short TTL", func(t *testing.T) {
-		filter := NewDedupFilter(DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         100,
 			DefaultTTL:      10 * time.Millisecond,
 			CleanupInterval: 5 * time.Millisecond,
 		})
 		defer filter.Stop()
 
-		mw := Dedup(filter)
+		mw := dedup.Dedup(filter)
 		handler := mw(mockHandler(nil, 0))
 
 		event := &middlewareTestEvent{id: "short-ttl", kind: platform.EventKindPrivateMessage}
@@ -559,7 +563,7 @@ func TestDedupEdgeCases(t *testing.T) {
 func TestSlowHandlerEdgeCases(t *testing.T) {
 	t.Run("zero threshold", func(t *testing.T) {
 		logged := false
-		mw := SlowHandler(SlowHandlerConfig{
+		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
 			Threshold: 0, // Should use default
 			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
@@ -577,7 +581,7 @@ func TestSlowHandlerEdgeCases(t *testing.T) {
 		logged := false
 		called := false
 
-		mw := SlowHandler(SlowHandlerConfig{
+		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
 			Threshold: 50 * time.Millisecond,
 			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
 				logged = true
@@ -641,21 +645,21 @@ func TestRateLimitEdgeCases(t *testing.T) {
 
 func TestMiddlewareIntegration(t *testing.T) {
 	t.Run("full stack", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 10,
 		})
 
-		filter := NewDedupFilter(DefaultDedupConfig())
+		filter := dedup.NewDedupFilter(dedup.DefaultDedupConfig())
 		defer filter.Stop()
 
 		// Stack: Recover -> Retry -> CircuitBreaker -> Dedup -> Logging -> Metrics -> Handler
 		handler := Recover()(
-			Retry(RetryConfig{
+			resilience.Retry(resilience.RetryConfig{
 				MaxAttempts: 2,
 				BackoffBase: 10 * time.Millisecond,
 			})(
-				CircuitBreakerMiddleware(cb)(
-					Dedup(filter)(
+				resilience.CircuitBreakerMiddleware(cb)(
+					dedup.Dedup(filter)(
 						Logging()(
 							Metrics()(
 								mockHandler(nil, 0),
@@ -715,11 +719,11 @@ func TestConcurrentStress(t *testing.T) {
 	})
 
 	t.Run("concurrent circuit breaker", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 3,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 		handler := mw(mockHandler(errors.New("error"), 0))
 
 		var wg sync.WaitGroup
@@ -747,13 +751,13 @@ func TestConcurrentStress(t *testing.T) {
 // ============================================================================
 
 func BenchmarkDegradationMiddleware(b *testing.B) {
-	cfg := DegradationConfig{
+	cfg := degradation.DegradationConfig{
 		CPUThreshold:    80.0,
 		MemoryThreshold: 85.0,
-		Strategy:        DegradationDrop,
+		Strategy:        degradation.DegradationDrop,
 	}
 
-	ad := NewAdaptiveDegradation(cfg)
+	ad := degradation.NewAdaptiveDegradation(cfg)
 	mw := ad.Middleware()
 	handler := mw(mockHandler(nil, 0))
 	ctx := createTestContext()
@@ -782,16 +786,16 @@ func BenchmarkAuthMiddleware(b *testing.B) {
 }
 
 func BenchmarkFullMiddlewareStack(b *testing.B) {
-	cb := NewCircuitBreaker(CircuitBreakerConfig{
+	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 		MaxFailures: 100,
 	})
 
 	handler := Recover()(
-		Retry(RetryConfig{
+		resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 1,
 			BackoffBase: 1 * time.Millisecond,
 		})(
-			CircuitBreakerMiddleware(cb)(
+			resilience.CircuitBreakerMiddleware(cb)(
 				Logging()(
 					Metrics()(
 						mockHandler(nil, 0),

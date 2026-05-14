@@ -8,19 +8,20 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // ============================================================================
-// DeadLetter Middleware Tests
+// resilience.DeadLetter Middleware Tests
 // ============================================================================
 
 func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("enqueues on error", func(t *testing.T) {
 		q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
 
-		mw := DeadLetter(q)
+		mw := resilience.DeadLetter(q)
 		handler := mw(mockHandler(errors.New("dlq error"), 0))
 
 		err := handler(createTestContext())
@@ -36,7 +37,7 @@ func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("no enqueue on success", func(t *testing.T) {
 		q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
 
-		mw := DeadLetter(q)
+		mw := resilience.DeadLetter(q)
 		handler := mw(mockHandler(nil, 0))
 
 		err := handler(createTestContext())
@@ -47,7 +48,7 @@ func TestDeadLetterMiddleware(t *testing.T) {
 	})
 
 	t.Run("nil queue", func(t *testing.T) {
-		mw := DeadLetter(nil)
+		mw := resilience.DeadLetter(nil)
 		handler := mw(mockHandler(errors.New("error with nil queue"), 0))
 
 		err := handler(createTestContext())
@@ -61,19 +62,19 @@ func TestDeadLetterMiddleware(t *testing.T) {
 
 func TestCircuitBreakerAdvanced(t *testing.T) {
 	t.Run("half-open to closed transition", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures:         1,
 			ResetTimeout:        50 * time.Millisecond,
 			HalfOpenMaxRequests: 2,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 
 		// Cause failure
 		failHandler := mw(mockHandler(errors.New("fail"), 0))
 		failHandler(createTestContext())
 
-		assert.Equal(t, StateOpen, cb.GetState())
+		assert.Equal(t, resilience.StateOpen, cb.GetState())
 
 		// Wait for reset timeout
 		time.Sleep(60 * time.Millisecond)
@@ -88,12 +89,12 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 	})
 
 	t.Run("half-open to open on failure", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures:  1,
 			ResetTimeout: 50 * time.Millisecond,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 
 		// Open circuit
 		handler := mw(mockHandler(errors.New("fail"), 0))
@@ -106,17 +107,17 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 		handler(createTestContext())
 
 		// Should be open again
-		assert.Equal(t, StateOpen, cb.GetState())
+		assert.Equal(t, resilience.StateOpen, cb.GetState())
 	})
 
 	t.Run("concurrent requests in half-open", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures:         1,
 			ResetTimeout:        50 * time.Millisecond,
 			HalfOpenMaxRequests: 1,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 
 		// Open circuit
 		failHandler := mw(mockHandler(errors.New("fail"), 0))
@@ -144,11 +145,11 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 	})
 
 	t.Run("get failures count", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 3,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 		handler := mw(mockHandler(errors.New("fail"), 0))
 
 		handler(createTestContext())
@@ -158,11 +159,11 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 	})
 
 	t.Run("reset failures on success", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 5,
 		})
 
-		mw := CircuitBreakerMiddleware(cb)
+		mw := resilience.CircuitBreakerMiddleware(cb)
 
 		// Some failures
 		failHandler := mw(mockHandler(errors.New("fail"), 0))
@@ -188,7 +189,7 @@ func TestRetryAdvanced(t *testing.T) {
 		attempts := 0
 		start := time.Now()
 
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 3,
 			BackoffBase: 50 * time.Millisecond,
 			BackoffMax:  200 * time.Millisecond,
@@ -210,7 +211,7 @@ func TestRetryAdvanced(t *testing.T) {
 	})
 
 	t.Run("max backoff limit", func(t *testing.T) {
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 5,
 			BackoffBase: 100 * time.Millisecond,
 			BackoffMax:  150 * time.Millisecond,
@@ -230,7 +231,7 @@ func TestRetryAdvanced(t *testing.T) {
 		permanentErr := errors.New("permanent error")
 		attempts := 0
 
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 5,
 			BackoffBase: 10 * time.Millisecond,
 			ShouldRetry: func(err error) bool {
@@ -252,7 +253,7 @@ func TestRetryAdvanced(t *testing.T) {
 	t.Run("sets retry attempt in context", func(t *testing.T) {
 		var lastAttempt int
 
-		mw := Retry(RetryConfig{
+		mw := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 3,
 			BackoffBase: 10 * time.Millisecond,
 		})
@@ -481,14 +482,14 @@ func TestMiddlewareChainingAdvanced(t *testing.T) {
 	})
 
 	t.Run("retry + circuit breaker", func(t *testing.T) {
-		cb := NewCircuitBreaker(CircuitBreakerConfig{
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures: 5,
 		})
 
-		handler := Retry(RetryConfig{
+		handler := resilience.Retry(resilience.RetryConfig{
 			MaxAttempts: 2,
 			BackoffBase: 10 * time.Millisecond,
-		})(CircuitBreakerMiddleware(cb)(mockHandler(errors.New("fail"), 0)))
+		})(resilience.CircuitBreakerMiddleware(cb)(mockHandler(errors.New("fail"), 0)))
 
 		err := handler(createTestContext())
 		assert.Error(t, err)
@@ -512,10 +513,10 @@ func BenchmarkMiddlewareChainAdvanced(b *testing.B) {
 }
 
 func BenchmarkCircuitBreakerAdvanced(b *testing.B) {
-	cb := NewCircuitBreaker(CircuitBreakerConfig{
+	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 		MaxFailures: 100,
 	})
-	mw := CircuitBreakerMiddleware(cb)
+	mw := resilience.CircuitBreakerMiddleware(cb)
 	handler := mw(mockHandler(nil, 0))
 	ctx := createTestContext()
 
@@ -528,7 +529,7 @@ func BenchmarkCircuitBreakerAdvanced(b *testing.B) {
 }
 
 func BenchmarkRetryAdvanced(b *testing.B) {
-	mw := Retry(RetryConfig{
+	mw := resilience.Retry(resilience.RetryConfig{
 		MaxAttempts: 3,
 		BackoffBase: 10 * time.Millisecond,
 	})

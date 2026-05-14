@@ -10,7 +10,8 @@ import (
 	"github.com/KomeiDiSanXian/remilia"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +70,7 @@ func TestBotConcurrentStart(t *testing.T) {
 // TestDedupStrictMode tests the strict mode behavior of dedup filter
 func TestDedupStrictMode(t *testing.T) {
 	t.Run("StrictMode=false allows events when cache is full", func(t *testing.T) {
-		filter := middleware.NewDedupFilter(middleware.DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         2,
 			DefaultTTL:      time.Minute,
 			CleanupInterval: time.Hour, // Disable auto cleanup
@@ -89,14 +90,14 @@ func TestDedupStrictMode(t *testing.T) {
 	})
 
 	t.Run("DedupWithRejectMiddleware rejects events when cache is full", func(t *testing.T) {
-		filter := middleware.NewDedupFilter(middleware.DedupConfig{
+		filter := dedup.NewDedupFilter(dedup.DedupConfig{
 			MaxSize:         2,
 			DefaultTTL:      time.Minute,
 			CleanupInterval: time.Hour,
 		})
 		defer filter.Stop()
 
-		mw := middleware.DedupWithReject(filter)
+		mw := dedup.DedupWithReject(filter)
 		handler := mw(func(ctx *eventctx.Context) error {
 			return nil
 		})
@@ -119,7 +120,7 @@ func TestDedupStrictMode(t *testing.T) {
 
 // TestCircuitBreakerHalfOpenConcurrency tests the half-open state concurrency fix
 func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
-	cb := middleware.NewCircuitBreaker(middleware.CircuitBreakerConfig{
+	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 		MaxFailures:         1,
 		ResetTimeout:        100 * time.Millisecond,
 		HalfOpenMaxRequests: 3,
@@ -128,7 +129,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 
 	// Trigger circuit breaker to open
 	cb.Reset()
-	mw := middleware.CircuitBreakerMiddleware(cb)
+	mw := resilience.CircuitBreakerMiddleware(cb)
 	failHandler := mw(func(ctx *eventctx.Context) error {
 		return assert.AnError
 	})
@@ -138,7 +139,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 	}
 
 	// Verify circuit is open
-	require.Equal(t, middleware.StateOpen, cb.GetState(), "Circuit should be open after failures")
+	require.Equal(t, resilience.StateOpen, cb.GetState(), "Circuit should be open after failures")
 
 	// Wait for reset timeout to enter half-open state
 	time.Sleep(150 * time.Millisecond)
@@ -157,7 +158,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 			// Wait for barrier to ensure concurrent execution
 			startBarrier.Wait()
 
-			testMw := middleware.CircuitBreakerMiddleware(cb)
+			testMw := resilience.CircuitBreakerMiddleware(cb)
 			handler := testMw(func(ctx *eventctx.Context) error {
 				return nil // Success
 			})

@@ -7,6 +7,9 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 )
@@ -28,27 +31,27 @@ func (e *simpleTestEvent) Attachments() []platform.InboundAttachment { return ni
 // TestSimpleMiddleware tests simplified middleware factories
 func TestSimpleMiddleware(t *testing.T) {
 	t.Run("SimpleAdaptive", func(t *testing.T) {
-		mw := middleware.SimpleAdaptive()
+		mw := ratelimit.SimpleAdaptive()
 		assert.NotNil(t, mw)
 	})
 
 	t.Run("SimpleAdaptiveWithLimit", func(t *testing.T) {
-		mw := middleware.SimpleAdaptiveWithLimit(200)
+		mw := ratelimit.SimpleAdaptiveWithLimit(200)
 		assert.NotNil(t, mw)
 	})
 
 	t.Run("SimpleCircuitBreaker", func(t *testing.T) {
-		mw := middleware.SimpleCircuitBreaker()
+		mw := resilience.SimpleCircuitBreaker()
 		assert.NotNil(t, mw)
 	})
 
 	t.Run("SimpleDedup", func(t *testing.T) {
-		mw := middleware.SimpleDedup()
+		mw := dedup.SimpleDedup()
 		assert.NotNil(t, mw)
 	})
 
 	t.Run("SimpleDedupWithTTL", func(t *testing.T) {
-		mw := middleware.SimpleDedupWithTTL(5 * time.Minute)
+		mw := dedup.SimpleDedupWithTTL(5 * time.Minute)
 		assert.NotNil(t, mw)
 	})
 }
@@ -161,14 +164,14 @@ func BenchmarkMiddlewareFactories(b *testing.B) {
 	b.Run("SimpleAdaptive", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = middleware.SimpleAdaptive()
+			_ = ratelimit.SimpleAdaptive()
 		}
 	})
 
 	b.Run("SimpleCircuitBreaker", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = middleware.SimpleCircuitBreaker()
+			_ = resilience.SimpleCircuitBreaker()
 		}
 	})
 
@@ -193,7 +196,7 @@ func BenchmarkMiddlewareFactories(b *testing.B) {
 
 // TestManagedAdaptive_StopReleasesGoroutines 测试 ManagedAdaptive Stop 能正确释放后台 goroutine
 func TestManagedAdaptive_StopReleasesGoroutines(t *testing.T) {
-	managed := middleware.NewManagedAdaptive()
+	managed := ratelimit.NewManagedAdaptive()
 	assert.NotNil(t, managed.Middleware())
 
 	// Stop 不应该阻塞
@@ -213,7 +216,7 @@ func TestManagedAdaptive_StopReleasesGoroutines(t *testing.T) {
 
 // TestManagedAdaptiveWithLimit_Works 测试带限制的可管理限流器
 func TestManagedAdaptiveWithLimit_Works(t *testing.T) {
-	managed := middleware.NewManagedAdaptiveWithLimit(50)
+	managed := ratelimit.NewManagedAdaptiveWithLimit(50)
 	assert.NotNil(t, managed)
 	mw := managed.Middleware()
 	assert.NotNil(t, mw)
@@ -232,7 +235,7 @@ func TestProductionSet_MiddlewareOrder(t *testing.T) {
 func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 
-	managed := middleware.NewManagedAdaptiveWithContext(parent)
+	managed := ratelimit.NewManagedAdaptiveWithContext(parent)
 	assert.NotNil(t, managed.Middleware())
 
 	// 取消父 context，后台 goroutine 应该自动退出（无需调用 Stop）
@@ -256,7 +259,7 @@ func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
 func TestNewManagedAdaptiveWithLimitContext_Works(t *testing.T) {
 	parent := t.Context()
 
-	managed := middleware.NewManagedAdaptiveWithLimitContext(parent, 50)
+	managed := ratelimit.NewManagedAdaptiveWithLimitContext(parent, 50)
 	assert.NotNil(t, managed)
 	mw := managed.Middleware()
 	assert.NotNil(t, mw)
