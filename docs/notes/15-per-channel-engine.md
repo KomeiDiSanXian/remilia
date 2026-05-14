@@ -1,6 +1,10 @@
-# Per-Channel Engine——通道级引擎隔离
+# [ARCHIVED] Per-Channel Engine——通道级引擎隔离
 
-> 每个群/用户拥有独立的 Engine 实例，matcher 列表隔离，Block() 互不影响，慢 handler 不互相拖累。
+> **状态：v1.3.0 已移除。** Per-Channel Engine 架构已被 Matcher 级 per-channel blocking 替代。
+> 详见 `plugin/scope.go` 中的 `Matcher.BlockForChannel()` 和 `notes/16-plugin-scope.md`。
+>
+> 移除原因：shared `*Matcher` 指针导致 Block 隔离不生效；每 channel 2+ 后台 goroutine 开销。
+> 新方案使用单例 Engine + per-channel block metadata，删除 ~700 行代码。
 
 ## 核心设计
 

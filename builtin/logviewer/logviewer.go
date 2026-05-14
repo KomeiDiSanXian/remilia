@@ -12,7 +12,7 @@ import (
 )
 
 type Plugin struct {
-	auditLog *auditlog.Plugin
+	auditLogSvc *plugin.ServiceProxy[*auditlog.Plugin]
 }
 
 func New() *plugin.Descriptor {
@@ -35,15 +35,24 @@ func New() *plugin.Descriptor {
   /logs recent [数量]        — 查看最近日志`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			raw, ok := ctx.Get("auditlog")
+			svc, ok := plugin.TryService[*auditlog.Plugin](ctx, "auditlog")
 			if !ok {
 				return nil, fmt.Errorf("auditlog plugin not found")
 			}
-			p.auditLog = raw.(*auditlog.Plugin)
+			p.auditLogSvc = svc
 			p.registerCommands(ctx)
 			return p, nil
 		},
 	}
+}
+
+// auditLog 返回当前 auditlog 插件实例（防过期的延迟解析）。
+func (p *Plugin) auditLog() *auditlog.Plugin {
+	if p.auditLogSvc == nil {
+		return nil
+	}
+	a, _ := p.auditLogSvc.Get()
+	return a
 }
 
 func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
@@ -92,7 +101,7 @@ func (p *Plugin) handleSearch(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	query := strings.Join(args, " ")
-	entries := p.auditLog.Recent(50)
+	entries := p.auditLog().Recent(50)
 
 	var results []auditlog.LogEntry
 	for _, e := range entries {
@@ -127,7 +136,7 @@ func (p *Plugin) handleUser(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 2 {
 		fmt.Sscanf(args[1], "%d", &n)
 	}
-	entries := p.auditLog.ByUser(userID, n)
+	entries := p.auditLog().ByUser(userID, n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage(fmt.Sprintf("用户 %s 暂无操作记录", userID)))
 		return nil
@@ -151,7 +160,7 @@ func (p *Plugin) handleAction(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 2 {
 		fmt.Sscanf(args[1], "%d", &n)
 	}
-	entries := p.auditLog.ByAction(action, n)
+	entries := p.auditLog().ByAction(action, n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage(fmt.Sprintf("暂无 %s 类型的操作记录", action)))
 		return nil
@@ -166,7 +175,7 @@ func (p *Plugin) handleAction(ctx *eventctx.Context, args []string) error {
 }
 
 func (p *Plugin) handleStats(ctx *eventctx.Context) error {
-	entries := p.auditLog.Recent(1000)
+	entries := p.auditLog().Recent(1000)
 	total := len(entries)
 	if total == 0 {
 		ctx.Reply(platform.TextMessage("暂无日志记录"))
@@ -194,7 +203,7 @@ func (p *Plugin) handleRecent(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 1 {
 		fmt.Sscanf(args[0], "%d", &n)
 	}
-	entries := p.auditLog.Recent(n)
+	entries := p.auditLog().Recent(n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage("暂无日志记录"))
 		return nil

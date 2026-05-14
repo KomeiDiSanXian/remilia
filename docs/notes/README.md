@@ -22,6 +22,13 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 09 | [配置管理与热更新](09-config-hotreload.md) | fsnotify 目录监听、防抖合并、Bridge 推模式中间件更新 |
 | 10 | [基础设施工具包](10-infra-toolkit.md) | 20+ 独立包（并发原语、存储、图像、中文处理等） |
 | 11 | [ZeroBot 基因溯源](11-zerobot-inspiration.md) | ZeroBot 架构对比、遗传基因图谱、关键分叉分析、逐组件深度对比 |
+| 12 | [FSM 有限状态机](12-fsm-engine.md) | 声明式多步骤对话引擎、状态迁移、会话管理 |
+| 13 | [Adaptive Router 自适应路由](13-adaptive-router.md) | 优先级驱动的策略路由层 |
+| 14 | [WASM 插件沙箱](14-wasm-plugin.md) | wazero 运行时、ABI 约定、资源限流 |
+| 15 | [Per-Channel Engine](15-per-channel-engine.md) | **[v1.3.0 已归档]** 通道级引擎隔离（已被 Matcher.BlockForChannel 替代） |
+| 16 | [PluginScope 资源追踪](16-plugin-scope.md) | Scope 级联清理、订阅自动取消、子 Scope 管理 |
+| 17 | [ServiceProxy 服务代理](17-service-proxy.md) | 防过期的插件间同步调用、热重载安全 |
+| 18 | [状态迁移](18-state-migration.md) | 版本化状态迁移管线、MigrateState 自动触发 |
 
 ## 架构思路
 

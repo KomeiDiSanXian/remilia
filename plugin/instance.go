@@ -27,6 +27,7 @@ type Instance struct {
 	lastError    error             // 最后的错误
 	goroutineMgr *goroutineManager // 生命周期绑定 goroutine 管理器
 	exportedAPI  any               // Setup 返回的 API 对象
+	loadedVer    string            // 当前加载的版本号（用于迁移检测）
 	mu           sync.RWMutex
 
 	// depsModified 标记 Register 是否通过 COW 合并了未声明依赖。
@@ -96,6 +97,7 @@ func (pi *Instance) load(ctx context.Context) (loadErr error) {
 	pi.state = Loaded
 	pi.loadTime = startTime
 	pi.lastError = nil
+	pi.loadedVer = pi.desc.Version
 	pi.mu.Unlock()
 
 	return nil
@@ -132,7 +134,14 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	pi.mu.Lock()
 	pi.state = Unloading
 	gm := pi.goroutineMgr
+	setupCtx := pi.setupContext
 	pi.mu.Unlock()
+
+	// Step 0: 清理 Scope 追踪的资源（subscriptions、middleware、child scopes、dispose hooks）
+	// 此步骤在 goroutine 停止之前执行，因为 dispose hooks 可能需要访问依赖服务。
+	if setupCtx != nil && setupCtx.rootScope != nil {
+		_ = setupCtx.rootScope.Dispose()
+	}
 
 	// Step 1: 停止所有生命周期绑定的 goroutine（在 Teardown 前）
 	if gm != nil {
@@ -282,6 +291,13 @@ func (pi *Instance) GetAPI() any {
 	pi.mu.RLock()
 	defer pi.mu.RUnlock()
 	return pi.exportedAPI
+}
+
+// LoadedVersion 返回当前加载的插件版本号。用于迁移检测。
+func (pi *Instance) LoadedVersion() string {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.loadedVer
 }
 
 // SetConfig 设置插件配置（实现 ConfigurablePlugin 接口）

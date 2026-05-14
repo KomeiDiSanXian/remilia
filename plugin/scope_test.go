@@ -1,0 +1,307 @@
+package plugin
+
+import (
+	"testing"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestScope_SubscribeAutoCleanup 验证 Scope 订阅在 Dispose 后自动取消。
+func TestScope_SubscribeAutoCleanup(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+	eb := pm.GetEventBus()
+
+	var received []string
+	desc := &Descriptor{
+		Name: "test-scope",
+		Setup: func(ctx *SetupContext) (any, error) {
+			root := ctx.Scope()
+			root.Subscribe("test.topic", func(data any) {
+				received = append(received, data.(string))
+			})
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+
+	// 发布事件——应收到（EventBus 异步分发，等待 delivery）
+	eb.Publish("test.topic", "hello")
+	eb.Publish("test.topic", "world")
+	time.Sleep(50 * time.Millisecond)
+	assert.Len(t, received, 2)
+	assert.Contains(t, received, "hello")
+	assert.Contains(t, received, "world")
+
+	// 卸载插件——Scope 自动 Dispose
+	pm.Unregister(t.Context(), "test-scope")
+	received = nil
+
+	// 再次发布——不应收到（订阅已被取消）
+	eb.Publish("test.topic", "should-not-receive")
+	assert.Empty(t, received)
+}
+
+// TestScope_ChildScopeCascadeDispose 验证子 Scope 级联清理。
+func TestScope_ChildScopeCascadeDispose(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+	eb := pm.GetEventBus()
+
+	var disposeOrder []string
+	desc := &Descriptor{
+		Name: "test-cascade",
+		Setup: func(ctx *SetupContext) (any, error) {
+			root := ctx.Scope()
+			root.OnDispose(func() error {
+				disposeOrder = append(disposeOrder, "root")
+				return nil
+			})
+
+			child := root.Scope("child")
+			child.OnDispose(func() error {
+				disposeOrder = append(disposeOrder, "child")
+				return nil
+			})
+
+			grandchild := child.Scope("grandchild")
+			grandchild.OnDispose(func() error {
+				disposeOrder = append(disposeOrder, "grandchild")
+				return nil
+			})
+
+			// 验证订阅自动清理
+			grandchild.Subscribe("x", func(data any) {})
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+
+	// 验证订阅自动清理——先验证有订阅，卸载后没了
+	stats := eb.GetStats()
+	assert.GreaterOrEqual(t, stats.SubscriptionCount, 1)
+
+	pm.Unregister(t.Context(), "test-cascade")
+
+	// 验证级联顺序：grandchild → child → root
+	assert.Equal(t, []string{"grandchild", "child", "root"}, disposeOrder)
+
+	// 验证订阅被清理
+	stats = eb.GetStats()
+	assert.Equal(t, 0, stats.SubscriptionCount)
+}
+
+// TestScope_OnDisposeOrder 验证 OnDispose 回调按逆序执行。
+func TestScope_OnDisposeOrder(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	var order []string
+	desc := &Descriptor{
+		Name: "test-dispose-order",
+		Setup: func(ctx *SetupContext) (any, error) {
+			ctx.OnDispose(func() error { order = append(order, "a"); return nil })
+			ctx.OnDispose(func() error { order = append(order, "b"); return nil })
+			ctx.OnDispose(func() error { order = append(order, "c"); return nil })
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+	pm.Unregister(t.Context(), "test-dispose-order")
+	assert.Equal(t, []string{"c", "b", "a"}, order)
+}
+
+// TestServiceProxy_StaleSafe 验证 ServiceProxy 热重载后仍然有效。
+func TestServiceProxy_StaleSafe(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	type Counter struct{ N int }
+
+	// 注册 provider 插件
+	descProvider := &Descriptor{
+		Name: "provider",
+		Setup: func(ctx *SetupContext) (any, error) {
+			return &Counter{N: 1}, nil
+		},
+	}
+	require.NoError(t, pm.Register(descProvider))
+
+	// 注册 consumer 插件——使用 ServiceProxy
+	var svc *ServiceProxy[*Counter]
+	descConsumer := &Descriptor{
+		Name:    "consumer",
+		Deps:    []string{"provider"},
+		Version: "1.0.0",
+		Setup: func(ctx *SetupContext) (any, error) {
+			svc = Service[*Counter](ctx, "provider")
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(descConsumer))
+
+	// 验证初始值
+	v, ok := svc.Get()
+	require.True(t, ok)
+	assert.Equal(t, 1, v.N)
+
+	// 热重载 provider——新版本有新的 Counter 值
+	descProviderV2 := &Descriptor{
+		Name:    "provider",
+		Version: "2.0.0",
+		Setup: func(ctx *SetupContext) (any, error) {
+			return &Counter{N: 99}, nil
+		},
+	}
+	// 直接替换内部实例来模拟热重载
+	inst, _ := pm.Get("provider")
+	inst.mu.Lock()
+	inst.desc = descProviderV2
+	inst.mu.Unlock()
+	require.NoError(t, pm.Reload(t.Context(), "provider"))
+
+	// ServiceProxy 应该获取到新值
+	v2, ok2 := svc.Get()
+	require.True(t, ok2)
+	assert.Equal(t, 99, v2.N)
+}
+
+// TestServiceProxy_NotAvailable 验证 ServiceProxy 在服务不可用时的行为。
+func TestServiceProxy_NotAvailable(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	desc := &Descriptor{
+		Name: "temp-provider",
+		Setup: func(ctx *SetupContext) (any, error) {
+			return &struct{}{}, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+
+	var svc *ServiceProxy[*struct{}]
+	descConsumer := &Descriptor{
+		Name: "consumer",
+		Deps: []string{"temp-provider"},
+		Setup: func(ctx *SetupContext) (any, error) {
+			svc = Service[*struct{}](ctx, "temp-provider")
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(descConsumer))
+
+	// 卸载 provider
+	pm.Unregister(t.Context(), "temp-provider")
+
+	// Get 应返回 false
+	_, ok := svc.Get()
+	assert.False(t, ok)
+
+	// Call 应返回错误
+	err := svc.Call(func(s *struct{}) error { return nil })
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not available")
+
+	// Must 应 panic
+	assert.Panics(t, func() { svc.Must() })
+}
+
+// TestTryService_Optional 验证 TryService 可选依赖。
+func TestTryService_Optional(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	var svc *ServiceProxy[*struct{}]
+	var ok bool
+	desc := &Descriptor{
+		Name: "optional-consumer",
+		Setup: func(ctx *SetupContext) (any, error) {
+			svc, ok = TryService[*struct{}](ctx, "nonexistent")
+			return nil, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+	assert.False(t, ok)
+	assert.Nil(t, svc)
+}
+
+// TestMigrateState_VersionChange 验证版本变化触发 MigrateState。
+func TestMigrateState_VersionChange(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	type State struct{ Count int }
+	var migratedFrom, migratedTo string
+	var migratedCount int
+
+	desc := &Descriptor{
+		Name:    "migrate-test",
+		Version: "1.0.0",
+		Advanced: &Advanced{
+			SaveState: func() (any, error) {
+				return &State{Count: 42}, nil
+			},
+			RestoreState: func(state any) error {
+				s := state.(*State)
+				migratedCount = s.Count
+				return nil
+			},
+			MigrateState: func(oldState any, oldVer, newVer string) (any, error) {
+				migratedFrom = oldVer
+				migratedTo = newVer
+				s := oldState.(*State)
+				s.Count *= 2
+				return s, nil
+			},
+		},
+		Setup: func(ctx *SetupContext) (any, error) {
+			return &State{}, nil
+		},
+	}
+	require.NoError(t, pm.Register(desc))
+
+	// 升级版本后重载
+	inst, _ := pm.Get("migrate-test")
+	inst.mu.Lock()
+	inst.desc = &Descriptor{
+		Name:    "migrate-test",
+		Version: "2.0.0",
+		Advanced: desc.Advanced,
+		Setup:   desc.Setup,
+	}
+	inst.mu.Unlock()
+	require.NoError(t, pm.Reload(t.Context(), "migrate-test"))
+
+	assert.Equal(t, "1.0.0", migratedFrom)
+	assert.Equal(t, "2.0.0", migratedTo)
+	assert.Equal(t, 84, migratedCount) // 42 * 2
+}
+
+// TestMigrateState_NoVersionChange 验证版本不变时不触发 MigrateState。
+func TestMigrateState_NoVersionChange(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	pm := NewManager(eng)
+
+	migrateCalled := false
+	desc := &Descriptor{
+		Name:    "no-migrate",
+		Version: "1.0.0",
+		Advanced: &Advanced{
+			SaveState:    func() (any, error) { return "old", nil },
+			RestoreState: func(state any) error { return nil },
+			MigrateState: func(oldState any, oldVer, newVer string) (any, error) {
+				migrateCalled = true
+				return oldState, nil
+			},
+		},
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
+	}
+	require.NoError(t, pm.Register(desc))
+
+	// 同版本重载——不应触发 Migration
+	require.NoError(t, pm.Reload(t.Context(), "no-migrate"))
+	assert.False(t, migrateCalled)
+}

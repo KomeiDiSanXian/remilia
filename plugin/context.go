@@ -36,6 +36,9 @@ type setupContextInternal struct {
 	goroutineMgr        *goroutineManager
 	eng                 registryBackend // 注册 Matcher 的 engine（reload 时复用，同时满足 MatcherWriter + Reader）
 
+	// 资源追踪：Scope 级联清理
+	rootScope *Scope // 插件根 Scope，unload 时自动 Dispose
+
 	// RegisterCron 懒初始化字段（framework #31）
 	cronInitOnce  sync.Once
 	cronScheduler *cron.Cron
@@ -473,4 +476,39 @@ func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
 //	client := plugin.MustAs[storage.Client](ctx, "storage.Client")
 func ExportIface[T any](ctx *SetupContext, key string, impl T) {
 	ctx.ExportAs(key, impl)
+}
+
+// --- 资源追踪：Scope / Subscribe / OnDispose ---
+
+// Scope 返回插件的根资源 Scope。所有通过此 Scope 创建的订阅、中间件、
+// 清理钩子都会在插件卸载时自动级联清理。
+//
+//	root := ctx.Scope()
+//	root.Subscribe("plugin.loaded", func(data any) { ... })
+//	root.OnDispose(func() error { return cleanup() })
+func (ctx *SetupContext) Scope() *Scope {
+	if ctx.rootScope == nil {
+		ctx.rootScope = &Scope{
+			name: ctx.pluginName + ":root",
+			ctx:  ctx,
+		}
+	}
+	return ctx.rootScope
+}
+
+// Subscribe 在 EventBus 上订阅，生命周期绑定到当前插件根 Scope。
+// 插件卸载时自动 Unsubscribe，无需在 Teardown 中手动取消。
+func (ctx *SetupContext) Subscribe(topic string, handler EventHandler) (Subscription, error) {
+	return ctx.Scope().Subscribe(topic, handler)
+}
+
+// SubscribeAll 在 EventBus 上订阅所有事件，生命周期绑定到当前插件根 Scope。
+func (ctx *SetupContext) SubscribeAll(handler EventHandler) (Subscription, error) {
+	return ctx.Scope().SubscribeAll(handler)
+}
+
+// OnDispose 注册清理回调。插件卸载时逆序调用所有注册的回调。
+// 发生在 Teardown 之前，Matcher 已从 Engine 移除之后。
+func (ctx *SetupContext) OnDispose(fn func() error) {
+	ctx.Scope().OnDispose(fn)
 }

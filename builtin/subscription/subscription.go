@@ -174,8 +174,8 @@ type Manager struct {
 	sourceJobs map[string]scheduler.JobID     // sourceKey -> scheduler job ID
 	seen       map[string]map[string]struct{} // sourceKey -> seen item IDs
 
-	sched        *scheduler.Plugin
-	dispatch     DispatchFunc
+	schedSvc    *plugin.ServiceProxy[*scheduler.Plugin] // 防过期的服务代理
+	dispatch    DispatchFunc
 	pollInterval time.Duration
 }
 
@@ -193,6 +193,15 @@ func newManager(opts managerOpts) *Manager {
 		dispatch:     opts.dispatcher,
 		pollInterval: interval,
 	}
+}
+
+// sched 返回当前 scheduler 插件实例（防过期的延迟解析）。
+func (m *Manager) sched() *scheduler.Plugin {
+	if m.schedSvc == nil {
+		return nil
+	}
+	s, _ := m.schedSvc.Get()
+	return s
 }
 
 // RegisterSource 注册一个数据源。
@@ -253,7 +262,7 @@ func (m *Manager) Subscribe(sourceName, param string, target Target) (string, er
 
 	// 若该 sourceKey 尚无轮询任务，启动一个
 	sourceKey := buildSourceKey(sourceName, param)
-	if _, exists := m.sourceJobs[sourceKey]; !exists && m.sched != nil {
+	if _, exists := m.sourceJobs[sourceKey]; !exists && m.sched() != nil {
 		jobID := m.startPollJob(src, param, sourceKey)
 		m.sourceJobs[sourceKey] = jobID
 	}
@@ -286,8 +295,8 @@ func (m *Manager) Unsubscribe(id string) error {
 	}
 	if !hasMore {
 		if jobID, exists := m.sourceJobs[sourceKey]; exists {
-			if m.sched != nil {
-				m.sched.Remove(jobID)
+			if m.sched() != nil {
+				m.sched().Remove(jobID)
 			}
 			delete(m.sourceJobs, sourceKey)
 			delete(m.seen, sourceKey)
@@ -318,7 +327,7 @@ func (m *Manager) ListSubscriptions(chatID string) []Subscription {
 // 调用前必须持有 m.mu（写锁）。
 func (m *Manager) startPollJob(src Source, param, sourceKey string) scheduler.JobID {
 	jobName := "sub:" + sourceKey
-	return m.sched.EveryNamed(jobName, m.pollInterval, func() {
+	return m.sched().EveryNamed(jobName, m.pollInterval, func() {
 		m.poll(src, param, sourceKey)
 	})
 }
@@ -458,11 +467,9 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
   _ = mgr.Unsubscribe(id)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			// 获取 scheduler 插件（MustGet 确保依赖已满足）
-			sched := plugin.Must[scheduler.Plugin](ctx, "scheduler")
-
 			m := h.manager
-			m.sched = sched
+			// 获取 scheduler 插件（Service 确保热重载后仍有效）
+			m.schedSvc = plugin.Service[*scheduler.Plugin](ctx, "scheduler")
 
 			// 注册预注册的数据源
 			for _, src := range h.sources {
@@ -481,8 +488,8 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 			// 停止所有轮询任务（scheduler 本身也会在 Teardown 时停止，此处为安全起见）
 			m.mu.Lock()
 			for sourceKey, jobID := range m.sourceJobs {
-				if m.sched != nil {
-					m.sched.Remove(jobID)
+				if m.sched() != nil {
+					m.sched().Remove(jobID)
 				}
 				delete(m.sourceJobs, sourceKey)
 			}

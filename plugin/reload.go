@@ -17,6 +17,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 	pi.mu.Lock()
 	oldContext := pi.setupContext
 	pi.state = Reloading
+	oldVersion := pi.loadedVer // 保存旧版本号，供 MigrateState 使用
 	pi.mu.Unlock()
 
 	adv := pi.desc.effectiveAdvanced()
@@ -50,6 +51,27 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 	pi.setupContext = newContext
 	pi.mu.Unlock()
 
+	// 状态迁移：若版本号变化且设置了 MigrateState，在 RestoreState 前迁移旧状态。
+	maybeMigrateThenRestore := func() {
+		if savedState == nil || adv.RestoreState == nil {
+			return
+		}
+		newVersion := pi.desc.Version
+		if newVersion != oldVersion && adv.MigrateState != nil {
+			var migrateErr error
+			migrated, migrateErr := adv.MigrateState(savedState, oldVersion, newVersion)
+			if migrateErr != nil {
+				logger.WithError(migrateErr).Warnf("[plugin] %s: state migration from v%s to v%s failed, using raw saved state",
+					pi.desc.Name, oldVersion, newVersion)
+			} else {
+				savedState = migrated
+			}
+		}
+		if err := adv.RestoreState(savedState); err != nil {
+			logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
+		}
+	}
+
 	switch adv.Strategy {
 	case ReloadInPlace:
 		if adv.Reload == nil {
@@ -61,11 +83,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 			if err := pi.load(ctx); err != nil {
 				return err
 			}
-			if savedState != nil && adv.RestoreState != nil {
-				if err := adv.RestoreState(savedState); err != nil {
-					logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
-				}
-			}
+			maybeMigrateThenRestore()
 			return nil
 		}
 		if err := adv.Reload(newContext); err != nil {
@@ -79,6 +97,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		pi.state = Loaded
 		pi.loadTime = time.Now()
 		pi.lastError = nil
+		pi.loadedVer = pi.desc.Version
 		pi.mu.Unlock()
 		return nil
 	case ReloadUnloadLoad:
@@ -89,11 +108,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		if err := pi.load(ctx); err != nil {
 			return err
 		}
-		if savedState != nil && adv.RestoreState != nil {
-			if err := adv.RestoreState(savedState); err != nil {
-				logger.WithError(err).Warn("[plugin] Failed to restore state after reload")
-			}
-		}
+		maybeMigrateThenRestore()
 	case ReloadBlueGreen:
 		if err := pi.reloadBlueGreen(ctx, coordinator, newContext); err != nil {
 			return err

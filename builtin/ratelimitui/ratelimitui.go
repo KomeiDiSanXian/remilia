@@ -38,10 +38,47 @@ const defaultAdminRole = "admin"
 
 // Plugin 限流状态查询插件
 type Plugin struct {
-	antispam   *antispam.Plugin
-	cooldown   *cooldown.Plugin
-	permission *permission.Plugin // 可选权限依赖（Bug 2.12 修复）
-	setupCtx   *plugin.SetupContext
+	antispamSvc    *plugin.ServiceProxy[*antispam.Plugin]
+	cooldownSvc    *plugin.ServiceProxy[*cooldown.Plugin]
+	permissionSvc  *plugin.ServiceProxy[*permission.Plugin]
+	// 手动绑定直接指针，用于测试/非标准 Setup 流程
+	antispamDirect   *antispam.Plugin
+	cooldownDirect   *cooldown.Plugin
+	permissionDirect *permission.Plugin
+	setupCtx         *plugin.SetupContext
+}
+
+// antispam 返回当前 antispam 插件实例（防过期的延迟解析）。
+func (p *Plugin) antispam() *antispam.Plugin {
+	if p.antispamSvc != nil {
+		a, _ := p.antispamSvc.Get()
+		if a != nil {
+			return a
+		}
+	}
+	return p.antispamDirect
+}
+
+// cooldownPlugin 返回当前 cooldown 插件实例（防过期的延迟解析）。
+func (p *Plugin) cooldownPlugin() *cooldown.Plugin {
+	if p.cooldownSvc != nil {
+		c, _ := p.cooldownSvc.Get()
+		if c != nil {
+			return c
+		}
+	}
+	return p.cooldownDirect
+}
+
+// permissionPlugin 返回当前 permission 插件实例（防过期的延迟解析）。
+func (p *Plugin) permissionPlugin() *permission.Plugin {
+	if p.permissionSvc != nil {
+		pp, _ := p.permissionSvc.Get()
+		if pp != nil {
+			return pp
+		}
+	}
+	return p.permissionDirect
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -76,24 +113,17 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			p.setupCtx = ctx
-			if raw, ok := ctx.Get("antispam"); ok {
-				if ap, ok := raw.(*antispam.Plugin); ok {
-					p.antispam = ap
-					ctx.Log.Info("Bound to antispam plugin")
-				}
+			if svc, ok := plugin.TryService[*antispam.Plugin](ctx, "antispam"); ok {
+				p.antispamSvc = svc
+				ctx.Log.Info("Bound to antispam plugin")
 			}
-			if raw, ok := ctx.Get("cooldown"); ok {
-				if cp, ok := raw.(*cooldown.Plugin); ok {
-					p.cooldown = cp
-					ctx.Log.Info("Bound to cooldown plugin")
-				}
+			if svc, ok := plugin.TryService[*cooldown.Plugin](ctx, "cooldown"); ok {
+				p.cooldownSvc = svc
+				ctx.Log.Info("Bound to cooldown plugin")
 			}
-			// 可选绑定 permission 插件，用于保护 unban/reset 等敏感命令（Bug 2.12 修复）
-			if raw, ok := ctx.Get("permission"); ok {
-				if pp, ok := raw.(*permission.Plugin); ok {
-					p.permission = pp
-					ctx.Log.Info("Bound to permission plugin (sensitive commands protected)")
-				}
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permissionSvc = svc
+				ctx.Log.Info("Bound to permission plugin (sensitive commands protected)")
 			}
 			p.registerCommands(ctx)
 			return p, nil
@@ -216,8 +246,8 @@ func (p *Plugin) handleStatus(ctx *eventctx.Context, args *command.Args) error {
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 
 	// antispam 封禁状态
-	if p.antispam != nil {
-		banned := p.antispam.IsBanned(userID)
+	if p.antispam() != nil {
+		banned := p.antispam().IsBanned(userID)
 		if banned {
 			msg.WriteString("🚫 封禁状态: 已封禁\n")
 		} else {
@@ -230,8 +260,8 @@ func (p *Plugin) handleStatus(ctx *eventctx.Context, args *command.Args) error {
 	msg.WriteString("\n")
 
 	// cooldown 信息（展示所有关联的冷却记录）
-	if p.cooldown != nil {
-		records := p.cooldown.QueryUser(userID)
+	if p.cooldownPlugin() != nil {
+		records := p.cooldownPlugin().QueryUser(userID)
 		if len(records) == 0 {
 			msg.WriteString("⏱ 冷却记录: 无\n")
 		} else {
@@ -250,11 +280,11 @@ func (p *Plugin) handleStatus(ctx *eventctx.Context, args *command.Args) error {
 
 // handleBans 列出所有封禁用户
 func (p *Plugin) handleBans(ctx *eventctx.Context) error {
-	if p.antispam == nil {
+	if p.antispam() == nil {
 		return p.reply(ctx, "❌ antispam 插件未加载，无法查询封禁列表")
 	}
 
-	bans := p.antispam.ListBans()
+	bans := p.antispam().ListBans()
 	if len(bans) == 0 {
 		return p.reply(ctx, "✅ 当前没有封禁用户")
 	}
@@ -286,8 +316,8 @@ func (p *Plugin) handleStats(ctx *eventctx.Context) error {
 	msg.WriteString("📊 限流统计摘要\n")
 	msg.WriteString(strings.Repeat("=", 40) + "\n\n")
 
-	if p.antispam != nil {
-		stats := p.antispam.Stats()
+	if p.antispam() != nil {
+		stats := p.antispam().Stats()
 		msg.WriteString("🛡️ AntiSpam:\n")
 		msg.WriteString(fmt.Sprintf("  • 封禁用户: %d 人\n", stats.BanCount))
 		msg.WriteString(fmt.Sprintf("  • 限速桶 (用户): %d 个\n", stats.UserLimiterCount))
@@ -298,8 +328,8 @@ func (p *Plugin) handleStats(ctx *eventctx.Context) error {
 
 	msg.WriteString("\n")
 
-	if p.cooldown != nil {
-		count := p.cooldown.ActiveCount()
+	if p.cooldownPlugin() != nil {
+		count := p.cooldownPlugin().ActiveCount()
 		msg.WriteString("⏱️ Cooldown:\n")
 		msg.WriteString(fmt.Sprintf("  • 活跃冷却记录: %d 条\n", count))
 	} else {
@@ -312,15 +342,15 @@ func (p *Plugin) handleStats(ctx *eventctx.Context) error {
 // isAdmin 检查调用者是否具备管理员权限（Bug 2.12 修复）
 // 若 permission 插件未绑定，放行（向后兼容）。
 func (p *Plugin) isAdmin(ctx *eventctx.Context) bool {
-	if p.permission == nil {
+	if p.permissionPlugin() == nil {
 		return true // permission 插件未加载时不做限制（配置缺失场景兼容）
 	}
 	userID := ctx.GetUserID()
 	if userID == "" {
 		return false
 	}
-	return p.permission.HasPermission(userID, defaultAdminRole+":manage") ||
-		containsRole(p.permission.GetUserRoles(userID), defaultAdminRole)
+	return p.permissionPlugin().HasPermission(userID, defaultAdminRole+":manage") ||
+		containsRole(p.permissionPlugin().GetUserRoles(userID), defaultAdminRole)
 }
 
 // containsRole 判断角色列表中是否包含指定角色
@@ -333,14 +363,14 @@ func (p *Plugin) handleUnban(ctx *eventctx.Context, args *command.Args) error {
 	if !p.isAdmin(ctx) {
 		return p.reply(ctx, "❌ 权限不足，需要 admin 角色")
 	}
-	if p.antispam == nil {
+	if p.antispam() == nil {
 		return p.reply(ctx, "❌ antispam 插件未加载")
 	}
 	userID := args.Get(1)
 	if userID == "" {
 		return p.reply(ctx, "用法: /rl unban <用户ID>")
 	}
-	p.antispam.Unban(userID)
+	p.antispam().Unban(userID)
 	return p.reply(ctx, fmt.Sprintf("✅ 已解封用户: %s", userID))
 }
 
@@ -349,7 +379,7 @@ func (p *Plugin) handleReset(ctx *eventctx.Context, args *command.Args) error {
 	if !p.isAdmin(ctx) {
 		return p.reply(ctx, "❌ 权限不足，需要 admin 角色")
 	}
-	if p.cooldown == nil {
+	if p.cooldownPlugin() == nil {
 		return p.reply(ctx, "❌ cooldown 插件未加载")
 	}
 	userID := args.Get(1)
@@ -357,7 +387,7 @@ func (p *Plugin) handleReset(ctx *eventctx.Context, args *command.Args) error {
 	if userID == "" || cmdName == "" {
 		return p.reply(ctx, "用法: /rl reset <用户ID> <命令>")
 	}
-	p.cooldown.Reset(userID, cmdName)
+	p.cooldownPlugin().Reset(userID, cmdName)
 	return p.reply(ctx, fmt.Sprintf("✅ 已重置用户 %s 对命令 %s 的冷却时间", userID, cmdName))
 }
 
@@ -371,27 +401,27 @@ func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
 // BindAntispam manually binds an antispam plugin (called by Setup automatically,
 // or manually in tests / programmatic usage).
 func (p *Plugin) BindAntispam(ap *antispam.Plugin) {
-	p.antispam = ap
+	p.antispamDirect = ap
 }
 
 // BindCooldown manually binds a cooldown plugin.
 func (p *Plugin) BindCooldown(cp *cooldown.Plugin) {
-	p.cooldown = cp
+	p.cooldownDirect = cp
 }
 
 // BindPermission manually binds a permission plugin for admin checks.
 func (p *Plugin) BindPermission(pp *permission.Plugin) {
-	p.permission = pp
+	p.permissionDirect = pp
 }
 
 // HasAntispam returns true if an antispam plugin is bound.
-func (p *Plugin) HasAntispam() bool { return p.antispam != nil }
+func (p *Plugin) HasAntispam() bool { return p.antispam() != nil }
 
 // HasCooldown returns true if a cooldown plugin is bound.
-func (p *Plugin) HasCooldown() bool { return p.cooldown != nil }
+func (p *Plugin) HasCooldown() bool { return p.cooldownPlugin() != nil }
 
 // HasPermissionPlugin returns true if a permission plugin is bound.
-func (p *Plugin) HasPermissionPlugin() bool { return p.permission != nil }
+func (p *Plugin) HasPermissionPlugin() bool { return p.permissionPlugin() != nil }
 
 // BanSummary holds a ban record returned by ListBanSummary.
 type BanSummary struct {
@@ -403,10 +433,10 @@ type BanSummary struct {
 // ListBanSummary returns all active bans from the antispam plugin.
 // Returns nil and no error if antispam is not bound.
 func (p *Plugin) ListBanSummary() []BanSummary {
-	if p.antispam == nil {
+	if p.antispam() == nil {
 		return nil
 	}
-	raw := p.antispam.ListBans()
+	raw := p.antispam().ListBans()
 	out := make([]BanSummary, len(raw))
 	for i, b := range raw {
 		out[i] = BanSummary{UserID: b.UserID, Permanent: b.Permanent, Until: b.Until}
@@ -425,32 +455,32 @@ type Stats struct {
 // GetStats returns the aggregated rate-limit statistics.
 func (p *Plugin) GetStats() Stats {
 	s := Stats{}
-	if p.antispam != nil {
-		as := p.antispam.Stats()
+	if p.antispam() != nil {
+		as := p.antispam().Stats()
 		s.BanCount = as.BanCount
 		s.UserLimiterCount = as.UserLimiterCount
 		s.GroupLimiterCount = as.GroupLimiterCount
 	}
-	if p.cooldown != nil {
-		s.ActiveCooldowns = p.cooldown.ActiveCount()
+	if p.cooldownPlugin() != nil {
+		s.ActiveCooldowns = p.cooldownPlugin().ActiveCount()
 	}
 	return s
 }
 
 // Unban removes a ban from the antispam plugin. Returns error if antispam not bound.
 func (p *Plugin) Unban(userID string) error {
-	if p.antispam == nil {
+	if p.antispam() == nil {
 		return fmt.Errorf("ratelimitui: antispam plugin not bound")
 	}
-	p.antispam.Unban(userID)
+	p.antispam().Unban(userID)
 	return nil
 }
 
 // ResetCooldown resets a user's cooldown for a command. Returns error if cooldown not bound.
 func (p *Plugin) ResetCooldown(userID, command string) error {
-	if p.cooldown == nil {
+	if p.cooldownPlugin() == nil {
 		return fmt.Errorf("ratelimitui: cooldown plugin not bound")
 	}
-	p.cooldown.Reset(userID, command)
+	p.cooldownPlugin().Reset(userID, command)
 	return nil
 }

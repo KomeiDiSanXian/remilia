@@ -120,18 +120,16 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 
 			ctx.Reg.RegisterCommand("", "/help").SetDefinition(helpCmdDef).Handle(p.handleHelp)
 
-			// 订阅插件生命周期事件，当插件加载/卸载/重载时立即清空缓存
-			if ctx.EventBus != nil {
-				for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
-					t := topic
-					if _, err := ctx.EventBus.Subscribe(t, func(_ any) {
-						ctx.Log.Debugf("Cache invalidated due to %s event", t)
-						p.invalidateCache()
-					}); err != nil {
-						ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
-					}
-				}
+		// 订阅插件生命周期事件，Scope 追踪并在卸载时自动取消订阅
+		for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
+			t := topic
+			if _, err := ctx.Scope().Subscribe(t, func(_ any) {
+				ctx.Log.Debugf("Cache invalidated due to %s event", t)
+				p.invalidateCache()
+			}); err != nil {
+				ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
 			}
+		}
 
 			ctx.Log.Info("Help plugin loaded")
 			// 返回 *Plugin 注入容器，其他插件可通过 plugin.Must[help.Plugin](ctx, "help") 获取

@@ -50,6 +50,17 @@ type Advanced struct {
 	// RestoreState 热重载后恢复内存态（可选，仅 ReloadUnloadLoad 策略生效）
 	RestoreState RestoreStateFunc
 
+	// MigrateState 状态版本迁移（可选）。
+	// 当 Descriptor.Version 与上次加载的版本不同时，在 RestoreState 之前调用。
+	// 参数：
+	//   - oldState：SaveState 保存的旧状态
+	//   - oldVersion：上次加载时的版本号
+	//   - newVersion：当前 Descriptor.Version（新版本号）
+	// 返回迁移后的状态数据，传给 RestoreState。
+	//
+	// 若 nil 且版本变化，RestoreState 直接使用旧状态（兼容旧行为）。
+	MigrateState func(oldState any, oldVersion, newVersion string) (any, error)
+
 	// ConfigSchema 配置结构（可选）
 	// 可使用 map[string]plugin.SchemaField 或带 `schema:"required"` tag 的 struct 指针。
 	// 框架在插件注册时自动校验，校验失败返回 SchemaValidationError。

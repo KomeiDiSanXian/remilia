@@ -165,3 +165,47 @@ byCategory := reader.GetCommandsByCategory()
 // 查找命令
 info := reader.FindCommand("/weather")
 ```
+
+---
+
+## 6. 资源追踪（v1.3.0+）
+
+通过 Scope 管理插件创建的所有资源，卸载时自动级联清理，无需手动编写 Teardown。
+
+```go
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    ctx.Scope().Subscribe("plugin.reloaded", func(data any) {
+        p.invalidateCache()
+    })
+    ctx.OnDispose(func() error { return db.Close() })
+    ctx.OnDispose(func() error { return cache.Flush() })
+    return p, nil
+},
+```
+详见 `docs/notes/16-plugin-scope.md`。
+
+---
+
+## 7. 防过期服务代理（v1.3.0+）
+
+替代 `plugin.Must`/`plugin.Try`，依赖插件热重载后仍然有效。
+
+```go
+p.permSvc = plugin.Service[*permission.Plugin](ctx, "permission")
+// 运行时
+pp, ok := p.permSvc.Get()
+```
+详见 `docs/notes/17-service-proxy.md`。
+
+---
+
+## 8. 状态迁移（v1.3.0+）
+
+```go
+Advanced: &plugin.Advanced{
+    SaveState:    func() (any, error) { return oldData, nil },
+    MigrateState: func(old any, oldVer, newVer string) (any, error) { ... },
+    RestoreState: func(s any) error { ... },
+},
+```
+详见 `docs/notes/18-state-migration.md`。
