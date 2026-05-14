@@ -129,7 +129,15 @@ func (p *Plugin) tryGenerateBootstrapCode(ctx *plugin.SetupContext) {
 			}
 		}
 	}
-	code, err := pp.GenerateVerificationCode("admin", 1*time.Hour, 1)
+	var (
+		code string
+		err  error
+	)
+	if p.vc() != nil {
+		code, err = p.vc().Generate(verifycode.CodeConfig{Role: "admin", TTL: 1 * time.Hour, MaxUses: 1})
+	} else {
+		code, err = pp.GenerateVerificationCode("admin", 1*time.Hour, 1)
+	}
 	if err != nil {
 		ctx.Log.Errorf("Failed to generate bootstrap code: %v", err)
 		return
@@ -598,6 +606,11 @@ func (p *Plugin) handleCodeVerify(ctx *eventctx.Context, args *command.Args) err
 		role, err := p.vc().Verify(userID, code)
 		if err != nil {
 			return p.reply(ctx, fmt.Sprintf("验证失败: %v", err))
+		}
+		if p.perm() != nil {
+			if err := p.perm().AssignRole(userID, role); err != nil {
+				return p.reply(ctx, fmt.Sprintf("角色授予失败: %v", err))
+			}
 		}
 		return p.reply(ctx, fmt.Sprintf("验证成功！已获得角色: %s", role))
 	}
