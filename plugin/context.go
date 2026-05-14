@@ -50,12 +50,13 @@ type setupContextInternal struct {
 //   - [SetupContext.Log]      — 带插件名前缀的结构化日志
 //   - [SetupContext.Info]     — 插件系统只读视图
 //   - [SetupContext.Admin]    — 插件系统管理视图（仅 Privileged 插件可用）
-//   - [SetupContext.DryRun]   — 是否处于 Smart 依赖推断阶段（推断阶段不应产生副作用）
+//   - [SetupContext.DryRun]   — 是否处于 Smart 依赖推断阶段
 //   - [SetupContext.Go]       — 生命周期绑定后台 goroutine
 //   - [SetupContext.Config]   — 插件配置
-//   - [SetupContext.EventBus] — 插件间事件总线
-//   - [SetupContext.Get] / [SetupContext.MustGet] — 获取依赖（弱类型）
-//   - [Must] / [Try]          — 获取依赖（类型安全，推荐）
+//   - [SetupContext.EventBus] — 插件间事件总线（发布用；订阅请用 [SetupContext.Scope]）
+//   - [SetupContext.Scope]    — 资源 Scope（订阅自动清理、级联销毁）
+//   - [Service] / [TryService] — 获取依赖（防过期代理，推荐）
+//   - [Must] / [Try]          — 获取依赖（传统方式，不防过期）
 type SetupContext struct {
 	// Reg Matcher/Command 注册接口，DryRun 阶段自动变为 no-op。
 	Reg RegistryWriter
@@ -95,6 +96,10 @@ type SetupContext struct {
 	Config Config
 
 	// EventBus 插件间事件总线。DryRun 阶段替换为 no-op，订阅操作不产生真实副作用。
+	//
+	// 发布事件：直接使用 ctx.EventBus.Publish(topic, data)
+	// 订阅事件：请使用 ctx.Scope().Subscribe(topic, handler) 代替 ctx.EventBus.Subscribe，
+	// Scope 会自动追踪订阅并在插件卸载时取消，避免忘记 Unsubscribe 导致的内存泄漏。
 	EventBus EventBus
 
 	// 内部字段（框架使用，外部不可访问）
@@ -291,10 +296,9 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 
 // Get 获取依赖插件（弱类型）
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
-// 推荐改用类型安全的 [Must] / [Try]。
 //
-// 追踪语义：只有在容器中找到该依赖时才追踪，且标记为可选依赖。
-// 若需要声明必要依赖，使用 MustGet / Must。
+// Deprecated: 直接使用 [TryService] 或 [Service] 代替。Get 返回的 any 需要手动类型断言，
+// 且返回的指针在依赖热重载后过期。
 func (ctx *SetupContext) Get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
@@ -311,9 +315,8 @@ func (ctx *SetupContext) Get(name string) (any, bool) {
 }
 
 // MustGet 获取依赖插件（弱类型，不存在则 panic）
-// 推荐改用类型安全的 [Must]。
 //
-// 追踪语义：标记为必要依赖，影响 notifyDependents 和 UnregisterCascade。
+// Deprecated: 使用 [Service] 代替，获取类型安全的防过期代理。
 func (ctx *SetupContext) MustGet(name string) any {
 	v, ok := ctx.container.Get(name)
 	if !ok {
@@ -388,7 +391,13 @@ func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
 
 // Must 获取必需依赖（类型安全，不存在或类型不符则 panic）
 //
+// Deprecated: 使用 [Service] 代替。Must 返回的 raw pointer 在依赖插件热重载后会变成过期指针，
+// 导致 nil pointer dereference 或调用到已卸载的旧实例。ServiceProxy 每次动态解析最新实现。
+//
+//	// 旧方式
 //	perm := plugin.Must[permission.Plugin](ctx, "permission")
+//	// 新方式
+//	permSvc := plugin.Service[*permission.Plugin](ctx, "permission")
 func Must[T any](ctx *SetupContext, name string) *T {
 	// 使用 MustGet 路径，确保被追踪为必要依赖
 	v := ctx.MustGet(name)
@@ -401,7 +410,13 @@ func Must[T any](ctx *SetupContext, name string) *T {
 
 // Try 获取可选依赖（类型安全，不存在时返回 nil, false）
 //
+// Deprecated: 使用 [TryService] 代替。Try 返回的 raw pointer 在依赖插件热重载后会变成过期指针。
+// TryService 返回的 ServiceProxy 每次动态解析最新实现。
+//
+//	// 旧方式
 //	if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
+//	// 新方式
+//	if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok { p.storageSvc = svc }
 func Try[T any](ctx *SetupContext, name string) (*T, bool) {
 	// 使用 Get 路径，追踪为可选依赖
 	v, ok := ctx.Get(name)

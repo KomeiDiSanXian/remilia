@@ -42,7 +42,7 @@ func New() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading debug plugin")
-			_ = ctx.MustGet("permission")
+			// 依赖声明在 Deps 中已确保 permission 先加载，无需额外 MustGet
 			if ctx.Config != nil {
 				v1Plugin.DevMode = ctx.Config.GetBool("dev_mode", false)
 			}
