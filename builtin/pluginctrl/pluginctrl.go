@@ -843,15 +843,17 @@ func New(opts ...Option) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// 尝试获取存储（可选依赖）
-			if client, ok := plugin.TryAs[*storage.Plugin](ctx, "storage"); ok {
-				p.storage = client
-				ctx.Log.Info("Storage backend connected, plugin states will be persisted")
-				if !ctx.DryRun {
-					// 迁移表结构（含新增的 UserPluginState 表）
-					if err := client.AutoMigrate(&GroupPluginState{}, &UserPluginState{}); err != nil {
-						ctx.Log.Warnf("Failed to migrate pluginctrl tables: %v", err)
-					} else {
-						p.loadFromDB()
+			if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
+				if client, ok2 := svc.Get(); ok2 {
+					p.storage = client
+					ctx.Log.Info("Storage backend connected, plugin states will be persisted")
+					if !ctx.DryRun {
+						// 迁移表结构（含新增的 UserPluginState 表）
+						if err := p.storage.AutoMigrate(&GroupPluginState{}, &UserPluginState{}); err != nil {
+							ctx.Log.Warnf("Failed to migrate pluginctrl tables: %v", err)
+						} else {
+							p.loadFromDB()
+						}
 					}
 				}
 			} else {

@@ -64,13 +64,13 @@ func TestSetupContext_Get(t *testing.T) {
 		setupContextInternal: setupContextInternal{container: container},
 	}
 
-	// Test Get
-	val, ok := ctx.Get("dep1")
+	// Test get
+	val, ok := ctx.get("dep1")
 	assert.True(t, ok)
 	assert.Equal(t, "value1", val)
 
-	// Test Get non-existent
-	val, ok = ctx.Get("dep2")
+	// Test get non-existent
+	val, ok = ctx.get("dep2")
 	assert.False(t, ok)
 	assert.Nil(t, val)
 }
@@ -84,13 +84,13 @@ func TestSetupContext_MustGet(t *testing.T) {
 		setupContextInternal: setupContextInternal{container: container},
 	}
 
-	// Test MustGet success
-	val := ctx.MustGet("dep1")
+	// Test mustGet success
+	val := ctx.mustGet("dep1")
 	assert.Equal(t, "value1", val)
 
-	// Test MustGet panic
+	// Test mustGet panic
 	assert.Panics(t, func() {
-		ctx.MustGet("dep2")
+		ctx.mustGet("dep2")
 	})
 }
 
@@ -244,7 +244,7 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 		Deps: []string{"dep-plugin"},
 		Setup: func(ctx *SetupContext) (any, error) {
 			// Verify dependency is accessible
-			depPlugin, ok := ctx.Get("dep-plugin")
+			depPlugin, ok := ctx.get("dep-plugin")
 			assert.True(t, ok)
 			assert.NotNil(t, depPlugin)
 			return nil, nil
@@ -349,30 +349,6 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 	assert.Equal(t, 2, setupCount)
 	assert.Equal(t, 1, teardownCount)
 	assert.Equal(t, Loaded, instance.GetState())
-}
-
-// TestGetPlugin_TypeSafe tests type-safe generic function
-func TestGetPlugin_TypeSafe(t *testing.T) {
-	type TestPlugin struct {
-		Value string
-	}
-
-	container := NewContainer()
-	testPlugin := &TestPlugin{Value: "test"}
-	container.Register("test", testPlugin)
-
-	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{container: container},
-	}
-
-	// Test successful type-safe get
-	plugin, err := GetPlugin[TestPlugin](ctx, "test")
-	assert.NoError(t, err)
-	assert.Equal(t, "test", plugin.Value)
-
-	// Test non-existent plugin
-	_, err = GetPlugin[TestPlugin](ctx, "missing")
-	assert.Error(t, err)
 }
 
 // BenchmarkContainer_Register benchmarks container registration

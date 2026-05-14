@@ -69,13 +69,13 @@ func TestRegisterV2_ContainerInitialization(t *testing.T) {
 		Name: "plugin1",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 验证可以访问特殊服务
-			mgr, ok := ctx.Get("manager")
+			mgr, ok := ctx.get("manager")
 			assert.True(t, ok, "Should be able to get manager")
 			assert.NotNil(t, mgr, "Manager should not be nil")
 
 			// engine 可能是 nil（如果 coordinator 是 nil）
-			_, _ = ctx.Get("engine")
-			_, _ = ctx.Get("coordinator")
+			_, _ = ctx.get("engine")
+			_, _ = ctx.get("coordinator")
 
 			return nil, nil
 		},
@@ -105,17 +105,17 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 访问 manager
-			mgr, ok := ctx.Get("manager")
+			mgr, ok := ctx.get("manager")
 			assert.True(t, ok)
 			accessedManager = mgr.(*Manager)
 
 			// 访问 engine
-			eng, ok := ctx.Get("engine")
+			eng, ok := ctx.get("engine")
 			assert.True(t, ok)
 			accessedEngine = eng
 
 			// 访问 coordinator（应该和 engine 是同一个）
-			coord, ok := ctx.Get("coordinator")
+			coord, ok := ctx.get("coordinator")
 			assert.True(t, ok)
 			assert.Equal(t, eng, coord)
 
@@ -185,7 +185,7 @@ func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 			Deps: []string{"a"},
 			Setup: func(ctx *SetupContext) (any, error) {
 				// 应该能访问 a
-				_, ok := ctx.Get("a")
+				_, ok := ctx.get("a")
 				assert.True(t, ok)
 				return nil, nil
 			},
@@ -195,9 +195,9 @@ func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 			Deps: []string{"a", "b"},
 			Setup: func(ctx *SetupContext) (any, error) {
 				// 应该能访问 a 和 b
-				_, ok := ctx.Get("a")
+				_, ok := ctx.get("a")
 				assert.True(t, ok)
-				_, ok = ctx.Get("b")
+				_, ok = ctx.get("b")
 				assert.True(t, ok)
 				return nil, nil
 			},

@@ -293,10 +293,10 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 
 // 未来展望：待 Go 支持泛型方法后，可改为 ctx.get[permission.Plugin]("permission") 的调用方式。
 
-// Get 获取依赖插件（弱类型，内部使用）。
+// get 获取依赖插件（弱类型，内部使用）。
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
 // 插件开发者应使用 [Service] / [TryService] 代替。
-func (ctx *SetupContext) Get(name string) (any, bool) {
+func (ctx *SetupContext) get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
@@ -311,9 +311,9 @@ func (ctx *SetupContext) Get(name string) (any, bool) {
 	return v, ok
 }
 
-// MustGet 获取依赖插件（弱类型，不存在则 panic，内部使用）。
+// mustGet 获取依赖插件（弱类型，不存在则 panic，内部使用）。
 // 插件开发者应使用 [Service] 代替。
-func (ctx *SetupContext) MustGet(name string) any {
+func (ctx *SetupContext) mustGet(name string) any {
 	v, ok := ctx.container.Get(name)
 	if !ok {
 		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
@@ -330,7 +330,7 @@ func (ctx *SetupContext) MustGet(name string) any {
 
 // GetTrackedDependencies 获取自动追踪到的必要依赖列表（框架内部使用）
 //
-// 必要依赖：通过 MustGet / Must 访问的依赖，合并到 instance.desc.Deps 中，
+// 必要依赖：通过 mustGet / Service / Must 访问的依赖，合并到 instance.desc.Deps 中，
 // 影响 notifyDependents 和 UnregisterCascade 的行为。
 func (ctx *SetupContext) GetTrackedDependencies() []string {
 	if ctx.trackedDeps == nil {
@@ -345,7 +345,7 @@ func (ctx *SetupContext) GetTrackedDependencies() []string {
 
 // GetTrackedOptionalDependencies 获取自动追踪到的可选依赖列表（框架内部使用）
 //
-// 可选依赖：通过 Get（有 ok 判断）访问且存在的依赖。
+// 可选依赖：通过 get / TryService（有 ok 判断）访问且存在的依赖。
 // 用于 RegisterMultipleSmart 的依赖推断（拓扑排序），
 // 但不影响 notifyDependents 和 UnregisterCascade。
 func (ctx *SetupContext) GetTrackedOptionalDependencies() []string {
@@ -359,66 +359,9 @@ func (ctx *SetupContext) GetTrackedOptionalDependencies() []string {
 	return deps
 }
 
-// --- 类型安全依赖获取 ---
-
-// GetPlugin 获取依赖插件（类型安全，返回 (*T, error)）
-//
-// 追踪语义：标记为必要依赖（与 Must 相同，区别仅在于错误处理方式）。
-//
-//	p, err := plugin.GetPlugin[permission.Plugin](ctx, "permission")
-func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
-	// 先查容器，成功后追踪为必要依赖
-	v, ok := ctx.container.Get(name)
-	if !ok {
-		return nil, fmt.Errorf("plugin %q: dependency %q not found", ctx.pluginName, name)
-	}
-	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
-		if ctx.trackedDeps == nil {
-			ctx.trackedDeps = make(map[string]bool)
-		}
-		ctx.trackedDeps[name] = true
-	}
-	typed, ok := v.(*T)
-	if !ok {
-		return nil, fmt.Errorf("plugin %q: dependency %q has wrong type: expected *%T, got %T", ctx.pluginName, name, typed, v)
-	}
-	return typed, nil
-}
-
-// MustAs 以接口类型获取必需依赖（面向接口，符合依赖倒置原则）。
-// 若依赖不存在或类型不满足 T 接口，则 panic。
-//
-// Deprecated: 使用 [Service] 代替。MustAs 返回的对象在依赖热重载后会变成过期引用。
-func MustAs[T any](ctx *SetupContext, name string) T {
-	v := ctx.MustGet(name)
-	typed, ok := v.(T)
-	if !ok {
-		var zero T
-		panic(fmt.Sprintf("plugin %q: dependency %q does not implement %T (got %T)", ctx.pluginName, name, zero, v))
-	}
-	return typed
-}
-
-// TryAs 以接口类型获取可选依赖（面向接口，符合依赖倒置原则）。
-//
-// Deprecated: 使用 [TryService] 代替。TryAs 返回的对象在依赖热重载后会变成过期引用。
-func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
-	v, ok := ctx.Get(name)
-	if !ok {
-		var zero T
-		return zero, false
-	}
-	typed, ok := v.(T)
-	if !ok {
-		var zero T
-		return zero, false
-	}
-	return typed, true
-}
-
 // ExportIface 将插件 API 以接口类型额外导出到容器。
 //
-// 配合 [MustAs] / [TryAs] 使用，让消费者可以通过接口而非具体类型访问依赖。
+// 配合 [Service] / [TryService] 使用，让消费者可以通过接口而非具体类型访问依赖。
 // 通常在 Setup 末尾配合主 key 一起使用：
 //
 //	Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -431,7 +374,7 @@ func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
 //	},
 //
 //	// 消费者：面向接口，不依赖具体实现
-//	client := plugin.MustAs[storage.Client](ctx, "storage.Client")
+//	clientProxy := plugin.Service[storage.Client](ctx, "storage.Client")
 func ExportIface[T any](ctx *SetupContext, key string, impl T) {
 	ctx.ExportAs(key, impl)
 }

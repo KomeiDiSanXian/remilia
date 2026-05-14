@@ -22,7 +22,7 @@ func TestAutoTrackDependencies(t *testing.T) {
 	depPlugin := &Descriptor{
 		Name: "dependent",
 		Setup: func(ctx *SetupContext) (any, error) {
-			_, _ = ctx.Get("base")
+			_, _ = ctx.get("base")
 			return nil, nil
 		},
 	}
@@ -45,7 +45,7 @@ func TestAutoTrackDependencies_MustGet(t *testing.T) {
 	err = manager.Register(&Descriptor{
 		Name: "permission",
 		Setup: func(ctx *SetupContext) (any, error) {
-			_ = ctx.MustGet("auth")
+			_ = ctx.mustGet("auth")
 			return nil, nil
 		},
 	})
@@ -63,7 +63,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 				Name: "permission",
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
-					_ = ctx.MustGet("auth")
+					_ = ctx.mustGet("auth")
 					return nil, nil
 				},
 			},
@@ -88,7 +88,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 				Name: "a",
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
-					_ = ctx.MustGet("b")
+					_ = ctx.mustGet("b")
 					return nil, nil
 				},
 			},
@@ -96,7 +96,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 				Name: "b",
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
-					_ = ctx.MustGet("a")
+					_ = ctx.mustGet("a")
 					return nil, nil
 				},
 			},
@@ -126,8 +126,8 @@ func TestGetTrackedDependencies(t *testing.T) {
 	err := manager.Register(&Descriptor{
 		Name: "test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			_ = ctx.MustGet("a")
-			_ = ctx.MustGet("b")
+			_ = ctx.mustGet("a")
+			_ = ctx.mustGet("b")
 			trackedDeps = ctx.GetTrackedDependencies()
 			return nil, nil
 		},
@@ -150,8 +150,8 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			Name: "d",
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
-				_ = ctx.MustGet("b")
-				_ = ctx.MustGet("c")
+				_ = ctx.mustGet("b")
+				_ = ctx.mustGet("c")
 				return nil, nil
 			},
 		},
@@ -159,7 +159,7 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			Name: "c",
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
-				_ = ctx.MustGet("a")
+				_ = ctx.mustGet("a")
 				return nil, nil
 			},
 		},
@@ -167,7 +167,7 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			Name: "b",
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
-				_ = ctx.MustGet("a")
+				_ = ctx.mustGet("a")
 				return nil, nil
 			},
 		},
@@ -216,8 +216,8 @@ func TestDeclaredVsInferred(t *testing.T) {
 		Name: "test",
 		Deps: []string{"a"},
 		Setup: func(ctx *SetupContext) (any, error) {
-			_ = ctx.MustGet("a")
-			_ = ctx.MustGet("b") // undeclared; should produce a warning log
+			_ = ctx.mustGet("a")
+			_ = ctx.mustGet("b") // undeclared; should produce a warning log
 			return nil, nil
 		},
 	})

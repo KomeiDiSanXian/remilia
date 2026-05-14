@@ -168,7 +168,7 @@ func TestStrictDeps_UndeclaredDepBlocksRegistration(t *testing.T) {
 		Name: "sneaky",
 		Deps: []string{}, // intentionally empty
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Get("base") // undeclared dependency
+			ctx.get("base") // undeclared dependency
 			return nil, nil
 		},
 	}
@@ -198,7 +198,7 @@ func TestStrictDeps_DeclaredDepAllowed(t *testing.T) {
 		Name: "honest",
 		Deps: []string{"base"}, // properly declared
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Get("base")
+			ctx.get("base")
 			return nil, nil
 		},
 	}
@@ -222,7 +222,7 @@ func TestStrictDeps_LenientModeAllowsUndeclared(t *testing.T) {
 		Name: "lenient",
 		Deps: []string{},
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Get("base") // undeclared — should only warn
+			ctx.get("base") // undeclared — should only warn
 			return nil, nil
 		},
 	}

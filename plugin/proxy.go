@@ -27,13 +27,12 @@ type ServiceProxy[T any] struct {
 
 // Service 从容器中获取指定插件的服务代理。
 // 若插件未注册，panic（与 Must 语义一致）。
+// 自动记录必要依赖关系，用于 Smart 注册的依赖推断。
 func Service[T any](ctx *SetupContext, name string) *ServiceProxy[T] {
 	if ctx.container == nil {
 		panic("plugin.Service: container is nil (possibly in DryRun phase)")
 	}
-	if _, ok := ctx.container.Get(name); !ok {
-		panic("plugin.Service: dependency " + name + " not found")
-	}
+	ctx.mustGet(name) // 验证存在并追踪必要依赖
 	return &ServiceProxy[T]{
 		container: ctx.container,
 		name:      name,
@@ -41,11 +40,12 @@ func Service[T any](ctx *SetupContext, name string) *ServiceProxy[T] {
 }
 
 // TryService 返回服务的可选代理。若插件未注册则返回 nil, false（不 panic）。
+// 自动记录可选依赖关系，用于 Smart 注册的依赖推断。
 func TryService[T any](ctx *SetupContext, name string) (*ServiceProxy[T], bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
-	if _, ok := ctx.container.Get(name); !ok {
+	if _, ok := ctx.get(name); !ok { // get 追踪可选依赖
 		return nil, false
 	}
 	return &ServiceProxy[T]{
