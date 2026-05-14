@@ -13,7 +13,7 @@ import (
 )
 
 // Plugin 结构化后台作业系统 API。
-// 通过 plugin.Must[*job.Plugin](ctx, "job") 获取。
+// 通过 plugin.Service[*job.Plugin](ctx, "job") 获取。
 type Plugin struct {
 	mu   sync.RWMutex
 	jobs map[ID]*entry
@@ -285,7 +285,7 @@ func (p *Plugin) finalize(e *entry, status Status, err error, cfg jobConfig) {
 //
 //	pm.Register(job.New())
 //	// 其他插件中：
-//	runner := plugin.Must[*job.Plugin](ctx, "job")
+//	runner := plugin.Service[*job.Plugin](ctx, "job")
 //	runner.Once("my-task", fn, job.WithDelay(5*time.Second))
 func New() *plugin.Descriptor {
 	p := NewPlugin()

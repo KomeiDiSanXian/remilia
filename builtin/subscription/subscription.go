@@ -462,7 +462,7 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
   pm.Register(h.Descriptor())
 
   // 在 Handler 中订阅/退订
-  mgr := ctx.MustGet("subscription").(*subscription.Manager)
+  mgr := plugin.Service[*subscription.Manager](ctx, "subscription")
   id, _ := mgr.Subscribe("rss", "https://...", subscription.Target{ChatID: groupID, IsGroup: true})
   _ = mgr.Unsubscribe(id)`,
 		},

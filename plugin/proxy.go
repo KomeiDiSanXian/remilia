@@ -4,7 +4,7 @@ import "fmt"
 
 // proxy.go — ServiceProxy：防过期的插件间同步调用代理。
 //
-// 问题：插件 A 在 Setup 中调用 plugin.Must[B](ctx, "B") 获取 *B，但 B 热重载后
+// 问题：插件 A 在 Setup 中调用 plugin.Service[B](ctx, "B") 获取 *B，但 B 热重载后
 // A 持有的指针已过时。当前通过 OnDependencyReloaded 回调手动刷新，但容易遗漏。
 //
 // 解决方案：ServiceProxy 每次调用时从 Container 动态解析最新实现。

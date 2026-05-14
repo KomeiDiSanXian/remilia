@@ -37,7 +37,7 @@ import (
 //	client := plugin.MustAs[storage.Client](ctx, "storage")
 //
 //	// 具体类型方式（需要链式查询或 GORM 高级特性时）
-//	p := plugin.Must[*storage.Plugin](ctx, "storage")
+//	p := plugin.Service[*storage.Plugin](ctx, "storage")
 //	p.Where("...").First(...)
 //	p.DB().Transaction(...)
 //

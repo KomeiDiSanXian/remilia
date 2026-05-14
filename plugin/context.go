@@ -56,7 +56,6 @@ type setupContextInternal struct {
 //   - [SetupContext.EventBus] — 插件间事件总线（发布用；订阅请用 [SetupContext.Scope]）
 //   - [SetupContext.Scope]    — 资源 Scope（订阅自动清理、级联销毁）
 //   - [Service] / [TryService] — 获取依赖（防过期代理，推荐）
-//   - [Must] / [Try]          — 获取依赖（传统方式，不防过期）
 type SetupContext struct {
 	// Reg Matcher/Command 注册接口，DryRun 阶段自动变为 no-op。
 	Reg RegistryWriter
@@ -292,13 +291,11 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 	return nil
 }
 
-// 未来展望：待 Go 支持泛型方法后，可改为 ctx.Get[permission.Plugin]("permission") 的调用方式。
+// 未来展望：待 Go 支持泛型方法后，可改为 ctx.get[permission.Plugin]("permission") 的调用方式。
 
-// Get 获取依赖插件（弱类型）
+// Get 获取依赖插件（弱类型，内部使用）。
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
-//
-// Deprecated: 直接使用 [TryService] 或 [Service] 代替。Get 返回的 any 需要手动类型断言，
-// 且返回的指针在依赖热重载后过期。
+// 插件开发者应使用 [Service] / [TryService] 代替。
 func (ctx *SetupContext) Get(name string) (any, bool) {
 	if ctx.container == nil {
 		return nil, false
@@ -314,9 +311,8 @@ func (ctx *SetupContext) Get(name string) (any, bool) {
 	return v, ok
 }
 
-// MustGet 获取依赖插件（弱类型，不存在则 panic）
-//
-// Deprecated: 使用 [Service] 代替，获取类型安全的防过期代理。
+// MustGet 获取依赖插件（弱类型，不存在则 panic，内部使用）。
+// 插件开发者应使用 [Service] 代替。
 func (ctx *SetupContext) MustGet(name string) any {
 	v, ok := ctx.container.Get(name)
 	if !ok {
@@ -389,57 +385,10 @@ func GetPlugin[T any](ctx *SetupContext, name string) (*T, error) {
 	return typed, nil
 }
 
-// Must 获取必需依赖（类型安全，不存在或类型不符则 panic）
-//
-// Deprecated: 使用 [Service] 代替。Must 返回的 raw pointer 在依赖插件热重载后会变成过期指针，
-// 导致 nil pointer dereference 或调用到已卸载的旧实例。ServiceProxy 每次动态解析最新实现。
-//
-//	// 旧方式
-//	perm := plugin.Must[permission.Plugin](ctx, "permission")
-//	// 新方式
-//	permSvc := plugin.Service[*permission.Plugin](ctx, "permission")
-func Must[T any](ctx *SetupContext, name string) *T {
-	// 使用 MustGet 路径，确保被追踪为必要依赖
-	v := ctx.MustGet(name)
-	typed, ok := v.(*T)
-	if !ok {
-		panic(fmt.Sprintf("plugin %q: dependency %q has wrong type: expected *%T, got %T", ctx.pluginName, name, typed, v))
-	}
-	return typed
-}
-
-// Try 获取可选依赖（类型安全，不存在时返回 nil, false）
-//
-// Deprecated: 使用 [TryService] 代替。Try 返回的 raw pointer 在依赖插件热重载后会变成过期指针。
-// TryService 返回的 ServiceProxy 每次动态解析最新实现。
-//
-//	// 旧方式
-//	if sb, ok := plugin.Try[storage.Plugin](ctx, "storage"); ok { p.storage = sb }
-//	// 新方式
-//	if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok { p.storageSvc = svc }
-func Try[T any](ctx *SetupContext, name string) (*T, bool) {
-	// 使用 Get 路径，追踪为可选依赖
-	v, ok := ctx.Get(name)
-	if !ok {
-		return nil, false
-	}
-	typed, ok := v.(*T)
-	if !ok {
-		return nil, false
-	}
-	return typed, ok
-}
-
 // MustAs 以接口类型获取必需依赖（面向接口，符合依赖倒置原则）。
+// 若依赖不存在或类型不满足 T 接口，则 panic。
 //
-// 与 [Must] 的区别：Must 返回 *T（具体指针类型），MustAs 返回 T（通常为接口类型），
-// 允许消费者只依赖接口契约而非具体实现。
-//
-//	// 仅依赖 storage.Client 接口，不依赖 *storage.Plugin 具体类型
-//	client := plugin.MustAs[storage.Client](ctx, "storage")
-//	client.Get("key")
-//
-// 若依赖不存在或类型不满足 T 接口，则 panic（带明确错误信息）。
+// Deprecated: 使用 [Service] 代替。MustAs 返回的对象在依赖热重载后会变成过期引用。
 func MustAs[T any](ctx *SetupContext, name string) T {
 	v := ctx.MustGet(name)
 	typed, ok := v.(T)
@@ -452,13 +401,7 @@ func MustAs[T any](ctx *SetupContext, name string) T {
 
 // TryAs 以接口类型获取可选依赖（面向接口，符合依赖倒置原则）。
 //
-// 与 [Try] 的区别：Try 返回 *T（具体指针类型），TryAs 返回 T（通常为接口类型）。
-// 不存在时返回零值和 false；类型不满足时同样返回零值和 false。
-//
-//	// 可选接口依赖
-//	if client, ok := plugin.TryAs[storage.Client](ctx, "storage"); ok {
-//	    p.storage = client
-//	}
+// Deprecated: 使用 [TryService] 代替。TryAs 返回的对象在依赖热重载后会变成过期引用。
 func TryAs[T any](ctx *SetupContext, name string) (T, bool) {
 	v, ok := ctx.Get(name)
 	if !ok {

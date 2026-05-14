@@ -360,13 +360,14 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 		},
 	}))
 
-	// 插件 B 通过 Must 获取
+	// 插件 B 通过 Service 获取
 	var got *MyAPI
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "consumer",
 		Deps: []string{"exporter"},
 		Setup: func(ctx *SetupContext) (any, error) {
-			got = Must[MyAPI](ctx, "exporter")
+			svc := Service[*MyAPI](ctx, "exporter")
+			got, _ = svc.Get()
 			return nil, nil
 		},
 	}))
@@ -374,36 +375,40 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 	require.NotNil(t, got)
 }
 
-func TestMust_PanicsOnMissing(t *testing.T) {
+func TestService_PanicsOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
 			container: NewContainer(),
+			pluginName:    "test",
 		},
 	}
 	assert.Panics(t, func() {
-		Must[struct{}](ctx, "nonexistent")
+		Service[struct{}](ctx, "nonexistent")
 	})
 }
 
-func TestTry_ReturnsNilOnMissing(t *testing.T) {
+func TestTryService_ReturnsNilOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
 			container: NewContainer(),
+			pluginName:    "test",
 		},
 	}
-	v, ok := Try[struct{}](ctx, "nonexistent")
-	assert.Nil(t, v)
+	svc, ok := TryService[struct{}](ctx, "nonexistent")
+	assert.Nil(t, svc)
 	assert.False(t, ok)
 }
 
-func TestTry_ReturnsValueWhenPresent(t *testing.T) {
+func TestTryService_ReturnsValueWhenPresent(t *testing.T) {
 	type Svc struct{ X int }
 	c := NewContainer()
 	c.Register("svc", &Svc{X: 42})
 	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: c, pluginName: "test"}}
 
-	v, ok := Try[Svc](ctx, "svc")
+	svc, ok := TryService[*Svc](ctx, "svc")
 	require.True(t, ok)
+	v, getOk := svc.Get()
+	require.True(t, getOk)
 	assert.Equal(t, 42, v.X)
 }
 

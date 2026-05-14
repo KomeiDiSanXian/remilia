@@ -39,20 +39,20 @@ func TestEdge_Must_NonExistent(t *testing.T) {
 	type GhostPlugin struct{}
 
 	err := pm.Register(&plugin.Descriptor{
-		Name: "bad-plugin-must",
+		Name: "bad-plugin-service",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Must[GhostPlugin](ctx, "ghost") // 不存在，panic
+			_ = plugin.Service[*GhostPlugin](ctx, "ghost") // 不存在，panic
 			return nil, nil
 		},
 	})
 
 	if err == nil {
-		t.Fatal("应返回错误（Must 不存在的依赖触发 panic）")
+		t.Fatal("应返回错误（Service 不存在的依赖触发 panic）")
 	}
-	if pm.IsLoaded("bad-plugin-must") {
-		t.Error("bad-plugin-must 不应被注册")
+	if pm.IsLoaded("bad-plugin-service") {
+		t.Error("bad-plugin-service 不应被注册")
 	}
-	t.Logf("✓ Must[T] 不存在依赖：正确返回错误: %v", err)
+	t.Logf("✓ Service[T] 不存在依赖：正确返回错误: %v", err)
 }
 
 // --- 边缘情况 3：Get 访问不存在的插件 ---
@@ -89,11 +89,11 @@ func TestEdge_Try_NonExistent(t *testing.T) {
 	type GhostPlugin struct{}
 
 	err := pm.Register(&plugin.Descriptor{
-		Name: "safe-try-plugin",
+		Name: "safe-tryservice-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			p, ok := plugin.Try[GhostPlugin](ctx, "ghost")
+			p, ok := plugin.TryService[*GhostPlugin](ctx, "ghost")
 			if ok || p != nil {
-				t.Error("Try 不存在的依赖应返回 nil, false")
+				t.Error("TryService 不存在的依赖应返回 nil, false")
 			}
 			return nil, nil
 		},

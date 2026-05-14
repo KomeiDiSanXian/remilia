@@ -61,7 +61,7 @@ type Client interface {
 // Plugin 存储插件 API 对象，同时实现 Client 接口。
 //
 // 通常通过 plugin.MustAs[storage.Client](ctx, "storage") 获取为接口类型，
-// 需要使用 GORM 高级特性时可用 plugin.Must[storage.Plugin](ctx, "storage") 获取具体指针。
+// 需要使用 GORM 高级特性时可用 plugin.Service[storage.Plugin](ctx, "storage") 获取具体指针。
 type Plugin struct {
 	db *gorm.DB
 }

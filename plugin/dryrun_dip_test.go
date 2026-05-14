@@ -62,8 +62,8 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 		Name: "eventbus-dryrun-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
-				// DryRun 阶段：EventBus 是 noopEventBus，订阅不产生真实效果
-				sub, err := ctx.EventBus.Subscribe("test.topic", func(_ any) {})
+				// DryRun 阶段：Scope.Subscribe 内部使用 noopEventBus，订阅不产生真实效果
+				sub, err := ctx.Scope().Subscribe("test.topic", func(_ any) {})
 				assert.NoError(t, err, "noopEventBus.Subscribe 不应返回错误")
 				assert.NotNil(t, sub)
 				subTopic = sub.Topic()

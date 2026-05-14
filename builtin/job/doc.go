@@ -17,7 +17,7 @@
 //	pm.Register(job.New())
 //
 //	// 在其他插件 Setup 中：
-//	runner := plugin.Must[*job.Plugin](ctx, "job")
+//	runner := plugin.Service[*job.Plugin](ctx, "job")
 //
 //	// 延迟 5s 执行
 //	id := runner.Once("send-report", func(ctx context.Context) error {

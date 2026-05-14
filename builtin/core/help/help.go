@@ -132,7 +132,7 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 		}
 
 			ctx.Log.Info("Help plugin loaded")
-			// 返回 *Plugin 注入容器，其他插件可通过 plugin.Must[help.Plugin](ctx, "help") 获取
+			// 返回 *Plugin 注入容器，其他插件可通过 plugin.Service[*help.Plugin](ctx, "help") 获取
 			return p, nil
 		},
 	}
