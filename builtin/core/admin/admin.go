@@ -111,7 +111,35 @@ func (p *Plugin) Load(ctx *plugin.SetupContext) error {
 	p.registerCodeCommand(ctx)
 	p.registerACLCommand(ctx)
 	p.registerSystemCommands(ctx)
+	p.tryGenerateBootstrapCode(ctx)
 	return nil
+}
+
+// tryGenerateBootstrapCode 在首次启动（无任何管理员）时生成引导验证码并输出到控制台
+func (p *Plugin) tryGenerateBootstrapCode(ctx *plugin.SetupContext) {
+	pp := p.perm()
+	if pp == nil {
+		return
+	}
+	mgr := pp.GetManager()
+	for _, roles := range mgr.ExportUserRoles() {
+		for _, r := range roles {
+			if r == "admin" {
+				return // 已有管理员，无需引导
+			}
+		}
+	}
+	code, err := pp.GenerateVerificationCode("admin", 1*time.Hour, 1)
+	if err != nil {
+		ctx.Log.Errorf("Failed to generate bootstrap code: %v", err)
+		return
+	}
+	ctx.Log.Warn("============================================")
+	ctx.Log.Warn("  首次启动引导：未检测到管理员")
+	ctx.Log.Warnf("  引导验证码: %s", code)
+	ctx.Log.Warnf("  请在聊天中使用 /code verify %s 获取管理员权限", code)
+	ctx.Log.Warn("  有效期: 1小时 | 一次性使用")
+	ctx.Log.Warn("============================================")
 }
 
 // SetPluginManager 设置插件管理器（仅用于测试或外部初始化）
