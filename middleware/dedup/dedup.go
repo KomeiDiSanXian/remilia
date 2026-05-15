@@ -11,6 +11,13 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
+// Persister 去重缓存的持久化接口。
+// 设置后缓存会在启动时从 Load 恢复，并在每次清理过期条目后 Save。
+type Persister interface {
+	Load() (map[string]int64, error)
+	Save(cache map[string]int64) error
+}
+
 const maxEventIDLength = 256
 
 // DedupFilter 事件去重过滤器
@@ -29,6 +36,7 @@ type DedupFilter struct {
 	cache       map[string]int64 // eventID -> expireTime（纳秒）
 	maxSize     int              // 最大缓存条目数
 	defaultTTL  time.Duration    // 默认过期时间
+	persister   Persister        // 持久化接口（nil 不启用）
 	cleanupDone chan struct{}    // 清理器停止信号
 	stopOnce    sync.Once        // 确保Stop只执行一次
 }
@@ -46,6 +54,12 @@ type DedupConfig struct {
 	// CleanupInterval 清理间隔
 	// 默认: 1 分钟
 	CleanupInterval time.Duration
+
+	// Persister 可选持久化接口。
+	// 设置后在启动时调用 Load() 恢复缓存，
+	// 每次清理过期条目后调用 Save() 持久化快照。
+	// nil 表示不启用持久化。
+	Persister Persister
 }
 
 // DefaultDedupConfig 返回默认配置
@@ -69,12 +83,15 @@ func NewDedupFilter(config DedupConfig) *DedupFilter {
 	if config.DefaultTTL <= 0 {
 		config.DefaultTTL = 5 * time.Minute
 	}
-	return &DedupFilter{
+	f := &DedupFilter{
 		cache:       make(map[string]int64, config.MaxSize/2),
 		maxSize:     config.MaxSize,
 		defaultTTL:  config.DefaultTTL,
 		cleanupDone: make(chan struct{}),
+		persister:   config.Persister,
 	}
+	f.loadPersisted()
+	return f
 }
 
 // NewDedupFilterWithContext 创建与外部 context 联动的去重过滤器。
@@ -101,7 +118,10 @@ func NewDedupFilterWithContext(parent context.Context, config DedupConfig) *Dedu
 		maxSize:     config.MaxSize,
 		defaultTTL:  config.DefaultTTL,
 		cleanupDone: make(chan struct{}),
+		persister:   config.Persister,
 	}
+
+	filter.loadPersisted()
 
 	// 启动后台清理 goroutine
 	interval := config.CleanupInterval
@@ -135,6 +155,27 @@ func normalizeEventID(eventID string) string {
 		return fmt.Sprintf("hash:%x", h)
 	}
 	return eventID
+}
+
+// loadPersisted 从持久化存储恢复缓存
+func (f *DedupFilter) loadPersisted() {
+	if f.persister == nil {
+		return
+	}
+	saved, err := f.persister.Load()
+	if err != nil {
+		logger.WithError(err).Warn("[Dedup] Failed to load persisted cache")
+		return
+	}
+	now := time.Now().UnixNano()
+	for k, expireTime := range saved {
+		if expireTime > now {
+			f.cache[k] = expireTime
+		}
+	}
+	if len(saved) > 0 {
+		logger.WithField("loaded", len(f.cache)).Info("[Dedup] Loaded persisted dedup cache")
+	}
 }
 
 // CheckDuplicate 检查事件是否重复
@@ -200,7 +241,7 @@ func (f *DedupFilter) CheckDuplicate(eventID string) (bool, error) {
 	return false, nil
 }
 
-// cleanExpired 清理过期条目
+// cleanExpired 清理过期条目并持久化快照
 func (f *DedupFilter) cleanExpired() {
 	now := time.Now().UnixNano()
 
@@ -214,7 +255,19 @@ func (f *DedupFilter) cleanExpired() {
 	for _, eid := range toDelete {
 		delete(f.cache, eid)
 	}
+	snapshot := make(map[string]int64, len(f.cache))
+	for k, v := range f.cache {
+		snapshot[k] = v
+	}
 	f.mu.Unlock()
+
+	if f.persister != nil && len(snapshot) > 0 {
+		if err := f.persister.Save(snapshot); err != nil {
+			logger.WithError(err).Warn("[Dedup] Failed to persist dedup cache")
+		}
+	} else if f.persister != nil {
+		_ = f.persister.Save(nil)
+	}
 }
 
 // Stop 停止清理器

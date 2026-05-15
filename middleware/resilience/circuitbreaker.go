@@ -14,6 +14,23 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// CircuitBreakerSnapshot 熔断器状态的持久化快照。
+type CircuitBreakerSnapshot struct {
+	State             CircuitBreakerState
+	Failures          int32
+	Successes         int32
+	LastFailure       time.Time
+	HalfOpenReqs      int32
+	HalfOpenStartTime time.Time
+}
+
+// StatePersister 熔断器状态的持久化接口。
+// 设置后状态会在创建时从 Load 恢复，在每次状态转换时 Save。
+type StatePersister interface {
+	Load() (CircuitBreakerSnapshot, error)
+	Save(snapshot CircuitBreakerSnapshot) error
+}
+
 // CircuitBreakerState 熔断器状态
 type CircuitBreakerState string
 
@@ -119,6 +136,12 @@ type CircuitBreakerConfig struct {
 
 	// Registerer 自定义 Prometheus 注册器（可选，nil 时使用 DefaultRegisterer）
 	Registerer prometheus.Registerer
+
+	// Persister 可选持久化接口。
+	// 设置后在启动时调用 Load() 恢复熔断器状态，
+	// 每次状态转换后调用 Save() 持久化快照。
+	// nil 表示不启用持久化。
+	Persister StatePersister
 }
 
 // NewCircuitBreaker 创建一个新的熔断器
@@ -153,7 +176,61 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 	// 初始化 Prometheus 指标
 	cb.metrics.stateGauge.Set(0) // 0 = closed
 
+	// 从持久化恢复
+	if config.Persister != nil {
+		cb.loadPersisted()
+	}
+
 	return cb
+}
+
+// loadPersisted 从持久化存储恢复状态
+func (cb *CircuitBreaker) loadPersisted() {
+	snapshot, err := cb.config.Persister.Load()
+	if err != nil {
+		logger.WithError(err).Warn("[CircuitBreaker] Failed to load persisted state")
+		return
+	}
+	// 恢复失败计数
+	cb.failures.Store(snapshot.Failures)
+	cb.successes.Store(snapshot.Successes)
+	cb.halfOpenReqs.Store(snapshot.HalfOpenReqs)
+	if !snapshot.LastFailure.IsZero() {
+		cb.lastFailure.Store(snapshot.LastFailure)
+	}
+	if !snapshot.HalfOpenStartTime.IsZero() {
+		cb.halfOpenStarted.Store(snapshot.HalfOpenStartTime)
+	}
+	// 验证并恢复状态
+	state := snapshot.State
+	switch state {
+	case StateOpen, StateHalfOpen:
+		cb.state.Store(state)
+		cb.metrics.stateGauge.Set(float64(stateToInt(state)))
+		logger.WithField("state", state).Info("[CircuitBreaker] Restored persisted state")
+	default:
+		cb.state.Store(StateClosed)
+		cb.metrics.stateGauge.Set(0)
+	}
+}
+
+// savePersisted 持久化当前状态快照
+func (cb *CircuitBreaker) savePersisted() {
+	p := cb.config.Persister
+	if p == nil {
+		return
+	}
+	snapshot := CircuitBreakerSnapshot{
+		State:             cb.GetState(),
+		Failures:          cb.failures.Load(),
+		Successes:         cb.successes.Load(),
+		LastFailure:       cb.lastFailure.Load(),
+		HalfOpenReqs:      cb.halfOpenReqs.Load(),
+		HalfOpenStartTime: cb.halfOpenStarted.Load(),
+	}
+	if err := p.Save(snapshot); err != nil {
+		logger.WithError(err).Warn("[CircuitBreaker] Failed to persist state")
+	}
 }
 
 // GetState 获取当前状态
@@ -173,6 +250,7 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 	cb.setStateLocked(newState)
+	cb.savePersisted()
 }
 
 // setStateLocked 在已持有 mu 的情况下设置状态。
@@ -324,59 +402,71 @@ func (cb *CircuitBreaker) acquireHalfOpenSlot() error {
 // onSuccess 记录成功
 func (cb *CircuitBreaker) onSuccess() {
 	cb.mu.Lock()
-	defer cb.mu.Unlock()
 
 	state := cb.GetState()
 
 	switch state {
 	case StateClosed:
-		// 闭合状态下成功，重置失败计数
 		cb.failures.Store(0)
+		cb.mu.Unlock()
+		cb.savePersisted()
+		return
 
 	case StateHalfOpen:
-		// 半开状态下成功，增加成功计数
 		successes := cb.successes.Add(1)
 
-		// 检查是否达到成功阈值
 		if successes >= int32(cb.config.SuccessThreshold) {
-			// 达到阈值，转为闭合状态
 			cb.failures.Store(0)
 			cb.successes.Store(0)
-			cb.halfOpenReqs.Store(0) // 重置半开请求计数，避免下次进入半开状态时计数残留
+			cb.halfOpenReqs.Store(0)
 			cb.setStateLocked(StateClosed)
+			cb.mu.Unlock()
+			cb.savePersisted()
 			logger.WithField("successes", successes).Info("[CircuitBreaker] Service recovered, transitioning to closed state")
-		} else {
-			logger.WithFields(logger.Fields{
-				"successes": successes,
-				"threshold": cb.config.SuccessThreshold,
-			}).Debug("[CircuitBreaker] Success in half-open state, waiting for threshold")
+			return
 		}
+		cb.mu.Unlock()
+		logger.WithFields(logger.Fields{
+			"successes": successes,
+			"threshold": cb.config.SuccessThreshold,
+		}).Debug("[CircuitBreaker] Success in half-open state, waiting for threshold")
+		return
 	}
+
+	cb.mu.Unlock()
 }
 
 // onFailure 记录失败
 func (cb *CircuitBreaker) onFailure() {
 	cb.mu.Lock()
-	defer cb.mu.Unlock()
 
 	state := cb.GetState()
 	cb.lastFailure.Store(time.Now())
 
 	switch state {
 	case StateClosed:
-		// 闭合状态下失败，增加失败计数
 		failures := cb.failures.Add(1)
 		if failures >= int32(cb.config.MaxFailures) {
 			cb.setStateLocked(StateOpen)
+			cb.mu.Unlock()
+			cb.savePersisted()
 			logger.WithField("failures", failures).Warn("[CircuitBreaker] Max failures reached, opening circuit")
+			return
 		}
+		cb.mu.Unlock()
+		cb.savePersisted()
+		return
 
 	case StateHalfOpen:
-		// 半开状态下失败，直接转为开启
-		cb.failures.Store(int32(cb.config.MaxFailures)) // 设置为最大值
+		cb.failures.Store(int32(cb.config.MaxFailures))
 		cb.setStateLocked(StateOpen)
+		cb.mu.Unlock()
+		cb.savePersisted()
 		logger.Warn("[CircuitBreaker] Failed in half-open state, reopening circuit")
+		return
 	}
+
+	cb.mu.Unlock()
 }
 
 // CircuitBreakerMiddleware 熔断器中间件
