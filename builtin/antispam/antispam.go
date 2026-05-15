@@ -335,14 +335,14 @@ func (p *Plugin) Ban(userID string, duration time.Duration) {
 	}
 	p.banList.Store(userID, banEntry{until: until})
 	logger.Infof("[AntiSpam] Banned user %s until %v", userID, until)
-	go p.saveBanList() // 异步持久化
+	p.saveBanList()
 }
 
 // Unban 解封用户
 func (p *Plugin) Unban(userID string) {
 	p.banList.Delete(userID)
 	logger.Infof("[AntiSpam] Unbanned user %s", userID)
-	go p.saveBanList() // 异步持久化
+	p.saveBanList()
 }
 
 // IsBanned 检查用户是否被封禁（自动清理过期封禁）

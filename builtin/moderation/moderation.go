@@ -221,7 +221,7 @@ func (p *Plugin) handleWarn(ctx *eventctx.Context) error {
 	count := len(p.warnData[target])
 	p.mu.Unlock()
 
-	go p.save()
+	p.save()
 	logger.Infof("[Moderation] User %s warned by %s: %s (total: %d)", target, sender.ID, reason, count)
 	msg := fmt.Sprintf("已警告 %s (共 %d 次警告)", target, count)
 	if reason != "" {

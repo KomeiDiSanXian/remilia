@@ -177,7 +177,7 @@ func (p *Plugin) SetMode(mode Mode) {
 	p.mu.Lock()
 	p.mode = mode
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 	logger.Infof("[ACL] Mode set to %s", mode)
 }
 
@@ -197,7 +197,7 @@ func (p *Plugin) Add(userID, remark string) {
 		AddedAt: time.Now(),
 	}
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 	logger.Infof("[ACL] Added user %s (remark: %s)", userID, remark)
 }
 
@@ -208,7 +208,7 @@ func (p *Plugin) Remove(userID string) bool {
 	delete(p.entries, userID)
 	p.mu.Unlock()
 	if exists {
-		go p.save()
+		p.save()
 	}
 	return exists
 }
@@ -237,7 +237,7 @@ func (p *Plugin) Clear() {
 	p.mu.Lock()
 	p.entries = make(map[string]Entry)
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 }
 
 // Count 返回 ACL 列表中的用户数量

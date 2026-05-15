@@ -171,18 +171,13 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		cfg.WelcomeMessage = strings.Join(args[2:], " ")
 		cfg.WelcomeEnabled = true
 		p.mu.Unlock()
-		go p.save()
+		p.save()
 		ctx.Reply(platform.TextMessage("欢迎消息已设置"))
 		return nil
 	case "off":
-		if !p.checkPermission(ctx, "welcome.manage") {
-			p.mu.Unlock()
-			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
-			return nil
-		}
 		cfg.WelcomeEnabled = false
 		p.mu.Unlock()
-		go p.save()
+		p.save()
 		ctx.Reply(platform.TextMessage("欢迎消息已关闭"))
 		return nil
 	case "status":
@@ -239,18 +234,13 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 		cfg.FarewellMessage = strings.Join(args[2:], " ")
 		cfg.FarewellEnabled = true
 		p.mu.Unlock()
-		go p.save()
+		p.save()
 		ctx.Reply(platform.TextMessage("告别消息已设置"))
 		return nil
 	case "off":
-		if !p.checkPermission(ctx, "welcome.manage") {
-			p.mu.Unlock()
-			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
-			return nil
-		}
 		cfg.FarewellEnabled = false
 		p.mu.Unlock()
-		go p.save()
+		p.save()
 		ctx.Reply(platform.TextMessage("告别消息已关闭"))
 		return nil
 	default:

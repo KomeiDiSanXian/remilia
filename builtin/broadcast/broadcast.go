@@ -236,7 +236,7 @@ func (p *Plugin) SubscribeGroup(groupOpenID string) {
 	p.subMu.Lock()
 	p.groupSubs[groupOpenID] = true
 	p.subMu.Unlock()
-	go p.saveSubs()
+	p.saveSubs()
 }
 
 // UnsubscribeGroup 将群从订阅列表移除
@@ -244,7 +244,7 @@ func (p *Plugin) UnsubscribeGroup(groupOpenID string) {
 	p.subMu.Lock()
 	delete(p.groupSubs, groupOpenID)
 	p.subMu.Unlock()
-	go p.saveSubs()
+	p.saveSubs()
 }
 
 // SubscribeC2C 将用户加入广播订阅列表
@@ -252,7 +252,7 @@ func (p *Plugin) SubscribeC2C(userOpenID string) {
 	p.subMu.Lock()
 	p.c2cSubs[userOpenID] = true
 	p.subMu.Unlock()
-	go p.saveSubs()
+	p.saveSubs()
 }
 
 // UnsubscribeC2C 将用户从订阅列表移除
@@ -260,7 +260,7 @@ func (p *Plugin) UnsubscribeC2C(userOpenID string) {
 	p.subMu.Lock()
 	delete(p.c2cSubs, userOpenID)
 	p.subMu.Unlock()
-	go p.saveSubs()
+	p.saveSubs()
 }
 
 // ListGroupSubscribers 返回所有已订阅的群 ID

@@ -17,6 +17,7 @@
 package auditlog
 
 import (
+	stdctx "context"
 	"slices"
 	"strings"
 	"sync"
@@ -60,6 +61,7 @@ type Plugin struct {
 	nextID   int64
 	dataFile string // 持久化文件路径（空字符串=纯内存）
 	Engine   engine.Reader
+	dirty    bool // 是否有未刷新的数据
 }
 
 // Option 配置选项
@@ -112,6 +114,20 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			ctx.Log.Info("Plugin loaded")
 			p.Engine = ctx.Info.Coordinator()
 			p.loadFromFile()
+			if p.dataFile != "" {
+				ctx.Go(func(runCtx stdctx.Context) {
+					ticker := time.NewTicker(30 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ticker.C:
+							p.flushIfDirty()
+						case <-runCtx.Done():
+							return
+						}
+					}
+				})
+			}
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -153,18 +169,14 @@ func (p *Plugin) RecordRaw(userID, action string, meta map[string]any) {
 // append 追加日志条目（环形缓冲）
 func (p *Plugin) append(entry LogEntry) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.nextID++
 	entry.ID = p.nextID
 	if len(p.entries) >= p.cfg.MaxMemoryEntries {
 		p.entries = p.entries[1:] // 丢弃最旧的
 	}
 	p.entries = append(p.entries, entry)
-
-	// 异步持久化
-	if p.dataFile != "" {
-		go p.flushToFile()
-	}
+	p.dirty = true
+	p.mu.Unlock()
 }
 
 // Middleware 返回自动记录命令调用的中间件
@@ -253,6 +265,15 @@ func (p *Plugin) Count() int {
 type storageData struct {
 	Entries []LogEntry `json:"entries"`
 	NextID  int64      `json:"next_id"`
+}
+
+func (p *Plugin) flushIfDirty() {
+	p.mu.RLock()
+	dirty := p.dirty
+	p.mu.RUnlock()
+	if dirty {
+		p.flushToFile()
+	}
 }
 
 func (p *Plugin) flushToFile() {

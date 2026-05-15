@@ -166,7 +166,7 @@ func (p *Plugin) Generate(cfg CodeConfig) (string, error) {
 	p.codes[code] = entry
 	p.mu.Unlock()
 
-	go p.save()
+	p.save()
 	logger.Infof("[VerifyCode] Generated code for role %s (ttl=%v maxUses=%d)", cfg.Role, cfg.TTL, cfg.MaxUses)
 	return code, nil
 }
@@ -207,7 +207,7 @@ func (p *Plugin) Verify(userID, code string) (string, error) {
 		}
 	}
 
-	go p.save()
+	p.save()
 	logger.Infof("[VerifyCode] User %s verified with code %s, granted role %s", userID, code, role)
 	return role, nil
 }
@@ -219,7 +219,7 @@ func (p *Plugin) Revoke(code string) bool {
 	delete(p.codes, code)
 	p.mu.Unlock()
 	if exists {
-		go p.save()
+		p.save()
 	}
 	return exists
 }

@@ -59,6 +59,23 @@ import (
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
+// RoleDescriptions 内置角色说明
+var RoleDescriptions = map[string]string{
+	"superadmin": "超级管理员：拥有 *:* 全部权限，引导码授予。可管理所有用户包括 admin。",
+	"admin":      "管理员：拥有 *:* 全部权限。可管理普通用户，不可操作 superadmin。",
+	"moderator":  "审核员：可删除/置顶消息、禁言/踢出用户。",
+	"user":       "普通用户：可使用命令和发送消息。",
+	"guest":      "访客：仅有查询权限。",
+}
+
+// DescribeRole 返回指定角色的说明文本
+func DescribeRole(role string) string {
+	if desc, ok := RoleDescriptions[role]; ok {
+		return desc
+	}
+	return ""
+}
+
 // Plugin 权限系统插件 API
 type Plugin struct {
 	manager         *permission.Manager
@@ -107,11 +124,33 @@ func New() *plugin.Descriptor {
   perm := plugin.Require[permission.Plugin](ctx, "permission")
   perm.HasPermission(userID, resource, action)
   perm.Grant(userID, resource, action)
-  perm.AssignRole(userID, role)`,
+  perm.AssignRole(userID, role)
+
+内置角色：
+  superadmin  超级管理员（*:* 全部权限，引导码授予，可管理所有用户）
+  admin       管理员（*:* 全部权限，不可操作 superadmin）
+  moderator   审核员（删/置顶消息、禁言/踢出）
+  user        普通用户（使用命令、发送消息）
+  guest       访客（仅有查询权限）
+
+常用权限：
+  perm.grant / perm.revoke / perm.role    权限管理
+  plugin.list / plugin.reload / plugin.*  插件管理
+  moderation.mute / moderation.kick       群组管理
+  logs.view                               审计日志查看
+  help.plugins                            插件列表查看`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading permission plugin")
-			roles := []string{"admin", "user", "guest", "moderator"}
+
+			if path := ctx.Config.GetString("data_file", ""); path != "" {
+				pluginAPI.TryBindDataFile(path)
+				ctx.Log.Infof("Permission data file: %s", path)
+			} else {
+				ctx.Log.Warn("No data_file configured, permission data is in-memory only (lost on restart)")
+			}
+
+			roles := []string{"superadmin", "admin", "user", "guest", "moderator"}
 			ctx.Log.Infof("Loaded %d default roles", len(roles))
 
 			// 使用 ctx.Go 替代手动 goroutine + stopChan

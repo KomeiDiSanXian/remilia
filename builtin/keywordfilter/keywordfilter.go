@@ -150,7 +150,7 @@ func (p *Plugin) AddKeyword(keyword string) {
 	}
 	p.keywords = append(p.keywords, keyword)
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 	logger.Debugf("[KeywordFilter] Added keyword: %s", keyword)
 }
 
@@ -168,7 +168,7 @@ func (p *Plugin) RemoveKeyword(keyword string) {
 	}
 	p.keywords = newKws
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 }
 
 // AddPattern 动态添加正则表达式
@@ -181,7 +181,7 @@ func (p *Plugin) AddPattern(pattern string) error {
 	p.rawPatterns = append(p.rawPatterns, pattern)
 	p.patterns = append(p.patterns, re)
 	p.mu.Unlock()
-	go p.save()
+	p.save()
 	return nil
 }
 

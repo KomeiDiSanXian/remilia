@@ -207,7 +207,7 @@ func (p *Plugin) handleAdd(ctx *eventctx.Context, args []string) error {
 	p.rules = append(p.rules, rule)
 	p.mu.Unlock()
 
-	go p.save()
+	p.save()
 	logger.Infof("[AutoResponder] Added rule #%s: [%s] %q -> %q", rule.ID, mode, keyword, response)
 	ctx.Reply(platform.TextMessage(fmt.Sprintf("已添加规则 #%s (模式: %s)", rule.ID, mode)))
 	return nil
@@ -236,7 +236,7 @@ func (p *Plugin) handleRemove(ctx *eventctx.Context, args []string) error {
 	p.mu.Unlock()
 
 	if removed {
-		go p.save()
+		p.save()
 		ctx.Reply(platform.TextMessage(fmt.Sprintf("已删除规则 #%s", id)))
 		return nil
 	}
@@ -287,7 +287,7 @@ func (p *Plugin) handleCooldown(ctx *eventctx.Context, args []string) error {
 		if r.ID == id {
 			r.Cooldown = seconds
 			p.mu.Unlock()
-			go p.save()
+			p.save()
 			ctx.Reply(platform.TextMessage(fmt.Sprintf("规则 #%s 冷却已设置为 %d 秒", id, seconds)))
 			return nil
 		}
