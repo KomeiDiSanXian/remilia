@@ -38,9 +38,9 @@ const defaultAdminRole = "admin"
 
 // Plugin 限流状态查询插件
 type Plugin struct {
-	antispamSvc    *plugin.ServiceProxy[*antispam.Plugin]
-	cooldownSvc    *plugin.ServiceProxy[*cooldown.Plugin]
-	permissionSvc  *plugin.ServiceProxy[*permission.Plugin]
+	antispamSvc   *plugin.ServiceProxy[*antispam.Plugin]
+	cooldownSvc   *plugin.ServiceProxy[*cooldown.Plugin]
+	permissionSvc *plugin.ServiceProxy[*permission.Plugin]
 	// 手动绑定直接指针，用于测试/非标准 Setup 流程
 	antispamDirect   *antispam.Plugin
 	cooldownDirect   *cooldown.Plugin
@@ -349,8 +349,10 @@ func (p *Plugin) isAdmin(ctx *eventctx.Context) bool {
 	if userID == "" {
 		return false
 	}
+	roles := p.permissionPlugin().GetUserRoles(userID)
 	return p.permissionPlugin().HasPermission(userID, defaultAdminRole+":manage") ||
-		containsRole(p.permissionPlugin().GetUserRoles(userID), defaultAdminRole)
+		containsRole(roles, "superadmin") ||
+		containsRole(roles, defaultAdminRole)
 }
 
 // containsRole 判断角色列表中是否包含指定角色

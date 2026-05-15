@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -24,6 +25,7 @@ type Plugin struct {
 	mu       sync.RWMutex
 	configs  map[string]*GroupConfig
 	dataFile string
+	permSvc  *plugin.ServiceProxy[*permission.Plugin]
 }
 
 type Option func(*Plugin)
@@ -48,9 +50,10 @@ func New(opts ...Option) *plugin.Descriptor {
 
 func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:       "welcome",
-		Version:    "1.0.0",
-		Privileged: true,
+		Name:         "welcome",
+		Version:      "1.0.0",
+		Privileged:   true,
+		OptionalDeps: []string{"permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "入群欢迎/退群告别消息",
@@ -64,6 +67,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   /welcome status          — 查看当前设置`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+			}
 			p.load()
 			p.registerCommands(ctx)
 			return p, nil
@@ -146,12 +152,17 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	_ = args[1]
+	subCmd := args[1]
 	p.mu.Lock()
 	cfg := p.getOrCreateConfig(chat.ID)
 
-	switch args[1] {
+	switch subCmd {
 	case "set":
+		if !p.checkPermission(ctx, "welcome.manage") {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
+			return nil
+		}
 		if len(args) < 3 {
 			p.mu.Unlock()
 			ctx.Reply(platform.TextMessage("用法: /welcome set <消息>"))
@@ -164,6 +175,11 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		ctx.Reply(platform.TextMessage("欢迎消息已设置"))
 		return nil
 	case "off":
+		if !p.checkPermission(ctx, "welcome.manage") {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
+			return nil
+		}
 		cfg.WelcomeEnabled = false
 		p.mu.Unlock()
 		go p.save()
@@ -210,6 +226,11 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 
 	switch args[1] {
 	case "set":
+		if !p.checkPermission(ctx, "welcome.manage") {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
+			return nil
+		}
 		if len(args) < 3 {
 			p.mu.Unlock()
 			ctx.Reply(platform.TextMessage("用法: /farewell set <消息>"))
@@ -222,6 +243,11 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 		ctx.Reply(platform.TextMessage("告别消息已设置"))
 		return nil
 	case "off":
+		if !p.checkPermission(ctx, "welcome.manage") {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("权限不足：需要 welcome.manage 权限"))
+			return nil
+		}
 		cfg.FarewellEnabled = false
 		p.mu.Unlock()
 		go p.save()
@@ -241,6 +267,17 @@ func (p *Plugin) getOrCreateConfig(groupID string) *GroupConfig {
 	cfg := &GroupConfig{}
 	p.configs[groupID] = cfg
 	return cfg
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) save() {

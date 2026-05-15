@@ -310,7 +310,7 @@ func (p *Plugin) handleUserEnable(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 
@@ -348,7 +348,7 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 
 // handleBan 处理"封禁 <userID>"指令：全局封禁指定用户。
 func (p *Plugin) handleBan(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
@@ -371,7 +371,7 @@ func (p *Plugin) handleBan(ctx *eventctx.Context) error {
 
 // handleUnban 处理"解封 <userID>"指令：解除对指定用户的全局封禁。
 func (p *Plugin) handleUnban(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())

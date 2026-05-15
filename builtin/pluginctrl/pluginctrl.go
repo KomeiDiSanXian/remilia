@@ -63,6 +63,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -143,6 +144,7 @@ type Plugin struct {
 	superUsers map[string]bool
 	opts       *options
 	cd         *cooldown.Plugin // 内置冷却插件，供 Middleware 使用
+	permSvc    *plugin.ServiceProxy[*permission.Plugin]
 }
 
 func newPlugin(o *options) *Plugin {
@@ -450,7 +452,61 @@ func (p *Plugin) isGroupAdmin(ctx *eventctx.Context) bool {
 	if p.IsSuperUser(sender.ID) {
 		return true
 	}
-	return sender.GroupRole >= platform.GroupRoleAdmin
+	if sender.GroupRole >= platform.GroupRoleAdmin {
+		return true
+	}
+	if p.hasAdminRole(ctx) {
+		return true
+	}
+	return false
+}
+
+func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
+	if p.permSvc == nil {
+		return false
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return false
+	}
+	for _, role := range pp.GetUserRoles(ctx.GetUserID()) {
+		if role == "superadmin" || role == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
+	if p.permSvc == nil {
+		return false
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return false
+	}
+	for _, role := range pp.GetUserRoles(ctx.GetUserID()) {
+		if role == "superadmin" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool {
+	if p.IsSuperUser(ctx.GetSenderID()) {
+		return true
+	}
+	return p.hasAdminRole(ctx)
+}
+
+// isSuperUserOrSuperAdmin 仅放行 config 超管列表用户或 superadmin 角色持有者。
+// 与 isSuperUserOrAdmin 的区别：普通 admin 角色不可通过此检查。
+func (p *Plugin) isSuperUserOrSuperAdmin(ctx *eventctx.Context) bool {
+	if p.IsSuperUser(ctx.GetSenderID()) {
+		return true
+	}
+	return p.hasSuperAdminRole(ctx)
 }
 
 // ----- 指令处理 -----
@@ -502,7 +558,7 @@ func (p *Plugin) handleGlobalDisable(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	verb := p.opts.globalEnableCmd
@@ -529,7 +585,7 @@ func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 
 // handleSilence 处理"沉默 [群ID]"指令：将指定群（或当前群）设为静默状态。
 func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
@@ -558,7 +614,7 @@ func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 
 // handleResume 处理"响应 [群ID]"指令：解除指定群（或当前群）的静默状态。
 func (p *Plugin) handleResume(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
@@ -586,7 +642,7 @@ func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 
 // handleFlipDefault 处理"反转默认 <插件名>"指令：翻转插件的默认启用状态。
 func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
-	if !p.IsSuperUser(ctx.GetSenderID()) {
+	if !p.isSuperUserOrSuperAdmin(ctx) {
 		return ctx.ReplyError("权限不足，需要超级管理员权限")
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
@@ -703,7 +759,7 @@ func (p *Plugin) combinedGuard(pluginName string) eventctx.Middleware {
 			sender := ctx.GetSenderInfo()
 
 			// 0. 超级管理员豁免：bypass 所有检查
-			if sender.ID != "" && p.IsSuperUser(sender.ID) {
+			if sender.ID != "" && (p.IsSuperUser(sender.ID) || p.hasSuperAdminRole(ctx)) {
 				return next(ctx)
 			}
 
@@ -818,7 +874,7 @@ func New(opts ...Option) *plugin.Descriptor {
 		Name:         "pluginctrl",
 		Version:      "1.0.0",
 		Privileged:   true, // 需要 ctx.Admin（AddLifecycleListener）和 ctx 引擎中间件注册能力
-		OptionalDeps: []string{"storage"},
+		OptionalDeps: []string{"permission", "storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "逐群插件开关管理，支持持久化；作为 Privileged 插件自动为所有业务插件注入访问管控中间件",
@@ -842,6 +898,11 @@ func New(opts ...Option) *plugin.Descriptor {
 				o.flipDefaultCmd),
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			// 尝试获取权限插件（可选依赖）
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+				ctx.Log.Info("Permission plugin connected, admin role check enabled")
+			}
 			// 尝试获取存储（可选依赖）
 			if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
 				if client, ok2 := svc.Get(); ok2 {

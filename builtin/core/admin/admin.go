@@ -2,7 +2,6 @@ package admin
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -124,7 +123,7 @@ func (p *Plugin) tryGenerateBootstrapCode(ctx *plugin.SetupContext) {
 	mgr := pp.GetManager()
 	for _, roles := range mgr.ExportUserRoles() {
 		for _, r := range roles {
-			if r == "admin" {
+			if r == "superadmin" || r == "admin" {
 				return // 已有管理员，无需引导
 			}
 		}
@@ -134,18 +133,18 @@ func (p *Plugin) tryGenerateBootstrapCode(ctx *plugin.SetupContext) {
 		err  error
 	)
 	if p.vc() != nil {
-		code, err = p.vc().Generate(verifycode.CodeConfig{Role: "admin", TTL: 1 * time.Hour, MaxUses: 1})
+		code, err = p.vc().Generate(verifycode.CodeConfig{Role: "superadmin", TTL: 1 * time.Hour, MaxUses: 1})
 	} else {
-		code, err = pp.GenerateVerificationCode("admin", 1*time.Hour, 1)
+		code, err = pp.GenerateVerificationCode("superadmin", 1*time.Hour, 1)
 	}
 	if err != nil {
 		ctx.Log.Errorf("Failed to generate bootstrap code: %v", err)
 		return
 	}
 	ctx.Log.Warn("============================================")
-	ctx.Log.Warn("  首次启动引导：未检测到管理员")
+	ctx.Log.Warn("  首次启动引导：未检测到超级管理员")
 	ctx.Log.Warnf("  引导验证码: %s", code)
-	ctx.Log.Warnf("  请在聊天中使用 /code verify %s 获取管理员权限", code)
+	ctx.Log.Warnf("  请在聊天中使用 /code verify %s 获取超级管理员权限", code)
 	ctx.Log.Warn("  有效期: 1小时 | 一次性使用")
 	ctx.Log.Warn("============================================")
 }
@@ -411,6 +410,9 @@ func (p *Plugin) handlePermGrant(ctx *eventctx.Context, args *command.Args) erro
 	if userID == "" || perm == "" {
 		return p.reply(ctx, "用法: /perm grant <用户ID> <权限>")
 	}
+	if !p.checkTargetNotSuperadmin(ctx, userID) {
+		return nil
+	}
 	if err := p.perm().Grant(userID, perm); err != nil {
 		return p.reply(ctx, fmt.Sprintf("授予失败: %v", err))
 	}
@@ -427,6 +429,9 @@ func (p *Plugin) handlePermRevoke(ctx *eventctx.Context, args *command.Args) err
 	userID, perm := args.Get(1), args.Get(2)
 	if userID == "" || perm == "" {
 		return p.reply(ctx, "用法: /perm revoke <用户ID> <权限>")
+	}
+	if !p.checkTargetNotSuperadmin(ctx, userID) {
+		return nil
 	}
 	if err := p.perm().Revoke(userID, perm); err != nil {
 		return p.reply(ctx, fmt.Sprintf("撤销失败: %v", err))
@@ -471,6 +476,9 @@ func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error
 	if userID == "" || role == "" {
 		return p.reply(ctx, "用法: /perm role <用户ID> <角色>")
 	}
+	if !p.checkTargetNotSuperadmin(ctx, userID) {
+		return nil
+	}
 	if err := p.perm().AssignRole(userID, role); err != nil {
 		return p.reply(ctx, fmt.Sprintf("分配失败: %v", err))
 	}
@@ -501,7 +509,42 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
 	if p.perm() == nil {
 		return false
 	}
-	return slices.Contains(p.perm().GetUserRoles(ctx.GetUserID()), "admin")
+	for _, role := range p.perm().GetUserRoles(ctx.GetUserID()) {
+		if role == "superadmin" || role == "admin" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
+	if p.perm() == nil {
+		return false
+	}
+	for _, role := range p.perm().GetUserRoles(ctx.GetUserID()) {
+		if role == "superadmin" {
+			return true
+		}
+	}
+	return false
+}
+
+// checkTargetNotSuperadmin 检查目标用户是否为 superadmin，
+// 若不是 superadmin 的 admin 企图操作 superadmin 时拒绝。
+func (p *Plugin) checkTargetNotSuperadmin(ctx *eventctx.Context, targetUserID string) bool {
+	if p.perm() == nil {
+		return true
+	}
+	for _, role := range p.perm().GetUserRoles(targetUserID) {
+		if role == "superadmin" {
+			if !p.hasSuperAdminRole(ctx) {
+				ctx.Reply(platform.TextMessage("权限不足：不能操作超级管理员"))
+				return false
+			}
+			return true
+		}
+	}
+	return true
 }
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {

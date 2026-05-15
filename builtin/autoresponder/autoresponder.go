@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -56,6 +57,7 @@ type Plugin struct {
 	lastTrigger map[string]time.Time
 	dataFile    string
 	prefix      string
+	permSvc     *plugin.ServiceProxy[*permission.Plugin]
 }
 
 type Option func(*Plugin)
@@ -86,9 +88,10 @@ func New(opts ...Option) *plugin.Descriptor {
 
 func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:       "autoresponder",
-		Version:    "1.0.0",
-		Privileged: true,
+		Name:         "autoresponder",
+		Version:      "1.0.0",
+		Privileged:   true,
+		OptionalDeps: []string{"permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "关键词触发自动回复",
@@ -104,6 +107,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   /ar cooldown <ID> <秒>         — 设置规则冷却`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+			}
 			p.load()
 			p.registerCommands(ctx)
 			return p, nil
@@ -153,6 +159,10 @@ func (p *Plugin) handleAR(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleAdd(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "autoresponder.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 autoresponder.manage 权限"))
+		return nil
+	}
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /ar add [模式] <关键词> <响应>\n模式: exact, prefix, regex（默认=包含）"))
 		return nil
@@ -204,6 +214,10 @@ func (p *Plugin) handleAdd(ctx *eventctx.Context, args []string) error {
 }
 
 func (p *Plugin) handleRemove(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "autoresponder.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 autoresponder.manage 权限"))
+		return nil
+	}
 	if len(args) < 1 {
 		ctx.Reply(platform.TextMessage("用法: /ar remove <ID>"))
 		return nil
@@ -256,6 +270,10 @@ func (p *Plugin) handleList(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleCooldown(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "autoresponder.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 autoresponder.manage 权限"))
+		return nil
+	}
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /ar cooldown <ID> <秒>"))
 		return nil
@@ -349,6 +367,17 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 			return next(ctx)
 		}
 	}
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) save() {

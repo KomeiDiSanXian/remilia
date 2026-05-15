@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -24,6 +25,7 @@ type Plugin struct {
 	mu       sync.RWMutex
 	warnData map[string][]WarningEntry
 	dataFile string
+	permSvc  *plugin.ServiceProxy[*permission.Plugin]
 }
 
 func NewPlugin(opts ...Option) *Plugin {
@@ -65,6 +67,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   /clean <数量>         — 批量删除消息`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+			}
 			p.load()
 			p.registerCommands(ctx)
 			return p, nil
@@ -124,6 +129,10 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 }
 
 func (p *Plugin) handleMute(ctx *eventctx.Context) error {
+	if !p.checkPermission(ctx, "moderation.mute") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.mute 权限"))
+		return nil
+	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /mute <用户> [时长]"))
@@ -154,6 +163,10 @@ func (p *Plugin) handleMute(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleKick(ctx *eventctx.Context) error {
+	if !p.checkPermission(ctx, "moderation.kick") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.kick 权限"))
+		return nil
+	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /kick <用户> [原因]"))
@@ -183,6 +196,10 @@ func (p *Plugin) handleKick(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleWarn(ctx *eventctx.Context) error {
+	if !p.checkPermission(ctx, "moderation.warn") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.warn 权限"))
+		return nil
+	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /warn <用户> [原因]"))
@@ -243,6 +260,10 @@ func (p *Plugin) handleWarnings(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleClean(ctx *eventctx.Context) error {
+	if !p.checkPermission(ctx, "moderation.clean") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.clean 权限"))
+		return nil
+	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /clean <数量>"))
@@ -264,6 +285,17 @@ func (p *Plugin) handleClean(ctx *eventctx.Context) error {
 	}
 	ctx.Reply(platform.TextMessage("当前平台不支持消息清理"))
 	return nil
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) save() {

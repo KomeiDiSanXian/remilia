@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -13,6 +14,7 @@ import (
 
 type Plugin struct {
 	auditLogSvc *plugin.ServiceProxy[*auditlog.Plugin]
+	permSvc     *plugin.ServiceProxy[*permission.Plugin]
 }
 
 func New() *plugin.Descriptor {
@@ -40,10 +42,24 @@ func New() *plugin.Descriptor {
 				return nil, fmt.Errorf("auditlog plugin not found")
 			}
 			p.auditLogSvc = svc
+			if permSvc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = permSvc
+			}
 			p.registerCommands(ctx)
 			return p, nil
 		},
 	}
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 // auditLog 返回当前 auditlog 插件实例（防过期的延迟解析）。
@@ -73,6 +89,10 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 }
 
 func (p *Plugin) handleLogs(ctx *eventctx.Context) error {
+	if !p.checkPermission(ctx, "logs.view") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 logs.view 权限"))
+		return nil
+	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /logs search|user|action|stats|recent [参数]"))

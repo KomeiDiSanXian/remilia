@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -25,6 +26,7 @@ type Plugin struct {
 	mu       sync.RWMutex
 	cmds     map[string]*CustomCommand
 	dataFile string
+	permSvc  *plugin.ServiceProxy[*permission.Plugin]
 }
 
 type Option func(*Plugin)
@@ -49,9 +51,10 @@ func New(opts ...Option) *plugin.Descriptor {
 
 func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
-		Name:       "customcommands",
-		Version:    "1.0.0",
-		Privileged: true,
+		Name:         "customcommands",
+		Version:      "1.0.0",
+		Privileged:   true,
+		OptionalDeps: []string{"permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "用户自定义命令，无需写 Go 代码即可添加聊天命令",
@@ -65,6 +68,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 支持变量: {user} {group} {time} {date}`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+			}
 			p.load()
 			p.registerManagementCommands(ctx)
 			p.registerCatchAll(ctx)
@@ -156,6 +162,10 @@ func (p *Plugin) handleCC(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleAdd(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "customcommands.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 customcommands.manage 权限"))
+		return nil
+	}
 	if len(args) < 2 {
 		ctx.Reply(platform.TextMessage("用法: /cc add <名称> <响应>"))
 		return nil
@@ -185,6 +195,10 @@ func (p *Plugin) handleAdd(ctx *eventctx.Context, args []string) error {
 }
 
 func (p *Plugin) handleDelete(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "customcommands.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 customcommands.manage 权限"))
+		return nil
+	}
 	if len(args) < 1 {
 		ctx.Reply(platform.TextMessage("用法: /cc delete <名称>"))
 		return nil
@@ -223,6 +237,10 @@ func (p *Plugin) handleList(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) handleRaw(ctx *eventctx.Context, args []string) error {
+	if !p.checkPermission(ctx, "customcommands.manage") {
+		ctx.Reply(platform.TextMessage("权限不足：需要 customcommands.manage 权限"))
+		return nil
+	}
 	if len(args) < 1 {
 		ctx.Reply(platform.TextMessage("用法: /cc raw <名称>"))
 		return nil
@@ -239,6 +257,17 @@ func (p *Plugin) handleRaw(ctx *eventctx.Context, args []string) error {
 	}
 	ctx.Reply(platform.TextMessage(fmt.Sprintf("/%s 的原始内容:\n%s", name, cmd.Response)))
 	return nil
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) save() {

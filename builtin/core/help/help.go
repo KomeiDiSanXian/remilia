@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -78,6 +79,8 @@ type Plugin struct {
 	// 可通过 WithImageRender(false) 关闭，退回纯文字发送。
 	imageRender bool
 
+	permSvc *plugin.ServiceProxy[*permission.Plugin]
+
 	// 缓存 — 每个条目独立维护过期时间
 	helpCache     map[string]cacheEntry[string]
 	imageCache    map[string]cacheEntry[[]byte]
@@ -99,9 +102,10 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 	}
 
 	return &plugin.Descriptor{
-		Name:    "help",
-		Version: "2.0.0",
-		Deps:    []string{},
+		Name:         "help",
+		Version:      "2.0.0",
+		Deps:         []string{},
+		OptionalDeps: []string{"permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia",
 			Description: "提供命令和插件的帮助信息查询功能",
@@ -115,27 +119,41 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading help plugin")
+			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+				p.permSvc = svc
+			}
 			p.Info = ctx.Info
 			p.Engine = ctx.Info.Coordinator()
 
 			ctx.Reg.RegisterCommand("", "/help").SetDefinition(helpCmdDef).Handle(p.handleHelp)
 
-		// 订阅插件生命周期事件，Scope 追踪并在卸载时自动取消订阅
-		for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
-			t := topic
-			if _, err := ctx.Scope().Subscribe(t, func(_ any) {
-				ctx.Log.Debugf("Cache invalidated due to %s event", t)
-				p.invalidateCache()
-			}); err != nil {
-				ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
+			// 订阅插件生命周期事件，Scope 追踪并在卸载时自动取消订阅
+			for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
+				t := topic
+				if _, err := ctx.Scope().Subscribe(t, func(_ any) {
+					ctx.Log.Debugf("Cache invalidated due to %s event", t)
+					p.invalidateCache()
+				}); err != nil {
+					ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
+				}
 			}
-		}
 
 			ctx.Log.Info("Help plugin loaded")
 			// 返回 *Plugin 注入容器，其他插件可通过 plugin.Service[*help.Plugin](ctx, "help") 获取
 			return p, nil
 		},
 	}
+}
+
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	pp, ok := p.permSvc.Get()
+	if !ok || pp == nil {
+		return true
+	}
+	return pp.HasPermission(ctx.GetUserID(), perm)
 }
 
 // newHelpPluginInternal 创建帮助插件内部实例
@@ -382,6 +400,9 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 
 // showAllPlugins 显示所有插件的列表
 func (p *Plugin) showAllPlugins(ctx *eventctx.Context, forceText bool) error {
+	if !p.checkPermission(ctx, "help.plugins") {
+		return p.sendMessage(ctx, "权限不足：需要 help.plugins 权限", forceText)
+	}
 	// 尝试从缓存获取
 	cacheKey := "plugins"
 	if cached, ok := p.getCachedHelp(cacheKey); ok {
