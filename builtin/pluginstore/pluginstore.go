@@ -67,6 +67,7 @@ type Plugin struct {
 	fileMu   sync.Mutex // guards read-modify-write on the data file
 	dataFile string     // 持久化文件路径（空字符串=无持久化）
 	store    kv.Store   // LevelDB 存储（优先级高于 dataFile）
+	dryRun   bool       // DryRun 模式下跳过所有 I/O
 }
 
 // Option 配置选项
@@ -114,6 +115,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
+			p.dryRun = ctx.DryRun
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -180,6 +182,9 @@ func (p *Plugin) SaveAll() (saved, failed int) {
 }
 
 func (p *Plugin) doSave(r *registration) error {
+	if p.dryRun {
+		return nil
+	}
 	state, err := r.save()
 	if err != nil {
 		return fmt.Errorf("pluginstore: SaveState for %s failed: %w", r.name, err)
@@ -219,6 +224,9 @@ func (p *Plugin) doSave(r *registration) error {
 }
 
 func (p *Plugin) tryRestore(name string, restore RestoreFunc) {
+	if p.dryRun {
+		return
+	}
 	if p.store != nil {
 		raw, err := p.store.Get([]byte(name))
 		if errors.Is(err, kv.ErrNotFound) {

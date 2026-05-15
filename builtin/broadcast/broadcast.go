@@ -115,7 +115,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Infof("Plugin loaded (rate=%.1f/s concurrency=%d)", p.cfg.Rate, p.cfg.Concurrency)
-			p.loadSubs()
+			if !setupCtx.DryRun {
+				p.loadSubs()
+			}
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
