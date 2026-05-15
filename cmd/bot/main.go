@@ -39,8 +39,8 @@ func main() {
 
 	bot, err := remilia.NewBotBuilder().
 		WithPlatformRegistry(reg).
-		WithName("remilia-bot").
-		WithVersion("0.1.0").
+		WithName("remilia").
+		WithVersion(remilia.Version).
 		WithEngineOptions(config.EngineOptions(cfg.Engine)...).
 		Build()
 	if err != nil {
@@ -58,7 +58,7 @@ func main() {
 	pprofSrv := startPprof(cfg.Pprof, healthHandler)
 	healthSrv := startHealthServer(cfg.Pprof.Addr, healthHandler, pprofSrv != nil)
 
-	logger.Info("[bot] Starting...")
+	logger.Infof("[bot] Starting... (version=%s commit=%s date=%s)", remilia.Version, commit, date)
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("Failed to start bot")
 	}
@@ -124,6 +124,9 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 			"status":    "ok",
 			"running":   bot.IsRunning(),
 			"uptime":    bot.Uptime().String(),
+			"version":   remilia.Version,
+			"commit":    commit,
+			"buildDate": date,
 			"platforms": platforms,
 		}
 		if !bot.IsRunning() {

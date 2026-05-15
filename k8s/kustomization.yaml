@@ -16,7 +16,8 @@ images:
   - name: ghcr.io/KomeiDiSanXian/remilia
     newTag: latest
 
-commonLabels:
-  app.kubernetes.io/name: remilia
-  app.kubernetes.io/instance: remilia-bot
-  app.kubernetes.io/part-of: remilia
+labels:
+  - pairs:
+      app.kubernetes.io/name: remilia
+      app.kubernetes.io/instance: remilia-bot
+      app.kubernetes.io/part-of: remilia
