@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-// WASMDescriptor 描述一个 WASM 插件的配置。
-// 与 [plugin.Descriptor] 不同，WASMDescriptor 不包含 Setup/Teardown 回调，
+// Descriptor 描述一个 WASM 插件的配置。
+// 与 [plugin.Descriptor] 不同，Descriptor 不包含 Setup/Teardown 回调，
 // 而是通过加载 .wasm 文件并调用其导出的函数来完成生命周期管理。
-type WASMDescriptor struct {
+type Descriptor struct {
 	// Name 是插件的唯一标识。
 	Name string
 	// Version 是插件的版本号（可选，建议 semver）。
@@ -31,22 +31,22 @@ type ResourceLimit struct {
 	MaxCallPerSec int64
 }
 
-// Validate 校验 WASMDescriptor 的必填字段。
-func (d *WASMDescriptor) Validate() error {
+// Validate 校验 Descriptor 的必填字段。
+func (d *Descriptor) Validate() error {
 	if d.Name == "" {
-		return fmt.Errorf("wasm: WASMDescriptor.Name is required")
+		return fmt.Errorf("wasm: Descriptor.Name is required")
 	}
 	if d.Path == "" {
-		return fmt.Errorf("wasm: WASMDescriptor.Path is required")
+		return fmt.Errorf("wasm: Descriptor.Path is required")
 	}
 	return nil
 }
 
 // EffectiveResourceLimit 返回生效的资源限制（nil 字段用默认值填充）。
-func (d *WASMDescriptor) EffectiveResourceLimit() ResourceLimit {
+func (d *Descriptor) EffectiveResourceLimit() ResourceLimit {
 	rl := ResourceLimit{
-		MemoryPages:    DefaultMemoryPages,
-		MaxCallPerSec:  DefaultMaxCallPerSec,
+		MemoryPages:   DefaultMemoryPages,
+		MaxCallPerSec: DefaultMaxCallPerSec,
 	}
 	if d.ResourceLimit != nil {
 		if d.ResourceLimit.MemoryPages > 0 {

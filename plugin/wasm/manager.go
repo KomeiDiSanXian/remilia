@@ -11,7 +11,7 @@ import (
 
 // PluginInstance 表示一个已注册的 WASM 插件的运行时实例。
 type PluginInstance struct {
-	Desc   *WASMDescriptor
+	Desc   *Descriptor
 	Module *Module
 	Bridge *Bridge
 }
@@ -21,7 +21,7 @@ type PluginInstance struct {
 // 使用方式：
 //
 //	wasmMgr := wasm.NewManager(pluginManager, nil)
-//	wasmMgr.Register(ctx, &wasm.WASMDescriptor{
+//	wasmMgr.Register(ctx, &wasm.Descriptor{
 //	    Name: "myplugin", Path: "./plugins/myplugin.wasm",
 //	})
 type Manager struct {
@@ -29,8 +29,8 @@ type Manager struct {
 	engine    engine.MatcherWriter
 	wasmRt    *Runtime
 
-	mu       sync.Mutex
-	plugins  map[string]*PluginInstance
+	mu      sync.Mutex
+	plugins map[string]*PluginInstance
 }
 
 // NewManager 创建一个 WASM 插件管理器。
@@ -40,8 +40,8 @@ type Manager struct {
 // hostRegistry 为 nil 时使用默认宿主函数集。
 func NewManager(eng engine.MatcherWriter, hostRegistry *HostFuncRegistry) *Manager {
 	return &Manager{
-		engine:   eng,
-		plugins:  make(map[string]*PluginInstance),
+		engine:  eng,
+		plugins: make(map[string]*PluginInstance),
 	}
 }
 
@@ -64,7 +64,7 @@ func (m *Manager) getRuntime(ctx context.Context) (*Runtime, error) {
 }
 
 // Register 加载并注册一个 WASM 插件。
-func (m *Manager) Register(ctx context.Context, desc *WASMDescriptor) (*PluginInstance, error) {
+func (m *Manager) Register(ctx context.Context, desc *Descriptor) (*PluginInstance, error) {
 	if err := desc.Validate(); err != nil {
 		return nil, err
 	}

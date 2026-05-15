@@ -11,29 +11,29 @@ import (
 )
 
 func TestDescriptor_Validate(t *testing.T) {
-	d := &wasm.WASMDescriptor{Name: "test", Path: "/path/to/test.wasm"}
+	d := &wasm.Descriptor{Name: "test", Path: "/path/to/test.wasm"}
 	assert.NoError(t, d.Validate())
 }
 
 func TestDescriptor_Validate_NoName(t *testing.T) {
-	d := &wasm.WASMDescriptor{Path: "/path/to/test.wasm"}
+	d := &wasm.Descriptor{Path: "/path/to/test.wasm"}
 	assert.Error(t, d.Validate())
 }
 
 func TestDescriptor_Validate_NoPath(t *testing.T) {
-	d := &wasm.WASMDescriptor{Name: "test"}
+	d := &wasm.Descriptor{Name: "test"}
 	assert.Error(t, d.Validate())
 }
 
 func TestDescriptor_EffectiveResourceLimit_Defaults(t *testing.T) {
-	d := &wasm.WASMDescriptor{Name: "test", Path: "/x.wasm"}
+	d := &wasm.Descriptor{Name: "test", Path: "/x.wasm"}
 	rl := d.EffectiveResourceLimit()
 	assert.Equal(t, uint32(2), rl.MemoryPages)
 	assert.Equal(t, int64(1000), rl.MaxCallPerSec)
 }
 
 func TestDescriptor_EffectiveResourceLimit_Custom(t *testing.T) {
-	d := &wasm.WASMDescriptor{
+	d := &wasm.Descriptor{
 		Name: "test", Path: "/x.wasm",
 		ResourceLimit: &wasm.ResourceLimit{MemoryPages: 8, MaxCallPerSec: 500},
 	}
