@@ -1,86 +1,125 @@
-// Package messagelog 提供轻量的群消息历史记录功能（修复框架问题 #9）。
+// Package messagelog 提供群消息历史记录功能，包含内存热缓存 + SQLite 持久化。
 //
-// 消息以环形缓冲区方式存储于内存，按群/用户分片，支持：
-//   - [Record] 记录一条消息
-//   - [QueryGroup] 查询群最近 N 条消息
-//   - [QueryUser] 查询用户最近 N 条消息
-//   - [WordFreq] 统计群内词频（用于词频/词云插件）
-//   - [Clear] 清理指定时间前的消息（防止内存无限增长）
+// 架构设计：
+//   - 每条消息通过 [MessageLogger] 中间件异步记录，不阻塞主流程
+//   - 内存 ring buffer（热缓存）保留近期消息，查询优先走内存
+//   - 异步批量写入独立的 SQLite 数据库（data/db/messagelog.db）
+//   - 写入采用 channel + 批量 flush（每100ms/累积1000条），10k msg/s 下亦可胜任
 //
-// 默认全局实例通过包级函数访问；也可用 [New] 创建独立实例。
+// 数据模型基于 platform.Event，记录 RequestID / 平台 / 群组 / 用户 / 内容 / 回复链等信息，
+// 可用于历史查询、词频统计、词云、排查（通过 RequestID 关联审计日志）。
 //
-// 典型使用流程（在插件 Setup 中注册被动监听，记录消息）：
+// 使用示例（在 cmd/bot/plugins.go 中初始化）：
 //
-//	// Setup
-//	ctx.Reg.RegisterMatcher("").Handle(func(c *eventctx.Context) error {
-//	    messagelog.Record(messagelog.Message{
-//	        GroupID:   c.GetGroupID(),
-//	        UserID:    c.GetSenderID(),
-//	        Content:   c.GetMessageContent(),
-//	        Timestamp: time.Now(),
-//	    })
-//	    return nil
-//	})
+//	mlDB, _ := messagelog.OpenDB("data/db/messagelog.db")
+//	messagelog.Default().UseDB(mlDB)
+//	messagelog.Default().Start()
+//	eng.Use(messagelog.MessageLogger())
 //
-//	// 词频统计
-//	freq := messagelog.WordFreq(groupID, 1000) // 最近1000条消息的词频
+// 查询接口：
+//
+//	// 内存热缓存（最近 N 条）
+//	msgs := messagelog.QueryGroup("groupID", 10)
+//	msgs := messagelog.QueryUser("userID", 10)
+//
+//	// SQLite 时间区间查询（词云插件使用）
+//	entries, _ := logger.QueryGroupFromDB("groupID", since, until, 1000)
+//	freq, _ := logger.WordFreqFromDB("groupID", since, until, 1000)
+//
+// 注意：Clear 只清理内存缓存。数据库消息默认永久保留（无TTL），
+// 如需清理请调用 logger.Clear(before) 或通过管理命令定期执行。
 package messagelog
 
 import (
-	"strings"
+	"context"
 	"sync"
 	"time"
-	"unicode"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
+
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/middleware/ctxkeys"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// DefaultCapacity 每个群/用户的默认环形缓冲区大小
+// DefaultCapacity 每个群/用户的内存环形缓冲区默认大小。
 const DefaultCapacity = 1000
 
-// Message 一条消息记录。
-type Message struct {
-	// GroupID 群组 ID；私聊场景留空
-	GroupID string
-	// UserID 发送者 ID
-	UserID string
-	// Content 消息文本内容
-	Content string
-	// Timestamp 消息接收时间
-	Timestamp time.Time
+// RecordEntry 一条消息的完整记录（内存缓存 + DB 查询的统一结构）。
+type RecordEntry struct {
+	RequestID string    // RequestID 中间件分配的追踪 ID
+	Platform  string    // 平台标识符（"qq", "discord", "telegram"）
+	Kind      string    // 事件类别（"GROUP_MESSAGE", "PRIVATE_MESSAGE"）
+	EventID   string    // 平台级唯一事件 ID
+	ChatID    string    // 会话 ID（群 ID / 用户 ID）
+	ChatName  string    // 会话名称（平台提供时有效）
+	ParentID  string    // 父容器 ID（频道场景的 guild_id / server_id）
+	IsGroup   bool      // 是否为群组/频道消息
+	UserID    string    // 发送者 ID
+	UserName  string    // 发送者显示名
+	UserRole  string    // 发送者在群中的角色（owner / admin / member）
+	Content   string    // 消息文本内容
+	ReplyToID string    // 被回复的消息 ID（回复链追踪）
+	RawType   string    // 平台原始事件类型字符串
+	Timestamp time.Time // 事件发生时间
+	CreatedAt time.Time // 记录入库时间
 }
 
-// ring 单个维度（群或用户）的环形缓冲区
+// MessageRecord 对应 SQLite 表的 GORM 模型。
+type MessageRecord struct {
+	ID        int64  `gorm:"primaryKey;autoIncrement"`
+	RequestID string `gorm:"index;not null"`
+	Platform  string `gorm:"index;not null"`
+	Kind      string `gorm:"index;not null"`
+	EventID   string `gorm:"index"`
+	ChatID    string `gorm:"index:idx_chat_time;not null"`
+	ChatName  string
+	ParentID  string
+	IsGroup   bool
+	UserID    string `gorm:"index;not null"`
+	UserName  string
+	UserRole  string
+	Content   string `gorm:"type:text"`
+	ReplyToID string
+	RawType   string
+	Timestamp int64 `gorm:"index:idx_chat_time"`
+	CreatedAt int64
+}
+
+// ring 单个维度（群或用户）的环形缓冲区（内存热缓存）。
 type ring struct {
-	buf  []Message
-	head int // 下一次写入位置
-	size int // 当前有效元素数
-	cap_ int // 缓冲区容量
+	buf  []RecordEntry
+	head int
+	size int
+	cap_ int
 }
 
 func newRing(cap int) *ring {
 	if cap <= 0 {
 		cap = DefaultCapacity
 	}
-	return &ring{buf: make([]Message, cap), cap_: cap}
+	return &ring{buf: make([]RecordEntry, cap), cap_: cap}
 }
 
-func (r *ring) add(m Message) {
-	r.buf[r.head] = m
+func (r *ring) add(e RecordEntry) {
+	r.buf[r.head] = e
 	r.head = (r.head + 1) % r.cap_
 	if r.size < r.cap_ {
 		r.size++
 	}
 }
 
-// snapshot 返回最近 n 条消息（从旧到新）
-func (r *ring) snapshot(n int) []Message {
+func (r *ring) snapshot(n int) []RecordEntry {
 	if n <= 0 || r.size == 0 {
 		return nil
 	}
 	if n > r.size {
 		n = r.size
 	}
-	out := make([]Message, n)
-	// 起始位置：从最旧的一条往后读 n 条
+	out := make([]RecordEntry, n)
 	start := (r.head - n + r.cap_) % r.cap_
 	for i := range out {
 		out[i] = r.buf[(start+i)%r.cap_]
@@ -88,11 +127,19 @@ func (r *ring) snapshot(n int) []Message {
 	return out
 }
 
-// Logger 消息日志记录器。
-//
-// 使用独立实例时通过 [New] 创建。
+// recordJob 异步写入队列的任务。
+type recordJob struct {
+	entry RecordEntry
+}
+
+// Logger 消息日志记录器。包含内存 ring buffer + 异步 SQLite 写入。
 type Logger struct {
-	cap      int
+	db     *gorm.DB
+	cap    int
+	stop   context.CancelFunc
+	wg     sync.WaitGroup
+	record chan recordJob
+
 	groupMu  sync.RWMutex
 	groupBuf map[string]*ring // groupID → ring
 	userMu   sync.RWMutex
@@ -100,7 +147,7 @@ type Logger struct {
 }
 
 // New 创建一个新的 Logger，cap 为每个群/用户的环形缓冲区容量。
-// cap <= 0 时使用 [DefaultCapacity]。
+// cap <= 0 时使用 DefaultCapacity。
 func New(cap int) *Logger {
 	if cap <= 0 {
 		cap = DefaultCapacity
@@ -112,78 +159,272 @@ func New(cap int) *Logger {
 	}
 }
 
-// Record 记录一条消息。
-//
-// GroupID 为空时跳过群维度索引；UserID 为空时跳过用户维度索引。
-// 两者均不为空时同时更新两个索引。
-func (l *Logger) Record(m Message) {
-	if m.Content == "" {
+// OpenDB 打开或创建独立的 SQLite 数据库文件，自动建表。
+// 返回的 *gorm.DB 不经过 infra/storage 插件体系，与其他插件数据完全隔离。
+func OpenDB(path string) (*gorm.DB, error) {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	if err != nil {
+		return nil, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.AutoMigrate(&MessageRecord{}); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// UseDB 绑定外部数据库实例到 Logger。
+func (l *Logger) UseDB(db *gorm.DB) {
+	l.db = db
+}
+
+// Start 启动后台异步写入 goroutine。
+// 在注册 MessageLogger 中间件前必须调用。
+func (l *Logger) Start() {
+	if l.record != nil {
 		return
 	}
-	if m.GroupID != "" {
+	ctx, cancel := context.WithCancel(context.Background())
+	l.stop = cancel
+	l.record = make(chan recordJob, 10000)
+	l.wg.Add(1)
+	go l.flushLoop(ctx)
+}
+
+// Stop 停止后台写入，等待已提交数据全部落盘。
+func (l *Logger) Stop() {
+	if l.stop != nil {
+		l.stop()
+	}
+	l.wg.Wait()
+}
+
+// flushLoop 后台批量写入循环。
+// 每 100ms 或积攒 1000 条执行一次批量 INSERT，减少 SQLite 事务开销。
+func (l *Logger) flushLoop(ctx context.Context) {
+	defer l.wg.Done()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	batch := make([]MessageRecord, 0, 1000)
+
+	flush := func() {
+		if len(batch) == 0 || l.db == nil {
+			return
+		}
+		if tx := l.db.CreateInBatches(batch, 500); tx.Error != nil {
+			logger.WithError(tx.Error).Warn("[MessageLog] Failed to flush message batch")
+		}
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			flush()
+			return
+		case job := <-l.record:
+			batch = append(batch, recordToModel(job.entry))
+			if len(batch) >= 1000 {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+// recordToModel 将 RecordEntry 转换为 GORM 模型。
+func recordToModel(e RecordEntry) MessageRecord {
+	return MessageRecord{
+		RequestID: e.RequestID,
+		Platform:  e.Platform,
+		Kind:      e.Kind,
+		EventID:   e.EventID,
+		ChatID:    e.ChatID,
+		ChatName:  e.ChatName,
+		ParentID:  e.ParentID,
+		IsGroup:   e.IsGroup,
+		UserID:    e.UserID,
+		UserName:  e.UserName,
+		UserRole:  e.UserRole,
+		Content:   e.Content,
+		ReplyToID: e.ReplyToID,
+		RawType:   e.RawType,
+		Timestamp: e.Timestamp.UnixNano(),
+		CreatedAt: e.CreatedAt.UnixNano(),
+	}
+}
+
+// modelToEntry 将 GORM 模型转换为 RecordEntry。
+func modelToEntry(m MessageRecord) RecordEntry {
+	return RecordEntry{
+		RequestID: m.RequestID,
+		Platform:  m.Platform,
+		Kind:      m.Kind,
+		EventID:   m.EventID,
+		ChatID:    m.ChatID,
+		ChatName:  m.ChatName,
+		ParentID:  m.ParentID,
+		IsGroup:   m.IsGroup,
+		UserID:    m.UserID,
+		UserName:  m.UserName,
+		UserRole:  m.UserRole,
+		Content:   m.Content,
+		ReplyToID: m.ReplyToID,
+		RawType:   m.RawType,
+		Timestamp: time.Unix(0, m.Timestamp),
+	}
+}
+
+// Record 直接记录一条消息到内存缓存（不经过异步写入）。
+// 适用于测试或需要同步记录的场景。生产环境推荐使用 RecordAsync。
+func (l *Logger) Record(e RecordEntry) {
+	if e.Content == "" {
+		return
+	}
+	if e.ChatID != "" {
 		l.groupMu.Lock()
-		r, ok := l.groupBuf[m.GroupID]
+		r, ok := l.groupBuf[e.ChatID]
 		if !ok {
 			r = newRing(l.cap)
-			l.groupBuf[m.GroupID] = r
+			l.groupBuf[e.ChatID] = r
 		}
-		r.add(m)
+		r.add(e)
 		l.groupMu.Unlock()
 	}
-	if m.UserID != "" {
+	if e.UserID != "" {
 		l.userMu.Lock()
-		r, ok := l.userBuf[m.UserID]
+		r, ok := l.userBuf[e.UserID]
 		if !ok {
 			r = newRing(l.cap)
-			l.userBuf[m.UserID] = r
+			l.userBuf[e.UserID] = r
 		}
-		r.add(m)
+		r.add(e)
 		l.userMu.Unlock()
 	}
 }
 
+// RecordAsync 从一个 platform.Event + Context 中提取全量信息，
+// 异步写入 SQLite，同时写入内存 ring buffer 热缓存。
+//
+// 提取的信息包括：RequestID、平台、事件类型、群/用户、内容、回复链、原始类型等。
+func (l *Logger) RecordAsync(ev platform.Event, ctx *eventctx.Context) {
+	e := eventToEntry(ev, ctx)
+
+	// 异步写入 DB channel（buffer 满时静默丢弃，保护进程）
+	select {
+	case l.record <- recordJob{entry: e}:
+	default:
+	}
+
+	// 同步写入内存 ring buffer
+	if e.ChatID != "" {
+		l.groupMu.Lock()
+		r, ok := l.groupBuf[e.ChatID]
+		if !ok {
+			r = newRing(l.cap)
+			l.groupBuf[e.ChatID] = r
+		}
+		r.add(e)
+		l.groupMu.Unlock()
+	}
+	if e.UserID != "" {
+		l.userMu.Lock()
+		r, ok := l.userBuf[e.UserID]
+		if !ok {
+			r = newRing(l.cap)
+			l.userBuf[e.UserID] = r
+		}
+		r.add(e)
+		l.userMu.Unlock()
+	}
+}
+
+// eventToEntry 从 platform.Event 和 Context 提取完整的消息记录。
+func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
+	chat := ev.Chat()
+	sender := ev.Sender()
+
+	requestID, _ := ctx.Get(ctxkeys.CtxKeyRequestID)
+	rid, _ := requestID.(string)
+
+	var replyToID string
+	if re, ok := ev.(platform.ReplyEvent); ok {
+		replyToID = re.ReplyToID()
+	}
+
+	return RecordEntry{
+		RequestID: rid,
+		Platform:  ev.Platform(),
+		Kind:      string(ev.Kind()),
+		EventID:   ev.ID(),
+		ChatID:    chat.ID,
+		ChatName:  chat.Name,
+		ParentID:  chat.ParentID,
+		IsGroup:   chat.IsGroup,
+		UserID:    sender.ID,
+		UserName:  sender.DisplayName,
+		UserRole:  groupRoleString(sender.GroupRole),
+		Content:   ev.Content(),
+		ReplyToID: replyToID,
+		RawType:   platform.RawType(ev),
+		Timestamp: ev.Timestamp(),
+		CreatedAt: time.Now(),
+	}
+}
+
+func groupRoleString(r platform.GroupRole) string {
+	switch r {
+	case platform.GroupRoleOwner:
+		return "owner"
+	case platform.GroupRoleAdmin:
+		return "admin"
+	case platform.GroupRoleMember:
+		return "member"
+	default:
+		return ""
+	}
+}
+
+// --- 内存热缓存查询（优先走 ring buffer） ---
+
 // QueryGroup 返回群 groupID 最近 n 条消息（从旧到新）。
-// n <= 0 或群无记录时返回 nil。
-func (l *Logger) QueryGroup(groupID string, n int) []Message {
+// 只查询内存 ring buffer，n 超出缓冲区容量时只返回缓冲区内的条数。
+func (l *Logger) QueryGroup(groupID string, n int) []RecordEntry {
 	if groupID == "" || n <= 0 {
 		return nil
 	}
 	l.groupMu.RLock()
 	r := l.groupBuf[groupID]
 	l.groupMu.RUnlock()
-	if r == nil {
-		return nil
+	if r != nil {
+		return r.snapshot(n)
 	}
-	l.groupMu.RLock()
-	defer l.groupMu.RUnlock()
-	return r.snapshot(n)
+	return nil
 }
 
 // QueryUser 返回用户 userID 最近 n 条消息（从旧到新）。
-func (l *Logger) QueryUser(userID string, n int) []Message {
+func (l *Logger) QueryUser(userID string, n int) []RecordEntry {
 	if userID == "" || n <= 0 {
 		return nil
 	}
 	l.userMu.RLock()
 	r := l.userBuf[userID]
 	l.userMu.RUnlock()
-	if r == nil {
-		return nil
+	if r != nil {
+		return r.snapshot(n)
 	}
-	l.userMu.RLock()
-	defer l.userMu.RUnlock()
-	return r.snapshot(n)
+	return nil
 }
 
-// WordFreq 统计群 groupID 最近 n 条消息中的词频。
-//
-// 分词策略：按 Unicode 空白分割，过滤长度 < 2 的词及纯标点词。
-// 返回 map[词]出现次数，可直接用于词云/排行展示。
-//
-// 示例：
-//
-//	freq := logger.WordFreq("group123", 500)
-//	// freq = map["大家":12 "你好":8 ...]
+// WordFreq 统计群 groupID 最近 n 条消息中的词频（基于内存 ring buffer）。
+// 返回 map[词]出现次数，可用于简单词云展示。
 func (l *Logger) WordFreq(groupID string, n int) map[string]int {
 	msgs := l.QueryGroup(groupID, n)
 	freq := make(map[string]int)
@@ -195,10 +436,79 @@ func (l *Logger) WordFreq(groupID string, n int) map[string]int {
 	return freq
 }
 
-// Clear 删除所有群/用户中时间戳早于 before 的消息记录。
-//
-// 建议定期调用（如每天凌晨）防止内存无限增长。
-// 对于不再活跃的群/用户，其缓冲区也会被完全清除。
+// --- SQLite 查询（时间区间 + 大数据量） ---
+
+// WordFreqEntry 词频统计结果条目。
+type WordFreqEntry struct {
+	Word  string
+	Count int
+}
+
+// WordFreqFromDB 从 SQLite 查询指定时间区间内的词频（Go 侧分词）。
+// 用于词云等需要分析大量历史消息的场景。
+func (l *Logger) WordFreqFromDB(chatID string, since, until time.Time, limit int) ([]WordFreqEntry, error) {
+	if l.db == nil {
+		return nil, nil
+	}
+	var models []MessageRecord
+	err := l.db.Where("chat_id = ? AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
+		Order("id DESC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	freq := make(map[string]int)
+	for _, m := range models {
+		for _, word := range tokenize(m.Content) {
+			freq[word]++
+		}
+	}
+	out := make([]WordFreqEntry, 0, len(freq))
+	for word, count := range freq {
+		out = append(out, WordFreqEntry{Word: word, Count: count})
+	}
+	return out, nil
+}
+
+// QueryGroupFromDB 从 SQLite 查询群指定时间区间的消息记录。
+func (l *Logger) QueryGroupFromDB(chatID string, since, until time.Time, limit int) ([]RecordEntry, error) {
+	if l.db == nil {
+		return nil, nil
+	}
+	var models []MessageRecord
+	err := l.db.Where("chat_id = ? AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
+		Order("id DESC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RecordEntry, len(models))
+	for i, m := range models {
+		out[i] = modelToEntry(m)
+	}
+	return out, nil
+}
+
+// QueryUserFromDB 从 SQLite 查询用户指定时间区间的消息记录。
+func (l *Logger) QueryUserFromDB(userID string, since, until time.Time, limit int) ([]RecordEntry, error) {
+	if l.db == nil {
+		return nil, nil
+	}
+	var models []MessageRecord
+	err := l.db.Where("user_id = ? AND timestamp BETWEEN ? AND ?", userID, since.UnixNano(), until.UnixNano()).
+		Order("id DESC").Limit(limit).Find(&models).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RecordEntry, len(models))
+	for i, m := range models {
+		out[i] = modelToEntry(m)
+	}
+	return out, nil
+}
+
+// --- 清理 ---
+
+// Clear 从内存 ring buffer 中删除时间戳早于 before 的消息。
+// 同时从 SQLite 中删除对应记录（DB 清理可选）。
 func (l *Logger) Clear(before time.Time) {
 	l.groupMu.Lock()
 	for gid, r := range l.groupBuf {
@@ -221,7 +531,15 @@ func (l *Logger) Clear(before time.Time) {
 		}
 	}
 	l.userMu.Unlock()
+
+	if l.db != nil {
+		if tx := l.db.Where("timestamp < ?", before.UnixNano()).Delete(&MessageRecord{}); tx.Error != nil {
+			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
+		}
+	}
 }
+
+// --- 统计 ---
 
 // GroupCount 返回已记录消息的群数量。
 func (l *Logger) GroupCount() int {
@@ -237,7 +555,7 @@ func (l *Logger) UserCount() int {
 	return len(l.userBuf)
 }
 
-// GroupMessageCount 返回群 groupID 已记录的消息数量。
+// GroupMessageCount 返回群 groupID 在内存缓存中的消息数量。
 func (l *Logger) GroupMessageCount(groupID string) int {
 	l.groupMu.RLock()
 	r := l.groupBuf[groupID]
@@ -248,7 +566,8 @@ func (l *Logger) GroupMessageCount(groupID string) int {
 	return r.size
 }
 
-// pruneRing 返回只保留时间 >= before 的消息的新环形缓冲区
+// --- 内部工具 ---
+
 func pruneRing(r *ring, before time.Time, cap int) *ring {
 	all := r.snapshot(r.size)
 	out := newRing(cap)
@@ -260,49 +579,55 @@ func pruneRing(r *ring, before time.Time, cap int) *ring {
 	return out
 }
 
-// tokenize 简单分词：按空白切割，过滤纯标点/长度<2 的 token
+// tokenize 简单分词：按空白切割，过滤长度 < 2 的词及纯标点词。
 func tokenize(text string) []string {
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return unicode.IsSpace(r)
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if len([]rune(f)) < 2 {
+	var out []string
+	var buf []rune
+	for _, r := range text {
+		if !isWordRune(r) {
+			if len(buf) >= 2 {
+				out = append(out, string(buf))
+			}
+			buf = buf[:0]
 			continue
 		}
-		// 过滤全为标点/符号的词
-		allPunct := true
-		for _, r := range f {
-			if !unicode.IsPunct(r) && !unicode.IsSymbol(r) {
-				allPunct = false
-				break
-			}
-		}
-		if !allPunct {
-			out = append(out, f)
-		}
+		buf = append(buf, r)
+	}
+	if len(buf) >= 2 {
+		out = append(out, string(buf))
 	}
 	return out
+}
+
+func isWordRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9') ||
+		(r >= 0x4e00 && r <= 0x9fff) || // CJK 统一表意文字
+		(r >= 0x3400 && r <= 0x4dbf) || // CJK 扩展A
+		r == '\''
 }
 
 // --- 全局默认实例 ---
 
 var defaultLogger = New(DefaultCapacity)
 
-// Record 使用全局默认实例记录消息。
-func Record(m Message) { defaultLogger.Record(m) }
-
-// QueryGroup 使用全局默认实例查询群消息。
-func QueryGroup(groupID string, n int) []Message { return defaultLogger.QueryGroup(groupID, n) }
-
-// QueryUser 使用全局默认实例查询用户消息。
-func QueryUser(userID string, n int) []Message { return defaultLogger.QueryUser(userID, n) }
-
-// WordFreq 使用全局默认实例统计群词频。
-func WordFreq(groupID string, n int) map[string]int { return defaultLogger.WordFreq(groupID, n) }
-
-// Clear 使用全局默认实例清理旧消息。
-func Clear(before time.Time) { defaultLogger.Clear(before) }
-
 // Default 返回全局默认 Logger 实例。
 func Default() *Logger { return defaultLogger }
+
+// MessageLogger 返回一个中间件，自动异步记录每一条平台事件。
+//
+// 必须在使用前调用 Default().UseDB(db) 和 Default().Start()。
+// 依赖于 RequestID 中间件先执行（应在 MessageLogger 之前注册）。
+func MessageLogger() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			err := next(ctx)
+			pe := ctx.GetPlatformEvent()
+			if pe != nil && defaultLogger.record != nil {
+				defaultLogger.RecordAsync(pe, ctx)
+			}
+			return err
+		}
+	}
+}

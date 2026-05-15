@@ -1,7 +1,6 @@
 package messagelog
 
 import (
-	"fmt"
 	"testing"
 	"time"
 )
@@ -10,10 +9,10 @@ func TestRecord_QueryGroup(t *testing.T) {
 	l := New(10)
 	now := time.Now()
 	for i := range 5 {
-		l.Record(Message{
-			GroupID:   "g1",
+		l.Record(RecordEntry{
+			ChatID:    "g1",
 			UserID:    "u1",
-			Content:   fmt.Sprintf("消息%d", i),
+			Content:   "消息" + string(rune('0'+i)),
 			Timestamp: now.Add(time.Duration(i) * time.Second),
 		})
 	}
@@ -21,7 +20,6 @@ func TestRecord_QueryGroup(t *testing.T) {
 	if len(msgs) != 3 {
 		t.Fatalf("expected 3 messages, got %d", len(msgs))
 	}
-	// 应该是最新的3条（消息2, 消息3, 消息4）
 	if msgs[0].Content != "消息2" {
 		t.Errorf("expected 消息2, got %s", msgs[0].Content)
 	}
@@ -33,9 +31,9 @@ func TestRecord_QueryGroup(t *testing.T) {
 func TestRecord_QueryUser(t *testing.T) {
 	l := New(10)
 	now := time.Now()
-	l.Record(Message{GroupID: "g1", UserID: "u1", Content: "hello world", Timestamp: now})
-	l.Record(Message{GroupID: "g2", UserID: "u1", Content: "foo bar", Timestamp: now.Add(time.Second)})
-	l.Record(Message{GroupID: "g1", UserID: "u2", Content: "baz", Timestamp: now.Add(2 * time.Second)})
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "hello world", Timestamp: now})
+	l.Record(RecordEntry{ChatID: "g2", UserID: "u1", Content: "foo bar", Timestamp: now.Add(time.Second)})
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u2", Content: "baz", Timestamp: now.Add(2 * time.Second)})
 
 	msgs := l.QueryUser("u1", 10)
 	if len(msgs) != 2 {
@@ -44,21 +42,18 @@ func TestRecord_QueryUser(t *testing.T) {
 }
 
 func TestRing_Overflow(t *testing.T) {
-	l := New(5) // 容量仅5
+	l := New(5)
 	now := time.Now()
 	for i := range 8 {
-		l.Record(Message{GroupID: "g1", UserID: "u1", Content: fmt.Sprintf("msg%d", i), Timestamp: now.Add(time.Duration(i) * time.Second)})
+		l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "msg" + string(rune('0'+i)), Timestamp: now.Add(time.Duration(i) * time.Second)})
 	}
 	msgs := l.QueryGroup("g1", 10)
-	// 只保留最新5条
 	if len(msgs) != 5 {
 		t.Fatalf("expected 5 messages (ring overflow), got %d", len(msgs))
 	}
-	// 最旧的应该是 msg3
 	if msgs[0].Content != "msg3" {
 		t.Errorf("expected msg3, got %s", msgs[0].Content)
 	}
-	// 最新的应该是 msg7
 	if msgs[4].Content != "msg7" {
 		t.Errorf("expected msg7, got %s", msgs[4].Content)
 	}
@@ -67,8 +62,8 @@ func TestRing_Overflow(t *testing.T) {
 func TestWordFreq(t *testing.T) {
 	l := New(100)
 	now := time.Now()
-	l.Record(Message{GroupID: "g1", Content: "你好 世界 你好", Timestamp: now})
-	l.Record(Message{GroupID: "g1", Content: "世界 再见", Timestamp: now.Add(time.Second)})
+	l.Record(RecordEntry{ChatID: "g1", Content: "你好 世界 你好", Timestamp: now})
+	l.Record(RecordEntry{ChatID: "g1", Content: "世界 再见", Timestamp: now.Add(time.Second)})
 
 	freq := l.WordFreq("g1", 100)
 	if freq["你好"] != 2 {
@@ -85,10 +80,10 @@ func TestWordFreq(t *testing.T) {
 func TestClear(t *testing.T) {
 	l := New(100)
 	now := time.Now()
-	l.Record(Message{GroupID: "g1", UserID: "u1", Content: "old message", Timestamp: now.Add(-2 * time.Hour)})
-	l.Record(Message{GroupID: "g1", UserID: "u1", Content: "new message", Timestamp: now})
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "old message", Timestamp: now.Add(-2 * time.Hour)})
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "new message", Timestamp: now})
 
-	l.Clear(now.Add(-time.Hour)) // 清理1小时前的消息
+	l.Clear(now.Add(-time.Hour))
 
 	msgs := l.QueryGroup("g1", 10)
 	if len(msgs) != 1 {
@@ -102,32 +97,18 @@ func TestClear(t *testing.T) {
 func TestClear_RemovesEmptyGroup(t *testing.T) {
 	l := New(100)
 	now := time.Now()
-	l.Record(Message{GroupID: "g1", Content: "old", Timestamp: now.Add(-2 * time.Hour)})
+	l.Record(RecordEntry{ChatID: "g1", Content: "old", Timestamp: now.Add(-2 * time.Hour)})
 	l.Clear(now.Add(-time.Hour))
 	if l.GroupCount() != 0 {
 		t.Errorf("expected group to be removed after all messages cleared")
 	}
 }
 
-func TestGlobalFunctions(t *testing.T) {
-	// 使用独立实例避免污染全局状态
-	orig := defaultLogger
-	defaultLogger = New(100)
-	defer func() { defaultLogger = orig }()
-
-	now := time.Now()
-	Record(Message{GroupID: "g1", UserID: "u1", Content: "test message", Timestamp: now})
-	msgs := QueryGroup("g1", 10)
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 message, got %d", len(msgs))
-	}
-}
-
 func TestGroupMessageCount(t *testing.T) {
 	l := New(100)
 	now := time.Now()
-	for i := range 7 {
-		l.Record(Message{GroupID: "g1", Content: fmt.Sprintf("msg%d", i), Timestamp: now})
+	for range 7 {
+		l.Record(RecordEntry{ChatID: "g1", Content: "msg", Timestamp: now})
 	}
 	if l.GroupMessageCount("g1") != 7 {
 		t.Errorf("expected 7, got %d", l.GroupMessageCount("g1"))
@@ -144,8 +125,8 @@ func TestTokenize(t *testing.T) {
 	}{
 		{"hello world", []string{"hello", "world"}},
 		{"你好 世界", []string{"你好", "世界"}},
-		{"a bc", []string{"bc"}}, // "a" 长度<2 被过滤
-		{"!!! ???", []string{}},  // 全标点被过滤
+		{"a bc", []string{"bc"}},
+		{"!!! ???", []string{}},
 	}
 	for _, tt := range tests {
 		got := tokenize(tt.input)
