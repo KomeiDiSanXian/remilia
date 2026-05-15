@@ -33,6 +33,7 @@ package stats
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 	"sync"
@@ -40,8 +41,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -74,7 +75,8 @@ type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
-	dataFile      string // 持久化文件路径（空字符串=纯内存）
+	kvPath        string // LevelDB 数据库路径（空字符串=纯内存）
+	store         *kv.DB
 }
 
 type userEntry struct {
@@ -86,9 +88,9 @@ type userEntry struct {
 // Option 配置选项
 type Option func(*Plugin)
 
-// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+// WithStore 设置 LevelDB 存储路径。空字符串表示纯内存模式。
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 // NewPlugin 创建并返回一个 Stats Plugin 实例。
@@ -123,8 +125,13 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
 			setupCtx.Log.Info("Plugin loaded")
-			p.loadSnapshot()
-			if p.dataFile != "" {
+			if !setupCtx.DryRun && p.kvPath != "" {
+				var err error
+				p.store, err = kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.loadSnapshot()
 				setupCtx.Go(func(runCtx context.Context) {
 					p.autoSaveWithCtx(runCtx, 5*time.Minute)
 				})
@@ -133,6 +140,9 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.API.(*Plugin).saveSnapshot()
+			if ctx.API.(*Plugin).store != nil {
+				return ctx.API.(*Plugin).store.Close()
+			}
 			return nil
 		},
 	}
@@ -289,7 +299,7 @@ type statsSnapshot struct {
 }
 
 func (p *Plugin) saveSnapshot() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	snap := statsSnapshot{
@@ -300,17 +310,26 @@ func (p *Plugin) saveSnapshot() {
 		snap.Commands[k.(string)] = v.(*atomic.Int64).Load()
 		return true
 	})
-	if err := jsonfile.Write(p.dataFile, snap); err != nil {
+	bytes, err := json.Marshal(snap)
+	if err != nil {
+		logger.WithError(err).Warn("[Stats] Failed to marshal snapshot")
+		return
+	}
+	if err := p.store.Set([]byte("state"), bytes); err != nil {
 		logger.WithError(err).Warn("[Stats] Failed to save snapshot")
 	}
 }
 
 func (p *Plugin) loadSnapshot() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	snap, err := jsonfile.Read[statsSnapshot](p.dataFile)
+	bytes, err := p.store.Get([]byte("state"))
 	if err != nil {
+		return
+	}
+	var snap statsSnapshot
+	if err := json.Unmarshal(bytes, &snap); err != nil {
 		return
 	}
 	p.totalMessages.Store(snap.Total)

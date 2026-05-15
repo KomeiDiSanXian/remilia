@@ -56,6 +56,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -81,7 +82,7 @@ type Plugin struct {
 	manager         *permission.Manager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
-	dataFile        string // 持久化文件路径（nil=纯内存）
+	storageSvc      *plugin.ServiceProxy[*storage.Plugin]
 }
 
 // NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）
@@ -114,7 +115,7 @@ func New() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "permission",
 		Version: "3.0.0",
-		Deps:    []string{},
+		Deps:    []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "基于角色的访问控制（RBAC）权限系统",
@@ -143,11 +144,11 @@ func New() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading permission plugin")
 
-			if path := ctx.Config.GetString("data_file", ""); path != "" {
-				pluginAPI.TryBindDataFile(path)
-				ctx.Log.Infof("Permission data file: %s", path)
-			} else {
-				ctx.Log.Warn("No data_file configured, permission data is in-memory only (lost on restart)")
+			// 通过 storage 插件持久化（DryRun 下跳过，避免空壳 DB）
+			if !ctx.DryRun {
+				if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
+					pluginAPI.tryBindStorage(svc)
+				}
 			}
 
 			roles := []string{"superadmin", "admin", "user", "guest", "moderator"}
@@ -164,7 +165,7 @@ func New() *plugin.Descriptor {
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			ctx.Log.Info("Unloading permission plugin")
 			p := ctx.API.(*Plugin)
-			if err := p.saveToFile(); err != nil {
+			if err := p.saveToDB(); err != nil {
 				ctx.Log.Error("Failed to persist permission data", err)
 			}
 			ctx.Log.Info("Permission plugin unloaded")
@@ -526,9 +527,9 @@ func (p *Plugin) GetACLStats() ACLStats {
 	return p.acl.Stats()
 }
 
-// SavePermissions 手动触发权限数据持久化（若未配置数据文件则 no-op）
+// SavePermissions 手动触发权限数据持久化（若无 storage 则 no-op）
 func (p *Plugin) SavePermissions() error {
-	return p.saveToFile()
+	return p.saveToDB()
 }
 
 // RequireACL 创建黑白名单检查中间件

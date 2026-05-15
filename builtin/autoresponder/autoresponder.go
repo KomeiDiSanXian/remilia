@@ -1,6 +1,7 @@
 package autoresponder
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -8,9 +9,9 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -55,15 +56,16 @@ type Plugin struct {
 	rules       []*Rule
 	nextID      int64
 	lastTrigger map[string]time.Time
-	dataFile    string
+	kvPath      string
+	store       *kv.DB
 	prefix      string
 	permSvc     *plugin.ServiceProxy[*permission.Plugin]
 }
 
 type Option func(*Plugin)
 
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 func WithPrefix(pfx string) Option {
@@ -110,12 +112,22 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
 				p.permSvc = svc
 			}
-			p.load()
+			if !ctx.DryRun && p.kvPath != "" {
+				store, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.store = store
+				p.load()
+			}
 			p.registerCommands(ctx)
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			p.save()
+			if p.store != nil {
+				return p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -381,7 +393,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 }
 
 func (p *Plugin) save() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -394,20 +406,29 @@ func (p *Plugin) save() {
 	}
 	copy(data.Rules, p.rules)
 	p.mu.RUnlock()
-	if err := jsonfile.Write(p.dataFile, data); err != nil {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		logger.WithError(err).Warn("[AutoResponder] Failed to marshal")
+		return
+	}
+	if err := p.store.Set([]byte("state"), bytes); err != nil {
 		logger.WithError(err).Warn("[AutoResponder] Failed to save")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	data, err := jsonfile.Read[struct {
+	bytes, err := p.store.Get([]byte("state"))
+	if err != nil {
+		return
+	}
+	var data struct {
 		Rules  []*Rule `json:"rules"`
 		NextID int64   `json:"next_id"`
-	}](p.dataFile)
-	if err != nil {
+	}
+	if err := json.Unmarshal(bytes, &data); err != nil {
 		return
 	}
 	p.mu.Lock()

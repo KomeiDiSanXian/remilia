@@ -20,13 +20,14 @@
 package antispam
 
 import (
+	"encoding/json"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -72,19 +73,20 @@ type banEntryJSON struct {
 
 // Plugin 反垃圾插件 API
 type Plugin struct {
-	cfg      Config
-	userRL   *lru.Cache[string, *rate.Limiter]
-	groupRL  *lru.Cache[string, *rate.Limiter]
-	banList  syncx.Map[string, banEntry]
-	dataFile string // 持久化文件路径（空字符串=纯内存）
+	cfg     Config
+	userRL  *lru.Cache[string, *rate.Limiter]
+	groupRL *lru.Cache[string, *rate.Limiter]
+	banList syncx.Map[string, banEntry]
+	kvPath  string
+	store   *kv.DB
 }
 
 // Option 配置选项
 type Option func(*Plugin)
 
-// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+// WithStore 设置 LevelDB 持久化存储路径。空字符串表示纯内存模式。
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 // NewPlugin 创建并返回一个已初始化的 AntiSpam Plugin 实例。
@@ -127,23 +129,37 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
+			if !ctx.DryRun && p.kvPath != "" {
+				store, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.store = store
+			}
 			p.loadBanList()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).saveBanList()
+			p.saveBanList()
+			if p.store != nil {
+				return p.store.Close()
+			}
 			return nil
 		},
 	}
 }
 
-// loadBanList 从 JSON 文件加载封禁名单
+// loadBanList 从 LevelDB 加载封禁名单
 func (p *Plugin) loadBanList() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	entries, err := jsonfile.Read[map[string]banEntryJSON](p.dataFile)
+	data, err := p.store.Get([]byte("bans"))
 	if err != nil {
+		return
+	}
+	var entries map[string]banEntryJSON
+	if err := json.Unmarshal(data, &entries); err != nil {
 		return
 	}
 	now := time.Now()
@@ -160,9 +176,9 @@ func (p *Plugin) loadBanList() {
 	logger.Infof("[AntiSpam] Loaded %d ban entries", p.banList.Len())
 }
 
-// saveBanList 将封禁名单保存到 JSON 文件
+// saveBanList 将封禁名单保存到 LevelDB
 func (p *Plugin) saveBanList() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	entries := make(map[string]banEntryJSON, p.banList.Len())
@@ -175,7 +191,12 @@ func (p *Plugin) saveBanList() {
 		return true
 	})
 
-	if err := jsonfile.Write(p.dataFile, entries); err != nil {
+	data, err := json.Marshal(entries)
+	if err != nil {
+		logger.WithError(err).Warn("[AntiSpam] Failed to marshal ban list")
+		return
+	}
+	if err := p.store.Set([]byte("bans"), data); err != nil {
 		logger.WithError(err).Warn("[AntiSpam] Failed to save ban list")
 		return
 	}

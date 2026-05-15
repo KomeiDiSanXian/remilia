@@ -1,15 +1,16 @@
 package customcommands
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -23,16 +24,17 @@ type CustomCommand struct {
 }
 
 type Plugin struct {
-	mu       sync.RWMutex
-	cmds     map[string]*CustomCommand
-	dataFile string
-	permSvc  *plugin.ServiceProxy[*permission.Plugin]
+	mu      sync.RWMutex
+	cmds    map[string]*CustomCommand
+	kvPath  string
+	store   *kv.DB
+	permSvc *plugin.ServiceProxy[*permission.Plugin]
 }
 
 type Option func(*Plugin)
 
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 func NewPlugin(opts ...Option) *Plugin {
@@ -71,13 +73,23 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
 				p.permSvc = svc
 			}
-			p.load()
+			if !ctx.DryRun && p.kvPath != "" {
+				var err error
+				p.store, err = kv.Open(p.kvPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to open kv store: %w", err)
+				}
+				p.load()
+			}
 			p.registerManagementCommands(ctx)
 			p.registerCatchAll(ctx)
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
 			p.save()
+			if p.store != nil {
+				return p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -271,7 +283,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 }
 
 func (p *Plugin) save() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -280,17 +292,26 @@ func (p *Plugin) save() {
 		data[k] = v
 	}
 	p.mu.RUnlock()
-	if err := jsonfile.Write(p.dataFile, data); err != nil {
+	bytes, err := json.Marshal(data)
+	if err != nil {
+		logger.WithError(err).Warn("[CustomCommands] Failed to marshal")
+		return
+	}
+	if err := p.store.Set([]byte("state"), bytes); err != nil {
 		logger.WithError(err).Warn("[CustomCommands] Failed to save")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	data, err := jsonfile.Read[map[string]*CustomCommand](p.dataFile)
+	bytes, err := p.store.Get([]byte("state"))
 	if err != nil {
+		return
+	}
+	var data map[string]*CustomCommand
+	if err := json.Unmarshal(bytes, &data); err != nil {
 		return
 	}
 	p.mu.Lock()

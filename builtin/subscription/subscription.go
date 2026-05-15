@@ -39,6 +39,7 @@ package subscription
 
 import (
 	stdctx "context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -46,6 +47,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -142,11 +144,17 @@ type Option func(*managerOpts)
 type managerOpts struct {
 	dispatcher   DispatchFunc
 	pollInterval time.Duration
+	kvPath       string
 }
 
 // WithDispatcher 设置内容分发函数（必须设置，否则新内容将被静默丢弃）。
 func WithDispatcher(fn DispatchFunc) Option {
 	return func(o *managerOpts) { o.dispatcher = fn }
+}
+
+// WithStore 设置 LevelDB 持久化路径。空字符串表示纯内存模式。
+func WithStore(path string) Option {
+	return func(o *managerOpts) { o.kvPath = path }
 }
 
 // WithPollInterval 设置全局轮询间隔（默认 5 分钟；最小 10 秒）。
@@ -174,9 +182,11 @@ type Manager struct {
 	sourceJobs map[string]scheduler.JobID     // sourceKey -> scheduler job ID
 	seen       map[string]map[string]struct{} // sourceKey -> seen item IDs
 
-	schedSvc    *plugin.ServiceProxy[*scheduler.Plugin] // 防过期的服务代理
-	dispatch    DispatchFunc
+	schedSvc     *plugin.ServiceProxy[*scheduler.Plugin] // 防过期的服务代理
+	dispatch     DispatchFunc
 	pollInterval time.Duration
+	store        *kv.DB // LevelDB 持久化存储
+	kvPath       string // LevelDB 路径，空=纯内存
 }
 
 // newManager 创建 Manager 实例。
@@ -192,6 +202,7 @@ func newManager(opts managerOpts) *Manager {
 		seen:         make(map[string]map[string]struct{}),
 		dispatch:     opts.dispatcher,
 		pollInterval: interval,
+		kvPath:       opts.kvPath,
 	}
 }
 
@@ -269,6 +280,7 @@ func (m *Manager) Subscribe(sourceName, param string, target Target) (string, er
 
 	logger.Infof("[Subscription] %q subscribed to source=%q param=%q (id=%s)",
 		target.ChatID, sourceName, param, id)
+	m.save()
 	return id, nil
 }
 
@@ -305,6 +317,7 @@ func (m *Manager) Unsubscribe(id string) error {
 
 	logger.Infof("[Subscription] Removed subscription id=%s (source=%q param=%q target=%q)",
 		id, sub.SourceName, sub.Param, sub.Target.ChatID)
+	m.save()
 	return nil
 }
 
@@ -391,6 +404,56 @@ func buildSourceKey(sourceName, param string) string {
 	return sourceName + "\x00" + param
 }
 
+// ─── 持久化 ────────────────────────────────────────────────────────────────────
+
+type subscriptionStorageData struct {
+	Subs map[string]*Subscription `json:"subs"`
+}
+
+func (m *Manager) save() {
+	if m.store == nil {
+		return
+	}
+	m.mu.RLock()
+	d := subscriptionStorageData{
+		Subs: make(map[string]*Subscription, len(m.subs)),
+	}
+	for k, v := range m.subs {
+		cp := *v
+		d.Subs[k] = &cp
+	}
+	m.mu.RUnlock()
+	bytes, err := json.Marshal(d)
+	if err != nil {
+		logger.WithError(err).Warn("[Subscription] Failed to marshal")
+		return
+	}
+	if err := m.store.Set([]byte("subs"), bytes); err != nil {
+		logger.WithError(err).Warn("[Subscription] Failed to save")
+	}
+}
+
+func (m *Manager) load() {
+	if m.store == nil {
+		return
+	}
+	bytes, err := m.store.Get([]byte("subs"))
+	if err != nil {
+		return
+	}
+	var d subscriptionStorageData
+	if err := json.Unmarshal(bytes, &d); err != nil {
+		return
+	}
+	m.mu.Lock()
+	m.subs = d.Subs
+	if m.subs == nil {
+		m.subs = make(map[string]*Subscription)
+	}
+	m.mu.Unlock()
+	logger.Infof("[Subscription] Loaded %d subscriptions from store", len(m.subs))
+}
+
 // idCounter 是全局原子计数器，确保 generateID 在同一进程内始终返回唯一值。
 var idCounter atomic.Int64
 
@@ -471,13 +534,25 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 			// 获取 scheduler 插件（Service 确保热重载后仍有效）
 			m.schedSvc = plugin.Service[*scheduler.Plugin](ctx, "scheduler")
 
+			// 打开 LevelDB 存储
+			if !ctx.DryRun && m.kvPath != "" {
+				store, err := kv.Open(m.kvPath)
+				if err != nil {
+					return nil, fmt.Errorf("subscription: open store: %w", err)
+				}
+				m.store = store
+			}
+
+			// 加载持久化数据
+			m.load()
+
 			// 注册预注册的数据源
 			for _, src := range h.sources {
 				m.RegisterSource(src)
 			}
 
-			ctx.Log.Infof("Subscription plugin loaded (interval=%s, sources=%d)",
-				m.pollInterval, len(m.sources))
+			ctx.Log.Infof("Subscription plugin loaded (interval=%s, sources=%d, subs=%d)",
+				m.pollInterval, len(m.sources), len(m.subs))
 			return m, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
@@ -494,6 +569,10 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 				delete(m.sourceJobs, sourceKey)
 			}
 			m.mu.Unlock()
+			m.save()
+			if m.store != nil {
+				_ = m.store.Close()
+			}
 			ctx.Log.Info("Subscription plugin stopped")
 			return nil
 		},

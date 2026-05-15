@@ -17,14 +17,15 @@
 package acl
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -77,18 +78,19 @@ type Entry struct {
 
 // Plugin ACL 插件
 type Plugin struct {
-	mu       sync.RWMutex
-	mode     Mode
-	entries  map[string]Entry // userID -> Entry
-	dataFile string           // 持久化文件路径（空字符串=纯内存）
+	mu      sync.RWMutex
+	mode    Mode
+	entries map[string]Entry // userID -> Entry
+	kvPath  string           // LevelDB 持久化路径（空字符串=纯内存）
+	store   *kv.DB
 }
 
 // Option 配置选项
 type Option func(*Plugin)
 
-// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式（重启后数据丢失）。
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+// WithStore 设置 LevelDB 持久化路径。空字符串表示纯内存模式（重启后数据丢失）。
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -132,11 +134,22 @@ func New(opts ...Option) *plugin.Descriptor {
 				}
 			}
 			ctx.Log.Info("Plugin loaded")
+			if !ctx.DryRun && p.kvPath != "" {
+				store, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.store = store
+			}
 			p.load()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).save()
+			p := ctx.API.(*Plugin)
+			p.save()
+			if p.store != nil {
+				p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -162,11 +175,22 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
+			if !ctx.DryRun && p.kvPath != "" {
+				store, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.store = store
+			}
 			p.load()
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).save()
+			p := ctx.API.(*Plugin)
+			p.save()
+			if p.store != nil {
+				p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -289,7 +313,7 @@ type snapshot struct {
 }
 
 func (p *Plugin) save() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -300,17 +324,26 @@ func (p *Plugin) save() {
 	maps.Copy(snap.Entries, p.entries)
 	p.mu.RUnlock()
 
-	if err := jsonfile.Write(p.dataFile, snap); err != nil {
+	data, err := json.Marshal(snap)
+	if err != nil {
+		logger.WithError(err).Warn("[ACL] Failed to marshal")
+		return
+	}
+	if err := p.store.Set([]byte("state"), data); err != nil {
 		logger.WithError(err).Warn("[ACL] Failed to save")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	snap, err := jsonfile.Read[snapshot](p.dataFile)
+	data, err := p.store.Get([]byte("state"))
 	if err != nil {
+		return
+	}
+	var snap snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
 		return
 	}
 	p.mu.Lock()

@@ -20,13 +20,14 @@ package verifycode
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -84,15 +85,16 @@ type Plugin struct {
 	mu       sync.RWMutex
 	codes    map[string]*CodeEntry // code -> entry
 	onVerify OnVerifyHook
-	dataFile string // 持久化文件路径（空字符串=纯内存）
+	kvPath   string // LevelDB 持久化路径（空字符串=纯内存）
+	store    *kv.DB
 }
 
 // Option 配置选项
 type Option func(*Plugin)
 
-// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
+// WithStore 设置 LevelDB 持久化路径。空字符串表示纯内存模式。
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 // NewPlugin 创建 Plugin 实例
@@ -130,11 +132,21 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
-			p.load()
+			if !ctx.DryRun && p.kvPath != "" {
+				store, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to open kv store: %w", err)
+				}
+				p.store = store
+				p.load()
+			}
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).save()
+			p.save()
+			if p.store != nil {
+				p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -261,7 +273,7 @@ func generateCode() (string, error) {
 }
 
 func (p *Plugin) save() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -270,17 +282,27 @@ func (p *Plugin) save() {
 		codes[k] = v
 	}
 	p.mu.RUnlock()
-	if err := jsonfile.Write(p.dataFile, codes); err != nil {
+	bytes, err := json.Marshal(codes)
+	if err != nil {
+		logger.WithError(err).Warn("[VerifyCode] Failed to marshal codes")
+		return
+	}
+	if err := p.store.Set([]byte("state"), bytes); err != nil {
 		logger.WithError(err).Warn("[VerifyCode] Failed to save codes")
 	}
 }
 
 func (p *Plugin) load() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	codes, err := jsonfile.Read[map[string]*CodeEntry](p.dataFile)
+	bytes, err := p.store.Get([]byte("state"))
 	if err != nil {
+		return
+	}
+	var codes map[string]*CodeEntry
+	if err := json.Unmarshal(bytes, &codes); err != nil {
+		logger.WithError(err).Warn("[VerifyCode] Failed to unmarshal codes")
 		return
 	}
 	p.mu.Lock()

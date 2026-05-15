@@ -1,78 +1,59 @@
-// Package auditlog 提供操作审计日志插件。
-//
-// 功能：
-//   - 自动记录命令调用（通过中间件）
-//   - 记录管理操作（权限变更、插件操作等）
-//   - 可选持久化到 storage 插件
-//   - 提供查询接口（按用户/命令/时间查询）
-//
-// 使用示例:
-//
-//	pm.Register(auditlog.New())
-//	// 挂载中间件：
-//	engine.Use(auditlogPlugin.Middleware())
-//	// 手动记录：
-//	alSvc := plugin.Service[*auditlog.Plugin](ctx, "auditlog")
-//	al.Record(ctx, "perm.grant", map[string]any{"target": userID, "role": "admin"})
 package auditlog
 
 import (
-	stdctx "context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// LogEntry 审计日志条目
-type LogEntry struct {
-	ID        int64          `json:"id"`
-	Timestamp time.Time      `json:"timestamp"`
-	UserID    string         `json:"user_id"`
-	GroupID   string         `json:"group_id,omitempty"`
-	Action    string         `json:"action"`
-	Content   string         `json:"content,omitempty"`
-	Meta      map[string]any `json:"meta,omitempty"`
+type LogEntryModel struct {
+	ID        int64     `gorm:"primaryKey;autoIncrement"`
+	Timestamp time.Time `gorm:"index;not null"`
+	UserID    string    `gorm:"index;not null"`
+	GroupID   string    `gorm:"index"`
+	Action    string    `gorm:"index;not null"`
+	Content   string    `gorm:"type:text"`
+	Meta      string    `gorm:"type:text"`
 }
 
-// Config 审计日志配置
+type LogEntry struct {
+	ID        int64
+	Timestamp time.Time
+	UserID    string
+	GroupID   string
+	Action    string
+	Content   string
+	Meta      map[string]any
+}
+
 type Config struct {
-	// MaxMemoryEntries 内存中保留的最大条目数（环形缓冲，默认 1000）
 	MaxMemoryEntries int
 }
 
-// DefaultConfig 默认配置
 func DefaultConfig() Config {
 	return Config{MaxMemoryEntries: 1000}
 }
 
-// Plugin 审计日志插件 API
 type Plugin struct {
-	cfg      Config
-	mu       sync.RWMutex
-	entries  []LogEntry
-	nextID   int64
-	dataFile string // 持久化文件路径（空字符串=纯内存）
-	Engine   engine.Reader
-	dirty    bool // 是否有未刷新的数据
+	cfg        Config
+	mu         sync.RWMutex
+	entries    []LogEntry
+	nextID     int64
+	Engine     engine.Reader
+	storageSvc *plugin.ServiceProxy[storage.Client]
 }
 
-// Option 配置选项
 type Option func(*Plugin)
 
-// WithDataFile 设置 JSON 持久化文件路径。空字符串表示纯内存模式。
-func WithDataFile(path string) Option {
-	return func(p *Plugin) { p.dataFile = path }
-}
-
-// NewPlugin 创建 Plugin 实例
 func NewPlugin(cfg Config, opts ...Option) *Plugin {
 	p := &Plugin{
 		cfg:     cfg,
@@ -84,7 +65,6 @@ func NewPlugin(cfg Config, opts ...Option) *Plugin {
 	return p
 }
 
-// New 创建审计日志插件描述符
 func New(cfg ...Config) *plugin.Descriptor {
 	c := DefaultConfig()
 	if len(cfg) > 0 {
@@ -94,12 +74,11 @@ func New(cfg ...Config) *plugin.Descriptor {
 	return p.Descriptor()
 }
 
-// Descriptor 从已有 Plugin 创建描述符
 func (p *Plugin) Descriptor() *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:    "auditlog",
 		Version: "1.0.0",
-		Deps:    []string{},
+		Deps:    []string{"storage"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "操作审计日志插件，记录命令调用和管理操作",
@@ -113,31 +92,28 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			p.Engine = ctx.Info.Coordinator()
-			p.loadFromFile()
-			if p.dataFile != "" {
-				ctx.Go(func(runCtx stdctx.Context) {
-					ticker := time.NewTicker(30 * time.Second)
-					defer ticker.Stop()
-					for {
-						select {
-						case <-ticker.C:
-							p.flushIfDirty()
-						case <-runCtx.Done():
-							return
+
+			if !ctx.DryRun {
+				if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
+					p.storageSvc = svc
+					if client, ok := svc.Get(); ok && client != nil {
+						if err := client.AutoMigrate(&LogEntryModel{}); err != nil {
+							ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)
+						} else {
+							p.loadFromDB()
 						}
 					}
-				})
+				}
 			}
+
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).flushToFile()
 			return nil
 		},
 	}
 }
 
-// Record 记录一条审计日志
 func (p *Plugin) Record(ctx *eventctx.Context, action string, meta ...map[string]any) {
 	userID := ctx.GetSenderInfo().ID
 	content := ctx.GetMessageContent()
@@ -156,7 +132,6 @@ func (p *Plugin) Record(ctx *eventctx.Context, action string, meta ...map[string
 	})
 }
 
-// RecordRaw 记录一条原始审计日志（不依赖 Context）
 func (p *Plugin) RecordRaw(userID, action string, meta map[string]any) {
 	p.append(LogEntry{
 		Timestamp: time.Now(),
@@ -166,20 +141,53 @@ func (p *Plugin) RecordRaw(userID, action string, meta map[string]any) {
 	})
 }
 
-// append 追加日志条目（环形缓冲）
 func (p *Plugin) append(entry LogEntry) {
 	p.mu.Lock()
 	p.nextID++
 	entry.ID = p.nextID
 	if len(p.entries) >= p.cfg.MaxMemoryEntries {
-		p.entries = p.entries[1:] // 丢弃最旧的
+		p.entries = p.entries[1:]
 	}
 	p.entries = append(p.entries, entry)
-	p.dirty = true
+
+	// 异步写数据库
+	model := p.toModel(entry)
 	p.mu.Unlock()
+
+	go p.insertToDB(model)
 }
 
-// Middleware 返回自动记录命令调用的中间件
+func (p *Plugin) toModel(e LogEntry) LogEntryModel {
+	metaStr := ""
+	if e.Meta != nil {
+		if b, err := json.Marshal(e.Meta); err == nil {
+			metaStr = string(b)
+		}
+	}
+	return LogEntryModel{
+		ID:        e.ID,
+		Timestamp: e.Timestamp,
+		UserID:    e.UserID,
+		GroupID:   e.GroupID,
+		Action:    e.Action,
+		Content:   e.Content,
+		Meta:      metaStr,
+	}
+}
+
+func (p *Plugin) insertToDB(model LogEntryModel) {
+	if p.storageSvc == nil {
+		return
+	}
+	client, ok := p.storageSvc.Get()
+	if !ok || client == nil {
+		return
+	}
+	if err := client.Create(&model); err != nil {
+		logger.WithError(err).Warn("[AuditLog] Failed to write entry to DB")
+	}
+}
+
 func (p *Plugin) Middleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
@@ -192,7 +200,6 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 	}
 }
 
-// isCommand 检查消息是否匹配已注册的某个命令触发词
 func (p *Plugin) isCommand(content string) bool {
 	if p.Engine == nil {
 		return false
@@ -210,7 +217,6 @@ func (p *Plugin) isCommand(content string) bool {
 	return false
 }
 
-// Recent 查询最近 n 条日志，如果 n <=0 则返回全部日志
 func (p *Plugin) Recent(n int) []LogEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -224,7 +230,6 @@ func (p *Plugin) Recent(n int) []LogEntry {
 	return out
 }
 
-// ByUser 返回指定用户最近 n 条日志
 func (p *Plugin) ByUser(userID string, n int) []LogEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -234,12 +239,10 @@ func (p *Plugin) ByUser(userID string, n int) []LogEntry {
 			result = append(result, p.entries[i])
 		}
 	}
-	// reverse
 	slices.Reverse(result)
 	return result
 }
 
-// ByAction 返回指定操作类型最近 n 条日志
 func (p *Plugin) ByAction(action string, n int) []LogEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -255,58 +258,66 @@ func (p *Plugin) ByAction(action string, n int) []LogEntry {
 	return result
 }
 
-// Count 返回总日志条目数
 func (p *Plugin) Count() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.entries)
 }
 
-type storageData struct {
-	Entries []LogEntry `json:"entries"`
-	NextID  int64      `json:"next_id"`
-}
-
-func (p *Plugin) flushIfDirty() {
-	p.mu.RLock()
-	dirty := p.dirty
-	p.mu.RUnlock()
-	if dirty {
-		p.flushToFile()
-	}
-}
-
-func (p *Plugin) flushToFile() {
-	if p.dataFile == "" {
+func (p *Plugin) loadFromDB() {
+	if p.storageSvc == nil {
 		return
 	}
-	p.mu.RLock()
-	d := storageData{
-		Entries: make([]LogEntry, len(p.entries)),
-		NextID:  p.nextID,
+	client, ok := p.storageSvc.Get()
+	if !ok || client == nil {
+		return
 	}
-	copy(d.Entries, p.entries)
-	p.mu.RUnlock()
-
-	if err := jsonfile.Write(p.dataFile, d); err != nil {
-		logger.WithError(err).Warn("[AuditLog] Failed to flush to file")
+	// 尝试获取具体 storage.Plugin 类型以使用链式查询
+	type pluginClient interface {
+		Order(value any) *storage.Plugin
+		Limit(limit int) *storage.Plugin
+		Find(dest any, conds ...any) error
 	}
+	pc, ok2 := client.(pluginClient)
+	if ok2 {
+		var models []LogEntryModel
+		if err := pc.Order("id DESC").Limit(p.cfg.MaxMemoryEntries).Find(&models); err != nil {
+			return
+		}
+		p.loadModels(models)
+		return
+	}
+	var models []LogEntryModel
+	if err := client.Find(&models); err != nil {
+		return
+	}
+	p.loadModels(models)
 }
 
-func (p *Plugin) loadFromFile() {
-	if p.dataFile == "" {
-		return
-	}
-	d, err := jsonfile.Read[storageData](p.dataFile)
-	if err != nil {
-		return
-	}
+func (p *Plugin) loadModels(models []LogEntryModel) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if len(d.Entries) > p.cfg.MaxMemoryEntries {
-		d.Entries = d.Entries[len(d.Entries)-p.cfg.MaxMemoryEntries:]
+	p.entries = make([]LogEntry, 0, len(models))
+	for i := len(models) - 1; i >= 0; i-- {
+		m := models[i]
+		entry := LogEntry{
+			ID:        m.ID,
+			Timestamp: m.Timestamp,
+			UserID:    m.UserID,
+			GroupID:   m.GroupID,
+			Action:    m.Action,
+			Content:   m.Content,
+		}
+		if m.Meta != "" {
+			var meta map[string]any
+			if err := json.Unmarshal([]byte(m.Meta), &meta); err == nil {
+				entry.Meta = meta
+			}
+		}
+		p.entries = append(p.entries, entry)
 	}
-	p.entries = d.Entries
-	p.nextID = d.NextID
-	logger.Infof("[AuditLog] Loaded %d entries from file", len(p.entries))
+	if len(p.entries) > 0 {
+		p.nextID = p.entries[len(p.entries)-1].ID
+	}
+	logger.Infof("[AuditLog] Loaded %d entries from DB", len(p.entries))
 }

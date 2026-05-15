@@ -3,119 +3,169 @@ package permission
 import (
 	"fmt"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/storage"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
-// 持久化存储 key 常量（保留，仍用于 JSON 文件内的字段名）
-const (
-	permKeyUserRoles = "user_roles"
-	permKeyUserPerms = "user_perms"
-	permKeyACL       = "acl"
-)
+// ─── GORM 模型 ───────────────────────────────────────────────────────────────
 
-// userRolesSnapshot userRoles 的 JSON 序列化结构
-type userRolesSnapshot struct {
-	UserRoles map[string][]string `json:"user_roles"`
+// UserRoleModel 用户-角色映射表。
+type UserRoleModel struct {
+	ID       uint   `gorm:"primaryKey;autoIncrement"`
+	UserID   string `gorm:"uniqueIndex:idx_user_role;not null;size:512"`
+	RoleName string `gorm:"uniqueIndex:idx_user_role;not null;size:100"`
 }
 
-// userPermsSnapshot userPerms 的 JSON 序列化结构
-type userPermsSnapshot struct {
-	UserPerms map[string][]permEntry `json:"user_perms"`
+// UserPermissionModel 用户直接权限表。
+type UserPermissionModel struct {
+	ID       uint   `gorm:"primaryKey;autoIncrement"`
+	UserID   string `gorm:"uniqueIndex:idx_user_perm;not null;size:512"`
+	Resource string `gorm:"uniqueIndex:idx_user_perm;not null;size:100"`
+	Action   string `gorm:"uniqueIndex:idx_user_perm;not null;size:100"`
 }
 
-type permEntry struct {
-	Resource string `json:"resource"`
-	Action   string `json:"action"`
+// ACLConfigModel 黑白名单模式（单行，ID=1）。
+type ACLConfigModel struct {
+	ID   uint `gorm:"primaryKey"`
+	Mode int  `gorm:"not null;default:0"`
 }
 
-// aclSnapshot ACL 的 JSON 序列化结构
-type aclSnapshot struct {
-	Mode  int               `json:"mode"`
-	List  map[string]bool   `json:"list"`
-	Notes map[string]string `json:"notes"`
+// ACLEntryModel 黑白名单条目表。
+type ACLEntryModel struct {
+	ID     uint   `gorm:"primaryKey;autoIncrement"`
+	UserID string `gorm:"uniqueIndex;not null;size:512"`
+	Note   string `gorm:"type:text"`
 }
 
-// permFile is the on-disk representation of all permission data.
-type permFile struct {
-	UserRoles userRolesSnapshot `json:"user_roles"`
-	UserPerms userPermsSnapshot `json:"user_perms"`
-	ACL       aclSnapshot       `json:"acl"`
-}
+// ─── 持久化方法 ───────────────────────────────────────────────────────────────
 
-// TryBindDataFile 绑定数据文件路径并加载持久化数据（Setup 时调用）。
-// 若 path 为空则静默跳过（存储是可选的）。
-func (p *Plugin) TryBindDataFile(path string) {
-	if path == "" {
+func (p *Plugin) tryBindStorage(svc *plugin.ServiceProxy[*storage.Plugin]) {
+	if svc == nil {
 		return
 	}
-	p.dataFile = path
-	p.loadFromFile()
-	logger.Info("[PermissionPlugin] Persistence enabled, data loaded from file")
+	client, ok := svc.Get()
+	if !ok || client == nil {
+		return
+	}
+	p.storageSvc = svc
+	if err := client.AutoMigrate(
+		&UserRoleModel{},
+		&UserPermissionModel{},
+		&ACLConfigModel{},
+		&ACLEntryModel{},
+	); err != nil {
+		logger.WithError(err).Warn("[PermissionPlugin] AutoMigrate failed")
+		return
+	}
+	p.loadFromDB()
+	logger.Info("[PermissionPlugin] Persistence enabled via storage plugin (structured tables)")
 }
 
-// loadFromFile 从 JSON 文件加载持久化的权限数据
-func (p *Plugin) loadFromFile() {
-	if p.dataFile == "" {
+func (p *Plugin) loadFromDB() {
+	if p.storageSvc == nil {
 		return
 	}
-	f, err := jsonfile.Read[permFile](p.dataFile)
-	if err != nil {
+	client, ok := p.storageSvc.Get()
+	if !ok || client == nil {
 		return
 	}
 
-	// 加载用户角色映射
-	if len(f.UserRoles.UserRoles) > 0 {
-		p.manager.LoadUserRoles(f.UserRoles.UserRoles)
-		logger.Infof("[PermissionPlugin] Loaded user roles for %d users", len(f.UserRoles.UserRoles))
+	// 加载用户角色
+	var roleModels []UserRoleModel
+	if err := client.Find(&roleModels); err == nil && len(roleModels) > 0 {
+		userRoles := make(map[string][]string)
+		for _, m := range roleModels {
+			userRoles[m.UserID] = append(userRoles[m.UserID], m.RoleName)
+		}
+		p.manager.LoadUserRoles(userRoles)
+		logger.Infof("[PermissionPlugin] Loaded %d user roles", len(roleModels))
 	}
 
 	// 加载用户直接权限
-	for userID, perms := range f.UserPerms.UserPerms {
-		for _, pe := range perms {
-			p.manager.GrantPermission(userID, permission.Permission{Resource: pe.Resource, Action: pe.Action})
+	var permModels []UserPermissionModel
+	if err := client.Find(&permModels); err == nil && len(permModels) > 0 {
+		for _, m := range permModels {
+			p.manager.GrantPermission(m.UserID, permission.Permission{Resource: m.Resource, Action: m.Action})
 		}
-	}
-	if len(f.UserPerms.UserPerms) > 0 {
-		logger.Infof("[PermissionPlugin] Loaded direct permissions for %d users", len(f.UserPerms.UserPerms))
+		logger.Infof("[PermissionPlugin] Loaded %d direct permissions", len(permModels))
 	}
 
-	// 加载 ACL 数据
-	if f.ACL.List != nil {
-		p.acl.LoadSnapshot(f.ACL.Mode, f.ACL.List, f.ACL.Notes)
-		logger.Infof("[PermissionPlugin] Loaded ACL (mode=%d, users=%d)", f.ACL.Mode, len(f.ACL.List))
+	// 加载 ACL 配置
+	var aclCfg ACLConfigModel
+	if err := client.First(&aclCfg, "id = ?", 1); err == nil {
+		var aclModels []ACLEntryModel
+		if err := client.Find(&aclModels); err == nil {
+			list := make(map[string]bool, len(aclModels))
+			notes := make(map[string]string, len(aclModels))
+			for _, m := range aclModels {
+				list[m.UserID] = true
+				notes[m.UserID] = m.Note
+			}
+			p.acl.LoadSnapshot(aclCfg.Mode, list, notes)
+			logger.Infof("[PermissionPlugin] Loaded ACL (mode=%d, users=%d)", aclCfg.Mode, len(aclModels))
+		}
 	}
 }
 
-// saveToFile 将当前权限数据持久化到 JSON 文件
-func (p *Plugin) saveToFile() error {
-	if p.dataFile == "" {
+func (p *Plugin) saveToDB() error {
+	if p.storageSvc == nil {
+		return nil
+	}
+	client, ok := p.storageSvc.Get()
+	if !ok || client == nil {
 		return nil
 	}
 
-	rolesSnap := userRolesSnapshot{UserRoles: p.manager.ExportUserRoles()}
-
-	rawPerms := p.manager.ExportUserPerms()
-	permsSnap := userPermsSnapshot{UserPerms: make(map[string][]permEntry, len(rawPerms))}
-	for userID, perms := range rawPerms {
-		entries := make([]permEntry, len(perms))
-		for i, perm := range perms {
-			entries[i] = permEntry{Resource: perm.Resource, Action: perm.Action}
+	// ── 用户角色 ──
+	if err := client.Where("1 = 1").Delete(&UserRoleModel{}); err != nil {
+		return fmt.Errorf("permission persist: clear roles failed: %w", err)
+	}
+	userRoles := p.manager.ExportUserRoles()
+	for userID, roles := range userRoles {
+		for _, role := range roles {
+			m := UserRoleModel{UserID: userID, RoleName: role}
+			if err := client.Create(&m); err != nil {
+				return fmt.Errorf("permission persist: insert role failed: %w", err)
+			}
 		}
-		permsSnap.UserPerms[userID] = entries
+	}
+
+	// ── 用户直接权限 ──
+	if err := client.Where("1 = 1").Delete(&UserPermissionModel{}); err != nil {
+		return fmt.Errorf("permission persist: clear perms failed: %w", err)
+	}
+	userPerms := p.manager.ExportUserPerms()
+	for userID, perms := range userPerms {
+		for _, perm := range perms {
+			m := UserPermissionModel{UserID: userID, Resource: perm.Resource, Action: perm.Action}
+			if err := client.Create(&m); err != nil {
+				return fmt.Errorf("permission persist: insert perm failed: %w", err)
+			}
+		}
+	}
+
+	// ── ACL ──
+	if err := client.Where("1 = 1").Delete(&ACLConfigModel{}); err != nil {
+		return fmt.Errorf("permission persist: clear acl config failed: %w", err)
+	}
+	if err := client.Where("1 = 1").Delete(&ACLEntryModel{}); err != nil {
+		return fmt.Errorf("permission persist: clear acl entries failed: %w", err)
 	}
 
 	aclMode, aclList, aclNotes := p.acl.ExportSnapshot()
-	aclSnap := aclSnapshot{Mode: aclMode, List: aclList, Notes: aclNotes}
+	if err := client.Create(&ACLConfigModel{ID: 1, Mode: aclMode}); err != nil {
+		return fmt.Errorf("permission persist: insert acl config failed: %w", err)
+	}
+	for userID := range aclList {
+		m := ACLEntryModel{UserID: userID, Note: aclNotes[userID]}
+		if err := client.Create(&m); err != nil {
+			return fmt.Errorf("permission persist: insert acl entry failed: %w", err)
+		}
+	}
 
-	f := permFile{
-		UserRoles: rolesSnap,
-		UserPerms: permsSnap,
-		ACL:       aclSnap,
-	}
-	if err := jsonfile.Write(p.dataFile, f); err != nil {
-		return fmt.Errorf("permission persist: write failed: %w", err)
-	}
+	logger.Infof("[PermissionPlugin] Saved %d roles, %d perms, %d ACL entries",
+		len(userRoles), len(userPerms), len(aclList))
 	return nil
 }

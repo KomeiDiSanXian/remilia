@@ -22,13 +22,14 @@
 package keywordfilter
 
 import (
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/KomeiDiSanXian/remilia/builtin/internal/jsonfile"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -47,9 +48,6 @@ type Config struct {
 	// OnMatch 匹配到关键词时的回调（返回非 nil 错误则中断处理链）
 	// 如果为 nil，匹配时只记录日志
 	OnMatch MatchHandler
-	// DataFile 持久化文件路径（JSON）。空字符串表示纯内存模式（重启后动态变更丢失）。
-	// 若文件存在，其内容将替代 Config 中的 Keywords/Patterns 作为初始状态。
-	DataFile string
 }
 
 // Plugin 关键词过滤插件 API
@@ -59,17 +57,27 @@ type Plugin struct {
 	rawPatterns []string         // 原始正则表达式字符串（供持久化用）
 	patterns    []*regexp.Regexp // 编译后的正则
 	cfg         Config
-	dataFile    string // 持久化文件路径（来自 cfg.DataFile）
+	kvPath      string
+	store       *kv.DB
+}
+
+type Option func(*Plugin)
+
+func WithStore(path string) Option {
+	return func(p *Plugin) { p.kvPath = path }
 }
 
 // New 创建关键词过滤插件描述符
-func New(cfg Config) *plugin.Descriptor {
-	return NewPlugin(cfg).Descriptor()
+func New(cfg Config, opts ...Option) *plugin.Descriptor {
+	return NewPlugin(cfg, opts...).Descriptor()
 }
 
 // NewPlugin 创建 Plugin 实例
-func NewPlugin(cfg Config) *Plugin {
-	p := &Plugin{cfg: cfg, dataFile: cfg.DataFile}
+func NewPlugin(cfg Config, opts ...Option) *Plugin {
+	p := &Plugin{cfg: cfg}
+	for _, o := range opts {
+		o(p)
+	}
 	p.setKeywords(cfg.Keywords)
 	p.setPatterns(cfg.Patterns)
 	return p
@@ -94,11 +102,21 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Infof("Loaded with %d keywords, %d patterns", len(p.keywords), len(p.patterns))
-			p.load(ctx)
+			if !ctx.DryRun && p.kvPath != "" {
+				db, err := kv.Open(p.kvPath)
+				if err != nil {
+					return nil, err
+				}
+				p.store = db
+				p.load(ctx)
+			}
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
-			ctx.API.(*Plugin).save()
+			p.save()
+			if p.store != nil {
+				p.store.Close()
+			}
 			return nil
 		},
 	}
@@ -265,7 +283,7 @@ func (p *Plugin) PatternCount() int {
 
 // ─── 持久化 ────────────────────────────────────────────────────────────────
 
-// kfSnapshot 是持久化文件的 JSON 格式
+// kfSnapshot 是持久化的 JSON 格式
 type kfSnapshot struct {
 	// Keywords 保存规范化后的关键词列表（config 初始 + 动态添加 - 动态删除）
 	Keywords []string `json:"keywords"`
@@ -273,10 +291,10 @@ type kfSnapshot struct {
 	Patterns []string `json:"patterns"`
 }
 
-// save 将当前关键词和正则列表持久化到 JSON 文件（异步调用）。
-// 若 dataFile 为空则静默跳过。
+// save 将当前关键词和正则列表持久化到 LevelDB（异步调用）。
+// 若 store 为空则静默跳过。
 func (p *Plugin) save() {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
 	p.mu.RLock()
@@ -287,23 +305,30 @@ func (p *Plugin) save() {
 	p.mu.RUnlock()
 
 	snap := kfSnapshot{Keywords: kws, Patterns: pats}
-	if err := jsonfile.Write(p.dataFile, snap); err != nil {
-		logger.WithError(err).Warn("[KeywordFilter] Failed to save data file")
+	bytes, err := json.Marshal(snap)
+	if err != nil {
+		logger.WithError(err).Warn("[KeywordFilter] Failed to marshal state")
+		return
+	}
+	if err := p.store.Set([]byte("state"), bytes); err != nil {
+		logger.WithError(err).Warn("[KeywordFilter] Failed to save state")
 	}
 }
 
-// load 从 JSON 文件加载关键词和正则列表，替换当前内存状态（Setup 时调用）。
-// 若文件不存在则静默跳过（保持 config 初始值）。
-// 若文件存在，其内容将作为权威状态替换 Config.Keywords/Patterns。
+// load 从 LevelDB 加载关键词和正则列表，替换当前内存状态（Setup 时调用）。
+// 若键不存在则静默跳过（保持 config 初始值）。
+// 若数据存在，其内容将作为权威状态替换 Config.Keywords/Patterns。
 func (p *Plugin) load(ctx *plugin.SetupContext) {
-	if p.dataFile == "" {
+	if p.store == nil {
 		return
 	}
-	snap, err := jsonfile.Read[kfSnapshot](p.dataFile)
+	bytes, err := p.store.Get([]byte("state"))
 	if err != nil {
-		if !jsonfile.IsNotExist(err) {
-			ctx.Log.Warnf("[KeywordFilter] Failed to load data file: %v", err)
-		}
+		return
+	}
+	var snap kfSnapshot
+	if err := json.Unmarshal(bytes, &snap); err != nil {
+		ctx.Log.Warnf("[KeywordFilter] Failed to unmarshal state: %v", err)
 		return
 	}
 
@@ -324,6 +349,6 @@ func (p *Plugin) load(ctx *plugin.SetupContext) {
 	p.rawPatterns = validPats
 	p.patterns = compiled
 	p.mu.Unlock()
-	ctx.Log.Infof("[KeywordFilter] Loaded %d keywords, %d patterns from data file",
+	ctx.Log.Infof("[KeywordFilter] Loaded %d keywords, %d patterns from store",
 		len(snap.Keywords), len(validPats))
 }
