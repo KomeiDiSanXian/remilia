@@ -10,7 +10,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/discord"
 	"github.com/KomeiDiSanXian/remilia/platform/milky"
@@ -89,8 +91,13 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 	return reg
 }
 
-func setupMiddleware(eng *engine.Engine) {
+func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) {
 	eng.Use(middleware.ProductionSet()...)
+	eng.Use(telemetry.PrometheusMetrics("remilia"))
+	eng.Use(telemetry.Tracing(telemetry.TracingConfig{
+		TracerName:         "remilia",
+		IncludeEventDetail: traceCfg.IncludeEventDetail,
+	}))
 	eng.Use(errorHandlerMiddleware())
 	eng.Use(slowRequestMiddleware(3 * time.Second))
 }

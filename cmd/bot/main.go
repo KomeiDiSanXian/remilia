@@ -11,7 +11,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
+	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -35,6 +37,11 @@ func main() {
 		log.Fatalf("Failed to init logger: %v", err)
 	}
 
+	tp, err := tracing.NewProvider(cfg.Tracing)
+	if err != nil {
+		logger.WithError(err).Fatal("[bot] Failed to initialize tracing")
+	}
+
 	reg := setupPlatforms(cfg)
 
 	bot, err := remilia.NewBotBuilder().
@@ -48,7 +55,7 @@ func main() {
 	}
 
 	eng := bot.Engine()
-	setupMiddleware(eng)
+	setupMiddleware(eng, &cfg.Tracing)
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng)
 	setupPlugins(pm, eng, cfg)
@@ -77,6 +84,9 @@ func main() {
 	if err := bot.Shutdown(); err != nil {
 		logger.WithError(err).Error("[bot] Shutdown error")
 	}
+	if err := tp.Shutdown(shutdownCtx); err != nil {
+		logger.WithError(err).Warn("[bot] Tracing shutdown error")
+	}
 	logger.Info("[bot] Stopped")
 }
 
@@ -104,6 +114,7 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 	if healthHandler != nil {
 		srv.AddHandler("/health", healthHandler)
 	}
+	srv.AddHandler("/metrics", promhttp.Handler().ServeHTTP)
 	if err := srv.Start(); err != nil {
 		logger.WithError(err).Warn("[bot] Failed to start pprof")
 		return nil
@@ -146,6 +157,7 @@ func startHealthServer(addr string, healthHandler http.HandlerFunc, pprofRunning
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	srv := infraserver.NewHTTPServer(addr, mux)
 	srv.WithShutdownTimeout(5 * time.Second)

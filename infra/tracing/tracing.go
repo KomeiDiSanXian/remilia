@@ -40,7 +40,7 @@ import (
 type Config struct {
 	// Enable 是否启用追踪（原 Enabled）。
 	// yaml tag 同时支持 "enable" 和 "enabled" 向后兼容。
-	Enable bool `yaml:"enable,enabled" mapstructure:"enable"`
+	Enable bool `yaml:"enable" mapstructure:"enable"`
 
 	// ServiceName 服务名称
 	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
