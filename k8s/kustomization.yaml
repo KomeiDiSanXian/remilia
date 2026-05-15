@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: remilia
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+
+images:
+  - name: ghcr.io/KomeiDiSanXian/remilia
+    newTag: latest
+
+commonLabels:
+  app.kubernetes.io/name: remilia
+  app.kubernetes.io/instance: remilia-bot
+  app.kubernetes.io/part-of: remilia

@@ -7,22 +7,23 @@ BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS     := -X github.com/KomeiDiSanXian/remilia.Version=$(VERSION) -X main.commit=$(GIT_COMMIT) -X main.date=$(BUILD_TIME)
 
 GO          ?= go
-GO_BUILD    := $(GO) build -ldflags="$(LDFLAGS)"
+GO_BUILD    := CGO_ENABLED=1 $(GO) build -ldflags="$(LDFLAGS)"
 
 help:
 	@echo "Usage:"
-	@echo "  make build     - Build the project"
-	@echo "  make test      - Run all tests with race detection"
-	@echo "  make lint      - Run golangci-lint"
-	@echo "  make clean     - Remove build artifacts"
-	@echo "  make tidy      - Run go mod tidy"
-	@echo "  make fmt       - Format all Go source files"
-	@echo "  make vet       - Run go vet"
+	@echo "  make build       - Build cmd/bot binary"
+	@echo "  make test        - Run all tests with race detection"
+	@echo "  make lint        - Run golangci-lint"
+	@echo "  make clean       - Remove build artifacts"
+	@echo "  make tidy        - Run go mod tidy"
+	@echo "  make fmt         - Format all Go source files"
+	@echo "  make vet         - Run go vet"
+	@echo "  make docker      - Build Docker image"
 
 all: tidy fmt vet test build
 
 build:
-	$(GO_BUILD) -o bin/$(APP_NAME) .
+	$(GO_BUILD) -o bin/$(APP_NAME) ./cmd/bot
 
 test:
 	$(GO) test -count=1 -race -shuffle=on -timeout 180s ./...
@@ -43,5 +44,5 @@ fmt:
 vet:
 	$(GO) vet ./...
 
-docker-build:
+docker:
 	docker build -t $(APP_NAME):$(VERSION) .

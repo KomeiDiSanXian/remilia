@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: remilia-config
+  namespace: remilia
+data:
+  config.yaml: |
+    # ====================================
+    # Remilia Bot Kubernetes 配置
+    # ====================================
+    server:
+      host: "0.0.0.0"
+      port: 8080
+      shutdown_timeout: "10s"
+
+    log:
+      level: "info"
+      format: "json"
+
+    concurrency:
+      limit: 500
+      policy: "trywait"
+      wait_timeout: "500ms"
+      event_buffer: 1000
+
+    retry:
+      enable: true
+      max_attempts: 3
+      backoff_base: "200ms"
+      backoff_max: "2s"
+
+    middleware:
+      logging: true
+      recover: true
+      metrics: true
+      auth:
+        enable: false
+      rate_limit:
+        enable: false
+      dedup:
+        enable: false
+      slow_handler:
+        enable: false
+      degradation:
+        enable: false
+
+    dead_letter:
+      enable: true
+      target: "file"
+      file_path: "/app/data/dead_letters.log"
+
+    webhook:
+      event_buffer: 1000
+      worker_count: 0
+      dedup_enable: true
+
+    token:
+      retry_delay: "10s"
+      refresh_advance: "30s"
+
+    engine:
+      temp_matcher_cleanup_interval: "5m"
+      pending_delete_buffer_size: 1000
+      pending_delete_process_interval: "100ms"
+      pending_delete_batch_size: 1000
+      matcher_pool_capacity: 16
+      matcher_pool_max_capacity: 1024
+      temp_matcher_shard_count: 8
+
+    pprof:
+      enabled: false
+      addr: ":9001"

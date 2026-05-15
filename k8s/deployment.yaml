@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remilia-bot
+  namespace: remilia
+  labels:
+    app: remilia-bot
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: remilia-bot
+  template:
+    metadata:
+      labels:
+        app: remilia-bot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: remilia-bot
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: bot
+          image: ghcr.io/KomeiDiSanXian/remilia:latest
+          imagePullPolicy: Always
+          args: ["run"]
+          ports:
+            - name: webhook
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 9001
+              protocol: TCP
+          env:
+            - name: TZ
+              value: "Asia/Shanghai"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: remilia-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: remilia-data
