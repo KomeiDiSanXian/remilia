@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -521,12 +522,7 @@ func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
 	if p.perm() == nil {
 		return false
 	}
-	for _, role := range p.perm().GetUserRoles(ctx.GetUserID()) {
-		if role == "superadmin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.perm().GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 // checkTargetNotSuperadmin 检查目标用户是否为 superadmin，

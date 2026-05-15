@@ -3,6 +3,7 @@ package welcome
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -288,9 +289,7 @@ func (p *Plugin) save() {
 	}
 	p.mu.RLock()
 	data := make(map[string]*GroupConfig, len(p.configs))
-	for k, v := range p.configs {
-		data[k] = v
-	}
+	maps.Copy(data, p.configs)
 	p.mu.RUnlock()
 	bytes, err := json.Marshal(data)
 	if err != nil {

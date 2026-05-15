@@ -3,6 +3,7 @@ package customcommands
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -288,9 +289,7 @@ func (p *Plugin) save() {
 	}
 	p.mu.RLock()
 	data := make(map[string]*CustomCommand, len(p.cmds))
-	for k, v := range p.cmds {
-		data[k] = v
-	}
+	maps.Copy(data, p.cmds)
 	p.mu.RUnlock()
 	bytes, err := json.Marshal(data)
 	if err != nil {

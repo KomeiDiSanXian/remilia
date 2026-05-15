@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -278,9 +279,7 @@ func (p *Plugin) save() {
 	}
 	p.mu.RLock()
 	codes := make(map[string]*CodeEntry, len(p.codes))
-	for k, v := range p.codes {
-		codes[k] = v
-	}
+	maps.Copy(codes, p.codes)
 	p.mu.RUnlock()
 	bytes, err := json.Marshal(codes)
 	if err != nil {

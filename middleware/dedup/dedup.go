@@ -3,6 +3,7 @@ package dedup
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -256,9 +257,7 @@ func (f *DedupFilter) cleanExpired() {
 		delete(f.cache, eid)
 	}
 	snapshot := make(map[string]int64, len(f.cache))
-	for k, v := range f.cache {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, f.cache)
 	f.mu.Unlock()
 
 	if f.persister != nil && len(snapshot) > 0 {

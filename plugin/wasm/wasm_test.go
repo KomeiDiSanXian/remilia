@@ -56,7 +56,7 @@ func TestHostFuncRegistry_RegisterAndCall(t *testing.T) {
 
 func TestTokenBucket_Allow(t *testing.T) {
 	tb := wasm.NewTokenBucket(100, 100)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		assert.True(t, tb.Allow(), "should allow within capacity")
 	}
 	assert.False(t, tb.Allow(), "should be rate limited after capacity exhausted")
@@ -73,7 +73,7 @@ func TestSandbox_MemoryLimit(t *testing.T) {
 
 func TestSandbox_AllowCall(t *testing.T) {
 	s := wasm.NewSandbox(0, 100)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		assert.True(t, s.AllowCall())
 	}
 }

@@ -58,7 +58,7 @@ func TestEngine_Register_NilFSM(t *testing.T) {
 func TestEngine_Register_Duplicate(t *testing.T) {
 	eng := NewEngine(nil)
 	fsm := &FSM{
-		Name:    "dup", Initial: "s",
+		Name: "dup", Initial: "s",
 		Events: []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
 	}
 	require.NoError(t, eng.Register(fsm))
@@ -229,7 +229,9 @@ func TestEngine_EndSession(t *testing.T) {
 
 func TestEngine_ListFSMs(t *testing.T) {
 	eng := NewEngine(nil)
-	r := func(name string) { eng.Register(&FSM{Name: name, Initial: "s", Events: []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}}}) }
+	r := func(name string) {
+		eng.Register(&FSM{Name: name, Initial: "s", Events: []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}}})
+	}
 	r("a")
 	r("b")
 	names := eng.ListFSMs()
@@ -256,27 +258,27 @@ func TestMemoryStorage_Concurrent(t *testing.T) {
 	s := NewMemoryStorage()
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			s.Save(&Session{ID: "a", Data: map[string]any{"n": i}})
 			s.Get("a")
 		}
 		done <- struct{}{}
 	}()
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			s.Save(&Session{ID: "b", Data: map[string]any{"n": i}})
 			s.Get("b")
 		}
 		done <- struct{}{}
 	}()
 	go func() {
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			s.Delete("a")
 			s.Delete("b")
 		}
 		done <- struct{}{}
 	}()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		<-done
 	}
 }
@@ -346,7 +348,7 @@ func TestEngine_StartCleanup(t *testing.T) {
 	eng := NewEngine(s)
 	fsm := &FSM{
 		Name: "clean", Initial: "s",
-		Events: []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
+		Events:  []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
 		Timeout: 10 * time.Millisecond,
 	}
 	require.NoError(t, eng.Register(fsm))

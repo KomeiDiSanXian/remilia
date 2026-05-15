@@ -485,12 +485,7 @@ func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
 	if !ok || pp == nil {
 		return false
 	}
-	for _, role := range pp.GetUserRoles(ctx.GetUserID()) {
-		if role == "superadmin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pp.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool {
