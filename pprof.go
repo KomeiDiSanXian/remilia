@@ -64,11 +64,17 @@ func DefaultPprofConfig() PprofConfig {
 	}
 }
 
+type handlerEntry struct {
+	path    string
+	handler http.HandlerFunc
+}
+
 // PprofServer pprof 服务器
 type PprofServer struct {
-	server *http.Server
-	config PprofConfig
-	stopCh chan struct{}
+	server   *http.Server
+	config   PprofConfig
+	stopCh   chan struct{}
+	handlers []handlerEntry
 }
 
 // NewPprofServer 创建 pprof 服务器
@@ -77,6 +83,12 @@ func NewPprofServer(config PprofConfig) *PprofServer {
 		config: config,
 		stopCh: make(chan struct{}),
 	}
+}
+
+// AddHandler 注册一个额外的 HTTP handler 到 pprof 服务器的 mux。
+// 必须在 Start() 之前调用。可用于注入 /health 等管理端点。
+func (p *PprofServer) AddHandler(path string, handler http.HandlerFunc) {
+	p.handlers = append(p.handlers, handlerEntry{path: path, handler: handler})
 }
 
 // Start 启动 pprof 服务器
@@ -120,6 +132,11 @@ func (p *PprofServer) Start() error {
 	// 添加自定义端点
 	mux.HandleFunc("/debug/pprof/stats", p.handleStats)
 	mux.HandleFunc("/debug/pprof/snapshot", p.handleSnapshot)
+
+	// 注册额外 handler（如 /health）
+	for _, h := range p.handlers {
+		mux.HandleFunc(h.path, h.handler)
+	}
 
 	p.server = &http.Server{
 		Addr:    p.config.Addr,

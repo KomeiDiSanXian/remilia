@@ -371,3 +371,21 @@ func (dc *DegradationConfig) Validate() error {
 	}
 	return nil
 }
+
+// Validate 验证 PprofConfig
+func (pc *PprofConfig) Validate() error {
+	if !pc.Enabled {
+		return nil
+	}
+	for _, d := range []struct{ name, val string }{
+		{"pprof.profile_interval", pc.ProfileInterval},
+		{"pprof.profile_duration", pc.ProfileDuration},
+	} {
+		if d.val != "" {
+			if _, err := time.ParseDuration(d.val); err != nil {
+				return fmt.Errorf("%s is not a valid duration: %w", d.name, err)
+			}
+		}
+	}
+	return nil
+}

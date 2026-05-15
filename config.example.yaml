@@ -349,6 +349,37 @@ tracing:
   #   X-Custom-Header: "value"
 
 # ====================================
+# pprof 性能分析配置（可选）
+# 以下配置控制 pprof HTTP 服务器和自动性能分析
+# 健康检查端点 /health 与此共用 addr 地址
+# 启用后可通过 http://{addr}/health 查看 Bot 状态
+# ====================================
+pprof:
+  # 是否启用 pprof
+  enabled: false
+
+  # 监听地址（同时用作健康检查 /health 的地址）
+  addr: ":9001"
+
+  # 是否启用自动性能分析（定时生成 CPU/内存/goroutine 分析文件）
+  auto_profile: false
+
+  # 自动分析间隔（auto_profile=true 时生效）
+  profile_interval: "1h"
+
+  # 每次分析持续时间
+  profile_duration: "30s"
+
+  # 分析文件输出目录
+  output_dir: "data/profiles"
+
+  # 是否启用互斥锁分析
+  enable_mutex: false
+
+  # 是否启用阻塞分析
+  enable_block: false
+
+# ====================================
 # 插件扩展配置（可选）
 # 各业务插件通过此节读取自定义配置（API Key、开关等）
 # 键为插件名称，值为任意键值对
@@ -360,12 +391,25 @@ tracing:
 #   translate:
 #     provider: "mymemory"
 #     daily_limit: 1000
+#   antispam:
+#     user_rate: 5
+#     user_burst: 10
+#     group_rate: 30
+#     group_burst: 50
+#     ban_on_violation: true
+#     ban_duration: "5m"
+#   keywordfilter:
+#     keywords:
+#       - "敏感词1"
+#       - "敏感词2"
+#   storage:
+#     dsn: "data/db/bot.db"
 
 # ====================================
 # 配置说明
 # ====================================
 # 1. 必填配置: bot, server, log
-# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation, tracing
+# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation, tracing, pprof
 # 3. 环境变量支持（仅 QQ 平台，无配置文件时生效）:
 #    - QQ_APP_ID
 #    - QQ_BOT_ID

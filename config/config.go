@@ -86,6 +86,7 @@ type Config struct {
 	//   cfg, _ := config.Get()
 	//   apiKey, _ := cfg.PluginString("weather", "api_key")
 	//   timeout, _ := cfg.PluginInt("weather", "timeout")
+	Pprof   PprofConfig               `yaml:"pprof" mapstructure:"pprof"`
 	Plugins map[string]map[string]any `yaml:"plugins" mapstructure:"plugins"`
 }
 
@@ -363,6 +364,18 @@ type DegradationConfig struct {
 	DelayQueueSize     int     `yaml:"delay_queue_size" mapstructure:"delay_queue_size"`
 	GoroutineThreshold int     `yaml:"goroutine_threshold" mapstructure:"goroutine_threshold"`
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
+}
+
+// PprofConfig pprof 性能分析配置。
+type PprofConfig struct {
+	Enabled         bool   `yaml:"enabled" mapstructure:"enabled"`
+	Addr            string `yaml:"addr" mapstructure:"addr"`
+	AutoProfile     bool   `yaml:"auto_profile" mapstructure:"auto_profile"`
+	ProfileInterval string `yaml:"profile_interval" mapstructure:"profile_interval"`
+	ProfileDuration string `yaml:"profile_duration" mapstructure:"profile_duration"`
+	OutputDir       string `yaml:"output_dir" mapstructure:"output_dir"`
+	EnableMutex     bool   `yaml:"enable_mutex" mapstructure:"enable_mutex"`
+	EnableBlock     bool   `yaml:"enable_block" mapstructure:"enable_block"`
 }
 
 // Manager 管理配置的加载、存储和变更通知。
