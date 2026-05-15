@@ -3,7 +3,6 @@ package ratelimit
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,7 @@ import (
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 // latencyHistogram 是一个轻量级固定桶直方图，用于计算 P99 延迟。
@@ -394,13 +394,13 @@ func (arl *AdaptiveRateLimiter) adjustLoop() {
 				lastAdjustTime = time.Now()
 
 				logger.WithFields(logger.Fields{
-					"old_limit":      currentLimit,
-					"new_limit":      newLimit,
+					"old_limit":      fmt.Sprintf("%d req", currentLimit),
+					"new_limit":      fmt.Sprintf("%d req", newLimit),
 					"cpu":            fmt.Sprintf("%.2f%%", cpuUsageVal*100),
 					"memory":         fmt.Sprintf("%.2f%%", memory*100),
-					"latency_p99":    latency,
+					"latency_p99":    formatDuration(latency),
 					"target_cpu":     fmt.Sprintf("%.2f%%", cfg.TargetCPU*100),
-					"target_latency": cfg.TargetLatency,
+					"target_latency": formatDuration(cfg.TargetLatency),
 				}).Info("[AdaptiveRateLimiter] Limit adjusted")
 			}
 		}
@@ -442,16 +442,14 @@ func (arl *AdaptiveRateLimiter) collectMetrics() {
 		arl.cpuUsage.Store(cpuUsage)
 	}
 
-	// 内存使用率
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	// 使用 HeapAlloc / HeapSys 更准确地反映堆内存使用率
-	memUsage := float64(m.HeapAlloc) / float64(m.HeapSys)
-	if memUsage > 1.0 {
-		memUsage = 1.0
+	// 内存使用率（系统级，与 CPU 采集范围一致）
+	vmem, err := mem.VirtualMemory()
+	if err != nil {
+		logger.WithError(err).Warn("[AdaptiveRateLimiter] Failed to get memory usage, using fallback")
+		arl.memoryUsage.Store(-1.0)
+	} else {
+		arl.memoryUsage.Store(vmem.UsedPercent / 100.0)
 	}
-	arl.memoryUsage.Store(memUsage)
 
 	// 使用直方图计算真实 P99
 	p99 := arl.latencyHist.percentile(99)
@@ -524,10 +522,18 @@ func (arl *AdaptiveRateLimiter) adjustLimit(newLimit int32) {
 
 	if oldLimit != newLimit {
 		logger.WithFields(logger.Fields{
-			"old": oldLimit,
-			"new": newLimit,
+			"old": fmt.Sprintf("%d req", oldLimit),
+			"new": fmt.Sprintf("%d req", newLimit),
 		}).Debug("[AdaptiveRateLimiter] Limit adjusted")
 	}
+}
+
+// formatDuration 将纳秒时间格式化为可读字符串
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	return d.String()
 }
 
 // getCPUUsage 获取 CPU 使用率
