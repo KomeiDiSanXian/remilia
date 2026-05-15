@@ -5,66 +5,61 @@
 
 ---
 
-## Phase 1: 项目骨架搭建
+## Phase 1: 项目骨架搭建 ✅
 
 ### 1.1 创建项目目录结构
 
-- [ ] 创建 `cmd/bot/` 目录作为机器人入口
-- [ ] 规划文件拆分：
+- [x] 创建 `cmd/bot/` 目录作为机器人入口
+- [x] 规划文件拆分：
 
 ```
 cmd/bot/
 ├── main.go          # 入口：配置加载 → 日志初始化 → Bot 构建 → 启动 → 优雅关闭
 ├── setup.go         # 中间件、路由、FSM、插件管理器的初始化函数
-├── plugins.go       # 内置插件注册（bundle + 需配置的插件）
-└── config.yaml      # 实际运行配置（gitignore）
+└── plugins.go       # 内置插件注册（从配置文件读取插件参数）
 ```
+
+> `config.yaml` 复用项目根目录的已有文件（已在 `.gitignore` 中）
 
 ### 1.2 配置文件
 
-- [ ] 从 `config.example.yaml` 复制为 `cmd/bot/config.yaml`
-- [ ] 填入目标平台的实际凭证（QQ / OneBot / Discord 等，按需选择）
-- [ ] 将 `cmd/bot/config.yaml` 加入 `.gitignore`（含敏感信息，不入库）
-- [ ] 确认以下配置节已正确配置：
-  - `bot:` — 平台凭证
-  - `server:` — 监听地址与端口
+- [x] `config.yaml` 已在项目根目录存在（`.gitignore` 已忽略）
+- [x] 平台凭证直接填入根目录 `config.yaml` 对应字段
+- [x] 确认以下配置节已正确配置：
+  - `bot:` — 平台凭证（按需配置，未配置的平台不会启动）
+  - `server:` — Webhook 监听地址与端口
   - `log:` — 日志级别与输出方式
   - `concurrency:` — 并发控制策略
   - `middleware:` — 中间件开关与参数
+  - `pprof:` — pprof 性能分析与健康检查端口
+  - `plugins:` — 各插件自定义参数（antispam、keywordfilter、storage 等）
 
-### 1.3 选择平台适配器
+### 1.3 平台适配器选择
 
-- [ ] 确定目标平台（以下任选其一或多个）：
-  - `platform/qq` — QQ 官方 Webhook API
-  - `platform/onebot` — OneBot V11（go-cqhttp / NapCat）
-  - `platform/discord` — Discord Gateway
-  - `platform/satori` — Satori 协议（Chronocat / Lagrange）
-  - `platform/milky` — Milky NTQQ 协议端
-  - `platform/telegram` — Telegram Bot API
-  - `platform/terminal` — 终端模拟（开发调试用）
-- [ ] 开发阶段优先使用 `terminal.NewAdapter()` 在本地命令行调试
+- [x] 实现多平台配置驱动自动注册：
+
+```
+config.yaml 的 bot.* 节中：
+  bot.qq       → QQ 官方 Webhook API
+  bot.onebot   → OneBot V11（go-cqhttp / NapCat）
+  bot.discord  → Discord Gateway
+  bot.satori   → Satori 协议（Chronocat / Lagrange）
+  bot.milky    → Milky NTQQ 协议端
+
+哪些节非 nil，就注册哪些适配器。
+无一配置时自动启用 Terminal 终端模式。
+```
 
 ---
 
-## Phase 2: 核心初始化
+## Phase 2: 核心初始化 ✅
 
 ### 2.1 main.go — 启动入口
 
-- [ ] 配置加载：`config.Load("config.yaml")`
-- [ ] 日志初始化：`logger.Init(logger.Config{...})`
-  - 开发环境：`Console: true, Level: "debug"`
-  - 生产环境：`Console: false, File: true, Level: "info"`
-- [ ] 构建 Bot 实例：
-
-```go
-bot, err := remilia.NewBotBuilder().
-    WithPlatformAdapter(adapter).  // 选定的平台适配器
-    WithName("my-bot").
-    WithVersion("0.1.0").
-    Build()
-```
-
-- [ ] 启动与优雅关闭：
+- [x] 配置加载：`config.Load("config.yaml")`
+- [x] 日志初始化：`logger.Init(cfg.Log)`
+- [x] 构建 Bot 实例（使用 `WithPlatformRegistry` 支持多平台）
+- [x] 启动与优雅关闭：
 
 ```go
 bot.Start()
@@ -72,256 +67,167 @@ bot.WaitForShutdown()
 bot.Shutdown()
 ```
 
-### 2.2 setup.go — 中间件配置
+### 2.2 setup.go — 中间件
 
-- [ ] 注册生产中间件集：`eng.Use(middleware.ProductionSet()...)`
-  - 内含：Recover + Logging + Adaptive 限流 + CircuitBreaker + Dedup
-- [ ] （可选）添加自定义中间件：
-  - 错误处理中间件 — 统一错误日志上报
-  - 慢请求检测中间件 — 超过阈值告警
+- [x] `middleware.ProductionSet()` — Recover + Logging + Adaptive 限流 + CircuitBreaker + Dedup
+- [x] 自定义错误处理中间件
+- [x] 自定义慢请求检测中间件（>3s 阈值告警）
 
-### 2.3 setup.go — 路由配置
+### 2.3 setup.go — 路由
 
-- [ ] 创建 FSM Manager：`fsmMgr := fsm.NewManager(nil)`
-- [ ] 创建路由器并绑定到 Bot：
-
-```go
-rtr := router.New(eng, fsmMgr.Engine())
-rtr.Route(router.WithCommandPrefix())
-bot.UseRouter(rtr)
-```
+- [x] FSM Manager：`fsm.NewManager(nil)`
+- [x] 路由器：`router.New(eng, fsmMgr.Engine())` + `router.WithCommandPrefix()`
 
 ### 2.4 setup.go — 插件管理器
 
-- [ ] 创建插件管理器：`pm := plugin.NewManager(eng)`
-- [ ] 绑定到 Bot：`bot.UsePlugins(pm)`
-- [ ] （可选）添加生命周期监听器用于日志记录
+- [x] `plugin.NewManager(eng)` + `bot.UsePlugins(pm)`
 
 ---
 
-## Phase 3: 内置插件注册
+## Phase 3: 内置插件注册 ✅
 
-### 3.1 Core 核心插件（必选）
+### 3.1-3.4 插件清单（24 个）
 
-通过 `bundle.Core()` 一次性注册：
+| 插件 | 说明 | 配置来源 |
+|------|------|----------|
+| permission | 角色/权限管理 | 默认 |
+| acl | 黑白名单访问控制 | 默认 |
+| help | /help 命令 | 默认 |
+| pluginctrl | 运行时插件开关 | 默认 |
+| welcome | 入群欢迎/退群告别 | 默认 |
+| autoresponder | 关键词自动回复 | 默认 |
+| customcommands | 用户自定义命令 | 默认 |
+| moderation | 群组管理 | 默认 |
+| admin | 管理命令集 | 默认 |
+| debug | 调试命令集 | 默认 |
+| antispam | 防刷屏限流 | `plugins.antispam` |
+| keywordfilter | 关键词过滤 | `plugins.keywordfilter` |
+| cooldown | 命令冷却时间 | 默认 |
+| stats | 消息/命令统计 | 默认 + 自动绑定中间件 |
+| auditlog | 操作审计日志 | 默认 + 自动绑定中间件 |
+| scheduler | 定时任务 | 默认 |
+| ratelimitui | 限流可视化管理 | 绑定 antispam + cooldown |
+| pluginstore | 插件状态持久化 | 依赖 storage |
+| storage | SQLite 持久化 | `plugins.storage.dsn` |
+| sendqueue | 异步发送队列 | 默认 |
+| subscription | 通用推送订阅 | 默认 |
+| job | 一次性后台作业 | 默认 |
+| verifycode | 验证码生成与验证 | 默认 |
+| vevent | 虚拟事件注入 | 默认 |
 
-- [ ] `permission` — 角色/权限管理（其他插件的基础依赖）
-- [ ] `acl` — 黑白名单访问控制
-- [ ] `help` — `/help` 命令，自动聚合所有已注册命令
-
-```go
-pm.RegisterMultipleAtomic(bundle.Core())
-```
-
-### 3.2 All 通用插件（推荐）
-
-通过 `bundle.All()` 注册（包含 Core + 以下插件）：
-
-- [ ] `cooldown` — 单命令冷却时间控制
-- [ ] `welcome` — 入群欢迎 / 退群告别消息
-- [ ] `autoresponder` — 关键词触发自动回复
-- [ ] `moderation` — 群组管理（禁言/踢出/警告）
-- [ ] `customcommands` — 用户自定义命令
-
-```go
-pm.RegisterMultipleAtomic(bundle.All())
-```
-
-### 3.3 Dev 开发插件（仅开发环境）
-
-- [ ] `admin` — `/plugin`、`/perm`、`/acl`、`/status` 等管理命令
-- [ ] `debug` — `/debug` 调试命令集
-
-```go
-if isDev {
-    pm.RegisterMultipleAtomic(bundle.Dev())
-}
-```
-
-### 3.4 需手动配置的插件（按需注册）
-
-以下插件需要传入配置参数，不包含在 bundle 中，按需单独注册：
-
-- [ ] **antispam** — 反垃圾/防刷屏
-
-```go
-antispam.NewPlugin(antispam.Config{
-    UserRate: 5, UserBurst: 10,
-    GroupRate: 30, GroupBurst: 50,
-    BanOnViolation: true, BanDuration: 5 * time.Minute,
-})
-```
-
-- [ ] **storage** — SQLite 持久化存储
-
-```go
-builtinstorage.New(infrastorage.WithDSN("data/bot.db"))
-```
-
-- [ ] **pluginstore** — 插件状态持久化（依赖 storage）
-
-```go
-pluginstore.New()
-```
-
-- [ ] **pluginctrl** — 运行时插件开关控制
-
-```go
-pluginctrl.New()
-```
-
-- [ ] **stats** — 消息/命令统计
-
-```go
-sp := stats.NewPlugin()
-// 注册后绑定中间件
-eng.Use(sp.Middleware())
-```
-
-- [ ] **auditlog** — 操作审计日志
-
-```go
-auditlog.New()
-// 注册后绑定中间件
-eng.Use(auditPlugin.Middleware())
-```
-
-- [ ] **scheduler** — 定时任务（固定间隔 / Cron 表达式）
-
-```go
-scheduler.NewPlugin()
-```
-
-- [ ] **sendqueue** — 异步消息发送队列（防平台限流）
-
-```go
-sendqueue.New(sendqueue.DefaultConfig())
-```
-
-- [ ] **keywordfilter** — 关键词过滤（敏感词/违禁词）
-
-```go
-keywordfilter.New(keywordfilter.Config{
-    Keywords: []string{"敏感词1", "敏感词2"},
-    OnMatch:  func(...) { /* 处理匹配 */ },
-})
-```
-
-- [ ] **ratelimitui** — 限流可视化管理（绑定 antispam + cooldown）
-
-### 3.5 插件中间件绑定
-
-- [ ] 将 `stats.Middleware()` 注册到 Engine（统计所有消息）
-- [ ] 将 `auditlog.Middleware()` 注册到 Engine（审计所有命令调用）
+- [x] `pm.RegisterMultiple()` 自动按依赖拓扑排序
+- [x] `stats.Middleware()` + `auditlog.Middleware()` 绑定到 Engine
 
 ---
 
-## Phase 4: 生命周期与运维
+## Phase 4: 生命周期与运维 ✅
 
 ### 4.1 优雅关闭
 
-- [ ] 确保 `bot.WaitForShutdown()` 正确监听系统信号（SIGINT / SIGTERM）
-- [ ] `bot.Shutdown()` 中框架自动完成：
-  - 停止接收新事件
-  - 等待处理中的事件完成
-  - 触发插件 Teardown（pluginstore 自动持久化状态）
-  - 关闭平台适配器连接
+- [x] `bot.WaitForShutdown()` 监听 SIGINT/SIGTERM
+- [x] `bot.Shutdown()` 自动停止事件流 + 触发插件 Teardown + 关闭适配器
 
 ### 4.2 健康检查
 
-- [ ] 使用 `bot.IsRunning()` 定期检查 Bot 状态
-- [ ] （可选）暴露 HTTP `/health` 端点供外部监控
+- [x] HTTP `/health` 端点，返回 JSON：
 
-### 4.3 性能分析（仅开发环境）
-
-- [ ] 启用 pprof server：
-
-```go
-pprofSrv := remilia.NewPprofServer(remilia.PprofConfig{
-    Enabled: true, Addr: "localhost:9001",
-})
-pprofSrv.Start()
-defer pprofSrv.Stop(ctx)
+```json
+{
+  "status": "ok",
+  "running": true,
+  "uptime": "5m30s",
+  "platforms": [{"name": "qq"}]
+}
 ```
 
-### 4.4 FSM 多轮对话（可选）
+- [x] pprof 启用时 `/health` 嵌入 pprof 服务器；未启用时启动独立 HTTP 服务器
+- [x] 默认监听 `:9001`，通过 `pprof.addr` 配置
 
-- [ ] 如需多步骤交互流程（注册、问卷等），通过 `fsm.Manager` 注册状态机
-- [ ] 参考 `examples/showcase/signup.go` 的实现模式
+### 4.3 性能分析
+
+- [x] pprof 服务器，通过 `config.yaml` 的 `pprof.*` 配置：
+
+```yaml
+pprof:
+  enabled: false        # 是否启用
+  addr: ":9001"         # 监听地址（同时承载 /health）
+  auto_profile: false   # 是否定时生成分析文件
+  output_dir: "data/profiles"
+  enable_mutex: false
+  enable_block: false
+```
+
+### 4.4 FSM 多轮对话
+
+- [x] `fsm.Manager` 已创建，可随时注册状态机
+- [ ] （待实现）注册具体 FSM 状态机
 
 ---
 
-## Phase 5: 测试与调试
+## Phase 5: 测试与调试 ✅
 
 ### 5.1 本地调试
 
-- [ ] 使用 `terminal.NewAdapter()` 在命令行模拟消息收发
-- [ ] 逐一验证以下内置命令：
-  - `/help` — 命令列表
-  - `/ping` — 连通性
-  - `/status` — Bot 状态
-  - `/perm` — 权限管理（Dev 插件）
-  - `/plugin` — 插件管理（Dev 插件）
-  - `/debug` — 调试信息（Dev 插件）
+- [x] 无平台配置时自动 Terminal 终端模式
+- [x] 内置命令：`/help`、`/perm`、`/plugin`、`/debug` 等
 
-### 5.2 集成测试
+### 5.2-5.3 测试
 
-- [ ] 使用 `testbot` 包编写自动化测试
-- [ ] 测试插件注册顺序和依赖解析是否正确
-- [ ] 测试中间件链是否按预期工作（限流、去重、熔断）
-
-### 5.3 日志验证
-
-- [ ] 确认各级别日志输出正确
-- [ ] 确认审计日志记录了权限变更和命令调用
+- [ ] （待实现）集成测试（testbot 包）
+- [ ] （待实现）日志自动化验证
 
 ---
 
-## Phase 6: 生产部署
+## Phase 6: 生产部署（暂未实施）
 
-### 6.1 切换生产适配器
-
-- [ ] 将 `terminal` 适配器替换为目标平台适配器
-- [ ] 配置正确的平台凭证和连接参数
-- [ ] 关闭 Dev 插件（admin / debug），避免暴露管理接口
-
-### 6.2 生产配置调优
-
-- [ ] 日志级别调整为 `info` 或 `warn`
-- [ ] 并发限制根据服务器性能设定（推荐 100-1000）
-- [ ] 限流参数根据实际流量调整
-- [ ] 启用降级策略（CPU / 内存阈值）
-- [ ] 启用死信队列（失败事件持久化）
-
-### 6.3 构建与发布
-
-- [ ] 使用 `go build` 或 `.goreleaser.yaml` 构建二进制
-- [ ] （可选）Docker 容器化部署
-- [ ] 确保 `config.yaml` 通过环境变量或挂载卷注入，不打包进镜像
+- [ ] `config.yaml` 配置目标平台凭证
+- [ ] 日志级别调为 `info` 或 `warn`
+- [ ] 并发/限流/降级参数根据实际流量调优
+- [ ] 启用死信队列
+- [ ] `go build -o bin/bot.exe ./cmd/bot/` 构建二进制
 
 ---
 
 ## 任务优先级速查
 
-| 优先级 | 阶段 | 说明 |
+| 优先级 | 阶段 | 状态 |
 |--------|------|------|
-| P0 | Phase 1 + 2 | 骨架搭建 + 核心初始化，Bot 能启动 |
-| P1 | Phase 3.1-3.2 | Core + All 内置插件注册，基础命令可用 |
-| P1 | Phase 5.1 | Terminal 本地调试验证 |
-| P2 | Phase 3.3-3.4 | Dev 插件 + 按需插件注册 |
-| P2 | Phase 4 | 生命周期、健康检查、pprof |
-| P3 | Phase 5.2-5.3 | 集成测试、日志验证 |
-| P3 | Phase 6 | 生产部署与调优 |
+| P0 | Phase 1 + 2 — 骨架搭建 + 核心初始化 | ✅ |
+| P1 | Phase 3 — 24 个内置插件注册 | ✅ |
+| P1 | Phase 5.1 — Terminal 本地调试 | ✅ |
+| P2 | Phase 4 — 生命周期 + 健康检查 + pprof | ✅ |
+| P3 | Phase 5.2-5.3 — 集成测试、日志验证 | ⏳ |
+| P3 | Phase 6 — 生产部署与调优 | ⏳ |
 
 ---
 
-## 后续扩展（本次不做）
+## 代码文件结构
 
-> 以下内容在内置插件验证完毕后再开展：
+```
+cmd/bot/
+├── main.go       # 入口：配置加载 → 日志 → Bot 构建 → pprof/health → 启动 → 优雅关闭
+├── setup.go      # 多平台适配器工厂 + 中间件 + 路由 + 插件管理器
+└── plugins.go    # 24 个内置插件注册，从 cfg.Plugins 读取配置参数
+
+data/
+├── db/bot.db      # SQLite 持久化存储
+├── logs/          # 运行时日志目录
+└── profiles/      # pprof 性能分析数据
+
+config/
+├── config.go      # + PprofConfig 配置类型
+├── validate.go    # + PprofConfig.Validate()
+└── config.example.yaml  # + pprof 配置节 + plugins 示例
+
+pprof.go           # + PprofServer.AddHandler() 注入自定义端点
+```
+
+## 后续扩展
 
 - [ ] 开发自定义业务插件（v2 API `plugin.Descriptor`）
 - [ ] 接入外部 API（天气、翻译、AI 等）
-- [ ] i18n 多语言支持（加载 `locales/*.yaml`）
+- [ ] i18n 多语言支持
 - [ ] subscription 数据源订阅（RSS、API 轮询）
 - [ ] broadcast 批量推送
-- [ ] 多平台同时运行（BotManager 管理多实例）
+- [ ] FSM 多轮对话注册
+- [ ] 集成测试（testbot 包）
