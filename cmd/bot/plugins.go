@@ -18,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/moderation"
+	"github.com/KomeiDiSanXian/remilia/builtin/ping"
 	"github.com/KomeiDiSanXian/remilia/builtin/pluginctrl"
 	"github.com/KomeiDiSanXian/remilia/builtin/pluginstore"
 	"github.com/KomeiDiSanXian/remilia/builtin/ratelimitui"
@@ -98,6 +99,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 		subPlugin.Descriptor(),
 		job.New(),
 		vevent.New(eng),
+		ping.New(),
 	}
 
 	if err := pm.RegisterMultiple(descriptors); err != nil {
