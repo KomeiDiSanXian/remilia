@@ -1,0 +1,178 @@
+package main
+
+import (
+	"os"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/acl"
+	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
+	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
+	"github.com/KomeiDiSanXian/remilia/builtin/autoresponder"
+	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/admin"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/help"
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/customcommands"
+	"github.com/KomeiDiSanXian/remilia/builtin/dev/debug"
+	"github.com/KomeiDiSanXian/remilia/builtin/job"
+	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
+	"github.com/KomeiDiSanXian/remilia/builtin/moderation"
+	"github.com/KomeiDiSanXian/remilia/builtin/pluginctrl"
+	"github.com/KomeiDiSanXian/remilia/builtin/pluginstore"
+	"github.com/KomeiDiSanXian/remilia/builtin/ratelimitui"
+	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
+	"github.com/KomeiDiSanXian/remilia/builtin/sendqueue"
+	"github.com/KomeiDiSanXian/remilia/builtin/stats"
+	builtinstorage "github.com/KomeiDiSanXian/remilia/builtin/storage"
+	subscriptionpkg "github.com/KomeiDiSanXian/remilia/builtin/subscription"
+	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
+	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
+	"github.com/KomeiDiSanXian/remilia/builtin/welcome"
+	"github.com/KomeiDiSanXian/remilia/config"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
+	"github.com/KomeiDiSanXian/remilia/plugin"
+)
+
+const dataDir = "data"
+
+func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
+	for _, dir := range []string{dataDir, dataDir + "/db"} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
+		}
+	}
+
+	antispamCfg := antispamConfig(cfg)
+	asPlugin := antispam.NewPlugin(antispamCfg, antispam.WithStore(dataDir+"/antispam"))
+	cdPlugin := cooldown.NewPlugin()
+	sp := stats.NewPlugin(stats.WithStore(dataDir + "/stats"))
+	schedPlugin := scheduler.NewPlugin()
+	aclPlugin := acl.NewPlugin(acl.WithStore(dataDir + "/acl"))
+	rlPlugin := ratelimitui.NewPlugin()
+	rlPlugin.BindAntispam(asPlugin)
+	rlPlugin.BindCooldown(cdPlugin)
+	subPlugin := subscriptionpkg.NewPlugin(
+		subscriptionpkg.WithPollInterval(5*time.Minute),
+		subscriptionpkg.WithStore(dataDir+"/subscription"),
+	)
+
+	kfConfig := keywordFilterConfig(cfg)
+
+	storageDSN, _ := cfg.PluginString("storage", "dsn")
+	if storageDSN == "" {
+		storageDSN = dataDir + "/db/bot.db"
+	}
+
+	descriptors := []*plugin.Descriptor{
+		pluginctrl.New(),
+		permission.New(),
+		aclPlugin.Descriptor(),
+		help.New(),
+		welcome.New(welcome.WithStore(dataDir + "/welcome")),
+		autoresponder.New(
+			autoresponder.WithStore(dataDir+"/autoresponder"),
+			autoresponder.WithPrefix("/"),
+		),
+		customcommands.New(customcommands.WithStore(dataDir + "/customcommands")),
+		moderation.New(moderation.WithStore(dataDir + "/moderation")),
+		admin.New(),
+		debug.New(),
+		verifycode.New(func(userID, role string) error {
+			logger.Infof("[bot] User %s granted role %s via verifycode", userID, role)
+			return nil
+		}, verifycode.WithStore(dataDir+"/verifycode")),
+		asPlugin.Descriptor(),
+		keywordfilter.New(kfConfig, keywordfilter.WithStore(dataDir+"/keywordfilter")),
+		cdPlugin.Descriptor(),
+		sp.Descriptor(),
+		auditlog.New(),
+		schedPlugin.Descriptor(),
+		rlPlugin.Descriptor(),
+		pluginstore.New(),
+		builtinstorage.New(infrastorage.WithDSN(storageDSN)),
+		sendqueue.New(sendqueue.DefaultConfig()),
+		subPlugin.Descriptor(),
+		job.New(),
+		vevent.New(eng),
+	}
+
+	if err := pm.RegisterMultiple(descriptors); err != nil {
+		logger.WithError(err).Fatal("[bot] Failed to register plugins")
+	}
+	logger.Infof("[bot] %d plugins loaded", pm.Count())
+
+	eng.Use(sp.Middleware())
+	if ar, ok := pm.GetContainer().Get("auditlog"); ok {
+		eng.Use(ar.(*auditlog.Plugin).Middleware())
+	}
+
+	mlDB, err := messagelog.OpenDB(dataDir + "/db/messagelog.db")
+	if err != nil {
+		logger.WithError(err).Warn("[bot] Failed to open messagelog DB, message history disabled")
+	} else {
+		messagelog.Default().UseDB(mlDB)
+		messagelog.Default().Start()
+		eng.Use(messagelog.MessageLogger())
+		logger.Info("[bot] MessageLogger middleware enabled")
+	}
+}
+
+func antispamConfig(cfg *config.Config) antispam.Config {
+	ur, _ := cfg.PluginInt("antispam", "user_rate")
+	ub, _ := cfg.PluginInt("antispam", "user_burst")
+	gr, _ := cfg.PluginInt("antispam", "group_rate")
+	gb, _ := cfg.PluginInt("antispam", "group_burst")
+	ban, _ := cfg.PluginBool("antispam", "ban_on_violation")
+	bdStr, _ := cfg.PluginString("antispam", "ban_duration")
+
+	ac := antispam.Config{
+		UserRate: float64(ur), UserBurst: ub,
+		GroupRate: float64(gr), GroupBurst: gb,
+		BanOnViolation: ban,
+	}
+	if ac.UserRate <= 0 {
+		ac.UserRate = 5
+	}
+	if ac.GroupRate <= 0 {
+		ac.GroupRate = 30
+	}
+	if bd, err := time.ParseDuration(bdStr); err == nil && bd > 0 {
+		ac.BanDuration = bd
+	} else {
+		ac.BanDuration = 5 * time.Minute
+	}
+	return ac
+}
+
+func keywordFilterConfig(cfg *config.Config) keywordfilter.Config {
+	kc := keywordfilter.Config{}
+
+	if keywordsRaw, ok := cfg.PluginConfig("keywordfilter"); ok {
+		if kwList, ok := keywordsRaw["keywords"]; ok {
+			switch v := kwList.(type) {
+			case []any:
+				for _, kw := range v {
+					if s, ok := kw.(string); ok {
+						kc.Keywords = append(kc.Keywords, s)
+					}
+				}
+			case []string:
+				kc.Keywords = v
+			}
+		}
+	}
+
+	if len(kc.Keywords) == 0 {
+		kc.Keywords = []string{}
+	}
+
+	kc.OnMatch = func(ctx *eventctx.Context, matched string) error {
+		logger.Warnf("[bot] Keyword matched: %q from user %s", matched, ctx.GetUserID())
+		return nil
+	}
+	return kc
+}
