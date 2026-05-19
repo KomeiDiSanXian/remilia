@@ -19,6 +19,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -277,6 +278,225 @@ func commandPlugin(pm *plugin.Manager) *plugin.Descriptor {
 						job.WithExponentialBackoff(200*time.Millisecond, 2*time.Second),
 					)
 					return replyCtx(c, fmt.Sprintf("重试作业已提交: id=%s", jid))
+				})
+
+			// /mdtest — Markdown 格式测试
+			/*
+				需要注意，测试发现qq官方bot手机和电脑支持的格式不一样
+				同时对于转发的情况，转发后的消息只展示渲染后的纯文本，不显示图片
+				目前（2026-05-19），qq官方bot有以下额外的特性：
+				- 代码块：手机端点击后可以复制代码内容到剪贴板；电脑端则没有
+				- 表格：手机端比电脑端多出复制、保存、全屏功能
+				- 电脑端额外支持 html标签，手机端不支持 html标签
+				- H3、H4、H5、H6都是一致显示H3
+				- 无尺寸图片在手机端可能不显示
+				- 脚注在手机端会被移到文本最后一行
+				- 普通 加粗 删除 的混合 在手机端可能失效，电脑端暂未观察到失效的情况
+				...
+				建议开发md相关功能时跑一下这个测试看看格式支持情况
+				其他平台的 Markdown 支持情况可能也不一样，开发时需要注意兼容性问题
+			*/
+			reg.RegisterCommand("", "/mdtest").
+				SetDefinition(&command.Definition{Name: "mdtest", Description: "Markdown 格式测试", Category: "demo"}).
+				Handle(func(c *eventctx.Context) error {
+					md := `===== 文档支持的格式 =====
+
+# H1 标题
+## H2 标题
+### H3 标题
+
+**加粗文字**
+__下划线加粗__
+*斜体文字*
+***加粗斜体***
+~~删除线~~
+
+欢迎访问：[🔗腾讯网](https://www.qq.com)
+原始链接：<https://doc.qq.com>
+
+![图片 #100px #100px](https://resource5-1255303497.cos.ap-guangzhou.myqcloud.com/abcmouse_word_watch/markdown/building.png)
+
+1. 有序列表一
+2. 有序列表二
+3. 有序列表三
+
+- 无序列表 A
+- 无序列表 B
+- 无序列表 C
+
+1. 外层有序
+    - 嵌套无序一
+    - 嵌套无序二
+2. 外层有序二
+    1. 嵌套有序 1
+    2. 嵌套有序 2
+
+> 块引用第一行
+> 块引用第二行
+> 块引用第三行
+
+分割线上方
+***
+分割线下方
+
+===== 以下格式文档未列出，预期不支持 =====
+
+行内代码：fmt.Println("hello")
+
+` + "```" + `
+代码块
+func main() {}
+` + "```" + `
+
+| 表格 | 列2 | 列3 |
+|------|-----|-----|
+| a    | b   | c   |
+
+- [ ] 未完成任务
+- [x] 已完成任务
+
+表情简码：:smile: :heart: :+1:
+
+HTML标签：<u>下划线</u> <font color="red">红字</font>
+
+转义：\*不被解析为斜体\*
+
+脚注测试[^1]
+
+[^1]: 脚注内容
+
+#### H4 标题
+##### H5 标题
+###### H6 标题
+
+> 外层引用
+> > 嵌套引用
+
+**加粗中的_斜体_**
+~~**加粗删除线**~~
+_普通_ **加粗** ~~删除~~ 混合
+
+5. 从 5 开始的有序列表
+6. 第二项
+
+无尖括号裸链接：https://www.qq.com
+
+无尺寸图片：
+![无尺寸](https://resource5-1255303497.cos.ap-guangzhou.myqcloud.com/abcmouse_word_watch/markdown/building.png)
+
+引用式链接：[点我][ref]
+[ref]: https://www.qq.com
+
+分割线变体：---
+___
+* * *
+
+键盘标签：<kbd>Ctrl+C</kbd>
+高亮标签：<mark>高亮</mark>
+上标：X<sup>2</sup>
+下标：H<sub>2</sub>O
+
+详情折叠：
+<details><summary>点我展开</summary>隐藏内容</details>
+
+图片链接：[![图片 #50px #50px](https://resource5-1255303497.cos.ap-guangzhou.myqcloud.com/abcmouse_word_watch/markdown/building.png)](https://www.qq.com)
+
+同一行内的  
+换行（行尾两空格）`
+					_, err := c.Reply(platform.MarkdownMessage(md))
+					if err != nil {
+						return replyCtx(c, "发送失败: "+err.Error())
+					}
+					return nil
+				})
+
+			// /arktest — ARK 模板消息测试（QQ 平台专属）
+			reg.RegisterCommand("", "/arktest").
+				SetDefinition(&command.Definition{
+					Name: "arktest", Description: "ARK 模板消息测试（23/24/37）", Category: "demo",
+					Arguments: []*command.Argument{{
+						Name: "template", Type: command.ArgTypeString, Required: true,
+					}},
+					Examples: []string{"/arktest 23", "/arktest 24", "/arktest 37"},
+				}).
+				Handle(func(c *eventctx.Context) error {
+					args, _ := command.ParseCommandLine(c.GetMessageContent())
+					tpl := args.Get(0)
+
+					var msg platform.OutboundMessage
+					switch tpl {
+					case "23":
+						msg = qq.ApplyExtra(platform.TextMessage(""), qq.MessageExtra{
+							Ark: &qq.Ark{TemplateID: 23, KV: []qq.ArkKV{
+								{Key: "#DESC#", Value: "今日待办事项"},
+								{Key: "#PROMPT#", Value: "Remilia Bot 提醒"},
+								{Key: "#LIST#", Obj: []qq.ArkObj{
+									{KV: []qq.ArkKVField{{Key: "desc", Value: "需求评审会议 14:00"}}},
+									{KV: []qq.ArkKVField{{Key: "desc", Value: "修复 UI 样式问题"}}},
+									{KV: []qq.ArkKVField{
+										{Key: "desc", Value: "查看详情"},
+										{Key: "link", Value: "https://qq.com"},
+									}},
+									{KV: []qq.ArkKVField{
+										{Key: "desc", Value: "提交代码审查"},
+										{Key: "link", Value: "https://qq.com"},
+									}},
+								}},
+							}},
+						})
+
+					case "24":
+						msg = qq.ApplyExtra(platform.TextMessage(""), qq.MessageExtra{
+							Ark: &qq.Ark{TemplateID: 24, KV: []qq.ArkKV{
+								{Key: "#DESC#", Value: "这是一条图文消息的描述内容"},
+								{Key: "#PROMPT#", Value: "图文消息通知"},
+								{Key: "#TITLE#", Value: "Remilia Bot 测试标题 - 文本+缩略图模板"},
+								{Key: "#METADESC#", Value: "这里是详情描述区域，用于测试文本溢出时的展示效果"},
+								{Key: "#IMG#", Value: "https://pub.idqqimg.com/pc/misc/files/20190820/2f4e70ae3355ece23d161cf5334d4fc1jzjfmtep.png"},
+								{Key: "#LINK#", Value: "https://qq.com"},
+								{Key: "#SUBTITLE#", Value: "Remilia Bot"},
+							}},
+						})
+
+					case "37":
+						msg = qq.ApplyExtra(platform.TextMessage(""), qq.MessageExtra{
+							Ark: &qq.Ark{TemplateID: 37, KV: []qq.ArkKV{
+								{Key: "#PROMPT#", Value: "大图通知"},
+								{Key: "#METATITLE#", Value: "今日精选"},
+								{Key: "#METASUBTITLE#", Value: "每日更新，精彩不断"},
+								{Key: "#METACOVER#", Value: "https://vfiles.gtimg.cn/vupload/20211029/bf0ed01635493790634.jpg"},
+								{Key: "#METAURL#", Value: "https://qq.com"},
+							}},
+						})
+
+					default:
+						return replyCtx(c, "用法: /arktest <23|24|37>\n23=链接+文本列表, 24=文本+缩略图, 37=大图")
+					}
+					result, err := c.Reply(msg)
+					if err != nil {
+						logger.WithError(err).Errorf("[arktest] send failed, template=%s", tpl)
+						return replyCtx(c, fmt.Sprintf("发送失败: %v", err))
+					}
+					/*
+						测试了一下返回的都是空结果，result的解析里连错误都没返回，可能这个已经不支持了？
+						等待进一步的调查
+					*/
+					logger.Infof("[arktest] sent, template=%s id=%q", tpl, result.MessageID)
+					return replyCtx(c, fmt.Sprintf("ARK 模板 %s 发送结果 id=%q", tpl, result.MessageID))
+				})
+
+			// /multireply — 同消息多次回复演示（msg_seq 递增）
+			reg.RegisterCommand("", "/multireply").
+				SetDefinition(&command.Definition{Name: "multireply", Description: "回复3次演示msg_seq递增", Category: "demo"}).
+				Handle(func(c *eventctx.Context) error {
+					for i := range 8 {
+						_, err := c.Reply(platform.TextMessage(fmt.Sprintf("第 %d 次回复 (msg_seq=%d)", i, i)))
+						if err != nil {
+							logger.WithError(err).Errorf("[multireply] reply %d failed", i)
+							return replyCtx(c, fmt.Sprintf("第 %d 次回复失败: %v", i, err)) // 发了五条消息后，这里其实会被Log中间件拦截了
+						}
+					}
+					return nil
 				})
 
 			return nil, nil
