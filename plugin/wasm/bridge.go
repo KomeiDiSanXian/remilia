@@ -2,7 +2,6 @@ package wasm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -12,8 +11,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// RegistrationRequest 是 WASM 插件通过 register_command 宿主函数
-// 向宿主发起的 Matcher 注册请求。
+// RegistrationRequest WASM 插件向宿主发起 Matcher 注册请求的参数。
 type RegistrationRequest struct {
 	EventType string `json:"event_type"`
 	Command   string `json:"command,omitempty"`
@@ -51,35 +49,33 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 	matcher.SetGroup("wasm:" + b.module.Name())
 
 	mod := b.module
-	handlerID := req.HandlerID
 	matcher.Handle(func(ctx *corectx.Context) error {
-		eventJSON, _ := json.Marshal(map[string]any{
-			"content":   ctx.GetMessageContent(),
-			"event_id":  ctx.GetPlatformEvent().ID(),
-			"sender_id": ctx.GetSenderID(),
-			"chat_id":   ctx.GetChatInfo().ID,
-			"platform":  ctx.GetEventPlatform(),
-		})
+		// 使用 TLV 编码事件
+		eventTLV := NewTLVBuilder().
+			WriteString("c", ctx.GetMessageContent()).
+			WriteString("s", ctx.GetSenderID()).
+			WriteString("p", ctx.GetEventPlatform()).
+			WriteString("i", ctx.GetChatInfo().ID).
+			WriteString("t", chatTypeString(ctx.GetChatInfo().IsGroup)).
+			WriteString("e", ctx.GetPlatformEvent().ID()).
+			Bytes()
 
 		callCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		respJSON, err := mod.CallHandle(callCtx, eventJSON)
+		respTLV, err := mod.CallHandle(callCtx, eventTLV)
 		if err != nil {
 			ctx.Reply(platform.TextMessage(fmt.Sprintf("插件执行错误: %v", err)))
 			return nil
 		}
-		if respJSON == nil {
+		if respTLV == nil {
 			return nil
 		}
 
-		var resp struct {
-			Reply string `json:"reply,omitempty"`
+		reply := NewTLVReader(respTLV).ReadString("r")
+		if reply != "" {
+			ctx.Reply(platform.TextMessage(reply))
 		}
-		if err := json.Unmarshal(respJSON, &resp); err == nil && resp.Reply != "" {
-			ctx.Reply(platform.TextMessage(resp.Reply))
-		}
-		_ = handlerID
 		return nil
 	})
 
@@ -95,4 +91,11 @@ func (b *Bridge) Cleanup() {
 		m.Delete()
 	}
 	b.matchers = b.matchers[:0]
+}
+
+func chatTypeString(isGroup bool) string {
+	if isGroup {
+		return "group"
+	}
+	return "private"
 }

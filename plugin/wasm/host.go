@@ -2,7 +2,6 @@ package wasm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -10,8 +9,8 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-// HostFunc 是宿主函数的签名：接收 JSON 参数，返回 JSON 结果或错误。
-type HostFunc func(args json.RawMessage) (json.RawMessage, error)
+// HostFunc 是宿主函数的签名：接收 TLV 参数，返回 TLV 结果或错误。
+type HostFunc func(args []byte) ([]byte, error)
 
 // HostFuncRegistry 管理 WASM 插件可调用的宿主函数。
 type HostFuncRegistry struct {
@@ -48,7 +47,7 @@ func (r *HostFuncRegistry) BuildModule(ctx context.Context, rt wazero.Runtime) (
 			WithFunc(func(ctx context.Context, module api.Module, ptr uint32, length uint32) uint64 {
 				return r.callHostFunc(module, funcName, ptr, length)
 			}).
-			Export(HostModuleName + "_" + funcName)
+			Export(funcName)
 	}
 	return builder.Instantiate(ctx)
 }
@@ -67,22 +66,18 @@ func (r *HostFuncRegistry) callHostFunc(mod api.Module, name string, ptr uint32,
 		return 0
 	}
 
-	var args json.RawMessage
+	var args []byte
 	if length > 0 {
 		buf, ok := mem.Read(ptr, length)
 		if !ok {
 			return 0
 		}
-		args = make(json.RawMessage, len(buf))
+		args = make([]byte, len(buf))
 		copy(args, buf)
 	}
 
 	result, err := fn(args)
-	if err != nil {
-		return 0
-	}
-
-	if len(result) == 0 {
+	if err != nil || len(result) == 0 {
 		return 0
 	}
 
@@ -103,31 +98,59 @@ func (r *HostFuncRegistry) callHostFunc(mod api.Module, name string, ptr uint32,
 	return EncodeResult(allocPtr, uint32(len(result)))
 }
 
-// bgCtx 是 wazero 回调中使用的 context.Background。
+// ListFunctionNames 返回已注册的所有宿主函数名。
+func (r *HostFuncRegistry) ListFunctionNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.funcs))
+	for n := range r.funcs {
+		names = append(names, n)
+	}
+	return names
+}
+
 var bgCtx = context.Background()
 
-// RegisterDefaultHostFuncs 注册默认的宿主函数集。
+// RegisterDefaultHostFuncs 注册默认的宿主函数集，包括自描述函数。
 func RegisterDefaultHostFuncs(r *HostFuncRegistry) {
-	r.Register("log", func(args json.RawMessage) (json.RawMessage, error) {
-		var req struct {
-			Level   string `json:"level"`
-			Message string `json:"message"`
+	r.Register("log", func(args []byte) ([]byte, error) {
+		level := NewTLVReader(args).ReadString("level")
+		msg := NewTLVReader(args).ReadString("message")
+		if msg == "" {
+			// 兼容单参数调用：直接取第一个 TLV 值作为消息
+			msg = NewTLVReader(args).ReadString("c")
+			if msg == "" {
+				msg = string(args)
+			}
 		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return nil, err
+		if level == "" {
+			level = "info"
 		}
-		fmt.Printf("[wasm/%s] %s\n", req.Level, req.Message)
-		return json.RawMessage("null"), nil
+		fmt.Printf("[wasm/%s] %s\n", level, msg)
+		return []byte("null"), nil
 	})
 
-	r.Register("get_config", func(args json.RawMessage) (json.RawMessage, error) {
-		var req struct {
-			Key string `json:"key"`
+	r.Register("get_config", func(args []byte) ([]byte, error) {
+		key := NewTLVReader(args).ReadString("k")
+		_ = key
+		return NewTLVBuilder().WriteString("v", "").Bytes(), nil
+	})
+
+	// 自描述宿主函数：返回宿主 ABI 版本
+	r.Register(HostFuncABIVersion, func(args []byte) ([]byte, error) {
+		return NewTLVBuilder().WriteString("v", fmt.Sprintf("%d", CurrentABIVersion)).Bytes(), nil
+	})
+
+	// 自描述宿主函数：返回可用函数列表（TLV 多键）
+	r.Register(HostFuncListFunctions, func(args []byte) ([]byte, error) {
+		names := r.ListFunctionNames()
+		b := NewTLVBuilder()
+		for _, n := range names {
+			if n == HostFuncListFunctions || n == HostFuncABIVersion {
+				continue // 不列出自描述函数自身以避免递归
+			}
+			b.WriteString("f", n)
 		}
-		if err := json.Unmarshal(args, &req); err != nil {
-			return json.RawMessage("null"), nil
-		}
-		_ = req.Key
-		return json.RawMessage("null"), nil
+		return b.Bytes(), nil
 	})
 }

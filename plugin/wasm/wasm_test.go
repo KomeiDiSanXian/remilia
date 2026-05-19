@@ -1,7 +1,6 @@
 package wasm_test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,9 +44,9 @@ func TestDescriptor_EffectiveResourceLimit_Custom(t *testing.T) {
 func TestHostFuncRegistry_RegisterAndCall(t *testing.T) {
 	reg := wasm.NewHostFuncRegistry()
 	var called bool
-	reg.Register("ping", func(args json.RawMessage) (json.RawMessage, error) {
+	reg.Register("ping", func(args []byte) ([]byte, error) {
 		called = true
-		return json.RawMessage(`"pong"`), nil
+		return []byte(`pong`), nil
 	})
 	// 验证注册成功（BuildModule 不会 panic）
 	assert.NotNil(t, reg)
@@ -67,12 +66,12 @@ func TestBridge_NewAndCleanup(t *testing.T) {
 }
 
 func TestSandbox_MemoryLimit(t *testing.T) {
-	s := wasm.NewSandbox(2, 100)
+	s := wasm.NewSandbox(wasm.ResourceLimit{MemoryPages: 2, MaxCallPerSec: 100})
 	assert.Equal(t, uint32(2*64*1024), s.MemoryLimitBytes())
 }
 
 func TestSandbox_AllowCall(t *testing.T) {
-	s := wasm.NewSandbox(0, 100)
+	s := wasm.NewSandbox(wasm.ResourceLimit{MaxCallPerSec: 100})
 	for range 100 {
 		assert.True(t, s.AllowCall())
 	}

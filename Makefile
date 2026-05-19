@@ -19,11 +19,20 @@ help:
 	@echo "  make fmt         - Format all Go source files"
 	@echo "  make vet         - Run go vet"
 	@echo "  make docker      - Build Docker image"
+	@echo "  make build-wasm-test     - Build WASM test plugins (requires TinyGo + Go 1.23)"
+	@echo "  make build-wasm-showcase - Build showcase WASM demo plugin"
 
 all: tidy fmt vet test build
 
 build:
 	$(GO_BUILD) -o bin/$(APP_NAME) ./cmd/bot
+
+build-wasm-test:
+	cd plugin/wasm/testdata && GOOS=wasip1 GOARCH=wasm $(GO) build -o testplugin.wasm .
+	cd plugin/wasm/testdata/tinygoplugin && tinygo build -o tinygoplugin.wasm -target=wasi . && cp tinygoplugin.wasm ../
+
+build-wasm-showcase:
+	cd examples/showcase/wasm && tinygo build -o ../demo.wasm -target=wasi .
 
 test:
 	$(GO) test -count=1 -race -shuffle=on -timeout 180s ./...

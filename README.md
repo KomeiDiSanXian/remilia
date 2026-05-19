@@ -47,6 +47,7 @@
 
 - **高性能引擎** — COW 并发模型，无锁读取，单实例吞吐量 500,000+ msg/s
 - **插件系统** — v2 函数式插件，热重载（InPlace / BlueGreen 策略），自动依赖排序
+- **WASM 插件** — 跨语言插件支持（TinyGo / Rust / C），wazero 沙箱隔离，TLV 序列化
 - **中间件机制** — 限流 / 重试 / 降级 / 死信队列 / 去重，支持热更新阈值
 - **命令解析** — Trie 树 + commandIndex 双索引，O(1) 命令路由
 - **配置管理** — YAML / 环境变量，配置热更新（`hotreload.Bridge`）
@@ -246,6 +247,7 @@ bot.WaitForShutdown()
 - [Plugin v2 快速上手](./docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md) — 从零开始写插件
 - [插件接口速查](./docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md) — API 签名速查
 - [插件开发最佳实践](./docs/04-development/plugin-best-practices.md) — 规范与模式
+- [WASM 跨语言插件](./docs/04-development/wasm-plugin-development.md) — TinyGo/Rust/C 插件开发 🆕
 
 #### 📖 用户指南
 - [最佳实践](./docs/02-user-guides/BEST_PRACTICES.md) — 推荐的使用模式
@@ -267,7 +269,7 @@ bot.WaitForShutdown()
 
 查看 [examples](./examples) 目录获取更多示例（完整说明见 [examples/README.md](./examples/README.md)）：
 
-- [showcase](./examples/showcase) ⭐ — 覆盖所有功能的综合示例（推荐从这里开始）
+- [showcase](./examples/showcase) ⭐ — 覆盖所有功能的综合示例，含 WASM 插件演示
 - [基础 Bot](./examples/basic-bot) — 最简单的 bot 示例
 - [命令系统](./examples/command-bot) — 完整的命令处理示例
 - [插件开发](./examples/plugin-example) — 自定义插件示例（v2 API）
@@ -356,6 +358,12 @@ bot.WaitForShutdown()
 - **函数式设计**: `PluginDescriptor` 替代继承，无样板代码
 - **读写分离**: `PluginInfo`（只读）/ `ManagerWriter`（写，需 `Privileged: true`）
 - **Smart 注册**: DryRun 阶段自动推断依赖图，无需手写 `Deps`
+
+#### 4. WASM 插件系统（ABI v2）
+- **跨语言**: TinyGo / Rust / C 均可编写 WASM 插件
+- **沙箱隔离**: wazero 运行时，宿主内存安全隔离
+- **TLV 序列化**: 零依赖二进制序列化，替代 JSON
+- **资源控制**: 限流/超时/响应大小上限/导入数量上限
 
 #### 4. 中间件链
 - **洋葱模型**: Pre-process → Handler → Post-process

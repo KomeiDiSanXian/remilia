@@ -75,6 +75,9 @@ func main() {
 	registerCommands(pm)
 	registerSignupFSM(fsmMgr, pm)
 
+	// WASM 插件演示（使用程序生成的 WASM 模块加载到 Engine 中）
+	setupWasmDemo(pm, eng)
+
 	logger.Info("[showcase] Starting... send /help to see all commands")
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("[showcase] stopped")
