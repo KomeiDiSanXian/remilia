@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -192,7 +193,7 @@ func TestValidateDependencies(t *testing.T) {
 		}
 		err := manager.ValidateDependencies(plugins)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "circular")
+		assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 	})
 }
 
@@ -240,7 +241,7 @@ func TestTopologicalSort_SelfDependency(t *testing.T) {
 
 	_, err := manager.topologicalSort(plugins)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "circular dependency")
+	assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 }
 
 // Helper function

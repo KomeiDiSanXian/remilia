@@ -49,19 +49,10 @@ func IsBlockError(err error) bool {
 //
 //  5. 包私有错误可以在包内用 errors.New 定义，不强制导出到此包。
 var (
-	ErrConfigInvalid     = errors.New("invalid configuration")
-	ErrMatcherNotFound   = errors.New("matcher not found")
-	ErrContextReleased   = errors.New("context already released")
-	ErrEngineShutdown    = errors.New("engine is shutting down")
-	ErrInvalidEventID    = errors.New("invalid event ID")
-	ErrHandlerNotSet     = errors.New("handler not set")
-	ErrRuleCompileFailed = errors.New("rule compile failed")
-	ErrDedupCacheFull    = errors.New("dedup cache full")
-	ErrDeadLetterFailed  = errors.New("dead letter processing failed")
+	ErrConfigInvalid  = errors.New("invalid configuration")
+	ErrDedupCacheFull = errors.New("dedup cache full")
 
 	ErrAdapterStartFailed  = errors.New("adapter start failed")
-	ErrAdapterStopFailed   = errors.New("adapter stop failed")
-	ErrAdapterNotRunning   = errors.New("adapter not running")
 	ErrWebhookCreateFailed = errors.New("failed to create webhook connection")
 	ErrNoChatInfo          = errors.New("no ChatInfo provided: ensure SendRequest.Target.ID is set before calling Send")
 	ErrEmptyMessage        = errors.New("empty message: at least one of Text, Markdown, Attachments, Embeds, Buttons or Mentions must be set")
@@ -72,41 +63,15 @@ var (
 	ErrCircularDependency  = errors.New("circular dependency detected")
 	ErrDependencyNotFound  = errors.New("dependency not found")
 	ErrPluginLoadFailed    = errors.New("plugin load failed")
-	ErrPluginUnloadFailed  = errors.New("plugin unload failed")
 
 	ErrAdapterRequired = errors.New("adapter is required")
-	ErrEngineRequired  = errors.New("engine is required")
-	ErrBotInfoRequired = errors.New("bot info is required")
 
-	ErrBotAlreadyRunning  = errors.New("bot already running")
-	ErrBotNotRunning      = errors.New("bot not running")
-	ErrBotShutdownTimeout = errors.New("bot shutdown timeout")
+	ErrConfigFieldInvalid = errors.New("config field value is invalid")
 
-	ErrComponentStartFailed   = errors.New("lifecycle: component start failed")
-	ErrComponentStopFailed    = errors.New("lifecycle: component stop failed")
-	ErrComponentNotRegistered = errors.New("lifecycle: component not registered")
-	ErrComponentStartTimeout  = errors.New("lifecycle: component start timeout")
-	ErrComponentStopTimeout   = errors.New("lifecycle: component stop timeout")
-
-	ErrConfigFieldRequired = errors.New("config field is required")
-	ErrConfigFieldInvalid  = errors.New("config field value is invalid")
-	ErrConfigLoadFailed    = errors.New("failed to load config")
-	ErrConfigParseFailed   = errors.New("failed to parse config")
-	ErrConfigWatchFailed   = errors.New("failed to watch config")
-
-	ErrWebhookSignFailed       = errors.New("failed to sign webhook request")
-	ErrWebhookMarshalFailed    = errors.New("failed to marshal webhook data")
-	ErrWebhookUnmarshalFailed  = errors.New("failed to unmarshal webhook data")
-	ErrWebhookValidationFailed = errors.New("webhook validation failed")
-
-	ErrRateLimitExceeded  = errors.New("rate limit exceeded")
-	ErrCircuitBreakerOpen = errors.New("circuit breaker is open")
-	ErrRetryExhausted     = errors.New("retry attempts exhausted")
-	ErrDegradationActive  = errors.New("system is in degraded mode")
-
-	ErrTokenExpired       = errors.New("token expired")
-	ErrTokenInvalid       = errors.New("token invalid")
-	ErrTokenRefreshFailed = errors.New("token refresh failed")
+	ErrRateLimitExceeded        = errors.New("rate limit exceeded")
+	ErrCircuitBreakerOpen       = errors.New("circuit breaker is open")
+	ErrCircuitBreakerHalfOpen   = errors.New("circuit breaker is half-open")
+	ErrCircuitBreakerContention = errors.New("circuit breaker state transition contention")
 
 	ErrPassiveReplyExpired      = errors.New("passive reply window expired")
 	ErrPassiveReplyLimitReached = errors.New("passive reply limit reached")

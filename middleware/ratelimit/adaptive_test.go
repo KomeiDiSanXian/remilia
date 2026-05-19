@@ -7,6 +7,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/stretchr/testify/assert"
 )
@@ -119,7 +120,7 @@ func TestAdaptiveRateLimiter_ConcurrencyLimit(t *testing.T) {
 	ctx := testutil.CreateTestContext()
 	err := wrappedHandler(ctx)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "rate limit exceeded")
+	assert.ErrorIs(t, err, errutil.ErrRateLimitExceeded)
 
 	// 释放所有请求
 	close(blockCh)

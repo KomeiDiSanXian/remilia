@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/lifecycle"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
@@ -198,7 +199,7 @@ func TestBot_Start(t *testing.T) {
 
 	t.Run("start with adapter error", func(t *testing.T) {
 		adapter := newMockAdapter()
-		adapter.startErr = errors.New("adapter start failed")
+		adapter.startErr = errutil.ErrAdapterStartFailed
 		eng := engine.NewEngine()
 		bot := MustNewBot(adapter, eng)
 

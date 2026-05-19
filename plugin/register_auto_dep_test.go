@@ -3,6 +3,7 @@ package plugin
 import (
 	"testing"
 
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,7 +105,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 
 		err := manager.RegisterMultipleSmart(plugins)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "circular dependency")
+		assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 		t.Log("✓ Circular dependency detected with smart registration")
 	})
 }

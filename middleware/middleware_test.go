@@ -7,6 +7,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
@@ -472,7 +473,7 @@ func TestCircuitBreaker(t *testing.T) {
 		// Third call should be rejected
 		err = handler(ctx)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "circuit breaker is open")
+		assert.ErrorIs(t, err, errutil.ErrCircuitBreakerOpen)
 	})
 
 	t.Run("open to half-open transition", func(t *testing.T) {

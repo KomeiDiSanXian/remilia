@@ -112,7 +112,6 @@ func TestWrapErrorChain_MultiLevel(t *testing.T) {
 func TestPredefinedErrors(t *testing.T) {
 	assert.NotNil(t, errutil.ErrConfigInvalid)
 	assert.NotNil(t, errutil.ErrPluginNotFound)
-	assert.NotNil(t, errutil.ErrBotAlreadyRunning)
 	assert.NotNil(t, errutil.ErrRateLimitExceeded)
 	assert.NotNil(t, errutil.ErrCircuitBreakerOpen)
 }

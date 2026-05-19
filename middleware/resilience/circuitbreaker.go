@@ -390,13 +390,13 @@ func (cb *CircuitBreaker) acquireHalfOpenSlot() error {
 	for range 100 {
 		current := cb.halfOpenReqs.Load()
 		if current >= int32(halfOpenMaxReqs) {
-			return fmt.Errorf("circuit breaker is half-open, max requests exceeded")
+			return fmt.Errorf("half-open slot exhausted (current=%d, max=%d): %w", current, halfOpenMaxReqs, errutil.ErrCircuitBreakerHalfOpen)
 		}
 		if cb.halfOpenReqs.CompareAndSwap(current, current+1) {
 			return nil
 		}
 	}
-	return fmt.Errorf("circuit breaker: too many concurrent state transitions")
+	return errutil.ErrCircuitBreakerContention
 }
 
 // onSuccess 记录成功

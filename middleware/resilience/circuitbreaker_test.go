@@ -233,7 +233,7 @@ func TestCircuitBreaker_MiddlewareHalfOpenMaxRequests(t *testing.T) {
 
 	err := handler(ctx)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "max requests exceeded")
+	assert.ErrorIs(t, err, errutil.ErrCircuitBreakerHalfOpen)
 }
 
 func TestCircuitBreaker_Reset(t *testing.T) {
@@ -314,7 +314,7 @@ func TestCircuitBreaker_UpdateConfig_ShrinkHalfOpenMaxRequests(t *testing.T) {
 
 	err := cb.canExecute()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "max requests exceeded")
+	assert.ErrorIs(t, err, errutil.ErrCircuitBreakerHalfOpen)
 }
 
 func TestCircuitBreaker_OnStateChange(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
 )
 
@@ -151,7 +152,7 @@ func TestCircuitBreakerHalfOpenTimeout(t *testing.T) {
 
 	// 现在应该重新回到 Open 状态（因为半开超时）
 	err := wrappedHandler(ctx)
-	if err == nil || err.Error() != "circuit breaker is open" {
+	if err == nil || !errors.Is(err, errutil.ErrCircuitBreakerOpen) {
 		t.Errorf("Expected circuit open error, got %v", err)
 	}
 

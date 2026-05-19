@@ -20,10 +20,9 @@ import (
 
 // 自定义错误类型
 var (
-	ErrInvalidInput      = errors.New("invalid input")
-	ErrPermissionDenied  = errors.New("permission denied")
-	ErrResourceNotFound  = errors.New("resource not found")
-	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrInvalidInput     = errors.New("invalid input")
+	ErrPermissionDenied = errors.New("permission denied")
+	ErrResourceNotFound = errors.New("resource not found")
 )
 
 type UserError struct {

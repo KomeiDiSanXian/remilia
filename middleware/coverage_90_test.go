@@ -8,11 +8,12 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	"github.com/KomeiDiSanXian/remilia/platform"
-	degradation "github.com/KomeiDiSanXian/remilia/middleware/degradation"
+	"github.com/KomeiDiSanXian/remilia/errutil"
 	dedup "github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	degradation "github.com/KomeiDiSanXian/remilia/middleware/degradation"
 	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	telemetry "github.com/KomeiDiSanXian/remilia/middleware/telemetry"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -732,7 +733,7 @@ func TestConcurrentStress(t *testing.T) {
 		for range 20 {
 			wg.Go(func() {
 				err := handler(createTestContext())
-				if err != nil && err.Error() == "circuit breaker is open" {
+				if err != nil && errors.Is(err, errutil.ErrCircuitBreakerOpen) {
 					atomic.AddInt32(&rejected, 1)
 				}
 			})

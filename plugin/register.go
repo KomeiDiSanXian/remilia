@@ -656,7 +656,7 @@ func (pm *Manager) topologicalSort(descriptors []*Descriptor) ([]*Descriptor, er
 				unprocessed = append(unprocessed, name)
 			}
 		}
-		return nil, fmt.Errorf("circular dependency detected among plugins: %v", unprocessed)
+		return nil, fmt.Errorf("circular dependency detected among plugins: %v: %w", unprocessed, errutil.ErrCircularDependency)
 	}
 	return result, nil
 }
