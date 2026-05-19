@@ -69,6 +69,9 @@ type MessageExtra struct {
 	// 与 msg_id/event_id 互斥，用于在用户主动对话后的召回窗口内下发一条消息。
 	// 使用时不要同时设置 EventID，否则行为未定义。
 	IsWakeup bool
+	// Ark ARK 模板消息（QQ 平台专属卡片消息）。
+	// 设置后优先于 Text/Markdown 等普通消息类型。
+	Ark *Ark
 }
 
 // qqExtraKey 是注入到 OutboundMessage.Extra 的键（包级私有常量）。
