@@ -107,6 +107,9 @@ var (
 	ErrTokenExpired       = errors.New("token expired")
 	ErrTokenInvalid       = errors.New("token invalid")
 	ErrTokenRefreshFailed = errors.New("token refresh failed")
+
+	ErrPassiveReplyExpired      = errors.New("passive reply window expired")
+	ErrPassiveReplyLimitReached = errors.New("passive reply limit reached")
 )
 
 // RecoverError 将 panic 转换为 error。

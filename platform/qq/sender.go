@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,10 +16,24 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const (
+	// maxPassiveReplies 每个消息最多被动回复次数（QQ 平台限制）
+	maxPassiveReplies = 5
+	// passiveReplyTTL 被动回复有效时长（QQ 平台限制）
+	passiveReplyTTL = 5 * time.Minute
+)
+
+// msgSeqEntry 按 msg_id 跟踪被动回复状态。
+type msgSeqEntry struct {
+	seq       atomic.Uint64
+	count     atomic.Uint64
+	createdAt atomic.Value // time.Time
+}
+
 // qqSender 将 platform.Sender 接口桥接到 openapi.OpenAPI
 type qqSender struct {
-	api    openapi.OpenAPI
-	msgSeq atomic.Uint64 // 自增消息序列号，QQ v2 API 防重放要求；手动 ApplyExtra 可覆盖
+	api       openapi.OpenAPI
+	msgSeqMap sync.Map // map[string]*msgSeqEntry，按 msg_id 管理回复状态
 }
 
 // NewSender 创建 QQ 平台的消息发送器
@@ -47,6 +62,13 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 	}
 
 	msg := req.Message
+
+	// 被动回复限频检查（5 分钟、5 次上限）
+	if msgID := resolveMsgID(msg, chat); msgID != "" {
+		if err := s.checkReplyLimit(msgID); err != nil {
+			return platform.SendResult{}, err
+		}
+	}
 
 	// 频道消息（ChatInfo.ParentID 非空）使用频道专属 API
 	if chat.ParentID != "" {
@@ -192,21 +214,24 @@ func buildSendResultFromUpload(uploadRaw, sendRaw gjson.Result) platform.SendRes
 
 // buildGuildDTOMessage 将 platform.OutboundMessage 转换为频道专属的 dto.GuildMessage。
 //
-// 优先级：Markdown > Text(Content) > Image(Attachment)
+// 优先级：Ark > Markdown > Text(Content) > Image(Attachment)
 // 被动消息：MsgID 优先使用 MessageExtra.EventID，其次使用 req.EventID。
 // 引用回复：ReplyToID 非空时设置 MessageReference（展示被引用消息气泡）。
 func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.GuildMessage {
 	guildMsg := &dto.GuildMessage{}
+	extra := extractExtra(msg)
 
-	// 消息内容优先级：Markdown > 纯文本
-	if msg.Markdown != "" {
+	// 消息类型优先级：Ark > Markdown > Text
+	if extra.Ark != nil {
+		guildMsg.Ark = convertArk(extra.Ark)
+	} else if msg.Markdown != "" {
 		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown}
 	} else {
 		guildMsg.Content = msg.Text
 	}
 
 	// @用户：将 Mentions 转为 QQ AT 内嵌标签，前置于正文
-	if len(msg.Mentions) > 0 {
+	if len(msg.Mentions) > 0 && extra.Ark == nil {
 		var sb strings.Builder
 		for _, uid := range msg.Mentions {
 			sb.WriteString(dto.At(uid))
@@ -234,7 +259,6 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platf
 
 	// 被动消息关联：频道用 msg_id（来源消息的 Message.id / payload.ID）
 	// 优先使用手动 ApplyExtra 注入的值（extra.EventID），其次 ChatInfo.Tokens[TokenMsgID]
-	extra := extractExtra(msg)
 	resolvedMsgID := extra.EventID
 	if resolvedMsgID == "" {
 		resolvedMsgID = chat.Tokens[TokenMsgID] // 频道消息：payload.ID 即 message id
@@ -277,9 +301,13 @@ func attachmentKindToFileType(kind platform.AttachmentKind) dto.FileType {
 // 主动消息：ChatInfo.Tokens 中无相应 token 时，不设置 msg_id / event_id，即为主动消息。
 func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.ChatInfo) *dto.Message {
 	dtoMsg := &dto.Message{}
+	extra := extractExtra(msg)
 
-	// 优先使用 Markdown，其次 Text
-	if msg.Markdown != "" {
+	// 消息类型优先级：Ark > Markdown > Text
+	if extra.Ark != nil {
+		dtoMsg.Type = dto.ArkMessage
+		dtoMsg.Ark = convertArk(extra.Ark)
+	} else if msg.Markdown != "" {
 		dtoMsg.Type = dto.MarkdownMessage
 		dtoMsg.Markdown = &dto.Markdown{Content: msg.Markdown}
 	} else {
@@ -288,7 +316,7 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	}
 
 	// 处理 Mentions（@ 用户）：将用户 ID 列表转换为 QQ AT 标签，前置于正文
-	if len(msg.Mentions) > 0 {
+	if len(msg.Mentions) > 0 && extra.Ark == nil {
 		var sb strings.Builder
 		for _, uid := range msg.Mentions {
 			sb.WriteString(dto.At(uid))
@@ -301,7 +329,7 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	}
 
 	// 交互按钮：转换为 InlineKeyboard（QQ 按钮需附在 Markdown 消息上）
-	if len(msg.Buttons) > 0 {
+	if len(msg.Buttons) > 0 && extra.Ark == nil {
 		dtoMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
 	}
 
@@ -315,13 +343,12 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		dtoMsg.MessageID = dto.EventID(resolvedMsgID)
 	}
 
-	// 提取 QQ 专属参数（手动 ApplyExtra 优先级最高）
-	extra := extractExtra(msg)
 	if extra.MsgSeq != 0 {
 		dtoMsg.MessageSeq = extra.MsgSeq
 	} else {
-		// 自动递增序列号，确保每条消息序号唯一（QQ v2 API 防重放要求）
-		dtoMsg.MessageSeq = s.msgSeq.Add(1)
+		// 按 msg_id 递增序列号，避免相同 msg_id 重复发送
+		// 空 msg_id 时设为 0 表示不设置此字段
+		dtoMsg.MessageSeq = s.nextMsgSeq(string(dtoMsg.MessageID))
 	}
 
 	// event_id：被动回复授权 token（event-based，仅 INTERACTION_CREATE / C2C_MSG_RECEIVE 等）
@@ -344,6 +371,65 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	}
 
 	return dtoMsg
+}
+
+// resolveMsgID 从消息和会话信息中解析出用于被动回复的 msg_id。
+// 空字符串表示主动消息，不受被动回复限制。
+func resolveMsgID(msg platform.OutboundMessage, chat platform.ChatInfo) string {
+	id := msg.ReplyToID
+	if id == "" {
+		id = chat.Tokens[TokenMsgID]
+	}
+	return id
+}
+
+// nextMsgSeq 返回指定 msg_id 的下一个消息序列号。
+//
+// msg_seq 是 QQ v2 API 防重放字段，与 msg_id 联合使用：
+// 相同的 msg_id + msg_seq 重复发送会失败。
+// 不填默认是 1，框架按 msg_id 分别递增。
+// msgID 为空时（主动消息），返回 0 表示不设置 msg_seq。
+func (s *qqSender) nextMsgSeq(msgID string) uint64 {
+	if msgID == "" {
+		return 0
+	}
+	v, _ := s.msgSeqMap.LoadOrStore(msgID, &msgSeqEntry{})
+	entry := v.(*msgSeqEntry)
+	entry.count.Add(1)
+	if entry.createdAt.Load() == nil {
+		entry.createdAt.Store(time.Now())
+	}
+	return entry.seq.Add(1)
+}
+
+// checkReplyLimit 检查对指定 msg_id 的被动回复是否超限。
+//
+// QQ 平台限制：单条消息最多回复 5 次，有效时长 5 分钟。
+// 返回 nil 表示允许发送；返回 error 表示已达上限。
+// msgID 为空时（主动消息）直接返回 nil。
+func (s *qqSender) checkReplyLimit(msgID string) error {
+	if msgID == "" {
+		return nil
+	}
+	v, ok := s.msgSeqMap.Load(msgID)
+	if !ok {
+		return nil // 首次回复，加载会在 nextMsgSeq 中完成
+	}
+	entry := v.(*msgSeqEntry)
+
+	// 检查 5 分钟有效期
+	if created, ok := entry.createdAt.Load().(time.Time); ok && time.Since(created) > passiveReplyTTL {
+		s.msgSeqMap.Delete(msgID)
+		return fmt.Errorf("passive reply expired: msg_id=%q, created=%v, ttl=%v: %w",
+			msgID, created, passiveReplyTTL, errutil.ErrPassiveReplyExpired)
+	}
+
+	// 检查回复次数上限
+	if entry.count.Load() >= maxPassiveReplies {
+		return fmt.Errorf("passive reply limit reached: msg_id=%q, count=%d, max=%d: %w",
+			msgID, entry.count.Load(), maxPassiveReplies, errutil.ErrPassiveReplyLimitReached)
+	}
+	return nil
 }
 
 // qqCapabilities 返回 QQ 平台的能力声明。
