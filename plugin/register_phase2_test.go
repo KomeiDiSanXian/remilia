@@ -164,7 +164,7 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// P2-4: ctx.Go goroutine 生命周期管理
+// P2-4: ctx.Spawn goroutine 生命周期管理
 // ---------------------------------------------------------------------------
 
 func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
@@ -178,11 +178,7 @@ func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Go(func(runCtx stdctx.Context) {
-				goroutineRunning.Store(true)
-				<-runCtx.Done() // 等待 cancel
-				goroutineDone.Store(true)
-			})
+			ctx.Spawn(func(runCtx stdctx.Context) { goroutineRunning.Store(true); <-runCtx.Done(); goroutineDone.Store(true) })
 			return nil, nil
 		},
 	}))
@@ -197,7 +193,7 @@ func TestCtxGo_GoroutineStopsOnUnload(t *testing.T) {
 	require.NoError(t, err)
 
 	// goroutine 应在 Unregister 完成后已退出
-	assert.True(t, goroutineDone.Load(), "ctx.Go 启动的 goroutine 应在 Teardown 前退出")
+	assert.True(t, goroutineDone.Load(), "ctx.Spawn 启动的 goroutine 应在 Teardown 前退出")
 }
 
 func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
@@ -212,10 +208,7 @@ func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 		Name: "go-multi-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			for range count {
-				ctx.Go(func(runCtx stdctx.Context) {
-					<-runCtx.Done()
-					stopped.Add(1)
-				})
+				ctx.Spawn(func(runCtx stdctx.Context) { <-runCtx.Done(); stopped.Add(1) })
 			}
 			return nil, nil
 		},
@@ -225,7 +218,7 @@ func TestCtxGo_MultipleGoroutinesAllStop(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, int32(count), stopped.Load(),
-		"所有通过 ctx.Go 启动的 goroutine 应在 Unregister 后全部退出")
+		"所有通过 ctx.Spawn 启动的 goroutine 应在 Unregister 后全部退出")
 }
 
 func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
@@ -245,10 +238,7 @@ func TestCtxGo_TeardownCalledAfterGoroutinesStop(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-order-test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Go(func(runCtx stdctx.Context) {
-				<-runCtx.Done()
-				appendOrder("goroutine_stopped")
-			})
+			ctx.Spawn(func(runCtx stdctx.Context) { <-runCtx.Done(); appendOrder("goroutine_stopped") })
 			return nil, nil
 		},
 		Teardown: func(ctx *TeardownContext) error {
@@ -279,10 +269,7 @@ func TestCtxGo_ReloadCreatesNewManager(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "go-reload-test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.Go(func(runCtx stdctx.Context) {
-				<-runCtx.Done()
-				stopCount.Add(1)
-			})
+			ctx.Spawn(func(runCtx stdctx.Context) { <-runCtx.Done(); stopCount.Add(1) })
 			return nil, nil
 		},
 	}))
@@ -378,8 +365,8 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 func TestService_PanicsOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
-			container: NewContainer(),
-			pluginName:    "test",
+			container:  NewContainer(),
+			pluginName: "test",
 		},
 	}
 	assert.Panics(t, func() {
@@ -390,8 +377,8 @@ func TestService_PanicsOnMissing(t *testing.T) {
 func TestTryService_ReturnsNilOnMissing(t *testing.T) {
 	ctx := &SetupContext{
 		setupContextInternal: setupContextInternal{
-			container: NewContainer(),
-			pluginName:    "test",
+			container:  NewContainer(),
+			pluginName: "test",
 		},
 	}
 	svc, ok := TryService[struct{}](ctx, "nonexistent")

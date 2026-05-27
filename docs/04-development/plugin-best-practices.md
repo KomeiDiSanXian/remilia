@@ -137,12 +137,12 @@ func (p *Plugin) handle(ctx *eventctx.Context) error {
 
 ## 4. 后台 goroutine
 
-**始终使用 `ctx.Go`，不要裸起 goroutine**：
+**始终使用 `ctx.Spawn`，不要裸起 goroutine**：
 
 ```go
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     // ✅ 生命周期绑定，Teardown 自动停止
-    ctx.Go(func(runCtx context.Context) {
+    ctx.Spawn(func(runCtx context.Context) {
         ticker := time.NewTicker(5 * time.Minute)
         defer ticker.Stop()
         for {
@@ -162,10 +162,57 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ---
 
-## 5. DryRun 保护（Smart 注册时）
+## 5. 并发任务组（TaskGroup）
+
+需要**并发执行一批短任务并等待结果**时，使用 `ctx.NewTaskGroup()`，不要用 `ctx.Spawn`。
+
+| | `ctx.Spawn` / `SpawnNamed` | `ctx.NewTaskGroup` |
+|---|---|---|
+| 适用场景 | 长驻后台 daemon（定时清理、自动保存、监听循环） | 短生命周期并发任务（并发网络请求、批量计算） |
+| 生命周期 | 跟随插件，Teardown 时自动 cancel + wait | 调用者主动 `Wait()`，Teardown 时也会 cancel |
+| 返回值 | 无（fire-and-forget） | `Wait()` 返回聚合 error |
+| 任务签名 | `func(context.Context)` | `func(context.Context) error` |
+
+```go
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    results := make([]Result, 0, len(urls))
+    var mu sync.Mutex
+
+    g := ctx.NewTaskGroup()
+    for _, url := range urls {
+        url := url
+        g.Go(func(taskCtx context.Context) error {
+            data, err := fetchWithCtx(taskCtx, url)
+            if err != nil {
+                return err
+            }
+            mu.Lock()
+            results = append(results, data)
+            mu.Unlock()
+            return nil
+        })
+    }
+    if err := g.Wait(); err != nil {
+        ctx.Log.Warnf("部分请求失败: %v", err)
+    }
+    // 处理全部 results ...
+
+    return p, nil
+},
+```
+
+如果任务集合已知且无需处理中间结果，可用 `Batch` 快捷方式：
+
+```go
+err := ctx.Batch(task1, task2, task3).Wait()
+```
+
+---
+
+## 6. DryRun 保护（Smart 注册时）
 
 Smart 模式会多次执行 `Setup`（DryRun 阶段）推断依赖关系。
-`ctx.Reg`、`ctx.EventBus`、`ctx.Go` 已自动 no-op，**大多数插件无需处理**。
+`ctx.Reg`、`ctx.EventBus`、`ctx.Spawn` 已自动 no-op，**大多数插件无需处理**。
 
 **仅当 Setup 中有以下副作用时才需要判断**：
 - 调用外部 HTTP/DB 请求
@@ -256,7 +303,7 @@ ctx.Set("session", nil)
 ```go
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     p := &Plugin{}
-    ctx.Go(func(runCtx context.Context) {
+    ctx.Spawn(func(runCtx context.Context) {
         if err := p.initDB(runCtx); err != nil {
             ctx.Log.WithError(err).Error("db init failed")
         }

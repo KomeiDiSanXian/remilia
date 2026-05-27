@@ -132,9 +132,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 					return nil, err
 				}
 				p.loadSnapshot()
-				setupCtx.Go(func(runCtx context.Context) {
-					p.autoSaveWithCtx(runCtx, 5*time.Minute)
-				})
+				setupCtx.Spawn(func(runCtx context.Context) { p.autoSaveWithCtx(runCtx, 5*time.Minute) })
 			}
 			return p, nil
 		},

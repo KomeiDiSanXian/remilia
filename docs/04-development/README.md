@@ -15,7 +15,7 @@
 - 插件文件结构规范（v2 Descriptor）
 - 依赖声明与 Smart 注册
 - 错误处理模式
-- 后台 goroutine 生命周期管理（ctx.Go）
+- 后台 goroutine（ctx.Spawn）与并发任务组（ctx.NewTaskGroup）
 - DryRun 保护
 - Privileged 管理类插件
 - 测试（plugintest 包）

@@ -32,7 +32,7 @@
 > **v2 API 优势**:
 > - ✅ 无需继承，函数式设计
 > - ✅ 自动依赖注入（`Require` / `Optional` / `MustAs`）
-> - ✅ 生命周期绑定的后台 goroutine（`ctx.Go`）
+> - ✅ 后台 goroutine（`ctx.Spawn`）与并发任务组（`ctx.NewTaskGroup`）
 > - ✅ 读写分离权限模型（`PluginInfo` 只读 / `ManagerWriter` 写）
 > - ✅ Smart 注册自动推断依赖图（无需手写 `Deps`）
 >

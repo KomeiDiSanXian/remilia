@@ -165,12 +165,12 @@ func New() *plugin.PluginDescriptor {
         Name: "my-plugin",
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             // 启动后台 goroutine（生命周期与 Bot 绑定）
-            ctx.Go(func() {
+            ctx.Spawn(func(ctx context.Context) {
                 ticker := time.NewTicker(time.Minute)
                 defer ticker.Stop()
                 for {
                     select {
-                    case <-ctx.Context().Done():
+                    case <-ctx.Done():
                         return
                     case <-ticker.C:
                         // 定时任务

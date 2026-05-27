@@ -82,7 +82,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			// 后台定期清理过期记录，防止 map 无限增长（Bug 2.2 修复）
-			ctx.Go(func(runCtx stdctx.Context) {
+			var fn = func(runCtx stdctx.Context) {
 				ticker := time.NewTicker(cleanupInterval)
 				defer ticker.Stop()
 				for {
@@ -96,7 +96,8 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 						return
 					}
 				}
-			})
+			}
+			ctx.Spawn(fn)
 			return p, nil
 		},
 	}

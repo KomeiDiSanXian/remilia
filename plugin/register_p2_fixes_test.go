@@ -66,10 +66,7 @@ func TestStatus_GoroutineCount(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "goroutine-count-test",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.GoNamed("worker-1", func(runCtx stdctx.Context) {
-				close(ready)
-				<-runCtx.Done()
-			})
+			ctx.SpawnNamed("worker-1", func(runCtx stdctx.Context) { close(ready); <-runCtx.Done() })
 			return nil, nil
 		},
 	}))

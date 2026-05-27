@@ -51,7 +51,7 @@ type setupContextInternal struct {
 //   - [SetupContext.Info]     — 插件系统只读视图
 //   - [SetupContext.Admin]    — 插件系统管理视图（仅 Privileged 插件可用）
 //   - [SetupContext.DryRun]   — 是否处于 Smart 依赖推断阶段
-//   - [SetupContext.Go]       — 生命周期绑定后台 goroutine
+//   - [SetupContext.Spawn]    — 生命周期绑定后台 goroutine
 //   - [SetupContext.Config]   — 插件配置
 //   - [SetupContext.EventBus] — 插件间事件总线（发布用；订阅请用 [SetupContext.Scope]）
 //   - [SetupContext.Scope]    — 资源 Scope（订阅自动清理、级联销毁）
@@ -75,7 +75,7 @@ type SetupContext struct {
 	// 推断阶段框架会多次调用 Setup 以分析依赖关系。此时：
 	//   - ctx.Reg 已替换为 no-op（不会注册真实 Matcher）
 	//   - ctx.EventBus 已替换为 no-op（不会注册真实订阅）
-	//   - ctx.Go / ctx.GoNamed 自动退化为 no-op（goroutineMgr 未初始化）
+	//   - ctx.Spawn / ctx.SpawnNamed 自动退化为 no-op（goroutineMgr 未初始化）
 	//
 	// 对于大多数插件，无需检查此字段——框架已通过 no-op 替换消除了常见副作用。
 	// 仅当 Setup 中存在以下情况时才需要判断：
@@ -183,11 +183,11 @@ func (ctx *SetupContext) NewGroupMiddlewareResetter() func(group string) {
 	}
 }
 
-// Go 启动一个与插件生命周期绑定的匿名后台 goroutine。
+// Spawn 启动一个与插件生命周期绑定的匿名后台 goroutine。
 // 框架在 Teardown 前自动 cancel 传入的 context 并等待所有 goroutine 退出。
 // DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op，不会启动 goroutine。
 //
-//	ctx.Go(func(runCtx context.Context) {
+//	ctx.Spawn(func(runCtx context.Context) {
 //	    ticker := time.NewTicker(time.Minute)
 //	    defer ticker.Stop()
 //	    for {
@@ -197,27 +197,83 @@ func (ctx *SetupContext) NewGroupMiddlewareResetter() func(group string) {
 //	        }
 //	    }
 //	})
-func (ctx *SetupContext) Go(fn func(stdctx.Context)) {
+func (ctx *SetupContext) Spawn(fn func(stdctx.Context)) {
 	if ctx.goroutineMgr != nil {
 		ctx.goroutineMgr.go_(fn)
 	}
 }
 
-// GoNamed 启动一个带名称标签的生命周期绑定后台 goroutine。
+// SpawnNamed 启动一个带名称标签的生命周期绑定后台 goroutine。
 // 名称用于调试时区分不同插件的后台任务（可通过 Manager.ListPluginGoroutines 查询）。
 // DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op，不会启动 goroutine。
 //
-//	ctx.GoNamed("cleanup-gc", func(runCtx context.Context) { ... })
-func (ctx *SetupContext) GoNamed(name string, fn func(stdctx.Context)) {
+//	ctx.SpawnNamed("cleanup-gc", func(runCtx context.Context) { ... })
+func (ctx *SetupContext) SpawnNamed(name string, fn func(stdctx.Context)) {
 	if ctx.goroutineMgr != nil {
 		ctx.goroutineMgr.goNamed_(name, fn)
 	}
 }
 
+// TaskGroup 是受插件生命周期管理的并发任务组。
+// 适用于短生命周期并发任务（如并发网络请求后聚合结果），
+// 与 Spawn/SpawnNamed（长驻后台 goroutine）互补。
+type TaskGroup struct {
+	inner *taskGroup
+	noop  bool
+}
+
+// Go 添加一个并发任务。fn 返回 error 会被收集，
+// 所有任务运行完成后可通过 Wait 获取。
+// 当插件 Teardown 时未完成的任务 context 会被 cancel。
+// DryRun 阶段为 no-op。
+func (g *TaskGroup) Go(fn func(stdctx.Context) error) {
+	if g.noop || g.inner == nil {
+		return
+	}
+	g.inner.goTask(fn)
+}
+
+// Wait 等待所有任务完成并返回聚合的错误。
+// 所有任务都返回 nil 时返回 nil。
+// 可多次调用，但建议只调用一次。
+// DryRun 阶段立即返回 nil。
+func (g *TaskGroup) Wait() error {
+	if g.noop || g.inner == nil {
+		return nil
+	}
+	return g.inner.wait()
+}
+
+// NewTaskGroup 创建一个新的并发任务组。
+// 所有任务共享一个从生命周期 context 派生的 context，
+// 当插件 Teardown 时会 cancel 所有未完成的任务。
+// DryRun 阶段返回 no-op task group。
+func (ctx *SetupContext) NewTaskGroup() *TaskGroup {
+	if ctx.goroutineMgr == nil {
+		return &TaskGroup{noop: true}
+	}
+	return &TaskGroup{inner: ctx.goroutineMgr.newTaskGroup()}
+}
+
+// Batch 是 NewTaskGroup 的便捷封装，接收一组函数并发执行。
+// 等价于创建 TaskGroup、依次 Go、返回 TaskGroup 以便链式调用 Wait。
+//
+//	fns := []func(stdctx.Context) error{task1, task2, task3}
+//	if err := ctx.Batch(fns...).Wait(); err != nil { ... }
+//
+// DryRun 阶段返回 no-op task group。
+func (ctx *SetupContext) Batch(fns ...func(stdctx.Context) error) *TaskGroup {
+	g := ctx.NewTaskGroup()
+	for _, fn := range fns {
+		g.Go(fn)
+	}
+	return g
+}
+
 // After 注册一个一次性延迟任务（框架修复 #35）。
 //
 // d 之后调用 fn；若插件在 d 到期前被 Teardown，fn 被静默取消，不会调用。
-// name 用于调试标识（与 GoNamed 的 name 语义相同）。
+// name 用于调试标识（与 SpawnNamed 的 name 语义相同）。
 // DryRun 阶段（goroutineMgr 为 nil）自动退化为 no-op。
 //
 // 适用于"N分钟后执行一次"的场景（如定时提醒、倒计时），

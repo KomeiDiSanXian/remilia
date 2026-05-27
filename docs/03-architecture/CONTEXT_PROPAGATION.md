@@ -30,7 +30,7 @@ Bot.Start() ctx (带 DefaultStartTimeout=30s)
             └─ runCtx (WithCancel) ← 传给 OnRun goroutine
                  │  runCancel() 在 Stop() 开始时立即调用
                  │
-                 └─ 插件可通过 ctx.Go() 获得 runCtx 的派生 ctx
+                 └─ 插件可通过 ctx.Spawn() 获得 runCtx 的派生 ctx
 ```
 
 ### 设计意图
@@ -161,20 +161,41 @@ func NewDedupFilter(config DedupConfig) *DedupFilter
 
 无参版本可使用 `context.Background()` 作为默认父级，但需提供 `Stop()` 方法供手动清理。
 
-### 2. 插件内启动 goroutine 使用 `ctx.Go()`
+### 2. 插件内启动 goroutine 使用 `ctx.Spawn()`
 
-插件 Setup 中通过 `ctx.Go()` / `ctx.GoNamed()` 启动的 goroutine 自动绑定到插件生命周期：
+插件 Setup 中通过 `ctx.Spawn()` / `ctx.SpawnNamed()` 启动的 goroutine 自动绑定到插件生命周期：
 
 ```go
 func (p *MyPlugin) Setup(ctx *plugin.SetupContext) (any, error) {
-    ctx.Go("worker", func(ctx context.Context) {
+    ctx.SpawnNamed("worker", func(ctx context.Context) {
         <-ctx.Done()  // 插件卸载或 bot 停止时取消
     })
     return p, nil
 }
 ```
 
-### 3. 不要把 Start 超时传入后台 goroutine
+### 3. 短生命周期并发任务使用 `ctx.NewTaskGroup()`
+
+需要并发执行一批短任务并等待结果时（如并发 API 请求），使用 `NewTaskGroup` 而非 `Spawn`：
+
+```go
+g := ctx.NewTaskGroup()
+for _, url := range urls {
+    url := url
+    g.Go(func(taskCtx context.Context) error {
+        return fetchWithCtx(taskCtx, url)
+    })
+}
+if err := g.Wait(); err != nil {
+    ctx.Log.Errorf("请求失败: %v", err)
+}
+```
+
+区别：`Spawn` 启动的 goroutine 生命周期=**插件生命周期**，fire-and-forget 无需等待；`TaskGroup` 的 goroutine 生命周期受调用方控制，通过 `Wait()` 聚合结果和错误。
+
+---
+
+### 4. 不要把 Start 超时传入后台 goroutine
 
 ```go
 // ❌ 错误：runCtx 继承了 Start 超时

@@ -52,8 +52,10 @@
 | `ctx.Config` | `plugin.Config` | 插件配置（来自 config.yaml plugins 节）|
 | `ctx.EventBus` | `EventBus` | 插件间事件总线 |
 | `ctx.DryRun` | `bool` | Smart 注册依赖推断阶段为 true |
-| `ctx.Go(fn)` | - | 启动生命周期绑定的后台 goroutine |
-| `ctx.GoNamed(name, fn)` | - | 有名称的后台 goroutine |
+| `ctx.Spawn(fn)` | - | 启动生命周期绑定的后台 goroutine |
+| `ctx.SpawnNamed(name, fn)` | - | 有名称的后台 goroutine |
+| `ctx.NewTaskGroup()` | `*TaskGroup` | 创建并发任务组（短生命周期，可等待结果） |
+| `ctx.Batch(fns...).Wait()` | `error` | 并发执行一批函数并等待全部完成 |
 
 ### 注册 Matcher
 
@@ -183,7 +185,7 @@ Advanced: &plugin.Advanced{
 
 ```go
 Setup: func(ctx *plugin.SetupContext) (any, error) {
-    ctx.Go(func(runCtx context.Context) {
+    ctx.Spawn(func(runCtx context.Context) {
         ticker := time.NewTicker(time.Minute)
         defer ticker.Stop()
         for {
@@ -201,12 +203,33 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 框架在 Teardown 前自动 cancel 所有 goroutine 并等待退出，无需手动管理。
 
+### 何时用 `Spawn` vs `NewTaskGroup`？
+
+- **`ctx.Spawn` / `ctx.SpawnNamed`** — 长驻后台 goroutine，生命周期=插件本身，fire-and-forget（如定时清理、自动保存）
+- **`ctx.NewTaskGroup`** — 短生命周期并发任务，需要等待结果和收集错误（如并发网络请求后聚合）
+
+```go
+// Spawn：长驻 daemon
+ctx.Spawn(func(runCtx context.Context) {
+    for { /* 定时任务 */ }
+})
+
+// TaskGroup：短任务并发 + 等待结果
+g := ctx.NewTaskGroup()
+for _, url := range urls {
+    g.Go(func(taskCtx context.Context) error { ... })
+}
+if err := g.Wait(); err != nil {
+    ctx.Log.Warnf("部分请求失败: %v", err)
+}
+```
+
 ---
 
 ## DryRun 保护
 
 Smart 注册模式会多次执行 Setup 进行依赖推断，此时 `ctx.DryRun == true`。
-`ctx.Reg`、`ctx.EventBus`、`ctx.Go` 已自动替换为 no-op，**大多数插件无需判断**。
+`ctx.Reg`、`ctx.EventBus`、`ctx.Spawn` 已自动替换为 no-op，**大多数插件无需判断**。
 
 仅当 Setup 中有网络 I/O、进程级全局变量写入等副作用时才需要：
 

@@ -147,7 +147,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
     _ = sub // sub.Unsubscribe() 取消
 
     // 生命周期绑定 goroutine
-    ctx.Go(func(runCtx context.Context) {
+    ctx.Spawn(func(runCtx context.Context) {
         ticker := time.NewTicker(time.Minute)
         defer ticker.Stop()
         for {
@@ -229,7 +229,7 @@ func New() *plugin.Descriptor {
             ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/weather").
                 Handle(p.handleWeather)
 
-            ctx.Go(func(runCtx context.Context) {
+            ctx.Spawn(func(runCtx context.Context) {
                 ticker := time.NewTicker(time.Hour)
                 defer ticker.Stop()
                 for {

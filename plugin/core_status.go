@@ -50,5 +50,5 @@ type Status struct {
 	Uptime                time.Duration // 运行时长
 	HasSaveState          bool          // 是否实现了状态保存/恢复（SaveState != nil）
 	EventBusSubscriptions int           // EventBus 中的订阅数（当前总订阅数快照）
-	GoroutineCount        int           // 当前活跃的生命周期绑定 goroutine 数量（ctx.Go/GoNamed 启动的）
+	GoroutineCount        int           // 当前活跃的生命周期绑定 goroutine 数量（ctx.Spawn/SpawnNamed 启动的）
 }

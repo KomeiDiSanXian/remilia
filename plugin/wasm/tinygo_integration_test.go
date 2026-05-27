@@ -136,7 +136,7 @@ func TestTinyGo_Module_MultipleCalls(t *testing.T) {
 
 	// Make multiple calls
 	eventTLV := wasm.NewTLVBuilder().WriteString("c", "/wasmping").Bytes()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		respTLV, err := mod.CallHandle(ctx, eventTLV)
 		require.NoError(t, err)
 		require.NotNil(t, respTLV)

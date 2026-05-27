@@ -40,7 +40,7 @@ type SetupOptions struct {
 //   - ctx.Log 输出到标准日志
 //   - ctx.Info 为 nil-safe 空实现
 //   - ctx.Admin 为 nil（测试中如需测试管理操作，需使用 NewPrivilegedSetupContext）
-//   - ctx.Go 会实际调度 goroutine（可通过 StopSetupContext 停止）
+//   - ctx.Spawn 会实际调度 goroutine（可通过 StopSetupContext 停止）
 func NewSetupContext(pluginName string, opts *SetupOptions) *plugin.SetupContext {
 	if opts == nil {
 		opts = &SetupOptions{}
@@ -102,7 +102,7 @@ func RunSetup(desc *plugin.Descriptor, opts *SetupOptions) (api any, err error, 
 	return api, err, func() { StopSetupContext(ctx) }
 }
 
-// NewGoContext 创建一个已取消的 context.Context，用于测试 ctx.Go 中监听 runCtx.Done() 的逻辑。
+// NewGoContext 创建一个已取消的 context.Context，用于测试 ctx.Spawn 中监听 runCtx.Done() 的逻辑。
 func NewGoContext() (stdctx.Context, stdctx.CancelFunc) {
 	return stdctx.WithCancel(stdctx.Background())
 }

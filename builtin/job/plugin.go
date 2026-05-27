@@ -302,10 +302,7 @@ func New() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			if !ctx.DryRun {
 				// 绑定 Bot 生命周期：Bot 停止时取消所有 pending 作业
-				ctx.Go(func(lifectx stdctx.Context) {
-					<-lifectx.Done()
-					p.lifecycleCancel()
-				})
+				ctx.Spawn(func(lifectx stdctx.Context) { <-lifectx.Done(); p.lifecycleCancel() })
 			}
 			return p, nil
 		},

@@ -2,13 +2,14 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
 
 // GoroutineInfo 描述一个受框架管理的后台 goroutine 的运行时信息。
 type GoroutineInfo struct {
-	// Name goroutine 的名称（通过 GoNamed 设置）；匿名 goroutine 为空字符串。
+	// Name goroutine 的名称（通过 SpawnNamed 设置）；匿名 goroutine 为空字符串。
 	Name string
 	// Plugin 所属插件名称
 	Plugin string
@@ -25,7 +26,7 @@ type GoroutineInfo struct {
 
 // goroutineManager 管理插件生命周期绑定的后台 goroutine。
 //
-// 通过 [SetupContext.Go] / [SetupContext.GoNamed] 启动的 goroutine 会被自动纳管：
+// 通过 [SetupContext.Spawn] / [SetupContext.SpawnNamed] 启动的 goroutine 会被自动纳管：
 //   - 框架在 Teardown 前调用 cancel()，通知所有 goroutine 退出；
 //   - cancel 后调用 Wait() 等待所有 goroutine 退出，再执行 TeardownFunc，
 //     保证清理顺序：goroutine停止 → Teardown。
@@ -102,4 +103,36 @@ func (gm *goroutineManager) listGoroutines() []GoroutineInfo {
 func (gm *goroutineManager) stopAndWait() {
 	gm.cancel()
 	gm.wg.Wait()
+}
+
+// taskGroup 受生命周期管理的并发任务组。
+// 用于短生命周期并发任务（如并发网络请求后聚合结果），
+// 区别于生命周期绑定的长驻 goroutine。
+type taskGroup struct {
+	wg   sync.WaitGroup
+	mu   sync.Mutex
+	errs []error
+	ctx  context.Context
+	gm   *goroutineManager
+}
+
+func (gm *goroutineManager) newTaskGroup() *taskGroup {
+	return &taskGroup{ctx: gm.ctx, gm: gm}
+}
+
+func (g *taskGroup) goTask(fn func(ctx context.Context) error) {
+	g.wg.Add(1)
+	g.gm.go_(func(runCtx context.Context) {
+		defer g.wg.Done()
+		if err := fn(runCtx); err != nil {
+			g.mu.Lock()
+			g.errs = append(g.errs, err)
+			g.mu.Unlock()
+		}
+	})
+}
+
+func (g *taskGroup) wait() error {
+	g.wg.Wait()
+	return errors.Join(g.errs...)
 }

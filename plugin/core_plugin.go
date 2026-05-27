@@ -40,7 +40,7 @@
 //   - register_validate.go — 描述符合法性校验、依赖检查、ConfigSchema 校验
 //   - container.go        — 依赖注入容器（Get / Must / Register / Freeze）
 //   - eventbus.go         — 事件总线（插件间发布/订阅）
-//   - goroutine.go        — 生命周期绑定的后台 goroutine（ctx.Go）
+//   - goroutine.go        — 生命周期绑定的后台 goroutine（ctx.Spawn）
 //   - config.go           — 插件配置（Reload / OnChange / Get）
 //   - config_provider.go  — 配置提供者接口（Provider / ViperProvider）
 //   - reload.go           — 热重载策略（UnloadLoad / InPlace / BlueGreen）

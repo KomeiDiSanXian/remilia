@@ -154,10 +154,8 @@ func New() *plugin.Descriptor {
 			roles := []string{"superadmin", "admin", "user", "guest", "moderator"}
 			ctx.Log.Infof("Loaded %d default roles", len(roles))
 
-			// 使用 ctx.Go 替代手动 goroutine + stopChan
-			ctx.Go(func(runCtx stdctx.Context) {
-				cleanupExpiredCodesRoutineCtx(verificationMgr, runCtx)
-			})
+			// 替代手动 goroutine + stopChan
+			ctx.Spawn(func(runCtx stdctx.Context) { cleanupExpiredCodesRoutineCtx(verificationMgr, runCtx) })
 			ctx.Log.Info("Started verification code cleanup routine")
 			ctx.Log.Info("Permission plugin loaded")
 			return pluginAPI, nil

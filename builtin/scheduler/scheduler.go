@@ -112,15 +112,12 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			// 通过 ready channel 保证 Setup 返回前 lifecycleCtx 已切换完毕，
 			// 使调用者拿到已注册 Plugin 后调用 Every() 时使用的是框架 runCtx
 			ready := make(chan struct{})
-			ctx.Go(func(runCtx stdctx.Context) {
+			ctx.Spawn(func(runCtx stdctx.Context) {
 				p.mu.Lock()
-				// 直接替换为 runCtx 的子 context，不取消旧 background context
-				// 旧 context 会在 NewPlugin 的 cancel 被调用时才结束（或随 GC 回收）
 				p.lifecycleCtx, p.lifecycleCancel = stdctx.WithCancel(runCtx)
 				p.mu.Unlock()
 				close(ready)
 				<-runCtx.Done()
-				// runCtx 结束时，lifecycleCtx（其子 context）也随之取消
 			})
 			<-ready // 等待 goroutine 完成 lifecycleCtx 切换后再返回
 			ctx.Log.Info("Scheduler plugin loaded")
