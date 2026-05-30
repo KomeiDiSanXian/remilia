@@ -411,7 +411,10 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 	}
 
 	// 第一轮：每个插件跑一次 Setup（收集 API + 追踪 deps）
+	// 使用真实的 goroutineManager 而非 nil，使 ctx.Spawn 在 DryRun 下正常工作。
+	// 插件无需判断 ctx.DryRun 即可安全使用 Spawn。
 	for i, desc := range descriptors {
+		gm := newGoroutineManager()
 		ctx := &SetupContext{
 			Reg:      &noopRegistryWriter{},
 			Log:      newPluginLogger(desc.Name),
@@ -422,6 +425,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 				container:        tempContainer,
 				pluginName:       desc.Name,
 				autoTrackEnabled: true,
+				goroutineMgr:     gm,
 			},
 		}
 		var api any
@@ -441,6 +445,13 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		plugins[i].state = 1 // grey
 		if api != nil {
 			tempContainer.Register(desc.Name, api)
+		}
+	}
+
+	// 停止所有 DryRun 阶段启动的 goroutine（Spawn 创建的 goroutine 可能仍在 runCtx.Done() 等待）
+	for _, p := range plugins {
+		if p.ctx != nil && p.ctx.goroutineMgr != nil {
+			p.ctx.goroutineMgr.stopAndWait()
 		}
 	}
 
