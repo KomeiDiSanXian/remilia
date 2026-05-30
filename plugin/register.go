@@ -417,7 +417,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		gm := newGoroutineManager()
 		ctx := &SetupContext{
 			Reg:      &noopRegistryWriter{},
-			Log:      newPluginLogger(desc.Name),
+			Log:      newDryRunLogger(desc.Name),
 			Info:     newPluginInfo(pm),
 			EventBus: newNoopEventBus(),
 			DryRun:   true,

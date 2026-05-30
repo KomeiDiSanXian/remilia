@@ -140,3 +140,28 @@ func (l *pluginLogger) WithField(key string, value any) Logger {
 		fields: newFields,
 	}
 }
+
+// dryRunLogger 在 DryRun 阶段替换 pluginLogger，静默所有 INFO 级别日志。
+// WARN/ERROR/DEBUG 正常输出，方便调试依赖问题而不产生冗余的初始化日志。
+type dryRunLogger struct {
+	inner *pluginLogger
+}
+
+func newDryRunLogger(pluginName string) Logger {
+	return &dryRunLogger{inner: newPluginLogger(pluginName).(*pluginLogger)}
+}
+
+func (l *dryRunLogger) Info(msg string)                          {}
+func (l *dryRunLogger) Infof(format string, args ...any)          {}
+func (l *dryRunLogger) Infow(msg string, keysAndValues ...any)    {}
+func (l *dryRunLogger) Warn(msg string)                           { l.inner.Warn(msg) }
+func (l *dryRunLogger) Warnf(format string, args ...any)          { l.inner.Warnf(format, args...) }
+func (l *dryRunLogger) Warnw(msg string, keysAndValues ...any)    { l.inner.Warnw(msg, keysAndValues...) }
+func (l *dryRunLogger) Error(msg string, err error)               { l.inner.Error(msg, err) }
+func (l *dryRunLogger) Errorf(format string, args ...any)         { l.inner.Errorf(format, args...) }
+func (l *dryRunLogger) Debug(msg string)                          { l.inner.Debug(msg) }
+func (l *dryRunLogger) Debugf(format string, args ...any)         { l.inner.Debugf(format, args...) }
+func (l *dryRunLogger) Debugw(msg string, keysAndValues ...any)   { l.inner.Debugw(msg, keysAndValues...) }
+func (l *dryRunLogger) WithField(key string, value any) Logger {
+	return &dryRunLogger{inner: l.inner.WithField(key, value).(*pluginLogger)}
+}
