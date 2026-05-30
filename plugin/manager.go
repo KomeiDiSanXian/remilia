@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -19,18 +20,35 @@ type LifecycleListener interface {
 	OnPluginError(name string, operation string, err error)
 }
 
+// DrainingInfo 蓝绿重载中旧实例的异步清理状态。
+type DrainingInfo struct {
+	Name      string    `json:"name"`
+	StartedAt time.Time `json:"started_at"`
+	Done      bool      `json:"done"`
+	Err       string    `json:"error,omitempty"`
+}
+
+// drainingEntry 内部 draining 实例跟踪记录。
+type drainingEntry struct {
+	inst      *Instance
+	startedAt time.Time
+	done      bool
+	err       error
+}
+
 // Manager 插件管理器
 type Manager struct {
-	plugins        map[string]*Instance
-	coordinator    engine.PluginCoordinator
-	listeners      []LifecycleListener
-	configProvider ConfigProvider
-	loadOrder      []string
-	container      *Container
-	eventBus       EventBus
-	strictDeps     bool
-	metaGM         *goroutineManager
-	mu             sync.RWMutex
+	plugins           map[string]*Instance
+	coordinator       engine.PluginCoordinator
+	listeners         []LifecycleListener
+	configProvider    ConfigProvider
+	loadOrder         []string
+	container         *Container
+	eventBus          EventBus
+	strictDeps        bool
+	metaGM            *goroutineManager
+	mu                sync.RWMutex
+	drainingInstances map[string]*drainingEntry
 }
 
 // NewManager 创建插件管理器
@@ -42,13 +60,14 @@ type Manager struct {
 //	)
 func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		plugins:     make(map[string]*Instance),
-		coordinator: coordinator,
-		listeners:   make([]LifecycleListener, 0),
-		loadOrder:   make([]string, 0),
-		container:   NewContainer(),
-		eventBus:    NewEventBus(),
-		metaGM:      newGoroutineManagerForPlugin("manager"),
+		plugins:           make(map[string]*Instance),
+		coordinator:       coordinator,
+		listeners:         make([]LifecycleListener, 0),
+		loadOrder:         make([]string, 0),
+		container:         NewContainer(),
+		eventBus:          NewEventBus(),
+		metaGM:            newGoroutineManagerForPlugin("manager"),
+		drainingInstances: make(map[string]*drainingEntry),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -650,4 +669,131 @@ func (pm *Manager) GetEventBus() EventBus {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	return pm.eventBus
+}
+
+// trackDraining 记录蓝绿重载中正在清理的旧实例。
+func (pm *Manager) trackDraining(name string, inst *Instance) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.drainingInstances[name] = &drainingEntry{
+		inst:      inst,
+		startedAt: time.Now(),
+	}
+}
+
+// markDrainingDone 标记 draining 实例清理完成（或失败）。
+func (pm *Manager) markDrainingDone(name string, err error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if e, ok := pm.drainingInstances[name]; ok {
+		e.done = true
+		e.err = err
+	}
+}
+
+// ListDrainingInstances 返回所有正在清理或已完成的旧实例状态。
+func (pm *Manager) ListDrainingInstances() map[string]*DrainingInfo {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	result := make(map[string]*DrainingInfo, len(pm.drainingInstances))
+	for name, e := range pm.drainingInstances {
+		info := &DrainingInfo{
+			Name:      name,
+			StartedAt: e.startedAt,
+			Done:      e.done,
+		}
+		if e.err != nil {
+			info.Err = e.err.Error()
+		}
+		result[name] = info
+	}
+	return result
+}
+
+// ManagerStats 插件管理器的运行时统计快照。
+type ManagerStats struct {
+	PluginsTotal      int              `json:"plugins_total"`
+	PluginsByState    map[string]int   `json:"plugins_by_state"`
+	LoadOrder         []string         `json:"load_order"`
+	GoroutineSummary  GoroutineSummary `json:"goroutine_summary"`
+	EventBusStats     EventBusStats    `json:"event_bus_stats"`
+	DrainingCount     int              `json:"draining_count"`
+	ContainerFrozen   bool             `json:"container_frozen"`
+	ContainerServices int              `json:"container_services"`
+	StrictDeps        bool             `json:"strict_deps"`
+	Uptime            string           `json:"uptime,omitempty"`
+}
+
+// startTime is set at package init for uptime tracking.
+var startTime = time.Now()
+
+// Stats 返回插件管理器的运行时统计快照（用于监控/调试）。
+func (pm *Manager) Stats() ManagerStats {
+	pm.mu.RLock()
+	stateCount := make(map[string]int)
+	for _, inst := range pm.plugins {
+		s := inst.GetState().String()
+		stateCount[s]++
+	}
+	loadOrder := make([]string, len(pm.loadOrder))
+	copy(loadOrder, pm.loadOrder)
+	strictDeps := pm.strictDeps
+	ebStats := pm.eventBus.GetStats()
+	drainingCount := len(pm.drainingInstances)
+	totalPlugins := len(pm.plugins)
+	pm.mu.RUnlock()
+
+	containerSvcCount := 0
+	if c := pm.container; c != nil {
+		c.services.Range(func(_, _ any) bool {
+			containerSvcCount++
+			return true
+		})
+	}
+
+	return ManagerStats{
+		PluginsTotal:      totalPlugins,
+		PluginsByState:    stateCount,
+		LoadOrder:         loadOrder,
+		GoroutineSummary:  pm.GoroutineSummary(),
+		EventBusStats:     ebStats,
+		DrainingCount:     drainingCount,
+		ContainerFrozen:   pm.container != nil && pm.container.frozen.Load(),
+		ContainerServices: containerSvcCount,
+		StrictDeps:        strictDeps,
+		Uptime:            time.Since(startTime).Round(time.Second).String(),
+	}
+}
+
+// drainDrainingInstances 等待所有 draining 实例清理完成（StopAll 时调用）。
+func (pm *Manager) drainDrainingInstances() {
+	pm.mu.RLock()
+	names := make([]string, 0, len(pm.drainingInstances))
+	for name, e := range pm.drainingInstances {
+		if !e.done {
+			names = append(names, name)
+		}
+	}
+	pm.mu.RUnlock()
+	if len(names) == 0 {
+		return
+	}
+	done := make(chan struct{}, len(names))
+	for _, name := range names {
+		go func(n string) {
+			for {
+				pm.mu.RLock()
+				e, ok := pm.drainingInstances[n]
+				pm.mu.RUnlock()
+				if !ok || e.done {
+					done <- struct{}{}
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}(name)
+	}
+	for range names {
+		<-done
+	}
 }

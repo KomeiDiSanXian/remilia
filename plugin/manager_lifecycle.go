@@ -96,6 +96,9 @@ func (pm *Manager) StopAll(ctx context.Context) error {
 		}
 	}
 
+	// 等待蓝绿重载中异步清理的旧实例完成
+	pm.drainDrainingInstances()
+
 	// 停止 Manager 自身的后台 goroutine
 	pm.Shutdown()
 

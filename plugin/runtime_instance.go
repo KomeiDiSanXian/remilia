@@ -30,10 +30,18 @@ type Instance struct {
 	exportedAPI  any               // Setup 返回的 API 对象
 	loadedVer    string            // 当前加载的版本号（用于迁移检测）
 	mu           sync.RWMutex
+	manager      *Manager // 所属插件管理器（用于蓝绿重载 draining 跟踪）
 
 	// depsModified 标记 Register 是否通过 COW 合并了未声明依赖。
 	// 供 RegisterMultiple 在事后修复 loadOrder 时快速跳过无需修正的插件。
 	depsModified bool
+}
+
+// managerRef 返回所属 Manager（包内使用，供 reload/teardown 反向引用）。
+func (pi *Instance) managerRef() *Manager {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.manager
 }
 
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---

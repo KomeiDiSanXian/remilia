@@ -85,6 +85,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 		desc:     desc,
 		state:    Unloaded,
 		matchers: make([]*engine.Matcher, 0),
+		manager:  pm,
 	}
 
 	var adminView ManagerWriter
