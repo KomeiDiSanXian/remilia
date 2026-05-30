@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
+	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
@@ -48,13 +50,23 @@ func TestRegistryWriter_LiveTracksMatchers(t *testing.T) {
 		"Matchers registered via ctx.Reg should be tracked")
 }
 
-func TestRegistryWriter_Noop_NoMatchers(t *testing.T) {
-	// noopRegistryWriter 应返回 nil，无任何副作用
+func TestRegistryWriter_Noop_ReturnsNoopMatcher(t *testing.T) {
+	// noopRegistryWriter 应返回非 nil 的 noop matcher，
+	// 其 Source == "noop"，isNoop() 返回 true，
+	// 所有链式调用（SetDefinition、Handle 等）均直接提前返回，无副作用。
+	// 如果返回 nil，插件代码的 ctx.Reg.RegisterCommand(...).SetDefinition(...).Handle(...) 会 panic。
 	noop := &noopRegistryWriter{}
 	m1 := noop.RegisterMatcher(testEvent)
 	m2 := noop.RegisterCommand(testEvent, "/test")
-	assert.Nil(t, m1)
-	assert.Nil(t, m2)
+	assert.NotNil(t, m1)
+	assert.NotNil(t, m2)
+	// 链式调用不应 panic
+	assert.NotPanics(t, func() {
+		m2.SetDefinition(&command.Definition{Name: "test"}).Handle(func(c *corectx.Context) error { return nil })
+	})
+	assert.NotPanics(t, func() {
+		m1.Handle(func(c *corectx.Context) error { return nil })
+	})
 }
 
 func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
@@ -69,17 +81,19 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 		{
 			Name: "smart-noop-test",
 			Setup: func(ctx *SetupContext) (any, error) {
-				// 在 Live 阶段注册，m 应不为 nil
-				m := ctx.Reg.RegisterMatcher(testEvent)
-				if m != nil {
-					liveRegCalled = true
+				// DryRun 阶段 ctx.Reg 为 noopRegistryWriter，返回 noopMatcher（isNoop = true）
+				// Live 阶段 ctx.Reg 为 live writer，注册到 engine
+				if !ctx.DryRun {
+					m := ctx.Reg.RegisterMatcher(testEvent)
+					// live writer 返回的 Matcher 应有 coordinator
+					liveRegCalled = m != nil
 				}
 				return nil, nil
 			},
 		},
 	})
 	require.NoError(t, err)
-	assert.True(t, liveRegCalled, "Live 阶段 ctx.Reg 应为 live writer，返回 Matcher")
+	assert.True(t, liveRegCalled, "Live 阶段 ctx.Reg 应为 live writer")
 }
 
 // ---------------------------------------------------------------------------

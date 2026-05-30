@@ -368,35 +368,39 @@ func (r *liveRegistryWriter) RegisterKeyword(eventType string, keywords []string
 }
 
 // --- DryRun no-op 实现（P2-3）---
-// 所有注册调用均立即返回 nil，无任何副作用。
+// 所有注册调用均立即返回 noopMatcher，无任何副作用。
+// noopMatcher 的 Source == "noop"，engine.Matcher 的所有方法均会检查 isNoop() 并提前返回，
+// 因此插件代码的链式调用 ctx.Reg.RegisterCommand(...).SetDefinition(...).Handle(...) 不会 panic。
 // 框架内部在 RegisterMultipleSmart 依赖推断阶段注入此实现，
 // 插件代码无需感知 DryRun，直接使用 ctx.Reg 即可。
+var noopMatcher = &engine.Matcher{Source: "noop"}
+
 type noopRegistryWriter struct{}
 
 func (n *noopRegistryWriter) RegisterCommand(_ string, _ string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterMatcher(_ string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterPrefix(_ string, _ []string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterRegex(_ string, _ string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterFullMatch(_ string, _ []string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterSuffix(_ string, _ []string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
 
 func (n *noopRegistryWriter) RegisterKeyword(_ string, _ []string, _ ...context.Rule) *engine.Matcher {
-	return nil
+	return noopMatcher
 }
