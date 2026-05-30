@@ -116,12 +116,14 @@ func New(cfg Config) *plugin.Descriptor {
 			Tags:        []string{"发送", "队列", "频控"},
 		},
 		Setup: func(setupCtx *plugin.SetupContext) (any, error) {
-			setupCtx.Log.Infof("Starting %d workers (rate=%.1f/s burst=%d)", cfg.Workers, cfg.Rate, cfg.Burst)
-			for i := range cfg.Workers {
-				p.wg.Add(1)
-				go p.worker(i)
+			if !setupCtx.DryRun {
+				setupCtx.Log.Infof("Starting %d workers (rate=%.1f/s burst=%d)", cfg.Workers, cfg.Rate, cfg.Burst)
+				for i := range cfg.Workers {
+					p.wg.Add(1)
+					go p.worker(i)
+				}
+				setupCtx.Log.Info("Plugin loaded")
 			}
-			setupCtx.Log.Info("Plugin loaded")
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {

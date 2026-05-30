@@ -531,11 +531,17 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			m := h.manager
+
+			// DryRun 下不连接 scheduler 也无 kv 存储，直接返回空壳
+			if ctx.DryRun {
+				return m, nil
+			}
+
 			// 获取 scheduler 插件（Service 确保热重载后仍有效）
 			m.schedSvc = plugin.Service[*scheduler.Plugin](ctx, "scheduler")
 
 			// 打开 LevelDB 存储
-			if !ctx.DryRun && m.kvPath != "" {
+			if m.kvPath != "" {
 				store, err := kv.Open(m.kvPath)
 				if err != nil {
 					return nil, fmt.Errorf("subscription: open store: %w", err)

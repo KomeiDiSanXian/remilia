@@ -106,6 +106,11 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading scheduler plugin")
+			if ctx.DryRun {
+				// DryRun 下 Spawn 是 no-op，<-ready 会永远阻塞
+				// 直接返回空壳，不初始化 cron 和 lifecycleCtx
+				return p, nil
+			}
 			p.c = cron.New(cron.WithSeconds())
 			p.c.Start()
 			// 将框架生命周期 context 注入 Plugin，供后续 Every() 派生 job context 使用。
