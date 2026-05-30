@@ -227,6 +227,137 @@ func TestDeclaredVsInferred(t *testing.T) {
 	t.Log("✓ Undeclared dependency detection works")
 }
 
+// ========== 类型推断测试：Service[T](ctx) 不带 name ==========
+
+// TestSmartRegistration_TypeBasedResolution 验证类型推断在 Smart 注册中工作。
+func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
+	manager := NewManager(nil)
+
+	type storageAPI struct{ DB string }
+
+	plugins := []*Descriptor{
+		{
+			Name: "mysql",
+			Setup: func(ctx *SetupContext) (any, error) {
+				return &storageAPI{DB: "mysql://localhost"}, nil
+			},
+		},
+		{
+			Name: "app",
+			Setup: func(ctx *SetupContext) (any, error) {
+				proxy := Service[*storageAPI](ctx)
+				v := proxy.Must()
+				if v.DB != "mysql://localhost" {
+					t.Fatal("unexpected value")
+				}
+				return nil, nil
+			},
+		},
+	}
+
+	err := manager.RegisterMultipleSmart(plugins)
+	assert.NoError(t, err)
+	assert.True(t, manager.IsLoaded("mysql"))
+	assert.True(t, manager.IsLoaded("app"))
+	t.Log("✓ Type-based Service[T](ctx) with straight order works")
+}
+
+// TestSmartRegistration_TypeBasedResolution_Reversed 验证依赖在后时类型推断仍有效。
+func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
+	manager := NewManager(nil)
+
+	type cacheAPI struct{ Addr string }
+
+	plugins := []*Descriptor{
+		{
+			Name: "app",
+			Setup: func(ctx *SetupContext) (any, error) {
+				proxy := Service[*cacheAPI](ctx)
+				v := proxy.Must()
+				if v.Addr != "redis:6379" {
+					t.Fatal("unexpected value")
+				}
+				return nil, nil
+			},
+		},
+		{
+			Name: "redis",
+			Setup: func(ctx *SetupContext) (any, error) {
+				return &cacheAPI{Addr: "redis:6379"}, nil
+			},
+		},
+	}
+
+	err := manager.RegisterMultipleSmart(plugins)
+	assert.NoError(t, err)
+	assert.True(t, manager.IsLoaded("redis"))
+	assert.True(t, manager.IsLoaded("app"))
+	t.Log("✓ Type-based Service[T](ctx) with reversed order works (three-color)")
+}
+
+// TestSmartRegistration_TypeBased_TryService 验证 TryService 类型推断。
+func TestSmartRegistration_TypeBased_TryService(t *testing.T) {
+	manager := NewManager(nil)
+
+	type metricsAPI struct{ Port int }
+
+	plugins := []*Descriptor{
+		{
+			Name: "prometheus",
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil // 不提供 metricsAPI
+			},
+		},
+		{
+			Name: "app",
+			Setup: func(ctx *SetupContext) (any, error) {
+				proxy, ok := TryService[*metricsAPI](ctx)
+				if ok {
+					t.Fatal("expected no metrics service")
+				}
+				_ = proxy
+				return nil, nil
+			},
+		},
+	}
+
+	err := manager.RegisterMultipleSmart(plugins)
+	assert.NoError(t, err)
+	t.Log("✓ Type-based TryService[T](ctx) works when type not registered")
+}
+
+// TestSmartRegistration_TypeBased_Circular 验证类型解析的循环依赖检测。
+func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
+	manager := NewManager(nil)
+
+	type xAPI struct{ val string }
+	type yAPI struct{ val string }
+
+	plugins := []*Descriptor{
+		{
+			Name: "x",
+			Setup: func(ctx *SetupContext) (any, error) {
+				defer func() { recover() }()
+				_ = Service[*yAPI](ctx)
+				return &xAPI{val: "x"}, nil
+			},
+		},
+		{
+			Name: "y",
+			Setup: func(ctx *SetupContext) (any, error) {
+				defer func() { recover() }()
+				_ = Service[*xAPI](ctx)
+				return &yAPI{val: "y"}, nil
+			},
+		},
+	}
+
+	err := manager.RegisterMultipleSmart(plugins)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, errutil.ErrCircularDependency)
+	t.Log("✓ Type-based circular dependency detected")
+}
+
 // indexOf is a helper to find the position of item in slice.
 func indexOf(slice []string, item string) int {
 	for i, v := range slice {

@@ -343,7 +343,10 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 
 	logger.Info("[PluginManager] Smart registration: inferring dependencies...")
 
-	inferred := pm.dryRunInferDeps(descriptors)
+	inferred, err := pm.dryRunInferDeps(descriptors)
+	if err != nil {
+		return err
+	}
 	enriched := mergeInferredDeps(descriptors, inferred)
 
 	sorted, err := pm.topologicalSort(enriched)
@@ -364,11 +367,18 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 	return nil
 }
 
-// dryRunInferDeps 对一组 descriptor 执行 DryRun，推断每个插件实际访问的依赖。
+// dryRunInferDeps 通过三色标记法推断每个插件在 Setup 中实际访问的依赖。
+//
+// 算法（三色）：
+//  1. 第一轮：为每个插件运行一次 Setup（收集 API 类型 + 依赖追踪）。
+//     若依赖缺失，mustGet 在 panic 前已记录 deps。
+//     每个插件最多跑一次 Setup。
+//  2. 解析轮：检查所有 deps 是否已在临时容器中就绪。
+//     若就绪则标记为 resolved；否则等待下一轮。
+//  3. 重复步骤 2 直至无变化。剩余 unresolved 的插件形成循环依赖，返回 ErrCircularDependency。
+//
 // 返回 map[pluginName][]depName（含必需 + 可选依赖）。
-// Setup 中的 panic 会被 recover，不影响其他插件的推断。
-func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]string {
-	// 创建临时容器：复制已注册插件的真实 API
+func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]string, error) {
 	tempContainer := NewContainer()
 	pm.mu.RLock()
 	for name, inst := range pm.plugins {
@@ -380,12 +390,25 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 	}
 	pm.mu.RUnlock()
 
-	// 第一遍：用 *Instance stub 占位，运行所有 Setup 收集真实 API 类型
 	for _, desc := range descriptors {
 		tempContainer.Register(desc.Name, &Instance{desc: desc})
 	}
-	for _, desc := range descriptors {
-		setupCtx := &SetupContext{
+
+	// 插件状态：0=未扫描(white), 1=已扫描(grey), 2=已就绪(black)
+	type dryRunPlugin struct {
+		name  string
+		ctx   *SetupContext
+		api   any
+		state int
+	}
+	plugins := make([]*dryRunPlugin, len(descriptors))
+	for i, desc := range descriptors {
+		plugins[i] = &dryRunPlugin{name: desc.Name}
+	}
+
+	// 第一轮：每个插件跑一次 Setup（收集 API + 追踪 deps）
+	for i, desc := range descriptors {
+		ctx := &SetupContext{
 			Reg:      &noopRegistryWriter{},
 			Log:      newPluginLogger(desc.Name),
 			Info:     newPluginInfo(pm),
@@ -404,47 +427,71 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 					logger.WithFields(logger.Fields{
 						"plugin": desc.Name,
 						"panic":  r,
-					}).Debug("[PluginManager] DryRun pass 1: Setup panicked")
+					}).Debug("[PluginManager] DryRun (three-color): Setup panicked")
 				}
 			}()
-			api, _ = desc.callSetup(setupCtx)
+			api, _ = desc.callSetup(ctx)
 		}()
+		plugins[i].ctx = ctx
+		plugins[i].api = api
+		plugins[i].state = 1 // grey
 		if api != nil {
 			tempContainer.Register(desc.Name, api)
 		}
 	}
 
-	// 第二遍：启用依赖追踪，此时所有同批次插件的真实 API 类型已就绪
-	inferred := make(map[string][]string)
-	for _, desc := range descriptors {
-		setupCtx := &SetupContext{
-			Reg:      &noopRegistryWriter{},
-			Log:      newPluginLogger(desc.Name),
-			Info:     newPluginInfo(pm),
-			EventBus: newNoopEventBus(),
-			DryRun:   true,
-			setupContextInternal: setupContextInternal{
-				container:        tempContainer,
-				pluginName:       desc.Name,
-				autoTrackEnabled: true,
-			},
-		}
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.WithFields(logger.Fields{
-						"plugin": desc.Name,
-						"panic":  r,
-					}).Debug("[PluginManager] DryRun pass 2: Setup panicked during dependency inference")
+	// 解析轮：逐步解析 pending 类型 + 检查 deps 就绪状态
+	for {
+		changed := false
+		for _, p := range plugins {
+			if p.state == 2 {
+				continue
+			}
+			// 尝试解析 pending type → name
+			if resolved := tryResolvePendingType(p.ctx, p.name, tempContainer); resolved {
+				changed = true
+			}
+			// 检查所有 deps 是否就绪
+			allDeps := make(map[string]bool)
+			for _, d := range p.ctx.getTrackedDependencies() {
+				allDeps[d] = true
+			}
+			for _, d := range p.ctx.getTrackedOptionalDependencies() {
+				allDeps[d] = true
+			}
+			resolved := true
+			for dep := range allDeps {
+				if dep == p.name {
+					continue
 				}
-			}()
-			_, _ = desc.callSetup(setupCtx)
-		}()
+				if _, ok := tempContainer.Get(dep); !ok {
+					resolved = false
+					break
+				}
+			}
+			if resolved {
+				p.state = 2
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	// 收集推断结果（所有 resolved 的 dep）
+	inferred := make(map[string][]string)
+	for _, p := range plugins {
+		if p.state != 2 {
+			// 经过多轮仍未就绪 → 循环依赖
+			logger.WithField("plugin", p.name).Warn("[PluginManager] DryRun (three-color): unresolved dependency (possible circular)")
+			continue
+		}
 		allTracked := make(map[string]bool)
-		for _, d := range setupCtx.getTrackedDependencies() {
+		for _, d := range p.ctx.getTrackedDependencies() {
 			allTracked[d] = true
 		}
-		for _, d := range setupCtx.getTrackedOptionalDependencies() {
+		for _, d := range p.ctx.getTrackedOptionalDependencies() {
 			allTracked[d] = true
 		}
 		if len(allTracked) > 0 {
@@ -452,10 +499,44 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 			for d := range allTracked {
 				tracked = append(tracked, d)
 			}
-			inferred[desc.Name] = tracked
+			inferred[p.name] = tracked
 		}
 	}
-	return inferred
+
+	// 检查是否有 unresolved 的插件 → 循环依赖
+	unresolved := make([]string, 0)
+	for _, p := range plugins {
+		if p.state != 2 {
+			unresolved = append(unresolved, p.name)
+		}
+	}
+	if len(unresolved) > 0 {
+		logger.Errorf("[PluginManager] DryRun (three-color): %d plugin(s) unresolved (circular dependency): %v", len(unresolved), unresolved)
+		return inferred, fmt.Errorf("%w: %v", errutil.ErrCircularDependency, unresolved)
+	}
+	return inferred, nil
+}
+
+// tryResolvePendingType 在容器中查找与 setupCtx.pendingType 匹配的已注册 API。
+// 找到后将 dep 名称追加到 trackedDeps，使依赖能被 topologicalSort 感知。
+func tryResolvePendingType(setupCtx *SetupContext, pluginName string, c *Container) bool {
+	if setupCtx.pendingType == nil {
+		return false
+	}
+	entries := lookupServiceTypeByReflect(c, setupCtx.pendingType)
+	if len(entries) == 0 {
+		return false
+	}
+	if len(entries) > 1 {
+		logger.Warnf("[PluginManager] DryRun: pending type %v resolved to multiple services: %v, picking first", setupCtx.pendingType, entryNames(entries))
+	}
+	name := entries[0].name
+	if setupCtx.trackedDeps == nil {
+		setupCtx.trackedDeps = make(map[string]bool)
+	}
+	setupCtx.trackedDeps[name] = true
+	logger.Debugf("[PluginManager] DryRun: pending type %v resolved -> %q for plugin %q", setupCtx.pendingType, name, pluginName)
+	return true
 }
 
 // mergeInferredDeps 将 DryRun 推断出的依赖合并到 descriptor 副本中，返回新的切片。

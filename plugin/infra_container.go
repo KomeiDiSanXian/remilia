@@ -185,10 +185,14 @@ func ListServices[T any](c *Container) map[string]T {
 	return result
 }
 
-// lookupServiceType 从类型索引查找所有匹配的条目（跳过已删除的）。
+// lookupServiceType 从类型索引查找所有匹配的条目（泛型版）。
 func lookupServiceType[T any](c *Container) []*serviceEntry {
-	key := typeIndexKey[T]()
-	raw, ok := c.typeIndex.Load(key)
+	return lookupServiceTypeByReflect(c, typeIndexKey[T]())
+}
+
+// lookupServiceTypeByReflect 从类型索引查找（非泛型版，供三色 DryRun 的 pending 类型使用）。
+func lookupServiceTypeByReflect(c *Container, typ reflect.Type) []*serviceEntry {
+	raw, ok := c.typeIndex.Load(typ)
 	if !ok {
 		return nil
 	}

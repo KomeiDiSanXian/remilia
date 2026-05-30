@@ -3,6 +3,7 @@ package plugin
 import (
 	stdctx "context"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -42,6 +43,10 @@ type setupContextInternal struct {
 	// RegisterCron 懒初始化字段（framework #31）
 	cronInitOnce  sync.Once
 	cronScheduler *cron.Cron
+
+	// pendingType 在三色 DryRun 中记录类型解析失败的 pending 类型。
+	// resolveName 在类型未就绪时记录在此处，resolution 轮次检查新注册的 API 是否匹配。
+	pendingType reflect.Type
 }
 
 // SetupContext 插件 Setup 阶段的上下文。

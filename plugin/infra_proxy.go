@@ -1,6 +1,9 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // proxy.go — ServiceProxy：防过期的插件间同步调用代理。
 //
@@ -23,13 +26,15 @@ type ServiceProxy[T any] struct {
 //	name 可选：
 //	  - 提供 name 时按名称访问（原语义）
 //	  - 省略 name 时按类型自动解析（要求容器中唯一）
-//
-// DryRun 阶段仅支持按名称访问。
 func Service[T any](ctx *SetupContext, names ...string) *ServiceProxy[T] {
 	if ctx.container == nil {
 		panic("plugin.Service: container is nil")
 	}
 	name := resolveName[T](ctx, names)
+	if ctx.DryRun && name == "" {
+		// 三色 DryRun：类型尚未就绪，跳过 mustGet（pendingType 已记录）
+		return &ServiceProxy[T]{container: ctx.container, name: name}
+	}
 	v := ctx.mustGet(name)
 	if !ctx.DryRun {
 		if _, ok := v.(T); !ok {
@@ -71,9 +76,9 @@ func resolveName[T any](ctx *SetupContext, names []string) string {
 	entries := lookupServiceType[T](ctx.container)
 	if len(entries) == 0 {
 		if ctx.DryRun {
-			panic(fmt.Sprintf("plugin.Service[%T](ctx): dependency not found by type during DryRun. "+
-				"The dependency may not yet be loaded (is it listed later in this batch?). "+
-				"Use Service[T](ctx, name) or declare Deps explicitly.", *new(T)))
+			// 三色 DryRun：记录 pending 类型，等待后续轮次匹配新注册的 API
+			ctx.pendingType = reflect.TypeOf((*T)(nil)).Elem()
+			return ""
 		}
 		panic(fmt.Sprintf("plugin.Service[%T](ctx): no service of this type is registered. "+
 			"Use Service[T](ctx, name) to disambiguate, or check that the dependency is loaded.", *new(T)))
