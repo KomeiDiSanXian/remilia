@@ -101,6 +101,14 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   p.AddKeyword("新敏感词")`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if ctx.Config != nil {
+				if kw := ctx.Config.GetStringSlice("keywords", nil); len(kw) > 0 {
+					p.setKeywords(kw)
+				}
+				if pt := ctx.Config.GetStringSlice("patterns", nil); len(pt) > 0 {
+					p.setPatterns(pt)
+				}
+			}
 			ctx.Log.Infof("Loaded with %d keywords, %d patterns", len(p.keywords), len(p.patterns))
 			if !ctx.DryRun && p.kvPath != "" {
 				db, err := kv.Open(p.kvPath)

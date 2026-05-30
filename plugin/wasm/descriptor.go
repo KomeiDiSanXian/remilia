@@ -23,7 +23,7 @@ type Descriptor struct {
 	Name string
 	// Version 是插件的版本号（可选，建议 semver）。
 	Version string
-	// Path 是 .wasm 文件的路径。
+	// Path 是 .wasm 文件的路径（用于 wasm.Manager.Register）。
 	Path string
 	// Config 是传递给插件的配置（JSON 序列化后通过 get_config 宿主函数读取）。
 	Config map[string]any
@@ -33,6 +33,9 @@ type Descriptor struct {
 	ResourceLimit *ResourceLimit
 	// CallTimeout 单次 handle 调用的超时时间。零值表示使用默认值（5s）。
 	CallTimeout time.Duration
+	// Deps 声明此 WASM 插件依赖的 Go 插件列表。仅在使用 ToDescriptor/
+	// RegisterWithManager 时生效，确保依赖先于 WASM 模块加载。
+	Deps []string
 }
 
 // ResourceLimit 定义 WASM 插件的所有资源限制和安全阈值。
@@ -68,13 +71,13 @@ func (d *Descriptor) Validate() error {
 // EffectiveResourceLimit 返回生效的资源限制，零值字段用默认值填充。
 func (d *Descriptor) EffectiveResourceLimit() ResourceLimit {
 	rl := ResourceLimit{
-		MemoryPages:      DefaultMemoryPages,
-		MaxCallPerSec:    DefaultMaxCallPerSec,
-		CallTimeout:      DefaultCallTimeout,
-		InitTimeout:      DefaultCallInitTimeout,
-		ResponseSizeMax:  DefaultResponseSizeMax,
-		WasmSizeMax:      DefaultWasmSizeMax,
-		ImportsMax:       DefaultImportsMax,
+		MemoryPages:     DefaultMemoryPages,
+		MaxCallPerSec:   DefaultMaxCallPerSec,
+		CallTimeout:     DefaultCallTimeout,
+		InitTimeout:     DefaultCallInitTimeout,
+		ResponseSizeMax: DefaultResponseSizeMax,
+		WasmSizeMax:     DefaultWasmSizeMax,
+		ImportsMax:      DefaultImportsMax,
 	}
 	if d.ResourceLimit != nil {
 		if d.ResourceLimit.MemoryPages > 0 {

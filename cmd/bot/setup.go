@@ -110,8 +110,9 @@ func setupRouter(bot *remilia.Bot, eng *engine.Engine) *fsm.Manager {
 	return fsmMgr
 }
 
-func setupPluginManager(bot *remilia.Bot, eng *engine.Engine) *plugin.Manager {
-	pm := plugin.NewManager(eng)
+func setupPluginManager(bot *remilia.Bot, eng *engine.Engine, cfg *config.Config) *plugin.Manager {
+	cp := plugin.NewYAMLConfigProvider(cfg)
+	pm := plugin.NewManager(eng, plugin.WithConfigProvider(cp))
 	pm.SetStrictDeps(false)
 	bot.UsePlugins(pm)
 	return pm

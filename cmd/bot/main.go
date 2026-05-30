@@ -57,7 +57,7 @@ func main() {
 	eng := bot.Engine()
 	setupMiddleware(eng, &cfg.Tracing)
 	fsmMgr := setupRouter(bot, eng)
-	pm := setupPluginManager(bot, eng)
+	pm := setupPluginManager(bot, eng, cfg)
 	setupPlugins(pm, eng, cfg)
 	_ = fsmMgr
 

@@ -223,8 +223,9 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 	pm.mu.Unlock()
 }
 
-// propagateConfigChange 向所有已加载插件的 Config 广播配置变更
+// propagateConfigChange 按依赖顺序向所有插件广播配置变更。
 //
+// 使用 loadOrder（拓扑排序结果）确保依赖先于依赖方收到变更通知。
 // 使用 TryRLock 避免 SetConfigProvider 持有写锁时同步触发导致死锁。
 // 若锁被写操作持有，直接返回（Phase 3 的全量替换已保证数据最新）。
 func (pm *Manager) propagateConfigChange() {
@@ -234,16 +235,15 @@ func (pm *Manager) propagateConfigChange() {
 	}
 	defer pm.mu.RUnlock()
 
-	instances := make([]*Instance, 0, len(pm.plugins))
-	for _, inst := range pm.plugins {
-		instances = append(instances, inst)
-	}
-
-	for _, inst := range instances {
+	for _, name := range pm.loadOrder {
+		inst, exists := pm.plugins[name]
+		if !exists {
+			continue
+		}
 		cfg := inst.GetConfig()
 		if cfg != nil {
 			if err := cfg.Reload(); err != nil {
-				logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", inst.Name())
+				logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", name)
 			}
 		}
 	}

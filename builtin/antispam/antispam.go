@@ -127,6 +127,24 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   p.Ban(userID, 10*time.Minute)`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if ctx.Config != nil {
+				if v := ctx.Config.GetFloat64("user_rate", 0); v > 0 {
+					p.cfg.UserRate = v
+				}
+				if v := ctx.Config.GetInt("user_burst", 0); v > 0 {
+					p.cfg.UserBurst = v
+				}
+				if v := ctx.Config.GetFloat64("group_rate", 0); v > 0 {
+					p.cfg.GroupRate = v
+				}
+				if v := ctx.Config.GetInt("group_burst", 0); v > 0 {
+					p.cfg.GroupBurst = v
+				}
+				p.cfg.BanOnViolation = ctx.Config.GetBool("ban_on_violation", p.cfg.BanOnViolation)
+				if v := ctx.Config.GetDuration("ban_duration", 0); v > 0 {
+					p.cfg.BanDuration = v
+				}
+			}
 			ctx.Log.Infof("Loaded (user_rate=%.1f/s group_rate=%.1f/s ban_on_violation=%v)",
 				p.cfg.UserRate, p.cfg.GroupRate, p.cfg.BanOnViolation)
 			if !ctx.DryRun && p.kvPath != "" {

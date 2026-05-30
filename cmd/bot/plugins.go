@@ -47,8 +47,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 		}
 	}
 
-	antispamCfg := antispamConfig(cfg)
-	asPlugin := antispam.NewPlugin(antispamCfg, antispam.WithStore(dataDir+"/antispam"))
+	asPlugin := antispam.NewPlugin(antispam.DefaultConfig(), antispam.WithStore(dataDir+"/antispam"))
 	cdPlugin := cooldown.NewPlugin()
 	sp := stats.NewPlugin(stats.WithStore(dataDir + "/stats"))
 	schedPlugin := scheduler.NewPlugin()
@@ -61,12 +60,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 		subscriptionpkg.WithStore(dataDir+"/subscription"),
 	)
 
-	kfConfig := keywordFilterConfig(cfg)
-
-	storageDSN, _ := cfg.PluginString("storage", "dsn")
-	if storageDSN == "" {
-		storageDSN = dataDir + "/db/bot.db"
-	}
+	storageDSN := dataDir + "/db/bot.db"
 
 	descriptors := []*plugin.Descriptor{
 		pluginctrl.New(),
@@ -87,7 +81,12 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 			return nil
 		}, verifycode.WithStore(dataDir+"/verifycode")),
 		asPlugin.Descriptor(),
-		keywordfilter.New(kfConfig, keywordfilter.WithStore(dataDir+"/keywordfilter")),
+		keywordfilter.New(keywordfilter.Config{
+			OnMatch: func(ctx *eventctx.Context, matched string) error {
+				logger.Warnf("[bot] Keyword matched: %q from user %s", matched, ctx.GetUserID())
+				return nil
+			},
+		}, keywordfilter.WithStore(dataDir+"/keywordfilter")),
 		cdPlugin.Descriptor(),
 		sp.Descriptor(),
 		auditlog.New(),
@@ -121,60 +120,4 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 		eng.Use(messagelog.MessageLogger())
 		logger.Info("[bot] MessageLogger middleware enabled")
 	}
-}
-
-func antispamConfig(cfg *config.Config) antispam.Config {
-	ur, _ := cfg.PluginInt("antispam", "user_rate")
-	ub, _ := cfg.PluginInt("antispam", "user_burst")
-	gr, _ := cfg.PluginInt("antispam", "group_rate")
-	gb, _ := cfg.PluginInt("antispam", "group_burst")
-	ban, _ := cfg.PluginBool("antispam", "ban_on_violation")
-	bdStr, _ := cfg.PluginString("antispam", "ban_duration")
-
-	ac := antispam.Config{
-		UserRate: float64(ur), UserBurst: ub,
-		GroupRate: float64(gr), GroupBurst: gb,
-		BanOnViolation: ban,
-	}
-	if ac.UserRate <= 0 {
-		ac.UserRate = 5
-	}
-	if ac.GroupRate <= 0 {
-		ac.GroupRate = 30
-	}
-	if bd, err := time.ParseDuration(bdStr); err == nil && bd > 0 {
-		ac.BanDuration = bd
-	} else {
-		ac.BanDuration = 5 * time.Minute
-	}
-	return ac
-}
-
-func keywordFilterConfig(cfg *config.Config) keywordfilter.Config {
-	kc := keywordfilter.Config{}
-
-	if keywordsRaw, ok := cfg.PluginConfig("keywordfilter"); ok {
-		if kwList, ok := keywordsRaw["keywords"]; ok {
-			switch v := kwList.(type) {
-			case []any:
-				for _, kw := range v {
-					if s, ok := kw.(string); ok {
-						kc.Keywords = append(kc.Keywords, s)
-					}
-				}
-			case []string:
-				kc.Keywords = v
-			}
-		}
-	}
-
-	if len(kc.Keywords) == 0 {
-		kc.Keywords = []string{}
-	}
-
-	kc.OnMatch = func(ctx *eventctx.Context, matched string) error {
-		logger.Warnf("[bot] Keyword matched: %q from user %s", matched, ctx.GetUserID())
-		return nil
-	}
-	return kc
 }

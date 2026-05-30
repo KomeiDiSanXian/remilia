@@ -10,31 +10,68 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestEventBus_Publish_NonBlocking 验证修复 #1：Publish 池满时不阻塞调用方
-func TestEventBus_Publish_NonBlocking(t *testing.T) {
-	bus := NewEventBus().(*eventBus)
-	// 先填满 worker pool（100 个令牌）
-	for range 100 {
-		bus.workerPool <- struct{}{}
-	}
-	// 订阅一个 handler
+// TestEventBus_PublishWithTimeout_ReturnsErrEventDropped 验证超时场景返回 ErrEventDropped。
+func TestEventBus_PublishWithTimeout_ReturnsErrEventDropped(t *testing.T) {
+	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
+	bus.workerPool <- struct{}{} // 填满唯一槽位
+
 	_, err := bus.Subscribe("test", func(data any) {})
 	require.NoError(t, err)
-	// Publish 应该立即返回，不阻塞（即使 pool 满了）
-	done := make(chan struct{})
+
+	err = PublishWithTimeout(bus, "test", "data", 10*time.Millisecond)
+	assert.ErrorIs(t, err, ErrEventDropped, "PublishWithTimeout should return ErrEventDropped when pool is full")
+
+	<-bus.workerPool
+}
+
+// TestEventBus_PublishWithTimeout_Succeeds 验证正常场景 PublishWithTimeout 不会超时。
+func TestEventBus_PublishWithTimeout_Succeeds(t *testing.T) {
+	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
+
+	var called atomic.Bool
+	_, err := bus.Subscribe("test", func(data any) {
+		called.Store(true)
+	})
+	require.NoError(t, err)
+
+	err = PublishWithTimeout(bus, "test", "data", time.Second)
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+	assert.True(t, called.Load(), "handler should have been called")
+}
+
+// TestEventBus_Publish_BlocksAndRecovers 验证 Publish 在池满时阻塞，槽位释放后继续。
+func TestEventBus_Publish_BlocksAndRecovers(t *testing.T) {
+	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
+	bus.workerPool <- struct{}{} // 占满唯一槽位
+
+	_, err := bus.Subscribe("test", func(data any) {})
+	require.NoError(t, err)
+
+	// 在 goroutine 中 publish（会阻塞）
+	published := make(chan struct{})
 	go func() {
-		defer close(done)
 		_ = bus.Publish("test", "data")
+		close(published)
 	}()
+
+	// 短暂等待确认已阻塞
 	select {
-	case <-done:
-		// OK: 没有阻塞
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Publish blocked when worker pool was full")
+	case <-published:
+		t.Fatal("Publish should have blocked when pool was full")
+	case <-time.After(50 * time.Millisecond):
+		// 确认阻塞，正常
 	}
-	// 清空 pool
-	for range 100 {
-		<-bus.workerPool
+
+	// 释放槽位 → Publish 应继续
+	<-bus.workerPool
+
+	select {
+	case <-published:
+		// 继续了，OK
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Publish should have unblocked after slot was released")
 	}
 }
 

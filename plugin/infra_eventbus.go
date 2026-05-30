@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
-// ErrEventDropped 在 goroutine 池满时，Publish 会返回此错误
+// ErrEventDropped PublishWithTimeout 超时无法获取工作槽位时返回此错误。
 var ErrEventDropped = errors.New("eventbus: worker pool full, event dropped")
 
 // EventHandler 事件处理函数
@@ -108,11 +109,13 @@ func NewEventBusWithOptions(opts EventBusOptions) EventBus {
 // wildcardTopic 通配符主题键，订阅此主题的处理器会收到所有事件
 const wildcardTopic = "*"
 
-// Publish 发布事件
+// Publish 发布事件。
+//
+// 在 goroutine 池满时**阻塞**等待可用槽位，提供背压而非静默丢弃。
+// 若需要超时控制，请使用 [PublishWithTimeout]。
 func (eb *eventBus) Publish(topic string, data any) error {
 	eb.mu.RLock()
 	handlers := eb.subscribers[topic]
-	// 通配符订阅者也应收到此事件（不对 wildcardTopic 本身触发通配符，避免无限循环）
 	var wildcardHandlers []subscriptionImpl
 	if topic != wildcardTopic {
 		wildcardHandlers = eb.subscribers[wildcardTopic]
@@ -128,33 +131,77 @@ func (eb *eventBus) Publish(topic string, data any) error {
 		return nil
 	}
 
-	var dropped bool
-
-	// 异步通知所有订阅者（含通配符订阅者）
 	for _, sub := range allHandlers {
-		select {
-		case eb.workerPool <- struct{}{}:
-			// 成功获取令牌，正常受限并发
-			go func(h EventHandler) {
-				defer func() {
-					<-eb.workerPool // 释放令牌
-					if r := recover(); r != nil {
-						logger.Errorf("[EventBus] Panic in event handler: %v", r)
-					}
-				}()
-				h(data)
-			}(sub.handler)
-		default:
-			// 池已满：丢弃本次事件并记录统计
-			cnt := eb.droppedCount.Add(1)
-			logger.Warnf("[EventBus] Worker pool full, dropping event for topic %s (total dropped: %d)", topic, cnt)
-			dropped = true
-		}
+		eb.workerPool <- struct{}{} // blocking: 提供背压而非静默丢弃
+		go func(h EventHandler) {
+			defer func() {
+				<-eb.workerPool
+				if r := recover(); r != nil {
+					logger.Errorf("[EventBus] Panic in event handler: %v", r)
+				}
+			}()
+			h(data)
+		}(sub.handler)
 	}
 
 	eb.publishCount.Add(1)
 	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d)", topic, len(handlers), len(wildcardHandlers))
+	return nil
+}
 
+// PublishWithTimeout 发布事件，若 timeout 内无法获取工作槽位则丢弃并返回 [ErrEventDropped]。
+func PublishWithTimeout(bus EventBus, topic string, data any, timeout time.Duration) error {
+	eb, ok := bus.(*eventBus)
+	if !ok {
+		return bus.Publish(topic, data)
+	}
+
+	eb.mu.RLock()
+	handlers := eb.subscribers[topic]
+	var wildcardHandlers []subscriptionImpl
+	if topic != wildcardTopic {
+		wildcardHandlers = eb.subscribers[wildcardTopic]
+	}
+	eb.mu.RUnlock()
+
+	allHandlers := make([]subscriptionImpl, 0, len(handlers)+len(wildcardHandlers))
+	allHandlers = append(allHandlers, handlers...)
+	allHandlers = append(allHandlers, wildcardHandlers...)
+
+	if len(allHandlers) == 0 {
+		return nil
+	}
+
+	var dropped bool
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for _, sub := range allHandlers {
+		select {
+		case eb.workerPool <- struct{}{}:
+		case <-timer.C:
+			cnt := eb.droppedCount.Add(1)
+			logger.Warnf("[EventBus] PublishWithTimeout timed out for topic %s (total dropped: %d)", topic, cnt)
+			dropped = true
+			continue
+		}
+		go func(h EventHandler) {
+			defer func() {
+				<-eb.workerPool
+				if r := recover(); r != nil {
+					logger.Errorf("[EventBus] Panic in event handler: %v", r)
+				}
+			}()
+			h(data)
+		}(sub.handler)
+
+		if !timer.Stop() {
+			<-timer.C
+		}
+		timer.Reset(timeout)
+	}
+
+	eb.publishCount.Add(1)
 	if dropped {
 		return ErrEventDropped
 	}
