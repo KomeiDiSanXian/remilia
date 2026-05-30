@@ -16,10 +16,11 @@ func TestEventBus_WildcardSubscription(t *testing.T) {
 	var received []any
 
 	// 订阅通配符
-	sub, err := bus.SubscribeAll(func(data any) {
+	sub, err := bus.SubscribeAll(func(_ context.Context, data any) error {
 		mu.Lock()
 		received = append(received, data)
 		mu.Unlock()
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("SubscribeAll failed: %v", err)
@@ -60,15 +61,17 @@ func TestEventBus_WildcardAndSpecific(t *testing.T) {
 	specificCount := 0
 	wildcardCount := 0
 
-	bus.Subscribe("news", func(data any) {
+	bus.Subscribe("news", func(_ context.Context, data any) error {
 		mu.Lock()
 		specificCount++
 		mu.Unlock()
+		return nil
 	})
-	bus.SubscribeAll(func(data any) {
+	bus.SubscribeAll(func(_ context.Context, data any) error {
 		mu.Lock()
 		wildcardCount++
 		mu.Unlock()
+		return nil
 	})
 
 	bus.Publish("news", "breaking")

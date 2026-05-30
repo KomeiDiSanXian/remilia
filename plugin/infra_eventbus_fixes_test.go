@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -15,7 +16,7 @@ func TestEventBus_PublishWithTimeout_ReturnsErrEventDropped(t *testing.T) {
 	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
 	bus.workerPool <- struct{}{} // 填满唯一槽位
 
-	_, err := bus.Subscribe("test", func(data any) {})
+	_, err := bus.Subscribe("test", func(_ context.Context, data any) error { return nil })
 	require.NoError(t, err)
 
 	err = PublishWithTimeout(bus, "test", "data", 10*time.Millisecond)
@@ -29,8 +30,9 @@ func TestEventBus_PublishWithTimeout_Succeeds(t *testing.T) {
 	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
 
 	var called atomic.Bool
-	_, err := bus.Subscribe("test", func(data any) {
+	_, err := bus.Subscribe("test", func(_ context.Context, data any) error {
 		called.Store(true)
+		return nil
 	})
 	require.NoError(t, err)
 
@@ -46,7 +48,7 @@ func TestEventBus_Publish_BlocksAndRecovers(t *testing.T) {
 	bus := NewEventBusWithOptions(EventBusOptions{WorkerPoolSize: 1}).(*eventBus)
 	bus.workerPool <- struct{}{} // 占满唯一槽位
 
-	_, err := bus.Subscribe("test", func(data any) {})
+	_, err := bus.Subscribe("test", func(_ context.Context, data any) error { return nil })
 	require.NoError(t, err)
 
 	// 在 goroutine 中 publish（会阻塞）
@@ -79,12 +81,12 @@ func TestEventBus_Publish_BlocksAndRecovers(t *testing.T) {
 func TestEventBus_Subscribe_IDUnique(t *testing.T) {
 	bus := NewEventBus()
 	// 第一次订阅
-	sub1, err := bus.Subscribe("topic", func(data any) {})
+	sub1, err := bus.Subscribe("topic", func(_ context.Context, data any) error { return nil })
 	require.NoError(t, err)
 	// 取消订阅
 	require.NoError(t, sub1.Unsubscribe())
 	// 第二次订阅（同一 topic）
-	sub2, err := bus.Subscribe("topic", func(data any) {})
+	sub2, err := bus.Subscribe("topic", func(_ context.Context, data any) error { return nil })
 	require.NoError(t, err)
 	// 两个订阅的 ID 应该不同
 	impl1, ok1 := sub1.(*subscriptionImpl)
@@ -102,8 +104,9 @@ func TestEventBus_Subscribe_IDUnique(t *testing.T) {
 func TestEventBus_PublishCount_Atomic(t *testing.T) {
 	bus := NewEventBus()
 	received := atomic.Int32{}
-	_, err := bus.Subscribe("count-topic", func(data any) {
+	_, err := bus.Subscribe("count-topic", func(_ context.Context, data any) error {
 		received.Add(1)
+		return nil
 	})
 	require.NoError(t, err)
 	// 并发发布

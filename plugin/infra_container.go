@@ -1,26 +1,35 @@
 package plugin
 
 import (
+	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 )
 
-// container.go — 依赖注入容器
+// container.go — 依赖注入容器（类型索引版）
 //
-// 支持两阶段使用模式：
-//  1. 注册阶段（Register/Remove）：使用 sync.Map 保证并发安全
-//  2. 冻结阶段（Freeze 后）：Get/Has 切换为原子指针只读快照，读性能提升 2-3x
-//
-// 插件全部加载完成后调用 [Manager.FreezeContainer]，后续 Get 仅需一次原子 Load，无锁竞争。
+// 除 string 键值访问外，容器维护 reflect.Type → []name 反向索引，
+// 支持通过 [GetService[T]] 按类型自动解析。
+
+// serviceEntry 容器中的一个注册条目。
+type serviceEntry struct {
+	name  string
+	value any
+	typ   reflect.Type
+}
 
 // Container 依赖注入容器
 type Container struct {
-	services sync.Map // 注册阶段及冻结后的写操作
+	services sync.Map // name → *serviceEntry
 
-	// 冻结后的只读快照，使用 atomic.Pointer 原子替换，消除 data race
+	// typeIndex 类型索引：reflect.Type → []*serviceEntry
+	typeIndex sync.Map
+
+	// 冻结后的只读快照
 	frozen     atomic.Bool
 	frozenMap  atomic.Pointer[map[string]any]
-	snapshotMu sync.Mutex // 保护 refreshSnapshot 的并发重建
+	snapshotMu sync.Mutex
 
 	watchers   map[string][]func(name string, oldVal, newVal any)
 	watchersMu sync.Mutex
@@ -33,30 +42,167 @@ func NewContainer() *Container {
 	}
 }
 
-// Register 注册服务。若同名服务已存在，触发值变更通知。
-// 冻结后会自动刷新只读快照，支持热重载/动态注册场景。
+// Register 注册服务。自动存储类型信息并更新类型索引。
+// 若同名服务已存在，触发值变更通知。
+// 冻结后会自动刷新只读快照。
 func (c *Container) Register(name string, service any) {
 	if name == "" {
 		panic("container: Register requires non-empty name")
 	}
-	oldVal, loaded := c.services.Load(name)
-	c.services.Store(name, service)
-	if loaded {
-		c.notifyWatchers(name, oldVal, service)
+
+	entry := &serviceEntry{
+		name:  name,
+		value: service,
+		typ:   reflect.TypeOf(service),
 	}
+
+	oldRaw, loaded := c.services.Load(name)
+	c.services.Store(name, entry)
+
+	// 更新类型索引
+	if entry.typ != nil {
+		c.addToTypeIndex(entry)
+	}
+
+	if loaded {
+		oldEntry := oldRaw.(*serviceEntry)
+		if oldEntry.typ != entry.typ {
+			c.removeFromTypeIndex(oldEntry)
+		}
+		c.notifyWatchers(name, oldEntry.value, service)
+	}
+
 	if c.frozen.Load() {
 		c.refreshSnapshot()
 	}
 }
 
-// OnValueChanged 注册指定 key 的值变更回调。当该 key 被重新 Register 或 Remove 时触发。
-//
-//	container.OnValueChanged("storage", func(name string, oldVal, newVal any) {
-//	    log.Printf("storage reloaded: %T -> %T", oldVal, newVal)
-//	})
-//
-// 回调与 Register 在同一 goroutine 中同步执行（因此不应长时间阻塞）。
-// 首次注册不会触发回调（oldVal 为 nil）。Remove 时 newVal 为 nil。
+// typeIndexKey 获取 T 的类型索引键。
+func typeIndexKey[T any]() reflect.Type {
+	return reflect.TypeOf((*T)(nil)).Elem()
+}
+
+// addToTypeIndex 将条目加入类型索引。
+func (c *Container) addToTypeIndex(entry *serviceEntry) {
+	raw, _ := c.typeIndex.Load(entry.typ)
+	entries, _ := raw.([]*serviceEntry)
+	for _, e := range entries {
+		if e.name == entry.name {
+			e.value = entry.value
+			return
+		}
+	}
+	c.typeIndex.Store(entry.typ, append(entries, entry))
+}
+
+// removeFromTypeIndex 从类型索引移除条目。
+func (c *Container) removeFromTypeIndex(entry *serviceEntry) {
+	raw, ok := c.typeIndex.Load(entry.typ)
+	if !ok {
+		return
+	}
+	entries := raw.([]*serviceEntry)
+	filtered := make([]*serviceEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.name != entry.name {
+			filtered = append(filtered, e)
+		}
+	}
+	if len(filtered) == 0 {
+		c.typeIndex.Delete(entry.typ)
+	} else {
+		c.typeIndex.Store(entry.typ, filtered)
+	}
+}
+
+// Get 通过 name 获取服务值（保留原语义，返回 any）。
+func (c *Container) Get(name string) (any, bool) {
+	if c.frozen.Load() {
+		if m := c.frozenMap.Load(); m != nil {
+			v, ok := (*m)[name]
+			return v, ok
+		}
+	}
+	raw, ok := c.services.Load(name)
+	if !ok {
+		return nil, false
+	}
+	return raw.(*serviceEntry).value, true
+}
+
+// Has 检查服务是否存在
+func (c *Container) Has(name string) bool {
+	_, ok := c.Get(name)
+	return ok
+}
+
+// GetService 通过 name 获取类型安全的服务值。
+// 若 name 为空，按类型自动解析（要求唯一匹配）。
+func GetService[T any](c *Container, name string) (T, bool) {
+	var zero T
+	if name != "" {
+		v, ok := c.Get(name)
+		if !ok {
+			return zero, false
+		}
+		tv, ok := v.(T)
+		return tv, ok
+	}
+	// 按类型解析
+	entries := lookupServiceType[T](c)
+	if len(entries) == 0 {
+		return zero, false
+	}
+	if len(entries) > 1 {
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.name
+		}
+		panic(fmt.Sprintf("container: multiple services of type %T found: %v; use GetService[T](c, name)", zero, names))
+	}
+	tv, ok := entries[0].value.(T)
+	return tv, ok
+}
+
+// MustGetService 同 GetService，不存在或类型不匹配时 panic。
+func MustGetService[T any](c *Container, name string) T {
+	v, ok := GetService[T](c, name)
+	if !ok {
+		panic(fmt.Sprintf("container: service %T(%q) not found", *new(T), name))
+	}
+	return v
+}
+
+// ListServices 返回所有实现了 T 的服务（name → value）。
+func ListServices[T any](c *Container) map[string]T {
+	entries := lookupServiceType[T](c)
+	result := make(map[string]T, len(entries))
+	for _, e := range entries {
+		if tv, ok := e.value.(T); ok {
+			result[e.name] = tv
+		}
+	}
+	return result
+}
+
+// lookupServiceType 从类型索引查找所有匹配的条目（跳过已删除的）。
+func lookupServiceType[T any](c *Container) []*serviceEntry {
+	key := typeIndexKey[T]()
+	raw, ok := c.typeIndex.Load(key)
+	if !ok {
+		return nil
+	}
+	entries := raw.([]*serviceEntry)
+	active := make([]*serviceEntry, 0, len(entries))
+	for _, e := range entries {
+		if _, loaded := c.services.Load(e.name); loaded {
+			active = append(active, e)
+		}
+	}
+	return active
+}
+
+// OnValueChanged 注册指定 key 的值变更回调。
 func (c *Container) OnValueChanged(name string, fn func(name string, oldVal, newVal any)) {
 	if name == "" || fn == nil {
 		return
@@ -66,64 +212,43 @@ func (c *Container) OnValueChanged(name string, fn func(name string, oldVal, new
 	c.watchers[name] = append(c.watchers[name], fn)
 }
 
-// notifyWatchers 异步通知指定 key 的监听器。
 func (c *Container) notifyWatchers(name string, oldVal, newVal any) {
 	c.watchersMu.Lock()
 	fns := make([]func(name string, oldVal, newVal any), len(c.watchers[name]))
 	copy(fns, c.watchers[name])
 	c.watchersMu.Unlock()
-
 	for _, fn := range fns {
 		fn(name, oldVal, newVal)
 	}
 }
 
-// Freeze 将容器切换为只读快照模式。
-// 调用后 Get/Has 使用原子指针快照，读性能提升 2-3x。
-// 冻结后仍可调用 Register/Remove，会自动原子替换快照。
+// Freeze 锁住只读快照。
 func (c *Container) Freeze() {
 	c.frozen.Store(true)
 	c.refreshSnapshot()
 }
 
-// refreshSnapshot 重建只读快照并原子替换（并发安全）。
 func (c *Container) refreshSnapshot() {
 	c.snapshotMu.Lock()
 	defer c.snapshotMu.Unlock()
-
 	snapshot := make(map[string]any)
 	c.services.Range(func(k, v any) bool {
-		snapshot[k.(string)] = v
+		snapshot[k.(string)] = v.(*serviceEntry).value
 		return true
 	})
 	c.frozenMap.Store(&snapshot)
 }
 
-// Get 获取服务。冻结后通过原子 Load 读取快照，无锁竞争。
-func (c *Container) Get(name string) (any, bool) {
-	if c.frozen.Load() {
-		if m := c.frozenMap.Load(); m != nil {
-			v, ok := (*m)[name]
-			return v, ok
-		}
-	}
-	return c.services.Load(name)
-}
-
-// Has 检查服务是否存在
-func (c *Container) Has(name string) bool {
-	_, ok := c.Get(name)
-	return ok
-}
-
-// Remove 移除服务并触发值变更通知（newVal 为 nil）。
-// 冻结后会自动刷新只读快照。
+// Remove 移除服务。
 func (c *Container) Remove(name string) {
-	oldVal, loaded := c.services.Load(name)
-	c.services.Delete(name)
-	if loaded {
-		c.notifyWatchers(name, oldVal, nil)
+	raw, loaded := c.services.Load(name)
+	if !loaded {
+		return
 	}
+	entry := raw.(*serviceEntry)
+	c.services.Delete(name)
+	c.removeFromTypeIndex(entry)
+	c.notifyWatchers(name, entry.value, nil)
 	if c.frozen.Load() {
 		c.refreshSnapshot()
 	}

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,8 +21,9 @@ func TestScope_SubscribeAutoCleanup(t *testing.T) {
 		Name: "test-scope",
 		Setup: func(ctx *SetupContext) (any, error) {
 			root := ctx.Scope()
-			root.Subscribe("test.topic", func(data any) {
+			root.Subscribe("test.topic", func(_ context.Context, data any) error {
 				received = append(received, data.(string))
+				return nil
 			})
 			return nil, nil
 		},
@@ -74,7 +76,7 @@ func TestScope_ChildScopeCascadeDispose(t *testing.T) {
 			})
 
 			// 验证订阅自动清理
-			grandchild.Subscribe("x", func(data any) {})
+			grandchild.Subscribe("x", func(_ context.Context, data any) error { return nil })
 			return nil, nil
 		},
 	}
@@ -267,10 +269,10 @@ func TestMigrateState_VersionChange(t *testing.T) {
 	inst, _ := pm.Get("migrate-test")
 	inst.mu.Lock()
 	inst.desc = &Descriptor{
-		Name:    "migrate-test",
-		Version: "2.0.0",
+		Name:     "migrate-test",
+		Version:  "2.0.0",
 		Advanced: desc.Advanced,
-		Setup:   desc.Setup,
+		Setup:    desc.Setup,
 	}
 	inst.mu.Unlock()
 	require.NoError(t, pm.Reload(t.Context(), "migrate-test"))

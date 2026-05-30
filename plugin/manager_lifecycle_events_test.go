@@ -16,20 +16,23 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 
 	var loadedName, unloadedName, reloadedName atomic.Value
 
-	_, _ = bus.Subscribe("plugin.loaded", func(data any) {
+	_, _ = bus.Subscribe("plugin.loaded", func(_ context.Context, data any) error {
 		if name, ok := data.(string); ok {
 			loadedName.Store(name)
 		}
+		return nil
 	})
-	_, _ = bus.Subscribe("plugin.unloaded", func(data any) {
+	_, _ = bus.Subscribe("plugin.unloaded", func(_ context.Context, data any) error {
 		if name, ok := data.(string); ok {
 			unloadedName.Store(name)
 		}
+		return nil
 	})
-	_, _ = bus.Subscribe("plugin.reloaded", func(data any) {
+	_, _ = bus.Subscribe("plugin.reloaded", func(_ context.Context, data any) error {
 		if name, ok := data.(string); ok {
 			reloadedName.Store(name)
 		}
+		return nil
 	})
 
 	desc := &Descriptor{

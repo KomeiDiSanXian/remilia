@@ -147,9 +147,8 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	pi.mu.Unlock()
 
 	// Step 0: 清理 Scope 追踪的资源（subscriptions、middleware、child scopes、dispose hooks）
-	// 此步骤在 goroutine 停止之前执行，因为 dispose hooks 可能需要访问依赖服务。
 	if setupCtx != nil && setupCtx.rootScope != nil {
-		if err := setupCtx.rootScope.Dispose(); err != nil {
+		if err := setupCtx.rootScope.Dispose(ctx); err != nil {
 			logger.WithField("plugin", pi.desc.Name).WithError(err).Warn("[Instance] Scope dispose failed during unload")
 		}
 	}

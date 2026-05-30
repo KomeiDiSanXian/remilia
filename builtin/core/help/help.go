@@ -1,6 +1,7 @@
 package help
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -130,9 +131,10 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 			// 订阅插件生命周期事件，Scope 追踪并在卸载时自动取消订阅
 			for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {
 				t := topic
-				if _, err := ctx.Scope().Subscribe(t, func(_ any) {
+				if _, err := ctx.Scope().Subscribe(t, func(_ context.Context, _ any) error {
 					ctx.Log.Debugf("Cache invalidated due to %s event", t)
 					p.invalidateCache()
+					return nil
 				}); err != nil {
 					ctx.Log.Warnf("Failed to subscribe to %s: %v", t, err)
 				}

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -13,8 +14,9 @@ import (
 // ErrEventDropped PublishWithTimeout 超时无法获取工作槽位时返回此错误。
 var ErrEventDropped = errors.New("eventbus: worker pool full, event dropped")
 
-// EventHandler 事件处理函数
-type EventHandler func(data any)
+// EventHandler 事件处理函数。ctx 携带发布者 context（含超时/取消/trace）。
+// 返回 error 表示处理失败（当前仅记录日志，未来可用于重试策略）。
+type EventHandler func(ctx context.Context, data any) error
 
 // Subscription 订阅凭证
 type Subscription interface {
@@ -27,15 +29,16 @@ type Subscription interface {
 
 // EventBus 事件总线接口
 type EventBus interface {
-	// Publish 发布事件
+	// Publish 发布事件（使用 context.Background()）
 	Publish(topic string, data any) error
+
+	// PublishContext 发布事件，携带 context（超时/取消/trace 透传给所有 handler）
+	PublishContext(ctx context.Context, topic string, data any) error
 
 	// Subscribe 订阅事件
 	Subscribe(topic string, handler EventHandler) (Subscription, error)
 
 	// SubscribeAll 订阅所有主题（通配符订阅）
-	// 此订阅者会收到所有通过 Publish 发布的事件（topic 作为 data 的包装不传递，直接传原始 data）
-	// 注意：通配符订阅者不会收到其他通配符订阅者的事件（防止无限循环）
 	SubscribeAll(handler EventHandler) (Subscription, error)
 
 	// Unsubscribe 取消订阅
@@ -109,11 +112,13 @@ func NewEventBusWithOptions(opts EventBusOptions) EventBus {
 // wildcardTopic 通配符主题键，订阅此主题的处理器会收到所有事件
 const wildcardTopic = "*"
 
-// Publish 发布事件。
-//
-// 在 goroutine 池满时**阻塞**等待可用槽位，提供背压而非静默丢弃。
-// 若需要超时控制，请使用 [PublishWithTimeout]。
+// Publish 发布事件（使用 context.Background()）。
 func (eb *eventBus) Publish(topic string, data any) error {
+	return eb.PublishContext(context.Background(), topic, data)
+}
+
+// PublishContext 发布事件，携带 context 透传给所有 handler。
+func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) error {
 	eb.mu.RLock()
 	handlers := eb.subscribers[topic]
 	var wildcardHandlers []subscriptionImpl
@@ -132,7 +137,14 @@ func (eb *eventBus) Publish(topic string, data any) error {
 	}
 
 	for _, sub := range allHandlers {
-		eb.workerPool <- struct{}{} // blocking: 提供背压而非静默丢弃
+		select {
+		case eb.workerPool <- struct{}{}:
+		case <-ctx.Done():
+			cnt := eb.droppedCount.Add(1)
+			logger.Warnf("[EventBus] PublishContext cancelled for topic %s (total dropped: %d): %v", topic, cnt, ctx.Err())
+			eb.publishCount.Add(1)
+			return ctx.Err()
+		}
 		go func(h EventHandler) {
 			defer func() {
 				<-eb.workerPool
@@ -140,7 +152,9 @@ func (eb *eventBus) Publish(topic string, data any) error {
 					logger.Errorf("[EventBus] Panic in event handler: %v", r)
 				}
 			}()
-			h(data)
+			if err := h(ctx, data); err != nil {
+				logger.WithError(err).Warnf("[EventBus] Handler error for topic %s", topic)
+			}
 		}(sub.handler)
 	}
 
@@ -149,63 +163,15 @@ func (eb *eventBus) Publish(topic string, data any) error {
 	return nil
 }
 
-// PublishWithTimeout 发布事件，若 timeout 内无法获取工作槽位则丢弃并返回 [ErrEventDropped]。
+// PublishWithTimeout 发布事件，若 timeout 内无法获取工作槽位则返回 [ErrEventDropped]。
 func PublishWithTimeout(bus EventBus, topic string, data any, timeout time.Duration) error {
-	eb, ok := bus.(*eventBus)
-	if !ok {
-		return bus.Publish(topic, data)
-	}
-
-	eb.mu.RLock()
-	handlers := eb.subscribers[topic]
-	var wildcardHandlers []subscriptionImpl
-	if topic != wildcardTopic {
-		wildcardHandlers = eb.subscribers[wildcardTopic]
-	}
-	eb.mu.RUnlock()
-
-	allHandlers := make([]subscriptionImpl, 0, len(handlers)+len(wildcardHandlers))
-	allHandlers = append(allHandlers, handlers...)
-	allHandlers = append(allHandlers, wildcardHandlers...)
-
-	if len(allHandlers) == 0 {
-		return nil
-	}
-
-	var dropped bool
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	for _, sub := range allHandlers {
-		select {
-		case eb.workerPool <- struct{}{}:
-		case <-timer.C:
-			cnt := eb.droppedCount.Add(1)
-			logger.Warnf("[EventBus] PublishWithTimeout timed out for topic %s (total dropped: %d)", topic, cnt)
-			dropped = true
-			continue
-		}
-		go func(h EventHandler) {
-			defer func() {
-				<-eb.workerPool
-				if r := recover(); r != nil {
-					logger.Errorf("[EventBus] Panic in event handler: %v", r)
-				}
-			}()
-			h(data)
-		}(sub.handler)
-
-		if !timer.Stop() {
-			<-timer.C
-		}
-		timer.Reset(timeout)
-	}
-
-	eb.publishCount.Add(1)
-	if dropped {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := bus.PublishContext(ctx, topic, data)
+	if err == context.DeadlineExceeded {
 		return ErrEventDropped
 	}
-	return nil
+	return err
 }
 
 // Subscribe 订阅事件
@@ -339,10 +305,11 @@ func Subscribe[T any](bus EventBus, topic string, handler func(T)) (Subscription
 	if handler == nil {
 		return nil, fmt.Errorf("eventbus: handler is nil")
 	}
-	return bus.Subscribe(topic, func(data any) {
+	return bus.Subscribe(topic, func(_ context.Context, data any) error {
 		if v, ok := data.(T); ok {
 			handler(v)
 		}
+		return nil
 	})
 }
 
@@ -381,10 +348,11 @@ func SubscribeAllTyped[T any](bus EventBus, handler func(T)) (Subscription, erro
 	if handler == nil {
 		return nil, fmt.Errorf("eventbus: handler is nil")
 	}
-	return bus.SubscribeAll(func(data any) {
+	return bus.SubscribeAll(func(_ context.Context, data any) error {
 		if v, ok := data.(T); ok {
 			handler(v)
 		}
+		return nil
 	})
 }
 
@@ -485,7 +453,8 @@ func (s *noopSubscription) Topic() string      { return s.topic }
 // 插件代码无需感知 DryRun，直接使用 ctx.EventBus 即可。
 type noopEventBus struct{}
 
-func (n *noopEventBus) Publish(_ string, _ any) error { return nil }
+func (n *noopEventBus) Publish(_ string, _ any) error                           { return nil }
+func (n *noopEventBus) PublishContext(_ context.Context, _ string, _ any) error { return nil }
 func (n *noopEventBus) Subscribe(topic string, _ EventHandler) (Subscription, error) {
 	return &noopSubscription{topic: topic}, nil
 }

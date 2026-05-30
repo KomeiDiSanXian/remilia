@@ -4,56 +4,50 @@ import "fmt"
 
 // proxy.go — ServiceProxy：防过期的插件间同步调用代理。
 //
-// 问题：插件 A 在 Setup 中调用 plugin.Service[B](ctx, "B") 获取 *B，但 B 热重载后
-// A 持有的指针已过时。当前通过 OnDependencyReloaded 回调手动刷新，但容易遗漏。
-//
-// 解决方案：ServiceProxy 每次调用时从 Container 动态解析最新实现。
-//
 // 用法：
 //
-//	storageSvc := plugin.Service[*storage.Plugin](ctx, "storage")
+//	// 按名称（原语义）
+//	svc := plugin.Service[*storage.Plugin](ctx, "storage")
 //
-//	// 运行时调用（总是拿到最新实现）
-//	if s, ok := storageSvc.Get(); ok { s.DoSomething() }
-//	storageSvc.Do(func(s *storage.Plugin) { s.Set("key", "value") })
+//	// 按类型（自动解析，需要类型唯一）
+//	svc := plugin.Service[*storage.Plugin](ctx)
 
 // ServiceProxy 防过期的插件服务代理。
-// T 是存储在 Container 中的类型（通常为 *SomePlugin）。
-// 每次操作都从容器中动态获取最新实现，热重载后自动指向新实例。
 type ServiceProxy[T any] struct {
 	container *Container
 	name      string
 }
 
-// Service 从容器中获取指定插件的类型安全服务代理。
+// Service 获取服务的类型安全代理。
 //
-// 若插件未注册，panic（与 Must 语义一致）。
-// 若插件已注册但类型与 T 不匹配（且非 DryRun 阶段），panic 并给出明确的类型信息。
-// 自动记录必要依赖关系，用于 Smart 注册的依赖推断。
-func Service[T any](ctx *SetupContext, name string) *ServiceProxy[T] {
+//	name 可选：
+//	  - 提供 name 时按名称访问（原语义）
+//	  - 省略 name 时按类型自动解析（要求容器中唯一）
+//
+// DryRun 阶段仅支持按名称访问。
+func Service[T any](ctx *SetupContext, names ...string) *ServiceProxy[T] {
 	if ctx.container == nil {
-		panic("plugin.Service: container is nil (possibly in DryRun phase)")
+		panic("plugin.Service: container is nil")
 	}
+	name := resolveName[T](ctx, names)
 	v := ctx.mustGet(name)
 	if !ctx.DryRun {
 		if _, ok := v.(T); !ok {
 			panic(fmt.Sprintf("plugin.Service[%T](ctx, %q): type mismatch, container has %T", *new(T), name, v))
 		}
 	}
-	return &ServiceProxy[T]{
-		container: ctx.container,
-		name:      name,
-	}
+	return &ServiceProxy[T]{container: ctx.container, name: name}
 }
 
 // TryService 返回服务的可选代理。
 //
-// 若插件未注册则返回 nil, false（不 panic）。
-// 若插件已注册但类型与 T 不匹配（且非 DryRun 阶段），记录警告并返回 nil, false。
-// DryRun 阶段跳过类型检查，以允许依赖推断使用临时容器。
-// 自动记录可选依赖关系，用于 Smart 注册的依赖推断。
-func TryService[T any](ctx *SetupContext, name string) (*ServiceProxy[T], bool) {
+//	name 可选（语义同 Service）。
+func TryService[T any](ctx *SetupContext, names ...string) (*ServiceProxy[T], bool) {
 	if ctx.container == nil {
+		return nil, false
+	}
+	name := resolveOptionalName[T](ctx, names)
+	if name == "" {
 		return nil, false
 	}
 	v, ok := ctx.get(name)
@@ -66,16 +60,54 @@ func TryService[T any](ctx *SetupContext, name string) (*ServiceProxy[T], bool) 
 			return nil, false
 		}
 	}
-	return &ServiceProxy[T]{
-		container: ctx.container,
-		name:      name,
-	}, true
+	return &ServiceProxy[T]{container: ctx.container, name: name}, true
+}
+
+// resolveName 解析服务名称。未提供 name 时按类型自动解析。
+func resolveName[T any](ctx *SetupContext, names []string) string {
+	if len(names) > 0 && names[0] != "" {
+		return names[0]
+	}
+	entries := lookupServiceType[T](ctx.container)
+	if len(entries) == 0 {
+		if ctx.DryRun {
+			panic(fmt.Sprintf("plugin.Service[%T](ctx): dependency not found by type during DryRun. "+
+				"The dependency may not yet be loaded (is it listed later in this batch?). "+
+				"Use Service[T](ctx, name) or declare Deps explicitly.", *new(T)))
+		}
+		panic(fmt.Sprintf("plugin.Service[%T](ctx): no service of this type is registered. "+
+			"Use Service[T](ctx, name) to disambiguate, or check that the dependency is loaded.", *new(T)))
+	}
+	if len(entries) > 1 {
+		panic(fmt.Sprintf("plugin.Service[%T]: ambiguous, %d services found: %v; use Service[T](ctx, name)", *new(T), len(entries), entryNames(entries)))
+	}
+	return entries[0].name
+}
+
+// resolveOptionalName 解析可选名称。未匹配时返回 ""。
+func resolveOptionalName[T any](ctx *SetupContext, names []string) string {
+	if len(names) > 0 && names[0] != "" {
+		return names[0]
+	}
+	entries := lookupServiceType[T](ctx.container)
+	if len(entries) == 0 {
+		return ""
+	}
+	return entries[0].name
+}
+
+func entryNames(entries []*serviceEntry) []string {
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.name
+	}
+	return names
 }
 
 // Name 返回服务名称。
 func (s *ServiceProxy[T]) Name() string { return s.name }
 
-// Get 返回服务的当前最新实现。若服务已被卸载或类型不匹配，返回 nil, false。
+// Get 返回当前最新实现。已卸载或类型不匹配时返回 nil, false。
 func (s *ServiceProxy[T]) Get() (T, bool) {
 	v, ok := s.container.Get(s.name)
 	if !ok {
@@ -90,7 +122,7 @@ func (s *ServiceProxy[T]) Get() (T, bool) {
 	return typed, true
 }
 
-// Must 返回服务的当前最新实现。服务不存在时 panic。
+// Must 返回当前最新实现。不存在时 panic。
 func (s *ServiceProxy[T]) Must() T {
 	v, ok := s.Get()
 	if !ok {
@@ -99,8 +131,7 @@ func (s *ServiceProxy[T]) Must() T {
 	return v
 }
 
-// Call 在服务的当前最新实现上调用 fn，返回 fn 的错误。
-// 服务不可用时返回 PluginError（可用 errors.Is 匹配）。
+// Call 在实现上调用 fn。
 func (s *ServiceProxy[T]) Call(fn func(T) error) error {
 	v, ok := s.Get()
 	if !ok {
@@ -113,7 +144,7 @@ func (s *ServiceProxy[T]) Call(fn func(T) error) error {
 	return fn(v)
 }
 
-// Do 在服务的当前最新实现上执行操作。服务不可用时静默跳过。
+// Do 在实现上执行操作。不可用时静默跳过。
 func (s *ServiceProxy[T]) Do(fn func(T)) {
 	v, ok := s.Get()
 	if !ok {
@@ -122,7 +153,7 @@ func (s *ServiceProxy[T]) Do(fn func(T)) {
 	fn(v)
 }
 
-// MustDo 与 Do 相同，但服务不可用时 panic。
+// MustDo 与 Do 相同，不可用时 panic。
 func (s *ServiceProxy[T]) MustDo(fn func(T)) {
 	fn(s.Must())
 }

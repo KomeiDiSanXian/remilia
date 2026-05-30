@@ -368,17 +368,20 @@ func (ctx *SetupContext) get(name string) (any, bool) {
 
 // mustGet 获取依赖插件（弱类型，不存在则 panic，内部使用）。
 // 插件开发者应使用 [Service] 代替。
+//
+// 注意：依赖追踪在 panic 之前执行，确保即使循环依赖导致 panic，
+// deps 信息仍然被记录，DryRun 阶段能被 topologicalSort 检测到。
 func (ctx *SetupContext) mustGet(name string) any {
-	v, ok := ctx.container.Get(name)
-	if !ok {
-		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
-	}
-	// 必要依赖追踪
+	// 必要依赖追踪（在 panic 前执行，确保循环/缺失依赖也被记录）
 	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
 		if ctx.trackedDeps == nil {
 			ctx.trackedDeps = make(map[string]bool)
 		}
 		ctx.trackedDeps[name] = true
+	}
+	v, ok := ctx.container.Get(name)
+	if !ok {
+		panic(fmt.Sprintf("plugin %q: required dependency %q not found", ctx.pluginName, name))
 	}
 	return v
 }

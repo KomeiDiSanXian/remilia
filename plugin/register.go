@@ -368,22 +368,53 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 // 返回 map[pluginName][]depName（含必需 + 可选依赖）。
 // Setup 中的 panic 会被 recover，不影响其他插件的推断。
 func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]string {
-	descMap := make(map[string]*Descriptor, len(descriptors))
-	for _, desc := range descriptors {
-		descMap[desc.Name] = desc
-	}
-
-	// 创建临时容器：复制已注册的插件 + 本次批次的全部插件
+	// 创建临时容器：复制已注册插件的真实 API
 	tempContainer := NewContainer()
 	pm.mu.RLock()
-	for name, plugin := range pm.plugins {
-		tempContainer.Register(name, plugin)
+	for name, inst := range pm.plugins {
+		if api := inst.GetAPI(); api != nil {
+			tempContainer.Register(name, api)
+		} else {
+			tempContainer.Register(name, inst)
+		}
 	}
 	pm.mu.RUnlock()
+
+	// 第一遍：用 *Instance stub 占位，运行所有 Setup 收集真实 API 类型
 	for _, desc := range descriptors {
 		tempContainer.Register(desc.Name, &Instance{desc: desc})
 	}
+	for _, desc := range descriptors {
+		setupCtx := &SetupContext{
+			Reg:      &noopRegistryWriter{},
+			Log:      newPluginLogger(desc.Name),
+			Info:     newPluginInfo(pm),
+			EventBus: newNoopEventBus(),
+			DryRun:   true,
+			setupContextInternal: setupContextInternal{
+				container:        tempContainer,
+				pluginName:       desc.Name,
+				autoTrackEnabled: true,
+			},
+		}
+		var api any
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithFields(logger.Fields{
+						"plugin": desc.Name,
+						"panic":  r,
+					}).Debug("[PluginManager] DryRun pass 1: Setup panicked")
+				}
+			}()
+			api, _ = desc.callSetup(setupCtx)
+		}()
+		if api != nil {
+			tempContainer.Register(desc.Name, api)
+		}
+	}
 
+	// 第二遍：启用依赖追踪，此时所有同批次插件的真实 API 类型已就绪
 	inferred := make(map[string][]string)
 	for _, desc := range descriptors {
 		setupCtx := &SetupContext{
@@ -404,7 +435,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) map[string][]strin
 					logger.WithFields(logger.Fields{
 						"plugin": desc.Name,
 						"panic":  r,
-					}).Debug("[PluginManager] DryRun: Setup panicked during dependency inference")
+					}).Debug("[PluginManager] DryRun pass 2: Setup panicked during dependency inference")
 				}
 			}()
 			_, _ = desc.callSetup(setupCtx)

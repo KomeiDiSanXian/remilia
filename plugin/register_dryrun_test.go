@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,7 +64,7 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
 				// DryRun 阶段：Scope.Subscribe 内部使用 noopEventBus，订阅不产生真实效果
-				sub, err := ctx.Scope().Subscribe("test.topic", func(_ any) {})
+				sub, err := ctx.Scope().Subscribe("test.topic", func(_ context.Context, _ any) error { return nil })
 				assert.NoError(t, err, "noopEventBus.Subscribe 不应返回错误")
 				assert.NotNil(t, sub)
 				subTopic = sub.Topic()

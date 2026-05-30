@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"sync"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -110,8 +111,12 @@ func (s *Scope) ExportAs(key string, api any) {
 }
 
 // Dispose 清理 Scope 及其所有子 Scope 的资源。
+// ctx 用于超时/取消控制：ctx 到期时跳过剩余清理步骤并返回 ctx.Err()。
 // 清理顺序：children（逆序）→ 当前 Scope 的资源（逆序）
-func (s *Scope) Dispose() error {
+func (s *Scope) Dispose(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
 	if s.disposed {
 		s.mu.Unlock()
@@ -127,7 +132,13 @@ func (s *Scope) Dispose() error {
 
 	// 逆序销毁子 Scope（深度优先）
 	for i := len(children) - 1; i >= 0; i-- {
-		if err := children[i].Dispose(); err != nil {
+		select {
+		case <-ctx.Done():
+			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during child cleanup")
+			return ctx.Err()
+		default:
+		}
+		if err := children[i].Dispose(ctx); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] child scope Dispose failed")
 		}
 	}
@@ -153,6 +164,12 @@ func (s *Scope) Dispose() error {
 
 	// 执行用户注册的清理回调（逆序）
 	for i := len(hooks) - 1; i >= 0; i-- {
+		select {
+		case <-ctx.Done():
+			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during hook execution")
+			return ctx.Err()
+		default:
+		}
 		if err := hooks[i](); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
 		}
