@@ -58,7 +58,7 @@ func main() {
 	setupMiddleware(eng, &cfg.Tracing)
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
-	setupPlugins(pm, eng, cfg)
+	setupPlugins(pm, eng)
 	_ = fsmMgr
 
 	healthHandler := newHealthHandler(bot, reg)

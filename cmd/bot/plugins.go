@@ -30,7 +30,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/builtin/welcome"
-	"github.com/KomeiDiSanXian/remilia/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -40,7 +39,7 @@ import (
 
 const dataDir = "data"
 
-func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
+func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	for _, dir := range []string{dataDir, dataDir + "/db"} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
@@ -101,7 +100,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine, cfg *config.Config) {
 		ping.New(),
 	}
 
-	if err := pm.RegisterMultiple(descriptors); err != nil {
+	if err := pm.RegisterMultipleSmart(descriptors); err != nil {
 		logger.WithError(err).Fatal("[bot] Failed to register plugins")
 	}
 	logger.Infof("[bot] %d plugins loaded", pm.Count())
