@@ -79,7 +79,7 @@ func (c *Container) Register(name string, service any) {
 
 // typeIndexKey 获取 T 的类型索引键。
 func typeIndexKey[T any]() reflect.Type {
-	return reflect.TypeOf((*T)(nil)).Elem()
+	return reflect.TypeFor[T]()
 }
 
 // addToTypeIndex 将条目加入类型索引。

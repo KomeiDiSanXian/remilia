@@ -77,7 +77,7 @@ func resolveName[T any](ctx *SetupContext, names []string) string {
 	if len(entries) == 0 {
 		if ctx.DryRun {
 			// 三色 DryRun：记录 pending 类型，等待后续轮次匹配新注册的 API
-			ctx.pendingType = reflect.TypeOf((*T)(nil)).Elem()
+			ctx.pendingType = reflect.TypeFor[T]()
 			return ""
 		}
 		panic(fmt.Sprintf("plugin.Service[%T](ctx): no service of this type is registered. "+
