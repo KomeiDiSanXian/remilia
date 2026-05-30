@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -60,7 +59,8 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 			WriteString("e", ctx.GetPlatformEvent().ID()).
 			Bytes()
 
-		callCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		to := mod.callTimeout()
+		callCtx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		respTLV, err := mod.CallHandle(callCtx, eventTLV)

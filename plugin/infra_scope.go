@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // scope.go — PluginScope：追踪插件子上下文，卸载时级联清理所有资源。
@@ -17,9 +18,9 @@ import (
 // 通过 [SetupContext.Scope] 创建，生命周期绑定到父插件。
 // 父插件卸载时，所有子 Scope 自动级联清理。
 type Scope struct {
-	name    string
-	parent  *Scope
-	ctx     *SetupContext
+	name   string
+	parent *Scope
+	ctx    *SetupContext
 
 	children      []*Scope
 	subscriptions []Subscription
@@ -126,12 +127,16 @@ func (s *Scope) Dispose() error {
 
 	// 逆序销毁子 Scope（深度优先）
 	for i := len(children) - 1; i >= 0; i-- {
-		_ = children[i].Dispose()
+		if err := children[i].Dispose(); err != nil {
+			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] child scope Dispose failed")
+		}
 	}
 
 	// 清理 EventBus 订阅
 	for _, sub := range subs {
-		_ = sub.Unsubscribe()
+		if err := sub.Unsubscribe(); err != nil {
+			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Unsubscribe failed")
+		}
 	}
 
 	// 清理引擎中间件
@@ -149,8 +154,7 @@ func (s *Scope) Dispose() error {
 	// 执行用户注册的清理回调（逆序）
 	for i := len(hooks) - 1; i >= 0; i-- {
 		if err := hooks[i](); err != nil {
-			// 记录但不阻止后续清理
-			_ = err
+			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
 		}
 	}
 

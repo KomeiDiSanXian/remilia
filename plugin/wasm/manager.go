@@ -113,6 +113,9 @@ func (m *Manager) register(ctx context.Context, desc *Descriptor, wasmBytes []by
 		return nil, fmt.Errorf("wasm: load %q: %w", desc.Name, err)
 	}
 
+	// 存储配置，使 get_config 宿主函数能查询
+	rt.SetModuleConfig(desc.Name, desc.Config)
+
 	bridge := NewBridge(mod, m.engine)
 
 	// 注册声明式命令（在 CallInit 之前，确保 Matcher 可用）
@@ -160,6 +163,9 @@ func (m *Manager) Unregister(ctx context.Context, name string) error {
 
 	inst.Bridge.Cleanup()
 	inst.Module.Close(ctx)
+	if m.wasmRt != nil {
+		m.wasmRt.RemoveModuleConfig(name)
+	}
 	delete(m.plugins, name)
 	return nil
 }

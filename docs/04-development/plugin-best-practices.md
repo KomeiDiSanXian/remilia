@@ -29,8 +29,8 @@ func New() *plugin.Descriptor {
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            // 依赖注入
-            p.cache = plugin.Require[cachePlugin.Plugin](ctx, "cache")
+            // 依赖注入（ServiceProxy 在依赖热重载后仍有效）
+            p.cache = plugin.Service[cachePlugin.Plugin](ctx, "cache")
 
             // 配置
             if ctx.Config != nil {
@@ -70,8 +70,8 @@ func main() {
     Name: "admin",
     Deps: []string{"permission", "storage"}, // 明确声明所有依赖
     Setup: func(ctx *plugin.SetupContext) (any, error) {
-        perm    := plugin.Must[permission.Plugin](ctx, "permission")
-        storage := plugin.Must[storage.Plugin](ctx, "storage")
+        perm    := plugin.Service[permission.Plugin](ctx, "permission")
+        storage := plugin.Service[storage.Plugin](ctx, "storage")
         // ...
     },
 }
@@ -91,11 +91,11 @@ err := plugin.RegisterMultipleV2Smart(manager,
 ### ❌ 避免
 
 ```go
-// ❌ 依赖已通过 Require[T] 使用，却未在 Deps 声明
+// ❌ 依赖已通过 Service[T] 使用，却未在 Deps 声明
 // (使用 RegisterMultipleV2Smart 可免去这个困扰)
 Deps: []string{}, // 漏了 storage
 Setup: func(ctx *plugin.SetupContext) (any, error) {
-    s := plugin.Require[storage.Plugin](ctx, "storage") // 运行时报错
+    s := plugin.Service[storage.Plugin](ctx, "storage") // 运行时报错
     // ...
 },
 ```
@@ -257,25 +257,31 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ## 7. 测试
 
-使用 `plugintest` 包快速搭建测试环境：
+使用 `plugintest` 包测试插件的 Setup 逻辑：
 
 ```go
 import "github.com/KomeiDiSanXian/remilia/plugin/plugintest"
 
 func TestMyPlugin(t *testing.T) {
-    // 创建测试环境
-    env := plugintest.NewEnv(t)
-    defer env.Close()
+    // 创建测试上下文（含依赖容器）
+    deps := map[string]any{"cache": cachePlugin}
+    ctx := plugintest.NewSetupContextWithDeps("myplugin", deps, nil)
+    defer plugintest.StopSetupContext(ctx)
 
-    // 注册并加载插件
-    err := env.Manager.Register(myplugin.New())
+    // 运行 Setup
+    api, err := myDescriptor.Setup(ctx)
     require.NoError(t, err)
+    assert.NotNil(t, api)
+}
+```
 
-    // 发送测试事件
-    env.SendGroupAt("/hello")
+需要测试完整生命周期（Register → Setup → Teardown）时，直接使用 `plugin.Manager`：
 
-    // 断言回复
-    env.AssertReply(t, "Hello!")
+```go
+func TestFullLifecycle(t *testing.T) {
+    pm := plugin.NewManager(nil)
+    require.NoError(t, pm.Register(myplugin.New()))
+    require.NoError(t, pm.Unregister(context.Background(), "myplugin"))
 }
 ```
 

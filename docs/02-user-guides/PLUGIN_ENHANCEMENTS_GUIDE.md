@@ -188,7 +188,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ## 7. 防过期服务代理（v1.3.0+）
 
-替代 `plugin.Must`/`plugin.Try`，依赖插件热重载后仍然有效。
+替代直接使用 `plugin.Service`/`plugin.TryService`（获取后立即 Get），依赖插件热重载后仍然有效。
 
 ```go
 p.permSvc = plugin.Service[*permission.Plugin](ctx, "permission")

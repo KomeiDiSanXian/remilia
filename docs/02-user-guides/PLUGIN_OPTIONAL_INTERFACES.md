@@ -74,14 +74,18 @@ ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/status").
 ### 依赖获取
 
 ```go
-// Must[T]：找不到则 panic（推荐用于必要依赖）
-store := plugin.Must[storage.Plugin](ctx, "storage")
+// Service[T]：获取必要依赖（返回 ServiceProxy，在依赖热重载后仍有效）
+store := plugin.Service[storage.Plugin](ctx, "storage")
+store.Get() // 运行时获取实际值
 
-// Try[T]：找不到返回 nil, false
-cache, ok := plugin.Try[cache.Plugin](ctx, "cache")
+// TryService[T]：获取可选依赖，找不到返回 nil
+cache, ok := plugin.TryService[cache.Plugin](ctx, "cache")
 
-// MustAs[T]：目标是接口类型时使用
-var writer io.Writer = plugin.MustAs[io.Writer](ctx, "log-writer")
+// ExportIface[T]：以接口类型额外导出，消费方通过 Service[T] 按接口获取
+// 生产者：
+plugin.ExportIface[io.Writer](ctx, "log-writer", impl)
+// 消费者：
+writer := plugin.Service[io.Writer](ctx, "log-writer")
 ```
 
 ---

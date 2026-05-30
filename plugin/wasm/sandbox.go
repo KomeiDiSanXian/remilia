@@ -51,7 +51,7 @@ func (tb *TokenBucket) Allow() bool {
 	elapsed := now.Sub(tb.lastTime)
 	tb.lastTime = now
 
-	tb.tokens += int64(elapsed.Seconds()) * tb.rate
+	tb.tokens += int64(float64(elapsed.Nanoseconds()) * float64(tb.rate) / float64(time.Second.Nanoseconds()))
 	if tb.tokens > tb.capacity {
 		tb.tokens = tb.capacity
 	}
@@ -77,5 +77,5 @@ func NewSandbox(rl ResourceLimit) *Sandbox {
 	}
 }
 
-func (s *Sandbox) AllowCall() bool { return s.callLimiter.Allow() }
+func (s *Sandbox) AllowCall() bool          { return s.callLimiter.Allow() }
 func (s *Sandbox) MemoryLimitBytes() uint32 { return s.memoryPages * 64 * 1024 }

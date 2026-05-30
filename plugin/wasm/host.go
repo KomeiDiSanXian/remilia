@@ -112,6 +112,8 @@ func (r *HostFuncRegistry) ListFunctionNames() []string {
 var bgCtx = context.Background()
 
 // RegisterDefaultHostFuncs 注册默认的宿主函数集，包括自描述函数。
+// get_config 默认返回空值；Runtime 创建后可通过 HostFuncRegistry.Register
+// 替换为带配置查找的实现。
 func RegisterDefaultHostFuncs(r *HostFuncRegistry) {
 	r.Register("log", func(args []byte) ([]byte, error) {
 		level := NewTLVReader(args).ReadString("level")
@@ -131,8 +133,8 @@ func RegisterDefaultHostFuncs(r *HostFuncRegistry) {
 	})
 
 	r.Register("get_config", func(args []byte) ([]byte, error) {
-		key := NewTLVReader(args).ReadString("k")
-		_ = key
+		// 此函数在 Runtime 创建后会被替换为带配置查找的实现。
+		// 若未被替换，则返回空值以保持向前兼容。
 		return NewTLVBuilder().WriteString("v", "").Bytes(), nil
 	})
 

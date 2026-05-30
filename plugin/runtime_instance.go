@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // instance.go — Instance：运行时实例及公开 API
@@ -140,7 +141,9 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 	// Step 0: 清理 Scope 追踪的资源（subscriptions、middleware、child scopes、dispose hooks）
 	// 此步骤在 goroutine 停止之前执行，因为 dispose hooks 可能需要访问依赖服务。
 	if setupCtx != nil && setupCtx.rootScope != nil {
-		_ = setupCtx.rootScope.Dispose()
+		if err := setupCtx.rootScope.Dispose(); err != nil {
+			logger.WithField("plugin", pi.desc.Name).WithError(err).Warn("[Instance] Scope dispose failed during unload")
+		}
 	}
 
 	// Step 1: 停止所有生命周期绑定的 goroutine（在 Teardown 前）

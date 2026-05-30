@@ -164,6 +164,7 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.mu.Lock()
 	oldGM := pi.goroutineMgr
 	oldAPI := pi.exportedAPI
+	oldContainer := pi.setupContext.container
 
 	newInstance.mu.RLock()
 	pi.matchers = newInstance.matchers
@@ -177,8 +178,18 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.lastError = nil
 	pi.mu.Unlock()
 
-	// Step 5: 异步停止旧 goroutine 并调用旧 Teardown
+	// Step 5: 更新容器中的 API 指针，使 ServiceProxy 获取到新实例
+	if oldContainer != nil && newInstance.exportedAPI != nil {
+		oldContainer.Register(pluginName, newInstance.exportedAPI)
+	}
+
+	// Step 6: 异步停止旧 goroutine 并调用旧 Teardown
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WithField("plugin", pluginName).Errorf("[plugin] Blue-green: old instance teardown panicked: %v", r)
+			}
+		}()
 		if oldGM != nil {
 			oldGM.stopAndWait()
 		}

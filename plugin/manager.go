@@ -229,6 +229,7 @@ func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
 // 若锁被写操作持有，直接返回（Phase 3 的全量替换已保证数据最新）。
 func (pm *Manager) propagateConfigChange() {
 	if !pm.mu.TryRLock() {
+		logger.Warn("[Manager] Config change notification skipped: write lock held (SetConfigProvider in progress, Phase 3 full replacement already up to date)")
 		return
 	}
 	defer pm.mu.RUnlock()
@@ -382,6 +383,32 @@ func (pm *Manager) UnregisterCascade(ctx context.Context, name string) error {
 	return nil
 }
 
+// Retry 重新尝试加载处于 Error 状态的插件。
+// 相当于 ForceUnregister + Register，但保留插件的 Descriptor。
+//
+// 仅在插件状态为 Error 时可用；其他状态返回错误。
+func (pm *Manager) Retry(name string, desc *Descriptor) error {
+	pm.mu.Lock()
+	inst, exists := pm.plugins[name]
+	if !exists {
+		pm.mu.Unlock()
+		return errutil.ErrPluginNotFound
+	}
+	if inst.GetState() != Error {
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %s is not in Error state (state: %s)", name, inst.GetState())
+	}
+	pm.mu.Unlock()
+
+	// 强制卸载
+	if err := pm.ForceUnregister(name); err != nil {
+		return fmt.Errorf("retry %s: force unregister failed: %w", name, err)
+	}
+
+	// 重新注册
+	return pm.Register(desc)
+}
+
 // Reload 重新加载插件（热重载）
 func (pm *Manager) Reload(ctx context.Context, name string) error {
 	pm.mu.RLock()
@@ -391,6 +418,14 @@ func (pm *Manager) Reload(ctx context.Context, name string) error {
 	if !exists {
 		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
+	}
+
+	state := inst.GetState()
+	if state == Disabled {
+		return fmt.Errorf("plugin %s is disabled, use Enable before Reload", name)
+	}
+	if state == Error {
+		return fmt.Errorf("plugin %s is in Error state, use Retry instead of Reload", name)
 	}
 
 	logger.Infof("[PluginManager] Reloading plugin %s", name)

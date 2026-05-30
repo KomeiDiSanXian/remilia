@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,7 @@ type Module struct {
 	abiVersion int32
 	metadata   []byte
 	sandbox    *Sandbox
+	config     map[string]any // 插件配置，通过 get_config 宿主函数返回
 
 	runtime *Runtime
 }
@@ -176,15 +178,41 @@ func (m *Module) Close(ctx context.Context) error {
 	return m.instance.Close(ctx)
 }
 
-func (m *Module) Name() string          { return m.name }
-func (m *Module) CallCount() int64      { return m.callCount.Load() }
-func (m *Module) Uptime() time.Duration { return time.Since(m.createdAt) }
+func (m *Module) Name() string           { return m.name }
+func (m *Module) CallCount() int64       { return m.callCount.Load() }
+func (m *Module) Uptime() time.Duration  { return time.Since(m.createdAt) }
+func (m *Module) Config() map[string]any { return m.config }
+
+// SetModuleConfig 存储 WASM 插件的配置，供 get_config 宿主函数读取。
+func (r *Runtime) SetModuleConfig(name string, cfg map[string]any) {
+	if cfg == nil {
+		r.moduleConfigs.Delete(name)
+		return
+	}
+	r.moduleConfigs.Store(name, cfg)
+}
+
+// getModuleConfig 供宿主函数通过模块名查找配置。
+func (r *Runtime) getModuleConfig(name string) map[string]any {
+	if v, ok := r.moduleConfigs.Load(name); ok {
+		if cfg, ok := v.(map[string]any); ok {
+			return cfg
+		}
+	}
+	return nil
+}
+
+// RemoveModuleConfig 清理插件卸载后的配置条目。
+func (r *Runtime) RemoveModuleConfig(name string) {
+	r.moduleConfigs.Delete(name)
+}
 
 // ── Runtime ──────────────────────────────────────────────────────────────────
 
 type Runtime struct {
 	wazeroRuntime wazero.Runtime
 	hostRegistry  *HostFuncRegistry
+	moduleConfigs sync.Map // module name → map[string]any 配置
 }
 
 func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry) (*Runtime, error) {
@@ -193,24 +221,43 @@ func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry) (*Runtime, 
 		RegisterDefaultHostFuncs(hostRegistry)
 	}
 
+	rt := &Runtime{
+		hostRegistry: hostRegistry,
+	}
+
+	// 替换 get_config 为能通过模块名查找配置的实现
+	hostRegistry.Register("get_config", func(args []byte) ([]byte, error) {
+		key := NewTLVReader(args).ReadString("k")
+		modName := NewTLVReader(args).ReadString("m")
+		if key == "" {
+			return NewTLVBuilder().WriteString("v", "").Bytes(), nil
+		}
+		if modName != "" {
+			cfg := rt.getModuleConfig(modName)
+			if cfg != nil {
+				if v, ok := cfg[key]; ok {
+					return NewTLVBuilder().WriteString("v", fmt.Sprintf("%v", v)).Bytes(), nil
+				}
+			}
+		}
+		return NewTLVBuilder().WriteString("v", "").Bytes(), nil
+	})
+
 	rtConfig := wazero.NewRuntimeConfig().
 		WithCloseOnContextDone(true)
-	wazeroRuntime := wazero.NewRuntimeWithConfig(ctx, rtConfig)
+	rt.wazeroRuntime = wazero.NewRuntimeWithConfig(ctx, rtConfig)
 
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, wazeroRuntime); err != nil {
-		wazeroRuntime.Close(ctx)
+	if _, err := wasi_snapshot_preview1.Instantiate(ctx, rt.wazeroRuntime); err != nil {
+		rt.wazeroRuntime.Close(ctx)
 		return nil, fmt.Errorf("wasm: wasi instantiation failed: %w", err)
 	}
 
-	if _, err := hostRegistry.BuildModule(ctx, wazeroRuntime); err != nil {
-		wazeroRuntime.Close(ctx)
+	if _, err := hostRegistry.BuildModule(ctx, rt.wazeroRuntime); err != nil {
+		rt.wazeroRuntime.Close(ctx)
 		return nil, fmt.Errorf("wasm: host module instantiation failed: %w", err)
 	}
 
-	return &Runtime{
-		wazeroRuntime: wazeroRuntime,
-		hostRegistry:  hostRegistry,
-	}, nil
+	return rt, nil
 }
 
 func (r *Runtime) LoadModule(ctx context.Context, name, path string, sandbox *Sandbox) (*Module, error) {

@@ -31,7 +31,7 @@
 - Descriptor 完整字段说明
 - SetupContext 所有字段（Reg / Log / Info / Admin / Config / EventBus / Spawn / SpawnNamed / NewTaskGroup / DryRun）
 - 三种注册方式（Register / RegisterMultipleAtomic / RegisterMultipleSmart）
-- 依赖获取（Require / Optional / MustAs）
+- 依赖获取（Service[T] / TryService[T] / ExportIface[T]）
 - 完整示例：天气插件
 
 **适合**: 所有插件开发者（v1 已移除，本文是唯一入口）

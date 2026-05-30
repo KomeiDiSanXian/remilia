@@ -129,6 +129,9 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	pm.mu.Lock()
 
 	if loadErr != nil {
+		if pm.coordinator != nil {
+			pm.coordinator.RemoveGroup(name)
+		}
 		delete(pm.plugins, name)
 		pm.container.Remove(name)
 		pm.mu.Unlock()

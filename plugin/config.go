@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // ConfigReader 是插件配置的只读视图。
@@ -175,6 +177,8 @@ func (pc *pluginConfig) GetDuration(key string, defaultVal time.Duration) time.D
 	if str, ok := val.(string); ok {
 		if duration, err := time.ParseDuration(str); err == nil {
 			return duration
+		} else {
+			logger.WithError(err).Warnf("[Config] GetDuration(%q): failed to parse %q", key, str)
 		}
 	}
 

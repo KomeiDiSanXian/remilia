@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // GoroutineInfo 描述一个受框架管理的后台 goroutine 的运行时信息。
@@ -72,6 +74,12 @@ func (gm *goroutineManager) goNamed_(name string, fn func(ctx context.Context)) 
 	gm.mu.Unlock()
 
 	gm.wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WithField("plugin", gm.pluginName).WithField("goroutine", name).
+					Errorf("[goroutineManager] Spawn goroutine panicked: %v", r)
+			}
+		}()
 		defer func() {
 			gm.mu.Lock()
 			gm.goroutines[idx].IsAlive = false
