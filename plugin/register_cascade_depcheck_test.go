@@ -91,10 +91,10 @@ func TestRegisterV2_DependencyMustBeLoaded(t *testing.T) {
 	}
 }
 
-func TestRegisterV2_DependencyLoading_ShouldFail(t *testing.T) {
+func TestRegisterV2_DependencyLoading_ShouldFail_Strict(t *testing.T) {
 	pm := NewManager(newCoordinator())
+	pm.SetStrictDeps(true)
 
-	// 人为构造一个 "Loading" 状态的假插件放入 pm.plugins
 	fakeInst := &Instance{
 		desc:     &Descriptor{Name: "fake-loading"},
 		state:    Loading,
@@ -104,25 +104,52 @@ func TestRegisterV2_DependencyLoading_ShouldFail(t *testing.T) {
 	pm.plugins["fake-loading"] = fakeInst
 	pm.mu.Unlock()
 
-	// 尝试注册依赖 fake-loading 的插件，应失败（fake-loading 处于 Loading 状态）
 	err := pm.Register(makeSimpleDescriptor("dependent", []string{"fake-loading"}))
 	if err == nil {
-		t.Fatal("expected error when dependency is in Loading state")
+		t.Fatal("expected error when dependency is in Loading state (strict mode)")
 	}
 	if !strings.Contains(err.Error(), "not ready") {
 		t.Errorf("expected 'not ready' error, got: %v", err)
 	}
 }
 
-func TestRegisterV2_MissingDependency(t *testing.T) {
+func TestRegisterV2_DependencyLoading_Lenient(t *testing.T) {
 	pm := NewManager(newCoordinator())
+
+	fakeInst := &Instance{
+		desc:     &Descriptor{Name: "fake-loading"},
+		state:    Loading,
+		matchers: nil,
+	}
+	pm.mu.Lock()
+	pm.plugins["fake-loading"] = fakeInst
+	pm.mu.Unlock()
+
+	err := pm.Register(makeSimpleDescriptor("dependent", []string{"fake-loading"}))
+	if err != nil {
+		t.Fatal("non-strict mode should allow dependency in Loading state, got:", err)
+	}
+}
+
+func TestRegisterV2_MissingDependency_Strict(t *testing.T) {
+	pm := NewManager(newCoordinator())
+	pm.SetStrictDeps(true)
 
 	err := pm.Register(makeSimpleDescriptor("X", []string{"missing-dep"}))
 	if err == nil {
-		t.Fatal("expected error for missing dependency")
+		t.Fatal("expected error for missing dependency in strict mode")
 	}
 	if !strings.Contains(err.Error(), "missing") {
 		t.Errorf("expected 'missing' dependency error, got: %v", err)
+	}
+}
+
+func TestRegisterV2_MissingDependency_Lenient(t *testing.T) {
+	pm := NewManager(newCoordinator())
+
+	err := pm.Register(makeSimpleDescriptor("X", []string{"missing-dep"}))
+	if err != nil {
+		t.Fatal("non-strict mode should allow missing dependency (warning only), got:", err)
 	}
 }
 

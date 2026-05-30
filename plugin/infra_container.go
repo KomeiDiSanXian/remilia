@@ -21,18 +21,60 @@ type Container struct {
 	frozen     atomic.Bool
 	frozenMap  atomic.Pointer[map[string]any]
 	snapshotMu sync.Mutex // 保护 refreshSnapshot 的并发重建
+
+	watchers   map[string][]func(name string, oldVal, newVal any)
+	watchersMu sync.Mutex
 }
 
 // NewContainer 创建依赖注入容器
 func NewContainer() *Container {
-	return &Container{}
+	return &Container{
+		watchers: make(map[string][]func(name string, oldVal, newVal any)),
+	}
 }
 
-// Register 注册服务。冻结后会自动刷新只读快照，支持热重载/动态注册场景。
+// Register 注册服务。若同名服务已存在，触发值变更通知。
+// 冻结后会自动刷新只读快照，支持热重载/动态注册场景。
 func (c *Container) Register(name string, service any) {
+	if name == "" {
+		panic("container: Register requires non-empty name")
+	}
+	oldVal, loaded := c.services.Load(name)
 	c.services.Store(name, service)
+	if loaded {
+		c.notifyWatchers(name, oldVal, service)
+	}
 	if c.frozen.Load() {
 		c.refreshSnapshot()
+	}
+}
+
+// OnValueChanged 注册指定 key 的值变更回调。当该 key 被重新 Register 或 Remove 时触发。
+//
+//	container.OnValueChanged("storage", func(name string, oldVal, newVal any) {
+//	    log.Printf("storage reloaded: %T -> %T", oldVal, newVal)
+//	})
+//
+// 回调与 Register 在同一 goroutine 中同步执行（因此不应长时间阻塞）。
+// 首次注册不会触发回调（oldVal 为 nil）。Remove 时 newVal 为 nil。
+func (c *Container) OnValueChanged(name string, fn func(name string, oldVal, newVal any)) {
+	if name == "" || fn == nil {
+		return
+	}
+	c.watchersMu.Lock()
+	defer c.watchersMu.Unlock()
+	c.watchers[name] = append(c.watchers[name], fn)
+}
+
+// notifyWatchers 异步通知指定 key 的监听器。
+func (c *Container) notifyWatchers(name string, oldVal, newVal any) {
+	c.watchersMu.Lock()
+	fns := make([]func(name string, oldVal, newVal any), len(c.watchers[name]))
+	copy(fns, c.watchers[name])
+	c.watchersMu.Unlock()
+
+	for _, fn := range fns {
+		fn(name, oldVal, newVal)
 	}
 }
 
@@ -74,9 +116,14 @@ func (c *Container) Has(name string) bool {
 	return ok
 }
 
-// Remove 移除服务。冻结后会自动刷新只读快照。
+// Remove 移除服务并触发值变更通知（newVal 为 nil）。
+// 冻结后会自动刷新只读快照。
 func (c *Container) Remove(name string) {
+	oldVal, loaded := c.services.Load(name)
 	c.services.Delete(name)
+	if loaded {
+		c.notifyWatchers(name, oldVal, nil)
+	}
 	if c.frozen.Load() {
 		c.refreshSnapshot()
 	}

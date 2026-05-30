@@ -414,6 +414,24 @@ func (ctx *SetupContext) getTrackedOptionalDependencies() []string {
 	return deps
 }
 
+// Watch 注册容器内指定 key 的值变更回调。
+//
+// 当 key 对应的服务被热重载或移除时，fn 会被调用。
+// fn 始终在当前 goroutine 中同步执行，不应长时间阻塞。
+//
+//	ctx.Watch("storage", func(name string, oldVal, newVal any) {
+//	    ctx.Log.Infof("storage reloaded")
+//	    storageSvc := newVal.(*storage.Plugin)
+//	})
+//
+// 首次注册不会触发回调（oldVal 为 nil）。
+// 移除时 newVal 为 nil。
+func (ctx *SetupContext) Watch(key string, fn func(name string, oldVal, newVal any)) {
+	if ctx.container != nil {
+		ctx.container.OnValueChanged(key, fn)
+	}
+}
+
 // ExportIface 将插件 API 以接口类型额外导出到容器。
 //
 // 配合 [Service] / [TryService] 使用，让消费者可以通过接口而非具体类型访问依赖。

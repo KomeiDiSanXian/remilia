@@ -1,6 +1,10 @@
 package plugin
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+)
 
 // register_validate.go — Register 各阶段验证逻辑（拆分自 register.go）
 // validateDescriptor 检查描述符的基础合法性（无锁，无 Manager 依赖）。
@@ -18,22 +22,31 @@ func validateDescriptor(desc *Descriptor) error {
 }
 
 // checkDependencies 检查所有声明依赖的存在性与就绪状态。调用方须持有 pm.mu。
+//
+// 在正常模式下，缺失依赖仅记录警告而非返回错误——依赖可以通过 [Service] / [TryService]
+// 在 Setup 中自动推断并跟踪。严格模式下（SetStrictDeps(true)）仍返回错误。
 func checkDependencies(pm *Manager, desc *Descriptor, registeredList func() []string) error {
 	name := desc.Name
 	for _, rawDep := range desc.Deps {
 		spec := parseDepSpec(rawDep)
 		depInst, exists := pm.plugins[spec.name]
 		if !exists {
-			return &PluginError{
-				PluginName:        name,
-				Operation:         "register",
-				Cause:             fmt.Errorf("missing required dependency %q", spec.name),
-				RegisteredPlugins: registeredList(),
-				Hint:              fmt.Sprintf("register %q before %q", spec.name, name),
+			if pm.strictDeps {
+				return &PluginError{
+					PluginName:        name,
+					Operation:         "register",
+					Cause:             fmt.Errorf("missing required dependency %q", spec.name),
+					RegisteredPlugins: registeredList(),
+					Hint:              fmt.Sprintf("register %q before %q", spec.name, name),
+				}
 			}
+			logger.Warnf("[PluginManager] %q declares dependency %q but it is not registered yet. "+
+				"Dependency will be auto-tracked via Service[T] in Setup if available, "+
+				"or will fail at StartAll time with a clear error.", name, spec.name)
+			continue
 		}
 		state := depInst.GetState()
-		if state != Loaded {
+		if state != Loaded && pm.strictDeps {
 			return &PluginError{
 				PluginName:        name,
 				Operation:         "register",

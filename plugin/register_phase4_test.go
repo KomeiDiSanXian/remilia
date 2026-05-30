@@ -206,13 +206,15 @@ func TestRegisterV2_MissingDepRichError(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	pm.SetStrictDeps(true)
+
 	err := pm.Register(&plugin.Descriptor{
 		Name:  "b",
 		Deps:  []string{"MISSING_DEP"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	})
 	if err == nil {
-		t.Fatal("expected error for missing dep, got nil")
+		t.Fatal("expected error for missing dep in strict mode, got nil")
 	}
 
 	var pe *plugin.PluginError

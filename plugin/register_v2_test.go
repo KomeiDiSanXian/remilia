@@ -254,10 +254,11 @@ func TestManager_RegisterV2_WithDependencies(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestManager_RegisterV2_MissingDependency tests missing dependency error
+// TestManager_RegisterV2_MissingDependency tests missing dependency error in strict mode
 func TestManager_RegisterV2_MissingDependency(t *testing.T) {
 	eng := engine.NewEngine()
 	manager := NewManager(eng)
+	manager.SetStrictDeps(true)
 
 	desc := &Descriptor{
 		Name:  "test-plugin",
@@ -268,6 +269,21 @@ func TestManager_RegisterV2_MissingDependency(t *testing.T) {
 	err := manager.Register(desc)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "missing")
+}
+
+// TestManager_RegisterV2_MissingDependencyLenient verifies non-strict mode allows missing deps
+func TestManager_RegisterV2_MissingDependencyLenient(t *testing.T) {
+	eng := engine.NewEngine()
+	manager := NewManager(eng)
+
+	desc := &Descriptor{
+		Name:  "test-plugin",
+		Deps:  []string{"missing-dep"},
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
+	}
+
+	err := manager.Register(desc)
+	assert.NoError(t, err, "non-strict mode should allow missing dependency (warning only)")
 }
 
 // TestManager_RegisterV2_DuplicatePlugin tests duplicate registration

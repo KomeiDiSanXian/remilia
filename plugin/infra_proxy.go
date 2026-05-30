@@ -25,28 +25,46 @@ type ServiceProxy[T any] struct {
 	name      string
 }
 
-// Service 从容器中获取指定插件的服务代理。
+// Service 从容器中获取指定插件的类型安全服务代理。
+//
 // 若插件未注册，panic（与 Must 语义一致）。
+// 若插件已注册但类型与 T 不匹配（且非 DryRun 阶段），panic 并给出明确的类型信息。
 // 自动记录必要依赖关系，用于 Smart 注册的依赖推断。
 func Service[T any](ctx *SetupContext, name string) *ServiceProxy[T] {
 	if ctx.container == nil {
 		panic("plugin.Service: container is nil (possibly in DryRun phase)")
 	}
-	ctx.mustGet(name) // 验证存在并追踪必要依赖
+	v := ctx.mustGet(name)
+	if !ctx.DryRun {
+		if _, ok := v.(T); !ok {
+			panic(fmt.Sprintf("plugin.Service[%T](ctx, %q): type mismatch, container has %T", *new(T), name, v))
+		}
+	}
 	return &ServiceProxy[T]{
 		container: ctx.container,
 		name:      name,
 	}
 }
 
-// TryService 返回服务的可选代理。若插件未注册则返回 nil, false（不 panic）。
+// TryService 返回服务的可选代理。
+//
+// 若插件未注册则返回 nil, false（不 panic）。
+// 若插件已注册但类型与 T 不匹配（且非 DryRun 阶段），记录警告并返回 nil, false。
+// DryRun 阶段跳过类型检查，以允许依赖推断使用临时容器。
 // 自动记录可选依赖关系，用于 Smart 注册的依赖推断。
 func TryService[T any](ctx *SetupContext, name string) (*ServiceProxy[T], bool) {
 	if ctx.container == nil {
 		return nil, false
 	}
-	if _, ok := ctx.get(name); !ok { // get 追踪可选依赖
+	v, ok := ctx.get(name)
+	if !ok {
 		return nil, false
+	}
+	if !ctx.DryRun {
+		if _, ok := v.(T); !ok {
+			ctx.Log.Warnf("TryService[%T](ctx, %q): type mismatch, container has %T, returning nil", *new(T), name, v)
+			return nil, false
+		}
 	}
 	return &ServiceProxy[T]{
 		container: ctx.container,

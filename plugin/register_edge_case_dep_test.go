@@ -53,9 +53,10 @@ func TestEdge_TryService_NonExistent(t *testing.T) {
 }
 
 // TestEdge_DeclaredDep_NonExistent 验证 Deps 中声明了不存在的插件时框架前置拦截。
-func TestEdge_DeclaredDep_NonExistent(t *testing.T) {
+// TestEdge_DeclaredDep_NonExistent_Strict 验证 strict 模式下缺失依赖返回错误。
+func TestEdge_DeclaredDep_NonExistent_Strict(t *testing.T) {
 	pm := plugin.NewManager(nil)
-
+	pm.SetStrictDeps(true)
 	setupCalled := false
 	err := pm.Register(&plugin.Descriptor{
 		Name: "needs-ghost",
@@ -67,16 +68,30 @@ func TestEdge_DeclaredDep_NonExistent(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("应返回错误（Deps 中声明了不存在的插件）")
+		t.Fatal("strict mode: should return error for Deps with non-existent plugin")
 	}
 	if setupCalled {
-		t.Error("Setup 不应被调用（依赖检查应在 Setup 前完成）")
+		t.Error("Setup should not be called (dep check before Setup)")
 	}
 	if !strings.Contains(err.Error(), "missing required dependency") &&
 		!strings.Contains(err.Error(), "ghost") {
-		t.Errorf("错误信息应提及缺失的依赖，实际: %v", err)
+		t.Errorf("error should mention missing dep, got: %v", err)
 	}
-	t.Logf("✓ Deps 声明不存在依赖：Setup 未执行，正确返回错误: %v", err)
+}
+
+// TestEdge_DeclaredDep_NonExistent_Lenient 验证非 strict 模式下缺失依赖仅警告。
+func TestEdge_DeclaredDep_NonExistent_Lenient(t *testing.T) {
+	pm := plugin.NewManager(nil)
+	err := pm.Register(&plugin.Descriptor{
+		Name: "needs-ghost",
+		Deps: []string{"ghost"},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("non-strict mode: should allow missing dep with warning, got: %v", err)
+	}
 }
 
 // TestEdge_DeclaredDep_LoadingState 验证依赖处于 Loaded 状态可正常注册。
@@ -114,7 +129,7 @@ func TestEdge_Smart_ServiceWithTryService(t *testing.T) {
 	consumer := &plugin.Descriptor{
 		Name: "smart-consumer",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "smart-base")          // 存在 → 必要依赖追踪
+			_ = plugin.Service[any](ctx, "smart-base")           // 存在 → 必要依赖追踪
 			_, _ = plugin.TryService[any](ctx, "optional-ghost") // 不存在 → 可选，安全返回 false
 			return nil, nil
 		},
