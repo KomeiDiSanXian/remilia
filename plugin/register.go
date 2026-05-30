@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -379,6 +380,9 @@ func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
 //
 // 返回 map[pluginName][]depName（含必需 + 可选依赖）。
 func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]string, error) {
+	start := time.Now()
+	logger.Infof("[PluginManager] DryRun (three-color): starting dependency inference for %d plugins", len(descriptors))
+
 	tempContainer := NewContainer()
 	pm.mu.RLock()
 	for name, inst := range pm.plugins {
@@ -511,9 +515,12 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		}
 	}
 	if len(unresolved) > 0 {
-		logger.Errorf("[PluginManager] DryRun (three-color): %d plugin(s) unresolved (circular dependency): %v", len(unresolved), unresolved)
-		return inferred, fmt.Errorf("%w: %v", errutil.ErrCircularDependency, unresolved)
+		err := fmt.Errorf("%w: %v", errutil.ErrCircularDependency, unresolved)
+		logger.WithError(err).Errorf("[PluginManager] DryRun (three-color): %d plugin(s) unresolved after %v", len(unresolved), time.Since(start))
+		return inferred, err
 	}
+	logger.Infof("[PluginManager] DryRun (three-color): completed in %v — %d resolved, %d total",
+		time.Since(start), len(descriptors)-len(unresolved), len(descriptors))
 	return inferred, nil
 }
 
