@@ -707,7 +707,7 @@ func TestMatcher_IsNoop(t *testing.T) {
 
 	t.Run("nil matcher", func(t *testing.T) {
 		var matcher *Matcher
-		assert.False(t, matcher.isNoop())
+		assert.True(t, matcher.isNoop())
 	})
 }
 

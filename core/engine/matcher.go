@@ -253,7 +253,7 @@ func (m *Matcher) enable() {
 
 // isNoop 检查是否为 noop matcher
 func (m *Matcher) isNoop() bool {
-	return m != nil && m.Source == "noop"
+	return m == nil || m.Source == "noop"
 }
 
 // Match 检查事件是否匹配此 Matcher

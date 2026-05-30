@@ -417,7 +417,7 @@ func TestMatcher_InvalidateCombinedChain(t *testing.T) {
 func TestMatcher_IsNoopBehavior(t *testing.T) {
 	assert.True(t, (&Matcher{Source: "noop"}).isNoop())
 	assert.False(t, (&Matcher{Source: "test"}).isNoop())
-	assert.False(t, (*Matcher)(nil).isNoop())
+	assert.True(t, (*Matcher)(nil).isNoop())
 }
 
 func TestMatcher_GetSetGroup(t *testing.T) {
