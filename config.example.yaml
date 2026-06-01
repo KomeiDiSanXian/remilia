@@ -385,6 +385,20 @@ pprof:
 # 键为插件名称，值为任意键值对
 # ====================================
 # plugins:
+#   ai:
+#     provider: "openai"                          # LLM 提供商 (openai 等)
+#     model: "gpt-4o-mini"                        # 模型名称
+#     base_url: "https://api.openai.com/v1"       # API 地址（可换 DeepSeek: https://api.deepseek.com）
+#     api_key: "${AI_API_KEY}"                    # API Key（支持环境变量引用）
+#     system_prompt: "你是一个有用的AI助手"        # 系统提示词
+#     max_tokens: 2048                            # 最大输出 token 数
+#     max_depth: 5                                # 最大工具调用递归深度
+#     max_history: 20                             # 保留的最大对话轮数
+#     session_ttl: "24h"                          # 会话过期时间
+#     trigger_cmd: "/ai"                          # 触发命令前缀
+#     at_bot: true                                # @机器人 时触发
+#     private_chat: true                          # 私聊自动触发
+#     fallback: false                             # 无命令匹配时是否兜底回复
 #   weather:
 #     api_key: "your-weather-api-key"
 #     timeout: 10

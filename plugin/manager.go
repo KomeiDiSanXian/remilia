@@ -90,22 +90,22 @@ func NewManagerWithEventBusOptions(coordinator engine.PluginCoordinator, ebOpts 
 // --- 快捷委托方法（保持外部 API 不变）---
 
 func (pm *Manager) Coordinator() engine.PluginCoordinator { return pm.coordinator }
-func (pm *Manager) Disable(name string) error              { return pm.lifecycle.Disable(name) }
-func (pm *Manager) Enable(name string) error               { return pm.lifecycle.Enable(name) }
-func (pm *Manager) IsDisabled(name string) bool             { return pm.lifecycle.IsDisabled(name) }
+func (pm *Manager) Disable(name string) error             { return pm.lifecycle.Disable(name) }
+func (pm *Manager) Enable(name string) error              { return pm.lifecycle.Enable(name) }
+func (pm *Manager) IsDisabled(name string) bool           { return pm.lifecycle.IsDisabled(name) }
 func (pm *Manager) Reload(ctx context.Context, name string) error {
 	return pm.lifecycle.Reload(ctx, name)
 }
 func (pm *Manager) Retry(name string, desc *Descriptor) error { return pm.lifecycle.Retry(name, desc) }
-func (pm *Manager) StartAll(ctx context.Context) error         { return pm.lifecycle.StartAll(ctx) }
-func (pm *Manager) StopAll(ctx context.Context) error          { return pm.lifecycle.StopAll(ctx) }
-func (pm *Manager) Shutdown()                                  { pm.lifecycle.Shutdown() }
-func (pm *Manager) AddListener(l LifecycleListener)             { pm.lifecycle.AddListener(l) }
-func (pm *Manager) RemoveListener(l LifecycleListener)          { pm.lifecycle.RemoveListener(l) }
-func (pm *Manager) SetStrictDeps(enabled bool)                  { pm.config.SetStrictDeps(enabled) }
-func (pm *Manager) IsStrictDeps() bool                          { return pm.config.IsStrictDeps() }
-func (pm *Manager) SetConfigProvider(cp ConfigProvider)         { pm.config.SetProvider(cp) }
-func (pm *Manager) Stats() ManagerStats                         { return pm.stats.Snapshot() }
+func (pm *Manager) StartAll(ctx context.Context) error        { return pm.lifecycle.StartAll(ctx) }
+func (pm *Manager) StopAll(ctx context.Context) error         { return pm.lifecycle.StopAll(ctx) }
+func (pm *Manager) Shutdown()                                 { pm.lifecycle.Shutdown() }
+func (pm *Manager) AddListener(l LifecycleListener)           { pm.lifecycle.AddListener(l) }
+func (pm *Manager) RemoveListener(l LifecycleListener)        { pm.lifecycle.RemoveListener(l) }
+func (pm *Manager) SetStrictDeps(enabled bool)                { pm.config.SetStrictDeps(enabled) }
+func (pm *Manager) IsStrictDeps() bool                        { return pm.config.IsStrictDeps() }
+func (pm *Manager) SetConfigProvider(cp ConfigProvider)       { pm.config.SetProvider(cp) }
+func (pm *Manager) Stats() ManagerStats                       { return pm.stats.Snapshot() }
 func (pm *Manager) ListDrainingInstances() map[string]*DrainingInfo {
 	return pm.stats.ListDraining()
 }
@@ -430,7 +430,7 @@ func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
 
 // registerOptions 控制 Register 的行为。
 type registerOptions struct {
-	atomic   bool // 失败时自动回滚
+	atomic    bool // 失败时自动回滚
 	inferDeps bool // 使用 DryRun 推断依赖
 }
 
@@ -528,7 +528,7 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 
 			if opts.atomic {
 				// 回滚之前已注册的
-				for j := 0; j < i; j++ {
+				for j := range i {
 					if rollbackErr := pm.Unregister(context.Background(), sorted[j].Name); rollbackErr != nil {
 						logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", sorted[j].Name)
 					}
@@ -832,9 +832,9 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 
 // --- 生命周期通知委托 ---
 
-func (pm *Manager) notifyLoaded(name string)       { pm.lifecycle.notifyLoaded(name) }
-func (pm *Manager) notifyUnloaded(name string)     { pm.lifecycle.notifyUnloaded(name) }
-func (pm *Manager) notifyReloaded(name string)     { pm.lifecycle.notifyReloaded(name) }
+func (pm *Manager) notifyLoaded(name string)               { pm.lifecycle.notifyLoaded(name) }
+func (pm *Manager) notifyUnloaded(name string)             { pm.lifecycle.notifyUnloaded(name) }
+func (pm *Manager) notifyReloaded(name string)             { pm.lifecycle.notifyReloaded(name) }
 func (pm *Manager) notifyError(name, op string, err error) { pm.lifecycle.notifyError(name, op, err) }
 
 // --- 内部辅助方法 ---

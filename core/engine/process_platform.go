@@ -118,6 +118,18 @@ func minNonZero(a, b int) int {
 // processEventContextWithPool 是事件核心路由逻辑。
 // 慢 handler 自动 offload 到 ExecPool，池满时 fallback 同步。
 func (e *Engine) processEventContextWithPool(ctx *context.Context) {
+	e.processEventMatchers(ctx, true)
+}
+
+// ProcessEventSync 处理事件，强制所有 handler 在当前 goroutine 同步执行。
+// 不会 offload 到 ExecPool，用于需要确保 handler 执行完毕后再继续的场景
+// （如 AI 插件工具调用捕获命令回复）。
+func (e *Engine) ProcessEventSync(ctx *context.Context) {
+	e.processEventMatchers(ctx, false)
+}
+
+// processEventMatchers 是事件路由的核心逻辑，可控制是否允许 offload 到 ExecPool。
+func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 	state := e.state.Load()
 
 	eventType := ctx.GetEventType()
@@ -173,7 +185,7 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 
 		profile := m.execProfile
 
-		if profile != nil && profile.ShouldPool() == ExecClassPool {
+		if allowPool && profile != nil && profile.ShouldPool() == ExecClassPool {
 			if execPool != nil && execPool.TrySubmit(func() {
 				ctx.SetMatcher(m)
 				start := time.Now()

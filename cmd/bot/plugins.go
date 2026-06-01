@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/autoresponder"
@@ -99,6 +100,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		job.New(),
 		vevent.New(eng),
 		ping.New(),
+		ai.New(eng),
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {
