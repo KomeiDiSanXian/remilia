@@ -218,7 +218,7 @@ func (pm *Manager) Register(desc *Descriptor) error {
 	pm.mu.Unlock()
 	// ========== Lock #3 结束 ==========
 
-	logger.Infof("[PluginManager] Plugin %s registered (v2)", name)
+	logger.Infof("[PluginManager] Plugin %s registered", name)
 	pm.notifyLoaded(name)
 	return nil
 }
