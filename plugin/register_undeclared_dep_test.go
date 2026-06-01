@@ -189,7 +189,7 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{consumer, base}); err != nil {
+	if err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{consumer, base}, plugin.WithAtomic()); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
 	t.Logf("注册顺序: %v（未声明 Deps时拓扑排序不保证顺序）", setupOrder)
@@ -220,7 +220,7 @@ func TestOptionalDeps_TopologicalSort(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{consumer, base}); err != nil {
+	if err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{consumer, base}, plugin.WithAtomic()); err != nil {
 		t.Fatalf("注册失败: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		},
 	}
 
-	if err := pm.RegisterMultipleSmart([]*plugin.Descriptor{consumer, base, optional}); err != nil {
+	if err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{consumer, base, optional}, plugin.WithInferDeps()); err != nil {
 		t.Fatalf("Smart 注册失败: %v", err)
 	}
 

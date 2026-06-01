@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -135,7 +136,7 @@ func TestEdge_Smart_ServiceWithTryService(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleSmart([]*plugin.Descriptor{consumer, base})
+	err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{consumer, base}, plugin.WithInferDeps())
 	if err != nil {
 		t.Fatalf("Smart 注册不应失败: %v", err)
 	}
@@ -162,7 +163,7 @@ func TestEdge_Smart_PreRegisteredDep(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleSmart([]*plugin.Descriptor{consumer})
+	err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{consumer}, plugin.WithInferDeps())
 	if err != nil {
 		t.Fatalf("Smart 注册不应失败: %v", err)
 	}
@@ -183,7 +184,7 @@ func TestEdge_BatchAtomicWithMissingDep(t *testing.T) {
 		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
 	}
 
-	err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{a, b})
+	err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{a, b}, plugin.WithAtomic())
 
 	if err == nil {
 		t.Fatal("应返回错误（batch-ghost 不存在）")

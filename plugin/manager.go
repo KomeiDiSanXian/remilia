@@ -422,27 +422,6 @@ func (pm *Manager) RegisterBatch(ctx context.Context, descs []*Descriptor, opts 
 	return pm.registerWithOptions(ctx, descs, o)
 }
 
-// RegisterMultiple 批量注册多个插件，自动处理依赖顺序。
-//
-// Deprecated: 使用 RegisterBatch(ctx, descs) 替代。
-func (pm *Manager) RegisterMultiple(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{})
-}
-
-// RegisterMultipleAtomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
-//
-// Deprecated: 使用 RegisterBatch(ctx, descs, WithAtomic()) 替代。
-func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{atomic: true})
-}
-
-// RegisterMultipleSmart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
-//
-// Deprecated: 使用 RegisterBatch(ctx, descs, WithInferDeps()) 替代。
-func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{inferDeps: true})
-}
-
 // ValidateDependencies 验证一组插件的依赖关系（不注册）。
 func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
 	_, err := pm.TopologicalSort(descriptors)

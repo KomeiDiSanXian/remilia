@@ -104,7 +104,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) *PluginHolders {
 	subPlugin.RegisterSource(&demoSource{})
 
 	// 批量注册插件（自动按依赖拓扑排序）
-	if err := pm.RegisterMultiple([]*plugin.Descriptor{
+	if err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{
 		pluginctrl.New(),
 		permission.New(),
 		aclPlugin.Descriptor(),

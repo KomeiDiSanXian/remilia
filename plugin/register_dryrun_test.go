@@ -29,7 +29,7 @@ func TestDryRun_SmartInferenceSetsFlag(t *testing.T) {
 		},
 	}
 
-	err := pm.RegisterMultipleSmart([]*Descriptor{desc})
+	err := pm.RegisterBatch(context.Background(), []*Descriptor{desc}, WithInferDeps())
 	require.NoError(t, err)
 
 	assert.True(t, dryRunSeen, "Smart 推断阶段应设置 ctx.DryRun = true")
@@ -73,7 +73,7 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, pm.RegisterMultipleSmart([]*Descriptor{desc}))
+	require.NoError(t, pm.RegisterBatch(context.Background(), []*Descriptor{desc}, WithInferDeps()))
 	assert.Equal(t, "test.topic", subTopic, "noopSubscription 应返回正确的 topic")
 
 	// 确认真实 EventBus 上没有该订阅
@@ -99,7 +99,7 @@ func TestDryRun_PluginCanSkipSideEffects(t *testing.T) {
 	}
 
 	// Smart 注册：DryRun 阶段不增加，真实注册阶段 +1
-	require.NoError(t, pm.RegisterMultipleSmart([]*Descriptor{desc}))
+	require.NoError(t, pm.RegisterBatch(context.Background(), []*Descriptor{desc}, WithInferDeps()))
 	assert.Equal(t, 1, sideEffectCallCount, "副作用应仅在真实运行时执行一次")
 }
 

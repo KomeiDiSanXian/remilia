@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -201,20 +202,20 @@ func TestValidateDependencies(t *testing.T) {
 func TestRegisterMultipleV2(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultiple([]*Descriptor{})
+		err := manager.RegisterBatch(context.Background(), []*Descriptor{})
 		assert.NoError(t, err)
 	})
 
 	t.Run("nil descriptor", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultiple([]*Descriptor{nil})
+		err := manager.RegisterBatch(context.Background(), []*Descriptor{nil})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nil")
 	})
 
 	t.Run("empty name", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultiple([]*Descriptor{
+		err := manager.RegisterBatch(context.Background(), []*Descriptor{
 			{Name: "", Setup: func(ctx *SetupContext) (any, error) { return nil, nil }},
 		})
 		assert.Error(t, err)
@@ -223,7 +224,7 @@ func TestRegisterMultipleV2(t *testing.T) {
 
 	t.Run("no setup function", func(t *testing.T) {
 		manager := NewManager(nil)
-		err := manager.RegisterMultiple([]*Descriptor{
+		err := manager.RegisterBatch(context.Background(), []*Descriptor{
 			{Name: "test"},
 		})
 		assert.Error(t, err)

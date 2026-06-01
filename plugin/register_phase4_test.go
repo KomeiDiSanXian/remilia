@@ -1,6 +1,7 @@
 package plugin_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestRegisterMultipleV2Atomic_Success(t *testing.T) {
 		{Name: "top", Deps: []string{"mid"}, Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil }},
 	}
 
-	if err := pm.RegisterMultipleAtomic(descriptors); err != nil {
+	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithAtomic()); err != nil {
 		t.Fatalf("expected success, got: %v", err)
 	}
 
@@ -47,7 +48,7 @@ func TestRegisterMultipleV2Atomic_RollbackOnFailure(t *testing.T) {
 		{Name: "fail", Deps: []string{"ok2"}, Setup: failSetup},
 	}
 
-	err := pm.RegisterMultipleAtomic(descriptors)
+	err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithAtomic())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -62,7 +63,7 @@ func TestRegisterMultipleV2Atomic_RollbackOnFailure(t *testing.T) {
 
 func TestRegisterMultipleV2Atomic_EmptySlice(t *testing.T) {
 	pm := plugin.NewManager(engine.NewEngine())
-	if err := pm.RegisterMultipleAtomic([]*plugin.Descriptor{}); err != nil {
+	if err := pm.RegisterBatch(context.Background(), []*plugin.Descriptor{}, plugin.WithAtomic()); err != nil {
 		t.Fatalf("empty slice should succeed, got: %v", err)
 	}
 }

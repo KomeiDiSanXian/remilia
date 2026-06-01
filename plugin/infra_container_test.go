@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -204,7 +205,7 @@ func TestRegisterMultipleV2_SharedContainer(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultiple(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins)
 	require.NoError(t, err)
 
 	// 验证所有插件共享同一个容器

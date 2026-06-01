@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -100,7 +101,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		ping.New(),
 	}
 
-	if err := pm.RegisterMultipleSmart(descriptors); err != nil {
+	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {
 		logger.WithError(err).Fatal("[bot] Failed to register plugins")
 	}
 	logger.Infof("[bot] %d plugins loaded", pm.Count())

@@ -1,6 +1,8 @@
 package remilia
 
 import (
+	"context"
+
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -181,7 +183,7 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		if b.pluginManager == nil {
 			b.pluginManager = plugin.NewManager(b.engine)
 		}
-		if err := b.pluginManager.RegisterMultipleSmart(b.pendingPlugins); err != nil {
+		if err := b.pluginManager.RegisterBatch(context.Background(), b.pendingPlugins, plugin.WithInferDeps()); err != nil {
 			return nil, err
 		}
 	}

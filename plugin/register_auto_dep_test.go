@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -74,7 +75,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 			},
 		}
 
-		err := manager.RegisterMultipleSmart(plugins)
+		err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 		assert.NoError(t, err)
 		assert.True(t, manager.IsLoaded("auth"))
 		assert.True(t, manager.IsLoaded("permission"))
@@ -103,7 +104,7 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 			},
 		}
 
-		err := manager.RegisterMultipleSmart(plugins)
+		err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 		t.Log("✓ Circular dependency detected with smart registration")
@@ -178,7 +179,7 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleSmart(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("a"))
 	assert.True(t, manager.IsLoaded("b"))
@@ -255,7 +256,7 @@ func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleSmart(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("mysql"))
 	assert.True(t, manager.IsLoaded("app"))
@@ -288,7 +289,7 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleSmart(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("redis"))
 	assert.True(t, manager.IsLoaded("app"))
@@ -321,7 +322,7 @@ func TestSmartRegistration_TypeBased_TryService(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleSmart(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.NoError(t, err)
 	t.Log("✓ Type-based TryService[T](ctx) works when type not registered")
 }
@@ -352,7 +353,7 @@ func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
 		},
 	}
 
-	err := manager.RegisterMultipleSmart(plugins)
+	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errutil.ErrCircularDependency)
 	t.Log("✓ Type-based circular dependency detected")

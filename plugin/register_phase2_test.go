@@ -77,7 +77,7 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 	// RegisterMultipleSmart 内部 DryRun 阶段应注入 noopRegistryWriter
 	// 插件代码使用 ctx.Reg 注册时不应产生副作用
 	var liveRegCalled bool
-	err := pm.RegisterMultipleSmart([]*Descriptor{
+	err := pm.RegisterBatch(stdctx.Background(), []*Descriptor{
 		{
 			Name: "smart-noop-test",
 			Setup: func(ctx *SetupContext) (any, error) {
@@ -91,7 +91,7 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 				return nil, nil
 			},
 		},
-	})
+	}, WithInferDeps())
 	require.NoError(t, err)
 	assert.True(t, liveRegCalled, "Live 阶段 ctx.Reg 应为 live writer")
 }
@@ -157,7 +157,7 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 	pm := NewManager(eng)
 
 	setupCallCount := 0
-	err := pm.RegisterMultipleSmart([]*Descriptor{
+	err := pm.RegisterBatch(stdctx.Background(), []*Descriptor{
 		{
 			Name: "no-dryrun-check",
 			Setup: func(ctx *SetupContext) (any, error) {
@@ -167,7 +167,7 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 				return nil, nil
 			},
 		},
-	})
+	}, WithInferDeps())
 	require.NoError(t, err)
 	// Setup 被调用至少 1 次（正式注册），可能 2 次（DryRun + 正式）
 	assert.GreaterOrEqual(t, setupCallCount, 1)

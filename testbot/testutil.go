@@ -145,7 +145,7 @@ func (tb *TestBot) RegisterPlugin(desc *plugin.Descriptor) {
 // RegisterPlugins registers multiple plugins, respecting dependency order.
 func (tb *TestBot) RegisterPlugins(descs ...*plugin.Descriptor) {
 	tb.t.Helper()
-	if err := tb.mgr.RegisterMultiple(descs); err != nil {
+	if err := tb.mgr.RegisterBatch(stdctx.Background(), descs); err != nil {
 		tb.t.Fatalf("testutil: RegisterPlugins: %v", err)
 	}
 }

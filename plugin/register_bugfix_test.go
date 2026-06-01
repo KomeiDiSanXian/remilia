@@ -261,7 +261,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultiple([]*Descriptor{pluginB})
+		err = subManager.RegisterBatch(stdctx.Background(), []*Descriptor{pluginB})
 		if err == nil {
 			t.Error("Should detect cross-batch circular dependency")
 		} else {
@@ -317,7 +317,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该检测到跨批次循环依赖
-		err = subManager.RegisterMultiple([]*Descriptor{pluginB, pluginC})
+		err = subManager.RegisterBatch(stdctx.Background(), []*Descriptor{pluginB, pluginC})
 		if err == nil {
 			t.Error("Should detect indirect cross-batch circular dependency")
 		} else {
@@ -364,7 +364,7 @@ func TestBugFix_CrossBatchCyclicDependency(t *testing.T) {
 		}
 
 		// 应该成功注册
-		err = subManager.RegisterMultiple([]*Descriptor{pluginB, pluginC})
+		err = subManager.RegisterBatch(stdctx.Background(), []*Descriptor{pluginB, pluginC})
 		if err != nil {
 			t.Errorf("Should not detect cycle in valid dependency chain: %v", err)
 		} else {
