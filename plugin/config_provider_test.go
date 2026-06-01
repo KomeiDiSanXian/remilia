@@ -75,7 +75,7 @@ func TestSetConfigProvider_Basic(t *testing.T) {
 			},
 		},
 	}
-	pm.configProvider = oldCp
+	pm.config.configProvider = oldCp
 	pm.Register(&Descriptor{
 		Name:  "test",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
@@ -110,7 +110,7 @@ func TestSetConfigProvider_Basic(t *testing.T) {
 // TestSetConfigProvider_NoStop 旧 provider 未实现 Stop() 不应 panic
 func TestSetConfigProvider_NoStop(t *testing.T) {
 	pm := NewManager(engine.NewEngine(engine.WithNoBackgroundWorkers()))
-	pm.configProvider = &mockConfigProvider{}
+	pm.config.configProvider = &mockConfigProvider{}
 	pm.Register(&Descriptor{
 		Name:  "test",
 		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
@@ -155,13 +155,13 @@ func TestSetConfigProvider_Nil(t *testing.T) {
 	pm := NewManager(engine.NewEngine(engine.WithNoBackgroundWorkers()))
 
 	oldCp := &stopProvider{}
-	pm.configProvider = oldCp
+	pm.config.configProvider = oldCp
 	pm.SetConfigProvider(nil)
 
 	if !oldCp.stopped.Load() {
 		t.Fatal("old provider's Stop() should be called even when setting nil")
 	}
-	if pm.configProvider != nil {
+	if pm.config.configProvider != nil {
 		t.Fatal("configProvider should be nil")
 	}
 }
@@ -171,7 +171,7 @@ func TestSetConfigProvider_Concurrent(t *testing.T) {
 	pm := NewManager(engine.NewEngine(engine.WithNoBackgroundWorkers()))
 
 	// 注册一个插件
-	pm.configProvider = &mockConfigProvider{
+	pm.config.configProvider = &mockConfigProvider{
 		subFn: func(name string) map[string]any {
 			return map[string]any{"src": "initial"}
 		},
@@ -214,7 +214,7 @@ func TestSetConfigProvider_SyncOnConfigChange(t *testing.T) {
 	pm := NewManager(engine.NewEngine(engine.WithNoBackgroundWorkers()))
 
 	// 注册一个插件
-	pm.configProvider = &mockConfigProvider{
+	pm.config.configProvider = &mockConfigProvider{
 		subFn: func(name string) map[string]any {
 			return map[string]any{"original": "value"}
 		},
@@ -269,7 +269,7 @@ func TestSetConfigProvider_MultiplePlugins(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	pm := NewManager(eng)
 
-	pm.configProvider = &mockConfigProvider{
+	pm.config.configProvider = &mockConfigProvider{
 		subFn: func(name string) map[string]any {
 			return map[string]any{"val": "old"}
 		},

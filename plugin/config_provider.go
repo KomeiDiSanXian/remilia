@@ -104,6 +104,6 @@ type ManagerOption func(*Manager)
 //	}
 func WithConfigProvider(cp ConfigProvider) ManagerOption {
 	return func(m *Manager) {
-		m.configProvider = cp
+		m.config.configProvider = cp
 	}
 }

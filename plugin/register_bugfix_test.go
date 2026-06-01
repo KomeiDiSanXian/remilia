@@ -101,7 +101,7 @@ func TestBugFix_RemoveListenerSafety(t *testing.T) {
 
 	// 验证剩余监听器数量
 	manager.mu.RLock()
-	count := len(manager.listeners)
+	count := len(manager.lifecycle.listeners)
 	manager.mu.RUnlock()
 
 	if count != 2 {

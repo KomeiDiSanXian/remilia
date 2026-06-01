@@ -37,18 +37,20 @@ type drainingEntry struct {
 }
 
 // Manager 插件管理器
+//
+// 核心职责：插件注册/注销、查询、容器/EventBus 访问。
+// 生命周期操作通过 Lifecycle() 获取，配置通过 Config() 获取，统计通过 Stats() 获取。
 type Manager struct {
-	plugins           map[string]*Instance
-	coordinator       engine.PluginCoordinator
-	listeners         []LifecycleListener
-	configProvider    ConfigProvider
-	loadOrder         []string
-	container         *Container
-	eventBus          EventBus
-	strictDeps        bool
-	metaGM            *goroutineManager
-	mu                sync.RWMutex
-	drainingInstances map[string]*drainingEntry
+	plugins     map[string]*Instance
+	coordinator engine.PluginCoordinator
+	loadOrder   []string
+	container   *Container
+	eventBus    EventBus
+	mu          sync.RWMutex
+
+	lifecycle *lifecycleController
+	config    *configController
+	stats     *statsController
 }
 
 // NewManager 创建插件管理器
@@ -60,20 +62,20 @@ type Manager struct {
 //	)
 func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Manager {
 	m := &Manager{
-		plugins:           make(map[string]*Instance),
-		coordinator:       coordinator,
-		listeners:         make([]LifecycleListener, 0),
-		loadOrder:         make([]string, 0),
-		container:         NewContainer(),
-		eventBus:          NewEventBus(),
-		metaGM:            newGoroutineManagerForPlugin("manager"),
-		drainingInstances: make(map[string]*drainingEntry),
+		plugins:     make(map[string]*Instance),
+		coordinator: coordinator,
+		loadOrder:   make([]string, 0),
+		container:   NewContainer(),
+		eventBus:    NewEventBus(),
 	}
+	m.lifecycle = newLifecycleController(m)
+	m.config = newConfigController(m)
+	m.stats = newStatsController(m)
 	for _, opt := range opts {
 		opt(m)
 	}
-	if m.configProvider != nil {
-		m.configProvider.OnConfigChange(m.propagateConfigChange)
+	if m.config.configProvider != nil {
+		m.config.configProvider.OnConfigChange(m.config.propagateConfigChange)
 	}
 	return m
 }
@@ -85,209 +87,40 @@ func NewManagerWithEventBusOptions(coordinator engine.PluginCoordinator, ebOpts 
 	return pm
 }
 
-// Coordinator 返回底层协调器（供需要直接访问 engine 的插件使用，如 debug）
-func (pm *Manager) Coordinator() engine.PluginCoordinator {
-	return pm.coordinator
+// --- 控制器访问 ---
+
+// Lifecycle 返回插件生命周期控制器。
+func (pm *Manager) Lifecycle() *lifecycleController { return pm.lifecycle }
+
+// Config 返回插件配置控制器。
+func (pm *Manager) Config() *configController { return pm.config }
+
+// --- 快捷委托方法（保持外部 API 不变）---
+
+func (pm *Manager) Coordinator() engine.PluginCoordinator { return pm.coordinator }
+func (pm *Manager) Disable(name string) error              { return pm.lifecycle.Disable(name) }
+func (pm *Manager) Enable(name string) error               { return pm.lifecycle.Enable(name) }
+func (pm *Manager) IsDisabled(name string) bool             { return pm.lifecycle.IsDisabled(name) }
+func (pm *Manager) Reload(ctx context.Context, name string) error {
+	return pm.lifecycle.Reload(ctx, name)
 }
-
-// Disable 禁用插件（暂停事件响应，但保持注册状态）。
-//
-// 与 Unregister 的区别：
-//   - Unregister: 完全移除插件，需要重新注册才能恢复
-//   - Disable: 将状态置为 Disabled，通过 Enable 即可恢复，不触发 Teardown，不影响 Container 中的服务
-//
-// 禁用后：
-//   - engine.Matcher 被挂起（engine.DisableGroup 暂停分发）
-//   - GetState() 返回 Disabled
-//   - 可通过 Enable(name) 恢复
-func (pm *Manager) Disable(name string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if pm.coordinator == nil {
-		return fmt.Errorf("cannot disable plugin %q: manager has no engine coordinator; Register Engine before use", name)
-	}
-
-	inst, exists := pm.plugins[name]
-	if !exists {
-		return errutil.ErrPluginNotFound
-	}
-
-	state := inst.GetState()
-	if state == Disabled {
-		logger.Warnf("[PluginManager] Plugin %s is already disabled", name)
-		return nil
-	}
-	if state != Loaded {
-		return fmt.Errorf("plugin %s is not in Loaded state (state: %s)", name, state)
-	}
-
-	pm.coordinator.DisableGroup(name)
-	inst.SetState(Disabled)
-	logger.Infof("[PluginManager] Plugin %s disabled (matchers paused, container intact)", name)
-	return nil
+func (pm *Manager) Retry(name string, desc *Descriptor) error { return pm.lifecycle.Retry(name, desc) }
+func (pm *Manager) StartAll(ctx context.Context) error         { return pm.lifecycle.StartAll(ctx) }
+func (pm *Manager) StopAll(ctx context.Context) error          { return pm.lifecycle.StopAll(ctx) }
+func (pm *Manager) Shutdown()                                  { pm.lifecycle.Shutdown() }
+func (pm *Manager) AddListener(l LifecycleListener)             { pm.lifecycle.AddListener(l) }
+func (pm *Manager) RemoveListener(l LifecycleListener)          { pm.lifecycle.RemoveListener(l) }
+func (pm *Manager) SetStrictDeps(enabled bool)                  { pm.config.SetStrictDeps(enabled) }
+func (pm *Manager) IsStrictDeps() bool                          { return pm.config.IsStrictDeps() }
+func (pm *Manager) SetConfigProvider(cp ConfigProvider)         { pm.config.SetProvider(cp) }
+func (pm *Manager) Stats() ManagerStats                         { return pm.stats.Snapshot() }
+func (pm *Manager) ListDrainingInstances() map[string]*DrainingInfo {
+	return pm.stats.ListDraining()
 }
+func (pm *Manager) GoroutineSummary() GoroutineSummary { return pm.stats.GoroutineSummary() }
+func (pm *Manager) ListAllGoroutines() []GoroutineInfo { return pm.stats.ListGoroutines() }
 
-// Enable 启用已禁用的插件（恢复事件响应）。
-func (pm *Manager) Enable(name string) error {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if pm.coordinator == nil {
-		return fmt.Errorf("cannot enable plugin %q: manager has no engine coordinator; Register Engine before use", name)
-	}
-
-	inst, exists := pm.plugins[name]
-	if !exists {
-		return errutil.ErrPluginNotFound
-	}
-	if inst.GetState() != Disabled {
-		logger.Warnf("[PluginManager] Plugin %s is not disabled (state: %s)", name, inst.GetState())
-		return nil
-	}
-
-	pm.coordinator.EnableGroup(name)
-	inst.SetState(Loaded)
-	logger.Infof("[PluginManager] Plugin %s enabled (matchers resumed)", name)
-	return nil
-}
-
-// IsDisabled 检查插件是否被禁用
-func (pm *Manager) IsDisabled(name string) bool {
-	pm.mu.RLock()
-	inst, exists := pm.plugins[name]
-	pm.mu.RUnlock()
-	if !exists {
-		return false
-	}
-	return inst.GetState() == Disabled
-}
-
-// SetStrictDeps 设置严格依赖模式。
-//
-// 启用后（strictDeps=true），若插件在 Setup 中通过 [Service] / [TryService] 访问了
-// 未在 Deps 字段声明的插件，注册时将返回错误而不是警告，
-// 防止隐式依赖导致拓扑排序失效或生命周期管理混乱。
-func (pm *Manager) SetStrictDeps(enabled bool) {
-	pm.mu.Lock()
-	pm.strictDeps = enabled
-	pm.mu.Unlock()
-}
-
-// IsStrictDeps 返回当前严格依赖模式状态
-func (pm *Manager) IsStrictDeps() bool {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	return pm.strictDeps
-}
-
-// SetConfigProvider 设置全局配置提供者并订阅变更事件。
-//
-// 当底层配置源变更时自动触发所有已加载插件的 Config.Reload() 和 OnChange 回调。
-// 若已通过 WithConfigProvider 在构造时注入，则无需调用此方法。
-//
-// 并发安全说明：
-//   - 旧 provider 的 Stop() 在锁外执行（防止 Stop 中 I/O 阻塞其他操作）
-//   - Config 构造（NewPluginConfigFromProvider → Sub()）在锁外执行（可能 I/O）
-//   - 锁内仅执行指针赋值：configProvider 替换、inst.SetConfig（字段赋值）
-//   - 与 Register 的 Lock#1 可能重叠：Register 会读到旧的 configProvider，
-//     但 Register 在 Lock#2 时 Store 实例，Lock#3 中 SetConfigProvider 已更新配置
-//   - 若 SetConfigProvider 中发现新注册的插件未包含在事先收集的插件列表中，
-//     也不影响正确性——该插件使用最新的 configProvider 读取配置
-func (pm *Manager) SetConfigProvider(cp ConfigProvider) {
-	// Phase 1: 断开旧 provider 的监听（锁外执行 Stop）
-	var oldStopFn func()
-	pm.mu.Lock()
-	if oldProvider := pm.configProvider; oldProvider != nil {
-		if s, ok := oldProvider.(interface{ Stop() }); ok {
-			oldStopFn = s.Stop
-		}
-	}
-	pm.mu.Unlock()
-	if oldStopFn != nil {
-		oldStopFn()
-	}
-
-	// Phase 2: 替换 provider + 收集插件名（锁内，短操作）
-	pm.mu.Lock()
-	pm.configProvider = cp
-	names := make([]string, 0, len(pm.plugins))
-	for name := range pm.plugins {
-		names = append(names, name)
-	}
-	pm.mu.Unlock()
-
-	// Phase 3: 构造 Config（锁外，可能 I/O）
-	type nameConfig struct {
-		name   string
-		config Config
-	}
-	newCfgs := make([]nameConfig, 0, len(names))
-	if cp != nil {
-		for _, name := range names {
-			newCfgs = append(newCfgs, nameConfig{name, NewPluginConfigFromProvider(name, cp)})
-		}
-	}
-
-	// Phase 4: 应用 Config + 注册回调（锁内）
-	pm.mu.Lock()
-	if cp != nil {
-		for _, nc := range newCfgs {
-			if inst, ok := pm.plugins[nc.name]; ok {
-				inst.SetConfig(nc.config)
-			}
-		}
-		cp.OnConfigChange(pm.propagateConfigChange)
-	}
-	pm.mu.Unlock()
-}
-
-// propagateConfigChange 按依赖顺序向所有插件广播配置变更。
-//
-// 使用 loadOrder（拓扑排序结果）确保依赖先于依赖方收到变更通知。
-// 使用 TryRLock 避免 SetConfigProvider 持有写锁时同步触发导致死锁。
-// 若锁被写操作持有，直接返回（Phase 3 的全量替换已保证数据最新）。
-func (pm *Manager) propagateConfigChange() {
-	if !pm.mu.TryRLock() {
-		logger.Warn("[Manager] Config change notification skipped: write lock held (SetConfigProvider in progress, Phase 3 full replacement already up to date)")
-		return
-	}
-	defer pm.mu.RUnlock()
-
-	for _, name := range pm.loadOrder {
-		inst, exists := pm.plugins[name]
-		if !exists {
-			continue
-		}
-		cfg := inst.GetConfig()
-		if cfg != nil {
-			if err := cfg.Reload(); err != nil {
-				logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", name)
-			}
-		}
-	}
-}
-
-// AddListener 添加生命周期监听器
-func (pm *Manager) AddListener(listener LifecycleListener) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	pm.listeners = append(pm.listeners, listener)
-}
-
-// RemoveListener 移除生命周期监听器
-func (pm *Manager) RemoveListener(listener LifecycleListener) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	newListeners := make([]LifecycleListener, 0, len(pm.listeners))
-	for _, l := range pm.listeners {
-		if l != listener {
-			newListeners = append(newListeners, l)
-		}
-	}
-	pm.listeners = newListeners
-}
+// --- 核心方法（Manager 自有）---
 
 // Unregister 注销插件，返回错误信息。
 // ctx 用于控制超时：若 context 在 Teardown 完成前到期，返回 ctx.Err()。
@@ -400,109 +233,6 @@ func (pm *Manager) UnregisterCascade(ctx context.Context, name string) error {
 		}
 	}
 	return nil
-}
-
-// Retry 重新尝试加载处于 Error 状态的插件。
-// 相当于 ForceUnregister + Register，但保留插件的 Descriptor。
-//
-// 仅在插件状态为 Error 时可用；其他状态返回错误。
-func (pm *Manager) Retry(name string, desc *Descriptor) error {
-	pm.mu.Lock()
-	inst, exists := pm.plugins[name]
-	if !exists {
-		pm.mu.Unlock()
-		return errutil.ErrPluginNotFound
-	}
-	if inst.GetState() != Error {
-		pm.mu.Unlock()
-		return fmt.Errorf("plugin %s is not in Error state (state: %s)", name, inst.GetState())
-	}
-	pm.mu.Unlock()
-
-	// 强制卸载
-	if err := pm.ForceUnregister(name); err != nil {
-		return fmt.Errorf("retry %s: force unregister failed: %w", name, err)
-	}
-
-	// 重新注册
-	return pm.Register(desc)
-}
-
-// Reload 重新加载插件（热重载）
-func (pm *Manager) Reload(ctx context.Context, name string) error {
-	pm.mu.RLock()
-	inst, exists := pm.plugins[name]
-	pm.mu.RUnlock()
-
-	if !exists {
-		logger.Warnf("[PluginManager] Plugin %s not found", name)
-		return errutil.ErrPluginNotFound
-	}
-
-	state := inst.GetState()
-	if state == Disabled {
-		return fmt.Errorf("plugin %s is disabled, use Enable before Reload", name)
-	}
-	if state == Error {
-		return fmt.Errorf("plugin %s is in Error state, use Retry instead of Reload", name)
-	}
-
-	logger.Infof("[PluginManager] Reloading plugin %s", name)
-
-	if err := inst.reload(ctx, pm.coordinator); err != nil {
-		logger.WithError(err).Errorf("[PluginManager] Failed to reload plugin %s", name)
-		pm.notifyError(name, "reload", err)
-		return err
-	}
-
-	logger.Infof("[PluginManager] Plugin %s reloaded successfully", name)
-	pm.notifyReloaded(name)
-
-	// 通知所有依赖了 name 插件的其他插件
-	pm.notifyDependents(name)
-	return nil
-}
-
-// notifyDependents 通知依赖了 reloadedPlugin 的所有其他插件
-func (pm *Manager) notifyDependents(reloadedPlugin string) {
-	// 仅在锁下收集插件名，避免复制整个 map（maps.Copy 的 O(n) 开销）
-	pm.mu.RLock()
-	allNames := make([]string, 0, len(pm.plugins))
-	for name := range pm.plugins {
-		allNames = append(allNames, name)
-	}
-	pm.mu.RUnlock()
-
-	for _, depName := range allNames {
-		if depName == reloadedPlugin {
-			continue
-		}
-		pm.mu.RLock()
-		inst, exists := pm.plugins[depName]
-		if !exists {
-			pm.mu.RUnlock()
-			continue
-		}
-		deps := inst.desc.Deps
-		cb := inst.desc.getOnDependencyReloaded()
-		pm.mu.RUnlock()
-		if !slices.Contains(deps, reloadedPlugin) {
-			continue
-		}
-		if cb == nil {
-			continue
-		}
-		logger.Infof("[PluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
-		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待
-		pm.metaGM.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.WithField("panic", r).Errorf("[PluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
-				}
-			}()
-			cb(reloadedPlugin)
-		})
-	}
 }
 
 // Get 获取插件实例。
@@ -652,7 +382,7 @@ func (pm *Manager) GetContainer() *Container {
 
 // FreezeContainer 冻结依赖注入容器，切换为无锁只读模式。
 //
-// 在所有插件通过 Register/RegisterMultiple 加载完成后调用此方法，
+// 在所有插件通过 Register 加载完成后调用此方法，
 // 后续 Get/Has 操作将使用原子指针快照，读性能提升 2-3x。
 func (pm *Manager) FreezeContainer() {
 	pm.mu.RLock()
@@ -671,43 +401,450 @@ func (pm *Manager) GetEventBus() EventBus {
 	return pm.eventBus
 }
 
-// trackDraining 记录蓝绿重载中正在清理的旧实例。
-func (pm *Manager) trackDraining(name string, inst *Instance) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	pm.drainingInstances[name] = &drainingEntry{
-		inst:      inst,
-		startedAt: time.Now(),
-	}
+// --- 注册方法 ---
+
+// Register 注册单个插件。
+//
+// 可使用 RegisterOption 控制行为：
+//   - WithInferDeps(): 使用 DryRun 自动推断依赖（等价于旧 RegisterMultipleSmart）
+//   - WithAtomic(): 失败时自动逆序回滚
+//
+// 当传入多个 Descriptor 时，进行批量注册：
+//   - 默认内部拓扑排序后逐一注册（等价于旧 RegisterMultiple）
+//   - WithAtomic() → 失败回滚（等价于旧 RegisterMultipleAtomic）
+//   - WithInferDeps() → DryRun 推断后注册（等价于旧 RegisterMultipleSmart）
+func (pm *Manager) Register(first *Descriptor, rest ...*Descriptor) error {
+	all := append([]*Descriptor{first}, rest...)
+	return pm.registerWithOptions(all, registerOptions{})
 }
 
-// markDrainingDone 标记 draining 实例清理完成（或失败）。
-func (pm *Manager) markDrainingDone(name string, err error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	if e, ok := pm.drainingInstances[name]; ok {
-		e.done = true
-		e.err = err
-	}
+// RegisterMultiple 批量注册多个插件，自动处理依赖顺序。
+//
+// 拓扑排序基于声明 Deps + OptionalDeps。Setup 中发现的未声明依赖（通过 COW 合并）
+// 会在所有插件注册完成后由 rectifyLoadOrder 修正 loadOrder（不影响 Setup 顺序）。
+//
+// Deprecated: 使用 Register(desc1, desc2, ...) 替代。
+func (pm *Manager) RegisterMultiple(descriptors []*Descriptor) error {
+	return pm.registerWithOptions(descriptors, registerOptions{})
 }
 
-// ListDrainingInstances 返回所有正在清理或已完成的旧实例状态。
-func (pm *Manager) ListDrainingInstances() map[string]*DrainingInfo {
+// RegisterMultipleAtomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
+//
+// Deprecated: 使用 Register(desc1, desc2, ..., WithAtomic()) 替代。
+func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
+	return pm.registerWithOptions(descriptors, registerOptions{atomic: true})
+}
+
+// RegisterMultipleSmart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
+//
+// Deprecated: 使用 Register(desc1, desc2, ..., WithInferDeps()) 替代。
+func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
+	return pm.registerWithOptions(descriptors, registerOptions{inferDeps: true})
+}
+
+// ValidateDependencies 验证一组插件的依赖关系（不注册）
+//
+// Deprecated: 将直接使用 topologicalSort 验证。
+func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
+	_, err := pm.topologicalSort(descriptors)
+	return err
+}
+
+// registerOptions 控制 Register 的行为。
+type registerOptions struct {
+	atomic   bool // 失败时自动回滚
+	inferDeps bool // 使用 DryRun 推断依赖
+}
+
+// RegisterOption 注册选项函数。
+type RegisterOption func(*registerOptions)
+
+// WithAtomic 注册选项：失败时自动逆序回滚已注册的所有插件。
+func WithAtomic() RegisterOption {
+	return func(o *registerOptions) { o.atomic = true }
+}
+
+// WithInferDeps 注册选项：使用 DryRun 自动推断依赖关系。
+func WithInferDeps() RegisterOption {
+	return func(o *registerOptions) { o.inferDeps = true }
+}
+
+// registerWithOptions 内部统一注册入口。
+func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerOptions) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+
+	// 单个插件不走拓扑排序（checkDependencies 使用宽松模式验证，不强制 Deps 必须全部就绪）
+	if len(descriptors) == 1 && !opts.inferDeps {
+		desc := descriptors[0]
+		if desc == nil {
+			return fmt.Errorf("descriptor at index 0 is nil")
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index 0 has empty name")
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+		descMap := map[string]*Descriptor{desc.Name: desc}
+		if err := pm.checkCrossBatchCyclicDependency(descriptors, descMap); err != nil {
+			return err
+		}
+		return pm.registerSingle(desc)
+	}
+
+	for i, desc := range descriptors {
+		if desc == nil {
+			return fmt.Errorf("descriptor at index %d is nil", i)
+		}
+		if desc.Name == "" {
+			return fmt.Errorf("descriptor at index %d has empty name", i)
+		}
+		if desc.Setup == nil {
+			return fmt.Errorf("descriptor %s has no setup function", desc.Name)
+		}
+	}
+
+	// 推断依赖（DryRun）
+	if opts.inferDeps {
+		logger.Info("[PluginManager] Smart registration: inferring dependencies...")
+		inferred, err := pm.dryRunInferDeps(descriptors)
+		if err != nil {
+			return err
+		}
+		descriptors = mergeInferredDeps(descriptors, inferred)
+	}
+
+	// 拓扑排序
+	sorted, err := pm.topologicalSort(descriptors)
+	if err != nil {
+		if opts.inferDeps {
+			return err // 错误信息已包含循环依赖提示
+		}
+		return fmt.Errorf("dependency resolution failed: %w", err)
+	}
+
+	// 逐一注册
+	registered := make([]string, 0, len(sorted))
+	registeredInsts := make([]*Instance, 0, len(sorted))
+	for _, desc := range sorted {
+		if err := pm.registerSingle(desc); err != nil {
+			if opts.atomic {
+				for i := len(registered) - 1; i >= 0; i-- {
+					if rollbackErr := pm.Unregister(context.Background(), registered[i]); rollbackErr != nil {
+						logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", registered[i])
+					}
+				}
+				pm.mu.RLock()
+				existingNames := make([]string, 0, len(pm.plugins))
+				for n := range pm.plugins {
+					existingNames = append(existingNames, n)
+				}
+				pm.mu.RUnlock()
+				return &PluginError{
+					PluginName:        desc.Name,
+					Operation:         "register",
+					Cause:             err,
+					RegisteredPlugins: existingNames,
+					Hint:              "all previously registered plugins in this batch have been rolled back",
+				}
+			}
+			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, err)
+		}
+		registered = append(registered, desc.Name)
+		if inst, ok := pm.Get(desc.Name); ok {
+			registeredInsts = append(registeredInsts, inst)
+		}
+	}
+
+	pm.rectifyLoadOrder(registeredInsts)
+	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(sorted))
+	return nil
+}
+
+// registerSingle 注册单个插件（三段锁策略）。
+//
+// 锁策略（三段式，最小化锁持有时间）：
+//
+//	Lock #1: 重复检查 + 依赖校验 + 版本约束
+//	(解锁)  ←  I/O：NewPluginConfigFromProvider / validateConfigSchema
+//	Lock #2: 再次重复检查 + pm.plugins[name] = instance
+//	(解锁)
+//	instance.load()  ← 已在锁外
+//	Lock #3: 错误清理 / 依赖合并 / loadOrder / container.Register
+func (pm *Manager) registerSingle(desc *Descriptor) error {
+	if err := validateDescriptor(desc); err != nil {
+		return err
+	}
+
+	name := desc.Name
+
+	// ========== Lock #1: 快速校验 ==========
+	pm.mu.Lock()
+
+	if _, exists := pm.plugins[name]; exists {
+		pm.mu.Unlock()
+		logger.Warnf("[PluginManager] Plugin %s already registered", name)
+		return errutil.ErrPluginAlreadyExists
+	}
+
+
+	registeredList := func() []string {
+		names := make([]string, 0, len(pm.plugins))
+		for n := range pm.plugins {
+			names = append(names, n)
+		}
+		return names
+	}
+
+	if err := checkDependencies(pm, desc, registeredList); err != nil {
+		pm.mu.Unlock()
+		return err
+	}
+
+	if err := validateVersionConstraints(pm, desc); err != nil {
+		pm.mu.Unlock()
+		return err
+	}
+
+	pm.ensureContainerInitialized()
+
+	// 在锁内读取 configProvider，移出锁外调用（I/O 可能阻塞）
+	cp := pm.config.configProvider
+
+	// Reload/Strategy 检测（仅读 desc，不需要锁，但已在锁内顺手完成）
+	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
+			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy)
+	}
+
+	pm.mu.Unlock()
+	// ========== Lock #1 结束 ==========
+
+	// ========== 无锁区：Config 构造（可能 I/O）+ Schema 校验 ==========
+	var config Config
+	if cp != nil {
+		config = NewPluginConfigFromProvider(name, cp)
+	}
+
+	if err := validateConfigSchema(name, desc, config); err != nil {
+		return err
+	}
+
+	// ========== 无锁区：实例 + SetupContext 构建（纯内存操作）==========
+	instance := &Instance{
+		desc:     desc,
+		state:    Unloaded,
+		matchers: make([]*engine.Matcher, 0),
+		manager:  pm,
+	}
+
+	var adminView ManagerWriter
+	if desc.Privileged {
+		adminView = newManagerWriter(pm)
+	}
+
+	setupCtx := &SetupContext{
+		Reg:      newLiveRegistryWriter(pm.coordinator, name, instance),
+		Log:      newPluginLogger(name),
+		Info:     newPluginInfo(pm),
+		Admin:    adminView,
+		Config:   config,
+		EventBus: pm.eventBus,
+		setupContextInternal: setupContextInternal{
+			container:        pm.container,
+			pluginName:       name,
+			instance:         instance,
+			autoTrackEnabled: true,
+			eng:              pm.coordinator,
+		},
+	}
+
+	instance.setupContext = setupCtx
+	instance.state = Loading
+
+	// ========== Lock #2: 存入 plugins 表（短）==========
+	pm.mu.Lock()
+	// 二次重复检查：Lock#1~Lock#2 窗口期可能已被其他 Register 抢占注册同名插件
+	if _, exists := pm.plugins[name]; exists {
+		pm.mu.Unlock()
+		return errutil.ErrPluginAlreadyExists
+	}
+	pm.plugins[name] = instance
+	pm.mu.Unlock()
+	// ========== Lock #2 结束 ==========
+
+	// ========== 无锁区：执行 Setup ==========
+	loadErr := instance.load(context.Background())
+
+	// ========== Lock #3: 最终化 ==========
+	pm.mu.Lock()
+
+	if loadErr != nil {
+		if pm.coordinator != nil {
+			pm.coordinator.RemoveGroup(name)
+		}
+		delete(pm.plugins, name)
+		pm.container.Remove(name)
+		pm.mu.Unlock()
+		logger.WithError(loadErr).Errorf("[PluginManager] Failed to load plugin %s", name)
+		pm.notifyError(name, "load", loadErr)
+		return loadErr
+	}
+
+	trackedDeps := setupCtx.getTrackedDependencies()
+	trackedOptional := setupCtx.getTrackedOptionalDependencies()
+
+	allTracked := make(map[string]bool, len(trackedDeps)+len(trackedOptional))
+	for _, d := range trackedDeps {
+		allTracked[d] = true
+	}
+	for _, d := range trackedOptional {
+		allTracked[d] = true
+	}
+
+	if len(allTracked) > 0 {
+		declaredDeps := make(map[string]bool)
+		for _, dep := range desc.Deps {
+			declaredDeps[dep] = true
+		}
+		for _, dep := range desc.OptionalDeps {
+			declaredDeps[dep] = true
+		}
+
+		undeclaredAll := make([]string, 0)
+		for dep := range allTracked {
+			if !declaredDeps[dep] {
+				undeclaredAll = append(undeclaredAll, dep)
+			}
+		}
+
+		if len(undeclaredAll) > 0 {
+			if pm.config.strictDeps {
+				pm.mu.Unlock()
+				if teardownErr := instance.unload(context.Background(), pm.coordinator); teardownErr != nil {
+					logger.WithError(teardownErr).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+				}
+				pm.mu.Lock()
+				delete(pm.plugins, name)
+				pm.container.Remove(name)
+				pm.mu.Unlock()
+				return fmt.Errorf(
+					"plugin %q uses undeclared dependencies %v (declared: %v); "+
+						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
+					name, undeclaredAll, desc.Deps,
+				)
+			}
+			logger.WithFields(logger.Fields{
+				"plugin":          name,
+				"undeclared_deps": undeclaredAll,
+				"declared_deps":   desc.Deps,
+			}).Warn("[PluginManager] Plugin uses dependencies not declared in Deps field")
+		}
+
+		var undeclaredRequired []string
+		for _, d := range trackedDeps {
+			if !declaredDeps[d] {
+				undeclaredRequired = append(undeclaredRequired, d)
+			}
+		}
+		if len(undeclaredRequired) > 0 {
+			mergedDeps := make([]string, len(desc.Deps), len(desc.Deps)+len(undeclaredRequired))
+			copy(mergedDeps, desc.Deps)
+			mergedDeps = append(mergedDeps, undeclaredRequired...)
+			newDesc := *desc
+			newDesc.Deps = mergedDeps
+			instance.desc = &newDesc
+			instance.depsModified = true
+		}
+	}
+
+	pm.loadOrder = append(pm.loadOrder, name)
+
+	if !pm.container.Has(name) {
+		pm.container.Register(name, instance)
+	}
+
+	pm.mu.Unlock()
+	// ========== Lock #3 结束 ==========
+
+	logger.Infof("[PluginManager] Plugin %s registered", name)
+	pm.notifyLoaded(name)
+	return nil
+}
+
+// --- 生命周期通知委托 ---
+
+func (pm *Manager) notifyLoaded(name string)       { pm.lifecycle.notifyLoaded(name) }
+func (pm *Manager) notifyUnloaded(name string)     { pm.lifecycle.notifyUnloaded(name) }
+func (pm *Manager) notifyReloaded(name string)     { pm.lifecycle.notifyReloaded(name) }
+func (pm *Manager) notifyError(name, op string, err error) { pm.lifecycle.notifyError(name, op, err) }
+
+// --- 内部辅助方法 ---
+
+// notifyDependents 通知依赖了 reloadedPlugin 的所有其他插件
+func (pm *Manager) notifyDependents(reloadedPlugin string) {
+	// 仅在锁下收集插件名，避免复制整个 map（maps.Copy 的 O(n) 开销）
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-	result := make(map[string]*DrainingInfo, len(pm.drainingInstances))
-	for name, e := range pm.drainingInstances {
-		info := &DrainingInfo{
-			Name:      name,
-			StartedAt: e.startedAt,
-			Done:      e.done,
-		}
-		if e.err != nil {
-			info.Err = e.err.Error()
-		}
-		result[name] = info
+	allNames := make([]string, 0, len(pm.plugins))
+	for name := range pm.plugins {
+		allNames = append(allNames, name)
 	}
-	return result
+	pm.mu.RUnlock()
+
+	for _, depName := range allNames {
+		if depName == reloadedPlugin {
+			continue
+		}
+		pm.mu.RLock()
+		inst, exists := pm.plugins[depName]
+		if !exists {
+			pm.mu.RUnlock()
+			continue
+		}
+		deps := inst.desc.Deps
+		cb := inst.desc.getOnDependencyReloaded()
+		pm.mu.RUnlock()
+		if !slices.Contains(deps, reloadedPlugin) {
+			continue
+		}
+		if cb == nil {
+			continue
+		}
+		logger.Infof("[PluginManager] Notifying plugin %s that dependency %s was reloaded", depName, reloadedPlugin)
+		// 使用 metaGM 管理此类元数据 goroutine，Shutdown 时可感知并等待
+		pm.lifecycle.metaGM.goNamed_(fmt.Sprintf("notify-%s->%s", reloadedPlugin, depName), func(ctx context.Context) {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithField("panic", r).Errorf("[PluginManager] Panic in OnDependencyReloaded for plugin dependency %s", reloadedPlugin)
+				}
+			}()
+			cb(reloadedPlugin)
+		})
+	}
+}
+
+// ensureContainerInitialized 确保依赖注入容器已初始化（须在持有 Manager 锁时调用）
+func (pm *Manager) ensureContainerInitialized() {
+	if pm.container == nil {
+		pm.container = NewContainer()
+	}
+	for pluginName, plugin := range pm.plugins {
+		if !pm.container.Has(pluginName) {
+			pm.container.Register(pluginName, plugin)
+		}
+	}
+	if !pm.container.Has("manager") {
+		pm.container.Register("manager", pm)
+	}
+	if !pm.container.Has("engine") {
+		pm.container.Register("engine", pm.coordinator)
+	}
+	if !pm.container.Has("coordinator") {
+		pm.container.Register("coordinator", pm.coordinator)
+	}
 }
 
 // ManagerStats 插件管理器的运行时统计快照。
@@ -726,74 +863,3 @@ type ManagerStats struct {
 
 // startTime is set at package init for uptime tracking.
 var startTime = time.Now()
-
-// Stats 返回插件管理器的运行时统计快照（用于监控/调试）。
-func (pm *Manager) Stats() ManagerStats {
-	pm.mu.RLock()
-	stateCount := make(map[string]int)
-	for _, inst := range pm.plugins {
-		s := inst.GetState().String()
-		stateCount[s]++
-	}
-	loadOrder := make([]string, len(pm.loadOrder))
-	copy(loadOrder, pm.loadOrder)
-	strictDeps := pm.strictDeps
-	ebStats := pm.eventBus.GetStats()
-	drainingCount := len(pm.drainingInstances)
-	totalPlugins := len(pm.plugins)
-	pm.mu.RUnlock()
-
-	containerSvcCount := 0
-	if c := pm.container; c != nil {
-		c.services.Range(func(_, _ any) bool {
-			containerSvcCount++
-			return true
-		})
-	}
-
-	return ManagerStats{
-		PluginsTotal:      totalPlugins,
-		PluginsByState:    stateCount,
-		LoadOrder:         loadOrder,
-		GoroutineSummary:  pm.GoroutineSummary(),
-		EventBusStats:     ebStats,
-		DrainingCount:     drainingCount,
-		ContainerFrozen:   pm.container != nil && pm.container.frozen.Load(),
-		ContainerServices: containerSvcCount,
-		StrictDeps:        strictDeps,
-		Uptime:            time.Since(startTime).Round(time.Second).String(),
-	}
-}
-
-// drainDrainingInstances 等待所有 draining 实例清理完成（StopAll 时调用）。
-func (pm *Manager) drainDrainingInstances() {
-	pm.mu.RLock()
-	names := make([]string, 0, len(pm.drainingInstances))
-	for name, e := range pm.drainingInstances {
-		if !e.done {
-			names = append(names, name)
-		}
-	}
-	pm.mu.RUnlock()
-	if len(names) == 0 {
-		return
-	}
-	done := make(chan struct{}, len(names))
-	for _, name := range names {
-		go func(n string) {
-			for {
-				pm.mu.RLock()
-				e, ok := pm.drainingInstances[n]
-				pm.mu.RUnlock()
-				if !ok || e.done {
-					done <- struct{}{}
-					return
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-		}(name)
-	}
-	for range names {
-		<-done
-	}
-}

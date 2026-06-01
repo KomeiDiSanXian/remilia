@@ -186,14 +186,14 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	// Step 6: 在 Manager 中注册 draining 跟踪（异步清理旧实例）
 	pm := pi.managerRef()
 	if pm != nil {
-		pm.trackDraining(pluginName, nil)
+		pm.stats.trackDraining(pluginName, nil)
 	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				logger.WithField("plugin", pluginName).Errorf("[plugin] Blue-green: old instance teardown panicked: %v", r)
 				if pm != nil {
-					pm.markDrainingDone(pluginName, fmt.Errorf("panic: %v", r))
+					pm.stats.markDrainingDone(pluginName, fmt.Errorf("panic: %v", r))
 				}
 			}
 		}()
@@ -209,10 +209,10 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		if teardownErr := pi.desc.callTeardown(tctx); teardownErr != nil {
 			logger.WithError(teardownErr).Warnf("[plugin] Blue-green: old instance teardown failed for %s", pluginName)
 			if pm != nil {
-				pm.markDrainingDone(pluginName, teardownErr)
+				pm.stats.markDrainingDone(pluginName, teardownErr)
 			}
 		} else if pm != nil {
-			pm.markDrainingDone(pluginName, nil)
+			pm.stats.markDrainingDone(pluginName, nil)
 		}
 	}()
 

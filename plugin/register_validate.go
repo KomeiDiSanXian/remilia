@@ -31,7 +31,7 @@ func checkDependencies(pm *Manager, desc *Descriptor, registeredList func() []st
 		spec := parseDepSpec(rawDep)
 		depInst, exists := pm.plugins[spec.name]
 		if !exists {
-			if pm.strictDeps {
+			if pm.config.strictDeps {
 				return &PluginError{
 					PluginName:        name,
 					Operation:         "register",
@@ -46,7 +46,7 @@ func checkDependencies(pm *Manager, desc *Descriptor, registeredList func() []st
 			continue
 		}
 		state := depInst.GetState()
-		if state != Loaded && pm.strictDeps {
+		if state != Loaded && pm.config.strictDeps {
 			return &PluginError{
 				PluginName:        name,
 				Operation:         "register",
