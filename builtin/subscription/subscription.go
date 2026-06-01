@@ -206,11 +206,6 @@ func newManager(opts managerOpts) *Manager {
 	}
 }
 
-// sched 返回当前 scheduler 插件实例。
-func (m *Manager) sched() *scheduler.Plugin {
-	return m.schedSvc
-}
-
 // RegisterSource 注册一个数据源。
 // 若已注册同名数据源，将覆盖旧的注册（方便重新加载场景）。
 func (m *Manager) RegisterSource(src Source) {
@@ -269,9 +264,10 @@ func (m *Manager) Subscribe(sourceName, param string, target Target) (string, er
 
 	// 若该 sourceKey 尚无轮询任务，启动一个
 	sourceKey := buildSourceKey(sourceName, param)
-	if _, exists := m.sourceJobs[sourceKey]; !exists && m.sched() != nil {
-		jobID := m.startPollJob(src, param, sourceKey)
-		m.sourceJobs[sourceKey] = jobID
+	if _, exists := m.sourceJobs[sourceKey]; !exists {
+		if jobID, ok := m.startPollJob(src, param, sourceKey); ok {
+			m.sourceJobs[sourceKey] = jobID
+		}
 	}
 
 	logger.Infof("[Subscription] %q subscribed to source=%q param=%q (id=%s)",
@@ -303,9 +299,7 @@ func (m *Manager) Unsubscribe(id string) error {
 	}
 	if !hasMore {
 		if jobID, exists := m.sourceJobs[sourceKey]; exists {
-			if m.sched() != nil {
-				m.sched().Remove(jobID)
-			}
+			m.schedSvc.Remove(jobID)
 			delete(m.sourceJobs, sourceKey)
 			delete(m.seen, sourceKey)
 		}
@@ -334,11 +328,14 @@ func (m *Manager) ListSubscriptions(chatID string) []Subscription {
 
 // startPollJob 向 scheduler 注册一个定时轮询任务。
 // 调用前必须持有 m.mu（写锁）。
-func (m *Manager) startPollJob(src Source, param, sourceKey string) scheduler.JobID {
+func (m *Manager) startPollJob(src Source, param, sourceKey string) (scheduler.JobID, bool) {
+	if m.schedSvc == nil {
+		return 0, false
+	}
 	jobName := "sub:" + sourceKey
-	return m.sched().EveryNamed(jobName, m.pollInterval, func() {
+	return m.schedSvc.EveryNamed(jobName, m.pollInterval, func() {
 		m.poll(src, param, sourceKey)
-	})
+	}), true
 }
 
 // poll 执行一次轮询，分发新内容给所有该 sourceKey 的订阅者。
@@ -565,9 +562,7 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 			// 停止所有轮询任务（scheduler 本身也会在 Teardown 时停止，此处为安全起见）
 			m.mu.Lock()
 			for sourceKey, jobID := range m.sourceJobs {
-				if m.sched() != nil {
-					m.sched().Remove(jobID)
-				}
+			m.schedSvc.Remove(jobID)
 				delete(m.sourceJobs, sourceKey)
 			}
 			m.mu.Unlock()

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -148,10 +149,7 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 }
 
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
-	if p.permSvc == nil {
-		return true
-	}
-	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
+	return permcheck.HasPermission(p.permSvc, ctx, perm)
 }
 
 // newHelpPluginInternal 创建帮助插件内部实例

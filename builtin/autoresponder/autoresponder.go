@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
@@ -382,10 +383,7 @@ func (p *Plugin) Middleware() eventctx.Middleware {
 }
 
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
-	if p.permSvc == nil {
-		return true
-	}
-	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
+	return permcheck.HasPermission(p.permSvc, ctx, perm)
 }
 
 func (p *Plugin) save() {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/builtin/auditlog"
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -52,16 +53,9 @@ func New() *plugin.Descriptor {
 }
 
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
-	if p.permSvc == nil {
-		return true
-	}
-	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
+	return permcheck.HasPermission(p.permSvc, ctx, perm)
 }
 
-// auditLog 返回当前 auditlog 插件实例。
-func (p *Plugin) auditLog() *auditlog.Plugin {
-	return p.auditLogSvc
-}
 
 func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	logsCmd := &command.Definition{
@@ -113,7 +107,7 @@ func (p *Plugin) handleSearch(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	query := strings.Join(args, " ")
-	entries := p.auditLog().Recent(50)
+	entries := p.auditLogSvc.Recent(50)
 
 	var results []auditlog.LogEntry
 	for _, e := range entries {
@@ -148,7 +142,7 @@ func (p *Plugin) handleUser(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 2 {
 		fmt.Sscanf(args[1], "%d", &n)
 	}
-	entries := p.auditLog().ByUser(userID, n)
+	entries := p.auditLogSvc.ByUser(userID, n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage(fmt.Sprintf("用户 %s 暂无操作记录", userID)))
 		return nil
@@ -172,7 +166,7 @@ func (p *Plugin) handleAction(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 2 {
 		fmt.Sscanf(args[1], "%d", &n)
 	}
-	entries := p.auditLog().ByAction(action, n)
+	entries := p.auditLogSvc.ByAction(action, n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage(fmt.Sprintf("暂无 %s 类型的操作记录", action)))
 		return nil
@@ -187,7 +181,7 @@ func (p *Plugin) handleAction(ctx *eventctx.Context, args []string) error {
 }
 
 func (p *Plugin) handleStats(ctx *eventctx.Context) error {
-	entries := p.auditLog().Recent(1000)
+	entries := p.auditLogSvc.Recent(1000)
 	total := len(entries)
 	if total == 0 {
 		ctx.Reply(platform.TextMessage("暂无日志记录"))
@@ -215,7 +209,7 @@ func (p *Plugin) handleRecent(ctx *eventctx.Context, args []string) error {
 	if len(args) >= 1 {
 		fmt.Sscanf(args[0], "%d", &n)
 	}
-	entries := p.auditLog().Recent(n)
+	entries := p.auditLogSvc.Recent(n)
 	if len(entries) == 0 {
 		ctx.Reply(platform.TextMessage("暂无日志记录"))
 		return nil

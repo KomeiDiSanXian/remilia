@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/builtin/permission/permcheck"
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -186,14 +187,11 @@ func (p *Plugin) showDebugHelp(ctx *eventctx.Context) error {
 }
 
 // checkPermission 检查权限
-func (p *Plugin) checkPermission(ctx *eventctx.Context, permission string) bool {
-	// 如果未设置权限插件，默认允许（开发模式）
+func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	if p.PermPlugin == nil {
 		return p.DevMode
 	}
-
-	userID := ctx.GetUserID()
-	return p.DevMode || p.PermPlugin.HasPermission(userID, permission) // 开发模式下允许所有权限，生产环境需要检查
+	return p.DevMode || permcheck.HasPermission(p.PermPlugin, ctx, perm)
 }
 
 // reply 发送消息（平台无关）

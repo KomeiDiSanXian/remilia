@@ -30,10 +30,7 @@ type Plugin struct {
 
 // perm 返回当前 permission 插件实例。
 func (p *Plugin) perm() *permission.Plugin {
-	if p.permSvc != nil {
-		return p.permSvc
-	}
-	return p.PermPlugin
+	return p.permSvc
 }
 
 // acl 返回当前 acl 插件实例。
@@ -491,10 +488,7 @@ func (p *Plugin) handleInfo(ctx *eventctx.Context) error {
 }
 
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
-	if p.perm() == nil {
-		return true
-	}
-	return p.perm().HasPermission(ctx.GetUserID(), perm)
+	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
