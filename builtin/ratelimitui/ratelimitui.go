@@ -38,9 +38,9 @@ const defaultAdminRole = "admin"
 
 // Plugin 限流状态查询插件
 type Plugin struct {
-	antispamSvc   *plugin.ServiceProxy[*antispam.Plugin]
-	cooldownSvc   *plugin.ServiceProxy[*cooldown.Plugin]
-	permissionSvc *plugin.ServiceProxy[*permission.Plugin]
+	antispamSvc   *antispam.Plugin
+	cooldownSvc   *cooldown.Plugin
+	permissionSvc *permission.Plugin
 	// 手动绑定直接指针，用于测试/非标准 Setup 流程
 	antispamDirect   *antispam.Plugin
 	cooldownDirect   *cooldown.Plugin
@@ -48,35 +48,26 @@ type Plugin struct {
 	setupCtx         *plugin.SetupContext
 }
 
-// antispam 返回当前 antispam 插件实例（防过期的延迟解析）。
+// antispam 返回当前 antispam 插件实例。
 func (p *Plugin) antispam() *antispam.Plugin {
 	if p.antispamSvc != nil {
-		a, _ := p.antispamSvc.Get()
-		if a != nil {
-			return a
-		}
+		return p.antispamSvc
 	}
 	return p.antispamDirect
 }
 
-// cooldownPlugin 返回当前 cooldown 插件实例（防过期的延迟解析）。
+// cooldownPlugin 返回当前 cooldown 插件实例。
 func (p *Plugin) cooldownPlugin() *cooldown.Plugin {
 	if p.cooldownSvc != nil {
-		c, _ := p.cooldownSvc.Get()
-		if c != nil {
-			return c
-		}
+		return p.cooldownSvc
 	}
 	return p.cooldownDirect
 }
 
-// permissionPlugin 返回当前 permission 插件实例（防过期的延迟解析）。
+// permissionPlugin 返回当前 permission 插件实例。
 func (p *Plugin) permissionPlugin() *permission.Plugin {
 	if p.permissionSvc != nil {
-		pp, _ := p.permissionSvc.Get()
-		if pp != nil {
-			return pp
-		}
+		return p.permissionSvc
 	}
 	return p.permissionDirect
 }

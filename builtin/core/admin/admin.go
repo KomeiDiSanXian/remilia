@@ -18,9 +18,9 @@ import (
 // Plugin 管理插件
 type Plugin struct {
 	PluginManager plugin.ManagerWriter // 管理写视图（通过 ctx.Admin 注入）
-	permSvc       *plugin.ServiceProxy[*permission.Plugin]
-	aclSvc        *plugin.ServiceProxy[*acl.Plugin]
-	vcSvc         *plugin.ServiceProxy[*verifycode.Plugin]
+	permSvc       *permission.Plugin
+	aclSvc        *acl.Plugin
+	vcSvc         *verifycode.Plugin
 	// 手动绑定直接指针，用于测试/非标准 Setup 流程
 	PermPlugin *permission.Plugin
 	AclPlugin  *acl.Plugin
@@ -28,35 +28,26 @@ type Plugin struct {
 	setupCtx   *plugin.SetupContext
 }
 
-// perm 返回当前 permission 插件实例（防过期的延迟解析）。
+// perm 返回当前 permission 插件实例。
 func (p *Plugin) perm() *permission.Plugin {
 	if p.permSvc != nil {
-		pp, _ := p.permSvc.Get()
-		if pp != nil {
-			return pp
-		}
+		return p.permSvc
 	}
 	return p.PermPlugin
 }
 
-// acl 返回当前 acl 插件实例（防过期的延迟解析）。
+// acl 返回当前 acl 插件实例。
 func (p *Plugin) aclPlugin() *acl.Plugin {
 	if p.aclSvc != nil {
-		a, _ := p.aclSvc.Get()
-		if a != nil {
-			return a
-		}
+		return p.aclSvc
 	}
 	return p.AclPlugin
 }
 
-// vc 返回当前 verifycode 插件实例（防过期的延迟解析）。
+// vc 返回当前 verifycode 插件实例。
 func (p *Plugin) vc() *verifycode.Plugin {
 	if p.vcSvc != nil {
-		v, _ := p.vcSvc.Get()
-		if v != nil {
-			return v
-		}
+		return p.vcSvc
 	}
 	return p.VcPlugin
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
-	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // ─── GORM 模型 ───────────────────────────────────────────────────────────────
@@ -41,16 +40,12 @@ type ACLEntryModel struct {
 
 // ─── 持久化方法 ───────────────────────────────────────────────────────────────
 
-func (p *Plugin) tryBindStorage(svc *plugin.ServiceProxy[*storage.Plugin]) {
+func (p *Plugin) tryBindStorage(svc *storage.Plugin) {
 	if svc == nil {
 		return
 	}
-	client, ok := svc.Get()
-	if !ok || client == nil {
-		return
-	}
 	p.storageSvc = svc
-	if err := client.AutoMigrate(
+	if err := svc.AutoMigrate(
 		&UserRoleModel{},
 		&UserPermissionModel{},
 		&ACLConfigModel{},
@@ -67,14 +62,10 @@ func (p *Plugin) loadFromDB() {
 	if p.storageSvc == nil {
 		return
 	}
-	client, ok := p.storageSvc.Get()
-	if !ok || client == nil {
-		return
-	}
 
 	// 加载用户角色
 	var roleModels []UserRoleModel
-	if err := client.Find(&roleModels); err == nil && len(roleModels) > 0 {
+	if err := p.storageSvc.Find(&roleModels); err == nil && len(roleModels) > 0 {
 		userRoles := make(map[string][]string)
 		for _, m := range roleModels {
 			userRoles[m.UserID] = append(userRoles[m.UserID], m.RoleName)
@@ -85,7 +76,7 @@ func (p *Plugin) loadFromDB() {
 
 	// 加载用户直接权限
 	var permModels []UserPermissionModel
-	if err := client.Find(&permModels); err == nil && len(permModels) > 0 {
+	if err := p.storageSvc.Find(&permModels); err == nil && len(permModels) > 0 {
 		for _, m := range permModels {
 			p.manager.GrantPermission(m.UserID, permission.Permission{Resource: m.Resource, Action: m.Action})
 		}
@@ -94,9 +85,9 @@ func (p *Plugin) loadFromDB() {
 
 	// 加载 ACL 配置
 	var aclCfg ACLConfigModel
-	if err := client.First(&aclCfg, "id = ?", 1); err == nil {
+	if err := p.storageSvc.First(&aclCfg, "id = ?", 1); err == nil {
 		var aclModels []ACLEntryModel
-		if err := client.Find(&aclModels); err == nil {
+			if err := p.storageSvc.Find(&aclModels); err == nil {
 			list := make(map[string]bool, len(aclModels))
 			notes := make(map[string]string, len(aclModels))
 			for _, m := range aclModels {
@@ -113,54 +104,50 @@ func (p *Plugin) saveToDB() error {
 	if p.storageSvc == nil {
 		return nil
 	}
-	client, ok := p.storageSvc.Get()
-	if !ok || client == nil {
-		return nil
-	}
 
 	// ── 用户角色 ──
-	if err := client.Where("1 = 1").Delete(&UserRoleModel{}); err != nil {
+	if err := p.storageSvc.Where("1 = 1").Delete(&UserRoleModel{}); err != nil {
 		return fmt.Errorf("permission persist: clear roles failed: %w", err)
 	}
 	userRoles := p.manager.ExportUserRoles()
 	for userID, roles := range userRoles {
 		for _, role := range roles {
 			m := UserRoleModel{UserID: userID, RoleName: role}
-			if err := client.Create(&m); err != nil {
+			if err := p.storageSvc.Create(&m); err != nil {
 				return fmt.Errorf("permission persist: insert role failed: %w", err)
 			}
 		}
 	}
 
 	// ── 用户直接权限 ──
-	if err := client.Where("1 = 1").Delete(&UserPermissionModel{}); err != nil {
+	if err := p.storageSvc.Where("1 = 1").Delete(&UserPermissionModel{}); err != nil {
 		return fmt.Errorf("permission persist: clear perms failed: %w", err)
 	}
 	userPerms := p.manager.ExportUserPerms()
 	for userID, perms := range userPerms {
 		for _, perm := range perms {
 			m := UserPermissionModel{UserID: userID, Resource: perm.Resource, Action: perm.Action}
-			if err := client.Create(&m); err != nil {
+			if err := p.storageSvc.Create(&m); err != nil {
 				return fmt.Errorf("permission persist: insert perm failed: %w", err)
 			}
 		}
 	}
 
 	// ── ACL ──
-	if err := client.Where("1 = 1").Delete(&ACLConfigModel{}); err != nil {
+	if err := p.storageSvc.Where("1 = 1").Delete(&ACLConfigModel{}); err != nil {
 		return fmt.Errorf("permission persist: clear acl config failed: %w", err)
 	}
-	if err := client.Where("1 = 1").Delete(&ACLEntryModel{}); err != nil {
+	if err := p.storageSvc.Where("1 = 1").Delete(&ACLEntryModel{}); err != nil {
 		return fmt.Errorf("permission persist: clear acl entries failed: %w", err)
 	}
 
 	aclMode, aclList, aclNotes := p.acl.ExportSnapshot()
-	if err := client.Create(&ACLConfigModel{ID: 1, Mode: aclMode}); err != nil {
+	if err := p.storageSvc.Create(&ACLConfigModel{ID: 1, Mode: aclMode}); err != nil {
 		return fmt.Errorf("permission persist: insert acl config failed: %w", err)
 	}
 	for userID := range aclList {
 		m := ACLEntryModel{UserID: userID, Note: aclNotes[userID]}
-		if err := client.Create(&m); err != nil {
+		if err := p.storageSvc.Create(&m); err != nil {
 			return fmt.Errorf("permission persist: insert acl entry failed: %w", err)
 		}
 	}

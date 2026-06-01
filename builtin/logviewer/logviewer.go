@@ -13,8 +13,8 @@ import (
 )
 
 type Plugin struct {
-	auditLogSvc *plugin.ServiceProxy[*auditlog.Plugin]
-	permSvc     *plugin.ServiceProxy[*permission.Plugin]
+	auditLogSvc *auditlog.Plugin
+	permSvc     *permission.Plugin
 }
 
 func New() *plugin.Descriptor {
@@ -55,20 +55,12 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	if p.permSvc == nil {
 		return true
 	}
-	pp, ok := p.permSvc.Get()
-	if !ok || pp == nil {
-		return true
-	}
-	return pp.HasPermission(ctx.GetUserID(), perm)
+	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
 }
 
-// auditLog 返回当前 auditlog 插件实例（防过期的延迟解析）。
+// auditLog 返回当前 auditlog 插件实例。
 func (p *Plugin) auditLog() *auditlog.Plugin {
-	if p.auditLogSvc == nil {
-		return nil
-	}
-	a, _ := p.auditLogSvc.Get()
-	return a
+	return p.auditLogSvc
 }
 
 func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {

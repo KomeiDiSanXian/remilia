@@ -80,7 +80,7 @@ type Plugin struct {
 	// 可通过 WithImageRender(false) 关闭，退回纯文字发送。
 	imageRender bool
 
-	permSvc *plugin.ServiceProxy[*permission.Plugin]
+	permSvc *permission.Plugin
 
 	// 缓存 — 每个条目独立维护过期时间
 	helpCache     map[string]cacheEntry[string]
@@ -151,11 +151,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	if p.permSvc == nil {
 		return true
 	}
-	pp, ok := p.permSvc.Get()
-	if !ok || pp == nil {
-		return true
-	}
-	return pp.HasPermission(ctx.GetUserID(), perm)
+	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
 }
 
 // newHelpPluginInternal 创建帮助插件内部实例

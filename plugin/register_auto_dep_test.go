@@ -246,8 +246,7 @@ func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
 		{
 			Name: "app",
 			Setup: func(ctx *SetupContext) (any, error) {
-				proxy := Service[*storageAPI](ctx)
-				v := proxy.Must()
+				v := Service[*storageAPI](ctx)
 				if v.DB != "mysql://localhost" {
 					t.Fatal("unexpected value")
 				}
@@ -273,8 +272,7 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 		{
 			Name: "app",
 			Setup: func(ctx *SetupContext) (any, error) {
-				proxy := Service[*cacheAPI](ctx)
-				v := proxy.Must()
+				v := Service[*cacheAPI](ctx)
 				if v.Addr != "redis:6379" {
 					t.Fatal("unexpected value")
 				}

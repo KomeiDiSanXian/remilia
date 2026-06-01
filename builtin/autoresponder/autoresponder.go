@@ -59,7 +59,7 @@ type Plugin struct {
 	kvPath      string
 	store       *kv.DB
 	prefix      string
-	permSvc     *plugin.ServiceProxy[*permission.Plugin]
+	permSvc     *permission.Plugin
 }
 
 type Option func(*Plugin)
@@ -385,11 +385,7 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	if p.permSvc == nil {
 		return true
 	}
-	pp, ok := p.permSvc.Get()
-	if !ok || pp == nil {
-		return true
-	}
-	return pp.HasPermission(ctx.GetUserID(), perm)
+	return p.permSvc.HasPermission(ctx.GetUserID(), perm)
 }
 
 func (p *Plugin) save() {

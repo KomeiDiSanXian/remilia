@@ -82,7 +82,7 @@ type Plugin struct {
 	manager         *permission.Manager
 	verificationMgr *VerificationManager
 	acl             *AccessControlList
-	storageSvc      *plugin.ServiceProxy[*storage.Plugin]
+	storageSvc      *storage.Plugin
 }
 
 // NewPlugin 创建权限插件 API 实例（用于测试或需要直接持有引用的场景）

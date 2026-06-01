@@ -144,7 +144,7 @@ type Plugin struct {
 	superUsers map[string]bool
 	opts       *options
 	cd         *cooldown.Plugin // 内置冷却插件，供 Middleware 使用
-	permSvc    *plugin.ServiceProxy[*permission.Plugin]
+	permSvc    *permission.Plugin
 }
 
 func newPlugin(o *options) *Plugin {
@@ -465,11 +465,7 @@ func (p *Plugin) hasAdminRole(ctx *eventctx.Context) bool {
 	if p.permSvc == nil {
 		return false
 	}
-	pp, ok := p.permSvc.Get()
-	if !ok || pp == nil {
-		return false
-	}
-	for _, role := range pp.GetUserRoles(ctx.GetUserID()) {
+	for _, role := range p.permSvc.GetUserRoles(ctx.GetUserID()) {
 		if role == "superadmin" || role == "admin" {
 			return true
 		}
@@ -481,11 +477,7 @@ func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
 	if p.permSvc == nil {
 		return false
 	}
-	pp, ok := p.permSvc.Get()
-	if !ok || pp == nil {
-		return false
-	}
-	return slices.Contains(pp.GetUserRoles(ctx.GetUserID()), "superadmin")
+	return slices.Contains(p.permSvc.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool {
@@ -900,16 +892,14 @@ func New(opts ...Option) *plugin.Descriptor {
 			}
 			// 尝试获取存储（可选依赖）
 			if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
-				if client, ok2 := svc.Get(); ok2 {
-					p.storage = client
-					ctx.Log.Info("Storage backend connected, plugin states will be persisted")
-					if !ctx.DryRun {
-						// 迁移表结构（含新增的 UserPluginState 表）
-						if err := p.storage.AutoMigrate(&GroupPluginState{}, &UserPluginState{}); err != nil {
-							ctx.Log.Warnf("Failed to migrate pluginctrl tables: %v", err)
-						} else {
-							p.loadFromDB()
-						}
+				p.storage = svc
+				ctx.Log.Info("Storage backend connected, plugin states will be persisted")
+				if !ctx.DryRun {
+					// 迁移表结构（含新增的 UserPluginState 表）
+					if err := p.storage.AutoMigrate(&GroupPluginState{}, &UserPluginState{}); err != nil {
+						ctx.Log.Warnf("Failed to migrate pluginctrl tables: %v", err)
+					} else {
+						p.loadFromDB()
 					}
 				}
 			} else {

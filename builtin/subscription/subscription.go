@@ -182,7 +182,7 @@ type Manager struct {
 	sourceJobs map[string]scheduler.JobID     // sourceKey -> scheduler job ID
 	seen       map[string]map[string]struct{} // sourceKey -> seen item IDs
 
-	schedSvc     *plugin.ServiceProxy[*scheduler.Plugin] // 防过期的服务代理
+	schedSvc     *scheduler.Plugin
 	dispatch     DispatchFunc
 	pollInterval time.Duration
 	store        *kv.DB // LevelDB 持久化存储
@@ -206,13 +206,9 @@ func newManager(opts managerOpts) *Manager {
 	}
 }
 
-// sched 返回当前 scheduler 插件实例（防过期的延迟解析）。
+// sched 返回当前 scheduler 插件实例。
 func (m *Manager) sched() *scheduler.Plugin {
-	if m.schedSvc == nil {
-		return nil
-	}
-	s, _ := m.schedSvc.Get()
-	return s
+	return m.schedSvc
 }
 
 // RegisterSource 注册一个数据源。

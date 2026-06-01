@@ -504,15 +504,33 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 		return fmt.Errorf("dependency resolution failed: %w", err)
 	}
 
-	// 逐一注册（使用 ctx 控制每个 Setup 的超时）
-	registered := make([]string, 0, len(sorted))
-	registeredInsts := make([]*Instance, 0, len(sorted))
-	for _, desc := range sorted {
-		if err := pm.registerSingle(ctx, desc); err != nil {
+	// Phase 1: 预注册（Lock #1 + Config I/O + Lock #2 + Setup）
+	// Lock #3 延期到 Phase 2 批量处理，减少锁争用
+	type regResult struct {
+		desc            *Descriptor
+		loadErr         error
+		trackedDeps     []string
+		trackedOptional []string
+	}
+	results := make([]regResult, len(sorted))
+	for i, desc := range sorted {
+		instance, loadErr, tdeps, topts := pm.registerPreSetup(ctx, desc)
+		results[i] = regResult{desc: desc, loadErr: loadErr, trackedDeps: tdeps, trackedOptional: topts}
+		if loadErr != nil {
+			// 清理失败插件的 Lock #2 残留（已存入 plugins 但无法继续）
+			pm.mu.Lock()
+			if pm.coordinator != nil {
+				pm.coordinator.RemoveGroup(desc.Name)
+			}
+			delete(pm.plugins, desc.Name)
+			pm.container.Remove(desc.Name)
+			pm.mu.Unlock()
+
 			if opts.atomic {
-				for i := len(registered) - 1; i >= 0; i-- {
-					if rollbackErr := pm.Unregister(context.Background(), registered[i]); rollbackErr != nil {
-						logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", registered[i])
+				// 回滚之前已注册的
+				for j := 0; j < i; j++ {
+					if rollbackErr := pm.Unregister(context.Background(), sorted[j].Name); rollbackErr != nil {
+						logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", sorted[j].Name)
 					}
 				}
 				pm.mu.RLock()
@@ -524,39 +542,68 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 				return &PluginError{
 					PluginName:        desc.Name,
 					Operation:         "register",
-					Cause:             err,
+					Cause:             loadErr,
 					RegisteredPlugins: existingNames,
 					Hint:              "all previously registered plugins in this batch have been rolled back",
 				}
 			}
-			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, err)
+			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, loadErr)
 		}
-		registered = append(registered, desc.Name)
-		if inst, ok := pm.Get(desc.Name); ok {
-			registeredInsts = append(registeredInsts, inst)
-		}
+		_ = instance
 	}
 
+	// Phase 2: 批量 Lock #3 — 依赖合并 + loadOrder + 容器注册
+	pm.mu.Lock()
+	var finalLoadErr error
+	var succeeded []string
+	for _, r := range results {
+		if r.loadErr != nil {
+			if pm.coordinator != nil {
+				pm.coordinator.RemoveGroup(r.desc.Name)
+			}
+			delete(pm.plugins, r.desc.Name)
+			pm.container.Remove(r.desc.Name)
+			finalLoadErr = r.loadErr
+			continue
+		}
+		strictViolation := pm.finalizeRegistration(r.desc, r.trackedDeps, r.trackedOptional)
+		if strictViolation {
+			// 严格模式下记录错误但不在此回滚（batch 模式下不启用 strictDeps）
+			logger.Warnf("[PluginManager] Plugin %s has undeclared dependencies (strict mode ignored in batch)", r.desc.Name)
+		}
+		succeeded = append(succeeded, r.desc.Name)
+	}
+	pm.mu.Unlock()
+
+	// 通知在锁外进行（notifyLoaded 会获取 RLock）
+	for _, name := range succeeded {
+		pm.notifyLoaded(name)
+	}
+
+	if finalLoadErr != nil {
+		return finalLoadErr
+	}
+
+	// 修正 loadOrder
+	registeredInsts := make([]*Instance, 0, len(results))
+	for _, r := range results {
+		if r.loadErr == nil {
+			if inst, ok := pm.Get(r.desc.Name); ok {
+				registeredInsts = append(registeredInsts, inst)
+			}
+		}
+	}
 	pm.rectifyLoadOrder(registeredInsts)
 	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(sorted))
 	return nil
 }
 
-// registerSingle 注册单个插件（三段锁策略）。
-//
-// ctx 用于控制 Setup 的超时，当 ctx 到期时返回 ctx.Err()。
-//
-// 锁策略（三段式，最小化锁持有时间）：
-//
-//	Lock #1: 重复检查 + 依赖校验 + 版本约束
-//	(解锁)  ←  I/O：NewPluginConfigFromProvider / validateConfigSchema
-//	Lock #2: 再次重复检查 + pm.plugins[name] = instance
-//	(解锁)
-//	instance.load(ctx)  ← 已在锁外
-//	Lock #3: 错误清理 / 依赖合并 / loadOrder / container.Register
-func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
+// registerPreSetup 执行三段锁的前两段：Lock #1（验证）+ Lock #2（存储）+ Setup。
+// 返回 instance、loadErr 和追踪的依赖列表，供最终化阶段处理。
+// 调用方负责在 Setup 后调用 finalizeRegistration 或 registerSingle 的 Lock #3。
+func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (instance *Instance, loadErr error, trackedDeps, trackedOptional []string) {
 	if err := validateDescriptor(desc); err != nil {
-		return err
+		return nil, err, nil, nil
 	}
 
 	name := desc.Name
@@ -566,10 +613,8 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		logger.Warnf("[PluginManager] Plugin %s already registered", name)
-		return errutil.ErrPluginAlreadyExists
+		return nil, errutil.ErrPluginAlreadyExists, nil, nil
 	}
-
 
 	registeredList := func() []string {
 		names := make([]string, 0, len(pm.plugins))
@@ -581,24 +626,22 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 
 	if err := checkDependencies(pm, desc, registeredList); err != nil {
 		pm.mu.Unlock()
-		return err
+		return nil, err, nil, nil
 	}
 
 	if err := validateVersionConstraints(pm, desc); err != nil {
 		pm.mu.Unlock()
-		return err
+		return nil, err, nil, nil
 	}
 
 	pm.ensureContainerInitialized()
 
-	// 在锁内读取 configProvider，移出锁外调用（I/O 可能阻塞）
 	cp := pm.config.configProvider
 
-	// Reload/Strategy 检测（仅读 desc，不需要锁，但已在锁内顺手完成）
 	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
 		pm.mu.Unlock()
-		return fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
-			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy)
+		return nil, fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
+			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy), nil, nil
 	}
 
 	pm.mu.Unlock()
@@ -611,11 +654,11 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 	}
 
 	if err := validateConfigSchema(name, desc, config); err != nil {
-		return err
+		return nil, err, nil, nil
 	}
 
-	// ========== 无锁区：实例 + SetupContext 构建（纯内存操作）==========
-	instance := &Instance{
+	// ========== 无锁区：实例 + SetupContext 构建 ==========
+	instance = &Instance{
 		desc:     desc,
 		state:    Unloaded,
 		matchers: make([]*engine.Matcher, 0),
@@ -648,19 +691,25 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 
 	// ========== Lock #2: 存入 plugins 表（短）==========
 	pm.mu.Lock()
-	// 二次重复检查：Lock#1~Lock#2 窗口期可能已被其他 Register 抢占注册同名插件
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		return errutil.ErrPluginAlreadyExists
+		return nil, errutil.ErrPluginAlreadyExists, nil, nil
 	}
 	pm.plugins[name] = instance
 	pm.mu.Unlock()
 	// ========== Lock #2 结束 ==========
 
 	// ========== 无锁区：执行 Setup ==========
-	loadErr := instance.load(ctx)
+	loadErr = instance.load(ctx)
 
-	// ========== Lock #3: 最终化 ==========
+	return instance, loadErr, setupCtx.getTrackedDependencies(), setupCtx.getTrackedOptionalDependencies()
+}
+
+// registerPostSetupSingle Lock #3：在单个锁区间内完成依赖合并、loadOrder 更新、容器注册和通知。
+// 适用于单插件注册（非批量路径直接调用的 finalize）。
+func (pm *Manager) registerPostSetupSingle(desc *Descriptor, loadErr error, trackedDeps, trackedOptional []string) error {
+	name := desc.Name
+
 	pm.mu.Lock()
 
 	if loadErr != nil {
@@ -675,8 +724,45 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 		return loadErr
 	}
 
-	trackedDeps := setupCtx.getTrackedDependencies()
-	trackedOptional := setupCtx.getTrackedOptionalDependencies()
+	strictViolation := pm.finalizeRegistration(desc, trackedDeps, trackedOptional)
+	pm.mu.Unlock()
+
+	if strictViolation {
+		// 严格模式：撤销注册
+		if pm.coordinator != nil {
+			pm.coordinator.RemoveGroup(name)
+		}
+		if inst, ok := pm.plugins[name]; ok {
+			if err := inst.unload(context.Background(), pm.coordinator); err != nil {
+				logger.WithError(err).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+			}
+		}
+		pm.mu.Lock()
+		delete(pm.plugins, name)
+		pm.container.Remove(name)
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %q uses undeclared dependencies; "+
+			"add them to Deps or disable strict mode via manager.SetStrictDeps(false)", name)
+	}
+
+	pm.notifyLoaded(name)
+	return nil
+}
+
+// registerSingle 注册单个插件（三段锁策略）。
+func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
+	instance, loadErr, trackedDeps, trackedOptional := pm.registerPreSetup(ctx, desc)
+	if instance == nil && loadErr != nil {
+		return loadErr
+	}
+	return pm.registerPostSetupSingle(desc, loadErr, trackedDeps, trackedOptional)
+}
+
+// finalizeRegistration 在锁内执行 Lock #3 逻辑：依赖合并、loadOrder、容器注册。
+// 返回 true 表示存在未声明的必需依赖（strictDeps 模式下应回滚）。
+// 调用方须持有 pm.mu。
+func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOptional []string) (strictViolation bool) {
+	name := desc.Name
 
 	allTracked := make(map[string]bool, len(trackedDeps)+len(trackedOptional))
 	for _, d := range trackedDeps {
@@ -704,19 +790,7 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 
 		if len(undeclaredAll) > 0 {
 			if pm.config.strictDeps {
-				pm.mu.Unlock()
-				if teardownErr := instance.unload(context.Background(), pm.coordinator); teardownErr != nil {
-					logger.WithError(teardownErr).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
-				}
-				pm.mu.Lock()
-				delete(pm.plugins, name)
-				pm.container.Remove(name)
-				pm.mu.Unlock()
-				return fmt.Errorf(
-					"plugin %q uses undeclared dependencies %v (declared: %v); "+
-						"add them to Deps or disable strict mode via manager.SetStrictDeps(false)",
-					name, undeclaredAll, desc.Deps,
-				)
+				return true // strictDeps 违反，由调用方决定回滚
 			}
 			logger.WithFields(logger.Fields{
 				"plugin":          name,
@@ -737,23 +811,23 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 			mergedDeps = append(mergedDeps, undeclaredRequired...)
 			newDesc := *desc
 			newDesc.Deps = mergedDeps
-			instance.desc = &newDesc
-			instance.depsModified = true
+			if inst, ok := pm.plugins[name]; ok {
+				inst.desc = &newDesc
+				inst.depsModified = true
+			}
 		}
 	}
 
 	pm.loadOrder = append(pm.loadOrder, name)
 
-	if !pm.container.Has(name) {
-		pm.container.Register(name, instance)
+	if inst, ok := pm.plugins[name]; ok {
+		if !pm.container.Has(name) {
+			pm.container.Register(name, inst)
+		}
 	}
 
-	pm.mu.Unlock()
-	// ========== Lock #3 结束 ==========
-
 	logger.Infof("[PluginManager] Plugin %s registered", name)
-	pm.notifyLoaded(name)
-	return nil
+	return false
 }
 
 // --- 生命周期通知委托 ---

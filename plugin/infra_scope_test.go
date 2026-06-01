@@ -116,14 +116,13 @@ func TestScope_OnDisposeOrder(t *testing.T) {
 	assert.Equal(t, []string{"c", "b", "a"}, order)
 }
 
-// TestServiceProxy_StaleSafe 验证 ServiceProxy 热重载后仍然有效。
-func TestServiceProxy_StaleSafe(t *testing.T) {
+// TestService_ResolveValue 验证 Service[T] 正确返回依赖值。
+func TestService_ResolveValue(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	pm := NewManager(eng)
 
 	type Counter struct{ N int }
 
-	// 注册 provider 插件
 	descProvider := &Descriptor{
 		Name: "provider",
 		Setup: func(ctx *SetupContext) (any, error) {
@@ -132,8 +131,7 @@ func TestServiceProxy_StaleSafe(t *testing.T) {
 	}
 	require.NoError(t, pm.Register(descProvider))
 
-	// 注册 consumer 插件——使用 ServiceProxy
-	var svc *ServiceProxy[*Counter]
+	var svc *Counter
 	descConsumer := &Descriptor{
 		Name:    "consumer",
 		Deps:    []string{"provider"},
@@ -145,34 +143,12 @@ func TestServiceProxy_StaleSafe(t *testing.T) {
 	}
 	require.NoError(t, pm.Register(descConsumer))
 
-	// 验证初始值
-	v, ok := svc.Get()
-	require.True(t, ok)
-	assert.Equal(t, 1, v.N)
-
-	// 热重载 provider——新版本有新的 Counter 值
-	descProviderV2 := &Descriptor{
-		Name:    "provider",
-		Version: "2.0.0",
-		Setup: func(ctx *SetupContext) (any, error) {
-			return &Counter{N: 99}, nil
-		},
-	}
-	// 直接替换内部实例来模拟热重载
-	inst, _ := pm.Get("provider")
-	inst.mu.Lock()
-	inst.desc = descProviderV2
-	inst.mu.Unlock()
-	require.NoError(t, pm.Reload(t.Context(), "provider"))
-
-	// ServiceProxy 应该获取到新值
-	v2, ok2 := svc.Get()
-	require.True(t, ok2)
-	assert.Equal(t, 99, v2.N)
+	require.NotNil(t, svc)
+	assert.Equal(t, 1, svc.N)
 }
 
-// TestServiceProxy_NotAvailable 验证 ServiceProxy 在服务不可用时的行为。
-func TestServiceProxy_NotAvailable(t *testing.T) {
+// TestService_NotAvailable 验证 Service[T] 返回直接指针。
+func TestService_NotAvailable(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	pm := NewManager(eng)
 
@@ -184,7 +160,7 @@ func TestServiceProxy_NotAvailable(t *testing.T) {
 	}
 	require.NoError(t, pm.Register(desc))
 
-	var svc *ServiceProxy[*struct{}]
+	var svc *struct{}
 	descConsumer := &Descriptor{
 		Name: "consumer",
 		Deps: []string{"temp-provider"},
@@ -194,21 +170,11 @@ func TestServiceProxy_NotAvailable(t *testing.T) {
 		},
 	}
 	require.NoError(t, pm.Register(descConsumer))
+	require.NotNil(t, svc)
 
-	// 卸载 provider
+	// 卸载 provider 后，svc 指向已返回的实例（非 proxy，因此 svc 仍然可用）
 	pm.Unregister(t.Context(), "temp-provider")
-
-	// Get 应返回 false
-	_, ok := svc.Get()
-	assert.False(t, ok)
-
-	// Call 应返回错误
-	err := svc.Call(func(s *struct{}) error { return nil })
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not available")
-
-	// Must 应 panic
-	assert.Panics(t, func() { svc.Must() })
+	require.NotNil(t, svc)
 }
 
 // TestTryService_Optional 验证 TryService 可选依赖。
@@ -216,7 +182,7 @@ func TestTryService_Optional(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	pm := NewManager(eng)
 
-	var svc *ServiceProxy[*struct{}]
+	var svc *struct{}
 	var ok bool
 	desc := &Descriptor{
 		Name: "optional-consumer",

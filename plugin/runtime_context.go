@@ -112,8 +112,8 @@ type SetupContext struct {
 
 // ExportAs 将插件 API 对象以指定名称导出到容器。
 //
-// Setup 直接 return api, nil 即可，框架会自动以插件名为 key 注入容器。
-// 当需要以自定义 key（不同于插件名）导出时，可手动调用此方法（如配合 [ExportIface] 以接口类型额外导出）。
+// Deprecated: 直接 return api, nil 即可，框架会自动以插件名为 key 注入容器。
+// 如需按接口导出，使用 ExportIface。
 func (ctx *SetupContext) ExportAs(name string, api any) {
 	if ctx.container != nil {
 		ctx.container.Register(name, api)

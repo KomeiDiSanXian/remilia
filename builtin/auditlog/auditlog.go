@@ -49,7 +49,7 @@ type Plugin struct {
 	entries    []LogEntry
 	nextID     int64
 	Engine     engine.Reader
-	storageSvc *plugin.ServiceProxy[storage.Client]
+	storageSvc storage.Client
 }
 
 type Option func(*Plugin)
@@ -94,16 +94,14 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			p.Engine = ctx.Info.Coordinator()
 
 			if !ctx.DryRun {
-				if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
-					p.storageSvc = svc
-					if client, ok := svc.Get(); ok && client != nil {
-						if err := client.AutoMigrate(&LogEntryModel{}); err != nil {
-							ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)
-						} else {
-							p.loadFromDB()
-						}
-					}
+			if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
+				p.storageSvc = svc
+				if err := svc.AutoMigrate(&LogEntryModel{}); err != nil {
+					ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)
+				} else {
+					p.loadFromDB()
 				}
+			}
 			}
 
 			return p, nil
@@ -179,11 +177,7 @@ func (p *Plugin) insertToDB(model LogEntryModel) {
 	if p.storageSvc == nil {
 		return
 	}
-	client, ok := p.storageSvc.Get()
-	if !ok || client == nil {
-		return
-	}
-	if err := client.Create(&model); err != nil {
+	if err := p.storageSvc.Create(&model); err != nil {
 		logger.WithError(err).Warn("[AuditLog] Failed to write entry to DB")
 	}
 }
@@ -268,17 +262,13 @@ func (p *Plugin) loadFromDB() {
 	if p.storageSvc == nil {
 		return
 	}
-	client, ok := p.storageSvc.Get()
-	if !ok || client == nil {
-		return
-	}
 	// 尝试获取具体 storage.Plugin 类型以使用链式查询
 	type pluginClient interface {
 		Order(value any) *storage.Plugin
 		Limit(limit int) *storage.Plugin
 		Find(dest any, conds ...any) error
 	}
-	pc, ok2 := client.(pluginClient)
+	pc, ok2 := p.storageSvc.(pluginClient)
 	if ok2 {
 		var models []LogEntryModel
 		if err := pc.Order("id DESC").Limit(p.cfg.MaxMemoryEntries).Find(&models); err != nil {
@@ -288,7 +278,7 @@ func (p *Plugin) loadFromDB() {
 		return
 	}
 	var models []LogEntryModel
-	if err := client.Find(&models); err != nil {
+	if err := p.storageSvc.Find(&models); err != nil {
 		return
 	}
 	p.loadModels(models)
