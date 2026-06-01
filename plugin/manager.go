@@ -87,14 +87,6 @@ func NewManagerWithEventBusOptions(coordinator engine.PluginCoordinator, ebOpts 
 	return pm
 }
 
-// --- 控制器访问 ---
-
-// Lifecycle 返回插件生命周期控制器。
-func (pm *Manager) Lifecycle() *lifecycleController { return pm.lifecycle }
-
-// Config 返回插件配置控制器。
-func (pm *Manager) Config() *configController { return pm.config }
-
 // --- 快捷委托方法（保持外部 API 不变）---
 
 func (pm *Manager) Coordinator() engine.PluginCoordinator { return pm.coordinator }
@@ -405,48 +397,55 @@ func (pm *Manager) GetEventBus() EventBus {
 
 // Register 注册单个插件。
 //
-// 可使用 RegisterOption 控制行为：
-//   - WithInferDeps(): 使用 DryRun 自动推断依赖（等价于旧 RegisterMultipleSmart）
-//   - WithAtomic(): 失败时自动逆序回滚
+//	pm.Register(&Descriptor{Name: "help", Setup: fn})
 //
-// 当传入多个 Descriptor 时，进行批量注册：
-//   - 默认内部拓扑排序后逐一注册（等价于旧 RegisterMultiple）
-//   - WithAtomic() → 失败回滚（等价于旧 RegisterMultipleAtomic）
-//   - WithInferDeps() → DryRun 推断后注册（等价于旧 RegisterMultipleSmart）
-func (pm *Manager) Register(first *Descriptor, rest ...*Descriptor) error {
-	all := append([]*Descriptor{first}, rest...)
-	return pm.registerWithOptions(all, registerOptions{})
+// 可使用 RegisterOption 控制行为（仅批量注册生效）：
+//
+//	pm.RegisterBatch(ctx, descs, WithAtomic())
+//	pm.RegisterBatch(ctx, descs, WithInferDeps())
+func (pm *Manager) Register(desc *Descriptor) error {
+	return pm.registerWithOptions(context.Background(), []*Descriptor{desc}, registerOptions{})
+}
+
+// RegisterBatch 批量注册多个插件，自动处理依赖顺序。
+//
+// ctx 用于控制 Setup 的超时。
+// opts 可选，支持 WithAtomic（失败回滚）和 WithInferDeps（DryRun 推断依赖）。
+//
+//	pm.RegisterBatch(ctx, []*plugin.Descriptor{help.New(), storage.New()})
+//	pm.RegisterBatch(ctx, descs, plugin.WithAtomic(), plugin.WithInferDeps())
+func (pm *Manager) RegisterBatch(ctx context.Context, descs []*Descriptor, opts ...RegisterOption) error {
+	o := registerOptions{}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return pm.registerWithOptions(ctx, descs, o)
 }
 
 // RegisterMultiple 批量注册多个插件，自动处理依赖顺序。
 //
-// 拓扑排序基于声明 Deps + OptionalDeps。Setup 中发现的未声明依赖（通过 COW 合并）
-// 会在所有插件注册完成后由 rectifyLoadOrder 修正 loadOrder（不影响 Setup 顺序）。
-//
-// Deprecated: 使用 Register(desc1, desc2, ...) 替代。
+// Deprecated: 使用 RegisterBatch(ctx, descs) 替代。
 func (pm *Manager) RegisterMultiple(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(descriptors, registerOptions{})
+	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{})
 }
 
 // RegisterMultipleAtomic 原子批量注册：任意插件失败时，自动逆序回滚已注册的插件。
 //
-// Deprecated: 使用 Register(desc1, desc2, ..., WithAtomic()) 替代。
+// Deprecated: 使用 RegisterBatch(ctx, descs, WithAtomic()) 替代。
 func (pm *Manager) RegisterMultipleAtomic(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(descriptors, registerOptions{atomic: true})
+	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{atomic: true})
 }
 
 // RegisterMultipleSmart 智能批量注册：自动推断依赖关系（无需手动声明 Deps）。
 //
-// Deprecated: 使用 Register(desc1, desc2, ..., WithInferDeps()) 替代。
+// Deprecated: 使用 RegisterBatch(ctx, descs, WithInferDeps()) 替代。
 func (pm *Manager) RegisterMultipleSmart(descriptors []*Descriptor) error {
-	return pm.registerWithOptions(descriptors, registerOptions{inferDeps: true})
+	return pm.registerWithOptions(context.Background(), descriptors, registerOptions{inferDeps: true})
 }
 
-// ValidateDependencies 验证一组插件的依赖关系（不注册）
-//
-// Deprecated: 将直接使用 topologicalSort 验证。
+// ValidateDependencies 验证一组插件的依赖关系（不注册）。
 func (pm *Manager) ValidateDependencies(descriptors []*Descriptor) error {
-	_, err := pm.topologicalSort(descriptors)
+	_, err := pm.TopologicalSort(descriptors)
 	return err
 }
 
@@ -470,7 +469,8 @@ func WithInferDeps() RegisterOption {
 }
 
 // registerWithOptions 内部统一注册入口。
-func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerOptions) error {
+// ctx 传递到 registerSingle 用于 Setup 超时控制。
+func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descriptor, opts registerOptions) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -491,7 +491,7 @@ func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerO
 		if err := pm.checkCrossBatchCyclicDependency(descriptors, descMap); err != nil {
 			return err
 		}
-		return pm.registerSingle(desc)
+		return pm.registerSingle(ctx, desc)
 	}
 
 	for i, desc := range descriptors {
@@ -517,7 +517,7 @@ func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerO
 	}
 
 	// 拓扑排序
-	sorted, err := pm.topologicalSort(descriptors)
+	sorted, err := pm.TopologicalSort(descriptors)
 	if err != nil {
 		if opts.inferDeps {
 			return err // 错误信息已包含循环依赖提示
@@ -525,11 +525,11 @@ func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerO
 		return fmt.Errorf("dependency resolution failed: %w", err)
 	}
 
-	// 逐一注册
+	// 逐一注册（使用 ctx 控制每个 Setup 的超时）
 	registered := make([]string, 0, len(sorted))
 	registeredInsts := make([]*Instance, 0, len(sorted))
 	for _, desc := range sorted {
-		if err := pm.registerSingle(desc); err != nil {
+		if err := pm.registerSingle(ctx, desc); err != nil {
 			if opts.atomic {
 				for i := len(registered) - 1; i >= 0; i-- {
 					if rollbackErr := pm.Unregister(context.Background(), registered[i]); rollbackErr != nil {
@@ -565,15 +565,17 @@ func (pm *Manager) registerWithOptions(descriptors []*Descriptor, opts registerO
 
 // registerSingle 注册单个插件（三段锁策略）。
 //
+// ctx 用于控制 Setup 的超时，当 ctx 到期时返回 ctx.Err()。
+//
 // 锁策略（三段式，最小化锁持有时间）：
 //
 //	Lock #1: 重复检查 + 依赖校验 + 版本约束
 //	(解锁)  ←  I/O：NewPluginConfigFromProvider / validateConfigSchema
 //	Lock #2: 再次重复检查 + pm.plugins[name] = instance
 //	(解锁)
-//	instance.load()  ← 已在锁外
+//	instance.load(ctx)  ← 已在锁外
 //	Lock #3: 错误清理 / 依赖合并 / loadOrder / container.Register
-func (pm *Manager) registerSingle(desc *Descriptor) error {
+func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 	if err := validateDescriptor(desc); err != nil {
 		return err
 	}
@@ -677,7 +679,7 @@ func (pm *Manager) registerSingle(desc *Descriptor) error {
 	// ========== Lock #2 结束 ==========
 
 	// ========== 无锁区：执行 Setup ==========
-	loadErr := instance.load(context.Background())
+	loadErr := instance.load(ctx)
 
 	// ========== Lock #3: 最终化 ==========
 	pm.mu.Lock()

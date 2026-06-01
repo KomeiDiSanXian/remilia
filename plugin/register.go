@@ -328,8 +328,8 @@ func (pm *Manager) rectifyLoadOrder(instances []*Instance) {
 	}
 }
 
-// topologicalSort 使用 Kahn 算法进行拓扑排序，检测循环依赖
-func (pm *Manager) topologicalSort(descriptors []*Descriptor) ([]*Descriptor, error) {
+// TopologicalSort 使用 Kahn 算法进行拓扑排序，检测循环依赖
+func (pm *Manager) TopologicalSort(descriptors []*Descriptor) ([]*Descriptor, error) {
 	descMap := make(map[string]*Descriptor)
 	for _, desc := range descriptors {
 		if _, exists := descMap[desc.Name]; exists {
