@@ -104,6 +104,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		logger.WithError(err).Fatal("[bot] Failed to register plugins")
 	}
 	logger.Infof("[bot] %d plugins loaded", pm.Count())
+	pm.FreezeContainer()
 
 	eng.Use(sp.Middleware())
 	if ar, ok := pm.GetContainer().Get("auditlog"); ok {
