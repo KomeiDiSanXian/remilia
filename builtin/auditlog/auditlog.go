@@ -1,13 +1,16 @@
 package auditlog
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -94,14 +97,14 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			p.Engine = ctx.Info.Coordinator()
 
 			if !ctx.DryRun {
-			if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
-				p.storageSvc = svc
-				if err := svc.AutoMigrate(&LogEntryModel{}); err != nil {
-					ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)
-				} else {
-					p.loadFromDB()
+				if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
+					p.storageSvc = svc
+					if err := svc.AutoMigrate(&LogEntryModel{}); err != nil {
+						ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)
+					} else {
+						p.loadFromDB()
+					}
 				}
-			}
 			}
 
 			return p, nil
@@ -256,6 +259,93 @@ func (p *Plugin) Count() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return len(p.entries)
+}
+
+// ListTools 返回可供 AI 调用的工具集。
+func (p *Plugin) ListTools() []ai.Tool {
+	return []ai.Tool{
+		{
+			Name:        "audit_log_recent",
+			Description: "查询最近的审计日志条目。返回最近 N 条操作记录的用户、操作类型和内容。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"count": {Type: "string", Description: "返回条数，默认 10，最大 50"},
+				},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				n := 10
+				if v, ok := args["count"]; ok {
+					fmt.Sscanf(fmt.Sprint(v), "%d", &n)
+				}
+				if n > 50 {
+					n = 50
+				}
+				entries := p.Recent(n)
+				if len(entries) == 0 {
+					return "暂无审计日志", nil
+				}
+				var b strings.Builder
+				b.WriteString("**最近操作：**\n")
+				for _, e := range entries {
+					b.WriteString(fmt.Sprintf("- [%s] %s 执行了 `%s`", e.Timestamp.Format("15:04"), e.UserID, e.Action))
+					if e.Content != "" {
+						b.WriteString(fmt.Sprintf("：%s", truncateText(e.Content, 60)))
+					}
+					b.WriteString("\n")
+				}
+				return b.String(), nil
+			},
+		},
+		{
+			Name:        "audit_log_search",
+			Description: "搜索审计日志中指定用户的操作记录。返回最近 N 条该用户的操作。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"user_id": {Type: "string", Description: "用户 ID"},
+					"count":   {Type: "string", Description: "返回条数，默认 10，最大 50"},
+				},
+				Required: []string{"user_id"},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				userID, _ := args["user_id"].(string)
+				if userID == "" {
+					return "请提供 user_id", nil
+				}
+				n := 10
+				if v, ok := args["count"]; ok {
+					fmt.Sscanf(fmt.Sprint(v), "%d", &n)
+				}
+				if n > 50 {
+					n = 50
+				}
+				entries := p.ByUser(userID, n)
+				if len(entries) == 0 {
+					return fmt.Sprintf("用户 %s 暂无操作记录", userID), nil
+				}
+				var b strings.Builder
+				b.WriteString(fmt.Sprintf("**用户 %s 最近操作：**\n", userID))
+				for _, e := range entries {
+					b.WriteString(fmt.Sprintf("- [%s] `%s`", e.Timestamp.Format("15:04"), e.Action))
+					if e.Content != "" {
+						b.WriteString(fmt.Sprintf("：%s", truncateText(e.Content, 60)))
+					}
+					b.WriteString("\n")
+				}
+				return b.String(), nil
+			},
+		},
+	}
+}
+
+// truncateText 截断文本到指定长度。
+func truncateText(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 func (p *Plugin) loadFromDB() {

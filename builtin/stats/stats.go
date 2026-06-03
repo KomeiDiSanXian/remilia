@@ -34,6 +34,7 @@ package stats
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -266,6 +268,68 @@ func (p *Plugin) ActiveUsers(window TimeWindow) []UserStat {
 // TotalMessages 返回总消息数
 func (p *Plugin) TotalMessages() int64 {
 	return p.totalMessages.Load()
+}
+
+// ListTools 返回可供 AI 调用的工具集。
+func (p *Plugin) ListTools() []ai.Tool {
+	return []ai.Tool{
+		{
+			Name:        "stats_top_commands",
+			Description: "返回调用次数最多的 N 个命令及其调用次数。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"count": {Type: "string", Description: "返回条数，默认 10"},
+				},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				n := 10
+				if v, ok := args["count"]; ok {
+					fmt.Sscanf(fmt.Sprint(v), "%d", &n)
+				}
+				stats := p.TopCommands(n)
+				if len(stats) == 0 {
+					return "暂无命令统计数据", nil
+				}
+				var b strings.Builder
+				b.WriteString("**命令调用排行：**\n")
+				for i, s := range stats {
+					b.WriteString(fmt.Sprintf("%d. `%s` — %d 次\n", i+1, s.Command, s.Count))
+				}
+				return b.String(), nil
+			},
+		},
+		{
+			Name:        "stats_command_count",
+			Description: "查询指定命令的累计调用次数。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"command": {Type: "string", Description: "命令名称，如 /ping"},
+				},
+				Required: []string{"command"},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				cmd, _ := args["command"].(string)
+				if cmd == "" {
+					return "请提供命令名称", nil
+				}
+				count := p.CommandCount(cmd)
+				return fmt.Sprintf("命令 `%s` 已被调用 %d 次", cmd, count), nil
+			},
+		},
+		{
+			Name:        "stats_total_messages",
+			Description: "查询 bot 处理的总消息数。",
+			Parameters: ai.ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ai.ToolParamSchema{},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				return fmt.Sprintf("bot 共处理了 %d 条消息", p.TotalMessages()), nil
+			},
+		},
+	}
 }
 
 // Reset 重置所有统计数据

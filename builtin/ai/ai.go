@@ -347,6 +347,25 @@ func (p *Plugin) RegisterToolProvider(tp ToolProvider) {
 	}
 }
 
+// DiscoverToolProviders 扫描插件管理器中所有已注册的插件服务，
+// 自动发现实现了 [ToolProvider] 接口的插件并注册其工具。
+// 应在 [plugin.Manager.FreezeContainer] 之后调用。
+func (p *Plugin) DiscoverToolProviders(mgr *plugin.Manager) {
+	for _, name := range mgr.List() {
+		svc, ok := mgr.GetContainer().Get(name)
+		if !ok || svc == nil {
+			continue
+		}
+		tp, ok := svc.(ToolProvider)
+		if !ok {
+			continue
+		}
+		p.RegisterToolProvider(tp)
+	}
+}
+
+// truncateText 截断文本到指定长度，超过时末尾添加 "..."
+
 // isCommandSafeForAI 判断命令是否能安全地暴露给 AI。
 //
 // 安全条件（全部满足）：
@@ -792,7 +811,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 //   - 404: 模型名称错误或 API 地址不对
 //   - 429: 速率限制
 //   - timeout / context deadline: 请求超时（可检查网络或增大 timeout）
-//   其他: 显示原始错误
+//     其他: 显示原始错误
 func formatAIError(err error) string {
 	msg := err.Error()
 	switch {
@@ -851,11 +870,12 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	// 回退：占位结果（工具无对应命令或捕获失败）
+	callerCtx := WithCallerInfo(toolCtx, ctx.GetSenderInfo())
 	done := make(chan struct{}, 1)
 	var result string
 	var execErr error
 	go func() {
-		result, execErr = tool.Execute(toolCtx, tc.Arguments)
+		result, execErr = tool.Execute(callerCtx, tc.Arguments)
 		close(done)
 	}()
 	select {
@@ -896,11 +916,14 @@ func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) 
 	return cs.captured
 }
 
-// cleanMessage 清洗消息内容，去除 @ 提及。
-// 注意：/ai 命令前缀由命令框架处理，无需在此剥离。
+// cleanMessage 清洗消息内容，去除 @ 提及和触发命令前缀。
 func (p *Plugin) cleanMessage(content string) string {
 	content = strings.TrimSpace(content)
 	content = strings.TrimLeft(content, "@")
+	content = strings.TrimSpace(content)
+	if p.triggerCmd != "" {
+		content = strings.TrimPrefix(content, p.triggerCmd)
+	}
 	content = strings.TrimSpace(content)
 	return content
 }

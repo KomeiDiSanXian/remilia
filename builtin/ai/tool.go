@@ -4,17 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// ctxKeyCallerInfo 是 context 中存储工具调用者信息的键。
+type ctxKeyCallerInfoType struct{}
+
+// WithCallerInfo 将调用者信息注入 context，供工具 Execute 回调进行权限校验。
+func WithCallerInfo(ctx context.Context, caller platform.UserInfo) context.Context {
+	return context.WithValue(ctx, ctxKeyCallerInfoType{}, caller)
+}
+
+// CallerInfoFromContext 从 context 中提取工具调用者信息。
+// 若 context 中无调用者信息，返回零值 UserInfo 和 false。
+func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
+	caller, ok := ctx.Value(ctxKeyCallerInfoType{}).(platform.UserInfo)
+	return caller, ok
+}
 
 // ToolParamSchema JSON Schema 格式的工具参数描述。
 // 用于向 LLM 描述工具的输入参数结构，符合 OpenAI tool calling 的 JSON Schema 规范。
 type ToolParamSchema struct {
-	Type        string                      `json:"type"`
-	Description string                      `json:"description,omitempty"`
-	Properties  map[string]ToolParamSchema  `json:"properties,omitempty"`
-	Items       *ToolParamSchema            `json:"items,omitempty"`
-	Required    []string                    `json:"required,omitempty"`
-	Enum        []string                    `json:"enum,omitempty"`
+	Type        string                     `json:"type"`
+	Description string                     `json:"description,omitempty"`
+	Properties  map[string]ToolParamSchema `json:"properties,omitempty"`
+	Items       *ToolParamSchema           `json:"items,omitempty"`
+	Required    []string                   `json:"required,omitempty"`
+	Enum        []string                   `json:"enum,omitempty"`
 }
 
 // Tool 描述一个可供 AI 调用的工具。
@@ -53,6 +70,9 @@ func NewToolRegistry() *ToolRegistry {
 }
 
 func (r *ToolRegistry) Register(t Tool) {
+	if _, exists := r.tools[t.Name]; exists {
+		return
+	}
 	r.tools[t.Name] = t
 }
 
@@ -77,8 +97,8 @@ type openaiTool struct {
 }
 
 type openaiFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
 	Parameters  ToolParamSchema `json:"parameters"`
 }
 
@@ -100,8 +120,8 @@ func toOpenAITools(tools []Tool) []openaiTool {
 // --- Anthropic 格式的工具序列化 ---
 
 type anthropicTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
 	InputSchema ToolParamSchema `json:"input_schema"`
 }
 
@@ -120,9 +140,9 @@ func toAnthropicTools(tools []Tool) []anthropicTool {
 // --- 工具调用解析 ---
 
 type openaiToolCall struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Index int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Index    int    `json:"index"`
 	Function struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
@@ -189,5 +209,3 @@ func parseAnthropicToolCalls(blocks []anthropicContentBlock) []ToolCall {
 	}
 	return calls
 }
-
-

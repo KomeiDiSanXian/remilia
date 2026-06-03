@@ -17,6 +17,7 @@
 package acl
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -24,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -287,6 +289,60 @@ func (p *Plugin) IsAllowed(userID string) bool {
 		return inList // 白名单：不在列表中则拒绝
 	default:
 		return true
+	}
+}
+
+// ListTools 返回可供 AI 调用的工具集。
+func (p *Plugin) ListTools() []ai.Tool {
+	return []ai.Tool{
+		{
+			Name:        "acl_check_user",
+			Description: "检查指定用户是否被 ACL 放行。返回是否允许、当前 ACL 模式和规则数量。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"user_id": {Type: "string", Description: "用户 ID"},
+				},
+				Required: []string{"user_id"},
+			},
+			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				userID, _ := args["user_id"].(string)
+				if userID == "" {
+					return "请提供 user_id", nil
+				}
+				allowed := p.IsAllowed(userID)
+				modeStr := modeString(p.GetMode())
+				contained := p.Contains(userID)
+				count := p.Count()
+				if allowed {
+					return fmt.Sprintf("✅ 用户 %s 被允许（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count), nil
+				}
+				return fmt.Sprintf("❌ 用户 %s 被阻止（模式：%s，已在列表中：%v，总计 %d 条规则）", userID, modeStr, contained, count), nil
+			},
+		},
+		{
+			Name:        "acl_stats",
+			Description: "查询 ACL 统计信息：当前模式和规则总数。",
+			Parameters: ai.ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ai.ToolParamSchema{},
+			},
+			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				return fmt.Sprintf("当前 ACL 模式：%s，规则总数：%d", modeString(p.GetMode()), p.Count()), nil
+			},
+		},
+	}
+}
+
+// modeString 返回 ACL 模式的可读字符串。
+func modeString(m Mode) string {
+	switch m {
+	case ModeBlacklist:
+		return "blacklist"
+	case ModeWhitelist:
+		return "whitelist"
+	default:
+		return "disabled"
 	}
 }
 

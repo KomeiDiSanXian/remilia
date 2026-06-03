@@ -20,17 +20,19 @@
 package antispam
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
-	"golang.org/x/time/rate"
-
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/syncx"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+	"github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/time/rate"
 )
 
 // Config 反垃圾配置
@@ -398,6 +400,47 @@ func (p *Plugin) IsBanned(userID string) bool {
 		return e, true // 有效封禁，保留
 	})
 	return banned
+}
+
+// ListTools 返回可供 AI 调用的工具集。
+func (p *Plugin) ListTools() []ai.Tool {
+	return []ai.Tool{
+		{
+			Name:        "antispam_check_ban",
+			Description: "检查用户是否被反垃圾系统封禁。返回封禁状态和统计概览。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"user_id": {Type: "string", Description: "用户 ID"},
+				},
+				Required: []string{"user_id"},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				userID, _ := args["user_id"].(string)
+				if userID == "" {
+					return "请提供 user_id", nil
+				}
+				banned := p.IsBanned(userID)
+				stats := p.Stats()
+				if banned {
+					return fmt.Sprintf("❌ 用户 %s 已被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount), nil
+				}
+				return fmt.Sprintf("✅ 用户 %s 未被封禁（当前共 %d 条封禁记录）", userID, stats.BanCount), nil
+			},
+		},
+		{
+			Name:        "antispam_stats",
+			Description: "查询反垃圾系统统计信息：封禁数、用户限流器数、群组限流器数。",
+			Parameters: ai.ToolParamSchema{
+				Type:       "object",
+				Properties: map[string]ai.ToolParamSchema{},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				stats := p.Stats()
+				return fmt.Sprintf("封禁数：%d，用户限流器：%d，群组限流器：%d", stats.BanCount, stats.UserLimiterCount, stats.GroupLimiterCount), nil
+			},
+		},
+	}
 }
 
 func (p *Plugin) getUserLimiter(userID string) *rate.Limiter {

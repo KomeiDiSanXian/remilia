@@ -22,12 +22,15 @@
 package keywordfilter
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -234,6 +237,33 @@ func (p *Plugin) Check(text string) string {
 	}
 
 	return ""
+}
+
+// ListTools 返回可供 AI 调用的工具集。
+func (p *Plugin) ListTools() []ai.Tool {
+	return []ai.Tool{
+		{
+			Name:        "keyword_check",
+			Description: "检查文本是否包含违禁/敏感关键词。返回匹配到的第一个关键词，无匹配则返回空。",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"text": {Type: "string", Description: "要检查的文本内容"},
+				},
+				Required: []string{"text"},
+			},
+			Execute: func(_ context.Context, args map[string]any) (string, error) {
+				text, _ := args["text"].(string)
+				if text == "" {
+					return "请提供要检查的文本", nil
+				}
+				if matched := p.Check(text); matched != "" {
+					return fmt.Sprintf("⚠️ 文本包含敏感内容「%s」", matched), nil
+				}
+				return "✅ 文本未发现敏感内容", nil
+			},
+		},
+	}
 }
 
 // Rule 返回可用于 engine.On() 的过滤规则（匹配到关键词则拦截，返回 false）
