@@ -42,6 +42,17 @@ type Tool struct {
 	Execute     func(ctx context.Context, args map[string]any) (string, error)
 }
 
+// SkillProvider 插件可通过实现此接口向 AI 插件注册自定义 Skill。
+//
+// 使用示例：
+//
+//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	    aiSvc.RegisterSkillProvider(mySkillProvider)
+//	}
+type SkillProvider interface {
+	ListSkills() []Skill
+}
+
 // ToolProvider 插件可通过实现此接口并提供给 AI 插件显式注册自定义工具。
 //
 // 其他插件在自己的 Setup 中通过 [plugin.TryService] 获取 AI 插件服务实例

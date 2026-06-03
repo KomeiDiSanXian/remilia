@@ -134,4 +134,10 @@ type Config struct {
 	// Fallback 当没有命令匹配时，是否由 AI 兜底回复。
 	// 当前预留字段，需要配合 Router 低优先级 RouteRule 使用。
 	Fallback bool `yaml:"fallback"`
+
+	// SkillTimeout 每个 Skill 执行的最大时长，默认 60s。
+	SkillTimeout time.Duration `yaml:"skill_timeout"`
+
+	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
+	SkillMaxDepth int `yaml:"skill_max_depth"`
 }

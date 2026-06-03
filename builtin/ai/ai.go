@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -19,23 +20,25 @@ import (
 
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
-	Provider:     "openai",
-	Model:        "gpt-4o-mini",
-	MaxTokens:    2048,
-	MaxDepth:     5,
-	MaxHistory:   20,
-	Temperature:  0.7,
-	TopP:         1.0,
-	APITimeout:   60 * time.Second,
-	MaxRetries:   0,
-	ToolTimeout:  30 * time.Second,
-	SessionTTL:   24 * time.Hour,
-	SystemPrompt: "你是一个有用的AI助手，运行在一个叫Remilia Bot的IM框架中。用户问你有什么工具时请列举可用的工具。",
-	TriggerCmd:   "/ai",
-	AtBot:        true,
-	PrivateChat:  true,
-	Markdown:     true,
-	Fallback:     false,
+	Provider:      "openai",
+	Model:         "gpt-4o-mini",
+	MaxTokens:     2048,
+	MaxDepth:      5,
+	MaxHistory:    20,
+	Temperature:   0.7,
+	TopP:          1.0,
+	APITimeout:    60 * time.Second,
+	MaxRetries:    0,
+	ToolTimeout:   30 * time.Second,
+	SessionTTL:    24 * time.Hour,
+	SystemPrompt:  "你是一个有用的AI助手，运行在一个叫Remilia Bot的IM框架中。用户问你有什么工具时请列举可用的工具。",
+	TriggerCmd:    "/ai",
+	AtBot:         true,
+	PrivateChat:   true,
+	Markdown:      true,
+	Fallback:      false,
+	SkillTimeout:  60 * time.Second,
+	SkillMaxDepth: 3,
 }
 
 // Plugin AI 对话插件的主结构体。
@@ -51,6 +54,7 @@ type Plugin struct {
 	// cmdPatterns 工具名 → 完整命令模式（如 "ping" → "/ping"），
 	// 用于 executeTool 时构造正确的命令文本
 	cmdPatterns map[string]string
+	skillReg    *SkillRegistry
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -139,6 +143,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				reg:         NewToolRegistry(),
 				sm:          NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
 				cmdPatterns: make(map[string]string),
+				skillReg:    NewSkillRegistry(),
 			}
 
 			// 自动扫描已注册命令并将其包装为工具
@@ -221,6 +226,13 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
 	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
 	cfg.Fallback = ctx.Config.GetBool("fallback", cfg.Fallback)
+
+	if v := ctx.Config.GetDuration("skill_timeout", 0); v > 0 {
+		cfg.SkillTimeout = v
+	}
+	if v := ctx.Config.GetInt("skill_max_depth", 0); v > 0 {
+		cfg.SkillMaxDepth = v
+	}
 
 	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
 		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")
@@ -361,6 +373,53 @@ func (p *Plugin) DiscoverToolProviders(mgr *plugin.Manager) {
 			continue
 		}
 		p.RegisterToolProvider(tp)
+	}
+}
+
+// RegisterSkill 注册一个 Skill。
+// Skill 会自动包装为 Tool 供 LLM 发现和调用。
+// 如果 Parameters 为空，自动使用 {"query": string} 作为默认参数。
+func (p *Plugin) RegisterSkill(s Skill) {
+	if len(s.Parameters.Properties) == 0 {
+		s.Parameters = ToolParamSchema{
+			Type: "object",
+			Properties: map[string]ToolParamSchema{
+				"query": {Type: "string", Description: "需要该技能处理的问题"},
+			},
+			Required: []string{"query"},
+		}
+	}
+	p.skillReg.Register(s)
+	skill := s
+	p.reg.Register(Tool{
+		Name:        skill.Name,
+		Description: skill.Description,
+		Parameters:  skill.Parameters,
+		Execute: func(ctx context.Context, args map[string]any) (string, error) {
+			return p.executeSkill(ctx, skill, args)
+		},
+	})
+}
+
+// RegisterSkillProvider 注册一个实现了 SkillProvider 接口的插件所提供的技能集。
+func (p *Plugin) RegisterSkillProvider(sp SkillProvider) {
+	for _, s := range sp.ListSkills() {
+		p.RegisterSkill(s)
+	}
+}
+
+// DiscoverSkillProviders 扫描插件管理器中所有已注册的插件服务，
+// 自动发现实现了 [SkillProvider] 接口的插件并注册其技能。
+// 应在 [plugin.Manager.FreezeContainer] 之后调用。
+func (p *Plugin) DiscoverSkillProviders(mgr *plugin.Manager) {
+	for _, name := range mgr.List() {
+		svc, ok := mgr.GetContainer().Get(name)
+		if !ok || svc == nil {
+			continue
+		}
+		if sp, ok := svc.(SkillProvider); ok {
+			p.RegisterSkillProvider(sp)
+		}
 	}
 }
 
@@ -711,6 +770,41 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	return nil
 }
 
+// singleRoundResult 单轮非流式 LLM 调用的结果。
+type singleRoundResult struct {
+	Text      string
+	ToolCalls []ToolCall
+}
+
+// runSingleRound 执行单轮非流式 LLM 调用，返回文本回复和工具调用。
+// 不涉及 session 管理，纯函数式，供 executeSkill 内部循环使用。
+func (p *Plugin) runSingleRound(ctx context.Context, messages []Message, tools []Tool) (*singleRoundResult, error) {
+	req := &ChatRequest{
+		Model:       p.cfg.Model,
+		Messages:    messages,
+		Tools:       tools,
+		Temperature: p.cfg.Temperature,
+		TopP:        p.cfg.TopP,
+		MaxTokens:   p.cfg.MaxTokens,
+	}
+
+	resp, err := p.prov.Chat(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range resp.ToolCalls {
+		if resp.ToolCalls[i].ID == "" {
+			resp.ToolCalls[i].ID = fmt.Sprintf("call_%s_%d", resp.ToolCalls[i].Name, i)
+		}
+	}
+
+	return &singleRoundResult{
+		Text:      resp.Content,
+		ToolCalls: resp.ToolCalls,
+	}, nil
+}
+
 // processWithTools 执行 AI 对话的工具调用循环。
 //
 // 循环逻辑：
@@ -857,6 +951,14 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 // 优先通过 vevent 触发真实命令执行并捕获其回复内容；
 // 若捕获失败或工具无对应命令，回退到 tool.Execute 的占位结果。
 func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context) string {
+	if skill, ok := p.skillReg.Get(tc.Name); ok {
+		result, err := p.executeSkill(toolCtx, skill, tc.Arguments)
+		if err != nil {
+			return fmt.Sprintf("错误: 技能 %q 执行失败: %v", tc.Name, err)
+		}
+		return result
+	}
+
 	tool, ok := p.reg.Get(tc.Name)
 	if !ok {
 		return fmt.Sprintf("错误: 未找到工具 %q", tc.Name)
@@ -914,6 +1016,90 @@ func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) 
 	cs := &captureSender{}
 	p.syncer.ProcessPlatformEventSync(evt, cs)
 	return cs.captured
+}
+
+// executeSkill 执行一个 Skill 的内部工具调用循环。
+//
+// 使用自己的 Prompt 和 Tools 做最多 SkillMaxDepth 轮的非流式 LLM 调用。
+// 不持久化到 session，纯函数式。
+func (p *Plugin) executeSkill(ctx context.Context, skill Skill, args map[string]any) (string, error) {
+	argsJSON, _ := json.MarshalIndent(args, "", "  ")
+	msgs := []Message{
+		{Role: RoleSystem, Content: skill.Prompt},
+		{Role: RoleUser, Content: string(argsJSON)},
+	}
+	tools := p.buildSkillTools(skill)
+
+	skillCtx, cancel := context.WithTimeout(ctx, p.cfg.SkillTimeout)
+	defer cancel()
+
+	for depth := 0; depth < p.cfg.SkillMaxDepth; depth++ {
+		resp, err := p.runSingleRound(skillCtx, msgs, tools)
+		if err != nil {
+			return "", err
+		}
+
+		if len(resp.ToolCalls) == 0 {
+			return resp.Text, nil
+		}
+
+		msgs = append(msgs, Message{Role: RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
+		for _, tc := range resp.ToolCalls {
+			result := p.executeSkillTool(skillCtx, tc, tools)
+			msgs = append(msgs, Message{Role: RoleTool, Content: result, ToolCallID: tc.ID})
+		}
+	}
+
+	return "", fmt.Errorf("技能 %q 超过最大调用深度 (%d)", skill.Name, p.cfg.SkillMaxDepth)
+}
+
+// buildSkillTools 构建 Skill 可见的工具列表 = 自己的 Tools + 其他已注册的 Skill。
+// 其他 Skill 按其自带的 Parameters 注入，无参数时使用默认 {"query": string}。
+func (p *Plugin) buildSkillTools(skill Skill) []Tool {
+	tools := make([]Tool, 0, len(skill.Tools)+len(p.skillReg.List()))
+	tools = append(tools, skill.Tools...)
+
+	for _, s := range p.skillReg.List() {
+		if s.Name == skill.Name {
+			continue
+		}
+		other := s
+		params := other.Parameters
+		if len(params.Properties) == 0 {
+			params = ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ToolParamSchema{
+					"query": {Type: "string", Description: "需要该技能处理的问题"},
+				},
+				Required: []string{"query"},
+			}
+		}
+		tools = append(tools, Tool{
+			Name:        other.Name,
+			Description: other.Description,
+			Parameters:  params,
+			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				return p.executeSkill(ctx, other, args)
+			},
+		})
+	}
+
+	return tools
+}
+
+// executeSkillTool 执行 Skill 内部的工具调用。
+// 不走 syncer/real command，直接调用工具自身的 Execute 回调。
+func (p *Plugin) executeSkillTool(ctx context.Context, tc ToolCall, tools []Tool) string {
+	for _, t := range tools {
+		if t.Name == tc.Name {
+			result, err := t.Execute(ctx, tc.Arguments)
+			if err != nil {
+				return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, err)
+			}
+			return result
+		}
+	}
+	return fmt.Sprintf("错误: 未找到工具 %q", tc.Name)
 }
 
 // cleanMessage 清洗消息内容，去除 @ 提及和触发命令前缀。
