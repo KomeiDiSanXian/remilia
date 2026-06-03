@@ -109,9 +109,11 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	logger.Infof("[bot] %d plugins loaded", pm.Count())
 	pm.FreezeContainer()
 
-	// 通知 AI 插件扫描所有已加载插件的 ToolProvider
+	// 通知 AI 插件扫描所有已加载插件的 ToolProvider 和 SkillProvider
 	if aiRaw, ok := pm.GetContainer().Get("ai"); ok {
-		aiRaw.(*ai.Plugin).DiscoverToolProviders(pm)
+		aiPlugin := aiRaw.(*ai.Plugin)
+		aiPlugin.DiscoverToolProviders(pm)
+		aiPlugin.DiscoverSkillProviders(pm)
 	}
 
 	eng.Use(sp.Middleware())
