@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // openaiClient 实现 Provider 接口，兼容 OpenAI Chat Completions API。
@@ -28,6 +29,8 @@ type openaiClient struct {
 	apiKey     string
 	model      string
 	maxTokens  int
+	apiTimeout time.Duration
+	maxRetries int
 	httpClient *http.Client
 }
 
@@ -43,6 +46,8 @@ func NewOpenAIProvider(cfg *Config) (Provider, error) {
 		apiKey:     cfg.APIKey,
 		model:      cfg.Model,
 		maxTokens:  cfg.MaxTokens,
+		apiTimeout: cfg.APITimeout,
+		maxRetries: cfg.MaxRetries,
 		httpClient: &http.Client{},
 	}, nil
 }
@@ -61,6 +66,7 @@ type openaiChatRequest struct {
 	Messages    []openaiChatMessage `json:"messages"`
 	Tools       []openaiTool        `json:"tools,omitempty"`
 	Temperature float64             `json:"temperature,omitempty"`
+	TopP        float64             `json:"top_p,omitempty"`
 	MaxTokens   int                 `json:"max_tokens,omitempty"`
 	Stream      bool                `json:"stream,omitempty"`
 }
@@ -135,6 +141,7 @@ func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatRespons
 		Model:       c.model,
 		Messages:    toOpenAIMessages(req.Messages),
 		Temperature: req.Temperature,
+		TopP:        req.TopP,
 		MaxTokens:   c.maxTokens,
 	}
 	if len(req.Tools) > 0 {
@@ -146,46 +153,81 @@ func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatRespons
 		return nil, fmt.Errorf("ai: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("ai: create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	return c.doChatRequest(ctx, payload)
+}
 
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("ai: http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var openaiResp openaiChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
-		return nil, fmt.Errorf("ai: decode response: %w", err)
+func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*ChatResponse, error) {
+	chatCtx := ctx
+	if c.apiTimeout > 0 {
+		var cancel context.CancelFunc
+		chatCtx, cancel = context.WithTimeout(ctx, c.apiTimeout)
+		defer cancel()
 	}
 
-	if openaiResp.Error != nil {
-		return nil, fmt.Errorf("ai: api error: %s: %s", openaiResp.Error.Type, openaiResp.Error.Message)
-	}
-
-	if len(openaiResp.Choices) == 0 {
-		return nil, fmt.Errorf("ai: empty response")
-	}
-
-	choice := openaiResp.Choices[0]
-	result := &ChatResponse{
-		Content: choice.Message.Content,
-	}
-
-	if len(choice.Message.ToolCalls) > 0 {
-		tcs, err := parseOpenAIToolCalls(choice.Message.ToolCalls)
-		if err != nil {
-			return nil, err
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-chatCtx.Done():
+				return nil, chatCtx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
 		}
-		result.ToolCalls = tcs
+
+		httpReq, err := http.NewRequestWithContext(chatCtx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("ai: create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("ai: http request: %w", err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
+			if resp.StatusCode < 500 {
+				return nil, lastErr
+			}
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		var openaiResp openaiChatResponse
+		if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+			return nil, fmt.Errorf("ai: decode response: %w", err)
+		}
+
+		if len(openaiResp.Choices) == 0 {
+			return nil, fmt.Errorf("ai: empty response")
+		}
+
+		choice := openaiResp.Choices[0]
+		result := &ChatResponse{
+			Content: choice.Message.Content,
+		}
+
+		if len(choice.Message.ToolCalls) > 0 {
+			tcs, err := parseOpenAIToolCalls(choice.Message.ToolCalls)
+			if err != nil {
+				return nil, err
+			}
+			result.ToolCalls = tcs
+		}
+
+		return result, nil
 	}
 
-	return result, nil
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("ai: unexpected retry exit")
 }
 
 // --- 流式调用 ---
@@ -197,6 +239,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		Model:       c.model,
 		Messages:    toOpenAIMessages(req.Messages),
 		Temperature: req.Temperature,
+		TopP:        req.TopP,
 		MaxTokens:   c.maxTokens,
 		Stream:      true,
 	}
@@ -236,7 +279,6 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 
 		var pendingToolCalls []openaiToolCall
-		var contentBuf strings.Builder
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -285,7 +327,6 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			delta := streamResp.Choices[0].Delta
 
 			if delta.Content != "" {
-				contentBuf.WriteString(delta.Content)
 				ch <- StreamEvent{Type: StreamEventText, Content: delta.Content}
 			}
 

@@ -29,9 +29,14 @@ import (
 )
 
 // EventProcessor 抽象引擎的事件处理入口，允许注入合成事件而无需直接依赖 *engine.Engine。
-// *engine.Engine 实现了此接口（ProcessPlatformEvent / ProcessPlatformEventEx 方法签名一致）。
+// *engine.Engine 实现了此接口。
 type EventProcessor interface {
+	// ProcessPlatformEvent 处理事件，可能将 handler offload 到 ExecPool。
 	ProcessPlatformEvent(event platform.Event, sender platform.Sender, caps ...platform.Capabilities)
+
+	// ProcessPlatformEventSync 同步处理事件，强制 handler 在当前 goroutine 执行。
+	// 用于需要确保 handler 执行完毕后再继续的场景（如 AI 工具调用捕获命令回复）。
+	ProcessPlatformEventSync(event platform.Event, sender platform.Sender, caps ...platform.Capabilities)
 }
 
 // Plugin 虚拟事件注入器，通过 plugin.Service[*vevent.Plugin](ctx, "vevent") 获取。
@@ -95,8 +100,16 @@ func (p *Plugin) InjectWithSender(kind platform.EventKind, content string, sende
 }
 
 // InjectEvent 直接注入已构造好的 platform.Event（最大灵活度）。
+// handler 可能被 offload 到 ExecPool 异步执行。
 func (p *Plugin) InjectEvent(event platform.Event, sender platform.Sender, caps ...platform.Capabilities) {
 	p.ep.ProcessPlatformEvent(event, sender, caps...)
+}
+
+// InjectSyncEvent 同步注入已构造好的 platform.Event。
+// 强制 handler 在当前 goroutine 执行完毕后再返回。
+// 用于需要捕获 handler 执行结果（如通过自定义 Sender 获取回复）的场景。
+func (p *Plugin) InjectSyncEvent(event platform.Event, sender platform.Sender, caps ...platform.Capabilities) {
+	p.ep.ProcessPlatformEventSync(event, sender, caps...)
 }
 
 // InjectSync 同步注入并等待所有 handler 处理完成（阻塞直到 ctx 取消或所有 handler 返回）。

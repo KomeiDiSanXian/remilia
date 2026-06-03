@@ -12,6 +12,9 @@ import (
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
+	"github.com/KomeiDiSanXian/remilia/command"
 )
 
 // DefaultConfig AI 插件默认配置。
@@ -21,6 +24,11 @@ var DefaultConfig = Config{
 	MaxTokens:    2048,
 	MaxDepth:     5,
 	MaxHistory:   20,
+	Temperature:  0.7,
+	TopP:         1.0,
+	APITimeout:   60 * time.Second,
+	MaxRetries:   0,
+	ToolTimeout:  30 * time.Second,
 	SessionTTL:   24 * time.Hour,
 	SystemPrompt: "你是一个有用的AI助手，运行在一个叫Remilia Bot的IM框架中。用户问你有什么工具时请列举可用的工具。",
 	TriggerCmd:   "/ai",
@@ -35,7 +43,7 @@ var DefaultConfig = Config{
 type Plugin struct {
 	cfg        *Config
 	coord      engine.Reader
-	eng        *engine.Engine
+	syncer     vevent.EventProcessor
 	sm         *SessionManager
 	reg        *ToolRegistry
 	prov       Provider
@@ -50,7 +58,7 @@ type Plugin struct {
 // 该插件支持：
 //   - 多 LLM 提供商（OpenAI 兼容 API、Anthropic）
 //   - 流式输出（SSE 逐 token 推送）
-//   - 工具调用（自动发现无权限命令 + ToolProvider 接口）
+//   - 工具调用（自动发现无权限命令 + RegisterToolProvider 接口）
 //   - 会话管理（LRU 缓存 + 可选 GORM 持久化）
 //   - 多种触发方式（命令 / @机器人 / 私聊）
 //
@@ -58,8 +66,14 @@ type Plugin struct {
 //
 // ⚠️ 自动发现工具时**仅暴露不需要权限的命令**，防止通过 AI 绕过权限检查。
 // 带有 Permissions 的敏感命令不会被 AI 自动发现。
-// 需要 AI 可调用的权限命令应通过 [ToolProvider] 接口显式注册。.
-func New(eng *engine.Engine) *plugin.Descriptor {
+// 需要 AI 可调用的权限命令应通过 [RegisterToolProvider] 显式注册。
+//
+//	 示例：
+//
+//		if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//		    aiSvc.RegisterToolProvider(myProvider)
+//		}
+func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "ai",
 		Version:      "1.0.0",
@@ -77,8 +91,13 @@ func New(eng *engine.Engine) *plugin.Descriptor {
 
 用法：
   /ai <消息>          — 与 AI 对话
+  /ai reset           — 清空对话历史
+  /ai undo            — 撤销上一条对话
+  /ai retry           — 重新生成上一条回复
+  /ai summary         — 总结当前对话
+  /ai status          — 查看会话状态
+  /ai stats           — 查看使用统计
   /ai tools           — 列出可用工具
-  /ai reset           — 清空当前对话历史
   @机器人 <消息>       — 在群聊中 @机器人 触发
 
 配置示例（config.yaml plugins.ai 节）：
@@ -115,7 +134,7 @@ func New(eng *engine.Engine) *plugin.Descriptor {
 			p := &Plugin{
 				cfg:         cfg,
 				coord:       coord,
-				eng:         eng,
+				syncer:      syncer,
 				prov:        prov,
 				reg:         NewToolRegistry(),
 				sm:          NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
@@ -174,6 +193,21 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("max_history", 0); v > 0 {
 		cfg.MaxHistory = v
 	}
+	if v := ctx.Config.GetFloat64("temperature", 0); v > 0 {
+		cfg.Temperature = v
+	}
+	if v := ctx.Config.GetFloat64("top_p", 0); v > 0 {
+		cfg.TopP = v
+	}
+	if v := ctx.Config.GetDuration("api_timeout", 0); v > 0 {
+		cfg.APITimeout = v
+	}
+	if v := ctx.Config.GetInt("max_retries", 0); v > 0 {
+		cfg.MaxRetries = v
+	}
+	if v := ctx.Config.GetDuration("tool_timeout", 0); v > 0 {
+		cfg.ToolTimeout = v
+	}
 	if v := ctx.Config.GetDuration("session_ttl", 0); v > 0 {
 		cfg.SessionTTL = v
 	}
@@ -195,10 +229,23 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	return &cfg
 }
 
+// buildAIDefinition 构建 AI 命令定义，包含子命令和可选的消息参数。
+func buildAIDefinition() *command.Definition {
+	return command.NewDef("ai").
+		SubCommand(command.NewDef("reset").Build()).
+		SubCommand(command.NewDef("undo").Build()).
+		SubCommand(command.NewDef("retry").Build()).
+		SubCommand(command.NewDef("summary").Build()).
+		SubCommand(command.NewDef("status").Build()).
+		SubCommand(command.NewDef("stats").Build()).
+		SubCommand(command.NewDef("tools").Description("列出可用工具").Build()).
+		Build()
+}
+
 // registerHandlers 注册 AI 对话的触发处理器。
 //
 // 支持三种触发方式（可组合）：
-//   - 命令前缀（如 /ai）
+//   - 命令前缀（如 /ai），通过 command.Definition 定义子命令
 //   - @机器人 正则匹配
 //   - 私聊自动响应
 //
@@ -209,7 +256,8 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	trigger := p.cfg.TriggerCmd
 	if trigger != "" {
 		p.triggerCmd = trigger
-		ctx.Reg.RegisterCommand("", trigger).Handle(p.handleAI)
+		def := buildAIDefinition()
+		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
 	if p.cfg.AtBot {
@@ -252,9 +300,8 @@ func isCommandMessage(msg string) bool {
 // ⚠️ 仅自动发现不需要任何权限的命令（Permissions 为空）。
 // 需要权限的命令不会被 AI 自动发现，防止通过 AI 绕过权限检查。
 //
-// 对于需要 AI 调用的权限命令，插件应：
-//   - 实现 [ToolProvider] 接口显式注册工具
-//   - 或在工具 Execute 中手动校验调用者身份
+// 对于需要 AI 调用的权限命令，插件应在自己的 Setup 中调用
+// [Plugin.RegisterToolProvider] 显式注册工具，并在 Execute 中自行校验身份。
 //
 // # 工作原理
 //
@@ -281,6 +328,22 @@ func (p *Plugin) discoverTools() {
 			p.cmdPatterns[tool.Name] = cmd.Command
 			p.reg.Register(*tool)
 		}
+	}
+}
+
+// RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。
+//
+// 其他插件可在自己的 Setup 中通过 plugin.TryService 获取 AI 插件的服务实例
+// 后调用此方法注册自定义工具，尤其是需要权限校验的敏感命令。
+//
+// 使用示例：
+//
+//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	    aiSvc.RegisterToolProvider(myToolProvider)
+//	}
+func (p *Plugin) RegisterToolProvider(tp ToolProvider) {
+	for _, t := range tp.ListTools() {
+		p.reg.Register(t)
 	}
 }
 
@@ -334,29 +397,23 @@ func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
 	}
 }
 
-// handleSubCommand 处理 /ai 的子命令（reset、tools、undo、summary 等），
-// 不经过 LLM 常规对话流程。
-// 返回 true 表示已处理，调用方应直接 return。
-func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
-	cmd := strings.ToLower(strings.TrimSpace(content))
-
+// execSubCommand 根据子命令名称执行对应的操作。
+// 用于 /ai 命令路径（通过 GetParsedCommand 获取子命令名）。
+func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 
-	switch cmd {
-	case "reset", "重置":
+	switch subCmd {
+	case "reset":
 		p.sm.Delete(sessionID)
-		ctx.ReplyText("✅ 对话历史已清空，开始全新的对话吧！")
-		return true
+		return ctx.ReplyText("✅ 对话历史已清空，开始全新的对话吧！")
 
 	case "undo":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			ctx.ReplyText("没有可以撤销的对话")
-			return true
+			return ctx.ReplyText("没有可以撤销的对话")
 		}
-		// 从后往前找到最后一个 user 消息，删除它及其之后所有消息
 		lastUserIdx := -1
 		for i := len(session.Messages) - 1; i >= 0; i-- {
 			if session.Messages[i].Role == RoleUser {
@@ -365,25 +422,88 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 			}
 		}
 		if lastUserIdx <= 0 {
-			ctx.ReplyText("没有可以撤销的对话")
-			return true
+			return ctx.ReplyText("没有可以撤销的对话")
 		}
 		session.Messages = session.Messages[:lastUserIdx]
 		p.sm.Save(session)
-		ctx.ReplyText("↩️ 已撤销上一条对话")
-		return true
+		return ctx.ReplyText("↩️ 已撤销上一条对话")
 
-	case "summary", "总结":
+	case "retry":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			ctx.ReplyText("还没有任何对话内容可以总结")
-			return true
+			return ctx.ReplyText("没有可以重试的对话")
 		}
-		go p.doSummary(ctx, session, sender, chat)
-		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
-		return true
+		lastAssistantIdx := -1
+		for i := len(session.Messages) - 1; i >= 0; i-- {
+			if session.Messages[i].Role == RoleAssistant {
+				lastAssistantIdx = i
+				break
+			}
+		}
+		if lastAssistantIdx < 0 {
+			return ctx.ReplyText("没有可以重试的对话")
+		}
+		session.Messages = session.Messages[:lastAssistantIdx]
+		p.sm.Save(session)
 
-	case "tools", "工具", "help", "帮助":
+		reply, err := p.processWithTools(ctx, session)
+		if err != nil {
+			return ctx.ReplyText(formatAIError(err))
+		}
+		if reply != "" {
+			if p.cfg.Markdown && ctx.GetPlatformCapabilities().Markdown {
+				_, err := ctx.Reply(platform.MarkdownMessage(reply))
+				return err
+			}
+			_, err := ctx.Reply(platform.TextMessage(reply))
+			return err
+		}
+		return nil
+
+	case "summary":
+		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if session == nil || len(session.Messages) <= 1 {
+			return ctx.ReplyText("还没有任何对话内容可以总结")
+		}
+		msgsSnapshot := make([]Message, len(session.Messages))
+		copy(msgsSnapshot, session.Messages)
+		go p.doSummary(ctx, msgsSnapshot)
+		return ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
+
+	case "status":
+		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if session == nil || len(session.Messages) <= 1 {
+			return ctx.ReplyText("当前没有活跃的对话")
+		}
+		msgCount := len(session.Messages)
+		sysCount := 0
+		for _, m := range session.Messages {
+			if m.Role == RoleSystem {
+				sysCount++
+			}
+		}
+		duration := time.Since(session.CreatedAt)
+		var b strings.Builder
+		b.WriteString("📊 **对话状态**\n\n")
+		b.WriteString(fmt.Sprintf("  - 提供商：`%s`\n", p.cfg.Provider))
+		b.WriteString(fmt.Sprintf("  - 模型：`%s`\n", p.cfg.Model))
+		b.WriteString(fmt.Sprintf("  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount))
+		b.WriteString(fmt.Sprintf("  - 对话时长：`%s`\n", formatDuration(duration)))
+		b.WriteString(fmt.Sprintf("  - 会话 ID：`%s`\n", sessionID))
+		return ctx.ReplyText(b.String())
+
+	case "stats":
+		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if session == nil || len(session.Messages) <= 1 {
+			return ctx.ReplyText("当前没有活跃的对话")
+		}
+		var b strings.Builder
+		b.WriteString("📈 **使用统计**\n\n")
+		b.WriteString(fmt.Sprintf("  - LLM 调用次数：`%d`\n", session.CallCount))
+		b.WriteString(fmt.Sprintf("  - 工具调用次数：`%d`\n", session.ToolCount))
+		return ctx.ReplyText(b.String())
+
+	case "tools", "help":
 		var b strings.Builder
 		b.WriteString("我可以使用以下工具：\n\n")
 		tools := p.reg.List()
@@ -395,34 +515,80 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 			}
 		}
 		b.WriteString(fmt.Sprintf("\n在对话中直接告诉我你想使用哪个工具即可。\n"))
-		b.WriteString(fmt.Sprintf("\n其他子命令："))
+		b.WriteString(fmt.Sprintf("\n**子命令：**"))
 		b.WriteString(fmt.Sprintf("\n  `%s reset` — 清空对话历史", p.cfg.TriggerCmd))
 		b.WriteString(fmt.Sprintf("\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd))
+		b.WriteString(fmt.Sprintf("\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd))
 		b.WriteString(fmt.Sprintf("\n  `%s summary` — 总结当前对话", p.cfg.TriggerCmd))
+		b.WriteString(fmt.Sprintf("\n  `%s status` — 查看会话状态", p.cfg.TriggerCmd))
+		b.WriteString(fmt.Sprintf("\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd))
 		b.WriteString(fmt.Sprintf("\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd))
-		ctx.ReplyText(b.String())
+		return ctx.ReplyText(b.String())
+	}
+	return nil
+}
+
+// handleSubCommand 处理 @bot/私聊路径的子命令，通过内容字符串匹配。
+// 返回 true 表示已处理。
+func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
+	cmd := strings.ToLower(strings.TrimSpace(content))
+	switch cmd {
+	case "reset", "重置":
+		p.execSubCommand(ctx, "reset")
+		return true
+	case "undo":
+		p.execSubCommand(ctx, "undo")
+		return true
+	case "retry", "重试":
+		p.execSubCommand(ctx, "retry")
+		return true
+	case "summary", "总结":
+		p.execSubCommand(ctx, "summary")
+		return true
+	case "status":
+		p.execSubCommand(ctx, "status")
+		return true
+	case "stats":
+		p.execSubCommand(ctx, "stats")
+		return true
+	case "tools", "工具", "help", "帮助":
+		p.execSubCommand(ctx, "tools")
 		return true
 	}
 	return false
 }
 
+// formatDuration 将 time.Duration 格式化为人类可读的字符串。
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
 // doSummary 在后台调用 LLM 生成对话总结，通过原始 sender 发送结果。
-func (p *Plugin) doSummary(origCtx *eventctx.Context, session *Session, sender platform.UserInfo, chat platform.ChatInfo) {
-	msgs := make([]Message, 0, len(session.Messages)+1)
-	for _, m := range session.Messages {
+// msgs 是调用方已复制的消息快照，不会与 session 管理器产生 data race。
+func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
+	filtered := make([]Message, 0, len(msgs)+1)
+	for _, m := range msgs {
 		if m.Role != RoleSystem {
-			msgs = append(msgs, m)
+			filtered = append(filtered, m)
 		}
 	}
-	summaryPrompt := Message{
+	filtered = append(filtered, Message{
 		Role:    RoleUser,
 		Content: "请用简短的几句话总结以上对话的要点。",
-	}
-	msgs = append(msgs, summaryPrompt)
+	})
 
 	req := &ChatRequest{
-		Model:    p.cfg.Model,
-		Messages: msgs,
+		Model:       p.cfg.Model,
+		Messages:    filtered,
+		Temperature: p.cfg.Temperature,
+		TopP:        p.cfg.TopP,
 	}
 
 	resp, err := p.prov.Chat(context.Background(), req)
@@ -441,31 +607,46 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, session *Session, sender p
 // handleAI AI 消息处理器的入口。
 //
 // 处理流程：
-//  1. 提取并清洗消息内容
-//  2. 获取或创建会话（按 platform:chatID:userID 隔离）
-//  3. 注入/更新系统提示词和工具描述
-//  4. 追加用户消息到会话
-//  5. 进入工具调用循环（processWithTools）
-//  6. 发送最终回复
+//  1. 若通过 /ai 命令触发，使用 GetParsedCommand 检测子命令
+//  2. 若通过 @bot 或私聊触发，使用 cleanMessage 清洗后检测子命令
+//  3. 均非子命令时进入 AI 对话流程
+//  4. 注入/更新系统提示词
+//  5. 追加用户消息到会话
+//  6. 进入工具调用循环（processWithTools）
+//  7. 发送最终回复
 func (p *Plugin) handleAI(ctx *eventctx.Context) error {
+	parsed := ctx.GetParsedCommand()
+
+	// /ai 命令路径：通过 command 包解析子命令
+	if parsed != nil {
+		if len(parsed.CommandPath) > 1 {
+			return p.execSubCommand(ctx, parsed.CommandPath[1])
+		}
+		// 无子命令时，从原始消息中提取 AI 对话内容
+		return p.handleAIChat(ctx, p.cleanMessage(ctx.GetMessageContent()))
+	}
+
+	// @bot / 私聊路径：手动清洗后检测子命令
 	content := ctx.GetMessageContent()
 	if content == "" {
 		return nil
 	}
-
 	content = p.cleanMessage(content)
-
-	// 排除命令消息：清洗后若仍是命令（带 "/"、"!" 等前缀），
-	// AI 不应处理，避免与命令 handler 并发争抢共享 ctx 导致竞态。
-	if content == "" || isCommandMessage(content) {
+	if content == "" {
 		return nil
 	}
-
-	// 子命令处理：/ai reset、/ai tools、/ai help 等不走 LLM
 	if p.handleSubCommand(ctx, content) {
 		return nil
 	}
+	if isCommandMessage(content) {
+		return nil
+	}
 
+	return p.handleAIChat(ctx, content)
+}
+
+// handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息、调用 LLM。
+func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
 
@@ -479,11 +660,8 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		session.Messages = make([]Message, 0)
 	}
 
-	// 构建系统提示词
-	// 工具定义已通过 ChatRequest.Tools 参数传递给 LLM，无需额外写入 system prompt
 	var systemPrompt = p.cfg.SystemPrompt
 
-	// 更新/插入系统消息
 	var foundSystem bool
 	for i, m := range session.Messages {
 		if m.Role == RoleSystem {
@@ -496,10 +674,8 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		session.Messages = append([]Message{{Role: RoleSystem, Content: systemPrompt}}, session.Messages...)
 	}
 
-	// 追加用户消息
 	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: content})
 
-	// 进入工具调用循环
 	reply, err := p.processWithTools(ctx, session)
 	if err != nil {
 		return ctx.ReplyError(formatAIError(err))
@@ -536,13 +712,19 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 	for currentDepth < maxDepth {
 		currentDepth++
 
+		session.CallCount++
+
 		req := &ChatRequest{
-			Model:    p.cfg.Model,
-			Messages: session.Messages,
-			Tools:    p.reg.List(),
+			Model:       p.cfg.Model,
+			Messages:    session.Messages,
+			Tools:       p.reg.List(),
+			Temperature: p.cfg.Temperature,
+			TopP:        p.cfg.TopP,
 		}
 
-		streamCh, err := p.prov.ChatStream(ctx.Context(), req)
+		streamCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.APITimeout)
+		defer cancel()
+		streamCh, err := p.prov.ChatStream(streamCtx, req)
 		if err != nil {
 			return partialContent, fmt.Errorf("chat stream: %w", err)
 		}
@@ -586,7 +768,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 		p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText, ToolCalls: toolCalls})
 
 		for _, tc := range toolCalls {
-			toolResult := p.executeTool(ctx, tc)
+			session.ToolCount++
+			toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
+			defer cancel()
+			toolResult := p.executeTool(ctx, tc, toolCtx)
 			p.sm.AppendMessage(session, Message{
 				Role:       RoleTool,
 				Content:    toolResult,
@@ -628,28 +813,11 @@ func formatAIError(err error) string {
 	}
 }
 
-// commandEvent 包装 platform.Event，用于在工具执行时向引擎注入伪造的命令事件。
-//
-// 覆盖 Content() 返回命令文本，ID() 返回唯一标识以避免被去重中间件拦截。
-type commandEvent struct {
-	platform.Event
-	content string
-	id      string
-}
-
-func (e *commandEvent) Content() string { return e.content }
-func (e *commandEvent) ID() string {
-	if e.id != "" {
-		return e.id
-	}
-	return e.Event.ID()
-}
-
-// captureSender 包装 platform.Sender，拦截 Send 调用并记录消息文本内容，
-// 但不转发给真实 Sender。命令 handler 的回复仅作为工具结果返回给 AI，
+// captureSender 实现 platform.Sender，拦截 Send 调用并记录消息文本内容，
+// 不转发给真实用户。命令 handler 的回复仅作为工具结果返回给 AI，
 // 避免用户同时看到命令原始输出和 AI 总结两条消息。
 type captureSender struct {
-	platform.Sender
+	platform.NoopSender
 	captured string
 }
 
@@ -666,33 +834,46 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 
 // executeTool 执行一个工具调用并返回结果字符串。
 //
-// 优先通过 Engine 触发真实命令执行并捕获其回复内容；
+// toolCtx 是调用方传入的超时 context，用于限制工具执行的最长时间。
+// 优先通过 vevent 触发真实命令执行并捕获其回复内容；
 // 若捕获失败或工具无对应命令，回退到 tool.Execute 的占位结果。
-func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall) string {
+func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context) string {
 	tool, ok := p.reg.Get(tc.Name)
 	if !ok {
 		return fmt.Sprintf("错误: 未找到工具 %q", tc.Name)
 	}
 
-	// 优先：通过 Engine 执行真实命令并捕获回复
-	if p.eng != nil {
+	// 优先：通过合成事件触发真实命令执行并捕获回复
+	if p.syncer != nil {
 		if result := p.executeRealCommand(ctx, tc.Name); result != "" {
 			return result
 		}
 	}
 
 	// 回退：占位结果（工具无对应命令或捕获失败）
-	result, err := tool.Execute(ctx.Context(), tc.Arguments)
-	if err != nil {
-		return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, err)
+	done := make(chan struct{}, 1)
+	var result string
+	var execErr error
+	go func() {
+		result, execErr = tool.Execute(toolCtx, tc.Arguments)
+		close(done)
+	}()
+	select {
+	case <-done:
+		if execErr != nil {
+			return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, execErr)
+		}
+		return result
+	case <-toolCtx.Done():
+		return fmt.Sprintf("错误: 工具 %q 执行超时", tc.Name)
 	}
-	return result
 }
 
-// executeRealCommand 通过 Engine 执行工具对应的真实命令，返回命令 handler 的回复文本。
+// executeRealCommand 通过 vevent 注入合成事件执行工具对应的真实命令，
+// 返回命令 handler 的回复文本。
 //
-// 使用 captureSender 包装原始 Sender，命令 handler 的 ctx.Reply() 会被捕获，
-// 同时消息仍会正常发送给用户。
+// 使用 captureSender 捕获 handler 的 ctx.Reply() 输出，不转发给真实用户。
+// AI 会自行总结工具执行结果后回复用户，避免用户看到两条消息。
 func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) string {
 	pattern, ok := p.cmdPatterns[toolName]
 	if !ok {
@@ -704,29 +885,23 @@ func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) 
 		return ""
 	}
 
-	wrapped := &commandEvent{
-		Event:   originalEvent,
-		content: pattern,
-		id:      pattern + ":" + toolName + ":" + fmt.Sprint(time.Now().UnixNano()),
-	}
-	cs := &captureSender{Sender: origCtx.GetPlatformSender()}
-	cmdCtx := eventctx.NewContextFromEvent(wrapped, cs)
-	p.eng.ProcessEventSync(cmdCtx)
+	evt := platform.NewSyntheticEvent(
+		originalEvent.Kind(),
+		pattern,
+		platform.WithSyntheticSender(originalEvent.Sender()),
+		platform.WithSyntheticChat(originalEvent.Chat()),
+	)
+	cs := &captureSender{}
+	p.syncer.ProcessPlatformEventSync(evt, cs)
 	return cs.captured
 }
 
-// cleanMessage 清洗消息内容，去除命令前缀和 @ 提及。
+// cleanMessage 清洗消息内容，去除 @ 提及。
+// 注意：/ai 命令前缀由命令框架处理，无需在此剥离。
 func (p *Plugin) cleanMessage(content string) string {
 	content = strings.TrimSpace(content)
-
-	if p.triggerCmd != "" && strings.HasPrefix(content, p.triggerCmd) {
-		content = strings.TrimPrefix(content, p.triggerCmd)
-		content = strings.TrimSpace(content)
-	}
-
 	content = strings.TrimLeft(content, "@")
 	content = strings.TrimSpace(content)
-
 	return content
 }
 

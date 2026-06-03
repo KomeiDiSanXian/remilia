@@ -39,6 +39,7 @@ type ChatRequest struct {
 	Messages    []Message
 	Tools       []Tool
 	Temperature float64
+	TopP        float64
 	MaxTokens   int
 	Stream      bool
 }

@@ -92,6 +92,22 @@ type Config struct {
 	// 超出部分从中间裁剪，保留首尾。
 	MaxHistory int `yaml:"max_history"`
 
+	// Temperature 采样温度，0-2，默认 0.7。越高输出越随机。
+	Temperature float64 `yaml:"temperature"`
+
+	// TopP 核采样参数，0-1，默认 1.0。替代 temperature 使用。
+	TopP float64 `yaml:"top_p"`
+
+	// APITimeout API 请求超时时间，默认 60s。
+	APITimeout time.Duration `yaml:"api_timeout"`
+
+	// MaxRetries 请求失败时的最大重试次数，默认 0（不重试）。
+	MaxRetries int `yaml:"max_retries"`
+
+	// ToolTimeout 每个工具调用的最长执行时间，默认 30s。
+	// 超时后工具结果返回超时错误，对话继续。
+	ToolTimeout time.Duration `yaml:"tool_timeout"`
+
 	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
 	SessionTTL time.Duration `yaml:"session_ttl"`
 

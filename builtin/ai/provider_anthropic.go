@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // anthropicClient 实现 Provider 接口，兼容 Anthropic Messages API。
@@ -25,6 +26,8 @@ type anthropicClient struct {
 	apiKey     string
 	model      string
 	maxTokens  int
+	apiTimeout time.Duration
+	maxRetries int
 	httpClient *http.Client
 }
 
@@ -40,6 +43,8 @@ func NewAnthropicProvider(cfg *Config) (Provider, error) {
 		apiKey:     cfg.APIKey,
 		model:      cfg.Model,
 		maxTokens:  cfg.MaxTokens,
+		apiTimeout: cfg.APITimeout,
+		maxRetries: cfg.MaxRetries,
 		httpClient: &http.Client{},
 	}, nil
 }
@@ -62,13 +67,14 @@ type anthropicReqContentBlock struct {
 }
 
 type anthropicChatRequest struct {
-	Model       string           `json:"model"`
-	MaxTokens   int              `json:"max_tokens"`
-	System      string           `json:"system,omitempty"`
+	Model       string                `json:"model"`
+	MaxTokens   int                   `json:"max_tokens"`
+	System      string                `json:"system,omitempty"`
 	Messages    []anthropicReqMessage `json:"messages"`
-	Tools       []anthropicTool  `json:"tools,omitempty"`
-	Temperature float64          `json:"temperature,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
+	Tools       []anthropicTool       `json:"tools,omitempty"`
+	Temperature float64               `json:"temperature,omitempty"`
+	TopP        float64               `json:"top_p,omitempty"`
+	Stream      bool                  `json:"stream,omitempty"`
 }
 
 type anthropicChatResponse struct {
@@ -110,15 +116,6 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 					Type: "text",
 					Text: m.Content,
 				})
-			}
-			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					blocks = append(blocks, anthropicReqContentBlock{
-						Type:  "tool_result",
-						ID:    tc.ID,
-						Input: tc.Arguments,
-					})
-				}
 			}
 			current = &anthropicReqMessage{
 				Role:    "user",
@@ -188,6 +185,7 @@ func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
+		TopP:        req.TopP,
 	}
 	if len(req.Tools) > 0 {
 		body.Tools = toAnthropicTools(req.Tools)
@@ -198,44 +196,78 @@ func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 		return nil, fmt.Errorf("ai: anthropic marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic create request: %w", err)
-	}
-	c.setHeaders(httpReq)
+	return c.doAnthropicChatRequest(ctx, payload)
+}
 
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic http request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(body))
+func (c *anthropicClient) doAnthropicChatRequest(ctx context.Context, payload []byte) (*ChatResponse, error) {
+	chatCtx := ctx
+	if c.apiTimeout > 0 {
+		var cancel context.CancelFunc
+		chatCtx, cancel = context.WithTimeout(ctx, c.apiTimeout)
+		defer cancel()
 	}
 
-	var anthropicResp anthropicChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
-		return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
-	}
-
-	if anthropicResp.Error != nil {
-		return nil, fmt.Errorf("ai: anthropic api error: %s: %s", anthropicResp.Error.Type, anthropicResp.Error.Message)
-	}
-
-	result := &ChatResponse{}
-	for _, block := range anthropicResp.Content {
-		if block.Type == "text" {
-			result.Content += block.Text
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-chatCtx.Done():
+				return nil, chatCtx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
 		}
+
+		httpReq, err := http.NewRequestWithContext(chatCtx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("ai: anthropic create request: %w", err)
+		}
+		c.setHeaders(httpReq)
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("ai: anthropic http request: %w", err)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
+			if resp.StatusCode < 500 {
+				return nil, lastErr
+			}
+			continue
+		}
+
+		defer resp.Body.Close()
+
+		var anthropicResp anthropicChatResponse
+		if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+			return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
+		}
+
+		if anthropicResp.Error != nil {
+			return nil, fmt.Errorf("ai: anthropic api error: %s: %s", anthropicResp.Error.Type, anthropicResp.Error.Message)
+		}
+
+		result := &ChatResponse{}
+		for _, block := range anthropicResp.Content {
+			if block.Type == "text" {
+				result.Content += block.Text
+			}
+		}
+
+		if anthropicResp.StopReason == "tool_use" {
+			result.ToolCalls = parseAnthropicToolCalls(anthropicResp.Content)
+		}
+
+		return result, nil
 	}
 
-	if anthropicResp.StopReason == "tool_use" {
-		result.ToolCalls = parseAnthropicToolCalls(anthropicResp.Content)
+	if lastErr != nil {
+		return nil, lastErr
 	}
-
-	return result, nil
+	return nil, fmt.Errorf("ai: anthropic unexpected retry exit")
 }
 
 // --- 流式调用 ---
@@ -251,6 +283,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
+		TopP:        req.TopP,
 		Stream:      true,
 	}
 	if len(req.Tools) > 0 {

@@ -35,6 +35,23 @@ func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Send
 	e.processEventGuard(ctx)
 }
 
+// ProcessPlatformEventSync 同步处理平台事件，强制 handler 在当前 goroutine 执行。
+// 与 ProcessPlatformEvent 的区别：不会 offload handler 到 ExecPool。
+func (e *Engine) ProcessPlatformEventSync(event platform.Event, sender platform.Sender, caps ...platform.Capabilities) {
+	if event == nil {
+		logger.Warn("[engine] ProcessPlatformEventSync: nil event, skipping")
+		return
+	}
+
+	ctx := context.NewContextFromEvent(event, sender)
+
+	if len(caps) > 0 {
+		ctx.SetPlatformCapabilities(mergePlatformCaps(caps))
+	}
+
+	e.ProcessEventSync(ctx)
+}
+
 // ProcessPlatformEventEx 是 ProcessPlatformEvent 的扩展版本，额外注入机器人自身 ID。
 //
 // botID 非空时会注入 ctx，使 ctx.IsFromSelf() 能正确判断事件是否由机器人自身触发。

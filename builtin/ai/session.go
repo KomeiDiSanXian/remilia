@@ -17,6 +17,8 @@ type Session struct {
 	Messages  []Message
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	CallCount int // LLM API 调用次数
+	ToolCount int // 工具调用次数
 }
 
 // SessionManager 管理 AI 对话会话，使用 LRU 淘汰策略。
@@ -212,6 +214,8 @@ type sessionRecord struct {
 	UserID    string `gorm:"index"`
 	ChatID    string `gorm:"index"`
 	Messages  string `gorm:"type:text"`
+	CallCount int    `gorm:"default:0"`
+	ToolCount int    `gorm:"default:0"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -224,6 +228,8 @@ func (s *Session) toRecord() *sessionRecord {
 		UserID:    s.UserID,
 		ChatID:    s.ChatID,
 		Messages:  string(data),
+		CallCount: s.CallCount,
+		ToolCount: s.ToolCount,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
@@ -238,6 +244,8 @@ func (r *sessionRecord) toSession() *Session {
 		UserID:    r.UserID,
 		ChatID:    r.ChatID,
 		Messages:  msgs,
+		CallCount: r.CallCount,
+		ToolCount: r.ToolCount,
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}

@@ -25,24 +25,17 @@ type Tool struct {
 	Execute     func(ctx context.Context, args map[string]any) (string, error)
 }
 
-// ToolProvider 插件可通过实现此接口向 AI 显式注册自定义工具。
+// ToolProvider 插件可通过实现此接口并提供给 AI 插件显式注册自定义工具。
 //
-// AI 插件在 Setup 时通过容器扫描所有已注册的 ToolProvider 实现。
-// 此接口是暴露需要权限的工具给 AI 的推荐方式——插件自行控制
-// 哪些工具可被 AI 调用，并在 Execute 中完成权限校验。
+// 其他插件在自己的 Setup 中通过 [plugin.TryService] 获取 AI 插件服务实例
+// 后调用 [Plugin.RegisterToolProvider] 注册工具集。此接口是暴露需要权限的
+// 工具给 AI 的推荐方式——插件自行控制哪些工具可被 AI 调用，并在 Execute 中
+// 完成权限校验。
 //
 // 使用示例：
 //
-//	func (p *MyPlugin) ListTools() []ai.Tool {
-//	    return []ai.Tool{{
-//	        Name:        "send_notice",
-//	        Description: "发送群公告（仅管理员可用）",
-//	        Parameters:  ai.ToolParamSchema{...},
-//	        Execute: func(ctx context.Context, args map[string]any) (string, error) {
-//	            // 在此处进行权限校验
-//	            return "公告已发送", nil
-//	        },
-//	    }}
+//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	    aiSvc.RegisterToolProvider(myToolProvider)
 //	}
 //
 // 安全提示：不要在 ListTools 中暴露可以被 AI 滥用执行危险操作的接口。

@@ -18,6 +18,11 @@ func (f *fakeProcessor) ProcessPlatformEvent(event platform.Event, sender platfo
 	f.sender = sender
 }
 
+func (f *fakeProcessor) ProcessPlatformEventSync(event platform.Event, sender platform.Sender, _ ...platform.Capabilities) {
+	f.events = append(f.events, event)
+	f.sender = sender
+}
+
 func TestPlugin_Inject(t *testing.T) {
 	proc := &fakeProcessor{}
 	p := vevent.NewPlugin(proc)
