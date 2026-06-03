@@ -2,6 +2,7 @@ package context
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 )
@@ -37,7 +38,7 @@ func OnCommandMatch(parser *command.Parser) Rule {
 //	})
 func OnParseCommand(def *command.Definition) Rule {
 	return func(ctx *Context) bool {
-		content := ctx.GetMessageContent()
+		content := strings.TrimSpace(ctx.GetMessageContent())
 		prefix, _ := SplitCommandPattern(content)
 		parsed, err := command.ParseFromDefinition(content, def, prefix)
 		if err != nil {
