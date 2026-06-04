@@ -402,6 +402,24 @@ func (p *Plugin) IsBanned(userID string) bool {
 	return banned
 }
 
+// ListSkills 返回可供 AI 调用的技能集。
+func (p *Plugin) ListSkills() []ai.Skill {
+	return []ai.Skill{
+		{
+			Name:        "antispam_investigator",
+			Description: "反垃圾调查：检查用户封禁状态、查询反垃圾系统统计信息",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"user_id": {Type: "string", Description: "要调查的用户 ID（可选，留空则只查统计）"},
+				},
+			},
+			Prompt: "你是一个反垃圾调查助手。用户会问你某个用户是否被反垃圾系统封禁，或者询问系统整体状态。使用封禁检查和统计工具给出清晰的分析。",
+			Tools:  p.ListTools(),
+		},
+	}
+}
+
 // ListTools 返回可供 AI 调用的工具集。
 func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{

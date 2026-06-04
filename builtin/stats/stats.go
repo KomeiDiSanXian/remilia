@@ -270,6 +270,25 @@ func (p *Plugin) TotalMessages() int64 {
 	return p.totalMessages.Load()
 }
 
+// ListSkills 返回可供 AI 调用的技能集。
+func (p *Plugin) ListSkills() []ai.Skill {
+	return []ai.Skill{
+		{
+			Name:        "stats_analyst",
+			Description: "使用分析：查询命令调用排行、单个命令调用次数、总消息数",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"query": {Type: "string", Description: "统计相关的问题，如'最常用的命令是什么'或'/ping 被调用了多少次'"},
+				},
+				Required: []string{"query"},
+			},
+			Prompt: "你是一个机器人使用分析助手。用户会问你关于使用情况的问题，如哪些命令最受欢迎、某个命令的调用次数、总处理消息数。使用统计工具提供清晰的数据分析。",
+			Tools:  p.ListTools(),
+		},
+	}
+}
+
 // ListTools 返回可供 AI 调用的工具集。
 func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{

@@ -261,6 +261,25 @@ func (p *Plugin) Count() int {
 	return len(p.entries)
 }
 
+// ListSkills 返回可供 AI 调用的技能集。
+func (p *Plugin) ListSkills() []ai.Skill {
+	return []ai.Skill{
+		{
+			Name:        "audit_reviewer",
+			Description: "审计审查：查询最近操作记录、按用户搜索审计日志",
+			Parameters: ai.ToolParamSchema{
+				Type: "object",
+				Properties: map[string]ai.ToolParamSchema{
+					"query": {Type: "string", Description: "要审计的具体问题，如'谁最近执行了管理操作'或'查看用户 xxx 的操作'"},
+				},
+				Required: []string{"query"},
+			},
+			Prompt: "你是一个安全审计助手。用户会问你关于操作记录的问题，如「谁最近执行了管理操作？」或「用户 xxx 在做什么？」。使用审计工具查询并给出清晰的分析。",
+			Tools:  p.ListTools(),
+		},
+	}
+}
+
 // ListTools 返回可供 AI 调用的工具集。
 func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
