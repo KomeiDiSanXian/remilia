@@ -1,3 +1,9 @@
+// Package ai storage.go — 基于 GORM 的会话持久化实现。
+//
+// 本文件提供两种 SessionStore 实现：
+//   - gormSessionStore: 基于 storage 插件的 GORM 持久化存储，
+//     自动建表，支持 CRUD 操作
+//   - noopSessionStore: 空实现（什么也不做），当 storage 插件不可用时作为默认值
 package ai
 
 import (

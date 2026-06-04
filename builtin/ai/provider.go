@@ -1,3 +1,11 @@
+// Package ai provider.go — LLM 提供商抽象接口与消息类型定义。
+//
+// 本文件定义：
+//   - Provider 接口：所有 LLM API 提供商需实现 Chat 和 ChatStream 方法
+//   - NewProvider 工厂函数：根据 Config.Provider 选择对应实现
+//   - 消息角色（Role）和常用常量
+//   - ToolCall / Message / ChatRequest / ChatResponse 等核心数据类型
+//   - StreamEvent / StreamEventType：流式事件类型定义
 package ai
 
 import (
@@ -16,16 +24,27 @@ const (
 )
 
 // ToolCall 表示 LLM 发起的一个工具调用请求。
+//
+// LLM 在响应中通过 tool_calls 数组请求调用工具，
+// 实现方需根据 ID 和 Name 执行对应工具，并将结果以 [RoleTool] 消息回填。
+// ID 用于关联 tool_calls 和 tool 消息的 tool_call_id。
 type ToolCall struct {
 	// ID 工具调用唯一标识，用于匹配工具结果回填。
+	// OpenAI/Anthropic 原生返回；为空的 ID 会在代码中自动生成。
 	ID string
-	// Name 要调用的工具名称。
+	// Name 要调用的工具名称，对应 ToolRegistry 中注册的 Tool.Name。
 	Name string
-	// Arguments 工具参数，由 LLM 根据工具 schema 生成。
+	// Arguments 工具参数，由 LLM 根据工具 Parameters JSON Schema 生成。
 	Arguments map[string]any
 }
 
-// Message 表示对话中的一条消息。
+// Message 表示对话中的一条消息，对应 LLM 的 messages 数组中的一项。
+//
+// 按 Role 不同，字段含义不同：
+//   - RoleSystem: Content 为系统提示词，ToolCalls/ToolCallID 为空
+//   - RoleUser: Content 为用户消息
+//   - RoleAssistant: Content 为 AI 回复，ToolCalls 为 AI 请求的工具调用（可选）
+//   - RoleTool: Content 为工具执行结果，ToolCallID 对应 Assistant 消息中的 ToolCall.ID
 type Message struct {
 	Role       Role       `json:"role"`
 	Content    string     `json:"content"`
@@ -67,9 +86,9 @@ const (
 // StreamEvent 流式事件，由 ChatStream 通过 channel 推送。
 type StreamEvent struct {
 	Type     StreamEventType
-	Content  string  // StreamEventText 时有效
+	Content  string    // StreamEventText 时有效
 	ToolCall *ToolCall // StreamEventToolCall 时有效
-	Err      error   // StreamEventError 时有效
+	Err      error     // StreamEventError 时有效
 }
 
 // Provider LLM 提供商抽象接口。

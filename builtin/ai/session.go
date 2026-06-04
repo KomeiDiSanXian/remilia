@@ -1,3 +1,11 @@
+// Package ai session.go — 会话管理：Session 定义、LRU 缓存、消息裁剪、GORM 持久化记录。
+//
+// 本文件实现 AI 对话会话的完整生命周期管理：
+//   - Session: 单个对话会话的数据结构
+//   - SessionManager: LRU 缓存 + TTL 过期 + 可选持久化的会话管理器
+//   - SessionStore: 持久化存储接口
+//   - trimMessages: 上下文窗口裁剪（保留 System 消息 + 最近 maxHistory 条）
+//   - sessionRecord: GORM 数据库记录结构体及转换方法
 package ai
 
 import (
@@ -8,8 +16,17 @@ import (
 	"time"
 )
 
-// Session 表示一个 AI 对话会话。
-// 按 platform:chatID:userID 维度进行隔离。
+// Session 表示一个 AI 对话会话，按 platform:chatID:userID 维度隔离。
+//
+// 字段说明：
+//   - ID: 会话唯一标识，格式 "{platform}:{chatID}:{userID}"
+//   - UserID: 用户 ID
+//   - ChatID: 群组/频道 ID
+//   - Messages: 对话消息列表
+//   - CreatedAt: 会话创建时间
+//   - UpdatedAt: 会话最后活跃时间（用于 TTL 过期判断）
+//   - CallCount: 本轮对话中 LLM API 的累计调用次数
+//   - ToolCount: 本轮对话中工具调用的累计次数
 type Session struct {
 	ID        string
 	UserID    string
@@ -17,18 +34,19 @@ type Session struct {
 	Messages  []Message
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	CallCount int // LLM API 调用次数
-	ToolCount int // 工具调用次数
+	CallCount int
+	ToolCount int
 }
 
 // SessionManager 管理 AI 对话会话，使用 LRU 淘汰策略。
 //
 // 功能：
-//   - 自动创建/获取会话（GetOrCreate）
-//   - 消息追加时自动裁剪上下文窗口
-//   - 可选持久化存储（通过 SessionStore 接口）
-//   - 定期清理过期会话
-//   - LRU 淘汰（达到 maxSize 时淘汰最久未访问的）
+//   - GetOrCreate: 自动创建或获取会话（LRU 缓存 → 持久化存储 → 新建）
+//   - Save: 持久化保存会话
+//   - Delete: 删除会话（LRU + 持久化）
+//   - AppendMessage: 追加消息并自动裁剪上下文窗口
+//   - CleanupExpired: 清理超过 TTL 未活跃的会话
+//   - evictLocked: LRU 淘汰（达到 maxSize 时淘汰最久未访问的）
 type SessionManager struct {
 	mu         sync.RWMutex
 	sessions   map[string]*list.Element
@@ -39,19 +57,28 @@ type SessionManager struct {
 	storage    SessionStore
 }
 
-// sessionEntry 包装 Session，存储在 LRU 链表中。
+// sessionEntry 包装 Session，作为 LRU 链表的节点值。
 type sessionEntry struct {
 	session *Session
 }
 
 // SessionStore 会话持久化存储接口。
-// 实现此接口可将会话存储到不同后端。
+//
+// 实现此接口可将会话存储到不同后端（数据库、Redis 等）。
+// 内置实现：gormSessionStore（基于 GORM）、noopSessionStore（空实现）。
 type SessionStore interface {
 	Load(sessionID string) (*Session, error)
 	Save(session *Session) error
 	Delete(sessionID string) error
 }
 
+// NewSessionManager 创建会话管理器。
+//
+// 参数：
+//   - maxSize: LRU 缓存最大会话数，<= 0 时使用默认值 1000
+//   - maxHistory: 保留的最大消息条数，<= 0 时使用默认值 20
+//   - ttl: 会话 TTL，超过此时间未活跃的会话将被 CleanupExpired 清理
+//   - storage: 持久化存储实现，为 nil 时不持久化
 func NewSessionManager(maxSize, maxHistory int, ttl time.Duration, storage SessionStore) *SessionManager {
 	sm := &SessionManager{
 		sessions:   make(map[string]*list.Element),
@@ -199,7 +226,7 @@ func trimMessages(s *Session, maxHistory int) {
 	s.Messages = append(systemMsgs, otherMsgs...)
 }
 
-// AppendMessage 追加消息并持久化。
+// AppendMessage 向会话追加一条消息，自动裁剪上下文窗口并持久化。
 func (sm *SessionManager) AppendMessage(session *Session, msg Message) {
 	session.Messages = append(session.Messages, msg)
 	trimMessages(session, sm.maxHistory)

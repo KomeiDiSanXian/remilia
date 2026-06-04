@@ -1,3 +1,14 @@
+// Package ai provider_openai.go — OpenAI 兼容 API 的 Provider 实现。
+//
+// 本文件实现 Provider 接口，兼容 /v1/chat/completions 格式的所有 API：
+//   - OpenAI 官方 API（GPT-4o, GPT-4o-mini 等）
+//   - DeepSeek Chat API
+//   - 月之暗面 Kimi、零一万物 Yi
+//   - Groq、Together AI
+//   - vLLM、Ollama 等本地部署
+//
+// 支持流式（SSE）和非流式两种调用方式。
+// 流式实现处理 OpenAI 格式的工具调用 delta 分片合并（mergeOrAppendToolCall）。
 package ai
 
 import (

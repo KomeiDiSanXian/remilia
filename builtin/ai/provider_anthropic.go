@@ -1,3 +1,17 @@
+// Package ai provider_anthropic.go — Anthropic Messages API 的 Provider 实现。
+//
+// 本文件实现 Provider 接口，兼容 Anthropic Messages API：
+//   - Claude Sonnet 4 (claude-sonnet-4-20250514)
+//   - Claude 3.5 Sonnet (claude-3-5-sonnet-latest)
+//   - Claude 3 Opus (claude-3-opus-latest)
+//   - Claude 3 Haiku (claude-3-haiku-latest)
+//
+// 实现差异：
+//   - Anthropic 的 system prompt 在顶级字段而非 messages 数组
+//   - content 为 content block 数组而非简单字符串
+//   - 工具调用通过 tool_use content block 表示
+//   - 流式事件类型不同（content_block_start / content_block_delta / content_block_stop）
+//   - tool_result 通过 content block 回填（非独立 tool 角色消息）
 package ai
 
 import (
@@ -54,7 +68,7 @@ func NewAnthropicProvider(cfg *Config) (Provider, error) {
 // anthropicMessage 对应 Anthropic Messages API 的 content block 数组格式。
 // 与 OpenAI 不同，Anthropic 的 content 是数组而非字符串。
 type anthropicReqMessage struct {
-	Role    string                    `json:"role"`
+	Role    string                     `json:"role"`
 	Content []anthropicReqContentBlock `json:"content"`
 }
 
@@ -78,12 +92,12 @@ type anthropicChatRequest struct {
 }
 
 type anthropicChatResponse struct {
-	ID      string                     `json:"id"`
-	Type    string                     `json:"type"`
-	Role    string                     `json:"role"`
-	Content []anthropicContentBlock    `json:"content"`
+	ID         string                  `json:"id"`
+	Type       string                  `json:"type"`
+	Role       string                  `json:"role"`
+	Content    []anthropicContentBlock `json:"content"`
 	StopReason string                  `json:"stop_reason"`
-	Error   *anthropicErrorBody        `json:"error,omitempty"`
+	Error      *anthropicErrorBody     `json:"error,omitempty"`
 }
 
 type anthropicErrorBody struct {
@@ -345,7 +359,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 
 			// 解析流式事件
 			var streamEvent struct {
-				Type string `json:"type"`
+				Type  string `json:"type"`
 				Index int    `json:"index"`
 				Delta *struct {
 					Type        string `json:"type"`
