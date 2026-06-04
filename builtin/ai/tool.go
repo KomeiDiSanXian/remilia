@@ -1,3 +1,12 @@
+// Package ai tool.go — 工具系统：类型定义、注册表、序列化与解析。
+//
+// 本文件包含：
+//   - Tool / ToolParamSchema：LLM 可调用的工具类型定义
+//   - ToolRegistry：线程安全的工具注册表
+//   - ToolProvider / SkillProvider：插件注册工具的接口
+//   - WithCallerInfo / CallerInfoFromContext：调用者身份注入
+//   - toOpenAITools / toAnthropicTools：工具列表的提供商格式转换
+//   - parseOpenAIToolCalls / parseAnthropicToolCalls：工具调用响应解析
 package ai
 
 import (
@@ -35,6 +44,15 @@ type ToolParamSchema struct {
 }
 
 // Tool 描述一个可供 AI 调用的工具。
+//
+// 字段说明：
+//   - Name: 工具名称，LLM 通过此名称调用工具。需唯一，建议使用 snake_case
+//   - Description: 工具描述，LLM 据此决定是否调用。应清晰说明工具能力和使用场景
+//   - Parameters: JSON Schema 格式的参数描述，LLM 据此生成调用参数
+//   - Execute: 工具执行回调，接收 context 和参数，返回结果文本或错误
+//
+// Execute 的调用方通常已通过 [WithCallerInfo] 注入了调用者身份，
+// 实现方可通过 [CallerInfoFromContext] 提取调用者信息进行权限校验。
 type Tool struct {
 	Name        string
 	Description string
@@ -71,15 +89,19 @@ type ToolProvider interface {
 	ListTools() []Tool
 }
 
-// ToolRegistry 工具注册表，管理所有可供 AI 调用的工具。
+// ToolRegistry 管理所有可供 AI 调用的工具，按工具名索引。
+// 非线程安全，应在插件 Setup 阶段注册完成后不再修改。
 type ToolRegistry struct {
 	tools map[string]Tool
 }
 
+// NewToolRegistry 创建空的工具注册表。
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{tools: make(map[string]Tool)}
 }
 
+// Register 注册一个工具。同名工具仅首次注册生效，后续注册静默忽略。
+// 调用者应保证在 [processWithTools] 开始前完成注册。
 func (r *ToolRegistry) Register(t Tool) {
 	if _, exists := r.tools[t.Name]; exists {
 		return
@@ -87,11 +109,13 @@ func (r *ToolRegistry) Register(t Tool) {
 	r.tools[t.Name] = t
 }
 
+// Get 按名称查找工具。第二个返回值为 false 表示未找到。
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]
 	return t, ok
 }
 
+// List 返回当前注册的所有工具的切片副本。每次调用创建新切片。
 func (r *ToolRegistry) List() []Tool {
 	out := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {

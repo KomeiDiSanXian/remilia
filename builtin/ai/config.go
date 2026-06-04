@@ -1,62 +1,17 @@
-// Package ai 提供 AI 对话能力，支持多 LLM 提供商和工具调用。
+// Package ai config.go — 配置结构与加载逻辑。
 //
-// # 支持的提供商
+// 本文件定义 AI 插件的全部配置项（Config）、默认值（DefaultConfig）
+// 以及从 config.yaml 读取配置的加载函数（loadConfig）。
 //
-// 1. OpenAI 兼容 API（provider: "openai"）
-//   - 可直接使用：OpenAI（GPT-4o、GPT-4o-mini 等）
-//   - 也可使用任意 OpenAI 兼容接口的服务：
-//     DeepSeek（https://api.deepseek.com）、
-//     月之暗面 Kimi、零一万物 Yi、
-//     Groq、Together AI、vLLM、
-//     Ollama（本地）、任意 OpenAI 代理等
-//
-// 2. Anthropic（provider: "anthropic"）
-//   - Claude Sonnet 4、Claude 3.5 Sonnet、Claude 3 Opus、Claude 3 Haiku 等
-//
-// # 工具调用
-//
-// AI 插件支持两种方式暴露工具给 LLM：
-//
-//  1. 自动发现：自动扫描已注册的**无权限命令**并包装为工具
-//  2. 显式注册：插件实现 [ToolProvider] 接口，向 AI 显式注册自定义工具
-//
-// # 多轮对话
-//
-// AI 插件天然支持多轮对话。每次用户的输入都会追加到当前会话上下文中，
-// LLM 可以看到完整的对话历史。会话按 platform:chatID:userID 维度隔离，
-// 不同用户/群组之间互不干扰。
-//
-// 上下文窗口通过 max_history 控制，超出部分从中间裁剪（保留 system prompt 和最近的消息）。
-//
-// # ⚠️ 安全设计
-//
-// 自动发现工具时**仅暴露不需要权限的命令**（Permissions 为空）。
-// 需要权限的敏感命令不会被 AI 自动发现，防止通过 AI 绕过权限检查。
-//
-// 如需让 AI 调用需要权限的命令，插件应：
-//   - 实现 [ToolProvider] 接口显式注册工具
-//   - 在工具 Execute 中自行校验调用者身份
-//   - 使用 system_prompt 告知 AI 该工具的使用约束
-//
-// # 配置示例
-//
-//	plugins:
-//	  ai:
-//	    provider: "openai"
-//	    model: "gpt-4o-mini"
-//	    base_url: "https://api.openai.com/v1"
-//	    api_key: "${AI_API_KEY}"
-//	    system_prompt: "你是一个有用的AI助手"
-//
-// # 常用模型推荐
-//
-//   - OpenAI:     gpt-4o, gpt-4o-mini, gpt-4-turbo, o1-mini
-//   - DeepSeek:   deepseek-chat, deepseek-reasoner
-//   - Anthropic:  claude-sonnet-4-20250514, claude-3-5-sonnet-latest
-//   - 本地部署:   Ollama（base_url 设置为本地地址）
+// 配置项覆盖 LLM 提供商选择、模型参数、超时控制、会话管理、触发方式、
+// Markdown 回复、Skill 系统等。
 package ai
 
-import "time"
+import (
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/plugin"
+)
 
 // Config AI 插件配置。
 // 通过 config.yaml 的 plugins.ai 节读取。
@@ -140,4 +95,98 @@ type Config struct {
 
 	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
 	SkillMaxDepth int `yaml:"skill_max_depth"`
+}
+
+// DefaultConfig AI 插件默认配置。
+var DefaultConfig = Config{
+	Provider:      "openai",
+	Model:         "gpt-4o-mini",
+	MaxTokens:     2048,
+	MaxDepth:      5,
+	MaxHistory:    20,
+	Temperature:   0.7,
+	TopP:          1.0,
+	APITimeout:    60 * time.Second,
+	MaxRetries:    0,
+	ToolTimeout:   30 * time.Second,
+	SessionTTL:    24 * time.Hour,
+	SystemPrompt:  "你是一个有用的AI助手，运行在一个叫Remilia Bot的IM框架中。用户问你有什么工具时请列举可用的工具。",
+	TriggerCmd:    "/ai",
+	AtBot:         true,
+	PrivateChat:   true,
+	Markdown:      true,
+	Fallback:      false,
+	SkillTimeout:  60 * time.Second,
+	SkillMaxDepth: 3,
+}
+
+// loadConfig 从插件配置中读取配置项，未配置时使用默认值。
+//
+// 当前配置校验：
+//   - 至少启用一种触发方式（trigger_cmd / at_bot / private_chat）
+//   - provider、model、api_key 等由 Setup 阶段 NewProvider 校验
+func loadConfig(ctx *plugin.SetupContext) *Config {
+	cfg := DefaultConfig
+	if v := ctx.Config.GetString("provider", ""); v != "" {
+		cfg.Provider = v
+	}
+	if v := ctx.Config.GetString("model", ""); v != "" {
+		cfg.Model = v
+	}
+	if v := ctx.Config.GetString("base_url", ""); v != "" {
+		cfg.BaseURL = v
+	}
+	if v := ctx.Config.GetString("api_key", ""); v != "" {
+		cfg.APIKey = v
+	}
+	if v := ctx.Config.GetInt("max_tokens", 0); v > 0 {
+		cfg.MaxTokens = v
+	}
+	if v := ctx.Config.GetInt("max_depth", 0); v > 0 {
+		cfg.MaxDepth = v
+	}
+	if v := ctx.Config.GetInt("max_history", 0); v > 0 {
+		cfg.MaxHistory = v
+	}
+	if v := ctx.Config.GetFloat64("temperature", 0); v > 0 {
+		cfg.Temperature = v
+	}
+	if v := ctx.Config.GetFloat64("top_p", 0); v > 0 {
+		cfg.TopP = v
+	}
+	if v := ctx.Config.GetDuration("api_timeout", 0); v > 0 {
+		cfg.APITimeout = v
+	}
+	if v := ctx.Config.GetInt("max_retries", 0); v > 0 {
+		cfg.MaxRetries = v
+	}
+	if v := ctx.Config.GetDuration("tool_timeout", 0); v > 0 {
+		cfg.ToolTimeout = v
+	}
+	if v := ctx.Config.GetDuration("session_ttl", 0); v > 0 {
+		cfg.SessionTTL = v
+	}
+	if v := ctx.Config.GetString("system_prompt", ""); v != "" {
+		cfg.SystemPrompt = v
+	}
+	if v := ctx.Config.GetString("trigger_cmd", ""); v != "" {
+		cfg.TriggerCmd = v
+	}
+	cfg.AtBot = ctx.Config.GetBool("at_bot", cfg.AtBot)
+	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
+	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
+	cfg.Fallback = ctx.Config.GetBool("fallback", cfg.Fallback)
+
+	if v := ctx.Config.GetDuration("skill_timeout", 0); v > 0 {
+		cfg.SkillTimeout = v
+	}
+	if v := ctx.Config.GetInt("skill_max_depth", 0); v > 0 {
+		cfg.SkillMaxDepth = v
+	}
+
+	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
+		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")
+	}
+
+	return &cfg
 }
