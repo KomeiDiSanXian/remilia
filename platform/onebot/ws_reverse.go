@@ -208,6 +208,18 @@ func (a *ReverseWSAdapter) BotName() string {
 	return a.botName
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *ReverseWSAdapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "reverse_websocket",
+	}
+	a.connMu.Lock()
+	detail["active_connections"] = len(a.conns)
+	a.connMu.Unlock()
+	return detail
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // HTTP / WebSocket 处理
 // ────────────────────────────────────────────────────────────────────────────
@@ -316,6 +328,8 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 
 // 编译期接口断言
 var (
-	_ platform.Adapter     = (*ReverseWSAdapter)(nil)
-	_ platform.BotIdentity = (*ReverseWSAdapter)(nil)
+	_ platform.Adapter            = (*ReverseWSAdapter)(nil)
+	_ platform.BotIdentity        = (*ReverseWSAdapter)(nil)
+	_ platform.RecoverableAdapter = (*ReverseWSAdapter)(nil)
+	_ platform.HealthDetailer     = (*ReverseWSAdapter)(nil)
 )

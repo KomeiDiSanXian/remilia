@@ -63,6 +63,17 @@ func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
 	}
 }
 
+// WithAPI 设置适配器的 OpenAPI 客户端，用于异步获取机器人身份和消息发送。
+// 在 Start 后调用，允许延迟绑定 WebhookConn 中创建的 API 客户端。
+func (a *Adapter) WithAPI(api openapi.OpenAPI) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.api = api
+	if api != nil {
+		a.sender = NewSender(api)
+	}
+}
+
 // ── platform.BotIdentity ─────────────────────────────────────────────────────
 
 // BotID 返回机器人在 QQ 平台的唯一标识符。
@@ -189,9 +200,27 @@ func safeInvoke(handler func(platform.Event), event platform.Event) {
 	platform.SafeDispatch(handler, event)
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *Adapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "webhook",
+	}
+	if a.api != nil {
+		detail["api_available"] = true
+	}
+	a.mu.RLock()
+	if a.botID != "" {
+		detail["bot_identified"] = true
+	}
+	a.mu.RUnlock()
+	return detail
+}
+
 // ── 编译期接口断言 ────────────────────────────────────────────────────────────
 
 var (
-	_ platform.Adapter     = (*Adapter)(nil)
-	_ platform.BotIdentity = (*Adapter)(nil)
+	_ platform.Adapter        = (*Adapter)(nil)
+	_ platform.BotIdentity    = (*Adapter)(nil)
+	_ platform.HealthDetailer = (*Adapter)(nil)
 )

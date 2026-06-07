@@ -32,6 +32,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/builtin/welcome"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/css"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/iss"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -42,7 +45,8 @@ import (
 const dataDir = "data"
 
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
-	for _, dir := range []string{dataDir, dataDir + "/db"} {
+	extraDirs := []string{dataDir + "/iss", dataDir + "/css"}
+	for _, dir := range append([]string{dataDir, dataDir + "/db"}, extraDirs...) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
 		}
@@ -101,6 +105,9 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		vevent.New(eng),
 		ping.New(),
 		ai.New(eng),
+		weather.New(),
+		iss.New(iss.WithDataDir(dataDir+"/iss")),
+		css.New(css.WithDataDir(dataDir+"/css")),
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {
@@ -108,13 +115,6 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	}
 	logger.Infof("[bot] %d plugins loaded", pm.Count())
 	pm.FreezeContainer()
-
-	// 通知 AI 插件扫描所有已加载插件的 ToolProvider 和 SkillProvider
-	if aiRaw, ok := pm.GetContainer().Get("ai"); ok {
-		aiPlugin := aiRaw.(*ai.Plugin)
-		aiPlugin.DiscoverToolProviders(pm)
-		aiPlugin.DiscoverSkillProviders(pm)
-	}
 
 	eng.Use(sp.Middleware())
 	if ar, ok := pm.GetContainer().Get("auditlog"); ok {

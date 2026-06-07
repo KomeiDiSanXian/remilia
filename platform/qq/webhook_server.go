@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -85,6 +86,8 @@ func (a *WebhookServerAdapter) Start(ctx context.Context, handler func(platform.
 	if err := a.conn.start(ctx); err != nil {
 		return err
 	}
+	// conn.start() 可能创建了 API 客户端，同步到内部 adapter
+	a.adapter.WithAPI(a.conn.API())
 	// 运行事件分发循环（阻塞）
 	return a.adapter.Start(ctx, handler)
 }
@@ -98,3 +101,28 @@ func (a *WebhookServerAdapter) Stop(ctx context.Context) error {
 	err2 := a.conn.stop(ctx)
 	return errors.Join(err1, err2)
 }
+
+// ── platform.BotIdentity ─────────────────────────────────────────────────────
+
+func (a *WebhookServerAdapter) BotID() string   { return a.adapter.BotID() }
+func (a *WebhookServerAdapter) BotName() string { return a.adapter.BotName() }
+
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *WebhookServerAdapter) HealthDetail() map[string]any {
+	detail := a.adapter.HealthDetail()
+	detail["token_ready"] = a.conn.TokenReady()
+	if expiresAt := a.conn.TokenExpiresAt(); !expiresAt.IsZero() {
+		detail["token_expires_at"] = expiresAt.Format(time.RFC3339)
+	}
+	detail["token_server"] = "https://bots.qq.com/app/getAppAccessToken"
+	return detail
+}
+
+// ── 编译期接口断言 ────────────────────────────────────────────────────────────
+
+var (
+	_ platform.Adapter        = (*WebhookServerAdapter)(nil)
+	_ platform.BotIdentity    = (*WebhookServerAdapter)(nil)
+	_ platform.HealthDetailer = (*WebhookServerAdapter)(nil)
+)

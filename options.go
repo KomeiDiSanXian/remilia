@@ -85,3 +85,11 @@ func WithEngine(engine *engine.Engine) Option {
 		b.engine = engine
 	}
 }
+
+// WithGoroutineThreshold 设置 RuntimeChecker 的 goroutine 阈值，超过此值时标记 Degraded。
+// 阈值 <= 0 表示不限制。
+func WithGoroutineThreshold(n int) Option {
+	return func(b *Bot) {
+		b.goroutineThreshold = n
+	}
+}

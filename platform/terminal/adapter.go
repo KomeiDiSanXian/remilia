@@ -367,6 +367,24 @@ func (a *Adapter) BotName() string {
 	return a.botName
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *Adapter) HealthDetail() map[string]any {
+	return map[string]any{
+		"connection": "terminal",
+		"prompt":     a.prompt,
+	}
+}
+
+// ── 编译期接口断言 ────────────────────────────────────────────────────────────
+
+var (
+	_ platform.Adapter            = (*Adapter)(nil)
+	_ platform.BotIdentity        = (*Adapter)(nil)
+	_ platform.RecoverableAdapter = (*Adapter)(nil)
+	_ platform.HealthDetailer     = (*Adapter)(nil)
+)
+
 func (a *Adapter) Send(_ stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	content := extractMessageContent(req.Message)
 	msgID := fmt.Sprintf("term-msg-%d", a.msgCount.Add(1))

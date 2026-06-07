@@ -9,6 +9,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
@@ -49,6 +50,7 @@ func main() {
 		WithName("remilia").
 		WithVersion(remilia.Version).
 		WithEngineOptions(config.EngineOptions(cfg.Engine)...).
+		WithOption(remilia.WithGoroutineThreshold(cfg.Middleware.Degradation.GoroutineThreshold)).
 		Build()
 	if err != nil {
 		logger.WithError(err).Fatal("Failed to build bot")
@@ -69,6 +71,8 @@ func main() {
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("Failed to start bot")
 	}
+
+	discoverAll(bot, pm)
 
 	bot.WaitForShutdown()
 
@@ -123,16 +127,17 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 }
 
 func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+
 		platforms := make([]map[string]any, 0)
 		for _, a := range reg.All() {
 			platforms = append(platforms, map[string]any{
 				"name": a.Platform(),
 			})
 		}
+
 		resp := map[string]any{
-			"status":    "ok",
 			"running":   bot.IsRunning(),
 			"uptime":    bot.Uptime().String(),
 			"version":   remilia.Version,
@@ -140,10 +145,26 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 			"buildDate": date,
 			"platforms": platforms,
 		}
-		if !bot.IsRunning() {
-			resp["status"] = "error"
-			w.WriteHeader(http.StatusServiceUnavailable)
+
+		if hc := bot.HealthCheck(); hc != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer cancel()
+			checkResp := hc.Check(ctx)
+			resp["status"] = checkResp.Status
+			resp["groups"] = checkResp.Groups
+			resp["time"] = checkResp.Time
+
+			if checkResp.Status == health.Unhealthy || checkResp.Status == health.Critical {
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+		} else {
+			resp["status"] = "ok"
+			if !bot.IsRunning() {
+				resp["status"] = "error"
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
 		}
+
 		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

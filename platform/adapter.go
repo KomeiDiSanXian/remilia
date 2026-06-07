@@ -131,6 +131,29 @@ func GetBotName(a Adapter) string {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// HealthDetailer
+// ────────────────────────────────────────────────────────────────────────────
+
+// HealthDetailer 是可选的适配器健康详情接口。
+//
+// 实现此接口的 Adapter 可在健康检查中提供比 IsRunning() 更详细的状态信息，
+// 如连接类型、事件流状态、API 客户端可用性、重连次数等。
+//
+// AdapterHealthChecker 会在 Check 时自动检查此接口，将返回值合并到 metadata。
+//
+// 使用示例：
+//
+//	func (a *Adapter) HealthDetail() map[string]any {
+//	    return map[string]any{
+//	        "connection": "webhook",
+//	        "event_stream_active": a.isEventStreamOpen(),
+//	    }
+//	}
+type HealthDetailer interface {
+	HealthDetail() map[string]any
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // AdapterObserver
 // ────────────────────────────────────────────────────────────────────────────
 

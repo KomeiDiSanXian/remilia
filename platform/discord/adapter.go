@@ -230,11 +230,24 @@ func (a *GatewayAdapter) BotName() string {
 	return ""
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *GatewayAdapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "gateway_websocket",
+	}
+	if a.session != nil && a.session.State != nil && a.session.State.User != nil {
+		detail["gateway_connected"] = true
+	}
+	return detail
+}
+
 // 编译期接口断言
 var (
 	_ platform.Adapter            = (*GatewayAdapter)(nil)
 	_ platform.BotIdentity        = (*GatewayAdapter)(nil)
 	_ platform.RecoverableAdapter = (*GatewayAdapter)(nil)
+	_ platform.HealthDetailer     = (*GatewayAdapter)(nil)
 )
 
 // Session returns the underlying *discordgo.Session for advanced operations

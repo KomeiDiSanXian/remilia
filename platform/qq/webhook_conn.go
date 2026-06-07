@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -87,6 +88,33 @@ func (c *WebhookConn) Sender() platform.Sender {
 		return s
 	}
 	return &platform.NoopSender{}
+}
+
+// API 返回当前绑定的 OpenAPI 客户端。start() 之前可能为 nil。
+func (c *WebhookConn) API() openapi.OpenAPI {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.api
+}
+
+// TokenReady 返回是否已成功获取到 QQ 平台 access token。start() 之前或 tokenMgr 未创建时返回 false。
+func (c *WebhookConn) TokenReady() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.tokenMgr == nil {
+		return false
+	}
+	return c.tokenMgr.Ready()
+}
+
+// TokenExpiresAt 返回当前 access token 的过期时间。未就绪时返回零值。
+func (c *WebhookConn) TokenExpiresAt() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.tokenMgr == nil {
+		return time.Time{}
+	}
+	return c.tokenMgr.TokenExpiresAt()
 }
 
 // EventStream 实现 qq.Webhook 接口，返回事件 channel（start() 后有效）。

@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"runtime"
 )
 
 // EngineStats 是 health 包对 Engine 状态的最小视图。
@@ -11,6 +12,10 @@ import (
 type EngineStats interface {
 	// GetMatcherCount 返回当前活跃的 Matcher 数量
 	GetMatcherCount() int
+	// GetTempMatcherCount 返回当前临时 Matcher 数量
+	GetTempMatcherCount() int
+	// GetMaxMatchers 返回 Matcher 数量上限
+	GetMaxMatchers() int
 }
 
 // EngineHealthChecker 检查引擎的基本状态。
@@ -37,8 +42,59 @@ func (c *EngineHealthChecker) Check(_ context.Context) CheckResult {
 		return CheckResult{Status: Unhealthy, Error: "engine is nil"}
 	}
 
-	metadata := map[string]any{"matcher_count": c.engine.GetMatcherCount()}
+	metadata := map[string]any{
+		"matcher_count":      c.engine.GetMatcherCount(),
+		"temp_matcher_count": c.engine.GetTempMatcherCount(),
+		"max_matchers":       c.engine.GetMaxMatchers(),
+	}
 	return CheckResult{Status: Healthy, Metadata: metadata}
+}
+
+// RuntimeChecker 报告 Go 运行时状态（goroutines、内存）。
+//
+// goroutineThreshold: 超过此值标记为 Degraded，<=0 不限制。
+type RuntimeChecker struct {
+	goroutineThreshold int
+}
+
+// NewRuntimeChecker 创建运行时状态检查器。
+// goroutineThreshold 为 goroutine 数量阈值，超过时标记 Degraded，<=0 不限制。
+func NewRuntimeChecker(goroutineThreshold int) *RuntimeChecker {
+	return &RuntimeChecker{goroutineThreshold: goroutineThreshold}
+}
+
+// Name 返回检查器名称。
+func (c *RuntimeChecker) Name() string { return "runtime" }
+
+// Check 执行健康检查。
+func (c *RuntimeChecker) Check(_ context.Context) CheckResult {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	goroutines := runtime.NumGoroutine()
+	metadata := map[string]any{
+		"goroutines":        goroutines,
+		"alloc_mb":          bToMb(m.Alloc),
+		"total_alloc_mb":    bToMb(m.TotalAlloc),
+		"sys_mb":            bToMb(m.Sys),
+		"heap_inuse_mb":     bToMb(m.HeapInuse),
+		"gc_cycles":         m.NumGC,
+		"gc_pause_total_ms": m.PauseTotalNs / 1e6,
+	}
+
+	if c.goroutineThreshold > 0 && goroutines > c.goroutineThreshold {
+		return CheckResult{
+			Status:   Degraded,
+			Error:    fmt.Sprintf("goroutine count %d exceeds threshold %d", goroutines, c.goroutineThreshold),
+			Metadata: metadata,
+		}
+	}
+
+	return CheckResult{Status: Healthy, Metadata: metadata}
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }
 
 // DLQStats 是 health 包对死信队列统计的最小视图。
@@ -56,6 +112,17 @@ type DLQStatsSnapshot struct {
 	Processed uint64
 	Dropped   uint64
 	Workers   int
+}
+
+// CheckProvider 插件可实现此接口让 bot 自动注册健康检查器。
+//
+// discoverAll 在 FreezeContainer 后遍历所有插件容器，
+// 检查每个插件的导出 API 是否实现了此接口，
+// 若是则将其所有 Checker 注册到 bot.HealthCheck()。
+type CheckProvider interface {
+	// HealthCheckers 返回该插件管理的所有健康检查器。
+	// 通常在 Setup 阶段创建的 APIProbe 实例。
+	HealthCheckers() []Checker
 }
 
 // DeadLetterQueueHealthChecker 检查死信队列积压情况和丢弃率。

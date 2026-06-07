@@ -371,10 +371,23 @@ func minDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *Adapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "websocket",
+	}
+	if id := a.botID.Load(); id != "" {
+		detail["bot_identified"] = true
+	}
+	return detail
+}
+
 // 编译期接口实现检查。
 var _ platform.Adapter = (*Adapter)(nil)
 var _ platform.RecoverableAdapter = (*Adapter)(nil)
 var _ platform.BotIdentity = (*Adapter)(nil)
+var _ platform.HealthDetailer = (*Adapter)(nil)
 
 // 编译期检查 milkySender 是否实现了所有声明的可选接口。
 var _ platform.Sender = (*milkySender)(nil)

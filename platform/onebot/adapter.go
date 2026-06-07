@@ -172,10 +172,23 @@ func (a *ForwardWSAdapter) BotName() string {
 	return a.botName
 }
 
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *ForwardWSAdapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "forward_websocket",
+	}
+	a.mu.RLock()
+	detail["connected"] = a.conn != nil
+	a.mu.RUnlock()
+	return detail
+}
+
 // 编译时断言
 var (
 	_ platform.RecoverableAdapter = (*ForwardWSAdapter)(nil)
 	_ platform.BotIdentity        = (*ForwardWSAdapter)(nil)
+	_ platform.HealthDetailer     = (*ForwardWSAdapter)(nil)
 )
 
 // ────────────────────────────────────────────────────────────────────────────

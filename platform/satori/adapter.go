@@ -266,4 +266,19 @@ var (
 	_ platform.Adapter            = (*Adapter)(nil)
 	_ platform.RecoverableAdapter = (*Adapter)(nil)
 	_ platform.BotIdentity        = (*Adapter)(nil)
+	_ platform.HealthDetailer     = (*Adapter)(nil)
 )
+
+// ── platform.HealthDetailer ──────────────────────────────────────────────────
+
+func (a *Adapter) HealthDetail() map[string]any {
+	detail := map[string]any{
+		"connection": "websocket",
+	}
+	a.loginMu.RLock()
+	if a.login != nil {
+		detail["logged_in"] = true
+	}
+	a.loginMu.RUnlock()
+	return detail
+}

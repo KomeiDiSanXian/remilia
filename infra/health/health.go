@@ -75,32 +75,60 @@ type Checker interface {
 
 // CheckResult 是单个检查器的结果。
 type CheckResult struct {
+	Status      Status         `json:"status"`
+	Error       string         `json:"error,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+	Duration    time.Duration  `json:"-"`
+	MaxSeverity Status         `json:"-"` // 贡献给整体的最大严重级别，空表示不限制
+}
+
+// CheckItem 是响应中单个检查项。
+type CheckItem struct {
+	Name     string         `json:"name"`
 	Status   Status         `json:"status"`
 	Error    string         `json:"error,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
-	Duration time.Duration  `json:"duration_ms"`
+	Duration float64        `json:"duration_ms"`
+}
+
+// CheckGroup 是响应中的一组相关检查。
+type CheckGroup struct {
+	Name   string      `json:"name"`
+	Type   string      `json:"type"`
+	Status Status      `json:"status"`
+	Checks []CheckItem `json:"checks"`
+}
+
+// CheckResponse 是健康检查的完整响应。
+type CheckResponse struct {
+	Status Status       `json:"status"`
+	Groups []CheckGroup `json:"groups"`
+	Time   time.Time    `json:"time"`
+}
+
+type groupEntry struct {
+	groupName string
+	groupType string
+	checker   Checker
 }
 
 // Check 管理多个检查器并提供 HTTP 处理器。
 type Check struct {
-	checkers syncx.Map[string, Checker]
-	// timeout 应用于每个检查器（atomic 保护，避免与 SetTimeout 竞态）。
+	entries syncx.Map[string, groupEntry]
 	timeout atomic.Int64
 
 	// 结果缓存，避免高频调用时对所有 checker 并发执行
 	cacheMu      sync.RWMutex
 	cachedResult *CheckResponse
 	cacheTime    time.Time
-	cacheTTL     time.Duration // 0 表示禁用缓存
+	cacheTTL     time.Duration
 }
 
 // DefaultCacheTTL 默认健康检查结果缓存时间
 const DefaultCacheTTL = time.Second
 
 func NewCheck() *Check {
-	c := &Check{
-		cacheTTL: DefaultCacheTTL,
-	}
+	c := &Check{cacheTTL: DefaultCacheTTL}
 	c.timeout.Store(int64(5 * time.Second))
 	return c
 }
@@ -122,20 +150,35 @@ func (h *Check) SetCacheTTL(ttl time.Duration) *Check {
 	return h
 }
 
+// AddChecker 注册一个无分组的检查器（用于测试或简单场景）。
 func (h *Check) AddChecker(checker Checker) {
-	h.checkers.Store(checker.Name(), checker)
+	h.entries.Store(checker.Name(), groupEntry{checker: checker})
+}
+
+// AddGroupedChecker 注册一个带分组的检查器。
+// groupName 为组名称（如 bot 名），groupType 为组类型（bot / adapters / apis）。
+func (h *Check) AddGroupedChecker(checker Checker, groupName, groupType string) {
+	h.entries.Store(checker.Name(), groupEntry{
+		groupName: groupName,
+		groupType: groupType,
+		checker:   checker,
+	})
 }
 
 func (h *Check) RemoveChecker(name string) {
-	h.checkers.Delete(name)
+	h.entries.Delete(name)
 }
 
-type CheckResponse struct {
-	Status Status                 `json:"status"`
-	Checks map[string]CheckResult `json:"checks"`
-	Time   time.Time              `json:"time"`
+// CheckerCount 返回已注册的检查器数量（含分组的和未分组的）。
+func (h *Check) CheckerCount() int { return h.entries.Len() }
+
+// HasChecker 返回指定名称的检查器是否已注册。
+func (h *Check) HasChecker(name string) bool {
+	_, ok := h.entries.Load(name)
+	return ok
 }
 
+// Check 执行所有检查器并按组聚合，返回分组后的 CheckResponse。
 func (h *Check) Check(ctx context.Context) CheckResponse {
 	// 尝试返回缓存结果
 	h.cacheMu.RLock()
@@ -148,48 +191,118 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 		return *cached
 	}
 
-	checkers := make(map[string]Checker, h.checkers.Len())
-	h.checkers.Range(func(name string, c Checker) bool {
-		checkers[name] = c
+	entries := make(map[string]groupEntry, h.entries.Len())
+	h.entries.Range(func(name string, e groupEntry) bool {
+		entries[name] = e
 		return true
 	})
 
-	results := make(map[string]CheckResult)
-	overallLevel := HealthyLevel
+	type namedResult struct {
+		name   string
+		group  string
+		gtype  string
+		result CheckResult
+	}
+	resultCh := make(chan namedResult, len(entries))
 
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	for name, checker := range checkers {
+	for name, e := range entries {
 		wg.Add(1)
-		go func(name string, checker Checker) {
+		go func(name string, e groupEntry) {
 			defer wg.Done()
 			checkCtx, cancel := context.WithTimeout(ctx, time.Duration(h.timeout.Load()))
 			defer cancel()
-
 			start := time.Now()
-			result := checker.Check(checkCtx)
-			result.Duration = time.Since(start)
-
-			mu.Lock()
-			results[name] = result
-			resultLevel := StatusToLevel(result.Status)
-			if resultLevel > overallLevel {
-				overallLevel = resultLevel
-			}
-			mu.Unlock()
-		}(name, checker)
+			r := e.checker.Check(checkCtx)
+			r.Duration = time.Since(start)
+			resultCh <- namedResult{name: name, group: e.groupName, gtype: e.groupType, result: r}
+		}(name, e)
 	}
 
-	wg.Wait()
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// groupName -> groupType -> []namedResult
+	type groupKey struct{ name, gtype string }
+	groups := make(map[groupKey][]namedResult)
+	for nr := range resultCh {
+		key := groupKey{name: nr.group, gtype: nr.gtype}
+		groups[key] = append(groups[key], nr)
+	}
+
+	// 按组聚合
+	type aggGroup struct {
+		name   string
+		gtype  string
+		status Status
+		items  []CheckItem
+	}
+	var aggGroups []aggGroup
+	overallLevel := HealthyLevel
+
+	for key, nrs := range groups {
+		items := make([]CheckItem, 0, len(nrs))
+		groupLevel := HealthyLevel
+
+		for _, nr := range nrs {
+			resultLevel := StatusToLevel(nr.result.Status)
+			if nr.result.MaxSeverity != "" {
+				if capLevel := StatusToLevel(nr.result.MaxSeverity); resultLevel > capLevel {
+					resultLevel = capLevel
+				}
+			}
+			if resultLevel > groupLevel {
+				groupLevel = resultLevel
+			}
+			items = append(items, CheckItem{
+				Name:     nr.name,
+				Status:   nr.result.Status,
+				Error:    nr.result.Error,
+				Metadata: nr.result.Metadata,
+				Duration: float64(nr.result.Duration) / float64(time.Millisecond),
+			})
+		}
+
+		groupStatus := LevelToStatus(groupLevel)
+
+		// adapters 组特殊聚合：多 adapter 时不直接取最差
+		if key.gtype == "adapters" && len(nrs) > 1 {
+			groupStatus = aggregateMultiAdapters(items)
+		}
+
+		if l := StatusToLevel(groupStatus); l > overallLevel {
+			overallLevel = l
+		}
+
+		aggGroups = append(aggGroups, aggGroup{
+			name:   key.name,
+			gtype:  key.gtype,
+			status: groupStatus,
+			items:  items,
+		})
+	}
+
+	resultGroups := make([]CheckGroup, 0, len(aggGroups))
+	for _, g := range aggGroups {
+		resultGroups = append(resultGroups, CheckGroup{
+			Name:   g.name,
+			Type:   g.gtype,
+			Status: g.status,
+			Checks: g.items,
+		})
+	}
+	if resultGroups == nil {
+		resultGroups = []CheckGroup{}
+	}
 
 	resp := CheckResponse{
 		Status: LevelToStatus(overallLevel),
-		Checks: results,
+		Groups: resultGroups,
 		Time:   time.Now(),
 	}
 
-	// 更新缓存
 	if ttl > 0 {
 		h.cacheMu.Lock()
 		h.cachedResult = &resp
@@ -200,6 +313,29 @@ func (h *Check) Check(ctx context.Context) CheckResponse {
 	return resp
 }
 
+// aggregateMultiAdapters 处理多 adapter 场景：
+// 部分 unhealthy → Degraded（而非 Unhealthy），全部 healthy → Healthy。
+func aggregateMultiAdapters(items []CheckItem) Status {
+	hasUnhealthy := false
+	allHealthy := true
+	for _, item := range items {
+		l := StatusToLevel(item.Status)
+		if l >= UnhealthyLevel {
+			hasUnhealthy = true
+		}
+		if l != HealthyLevel {
+			allHealthy = false
+		}
+	}
+	if allHealthy {
+		return Healthy
+	}
+	if hasUnhealthy {
+		return Degraded
+	}
+	return Degraded
+}
+
 func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -208,9 +344,7 @@ func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	switch response.Status {
-	case Healthy:
-		w.WriteHeader(http.StatusOK)
-	case Degraded:
+	case Healthy, Degraded:
 		w.WriteHeader(http.StatusOK)
 	case Unhealthy:
 		w.WriteHeader(http.StatusServiceUnavailable)

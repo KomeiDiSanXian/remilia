@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
@@ -31,8 +32,9 @@ func (c *BotStatusChecker) Check(_ context.Context) health.CheckResult {
 	uptime := c.bot.Uptime()
 
 	metadata := map[string]any{
-		"name":    config.Name,
-		"version": config.Version,
+		"name":       config.Name,
+		"version":    config.Version,
+		"goroutines": runtime.NumGoroutine(),
 	}
 
 	// Bot 未运行
@@ -99,21 +101,40 @@ func (c *AdapterHealthChecker) Check(_ context.Context) health.CheckResult {
 		}
 	}
 
+	metadata := map[string]any{
+		"platform": c.adapter.Platform(),
+	}
+
+	if _, ok := c.adapter.(platform.RecoverableAdapter); ok {
+		metadata["reconnect_supported"] = true
+	}
+	if bi, ok := c.adapter.(platform.BotIdentity); ok {
+		if id := bi.BotID(); id != "" {
+			metadata["bot_id"] = id
+		}
+		if name := bi.BotName(); name != "" {
+			metadata["bot_name"] = name
+		}
+	}
+	if hd, ok := c.adapter.(platform.HealthDetailer); ok {
+		for k, v := range hd.HealthDetail() {
+			if _, exists := metadata[k]; !exists {
+				metadata[k] = v
+			}
+		}
+	}
+
 	if !c.adapter.IsRunning() {
 		return health.CheckResult{
-			Status: health.Unhealthy,
-			Error:  "adapter is not running",
-			Metadata: map[string]any{
-				"platform": c.adapter.Platform(),
-			},
+			Status:   health.Unhealthy,
+			Error:    "adapter is not running",
+			Metadata: metadata,
 		}
 	}
 
 	return health.CheckResult{
-		Status: health.Healthy,
-		Metadata: map[string]any{
-			"platform": c.adapter.Platform(),
-		},
+		Status:   health.Healthy,
+		Metadata: metadata,
 	}
 }
 

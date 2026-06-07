@@ -41,7 +41,7 @@ func (m *mockChecker) Check(ctx context.Context) CheckResult {
 func TestNewCheck(t *testing.T) {
 	check := NewCheck()
 	require.NotNil(t, check)
-	assert.Equal(t, 0, check.checkers.Len()) // 零值 syncx.Map 视为空
+	assert.Equal(t, 0, check.CheckerCount())
 	assert.Equal(t, 5*time.Second, time.Duration(check.timeout.Load()))
 }
 
@@ -62,14 +62,13 @@ func TestCheck_AddChecker(t *testing.T) {
 	checker2 := &mockChecker{name: "test2", result: CheckResult{Status: Healthy}}
 
 	check.AddChecker(checker1)
-	assert.Equal(t, 1, check.checkers.Len())
+	assert.Equal(t, 1, check.CheckerCount())
 
 	check.AddChecker(checker2)
-	assert.Equal(t, 2, check.checkers.Len())
+	assert.Equal(t, 2, check.CheckerCount())
 
-	// 验证检查器存在
-	assert.True(t, check.checkers.Has("test1"))
-	assert.True(t, check.checkers.Has("test2"))
+	assert.True(t, check.HasChecker("test1"))
+	assert.True(t, check.HasChecker("test2"))
 }
 
 // TestCheck_RemoveChecker 测试移除检查器
@@ -81,16 +80,16 @@ func TestCheck_RemoveChecker(t *testing.T) {
 
 	check.AddChecker(checker1)
 	check.AddChecker(checker2)
-	assert.Equal(t, 2, check.checkers.Len())
+	assert.Equal(t, 2, check.CheckerCount())
 
 	check.RemoveChecker("test1")
-	assert.Equal(t, 1, check.checkers.Len())
-	assert.False(t, check.checkers.Has("test1"))
-	assert.True(t, check.checkers.Has("test2"))
+	assert.Equal(t, 1, check.CheckerCount())
+	assert.False(t, check.HasChecker("test1"))
+	assert.True(t, check.HasChecker("test2"))
 
 	// 移除不存在的检查器不应该出错
 	check.RemoveChecker("nonexistent")
-	assert.Equal(t, 1, check.checkers.Len())
+	assert.Equal(t, 1, check.CheckerCount())
 }
 
 // TestCheck_Check_AllHealthy 测试所有检查器都健康
@@ -110,11 +109,11 @@ func TestCheck_Check_AllHealthy(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	assert.Len(t, response.Checks, 2)
-	assert.Contains(t, response.Checks, "checker1")
-	assert.Contains(t, response.Checks, "checker2")
-	assert.Equal(t, Healthy, response.Checks["checker1"].Status)
-	assert.Equal(t, Healthy, response.Checks["checker2"].Status)
+	assert.Len(t, flattenGroups(response.Groups), 2)
+	assert.Contains(t, flattenGroups(response.Groups), "checker1")
+	assert.Contains(t, flattenGroups(response.Groups), "checker2")
+	assert.Equal(t, Healthy, flattenGroups(response.Groups)["checker1"].Status)
+	assert.Equal(t, Healthy, flattenGroups(response.Groups)["checker2"].Status)
 	assert.NotZero(t, response.Time)
 }
 
@@ -135,10 +134,10 @@ func TestCheck_Check_OneDegraded(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Degraded, response.Status)
-	assert.Len(t, response.Checks, 2)
-	assert.Equal(t, Healthy, response.Checks["healthy"].Status)
-	assert.Equal(t, Degraded, response.Checks["degraded"].Status)
-	assert.Equal(t, "slow response", response.Checks["degraded"].Error)
+	assert.Len(t, flattenGroups(response.Groups), 2)
+	assert.Equal(t, Healthy, flattenGroups(response.Groups)["healthy"].Status)
+	assert.Equal(t, Degraded, flattenGroups(response.Groups)["degraded"].Status)
+	assert.Equal(t, "slow response", flattenGroups(response.Groups)["degraded"].Error)
 }
 
 // TestCheck_Check_OneUnhealthy 测试一个检查器不健康
@@ -158,8 +157,8 @@ func TestCheck_Check_OneUnhealthy(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Unhealthy, response.Status)
-	assert.Len(t, response.Checks, 2)
-	assert.Equal(t, "connection failed", response.Checks["unhealthy"].Error)
+	assert.Len(t, flattenGroups(response.Groups), 2)
+	assert.Equal(t, "connection failed", flattenGroups(response.Groups)["unhealthy"].Error)
 }
 
 // TestCheck_Check_UnhealthyOverridesDegraded 测试不健康覆盖降级状态
@@ -201,7 +200,7 @@ func TestCheck_Check_WithMetadata(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	metadata := response.Checks["with_metadata"].Metadata
+	metadata := flattenGroups(response.Groups)["with_metadata"].Metadata
 	assert.Equal(t, "1.0.0", metadata["version"])
 	assert.Equal(t, 3600, metadata["uptime"])
 }
@@ -220,8 +219,8 @@ func TestCheck_Check_WithTimeout(t *testing.T) {
 	ctx := context.Background()
 	response := check.Check(ctx)
 
-	assert.Len(t, response.Checks, 1)
-	result := response.Checks["slow"]
+	assert.Len(t, flattenGroups(response.Groups), 1)
+	result := flattenGroups(response.Groups)["slow"]
 	assert.Equal(t, Unhealthy, result.Status)
 	assert.Contains(t, result.Error, "cancelled")
 }
@@ -234,7 +233,7 @@ func TestCheck_Check_NoCheckers(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	assert.Empty(t, response.Checks)
+	assert.Equal(t, 0, len(flattenGroups(response.Groups)))
 	assert.NotZero(t, response.Time)
 }
 
@@ -251,9 +250,9 @@ func TestCheck_Check_DurationTracking(t *testing.T) {
 	ctx := context.Background()
 	response := check.Check(ctx)
 
-	duration := response.Checks["with_delay"].Duration
-	assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
-	assert.LessOrEqual(t, duration, 200*time.Millisecond)
+	duration := flattenGroups(response.Groups)["with_delay"].Duration
+	assert.GreaterOrEqual(t, duration, 50.0)
+	assert.LessOrEqual(t, duration, 200.0)
 }
 
 // TestCheck_Check_ConcurrentExecution 测试并发执行
@@ -275,7 +274,7 @@ func TestCheck_Check_ConcurrentExecution(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// 并发执行，总时间应该远小于顺序执行
-	assert.Len(t, response.Checks, 5)
+	assert.Len(t, flattenGroups(response.Groups), 5)
 	assert.Less(t, elapsed, 150*time.Millisecond) // 应该在 100ms 左右，不是 250ms
 }
 
@@ -336,7 +335,7 @@ func TestCheck_HTTPHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedHealth, response.Status)
-			assert.Len(t, response.Checks, len(tt.checkers))
+			assert.Len(t, flattenGroups(response.Groups), len(tt.checkers))
 		})
 	}
 }
@@ -498,7 +497,7 @@ func TestCheck_ConcurrentAccess(t *testing.T) {
 	}
 
 	// 验证最终状态
-	assert.LessOrEqual(t, check.checkers.Len(), 10)
+	assert.LessOrEqual(t, check.CheckerCount(), 10)
 }
 
 // BenchmarkCheck_Check 基准测试健康检查
@@ -533,4 +532,15 @@ func BenchmarkCheck_HTTPHandler(b *testing.B) {
 		w := httptest.NewRecorder()
 		check.HTTPHandler(w, req)
 	}
+}
+
+// flattenGroups 将 groups 拍平为 name→CheckItem 的 map，简化测试断言。
+func flattenGroups(groups []CheckGroup) map[string]CheckItem {
+	m := make(map[string]CheckItem)
+	for _, g := range groups {
+		for _, item := range g.Checks {
+			m[item.Name] = item
+		}
+	}
+	return m
 }

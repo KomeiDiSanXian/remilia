@@ -140,11 +140,10 @@ func TestEngineHealthChecker_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	assert.Contains(t, response.Checks, "engine")
-	engineResult := response.Checks["engine"]
-	assert.Equal(t, Healthy, engineResult.Status)
-	// Just verify matcher_count exists, don't check specific value
-	_, ok := engineResult.Metadata["matcher_count"]
+	item := findCheckItem(response.Groups, "engine")
+	require.NotNil(t, item)
+	assert.Equal(t, Healthy, item.Status)
+	_, ok := item.Metadata["matcher_count"]
 	assert.True(t, ok)
 }
 
@@ -160,11 +159,11 @@ func TestDeadLetterQueueHealthChecker_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	assert.Contains(t, response.Checks, "dead_letter_queue")
-	dlqResult := response.Checks["dead_letter_queue"]
-	assert.Equal(t, Healthy, dlqResult.Status)
-	assert.Contains(t, dlqResult.Metadata, "queue_size")
-	assert.Contains(t, dlqResult.Metadata, "workers")
+	dlqItem := findCheckItem(response.Groups, "dead_letter_queue")
+	require.NotNil(t, dlqItem)
+	assert.Equal(t, Healthy, dlqItem.Status)
+	assert.Contains(t, dlqItem.Metadata, "queue_size")
+	assert.Contains(t, dlqItem.Metadata, "workers")
 }
 
 func TestMultipleCheckers_Integration(t *testing.T) {
@@ -182,12 +181,12 @@ func TestMultipleCheckers_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	assert.Len(t, response.Checks, 2)
-	assert.Contains(t, response.Checks, "engine")
-	assert.Contains(t, response.Checks, "dead_letter_queue")
-	for name, result := range response.Checks {
-		assert.Equal(t, Healthy, result.Status, "checker %s should be healthy", name)
-	}
+	itemEngine := findCheckItem(response.Groups, "engine")
+	require.NotNil(t, itemEngine)
+	assert.Equal(t, Healthy, itemEngine.Status)
+	itemDLQ := findCheckItem(response.Groups, "dead_letter_queue")
+	require.NotNil(t, itemDLQ)
+	assert.Equal(t, Healthy, itemDLQ.Status)
 }
 
 func BenchmarkEngineHealthChecker(b *testing.B) {
@@ -210,4 +209,15 @@ func BenchmarkDeadLetterQueueHealthChecker(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = checker.Check(ctx)
 	}
+}
+
+func findCheckItem(groups []CheckGroup, name string) *CheckItem {
+	for _, g := range groups {
+		for i := range g.Checks {
+			if g.Checks[i].Name == name {
+				return &g.Checks[i]
+			}
+		}
+	}
+	return nil
 }

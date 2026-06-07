@@ -91,6 +91,9 @@ type Bot struct {
 	// pprofServer 可选性能分析服务器（通过 WithPprof 注入，Start/Stop 时自动管理）
 	pprofServer *PprofServer
 
+	// goroutineThreshold RuntimeChecker 的 goroutine 阈值，<=0 不限制
+	goroutineThreshold int
+
 	mu sync.RWMutex
 
 	// started 标记 Bot 是否已成功 Start（防止重复 Start）。
@@ -133,19 +136,19 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, e
 	// 若提供了单个适配器，自动注册到 Registry
 	if adapter != nil {
 		b.health = health.NewCheck()
-		b.health.AddChecker(NewAdapterHealthChecker(adapter))
+		b.health.AddGroupedChecker(NewAdapterHealthChecker(adapter), b.config.Name, "adapters")
 		if b.platformRegistry == nil {
 			b.platformRegistry = platform.NewRegistry()
 		}
 		b.platformRegistry.Register(adapter)
 	} else {
 		b.health = health.NewCheck()
-		// N5: registry-only 模式下，平台适配器 health checker 在 Start() 中注册
 		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
 	}
 
-	b.health.AddChecker(NewBotStatusChecker(b))
-	b.health.AddChecker(health.NewEngineHealthChecker(e))
+	b.health.AddGroupedChecker(NewBotStatusChecker(b), b.config.Name, "bot")
+	b.health.AddGroupedChecker(health.NewEngineHealthChecker(e), b.config.Name, "bot")
+	b.health.AddGroupedChecker(health.NewRuntimeChecker(b.goroutineThreshold), b.config.Name, "bot")
 	return b, nil
 }
 
@@ -198,8 +201,9 @@ func (b *Bot) Start() error {
 	// 重建 health，防止热重启后健康检查器叠加重复（B-5）
 	b.mu.Lock()
 	b.health = health.NewCheck()
-	b.health.AddChecker(NewBotStatusChecker(b))
-	b.health.AddChecker(health.NewEngineHealthChecker(b.engine))
+	b.health.AddGroupedChecker(NewBotStatusChecker(b), b.config.Name, "bot")
+	b.health.AddGroupedChecker(health.NewEngineHealthChecker(b.engine), b.config.Name, "bot")
+	b.health.AddGroupedChecker(health.NewRuntimeChecker(b.goroutineThreshold), b.config.Name, "bot")
 	b.mu.Unlock()
 
 	// 为 platformRegistry 中的每个适配器注册独立的生命周期组件
@@ -211,8 +215,7 @@ func (b *Bot) Start() error {
 	snapshot := make(map[string]adapterCache)
 	if reg != nil {
 		for _, pa := range reg.All() {
-			// N5: 为每个平台适配器注册独立的健康检查器
-			b.health.AddChecker(NewAdapterHealthChecker(pa))
+			b.health.AddGroupedChecker(NewAdapterHealthChecker(pa), b.config.Name, "adapters")
 			snapshot[pa.Platform()] = adapterCache{
 				adapter: pa,
 				caps:    pa.Capabilities(),

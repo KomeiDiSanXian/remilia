@@ -181,6 +181,20 @@ func (m *Manager) WaitReadyWithTimeout(timeout time.Duration) error {
 	}
 }
 
+// Ready 返回是否已成功获取到 access token（非阻塞）。
+func (m *Manager) Ready() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ready
+}
+
+// TokenExpiresAt 返回当前 token 的过期时间。未就绪时返回零值 time.Time。
+func (m *Manager) TokenExpiresAt() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.expiresAt
+}
+
 // GetToken 获取当前的 access token
 // 如果 Manager 已停止，返回空字符串
 // 调用者应该检查返回的 token 是否为空
