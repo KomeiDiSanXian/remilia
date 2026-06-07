@@ -140,7 +140,7 @@ func TestEngineHealthChecker_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	item := findCheckItem(response.Groups, "engine")
+	item := findCheckItem(response.Root, "engine")
 	require.NotNil(t, item)
 	assert.Equal(t, Healthy, item.Status)
 	_, ok := item.Metadata["matcher_count"]
@@ -159,7 +159,7 @@ func TestDeadLetterQueueHealthChecker_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	dlqItem := findCheckItem(response.Groups, "dead_letter_queue")
+	dlqItem := findCheckItem(response.Root, "dead_letter_queue")
 	require.NotNil(t, dlqItem)
 	assert.Equal(t, Healthy, dlqItem.Status)
 	assert.Contains(t, dlqItem.Metadata, "queue_size")
@@ -181,10 +181,10 @@ func TestMultipleCheckers_Integration(t *testing.T) {
 	ctx := stdctx.Background()
 	response := check.Check(ctx)
 	assert.Equal(t, Healthy, response.Status)
-	itemEngine := findCheckItem(response.Groups, "engine")
+	itemEngine := findCheckItem(response.Root, "engine")
 	require.NotNil(t, itemEngine)
 	assert.Equal(t, Healthy, itemEngine.Status)
-	itemDLQ := findCheckItem(response.Groups, "dead_letter_queue")
+	itemDLQ := findCheckItem(response.Root, "dead_letter_queue")
 	require.NotNil(t, itemDLQ)
 	assert.Equal(t, Healthy, itemDLQ.Status)
 }
@@ -211,12 +211,17 @@ func BenchmarkDeadLetterQueueHealthChecker(b *testing.B) {
 	}
 }
 
-func findCheckItem(groups []CheckGroup, name string) *CheckItem {
-	for _, g := range groups {
-		for i := range g.Checks {
-			if g.Checks[i].Name == name {
-				return &g.Checks[i]
-			}
+func findCheckItem(root *Node, name string) *Node {
+	return findNode(root, name)
+}
+
+func findNode(node *Node, name string) *Node {
+	if node.Name == name {
+		return node
+	}
+	for _, child := range node.Children {
+		if found := findNode(child, name); found != nil {
+			return found
 		}
 	}
 	return nil

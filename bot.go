@@ -136,7 +136,7 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, e
 	// 若提供了单个适配器，自动注册到 Registry
 	if adapter != nil {
 		b.health = health.NewCheck()
-		b.health.AddGroupedChecker(NewAdapterHealthChecker(adapter), b.config.Name, "adapters")
+		b.health.Register(NewAdapterHealthChecker(adapter), "system", "bots", b.config.Name, "adapters", adapter.Platform())
 		if b.platformRegistry == nil {
 			b.platformRegistry = platform.NewRegistry()
 		}
@@ -146,9 +146,9 @@ func NewBot(adapter platform.Adapter, e *engine.Engine, opts ...Option) (*Bot, e
 		logger.Debug("[Bot] adapter is nil; events will only be received via platformRegistry")
 	}
 
-	b.health.AddGroupedChecker(NewBotStatusChecker(b), b.config.Name, "bot")
-	b.health.AddGroupedChecker(health.NewEngineHealthChecker(e), b.config.Name, "bot")
-	b.health.AddGroupedChecker(health.NewRuntimeChecker(b.goroutineThreshold), b.config.Name, "bot")
+	b.health.Register(NewBotStatusChecker(b), "system", "bots", b.config.Name, "lifecycle")
+	b.health.Register(health.NewEngineHealthChecker(e), "system", "bots", b.config.Name, "engine")
+	b.health.Register(health.NewRuntimeChecker(b.goroutineThreshold), "system", "infrastructure", "runtime")
 	return b, nil
 }
 
@@ -201,9 +201,9 @@ func (b *Bot) Start() error {
 	// 重建 health，防止热重启后健康检查器叠加重复（B-5）
 	b.mu.Lock()
 	b.health = health.NewCheck()
-	b.health.AddGroupedChecker(NewBotStatusChecker(b), b.config.Name, "bot")
-	b.health.AddGroupedChecker(health.NewEngineHealthChecker(b.engine), b.config.Name, "bot")
-	b.health.AddGroupedChecker(health.NewRuntimeChecker(b.goroutineThreshold), b.config.Name, "bot")
+	b.health.Register(NewBotStatusChecker(b), "system", "bots", b.config.Name, "lifecycle")
+	b.health.Register(health.NewEngineHealthChecker(b.engine), "system", "bots", b.config.Name, "engine")
+	b.health.Register(health.NewRuntimeChecker(b.goroutineThreshold), "system", "infrastructure", "runtime")
 	b.mu.Unlock()
 
 	// 为 platformRegistry 中的每个适配器注册独立的生命周期组件
@@ -215,7 +215,7 @@ func (b *Bot) Start() error {
 	snapshot := make(map[string]adapterCache)
 	if reg != nil {
 		for _, pa := range reg.All() {
-			b.health.AddGroupedChecker(NewAdapterHealthChecker(pa), b.config.Name, "adapters")
+			b.health.Register(NewAdapterHealthChecker(pa), "system", "bots", b.config.Name, "adapters", pa.Platform())
 			snapshot[pa.Platform()] = adapterCache{
 				adapter: pa,
 				caps:    pa.Capabilities(),

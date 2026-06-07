@@ -30,7 +30,7 @@ func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 			}
 			if hp, ok := svc.(health.CheckProvider); ok {
 				for _, checker := range hp.HealthCheckers() {
-					hc.AddGroupedChecker(checker, "apis", "apis")
+					hc.Register(checker, "system", "dependencies", checker.Name())
 				}
 			}
 		}

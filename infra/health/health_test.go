@@ -109,11 +109,11 @@ func TestCheck_Check_AllHealthy(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	assert.Len(t, flattenGroups(response.Groups), 2)
-	assert.Contains(t, flattenGroups(response.Groups), "checker1")
-	assert.Contains(t, flattenGroups(response.Groups), "checker2")
-	assert.Equal(t, Healthy, flattenGroups(response.Groups)["checker1"].Status)
-	assert.Equal(t, Healthy, flattenGroups(response.Groups)["checker2"].Status)
+	assert.Len(t, flattenTree(response.Root), 3)
+	assert.Contains(t, flattenTree(response.Root), "checker1")
+	assert.Contains(t, flattenTree(response.Root), "checker2")
+	assert.Equal(t, Healthy, flattenTree(response.Root)["checker1"].Status)
+	assert.Equal(t, Healthy, flattenTree(response.Root)["checker2"].Status)
 	assert.NotZero(t, response.Time)
 }
 
@@ -134,10 +134,10 @@ func TestCheck_Check_OneDegraded(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Degraded, response.Status)
-	assert.Len(t, flattenGroups(response.Groups), 2)
-	assert.Equal(t, Healthy, flattenGroups(response.Groups)["healthy"].Status)
-	assert.Equal(t, Degraded, flattenGroups(response.Groups)["degraded"].Status)
-	assert.Equal(t, "slow response", flattenGroups(response.Groups)["degraded"].Error)
+	assert.Len(t, flattenTree(response.Root), 3)
+	assert.Equal(t, Healthy, flattenTree(response.Root)["healthy"].Status)
+	assert.Equal(t, Degraded, flattenTree(response.Root)["degraded"].Status)
+	assert.Equal(t, "slow response", flattenTree(response.Root)["degraded"].Message)
 }
 
 // TestCheck_Check_OneUnhealthy 测试一个检查器不健康
@@ -157,8 +157,8 @@ func TestCheck_Check_OneUnhealthy(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Unhealthy, response.Status)
-	assert.Len(t, flattenGroups(response.Groups), 2)
-	assert.Equal(t, "connection failed", flattenGroups(response.Groups)["unhealthy"].Error)
+	assert.Len(t, flattenTree(response.Root), 3)
+	assert.Equal(t, "connection failed", flattenTree(response.Root)["unhealthy"].Message)
 }
 
 // TestCheck_Check_UnhealthyOverridesDegraded 测试不健康覆盖降级状态
@@ -200,7 +200,7 @@ func TestCheck_Check_WithMetadata(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	metadata := flattenGroups(response.Groups)["with_metadata"].Metadata
+	metadata := flattenTree(response.Root)["with_metadata"].Metadata
 	assert.Equal(t, "1.0.0", metadata["version"])
 	assert.Equal(t, 3600, metadata["uptime"])
 }
@@ -219,10 +219,10 @@ func TestCheck_Check_WithTimeout(t *testing.T) {
 	ctx := context.Background()
 	response := check.Check(ctx)
 
-	assert.Len(t, flattenGroups(response.Groups), 1)
-	result := flattenGroups(response.Groups)["slow"]
+	assert.Len(t, flattenTree(response.Root), 2)
+	result := flattenTree(response.Root)["slow"]
 	assert.Equal(t, Unhealthy, result.Status)
-	assert.Contains(t, result.Error, "cancelled")
+	assert.Contains(t, result.Message, "cancelled")
 }
 
 // TestCheck_Check_NoCheckers 测试没有检查器
@@ -233,7 +233,7 @@ func TestCheck_Check_NoCheckers(t *testing.T) {
 	response := check.Check(ctx)
 
 	assert.Equal(t, Healthy, response.Status)
-	assert.Equal(t, 0, len(flattenGroups(response.Groups)))
+	assert.Equal(t, 1, len(flattenTree(response.Root)))
 	assert.NotZero(t, response.Time)
 }
 
@@ -250,9 +250,9 @@ func TestCheck_Check_DurationTracking(t *testing.T) {
 	ctx := context.Background()
 	response := check.Check(ctx)
 
-	duration := flattenGroups(response.Groups)["with_delay"].Duration
-	assert.GreaterOrEqual(t, duration, 50.0)
-	assert.LessOrEqual(t, duration, 200.0)
+	duration := flattenTree(response.Root)["with_delay"].DurationMs
+	assert.GreaterOrEqual(t, duration, int64(50))
+	assert.LessOrEqual(t, duration, int64(200))
 }
 
 // TestCheck_Check_ConcurrentExecution 测试并发执行
@@ -274,7 +274,7 @@ func TestCheck_Check_ConcurrentExecution(t *testing.T) {
 	elapsed := time.Since(start)
 
 	// 并发执行，总时间应该远小于顺序执行
-	assert.Len(t, flattenGroups(response.Groups), 5)
+	assert.Len(t, flattenTree(response.Root), 6)
 	assert.Less(t, elapsed, 150*time.Millisecond) // 应该在 100ms 左右，不是 250ms
 }
 
@@ -322,7 +322,7 @@ func TestCheck_HTTPHandler(t *testing.T) {
 				check.AddChecker(c)
 			}
 
-			req := httptest.NewRequest(http.MethodGet, "/health", nil)
+			req := httptest.NewRequest(http.MethodGet, "/health?view=full", nil)
 			w := httptest.NewRecorder()
 
 			check.HTTPHandler(w, req)
@@ -335,7 +335,7 @@ func TestCheck_HTTPHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			assert.Equal(t, tt.expectedHealth, response.Status)
-			assert.Len(t, flattenGroups(response.Groups), len(tt.checkers))
+			assert.Len(t, flattenTree(response.Root), len(tt.checkers)+1)
 		})
 	}
 }
@@ -534,13 +534,62 @@ func BenchmarkCheck_HTTPHandler(b *testing.B) {
 	}
 }
 
-// flattenGroups 将 groups 拍平为 name→CheckItem 的 map，简化测试断言。
-func flattenGroups(groups []CheckGroup) map[string]CheckItem {
-	m := make(map[string]CheckItem)
-	for _, g := range groups {
-		for _, item := range g.Checks {
-			m[item.Name] = item
-		}
+// TestBuildSummary 测试摘要视图生成
+func TestBuildSummary(t *testing.T) {
+	root := &Node{
+		Name: "system", Kind: "system", Status: Degraded,
+		Children: []*Node{
+			{Name: "bots", Kind: "group", Children: []*Node{
+				{Name: "remilia", Kind: "bot", Status: Healthy},
+				{Name: "flandre", Kind: "bot", Status: Degraded},
+			}},
+			{Name: "dependencies", Kind: "group", Children: []*Node{
+				{Name: "openai", Kind: "dependency", Status: Healthy, DurationMs: 106},
+				{Name: "weatherapi", Kind: "dependency", Status: Healthy, DurationMs: 210},
+				{Name: "wheretheiss.at", Kind: "dependency", Status: Unhealthy, DurationMs: 5000, Message: "401 unauthorized"},
+			}},
+			{Name: "infrastructure", Kind: "group", Children: []*Node{
+				{Name: "runtime", Kind: "runtime", Status: Healthy},
+			}},
+		},
 	}
+
+	report := BuildSummary(root)
+
+	assert.Equal(t, Degraded, report.Status)
+
+	assert.Equal(t, 2, report.Summary.Bots.Total)
+	assert.Equal(t, 1, report.Summary.Bots.Healthy)
+	assert.Equal(t, 1, report.Summary.Bots.Degraded)
+	assert.Equal(t, 0, report.Summary.Bots.Unhealthy)
+
+	assert.Equal(t, 3, report.Summary.Dependencies.Total)
+	assert.Equal(t, 2, report.Summary.Dependencies.Healthy)
+	assert.Equal(t, 0, report.Summary.Dependencies.Degraded)
+	assert.Equal(t, 1, report.Summary.Dependencies.Unhealthy)
+
+	assert.Equal(t, Healthy, report.Summary.Infrastructure)
+
+	require.Len(t, report.Issues, 2)
+	assert.Equal(t, "bot", report.Issues[0].Kind)
+	assert.Equal(t, "flandre", report.Issues[0].Name)
+	assert.Equal(t, Degraded, report.Issues[0].Status)
+	assert.Equal(t, "dependency", report.Issues[1].Kind)
+	assert.Equal(t, "wheretheiss.at", report.Issues[1].Name)
+	assert.Equal(t, Unhealthy, report.Issues[1].Status)
+	assert.Equal(t, "401 unauthorized", report.Issues[1].Message)
+}
+
+// flattenTree 将健康检查树拍平为 name→Node 的 map，简化测试断言。
+func flattenTree(node *Node) map[string]Node {
+	m := make(map[string]Node)
+	flattenNode(node, m)
 	return m
+}
+
+func flattenNode(node *Node, out map[string]Node) {
+	out[node.Name] = *node
+	for _, child := range node.Children {
+		flattenNode(child, out)
+	}
 }

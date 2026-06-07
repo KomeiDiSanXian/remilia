@@ -9,7 +9,6 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/config"
-	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
@@ -64,6 +63,11 @@ func main() {
 	_ = fsmMgr
 
 	healthHandler := newHealthHandler(bot, reg)
+	if hc := bot.HealthCheck(); hc != nil {
+		hc.Version = remilia.Version
+		hc.Commit = commit
+		hc.BuildTime = date
+	}
 	pprofSrv := startPprof(cfg.Pprof, healthHandler)
 	healthSrv := startHealthServer(cfg.Pprof.Addr, healthHandler, pprofSrv != nil)
 
@@ -147,22 +151,14 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 		}
 
 		if hc := bot.HealthCheck(); hc != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-			defer cancel()
-			checkResp := hc.Check(ctx)
-			resp["status"] = checkResp.Status
-			resp["groups"] = checkResp.Groups
-			resp["time"] = checkResp.Time
+			hc.HTTPHandler(w, r)
+			return
+		}
 
-			if checkResp.Status == health.Unhealthy || checkResp.Status == health.Critical {
-				w.WriteHeader(http.StatusServiceUnavailable)
-			}
-		} else {
-			resp["status"] = "ok"
-			if !bot.IsRunning() {
-				resp["status"] = "error"
-				w.WriteHeader(http.StatusServiceUnavailable)
-			}
+		resp["status"] = "ok"
+		if !bot.IsRunning() {
+			resp["status"] = "error"
+			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
 		_ = json.NewEncoder(w).Encode(resp)
