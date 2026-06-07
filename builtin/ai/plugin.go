@@ -8,10 +8,12 @@ package ai
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/health"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -107,15 +109,17 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			}
 
 			var store SessionStore = &noopSessionStore{}
-			if storageSvc, ok := plugin.TryService[*infrastorage.Plugin](ctx, "storage"); ok {
-				if s, err := NewGormSessionStore(storageSvc); err == nil {
-					store = s
-					ctx.Log.Info("Session persistence enabled via storage plugin")
+			if !ctx.DryRun {
+				if storageSvc, ok := plugin.TryService[*infrastorage.Plugin](ctx, "storage"); ok {
+					if s, err := NewGormSessionStore(storageSvc); err == nil {
+						store = s
+						ctx.Log.Info("Session persistence enabled via storage plugin")
+					} else {
+						ctx.Log.Warnf("Failed to init session store: %v, using in-memory only", err)
+					}
 				} else {
-					ctx.Log.Warnf("Failed to init session store: %v, using in-memory only", err)
+					ctx.Log.Info("Storage plugin not available, using in-memory session storage")
 				}
-			} else {
-				ctx.Log.Info("Storage plugin not available, using in-memory session storage")
 			}
 
 			coord := ctx.Info.Coordinator()
@@ -149,6 +153,38 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			return p, nil
 		},
+	}
+}
+
+// HealthCheckers 返回 AI 提供商 API 端点可达性检查器，实现 health.CheckProvider。
+func (p *Plugin) HealthCheckers() []health.Checker {
+	probeName := "ai-" + p.cfg.Provider
+	probeURL := buildHealthProbeURL(p.cfg)
+	opts := []health.APIProbeOption{
+		health.WithHeader("Authorization", "Bearer "+p.cfg.APIKey),
+		health.WithAcceptStatus(func(code int) bool {
+			return code >= 200 && code < 500
+		}),
+	}
+	return []health.Checker{
+		health.NewAPIProbe(probeName, probeURL, 5*time.Second, opts...),
+	}
+}
+
+// buildHealthProbeURL 根据提供商类型构造健康检查用的探测 URL。
+func buildHealthProbeURL(cfg *Config) string {
+	baseURL := strings.TrimRight(cfg.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	switch cfg.Provider {
+	case "anthropic":
+		if strings.HasSuffix(baseURL, "/v1") {
+			return baseURL + "/messages"
+		}
+		return baseURL + "/v1/messages"
+	default:
+		return baseURL + "/models"
 	}
 }
 

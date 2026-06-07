@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -62,6 +63,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 			Log:      newDryRunLogger(desc.Name),
 			Info:     newPluginInfo(pm),
 			EventBus: newNoopEventBus(),
+			Config:   NewPluginConfigFromProvider(desc.Name, nil),
 			DryRun:   true,
 			setupContextInternal: setupContextInternal{
 				container:        tempContainer,
@@ -77,7 +79,7 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 					logger.WithFields(logger.Fields{
 						"plugin": desc.Name,
 						"panic":  r,
-					}).Debug("[PluginManager] DryRun (three-color): Setup panicked")
+					}).Debugf("[PluginManager] DryRun (three-color): Setup panicked\n%s", debug.Stack())
 				}
 			}()
 			api, _ = desc.callSetup(ctx)

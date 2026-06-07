@@ -127,6 +127,9 @@ var DefaultConfig = Config{
 //   - provider、model、api_key 等由 Setup 阶段 NewProvider 校验
 func loadConfig(ctx *plugin.SetupContext) *Config {
 	cfg := DefaultConfig
+	if ctx.Config == nil {
+		return &cfg
+	}
 	if v := ctx.Config.GetString("provider", ""); v != "" {
 		cfg.Provider = v
 	}
