@@ -66,7 +66,8 @@ type Config struct {
 	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
 	SessionTTL time.Duration `yaml:"session_ttl"`
 
-	// SystemPrompt 系统提示词，定义 AI 的行为和角色。
+	// SystemPrompt 用户自定义指令，追加在 Framework Prompt 之后。
+	// 用于设定 AI 的角色、个性或额外行为约束。
 	SystemPrompt string `yaml:"system_prompt"`
 
 	// TriggerCmd 触发 AI 对话的命令前缀。为空则不注册命令触发。
@@ -110,7 +111,7 @@ var DefaultConfig = Config{
 	MaxRetries:    0,
 	ToolTimeout:   30 * time.Second,
 	SessionTTL:    24 * time.Hour,
-	SystemPrompt:  "你是一个有用的AI助手，运行在一个叫Remilia Bot的IM框架中。用户问你有什么工具时请列举可用的工具。",
+	SystemPrompt:  "你是 Remilia Bot 的 AI 助手。",
 	TriggerCmd:    "/ai",
 	AtBot:         true,
 	PrivateChat:   true,

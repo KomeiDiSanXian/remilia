@@ -16,6 +16,7 @@ package ai
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -75,7 +76,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		session.Messages = make([]Message, 0)
 	}
 
-	var systemPrompt = p.cfg.SystemPrompt
+	systemPrompt := p.buildSystemPrompt(ctx)
 
 	var foundSystem bool
 	for i, m := range session.Messages {
@@ -136,6 +137,67 @@ func (p *Plugin) cleanMessage(content string) string {
 	}
 	content = strings.TrimSpace(content)
 	return content
+}
+
+// buildSystemPrompt 构建复合系统提示词，由三层组成：
+//
+//  1. Framework Prompt — 硬编码的 AI 行为规则，不可被用户覆盖
+//  2. User Custom Prompt — 配置文件 system_prompt 中的自定义指令
+//  3. Runtime Context — 动态运行时环境信息
+func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context) string {
+	var parts []string
+
+	// 1. Framework Prompt
+	parts = append(parts, DefaultFrameworkPrompt)
+
+	// 2. User Custom Prompt
+	if p.cfg.SystemPrompt != "" {
+		parts = append(parts, "===== 自定义指令 =====\n"+p.cfg.SystemPrompt)
+	}
+
+	// 3. Runtime Context
+	parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
+
+	return strings.Join(parts, "\n\n")
+}
+
+// buildRuntimeContext 组装当前事件的运行时上下文信息。
+func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
+	sender := ctx.GetSenderInfo()
+	chat := ctx.GetChatInfo()
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "当前时间: %s\n", now)
+	fmt.Fprintf(&b, "平台: %s\n", ctx.GetEventPlatform())
+
+	botID := ctx.GetBotID()
+	if botID != "" {
+		fmt.Fprintf(&b, "机器人 ID: %s\n", botID)
+	}
+	botName := ctx.GetBotName()
+	if botName != "" {
+		fmt.Fprintf(&b, "机器人名称: %s\n", botName)
+	}
+
+	fmt.Fprintf(&b, "用户昵称: %s\n", sender.DisplayName)
+	fmt.Fprintf(&b, "用户 ID: %s\n", sender.ID)
+
+	if chat.IsGroup {
+		fmt.Fprintf(&b, "聊天类型: 群聊\n")
+		if chat.Name != "" {
+			fmt.Fprintf(&b, "群名称: %s\n", chat.Name)
+		}
+	} else if chat.IsDM {
+		fmt.Fprintf(&b, "聊天类型: 频道私信\n")
+	} else {
+		fmt.Fprintf(&b, "聊天类型: 私聊\n")
+	}
+	if chat.Name != "" && !chat.IsGroup {
+		fmt.Fprintf(&b, "会话名称: %s\n", chat.Name)
+	}
+
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // makeSessionID 生成会话唯一标识。

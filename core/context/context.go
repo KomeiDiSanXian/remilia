@@ -47,6 +47,7 @@ type Context struct {
 	platformSender platform.Sender
 	platformCaps   platform.Capabilities
 	botID          string
+	botName        string
 
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
@@ -148,6 +149,7 @@ func (ctx *Context) cloneBase() *Context {
 		platformSender: ctx.platformSender,
 		platformCaps:   ctx.platformCaps,
 		botID:          ctx.botID,
+		botName:        ctx.botName,
 	}
 
 	var indepCtx stdctx.Context

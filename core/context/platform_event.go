@@ -157,6 +157,24 @@ func (ctx *Context) GetBotID() string {
 	return ctx.botID
 }
 
+// SetBotName 注入机器人自身的显示名称（框架内部，由 Bot.handlePlatformEvent 调用）。
+func (ctx *Context) SetBotName(name string) {
+	if ctx == nil {
+		return
+	}
+	ctx.botName = name
+}
+
+// GetBotName 返回注入的机器人显示名称。
+//
+// 未注入时返回空字符串。
+func (ctx *Context) GetBotName() string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.botName
+}
+
 // IsFromSelf 报告当前事件是否由机器人自身触发。
 //
 // 需要引擎在 ProcessPlatformEventEx 中注入 botID 才能正常工作；

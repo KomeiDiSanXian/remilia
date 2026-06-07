@@ -308,6 +308,7 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	var sender platform.Sender
 	var caps platform.Capabilities
 	var botID string
+	var botName string
 
 	// P-1: 读取启动时构建的快照（atomic.Value.Load，零锁，热路径无 RLock 开销）。
 	// 同一次 Load 同时取出 sender、caps 和 botID，避免重复 map 查找（原先两次查找已合并）。
@@ -317,9 +318,10 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 		if c, ok := snapshot[event.Platform()]; ok {
 			sender = c.adapter.Sender() // 动态获取，确保拿到 Start() 后初始化的真实发送器
 			caps = c.caps
-			// F-9: 若适配器实现了 BotIdentity，注入 botID 供 ctx.IsFromSelf() 使用
+			// F-9: 若适配器实现了 BotIdentity，注入 botID 和 botName
 			if bi, ok2 := c.adapter.(platform.BotIdentity); ok2 {
 				botID = bi.BotID()
+				botName = bi.BotName()
 			} else if b.config.Debug {
 				// 调试模式下提示适配器未实现 BotIdentity，
 				// 否则 ctx.IsFromSelf() 将永远返回 false，排查困难。
@@ -340,6 +342,9 @@ func (b *Bot) handlePlatformEvent(event platform.Event) {
 	ctx := eventctx.NewContextFromEvent(event, sender)
 	if botID != "" {
 		ctx.SetBotID(botID)
+	}
+	if botName != "" {
+		ctx.SetBotName(botName)
 	}
 	ctx.SetPlatformCapabilities(caps)
 
