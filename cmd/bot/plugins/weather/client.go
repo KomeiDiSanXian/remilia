@@ -246,10 +246,7 @@ func parseInt(s string) int {
 // windDegToDir 将风向角度转换为中文方向。
 func windDegToDir(deg float64) string {
 	dirs := []string{"北", "东北", "东", "东南", "南", "西南", "西", "西北"}
-	idx := int((deg + 22.5) / 45)
-	if idx < 0 {
-		idx = 0
-	}
+	idx := max(int((deg+22.5)/45), 0)
 	if idx >= len(dirs) {
 		idx = len(dirs) - 1
 	}

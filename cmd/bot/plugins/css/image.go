@@ -310,7 +310,7 @@ func renderAltChart(points []AltPoint, minAlt, maxAlt float64) *image.RGBA {
 
 	// 绘制 5 条水平网格线及 Y 轴刻度值
 	const yTicks = 5
-	for i := 0; i < yTicks; i++ {
+	for i := range yTicks {
 		frac := float64(i) / float64(yTicks-1)
 		val := yMin + frac*yRange
 		y := chartY + innerH*(1-frac)
@@ -337,7 +337,7 @@ func renderAltChart(points []AltPoint, minAlt, maxAlt float64) *image.RGBA {
 		t1 := points[len(points)-1].Time
 		dur := t1.Sub(t0)
 		const xTicks = 5
-		for i := 0; i < xTicks; i++ {
+		for i := range xTicks {
 			t := t0.Add(time.Duration(float64(i) / float64(xTicks-1) * float64(dur)))
 			x := chartX + float64(i)*innerW/float64(xTicks-1)
 			vc.SetColor(labelColor)

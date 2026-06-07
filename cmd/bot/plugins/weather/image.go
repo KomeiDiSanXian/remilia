@@ -72,7 +72,7 @@ func drawWeatherIcon(cond string) *image.RGBA {
 		vc.Fill()
 		vc.SetLineWidth(3)
 		vc.SetColor(color.RGBA{R: 255, G: 220, B: 50, A: 200})
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			angle := float64(i) * math.Pi / 4
 			x1 := 36 + 22*math.Cos(angle)
 			y1 := 36 + 22*math.Sin(angle)
@@ -136,7 +136,7 @@ func drawWeatherIcon(cond string) *image.RGBA {
 		vc.Fill()
 		vc.SetLineWidth(3)
 		vc.SetColor(color.RGBA{R: 255, G: 200, B: 60, A: 180})
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			angle := float64(i) * math.Pi / 4
 			x1 := 36 + 22*math.Cos(angle)
 			y1 := 36 + 22*math.Sin(angle)
@@ -152,17 +152,17 @@ func drawWeatherIcon(cond string) *image.RGBA {
 }
 
 type arcData struct {
-	percent float64   // 0.0–1.0
-	label   string    // 显示文字如 "57%"
+	percent float64 // 0.0–1.0
+	label   string  // 显示文字如 "57%"
 }
 
 type glassModule struct {
-	w, h     int
-	lines    []string          // 文字行（居中）
-	subtitle string            // 副标题（显示在 arc 数值下方，仅 arc 模块）
-	arc      *arcData          // 环形进度（nil = 纯文本）
+	w, h             int
+	lines            []string // 文字行（居中）
+	subtitle         string   // 副标题（显示在 arc 数值下方，仅 arc 模块）
+	arc              *arcData // 环形进度（nil = 纯文本）
 	fgGauge, bgGauge color.Color
-	padL, padR int             // 透明边距（Row 居中）
+	padL, padR       int // 透明边距（Row 居中）
 }
 
 type colorStop struct {
@@ -425,15 +425,15 @@ func renderCard(r *Result) ([]byte, error) {
 
 	feelsLike := createGlassModule(glassModule{
 		w: modW, h: modHshort, padL: padSide, padR: padSide,
-		lines: []string{"体感"},
-		arc: &arcData{percent: feelsPct, label: fmt.Sprintf("%.0f °C", r.FeelsLikeC)},
+		lines:   []string{"体感"},
+		arc:     &arcData{percent: feelsPct, label: fmt.Sprintf("%.0f °C", r.FeelsLikeC)},
 		fgGauge: tempGaugeColor(r.FeelsLikeC), bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
 	humidity := createGlassModule(glassModule{
 		w: modW, h: modHshort, padL: padSide, padR: padSide,
-		lines: []string{"湿度"},
-		arc: &arcData{percent: humPct, label: fmt.Sprintf("%d %%", r.Humidity)},
+		lines:   []string{"湿度"},
+		arc:     &arcData{percent: humPct, label: fmt.Sprintf("%d %%", r.Humidity)},
 		fgGauge: color.RGBA{R: 80, G: 200, B: 255, A: 230}, bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
@@ -458,18 +458,18 @@ func renderCard(r *Result) ([]byte, error) {
 
 	windCard := createGlassModule(glassModule{
 		w: modW, h: modH, padL: padSide, padR: padSide,
-		lines: []string{"风速"},
+		lines:    []string{"风速"},
 		subtitle: fmt.Sprintf("风向 %s", windDir),
-		arc: &arcData{percent: windPct, label: fmt.Sprintf("%.1f km/h", r.WindSpeedKmph)},
-		fgGauge: windGaugeColor(r.WindSpeedKmph), bgGauge: gaugeTrack,
+		arc:      &arcData{percent: windPct, label: fmt.Sprintf("%.1f km/h", r.WindSpeedKmph)},
+		fgGauge:  windGaugeColor(r.WindSpeedKmph), bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
 	visCard := createGlassModule(glassModule{
 		w: modW, h: modH, padL: padSide, padR: padSide,
-		lines: []string{"能见度"},
+		lines:    []string{"能见度"},
 		subtitle: pressureLabel,
-		arc: &arcData{percent: visPct, label: fmt.Sprintf("%.1f km", r.VisibilityKM)},
-		fgGauge: visGaugeColor(r.VisibilityKM), bgGauge: gaugeTrack,
+		arc:      &arcData{percent: visPct, label: fmt.Sprintf("%.1f km", r.VisibilityKM)},
+		fgGauge:  visGaugeColor(r.VisibilityKM), bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
 	canvas.AddRow(
@@ -484,15 +484,15 @@ func renderCard(r *Result) ([]byte, error) {
 
 	uvCard := createGlassModule(glassModule{
 		w: modW, h: modHshort, padL: padSide, padR: padSide,
-		lines: []string{"紫外线"},
-		arc: &arcData{percent: uvPct, label: fmt.Sprintf("%d", r.UV)},
+		lines:   []string{"紫外线"},
+		arc:     &arcData{percent: uvPct, label: fmt.Sprintf("%d", r.UV)},
 		fgGauge: color.RGBA{R: 255, G: 200, B: 80, A: 230}, bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
 	cloudCard := createGlassModule(glassModule{
 		w: modW, h: modHshort, padL: padSide, padR: padSide,
-		lines: []string{"云量"},
-		arc: &arcData{percent: cloudPct, label: fmt.Sprintf("%d %%", r.Cloud)},
+		lines:   []string{"云量"},
+		arc:     &arcData{percent: cloudPct, label: fmt.Sprintf("%d %%", r.Cloud)},
 		fgGauge: color.RGBA{R: 200, G: 210, B: 220, A: 200}, bgGauge: gaugeTrack,
 	}, lightBg, labelColor)
 
