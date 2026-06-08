@@ -18,12 +18,12 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// captureSender 实现 platform.Sender，拦截 Send 调用并记录消息文本内容，
-// 不转发给真实用户。命令 handler 的回复仅作为工具结果返回给 AI，
-// 避免用户同时看到命令原始输出和 AI 总结两条消息。
+// captureSender 实现 platform.Sender，拦截 Send 调用并记录消息文本内容和附件。
+// 命令 handler 的回复仅作为工具结果回填给 AI（不转发给真实用户），同时捕获生成的附件。
 type captureSender struct {
 	platform.NoopSender
-	captured string
+	capturedText        string
+	capturedAttachments []platform.Attachment
 }
 
 func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platform.SendResult, error) {
@@ -32,7 +32,10 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 		text = req.Message.Markdown
 	}
 	if text != "" {
-		s.captured = text
+		s.capturedText = text
+	}
+	if len(req.Message.Attachments) > 0 {
+		s.capturedAttachments = append(s.capturedAttachments, req.Message.Attachments...)
 	}
 	return platform.SendResult{}, nil
 }
@@ -40,9 +43,10 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 // executeTool 执行一个工具调用并返回结果字符串。
 //
 // toolCtx 是调用方传入的超时 context，用于限制工具执行的最长时间。
+// cs 用于捕获 real command 执行过程中产生的消息附件。
 // 优先通过 vevent 触发真实命令执行并捕获其回复内容；
 // 若捕获失败或工具无对应命令，回退到 tool.Execute 的占位结果。
-func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context) string {
+func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context, cs *captureSender) string {
 	if skill, ok := p.skillReg.Get(tc.Name); ok {
 		result, err := p.executeSkill(toolCtx, skill, tc.Arguments)
 		if err != nil {
@@ -57,7 +61,7 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	if p.syncer != nil {
-		if result := p.executeRealCommand(ctx, tc.Name); result != "" {
+		if result := p.executeRealCommand(ctx, tc.Name, cs); result != "" {
 			return result
 		}
 	}
@@ -82,11 +86,11 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 }
 
 // executeRealCommand 通过 vevent 注入合成事件执行工具对应的真实命令，
-// 返回命令 handler 的回复文本。
+// 返回命令 handler 的回复文本，并捕获产生的附件。
 //
 // 使用 captureSender 捕获 handler 的 ctx.Reply() 输出，不转发给真实用户。
 // AI 会自行总结工具执行结果后回复用户，避免用户看到两条消息。
-func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) string {
+func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string, cs *captureSender) string {
 	pattern, ok := p.cmdPatterns[toolName]
 	if !ok {
 		return ""
@@ -103,9 +107,8 @@ func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string) 
 		platform.WithSyntheticSender(originalEvent.Sender()),
 		platform.WithSyntheticChat(originalEvent.Chat()),
 	)
-	cs := &captureSender{}
 	p.syncer.ProcessPlatformEventSync(evt, cs)
-	return cs.captured
+	return cs.capturedText
 }
 
 // executeSkill 执行一个 Skill 的内部工具调用循环。

@@ -11,6 +11,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Role 消息角色类型。
@@ -38,18 +39,60 @@ type ToolCall struct {
 	Arguments map[string]any
 }
 
+// ContentPartType 多模态内容片段的类型。
+type ContentPartType string
+
+const (
+	ContentPartText  ContentPartType = "text"
+	ContentPartImage ContentPartType = "image"
+	ContentPartAudio ContentPartType = "audio"
+)
+
+// ContentPart 表示一条消息中的一个多模态内容片段。
+//
+// 一条 Message 可以包含多个 ContentPart（如文字+图片），按顺序发送给 LLM。
+// 无 ContentParts 时回退到 Message.Content（向后兼容）。
+//
+// Data 和 AudioFormat 不持久化到 session（json:"-"），仅用于请求构建。
+type ContentPart struct {
+	Type ContentPartType `json:"type"`
+
+	// Type=text 时使用
+	Text string `json:"text,omitempty"`
+
+	// Type=image 或 Type=audio 时使用
+	SourceURL string `json:"source_url,omitempty"` // 原始下载 URL，仅用于缓存 key
+
+	// 下载后的二进制数据（json:"-" 不持久化到 session）
+	Data []byte `json:"-"`
+	// MIME 类型，如 "image/jpeg"、"audio/wav"
+	MimeType string `json:"mime_type,omitempty"`
+
+	// Type=audio 时使用，如 "wav"、"mp3"（OpenAI input_audio format）
+	AudioFormat string `json:"audio_format,omitempty"`
+}
+
+// cachedContent 内存中缓存的附件二进制数据。
+type cachedContent struct {
+	Data        []byte
+	MimeType    string
+	AudioFormat string
+	ExpireAt    time.Time
+}
+
 // Message 表示对话中的一条消息，对应 LLM 的 messages 数组中的一项。
 //
 // 按 Role 不同，字段含义不同：
 //   - RoleSystem: Content 为系统提示词，ToolCalls/ToolCallID 为空
-//   - RoleUser: Content 为用户消息
+//   - RoleUser: Content 为用户消息（ContentParts 优先于 Content）
 //   - RoleAssistant: Content 为 AI 回复，ToolCalls 为 AI 请求的工具调用（可选）
 //   - RoleTool: Content 为工具执行结果，ToolCallID 对应 Assistant 消息中的 ToolCall.ID
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role         Role          `json:"role"`
+	Content      string        `json:"content"`
+	ContentParts []ContentPart `json:"content_parts,omitempty"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID   string        `json:"tool_call_id,omitempty"`
 }
 
 // ChatRequest 发送给 LLM 的聊天请求。

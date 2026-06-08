@@ -16,7 +16,14 @@ import (
 	"strings"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// ChatResult AI 对话的最终回复结果，包含文字和附件。
+type ChatResult struct {
+	Text        string
+	Attachments []platform.Attachment
+}
 
 // singleRoundResult 单轮非流式 LLM 调用的结果。
 type singleRoundResult struct {
@@ -62,13 +69,14 @@ func (p *Plugin) runSingleRound(ctx context.Context, messages []Message, tools [
 //     a. 追加 assistant 消息（含 tool_calls）
 //     b. 逐个执行工具，结果追加为 tool 消息
 //     c. 回到步骤 1（递归深度 +1）
-//  4. 无工具调用时返回最终文本
+//  4. 无工具调用时返回最终文本（含捕获的附件）
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
-func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (string, error) {
+func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*ChatResult, error) {
 	currentDepth := 0
 	maxDepth := p.cfg.MaxDepth
-	partialContent := ""
+
+	cs := &captureSender{}
 
 	for currentDepth < maxDepth {
 		currentDepth++
@@ -87,7 +95,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 		streamCh, err := p.prov.ChatStream(streamCtx, req)
 		if err != nil {
 			cancel()
-			return partialContent, fmt.Errorf("chat stream: %w", err)
+			return &ChatResult{Text: cs.capturedText}, fmt.Errorf("chat stream: %w", err)
 		}
 
 		var fullResponse strings.Builder
@@ -103,7 +111,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 				}
 			case StreamEventError:
 				cancel()
-				return partialContent, event.Err
+				return &ChatResult{Text: cs.capturedText}, event.Err
 			case StreamEventDone:
 			}
 		}
@@ -121,7 +129,10 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 			if responseText != "" {
 				p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText})
 			}
-			return responseText, nil
+			return &ChatResult{
+				Text:        responseText,
+				Attachments: cs.capturedAttachments,
+			}, nil
 		}
 
 		p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText, ToolCalls: toolCalls})
@@ -129,7 +140,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 		for _, tc := range toolCalls {
 			session.ToolCount++
 			toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
-			toolResult := p.executeTool(ctx, tc, toolCtx)
+			toolResult := p.executeTool(ctx, tc, toolCtx, cs)
 			cancel()
 			p.sm.AppendMessage(session, Message{
 				Role:       RoleTool,
@@ -137,11 +148,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (stri
 				ToolCallID: tc.ID,
 			})
 		}
-
-		partialContent = responseText
 	}
 
-	return partialContent, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+	return &ChatResult{Text: cs.capturedText}, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
 // formatAIError 将 provider 返回的错误转换为用户友好的提示。

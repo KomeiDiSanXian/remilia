@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -72,12 +73,20 @@ type anthropicReqMessage struct {
 	Content []anthropicReqContentBlock `json:"content"`
 }
 
+// anthropicImgSrc Anthropic image content block 的 source 字段。
+type anthropicImgSrc struct {
+	Type      string `json:"type"`       // 固定 "base64"
+	MediaType string `json:"media_type"` // "image/jpeg", "image/png", "image/gif", "image/webp"
+	Data      string `json:"data"`       // base64 编码的图片数据
+}
+
 type anthropicReqContentBlock struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
-	ID    string `json:"id,omitempty"`    // tool_result 时填写对应的 tool_use id
-	Name  string `json:"name,omitempty"`  // tool_use 时填写工具名
-	Input any    `json:"input,omitempty"` // tool_use 时填写参数
+	Type   string           `json:"type"`             // "text" / "image" / "tool_use" / "tool_result"
+	Text   string           `json:"text,omitempty"`   // type=text
+	Source *anthropicImgSrc `json:"source,omitempty"` // type=image
+	ID     string           `json:"id,omitempty"`     // tool_result/tool_use
+	Name   string           `json:"name,omitempty"`   // tool_use 时填写工具名
+	Input  any              `json:"input,omitempty"`  // tool_use 时填写参数
 }
 
 type anthropicChatRequest struct {
@@ -124,16 +133,9 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 
 		case RoleUser:
 			flush()
-			blocks := []anthropicReqContentBlock{}
-			if m.Content != "" {
-				blocks = append(blocks, anthropicReqContentBlock{
-					Type: "text",
-					Text: m.Content,
-				})
-			}
 			current = &anthropicReqMessage{
 				Role:    "user",
-				Content: blocks,
+				Content: toAnthropicUserBlocks(m),
 			}
 
 		case RoleTool:
@@ -175,6 +177,48 @@ func toAnthropicMessages(msgs []Message) []anthropicReqMessage {
 	flush()
 
 	return out
+}
+
+// toAnthropicUserBlocks 将 Message 转换为 Anthropic user 消息的 content block 列表。
+//
+// 有 ContentParts 时：
+//   - text → {"type":"text","text":"..."}
+//   - image → {"type":"image","source":{"type":"base64","media_type":"{mime}","data":"{base64}"}}
+//
+// 无 ContentParts 时回退到 Content 字符串。
+//
+// Anthropic 不支持 audio，audio 类型的 ContentPart 被跳过。
+func toAnthropicUserBlocks(m Message) []anthropicReqContentBlock {
+	if len(m.ContentParts) == 0 {
+		if m.Content == "" {
+			return nil
+		}
+		return []anthropicReqContentBlock{{Type: "text", Text: m.Content}}
+	}
+
+	blocks := make([]anthropicReqContentBlock, 0, len(m.ContentParts))
+	for _, p := range m.ContentParts {
+		switch p.Type {
+		case ContentPartText:
+			blocks = append(blocks, anthropicReqContentBlock{Type: "text", Text: p.Text})
+		case ContentPartImage:
+			if len(p.Data) == 0 {
+				continue
+			}
+			blocks = append(blocks, anthropicReqContentBlock{
+				Type: "image",
+				Source: &anthropicImgSrc{
+					Type:      "base64",
+					MediaType: p.MimeType,
+					Data:      base64.StdEncoding.EncodeToString(p.Data),
+				},
+			})
+		case ContentPartAudio:
+			// Anthropic 不支持 audio 输入，跳过
+			continue
+		}
+	}
+	return blocks
 }
 
 // extractAnthropicSystem 从消息列表中提取 system prompt。

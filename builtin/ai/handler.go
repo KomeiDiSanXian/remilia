@@ -15,11 +15,14 @@ package ai
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 	"unicode"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -61,7 +64,7 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	return p.handleAIChat(ctx, content)
 }
 
-// handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息、调用 LLM。
+// handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息（含附件）、调用 LLM。
 func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
@@ -90,22 +93,175 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		session.Messages = append([]Message{{Role: RoleSystem, Content: systemPrompt}}, session.Messages...)
 	}
 
-	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: content})
+	// 构建用户消息：提取入站附件转为多模态 ContentParts
+	userMsg := p.buildUserMessage(ctx, content, session)
+	p.sm.AppendMessage(session, userMsg)
 
-	reply, err := p.processWithTools(ctx, session)
+	result, err := p.processWithTools(ctx, session)
 	if err != nil {
 		return ctx.ReplyError(formatAIError(err))
 	}
 
-	if reply != "" {
+	if result.Text != "" || len(result.Attachments) > 0 {
+		msg := platform.OutboundMessage{}
+
 		if p.cfg.Markdown {
-			_, err = ctx.Reply(platform.MarkdownMessage(reply))
+			msg.Markdown = result.Text
 		} else {
-			_, err = ctx.Reply(platform.TextMessage(reply))
+			msg.Text = result.Text
 		}
+
+		if len(result.Attachments) > 0 {
+			msg.Attachments = result.Attachments
+		}
+
+		_, err = ctx.Reply(msg)
 		return err
 	}
 	return nil
+}
+
+// buildUserMessage 构建用户消息，包含文本内容及入站图片/音频附件。
+//
+// 附件下载后通过 session.contentCache 缓存（TTL 10 分钟），同一附件多次使用不需重复下载。
+// 超出大小限制或下载失败的附件会被静默跳过（日志 Debug 记录）。
+func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session *Session) Message {
+	msg := Message{Role: RoleUser, Content: content}
+
+	atts := ctx.GetPlatformEvent().Attachments()
+	if len(atts) == 0 {
+		return msg
+	}
+
+	parts := make([]ContentPart, 0, 1+len(atts))
+	if content != "" {
+		parts = append(parts, ContentPart{Type: ContentPartText, Text: content})
+	}
+
+	for _, att := range atts {
+		if att.URL == "" {
+			continue
+		}
+
+		var cp *ContentPart
+		switch {
+		case strings.HasPrefix(att.MimeType, "image/"):
+			if !p.cfg.VisionEnabled {
+				continue
+			}
+			cp = p.downloadAttachment(att, session)
+		case strings.HasPrefix(att.MimeType, "audio/"):
+			if !p.cfg.AudioEnabled {
+				continue
+			}
+			cp = p.downloadAttachment(att, session)
+		}
+
+		if cp != nil {
+			parts = append(parts, *cp)
+		}
+	}
+
+	if len(parts) > 0 {
+		msg.Content = "" // ContentParts 模式，清空 Content 避免内容重复
+		msg.ContentParts = parts
+	}
+	return msg
+}
+
+// downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
+func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Session) *ContentPart {
+	// 先检查缓存
+	if cached := session.getCachedContent(att.URL); cached != nil {
+		return &ContentPart{
+			Type:        inferPartType(cached.MimeType),
+			SourceURL:   att.URL,
+			Data:        cached.Data,
+			MimeType:    cached.MimeType,
+			AudioFormat: cached.AudioFormat,
+		}
+	}
+
+	// 检查大小限制
+	if p.cfg.MaxAttachmentSize > 0 && att.Size > int(p.cfg.MaxAttachmentSize) {
+		logger.Debugf("[AI] Attachment too large (%d > %d), skip: %s", att.Size, p.cfg.MaxAttachmentSize, att.URL)
+		return nil
+	}
+
+	// 下载
+	resp, err := http.Get(att.URL)
+	if err != nil {
+		logger.Debugf("[AI] Failed to download attachment: %v", err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Debugf("[AI] Download failed with status %d: %s", resp.StatusCode, att.URL)
+		return nil
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logger.Debugf("[AI] Failed to read attachment body: %v", err)
+		return nil
+	}
+
+	mimeType := att.MimeType
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+
+	cp := &ContentPart{
+		Type:      inferPartType(mimeType),
+		SourceURL: att.URL,
+		Data:      data,
+		MimeType:  mimeType,
+	}
+
+	// 检查是否真的 image/ audio，否则跳过
+	if cp.Type == "" {
+		return nil
+	}
+
+	// 推理音频格式
+	if cp.Type == ContentPartAudio {
+		cp.AudioFormat = inferAudioFormat(mimeType)
+		if cp.AudioFormat == "" {
+			return nil // 不支持的音频格式
+		}
+	}
+
+	// 写入缓存
+	session.setCachedContent(att.URL, data, mimeType, cp.AudioFormat)
+
+	return cp
+}
+
+// inferPartType 根据 MIME 类型推断 ContentPartType。
+func inferPartType(mimeType string) ContentPartType {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return ContentPartImage
+	case strings.HasPrefix(mimeType, "audio/"):
+		return ContentPartAudio
+	default:
+		return ""
+	}
+}
+
+// inferAudioFormat 从 MIME 类型推断 OpenAI input_audio format。
+func inferAudioFormat(mimeType string) string {
+	switch mimeType {
+	case "audio/wav", "audio/wave", "audio/x-wav":
+		return "wav"
+	case "audio/mpeg", "audio/mp3":
+		return "mp3"
+	case "audio/L16", "audio/l16":
+		return "pcm"
+	default:
+		return ""
+	}
 }
 
 // isCommandMessage 判断消息是否为命令消息。

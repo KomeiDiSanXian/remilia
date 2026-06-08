@@ -138,6 +138,19 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			p.discoverTools()
 			p.registerHandlers(ctx)
 
+			// 多模态配置警告
+			if cfg.VisionEnabled || cfg.AudioEnabled {
+				nonVisionModels := []string{"deepseek-chat", "deepseek-reasoner", "gpt-3.5-turbo", "gpt-3.5-turbo-16k"}
+				model := strings.ToLower(cfg.Model)
+				for _, nm := range nonVisionModels {
+					if strings.Contains(model, nm) {
+						ctx.Log.Warnf("[AI] Model %q may not support multimodal input (vision=%v audio=%v), "+
+							"set vision_enabled=false or audio_enabled=false if errors occur", cfg.Model, cfg.VisionEnabled, cfg.AudioEnabled)
+						break
+					}
+				}
+			}
+
 			ctx.Spawn(func(runCtx context.Context) {
 				ticker := time.NewTicker(10 * time.Minute)
 				defer ticker.Stop()

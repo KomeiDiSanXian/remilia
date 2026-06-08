@@ -72,16 +72,21 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		session.Messages = session.Messages[:lastAssistantIdx]
 		p.sm.Save(session)
 
-		reply, err := p.processWithTools(ctx, session)
+		result, err := p.processWithTools(ctx, session)
 		if err != nil {
 			return ctx.ReplyText(formatAIError(err))
 		}
-		if reply != "" {
+		if result.Text != "" || len(result.Attachments) > 0 {
+			msg := platform.OutboundMessage{}
 			if p.cfg.Markdown {
-				_, err = ctx.Reply(platform.MarkdownMessage(reply))
+				msg.Markdown = result.Text
 			} else {
-				_, err = ctx.Reply(platform.TextMessage(reply))
+				msg.Text = result.Text
 			}
+			if len(result.Attachments) > 0 {
+				msg.Attachments = result.Attachments
+			}
+			_, err = ctx.Reply(msg)
 			return err
 		}
 		return nil

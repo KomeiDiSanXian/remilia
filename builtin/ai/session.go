@@ -27,6 +27,7 @@ import (
 //   - UpdatedAt: 会话最后活跃时间（用于 TTL 过期判断）
 //   - CallCount: 本轮对话中 LLM API 的累计调用次数
 //   - ToolCount: 本轮对话中工具调用的累计次数
+//   - contentCache: 附件二进制内容的内存缓存（按 URL key，限本轮会话有效，不持久化）
 type Session struct {
 	ID        string
 	UserID    string
@@ -36,6 +37,37 @@ type Session struct {
 	UpdatedAt time.Time
 	CallCount int
 	ToolCount int
+
+	contentCache map[string]*cachedContent `json:"-"`
+}
+
+// getCachedContent 从内存缓存中获取附件内容。已过期或不存在返回 nil。
+func (s *Session) getCachedContent(url string) *cachedContent {
+	if s.contentCache == nil {
+		return nil
+	}
+	c, ok := s.contentCache[url]
+	if !ok {
+		return nil
+	}
+	if time.Now().After(c.ExpireAt) {
+		delete(s.contentCache, url)
+		return nil
+	}
+	return c
+}
+
+// setCachedContent 将附件内容存入内存缓存，TTL 默认 10 分钟。
+func (s *Session) setCachedContent(url string, data []byte, mimeType, audioFormat string) {
+	if s.contentCache == nil {
+		s.contentCache = make(map[string]*cachedContent)
+	}
+	s.contentCache[url] = &cachedContent{
+		Data:        data,
+		MimeType:    mimeType,
+		AudioFormat: audioFormat,
+		ExpireAt:    time.Now().Add(10 * time.Minute),
+	}
 }
 
 // SessionManager 管理 AI 对话会话，使用 LRU 淘汰策略。

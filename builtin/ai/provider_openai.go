@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,11 +66,77 @@ func NewOpenAIProvider(cfg *Config) (Provider, error) {
 
 // --- 请求/响应结构体 ---
 
+// openaiContentPart OpenAI 多模态内容片段（用于 vision / audio）。
+type openaiContentPart struct {
+	Type     string            `json:"type"`                  // "text" / "image_url" / "input_audio"
+	Text     string            `json:"text,omitempty"`        // type=text
+	ImageURL *openaiImageURL   `json:"image_url,omitempty"`   // type=image_url
+	Audio    *openaiAudioInput `json:"input_audio,omitempty"` // type=input_audio
+}
+
+type openaiImageURL struct {
+	URL string `json:"url"` // HTTP URL 或 data:{mime};base64,{data}
+}
+
+type openaiAudioInput struct {
+	Data   string `json:"data"`   // base64 编码的音频数据
+	Format string `json:"format"` // "wav" / "mp3" / "pcm"
+}
+
+// openaiMessageContent 适配 OpenAI content 字段的双重格式：
+//
+//   - 纯文字请求 / API 返回： "content": "hello"
+//   - 多模态请求：           "content": [{"type":"text","text":"hello"}, ...]
+//
+// Marshal 时根据 hasParts 自动切换；Unmarshal 时兼容两种格式。
+type openaiMessageContent struct {
+	text  string
+	parts []openaiContentPart
+}
+
+func (c *openaiMessageContent) MarshalJSON() ([]byte, error) {
+	if c == nil {
+		return json.Marshal(nil)
+	}
+	if len(c.parts) > 0 {
+		return json.Marshal(c.parts)
+	}
+	return json.Marshal(c.text)
+}
+
+func (c *openaiMessageContent) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		c.text = s
+		c.parts = nil
+		return nil
+	}
+	return json.Unmarshal(data, &c.parts)
+}
+
+func (c *openaiMessageContent) String() string {
+	if c == nil {
+		return ""
+	}
+	return c.text
+}
+
+func newOpenAITextContent(text string) *openaiMessageContent {
+	return &openaiMessageContent{text: text}
+}
+
+func newOpenAIMultiContent(parts []openaiContentPart) *openaiMessageContent {
+	return &openaiMessageContent{parts: parts}
+}
+
 type openaiChatMessage struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content,omitempty"`
-	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Role       string                `json:"role"`
+	Content    *openaiMessageContent `json:"content,omitempty"`
+	ToolCalls  []openaiToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID string                `json:"tool_call_id,omitempty"`
 }
 
 type openaiChatRequest struct {
@@ -108,8 +175,12 @@ func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 	out := make([]openaiChatMessage, 0, len(msgs))
 	for i, m := range msgs {
 		ocm := openaiChatMessage{
-			Role:    string(m.Role),
-			Content: m.Content,
+			Role: string(m.Role),
+		}
+		if len(m.ContentParts) > 0 {
+			ocm.Content = newOpenAIMultiContent(buildOpenAIContentParts(m.ContentParts))
+		} else if m.Content != "" {
+			ocm.Content = newOpenAITextContent(m.Content)
 		}
 		if m.Role == RoleTool {
 			if m.ToolCallID == "" {
@@ -141,6 +212,48 @@ func toOpenAIMessages(msgs []Message) []openaiChatMessage {
 			}
 		}
 		out = append(out, ocm)
+	}
+	return out
+}
+
+// buildOpenAIContentParts 将 ContentPart 列表转换为 OpenAI 格式的 content 数组。
+//
+// 输出格式：
+//
+//	[
+//	  {"type":"text","text":"..."},
+//	  {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,..."}},
+//	  {"type":"input_audio","input_audio":{"data":"base64...","format":"wav"}}
+//	]
+func buildOpenAIContentParts(parts []ContentPart) []openaiContentPart {
+	out := make([]openaiContentPart, 0, len(parts))
+	for _, p := range parts {
+		switch p.Type {
+		case ContentPartText:
+			out = append(out, openaiContentPart{Type: "text", Text: p.Text})
+		case ContentPartImage:
+			data := p.Data
+			if len(data) == 0 {
+				continue
+			}
+			uri := fmt.Sprintf("data:%s;base64,%s", p.MimeType, base64.StdEncoding.EncodeToString(data))
+			out = append(out, openaiContentPart{
+				Type:     "image_url",
+				ImageURL: &openaiImageURL{URL: uri},
+			})
+		case ContentPartAudio:
+			data := p.Data
+			if len(data) == 0 || p.AudioFormat == "" {
+				continue
+			}
+			out = append(out, openaiContentPart{
+				Type: "input_audio",
+				Audio: &openaiAudioInput{
+					Data:   base64.StdEncoding.EncodeToString(data),
+					Format: p.AudioFormat,
+				},
+			})
+		}
 	}
 	return out
 }
@@ -221,7 +334,7 @@ func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*Chat
 
 		choice := openaiResp.Choices[0]
 		result := &ChatResponse{
-			Content: choice.Message.Content,
+			Content: choice.Message.Content.String(),
 		}
 
 		if len(choice.Message.ToolCalls) > 0 {

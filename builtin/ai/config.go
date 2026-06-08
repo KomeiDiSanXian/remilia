@@ -96,29 +96,42 @@ type Config struct {
 
 	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
 	SkillMaxDepth int `yaml:"skill_max_depth"`
+
+	// VisionEnabled 是否启用图片识别。设为 false 时入站图片会被忽略。
+	VisionEnabled bool `yaml:"vision_enabled"`
+
+	// AudioEnabled 是否启用音频输入（仅 OpenAI GPT-4o 预览版，Anthropic 不支持）。
+	AudioEnabled bool `yaml:"audio_enabled"`
+
+	// MaxAttachmentSize 入站附件单文件大小上限（字节），超出则跳过。
+	// 默认 20MB。
+	MaxAttachmentSize int64 `yaml:"max_attachment_size"`
 }
 
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
-	Provider:      "openai",
-	Model:         "gpt-4o-mini",
-	MaxTokens:     2048,
-	MaxDepth:      5,
-	MaxHistory:    20,
-	Temperature:   0.7,
-	TopP:          1.0,
-	APITimeout:    60 * time.Second,
-	MaxRetries:    0,
-	ToolTimeout:   30 * time.Second,
-	SessionTTL:    24 * time.Hour,
-	SystemPrompt:  "你是 Remilia Bot 的 AI 助手。",
-	TriggerCmd:    "/ai",
-	AtBot:         true,
-	PrivateChat:   true,
-	Markdown:      true,
-	Fallback:      false,
-	SkillTimeout:  60 * time.Second,
-	SkillMaxDepth: 3,
+	Provider:          "openai",
+	Model:             "gpt-4o-mini",
+	MaxTokens:         2048,
+	MaxDepth:          5,
+	MaxHistory:        20,
+	Temperature:       0.7,
+	TopP:              1.0,
+	APITimeout:        60 * time.Second,
+	MaxRetries:        0,
+	ToolTimeout:       30 * time.Second,
+	SessionTTL:        24 * time.Hour,
+	SystemPrompt:      "你是 Remilia Bot 的 AI 助手。",
+	TriggerCmd:        "/ai",
+	AtBot:             true,
+	PrivateChat:       true,
+	Markdown:          true,
+	Fallback:          false,
+	SkillTimeout:      60 * time.Second,
+	SkillMaxDepth:     3,
+	VisionEnabled:     true,
+	AudioEnabled:      false,
+	MaxAttachmentSize: 20 * 1024 * 1024,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -187,6 +200,11 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("skill_max_depth", 0); v > 0 {
 		cfg.SkillMaxDepth = v
 	}
+	if v := ctx.Config.GetInt("max_attachment_size", 0); v > 0 {
+		cfg.MaxAttachmentSize = int64(v)
+	}
+	cfg.VisionEnabled = ctx.Config.GetBool("vision_enabled", cfg.VisionEnabled)
+	cfg.AudioEnabled = ctx.Config.GetBool("audio_enabled", cfg.AudioEnabled)
 
 	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
 		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")
