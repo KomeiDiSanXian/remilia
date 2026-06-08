@@ -145,6 +145,7 @@ func (p *Plugin) backgroundRefresh(ctx context.Context) {
 }
 
 // refreshOEM 从 CMSE 官网下载最新的 OEM 轨道数据并更新缓存。
+// 先下载再比较，确保失败时不影响现有数据，下一轮 ticker 会自动重试。
 func (p *Plugin) refreshOEM(ctx context.Context) error {
 	dlURL, err := getLatestDownloadURL(ctx)
 	if err != nil {
@@ -157,9 +158,14 @@ func (p *Plugin) refreshOEM(ctx context.Context) error {
 	}
 
 	p.mu.Lock()
-	p.oem = oem
-	p.mu.Unlock()
+	defer p.mu.Unlock()
 
+	if p.oem != nil && p.oem.SourceURL == dlURL && p.oem.CreationDate.Equal(oem.CreationDate) {
+		logger.Debug("[css] OEM data is up-to-date, skip refresh")
+		return nil
+	}
+
+	p.oem = oem
 	logger.Infof("[css] OEM data refreshed: %s", dlURL)
 	return nil
 }

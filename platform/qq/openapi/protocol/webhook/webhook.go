@@ -120,6 +120,13 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 爬网机器人等请求通常不带签名头，提前静默拒绝
+	if r.Header.Get(HeaderSignature) == "" {
+		logger.Debug("[Webhook] Request missing signature header, ignored")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 	// 验证签名
 	verified, err := c.Verify(r.Header, b)
 	if err != nil {
