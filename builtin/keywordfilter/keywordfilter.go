@@ -244,6 +244,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "keyword_check",
+			Categories:  []string{"admin"},
 			Description: "检查文本是否包含违禁/敏感关键词。返回匹配到的第一个关键词，无匹配则返回空。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",

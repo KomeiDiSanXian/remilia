@@ -161,6 +161,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "get_weather",
+			Categories:  []string{"weather"},
 			Description: "获取指定城市的当前天气信息，包含温度、湿度、风速等",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",

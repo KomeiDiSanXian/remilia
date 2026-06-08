@@ -178,6 +178,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "get_iss_location",
+			Categories:  []string{"space"},
 			Description: "获取国际空间站(ISS)的实时位置、高度、速度以及当前在轨航天员信息",
 			Parameters: ai.ToolParamSchema{
 				Type:       "object",

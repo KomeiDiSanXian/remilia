@@ -32,6 +32,11 @@ func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
 	return caller, ok
 }
 
+const CategoryGeneral = "general"
+
+// categorySelectToolName 是路由阶段使用的工具名称。
+const categorySelectToolName = "select_toolset"
+
 // ToolParamSchema JSON Schema 格式的工具参数描述。
 // 用于向 LLM 描述工具的输入参数结构，符合 OpenAI tool calling 的 JSON Schema 规范。
 type ToolParamSchema struct {
@@ -48,6 +53,8 @@ type ToolParamSchema struct {
 // 字段说明：
 //   - Name: 工具名称，LLM 通过此名称调用工具。需唯一，建议使用 snake_case
 //   - Description: 工具描述，LLM 据此决定是否调用。应清晰说明工具能力和使用场景
+//   - Categories: 工具所属类别列表。一个工具可属于多个类别（如 ["space","science"]）。
+//     空切片视为 ["general"]。
 //   - Parameters: JSON Schema 格式的参数描述，LLM 据此生成调用参数
 //   - Execute: 工具执行回调，接收 context 和参数，返回结果文本或错误
 //
@@ -56,6 +63,7 @@ type ToolParamSchema struct {
 type Tool struct {
 	Name        string
 	Description string
+	Categories  []string // "general"、"space"、"weather"、"admin" 等
 	Parameters  ToolParamSchema
 	Execute     func(ctx context.Context, args map[string]any) (string, error)
 }

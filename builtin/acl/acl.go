@@ -297,6 +297,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "acl_check_user",
+			Categories:  []string{"admin"},
 			Description: "检查指定用户是否被 ACL 放行。返回是否允许、当前 ACL 模式和规则数量。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
@@ -322,6 +323,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		},
 		{
 			Name:        "acl_stats",
+			Categories:  []string{"admin"},
 			Description: "查询 ACL 统计信息：当前模式和规则总数。",
 			Parameters: ai.ToolParamSchema{
 				Type:       "object",

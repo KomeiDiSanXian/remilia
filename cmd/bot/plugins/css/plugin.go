@@ -211,6 +211,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "get_css_location",
+			Categories:  []string{"space"},
 			Description: "获取中国空间站(天宫)的实时轨道位置、高度、速度及高度变化趋势",
 			Parameters: ai.ToolParamSchema{
 				Type:       "object",

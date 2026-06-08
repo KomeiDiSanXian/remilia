@@ -95,6 +95,7 @@ func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
 
 	return &Tool{
 		Name:        name,
+		Categories:  []string{CategoryGeneral},
 		Description: desc,
 		Parameters: ToolParamSchema{
 			Type:       "object",

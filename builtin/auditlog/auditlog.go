@@ -285,6 +285,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{
 		{
 			Name:        "audit_log_recent",
+			Categories:  []string{"admin"},
 			Description: "查询最近的审计日志条目。返回最近 N 条操作记录的用户、操作类型和内容。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
@@ -318,6 +319,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		},
 		{
 			Name:        "audit_log_search",
+			Categories:  []string{"admin"},
 			Description: "搜索审计日志中指定用户的操作记录。返回最近 N 条该用户的操作。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
