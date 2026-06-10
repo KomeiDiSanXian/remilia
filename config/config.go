@@ -457,7 +457,6 @@ func (m *Manager) Get() (*Config, bool) {
 		return nil, false
 	}
 	c := new(*cfg)
-	// Deep copy BotConfig pointer fields so external mutation cannot affect stored config
 	if cfg.Bot.QQ != nil {
 		c.Bot.QQ = new(*cfg.Bot.QQ)
 	}
@@ -478,6 +477,16 @@ func (m *Manager) Get() (*Config, bool) {
 	}
 	if cfg.Bot.WeChat != nil {
 		c.Bot.WeChat = new(*cfg.Bot.WeChat)
+	}
+	if cfg.Plugins != nil {
+		c.Plugins = make(map[string]map[string]any, len(cfg.Plugins))
+		for k, v := range cfg.Plugins {
+			inner := make(map[string]any, len(v))
+			for ik, iv := range v {
+				inner[ik] = iv
+			}
+			c.Plugins[k] = inner
+		}
 	}
 	return c, true
 }

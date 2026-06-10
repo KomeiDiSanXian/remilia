@@ -84,10 +84,14 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if healthSrv != nil {
-		_ = healthSrv.Shutdown(shutdownCtx)
+		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Warnf("[bot] Health server shutdown error: %v", err)
+		}
 	}
 	if pprofSrv != nil {
-		_ = pprofSrv.Stop(shutdownCtx)
+		if err := pprofSrv.Stop(shutdownCtx); err != nil {
+			logger.Warnf("[bot] Pprof server shutdown error: %v", err)
+		}
 	}
 	if err := bot.Shutdown(); err != nil {
 		logger.WithError(err).Error("[bot] Shutdown error")
@@ -102,8 +106,14 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 	if !pprofCfg.Enabled {
 		return nil
 	}
-	interval, _ := time.ParseDuration(pprofCfg.ProfileInterval)
-	duration, _ := time.ParseDuration(pprofCfg.ProfileDuration)
+	interval, err := time.ParseDuration(pprofCfg.ProfileInterval)
+	if err != nil {
+		logger.Warnf("[bot] Invalid pprof profile_interval %q, using default", pprofCfg.ProfileInterval)
+	}
+	duration, err := time.ParseDuration(pprofCfg.ProfileDuration)
+	if err != nil {
+		logger.Warnf("[bot] Invalid pprof profile_duration %q, using default", pprofCfg.ProfileDuration)
+	}
 	addr := pprofCfg.Addr
 	if addr == "" {
 		addr = defaultHealthAddr

@@ -2,6 +2,7 @@ package remilia
 
 import (
 	"context"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -183,7 +184,9 @@ func (b *BotBuilder) Build() (*Bot, error) {
 		if b.pluginManager == nil {
 			b.pluginManager = plugin.NewManager(b.engine)
 		}
-		if err := b.pluginManager.RegisterBatch(context.Background(), b.pendingPlugins, plugin.WithInferDeps()); err != nil {
+		regCtx, regCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer regCancel()
+		if err := b.pluginManager.RegisterBatch(regCtx, b.pendingPlugins, plugin.WithInferDeps()); err != nil {
 			return nil, err
 		}
 	}

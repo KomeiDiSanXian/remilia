@@ -9,9 +9,12 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// BytesToString  unsafe 零拷贝转换, b不能被修改
+// BytesToString unsafe 零拷贝转换, b 不能被修改。
 func BytesToString(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
+	if len(b) == 0 {
+		return ""
+	}
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 // StringToBytes unsafe 零拷贝将 string 转为只读 []byte。

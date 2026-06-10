@@ -244,11 +244,13 @@ func (b *Bot) Start() error {
 		b.lifecycle.Register(plugin.NewManagerComponent(b.pluginManager))
 	}
 
-	// 启动 pprof 服务器（如已配置）
 	if b.pprofServer != nil {
 		if err := b.pprofServer.Start(); err != nil {
 			b.started.Store(false)
 			logger.WithError(err).Error("[Bot] Failed to start pprof server")
+			if stopErr := b.lifecycle.Stop(context.Background()); stopErr != nil {
+				logger.WithError(stopErr).Error("[Bot] Failed to rollback lifecycle after pprof start failure")
+			}
 			return err
 		}
 	}
