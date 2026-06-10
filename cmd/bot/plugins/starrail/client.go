@@ -9,6 +9,7 @@ import (
 	_ "image/png"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const (
@@ -277,7 +278,8 @@ func fetchImage(ctx context.Context, url string) (image.Image, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

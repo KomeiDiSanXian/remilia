@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
@@ -249,14 +250,14 @@ func FetchShowcase(ctx context.Context, uid string) (*GenshinShowcase, error) {
 			showChar.Constellation = len(av.TalentIDList)
 		}
 
-		for i := 0; i < 3; i++ {
-			if len(av.SkillLevelMap) > i {
-				var vals []int
-				for _, v := range av.SkillLevelMap {
-					vals = append(vals, v)
-				}
-				showChar.Talents = vals[:min(3, len(vals))]
-				break
+		{
+			keys := make([]string, 0, len(av.SkillLevelMap))
+			for k := range av.SkillLevelMap {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys[:min(3, len(keys))] {
+				showChar.Talents = append(showChar.Talents, av.SkillLevelMap[k])
 			}
 		}
 
@@ -403,9 +404,4 @@ func fetchRawJSON(ctx context.Context, url string) (json.RawMessage, error) {
 	return raw, nil
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+

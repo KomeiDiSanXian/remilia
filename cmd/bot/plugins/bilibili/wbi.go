@@ -128,8 +128,10 @@ func (s *wbiSigner) sign(ctx context.Context, params url.Values) (url.Values, er
 	}
 
 	s.mu.RLock()
-	mixKey := s.keys.subKey[:4] + s.keys.imgKey[:4]
+	subKey, imgKey := s.keys.subKey, s.keys.imgKey
 	s.mu.RUnlock()
+
+	mixKey := subKey[:min(len(subKey), 4)] + imgKey[:min(len(imgKey), 4)]
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	params.Set("wts", ts)

@@ -26,6 +26,7 @@ type Plugin struct {
 	dataDir string            // 数据目录（图片缓存）
 	probes  []*health.APIProbe // 健康探针列表
 	log     plugin.Logger
+	cache   *imageCache         // 插件级别的图片缓存
 }
 
 // WithDataDir 设置占卜插件的数据目录。
@@ -81,7 +82,7 @@ func New(opts ...Option) *plugin.Descriptor {
 				})
 			}
 
-			getCache(p.dataDir)
+			p.cache = newImageCache(p.dataDir)
 
 			ctx.OnCommand("", "/omikuji", p.handleOmikuji)
 			ctx.OnCommand("", "/tarot", p.handleTarot)
@@ -117,11 +118,10 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 
 	slip := drawOmikuji(number)
 
-	cache := getCache(p.dataDir)
 	variant := pickOmikujiVariant()
 	key := sensojiCacheKey(slip.Number, variant)
 	url := sensojiImageURL(slip.Number, variant)
-	bgImg, _ := cache.Get(ctx.Context(), key, url)
+	bgImg, _ := p.cache.Get(ctx.Context(), key, url)
 
 	png, renderErr := renderOmikujiCard(slip, bgImg)
 	if renderErr != nil {
@@ -152,11 +152,10 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 	}
 
 	readings := drawTarot(count)
-	cache := getCache(p.dataDir)
 
 	for i, reading := range readings {
 		card := reading.Card
-		cardImg, _ := cache.Get(ctx.Context(), "tarot_"+card.NameShort, card.ImageURL)
+		cardImg, _ := p.cache.Get(ctx.Context(), "tarot_"+card.NameShort, card.ImageURL)
 
 		png, renderErr := renderTarotCard(&reading, cardImg)
 		if renderErr != nil {

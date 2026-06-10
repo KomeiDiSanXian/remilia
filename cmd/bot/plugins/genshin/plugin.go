@@ -108,6 +108,7 @@ func (p *gsPlugin) showcase(ctx *eventctx.Context, uid string) error {
 	}
 
 	var wg sync.WaitGroup
+	reqCtx := ctx.Context()
 	for i := range showcase.Chars {
 		if showcase.Chars[i].IconURL == "" {
 			continue
@@ -115,7 +116,7 @@ func (p *gsPlugin) showcase(ctx *eventctx.Context, uid string) error {
 		wg.Add(1)
 		go func(idx int, url string) {
 			defer wg.Done()
-			img, e := fetchImage(ctx.Context(), url)
+			img, e := fetchImage(reqCtx, url)
 			if e == nil {
 				showcase.Chars[idx].IconImage = img
 			}
@@ -275,7 +276,8 @@ func fetchImage(ctx context.Context, url string) (image.Image, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

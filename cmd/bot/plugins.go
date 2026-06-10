@@ -32,8 +32,14 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/builtin/welcome"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/anime"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/bilibili"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/css"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/fortune"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/genshin"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/iss"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/minecraft"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/starrail"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -45,7 +51,7 @@ import (
 const dataDir = "data"
 
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
-	extraDirs := []string{dataDir + "/iss", dataDir + "/css"}
+	extraDirs := []string{dataDir + "/iss", dataDir + "/css", dataDir + "/fortune", dataDir + "/fortune/images", dataDir + "/genshin", dataDir + "/starrail"}
 	for _, dir := range append([]string{dataDir, dataDir + "/db"}, extraDirs...) {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
@@ -106,8 +112,14 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		ping.New(),
 		ai.New(eng),
 		weather.New(),
-		iss.New(iss.WithDataDir(dataDir+"/iss")),
-		css.New(css.WithDataDir(dataDir+"/css")),
+		iss.New(iss.WithDataDir(dataDir + "/iss")),
+		css.New(css.WithDataDir(dataDir + "/css")),
+		bilibili.New(),
+		anime.New(),
+		fortune.New(fortune.WithDataDir(dataDir + "/fortune")),
+		minecraft.New(),
+		genshin.New(),
+		starrail.New(),
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {

@@ -60,7 +60,6 @@ func loadImage(path string) (image.Image, error) {
 }
 
 // downloadAndSave 从 URL 下载图片并缓存到磁盘。
-// 下载成功后立即写入磁盘并返回解码后的 image.Image。
 func (c *imageCache) downloadAndSave(ctx context.Context, url, path string) (image.Image, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -84,19 +83,18 @@ func (c *imageCache) downloadAndSave(ctx context.Context, url, path string) (ima
 		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return img, err
+		return nil, err
 	}
-	os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return nil, err
+	}
 	return img, nil
 }
 
-// defaultCache 全局单例缓存实例。
-var defaultCache *imageCache
-
-// getCache 返回全局缓存实例，dir 仅首次调用时生效。
-func getCache(dir string) *imageCache {
-	if defaultCache == nil {
-		defaultCache = newImageCache(dir)
+// getCache 返回 Plugin 实例级别的缓存，每个 Plugin 有独立的缓存目录。
+func getCache(p *Plugin) *imageCache {
+	if p.cache == nil {
+		p.cache = newImageCache(p.dataDir)
 	}
-	return defaultCache
+	return p.cache
 }

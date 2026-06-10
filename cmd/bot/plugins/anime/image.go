@@ -42,12 +42,9 @@ func renderCalendar(entries []WeekdayEntry) ([]byte, error) {
 	canvas.AddText("📺 当季番剧时间表", textimage.WithFontSize(22), textimage.WithFontColor(accentColorA), textimage.WithAlign(textimage.AlignCenter))
 	canvas.AddSpacer(12)
 
-	today := -1
+
 	for i, e := range entries {
 		weekdayName := weekdayNames[e.Weekday.ID%7]
-
-		isToday := false
-		_ = isToday
 
 		header := fmt.Sprintf("── %s ── %d部", weekdayName, len(e.Subjects))
 		canvas.AddText(header, textimage.WithFontSize(16), textimage.WithFontColor(accentColorA))
@@ -74,7 +71,6 @@ func renderCalendar(entries []WeekdayEntry) ([]byte, error) {
 			canvas.AddSpacer(2)
 		}
 
-		_ = today
 		if i < len(entries)-1 {
 			canvas.AddSpacer(6)
 		}

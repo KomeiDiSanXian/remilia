@@ -10,7 +10,7 @@ func TestACL_Disabled(t *testing.T) {
 	p := acl.NewPlugin()
 	p.Add("user1", "blocked")
 
-	// 默认 disabled 模式，所有用户放行
+	// default disabled mode: allow all users
 	if !p.IsAllowed("user1") {
 		t.Fatal("disabled mode should allow all users")
 	}

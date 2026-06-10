@@ -124,17 +124,6 @@ func parseJavaDescription(raw json.RawMessage, result *MCServerStatus) {
 		result.MOTDPlain = stripMotd(s)
 		return
 	}
-	var comp struct {
-		Text  string            `json:"text"`
-		Extra []json.RawMessage `json:"extra"`
-		Bold  *bool             `json:"bold"`
-		Color string            `json:"color"`
-	}
-	if err := json.Unmarshal(raw, &comp); err != nil {
-		result.MOTD = []MotdSegment{{Text: string(raw), Color: color.White}}
-		result.MOTDPlain = string(raw)
-		return
-	}
 	var sb strings.Builder
 	segments := parseTextComponents(raw)
 	result.MOTD = segments
@@ -274,9 +263,15 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 		return nil, fmt.Errorf("read status response: %w", err)
 	}
 	r := &packetReader{data: respData}
-	pid := r.readVarInt()
+	pid, err := r.readVarInt()
+	if err != nil {
+		return nil, fmt.Errorf("read packet id: %w", err)
+	}
 	_ = pid
-	jsonStr := r.readString()
+	jsonStr, err := r.readString()
+	if err != nil {
+		return nil, fmt.Errorf("read json string: %w", err)
+	}
 
 	var jr javaResponse
 	if err := json.Unmarshal([]byte(jsonStr), &jr); err != nil {
@@ -290,8 +285,8 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	pongData, err := readPacket(conn)
 	if err == nil {
 		pr := &packetReader{data: pongData}
-		_ = pr.readVarInt()
-		_ = pr.readInt64()
+		_, _ = pr.readVarInt()
+		_, _ = pr.readInt64()
 	}
 	latency := time.Since(pingStart)
 
@@ -517,35 +512,53 @@ type packetReader struct {
 	off  int
 }
 
-func (r *packetReader) readVarInt() int {
+func (r *packetReader) remaining() int {
+	return len(r.data) - r.off
+}
+
+func (r *packetReader) readVarInt() (int, error) {
 	result := 0
 	shift := 0
 	for {
+		if r.off >= len(r.data) {
+			return 0, io.ErrUnexpectedEOF
+		}
 		b := r.data[r.off]
 		r.off++
 		result |= int(b&0x7F) << shift
 		if b&0x80 == 0 {
-			break
+			return result, nil
 		}
 		shift += 7
+		if shift > 63 {
+			return 0, errors.New("varint too long")
+		}
 	}
-	return result
 }
 
-func (r *packetReader) readString() string {
-	length := r.readVarInt()
+func (r *packetReader) readString() (string, error) {
+	length, err := r.readVarInt()
+	if err != nil {
+		return "", err
+	}
+	if length < 0 || length > r.remaining() {
+		return "", io.ErrUnexpectedEOF
+	}
 	s := string(r.data[r.off : r.off+length])
 	r.off += length
-	return s
+	return s, nil
 }
 
-func (r *packetReader) readInt64() int64 {
+func (r *packetReader) readInt64() (int64, error) {
+	if r.off+8 > len(r.data) {
+		return 0, io.ErrUnexpectedEOF
+	}
 	v := int64(r.data[r.off])<<56 | int64(r.data[r.off+1])<<48 |
 		int64(r.data[r.off+2])<<40 | int64(r.data[r.off+3])<<32 |
 		int64(r.data[r.off+4])<<24 | int64(r.data[r.off+5])<<16 |
 		int64(r.data[r.off+6])<<8 | int64(r.data[r.off+7])
 	r.off += 8
-	return v
+	return v, nil
 }
 
 func sendPacket(conn net.Conn, packetID int, payload []byte) error {

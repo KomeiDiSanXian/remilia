@@ -106,14 +106,13 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 			return ctx.ReplyError("请输入搜索关键词，例如：/bili search 泠鸢")
 		}
 		keyword := strings.Join(parsed.Positional[1:], " ")
-		results, total, err := p.client.SearchUser(reqCtx, keyword, 1)
+		results, _, err := p.client.SearchUser(reqCtx, keyword, 1)
 		if err != nil {
 			return ctx.ReplyText(fmt.Sprintf("[B站] 搜索失败: %v", err))
 		}
 		if len(results) == 0 {
 			return ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的用户", keyword))
 		}
-		_ = total
 		png, imgErr := renderUserSearchResults(results, keyword)
 		if imgErr != nil {
 			return ctx.ReplyText(formatSearchUserText(results))
