@@ -299,38 +299,16 @@ func (c *anthropicClient) doAnthropicChatRequest(ctx context.Context, payload []
 			continue
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
+		result, err := c.processAnthropicResponse(resp)
+		if err != nil {
 			resp.Body.Close()
-			lastErr = fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
+			lastErr = err
 			if resp.StatusCode < 500 {
 				return nil, lastErr
 			}
 			continue
 		}
-
-		defer resp.Body.Close()
-
-		var anthropicResp anthropicChatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
-			return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
-		}
-
-		if anthropicResp.Error != nil {
-			return nil, fmt.Errorf("ai: anthropic api error: %s: %s", anthropicResp.Error.Type, anthropicResp.Error.Message)
-		}
-
-		result := &ChatResponse{}
-		for _, block := range anthropicResp.Content {
-			if block.Type == "text" {
-				result.Content += block.Text
-			}
-		}
-
-		if anthropicResp.StopReason == "tool_use" {
-			result.ToolCalls = parseAnthropicToolCalls(anthropicResp.Content)
-		}
-
+		resp.Body.Close()
 		return result, nil
 	}
 
@@ -338,6 +316,36 @@ func (c *anthropicClient) doAnthropicChatRequest(ctx context.Context, payload []
 		return nil, lastErr
 	}
 	return nil, fmt.Errorf("ai: anthropic unexpected retry exit")
+}
+
+// processAnthropicResponse 处理 Anthropic 非流式响应，不关闭 resp.Body。
+func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatResponse, error) {
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	var anthropicResp anthropicChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&anthropicResp); err != nil {
+		return nil, fmt.Errorf("ai: anthropic decode response: %w", err)
+	}
+
+	if anthropicResp.Error != nil {
+		return nil, fmt.Errorf("ai: anthropic api error: %s: %s", anthropicResp.Error.Type, anthropicResp.Error.Message)
+	}
+
+	result := &ChatResponse{}
+	for _, block := range anthropicResp.Content {
+		if block.Type == "text" {
+			result.Content += block.Text
+		}
+	}
+
+	if anthropicResp.StopReason == "tool_use" {
+		result.ToolCalls = parseAnthropicToolCalls(anthropicResp.Content)
+	}
+
+	return result, nil
 }
 
 // --- 流式调用 ---
@@ -381,9 +389,18 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		defer resp.Body.Close()
 		defer close(ch)
 
+		sendEvent := func(ev StreamEvent) bool {
+			select {
+			case ch <- ev:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			errBody, _ := io.ReadAll(resp.Body)
-			ch <- StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))}
+			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))})
 			return
 		}
 
@@ -400,7 +417,6 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			// Anthropic SSE 格式: event: ${event_name} 后跟 data: ${json}
 			if strings.HasPrefix(line, "event: ") {
 				continue
 			}
@@ -413,7 +429,6 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				continue
 			}
 
-			// 解析流式事件
 			var streamEvent struct {
 				Type  string `json:"type"`
 				Index int    `json:"index"`
@@ -451,7 +466,9 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					switch streamEvent.Delta.Type {
 					case "text_delta":
 						if streamEvent.Delta.Text != "" {
-							ch <- StreamEvent{Type: StreamEventText, Content: streamEvent.Delta.Text}
+							if !sendEvent(StreamEvent{Type: StreamEventText, Content: streamEvent.Delta.Text}) {
+								return
+							}
 						}
 					case "input_json_delta":
 						if hasPendingTool {
@@ -466,19 +483,20 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					if pendingToolUse.input != "" {
 						json.Unmarshal([]byte(pendingToolUse.input), &args)
 					}
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
+					if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
 						ID:        pendingToolUse.id,
 						Name:      pendingToolUse.name,
 						Arguments: args,
-					}}
+					}}) {
+						return
+					}
 					hasPendingTool = false
 				}
 
 			case "message_delta":
-				// 可在此处处理 stop_reason
 
 			case "message_stop":
-				ch <- StreamEvent{Type: StreamEventDone}
+				sendEvent(StreamEvent{Type: StreamEventDone})
 				return
 
 			case "error":
@@ -486,17 +504,17 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				if streamEvent.Message != nil {
 					errMsg = streamEvent.Message.StopReason
 				}
-				ch <- StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream error: %s", errMsg)}
+				sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream error: %s", errMsg)})
 				return
 			}
 		}
 
 		if err := scanner.Err(); err != nil {
-			ch <- StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream read: %w", err)}
+			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream read: %w", err)})
 			return
 		}
 
-		ch <- StreamEvent{Type: StreamEventDone}
+		sendEvent(StreamEvent{Type: StreamEventDone})
 	}()
 
 	return ch, nil

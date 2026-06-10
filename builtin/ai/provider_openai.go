@@ -323,40 +323,16 @@ func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*Chat
 			continue
 		}
 
-		if resp.StatusCode != http.StatusOK {
-			errBody, _ := io.ReadAll(resp.Body)
+		result, err := c.processOpenAIResponse(resp)
+		if err != nil {
 			resp.Body.Close()
-			lastErr = fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
+			lastErr = err
 			if resp.StatusCode < 500 {
 				return nil, lastErr
 			}
 			continue
 		}
-
-		defer resp.Body.Close()
-
-		var openaiResp openaiChatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
-			return nil, fmt.Errorf("ai: decode response: %w", err)
-		}
-
-		if len(openaiResp.Choices) == 0 {
-			return nil, fmt.Errorf("ai: empty response")
-		}
-
-		choice := openaiResp.Choices[0]
-		result := &ChatResponse{
-			Content: choice.Message.Content.String(),
-		}
-
-		if len(choice.Message.ToolCalls) > 0 {
-			tcs, err := parseOpenAIToolCalls(choice.Message.ToolCalls)
-			if err != nil {
-				return nil, err
-			}
-			result.ToolCalls = tcs
-		}
-
+		resp.Body.Close()
 		return result, nil
 	}
 
@@ -364,6 +340,38 @@ func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*Chat
 		return nil, lastErr
 	}
 	return nil, fmt.Errorf("ai: unexpected retry exit")
+}
+
+// processOpenAIResponse 处理 OpenAI 非流式响应，不关闭 resp.Body。
+func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse, error) {
+	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
+	}
+
+	var openaiResp openaiChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&openaiResp); err != nil {
+		return nil, fmt.Errorf("ai: decode response: %w", err)
+	}
+
+	if len(openaiResp.Choices) == 0 {
+		return nil, fmt.Errorf("ai: empty response")
+	}
+
+	choice := openaiResp.Choices[0]
+	result := &ChatResponse{
+		Content: choice.Message.Content.String(),
+	}
+
+	if len(choice.Message.ToolCalls) > 0 {
+		tcs, err := parseOpenAIToolCalls(choice.Message.ToolCalls)
+		if err != nil {
+			return nil, err
+		}
+		result.ToolCalls = tcs
+	}
+
+	return result, nil
 }
 
 // --- 流式调用 ---
@@ -405,9 +413,18 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		defer resp.Body.Close()
 		defer close(ch)
 
+		sendEvent := func(ev StreamEvent) bool {
+			select {
+			case ch <- ev:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			errBody, _ := io.ReadAll(resp.Body)
-			ch <- StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))}
+			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))})
 			return
 		}
 
@@ -428,19 +445,20 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 				if len(pendingToolCalls) > 0 {
 					tcs, err := parseOpenAIToolCalls(pendingToolCalls)
 					if err != nil {
-						ch <- StreamEvent{Type: StreamEventError, Err: err}
+						sendEvent(StreamEvent{Type: StreamEventError, Err: err})
 						return
 					}
 					for _, tc := range tcs {
 						tcCopy := tc
-						ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}
+						if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}) {
+							return
+						}
 					}
 				}
-				ch <- StreamEvent{Type: StreamEventDone}
+				sendEvent(StreamEvent{Type: StreamEventDone})
 				return
 			}
 
-			// 解析流式 delta 块
 			var streamResp struct {
 				Choices []struct {
 					Delta struct {
@@ -463,13 +481,12 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			delta := streamResp.Choices[0].Delta
 
 			if delta.Content != "" {
-				ch <- StreamEvent{Type: StreamEventText, Content: delta.Content}
+				if !sendEvent(StreamEvent{Type: StreamEventText, Content: delta.Content}) {
+					return
+				}
 			}
 
 			for _, tc := range delta.ToolCalls {
-				// DeepSeek 等部分提供商可能在流结束时发送空 tool_call chunk
-				// （name=""、id=""、arguments=""），将其合并会导致后续产生空 ID
-				// 的幽灵 tool call。此处跳过完全空的 delta。
 				if tc.Function.Name == "" && tc.ID == "" && tc.Function.Arguments == "" {
 					continue
 				}
@@ -479,23 +496,25 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			if streamResp.Choices[0].FinishReason == "tool_calls" {
 				tcs, err := parseOpenAIToolCalls(pendingToolCalls)
 				if err != nil {
-					ch <- StreamEvent{Type: StreamEventError, Err: err}
+					sendEvent(StreamEvent{Type: StreamEventError, Err: err})
 					return
 				}
 				for _, tc := range tcs {
 					tcCopy := tc
-					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}
+					if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &tcCopy}) {
+						return
+					}
 				}
 				pendingToolCalls = nil
 			}
 		}
 
 		if err := scanner.Err(); err != nil {
-			ch <- StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: stream read: %w", err)}
+			sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: stream read: %w", err)})
 			return
 		}
 
-		ch <- StreamEvent{Type: StreamEventDone}
+		sendEvent(StreamEvent{Type: StreamEventDone})
 	}()
 
 	return ch, nil
