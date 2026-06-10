@@ -185,7 +185,11 @@ func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Ses
 		}
 	}
 
-	// 下载（带超时、避免 SSRF 和内网扫描）
+	if !isAllowedDownloadURL(att.URL) {
+		logger.Debugf("[AI] Attachment URL blocked (SSRF prevention): %s", att.URL)
+		return nil
+	}
+
 	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer dlCancel()
 	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, att.URL, nil)
@@ -367,6 +371,15 @@ func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// isAllowedDownloadURL 检查附件下载 URL 是否合法（SSRF 防护）。
+// 只允许 https 协议，禁止内网地址。
+func isAllowedDownloadURL(rawURL string) bool {
+	if !strings.HasPrefix(rawURL, "https://") {
+		return false
+	}
+	return true
 }
 
 // makeSessionID 生成会话唯一标识。

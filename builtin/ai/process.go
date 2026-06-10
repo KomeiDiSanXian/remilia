@@ -104,11 +104,15 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	for currentDepth < maxDepth {
 		currentDepth++
 
+		session.Lock()
 		session.CallCount++
+		msgs := make([]Message, len(session.Messages))
+		copy(msgs, session.Messages)
+		session.Unlock()
 
 		req := &ChatRequest{
 			Model:       p.cfg.Model,
-			Messages:    session.Messages,
+			Messages:    msgs,
 			Tools:       activeTools,
 			Temperature: p.cfg.Temperature,
 			TopP:        p.cfg.TopP,
@@ -121,6 +125,8 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			cancel()
 			return &ChatResult{Text: cs.capturedText}, fmt.Errorf("chat stream: %w", err)
 		}
+
+
 
 		var fullResponse strings.Builder
 		var toolCalls []ToolCall
@@ -162,7 +168,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText, ToolCalls: toolCalls})
 
 		for _, tc := range toolCalls {
+			session.Lock()
 			session.ToolCount++
+			session.Unlock()
 			toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
 			toolResult := p.executeTool(ctx, tc, toolCtx, cs)
 			cancel()

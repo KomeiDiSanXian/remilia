@@ -133,10 +133,14 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		if session == nil || len(session.Messages) <= 1 {
 			return ctx.ReplyText("当前没有活跃的对话")
 		}
+		session.Lock()
+		callCount := session.CallCount
+		toolCount := session.ToolCount
+		session.Unlock()
 		var b strings.Builder
 		b.WriteString("📈 **使用统计**\n\n")
-		b.WriteString(fmt.Sprintf("  - LLM 调用次数：`%d`\n", session.CallCount))
-		b.WriteString(fmt.Sprintf("  - 工具调用次数：`%d`\n", session.ToolCount))
+		b.WriteString(fmt.Sprintf("  - LLM 调用次数：`%d`\n", callCount))
+		b.WriteString(fmt.Sprintf("  - 工具调用次数：`%d`\n", toolCount))
 		return ctx.ReplyText(b.String())
 
 	case "tools", "help":

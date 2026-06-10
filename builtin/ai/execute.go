@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -24,11 +25,14 @@ import (
 // 命令 handler 的回复仅作为工具结果回填给 AI（不转发给真实用户），同时捕获生成的附件。
 type captureSender struct {
 	platform.NoopSender
+	mu                  sync.Mutex
 	capturedText        string
 	capturedAttachments []platform.Attachment
 }
 
 func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platform.SendResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	text := req.Message.Text
 	if text == "" {
 		text = req.Message.Markdown
