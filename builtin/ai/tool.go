@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -112,6 +113,7 @@ func NewToolRegistry() *ToolRegistry {
 // 调用者应保证在 [processWithTools] 开始前完成注册。
 func (r *ToolRegistry) Register(t Tool) {
 	if _, exists := r.tools[t.Name]; exists {
+		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
 		return
 	}
 	r.tools[t.Name] = t

@@ -14,6 +14,7 @@
 package ai
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -50,8 +51,10 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		if lastUserIdx <= 0 {
 			return ctx.ReplyText("没有可以撤销的对话")
 		}
+		session.Lock()
 		session.Messages = session.Messages[:lastUserIdx]
-		p.sm.Save(session)
+		p.sm.saveNoLock(session)
+		session.Unlock()
 		return ctx.ReplyText("↩️ 已撤销上一条对话")
 
 	case "retry":
@@ -69,8 +72,10 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		if lastAssistantIdx < 0 {
 			return ctx.ReplyText("没有可以重试的对话")
 		}
+		session.Lock()
 		session.Messages = session.Messages[:lastAssistantIdx]
-		p.sm.Save(session)
+		p.sm.saveNoLock(session)
+		session.Unlock()
 
 		result, err := p.processWithTools(ctx, session)
 		if err != nil {
@@ -221,7 +226,9 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 		TopP:        p.cfg.TopP,
 	}
 
-	resp, err := p.prov.Chat(origCtx.Context(), req)
+	summaryCtx, summaryCancel := context.WithTimeout(context.Background(), p.cfg.APITimeout)
+	defer summaryCancel()
+	resp, err := p.prov.Chat(summaryCtx, req)
 	if err != nil {
 		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
 		if e := newCtx.ReplyText("❌ 生成总结失败: " + formatAIError(err)); e != nil {

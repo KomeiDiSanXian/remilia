@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -60,7 +61,16 @@ func NewOpenAIProvider(cfg *Config) (Provider, error) {
 		maxTokens:  cfg.MaxTokens,
 		apiTimeout: cfg.APITimeout,
 		maxRetries: cfg.MaxRetries,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{
+			Transport: &http.Transport{
+				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		},
 	}, nil
 }
 
@@ -282,11 +292,13 @@ func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatRespons
 
 func (c *openaiClient) doChatRequest(ctx context.Context, payload []byte) (*ChatResponse, error) {
 	chatCtx := ctx
-	if c.apiTimeout > 0 {
-		var cancel context.CancelFunc
-		chatCtx, cancel = context.WithTimeout(ctx, c.apiTimeout)
-		defer cancel()
+	timeout := c.apiTimeout
+	if timeout <= 0 {
+		timeout = 60 * time.Second
 	}
+	var cancel context.CancelFunc
+	chatCtx, cancel = context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	var lastErr error
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {

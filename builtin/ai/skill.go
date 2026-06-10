@@ -4,6 +4,10 @@
 // 和作用域内的工具集。每个 Skill 自动注册为 Tool，供主 LLM 或其他 Skill 调用。
 package ai
 
+import (
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
+)
+
 // Skill 定义一个可被 AI 调用的子代理（技能）。
 //
 // 每个 Skill 拥有独立的 System Prompt 和作用域内的工具集，
@@ -38,6 +42,7 @@ func NewSkillRegistry() *SkillRegistry {
 // Register 注册一个 Skill。同名技能仅首次注册生效，后续忽略。
 func (r *SkillRegistry) Register(s Skill) {
 	if _, exists := r.skills[s.Name]; exists {
+		logger.Warnf("[AI] Skill %q already registered, skipping duplicate", s.Name)
 		return
 	}
 	r.skills[s.Name] = s

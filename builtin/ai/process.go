@@ -112,6 +112,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			Tools:       activeTools,
 			Temperature: p.cfg.Temperature,
 			TopP:        p.cfg.TopP,
+			MaxTokens:   p.cfg.MaxTokens,
 		}
 
 		streamCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.APITimeout)

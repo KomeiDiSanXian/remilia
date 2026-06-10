@@ -14,6 +14,7 @@
 package ai
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,6 +82,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 
 	systemPrompt := p.buildSystemPrompt(ctx)
 
+	session.Lock()
 	var foundSystem bool
 	for i, m := range session.Messages {
 		if m.Role == RoleSystem {
@@ -92,6 +94,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	if !foundSystem {
 		session.Messages = append([]Message{{Role: RoleSystem, Content: systemPrompt}}, session.Messages...)
 	}
+	session.Unlock()
 
 	// 构建用户消息：提取入站附件转为多模态 ContentParts
 	userMsg := p.buildUserMessage(ctx, content, session)
@@ -182,14 +185,15 @@ func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Ses
 		}
 	}
 
-	// 检查大小限制
-	if p.cfg.MaxAttachmentSize > 0 && att.Size > int(p.cfg.MaxAttachmentSize) {
-		logger.Debugf("[AI] Attachment too large (%d > %d), skip: %s", att.Size, p.cfg.MaxAttachmentSize, att.URL)
+	// 下载（带超时、避免 SSRF 和内网扫描）
+	dlCtx, dlCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer dlCancel()
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, att.URL, nil)
+	if err != nil {
+		logger.Debugf("[AI] Failed to create download request: %v", err)
 		return nil
 	}
-
-	// 下载
-	resp, err := http.Get(att.URL)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		logger.Debugf("[AI] Failed to download attachment: %v", err)
 		return nil
@@ -201,9 +205,18 @@ func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Ses
 		return nil
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	// 用 LimitReader 强控大小，防止 att.Size==0 绕过或服务器返回超量数据
+	maxBytes := p.cfg.MaxAttachmentSize
+	if maxBytes <= 0 {
+		maxBytes = 20 * 1024 * 1024
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		logger.Debugf("[AI] Failed to read attachment body: %v", err)
+		return nil
+	}
+	if int64(len(data)) > maxBytes {
+		logger.Debugf("[AI] Attachment exceeded size limit, skip: %s", att.URL)
 		return nil
 	}
 

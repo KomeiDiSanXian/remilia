@@ -11,9 +11,10 @@ package ai
 import (
 	"container/list"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Session 表示一个 AI 对话会话，按 platform:chatID:userID 维度隔离。
@@ -22,13 +23,14 @@ import (
 //   - ID: 会话唯一标识，格式 "{platform}:{chatID}:{userID}"
 //   - UserID: 用户 ID
 //   - ChatID: 群组/频道 ID
-//   - Messages: 对话消息列表
+//   - Messages: 对话消息列表（受 mu 保护）
 //   - CreatedAt: 会话创建时间
 //   - UpdatedAt: 会话最后活跃时间（用于 TTL 过期判断）
 //   - CallCount: 本轮对话中 LLM API 的累计调用次数
 //   - ToolCount: 本轮对话中工具调用的累计次数
 //   - contentCache: 附件二进制内容的内存缓存（按 URL key，限本轮会话有效，不持久化）
 type Session struct {
+	mu        sync.Mutex
 	ID        string
 	UserID    string
 	ChatID    string
@@ -41,8 +43,17 @@ type Session struct {
 	contentCache map[string]*cachedContent `json:"-"`
 }
 
+// Lock 锁定会话，禁止并发访问 Messages 等可变字段。
+func (s *Session) Lock() { s.mu.Lock() }
+
+// Unlock 解锁会话。
+func (s *Session) Unlock() { s.mu.Unlock() }
+
 // getCachedContent 从内存缓存中获取附件内容。已过期或不存在返回 nil。
+// 线程安全，持有 session 读锁。
 func (s *Session) getCachedContent(url string) *cachedContent {
+	s.Lock()
+	defer s.Unlock()
 	if s.contentCache == nil {
 		return nil
 	}
@@ -58,7 +69,10 @@ func (s *Session) getCachedContent(url string) *cachedContent {
 }
 
 // setCachedContent 将附件内容存入内存缓存，TTL 默认 10 分钟。
+// 线程安全，持有 session 写锁。
 func (s *Session) setCachedContent(url string, data []byte, mimeType, audioFormat string) {
+	s.Lock()
+	defer s.Unlock()
 	if s.contentCache == nil {
 		s.contentCache = make(map[string]*cachedContent)
 	}
@@ -168,16 +182,25 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	return session
 }
 
-// Save 持久化保存会话到存储后端。
-func (sm *SessionManager) Save(session *Session) {
+// Save 持久化保存会话到存储后端。调用方应已持有 session 锁。
+//
+// 如果调用方未持有锁，请使用 [SaveSession] 替代。
+func (sm *SessionManager) saveNoLock(session *Session) {
 	session.UpdatedAt = time.Now()
 	trimMessages(session, sm.maxHistory)
 
 	if sm.storage != nil {
 		if err := sm.storage.Save(session); err != nil {
-			fmt.Printf("ai: session persist error: %v\n", err)
+			logger.Errorf("[AI] Failed to persist session %s: %v", session.ID, err)
 		}
 	}
+}
+
+// SaveSession 线程安全地持久化保存会话，自动加锁。
+func (sm *SessionManager) SaveSession(session *Session) {
+	session.Lock()
+	defer session.Unlock()
+	sm.saveNoLock(session)
 }
 
 // Delete 删除指定会话（从 LRU 和持久化存储中）。
@@ -259,10 +282,12 @@ func trimMessages(s *Session, maxHistory int) {
 }
 
 // AppendMessage 向会话追加一条消息，自动裁剪上下文窗口并持久化。
+// 线程安全，持有 session 写锁。
 func (sm *SessionManager) AppendMessage(session *Session, msg Message) {
+	session.Lock()
+	defer session.Unlock()
 	session.Messages = append(session.Messages, msg)
-	trimMessages(session, sm.maxHistory)
-	sm.Save(session)
+	sm.saveNoLock(session)
 }
 
 // --- GORM 持久化记录 ---
@@ -281,7 +306,11 @@ type sessionRecord struct {
 
 // toRecord 将 Session 转换为数据库记录。
 func (s *Session) toRecord() *sessionRecord {
-	data, _ := json.Marshal(s.Messages)
+	data, err := json.Marshal(s.Messages)
+	if err != nil {
+		logger.Errorf("[AI] Failed to marshal session messages for %s: %v", s.ID, err)
+		data = []byte("[]")
+	}
 	return &sessionRecord{
 		ID:        s.ID,
 		UserID:    s.UserID,
@@ -297,7 +326,9 @@ func (s *Session) toRecord() *sessionRecord {
 // toSession 将数据库记录还原为 Session。
 func (r *sessionRecord) toSession() *Session {
 	var msgs []Message
-	_ = json.Unmarshal([]byte(r.Messages), &msgs)
+	if err := json.Unmarshal([]byte(r.Messages), &msgs); err != nil {
+		logger.Warnf("[AI] Failed to unmarshal session messages (corrupted?): %v", err)
+	}
 	return &Session{
 		ID:        r.ID,
 		UserID:    r.UserID,

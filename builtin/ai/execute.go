@@ -12,7 +12,9 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -67,22 +69,14 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	callerCtx := WithCallerInfo(toolCtx, ctx.GetSenderInfo())
-	done := make(chan struct{}, 1)
-	var result string
-	var execErr error
-	go func() {
-		result, execErr = tool.Execute(callerCtx, tc.Arguments)
-		close(done)
-	}()
-	select {
-	case <-done:
-		if execErr != nil {
-			return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, execErr)
+	result, execErr := tool.Execute(callerCtx, tc.Arguments)
+	if execErr != nil {
+		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
+			return fmt.Sprintf("错误: 工具 %q 执行超时", tc.Name)
 		}
-		return result
-	case <-toolCtx.Done():
-		return fmt.Sprintf("错误: 工具 %q 执行超时", tc.Name)
+		return fmt.Sprintf("错误: 工具 %q 执行失败: %v", tc.Name, execErr)
 	}
+	return result
 }
 
 // executeRealCommand 通过 vevent 注入合成事件执行工具对应的真实命令，
@@ -123,7 +117,11 @@ func (p *Plugin) executeSkill(ctx context.Context, skill Skill, args map[string]
 	}
 	tools := p.buildSkillTools(skill)
 
-	skillCtx, cancel := context.WithTimeout(ctx, p.cfg.SkillTimeout)
+	skillTimeout := p.cfg.SkillTimeout
+	if skillTimeout <= 0 {
+		skillTimeout = 60 * time.Second
+	}
+	skillCtx, cancel := context.WithTimeout(ctx, skillTimeout)
 	defer cancel()
 
 	for depth := 0; depth < p.cfg.SkillMaxDepth; depth++ {
