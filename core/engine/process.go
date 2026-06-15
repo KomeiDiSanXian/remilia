@@ -165,17 +165,18 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 //   - ensureChain()：combined chain 实际更新时
 //   - Handle()：handler 更换时
 func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he context.Handler) context.Handler {
-	// Fast path: no middleware → call handler directly, zero overhead.
-	// No compiledChain stored: the handler itself is the final value,
-	// and it is returned directly from the slow path on every call.
-	if len(chain) == 0 {
-		return he
-	}
-
 	cv := m.compiledVersion.Load()
 
 	if cc := m.compiledHandlers.Load(); cc != nil && cc.version == cv {
 		return cc.head
+	}
+
+	// Fast path: no middleware → call handler directly, zero overhead.
+	// Still cache in compiledHandlers so invokeHandler's fast path skips
+	// the entire ensureMatcherChainWithState + getChainCache on every event.
+	if len(chain) == 0 {
+		m.compiledHandlers.Store(&compiledChain{head: he, version: cv})
+		return he
 	}
 
 	// Slow path: compose the middleware chain once and cache only the head.
