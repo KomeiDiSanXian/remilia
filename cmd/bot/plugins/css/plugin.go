@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -105,7 +106,8 @@ func New(opts ...Option) *plugin.Descriptor {
 				p.backgroundRefresh(runCtx)
 			})
 
-			ctx.OnCommand("", "/css", p.handleCSS)
+			cssDef := command.NewDef("css").Description("中国空间站(天宫)实时轨道追踪").Build()
+			ctx.OnCommandDefWith("", "/css", cssDef, p.handleCSS)
 
 			return p, nil
 		},

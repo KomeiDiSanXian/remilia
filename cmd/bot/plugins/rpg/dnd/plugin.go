@@ -66,11 +66,40 @@ func New() *plugin.Descriptor {
 			}
 			p.sheet = NewSheetManager(storageSvc)
 
-			ctx.OnCommand("", "/dnd", p.handleDND)
-			ctx.OnCommand("", "/check", p.handleCheck)
-			ctx.OnCommand("", "/save", p.handleSave)
-			ctx.OnCommand("", "/skill", p.handleSkill)
-			ctx.OnCommand("", "/init", p.handleInit)
+			dndDef := command.NewDef("dnd").Description("D&D 5e 角色管理与属性设置").
+				SubCommand(command.NewDef("create").Description("创建角色").Build()).
+				SubCommand(command.NewDef("delete").Description("删除角色").Build()).
+				SubCommand(command.NewDef("sheet").Description("查看角色卡").Build()).
+				SubCommand(command.NewDef("list").Description("列出所有角色").Build()).
+				SubCommand(command.NewDef("set").Description("设置属性或角色信息").Build()).
+				Build()
+			ctx.OnCommandDefWith("", "/dnd", dndDef, p.handleDND)
+
+			checkDef := command.NewDef("check").Description("D&D 属性检定").
+				Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
+				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+				Arg("character_name", "角色名（可选）", false).
+				Example("/check STR adv").Example("/check DEX").Build()
+			ctx.OnCommandDefWith("", "/check", checkDef, p.handleCheck)
+
+			saveDef := command.NewDef("save").Description("D&D 豁免检定").
+				Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
+				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+				Arg("character_name", "角色名（可选）", false).
+				Example("/save DEX adv").Example("/save WIS").Build()
+			ctx.OnCommandDefWith("", "/save", saveDef, p.handleSave)
+
+			skillDef := command.NewDef("skill").Description("D&D 技能检定").
+				Arg("skill_name", "技能名（如 察觉、隐匿、游说）", true).
+				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+				Arg("character_name", "角色名（可选）", false).
+				Example("/skill 察觉").Example("/skill 隐匿 adv 盗贼").Build()
+			ctx.OnCommandDefWith("", "/skill", skillDef, p.handleSkill)
+
+			initDef := command.NewDef("init").Description("D&D 先攻检定").
+				Arg("character_name", "角色名（可选）", false).
+				Example("/init").Example("/init 战士").Build()
+			ctx.OnCommandDefWith("", "/init", initDef, p.handleInit)
 
 			return p, nil
 		},

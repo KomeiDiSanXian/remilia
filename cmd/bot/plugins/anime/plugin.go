@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -74,7 +75,12 @@ func New() *plugin.Descriptor {
 				})
 			}
 
-			ctx.OnCommand("", "/anime", p.handleAnime)
+			animeDef := command.NewDef("anime").Description("番剧时间表查询和信息搜索").
+				SubCommand(command.NewDef("season").Description("查看当季番剧时间表").Build()).
+				SubCommand(command.NewDef("search").Description("搜索番剧").Build()).
+				SubCommand(command.NewDef("info").Description("查看番剧详细信息").Build()).
+				Example("/anime season").Example("/anime search 间谍过家家").Example("/anime info 123456").Build()
+			ctx.OnCommandDefWith("", "/anime", animeDef, p.handleAnime)
 
 			return p, nil
 		},

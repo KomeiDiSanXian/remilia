@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
@@ -75,7 +76,10 @@ func New() *plugin.Descriptor {
 				probe.StartBackground(runCtx, 1*time.Minute)
 			})
 
-			ctx.OnCommand("", "/genshin", p.handleGS)
+			gsDef := command.NewDef("genshin").Description("原神角色展柜查询").
+				SubCommand(command.NewDef("showcase").Description("查看角色展柜").Build()).
+				Example("/genshin showcase 123456789").Build()
+			ctx.OnCommandDefWith("", "/genshin", gsDef, p.handleGS)
 
 			return p, nil
 		},

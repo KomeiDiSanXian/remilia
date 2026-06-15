@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/kv"
@@ -103,7 +104,8 @@ func New(opts ...Option) *plugin.Descriptor {
 				})
 			})
 
-			ctx.OnCommand("", "/iss", p.handleIss)
+			issDef := command.NewDef("iss").Description("国际空间站实时位置与轨道高度追踪").Build()
+			ctx.OnCommandDefWith("", "/iss", issDef, p.handleIss)
 
 			return p, nil
 		},

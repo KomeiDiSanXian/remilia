@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
@@ -69,7 +70,10 @@ func New() *plugin.Descriptor {
 				probe.StartBackground(runCtx, 1*time.Minute)
 			})
 
-			ctx.OnCommand("", "/starrail", p.handleHSR)
+			hsrDef := command.NewDef("starrail").Description("星穹铁道角色展柜查询").
+				SubCommand(command.NewDef("showcase").Description("查看角色展柜").Build()).
+				Example("/starrail showcase 123456789").Build()
+			ctx.OnCommandDefWith("", "/starrail", hsrDef, p.handleHSR)
 
 			return p, nil
 		},

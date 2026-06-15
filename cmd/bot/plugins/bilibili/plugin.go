@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -76,7 +77,12 @@ func New() *plugin.Descriptor {
 				})
 			}
 
-			ctx.OnCommand("", "/bili", p.handleBili)
+			biliDef := command.NewDef("bili").Description("Bilibili UP 主信息、直播状态、用户搜索").
+				SubCommand(command.NewDef("user").Description("查询 UP 主信息").Build()).
+				SubCommand(command.NewDef("live").Description("查询直播状态").Build()).
+				SubCommand(command.NewDef("search").Description("搜索 UP 主").Build()).
+				Example("/bili user 泠鸢yousa").Example("/bili live 282994").Example("/bili search 泠鸢").Build()
+			ctx.OnCommandDefWith("", "/bili", biliDef, p.handleBili)
 
 			return p, nil
 		},

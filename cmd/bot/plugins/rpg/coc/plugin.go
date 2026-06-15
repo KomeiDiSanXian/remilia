@@ -66,9 +66,28 @@ func New() *plugin.Descriptor {
 			}
 			p.sheet = NewSheetManager(storageSvc)
 
-			ctx.OnCommand("", "/coc", p.handleCOC)
-			ctx.OnCommand("", "/cc", p.handleCC)
-			ctx.OnCommand("", "/sc", p.handleSC)
+			cocDef := command.NewDef("coc").Description("COC 7th 角色管理与检定").
+				SubCommand(command.NewDef("create").Description("创建角色（自动生成属性）").Build()).
+				SubCommand(command.NewDef("delete").Description("删除角色").Build()).
+				SubCommand(command.NewDef("sheet").Description("查看角色卡").Build()).
+				SubCommand(command.NewDef("list").Description("列出所有角色").Build()).
+				SubCommand(command.NewDef("skill").Description("设置技能值").Build()).
+				SubCommand(command.NewDef("luck").Description("幸运检定").Build()).
+				SubCommand(command.NewDef("push").Description("技能推骰").Build()).
+				Build()
+			ctx.OnCommandDefWith("", "/coc", cocDef, p.handleCOC)
+
+			ccDef := command.NewDef("cc").Description("COC 技能检定").
+				Arg("skill_name", "技能名（如 侦查、图书馆）", true).
+				Arg("character_name", "角色名（可选，默认为首个角色）", false).
+				Example("/cc 侦查").Example("/cc 图书馆 克苏鲁").Build()
+			ctx.OnCommandDefWith("", "/cc", ccDef, p.handleCC)
+
+			scDef := command.NewDef("sc").Description("SAN 理智检定").
+				Arg("loss_success", "成功时 SAN 损失（可选，默认 0）", false).
+				Arg("loss_failure", "失败时 SAN 损失（可选，默认 1）", false).
+				Example("/sc").Example("/sc 0 1d6").Build()
+			ctx.OnCommandDefWith("", "/sc", scDef, p.handleSC)
 
 			return p, nil
 		},

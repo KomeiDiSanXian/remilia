@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -93,7 +94,10 @@ func New() *plugin.Descriptor {
 				})
 			}
 
-			ctx.OnCommand("", "/weather", p.handleWeather)
+			weatherDef := command.NewDef("weather").Description("天气查询").
+				Arg("city", "城市名称", true).
+				Example("/weather 北京").Example("/weather Tokyo").Build()
+			ctx.OnCommandDefWith("", "/weather", weatherDef, p.handleWeather)
 
 			return p, nil
 		},

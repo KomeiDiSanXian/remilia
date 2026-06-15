@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -84,8 +85,15 @@ func New(opts ...Option) *plugin.Descriptor {
 
 			p.cache = newImageCache(p.dataDir)
 
-			ctx.OnCommand("", "/omikuji", p.handleOmikuji)
-			ctx.OnCommand("", "/tarot", p.handleTarot)
+			omikujiDef := command.NewDef("omikuji").Description("抽取御神签占卜运势").
+				Arg("number", "签号 1-100（可选，不指定则随机）", false).
+				Example("/omikuji").Example("/omikuji 42").Build()
+			ctx.OnCommandDefWith("", "/omikuji", omikujiDef, p.handleOmikuji)
+
+			tarotDef := command.NewDef("tarot").Description("塔罗牌占卜").
+				Arg("count", "牌数 1 或 3（可选，默认 1）", false).
+				Example("/tarot").Example("/tarot 3").Build()
+			ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot)
 
 			return p, nil
 		},
