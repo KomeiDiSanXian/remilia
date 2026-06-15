@@ -99,7 +99,9 @@ func (p *Plugin) Load(ctx *plugin.SetupContext) error {
 	p.registerCodeCommand(ctx)
 	p.registerACLCommand(ctx)
 	p.registerSystemCommands(ctx)
-	p.tryGenerateBootstrapCode(ctx)
+	if !ctx.DryRun {
+		p.tryGenerateBootstrapCode(ctx)
+	}
 	return nil
 }
 

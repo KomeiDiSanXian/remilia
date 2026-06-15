@@ -106,20 +106,23 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading scheduler plugin")
-			p.c = cron.New(cron.WithSeconds())
-			p.c.Start()
-			// 将框架生命周期 context 注入 Plugin，供后续 Every() 派生 job context 使用。
-			// 通过 ready channel 保证 Setup 返回前 lifecycleCtx 已切换完毕，
-			// 使调用者拿到已注册 Plugin 后调用 Every() 时使用的是框架 runCtx
-			ready := make(chan struct{})
-			ctx.Spawn(func(runCtx stdctx.Context) {
-				p.mu.Lock()
-				p.lifecycleCtx, p.lifecycleCancel = stdctx.WithCancel(runCtx)
-				p.mu.Unlock()
-				close(ready)
-				<-runCtx.Done()
-			})
-			<-ready // 等待 goroutine 完成 lifecycleCtx 切换后再返回
+
+			if !ctx.DryRun {
+				p.c = cron.New(cron.WithSeconds())
+				p.c.Start()
+				// 将框架生命周期 context 注入 Plugin，供后续 Every() 派生 job context 使用。
+				// 通过 ready channel 保证 Setup 返回前 lifecycleCtx 已切换完毕，
+				// 使调用者拿到已注册 Plugin 后调用 Every() 时使用的是框架 runCtx
+				ready := make(chan struct{})
+				ctx.Spawn(func(runCtx stdctx.Context) {
+					p.mu.Lock()
+					p.lifecycleCtx, p.lifecycleCancel = stdctx.WithCancel(runCtx)
+					p.mu.Unlock()
+					close(ready)
+					<-runCtx.Done()
+				})
+				<-ready // 等待 goroutine 完成 lifecycleCtx 切换后再返回
+			}
 			ctx.Log.Info("Scheduler plugin loaded")
 			return p, nil
 		},

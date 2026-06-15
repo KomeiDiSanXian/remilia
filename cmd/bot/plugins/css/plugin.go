@@ -69,42 +69,44 @@ func New(opts ...Option) *plugin.Descriptor {
 			cmseProbe := health.NewAPIProbe("cmse.gov.cn", "https://www.cmse.gov.cn", 5*time.Second, health.WithMaxSeverity(health.Degraded))
 			p.probes = []*health.APIProbe{cmseProbe}
 
-			// 创建缓存目录
-			if p.dataDir != "" {
-				if err := os.MkdirAll(p.dataDir, 0755); err != nil {
-					ctx.Log.Warnf("Failed to create css cache dir: %v", err)
+			if !ctx.DryRun {
+				// 创建缓存目录
+				if p.dataDir != "" {
+					if err := os.MkdirAll(p.dataDir, 0755); err != nil {
+						ctx.Log.Warnf("Failed to create css cache dir: %v", err)
+					}
 				}
-			}
 
-			// 尝试从缓存加载（确保启动后即使网络不可达也能快速响应）
-			cached := LoadCache(p.dataDir)
-			if cached != nil && cached.Covers(time.Now()) {
-				p.mu.Lock()
-				p.oem = cached
-				p.mu.Unlock()
-				ctx.Log.Infof("Loaded CSS OEM from cache: %s ~ %s",
-					cached.StartTime.Format("01-02 15:04"), cached.StopTime.Format("01-02 15:04"))
-			}
-
-			// 后台尝试下载最新 OEM 数据
-			if err := p.refreshOEM(context.Background()); err != nil {
-				ctx.Log.Warnf("Initial OEM download failed: %v", err)
-				if p.oem == nil {
-					ctx.Log.Warn("No cached OEM data available, waiting for background refresh")
+				// 尝试从缓存加载（确保启动后即使网络不可达也能快速响应）
+				cached := LoadCache(p.dataDir)
+				if cached != nil && cached.Covers(time.Now()) {
+					p.mu.Lock()
+					p.oem = cached
+					p.mu.Unlock()
+					ctx.Log.Infof("Loaded CSS OEM from cache: %s ~ %s",
+						cached.StartTime.Format("01-02 15:04"), cached.StopTime.Format("01-02 15:04"))
 				}
-			}
 
-			// 启动后台健康探测
-			for _, pr := range p.probes {
+				// 后台尝试下载最新 OEM 数据
+				if err := p.refreshOEM(context.Background()); err != nil {
+					ctx.Log.Warnf("Initial OEM download failed: %v", err)
+					if p.oem == nil {
+						ctx.Log.Warn("No cached OEM data available, waiting for background refresh")
+					}
+				}
+
+				// 启动后台健康探测
+				for _, pr := range p.probes {
+					ctx.Spawn(func(runCtx context.Context) {
+						pr.StartBackground(runCtx, 1*time.Minute)
+					})
+				}
+
+				// 后台每 60 分钟自动刷新 OEM 数据
 				ctx.Spawn(func(runCtx context.Context) {
-					pr.StartBackground(runCtx, 1*time.Minute)
+					p.backgroundRefresh(runCtx)
 				})
 			}
-
-			// 后台每 60 分钟自动刷新 OEM 数据
-			ctx.Spawn(func(runCtx context.Context) {
-				p.backgroundRefresh(runCtx)
-			})
 
 			cssDef := command.NewDef("css").Description("中国空间站(天宫)实时轨道追踪").Build()
 			ctx.OnCommandDefWith("", "/css", cssDef, p.handleCSS)

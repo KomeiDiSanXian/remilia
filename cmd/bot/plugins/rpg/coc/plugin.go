@@ -61,10 +61,12 @@ func New() *plugin.Descriptor {
 				return nil, fmt.Errorf("coc: storage service not available")
 			}
 
-			if err := storageSvc.AutoMigrate(&Character{}, &Record{}); err != nil {
-				return nil, fmt.Errorf("coc: auto migrate: %w", err)
+			if !ctx.DryRun {
+				if err := storageSvc.AutoMigrate(&Character{}, &Record{}); err != nil {
+					return nil, fmt.Errorf("coc: auto migrate: %w", err)
+				}
+				p.sheet = NewSheetManager(storageSvc)
 			}
-			p.sheet = NewSheetManager(storageSvc)
 
 			cocDef := command.NewDef("coc").Description("COC 7th 角色管理与检定").
 				SubCommand(command.NewDef("create").Description("创建角色（自动生成属性）").Build()).

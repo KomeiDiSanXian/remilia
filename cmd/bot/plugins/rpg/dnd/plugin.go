@@ -61,10 +61,12 @@ func New() *plugin.Descriptor {
 				return nil, fmt.Errorf("dnd: storage service not available")
 			}
 
-			if err := storageSvc.AutoMigrate(&Character{}, &Record{}); err != nil {
-				return nil, fmt.Errorf("dnd: auto migrate: %w", err)
+			if !ctx.DryRun {
+				if err := storageSvc.AutoMigrate(&Character{}, &Record{}); err != nil {
+					return nil, fmt.Errorf("dnd: auto migrate: %w", err)
+				}
+				p.sheet = NewSheetManager(storageSvc)
 			}
-			p.sheet = NewSheetManager(storageSvc)
 
 			dndDef := command.NewDef("dnd").Description("D&D 5e 角色管理与属性设置").
 				SubCommand(command.NewDef("create").Description("创建角色").Build()).

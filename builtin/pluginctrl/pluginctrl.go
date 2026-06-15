@@ -902,7 +902,7 @@ func New(opts ...Option) *plugin.Descriptor {
 						p.loadFromDB()
 					}
 				}
-			} else {
+			} else if !ctx.DryRun {
 				ctx.Log.Warn("No storage backend found, plugin states are in-memory only (lost on restart)")
 			}
 
