@@ -54,8 +54,7 @@ import (
 const dataDir = "data"
 
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
-	extraDirs := []string{dataDir + "/iss", dataDir + "/css", dataDir + "/fortune", dataDir + "/fortune/images", dataDir + "/genshin", dataDir + "/starrail", dataDir + "/rpg"}
-	for _, dir := range append([]string{dataDir, dataDir + "/db"}, extraDirs...) {
+	for _, dir := range []string{dataDir, dataDir + "/db"} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
 		}
