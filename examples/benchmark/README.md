@@ -66,3 +66,8 @@ go run throughput_bench.go -suite full           # 完整测试（~5 分钟）
 2. **结果受硬件影响** — CPU 核心数、内存带宽、Go 版本都会影响结果
 3. **GC 影响** — unlimited 场景下 GC 暂停占总时间的 ~4-6%，吞吐量会有波动
 4. **Handler 为空** — 仅做原子计数，不包含业务逻辑（如 API 调用、消息处理等）
+5. **Matcher 场景中的无 handler matcher** — `OnEventKind()` 注册的 extra matcher 未调用 `.Handle()`，它们在 Match() 通过后进入 `invokeHandler`，发现 Handler 为 nil 后立即返回。这仍然消耗 per-matcher 原子操作和分支判断，是 CPU 开销的主要来源
+
+## 优化历史
+
+详见 [PERFORMANCE_ANALYSIS.md](./PERFORMANCE_ANALYSIS.md) 和 `core/engine/benchmark_hotpath_test.go`。

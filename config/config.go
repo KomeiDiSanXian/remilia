@@ -345,8 +345,7 @@ type EngineConfig struct {
 	PendingDeleteBufferSize      int    `yaml:"pending_delete_buffer_size" mapstructure:"pending_delete_buffer_size"`
 	PendingDeleteProcessInterval string `yaml:"pending_delete_process_interval" mapstructure:"pending_delete_process_interval"`
 	PendingDeleteBatchSize       int    `yaml:"pending_delete_batch_size" mapstructure:"pending_delete_batch_size"`
-	MatcherPoolCapacity          int    `yaml:"matcher_pool_capacity" mapstructure:"matcher_pool_capacity"`
-	MatcherPoolMaxCapacity       int    `yaml:"matcher_pool_max_capacity" mapstructure:"matcher_pool_max_capacity"`
+
 	TempMatcherShardCount        int    `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
 }
 

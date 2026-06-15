@@ -324,8 +324,7 @@ func (ec *EngineConfig) Validate() error {
 	}{
 		{"engine.pending_delete_buffer_size", ec.PendingDeleteBufferSize},
 		{"engine.pending_delete_batch_size", ec.PendingDeleteBatchSize},
-		{"engine.matcher_pool_capacity", ec.MatcherPoolCapacity},
-		{"engine.matcher_pool_max_capacity", ec.MatcherPoolMaxCapacity},
+
 		{"engine.temp_matcher_shard_count", ec.TempMatcherShardCount},
 	}
 	for _, n := range nonNeg {

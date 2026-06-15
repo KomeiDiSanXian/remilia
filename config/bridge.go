@@ -58,9 +58,5 @@ func EngineOptions(cfg EngineConfig) []engine.Option {
 		opts = append(opts, engine.WithPendingDeleteBatchSize(cfg.PendingDeleteBatchSize))
 	}
 
-	if cfg.MatcherPoolCapacity > 0 {
-		opts = append(opts, engine.WithMatcherPoolCapacity(cfg.MatcherPoolCapacity))
-	}
-
 	return opts
 }

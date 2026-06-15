@@ -1,55 +1,83 @@
 # Remilia Framework — 引擎吞吐量分析报告
 
-> 测试日期: 2026-04-27
-> 测试工具: throughput_bench.go (standard 套件, Recover 中间件启用)
-> 硬件: 16 CPU, 32 GB RAM, Go 1.26.1, GOMAXPROCS=16
+> 测试日期: 2026-06-15
+> 测试工具: throughput_bench.go (quick 套件, GOGC=100)
+> 硬件: AMD Ryzen 7 5800H, 16 CPU, 32 GB RAM, Go 1.26.4, GOMAXPROCS=16
 
 ---
 
 ## 测试结果总览
 
-| 场景 | Matchers | 目标 | 实际 | 达成率 | 成功率 | CPU |
-|------|----------|------|------|--------|--------|-----|
-| smoke | 0+1 | 100/s | 99.8/s | 99.8% | 100% | 0.3% |
-| medium | 0+1 | 1K/s | 999.3/s | 99.9% | 100% | 0.1% |
-| high | 0+1 | 5K/s | 4,999.5/s | 100% | 100% | 0.1% |
-| stress | 0+1 | 20K/s | 19,995.5/s | 100% | 100% | 1.2% |
-| extreme | 0+1 | 50K/s | 49,967.4/s | 99.9% | 100% | 4.7% |
-| matcher-100 @20K | 100+1 | 20K/s | 19,992.3/s | 100% | 100% | 6.7% |
-| matcher-1K @20K | 1K+1 | 20K/s | 19,998.3/s | 100% | 100% | 10.0% |
-| matcher-5K @20K | 5K+1 | 20K/s | 19,985.3/s | 99.9% | 100% | 36.8% |
-| matcher-100 @50K | 100+1 | 50K/s | 49,987.6/s | 100% | 100% | 55.9% |
-| matcher-1K @50K | 1K+1 | 50K/s | 49,973.0/s | 99.9% | 100% | 60.2% |
-| unlimited | 0+1 | — | 474,128.4/s | — | 100% | 79.8% |
+| 场景 | Matchers | 目标 | 实际 | 成功率 | CPU | 堆(avg) |
+|------|----------|------|------|--------|-----|---------|
+| low (100/s) | 0+1 | 100/s | 98.4/s | 100% | 2.6% | 1.3 MB |
+| mid (5K/s) | 0+1 | 5,000/s | 4,982.3/s | 100% | 0.5% | 2.6 MB |
+| high (20K/s) | 0+1 | 20,000/s | 19,922.7/s | 100% | 3.3% | 5.6 MB |
+| **matcher-1K (20K/s)** | **1K+1** | **20,000/s** | **19,965.1/s** | **100%** | **62.8%** | **13.7 MB** |
+| unlimited | 0+1 | — | 535,527.1/s | 100% | 155.8% | 3.0 MB |
 
 ---
 
+## 优化历程
+
+### PR1: MergeIter — 零分配惰性归并
+
+**问题**: 旧 `mergeKSortedMatchers` 使用 `container/heap` + `interface{}` 装箱
+
+| 旧热点 | 占比 |
+|--------|------|
+| mergeKSortedMatchers | 55% CPU |
+| runtime.convT (heapItem→any) | 36% CPU |
+| container/heap.Pop | 25% CPU |
+| mallogc | 28% CPU |
+
+**解决**:
+- 手写 `matcherMergeIter` + 内联 6 路线性扫描
+- 边消费边归并，支持 `isBlocking` 提前终止
+- 零 alloc，无 heap.Interface 装箱
+
+### PR2: tempManager RCU — O(1) 读路径
+
+**问题**: 旧 `Get()` 每事件执行 8×RLock + copy + merge
+
+| 旧热点 | 占比 |
+|--------|------|
+| tempManager.Get | 25% CPU |
+| tempManager.Get | 42% Heap (alloc_space) |
+
+**解决**: `atomic.Pointer[TempSnapshot]` 只读快照，写入后 atomically replace
+
+### PR3: compiledHandlers 缓存修复
+
+**问题**: 无 middleware 时 `getOrBuildIterChain` 直接返回 handler，不缓存到 `compiledHandlers`，导致 `invokeHandler` 每事件都跑慢路径
+
+**解决**: 无 middleware 时也写入 `compiledHandlers`
+
+## 性能总提升 (Heavy: 1K matchers)
+
+| 指标 | 优化前 | 优化后 | 提升 |
+|------|--------|--------|------|
+| 单事件延迟 | 94,398 ns | 22,074 ns | **-77%** |
+| B/op | 24,467 | **0** | **-100%** |
+| allocs/op | 1,408 | **0** | **-100%** |
+| 极限吞吐 | 474K/s | **535K/s** | **+13%** |
+
+## 热点转移
+
+| 函数 | 优化前 cum | 优化后 flat% | 说明 |
+|------|-----------|-------------|------|
+| mergeKSortedMatchers | 55% | — | 已消除 |
+| tempManager.Get | 25% | — | 已消除 |
+| runtime.convT | 36% | — | 已消除 |
+| runtime.mallocgc | 28% | — | 已消除 |
+| matcherMergeIter.Next | — | **26%** | 新#1 热点 |
+| Matcher.Match | 5% | **15%** | 新#2 热点 |
+| isBlocking (HashTrieMap) | 1% | **8%** | 新#3 热点 |
+| invokeHandler | 4% | 13% cum | 大幅下降 |
+
 ## Matcher 缩放特性
 
-### 核心发现
-
-Matcher 数每增一个数量级，CPU 开销线性而非指数增长：
-
-```
-20K msg/s:
-  0 matchers → 1.2% CPU   (基线)
-  100        → 6.7% CPU   (+5.5 pp, 每条消息多 ~3μs)
-  1K         → 10.0% CPU  (+8.8 pp, 每条消息多 ~4.4μs)
-  5K         → 36.8% CPU  (+35.6 pp, 每条消息多 ~17.8μs)
-
-50K msg/s:
-  0 matchers → 4.7% CPU   (基线)
-  100        → 55.9% CPU  (+51.2 pp, 每条消息多 ~10.2μs)
-  1K         → 60.2% CPU  (+55.5 pp, 每条消息多 ~11.1μs)
-```
-
-**分析**: 50K msg/s 下 CPU 增幅较大是因为吞吐量放大效应——每微秒的开销 ×50K/秒 = 明显的 CPU%。但在 20K msg/s 下即使 5K matcher 仍能 100% 成功。
-
-### 为什么 matcher 数量影响相对温和
-
-1. **6 路合并排序** 只对新增/变更的 matcher 做部分排序，而非全量重排
-2. **Match() 调用** 基于 EventType 字符串比较（O(1) 哈希），快速跳过不匹配的 matcher
-3. **COW 状态快照** 保证 ProcessEvent 内无锁遍历
+1K matcher + 20K msg/s 下 100% 成功。**每事件路由延迟从 94µs 降到 22µs**，但由于 Match() 和 isBlocking 是 O(N)，matcher 数量增长会线性增加 CPU 消耗。
 
 ---
 
@@ -58,29 +86,19 @@ Matcher 数每增一个数量级，CPU 开销线性而非指数增长：
 | 组件 | 说明 |
 |------|------|
 | **COW 引擎** | `ProcessEvent` 完全无锁，`atomic.Load()` 获取快照，写时复制 |
-| **6 路合并排序** | State(perm/cmd)×Specific/Generic + Temp 合并，O(log N) |
+| **MergeIter** | 6 路惰性归并，零分配，边消费边归并 |
+| **TempManager RCU** | `atomic.Pointer[TempSnapshot]` 只读快照，写入后原子替换 |
+| **compiledHandlers 缓存** | `atomic.Value` + 版本号，稳定态 0 锁 0 alloc |
 | **批量分发** | pumpAdapter 32 个 worker，每批 drain 64 个事件 |
-| **Trie 索引** | 命令路由 O(1) |
-| **对象池** | benchEvent 通过 sync.Pool 复用，减少 GC 压力 |
-
----
-
-## 与旧版对比
-
-| 指标 | 2026-01 | 2026-04 | 提升 |
-|------|---------|---------|------|
-| 最大吞吐量 (0 matcher) | ~730 msg/s | ~474K msg/s | **~650×** |
-| 20K msg/s (0 matcher) | 14.5% | 100% | — |
-| 20K msg/s (1K matcher) | — | 100% | — |
-| 消息积压 | 85%+ | 0% | — |
+| **对象池** | benchEvent 通过 sync.Pool 复用 |
 
 ---
 
 ## 生产环境指导
 
-| 场景 | 建议容量 | 说明 |
-|------|---------|------|
-| 纯转发, 0-100 matchers | <200K msg/s | Handler 无阻塞 |
-| 命令 Bot, 100-1K matchers | <50K msg/s | 含解析回复 |
-| 复杂业务, 1K-5K matchers | <10K msg/s | 含 DB/API |
-| 多媒体, 任意 matcher | <200 msg/s | 图片/AI |
+| 场景 | 建议容量 | 路由耗时 |
+|------|---------|---------|
+| 纯转发, 0-100 matchers | <200K msg/s | ~1µs |
+| 命令 Bot, 100-1K matchers | <50K msg/s | ~22µs |
+| 复杂业务, 1K-5K matchers | <10K msg/s | ~100µs |
+| 多媒体, 任意 matcher | <200 msg/s | 图片/AI 为主 |
