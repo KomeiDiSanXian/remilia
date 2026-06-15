@@ -40,6 +40,7 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -346,7 +347,7 @@ type EngineConfig struct {
 	PendingDeleteProcessInterval string `yaml:"pending_delete_process_interval" mapstructure:"pending_delete_process_interval"`
 	PendingDeleteBatchSize       int    `yaml:"pending_delete_batch_size" mapstructure:"pending_delete_batch_size"`
 
-	TempMatcherShardCount        int    `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
+	TempMatcherShardCount int `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
 }
 
 // DegradationConfig 自适应降级配置。
@@ -481,9 +482,7 @@ func (m *Manager) Get() (*Config, bool) {
 		c.Plugins = make(map[string]map[string]any, len(cfg.Plugins))
 		for k, v := range cfg.Plugins {
 			inner := make(map[string]any, len(v))
-			for ik, iv := range v {
-				inner[ik] = iv
-			}
+			maps.Copy(inner, v)
 			c.Plugins[k] = inner
 		}
 	}

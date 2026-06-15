@@ -71,7 +71,6 @@ func New() *plugin.Descriptor {
 			p.probes = []*health.APIProbe{biliProbe, liveProbe, searchProbe}
 
 			for _, pr := range p.probes {
-				pr := pr
 				ctx.Spawn(func(runCtx context.Context) {
 					pr.StartBackground(runCtx, 1*time.Minute)
 				})

@@ -40,18 +40,18 @@ type benchScenario struct {
 	name string
 
 	// Matcher counts per category
-	numPermSpec   int // sortedCache[eventType] specific permanent
-	numPermGen    int // sortedCache[""] generic permanent
-	numCmdSpec    int // commandIndex[cmd][eventType]
-	numCmdGen     int // commandIndex[cmd][""]
-	numTempSpec   int // tempManager.Get(eventType)
-	numTempGen    int // tempManager.Get("")
+	numPermSpec int // sortedCache[eventType] specific permanent
+	numPermGen  int // sortedCache[""] generic permanent
+	numCmdSpec  int // commandIndex[cmd][eventType]
+	numCmdGen   int // commandIndex[cmd][""]
+	numTempSpec int // tempManager.Get(eventType)
+	numTempGen  int // tempManager.Get("")
 
 	// Behavior controls
-	cmdHit      bool   // whether the event's message hits an existing command
+	cmdHit      bool    // whether the event's message hits an existing command
 	passRate    float64 // fraction of matchers where Match() returns true (0.0–1.0)
-	messageLen  int    // message content length for extractCommand
-	useExecPool bool   // whether to enable exec pool offload
+	messageLen  int     // message content length for extractCommand
+	useExecPool bool    // whether to enable exec pool offload
 }
 
 // total returns the total number of candidate matchers after merge.
@@ -78,22 +78,22 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── Light load ─────────────────────────────────────────────────────
 		{
-			name:       "Light",
+			name:        "Light",
 			numPermSpec: 10,
-			passRate:   0.8,
-			messageLen: 20,
+			passRate:    0.8,
+			messageLen:  20,
 		},
 		{
-			name:      "LightCmdHit",
+			name:        "LightCmdHit",
 			numPermSpec: 5,
-			numCmdSpec: 5,
-			cmdHit:    true,
-			passRate:  0.8,
-			messageLen: 20,
+			numCmdSpec:  5,
+			cmdHit:      true,
+			passRate:    0.8,
+			messageLen:  20,
 		},
 		// ── Medium load ────────────────────────────────────────────────────
 		{
-			name:       "Medium",
+			name:        "Medium",
 			numPermSpec: 40,
 			numPermGen:  10,
 			numCmdSpec:  30,
@@ -105,7 +105,7 @@ func benchmarkMatrix() []benchScenario {
 			messageLen:  50,
 		},
 		{
-			name:       "MediumCmdHit",
+			name:        "MediumCmdHit",
 			numPermSpec: 40,
 			numPermGen:  10,
 			numCmdSpec:  30,
@@ -118,7 +118,7 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── Heavy load ─────────────────────────────────────────────────────
 		{
-			name:       "Heavy",
+			name:        "Heavy",
 			numPermSpec: 400,
 			numPermGen:  100,
 			numCmdSpec:  300,
@@ -130,7 +130,7 @@ func benchmarkMatrix() []benchScenario {
 			messageLen:  100,
 		},
 		{
-			name:       "HeavyCmdHit",
+			name:        "HeavyCmdHit",
 			numPermSpec: 400,
 			numPermGen:  100,
 			numCmdSpec:  300,
@@ -143,7 +143,7 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── Merge pressure: total > 1024 (was the pool retain cap) ──
 		{
-			name:       "MergeBlow",
+			name:        "MergeBlow",
 			numPermSpec: 800,
 			numPermGen:  200,
 			numCmdSpec:  600,
@@ -156,7 +156,7 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── Heavy merge with all 6 lists populated evenly ──────────────────
 		{
-			name:       "MergeWorst",
+			name:        "MergeWorst",
 			numPermSpec: 500,
 			numPermGen:  500,
 			numCmdSpec:  500,
@@ -169,7 +169,7 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── Extreme load ───────────────────────────────────────────────────
 		{
-			name:       "Extreme",
+			name:        "Extreme",
 			numPermSpec: 2000,
 			numPermGen:  500,
 			numCmdSpec:  1500,
@@ -182,14 +182,14 @@ func benchmarkMatrix() []benchScenario {
 		},
 		// ── All match pass (compute bound on Match + Handler) ─────────────
 		{
-			name:       "AllMatch",
+			name:        "AllMatch",
 			numPermSpec: 1000,
 			passRate:    1.0,
 			messageLen:  100,
 		},
 		// ── Long message extractCommand pressure ──────────────────────────
 		{
-			name:       "LongMsg",
+			name:        "LongMsg",
 			numPermSpec: 500,
 			passRate:    0.5,
 			messageLen:  10000,
@@ -221,10 +221,7 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 
 	// Track which matchers should return true from Match.
 	// For command matchers, also track their command string for index lookup.
-	passCount := int(float64(s.total()) * s.passRate)
-	if passCount > s.total() {
-		passCount = s.total()
-	}
+	passCount := min(int(float64(s.total())*s.passRate), s.total())
 	passSet := make(map[int]bool, passCount)
 	for i := range passCount {
 		passSet[i] = true
@@ -303,10 +300,10 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 	// 5. Temp-specific matchers (tempManager.Get(eventType))
 	for i := range s.numTempSpec {
 		m := &Matcher{
-			EventType: eventType,
-			Rules:     []ctx.Rule{nullRule()},
-			Handler:   func(c *ctx.Context) error { return nil },
-			Source:    fmt.Sprintf("bench-temp-spec-%d", i),
+			EventType:   eventType,
+			Rules:       []ctx.Rule{nullRule()},
+			Handler:     func(c *ctx.Context) error { return nil },
+			Source:      fmt.Sprintf("bench-temp-spec-%d", i),
 			execProfile: nil,
 		}
 		m.priority.Store(uint64(rng.Intn(10000)))
@@ -318,10 +315,10 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 	// 6. Temp-generic matchers (tempManager.Get(""))
 	for i := range s.numTempGen {
 		m := &Matcher{
-			EventType: "",
-			Rules:     []ctx.Rule{nullRule()},
-			Handler:   func(c *ctx.Context) error { return nil },
-			Source:    fmt.Sprintf("bench-temp-gen-%d", i),
+			EventType:   "",
+			Rules:       []ctx.Rule{nullRule()},
+			Handler:     func(c *ctx.Context) error { return nil },
+			Source:      fmt.Sprintf("bench-temp-gen-%d", i),
 			execProfile: nil,
 		}
 		m.priority.Store(uint64(rng.Intn(10000)))
@@ -363,11 +360,11 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 // BenchmarkHotPath runs processEventMatchers in a matrix of scenarios.
 //
 // This is the primary benchmark for CPU profiling on hot-path functions:
-//   Matcher.Match, mergeSortedMatchersSix, extractCommand, invokeHandler,
-//   isBlocking, tempManager.Get
+//
+//	Matcher.Match, mergeSortedMatchersSix, extractCommand, invokeHandler,
+//	isBlocking, tempManager.Get
 func BenchmarkHotPath(b *testing.B) {
 	for _, s := range benchmarkMatrix() {
-		s := s
 		b.Run(s.name, func(b *testing.B) {
 			fx := buildFixture(s, b)
 			b.ReportAllocs()

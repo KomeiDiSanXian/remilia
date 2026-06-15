@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
@@ -243,17 +244,17 @@ func formatSearchUserText(results []SearchUserResult) string {
 	if len(results) == 0 {
 		return "未找到匹配的用户"
 	}
-	var b string
+	var b strings.Builder
 	for i, r := range results {
 		if i >= 10 {
-			b += fmt.Sprintf("…等%d个结果", len(results))
+			b.WriteString(fmt.Sprintf("…等%d个结果", len(results)))
 			break
 		}
 		liveStatus := ""
 		if r.IsLive == 1 {
 			liveStatus = " [直播中]"
 		}
-		b += fmt.Sprintf("%d. %s (UID: %d) Lv.%d 粉丝%s%s\n", i+1, r.Name, r.Mid, r.Level, formatFans(r.Fans), liveStatus)
+		b.WriteString(fmt.Sprintf("%d. %s (UID: %d) Lv.%d 粉丝%s%s\n", i+1, r.Name, r.Mid, r.Level, formatFans(r.Fans), liveStatus))
 	}
-	return b
+	return b.String()
 }

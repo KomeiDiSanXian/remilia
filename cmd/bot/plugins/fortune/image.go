@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"math/rand"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
@@ -250,7 +251,7 @@ func formatOmikujiText(slip *OmikujiSlip) string {
 
 // formatTarotText 将塔罗占卜结果格式化为纯文本（图片渲染失败的备用方案）。
 func formatTarotText(readings []TarotReading) string {
-	var buf string
+	var buf strings.Builder
 	for i, r := range readings {
 		if len(readings) > 1 {
 			pos := ""
@@ -262,16 +263,16 @@ func formatTarotText(readings []TarotReading) string {
 			case 2:
 				pos = "【未来】"
 			}
-			buf += pos + " "
+			buf.WriteString(pos + " ")
 		}
-		buf += fmt.Sprintf("%s (%s)\n%s\n%s\n",
+		buf.WriteString(fmt.Sprintf("%s (%s)\n%s\n%s\n",
 			r.Card.NameCN, r.Orientation(),
-			r.Card.NameEN, r.Meaning())
+			r.Card.NameEN, r.Meaning()))
 		if i < len(readings)-1 {
-			buf += "\n"
+			buf.WriteString("\n")
 		}
 	}
-	return buf
+	return buf.String()
 }
 
 // pickOmikujiVariant 随机选择浅草寺签图的变体（0 或 1）。

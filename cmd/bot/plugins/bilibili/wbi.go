@@ -117,8 +117,8 @@ func (s *wbiSigner) fetchKeys(ctx context.Context) (*wbiKeys, error) {
 func extractKey(rawURL string) string {
 	if idx := strings.LastIndex(rawURL, "/"); idx >= 0 {
 		part := rawURL[idx+1:]
-		if dot := strings.Index(part, "."); dot >= 0 {
-			return part[:dot]
+		if before, _, ok := strings.Cut(part, "."); ok {
+			return before
 		}
 		return part
 	}

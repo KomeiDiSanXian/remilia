@@ -63,13 +63,13 @@ var levelAttrs = map[FortuneLevel]*LuckyAttrs{
 
 // OmikujiSlip 御神签数据，包含等级、签文、解签和幸运属性。
 type OmikujiSlip struct {
-	Number      int           // 签号 1-100
-	Level       FortuneLevel  // 运势等级
-	Translation string        // 中文签文/解签
-	Wish        string        // 愿望
-	Waiting     string        // 待人
-	LostItem    string        // 失物
-	Travel      string        // 旅行
+	Number      int          // 签号 1-100
+	Level       FortuneLevel // 运势等级
+	Translation string       // 中文签文/解签
+	Wish        string       // 愿望
+	Waiting     string       // 待人
+	LostItem    string       // 失物
+	Travel      string       // 旅行
 }
 
 // LuckyAttrs 返回该签对应的幸运属性。
@@ -408,13 +408,13 @@ func (s TarotSuit) String() string {
 
 // TarotCard 塔罗牌定义，包含名称、正逆位释义和图片 URL。
 type TarotCard struct {
-	NameShort  string     // 缩写，如 "ar00"、"wa01"
-	NameEN     string     // 英文名
-	NameCN     string     // 中文名
-	Suit       TarotSuit  // 所属牌组
-	MeaningUp  string     // 正位释义
-	MeaningRev string     // 逆位释义
-	ImageURL   string     // 卡牌图片 URL
+	NameShort  string    // 缩写，如 "ar00"、"wa01"
+	NameEN     string    // 英文名
+	NameCN     string    // 中文名
+	Suit       TarotSuit // 所属牌组
+	MeaningUp  string    // 正位释义
+	MeaningRev string    // 逆位释义
+	ImageURL   string    // 卡牌图片 URL
 }
 
 // tarotDeck 78 张塔罗牌的 map，key 为 NameShort。
@@ -562,14 +562,14 @@ func initTarot() {
 
 	for _, s := range suitData {
 		meanings := minorMeanings[suitKey(s.suit)]
-		for i := 0; i < 14; i++ {
+		for i := range 14 {
 			ns := s.short + fmt.Sprintf("%02d", i+1)
 			card := &TarotCard{
-				NameShort:  ns,
-				NameEN:     rankNames[i].en + " of " + s.cn,
-				NameCN:     s.cn + rankNames[i].cn,
-				Suit:       s.suit,
-				ImageURL:   "https://www.sacred-texts.com/tarot/xr/" + ns + ".jpg",
+				NameShort: ns,
+				NameEN:    rankNames[i].en + " of " + s.cn,
+				NameCN:    s.cn + rankNames[i].cn,
+				Suit:      s.suit,
+				ImageURL:  "https://www.sacred-texts.com/tarot/xr/" + ns + ".jpg",
 			}
 			if i < len(meanings) {
 				card.MeaningUp = meanings[i].up

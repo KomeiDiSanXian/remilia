@@ -3,6 +3,7 @@ package anime
 import (
 	"fmt"
 	"image/color"
+	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
@@ -10,12 +11,12 @@ import (
 const cardWidth = 640
 
 var (
-	accentColorA   = color.RGBA{R: 80, G: 160, B: 240, A: 255}
-	primaryColorA  = color.RGBA{R: 30, G: 30, B: 30, A: 255}
+	accentColorA    = color.RGBA{R: 80, G: 160, B: 240, A: 255}
+	primaryColorA   = color.RGBA{R: 30, G: 30, B: 30, A: 255}
 	secondaryColorA = color.RGBA{R: 130, G: 130, B: 130, A: 255}
-	bgStartA       = color.RGBA{R: 245, G: 245, B: 250, A: 255}
-	bgEndA         = color.RGBA{R: 235, G: 240, B: 250, A: 255}
-	dividerColorA  = color.RGBA{R: 220, G: 220, B: 225, A: 255}
+	bgStartA        = color.RGBA{R: 245, G: 245, B: 250, A: 255}
+	bgEndA          = color.RGBA{R: 235, G: 240, B: 250, A: 255}
+	dividerColorA   = color.RGBA{R: 220, G: 220, B: 225, A: 255}
 )
 
 var weekdayNames = []string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}
@@ -41,7 +42,6 @@ func renderCalendar(entries []WeekdayEntry) ([]byte, error) {
 
 	canvas.AddText("📺 当季番剧时间表", textimage.WithFontSize(22), textimage.WithFontColor(accentColorA), textimage.WithAlign(textimage.AlignCenter))
 	canvas.AddSpacer(12)
-
 
 	for i, e := range entries {
 		weekdayName := weekdayNames[e.Weekday.ID%7]
@@ -220,7 +220,7 @@ func formatAnimeText(sub *AnimeSubject) string {
 
 // formatSearchText 将搜索结果格式化为纯文本（图片渲染失败时的备用方案）。
 func formatSearchText(results []AnimeSubject) string {
-	var b string
+	var b strings.Builder
 	for i, sub := range results {
 		displayName := sub.NameCN
 		if displayName == "" {
@@ -230,7 +230,7 @@ func formatSearchText(results []AnimeSubject) string {
 		if sub.Rating.Score > 0 {
 			ratingStr = fmt.Sprintf(" ⭐%.1f", sub.Rating.Score)
 		}
-		b += fmt.Sprintf("%d. %s (ID: %d)%s\n", i+1, displayName, sub.ID, ratingStr)
+		b.WriteString(fmt.Sprintf("%d. %s (ID: %d)%s\n", i+1, displayName, sub.ID, ratingStr))
 	}
-	return b
+	return b.String()
 }

@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -125,8 +126,6 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			cancel()
 			return &ChatResult{Text: cs.capturedText}, fmt.Errorf("chat stream: %w", err)
 		}
-
-
 
 		var fullResponse strings.Builder
 		var toolCalls []ToolCall
@@ -242,12 +241,7 @@ func collectToolCategories(tools []Tool) []string {
 
 // containsCategory 检查分类是否在列表中。
 func containsCategory(cats []string, target string) bool {
-	for _, c := range cats {
-		if c == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cats, target)
 }
 
 // filterToolsByCategory 按分类过滤工具列表。
@@ -269,12 +263,7 @@ func toolHasCategory(t Tool, category string) bool {
 	if len(t.Categories) == 0 {
 		return category == CategoryGeneral
 	}
-	for _, c := range t.Categories {
-		if c == category {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(t.Categories, category)
 }
 
 // buildCategorySelectTool 构建用于路由阶段的选择分类工具。

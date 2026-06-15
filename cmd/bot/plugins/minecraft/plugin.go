@@ -173,10 +173,7 @@ func formatMCText(status *MCServerStatus) string {
 	b.WriteString(fmt.Sprintf("玩家: %d / %d\n", status.Players.Online, status.Players.Max))
 	if len(status.Players.List) > 0 {
 		var names []string
-		max := 10
-		if len(status.Players.List) < max {
-			max = len(status.Players.List)
-		}
+		max := min(len(status.Players.List), 10)
 		for _, player := range status.Players.List[:max] {
 			names = append(names, player.Name)
 		}
@@ -277,10 +274,7 @@ func renderMCCard(status *MCServerStatus) ([]byte, error) {
 		canvas.AddSpacer(8)
 
 		var badges []textimage.BadgeItem
-		maxPlayers := 10
-		if len(status.Players.List) < maxPlayers {
-			maxPlayers = len(status.Players.List)
-		}
+		maxPlayers := min(len(status.Players.List), 10)
 		for _, player := range status.Players.List[:maxPlayers] {
 			badges = append(badges, textimage.BadgeItem{
 				Text:      player.Name,
@@ -396,10 +390,7 @@ func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (im
 		totalW = maxWidth
 	}
 
-	lineH := (metrics.Ascent + metrics.Descent).Ceil()
-	if lineH < 1 {
-		lineH = 1
-	}
+	lineH := max((metrics.Ascent + metrics.Descent).Ceil(), 1)
 
 	img := image.NewRGBA(image.Rect(0, 0, totalW, lineH))
 

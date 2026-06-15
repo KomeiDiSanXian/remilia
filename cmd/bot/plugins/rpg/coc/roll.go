@@ -76,10 +76,7 @@ func SanCheck(d dice.Servicer, currentSAN, lossSuccess, lossFailure int) (*RollR
 		desc = "理智检定成功"
 	}
 
-	newSAN := currentSAN - loss
-	if newSAN < 0 {
-		newSAN = 0
-	}
+	newSAN := max(currentSAN-loss, 0)
 
 	status := "正常"
 	if newSAN <= 0 {

@@ -217,18 +217,12 @@ func parseHexColor(hex string) color.Color {
 
 // Ping 自动探测服务器版本，先尝试 Java 版查询（超时减半），失败后回退到 Bedrock。
 func Ping(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
-	half := timeout / 2
-	if half < 2*time.Second {
-		half = 2 * time.Second
-	}
+	half := max(timeout/2, 2*time.Second)
 	status, err := PingJava(host, port, half)
 	if err == nil {
 		return status, nil
 	}
-	remaining := timeout - half
-	if remaining < 2*time.Second {
-		remaining = 2 * time.Second
-	}
+	remaining := max(timeout-half, 2*time.Second)
 	return PingBedrock(host, port, remaining)
 }
 
