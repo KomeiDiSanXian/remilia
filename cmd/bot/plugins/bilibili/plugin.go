@@ -78,11 +78,6 @@ func New() *plugin.Descriptor {
 
 			ctx.OnCommand("", "/bili", p.handleBili)
 
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
-
 			return p, nil
 		},
 	}
@@ -131,7 +126,7 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 		}
 		user, rel, err := p.client.FetchUserInfo(reqCtx, mid)
 		if err != nil {
-			return ctx.ReplyText(formatBiliUserText(&UserInfo{Mid: mid, Name: resolvedName}, nil))
+			return ctx.ReplyText(fmt.Sprintf("[B站] %v\nUID: %d\n(数据获取失败: %v)", resolvedName, mid, err))
 		}
 		png, imgErr := renderUserCard(user, rel)
 		if imgErr != nil {

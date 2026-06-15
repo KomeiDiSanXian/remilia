@@ -79,11 +79,6 @@ func New() *plugin.Descriptor {
 
 			ctx.OnCommand("", "/mc", p.handleMC)
 
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
-
 			return p, nil
 		},
 	}

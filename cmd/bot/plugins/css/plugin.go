@@ -107,11 +107,6 @@ func New(opts ...Option) *plugin.Descriptor {
 
 			ctx.OnCommand("", "/css", p.handleCSS)
 
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
-
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {

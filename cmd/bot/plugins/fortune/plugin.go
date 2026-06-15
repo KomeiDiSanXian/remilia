@@ -23,10 +23,10 @@ var _ health.CheckProvider = (*Plugin)(nil)
 
 // Plugin 占卜插件实例。
 type Plugin struct {
-	dataDir string            // 数据目录（图片缓存）
+	dataDir string             // 数据目录（图片缓存）
 	probes  []*health.APIProbe // 健康探针列表
 	log     plugin.Logger
-	cache   *imageCache         // 插件级别的图片缓存
+	cache   *imageCache // 插件级别的图片缓存
 }
 
 // WithDataDir 设置占卜插件的数据目录。
@@ -86,11 +86,6 @@ func New(opts ...Option) *plugin.Descriptor {
 
 			ctx.OnCommand("", "/omikuji", p.handleOmikuji)
 			ctx.OnCommand("", "/tarot", p.handleTarot)
-
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
 
 			return p, nil
 		},

@@ -95,12 +95,6 @@ func New() *plugin.Descriptor {
 
 			ctx.OnCommand("", "/weather", p.handleWeather)
 
-			// 注册 AI 工具和技能
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
-
 			return p, nil
 		},
 	}

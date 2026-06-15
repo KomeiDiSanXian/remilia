@@ -77,11 +77,6 @@ func New() *plugin.Descriptor {
 
 			ctx.OnCommand("", "/genshin", p.handleGS)
 
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
-
 			return p, nil
 		},
 	}
