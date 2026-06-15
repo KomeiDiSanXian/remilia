@@ -28,7 +28,7 @@ var helpCmdDef = &command.Definition{
 	Name:        "help",
 	Aliases:     []string{"h"},
 	Description: "查看可用命令和插件信息",
-	Usage:       "/help [页码|命令名|插件名] [--text|-t]",
+	Usage:       "/help [页码|命令名|插件名] [--text|-t] [--plugin|-p]",
 	Category:    "系统",
 	Arguments: []*command.Argument{
 		{
@@ -46,6 +46,13 @@ var helpCmdDef = &command.Definition{
 			Type:        command.ArgTypeBool,
 			Default:     false,
 		},
+		{
+			Name:        "plugin",
+			ShortName:   "p",
+			Description: "强制查看插件信息（当插件名与命令名相同时使用）",
+			Type:        command.ArgTypeBool,
+			Default:     false,
+		},
 	},
 	Examples: []string{
 		"/help",
@@ -54,6 +61,7 @@ var helpCmdDef = &command.Definition{
 		"/help plugins",
 		"/help weather --text",
 		"/help 2 -t",
+		"/help -p css",
 	},
 }
 
@@ -71,8 +79,9 @@ func WithImageRender(enabled bool) PluginOption {
 // 支持以下命令格式：
 //   - /help - 显示所有命令（第1页）
 //   - /help 2 - 显示第2页的命令
-//   - /help <插件名> - 显示指定插件的所有命令
 //   - /help <命令名> - 显示指定命令的详细信息
+//   - /help <插件名> - 插件名与命令名无冲突时显示插件信息
+//   - /help -p <插件名> - 强制显示插件信息（当插件名与命令名相同时使用）
 type Plugin struct {
 	Engine engine.Reader // Engine 只读视图（查询命令列表，不能注册/删除 Matcher）
 	Info   plugin.Info   // 插件系统只读视图
@@ -261,6 +270,9 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 	// --text/-t flag：本次请求强制使用纯文字发送
 	forceText := parsed.GetBool("text")
 
+	// --plugin/-p flag：强制查找插件信息
+	forcePlugin := parsed.GetBool("plugin")
+
 	if target == "" {
 		// 没有参数，显示第1页命令
 		return p.showCommandsPage(ctx, 1, forceText)
@@ -276,7 +288,23 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 		return p.showCommandsPage(ctx, page, forceText)
 	}
 
-	// 检查是否是插件名
+	// --plugin 标志：跳过命令查找，直接查插件
+	if forcePlugin && p.Info != nil {
+		plugins := p.Info.List()
+		for _, pluginName := range plugins {
+			if strings.EqualFold(pluginName, target) {
+				return p.showPluginCommands(ctx, pluginName, forceText)
+			}
+		}
+		return p.showCommandNotFound(ctx, target, forceText)
+	}
+
+	// 先试命令名（精确匹配优先）
+	if cmdInfo := p.Engine.FindCommand(target); cmdInfo != nil {
+		return p.showCommandDetail(ctx, cmdInfo, forceText)
+	}
+
+	// 再试插件名（无命令匹配时回落）
 	if p.Info != nil {
 		plugins := p.Info.List()
 		for _, pluginName := range plugins {
@@ -284,11 +312,6 @@ func (p *Plugin) handleHelp(ctx *eventctx.Context) error {
 				return p.showPluginCommands(ctx, pluginName, forceText)
 			}
 		}
-	}
-
-	// 尝试作为命令名查找（支持带或不带前缀）
-	if cmdInfo := p.Engine.FindCommand(target); cmdInfo != nil {
-		return p.showCommandDetail(ctx, cmdInfo, forceText)
 	}
 
 	// 未找到，显示建议
@@ -379,7 +402,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 	help.WriteString("💡 使用方法:\n")
 	help.WriteString("  /help <命令名> - 查看命令详情\n")
 	if p.Info != nil {
-		help.WriteString("  /help <插件名> - 查看插件的所有命令\n")
+		help.WriteString("  /help <插件名> - 查看插件信息（命令优先，同名时加 -p）\n")
 	}
 	if totalPages > 1 {
 		help.WriteString(fmt.Sprintf("  /help <页码> - 查看其他页(共 %d 页)\n", totalPages))
@@ -479,8 +502,9 @@ func (p *Plugin) showAllPlugins(ctx *eventctx.Context, forceText bool) error {
 
 	help.WriteString(strings.Repeat("=", 30) + "\n")
 	help.WriteString("💡 使用方法:\n")
-	help.WriteString("  /help <插件名> - 查看插件的详细信息和命令\n")
 	help.WriteString("  /help <命令名> - 查看命令详情\n")
+	help.WriteString("  /help <插件名> - 查看插件的所有命令（命令优先）\n")
+	help.WriteString("  /help -p <插件名> - 强制查看插件信息（插件名与命令名冲突时）\n")
 
 	// 缓存结果
 	helpText := help.String()
@@ -560,6 +584,11 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 		return pluginCommands[i].Command < pluginCommands[j].Command
 	})
 
+	var meta *plugin.Metadata
+	if p.Info != nil {
+		meta, _ = p.Info.GetMetadata(pluginName)
+	}
+
 	for _, cmd := range pluginCommands {
 		help.WriteString(fmt.Sprintf("  %s", cmd.Command))
 
@@ -572,19 +601,28 @@ func (p *Plugin) showPluginCommands(ctx *eventctx.Context, pluginName string, fo
 			help.WriteString(fmt.Sprintf(" (%s)", strings.Join(aliases, ", ")))
 		}
 
-		if cmd.Description != "" {
-			help.WriteString(fmt.Sprintf("\n    %s", cmd.Description))
+		desc := cmd.Description
+		if desc == "" && meta != nil {
+			desc = meta.Description
+		}
+		if desc != "" {
+			help.WriteString(fmt.Sprintf("\n    %s", desc))
 		}
 
-		if cmd.Usage != "" {
-			help.WriteString(fmt.Sprintf("\n    用法: %s", cmd.Usage))
+		usage := cmd.Usage
+		if usage == "" && cmd.Definition == nil && meta != nil && meta.HelpText != "" {
+			usage = meta.HelpText
+		}
+		if usage != "" {
+			help.WriteString(fmt.Sprintf("\n    用法: %s", usage))
 		}
 
 		help.WriteString("\n\n")
 	}
 
 	help.WriteString(strings.Repeat("=", 30) + "\n")
-	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法")
+	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法\n")
+	help.WriteString("   使用 /help -p <插件名> 强制查看插件信息")
 
 	return p.sendMessage(ctx, help.String(), forceText, cacheKey)
 }
@@ -621,14 +659,28 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 		detail.WriteString(fmt.Sprintf("分类: %s\n", cmdInfo.Category))
 	}
 
-	// 描述
-	if cmdInfo.Description != "" {
-		detail.WriteString(fmt.Sprintf("\n描述:\n  %s\n", cmdInfo.Description))
+	// 获取插件元数据（用于回退描述和用法）
+	var meta *plugin.Metadata
+	if cmdInfo.Plugin != "" && p.Info != nil {
+		meta, _ = p.Info.GetMetadata(cmdInfo.Plugin)
 	}
 
-	// 用法
-	if cmdInfo.Usage != "" {
-		detail.WriteString(fmt.Sprintf("\n用法:\n  %s\n", cmdInfo.Usage))
+	// 描述 — 命令无描述时回退到插件描述
+	desc := cmdInfo.Description
+	if desc == "" && meta != nil {
+		desc = meta.Description
+	}
+	if desc != "" {
+		detail.WriteString(fmt.Sprintf("\n描述:\n  %s\n", desc))
+	}
+
+	// 用法 — 命令无 Definition 时回退到插件 HelpText
+	usage := cmdInfo.Usage
+	if usage == "" && cmdInfo.Definition == nil && meta != nil && meta.HelpText != "" {
+		usage = meta.HelpText
+	}
+	if usage != "" {
+		detail.WriteString(fmt.Sprintf("\n用法:\n  %s\n", usage))
 	}
 
 	// 参数信息（如果有增强命令定义）
