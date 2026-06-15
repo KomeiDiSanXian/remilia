@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -31,7 +32,8 @@ func New() *plugin.Descriptor {
   /ping`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			ctx.OnCommand("", "/ping", handlePing)
+			pingDef := command.NewDef("ping").Description("消息处理延迟检测").Build()
+			ctx.OnCommandDefWith("", "/ping", pingDef, handlePing)
 			return nil, nil
 		},
 	}

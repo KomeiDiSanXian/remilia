@@ -258,8 +258,11 @@ func (p *Plugin) handlePermCommand(ctx *eventctx.Context) error {
 
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(ctx *plugin.SetupContext) {
-	ctx.OnCommand("", "/status", p.handleStatus)
-	ctx.OnCommand("", "/info", p.handleInfo)
+	statusDef := command.NewDef("status").Description("查看机器人运行状态").Build()
+	ctx.OnCommandDefWith("", "/status", statusDef, p.handleStatus)
+
+	infoDef := command.NewDef("info").Description("查看机器人基本信息").Build()
+	ctx.OnCommandDefWith("", "/info", infoDef, p.handleInfo)
 }
 
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
