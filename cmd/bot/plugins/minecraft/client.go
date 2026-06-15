@@ -1,6 +1,7 @@
 package minecraft
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"image/color"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -213,13 +215,21 @@ func parseHexColor(hex string) color.Color {
 	return color.RGBA{R: r, G: g, B: b, A: a}
 }
 
-// Ping 自动探测服务器版本，先尝试 Java 版查询，失败后回退到 Bedrock。
+// Ping 自动探测服务器版本，先尝试 Java 版查询（超时减半），失败后回退到 Bedrock。
 func Ping(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
-	status, err := PingJava(host, port, timeout)
+	half := timeout / 2
+	if half < 2*time.Second {
+		half = 2 * time.Second
+	}
+	status, err := PingJava(host, port, half)
 	if err == nil {
 		return status, nil
 	}
-	return PingBedrock(host, port, timeout)
+	remaining := timeout - half
+	if remaining < 2*time.Second {
+		remaining = 2 * time.Second
+	}
+	return PingBedrock(host, port, remaining)
 }
 
 // ResolveAddr 解析服务器地址。若 port > 0 直接返回；否则尝试 SRV 记录查询 minecraft._tcp。
@@ -235,14 +245,15 @@ func ResolveAddr(host string, port int) (string, int, error) {
 }
 
 // PingJava 使用 Minecraft Server List Ping 协议查询 Java 版服务器状态。
-// 包含 Handshake → Status Request → Ping 三个阶段，解析 JSON 响应中的 MOTD、玩家、版本和图标。
+// 首先尝试 TCP SLP 直连，失败后自动回退到 mcsrvstat.us HTTP API。
 func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
+	origHost, origPort := host, port
 	host, port, _ = ResolveAddr(host, port)
 	addr := net.JoinHostPort(host, fmt.Sprint(port))
 
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := net.DialTimeout("tcp4", addr, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrNotOnline, err)
+		return pingJavaViaAPI(origHost, origPort, timeout)
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout))
@@ -260,6 +271,10 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	start := time.Now()
 	respData, err := readPacket(conn)
 	if err != nil {
+		status, apiErr := pingJavaViaAPI(origHost, origPort, timeout)
+		if apiErr == nil {
+			return status, nil
+		}
 		return nil, fmt.Errorf("read status response: %w", err)
 	}
 	r := &packetReader{data: respData}
@@ -322,20 +337,24 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 }
 
 // PingBedrock 使用 RakNet Unconnected Ping 协议查询 Bedrock 版服务器状态。
-// 发送 UDP 报文并解析分号分隔的服务器信息字符串。
+// 首先尝试 UDP 直连（速度快），失败后自动回退到 mcsrvstat.us HTTP API。
 func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
 	if port <= 0 {
 		port = DefaultBedrockPort
 	}
-	addr := net.JoinHostPort(host, fmt.Sprint(port))
 
-	ra, err := net.ResolveUDPAddr("udp", addr)
+	addr := net.JoinHostPort(host, fmt.Sprint(port))
+	ra, err := net.ResolveUDPAddr("udp4", addr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: resolve: %w", ErrNotOnline, err)
 	}
-	conn, err := net.DialUDP("udp", nil, ra)
+	laddr, err := net.ResolveUDPAddr("udp4", ":0")
 	if err != nil {
-		return nil, fmt.Errorf("%w: dial: %w", ErrNotOnline, err)
+		return nil, fmt.Errorf("%w: local addr: %w", ErrNotOnline, err)
+	}
+	conn, err := net.ListenUDP("udp4", laddr)
+	if err != nil {
+		return nil, fmt.Errorf("%w: listen: %w", ErrNotOnline, err)
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(timeout))
@@ -346,13 +365,17 @@ func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus,
 	copy(pingData[9:25], []byte{0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78})
 
 	start := time.Now()
-	if _, err := conn.Write(pingData); err != nil {
+	if _, err := conn.WriteTo(pingData, ra); err != nil {
 		return nil, fmt.Errorf("%w: write: %w", ErrNotOnline, err)
 	}
 
 	resp := make([]byte, 2048)
-	n, err := conn.Read(resp)
+	n, _, err := conn.ReadFrom(resp)
 	if err != nil {
+		status, apiErr := pingBedrockViaAPI(host, port, timeout)
+		if apiErr == nil {
+			return status, nil
+		}
 		return nil, fmt.Errorf("%w: read: %w", ErrNotOnline, err)
 	}
 	latency := time.Since(start)
@@ -396,6 +419,171 @@ func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus,
 		fmt.Sscanf(fields[5], "%d", &result.Players.Max)
 	}
 
+	return result, nil
+}
+
+// bedrockAPIResponse mcsrvstat.us Bedrock API 响应结构。
+type bedrockAPIResponse struct {
+	Online   bool   `json:"online"`
+	IP       string `json:"ip"`
+	Port     int    `json:"port"`
+	Hostname string `json:"hostname"`
+	Version  string `json:"version"`
+	Protocol struct {
+		Version int    `json:"version"`
+		Name    string `json:"name"`
+	} `json:"protocol"`
+	MOTD struct {
+		Clean []string `json:"clean"`
+		Raw   []string `json:"raw"`
+	} `json:"motd"`
+	Players struct {
+		Max    int `json:"max"`
+		Online int `json:"online"`
+	} `json:"players"`
+}
+
+// pingBedrockViaAPI 通过 mcsrvstat.us HTTP API 查询 Bedrock 服务器状态。
+// 用于 UDP 直连失败时的回退方案，API 使用 HTTPS 因而能穿透 UDP 封锁。
+func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
+	if port <= 0 {
+		port = DefaultBedrockPort
+	}
+	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/bedrock/3/%s:%d", host, port)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "RemiliaBot/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var apiResp bedrockAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("api json: %w", err)
+	}
+	if !apiResp.Online {
+		return nil, ErrNotOnline
+	}
+
+	result := &MCServerStatus{
+		Online:    true,
+		Host:      apiResp.Hostname,
+		Port:      apiResp.Port,
+		Edition:   "bedrock",
+		MOTDPlain: strings.Join(apiResp.MOTD.Clean, " | "),
+	}
+
+	version := apiResp.Version
+	if apiResp.Protocol.Name != "" {
+		version = apiResp.Protocol.Name
+	}
+	result.Version = version
+
+	if len(apiResp.MOTD.Raw) > 0 {
+		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Raw, " | "), Color: color.White}}
+	} else if len(apiResp.MOTD.Clean) > 0 {
+		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Clean, " | "), Color: color.White}}
+	}
+
+	result.Players.Online = apiResp.Players.Online
+	result.Players.Max = apiResp.Players.Max
+
+	if result.Host == "" {
+		result.Host = host
+	}
+	return result, nil
+}
+
+// javaAPIResponse mcsrvstat.us Java API 响应结构。
+type javaAPIResponse struct {
+	Online   bool   `json:"online"`
+	IP       string `json:"ip"`
+	Port     int    `json:"port"`
+	Hostname string `json:"hostname"`
+	Version  string `json:"version"`
+	Protocol int    `json:"protocol"`
+	MOTD     struct {
+		Clean []string `json:"clean"`
+		Raw   []string `json:"raw"`
+	} `json:"motd"`
+	Players struct {
+		Max    int `json:"max"`
+		Online int `json:"online"`
+	} `json:"players"`
+	Ping    int    `json:"ping"`
+	Favicon string `json:"favicon"`
+}
+
+// pingJavaViaAPI 通过 mcsrvstat.us HTTP API 查询 Java 版服务器状态。
+func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
+	if port <= 0 {
+		port = DefaultJavaPort
+	}
+	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/3/%s:%d", host, port)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "RemiliaBot/1.0")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var apiResp javaAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return nil, fmt.Errorf("api json: %w", err)
+	}
+	if !apiResp.Online {
+		return nil, ErrNotOnline
+	}
+
+	result := &MCServerStatus{
+		Online:   true,
+		Host:     apiResp.Hostname,
+		Port:     apiResp.Port,
+		Latency:  time.Duration(apiResp.Ping) * time.Millisecond,
+		Edition:  "java",
+		Version:  apiResp.Version,
+		Protocol: apiResp.Protocol,
+		Players: struct {
+			Online int
+			Max    int
+			List   []PlayerInfo
+		}{
+			Online: apiResp.Players.Online,
+			Max:    apiResp.Players.Max,
+		},
+		MOTDPlain: strings.Join(apiResp.MOTD.Clean, " | "),
+	}
+
+	if len(apiResp.MOTD.Raw) > 0 {
+		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Raw, " | "), Color: color.White}}
+	} else if len(apiResp.MOTD.Clean) > 0 {
+		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Clean, " | "), Color: color.White}}
+	}
+
+	if apiResp.Favicon != "" {
+		clean := strings.TrimPrefix(apiResp.Favicon, "data:image/png;base64,")
+		if data, err := b64Decode(clean); err == nil {
+			result.Favicon = data
+		}
+	}
+
+	if result.Host == "" {
+		result.Host = host
+	}
 	return result, nil
 }
 
