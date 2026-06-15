@@ -62,7 +62,7 @@ func New() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
-			p.client = newBangumiClient()
+			p.client = newBangumiClient("")
 
 			bgmProbe := health.NewAPIProbe("api.bgm.tv", "https://api.bgm.tv/calendar", 5*time.Second, health.WithMaxSeverity(health.Degraded))
 			p.probes = []*health.APIProbe{bgmProbe}
@@ -75,11 +75,6 @@ func New() *plugin.Descriptor {
 			}
 
 			ctx.OnCommand("", "/anime", p.handleAnime)
-
-			if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
-				aiSvc.RegisterToolProvider(p)
-				aiSvc.RegisterSkillProvider(p)
-			}
 
 			return p, nil
 		},

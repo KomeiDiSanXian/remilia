@@ -9,13 +9,14 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
 
 // WeekdayEntry Bangumi 日历中的一天（包含该日放送的番剧列表）。
 type WeekdayEntry struct {
-	Weekday  WeekdayInfo   `json:"weekday"`
+	Weekday  WeekdayInfo    `json:"weekday"`
 	Subjects []AnimeSubject `json:"items"`
 }
 
@@ -68,6 +69,22 @@ type SearchResult struct {
 type bangumiClient struct {
 	client    *http.Client
 	rateLimit *time.Ticker
+	apiBase   string // API 基础 URL，可通过插件配置更换为镜像/代理
+}
+
+// newBangumiClient 创建 Bangumi API 客户端。
+// 使用自定义 DNS 解析器（Cloudflare 1.1.1.1）绕过 DNS 污染，
+// 支持 HTTP_PROXY/HTTPS_PROXY 环境变量配置代理。
+// apiBase 为 API 基础 URL，默认 https://api.bgm.tv，可改为 http://api.bgm.tv 或代理地址。
+func newBangumiClient(apiBase string) *bangumiClient {
+	if apiBase == "" {
+		apiBase = "https://api.bgm.tv"
+	}
+	return &bangumiClient{
+		client:    newBypassHTTPClient(15 * time.Second),
+		rateLimit: time.NewTicker(700 * time.Millisecond),
+		apiBase:   apiBase,
+	}
 }
 
 // fetchImageA 从 URL 下载并解码图片（支持 JPEG/PNG）。
@@ -77,7 +94,10 @@ func fetchImageA(rawURL string) (image.Image, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{
+		Transport: bypassTransport,
+		Timeout:   15 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -87,16 +107,50 @@ func fetchImageA(rawURL string) (image.Image, error) {
 	return img, err
 }
 
-// newBangumiClient 创建 Bangumi API 客户端。
-func newBangumiClient() *bangumiClient {
-	return &bangumiClient{
-		client:    http.DefaultClient,
-		rateLimit: time.NewTicker(700 * time.Millisecond),
+// newBypassHTTPClient 创建一个可绕过 DNS 污染的 HTTP 客户端。
+// 使用 Cloudflare DNS (1.1.1.1) 进行域名解析，避免 ISP 级别的 DNS 劫持。
+// 支持标准 HTTP_PROXY / HTTPS_PROXY 环境变量配置代理。
+func newBypassHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				Resolver: &net.Resolver{
+					PreferGo: true,
+					Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+						d := net.Dialer{Timeout: 5 * time.Second}
+						return d.DialContext(ctx, "udp", "1.1.1.1:53")
+					},
+				},
+			}).DialContext,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
 	}
+}
+
+// newBypassTransport 为 fetchImageA 等临时请求创建可复用的传输层。
+var bypassTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{Timeout: 5 * time.Second}
+				return d.DialContext(ctx, "udp", "1.1.1.1:53")
+			},
+		},
+	}).DialContext,
+	TLSHandshakeTimeout: 10 * time.Second,
 }
 
 // doRequest 发起带限流的 HTTP 请求，自动处理 JSON 反序列化。
 // 请求前会等待限流器，确保 QPS 在安全范围内。
+// 使用自定义 DNS + 代理支持，可通过 HTTP_PROXY / HTTPS_PROXY 环境变量配置代理。
 func (c *bangumiClient) doRequest(ctx context.Context, method, url string, body io.Reader, result any) error {
 	select {
 	case <-c.rateLimit.C:
@@ -137,7 +191,7 @@ func (c *bangumiClient) doRequest(ctx context.Context, method, url string, body 
 // FetchCalendar 获取当季番剧每日放送列表。
 func (c *bangumiClient) FetchCalendar(ctx context.Context) ([]WeekdayEntry, error) {
 	var result []WeekdayEntry
-	if err := c.doRequest(ctx, http.MethodGet, "https://api.bgm.tv/calendar", nil, &result); err != nil {
+	if err := c.doRequest(ctx, http.MethodGet, c.apiBase+"/calendar", nil, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -145,7 +199,7 @@ func (c *bangumiClient) FetchCalendar(ctx context.Context) ([]WeekdayEntry, erro
 
 // FetchSubject 获取番剧条目的详细信息（评分、集数、简介等）。
 func (c *bangumiClient) FetchSubject(ctx context.Context, id int64) (*AnimeSubject, error) {
-	url := fmt.Sprintf("https://api.bgm.tv/v0/subjects/%d", id)
+	url := fmt.Sprintf("%s/v0/subjects/%d", c.apiBase, id)
 	var result AnimeSubject
 	if err := c.doRequest(ctx, http.MethodGet, url, nil, &result); err != nil {
 		return nil, err
@@ -166,7 +220,7 @@ func (c *bangumiClient) SearchSubjects(ctx context.Context, keyword string, limi
 	}
 	bodyBytes, _ := json.Marshal(body)
 
-	url := "https://api.bgm.tv/v0/search/subjects"
+	url := c.apiBase + "/v0/search/subjects"
 	var result SearchResult
 	if err := c.doRequest(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes), &result); err != nil {
 		return nil, err
