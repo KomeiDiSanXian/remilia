@@ -69,7 +69,12 @@ func (s *wbiSigner) fetchKeys(ctx context.Context) (*wbiKeys, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Header.Set("User-Agent", biliUA)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Referer", "https://www.bilibili.com")
+	req.Header.Set("Origin", "https://www.bilibili.com")
+	req.Header.Set("Cookie", generateBiliCookies())
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -79,6 +84,9 @@ func (s *wbiSigner) fetchKeys(ctx context.Context) (*wbiKeys, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > 0 && body[0] == '<' {
+		return nil, fmt.Errorf("WBI nav 返回了 HTML 页面，可能触发了反爬: %s", string(body[:min(len(body), 120)]))
 	}
 
 	var nav struct {

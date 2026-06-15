@@ -61,7 +61,7 @@ func renderUserCard(user *UserInfo, rel *RelationStat) ([]byte, error) {
 	canvas.AddSpacer(12)
 
 	if rel != nil {
-		statsText := fmt.Sprintf("关注 %d    粉丝 %d    动态 %d", rel.Following, rel.Follower, rel.Dynamic)
+		statsText := fmt.Sprintf("关注 %d    粉丝 %d", rel.Following, rel.Follower)
 		canvas.AddText(statsText, textimage.WithFontSize(16), textimage.WithFontColor(textSecondary), textimage.WithAlign(textimage.AlignCenter))
 		canvas.AddSpacer(10)
 	}
@@ -162,14 +162,12 @@ func renderErrorCard(message string) ([]byte, error) {
 func formatBiliUserText(user *UserInfo, rel *RelationStat) string {
 	followers := "?"
 	following := "?"
-	dynamics := "?"
 	if rel != nil {
 		followers = fmt.Sprintf("%d", rel.Follower)
 		following = fmt.Sprintf("%d", rel.Following)
-		dynamics = fmt.Sprintf("%d", rel.Dynamic)
 	}
-	return fmt.Sprintf("[B站] %s\nUID: %d\nLv.%d\n粉丝: %s  关注: %s  动态: %s\n签名: %s",
-		user.Name, user.Mid, user.Level, followers, following, dynamics, user.Sign)
+	return fmt.Sprintf("[B站] %s\nUID: %d\nLv.%d\n粉丝: %s  关注: %s\n签名: %s",
+		user.Name, user.Mid, user.Level, followers, following, user.Sign)
 }
 
 // formatLiveText 将直播状态格式化为纯文本（图片渲染失败时的备用方案）。
