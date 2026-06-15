@@ -58,11 +58,21 @@ func newTempMatcherShard() *tempMatcherShard {
 	}
 }
 
+// TempSnapshot 是 TempManager 的只读一致性视图。
+// 在每次 Add/Remove/CleanExpired 后原子替换。
+type TempSnapshot struct {
+	specific map[EventType][]*Matcher // 按 eventType 预归并、排序
+	generic  []*Matcher               // eventType=="" 的结果
+}
+
 // tempMatcherManager manage temporary matchers with sharding and optimized insertion
 type tempMatcherManager struct {
-	shards [tempMatcherShardCount]*tempMatcherShard
-	config TempManagerConfig
-	count  int32 // 原子计数，避免频繁加锁统计
+	shards   [tempMatcherShardCount]*tempMatcherShard
+	config   TempManagerConfig
+	count    int32 // 原子计数，避免频繁加锁统计
+
+	snapshot atomic.Pointer[TempSnapshot] // RCU 只读快照
+	snapMu   sync.Mutex                   // 保护 rebuildSnapshot
 
 	cleanupWg sync.WaitGroup // 追踪水位线清理 goroutine，供 Shutdown 等待
 }
@@ -78,6 +88,10 @@ func newTempMatcherManagerWithConfig(config TempManagerConfig) *tempMatcherManag
 	for i := range tempMatcherShardCount {
 		tm.shards[i] = newTempMatcherShard()
 	}
+	// 初始化空快照
+	tm.snapshot.Store(&TempSnapshot{
+		specific: make(map[EventType][]*Matcher),
+	})
 	return tm
 }
 
@@ -105,7 +119,6 @@ func hashPtr(ptr uintptr) uintptr {
 func (m *tempMatcherManager) Add(matcher *Matcher) {
 	shard := m.getShard(matcher)
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
 
 	// Add to index with Insertion Sort
 	list := shard.matcherIndex[matcher.EventType]
@@ -144,16 +157,25 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	}
 
 	shard.byID[matcher] = struct{}{}
+	shard.mu.Unlock()
 
 	// 增加计数
 	newCount := atomic.AddInt32(&m.count, 1)
 
+	// 重建 RCU 快照（shard 锁已释放，不与 rebuildSnapshot 的 RLock 冲突）
+	m.snapMu.Lock()
+	m.rebuildSnapshot()
+	m.snapMu.Unlock()
+
 	// 水位线清理：计数超过高水位时触发过期清理。
-	// 使用 goroutine 以避免在持有 shard 锁时尝试获取其他 shard 锁导致死锁。
-	// 通过 cleanupWg 追踪，Shutdown 时可等待清理完成。
+	// rebuildSnapshot 在 Add 的 snapMu 段内执行，不与 shard 锁交叉，
+	// 避免 lock ordering deadlock。
 	if m.config.EnableAdaptiveCleanup && int(newCount) >= m.config.WatermarkHigh {
 		m.cleanupWg.Go(func() {
 			m.cleanToWatermark()
+			m.snapMu.Lock()
+			m.rebuildSnapshot()
+			m.snapMu.Unlock()
 		})
 	}
 }
@@ -188,12 +210,17 @@ func (m *tempMatcherManager) CountAccurate() int {
 func (m *tempMatcherManager) Remove(matcher *Matcher) {
 	shard := m.getShard(matcher)
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
 
 	// Check if it exists before removing
 	if _, exists := shard.byID[matcher]; exists {
 		m.removeLocked(shard, matcher)
+		shard.mu.Unlock()
 		atomic.AddInt32(&m.count, -1)
+		m.snapMu.Lock()
+		m.rebuildSnapshot()
+		m.snapMu.Unlock()
+	} else {
+		shard.mu.Unlock()
 	}
 }
 
@@ -217,39 +244,57 @@ func (m *tempMatcherManager) removeLocked(shard *tempMatcherShard, matcher *Matc
 	// Lazy delete from heap (handled in CleanExpired)
 }
 
-// Get returns sorted matchers for an event type
-// Consolidates results from all shards
+// Get returns pre-merged, sorted matchers for an event type.
+//
+// RCU 读路径：O(1) atomic.LoadPointer，零分配。
+// 快照由 rebuildSnapshot 在每次写入后原子替换。
 func (m *tempMatcherManager) Get(eventType EventType) []*Matcher {
-	// Collect from all shards
-	lists := make([][]*Matcher, 0, tempMatcherShardCount)
-	totalLen := 0
+	snap := m.snapshot.Load()
+	if snap == nil {
+		return nil
+	}
+	if eventType == "" {
+		return snap.generic
+	}
+	return snap.specific[eventType]
+}
 
-	// Lock one by one and copy list to avoid holding all locks
+// rebuildSnapshot 从所有 shard 收集 matcher，构建只读快照。
+//
+// 写路径：在每次 Add/Remove/CleanExpired 后调用。
+// snapMu 保证同一时间只有一个 rebuild 在执行。
+func (m *tempMatcherManager) rebuildSnapshot() {
+	// Collect from all shards
+	allByType := make(map[EventType][]*Matcher)
+
 	for i := range tempMatcherShardCount {
 		shard := m.shards[i]
 		shard.mu.RLock()
-		src := shard.matcherIndex[eventType]
-		if len(src) > 0 {
-			// Copy to avoid race after unlock
-			dst := make([]*Matcher, len(src))
-			copy(dst, src)
-			lists = append(lists, dst)
-			totalLen += len(src)
+		for et, list := range shard.matcherIndex {
+			if len(list) > 0 {
+				dst := make([]*Matcher, len(list))
+				copy(dst, list)
+				allByType[et] = append(allByType[et], dst...)
+			}
 		}
 		shard.mu.RUnlock()
 	}
 
-	if totalLen == 0 {
-		return nil
+	snap := &TempSnapshot{
+		specific: make(map[EventType][]*Matcher, len(allByType)),
+	}
+	for et, list := range allByType {
+		sort.Slice(list, func(i, j int) bool {
+			return list[i].getPriority() < list[j].getPriority()
+		})
+		if et == "" {
+			snap.generic = list
+		} else {
+			snap.specific[et] = list
+		}
 	}
 
-	// Merge K sorted lists
-	return mergeKLists(lists, totalLen)
-}
-
-// mergeKLists merges multiple sorted matcher lists into one (delegates to common util).
-func mergeKLists(lists [][]*Matcher, _ int) []*Matcher {
-	return mergeKSortedMatchers(nil, lists)
+	m.snapshot.Store(snap)
 }
 
 // CleanExpired removes expired matchers and returns them

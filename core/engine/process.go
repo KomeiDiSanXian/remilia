@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"container/heap"
 	"fmt"
 	"runtime/debug"
 	"strings"
@@ -362,83 +361,4 @@ func extractCommand(content string) string {
 	return trimmed[:idx]
 }
 
-// mergeSortedMatchersSix 将 6 个已按优先级排序的 Matcher 子列表合并。
-//
-// delegator to mergeKSortedMatchers for the common 6-list case.
-func mergeSortedMatchersSix(dst []*Matcher, l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
-	return mergeKSortedMatchers(dst, [][]*Matcher{l1, l2, l3, l4, l5, l6})
-}
 
-// heapItem 是合并 K 个有序列表时堆中的元素，包含候选 Matcher 及其来源列表索引。
-type heapItem struct {
-	matcher *Matcher
-	listIdx int // 来源子列表在 lists 中的索引
-}
-
-// priorityHeap 实现 container/heap.Interface，按 Matcher 优先级升序排列。
-type priorityHeap []heapItem
-
-func (h priorityHeap) Len() int { return len(h) }
-func (h priorityHeap) Less(i, j int) bool {
-	return h[i].matcher.getPriority() < h[j].matcher.getPriority()
-}
-func (h priorityHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *priorityHeap) Push(x any)   { *h = append(*h, x.(heapItem)) }
-func (h *priorityHeap) Pop() any {
-	old := *h
-	n := len(old)
-	x := old[n-1]
-	*h = old[:n-1]
-	return x
-}
-
-// mergeKSortedMatchers 将 K 个已按优先级排序的 Matcher 子列表合并到 dst 中，
-// 输出结果同样按优先级升序排列。
-//
-// 使用最小堆（container/heap）实现 O(N log K) 合并，优于线性扫描的 O(K·N)。
-// 在当前 K=6 时差异不大，但代码更简洁且易于扩展到更多路合并。
-//
-// dst 复用调用方提供的切片容量以减少分配；若容量不足则重新分配。
-func mergeKSortedMatchers(dst []*Matcher, lists [][]*Matcher) []*Matcher {
-	total := 0
-	for _, l := range lists {
-		total += len(l)
-	}
-	if total == 0 {
-		if dst != nil {
-			return dst[:0]
-		}
-		return nil
-	}
-	if cap(dst) < total {
-		dst = make([]*Matcher, 0, total)
-	}
-	dst = dst[:0]
-
-	k := len(lists)
-	idx := make([]int, k)
-	pq := make(priorityHeap, 0, k)
-
-	// 初始化堆：取每个列表的首个元素
-	for j := range k {
-		if len(lists[j]) > 0 {
-			pq = append(pq, heapItem{matcher: lists[j][0], listIdx: j})
-			idx[j] = 1
-		}
-	}
-	heap.Init(&pq)
-
-	for pq.Len() > 0 {
-		item := heap.Pop(&pq).(heapItem)
-		dst = append(dst, item.matcher)
-		if idx[item.listIdx] < len(lists[item.listIdx]) {
-			heap.Push(&pq, heapItem{
-				matcher: lists[item.listIdx][idx[item.listIdx]],
-				listIdx: item.listIdx,
-			})
-			idx[item.listIdx]++
-		}
-	}
-
-	return dst
-}

@@ -2,8 +2,6 @@ package engine
 
 import (
 	"time"
-
-	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
 const (
@@ -11,10 +9,6 @@ const (
 	DefaultTempMatcherCleanerInterval = 1 * time.Minute
 	// DefaultPendingDeleteBufferSize 默认批量删除通道大小
 	DefaultPendingDeleteBufferSize = 1000
-	// DefaultMatcherPoolCapacity 默认 Matcher 池初始容量
-	DefaultMatcherPoolCapacity = 16
-	// MaxMatcherPoolRetainCapacity Matcher 池回收的最大容量，防止无限增长
-	MaxMatcherPoolRetainCapacity = 1024
 	// DefaultPendingDeleteProcessInterval 默认批量删除处理间隔
 	DefaultPendingDeleteProcessInterval = 100 * time.Millisecond
 	// DefaultPendingDeleteBatchSize 默认每次批量删除数量
@@ -118,20 +112,6 @@ func WithPendingDeleteBatchSize(size int) Option {
 	return func(e *Engine) {
 		if size > 0 {
 			e.internals.pendingDeleteBatchSize = size
-		}
-	}
-}
-
-// WithMatcherPoolCapacity 设置 Matcher 池的初始容量。
-//
-// 默认值：DefaultMatcherPoolCapacity（16）。
-// 调大此值可降低高并发场景下对象池的扩容频率，代价是初始内存占用略有增加。
-func WithMatcherPoolCapacity(capacity int) Option {
-	return func(e *Engine) {
-		if capacity > 0 {
-			e.internals.matcherPool = infrapool.New(func() []*Matcher {
-				return make([]*Matcher, 0, capacity)
-			})
 		}
 	}
 }

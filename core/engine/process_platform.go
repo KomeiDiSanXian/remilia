@@ -174,28 +174,18 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		tempGeneric = e.internals.tempManager.Get("")
 	}
 
-	matchersToCheck := e.internals.matcherPool.Get()
-	matchersToCheck = matchersToCheck[:0]
-
-	defer func() {
-		for i := range matchersToCheck {
-			matchersToCheck[i] = nil
-		}
-		if cap(matchersToCheck) > MaxMatcherPoolRetainCapacity {
-			matchersToCheck = matchersToCheck[:0:MaxMatcherPoolRetainCapacity]
-		}
-		e.internals.matcherPool.Put(matchersToCheck)
-	}()
-
-	matchersToCheck = mergeSortedMatchersSix(matchersToCheck,
-		permSpecific, cmdSpecific, tempSpecific,
-		permGeneric, cmdGeneric, tempGeneric)
-
 	execPool := e.internals.execPool
 	blockAll := state.block
-	// 构造 channelKey 用于 per-channel Block 隔离。
 	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
-	for _, m := range matchersToCheck {
+
+	iter := acquireMergeIter(
+		permSpecific, cmdSpecific, tempSpecific,
+		permGeneric, cmdGeneric, tempGeneric,
+	)
+	defer releaseMergeIter(iter)
+
+	for iter.Next() {
+		m := iter.Matcher()
 		if !m.Match(ctx) {
 			continue
 		}

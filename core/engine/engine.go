@@ -35,7 +35,6 @@ import (
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
-	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
 // Engine 事件引擎（Copy-on-Write 模式）
@@ -107,7 +106,6 @@ func NewEngine(options ...Option) *Engine {
 	// defaults for internals
 	e.internals.tempMatcherCleanerInterval = DefaultTempMatcherCleanerInterval
 	e.internals.tempManager = newTempMatcherManager()
-	e.internals.matcherPool = infrapool.New(func() []*Matcher { return make([]*Matcher, 0, DefaultMatcherPoolCapacity) })
 	e.internals.pendingDeleteProcessInterval = DefaultPendingDeleteProcessInterval
 	e.internals.pendingDeleteBatchSize = DefaultPendingDeleteBatchSize
 	e.internals.metricsCollector = infraatomic.NewValue[*inframetrics.Collector](nil)

@@ -78,24 +78,6 @@ func TestBugFix_ContextCloneDeadline(t *testing.T) {
 	}
 }
 
-// TestBugFix_MatcherPoolTruncate 测试 Bug 3 的修复：Pool 截断逻辑
-func TestBugFix_MatcherPoolTruncate(t *testing.T) {
-	eng := newEngineForTest(t)
-	defer eng.Shutdown(stdctx.Background())
-
-	// 创建一个大容量的切片模拟场景
-	largeSlice := make([]*Matcher, 0, MaxMatcherPoolRetainCapacity*2)
-	eng.internals.matcherPool.Put(largeSlice)
-
-	// 从池中获取
-	retrieved := eng.internals.matcherPool.Get()
-
-	// 验证容量被限制
-	if cap(retrieved) > MaxMatcherPoolRetainCapacity*2 {
-		t.Errorf("Retrieved slice capacity = %d, should be limited", cap(retrieved))
-	}
-}
-
 // TestBugFix_InvalidateCombinedChain 测试 Bug 5 的修复：invalidateCombinedChain 清空缓存
 func TestBugFix_InvalidateCombinedChain(t *testing.T) {
 	eng := newEngineForTest(t)

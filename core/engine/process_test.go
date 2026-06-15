@@ -32,40 +32,45 @@ func TestExtractCommandBehavior(t *testing.T) {
 	}
 }
 
-func TestMergeKSortedMatchers_Empty(t *testing.T) {
-	result := mergeKSortedMatchers(nil, [][]*Matcher{})
-	assert.Nil(t, result)
-
-	result = mergeKSortedMatchers(nil, [][]*Matcher{{}, {}, {}})
-	assert.Nil(t, result)
-
-	// With dst, returns dst[:0] when total is 0
-	dst := make([]*Matcher, 0, 5)
-	result = mergeKSortedMatchers(dst, [][]*Matcher{{}, {}})
-	assert.NotNil(t, result)
-	assert.Empty(t, result)
+func collectMergeIter(l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
+	it := acquireMergeIter(l1, l2, l3, l4, l5, l6)
+	defer releaseMergeIter(it)
+	var result []*Matcher
+	for it.Next() {
+		result = append(result, it.Matcher())
+	}
+	return result
 }
 
-func TestMergeKSortedMatchers_SingleList(t *testing.T) {
+func TestMergeIter_Empty(t *testing.T) {
+	result := collectMergeIter(nil, nil, nil, nil, nil, nil)
+	assert.Nil(t, result)
+
+	result = collectMergeIter([]*Matcher{}, nil, []*Matcher{}, nil, nil, nil)
+	assert.Nil(t, result)
+}
+
+func TestMergeIter_SingleList(t *testing.T) {
 	m1 := makeTestMatcher("a", 10)
 	m2 := makeTestMatcher("b", 20)
-	result := mergeKSortedMatchers(nil, [][]*Matcher{{m1, m2}})
+	result := collectMergeIter([]*Matcher{m1, m2}, nil, nil, nil, nil, nil)
 	require.Equal(t, 2, len(result))
 	assert.Same(t, m1, result[0])
 	assert.Same(t, m2, result[1])
 }
 
-func TestMergeKSortedMatchers_MultiList(t *testing.T) {
+func TestMergeIter_MultiList(t *testing.T) {
 	m1 := makeTestMatcher("a", 50)
 	m2 := makeTestMatcher("b", 10)
 	m3 := makeTestMatcher("c", 30)
 	m4 := makeTestMatcher("d", 20)
 
-	result := mergeKSortedMatchers(nil, [][]*Matcher{
-		{m1},
-		{m2, m4},
-		{m3},
-	})
+	result := collectMergeIter(
+		[]*Matcher{m1},
+		[]*Matcher{m2, m4},
+		[]*Matcher{m3},
+		nil, nil, nil,
+	)
 	require.Equal(t, 4, len(result))
 	assert.Same(t, m2, result[0])
 	assert.Same(t, m4, result[1])
@@ -73,17 +78,7 @@ func TestMergeKSortedMatchers_MultiList(t *testing.T) {
 	assert.Same(t, m1, result[3])
 }
 
-func TestMergeKSortedMatchers_DstReuse(t *testing.T) {
-	m1 := makeTestMatcher("a", 10)
-	m2 := makeTestMatcher("b", 20)
-	dst := make([]*Matcher, 0, 10)
-	result := mergeKSortedMatchers(dst, [][]*Matcher{{m1, m2}})
-	assert.Len(t, result, 2)
-	assert.Same(t, m1, result[0])
-	assert.Same(t, m2, result[1])
-}
-
-func TestMergeKSortedMatchersSix(t *testing.T) {
+func TestMergeIter_SixLists(t *testing.T) {
 	m1 := makeTestMatcher("a", 50)
 	m2 := makeTestMatcher("b", 10)
 	m3 := makeTestMatcher("c", 30)
@@ -91,7 +86,14 @@ func TestMergeKSortedMatchersSix(t *testing.T) {
 	m5 := makeTestMatcher("e", 5)
 	m6 := makeTestMatcher("f", 40)
 
-	result := mergeSortedMatchersSix(nil, []*Matcher{m1}, []*Matcher{m2}, []*Matcher{m3}, []*Matcher{m4}, []*Matcher{m5}, []*Matcher{m6})
+	result := collectMergeIter(
+		[]*Matcher{m1},
+		[]*Matcher{m2},
+		[]*Matcher{m3},
+		[]*Matcher{m4},
+		[]*Matcher{m5},
+		[]*Matcher{m6},
+	)
 	require.Equal(t, 6, len(result))
 	assert.Same(t, m5, result[0])
 	assert.Same(t, m2, result[1])
@@ -101,16 +103,17 @@ func TestMergeKSortedMatchersSix(t *testing.T) {
 	assert.Same(t, m1, result[5])
 }
 
-func TestMergeKSortedMatchers_PriorityBoundary(t *testing.T) {
+func TestMergeIter_PriorityBoundary(t *testing.T) {
 	matchers := make([]*Matcher, 5)
 	for i := range matchers {
 		matchers[i] = makeTestMatcher("test", uint64(i*10))
 	}
-	result := mergeKSortedMatchers(nil, [][]*Matcher{
-		{matchers[0], matchers[4]},
-		{matchers[1]},
-		{matchers[2], matchers[3]},
-	})
+	result := collectMergeIter(
+		[]*Matcher{matchers[0], matchers[4]},
+		[]*Matcher{matchers[1]},
+		[]*Matcher{matchers[2], matchers[3]},
+		nil, nil, nil,
+	)
 	require.Equal(t, 5, len(result))
 	for i := 1; i < len(result); i++ {
 		assert.LessOrEqual(t, result[i-1].getPriority(), result[i].getPriority())

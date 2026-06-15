@@ -26,7 +26,6 @@ func TestEngine_NewEngine(t *testing.T) {
 		assert.NotNil(t, eng.state.Load())
 		assert.NotNil(t, eng.middleware.Load())
 		assert.NotNil(t, eng.internals.tempManager)
-		assert.NotNil(t, eng.internals.matcherPool)
 		assert.NotNil(t, eng.internals.pendingDeleteCh)
 	})
 

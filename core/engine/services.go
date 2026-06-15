@@ -8,7 +8,6 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
-	infrapool "github.com/KomeiDiSanXian/remilia/infra/pool"
 )
 
 // engineInternals 集中管理 Engine 的非核心基础设施状态：
@@ -25,9 +24,6 @@ type engineInternals struct {
 
 	// temp matcher lifecycle store
 	tempManager *tempMatcherManager
-
-	// matcher slice pool
-	matcherPool *infrapool.TypedPool[[]*Matcher]
 
 	// temp cleaner config/state
 	tempMatcherCleanerStop     func()
