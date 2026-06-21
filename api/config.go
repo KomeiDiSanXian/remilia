@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"strings"
@@ -28,6 +29,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 //  1. 序列化为 YAML → 写入 config.yaml
 //  2. 写入后 config.Load() 触发监听器
 //  3. 若 Validate() 不通过，文件写入失败，原配置不变
+//
 // writeConfigUpdate 将 updates 深合并到当前配置文件并持久化。
 // 内部完成验证、写盘、重载全流程，可由平台增删等 handler 复用。
 func (s *Server) writeConfigUpdate(updates map[string]any) error {
@@ -97,9 +99,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 // deepMerge 递归合并两个 map。map[string]any 类型的值递归合并，标量值直接覆盖。
 func deepMerge(dst, src map[string]any) map[string]any {
 	result := make(map[string]any, len(dst))
-	for k, v := range dst {
-		result[k] = v
-	}
+	maps.Copy(result, dst)
 	for k, srcVal := range src {
 		dstVal, dstOK := result[k]
 		srcMap, srcIsMap := srcVal.(map[string]any)
