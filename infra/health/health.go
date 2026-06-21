@@ -196,12 +196,12 @@ type Check struct {
 }
 
 // DefaultCacheTTL 是健康检查结果的默认缓存时间。
-const DefaultCacheTTL = time.Second
+const DefaultCacheTTL = 8 * time.Second
 
 // NewCheck 创建健康检查管理器。
 func NewCheck() *Check {
 	c := &Check{cacheTTL: DefaultCacheTTL}
-	c.timeout.Store(int64(5 * time.Second))
+	c.timeout.Store(int64(3 * time.Second))
 	return c
 }
 

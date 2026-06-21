@@ -42,7 +42,7 @@ func TestNewCheck(t *testing.T) {
 	check := NewCheck()
 	require.NotNil(t, check)
 	assert.Equal(t, 0, check.CheckerCount())
-	assert.Equal(t, 5*time.Second, time.Duration(check.timeout.Load()))
+	assert.Equal(t, 3*time.Second, time.Duration(check.timeout.Load()))
 }
 
 // TestCheck_SetTimeout 测试设置超时

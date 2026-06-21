@@ -88,6 +88,7 @@ type Config struct {
 	//   apiKey, _ := cfg.PluginString("weather", "api_key")
 	//   timeout, _ := cfg.PluginInt("weather", "timeout")
 	Pprof   PprofConfig               `yaml:"pprof" mapstructure:"pprof"`
+	API     APIConfig                 `yaml:"api" mapstructure:"api"`
 	Plugins map[string]map[string]any `yaml:"plugins" mapstructure:"plugins"`
 }
 
@@ -366,6 +367,13 @@ type DegradationConfig struct {
 	Strategy           string  `yaml:"strategy" mapstructure:"strategy"`
 }
 
+// APIConfig 管理 API 配置。
+type APIConfig struct {
+	Enabled bool   `yaml:"enabled" mapstructure:"enabled"`
+	Addr    string `yaml:"addr" mapstructure:"addr"`
+	APIKey  string `yaml:"api_key" mapstructure:"api_key"`
+}
+
 // PprofConfig pprof 性能分析配置。
 type PprofConfig struct {
 	Enabled         bool   `yaml:"enabled" mapstructure:"enabled"`
@@ -456,27 +464,43 @@ func (m *Manager) Get() (*Config, bool) {
 	if cfg == nil {
 		return nil, false
 	}
-	c := new(*cfg)
+	c := new(Config)
+	*c = *cfg
 	if cfg.Bot.QQ != nil {
-		c.Bot.QQ = new(*cfg.Bot.QQ)
+		qq := *cfg.Bot.QQ
+		c.Bot.QQ = &qq
 	}
 	if cfg.Bot.OneBot != nil {
-		c.Bot.OneBot = new(*cfg.Bot.OneBot)
+		ob := *cfg.Bot.OneBot
+		c.Bot.OneBot = &ob
 	}
 	if cfg.Bot.Discord != nil {
-		c.Bot.Discord = new(*cfg.Bot.Discord)
+		d := *cfg.Bot.Discord
+		c.Bot.Discord = &d
 	}
 	if cfg.Bot.Satori != nil {
-		c.Bot.Satori = new(*cfg.Bot.Satori)
+		s := *cfg.Bot.Satori
+		c.Bot.Satori = &s
 	}
 	if cfg.Bot.Milky != nil {
-		c.Bot.Milky = new(*cfg.Bot.Milky)
+		milky := *cfg.Bot.Milky
+		c.Bot.Milky = &milky
 	}
 	if cfg.Bot.Telegram != nil {
-		c.Bot.Telegram = new(*cfg.Bot.Telegram)
+		t := *cfg.Bot.Telegram
+		c.Bot.Telegram = &t
 	}
 	if cfg.Bot.WeChat != nil {
-		c.Bot.WeChat = new(*cfg.Bot.WeChat)
+		w := *cfg.Bot.WeChat
+		c.Bot.WeChat = &w
+	}
+	if cfg.Tracing.AdaptiveSamplerConfig != nil {
+		asc := *cfg.Tracing.AdaptiveSamplerConfig
+		c.Tracing.AdaptiveSamplerConfig = &asc
+	}
+	if cfg.Tracing.Headers != nil {
+		c.Tracing.Headers = make(map[string]string, len(cfg.Tracing.Headers))
+		maps.Copy(c.Tracing.Headers, cfg.Tracing.Headers)
 	}
 	if cfg.Plugins != nil {
 		c.Plugins = make(map[string]map[string]any, len(cfg.Plugins))
