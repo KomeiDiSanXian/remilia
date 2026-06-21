@@ -1,0 +1,15 @@
+# Remilia 默认配置（sidecar 模式自动使用）
+# 当 config.yaml 不存在时，框架以此配置启动。
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+log:
+  level: "info"
+  format: "text"
+
+api:
+  enabled: true
+  addr: ":9002"
+  api_key: ""
