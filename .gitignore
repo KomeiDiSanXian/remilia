@@ -28,5 +28,9 @@ desktop/node_modules/
 desktop/dist/
 desktop/src-tauri/target/
 
+# Sidecar binaries (go build output)
+desktop/src-tauri/binaries/
+cmd/desktop/
+
 # Go-embeddable dashboard build artifact
 cmd/bot/dashboarddist/
