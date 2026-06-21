@@ -5,14 +5,20 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/api"
 	"github.com/KomeiDiSanXian/remilia/config"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infraserver "github.com/KomeiDiSanXian/remilia/infra/server"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -23,16 +29,55 @@ var (
 
 const defaultHealthAddr = ":9001"
 
-func main() {
-	cfg, err := config.Load("config.yaml")
-	if err != nil {
-		log.Fatalf("Failed to load config: %v\nPlease copy config.example.yaml to config.yaml", err)
+// resolveConfig 尝试加载配置文件，优先级：
+//  1. 当前工作目录的 config.yaml
+//  2. 可执行文件所在目录的 config.yaml
+//  3. 内嵌的 config.default.yaml（sidecar 模式自动使用）
+func resolveConfig() *config.Config {
+	// 搜索路径
+	candidates := []string{"config.yaml"}
+
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "config.yaml"))
 	}
+
+	for _, path := range candidates {
+		cfg, err := config.Load(path)
+		if err == nil {
+			logger.Infof("[bot] Loaded config from %s", path)
+			return cfg
+		}
+	}
+
+	// 全部失败 → 将内嵌默认配置写入临时文件并加载
+	logger.Warn("[bot] No config.yaml found, using embedded default config")
+
+	tmpDir := filepath.Join(os.TempDir(), "remilia")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		log.Fatalf("Failed to create temp config dir: %v", err)
+	}
+	tmpPath := filepath.Join(tmpDir, "config.default.yaml")
+	if err := os.WriteFile(tmpPath, []byte(defaultConfigYAML), 0644); err != nil {
+		log.Fatalf("Failed to write default config: %v", err)
+	}
+	cfg, err := config.Load(tmpPath)
+	if err != nil {
+		log.Fatalf("Failed to load default config: %v", err)
+	}
+	logger.Infof("[bot] Using default config from %s", tmpPath)
+	return cfg
+}
+
+func main() {
+	cfg := resolveConfig()
 
 	logCfg := cfg.Log
 	if logCfg.TimeFormat == "" {
 		logCfg.TimeFormat = "2006-01-02 15:04:05"
 	}
+	// 在 Init 之前注册日志捕获 writer，使 /api/v1/logs 能获取实时日志
+	logger.SetExtraWriter(api.NewLogCaptureWriter())
+
 	if err := logger.Init(logCfg); err != nil {
 		log.Fatalf("Failed to init logger: %v", err)
 	}
@@ -56,11 +101,11 @@ func main() {
 	}
 
 	eng := bot.Engine()
-	setupMiddleware(eng, &cfg.Tracing)
+	bridge := setupMiddleware(eng, &cfg.Tracing)
+
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
 	setupPlugins(pm, eng)
-	_ = fsmMgr
 
 	healthHandler := newHealthHandler(bot, reg)
 	if hc := bot.HealthCheck(); hc != nil {
@@ -71,10 +116,15 @@ func main() {
 	pprofSrv := startPprof(cfg.Pprof, healthHandler)
 	healthSrv := startHealthServer(cfg.Pprof.Addr, healthHandler, pprofSrv != nil)
 
+	apiSrv := startAPIServer(cfg.API, "config.yaml", bot, eng, fsmMgr, pm, reg, dashboardHandler())
+
 	logger.Infof("[bot] Starting... (version=%s commit=%s date=%s)", remilia.Version, commit, date)
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("Failed to start bot")
 	}
+
+	// bot 启动后创建自适应限流器——此时 bot.Context() 返回真实 lifecycle context
+	setupAdaptiveLimiter(eng, bridge, bot.Context())
 
 	discoverAll(bot, pm)
 
@@ -83,6 +133,11 @@ func main() {
 	logger.Info("[bot] Shutting down...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if apiSrv != nil {
+		if err := apiSrv.Stop(shutdownCtx); err != nil {
+			logger.Warnf("[bot] API server shutdown error: %v", err)
+		}
+	}
 	if healthSrv != nil {
 		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
 			logger.Warnf("[bot] Health server shutdown error: %v", err)
@@ -173,6 +228,24 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func startAPIServer(cfg config.APIConfig, configPath string, bot *remilia.Bot, eng *engine.Engine, fsmMgr *fsm.Manager, pm *plugin.Manager, reg *platform.Registry, dash http.Handler) *api.Server {
+	if !cfg.Enabled {
+		return nil
+	}
+	api.SetBuildInfo(commit, date)
+	srv := api.NewServer(cfg.Addr, cfg.APIKey, api.Deps{
+		Bot:              bot,
+		PluginMgr:        pm,
+		Registry:         reg,
+		Engine:           eng,
+		FSMMgr:           fsmMgr,
+		ConfigPath:       configPath,
+		DashboardHandler: dash,
+	})
+	srv.Start()
+	return srv
 }
 
 func startHealthServer(addr string, healthHandler http.HandlerFunc, pprofRunning bool) *infraserver.HTTPServer {

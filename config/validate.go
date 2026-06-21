@@ -36,6 +36,7 @@ func (c *Config) Validate() error {
 		{"token", c.Token.Validate},
 		{"engine", c.Engine.Validate},
 		{"tracing", c.Tracing.Validate},
+		{"api", c.API.Validate},
 	}
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
@@ -367,6 +368,17 @@ func (dc *DegradationConfig) Validate() error {
 	validStrategies := map[string]bool{"drop": true, "delay": true, "simplify": true, "": true}
 	if !validStrategies[dc.Strategy] {
 		return fmt.Errorf("degradation.strategy must be one of [drop, delay, simplify], got '%s'", dc.Strategy)
+	}
+	return nil
+}
+
+// Validate 验证 APIConfig
+func (ac *APIConfig) Validate() error {
+	if !ac.Enabled {
+		return nil
+	}
+	if ac.Addr == "" {
+		return fmt.Errorf("api.addr is required when api is enabled")
 	}
 	return nil
 }

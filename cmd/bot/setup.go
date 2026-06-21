@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -12,6 +13,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware"
+	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
+	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
+	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
+	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/discord"
@@ -91,8 +96,40 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 	return reg
 }
 
-func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) {
-	eng.Use(middleware.ProductionSet()...)
+// setupMiddleware 创建中间件链（不含自适应限流器）并返回热重载桥接器。
+// 自适应限流器需要绑 bot.Context()，由调用方在 bot.Start() 之后 setupAdaptiveLimiter 完成。
+func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) *hotreload.Bridge {
+	bridge := hotreload.NewBridge()
+
+	mws := make([]eventctx.Middleware, 0)
+
+	mws = append(mws, middleware.Recover())
+	mws = append(mws, middleware.RequestID())
+	mws = append(mws, middleware.Timeout(30*time.Second))
+
+	// Dedup filter — 支持热重载
+	df := dedup.NewDedupFilter(dedup.DedupConfig{
+		MaxSize:    10000,
+		DefaultTTL: 5 * time.Minute,
+	})
+	bridge.WatchDedup(df)
+	mws = append(mws, dedup.Dedup(df))
+
+	// Circuit breaker — 支持热重载
+	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+		MaxFailures:         5,
+		ResetTimeout:        30 * time.Second,
+		HalfOpenMaxRequests: 1,
+		SuccessThreshold:    1,
+		HalfOpenTimeout:     10 * time.Second,
+	})
+	bridge.WatchCircuitBreaker(cb)
+	mws = append(mws, resilience.CircuitBreakerMiddleware(cb))
+
+	mws = append(mws, middleware.Logging())
+
+	eng.Use(mws...)
+
 	eng.Use(telemetry.PrometheusMetrics("remilia"))
 	eng.Use(telemetry.Tracing(telemetry.TracingConfig{
 		TracerName:         "remilia",
@@ -100,6 +137,21 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) {
 	}))
 	eng.Use(errorHandlerMiddleware())
 	eng.Use(slowRequestMiddleware(3 * time.Second))
+
+	bridge.Subscribe()
+	logger.Info("[bot] Hot-reload bridge initialized")
+
+	return bridge
+}
+
+// setupAdaptiveLimiter 在 bot 启动后创建自适应限流器并接入引擎。
+// 此时 bot.Context() 返回真正 lifecycle context，goroutine 自动随 bot 停止而退出。
+func setupAdaptiveLimiter(eng *engine.Engine, bridge *hotreload.Bridge, botCtx context.Context) {
+	arl := ratelimit.NewAdaptiveRateLimiterWithContext(botCtx, ratelimit.DefaultAdaptiveConfig())
+	bridge.WatchAdaptive(arl)
+	arl.Start()
+	eng.Use(arl.Middleware())
+	logger.Info("[bot] Adaptive rate limiter started (bound to bot lifecycle)")
 }
 
 func setupRouter(bot *remilia.Bot, eng *engine.Engine) *fsm.Manager {

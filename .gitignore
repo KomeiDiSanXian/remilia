@@ -18,3 +18,15 @@ data/
 
 profile/
 bin/*.exe
+
+# Web Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Desktop (Tauri)
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+
+# Go-embeddable dashboard build artifact
+cmd/bot/dashboarddist/

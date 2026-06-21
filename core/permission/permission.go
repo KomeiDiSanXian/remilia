@@ -219,6 +219,17 @@ func (pm *Manager) GetRole(name string) (*Role, bool) {
 	return role, ok
 }
 
+// ListRoles returns a copy of all registered role names.
+func (pm *Manager) ListRoles() []string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	names := make([]string, 0, len(pm.roles))
+	for n := range pm.roles {
+		names = append(names, n)
+	}
+	return names
+}
+
 // AssignRole grants roleName to userID.
 // Returns an error if the role is not registered.
 func (pm *Manager) AssignRole(userID, roleName string) error {

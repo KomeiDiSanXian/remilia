@@ -265,8 +265,14 @@ func Init(cfg Config) error {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// 准备 Writer 列表
+		// 准备 Writer 列表
 	var writers []io.Writer
+
+	// 添加自定义捕获 Writer（用于日志流）
+	extraWriter := GetExtraWriter()
+	if extraWriter != nil {
+		writers = append(writers, extraWriter)
+	}
 
 	// 控制台输出（带颜色）
 	if cfg.Console {
@@ -560,7 +566,27 @@ func InitTest() {
 	defaultLogger.Store(&Logger{l: globalLogger})
 }
 
+// ---- 外部 Writer 支持（用于日志流） ----
+
+var extraWriterMu sync.RWMutex
+var extraWriter io.Writer
+
+// SetExtraWriter 注册一个额外的 io.Writer，所有日志同时写入此 writer。
+// 必须在 logger.Init() 之前调用才能生效。
+func SetExtraWriter(w io.Writer) {
+	extraWriterMu.Lock()
+	defer extraWriterMu.Unlock()
+	extraWriter = w
+}
+
+// GetExtraWriter 返回已注册的额外 writer。
+func GetExtraWriter() io.Writer {
+	extraWriterMu.RLock()
+	defer extraWriterMu.RUnlock()
+	return extraWriter
+}
+
 func init() {
-	// 包加载时使用默认配置初始化
+	// 初始化时使用默认配置初始化
 	_ = InitDefault()
 }
