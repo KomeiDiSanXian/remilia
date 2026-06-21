@@ -1,0 +1,144 @@
+/* desktop 专用样式覆盖 */
+
+html, body, #root {
+  margin: 0; padding: 0; height: 100%;
+}
+
+.app {
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+
+/* --- 自定义标题栏 --- */
+.titlebar {
+  display: flex; align-items: center; justify-content: space-between;
+  height: 36px; padding: 0 0 0 16px;
+  background: #1e293b; border-bottom: 1px solid #334155;
+  user-select: none; flex-shrink: 0;
+  position: sticky; top: 0; z-index: 1000;
+}
+.titlebar-title {
+  font-size: 0.8rem; color: #94a3b8;
+}
+.titlebar-controls {
+  display: flex; height: 100%;
+}
+.titlebar-btn {
+  width: 46px; height: 100%; border: none;
+  background: transparent; color: #94a3b8;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.titlebar-btn:hover { background: #334155; color: #e2e8f0; }
+.titlebar-close:hover { background: #dc2626; color: #fff; }
+
+/* --- 加载/设置页 --- */
+.loading-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; color: #64748b; font-size: 1rem; gap: 1rem;
+}
+.loading-spinner {
+  width: 32px; height: 32px; border: 3px solid #334155;
+  border-top-color: #3b82f6; border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- 启动选择页 --- */
+.startup-choice {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 1; padding: 2rem;
+}
+.startup-choice h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+.startup-subtitle { color: #64748b; margin-bottom: 1.5rem; font-size: 0.9rem; }
+.startup-cards { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+.startup-card {
+  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+  width: 220px; padding: 2rem 1.5rem; border: 1px solid #334155; border-radius: 12px;
+  background: #1e293b; color: #e2e8f0; cursor: pointer; transition: all 0.2s;
+  text-align: center;
+}
+.startup-card:hover { border-color: #3b82f6; background: #1e3a5f; }
+.startup-card-icon { font-size: 2rem; }
+.startup-card-title { font-size: 1rem; font-weight: 600; }
+.startup-card-desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
+.settings-page { display: flex; flex-direction: column; flex: 1; }
+.back-btn {
+  align-self: flex-start; margin: 0.5rem 1rem 0;
+  padding: 0.3rem 0.75rem; border: 1px solid #475569; border-radius: 6px;
+  background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.85rem;
+}
+.back-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+
+.settings-container {
+  display: flex; align-items: center; justify-content: center;
+  flex: 1; padding: 2rem;
+}
+.settings-card {
+  background: #1e293b; border-radius: 12px; padding: 2.5rem;
+  width: 100%; max-width: 480px;
+}
+.settings-card h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+
+.key-hint { color: #22c55e; font-size: 0.75rem; margin-left: 0.25rem; }
+
+/* --- Error boundary --- */
+.error-boundary { padding: 2rem; max-width: 800px; margin: 1rem auto; }
+.error-boundary h1 { color: #ef4444; margin-bottom: 1rem; }
+.error-msg { color: #fca5a5; margin-bottom: 0.5rem; }
+.error-stack {
+  background: #0f172a; padding: 1rem; border-radius: 8px;
+  font-size: 0.75rem; line-height: 1.4; overflow-x: auto; color: #e2e8f0;
+  margin-bottom: 1rem; max-height: 50vh; overflow-y: auto;
+}
+.error-actions { display: flex; gap: 0.5rem; }
+
+/* --- 测试按钮 --- */
+.field-row { display: flex; gap: 0.5rem; }
+.field-row input { flex: 1; }
+.btn-secondary {
+  padding: 0.4rem 0.75rem; border: 1px solid #475569; border-radius: 8px;
+  background: transparent; color: #94a3b8; cursor: pointer;
+  font-size: 0.8rem; white-space: nowrap; transition: all 0.2s;
+}
+.btn-secondary:hover { border-color: #3b82f6; color: #3b82f6; }
+.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* --- Dialog / Modal --- */
+.dialog-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+}
+.dialog {
+  background: #1e293b; border-radius: 12px; padding: 1.5rem;
+  width: 400px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.dialog-header {
+  font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;
+}
+.dialog-body { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin-bottom: 1rem; }
+.dialog-remember {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: #94a3b8; cursor: pointer; margin-bottom: 1rem;
+}
+.dialog-remember input { accent-color: #3b82f6; }
+.dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.dialog-btn {
+  padding: 0.5rem 1rem; border: 1px solid #475569; border-radius: 8px;
+  background: transparent; color: #e2e8f0; font-size: 0.85rem; cursor: pointer;
+  transition: all 0.15s;
+}
+.dialog-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.dialog-btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+.dialog-btn-primary:hover { background: #2563eb; border-color: #2563eb; }
+.dialog-btn-danger { border-color: #ef4444; color: #fca5a5; }
+.dialog-btn-danger:hover { background: #ef4444; color: #fff; }
+
+/* --- About dialog --- */
+.about-content { text-align: center; }
+.about-logo { font-size: 2.5rem; margin-bottom: 0.5rem; }
+.about-name { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.25rem; }
+.about-version { font-size: 0.8rem; color: #64748b; margin-bottom: 0.75rem; }
+.about-desc { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; margin-bottom: 0.75rem; }
+.about-link a { color: #3b82f6; text-decoration: none; font-size: 0.85rem; }
+.about-link a:hover { text-decoration: underline; }
