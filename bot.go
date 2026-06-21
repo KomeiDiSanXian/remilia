@@ -225,7 +225,12 @@ func (b *Bot) Start() error {
 				name,
 				nil,
 				func(ctx context.Context) error {
-					return pa.Start(ctx, b.handlePlatformEvent)
+					go func() {
+						if err := pa.Start(ctx, b.handlePlatformEvent); err != nil {
+							logger.WithError(err).Errorf("[Bot] Adapter %s stopped with error", pa.Platform())
+						}
+					}()
+					return nil
 				},
 				func(ctx context.Context) error {
 					return pa.Stop(ctx)
@@ -411,6 +416,7 @@ func (b *Bot) Stop(ctx context.Context) error {
 	}
 
 	err := lm.Stop(ctx)
+	b.started.Store(false)
 	if err != nil {
 		logger.WithError(err).Error("[Bot] Stop completed with errors")
 		return err
@@ -424,6 +430,45 @@ func (b *Bot) Shutdown() error {
 	ctx, cancel := context.WithTimeout(b.Context(), DefaultShutdownTimeout)
 	defer cancel()
 	return b.Stop(ctx)
+}
+
+// Restart 依次执行 Stop 和 Start，内部确保 started 状态正确重置。
+func (b *Bot) Restart() error {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultShutdownTimeout)
+	defer cancel()
+	if err := b.Stop(ctx); err != nil {
+		return err
+	}
+	if err := b.Start(); err != nil {
+		return err
+	}
+	b.discoverProbes()
+	return nil
+}
+
+// discoverProbes 从插件管理器中重新注册健康检查探针（APIProbe 等）。
+// Start() 重建了 health.Check，但插件探针只在初始 discoverAll() 中注册一次，
+// Restart 后需要重新注册以确保健康检查完整。
+func (b *Bot) discoverProbes() {
+	hc := b.HealthCheck()
+	if hc == nil {
+		return
+	}
+	pm := b.Plugins()
+	if pm == nil {
+		return
+	}
+	for _, name := range pm.List() {
+		svc, ok := pm.GetContainer().Get(name)
+		if !ok || svc == nil {
+			continue
+		}
+		if hp, ok := svc.(health.CheckProvider); ok {
+			for _, checker := range hp.HealthCheckers() {
+				hc.Register(checker, "system", "dependencies", checker.Name())
+			}
+		}
+	}
 }
 
 // ShutdownAsync 在后台 goroutine 中发起优雅关闭，立即返回。
