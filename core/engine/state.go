@@ -236,8 +236,7 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 		dst.commandIndex = s.commandIndex
 
 		matchers := dst.matcherIndex[et]
-		sorted := make([]*Matcher, len(matchers))
-		copy(sorted, matchers)
+		sorted := makeRunnableSlice(matchers)
 		sortMatchersByPriority(sorted)
 		dst.sortedCache[et] = sorted
 	}
@@ -311,8 +310,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 
 	for eventType, mats := range dst.matcherIndex {
 		sortMatchersByPriority(mats)
-		sorted := make([]*Matcher, len(mats))
-		copy(sorted, mats)
+		sorted := makeRunnableSlice(mats)
 		dst.sortedCache[eventType] = sorted
 	}
 
@@ -432,8 +430,7 @@ func (s *state) withInvalidatedSortedCache(eventType EventType) *state {
 	if eventType != "" {
 		if _, exists := dst.sortedCache[""]; !exists {
 			if mats, ok := dst.matcherIndex[""]; ok {
-				sorted := make([]*Matcher, len(mats))
-				copy(sorted, mats)
+				sorted := makeRunnableSlice(mats)
 				sortMatchersByPriority(sorted)
 				dst.sortedCache[""] = sorted
 			}
@@ -484,8 +481,7 @@ func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 		}
 	} else {
 		if matchers, ok := dst.matcherIndex[et]; ok {
-			sorted := make([]*Matcher, len(matchers))
-			copy(sorted, matchers)
+			sorted := makeRunnableSlice(matchers)
 			sortMatchersByPriority(sorted)
 			dst.sortedCache[et] = sorted
 		}
@@ -592,8 +588,7 @@ func (s *state) rebuildIndex() {
 
 	// 重建排序缓存（常规索引）
 	for eventType, matchers := range s.matcherIndex {
-		sorted := make([]*Matcher, len(matchers))
-		copy(sorted, matchers)
+		sorted := makeRunnableSlice(matchers)
 		sortMatchersByPriority(sorted)
 		s.sortedCache[eventType] = sorted
 	}
@@ -688,8 +683,7 @@ func (s *state) addMatcher(m *Matcher) {
 		s.matcherIndex[et] = append(s.matcherIndex[et], m)
 
 		matchers := s.matcherIndex[et]
-		sorted := make([]*Matcher, len(matchers))
-		copy(sorted, matchers)
+		sorted := makeRunnableSlice(matchers)
 		sortMatchersByPriority(sorted)
 		s.sortedCache[et] = sorted
 	}
@@ -755,37 +749,32 @@ func deleteFromSlice[T comparable](slice []T, elem T) []T {
 	return slice
 }
 
+// makeRunnableSlice 从 matchers 中过滤出 hasHandler == true 的匹配器
+func makeRunnableSlice(matchers []*Matcher) []*Matcher {
+	sorted := make([]*Matcher, 0, len(matchers))
+	for _, m := range matchers {
+		if m.hasHandler.Load() {
+			sorted = append(sorted, m)
+		}
+	}
+	return sorted
+}
+
 // invalidateSortedCache 失效并重建指定事件类型的排序缓存
 func (s *state) invalidateSortedCache(eventType EventType) {
 	if matchers, ok := s.matcherIndex[eventType]; ok {
-		if existing, exists := s.sortedCache[eventType]; exists && cap(existing) >= len(matchers) {
-			sorted := existing[:len(matchers)]
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			s.sortedCache[eventType] = sorted
-		} else {
-			sorted := make([]*Matcher, len(matchers))
-			copy(sorted, matchers)
-			sortMatchersByPriority(sorted)
-			s.sortedCache[eventType] = sorted
-		}
+		sorted := makeRunnableSlice(matchers)
+		sortMatchersByPriority(sorted)
+		s.sortedCache[eventType] = sorted
 	} else {
 		delete(s.sortedCache, eventType)
 	}
 
 	if eventType != "" {
 		if matchers, ok := s.matcherIndex[""]; ok {
-			if existing, exists := s.sortedCache[""]; exists && cap(existing) >= len(matchers) {
-				sorted := existing[:len(matchers)]
-				copy(sorted, matchers)
-				sortMatchersByPriority(sorted)
-				s.sortedCache[""] = sorted
-			} else {
-				sorted := make([]*Matcher, len(matchers))
-				copy(sorted, matchers)
-				sortMatchersByPriority(sorted)
-				s.sortedCache[""] = sorted
-			}
+			sorted := makeRunnableSlice(matchers)
+			sortMatchersByPriority(sorted)
+			s.sortedCache[""] = sorted
 		}
 	}
 }

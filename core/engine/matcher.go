@@ -46,6 +46,7 @@ type Matcher struct {
 	// 使用 atomic.Bool 以防止 rebuildIndex 写操作与
 	// 共享 *Matcher 对象（COW 共享指针）的并发 Match() 读操作之间出现数据竞争。
 	commandIndexed atomic.Bool
+	hasHandler    atomic.Bool
 	EventType      EventType
 	Rules          []context.Rule
 	Handler        context.Handler
@@ -123,6 +124,7 @@ func (m *Matcher) copy() *Matcher {
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
 	newM.commandIndexed.Store(m.commandIndexed.Load())
+	newM.hasHandler.Store(m.hasHandler.Load())
 	return newM
 }
 
@@ -318,13 +320,23 @@ func (m *Matcher) Handle(handler context.Handler) {
 		return
 	}
 	m.rt.mu.Lock()
+	hadHandler := m.Handler != nil
 	m.Handler = handler
+	m.hasHandler.Store(true)
 	// 自增版本号，使 getOrBuildIterChain 在下次使用时重建已编译的处理链。
 	m.compiledVersion.Add(1)
 	coord := m.coordinator
 	m.rt.mu.Unlock()
+
 	if coord != nil {
 		coord.RebuildMatcherChain(m)
+		// 首次绑定 Handler：触发运行时索引重建，将此前被过滤的匹配器纳入
+		if !hadHandler {
+			coord.InvalidateSortedCache(m.EventType)
+			if def := m.definition; def != nil && def.Name != "" {
+				coord.UpdateMatcherIndex(m)
+			}
+		}
 	}
 
 	// 别名自动注册：由框架注入的回调，在 Handle() 首次调用时触发。

@@ -188,7 +188,9 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		m := iter.Matcher()
 
 		// 无 Handler 的匹配器无需执行任何操作，直接跳过 Match/SetMatcher/invokeHandler
-		if m.Handler == nil {
+		// hasHandler 在 Handle() 中设置，由 InvalidateSortedCache 触发索引重建后，
+		// 无 Handler 的匹配器将不再出现在运行时列表中。此检查作为安全兜底。
+		if !m.hasHandler.Load() {
 			continue
 		}
 
