@@ -265,7 +265,7 @@ func (p *Plugin) handleList(ctx *eventctx.Context) error {
 		return nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("自动回复规则 (共 %d 条):\n", len(p.rules)))
+	fmt.Fprintf(&sb, "自动回复规则 (共 %d 条):\n", len(p.rules))
 	for _, r := range p.rules {
 		preview := r.Response
 		if len(preview) > 40 {
@@ -275,7 +275,7 @@ func (p *Plugin) handleList(ctx *eventctx.Context) error {
 		if r.Cooldown > 0 {
 			cooldown = fmt.Sprintf(" [冷却:%ds]", r.Cooldown)
 		}
-		sb.WriteString(fmt.Sprintf("  #%s [%s] %q → %q%s\n", r.ID, r.Mode, r.Keyword, preview, cooldown))
+		fmt.Fprintf(&sb, "  #%s [%s] %q → %q%s\n", r.ID, r.Mode, r.Keyword, preview, cooldown)
 	}
 	p.mu.RUnlock()
 	ctx.Reply(platform.TextMessage(sb.String()))

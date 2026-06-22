@@ -261,13 +261,13 @@ func (p *Plugin) handleWarnings(ctx *eventctx.Context) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s 的警告记录 (共 %d 次):\n", target, len(warnings)))
+	fmt.Fprintf(&sb, "%s 的警告记录 (共 %d 次):\n", target, len(warnings))
 	for i, w := range warnings {
-		sb.WriteString(fmt.Sprintf("%d. [%s]", i+1, w.Timestamp.Format("01-02 15:04")))
+		fmt.Fprintf(&sb, "%d. [%s]", i+1, w.Timestamp.Format("01-02 15:04"))
 		if w.Reason != "" {
-			sb.WriteString(fmt.Sprintf(" %s", w.Reason))
+			fmt.Fprintf(&sb, " %s", w.Reason)
 		}
-		sb.WriteString(fmt.Sprintf(" (由 %s)\n", w.Moderator))
+		fmt.Fprintf(&sb, " (由 %s)\n", w.Moderator)
 	}
 	ctx.Reply(platform.TextMessage(sb.String()))
 	return nil

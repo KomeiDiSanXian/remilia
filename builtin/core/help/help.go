@@ -351,7 +351,7 @@ func (p *Plugin) showCommandsPage(ctx *eventctx.Context, page int, forceText boo
 	endIdx := min(startIdx+commandsPerPage, len(commands))
 
 	var help strings.Builder
-	help.WriteString(fmt.Sprintf("📖 可用命令列表 (第 %d/%d 页)\n", page, totalPages))
+	fmt.Fprintf(&help, "📖 可用命令列表 (第 %d/%d 页)\n", page, totalPages)
 	help.WriteString(strings.Repeat("=", 30) + "\n\n")
 
 	// 按分类组织命令

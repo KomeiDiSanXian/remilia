@@ -308,9 +308,9 @@ func (p *Plugin) ListTools() []ai.Tool {
 				var b strings.Builder
 				b.WriteString("**最近操作：**\n")
 				for _, e := range entries {
-					b.WriteString(fmt.Sprintf("- [%s] %s 执行了 `%s`", e.Timestamp.Format("15:04"), e.UserID, e.Action))
+					fmt.Fprintf(&b, "- [%s] %s 执行了 `%s`", e.Timestamp.Format("15:04"), e.UserID, e.Action)
 					if e.Content != "" {
-						b.WriteString(fmt.Sprintf("：%s", truncateText(e.Content, 60)))
+						fmt.Fprintf(&b, "：%s", truncateText(e.Content, 60))
 					}
 					b.WriteString("\n")
 				}
@@ -346,11 +346,11 @@ func (p *Plugin) ListTools() []ai.Tool {
 					return fmt.Sprintf("用户 %s 暂无操作记录", userID), nil
 				}
 				var b strings.Builder
-				b.WriteString(fmt.Sprintf("**用户 %s 最近操作：**\n", userID))
+				fmt.Fprintf(&b, "**用户 %s 最近操作：**\n", userID)
 				for _, e := range entries {
-					b.WriteString(fmt.Sprintf("- [%s] `%s`", e.Timestamp.Format("15:04"), e.Action))
+					fmt.Fprintf(&b, "- [%s] `%s`", e.Timestamp.Format("15:04"), e.Action)
 					if e.Content != "" {
-						b.WriteString(fmt.Sprintf("：%s", truncateText(e.Content, 60)))
+						fmt.Fprintf(&b, "：%s", truncateText(e.Content, 60))
 					}
 					b.WriteString("\n")
 				}

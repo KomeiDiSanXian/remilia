@@ -230,8 +230,8 @@ func formatISSText(pos *IssPosition, astros []string, count int, trend Trend) st
 		vis = "[地影]"
 	}
 	var text strings.Builder
-	text.WriteString(fmt.Sprintf("[ISS] 国际空间站\n纬度: %s\n经度: %s\n高度: %.1f km\n速度: %.2f km/s\n轨道周期: %.1f min\n可见区域: 纬度 %.0f~%.0f  经度 %.0f~%.0f\n光照: %s\n在轨: %d人\n",
-		fmtLat(pos.Latitude), fmtLng(pos.Longitude), pos.Altitude, pos.Velocity/3600, period, minLat, maxLat, minLng, maxLng, vis, count))
+	fmt.Fprintf(&text, "[ISS] 国际空间站\n纬度: %s\n经度: %s\n高度: %.1f km\n速度: %.2f km/s\n轨道周期: %.1f min\n可见区域: 纬度 %.0f~%.0f  经度 %.0f~%.0f\n光照: %s\n在轨: %d人\n",
+		fmtLat(pos.Latitude), fmtLng(pos.Longitude), pos.Altitude, pos.Velocity/3600, period, minLat, maxLat, minLng, maxLng, vis, count)
 	if trend.Slope != 0 && count >= 3 {
 		dir := "[上升]"
 		if trend.Slope < 0 {
@@ -242,9 +242,9 @@ func formatISSText(pos *IssPosition, astros []string, count int, trend Trend) st
 			abs = -abs
 		}
 		if abs < 1 {
-			text.WriteString(fmt.Sprintf("轨道趋势: %s %.0f m/天\n", dir, abs*1000))
+			fmt.Fprintf(&text, "轨道趋势: %s %.0f m/天\n", dir, abs*1000)
 		} else {
-			text.WriteString(fmt.Sprintf("轨道趋势: %s %.2f km/天\n", dir, abs))
+			fmt.Fprintf(&text, "轨道趋势: %s %.2f km/天\n", dir, abs)
 		}
 	}
 	for _, name := range astros {

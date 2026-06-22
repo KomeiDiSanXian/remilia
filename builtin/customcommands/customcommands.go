@@ -237,13 +237,13 @@ func (p *Plugin) handleList(ctx *eventctx.Context) error {
 		return nil
 	}
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("自定义命令 (共 %d 个):\n", len(p.cmds)))
+	fmt.Fprintf(&sb, "自定义命令 (共 %d 个):\n", len(p.cmds))
 	for _, cmd := range p.cmds {
 		preview := cmd.Response
 		if len(preview) > 50 {
 			preview = preview[:50] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("  /%s → %s\n", cmd.Name, preview))
+		fmt.Fprintf(&sb, "  /%s → %s\n", cmd.Name, preview)
 	}
 	p.mu.RUnlock()
 	ctx.Reply(platform.TextMessage(sb.String()))

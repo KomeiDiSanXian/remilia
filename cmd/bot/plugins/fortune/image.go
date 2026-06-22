@@ -265,9 +265,9 @@ func formatTarotText(readings []TarotReading) string {
 			}
 			buf.WriteString(pos + " ")
 		}
-		buf.WriteString(fmt.Sprintf("%s (%s)\n%s\n%s\n",
+		fmt.Fprintf(&buf, "%s (%s)\n%s\n%s\n",
 			r.Card.NameCN, r.Orientation(),
-			r.Card.NameEN, r.Meaning()))
+			r.Card.NameEN, r.Meaning())
 		if i < len(readings)-1 {
 			buf.WriteString("\n")
 		}

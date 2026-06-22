@@ -239,10 +239,10 @@ func formatResult(total int, details []SingleRoll) string {
 	var r strings.Builder
 	if len(parts) == 1 {
 		r.WriteString(parts[0])
-		r.WriteString(fmt.Sprintf(" = **%d**", total))
+		fmt.Fprintf(&r, " = **%d**", total)
 	} else {
 		r.WriteString(strings.Join(parts, " + "))
-		r.WriteString(fmt.Sprintf("\n合计 = **%d**", total))
+		fmt.Fprintf(&r, "\n合计 = **%d**", total)
 	}
 	return r.String()
 }

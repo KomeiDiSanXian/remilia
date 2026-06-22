@@ -300,7 +300,7 @@ func NewInteractionCreateEvent(i *discordgo.InteractionCreate) platform.Event {
 		sb.WriteString("/")
 		sb.WriteString(data.Name)
 		for _, opt := range data.Options {
-			sb.WriteString(fmt.Sprintf(" %s:%v", opt.Name, opt.Value))
+			fmt.Fprintf(&sb, " %s:%v", opt.Name, opt.Value)
 		}
 		e.content = sb.String()
 

@@ -285,7 +285,7 @@ func (o *OEMEphemeris) SaveCache(baseDir string) error {
 	// 重建原始文本以缓存
 	var buf bytes.Buffer
 	buf.WriteString("CCSDS_OEM_VERS = 2.0\n")
-	buf.WriteString(fmt.Sprintf("CREATION_DATE  = %s\n", o.CreationDate.Format("2006-01-02T15:04:05")))
+	fmt.Fprintf(&buf, "CREATION_DATE  = %s\n", o.CreationDate.Format("2006-01-02T15:04:05"))
 	buf.WriteString("ORIGINATOR     = BACC\n\n")
 	buf.WriteString("META_START\n")
 	buf.WriteString("OBJECT_NAME    = KJZ\n")
@@ -293,15 +293,15 @@ func (o *OEMEphemeris) SaveCache(baseDir string) error {
 	buf.WriteString("CENTER_NAME    = EARTH\n")
 	buf.WriteString("REF_FRAME      = EME2000\n")
 	buf.WriteString("TIME_SYSTEM    = UTC\n")
-	buf.WriteString(fmt.Sprintf("START_TIME     = %s\n", o.StartTime.Format("2006-01-02T15:04:05.000000")))
-	buf.WriteString(fmt.Sprintf("STOP_TIME      = %s\n", o.StopTime.Format("2006-01-02T15:04:05.000000")))
+	fmt.Fprintf(&buf, "START_TIME     = %s\n", o.StartTime.Format("2006-01-02T15:04:05.000000"))
+	fmt.Fprintf(&buf, "STOP_TIME      = %s\n", o.StopTime.Format("2006-01-02T15:04:05.000000"))
 	buf.WriteString("META_STOP\n\n")
 	buf.WriteString("COMMENT OEM data, unit is km and km/s.\n")
 
 	for _, v := range o.Vectors {
-		buf.WriteString(fmt.Sprintf("%s       %.12f    %.12f    %.12f    %.12f    %.12f    %.12f\n",
+		fmt.Fprintf(&buf, "%s       %.12f    %.12f    %.12f    %.12f    %.12f    %.12f\n",
 			v.Time.Format("2006-01-02T15:04:05.000000"),
-			v.X, v.Y, v.Z, v.Vx, v.Vy, v.Vz))
+			v.X, v.Y, v.Z, v.Vx, v.Vy, v.Vz)
 	}
 
 	datPath := filepath.Join(baseDir, "oem.dat")

@@ -201,9 +201,9 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		fm := cfg.FarewellMessage
 		p.mu.Unlock()
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("欢迎消息: %s\n", boolStr(we)))
+		fmt.Fprintf(&sb, "欢迎消息: %s\n", boolStr(we))
 		if wm != "" {
-			sb.WriteString(fmt.Sprintf("内容: %s\n", wm))
+			fmt.Fprintf(&sb, "内容: %s\n", wm)
 		}
 		sb.WriteString(fmt.Sprintf("告别消息: %s", boolStr(fe)))
 		if fm != "" {

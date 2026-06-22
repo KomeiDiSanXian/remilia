@@ -30,16 +30,16 @@ type PluginError struct {
 func (e *PluginError) Error() string {
 	var sb strings.Builder
 	if e.PluginName != "" {
-		sb.WriteString(fmt.Sprintf("plugin %q: %s failed", e.PluginName, e.Operation))
+		fmt.Fprintf(&sb, "plugin %q: %s failed", e.PluginName, e.Operation)
 	} else {
-		sb.WriteString(fmt.Sprintf("%s failed", e.Operation))
+		fmt.Fprintf(&sb, "%s failed", e.Operation)
 	}
 	if e.Cause != nil {
 		sb.WriteString(" — ")
 		sb.WriteString(e.Cause.Error())
 	}
 	if len(e.RegisteredPlugins) > 0 {
-		sb.WriteString(fmt.Sprintf("\n  currently registered: [%s]", strings.Join(e.RegisteredPlugins, ", ")))
+		fmt.Fprintf(&sb, "\n  currently registered: [%s]", strings.Join(e.RegisteredPlugins, ", "))
 	}
 	if e.Hint != "" {
 		sb.WriteString("\n  hint: ")

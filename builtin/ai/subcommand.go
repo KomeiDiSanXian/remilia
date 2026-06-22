@@ -124,8 +124,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "  - 提供商：`%s`\n", p.cfg.Provider)
 		fmt.Fprintf(&b, "  - 模型：`%s`\n", p.cfg.Model)
 		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
-		b.WriteString(fmt.Sprintf("  - 对话时长：`%s`\n", formatDuration(duration)))
-		b.WriteString(fmt.Sprintf("  - 会话 ID：`%s`\n", sessionID))
+		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", formatDuration(duration))
+		fmt.Fprintf(&b, "  - 会话 ID：`%s`\n", sessionID)
 		return ctx.ReplyText(b.String())
 
 	case "stats":
@@ -139,8 +139,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		session.Unlock()
 		var b strings.Builder
 		b.WriteString("📈 **使用统计**\n\n")
-		b.WriteString(fmt.Sprintf("  - LLM 调用次数：`%d`\n", callCount))
-		b.WriteString(fmt.Sprintf("  - 工具调用次数：`%d`\n", toolCount))
+		fmt.Fprintf(&b, "  - LLM 调用次数：`%d`\n", callCount)
+		fmt.Fprintf(&b, "  - 工具调用次数：`%d`\n", toolCount)
 		return ctx.ReplyText(b.String())
 
 	case "tools", "help":
@@ -151,18 +151,18 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			b.WriteString("（当前没有可用工具）")
 		} else {
 			for _, t := range tools {
-				b.WriteString(fmt.Sprintf("  - **%s**：%s\n", t.Name, t.Description))
+				fmt.Fprintf(&b, "  - **%s**：%s\n", t.Name, t.Description)
 			}
 		}
 		b.WriteString("\n在对话中直接告诉我你想使用哪个工具即可。\n")
 		b.WriteString("\n**子命令：**")
-		b.WriteString(fmt.Sprintf("\n  `%s reset` — 清空对话历史", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s summary` — 总结当前对话", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s status` — 查看会话状态", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd))
-		b.WriteString(fmt.Sprintf("\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd))
+		fmt.Fprintf(&b, "\n  `%s reset` — 清空对话历史", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s summary` — 总结当前对话", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s status` — 查看会话状态", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
 		return ctx.ReplyText(b.String())
 	}
 	return nil

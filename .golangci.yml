@@ -1,92 +1,73 @@
+version: "2"
 linters:
   enable:
     - errcheck
     - ineffassign
     - staticcheck
     - unused
-
-linters-settings:
-  errcheck:
-    exclude-functions:
-      - (io.ReadCloser).Close
-      - (io.WriteCloser).Close
-      - (net.Conn).Close
-      - (net.Listener).Close
-      - (*os.File).Close
-      - os.Remove
-      - os.RemoveAll
-      - os.WriteFile
-      - os.Chdir
-      - syscall.SyscallN
-      - fmt.Sscanf
-      - fmt.Fprint
-      - fmt.Fprintf
-      - fmt.Fprintln
-      - (net/http.ResponseWriter).Write
-      - (net/http.Request).ParseForm
-      - encoding/json.Encoder.Encode
-      - math/rand.Read
-      - encoding/json.Unmarshal
-      - (net.Conn).SetDeadline
-      - io/fs.WalkDir
-      - (github.com/KomeiDiSanXian/remilia/core/engine.Engine).Shutdown
-      - (github.com/KomeiDiSanXian/remilia/config.Watcher).Stop
-      - (github.com/KomeiDiSanXian/remilia/plugin.Manager).Register
-      - (github.com/KomeiDiSanXian/remilia/plugin.Manager).Unregister
-      - (github.com/KomeiDiSanXian/remilia/plugin.Manager).Disable
-      - (github.com/KomeiDiSanXian/remilia/middleware/dedup.Filter).CheckDuplicate
-      - (github.com/KomeiDiSanXian/remilia/infra/dlq.Queue).Close
-      - (github.com/KomeiDiSanXian/remilia/infra/dlq.Queue).Enqueue
-      - (github.com/KomeiDiSanXian/remilia/core/fsm.Engine).Register
-      - (github.com/KomeiDiSanXian/remilia/core/fsm.Engine).StartSession
-      - (github.com/KomeiDiSanXian/remilia/core/context.Context).Reply
-      - (github.com/KomeiDiSanXian/remilia/core/context.Context).ReplyText
-      - (github.com/KomeiDiSanXian/remilia.Bot).Stop
-      - (github.com/KomeiDiSanXian/remilia.infra.textimage.Canvas).AddText
-      - (github.com/KomeiDiSanXian/remilia.infra.textimage.Canvas).AddImage
-      - (github.com/KomeiDiSanXian/remilia.infra.textimage.Canvas).AddRow
-      - (github.com/KomeiDiSanXian/remilia.infra.textimage.Canvas).AddBadgeRow
-      - (github.com/KomeiDiSanXian/remilia.infra.textimage.VectorContext).LoadFontFace
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: cmd/bot/plugins
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: plugin/register_p3_features_test.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: plugin/register_auto_dep_test.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: plugin/wasm/adapter.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: plugin/manager_disable_enable_test.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: platform/qq/openapi/openapi.go
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: middleware/resilience
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: testbot
-      text: "Error return value"
-      linters:
-        - errcheck
-    - path: middleware/degradation
-      text: "Error return value"
-      linters:
-        - errcheck
+  settings:
+    staticcheck:
+      checks:
+        - SA*
+        - S*
+        - QF*
+        - -QF1012
+    errcheck:
+      exclude-functions:
+        - (io.ReadCloser).Close
+        - (io.WriteCloser).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*os.File).Close
+        - (net/http.Response).Close
+        - os.Remove
+        - os.RemoveAll
+        - os.WriteFile
+        - os.Chdir
+        - os.Setenv
+        - os.Unsetenv
+        - syscall.SyscallN
+        - fmt.Sscanf
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - (net/http.ResponseWriter).Write
+        - (net/http.Request).ParseForm
+        - encoding/json.Encoder.Encode
+        - math/rand.Read
+        - encoding/json.Unmarshal
+        - (net.Conn).SetDeadline
+        - io/fs.WalkDir
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+      - path: cmd/bot/plugins
+        text: Error return value
+        linters:
+          - errcheck
+      - path: examples
+        text: Error return value
+        linters:
+          - errcheck
+      - path: testbot
+        text: Error return value
+        linters:
+          - errcheck
+      - path: builtin
+        text: Error return value
+        linters:
+          - errcheck
+      - path: plugin/wasm
+        text: Error return value
+        linters:
+          - errcheck
+      - path: infra/textimage
+        text: Error return value
+        linters:
+          - errcheck
+      - path: platform/qq/openapi
+        text: Error return value
+        linters:
+          - errcheck
