@@ -23,6 +23,8 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - name: Ensure dashboarddist for go:embed
+        run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
@@ -54,7 +56,7 @@ jobs:
           node-version: 22
       - name: Build Dashboard
         run: |
-          cd dashboard && npm ci && npx vite build
+          (cd dashboard && npm ci && npx vite build)
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Download dependencies
@@ -85,7 +87,7 @@ jobs:
           node-version: 22
       - name: Build Dashboard
         run: |
-          cd dashboard && npm ci && npx vite build
+          (cd dashboard && npm ci && npx vite build)
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Build
