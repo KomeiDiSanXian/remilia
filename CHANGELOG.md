@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.12.3 (2026-06-22)
+
+### 🚀 性能优化
+
+- **过滤无 Handler 匹配器** — `hasHandler` atomic 标记 + `makeRunnableSlice()` 在 sortedCache 构建时排除无 Handler 匹配器，运行时 5K 匹配器场景吞吐量从 10K 提升至 3M msg/s
+- **ExecProfile 预分配缓冲区** — `snapshotBuf` 复用避免热路径 `make()` 分配，消除 GC 风暴（GC 3181 次→5 次/10s）
+- **ExecProfile demoted 快速路径** — `demoted` atomic 标记避免已确认的快 Handler 重复排序，`ShouldPool` CPU 占比从 20.54% 降至 1.48%
+
+### 📝 文档重构
+
+- 重写 README，更新特性列表和架构图
+- 删除已归档设计文档（`docs/06-archived/`）和过时代码审查报告
+- 修复所有文档中的 `logrus` → `zerolog` 引用
+- 新增 `docs/05-performance/PERFORMANCE_REPORT.md` 性能报告
+- 新增 `docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md` 插件开发指南
+
+### 🧪 Benchmark 修复
+
+- 修复无限压力模式下 semaphore 无效的问题（acquire/release 在同一迭代，无实际并发控制）
+- Drain 等待从 3s 扩展至 30s
+- 延迟测量修正为 `time.Since(ev.Timestamp())`
+- 添加 P50/P95/P99 百分位延迟统计
+- 添加 `--inject-mode blocking` 模式以支持背压测试
+
 ## v1.1.0 (2026-05-07)
 
 ### 🛡️ 稳定性与正确性修复
@@ -56,33 +80,6 @@
 ### 🎉 初始发布
 
 Remilia 是一个现代化、高性能、易于扩展的多平台聊天机器人框架。
-
-#### 🚀 核心特性
-
-- **高性能 COW 引擎** — Copy-on-Write 并发模型，无锁读取，单实例吞吐量 475,000+ msg/s
-- **v2 插件系统** — 函数式设计，自动依赖注入，Smart 注册拓扑排序，支持热重载
-- **多平台适配器** — QQ（Webhook）、Discord（Gateway）、Satori（Chronocat/Lagrange）、Milky、OneBot V11
-- **中间件链** — 日志/限流/重试/熔断/降级/去重/死信队列/Tracing/Metrics，支持热更新阈值
-- **命令系统** — Trie + commandIndex 双索引，O(1) 命令路由
-- **可观测性** — Prometheus 指标、OpenTelemetry 分布式追踪、结构化日志（zerolog）、pprof 性能分析
-- **可靠性** — 优雅关闭、自适应限流、熔断降级、死信队列（文件/Kafka/Webhook）
-- **配置管理** — YAML + 环境变量，配置热更新
-- **32 个内置插件** — Admin、Help、Permission、ACL、AntiSpam、AuditLog、Broadcast、i18n、Scheduler、Storage 等
-
-#### 📦 安装
-
-```bash
-go get github.com/KomeiDiSanXian/remilia
-```
-
-#### 📊 性能指标
-
-| 指标 | 值 |
-|------|-----|
-| 消息吞吐量（空 Handler） | ~475,000 msg/s |
-| Engine ProcessEvent | ~5-6 μs/op |
-| 命令解析 | ~1-2 μs/op |
-| 堆内存（50,000 msg/s） | ~12-14 MB |
 
 #### ⚠️ 注意事项
 
