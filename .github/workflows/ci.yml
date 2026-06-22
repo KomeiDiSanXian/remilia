@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   GO_VERSION: "1.26"
@@ -17,21 +18,22 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - name: Lint
+        run: golangci-lint run ./...
 
   vulncheck:
     name: Vulncheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -42,11 +44,19 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Build Dashboard
+        run: |
+          cd dashboard && npm ci && npm run build
+          mkdir -p cmd/bot/dashboarddist
+          cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Download dependencies
         run: go mod download
       - name: Run tests with coverage
@@ -56,7 +66,7 @@ jobs:
           go mod tidy
           git diff --exit-code go.mod go.sum
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           file: coverage.out
           fail_ci_if_error: false
@@ -65,11 +75,19 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Build Dashboard
+        run: |
+          cd dashboard && npm ci && npm run build
+          mkdir -p cmd/bot/dashboarddist
+          cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Build
         run: go build -v ./...
       - name: Vet
