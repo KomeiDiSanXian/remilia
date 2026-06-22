@@ -39,18 +39,15 @@ const execProfileDemoteAfterFast = 10
 //   - 默认怀疑慢（前几次走池），用事实证明自己快后才降级
 //   - 一次慢立刻提升（promote），长时间快才降级（demote）
 type ExecProfile struct {
-	mu          sync.Mutex
-	results     [execProfileWindowSize]time.Duration
-	idx         atomic.Uint64
-	promoted    atomic.Bool
-	demoted     atomic.Bool // 已确认为快 handler，跳过排序
-	snapshotBuf []time.Duration
+	mu       sync.Mutex
+	results  [execProfileWindowSize]time.Duration
+	idx      atomic.Uint64
+	promoted atomic.Bool
+	demoted  atomic.Bool // 已确认为快 handler，跳过排序
 }
 
 func newExecProfile() *ExecProfile {
-	return &ExecProfile{
-		snapshotBuf: make([]time.Duration, execProfileWindowSize),
-	}
+	return &ExecProfile{}
 }
 
 // ShouldPool 基于历史数据决定当前 handler 是否应走 ExecPool。
@@ -76,11 +73,12 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 		return ExecClassPool // 数据太少，默认走池
 	}
 
-	// 计算 p50：复用预分配缓冲区避免热路径分配
-	snapshot := p.snapshotBuf[:n]
+	// 计算 p50：栈分配固定数组，避免多 goroutine 并发排序的数据竞争
+	var snapshot [execProfileWindowSize]time.Duration
 	for i := range n {
 		snapshot[i] = p.results[i%execProfileWindowSize]
 	}
+	snapSlice := snapshot[:n]
 
 	var recentFast bool
 	if n >= execProfileWindowSize {
@@ -96,8 +94,8 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 	}
 	p.mu.Unlock()
 
-	slices.Sort(snapshot)
-	p50 := snapshot[n/2]
+	slices.Sort(snapSlice)
+	p50 := snapSlice[n/2]
 
 	if p50 > defaultSlowThreshold || p50 >= defaultSlowThreshold {
 		p.promoted.Store(true)

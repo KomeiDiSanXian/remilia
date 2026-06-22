@@ -80,8 +80,6 @@ func TestEngineRaceConditions(t *testing.T) {
 			matcher := engine.OnAny()
 			matcher.Handle(func(ctx *context.Context) error {
 				processCount.Add(1)
-				// timing: simulated processing delay
-				time.Sleep(10 * time.Millisecond)
 				return nil
 			})
 		}
@@ -106,8 +104,6 @@ func TestEngineRaceConditions(t *testing.T) {
 					matcher.Handle(func(ctx *context.Context) error {
 						return nil
 					})
-					// timing: simulated delay for race conditioning
-					time.Sleep(5 * time.Millisecond)
 				}
 			})
 		}
@@ -138,22 +134,25 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 			return nil
 		})
 
-		// 启动多个事件处理
+		// 启动多个事件处理，使用 channel 确保所有 goroutine 已调度后再 shutdown
 		const eventCount = 5
+		started := make(chan struct{}, eventCount)
 		for range eventCount {
 			go func() {
+				started <- struct{}{}
 				ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 				engine.ProcessEvent(ctx)
 			}()
 		}
 
-		// Wait for at least one event to start processing
+		// 等待所有 goroutine 已调度（避免 -race 下调度延迟导致 shutdown 先执行）
+		for range eventCount {
+			<-started
+		}
+		// 给事件一点时间进入处理状态
 		assert.Eventually(t, func() bool {
 			return processingCount.Load() > 0
 		}, time.Second, 10*time.Millisecond)
-
-		// 确认有事件正在处理
-		assert.Greater(t, processingCount.Load(), int32(0), "Should have events processing")
 
 		// 开始关闭（应该等待）
 		shutdownStart := time.Now()

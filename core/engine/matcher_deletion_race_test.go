@@ -247,15 +247,16 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 			Rules: []context.Rule{
 				context.OnFullMatch("test"),
 			},
-			Handler: func(ctx *context.Context) error {
-				return nil
-			},
 			coordinator: engine,
 			Source:      "test",
 		}
+		m.Handle(func(ctx *context.Context) error {
+			return nil
+		})
 		m.priority.Store(50)
 		m.rt.maxUseCount = 1
 		atomic.StoreInt32(&m.rt.isTemp, 1)
+
 		engine.internals.tempManager.Add(m)
 	}
 

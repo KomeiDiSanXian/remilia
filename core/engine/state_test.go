@@ -100,6 +100,7 @@ func TestCopyMiddlewareState_Semantics(t *testing.T) {
 func makeTestMatcher(et string, priority uint64) *Matcher {
 	m := &Matcher{EventType: et, Source: "test"}
 	m.priority.Store(priority)
+	m.hasHandler.Store(true) // sortedCache 测试需要标记为有 Handler
 	return m
 }
 

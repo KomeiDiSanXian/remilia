@@ -669,6 +669,11 @@ func (s *state) rebuildCommandListCache() {
 func (s *state) addMatcher(m *Matcher) {
 	s.matchers = append(s.matchers, m)
 
+	// 自动推导 hasHandler：直接设置 Handler 字段（非 Handle() 调用）也生效
+	if m.Handler != nil {
+		m.hasHandler.Store(true)
+	}
+
 	cmd := m.GetCommand()
 	if cmd != "" {
 		m.commandIndexed.Store(true)
