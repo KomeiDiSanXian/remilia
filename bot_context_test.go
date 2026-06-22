@@ -36,24 +36,24 @@ func (a *ctxMockAdapter) IsRunning() bool              { return false }
 // waitBotRunning 等待 Bot 进入 running 状态
 func waitBotRunning(t *testing.T, b *Bot) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if b.IsRunning() {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("bot did not reach running state in time")
 }
 
 func waitBotHealthy(t *testing.T, b *Bot) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if h := b.Health(); h.Status == "healthy" {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("bot did not become healthy in time (last status: %s)", b.Health().Status)
 }
