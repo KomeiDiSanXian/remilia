@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.12.4 (2026-06-22)
+
+### 🛡️ CI 稳定性修复
+
+- **修复 `ExecProfile.ShouldPool` 数据竞争** — 栈分配固定数组替代共享 `snapshotBuf`，消除多 goroutine 并发排序的数据竞争
+- **修复 `TestEngineShutdownWithPendingEvents` 时序依赖** — channel 同步替代 `assert.Eventually` 等待 goroutine 调度
+- **修复 `TestHealthChecker` 超时** — `waitBotRunning`/`waitBotHealthy` 超时从 3s 提升至 10s
+- **`addMatcher` 自动推导 `hasHandler`** — 直接设置 `Handler` 字段的场景自动标记 `hasHandler`
+- **测试代码使用标准 API** — 统一使用 `Handle()` 而非直接赋值 `Handler` 字段
+
 ## v1.12.3 (2026-06-22)
 
 ### 🚀 性能优化
