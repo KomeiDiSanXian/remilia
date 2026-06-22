@@ -27,7 +27,13 @@ func (e *Engine) processEventGuard(ctx *context.Context) {
 		return
 	}
 
+	e.eventMu.Lock()
+	if e.shutdown.Load() {
+		e.eventMu.Unlock()
+		return
+	}
 	e.eventWg.Add(1)
+	e.eventMu.Unlock()
 	defer e.eventWg.Done()
 
 	defer func() {

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,13 +17,16 @@ func TestScope_SubscribeAutoCleanup(t *testing.T) {
 	pm := NewManager(eng)
 	eb := pm.GetEventBus()
 
+	var mu sync.Mutex
 	var received []string
 	desc := &Descriptor{
 		Name: "test-scope",
 		Setup: func(ctx *SetupContext) (any, error) {
 			root := ctx.Scope()
 			root.Subscribe("test.topic", func(_ context.Context, data any) error {
+				mu.Lock()
 				received = append(received, data.(string))
+				mu.Unlock()
 				return nil
 			})
 			return nil, nil
@@ -34,17 +38,23 @@ func TestScope_SubscribeAutoCleanup(t *testing.T) {
 	eb.Publish("test.topic", "hello")
 	eb.Publish("test.topic", "world")
 	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
 	assert.Len(t, received, 2)
 	assert.Contains(t, received, "hello")
 	assert.Contains(t, received, "world")
+	mu.Unlock()
 
 	// 卸载插件——Scope 自动 Dispose
 	pm.Unregister(t.Context(), "test-scope")
+	mu.Lock()
 	received = nil
+	mu.Unlock()
 
 	// 再次发布——不应收到（订阅已被取消）
 	eb.Publish("test.topic", "should-not-receive")
+	mu.Lock()
 	assert.Empty(t, received)
+	mu.Unlock()
 }
 
 // TestScope_ChildScopeCascadeDispose 验证子 Scope 级联清理。

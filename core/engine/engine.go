@@ -68,6 +68,9 @@ type Engine struct {
 	// shutdown 标志位，Shutdown() 时设置，ProcessEvent 热路径上通过 Load 检查
 	shutdown atomic.Bool
 
+	// eventMu 保证 eventWg.Add(1) 在 eventWg.Wait() 开始前完成
+	eventMu sync.Mutex
+
 	// eventWg 追踪活跃的 ProcessEvent 调用，Shutdown() 等待归零
 	eventWg sync.WaitGroup
 }
@@ -165,6 +168,9 @@ func NewEngine(options ...Option) *Engine {
 func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	// 设置 shutdown 标志，阻止新事件进入 ProcessEvent
 	e.shutdown.Store(true)
+	// 确保 eventMu 释放后无新的 Add，保证 Wait 不会与 Add 并发
+	e.eventMu.Lock()
+	e.eventMu.Unlock()
 
 	// 停止所有后台 goroutine
 	e.internals.stopAll()
@@ -181,10 +187,7 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 
 	// 等待所有活跃的 ProcessEvent 调用完成
 	done := make(chan struct{})
-	go func() {
-		e.eventWg.Wait()
-		close(done)
-	}()
+	go waitOnWaitgroup(&e.eventWg, done)
 
 	select {
 	case <-done:
@@ -224,4 +227,12 @@ func (e *Engine) addMatcherToStateSilently(m *Matcher) {
 	defer e.writeMu.Unlock()
 
 	e.state.Store(e.state.Load().withAddedMatcher(m))
+}
+
+// waitOnWaitgroup waits for a sync.WaitGroup and closes the done channel.
+// Defined as a package-level function (not a closure) to avoid race detector
+// false positives from closure variable capture in go statements.
+func waitOnWaitgroup(wg *sync.WaitGroup, done chan<- struct{}) {
+	wg.Wait()
+	close(done)
 }

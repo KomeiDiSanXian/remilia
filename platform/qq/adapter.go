@@ -174,12 +174,15 @@ func (a *Adapter) Stop(ctx stdctx.Context) error {
 
 // fetchBotIdentity 调用 GetMe 以填充 botID 和 botName。
 func (a *Adapter) fetchBotIdentity(ctx stdctx.Context) {
-	if a.api == nil {
+	a.mu.RLock()
+	api := a.api
+	a.mu.RUnlock()
+	if api == nil {
 		return
 	}
 	fetchCtx, cancel := stdctx.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	result, err := a.api.GetMe(fetchCtx)
+	result, err := api.GetMe(fetchCtx)
 	if err != nil {
 		logger.WithError(err).Debug("[qq.Adapter] Could not fetch bot identity")
 		return

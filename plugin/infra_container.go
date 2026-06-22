@@ -24,7 +24,8 @@ type Container struct {
 	services sync.Map // name → *serviceEntry
 
 	// typeIndex 类型索引：reflect.Type → []*serviceEntry
-	typeIndex sync.Map
+	typeIndex    sync.Map
+	typeIndexMu  sync.Mutex
 
 	// 冻结后的只读快照
 	frozen     atomic.Bool
@@ -84,11 +85,14 @@ func typeIndexKey[T any]() reflect.Type {
 
 // addToTypeIndex 将条目加入类型索引。
 func (c *Container) addToTypeIndex(entry *serviceEntry) {
+	c.typeIndexMu.Lock()
+	defer c.typeIndexMu.Unlock()
 	raw, _ := c.typeIndex.Load(entry.typ)
 	entries, _ := raw.([]*serviceEntry)
-	for _, e := range entries {
+	for i, e := range entries {
 		if e.name == entry.name {
-			e.value = entry.value
+			entries[i] = entry
+			c.typeIndex.Store(entry.typ, entries)
 			return
 		}
 	}
@@ -97,6 +101,8 @@ func (c *Container) addToTypeIndex(entry *serviceEntry) {
 
 // removeFromTypeIndex 从类型索引移除条目。
 func (c *Container) removeFromTypeIndex(entry *serviceEntry) {
+	c.typeIndexMu.Lock()
+	defer c.typeIndexMu.Unlock()
 	raw, ok := c.typeIndex.Load(entry.typ)
 	if !ok {
 		return
@@ -192,6 +198,8 @@ func lookupServiceType[T any](c *Container) []*serviceEntry {
 
 // lookupServiceTypeByReflect 从类型索引查找（非泛型版，供三色 DryRun 的 pending 类型使用）。
 func lookupServiceTypeByReflect(c *Container, typ reflect.Type) []*serviceEntry {
+	c.typeIndexMu.Lock()
+	defer c.typeIndexMu.Unlock()
 	raw, ok := c.typeIndex.Load(typ)
 	if !ok {
 		return nil

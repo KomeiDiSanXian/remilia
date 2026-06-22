@@ -113,17 +113,20 @@ func (m *mockAdapter) Stop(_ context.Context) error {
 
 	m.shutdown = true
 	goroutineStarted := m.goroutineStarted
+	cancel := m.cancel
+	done := m.done
+	ev := m.events
 	m.mu.Unlock()
 
-	if m.cancel != nil {
-		m.cancel()
+	if cancel != nil {
+		cancel()
 	}
 
 	if goroutineStarted {
-		<-m.done
+		<-done
 	}
 
-	close(m.events)
+	close(ev)
 
 	return nil
 }

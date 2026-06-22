@@ -2,6 +2,7 @@ package engine
 
 import (
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,6 +39,7 @@ const execProfileDemoteAfterFast = 10
 //   - 默认怀疑慢（前几次走池），用事实证明自己快后才降级
 //   - 一次慢立刻提升（promote），长时间快才降级（demote）
 type ExecProfile struct {
+	mu       sync.Mutex
 	results  [execProfileWindowSize]time.Duration
 	idx      atomic.Uint64
 	promoted atomic.Bool
@@ -55,40 +57,44 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 		return ExecClassPool
 	}
 
+	p.mu.Lock()
 	n := min(p.idx.Load(), execProfileWindowSize)
 	if n < execProfilePromoteAfter+1 {
+		p.mu.Unlock()
 		return ExecClassPool // 数据太少，默认走池
 	}
 
-	// 计算 p50
-	sorted := make([]time.Duration, n)
+	// 计算 p50 (snapshot 结果，释放锁后再排序)
+	snapshot := make([]time.Duration, n)
 	for i := range n {
-		sorted[i] = p.results[i%execProfileWindowSize]
+		snapshot[i] = p.results[i%execProfileWindowSize]
 	}
-	slices.Sort(sorted)
-	p50 := sorted[n/2]
 
-	threshold := defaultSlowThreshold
+	var recentFast bool
+	if n >= execProfileWindowSize {
+		recentFast = true
+		idx := p.idx.Load()
+		start := idx - execProfileDemoteAfterFast
+		for i := start; i < idx; i++ {
+			if p.results[i%execProfileWindowSize] > defaultSlowThreshold/2 {
+				recentFast = false
+				break
+			}
+		}
+	}
+	p.mu.Unlock()
 
-	if p50 > threshold || p50 >= threshold {
+	slices.Sort(snapshot)
+	p50 := snapshot[n/2]
+
+	if p50 > defaultSlowThreshold || p50 >= defaultSlowThreshold {
 		p.promoted.Store(true)
 		return ExecClassPool
 	}
 
-	if n >= execProfileWindowSize && p50 < threshold/2 {
-		allFast := true
-		idx := p.idx.Load()
-		start := idx - execProfileDemoteAfterFast
-		for i := start; i < idx; i++ {
-			if p.results[i%execProfileWindowSize] > threshold/2 {
-				allFast = false
-				break
-			}
-		}
-		if allFast {
-			p.promoted.Store(false)
-			return ExecClassDirect
-		}
+	if n >= execProfileWindowSize && p50 < defaultSlowThreshold/2 && recentFast {
+		p.promoted.Store(false)
+		return ExecClassDirect
 	}
 
 	return ExecClassPool
@@ -97,7 +103,9 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 // Record 记录一次 handler 执行耗时，供后续 ShouldPool 决策使用。
 func (p *ExecProfile) Record(elapsed time.Duration) {
 	idx := p.idx.Add(1) - 1
+	p.mu.Lock()
 	p.results[idx%execProfileWindowSize] = elapsed
+	p.mu.Unlock()
 
 	// 单次极慢也直接提升（快速隔离故障）
 	if elapsed > defaultSlowThreshold*2 {
@@ -114,7 +122,9 @@ func (p *ExecProfile) IsPromoted() bool {
 func (p *ExecProfile) Reset() {
 	p.promoted.Store(false)
 	p.idx.Store(0)
+	p.mu.Lock()
 	for i := range p.results {
 		p.results[i] = 0
 	}
+	p.mu.Unlock()
 }
