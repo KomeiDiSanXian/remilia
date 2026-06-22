@@ -25,7 +25,7 @@
 
 ### 🚀 核心能力
 
-- **高性能 COW 引擎** — Copy-on-Write 并发模型，无锁读取，单实例吞吐量 ~450,000 msg/s
+- **高性能 COW 引擎** — Copy-on-Write 并发模型，无锁读取，单实例端到端吞吐量 ~450,000 msg/s
 - **插件系统** — 函数式 Descriptor 设计，自动依赖注入，蓝绿热重载，Smart 注册自动推断依赖
 - **WASM 跨语言插件** — TinyGo / Rust / C 编写 WASM 插件，wazero 沙箱隔离，TLV 序列化
 - **多平台适配** — QQ / Discord / OneBot / Satori / Telegram / WeChat / Milky，统一 Adapter 接口
@@ -302,14 +302,14 @@ manager.Register(myplugin.New())
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 无限压力吞吐量 | **~450,000 msg/s** | 16 核端到端压测，100% 成功率，无丢包 |
-| 50,000 msg/s 压力测试 | 100% 达成 | 含 1K 匹配器时 CPU ~283%（多核缩放） |
-| Engine ProcessEvent | ~285 ns/op | 引擎分发热路径（micro-benchmark） |
+| 端到端吞吐量（无匹配器） | **~450,000 msg/s** | 16 核端到端压测，100% 成功率 |
+| 端到端吞吐量（5K 匹配器） | **~235,000 msg/s** | 16 核，含 2500 个事件类型匹配器 |
+| Engine ProcessEvent（micro） | ~285 ns/op | 引擎分发热路径 |
 | 命令解析 | ~1,250 ns/op | 双索引 O(1) 路由 |
 | Context Get/Set | 0 allocs/op | 免 GC 上下文访问 |
 | 堆内存（50K msg/s）| ~12-17 MB | 极低内存占用 |
 
-> 端到端压测使用 `examples/benchmark/throughput_bench.go`，包含完整适配器→引擎→处理器链路
+> 端到端压测使用 `examples/benchmark/throughput_bench.go`（已修复 drain、延迟测量等设计问题）
 > 详细报告: [docs/05-performance/PERFORMANCE_REPORT.md](docs/05-performance/PERFORMANCE_REPORT.md)
 
 ---
