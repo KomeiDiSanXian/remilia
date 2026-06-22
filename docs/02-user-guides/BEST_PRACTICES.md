@@ -1,7 +1,7 @@
 # Remilia 最佳实践
 
 > **最后更新**: 2026-02-25  
-> **适用版本**: v2.0.0+
+
 
 本文档总结了使用 Remilia 框架开发 QQ 机器人的最佳实践和常见模式。
 
@@ -66,12 +66,12 @@ package handlers
 
 import (
     "github.com/KomeiDiSanXian/remilia/core/engine"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func RegisterCommands(eng *engine.Engine) {
-    eng.OnCommand(dto.GroupAtMessageCreate, "/help").Handle(HandleHelp)
-    eng.OnCommand(dto.GroupAtMessageCreate, "/weather").Handle(HandleWeather)
+    eng.OnCommand(platform.EventKindGroupMessage, "/help").Handle(HandleHelp)
+    eng.OnCommand(platform.EventKindGroupMessage, "/weather").Handle(HandleWeather)
 }
 
 // handlers/help.go
@@ -370,11 +370,11 @@ func FetchData(url string) ([]byte, error) {
 #### ✅ DO
 
 ```go
-import "github.com/sirupsen/logrus"
+import "github.com/KomeiDiSanXian/remilia/infra/logger"
 
 // 使用结构化字段
 func HandleCommand(ctx *eventctx.Context) error {
-    log := logrus.WithFields(logrus.Fields{
+    log := logger.WithFields(logger.Fields{
         "command": "/weather",
         "user":    ctx.GetAuthor(),
         "guild":   ctx.GetGuildID(),
@@ -397,22 +397,22 @@ func HandleCommand(ctx *eventctx.Context) error {
 
 ```go
 // 设置合适的日志级别
-logrus.SetLevel(logrus.InfoLevel)
+logger.SetLevel("info")
 
 // Debug - 详细的调试信息
-logrus.Debug("Cache hit", "key", key)
+logger.WithField("key", key).Debug("Cache hit")
 
 // Info - 一般信息
-logrus.Info("User logged in", "user_id", userID)
+logger.WithField("user_id", userID).Info("User logged in")
 
 // Warn - 警告信息
-logrus.Warn("Rate limit approaching", "usage", "90%")
+logger.WithField("usage", "90%").Warn("Rate limit approaching")
 
 // Error - 错误信息
-logrus.WithError(err).Error("Database query failed")
+logger.WithError(err).Error("Database query failed")
 
 // Fatal - 致命错误（会退出程序）
-logrus.Fatal("Failed to start server")
+logger.Fatal("Failed to start server")
 ```
 
 ---
@@ -615,15 +615,15 @@ import (
     "testing"
     
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
     "github.com/stretchr/testify/assert"
 )
 
 func TestHandleHelp(t *testing.T) {
     // 创建测试上下文
-    event := &dto.Payload{
+    event := &platform.Event{
         ID:   "test-id",
-        Type: dto.EventTypeAtMessageCreate,
+        Kind: platform.EventKindGroupMessage,
     }
     ctx := eventctx.NewContext(event, nil)
     
@@ -764,7 +764,7 @@ type Bot struct {
     engine  *engine.Engine
     db      *Database
     cache   *Cache
-    logger  *logrus.Logger
+    logger  *logger.Logger
 }
 
 func NewBot(eng *engine.Engine, db *Database, cache *Cache) *Bot {
@@ -772,7 +772,7 @@ func NewBot(eng *engine.Engine, db *Database, cache *Cache) *Bot {
         engine: eng,
         db:     db,
         cache:  cache,
-        logger: logrus.StandardLogger(),
+        logger: logger.DefaultLogger(),
     }
 }
 ```

@@ -1,8 +1,7 @@
-# Plugin v2 快速上手
+# 插件开发指南
 
-> **最后更新**: 2026-02-25  
-> **适用版本**: v2.0.0+  
-> **说明**: v1 `BasePlugin` 已在 v2.0.0 中完全移除。本文是 v2 API 的完整快速入门。
+> **最后更新**: 2026-06-22  
+> **说明**: 本文是插件 API 的完整开发指南。
 
 ---
 
@@ -14,7 +13,7 @@ package myplugin
 import (
     "github.com/KomeiDiSanXian/remilia/plugin"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+    "github.com/KomeiDiSanXian/remilia/platform"
 )
 
 func New() *plugin.Descriptor {
@@ -24,7 +23,7 @@ func New() *plugin.Descriptor {
         Version: "1.0.0",
 
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.On(dto.GroupAtMessageCreate, eventctx.OnCommand("/hello")).
+            ctx.Reg.On(platform.EventKindGroupMessage, eventctx.OnCommand("/hello")).
                 Handle(p.handleHello)
             return p, nil // 导出到容器；nil 也合法
         },
@@ -118,8 +117,8 @@ err := manager.RegisterMultipleSmart(
 ```go
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     // Matcher / Command 注册
-    ctx.Reg.On(dto.C2CMessageCreate).Handle(handler)
-    ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/cmd").Handle(handler)
+    ctx.Reg.On(platform.EventKindPrivateMessage).Handle(handler)
+    ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/cmd").Handle(handler)
 
     // 带前缀结构化日志
     ctx.Log.Info("starting")
@@ -194,8 +193,8 @@ import (
     "time"
 
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
     "github.com/KomeiDiSanXian/remilia/plugin"
+    "github.com/KomeiDiSanXian/remilia/platform"
 )
 
 type Plugin struct {
@@ -226,7 +225,7 @@ func New() *plugin.Descriptor {
                 })
             }
 
-            ctx.Reg.RegisterCommand(dto.GroupAtMessageCreate, "/weather").
+            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/weather").
                 Handle(p.handleWeather)
 
             ctx.Spawn(func(runCtx context.Context) {

@@ -10,12 +10,10 @@
 
 <div align="center">
 
-![Remilia Logo](https://img.shields.io/badge/Remilia-QQ%20Bot%20Framework-blue)
 ![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
-一个现代化、高性能、易于扩展的 QQ 机器人框架
+一个现代化、高性能、易于扩展的多平台机器人框架
 
 [快速开始](#快速开始) • [文档](#文档) • [示例](#示例) • [贡献](#贡献)
 
@@ -23,49 +21,35 @@
 
 ---
 
-## 🎉 v1.0.0
-
-> **✅ Plugin v2 API 正式版**
->
-> v1 API (BasePlugin) 已完全移除，v2 API 是目前唯一的插件开发方式。
->
-> **v2 API 优势**:
-> - ✅ 无需继承，函数式设计
-> - ✅ 自动依赖注入（`Require` / `Optional` / `MustAs`）
-> - ✅ 后台 goroutine（`ctx.Spawn`）与并发任务组（`ctx.NewTaskGroup`）
-> - ✅ 读写分离权限模型（`PluginInfo` 只读 / `ManagerWriter` 写）
-> - ✅ Smart 注册自动推断依赖图（无需手写 `Deps`）
->
-> **快速上手**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)  
-> **变更日志**: [CHANGELOG.md](CHANGELOG.md)
-
----
-
 ## ✨ 特性
 
 ### 🚀 核心能力
 
-- **高性能引擎** — COW 并发模型，无锁读取，单实例吞吐量 500,000+ msg/s
-- **插件系统** — v2 函数式插件，热重载（InPlace / BlueGreen 策略），自动依赖排序
-- **WASM 插件** — 跨语言插件支持（TinyGo / Rust / C），wazero 沙箱隔离，TLV 序列化
-- **中间件机制** — 限流 / 重试 / 降级 / 死信队列 / 去重，支持热更新阈值
-- **命令解析** — Trie 树 + commandIndex 双索引，O(1) 命令路由
-- **配置管理** — YAML / 环境变量，配置热更新（`hotreload.Bridge`）
+- **高性能 COW 引擎** — Copy-on-Write 并发模型，无锁读取，单实例吞吐量 ~450,000 msg/s
+- **插件系统** — 函数式 Descriptor 设计，自动依赖注入，蓝绿热重载，Smart 注册自动推断依赖
+- **WASM 跨语言插件** — TinyGo / Rust / C 编写 WASM 插件，wazero 沙箱隔离，TLV 序列化
+- **多平台适配** — QQ / Discord / OneBot / Satori / Telegram / WeChat / Milky，统一 Adapter 接口
+- **FSM 状态机引擎** — 声明式多步骤对话管理，上下文感知的状态迁移
+- **Adaptive Router** — 策略路由层，优先级驱动的 FSM / Engine 事件分发
+- **6 路合并 Matcher** — commandIndex O(1) 命令路由 + 6 路优先级排序合并
+- **中间件链** — 洋葱模型，限流 / 熔断 / 降级 / 重试 / 去重 / 超时，支持热更新阈值
+- **配置热更新** — YAML + 环境变量，fsnotify 监听，Bridge 推模式实时推送
 
 ### 🛡️ 可靠性保障
 
-- **优雅关闭** — 完整的生命周期管理，确保消息不丢失
-- **自适应限流** — 根据系统负载自动调整并发限制（每实例独立 Prometheus 指标）
-- **熔断降级** — 自动熔断，CPU / 内存阈值热更新
-- **死信队列** — 失败消息持久化，支持人工干预
+- **优雅关闭** — 完整的生命周期管理（lifecycle 包），组件按序启动 / 逆序停止 / 自动回滚
+- **自适应限流** — 根据系统负载动态调整并发限制
+- **熔断降级** — 自动熔断，CPU / 内存阈值可配置热更新
+- **死信队列** — 失败消息持久化，支持人工干预与重放
 - **自适应 Recover** — panic 捕获时自适应堆栈缓冲（4KB → 64KB）
 
 ### 📊 可观测性
 
-- **Prometheus 集成** — 完整的 metrics 暴露
-- **结构化日志** — 基于 zerolog 的结构化日志
-- **健康检查** — HTTP 健康检查端点
-- **性能分析** — 内置 pprof 支持
+- **Prometheus 指标** — 独立 Registry，多实例安全，完整 metrics 暴露
+- **OpenTelemetry 追踪** — OTLP HTTP 导出，自适应采样
+- **结构化日志** — 基于 zerolog，零分配热路径日志
+- **健康检查** — HTTP 端点，多层级健康探针（Bot / Adapter / DLQ）
+- **pprof 性能分析** — 内置 pprof 服务器，自动 CPU / 堆转储
 
 ---
 
@@ -81,17 +65,15 @@ go get github.com/KomeiDiSanXian/remilia
 
 ## 🚀 快速开始
 
-### 1. 基础示例
+### 1. QQ 平台基础示例
 
 ```go
 package main
 
 import (
-    "fmt"
-
     "github.com/KomeiDiSanXian/remilia"
-    "github.com/KomeiDiSanXian/remilia/core/engine"
     eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/core/engine"
     "github.com/KomeiDiSanXian/remilia/platform"
     "github.com/KomeiDiSanXian/remilia/platform/qq"
     "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -100,13 +82,11 @@ import (
 func main() {
     eng := engine.NewEngine()
 
-    // 注册平台无关的命令处理器
     eng.OnCommand(platform.EventKindGroupMessage, "/echo").
         Handle(func(ctx *eventctx.Context) error {
             return ctx.Reply(platform.TextMessage("你说: " + ctx.GetMessageContent()))
         })
 
-    // 创建 QQ 适配器（Webhook 模式）
     botInfo := &dto.BotInfo{
         AppID:     123456,
         Token:     "your-token",
@@ -127,23 +107,34 @@ func main() {
 }
 ```
 
-### 2. 使用中间件
+### 2. 多平台部署
+
+```go
+registry := platform.NewRegistry()
+registry.Register(qqAdapter)
+registry.Register(discordAdapter)
+
+bot, err := remilia.NewBotBuilder().
+    WithPlatformRegistry(registry).
+    WithEngine(eng).
+    Build()
+```
+
+### 3. 使用中间件
 
 ```go
 import "github.com/KomeiDiSanXian/remilia/middleware"
 
 eng.Use(
-    middleware.Logging(),             // 日志记录
-    middleware.Recover(),             // Panic 恢复（自适应堆栈）
-    middleware.SimpleRateLimit(20),   // 全局限流：每秒最多 20 个事件
-    middleware.Timeout(5*time.Second),// 超时（context deadline 注入）
-    middleware.Retry(3),              // 重试
+    middleware.Logging(),
+    middleware.Recover(),
+    middleware.SimpleRateLimit(20),
+    middleware.Timeout(5*time.Second),
+    middleware.Retry(3),
 )
 ```
 
-> **注意**：`ctx.Set(key, nil)` 是 no-op，删除 key 请用 `ctx.Delete(key)`。
-
-### 3. 插件开发（v2 API）
+### 4. 插件开发
 
 ```go
 package myplugin
@@ -157,11 +148,7 @@ import (
 func New() *plugin.Descriptor {
     return &plugin.Descriptor{
         Name:    "myplugin",
-        Version: "1.1.0",
-        Meta: &plugin.Metadata{
-            Description: "我的第一个插件",
-            Category:    "工具",
-        },
+        Version: "1.0.0",
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").
                 Handle(func(c *eventctx.Context) error {
@@ -173,63 +160,14 @@ func New() *plugin.Descriptor {
 }
 ```
 
-**注册插件**：
+**注册插件**:
 
 ```go
 manager := plugin.NewManager(eng)
 manager.Register(myplugin.New())
 ```
 
-**完整指南**: [docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md](docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
-
-### 4. 使用配置文件
-
-```yaml
-# config.yaml
-bot:
-  app_id: 123456
-  bot_id: 654321
-  token: "your-token"
-  secret: "your-secret"
-
-server:
-  host: "0.0.0.0"
-  port: 8080
-
-engine:
-  temp_matcher_cleanup_interval: "5m"
-  pending_delete_buffer_size: 1000
-
-middleware:
-  logging: true
-  rate_limit: true
-  rate_limit_rate: 100
-  degradation_cpu_threshold: 80.0
-  degradation_memory_threshold: 85.0
-```
-
-```go
-cfg, err := config.Load("config.yaml")
-if err != nil { panic(err) }
-
-adapter := qq.NewWebhookServerAdapter(
-    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
-    &dto.BotInfo{
-        AppID:     cfg.Bot.AppID,
-        BotAppID:  cfg.Bot.BotID,
-        Token:     cfg.Bot.Token,
-        AppSecret: cfg.Bot.Secret,
-    },
-)
-
-bot, err := remilia.NewBotBuilder().
-    WithPlatformAdapter(adapter).
-    Build()
-if err != nil { panic(err) }
-
-bot.Start()
-bot.WaitForShutdown()
-```
+**完整指南**: [docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md](docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
 
 ---
 
@@ -240,54 +178,51 @@ bot.WaitForShutdown()
 ### 快速导航
 
 #### 🚀 新手入门
-- [快速开始指南](./docs/01-getting-started/GETTING_STARTED.md) — 10 分钟上手
-- [故障排除](./docs/01-getting-started/TROUBLESHOOTING.md) — 常见问题解答
+- [10 分钟快速开始](./docs/01-getting-started/GETTING_STARTED.md)
+- [故障排除](./docs/01-getting-started/TROUBLESHOOTING.md)
 
 #### 🔌 插件开发
-- [Plugin v2 快速上手](./docs/02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md) — 从零开始写插件
-- [插件接口速查](./docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md) — API 签名速查
-- [插件开发最佳实践](./docs/04-development/plugin-best-practices.md) — 规范与模式
-- [WASM 跨语言插件](./docs/04-development/wasm-plugin-development.md) — TinyGo/Rust/C 插件开发 🆕
+- [插件开发指南](./docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
+- [插件接口速查](./docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md)
+- [插件开发最佳实践](./docs/04-development/plugin-best-practices.md)
+- [WASM 跨语言插件](./docs/04-development/wasm-plugin-development.md)
 
 #### 📖 用户指南
-- [最佳实践](./docs/02-user-guides/BEST_PRACTICES.md) — 推荐的使用模式
-- [配置快速参考](./docs/02-user-guides/CONFIGURATION_QUICKREF.md) — 配置项速查
-- [配置热更新](./docs/02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md) — Bridge API
-- [Matcher 链式调用](./docs/02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md) — 高级模式
+- [最佳实践](./docs/02-user-guides/BEST_PRACTICES.md)
+- [配置快速参考](./docs/02-user-guides/CONFIGURATION_QUICKREF.md)
+- [配置热更新](./docs/02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md)
+- [错误处理](./docs/02-user-guides/ERROR_HANDLING.md)
+- [分布式追踪](./docs/02-user-guides/tracing.md)
+- [访问控制列表](./docs/02-user-guides/access-control-list.md)
 
 #### 🏗️ 架构设计
-- [并发事件处理](./docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md) — COW 并发模型 + 6 路合并
-- [插件系统设计](./docs/03-architecture/BUILTIN_PLUGINS_DESIGN.md) — 插件架构详解
-- [命令系统集成](./docs/03-architecture/COMMAND_INTEGRATION_PLAN.md) — 命令解析器
-
-#### 📊 质量报告
-- [Core & Middleware 设计评审](docs/06-archived/core-middleware-design-review.md) — P0/P1/P2 全部完成
+- [并发事件处理（COW）](./docs/03-architecture/CONCURRENT_EVENT_PROCESSING.md)
+- [多平台抽象](./docs/03-architecture/MULTI_PLATFORM.md)
+- [Context 传播模式](./docs/03-architecture/CONTEXT_PROPAGATION.md)
+- [权限系统](./docs/03-architecture/permission-system.md)
+- [架构演进总览](./docs/03-architecture/ARCHITECTURE_EVOLUTION.md)
 
 ---
 
 ## 💡 示例
 
-查看 [examples](./examples) 目录获取更多示例（完整说明见 [examples/README.md](./examples/README.md)）：
+查看 [examples](./examples) 目录获取更多示例：
 
-- [showcase](./examples/showcase) ⭐ — 覆盖所有功能的综合示例，含 WASM 插件演示
-- [基础 Bot](./examples/basic-bot) — 最简单的 bot 示例
-- [命令系统](./examples/command-bot) — 完整的命令处理示例
-- [插件开发](./examples/plugin-example) — 自定义插件示例（v2 API）
-- [Plugin v2 演示](./examples/plugin-v2-demo) — v2 插件完整演示
-- [中间件使用](./examples/middleware-example) — 中间件组合使用
-- [配置热更新](./examples/config_hotreload) — 配置热更新示例
-- [配置集成](./examples/config-integration) — Viper 集成
-- [错误处理](./examples/error-handling) — errutil 完整演示
-- [生产环境](./examples/production-ready) — 生产级最佳实践
-- [异步任务](./examples/async-tasks) — goroutine 管理与背压控制
-- [HTTP 客户端](./examples/httpclient-demo) — 重试/超时/中间件链
-- [日志系统](./examples/logger-demo) — 结构化日志多输出
-- [指标监控](./examples/metrics-monitoring) — Prometheus 自定义指标
-- [分布式追踪](./examples/tracing-demo) — OpenTelemetry 集成
-- [SQLite 存储](./examples/sqlite-storage-demo) — 持久化存储示例
-- [帮助发现](./examples/help-discovery) — Help 插件自动发现
-- [Debug 子命令](./examples/debug-subcommand-demo) — 运行时诊断
-- [性能基准](./examples/benchmark) — 引擎吞吐量压测
+- [showcase](./examples/showcase) ⭐ — 综合示例（含 WASM 插件）
+- [basic-bot](./examples/basic-bot) — 最简单的 bot
+- [command-bot](./examples/command-bot) — 命令处理
+- [plugin-example](./examples/plugin-example) — 自定义插件
+- [middleware-example](./examples/middleware-example) — 中间件组合
+- [config_hotreload](./examples/config_hotreload) — 配置热更新
+- [error-handling](./examples/error-handling) — 错误处理
+- [production-ready](./examples/production-ready) — 生产级最佳实践
+- [async-tasks](./examples/async-tasks) — goroutine 管理与背压控制
+- [httpclient-demo](./examples/httpclient-demo) — HTTP 客户端
+- [metrics-monitoring](./examples/metrics-monitoring) — Prometheus 指标
+- [tracing-demo](./examples/tracing-demo) — OpenTelemetry 追踪
+- [sqlite-storage-demo](./examples/sqlite-storage-demo) — SQLite 存储
+- [wasm-plugin](./examples/wasm-plugin) — WASM 插件
+- [benchmark](./examples/benchmark) — 引擎吞吐量压测
 
 ---
 
@@ -296,79 +231,70 @@ bot.WaitForShutdown()
 ### 整体架构
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Application                       │
-│                  (Your Bot Logic)                    │
-└───────────────────┬─────────────────────────────────┘
-                    │
-┌───────────────────▼─────────────────────────────────┐
-│                      Bot                             │
-│              (Lifecycle Manager)                     │
-└───────────────────┬─────────────────────────────────┘
-                    │
-        ┌───────────┴───────────┐
-        │                       │
-┌───────▼────────┐    ┌────────▼────────────────────────┐
-│    Adapter     │    │     Engine (COW)                 │
-│  (接收事件)     │    │  engine.go / matcher_ops.go     │
-└───────┬────────┘    │  command.go / query.go           │
-        │             └────────┬────────────────────────┘
-        │                      │
-        │              ┌───────┴────────┐
-        │              │                │
-        │        ┌─────▼─────┐  ┌──────▼──────┐
-        │        │  Matcher  │  │ Middleware  │
-        │        │  (路由)    │  │  (中间件链)  │
-        │        └─────┬─────┘  └──────┬──────┘
-        │              └────────┬───────┘
-        │                       │
-        │                ┌──────▼──────┐
-        │                │   Handler   │
-        │                │  (业务逻辑)  │
-        │                └──────┬──────┘
-        │                ┌──────▼──────┐
-        │                │  OpenAPI    │
-        │                │ (发送消息)   │
-        │                └─────────────┘
-        │
-┌───────▼─────────────────────────────────────────────┐
-│   Plugin System (v2)                                 │
-│   descriptor / context / container                   │
-│   instance / reload / register                       │
-└─────────────────────────────────────────────────────┘
-        │
-┌───────▼─────────────────────────────────────────────┐
-│              QQ Official API / Webhook               │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                     Application                         │
+│                   (Your Bot Logic)                      │
+└────────────────────┬────────────────────────────────────┘
+                     │
+┌────────────────────▼────────────────────────────────────┐
+│                       Bot                               │
+│               (Lifecycle Manager)                       │
+│   ┌──────────────────┐  ┌──────────────────────────┐    │
+│   │  Platform        │  │     Engine (COW)         │    │
+│   │  Adapters        │  │  ┌──────┐ ┌──────────┐   │    │
+│   │  ┌──────────┐    │  │  │Match │ │Middleware│   │    │
+│   │  │ QQ       │    │  │  │er    │ │Chain     │   │    │
+│   │  │ Discord  │    │  │  └──────┘ └──────────┘   │    │
+│   │  │ Telegram │────┼──┤  ┌──────┐ ┌──────────┐   │    │
+│   │  │ OneBot   │    │  │  │Cmd   │ │Temp      │   │    │
+│   │  │ Satori   │    │  │  │Index │ │Manager   │   │    │
+│   │  │ WeChat   │    │  │  └──────┘ └──────────┘   │    │
+│   │  │ Milky    │    │  └──────────────────────────┘    │
+│   │  └──────────┘    │                                  │
+│   └──────────────────┘                                  │
+├─────────────────────────────────────────────────────────┤
+│  ┌────────────────────────────────────────────────────┐ │
+│  │               Adaptive Router                      │ │
+│  │         (FSM Engine / Engine 策略分发)              │ │
+│  └────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────┤
+│                   Plugin System                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────┐   │
+│  │Descriptor│ │Container │ │ EventBus │ │ 34 B-I    │   │
+│  │  Pattern │ │   (DI)   │ │          │ │  Plugins  │   │
+│  └──────────┘ └──────────┘ └──────────┘ └───────────┘   │
+├─────────────────────────────────────────────────────────┤
+│            Observability (Metrics / Trace / Log)        │
+│      Prometheus · OpenTelemetry · zerolog · pprof       │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 关键特性
 
-#### 1. COW (Copy-On-Write) 引擎
-- **无锁读取**: `ProcessEvent` 完全无锁，`atomic.Load()` 原子获取快照
-- **写时复制**: 修改操作创建新状态，不影响正在进行的读取
-- **文件拆分**: `engine.go`（核心）/ `engine_matcher_ops.go`（写操作）/ `engine_command.go`（命令）/ `engine_query.go`（只读查询）
+#### 1. COW 无锁引擎
+- **无锁读取**: ProcessEvent 完全无锁，atomic.Load 原子获取快照
+- **写时复制**: 修改创建新状态，不影响正在进行的读取
+- **6 路合并**: State(perm/cmd) × Specific/Generic + Temp 优先级排序
 
-#### 2. 智能匹配器路由（6 路合并）
-- **commandIndex**: 消息以 `/` 开头时 O(1) 直接命中，跳过全量遍历
-- **6 路合并**: State(perm/cmd) × Specific/Generic + Temp，按优先级线性合并
-- **Temp 隔离**: State 列表跳过已迁移到 TempManager 的 Matcher
+#### 2. 智能路由
+- **commandIndex**: `/` 开头消息 O(1) 直接命中
+- **FSM 状态机**: 多步骤对话，声明式状态迁移
+- **Adaptive Router**: 策略路由层，FSM / Engine 优先级分发
 
-#### 3. 插件系统（v2）
-- **函数式设计**: `PluginDescriptor` 替代继承，无样板代码
-- **读写分离**: `PluginInfo`（只读）/ `ManagerWriter`（写，需 `Privileged: true`）
-- **Smart 注册**: DryRun 阶段自动推断依赖图，无需手写 `Deps`
+#### 3. 插件系统
+- **函数式 Descriptor**: 无继承，无样板代码
+- **读写分离**: PluginInfo（只读）/ ManagerWriter（写，需 Privileged）
+- **Smart 注册**: DryRun 自动推断依赖图，拓扑排序
 
-#### 4. WASM 插件系统（ABI v2）
-- **跨语言**: TinyGo / Rust / C 均可编写 WASM 插件
-- **沙箱隔离**: wazero 运行时，宿主内存安全隔离
-- **TLV 序列化**: 零依赖二进制序列化，替代 JSON
-- **资源控制**: 限流/超时/响应大小上限/导入数量上限
+#### 4. WASM 跨语言插件
+- **跨语言**: TinyGo / Rust / C
+- **沙箱隔离**: wazero 运行时，内存安全
+- **资源控制**: 限流 / 超时 / 大小上限
 
-#### 4. 中间件链
+#### 5. 中间件链
 - **洋葱模型**: Pre-process → Handler → Post-process
-- **热更新**: `hotreload.Bridge` 推送配置变更给 `DedupFilter` / `AdaptiveDegradation`
-- **自适应 Recover**: `captureStack()` 4KB→64KB 自适应堆栈缓冲
+- **热更新**: Bridge 推送配置变更
+- **完整集合**: Recover / Logging / RateLimit / CircuitBreaker / Retry / Dedup / Degradation / Timeout / RequestID / ConcurrencyLimit
 
 ---
 
@@ -376,24 +302,19 @@ bot.WaitForShutdown()
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 消息吞吐量（空 Handler） | **~475,000 msg/s** | 16 核 CPU 80%，COW 无锁并发 |
-| 含 1K Matcher (20K msg/s) | **100% @ 10% CPU** | 6 路合并排序，匹配开销可预测 |
-| Engine ProcessEvent | ~5-6 μs/op | COW 无锁读取 + 6 路合并排序 |
-| 命令解析 | ~1-2 μs/op | Trie + commandIndex 双索引 O(1) |
-| Context Pool | 0 allocs/op | 对象池复用 |
-| 堆内存（50,000 msg/s）| ~12-14 MB | 极低内存占用，无泄漏 |
+| 无限压力吞吐量 | **~450,000 msg/s** | 16 核端到端压测，100% 成功率，无丢包 |
+| 50,000 msg/s 压力测试 | 100% 达成 | 含 1K 匹配器时 CPU ~283%（多核缩放） |
+| Engine ProcessEvent | ~285 ns/op | 引擎分发热路径（micro-benchmark） |
+| 命令解析 | ~1,250 ns/op | 双索引 O(1) 路由 |
+| Context Get/Set | 0 allocs/op | 免 GC 上下文访问 |
+| 堆内存（50K msg/s）| ~12-17 MB | 极低内存占用 |
 
-测试环境: 16 CPU, 32 GB RAM, Go 1.26.1, GOMAXPROCS=16
-
-> 详细测试报告: [examples/benchmark](examples/benchmark/)
+> 端到端压测使用 `examples/benchmark/throughput_bench.go`，包含完整适配器→引擎→处理器链路
+> 详细报告: [docs/05-performance/PERFORMANCE_REPORT.md](docs/05-performance/PERFORMANCE_REPORT.md)
 
 ---
 
 ## 🤝 贡献
-
-我们欢迎所有形式的贡献！
-
-### 如何贡献
 
 1. Fork 本仓库
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
@@ -401,28 +322,13 @@ bot.WaitForShutdown()
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 开启 Pull Request
 
-### 贡献指南
-
-- 遵循 Go 代码规范和最佳实践
-- 添加必要的测试用例
-- 更新相关文档
-- 确保所有测试通过（`go test ./...`）
-
 ### 开发环境
 
 ```bash
-# 克隆仓库
 git clone https://github.com/KomeiDiSanXian/remilia.git
 cd remilia
-
-# 安装依赖
 go mod download
-
-# 运行测试
 go test ./...
-
-# 运行示例
-go run examples/basic-bot/main.go
 ```
 
 ---
@@ -438,24 +344,6 @@ go run examples/basic-bot/main.go
 - [QQ 官方机器人文档](https://bot.q.qq.com/wiki/)
 - [Go 社区](https://golang.org/)
 - 所有贡献者
-
----
-
-## 📮 联系方式
-
-- **Issues**: [GitHub Issues](https://github.com/KomeiDiSanXian/remilia/issues)
-- **讨论**: [GitHub Discussions](https://github.com/KomeiDiSanXian/remilia/discussions)
-
----
-
-## 🗺️ 路线图
-
-### v2.1.0（规划中）
-
-- [ ] WebSocket 模式支持
-- [ ] 消息队列集成
-- [ ] 分布式部署支持
-- [ ] 可视化管理界面
 
 ---
 

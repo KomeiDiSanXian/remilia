@@ -43,14 +43,14 @@ netstat -ano | findstr :8080
 #### 检查配置
 ```go
 // 添加详细日志
-logrus.SetLevel(logrus.DebugLevel)
+logger.SetLevel("debug")
 
 // 验证配置
 config, err := config.Load("config.yaml")
 if err != nil {
-    log.Fatal("Config error:", err)
+    logger.Fatal("Config error: " + err.Error())
 }
-log.Info("Config loaded:", config)
+logger.Infof("Config loaded: %+v", config)
 ```
 
 #### 测试依赖服务
@@ -253,7 +253,7 @@ eng.Use(func(next eventctx.Handler) eventctx.Handler {
         duration := time.Since(start)
         
         if duration > 100*time.Millisecond {
-            log.WithFields(logrus.Fields{
+            logger.WithFields(logger.Fields{
                 "duration": duration,
                 "type":     ctx.GetEventType(),
             }).Warn("Slow handler")
@@ -555,13 +555,7 @@ log.Info("BOT_TOKEN:", token)
 
 ```go
 // 设置 Debug 级别
-logrus.SetLevel(logrus.DebugLevel)
-
-// 显示文件和行号
-logrus.SetReportCaller(true)
-
-// 使用 JSON 格式（便于解析）
-logrus.SetFormatter(&logrus.JSONFormatter{})
+logger.SetLevel("debug")
 ```
 
 ### 添加请求追踪
@@ -573,9 +567,9 @@ eng.Use(middleware.RequestID())
 // 在处理器中获取
 eng.On("", context.OnAny()).Handle(func(ctx *eventctx.Context) error {
     requestID, _ := ctx.Get(middleware.CtxKeyRequestID)
-    log := logrus.WithField("request_id", requestID)
+    l := logger.WithField("request_id", requestID)
     
-    log.Info("Processing message")
+    l.Info("Processing message")
     // ...
     return nil
 })

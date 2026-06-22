@@ -275,7 +275,9 @@ middleware:
 cfg, err := config.Load("config.yaml")
 if err != nil { panic(err) }
 
-bot, err := remilia.NewBotFromConfig(cfg)
+bot, err := remilia.NewBotBuilder().
+    WithEngine(eng).
+    Build()
 if err != nil { panic(err) }
 
 bot.Start()
@@ -312,7 +314,7 @@ eng.Use(ctrl.Middleware())
 
 ---
 
-## 🔌 使用插件（v2 API）
+## 🔌 使用插件
 
 ```go
 package main
@@ -368,7 +370,7 @@ func main() {
 
 ## 📚 下一步
 
-- [插件 v2 快速上手](../02-user-guides/PLUGIN_V1_TO_V2_MIGRATION.md)
+- [插件开发指南](../02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
 - [插件最佳实践](../04-development/plugin-best-practices.md)
 - [配置系统](../02-user-guides/CONFIGURATION_QUICKREF.md)
 - [中间件链最佳实践](../02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md)

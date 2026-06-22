@@ -24,8 +24,8 @@
 
 ---
 
-### [PLUGIN_V1_TO_V2_MIGRATION.md](./PLUGIN_V1_TO_V2_MIGRATION.md) 🔌
-**Plugin v2 快速上手**
+### [PLUGIN_DEVELOPMENT_GUIDE.md](./PLUGIN_DEVELOPMENT_GUIDE.md) 🔌
+**插件开发指南**
 
 学习：
 - Descriptor 完整字段说明
@@ -34,7 +34,7 @@
 - 依赖获取（Service[T] / TryService[T] / ExportIface[T]）
 - 完整示例：天气插件
 
-**适合**: 所有插件开发者（v1 已移除，本文是唯一入口）
+**适合**: 所有插件开发者
 
 ---
 
@@ -158,7 +158,7 @@
 👉 阅读 [BEST_PRACTICES.md](./BEST_PRACTICES.md)
 
 #### 开发一个插件（从零开始）
-👉 阅读 [PLUGIN_V1_TO_V2_MIGRATION.md](./PLUGIN_V1_TO_V2_MIGRATION.md)
+👉 阅读 [PLUGIN_DEVELOPMENT_GUIDE.md](./PLUGIN_DEVELOPMENT_GUIDE.md)
 
 #### 快速查阅插件 API
 👉 阅读 [PLUGIN_OPTIONAL_INTERFACES.md](./PLUGIN_OPTIONAL_INTERFACES.md)
@@ -182,7 +182,7 @@
 3. [配置快速参考](./CONFIGURATION_QUICKREF.md)
 
 ### 插件开发路径
-1. [Plugin v2 快速上手](./PLUGIN_V1_TO_V2_MIGRATION.md)
+1. [插件开发指南](./PLUGIN_DEVELOPMENT_GUIDE.md)
 2. [插件接口速查](./PLUGIN_OPTIONAL_INTERFACES.md)
 3. [插件开发最佳实践](../04-development/plugin-best-practices.md)
 

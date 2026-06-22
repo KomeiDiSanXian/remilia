@@ -22,29 +22,16 @@
 
 ---
 
-### [BUILTIN_PLUGINS_DESIGN.md](./BUILTIN_PLUGINS_DESIGN.md) 🔌
-**内置插件系统设计**
+### [CONTEXT_PROPAGATION.md](./CONTEXT_PROPAGATION.md) 🔗
+**Context 传播模式**
 
-学习：
-- 插件系统架构（v2 Descriptor）
-- 插件生命周期管理
-- PluginInfo / ManagerWriter 权限模型
-- 依赖管理与注入
+详解：
+- Lifecycle 分层架构（WithoutCancel + parentCtx/runCtx）
+- WithContext 组件绑定模式
+- 两种模式的对比与选择指南
+- 最佳实践与常见错误
 
-**适合**: 插件开发者和架构研究者
-
----
-
-### [HELP_PLUGIN_DESIGN.md](./HELP_PLUGIN_DESIGN.md) ❓
-**Help 插件设计**
-
-了解：
-- 自动帮助文档生成
-- 命令发现机制（Reader 只读视图）
-- 文档格式化
-- 扩展性设计
-
-**适合**: 需要理解帮助系统的开发者
+**适合**: 所有需要理解 Context 生命周期的开发者
 
 ---
 
@@ -62,29 +49,29 @@
 
 ---
 
-### [PLUGIN_ENHANCEMENT_PROPOSAL.md](./PLUGIN_ENHANCEMENT_PROPOSAL.md) 💡
-**插件增强架构参考**
+### [MULTI_PLATFORM.md](./MULTI_PLATFORM.md) 🌐
+**多平台抽象架构**
 
-记录了已实现的插件系统增强：
-- PluginInfo / ManagerWriter 读写分离
-- Container 依赖注入
-- RegisterMultipleV2Smart 自动依赖排序
-- EventBus 插件间通信
+了解：
+- Adapter 接口设计
+- 平台注册与发现机制
+- 跨平台事件规范化
+- 能力声明（Capabilities）
 
-**适合**: 对框架架构设计感兴趣的开发者
+**适合**: 需要理解多平台支持的开发者
 
 ---
 
-### [CONTEXT_PROPAGATION.md](./CONTEXT_PROPAGATION.md) 🔗
-**Context 传播模式**
+### [permission-system.md](./permission-system.md) 🔒
+**权限系统架构**
 
 详解：
-- Lifecycle 分层架构（WithoutCancel + parentCtx/runCtx）
-- WithContext 组件绑定模式
-- 两种模式的对比与选择指南
-- 最佳实践与常见错误
+- RBAC 权限模型实现
+- 权限检查流程
+- 内置角色与自定义角色
+- ACL 集成
 
-**适合**: 所有需要理解 Context 生命周期的开发者
+**适合**: 需要实现权限管控的开发者
 
 ---
 
@@ -132,20 +119,17 @@
 
 ### 初级：理解核心流程
 1. [并发事件处理](./CONCURRENT_EVENT_PROCESSING.md)
-2. [Handle 方法设计](./HANDLE_METHOD_DESIGN_ANALYSIS.md)
+2. [Context 传播模式](./CONTEXT_PROPAGATION.md)
 
 ### 中级：深入组件设计
-1. [插件系统设计](./BUILTIN_PLUGINS_DESIGN.md)
-2. [命令系统集成](./COMMAND_INTEGRATION_PLAN.md)
-3. [多平台抽象](./MULTI_PLATFORM.md)
-4. [Context 传播模式](./CONTEXT_PROPAGATION.md)
+1. [Handle 方法设计分析](./HANDLE_METHOD_DESIGN_ANALYSIS.md)
+2. [多平台抽象](./MULTI_PLATFORM.md)
+3. [权限系统架构](./permission-system.md)
 
 ### 高级：参与架构演进
-1. [插件增强架构参考](./PLUGIN_ENHANCEMENT_PROPOSAL.md)
-2. [Help 插件设计](./HELP_PLUGIN_DESIGN.md)
-3. **[架构演进总览](./ARCHITECTURE_EVOLUTION.md)** — 理解"为什么"
+1. **[架构演进总览](./ARCHITECTURE_EVOLUTION.md)** — 理解"为什么"
 
-> 每个模块的 V0→当前 详细迭代记录在 [notes/](../notes/) 目录中（含代码对比），强烈建议结合阅读。
+> 每个模块的 V0→当前 详细迭代记录在 [docs/notes/](../notes/) 目录中（含代码对比），强烈建议结合阅读。
 
 ---
 

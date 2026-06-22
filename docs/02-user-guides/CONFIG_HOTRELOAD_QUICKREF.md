@@ -88,8 +88,7 @@ watcher.AddCallback(func(old, new *Config) error {
 ```go
 watcher.AddCallback(func(old, new *config.Config) error {
     if old.Log.Level != new.Log.Level {
-        level, _ := logrus.ParseLevel(new.Log.Level)
-        logrus.SetLevel(level)
+        _ = logger.SetLevel(new.Log.Level)
     }
     return nil
 })
@@ -223,7 +222,7 @@ watcher.Start()
 // 3. 回调中处理错误
 watcher.AddCallback(func(old, new *config.Config) error {
     if err := validate(new); err != nil {
-        logrus.WithError(err).Warn("Invalid config")
+        logger.WithError(err).Warn("Invalid config")
         return err
     }
     return nil
@@ -262,7 +261,7 @@ watcher, _ := config.NewWatcher("config.yaml")
 
 ```go
 // 启用详细日志
-logrus.SetLevel(logrus.DebugLevel)
+logger.SetLevel("debug")
 ```
 
 ### 重载失败？
@@ -312,14 +311,14 @@ func main() {
     
     watcher.AddCallback(func(old, new *config.Config) error {
         // 动态更新日志
-        level, _ := logrus.ParseLevel(new.Log.Level)
-        logrus.SetLevel(level)
+        _ = logger.SetLevel(new.Log.Level)
         return nil
     })
     
     watcher.Start()
     
-    bot := remilia.NewBotWithConfig(watcher.GetConfig())
+    eng := engine.NewEngine()
+    bot, _ := remilia.NewBotBuilder().WithEngine(eng).Build()
     bot.Start()
     defer bot.Shutdown()
     

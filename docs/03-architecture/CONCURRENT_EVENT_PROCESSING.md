@@ -189,7 +189,7 @@ go func() {
     ticker := time.NewTicker(10 * time.Second)
     for range ticker.C {
         // 记录吞吐量、延迟等指标
-        logrus.Infof("Throughput: %.2f msg/s", currentThroughput)
+        logger.Infof("Throughput: %.2f msg/s", currentThroughput)
     }
 }()
 ```

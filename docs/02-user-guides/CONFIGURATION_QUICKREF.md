@@ -12,20 +12,20 @@ package main
 
 import (
     "github.com/KomeiDiSanXian/remilia/config"
-    "github.com/sirupsen/logrus"
+    "github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 func main() {
     // 加载配置
     cfg, err := config.LoadDefault()
     if err != nil {
-        logrus.Fatalf("Failed to load config: %v", err)
+        logger.Fatalf("Failed to load config: %v", err)
     }
     
     // 访问配置
-    logrus.Infof("Webhook workers: %d", cfg.Webhook.WorkerCount)
-    logrus.Infof("Event buffer: %d", cfg.Webhook.EventBuffer)
-    logrus.Infof("Token retry delay: %s", cfg.Token.RetryDelay)
+    logger.Infof("Webhook workers: %d", cfg.Webhook.WorkerCount)
+    logger.Infof("Event buffer: %d", cfg.Webhook.EventBuffer)
+    logger.Infof("Token retry delay: %s", cfg.Token.RetryDelay)
 }
 ```
 
@@ -208,7 +208,7 @@ if cfg.Degradation.Enable {
 cfg, err := config.Load("config.yaml")
 if err != nil {
     // 配置无效，err 包含详细错误信息
-    logrus.Fatalf("Invalid config: %v", err)
+    logger.Fatalf("Invalid config: %v", err)
 }
 // 配置有效，可以安全使用
 ```
@@ -396,7 +396,7 @@ if err != nil {
 
 watcher.OnReload(func(oldCfg, newCfg *config.Config) error {
     // 配置已更新，可以在这里更新运行时配置
-    logrus.Infof("Config reloaded: workers %d -> %d", 
+    logger.Infof("Config reloaded: workers %d -> %d", 
         oldCfg.Webhook.WorkerCount, 
         newCfg.Webhook.WorkerCount)
     return nil
