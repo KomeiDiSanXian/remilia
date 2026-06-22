@@ -1,0 +1,20 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+RUN addgroup -S remilia && adduser -S remilia -G remilia
+
+WORKDIR /app
+COPY remilia .
+
+RUN mkdir -p /app/data/db && chown -R remilia:remilia /app/data
+
+USER remilia
+
+VOLUME ["/app/data"]
+
+EXPOSE 8080
+EXPOSE 9001
+
+ENTRYPOINT ["/app/remilia"]
+CMD ["run"]

@@ -57,7 +57,7 @@ dockers:
   - image_templates:
       - "ghcr.io/komeidisanxian/remilia:{{ .Version }}"
       - "ghcr.io/komeidisanxian/remilia:latest"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--pull"
       - "--label=org.opencontainers.image.created={{ .Date }}"
