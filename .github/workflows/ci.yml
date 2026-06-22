@@ -54,7 +54,7 @@ jobs:
           node-version: 22
       - name: Build Dashboard
         run: |
-          cd dashboard && npm ci && npm run build
+          cd dashboard && npm ci && npx vite build
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Download dependencies
@@ -85,7 +85,7 @@ jobs:
           node-version: 22
       - name: Build Dashboard
         run: |
-          cd dashboard && npm ci && npm run build
+          cd dashboard && npm ci && npx vite build
           mkdir -p cmd/bot/dashboarddist
           cp -r dashboard/dist/* cmd/bot/dashboarddist/
       - name: Build
