@@ -43,7 +43,8 @@ type ExecProfile struct {
 	results     [execProfileWindowSize]time.Duration
 	idx         atomic.Uint64
 	promoted    atomic.Bool
-	snapshotBuf []time.Duration // 预分配，避免 ShouldPool 每次热路径分配
+	demoted     atomic.Bool // 已确认为快 handler，跳过排序
+	snapshotBuf []time.Duration
 }
 
 func newExecProfile() *ExecProfile {
@@ -56,12 +57,16 @@ func newExecProfile() *ExecProfile {
 //
 // 判定逻辑：
 //   - promoted → 走池
+//   - demoted → 走同步（快速路径，已确认为快 handler）
 //   - 数据不足 → 走池（默认怀疑所有 handler 都是慢的）
 //   - p50 > threshold → 提升并走池
 //   - 数据充足且 p50 < threshold/2 且连续快 → 降级并走同步
 func (p *ExecProfile) ShouldPool() ExecClass {
 	if p.promoted.Load() {
 		return ExecClassPool
+	}
+	if p.demoted.Load() {
+		return ExecClassDirect
 	}
 
 	p.mu.Lock()
@@ -101,6 +106,7 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 
 	if n >= execProfileWindowSize && p50 < defaultSlowThreshold/2 && recentFast {
 		p.promoted.Store(false)
+		p.demoted.Store(true)
 		return ExecClassDirect
 	}
 
@@ -117,6 +123,7 @@ func (p *ExecProfile) Record(elapsed time.Duration) {
 	// 单次极慢也直接提升（快速隔离故障）
 	if elapsed > defaultSlowThreshold*2 {
 		p.promoted.Store(true)
+		p.demoted.Store(false)
 	}
 }
 
@@ -128,6 +135,7 @@ func (p *ExecProfile) IsPromoted() bool {
 // Reset 重置 profile，下次走 ExecDirect（向后兼容）。
 func (p *ExecProfile) Reset() {
 	p.promoted.Store(false)
+	p.demoted.Store(false)
 	p.idx.Store(0)
 	p.mu.Lock()
 	for i := range p.results {

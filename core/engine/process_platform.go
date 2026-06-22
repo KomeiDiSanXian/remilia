@@ -186,6 +186,12 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 
 	for iter.Next() {
 		m := iter.Matcher()
+
+		// 无 Handler 的匹配器无需执行任何操作，直接跳过 Match/SetMatcher/invokeHandler
+		if m.Handler == nil {
+			continue
+		}
+
 		if !m.Match(ctx) {
 			continue
 		}
