@@ -22,6 +22,16 @@ jobs:
           go-version: "1.26"
           cache: true
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Build Dashboard
+        run: |
+          cd dashboard && npm ci && npx vite build
+          mkdir -p cmd/bot/dashboarddist
+          cp -r dashboard/dist/* cmd/bot/dashboarddist/
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
