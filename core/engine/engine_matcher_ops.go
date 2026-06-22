@@ -24,7 +24,7 @@ func newNoopMatcher(e *Engine) *Matcher {
 		Rules:       []context.Rule{},
 		middlewares: []context.Middleware{},
 		coordinator: e,
-		execProfile: &ExecProfile{},
+		execProfile: newExecProfile(),
 	}
 	m.priority.Store(999)
 	m.rt.deleted.Store(true)
@@ -143,7 +143,7 @@ func (e *Engine) On(eventType EventType, rules ...context.Rule) *Matcher {
 		Rules:       rules,
 		coordinator: e,
 		Source:      "global",
-		execProfile: &ExecProfile{},
+		execProfile: newExecProfile(),
 	}
 	matcher.priority.Store(50)
 	return e.registerMatcher(matcher)
@@ -180,7 +180,7 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		Rules:       rules,
 		coordinator: e,
 		Source:      "temp",
-		execProfile: &ExecProfile{},
+		execProfile: newExecProfile(),
 		rt: matcherRuntime{
 			isTemp:      1,
 			maxUseCount: 1,

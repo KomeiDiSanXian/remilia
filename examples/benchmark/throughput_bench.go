@@ -26,6 +26,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"sync"
@@ -895,6 +896,7 @@ func printSummary(results []ScenarioResult) {
 // ─────────────────────────────────────────────────────────────
 func main() {
 	durFlag := flag.Duration("duration", 10*time.Second, "per-scenario test duration")
+	cpuprofileFlag := flag.String("cpuprofile", "", "write CPU profile to file (profiles the LAST scenario)")
 	suiteFlag := flag.String("suite", "standard", `scenario suite: "quick" | "standard" | "full" | "matcher5k"`)
 	mwFlag := flag.Bool("middleware", true, "attach Recover middleware to the engine")
 	injectModeFlag := flag.String("inject-mode", "nonblocking", `"nonblocking" (real-world, may drop) | "blocking" (backpressure)`)
@@ -924,10 +926,36 @@ func main() {
 		scenarios[i].WithMW = *mwFlag
 	}
 	printBanner(*suiteFlag, *durFlag, *mwFlag, *gcPctFlag, injectMode, *disableLatFlag)
+
+	// CPU profiling for last scenario
+	var cpuFile *os.File
+	if *cpuprofileFlag != "" {
+		var err error
+		cpuFile, err = os.Create(*cpuprofileFlag)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "create cpuprofile: %v\n", err)
+			os.Exit(1)
+		}
+		defer cpuFile.Close()
+	}
+
 	var results []ScenarioResult
 	for i, s := range scenarios {
 		printScenarioTitle(i, s.Name)
+
+		if cpuFile != nil && i == len(scenarios)-1 {
+			if err := pprof.StartCPUProfile(cpuFile); err != nil {
+				fmt.Fprintf(os.Stderr, "start cpuprofile: %v\n", err)
+				os.Exit(1)
+			}
+		}
+
 		r := runScenario(s, *durFlag, injectMode, *disableLatFlag)
+
+		if cpuFile != nil && i == len(scenarios)-1 {
+			pprof.StopCPUProfile()
+		}
+
 		printResult(r)
 		results = append(results, r)
 		if i < len(scenarios)-1 {

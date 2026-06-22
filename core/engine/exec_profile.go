@@ -39,10 +39,17 @@ const execProfileDemoteAfterFast = 10
 //   - 默认怀疑慢（前几次走池），用事实证明自己快后才降级
 //   - 一次慢立刻提升（promote），长时间快才降级（demote）
 type ExecProfile struct {
-	mu       sync.Mutex
-	results  [execProfileWindowSize]time.Duration
-	idx      atomic.Uint64
-	promoted atomic.Bool
+	mu          sync.Mutex
+	results     [execProfileWindowSize]time.Duration
+	idx         atomic.Uint64
+	promoted    atomic.Bool
+	snapshotBuf []time.Duration // 预分配，避免 ShouldPool 每次热路径分配
+}
+
+func newExecProfile() *ExecProfile {
+	return &ExecProfile{
+		snapshotBuf: make([]time.Duration, execProfileWindowSize),
+	}
 }
 
 // ShouldPool 基于历史数据决定当前 handler 是否应走 ExecPool。
@@ -64,8 +71,8 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 		return ExecClassPool // 数据太少，默认走池
 	}
 
-	// 计算 p50 (snapshot 结果，释放锁后再排序)
-	snapshot := make([]time.Duration, n)
+	// 计算 p50：复用预分配缓冲区避免热路径分配
+	snapshot := p.snapshotBuf[:n]
 	for i := range n {
 		snapshot[i] = p.results[i%execProfileWindowSize]
 	}
