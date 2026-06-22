@@ -19,7 +19,7 @@ linters:
         - (net.Conn).Close
         - (net.Listener).Close
         - (*os.File).Close
-        - (net/http.Response).Close
+        - (*net/http.Response).Close
         - os.Remove
         - os.RemoveAll
         - os.WriteFile
@@ -56,18 +56,26 @@ linters:
         linters:
           - errcheck
       - path: builtin
-        text: Error return value
-        linters:
-          - errcheck
-      - path: plugin/wasm
-        text: Error return value
+        text: \.(Close|Reply)`
         linters:
           - errcheck
       - path: infra/textimage
-        text: Error return value
+        text: \.Close`
         linters:
           - errcheck
-      - path: platform/qq/openapi
-        text: Error return value
+      - path: plugin/wasm
+        text: \.Close`
+        linters:
+          - errcheck
+      - path: plugin/wasm
+        text: \.Reply`
+        linters:
+          - errcheck
+      - path: platform/qq/openapi/openapi.go
+        text: \.Close`
+        linters:
+          - errcheck
+      - path: platform/qq/openapi/openapi.go
+        text: \.WaitReady`
         linters:
           - errcheck

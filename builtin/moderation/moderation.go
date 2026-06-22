@@ -144,12 +144,12 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 
 func (p *Plugin) handleMute(ctx *eventctx.Context) error {
 	if !p.checkPermission(ctx, "moderation.mute") {
-		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.mute 权限"))
+		ctx.Reply(platform.TextMessage("权限不足：需要 moderation.mute 权限")) //nolint:errcheck
 		return nil
 	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
-		ctx.Reply(platform.TextMessage("用法: /mute <用户> [时长]"))
+		ctx.Reply(platform.TextMessage("用法: /mute <用户> [时长]")) //nolint:errcheck
 		return nil
 	}
 	target := args[1]
@@ -161,7 +161,7 @@ func (p *Plugin) handleMute(ctx *eventctx.Context) error {
 	}
 	chat := ctx.GetPlatformEvent().Chat()
 	if !chat.IsGroup {
-		ctx.Reply(platform.TextMessage("该命令仅支持群聊"))
+		ctx.Reply(platform.TextMessage("该命令仅支持群聊")) //nolint:errcheck
 		return nil
 	}
 	if gm, ok := ctx.GetPlatformSender().(platform.GroupManager); ok {
@@ -189,7 +189,7 @@ func (p *Plugin) handleKick(ctx *eventctx.Context) error {
 	target := args[1]
 	chat := ctx.GetPlatformEvent().Chat()
 	if !chat.IsGroup {
-		ctx.Reply(platform.TextMessage("该命令仅支持群聊"))
+		ctx.Reply(platform.TextMessage("该命令仅支持群聊")) //nolint:errcheck
 		return nil
 	}
 	if gm, ok := ctx.GetPlatformSender().(platform.GroupManager); ok {
