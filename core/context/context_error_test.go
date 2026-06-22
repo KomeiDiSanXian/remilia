@@ -272,7 +272,7 @@ func TestContextStdContext(t *testing.T) {
 		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 设置 nil context
-		ctx.SetStdContext(stdctx.TODO())
+		ctx.SetStdContext(nil) //nolint:staticcheck
 
 		// 应该返回 Background
 		stdCtx := ctx.Context()
