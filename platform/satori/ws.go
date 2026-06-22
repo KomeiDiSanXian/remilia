@@ -147,7 +147,7 @@ func (c *wsConn) runOnce(ctx stdctx.Context) error {
 		c.conn = nil
 		c.running = false
 		c.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	// 连接建立后 10s 内发送 IDENTIFY（协议要求）。
@@ -311,6 +311,6 @@ func (c *wsConn) Close() {
 	if c.conn != nil {
 		_ = c.conn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-		c.conn.Close()
+		_ = c.conn.Close()
 	}
 }

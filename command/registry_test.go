@@ -37,10 +37,11 @@ func TestCommandRegistry_Register(t *testing.T) {
 		assert.NoError(t, err)
 
 		// 通过主名称查找
-		meta, found := registry.Lookup("/weather")
+		_, found := registry.Lookup("/weather")
 		assert.True(t, found)
 
 		// 通过别名查找
+		var meta *Meta
 		meta, found = registry.Lookup("/w")
 		assert.True(t, found)
 		assert.Equal(t, "/weather", meta.Name)
@@ -201,7 +202,7 @@ func BenchmarkCommandRegistry_Lookup(b *testing.B) {
 		def := &Definition{
 			Name: "/cmd" + string(rune('0'+i%10)),
 		}
-		registry.Register(def)
+		_ = registry.Register(def)
 	}
 
 	b.ResetTimer()

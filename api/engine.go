@@ -83,7 +83,7 @@ func (s *Server) handleGetEngineMatchers(w http.ResponseWriter, _ *http.Request)
 
 // handleGetEngineMatcherGroup 处理 GET /api/v1/engine/matchers/group/{name}
 // 返回指定匹配器组的信息。
-func (s *Server) handleGetEngineMatcherGroup(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetEngineMatcherGroup(w http.ResponseWriter, r *http.Request) { //nolint:unused
 	eng := s.engineRef()
 	if eng == nil {
 		writeErr(w, 404, "engine not available", http.StatusNotFound)

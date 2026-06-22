@@ -39,5 +39,5 @@ func (s *GroupStateStore[T]) GetOrCreate(groupID string) *T {
 
 // Get 是 [Map.Load] 的别名
 func (s *GroupStateStore[T]) Get(groupID string) (*T, bool) {
-	return s.Map.Load(groupID)
+	return s.Load(groupID)
 }

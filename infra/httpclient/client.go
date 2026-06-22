@@ -466,7 +466,7 @@ func (r *Request) DoJSON() (gjson.Result, error) {
 	if err != nil {
 		return gjson.Result{}, err
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	body, err := resp.Bytes()
 	if err != nil {
@@ -482,7 +482,7 @@ func (r *Request) DoString() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	body, err := resp.Bytes()
 	if err != nil {
@@ -498,7 +498,7 @@ func (r *Request) DoBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	return resp.Bytes()
 }

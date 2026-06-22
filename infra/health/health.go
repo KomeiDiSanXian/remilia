@@ -586,11 +586,11 @@ func (h *Check) aggregateAdapters(children []*Node) Status {
 //   - 统计各类别的状态分布
 //   - issues 收集所有非 healthy 的叶子节点（不含 group）
 func BuildSummary(root *Node) *SummaryReport {
-	r := &SummaryReport{Status: root.Status}
-
 	if root == nil {
-		return r
+		return &SummaryReport{}
 	}
+
+	r := &SummaryReport{Status: root.Status}
 
 	for _, child := range root.Children {
 		switch child.Name {
@@ -688,7 +688,7 @@ func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Query().Get("view") == "full" {
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 		return
 	}
 
@@ -698,7 +698,7 @@ func (h *Check) HTTPHandler(w http.ResponseWriter, r *http.Request) {
 	summary.Commit = response.Commit
 	summary.BuildTime = response.BuildTime
 	summary.Time = response.Time
-	json.NewEncoder(w).Encode(summary)
+	_ = json.NewEncoder(w).Encode(summary)
 }
 
 // ReadinessHandler 用于 K8s readiness probe。

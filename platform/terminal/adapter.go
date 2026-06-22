@@ -123,7 +123,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 	a.handler = handler
 	a.mu.Unlock()
 
-	fmt.Fprint(a.writer, a.welcomeMsg)
+	_, _ = fmt.Fprint(a.writer, a.welcomeMsg)
 
 	// 检查 stdin 是否为真实终端，尝试设置原始模式
 	if a.tryRawMode() {
@@ -142,7 +142,7 @@ func (a *Adapter) tryRawMode() bool {
 	}
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		fmt.Fprintf(a.writer, "[Terminal] 提示: 终端原始模式不可用 (%v)，方向键和 Tab 补全将不支持\n", err)
+		_, _ = fmt.Fprintf(a.writer, "[Terminal] 提示: 终端原始模式不可用 (%v)，方向键和 Tab 补全将不支持\n", err)
 		return false
 	}
 	a.rawOldState = oldState
@@ -174,11 +174,11 @@ func (a *Adapter) startTerm(ctx stdctx.Context) error {
 		select {
 		case <-ctx.Done():
 			a.restoreMode()
-			fmt.Fprintln(a.writer, "\n[Terminal] Context 已取消，正在停止...")
+			_, _ = fmt.Fprintln(a.writer, "\n[Terminal] Context 已取消，正在停止...")
 			return ctx.Err()
 		case <-a.stopCh:
 			a.restoreMode()
-			fmt.Fprintln(a.writer, "\n[Terminal] 收到停止请求，正在关闭...")
+			_, _ = fmt.Fprintln(a.writer, "\n[Terminal] 收到停止请求，正在关闭...")
 			return nil
 		default:
 		}
@@ -187,7 +187,7 @@ func (a *Adapter) startTerm(ctx stdctx.Context) error {
 		if err != nil {
 			if err == io.EOF {
 				a.NotifyDisconnect(fmt.Errorf("terminal adapter: stdin 已关闭 (EOF)"))
-				fmt.Fprintln(a.writer, "\n[Terminal] 到达 EOF，正在停止...")
+				_, _ = fmt.Fprintln(a.writer, "\n[Terminal] 到达 EOF，正在停止...")
 				return nil
 			}
 			a.NotifyDisconnect(fmt.Errorf("terminal adapter: stdin 读取错误: %w", err))
@@ -229,7 +229,7 @@ func (a *Adapter) startScanner(ctx stdctx.Context) error {
 		default:
 		}
 
-		fmt.Fprint(a.writer, a.prompt)
+		_, _ = fmt.Fprint(a.writer, a.prompt)
 
 		if !scanner.Scan() {
 			if err := scanner.Err(); err != nil {
@@ -306,7 +306,7 @@ func (a *Adapter) makeAutoComplete() func(string, int, rune) (string, int, bool)
 			}
 		}
 		if show {
-			fmt.Fprintf(a.writer, "\r\n%s\n", strings.Join(candidates, "  "))
+			_, _ = fmt.Fprintf(a.writer, "\r\n%s\n", strings.Join(candidates, "  "))
 		}
 		return line, pos, true
 	}
@@ -399,7 +399,7 @@ func (a *Adapter) Send(_ stdctx.Context, req platform.SendRequest) (platform.Sen
 	a.messages = append(a.messages, sent)
 	a.msgMu.Unlock()
 
-	fmt.Fprintf(a.writer, "[Bot Reply] %s\n", content)
+	_, _ = fmt.Fprintf(a.writer, "[Bot Reply] %s\n", content)
 
 	return platform.SendResult{
 		MessageID: msgID,

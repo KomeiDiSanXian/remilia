@@ -46,7 +46,7 @@ func (pi *Instance) managerRef() *Manager {
 
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
 
-func (pi *Instance) name() string { return pi.desc.Name }
+func (pi *Instance) name() string { return pi.desc.Name } //nolint:unused
 
 // load 加载插件（实现 pluginInternal）
 // ctx 用于控制超时：若 context 在 Setup 完成前到期则返回 ctx.Err()。

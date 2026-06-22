@@ -1,6 +1,7 @@
 package telegram_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/platform/telegram"
@@ -32,7 +33,7 @@ func TestTelegramCapabilities(t *testing.T) {
 func TestTelegramStartNotImplemented(t *testing.T) {
 	adapter := telegram.NewAdapter()
 
-	err := adapter.Start(nil, nil)
+	err := adapter.Start(context.TODO(), nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet implemented")
 }

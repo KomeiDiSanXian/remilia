@@ -410,7 +410,7 @@ func attrInt(attrs map[string]string, key string) int {
 		return 0
 	}
 	var n int
-	fmt.Sscanf(v, "%d", &n)
+	_, _ = fmt.Sscanf(v, "%d", &n)
 	return n
 }
 
@@ -421,6 +421,6 @@ func attrFloat(attrs map[string]string, key string) float64 {
 		return 0
 	}
 	var f float64
-	fmt.Sscanf(v, "%f", &f)
+	_, _ = fmt.Sscanf(v, "%f", &f)
 	return f
 }

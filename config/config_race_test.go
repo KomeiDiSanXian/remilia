@@ -28,7 +28,7 @@ log:
   level: "info"
   format: "json"
 `
-	err := os.WriteFile(tmpFile, []byte(configContent), 0644)
+	_ = os.WriteFile(tmpFile, []byte(configContent), 0644)
 
 	defer os.Remove(tmpFile)
 

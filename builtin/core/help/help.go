@@ -758,7 +758,7 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 }
 
 // showCategoryCommands 显示特定分类下的所有命令
-func (p *Plugin) showCategoryCommands(ctx *eventctx.Context, category string, commands []*command.Meta) error {
+func (p *Plugin) showCategoryCommands(ctx *eventctx.Context, category string, commands []*command.Meta) error { //nolint:unused
 	var help strings.Builder
 
 	help.WriteString(fmt.Sprintf("📂 分类【%s】的命令\n", category))

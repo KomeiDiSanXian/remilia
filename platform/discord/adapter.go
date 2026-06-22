@@ -61,7 +61,7 @@ type GatewayAdapter struct {
 	session *discordgo.Session
 	sender  *discordSender
 
-	ctx      stdctx.Context
+	ctx      stdctx.Context //nolint:unused
 	cancel   stdctx.CancelFunc
 	wg       sync.WaitGroup
 	mu       sync.RWMutex

@@ -234,10 +234,8 @@ func TestErrInvalidState_ValueSemantics(t *testing.T) {
 }
 
 func TestErrInvalidState_ImplementsError(t *testing.T) {
-	var err error = ErrInvalidState{Current: StateCreated, Expected: StateRunning}
-	if err == nil {
-		t.Fatal("ErrInvalidState should be non-nil when assigned to error interface")
-	}
+	err := ErrInvalidState{Current: StateCreated, Expected: StateRunning}
+	var _ error = err
 	want := "Lifecycle: invalid state: current=created, expected=running"
 	if err.Error() != want {
 		t.Errorf("got %q, want %q", err.Error(), want)

@@ -222,7 +222,7 @@ func (a *HTTPPostAdapter) handlePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	// 若配置了密钥，则验证 HMAC-SHA1 签名
 	if a.config.Secret != "" {

@@ -114,7 +114,7 @@ func TestRegistryWithTrieOnly(t *testing.T) {
 		assert.Nil(t, meta)
 
 		// 其他命令仍然存在
-		meta, found = registry.Lookup("/pong")
+		_, found = registry.Lookup("/pong")
 		assert.True(t, found)
 	})
 

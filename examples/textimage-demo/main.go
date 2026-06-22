@@ -74,7 +74,7 @@ func exHelloWorld(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return r.RenderToFile(filepath.Join(dir, "01_hello_world.png"), "Hello, World!  你好，世界！")
 }
 
@@ -92,7 +92,7 @@ func exDarkBanner(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return r.RenderToFile(filepath.Join(dir, "02_dark_banner.png"), "Remilia 框架  ·  v2.0  高性能聊天机器人引擎")
 }
 
@@ -114,7 +114,7 @@ func exNotificationCard(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	return r.RenderToFile(filepath.Join(dir, "03_notification_card.png"), msg)
 }
 
@@ -370,7 +370,7 @@ func writeCanvasPNG(c *textimage.Canvas, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return c.RenderToWriter(f)
 }
 

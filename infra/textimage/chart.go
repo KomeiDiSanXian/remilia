@@ -187,7 +187,7 @@ func (c *Canvas) AddBarChart(items []BarItem, maxValue float64, opts ...BarChart
 	if err != nil {
 		return fmt.Errorf("textimage canvas AddBarChart: build renderer: %w", err)
 	}
-	defer renderer.Close()
+	defer func() { _ = renderer.Close() }()
 
 	// 计算各区域起始 x 坐标
 	labelStartX := o.paddingX                   // 标签起始 x

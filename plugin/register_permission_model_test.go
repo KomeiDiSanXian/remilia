@@ -144,11 +144,9 @@ func TestPermissionModel_NoPrivateInterfaceAssertions(t *testing.T) {
 
 			// Coordinator() 返回 Reader，无法断言为 *engine.Engine
 			coord := ctx.Info.Coordinator()
-			if coord != nil {
-				if _, ok := coord.(*engine.Engine); ok {
-					// 如果能成功断言为 *engine.Engine，权限隔离仍然存在漏洞
-					t.Error("ctx.Info.Coordinator() 不应能断言为 *engine.Engine（权限隔离漏洞）")
-				}
+			if _, ok := coord.(*engine.Engine); ok {
+				// 如果能成功断言为 *engine.Engine，权限隔离仍然存在漏洞
+				t.Error("ctx.Info.Coordinator() 不应能断言为 *engine.Engine（权限隔离漏洞）")
 			}
 
 			return nil, nil

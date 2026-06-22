@@ -21,9 +21,10 @@ type CheckResult struct {
 // AbilityCheck 执行 D&D 5e 属性检定。支持优势（2d20^1）和劣势（2d20v1）。
 func AbilityCheck(d dice.Servicer, mod int, advantage string) (*CheckResult, error) {
 	expr := "1d20"
-	if advantage == "advantage" {
+	switch advantage {
+	case "advantage":
 		expr = "2d20^1"
-	} else if advantage == "disadvantage" {
+	case "disadvantage":
 		expr = "2d20v1"
 	}
 

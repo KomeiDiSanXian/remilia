@@ -480,7 +480,7 @@ func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
 	return slices.Contains(p.permSvc.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
-func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool {
+func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool { //nolint:unused
 	if p.IsSuperUser(ctx.GetSenderID()) {
 		return true
 	}
@@ -663,10 +663,10 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 
 	// 若有图像渲染器，优先尝试生成图像
 	if p.opts.serviceListRenderer != nil {
-		defEnabled := p.GetPluginDefault("") // 全局默认值（plugin 名为空表示全局）
+		_ = p.GetPluginDefault("") // 全局默认值（plugin 名为空表示全局）
 		// 实际取全局 defaultEnabled（未被 Flip 时）
 		p.mu.RLock()
-		defEnabled = p.opts.defaultEnabled
+		defEnabled := p.opts.defaultEnabled
 		p.mu.RUnlock()
 
 		imgData, mime, err := p.opts.serviceListRenderer(chat.ID, states, defEnabled)

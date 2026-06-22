@@ -310,7 +310,7 @@ func (r *Renderer) RenderToFile(filename, text string) error {
 	if err != nil {
 		return fmt.Errorf("textimage: create file %q: %w", filename, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".jpg", ".jpeg":

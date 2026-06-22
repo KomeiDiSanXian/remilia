@@ -75,7 +75,7 @@ func (c *VectorCanvas) DrawAvatar(img image.Image, cx, cy, radius float64) {
 	c.DrawCircle(cx, cy, radius)
 	c.Clip()
 	// DrawImageAnchored(img, x, y, ax=0.5, ay=0.5) 以 (x,y) 为图片中心点绘制
-	c.Context.DrawImageAnchored(scaled, int(math.Round(cx)), int(math.Round(cy)), 0.5, 0.5)
+	c.DrawImageAnchored(scaled, int(math.Round(cx)), int(math.Round(cy)), 0.5, 0.5)
 	c.Pop()
 }
 

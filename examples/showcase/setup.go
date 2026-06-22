@@ -175,7 +175,7 @@ func registerSignupFSM(fsmMgr *fsm.Manager, pm *plugin.Manager) {
 }
 
 // getPluginHolders 从容器中取出插件实例备用。
-func getPluginHolders(pm *plugin.Manager) *PluginHolders {
+func getPluginHolders(pm *plugin.Manager) *PluginHolders { //nolint:unused
 	return &PluginHolders{
 		Cooldown:  mustGet[*cooldown.Plugin](pm, "cooldown"),
 		Stats:     mustGet[*stats.Plugin](pm, "stats"),
@@ -185,7 +185,7 @@ func getPluginHolders(pm *plugin.Manager) *PluginHolders {
 }
 
 // mustGet 从容器获取插件实例，不存在则 panic。
-func mustGet[T any](pm *plugin.Manager, name string) T {
+func mustGet[T any](pm *plugin.Manager, name string) T { //nolint:unused
 	v, ok := pm.GetContainer().Get(name)
 	if !ok {
 		panic("plugin " + name + " not found")

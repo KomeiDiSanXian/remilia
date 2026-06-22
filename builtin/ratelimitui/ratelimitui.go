@@ -297,7 +297,7 @@ func (p *Plugin) handleBans(ctx *eventctx.Context) error {
 		}
 		msg.WriteString("\n")
 	}
-	msg.WriteString(fmt.Sprintf("\n💡 使用 /rl unban <用户ID> 解封"))
+	msg.WriteString("\n💡 使用 /rl unban <用户ID> 解封")
 	return p.reply(ctx, msg.String())
 }
 

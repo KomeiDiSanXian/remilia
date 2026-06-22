@@ -18,7 +18,7 @@ type options struct {
 	driver DriverType
 	// dialector 允许外部直接注入 gorm.Dialector，绕过内置 driver 选择逻辑。
 	// 适用于需要使用 glebarez/sqlite 等纯 Go 驱动的场景。
-	dialector interface{ Name() string } // gorm.Dialector
+	dialector interface{ Name() string } //nolint:unused // gorm.Dialector
 }
 
 // defaultOptions 返回默认配置（SQLite，文件路径 bot.db）。

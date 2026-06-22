@@ -181,7 +181,7 @@ func TestEncodeOutboundMessage_ReplyAndMentionOrder(t *testing.T) {
 	if quoteIdx < 0 || atIdx < 0 || textIdx < 0 {
 		t.Fatalf("missing elements in %q", got)
 	}
-	if !(quoteIdx < atIdx && atIdx < textIdx) {
+	if quoteIdx >= atIdx || atIdx >= textIdx {
 		t.Errorf("order wrong: quote=%d at=%d text=%d in %q", quoteIdx, atIdx, textIdx, got)
 	}
 }

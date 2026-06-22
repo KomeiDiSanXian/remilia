@@ -13,12 +13,12 @@ import (
 const cardWidth = 800
 
 var (
-	red    = color.RGBA{R: 200, G: 40, B: 40, A: 255}
+	red    = color.RGBA{R: 200, G: 40, B: 40, A: 255} //nolint:unused
 	gold   = color.RGBA{R: 210, G: 170, B: 50, A: 255}
 	white  = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	black  = color.RGBA{R: 40, G: 30, B: 20, A: 255}
-	darkBg = color.RGBA{R: 140, G: 20, B: 30, A: 255}
-	greyBg = color.RGBA{R: 80, G: 80, B: 85, A: 255}
+	darkBg = color.RGBA{R: 140, G: 20, B: 30, A: 255} //nolint:unused
+	greyBg = color.RGBA{R: 80, G: 80, B: 85, A: 255} //nolint:unused
 )
 
 // levelColor 返回运势等级对应的文字颜色。
@@ -215,7 +215,7 @@ func renderTarotCard(reading *TarotReading, cardImg image.Image) ([]byte, error)
 }
 
 // renderErrorCard 渲染错误提示卡片（图片渲染失败时的备用方案）。
-func renderErrorCard(message string) ([]byte, error) {
+func renderErrorCard(message string) ([]byte, error) { //nolint:unused
 	canvas, err := textimage.NewCanvas(400,
 		textimage.WithCJKFont(),
 		textimage.WithFontColor(white),

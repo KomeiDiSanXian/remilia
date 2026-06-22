@@ -151,7 +151,7 @@ func setupCrashLog(dir string) error {
 	}
 
 	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
-		f.Close()
+		_ = f.Close()
 		return fmt.Errorf("设置崩溃输出失败: %w", err)
 	}
 

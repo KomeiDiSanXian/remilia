@@ -357,7 +357,7 @@ func (ad *AdaptiveDegradation) setLevel(cfg DegradationConfig, level Degradation
 		ad.metrics.activeGauge.Set(1)
 
 		// 记录触发原因
-		reason := "unknown"
+		var reason string
 		if cpuVal := ad.lastCPU.Load(); cpuVal > cfg.CPUThreshold {
 			reason = "cpu"
 			ad.metrics.triggersTotal.WithLabelValues(reason).Inc()

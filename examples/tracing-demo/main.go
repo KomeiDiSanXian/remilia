@@ -46,7 +46,7 @@ func main() {
 	tracer := tracingProvider.Tracer("example")
 
 	ctx := context.Background()
-	ctx, span := tracer.Start(ctx, "demo-operation")
+	_, span := tracer.Start(ctx, "demo-operation")
 	defer span.End()
 
 	logger.Info("✅ Created demo span")

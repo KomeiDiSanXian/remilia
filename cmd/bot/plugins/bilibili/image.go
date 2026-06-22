@@ -138,7 +138,7 @@ func renderLiveCard(live *LiveInfo) ([]byte, error) {
 }
 
 // renderErrorCard 渲染错误提示卡片为 PNG 图片（图片渲染失败时的备用方案）。
-func renderErrorCard(message string) ([]byte, error) {
+func renderErrorCard(message string) ([]byte, error) { //nolint:unused
 	bg := textimage.LinearGradient(cardWidth, 200, 160,
 		textimage.Stop(0.0, color.RGBA{R: 255, G: 240, B: 240, A: 255}),
 		textimage.Stop(1.0, color.RGBA{R: 255, G: 250, B: 250, A: 255}),

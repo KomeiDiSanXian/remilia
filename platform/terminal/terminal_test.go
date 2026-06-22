@@ -625,7 +625,7 @@ func TestAdapter_IsRunning(t *testing.T) {
 	}
 
 	reader, writer := io.Pipe()
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	a = NewAdapter(
 		WithInput(reader),

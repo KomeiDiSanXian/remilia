@@ -41,7 +41,7 @@ type Adapter struct {
 
 	ctx      stdctx.Context
 	cancel   stdctx.CancelFunc
-	wg       sync.WaitGroup
+	wg       sync.WaitGroup //nolint:unused
 	mu       sync.RWMutex
 	running  bool
 	starting atomic.Bool

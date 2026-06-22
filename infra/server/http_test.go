@@ -18,7 +18,7 @@ func findAvailableAddr(t *testing.T) string {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	addr := l.Addr().String()
-	l.Close()
+	_ = l.Close()
 	return addr
 }
 

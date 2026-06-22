@@ -121,9 +121,9 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		duration := time.Since(session.CreatedAt)
 		var b strings.Builder
 		b.WriteString("📊 **对话状态**\n\n")
-		b.WriteString(fmt.Sprintf("  - 提供商：`%s`\n", p.cfg.Provider))
-		b.WriteString(fmt.Sprintf("  - 模型：`%s`\n", p.cfg.Model))
-		b.WriteString(fmt.Sprintf("  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount))
+		fmt.Fprintf(&b, "  - 提供商：`%s`\n", p.cfg.Provider)
+		fmt.Fprintf(&b, "  - 模型：`%s`\n", p.cfg.Model)
+		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
 		b.WriteString(fmt.Sprintf("  - 对话时长：`%s`\n", formatDuration(duration)))
 		b.WriteString(fmt.Sprintf("  - 会话 ID：`%s`\n", sessionID))
 		return ctx.ReplyText(b.String())
@@ -154,8 +154,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 				b.WriteString(fmt.Sprintf("  - **%s**：%s\n", t.Name, t.Description))
 			}
 		}
-		b.WriteString(fmt.Sprintf("\n在对话中直接告诉我你想使用哪个工具即可。\n"))
-		b.WriteString(fmt.Sprintf("\n**子命令：**"))
+		b.WriteString("\n在对话中直接告诉我你想使用哪个工具即可。\n")
+		b.WriteString("\n**子命令：**")
 		b.WriteString(fmt.Sprintf("\n  `%s reset` — 清空对话历史", p.cfg.TriggerCmd))
 		b.WriteString(fmt.Sprintf("\n  `%s undo` — 撤销上一条对话", p.cfg.TriggerCmd))
 		b.WriteString(fmt.Sprintf("\n  `%s retry` — 重新生成上一条回复", p.cfg.TriggerCmd))

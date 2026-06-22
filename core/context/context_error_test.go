@@ -272,7 +272,7 @@ func TestContextStdContext(t *testing.T) {
 		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
 		// 设置 nil context
-		ctx.SetStdContext(nil)
+		ctx.SetStdContext(stdctx.TODO())
 
 		// 应该返回 Background
 		stdCtx := ctx.Context()
@@ -302,7 +302,7 @@ func TestContextMiddlewareTrace(t *testing.T) {
 
 		// 修改原始切片
 		originalTrace[0] = "modified"
-		originalTrace = append(originalTrace, "mw3")
+		_ = append(originalTrace, "mw3")
 
 		// 获取的追踪应该未改变
 		retrievedTrace, ok := ctx.GetMiddlewareTrace()

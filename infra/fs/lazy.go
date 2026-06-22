@@ -240,7 +240,7 @@ func (r *LazyResource) download(ctx context.Context, rawURL string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("HTTP GET: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
@@ -269,19 +269,19 @@ func (r *LazyResource) download(ctx context.Context, rawURL string) (string, err
 	}
 
 	if _, err = io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("write to temp file: %w", err)
 	}
 	if err = tmpFile.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("close temp file: %w", err)
 	}
 
 	// 若 localPath 与 tmpPath 不同，执行原子 rename
 	if r.LocalPath != "" && tmpPath != localPath {
 		if err = os.Rename(tmpPath, localPath); err != nil {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 			return "", fmt.Errorf("rename %q -> %q: %w", tmpPath, localPath, err)
 		}
 	}

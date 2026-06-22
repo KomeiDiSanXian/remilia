@@ -601,7 +601,7 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 // registerPreSetup 执行三段锁的前两段：Lock #1（验证）+ Lock #2（存储）+ Setup。
 // 返回 instance、loadErr 和追踪的依赖列表，供最终化阶段处理。
 // 调用方负责在 Setup 后调用 finalizeRegistration 或 registerSingle 的 Lock #3。
-func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (instance *Instance, loadErr error, trackedDeps, trackedOptional []string) {
+func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (instance *Instance, loadErr error, trackedDeps, trackedOptional []string) { //nolint:staticcheck
 	if err := validateDescriptor(desc); err != nil {
 		return nil, err, nil, nil
 	}
@@ -834,7 +834,7 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 
 func (pm *Manager) notifyLoaded(name string)               { pm.lifecycle.notifyLoaded(name) }
 func (pm *Manager) notifyUnloaded(name string)             { pm.lifecycle.notifyUnloaded(name) }
-func (pm *Manager) notifyReloaded(name string)             { pm.lifecycle.notifyReloaded(name) }
+func (pm *Manager) notifyReloaded(name string)             { pm.lifecycle.notifyReloaded(name) } //nolint:unused
 func (pm *Manager) notifyError(name, op string, err error) { pm.lifecycle.notifyError(name, op, err) }
 
 // --- 内部辅助方法 ---

@@ -307,33 +307,11 @@ func toFriendInfo(f friendInfoJSON) FriendInfo {
 }
 
 func toGroupInfo(g groupInfoJSON) GroupInfo {
-	return GroupInfo{
-		GroupID:        g.GroupID,
-		GroupName:      g.GroupName,
-		MemberCount:    g.MemberCount,
-		MaxMemberCount: g.MaxMemberCount,
-		Remark:         g.Remark,
-		CreatedTime:    g.CreatedTime,
-		Description:    g.Description,
-		Question:       g.Question,
-		Announcement:   g.Announcement,
-	}
+	return GroupInfo(g)
 }
 
 func toGroupMemberInfo(m groupMemberInfoJSON) GroupMemberInfo {
-	return GroupMemberInfo{
-		UserID:        m.UserID,
-		GroupID:       m.GroupID,
-		Nickname:      m.Nickname,
-		Card:          m.Card,
-		Sex:           m.Sex,
-		Title:         m.Title,
-		Level:         m.Level,
-		Role:          m.Role,
-		JoinTime:      m.JoinTime,
-		LastSentTime:  m.LastSentTime,
-		ShutUpEndTime: m.ShutUpEndTime,
-	}
+	return GroupMemberInfo(m)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -346,13 +324,7 @@ func (a *Adapter) GetImplInfo(ctx stdctx.Context) (ImplInfo, error) {
 	if err := a.client.call(ctx, "get_impl_info", struct{}{}, &out); err != nil {
 		return ImplInfo{}, err
 	}
-	return ImplInfo{
-		ImplName:          out.ImplName,
-		ImplVersion:       out.ImplVersion,
-		QQProtocolVersion: out.QQProtocolVersion,
-		QQProtocolType:    out.QQProtocolType,
-		MilkyVersion:      out.MilkyVersion,
-	}, nil
+	return ImplInfo(out), nil
 }
 
 // GetLoginInfo 获取机器人账号的登录信息（QQ 号及昵称）。
@@ -361,7 +333,7 @@ func (a *Adapter) GetLoginInfo(ctx stdctx.Context) (LoginInfo, error) {
 	if err := a.client.call(ctx, "get_login_info", struct{}{}, &out); err != nil {
 		return LoginInfo{}, err
 	}
-	return LoginInfo{Uin: out.Uin, Nickname: out.Nickname}, nil
+	return LoginInfo(out), nil
 }
 
 // GetUserProfile 获取指定用户的个人信息。
@@ -370,18 +342,7 @@ func (a *Adapter) GetUserProfile(ctx stdctx.Context, userID int64) (UserProfile,
 	if err := a.client.call(ctx, "get_user_profile", &getUserProfileInput{UserID: userID}, &out); err != nil {
 		return UserProfile{}, err
 	}
-	return UserProfile{
-		Nickname: out.Nickname,
-		QID:      out.QID,
-		Age:      out.Age,
-		Sex:      out.Sex,
-		Remark:   out.Remark,
-		Bio:      out.Bio,
-		Level:    out.Level,
-		Country:  out.Country,
-		City:     out.City,
-		School:   out.School,
-	}, nil
+	return UserProfile(out), nil
 }
 
 // GetFriendList 获取好友列表。noCache=true 时绕过缓存强制刷新。
@@ -632,17 +593,7 @@ func (a *Adapter) GetFriendRequests(ctx stdctx.Context, limit int, isFiltered bo
 	}
 	result := make([]FriendRequest, len(out.Requests))
 	for i, r := range out.Requests {
-		result[i] = FriendRequest{
-			Time:          r.Time,
-			InitiatorID:   r.InitiatorID,
-			InitiatorUID:  r.InitiatorUID,
-			TargetUserID:  r.TargetUserID,
-			TargetUserUID: r.TargetUserUID,
-			State:         r.State,
-			Comment:       r.Comment,
-			Via:           r.Via,
-			IsFiltered:    r.IsFiltered,
-		}
+		result[i] = FriendRequest(r)
 	}
 	return result, nil
 }
@@ -693,14 +644,7 @@ func (a *Adapter) GetGroupAnnouncements(ctx stdctx.Context, groupID int64) ([]An
 	}
 	result := make([]Announcement, len(out.Announcements))
 	for i, ann := range out.Announcements {
-		result[i] = Announcement{
-			GroupID:        ann.GroupID,
-			AnnouncementID: ann.AnnouncementID,
-			UserID:         ann.UserID,
-			Time:           ann.Time,
-			Content:        ann.Content,
-			ImageURL:       ann.ImageURL,
-		}
+		result[i] = Announcement(ann)
 	}
 	return result, nil
 }
@@ -791,18 +735,7 @@ func (a *Adapter) GetGroupNotifications(ctx stdctx.Context, startSeq *int64, isF
 	}
 	result := make([]GroupNotification, len(out.Notifications))
 	for i, n := range out.Notifications {
-		result[i] = GroupNotification{
-			Type:            n.Type,
-			GroupID:         n.GroupID,
-			NotificationSeq: n.NotificationSeq,
-			IsFiltered:      n.IsFiltered,
-			InitiatorID:     n.InitiatorID,
-			TargetUserID:    n.TargetUserID,
-			State:           n.State,
-			OperatorID:      n.OperatorID,
-			Comment:         n.Comment,
-			IsSet:           n.IsSet,
-		}
+		result[i] = GroupNotification(n)
 	}
 	return result, out.NextNotificationSeq, nil
 }
@@ -905,30 +838,11 @@ func (a *Adapter) GetGroupFiles(ctx stdctx.Context, groupID int64, parentFolderI
 	}
 	files := make([]GroupFile, len(out.Files))
 	for i, f := range out.Files {
-		files[i] = GroupFile{
-			GroupID:         f.GroupID,
-			FileID:          f.FileID,
-			FileName:        f.FileName,
-			ParentFolderID:  f.ParentFolderID,
-			FileSize:        f.FileSize,
-			UploadedTime:    f.UploadedTime,
-			ExpireTime:      f.ExpireTime,
-			UploaderID:      f.UploaderID,
-			DownloadedTimes: f.DownloadedTimes,
-		}
+		files[i] = GroupFile(f)
 	}
 	folders := make([]GroupFolder, len(out.Folders))
 	for i, f := range out.Folders {
-		folders[i] = GroupFolder{
-			GroupID:          f.GroupID,
-			FolderID:         f.FolderID,
-			ParentFolderID:   f.ParentFolderID,
-			FolderName:       f.FolderName,
-			CreatedTime:      f.CreatedTime,
-			LastModifiedTime: f.LastModifiedTime,
-			CreatorID:        f.CreatorID,
-			FileCount:        f.FileCount,
-		}
+		folders[i] = GroupFolder(f)
 	}
 	return files, folders, nil
 }

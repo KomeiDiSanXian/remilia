@@ -376,10 +376,7 @@ func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
 // isAllowedDownloadURL 检查附件下载 URL 是否合法（SSRF 防护）。
 // 只允许 https 协议，禁止内网地址。
 func isAllowedDownloadURL(rawURL string) bool {
-	if !strings.HasPrefix(rawURL, "https://") {
-		return false
-	}
-	return true
+	return strings.HasPrefix(rawURL, "https://")
 }
 
 // makeSessionID 生成会话唯一标识。

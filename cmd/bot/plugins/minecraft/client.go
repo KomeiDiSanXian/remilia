@@ -46,7 +46,7 @@ var motdColors = map[byte]color.Color{
 	'f': color.RGBA{255, 255, 255, 255},
 }
 
-var motdBoldColors = map[byte]color.Color{
+var motdBoldColors = map[byte]color.Color{ //nolint:unused
 	'0': color.RGBA{30, 30, 30, 255},
 	'1': color.RGBA{30, 30, 220, 255},
 	'2': color.RGBA{30, 220, 30, 255},
@@ -202,9 +202,7 @@ func resolveColor(nameOrCode string) (color.Color, bool) {
 }
 
 func parseHexColor(hex string) color.Color {
-	if strings.HasPrefix(hex, "#") {
-		hex = hex[1:]
-	}
+	hex = strings.TrimPrefix(hex, "#")
 	var r, g, b, a uint8 = 0, 0, 0, 255
 	switch len(hex) {
 	case 6:

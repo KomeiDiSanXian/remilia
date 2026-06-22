@@ -36,7 +36,7 @@ func TestClient_Get(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer server.Close()
 
@@ -44,7 +44,7 @@ func TestClient_Get(t *testing.T) {
 	resp, err := client.Get(server.URL).Do()
 
 	require.NoError(t, err)
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	body, _ := resp.String()
@@ -56,7 +56,7 @@ func TestClient_Post(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte(`{"status":"created"}`))
+		_, _ = w.Write([]byte(`{"status":"created"}`))
 	}))
 	defer server.Close()
 
@@ -115,7 +115,7 @@ func TestRequest_SetJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"received":true}`))
+		_, _ = w.Write([]byte(`{"received":true}`))
 	}))
 	defer server.Close()
 
@@ -138,7 +138,7 @@ func TestRequest_SetJSON(t *testing.T) {
 func TestRequest_SetForm(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
-		r.ParseForm()
+		_ = r.ParseForm()
 		assert.Equal(t, "value1", r.FormValue("key1"))
 		w.WriteHeader(http.StatusOK)
 	}))

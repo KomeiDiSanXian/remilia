@@ -21,7 +21,7 @@ func appendJSONLine(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	w := bufio.NewWriter(file)
 	if _, err := w.Write(data); err != nil {

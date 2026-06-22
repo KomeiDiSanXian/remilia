@@ -40,7 +40,7 @@ func TestWechatCapabilities(t *testing.T) {
 func TestWechatStartNotImplemented(t *testing.T) {
 	adapter := wechat.NewAdapter()
 
-	err := adapter.Start(nil, nil)
+	err := adapter.Start(context.TODO(), nil)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not yet implemented")
 }

@@ -225,7 +225,7 @@ func readBody(resp *http.Response) ([]byte, error) {
 	}
 	if len(body) > 0 && body[0] == '<' {
 		snippet := string(body[:min(len(body), 120)])
-		return nil, fmt.Errorf("B 站返回了 HTML 页面，可能触发了反爬机制: %s", snippet)
+		return nil, fmt.Errorf("b 站返回了 HTML 页面，可能触发了反爬机制: %s", snippet)
 	}
 	return body, nil
 }

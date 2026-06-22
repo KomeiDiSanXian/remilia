@@ -34,7 +34,7 @@ var (
 	gsTextSecondary = color.RGBA{R: 180, G: 175, B: 190, A: 255}
 	gsAccent        = color.RGBA{R: 200, G: 160, B: 80, A: 255}
 	gsBgDark        = color.RGBA{R: 28, G: 25, B: 35, A: 255}
-	gsBgCard        = color.RGBA{R: 42, G: 38, B: 50, A: 255}
+	gsBgCard        = color.RGBA{R: 42, G: 38, B: 50, A: 255} //nolint:unused
 	gsDivider       = color.RGBA{R: 55, G: 50, B: 65, A: 255}
 )
 

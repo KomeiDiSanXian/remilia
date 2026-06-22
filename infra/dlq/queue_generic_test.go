@@ -50,7 +50,7 @@ func (c *TestConsumer) Count() int {
 func TestGenericQueue_BasicFunctionality(t *testing.T) {
 	t.Run("create with defaults", func(t *testing.T) {
 		q := New[*TestData](Config[*TestData]{})
-		defer q.Close(time.Second)
+		defer func() { _ = q.Close(time.Second) }()
 
 		assert.Equal(t, 10000, q.config.MaxSize)
 		assert.Equal(t, 1, q.config.Workers)
@@ -63,7 +63,7 @@ func TestGenericQueue_BasicFunctionality(t *testing.T) {
 			MaxSize: 100,
 			Workers: 4,
 		})
-		defer q.Close(time.Second)
+		defer func() { _ = q.Close(time.Second) }()
 
 		assert.Equal(t, 100, q.config.MaxSize)
 		assert.Equal(t, 4, q.config.Workers)
@@ -81,7 +81,7 @@ func TestGenericQueue_EnqueueDequeue(t *testing.T) {
 
 		q.AddConsumer(consumer)
 		q.Start()
-		defer q.Close(time.Second)
+		defer func() { _ = q.Close(time.Second) }()
 
 		item := Item[*TestData]{
 			Data:    &TestData{ID: 1, Message: "test"},
@@ -141,14 +141,14 @@ func TestGenericQueue_DropPolicy(t *testing.T) {
 				dropped.Add(1)
 			},
 		})
-		defer q.Close(time.Second)
+		defer func() { _ = q.Close(time.Second) }()
 
 		// Fill queue
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
+		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
+		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
 
 		// This should drop the oldest (ID: 1)
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
+		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
 
 		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, int32(1), dropped.Load())
@@ -377,17 +377,17 @@ func TestGenericQueue_TypeSafety(t *testing.T) {
 	}
 
 	userQueue := New[*User](Config[*User]{MaxSize: 10})
-	defer userQueue.Close(time.Second)
+	defer func() { _ = userQueue.Close(time.Second) }()
 
 	orderQueue := New[*Order](Config[*Order]{MaxSize: 10})
-	defer orderQueue.Close(time.Second)
+	defer func() { _ = orderQueue.Close(time.Second) }()
 
 	// Type-safe enqueue
-	userQueue.Enqueue(Item[*User]{
+	_ = userQueue.Enqueue(Item[*User]{
 		Data: &User{Name: "Alice", Email: "alice@example.com"},
 	})
 
-	orderQueue.Enqueue(Item[*Order]{
+	_ = orderQueue.Enqueue(Item[*Order]{
 		Data: &Order{ID: 123, Amount: 99.99},
 	})
 

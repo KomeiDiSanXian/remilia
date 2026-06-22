@@ -137,9 +137,6 @@ func TestAdapterSender(t *testing.T) {
 	require.NoError(t, err)
 	sender := adapter.Sender()
 	require.NotNil(t, sender)
-
-	_, ok := sender.(platform.Sender)
-	assert.True(t, ok, "Sender must implement platform.Sender")
 }
 
 func TestAdapterImplementsPlatformInterfaces(t *testing.T) {

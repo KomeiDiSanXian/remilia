@@ -106,7 +106,7 @@ func TestEnableWithCrashLog(t *testing.T) {
 	// TempDir 的清理会失败。
 	dir := filepath.Join(os.TempDir(), "coredump-test-crashlog")
 	_ = os.MkdirAll(dir, 0o755)
-	defer os.RemoveAll(dir) // best-effort 清理
+	defer func() { _ = os.RemoveAll(dir) }() // best-effort 清理
 
 	err := Enable(
 		WithDir(dir),

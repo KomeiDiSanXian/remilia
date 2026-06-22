@@ -239,7 +239,7 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 		logger.Infof("[milky.Adapter] WebSocket connected to %s", a.cfg.BaseURL)
 
 		disconnectErr := a.readLoop(ctx, conn, eventCh)
-		conn.Close()
+		_ = conn.Close()
 
 		if ctx.Err() != nil {
 			return ctx.Err()

@@ -79,7 +79,7 @@ func (b *TLVBuilder) Bytes() []byte { return b.buf }
 // TLVReader 从 TLV 字节序列中读取键值对。
 type TLVReader struct {
 	buf []byte
-	pos int
+	pos int //nolint:unused
 }
 
 func NewTLVReader(data []byte) *TLVReader {

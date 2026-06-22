@@ -92,7 +92,7 @@ func (c *imageCache) downloadAndSave(ctx context.Context, url, path string) (ima
 }
 
 // getCache 返回 Plugin 实例级别的缓存，每个 Plugin 有独立的缓存目录。
-func getCache(p *Plugin) *imageCache {
+func getCache(p *Plugin) *imageCache { //nolint:unused
 	if p.cache == nil {
 		p.cache = newImageCache(p.dataDir)
 	}

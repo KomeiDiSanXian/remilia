@@ -29,7 +29,7 @@ var (
 	hsrTextSecondary = color.RGBA{R: 175, G: 170, B: 190, A: 255}
 	hsrAccent        = color.RGBA{R: 200, G: 170, B: 100, A: 255}
 	hsrBgDark        = color.RGBA{R: 22, G: 20, B: 35, A: 255}
-	hsrBgCard        = color.RGBA{R: 38, G: 35, B: 52, A: 255}
+	hsrBgCard        = color.RGBA{R: 38, G: 35, B: 52, A: 255} //nolint:unused
 	hsrDivider       = color.RGBA{R: 50, G: 45, B: 65, A: 255}
 )
 
