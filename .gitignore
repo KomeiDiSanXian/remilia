@@ -17,7 +17,8 @@ secrets/
 data/
 
 profile/
-bin/*.exe
+*.exe
+*.pprof
 
 # Web Dashboard
 dashboard/node_modules/
