@@ -1,7 +1,5 @@
 FROM golang:1.26-alpine AS builder
 
-RUN apk add --no-cache gcc musl-dev
-
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -12,7 +10,7 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
 
-RUN CGO_ENABLED=1 go build -ldflags="\
+RUN CGO_ENABLED=0 go build -ldflags="\
   -s -w \
   -X github.com/KomeiDiSanXian/remilia.Version=${VERSION} \
   -X main.commit=${GIT_COMMIT} \
