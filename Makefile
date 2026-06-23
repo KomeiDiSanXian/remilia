@@ -6,13 +6,14 @@ GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>NUL || echo "unknown")
 BUILD_TIME  ?= $(shell powershell -Command "Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ'")
 LDFLAGS     := -X github.com/KomeiDiSanXian/remilia.Version=$(VERSION) -X main.commit=$(GIT_COMMIT) -X main.date=$(BUILD_TIME)
 
+CGO_ENABLED ?= 0
 GO          ?= go
 ifeq ($(OS),Windows_NT)
 BIN_SUFFIX  := .exe
-GO_BUILD    := set CGO_ENABLED=1 && $(GO) build -ldflags="$(LDFLAGS)"
+GO_BUILD    := set CGO_ENABLED=$(CGO_ENABLED) && $(GO) build -ldflags="$(LDFLAGS)"
 else
 BIN_SUFFIX  :=
-GO_BUILD    := CGO_ENABLED=1 $(GO) build -ldflags="$(LDFLAGS)"
+GO_BUILD    := CGO_ENABLED=$(CGO_ENABLED) $(GO) build -ldflags="$(LDFLAGS)"
 endif
 
 help:
@@ -48,7 +49,7 @@ ifeq ($(OS),Windows_NT)
 	cd dashboard && npm ci && npm run build
 	if exist cmd\bot\dashboarddist\ rmdir /s /q cmd\bot\dashboarddist
 	mkdir cmd\bot\dashboarddist
-	xcopy /E /I /Y dashboard\dist\* cmd\bot\dashboarddist\
+	xcopy /E /I /Y dashboard\dist\* cmd\bot\dashboarddist
 else
 	cd dashboard && npm ci && npm run build
 	cp -r dashboard/dist/* cmd/bot/dashboarddist/

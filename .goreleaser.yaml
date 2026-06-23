@@ -19,14 +19,58 @@ builds:
     goarch:
       - amd64
       - arm64
+      - "386"
+      - arm
+      - riscv64
+      - mips64
+      - mips64le
+      - s390x
+      - ppc64le
+    goarm:
+      - "6"
+      - "7"
     ignore:
+      # macOS: 仅支持 amd64 / arm64，其余架构 Go 不支持
+      - goos: darwin
+        goarch: "386"
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: riscv64
+      - goos: darwin
+        goarch: mips64
+      - goos: darwin
+        goarch: mips64le
+      - goos: darwin
+        goarch: s390x
+      - goos: darwin
+        goarch: ppc64le
+      # Windows: 32-bit x86 被 modernc.org/libc 排除（缺少 386 汇编存根，CGO 也无法绕过）
       - goos: windows
-        goarch: arm64
-    overrides:
+        goarch: "386"
+      # Windows ARM 32-bit: Go 不支持（仅支持 arm64）
+      - goos: windows
+        goarch: arm
+      # Windows: 以下冷门架构未被 modernc.org/libc 支持
+      - goos: windows
+        goarch: riscv64
+      - goos: windows
+        goarch: mips64
+      - goos: windows
+        goarch: mips64le
+      - goos: windows
+        goarch: s390x
+      - goos: windows
+        goarch: ppc64le
+      # Linux ARMv6: 仅作为最低兼容基线保留（ARMv5 无需维护），ARMv7 性能更好
       - goos: linux
-        goarch: amd64
-        env:
-          - CGO_ENABLED=1
+        goarch: arm
+        goarm: "6"
+      # Linux MIPS: modernc.org/libc 缺少 MIPS 架构支持
+      - goos: linux
+        goarch: mips64
+      - goos: linux
+        goarch: mips64le
 
 archives:
   - formats: tar.gz
@@ -34,6 +78,8 @@ archives:
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
