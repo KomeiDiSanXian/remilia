@@ -195,7 +195,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		"id",                   // [0] 消息 ID（用于 msg_id 被动回复授权）
 		"content",              // [1]
 		"author.member_openid", // [2]
-		"author.id",            // [3]
+		"author.username",      // [3] 发送者昵称
 		"group_openid",         // [4]
 		"timestamp",            // [5]
 		"attachments",          // [6]
