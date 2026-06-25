@@ -1,25 +1,28 @@
 # Remilia 默认配置（fallback 自动使用）
 # 当 config.yaml 不存在且环境变量不足以构建完整配置时启用。
+#
+# 热更新标注:
+#   [H]  = 热更新生效 / [H⚠] = 有条件热更新 / [R] = 需重启
 
 log:
-  level: "info"
-  format: "text"
+  level: "info"                 # [H]
+  format: "text"                # [H⚠]
 
 retry:
-  enable: true
-  max_attempts: 3
-  backoff_base: "200ms"
-  backoff_max: "2s"
+  enable: true                  # [H]
+  max_attempts: 3               # [H]
+  backoff_base: "200ms"         # [H]
+  backoff_max: "2s"             # [H]
 
 middleware:
-  logging: true
-  recover: true
-  metrics: true
+  logging: true                 # [H]
+  recover: true                 # [H]
+  metrics: true                 # [H]
 
 dead_letter:
-  enable: false
+  enable: false                 # [R]
 
-engine:
+engine:                         # [R] 全部需重启
   temp_matcher_cleanup_interval: "5m"
   pending_delete_buffer_size: 1000
   pending_delete_process_interval: "100ms"
@@ -28,7 +31,7 @@ engine:
   matcher_pool_capacity: 16
   matcher_pool_max_capacity: 1024
 
-api:
+api:                            # [R] 全部需重启
   enabled: true
   addr: ":9002"
   api_key: ""

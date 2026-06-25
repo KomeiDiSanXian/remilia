@@ -102,6 +102,7 @@ func main() {
 
 	eng := bot.Engine()
 	bridge := setupMiddleware(eng, &cfg.Tracing, cfg)
+	bridge.SetTracingProvider(tp)
 
 	configWatcher, err := config.NewWatcher("config.yaml")
 	if err != nil {
@@ -122,6 +123,9 @@ func main() {
 		hc.BuildTime = date
 	}
 	pprofSrv := startPprof(cfg.Pprof, healthHandler)
+	if pprofSrv != nil {
+		bridge.SetPprofServer(pprofSrv)
+	}
 	healthSrv := startHealthServer(cfg.Pprof.Addr, healthHandler, pprofSrv != nil)
 
 	apiSrv := startAPIServer(cfg.API, "config.yaml", bot, eng, fsmMgr, pm, reg, dashboardHandler())
@@ -135,6 +139,17 @@ func main() {
 	setupAdaptiveLimiter(eng, bridge, bot.Context())
 
 	discoverAll(bot, pm)
+
+	// 订阅 platform 热更新（bot.Start() 之后才能使用 bot.Context()）
+	config.Subscribe(func(newCfg *config.Config) {
+		if newCfg == nil {
+			return
+		}
+		desired := buildDesiredAdapters(newCfg)
+		if err := bot.SyncPlatforms(desired); err != nil {
+			logger.WithError(err).Error("[remilia] Failed to sync platforms")
+		}
+	})
 
 	bot.WaitForShutdown()
 

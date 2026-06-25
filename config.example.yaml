@@ -1,75 +1,63 @@
 # Remilia Bot 配置文件示例
 # 复制此文件为 config.yaml 并填入你的实际配置
+#
+# 热更新标注说明:
+#   [H]    — 热更新生效，无需重启
+#   [H⚠]  — 热更新生效但有注意事项
+#   [R]    — 需要重启 Bot
+#   [N/A]  — 不适用（预留字段暂未实现）
 
 # ====================================
-# Bot 平台配置
-# 选择你需要使用的平台，填入对应的密钥和连接参数。
-# 未使用的平台可以删除或留空。
+# Bot 平台配置  [R]
+# 所有平台适配器的配置变更都需要完全重启 Bot 才能生效。
+# 从 v1.14.1 开始支持平台热替换（SyncPlatforms）：
+# 更换 Token/URL 或增删平台时零停机，但更换监听端口等
+# 网络层变更仍需重启。
 # ====================================
 bot:
-  # ----- QQ 机器人（QQ 官方 API / Webhook）-----
-  qq:
-    app_id: 123456789
-    bot_id: 987654321
-    token: "your_qq_bot_token"
-    secret: "your_qq_bot_secret"
+  # ----- QQ 机器人（QQ 官方 API / Webhook）-----           # [H⚠]
+  qq:                                                          # 增删平台 → 零停机；更换 webhook.port → 需重启
+    app_id: 123456789                                         # [H⚠] 更换后旧连接用完即断，新连接自动建立
+    bot_id: 987654321                                         # [H⚠] 同上
+    token: "your_qq_bot_token"                                # [H⚠] 同上
+    secret: "your_qq_bot_secret"                              # [H⚠] 同上
 
     # Webhook 事件服务配置
-    webhook:
-      # 监听地址
-      host: "0.0.0.0"
-
-      # 监听端口
-      port: 8080
-
-      # 优雅关闭超时时间
-      shutdown_timeout: "10s"
-
-      # 事件通道缓冲大小
-      # 推荐值: 1000-5000（根据流量调整）
-      event_buffer: 1000
-
-      # 并发事件处理的 worker 数量
-      # 0 表示使用 CPU 核心数，推荐值: 4-16（根据并发需求调整）
-      worker_count: 0
+    webhook:                                                  # [H⚠]
+      host: "0.0.0.0"                                         # [R]  更换监听地址需释放旧端口再 bind
+      port: 8080                                               # [R]  同上
+      shutdown_timeout: "10s"                                  # [N/A] 仅创建时读取
+      event_buffer: 1000                                       # [N/A] 仅创建时读取
+      worker_count: 0                                          # [N/A] 仅创建时读取
 
     # QQ Token 管理器配置
     token_manager:
-      # Token 获取失败重试延迟
-      retry_delay: "10s"
-
-      # 提前多久刷新 Token
-      refresh_advance: "30s"
-
-      # 最小刷新时间比例（expires_in * ratio）
-      min_refresh_ratio: 0.5
+      retry_delay: "10s"                                      # [N/A] 仅创建时读取
+      refresh_advance: "30s"                                   # [N/A] 仅创建时读取
+      min_refresh_ratio: 0.5                                   # [N/A] 仅创建时读取
 
   # ----- OneBot V11 协议（go-cqhttp / NapCat 等）-----
-  # onebot:
-  #   # 正向 WS 连接地址（ModeForwardWS）
-  #   url: "ws://127.0.0.1:6700"
-  #   # 反向 WS / HTTP POST 监听地址（ModeReverseWS / ModeHTTPPost）
-  #   listen_addr: ":8080"
-  #   # 访问令牌（OneBot 配置了 access_token 时需要）
-  #   token: "your_onebot_token"
-  #   # HTTP POST 事件验签密钥（仅 ModeHTTPPost）
-  #   secret: "your_onebot_secret"
+  # onebot:                                                    # [H⚠]
+  #   url: "ws://127.0.0.1:6700"                               # [H⚠]
+  #   listen_addr: ":8080"                                     # [R]
+  #   token: "your_onebot_token"                                # [H⚠]
+  #   secret: "your_onebot_secret"                              # [H⚠]
 
   # ----- Discord Bot（Gateway WebSocket）-----
-  # discord:
-  #   token: "your_discord_bot_token"
+  # discord:                                                   # [H⚠]
+  #   token: "your_discord_bot_token"                           # [H⚠]
 
   # ----- Satori 协议（Chronocat / Lagrange 等）-----
-  # satori:
-  #   server_url: "http://localhost:5140"
-  #   token: "your_satori_token"
-  #   platform: "chronocat"
-  #   user_id: "1234567890"
+  # satori:                                                    # [H⚠]
+  #   server_url: "http://localhost:5140"                       # [H⚠]
+  #   token: "your_satori_token"                                # [H⚠]
+  #   platform: "chronocat"                                     # [H⚠]
+  #   user_id: "1234567890"                                     # [H⚠]
 
   # ----- Milky QQ 协议（NTQQ 协议端）-----
-  # milky:
-  #   base_url: "http://127.0.0.1:6700"
-  #   access_token: "your_milky_token"
+  # milky:                                                     # [H⚠]
+  #   base_url: "http://127.0.0.1:6700"                         # [H⚠]
+  #   access_token: "your_milky_token"                          # [H⚠]
 
   # ----- Telegram（预留）-----
   # telegram: {}
@@ -81,325 +69,173 @@ bot:
 # 日志配置
 # ====================================
 log:
-  # 日志级别: trace, debug, info, warn, error, fatal, panic
-  level: "info"
+  # 日志级别: trace, debug, info, warn, error, fatal, panic    [H]
+  level: "info"                                                # 修改后即时生效
 
-  # 日志输出格式（向后兼容）: text（等价于 console=true）, json（等价于 console=false）
-  # 若同时设置了 console 字段，console 优先，此字段被忽略
-  format: "text"
+  # 日志输出格式（向后兼容）: text / json                       [H⚠]
+  format: "text"                                               # 重新初始化 logger，日志流暂断
 
-  # 是否启用控制台输出（带颜色的人类可读格式）
-  # 与 format: "text" 等价，但优先级更高
-  # console: true
+  # 是否启用控制台输出                                         [H⚠]
+  # console: true                                              # 重新初始化 logger
 
-  # 是否启用文件输出（JSON 格式写入 file_path）
-  # file: false
+  # 是否启用文件输出                                           [H⚠]
+  # file: false                                                # 重新打开文件句柄
 
-  # 日志文件路径（file: true 时生效）
-  # 推荐值: "logs/remilia.log"
-  # file_path: "logs/remilia.log"
+  # 日志文件路径                                                [H⚠]
+  # file_path: "logs/remilia.log"                               # 重新打开文件句柄
 
-  # 时间戳格式，使用 Go time.Format 规则
-  # 默认值: "2006-01-02 15:04:05"
-  # time_format: "2006-01-02 15:04:05"
+  # 时间戳格式                                                  [H]
+  # time_format: "2006-01-02 15:04:05"                          # 修改后即时生效
 
 # ====================================
 # 重试配置（可选）
 # 支持自动重试机制
 # ====================================
 retry:
-  # 是否启用自动重试
-  enable: true
-
-  # 最大重试次数（不包括首次尝试）
-  # 推荐值: 2-3 次
-  max_attempts: 3
-
-  # 重试退避基础时间
-  # 格式: "100ms", "200ms", "500ms" 等
-  backoff_base: "200ms"
-
-  # 重试退避最大时间
-  # 格式: "1s", "2s", "5s" 等
-  backoff_max: "2s"
+  enable: true                                                 # [H]  修改后即时生效
+  max_attempts: 3                                              # [H]  修改后即时生效
+  backoff_base: "200ms"                                        # [H]  修改后即时生效
+  backoff_max: "2s"                                            # [H]  修改后即时生效
 
 # ====================================
 # 中间件配置（可选）
 # 支持内置中间件
 # ====================================
 middleware:
-  # 日志中间件（记录请求日志）
-  logging: true
+  logging: true                                                # [H]  运行时开关
+  recover: true                                                # [H]  运行时开关
+  metrics: true                                                # [H]  运行时开关
 
-  # 恢复中间件（捕获 panic）
-  recover: true
-
-  # 指标收集中间件（Prometheus）
-  metrics: true
-
-  # 认证中间件（用户/群组白名单）
-  auth:
-    enable: false
-    whitelist:
+  auth:                                                        # [H]
+    enable: false                                              # [H]  运行时开关，白名单热读
+    whitelist:                                                 # [H]  增删用户即时生效
       - "user_id_1"
       - "user_id_2"
       - "group_id_1"
 
-  # 限流中间件（令牌桶算法）
-  rate_limit:
-    enable: false
-    rate: 100                       # 每秒生成的令牌数
-    burst: 200                      # 令牌桶容量（允许突发）
-    max_buckets: 10000              # 限流桶数量上限
-    bucket_ttl: "10m"               # 限流桶过期时间
-    cleanup_interval: "5m"          # 限流桶清理间隔
+  rate_limit:                                                  # [H⚠]
+    enable: false                                              # [H]  运行时开关
+    rate: 100                                                   # [N/A] 由自适应限流器管理
+    burst: 200                                                  # [H]  作为 AdjustStep 传入
+    max_buckets: 10000                                         # [N/A] 仅创建时读取
+    bucket_ttl: "10m"                                          # [N/A] 仅创建时读取
+    cleanup_interval: "5m"                                     # [N/A] 仅创建时读取
 
-  # 去重中间件
-  dedup:
-    enable: false
-    max_size: 10000                 # 最大缓存条目数
-    default_ttl: "5m"              # 默认去重 TTL
-    cleanup_interval: "1m"          # 清理间隔
+  dedup:                                                       # [H]
+    enable: false                                              # [H]  运行时开关
+    max_size: 10000                                            # [H]  修改后即时生效
+    default_ttl: "5m"                                          # [H]  修改后即时生效
+    cleanup_interval: "1m"                                     # [N/A] 仅创建时读取
 
-  # 慢处理器中间件（用于监控和调试）
-  slow_handler:
-    enable: false
-    threshold: "1s"                 # 慢处理阈值
+  slow_handler:                                                # [H]
+    enable: false                                              # [H]  运行时开关
+    threshold: "1s"                                            # [H]  每次请求热读
 
-  # 反压（并发限制）配置
-  backpressure:
-    # 最大并发数，<=0 表示不限制
-    # 推荐值: 100-1000（根据服务器性能调整）
-    limit: 500
+  backpressure:                                                # [H⚠]
+    limit: 500                                                  # [H]  limit>0 启用，limit<=0 关闭；修改 limit 值需重启
+    policy: "trywait"                                          # [N/A] 仅创建时读取
+    wait_timeout: "500ms"                                      # [N/A] 仅创建时读取
 
-    # 反压策略: drop（丢弃）, block（阻塞）, trywait（尝试等待）
-    # - drop: 超过限制时丢弃新事件（适合允许丢失的场景）
-    # - block: 超过限制时阻塞等待（适合不能丢失的场景）
-    # - trywait: 尝试等待一段时间，超时后丢弃（推荐）
-    policy: "trywait"
-
-    # 等待超时时间（仅 trywait 策略生效）
-    # 格式: "200ms", "1s", "2s" 等
-    wait_timeout: "500ms"
-
-  # 自适应降级配置（含热更新，原 degradation 顶级节点）
-  degradation:
-    enable: false
-    cpu_threshold: 80.0             # CPU 使用率阈值（百分比，0-100）
-    memory_threshold: 85.0          # 内存使用率阈值（百分比，0-100）
-    latency_threshold: "500ms"      # 延迟阈值
-    monitor_interval: "5s"          # 监控间隔
-    recovery_interval: "10s"        # 恢复检查间隔
-    delay_queue_size: 1000          # 延迟队列大小（延迟策略使用）
-    goroutine_threshold: 10000      # 协程数量阈值
-    strategy: "drop"                # 降级策略: drop, delay, simplify
+  degradation:                                                 # [H⚠]
+    enable: false                                              # [H]  运行时开关
+    cpu_threshold: 80.0                                         # [H]  下一监控周期生效
+    memory_threshold: 85.0                                      # [H]  下一监控周期生效
+    latency_threshold: "500ms"                                  # [H]  下一监控周期生效
+    monitor_interval: "5s"                                      # [H]  下一监控周期生效（ticker 重建）
+    recovery_interval: "10s"                                    # [N/A] 需要重建控制器
+    delay_queue_size: 1000                                      # [N/A] 仅创建时读取
+    goroutine_threshold: 10000                                  # [H]  下一监控周期生效
+    strategy: "drop"                                            # [H]  运行时读取
 
 # ====================================
-# 死信队列配置（可选）
-# 支持失败事件持久化
+# 死信队列配置（可选）                                           [R]
+# 支持失败事件持久化，所有变更需重启生效
 # ====================================
 dead_letter:
-  # 是否启用死信队列
-  enable: true
-
-  # 目标类型: file（文件）, kafka（Kafka）, webhook（Webhook）
-  target: "file"
-
-  # 文件目标配置（target=file 时生效）
-  file_path: "./dead_letters.log"
-
-  # Kafka 目标配置（target=kafka 时生效）
-  kafka_brokers:
+  enable: true                                                 # [R]
+  target: "file"                                               # [R]
+  file_path: "./dead_letters.log"                              # [R]
+  kafka_brokers:                                               # [R]
     - "localhost:9092"
-  kafka_topic: "bot-dead-letters"
-
-  # Webhook 目标配置（target=webhook 时生效）
-  webhook_url: "https://your-webhook-endpoint.com/dead-letters"
+  kafka_topic: "bot-dead-letters"                              # [R]
+  webhook_url: "https://your-webhook-endpoint.com"             # [R]
 
 # ====================================
-# Engine 引擎配置（可选）
+# Engine 引擎配置（可选）                                        [R]
+# 引擎初始化时读取，所有变更需重启生效
 # ====================================
 engine:
-  # 临时 Matcher 清理间隔
-  # 格式: "1m", "5m", "10m" 等
-  temp_matcher_cleanup_interval: "5m"
-
-  # 批量删除通道大小
-  # 推荐值: 1000-10000（根据 Matcher 创建频率调整）
-  pending_delete_buffer_size: 1000
-
-  # 批量删除处理间隔
-  # 格式: "50ms", "100ms", "200ms" 等
-  pending_delete_process_interval: "100ms"
-
-  # 每次批量删除数量
-  # 推荐值: 100-1000
-  pending_delete_batch_size: 1000
-
-  # Matcher 池初始容量
-  # 推荐值: 16-64
-  matcher_pool_capacity: 16
-
-  # Matcher 池最大容量
-  # 推荐值: 1024-4096
-  matcher_pool_max_capacity: 1024
-
-  # 临时 Matcher 分片数
-  # 推荐值: 8-32（2的幂次）
-  temp_matcher_shard_count: 8
-
+  temp_matcher_cleanup_interval: "5m"                          # [R]
+  pending_delete_buffer_size: 1000                             # [R]
+  pending_delete_process_interval: "100ms"                     # [R]
+  pending_delete_batch_size: 1000                              # [R]
+  matcher_pool_capacity: 16                                    # [R]
+  matcher_pool_max_capacity: 1024                              # [R]
+  temp_matcher_shard_count: 8                                  # [R]
 
 # ====================================
 # 分布式追踪配置（可选）
-# 支持 OpenTelemetry 集成
 # ====================================
 tracing:
-  # 是否启用分布式追踪
-  enable: false
-
-  # 服务名称（用于追踪后端展示）
-  service_name: "remilia-bot"
-
-  # 服务版本
-  service_version: "1.0.0"
-
-  # 部署环境: dev, staging, prod
-  environment: "dev"
-
-  # 导出器类型: otlp（Tempo/Grafana）, zipkin, stdout
-  exporter: "otlp"
-
-  # 追踪后端地址
-  # OTLP (Tempo/Grafana): http://localhost:4318
-  # Zipkin: http://localhost:9411/api/v2/spans
-  endpoint: "http://localhost:4318"
-
-  # 采样率 (0.0 - 1.0)
-  # 1.0 = 全量采样，0.1 = 10% 采样
-  sampling_rate: 1.0
-
-  # 是否启用自适应采样（根据错误率和负载动态调整采样率）
-  # 启用后 sampling_rate 作为基础采样率
-  # use_adaptive_sampling: false
-
-  # 自适应采样器详细配置（仅 use_adaptive_sampling: true 时生效）
-  # adaptive_sampler:
-  #   base_sampling_rate: 0.1        # 基础采样率 (0.0-1.0)
-  #   min_sampling_rate: 0.01        # 最小采样率
-  #   max_sampling_rate: 1.0         # 最大采样率
-  #   error_threshold: 0.1           # 错误率阈值，超过时提高采样率
-  #   high_error_sampling_rate: 1.0  # 高错误率时的采样率
-  #   adjust_interval: "10s"         # 动态调整间隔
-  #   always_sample_errors: true     # 是否始终采样错误 Span
-
-  # 是否在 Span 中包含事件详情（内容、作者等）
-  include_event_detail: false
-
-  # 额外的 HTTP 请求头（用于 OTLP 认证，可选）
-  # headers:
-  #   Authorization: "Bearer your_token"
-  #   X-Custom-Header: "value"
+  enable: false                                                # [R]  需重建 TracerProvider
+  service_name: "remilia-bot"                                  # [R]  资源属性，仅创建时设定
+  service_version: "1.0.0"                                     # [R]  同上
+  environment: "dev"                                           # [R]  同上
+  exporter: "otlp"                                             # [R]  需重建导出器连接
+  endpoint: "http://localhost:4318"                            # [R]  需重建 OTLP 连接
+  sampling_rate: 1.0                                           # [H⚠] 仅自适应模式支持运行时更新
+  use_adaptive_sampling: false                                 # [R]  需重建采样器
+  # adaptive_sampler: (嵌套字段全部 [R])                          [R]
+  include_event_detail: false                                  # [H]  运行时开关
+  # headers: (自定义 HTTP 头全部 [R])                            [R]
 
 # ====================================
 # pprof 性能分析配置（可选）
-# 以下配置控制 pprof HTTP 服务器和自动性能分析
-# 健康检查端点 /health 与此共用 addr 地址
-# 启用后可通过 http://{addr}/health 查看 Bot 状态
 # ====================================
 pprof:
-  # 是否启用 pprof
-  enabled: false
-
-  # 监听地址（同时用作健康检查 /health 的地址）
-  addr: ":9001"
-
-  # 是否启用自动性能分析（定时生成 CPU/内存/goroutine 分析文件）
-  auto_profile: false
-
-  # 自动分析间隔（auto_profile=true 时生效）
-  profile_interval: "1h"
-
-  # 每次分析持续时间
-  profile_duration: "30s"
-
-  # 分析文件输出目录
-  output_dir: "data/profiles"
-
-  # 是否启用互斥锁分析
-  enable_mutex: false
-
-  # 是否启用阻塞分析
-  enable_block: false
+  enabled: false                                               # [R]  需重启 HTTP 服务器
+  addr: ":9001"                                                # [R]  同上
+  auto_profile: false                                          # [H]  运行时生效
+  profile_interval: "1h"                                       # [H]  运行时生效（下一周期）
+  profile_duration: "30s"                                      # [H]  运行时生效
+  output_dir: "data/profiles"                                  # [R]  仅创建时读取
+  enable_mutex: false                                          # [H]  运行时生效
+  enable_block: false                                          # [H]  运行时生效
 
 # ====================================
-# 管理 API 配置（可选）
-# 提供 RESTful API 用于从浏览器或桌面端管理 Bot
+# 管理 API 配置（可选）                                          [R]
+# 所有变更需重启生效
 # ====================================
 api:
-  # 是否启用管理 API
-  enabled: true
-
-  # 监听地址（建议使用独立端口）
-  addr: ":9002"
-
-  # API 访问密钥（Authorization: Bearer <api_key>）
-  # 留空表示跳过认证（仅开发环境建议）
-  api_key: ""
+  enabled: true                                                # [R]
+  addr: ":9002"                                                # [R]
+  api_key: ""                                                  # [R]
 
 # ====================================
 # 插件扩展配置（可选）
-# 各业务插件通过此节读取自定义配置（API Key、开关等）
-# 键为插件名称，值为任意键值对
 # ====================================
 # plugins:
-#   ai:
-#     provider: "openai"                          # LLM 提供商 (openai 等)
-#     model: "gpt-4o-mini"                        # 模型名称
-#     base_url: "https://api.openai.com/v1"       # API 地址（可换 DeepSeek: https://api.deepseek.com）
-#     api_key: "${AI_API_KEY}"                    # API Key（支持环境变量引用）
-#     system_prompt: "你是一个有用的AI助手"        # 系统提示词
-#     max_tokens: 2048                            # 最大输出 token 数
-#     max_depth: 5                                # 最大工具调用递归深度
-#     max_history: 20                             # 保留的最大对话轮数
-#     session_ttl: "24h"                          # 会话过期时间
-#     trigger_cmd: "/ai"                          # 触发命令前缀
-#     at_bot: true                                # @机器人 时触发
-#     private_chat: true                          # 私聊自动触发
-#     fallback: false                             # 无命令匹配时是否兜底回复
+#   ai: (所有字段 [N/A] 各插件通过 YAMLConfigProvider 读取，暂不支持热更新)
+#     provider: "openai"
+#     model: "gpt-4o-mini"
+#     ...
 #   weather:
 #     api_key: "your-weather-api-key"
-#     timeout: 10
-#   translate:
-#     provider: "mymemory"
-#     daily_limit: 1000
-#   antispam:
-#     user_rate: 5
-#     user_burst: 10
-#     group_rate: 30
-#     group_burst: 50
-#     ban_on_violation: true
-#     ban_duration: "5m"
-#   keywordfilter:
-#     keywords:
-#       - "敏感词1"
-#       - "敏感词2"
-#   storage:
-#     dsn: "data/db/bot.db"
+#   ...
 
 # ====================================
 # 配置说明
 # ====================================
 # 1. 必填配置: bot, log
 # 2. 可选配置: retry, middleware, dead_letter, engine, tracing, pprof
-#    QQ 平台特有: webhook, token_manager
 # 3. 环境变量支持（仅 QQ 平台，无配置文件时生效）:
-#    - QQ_APP_ID
-#    - QQ_BOT_ID
-#    - QQ_TOKEN
-#    - QQ_SECRET
-# 4. 配置热重载: 使用 config.Watch() 监听配置变更
+#    - QQ_APP_ID / QQ_BOT_ID / QQ_TOKEN / QQ_SECRET
+# 4. 热更新概览:
+#    [H]  即时生效 — 修改后写入文件即自动加载
+#    [H⚠] 有条件 — 见各字段注释
+#    [R]  需重启 — 修改后执行 POST /api/v1/config/reload 或重启发进程
 # 5. 性能调优:
-#    - webhook.worker_count: 控制并发处理能力（测试显示8并发可达6127 msg/s）
+#    - webhook.worker_count: 控制并发处理能力
 #    - webhook.event_buffer: 控制事件缓冲区大小
 #    - engine.*: 控制引擎内部行为和性能
 # 6. 分布式追踪 (tracing):
@@ -407,4 +243,3 @@ api:
 #    - 生产环境建议设置 sampling_rate < 1.0 以降低开销
 #
 # 详细文档: docs/CONFIG.md, docs/CONFIGURATION_IMPROVEMENTS.md
-

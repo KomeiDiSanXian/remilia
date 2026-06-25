@@ -99,6 +99,19 @@ type Bot struct {
 	// started 标记 Bot 是否已成功 Start（防止重复 Start）。
 	// 委托给 lifecycle.State 不可靠——buildBaseLifecycle 每次创建新 Manager。
 	started atomic.Bool
+
+	// syncAdaptersMu 保护 syncAdapters 的并发访问。
+	syncAdaptersMu sync.Mutex
+	// syncAdapters 记录通过 SyncPlatforms 热替换的 adapter 取消函数和等待组。
+	// 这些 adapter 运行在独立的 goroutine 中，不受 lifecycle.Manager 管理。
+	syncAdapters map[string]syncAdapterEntry
+}
+
+// syncAdapterEntry 记录一个热替换 adapter 的运行状态
+type syncAdapterEntry struct {
+	cancel context.CancelFunc
+	wg     *sync.WaitGroup
+	done   chan struct{} // 关闭时表示 goroutine 已退出
 }
 
 // BotMeta Bot 元数据配置（区别于 config.Config 全量配置）。
@@ -407,6 +420,9 @@ func (b *Bot) Stop(ctx context.Context) error {
 		_ = b.pprofServer.Stop(ctx)
 	}
 
+	// 停止所有通过 SyncPlatforms 热替换的 adapter
+	b.stopAllSyncAdapters(ctx)
+
 	b.mu.RLock()
 	lm := b.lifecycle
 	b.mu.RUnlock()
@@ -430,6 +446,181 @@ func (b *Bot) Shutdown() error {
 	ctx, cancel := context.WithTimeout(b.Context(), DefaultShutdownTimeout)
 	defer cancel()
 	return b.Stop(ctx)
+}
+
+// SyncPlatforms 热同步平台适配器集合：增、删、改均能处理。
+//
+// desired 以 platform.Platform() 为 key，框架据此比对当前注册表中的适配器：
+//   - 仅在 desired 中的 → 注册并启动
+//   - 仅在当前注册表中的 → 停止并移除
+//   - 两者都有的 → 用新的替换旧的（Stop + Start）
+//
+// SyncPlatforms 启动的适配器运行在独立的 goroutine 中，由 bot.Context() 管理生命周期。
+// Bot.Stop() 会自动关闭所有通过 SyncPlatforms 启动的适配器。
+// 调用方（cmd/bot）负责从 config 中创建 desired 适配器实例。
+func (b *Bot) SyncPlatforms(desired map[string]platform.Adapter) error {
+	if desired == nil {
+		return nil
+	}
+
+	b.mu.RLock()
+	reg := b.platformRegistry
+	parentCtx := b.Context()
+	b.mu.RUnlock()
+
+	if reg == nil {
+		return errutil.New("platformRegistry is nil, call UsePlatformRegistry first")
+	}
+
+	// 收集当前注册表中的平台名称
+	current := make(map[string]platform.Adapter)
+	for _, pa := range reg.All() {
+		current[pa.Platform()] = pa
+	}
+
+	// 收集变更结果
+	var errs []error
+
+	// 1. 处理修改和新增
+	for name, newAdapter := range desired {
+		if oldAdapter, exists := current[name]; exists {
+			// 修改：停止旧的，替换，启动新的
+			logger.WithField("platform", name).Info("[Bot] Hot-swapping platform adapter")
+
+			// 停止通过 SyncPlatforms 管理的旧 adapter
+			b.stopSyncAdapter(name)
+
+			// 停止旧的 adapter（使用短暂超时）
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := oldAdapter.Stop(stopCtx); err != nil {
+				logger.WithError(err).WithField("platform", name).Warn("[Bot] Old adapter stop error during hot-swap")
+			}
+			stopCancel()
+
+			// 原子替换
+			reg.Replace(newAdapter)
+			logger.WithField("platform", name).Info("[Bot] Adapter replaced in registry")
+		} else {
+			// 新增平台
+			logger.WithField("platform", name).Info("[Bot] Adding new platform adapter")
+			reg.Register(newAdapter)
+		}
+
+		// 注册健康检查
+		b.mu.Lock()
+		if b.health != nil {
+			b.health.Register(NewAdapterHealthChecker(newAdapter), "system", "bots", b.config.Name, "adapters", name)
+		}
+		b.mu.Unlock()
+
+		// 启动新的 adapter
+		startCtx, startCancel := context.WithCancel(parentCtx)
+		entry := syncAdapterEntry{
+			cancel: startCancel,
+			wg:     new(sync.WaitGroup),
+			done:   make(chan struct{}),
+		}
+		entry.wg.Add(1)
+		go func(pa platform.Adapter, platformName string) {
+			defer entry.wg.Done()
+			defer close(entry.done)
+			if err := pa.Start(startCtx, b.handlePlatformEvent); err != nil {
+				logger.WithError(err).WithField("platform", platformName).
+					Error("[Bot] Hot-swapped adapter stopped with error")
+			}
+		}(newAdapter, name)
+
+		b.syncAdaptersMu.Lock()
+		if b.syncAdapters == nil {
+			b.syncAdapters = make(map[string]syncAdapterEntry)
+		}
+		b.syncAdapters[name] = entry
+		b.syncAdaptersMu.Unlock()
+
+		logger.WithField("platform", name).Info("[Bot] Hot-swapped adapter started")
+	}
+
+	// 2. 处理删除
+	for name, oldAdapter := range current {
+		if _, keep := desired[name]; !keep {
+			logger.WithField("platform", name).Info("[Bot] Removing platform adapter")
+
+			// 停止通过 SyncPlatforms 管理的 adapter
+			b.stopSyncAdapter(name)
+
+			// 停止旧的 adapter
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := oldAdapter.Stop(stopCtx); err != nil {
+				logger.WithError(err).WithField("platform", name).Warn("[Bot] Removed adapter stop error")
+			}
+			stopCancel()
+
+			// 从注册表移除
+			reg.Remove(name)
+			logger.WithField("platform", name).Info("[Bot] Adapter removed from registry")
+		}
+	}
+
+	// 3. 重建 adapterSnapshot
+	b.rebuildAdapterSnapshot(reg)
+
+	if len(errs) > 0 {
+		return errutil.Join(errs...)
+	}
+	return nil
+}
+
+// stopSyncAdapter 停止通过 SyncPlatforms 管理的单个 adapter 的 goroutine。
+func (b *Bot) stopSyncAdapter(platform string) {
+	b.syncAdaptersMu.Lock()
+	entry, ok := b.syncAdapters[platform]
+	if ok {
+		delete(b.syncAdapters, platform)
+	}
+	b.syncAdaptersMu.Unlock()
+	if ok {
+		entry.cancel()
+		<-entry.done
+	}
+}
+
+// stopAllSyncAdapters 停止所有通过 SyncPlatforms 管理的 adapter。
+func (b *Bot) stopAllSyncAdapters(ctx context.Context) {
+	b.syncAdaptersMu.Lock()
+	entries := b.syncAdapters
+	b.syncAdapters = make(map[string]syncAdapterEntry)
+	b.syncAdaptersMu.Unlock()
+
+	// 先取消所有 context，让 goroutine 退出
+	for _, entry := range entries {
+		entry.cancel()
+	}
+	// 再等待所有 goroutine 退出
+	for _, entry := range entries {
+		<-entry.done
+	}
+	// 最后调用 Stop 做清理
+	for name := range entries {
+		if reg := b.PlatformRegistry(); reg != nil {
+			if a, ok := reg.Get(name); ok {
+				_ = a.Stop(ctx)
+			}
+		}
+	}
+}
+
+// rebuildAdapterSnapshot 从 registry 重建 adapterCache 快照并原子存储。
+func (b *Bot) rebuildAdapterSnapshot(reg *platform.Registry) {
+	snapshot := make(map[string]adapterCache)
+	if reg != nil {
+		for _, pa := range reg.All() {
+			snapshot[pa.Platform()] = adapterCache{
+				adapter: pa,
+				caps:    pa.Capabilities(),
+			}
+		}
+	}
+	b.adapterSnapshot.Store(snapshot)
 }
 
 // Restart 依次执行 Stop 和 Start，内部确保 started 状态正确重置。

@@ -32,59 +32,7 @@ import (
 
 func setupPlatforms(cfg *config.Config) *platform.Registry {
 	reg := platform.NewRegistry()
-
-	if c := cfg.Bot.QQ; c != nil {
-		addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
-		reg.Register(qq.NewWebhookServerAdapter(addr, &dto.BotInfo{
-			QQNum: c.BotID, AppID: c.AppID,
-			Token: c.Token, AppSecret: c.Secret,
-		}))
-		logger.Infof("[remilia] Registered QQ adapter on %s", addr)
-	}
-
-	if c := cfg.Bot.OneBot; c != nil {
-		reg.Register(onebot.NewForwardWSAdapter(onebot.Config{
-			URL: c.URL, Token: c.Token, Secret: c.Secret,
-			Mode: onebot.ModeForwardWS,
-		}))
-		logger.Infof("[remilia] Registered OneBot adapter: %s", c.URL)
-	}
-
-	if c := cfg.Bot.Discord; c != nil {
-		a, err := discord.NewAdapter(c.Token)
-		if err != nil {
-			logger.WithError(err).Error("[remilia] Failed to create Discord adapter, skipping")
-		} else {
-			reg.Register(a)
-			logger.Info("[remilia] Registered Discord adapter")
-		}
-	}
-
-	if c := cfg.Bot.Satori; c != nil {
-		a, err := satori.NewAdapter(satori.Config{
-			ServerURL: c.ServerURL, Token: c.Token,
-			Platform: c.Platform, UserID: c.UserID,
-		})
-		if err != nil {
-			logger.WithError(err).Error("[remilia] Failed to create Satori adapter, skipping")
-		} else {
-			reg.Register(a)
-			logger.Infof("[remilia] Registered Satori adapter: %s", c.ServerURL)
-		}
-	}
-
-	if c := cfg.Bot.Milky; c != nil {
-		a, err := milky.NewAdapter(milky.Config{
-			BaseURL: c.BaseURL, AccessToken: c.AccessToken,
-		})
-		if err != nil {
-			logger.WithError(err).Error("[remilia] Failed to create Milky adapter, skipping")
-		} else {
-			reg.Register(a)
-			logger.Infof("[remilia] Registered Milky adapter: %s", c.BaseURL)
-		}
-	}
-
+	registerPlatforms(reg, cfg)
 	if reg.Len() == 0 {
 		logger.Warn("[remilia] No platform configured, using Terminal adapter for development")
 		reg.Register(terminal.NewAdapter(
@@ -92,8 +40,85 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			terminal.WithBotName("DevBot"),
 		))
 	}
-
 	return reg
+}
+
+// registerPlatforms 根据 cfg 将所有已启用的平台适配器注册到 reg 中。
+// 供 setupPlatforms 和平台热更新 listener 复用。
+func registerPlatforms(reg *platform.Registry, cfg *config.Config) {
+	for name, factory := range platformFactories(cfg) {
+		a, err := factory()
+		if err != nil {
+			logger.WithError(err).Errorf("[remilia] Failed to create %s adapter, skipping", name)
+			continue
+		}
+		reg.Register(a)
+		logger.Infof("[remilia] Registered %s adapter", name)
+	}
+}
+
+// buildDesiredAdapters 根据 cfg 构建期望的平台适配器集合。
+// 供平台热更新 listener 使用。
+func buildDesiredAdapters(cfg *config.Config) map[string]platform.Adapter {
+	desired := make(map[string]platform.Adapter)
+	for name, factory := range platformFactories(cfg) {
+		a, err := factory()
+		if err != nil {
+			logger.WithError(err).Errorf("[remilia] Failed to create %s adapter for hot-swap, skipping", name)
+			continue
+		}
+		desired[name] = a
+	}
+	return desired
+}
+
+// platformFactories 返回当前配置中所有启用的平台及其创建函数。
+func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, error) {
+	factories := make(map[string]func() (platform.Adapter, error))
+
+	if c := cfg.Bot.QQ; c != nil {
+		factories["qq"] = func() (platform.Adapter, error) {
+			addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
+			return qq.NewWebhookServerAdapter(addr, &dto.BotInfo{
+				QQNum: c.BotID, AppID: c.AppID,
+				Token: c.Token, AppSecret: c.Secret,
+			}), nil
+		}
+	}
+
+	if c := cfg.Bot.OneBot; c != nil {
+		factories["onebot"] = func() (platform.Adapter, error) {
+			return onebot.NewForwardWSAdapter(onebot.Config{
+				URL: c.URL, Token: c.Token, Secret: c.Secret,
+				Mode: onebot.ModeForwardWS,
+			}), nil
+		}
+	}
+
+	if c := cfg.Bot.Discord; c != nil {
+		factories["discord"] = func() (platform.Adapter, error) {
+			return discord.NewAdapter(c.Token)
+		}
+	}
+
+	if c := cfg.Bot.Satori; c != nil {
+		factories["satori"] = func() (platform.Adapter, error) {
+			return satori.NewAdapter(satori.Config{
+				ServerURL: c.ServerURL, Token: c.Token,
+				Platform: c.Platform, UserID: c.UserID,
+			})
+		}
+	}
+
+	if c := cfg.Bot.Milky; c != nil {
+		factories["milky"] = func() (platform.Adapter, error) {
+			return milky.NewAdapter(milky.Config{
+				BaseURL: c.BaseURL, AccessToken: c.AccessToken,
+			})
+		}
+	}
+
+	return factories
 }
 
 // setupMiddleware 创建中间件链（不含自适应限流器）并返回热重载桥接器。
@@ -108,27 +133,26 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	mws = append(mws, middleware.RequestID())
 	mws = append(mws, middleware.Timeout(30*time.Second))
 
-	// Recover — 配置开关
-	if mc.Recover {
-		mws = append(mws, middleware.Recover())
-	}
+	// Recover — 运行时检查开关
+	mws = append(mws, wrapEnabled(func() bool { return bridge.GetMiddlewareConfig().Recover }, middleware.Recover()))
 
-	// Logging — 配置开关
-	if mc.Logging {
-		mws = append(mws, middleware.Logging())
-	}
+	// Logging — 运行时检查开关
+	mws = append(mws, wrapEnabled(func() bool { return bridge.GetMiddlewareConfig().Logging }, middleware.Logging()))
 
-	// Auth（白名单）— 配置开关，从 whitelist 构造鉴权函数
-	if mc.Auth.Enable && len(mc.Auth.Whitelist) > 0 {
-		allowSet := make(map[string]struct{}, len(mc.Auth.Whitelist))
-		for _, id := range mc.Auth.Whitelist {
-			allowSet[id] = struct{}{}
+	// Auth（白名单）— 运行时读取 whitelist
+	mws = append(mws, middleware.Auth(func(ctx *eventctx.Context) bool {
+		ac := bridge.GetMiddlewareConfig().Auth
+		if !ac.Enable || len(ac.Whitelist) == 0 {
+			return true // 未启用时放行
 		}
-		mws = append(mws, middleware.Auth(func(ctx *eventctx.Context) bool {
-			_, ok := allowSet[ctx.GetChatInfo().ID]
-			return ok
-		}))
-	}
+		userID := ctx.GetChatInfo().ID
+		for _, id := range ac.Whitelist {
+			if id == userID {
+				return true
+			}
+		}
+		return false
+	}))
 
 	// Dedup — 配置开关 + 参数，支持热重载
 	if mc.Dedup.Enable {
@@ -152,19 +176,20 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	bridge.WatchCircuitBreaker(cb)
 	mws = append(mws, resilience.CircuitBreakerMiddleware(cb))
 
-	// Backpressure — 配置驱动
+	// Backpressure — 运行时检查开关，Limit 仅创建时确定
 	if mc.Backpressure.Limit > 0 {
 		policy := parseBackpressurePolicy(mc.Backpressure.Policy)
-		timeout := parseDuration(mc.Backpressure.WaitTimeout, 200*time.Millisecond)
-		mws = append(mws, middleware.Backpressure(mc.Backpressure.Limit, policy, timeout))
+		wTimeout := parseDuration(mc.Backpressure.WaitTimeout, 200*time.Millisecond)
+		innerBP := middleware.Backpressure(mc.Backpressure.Limit, policy, wTimeout)
+		mws = append(mws, wrapEnabled(func() bool {
+			return bridge.GetMiddlewareConfig().Backpressure.Limit > 0
+		}, innerBP))
 	}
 
 	eng.Use(mws...)
 
-	// Metrics — 配置开关
-	if mc.Metrics {
-		eng.Use(telemetry.PrometheusMetrics("remilia"))
-	}
+	// Metrics — 运行时检查开关
+	eng.Use(wrapEnabled(func() bool { return bridge.GetMiddlewareConfig().Metrics }, telemetry.PrometheusMetrics("remilia")))
 
 	eng.Use(telemetry.Tracing(telemetry.TracingConfig{
 		TracerName:         "remilia",
@@ -172,14 +197,8 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	}))
 	eng.Use(errorHandlerMiddleware())
 
-	// Slow handler — 配置开关 + 阈值
-	slowThreshold := 3 * time.Second
-	if mc.SlowHandler.Enable && mc.SlowHandler.Threshold != "" {
-		if d, err := time.ParseDuration(mc.SlowHandler.Threshold); err == nil && d > 0 {
-			slowThreshold = d
-		}
-	}
-	eng.Use(slowRequestMiddleware(slowThreshold))
+	// Slow handler — 运行时检查开关 + 阈值
+	eng.Use(slowRequestMiddleware(bridge))
 
 	bridge.Subscribe()
 	logger.Info("[remilia] Hot-reload bridge initialized")
@@ -251,9 +270,19 @@ func errorHandlerMiddleware() eventctx.Middleware {
 	}
 }
 
-func slowRequestMiddleware(threshold time.Duration) eventctx.Middleware {
+func slowRequestMiddleware(bridge *hotreload.Bridge) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
+			sc := bridge.GetMiddlewareConfig().SlowHandler
+			if !sc.Enable {
+				return next(ctx)
+			}
+			threshold := 3 * time.Second
+			if sc.Threshold != "" {
+				if d, err := time.ParseDuration(sc.Threshold); err == nil && d > 0 {
+					threshold = d
+				}
+			}
 			start := time.Now()
 			err := next(ctx)
 			if time.Since(start) > threshold {
@@ -263,6 +292,20 @@ func slowRequestMiddleware(threshold time.Duration) eventctx.Middleware {
 				}).Warn("[remilia] Slow request detected")
 			}
 			return err
+		}
+	}
+}
+
+// wrapEnabled 返回一个中间件包装器：仅在 enabled() 返回 true 时执行 inner，
+// 否则透传 next。用于运行时中间件开关。
+func wrapEnabled(enabled func() bool, inner eventctx.Middleware) eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		innerHandler := inner(next)
+		return func(ctx *eventctx.Context) error {
+			if !enabled() {
+				return next(ctx)
+			}
+			return innerHandler(ctx)
 		}
 	}
 }
