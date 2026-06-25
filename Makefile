@@ -67,8 +67,9 @@ endif
 build-wasm-showcase:
 	cd examples/showcase/wasm && tinygo build -o ../demo.wasm -target=wasi .
 
+# -p 4 限制并行编译的 test binary 数量，避免端口/CPU 争用导致偶发超时
 test:
-	$(GO) test -count=1 -race -shuffle=on -timeout 180s ./...
+	$(GO) test -count=1 -race -shuffle=on -p 4 -timeout 180s ./...
 
 lint:
 	golangci-lint run ./...
