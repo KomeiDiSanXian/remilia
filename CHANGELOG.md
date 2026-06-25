@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.16.0 (2026-06-25)
+
+### ✨ 新功能
+
+- **支持 QQ 官方平台 `GROUP_MESSAGE_CREATE` 事件** — 新增 `GroupMessageCreate`、`GroupMemberAdd`、`GroupMemberRemove` 事件类型常量和解析逻辑
+- **`MentionsEvent` 接口实现** — QQ 适配器解析消息中的 `mentions` 数组，暴露 `UserInfo.IsSelf` 标记
+- **`OnMentionedBot()` / `OnMentionedBotOrNoMentions()` 规则** — 插件可通过规则控制是否响应 @ 机器人的消息，避免 @ 他人时误触发
+- **消息日志 `message_mentions` 关联表** — 独立表存储 @ 用户信息，零序列化开销，支持批量查询
+
+### 🔧 修复
+
+- **展示名称使用 `author.username`** — `populateGroupAt` 中 `DisplayName` 从 `author.id`（OpenID）改为 `author.username`（用户昵称）
+- **`GROUP_MESSAGE_CREATE` 的 `content` 剥离 `<@id>` 协议编码** — 还原用户实际发送的文本，使 `OnCommand`/`OnRegex` 等规则正常工作
+- **`modelToEntry` 补全 `CreatedAt` 字段** — DB 查询返回正确的入库时间
+
+### 🔄 变更
+
+- 所有命令类插件（ping、help、admin、pluginctrl 等 9 个插件共 24 个注册点）添加 `OnMentionedBotOrNoMentions()` 保护
+
+---
+
 ## v1.15.1 (2026-06-25)
 
 ### 🐛 修复
