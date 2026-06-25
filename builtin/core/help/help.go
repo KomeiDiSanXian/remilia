@@ -136,7 +136,10 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 			p.Info = ctx.Info
 			p.Engine = ctx.Info.Coordinator()
 
-			ctx.Reg.RegisterCommand("", "/help").SetDefinition(helpCmdDef).Handle(p.handleHelp)
+			ctx.Reg.RegisterCommand("", "/help").
+			Where(eventctx.OnMentionedBotOrNoMentions()).
+			SetDefinition(helpCmdDef).
+			Handle(p.handleHelp)
 
 			// 订阅插件生命周期事件，Scope 追踪并在卸载时自动取消订阅
 			for _, topic := range []string{"plugin.loaded", "plugin.unloaded", "plugin.reloaded"} {

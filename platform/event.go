@@ -156,6 +156,9 @@ type UserInfo struct {
 	// GroupRole 发送者在当前群/频道中的角色等级。
 	// 私聊场景或平台未提供时为 GroupRoleUnknown。
 	GroupRole GroupRole
+	// IsSelf 此用户信息是否指向机器人自身（如 @ 列表中的机器人自身）。
+	// 主要用于 MentionsEvent，方便插件快速判断机器人是否被 @。
+	IsSelf bool
 }
 
 // ChatInfo 代表消息所在会话的基本信息。

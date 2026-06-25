@@ -626,6 +626,69 @@ func OnGroupAdminOrOwner() Rule {
 	}
 }
 
+// OnMentionedBot 要求消息中 @ 了机器人自身。
+//
+// 基于 MentionsEvent 接口和 UserInfo.IsSelf 字段工作，
+// 适用于 `GROUP_MESSAGE_CREATE`（全量消息）下需要 @ 才能触发的命令。
+//
+// 若平台不支持 MentionsEvent（如旧版 QQ GROUP_AT_MESSAGE_CREATE），
+// 此规则始终返回 true（放行），由 EventType 路由自行过滤。
+//
+// 使用示例（仅 @ 机器人时响应 /ping）：
+//
+//	engine.OnEventKind(platform.EventKindGroupMessage,
+//	    OnMentionedBot(),
+//	    OnCommand("/ping"),
+//	).Handle(pingHandler)
+func OnMentionedBot() Rule {
+	return func(ctx *Context) bool {
+		event := ctx.GetPlatformEvent()
+		if event == nil {
+			return false
+		}
+		for _, m := range platform.GetMentions(event) {
+			if m.IsSelf {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// OnMentionedBotOrNoMentions 仅在以下情况放行：
+//  1. 消息中没有 @ 任何人
+//  2. 消息中 @ 了机器人自身
+//
+// 适用于 `GROUP_MESSAGE_CREATE` 场景：
+// 群内普通聊天机器人可参与，@ 他人的对话不响应。
+//
+// 统计、日志类插件不应附加此规则，以便接收全量消息。
+//
+// 使用示例：
+//
+//	engine.OnEventKind(platform.EventKindGroupMessage,
+//	    OnMentionedBotOrNoMentions(),
+//	    OnCommand("/ping"),
+//	).Handle(pingHandler)
+func OnMentionedBotOrNoMentions() Rule {
+	return func(ctx *Context) bool {
+		event := ctx.GetPlatformEvent()
+		if event == nil {
+			return false
+		}
+		mentions := platform.GetMentions(event)
+		if len(mentions) == 0 {
+			return true
+		}
+		for _, m := range mentions {
+			if m.IsSelf {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // OnFromUser 匹配来自特定用户的消息（发送者 ID 等于 userID）。
 //
 // 适用于将某个命令永久限制为特定用户的场景（静态过滤）。

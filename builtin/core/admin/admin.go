@@ -174,6 +174,7 @@ func (p *Plugin) registerPluginCommand(ctx *plugin.SetupContext) {
 		},
 	}
 	ctx.Reg.RegisterCommand("", "/plugin").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
 		SetDefinition(pluginCmd).
 		Handle(p.handlePluginCommand)
 }
@@ -233,6 +234,7 @@ func (p *Plugin) registerPermCommand(ctx *plugin.SetupContext) {
 		},
 	}
 	ctx.Reg.RegisterCommand("", "/perm").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
 		SetDefinition(permCmd).
 		Handle(p.handlePermCommand)
 }
@@ -261,10 +263,10 @@ func (p *Plugin) handlePermCommand(ctx *eventctx.Context) error {
 // registerSystemCommands 注册系统命令
 func (p *Plugin) registerSystemCommands(ctx *plugin.SetupContext) {
 	statusDef := command.NewDef("status").Description("查看机器人运行状态").Build()
-	ctx.OnCommandDefWith("", "/status", statusDef, p.handleStatus)
+	ctx.OnCommandDefWith("", "/status", statusDef, p.handleStatus, eventctx.OnMentionedBotOrNoMentions())
 
 	infoDef := command.NewDef("info").Description("查看机器人基本信息").Build()
-	ctx.OnCommandDefWith("", "/info", infoDef, p.handleInfo)
+	ctx.OnCommandDefWith("", "/info", infoDef, p.handleInfo, eventctx.OnMentionedBotOrNoMentions())
 }
 
 func (p *Plugin) handlePluginList(ctx *eventctx.Context) error {
@@ -563,7 +565,10 @@ func (p *Plugin) registerCodeCommand(ctx *plugin.SetupContext) {
 				Examples:  []string{"/code revoke ABC123"}},
 		},
 	}
-	ctx.Reg.RegisterCommand("", "/code").SetDefinition(codeCmd).Handle(p.handleCodeCommand)
+	ctx.Reg.RegisterCommand("", "/code").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
+		SetDefinition(codeCmd).
+		Handle(p.handleCodeCommand)
 }
 
 func (p *Plugin) handleCodeCommand(ctx *eventctx.Context) error {
@@ -731,6 +736,7 @@ func (p *Plugin) registerACLCommand(ctx *plugin.SetupContext) {
 		},
 	}
 	ctx.Reg.RegisterCommand("", "/acl").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
 		SetDefinition(aclCmd).
 		Handle(p.handleACLCommand)
 }

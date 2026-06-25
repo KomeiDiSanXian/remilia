@@ -33,7 +33,7 @@ func New() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			pingDef := command.NewDef("ping").Description("消息处理延迟检测").Build()
-			ctx.OnCommandDefWith("", "/ping", pingDef, handlePing)
+			ctx.OnCommandDefWith("", "/ping", pingDef, handlePing, eventctx.OnMentionedBotOrNoMentions())
 			return nil, nil
 		},
 	}

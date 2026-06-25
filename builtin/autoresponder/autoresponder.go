@@ -147,7 +147,10 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 			{Name: "cooldown", Description: "设置规则冷却", Usage: "/ar cooldown <ID> <秒>", Examples: []string{"/ar cooldown 1 60"}},
 		},
 	}
-	ctx.Reg.RegisterCommand("", "/ar").SetDefinition(arCmd).Handle(p.handleAR)
+	ctx.Reg.RegisterCommand("", "/ar").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
+		SetDefinition(arCmd).
+		Handle(p.handleAR)
 }
 
 func (p *Plugin) handleAR(ctx *eventctx.Context) error {

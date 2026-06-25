@@ -119,7 +119,10 @@ func (p *Plugin) registerDebugCommands(ctx *plugin.SetupContext) {
 		},
 	}
 
-	ctx.Reg.RegisterCommand("", "/debug").SetDefinition(debugCmd).Handle(p.handleDebugCommand)
+	ctx.Reg.RegisterCommand("", "/debug").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
+		SetDefinition(debugCmd).
+		Handle(p.handleDebugCommand)
 }
 
 // handleDebugCommand 统一处理 debug 命令

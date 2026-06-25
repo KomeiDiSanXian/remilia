@@ -234,6 +234,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 				ID:          mentionedID,
 				DisplayName: m.Get("username").String(),
 				IsBot:       m.Get("bot").Bool(),
+				IsSelf:      m.Get("is_you").Bool(),
 			})
 			e.content = strings.ReplaceAll(e.content, "<@"+mentionedID+">", "")
 		}

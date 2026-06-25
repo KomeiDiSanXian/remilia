@@ -71,7 +71,10 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 			{Name: "recent", Description: "查看最近日志", Usage: "/logs recent [数量]", Examples: []string{"/logs recent", "/logs recent 20"}},
 		},
 	}
-	ctx.Reg.RegisterCommand("", "/logs").SetDefinition(logsCmd).Handle(p.handleLogs)
+	ctx.Reg.RegisterCommand("", "/logs").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
+		SetDefinition(logsCmd).
+		Handle(p.handleLogs)
 }
 
 func (p *Plugin) handleLogs(ctx *eventctx.Context) error {

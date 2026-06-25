@@ -233,7 +233,9 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	}
 
 	if p.cfg.AtBot {
-		ctx.Reg.RegisterRegex("", `^\s*@.*?(\s+.*)?$`).Handle(p.handleAI)
+		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+			Where(eventctx.OnMentionedBotOrNoMentions()).
+			Handle(p.handleAI)
 	}
 
 	if p.cfg.PrivateChat {

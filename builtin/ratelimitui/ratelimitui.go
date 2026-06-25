@@ -177,6 +177,7 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	}
 
 	ctx.Reg.RegisterCommand("", "/rl").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
 		SetDefinition(rlCmd).
 		Handle(p.handleRLCommand)
 }

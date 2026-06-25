@@ -110,11 +110,14 @@ func (p *Plugin) registerManagementCommands(ctx *plugin.SetupContext) {
 			{Name: "raw", Description: "查看命令原始内容", Usage: "/cc raw <名称>", Examples: []string{"/cc raw greet"}},
 		},
 	}
-	ctx.Reg.RegisterCommand("", "/cc").SetDefinition(ccCmd).Handle(p.handleCC)
+	ctx.Reg.RegisterCommand("", "/cc").
+		Where(eventctx.OnMentionedBotOrNoMentions()).
+		SetDefinition(ccCmd).
+		Handle(p.handleCC)
 }
 
 func (p *Plugin) registerCatchAll(ctx *plugin.SetupContext) {
-	m := ctx.Reg.RegisterMatcher("", func(c *eventctx.Context) bool {
+	m := ctx.Reg.RegisterMatcher("", eventctx.OnMentionedBotOrNoMentions(), func(c *eventctx.Context) bool {
 		content := c.GetMessageContent()
 		if !strings.HasPrefix(content, "/") {
 			return false
