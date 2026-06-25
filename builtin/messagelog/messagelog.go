@@ -32,7 +32,6 @@ package messagelog
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -87,9 +86,19 @@ type MessageRecord struct {
 	Content   string `gorm:"type:text"`
 	ReplyToID string
 	RawType   string
-	Mentions  string `gorm:"type:text"` // JSON 序列化的 []platform.UserInfo
-	Timestamp int64  `gorm:"index:idx_chat_time"`
+	Timestamp int64 `gorm:"index:idx_chat_time"`
 	CreatedAt int64
+}
+
+// MessageMention 对应 SQLite message_mentions 表的 GORM 模型。
+// EventID 关联到 MessageRecord.EventID，支持通过平台事件 ID 追溯 @ 信息。
+type MessageMention struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement"`
+	EventID     string `gorm:"index;not null"`
+	MentionID   string `gorm:"index;not null"`
+	DisplayName string
+	IsBot       bool
+	IsSelf      bool
 }
 
 // ring 单个维度（群或用户）的环形缓冲区（内存热缓存）。
@@ -176,7 +185,7 @@ func OpenDB(path string) (*gorm.DB, error) {
 		return nil, err
 	}
 	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(&MessageRecord{}); err != nil {
+	if err := db.AutoMigrate(&MessageRecord{}, &MessageMention{}); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -214,16 +223,41 @@ func (l *Logger) flushLoop(ctx context.Context) {
 	defer l.wg.Done()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	batch := make([]MessageRecord, 0, 1000)
+	msgBatch := make([]MessageRecord, 0, 1000)
+	mentionBatch := make([]MessageMention, 0, 1000)
 
 	flush := func() {
-		if len(batch) == 0 || l.db == nil {
+		if l.db == nil {
+			msgBatch = msgBatch[:0]
+			mentionBatch = mentionBatch[:0]
 			return
 		}
-		if tx := l.db.CreateInBatches(batch, 500); tx.Error != nil {
-			logger.WithError(tx.Error).Warn("[MessageLog] Failed to flush message batch")
+		tx := l.db.Begin()
+		if tx.Error != nil {
+			logger.WithError(tx.Error).Warn("[MessageLog] Failed to begin transaction")
+			return
 		}
-		batch = batch[:0]
+		if len(msgBatch) > 0 {
+			if err := tx.CreateInBatches(msgBatch, 500).Error; err != nil {
+				tx.Rollback()
+				logger.WithError(err).Warn("[MessageLog] Failed to flush message batch")
+				msgBatch = msgBatch[:0]
+				mentionBatch = mentionBatch[:0]
+				return
+			}
+		}
+		if len(mentionBatch) > 0 {
+			if err := tx.CreateInBatches(mentionBatch, 500).Error; err != nil {
+				tx.Rollback()
+				logger.WithError(err).Warn("[MessageLog] Failed to flush mention batch")
+				msgBatch = msgBatch[:0]
+				mentionBatch = mentionBatch[:0]
+				return
+			}
+		}
+		tx.Commit()
+		msgBatch = msgBatch[:0]
+		mentionBatch = mentionBatch[:0]
 	}
 
 	for {
@@ -232,8 +266,11 @@ func (l *Logger) flushLoop(ctx context.Context) {
 			flush()
 			return
 		case job := <-l.record:
-			batch = append(batch, recordToModel(job.entry))
-			if len(batch) >= 1000 {
+			msgBatch = append(msgBatch, recordToModel(job.entry))
+			if ms := entryToMentions(job.entry); len(ms) > 0 {
+				mentionBatch = append(mentionBatch, ms...)
+			}
+			if len(msgBatch) >= 1000 {
 				flush()
 			}
 		case <-ticker.C:
@@ -244,7 +281,7 @@ func (l *Logger) flushLoop(ctx context.Context) {
 
 // recordToModel 将 RecordEntry 转换为 GORM 模型。
 func recordToModel(e RecordEntry) MessageRecord {
-	m := MessageRecord{
+	return MessageRecord{
 		RequestID: e.RequestID,
 		Platform:  e.Platform,
 		Kind:      e.Kind,
@@ -262,17 +299,29 @@ func recordToModel(e RecordEntry) MessageRecord {
 		Timestamp: e.Timestamp.UnixNano(),
 		CreatedAt: e.CreatedAt.UnixNano(),
 	}
-	if len(e.Mentions) > 0 {
-		if b, err := json.Marshal(e.Mentions); err == nil {
-			m.Mentions = string(b)
-		}
-	}
-	return m
 }
 
-// modelToEntry 将 GORM 模型转换为 RecordEntry。
-func modelToEntry(m MessageRecord) RecordEntry {
-	e := RecordEntry{
+// entryToMentions 将 RecordEntry 中的 Mentions 转换为 MessageMention 切片。
+func entryToMentions(e RecordEntry) []MessageMention {
+	if len(e.Mentions) == 0 {
+		return nil
+	}
+	out := make([]MessageMention, 0, len(e.Mentions))
+	for _, m := range e.Mentions {
+		out = append(out, MessageMention{
+			EventID:     e.EventID,
+			MentionID:   m.ID,
+			DisplayName: m.DisplayName,
+			IsBot:       m.IsBot,
+			IsSelf:      m.IsSelf,
+		})
+	}
+	return out
+}
+
+// modelToEntry 将 GORM 模型转换为 RecordEntry（mentions 需外部注入）。
+func modelToEntry(m MessageRecord, mentions []platform.UserInfo) RecordEntry {
+	return RecordEntry{
 		RequestID: m.RequestID,
 		Platform:  m.Platform,
 		Kind:      m.Kind,
@@ -287,16 +336,10 @@ func modelToEntry(m MessageRecord) RecordEntry {
 		Content:   m.Content,
 		ReplyToID: m.ReplyToID,
 		RawType:   m.RawType,
+		Mentions:  mentions,
 		Timestamp: time.Unix(0, m.Timestamp),
 		CreatedAt: time.Unix(0, m.CreatedAt),
 	}
-	if m.Mentions != "" {
-		var mentions []platform.UserInfo
-		if err := json.Unmarshal([]byte(m.Mentions), &mentions); err == nil {
-			e.Mentions = mentions
-		}
-	}
-	return e
 }
 
 // Record 直接记录一条消息到内存缓存（不经过异步写入）。
@@ -489,6 +532,28 @@ func (l *Logger) WordFreqFromDB(chatID string, since, until time.Time, limit int
 	return out, nil
 }
 
+// loadMentions 批量加载多条消息的 @ 列表，按 EventID 分组。
+func (l *Logger) loadMentions(eventIDs []string) map[string][]platform.UserInfo {
+	if l.db == nil || len(eventIDs) == 0 {
+		return nil
+	}
+	var models []MessageMention
+	if err := l.db.Where("event_id IN ?", eventIDs).Find(&models).Error; err != nil {
+		logger.WithError(err).Warn("[MessageLog] Failed to load mentions")
+		return nil
+	}
+	m := make(map[string][]platform.UserInfo, len(eventIDs))
+	for _, mm := range models {
+		m[mm.EventID] = append(m[mm.EventID], platform.UserInfo{
+			ID:          mm.MentionID,
+			DisplayName: mm.DisplayName,
+			IsBot:       mm.IsBot,
+			IsSelf:      mm.IsSelf,
+		})
+	}
+	return m
+}
+
 // QueryGroupFromDB 从 SQLite 查询群指定时间区间的消息记录。
 func (l *Logger) QueryGroupFromDB(chatID string, since, until time.Time, limit int) ([]RecordEntry, error) {
 	if l.db == nil {
@@ -500,9 +565,17 @@ func (l *Logger) QueryGroupFromDB(chatID string, since, until time.Time, limit i
 	if err != nil {
 		return nil, err
 	}
+	if len(models) == 0 {
+		return nil, nil
+	}
+	eventIDs := make([]string, len(models))
+	for i, m := range models {
+		eventIDs[i] = m.EventID
+	}
+	mentionsMap := l.loadMentions(eventIDs)
 	out := make([]RecordEntry, len(models))
 	for i, m := range models {
-		out[i] = modelToEntry(m)
+		out[i] = modelToEntry(m, mentionsMap[m.EventID])
 	}
 	return out, nil
 }
@@ -518,9 +591,17 @@ func (l *Logger) QueryUserFromDB(userID string, since, until time.Time, limit in
 	if err != nil {
 		return nil, err
 	}
+	if len(models) == 0 {
+		return nil, nil
+	}
+	eventIDs := make([]string, len(models))
+	for i, m := range models {
+		eventIDs[i] = m.EventID
+	}
+	mentionsMap := l.loadMentions(eventIDs)
 	out := make([]RecordEntry, len(models))
 	for i, m := range models {
-		out[i] = modelToEntry(m)
+		out[i] = modelToEntry(m, mentionsMap[m.EventID])
 	}
 	return out, nil
 }
@@ -553,7 +634,15 @@ func (l *Logger) Clear(before time.Time) {
 	l.userMu.Unlock()
 
 	if l.db != nil {
-		if tx := l.db.Where("timestamp < ?", before.UnixNano()).Delete(&MessageRecord{}); tx.Error != nil {
+		cutoff := before.UnixNano()
+		var ids []string
+		l.db.Model(&MessageRecord{}).Where("timestamp < ?", cutoff).Pluck("event_id", &ids)
+		if len(ids) > 0 {
+			if tx := l.db.Where("event_id IN ?", ids).Delete(&MessageMention{}); tx.Error != nil {
+				logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear mentions from DB")
+			}
+		}
+		if tx := l.db.Where("timestamp < ?", cutoff).Delete(&MessageRecord{}); tx.Error != nil {
 			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
 		}
 	}
