@@ -17,10 +17,11 @@ data:
       level: "info"
       format: "json"
 
-    concurrency:
-      limit: 500
-      policy: "trywait"
-      wait_timeout: "500ms"
+    middleware:
+      backpressure:
+        limit: 500
+        policy: "trywait"
+        wait_timeout: "500ms"
       event_buffer: 1000
 
     retry:

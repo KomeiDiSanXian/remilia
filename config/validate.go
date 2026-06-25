@@ -27,7 +27,6 @@ func (c *Config) Validate() error {
 	}{
 		{"bot", c.Bot.Validate},
 		{"log", c.Log.Validate},
-		{"concurrency", c.Concurrency.Validate},
 		{"retry", c.Retry.Validate},
 		{"middleware", c.Middleware.Validate},
 		{"dead_letter", c.DeadLetter.Validate},
@@ -142,22 +141,19 @@ func (mc *MilkyConfig) Validate() error {
 	return nil
 }
 
-// Validate 验证 Concurrency 配置
-func (cc *ConcurrencyConfig) Validate() error {
-	if cc.Limit < 0 {
-		return fmt.Errorf("concurrency.limit must be >= 0, got %d", cc.Limit)
+// Validate 验证 BackpressureConfig
+func (bc *BackpressureConfig) Validate() error {
+	if bc.Limit < 0 {
+		return fmt.Errorf("backpressure.limit must be >= 0, got %d", bc.Limit)
 	}
 	validPolicies := map[string]bool{"drop": true, "block": true, "trywait": true, "": true}
-	if !validPolicies[cc.Policy] {
-		return fmt.Errorf("concurrency.policy must be one of [drop, block, trywait], got '%s'", cc.Policy)
+	if !validPolicies[bc.Policy] {
+		return fmt.Errorf("backpressure.policy must be one of [drop, block, trywait], got '%s'", bc.Policy)
 	}
-	if cc.WaitTimeout != "" {
-		if _, err := time.ParseDuration(cc.WaitTimeout); err != nil {
-			return fmt.Errorf("concurrency.wait_timeout is not a valid duration: %w", err)
+	if bc.WaitTimeout != "" {
+		if _, err := time.ParseDuration(bc.WaitTimeout); err != nil {
+			return fmt.Errorf("backpressure.wait_timeout is not a valid duration: %w", err)
 		}
-	}
-	if cc.EventBuffer < 0 {
-		return fmt.Errorf("concurrency.event_buffer must be >= 0, got %d", cc.EventBuffer)
 	}
 	return nil
 }
@@ -221,6 +217,9 @@ func (mc *MiddlewareConfig) Validate() error {
 		if _, err := time.ParseDuration(sh.Threshold); err != nil {
 			return fmt.Errorf("middleware.slow_handler.threshold is not a valid duration: %w", err)
 		}
+	}
+	if err := mc.Backpressure.Validate(); err != nil {
+		return err
 	}
 	return mc.Degradation.Validate()
 }

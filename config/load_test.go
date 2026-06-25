@@ -30,17 +30,17 @@ bot:
 log:
   level: "info"
   format: "json"
-concurrency:
-  limit: 100
-  policy: "drop"
-retry:
-  enable: true
-  max_attempts: 3
 middleware:
   rate_limit:
     enable: true
     rate: 100
     burst: 200
+  backpressure:
+    limit: 100
+    policy: "drop"
+retry:
+  enable: true
+  max_attempts: 3
 dead_letter:
   enable: false
 `
@@ -61,8 +61,8 @@ dead_letter:
 		assert.Equal(t, 8080, cfg.Bot.QQ.Webhook.Port)
 		assert.Equal(t, "info", cfg.Log.Level)
 		assert.Equal(t, "json", cfg.Log.Format)
-		assert.Equal(t, 100, cfg.Concurrency.Limit)
-		assert.Equal(t, "drop", cfg.Concurrency.Policy)
+		assert.Equal(t, 100, cfg.Middleware.Backpressure.Limit)
+		assert.Equal(t, "drop", cfg.Middleware.Backpressure.Policy)
 		assert.True(t, cfg.Retry.Enable)
 		assert.Equal(t, 3, cfg.Retry.MaxAttempts)
 
@@ -282,13 +282,13 @@ bot:
       port: 8080
 log:
   level: "info"
-concurrency:
-  limit: 100
-retry:
-  enable: false
 middleware:
   rate_limit:
     enable: false
+  backpressure:
+    limit: 100
+retry:
+  enable: false
 dead_letter:
   enable: false
 `

@@ -160,27 +160,26 @@ func TestLogConfig_Validate(t *testing.T) {
 	}
 }
 
-// TestConcurrencyConfig_Validate 测试 Concurrency 配置验证
-func TestConcurrencyConfig_Validate(t *testing.T) {
+// TestBackpressureConfig_Validate 测试 Backpressure 配置验证
+func TestBackpressureConfig_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  ConcurrencyConfig
+		config  BackpressureConfig
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:       100,
 				Policy:      "drop",
 				WaitTimeout: "5s",
-				EventBuffer: 1000,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid policy - block",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:  50,
 				Policy: "block",
 			},
@@ -188,7 +187,7 @@ func TestConcurrencyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "valid policy - trywait",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:       50,
 				Policy:      "trywait",
 				WaitTimeout: "10s",
@@ -197,14 +196,14 @@ func TestConcurrencyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "empty policy is valid",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit: 50,
 			},
 			wantErr: false,
 		},
 		{
 			name: "zero limit is valid",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:  0,
 				Policy: "drop",
 			},
@@ -212,40 +211,31 @@ func TestConcurrencyConfig_Validate(t *testing.T) {
 		},
 		{
 			name: "negative limit",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:  -1,
 				Policy: "drop",
 			},
 			wantErr: true,
-			errMsg:  "concurrency.limit",
+			errMsg:  "backpressure.limit",
 		},
 		{
 			name: "invalid policy",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:  50,
 				Policy: "reject",
 			},
 			wantErr: true,
-			errMsg:  "concurrency.policy",
+			errMsg:  "backpressure.policy",
 		},
 		{
 			name: "invalid wait_timeout",
-			config: ConcurrencyConfig{
+			config: BackpressureConfig{
 				Limit:       50,
 				Policy:      "trywait",
 				WaitTimeout: "invalid",
 			},
 			wantErr: true,
-			errMsg:  "wait_timeout",
-		},
-		{
-			name: "negative event_buffer",
-			config: ConcurrencyConfig{
-				Limit:       50,
-				EventBuffer: -1,
-			},
-			wantErr: true,
-			errMsg:  "event_buffer",
+			errMsg:  "backpressure.wait_timeout",
 		},
 	}
 
@@ -619,20 +609,20 @@ func TestConfig_Validate(t *testing.T) {
 				Level:  "info",
 				Format: "json",
 			},
-			Concurrency: ConcurrencyConfig{
-				Limit:  100,
-				Policy: "drop",
-			},
-			Retry: RetryConfig{
-				Enable:      true,
-				MaxAttempts: 3,
-			},
 			Middleware: MiddlewareConfig{
 				RateLimit: RateLimitMiddlewareConfig{
 					Enable: true,
 					Rate:   100,
 					Burst:  200,
 				},
+				Backpressure: BackpressureConfig{
+					Limit:  100,
+					Policy: "drop",
+				},
+			},
+			Retry: RetryConfig{
+				Enable:      true,
+				MaxAttempts: 3,
 			},
 			DeadLetter: DeadLetterConfig{
 				Enable:   true,

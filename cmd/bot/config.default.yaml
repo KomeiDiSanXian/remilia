@@ -5,12 +5,6 @@ log:
   level: "info"
   format: "text"
 
-concurrency:
-  limit: 500
-  policy: "trywait"
-  wait_timeout: "500ms"
-  event_buffer: 1000
-
 retry:
   enable: true
   max_attempts: 3

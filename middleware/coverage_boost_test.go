@@ -305,12 +305,12 @@ func TestTimeoutAdvanced(t *testing.T) {
 }
 
 // ============================================================================
-// ConcurrencyLimit Additional Tests
+// Backpressure Additional Tests
 // ============================================================================
 
-func TestConcurrencyLimitAdvanced(t *testing.T) {
+func TestBackpressureAdvanced(t *testing.T) {
 	t.Run("try-wait success", func(t *testing.T) {
-		mw := ConcurrencyLimit(2, ConcurrencyTryWait, 100*time.Millisecond)
+		mw := Backpressure(2, BackpressureTryWait, 100*time.Millisecond)
 		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
 		// First request
@@ -324,7 +324,7 @@ func TestConcurrencyLimitAdvanced(t *testing.T) {
 	})
 
 	t.Run("block policy waits", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyBlock, 0)
+		mw := Backpressure(1, BackpressureBlock, 0)
 		handler := mw(mockHandler(nil, 50*time.Millisecond))
 
 		start := time.Now()
@@ -342,7 +342,7 @@ func TestConcurrencyLimitAdvanced(t *testing.T) {
 	})
 
 	t.Run("drop policy immediate rejection", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
+		mw := Backpressure(1, BackpressureDrop, 0)
 		handler := mw(mockHandler(nil, 100*time.Millisecond))
 
 		// First request
@@ -353,7 +353,7 @@ func TestConcurrencyLimitAdvanced(t *testing.T) {
 		// Second should be dropped immediately
 		err := handler(createTestContext())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "concurrency limit")
+		assert.Contains(t, err.Error(), "backpressure limit")
 	})
 }
 

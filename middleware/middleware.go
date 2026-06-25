@@ -139,27 +139,27 @@ func Metrics() eventctx.Middleware {
 	}
 }
 
-// ConcurrencyPolicy 并发策略
-type ConcurrencyPolicy int
+// BackpressurePolicy 反压策略
+type BackpressurePolicy int
 
 const (
-	ConcurrencyDrop    ConcurrencyPolicy = iota // 超过限制直接丢弃
-	ConcurrencyBlock                            // 超过限制阻塞等待
-	ConcurrencyTryWait                          // 超过限制等待一段时间，超时则丢弃
+	BackpressureDrop    BackpressurePolicy = iota // 超过限制直接丢弃
+	BackpressureBlock                             // 超过限制阻塞等待
+	BackpressureTryWait                           // 超过限制等待一段时间，超时则丢弃
 )
 
-// ConcurrencyLimit 创建一个并发限制中间件
+// Backpressure 创建一个反压（并发限制）中间件
 //
 // 使用示例:
 //
-//	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyDrop, 0))
-//	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyBlock, 0))
-//	engine.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyTryWait, 200*time.Millisecond))
-func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout time.Duration) eventctx.Middleware {
+//	engine.Use(middleware.Backpressure(100, middleware.BackpressureDrop, 0))
+//	engine.Use(middleware.Backpressure(100, middleware.BackpressureBlock, 0))
+//	engine.Use(middleware.Backpressure(100, middleware.BackpressureTryWait, 200*time.Millisecond))
+func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.Duration) eventctx.Middleware {
 	if maxInFlight <= 0 {
 		maxInFlight = 100
 	}
-	if waitTimeout <= 0 && policy == ConcurrencyTryWait {
+	if waitTimeout <= 0 && policy == BackpressureTryWait {
 		waitTimeout = 200 * time.Millisecond
 	}
 
@@ -170,20 +170,20 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 		return func(ctx *eventctx.Context) error {
 			acquired := false
 			switch policy {
-			case ConcurrencyDrop:
+			case BackpressureDrop:
 				select {
 				case sema <- struct{}{}:
 					acquired = true
 				default:
 					atomic.AddUint64(&dropped, 1)
 					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
-						Warn("[ConcurrencyLimit] Dropped due to concurrency limit")
-					return fmt.Errorf("concurrency limit exceeded (drop)")
+						Warn("[Backpressure] Dropped due to limit")
+					return fmt.Errorf("backpressure limit exceeded (drop)")
 				}
-			case ConcurrencyBlock:
+			case BackpressureBlock:
 				sema <- struct{}{}
 				acquired = true
-			case ConcurrencyTryWait:
+			case BackpressureTryWait:
 				timer := time.NewTimer(waitTimeout)
 				defer timer.Stop()
 				select {
@@ -193,8 +193,8 @@ func ConcurrencyLimit(maxInFlight int, policy ConcurrencyPolicy, waitTimeout tim
 					atomic.AddUint64(&dropped, 1)
 					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
 						WithField("timeout", waitTimeout).
-						Warn("[ConcurrencyLimit] Dropped due to wait timeout")
-					return fmt.Errorf("concurrency limit exceeded (timeout)")
+						Warn("[Backpressure] Dropped due to wait timeout")
+					return fmt.Errorf("backpressure limit exceeded (timeout)")
 				}
 			}
 

@@ -226,10 +226,10 @@ func TestMetrics(t *testing.T) {
 	})
 }
 
-// TestConcurrencyLimit tests the ConcurrencyLimit middleware
-func TestConcurrencyLimit(t *testing.T) {
+// TestBackpressure tests the Backpressure middleware
+func TestBackpressure(t *testing.T) {
 	t.Run("drop policy - within limit", func(t *testing.T) {
-		mw := ConcurrencyLimit(2, ConcurrencyDrop, 0)
+		mw := Backpressure(2, BackpressureDrop, 0)
 		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
 		ctx := createTestContext()
@@ -239,7 +239,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	})
 
 	t.Run("drop policy - exceeds limit", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
+		mw := Backpressure(1, BackpressureDrop, 0)
 
 		// Signal when goroutine acquires the slot (only once)
 		started := make(chan struct{})
@@ -263,13 +263,13 @@ func TestConcurrencyLimit(t *testing.T) {
 		err := handler(ctx2)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "concurrency limit exceeded")
+		assert.Contains(t, err.Error(), "backpressure limit exceeded")
 
 		<-done1 // Wait for first request
 	})
 
 	t.Run("block policy", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyBlock, 0)
+		mw := Backpressure(1, BackpressureBlock, 0)
 
 		var startedOnce sync.Once
 		started := make(chan struct{})
@@ -302,7 +302,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	})
 
 	t.Run("try-wait policy - timeout", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyTryWait, 30*time.Millisecond)
+		mw := Backpressure(1, BackpressureTryWait, 30*time.Millisecond)
 
 		var startedOnce sync.Once
 		started := make(chan struct{})
@@ -325,7 +325,7 @@ func TestConcurrencyLimit(t *testing.T) {
 		err := handler(ctx2)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "concurrency limit exceeded")
+		assert.Contains(t, err.Error(), "backpressure limit exceeded")
 
 		<-done1
 	})
@@ -519,20 +519,20 @@ func TestCircuitBreaker(t *testing.T) {
 	})
 }
 
-// TestConcurrencyPolicy tests concurrency policy enum
-func TestConcurrencyPolicy(t *testing.T) {
+// TestBackpressurePolicy tests concurrency policy enum
+func TestBackpressurePolicy(t *testing.T) {
 	tests := []struct {
 		name   string
-		policy ConcurrencyPolicy
+		policy BackpressurePolicy
 	}{
-		{"drop", ConcurrencyDrop},
-		{"block", ConcurrencyBlock},
-		{"try-wait", ConcurrencyTryWait},
+		{"drop", BackpressureDrop},
+		{"block", BackpressureBlock},
+		{"try-wait", BackpressureTryWait},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mw := ConcurrencyLimit(1, tt.policy, 100*time.Millisecond)
+			mw := Backpressure(1, tt.policy, 100*time.Millisecond)
 			assert.NotNil(t, mw)
 		})
 	}

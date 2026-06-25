@@ -14,11 +14,11 @@ log:
   level: "info"          # 生产环境建议: info 或 warn
   format: "json"         # 生产环境建议使用 json 格式
 
-concurrency:
-  limit: 500             # 根据服务器性能调整
-  policy: "wait"
-  wait_timeout: "10s"
-  event_buffer: 2000
+middleware:
+  backpressure:
+    limit: 500             # 根据服务器性能调整
+    policy: "trywait"      # drop / block / trywait
+    wait_timeout: "10s"
 
 middleware:
   logging: true

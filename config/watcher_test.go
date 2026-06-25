@@ -357,12 +357,6 @@ log:
   level: "info"
   format: "text"
 
-concurrency:
-  limit: 100
-  policy: "drop"
-  wait_timeout: "5s"
-  event_buffer: 1000
-
 retry:
   enable: true
   max_attempts: 3
@@ -377,6 +371,10 @@ middleware:
   rate_limit:
     enable: false
   metrics: true
+  backpressure:
+    limit: 100
+    policy: "drop"
+    wait_timeout: "5s"
 
 dead_letter:
   enable: false

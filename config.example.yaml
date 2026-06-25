@@ -104,29 +104,6 @@ log:
   # time_format: "2006-01-02 15:04:05"
 
 # ====================================
-# 并发控制配置（可选）
-# 支持反压机制
-# ====================================
-concurrency:
-  # 最大并发数，<=0 表示不限制
-  # 推荐值: 100-1000（根据服务器性能调整）
-  limit: 500
-
-  # 反压策略: drop（丢弃）, block（阻塞）, trywait（尝试等待）
-  # - drop: 超过限制时丢弃新事件（适合允许丢失的场景）
-  # - block: 超过限制时阻塞等待（适合不能丢失的场景）
-  # - trywait: 尝试等待一段时间，超时后丢弃（推荐）
-  policy: "trywait"
-
-  # 等待超时时间（仅 trywait 策略生效）
-  # 格式: "200ms", "1s", "2s" 等
-  wait_timeout: "500ms"
-
-  # Webhook 事件通道缓冲大小
-  # 推荐值: 100-1000（根据流量调整）
-  event_buffer: 1000
-
-# ====================================
 # 重试配置（可选）
 # 支持自动重试机制
 # ====================================
@@ -188,6 +165,22 @@ middleware:
   slow_handler:
     enable: false
     threshold: "1s"                 # 慢处理阈值
+
+  # 反压（并发限制）配置
+  backpressure:
+    # 最大并发数，<=0 表示不限制
+    # 推荐值: 100-1000（根据服务器性能调整）
+    limit: 500
+
+    # 反压策略: drop（丢弃）, block（阻塞）, trywait（尝试等待）
+    # - drop: 超过限制时丢弃新事件（适合允许丢失的场景）
+    # - block: 超过限制时阻塞等待（适合不能丢失的场景）
+    # - trywait: 尝试等待一段时间，超时后丢弃（推荐）
+    policy: "trywait"
+
+    # 等待超时时间（仅 trywait 策略生效）
+    # 格式: "200ms", "1s", "2s" 等
+    wait_timeout: "500ms"
 
   # 自适应降级配置（含热更新，原 degradation 顶级节点）
   degradation:
@@ -397,7 +390,7 @@ api:
 # 配置说明
 # ====================================
 # 1. 必填配置: bot, log
-# 2. 可选配置: concurrency, retry, middleware, dead_letter, engine, degradation, tracing, pprof
+# 2. 可选配置: retry, middleware, dead_letter, engine, tracing, pprof
 #    QQ 平台特有: webhook, token_manager
 # 3. 环境变量支持（仅 QQ 平台，无配置文件时生效）:
 #    - QQ_APP_ID

@@ -21,7 +21,6 @@
 //	Config.Bot.Telegram → Telegram 适配器（platform/telegram，预留）
 //	Config.Bot.WeChat   → 微信适配器（platform/wechat，预留）
 //	Config.Log          → infra/logger（logger.Config，包含所有日志选项）
-//	Config.Concurrency  → infra/server（反压/并发控制）
 //	Config.Retry        → infra/dlq（死信队列重试）
 //	Config.Middleware   → middleware/ 包各组件（含降级配置）
 //	Config.DeadLetter   → infra/dlq
@@ -54,7 +53,6 @@ import (
 type Config struct {
 	Bot         BotConfig         `yaml:"bot" mapstructure:"bot"`
 	Log         logger.Config     `yaml:"log" mapstructure:"log"`
-	Concurrency ConcurrencyConfig `yaml:"concurrency" mapstructure:"concurrency"`
 	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
 	Middleware  MiddlewareConfig  `yaml:"middleware" mapstructure:"middleware"`
 	DeadLetter  DeadLetterConfig  `yaml:"dead_letter" mapstructure:"dead_letter"`
@@ -231,12 +229,13 @@ func ptrEqual[T comparable](a, b *T) bool {
 	return *a == *b
 }
 
-// ConcurrencyConfig 并发/反压配置（可选）
-type ConcurrencyConfig struct {
+// BackpressureConfig 反压（并发限制）配置（可选）
+//
+// 对应 middleware.Backpressure() 中间件。
+type BackpressureConfig struct {
 	Limit       int    `yaml:"limit" mapstructure:"limit"`
 	Policy      string `yaml:"policy" mapstructure:"policy"`
 	WaitTimeout string `yaml:"wait_timeout" mapstructure:"wait_timeout"`
-	EventBuffer int    `yaml:"event_buffer" mapstructure:"event_buffer"`
 }
 
 // RetryConfig 重试配置（可选）
@@ -260,7 +259,8 @@ type MiddlewareConfig struct {
 	Dedup       DedupMiddlewareConfig       `yaml:"dedup" mapstructure:"dedup"`
 	SlowHandler SlowHandlerMiddlewareConfig `yaml:"slow_handler" mapstructure:"slow_handler"`
 	// Degradation 自适应降级配置（原 Config.Degradation，整合至此处，同时支持热更新）
-	Degradation DegradationConfig `yaml:"degradation" mapstructure:"degradation"`
+	Degradation  DegradationConfig   `yaml:"degradation" mapstructure:"degradation"`
+	Backpressure BackpressureConfig  `yaml:"backpressure" mapstructure:"backpressure"`
 }
 
 // AuthMiddlewareConfig 认证中间件配置

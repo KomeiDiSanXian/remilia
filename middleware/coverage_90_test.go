@@ -381,9 +381,9 @@ func TestMetricsAdvancedExtra(t *testing.T) {
 	})
 }
 
-func TestConcurrencyLimitEdgeCases(t *testing.T) {
+func TestBackpressureEdgeCases(t *testing.T) {
 	t.Run("zero or small limit", func(t *testing.T) {
-		mw := ConcurrencyLimit(1, ConcurrencyDrop, 0)
+		mw := Backpressure(1, BackpressureDrop, 0)
 		handler := mw(mockHandler(nil, 50*time.Millisecond))
 
 		// First should succeed
@@ -402,7 +402,7 @@ func TestConcurrencyLimitEdgeCases(t *testing.T) {
 	})
 
 	t.Run("large limit", func(t *testing.T) {
-		mw := ConcurrencyLimit(1000, ConcurrencyDrop, 0)
+		mw := Backpressure(1000, BackpressureDrop, 0)
 		handler := mw(mockHandler(nil, 0))
 
 		var wg sync.WaitGroup

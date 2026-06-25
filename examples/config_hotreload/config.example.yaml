@@ -13,8 +13,9 @@ log:
   level: "info"    # 修改这个值测试热更新: debug, info, warn, error
   format: "text"
 
-concurrency:
-  limit: 100       # 修改这个值测试热更新
+middleware:
+  backpressure:
+    limit: 100       # 修改这个值测试热更新
 
 middleware:
   logging: true    # 修改这个值测试热更新
