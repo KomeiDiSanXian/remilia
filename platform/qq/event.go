@@ -6,6 +6,7 @@ package qq
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -26,9 +27,10 @@ type qqEvent struct {
 	content     string
 	timestamp   time.Time
 	attachments []platform.InboundAttachment
-	id          string // 对应 payload.ID，populate 后独立持有
-	rawType     string // 对应 payload.Type，populate 后独立持有
-	replyToID   string // 被回复消息 ID（仅频道消息有效）
+	id          string   // 对应 payload.ID，populate 后独立持有
+	rawType     string   // 对应 payload.Type，populate 后独立持有
+	replyToID   string   // 被回复消息 ID（仅频道消息有效）
+	mentions    []platform.UserInfo // @ 用户列表（仅 GROUP_MESSAGE_CREATE 含 mentions 字段）
 }
 
 // NewEvent 从 QQ payload 创建 platform.Event。
@@ -217,6 +219,26 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		}
 	}
 	e.attachments = parseAttachments(results[6])
+
+	// 解析 mentions 数组并清理 content 中的 <@id> 标记
+	mentionsResult := gjson.GetBytes(detail, "mentions")
+	if mentionsResult.IsArray() {
+		arr := mentionsResult.Array()
+		e.mentions = make([]platform.UserInfo, 0, len(arr))
+		for _, m := range arr {
+			mentionedID := m.Get("id").String()
+			if mentionedID == "" {
+				continue
+			}
+			e.mentions = append(e.mentions, platform.UserInfo{
+				ID:          mentionedID,
+				DisplayName: m.Get("username").String(),
+				IsBot:       m.Get("bot").Bool(),
+			})
+			e.content = strings.ReplaceAll(e.content, "<@"+mentionedID+">", "")
+		}
+	}
+	e.content = strings.TrimSpace(e.content)
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
@@ -611,6 +633,11 @@ func (e *qqEvent) Timestamp() time.Time                      { return e.timestam
 // 仅频道消息（AT_MESSAGE_CREATE 等）填充此字段；
 // 私聊和群消息不携带 message_reference，返回空字符串。
 func (e *qqEvent) ReplyToID() string { return e.replyToID }
+
+// Mentions 实现 platform.MentionsEvent，返回 @ 用户列表。
+//
+// 仅 GROUP_MESSAGE_CREATE 事件携带 mentions 字段，其他事件返回 nil。
+func (e *qqEvent) Mentions() []platform.UserInfo { return e.mentions }
 
 // RawPayload 返回 nil。
 //
