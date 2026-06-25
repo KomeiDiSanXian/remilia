@@ -59,7 +59,7 @@ func main() {
 	logger.WithFields(logger.Fields{
 		"app_id":      cfg.Bot.QQ.AppID,
 		"log_level":   cfg.Log.Level,
-		"port":        cfg.Server.Port,
+		"port":        cfg.Bot.QQ.Webhook.Port,
 		"concurrency": cfg.Concurrency.Limit,
 	}).Info("[ConfigHotReload] Initial configuration loaded")
 

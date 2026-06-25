@@ -23,9 +23,10 @@ bot:
     bot_id: 789012
     token: "test-token"
     secret: "test-secret"
-server:
-  host: "localhost"
-  port: 8080
+    webhook:
+      host: localhost
+      port: 8080
+      event_buffer: 1000
 log:
   level: "info"
   format: "json"
@@ -42,8 +43,6 @@ middleware:
     burst: 200
 dead_letter:
   enable: false
-webhook:
-  event_buffer: 1000
 `
 		err := os.WriteFile(configPath, []byte(configContent), 0644)
 		require.NoError(t, err)
@@ -58,8 +57,8 @@ webhook:
 		assert.Equal(t, uint64(789012), cfg.Bot.QQ.BotID)
 		assert.Equal(t, "test-token", cfg.Bot.QQ.Token)
 		assert.Equal(t, "test-secret", cfg.Bot.QQ.Secret)
-		assert.Equal(t, "localhost", cfg.Server.Host)
-		assert.Equal(t, 8080, cfg.Server.Port)
+		assert.Equal(t, "localhost", cfg.Bot.QQ.Webhook.Host)
+		assert.Equal(t, 8080, cfg.Bot.QQ.Webhook.Port)
 		assert.Equal(t, "info", cfg.Log.Level)
 		assert.Equal(t, "json", cfg.Log.Format)
 		assert.Equal(t, 100, cfg.Concurrency.Limit)
@@ -187,7 +186,7 @@ server:
 		assert.Equal(t, uint64(444444), cfg.Bot.QQ.BotID)
 		assert.Equal(t, "env-token", cfg.Bot.QQ.Token)
 		assert.Equal(t, "env-secret", cfg.Bot.QQ.Secret)
-		assert.Equal(t, 7070, cfg.Server.Port)
+		assert.Equal(t, 7070, cfg.Bot.QQ.Webhook.Port)
 	})
 
 	t.Run("no config file and incomplete env", func(t *testing.T) {
@@ -279,8 +278,8 @@ bot:
     bot_id: 789012
     token: "get-test-token"
     secret: "get-test-secret"
-server:
-  port: 8080
+    webhook:
+      port: 8080
 log:
   level: "info"
 concurrency:
@@ -292,8 +291,6 @@ middleware:
     enable: false
 dead_letter:
   enable: false
-webhook:
-  event_buffer: 1000
 `
 	err := os.WriteFile(configPath, []byte(configContent), 0644)
 	require.NoError(t, err)

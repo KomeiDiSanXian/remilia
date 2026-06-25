@@ -21,9 +21,8 @@ bot:
     bot_id: 67890
     token: "test_token"
     secret: "test_secret"
-server:
-  host: "0.0.0.0"
-  port: 8080
+    webhook:
+      port: 8080
 log:
   level: "info"
   format: "json"
@@ -97,9 +96,8 @@ bot:
     bot_id: 67890
     token: "test_token"
     secret: "test_secret"
-server:
-  host: "0.0.0.0"
-  port: 8080
+    webhook:
+      port: 8080
 log:
   level: "info"
   format: "json"

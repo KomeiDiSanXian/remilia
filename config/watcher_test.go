@@ -68,10 +68,8 @@ bot:
     bot_id: 888888
     token: "new-token"
     secret: "new-secret"
-
-server:
-  host: "0.0.0.0"
-  port: 9090
+    webhook:
+      port: 9090
 
 log:
   level: "debug"
@@ -93,7 +91,7 @@ log:
 	assert.Equal(t, uint64(999999), cfg.Bot.QQ.AppID)
 	assert.Equal(t, uint64(888888), cfg.Bot.QQ.BotID)
 	assert.Equal(t, "new-token", cfg.Bot.QQ.Token)
-	assert.Equal(t, 9090, cfg.Server.Port)
+	assert.Equal(t, 9090, cfg.Bot.QQ.Webhook.Port)
 }
 
 func TestWatcher_CallbackExecution(t *testing.T) {
@@ -352,11 +350,9 @@ bot:
     bot_id: 654321
     token: "test-token"
     secret: "test-secret"
-
-server:
-  host: "0.0.0.0"
-  port: 8080
-
+    webhook:
+      port: 8080
+      event_buffer: 1000
 log:
   level: "info"
   format: "text"
@@ -384,23 +380,13 @@ middleware:
 
 dead_letter:
   enable: false
-
-webhook:
-  event_buffer: 1000
-  dedup_enable: true
-  dedup_shards: 16
-  dedup_life_window: "5m"
-  dedup_clean_window: "1m"
-  dedup_max_entry_size: 10000
-  dedup_hard_max_size: 100000
 `
 
 const invalidConfig = `
 bot:
   qq:
-    app_id: 0  # Invalid: must be non-zero
-    token: ""  # Invalid: must be non-empty
-
-server:
-  port: 99999  # Invalid: out of range
+    app_id: 0
+    token: ""
+    webhook:
+      port: 99999  # Invalid: out of range
 `

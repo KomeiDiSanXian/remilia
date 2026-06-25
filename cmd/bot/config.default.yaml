@@ -1,11 +1,6 @@
 # Remilia 默认配置（fallback 自动使用）
 # 当 config.yaml 不存在且环境变量不足以构建完整配置时启用。
 
-server:
-  host: "0.0.0.0"
-  port: 8080
-  shutdown_timeout: "10s"
-
 log:
   level: "info"
   format: "text"

@@ -26,7 +26,6 @@ func (c *Config) Validate() error {
 		fn   func() error
 	}{
 		{"bot", c.Bot.Validate},
-		{"server", c.Server.Validate},
 		{"log", c.Log.Validate},
 		{"concurrency", c.Concurrency.Validate},
 		{"retry", c.Retry.Validate},
@@ -87,6 +86,12 @@ func (bc *BotConfig) Validate() error {
 // QQ 配置采用宽松验证策略：全部字段零值时跳过验证，
 // 零值字段视为"不需要 QQ 平台"。
 func (qc *QQConfig) Validate() error {
+	if err := qc.Webhook.Validate(); err != nil {
+		return fmt.Errorf("qq.webhook: %w", err)
+	}
+	if err := qc.TokenMgr.Validate(); err != nil {
+		return fmt.Errorf("qq.token_manager: %w", err)
+	}
 	if qc.AppID == 0 && qc.BotID == 0 && qc.Token == "" && qc.Secret == "" {
 		return nil
 	}
@@ -101,12 +106,6 @@ func (qc *QQConfig) Validate() error {
 	}
 	if qc.Secret == "" {
 		return fmt.Errorf("qq.secret is required and cannot be empty")
-	}
-	if err := qc.Webhook.Validate(); err != nil {
-		return fmt.Errorf("qq.webhook: %w", err)
-	}
-	if err := qc.TokenMgr.Validate(); err != nil {
-		return fmt.Errorf("qq.token_manager: %w", err)
 	}
 	return nil
 }
@@ -139,19 +138,6 @@ func (sc *SatoriConfig) Validate() error {
 func (mc *MilkyConfig) Validate() error {
 	if mc.BaseURL == "" {
 		return fmt.Errorf("milky.base_url is required and cannot be empty")
-	}
-	return nil
-}
-
-// Validate 验证 Server 配置
-func (sc *ServerConfig) Validate() error {
-	if sc.Port < 1 || sc.Port > 65535 {
-		return fmt.Errorf("server.port must be between 1-65535, got %d", sc.Port)
-	}
-	if sc.ShutdownTimeout != "" {
-		if _, err := time.ParseDuration(sc.ShutdownTimeout); err != nil {
-			return fmt.Errorf("server.shutdown_timeout is not a valid duration: %w", err)
-		}
 	}
 	return nil
 }
@@ -263,35 +249,19 @@ func (dlc *DeadLetterConfig) Validate() error {
 
 // Validate 验证 Webhook 配置
 func (wc *WebhookConfig) Validate() error {
+	if wc.Port != 0 && (wc.Port < 1 || wc.Port > 65535) {
+		return fmt.Errorf("webhook.port must be between 1-65535, got %d", wc.Port)
+	}
+	if wc.ShutdownTimeout != "" {
+		if _, err := time.ParseDuration(wc.ShutdownTimeout); err != nil {
+			return fmt.Errorf("webhook.shutdown_timeout is not a valid duration: %w", err)
+		}
+	}
 	if wc.EventBuffer < 0 {
 		return fmt.Errorf("webhook.event_buffer must be >= 0, got %d", wc.EventBuffer)
 	}
 	if wc.WorkerCount < 0 {
 		return fmt.Errorf("webhook.worker_count must be >= 0, got %d", wc.WorkerCount)
-	}
-	if wc.DedupEnable {
-		if wc.Shards < 0 {
-			return fmt.Errorf("webhook.shards must be >= 0, got %d", wc.Shards)
-		}
-		if wc.LifeWindow != "" {
-			if _, err := time.ParseDuration(wc.LifeWindow); err != nil {
-				return fmt.Errorf("webhook.life_window is not a valid duration: %w", err)
-			}
-		}
-		if wc.CleanWindow != "" {
-			if _, err := time.ParseDuration(wc.CleanWindow); err != nil {
-				return fmt.Errorf("webhook.clean_window is not a valid duration: %w", err)
-			}
-		}
-		if wc.MaxEntrySize < 0 {
-			return fmt.Errorf("webhook.max_entry_size must be >= 0, got %d", wc.MaxEntrySize)
-		}
-		if wc.HardMaxCacheSize < 0 {
-			return fmt.Errorf("webhook.hard_max_cache_size must be >= 0, got %d", wc.HardMaxCacheSize)
-		}
-		if wc.MaxEntriesInWindow < 0 {
-			return fmt.Errorf("webhook.max_entries_in_window must be >= 0, got %d", wc.MaxEntriesInWindow)
-		}
 	}
 	return nil
 }

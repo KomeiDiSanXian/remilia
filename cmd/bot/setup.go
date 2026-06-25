@@ -34,7 +34,7 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 	reg := platform.NewRegistry()
 
 	if c := cfg.Bot.QQ; c != nil {
-		addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+		addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
 		reg.Register(qq.NewWebhookServerAdapter(addr, &dto.BotInfo{
 			QQNum: c.BotID, AppID: c.AppID,
 			Token: c.Token, AppSecret: c.Secret,

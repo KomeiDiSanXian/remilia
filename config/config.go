@@ -20,7 +20,6 @@
 //	Config.Bot.Milky    → Milky QQ 适配器（platform/milky）
 //	Config.Bot.Telegram → Telegram 适配器（platform/telegram，预留）
 //	Config.Bot.WeChat   → 微信适配器（platform/wechat，预留）
-//	Config.Server       → infra/server
 //	Config.Log          → infra/logger（logger.Config，包含所有日志选项）
 //	Config.Concurrency  → infra/server（反压/并发控制）
 //	Config.Retry        → infra/dlq（死信队列重试）
@@ -54,7 +53,6 @@ import (
 // Config 配置文件结构
 type Config struct {
 	Bot         BotConfig         `yaml:"bot" mapstructure:"bot"`
-	Server      ServerConfig      `yaml:"server" mapstructure:"server"`
 	Log         logger.Config     `yaml:"log" mapstructure:"log"`
 	Concurrency ConcurrencyConfig `yaml:"concurrency" mapstructure:"concurrency"`
 	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
@@ -233,15 +231,6 @@ func ptrEqual[T comparable](a, b *T) bool {
 	return *a == *b
 }
 
-// ServerConfig 服务器配置。
-//
-// 由 infra/server 包消费，通过 server.WithConfig(cfg.Server) 应用。
-type ServerConfig struct {
-	Host            string `yaml:"host" mapstructure:"host"`
-	Port            int    `yaml:"port" mapstructure:"port"`
-	ShutdownTimeout string `yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
-}
-
 // ConcurrencyConfig 并发/反压配置（可选）
 type ConcurrencyConfig struct {
 	Limit       int    `yaml:"limit" mapstructure:"limit"`
@@ -323,17 +312,15 @@ type TokenManagerConfig struct {
 	MinRefreshRatio float64 `yaml:"min_refresh_ratio" mapstructure:"min_refresh_ratio"`
 }
 
-// WebhookConfig Webhook 配置
+// WebhookConfig QQ 平台 Webhook 事件服务配置。
+//
+// 包含 Webhook 监听地址、事件通道缓冲、Worker 池等配置。
 type WebhookConfig struct {
-	EventBuffer        int    `yaml:"event_buffer" mapstructure:"event_buffer"`
-	WorkerCount        int    `yaml:"worker_count" mapstructure:"worker_count"`
-	DedupEnable        bool   `yaml:"dedup_enable" mapstructure:"dedup_enable"`
-	Shards             int    `yaml:"shards" mapstructure:"shards"`
-	LifeWindow         string `yaml:"life_window" mapstructure:"life_window"`
-	CleanWindow        string `yaml:"clean_window" mapstructure:"clean_window"`
-	MaxEntrySize       int    `yaml:"max_entry_size" mapstructure:"max_entry_size"`
-	HardMaxCacheSize   int    `yaml:"hard_max_cache_size" mapstructure:"hard_max_cache_size"`
-	MaxEntriesInWindow int    `yaml:"max_entries_in_window" mapstructure:"max_entries_in_window"`
+	Host            string `yaml:"host" mapstructure:"host"`
+	Port            int    `yaml:"port" mapstructure:"port"`
+	ShutdownTimeout string `yaml:"shutdown_timeout" mapstructure:"shutdown_timeout"`
+	EventBuffer     int    `yaml:"event_buffer" mapstructure:"event_buffer"`
+	WorkerCount     int    `yaml:"worker_count" mapstructure:"worker_count"`
 }
 
 // EngineConfig engine 引擎配置。
@@ -537,11 +524,11 @@ func (m *Manager) LoadDefault() (*Config, error) {
 				BotID:  getEnvUint64("QQ_BOT_ID"),
 				Token:  os.Getenv("QQ_TOKEN"),
 				Secret: os.Getenv("QQ_SECRET"),
+				Webhook: WebhookConfig{
+					Host: getEnvDefault("SERVER_HOST", "0.0.0.0"),
+					Port: getEnvInt("SERVER_PORT", 8080),
+				},
 			},
-		},
-		Server: ServerConfig{
-			Host: getEnvDefault("SERVER_HOST", "0.0.0.0"),
-			Port: getEnvInt("SERVER_PORT", 8080),
 		},
 		Log: logger.Config{
 			Level:  strings.ToLower(getEnvDefault("LOG_LEVEL", "info")),

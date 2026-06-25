@@ -41,7 +41,7 @@ func main() {
 		QQNum:     cfg.Bot.QQ.BotID,
 		Token:     cfg.Bot.QQ.Token,
 		AppSecret: cfg.Bot.QQ.Secret,
-		ServeAddr: fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		ServeAddr: fmt.Sprintf("%s:%d", cfg.Bot.QQ.Webhook.Host, cfg.Bot.QQ.Webhook.Port),
 	}
 
 	// 3. 使用配置创建 Token Manager
@@ -64,7 +64,7 @@ func main() {
 	// })
 
 	// 6. 使用配置创建 Webhook Adapter
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	addr := fmt.Sprintf("%s:%d", cfg.Bot.QQ.Webhook.Host, cfg.Bot.QQ.Webhook.Port)
 	adapter := qq.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Bot.QQ.Webhook)
 
 	// 7. 创建 Bot

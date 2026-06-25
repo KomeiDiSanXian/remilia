@@ -16,6 +16,15 @@ bot:
 
     # Webhook 事件服务配置
     webhook:
+      # 监听地址
+      host: "0.0.0.0"
+
+      # 监听端口
+      port: 8080
+
+      # 优雅关闭超时时间
+      shutdown_timeout: "10s"
+
       # 事件通道缓冲大小
       # 推荐值: 1000-5000（根据流量调整）
       event_buffer: 1000
@@ -23,33 +32,6 @@ bot:
       # 并发事件处理的 worker 数量
       # 0 表示使用 CPU 核心数，推荐值: 4-16（根据并发需求调整）
       worker_count: 0
-
-      # 是否启用事件去重
-      dedup_enable: true
-
-      # BigCache 分片数（2的幂次）
-      # 推荐值: 1024（默认）
-      shards: 1024
-
-      # 去重缓存生命周期
-      # 格式: "1m", "5m", "10m" 等
-      life_window: "5m"
-
-      # 清理过期条目的间隔时间
-      # 格式: "30s", "1m", "5m" 等
-      clean_window: "1m"
-
-      # 单个缓存条目的最大字节数
-      # 推荐值: 1024-4096 bytes
-      max_entry_size: 4096
-
-      # 最大缓存大小（MB）
-      # 推荐值: 50-200 MB
-      hard_max_cache_size: 100
-
-      # BigCache 窗口内最大条目数
-      # 推荐值: 600000（默认 1000*10*60）
-      max_entries_in_window: 600000
 
     # QQ Token 管理器配置
     token_manager:
@@ -94,20 +76,6 @@ bot:
 
   # ----- 微信（预留）-----
   # wechat: {}
-
-# ====================================
-# 服务器配置
-# ====================================
-server:
-  # Webhook 监听地址
-  host: "0.0.0.0"
-
-  # Webhook 监听端口
-  port: 8080
-
-  # 优雅关闭超时时间
-  # 格式: "5s", "10s", "30s" 等
-  shutdown_timeout: "10s"
 
 # ====================================
 # 日志配置
@@ -428,8 +396,9 @@ api:
 # ====================================
 # 配置说明
 # ====================================
-# 1. 必填配置: bot, server, log
-# 2. 可选配置: concurrency, retry, middleware, dead_letter, webhook, token, engine, degradation, tracing, pprof
+# 1. 必填配置: bot, log
+# 2. 可选配置: concurrency, retry, middleware, dead_letter, engine, degradation, tracing, pprof
+#    QQ 平台特有: webhook, token_manager
 # 3. 环境变量支持（仅 QQ 平台，无配置文件时生效）:
 #    - QQ_APP_ID
 #    - QQ_BOT_ID

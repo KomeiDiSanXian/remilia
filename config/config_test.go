@@ -83,80 +83,6 @@ func TestQQConfig_Validate(t *testing.T) {
 	}
 }
 
-// TestServerConfig_Validate 测试 Server 配置验证
-func TestServerConfig_Validate(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  ServerConfig
-		wantErr bool
-		errMsg  string
-	}{
-		{
-			name:    "valid config",
-			config:  ServerConfig{Host: "localhost", Port: 8080},
-			wantErr: false,
-		},
-		{
-			name:    "valid port range - min",
-			config:  ServerConfig{Host: "0.0.0.0", Port: 1},
-			wantErr: false,
-		},
-		{
-			name:    "valid port range - max",
-			config:  ServerConfig{Host: "0.0.0.0", Port: 65535},
-			wantErr: false,
-		},
-		{
-			name:    "empty host is valid",
-			config:  ServerConfig{Port: 8080},
-			wantErr: false,
-		},
-		{
-			name:    "port too low",
-			config:  ServerConfig{Host: "localhost", Port: 0},
-			wantErr: true,
-			errMsg:  "port must be between",
-		},
-		{
-			name:    "port too high",
-			config:  ServerConfig{Host: "localhost", Port: 65536},
-			wantErr: true,
-			errMsg:  "port must be between",
-		},
-		{
-			name:    "negative port",
-			config:  ServerConfig{Host: "localhost", Port: -1},
-			wantErr: true,
-			errMsg:  "port must be between",
-		},
-		{
-			name:    "valid shutdown_timeout",
-			config:  ServerConfig{Host: "localhost", Port: 8080, ShutdownTimeout: "10s"},
-			wantErr: false,
-		},
-		{
-			name:    "invalid shutdown_timeout",
-			config:  ServerConfig{Host: "localhost", Port: 8080, ShutdownTimeout: "not-a-duration"},
-			wantErr: true,
-			errMsg:  "shutdown_timeout",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.Validate()
-			if tt.wantErr {
-				assert.Error(t, err)
-				if tt.errMsg != "" {
-					assert.Contains(t, err.Error(), tt.errMsg)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 // TestLogConfig_Validate 测试 Log 配置验证
 func TestLogConfig_Validate(t *testing.T) {
 	tests := []struct {
@@ -607,78 +533,53 @@ func TestWebhookConfig_Validate(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "valid config with dedup enabled",
+			name: "valid config",
 			config: WebhookConfig{
-				EventBuffer:      1000,
-				DedupEnable:      true,
-				Shards:           16,
-				LifeWindow:       "5m",
-				CleanWindow:      "1m",
-				MaxEntrySize:     1024,
-				HardMaxCacheSize: 10000,
+				Port:        8080,
+				EventBuffer: 1000,
 			},
 			wantErr: false,
 		},
 		{
-			name: "dedup disabled - no validation",
+			name: "valid with shutdown timeout",
 			config: WebhookConfig{
-				EventBuffer: 1000,
-				DedupEnable: false,
+				Port:            8080,
+				ShutdownTimeout: "10s",
 			},
 			wantErr: false,
+		},
+		{
+			name: "zero port is valid (not configured)",
+			config: WebhookConfig{
+				Port: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name: "port too high",
+			config: WebhookConfig{
+				Port: 99999,
+			},
+			wantErr: true,
+			errMsg:  "webhook.port",
+		},
+		{
+			name: "invalid shutdown_timeout",
+			config: WebhookConfig{
+				Port:            8080,
+				ShutdownTimeout: "invalid",
+			},
+			wantErr: true,
+			errMsg:  "webhook.shutdown_timeout",
 		},
 		{
 			name: "negative event_buffer",
 			config: WebhookConfig{
+				Port:        8080,
 				EventBuffer: -1,
 			},
 			wantErr: true,
 			errMsg:  "event_buffer",
-		},
-		{
-			name: "negative shards",
-			config: WebhookConfig{
-				DedupEnable: true,
-				Shards:      -1,
-			},
-			wantErr: true,
-			errMsg:  "webhook.shards",
-		},
-		{
-			name: "invalid life_window",
-			config: WebhookConfig{
-				DedupEnable: true,
-				LifeWindow:  "invalid",
-			},
-			wantErr: true,
-			errMsg:  "webhook.life_window",
-		},
-		{
-			name: "invalid clean_window",
-			config: WebhookConfig{
-				DedupEnable: true,
-				CleanWindow: "not-duration",
-			},
-			wantErr: true,
-			errMsg:  "webhook.clean_window",
-		},
-		{
-			name: "negative max_entry_size",
-			config: WebhookConfig{
-				DedupEnable:  true,
-				MaxEntrySize: -1,
-			},
-			wantErr: true,
-			errMsg:  "webhook.max_entry_size",
-		},
-		{
-			name: "negative hard_max_cache_size",
-			config: WebhookConfig{
-				DedupEnable:      true,
-				HardMaxCacheSize: -1,
-			},
-			wantErr: true,
-			errMsg:  "webhook.hard_max_cache_size",
 		},
 	}
 
@@ -708,13 +609,11 @@ func TestConfig_Validate(t *testing.T) {
 				Token:  "test-token",
 				Secret: "test-secret",
 				Webhook: WebhookConfig{
+					Host:        "localhost",
+					Port:        8080,
 					EventBuffer: 1000,
 				},
 			},
-			},
-			Server: ServerConfig{
-				Host: "localhost",
-				Port: 8080,
 			},
 			Log: logger.Config{
 				Level:  "info",
@@ -757,12 +656,12 @@ func TestConfig_Validate(t *testing.T) {
 		assert.Contains(t, err.Error(), "qq config")
 	})
 
-	t.Run("invalid server config", func(t *testing.T) {
+	t.Run("invalid webhook port", func(t *testing.T) {
 		cfg := newValidConfig()
-		cfg.Server.Port = 0
+		cfg.Bot.QQ.Webhook.Port = 99999
 		err := cfg.Validate()
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "server config")
+		assert.Contains(t, err.Error(), "webhook.port")
 	})
 
 	t.Run("invalid log config", func(t *testing.T) {
@@ -796,8 +695,8 @@ bot:
     bot_id: 789012
     token: "test-token"
     secret: "test-secret"
-server:
-  port: 8080
+    webhook:
+      port: 8080
 `
 	tmpFile := t.TempDir() + "/test_config.yaml"
 	if err := writeFile(tmpFile, content); err != nil {

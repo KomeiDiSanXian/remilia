@@ -382,8 +382,8 @@ func needsRestart(old, new *Config) bool {
 		return true
 	}
 
-	// 服务器配置变更需要重启
-	if old.Server != new.Server {
+	// Webhook 监听地址变更需要重启（QQ 平台）
+	if old.Bot.QQ != nil && new.Bot.QQ != nil && old.Bot.QQ.Webhook != new.Bot.QQ.Webhook {
 		return true
 	}
 
