@@ -234,7 +234,7 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 
 	if p.cfg.AtBot {
 		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(eventctx.OnMentionedBotOrNoMentions()).
+			Where(eventctx.OnMentionedBot()).
 			Handle(p.handleAI)
 	}
 
