@@ -26,8 +26,6 @@
 //	Config.Retry        → infra/dlq（死信队列重试）
 //	Config.Middleware   → middleware/ 包各组件（含降级配置）
 //	Config.DeadLetter   → infra/dlq
-//	Config.Webhook      → 平台 Webhook 适配器
-//	Config.Token        → 平台 Token 管理器
 //	Config.Engine       → core/engine（通过 config.EngineOptions() 转换为 engine.Option 列表）
 //	Config.Tracing      → infra/tracing（tracing.Config，含追踪所有选项）
 //	Config.Plugins      → builtin/ 各插件的自定义配置
@@ -62,8 +60,6 @@ type Config struct {
 	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
 	Middleware  MiddlewareConfig  `yaml:"middleware" mapstructure:"middleware"`
 	DeadLetter  DeadLetterConfig  `yaml:"dead_letter" mapstructure:"dead_letter"`
-	Webhook     WebhookConfig     `yaml:"webhook" mapstructure:"webhook"`
-	Token       TokenConfig       `yaml:"token" mapstructure:"token"`
 	Engine      EngineConfig      `yaml:"engine" mapstructure:"engine"`
 	Tracing     tracing.Config    `yaml:"tracing" mapstructure:"tracing"`
 
@@ -169,15 +165,17 @@ type BotConfig struct {
 	WeChat   *WeChatConfig   `yaml:"wechat,omitempty" mapstructure:"wechat,omitempty"`
 }
 
-// QQConfig QQ 机器人平台凭证配置。
+// QQConfig QQ 机器人平台配置。
 //
 // 由 QQ 平台适配器（platform/qq）在初始化时读取。
 // 非 QQ 平台无需填写此配置节。
 type QQConfig struct {
-	AppID  uint64 `yaml:"app_id" mapstructure:"app_id"`
-	BotID  uint64 `yaml:"bot_id" mapstructure:"bot_id"`
-	Token  string `yaml:"token" mapstructure:"token"`
-	Secret string `yaml:"secret" mapstructure:"secret"`
+	AppID    uint64              `yaml:"app_id" mapstructure:"app_id"`
+	BotID    uint64              `yaml:"bot_id" mapstructure:"bot_id"`
+	Token    string              `yaml:"token" mapstructure:"token"`
+	Secret   string              `yaml:"secret" mapstructure:"secret"`
+	Webhook  WebhookConfig       `yaml:"webhook" mapstructure:"webhook"`
+	TokenMgr TokenManagerConfig  `yaml:"token_manager" mapstructure:"token_manager"`
 }
 
 // OneBotConfig OneBot V11 协议适配器配置。
@@ -318,8 +316,8 @@ type DeadLetterConfig struct {
 	WebhookURL   string   `yaml:"webhook_url" mapstructure:"webhook_url"`
 }
 
-// TokenConfig Token 管理器配置
-type TokenConfig struct {
+// TokenManagerConfig Token 管理器配置（QQ 平台专属）
+type TokenManagerConfig struct {
 	RetryDelay      string  `yaml:"retry_delay" mapstructure:"retry_delay"`
 	RefreshAdvance  string  `yaml:"refresh_advance" mapstructure:"refresh_advance"`
 	MinRefreshRatio float64 `yaml:"min_refresh_ratio" mapstructure:"min_refresh_ratio"`

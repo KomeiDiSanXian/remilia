@@ -32,8 +32,6 @@ func (c *Config) Validate() error {
 		{"retry", c.Retry.Validate},
 		{"middleware", c.Middleware.Validate},
 		{"dead_letter", c.DeadLetter.Validate},
-		{"webhook", c.Webhook.Validate},
-		{"token", c.Token.Validate},
 		{"engine", c.Engine.Validate},
 		{"tracing", c.Tracing.Validate},
 		{"pprof", c.Pprof.Validate},
@@ -103,6 +101,12 @@ func (qc *QQConfig) Validate() error {
 	}
 	if qc.Secret == "" {
 		return fmt.Errorf("qq.secret is required and cannot be empty")
+	}
+	if err := qc.Webhook.Validate(); err != nil {
+		return fmt.Errorf("qq.webhook: %w", err)
+	}
+	if err := qc.TokenMgr.Validate(); err != nil {
+		return fmt.Errorf("qq.token_manager: %w", err)
 	}
 	return nil
 }
@@ -293,7 +297,7 @@ func (wc *WebhookConfig) Validate() error {
 }
 
 // Validate 验证 Token 配置
-func (tc *TokenConfig) Validate() error {
+func (tc *TokenManagerConfig) Validate() error {
 	if tc.RetryDelay != "" {
 		if _, err := time.ParseDuration(tc.RetryDelay); err != nil {
 			return fmt.Errorf("token.retry_delay is not a valid duration: %w", err)

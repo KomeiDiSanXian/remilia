@@ -30,9 +30,6 @@ middleware:
 dead_letter:
   enable: false
 
-webhook:
-  event_buffer: 1000
-
 engine:
   temp_matcher_cleanup_interval: "5m"
   pending_delete_buffer_size: 1000

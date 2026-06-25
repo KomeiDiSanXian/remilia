@@ -52,7 +52,7 @@ func NewManager(info *dto.BotInfo) *Manager {
 //
 //	mgr := token.NewManagerWithContext(bot.Context(), info)
 func NewManagerWithContext(parent context.Context, info *dto.BotInfo) *Manager {
-	return NewManagerFromConfigWithContext(parent, info, config.TokenConfig{
+	return NewManagerFromConfigWithContext(parent, info, config.TokenManagerConfig{
 		RetryDelay:      "10s",
 		RefreshAdvance:  "30s",
 		MinRefreshRatio: 0.5,
@@ -69,14 +69,14 @@ func NewManagerWithContext(parent context.Context, info *dto.BotInfo) *Manager {
 //
 //	cfg, _ := config.LoadDefault()
 //	mgr := token.NewManagerFromConfig(global.Info, cfg.Token)
-func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenConfig) *Manager {
+func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenManagerConfig) *Manager {
 	return NewManagerFromConfigWithContext(context.Background(), info, cfg)
 }
 
 // NewManagerFromConfigWithContext 创建与外部 context 联动的 Manager（自定义配置）。
 //
 // 当 parent ctx 被取消时，后台刷新 goroutine 自动退出，无需手动调用 Stop()。
-func NewManagerFromConfigWithContext(parent context.Context, info *dto.BotInfo, cfg config.TokenConfig) *Manager {
+func NewManagerFromConfigWithContext(parent context.Context, info *dto.BotInfo, cfg config.TokenManagerConfig) *Manager {
 	logger.Debugf("[Token] Initializing Token Manager with config: %+v", cfg)
 	logger.Debugf("[Token] Bot Info: %+v", info)
 	ctx, cancel := context.WithCancel(parent)

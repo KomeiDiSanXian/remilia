@@ -702,12 +702,15 @@ func TestConfig_Validate(t *testing.T) {
 	newValidConfig := func() Config {
 		return Config{
 			Bot: BotConfig{
-				QQ: &QQConfig{
-					AppID:  123456,
-					BotID:  789012,
-					Token:  "test-token",
-					Secret: "test-secret",
+		QQ: &QQConfig{
+				AppID:  123456,
+				BotID:  789012,
+				Token:  "test-token",
+				Secret: "test-secret",
+				Webhook: WebhookConfig{
+					EventBuffer: 1000,
 				},
+			},
 			},
 			Server: ServerConfig{
 				Host: "localhost",
@@ -736,9 +739,6 @@ func TestConfig_Validate(t *testing.T) {
 				Enable:   true,
 				Target:   "file",
 				FilePath: "/tmp/dlq.log",
-			},
-			Webhook: WebhookConfig{
-				EventBuffer: 1000,
 			},
 		}
 	}

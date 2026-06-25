@@ -28,10 +28,10 @@ func main() {
 
 	// 打印关键配置信息
 	logger.Infof("=== Configuration Loaded ===")
-	logger.Infof("Webhook workers: %d", cfg.Webhook.WorkerCount)
-	logger.Infof("Event buffer: %d", cfg.Webhook.EventBuffer)
-	logger.Infof("Token retry delay: %s", cfg.Token.RetryDelay)
-	logger.Infof("Token refresh advance: %s", cfg.Token.RefreshAdvance)
+	logger.Infof("Webhook workers: %d", cfg.Bot.QQ.Webhook.WorkerCount)
+	logger.Infof("Event buffer: %d", cfg.Bot.QQ.Webhook.EventBuffer)
+	logger.Infof("Token retry delay: %s", cfg.Bot.QQ.TokenMgr.RetryDelay)
+	logger.Infof("Token refresh advance: %s", cfg.Bot.QQ.TokenMgr.RefreshAdvance)
 	logger.Infof("engine cleanup interval: %s", cfg.Engine.TempMatcherCleanupInterval)
 	logger.Infof("engine pending delete buffer: %d", cfg.Engine.PendingDeleteBufferSize)
 
@@ -45,7 +45,7 @@ func main() {
 	}
 
 	// 3. 使用配置创建 Token Manager
-	tokenMgr := token.NewManagerFromConfig(botInfo, cfg.Token)
+	tokenMgr := token.NewManagerFromConfig(botInfo, cfg.Bot.QQ.TokenMgr)
 	defer tokenMgr.Stop()
 
 	// 等待 Token 就绪
@@ -65,7 +65,7 @@ func main() {
 
 	// 6. 使用配置创建 Webhook Adapter
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	adapter := qq.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Webhook)
+	adapter := qq.NewWebhookServerAdapterWithConfig(addr, botInfo, cfg.Bot.QQ.Webhook)
 
 	// 7. 创建 Bot
 	bot, err := remilia.NewBot(adapter, eng)
