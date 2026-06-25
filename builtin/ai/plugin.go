@@ -233,9 +233,21 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 	}
 
 	if p.cfg.AtBot {
-		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
-			Where(eventctx.OnMentionedBot()).
-			Handle(p.handleAI)
+		if trigger != "" {
+			// trigger_cmd 已设置：@机器人 时仅响应带触发前缀的消息
+			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+				Where(eventctx.OnMentionedBot()).
+				Where(eventctx.OnCommand(trigger)).
+				Handle(p.handleAI)
+		} else {
+			// 无 trigger_cmd：@机器人 时响应任意消息（排除命令）
+			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+				Where(eventctx.OnMentionedBot()).
+				Where(func(c *eventctx.Context) bool {
+					return !isCommandMessage(c.GetMessageContent())
+				}).
+				Handle(p.handleAI)
+		}
 	}
 
 	if p.cfg.PrivateChat {
