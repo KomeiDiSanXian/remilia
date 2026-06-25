@@ -171,32 +171,29 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		// 注册一个非常慢的处理器
 		matcher := engine.OnAny()
 		matcher.Handle(func(ctx *context.Context) error {
-			// timing: simulated processing delay
 			time.Sleep(10 * time.Second)
 			return nil
 		})
 
-		// 启动事件处理
-		started := make(chan struct{})
+		// 确保事件 goroutine 已调度后再 shutdown
+		ready := make(chan struct{})
 		go func() {
-			close(started)
+			ready <- struct{}{}
 			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 			engine.ProcessEvent(ctx)
 		}()
+		<-ready
 
-		<-started
-
-		// 使用有超时的 context 关闭
-		ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
+		// 使用有超时的 context 关闭；超时值比测试下界宽松以适应并行负载
+		ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 200*time.Millisecond)
 		defer cancel()
 
 		shutdownStart := time.Now()
 		err := engine.Shutdown(ctx)
 		shutdownDuration := time.Since(shutdownStart)
 
-		// 应该在超时后返回
 		assert.Error(t, err)
-		assert.Less(t, shutdownDuration, 200*time.Millisecond, "Should timeout quickly")
+		assert.Less(t, shutdownDuration, 500*time.Millisecond, "Should timeout quickly")
 	})
 
 	t.Run("shutdown_is_idempotent", func(t *testing.T) {

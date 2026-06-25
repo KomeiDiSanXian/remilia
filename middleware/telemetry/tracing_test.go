@@ -248,6 +248,36 @@ func TestGetSpanID(t *testing.T) {
 	})
 }
 
+func TestSetIncludeEventDetail(t *testing.T) {
+	t.Run("default is false", func(t *testing.T) {
+		cfg := DefaultTracingConfig()
+		assert.False(t, cfg.IncludeEventDetail)
+	})
+
+	t.Run("SetIncludeEventDetail stores the value", func(t *testing.T) {
+		SetIncludeEventDetail(true)
+		assert.True(t, includeEventDetail.Load())
+
+		SetIncludeEventDetail(false)
+		assert.False(t, includeEventDetail.Load())
+	})
+
+	t.Run("middleware reads the atomic value", func(t *testing.T) {
+		// Set to false first, then use Tracing() which stores it
+		SetIncludeEventDetail(false)
+
+		cfg := DefaultTracingConfig()
+		cfg.IncludeEventDetail = true
+		_ = Tracing(cfg)
+		// At this point the middleware has stored cfg.IncludeEventDetail=true
+		assert.True(t, includeEventDetail.Load())
+
+		// Now change at runtime
+		SetIncludeEventDetail(false)
+		assert.False(t, includeEventDetail.Load())
+	})
+}
+
 // mockMiddleware is a simple middleware that does nothing.
 func mockMiddleware(next eventctx.Handler) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {

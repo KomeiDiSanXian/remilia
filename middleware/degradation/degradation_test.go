@@ -445,6 +445,39 @@ func TestAdaptiveDegradation_UpdateConfig(t *testing.T) {
 		assert.Equal(t, 500*time.Millisecond, ad.config.LatencyThreshold)
 		ad.mu.RUnlock()
 	})
+
+	t.Run("UpdateConfig changes MonitorInterval and triggers ticker reset", func(t *testing.T) {
+		ad := NewAdaptiveDegradationWithRegistry(DegradationConfig{}, testReg())
+		ad.mu.RLock()
+		assert.Equal(t, 5*time.Second, ad.config.MonitorInterval)
+		ad.mu.RUnlock()
+
+		// Send non-zero interval to update
+		ad.UpdateConfig(DegradationConfig{MonitorInterval: 10 * time.Second})
+		ad.mu.RLock()
+		assert.Equal(t, 10*time.Second, ad.config.MonitorInterval)
+		ad.mu.RUnlock()
+	})
+
+	t.Run("UpdateConfig zero MonitorInterval preserves existing", func(t *testing.T) {
+		ad := NewAdaptiveDegradationWithRegistry(DegradationConfig{}, testReg())
+		ad.mu.RLock()
+		assert.Equal(t, 5*time.Second, ad.config.MonitorInterval)
+		ad.mu.RUnlock()
+
+		ad.UpdateConfig(DegradationConfig{MonitorInterval: 0})
+		ad.mu.RLock()
+		assert.Equal(t, 5*time.Second, ad.config.MonitorInterval)
+		ad.mu.RUnlock()
+	})
+
+	t.Run("UpdateConfig updates Strategy via atomic", func(t *testing.T) {
+		ad := NewAdaptiveDegradationWithRegistry(DegradationConfig{}, testReg())
+		assert.Equal(t, DegradationStrategy(0), DegradationStrategy(ad.strategy.Load()))
+
+		ad.UpdateConfig(DegradationConfig{Strategy: DegradationDelay})
+		assert.Equal(t, DegradationDelay, DegradationStrategy(ad.strategy.Load()))
+	})
 }
 
 // ── F. OnLevelChange callback ──────────────────────────────────────────────
