@@ -44,6 +44,8 @@ type Bridge struct {
 
 	pprofSrv  *remilia.PprofServer
 	tracingTP *tracing.Provider
+
+	lastLogCfg logger.Config // 上次日志配置，用于跳过不必要的 Init
 }
 
 // NewBridge 创建桥接器
@@ -119,7 +121,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 
 	logCfg := newCfg.Log
 
-	// 同步日志级别和时间格式
+	// 同步日志级别和时间格式（轻量，仅设全局变量）
 	logger.SetTimeFormat(logCfg.TimeFormat)
 	if logCfg.Level != "" {
 		if err := logger.SetLevel(logCfg.Level); err != nil {
@@ -127,13 +129,24 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		}
 	}
 
-	// 若日志输出格式变化，重新初始化 logger（自动关旧文件、开新文件）
-	// SetExtraWriter 已在启动时注册，Init 内通过 GetExtraWriter 读取
-	if err := logger.Init(logCfg); err != nil {
-		logger.WithError(err).Warn("[HotReload] Failed to re-init logger, keeping previous config")
+	// 仅当日志输出相关字段变化时才重新初始化 logger（关旧文件、开新文件）
+	// 通过比较 lastLogCfg 跳过无关配置变更（如 middleware.xxx 变化时无需重建 logger）
+	b.mu.RLock()
+	needLoggerReinit := b.lastLogCfg.Format != logCfg.Format ||
+		b.lastLogCfg.Console != logCfg.Console ||
+		b.lastLogCfg.File != logCfg.File ||
+		b.lastLogCfg.FilePath != logCfg.FilePath
+	b.mu.RUnlock()
+	if needLoggerReinit {
+		if err := logger.Init(logCfg); err != nil {
+			logger.WithError(err).Warn("[HotReload] Failed to re-init logger, keeping previous config")
+		}
+		b.mu.Lock()
+		b.lastLogCfg = logCfg
+		b.mu.Unlock()
 	}
 
-	// 同步 Tracing.IncludeEventDetail
+	// 同步 Tracing 运行时开关（仅 atomic store，无副作用）
 	telemetry.SetIncludeEventDetail(newCfg.Tracing.IncludeEventDetail)
 
 	// 同步 Tracing 采样率
