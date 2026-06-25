@@ -20,16 +20,21 @@ type mockPlatformAdapter struct {
 	stopped  bool
 	startErr error
 	stopErr  error
+	startedCh chan struct{} // closed after m.started = true
 }
 
 func newMockPlatform(name string) *mockPlatformAdapter {
-	return &mockPlatformAdapter{name: name}
+	return &mockPlatformAdapter{
+		name:      name,
+		startedCh: make(chan struct{}),
+	}
 }
 
 func (m *mockPlatformAdapter) Platform() string                    { return m.name }
 func (m *mockPlatformAdapter) Sender() platform.Sender             { return &platform.NoopSender{} }
 func (m *mockPlatformAdapter) Capabilities() platform.Capabilities { return platform.Capabilities{} }
-func (m *mockPlatformAdapter) IsRunning() bool                     { m.mu.Lock(); defer m.mu.Unlock(); return m.started && !m.stopped }
+func (m *mockPlatformAdapter) IsRunning() bool  { m.mu.Lock(); defer m.mu.Unlock(); return m.started && !m.stopped }
+func (m *mockPlatformAdapter) WaitStarted(t *testing.T) { t.Helper(); select { case <-m.startedCh: case <-time.After(time.Second): t.Fatal("timeout waiting for adapter start") } }
 
 // Start 使用传入的 ctx 阻塞直到被取消，模拟真实 adapter 行为。
 func (m *mockPlatformAdapter) Start(ctx context.Context, _ func(platform.Event)) error {
@@ -39,6 +44,7 @@ func (m *mockPlatformAdapter) Start(ctx context.Context, _ func(platform.Event))
 		return m.startErr
 	}
 	m.started = true
+	close(m.startedCh)
 	m.mu.Unlock()
 	<-ctx.Done()
 	return ctx.Err()
@@ -73,6 +79,7 @@ func TestBot_SyncPlatforms_AddAdapter(t *testing.T) {
 	assert.Equal(t, adapter, got)
 
 	// Verify it was started
+	adapter.WaitStarted(t)
 	assert.True(t, adapter.IsRunning())
 }
 
@@ -85,8 +92,7 @@ func TestBot_SyncPlatforms_RemoveAdapter(t *testing.T) {
 	bot.UsePlatformRegistry(reg)
 	require.NoError(t, bot.Start())
 
-	// Let Start() enter the blocking select
-	time.Sleep(20 * time.Millisecond)
+	adapter.WaitStarted(t)
 	assert.True(t, adapter.IsRunning())
 
 	// Remove the adapter
@@ -114,7 +120,7 @@ func TestBot_SyncPlatforms_ReplaceAdapter(t *testing.T) {
 	bot.UsePlatformRegistry(reg)
 	require.NoError(t, bot.Start())
 
-	time.Sleep(20 * time.Millisecond)
+	oldAdapter.WaitStarted(t)
 	assert.True(t, oldAdapter.IsRunning())
 
 	// Replace with new adapter
