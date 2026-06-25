@@ -45,7 +45,8 @@ type Bridge struct {
 	pprofSrv  *remilia.PprofServer
 	tracingTP *tracing.Provider
 
-	lastLogCfg logger.Config // 上次日志配置，用于跳过不必要的 Init
+	lastLogCfg       logger.Config // 上次日志配置，用于跳过不必要的 Init
+	lastSamplingRate float64       // 上次采样率，避免重复调用 SetSamplingRate 触发警告
 }
 
 // NewBridge 创建桥接器
@@ -149,9 +150,10 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	// 同步 Tracing 运行时开关（仅 atomic store，无副作用）
 	telemetry.SetIncludeEventDetail(newCfg.Tracing.IncludeEventDetail)
 
-	// 同步 Tracing 采样率
-	if b.tracingTP != nil && newCfg.Tracing.SamplingRate > 0 {
+	// 同步 Tracing 采样率（仅当值变化时调用，避免固定采样模式下每次都打印警告）
+	if b.tracingTP != nil && newCfg.Tracing.SamplingRate > 0 && newCfg.Tracing.SamplingRate != b.lastSamplingRate {
 		b.tracingTP.SetSamplingRate(newCfg.Tracing.SamplingRate)
+		b.lastSamplingRate = newCfg.Tracing.SamplingRate
 	}
 
 	// 同步 Pprof 参数
