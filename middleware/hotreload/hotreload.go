@@ -45,8 +45,13 @@ type Bridge struct {
 	pprofSrv  *remilia.PprofServer
 	tracingTP *tracing.Provider
 
-	lastLogCfg       logger.Config // 上次日志配置，用于跳过不必要的 Init
-	lastSamplingRate float64       // 上次采样率，避免重复调用 SetSamplingRate 触发警告
+	lastLogCfg          logger.Config // 上次日志输出配置（Format/Console/File/FilePath）
+	lastSamplingRate    float64
+	lastPprofCfg        remilia.PprofConfig
+	lastRetryCfg        config.RetryConfig
+	lastDedupMaxSize    int
+	lastDedupDefaultTTL string
+	lastDegradationCfg  config.DegradationConfig
 }
 
 // NewBridge 创建桥接器
@@ -113,8 +118,14 @@ func (b *Bridge) WatchDegradation(ad *degradation.AdaptiveDegradation) *Bridge {
 	return b
 }
 
+// changed 为两个 int 字段比较辅助，避免 == 对零值的误判。
+func changed[T comparable](old, new T) bool { return old != new }
+
 // OnConfigChange 实现 config.ChangeListener，将新配置推送到所有已注册的组件。
 // 通过 config.Subscribe(bridge.OnConfigChange) 注册到 config 包。
+//
+// 每个更新步骤都带有栅栏（仅当对应字段值变化时才执行），
+// 避免修改无关字段（如 log.level）触发不必要的组件重初始化。
 func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	if newCfg == nil {
 		return
@@ -122,51 +133,67 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 
 	logCfg := newCfg.Log
 
-	// 同步日志级别和时间格式（轻量，仅设全局变量）
-	logger.SetTimeFormat(logCfg.TimeFormat)
-	if logCfg.Level != "" {
-		if err := logger.SetLevel(logCfg.Level); err != nil {
-			logger.WithError(err).Warn("[HotReload] Failed to update log level")
+	// 仅当日志级别/时间格式变化时更新全局变量
+	if changed(b.lastLogCfg.Level, logCfg.Level) {
+		if logCfg.Level != "" {
+			if err := logger.SetLevel(logCfg.Level); err != nil {
+				logger.WithError(err).Warn("[HotReload] Failed to update log level")
+			}
 		}
+	}
+	if changed(b.lastLogCfg.TimeFormat, logCfg.TimeFormat) {
+		logger.SetTimeFormat(logCfg.TimeFormat)
 	}
 
 	// 仅当日志输出相关字段变化时才重新初始化 logger（关旧文件、开新文件）
-	// 通过比较 lastLogCfg 跳过无关配置变更（如 middleware.xxx 变化时无需重建 logger）
-	b.mu.RLock()
-	needLoggerReinit := b.lastLogCfg.Format != logCfg.Format ||
-		b.lastLogCfg.Console != logCfg.Console ||
-		b.lastLogCfg.File != logCfg.File ||
-		b.lastLogCfg.FilePath != logCfg.FilePath
-	b.mu.RUnlock()
-	if needLoggerReinit {
+	if changed(b.lastLogCfg.Format, logCfg.Format) ||
+		changed(b.lastLogCfg.Console, logCfg.Console) ||
+		changed(b.lastLogCfg.File, logCfg.File) ||
+		changed(b.lastLogCfg.FilePath, logCfg.FilePath) {
 		if err := logger.Init(logCfg); err != nil {
 			logger.WithError(err).Warn("[HotReload] Failed to re-init logger, keeping previous config")
 		}
-		b.mu.Lock()
-		b.lastLogCfg = logCfg
-		b.mu.Unlock()
 	}
+	b.lastLogCfg = logCfg
 
-	// 同步 Tracing 运行时开关（仅 atomic store，无副作用）
+	// 同步 Tracing 运行时开关
 	telemetry.SetIncludeEventDetail(newCfg.Tracing.IncludeEventDetail)
 
 	// 同步 Tracing 采样率（仅当值变化时调用，避免固定采样模式下每次都打印警告）
-	if b.tracingTP != nil && newCfg.Tracing.SamplingRate > 0 && newCfg.Tracing.SamplingRate != b.lastSamplingRate {
-		b.tracingTP.SetSamplingRate(newCfg.Tracing.SamplingRate)
+	if changed(b.lastSamplingRate, newCfg.Tracing.SamplingRate) {
+		if b.tracingTP != nil && newCfg.Tracing.SamplingRate > 0 {
+			b.tracingTP.SetSamplingRate(newCfg.Tracing.SamplingRate)
+		}
 		b.lastSamplingRate = newCfg.Tracing.SamplingRate
 	}
 
-	// 同步 Pprof 参数
-	if b.pprofSrv != nil {
-		b.pprofSrv.UpdateConfig(remilia.PprofConfig{
-			AutoProfile:      newCfg.Pprof.AutoProfile,
-			ProfileInterval:  parseDurationFallback(newCfg.Pprof.ProfileInterval, time.Hour),
-			ProfileDuration:  parseDurationFallback(newCfg.Pprof.ProfileDuration, 30*time.Second),
-			EnableMutex:      newCfg.Pprof.EnableMutex,
-			EnableBlock:      newCfg.Pprof.EnableBlock,
-			MutexProfileFraction: 1,
-			BlockProfileRate:     1,
-		})
+	// 同步 Pprof 参数（仅当相关字段变化时）
+	pprof := newCfg.Pprof
+	parsedInterval := parseDurationFallback(pprof.ProfileInterval, time.Hour)
+	parsedDuration := parseDurationFallback(pprof.ProfileDuration, 30*time.Second)
+	if changed(b.lastPprofCfg.AutoProfile, pprof.AutoProfile) ||
+		changed(b.lastPprofCfg.ProfileInterval, parsedInterval) ||
+		changed(b.lastPprofCfg.ProfileDuration, parsedDuration) ||
+		changed(b.lastPprofCfg.EnableMutex, pprof.EnableMutex) ||
+		changed(b.lastPprofCfg.EnableBlock, pprof.EnableBlock) {
+		if b.pprofSrv != nil {
+			b.pprofSrv.UpdateConfig(remilia.PprofConfig{
+				AutoProfile:          pprof.AutoProfile,
+				ProfileInterval:      parsedInterval,
+				ProfileDuration:      parsedDuration,
+				EnableMutex:          pprof.EnableMutex,
+				EnableBlock:          pprof.EnableBlock,
+				MutexProfileFraction: 1,
+				BlockProfileRate:     1,
+			})
+		}
+	}
+	b.lastPprofCfg = remilia.PprofConfig{
+		AutoProfile:      pprof.AutoProfile,
+		ProfileInterval:  parsedInterval,
+		ProfileDuration:  parsedDuration,
+		EnableMutex:      pprof.EnableMutex,
+		EnableBlock:      pprof.EnableBlock,
 	}
 
 	// 刷新中间件配置快照（供 setup.go 的运行时开关检查）
@@ -174,7 +201,6 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	b.middlewareConfig.Store(mc)
 
 	// --- 以下为热更新中间件组件的配置 ---
-
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -189,21 +215,26 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		}
 	}
 
-	// 更新 ConfigurableRetry
-	if rc.Enable {
-		base := parseDuration(rc.BackoffBase, 200*time.Millisecond)
-		duration := parseDuration(rc.BackoffMax, 2*time.Second)
-		for _, cr := range b.retries {
-			cr.UpdateConfig(resilience.RetryConfig{
-				MaxAttempts: rc.MaxAttempts,
-				BackoffBase: base,
-				BackoffMax:  duration,
-			})
+	// 更新 ConfigurableRetry（仅在字段变化时）
+	if rc != b.lastRetryCfg {
+		if rc.Enable {
+			base := parseDuration(rc.BackoffBase, 200*time.Millisecond)
+			duration := parseDuration(rc.BackoffMax, 2*time.Second)
+			for _, cr := range b.retries {
+				cr.UpdateConfig(resilience.RetryConfig{
+					MaxAttempts: rc.MaxAttempts,
+					BackoffBase: base,
+					BackoffMax:  duration,
+				})
+			}
 		}
+		b.lastRetryCfg = rc
 	}
 
-	// 更新 DedupFilter（仅在启用时）
-	if mc.Dedup.Enable {
+	// 更新 DedupFilter（仅在字段变化时）
+	if mc.Dedup.Enable &&
+		(changed(b.lastDedupMaxSize, mc.Dedup.MaxSize) ||
+			changed(b.lastDedupDefaultTTL, mc.Dedup.DefaultTTL)) {
 		ttl := parseDuration(mc.Dedup.DefaultTTL, 5*time.Minute)
 		for _, df := range b.dedups {
 			df.UpdateConfig(dedup.DedupConfig{
@@ -211,10 +242,12 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 				DefaultTTL: ttl,
 			})
 		}
+		b.lastDedupMaxSize = mc.Dedup.MaxSize
+		b.lastDedupDefaultTTL = mc.Dedup.DefaultTTL
 	}
 
-	// 更新 AdaptiveDegradation（仅在启用时）
-	if mc.Degradation.Enable {
+	// 更新 AdaptiveDegradation（仅在字段变化时）
+	if mc.Degradation.Enable && mc.Degradation != b.lastDegradationCfg {
 		strat := parseDegradationStrategy(mc.Degradation.Strategy)
 		for _, ad := range b.degradations {
 			ad.UpdateConfig(degradation.DegradationConfig{
@@ -226,6 +259,7 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 				Strategy:           strat,
 			})
 		}
+		b.lastDegradationCfg = mc.Degradation
 	}
 
 	logger.Info("[HotReload] All configs updated from config file")

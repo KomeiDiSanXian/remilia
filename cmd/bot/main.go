@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -142,14 +143,20 @@ func main() {
 
 	// 订阅 platform 热更新（仅在 bot.* 配置实际变化时触发，避免修改日志级别等无关字段导致连接断开）
 	var lastBotCfg = &cfg.Bot // 启动时的 bot 配置
+	var lastBotMu sync.Mutex  // 保护 lastBotCfg 并发读写
 	config.Subscribe(func(newCfg *config.Config) {
 		if newCfg == nil {
 			return
 		}
-		if !lastBotCfg.HasChanged(&newCfg.Bot) {
+		lastBotMu.Lock()
+		changed := lastBotCfg.HasChanged(&newCfg.Bot)
+		if changed {
+			*lastBotCfg = newCfg.Bot
+		}
+		lastBotMu.Unlock()
+		if !changed {
 			return
 		}
-		*lastBotCfg = newCfg.Bot
 		desired := buildDesiredAdapters(newCfg)
 		if err := bot.SyncPlatforms(desired); err != nil {
 			logger.WithError(err).Error("[remilia] Failed to sync platforms")
