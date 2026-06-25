@@ -134,6 +134,7 @@ func TestBot_SyncPlatforms_ReplaceAdapter(t *testing.T) {
 	oldAdapter.mu.Unlock()
 
 	// Verify new adapter is in registry and running
+	newAdapter.WaitStarted(t)
 	got, ok := reg.Get("test-replace")
 	assert.True(t, ok)
 	assert.Equal(t, newAdapter, got)
