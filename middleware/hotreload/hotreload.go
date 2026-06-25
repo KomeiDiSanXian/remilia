@@ -96,10 +96,12 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 	rc := newCfg.Retry
 
 	// 更新 AdaptiveRateLimiter
-	for _, arl := range b.adaptives {
-		arl.UpdateConfig(ratelimit.AdaptiveConfig{
-			AdjustStep: mc.RateLimit.Burst,
-		})
+	if mc.RateLimit.Enable {
+		for _, arl := range b.adaptives {
+			arl.UpdateConfig(ratelimit.AdaptiveConfig{
+				AdjustStep: mc.RateLimit.Burst,
+			})
+		}
 	}
 
 	// 更新 ConfigurableRetry
@@ -115,9 +117,9 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		}
 	}
 
-	// 更新 DedupFilter（MaxSize、DefaultTTL）
-	if mc.Dedup.MaxSize > 0 || mc.Dedup.DefaultTTL != "" {
-		ttl := parseDuration(mc.Dedup.DefaultTTL, 0)
+	// 更新 DedupFilter（仅在启用时）
+	if mc.Dedup.Enable {
+		ttl := parseDuration(mc.Dedup.DefaultTTL, 5*time.Minute)
 		for _, df := range b.dedups {
 			df.UpdateConfig(dedup.DedupConfig{
 				MaxSize:    mc.Dedup.MaxSize,
@@ -126,8 +128,8 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		}
 	}
 
-	// 更新 AdaptiveDegradation（CPU/Memory 阈值）
-	if mc.Degradation.CPUThreshold > 0 || mc.Degradation.MemoryThreshold > 0 {
+	// 更新 AdaptiveDegradation（仅在启用时）
+	if mc.Degradation.Enable {
 		for _, ad := range b.degradations {
 			ad.UpdateConfig(degradation.DegradationConfig{
 				CPUThreshold:    mc.Degradation.CPUThreshold,

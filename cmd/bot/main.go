@@ -101,7 +101,7 @@ func main() {
 	}
 
 	eng := bot.Engine()
-	bridge := setupMiddleware(eng, &cfg.Tracing)
+	bridge := setupMiddleware(eng, &cfg.Tracing, cfg)
 
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)

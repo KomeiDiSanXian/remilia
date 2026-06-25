@@ -98,22 +98,48 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 
 // setupMiddleware 创建中间件链（不含自适应限流器）并返回热重载桥接器。
 // 自适应限流器需要绑 bot.Context()，由调用方在 bot.Start() 之后 setupAdaptiveLimiter 完成。
-func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) *hotreload.Bridge {
+func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.Config) *hotreload.Bridge {
+	mc := cfg.Middleware
 	bridge := hotreload.NewBridge()
 
 	mws := make([]eventctx.Middleware, 0)
 
-	mws = append(mws, middleware.Recover())
+	// 始终注册的基础中间件
 	mws = append(mws, middleware.RequestID())
 	mws = append(mws, middleware.Timeout(30*time.Second))
 
-	// Dedup filter — 支持热重载
-	df := dedup.NewDedupFilter(dedup.DedupConfig{
-		MaxSize:    10000,
-		DefaultTTL: 5 * time.Minute,
-	})
-	bridge.WatchDedup(df)
-	mws = append(mws, dedup.Dedup(df))
+	// Recover — 配置开关
+	if mc.Recover {
+		mws = append(mws, middleware.Recover())
+	}
+
+	// Logging — 配置开关
+	if mc.Logging {
+		mws = append(mws, middleware.Logging())
+	}
+
+	// Auth（白名单）— 配置开关，从 whitelist 构造鉴权函数
+	if mc.Auth.Enable && len(mc.Auth.Whitelist) > 0 {
+		allowSet := make(map[string]struct{}, len(mc.Auth.Whitelist))
+		for _, id := range mc.Auth.Whitelist {
+			allowSet[id] = struct{}{}
+		}
+		mws = append(mws, middleware.Auth(func(ctx *eventctx.Context) bool {
+			_, ok := allowSet[ctx.GetChatInfo().ID]
+			return ok
+		}))
+	}
+
+	// Dedup — 配置开关 + 参数，支持热重载
+	if mc.Dedup.Enable {
+		ttl := parseDuration(mc.Dedup.DefaultTTL, 5*time.Minute)
+		df := dedup.NewDedupFilter(dedup.DedupConfig{
+			MaxSize:    mc.Dedup.MaxSize,
+			DefaultTTL: ttl,
+		})
+		bridge.WatchDedup(df)
+		mws = append(mws, dedup.Dedup(df))
+	}
 
 	// Circuit breaker — 支持热重载
 	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
@@ -126,22 +152,65 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config) *hotreload.Br
 	bridge.WatchCircuitBreaker(cb)
 	mws = append(mws, resilience.CircuitBreakerMiddleware(cb))
 
-	mws = append(mws, middleware.Logging())
+	// Backpressure — 配置驱动
+	if mc.Backpressure.Limit > 0 {
+		policy := parseBackpressurePolicy(mc.Backpressure.Policy)
+		timeout := parseDuration(mc.Backpressure.WaitTimeout, 200*time.Millisecond)
+		mws = append(mws, middleware.Backpressure(mc.Backpressure.Limit, policy, timeout))
+	}
 
 	eng.Use(mws...)
 
-	eng.Use(telemetry.PrometheusMetrics("remilia"))
+	// Metrics — 配置开关
+	if mc.Metrics {
+		eng.Use(telemetry.PrometheusMetrics("remilia"))
+	}
+
 	eng.Use(telemetry.Tracing(telemetry.TracingConfig{
 		TracerName:         "remilia",
 		IncludeEventDetail: traceCfg.IncludeEventDetail,
 	}))
 	eng.Use(errorHandlerMiddleware())
-	eng.Use(slowRequestMiddleware(3 * time.Second))
+
+	// Slow handler — 配置开关 + 阈值
+	slowThreshold := 3 * time.Second
+	if mc.SlowHandler.Enable && mc.SlowHandler.Threshold != "" {
+		if d, err := time.ParseDuration(mc.SlowHandler.Threshold); err == nil && d > 0 {
+			slowThreshold = d
+		}
+	}
+	eng.Use(slowRequestMiddleware(slowThreshold))
 
 	bridge.Subscribe()
 	logger.Info("[bot] Hot-reload bridge initialized")
 
 	return bridge
+}
+
+// parseBackpressurePolicy 将配置字符串转换为 BackpressurePolicy。
+func parseBackpressurePolicy(policy string) middleware.BackpressurePolicy {
+	switch policy {
+	case "drop":
+		return middleware.BackpressureDrop
+	case "block":
+		return middleware.BackpressureBlock
+	case "trywait":
+		return middleware.BackpressureTryWait
+	default:
+		return middleware.BackpressureDrop
+	}
+}
+
+// parseDuration 解析时间字符串，失败时返回默认值。
+func parseDuration(s string, fallback time.Duration) time.Duration {
+	if s == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
 
 // setupAdaptiveLimiter 在 bot 启动后创建自适应限流器并接入引擎。
