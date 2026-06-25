@@ -75,33 +75,33 @@ func New() *plugin.Descriptor {
 				SubCommand(command.NewDef("list").Description("列出所有角色").Build()).
 				SubCommand(command.NewDef("set").Description("设置属性或角色信息").Build()).
 				Build()
-			ctx.OnCommandDefWith("", "/dnd", dndDef, p.handleDND)
+	ctx.OnCommandDefWith("", "/dnd", dndDef, p.handleDND, eventctx.OnMentionedBotOrNoMentions())
 
-			checkDef := command.NewDef("check").Description("D&D 属性检定").
-				Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
-				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
-				Arg("character_name", "角色名（可选）", false).
-				Example("/check STR adv").Example("/check DEX").Build()
-			ctx.OnCommandDefWith("", "/check", checkDef, p.handleCheck)
+	checkDef := command.NewDef("check").Description("D&D 属性检定").
+		Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
+		Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+		Arg("character_name", "角色名（可选）", false).
+		Example("/check STR adv").Example("/check DEX").Build()
+	ctx.OnCommandDefWith("", "/check", checkDef, p.handleCheck, eventctx.OnMentionedBotOrNoMentions())
 
-			saveDef := command.NewDef("save").Description("D&D 豁免检定").
-				Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
-				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
-				Arg("character_name", "角色名（可选）", false).
-				Example("/save DEX adv").Example("/save WIS").Build()
-			ctx.OnCommandDefWith("", "/save", saveDef, p.handleSave)
+	saveDef := command.NewDef("save").Description("D&D 豁免检定").
+		Arg("ability", "属性缩写 STR/DEX/CON/INT/WIS/CHA", true).
+		Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+		Arg("character_name", "角色名（可选）", false).
+		Example("/save DEX adv").Example("/save WIS").Build()
+	ctx.OnCommandDefWith("", "/save", saveDef, p.handleSave, eventctx.OnMentionedBotOrNoMentions())
 
-			skillDef := command.NewDef("skill").Description("D&D 技能检定").
-				Arg("skill_name", "技能名（如 察觉、隐匿、游说）", true).
-				Arg("advantage", "优势/劣势 adv/dis（可选）", false).
-				Arg("character_name", "角色名（可选）", false).
-				Example("/skill 察觉").Example("/skill 隐匿 adv 盗贼").Build()
-			ctx.OnCommandDefWith("", "/skill", skillDef, p.handleSkill)
+	skillDef := command.NewDef("skill").Description("D&D 技能检定").
+		Arg("skill_name", "技能名（如 察觉、隐匿、游说）", true).
+		Arg("advantage", "优势/劣势 adv/dis（可选）", false).
+		Arg("character_name", "角色名（可选）", false).
+		Example("/skill 察觉").Example("/skill 隐匿 adv 盗贼").Build()
+	ctx.OnCommandDefWith("", "/skill", skillDef, p.handleSkill, eventctx.OnMentionedBotOrNoMentions())
 
-			initDef := command.NewDef("init").Description("D&D 先攻检定").
-				Arg("character_name", "角色名（可选）", false).
-				Example("/init").Example("/init 战士").Build()
-			ctx.OnCommandDefWith("", "/init", initDef, p.handleInit)
+	initDef := command.NewDef("init").Description("D&D 先攻检定").
+		Arg("character_name", "角色名（可选）", false).
+		Example("/init").Example("/init 战士").Build()
+	ctx.OnCommandDefWith("", "/init", initDef, p.handleInit, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

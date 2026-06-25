@@ -81,7 +81,7 @@ func New() *plugin.Descriptor {
 				SubCommand(command.NewDef("live").Description("查询直播状态").Build()).
 				SubCommand(command.NewDef("search").Description("搜索 UP 主").Build()).
 				Example("/bili user 泠鸢yousa").Example("/bili live 282994").Example("/bili search 泠鸢").Build()
-			ctx.OnCommandDefWith("", "/bili", biliDef, p.handleBili)
+			ctx.OnCommandDefWith("", "/bili", biliDef, p.handleBili, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

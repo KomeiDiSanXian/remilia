@@ -79,7 +79,7 @@ func New() *plugin.Descriptor {
 				SubCommand(command.NewDef("search").Description("搜索番剧").Build()).
 				SubCommand(command.NewDef("info").Description("查看番剧详细信息").Build()).
 				Example("/anime season").Example("/anime search 间谍过家家").Example("/anime info 123456").Build()
-			ctx.OnCommandDefWith("", "/anime", animeDef, p.handleAnime)
+			ctx.OnCommandDefWith("", "/anime", animeDef, p.handleAnime, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

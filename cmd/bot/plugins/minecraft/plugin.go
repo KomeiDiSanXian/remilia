@@ -82,7 +82,7 @@ func New() *plugin.Descriptor {
 				Arg("host", "服务器地址，支持 主机名:端口", true).
 				Arg("edition", "强制版本 java/bedrock（可选，自动探测）", false).
 				Example("/mc mc.hypixel.net").Example("/mc java mc.hypixel.net").Example("/mc bedrock 192.168.1.1:19132").Build()
-			ctx.OnCommandDefWith("", "/mc", mcDef, p.handleMC)
+			ctx.OnCommandDefWith("", "/mc", mcDef, p.handleMC, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

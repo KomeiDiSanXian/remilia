@@ -79,7 +79,7 @@ func New() *plugin.Descriptor {
 			gsDef := command.NewDef("genshin").Description("原神角色展柜查询").
 				SubCommand(command.NewDef("showcase").Description("查看角色展柜").Build()).
 				Example("/genshin showcase 123456789").Build()
-			ctx.OnCommandDefWith("", "/genshin", gsDef, p.handleGS)
+			ctx.OnCommandDefWith("", "/genshin", gsDef, p.handleGS, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

@@ -105,7 +105,7 @@ func New(opts ...Option) *plugin.Descriptor {
 			})
 
 			issDef := command.NewDef("iss").Description("国际空间站实时位置与轨道高度追踪").Build()
-			ctx.OnCommandDefWith("", "/iss", issDef, p.handleIss)
+			ctx.OnCommandDefWith("", "/iss", issDef, p.handleIss, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

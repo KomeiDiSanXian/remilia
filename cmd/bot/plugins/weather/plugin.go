@@ -97,7 +97,7 @@ func New() *plugin.Descriptor {
 			weatherDef := command.NewDef("weather").Description("天气查询").
 				Arg("city", "城市名称", true).
 				Example("/weather 北京").Example("/weather Tokyo").Build()
-			ctx.OnCommandDefWith("", "/weather", weatherDef, p.handleWeather)
+			ctx.OnCommandDefWith("", "/weather", weatherDef, p.handleWeather, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

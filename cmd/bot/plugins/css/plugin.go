@@ -109,7 +109,7 @@ func New(opts ...Option) *plugin.Descriptor {
 			}
 
 			cssDef := command.NewDef("css").Description("中国空间站(天宫)实时轨道追踪").Build()
-			ctx.OnCommandDefWith("", "/css", cssDef, p.handleCSS)
+			ctx.OnCommandDefWith("", "/css", cssDef, p.handleCSS, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

@@ -17,7 +17,7 @@
 
 ### 🔄 变更
 
-- 所有命令类插件（ping、help、admin、pluginctrl 等 9 个插件共 24 个注册点）添加 `OnMentionedBotOrNoMentions()` 保护
+- 所有命令类插件（builtin 9 个 + cmd/bot 12 个，共 46 个注册点）添加 `OnMentionedBotOrNoMentions()` 保护
 
 ---
 

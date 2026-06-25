@@ -87,12 +87,12 @@ func New(opts ...Option) *plugin.Descriptor {
 			omikujiDef := command.NewDef("omikuji").Description("抽取御神签占卜运势").
 				Arg("number", "签号 1-100（可选，不指定则随机）", false).
 				Example("/omikuji").Example("/omikuji 42").Build()
-			ctx.OnCommandDefWith("", "/omikuji", omikujiDef, p.handleOmikuji)
+ctx.OnCommandDefWith("", "/omikuji", omikujiDef, p.handleOmikuji, eventctx.OnMentionedBotOrNoMentions())
 
-			tarotDef := command.NewDef("tarot").Description("塔罗牌占卜").
-				Arg("count", "牌数 1 或 3（可选，默认 1）", false).
-				Example("/tarot").Example("/tarot 3").Build()
-			ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot)
+tarotDef := command.NewDef("tarot").Description("塔罗牌占卜").
+	Arg("count", "牌数 1 或 3（可选，默认 1）", false).
+	Example("/tarot").Example("/tarot 3").Build()
+ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

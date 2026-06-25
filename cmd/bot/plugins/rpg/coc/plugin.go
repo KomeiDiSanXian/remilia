@@ -77,19 +77,19 @@ func New() *plugin.Descriptor {
 				SubCommand(command.NewDef("luck").Description("幸运检定").Build()).
 				SubCommand(command.NewDef("push").Description("技能推骰").Build()).
 				Build()
-			ctx.OnCommandDefWith("", "/coc", cocDef, p.handleCOC)
+	ctx.OnCommandDefWith("", "/coc", cocDef, p.handleCOC, eventctx.OnMentionedBotOrNoMentions())
 
-			ccDef := command.NewDef("cc").Description("COC 技能检定").
-				Arg("skill_name", "技能名（如 侦查、图书馆）", true).
-				Arg("character_name", "角色名（可选，默认为首个角色）", false).
-				Example("/cc 侦查").Example("/cc 图书馆 克苏鲁").Build()
-			ctx.OnCommandDefWith("", "/cc", ccDef, p.handleCC)
+	ccDef := command.NewDef("cc").Description("COC 技能检定").
+		Arg("skill_name", "技能名（如 侦查、图书馆）", true).
+		Arg("character_name", "角色名（可选，默认为首个角色）", false).
+		Example("/cc 侦查").Example("/cc 图书馆 克苏鲁").Build()
+	ctx.OnCommandDefWith("", "/cc", ccDef, p.handleCC, eventctx.OnMentionedBotOrNoMentions())
 
-			scDef := command.NewDef("sc").Description("SAN 理智检定").
-				Arg("loss_success", "成功时 SAN 损失（可选，默认 0）", false).
-				Arg("loss_failure", "失败时 SAN 损失（可选，默认 1）", false).
-				Example("/sc").Example("/sc 0 1d6").Build()
-			ctx.OnCommandDefWith("", "/sc", scDef, p.handleSC)
+	scDef := command.NewDef("sc").Description("SAN 理智检定").
+		Arg("loss_success", "成功时 SAN 损失（可选，默认 0）", false).
+		Arg("loss_failure", "失败时 SAN 损失（可选，默认 1）", false).
+		Example("/sc").Example("/sc 0 1d6").Build()
+	ctx.OnCommandDefWith("", "/sc", scDef, p.handleSC, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},

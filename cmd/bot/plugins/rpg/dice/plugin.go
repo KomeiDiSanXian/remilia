@@ -46,21 +46,21 @@ func New() *plugin.Descriptor {
 			rDef := command.NewDef("r").Description("通用掷骰").
 				Arg("expression", "骰子表达式，如 2d20+5、3d6^2（取高2）", true).
 				Example("/r 2d20+5").Example("/r 3d6^2").Example("/r d100").Build()
-			ctx.OnCommandDefWith("", "/r", rDef, p.handleRoll)
+	ctx.OnCommandDefWith("", "/r", rDef, p.handleRoll, eventctx.OnMentionedBotOrNoMentions())
 
-			rollDef := command.NewDef("roll").Description("随机掷 1 颗 D100").Build()
-			ctx.OnCommandDefWith("", "/roll", rollDef, p.handleSimpleRoll)
+	rollDef := command.NewDef("roll").Description("随机掷 1 颗 D100").Build()
+	ctx.OnCommandDefWith("", "/roll", rollDef, p.handleSimpleRoll, eventctx.OnMentionedBotOrNoMentions())
 
-			dDef := command.NewDef("d").Description("简写掷骰").
-				Arg("sides", "骰子面数（可选，默认 100）", false).
-				Arg("count", "骰子数量（可选，默认 1）", false).
-				Example("/d").Example("/d 20").Example("/d 6 3").Build()
-			ctx.OnCommandDefWith("", "/d", dDef, p.handleD)
+	dDef := command.NewDef("d").Description("简写掷骰").
+		Arg("sides", "骰子面数（可选，默认 100）", false).
+		Arg("count", "骰子数量（可选，默认 1）", false).
+		Example("/d").Example("/d 20").Example("/d 6 3").Build()
+	ctx.OnCommandDefWith("", "/d", dDef, p.handleD, eventctx.OnMentionedBotOrNoMentions())
 
-			rhDef := command.NewDef("rh").Description("暗骰（结果仅自己可见）").
-				Arg("expression", "骰子表达式", true).
-				Example("/rh 1d100").Example("/rh 3d6").Build()
-			ctx.OnCommandDefWith("", "/rh", rhDef, p.handleHiddenRoll)
+	rhDef := command.NewDef("rh").Description("暗骰（结果仅自己可见）").
+		Arg("expression", "骰子表达式", true).
+		Example("/rh 1d100").Example("/rh 3d6").Build()
+	ctx.OnCommandDefWith("", "/rh", rhDef, p.handleHiddenRoll, eventctx.OnMentionedBotOrNoMentions())
 
 			return p.svc, nil
 		},
