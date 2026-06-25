@@ -118,34 +118,18 @@ func DefaultHTTPPostConfig(listenAddr, apiURL string) Config {
 	}
 }
 
-// reconnectDelay 返回已配置的延迟时间，若未配置则使用合理默认值。
-func (c *Config) reconnectDelay() time.Duration {
+// setDefaults fills zero-value fields with sensible defaults.
+func (c *Config) setDefaults() {
 	if c.ReconnectDelay <= 0 {
-		return time.Second
+		c.ReconnectDelay = time.Second
 	}
-	return c.ReconnectDelay
-}
-
-// reconnectMaxDelay 返回已配置的最大延迟时间，若未配置则使用合理默认值。
-func (c *Config) reconnectMaxDelay() time.Duration {
 	if c.ReconnectMaxDelay <= 0 {
-		return 60 * time.Second
+		c.ReconnectMaxDelay = 60 * time.Second
 	}
-	return c.ReconnectMaxDelay
-}
-
-// apiTimeout 返回已配置的超时时间，若未配置则使用合理默认值。
-func (c *Config) apiTimeout() time.Duration {
 	if c.APITimeout <= 0 {
-		return 10 * time.Second
+		c.APITimeout = 10 * time.Second
 	}
-	return c.APITimeout
-}
-
-// eventBufferSize 返回已配置的缓冲区大小，若未配置则使用合理默认值。
-func (c *Config) eventBufferSize() int {
 	if c.EventBufferSize <= 0 {
-		return 100
+		c.EventBufferSize = 100
 	}
-	return c.EventBufferSize
 }

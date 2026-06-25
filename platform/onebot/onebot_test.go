@@ -38,52 +38,44 @@ func TestDefaultHTTPPostConfig(t *testing.T) {
 	assert.Equal(t, 100, cfg.EventBufferSize)
 }
 
-func TestConfigGettersDefaults(t *testing.T) {
+func TestConfigSetDefaults(t *testing.T) {
 	t.Parallel()
-	var cfg Config
-	assert.Equal(t, time.Second, cfg.reconnectDelay())
-	assert.Equal(t, 60*time.Second, cfg.reconnectMaxDelay())
-	assert.Equal(t, 10*time.Second, cfg.apiTimeout())
-	assert.Equal(t, 100, cfg.eventBufferSize())
-}
+	t.Run("fills zero values", func(t *testing.T) {
+		var cfg Config
+		cfg.setDefaults()
+		assert.Equal(t, time.Second, cfg.ReconnectDelay)
+		assert.Equal(t, 60*time.Second, cfg.ReconnectMaxDelay)
+		assert.Equal(t, 10*time.Second, cfg.APITimeout)
+		assert.Equal(t, 100, cfg.EventBufferSize)
+	})
 
-func TestConfigGettersConfigured(t *testing.T) {
-	t.Parallel()
-	cfg := Config{
-		ReconnectDelay:    5 * time.Second,
-		ReconnectMaxDelay: 30 * time.Second,
-		APITimeout:        15 * time.Second,
-		EventBufferSize:   200,
-	}
-	assert.Equal(t, 5*time.Second, cfg.reconnectDelay())
-	assert.Equal(t, 30*time.Second, cfg.reconnectMaxDelay())
-	assert.Equal(t, 15*time.Second, cfg.apiTimeout())
-	assert.Equal(t, 200, cfg.eventBufferSize())
-}
+	t.Run("preserves configured values", func(t *testing.T) {
+		cfg := Config{
+			ReconnectDelay:    5 * time.Second,
+			ReconnectMaxDelay: 30 * time.Second,
+			APITimeout:        15 * time.Second,
+			EventBufferSize:   200,
+		}
+		cfg.setDefaults()
+		assert.Equal(t, 5*time.Second, cfg.ReconnectDelay)
+		assert.Equal(t, 30*time.Second, cfg.ReconnectMaxDelay)
+		assert.Equal(t, 15*time.Second, cfg.APITimeout)
+		assert.Equal(t, 200, cfg.EventBufferSize)
+	})
 
-func TestConfigGettersZeroValues(t *testing.T) {
-	t.Parallel()
-	cfg := Config{
-		ReconnectDelay:    0,
-		ReconnectMaxDelay: 0,
-		APITimeout:        0,
-		EventBufferSize:   0,
-	}
-	assert.Equal(t, time.Second, cfg.reconnectDelay())
-	assert.Equal(t, 60*time.Second, cfg.reconnectMaxDelay())
-	assert.Equal(t, 10*time.Second, cfg.apiTimeout())
-	assert.Equal(t, 100, cfg.eventBufferSize())
-
-	cfgNegative := Config{
-		ReconnectDelay:    -1,
-		ReconnectMaxDelay: -1,
-		APITimeout:        -1,
-		EventBufferSize:   -1,
-	}
-	assert.Equal(t, time.Second, cfgNegative.reconnectDelay())
-	assert.Equal(t, 60*time.Second, cfgNegative.reconnectMaxDelay())
-	assert.Equal(t, 10*time.Second, cfgNegative.apiTimeout())
-	assert.Equal(t, 100, cfgNegative.eventBufferSize())
+	t.Run("handles negative and zero values", func(t *testing.T) {
+		cfg := Config{
+			ReconnectDelay:    -1,
+			ReconnectMaxDelay: -1,
+			APITimeout:        -1,
+			EventBufferSize:   -1,
+		}
+		cfg.setDefaults()
+		assert.Equal(t, time.Second, cfg.ReconnectDelay)
+		assert.Equal(t, 60*time.Second, cfg.ReconnectMaxDelay)
+		assert.Equal(t, 10*time.Second, cfg.APITimeout)
+		assert.Equal(t, 100, cfg.EventBufferSize)
+	})
 }
 
 func TestNewForwardWSAdapter(t *testing.T) {

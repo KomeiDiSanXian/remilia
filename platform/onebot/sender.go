@@ -74,7 +74,10 @@ func (s *onebotSender) sendGroup(ctx stdctx.Context, target platform.ChatInfo, c
 
 	var res SendMsgResult
 	if err := callDecoded(ctx, s.api, "send_group_msg", params, &res); err != nil {
-		return platform.SendResult{}, err
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, PlatformID, target.ID,
+			err.Error(), 0, err,
+		)
 	}
 
 	return platform.SendResult{
@@ -97,7 +100,10 @@ func (s *onebotSender) sendPrivate(ctx stdctx.Context, target platform.ChatInfo,
 
 	var res SendMsgResult
 	if err := callDecoded(ctx, s.api, "send_private_msg", params, &res); err != nil {
-		return platform.SendResult{}, err
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, PlatformID, target.ID,
+			err.Error(), 0, err,
+		)
 	}
 
 	return platform.SendResult{

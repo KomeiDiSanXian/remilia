@@ -78,18 +78,8 @@ func DefaultConfig(serverURL, platform, userID string) Config {
 	}
 }
 
-// Validate 检查配置是否合法，若不合法则返回错误。
-// 同时为未设置的可选字段填充默认值。
-func (c *Config) Validate() error {
-	if c.ServerURL == "" {
-		return fmt.Errorf("satori config: ServerURL 不能为空")
-	}
-	if c.Platform == "" {
-		return fmt.Errorf("satori config: Platform 不能为空")
-	}
-	if c.UserID == "" {
-		return fmt.Errorf("satori config: UserID 不能为空")
-	}
+// setDefaults fills zero-value fields with sensible defaults.
+func (c *Config) setDefaults() {
 	if c.Version == "" {
 		c.Version = "v1"
 	}
@@ -107,6 +97,21 @@ func (c *Config) Validate() error {
 	}
 	if c.HTTPTimeout <= 0 {
 		c.HTTPTimeout = 15 * time.Second
+	}
+}
+
+// Validate 检查配置是否合法，若不合法则返回错误。
+// 先调用 setDefaults 填充默认值，再校验必填字段。
+func (c *Config) Validate() error {
+	c.setDefaults()
+	if c.ServerURL == "" {
+		return fmt.Errorf("satori config: ServerURL cannot be empty")
+	}
+	if c.Platform == "" {
+		return fmt.Errorf("satori config: Platform cannot be empty")
+	}
+	if c.UserID == "" {
+		return fmt.Errorf("satori config: UserID cannot be empty")
 	}
 	return nil
 }

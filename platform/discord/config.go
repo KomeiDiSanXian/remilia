@@ -121,21 +121,55 @@ const DefaultIntents = discordgo.IntentsGuilds |
 // GuildPresences) that must be approved in the Developer Portal for verified bots.
 const AllIntents = discordgo.IntentsAll
 
+// setDefaults fills zero-value fields with sensible defaults.
+func (c *GatewayConfig) setDefaults() {
+	if c.Intents == 0 {
+		c.Intents = DefaultIntents |
+			discordgo.IntentsMessageContent |
+			discordgo.IntentsGuildMembers
+	}
+	if c.EventBufferSize <= 0 {
+		c.EventBufferSize = 100
+	}
+	if c.LargeThreshold <= 0 {
+		c.LargeThreshold = 250
+	}
+	if c.WorkerCount <= 0 {
+		c.WorkerCount = 0 // runtime.NumCPU() at Start time
+	}
+}
+
+// setDefaults fills zero-value fields with sensible defaults.
+func (c *InteractionsConfig) setDefaults() {
+	if c.EventBufferSize <= 0 {
+		c.EventBufferSize = 100
+	}
+	if c.AckTimeout <= 0 {
+		c.AckTimeout = 2500 * time.Millisecond
+	}
+	if c.Path == "" {
+		c.Path = "/"
+	}
+	if c.WorkerCount <= 0 {
+		c.WorkerCount = 0 // runtime.NumCPU() at Start time
+	}
+}
+
 // DefaultGatewayConfig returns a GatewayConfig with production-ready defaults.
 //
 // Enables message content and guild member intents; both are privileged and
 // must be toggled on in the Discord Developer Portal for your application.
 func DefaultGatewayConfig(token string) GatewayConfig {
-	return GatewayConfig{
+	cfg := GatewayConfig{
 		Token: token,
 		Intents: DefaultIntents |
-			discordgo.IntentsMessageContent | // privileged
-			discordgo.IntentsGuildMembers, // privileged
-		WorkerCount:     0, // runtime.NumCPU()
+			discordgo.IntentsMessageContent |
+			discordgo.IntentsGuildMembers,
 		EventBufferSize: 100,
 		ShouldReconnect: true,
 		NumShards:       1,
 	}
+	return cfg
 }
 
 // ────────────────────────────────────────────────────────────────────────────

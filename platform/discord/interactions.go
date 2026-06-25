@@ -119,6 +119,7 @@ func NewInteractionsAdapter(cfg InteractionsConfig) (*InteractionsAdapter, error
 		sender = newSender(session)
 	}
 
+	cfg.setDefaults()
 	workers := cfg.WorkerCount
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -171,11 +172,7 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 		return nil
 	}
 
-	bufSize := a.config.EventBufferSize
-	if bufSize <= 0 {
-		bufSize = 100
-	}
-	a.eventCh = make(chan platform.Event, bufSize)
+	a.eventCh = make(chan platform.Event, a.config.EventBufferSize)
 
 	cancelCtx, cancel := stdctx.WithCancel(ctx)
 	a.cancel = cancel
@@ -184,13 +181,9 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 
 	// Build HTTP mux
 	mux := http.NewServeMux()
-	path := a.config.Path
-	if path == "" {
-		path = "/"
-	}
-	mux.HandleFunc(path, a.handleInteraction)
-	if path != "/" {
-		mux.HandleFunc("/", a.handleInteraction) // also accept root path
+	mux.HandleFunc(a.config.Path, a.handleInteraction)
+	if a.config.Path != "/" {
+		mux.HandleFunc("/", a.handleInteraction)
 	}
 
 	a.server = &http.Server{
@@ -216,14 +209,14 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 	})
 
 	logger.Infof("[discord.InteractionsAdapter] HTTP server listening on %s (path=%s, workers=%d)",
-		a.config.Addr, path, a.workers)
+		a.config.Addr, a.config.Path, a.workers)
 
 	// Worker pool
 	workCh := make(chan platform.Event, a.workers*2)
 	for i := 0; i < a.workers; i++ {
 		a.wg.Go(func() {
 			for event := range workCh {
-				safeInvoke(handler, event)
+				platform.SafeDispatch(handler, event)
 			}
 		})
 	}
@@ -276,12 +269,9 @@ func (a *InteractionsAdapter) Stop(ctx stdctx.Context) error {
 		}
 	}
 
-	a.mu.Lock()
-	if a.eventCh != nil {
-		close(a.eventCh)
-		a.eventCh = nil
+	if a.session != nil {
+		_ = a.session.Close()
 	}
-	a.mu.Unlock()
 
 	return shutdownErr
 }

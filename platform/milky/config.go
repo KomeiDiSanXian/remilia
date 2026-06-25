@@ -80,8 +80,8 @@ func DefaultConfig(baseURL string) Config {
 	}
 }
 
-// withDefaults 将零值字段填充为合理的默认值。
-func (c Config) withDefaults() Config {
+// setDefaults fills zero-value fields with sensible defaults.
+func (c *Config) setDefaults() {
 	if c.EventBufferSize <= 0 {
 		c.EventBufferSize = 128
 	}
@@ -94,5 +94,4 @@ func (c Config) withDefaults() Config {
 	if c.APITimeout <= 0 {
 		c.APITimeout = 15 * time.Second
 	}
-	return c
 }

@@ -91,7 +91,10 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 		raw, err = s.api.SingleChat(ctx, chat.ID, dtoMsg)
 	}
 	if err != nil {
-		return platform.SendResult{}, err
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, "qq", chat.ID,
+			err.Error(), 0, err,
+		)
 	}
 	return buildSendResult(raw), nil
 }
@@ -123,7 +126,10 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 		uploadResult, err = s.api.SingleRichMedia(ctx, chat.ID, media)
 	}
 	if err != nil {
-		return platform.SendResult{}, fmt.Errorf("qq sender: media upload failed: %w", err)
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrNetworkError, "qq", chat.ID,
+			fmt.Sprintf("media upload failed: %v", err), 0, err,
+		)
 	}
 
 	fileInfo := uploadResult.Get("file_info").String()
@@ -170,7 +176,10 @@ func (s *qqSender) sendGuildChannelMessage(ctx stdctx.Context, chat platform.Cha
 		raw, err = s.api.ChannelChat(ctx, chat.ID, guildMsg)
 	}
 	if err != nil {
-		return platform.SendResult{}, err
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, "qq", chat.ID,
+			err.Error(), 0, err,
+		)
 	}
 	return buildSendResult(raw), nil
 }
@@ -432,6 +441,68 @@ func (s *qqSender) checkReplyLimit(msgID string) error {
 	return nil
 }
 
+// Delete 撤回/删除消息。
+//
+// chatID 为目标会话 ID（openid / group_openid / channel_id）。
+// 实现优先级：群聊 > 单聊 > 频道，以适应不同的 chatID 类型。
+func (s *qqSender) Delete(ctx stdctx.Context, chatID, messageID string) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	var err error
+	_, err = s.api.GroupReset(ctx, chatID, messageID)
+	if err == nil {
+		return nil
+	}
+	_, err = s.api.SingleReset(ctx, chatID, messageID)
+	if err == nil {
+		return nil
+	}
+	_, err = s.api.ChannelReset(ctx, chatID, messageID, true)
+	return err
+}
+
+// AddReaction 为频道消息添加表情表态。
+//
+// 仅频道（Guild）消息支持，C2C 和群聊不支持。
+// emoji.Kind 映射规则：
+//   - EmojiKindSystem → emojiType=1, emojiID=emoji.ID（QQ 系统表情）
+//   - EmojiKindUnicode → emojiType=2, emojiID=emoji.Value
+//   - EmojiKindCustom → emojiType=2, emojiID=emoji.ID
+func (s *qqSender) AddReaction(ctx stdctx.Context, chatID, messageID string, emoji platform.Emoji) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	emojiType, emojiID := resolveQQEmoji(emoji)
+	_, err := s.api.AddReaction(ctx, chatID, messageID, emojiType, emojiID)
+	return err
+}
+
+// RemoveReaction 移除频道消息的表情表态。
+func (s *qqSender) RemoveReaction(ctx stdctx.Context, chatID, messageID string, emoji platform.Emoji) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	emojiType, emojiID := resolveQQEmoji(emoji)
+	_, err := s.api.DeleteReaction(ctx, chatID, messageID, emojiType, emojiID)
+	return err
+}
+
+// resolveQQEmoji 将 platform.Emoji 转换为 QQ 表态 API 的 emojiType 和 emojiID。
+func resolveQQEmoji(emoji platform.Emoji) (emojiType int, emojiID string) {
+	switch emoji.Kind {
+	case platform.EmojiKindSystem:
+		return 1, emoji.ID
+	case platform.EmojiKindCustom:
+		if emoji.ID != "" {
+			return 2, emoji.ID
+		}
+		return 2, emoji.Value
+	default: // EmojiKindUnicode
+		return 2, emoji.Value
+	}
+}
+
 // qqCapabilities 返回 QQ 平台的能力声明。
 //
 // 使用函数而非包级变量，保留运行时动态更新的能力（如连接后更新权限）。
@@ -441,7 +512,7 @@ func qqCapabilities() platform.Capabilities {
 		Buttons:         true,
 		MultiAttachment: false,
 		MessageEdit:     false,
-		MessageDelete:   false,
+		MessageDelete:   true,
 		Embeds:          false,
 		FileUpload:      true,
 		GuildSupport:    true,
@@ -530,3 +601,9 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 		Content: &dto.InlineKeyboardContent{Rows: rows},
 	}
 }
+
+var (
+	_ platform.Sender          = (*qqSender)(nil)
+	_ platform.MessageDeleter  = (*qqSender)(nil)
+	_ platform.ReactionSender  = (*qqSender)(nil)
+)

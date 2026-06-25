@@ -138,7 +138,10 @@ func (s *discordSender) Send(_ stdctx.Context, req platform.SendRequest) (platfo
 	}
 	sent, err := s.session.ChannelMessageSendComplex(chat.ID, ms)
 	if err != nil {
-		return platform.SendResult{}, err
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, "discord", chat.ID,
+			err.Error(), 0, err,
+		)
 	}
 	result := platform.SendResult{
 		Platform:  "discord",

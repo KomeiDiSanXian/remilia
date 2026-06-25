@@ -2,6 +2,7 @@ package qq
 
 import (
 	stdctx "context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,7 +42,6 @@ type Adapter struct {
 
 	ctx      stdctx.Context
 	cancel   stdctx.CancelFunc
-	wg       sync.WaitGroup //nolint:unused
 	mu       sync.RWMutex
 	running  bool
 	starting atomic.Bool
@@ -126,7 +126,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 	eventCh := a.webhook.EventStream()
 	if eventCh == nil {
 		a.mu.Unlock()
-		return nil
+		return fmt.Errorf("qq adapter: EventStream is nil")
 	}
 	a.ctx, a.cancel = stdctx.WithCancel(ctx)
 	a.running = true
@@ -150,7 +150,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 			}
 			if payload != nil {
 				event := NewEvent(payload)
-				safeInvoke(handler, event)
+				platform.SafeDispatch(handler, event)
 			}
 		}
 	}
@@ -197,10 +197,6 @@ func (a *Adapter) fetchBotIdentity(ctx stdctx.Context) {
 	a.botName = name
 	a.mu.Unlock()
 	logger.Infof("[qq.Adapter] Bot identity: %s (%s)", name, id)
-}
-
-func safeInvoke(handler func(platform.Event), event platform.Event) {
-	platform.SafeDispatch(handler, event)
 }
 
 // ── platform.HealthDetailer ──────────────────────────────────────────────────

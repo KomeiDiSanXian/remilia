@@ -56,6 +56,7 @@ type ForwardWSAdapter struct {
 
 // NewForwardWSAdapter 使用给定的 Config 创建 ForwardWSAdapter。
 func NewForwardWSAdapter(cfg Config) *ForwardWSAdapter {
+	cfg.setDefaults()
 	a := &ForwardWSAdapter{config: cfg}
 	return a
 }
@@ -197,8 +198,8 @@ var (
 
 // runWithReconnect 使用指数退避运行连接-接收循环。
 func (a *ForwardWSAdapter) runWithReconnect(ctx stdctx.Context, handler func(platform.Event)) {
-	delay := a.config.reconnectDelay()
-	maxDelay := a.config.reconnectMaxDelay()
+	delay := a.config.ReconnectDelay
+	maxDelay := a.config.ReconnectMaxDelay
 	attempt := 0
 
 	for {
@@ -253,7 +254,7 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 	logger.Infof("[onebot.ForwardWSAdapter] Connected to %s", a.config.URL)
 
 	// 为此次连接创建新的 API 客户端
-	apiClient := newWSAPIClient(conn, a.config.apiTimeout())
+	apiClient := newWSAPIClient(conn, a.config.APITimeout)
 	sender := newSender(apiClient)
 
 	a.mu.Lock()
@@ -266,7 +267,7 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 	a.fetchBotIdentity(ctx, sender)
 
 	// 启动事件泵 goroutine
-	eventCh := make(chan platform.Event, a.config.eventBufferSize())
+	eventCh := make(chan platform.Event, a.config.EventBufferSize)
 	errCh := make(chan error, 1)
 
 	a.wg.Go(func() {
@@ -281,7 +282,7 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 				if !ok {
 					return
 				}
-				safeDispatch(handler, ev)
+				platform.SafeDispatch(handler, ev)
 			case <-ctx.Done():
 				return
 			}
@@ -383,7 +384,4 @@ func isAPIResponse(msg []byte) bool {
 	return probe.Retcode != nil || probe.Echo != nil
 }
 
-// safeDispatch 是 platform.SafeDispatch 的封装，供本包使用。
-func safeDispatch(handler func(platform.Event), ev platform.Event) {
-	platform.SafeDispatch(handler, ev)
-}
+

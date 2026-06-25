@@ -70,6 +70,7 @@ var upgrader = websocket.Upgrader{
 
 // NewReverseWSAdapter 使用给定的 Config 创建 ReverseWSAdapter。
 func NewReverseWSAdapter(cfg Config) *ReverseWSAdapter {
+	cfg.setDefaults()
 	return &ReverseWSAdapter{
 		config: cfg,
 		conns:  make(map[*wsConn]struct{}),
@@ -242,7 +243,7 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	apiClient := newWSAPIClient(conn, a.config.apiTimeout())
+	apiClient := newWSAPIClient(conn, a.config.APITimeout)
 	sender := newSender(apiClient)
 	c := &wsConn{conn: conn, apiClient: apiClient, sender: sender}
 
@@ -288,7 +289,7 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// 处理来自此连接的消息
-	eventCh := make(chan platform.Event, a.config.eventBufferSize())
+	eventCh := make(chan platform.Event, a.config.EventBufferSize)
 	a.wg.Go(func() {
 		defer close(eventCh)
 		for {
@@ -321,7 +322,7 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 	handler := a.handler
 	for ev := range eventCh {
 		if handler != nil {
-			safeDispatch(handler, ev)
+			platform.SafeDispatch(handler, ev)
 		}
 	}
 }

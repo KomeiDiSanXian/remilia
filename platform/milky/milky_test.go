@@ -26,10 +26,11 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 15*time.Second, cfg.APITimeout)
 }
 
-func TestWithDefaults(t *testing.T) {
+func TestSetDefaults(t *testing.T) {
 	t.Parallel()
 	t.Run("fills zero values", func(t *testing.T) {
-		cfg := Config{BaseURL: "x"}.withDefaults()
+		var cfg Config
+		cfg.setDefaults()
 		assert.Equal(t, 128, cfg.EventBufferSize)
 		assert.Equal(t, 3*time.Second, cfg.ReconnectDelay)
 		assert.Equal(t, 10*time.Second, cfg.DialTimeout)
@@ -38,12 +39,12 @@ func TestWithDefaults(t *testing.T) {
 
 	t.Run("preserves non-zero values", func(t *testing.T) {
 		cfg := Config{
-			BaseURL:         "x",
 			EventBufferSize: 256,
 			ReconnectDelay:  5 * time.Second,
 			DialTimeout:     20 * time.Second,
 			APITimeout:      30 * time.Second,
-		}.withDefaults()
+		}
+		cfg.setDefaults()
 		assert.Equal(t, 256, cfg.EventBufferSize)
 		assert.Equal(t, 5*time.Second, cfg.ReconnectDelay)
 		assert.Equal(t, 20*time.Second, cfg.DialTimeout)
@@ -52,10 +53,10 @@ func TestWithDefaults(t *testing.T) {
 
 	t.Run("handles negative values", func(t *testing.T) {
 		cfg := Config{
-			BaseURL:         "x",
 			EventBufferSize: -1,
 			ReconnectDelay:  -time.Second,
-		}.withDefaults()
+		}
+		cfg.setDefaults()
 		assert.Equal(t, 128, cfg.EventBufferSize)
 		assert.Equal(t, 3*time.Second, cfg.ReconnectDelay)
 	})

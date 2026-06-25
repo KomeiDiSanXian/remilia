@@ -59,7 +59,10 @@ func (s *satoriSender) Send(ctx stdctx.Context, req platform.SendRequest) (platf
 
 	msgs, err := s.client.MessageCreateWith(ctx, createReq)
 	if err != nil {
-		return platform.SendResult{}, fmt.Errorf("satori: 发送消息: %w", err)
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, s.client.platform, req.Target.ID,
+			err.Error(), 0, err,
+		)
 	}
 
 	result := platform.SendResult{Platform: s.client.platform}

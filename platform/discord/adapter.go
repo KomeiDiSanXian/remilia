@@ -61,7 +61,6 @@ type GatewayAdapter struct {
 	session *discordgo.Session
 	sender  *discordSender
 
-	ctx      stdctx.Context //nolint:unused
 	cancel   stdctx.CancelFunc
 	wg       sync.WaitGroup
 	mu       sync.RWMutex
@@ -76,16 +75,14 @@ func NewAdapter(token string) (*GatewayAdapter, error) {
 
 // NewGatewayAdapter creates a GatewayAdapter with the provided configuration.
 func NewGatewayAdapter(cfg GatewayConfig) (*GatewayAdapter, error) {
+	cfg.setDefaults()
+
 	session, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
 		return nil, fmt.Errorf("discord gateway: failed to create session: %w", err)
 	}
 
-	intents := cfg.Intents
-	if intents == 0 {
-		intents = DefaultIntents
-	}
-	session.Identify.Intents = intents
+	session.Identify.Intents = cfg.Intents
 	session.ShouldReconnectOnError = cfg.ShouldReconnect
 	session.StateEnabled = true
 
@@ -93,9 +90,7 @@ func NewGatewayAdapter(cfg GatewayConfig) (*GatewayAdapter, error) {
 		session.ShardID = cfg.ShardID
 		session.ShardCount = cfg.NumShards
 	}
-	if cfg.LargeThreshold > 0 {
-		session.Identify.LargeThreshold = cfg.LargeThreshold
-	}
+	session.Identify.LargeThreshold = cfg.LargeThreshold
 
 	logger.Infof("[discord.GatewayAdapter] Creating adapter: intents=%d",
 		cfg.Intents)
@@ -137,11 +132,7 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 		return nil
 	}
 
-	bufSize := a.config.EventBufferSize
-	if bufSize <= 0 {
-		bufSize = 100
-	}
-	eventCh := make(chan platform.Event, bufSize)
+	eventCh := make(chan platform.Event, a.config.EventBufferSize)
 	cancelCtx, cancel := stdctx.WithCancel(ctx)
 	a.cancel = cancel
 	a.running = true
@@ -174,7 +165,7 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 				if !ok {
 					return
 				}
-				safeInvoke(handler, event)
+				platform.SafeDispatch(handler, event)
 			case <-cancelCtx.Done():
 				return
 			}
@@ -341,7 +332,3 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 	})
 }
 
-// safeInvoke calls handler, recovering from any panics to prevent worker crashes.
-func safeInvoke(handler func(platform.Event), event platform.Event) {
-	platform.SafeDispatch(handler, event)
-}

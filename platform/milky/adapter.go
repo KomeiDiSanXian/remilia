@@ -80,7 +80,7 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("milky: Config.BaseURL must not be empty")
 	}
-	cfg = cfg.withDefaults()
+	cfg.setDefaults()
 
 	client := newMilkyClient(cfg)
 	return &Adapter{
@@ -167,7 +167,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 				if !ok {
 					return
 				}
-				safeInvoke(handler, evt)
+				platform.SafeDispatch(handler, evt)
 			case <-cancelCtx.Done():
 				return
 			}
@@ -356,11 +356,6 @@ func buildWSURL(baseURL, accessToken string) string {
 	// access_token 优先通过 Authorization 请求头传递，
 	// 也支持通过 query 参数作为备用方案。
 	return u.String()
-}
-
-// safeInvoke 调用 handler，并捕获 panic 以防止 worker 崩溃。
-func safeInvoke(handler func(platform.Event), event platform.Event) {
-	platform.SafeDispatch(handler, event)
 }
 
 // minDuration 返回两个时间段中较小的一个。

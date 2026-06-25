@@ -64,7 +64,8 @@ type HTTPPostAdapter struct {
 
 // NewHTTPPostAdapter 使用给定的 Config 创建 HTTPPostAdapter。
 func NewHTTPPostAdapter(cfg Config) *HTTPPostAdapter {
-	apiHTTP := newHTTPAPIClient(cfg.URL, cfg.Token, cfg.apiTimeout())
+	cfg.setDefaults()
+	apiHTTP := newHTTPAPIClient(cfg.URL, cfg.Token, cfg.APITimeout)
 	sender := newSender(apiHTTP)
 	return &HTTPPostAdapter{
 		config:  cfg,
@@ -255,7 +256,7 @@ func (a *HTTPPostAdapter) handlePost(w http.ResponseWriter, r *http.Request) {
 	handler := a.handler
 	a.mu.RUnlock()
 	if handler != nil {
-		safeDispatch(handler, &quickOpEvent{Event: ev, qop: quickOp})
+		platform.SafeDispatch(handler, &quickOpEvent{Event: ev, qop: quickOp})
 	}
 
 	// 写入快速操作响应（若无快速操作则返回 204）
