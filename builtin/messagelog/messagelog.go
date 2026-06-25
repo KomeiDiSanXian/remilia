@@ -32,6 +32,7 @@ package messagelog
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -50,22 +51,23 @@ const DefaultCapacity = 1000
 
 // RecordEntry 一条消息的完整记录（内存缓存 + DB 查询的统一结构）。
 type RecordEntry struct {
-	RequestID string    // RequestID 中间件分配的追踪 ID
-	Platform  string    // 平台标识符（"qq", "discord", "telegram"）
-	Kind      string    // 事件类别（"GROUP_MESSAGE", "PRIVATE_MESSAGE"）
-	EventID   string    // 平台级唯一事件 ID
-	ChatID    string    // 会话 ID（群 ID / 用户 ID）
-	ChatName  string    // 会话名称（平台提供时有效）
-	ParentID  string    // 父容器 ID（频道场景的 guild_id / server_id）
-	IsGroup   bool      // 是否为群组/频道消息
-	UserID    string    // 发送者 ID
-	UserName  string    // 发送者显示名
-	UserRole  string    // 发送者在群中的角色（owner / admin / member）
-	Content   string    // 消息文本内容
-	ReplyToID string    // 被回复的消息 ID（回复链追踪）
-	RawType   string    // 平台原始事件类型字符串
-	Timestamp time.Time // 事件发生时间
-	CreatedAt time.Time // 记录入库时间
+	RequestID string              // RequestID 中间件分配的追踪 ID
+	Platform  string              // 平台标识符（"qq", "discord", "telegram"）
+	Kind      string              // 事件类别（"GROUP_MESSAGE", "PRIVATE_MESSAGE"）
+	EventID   string              // 平台级唯一事件 ID
+	ChatID    string              // 会话 ID（群 ID / 用户 ID）
+	ChatName  string              // 会话名称（平台提供时有效）
+	ParentID  string              // 父容器 ID（频道场景的 guild_id / server_id）
+	IsGroup   bool                // 是否为群组/频道消息
+	UserID    string              // 发送者 ID
+	UserName  string              // 发送者显示名
+	UserRole  string              // 发送者在群中的角色（owner / admin / member）
+	Content   string              // 消息文本内容
+	ReplyToID string              // 被回复的消息 ID（回复链追踪）
+	RawType   string              // 平台原始事件类型字符串
+	Mentions  []platform.UserInfo // @ 用户列表（平台提供时有效）
+	Timestamp time.Time           // 事件发生时间
+	CreatedAt time.Time           // 记录入库时间
 }
 
 // MessageRecord 对应 SQLite 表的 GORM 模型。
@@ -85,7 +87,8 @@ type MessageRecord struct {
 	Content   string `gorm:"type:text"`
 	ReplyToID string
 	RawType   string
-	Timestamp int64 `gorm:"index:idx_chat_time"`
+	Mentions  string `gorm:"type:text"` // JSON 序列化的 []platform.UserInfo
+	Timestamp int64  `gorm:"index:idx_chat_time"`
 	CreatedAt int64
 }
 
@@ -241,7 +244,7 @@ func (l *Logger) flushLoop(ctx context.Context) {
 
 // recordToModel 将 RecordEntry 转换为 GORM 模型。
 func recordToModel(e RecordEntry) MessageRecord {
-	return MessageRecord{
+	m := MessageRecord{
 		RequestID: e.RequestID,
 		Platform:  e.Platform,
 		Kind:      e.Kind,
@@ -259,11 +262,17 @@ func recordToModel(e RecordEntry) MessageRecord {
 		Timestamp: e.Timestamp.UnixNano(),
 		CreatedAt: e.CreatedAt.UnixNano(),
 	}
+	if len(e.Mentions) > 0 {
+		if b, err := json.Marshal(e.Mentions); err == nil {
+			m.Mentions = string(b)
+		}
+	}
+	return m
 }
 
 // modelToEntry 将 GORM 模型转换为 RecordEntry。
 func modelToEntry(m MessageRecord) RecordEntry {
-	return RecordEntry{
+	e := RecordEntry{
 		RequestID: m.RequestID,
 		Platform:  m.Platform,
 		Kind:      m.Kind,
@@ -279,7 +288,15 @@ func modelToEntry(m MessageRecord) RecordEntry {
 		ReplyToID: m.ReplyToID,
 		RawType:   m.RawType,
 		Timestamp: time.Unix(0, m.Timestamp),
+		CreatedAt: time.Unix(0, m.CreatedAt),
 	}
+	if m.Mentions != "" {
+		var mentions []platform.UserInfo
+		if err := json.Unmarshal([]byte(m.Mentions), &mentions); err == nil {
+			e.Mentions = mentions
+		}
+	}
+	return e
 }
 
 // Record 直接记录一条消息到内存缓存（不经过异步写入）。
@@ -359,6 +376,8 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		replyToID = re.ReplyToID()
 	}
 
+	mentions := platform.GetMentions(ev)
+
 	return RecordEntry{
 		RequestID: rid,
 		Platform:  ev.Platform(),
@@ -374,6 +393,7 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		Content:   ev.Content(),
 		ReplyToID: replyToID,
 		RawType:   platform.RawType(ev),
+		Mentions:  mentions,
 		Timestamp: ev.Timestamp(),
 		CreatedAt: time.Now(),
 	}
