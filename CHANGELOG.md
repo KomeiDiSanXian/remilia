@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.14.0 (2026-06-25)
+
+### 🏗️ 配置系统重构
+
+- **配置结构重组** — 所有平台相关的配置归入 `bot.<platform>` 下：
+  - `server` → `bot.qq.webhook`（`webhook` 和 `token_manager` 也已归入 `bot.qq`）
+  - `concurrency` → `middleware.backpressure`（同时更名为 `backpressure`）
+- **删除 BigCache 残留字段** — 移除 `WebhookConfig` 中 7 个死字段（`DedupEnable`、`Shards`、`LifeWindow`、`CleanWindow`、`MaxEntrySize`、`HardMaxCacheSize`、`MaxEntriesInWindow`）
+- **删除 `ServerConfig` 类型** — `Host`/`Port`/`ShutdownTimeout` 合并到 `WebhookConfig`
+- **统一配置默认值模式** — 所有平台 Config 使用指针接收者 `setDefaults()`，在构造函数中调用
+- **`${VAR}` 环境变量替换支持** — `loadRaw()` 中加入 `os.ExpandEnv`，YAML 中的 `${VAR}` 语法现在可用
+- **修复 `getEnvInt` 解析失败回退问题** — 非数值环境变量不再返回 0，而是回退到默认值
+
+### 🎯 中间件配置化
+
+- **配置驱动中间件注册** — `Recover`/`Logging`/`Metrics`/`Auth`/`Dedup`/`Backpressure`/`SlowHandler` 现在根据配置的 `enable` 标志和参数注册，而非硬编码无条件注册
+- **热更新增加 Enable 检查** — `RateLimit.Enable`/`Dedup.Enable`/`Degradation.Enable` 现在在热重载时被检查，禁用的中间件不再推送更新
+
+### 🔧 平台层修复与增强
+
+- **修复 `discord.InteractionsAdapter.Stop()` session 泄漏** — 未调用 `session.Close()`
+- **修复 `discord.InteractionsAdapter` send-on-closed-channel 竞态** — 移除冗余的 eventCh 关闭
+- **修复 `qq.Adapter.Start()` nil eventCh 静默成功** — 改为返回错误
+- **统一 `SendError` 包装** — 所有 5 个平台的 `Send()` 现在都返回 `platform.SendError` 结构化错误
+- **QQ 平台补齐 `ReactionSender` + `MessageDeleter`** — 通过 OpenAPI 实现表情表态和消息撤回
+- **`safeInvoke`/`safeDispatch` 去重** — 移除 4 个平台中相同的包装函数，直接调用 `platform.SafeDispatch`
+- **移除未使用的字段** — `qq.Adapter.wg`、`discord.GatewayAdapter.ctx`
+
+### 🔄 命名变更
+
+- `middleware.ConcurrencyLimit()` → `middleware.Backpressure()`
+- `middleware.ConcurrencyPolicy` → `middleware.BackpressurePolicy`
+- `ConcurrencyDrop/Block/TryWait` → `BackpressureDrop/Block/TryWait`
+- `config.ConcurrencyConfig` → `config.BackpressureConfig`
+- `config.TokenConfig` → `config.TokenManagerConfig`
+
+### 🧹 其他清理
+
+- 清除所有 YAML 配置文件中的 `vX.Y.Z+` 版本标记
+- 同步 `config.default.yaml` 与 `config.example.yaml`
+- 更新所有示例和测试文件以匹配新配置结构
+
 ## v1.12.4 (2026-06-22)
 
 ### 🛡️ CI 稳定性修复
