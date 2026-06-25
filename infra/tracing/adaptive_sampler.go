@@ -47,26 +47,26 @@ type AdaptiveSampler struct {
 // AdaptiveSamplerConfig 自适应采样器配置
 type AdaptiveSamplerConfig struct {
 	// BaseSamplingRate 基础采样率 (0.0-1.0)
-	BaseSamplingRate float64
+	BaseSamplingRate float64 `yaml:"base_sampling_rate"`
 
 	// MinSamplingRate 最小采样率
-	MinSamplingRate float64
+	MinSamplingRate float64 `yaml:"min_sampling_rate"`
 
 	// MaxSamplingRate 最大采样率
-	MaxSamplingRate float64
+	MaxSamplingRate float64 `yaml:"max_sampling_rate"`
 
 	// ErrorThreshold 错误率阈值 (0.0-1.0)
 	// 超过此阈值时提高采样率
-	ErrorThreshold float64
+	ErrorThreshold float64 `yaml:"error_threshold"`
 
 	// HighErrorSamplingRate 高错误率时的采样率
-	HighErrorSamplingRate float64
+	HighErrorSamplingRate float64 `yaml:"high_error_sampling_rate"`
 
 	// AdjustInterval 调整间隔
-	AdjustInterval time.Duration
+	AdjustInterval time.Duration `yaml:"adjust_interval"`
 
 	// AlwaysSampleErrors 是否始终采样错误
-	AlwaysSampleErrors bool
+	AlwaysSampleErrors bool `yaml:"always_sample_errors"`
 }
 
 // DefaultAdaptiveSamplerConfig 返回默认配置

@@ -348,7 +348,9 @@ type EngineConfig struct {
 	PendingDeleteProcessInterval string `yaml:"pending_delete_process_interval" mapstructure:"pending_delete_process_interval"`
 	PendingDeleteBatchSize       int    `yaml:"pending_delete_batch_size" mapstructure:"pending_delete_batch_size"`
 
-	TempMatcherShardCount int `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
+	TempMatcherShardCount   int `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
+	MatcherPoolCapacity     int `yaml:"matcher_pool_capacity" mapstructure:"matcher_pool_capacity"`
+	MatcherPoolMaxCapacity  int `yaml:"matcher_pool_max_capacity" mapstructure:"matcher_pool_max_capacity"`
 }
 
 // DegradationConfig 自适应降级配置。
@@ -638,8 +640,11 @@ func loadRaw(path string) (*Config, error) {
 		return nil, errutil.Wrapf(err, "failed to read config file")
 	}
 
+	// 环境变量替换: ${VAR} 和 $VAR 语法
+	expanded := os.ExpandEnv(string(data))
+
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, errutil.Wrapf(err, "failed to parse config file")
 	}
 
@@ -657,7 +662,9 @@ func getEnvUint64(key string) uint64 {
 		return 0
 	}
 	var result uint64
-	_, _ = fmt.Sscanf(val, "%d", &result)
+	if n, _ := fmt.Sscanf(val, "%d", &result); n != 1 {
+		return 0
+	}
 	return result
 }
 
@@ -667,7 +674,9 @@ func getEnvInt(key string, defaultVal int) int {
 		return defaultVal
 	}
 	var result int
-	_, _ = fmt.Sscanf(val, "%d", &result)
+	if n, _ := fmt.Sscanf(val, "%d", &result); n != 1 {
+		return defaultVal
+	}
 	return result
 }
 

@@ -36,6 +36,7 @@ func (c *Config) Validate() error {
 		{"token", c.Token.Validate},
 		{"engine", c.Engine.Validate},
 		{"tracing", c.Tracing.Validate},
+		{"pprof", c.Pprof.Validate},
 		{"api", c.API.Validate},
 	}
 	for _, v := range validators {
@@ -108,7 +109,10 @@ func (qc *QQConfig) Validate() error {
 
 // Validate 验证 OneBot 配置。
 func (oc *OneBotConfig) Validate() error {
-	return nil // 目前 OneBot 无强校验，适配器自行处理
+	if oc.URL == "" && oc.ListenAddr == "" {
+		return fmt.Errorf("onebot.url or onebot.listen_addr must be set")
+	}
+	return nil
 }
 
 // Validate 验证 Discord 配置。
@@ -325,8 +329,9 @@ func (ec *EngineConfig) Validate() error {
 	}{
 		{"engine.pending_delete_buffer_size", ec.PendingDeleteBufferSize},
 		{"engine.pending_delete_batch_size", ec.PendingDeleteBatchSize},
-
 		{"engine.temp_matcher_shard_count", ec.TempMatcherShardCount},
+		{"engine.matcher_pool_capacity", ec.MatcherPoolCapacity},
+		{"engine.matcher_pool_max_capacity", ec.MatcherPoolMaxCapacity},
 	}
 	for _, n := range nonNeg {
 		if n.val < 0 {

@@ -1,13 +1,46 @@
-# Remilia 默认配置（sidecar 模式自动使用）
-# 当 config.yaml 不存在时，框架以此配置启动。
+# Remilia 默认配置（fallback 自动使用）
+# 当 config.yaml 不存在且环境变量不足以构建完整配置时启用。
 
 server:
   host: "0.0.0.0"
   port: 8080
+  shutdown_timeout: "10s"
 
 log:
   level: "info"
   format: "text"
+
+concurrency:
+  limit: 500
+  policy: "trywait"
+  wait_timeout: "500ms"
+  event_buffer: 1000
+
+retry:
+  enable: true
+  max_attempts: 3
+  backoff_base: "200ms"
+  backoff_max: "2s"
+
+middleware:
+  logging: true
+  recover: true
+  metrics: true
+
+dead_letter:
+  enable: false
+
+webhook:
+  event_buffer: 1000
+
+engine:
+  temp_matcher_cleanup_interval: "5m"
+  pending_delete_buffer_size: 1000
+  pending_delete_process_interval: "100ms"
+  pending_delete_batch_size: 1000
+  temp_matcher_shard_count: 8
+  matcher_pool_capacity: 16
+  matcher_pool_max_capacity: 1024
 
 api:
   enabled: true

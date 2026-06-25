@@ -253,7 +253,7 @@ func TestGetEnvHelpers(t *testing.T) {
 
 		os.Setenv("TEST_INT", "invalid")
 		result = getEnvInt("TEST_INT", 100)
-		assert.Equal(t, 0, result) // Sscanf 失败返回 0
+		assert.Equal(t, 100, result) // 解析失败返回默认值
 	})
 
 	t.Run("getEnvDefault", func(t *testing.T) {
