@@ -305,6 +305,18 @@ func (p *Provider) IsEnabled() bool {
 	return p.config.Enable
 }
 
+// SetSamplingRate 运行时更新采样率。
+// 仅当启用了自适应采样时生效；固定采样率模式不支持运行时更新。
+func (p *Provider) SetSamplingRate(rate float64) {
+	if p.adaptiveSampler == nil {
+		logger.Warn("[Tracing] Fixed sampling rate does not support runtime update, use adaptive_sampling=true")
+		return
+	}
+	p.adaptiveSampler.SetBaseSamplingRate(rate)
+	p.config.SamplingRate = rate
+	logger.WithField("rate", rate).Info("[Tracing] Sampling rate updated")
+}
+
 // GetAdaptiveSampler 获取自适应采样器
 // 如果未启用自适应采样，返回 nil
 func (p *Provider) GetAdaptiveSampler() *AdaptiveSampler {

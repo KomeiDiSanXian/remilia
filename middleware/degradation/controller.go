@@ -174,7 +174,9 @@ type AdaptiveDegradation struct {
 	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
 	metrics *degradationMetrics
 
-	started atomic.Bool // 防止 StartMonitor 重复调用
+	started     atomic.Bool // 防止 StartMonitor 重复调用
+	monitorTick chan struct{} // UpdateConfig 触发 ticker 重建
+	strategy    atomic.Int32  // 运行时策略，支持热更新
 }
 
 // DegradationConfig 降级配置
@@ -257,14 +259,16 @@ func NewAdaptiveDegradationWithRegistry(config DegradationConfig, reg prometheus
 	}
 
 	ad := &AdaptiveDegradation{
-		config:  config,
-		metrics: newDegradationMetrics(reg),
+		config:      config,
+		metrics:     newDegradationMetrics(reg),
+		monitorTick: make(chan struct{}, 1),
 	}
 
 	ad.level.Store(LevelNormal)
 	ad.lastCPU.Store(0.0)
 	ad.lastMemory.Store(0.0)
 	ad.lastLatency.Store(time.Duration(0))
+	ad.strategy.Store(int32(config.Strategy))
 
 	// 初始化指标初始值
 	ad.metrics.levelGauge.Set(0) // LevelNormal
@@ -287,6 +291,13 @@ func (ad *AdaptiveDegradation) StartMonitor(ctx context.Context) {
 			return
 		case <-ticker.C:
 			ad.checkAndAdjustLevel()
+		case <-ad.monitorTick:
+			// 重建 ticker（UpdateConfig 修改了 MonitorInterval）
+			ticker.Stop()
+			ad.mu.RLock()
+			interval := ad.config.MonitorInterval
+			ad.mu.RUnlock()
+			ticker = time.NewTicker(interval)
 		}
 	}
 }
@@ -469,8 +480,8 @@ func (ad *AdaptiveDegradation) Middleware() eventctx.Middleware {
 				return nil
 			}
 
-			// 根据策略处理
-			switch ad.config.Strategy {
+			// 根据策略处理（从 atomic 读取，支持热更新）
+			switch DegradationStrategy(ad.strategy.Load()) {
 			case DegradationDelay:
 				if priority < PriorityHigh {
 					ad.delayedEvents.Add(1)
@@ -587,16 +598,14 @@ func (ad *AdaptiveDegradation) Reset() {
 	ad.delayedEvents.Store(0)
 }
 
-// UpdateConfig 热更新降级控制器配置（线程安全，下一个监控周期生效）。
+// UpdateConfig 热更新降级控制器配置（线程安全）。
 //
 // 支持运行时更新：CPUThreshold、MemoryThreshold、LatencyThreshold、
-// GoroutineThreshold、EnableGoroutineLimit。
-// 不支持热更新：MonitorInterval、RecoveryInterval、Strategy、PriorityClassifier
-// （这些参数修改需要重建控制器）。
+// GoroutineThreshold、EnableGoroutineLimit、MonitorInterval、Strategy。
+// 不支持热更新：RecoveryInterval、PriorityClassifier（这些参数修改需要重建控制器）。
 func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
 	// 持写锁保护多字段赋值，防止与 checkAndAdjustLevel() 的并发读取产生数据竞争
 	ad.mu.Lock()
-	defer ad.mu.Unlock()
 	if cfg.CPUThreshold > 0 {
 		ad.config.CPUThreshold = cfg.CPUThreshold
 	}
@@ -611,6 +620,23 @@ func (ad *AdaptiveDegradation) UpdateConfig(cfg DegradationConfig) {
 	}
 	if cfg.EnableGoroutineLimit {
 		ad.config.EnableGoroutineLimit = cfg.EnableGoroutineLimit
+	}
+	needTickerReset := false
+	if cfg.MonitorInterval > 0 && cfg.MonitorInterval != ad.config.MonitorInterval {
+		ad.config.MonitorInterval = cfg.MonitorInterval
+		needTickerReset = true
+	}
+	ad.mu.Unlock()
+
+	if cfg.Strategy > 0 {
+		ad.strategy.Store(int32(cfg.Strategy))
+	}
+
+	if needTickerReset {
+		select {
+		case ad.monitorTick <- struct{}{}:
+		default:
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -13,6 +14,9 @@ import (
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 )
+
+// includeEventDetail 包级标志，支持运行时热更新。
+var includeEventDetail atomic.Bool
 
 // TracingConfig 追踪中间件配置
 type TracingConfig struct {
@@ -45,6 +49,11 @@ func DefaultTracingConfig() TracingConfig {
 	}
 }
 
+// SetIncludeEventDetail 运行时更新是否在 span 中包含事件详情。
+func SetIncludeEventDetail(v bool) {
+	includeEventDetail.Store(v)
+}
+
 // Tracing 创建追踪中间件
 //
 // 使用示例：
@@ -62,6 +71,7 @@ func DefaultTracingConfig() TracingConfig {
 //	}
 //	engine.Use(middleware.Tracing(config))
 func Tracing(config TracingConfig) context.Middleware {
+	includeEventDetail.Store(config.IncludeEventDetail)
 	tracer := otel.Tracer(config.TracerName)
 
 	return func(next context.Handler) context.Handler {
@@ -105,7 +115,7 @@ func Tracing(config TracingConfig) context.Middleware {
 			}
 
 			// 添加事件内容（可选，可能包含敏感信息）
-			if config.IncludeEventDetail {
+			if includeEventDetail.Load() {
 				content := ctx.GetMessageContent()
 				if len(content) > config.MaxContentLength {
 					content = content[:config.MaxContentLength] + "..."

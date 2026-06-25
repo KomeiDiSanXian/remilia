@@ -207,6 +207,31 @@ func (as *AdaptiveSampler) AdjustSamplingRate() {
 	}
 }
 
+// SetBaseSamplingRate 运行时更新基础采样率（后续 AdjustSamplingRate 会以此为准）。
+func (as *AdaptiveSampler) SetBaseSamplingRate(rate float64) {
+	if rate <= 0 {
+		rate = 0.01
+	}
+	if rate > 1.0 {
+		rate = 1.0
+	}
+	as.baseSamplingRate = rate
+	as.config.BaseSamplingRate = rate
+
+	oldRate := as.currentSamplingRate.Load()
+	newRate := rate
+	if newRate < as.config.MinSamplingRate {
+		newRate = as.config.MinSamplingRate
+	}
+	if newRate > as.config.MaxSamplingRate {
+		newRate = as.config.MaxSamplingRate
+	}
+	if oldRate != newRate {
+		as.currentSamplingRate.Store(newRate)
+		as.rebuildDynamicSampler(newRate)
+	}
+}
+
 // GetCurrentSamplingRate 获取当前采样率
 func (as *AdaptiveSampler) GetCurrentSamplingRate() float64 {
 	return as.currentSamplingRate.Load()

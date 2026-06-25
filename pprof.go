@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	netpprof "net/http/pprof"
 	"os"
+	"sync"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
@@ -71,10 +73,20 @@ type handlerEntry struct {
 
 // PprofServer pprof 服务器
 type PprofServer struct {
-	server   *http.Server
-	config   PprofConfig
-	stopCh   chan struct{}
-	handlers []handlerEntry
+	server        *http.Server
+	config        PprofConfig
+	stopCh        chan struct{}
+	handlers      []handlerEntry
+	listenerAddr  string
+	listenerAddrMu sync.Mutex
+}
+
+// ListenAddr 返回 pprof 服务器实际监听的地址。
+// 若 config.Addr 为 :0，ListenAddr 会在 Start() 后返回实际分配的端口。
+func (p *PprofServer) ListenAddr() string {
+	p.listenerAddrMu.Lock()
+	defer p.listenerAddrMu.Unlock()
+	return p.listenerAddr
 }
 
 // NewPprofServer 创建 pprof 服务器
@@ -143,10 +155,17 @@ func (p *PprofServer) Start() error {
 		Handler: mux,
 	}
 
-	// 启动服务器
+	// 启动服务器（使用 Listen 以获取实际地址，支持 :0 随机端口）
+	listener, err := net.Listen("tcp", p.config.Addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %w", p.config.Addr, err)
+	}
+	p.listenerAddrMu.Lock()
+	p.listenerAddr = listener.Addr().String()
+	p.listenerAddrMu.Unlock()
 	go func() {
-		logger.Infof("[Pprof] Starting pprof server on %s", p.config.Addr)
-		if err := p.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Infof("[Pprof] Starting pprof server on %s", p.listenerAddr)
+		if err := p.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Error("[Pprof] Pprof server error")
 		}
 	}()
@@ -157,6 +176,33 @@ func (p *PprofServer) Start() error {
 	}
 
 	return nil
+}
+
+// UpdateConfig 运行时更新 pprof 配置（AutoProfile、ProfileInterval、ProfileDuration、EnableMutex、EnableBlock）。
+// 注意：Enabled 和 Addr 不支持热更新。
+func (p *PprofServer) UpdateConfig(cfg PprofConfig) {
+	if cfg.AutoProfile {
+		p.config.AutoProfile = cfg.AutoProfile
+	}
+	if cfg.ProfileInterval > 0 {
+		p.config.ProfileInterval = cfg.ProfileInterval
+	}
+	if cfg.ProfileDuration > 0 {
+		p.config.ProfileDuration = cfg.ProfileDuration
+	}
+	p.config.EnableMutex = cfg.EnableMutex
+	p.config.EnableBlock = cfg.EnableBlock
+	if cfg.EnableMutex {
+		runtime.SetMutexProfileFraction(cfg.MutexProfileFraction)
+	}
+	if cfg.EnableBlock {
+		runtime.SetBlockProfileRate(cfg.BlockProfileRate)
+	}
+	logger.WithFields(logger.Fields{
+		"auto_profile":   p.config.AutoProfile,
+		"profile_interval": p.config.ProfileInterval,
+		"profile_duration": p.config.ProfileDuration,
+	}).Info("[Pprof] Pprof config updated")
 }
 
 // Stop 停止 pprof 服务器

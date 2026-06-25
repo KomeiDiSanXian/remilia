@@ -105,6 +105,14 @@ func SetLevel(level string) error {
 	return nil
 }
 
+// SetTimeFormat 运行时动态调整日志时间格式。
+// 空字符串会被忽略。
+func SetTimeFormat(timeFormat string) {
+	if timeFormat != "" {
+		zerolog.TimeFieldFormat = timeFormat
+	}
+}
+
 // SetLogger 替换包级默认 Logger 实例。
 // 多 Bot 实例场景可独立创建 Logger 并替换默认值。
 func SetLogger(l *Logger) {
