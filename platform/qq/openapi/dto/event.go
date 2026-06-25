@@ -8,9 +8,12 @@ const (
 	Ready                 EventType = "READY"
 	Resumed               EventType = "RESUMED"
 	C2CMessageCreate      EventType = "C2C_MESSAGE_CREATE"
+	GroupMessageCreate    EventType = "GROUP_MESSAGE_CREATE"
 	GroupAtMessageCreate  EventType = "GROUP_AT_MESSAGE_CREATE"
 	GroupAddRobot         EventType = "GROUP_ADD_ROBOT"
 	GroupDelRobot         EventType = "GROUP_DEL_ROBOT"
+	GroupMemberAdd        EventType = "GROUP_MEMBER_ADD"
+	GroupMemberRemove     EventType = "GROUP_MEMBER_REMOVE"
 	GroupMsgReject        EventType = "GROUP_MSG_REJECT"
 	GroupMsgReceive       EventType = "GROUP_MSG_RECEIVE"
 	FriendAdd             EventType = "FRIEND_ADD"
@@ -116,6 +119,28 @@ type GroupMsgRejectEvent struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E8%81%8A%E6%8E%A5%E5%8F%97%E6%9C%BA%E5%99%A8%E4%BA%BA%E4%B8%BB%E5%8A%A8%E6%B6%88%E6%81%AF
 type GroupMsgReceiveEvent struct {
+	GroupOpRobotEvent
+}
+
+// GroupMessageCreateEvent 表示群聊全量消息事件
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html#%E7%BE%A4%E8%81%8A%E5%85%A8%E9%87%8F%E6%B6%88%E6%81%AF
+type GroupMessageCreateEvent struct {
+	MessageCreateEvent
+	GroupOpenID string `json:"group_openid,omitempty"`
+}
+
+// GroupMemberAddEvent 表示群成员加入事件
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E6%88%90%E5%91%98%E5%8A%A0%E5%85%A5-%E9%80%80%E5%87%BA%E7%BE%A4%E8%81%8A
+type GroupMemberAddEvent struct {
+	GroupOpRobotEvent
+}
+
+// GroupMemberRemoveEvent 表示群成员移除事件
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E6%88%90%E5%91%98%E5%8A%A0%E5%85%A5-%E9%80%80%E5%87%BA%E7%BE%A4%E8%81%8A
+type GroupMemberRemoveEvent struct {
 	GroupOpRobotEvent
 }
 

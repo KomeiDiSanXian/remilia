@@ -57,7 +57,7 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 		e.kind = platform.EventKindPrivateMessage
 		e.populateC2C(detail)
 		// TokenMsgID 已在 populateC2C 中写入 ChatInfo.Tokens
-	case dto.GroupAtMessageCreate:
+	case dto.GroupAtMessageCreate, dto.GroupMessageCreate:
 		e.kind = platform.EventKindGroupMessage
 		e.populateGroupAt(detail)
 		// TokenMsgID 已在 populateGroupAt 中写入 ChatInfo.Tokens
@@ -131,6 +131,13 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.GuildMemberRemove:
 		e.kind = platform.EventKindMemberLeave
 		e.populateGuildMemberEvent(detail)
+	// ── 群聊成员事件 ────────────────────────────────────────────────────────
+	case dto.GroupMemberAdd:
+		e.kind = platform.EventKindMemberJoin
+		e.populateNoticeGroup(detail)
+	case dto.GroupMemberRemove:
+		e.kind = platform.EventKindMemberLeave
+		e.populateNoticeGroup(detail)
 	// ── 子频道事件 ──────────────────────────────────────────────────────────
 	case dto.ChannelCreate, dto.ChannelUpdate, dto.ChannelDelete:
 		e.kind = platform.EventKindChannelChange
