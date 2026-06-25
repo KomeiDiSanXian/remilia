@@ -1,5 +1,63 @@
 # Changelog
 
+## v1.15.0 (2026-06-25)
+
+### 🔥 全栈配置热更新
+
+所有标记为 `[H]`（即时生效）和 `[H⚠]`（有条件生效）的配置字段现在支持运行时修改，**无需重启 Bot**：
+
+- **中间件结构开关** — `middleware.recover`、`logging`、`metrics` 等）改为运行时通过 `Bridge.GetMiddlewareConfig()` 检查，`config.yaml` 中开关变化即时生效
+- **白名单热读** — `auth.whitelist` 增删用户即时生效（无需重启）
+- **日志级别/时间格式** — `log.level` / `time_format` 修改后即时生效
+- **日志输出格式** — `log.format` / `console` / `file` / `file_path` 支持热更新（自动关旧文件、建新 writer）
+- **重试配置** — `retry.*` 全部支持热更新
+- **限流/去重参数** — `rate_limit.burst`、`dedup.max_size` / `default_ttl` 修改后即时生效
+- **慢处理监测** — `slow_handler.enable` / `threshold` 每次请求热读
+- **反压** — `backpressure.limit>0` 启用，`<=0` 关闭（limit 值本身因固定 semaphore 保持创建时值）
+- **自适应降级** — `degradation.*`（除 `recovery_interval` / `delay_queue_size`）下一监控周期生效，`monitor_interval` 支持 ticker 重建，`strategy` 运行时读取
+- **分布式追踪** — `tracing.include_event_detail` 运行时开关；`sampling_rate`（仅自适应模式）即时生效
+- **pprof 参数** — `auto_profile` / `profile_interval` / `profile_duration` / `enable_mutex` / `enable_block` 运行时生效
+
+### 🔄 平台适配器热替换（SyncPlatforms）
+
+`Bot.SyncPlatforms(desired map[string]Adapter)` 支持运行时**增、删、改**平台适配器：
+
+- **增** — `registry.Register()` + `Start()`，其他平台不受影响
+- **删** — `registry.Remove()` + `Stop()`，平滑断开连接
+- **改** — `registry.Replace()` + Stop 旧 + Start 新，连接零停机切换
+- 重建 `adapterSnapshot` 原子替换，热路径零锁读取
+- `Bot.Stop()` 自动关闭所有热替换的适配器
+
+### 🧩 模块化重构
+
+- **`cmd/bot` 拆分为独立 Go 模块** — 创建 `cmd/bot/go.mod`（module `github.com/KomeiDiSanXian/remilia/cmd/bot`），插件重型依赖隔离在子模块
+- **`go.work`** 增加 `cmd/bot` 和 `examples/httpclient-demo`
+- **提取单平台工厂函数** — `platformFactories()` / `buildDesiredAdapters()` / `registerPlatforms()` 供热更新 listener 复用
+- **`config.example.yaml` 热更新标注** — 每字段 `[H]` / `[H⚠]` / `[R]` 标记
+
+### 🧪 测试
+
+- **新增 6 个测试文件/函数**：Bot.SyncPlatforms（5 测试）、AdaptiveSampler（6 测试）、Bridge 扩展、Degradation MonitorInterval/Strategy、SetIncludeEventDetail、Logger SetLevel/SetTimeFormat、Pprof UpdateConfig
+- **pprof 测试改用动态端口** — `net.Listen("127.0.0.1:0")` 消除并行端口冲突
+- **修复时序敏感断言** — engine shutdown / retry sleep 测试放宽并行下界
+- **修复 zerolog 全局状态污染** — logger 测试 `saveZerologState` + `t.Cleanup`
+- **`-race` 全量通过** — 91 个包零 data race 警告
+
+### 📝 配置文档
+
+- `config.example.yaml` 和 `cmd/bot/config.default.yaml` 完整标注每个字段的热更新能力
+
+---
+
+## v1.14.1 (2026-06-25)
+
+### 🐛 修复
+
+- **修复 `config.Watcher` 未启动导致热更新不生效** — `cmd/bot/main.go` 创建并启动 `config.NewWatcher("config.yaml")`
+- **统一日志前缀** — `[bot]` → `[remilia]`（4 个文件）
+
+---
+
 ## v1.14.0 (2026-06-25)
 
 ### 🏗️ 配置系统重构
