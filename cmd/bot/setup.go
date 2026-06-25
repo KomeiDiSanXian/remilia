@@ -39,7 +39,7 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			QQNum: c.BotID, AppID: c.AppID,
 			Token: c.Token, AppSecret: c.Secret,
 		}))
-		logger.Infof("[bot] Registered QQ adapter on %s", addr)
+		logger.Infof("[remilia] Registered QQ adapter on %s", addr)
 	}
 
 	if c := cfg.Bot.OneBot; c != nil {
@@ -47,16 +47,16 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			URL: c.URL, Token: c.Token, Secret: c.Secret,
 			Mode: onebot.ModeForwardWS,
 		}))
-		logger.Infof("[bot] Registered OneBot adapter: %s", c.URL)
+		logger.Infof("[remilia] Registered OneBot adapter: %s", c.URL)
 	}
 
 	if c := cfg.Bot.Discord; c != nil {
 		a, err := discord.NewAdapter(c.Token)
 		if err != nil {
-			logger.WithError(err).Error("[bot] Failed to create Discord adapter, skipping")
+			logger.WithError(err).Error("[remilia] Failed to create Discord adapter, skipping")
 		} else {
 			reg.Register(a)
-			logger.Info("[bot] Registered Discord adapter")
+			logger.Info("[remilia] Registered Discord adapter")
 		}
 	}
 
@@ -66,10 +66,10 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			Platform: c.Platform, UserID: c.UserID,
 		})
 		if err != nil {
-			logger.WithError(err).Error("[bot] Failed to create Satori adapter, skipping")
+			logger.WithError(err).Error("[remilia] Failed to create Satori adapter, skipping")
 		} else {
 			reg.Register(a)
-			logger.Infof("[bot] Registered Satori adapter: %s", c.ServerURL)
+			logger.Infof("[remilia] Registered Satori adapter: %s", c.ServerURL)
 		}
 	}
 
@@ -78,15 +78,15 @@ func setupPlatforms(cfg *config.Config) *platform.Registry {
 			BaseURL: c.BaseURL, AccessToken: c.AccessToken,
 		})
 		if err != nil {
-			logger.WithError(err).Error("[bot] Failed to create Milky adapter, skipping")
+			logger.WithError(err).Error("[remilia] Failed to create Milky adapter, skipping")
 		} else {
 			reg.Register(a)
-			logger.Infof("[bot] Registered Milky adapter: %s", c.BaseURL)
+			logger.Infof("[remilia] Registered Milky adapter: %s", c.BaseURL)
 		}
 	}
 
 	if reg.Len() == 0 {
-		logger.Warn("[bot] No platform configured, using Terminal adapter for development")
+		logger.Warn("[remilia] No platform configured, using Terminal adapter for development")
 		reg.Register(terminal.NewAdapter(
 			terminal.WithPrompt("Bot> "),
 			terminal.WithBotName("DevBot"),
@@ -182,7 +182,7 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	eng.Use(slowRequestMiddleware(slowThreshold))
 
 	bridge.Subscribe()
-	logger.Info("[bot] Hot-reload bridge initialized")
+	logger.Info("[remilia] Hot-reload bridge initialized")
 
 	return bridge
 }
@@ -220,7 +220,7 @@ func setupAdaptiveLimiter(eng *engine.Engine, bridge *hotreload.Bridge, botCtx c
 	bridge.WatchAdaptive(arl)
 	arl.Start()
 	eng.Use(arl.Middleware())
-	logger.Info("[bot] Adaptive rate limiter started (bound to bot lifecycle)")
+	logger.Info("[remilia] Adaptive rate limiter started (bound to bot lifecycle)")
 }
 
 func setupRouter(bot *remilia.Bot, eng *engine.Engine) *fsm.Manager {
@@ -244,7 +244,7 @@ func errorHandlerMiddleware() eventctx.Middleware {
 		return func(ctx *eventctx.Context) error {
 			err := next(ctx)
 			if err != nil {
-				logger.WithError(err).Error("[bot] Handler error")
+				logger.WithError(err).Error("[remilia] Handler error")
 			}
 			return err
 		}
@@ -260,7 +260,7 @@ func slowRequestMiddleware(threshold time.Duration) eventctx.Middleware {
 				logger.WithFields(logger.Fields{
 					"duration": time.Since(start),
 					"cmd":      ctx.GetMessageContent(),
-				}).Warn("[bot] Slow request detected")
+				}).Warn("[remilia] Slow request detected")
 			}
 			return err
 		}

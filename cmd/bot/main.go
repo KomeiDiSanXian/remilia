@@ -44,13 +44,13 @@ func resolveConfig() *config.Config {
 	for _, path := range candidates {
 		cfg, err := config.Load(path)
 		if err == nil {
-			logger.Infof("[bot] Loaded config from %s", path)
+			logger.Infof("[remilia] Loaded config from %s", path)
 			return cfg
 		}
 	}
 
 	// 全部失败 → 将内嵌默认配置写入临时文件并加载
-	logger.Warn("[bot] No config.yaml found, using embedded default config")
+	logger.Warn("[remilia] No config.yaml found, using embedded default config")
 
 	tmpDir := filepath.Join(os.TempDir(), "remilia")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
@@ -64,7 +64,7 @@ func resolveConfig() *config.Config {
 	if err != nil {
 		log.Fatalf("Failed to load default config: %v", err)
 	}
-	logger.Infof("[bot] Using default config from %s", tmpPath)
+	logger.Infof("[remilia] Using default config from %s", tmpPath)
 	return cfg
 }
 
@@ -84,7 +84,7 @@ func main() {
 
 	tp, err := tracing.NewProvider(cfg.Tracing)
 	if err != nil {
-		logger.WithError(err).Fatal("[bot] Failed to initialize tracing")
+		logger.WithError(err).Fatal("[remilia] Failed to initialize tracing")
 	}
 
 	reg := setupPlatforms(cfg)
@@ -103,6 +103,14 @@ func main() {
 	eng := bot.Engine()
 	bridge := setupMiddleware(eng, &cfg.Tracing, cfg)
 
+	configWatcher, err := config.NewWatcher("config.yaml")
+	if err != nil {
+		logger.WithError(err).Warn("[remilia] Failed to create config watcher, hot-reload disabled")
+	} else {
+		configWatcher.Start()
+		logger.Info("[remilia] Config file watcher started for hot-reload")
+	}
+
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
 	setupPlugins(pm, eng)
@@ -118,7 +126,7 @@ func main() {
 
 	apiSrv := startAPIServer(cfg.API, "config.yaml", bot, eng, fsmMgr, pm, reg, dashboardHandler())
 
-	logger.Infof("[bot] Starting... (version=%s commit=%s date=%s)", remilia.Version, commit, date)
+	logger.Infof("[remilia] Starting... (version=%s commit=%s date=%s)", remilia.Version, commit, date)
 	if err := bot.Start(); err != nil {
 		logger.WithError(err).Fatal("Failed to start bot")
 	}
@@ -130,31 +138,36 @@ func main() {
 
 	bot.WaitForShutdown()
 
-	logger.Info("[bot] Shutting down...")
+	logger.Info("[remilia] Shutting down...")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if apiSrv != nil {
 		if err := apiSrv.Stop(shutdownCtx); err != nil {
-			logger.Warnf("[bot] API server shutdown error: %v", err)
+			logger.Warnf("[remilia] API server shutdown error: %v", err)
+		}
+	}
+	if configWatcher != nil {
+		if err := configWatcher.Stop(); err != nil {
+			logger.Warnf("[remilia] Config watcher shutdown error: %v", err)
 		}
 	}
 	if healthSrv != nil {
 		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Warnf("[bot] Health server shutdown error: %v", err)
+			logger.Warnf("[remilia] Health server shutdown error: %v", err)
 		}
 	}
 	if pprofSrv != nil {
 		if err := pprofSrv.Stop(shutdownCtx); err != nil {
-			logger.Warnf("[bot] Pprof server shutdown error: %v", err)
+			logger.Warnf("[remilia] Pprof server shutdown error: %v", err)
 		}
 	}
 	if err := bot.Shutdown(); err != nil {
-		logger.WithError(err).Error("[bot] Shutdown error")
+		logger.WithError(err).Error("[remilia] Shutdown error")
 	}
 	if err := tp.Shutdown(shutdownCtx); err != nil {
-		logger.WithError(err).Warn("[bot] Tracing shutdown error")
+		logger.WithError(err).Warn("[remilia] Tracing shutdown error")
 	}
-	logger.Info("[bot] Stopped")
+	logger.Info("[remilia] Stopped")
 }
 
 func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *remilia.PprofServer {
@@ -163,11 +176,11 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 	}
 	interval, err := time.ParseDuration(pprofCfg.ProfileInterval)
 	if err != nil {
-		logger.Warnf("[bot] Invalid pprof profile_interval %q, using default", pprofCfg.ProfileInterval)
+		logger.Warnf("[remilia] Invalid pprof profile_interval %q, using default", pprofCfg.ProfileInterval)
 	}
 	duration, err := time.ParseDuration(pprofCfg.ProfileDuration)
 	if err != nil {
-		logger.Warnf("[bot] Invalid pprof profile_duration %q, using default", pprofCfg.ProfileDuration)
+		logger.Warnf("[remilia] Invalid pprof profile_duration %q, using default", pprofCfg.ProfileDuration)
 	}
 	addr := pprofCfg.Addr
 	if addr == "" {
@@ -189,7 +202,7 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 	}
 	srv.AddHandler("/metrics", promhttp.Handler().ServeHTTP)
 	if err := srv.Start(); err != nil {
-		logger.WithError(err).Warn("[bot] Failed to start pprof")
+		logger.WithError(err).Warn("[remilia] Failed to start pprof")
 		return nil
 	}
 	return srv
@@ -262,6 +275,6 @@ func startHealthServer(addr string, healthHandler http.HandlerFunc, pprofRunning
 	srv := infraserver.NewHTTPServer(addr, mux)
 	srv.WithShutdownTimeout(5 * time.Second)
 	srv.Start()
-	logger.Infof("[bot] Health endpoint at http://%s/health", addr)
+	logger.Infof("[remilia] Health endpoint at http://%s/health", addr)
 	return srv
 }

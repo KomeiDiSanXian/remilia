@@ -36,5 +36,5 @@ func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 		}
 	}
 
-	logger.Info("[bot] Plugin discovery complete")
+	logger.Info("[remilia] Plugin discovery complete")
 }

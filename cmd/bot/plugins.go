@@ -56,7 +56,7 @@ const dataDir = "data"
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	for _, dir := range []string{dataDir, dataDir + "/db"} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			logger.WithError(err).Fatalf("[bot] Failed to create directory: %s", dir)
+			logger.WithError(err).Fatalf("[remilia] Failed to create directory: %s", dir)
 		}
 	}
 
@@ -90,13 +90,13 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		admin.New(),
 		debug.New(),
 		verifycode.New(func(userID, role string) error {
-			logger.Infof("[bot] User %s granted role %s via verifycode", userID, role)
+			logger.Infof("[remilia] User %s granted role %s via verifycode", userID, role)
 			return nil
 		}, verifycode.WithStore(dataDir+"/verifycode")),
 		asPlugin.Descriptor(),
 		keywordfilter.New(keywordfilter.Config{
 			OnMatch: func(ctx *eventctx.Context, matched string) error {
-				logger.Warnf("[bot] Keyword matched: %q from user %s", matched, ctx.GetUserID())
+				logger.Warnf("[remilia] Keyword matched: %q from user %s", matched, ctx.GetUserID())
 				return nil
 			},
 		}, keywordfilter.WithStore(dataDir+"/keywordfilter")),
@@ -128,9 +128,9 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {
-		logger.WithError(err).Fatal("[bot] Failed to register plugins")
+		logger.WithError(err).Fatal("[remilia] Failed to register plugins")
 	}
-	logger.Infof("[bot] %d plugins loaded", pm.Count())
+	logger.Infof("[remilia] %d plugins loaded", pm.Count())
 	pm.FreezeContainer()
 
 	eng.Use(sp.Middleware())
@@ -140,11 +140,11 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 
 	mlDB, err := messagelog.OpenDB(dataDir + "/db/messagelog.db")
 	if err != nil {
-		logger.WithError(err).Warn("[bot] Failed to open messagelog DB, message history disabled")
+		logger.WithError(err).Warn("[remilia] Failed to open messagelog DB, message history disabled")
 	} else {
 		messagelog.Default().UseDB(mlDB)
 		messagelog.Default().Start()
 		eng.Use(messagelog.MessageLogger())
-		logger.Info("[bot] MessageLogger middleware enabled")
+		logger.Info("[remilia] MessageLogger middleware enabled")
 	}
 }
