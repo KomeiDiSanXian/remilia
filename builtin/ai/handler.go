@@ -27,16 +27,15 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// handleAI AI 消息处理器的入口。
+// handleAI AI 消息处理器的总入口。
 //
 // 处理流程：
 //  1. 若通过 /ai 命令触发，使用 GetParsedCommand 检测子命令
 //  2. 若通过 @bot 或私聊触发，使用 cleanMessage 清洗后检测子命令
-//  3. 均非子命令时进入 AI 对话流程
-//  4. 注入/更新系统提示词
-//  5. 追加用户消息到会话
-//  6. 进入工具调用循环（processWithTools）
-//  7. 发送最终回复
+//  3. 检查 FSM 是否有当前用户的活跃会话（技能添加等两步流程）
+//  4. 均非子命令时进入 AI 对话流程
+//
+// 注意：FSM 检查必须在 AI 对话之前，确保用户发送的内容被正确处理为技能 Prompt。
 func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	parsed := ctx.GetParsedCommand()
 
@@ -44,7 +43,12 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		if len(parsed.CommandPath) > 1 {
 			return p.execSubCommand(ctx, parsed.CommandPath[1])
 		}
-		return p.handleAIChat(ctx, p.cleanMessage(ctx.GetMessageContent()))
+		content := p.cleanMessage(ctx.GetMessageContent())
+		if content == "" {
+			return nil
+		}
+		// 命令路径不检查 FSM：避免 /ai cancel 这类消息被 FSM 的 cancel 事件消费
+		return p.handleAIChat(ctx, content)
 	}
 
 	content := ctx.GetMessageContent()
@@ -59,6 +63,10 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		return nil
 	}
 	if isCommandMessage(content) {
+		return nil
+	}
+
+	if p.handleFSMTransition(ctx) {
 		return nil
 	}
 
@@ -384,4 +392,45 @@ func isAllowedDownloadURL(rawURL string) bool {
 // 不同平台、不同群组、不同用户的会话相互隔离。
 func makeSessionID(platform, chatID, userID string) string {
 	return fmt.Sprintf("%s:%s:%s", platform, chatID, userID)
+}
+
+// handleFSMTransition 检查 FSM 引擎是否有当前用户的活跃会话。
+// 有活跃会话时尝试迁移（处理技能添加等两步流程），返回 true 表示消息已被 FSM 消费。
+func (p *Plugin) handleFSMTransition(ctx *eventctx.Context) bool {
+	if p.fsmEngine == nil {
+		return false
+	}
+	sessionID := makeSkillAddSessionID(ctx)
+	_, ok, err := p.fsmEngine.TryTransition(ctx, sessionID)
+	if err != nil {
+		logger.Errorf("[AI] FSM transition error: %v", err)
+	}
+	return ok
+}
+
+// downloadTextAttachment 下载文本附件内容，使用传入的 context 控制生命周期。
+func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.InboundAttachment) string {
+	if !isAllowedDownloadURL(att.URL) {
+		return ""
+	}
+	dlCtx, dlCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer dlCancel()
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, att.URL, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(p.cfg.MaxUserSkillPromptLen)+1))
+	if err != nil {
+		return ""
+	}
+	if int64(len(data)) > int64(p.cfg.MaxUserSkillPromptLen) {
+		return ""
+	}
+	return string(data)
 }

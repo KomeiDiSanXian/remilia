@@ -13,7 +13,9 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/health"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -34,6 +36,9 @@ import (
 //   - triggerCmd: 触发命令前缀（如 "/ai"），用于 cleanMessage 时剥离
 //   - cmdPatterns: 工具名到完整命令模式的映射，用于 executeRealCommand 构造合成事件
 //   - skillReg: 技能注册表，管理所有已注册的 Skill
+//   - fsmEngine: 内置 FSM 引擎，用于技能注册等两步对话流程
+//   - lifecycleCtx: 插件生命周期上下文，插件关闭时取消，用于替代 context.Background()
+//   - lifecycleCancel: 取消 lifecycleCtx 的函数
 type Plugin struct {
 	cfg         *Config
 	coord       engine.Reader
@@ -44,6 +49,10 @@ type Plugin struct {
 	triggerCmd  string
 	cmdPatterns map[string]string
 	skillReg    *SkillRegistry
+
+	fsmEngine       *fsm.Engine
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -124,16 +133,23 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			coord := ctx.Info.Coordinator()
 
+			lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+
 			p := &Plugin{
-				cfg:         cfg,
-				coord:       coord,
-				syncer:      syncer,
-				prov:        prov,
-				reg:         NewToolRegistry(),
-				sm:          NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
-				cmdPatterns: make(map[string]string),
-				skillReg:    NewSkillRegistry(),
+				cfg:             cfg,
+				coord:           coord,
+				syncer:          syncer,
+				prov:            prov,
+				reg:             NewToolRegistry(),
+				sm:              NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
+				cmdPatterns:     make(map[string]string),
+				skillReg:        NewSkillRegistry(),
+				fsmEngine:       fsm.NewEngine(nil),
+				lifecycleCtx:    lifecycleCtx,
+				lifecycleCancel: lifecycleCancel,
 			}
+
+			p.registerSkillAddFSM()
 
 			p.discoverTools()
 			p.registerHandlers(ctx)
@@ -151,7 +167,10 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				}
 			}
 
+			p.fsmEngine.StartCleanup(5*time.Minute, lifecycleCtx.Done())
+
 			ctx.Spawn(func(runCtx context.Context) {
+				defer p.lifecycleCancel()
 				ticker := time.NewTicker(10 * time.Minute)
 				defer ticker.Stop()
 				for {
@@ -184,6 +203,87 @@ func (p *Plugin) HealthCheckers() []health.Checker {
 	}
 }
 
+// registerSkillAddFSM 注册技能添加两步对话的 FSM。
+// 状态机管理用户从 /ai skill add <name> 到发送内容的流程。
+func (p *Plugin) registerSkillAddFSM() {
+	skillAddFSM := &fsm.FSM{
+		Name:    "skill_add",
+		Initial: "awaiting_content",
+		Timeout: 10 * time.Minute,
+		Events: []fsm.Event{
+			{
+				Name: "cancel",
+				From: "*",
+				To:   "",
+				Match: func(ctx *eventctx.Context) bool {
+					content := strings.TrimSpace(ctx.GetMessageContent())
+					lower := strings.ToLower(content)
+					return lower == "cancel" || lower == "取消" || lower == "c"
+				},
+				Action: func(ctx *fsm.FSMContext) error {
+					ctx.Reply(platform.TextMessage("❌ 技能注册已取消。"))
+					return nil
+				},
+			},
+			{
+				Name: "submit",
+				From: "awaiting_content",
+				To:   "",
+				Match: func(ctx *eventctx.Context) bool {
+					content := strings.TrimSpace(ctx.GetMessageContent())
+					if content == "" {
+						return false
+					}
+					lower := strings.ToLower(content)
+					return lower != "cancel" && lower != "取消" && lower != "c"
+				},
+				Action: func(fsmCtx *fsm.FSMContext) error {
+					name, _ := fsmCtx.Data["name"].(string)
+					ownerID, _ := fsmCtx.Data["ownerID"].(string)
+					if name == "" || ownerID == "" {
+						fsmCtx.Reply(platform.TextMessage("❌ 技能注册数据丢失，请重新开始。"))
+						return nil
+					}
+
+					prompt := strings.TrimSpace(fsmCtx.GetMessageContent())
+					for _, att := range fsmCtx.GetPlatformEvent().Attachments() {
+						if strings.HasPrefix(att.MimeType, "text/") || strings.HasSuffix(att.URL, ".md") {
+							if content := p.downloadTextAttachment(fsmCtx.Context.Context(), att); content != "" {
+								prompt = content
+								break
+							}
+						}
+					}
+					if prompt == "" {
+						fsmCtx.Reply(platform.TextMessage("❌ 技能内容为空，注册已取消。"))
+						return nil
+					}
+
+					desc := extractSkillDescription(prompt)
+					skill := Skill{
+						Name: name, Description: desc, Prompt: prompt, Enabled: true,
+					}
+					if err := p.RegisterUserSkill(skill, ownerID); err != nil {
+						fsmCtx.Reply(platform.TextMessage("❌ " + err.Error()))
+					} else {
+						fsmCtx.Reply(platform.TextMessage(
+							fmt.Sprintf("✅ 技能 `%s%s` 已注册！> %s", UserSkillPrefix, name, desc)))
+					}
+					return nil
+				},
+			},
+		},
+	}
+	if err := p.fsmEngine.Register(skillAddFSM); err != nil {
+		logger.Errorf("[AI] Failed to register skill_add FSM: %v", err)
+	}
+}
+
+// makeSkillAddSessionID 生成技能添加 FSM 的会话 ID（按用户隔离）。
+func makeSkillAddSessionID(ctx *eventctx.Context) string {
+	return fmt.Sprintf("skill_add:%s:%s", ctx.GetEventPlatform(), ctx.GetSenderInfo().ID)
+}
+
 // buildHealthProbeURL 根据提供商类型构造健康检查用的探测 URL。
 func buildHealthProbeURL(cfg *Config) string {
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
@@ -202,15 +302,28 @@ func buildHealthProbeURL(cfg *Config) string {
 }
 
 // buildAIDefinition 构建 AI 命令定义，包含子命令和可选的消息参数。
+//
+// 子命令支持嵌套（如 /ai skill add），帮助插件会自动展开显示。
 func buildAIDefinition() *command.Definition {
 	return command.NewDef("ai").
-		SubCommand(command.NewDef("reset").Build()).
-		SubCommand(command.NewDef("undo").Build()).
-		SubCommand(command.NewDef("retry").Build()).
-		SubCommand(command.NewDef("summary").Build()).
-		SubCommand(command.NewDef("status").Build()).
-		SubCommand(command.NewDef("stats").Build()).
-		SubCommand(command.NewDef("tools").Description("列出可用工具").Build()).
+		SubCommand(command.NewDef("reset").Description("清空对话历史").Build()).
+		SubCommand(command.NewDef("undo").Description("撤销上一条对话").Build()).
+		SubCommand(command.NewDef("retry").Description("重新生成上一条回复").Build()).
+		SubCommand(command.NewDef("summary").Description("总结当前对话").Build()).
+		SubCommand(command.NewDef("status").Description("查看会话状态").Build()).
+		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
+		SubCommand(command.NewDef("tools").Description("列出可用工具").Alias("help").Build()).
+		SubCommand(
+			command.NewDef("skill").Description("管理自定义技能").
+				SubCommand(command.NewDef("add").Description("注册新技能，后接技能名称和 Markdown 内容，或发送 .md 附件").Build()).
+				SubCommand(command.NewDef("list").Description("列出我的所有技能及状态").Build()).
+				SubCommand(command.NewDef("remove").Description("删除指定技能").Build()).
+				SubCommand(command.NewDef("enable").Description("启用指定技能").Build()).
+				SubCommand(command.NewDef("disable").Description("禁用指定技能").Build()).
+				SubCommand(command.NewDef("promote").Description("将用户技能提升为系统级（需管理员权限）").Build()).
+				SubCommand(command.NewDef("info").Description("查看技能详情和 Prompt 预览").Build()).
+				Build(),
+		).
 		Build()
 }
 

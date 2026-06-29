@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.17.0 (2026-06-29)
+
+### ✨ 新功能
+
+- **用户自定义技能（User Skill）** — 用户可通过 `/ai skill add` 上传 Markdown 注册自己的 Prompt-only Skill，名称自动 `u_` 前缀防冲突
+- **两阶段注册流程** — `/ai skill add <名称>` 后，FSM 自动等待用户下一条消息或 .md 附件作为内容，`cancel`/`取消` 可放弃
+- **技能提升为系统级** — 管理员可通过 `/ai skill promote` 将用户技能提升为所有用户可见的系统技能（去掉 `u_` 前缀）
+- **技能启用/禁用开关** — 用户可独立控制每个技能的启用状态，禁用的技能不注入会话
+- **技能调用统计** — 自动记录每个技能的调用次数
+
+### 🔧 修复
+
+- **AI 插件生命周期 context** — 替换 `context.Background()` 为 `lifecycleCtx`，插件关闭时及时取消后台操作（附件下载、总结生成等）
+- **`doSummary` 关闭时静默退出** — 插件关闭导致的 LLM 调用取消不再向用户回复错误的总结失败消息
+- **技能内联注册换行支持** — `strings.SplitN` 按空格分割 → `strings.Fields` 按任意空白分割，支持换行分隔的 Markdown 内容
+- **`/ai cancel` 不再被 FSM 消费** — FSM 检查仅作用于 `@bot`/私聊路径，命令路径不受影响
+
+### 🔄 变更
+
+- **`Skill` 结构体新增 `OwnerID`、`Enabled`、`UsageCount` 字段** — `OwnerID = "system"` 为系统技能，用户 ID 为用户技能
+- **`SkillRegistry` 重构为线程安全** — 引入 `sync.RWMutex` 和 `byOwner` 二级索引，支持运行时注册/注销
+- **`RegisterSkill` 自动设置 `OwnerID = "system"`** — 向后兼容，外部插件调用不受影响
+- **`buildSkillTools` 仅注入系统技能** — 用户技能的子 Agent 无法调用其他用户的技能
+- **子命令定义完善** — 所有 `/ai` 子命令补充 Description，`/ai skill add/list/remove/enable/disable/promote/info` 使用嵌套 `SubCommand` 定义
+- **配置项新增** — `max_user_skills`（默认 10）、`max_user_skill_prompt_len`（默认 2000）
+
 ## v1.16.0 (2026-06-25)
 
 ### ✨ 新功能
