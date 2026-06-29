@@ -78,15 +78,20 @@ log:
 	err = os.WriteFile(tmpFile, []byte(newConfig), 0644)
 	require.NoError(t, err)
 
-	// Wait for reload
+	// Wait for reload callback
 	select {
 	case <-reloadCalled:
-		// Success
 	case <-time.After(2 * time.Second):
 		t.Fatal("Reload callback not called within timeout")
 	}
 
-	// Verify new config is loaded
+	// reload() calls callbacks BEFORE storing the new config.
+	// Wait for the config to be fully applied before verifying.
+	assert.Eventually(t, func() bool {
+		cfg := watcher.GetConfig()
+		return cfg != nil && cfg.Bot.QQ.AppID == 999999
+	}, 2*time.Second, 50*time.Millisecond, "Config should be applied after reload callback")
+
 	cfg := watcher.GetConfig()
 	assert.Equal(t, uint64(999999), cfg.Bot.QQ.AppID)
 	assert.Equal(t, uint64(888888), cfg.Bot.QQ.BotID)

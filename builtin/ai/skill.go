@@ -127,12 +127,13 @@ func (r *SkillRegistry) Remove(name, ownerID string) error {
 	if s.OwnerID != ownerID {
 		return fmt.Errorf("skill %q is not owned by %s", name, ownerID)
 	}
-	return r.removeLocked(name, ownerID)
+	r.removeLocked(name, ownerID)
+	return nil
 }
 
 // removeLocked 在已持有写锁时执行删除操作。
 // 调用方必须已持有 r.mu.Lock()。
-func (r *SkillRegistry) removeLocked(name, ownerID string) error {
+func (r *SkillRegistry) removeLocked(name, ownerID string) {
 	delete(r.skills, name)
 	names := r.byOwner[ownerID]
 	for i, n := range names {
@@ -141,7 +142,6 @@ func (r *SkillRegistry) removeLocked(name, ownerID string) error {
 			break
 		}
 	}
-	return nil
 }
 
 // IncrementUsage 增加指定技能的调用计数。线程安全。
