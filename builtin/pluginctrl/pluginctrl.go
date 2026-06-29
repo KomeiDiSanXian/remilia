@@ -508,11 +508,11 @@ func (p *Plugin) handleDisable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isGroupAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要管理员权限")
+		ctx.ReplyError("权限不足，需要管理员权限"); return nil
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup {
-		return ctx.ReplyError("该指令仅在群内使用")
+		ctx.ReplyError("该指令仅在群内使用"); return nil
 	}
 	verb := p.opts.enableCmd
 	if !enable {
@@ -520,19 +520,19 @@ func (p *Plugin) handleToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
 		return nil
 	}
 	pluginName := args.Positional[0]
 	if err := p.SetGroupEnabled(chat.ID, pluginName, enable); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
 	action := "开启"
 	if !enable {
 		action = "关闭"
 	}
-	_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已在本群 %s 插件「%s」", action, pluginName)))
+	ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已在本群 %s 插件「%s」", action, pluginName)))
 	return nil
 }
 
@@ -546,7 +546,7 @@ func (p *Plugin) handleGlobalDisable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	verb := p.opts.globalEnableCmd
 	if !enable {
@@ -554,26 +554,26 @@ func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, verb)))
 		return nil
 	}
 	pluginName := args.Positional[0]
 	if err := p.SetGlobalEnabled(pluginName, enable); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
 	action := "开启"
 	if !enable {
 		action = "关闭"
 	}
-	_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已全局 %s 插件「%s」", action, pluginName)))
+	ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已全局 %s 插件「%s」", action, pluginName)))
 	return nil
 }
 
 // handleSilence 处理"沉默 [群ID]"指令：将指定群（或当前群）设为静默状态。
 func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -581,65 +581,65 @@ func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 		chat := ctx.GetChatInfo()
 		if chat.IsGroup {
 			if err := p.SilenceGroup(chat.ID); err != nil {
-				_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+				ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 				return nil
 			}
-			_, _ = ctx.Reply(platform.TextMessage("✅ 已将本群设置为静默状态"))
+			ctx.Reply(platform.TextMessage("✅ 已将本群设置为静默状态"))
 			return nil
 		}
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.silenceCmd)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.silenceCmd)))
 		return nil
 	}
 	groupID := args.Positional[0]
 	if err := p.SilenceGroup(groupID); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
-	_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已将群 %s 设置为静默状态", groupID)))
+	ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已将群 %s 设置为静默状态", groupID)))
 	return nil
 }
 
 // handleResume 处理"响应 [群ID]"指令：解除指定群（或当前群）的静默状态。
 func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
 		chat := ctx.GetChatInfo()
 		if chat.IsGroup {
 			if err := p.ResumeGroup(chat.ID); err != nil {
-				_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+				ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 				return nil
 			}
-			_, _ = ctx.Reply(platform.TextMessage("✅ 已恢复本群的响应"))
+			ctx.Reply(platform.TextMessage("✅ 已恢复本群的响应"))
 			return nil
 		}
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.resumeCmd)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s [群ID]", p.opts.commandPrefix, p.opts.resumeCmd)))
 		return nil
 	}
 	groupID := args.Positional[0]
 	if err := p.ResumeGroup(groupID); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
-	_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已恢复群 %s 的响应", groupID)))
+	ctx.Reply(platform.TextMessage(fmt.Sprintf("✅ 已恢复群 %s 的响应", groupID)))
 	return nil
 }
 
 // handleFlipDefault 处理"反转默认 <插件名>"指令：翻转插件的默认启用状态。
 func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, p.opts.flipDefaultCmd)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 用法：%s%s <插件名>", p.opts.commandPrefix, p.opts.flipDefaultCmd)))
 		return nil
 	}
 	pluginName := args.Positional[0]
 	if err := p.FlipDefault(pluginName); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
 	newDefault := p.GetPluginDefault(pluginName)
@@ -647,7 +647,7 @@ func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
 	if !newDefault {
 		state = "关闭"
 	}
-	_, _ = ctx.Reply(platform.TextMessage(
+	ctx.Reply(platform.TextMessage(
 		fmt.Sprintf("✅ 插件「%s」的默认状态已翻转为：%s", pluginName, state),
 	))
 	return nil
@@ -656,7 +656,7 @@ func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
 func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup {
-		_, _ = ctx.Reply(platform.TextMessage("❌ 该指令仅在群内使用"))
+		ctx.Reply(platform.TextMessage("❌ 该指令仅在群内使用"))
 		return nil
 	}
 	states := p.GroupList(chat.ID)
@@ -671,7 +671,7 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 
 		imgData, mime, err := p.opts.serviceListRenderer(chat.ID, states, defEnabled)
 		if err == nil && len(imgData) > 0 {
-			_, _ = ctx.Reply(platform.OutboundMessage{
+			ctx.Reply(platform.OutboundMessage{
 				Attachments: []platform.Attachment{{
 					Kind:     platform.AttachmentKindImage,
 					Data:     imgData,
@@ -688,7 +688,7 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 
 	// 文本输出（默认或渲染降级）
 	if len(states) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage("📋 本群所有插件均处于默认状态（已开启）"))
+		ctx.Reply(platform.TextMessage("📋 本群所有插件均处于默认状态（已开启）"))
 		return nil
 	}
 	var sb strings.Builder
@@ -700,7 +700,7 @@ func (p *Plugin) handleServiceList(ctx *eventctx.Context) error {
 		}
 		_, _ = fmt.Fprintf(&sb, "  %s — %s\n", s.PluginName, status)
 	}
-	_, _ = ctx.Reply(platform.TextMessage(sb.String()))
+	ctx.Reply(platform.TextMessage(sb.String()))
 	return nil
 }
 
@@ -757,19 +757,19 @@ func (p *Plugin) combinedGuard(pluginName string) eventctx.Middleware {
 
 			// 2. 全局封禁
 			if sender.ID != "" && p.IsBanned(sender.ID) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
+				ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
 				return nil
 			}
 
 			// 3. 群级插件开关
 			if chatInfo.IsGroup && !p.IsEnabled(chatInfo.ID, pluginName) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
+				ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
 				return nil
 			}
 
 			// 4. 用户级插件禁用
 			if sender.ID != "" && !p.IsUserEnabled(sender.ID, pluginName) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
+				ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
 				return nil
 			}
 

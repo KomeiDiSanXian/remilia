@@ -19,7 +19,7 @@ import (
 // 使用示例：
 //
 //	ctx.OnCommand("", "/ping", func(c *corectx.Context) error {
-//	    return c.ReplyText("pong")
+//	    c.ReplyText("pong"); return nil
 //	})
 //
 //	// 带权限规则：
@@ -40,7 +40,7 @@ func (ctx *SetupContext) OnCommand(eventType, cmdPattern string, handler corectx
 //	def.Handler = func(ctx any) {
 //	    c := ctx.(*corectx.Context)
 //	    keyword := c.GetParsedCommand().GetString("keyword")
-//	    c.ReplyText("搜索: " + keyword)
+//	    c.ReplyText("搜索: " + keyword); return nil
 //	}
 //	ctx.OnCommandDef("", "/search", def)
 //
@@ -78,7 +78,7 @@ func (ctx *SetupContext) OnCommandDef(eventType, trigger string, def *command.De
 //	        Build(),
 //	    func(c *corectx.Context) error {
 //	        keyword := c.GetParsedCommand().GetString("keyword")
-//	        return c.ReplyText("搜索结果: " + keyword)
+//	        c.ReplyText("搜索结果: " + keyword); return nil
 //	    },
 //	)
 func (ctx *SetupContext) OnCommandDefWith(eventType, trigger string, def *command.Definition, handler corectx.Handler, extraRules ...corectx.Rule) *engine.Matcher {

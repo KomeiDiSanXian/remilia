@@ -65,7 +65,7 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 
 		respTLV, err := mod.CallHandle(callCtx, eventTLV)
 		if err != nil {
-			_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("插件执行错误: %v", err)))
+			ctx.Reply(platform.TextMessage(fmt.Sprintf("插件执行错误: %v", err)))
 			return nil
 		}
 		if respTLV == nil {
@@ -74,7 +74,7 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 
 		reply := NewTLVReader(respTLV).ReadString("r")
 		if reply != "" {
-			_, _ = ctx.Reply(platform.TextMessage(reply))
+			ctx.Reply(platform.TextMessage(reply))
 		}
 		return nil
 	})

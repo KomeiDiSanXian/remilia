@@ -10,7 +10,7 @@ import "time"
 //
 // 用法示例：
 //
-//	result, err := ctx.Reply(msg)
+//	ctx.Reply(msg)
 //	if err != nil { ... }
 //	if r, ok := result.Raw.(*qq.SendResult); ok {
 //	    // 普通消息：使用 r.MessageID 撤回

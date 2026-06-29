@@ -133,8 +133,8 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 		user := ctx.GetSenderInfo()
 		msg = strings.ReplaceAll(msg, "{user}", user.DisplayName)
 		msg = strings.ReplaceAll(msg, "{group}", chat.Name)
-		_, err := ctx.Reply(platform.TextMessage(msg))
-		return err
+		ctx.Reply(platform.TextMessage(msg))
+		return nil
 	})
 
 	ctx.Reg.RegisterMatcher(string(platform.EventKindMemberLeave)).Handle(func(ctx *eventctx.Context) error {
@@ -149,8 +149,8 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 		user := ctx.GetSenderInfo()
 		msg = strings.ReplaceAll(msg, "{user}", user.DisplayName)
 		msg = strings.ReplaceAll(msg, "{group}", chat.Name)
-		_, err := ctx.Reply(platform.TextMessage(msg))
-		return err
+		ctx.Reply(platform.TextMessage(msg))
+		return nil
 	})
 }
 

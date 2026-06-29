@@ -29,7 +29,7 @@ func RequireRole(role string) eventctx.Middleware {
 			pm := ctx.GetPermissionManager()
 			if pm == nil {
 				logger.Warn("[Permission] No PermissionManager in context; denying (fail-closed)")
-				_, _ = ctx.Reply(platform.TextMessage("❌ 权限系统未初始化"))
+				ctx.Reply(platform.TextMessage("❌ 权限系统未初始化"))
 				return nil
 			}
 			userID := ctx.GetSenderInfo().ID
@@ -37,7 +37,7 @@ func RequireRole(role string) eventctx.Middleware {
 				return next(ctx)
 			}
 			logger.Debugf("[Permission] User %q missing role %q", userID, role)
-			_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 权限不足，需要角色：%s", role)))
+			ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 权限不足，需要角色：%s", role)))
 			return nil
 		}
 	}
@@ -60,13 +60,13 @@ func RequirePermission(resource, action string) eventctx.Middleware {
 			pm := ctx.GetPermissionManager()
 			if pm == nil {
 				logger.Warn("[Permission] No PermissionManager in context; denying (fail-closed)")
-				_, _ = ctx.Reply(platform.TextMessage("❌ 权限系统未初始化"))
+				ctx.Reply(platform.TextMessage("❌ 权限系统未初始化"))
 				return nil
 			}
 			userID := ctx.GetSenderInfo().ID
 			if !pm.HasPermission(userID, perm) {
 				logger.Debugf("[Permission] User %q denied: missing %s", userID, perm)
-				_, _ = ctx.Reply(platform.TextMessage("❌ 权限不足"))
+				ctx.Reply(platform.TextMessage("❌ 权限不足"))
 				return nil
 			}
 			return next(ctx)
@@ -110,7 +110,7 @@ func RequireSuperUser(superUserIDs ...string) eventctx.Middleware {
 			userID := ctx.GetSenderInfo().ID
 			if _, ok := allowed[userID]; !ok {
 				logger.Debugf("[Permission] SuperUser check failed for user %q", userID)
-				_, _ = ctx.Reply(platform.TextMessage("❌ 仅超级管理员可使用此命令"))
+				ctx.Reply(platform.TextMessage("❌ 仅超级管理员可使用此命令"))
 				return nil
 			}
 			return next(ctx)
@@ -131,7 +131,7 @@ func RequireGroup() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if !ctx.GetChatInfo().IsGroup {
-				_, _ = ctx.Reply(platform.TextMessage("⚠️ 此命令仅在群组中有效"))
+				ctx.Reply(platform.TextMessage("⚠️ 此命令仅在群组中有效"))
 				return nil
 			}
 			return next(ctx)
@@ -150,7 +150,7 @@ func RequirePrivate() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if ctx.GetChatInfo().IsGroup {
-				_, _ = ctx.Reply(platform.TextMessage("⚠️ 此命令仅在私聊中有效"))
+				ctx.Reply(platform.TextMessage("⚠️ 此命令仅在私聊中有效"))
 				return nil
 			}
 			return next(ctx)

@@ -192,7 +192,7 @@ func (p *Plugin) Middleware(command string, duration time.Duration) eventctx.Mid
 				remaining := p.Remaining(userID, command, duration)
 				logger.Debugf("[Cooldown] User %s is in cooldown for %s, remaining: %s", userID, command, remaining.Round(time.Second))
 				msg := fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", remaining.Round(time.Second))
-				_, _ = ctx.Reply(platform.TextMessage(msg))
+				ctx.Reply(platform.TextMessage(msg))
 				return nil
 			}
 			return next(ctx)
@@ -249,7 +249,7 @@ func (p *Plugin) GroupMiddleware(command string, duration time.Duration) eventct
 				logger.Debugf("[Cooldown] Group %s is in cooldown for %s, remaining: %s",
 					chat.ID, command, remaining.Round(time.Second))
 				msg := fmt.Sprintf("⏱ 该群冷却中，请在 %s 后再试", remaining.Round(time.Second))
-				_, _ = ctx.Reply(platform.TextMessage(msg))
+				ctx.Reply(platform.TextMessage(msg))
 				return nil
 			}
 			return next(ctx)
@@ -297,7 +297,7 @@ func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
 				if !p.GlobalAllow(policy.Command, policy.GlobalLimit) {
 					remaining := p.Remaining("__global__", policy.Command, policy.GlobalLimit)
 					msg := fmt.Sprintf("⏱ 全局冷却中，请在 %s 后再试", remaining.Round(time.Second))
-					_, _ = ctx.Reply(platform.TextMessage(msg))
+					ctx.Reply(platform.TextMessage(msg))
 					return nil
 				}
 			}
@@ -308,7 +308,7 @@ func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
 					if !p.GroupAllow(chat.ID, policy.Command, policy.GroupLimit) {
 						remaining := p.GroupRemaining(chat.ID, policy.Command, policy.GroupLimit)
 						msg := fmt.Sprintf("⏱ 该群冷却中，请在 %s 后再试", remaining.Round(time.Second))
-						_, _ = ctx.Reply(platform.TextMessage(msg))
+						ctx.Reply(platform.TextMessage(msg))
 						return nil
 					}
 				}
@@ -322,7 +322,7 @@ func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
 						logger.Debugf("[Cooldown] User %s is in cooldown for %s, remaining: %s",
 							userID, policy.Command, remaining.Round(time.Second))
 						msg := fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", remaining.Round(time.Second))
-						_, _ = ctx.Reply(platform.TextMessage(msg))
+						ctx.Reply(platform.TextMessage(msg))
 						return nil
 					}
 				}

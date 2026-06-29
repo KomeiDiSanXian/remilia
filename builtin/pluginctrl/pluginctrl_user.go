@@ -222,19 +222,19 @@ func (p *Plugin) Middleware(pluginName string) eventctx.Middleware {
 
 			// 1. 全局用户封禁检查
 			if sender.ID != "" && p.IsBanned(sender.ID) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
+				ctx.Reply(platform.TextMessage("❌ 你已被封禁，无法使用机器人服务"))
 				return nil
 			}
 
 			// 2. 群级开关
 			if chatInfo.IsGroup && !p.IsEnabled(chatInfo.ID, pluginName) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
+				ctx.Reply(platform.TextMessage("❌ 该功能在本群已关闭"))
 				return nil
 			}
 
 			// 3. 用户级禁用
 			if sender.ID != "" && !p.IsUserEnabled(sender.ID, pluginName) {
-				_, _ = ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
+				ctx.Reply(platform.TextMessage("❌ 你已被禁止使用该功能"))
 				return nil
 			}
 
@@ -260,7 +260,7 @@ func (p *Plugin) checkCooldown(ctx *eventctx.Context, pluginName string, pol *Pl
 	if pol.GlobalLimit > 0 {
 		if !cd.GlobalAllow(pluginName, pol.GlobalLimit) {
 			rem := cd.Remaining("__global__", pluginName, pol.GlobalLimit)
-			_, _ = ctx.Reply(platform.TextMessage(
+			ctx.Reply(platform.TextMessage(
 				fmt.Sprintf("⏱ 全局冷却中，请在 %s 后再试", rem.Round(time.Second)),
 			))
 			return false
@@ -273,7 +273,7 @@ func (p *Plugin) checkCooldown(ctx *eventctx.Context, pluginName string, pol *Pl
 		if chatInfo.IsGroup && chatInfo.ID != "" {
 			if !cd.GroupAllow(chatInfo.ID, pluginName, pol.GroupLimit) {
 				rem := cd.GroupRemaining(chatInfo.ID, pluginName, pol.GroupLimit)
-				_, _ = ctx.Reply(platform.TextMessage(
+				ctx.Reply(platform.TextMessage(
 					fmt.Sprintf("⏱ 该群冷却中，请在 %s 后再试", rem.Round(time.Second)),
 				))
 				return false
@@ -288,7 +288,7 @@ func (p *Plugin) checkCooldown(ctx *eventctx.Context, pluginName string, pol *Pl
 			if !cd.Allow(sender.ID, pluginName, pol.UserLimit) {
 				rem := cd.Remaining(sender.ID, pluginName, pol.UserLimit)
 				logger.Debugf("[pluginctrl] User %s cooldown for %s: %s remaining", sender.ID, pluginName, rem)
-				_, _ = ctx.Reply(platform.TextMessage(
+				ctx.Reply(platform.TextMessage(
 					fmt.Sprintf("⏱ 操作太频繁，请在 %s 后再试", rem.Round(time.Second)),
 				))
 				return false
@@ -311,7 +311,7 @@ func (p *Plugin) handleUserEnable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 
 	verb := p.opts.userDisableCmd
@@ -320,7 +320,7 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) < 2 {
-		_, _ = ctx.Reply(platform.TextMessage(
+		ctx.Reply(platform.TextMessage(
 			fmt.Sprintf("❌ 用法：%s%s <用户ID> <插件名>", p.opts.commandPrefix, verb),
 		))
 		return nil
@@ -330,7 +330,7 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	pluginName := args.Positional[1]
 
 	if err := p.SetUserEnabled(targetUserID, pluginName, enable); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
 
@@ -338,7 +338,7 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 	if enable {
 		action = "启用"
 	}
-	_, _ = ctx.Reply(platform.TextMessage(
+	ctx.Reply(platform.TextMessage(
 		fmt.Sprintf("✅ 已%s用户 %s 对插件「%s」的访问", action, targetUserID, pluginName),
 	))
 	return nil
@@ -349,21 +349,21 @@ func (p *Plugin) handleUserToggle(ctx *eventctx.Context, enable bool) error {
 // handleBan 处理"封禁 <userID>"指令：全局封禁指定用户。
 func (p *Plugin) handleBan(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(
+		ctx.Reply(platform.TextMessage(
 			fmt.Sprintf("❌ 用法：%s%s <用户ID>", p.opts.commandPrefix, p.opts.banCmd),
 		))
 		return nil
 	}
 	targetUserID := args.Positional[0]
 	if err := p.BanUser(targetUserID); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
-	_, _ = ctx.Reply(platform.TextMessage(
+	ctx.Reply(platform.TextMessage(
 		fmt.Sprintf("✅ 已全局封禁用户 %s，该用户无法使用机器人的任何功能", targetUserID),
 	))
 	return nil
@@ -372,21 +372,21 @@ func (p *Plugin) handleBan(ctx *eventctx.Context) error {
 // handleUnban 处理"解封 <userID>"指令：解除对指定用户的全局封禁。
 func (p *Plugin) handleUnban(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		return ctx.ReplyError("权限不足，需要超级管理员权限")
+		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
-		_, _ = ctx.Reply(platform.TextMessage(
+		ctx.Reply(platform.TextMessage(
 			fmt.Sprintf("❌ 用法：%s%s <用户ID>", p.opts.commandPrefix, p.opts.unbanCmd),
 		))
 		return nil
 	}
 	targetUserID := args.Positional[0]
 	if err := p.UnbanUser(targetUserID); err != nil {
-		_, _ = ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("❌ 操作失败：%v", err)))
 		return nil
 	}
-	_, _ = ctx.Reply(platform.TextMessage(
+	ctx.Reply(platform.TextMessage(
 		fmt.Sprintf("✅ 已解除用户 %s 的全局封禁", targetUserID),
 	))
 	return nil

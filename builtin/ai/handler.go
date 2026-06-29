@@ -81,7 +81,8 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	sessionID := makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID)
 	session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 	if session == nil {
-		return ctx.ReplyError("创建会话失败")
+		ctx.ReplyError("创建会话失败")
+		return nil
 	}
 
 	if session.Messages == nil {
@@ -110,7 +111,8 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 
 	result, err := p.processWithTools(ctx, session)
 	if err != nil {
-		return ctx.ReplyError(formatAIError(err))
+		ctx.ReplyError(formatAIError(err))
+		return nil
 	}
 
 	if result.Text != "" || len(result.Attachments) > 0 {
@@ -126,7 +128,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 			msg.Attachments = result.Attachments
 		}
 
-		_, err = ctx.Reply(msg)
+		ctx.Reply(msg)
 		return err
 	}
 	return nil

@@ -386,8 +386,8 @@ func (p *Plugin) handleReset(ctx *eventctx.Context, args *command.Args) error {
 }
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
-	_, err := ctx.Reply(platform.TextMessage(content))
-	return err
+	ctx.Reply(platform.TextMessage(content))
+		return nil
 }
 
 // ---- Public API (also useful for tests and other plugins) ------------------

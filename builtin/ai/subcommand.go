@@ -35,12 +35,14 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 	switch subCmd {
 	case "reset":
 		p.sm.Delete(sessionID)
-		return ctx.ReplyText("✅ 对话历史已清空，开始全新的对话吧！")
+		ctx.ReplyText("✅ 对话历史已清空，开始全新的对话吧！")
+		return nil
 
 	case "undo":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			return ctx.ReplyText("没有可以撤销的对话")
+			ctx.ReplyText("没有可以撤销的对话")
+		return nil
 		}
 		lastUserIdx := -1
 		for i := len(session.Messages) - 1; i >= 0; i-- {
@@ -50,18 +52,21 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			}
 		}
 		if lastUserIdx <= 0 {
-			return ctx.ReplyText("没有可以撤销的对话")
+			ctx.ReplyText("没有可以撤销的对话")
+		return nil
 		}
 		session.Lock()
 		session.Messages = session.Messages[:lastUserIdx]
 		p.sm.saveNoLock(session)
 		session.Unlock()
-		return ctx.ReplyText("↩️ 已撤销上一条对话")
+		ctx.ReplyText("↩️ 已撤销上一条对话")
+		return nil
 
 	case "retry":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			return ctx.ReplyText("没有可以重试的对话")
+			ctx.ReplyText("没有可以重试的对话")
+		return nil
 		}
 		lastAssistantIdx := -1
 		for i := len(session.Messages) - 1; i >= 0; i-- {
@@ -71,7 +76,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			}
 		}
 		if lastAssistantIdx < 0 {
-			return ctx.ReplyText("没有可以重试的对话")
+			ctx.ReplyText("没有可以重试的对话")
+		return nil
 		}
 		session.Lock()
 		session.Messages = session.Messages[:lastAssistantIdx]
@@ -80,7 +86,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 		result, err := p.processWithTools(ctx, session)
 		if err != nil {
-			return ctx.ReplyText(formatAIError(err))
+			ctx.ReplyText(formatAIError(err))
+		return nil
 		}
 		if result.Text != "" || len(result.Attachments) > 0 {
 			msg := platform.OutboundMessage{}
@@ -92,25 +99,28 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			if len(result.Attachments) > 0 {
 				msg.Attachments = result.Attachments
 			}
-			_, err = ctx.Reply(msg)
-			return err
+			ctx.Reply(msg)
+			return nil
 		}
 		return nil
 
 	case "summary":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			return ctx.ReplyText("还没有任何对话内容可以总结")
+			ctx.ReplyText("还没有任何对话内容可以总结")
+		return nil
 		}
 		msgsSnapshot := make([]Message, len(session.Messages))
 		copy(msgsSnapshot, session.Messages)
 		go p.doSummary(ctx, msgsSnapshot)
-		return ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
+		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
+		return nil
 
 	case "status":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			return ctx.ReplyText("当前没有活跃的对话")
+			ctx.ReplyText("当前没有活跃的对话")
+		return nil
 		}
 		msgCount := len(session.Messages)
 		sysCount := 0
@@ -127,12 +137,14 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "  - 消息数：`%d`（含 %d 条系统提示）\n", msgCount, sysCount)
 		fmt.Fprintf(&b, "  - 对话时长：`%s`\n", formatDuration(duration))
 		fmt.Fprintf(&b, "  - 会话 ID：`%s`\n", sessionID)
-		return ctx.ReplyText(b.String())
+		ctx.ReplyText(b.String())
+		return nil
 
 	case "stats":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
 		if session == nil || len(session.Messages) <= 1 {
-			return ctx.ReplyText("当前没有活跃的对话")
+			ctx.ReplyText("当前没有活跃的对话")
+		return nil
 		}
 		session.Lock()
 		callCount := session.CallCount
@@ -142,7 +154,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		b.WriteString("📈 **使用统计**\n\n")
 		fmt.Fprintf(&b, "  - LLM 调用次数：`%d`\n", callCount)
 		fmt.Fprintf(&b, "  - 工具调用次数：`%d`\n", toolCount)
-		return ctx.ReplyText(b.String())
+		ctx.ReplyText(b.String())
+		return nil
 
 	case "tools", "help":
 		var b strings.Builder
@@ -172,7 +185,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s skill` — 管理自定义技能", p.cfg.TriggerCmd)
-		return ctx.ReplyText(b.String())
+		ctx.ReplyText(b.String())
+		return nil
 
 	case "skill":
 		return p.handleSkillCommand(ctx)
@@ -267,14 +281,9 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 	if resp.Content != "" {
 		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
 		if p.cfg.Markdown {
-			_, e := newCtx.Reply(platform.MarkdownMessage(resp.Content))
-			if e != nil {
-				logger.Errorf("doSummary reply error: %v", e)
-			}
+			newCtx.Reply(platform.MarkdownMessage(resp.Content))
 		} else {
-			if e := newCtx.ReplyText("📋 **对话总结**\n\n" + resp.Content); e != nil {
-				logger.Errorf("doSummary reply error: %v", e)
-			}
+			newCtx.ReplyText("📋 **对话总结**\n\n" + resp.Content)
 		}
 	}
 }
@@ -316,7 +325,7 @@ func (p *Plugin) handleSkillCommand(ctx *eventctx.Context) error {
 	case "info":
 		return p.handleSkillInfo(ctx, rest, ownerID)
 	default:
-		return ctx.ReplyText(
+		ctx.ReplyText(
 			"📋 **Skill 管理命令**\n\n" +
 				fmt.Sprintf("  `%s skill add <名称>` — 注册新技能（发送 Markdown 内容或附件）\n", p.cfg.TriggerCmd) +
 				fmt.Sprintf("  `%s skill list` — 列出我的技能\n", p.cfg.TriggerCmd) +
@@ -325,6 +334,7 @@ func (p *Plugin) handleSkillCommand(ctx *eventctx.Context) error {
 				fmt.Sprintf("  `%s skill info <名称>` — 查看技能详情\n", p.cfg.TriggerCmd) +
 				fmt.Sprintf("  `%s skill promote <名称>` — 提升为系统技能\n", p.cfg.TriggerCmd),
 		)
+		return nil
 	}
 }
 
@@ -340,7 +350,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 	// 支持换行分隔场景如 "/ai skill add my_skill\nmarkdown 正文"
 	fields := strings.Fields(rest)
 	if len(fields) == 0 {
-		return ctx.ReplyText("❌ 请指定技能名称。用法：`" + p.cfg.TriggerCmd + " skill add <名称> <Markdown 内容>`\n" +
+		ctx.ReplyText("❌ 请指定技能名称。用法：`" + p.cfg.TriggerCmd + " skill add <名称> <Markdown 内容>`\n" +
 			"支持两种方式：\n" +
 			"  1. `" + p.cfg.TriggerCmd + ` skill add my_skill 你是...` + "` — 一次性内联注册\n" +
 			"  2. `" + p.cfg.TriggerCmd + " skill add my_skill` — 仅指定名称，然后发送 Markdown 内容或 .md 附件")
@@ -369,9 +379,11 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 		sessionID := makeSkillAddSessionID(ctx)
 		if err := p.fsmEngine.StartSession(ctx, "skill_add", sessionID); err != nil {
 			if err.Error() == fmt.Sprintf("fsm: session %q already exists for FSM %q", sessionID, "skill_add") {
-				return ctx.ReplyText("❌ 你已有一个待完成的技能注册，请先发送内容或发送 cancel 取消。")
+				ctx.ReplyText("❌ 你已有一个待完成的技能注册，请先发送内容或发送 cancel 取消。")
+		return nil
 			}
-			return ctx.ReplyText("❌ 无法创建技能注册会话：" + err.Error())
+			ctx.ReplyText("❌ 无法创建技能注册会话：" + err.Error())
+		return nil
 		}
 		// GetSession 配合内存 Storage 返回的是存储中的指针，修改 Data 即时生效。
 		// 切换为持久化 Storage 时需改为显式 StartSession + Save 模式。
@@ -379,7 +391,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 			sess.Data["name"] = name
 			sess.Data["ownerID"] = ownerID
 		}
-		return ctx.ReplyText(fmt.Sprintf(
+		ctx.ReplyText(fmt.Sprintf(
 			"📝 请发送 Markdown 内容来定义技能 `%s`。\n"+
 				"支持文本消息或 .md 文件附件。\n"+
 				"发送 cancel 或 取消 可放弃注册。", name))
@@ -398,17 +410,20 @@ func (p *Plugin) registerSkillAndReply(ctx *eventctx.Context, name, prompt, owne
 		Enabled:     true,
 	}
 	if err := p.RegisterUserSkill(skill, ownerID); err != nil {
-		return ctx.ReplyText("❌ " + err.Error())
+		ctx.ReplyText("❌ " + err.Error())
+		return nil
 	}
-	return ctx.ReplyText(fmt.Sprintf("✅ 技能 `%s%s` 已注册！现在可以在对话中指示 AI 调用它。\n> %s",
+	ctx.ReplyText(fmt.Sprintf("✅ 技能 `%s%s` 已注册！现在可以在对话中指示 AI 调用它。\n> %s",
 		UserSkillPrefix, name, desc))
+	return nil
 }
 
 // handleSkillList 列出当前用户的所有技能及其状态和调用次数。
 func (p *Plugin) handleSkillList(ctx *eventctx.Context, ownerID string) error {
 	skills := p.skillReg.ListByOwner(ownerID)
 	if len(skills) == 0 {
-		return ctx.ReplyText("📭 你还没有注册任何自定义技能。\n使用 `" + p.cfg.TriggerCmd + " skill add <名称> <Markdown 内容>` 开始创建。")
+		ctx.ReplyText("📭 你还没有注册任何自定义技能。\n使用 `" + p.cfg.TriggerCmd + " skill add <名称> <Markdown 内容>` 开始创建。")
+		return nil
 	}
 
 	var b strings.Builder
@@ -420,13 +435,15 @@ func (p *Plugin) handleSkillList(ctx *eventctx.Context, ownerID string) error {
 		}
 		fmt.Fprintf(&b, "  - **%s**：%s 调用 %d 次 — %s\n", s.Name, s.Description, s.UsageCount, status)
 	}
-	return ctx.ReplyText(b.String())
+	ctx.ReplyText(b.String())
+		return nil
 }
 
 // handleSkillRemove 删除指定技能。支持带或不带 u_ 前缀的名称。
 func (p *Plugin) handleSkillRemove(ctx *eventctx.Context, name, ownerID string) error {
 	if name == "" {
-		return ctx.ReplyText("❌ 请指定要删除的技能名称。")
+		ctx.ReplyText("❌ 请指定要删除的技能名称。")
+		return nil
 	}
 
 	fullName := name
@@ -437,18 +454,22 @@ func (p *Plugin) handleSkillRemove(ctx *eventctx.Context, name, ownerID string) 
 	if err := p.skillReg.Remove(fullName, ownerID); err != nil {
 		if !strings.HasPrefix(name, UserSkillPrefix) {
 			if err2 := p.skillReg.Remove(name, ownerID); err2 == nil {
-				return ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", name))
+				ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", name))
+		return nil
 			}
 		}
-		return ctx.ReplyText("❌ " + err.Error())
+		ctx.ReplyText("❌ " + err.Error())
+		return nil
 	}
-	return ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", fullName))
+	ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", fullName))
+		return nil
 }
 
 // handleSkillToggle 启用或禁用指定技能。
 func (p *Plugin) handleSkillToggle(ctx *eventctx.Context, name, ownerID string, enabled bool) error {
 	if name == "" {
-		return ctx.ReplyText("❌ 请指定技能名称。")
+		ctx.ReplyText("❌ 请指定技能名称。")
+		return nil
 	}
 
 	fullName := name
@@ -462,11 +483,13 @@ func (p *Plugin) handleSkillToggle(ctx *eventctx.Context, name, ownerID string, 
 			s, ok = p.skillReg.Get(name)
 		}
 		if !ok {
-			return ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+			ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+		return nil
 		}
 	}
 	if s.OwnerID != ownerID {
-		return ctx.ReplyText("❌ 无权修改此技能")
+		ctx.ReplyText("❌ 无权修改此技能")
+		return nil
 	}
 
 	s.Enabled = enabled
@@ -476,7 +499,8 @@ func (p *Plugin) handleSkillToggle(ctx *eventctx.Context, name, ownerID string, 
 	if !enabled {
 		action = "已禁用"
 	}
-	return ctx.ReplyText(fmt.Sprintf("✅ 技能 `%s` %s。", s.Name, action))
+	ctx.ReplyText(fmt.Sprintf("✅ 技能 `%s` %s。", s.Name, action))
+		return nil
 }
 
 // isAdmin 检查当前用户是否具有管理员/超级管理员权限。
@@ -499,11 +523,13 @@ func (p *Plugin) isAdmin(ctx *eventctx.Context) bool {
 // 提升后所有用户均可见可调用。需要管理员权限。
 func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string) error {
 	if name == "" {
-		return ctx.ReplyText("❌ 请指定要提升的技能名称。")
+		ctx.ReplyText("❌ 请指定要提升的技能名称。")
+		return nil
 	}
 
 	if !p.isAdmin(ctx) {
-		return ctx.ReplyText("❌ 仅管理员可以提升技能为系统级。")
+		ctx.ReplyText("❌ 仅管理员可以提升技能为系统级。")
+		return nil
 	}
 
 	fullName := name
@@ -512,20 +538,23 @@ func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string)
 	}
 
 	if err := p.skillReg.Promote(fullName, ownerID); err != nil {
-		return ctx.ReplyText("❌ " + err.Error())
+		ctx.ReplyText("❌ " + err.Error())
+		return nil
 	}
 
 	if s, ok := p.skillReg.Get(name); ok {
 		p.registerSkillAsTool(s)
 	}
 
-	return ctx.ReplyText(fmt.Sprintf("⬆️ 技能 `%s` 已提升为系统级，所有用户均可使用。", name))
+	ctx.ReplyText(fmt.Sprintf("⬆️ 技能 `%s` 已提升为系统级，所有用户均可使用。", name))
+		return nil
 }
 
 // handleSkillInfo 查看技能详情，包括所有者、描述、状态、调用次数和 Prompt 预览。
 func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) error {
 	if name == "" {
-		return ctx.ReplyText("❌ 请指定技能名称。")
+		ctx.ReplyText("❌ 请指定技能名称。")
+		return nil
 	}
 
 	s, ok := p.skillReg.Get(name)
@@ -534,10 +563,12 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 		s, ok = p.skillReg.Get(fullName)
 	}
 	if !ok {
-		return ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+		ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+		return nil
 	}
 	if s.OwnerID != OwnerSystem && s.OwnerID != ownerID {
-		return ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+		ctx.ReplyText("❌ 未找到技能 `" + name + "`")
+		return nil
 	}
 
 	ownerLabel := "系统"
@@ -565,7 +596,8 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 	b.WriteString("**Prompt 预览：**\n")
 	b.WriteString("```\n" + preview + "\n```")
 
-	return ctx.ReplyText(b.String())
+	ctx.ReplyText(b.String())
+		return nil
 }
 
 // extractSkillDescription 从 Prompt 中提取第一行作为技能描述。

@@ -883,10 +883,8 @@ func (p *Plugin) sendMessage(ctx *eventctx.Context, content string, forceText bo
 						MimeType: "image/png",
 					}},
 				}
-				if _, sendErr := ctx.Reply(msg); sendErr == nil {
-					return nil
-				}
-				logger.Warnf("[help] cached image send failed, falling back to text")
+				ctx.Reply(msg) // 异步发送，不再检查同步错误
+				return nil
 			}
 		}
 
@@ -904,15 +902,12 @@ func (p *Plugin) sendMessage(ctx *eventctx.Context, content string, forceText bo
 					MimeType: "image/png",
 				}},
 			}
-			if _, sendErr := ctx.Reply(msg); sendErr == nil {
-				return nil
-			}
-			// 图片发送失败，降级为文字
-			logger.Warnf("[help] image send failed, falling back to text")
+			ctx.Reply(msg) // 异步发送，不再检查同步错误
+			return nil
 		} else {
 			logger.Debugf("[help] image render failed (%v), using text fallback", renderErr)
 		}
 	}
-	_, err := ctx.Reply(platform.TextMessage(content))
-	return err
+	ctx.Reply(platform.TextMessage(content))
+	return nil
 }
