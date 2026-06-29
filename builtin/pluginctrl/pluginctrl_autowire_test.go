@@ -122,6 +122,7 @@ func TestAutoWire_NormalLoad_GuardFiredOnce(t *testing.T) {
 
 	cs := &countingSender{}
 	eng.ProcessEvent(newAWGroupEvent("group1", cs))
+	eng.WaitForDispatcher()
 
 	assert.Equal(t, 1, cs.calls(),
 		"combinedGuard must fire exactly once on a first load")
@@ -156,6 +157,7 @@ func TestAutoWire_UnloadReregister_NoDoubleGuard(t *testing.T) {
 
 	cs := &countingSender{}
 	eng.ProcessEvent(newAWGroupEvent("group1", cs))
+	eng.WaitForDispatcher()
 	assert.Equal(t, 1, cs.calls(), "first load: guard must fire exactly once")
 
 	// ── Unload ────────────────────────────────────────────────────────────────
@@ -169,6 +171,7 @@ func TestAutoWire_UnloadReregister_NoDoubleGuard(t *testing.T) {
 
 	cs.reset()
 	eng.ProcessEvent(newAWGroupEvent("group1", cs))
+	eng.WaitForDispatcher()
 
 	// Without the fix: cs.calls() == 2  (double guard)
 	// With  the fix:  cs.calls() == 1
@@ -199,6 +202,7 @@ func TestAutoWire_MultipleReloadCycles_GuardAlwaysOnce(t *testing.T) {
 
 		cs := &countingSender{}
 		eng.ProcessEvent(newAWGroupEvent("group1", cs))
+		eng.WaitForDispatcher()
 		assert.Equal(t, 1, cs.calls(),
 			"cycle %d: combinedGuard must fire exactly once", i)
 
@@ -227,6 +231,7 @@ func TestAutoWire_PhantomEntry_AbsentAfterUnload(t *testing.T) {
 	// No weather matchers exist → the guard never applies → 0 replies
 	cs := &countingSender{}
 	eng.ProcessEvent(newAWGroupEvent("group1", cs))
+	eng.WaitForDispatcher()
 
 	assert.Equal(t, 0, cs.calls(),
 		"after unload there are no weather matchers; no guard should fire")

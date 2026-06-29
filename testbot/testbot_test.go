@@ -50,6 +50,7 @@ func TestBot_SendGroupAt_AssertReplied(t *testing.T) {
 		t.Fatal(err)
 	}
 	tb.SendPlatformGroupAt("user1", "group1", "/echo hello")
+	tb.WaitForDispatcher()
 	tb.AssertPlatformReplied(t, "/echo hello")
 }
 func TestBot_SendC2C(t *testing.T) {
@@ -62,6 +63,7 @@ func TestBot_SendC2C(t *testing.T) {
 		t.Fatal(err)
 	}
 	tb.SendPlatformC2C("user42", "/ping")
+	tb.WaitForDispatcher()
 	tb.AssertPlatformReplied(t, "pong")
 }
 func TestBot_AssertNotReplied(t *testing.T) {
@@ -86,6 +88,7 @@ func TestBot_AssertSentCount(t *testing.T) {
 	}
 	tb.SendPlatformGroupAt("u1", "g1", "ping")
 	tb.SendPlatformGroupAt("u1", "g1", "ping")
+	tb.WaitForDispatcher()
 	if got := len(tb.SenderAPI().Sent()); got != 2 {
 		t.Errorf("expected 2 sent messages, got %d", got)
 	}

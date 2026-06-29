@@ -349,6 +349,10 @@ func (b *Bot) UseEngineManager() *Bot {
 // Engine returns the underlying event engine.
 func (b *Bot) Engine() *engine.Engine { return b.eng }
 
+// WaitForDispatcher 等待 Dispatcher 中的所有发送任务完成。
+// 由于 Reply 现在是异步的，测试必须在检查发送结果前调用此方法。
+func (b *Bot) WaitForDispatcher() { b.eng.WaitForDispatcher() }
+
 // Manager returns the plugin manager.
 func (b *Bot) Manager() *plugin.Manager { return b.mgr }
 
