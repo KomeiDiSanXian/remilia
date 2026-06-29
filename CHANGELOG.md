@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased]
+
+## v1.18.0 (2026-06-30)
+
+### 🚀 新特性
+
+- **OutboundDispatcher**: 新增出站任务调度器，`ctx.Reply()` 现在返回 `*future.Future[platform.SendResult]`，提交即返回，发送在后台执行。
+  - 同一 Chat 消息严格 FIFO，不同 Chat 并发发送
+  - 不阻塞 Handler goroutine（ExecPool 与 SendPool 解耦）
+  - 支持三种 Shutdown 语义：Close / Drain / ForceClose
+  - 支持 Retry、Timeout、Metrics、Logging 装饰器（sender.Chain）
+  - DispatcherHooks 提供完整的发送生命周期观察
+
+- **infra/future**: 新增泛型 Future 类型
+  - `Wait(ctx)` / `Result()` / `IsDone()` / `MustWait(ctx)` / `Done()`
+  - `sync.Once` 保护，多次 Resolve 安全
+  - 零额外 GC 压力
+
+### 🧾 Reply 语义变更
+
+`ctx.Reply()` 由同步发送改为异步提交：
+
+之前：
+```go
+res, err := ctx.Reply(msg)  // 阻塞直到发送完成
+```
+
+之后：
+```go
+ctx.Reply(msg)               // 提交即返回，发送在后台
+
+// 仍可等待结果：
+future := ctx.Reply(msg)
+res, err := future.Wait(ctx)
+```
+
+**兼容性**: Go 允许忽略返回值，所有 `ctx.Reply(msg)` 调用零修改编译通过。
+
+完整设计文档：[docs/05-performance/OUTBOUND_DISPATCHER_PLAN.md](docs/05-performance/OUTBOUND_DISPATCHER_PLAN.md)
+
 ## v1.17.1 (2026-06-29)
 
 ### 🔧 修复

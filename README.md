@@ -33,6 +33,7 @@
 - **Adaptive Router** — 策略路由层，优先级驱动的 FSM / Engine 事件分发
 - **6 路合并 Matcher** — commandIndex O(1) 命令路由 + 6 路优先级排序合并
 - **中间件链** — 洋葱模型，限流 / 熔断 / 降级 / 重试 / 去重 / 超时，支持热更新阈值
+- **出站调度器** — 异步发送，按 Chat 严格 FIFO，跨 Chat 并发，不阻塞 Handler goroutine
 - **配置热更新** — YAML + 环境变量，fsnotify 监听，Bridge 推模式实时推送
 
 ### 🛡️ 可靠性保障
@@ -84,7 +85,8 @@ func main() {
 
     eng.OnCommand(platform.EventKindGroupMessage, "/echo").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(platform.TextMessage("你说: " + ctx.GetMessageContent()))
+            ctx.Reply(platform.TextMessage("你说: " + ctx.GetMessageContent()))
+            return nil
         })
 
     botInfo := &dto.BotInfo{
@@ -152,7 +154,8 @@ func New() *plugin.Descriptor {
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").
                 Handle(func(c *eventctx.Context) error {
-                    return c.Reply(platform.TextMessage("Hello from plugin!"))
+                    c.Reply(platform.TextMessage("Hello from plugin!"))
+                    return nil
                 })
             return nil, nil
         },
@@ -296,6 +299,13 @@ manager.Register(myplugin.New())
 - **热更新**: Bridge 推送配置变更
 - **完整集合**: Recover / Logging / RateLimit / CircuitBreaker / Retry / Dedup / Degradation / Timeout / RequestID / ConcurrencyLimit
 
+#### 6. 出站调度器（Send Dispatcher）
+- **异步发送**: `ctx.Reply()` 返回 Future，提交即返回，发送在后台执行
+- **按 Chat 保证顺序**: 同一会话的消息严格 FIFO，不同会话并发发送
+- **双池隔离**: ExecPool 处理 Handler，SendPool 处理 HTTP 调用，互不阻塞
+- **Future 可选等待**: `future.Wait(ctx)` 获取结果，忽略则异步发送
+- **SenderDecorator**: Retry / Timeout / Metrics / Logging 装饰器，可链式组合
+
 ---
 
 ## 📊 性能
@@ -307,6 +317,8 @@ manager.Register(myplugin.New())
 | Engine ProcessEvent（micro） | ~285 ns/op | 引擎分发热路径 |
 | 命令解析 | ~1,250 ns/op | 双索引 O(1) 路由 |
 | Context Get/Set | 0 allocs/op | 免 GC 上下文访问 |
+| Future 分配 | ~240 ns/op, 0 allocs | 轻量 Future，零 GC 压力 |
+| Dispatcher 队列注入 | ~500 ns/op | RingBuffer + 原子操作 |
 | 堆内存（50K msg/s）| ~12-17 MB | 极低内存占用 |
 
 > 端到端压测使用 `examples/benchmark/throughput_bench.go`（已修复 drain、延迟测量等设计问题）
