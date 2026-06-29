@@ -130,12 +130,12 @@ func (p *mcPlugin) handleMC(ctx *eventctx.Context) error {
 	}
 
 	if err != nil {
-		ctx.ReplyText(fmt.Sprintf("⛏ 服务器 %s 无法连接: %v", host, err); return nil)
+		ctx.ReplyText(fmt.Sprintf("⛏ 服务器 %s 无法连接: %v", host, err)); return nil
 	}
 
 	png, imgErr := renderMCCard(status)
 	if imgErr != nil {
-		ctx.ReplyText(formatMCText(status); return nil)
+		ctx.ReplyText(formatMCText(status)); return nil
 	}
 
 	if ctx.Reply(platform.ImageDataMessage(png, "mc_status.png", "image/png")); err != nil {

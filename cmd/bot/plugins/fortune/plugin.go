@@ -127,14 +127,14 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 
 	png, renderErr := renderOmikujiCard(slip, bgImg)
 	if renderErr != nil {
-		ctx.ReplyText(formatOmikujiText(slip); return nil)
+		ctx.ReplyText(formatOmikujiText(slip)); return nil
 	}
 
 	if ctx.Reply(platform.ImageDataMessage(png, "omikuji.png", "image/png")); err != nil {
 		return err
 	}
 
-	ctx.ReplyText(formatOmikujiText(slip); return nil)
+	ctx.ReplyText(formatOmikujiText(slip)); return nil
 }
 
 // handleTarot 处理 /tarot 命令。
@@ -161,14 +161,14 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 
 		png, renderErr := renderTarotCard(&reading, cardImg)
 		if renderErr != nil {
-			ctx.ReplyText(formatTarotText(readings[i : i+1]); return nil)
+			ctx.ReplyText(formatTarotText(readings[i : i+1])); return nil
 			continue
 		}
 
 		ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("tarot_%d.png", i), "image/png"))
 	}
 
-	ctx.ReplyText(formatTarotText(readings); return nil)
+	ctx.ReplyText(formatTarotText(readings)); return nil
 }
 
 // ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。

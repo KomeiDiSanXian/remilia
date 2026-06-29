@@ -115,7 +115,7 @@ func (p *Plugin) handleHiddenRoll(ctx *eventctx.Context) error {
 func (p *Plugin) replyRoll(ctx *eventctx.Context, expr string, hidden bool) error {
 	result, err := p.svc.Roll(expr)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("掷骰失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("掷骰失败: %v", err)); return nil
 	}
 
 	prefix := "🎲 "

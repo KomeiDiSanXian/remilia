@@ -158,12 +158,12 @@ func (p *Plugin) handleIss(ctx *eventctx.Context) error {
 		trend := computeTrend(history)
 		png, err := renderCard(r.pos, r.astros, r.count, history, trend)
 		if err != nil {
-			ctx.ReplyText(formatISSText(r.pos, r.astros, r.count, trend); return nil)
+			ctx.ReplyText(formatISSText(r.pos, r.astros, r.count, trend)); return nil
 		}
-		_, err = ctx.Reply(platform.ImageDataMessage(png, "iss.png", "image/png"))
+		ctx.Reply(platform.ImageDataMessage(png, "iss.png", "image/png"))
 		return err
 	case err := <-errCh:
-		ctx.ReplyError(fmt.Sprintf("ISS 数据获取失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("ISS 数据获取失败: %v", err)); return nil
 	case <-reqCtx.Done():
 		ctx.ReplyError("ISS 服务暂时不可用，请稍后再试"); return nil
 	}

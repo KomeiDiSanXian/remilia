@@ -145,15 +145,15 @@ func (p *Plugin) cmdCreate(ctx *eventctx.Context, userID, userName string, parse
 
 	_, err := p.sheet.GetCharacter(userID, name)
 	if err == nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 已存在", name); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 已存在", name)); return nil
 	}
 
 	c, err := p.sheet.CreateCharacter(userID, userName, name)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("创建失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("创建失败: %v", err)); return nil
 	}
 
-	ctx.ReplyText(fmt.Sprintf("✅ 角色 %q 创建成功！\n\n%s\n\n💡 使用 /dnd set <属性> <值> 设置属性\n使用 /dnd set class <职业> 和 /dnd set race <种族> 设置角色信息", name, FormatSheet(c); return nil))
+	ctx.ReplyText(fmt.Sprintf("✅ 角色 %q 创建成功！\n\n%s\n\n💡 使用 /dnd set <属性> <值> 设置属性\n使用 /dnd set class <职业> 和 /dnd set race <种族> 设置角色信息", name, FormatSheet(c))); return nil
 }
 
 // cmdDelete 处理 /dnd delete：删除角色。
@@ -163,9 +163,9 @@ func (p *Plugin) cmdDelete(ctx *eventctx.Context, userID string, parsed *command
 		ctx.ReplyError("用法: /dnd delete <角色名>"); return nil
 	}
 	if err := p.sheet.DeleteCharacter(userID, name); err != nil {
-		ctx.ReplyError(fmt.Sprintf("删除失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("删除失败: %v", err)); return nil
 	}
-	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已删除", name); return nil)
+	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已删除", name)); return nil
 }
 
 // cmdSheet 处理 /dnd sheet：查看角色卡。
@@ -181,16 +181,16 @@ func (p *Plugin) cmdSheet(ctx *eventctx.Context, userID string, parsed *command.
 
 	c, err := p.sheet.GetCharacter(userID, name)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", name); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", name)); return nil
 	}
-	ctx.ReplyText(FormatSheet(c); return nil)
+	ctx.ReplyText(FormatSheet(c)); return nil
 }
 
 // cmdList 处理 /dnd list：列出用户所有角色。
 func (p *Plugin) cmdList(ctx *eventctx.Context, userID string) error {
 	chars, err := p.sheet.GetCharacters(userID)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err)); return nil
 	}
 	if len(chars) == 0 {
 		ctx.ReplyText("你还没有角色，使用 /dnd create <角色名> 创建"); return nil
@@ -206,7 +206,7 @@ func (p *Plugin) cmdList(ctx *eventctx.Context, userID string) error {
 		}
 		names = append(names, fmt.Sprintf("  Lv.%d %s (HP: %d/%d AC: %d)%s", c.Level, c.Name, c.CurrentHP, c.MaxHP, c.AC, status))
 	}
-	ctx.ReplyText("你的角色:\n" + strings.Join(names, "\n"); return nil)
+	ctx.ReplyText("你的角色:\n" + strings.Join(names, "\n")); return nil
 }
 
 // cmdSet 处理 /dnd set：设置角色属性（STR/DEX/CON/INT/WIS/CHA、等级、HP、AC 等）。
@@ -228,7 +228,7 @@ func (p *Plugin) cmdSet(ctx *eventctx.Context, userID string, parsed *command.Ar
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	switch field {
@@ -288,13 +288,13 @@ func (p *Plugin) cmdSet(ctx *eventctx.Context, userID string, parsed *command.Ar
 		}
 		c.CurrentHP = val
 	default:
-		ctx.ReplyError(fmt.Sprintf("未知属性 %q，可用: STR/DEX/CON/INT/WIS/CHA, CLASS, RACE, LEVEL, HP, AC", field); return nil)
+		ctx.ReplyError(fmt.Sprintf("未知属性 %q，可用: STR/DEX/CON/INT/WIS/CHA, CLASS, RACE, LEVEL, HP, AC", field)); return nil
 	}
 
 	if err := p.sheet.UpdateCharacter(c); err != nil {
-		ctx.ReplyError(fmt.Sprintf("保存失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("保存失败: %v", err)); return nil
 	}
-	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已更新", charName); return nil)
+	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已更新", charName)); return nil
 }
 
 // handleCheck 处理 /check 命令：属性检定（支持优势/劣势）。
@@ -319,17 +319,17 @@ func (p *Plugin) handleCheck(ctx *eventctx.Context) error {
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	mod := GetModifier(c, abbr)
 	r, err := AbilityCheck(p.dice, mod, advantage)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "属性检定", fmt.Sprintf("%s %+d", abbr, mod), r.Raw, fmt.Sprintf("D20=%d", r.Roll))
-	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, abbr, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, abbr, r.Raw)); return nil
 }
 
 // handleSave 处理 /save 命令：豁免检定（支持优势/劣势和熟练加值）。
@@ -354,7 +354,7 @@ func (p *Plugin) handleSave(ctx *eventctx.Context) error {
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	mod := GetModifier(c, abbr)
@@ -364,11 +364,11 @@ func (p *Plugin) handleSave(ctx *eventctx.Context) error {
 
 	r, err := SavingThrow(p.dice, mod, advantage)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("豁免检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("豁免检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "豁免检定", fmt.Sprintf("%s %+d", abbr, mod), r.Raw, fmt.Sprintf("D20=%d", r.Roll))
-	ctx.ReplyText(fmt.Sprintf("🛡️ %s %s豁免:\n%s", charName, abbr, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🛡️ %s %s豁免:\n%s", charName, abbr, r.Raw)); return nil
 }
 
 // handleSkill 处理 /skill 命令：技能检定（自动计算熟练加值）。
@@ -393,16 +393,16 @@ func (p *Plugin) handleSkill(ctx *eventctx.Context) error {
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	r, err := SkillCheck(p.dice, c, skill, advantage)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("技能检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("技能检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "技能检定", skill, r.Raw, fmt.Sprintf("D20=%d", r.Roll))
-	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, skill, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, skill, r.Raw)); return nil
 }
 
 // handleInit 处理 /init 命令：先攻检定（D20 + 敏捷调整值）。
@@ -413,14 +413,14 @@ func (p *Plugin) handleInit(ctx *eventctx.Context) error {
 		userID := ctx.GetSenderID()
 		c, err := p.sheet.GetCharacter(userID, charName)
 		if err != nil {
-			ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+			ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 		}
 		mod := GetModifier(c, "DEX")
 		r, err := Initiative(p.dice, mod)
 		if err != nil {
-			ctx.ReplyError(fmt.Sprintf("先攻检定失败: %v", err); return nil)
+			ctx.ReplyError(fmt.Sprintf("先攻检定失败: %v", err)); return nil
 		}
-		ctx.ReplyText(fmt.Sprintf("⚔️ %s 先攻:\n%s", charName, r.Raw); return nil)
+		ctx.ReplyText(fmt.Sprintf("⚔️ %s 先攻:\n%s", charName, r.Raw)); return nil
 	}
 
 	userID := ctx.GetSenderID()
@@ -433,9 +433,9 @@ func (p *Plugin) handleInit(ctx *eventctx.Context) error {
 	mod := GetModifier(c, "DEX")
 	r, err := Initiative(p.dice, mod)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("先攻检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("先攻检定失败: %v", err)); return nil
 	}
-	ctx.ReplyText(fmt.Sprintf("⚔️ %s 先攻:\n%s", c.Name, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("⚔️ %s 先攻:\n%s", c.Name, r.Raw)); return nil
 }
 
 // parseAdvantage 从命令参数中解析优势/劣势状态。

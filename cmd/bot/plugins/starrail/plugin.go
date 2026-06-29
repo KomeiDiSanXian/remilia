@@ -97,12 +97,12 @@ func (p *hsrPlugin) handleHSR(ctx *eventctx.Context) error {
 func (p *hsrPlugin) showcase(ctx *eventctx.Context, uid string) error {
 	showcase, err := FetchShowcase(ctx.Context(), uid)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err)); return nil
 	}
 
 	png, imgErr := renderHSRShowcase(showcase)
 	if imgErr != nil {
-		ctx.ReplyText(formatHSRText(showcase); return nil)
+		ctx.ReplyText(formatHSRText(showcase)); return nil
 	}
 
 	if ctx.Reply(platform.ImageDataMessage(png, "starrail.png", "image/png")); err != nil {

@@ -108,16 +108,16 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 		keyword := strings.Join(parsed.Positional[1:], " ")
 		results, _, err := p.client.SearchUser(reqCtx, keyword, 1)
 		if err != nil {
-			ctx.ReplyText(fmt.Sprintf("[B站] 搜索失败: %v", err); return nil)
+			ctx.ReplyText(fmt.Sprintf("[B站] 搜索失败: %v", err)); return nil
 		}
 		if len(results) == 0 {
-			ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的用户", keyword); return nil)
+			ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的用户", keyword)); return nil
 		}
 		png, imgErr := renderUserSearchResults(results, keyword)
 		if imgErr != nil {
-			ctx.ReplyText(formatSearchUserText(results); return nil)
+			ctx.ReplyText(formatSearchUserText(results)); return nil
 		}
-		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_search.png", "image/png"))
+		ctx.Reply(platform.ImageDataMessage(png, "bilibili_search.png", "image/png"))
 		return err
 
 	case "user", "u":
@@ -127,7 +127,7 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 		input := parsed.Positional[1]
 		mid, resolvedName, err := p.client.ResolveUID(reqCtx, input)
 		if err != nil {
-			ctx.ReplyText(fmt.Sprintf("[B站] %v", err); return nil)
+			ctx.ReplyText(fmt.Sprintf("[B站] %v", err)); return nil
 		}
 		user, rel, err := p.client.FetchUserInfo(reqCtx, mid)
 		if err != nil {
@@ -135,9 +135,9 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 		}
 		png, imgErr := renderUserCard(user, rel)
 		if imgErr != nil {
-			ctx.ReplyText(formatBiliUserText(user, rel); return nil)
+			ctx.ReplyText(formatBiliUserText(user, rel)); return nil
 		}
-		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_user.png", "image/png"))
+		ctx.Reply(platform.ImageDataMessage(png, "bilibili_user.png", "image/png"))
 		return err
 
 	case "live", "l":
@@ -147,17 +147,17 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 		input := parsed.Positional[1]
 		mid, _, err := p.client.ResolveUID(reqCtx, input)
 		if err != nil {
-			ctx.ReplyText(fmt.Sprintf("[B站] %v", err); return nil)
+			ctx.ReplyText(fmt.Sprintf("[B站] %v", err)); return nil
 		}
 		live, err := p.client.FetchLiveInfo(reqCtx, mid)
 		if err != nil {
-			ctx.ReplyText(fmt.Sprintf("[B站] 查询直播状态失败: %v", err); return nil)
+			ctx.ReplyText(fmt.Sprintf("[B站] 查询直播状态失败: %v", err)); return nil
 		}
 		png, imgErr := renderLiveCard(live)
 		if imgErr != nil {
-			ctx.ReplyText(formatLiveText(live); return nil)
+			ctx.ReplyText(formatLiveText(live)); return nil
 		}
-		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_live.png", "image/png"))
+		ctx.Reply(platform.ImageDataMessage(png, "bilibili_live.png", "image/png"))
 		return err
 
 	default:

@@ -137,17 +137,18 @@ func (p *Plugin) cmdCreate(ctx *eventctx.Context, userID, userName string, parse
 
 	_, err := p.sheet.GetCharacter(userID, name)
 	if err == nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 已存在", name); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 已存在", name)); return nil
 	}
 
 	c, err := p.sheet.CreateCharacter(userID, userName, name, true)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("创建失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("创建失败: %v", err)); return nil
 	}
 
 	edu := c.EDU * 5
 	intel := c.INT * 5
-	ctx.ReplyText(fmt.Sprintf("✅ 角色 %q 创建成功！\n\n%s\n\n💡 使用 /coc skill <技能名> <值> 设置技能\n职业点数: %d  兴趣点数: %d", name, FormatSheet(c); return nil, edu, intel*2))
+	ctx.ReplyText(fmt.Sprintf("✅ 角色 %q 创建成功！\n\n%s\n\n💡 使用 /coc skill <技能名> <值> 设置技能\n职业点数: %d  兴趣点数: %d", name, FormatSheet(c), edu, intel*2))
+	return nil
 }
 
 // cmdDelete 处理 /coc delete：删除角色。
@@ -158,9 +159,9 @@ func (p *Plugin) cmdDelete(ctx *eventctx.Context, userID string, parsed *command
 	}
 
 	if err := p.sheet.DeleteCharacter(userID, name); err != nil {
-		ctx.ReplyError(fmt.Sprintf("删除失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("删除失败: %v", err)); return nil
 	}
-	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已删除", name); return nil)
+	ctx.ReplySuccess(fmt.Sprintf("角色 %q 已删除", name)); return nil
 }
 
 // cmdSheet 处理 /coc sheet：查看角色卡。
@@ -176,17 +177,17 @@ func (p *Plugin) cmdSheet(ctx *eventctx.Context, userID string, parsed *command.
 
 	c, err := p.sheet.GetCharacter(userID, name)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", name); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", name)); return nil
 	}
 
-	ctx.ReplyText(FormatSheet(c); return nil)
+	ctx.ReplyText(FormatSheet(c)); return nil
 }
 
 // cmdList 处理 /coc list：列出用户所有角色状态。
 func (p *Plugin) cmdList(ctx *eventctx.Context, userID string) error {
 	chars, err := p.sheet.GetCharacters(userID)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err)); return nil
 	}
 	if len(chars) == 0 {
 		ctx.ReplyText("你还没有角色，使用 /coc create <角色名> 创建"); return nil
@@ -202,7 +203,7 @@ func (p *Plugin) cmdList(ctx *eventctx.Context, userID string) error {
 		}
 		names = append(names, fmt.Sprintf("  %s (HP: %d/%d SAN: %d/%d)%s", c.Name, c.CurrentHP, c.HP, c.CurrentSAN, c.SAN, status))
 	}
-	ctx.ReplyText("你的角色:\n" + strings.Join(names, "\n"); return nil)
+	ctx.ReplyText("你的角色:\n" + strings.Join(names, "\n")); return nil
 }
 
 // cmdSkill 处理 /coc skill：设置角色技能值。
@@ -226,7 +227,7 @@ func (p *Plugin) cmdSkill(ctx *eventctx.Context, userID string, parsed *command.
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	skills := parseSkills(c.SkillsJSON)
@@ -237,10 +238,10 @@ func (p *Plugin) cmdSkill(ctx *eventctx.Context, userID string, parsed *command.
 	c.SkillsJSON = skillsToJSON(skills)
 
 	if err := p.sheet.UpdateCharacter(c); err != nil {
-		ctx.ReplyError(fmt.Sprintf("保存失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("保存失败: %v", err)); return nil
 	}
 
-	ctx.ReplySuccess(fmt.Sprintf("角色 %q 技能 %s 设为 %d%%", charName, skillName, skillVal); return nil)
+	ctx.ReplySuccess(fmt.Sprintf("角色 %q 技能 %s 设为 %d%%", charName, skillName, skillVal)); return nil
 }
 
 // cmdLuck 处理 /coc luck：幸运检定。
@@ -256,16 +257,16 @@ func (p *Plugin) cmdLuck(ctx *eventctx.Context, userID string, parsed *command.A
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	r, err := CheckSkill(p.dice, c.LUCK)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "幸运检定", fmt.Sprintf("幸运 %d%%", c.LUCK), r.Level, r.Raw)
-	ctx.ReplyText(fmt.Sprintf("🍀 %s 幸运检定:\n%s", charName, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🍀 %s 幸运检定:\n%s", charName, r.Raw)); return nil
 }
 
 // cmdPush 处理 /coc push：技能推骰。
@@ -286,21 +287,21 @@ func (p *Plugin) cmdPush(ctx *eventctx.Context, userID string, parsed *command.A
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	skillVal := GetSkillValue(c, skillName)
 	if skillVal == 0 {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 没有技能 %q", charName, skillName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 没有技能 %q", charName, skillName)); return nil
 	}
 
 	r, err := PushedRoll(p.dice, skillVal)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "推骰", fmt.Sprintf("%s %d%%", skillName, skillVal), r.Level, r.Raw)
-	ctx.ReplyText(fmt.Sprintf("🎲 %s 推骰 [%s]:\n%s", charName, skillName, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🎲 %s 推骰 [%s]:\n%s", charName, skillName, r.Raw)); return nil
 }
 
 // handleCC 处理 /cc 命令：简捷技能检定。
@@ -324,21 +325,21 @@ func (p *Plugin) handleCC(ctx *eventctx.Context) error {
 
 	c, err := p.sheet.GetCharacter(userID, charName)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 不存在", charName)); return nil
 	}
 
 	skillVal := GetSkillValue(c, skillName)
 	if skillVal == 0 {
-		ctx.ReplyError(fmt.Sprintf("角色 %q 没有技能 %q", charName, skillName); return nil)
+		ctx.ReplyError(fmt.Sprintf("角色 %q 没有技能 %q", charName, skillName)); return nil
 	}
 
 	r, err := CheckSkill(p.dice, skillVal)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("检定失败: %v", err)); return nil
 	}
 
 	p.sheet.SaveRecord(userID, charName, "技能检定", fmt.Sprintf("%s %d%%", skillName, skillVal), r.Level, r.Raw)
-	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, skillName, r.Raw); return nil)
+	ctx.ReplyText(fmt.Sprintf("🎲 %s %s检定:\n%s", charName, skillName, r.Raw)); return nil
 }
 
 // handleSC 处理 /sc 命令：SAN 理智检定。
@@ -367,7 +368,7 @@ func (p *Plugin) handleSC(ctx *eventctx.Context) error {
 
 	r, loss, resultText, err := SanCheck(p.dice, c.CurrentSAN, lossSuccess, lossFailure)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("SAN 检定失败: %v", err); return nil)
+		ctx.ReplyError(fmt.Sprintf("SAN 检定失败: %v", err)); return nil
 	}
 
 	c.CurrentSAN -= loss
@@ -380,7 +381,7 @@ func (p *Plugin) handleSC(ctx *eventctx.Context) error {
 		fmt.Sprintf("SAN %d/%d -> %d/%d", c.CurrentSAN+loss, c.SAN, c.CurrentSAN, c.SAN),
 		r.Level, r.Raw)
 
-	ctx.ReplyText(fmt.Sprintf("😱 %s SAN检定:\n%s\n%s", charName, r.Raw, resultText); return nil)
+	ctx.ReplyText(fmt.Sprintf("😱 %s SAN检定:\n%s\n%s", charName, r.Raw, resultText)); return nil
 }
 
 // ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。

@@ -197,10 +197,10 @@ func (p *Plugin) handleCSS(ctx *eventctx.Context) error {
 
 	png, err := renderCard(lat, lng, alt, vel, history, trend, oem)
 	if err != nil {
-		ctx.ReplyText(formatCSSText(lat, lng, alt, vel, trend, oem); return nil)
+		ctx.ReplyText(formatCSSText(lat, lng, alt, vel, trend, oem)); return nil
 	}
 
-	_, err = ctx.Reply(platform.ImageDataMessage(png, "css.png", "image/png"))
+	ctx.Reply(platform.ImageDataMessage(png, "css.png", "image/png"))
 	return err
 }
 
