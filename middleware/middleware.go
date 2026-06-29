@@ -19,16 +19,47 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// Logging 记录处理耗时与错误
+// Logging 记录处理耗时、事件类型及上下文信息（平台、用户、会话、请求链路 ID）。
+//
+// 相比 Metrics，Logging 输出更丰富的结构化字段，方便排查问题。
+// 错误时输出 Error 级别，成功时输出 Debug 级别。
+//
+// 使用示例:
+//
+//	engine.Use(middleware.Logging())
 func Logging() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			start := time.Now()
 			err := next(ctx)
-			entry := logger.WithError(err).WithFields(logger.Fields{
+
+			fields := logger.Fields{
 				"latency_ms": time.Since(start).Milliseconds(),
-				"type":       ctx.GetEventType(),
-			})
+				"event_type": ctx.GetEventType(),
+			}
+
+			if p := ctx.GetEventPlatform(); p != "" {
+				fields["platform"] = p
+			}
+			if s := ctx.GetSenderInfo(); s.ID != "" {
+				fields["user_id"] = s.ID
+				if s.DisplayName != "" && s.DisplayName != s.ID {
+					fields["user_name"] = s.DisplayName
+				}
+			}
+			if c := ctx.GetChatInfo(); c.ID != "" {
+				fields["chat_id"] = c.ID
+				if c.IsGroup {
+					fields["is_group"] = true
+				}
+			}
+			if ridRaw, ok := ctx.Get(ctxkeys.CtxKeyRequestID); ok {
+				if rid, ok2 := ridRaw.(string); ok2 && rid != "" {
+					fields["request_id"] = rid
+				}
+			}
+
+			entry := logger.WithError(err).WithFields(fields)
 			if err != nil {
 				entry.Error("handler execution failed")
 			} else {
