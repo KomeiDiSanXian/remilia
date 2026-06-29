@@ -159,14 +159,12 @@ func TestConcurrentResolveAndWait(t *testing.T) {
 	f := New[int]()
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			val, err := f.Wait(context.Background())
 			if err != nil || val != 100 {
 				t.Errorf("expected 100/nil, got %d/%v", val, err)
 			}
-		}()
+		})
 	}
 	time.Sleep(10 * time.Millisecond)
 	f.Resolve(100, nil)
@@ -178,13 +176,11 @@ func TestConcurrentResolveRace(t *testing.T) {
 	var count atomic.Int32
 	var wg sync.WaitGroup
 	for range 10 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if f.Resolve(1, nil) {
 				count.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if count.Load() != 1 {

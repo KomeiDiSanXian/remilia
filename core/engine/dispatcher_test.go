@@ -173,7 +173,7 @@ func TestQueueFull(t *testing.T) {
 	<-started
 
 	// Fill the queue (2 slots)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		err = d.Submit("chat_full", func(ctx context.Context) error {
 			return nil
 		})
@@ -214,7 +214,7 @@ func TestShutdownDrainsAllTasks(t *testing.T) {
 	})
 
 	var count atomic.Int32
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = d.Submit("chat_drain", func(ctx context.Context) error {
 			time.Sleep(10 * time.Millisecond)
 			count.Add(1)
@@ -250,7 +250,7 @@ func TestHooksOnStartOnDone(t *testing.T) {
 	})
 	defer d.Shutdown(context.Background())
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = d.Submit("chat_hooks", func(ctx context.Context) error {
 			return nil
 		})
@@ -311,7 +311,7 @@ func TestRingBuffer(t *testing.T) {
 	}
 
 	// Pop 3 items
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, ok := r.pop()
 		if !ok {
 			t.Fatalf("pop %d should succeed", i)
@@ -387,7 +387,7 @@ func TestConcurrentSubmitDifferentChats(t *testing.T) {
 	defer d.Shutdown(context.Background())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		wg.Add(1)
 		i := i
 		go func() {

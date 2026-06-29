@@ -44,7 +44,7 @@ func TestBot_SendGroupAt_AssertReplied(t *testing.T) {
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/echo")).Handle(func(ctx *context.Context) error {
 		content := ctx.GetMessageContent()
 		ctx.Reply(platform.TextMessage(content))
-		return err
+		return nil
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestBot_SendC2C(t *testing.T) {
 	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindPrivateMessage, context.OnCommand("/ping")).Handle(func(ctx *context.Context) error {
 		ctx.Reply(platform.TextMessage("pong"))
-		return err
+		return nil
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestBot_AssertSentCount(t *testing.T) {
 	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnKeyword("ping")).Handle(func(ctx *context.Context) error {
 		ctx.Reply(platform.TextMessage("pong"))
-		return err
+		return nil
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestBot_ClearSent(t *testing.T) {
 	tb := testbot.NewQQBot()
 	tb.Engine().OnEventKind(platform.EventKindGroupMessage, context.OnCommand("/hi")).Handle(func(ctx *context.Context) error {
 		ctx.Reply(platform.TextMessage("hi"))
-		return err
+		return nil
 	})
 	if err := tb.Start(); err != nil {
 		t.Fatal(err)
