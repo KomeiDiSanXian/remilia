@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.17.1 (2026-06-29)
+
+### 🔧 修复
+
+- **`middleware/middleware.go` 可读性提升** — 将 `RateLimitTokenBucketWithConfig` 中内联的 120 行分片桶逻辑提取为包级类型和方法（`rateLimitShard`/`rateLimitShards`/`fnv1aHash`/`cleanupIfNeeded`/`getOrCreateLimiter`），主函数缩减至 40 行
+- **`latency` 字段改为 `latency_ms`** — 结构化日志字段名明确反映单位为毫秒，避免 `time.Duration` 的 JSON 序列化歧义
+
+### 🔄 变更
+
+- **Metrics 中间件文档完善** — 补充 godoc 说明其与 Logging 的关系（Metrics 是轻量 Debug 版本）
+
 ## v1.17.0 (2026-06-29)
 
 ### ✨ 新功能
