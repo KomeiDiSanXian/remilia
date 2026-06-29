@@ -70,20 +70,20 @@ func main() {
 func registerCommands(bot *remilia.Bot) {
 	// 1. 天气命令
 	bot.Engine().OnCommand("", "/weather").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("天气查询功能\n用法: /weather <城市>\n(实际天气查询待实现)"))
-		return err
+		ctx.Reply(platform.TextMessage("天气查询功能\n用法: /weather <城市>\n(实际天气查询待实现)"))
+		return nil
 	})
 
 	// 2. 计算器命令
 	bot.Engine().OnCommand("", "/calc").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("计算器功能\n用法: /calc <表达式>\n(实际计算待实现)"))
-		return err
+		ctx.Reply(platform.TextMessage("计算器功能\n用法: /calc <表达式>\n(实际计算待实现)"))
+		return nil
 	})
 
 	// 3. 搜索命令
 	bot.Engine().OnCommand("", "/search").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("搜索功能\n用法: /search <关键词>\n(实际搜索待实现)"))
-		return err
+		ctx.Reply(platform.TextMessage("搜索功能\n用法: /search <关键词>\n(实际搜索待实现)"))
+		return nil
 	})
 
 	// 4. 帮助命令
@@ -94,14 +94,14 @@ func registerCommands(bot *remilia.Bot) {
 /search - 搜索
 /help - 显示帮助
 /user - 用户信息`
-		_, err := ctx.Reply(platform.TextMessage(help))
-		return err
+		ctx.Reply(platform.TextMessage(help))
+		return nil
 	})
 
 	// 5. 用户信息命令
 	bot.Engine().OnCommand("", "/user").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", ctx.GetSenderInfo().ID)))
-		return err
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("你的用户ID: %s", ctx.GetSenderInfo().ID)))
+		return nil
 	})
 
 	logger.Info("[CommandBot] Commands registered: /weather, /calc, /search, /help, /user")

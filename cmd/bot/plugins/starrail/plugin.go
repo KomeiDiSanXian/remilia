@@ -83,29 +83,29 @@ func New() *plugin.Descriptor {
 func (p *hsrPlugin) handleHSR(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) < 2 {
-		return ctx.ReplyError("用法: /starrail showcase <uid>")
+		ctx.ReplyError("用法: /starrail showcase <uid>"); return nil
 	}
 
 	switch parsed.Positional[0] {
 	case "showcase":
 		return p.showcase(ctx, parsed.Positional[1])
 	default:
-		return ctx.ReplyError("未知子命令，可用: showcase")
+		ctx.ReplyError("未知子命令，可用: showcase"); return nil
 	}
 }
 
 func (p *hsrPlugin) showcase(ctx *eventctx.Context, uid string) error {
 	showcase, err := FetchShowcase(ctx.Context(), uid)
 	if err != nil {
-		return ctx.ReplyError(fmt.Sprintf("查询失败: %v", err))
+		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err); return nil)
 	}
 
 	png, imgErr := renderHSRShowcase(showcase)
 	if imgErr != nil {
-		return ctx.ReplyText(formatHSRText(showcase))
+		ctx.ReplyText(formatHSRText(showcase); return nil)
 	}
 
-	if _, err := ctx.Reply(platform.ImageDataMessage(png, "starrail.png", "image/png")); err != nil {
+	if ctx.Reply(platform.ImageDataMessage(png, "starrail.png", "image/png")); err != nil {
 		return err
 	}
 	return nil

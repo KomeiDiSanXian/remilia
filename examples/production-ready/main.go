@@ -102,8 +102,8 @@ func main() {
 func registerHandlers(bot *remilia.Bot) {
 	// Ping命令 - 健康检查
 	bot.Engine().OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("Pong! Bot is healthy."))
-		return err
+		ctx.Reply(platform.TextMessage("Pong! Bot is healthy."))
+		return nil
 	})
 
 	// Status命令 - 系统状态
@@ -112,8 +112,8 @@ func registerHandlers(bot *remilia.Bot) {
 		status += "📊 Uptime: Running\n"
 		status += "🔧 Version: 1.0.0\n"
 		status += "🌐 Environment: Production"
-		_, err := ctx.Reply(platform.TextMessage(status))
-		return err
+		ctx.Reply(platform.TextMessage(status))
+		return nil
 	})
 
 	// Help命令
@@ -123,8 +123,8 @@ func registerHandlers(bot *remilia.Bot) {
 		help += "/ping - 健康检查\n"
 		help += "/status - 系统状态\n"
 		help += "/help - 帮助信息"
-		_, err := ctx.Reply(platform.TextMessage(help))
-		return err
+		ctx.Reply(platform.TextMessage(help))
+		return nil
 	})
 
 	logger.Info("[Production] Handlers registered")

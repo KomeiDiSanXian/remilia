@@ -71,7 +71,7 @@ func New() *plugin.Descriptor {
 func (p *Plugin) handleRoll(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		return ctx.ReplyError("用法: /r <表达式>，如 /r 2d20+5")
+		ctx.ReplyError("用法: /r <表达式>，如 /r 2d20+5"); return nil
 	}
 	expr := strings.Join(parsed.Positional, " ")
 	return p.replyRoll(ctx, expr, false)
@@ -105,7 +105,7 @@ func (p *Plugin) handleD(ctx *eventctx.Context) error {
 func (p *Plugin) handleHiddenRoll(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		return ctx.ReplyError("用法: /rh <表达式>")
+		ctx.ReplyError("用法: /rh <表达式>"); return nil
 	}
 	expr := strings.Join(parsed.Positional, " ")
 	return p.replyRoll(ctx, expr, true)
@@ -115,7 +115,7 @@ func (p *Plugin) handleHiddenRoll(ctx *eventctx.Context) error {
 func (p *Plugin) replyRoll(ctx *eventctx.Context, expr string, hidden bool) error {
 	result, err := p.svc.Roll(expr)
 	if err != nil {
-		return ctx.ReplyError(fmt.Sprintf("掷骰失败: %v", err))
+		ctx.ReplyError(fmt.Sprintf("掷骰失败: %v", err); return nil)
 	}
 
 	prefix := "🎲 "
@@ -123,7 +123,7 @@ func (p *Plugin) replyRoll(ctx *eventctx.Context, expr string, hidden bool) erro
 		prefix = "🤫 暗骰: "
 	}
 
-	return ctx.ReplyText(prefix + result.Raw)
+	ctx.ReplyText(prefix + result.Raw); return nil
 }
 
 // ListTools 返回 AI 可调用的工具列表。实现 ai.ToolProvider。

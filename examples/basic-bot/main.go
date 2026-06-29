@@ -72,14 +72,14 @@ func main() {
 func registerHandlers(eng *engine.Engine) {
 	// Echo 命令 - 回显用户消息
 	eng.OnCommand("", "/echo").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("回声: " + ctx.GetMessageContent()))
-		return err
+		ctx.Reply(platform.TextMessage("回声: " + ctx.GetMessageContent()))
+		return nil
 	})
 
 	// Ping 命令
 	eng.OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("Pong! 🏓"))
-		return err
+		ctx.Reply(platform.TextMessage("Pong! 🏓"))
+		return nil
 	})
 
 	// Help 命令
@@ -88,8 +88,8 @@ func registerHandlers(eng *engine.Engine) {
 /echo <消息> - 回显你的消息
 /ping - 测试机器人是否在线
 /help - 显示此帮助信息`
-		_, err := ctx.Reply(platform.TextMessage(help))
-		return err
+		ctx.Reply(platform.TextMessage(help))
+		return nil
 	})
 
 	logger.Info("[BasicBot] Handlers registered")

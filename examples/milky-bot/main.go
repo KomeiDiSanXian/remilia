@@ -78,19 +78,19 @@ func main() {
 func registerHandlers(eng *engine.Engine, adapter *milky.Adapter) {
 	// /ping — basic liveness check
 	eng.OnCommand("", "/ping").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("Pong! 🏓"))
-		return err
+		ctx.Reply(platform.TextMessage("Pong! 🏓"))
+		return nil
 	})
 
 	// /echo — echo the message back
 	eng.OnCommand("", "/echo").Handle(func(ctx *eventctx.Context) error {
 		msg := ctx.GetMessageContent()
 		if msg == "" {
-			_, err := ctx.Reply(platform.TextMessage("请在 /echo 后面输入要回显的内容"))
-			return err
+			ctx.Reply(platform.TextMessage("请在 /echo 后面输入要回显的内容"))
+		return nil
 		}
-		_, err := ctx.Reply(platform.TextMessage("回声: " + msg))
-		return err
+		ctx.Reply(platform.TextMessage("回声: " + msg))
+		return nil
 	})
 
 	// /info — show bot identity info
@@ -102,46 +102,46 @@ func registerHandlers(eng *engine.Engine, adapter *milky.Adapter) {
 		if name := platform.GetBotName(adapter); name != "" {
 			text += "昵称: " + name
 		}
-		_, err := ctx.Reply(platform.TextMessage(text))
-		return err
+		ctx.Reply(platform.TextMessage(text))
+		return nil
 	})
 
 	// /help — list commands
 	eng.OnCommand("", "/help").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage(
+		ctx.Reply(platform.TextMessage(
 			"可用命令:\n" +
 				"/ping  — 测试机器人是否在线\n" +
 				"/echo <内容>  — 回显你的消息\n" +
 				"/info  — 查看机器人信息\n" +
 				"/help  — 显示此帮助",
 		))
-		return err
+		return nil
 	})
 
 	// Image example: send an image by URL
 	eng.OnCommand("", "/image").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.ImageMessage("https://gchat.qpic.cn/gchatpic_new/0/0-0-0/0?term=3"))
-		return err
+		ctx.Reply(platform.ImageMessage("https://gchat.qpic.cn/gchatpic_new/0/0-0-0/0?term=3"))
+		return nil
 	})
 
 	// GroupAdmin demo: mute sender for 60 seconds (requires bot to be admin)
 	eng.OnCommand("", "/mute").Handle(func(ctx *eventctx.Context) error {
 		chat := ctx.GetChatInfo()
 		if !chat.IsGroup {
-			_, err := ctx.Reply(platform.TextMessage("此命令仅在群聊中可用"))
-			return err
+			ctx.Reply(platform.TextMessage("此命令仅在群聊中可用"))
+		return nil
 		}
 		if gm, ok := platform.GetGroupManager(adapter); ok {
 			senderID := ctx.GetSenderInfo().ID
 			if err := gm.BanMember(ctx.Context(), chat.ID, senderID, 60*time.Second); err != nil {
-				_, _ = ctx.Reply(platform.TextMessage("禁言失败: " + err.Error()))
-				return err
+				ctx.Reply(platform.TextMessage("禁言失败: " + err.Error()))
+		return nil
 			}
-			_, err := ctx.Reply(platform.TextMessage("已禁言 60 秒"))
-			return err
+			ctx.Reply(platform.TextMessage("已禁言 60 秒"))
+		return nil
 		}
-		_, err := ctx.Reply(platform.TextMessage("当前平台不支持群成员管理"))
-		return err
+		ctx.Reply(platform.TextMessage("当前平台不支持群成员管理"))
+		return nil
 	})
 }
 

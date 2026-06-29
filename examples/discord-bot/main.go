@@ -142,14 +142,14 @@ func registerHandlers(eng *engine.Engine) {
 			if event != nil && event.Sender().IsBot {
 				return nil // ignore other bots
 			}
-			_, err := ctx.Reply(platform.TextMessage("Pong! 🏓"))
-			return err
+			ctx.Reply(platform.TextMessage("Pong! 🏓"))
+		return nil
 		})
 
 	// Guild message — !embed command
 	eng.OnCommand(string(platform.EventKindGuildMessage), "!embed").
 		Handle(func(ctx *eventctx.Context) error {
-			_, err := ctx.Reply(platform.TextMessage("").WithEmbeds(platform.Embed{
+			ctx.Reply(platform.TextMessage("").WithEmbeds(platform.Embed{
 				Title:       "Example Embed",
 				Description: "Sent from **remilia** on Discord.",
 				Color:       0x5865F2, // Discord blurple
@@ -159,13 +159,13 @@ func registerHandlers(eng *engine.Engine) {
 				},
 				FooterText: "Powered by remilia",
 			}))
-			return err
+		return nil
 		})
 
 	// Guild message — !buttons command
 	eng.OnCommand(string(platform.EventKindGuildMessage), "!buttons").
 		Handle(func(ctx *eventctx.Context) error {
-			_, err := ctx.Reply(platform.TextMessage("Choose an option:").WithButtons(
+			ctx.Reply(platform.TextMessage("Choose an option:").WithButtons(
 				platform.Button{
 					ID: "btn_yes", Label: "Yes ✅",
 					Style: platform.ButtonStylePrimary, Row: 1,
@@ -179,7 +179,7 @@ func registerHandlers(eng *engine.Engine) {
 					URL: "https://discord.com/developers/docs",
 				},
 			))
-			return err
+		return nil
 		})
 
 	// Guild message — !reply command
@@ -189,8 +189,8 @@ func registerHandlers(eng *engine.Engine) {
 			if event == nil {
 				return nil
 			}
-			_, err := ctx.Reply(platform.TextMessage("Replying to your message!").WithReply(event.ID()))
-			return err
+			ctx.Reply(platform.TextMessage("Replying to your message!").WithReply(event.ID()))
+		return nil
 		})
 
 	// DM handler — echo back any DM.
@@ -200,8 +200,8 @@ func registerHandlers(eng *engine.Engine) {
 			if event != nil {
 				fmt.Printf("[DM] %s: %s\n", event.Sender().DisplayName, event.Content())
 			}
-			_, err := ctx.Reply(platform.TextMessage("Hi! Got your DM."))
-			return err
+			ctx.Reply(platform.TextMessage("Hi! Got your DM."))
+		return nil
 		})
 
 	// Interaction handler (button clicks, slash commands, modals).
@@ -229,8 +229,8 @@ func registerHandlers(eng *engine.Engine) {
 			default:
 				msg = platform.TextMessage(fmt.Sprintf("Interaction: `%s`", content))
 			}
-			_, err := ctx.Reply(msg)
-			return err
+			ctx.Reply(msg)
+		return nil
 		})
 
 	// System events (READY, RESUMED).

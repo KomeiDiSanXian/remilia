@@ -92,7 +92,7 @@ func New() *plugin.Descriptor {
 func (p *mcPlugin) handleMC(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		return ctx.ReplyError("用法: /mc <主机名>[:端口] [/mc java /mc bedrock]")
+		ctx.ReplyError("用法: /mc <主机名>[:端口] [/mc java /mc bedrock]"); return nil
 	}
 
 	args := parsed.Positional
@@ -104,7 +104,7 @@ func (p *mcPlugin) handleMC(ctx *eventctx.Context) error {
 	case "java", "bedrock":
 		edition = args[0]
 		if len(args) < 2 {
-			return ctx.ReplyError("用法: /mc java <主机名>[:端口]")
+			ctx.ReplyError("用法: /mc java <主机名>[:端口]"); return nil
 		}
 		host = args[1]
 	default:
@@ -130,15 +130,15 @@ func (p *mcPlugin) handleMC(ctx *eventctx.Context) error {
 	}
 
 	if err != nil {
-		return ctx.ReplyText(fmt.Sprintf("⛏ 服务器 %s 无法连接: %v", host, err))
+		ctx.ReplyText(fmt.Sprintf("⛏ 服务器 %s 无法连接: %v", host, err); return nil)
 	}
 
 	png, imgErr := renderMCCard(status)
 	if imgErr != nil {
-		return ctx.ReplyText(formatMCText(status))
+		ctx.ReplyText(formatMCText(status); return nil)
 	}
 
-	if _, err := ctx.Reply(platform.ImageDataMessage(png, "mc_status.png", "image/png")); err != nil {
+	if ctx.Reply(platform.ImageDataMessage(png, "mc_status.png", "image/png")); err != nil {
 		return err
 	}
 	return nil

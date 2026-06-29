@@ -104,27 +104,27 @@ func main() {
 func registerHandlers(eng *engine.Engine) {
 	// 快速响应命令
 	eng.OnCommand("", "/fast").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("⚡ 快速响应！"))
-		return err
+		ctx.Reply(platform.TextMessage("⚡ 快速响应！"))
+		return nil
 	})
 
 	// 慢速响应命令（模拟耗时操作）
 	eng.OnCommand("", "/slow").Handle(func(ctx *eventctx.Context) error {
 		time.Sleep(2 * time.Second)
-		_, err := ctx.Reply(platform.TextMessage("🐌 慢速响应（耗时2秒）"))
-		return err
+		ctx.Reply(platform.TextMessage("🐌 慢速响应（耗时2秒）"))
+		return nil
 	})
 
 	// 测试重复消息
 	eng.OnCommand("", "/dup").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("此消息会被去重中间件处理"))
-		return err
+		ctx.Reply(platform.TextMessage("此消息会被去重中间件处理"))
+		return nil
 	})
 
 	// 查看中间件统计
 	eng.OnCommand("", "/stats").Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("中间件已启用:\n✓ Panic恢复\n✓ 日志记录\n✓ 自适应限流\n✓ 熔断器\n✓ 去重"))
-		return err
+		ctx.Reply(platform.TextMessage("中间件已启用:\n✓ Panic恢复\n✓ 日志记录\n✓ 自适应限流\n✓ 熔断器\n✓ 去重"))
+		return nil
 	})
 
 	logger.Info("[MiddlewareExample] Handlers registered")

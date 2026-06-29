@@ -32,9 +32,9 @@ func buildSignupFSM() *fsm.FSM {
 					return strings.TrimSpace(ctx.GetMessageContent()) == "/cancel"
 				},
 				Action: func(ctx *fsm.FSMContext) error {
-					_, e := ctx.Reply(platform.TextMessage("已取消注册"))
+					ctx.Reply(platform.TextMessage("已取消注册"))
 					ctx.EndSession()
-					return e
+					return nil
 				},
 			},
 			{
@@ -43,8 +43,8 @@ func buildSignupFSM() *fsm.FSM {
 					return strings.TrimSpace(ctx.GetMessageContent()) == "/fsmsignup"
 				},
 				Action: func(ctx *fsm.FSMContext) error {
-					_, e := ctx.Reply(platform.TextMessage("欢迎注册！请输入您的昵称："))
-					return e
+					ctx.Reply(platform.TextMessage("欢迎注册！请输入您的昵称："))
+				return nil
 				},
 			},
 			{
@@ -54,8 +54,8 @@ func buildSignupFSM() *fsm.FSM {
 				},
 				Action: func(ctx *fsm.FSMContext) error {
 					ctx.Data["name"] = strings.TrimSpace(ctx.GetMessageContent())
-					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("你好 %s！请输入年龄：", ctx.Data["name"])))
-					return e
+					ctx.Reply(platform.TextMessage(fmt.Sprintf("你好 %s！请输入年龄：", ctx.Data["name"])))
+				return nil
 				},
 			},
 			{
@@ -66,10 +66,10 @@ func buildSignupFSM() *fsm.FSM {
 				},
 				Action: func(ctx *fsm.FSMContext) error {
 					ctx.Data["age"] = strings.TrimSpace(ctx.GetMessageContent())
-					_, e := ctx.Reply(platform.TextMessage(fmt.Sprintf("注册成功！昵称：%s，年龄：%s",
+					ctx.Reply(platform.TextMessage(fmt.Sprintf("注册成功！昵称：%s，年龄：%s",
 						ctx.Data["name"], ctx.Data["age"])))
 					ctx.EndSession()
-					return e
+					return nil
 				},
 			},
 		},

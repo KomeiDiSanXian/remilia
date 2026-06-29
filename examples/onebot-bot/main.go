@@ -46,8 +46,8 @@ func main() {
 			return ev != nil && strings.TrimSpace(ev.Content()) == "ping"
 		},
 	).Handle(func(ctx *eventctx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("pong"))
-		return err
+		ctx.Reply(platform.TextMessage("pong"))
+		return nil
 	})
 
 	// Group message handler: reply to messages containing "hello"
@@ -63,8 +63,8 @@ func main() {
 		}
 		senderID := ev.Sender().ID
 		msg := platform.TextMessage("Hi there!").WithMentions(senderID)
-		_, err := ctx.Reply(msg)
-		return err
+		ctx.Reply(msg)
+		return nil
 	})
 
 	// Delete message: reply nothing and delete the triggering message

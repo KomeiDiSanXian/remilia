@@ -179,16 +179,16 @@ func (p *Plugin) handleCSS(ctx *eventctx.Context) error {
 	p.mu.RUnlock()
 
 	if oem == nil {
-		return ctx.ReplyError("CSS 轨道数据尚未就绪，请稍后再试")
+		ctx.ReplyError("CSS 轨道数据尚未就绪，请稍后再试"); return nil
 	}
 	if !oem.Covers(time.Now()) {
-		return ctx.ReplyError("CSS 轨道数据已过期，请稍后再试")
+		ctx.ReplyError("CSS 轨道数据已过期，请稍后再试"); return nil
 	}
 
 	now := time.Now()
 	lat, lng, alt, ok := computePosition(oem, now)
 	if !ok {
-		return ctx.ReplyError("无法计算当前 CSS 轨道位置")
+		ctx.ReplyError("无法计算当前 CSS 轨道位置"); return nil
 	}
 
 	vel := computeSpeed(oem, now)
@@ -197,7 +197,7 @@ func (p *Plugin) handleCSS(ctx *eventctx.Context) error {
 
 	png, err := renderCard(lat, lng, alt, vel, history, trend, oem)
 	if err != nil {
-		return ctx.ReplyText(formatCSSText(lat, lng, alt, vel, trend, oem))
+		ctx.ReplyText(formatCSSText(lat, lng, alt, vel, trend, oem); return nil)
 	}
 
 	_, err = ctx.Reply(platform.ImageDataMessage(png, "css.png", "image/png"))

@@ -403,10 +403,7 @@ ___
 
 同一行内的  
 换行（行尾两空格）`
-					_, err := c.Reply(platform.MarkdownMessage(md))
-					if err != nil {
-						return replyCtx(c, "发送失败: "+err.Error())
-					}
+					c.Reply(platform.MarkdownMessage(md))
 					return nil
 				})
 
@@ -472,17 +469,12 @@ ___
 					default:
 						return replyCtx(c, "用法: /arktest <23|24|37>\n23=链接+文本列表, 24=文本+缩略图, 37=大图")
 					}
-					result, err := c.Reply(msg)
-					if err != nil {
-						logger.WithError(err).Errorf("[arktest] send failed, template=%s", tpl)
-						return replyCtx(c, fmt.Sprintf("发送失败: %v", err))
-					}
+					c.Reply(msg)
 					/*
 						测试了一下返回的都是空结果，result的解析里连错误都没返回，可能这个已经不支持了？
 						等待进一步的调查
 					*/
-					logger.Infof("[arktest] sent, template=%s id=%q", tpl, result.MessageID)
-					return replyCtx(c, fmt.Sprintf("ARK 模板 %s 发送结果 id=%q", tpl, result.MessageID))
+					return replyCtx(c, fmt.Sprintf("ARK 模板 %s 已发送", tpl))
 				})
 
 			// /multireply — 同消息多次回复演示（msg_seq 递增）
@@ -490,11 +482,7 @@ ___
 				SetDefinition(&command.Definition{Name: "multireply", Description: "回复3次演示msg_seq递增", Category: "demo"}).
 				Handle(func(c *eventctx.Context) error {
 					for i := range 8 {
-						_, err := c.Reply(platform.TextMessage(fmt.Sprintf("第 %d 次回复 (msg_seq=%d)", i, i)))
-						if err != nil {
-							logger.WithError(err).Errorf("[multireply] reply %d failed", i)
-							return replyCtx(c, fmt.Sprintf("第 %d 次回复失败: %v", i, err)) // 发了五条消息后，这里其实会被Log中间件拦截了
-						}
+						c.Reply(platform.TextMessage(fmt.Sprintf("第 %d 次回复 (msg_seq=%d)", i, i)))
 					}
 					return nil
 				})

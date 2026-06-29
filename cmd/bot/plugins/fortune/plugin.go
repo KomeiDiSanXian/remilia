@@ -106,14 +106,14 @@ ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot, eventctx.OnMentioned
 func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
-		return ctx.ReplyError("用法: /omikuji [番号], /omikuji = 随机")
+		ctx.ReplyError("用法: /omikuji [番号], /omikuji = 随机"); return nil
 	}
 
 	number := 0
 	if len(parsed.Positional) > 0 {
 		n, parseErr := strconv.Atoi(parsed.Positional[0])
 		if parseErr != nil || n < 1 || n > 100 {
-			return ctx.ReplyError("番号需为 1-100 之间的数字")
+			ctx.ReplyError("番号需为 1-100 之间的数字"); return nil
 		}
 		number = n
 	}
@@ -127,14 +127,14 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 
 	png, renderErr := renderOmikujiCard(slip, bgImg)
 	if renderErr != nil {
-		return ctx.ReplyText(formatOmikujiText(slip))
+		ctx.ReplyText(formatOmikujiText(slip); return nil)
 	}
 
-	if _, err := ctx.Reply(platform.ImageDataMessage(png, "omikuji.png", "image/png")); err != nil {
+	if ctx.Reply(platform.ImageDataMessage(png, "omikuji.png", "image/png")); err != nil {
 		return err
 	}
 
-	return ctx.ReplyText(formatOmikujiText(slip))
+	ctx.ReplyText(formatOmikujiText(slip); return nil)
 }
 
 // handleTarot 处理 /tarot 命令。
@@ -142,7 +142,7 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
-		return ctx.ReplyError("用法: /tarot [数量], /tarot = 1张, /tarot 3 = 三张")
+		ctx.ReplyError("用法: /tarot [数量], /tarot = 1张, /tarot 3 = 三张"); return nil
 	}
 
 	count := 1
@@ -161,14 +161,14 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 
 		png, renderErr := renderTarotCard(&reading, cardImg)
 		if renderErr != nil {
-			ctx.ReplyText(formatTarotText(readings[i : i+1]))
+			ctx.ReplyText(formatTarotText(readings[i : i+1]); return nil)
 			continue
 		}
 
 		ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("tarot_%d.png", i), "image/png"))
 	}
 
-	return ctx.ReplyText(formatTarotText(readings))
+	ctx.ReplyText(formatTarotText(readings); return nil)
 }
 
 // ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。

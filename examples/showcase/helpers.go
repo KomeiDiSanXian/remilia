@@ -9,8 +9,8 @@ import (
 
 // replyCtx 快捷发送文本回复。简化 handler 中 ctx.Reply 的调用。
 func replyCtx(ctx *eventctx.Context, content string) error {
-	_, err := ctx.Reply(platform.TextMessage(content))
-	return err
+	ctx.Reply(platform.TextMessage(content))
+		return nil
 }
 
 // replyFunc 返回一个闭包，供 keywordfilter 的 OnMatch 回调使用。

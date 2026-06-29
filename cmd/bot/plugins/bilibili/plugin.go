@@ -92,7 +92,7 @@ func New() *plugin.Descriptor {
 func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		return ctx.ReplyError("用法：/bili user <uid/用户名> 或 /bili live <uid/用户名> 或 /bili search <关键词>")
+		ctx.ReplyError("用法：/bili user <uid/用户名> 或 /bili live <uid/用户名> 或 /bili search <关键词>"); return nil
 	}
 
 	subCmd := parsed.Positional[0]
@@ -103,65 +103,65 @@ func (p *Plugin) handleBili(ctx *eventctx.Context) error {
 	switch strings.ToLower(subCmd) {
 	case "search", "s":
 		if len(parsed.Positional) < 2 {
-			return ctx.ReplyError("请输入搜索关键词，例如：/bili search 泠鸢")
+			ctx.ReplyError("请输入搜索关键词，例如：/bili search 泠鸢"); return nil
 		}
 		keyword := strings.Join(parsed.Positional[1:], " ")
 		results, _, err := p.client.SearchUser(reqCtx, keyword, 1)
 		if err != nil {
-			return ctx.ReplyText(fmt.Sprintf("[B站] 搜索失败: %v", err))
+			ctx.ReplyText(fmt.Sprintf("[B站] 搜索失败: %v", err); return nil)
 		}
 		if len(results) == 0 {
-			return ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的用户", keyword))
+			ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的用户", keyword); return nil)
 		}
 		png, imgErr := renderUserSearchResults(results, keyword)
 		if imgErr != nil {
-			return ctx.ReplyText(formatSearchUserText(results))
+			ctx.ReplyText(formatSearchUserText(results); return nil)
 		}
 		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_search.png", "image/png"))
 		return err
 
 	case "user", "u":
 		if len(parsed.Positional) < 2 {
-			return ctx.ReplyError("请输入 UID 或用户名，例如：/bili user 泠鸢yousa")
+			ctx.ReplyError("请输入 UID 或用户名，例如：/bili user 泠鸢yousa"); return nil
 		}
 		input := parsed.Positional[1]
 		mid, resolvedName, err := p.client.ResolveUID(reqCtx, input)
 		if err != nil {
-			return ctx.ReplyText(fmt.Sprintf("[B站] %v", err))
+			ctx.ReplyText(fmt.Sprintf("[B站] %v", err); return nil)
 		}
 		user, rel, err := p.client.FetchUserInfo(reqCtx, mid)
 		if err != nil {
-			return ctx.ReplyText(fmt.Sprintf("[B站] %v\nUID: %d\n(数据获取失败: %v)", resolvedName, mid, err))
+			ctx.ReplyText(fmt.Sprintf("[B站] %v\nUID: %d\n(数据获取失败: %v); return nil", resolvedName, mid, err))
 		}
 		png, imgErr := renderUserCard(user, rel)
 		if imgErr != nil {
-			return ctx.ReplyText(formatBiliUserText(user, rel))
+			ctx.ReplyText(formatBiliUserText(user, rel); return nil)
 		}
 		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_user.png", "image/png"))
 		return err
 
 	case "live", "l":
 		if len(parsed.Positional) < 2 {
-			return ctx.ReplyError("请输入 UID 或用户名，例如：/bili live 泠鸢yousa")
+			ctx.ReplyError("请输入 UID 或用户名，例如：/bili live 泠鸢yousa"); return nil
 		}
 		input := parsed.Positional[1]
 		mid, _, err := p.client.ResolveUID(reqCtx, input)
 		if err != nil {
-			return ctx.ReplyText(fmt.Sprintf("[B站] %v", err))
+			ctx.ReplyText(fmt.Sprintf("[B站] %v", err); return nil)
 		}
 		live, err := p.client.FetchLiveInfo(reqCtx, mid)
 		if err != nil {
-			return ctx.ReplyText(fmt.Sprintf("[B站] 查询直播状态失败: %v", err))
+			ctx.ReplyText(fmt.Sprintf("[B站] 查询直播状态失败: %v", err); return nil)
 		}
 		png, imgErr := renderLiveCard(live)
 		if imgErr != nil {
-			return ctx.ReplyText(formatLiveText(live))
+			ctx.ReplyText(formatLiveText(live); return nil)
 		}
 		_, err = ctx.Reply(platform.ImageDataMessage(png, "bilibili_live.png", "image/png"))
 		return err
 
 	default:
-		return ctx.ReplyError("未知子命令，支持：user, live, search")
+		ctx.ReplyError("未知子命令，支持：user, live, search"); return nil
 	}
 }
 

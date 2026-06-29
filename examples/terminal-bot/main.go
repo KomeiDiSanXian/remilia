@@ -103,8 +103,8 @@ func registerDemoCommands(eng *engine.Engine) {
 		SetUsage("/ping").
 		SetCategory("示例").
 		Handle(func(ctx *eventctx.Context) error {
-			_, err := ctx.Reply(platform.TextMessage("Pong! 🏓"))
-			return err
+			ctx.Reply(platform.TextMessage("Pong! 🏓"))
+		return nil
 		})
 
 	eng.OnCommand("", "/echo").
@@ -113,8 +113,8 @@ func registerDemoCommands(eng *engine.Engine) {
 		SetCategory("示例").
 		Handle(func(ctx *eventctx.Context) error {
 			content := ctx.GetMessageContent()
-			_, err := ctx.Reply(platform.TextMessage("回声: " + content))
-			return err
+			ctx.Reply(platform.TextMessage("回声: " + content))
+		return nil
 		})
 
 	eng.OnCommand("", "/info").
@@ -133,8 +133,8 @@ func registerDemoCommands(eng *engine.Engine) {
 				sender.DisplayName,
 				ctx.GetMessageContent(),
 			)
-			_, err := ctx.Reply(platform.TextMessage(msg))
-			return err
+			ctx.Reply(platform.TextMessage(msg))
+		return nil
 		})
 
 	eng.OnCommand("", "/caps").
@@ -147,7 +147,7 @@ func registerDemoCommands(eng *engine.Engine) {
 				"平台能力:\n  Markdown: %v\n  消息编辑: %v\n  消息删除: %v\n  表情回应: %v\n  输入指示: %v",
 				caps.Markdown, caps.MessageEdit, caps.MessageDelete, caps.Reactions, caps.TypingIndicator,
 			)
-			_, err := ctx.Reply(platform.TextMessage(msg))
-			return err
+			ctx.Reply(platform.TextMessage(msg))
+		return nil
 		})
 }
