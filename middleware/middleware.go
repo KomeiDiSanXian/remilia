@@ -26,8 +26,8 @@ func Logging() eventctx.Middleware {
 			start := time.Now()
 			err := next(ctx)
 			entry := logger.WithError(err).WithFields(logger.Fields{
-				"latency": time.Since(start),
-				"type":    ctx.GetEventType(),
+				"latency_ms": time.Since(start).Milliseconds(),
+				"type":       ctx.GetEventType(),
 			})
 			if err != nil {
 				entry.Error("handler execution failed")
@@ -126,14 +126,18 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 	}
 }
 
-// Metrics 打点示例：这里只是打印，可对接 Prometheus
+// Metrics 记录处理耗时到 Debug 日志。
+//
+// Metrics 是 Logging 的轻量版本，始终使用 Debug 级别输出，
+// 适合高频调用的开发诊断场景。生产环境建议使用 Logging。
 func Metrics() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			start := time.Now()
 			err := next(ctx)
-			latency := time.Since(start)
-			logger.WithError(err).WithField("latency_ms", latency.Milliseconds()).Debug("metrics")
+			logger.WithError(err).
+				WithField("latency_ms", time.Since(start).Milliseconds()).
+				Debug("[Metrics] handler executed")
 			return err
 		}
 	}
@@ -312,70 +316,9 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 
 	shared := rate.NewLimiter(rate.Limit(ratePerSec), burst)
 
-	type bucketEntry struct {
-		lim       *rate.Limiter
-		lastVisit time.Time
-	}
-
-	const numShards = 64
-
-	type shard struct {
-		mu      sync.RWMutex
-		buckets map[string]*bucketEntry
-	}
-
-	shards := make([]*shard, numShards)
-	for i := range numShards {
-		shards[i] = &shard{
-			buckets: make(map[string]*bucketEntry),
-		}
-	}
-
-	hashKey := func(key string) int {
-		var h uint64 = 14695981039346656037
-		for i := range len(key) {
-			h ^= uint64(key[i])
-			h *= 1099511628211
-		}
-		return int(h & (numShards - 1))
-	}
-
+	rl := newRateLimitShards(config)
 	var lastCleanup atomic.Int64
 	lastCleanup.Store(time.Now().UnixNano())
-
-	cleanupIfNeeded := func(now time.Time) {
-		nowNano := now.UnixNano()
-		if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
-			return
-		}
-		lastCleanup.Store(nowNano)
-		for i := range numShards {
-			s := shards[i]
-			s.mu.Lock()
-			for k, v := range s.buckets {
-				if now.Sub(v.lastVisit) > config.BucketTTL {
-					delete(s.buckets, k)
-				}
-			}
-			maxPerShard := config.MaxBuckets/numShards + 1
-			if overflow := len(s.buckets) - maxPerShard; overflow > 0 {
-				for range overflow {
-					var eldestKey string
-					var eldestTime time.Time
-					first := true
-					for k, v := range s.buckets {
-						if first || v.lastVisit.Before(eldestTime) {
-							eldestKey = k
-							eldestTime = v.lastVisit
-						}
-						first = false
-					}
-					delete(s.buckets, eldestKey)
-				}
-			}
-			s.mu.Unlock()
-		}
-	}
 
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
@@ -385,25 +328,11 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 			}
 
 			now := time.Now()
-			cleanupIfNeeded(now)
+			rl.cleanupIfNeeded(now, config, &lastCleanup)
 
 			lim := shared
 			if key != "" {
-				s := shards[hashKey(key)]
-				s.mu.Lock()
-				entry, ok := s.buckets[key]
-				if ok {
-					entry.lastVisit = now
-					lim = entry.lim
-				} else {
-					entry = &bucketEntry{
-						lim:       rate.NewLimiter(rate.Limit(ratePerSec), burst),
-						lastVisit: now,
-					}
-					s.buckets[key] = entry
-					lim = entry.lim
-				}
-				s.mu.Unlock()
+				lim = rl.getOrCreateLimiter(key, now, ratePerSec, burst)
 			}
 
 			if !lim.Allow() {
@@ -413,6 +342,95 @@ func RateLimitTokenBucketWithConfig(config RateLimitConfig, ratePerSec int, burs
 			return next(ctx)
 		}
 	}
+}
+
+// rateLimitShard 是分片令牌桶存储的一个分片。
+type rateLimitShard struct {
+	mu      sync.RWMutex
+	buckets map[string]*rateLimitBucketEntry
+}
+
+type rateLimitBucketEntry struct {
+	lim       *rate.Limiter
+	lastVisit time.Time
+}
+
+const rateLimitNumShards = 64
+
+// rateLimitShards 管理分片的令牌桶集合。
+type rateLimitShards struct {
+	shards [rateLimitNumShards]*rateLimitShard
+}
+
+func newRateLimitShards(config RateLimitConfig) *rateLimitShards {
+	rl := &rateLimitShards{}
+	for i := range rateLimitNumShards {
+		rl.shards[i] = &rateLimitShard{
+			buckets: make(map[string]*rateLimitBucketEntry),
+		}
+	}
+	return rl
+}
+
+// fnv1aHash 对 key 做 FNV-1a 哈希，映射到分片索引。
+func fnv1aHash(key string) int {
+	var h uint64 = 14695981039346656037
+	for i := range len(key) {
+		h ^= uint64(key[i])
+		h *= 1099511628211
+	}
+	return int(h & (rateLimitNumShards - 1))
+}
+
+// cleanupIfNeeded 检查是否到期清理过期桶，并按分片逐出最久未访问的桶。
+func (rl *rateLimitShards) cleanupIfNeeded(now time.Time, config RateLimitConfig, lastCleanup *atomic.Int64) {
+	nowNano := now.UnixNano()
+	if time.Duration(nowNano-lastCleanup.Load()) < config.CleanupInterval {
+		return
+	}
+	lastCleanup.Store(nowNano)
+	for i := range rateLimitNumShards {
+		s := rl.shards[i]
+		s.mu.Lock()
+		for k, v := range s.buckets {
+			if now.Sub(v.lastVisit) > config.BucketTTL {
+				delete(s.buckets, k)
+			}
+		}
+		maxPerShard := config.MaxBuckets/rateLimitNumShards + 1
+		if overflow := len(s.buckets) - maxPerShard; overflow > 0 {
+			for range overflow {
+				eldestKey, eldestTime := "", time.Time{}
+				first := true
+				for k, v := range s.buckets {
+					if first || v.lastVisit.Before(eldestTime) {
+						eldestKey, eldestTime = k, v.lastVisit
+					}
+					first = false
+				}
+				delete(s.buckets, eldestKey)
+			}
+		}
+		s.mu.Unlock()
+	}
+}
+
+// getOrCreateLimiter 获取或创建 key 对应的令牌桶。
+func (rl *rateLimitShards) getOrCreateLimiter(key string, now time.Time, ratePerSec, burst int) *rate.Limiter {
+	s := rl.shards[fnv1aHash(key)]
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.buckets[key]
+	if ok {
+		entry.lastVisit = now
+		return entry.lim
+	}
+	entry = &rateLimitBucketEntry{
+		lim:       rate.NewLimiter(rate.Limit(ratePerSec), burst),
+		lastVisit: now,
+	}
+	s.buckets[key] = entry
+	return entry.lim
 }
 
 // SimpleRateLimit 创建简单固定速率限流中间件（全局共享，无 key 区分）。
