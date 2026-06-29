@@ -143,7 +143,9 @@ func (e *Engine) processEventContextWithPool(ctx *context.Context) {
 // ProcessEventSync 处理事件，强制所有 handler 在当前 goroutine 同步执行。
 // 不会 offload 到 ExecPool，用于需要确保 handler 执行完毕后再继续的场景
 // （如 AI 插件工具调用捕获命令回复）。
+// 与 processEventContextWithPool 一样会注入 Dispatcher，使 handler 可调用 ctx.Reply()。
 func (e *Engine) ProcessEventSync(ctx *context.Context) {
+	ctx.SetDispatcher(e.dispatcher)
 	e.processEventMatchers(ctx, false)
 }
 
