@@ -34,7 +34,7 @@ func OnCommandMatch(parser *command.Parser) Rule {
 //	).Handle(func(ctx *context.Context) error {
 //	    parsed := ctx.GetParsedCommand()
 //	    keyword := parsed.GetString("keyword")
-//	    return ctx.ReplyText("搜索: " + keyword)
+//	    ctx.ReplyText("搜索: " + keyword); return nil
 //	})
 func OnParseCommand(def *command.Definition) Rule {
 	return func(ctx *Context) bool {

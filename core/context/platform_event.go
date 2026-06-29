@@ -4,10 +4,20 @@ package context
 
 import (
 	stdctx "context"
+	"fmt"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/future"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// Dispatcher 是出站任务调度器的最小接口。
+//
+// Context 通过此接口提交发送任务，Engine 中的 OutboundDispatcher 实现此接口。
+// 定义为接口而非具体类型，以避免 core/context 反向依赖 core/engine。
+type Dispatcher interface {
+	Submit(chatID string, task func(stdctx.Context) error) error
+}
 
 // NewContextFromEvent 从 platform.Event 创建 Context。
 //
@@ -71,44 +81,105 @@ func (ctx *Context) GetEventPlatform() string {
 	return ""
 }
 
-// Reply 向事件来源会话发送回复（平台无关方式），返回平台响应摘要。
+// Reply 向事件来源会话发送回复（平台无关方式）。
 //
-// 返回的 SendResult.MessageID 可直接用于定时撤回、编辑等后续操作：
+// Reply 将发送任务提交到 Dispatcher 后立即返回。发送在后台执行，不占用
+// Handler goroutine。
 //
-//	result, err := ctx.Reply(platform.TextMessage("pong"))
+// 保证：
+//   - 任务已进入 Dispatcher（队列或 Worker）
+//   - 即使 Handler 已返回，Dispatcher 中的发送仍会继续执行
+//
+// 不保证：
+//   - 已发送成功 / 平台已收到 / 已获得 MessageID
+//
+// 需要同步等待发送结果时，对返回的 Future 调用 Wait：
+//
+//	future := ctx.Reply(platform.TextMessage("pong"))
+//	result, err := future.Wait(ctx.Context())
 //	if err != nil { return err }
-//	time.AfterFunc(10*time.Second, func() {
-//	    if deleter, ok := ctx.GetPlatformSender().(platform.MessageDeleter); ok {
-//	        _ = deleter.Delete(context.Background(), chat.ID, result.MessageID)
-//	    }
-//	})
-func (ctx *Context) Reply(msg platform.OutboundMessage) (platform.SendResult, error) {
+//
+// Future 的 Resolve 仅会被调用一次（即使发生 panic），
+// 通过 sync.Once 保护，安全使用 pattern。
+//
+// 现有代码中忽略返回值的 ctx.Reply(msg) 调用无需修改，
+// Go 允许忽略返回值。
+func (ctx *Context) Reply(msg platform.OutboundMessage) *future.Future[platform.SendResult] {
+	f := future.New[platform.SendResult]()
 	if ctx == nil {
-		return platform.SendResult{}, ErrNilContext
+		f.Resolve(platform.SendResult{}, ErrNilContext)
+		return f
 	}
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
-		return platform.SendResult{}, ErrNoPlatformSender
+		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		return f
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),
 		Message: msg,
 	}
-	return ctx.platformSender.Send(ctx.Context(), req)
+	sender := ctx.platformSender
+	chatID := ctx.platformEvent.Chat().ID
+
+	if ctx.dispatcher == nil {
+		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		return f
+	}
+	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
+		// Reply 层保证 Future 被 Resolve（即使是 panic）
+		defer func() {
+			if r := recover(); r != nil {
+				f.Resolve(platform.SendResult{}, fmt.Errorf("panic in send: %v", r))
+				panic(r) // 让 Dispatcher 的 recovery 继续处理
+			}
+		}()
+		res, err := sender.Send(sendCtx, req)
+		f.Resolve(res, err)
+		return err
+	})
+	if err != nil {
+		f.Resolve(platform.SendResult{}, err)
+	}
+	return f
 }
 
 // ReplyWithContext 与 Reply 相同，但使用调用方传入的 context（用于超时控制）。
-func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) (platform.SendResult, error) {
+func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {
+	f := future.New[platform.SendResult]()
 	if ctx == nil {
-		return platform.SendResult{}, ErrNilContext
+		f.Resolve(platform.SendResult{}, ErrNilContext)
+		return f
 	}
 	if ctx.platformEvent == nil || ctx.platformSender == nil {
-		return platform.SendResult{}, ErrNoPlatformSender
+		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		return f
 	}
 	req := platform.SendRequest{
 		Target:  ctx.platformEvent.Chat(),
 		Message: msg,
 	}
-	return ctx.platformSender.Send(stdCtx, req)
+	sender := ctx.platformSender
+	chatID := ctx.platformEvent.Chat().ID
+
+	if ctx.dispatcher == nil {
+		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
+		return f
+	}
+	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
+		defer func() {
+			if r := recover(); r != nil {
+				f.Resolve(platform.SendResult{}, fmt.Errorf("panic in send: %v", r))
+				panic(r)
+			}
+		}()
+		res, err := sender.Send(sendCtx, req)
+		f.Resolve(res, err)
+		return err
+	})
+	if err != nil {
+		f.Resolve(platform.SendResult{}, err)
+	}
+	return f
 }
 
 // GetPlatformCapabilities 返回当前平台的能力声明。

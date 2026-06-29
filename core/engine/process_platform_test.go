@@ -173,12 +173,13 @@ func TestProcessPlatformEvent_Reply(t *testing.T) {
 
 	sender := &captureSender{}
 	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(ctx *corectx.Context) error {
-		_, err := ctx.Reply(platform.TextMessage("pong"))
-		return err
+		ctx.Reply(platform.TextMessage("pong"))
+		return nil
 	})
 
 	eng.ProcessPlatformEvent(newPlatformC2CEvent("ping"), sender)
 	eng.WaitForAsyncHandlers()
+	eng.WaitForDispatcher()
 
 	sender.mu.Lock()
 	defer sender.mu.Unlock()

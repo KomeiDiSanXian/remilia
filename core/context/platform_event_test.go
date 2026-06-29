@@ -80,6 +80,21 @@ func TestNewContextFromEvent_GetEventKind(t *testing.T) {
 	assert.Equal(t, platform.EventKindPrivateMessage, ctx.GetEventKind())
 }
 
+// testDispatcher 同步执行提交的任务，用于测试。
+type testDispatcher struct {
+	taskFn func(ctx stdctx.Context)
+}
+
+func (d *testDispatcher) Submit(_ string, task func(stdctx.Context) error) error {
+	if d != nil && d.taskFn != nil {
+		d.taskFn(stdctx.Background())
+	}
+	if task != nil {
+		return task(stdctx.Background())
+	}
+	return nil
+}
+
 func TestNewContextFromEvent_Reply(t *testing.T) {
 	type msg struct {
 		chatID string
@@ -95,8 +110,8 @@ func TestNewContextFromEvent_Reply(t *testing.T) {
 	event.(*testPlatformEvent).chat.ID = "user_abc"
 
 	ctx := context.NewContextFromEvent(event, sender)
-	_, err := ctx.Reply(platform.TextMessage("pong"))
-	require.NoError(t, err)
+	ctx.SetDispatcher(&testDispatcher{})
+	ctx.Reply(platform.TextMessage("pong"))
 	require.NotNil(t, got)
 	assert.Equal(t, "user_abc", got.chatID)
 	assert.Equal(t, "pong", got.text)
@@ -106,9 +121,9 @@ func TestNewContextFromEvent_ReplyWithContext(t *testing.T) {
 	sender := &captureTestSender{}
 	event := makeTestEvent("qq", "C2C_MESSAGE_CREATE", "hi", platform.EventKindPrivateMessage)
 	ctx := context.NewContextFromEvent(event, sender)
+	ctx.SetDispatcher(&testDispatcher{})
 
-	_, err := ctx.ReplyWithContext(stdctx.Background(), platform.TextMessage("hello"))
-	assert.NoError(t, err)
+	ctx.ReplyWithContext(stdctx.Background(), platform.TextMessage("hello"))
 }
 
 type captureTestSender struct {

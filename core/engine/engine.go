@@ -65,6 +65,9 @@ type Engine struct {
 	// Metrics 收集器、后台 goroutine 生命周期管理等）。
 	internals engineInternals
 
+	// dispatcher 是出站任务调度器，管理所有异步发送操作。
+	dispatcher *OutboundDispatcher
+
 	// shutdown 标志位，Shutdown() 时设置，ProcessEvent 热路径上通过 Load 检查
 	shutdown atomic.Bool
 
@@ -128,6 +131,9 @@ func NewEngine(options ...Option) *Engine {
 	// 根据选项后的配置创建 ExecPool
 	e.internals.execPool = NewExecPool(e.internals.execPoolCfg)
 
+	// 创建 OutboundDispatcher（默认配置或用户自定义）
+	e.dispatcher = NewOutboundDispatcher(stdctx.Background(), e.internals.dispatcherCfg)
+
 	// 如果未通过选项配置，则使用默认的 pendingDeleteCh
 	if e.internals.pendingDeleteCh == nil {
 		e.internals.pendingDeleteCh = make(chan *Matcher, DefaultPendingDeleteBufferSize)
@@ -159,12 +165,16 @@ func NewEngine(options ...Option) *Engine {
 // 合约：
 //   - 停止所有 Engine 持有的后台 goroutine（临时 Matcher 清理器、批量删除处理器等）
 //   - 等待所有活跃的 ProcessEvent 调用完成
+//   - Drain ExecPool 中的慢 handler
+//   - Drain Dispatcher 中的发送任务
 //   - 若 ctx 在等待完成前被取消，返回 ctx.Err()
 //
 // 关闭顺序：
 //  1. 设置 shutdown 标志（阻止新事件进入）
 //  2. 停止后台 goroutine（清理器、删除处理器）
 //  3. 等待所有活跃的 ProcessEvent 调用完成
+//  4. Drain ExecPool（等待 handler 结束，不再有新 Submit）
+//  5. Drain Dispatcher（等待所有发送完成）
 func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	// 设置 shutdown 标志，阻止新事件进入 ProcessEvent
 	e.shutdown.Store(true)
@@ -178,23 +188,30 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return err
 	}
 
-	// Drain ExecPool（等待慢 handler 完成）
+	// 等待所有活跃的 ProcessEvent 调用完成
+	done := make(chan struct{})
+	go waitOnWaitgroup(&e.eventWg, done)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// Drain ExecPool（等待 handler 结束，不再有新 Submit）
 	if e.internals.execPool != nil {
 		if err := e.internals.execPool.Drain(ctx); err != nil {
 			return err
 		}
 	}
 
-	// 等待所有活跃的 ProcessEvent 调用完成
-	done := make(chan struct{})
-	go waitOnWaitgroup(&e.eventWg, done)
-
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	// Drain Dispatcher（等待所有发送完成）
+	if e.dispatcher != nil {
+		if err := e.dispatcher.Shutdown(ctx); err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 // WaitForAsyncHandlers 等待所有已提交到 ExecPool 的异步 handler 完成。
@@ -206,6 +223,18 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 func (e *Engine) WaitForAsyncHandlers() {
 	if e.internals.execPool != nil {
 		e.internals.execPool.Wait()
+	}
+}
+
+// WaitForDispatcher 等待 Dispatcher 中的所有发送任务完成。
+//
+// 主要用于测试：Reply 现在是异步的，发送任务在 Dispatcher 中排队执行。
+// 调用此方法确保所有发送任务执行完毕后再检查结果。
+//
+// 注意：此方法不停止 Dispatcher，后续仍可继续提交新任务。
+func (e *Engine) WaitForDispatcher() {
+	if e.dispatcher != nil {
+		e.dispatcher.Drain(stdctx.Background()) //nolint:errcheck
 	}
 }
 

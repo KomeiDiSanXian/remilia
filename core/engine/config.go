@@ -131,3 +131,17 @@ func WithSharedExecPool(pool *ExecPool) Option {
 		e.internals.execPool = pool
 	}
 }
+
+// WithDispatcherConfig 设置 OutboundDispatcher 的配置参数。
+//
+// 默认值参见 DispatcherConfig 文档。传入零值字段会被自动填充默认值。
+func WithDispatcherConfig(cfg DispatcherConfig) Option {
+	return func(e *Engine) {
+		e.internals.dispatcherCfg = cfg
+	}
+}
+
+// GetDispatcher 返回 Engine 的出站调度器，用于在 Handler 外提交发送任务。
+func (e *Engine) GetDispatcher() *OutboundDispatcher {
+	return e.dispatcher
+}

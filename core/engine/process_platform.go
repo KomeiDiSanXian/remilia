@@ -134,7 +134,9 @@ func minNonZero(a, b int) int {
 
 // processEventContextWithPool 是事件核心路由逻辑。
 // 慢 handler 自动 offload 到 ExecPool，池满时 fallback 同步。
+// 同时注入 Dispatcher 到 Context，使 Handler 可通过 ctx.Reply() 异步发送。
 func (e *Engine) processEventContextWithPool(ctx *context.Context) {
+	ctx.SetDispatcher(e.dispatcher)
 	e.processEventMatchers(ctx, true)
 }
 

@@ -49,6 +49,9 @@ type Context struct {
 	botID          string
 	botName        string
 
+	// dispatcher 是出站任务调度器（Engine 注入），用于异步发送消息
+	dispatcher Dispatcher
+
 	extInitialized atomic.Bool
 	extMu          sync.Mutex
 	extensions     *Extensions
@@ -68,6 +71,14 @@ func (ctx *Context) Cancel() {
 		ctx.cancel()
 		ctx.cancel = nil
 	}
+}
+
+// SetDispatcher 设置出站调度器（框架内部，由 Engine 在 ProcessPlatformEvent 时注入）。
+func (ctx *Context) SetDispatcher(d Dispatcher) {
+	if ctx == nil {
+		return
+	}
+	ctx.dispatcher = d
 }
 
 // SetMatcher 设置当前命中的 Matcher（框架内部，由 Engine 在 processEventContext 中注入）
@@ -150,6 +161,7 @@ func (ctx *Context) cloneBase() *Context {
 		platformCaps:   ctx.platformCaps,
 		botID:          ctx.botID,
 		botName:        ctx.botName,
+		dispatcher:     ctx.dispatcher,
 	}
 
 	var indepCtx stdctx.Context
