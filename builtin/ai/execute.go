@@ -148,13 +148,15 @@ func (p *Plugin) executeSkill(ctx context.Context, skill Skill, args map[string]
 	return "", fmt.Errorf("技能 %q 超过最大调用深度 (%d)", skill.Name, p.cfg.SkillMaxDepth)
 }
 
-// buildSkillTools 构建 Skill 可见的工具列表 = 自己的 Tools + 其他已注册的 Skill。
+// buildSkillTools 构建 Skill 可见的工具列表 = 自己的 Tools + 其他系统 Skill。
+// 用户 Skill 不可见其他用户的 Skill，仅系统 Skill 被注入。
 // 其他 Skill 按其自带的 Parameters 注入，无参数时使用默认 {"query": string}。
 func (p *Plugin) buildSkillTools(skill Skill) []Tool {
-	tools := make([]Tool, 0, len(skill.Tools)+len(p.skillReg.List()))
+	sysSkills := p.skillReg.ListByOwner(OwnerSystem)
+	tools := make([]Tool, 0, len(skill.Tools)+len(sysSkills))
 	tools = append(tools, skill.Tools...)
 
-	for _, s := range p.skillReg.List() {
+	for _, s := range sysSkills {
 		if s.Name == skill.Name {
 			continue
 		}

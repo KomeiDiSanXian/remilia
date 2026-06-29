@@ -87,6 +87,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 
 	// 工具分类路由 — 当工具数量超过阈值时先让 LLM 选择分类
 	activeTools := p.reg.List()
+	activeTools = append(activeTools, p.buildUserSkillTools(session.UserID)...)
 	if len(activeTools) > toolThreshold {
 		cats := collectToolCategories(activeTools)
 		if len(cats) > 1 {
@@ -288,6 +289,31 @@ func buildCategorySelectTool(categories []string) Tool {
 			return cat, nil
 		},
 	}
+}
+
+// buildUserSkillTools 构建当前会话用户的已启用 Skill 列表，包装为 Tool。
+func (p *Plugin) buildUserSkillTools(userID string) []Tool {
+	skills := p.skillReg.ListByOwner(userID)
+	if len(skills) == 0 {
+		return nil
+	}
+	tools := make([]Tool, 0, len(skills))
+	for _, s := range skills {
+		if !s.Enabled {
+			continue
+		}
+		skill := s
+		tools = append(tools, Tool{
+			Name:        skill.Name,
+			Description: skill.Description,
+			Parameters:  skill.Parameters,
+			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				p.skillReg.IncrementUsage(skill.Name)
+				return p.executeSkill(ctx, skill, args)
+			},
+		})
+	}
+	return tools
 }
 
 // getLastUserMessage 从 session 中提取最后一条用户消息的文本内容。

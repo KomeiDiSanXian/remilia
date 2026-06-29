@@ -106,6 +106,12 @@ type Config struct {
 	// MaxAttachmentSize 入站附件单文件大小上限（字节），超出则跳过。
 	// 默认 20MB。
 	MaxAttachmentSize int64 `yaml:"max_attachment_size"`
+
+	// MaxUserSkills 每个用户最多可注册的技能数，默认 10。
+	MaxUserSkills int `yaml:"max_user_skills"`
+
+	// MaxUserSkillPromptLen 用户技能 Prompt 的最大字符数，默认 2000。
+	MaxUserSkillPromptLen int `yaml:"max_user_skill_prompt_len"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -131,7 +137,9 @@ var DefaultConfig = Config{
 	SkillMaxDepth:     3,
 	VisionEnabled:     true,
 	AudioEnabled:      false,
-	MaxAttachmentSize: 20 * 1024 * 1024,
+	MaxAttachmentSize:     20 * 1024 * 1024,
+	MaxUserSkills:         10,
+	MaxUserSkillPromptLen: 2000,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -205,6 +213,13 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	cfg.VisionEnabled = ctx.Config.GetBool("vision_enabled", cfg.VisionEnabled)
 	cfg.AudioEnabled = ctx.Config.GetBool("audio_enabled", cfg.AudioEnabled)
+
+	if v := ctx.Config.GetInt("max_user_skills", 0); v > 0 {
+		cfg.MaxUserSkills = v
+	}
+	if v := ctx.Config.GetInt("max_user_skill_prompt_len", 0); v > 0 {
+		cfg.MaxUserSkillPromptLen = v
+	}
 
 	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
 		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")

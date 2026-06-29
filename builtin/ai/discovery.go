@@ -140,10 +140,44 @@ func (p *Plugin) DiscoverToolProviders(mgr *plugin.Manager) {
 	}
 }
 
-// RegisterSkill 注册一个 Skill。
+// RegisterSkill 注册一个系统级 Skill。
+// OwnerID 为空时自动设为 OwnerSystem。
 // Skill 会自动包装为 Tool 供 LLM 发现和调用。
 // 如果 Parameters 为空，自动使用 {"query": string} 作为默认参数。
 func (p *Plugin) RegisterSkill(s Skill) {
+	if s.OwnerID == "" {
+		s.OwnerID = OwnerSystem
+	}
+	p.applyDefaultParamSchema(&s)
+	p.skillReg.Register(s)
+	p.registerSkillAsTool(s)
+}
+
+// RegisterUserSkill 注册一个用户自定义 Skill。
+// name 会自动添加 u_ 前缀，OwnerID 设为 ownerID。
+// 注册到 skillReg 但不注册到全局 ToolRegistry（由 processWithTools 按会话注入）。
+func (p *Plugin) RegisterUserSkill(s Skill, ownerID string) error {
+	s.OwnerID = ownerID
+	s.Name = UserSkillPrefix + s.Name
+	p.applyDefaultParamSchema(&s)
+	if !s.Enabled {
+		s.Enabled = true
+	}
+
+	userSkills := p.skillReg.ListByOwner(ownerID)
+	if len(userSkills) >= p.cfg.MaxUserSkills {
+		return fmt.Errorf("达到技能数量上限 (%d)，请先删除一个再添加", p.cfg.MaxUserSkills)
+	}
+
+	if len(s.Prompt) > p.cfg.MaxUserSkillPromptLen {
+		return fmt.Errorf("技能 Prompt 过长（%d > %d），请缩短", len(s.Prompt), p.cfg.MaxUserSkillPromptLen)
+	}
+
+	p.skillReg.Register(s)
+	return nil
+}
+
+func (p *Plugin) applyDefaultParamSchema(s *Skill) {
 	if len(s.Parameters.Properties) == 0 {
 		s.Parameters = ToolParamSchema{
 			Type: "object",
@@ -153,7 +187,9 @@ func (p *Plugin) RegisterSkill(s Skill) {
 			Required: []string{"query"},
 		}
 	}
-	p.skillReg.Register(s)
+}
+
+func (p *Plugin) registerSkillAsTool(s Skill) {
 	skill := s
 	p.reg.Register(Tool{
 		Name:        skill.Name,
