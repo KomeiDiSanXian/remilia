@@ -180,6 +180,13 @@ func OpenDB(path string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// WAL 模式：读写不互斥，大幅降低写阻塞
+	db.Exec("PRAGMA journal_mode = WAL")
+	// synchronous = NORMAL：仅页面边界 fsync，消除 FlushFileBuffers 瓶颈
+	db.Exec("PRAGMA synchronous = NORMAL")
+	// auto_vacuum = INCREMENTAL：跟踪空闲页，Clear 时回收磁盘空间
+	db.Exec("PRAGMA auto_vacuum = INCREMENTAL")
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -221,7 +228,7 @@ func (l *Logger) Stop() {
 // 每 100ms 或积攒 1000 条执行一次批量 INSERT，减少 SQLite 事务开销。
 func (l *Logger) flushLoop(ctx context.Context) {
 	defer l.wg.Done()
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	msgBatch := make([]MessageRecord, 0, 1000)
 	mentionBatch := make([]MessageMention, 0, 1000)
@@ -645,6 +652,8 @@ func (l *Logger) Clear(before time.Time) {
 		if tx := l.db.Where("timestamp < ?", cutoff).Delete(&MessageRecord{}); tx.Error != nil {
 			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
 		}
+		// DELETE 后回收空闲页，控制 DB 文件膨胀
+		l.db.Exec("PRAGMA incremental_vacuum(500)")
 	}
 }
 

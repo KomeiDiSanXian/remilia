@@ -40,5 +40,10 @@ func openDB(o *options) (*Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
+	if o.driver == DriverSQLite {
+		db.Exec("PRAGMA journal_mode = WAL")
+		db.Exec("PRAGMA synchronous = NORMAL")
+		db.Exec("PRAGMA auto_vacuum = INCREMENTAL")
+	}
 	return newPlugin(db), nil
 }

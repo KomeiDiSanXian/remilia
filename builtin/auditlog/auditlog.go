@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode"
 
+	"gorm.io/gorm"
+
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -53,6 +55,10 @@ type Plugin struct {
 	nextID     int64
 	Engine     engine.Reader
 	storageSvc storage.Client
+
+	batch chan LogEntryModel
+	stop  context.CancelFunc
+	wg    sync.WaitGroup
 }
 
 type Option func(*Plugin)
@@ -105,11 +111,13 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 						p.loadFromDB()
 					}
 				}
+				p.startFlushLoop()
 			}
 
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {
+			p.stopFlushLoop()
 			return nil
 		},
 	}
@@ -150,12 +158,91 @@ func (p *Plugin) append(entry LogEntry) {
 		p.entries = p.entries[1:]
 	}
 	p.entries = append(p.entries, entry)
-
-	// 异步写数据库
 	model := p.toModel(entry)
 	p.mu.Unlock()
 
-	go p.insertToDB(model)
+	select {
+	case p.batch <- model:
+	default:
+		logger.Warn("[AuditLog] batch channel full, dropping entry")
+	}
+}
+
+// startFlushLoop 启动后台批量写入 goroutine。
+func (p *Plugin) startFlushLoop() {
+	if p.batch != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.stop = cancel
+	p.batch = make(chan LogEntryModel, 10000)
+	p.wg.Add(1)
+	go p.flushLoop(ctx)
+}
+
+// stopFlushLoop 停止后台写入，等待已提交数据全部落盘。
+func (p *Plugin) stopFlushLoop() {
+	if p.stop != nil {
+		p.stop()
+	}
+	p.wg.Wait()
+}
+
+// flushLoop 后台批量写入循环。
+// 每 500ms 或积攒 1000 条执行一次批量 INSERT，减少 SQLite 事务开销。
+func (p *Plugin) flushLoop(ctx context.Context) {
+	defer p.wg.Done()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	batch := make([]LogEntryModel, 0, 1000)
+
+	flush := func() {
+		if len(batch) == 0 || p.storageSvc == nil {
+			return
+		}
+		if db := p.getGormDB(); db != nil {
+			tx := db.Begin()
+			if tx.Error != nil {
+				logger.WithError(tx.Error).Warn("[AuditLog] Failed to begin transaction")
+				return
+			}
+			if err := tx.CreateInBatches(batch, 500).Error; err != nil {
+				tx.Rollback()
+				logger.WithError(err).Warn("[AuditLog] Failed to flush batch")
+				return
+			}
+			tx.Commit()
+		} else {
+			for i := range batch {
+				_ = p.storageSvc.Create(&batch[i])
+			}
+		}
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			flush()
+			return
+		case model := <-p.batch:
+			batch = append(batch, model)
+			if len(batch) >= 1000 {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+// getGormDB 通过类型断言获取底层的 *gorm.DB，用于批量写入。
+func (p *Plugin) getGormDB() *gorm.DB {
+	type dbProvider interface{ DB() *gorm.DB }
+	if dp, ok := p.storageSvc.(dbProvider); ok {
+		return dp.DB()
+	}
+	return nil
 }
 
 func (p *Plugin) toModel(e LogEntry) LogEntryModel {
@@ -173,15 +260,6 @@ func (p *Plugin) toModel(e LogEntry) LogEntryModel {
 		Action:    e.Action,
 		Content:   e.Content,
 		Meta:      metaStr,
-	}
-}
-
-func (p *Plugin) insertToDB(model LogEntryModel) {
-	if p.storageSvc == nil {
-		return
-	}
-	if err := p.storageSvc.Create(&model); err != nil {
-		logger.WithError(err).Warn("[AuditLog] Failed to write entry to DB")
 	}
 }
 

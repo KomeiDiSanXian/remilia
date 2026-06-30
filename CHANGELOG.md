@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## v1.19.0 (2026-06-30)
+
+### 🚀 性能优化
+
+- **SQLite WAL + synchronous=NORMAL**: messagelog & 业务存储启用 WAL 模式和 NORMAL 同步级别，消除 `FlushFileBuffers` 瓶颈（pprof 中占 80ms/20%）
+- **auditlog 批量写入**: channel + flushLoop 替代 per-entry goroutine，消除高频 goroutine 创建（pprof 中 272 次/15s）
+- **messagelog flush 频率**: 100ms → 500ms，减少写事务频率
+- **auto_vacuum**: 新增 `PRAGMA auto_vacuum = INCREMENTAL`，Clear 时自动回收空闲页
+- **Future 分配基准测试**: 实测 ~35 ns/op，112 B/op
+- **Dispatcher 队列注入基准测试**: 实测 ~4.5 ns/op，0 allocs
+
 ## v1.18.0 (2026-06-30)
 
 ### 🚀 新特性
