@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## v1.20.0 (2026-06-30)
+
+### 🧩 新 Context 便利方法
+
+- **TryEditMessage** — 编辑 bot 已发送的消息（基于 MessageEditor）
+- **TryAddReaction / TryRemoveReaction** — 对消息添加/移除表情回应（基于 ReactionSender）
+- **TryDeleteMessage** — 撤回 bot 自己发送的消息（基于 MessageDeleter）
+- **TrySendTyping** — 发送"正在输入"指示（基于 TypingNotifier）
+
 ## v1.19.0 (2026-06-30)
 
 ### 🚀 性能优化

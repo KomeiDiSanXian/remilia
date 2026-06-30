@@ -368,3 +368,107 @@ func (ctx *Context) TryMuteMessageAuthor(duration time.Duration) error {
 	}
 	return gm.BanMember(ctx.Context(), chat.ID, userID, duration)
 }
+
+// TryEditMessage 尝试编辑 bot 之前发送的消息。
+// 底层通过 platform.MessageEditor 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+// 使用场景：编辑 bot 发出的消息（如更新进度、修正内容）。
+//
+//	_ = ctx.TryEditMessage(messageID, platform.TextMessage("新的内容"))
+func (ctx *Context) TryEditMessage(messageID string, msg platform.OutboundMessage) error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	editor, ok := ctx.platformSender.(platform.MessageEditor)
+	if !ok {
+		return nil
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	if chatID == "" || messageID == "" {
+		return nil
+	}
+	return editor.Edit(ctx.Context(), chatID, messageID, msg)
+}
+
+// TryAddReaction 尝试给当前消息添加表情回应。
+// 底层通过 platform.ReactionSender 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+//	_ = ctx.TryAddReaction(platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"})
+func (ctx *Context) TryAddReaction(emoji platform.Emoji) error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	rs, ok := ctx.platformSender.(platform.ReactionSender)
+	if !ok {
+		return nil
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	msgID := ctx.platformEvent.ID()
+	if chatID == "" || msgID == "" {
+		return nil
+	}
+	return rs.AddReaction(ctx.Context(), chatID, msgID, emoji)
+}
+
+// TryRemoveReaction 尝试移除当前消息上的表情回应。
+// 底层通过 platform.ReactionSender 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+//	_ = ctx.TryRemoveReaction(platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"})
+func (ctx *Context) TryRemoveReaction(emoji platform.Emoji) error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	rs, ok := ctx.platformSender.(platform.ReactionSender)
+	if !ok {
+		return nil
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	msgID := ctx.platformEvent.ID()
+	if chatID == "" || msgID == "" {
+		return nil
+	}
+	return rs.RemoveReaction(ctx.Context(), chatID, msgID, emoji)
+}
+
+// TryDeleteMessage 尝试撤回 bot 自己发送的消息。
+// 底层通过 platform.MessageDeleter 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+// messageID 是之前 Reply 返回的 SendResult.MessageID。
+// 注意：与 TryDeleteMemberMessage 不同，这是撤回 bot 自己发的消息。
+//
+//	_ = ctx.TryDeleteMessage(result.MessageID)
+func (ctx *Context) TryDeleteMessage(messageID string) error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	deleter, ok := ctx.platformSender.(platform.MessageDeleter)
+	if !ok {
+		return nil
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	if chatID == "" || messageID == "" {
+		return nil
+	}
+	return deleter.Delete(ctx.Context(), chatID, messageID)
+}
+
+// TrySendTyping 尝试向当前会话发送"正在输入"状态指示。
+// 底层通过 platform.TypingNotifier 接口实现；若平台 Sender 不支持，静默返回 nil。
+//
+// 使用场景：AI 回复前发送正在输入指示，给用户即时反馈。
+//
+//	_ = ctx.TrySendTyping()
+func (ctx *Context) TrySendTyping() error {
+	if ctx == nil || ctx.platformSender == nil || ctx.platformEvent == nil {
+		return nil
+	}
+	tn, ok := ctx.platformSender.(platform.TypingNotifier)
+	if !ok {
+		return nil
+	}
+	chatID := ctx.platformEvent.Chat().ID
+	if chatID == "" {
+		return nil
+	}
+	return tn.SendTyping(ctx.Context(), chatID)
+}
