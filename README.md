@@ -317,8 +317,8 @@ manager.Register(myplugin.New())
 | Engine ProcessEvent（micro） | ~285 ns/op | 引擎分发热路径 |
 | 命令解析 | ~1,250 ns/op | 双索引 O(1) 路由 |
 | Context Get/Set | 0 allocs/op | 免 GC 上下文访问 |
-| Future 分配 | ~240 ns/op, 0 allocs | 轻量 Future，零 GC 压力 |
-| Dispatcher 队列注入 | ~500 ns/op | RingBuffer + 原子操作 |
+| Future 分配 | ~35 ns/op, 112 B/op, 1 alloc | 轻量 Future，低 GC 压力 |
+| Dispatcher 队列注入 | ~4.5 ns/op, 0 allocs | RingBuffer + 原子操作 |
 | 堆内存（50K msg/s）| ~12-17 MB | 极低内存占用 |
 
 > 端到端压测使用 `examples/benchmark/throughput_bench.go`（已修复 drain、延迟测量等设计问题）

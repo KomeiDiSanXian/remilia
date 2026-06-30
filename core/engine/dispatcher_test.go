@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -429,5 +430,124 @@ func TestChatQueueLifecycle(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("resubmit failed: %v", err)
+	}
+}
+
+func BenchmarkRingBufferPush(b *testing.B) {
+	// Use a buffer large enough to avoid wrap-around during the benchmark
+	rb := newRingBuffer(b.N + 1)
+	task := queuedTask{run: func(ctx context.Context) error { return nil }}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rb.push(task)
+	}
+}
+
+func BenchmarkDispatcherQueueInjection(b *testing.B) {
+	// Measure the core queue injection path: lock + push onto ringBuffer + unlock
+	// This is the hot path of Submit when the chat queue already exists and a worker is running.
+	rb := newRingBuffer(1024)
+	var mu sync.Mutex
+	task := func(ctx context.Context) error { return nil }
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mu.Lock()
+		rb.push(queuedTask{run: task})
+		mu.Unlock()
+	}
+}
+
+func BenchmarkDispatcherSubmit(b *testing.B) {
+	// Full Submit path with pre-existing chat queue and a running worker.
+	d := NewOutboundDispatcher(context.Background(), DispatcherConfig{
+		MaxInflight: 512,
+		QueueSize:   1024,
+	})
+	defer d.Shutdown(context.Background())
+
+	// Submit initial tasks and let worker consume them, so the queue exists
+	// and the worker goroutine is active (spinning in the loop).
+	for range 100 {
+		_ = d.Submit("bench", func(ctx context.Context) error { return nil })
+	}
+
+	task := func(ctx context.Context) error { return nil }
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = d.Submit("bench", task)
+	}
+}
+
+func BenchmarkDispatcherSubmitNoWorker(b *testing.B) {
+	// Submit path with pre-existing chatQueue that appears to have a running worker.
+	// This isolates the queue injection cost (LoadOrStore + lock + push + unlock)
+	// without goroutine spawn overhead or worker allocations.
+	d := NewOutboundDispatcher(context.Background(), DispatcherConfig{
+		MaxInflight: 512,
+		QueueSize:   1024,
+	})
+	defer d.Shutdown(context.Background())
+
+	// Pre-create the chat queue with running=true so Submit does not start a worker
+	q := &chatQueue{
+		chatID:  "bench",
+		q:       *newRingBuffer(d.config.QueueSize),
+		running: true,
+	}
+	d.queues.Store("bench", q)
+
+	task := func(ctx context.Context) error { return nil }
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = d.Submit("bench", task)
+	}
+}
+
+func BenchmarkSyncMapLoadOrStore(b *testing.B) {
+	var m sync.Map
+	m.Store("key", "value")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = m.LoadOrStore("key", "fallback")
+	}
+}
+
+func BenchmarkSyncMapLoadOrStoreQueue(b *testing.B) {
+	var m sync.Map
+	q := &chatQueue{
+		chatID:  "bench",
+		q:       *newRingBuffer(1024),
+		running: true,
+	}
+	m.Store("bench", q)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = m.LoadOrStore("bench", &chatQueue{
+			chatID:  "bench",
+			q:       *newRingBuffer(1024),
+			running: true,
+		})
+	}
+}
+
+func BenchmarkDispatcherSubmitNewQueue(b *testing.B) {
+	d := NewOutboundDispatcher(context.Background(), DispatcherConfig{
+		MaxInflight: 512,
+		QueueSize:   64,
+	})
+	defer d.Shutdown(context.Background())
+
+	task := func(ctx context.Context) error { return nil }
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		chatID := fmt.Sprintf("chat_%d", i%64)
+		_ = d.Submit(chatID, task)
 	}
 }

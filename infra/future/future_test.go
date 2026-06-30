@@ -187,3 +187,20 @@ func TestConcurrentResolveRace(t *testing.T) {
 		t.Fatalf("expected exactly 1 successful Resolve, got %d", count.Load())
 	}
 }
+
+func BenchmarkFutureAlloc(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f := New[int]()
+		_ = f
+	}
+}
+
+func BenchmarkFutureResolve(b *testing.B) {
+	f := New[int]()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f.Resolve(i, nil)
+	}
+}
