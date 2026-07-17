@@ -12,6 +12,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -34,10 +35,16 @@ import (
 //  2. 跳过 AI 自身命令、隐藏命令、需要权限的命令
 //  3. 每个安全命令生成一个 Tool 供 LLM 调用
 //
-// 限制：在 Setup 阶段调用，仅能发现已注册的无权限命令。
+// 应在所有插件完成注册后调用，确保不会遗漏后注册的命令。
 func (p *Plugin) discoverTools() {
 	if p.coord == nil {
 		return
+	}
+
+	hasAllowlist := len(p.cfg.ToolAllowlist) > 0
+	allowSet := make(map[string]struct{}, len(p.cfg.ToolAllowlist))
+	for _, name := range p.cfg.ToolAllowlist {
+		allowSet[name] = struct{}{}
 	}
 
 	allCmds := p.coord.GetAllCommands()
@@ -48,9 +55,18 @@ func (p *Plugin) discoverTools() {
 		if !isCommandSafeForAI(cmd) {
 			continue
 		}
+		name := strings.TrimLeft(cmd.Command, "/!$#")
+		name = strings.ReplaceAll(name, " ", "_")
+		if hasAllowlist {
+			if _, ok := allowSet[name]; !ok {
+				continue
+			}
+		}
 		tool := buildToolFromCommand(cmd)
 		if tool != nil {
+			p.cmdMu.Lock()
 			p.cmdPatterns[tool.Name] = cmd.Command
+			p.cmdMu.Unlock()
 			p.reg.Register(*tool)
 		}
 	}
@@ -98,13 +114,24 @@ func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
 		Categories:  []string{CategoryGeneral},
 		Description: desc,
 		Parameters: ToolParamSchema{
-			Type:       "object",
-			Properties: make(map[string]ToolParamSchema),
+			Type: "object",
+			Properties: map[string]ToolParamSchema{
+				"arguments": {
+					Type:        "string",
+					Description: "传递给命令的原始参数；无参数命令可省略",
+				},
+			},
 		},
 		Execute: func(ctx context.Context, args map[string]any) (string, error) {
 			return fmt.Sprintf("[命令 %s 已触发]", cmd.Command), nil
 		},
 	}
+}
+
+// DiscoverCommands 扫描当前所有已注册的无权限命令。
+// 应在插件容器冻结后、开始处理平台事件前调用。
+func (p *Plugin) DiscoverCommands() {
+	p.discoverTools()
 }
 
 // RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。
@@ -157,8 +184,12 @@ func (p *Plugin) RegisterSkill(s Skill) {
 // name 会自动添加 u_ 前缀，OwnerID 设为 ownerID。
 // 注册到 skillReg 但不注册到全局 ToolRegistry（由 processWithTools 按会话注入）。
 func (p *Plugin) RegisterUserSkill(s Skill, ownerID string) error {
+	name := strings.TrimPrefix(strings.TrimSpace(s.Name), UserSkillPrefix)
+	if !userSkillNamePattern.MatchString(name) {
+		return fmt.Errorf("技能名称只能使用字母、数字、下划线或连字符，长度为 1–62")
+	}
 	s.OwnerID = ownerID
-	s.Name = UserSkillPrefix + s.Name
+	s.Name = UserSkillPrefix + name
 	p.applyDefaultParamSchema(&s)
 	if !s.Enabled {
 		s.Enabled = true
@@ -173,9 +204,10 @@ func (p *Plugin) RegisterUserSkill(s Skill, ownerID string) error {
 		return fmt.Errorf("技能 Prompt 过长（%d > %d），请缩短", len(s.Prompt), p.cfg.MaxUserSkillPromptLen)
 	}
 
-	p.skillReg.Register(s)
-	return nil
+	return p.skillReg.Add(s)
 }
+
+var userSkillNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,62}$`)
 
 func (p *Plugin) applyDefaultParamSchema(s *Skill) {
 	if len(s.Parameters.Properties) == 0 {

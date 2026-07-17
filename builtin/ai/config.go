@@ -8,6 +8,7 @@
 package ai
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -112,31 +113,36 @@ type Config struct {
 
 	// MaxUserSkillPromptLen 用户技能 Prompt 的最大字符数，默认 2000。
 	MaxUserSkillPromptLen int `yaml:"max_user_skill_prompt_len"`
+
+	// ToolAllowlist 显式允许自动暴露为工具的命令名称列表。
+	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
+	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
+	ToolAllowlist []string `yaml:"tool_allowlist"`
 }
 
 // DefaultConfig AI 插件默认配置。
 var DefaultConfig = Config{
-	Provider:          "openai",
-	Model:             "gpt-4o-mini",
-	MaxTokens:         2048,
-	MaxDepth:          5,
-	MaxHistory:        20,
-	Temperature:       0.7,
-	TopP:              1.0,
-	APITimeout:        60 * time.Second,
-	MaxRetries:        0,
-	ToolTimeout:       30 * time.Second,
-	SessionTTL:        24 * time.Hour,
-	SystemPrompt:      "你是 Remilia Bot 的 AI 助手。",
-	TriggerCmd:        "/ai",
-	AtBot:             true,
-	PrivateChat:       true,
-	Markdown:          true,
-	Fallback:          false,
-	SkillTimeout:      60 * time.Second,
-	SkillMaxDepth:     3,
-	VisionEnabled:     true,
-	AudioEnabled:      false,
+	Provider:              "openai",
+	Model:                 "gpt-4o-mini",
+	MaxTokens:             2048,
+	MaxDepth:              5,
+	MaxHistory:            20,
+	Temperature:           0.7,
+	TopP:                  1.0,
+	APITimeout:            60 * time.Second,
+	MaxRetries:            0,
+	ToolTimeout:           30 * time.Second,
+	SessionTTL:            24 * time.Hour,
+	SystemPrompt:          "你是 Remilia Bot 的 AI 助手。",
+	TriggerCmd:            "/ai",
+	AtBot:                 true,
+	PrivateChat:           true,
+	Markdown:              true,
+	Fallback:              false,
+	SkillTimeout:          60 * time.Second,
+	SkillMaxDepth:         3,
+	VisionEnabled:         true,
+	AudioEnabled:          false,
 	MaxAttachmentSize:     20 * 1024 * 1024,
 	MaxUserSkills:         10,
 	MaxUserSkillPromptLen: 2000,
@@ -173,17 +179,29 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("max_history", 0); v > 0 {
 		cfg.MaxHistory = v
 	}
-	if v := ctx.Config.GetFloat64("temperature", 0); v > 0 {
-		cfg.Temperature = v
+	if v, ok := configFloat(ctx, "temperature"); ok {
+		if v >= 0 && v <= 2 {
+			cfg.Temperature = v
+		} else {
+			ctx.Log.Warnf("temperature must be within [0, 2], ignoring %v", v)
+		}
 	}
-	if v := ctx.Config.GetFloat64("top_p", 0); v > 0 {
-		cfg.TopP = v
+	if v, ok := configFloat(ctx, "top_p"); ok {
+		if v >= 0 && v <= 1 {
+			cfg.TopP = v
+		} else {
+			ctx.Log.Warnf("top_p must be within [0, 1], ignoring %v", v)
+		}
 	}
 	if v := ctx.Config.GetDuration("api_timeout", 0); v > 0 {
 		cfg.APITimeout = v
 	}
-	if v := ctx.Config.GetInt("max_retries", 0); v > 0 {
-		cfg.MaxRetries = v
+	if v, ok := configInt(ctx, "max_retries"); ok {
+		if v >= 0 {
+			cfg.MaxRetries = v
+		} else {
+			ctx.Log.Warnf("max_retries must not be negative, ignoring %d", v)
+		}
 	}
 	if v := ctx.Config.GetDuration("tool_timeout", 0); v > 0 {
 		cfg.ToolTimeout = v
@@ -221,9 +239,52 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 		cfg.MaxUserSkillPromptLen = v
 	}
 
+	if v := ctx.Config.Get("tool_allowlist"); v != nil {
+		if list, ok := v.([]any); ok {
+			cfg.ToolAllowlist = make([]string, 0, len(list))
+			for _, item := range list {
+				if s, ok := item.(string); ok && s != "" {
+					cfg.ToolAllowlist = append(cfg.ToolAllowlist, s)
+				}
+			}
+		}
+	}
+
 	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
 		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")
 	}
 
 	return &cfg
+}
+
+func configFloat(ctx *plugin.SetupContext, key string) (float64, bool) {
+	switch v := ctx.Config.Get(key).(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func configInt(ctx *plugin.SetupContext, key string) (int, bool) {
+	switch v := ctx.Config.Get(key).(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case json.Number:
+		n, err := v.Int64()
+		return int(n), err == nil
+	default:
+		return 0, false
+	}
 }

@@ -18,6 +18,7 @@ import (
 func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 	if aiRaw, ok := pm.GetContainer().Get("ai"); ok {
 		aiPlugin := aiRaw.(*ai.Plugin)
+		aiPlugin.DiscoverCommands()
 		aiPlugin.DiscoverToolProviders(pm)
 		aiPlugin.DiscoverSkillProviders(pm)
 	}

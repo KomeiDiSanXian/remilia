@@ -308,7 +308,7 @@ func (p *Plugin) buildUserSkillTools(userID string) []Tool {
 			Description: skill.Description,
 			Parameters:  skill.Parameters,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
-				p.skillReg.IncrementUsage(skill.Name)
+				p.skillReg.IncrementUsage(skill.OwnerID, skill.Name)
 				return p.executeSkill(ctx, skill, args)
 			},
 		})
@@ -318,6 +318,8 @@ func (p *Plugin) buildUserSkillTools(userID string) []Tool {
 
 // getLastUserMessage 从 session 中提取最后一条用户消息的文本内容。
 func getLastUserMessage(session *Session) string {
+	session.Lock()
+	defer session.Unlock()
 	for i := len(session.Messages) - 1; i >= 0; i-- {
 		if session.Messages[i].Role == RoleUser {
 			return session.Messages[i].Content

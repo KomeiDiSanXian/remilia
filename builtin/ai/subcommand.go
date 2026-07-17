@@ -40,9 +40,17 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "undo":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil || len(session.Messages) <= 1 {
+		if session == nil {
 			ctx.ReplyText("没有可以撤销的对话")
-		return nil
+			return nil
+		}
+		session.LockTurn()
+		defer session.UnlockTurn()
+		session.Lock()
+		defer session.Unlock()
+		if len(session.Messages) <= 1 {
+			ctx.ReplyText("没有可以撤销的对话")
+			return nil
 		}
 		lastUserIdx := -1
 		for i := len(session.Messages) - 1; i >= 0; i-- {
@@ -53,20 +61,26 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		}
 		if lastUserIdx <= 0 {
 			ctx.ReplyText("没有可以撤销的对话")
-		return nil
+			return nil
 		}
-		session.Lock()
 		session.Messages = session.Messages[:lastUserIdx]
 		p.sm.saveNoLock(session)
-		session.Unlock()
 		ctx.ReplyText("↩️ 已撤销上一条对话")
 		return nil
 
 	case "retry":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil || len(session.Messages) <= 1 {
+		if session == nil {
 			ctx.ReplyText("没有可以重试的对话")
-		return nil
+			return nil
+		}
+		session.LockTurn()
+		defer session.UnlockTurn()
+		session.Lock()
+		if len(session.Messages) <= 1 {
+			session.Unlock()
+			ctx.ReplyText("没有可以重试的对话")
+			return nil
 		}
 		lastAssistantIdx := -1
 		for i := len(session.Messages) - 1; i >= 0; i-- {
@@ -76,10 +90,10 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			}
 		}
 		if lastAssistantIdx < 0 {
+			session.Unlock()
 			ctx.ReplyText("没有可以重试的对话")
-		return nil
+			return nil
 		}
-		session.Lock()
 		session.Messages = session.Messages[:lastAssistantIdx]
 		p.sm.saveNoLock(session)
 		session.Unlock()
@@ -87,7 +101,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		result, err := p.processWithTools(ctx, session)
 		if err != nil {
 			ctx.ReplyText(formatAIError(err))
-		return nil
+			return nil
 		}
 		if result.Text != "" || len(result.Attachments) > 0 {
 			msg := platform.OutboundMessage{}
@@ -106,21 +120,30 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "summary":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil || len(session.Messages) <= 1 {
+		if session == nil {
 			ctx.ReplyText("还没有任何对话内容可以总结")
-		return nil
+			return nil
 		}
-		msgsSnapshot := make([]Message, len(session.Messages))
-		copy(msgsSnapshot, session.Messages)
+		msgsSnapshot := session.SnapshotMessages()
+		if len(msgsSnapshot) <= 1 {
+			ctx.ReplyText("还没有任何对话内容可以总结")
+			return nil
+		}
 		go p.doSummary(ctx, msgsSnapshot)
 		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
 		return nil
 
 	case "status":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil || len(session.Messages) <= 1 {
+		if session == nil {
 			ctx.ReplyText("当前没有活跃的对话")
-		return nil
+			return nil
+		}
+		session.Lock()
+		defer session.Unlock()
+		if len(session.Messages) <= 1 {
+			ctx.ReplyText("当前没有活跃的对话")
+			return nil
 		}
 		msgCount := len(session.Messages)
 		sysCount := 0
@@ -142,11 +165,16 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	case "stats":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil || len(session.Messages) <= 1 {
+		if session == nil {
 			ctx.ReplyText("当前没有活跃的对话")
-		return nil
+			return nil
 		}
 		session.Lock()
+		if len(session.Messages) <= 1 {
+			session.Unlock()
+			ctx.ReplyText("当前没有活跃的对话")
+			return nil
+		}
 		callCount := session.CallCount
 		toolCount := session.ToolCount
 		session.Unlock()
@@ -380,10 +408,10 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 		if err := p.fsmEngine.StartSession(ctx, "skill_add", sessionID); err != nil {
 			if err.Error() == fmt.Sprintf("fsm: session %q already exists for FSM %q", sessionID, "skill_add") {
 				ctx.ReplyText("❌ 你已有一个待完成的技能注册，请先发送内容或发送 cancel 取消。")
-		return nil
+				return nil
 			}
 			ctx.ReplyText("❌ 无法创建技能注册会话：" + err.Error())
-		return nil
+			return nil
 		}
 		// GetSession 配合内存 Storage 返回的是存储中的指针，修改 Data 即时生效。
 		// 切换为持久化 Storage 时需改为显式 StartSession + Save 模式。
@@ -436,7 +464,7 @@ func (p *Plugin) handleSkillList(ctx *eventctx.Context, ownerID string) error {
 		fmt.Fprintf(&b, "  - **%s**：%s 调用 %d 次 — %s\n", s.Name, s.Description, s.UsageCount, status)
 	}
 	ctx.ReplyText(b.String())
-		return nil
+	return nil
 }
 
 // handleSkillRemove 删除指定技能。支持带或不带 u_ 前缀的名称。
@@ -455,14 +483,14 @@ func (p *Plugin) handleSkillRemove(ctx *eventctx.Context, name, ownerID string) 
 		if !strings.HasPrefix(name, UserSkillPrefix) {
 			if err2 := p.skillReg.Remove(name, ownerID); err2 == nil {
 				ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", name))
-		return nil
+				return nil
 			}
 		}
 		ctx.ReplyText("❌ " + err.Error())
 		return nil
 	}
 	ctx.ReplyText(fmt.Sprintf("🗑️ 技能 `%s` 已删除。", fullName))
-		return nil
+	return nil
 }
 
 // handleSkillToggle 启用或禁用指定技能。
@@ -477,30 +505,18 @@ func (p *Plugin) handleSkillToggle(ctx *eventctx.Context, name, ownerID string, 
 		fullName = UserSkillPrefix + name
 	}
 
-	s, ok := p.skillReg.Get(fullName)
-	if !ok {
-		if !strings.HasPrefix(name, UserSkillPrefix) {
-			s, ok = p.skillReg.Get(name)
-		}
-		if !ok {
-			ctx.ReplyText("❌ 未找到技能 `" + name + "`")
-		return nil
-		}
-	}
-	if s.OwnerID != ownerID {
-		ctx.ReplyText("❌ 无权修改此技能")
+	s, err := p.skillReg.SetEnabled(ownerID, fullName, enabled)
+	if err != nil {
+		ctx.ReplyText("❌ 未找到技能 `" + name + "`")
 		return nil
 	}
-
-	s.Enabled = enabled
-	p.skillReg.Register(s)
 
 	action := "已启用"
 	if !enabled {
 		action = "已禁用"
 	}
 	ctx.ReplyText(fmt.Sprintf("✅ 技能 `%s` %s。", s.Name, action))
-		return nil
+	return nil
 }
 
 // isAdmin 检查当前用户是否具有管理员/超级管理员权限。
@@ -542,12 +558,12 @@ func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string)
 		return nil
 	}
 
-	if s, ok := p.skillReg.Get(name); ok {
+	if s, ok := p.skillReg.GetSystem(name); ok {
 		p.registerSkillAsTool(s)
 	}
 
 	ctx.ReplyText(fmt.Sprintf("⬆️ 技能 `%s` 已提升为系统级，所有用户均可使用。", name))
-		return nil
+	return nil
 }
 
 // handleSkillInfo 查看技能详情，包括所有者、描述、状态、调用次数和 Prompt 预览。
@@ -557,10 +573,12 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 		return nil
 	}
 
-	s, ok := p.skillReg.Get(name)
+	s, ok := p.skillReg.GetByOwner(ownerID, name)
 	if !ok {
-		fullName := UserSkillPrefix + name
-		s, ok = p.skillReg.Get(fullName)
+		s, ok = p.skillReg.GetByOwner(ownerID, UserSkillPrefix+name)
+	}
+	if !ok {
+		s, ok = p.skillReg.GetSystem(name)
 	}
 	if !ok {
 		ctx.ReplyText("❌ 未找到技能 `" + name + "`")
@@ -597,7 +615,7 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 	b.WriteString("```\n" + preview + "\n```")
 
 	ctx.ReplyText(b.String())
-		return nil
+	return nil
 }
 
 // extractSkillDescription 从 Prompt 中提取第一行作为技能描述。

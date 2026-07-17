@@ -17,7 +17,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -84,14 +86,15 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		ctx.ReplyError("创建会话失败")
 		return nil
 	}
-
-	if session.Messages == nil {
-		session.Messages = make([]Message, 0)
-	}
+	session.LockTurn()
+	defer session.UnlockTurn()
 
 	systemPrompt := p.buildSystemPrompt(ctx)
 
 	session.Lock()
+	if session.Messages == nil {
+		session.Messages = make([]Message, 0)
+	}
 	var foundSystem bool
 	for i, m := range session.Messages {
 		if m.Role == RoleSystem {
@@ -207,7 +210,7 @@ func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Ses
 		logger.Debugf("[AI] Failed to create download request: %v", err)
 		return nil
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := attachmentHTTPClient.Do(req)
 	if err != nil {
 		logger.Debugf("[AI] Failed to download attachment: %v", err)
 		return nil
@@ -384,9 +387,77 @@ func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
 }
 
 // isAllowedDownloadURL 检查附件下载 URL 是否合法（SSRF 防护）。
-// 只允许 https 协议，禁止内网地址。
+// 只允许 https 协议，禁止内网地址。对域名会执行 DNS 解析检查目标 IP。
 func isAllowedDownloadURL(rawURL string) bool {
-	return strings.HasPrefix(rawURL, "https://")
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
+		return false
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil {
+		return isPublicIP(ip)
+	}
+	// 域名：执行 DNS 解析，检查所有解析结果是否为公网 IP
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", u.Hostname())
+	if err != nil {
+		return false
+	}
+	if len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !isPublicIP(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+var attachmentHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: safeAttachmentDialContext,
+	},
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if !isAllowedDownloadURL(req.URL.String()) {
+			return fmt.Errorf("redirect to unsafe attachment URL blocked")
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		return nil
+	},
+}
+
+func safeAttachmentDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if !isPublicIP(ip) {
+			return nil, fmt.Errorf("connection to non-public address blocked")
+		}
+	} else {
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, err
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IP address found for attachment host")
+		}
+		for _, ip := range ips {
+			if !isPublicIP(ip) {
+				return nil, fmt.Errorf("attachment host resolves to non-public address")
+			}
+		}
+	}
+	return (&net.Dialer{}).DialContext(ctx, network, address)
+}
+
+func isPublicIP(ip net.IP) bool {
+	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsPrivate() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
 }
 
 // makeSessionID 生成会话唯一标识。
@@ -421,7 +492,7 @@ func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.Inboun
 	if err != nil {
 		return ""
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := attachmentHTTPClient.Do(req)
 	if err != nil {
 		return ""
 	}

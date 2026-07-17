@@ -11,6 +11,7 @@ package ai
 import (
 	"container/list"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 //   - contentCache: 附件二进制内容的内存缓存（按 URL key，限本轮会话有效，不持久化）
 type Session struct {
 	mu        sync.Mutex
+	turnMu    sync.Mutex
 	ID        string
 	UserID    string
 	ChatID    string
@@ -48,6 +50,12 @@ func (s *Session) Lock() { s.mu.Lock() }
 
 // Unlock 解锁会话。
 func (s *Session) Unlock() { s.mu.Unlock() }
+
+// LockTurn 串行化同一会话中的完整对话回合，避免并发请求交错写入历史。
+func (s *Session) LockTurn() { s.turnMu.Lock() }
+
+// UnlockTurn 解锁当前会话回合。
+func (s *Session) UnlockTurn() { s.turnMu.Unlock() }
 
 // getCachedContent 从内存缓存中获取附件内容。已过期或不存在返回 nil。
 // 线程安全，持有 session 读锁。
@@ -153,8 +161,10 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	if elem, ok := sm.sessions[sessionID]; ok {
 		entry := elem.Value.(*sessionEntry)
 		sm.lru.MoveToFront(elem)
+		entry.session.Lock()
 		entry.session.UpdatedAt = time.Now()
 		trimMessages(entry.session, sm.maxHistory)
+		entry.session.Unlock()
 		return entry.session
 	}
 
@@ -169,8 +179,10 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	if sm.storage != nil {
 		if stored, err := sm.storage.Load(sessionID); err == nil && stored != nil {
 			session = stored
+			session.Lock()
 			session.UpdatedAt = time.Now()
 			trimMessages(session, sm.maxHistory)
+			session.Unlock()
 		}
 	}
 
@@ -227,7 +239,10 @@ func (sm *SessionManager) CleanupExpired() {
 	now := time.Now()
 	for id, elem := range sm.sessions {
 		entry := elem.Value.(*sessionEntry)
-		if sm.ttl > 0 && now.After(entry.session.UpdatedAt.Add(sm.ttl)) {
+		entry.session.Lock()
+		expired := sm.ttl > 0 && now.After(entry.session.UpdatedAt.Add(sm.ttl))
+		entry.session.Unlock()
+		if expired {
 			sm.lru.Remove(elem)
 			delete(sm.sessions, id)
 			if sm.storage != nil {
@@ -290,6 +305,15 @@ func (sm *SessionManager) AppendMessage(session *Session, msg Message) {
 	sm.saveNoLock(session)
 }
 
+// SnapshotMessages 返回会话消息副本，供不修改历史的读取路径使用。
+func (s *Session) SnapshotMessages() []Message {
+	s.Lock()
+	defer s.Unlock()
+	msgs := make([]Message, len(s.Messages))
+	copy(msgs, s.Messages)
+	return msgs
+}
+
 // --- GORM 持久化记录 ---
 
 // sessionRecord 对应数据库表，用于 GORM 持久化。
@@ -306,7 +330,7 @@ type sessionRecord struct {
 
 // toRecord 将 Session 转换为数据库记录。
 func (s *Session) toRecord() *sessionRecord {
-	data, err := json.Marshal(s.Messages)
+	data, err := json.Marshal(messagesForPersistence(s.Messages))
 	if err != nil {
 		logger.Errorf("[AI] Failed to marshal session messages for %s: %v", s.ID, err)
 		data = []byte("[]")
@@ -321,6 +345,35 @@ func (s *Session) toRecord() *sessionRecord {
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
+}
+
+// messagesForPersistence 不保存附件二进制数据。重启后以文本占位保留上下文，
+// 避免向 Provider 发送无法复原的空多模态内容。
+func messagesForPersistence(messages []Message) []Message {
+	result := make([]Message, len(messages))
+	for i, message := range messages {
+		result[i] = message
+		if len(message.ContentParts) == 0 {
+			continue
+		}
+
+		parts := make([]string, 0, len(message.ContentParts))
+		for _, part := range message.ContentParts {
+			switch part.Type {
+			case ContentPartText:
+				if part.Text != "" {
+					parts = append(parts, part.Text)
+				}
+			case ContentPartImage:
+				parts = append(parts, "[用户发送了图片，附件内容在重启后不可用]")
+			case ContentPartAudio:
+				parts = append(parts, "[用户发送了音频，附件内容在重启后不可用]")
+			}
+		}
+		result[i].Content = strings.Join(parts, "\n")
+		result[i].ContentParts = nil
+	}
+	return result
 }
 
 // toSession 将数据库记录还原为 Session。

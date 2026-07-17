@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -53,8 +54,16 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 // 优先通过 vevent 触发真实命令执行并捕获其回复内容；
 // 若捕获失败或工具无对应命令，回退到 tool.Execute 的占位结果。
 func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context, cs *captureSender) string {
-	if skill, ok := p.skillReg.Get(tc.Name); ok {
-		result, err := p.executeSkill(toolCtx, skill, tc.Arguments)
+	callerCtx := WithCallerInfo(toolCtx, ctx.GetSenderInfo())
+	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
+		result, err := p.executeSkill(callerCtx, skill, tc.Arguments)
+		if err != nil {
+			return fmt.Sprintf("错误: 技能 %q 执行失败: %v", tc.Name, err)
+		}
+		return result
+	}
+	if skill, ok := p.skillReg.GetSystem(tc.Name); ok {
+		result, err := p.executeSkill(callerCtx, skill, tc.Arguments)
 		if err != nil {
 			return fmt.Sprintf("错误: 技能 %q 执行失败: %v", tc.Name, err)
 		}
@@ -67,12 +76,11 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	if p.syncer != nil {
-		if result := p.executeRealCommand(ctx, tc.Name, cs); result != "" {
+		if result := p.executeRealCommand(ctx, tc.Name, tc.Arguments, cs); result != "" {
 			return result
 		}
 	}
 
-	callerCtx := WithCallerInfo(toolCtx, ctx.GetSenderInfo())
 	result, execErr := tool.Execute(callerCtx, tc.Arguments)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
@@ -88,8 +96,10 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 //
 // 使用 captureSender 捕获 handler 的 ctx.Reply() 输出，不转发给真实用户。
 // AI 会自行总结工具执行结果后回复用户，避免用户看到两条消息。
-func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string, cs *captureSender) string {
+func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string, args map[string]any, cs *captureSender) string {
+	p.cmdMu.RLock()
 	pattern, ok := p.cmdPatterns[toolName]
+	p.cmdMu.RUnlock()
 	if !ok {
 		return ""
 	}
@@ -97,6 +107,12 @@ func (p *Plugin) executeRealCommand(origCtx *eventctx.Context, toolName string, 
 	originalEvent := origCtx.GetPlatformEvent()
 	if originalEvent == nil {
 		return ""
+	}
+
+	if rawArgs, ok := args["arguments"].(string); ok && rawArgs != "" {
+		if isSafeCommandArg(rawArgs) {
+			pattern += " " + rawArgs
+		}
 	}
 
 	evt := platform.NewSyntheticEvent(
@@ -197,4 +213,24 @@ func (p *Plugin) executeSkillTool(ctx context.Context, tc ToolCall, tools []Tool
 		}
 	}
 	return fmt.Sprintf("错误: 未找到工具 %q", tc.Name)
+}
+
+// isSafeCommandArg 校验 LLM 生成的命令参数是否安全。
+// 只允许可打印的 ASCII 字符（含空格和 Tab），禁止控制字符和常见的 shell 注入字符。
+func isSafeCommandArg(s string) bool {
+	if len(s) > 4096 {
+		return false
+	}
+	for _, r := range s {
+		if r == '\t' {
+			continue
+		}
+		if !unicode.IsPrint(r) {
+			return false
+		}
+		if r > 0x7E {
+			return false
+		}
+	}
+	return true
 }

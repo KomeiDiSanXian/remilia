@@ -116,6 +116,7 @@ func main() {
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
 	setupPlugins(pm, eng)
+	discoverAll(bot, pm)
 
 	healthHandler := newHealthHandler(bot, reg)
 	if hc := bot.HealthCheck(); hc != nil {
@@ -138,8 +139,6 @@ func main() {
 
 	// bot 启动后创建自适应限流器——此时 bot.Context() 返回真实 lifecycle context
 	setupAdaptiveLimiter(eng, bridge, bot.Context())
-
-	discoverAll(bot, pm)
 
 	// 订阅 platform 热更新（仅在 bot.* 配置实际变化时触发，避免修改日志级别等无关字段导致连接断开）
 	var lastBotCfg = &cfg.Bot // 启动时的 bot 配置

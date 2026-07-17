@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## v1.20.1 (2026-07-17)
+
+### 🔒 SSRF 防护增强
+
+- **附件下载 DNS 级 IP 校验**: `isAllowedDownloadURL` 对域名执行 DNS 解析，检查所有解析结果是否为公网 IP
+- **专有 HTTP client**: 引入 `attachmentHTTPClient`，在 dial 阶段二次校验目标 IP，防止 DNS 重绑定攻击
+- **重定向安全检查**: 对 3xx 跳转目标同样执行 `isAllowedDownloadURL` 校验
+
+### 🧠 AI 插件改进
+
+- **SkillRegistry 命名空间隔离**: 由全局 `name→Skill` 改为 `ownerID+name→Skill` 复合主键，避免用户之间的技能名冲突
+- **命令参数安全过滤**: `executeRealCommand` 对 LLM 生成的参数做 ASCII 可打印字符校验，防止命令注入
+- **ToolAllowlist 配置**: 新增 `tool_allowlist` 配置项，显式控制哪些命令自动暴露为 AI 工具
+- **ToolRegistry 并发安全**: 新增 `sync.RWMutex` 保护，消除 Setup 后并发读写的竞态风险
+- **会话并发串行化**: 新增 `Session.turnMu`，确保同一会话的对话回合严格串行
+- **CleanupExpired 加锁修复**: 清理过期会话时先持有 session 锁再检查 TTL
+- **发现时机延迟**: `discoverTools` 从插件 Setup 阶段移至所有插件注册完成后执行
+- **配置校验增强**: `temperature`/`top_p`/`max_retrie`s 加载时检查合法范围，`configFloat`/`configInt` 支持 `json.Number`
+- **断连修复**: `trigger_cmd` 配置加载简化，消除死分支
+
 ## v1.20.0 (2026-06-30)
 
 ### 🧩 新 Context 便利方法

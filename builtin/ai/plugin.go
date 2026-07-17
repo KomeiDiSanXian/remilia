@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -47,6 +48,7 @@ type Plugin struct {
 	reg         *ToolRegistry
 	prov        Provider
 	triggerCmd  string
+	cmdMu       sync.RWMutex
 	cmdPatterns map[string]string
 	skillReg    *SkillRegistry
 
@@ -151,7 +153,6 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			p.registerSkillAddFSM()
 
-			p.discoverTools()
 			p.registerHandlers(ctx)
 
 			// 多模态配置警告

@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -99,8 +100,8 @@ type ToolProvider interface {
 }
 
 // ToolRegistry 管理所有可供 AI 调用的工具，按工具名索引。
-// 非线程安全，应在插件 Setup 阶段注册完成后不再修改。
 type ToolRegistry struct {
+	mu    sync.RWMutex
 	tools map[string]Tool
 }
 
@@ -112,6 +113,8 @@ func NewToolRegistry() *ToolRegistry {
 // Register 注册一个工具。同名工具仅首次注册生效，后续注册静默忽略。
 // 调用者应保证在 [processWithTools] 开始前完成注册。
 func (r *ToolRegistry) Register(t Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, exists := r.tools[t.Name]; exists {
 		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
 		return
@@ -121,12 +124,16 @@ func (r *ToolRegistry) Register(t Tool) {
 
 // Get 按名称查找工具。第二个返回值为 false 表示未找到。
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
 	return t, ok
 }
 
 // List 返回当前注册的所有工具的切片副本。每次调用创建新切片。
 func (r *ToolRegistry) List() []Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Tool, 0, len(r.tools))
 	for _, t := range r.tools {
 		out = append(out, t)
