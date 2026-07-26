@@ -150,30 +150,65 @@ func maskTree(tree map[string]any) {
 			}
 		}
 	}
-	if plugins, _ := tree["plugins"].(map[string]any); plugins != nil {
+	var plugins map[string]any
+	if pk, ok := lookupKey(tree, "plugins"); ok {
+		plugins, _ = tree[pk].(map[string]any)
+	}
+	if plugins != nil {
 		for _, pcfg := range plugins {
 			pm, _ := pcfg.(map[string]any)
 			if pm == nil {
 				continue
 			}
 			for _, sk := range []string{"api_key", "token", "secret", "password", "access_token"} {
-				if val, ok := pm[sk]; ok {
-					if s, ok := val.(string); ok && s != "" {
-						pm[sk] = mask(s)
-					}
+				actual, ok := lookupKey(pm, sk)
+				if !ok {
+					continue
+				}
+				if s, ok := pm[actual].(string); ok && s != "" {
+					pm[actual] = mask(s)
 				}
 			}
 		}
 	}
 }
 
+// normalizeKey 归一化配置键名，用于宽松匹配。
+//
+// config 包的结构体只带 yaml/mapstructure 标签、没有 json 标签，
+// 因此 json.Marshal 输出的是 Go 字段名（Bot / QQ / AccessToken），
+// 与脱敏路径里的 "bot.qq.access_token" 无法直接相等匹配——
+// 这正是此前脱敏静默失效、密钥被明文返回的原因。
+// 这里统一转小写并去掉下划线后再比较，保持响应结构不变的前提下让匹配生效。
+func normalizeKey(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), "_", "")
+}
+
+// lookupKey 在 map 中按归一化规则查找实际存在的键名。
+func lookupKey(m map[string]any, key string) (string, bool) {
+	if _, ok := m[key]; ok {
+		return key, true
+	}
+	target := normalizeKey(key)
+	for k := range m {
+		if normalizeKey(k) == target {
+			return k, true
+		}
+	}
+	return "", false
+}
+
 func walkGet(m map[string]any, path []string) any {
 	current := m
 	for i, p := range path {
-		if i == len(path)-1 {
-			return current[p]
+		actual, ok := lookupKey(current, p)
+		if !ok {
+			return nil
 		}
-		next, ok := current[p].(map[string]any)
+		if i == len(path)-1 {
+			return current[actual]
+		}
+		next, ok := current[actual].(map[string]any)
 		if !ok {
 			return nil
 		}
@@ -185,11 +220,15 @@ func walkGet(m map[string]any, path []string) any {
 func walkSet(m map[string]any, path []string, value any) {
 	current := m
 	for i, p := range path {
-		if i == len(path)-1 {
-			current[p] = value
+		actual, ok := lookupKey(current, p)
+		if !ok {
 			return
 		}
-		next, ok := current[p].(map[string]any)
+		if i == len(path)-1 {
+			current[actual] = value
+			return
+		}
+		next, ok := current[actual].(map[string]any)
 		if !ok {
 			return
 		}
