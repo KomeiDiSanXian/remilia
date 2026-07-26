@@ -115,6 +115,7 @@ func TestEngineRaceConditions(t *testing.T) {
 	})
 }
 
+
 // TestEngineShutdownWithPendingEvents 测试关闭时的事件处理
 func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	t.Run("shutdown_waits_for_events", func(t *testing.T) {
@@ -168,10 +169,14 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	t.Run("shutdown_respects_context_timeout", func(t *testing.T) {
 		engine := newEngineForTest(t)
 
-		// 注册一个非常慢的处理器
+		// 注册一个慢速处理器（500ms 大于 shutdown 的 200ms 超时，确保测试验证超时行为）
 		matcher := engine.OnAny()
 		matcher.Handle(func(ctx *context.Context) error {
-			time.Sleep(10 * time.Second)
+			select {
+			case <-time.After(500 * time.Millisecond):
+			case <-ctx.Context().Done():
+				return ctx.Context().Err()
+			}
 			return nil
 		})
 
@@ -274,3 +279,4 @@ func TestEngineMemoryLeaks(t *testing.T) {
 		}, time.Second, 50*time.Millisecond, "Used temp matchers should be cleaned")
 	})
 }
+

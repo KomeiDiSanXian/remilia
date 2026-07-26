@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -320,20 +321,22 @@ func TestProcessEvent_EventWg(t *testing.T) {
 }
 
 func TestProcessEvent_ShutdownWaits(t *testing.T) {
-	e := newEngineForTest(t)
-	var count atomic.Int32
-	e.OnAny().Handle(func(ctx *corectx.Context) error {
-		count.Add(1)
-		return nil
+	synctest.Test(t, func(t *testing.T) {
+		e := newEngineForTest(t)
+		var count atomic.Int32
+		e.OnAny().Handle(func(ctx *corectx.Context) error {
+			count.Add(1)
+			return nil
+		})
+		const n = 10
+		for range n {
+			ctx := corectx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			go e.ProcessEvent(ctx)
+		}
+		time.Sleep(50 * time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		assert.NoError(t, e.Shutdown(ctx))
+		assert.Equal(t, int32(n), count.Load())
 	})
-	const n = 10
-	for range n {
-		ctx := corectx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
-		go e.ProcessEvent(ctx)
-	}
-	time.Sleep(50 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	assert.NoError(t, e.Shutdown(ctx))
-	assert.Equal(t, int32(n), count.Load())
 }

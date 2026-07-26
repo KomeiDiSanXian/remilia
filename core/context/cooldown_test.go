@@ -2,6 +2,7 @@ package context
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -26,6 +27,7 @@ func TestOnCooldown_BlocksSecond(t *testing.T) {
 	}
 }
 func TestOnCooldown_AllowsAfterExpiry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	rule := OnCooldown(40*time.Millisecond, func(c *Context) string { return "cd_user_expiry" })
 	c := makeFakeContext()
 	rule(c)
@@ -33,6 +35,7 @@ func TestOnCooldown_AllowsAfterExpiry(t *testing.T) {
 	if !rule(c) {
 		t.Error("should be allowed after cooldown expiry")
 	}
+	})
 }
 func TestOnCooldown_EmptyKeyAllows(t *testing.T) {
 	rule := OnCooldown(1*time.Hour, func(c *Context) string { return "" })

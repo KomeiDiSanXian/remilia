@@ -3,6 +3,7 @@ package context
 import (
 	stdctx "context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -225,28 +226,30 @@ func TestContextClone(t *testing.T) {
 // TestContextStdContext 测试标准�?context 集成
 func TestContextStdContext(t *testing.T) {
 	t.Run("context_with_timeout", func(t *testing.T) {
-		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
-		// 设置带超时的 context
-		stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
-		defer cancel()
+			// 设置带超时的 context
+			stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 100*time.Millisecond)
+			defer cancel()
 
-		ctx.SetStdContext(stdCtx)
+			ctx.SetStdContext(stdCtx)
 
-		// 验证可以读取
-		retrievedCtx := ctx.Context()
-		assert.NotNil(t, retrievedCtx)
+			// 验证可以读取
+			retrievedCtx := ctx.Context()
+			assert.NotNil(t, retrievedCtx)
 
-		// 等待超时
-		time.Sleep(150 * time.Millisecond)
+			// 等待超时
+			time.Sleep(150 * time.Millisecond)
 
-		// context 应该已取消
-		select {
-		case <-retrievedCtx.Done():
-			assert.Error(t, retrievedCtx.Err())
-		default:
-			t.Error("Context should be cancelled")
-		}
+			// context 应该已取消
+			select {
+			case <-retrievedCtx.Done():
+				assert.Error(t, retrievedCtx.Err())
+			default:
+				t.Error("Context should be cancelled")
+			}
+		})
 	})
 
 	t.Run("context_with_cancel", func(t *testing.T) {

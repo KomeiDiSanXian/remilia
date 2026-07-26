@@ -2,6 +2,7 @@ package fsm
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -325,43 +326,47 @@ func TestFSMDescriptor_Validate_NilFSM(t *testing.T) {
 }
 
 func TestEngine_Timeout_Session(t *testing.T) {
-	eng := NewEngine(nil)
-	fsm := &FSM{
-		Name: "timed", Initial: "s",
-		Events: []Event{
-			{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return ctx.GetMessageContent() == "go" }},
-		},
-		Timeout: 1 * time.Millisecond,
-	}
-	require.NoError(t, eng.Register(fsm))
+	synctest.Test(t, func(t *testing.T) {
+		eng := NewEngine(nil)
+		fsm := &FSM{
+			Name: "timed", Initial: "s",
+			Events: []Event{
+				{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return ctx.GetMessageContent() == "go" }},
+			},
+			Timeout: 1 * time.Millisecond,
+		}
+		require.NoError(t, eng.Register(fsm))
 
-	ctx := newTestContext("go")
-	require.NoError(t, eng.StartSession(ctx, "timed", "sess_timeout"))
+		ctx := newTestContext("go")
+		require.NoError(t, eng.StartSession(ctx, "timed", "sess_timeout"))
 
-	time.Sleep(5 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 
-	assert.Nil(t, eng.GetSession("sess_timeout"), "session should be expired")
+		assert.Nil(t, eng.GetSession("sess_timeout"), "session should be expired")
+	})
 }
 
 func TestEngine_StartCleanup(t *testing.T) {
-	s := NewMemoryStorage()
-	eng := NewEngine(s)
-	fsm := &FSM{
-		Name: "clean", Initial: "s",
-		Events:  []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
-		Timeout: 10 * time.Millisecond,
-	}
-	require.NoError(t, eng.Register(fsm))
+	synctest.Test(t, func(t *testing.T) {
+		s := NewMemoryStorage()
+		eng := NewEngine(s)
+		fsm := &FSM{
+			Name: "clean", Initial: "s",
+			Events:  []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
+			Timeout: 10 * time.Millisecond,
+		}
+		require.NoError(t, eng.Register(fsm))
 
-	ctx := newTestContext("x")
-	require.NoError(t, eng.StartSession(ctx, "clean", "to_clean"))
+		ctx := newTestContext("x")
+		require.NoError(t, eng.StartSession(ctx, "clean", "to_clean"))
 
-	stop := make(chan struct{})
-	eng.StartCleanup(5*time.Millisecond, stop)
-	time.Sleep(50 * time.Millisecond)
-	close(stop)
+		stop := make(chan struct{})
+		eng.StartCleanup(5*time.Millisecond, stop)
+		time.Sleep(50 * time.Millisecond)
+		close(stop)
 
-	assert.Nil(t, eng.GetSession("to_clean"), "cleanup should remove expired session")
+		assert.Nil(t, eng.GetSession("to_clean"), "cleanup should remove expired session")
+	})
 }
 
 func TestEngine_FSMContext_Embedded(t *testing.T) {

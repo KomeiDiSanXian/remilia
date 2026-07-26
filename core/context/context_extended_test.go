@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -628,6 +629,7 @@ func TestWithTimeout(t *testing.T) {
 
 		result := rule(ctx)
 		assert.False(t, result) // Should timeout
+
 	})
 
 	t.Run("panic recovery", func(t *testing.T) {
@@ -658,15 +660,17 @@ func TestMonitorRule(t *testing.T) {
 	})
 
 	t.Run("slow rule logs warning", func(t *testing.T) {
-		ctx := newTestCtx()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := newTestCtx()
 
-		rule := MonitorRule("slow", func(ctx *Context) bool {
-			time.Sleep(20 * time.Millisecond)
-			return true
-		}, 10*time.Millisecond)
+			rule := MonitorRule("slow", func(ctx *Context) bool {
+				time.Sleep(20 * time.Millisecond)
+				return true
+			}, 10*time.Millisecond)
 
-		result := rule(ctx)
-		assert.True(t, result) // Still returns result
+			result := rule(ctx)
+			assert.True(t, result) // Still returns result
+		})
 	})
 }
 

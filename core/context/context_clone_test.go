@@ -3,6 +3,7 @@ package context
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -33,6 +34,7 @@ func (e *cloneTestEvent) Attachments() []platform.InboundAttachment { return nil
 
 // TestContextClone_IndependentCancellation 测试克隆的 Context 不受原 Context 取消影响
 func TestContextClone_IndependentCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 创建原始 context，带取消功能
 	stdCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -67,6 +69,7 @@ func TestContextClone_IndependentCancellation(t *testing.T) {
 	}
 
 	t.Log("✓ Cloned context is independent from original context cancellation")
+	})
 }
 
 // TestContextClone_TracePreservation 测试克隆保留 trace 信息
@@ -168,6 +171,7 @@ func TestContextClone_PlatformSender_Preserved(t *testing.T) {
 // TestContextClone_PlatformPath_IndependentFromOriginal 验证新路径克隆出的 Context
 // 独立于原始 Context 的 stdctx 取消
 func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	event := &cloneTestEvent{content: "msg", platformID: "telegram", kind: platform.EventKindPrivateMessage}
 	sender := &platform.NoopSender{}
 
@@ -199,6 +203,7 @@ func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
 	}
 
 	t.Log("✓ platform-path cloned context is independent and retains platform fields")
+	})
 }
 
 // TestContextClone_PlatformFields_Preserved 验证新路径克隆时平台字段被正确保留

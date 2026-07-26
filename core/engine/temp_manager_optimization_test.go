@@ -2,6 +2,7 @@ package engine
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -10,6 +11,7 @@ import (
 
 // TestTempManagerWatermarkCleanup 测试水位线触发清理
 func TestTempManagerWatermarkCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	config := TempManagerConfig{
 		WatermarkHigh:         10,
 		WatermarkLow:          5,
@@ -41,6 +43,7 @@ func TestTempManagerWatermarkCleanup(t *testing.T) {
 	if count > 10 {
 		t.Errorf("Expected count <= 10 after cleanup, got %d", count)
 	}
+	})
 }
 
 // TestTempManagerCount 测试计数功能

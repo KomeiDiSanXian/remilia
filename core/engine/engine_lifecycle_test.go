@@ -4,6 +4,7 @@ import (
 	stdctx "context"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -478,26 +479,28 @@ func TestEngine_RemoveGroup_LogMessage(t *testing.T) {
 // ============================================================================
 
 func TestEngine_Shutdown_WaitForEvents(t *testing.T) {
-	eng := newEngineForTest(t)
+	synctest.Test(t, func(t *testing.T) {
+		eng := newEngineForTest(t)
 
-	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
-		// timing: simulated processing delay
-		time.Sleep(50 * time.Millisecond)
-		return nil
+		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
+			// timing: simulated processing delay
+			time.Sleep(50 * time.Millisecond)
+			return nil
+		})
+
+		// Start processing
+		started := make(chan struct{})
+		go func() {
+			close(started)
+			context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			eng.ProcessEvent(context)
+		}()
+		<-started
+
+		// Stop should wait
+		err := eng.Shutdown(stdctx.Background())
+		assert.NoError(t, err)
 	})
-
-	// Start processing
-	started := make(chan struct{})
-	go func() {
-		close(started)
-		context := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
-		eng.ProcessEvent(context)
-	}()
-	<-started
-
-	// Stop should wait
-	err := eng.Shutdown(stdctx.Background())
-	assert.NoError(t, err)
 }
 
 // ============================================================================
@@ -566,37 +569,39 @@ func TestEngine_Components_Stop(t *testing.T) {
 // ============================================================================
 
 func TestEngine_AsyncComponents_StartStop(t *testing.T) {
-	eng := newEngineForTest(t, WithCleanupInterval(50*time.Millisecond), WithPendingDeleteBufferSize(10))
-	// Create expirable temp matchers to exercise the cleaner.
-	// Note: expiresAt must be set BEFORE tempManager.Add so the expiration heap is populated.
-	for range 5 {
-		m := &Matcher{
-			EventType:   string(platform.EventKindPrivateMessage),
-			coordinator: eng,
-			Source:      "temp",
-			rt: matcherRuntime{
-				isTemp:    1,
-				expiresAt: time.Now().Add(-1 * time.Second),
-			},
+	synctest.Test(t, func(t *testing.T) {
+		eng := newEngineForTest(t, WithCleanupInterval(50*time.Millisecond), WithPendingDeleteBufferSize(10))
+		// Create expirable temp matchers to exercise the cleaner.
+		// Note: expiresAt must be set BEFORE tempManager.Add so the expiration heap is populated.
+		for range 5 {
+			m := &Matcher{
+				EventType:   string(platform.EventKindPrivateMessage),
+				coordinator: eng,
+				Source:      "temp",
+				rt: matcherRuntime{
+					isTemp:    1,
+					expiresAt: time.Now().Add(-1 * time.Second),
+				},
+			}
+			m.priority.Store(50)
+			eng.internals.tempManager.Add(m)
 		}
-		m.priority.Store(50)
-		eng.internals.tempManager.Add(m)
-	}
-	// Wait for cleaner to remove expired matchers
-	assert.Eventually(t, func() bool {
-		return eng.GetTempMatcherCount() == 0
-	}, time.Second, 50*time.Millisecond, "cleaner should remove expired temp matchers")
-	// Queue pending deletes to exercise the batch processor
-	for range 10 {
-		m := eng.On(string(platform.EventKindPrivateMessage))
-		eng.DeleteMatcher(m)
-	}
-	// DeleteMatcher is synchronous (COW), verify immediate effect
-	assert.Equal(t, 0, eng.GetMatcherCount())
-	c, cancel := stdctx.WithTimeout(stdctx.Background(), 500*time.Millisecond)
-	defer cancel()
-	err := eng.Shutdown(c)
-	assert.NoError(t, err)
+		// Wait for cleaner to remove expired matchers
+		assert.Eventually(t, func() bool {
+			return eng.GetTempMatcherCount() == 0
+		}, time.Second, 50*time.Millisecond, "cleaner should remove expired temp matchers")
+		// Queue pending deletes to exercise the batch processor
+		for range 10 {
+			m := eng.On(string(platform.EventKindPrivateMessage))
+			eng.DeleteMatcher(m)
+		}
+		// DeleteMatcher is synchronous (COW), verify immediate effect
+		assert.Equal(t, 0, eng.GetMatcherCount())
+		c, cancel := stdctx.WithTimeout(stdctx.Background(), 500*time.Millisecond)
+		defer cancel()
+		err := eng.Shutdown(c)
+		assert.NoError(t, err)
+	})
 }
 
 func TestEngine_RemoveGroup_BeforeAndAfterAdd(t *testing.T) {

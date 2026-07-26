@@ -3,6 +3,7 @@ package engine
 import (
 	stdctx "context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -38,6 +39,7 @@ func TestBugFix_ExtractCommandWithWhitespace(t *testing.T) {
 
 // TestBugFix_ContextCloneDeadline 测试 Bug 1 的修复：Clone 保留 deadline
 func TestBugFix_ContextCloneDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 创建带 deadline 的 context
 	stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 5*time.Second)
 	defer cancel()
@@ -76,6 +78,8 @@ func TestBugFix_ContextCloneDeadline(t *testing.T) {
 	default:
 		// 正确：克隆的 context 不受原 context 取消影响
 	}
+	})
+
 }
 
 // TestBugFix_InvalidateCombinedChain 测试 Bug 5 的修复：invalidateCombinedChain 清空缓存

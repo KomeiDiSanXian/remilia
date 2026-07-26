@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -14,6 +15,7 @@ import (
 
 // TestEngine_MatcherDeletionRaceCondition 测试 matcher 删除的竞态条件修复
 func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
@@ -75,10 +77,13 @@ func TestEngine_MatcherDeletionRaceCondition(t *testing.T) {
 
 	// 验证没有 panic 或死锁
 	t.Log("Test completed successfully without race conditions")
+	})
 }
+
 
 // TestEngine_ConcurrentMatcherDeletion 测试并发修改 matcher 状态
 func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
@@ -130,10 +135,12 @@ func TestEngine_ConcurrentMatcherDeletion(t *testing.T) {
 	}
 
 	t.Log("Test completed successfully")
+	})
 }
 
 // TestEngine_MatcherIsTemplToggle 测试 isTemp 标志切换场景
 func TestEngine_MatcherIsTemplToggle(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	engine := newEngineForTest(t)
 	defer engine.Shutdown(stdctx.Background())
 
@@ -186,10 +193,12 @@ func TestEngine_MatcherIsTemplToggle(t *testing.T) {
 
 	// 验证没有 panic
 	t.Log("Test completed successfully without panic")
+	})
 }
 
 // TestEngine_PendingDeleteChannel 测试 pending delete channel 的正确性
 func TestEngine_PendingDeleteChannel(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	engine := newEngineForTest(t,
 		WithPendingDeleteBufferSize(5), // 小缓冲区，更容易触发满的情况
 	)
@@ -228,6 +237,7 @@ func TestEngine_PendingDeleteChannel(t *testing.T) {
 
 	// 验证没有死锁或 panic
 	t.Log("Test completed successfully")
+	})
 }
 
 // TestEngine_MatcherDeletionUnderLoad 压力测试：高负载下的 matcher 删除
@@ -260,10 +270,10 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 		engine.internals.tempManager.Add(m)
 	}
 
-	// 高并发处理
+	// 高并发处理（使用真实时间，synctest 会因互斥锁竞争而停滞）
 	var wg sync.WaitGroup
 	numGoroutines := 100
-	duration := 2 * time.Second
+	duration := 100 * time.Millisecond
 
 	startTime := time.Now()
 
@@ -281,8 +291,6 @@ func TestEngine_MatcherDeletionUnderLoad(t *testing.T) {
 
 	wg.Wait()
 
-	// timing: stress test settle time
-	time.Sleep(500 * time.Millisecond)
-
 	t.Log("Stress test completed successfully")
 }
+

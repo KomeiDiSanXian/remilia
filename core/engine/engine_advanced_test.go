@@ -3,6 +3,7 @@ package engine
 import (
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -95,28 +96,30 @@ func TestMatcher_TempN(t *testing.T) {
 
 func TestMatcher_TempUntil(t *testing.T) {
 	t.Run("expire after time", func(t *testing.T) {
-		eng := newEngineForTest(t)
+		synctest.Test(t, func(t *testing.T) {
+			eng := newEngineForTest(t)
 
-		matcher := eng.On(string(platform.EventKindPrivateMessage))
-		matcher.SetTemp(true)
-		matcher.rt.expiresAt = time.Now().Add(50 * time.Millisecond)
-		matcher.Handle(func(c *ctx.Context) error {
-			return nil
+			matcher := eng.On(string(platform.EventKindPrivateMessage))
+			matcher.SetTemp(true)
+			matcher.rt.expiresAt = time.Now().Add(50 * time.Millisecond)
+			matcher.Handle(func(c *ctx.Context) error {
+				return nil
+			})
+
+			// Execute before expiration
+			ctx1 := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+			eng.ProcessEvent(ctx1)
+
+			// timing: wait for TTL expiration
+			time.Sleep(100 * time.Millisecond)
+
+			// Matcher should be expired now
+			matcher.rt.mu.RLock()
+			expired := time.Now().After(matcher.rt.expiresAt)
+			matcher.rt.mu.RUnlock()
+
+			assert.True(t, expired)
 		})
-
-		// Execute before expiration
-		ctx1 := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
-		eng.ProcessEvent(ctx1)
-
-		// timing: wait for TTL expiration
-		time.Sleep(100 * time.Millisecond)
-
-		// Matcher should be expired now
-		matcher.rt.mu.RLock()
-		expired := time.Now().After(matcher.rt.expiresAt)
-		matcher.rt.mu.RUnlock()
-
-		assert.True(t, expired)
 	})
 }
 
@@ -614,15 +617,17 @@ func TestEngine_PendingDeleteProcessor(t *testing.T) {
 
 func TestEngine_TempMatcherCleaner(t *testing.T) {
 	t.Run("cleaner removes expired temp matchers", func(t *testing.T) {
-		// Create engine with short cleanup interval
-		eng := newEngineForTest(t, WithCleanupInterval(100*time.Millisecond))
+		synctest.Test(t, func(t *testing.T) {
+			// Create engine with short cleanup interval
+			eng := newEngineForTest(t, WithCleanupInterval(100*time.Millisecond))
 
-		// Create expired temp matcher
-		matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
-		matcher.rt.expiresAt = time.Now().Add(-1 * time.Second) // Already expired
+			// Create expired temp matcher
+			matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
+			matcher.rt.expiresAt = time.Now().Add(-1 * time.Second) // Already expired
 
-		// timing: wait for cleaner ticker to fire (cleaner runs every 100ms)
-		time.Sleep(200 * time.Millisecond)
+			// timing: wait for cleaner ticker to fire (cleaner runs every 100ms)
+			time.Sleep(200 * time.Millisecond)
+		})
 	})
 
 	t.Run("cleaner respects disabled interval", func(t *testing.T) {
