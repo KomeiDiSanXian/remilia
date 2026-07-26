@@ -36,6 +36,14 @@ func NewHTTPServer(addr string, handler http.Handler) *HTTPServer {
 		srv: &http.Server{
 			Addr:    addr,
 			Handler: handler,
+			// 必须设置读取超时：零值表示"永不超时"，攻击者只需缓慢地
+			// 逐字节发送请求头即可长期占住连接和 goroutine（Slowloris）。
+			// 本类型同时承载管理 API、health、metrics 等对外端点。
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    1 << 20, // 1MB
+			// 刻意不设 WriteTimeout：SSE 日志流等长连接需要持续写出。
 		},
 		shutdownTimeout: 5 * time.Second, // 默认 5 秒
 	}
