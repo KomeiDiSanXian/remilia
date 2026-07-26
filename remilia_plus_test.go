@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -17,6 +18,7 @@ import (
 
 // TestBot_HandleEvent tests handleEvent method
 func TestBot_HandleEvent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	adapter := newMockAdapter()
 	eng := engine.NewEngine()
 	bot := MustNewBot(adapter, eng)
@@ -43,6 +45,7 @@ func TestBot_HandleEvent(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for event processing")
 	}
+	})
 }
 
 // TestAdapterHealthChecker tests nil adapter
@@ -92,8 +95,9 @@ func TestBotStatusChecker(t *testing.T) {
 
 // TestBot_WaitForShutdownSignal tests WaitForShutdown with signal (skip on Windows)
 func TestBot_WaitForShutdownSignal(t *testing.T) {
-	if os.Getenv("CI") != "" || os.Getenv("GOOS") == "windows" {
-		t.Skip("Skipping signal test on Windows/CI")
+	// 不使用 synctest：signal.Notify 会阻塞在真实 OS 信号上，阻止虚拟时间推进
+	if os.Getenv("GOOS") == "windows" {
+		t.Skip("Skipping signal test on Windows")
 	}
 
 	adapter := newMockAdapter()
@@ -101,6 +105,7 @@ func TestBot_WaitForShutdownSignal(t *testing.T) {
 	bot := MustNewBot(adapter, eng)
 
 	require.NoError(t, bot.Start())
+	defer bot.Stop(context.Background())
 
 	done := make(chan bool)
 	started := make(chan struct{})
@@ -127,8 +132,7 @@ func TestBot_WaitForShutdownSignal(t *testing.T) {
 	case <-done:
 		// Success
 	case <-time.After(3 * time.Second):
-		t.Log("Signal test timeout - skipping")
-		t.SkipNow()
+		t.Fatal("Timed out waiting for shutdown signal")
 	}
 }
 

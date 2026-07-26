@@ -3,6 +3,7 @@ package remilia
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -41,7 +42,7 @@ func waitBotRunning(t *testing.T, b *Bot) {
 		if b.IsRunning() {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
 	}
 	t.Fatal("bot did not reach running state in time")
 }
@@ -53,7 +54,7 @@ func waitBotHealthy(t *testing.T, b *Bot) {
 		if h := b.Health(); h.Status == "healthy" {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
 	}
 	t.Fatalf("bot did not become healthy in time (last status: %s)", b.Health().Status)
 }
@@ -72,6 +73,7 @@ func TestBot_Context_BeforeStart(t *testing.T) {
 
 // TestBot_Context_AfterStart Start 后 Context() 应存在且活跃
 func TestBot_Context_AfterStart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	adapter := newCtxMockAdapter()
 	b := MustNewBot(adapter, engine.NewEngine())
 	go func() { _ = b.Start() }()
@@ -86,10 +88,12 @@ func TestBot_Context_AfterStart(t *testing.T) {
 	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, b.Stop(stopCtx))
+	})
 }
 
 // TestBot_Context_CancelledAfterStop Stop 后 rootCtx 应被取消
 func TestBot_Context_CancelledAfterStop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	adapter := newCtxMockAdapter()
 	b := MustNewBot(adapter, engine.NewEngine())
 	go func() { _ = b.Start() }()
@@ -104,4 +108,5 @@ func TestBot_Context_CancelledAfterStop(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("rootCtx must be cancelled after Stop()")
 	}
+	})
 }
