@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -11,6 +12,7 @@ import (
 // plugin.loaded, plugin.unloaded, and plugin.reloaded events to the EventBus
 // after each lifecycle operation (Bug 2.8 fix: help plugin cache invalidation).
 func TestManager_PublishesLifecycleEvents(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	pm := NewManager(nil)
 	bus := pm.GetEventBus()
 
@@ -70,4 +72,5 @@ func TestManager_PublishesLifecycleEvents(t *testing.T) {
 	}
 
 	t.Log("✓ Bug 2.8 修复：Manager 在 loaded/unloaded/reloaded 时向 EventBus 发布生命周期事件")
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -13,6 +14,7 @@ import (
 
 // TestScope_SubscribeAutoCleanup 验证 Scope 订阅在 Dispose 后自动取消。
 func TestScope_SubscribeAutoCleanup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
 	pm := NewManager(eng)
 	eb := pm.GetEventBus()
@@ -55,6 +57,7 @@ func TestScope_SubscribeAutoCleanup(t *testing.T) {
 	mu.Lock()
 	assert.Empty(t, received)
 	mu.Unlock()
+	})
 }
 
 // TestScope_ChildScopeCascadeDispose 验证子 Scope 级联清理。

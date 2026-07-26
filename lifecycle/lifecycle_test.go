@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -56,6 +57,7 @@ func (c *testComponent) OnStop(_ context.Context) error {
 
 // TestManager_BasicLifecycle tests basic lifecycle
 func TestManager_BasicLifecycle(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp1 := newTestComponent("comp1")
@@ -107,10 +109,13 @@ func TestManager_BasicLifecycle(t *testing.T) {
 	if !comp1.stopCalled.Load() || !comp2.stopCalled.Load() {
 		t.Error("OnStop not called")
 	}
+	})
 }
+
 
 // TestManager_RunContextCancellation tests runtime context cancellation
 func TestManager_RunContextCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	contextCancelled := make(chan struct{})
@@ -146,10 +151,13 @@ func TestManager_RunContextCancellation(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Error("Context was not cancelled")
 	}
+	})
 }
+
 
 // TestManager_StartError tests start error and rollback
 func TestManager_StartError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp1 := newTestComponent("comp1")
@@ -184,10 +192,13 @@ func TestManager_StartError(t *testing.T) {
 	if comp3.startCalled.Load() {
 		t.Error("comp3 should not have been started")
 	}
+	})
 }
+
 
 // TestManager_StopError tests stop error
 func TestManager_StopError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp1 := newTestComponent("comp1")
@@ -218,10 +229,13 @@ func TestManager_StopError(t *testing.T) {
 	if manager.State() != StateStopped {
 		t.Errorf("Expected state=stopped, got=%s", manager.State())
 	}
+	})
 }
+
 
 // TestManager_MultipleComponents tests multiple components
 func TestManager_MultipleComponents(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	const numComponents = 5
@@ -273,10 +287,13 @@ func TestManager_MultipleComponents(t *testing.T) {
 			t.Errorf("Component %d OnStop not called", i)
 		}
 	}
+	})
 }
+
 
 // TestSimpleComponent tests SimpleComponent
 func TestSimpleComponent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	var startCalled atomic.Bool
 	var runCalled atomic.Bool
 	var stopCalled atomic.Bool
@@ -324,10 +341,13 @@ func TestSimpleComponent(t *testing.T) {
 	if !stopCalled.Load() {
 		t.Error("Stop not called")
 	}
+	})
 }
+
 
 // TestResourceComponent tests ResourceComponent
 func TestResourceComponent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	var resource string
 	acquireCalled := false
 	releaseCalled := false
@@ -369,10 +389,13 @@ func TestResourceComponent(t *testing.T) {
 	if resource != "test-resource" {
 		t.Errorf("Resource mismatch: got=%s", resource)
 	}
+	})
 }
+
 
 // TestManager_ComponentStatuses 测试组件健康状态聚合
 func TestManager_ComponentStatuses(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp1 := newTestComponent("comp1")
@@ -421,10 +444,12 @@ func TestManager_ComponentStatuses(t *testing.T) {
 
 	// 正常停止
 	_ = manager.Stop(context.Background())
+	})
 }
 
 // TestManager_ComponentStatuses_AllHealthy 测试所有组件健康时的状态
 func TestManager_ComponentStatuses_AllHealthy(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp := newTestComponent("comp")
@@ -449,4 +474,6 @@ func TestManager_ComponentStatuses_AllHealthy(t *testing.T) {
 	}
 
 	_ = manager.Stop(context.Background())
+	})
 }
+

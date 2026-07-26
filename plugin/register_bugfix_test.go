@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -13,6 +14,7 @@ import (
 
 // TestBugFix_RegisterV2ConcurrentAccess 测试 Bug 1 修复：Register 竞态条件
 func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background())
 
@@ -75,6 +77,7 @@ func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	if plugin.GetState() != Loaded {
 		t.Errorf("Plugin state should be Loaded, got %v", plugin.GetState())
 	}
+	})
 }
 
 // TestBugFix_RemoveListenerSafety 测试 Bug 2 修复：RemoveListener 安全性
@@ -113,6 +116,7 @@ func TestBugFix_RemoveListenerSafety(t *testing.T) {
 
 // TestBugFix_UnloadStateTransition 测试 Bug 3 修复：Unload 状态转换
 func TestBugFix_UnloadStateTransition(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	eng := engine.NewEngine()
 	defer eng.Shutdown(stdctx.Background())
 
@@ -161,6 +165,7 @@ func TestBugFix_UnloadStateTransition(t *testing.T) {
 	}
 
 	t.Log("✓ Bug 3 已修复：Unload 正确设置 Unloading 状态")
+	})
 }
 
 // TestBugFix_ContainerConcurrentAccess 测试 Bug 4 修复：Container 并发性能

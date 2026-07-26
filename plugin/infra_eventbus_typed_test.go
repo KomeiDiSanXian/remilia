@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +57,7 @@ func TestSubscribe_TypedReceive(t *testing.T) {
 }
 
 func TestSubscribe_TypeMismatchSilentSkip(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 发布 string，但订阅 userLoginEvent ——应静默跳过，不 panic
 	bus := NewEventBus()
 	var called atomic.Bool
@@ -70,6 +72,7 @@ func TestSubscribe_TypeMismatchSilentSkip(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	assert.False(t, called.Load(), "handler must not be called on type mismatch")
+	})
 }
 
 func TestSubscribe_NilBus(t *testing.T) {
@@ -284,6 +287,7 @@ func TestTypedChannel_ConcurrentPublish(t *testing.T) {
 }
 
 func TestTypedChannel_Unsubscribe(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	bus := NewEventBus()
 	ch := NewTypedChannel[string](bus, "greet")
 
@@ -304,6 +308,7 @@ func TestTypedChannel_Unsubscribe(t *testing.T) {
 	require.NoError(t, ch.Publish("world"))
 	time.Sleep(50 * time.Millisecond)
 	assert.EqualValues(t, 1, count.Load(), "handler must not be called after Unsubscribe")
+	})
 }
 
 // ---- 辅助函数 -----------------------------------------------------------------

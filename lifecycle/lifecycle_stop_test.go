@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 // TestLifecycleManager_StopMultipleErrors 测试 Stop 收集多个组件错误
 func TestLifecycleManager_StopMultipleErrors(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	// 创建三个组件，其中两个会在 Stop 时失败
@@ -75,10 +77,12 @@ func TestLifecycleManager_StopMultipleErrors(t *testing.T) {
 	// （但由于是组合错误，可能会包含"components"等词）
 
 	t.Logf("✓ Multiple component errors collected: %v", err)
+	})
 }
 
 // TestLifecycleManager_StopSingleError 测试单个组件错误
 func TestLifecycleManager_StopSingleError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	manager := NewManager()
 
 	comp := NewSimpleComponent(
@@ -115,6 +119,7 @@ func TestLifecycleManager_StopSingleError(t *testing.T) {
 	}
 
 	t.Logf("✓ Single component error handled: %v (%T)", err, stopErr)
+	})
 }
 
 // Helper function

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
-	"time"
+	"testing/synctest"
 
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
@@ -12,7 +12,8 @@ import (
 // TestUndeclaredDep_NotifiesDependents 验证通过 Service 的未声明必要依赖
 // 被合并后能正确触发 OnDependencyReloaded 回调。
 func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
-	pm := plugin.NewManager(nil)
+	synctest.Test(t, func(t *testing.T) {
+		pm := plugin.NewManager(nil)
 
 	_ = pm.Register(&plugin.Descriptor{
 		Name:  "base",
@@ -46,7 +47,7 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	})
 
 	_ = pm.Reload(context.Background(), "base")
-	time.Sleep(50 * time.Millisecond)
+	synctest.Wait()
 
 	if notifiedDeclared.Load() == 0 {
 		t.Error("consumer-declared 应收到通知")
@@ -59,6 +60,7 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	} else {
 		t.Log("✓ consumer-undeclared 也收到通知（未声明必要依赖被自动合并）")
 	}
+	})
 }
 
 // TestUndeclaredDep_UnregisterCascade 验证 Service 的未声明依赖方被正确级联卸载。
@@ -132,7 +134,8 @@ func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
 
 // TestUndeclaredDep_OptionalNotNotified 验证 TryService（可选依赖）不触发 OnDependencyReloaded。
 func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
-	pm := plugin.NewManager(nil)
+	synctest.Test(t, func(t *testing.T) {
+		pm := plugin.NewManager(nil)
 
 	_ = pm.Register(&plugin.Descriptor{
 		Name:  "optional-base",
@@ -154,13 +157,14 @@ func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
 	})
 
 	_ = pm.Reload(context.Background(), "optional-base")
-	time.Sleep(50 * time.Millisecond)
+	synctest.Wait()
 
 	if notified.Load() > 0 {
 		t.Error("consumer-optional 不应收到 OnDependencyReloaded（TryService 是可选依赖）")
 	} else {
 		t.Log("✓ consumer-optional 不收到通知（TryService 追踪为可选依赖）")
 	}
+	})
 }
 
 // TestUndeclaredDep_TopologicalSort 验证批量注册未声明 Deps 的已知限制。
