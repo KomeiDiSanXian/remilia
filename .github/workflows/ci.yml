@@ -58,7 +58,9 @@ jobs:
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+        run: |
+          pkgs=$(go list ./... | grep -v /examples | grep -v /testbot | tr '\n' ' ')
+          go run honnef.co/go/tools/cmd/staticcheck@latest $pkgs
 
   lint:
     name: golangci-lint

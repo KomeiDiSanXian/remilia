@@ -31,7 +31,7 @@ func TestMultiCycle(t *testing.T) {
 		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 		ext := ctx.Ext()
 		assert.NotNil(t, ext)
-		type cycleKey struct{ n int } //nolint:unused
+		type cycleKey struct{}
 		ExtSet(ctx.Ext(), cycleKey{})
 	}
 }

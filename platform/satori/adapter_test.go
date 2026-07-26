@@ -1,6 +1,7 @@
 package satori
 
 import (
+	stdctx "context"
 	"testing"
 )
 
@@ -229,7 +230,7 @@ func TestAdapter_Stop_WithoutStart(t *testing.T) {
 	cfg := DefaultConfig("http://localhost:5140", "p", "u")
 	a, _ := NewAdapter(cfg)
 	// Stop without calling Start should not panic or error
-	if err := a.Stop(nil); err != nil { //nolint:staticcheck
+	if err := a.Stop(stdctx.TODO()); err != nil {
 		t.Errorf("Stop without Start: unexpected error: %v", err)
 	}
 }
