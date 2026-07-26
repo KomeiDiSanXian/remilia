@@ -472,6 +472,14 @@ func (p *Plugin) handlePermRole(ctx *eventctx.Context, args *command.Args) error
 	if userID == "" || role == "" {
 		return p.reply(ctx, "用法: /perm role <用户ID> <角色>")
 	}
+	// 授予 superadmin 必须由 superadmin 本人执行。
+	// checkTargetNotSuperadmin 只判断"目标是否已是超管"，对尚未拥有该角色的
+	// 目标一律放行，因此普通 admin（其 *:* 权限即满足 perm.role）可以直接
+	// 执行 /perm role <自己的ID> superadmin 完成提权，绕开"superadmin 仅由
+	// 引导码授予"的分级模型。
+	if strings.EqualFold(role, "superadmin") && !p.hasSuperAdminRole(ctx) {
+		return p.reply(ctx, "权限不足：只有超级管理员才能授予 superadmin 角色")
+	}
 	if !p.checkTargetNotSuperadmin(ctx, userID) {
 		return nil
 	}

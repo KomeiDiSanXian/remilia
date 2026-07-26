@@ -45,6 +45,11 @@ const (
 type entry struct {
 	lastUsed time.Time
 	data     any // 可选的附加数据（由 AllowWithData 存储）
+	// cooldown 记录本条目对应的冷却时长，供 GC 判断能否安全回收。
+	// 若不记录，固定 24h 的 GC 会提前删除冷却期更长的记录，
+	// 而 Allow 把"键不存在"视为放行，冷却因此被绕过
+	// （例如 7 天领奖冷却，次日即可重复领取）。
+	cooldown time.Duration
 }
 
 // Plugin 冷却时间插件 API
@@ -116,7 +121,7 @@ func (p *Plugin) Allow(userID, command string, cooldownDur time.Duration) bool {
 	p.records.Compute(key, func(e *entry, exists bool) (*entry, bool) {
 		if !exists || now.Sub(e.lastUsed) >= cooldownDur {
 			allowed = true
-			return &entry{lastUsed: now}, true
+			return &entry{lastUsed: now, cooldown: cooldownDur}, true
 		}
 		return e, true
 	})
@@ -141,7 +146,7 @@ func (p *Plugin) AllowWithData(userID, command string, cooldownDur time.Duration
 	p.records.Compute(key, func(e *entry, exists bool) (*entry, bool) {
 		if !exists || now.Sub(e.lastUsed) >= cooldownDur {
 			allowed = true
-			return &entry{lastUsed: now, data: data}, true
+			return &entry{lastUsed: now, data: data, cooldown: cooldownDur}, true
 		}
 		return e, true
 	})
@@ -334,10 +339,14 @@ func (p *Plugin) PolicyMiddleware(policy Policy) eventctx.Middleware {
 
 // CleanExpired 清理已过期的冷却记录（减少内存占用）
 func (p *Plugin) CleanExpired(maxAge time.Duration) int {
-	threshold := time.Now().Add(-maxAge)
+	now := time.Now()
 	var toDelete []string
 	p.records.Range(func(key string, e *entry) bool {
-		if e.lastUsed.Before(threshold) {
+		// 取 maxAge 与该条目自身冷却时长中的较大者作为回收门槛：
+		// 只有冷却确实已经结束（此时删除与保留对 Allow 的结果等价）才回收，
+		// 避免把仍在生效的长冷却记录删掉造成绕过。
+		age := max(e.cooldown, maxAge)
+		if now.Sub(e.lastUsed) > age {
 			toDelete = append(toDelete, key)
 		}
 		return true

@@ -64,7 +64,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			Tags:        []string{"管理", "审核", "群管"},
 			HelpText: `群组管理命令：
   /mute <用户> [时长]   — 禁言用户（默认5分钟）
-  /kick <用户> [原因]   — 踢出用户
+  /kick <用户> [原因] [--ban]   — 踢出用户（--ban 同时拉黑）
   /warn <用户> [原因]    — 警告用户
   /warnings [用户]      — 查看警告记录
   /clean <数量>         — 批量删除消息`,
@@ -108,7 +108,7 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	kickCmd := &command.Definition{
 		Name:        "kick",
 		Description: "踢出用户",
-		Usage:       "/kick <用户> [原因]",
+		Usage:       "/kick <用户> [原因] [--ban]",
 		Category:    "管理",
 		Examples:    []string{"/kick @user", "/kick @user 广告"},
 	}
@@ -183,7 +183,7 @@ func (p *Plugin) handleKick(ctx *eventctx.Context) error {
 	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
-		ctx.Reply(platform.TextMessage("用法: /kick <用户> [原因]"))
+		ctx.Reply(platform.TextMessage("用法: /kick <用户> [原因] [--ban]"))
 		return nil
 	}
 	target := args[1]
@@ -193,12 +193,29 @@ func (p *Plugin) handleKick(ctx *eventctx.Context) error {
 		return nil
 	}
 	if gm, ok := ctx.GetPlatformSender().(platform.GroupManager); ok {
-		permanent := len(args) >= 3
+		// 拉黑必须显式指定 --ban / 拉黑。
+		// 此前用 len(args) >= 3 判定，等于把文档中的可选"原因"参数
+		// （用法 "/kick <用户> [原因]"，示例 "/kick @user 广告"）
+		// 当成了永久拉黑开关——照文档操作会把用户拉黑、无法再次加群。
+		permanent := false
+		reasonParts := make([]string, 0, len(args))
+		for _, a := range args[2:] {
+			if strings.EqualFold(a, "--ban") || a == "拉黑" {
+				permanent = true
+				continue
+			}
+			reasonParts = append(reasonParts, a)
+		}
+		reason := strings.Join(reasonParts, " ")
+
 		if err := gm.KickMember(ctx.Context(), chat.ID, target, permanent); err != nil {
 			ctx.Reply(platform.TextMessage(fmt.Sprintf("踢出失败: %v", err)))
 			return nil
 		}
 		msg := fmt.Sprintf("已踢出 %s", target)
+		if reason != "" {
+			msg += fmt.Sprintf("（原因: %s）", reason)
+		}
 		if permanent {
 			msg += " (拉黑)"
 		}

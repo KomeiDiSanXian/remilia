@@ -272,7 +272,7 @@ func (m *Manager) Subscribe(sourceName, param string, target Target) (string, er
 
 	logger.Infof("[Subscription] %q subscribed to source=%q param=%q (id=%s)",
 		target.ChatID, sourceName, param, id)
-	m.save()
+	m.saveLocked()
 	return id, nil
 }
 
@@ -307,7 +307,7 @@ func (m *Manager) Unsubscribe(id string) error {
 
 	logger.Infof("[Subscription] Removed subscription id=%s (source=%q param=%q target=%q)",
 		id, sub.SourceName, sub.Param, sub.Target.ChatID)
-	m.save()
+	m.saveLocked()
 	return nil
 }
 
@@ -403,11 +403,24 @@ type subscriptionStorageData struct {
 	Subs map[string]*Subscription `json:"subs"`
 }
 
+// save 持久化订阅数据，供未持有锁的调用方使用（如 Teardown）。
 func (m *Manager) save() {
 	if m.store == nil {
 		return
 	}
 	m.mu.RLock()
+	defer m.mu.RUnlock()
+	m.saveLocked()
+}
+
+// saveLocked 持久化订阅数据；调用方必须已持有 m.mu（读锁或写锁）。
+//
+// RWMutex 不可重入，因此在 Subscribe/Unsubscribe 等已持写锁的路径中
+// 必须调用本函数而非 save()，否则会自死锁。
+func (m *Manager) saveLocked() {
+	if m.store == nil {
+		return
+	}
 	d := subscriptionStorageData{
 		Subs: make(map[string]*Subscription, len(m.subs)),
 	}
@@ -415,7 +428,6 @@ func (m *Manager) save() {
 		cp := *v
 		d.Subs[k] = &cp
 	}
-	m.mu.RUnlock()
 	bytes, err := json.Marshal(d)
 	if err != nil {
 		logger.WithError(err).Warn("[Subscription] Failed to marshal")

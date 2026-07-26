@@ -382,6 +382,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 			"支持两种方式：\n" +
 			"  1. `" + p.cfg.TriggerCmd + ` skill add my_skill 你是...` + "` — 一次性内联注册\n" +
 			"  2. `" + p.cfg.TriggerCmd + " skill add my_skill` — 仅指定名称，然后发送 Markdown 内容或 .md 附件")
+		return nil
 	}
 	name := fields[0]
 	prompt := ""
@@ -423,6 +424,8 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 			"📝 请发送 Markdown 内容来定义技能 `%s`。\n"+
 				"支持文本消息或 .md 文件附件。\n"+
 				"发送 cancel 或 取消 可放弃注册。", name))
+		// 两步注册已启动，等待用户下一条消息，本次不立即注册。
+		return nil
 	}
 
 	return p.registerSkillAndReply(ctx, name, prompt, ownerID)

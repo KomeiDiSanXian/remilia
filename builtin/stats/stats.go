@@ -75,11 +75,23 @@ const (
 // Plugin 用户行为统计插件 API
 type Plugin struct {
 	commandCounts sync.Map // command -> *atomic.Int64
+	commandKeys   atomic.Int64
 	userStats     sync.Map // userID -> *userEntry
 	totalMessages atomic.Int64
 	kvPath        string // LevelDB 数据库路径（空字符串=纯内存）
 	store         *kv.DB
 }
+
+// commandCounts 的容量与键长上限。
+//
+// Middleware 会把"首字符非字母数字"的任意 token 当成命令记录下来，
+// 而这完全由用户消息内容决定（标点、emoji 开头都算），该 map 既无淘汰、
+// 又每 5 分钟整体快照落盘。不加上限时，用户只要持续发送互不相同的
+// 标点前缀 token，就能让内存和磁盘无限增长。
+const (
+	maxTrackedCommands = 1000
+	maxCommandKeyLen   = 64
+)
 
 type userEntry struct {
 	mu       sync.Mutex
@@ -200,7 +212,22 @@ func (p *Plugin) RecordCommand(command string) {
 }
 
 func (p *Plugin) recordCommand(cmd string) {
-	v, _ := p.commandCounts.LoadOrStore(cmd, new(atomic.Int64))
+	if cmd == "" || len(cmd) > maxCommandKeyLen {
+		return
+	}
+	// 已存在的键始终照常计数，不受上限影响
+	if v, ok := p.commandCounts.Load(cmd); ok {
+		v.(*atomic.Int64).Add(1)
+		return
+	}
+	// 新键受总量上限保护，防止用户构造任意 token 撑爆 map 与快照
+	if p.commandKeys.Load() >= maxTrackedCommands {
+		return
+	}
+	v, loaded := p.commandCounts.LoadOrStore(cmd, new(atomic.Int64))
+	if !loaded {
+		p.commandKeys.Add(1)
+	}
 	v.(*atomic.Int64).Add(1)
 }
 
@@ -357,6 +384,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 // Reset 重置所有统计数据
 func (p *Plugin) Reset() {
 	p.commandCounts = sync.Map{}
+	p.commandKeys.Store(0)
 	p.userStats = sync.Map{}
 	p.totalMessages.Store(0)
 }
@@ -418,7 +446,10 @@ func (p *Plugin) loadSnapshot() {
 	}
 	p.totalMessages.Store(snap.Total)
 	for cmd, count := range snap.Commands {
-		v, _ := p.commandCounts.LoadOrStore(cmd, new(atomic.Int64))
+		v, loaded := p.commandCounts.LoadOrStore(cmd, new(atomic.Int64))
+		if !loaded {
+			p.commandKeys.Add(1)
+		}
 		v.(*atomic.Int64).Store(count)
 	}
 	logger.Infof("[Stats] Loaded snapshot: total=%d commands=%d", snap.Total, len(snap.Commands))

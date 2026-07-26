@@ -171,6 +171,17 @@ func (p *Plugin) Wait(ctx stdctx.Context, id ID) error {
 
 // ── 内部执行 ──────────────────────────────────────────────────────────────────
 
+// safeInvoke 执行作业函数并将 panic 转换为普通错误，
+// 避免后台作业 goroutine 中未捕获的 panic 直接终止整个进程。
+func safeInvoke(ctx stdctx.Context, fn Func) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("job panic: %v", r)
+		}
+	}()
+	return fn(ctx)
+}
+
 func (p *Plugin) runOnce(e *entry, fn Func, cfg jobConfig) {
 	// 延迟等待
 	if cfg.delay > 0 {
@@ -210,7 +221,7 @@ func (p *Plugin) runOnce(e *entry, fn Func, cfg jobConfig) {
 		}
 		e.mu.Unlock()
 
-		err := fn(runCtx)
+		err := safeInvoke(runCtx, fn)
 		runCancel()
 
 		if err == nil {
