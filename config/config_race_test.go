@@ -14,9 +14,9 @@ import (
 // This test should be run with -race flag to detect data races
 func TestConfigRaceCondition(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	// Create a temporary config file
-	tmpFile := t.TempDir() + "/config.yaml"
-	configContent := `
+		// Create a temporary config file
+		tmpFile := t.TempDir() + "/config.yaml"
+		configContent := `
 bot:
   qq:
     app_id: 12345
@@ -29,46 +29,45 @@ log:
   level: "info"
   format: "json"
 `
-	_ = os.WriteFile(tmpFile, []byte(configContent), 0644)
+		_ = os.WriteFile(tmpFile, []byte(configContent), 0644)
 
-	defer os.Remove(tmpFile)
+		defer os.Remove(tmpFile)
 
-	// Load initial config
-	cfg, err := Load(tmpFile)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	// Many concurrent readers
-	var wg sync.WaitGroup
-	stop := make(chan struct{})
-	for range 10 {
-		wg.Go(func() {
-			for {
-				select {
-				case <-stop:
-					return
-				default:
-					_ = cfg.Bot.QQ.AppID
-					time.Sleep(time.Millisecond)
+		// Load initial config
+		cfg, err := Load(tmpFile)
+		assert.NoError(t, err)
+		assert.NotNil(t, cfg)
+		// Many concurrent readers
+		var wg sync.WaitGroup
+		stop := make(chan struct{})
+		for range 10 {
+			wg.Go(func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						_ = cfg.Bot.QQ.AppID
+						time.Sleep(time.Millisecond)
+					}
 				}
+			})
+		}
+
+		// Start a writer (simulating hot reload)
+		wg.Go(func() {
+			for range 5 {
+				time.Sleep(10 * time.Millisecond)
+				_, _ = Load(tmpFile)
 			}
 		})
-	}
 
-	// Start a writer (simulating hot reload)
-	wg.Go(func() {
-		for range 5 {
-			time.Sleep(10 * time.Millisecond)
-			_, _ = Load(tmpFile)
-		}
-	})
-
-	// Let them run for a bit
-	time.Sleep(100 * time.Millisecond)
-	close(stop)
-	wg.Wait()
+		// Let them run for a bit
+		time.Sleep(100 * time.Millisecond)
+		close(stop)
+		wg.Wait()
 	})
 }
-
 
 // TestGetBeforeLoad tests that Get() returns false when config is not loaded
 func TestGetBeforeLoad(t *testing.T) {

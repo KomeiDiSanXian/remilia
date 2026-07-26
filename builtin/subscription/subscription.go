@@ -562,7 +562,7 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 			// 停止所有轮询任务（scheduler 本身也会在 Teardown 时停止，此处为安全起见）
 			m.mu.Lock()
 			for sourceKey, jobID := range m.sourceJobs {
-			m.schedSvc.Remove(jobID)
+				m.schedSvc.Remove(jobID)
 				delete(m.sourceJobs, sourceKey)
 			}
 			m.mu.Unlock()

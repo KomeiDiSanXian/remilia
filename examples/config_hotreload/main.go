@@ -57,9 +57,9 @@ func main() {
 	// 打印初始配置
 	cfg := watcher.GetConfig()
 	logger.WithFields(logger.Fields{
-		"app_id":      cfg.Bot.QQ.AppID,
-		"log_level":   cfg.Log.Level,
-		"port":        cfg.Bot.QQ.Webhook.Port,
+		"app_id":             cfg.Bot.QQ.AppID,
+		"log_level":          cfg.Log.Level,
+		"port":               cfg.Bot.QQ.Webhook.Port,
 		"backpressure_limit": cfg.Middleware.Backpressure.Limit,
 	}).Info("[ConfigHotReload] Initial configuration loaded")
 

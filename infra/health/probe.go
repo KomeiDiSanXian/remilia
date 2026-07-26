@@ -98,7 +98,7 @@ func (p *APIProbe) Check(ctx context.Context) CheckResult {
 	ok := p.acceptStatus(resp.StatusCode)
 	p.healthy.Store(ok)
 	metadata := map[string]any{
-		"status_code":     resp.StatusCode,
+		"status_code":      resp.StatusCode,
 		"response_time_ms": d.Milliseconds(),
 	}
 	result := CheckResult{Duration: d, Metadata: metadata}

@@ -26,8 +26,9 @@ import (
 
 // mergeIterListCount 是 MergeIter 支持的有序流数量。
 // 对应 processEventMatchers 中的 6 个列表：
-//   permSpecific, cmdSpecific, tempSpecific,
-//   permGeneric,  cmdGeneric,  tempGeneric
+//
+//	permSpecific, cmdSpecific, tempSpecific,
+//	permGeneric,  cmdGeneric,  tempGeneric
 const mergeIterListCount = 6
 
 // matcherMergeIter 对最多 6 个已按优先级升序排列的 Matcher 列表进行惰性合并。

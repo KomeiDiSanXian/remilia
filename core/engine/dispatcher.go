@@ -128,8 +128,8 @@ type OutboundDispatcher struct {
 	baseCtx context.Context
 	cancel  context.CancelFunc
 	config  DispatcherConfig
-	sem     chan struct{}   // 全局并发令牌
-	queues  sync.Map        // map[string]*chatQueue
+	sem     chan struct{} // 全局并发令牌
+	queues  sync.Map      // map[string]*chatQueue
 	stopped atomic.Bool
 	wg      sync.WaitGroup
 }

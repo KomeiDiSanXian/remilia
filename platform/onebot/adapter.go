@@ -383,5 +383,3 @@ func isAPIResponse(msg []byte) bool {
 	// API 响应含 retcode；事件含 post_type
 	return probe.Retcode != nil || probe.Echo != nil
 }
-
-

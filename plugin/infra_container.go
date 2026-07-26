@@ -24,8 +24,8 @@ type Container struct {
 	services sync.Map // name → *serviceEntry
 
 	// typeIndex 类型索引：reflect.Type → []*serviceEntry
-	typeIndex    sync.Map
-	typeIndexMu  sync.Mutex
+	typeIndex   sync.Map
+	typeIndexMu sync.Mutex
 
 	// 冻结后的只读快照
 	frozen     atomic.Bool

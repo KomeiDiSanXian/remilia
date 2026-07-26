@@ -87,7 +87,7 @@ func registerHandlers(eng *engine.Engine, adapter *milky.Adapter) {
 		msg := ctx.GetMessageContent()
 		if msg == "" {
 			ctx.Reply(platform.TextMessage("请在 /echo 后面输入要回显的内容"))
-		return nil
+			return nil
 		}
 		ctx.Reply(platform.TextMessage("回声: " + msg))
 		return nil
@@ -129,16 +129,16 @@ func registerHandlers(eng *engine.Engine, adapter *milky.Adapter) {
 		chat := ctx.GetChatInfo()
 		if !chat.IsGroup {
 			ctx.Reply(platform.TextMessage("此命令仅在群聊中可用"))
-		return nil
+			return nil
 		}
 		if gm, ok := platform.GetGroupManager(adapter); ok {
 			senderID := ctx.GetSenderInfo().ID
 			if err := gm.BanMember(ctx.Context(), chat.ID, senderID, 60*time.Second); err != nil {
 				ctx.Reply(platform.TextMessage("禁言失败: " + err.Error()))
-		return nil
+				return nil
 			}
 			ctx.Reply(platform.TextMessage("已禁言 60 秒"))
-		return nil
+			return nil
 		}
 		ctx.Reply(platform.TextMessage("当前平台不支持群成员管理"))
 		return nil

@@ -115,7 +115,6 @@ func TestEngineRaceConditions(t *testing.T) {
 	})
 }
 
-
 // TestEngineShutdownWithPendingEvents 测试关闭时的事件处理
 func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	t.Run("shutdown_waits_for_events", func(t *testing.T) {
@@ -279,4 +278,3 @@ func TestEngineMemoryLeaks(t *testing.T) {
 		}, time.Second, 50*time.Millisecond, "Used temp matchers should be cleaned")
 	})
 }
-

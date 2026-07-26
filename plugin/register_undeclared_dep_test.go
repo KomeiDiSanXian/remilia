@@ -15,51 +15,51 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		pm := plugin.NewManager(nil)
 
-	_ = pm.Register(&plugin.Descriptor{
-		Name:  "base",
-		Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
-	})
+		_ = pm.Register(&plugin.Descriptor{
+			Name:  "base",
+			Setup: func(ctx *plugin.SetupContext) (any, error) { return nil, nil },
+		})
 
-	var notifiedDeclared, notifiedUndeclared atomic.Int32
+		var notifiedDeclared, notifiedUndeclared atomic.Int32
 
-	_ = pm.Register(&plugin.Descriptor{
-		Name: "consumer-declared",
-		Deps: []string{"base"},
-		Advanced: &plugin.Advanced{
-			OnDependencyReloaded: func(dep string) { notifiedDeclared.Add(1) },
-		},
-		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "base")
-			return nil, nil
-		},
-	})
+		_ = pm.Register(&plugin.Descriptor{
+			Name: "consumer-declared",
+			Deps: []string{"base"},
+			Advanced: &plugin.Advanced{
+				OnDependencyReloaded: func(dep string) { notifiedDeclared.Add(1) },
+			},
+			Setup: func(ctx *plugin.SetupContext) (any, error) {
+				_ = plugin.Service[any](ctx, "base")
+				return nil, nil
+			},
+		})
 
-	_ = pm.Register(&plugin.Descriptor{
-		Name: "consumer-undeclared",
-		Deps: []string{},
-		Advanced: &plugin.Advanced{
-			OnDependencyReloaded: func(dep string) { notifiedUndeclared.Add(1) },
-		},
-		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "base") // Service → 必要依赖 → 被合并到 desc.Deps
-			return nil, nil
-		},
-	})
+		_ = pm.Register(&plugin.Descriptor{
+			Name: "consumer-undeclared",
+			Deps: []string{},
+			Advanced: &plugin.Advanced{
+				OnDependencyReloaded: func(dep string) { notifiedUndeclared.Add(1) },
+			},
+			Setup: func(ctx *plugin.SetupContext) (any, error) {
+				_ = plugin.Service[any](ctx, "base") // Service → 必要依赖 → 被合并到 desc.Deps
+				return nil, nil
+			},
+		})
 
-	_ = pm.Reload(context.Background(), "base")
-	synctest.Wait()
+		_ = pm.Reload(context.Background(), "base")
+		synctest.Wait()
 
-	if notifiedDeclared.Load() == 0 {
-		t.Error("consumer-declared 应收到通知")
-	} else {
-		t.Log("✓ consumer-declared 收到通知")
-	}
+		if notifiedDeclared.Load() == 0 {
+			t.Error("consumer-declared 应收到通知")
+		} else {
+			t.Log("✓ consumer-declared 收到通知")
+		}
 
-	if notifiedUndeclared.Load() == 0 {
-		t.Error("consumer-undeclared 应收到通知（Service 追踪为必要依赖后合并）")
-	} else {
-		t.Log("✓ consumer-undeclared 也收到通知（未声明必要依赖被自动合并）")
-	}
+		if notifiedUndeclared.Load() == 0 {
+			t.Error("consumer-undeclared 应收到通知（Service 追踪为必要依赖后合并）")
+		} else {
+			t.Log("✓ consumer-undeclared 也收到通知（未声明必要依赖被自动合并）")
+		}
 	})
 }
 
@@ -73,8 +73,8 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 	})
 
 	_ = pm.Register(&plugin.Descriptor{
-		Name:  "consumer-declared",
-		Deps:  []string{"base"},
+		Name: "consumer-declared",
+		Deps: []string{"base"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			_ = plugin.Service[any](ctx, "base")
 			return nil, nil
@@ -137,33 +137,33 @@ func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		pm := plugin.NewManager(nil)
 
-	_ = pm.Register(&plugin.Descriptor{
-		Name:  "optional-base",
-		Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
-	})
+		_ = pm.Register(&plugin.Descriptor{
+			Name:  "optional-base",
+			Setup: func(ctx *plugin.SetupContext) (any, error) { return "api", nil },
+		})
 
-	var notified atomic.Int32
+		var notified atomic.Int32
 
-	_ = pm.Register(&plugin.Descriptor{
-		Name: "consumer-optional",
-		Deps: []string{},
-		Advanced: &plugin.Advanced{
-			OnDependencyReloaded: func(dep string) { notified.Add(1) },
-		},
-		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, _ = plugin.TryService[any](ctx, "optional-base") // 可选
-			return nil, nil
-		},
-	})
+		_ = pm.Register(&plugin.Descriptor{
+			Name: "consumer-optional",
+			Deps: []string{},
+			Advanced: &plugin.Advanced{
+				OnDependencyReloaded: func(dep string) { notified.Add(1) },
+			},
+			Setup: func(ctx *plugin.SetupContext) (any, error) {
+				_, _ = plugin.TryService[any](ctx, "optional-base") // 可选
+				return nil, nil
+			},
+		})
 
-	_ = pm.Reload(context.Background(), "optional-base")
-	synctest.Wait()
+		_ = pm.Reload(context.Background(), "optional-base")
+		synctest.Wait()
 
-	if notified.Load() > 0 {
-		t.Error("consumer-optional 不应收到 OnDependencyReloaded（TryService 是可选依赖）")
-	} else {
-		t.Log("✓ consumer-optional 不收到通知（TryService 追踪为可选依赖）")
-	}
+		if notified.Load() > 0 {
+			t.Error("consumer-optional 不应收到 OnDependencyReloaded（TryService 是可选依赖）")
+		} else {
+			t.Log("✓ consumer-optional 不收到通知（TryService 追踪为可选依赖）")
+		}
 	})
 }
 
@@ -311,8 +311,8 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "sm-consumer")
-			_ = plugin.Service[any](ctx, "sm-base")            // 必要
-			_, _ = plugin.TryService[any](ctx, "sm-optional")  // 可选
+			_ = plugin.Service[any](ctx, "sm-base")           // 必要
+			_, _ = plugin.TryService[any](ctx, "sm-optional") // 可选
 			return nil, nil
 		},
 	}

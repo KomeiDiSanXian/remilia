@@ -17,14 +17,14 @@ type GoroutineSummary struct {
 
 // statsController 管理插件运行时统计和蓝绿重载的 draining 追踪。
 type statsController struct {
-	pm               *Manager
-	mu               sync.RWMutex             // draining 专用锁，与 Manager.mu 分离
+	pm                *Manager
+	mu                sync.RWMutex // draining 专用锁，与 Manager.mu 分离
 	drainingInstances map[string]*drainingEntry
 }
 
 func newStatsController(pm *Manager) *statsController {
 	return &statsController{
-		pm:               pm,
+		pm:                pm,
 		drainingInstances: make(map[string]*drainingEntry),
 	}
 }

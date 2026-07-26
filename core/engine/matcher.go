@@ -46,7 +46,7 @@ type Matcher struct {
 	// 使用 atomic.Bool 以防止 rebuildIndex 写操作与
 	// 共享 *Matcher 对象（COW 共享指针）的并发 Match() 读操作之间出现数据竞争。
 	commandIndexed atomic.Bool
-	hasHandler    atomic.Bool
+	hasHandler     atomic.Bool
 	EventType      EventType
 	Rules          []context.Rule
 	Handler        context.Handler

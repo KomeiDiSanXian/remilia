@@ -8,10 +8,10 @@ import (
 	"net/http"
 	netpprof "net/http/pprof"
 	"os"
-	"sync"
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -73,11 +73,11 @@ type handlerEntry struct {
 
 // PprofServer pprof 服务器
 type PprofServer struct {
-	server        *http.Server
-	config        PprofConfig
-	stopCh        chan struct{}
-	handlers      []handlerEntry
-	listenerAddr  string
+	server         *http.Server
+	config         PprofConfig
+	stopCh         chan struct{}
+	handlers       []handlerEntry
+	listenerAddr   string
 	listenerAddrMu sync.Mutex
 }
 
@@ -199,7 +199,7 @@ func (p *PprofServer) UpdateConfig(cfg PprofConfig) {
 		runtime.SetBlockProfileRate(cfg.BlockProfileRate)
 	}
 	logger.WithFields(logger.Fields{
-		"auto_profile":   p.config.AutoProfile,
+		"auto_profile":     p.config.AutoProfile,
 		"profile_interval": p.config.ProfileInterval,
 		"profile_duration": p.config.ProfileDuration,
 	}).Info("[Pprof] Pprof config updated")

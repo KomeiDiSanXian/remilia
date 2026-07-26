@@ -110,26 +110,26 @@ func TestScheduler_PanicRecovery(t *testing.T) {
 // noopLogger satisfies plugin.Logger for tests without panicking on nil.
 type noopLogger struct{} //nolint:unused
 
-func (noopLogger) Info(_ string)                           { //nolint:unused
+func (noopLogger) Info(_ string) { //nolint:unused
 }
-func (noopLogger) Infof(_ string, _ ...any)                { //nolint:unused
+func (noopLogger) Infof(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Infow(_ string, _ ...any)                { //nolint:unused
+func (noopLogger) Infow(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Warn(_ string)                           { //nolint:unused
+func (noopLogger) Warn(_ string) { //nolint:unused
 }
-func (noopLogger) Warnf(_ string, _ ...any)                { //nolint:unused
+func (noopLogger) Warnf(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Warnw(_ string, _ ...any)                { //nolint:unused
+func (noopLogger) Warnw(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Error(_ string, _ error)                 { //nolint:unused
+func (noopLogger) Error(_ string, _ error) { //nolint:unused
 }
-func (noopLogger) Errorf(_ string, _ ...any)               { //nolint:unused
+func (noopLogger) Errorf(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Debug(_ string)                          { //nolint:unused
+func (noopLogger) Debug(_ string) { //nolint:unused
 }
-func (noopLogger) Debugf(_ string, _ ...any)               { //nolint:unused
+func (noopLogger) Debugf(_ string, _ ...any) { //nolint:unused
 }
-func (noopLogger) Debugw(_ string, _ ...any)               { //nolint:unused
+func (noopLogger) Debugw(_ string, _ ...any) { //nolint:unused
 }
 func (noopLogger) WithField(_ string, _ any) plugin.Logger { return noopLogger{} } //nolint:unused

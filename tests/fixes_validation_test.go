@@ -37,39 +37,38 @@ func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 // TestBotConcurrentStart tests that concurrent Start() calls don't cause race conditions
 func TestBotConcurrentStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	eng := engine.NewEngine()
-	adapter := &mockAdapter{}
-	bot := remilia.MustNewBot(adapter, eng)
+		eng := engine.NewEngine()
+		adapter := &mockAdapter{}
+		bot := remilia.MustNewBot(adapter, eng)
 
-	var wg sync.WaitGroup
-	errors := make([]error, 10)
+		var wg sync.WaitGroup
+		errors := make([]error, 10)
 
-	// Try to start bot concurrently from 10 goroutines
-	for i := range 10 {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			errors[idx] = bot.Start()
-		}(i)
-	}
+		// Try to start bot concurrently from 10 goroutines
+		for i := range 10 {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				errors[idx] = bot.Start()
+			}(i)
+		}
 
-	wg.Wait()
+		wg.Wait()
 
-	// Give some time for the lifecycle to actually call adapter.Start() in its goroutine
-	time.Sleep(100 * time.Millisecond)
+		// Give some time for the lifecycle to actually call adapter.Start() in its goroutine
+		time.Sleep(100 * time.Millisecond)
 
-	// Check that the adapter's Start was called exactly once
-	startCallCount := adapter.GetStartCallCount()
-	assert.Equal(t, int32(1), startCallCount, "Adapter Start() should be called exactly once")
-	assert.True(t, bot.IsRunning(), "Bot should be running")
+		// Check that the adapter's Start was called exactly once
+		startCallCount := adapter.GetStartCallCount()
+		assert.Equal(t, int32(1), startCallCount, "Adapter Start() should be called exactly once")
+		assert.True(t, bot.IsRunning(), "Bot should be running")
 
-	// Cleanup
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = bot.Stop(ctx)
+		// Cleanup
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = bot.Stop(ctx)
 	})
 }
-
 
 // TestDedupStrictMode tests the strict mode behavior of dedup filter
 func TestDedupStrictMode(t *testing.T) {
@@ -125,74 +124,73 @@ func TestDedupStrictMode(t *testing.T) {
 // TestCircuitBreakerHalfOpenConcurrency tests the half-open state concurrency fix
 func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-		MaxFailures:         1,
-		ResetTimeout:        100 * time.Millisecond,
-		HalfOpenMaxRequests: 3,
-		SuccessThreshold:    100, // High threshold to prevent early transition to Closed
-	})
-
-	// Trigger circuit breaker to open
-	cb.Reset()
-	mw := resilience.CircuitBreakerMiddleware(cb)
-	failHandler := mw(func(ctx *eventctx.Context) error {
-		return assert.AnError
-	})
-
-	for range 2 {
-		_ = failHandler(&eventctx.Context{})
-	}
-
-	// Verify circuit is open
-	require.Equal(t, resilience.StateOpen, cb.GetState(), "Circuit should be open after failures")
-
-	// Wait for reset timeout to enter half-open state
-	time.Sleep(150 * time.Millisecond)
-
-	// Prepare concurrent requests
-	var wg sync.WaitGroup
-	var startBarrier sync.WaitGroup
-	allowedCount := atomic.Int32{}
-	rejectedCount := atomic.Int32{}
-
-	startBarrier.Add(1) // Barrier to ensure all goroutines start at the same time
-
-	for range 10 {
-		wg.Go(func() {
-
-			// Wait for barrier to ensure concurrent execution
-			startBarrier.Wait()
-
-			testMw := resilience.CircuitBreakerMiddleware(cb)
-			handler := testMw(func(ctx *eventctx.Context) error {
-				return nil // Success
-			})
-
-			err := handler(&eventctx.Context{})
-			if err == nil {
-				allowedCount.Add(1)
-			} else {
-				rejectedCount.Add(1)
-			}
+		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+			MaxFailures:         1,
+			ResetTimeout:        100 * time.Millisecond,
+			HalfOpenMaxRequests: 3,
+			SuccessThreshold:    100, // High threshold to prevent early transition to Closed
 		})
-	}
 
-	// Release all goroutines at once
-	startBarrier.Done()
+		// Trigger circuit breaker to open
+		cb.Reset()
+		mw := resilience.CircuitBreakerMiddleware(cb)
+		failHandler := mw(func(ctx *eventctx.Context) error {
+			return assert.AnError
+		})
 
-	wg.Wait()
+		for range 2 {
+			_ = failHandler(&eventctx.Context{})
+		}
 
-	allowed := allowedCount.Load()
-	rejected := rejectedCount.Load()
+		// Verify circuit is open
+		require.Equal(t, resilience.StateOpen, cb.GetState(), "Circuit should be open after failures")
 
-	// At most HalfOpenMaxRequests (3) should be allowed
-	assert.LessOrEqual(t, allowed, int32(3),
-		"Should not exceed HalfOpenMaxRequests, got %d allowed", allowed)
-	assert.GreaterOrEqual(t, rejected, int32(7),
-		"At least 7 requests should be rejected, got %d rejected", rejected)
+		// Wait for reset timeout to enter half-open state
+		time.Sleep(150 * time.Millisecond)
+
+		// Prepare concurrent requests
+		var wg sync.WaitGroup
+		var startBarrier sync.WaitGroup
+		allowedCount := atomic.Int32{}
+		rejectedCount := atomic.Int32{}
+
+		startBarrier.Add(1) // Barrier to ensure all goroutines start at the same time
+
+		for range 10 {
+			wg.Go(func() {
+
+				// Wait for barrier to ensure concurrent execution
+				startBarrier.Wait()
+
+				testMw := resilience.CircuitBreakerMiddleware(cb)
+				handler := testMw(func(ctx *eventctx.Context) error {
+					return nil // Success
+				})
+
+				err := handler(&eventctx.Context{})
+				if err == nil {
+					allowedCount.Add(1)
+				} else {
+					rejectedCount.Add(1)
+				}
+			})
+		}
+
+		// Release all goroutines at once
+		startBarrier.Done()
+
+		wg.Wait()
+
+		allowed := allowedCount.Load()
+		rejected := rejectedCount.Load()
+
+		// At most HalfOpenMaxRequests (3) should be allowed
+		assert.LessOrEqual(t, allowed, int32(3),
+			"Should not exceed HalfOpenMaxRequests, got %d allowed", allowed)
+		assert.GreaterOrEqual(t, rejected, int32(7),
+			"At least 7 requests should be rejected, got %d rejected", rejected)
 	})
 }
-
 
 // Mock adapter for testing
 type mockAdapter struct {

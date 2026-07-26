@@ -199,7 +199,8 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 
 // reply 发送消息（平台无关）
 func (p *Plugin) reply(ctx *eventctx.Context, message string) error {
-	ctx.ReplyText(message); return nil
+	ctx.ReplyText(message)
+	return nil
 }
 
 // handleDebugEvent 处理 /debug event 命令

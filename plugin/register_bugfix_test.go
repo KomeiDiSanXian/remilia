@@ -15,68 +15,68 @@ import (
 // TestBugFix_RegisterV2ConcurrentAccess 测试 Bug 1 修复：Register 竞态条件
 func TestBugFix_RegisterV2ConcurrentAccess(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	eng := engine.NewEngine()
-	defer eng.Shutdown(stdctx.Background())
+		eng := engine.NewEngine()
+		defer eng.Shutdown(stdctx.Background())
 
-	manager := NewManager(eng)
+		manager := NewManager(eng)
 
-	// 创建一个加载时间较长的插件
-	slowPlugin := &Descriptor{
-		Name:    "slow-plugin",
-		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) (any, error) {
-			time.Sleep(100 * time.Millisecond) // 模拟慢速加载
-			return nil, nil
-		},
-	}
-
-	var wg sync.WaitGroup
-	errs := make(chan error, 2)
-
-	// Goroutine 1: 注册插件
-	wg.Go(func() {
-		err := manager.Register(slowPlugin)
-		if err != nil {
-			errs <- err
+		// 创建一个加载时间较长的插件
+		slowPlugin := &Descriptor{
+			Name:    "slow-plugin",
+			Version: "1.0.0",
+			Setup: func(ctx *SetupContext) (any, error) {
+				time.Sleep(100 * time.Millisecond) // 模拟慢速加载
+				return nil, nil
+			},
 		}
-	})
 
-	// Goroutine 2: 尝试获取正在加载的插件
-	wg.Go(func() {
-		time.Sleep(20 * time.Millisecond) // 等待插件开始加载
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
 
-		plugin, exists := manager.Get("slow-plugin")
-		if exists && plugin != nil {
-			// *Instance 直接实现 StatefulPlugin，无需类型断言
-			state := plugin.GetState()
-			if state == Loading {
-				errs <- ErrPluginLoading
-				return
+		// Goroutine 1: 注册插件
+		wg.Go(func() {
+			err := manager.Register(slowPlugin)
+			if err != nil {
+				errs <- err
+			}
+		})
+
+		// Goroutine 2: 尝试获取正在加载的插件
+		wg.Go(func() {
+			time.Sleep(20 * time.Millisecond) // 等待插件开始加载
+
+			plugin, exists := manager.Get("slow-plugin")
+			if exists && plugin != nil {
+				// *Instance 直接实现 StatefulPlugin，无需类型断言
+				state := plugin.GetState()
+				if state == Loading {
+					errs <- ErrPluginLoading
+					return
+				}
+			}
+			// 如果不存在或者已加载，都是正常的
+		})
+
+		wg.Wait()
+		close(errs)
+
+		// 检查是否有错误
+		for err := range errs {
+			if errors.Is(err, ErrPluginLoading) {
+				t.Log("✓ Bug 1 已修复：正在加载的插件不会被 Get() 返回")
+			} else {
+				t.Errorf("Unexpected error: %v", err)
 			}
 		}
-		// 如果不存在或者已加载，都是正常的
-	})
 
-	wg.Wait()
-	close(errs)
-
-	// 检查是否有错误
-	for err := range errs {
-		if errors.Is(err, ErrPluginLoading) {
-			t.Log("✓ Bug 1 已修复：正在加载的插件不会被 Get() 返回")
-		} else {
-			t.Errorf("Unexpected error: %v", err)
+		// 验证插件最终加载成功
+		plugin, exists := manager.Get("slow-plugin")
+		if !exists {
+			t.Fatal("Plugin should be loaded after waiting")
 		}
-	}
-
-	// 验证插件最终加载成功
-	plugin, exists := manager.Get("slow-plugin")
-	if !exists {
-		t.Fatal("Plugin should be loaded after waiting")
-	}
-	if plugin.GetState() != Loaded {
-		t.Errorf("Plugin state should be Loaded, got %v", plugin.GetState())
-	}
+		if plugin.GetState() != Loaded {
+			t.Errorf("Plugin state should be Loaded, got %v", plugin.GetState())
+		}
 	})
 }
 
@@ -117,54 +117,54 @@ func TestBugFix_RemoveListenerSafety(t *testing.T) {
 // TestBugFix_UnloadStateTransition 测试 Bug 3 修复：Unload 状态转换
 func TestBugFix_UnloadStateTransition(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	eng := engine.NewEngine()
-	defer eng.Shutdown(stdctx.Background())
+		eng := engine.NewEngine()
+		defer eng.Shutdown(stdctx.Background())
 
-	manager := NewManager(eng)
+		manager := NewManager(eng)
 
-	// ��册一个简单插件
-	desc := &Descriptor{
-		Name:    "test-plugin",
-		Version: "1.0.0",
-		Setup: func(ctx *SetupContext) (any, error) {
-			return nil, nil
-		},
-		Teardown: func(ctx *TeardownContext) error {
-			time.Sleep(50 * time.Millisecond) // 模拟慢速卸载
-			return nil
-		},
-	}
+		// ��册一个简单插件
+		desc := &Descriptor{
+			Name:    "test-plugin",
+			Version: "1.0.0",
+			Setup: func(ctx *SetupContext) (any, error) {
+				return nil, nil
+			},
+			Teardown: func(ctx *TeardownContext) error {
+				time.Sleep(50 * time.Millisecond) // 模拟慢速卸载
+				return nil
+			},
+		}
 
-	err := manager.Register(desc)
-	if err != nil {
-		t.Fatalf("Failed to register plugin: %v", err)
-	}
+		err := manager.Register(desc)
+		if err != nil {
+			t.Fatalf("Failed to register plugin: %v", err)
+		}
 
-	instance, _ := manager.Get("test-plugin")
+		instance, _ := manager.Get("test-plugin")
 
-	// 启动卸载
-	done := make(chan bool)
-	go func() {
-		_ = instance.unload(stdctx.Background(), eng)
-		done <- true
-	}()
+		// 启动卸载
+		done := make(chan bool)
+		go func() {
+			_ = instance.unload(stdctx.Background(), eng)
+			done <- true
+		}()
 
-	// 等待一小段时间，检查状态
-	time.Sleep(10 * time.Millisecond)
+		// 等待一小段时间，检查状态
+		time.Sleep(10 * time.Millisecond)
 
-	state := instance.GetState()
-	if state != Unloading && state != Unloaded {
-		t.Errorf("State should be Unloading or Unloaded during unload, got %v", state)
-	}
+		state := instance.GetState()
+		if state != Unloading && state != Unloaded {
+			t.Errorf("State should be Unloading or Unloaded during unload, got %v", state)
+		}
 
-	<-done
+		<-done
 
-	// 验证最终状态
-	if instance.GetState() != Unloaded {
-		t.Errorf("Final state should be Unloaded, got %v", instance.GetState())
-	}
+		// 验证最终状态
+		if instance.GetState() != Unloaded {
+			t.Errorf("Final state should be Unloaded, got %v", instance.GetState())
+		}
 
-	t.Log("✓ Bug 3 已修复：Unload 正确设置 Unloading 状态")
+		t.Log("✓ Bug 3 已修复：Unload 正确设置 Unloading 状态")
 	})
 }
 

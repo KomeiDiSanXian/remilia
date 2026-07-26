@@ -537,7 +537,7 @@ func (p *Plugin) checkTargetNotSuperadmin(ctx *eventctx.Context, targetUserID st
 
 func (p *Plugin) reply(ctx *eventctx.Context, content string) error {
 	ctx.Reply(platform.TextMessage(content))
-		return nil
+	return nil
 }
 
 // === 验证码相关功能 ===

@@ -367,5 +367,3 @@ func extractCommand(content string) string {
 	}
 	return trimmed[:idx]
 }
-
-

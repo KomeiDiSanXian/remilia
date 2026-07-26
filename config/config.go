@@ -51,13 +51,13 @@ import (
 
 // Config 配置文件结构
 type Config struct {
-	Bot         BotConfig         `yaml:"bot" mapstructure:"bot"`
-	Log         logger.Config     `yaml:"log" mapstructure:"log"`
-	Retry       RetryConfig       `yaml:"retry" mapstructure:"retry"`
-	Middleware  MiddlewareConfig  `yaml:"middleware" mapstructure:"middleware"`
-	DeadLetter  DeadLetterConfig  `yaml:"dead_letter" mapstructure:"dead_letter"`
-	Engine      EngineConfig      `yaml:"engine" mapstructure:"engine"`
-	Tracing     tracing.Config    `yaml:"tracing" mapstructure:"tracing"`
+	Bot        BotConfig        `yaml:"bot" mapstructure:"bot"`
+	Log        logger.Config    `yaml:"log" mapstructure:"log"`
+	Retry      RetryConfig      `yaml:"retry" mapstructure:"retry"`
+	Middleware MiddlewareConfig `yaml:"middleware" mapstructure:"middleware"`
+	DeadLetter DeadLetterConfig `yaml:"dead_letter" mapstructure:"dead_letter"`
+	Engine     EngineConfig     `yaml:"engine" mapstructure:"engine"`
+	Tracing    tracing.Config   `yaml:"tracing" mapstructure:"tracing"`
 
 	// Plugins 业务插件的扩展配置节点。
 	//
@@ -166,12 +166,12 @@ type BotConfig struct {
 // 由 QQ 平台适配器（platform/qq）在初始化时读取。
 // 非 QQ 平台无需填写此配置节。
 type QQConfig struct {
-	AppID    uint64              `yaml:"app_id" mapstructure:"app_id"`
-	BotID    uint64              `yaml:"bot_id" mapstructure:"bot_id"`
-	Token    string              `yaml:"token" mapstructure:"token"`
-	Secret   string              `yaml:"secret" mapstructure:"secret"`
-	Webhook  WebhookConfig       `yaml:"webhook" mapstructure:"webhook"`
-	TokenMgr TokenManagerConfig  `yaml:"token_manager" mapstructure:"token_manager"`
+	AppID    uint64             `yaml:"app_id" mapstructure:"app_id"`
+	BotID    uint64             `yaml:"bot_id" mapstructure:"bot_id"`
+	Token    string             `yaml:"token" mapstructure:"token"`
+	Secret   string             `yaml:"secret" mapstructure:"secret"`
+	Webhook  WebhookConfig      `yaml:"webhook" mapstructure:"webhook"`
+	TokenMgr TokenManagerConfig `yaml:"token_manager" mapstructure:"token_manager"`
 }
 
 // OneBotConfig OneBot V11 协议适配器配置。
@@ -259,8 +259,8 @@ type MiddlewareConfig struct {
 	Dedup       DedupMiddlewareConfig       `yaml:"dedup" mapstructure:"dedup"`
 	SlowHandler SlowHandlerMiddlewareConfig `yaml:"slow_handler" mapstructure:"slow_handler"`
 	// Degradation 自适应降级配置（原 Config.Degradation，整合至此处，同时支持热更新）
-	Degradation  DegradationConfig   `yaml:"degradation" mapstructure:"degradation"`
-	Backpressure BackpressureConfig  `yaml:"backpressure" mapstructure:"backpressure"`
+	Degradation  DegradationConfig  `yaml:"degradation" mapstructure:"degradation"`
+	Backpressure BackpressureConfig `yaml:"backpressure" mapstructure:"backpressure"`
 }
 
 // AuthMiddlewareConfig 认证中间件配置
@@ -333,9 +333,9 @@ type EngineConfig struct {
 	PendingDeleteProcessInterval string `yaml:"pending_delete_process_interval" mapstructure:"pending_delete_process_interval"`
 	PendingDeleteBatchSize       int    `yaml:"pending_delete_batch_size" mapstructure:"pending_delete_batch_size"`
 
-	TempMatcherShardCount   int `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
-	MatcherPoolCapacity     int `yaml:"matcher_pool_capacity" mapstructure:"matcher_pool_capacity"`
-	MatcherPoolMaxCapacity  int `yaml:"matcher_pool_max_capacity" mapstructure:"matcher_pool_max_capacity"`
+	TempMatcherShardCount  int `yaml:"temp_matcher_shard_count" mapstructure:"temp_matcher_shard_count"`
+	MatcherPoolCapacity    int `yaml:"matcher_pool_capacity" mapstructure:"matcher_pool_capacity"`
+	MatcherPoolMaxCapacity int `yaml:"matcher_pool_max_capacity" mapstructure:"matcher_pool_max_capacity"`
 }
 
 // DegradationConfig 自适应降级配置。

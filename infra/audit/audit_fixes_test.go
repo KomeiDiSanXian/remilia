@@ -60,50 +60,50 @@ func TestWriteLoop_DrainOnStop(t *testing.T) {
 // TestWriteLoop_DrainOnStop_ConcurrentProducers 模拟关闭时有并发生产者
 func TestWriteLoop_DrainOnStop_ConcurrentProducers(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	dir := t.TempDir()
-	cfg := Config{
-		Enabled:       true,
-		OutputFile:    filepath.Join(dir, "test_drain2.log"),
-		BufferSize:    50,
-		FlushInterval: 10 * time.Second,
-		MinLevel:      LevelInfo,
-		AsyncWrite:    true,
-	}
-	l, err := NewLogger(cfg)
-	require.NoError(t, err)
-	defer os.Remove(cfg.OutputFile)
-
-	// 启动持续写入的 goroutine
-	stopWriting := make(chan struct{})
-	var writeWg sync.WaitGroup
-	writeWg.Go(func() {
-		for {
-			select {
-			case <-stopWriting:
-				return
-			default:
-				l.Info(ActionUserLogin, "user", "background write")
-				time.Sleep(time.Millisecond)
-			}
+		dir := t.TempDir()
+		cfg := Config{
+			Enabled:       true,
+			OutputFile:    filepath.Join(dir, "test_drain2.log"),
+			BufferSize:    50,
+			FlushInterval: 10 * time.Second,
+			MinLevel:      LevelInfo,
+			AsyncWrite:    true,
 		}
-	})
+		l, err := NewLogger(cfg)
+		require.NoError(t, err)
+		defer os.Remove(cfg.OutputFile)
 
-	// 写入一段时间后关闭
-	time.Sleep(50 * time.Millisecond)
-	close(stopWriting)
-	writeWg.Wait()
+		// 启动持续写入的 goroutine
+		stopWriting := make(chan struct{})
+		var writeWg sync.WaitGroup
+		writeWg.Go(func() {
+			for {
+				select {
+				case <-stopWriting:
+					return
+				default:
+					l.Info(ActionUserLogin, "user", "background write")
+					time.Sleep(time.Millisecond)
+				}
+			}
+		})
 
-	// Close 应该正常完成
-	done := make(chan error, 1)
-	go func() {
-		done <- l.Close()
-	}()
+		// 写入一段时间后关闭
+		time.Sleep(50 * time.Millisecond)
+		close(stopWriting)
+		writeWg.Wait()
 
-	select {
-	case err := <-done:
-		assert.NoError(t, err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("Close deadlocked with concurrent producers")
-	}
+		// Close 应该正常完成
+		done := make(chan error, 1)
+		go func() {
+			done <- l.Close()
+		}()
+
+		select {
+		case err := <-done:
+			assert.NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Fatal("Close deadlocked with concurrent producers")
+		}
 	})
 }

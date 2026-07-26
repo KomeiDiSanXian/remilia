@@ -508,11 +508,13 @@ func (p *Plugin) handleDisable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isGroupAdmin(ctx) {
-		ctx.ReplyError("权限不足，需要管理员权限"); return nil
+		ctx.ReplyError("权限不足，需要管理员权限")
+		return nil
 	}
 	chat := ctx.GetChatInfo()
 	if !chat.IsGroup {
-		ctx.ReplyError("该指令仅在群内使用"); return nil
+		ctx.ReplyError("该指令仅在群内使用")
+		return nil
 	}
 	verb := p.opts.enableCmd
 	if !enable {
@@ -546,7 +548,8 @@ func (p *Plugin) handleGlobalDisable(ctx *eventctx.Context) error {
 
 func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
+		ctx.ReplyError("权限不足，需要超级管理员权限")
+		return nil
 	}
 	verb := p.opts.globalEnableCmd
 	if !enable {
@@ -573,7 +576,8 @@ func (p *Plugin) handleGlobalToggle(ctx *eventctx.Context, enable bool) error {
 // handleSilence 处理"沉默 [群ID]"指令：将指定群（或当前群）设为静默状态。
 func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
+		ctx.ReplyError("权限不足，需要超级管理员权限")
+		return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -602,7 +606,8 @@ func (p *Plugin) handleSilence(ctx *eventctx.Context) error {
 // handleResume 处理"响应 [群ID]"指令：解除指定群（或当前群）的静默状态。
 func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
+		ctx.ReplyError("权限不足，需要超级管理员权限")
+		return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {
@@ -630,7 +635,8 @@ func (p *Plugin) handleResume(ctx *eventctx.Context) error {
 // handleFlipDefault 处理"反转默认 <插件名>"指令：翻转插件的默认启用状态。
 func (p *Plugin) handleFlipDefault(ctx *eventctx.Context) error {
 	if !p.isSuperUserOrSuperAdmin(ctx) {
-		ctx.ReplyError("权限不足，需要超级管理员权限"); return nil
+		ctx.ReplyError("权限不足，需要超级管理员权限")
+		return nil
 	}
 	args, err := command.ParseCommandLine(ctx.GetMessageContent())
 	if err != nil || len(args.Positional) == 0 {

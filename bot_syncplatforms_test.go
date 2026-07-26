@@ -14,12 +14,12 @@ import (
 
 // mockPlatformAdapter is a simple mock that records lifecycle events.
 type mockPlatformAdapter struct {
-	name     string
-	mu       sync.Mutex
-	started  bool
-	stopped  bool
-	startErr error
-	stopErr  error
+	name      string
+	mu        sync.Mutex
+	started   bool
+	stopped   bool
+	startErr  error
+	stopErr   error
 	startedCh chan struct{} // closed after m.started = true
 }
 
@@ -33,8 +33,19 @@ func newMockPlatform(name string) *mockPlatformAdapter {
 func (m *mockPlatformAdapter) Platform() string                    { return m.name }
 func (m *mockPlatformAdapter) Sender() platform.Sender             { return &platform.NoopSender{} }
 func (m *mockPlatformAdapter) Capabilities() platform.Capabilities { return platform.Capabilities{} }
-func (m *mockPlatformAdapter) IsRunning() bool  { m.mu.Lock(); defer m.mu.Unlock(); return m.started && !m.stopped }
-func (m *mockPlatformAdapter) WaitStarted(t *testing.T) { t.Helper(); select { case <-m.startedCh: case <-time.After(time.Second): t.Fatal("timeout waiting for adapter start") } }
+func (m *mockPlatformAdapter) IsRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.started && !m.stopped
+}
+func (m *mockPlatformAdapter) WaitStarted(t *testing.T) {
+	t.Helper()
+	select {
+	case <-m.startedCh:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for adapter start")
+	}
+}
 
 // Start 使用传入的 ctx 阻塞直到被取消，模拟真实 adapter 行为。
 func (m *mockPlatformAdapter) Start(ctx context.Context, _ func(platform.Event)) error {

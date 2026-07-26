@@ -143,7 +143,7 @@ func registerHandlers(eng *engine.Engine) {
 				return nil // ignore other bots
 			}
 			ctx.Reply(platform.TextMessage("Pong! 🏓"))
-		return nil
+			return nil
 		})
 
 	// Guild message — !embed command
@@ -159,7 +159,7 @@ func registerHandlers(eng *engine.Engine) {
 				},
 				FooterText: "Powered by remilia",
 			}))
-		return nil
+			return nil
 		})
 
 	// Guild message — !buttons command
@@ -179,7 +179,7 @@ func registerHandlers(eng *engine.Engine) {
 					URL: "https://discord.com/developers/docs",
 				},
 			))
-		return nil
+			return nil
 		})
 
 	// Guild message — !reply command
@@ -190,7 +190,7 @@ func registerHandlers(eng *engine.Engine) {
 				return nil
 			}
 			ctx.Reply(platform.TextMessage("Replying to your message!").WithReply(event.ID()))
-		return nil
+			return nil
 		})
 
 	// DM handler — echo back any DM.
@@ -201,7 +201,7 @@ func registerHandlers(eng *engine.Engine) {
 				fmt.Printf("[DM] %s: %s\n", event.Sender().DisplayName, event.Content())
 			}
 			ctx.Reply(platform.TextMessage("Hi! Got your DM."))
-		return nil
+			return nil
 		})
 
 	// Interaction handler (button clicks, slash commands, modals).
@@ -230,7 +230,7 @@ func registerHandlers(eng *engine.Engine) {
 				msg = platform.TextMessage(fmt.Sprintf("Interaction: `%s`", content))
 			}
 			ctx.Reply(msg)
-		return nil
+			return nil
 		})
 
 	// System events (READY, RESUMED).

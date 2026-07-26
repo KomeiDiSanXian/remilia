@@ -44,7 +44,7 @@ func buildSignupFSM() *fsm.FSM {
 				},
 				Action: func(ctx *fsm.FSMContext) error {
 					ctx.Reply(platform.TextMessage("欢迎注册！请输入您的昵称："))
-				return nil
+					return nil
 				},
 			},
 			{
@@ -55,7 +55,7 @@ func buildSignupFSM() *fsm.FSM {
 				Action: func(ctx *fsm.FSMContext) error {
 					ctx.Data["name"] = strings.TrimSpace(ctx.GetMessageContent())
 					ctx.Reply(platform.TextMessage(fmt.Sprintf("你好 %s！请输入年龄：", ctx.Data["name"])))
-				return nil
+					return nil
 				},
 			},
 			{

@@ -331,4 +331,3 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 		send(NewResumedEvent(r))
 	})
 }
-

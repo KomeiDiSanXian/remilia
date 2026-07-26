@@ -27,9 +27,9 @@ type qqEvent struct {
 	content     string
 	timestamp   time.Time
 	attachments []platform.InboundAttachment
-	id          string   // 对应 payload.ID，populate 后独立持有
-	rawType     string   // 对应 payload.Type，populate 后独立持有
-	replyToID   string   // 被回复消息 ID（仅频道消息有效）
+	id          string              // 对应 payload.ID，populate 后独立持有
+	rawType     string              // 对应 payload.Type，populate 后独立持有
+	replyToID   string              // 被回复消息 ID（仅频道消息有效）
 	mentions    []platform.UserInfo // @ 用户列表（仅 GROUP_MESSAGE_CREATE 含 mentions 字段）
 }
 

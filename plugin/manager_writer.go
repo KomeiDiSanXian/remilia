@@ -57,10 +57,14 @@ type ManagerWriter interface {
 // managerWriterImpl 将 *Manager 包装为 ManagerWriter（仅暴露写操作）
 type managerWriterImpl struct{ m *Manager }
 
-func (w *managerWriterImpl) Reload(ctx context.Context, name string) error    { return w.m.Reload(ctx, name) }
-func (w *managerWriterImpl) Disable(name string) error                        { return w.m.Disable(name) }
-func (w *managerWriterImpl) Enable(name string) error                         { return w.m.Enable(name) }
-func (w *managerWriterImpl) Unregister(ctx context.Context, name string) error { return w.m.Unregister(ctx, name) }
+func (w *managerWriterImpl) Reload(ctx context.Context, name string) error {
+	return w.m.Reload(ctx, name)
+}
+func (w *managerWriterImpl) Disable(name string) error { return w.m.Disable(name) }
+func (w *managerWriterImpl) Enable(name string) error  { return w.m.Enable(name) }
+func (w *managerWriterImpl) Unregister(ctx context.Context, name string) error {
+	return w.m.Unregister(ctx, name)
+}
 func (w *managerWriterImpl) ForceUnregister(name string) error { return w.m.ForceUnregister(name) }
 func (w *managerWriterImpl) AddLifecycleListener(listener LifecycleListener) {
 	w.m.AddListener(listener)

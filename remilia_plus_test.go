@@ -19,32 +19,32 @@ import (
 // TestBot_HandleEvent tests handleEvent method
 func TestBot_HandleEvent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	adapter := newMockAdapter()
-	eng := engine.NewEngine()
-	bot := MustNewBot(adapter, eng)
+		adapter := newMockAdapter()
+		eng := engine.NewEngine()
+		bot := MustNewBot(adapter, eng)
 
-	eventReceived := make(chan struct{})
+		eventReceived := make(chan struct{})
 
-	eng.OnAny().Handle(func(ctx *eventctx.Context) error {
-		close(eventReceived)
-		return nil
-	})
+		eng.OnAny().Handle(func(ctx *eventctx.Context) error {
+			close(eventReceived)
+			return nil
+		})
 
-	require.NoError(t, bot.Start())
-	defer bot.Stop(context.Background())
+		require.NoError(t, bot.Start())
+		defer bot.Stop(context.Background())
 
-	waitBotRunning(t, bot)
-	<-adapter.ready // wait for adapter goroutine to enter select loop
+		waitBotRunning(t, bot)
+		<-adapter.ready // wait for adapter goroutine to enter select loop
 
-	testEvent := testbot.MakePlatformC2CEvent("test-user-1", "hello")
+		testEvent := testbot.MakePlatformC2CEvent("test-user-1", "hello")
 
-	adapter.SendEvent(testEvent)
+		adapter.SendEvent(testEvent)
 
-	select {
-	case <-eventReceived:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for event processing")
-	}
+		select {
+		case <-eventReceived:
+		case <-time.After(3 * time.Second):
+			t.Fatal("timed out waiting for event processing")
+		}
 	})
 }
 

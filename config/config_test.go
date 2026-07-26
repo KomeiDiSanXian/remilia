@@ -593,17 +593,17 @@ func TestConfig_Validate(t *testing.T) {
 	newValidConfig := func() Config {
 		return Config{
 			Bot: BotConfig{
-		QQ: &QQConfig{
-				AppID:  123456,
-				BotID:  789012,
-				Token:  "test-token",
-				Secret: "test-secret",
-				Webhook: WebhookConfig{
-					Host:        "localhost",
-					Port:        8080,
-					EventBuffer: 1000,
+				QQ: &QQConfig{
+					AppID:  123456,
+					BotID:  789012,
+					Token:  "test-token",
+					Secret: "test-secret",
+					Webhook: WebhookConfig{
+						Host:        "localhost",
+						Port:        8080,
+						EventBuffer: 1000,
+					},
 				},
-			},
 			},
 			Log: logger.Config{
 				Level:  "info",

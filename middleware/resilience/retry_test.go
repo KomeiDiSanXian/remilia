@@ -438,4 +438,3 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 	// 每个 goroutine 应该执行 3 次（initial + 2 retries）
 	assert.Equal(t, int32(concurrency*3), totalCalls.Load(), "Should handle concurrent retries correctly")
 }
-

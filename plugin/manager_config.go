@@ -8,9 +8,9 @@ import (
 
 // configController 管理全局配置提供者、严格依赖模式。
 type configController struct {
-	pm            *Manager
+	pm             *Manager
 	configProvider ConfigProvider
-	strictDeps    bool
+	strictDeps     bool
 }
 
 func newConfigController(pm *Manager) *configController {

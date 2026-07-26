@@ -3,10 +3,10 @@ package ratelimit
 import (
 	"errors"
 	"fmt"
-	"testing/synctest"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -153,39 +153,39 @@ func TestAdaptiveRateLimiter_SemaphoreNoLeak(t *testing.T) {
 		numGoroutines := 20
 		wg.Add(numGoroutines)
 
-	startTime := time.Now()
+		startTime := time.Now()
 
-	for i := range numGoroutines {
-		go func(id int) {
-			defer wg.Done()
-			ctx := testutil.CreateTestContext()
-			_ = wrappedHandler(ctx)
-		}(i)
-	}
+		for i := range numGoroutines {
+			go func(id int) {
+				defer wg.Done()
+				ctx := testutil.CreateTestContext()
+				_ = wrappedHandler(ctx)
+			}(i)
+		}
 
-	wg.Wait()
-	duration := time.Since(startTime)
+		wg.Wait()
+		duration := time.Since(startTime)
 
-	// 验证信号量没有泄漏
-	load := arl.currentLoad.Load()
-	if load != 0 {
-		t.Errorf("Expected currentLoad=0 after all calls, got: %d", load)
-	}
+		// 验证信号量没有泄漏
+		load := arl.currentLoad.Load()
+		if load != 0 {
+			t.Errorf("Expected currentLoad=0 after all calls, got: %d", load)
+		}
 
-	// 验证统计数据
-	total := arl.totalRequests.Load()
-	rejected := arl.rejectedRequests.Load()
+		// 验证统计数据
+		total := arl.totalRequests.Load()
+		rejected := arl.rejectedRequests.Load()
 
-	t.Logf("Total requests: %d, Rejected: %d, Duration: %v", total, rejected, duration)
+		t.Logf("Total requests: %d, Rejected: %d, Duration: %v", total, rejected, duration)
 
-	// 由于限流，应该有部分请求被拒绝
-	if rejected == 0 {
-		t.Logf("Warning: No requests were rejected, rate limit might not be working properly")
-	}
+		// 由于限流，应该有部分请求被拒绝
+		if rejected == 0 {
+			t.Logf("Warning: No requests were rejected, rate limit might not be working properly")
+		}
 
-	if total != int64(numGoroutines) {
-		t.Errorf("Expected %d total requests, got: %d", numGoroutines, total)
-	}
+		if total != int64(numGoroutines) {
+			t.Errorf("Expected %d total requests, got: %d", numGoroutines, total)
+		}
 	})
 }
 

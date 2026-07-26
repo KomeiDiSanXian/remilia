@@ -12,37 +12,37 @@ import (
 // TestTempManagerWatermarkCleanup 测试水位线触发清理
 func TestTempManagerWatermarkCleanup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	config := TempManagerConfig{
-		WatermarkHigh:         10,
-		WatermarkLow:          5,
-		EnableAdaptiveCleanup: true,
-	}
-
-	tm := newTempMatcherManagerWithConfig(config)
-
-	// 添加 15 个匹配器
-	for i := range 15 {
-		matcher := &Matcher{
-			EventType: string(platform.EventKindPrivateMessage),
-			Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
-			Handler:   func(ctx *context.Context) error { return nil },
-			Source:    "test",
+		config := TempManagerConfig{
+			WatermarkHigh:         10,
+			WatermarkLow:          5,
+			EnableAdaptiveCleanup: true,
 		}
-		matcher.rt.createdAt = time.Now().Add(time.Duration(i) * time.Millisecond)
-		matcher.priority.Store(64)
-		tm.Add(matcher)
-	}
 
-	// 等待异步清理完成
-	time.Sleep(100 * time.Millisecond)
+		tm := newTempMatcherManagerWithConfig(config)
 
-	// 检查数量是否降到低水位线附近
-	count := tm.Count()
-	t.Logf("Count after watermark cleanup: %d", count)
+		// 添加 15 个匹配器
+		for i := range 15 {
+			matcher := &Matcher{
+				EventType: string(platform.EventKindPrivateMessage),
+				Rules:     []context.Rule{func(ctx *context.Context) bool { return true }},
+				Handler:   func(ctx *context.Context) error { return nil },
+				Source:    "test",
+			}
+			matcher.rt.createdAt = time.Now().Add(time.Duration(i) * time.Millisecond)
+			matcher.priority.Store(64)
+			tm.Add(matcher)
+		}
 
-	if count > 10 {
-		t.Errorf("Expected count <= 10 after cleanup, got %d", count)
-	}
+		// 等待异步清理完成
+		time.Sleep(100 * time.Millisecond)
+
+		// 检查数量是否降到低水位线附近
+		count := tm.Count()
+		t.Logf("Count after watermark cleanup: %d", count)
+
+		if count > 10 {
+			t.Errorf("Expected count <= 10 after cleanup, got %d", count)
+		}
 	})
 }
 

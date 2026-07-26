@@ -150,46 +150,45 @@ func TestE2E_ErrorHandling(t *testing.T) {
 // TestE2E_AuditLogging 测试审计日志集成
 func TestE2E_AuditLogging(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	// 创建临时审计日志
-	tmpDir := t.TempDir()
-	auditConfig := audit.Config{
-		Enabled:       true,
-		OutputFile:    tmpDir + "/audit.log",
-		AsyncWrite:    false, // 同步写入便于测试
-		BufferSize:    10,
-		FlushInterval: 1 * time.Second,
-	}
+		// 创建临时审计日志
+		tmpDir := t.TempDir()
+		auditConfig := audit.Config{
+			Enabled:       true,
+			OutputFile:    tmpDir + "/audit.log",
+			AsyncWrite:    false, // 同步写入便于测试
+			BufferSize:    10,
+			FlushInterval: 1 * time.Second,
+		}
 
-	auditLogger, err := audit.NewLogger(auditConfig)
-	require.NoError(t, err)
-	defer func() {
-		_ = auditLogger.Close()
-	}()
+		auditLogger, err := audit.NewLogger(auditConfig)
+		require.NoError(t, err)
+		defer func() {
+			_ = auditLogger.Close()
+		}()
 
-	// 创建 engine 并注册审计中间件
-	eng := engine.NewEngine(engine.WithExecPoolDisabled())
-	defer eng.Shutdown(context.Background())
-	eng.Use(audit.Middleware(auditLogger))
+		// 创建 engine 并注册审计中间件
+		eng := engine.NewEngine(engine.WithExecPoolDisabled())
+		defer eng.Shutdown(context.Background())
+		eng.Use(audit.Middleware(auditLogger))
 
-	// 注册命令
-	executed := false
-	eng.OnCommand(string(platform.EventKindPrivateMessage), "/audit_test").Handle(func(ctx *rcontext.Context) error {
-		executed = true
-		return nil
-	})
+		// 注册命令
+		executed := false
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/audit_test").Handle(func(ctx *rcontext.Context) error {
+			executed = true
+			return nil
+		})
 
-	// 处理事件
-	ctx := newIntegrationContext("/audit_test")
-	eng.ProcessEvent(ctx)
+		// 处理事件
+		ctx := newIntegrationContext("/audit_test")
+		eng.ProcessEvent(ctx)
 
-	// 验证
-	assert.True(t, executed)
+		// 验证
+		assert.True(t, executed)
 
-	// 等待日志写入
-	time.Sleep(100 * time.Millisecond)
+		// 等待日志写入
+		time.Sleep(100 * time.Millisecond)
 	})
 }
-
 
 // TestE2E_TempMatcher 测试临时匹配器
 func TestE2E_TempMatcher(t *testing.T) {
@@ -314,46 +313,45 @@ func TestE2E_PluginLifecycle(t *testing.T) {
 // TestE2E_GracefulShutdown 测试优雅关闭
 func TestE2E_GracefulShutdown(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	eng := engine.NewEngine(engine.WithExecPoolDisabled())
+		eng := engine.NewEngine(engine.WithExecPoolDisabled())
 
-	// 注册命令
-	processing := make(chan struct{})
-	done := make(chan struct{})
+		// 注册命令
+		processing := make(chan struct{})
+		done := make(chan struct{})
 
-	eng.OnCommand(string(platform.EventKindPrivateMessage), "/slow").Handle(func(ctx *rcontext.Context) error {
-		processing <- struct{}{} // 通知开始处理
-		time.Sleep(100 * time.Millisecond)
-		done <- struct{}{} // 通知处理完成
-		return nil
-	})
+		eng.OnCommand(string(platform.EventKindPrivateMessage), "/slow").Handle(func(ctx *rcontext.Context) error {
+			processing <- struct{}{} // 通知开始处理
+			time.Sleep(100 * time.Millisecond)
+			done <- struct{}{} // 通知处理完成
+			return nil
+		})
 
-	// 启动异步事件处理
-	go func() {
-		ctx := newIntegrationContext("/slow")
-		eng.ProcessEvent(ctx)
-	}()
+		// 启动异步事件处理
+		go func() {
+			ctx := newIntegrationContext("/slow")
+			eng.ProcessEvent(ctx)
+		}()
 
-	// 等待开始处理
-	<-processing
+		// 等待开始处理
+		<-processing
 
-	// 触发关闭
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+		// 触发关闭
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	go func() {
-		_ = eng.Shutdown(shutdownCtx)
-	}()
+		go func() {
+			_ = eng.Shutdown(shutdownCtx)
+		}()
 
-	// 验证处理完成
-	select {
-	case <-done:
-		// 成功：事件在关闭前完成
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("事件处理超时")
-	}
+		// 验证处理完成
+		select {
+		case <-done:
+			// 成功：事件在关闭前完成
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("事件处理超时")
+		}
 	})
 }
-
 
 // TestE2E_FullBotLifecycle 测试完整 Bot 生命周期
 //

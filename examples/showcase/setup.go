@@ -41,11 +41,11 @@ import (
 // PluginHolders 持有需要跨 setupPlugins / registerCommands 访问的插件实例。
 // 减少重复从容器中 Get 的开销。
 type PluginHolders struct {
-	Broadcast  *broadcast.Plugin
-	Cooldown   *cooldown.Plugin
-	I18n       *i18n.Plugin
-	Stats      *stats.Plugin
-	SubHandle  *subscriptionpkg.PluginHandle
+	Broadcast *broadcast.Plugin
+	Cooldown  *cooldown.Plugin
+	I18n      *i18n.Plugin
+	Stats     *stats.Plugin
+	SubHandle *subscriptionpkg.PluginHandle
 }
 
 // setupMiddleware 配置 Engine 的中间件链。

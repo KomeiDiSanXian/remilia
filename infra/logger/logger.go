@@ -274,7 +274,7 @@ func Init(cfg Config) error {
 	}
 	zerolog.SetGlobalLevel(level)
 
-		// 准备 Writer 列表
+	// 准备 Writer 列表
 	var writers []io.Writer
 
 	// 添加自定义捕获 Writer（用于日志流）

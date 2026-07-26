@@ -56,7 +56,6 @@ func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	return permcheck.HasPermission(p.permSvc, ctx, perm)
 }
 
-
 func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	logsCmd := &command.Definition{
 		Name:        "logs",

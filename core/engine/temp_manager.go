@@ -67,9 +67,9 @@ type TempSnapshot struct {
 
 // tempMatcherManager manage temporary matchers with sharding and optimized insertion
 type tempMatcherManager struct {
-	shards   [tempMatcherShardCount]*tempMatcherShard
-	config   TempManagerConfig
-	count    int32 // 原子计数，避免频繁加锁统计
+	shards [tempMatcherShardCount]*tempMatcherShard
+	config TempManagerConfig
+	count  int32 // 原子计数，避免频繁加锁统计
 
 	snapshot atomic.Pointer[TempSnapshot] // RCU 只读快照
 	snapMu   sync.Mutex                   // 保护 rebuildSnapshot

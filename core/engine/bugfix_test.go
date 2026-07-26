@@ -40,44 +40,44 @@ func TestBugFix_ExtractCommandWithWhitespace(t *testing.T) {
 // TestBugFix_ContextCloneDeadline 测试 Bug 1 的修复：Clone 保留 deadline
 func TestBugFix_ContextCloneDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	// 创建带 deadline 的 context
-	stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 5*time.Second)
-	defer cancel()
+		// 创建带 deadline 的 context
+		stdCtx, cancel := stdctx.WithTimeout(stdctx.Background(), 5*time.Second)
+		defer cancel()
 
-	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
-	ctx := context.NewContextFromEvent(evt, nil)
-	ctx.SetStdContext(stdCtx)
+		evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
+		ctx := context.NewContextFromEvent(evt, nil)
+		ctx.SetStdContext(stdCtx)
 
-	// 克隆
-	cloned := ctx.Clone()
+		// 克隆
+		cloned := ctx.Clone()
 
-	// 验证原 context 有 deadline
-	originalDeadline, ok := ctx.Context().Deadline()
-	if !ok {
-		t.Fatal("Original context should have deadline")
-	}
+		// 验证原 context 有 deadline
+		originalDeadline, ok := ctx.Context().Deadline()
+		if !ok {
+			t.Fatal("Original context should have deadline")
+		}
 
-	// 验证克隆的 context 也有 deadline
-	clonedDeadline, ok := cloned.Context().Deadline()
-	if !ok {
-		t.Fatal("Cloned context should have deadline")
-	}
+		// 验证克隆的 context 也有 deadline
+		clonedDeadline, ok := cloned.Context().Deadline()
+		if !ok {
+			t.Fatal("Cloned context should have deadline")
+		}
 
-	// 验证 deadline 相同
-	if !originalDeadline.Equal(clonedDeadline) {
-		t.Errorf("Cloned context deadline = %v, want %v", clonedDeadline, originalDeadline)
-	}
+		// 验证 deadline 相同
+		if !originalDeadline.Equal(clonedDeadline) {
+			t.Errorf("Cloned context deadline = %v, want %v", clonedDeadline, originalDeadline)
+		}
 
-	// 验证克隆的 context 不会因原 context 取消而取消
-	cancel()
-	time.Sleep(10 * time.Millisecond)
+		// 验证克隆的 context 不会因原 context 取消而取消
+		cancel()
+		time.Sleep(10 * time.Millisecond)
 
-	select {
-	case <-cloned.Context().Done():
-		t.Error("Cloned context should not be cancelled when original is cancelled")
-	default:
-		// 正确：克隆的 context 不受原 context 取消影响
-	}
+		select {
+		case <-cloned.Context().Done():
+			t.Error("Cloned context should not be cancelled when original is cancelled")
+		default:
+			// 正确：克隆的 context 不受原 context 取消影响
+		}
 	})
 
 }

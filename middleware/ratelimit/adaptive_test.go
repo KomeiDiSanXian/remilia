@@ -211,23 +211,23 @@ func TestAdaptiveRateLimiter_HighLoad(t *testing.T) {
 		requestCount := 100
 		for range requestCount {
 			wg.Go(func() {
-			ctx := testutil.CreateTestContext()
-			err := wrappedHandler(ctx)
-			if err != nil {
-				rejected.Add(1)
-			}
-		})
-	}
+				ctx := testutil.CreateTestContext()
+				err := wrappedHandler(ctx)
+				if err != nil {
+					rejected.Add(1)
+				}
+			})
+		}
 
-	wg.Wait()
+		wg.Wait()
 
-	// 验证
-	t.Logf("Processed: %d, Rejected: %d, Total: %d",
-		processed.Load(), rejected.Load(), requestCount)
+		// 验证
+		t.Logf("Processed: %d, Rejected: %d, Total: %d",
+			processed.Load(), rejected.Load(), requestCount)
 
-	assert.Equal(t, int64(requestCount), limiter.totalRequests.Load())
-	assert.Equal(t, rejected.Load(), limiter.rejectedRequests.Load())
-	assert.Greater(t, rejected.Load(), int64(0), "Should reject some requests under high load")
+		assert.Equal(t, int64(requestCount), limiter.totalRequests.Load())
+		assert.Equal(t, rejected.Load(), limiter.rejectedRequests.Load())
+		assert.Greater(t, rejected.Load(), int64(0), "Should reject some requests under high load")
 	})
 }
 

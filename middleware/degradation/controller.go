@@ -174,7 +174,7 @@ type AdaptiveDegradation struct {
 	// Prometheus 指标（实例级，避免包级 promauto 重复注册）
 	metrics *degradationMetrics
 
-	started     atomic.Bool // 防止 StartMonitor 重复调用
+	started     atomic.Bool   // 防止 StartMonitor 重复调用
 	monitorTick chan struct{} // UpdateConfig 触发 ticker 重建
 	strategy    atomic.Int32  // 运行时策略，支持热更新
 }

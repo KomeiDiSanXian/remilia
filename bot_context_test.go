@@ -74,39 +74,39 @@ func TestBot_Context_BeforeStart(t *testing.T) {
 // TestBot_Context_AfterStart Start 后 Context() 应存在且活跃
 func TestBot_Context_AfterStart(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	adapter := newCtxMockAdapter()
-	b := MustNewBot(adapter, engine.NewEngine())
-	go func() { _ = b.Start() }()
-	waitBotRunning(t, b)
-	ctx := b.Context()
-	assert.NotNil(t, ctx)
-	select {
-	case <-ctx.Done():
-		t.Fatal("context must be active while bot is running")
-	default:
-	}
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, b.Stop(stopCtx))
+		adapter := newCtxMockAdapter()
+		b := MustNewBot(adapter, engine.NewEngine())
+		go func() { _ = b.Start() }()
+		waitBotRunning(t, b)
+		ctx := b.Context()
+		assert.NotNil(t, ctx)
+		select {
+		case <-ctx.Done():
+			t.Fatal("context must be active while bot is running")
+		default:
+		}
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, b.Stop(stopCtx))
 	})
 }
 
 // TestBot_Context_CancelledAfterStop Stop 后 rootCtx 应被取消
 func TestBot_Context_CancelledAfterStop(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	adapter := newCtxMockAdapter()
-	b := MustNewBot(adapter, engine.NewEngine())
-	go func() { _ = b.Start() }()
-	// 等待 Bot 完全进入 running 状态（rootCtx 已赋值）
-	waitBotRunning(t, b)
-	rootCtx := b.Context()
-	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	require.NoError(t, b.Stop(stopCtx))
-	select {
-	case <-rootCtx.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("rootCtx must be cancelled after Stop()")
-	}
+		adapter := newCtxMockAdapter()
+		b := MustNewBot(adapter, engine.NewEngine())
+		go func() { _ = b.Start() }()
+		// 等待 Bot 完全进入 running 状态（rootCtx 已赋值）
+		waitBotRunning(t, b)
+		rootCtx := b.Context()
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, b.Stop(stopCtx))
+		select {
+		case <-rootCtx.Done():
+		case <-time.After(2 * time.Second):
+			t.Fatal("rootCtx must be cancelled after Stop()")
+		}
 	})
 }

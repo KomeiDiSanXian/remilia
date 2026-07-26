@@ -189,11 +189,11 @@ func (b *Bridge) OnConfigChange(newCfg *config.Config) {
 		}
 	}
 	b.lastPprofCfg = remilia.PprofConfig{
-		AutoProfile:      pprof.AutoProfile,
-		ProfileInterval:  parsedInterval,
-		ProfileDuration:  parsedDuration,
-		EnableMutex:      pprof.EnableMutex,
-		EnableBlock:      pprof.EnableBlock,
+		AutoProfile:     pprof.AutoProfile,
+		ProfileInterval: parsedInterval,
+		ProfileDuration: parsedDuration,
+		EnableMutex:     pprof.EnableMutex,
+		EnableBlock:     pprof.EnableBlock,
 	}
 
 	// 刷新中间件配置快照（供 setup.go 的运行时开关检查）

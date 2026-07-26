@@ -35,40 +35,40 @@ func (e *cloneTestEvent) Attachments() []platform.InboundAttachment { return nil
 // TestContextClone_IndependentCancellation 测试克隆的 Context 不受原 Context 取消影响
 func TestContextClone_IndependentCancellation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	// 创建原始 context，带取消功能
-	stdCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		// 创建原始 context，带取消功能
+		stdCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	event := &cloneTestEvent{content: "hello", platformID: "qq", kind: platform.EventKindPrivateMessage}
-	originalCtx := NewContextFromEvent(event, &platform.NoopSender{})
-	originalCtx.SetStdContext(stdCtx)
+		event := &cloneTestEvent{content: "hello", platformID: "qq", kind: platform.EventKindPrivateMessage}
+		originalCtx := NewContextFromEvent(event, &platform.NoopSender{})
+		originalCtx.SetStdContext(stdCtx)
 
-	// 克隆 context
-	clonedCtx := originalCtx.Clone()
+		// 克隆 context
+		clonedCtx := originalCtx.Clone()
 
-	// 取消原始 context
-	cancel()
+		// 取消原始 context
+		cancel()
 
-	// 等待一小段时间确保取消信号传播
-	time.Sleep(10 * time.Millisecond)
+		// 等待一小段时间确保取消信号传播
+		time.Sleep(10 * time.Millisecond)
 
-	// 验证原始 context 已取消
-	select {
-	case <-originalCtx.Context().Done():
-		// 期望行为：原始 context 已取消
-	default:
-		t.Error("Original context should be canceled")
-	}
+		// 验证原始 context 已取消
+		select {
+		case <-originalCtx.Context().Done():
+			// 期望行为：原始 context 已取消
+		default:
+			t.Error("Original context should be canceled")
+		}
 
-	// 验证克隆的 context 未受影响
-	select {
-	case <-clonedCtx.Context().Done():
-		t.Error("Cloned context should NOT be canceled when original is canceled")
-	default:
-		// 期望行为：克隆的 context 仍然有效
-	}
+		// 验证克隆的 context 未受影响
+		select {
+		case <-clonedCtx.Context().Done():
+			t.Error("Cloned context should NOT be canceled when original is canceled")
+		default:
+			// 期望行为：克隆的 context 仍然有效
+		}
 
-	t.Log("✓ Cloned context is independent from original context cancellation")
+		t.Log("✓ Cloned context is independent from original context cancellation")
 	})
 }
 
@@ -172,37 +172,37 @@ func TestContextClone_PlatformSender_Preserved(t *testing.T) {
 // 独立于原始 Context 的 stdctx 取消
 func TestContextClone_PlatformPath_IndependentFromOriginal(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	event := &cloneTestEvent{content: "msg", platformID: "telegram", kind: platform.EventKindPrivateMessage}
-	sender := &platform.NoopSender{}
+		event := &cloneTestEvent{content: "msg", platformID: "telegram", kind: platform.EventKindPrivateMessage}
+		sender := &platform.NoopSender{}
 
-	stdCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		stdCtx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	original := NewContextFromEvent(event, sender)
-	original.SetStdContext(stdCtx)
+		original := NewContextFromEvent(event, sender)
+		original.SetStdContext(stdCtx)
 
-	cloned := original.Clone()
+		cloned := original.Clone()
 
-	// 取消原始 stdctx
-	cancel()
-	time.Sleep(5 * time.Millisecond)
+		// 取消原始 stdctx
+		cancel()
+		time.Sleep(5 * time.Millisecond)
 
-	select {
-	case <-cloned.Context().Done():
-		t.Error("cloned context should NOT be affected by original stdctx cancellation")
-	default:
-		// expected: cloned context is independent
-	}
+		select {
+		case <-cloned.Context().Done():
+			t.Error("cloned context should NOT be affected by original stdctx cancellation")
+		default:
+			// expected: cloned context is independent
+		}
 
-	// 平台字段仍然存在
-	if cloned.GetPlatformEvent() == nil {
-		t.Error("platformEvent should still be present after original cancel")
-	}
-	if cloned.GetPlatformSender() == nil {
-		t.Error("platformSender should still be present after original cancel")
-	}
+		// 平台字段仍然存在
+		if cloned.GetPlatformEvent() == nil {
+			t.Error("platformEvent should still be present after original cancel")
+		}
+		if cloned.GetPlatformSender() == nil {
+			t.Error("platformSender should still be present after original cancel")
+		}
 
-	t.Log("✓ platform-path cloned context is independent and retains platform fields")
+		t.Log("✓ platform-path cloned context is independent and retains platform fields")
 	})
 }
 

@@ -603,7 +603,7 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 }
 
 var (
-	_ platform.Sender          = (*qqSender)(nil)
-	_ platform.MessageDeleter  = (*qqSender)(nil)
-	_ platform.ReactionSender  = (*qqSender)(nil)
+	_ platform.Sender         = (*qqSender)(nil)
+	_ platform.MessageDeleter = (*qqSender)(nil)
+	_ platform.ReactionSender = (*qqSender)(nil)
 )

@@ -58,20 +58,20 @@ func TestSubscribe_TypedReceive(t *testing.T) {
 
 func TestSubscribe_TypeMismatchSilentSkip(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	// 发布 string，但订阅 userLoginEvent ——应静默跳过，不 panic
-	bus := NewEventBus()
-	var called atomic.Bool
+		// 发布 string，但订阅 userLoginEvent ——应静默跳过，不 panic
+		bus := NewEventBus()
+		var called atomic.Bool
 
-	_, err := Subscribe[userLoginEvent](bus, "topic", func(e userLoginEvent) {
-		called.Store(true)
-	})
-	require.NoError(t, err)
+		_, err := Subscribe[userLoginEvent](bus, "topic", func(e userLoginEvent) {
+			called.Store(true)
+		})
+		require.NoError(t, err)
 
-	err = bus.Publish("topic", "this is a string, not userLoginEvent")
-	require.NoError(t, err)
+		err = bus.Publish("topic", "this is a string, not userLoginEvent")
+		require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-	assert.False(t, called.Load(), "handler must not be called on type mismatch")
+		time.Sleep(50 * time.Millisecond)
+		assert.False(t, called.Load(), "handler must not be called on type mismatch")
 	})
 }
 
@@ -288,26 +288,26 @@ func TestTypedChannel_ConcurrentPublish(t *testing.T) {
 
 func TestTypedChannel_Unsubscribe(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-	bus := NewEventBus()
-	ch := NewTypedChannel[string](bus, "greet")
+		bus := NewEventBus()
+		ch := NewTypedChannel[string](bus, "greet")
 
-	var count atomic.Int32
-	sub, err := ch.Subscribe(func(s string) {
-		count.Add(1)
-	})
-	require.NoError(t, err)
+		var count atomic.Int32
+		sub, err := ch.Subscribe(func(s string) {
+			count.Add(1)
+		})
+		require.NoError(t, err)
 
-	// 第一次发布，应该收到
-	require.NoError(t, ch.Publish("hello"))
-	waitFor(t, func() bool { return count.Load() >= 1 }, 500*time.Millisecond)
+		// 第一次发布，应该收到
+		require.NoError(t, ch.Publish("hello"))
+		waitFor(t, func() bool { return count.Load() >= 1 }, 500*time.Millisecond)
 
-	// 取消订阅
-	require.NoError(t, sub.Unsubscribe())
+		// 取消订阅
+		require.NoError(t, sub.Unsubscribe())
 
-	// 第二次发布，不应该收到
-	require.NoError(t, ch.Publish("world"))
-	time.Sleep(50 * time.Millisecond)
-	assert.EqualValues(t, 1, count.Load(), "handler must not be called after Unsubscribe")
+		// 第二次发布，不应该收到
+		require.NoError(t, ch.Publish("world"))
+		time.Sleep(50 * time.Millisecond)
+		assert.EqualValues(t, 1, count.Load(), "handler must not be called after Unsubscribe")
 	})
 }
 

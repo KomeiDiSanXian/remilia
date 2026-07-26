@@ -104,7 +104,7 @@ func registerDemoCommands(eng *engine.Engine) {
 		SetCategory("示例").
 		Handle(func(ctx *eventctx.Context) error {
 			ctx.Reply(platform.TextMessage("Pong! 🏓"))
-		return nil
+			return nil
 		})
 
 	eng.OnCommand("", "/echo").
@@ -114,7 +114,7 @@ func registerDemoCommands(eng *engine.Engine) {
 		Handle(func(ctx *eventctx.Context) error {
 			content := ctx.GetMessageContent()
 			ctx.Reply(platform.TextMessage("回声: " + content))
-		return nil
+			return nil
 		})
 
 	eng.OnCommand("", "/info").
@@ -134,7 +134,7 @@ func registerDemoCommands(eng *engine.Engine) {
 				ctx.GetMessageContent(),
 			)
 			ctx.Reply(platform.TextMessage(msg))
-		return nil
+			return nil
 		})
 
 	eng.OnCommand("", "/caps").
@@ -148,6 +148,6 @@ func registerDemoCommands(eng *engine.Engine) {
 				caps.Markdown, caps.MessageEdit, caps.MessageDelete, caps.Reactions, caps.TypingIndicator,
 			)
 			ctx.Reply(platform.TextMessage(msg))
-		return nil
+			return nil
 		})
 }

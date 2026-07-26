@@ -87,7 +87,7 @@ func (p *Plugin) loadFromDB() {
 	var aclCfg ACLConfigModel
 	if err := p.storageSvc.First(&aclCfg, "id = ?", 1); err == nil {
 		var aclModels []ACLEntryModel
-			if err := p.storageSvc.Find(&aclModels); err == nil {
+		if err := p.storageSvc.Find(&aclModels); err == nil {
 			list := make(map[string]bool, len(aclModels))
 			notes := make(map[string]string, len(aclModels))
 			for _, m := range aclModels {

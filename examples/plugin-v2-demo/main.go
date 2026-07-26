@@ -109,7 +109,7 @@ func NewGreeterPlugin() *plugin.Descriptor {
 			ctx.Reg.RegisterCommand("", "/greet").
 				Handle(func(c *eventctx.Context) error {
 					c.Reply(platform.TextMessage(greeting + ", " + c.GetSenderInfo().ID + "!"))
-			return nil
+					return nil
 				})
 
 			ctx.Reg.RegisterCommand("", "/setgreeting").
@@ -117,11 +117,11 @@ func NewGreeterPlugin() *plugin.Descriptor {
 					content := c.GetMessageContent()
 					if len(content) <= 13 {
 						c.Reply(platform.TextMessage("用法: /setgreeting <问候语>"))
-			return nil
+						return nil
 					}
 					greeting = content[13:]
 					c.Reply(platform.TextMessage("问候语已更新为: " + greeting))
-			return nil
+					return nil
 				})
 
 			logger.Info("[Greeter] Plugin setup complete")
@@ -159,20 +159,20 @@ func NewCounterPlugin() *plugin.Descriptor {
 				Handle(func(c *eventctx.Context) error {
 					count++
 					c.Reply(platform.TextMessage(fmt.Sprintf("计数: %d", count)))
-			return nil
+					return nil
 				})
 
 			ctx.Reg.RegisterCommand("", "/reset").
 				Handle(func(c *eventctx.Context) error {
 					count = 0
 					c.Reply(platform.TextMessage("计数已重置"))
-			return nil
+					return nil
 				})
 
 			ctx.Reg.RegisterCommand("", "/get").
 				Handle(func(c *eventctx.Context) error {
 					c.Reply(platform.TextMessage(fmt.Sprintf("当前计数: %d", count)))
-			return nil
+					return nil
 				})
 
 			logger.Info("[Counter] Plugin setup complete")
@@ -211,16 +211,16 @@ func NewCalculatorPlugin() *plugin.Descriptor {
 					content := c.GetMessageContent()
 					if len(content) <= 6 {
 						c.Reply(platform.TextMessage("用法: /calc <表达式>\n示例: /calc 1 + 2"))
-			return nil
+						return nil
 					}
 					expr := content[6:]
 					result, err := simpleCalc(expr)
 					if err != nil {
 						c.Reply(platform.TextMessage("计算错误: " + err.Error()))
-			return nil
+						return nil
 					}
 					c.Reply(platform.TextMessage(fmt.Sprintf("%s = %d", expr, result)))
-			return nil
+					return nil
 				})
 
 			logger.Info("[Calculator] Plugin setup complete")

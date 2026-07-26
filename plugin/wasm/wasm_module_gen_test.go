@@ -45,18 +45,18 @@ func newTestWasmModule() []byte {
 	// 3 个函数体分别对应 type[0],type[1],type[2]
 	// 注意：导入的 log 是 func index 0，本地函数从 index 1 开始
 	wf := &wasmWriter{}
-	wf.u32(3)     // 3 个函数
-	wf.u32(0)     // func[0]: type 0 (plugin_init → 导出 index 1)
-	wf.u32(1)     // func[1]: type 1 (plugin_handle → 导出 index 2)
-	wf.u32(2)     // func[2]: type 2 (malloc → 导出 index 3)
+	wf.u32(3) // 3 个函数
+	wf.u32(0) // func[0]: type 0 (plugin_init → 导出 index 1)
+	wf.u32(1) // func[1]: type 1 (plugin_handle → 导出 index 2)
+	wf.u32(2) // func[2]: type 2 (malloc → 导出 index 3)
 	w.section(3, wf.buf)
 
 	// ── Memory section (id=5) ──
 	// 1 个线性内存，最小 1 页 (64KB)
 	wm := &wasmWriter{}
 	wm.u32(1)
-	wm.byte(0x00)  // flags: no max
-	wm.u32(1)      // min: 1 page
+	wm.byte(0x00) // flags: no max
+	wm.u32(1)     // min: 1 page
 	w.section(5, wm.buf)
 
 	// ── Export section (id=7) ──
@@ -74,29 +74,29 @@ func newTestWasmModule() []byte {
 
 	// body[0]: plugin_init → i32.const 0; end
 	// locals: 0; body_size = 1 + 3 = 4
-	wc.u32(4)            // func body size
-	wc.u32(0)            // 0 locals groups
-	wc.byte(0x41, 0x00)  // i32.const 0
-	wc.byte(0x0b)        // end
+	wc.u32(4)           // func body size
+	wc.u32(0)           // 0 locals groups
+	wc.byte(0x41, 0x00) // i32.const 0
+	wc.byte(0x0b)       // end
 
 	// body[1]: plugin_handle → local.get 0; local.get 1; call 0(log); drop; i64.const 0; end
 	// locals: 0; body_size = 1 + 10 = 11
-	wc.u32(11)                                // func body size
-	wc.u32(0)                                 // 0 locals groups
-	wc.byte(0x20, 0x00)                       // local.get 0
-	wc.byte(0x20, 0x01)                       // local.get 1
-	wc.byte(0x10, 0x00)                       // call 0 (log)
-	wc.byte(0x1a)                             // drop
-	wc.byte(0x42, 0x00)                       // i64.const 0
-	wc.byte(0x0b)                             // end
+	wc.u32(11)          // func body size
+	wc.u32(0)           // 0 locals groups
+	wc.byte(0x20, 0x00) // local.get 0
+	wc.byte(0x20, 0x01) // local.get 1
+	wc.byte(0x10, 0x00) // call 0 (log)
+	wc.byte(0x1a)       // drop
+	wc.byte(0x42, 0x00) // i64.const 0
+	wc.byte(0x0b)       // end
 
 	// body[2]: malloc → i32.const 1024; end
 	// locals: 0; body_size = 1 + 4 = 5
-	wc.u32(5)           // func body size
-	wc.u32(0)           // 0 locals groups
-	wc.byte(0x41)       // i32.const
-	wc.u32(1024)        // 1024
-	wc.byte(0x0b)       // end
+	wc.u32(5)     // func body size
+	wc.u32(0)     // 0 locals groups
+	wc.byte(0x41) // i32.const
+	wc.u32(1024)  // 1024
+	wc.byte(0x0b) // end
 
 	w.section(10, wc.buf)
 

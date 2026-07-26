@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

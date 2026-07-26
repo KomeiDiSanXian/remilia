@@ -115,12 +115,12 @@ func registerHandlers(bot *remilia.Bot) {
 	// 4. 无效输入错误
 	bot.Engine().OnCommand("", "/invalid").Handle(func(ctx *eventctx.Context) error {
 		inputErr := &UserError{
-				Code:    400,
-				Message: "Invalid input provided",
-				Err:     ErrInvalidInput,
-			}
-			logger.WithError(inputErr).Warn("[ErrorHandling] Invalid input")
-			ctx.Reply(platform.TextMessage("❌ 错误: 输入无效，请检查后重试"))
+			Code:    400,
+			Message: "Invalid input provided",
+			Err:     ErrInvalidInput,
+		}
+		logger.WithError(inputErr).Warn("[ErrorHandling] Invalid input")
+		ctx.Reply(platform.TextMessage("❌ 错误: 输入无效，请检查后重试"))
 		return nil
 	})
 
@@ -149,7 +149,7 @@ func registerHandlers(bot *remilia.Bot) {
 				"user": userID,
 			}).Warn("[ErrorHandling] Permission denied")
 			ctx.Reply(platform.TextMessage("❌ 错误: 权限不足"))
-		return nil
+			return nil
 		}
 		return nil
 	})
@@ -161,7 +161,7 @@ func registerHandlers(bot *remilia.Bot) {
 		}, 3)
 		if err != nil {
 			ctx.Reply(platform.TextMessage("❌ 操作失败: " + err.Error()))
-		return nil
+			return nil
 		}
 		ctx.Reply(platform.TextMessage("✅ 操作成功（经过重试）"))
 		return nil
