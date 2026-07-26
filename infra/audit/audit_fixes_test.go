@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -58,6 +59,7 @@ func TestWriteLoop_DrainOnStop(t *testing.T) {
 
 // TestWriteLoop_DrainOnStop_ConcurrentProducers 模拟关闭时有并发生产者
 func TestWriteLoop_DrainOnStop_ConcurrentProducers(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	dir := t.TempDir()
 	cfg := Config{
 		Enabled:       true,
@@ -103,4 +105,5 @@ func TestWriteLoop_DrainOnStop_ConcurrentProducers(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Close deadlocked with concurrent producers")
 	}
+	})
 }

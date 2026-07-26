@@ -3,6 +3,7 @@ package audit_test
 import (
 	"os"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/audit"
@@ -51,6 +52,7 @@ func TestNewLogger(t *testing.T) {
 
 // TestLogLevels 测试不同级别的日志
 func TestLogLevels(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -71,10 +73,12 @@ func TestLogLevels(t *testing.T) {
 	logger.Critical(audit.ActionSystemShutdown, "system", "System shutdown initiated")
 
 	time.Sleep(200 * time.Millisecond) // 等待异步写入
+	})
 }
 
 // TestLogEntry 测试日志条目
 func TestLogEntry(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -108,10 +112,12 @@ func TestLogEntry(t *testing.T) {
 	logger.Log(entry)
 
 	time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // TestLogCommandExecution 测试命令执行日志
 func TestLogCommandExecution(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -132,10 +138,12 @@ func TestLogCommandExecution(t *testing.T) {
 	logger.LogCommandExecution("user123", "/error", false, 50*time.Millisecond, assert.AnError)
 
 	time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // TestLogPluginOperation 测试插件操作日志
 func TestLogPluginOperation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -159,10 +167,12 @@ func TestLogPluginOperation(t *testing.T) {
 	logger.LogPluginOperation(audit.ActionPluginLoad, "bad-plugin", false, assert.AnError)
 
 	time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // TestLogConfigChange 测试配置变更日志
 func TestLogConfigChange(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -179,10 +189,12 @@ func TestLogConfigChange(t *testing.T) {
 	logger.LogConfigChange("admin", "log.level", "info", "debug")
 
 	time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // TestLogSystemEvent 测试系统事件日志
 func TestLogSystemEvent(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -200,10 +212,12 @@ func TestLogSystemEvent(t *testing.T) {
 	logger.LogSystemEvent(audit.ActionSystemShutdown, "System shutting down")
 
 	time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // TestMinLevel 测试最低日志级别过滤
 func TestMinLevel(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -228,10 +242,12 @@ func TestMinLevel(t *testing.T) {
 
 	// 验证只有 Warn 被写入
 	// （实际测试中可以读取文件内容验证）
+	})
 }
 
 // TestBufferOverflow 测试缓冲区溢出
 func TestBufferOverflow(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := audit.Config{
 		Enabled:       true,
@@ -252,6 +268,7 @@ func TestBufferOverflow(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	// 应该不会 panic，部分日志会被丢弃
+	})
 }
 
 // BenchmarkLogSync 基准测试：同步写入

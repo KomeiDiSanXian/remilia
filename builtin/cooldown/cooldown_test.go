@@ -2,6 +2,7 @@ package cooldown_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
@@ -65,15 +66,16 @@ func TestCooldown_GlobalAllow(t *testing.T) {
 }
 
 func TestCooldown_CleanExpired(t *testing.T) {
-	p := cooldown.NewPlugin()
-	p.Allow("user1", "cmd", time.Millisecond)
-	time.Sleep(5 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		p := cooldown.NewPlugin()
+		p.Allow("user1", "cmd", time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 
-	// 超过 0 时长，会清除所有记录
-	n := p.CleanExpired(0)
-	if n != 1 {
-		t.Fatalf("expected 1 expired entry, got %d", n)
-	}
+		n := p.CleanExpired(0)
+		if n != 1 {
+			t.Fatalf("expected 1 expired entry, got %d", n)
+		}
+	})
 }
 
 func TestCooldown_Descriptor(t *testing.T) {

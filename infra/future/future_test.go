@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -66,25 +67,27 @@ func TestMultipleResolveOnlyFirstWorks(t *testing.T) {
 }
 
 func TestWaitBlocksUntilResolve(t *testing.T) {
-	f := New[int]()
-	done := make(chan struct{})
-	go func() {
-		val, err := f.Wait(context.Background())
-		if err != nil || val != 99 {
-			t.Errorf("expected 99/nil, got %d/%v", val, err)
+	synctest.Test(t, func(t *testing.T) {
+		f := New[int]()
+		done := make(chan struct{})
+		go func() {
+			val, err := f.Wait(context.Background())
+			if err != nil || val != 99 {
+				t.Errorf("expected 99/nil, got %d/%v", val, err)
+			}
+			close(done)
+		}()
+		time.Sleep(10 * time.Millisecond)
+		if f.IsDone() {
+			t.Fatal("future should not be done yet")
 		}
-		close(done)
-	}()
-	time.Sleep(10 * time.Millisecond)
-	if f.IsDone() {
-		t.Fatal("future should not be done yet")
-	}
-	f.Resolve(99, nil)
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Wait did not unblock after Resolve")
-	}
+		f.Resolve(99, nil)
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("Wait did not unblock after Resolve")
+		}
+	})
 }
 
 func TestWaitRespectsContextCancel(t *testing.T) {
@@ -156,19 +159,21 @@ func TestMustWaitPanicsOnError(t *testing.T) {
 }
 
 func TestConcurrentResolveAndWait(t *testing.T) {
-	f := New[int]()
-	var wg sync.WaitGroup
-	for range 10 {
-		wg.Go(func() {
-			val, err := f.Wait(context.Background())
-			if err != nil || val != 100 {
-				t.Errorf("expected 100/nil, got %d/%v", val, err)
-			}
-		})
-	}
-	time.Sleep(10 * time.Millisecond)
-	f.Resolve(100, nil)
-	wg.Wait()
+	synctest.Test(t, func(t *testing.T) {
+		f := New[int]()
+		var wg sync.WaitGroup
+		for range 10 {
+			wg.Go(func() {
+				val, err := f.Wait(context.Background())
+				if err != nil || val != 100 {
+					t.Errorf("expected 100/nil, got %d/%v", val, err)
+				}
+			})
+		}
+		time.Sleep(10 * time.Millisecond)
+		f.Resolve(100, nil)
+		wg.Wait()
+	})
 }
 
 func TestConcurrentResolveRace(t *testing.T) {

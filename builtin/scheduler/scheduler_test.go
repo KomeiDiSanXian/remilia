@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
@@ -17,11 +18,13 @@ func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 	t.Helper()
 	p := scheduler.NewPlugin()
 	desc := p.Descriptor()
-	pm := plugin.NewManager(engine.NewEngine())
+	eng := engine.NewEngine()
+	pm := plugin.NewManager(eng)
 	if err := pm.Register(desc); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 	return p, func() {
+		eng.Shutdown(context.Background())
 		if err := pm.Unregister(context.Background(), "scheduler"); err != nil {
 			t.Logf("Unregister: %v", err)
 		}
@@ -29,43 +32,49 @@ func newSched(t *testing.T) (*scheduler.Plugin, func()) {
 }
 
 func TestScheduler_Every(t *testing.T) {
-	p, stop := newSched(t)
-	defer stop()
-	var count atomic.Int32
-	id := p.Every(20*time.Millisecond, func() { count.Add(1) })
-	if id == 0 {
-		t.Fatal("expected non-zero job ID")
-	}
-	time.Sleep(120 * time.Millisecond)
-	if count.Load() < 2 {
-		t.Errorf("expected >= 2 executions, got %d", count.Load())
-	}
+	synctest.Test(t, func(t *testing.T) {
+		p, stop := newSched(t)
+		defer stop()
+		var count atomic.Int32
+		id := p.Every(20*time.Millisecond, func() { count.Add(1) })
+		if id == 0 {
+			t.Fatal("expected non-zero job ID")
+		}
+		time.Sleep(120 * time.Millisecond)
+		if count.Load() < 2 {
+			t.Errorf("expected >= 2 executions, got %d", count.Load())
+		}
+	})
 }
 func TestScheduler_Cron(t *testing.T) {
-	p, stop := newSched(t)
-	defer stop()
-	var fired atomic.Bool
-	id := p.Cron("* * * * * *", func() { fired.Store(true) })
-	if id == 0 {
-		t.Fatal("expected non-zero job ID")
-	}
-	time.Sleep(1500 * time.Millisecond)
-	if !fired.Load() {
-		t.Error("cron job should have fired")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		p, stop := newSched(t)
+		defer stop()
+		var fired atomic.Bool
+		id := p.Cron("* * * * * *", func() { fired.Store(true) })
+		if id == 0 {
+			t.Fatal("expected non-zero job ID")
+		}
+		time.Sleep(1500 * time.Millisecond)
+		if !fired.Load() {
+			t.Error("cron job should have fired")
+		}
+	})
 }
 func TestScheduler_Remove(t *testing.T) {
-	p, stop := newSched(t)
-	defer stop()
-	var count atomic.Int32
-	id := p.Every(10*time.Millisecond, func() { count.Add(1) })
-	time.Sleep(30 * time.Millisecond)
-	p.Remove(id)
-	before := count.Load()
-	time.Sleep(40 * time.Millisecond)
-	if after := count.Load(); after > before+1 {
-		t.Errorf("job still running after Remove: before=%d after=%d", before, after)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		p, stop := newSched(t)
+		defer stop()
+		var count atomic.Int32
+		id := p.Every(10*time.Millisecond, func() { count.Add(1) })
+		time.Sleep(30 * time.Millisecond)
+		p.Remove(id)
+		before := count.Load()
+		time.Sleep(40 * time.Millisecond)
+		if after := count.Load(); after > before+1 {
+			t.Errorf("job still running after Remove: before=%d after=%d", before, after)
+		}
+	})
 }
 func TestScheduler_Jobs(t *testing.T) {
 	p, stop := newSched(t)
@@ -85,15 +94,17 @@ func TestScheduler_Jobs(t *testing.T) {
 	}
 }
 func TestScheduler_PanicRecovery(t *testing.T) {
-	p, stop := newSched(t)
-	defer stop()
-	var after atomic.Bool
-	p.Every(10*time.Millisecond, func() { panic("test panic") })
-	p.Every(50*time.Millisecond, func() { after.Store(true) })
-	time.Sleep(120 * time.Millisecond)
-	if !after.Load() {
-		t.Error("scheduler should continue after panic in one job")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		p, stop := newSched(t)
+		defer stop()
+		var after atomic.Bool
+		p.Every(10*time.Millisecond, func() { panic("test panic") })
+		p.Every(50*time.Millisecond, func() { after.Store(true) })
+		time.Sleep(120 * time.Millisecond)
+		if !after.Load() {
+			t.Error("scheduler should continue after panic in one job")
+		}
+	})
 }
 
 // noopLogger satisfies plugin.Logger for tests without panicking on nil.

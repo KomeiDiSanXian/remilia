@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -50,16 +51,18 @@ func TestHandle_InvalidBody(t *testing.T) {
 }
 
 func TestHandleDispatch_Dispatches(t *testing.T) {
-	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
-	c := NewWithBuffer(info, 10)
-	p := &dto.Payload{Type: dto.C2CMessageCreate, ID: "x", Raw: []byte("{}")}
-	go c.handleDispatch(p)
-	select {
-	case got := <-c.EventStream():
-		assert.Equal(t, p, got)
-	case <-time.After(500 * time.Millisecond):
-		t.Fatalf("timeout waiting for dispatched event")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+		c := NewWithBuffer(info, 10)
+		p := &dto.Payload{Type: dto.C2CMessageCreate, ID: "x", Raw: []byte("{}")}
+		go c.handleDispatch(p)
+		select {
+		case got := <-c.EventStream():
+			assert.Equal(t, p, got)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timeout waiting for dispatched event")
+		}
+	})
 }
 
 func TestHandleDispatch_ChannelFull_DropsPayload(t *testing.T) {

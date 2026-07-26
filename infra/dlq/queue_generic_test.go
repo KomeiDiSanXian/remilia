@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -73,59 +74,60 @@ func TestGenericQueue_BasicFunctionality(t *testing.T) {
 // TestGenericQueue_EnqueueDequeue tests enqueue and dequeue operations
 func TestGenericQueue_EnqueueDequeue(t *testing.T) {
 	t.Run("enqueue and consume", func(t *testing.T) {
-		consumer := &TestConsumer{}
-		q := New[*TestData](Config[*TestData]{
-			MaxSize: 10,
-			Workers: 1,
+		synctest.Test(t, func(t *testing.T) {
+			consumer := &TestConsumer{}
+			q := New[*TestData](Config[*TestData]{
+				MaxSize: 10,
+				Workers: 1,
+			})
+
+			q.AddConsumer(consumer)
+			q.Start()
+			defer func() { _ = q.Close(time.Second) }()
+
+			item := Item[*TestData]{
+				Data:    &TestData{ID: 1, Message: "test"},
+				Err:     errors.New("test error"),
+				Attempt: 1,
+				Source:  "test",
+			}
+
+			err := q.Enqueue(item)
+			require.NoError(t, err)
+
+			synctest.Wait()
+
+			items := consumer.GetItems()
+			require.Len(t, items, 1)
+			assert.Equal(t, 1, items[0].Data.ID)
+			assert.Equal(t, "test", items[0].Data.Message)
+			assert.Equal(t, "test error", items[0].Err.Error())
 		})
-
-		q.AddConsumer(consumer)
-		q.Start()
-		defer func() { _ = q.Close(time.Second) }()
-
-		item := Item[*TestData]{
-			Data:    &TestData{ID: 1, Message: "test"},
-			Err:     errors.New("test error"),
-			Attempt: 1,
-			Source:  "test",
-		}
-
-		err := q.Enqueue(item)
-		require.NoError(t, err)
-
-		// Wait for processing
-		time.Sleep(100 * time.Millisecond)
-
-		items := consumer.GetItems()
-		require.Len(t, items, 1)
-		assert.Equal(t, 1, items[0].Data.ID)
-		assert.Equal(t, "test", items[0].Data.Message)
-		assert.Equal(t, "test error", items[0].Err.Error())
 	})
 
 	t.Run("multiple items", func(t *testing.T) {
-		consumer := &TestConsumer{}
-		q := New[*TestData](Config[*TestData]{
-			MaxSize: 100,
-			Workers: 2,
-		})
-
-		q.AddConsumer(consumer)
-		q.Start()
-		defer q.Close(time.Second)
-
-		// Enqueue multiple items
-		for i := range 10 {
-			err := q.Enqueue(Item[*TestData]{
-				Data: &TestData{ID: i, Message: "msg"},
+		synctest.Test(t, func(t *testing.T) {
+			consumer := &TestConsumer{}
+			q := New[*TestData](Config[*TestData]{
+				MaxSize: 100,
+				Workers: 2,
 			})
-			require.NoError(t, err)
-		}
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
+			q.AddConsumer(consumer)
+			q.Start()
+			defer q.Close(time.Second)
 
-		assert.Equal(t, 10, consumer.Count())
+			for i := range 10 {
+				err := q.Enqueue(Item[*TestData]{
+					Data: &TestData{ID: i, Message: "msg"},
+				})
+				require.NoError(t, err)
+			}
+
+			synctest.Wait()
+
+			assert.Equal(t, 10, consumer.Count())
+		})
 	})
 }
 
@@ -143,14 +145,10 @@ func TestGenericQueue_DropPolicy(t *testing.T) {
 		})
 		defer func() { _ = q.Close(time.Second) }()
 
-		// Fill queue
 		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
 		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
-
-		// This should drop the oldest (ID: 1)
 		_ = q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
 
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, int32(1), dropped.Load())
 	})
 
@@ -166,77 +164,74 @@ func TestGenericQueue_DropPolicy(t *testing.T) {
 		})
 		defer q.Close(time.Second)
 
-		// Fill queue
 		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
 		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
 
-		// This should be dropped (ID: 3)
 		err := q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
 		assert.Error(t, err)
 		assert.Equal(t, ErrQueueFull, err)
 
-		time.Sleep(50 * time.Millisecond)
 		assert.Equal(t, int32(1), dropped.Load())
 	})
 
 	t.Run("block until space", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			consumer := &TestConsumer{}
+			q := New[*TestData](Config[*TestData]{
+				MaxSize:    2,
+				Workers:    1,
+				DropPolicy: DropPolicyBlockUntilSpace,
+			})
+
+			q.AddConsumer(consumer)
+			q.Start()
+			defer q.Close(time.Second)
+
+			q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
+			q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
+
+			done := make(chan bool)
+			go func() {
+				err := q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
+				assert.NoError(t, err)
+				done <- true
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Enqueue blocked too long")
+			}
+		})
+	})
+}
+
+// TestGenericQueue_Stats tests statistics
+func TestGenericQueue_Stats(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 		consumer := &TestConsumer{}
 		q := New[*TestData](Config[*TestData]{
-			MaxSize:    2,
-			Workers:    1,
-			DropPolicy: DropPolicyBlockUntilSpace,
+			MaxSize: 100,
+			Workers: 2,
 		})
 
 		q.AddConsumer(consumer)
 		q.Start()
 		defer q.Close(time.Second)
 
-		// Fill queue
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 2}})
-
-		// This should block briefly then succeed
-		done := make(chan bool)
-		go func() {
-			err := q.Enqueue(Item[*TestData]{Data: &TestData{ID: 3}})
-			assert.NoError(t, err)
-			done <- true
-		}()
-
-		select {
-		case <-done:
-			// Success
-		case <-time.After(2 * time.Second):
-			t.Fatal("Enqueue blocked too long")
+		for i := range 5 {
+			q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
 		}
+
+		synctest.Wait()
+
+		stats := q.Stats()
+		assert.Equal(t, 100, stats.MaxSize)
+		assert.Equal(t, 2, stats.Workers)
+		assert.Equal(t, int64(5), stats.Processed)
+		assert.Equal(t, 1, stats.Consumers)
+		assert.False(t, stats.IsClosed)
 	})
-}
-
-// TestGenericQueue_Stats tests statistics
-func TestGenericQueue_Stats(t *testing.T) {
-	consumer := &TestConsumer{}
-	q := New[*TestData](Config[*TestData]{
-		MaxSize: 100,
-		Workers: 2,
-	})
-
-	q.AddConsumer(consumer)
-	q.Start()
-	defer q.Close(time.Second)
-
-	// Enqueue items
-	for i := range 5 {
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
-	}
-
-	time.Sleep(200 * time.Millisecond)
-
-	stats := q.Stats()
-	assert.Equal(t, 100, stats.MaxSize)
-	assert.Equal(t, 2, stats.Workers)
-	assert.Equal(t, int64(5), stats.Processed)
-	assert.Equal(t, 1, stats.Consumers)
-	assert.False(t, stats.IsClosed)
 }
 
 // TestGenericQueue_Close tests graceful shutdown
@@ -251,24 +246,24 @@ func TestGenericQueue_Close(t *testing.T) {
 	})
 
 	t.Run("close with pending items", func(t *testing.T) {
-		consumer := &TestConsumer{}
-		q := New[*TestData](Config[*TestData]{
-			MaxSize: 100,
-			Workers: 1,
+		synctest.Test(t, func(t *testing.T) {
+			consumer := &TestConsumer{}
+			q := New[*TestData](Config[*TestData]{
+				MaxSize: 100,
+				Workers: 1,
+			})
+
+			q.AddConsumer(consumer)
+			q.Start()
+
+			for i := range 10 {
+				q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
+			}
+
+			err := q.Close(2 * time.Second)
+			assert.NoError(t, err)
+			assert.Equal(t, 10, consumer.Count())
 		})
-
-		q.AddConsumer(consumer)
-		q.Start()
-
-		// Add items
-		for i := range 10 {
-			q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
-		}
-
-		// Close should wait for processing
-		err := q.Close(2 * time.Second)
-		assert.NoError(t, err)
-		assert.Equal(t, 10, consumer.Count())
 	})
 
 	t.Run("enqueue after close", func(t *testing.T) {
@@ -284,83 +279,85 @@ func TestGenericQueue_Close(t *testing.T) {
 
 // TestGenericQueue_MultipleConsumers tests multiple consumers
 func TestGenericQueue_MultipleConsumers(t *testing.T) {
-	consumer1 := &TestConsumer{}
-	consumer2 := &TestConsumer{}
+	synctest.Test(t, func(t *testing.T) {
+		consumer1 := &TestConsumer{}
+		consumer2 := &TestConsumer{}
 
-	q := New[*TestData](Config[*TestData]{
-		MaxSize: 10,
-		Workers: 1,
+		q := New[*TestData](Config[*TestData]{
+			MaxSize: 10,
+			Workers: 1,
+		})
+
+		q.AddConsumer(consumer1)
+		q.AddConsumer(consumer2)
+		q.Start()
+		defer q.Close(time.Second)
+
+		item := Item[*TestData]{
+			Data: &TestData{ID: 1, Message: "broadcast"},
+		}
+
+		q.Enqueue(item)
+		synctest.Wait()
+
+		assert.Equal(t, 1, consumer1.Count())
+		assert.Equal(t, 1, consumer2.Count())
 	})
-
-	q.AddConsumer(consumer1)
-	q.AddConsumer(consumer2)
-	q.Start()
-	defer q.Close(time.Second)
-
-	item := Item[*TestData]{
-		Data: &TestData{ID: 1, Message: "broadcast"},
-	}
-
-	q.Enqueue(item)
-	time.Sleep(100 * time.Millisecond)
-
-	// Both consumers should receive the item
-	assert.Equal(t, 1, consumer1.Count())
-	assert.Equal(t, 1, consumer2.Count())
 }
 
 // TestGenericQueue_ConsumerPanic tests panic recovery
 func TestGenericQueue_ConsumerPanic(t *testing.T) {
-	panicking := &TestConsumer{
-		onConsume: func(item Item[*TestData]) {
-			panic("test panic")
-		},
-	}
-	normal := &TestConsumer{}
+	synctest.Test(t, func(t *testing.T) {
+		panicking := &TestConsumer{
+			onConsume: func(item Item[*TestData]) {
+				panic("test panic")
+			},
+		}
+		normal := &TestConsumer{}
 
-	q := New[*TestData](Config[*TestData]{
-		MaxSize: 10,
-		Workers: 1,
+		q := New[*TestData](Config[*TestData]{
+			MaxSize: 10,
+			Workers: 1,
+		})
+
+		q.AddConsumer(panicking)
+		q.AddConsumer(normal)
+		q.Start()
+		defer q.Close(time.Second)
+
+		q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
+		synctest.Wait()
+
+		assert.Equal(t, 1, normal.Count())
 	})
-
-	q.AddConsumer(panicking)
-	q.AddConsumer(normal)
-	q.Start()
-	defer q.Close(time.Second)
-
-	q.Enqueue(Item[*TestData]{Data: &TestData{ID: 1}})
-	time.Sleep(100 * time.Millisecond)
-
-	// Normal consumer should still work despite panic
-	assert.Equal(t, 1, normal.Count())
 }
 
 // TestGenericQueue_OnCallbacks tests callbacks
 func TestGenericQueue_OnCallbacks(t *testing.T) {
-	var processedCount atomic.Int32
+	synctest.Test(t, func(t *testing.T) {
+		var processedCount atomic.Int32
 
-	q := New[*TestData](Config[*TestData]{
-		MaxSize: 10,
-		Workers: 1,
-		OnProcessed: func(item Item[*TestData], duration time.Duration) {
-			processedCount.Add(1)
-		},
+		q := New[*TestData](Config[*TestData]{
+			MaxSize: 10,
+			Workers: 1,
+			OnProcessed: func(item Item[*TestData], duration time.Duration) {
+				processedCount.Add(1)
+			},
+		})
+
+		consumer := &TestConsumer{}
+		q.AddConsumer(consumer)
+		q.Start()
+		defer q.Close(time.Second)
+
+		for i := range 5 {
+			q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
+		}
+
+		synctest.Wait()
+
+		assert.GreaterOrEqual(t, processedCount.Load(), int32(5), "Should have processed all 5 items")
 	})
-
-	consumer := &TestConsumer{}
-	q.AddConsumer(consumer)
-	q.Start()
-	defer q.Close(time.Second)
-
-	// Enqueue some items
-	for i := range 5 {
-		q.Enqueue(Item[*TestData]{Data: &TestData{ID: i}})
-	}
-
-	// Wait for processing
-	time.Sleep(300 * time.Millisecond)
-
-	assert.GreaterOrEqual(t, processedCount.Load(), int32(5), "Should have processed all 5 items")
 }
 
 // TestGenericQueue_TypeSafety demonstrates type safety

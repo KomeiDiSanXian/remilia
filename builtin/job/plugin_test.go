@@ -5,12 +5,14 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/job"
 )
 
 func TestPlugin_Once_Success(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	var called atomic.Bool
 
@@ -35,9 +37,12 @@ func TestPlugin_Once_Success(t *testing.T) {
 	if info.Status != job.StatusDone {
 		t.Errorf("expected StatusDone, got %s", info.Status)
 	}
+	})
 }
 
+
 func TestPlugin_Once_Delay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	start := time.Now()
 	var executedAt time.Time
@@ -54,9 +59,12 @@ func TestPlugin_Once_Delay(t *testing.T) {
 	if executedAt.Sub(start) < 80*time.Millisecond {
 		t.Errorf("job executed too early: elapsed %v", executedAt.Sub(start))
 	}
+	})
 }
 
+
 func TestPlugin_Retry_Success(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	var attempts atomic.Int32
 
@@ -77,9 +85,12 @@ func TestPlugin_Retry_Success(t *testing.T) {
 	if attempts.Load() != 3 {
 		t.Errorf("expected 3 attempts, got %d", attempts.Load())
 	}
+	})
 }
 
+
 func TestPlugin_Retry_AllFail(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	sentinel := errors.New("always fail")
 
@@ -101,9 +112,12 @@ func TestPlugin_Retry_AllFail(t *testing.T) {
 	if info.Attempts != 3 { // 1 initial + 2 retries
 		t.Errorf("expected 3 attempts, got %d", info.Attempts)
 	}
+	})
 }
 
+
 func TestPlugin_Chain_Success(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	var order []int
 
@@ -122,9 +136,12 @@ func TestPlugin_Chain_Success(t *testing.T) {
 	if len(order) != 3 || order[0] != 1 || order[1] != 2 || order[2] != 3 {
 		t.Errorf("unexpected execution order: %v", order)
 	}
+	})
 }
 
+
 func TestPlugin_Chain_StopsOnError(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	var step2Called atomic.Bool
 	sentinel := errors.New("step1 fail")
@@ -144,9 +161,12 @@ func TestPlugin_Chain_StopsOnError(t *testing.T) {
 	if step2Called.Load() {
 		t.Error("step 2 should not have been called after step 1 failed")
 	}
+	})
 }
 
+
 func TestPlugin_OnDone_Callback(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	p := job.NewPlugin()
 	doneCh := make(chan job.Info, 1)
 
@@ -162,7 +182,9 @@ func TestPlugin_OnDone_Callback(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for OnDone callback")
 	}
+	})
 }
+
 
 func TestExponentialBackoff(t *testing.T) {
 	fn := job.ExponentialBackoff(100*time.Millisecond, 2*time.Second)

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -35,6 +36,7 @@ func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 
 // TestBotConcurrentStart tests that concurrent Start() calls don't cause race conditions
 func TestBotConcurrentStart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	eng := engine.NewEngine()
 	adapter := &mockAdapter{}
 	bot := remilia.MustNewBot(adapter, eng)
@@ -65,7 +67,9 @@ func TestBotConcurrentStart(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = bot.Stop(ctx)
+	})
 }
+
 
 // TestDedupStrictMode tests the strict mode behavior of dedup filter
 func TestDedupStrictMode(t *testing.T) {
@@ -120,6 +124,7 @@ func TestDedupStrictMode(t *testing.T) {
 
 // TestCircuitBreakerHalfOpenConcurrency tests the half-open state concurrency fix
 func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 		MaxFailures:         1,
 		ResetTimeout:        100 * time.Millisecond,
@@ -185,7 +190,9 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 		"Should not exceed HalfOpenMaxRequests, got %d allowed", allowed)
 	assert.GreaterOrEqual(t, rejected, int32(7),
 		"At least 7 requests should be rejected, got %d rejected", rejected)
+	})
 }
+
 
 // Mock adapter for testing
 type mockAdapter struct {

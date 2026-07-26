@@ -2,6 +2,7 @@ package verifycode_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/verifycode"
@@ -79,14 +80,16 @@ func TestVerifyCode_Revoke(t *testing.T) {
 }
 
 func TestVerifyCode_Expired(t *testing.T) {
-	p := verifycode.NewPlugin(nil)
-	code, _ := p.Generate(verifycode.CodeConfig{Role: "guest", TTL: time.Millisecond})
+	synctest.Test(t, func(t *testing.T) {
+		p := verifycode.NewPlugin(nil)
+		code, _ := p.Generate(verifycode.CodeConfig{Role: "guest", TTL: time.Millisecond})
 
-	time.Sleep(5 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 
-	if _, err := p.Verify("user1", code); err == nil {
-		t.Fatal("expired code should fail verification")
-	}
+		if _, err := p.Verify("user1", code); err == nil {
+			t.Fatal("expired code should fail verification")
+		}
+	})
 }
 
 func TestVerifyCode_ListValid(t *testing.T) {
@@ -101,14 +104,16 @@ func TestVerifyCode_ListValid(t *testing.T) {
 }
 
 func TestVerifyCode_GC(t *testing.T) {
-	p := verifycode.NewPlugin(nil)
-	p.Generate(verifycode.CodeConfig{Role: "x", TTL: time.Millisecond})
-	time.Sleep(5 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		p := verifycode.NewPlugin(nil)
+		p.Generate(verifycode.CodeConfig{Role: "x", TTL: time.Millisecond})
+		time.Sleep(5 * time.Millisecond)
 
-	n := p.GC()
-	if n != 1 {
-		t.Fatalf("expected 1 expired code removed by GC, got %d", n)
-	}
+		n := p.GC()
+		if n != 1 {
+			t.Fatalf("expected 1 expired code removed by GC, got %d", n)
+		}
+	})
 }
 
 func TestVerifyCode_Descriptor(t *testing.T) {

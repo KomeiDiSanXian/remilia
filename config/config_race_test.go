@@ -4,6 +4,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 // TestConfigRaceCondition tests concurrent access to config during hot reload
 // This test should be run with -race flag to detect data races
 func TestConfigRaceCondition(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// Create a temporary config file
 	tmpFile := t.TempDir() + "/config.yaml"
 	configContent := `
@@ -64,7 +66,9 @@ log:
 	time.Sleep(100 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+	})
 }
+
 
 // TestGetBeforeLoad tests that Get() returns false when config is not loaded
 func TestGetBeforeLoad(t *testing.T) {

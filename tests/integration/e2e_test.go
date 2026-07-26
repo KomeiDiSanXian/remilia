@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -148,6 +149,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 
 // TestE2E_AuditLogging 测试审计日志集成
 func TestE2E_AuditLogging(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 创建临时审计日志
 	tmpDir := t.TempDir()
 	auditConfig := audit.Config{
@@ -185,7 +187,9 @@ func TestE2E_AuditLogging(t *testing.T) {
 
 	// 等待日志写入
 	time.Sleep(100 * time.Millisecond)
+	})
 }
+
 
 // TestE2E_TempMatcher 测试临时匹配器
 func TestE2E_TempMatcher(t *testing.T) {
@@ -309,6 +313,7 @@ func TestE2E_PluginLifecycle(t *testing.T) {
 
 // TestE2E_GracefulShutdown 测试优雅关闭
 func TestE2E_GracefulShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	eng := engine.NewEngine(engine.WithExecPoolDisabled())
 
 	// 注册命令
@@ -346,7 +351,9 @@ func TestE2E_GracefulShutdown(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("事件处理超时")
 	}
+	})
 }
+
 
 // TestE2E_FullBotLifecycle 测试完整 Bot 生命周期
 //

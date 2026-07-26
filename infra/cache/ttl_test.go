@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/cache"
@@ -46,20 +47,22 @@ func TestMap_Overwrite(t *testing.T) {
 // ─── TTL 过期 ──────────────────────────────────────────────────────────────────
 
 func TestMap_Expiration(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("x", 42, 50*time.Millisecond)
+		m.Set("x", 42, 50*time.Millisecond)
 
-	// 未过期时可取到
-	v, ok := m.Get("x")
-	require.True(t, ok)
-	assert.Equal(t, 42, v)
+		// 未过期时可取到
+		v, ok := m.Get("x")
+		require.True(t, ok)
+		assert.Equal(t, 42, v)
 
-	// 等待过期
-	time.Sleep(100 * time.Millisecond)
-	_, ok = m.Get("x")
-	assert.False(t, ok, "entry should be expired")
+		// 等待过期（synctest 中使用虚拟时间，瞬间完成）
+		time.Sleep(100 * time.Millisecond)
+		_, ok = m.Get("x")
+		assert.False(t, ok, "entry should be expired")
+	})
 }
 
 func TestMap_ZeroTTL_ExpiresImmediately(t *testing.T) {
@@ -96,14 +99,16 @@ func TestMap_GetWithTTL_Missing(t *testing.T) {
 }
 
 func TestMap_GetWithTTL_Expired(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("x", 1, 30*time.Millisecond)
-	time.Sleep(60 * time.Millisecond)
-	_, rem, ok := m.GetWithTTL("x")
-	assert.False(t, ok)
-	assert.Zero(t, rem)
+		m.Set("x", 1, 30*time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
+		_, rem, ok := m.GetWithTTL("x")
+		assert.False(t, ok)
+		assert.Zero(t, rem)
+	})
 }
 
 // ─── Has ───────────────────────────────────────────────────────────────────────
@@ -138,48 +143,51 @@ func TestMap_DeleteNonExistent(t *testing.T) {
 // ─── Len / Cap ─────────────────────────────────────────────────────────────────
 
 func TestMap_Len(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("a", 1, 50*time.Millisecond)
-	m.Set("b", 2, time.Minute)
-	assert.Equal(t, 2, m.Len())
+		m.Set("a", 1, 50*time.Millisecond)
+		m.Set("b", 2, time.Minute)
+		assert.Equal(t, 2, m.Len())
 
-	time.Sleep(100 * time.Millisecond)
-	// "a" 已过期
-	assert.Equal(t, 1, m.Len())
+		time.Sleep(100 * time.Millisecond)
+		assert.Equal(t, 1, m.Len())
+	})
 }
 
 func TestMap_Cap_IncludesExpired(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("a", 1, 30*time.Millisecond)
-	m.Set("b", 2, time.Minute)
-	assert.Equal(t, 2, m.Cap())
+		m.Set("a", 1, 30*time.Millisecond)
+		m.Set("b", 2, time.Minute)
+		assert.Equal(t, 2, m.Cap())
 
-	time.Sleep(60 * time.Millisecond)
-	// Cap 包含过期但未被 GC 回收的条目
-	assert.Equal(t, 2, m.Cap())
-	// GC 后应恢复
-	m.GC()
-	assert.Equal(t, 1, m.Cap())
+		time.Sleep(60 * time.Millisecond)
+		assert.Equal(t, 2, m.Cap())
+		m.GC()
+		assert.Equal(t, 1, m.Cap())
+	})
 }
 
 // ─── GC ────────────────────────────────────────────────────────────────────────
 
 func TestMap_GC_RemovesExpired(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("a", 1, 30*time.Millisecond)
-	m.Set("b", 2, time.Minute)
+		m.Set("a", 1, 30*time.Millisecond)
+		m.Set("b", 2, time.Minute)
 
-	time.Sleep(60 * time.Millisecond)
-	removed := m.GC()
-	assert.Equal(t, 1, removed)
-	assert.Equal(t, 1, m.Cap())
-	assert.True(t, m.Has("b"))
+		time.Sleep(60 * time.Millisecond)
+		removed := m.GC()
+		assert.Equal(t, 1, removed)
+		assert.Equal(t, 1, m.Cap())
+		assert.True(t, m.Has("b"))
+	})
 }
 
 func TestMap_GC_NothingToRemove(t *testing.T) {
@@ -216,15 +224,17 @@ func TestMap_Keys(t *testing.T) {
 }
 
 func TestMap_Keys_ExcludesExpired(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("a", 1, 30*time.Millisecond)
-	m.Set("b", 2, time.Minute)
+		m.Set("a", 1, 30*time.Millisecond)
+		m.Set("b", 2, time.Minute)
 
-	time.Sleep(60 * time.Millisecond)
-	keys := m.Keys()
-	assert.Equal(t, []string{"b"}, keys)
+		time.Sleep(60 * time.Millisecond)
+		keys := m.Keys()
+		assert.Equal(t, []string{"b"}, keys)
+	})
 }
 
 // ─── Range ─────────────────────────────────────────────────────────────────────
@@ -263,18 +273,18 @@ func TestMap_Range_EarlyStop(t *testing.T) {
 // ─── 后台 GC ───────────────────────────────────────────────────────────────────
 
 func TestMap_BackgroundGC(t *testing.T) {
-	m := cache.New[string, int](40 * time.Millisecond)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](40 * time.Millisecond)
+		defer m.Stop()
 
-	m.Set("a", 1, 20*time.Millisecond)
-	m.Set("b", 2, time.Minute)
+		m.Set("a", 1, 20*time.Millisecond)
+		m.Set("b", 2, time.Minute)
 
-	// 等待后台 GC 运行至少两次
-	time.Sleep(200 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-	// "a" 已被后台 GC 清理
-	assert.Equal(t, 1, m.Cap(), "background GC should have removed expired entry")
-	assert.True(t, m.Has("b"))
+		assert.Equal(t, 1, m.Cap(), "background GC should have removed expired entry")
+		assert.True(t, m.Has("b"))
+	})
 }
 
 // ─── H-4 修复验证：GC 与 Get 的过期语义一致性 ─────────────────────────────────
@@ -304,32 +314,32 @@ func TestMap_GC_DeadlineEqualsNow(t *testing.T) {
 // 向 map 写入多条不同 TTL 的条目，等待部分过期后，
 // 对比 Get 认为已过期的集合与 GC 实际删除的集合是否相等。
 func TestMap_GC_SemanticMatchesGet(t *testing.T) {
-	m := cache.New[string, int](0)
-	defer m.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		m := cache.New[string, int](0)
+		defer m.Stop()
 
-	m.Set("expired-1", 1, 1*time.Nanosecond)
-	m.Set("expired-2", 2, 1*time.Nanosecond)
-	m.Set("alive", 3, time.Hour)
+		m.Set("expired-1", 1, 1*time.Nanosecond)
+		m.Set("expired-2", 2, 1*time.Nanosecond)
+		m.Set("alive", 3, time.Hour)
 
-	// 等待 1ms 确保 expired-* 条目已过期
-	time.Sleep(time.Millisecond)
+		// 等待 1ms 确保 expired-* 条目已过期
+		time.Sleep(time.Millisecond)
 
-	// 记录 Get 认为已过期的 key
-	expiredByGet := 0
-	for _, k := range []string{"expired-1", "expired-2", "alive"} {
-		_, ok := m.Get(k)
-		if !ok {
-			expiredByGet++
+		expiredByGet := 0
+		for _, k := range []string{"expired-1", "expired-2", "alive"} {
+			_, ok := m.Get(k)
+			if !ok {
+				expiredByGet++
+			}
 		}
-	}
-	assert.Equal(t, 2, expiredByGet, "Get 应认为 2 个短 TTL 条目已过期")
+		assert.Equal(t, 2, expiredByGet, "Get 应认为 2 个短 TTL 条目已过期")
 
-	// GC 删除的条目数应与 Get 过期数一致（H-4 fix：语义一致）
-	removed := m.GC()
-	assert.Equal(t, expiredByGet, removed,
-		"GC 删除数应与 Get 过期数相同（语义一致性验证）")
-	assert.Equal(t, 1, m.Cap(), "GC 后只剩 'alive' 条目")
-	assert.True(t, m.Has("alive"), "'alive' 条目不应被 GC 删除")
+		removed := m.GC()
+		assert.Equal(t, expiredByGet, removed,
+			"GC 删除数应与 Get 过期数相同（语义一致性验证）")
+		assert.Equal(t, 1, m.Cap(), "GC 后只剩 'alive' 条目")
+		assert.True(t, m.Has("alive"), "'alive' 条目不应被 GC 删除")
+	})
 }
 
 // ─── Stop 幂等 ─────────────────────────────────────────────────────────────────

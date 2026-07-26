@@ -2,6 +2,7 @@ package antispam_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
@@ -39,15 +40,17 @@ func TestAntiSpam_Ban_Unban(t *testing.T) {
 	}
 }
 func TestAntiSpam_BanExpiry(t *testing.T) {
-	p := newAntiSpamPlugin(antispam.DefaultConfig())
-	p.Ban("uid_exp", 30*time.Millisecond)
-	if !p.IsBanned("uid_exp") {
-		t.Error("user should be banned initially")
-	}
-	time.Sleep(50 * time.Millisecond)
-	if p.IsBanned("uid_exp") {
-		t.Error("ban should have expired")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		p := newAntiSpamPlugin(antispam.DefaultConfig())
+		p.Ban("uid_exp", 30*time.Millisecond)
+		if !p.IsBanned("uid_exp") {
+			t.Error("user should be banned initially")
+		}
+		time.Sleep(50 * time.Millisecond)
+		if p.IsBanned("uid_exp") {
+			t.Error("ban should have expired")
+		}
+	})
 }
 func TestAntiSpam_PermanentBan(t *testing.T) {
 	p := newAntiSpamPlugin(antispam.DefaultConfig())
