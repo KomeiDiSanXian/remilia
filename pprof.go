@@ -76,6 +76,7 @@ type PprofServer struct {
 	server         *http.Server
 	config         PprofConfig
 	stopCh         chan struct{}
+	stopOnce       sync.Once
 	handlers       []handlerEntry
 	listenerAddr   string
 	listenerAddrMu sync.Mutex
@@ -205,14 +206,22 @@ func (p *PprofServer) UpdateConfig(cfg PprofConfig) {
 	}).Info("[Pprof] Pprof config updated")
 }
 
-// Stop 停止 pprof 服务器
+// Stop 停止 pprof 服务器。
+//
+// 可安全地重复调用：Bot.Stop 本身是幂等的，Restart 也会先后触发多次 Stop。
 func (p *PprofServer) Stop(ctx context.Context) error {
 	if p.server == nil {
 		return nil
 	}
 
-	// 停止自动分析
-	close(p.stopCh)
+	// 停止自动分析。
+	// 必须用 sync.Once 保护：stopCh 只在 NewPprofServer 中创建、Start 不会重建，
+	// 无条件 close 会在第二次 Stop（如 Restart 后再关停、或信号处理与 defer
+	// 各调一次 Shutdown）时 panic("close of closed channel")，
+	// 在优雅停机途中崩溃并跳过插件 Teardown。
+	p.stopOnce.Do(func() {
+		close(p.stopCh)
+	})
 
 	// 关闭服务器
 	logger.Info("[Pprof] Stopping pprof server")

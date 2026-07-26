@@ -185,13 +185,14 @@ func DefaultConfig() Config {
 
 // Logger 审计日志记录器
 type Logger struct {
-	config  Config
-	file    *os.File
-	buffer  chan *Entry
-	mu      sync.Mutex
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
-	counter uint64
+	config    Config
+	file      *os.File
+	buffer    chan *Entry
+	mu        sync.Mutex
+	stopCh    chan struct{}
+	closeOnce sync.Once
+	wg        sync.WaitGroup
+	counter   uint64
 }
 
 // NewLogger 创建审计日志记录器
@@ -344,14 +345,20 @@ func (l *Logger) generateID() string {
 	return fmt.Sprintf("%d_%d", time.Now().UnixNano(), l.counter)
 }
 
-// Close 关闭审计日志记录器
+// Close 关闭审计日志记录器。
+//
+// 可安全地重复调用：多条停机路径（显式 Close 与 defer 清理）都可能触发它。
 func (l *Logger) Close() error {
 	if !l.config.Enabled {
 		return nil
 	}
 
-	// 停止写入循环
-	close(l.stopCh)
+	// 停止写入循环。
+	// 必须用 sync.Once 保护：无条件 close 一个已关闭的 channel 会
+	// panic("close of closed channel")，在停机流程中直接崩溃。
+	l.closeOnce.Do(func() {
+		close(l.stopCh)
+	})
 	l.wg.Wait()
 
 	// 关闭文件

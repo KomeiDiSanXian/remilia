@@ -51,6 +51,7 @@ func NewWithContext[T any](parent context.Context, config Config[T]) *Queue[T] {
 		consumerSnap: infraatomic.NewValue([]Consumer[T]{}),
 		ctx:          ctx,
 		cancel:       cancel,
+		closing:      make(chan struct{}),
 	}
 	return q
 }
@@ -153,6 +154,14 @@ func (q *Queue[T]) Enqueue(item Item[T]) error {
 	q.enqueueMu.Lock()
 	defer q.enqueueMu.Unlock()
 
+	// 取得锁后必须重新检查：上面的检查与这里之间 Close 可能已经执行，
+	// 若继续向已关闭的 channel 发送会 panic("send on closed channel")。
+	// Close 会在关闭 channel 前抢占同一把锁，因此这里判定为未关闭时，
+	// 本次发送必然先于 close 完成。
+	if q.queueClosed.Load() {
+		return ErrQueueClosed
+	}
+
 	switch q.config.DropPolicy {
 	case DropPolicyOldest:
 		select {
@@ -189,6 +198,9 @@ func (q *Queue[T]) Enqueue(item Item[T]) error {
 		select {
 		case <-q.ctx.Done():
 			return q.ctx.Err()
+		case <-q.closing:
+			// Close 已开始：立即让出 enqueueMu，否则 Close 会一直等锁而死锁。
+			return ErrQueueClosed
 		case q.queue <- item:
 			return nil
 		}
@@ -228,8 +240,18 @@ func (q *Queue[T]) Close(timeout time.Duration) error {
 		// Mark queue as closed
 		q.queueClosed.Store(true)
 
+		// 先唤醒阻塞在 BlockUntilSpace 发送上的生产者（它们持有 enqueueMu），
+		// 否则下面抢 enqueueMu 会死锁。
+		close(q.closing)
+
+		// 关闭 queue 前必须先取得 enqueueMu：
+		// 生产者在锁内完成"重新检查 queueClosed → 发送"，
+		// 因此拿到锁即说明没有任何发送在途，close 不会触发
+		// panic("send on closed channel")。
+		q.enqueueMu.Lock()
 		// Close the queue channel (no more items can be added)
 		close(q.queue)
+		q.enqueueMu.Unlock()
 
 		// Wait for workers to finish with timeout
 		done := make(chan struct{})

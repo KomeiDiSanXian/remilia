@@ -128,4 +128,9 @@ type Queue[T any] struct {
 	enqueueMu   sync.Mutex
 	queueClosed atomic.Bool
 	closeOnce   sync.Once
+
+	// closing 在 Close 一开始就被关闭，用于唤醒阻塞在
+	// DropPolicyBlockUntilSpace 发送上的 Enqueue（它此刻持有 enqueueMu），
+	// 使 Close 能取得 enqueueMu 后再安全关闭 queue，避免死锁。
+	closing chan struct{}
 }
