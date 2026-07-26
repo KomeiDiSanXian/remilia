@@ -1,9 +1,14 @@
 bot:
+  # QQ 平台
   qq:
     app_id: 123456
     bot_id: 654321
     token: "YOUR_TOKEN"
     secret: "YOUR_SECRET"
+
+  # Telegram 平台（取消注释启用）
+  # telegram:
+  #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
 server:
   host: "0.0.0.0"

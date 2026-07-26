@@ -2,11 +2,16 @@
 # 请填入你的机器人信息
 
 bot:
+  # QQ 平台（QQ 官方 API / Webhook）
   qq:
     app_id: 123456          # 替换为你的 AppID
     bot_id: 654321          # 替换为你的机器人 QQ 号
     token: "YOUR_TOKEN"     # 替换为你的 Token
     secret: "YOUR_SECRET"   # 替换为你的 Secret
+
+  # Telegram 平台（长轮询，取消注释即可启用）
+  # telegram:
+  #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 
 server:
   host: "0.0.0.0"

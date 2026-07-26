@@ -25,6 +25,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/platform/satori"
+	"github.com/KomeiDiSanXian/remilia/platform/telegram"
 	"github.com/KomeiDiSanXian/remilia/platform/terminal"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 	"github.com/KomeiDiSanXian/remilia/router"
@@ -114,6 +115,15 @@ func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, 
 		factories["milky"] = func() (platform.Adapter, error) {
 			return milky.NewAdapter(milky.Config{
 				BaseURL: c.BaseURL, AccessToken: c.AccessToken,
+			})
+		}
+	}
+
+	if c := cfg.Bot.Telegram; c != nil {
+		factories["telegram"] = func() (platform.Adapter, error) {
+			return telegram.NewPollingAdapter(telegram.Config{
+				Token:       c.Token,
+				PollTimeout: c.PollTimeout,
 			})
 		}
 	}

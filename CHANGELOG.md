@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## v1.21.0 (2026-07-26)
+
+### 🚀 新平台适配器：Telegram
+
+- **零外部依赖**: 使用 `net/http` 直接调用 Telegram Bot API，无需第三方 SDK
+- **长轮询 + Webhook 双模式**: 默认长轮询（`getUpdates`），配置 `webhook` 块自动切换为 Webhook 模式
+- **完整事件映射**: 私聊/群组/频道消息、编辑消息、CallbackQuery、Bot 加入/移除等 → `platform.Event`
+- **Sender 全面实现**: 文本、MarkdownV2、图片/音频/视频/文件（URL 直传 + 二进制上传）、内联键盘、消息编辑、删除、Reaction、Typing 指示
+- **HelloBot 可用**: 开箱即用，只需 `token` 即可运行
+
+### 🔧 配置与构建
+
+- **config**: 新增 `TelegramConfig`（`token` / `poll_timeout` / `webhook`），`HasChanged` 包含 Telegram
+- **setup.go**: 添加 `telegram` factory，按配置自动启用
+- **config.example.yaml**: 新增 Telegram 长轮询和 Webhook 两种模式示例
+
 ## v1.20.1 (2026-07-17)
 
 ### 🔒 SSRF 防护增强

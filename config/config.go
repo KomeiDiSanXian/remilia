@@ -201,8 +201,16 @@ type MilkyConfig struct {
 	AccessToken string `yaml:"access_token,omitempty" mapstructure:"access_token,omitempty"`
 }
 
-// TelegramConfig Telegram 平台适配器配置（预留）。
-type TelegramConfig struct{}
+// TelegramConfig Telegram 平台适配器配置。
+//
+// 长轮询（默认）与 Webhook 二选一。
+// - 仅设置 Token → 使用长轮询
+// - 设置 Webhook → 使用 Webhook 接收更新
+type TelegramConfig struct {
+	Token       string         `yaml:"token" mapstructure:"token"`
+	PollTimeout int            `yaml:"poll_timeout,omitempty" mapstructure:"poll_timeout,omitempty"`
+	Webhook     *WebhookConfig `yaml:"webhook,omitempty" mapstructure:"webhook,omitempty"`
+}
 
 // WeChatConfig 微信平台适配器配置（预留）。
 type WeChatConfig struct{}
@@ -214,7 +222,8 @@ func (bc *BotConfig) HasChanged(other *BotConfig) bool {
 		!ptrEqual(bc.OneBot, other.OneBot) ||
 		!ptrEqual(bc.Discord, other.Discord) ||
 		!ptrEqual(bc.Satori, other.Satori) ||
-		!ptrEqual(bc.Milky, other.Milky)
+		!ptrEqual(bc.Milky, other.Milky) ||
+		!ptrEqual(bc.Telegram, other.Telegram)
 }
 
 // ptrEqual 比较两个同类型指针的值是否相等。

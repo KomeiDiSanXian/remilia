@@ -59,8 +59,22 @@ bot:
   #   base_url: "http://127.0.0.1:6700"                         # [H⚠]
   #   access_token: "your_milky_token"                          # [H⚠]
 
-  # ----- Telegram（预留）-----
-  # telegram: {}
+  # ----- Telegram Bot（长轮询，默认）-----
+  # telegram:                                                   # [H⚠]
+  #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"        # [H⚠] 从 @BotFather 获取
+  #   poll_timeout: 30                                            # [N/A] 长轮询超时（秒），默认 30
+
+  # ----- Telegram Bot（Webhook，需公网 HTTPS）-----
+  # 启用 webhook 配置块后，适配器将自动切换为 Webhook 模式接收更新，
+  # 需在 @BotFather 设置 Webhook URL 为 https://your.domain/telegram。
+  # telegram:                                                   # [R]
+  #   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"        # [H⚠] 更换后旧连接用完即断
+  #   webhook:                                                   # [R]
+  #     host: "0.0.0.0"                                          # [R]
+  #     port: 8443                                                # [R] Telegram 要求 443/80/88/8443 之一
+  #     shutdown_timeout: "10s"                                   # [N/A]
+  #     event_buffer: 1000                                        # [N/A]
+  #     worker_count: 0                                           # [N/A]
 
   # ----- 微信（预留）-----
   # wechat: {}
