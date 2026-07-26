@@ -154,20 +154,18 @@ func maskTree(tree map[string]any) {
 	if pk, ok := lookupKey(tree, "plugins"); ok {
 		plugins, _ = tree[pk].(map[string]any)
 	}
-	if plugins != nil {
-		for _, pcfg := range plugins {
-			pm, _ := pcfg.(map[string]any)
-			if pm == nil {
+	for _, pcfg := range plugins {
+		pm, _ := pcfg.(map[string]any)
+		if pm == nil {
+			continue
+		}
+		for _, sk := range []string{"api_key", "token", "secret", "password", "access_token"} {
+			actual, ok := lookupKey(pm, sk)
+			if !ok {
 				continue
 			}
-			for _, sk := range []string{"api_key", "token", "secret", "password", "access_token"} {
-				actual, ok := lookupKey(pm, sk)
-				if !ok {
-					continue
-				}
-				if s, ok := pm[actual].(string); ok && s != "" {
-					pm[actual] = mask(s)
-				}
+			if s, ok := pm[actual].(string); ok && s != "" {
+				pm[actual] = mask(s)
 			}
 		}
 	}
