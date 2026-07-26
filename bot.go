@@ -29,8 +29,8 @@ const (
 // shutdownListenerActive 确保整个进程中只有一个 WaitForShutdown 处于监听状态。
 //
 // Bot.WaitForShutdown 与 BotManager.WaitForShutdown 共用此标志：
-// 第二次调用时会立即 panic，强制开发者在编写代码时就发现误用，
-// 而非在生产环境中触发难以排查的双重关闭。
+// 已有监听者时，后续调用会打印 Warn 日志并直接返回（no-op），
+// 避免两个监听者竞争同一信号、触发难以排查的双重关闭。
 var shutdownListenerActive atomic.Bool
 
 // acquireShutdownListener 尝试抢占全局信号监听权。

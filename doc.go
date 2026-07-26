@@ -27,10 +27,12 @@ Bot 是使用 Remilia 框架构建事件驱动应用的主入口，提供：
 
 	eng := engine.NewEngine()
 
-	// 注册一个适用于任意平台的命令处理器
+	// 注册一个适用于任意平台的命令处理器。
+	// Reply 是异步发送（返回 Future），忽略返回值即"发出即忘"。
 	eng.OnCommand("", "/hello").
 	    Handle(func(ctx *eventctx.Context) error {
-	        return ctx.Reply(platform.TextMessage("Hello!"))
+	        ctx.Reply(platform.TextMessage("Hello!"))
+	        return nil
 	    })
 
 	// 通过 platform.Adapter 构建 Bot

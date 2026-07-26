@@ -62,6 +62,8 @@ func TestRouter_CommandPrefix_RoutesToEngine(t *testing.T) {
 
 	r.Route(router.WithCommandPrefix())
 	r.Dispatch(ctx("/help"))
+	// v1.21.1 起命令 handler 经 ExecPool 异步执行，必须等待后再断言
+	eng.WaitForAsyncHandlers()
 	assert.True(t, handledAtomic, "command prefix should route to engine")
 }
 
@@ -77,6 +79,8 @@ func TestRouter_CommandPrefix_DoesNotMatchPlainText(t *testing.T) {
 
 	r.Route(router.WithCommandPrefix())
 	r.Dispatch(ctx("hello world"))
+	// 等待可能的异步 handler，确保否定断言真实有效
+	eng.WaitForAsyncHandlers()
 	assert.False(t, matched, "plain text should not be routed to command handler")
 }
 
@@ -110,6 +114,8 @@ func TestRouter_FSM_Hit(t *testing.T) {
 	sess := mgr.Engine().GetSession("test:ch1")
 	require.NotNil(t, sess)
 	assert.Equal(t, fsm.State("d"), sess.Current, "FSM should have transitioned")
+	// 等待可能的异步 handler，确保否定断言真实有效
+	eng.WaitForAsyncHandlers()
 	assert.False(t, handled, "FSM hit should prevent engine from handling")
 }
 
