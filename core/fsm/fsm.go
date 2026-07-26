@@ -24,6 +24,7 @@ package fsm
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -65,8 +66,14 @@ type FSM struct {
 	OnEnter map[State]func(ctx *FSMContext) error
 	// OnExit 在离开一个状态前调用。如果回调返回错误，迁移会被中止。
 	OnExit map[State]func(ctx *FSMContext) error
-	// Timeout 指定会话的 TTL。超过此时间的会话会自动过期并清理。零值表示无超时。
+	// Timeout 指定会话的 TTL。默认自会话**创建**时刻起计——
+	// TryTransition 不会刷新过期时间（长对话不会因持续活跃而续期）。
+	// 超过此时间的会话会自动过期并清理。零值表示无超时。
 	Timeout time.Duration
+	// RefreshOnActivity 为 true 时启用滑动 TTL：每次成功迁移都把
+	// 过期时间重置为 now+Timeout，长对话只要保持活跃就不会过期。
+	// 仅在 Timeout > 0 时有意义；默认 false（保持既有语义）。
+	RefreshOnActivity bool
 }
 
 // Validate 检查 FSM 定义的结构正确性：
@@ -133,12 +140,26 @@ func (f *FSM) canTransitionFrom(s State) bool {
 	return false
 }
 
-// Engine 管理 FSM 定义和会话迁移。并发安全：读用 RLock，写用 Lock。
-// 会话通过 [Storage] 接口持久化（默认：[MemoryStorage]）。
+// Engine 管理 FSM 定义和会话迁移。
+//
+// 并发安全性：
+//   - FSM 定义表（Register/Unregister/GetFSM）由 e.mu 保护；
+//   - 同一 sessionID 的启动/迁移由 per-session 互斥锁串行化
+//     （保护 Session.Current 与 Session.Data 免受并发读写），
+//     不同 sessionID 之间完全并发。
+//
+// 重入约束：Event.Action / OnEnter / OnExit 回调在会话锁内执行——
+// 回调中调用 [FSMContext.EndSession] 是安全的，但**不要**对同一 sessionID
+// 再调用 TryTransition/TryStartSession/StartSession（会自死锁）。
 type Engine struct {
 	mu     sync.RWMutex
 	fsms   map[string]*FSM
 	stores Storage
+
+	// sessionLocks 按 sessionID 维护互斥锁（sync.Map[string]*sync.Mutex）。
+	// 条目常驻不回收：bot 场景下 sessionID 基数 = 会话/聊天数，
+	// 每条 ~100B 的常驻成本可忽略，换来跨会话操作永不互相阻塞/死锁。
+	sessionLocks sync.Map
 }
 
 // NewEngine 创建一个使用指定 [Storage] 后端的 FSM 引擎。
@@ -151,6 +172,15 @@ func NewEngine(storage Storage) *Engine {
 		fsms:   make(map[string]*FSM),
 		stores: storage,
 	}
+}
+
+// sessionLock 返回 sessionID 对应的互斥锁（懒创建，常驻）。
+func (e *Engine) sessionLock(sessionID string) *sync.Mutex {
+	if v, ok := e.sessionLocks.Load(sessionID); ok {
+		return v.(*sync.Mutex)
+	}
+	v, _ := e.sessionLocks.LoadOrStore(sessionID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // Register 将 FSM 定义添加到引擎。注册前会校验 FSM。返回错误的情况：
@@ -208,20 +238,41 @@ func (e *Engine) TryStartSession(ctx *corectx.Context, sessionID string) (bool, 
 	if ctx == nil || sessionID == "" {
 		return false, nil
 	}
+
+	// 串行化同一会话的启动/迁移（见 Engine 并发说明）
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+
 	// 已有会话：检查是否能继续
 	if existing := e.stores.Get(sessionID); existing != nil {
 		e.mu.RLock()
 		fsm, ok := e.fsms[existing.FSMName]
 		e.mu.RUnlock()
-		if ok && !fsm.canTransitionFrom(existing.Current) {
+		switch {
+		case !ok:
+			// 关联 FSM 已被 Unregister：清理孤儿会话。
+			// 此前直接 return false，导致该 sessionID 在无 Timeout 时
+			// 永久无法开启任何新会话。
 			e.stores.Delete(sessionID)
-		} else {
+		case !fsm.canTransitionFrom(existing.Current):
+			e.stores.Delete(sessionID)
+		default:
 			return false, nil
 		}
 	}
+
+	// 在锁内快照 FSM 列表，用户回调（Match/Action/OnEnter/OnExit）在 e.mu
+	// 之外执行：此前整个遍历持有 e.mu.RLock，回调内调用 Register/Unregister
+	// 会直接死锁，有写者排队时回调内再进任何 RLock 方法也可能死锁。
 	e.mu.RLock()
-	defer e.mu.RUnlock()
-	for _, fsm := range e.fsms {
+	fsmList := make([]*FSM, 0, len(e.fsms))
+	for _, f := range e.fsms {
+		fsmList = append(fsmList, f)
+	}
+	e.mu.RUnlock()
+
+	for _, fsm := range fsmList {
 		for _, event := range fsm.Events {
 			if event.From != fsm.Initial && event.From != "*" {
 				continue
@@ -290,6 +341,13 @@ func (e *Engine) TryTransition(ctx *corectx.Context, sessionID string) (State, b
 		return "", false, nil
 	}
 
+	// 串行化同一会话的迁移：并发事件（如用户连发两条消息）对同一 Session 的
+	// Current/Data 读写在无锁时是数据竞争（Data 为 map，可能直接 panic）。
+	// 会话在锁内重新读取，保证 check-act 原子。
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+
 	session := e.stores.Get(sessionID)
 	if session == nil {
 		return "", false, nil
@@ -337,6 +395,10 @@ func (e *Engine) TryTransition(ctx *corectx.Context, sessionID string) (State, b
 		prev := session.Current
 		session.Current = event.To
 		session.UpdatedAt = time.Now().Unix()
+		// 滑动 TTL：活跃迁移刷新过期时间（见 FSM.RefreshOnActivity）
+		if fsm.Timeout > 0 && fsm.RefreshOnActivity {
+			session.ExpireAt = time.Now().Add(fsm.Timeout).Unix()
+		}
 		fsmCtx.Current = event.To
 		if fn := fsm.OnEnter[event.To]; fn != nil {
 			if err := fn(fsmCtx); err != nil {
@@ -370,6 +432,13 @@ func (e *Engine) StartSession(ctx *corectx.Context, fsmName, sessionID string) e
 	if !exists {
 		return fmt.Errorf("fsm: FSM %q not found", fsmName)
 	}
+
+	// 串行化同一会话的创建：两个并发 StartSession/TryStartSession
+	// 不再可能互相覆盖对方刚创建的会话
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+
 	existing := e.stores.Get(sessionID)
 	if existing != nil {
 		return fmt.Errorf("fsm: session %q already exists for FSM %q", sessionID, existing.FSMName)
@@ -406,13 +475,62 @@ func (e *Engine) StartSession(ctx *corectx.Context, fsmName, sessionID string) e
 
 // EndSession 终止一个 FSM 会话并将其从存储中删除。
 // 会话被永久删除；后续针对此 sessionID 的 [TryTransition] 调用将返回 ("", false, nil)。
+//
+// 本方法不获取会话锁（Storage 自身并发安全），因此可以在
+// Action/OnEnter/OnExit 回调内安全调用（[FSMContext.EndSession] 即此路径）。
 func (e *Engine) EndSession(sessionID string) {
 	e.stores.Delete(sessionID)
 }
 
-// GetSession 返回会话数据的副本，未找到或已过期时返回 nil。
+// UpdateSessionData 在会话锁内对指定会话的 Data 应用变更函数并持久化。
+//
+// 这是从会话外部（如 StartSession 之后立即注入初始数据）修改 Data 的
+// 唯一受支持方式——GetSession 返回的是副本，修改副本不会生效。
+// 返回 false 表示会话不存在或已过期。
+//
+// fn 在该会话的互斥锁内执行：不要在 fn 内调用本 Engine 的其他会话方法
+// （TryTransition/TryStartSession/StartSession/GetSession 等，会自死锁）。
+func (e *Engine) UpdateSessionData(sessionID string, fn func(data map[string]any)) bool {
+	if sessionID == "" || fn == nil {
+		return false
+	}
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+
+	session := e.stores.Get(sessionID)
+	if session == nil {
+		return false
+	}
+	if session.Data == nil {
+		session.Data = make(map[string]any)
+	}
+	fn(session.Data)
+	session.UpdatedAt = time.Now().Unix()
+	e.stores.Save(session)
+	return true
+}
+
+// GetSession 返回会话数据的副本（含 Data 的浅拷贝），未找到或已过期时返回 nil。
+//
+// 返回值仅供检视：修改副本不影响存储中的会话
+// （此前返回存储内的活指针，与文档"返回副本"不符，外部修改会绕过会话锁）。
+//
+// 注意：不要在 FSM 回调内对同一 sessionID 调用本方法（回调持有会话锁，会自死锁）；
+// 回调内请直接使用 FSMContext.Current / FSMContext.Data。
 func (e *Engine) GetSession(sessionID string) *Session {
-	return e.stores.Get(sessionID)
+	lk := e.sessionLock(sessionID)
+	lk.Lock()
+	defer lk.Unlock()
+
+	s := e.stores.Get(sessionID)
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	cp.Data = make(map[string]any, len(s.Data))
+	maps.Copy(cp.Data, s.Data)
+	return &cp
 }
 
 // StartCleanup 启动后台 goroutine，定期从存储中清理过期会话。

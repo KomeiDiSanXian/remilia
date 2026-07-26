@@ -39,6 +39,10 @@ type Storage interface {
 // MemoryStorage 是 [Storage] 的内存实现。
 //
 // 它使用 sync.RWMutex 保证并发安全，自动将过期会话视为未找到。
+//
+// 注意：Get 只是把过期会话视为不存在，并不会删除条目——
+// 过期条目的真正回收依赖 [Engine.StartCleanup]。长期运行且设置了
+// Timeout 的场景请务必启动清理，否则 sessions map 只增不减。
 type MemoryStorage struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session

@@ -45,6 +45,10 @@ func (p Permission) String() string {
 
 // Match reports whether p grants the requested target permission.
 // Wildcards in p are expanded; wildcards in target are treated literally.
+//
+// 安全约束：target（请求方）侧的 "*" 只按字面值处理，不再被当作通配符。
+// 此前 target.Action=="*" / target.Resource=="*" 会被直接放行——
+// 任何把用户可控字符串透传进 HasPermission 的调用方都可能被 "*" 绕过检查。
 func (p Permission) Match(target Permission) bool {
 	if p.Resource == target.Resource && p.Action == target.Action {
 		return true
@@ -53,17 +57,18 @@ func (p Permission) Match(target Permission) bool {
 		return true
 	}
 	resourceMatch := matchWithWildcard(p.Resource, target.Resource)
-	actionMatch := p.Action == "*" || target.Action == "*" || p.Action == target.Action
+	actionMatch := p.Action == "*" || p.Action == target.Action
 	return resourceMatch && actionMatch
 }
 
 // matchWithWildcard checks whether pattern (which may contain "*" or "prefix:*")
-// matches value.
+// matches value. Wildcards are only expanded on the pattern side; a "*" in
+// value is treated literally (see Permission.Match).
 func matchWithWildcard(pattern, value string) bool {
 	if pattern == "" || value == "" {
 		return false
 	}
-	if pattern == "*" || value == "*" {
+	if pattern == "*" {
 		return true
 	}
 	// prefix wildcard, e.g. "command:*"
@@ -259,10 +264,15 @@ func (pm *Manager) RevokeRole(userID, roleName string) {
 	pm.userRoles[userID] = filtered
 }
 
-// GrantPermission grants a direct (non-role) permission to userID.
+// GrantPermission grants a direct (non-role) permission to userID (idempotent).
 func (pm *Manager) GrantPermission(userID string, perm Permission) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
+	for _, p := range pm.userPerms[userID] {
+		if p.Resource == perm.Resource && p.Action == perm.Action {
+			return
+		}
+	}
 	pm.userPerms[userID] = append(pm.userPerms[userID], perm)
 }
 
@@ -283,38 +293,48 @@ func (pm *Manager) RevokePermission(userID string, perm Permission) {
 // HasPermission reports whether userID holds the requested permission,
 // checking (in order): direct permissions, role permissions, and the
 // optional Provider.
+//
+// Provider 可能访问外部系统（数据库/IAM），因此在释放 pm.mu 之后才调用，
+// 避免慢查询长时间阻塞写操作，也避免 Provider 回调本 Manager 时死锁。
 func (pm *Manager) HasPermission(userID string, perm Permission) bool {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
 
 	// 1. direct permissions
 	for _, p := range pm.userPerms[userID] {
 		if p.Match(perm) {
+			pm.mu.RUnlock()
 			return true
 		}
 	}
 
 	// 2. role permissions（Role.HasPermission 内部 O(1) 精确匹配）
+	roles := make([]*Role, 0, len(pm.userRoles[userID]))
 	for _, roleName := range pm.userRoles[userID] {
 		if role, ok := pm.roles[roleName]; ok {
-			if role.HasPermission(perm) {
-				return true
-			}
+			roles = append(roles, role)
+		}
+	}
+	provider := pm.permProvider
+	pm.mu.RUnlock()
+
+	for _, role := range roles {
+		if role.HasPermission(perm) {
+			return true
 		}
 	}
 
-	// 3. external provider
-	if pm.permProvider != nil {
-		if perms, err := pm.permProvider.GetUserPermissions(userID); err == nil {
+	// 3. external provider（锁外调用）
+	if provider != nil {
+		if perms, err := provider.GetUserPermissions(userID); err == nil {
 			for _, p := range perms {
 				if p.Match(perm) {
 					return true
 				}
 			}
 		}
-		if roles, err := pm.permProvider.GetUserRoles(userID); err == nil {
-			for _, roleName := range roles {
-				if role, ok := pm.roles[roleName]; ok {
+		if roleNames, err := provider.GetUserRoles(userID); err == nil {
+			for _, roleName := range roleNames {
+				if role, ok := pm.GetRole(roleName); ok {
 					if role.HasPermission(perm) {
 						return true
 					}

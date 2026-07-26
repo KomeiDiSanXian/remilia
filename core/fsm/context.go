@@ -18,6 +18,15 @@ import corectx "github.com/KomeiDiSanXian/remilia/core/context"
 //
 // 推荐做法：终态事件省略 To，框架自动结束会话，无需调 EndSession。
 // 若在 Action 中显式调用 EndSession，无论 To 是否为空都会结束会话。
+//
+// # 并发与重入
+//
+// 回调在该会话的互斥锁内执行：
+//   - [FSMContext.EndSession] 可以安全调用；
+//   - 不要在回调内对**同一** sessionID 调用 Engine 的
+//     TryTransition/TryStartSession/StartSession/GetSession（会自死锁）；
+//     对其他 sessionID 的调用是安全的（每个会话一把独立锁）。
+//   - Data 仅在回调执行期间受锁保护，请勿把它保存到回调之外异步使用。
 type FSMContext struct {
 	*corectx.Context
 	// SessionID 是此 FSM 会话的唯一标识。
