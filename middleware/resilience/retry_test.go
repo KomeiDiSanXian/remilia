@@ -141,12 +141,10 @@ func TestRetry_ContextCancellation(t *testing.T) {
 		mw := Retry(cfg)
 		wrappedHandler := mw(handler)
 
-		// 创建可取消的 context
 		stdCtx, cancel := context.WithCancel(context.Background())
 		ctx := testutil.CreateTestContext()
 		ctx.SetStdContext(stdCtx)
 
-		// 在第一次失败后取消 context
 		go func() {
 			time.Sleep(50 * time.Millisecond)
 			cancel()
@@ -155,10 +153,7 @@ func TestRetry_ContextCancellation(t *testing.T) {
 		err := wrappedHandler(ctx)
 
 		assert.Error(t, err)
-		// 修复 #16：context 取消时现在返回 ctx.Err()（context.Canceled），
-		// 而非 BlockError，语义更准确，调用方可用 errors.Is(err, context.Canceled) 判断
 		assert.True(t, errors.Is(err, context.Canceled), "Should return context.Canceled on cancel")
-		// 应该只调用一次（初始尝试），因为在重试等待期间被取消
 		assert.Equal(t, int32(1), callCount.Load(), "Should stop retrying after cancel")
 	})
 }
@@ -191,13 +186,8 @@ func TestRetry_BackoffExponential(t *testing.T) {
 	assert.Equal(t, int32(4), callCount.Load(), "Should try initial + 3 retries")
 	require.Len(t, recordedDelays, 3)
 
-	// 验证记录的退避时间（而非实时测量）
-	// 第1次重试: ~50ms (50 * 2^0)
-	// 第2次重试: ~100ms (50 * 2^1)
-	// 第3次重试: ~200ms (50 * 2^2)
 	expected := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
 	for i, exp := range expected {
-		// 允许 ±5ms 误差（退避计算可能有微小舍入）
 		diff := recordedDelays[i] - exp
 		if diff < 0 {
 			diff = -diff
@@ -242,7 +232,7 @@ func TestRetry_BackoffMax(t *testing.T) {
 	assert.Equal(t, 150*time.Millisecond, recordedDelays[4], "Last delay should be capped at BackoffMax")
 }
 
-// TestRetry_ShouldRetry 测试自定义重试条件
+// TestRetry_ShouldRetry
 func TestRetry_ShouldRetry(t *testing.T) {
 	restore := mockRetryDelay(nil)
 	defer restore()
@@ -306,7 +296,7 @@ func TestRetry_ShouldRetry(t *testing.T) {
 	})
 }
 
-// TestRetry_RetryAttemptTracking 测试重试次数追踪
+// TestRetry_RetryAttemptTracking
 func TestRetry_RetryAttemptTracking(t *testing.T) {
 	restore := mockRetryDelay(nil)
 	defer restore()
@@ -339,7 +329,7 @@ func TestRetry_RetryAttemptTracking(t *testing.T) {
 	assert.Equal(t, []int{0, 1, 2}, attempts, "Should track retry attempts correctly")
 }
 
-// TestSleepWithContext_ResourceCleanup 测试 sleepWithContext 的资源清理
+// TestSleepWithContext_ResourceCleanup
 func TestSleepWithContext_ResourceCleanup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping sleep timing-dependent tests in short mode")
@@ -408,7 +398,7 @@ func TestSleepWithContext_ResourceCleanup(t *testing.T) {
 	})
 }
 
-// TestRetry_ConcurrentRetries 测试并发重试
+// TestRetry_ConcurrentRetries
 func TestRetry_ConcurrentRetries(t *testing.T) {
 	restore := mockRetryDelay(nil)
 	defer restore()
@@ -448,3 +438,4 @@ func TestRetry_ConcurrentRetries(t *testing.T) {
 	// 每个 goroutine 应该执行 3 次（initial + 2 retries）
 	assert.Equal(t, int32(concurrency*3), totalCalls.Load(), "Should handle concurrent retries correctly")
 }
+

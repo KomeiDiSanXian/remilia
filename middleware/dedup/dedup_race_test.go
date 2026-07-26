@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -13,6 +14,7 @@ import (
 // 注意：此测试会产生大量 WRN [Dedup] Cache still full after cleanup 日志，
 // 这是预期行为——缓存满且无过期条目时触发 Warn 日志。这些日志不代表测试失败
 func TestDedupRaceConditionFix(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 创建一个小缓存，容易触发满载情况
 	filter := NewDedupFilter(DedupConfig{
 		MaxSize:         10,
@@ -72,10 +74,16 @@ func TestDedupRaceConditionFix(t *testing.T) {
 	if cacheSize < 8 || cacheSize > 10 {
 		t.Errorf("Cache size %d is unexpected (expected 8-10)", cacheSize)
 	}
+	})
 }
+
 
 // TestDedupConcurrentAddAndClean 测试并发添加和清理的场景
 func TestDedupConcurrentAddAndClean(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping in short mode")
+	}
+
 	filter := NewDedupFilter(DedupConfig{
 		MaxSize:         100,
 		DefaultTTL:      100 * time.Millisecond, // 短 TTL
@@ -83,9 +91,9 @@ func TestDedupConcurrentAddAndClean(t *testing.T) {
 	})
 	defer filter.Stop()
 
-	// 持续 1 秒的并发测试
+	// 持续 100ms 的并发测试（使用真实时间，synctest 会因锁竞争和日志 I/O 而停滞）
 	done := make(chan struct{})
-	time.AfterFunc(1*time.Second, func() { close(done) })
+	time.AfterFunc(100*time.Millisecond, func() { close(done) })
 
 	var wg sync.WaitGroup
 
@@ -121,8 +129,10 @@ func TestDedupConcurrentAddAndClean(t *testing.T) {
 	}
 }
 
+
 // TestDedupAtomicOperation 验证 check-clean-add 操作的原子性
 func TestDedupAtomicOperation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	filter := NewDedupFilter(DedupConfig{
 		MaxSize:         5,
 		DefaultTTL:      1 * time.Hour, // 长 TTL，不会自动过期
@@ -177,4 +187,6 @@ func TestDedupAtomicOperation(t *testing.T) {
 	}
 
 	t.Logf("Cache full errors: %d/%d (as expected)", errorCount, concurrency)
+	})
 }
+

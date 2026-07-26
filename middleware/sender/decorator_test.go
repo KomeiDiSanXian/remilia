@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -106,17 +107,19 @@ func TestRetryZeroAttempts(t *testing.T) {
 }
 
 func TestTimeout(t *testing.T) {
-	mock := &mockSender{}
-	slow := func(next platform.Sender) platform.Sender {
-		return &slowSender{next: next, delay: 200 * time.Millisecond}
-	}
+	synctest.Test(t, func(t *testing.T) {
+		mock := &mockSender{}
+		slow := func(next platform.Sender) platform.Sender {
+			return &slowSender{next: next, delay: 200 * time.Millisecond}
+		}
 
-	s := Timeout(50 * time.Millisecond)(slow(mock))
+		s := Timeout(50 * time.Millisecond)(slow(mock))
 
-	_, err := s.Send(context.Background(), platform.SendRequest{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected DeadlineExceeded, got %v", err)
-	}
+		_, err := s.Send(context.Background(), platform.SendRequest{})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected DeadlineExceeded, got %v", err)
+		}
+	})
 }
 
 type slowSender struct {
@@ -134,22 +137,24 @@ func (s *slowSender) Send(ctx context.Context, req platform.SendRequest) (platfo
 }
 
 func TestRetryWithTimeout(t *testing.T) {
-	// Retry(Timeout(Sender)) — 每次重试都有独立的超时
-	mock := &mockSender{}
-	slow := &slowSender{next: mock, delay: 200 * time.Millisecond}
+	synctest.Test(t, func(t *testing.T) {
+		// Retry(Timeout(Sender)) — 每次重试都有独立的超时
+		mock := &mockSender{}
+		slow := &slowSender{next: mock, delay: 200 * time.Millisecond}
 
-	s := Retry(3, time.Millisecond)(
-		Timeout(50 * time.Millisecond)(slow),
-	)
+		s := Retry(3, time.Millisecond)(
+			Timeout(50 * time.Millisecond)(slow),
+		)
 
-	_, err := s.Send(context.Background(), platform.SendRequest{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected DeadlineExceeded after retries, got %v", err)
-	}
-	// Should have attempted 3 times, each timing out
-	if n := mock.callCount.Load(); n != 0 {
-		t.Fatalf("expected 0 successful calls (all timed out), got %d", n)
-	}
+		_, err := s.Send(context.Background(), platform.SendRequest{})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected DeadlineExceeded after retries, got %v", err)
+		}
+		// Should have attempted 3 times, each timing out
+		if n := mock.callCount.Load(); n != 0 {
+			t.Fatalf("expected 0 successful calls (all timed out), got %d", n)
+		}
+	})
 }
 
 func TestMetricsDecorator(t *testing.T) {

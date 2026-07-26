@@ -4,6 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -37,98 +38,91 @@ func TestNewAdaptiveRateLimiter(t *testing.T) {
 }
 
 func TestAdaptiveRateLimiter_BasicFlow(t *testing.T) {
-	config := AdaptiveConfig{
-		MinConcurrency: 5,
-		MaxConcurrency: 50,
-		InitialLimit:   10,
-		AdjustInterval: 100 * time.Millisecond,
-		MetricsEnabled: true,
-	}
+	synctest.Test(t, func(t *testing.T) {
+		config := AdaptiveConfig{
+			MinConcurrency: 5,
+			MaxConcurrency: 50,
+			InitialLimit:   10,
+			AdjustInterval: 100 * time.Millisecond,
+			MetricsEnabled: true,
+		}
 
-	limiter := NewAdaptiveRateLimiter(config)
-	limiter.Start()
-	defer limiter.Stop()
+		limiter := NewAdaptiveRateLimiter(config)
+		limiter.Start()
+		defer limiter.Stop()
 
-	// 创建中间件
-	middleware := limiter.Middleware()
+		middleware := limiter.Middleware()
 
-	// 模拟处理函数
-	var processedCount atomic.Int32
-	handler := func(ctx *eventctx.Context) error {
-		processedCount.Add(1)
-		time.Sleep(10 * time.Millisecond)
-		return nil
-	}
+		var processedCount atomic.Int32
+		handler := func(ctx *eventctx.Context) error {
+			processedCount.Add(1)
+			time.Sleep(10 * time.Millisecond)
+			return nil
+		}
 
-	wrappedHandler := middleware(handler)
+		wrappedHandler := middleware(handler)
 
-	// 发送请求
-	ctx := testutil.CreateTestContext()
-	err := wrappedHandler(ctx)
-	assert.NoError(t, err)
+		ctx := testutil.CreateTestContext()
+		err := wrappedHandler(ctx)
+		assert.NoError(t, err)
 
-	assert.Equal(t, int32(1), processedCount.Load())
-	assert.Equal(t, int64(1), limiter.totalRequests.Load())
+		assert.Equal(t, int32(1), processedCount.Load())
+		assert.Equal(t, int64(1), limiter.totalRequests.Load())
+	})
 }
 
 func TestAdaptiveRateLimiter_ConcurrencyLimit(t *testing.T) {
-	config := AdaptiveConfig{
-		MinConcurrency: 5,
-		MaxConcurrency: 50,
-		InitialLimit:   10,
-		MetricsEnabled: false, // 关闭指标采集加快测试
-	}
-
-	limiter := NewAdaptiveRateLimiter(config)
-
-	middleware := limiter.Middleware()
-
-	// 阻塞的处理函数
-	blockCh := make(chan struct{})
-	handler := func(ctx *eventctx.Context) error {
-		<-blockCh
-		return nil
-	}
-
-	wrappedHandler := middleware(handler)
-
-	// 启动 10 个请求（等于限制）
-	var wg sync.WaitGroup
-	for range 10 {
-		wg.Go(func() {
-			ctx := testutil.CreateTestContext()
-			_ = wrappedHandler(ctx)
-		})
-	}
-
-	// 等待所有 goroutine 启动并阻塞在 blockCh 上
-	// 使用 channel 信号确保至少有一个请求持有令牌
-	ready := make(chan struct{})
-	go func() {
-		for limiter.currentLoad.Load() < 10 {
-			time.Sleep(time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		config := AdaptiveConfig{
+			MinConcurrency: 5,
+			MaxConcurrency: 50,
+			InitialLimit:   10,
+			MetricsEnabled: false,
 		}
-		close(ready)
-	}()
-	select {
-	case <-ready:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for goroutines to acquire tokens")
-	}
 
-	// 尝试第 11 个请求（应该被拒绝）
-	ctx := testutil.CreateTestContext()
-	err := wrappedHandler(ctx)
-	assert.Error(t, err)
-	assert.ErrorIs(t, err, errutil.ErrRateLimitExceeded)
+		limiter := NewAdaptiveRateLimiter(config)
+		middleware := limiter.Middleware()
 
-	// 释放所有请求
-	close(blockCh)
-	wg.Wait()
+		blockCh := make(chan struct{})
+		handler := func(ctx *eventctx.Context) error {
+			<-blockCh
+			return nil
+		}
 
-	// 验证统计
-	assert.Equal(t, int64(1), limiter.rejectedRequests.Load())
-	assert.Equal(t, int64(11), limiter.totalRequests.Load())
+		wrappedHandler := middleware(handler)
+
+		var wg sync.WaitGroup
+		for range 10 {
+			wg.Go(func() {
+				ctx := testutil.CreateTestContext()
+				_ = wrappedHandler(ctx)
+			})
+		}
+
+		ready := make(chan struct{})
+		go func() {
+			for limiter.currentLoad.Load() < 10 {
+				time.Sleep(time.Millisecond)
+			}
+			close(ready)
+		}()
+		select {
+		case <-ready:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for goroutines to acquire tokens")
+		}
+
+		ctx := testutil.CreateTestContext()
+		err := wrappedHandler(ctx)
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, errutil.ErrRateLimitExceeded)
+
+		close(blockCh)
+		wg.Wait()
+
+		assert.Equal(t, int64(1), limiter.rejectedRequests.Load())
+		assert.Equal(t, int64(11), limiter.totalRequests.Load())
+	})
 }
 
 func TestAdaptiveRateLimiter_DynamicAdjustment(t *testing.T) {
@@ -165,58 +159,58 @@ func TestAdaptiveRateLimiter_DynamicAdjustment(t *testing.T) {
 }
 
 func TestAdaptiveRateLimiter_Stats(t *testing.T) {
-	config := DefaultAdaptiveConfig()
-	config.MetricsEnabled = false
+	synctest.Test(t, func(t *testing.T) {
+		config := DefaultAdaptiveConfig()
+		config.MetricsEnabled = false
 
-	limiter := NewAdaptiveRateLimiter(config)
+		limiter := NewAdaptiveRateLimiter(config)
+		middleware := limiter.Middleware()
 
-	middleware := limiter.Middleware()
-	handler := func(ctx *eventctx.Context) error {
-		time.Sleep(10 * time.Millisecond)
-		return nil
-	}
-	wrappedHandler := middleware(handler)
+		handler := func(ctx *eventctx.Context) error {
+			time.Sleep(10 * time.Millisecond)
+			return nil
+		}
+		wrappedHandler := middleware(handler)
 
-	// 发送一些请求
-	for range 5 {
-		ctx := testutil.CreateTestContext()
-		_ = wrappedHandler(ctx)
-	}
+		for range 5 {
+			ctx := testutil.CreateTestContext()
+			_ = wrappedHandler(ctx)
+		}
 
-	stats := limiter.GetStats()
+		stats := limiter.GetStats()
 
-	assert.Equal(t, int64(5), stats.TotalRequests)
-	assert.Equal(t, config.InitialLimit, int(stats.CurrentLimit))
-	assert.GreaterOrEqual(t, stats.RejectionRate, 0.0)
+		assert.Equal(t, int64(5), stats.TotalRequests)
+		assert.Equal(t, config.InitialLimit, int(stats.CurrentLimit))
+		assert.GreaterOrEqual(t, stats.RejectionRate, 0.0)
+	})
 }
 
 func TestAdaptiveRateLimiter_HighLoad(t *testing.T) {
-	config := AdaptiveConfig{
-		MinConcurrency: 10,
-		MaxConcurrency: 50,
-		InitialLimit:   20,
-		MetricsEnabled: false,
-	}
+	synctest.Test(t, func(t *testing.T) {
+		config := AdaptiveConfig{
+			MinConcurrency: 10,
+			MaxConcurrency: 50,
+			InitialLimit:   20,
+			MetricsEnabled: false,
+		}
 
-	limiter := NewAdaptiveRateLimiter(config)
+		limiter := NewAdaptiveRateLimiter(config)
+		middleware := limiter.Middleware()
 
-	middleware := limiter.Middleware()
+		var processed atomic.Int64
+		var rejected atomic.Int64
 
-	var processed atomic.Int64
-	var rejected atomic.Int64
+		handler := func(ctx *eventctx.Context) error {
+			processed.Add(1)
+			time.Sleep(50 * time.Millisecond)
+			return nil
+		}
+		wrappedHandler := middleware(handler)
 
-	handler := func(ctx *eventctx.Context) error {
-		processed.Add(1)
-		time.Sleep(50 * time.Millisecond)
-		return nil
-	}
-	wrappedHandler := middleware(handler)
-
-	// 发送大量并发请求
-	var wg sync.WaitGroup
-	requestCount := 100
-	for range requestCount {
-		wg.Go(func() {
+		var wg sync.WaitGroup
+		requestCount := 100
+		for range requestCount {
+			wg.Go(func() {
 			ctx := testutil.CreateTestContext()
 			err := wrappedHandler(ctx)
 			if err != nil {
@@ -234,6 +228,7 @@ func TestAdaptiveRateLimiter_HighLoad(t *testing.T) {
 	assert.Equal(t, int64(requestCount), limiter.totalRequests.Load())
 	assert.Equal(t, rejected.Load(), limiter.rejectedRequests.Load())
 	assert.Greater(t, rejected.Load(), int64(0), "Should reject some requests under high load")
+	})
 }
 
 func TestAdaptiveRateLimiter_StartStop(t *testing.T) {
@@ -253,42 +248,36 @@ func TestAdaptiveRateLimiter_StartStop(t *testing.T) {
 }
 
 func TestAdaptiveRateLimiter_MetricsCollection(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping adaptive rate limiter metrics collection test (6s observation window) in short mode")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		config := DefaultAdaptiveConfig()
+		config.MetricsEnabled = true
 
-	config := DefaultAdaptiveConfig()
-	config.MetricsEnabled = true
+		limiter := NewAdaptiveRateLimiter(config)
+		limiter.Start()
+		defer limiter.Stop()
 
-	limiter := NewAdaptiveRateLimiter(config)
-	limiter.Start()
-	defer limiter.Stop()
+		middleware := limiter.Middleware()
+		handler := func(ctx *eventctx.Context) error {
+			time.Sleep(20 * time.Millisecond)
+			return nil
+		}
+		wrappedHandler := middleware(handler)
 
-	middleware := limiter.Middleware()
-	handler := func(ctx *eventctx.Context) error {
-		time.Sleep(20 * time.Millisecond)
-		return nil
-	}
-	wrappedHandler := middleware(handler)
+		for range 10 {
+			ctx := testutil.CreateTestContext()
+			_ = wrappedHandler(ctx)
+		}
 
-	// 发送请求
-	for range 10 {
-		ctx := testutil.CreateTestContext()
-		_ = wrappedHandler(ctx)
-	}
+		time.Sleep(6 * time.Second)
 
-	// 等待指标采集
-	time.Sleep(6 * time.Second)
+		cpu := limiter.getCPUUsage()
+		memory := limiter.getMemoryUsage()
 
-	// 验证指标已更新
-	cpu := limiter.getCPUUsage()
-	memory := limiter.getMemoryUsage()
+		t.Logf("CPU: %.2f%%, Memory: %.2f%%", cpu*100, memory*100)
 
-	t.Logf("CPU: %.2f%%, Memory: %.2f%%", cpu*100, memory*100)
-
-	// 指标应该被更新
-	assert.GreaterOrEqual(t, cpu, 0.0)
-	assert.GreaterOrEqual(t, memory, 0.0)
+		assert.GreaterOrEqual(t, cpu, 0.0)
+		assert.GreaterOrEqual(t, memory, 0.0)
+	})
 }
 
 func TestAdaptiveRateLimiter_DecideLimit(t *testing.T) {

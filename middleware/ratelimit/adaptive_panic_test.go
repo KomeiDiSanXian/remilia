@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"errors"
 	"fmt"
+	"testing/synctest"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -73,88 +74,84 @@ func TestAdaptiveRateLimiter_PanicRecovery(t *testing.T) {
 
 // TestAdaptiveRateLimiter_ConcurrentPanicRecovery 测试并发场景下的 panic 恢复
 func TestAdaptiveRateLimiter_ConcurrentPanicRecovery(t *testing.T) {
-	config := DefaultAdaptiveConfig()
-	config.InitialLimit = 10
-	config.MinConcurrency = 10
-	config.MaxConcurrency = 20
-	config.MetricsEnabled = false
+	synctest.Test(t, func(t *testing.T) {
+		config := DefaultAdaptiveConfig()
+		config.InitialLimit = 10
+		config.MinConcurrency = 10
+		config.MaxConcurrency = 20
+		config.MetricsEnabled = false
 
-	arl := NewAdaptiveRateLimiter(config)
-	defer arl.Stop()
+		arl := NewAdaptiveRateLimiter(config)
+		defer arl.Stop()
 
-	mw := arl.Middleware()
+		mw := arl.Middleware()
 
-	// 创建一个会随机 panic 的 handler
-	counter := atomic.Int32{}
-	handler := func(ctx *eventctx.Context) error {
-		c := counter.Add(1)
-		if c%3 == 0 {
-			panic(fmt.Sprintf("test panic %d", c))
+		counter := atomic.Int32{}
+		handler := func(ctx *eventctx.Context) error {
+			c := counter.Add(1)
+			if c%3 == 0 {
+				panic(fmt.Sprintf("test panic %d", c))
+			}
+			time.Sleep(10 * time.Millisecond)
+			return nil
 		}
-		time.Sleep(10 * time.Millisecond)
-		return nil
-	}
 
-	wrappedHandler := mw(handler)
+		wrappedHandler := mw(handler)
 
-	// 并发执行
-	var wg sync.WaitGroup
-	numGoroutines := 50
-	wg.Add(numGoroutines)
+		var wg sync.WaitGroup
+		numGoroutines := 50
+		wg.Add(numGoroutines)
 
-	for i := range numGoroutines {
-		go func(id int) {
-			defer wg.Done()
-			ctx := testutil.CreateTestContext()
-			_ = wrappedHandler(ctx)
-		}(i)
-	}
+		for i := range numGoroutines {
+			go func(id int) {
+				defer wg.Done()
+				ctx := testutil.CreateTestContext()
+				_ = wrappedHandler(ctx)
+			}(i)
+		}
 
-	wg.Wait()
+		wg.Wait()
 
-	// 等待所有请求完成
-	time.Sleep(200 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-	// 验证信号量没有泄漏
-	load := arl.currentLoad.Load()
-	if load != 0 {
-		t.Errorf("Expected currentLoad=0 after all concurrent calls, got: %d", load)
-	}
+		load := arl.currentLoad.Load()
+		if load != 0 {
+			t.Errorf("Expected currentLoad=0 after all concurrent calls, got: %d", load)
+		}
 
-	// 验证统计数据
-	total := arl.totalRequests.Load()
-	if total != int64(numGoroutines) {
-		t.Errorf("Expected %d total requests, got: %d", numGoroutines, total)
-	}
+		total := arl.totalRequests.Load()
+		if total != int64(numGoroutines) {
+			t.Errorf("Expected %d total requests, got: %d", numGoroutines, total)
+		}
 
-	t.Logf("Processed %d requests successfully with panic recovery", total)
+		t.Logf("Processed %d requests successfully with panic recovery", total)
+	})
 }
 
 // TestAdaptiveRateLimiter_SemaphoreNoLeak 测试正常情况下信号量不泄漏
 func TestAdaptiveRateLimiter_SemaphoreNoLeak(t *testing.T) {
-	config := DefaultAdaptiveConfig()
-	config.InitialLimit = 3
-	config.MinConcurrency = 3
-	config.MaxConcurrency = 10
-	config.MetricsEnabled = false
+	synctest.Test(t, func(t *testing.T) {
+		config := DefaultAdaptiveConfig()
+		config.InitialLimit = 3
+		config.MinConcurrency = 3
+		config.MaxConcurrency = 10
+		config.MetricsEnabled = false
 
-	arl := NewAdaptiveRateLimiter(config)
-	defer arl.Stop()
+		arl := NewAdaptiveRateLimiter(config)
+		defer arl.Stop()
 
-	mw := arl.Middleware()
+		mw := arl.Middleware()
 
-	// 正常 handler
-	handler := func(ctx *eventctx.Context) error {
-		time.Sleep(50 * time.Millisecond)
-		return nil
-	}
+		handler := func(ctx *eventctx.Context) error {
+			time.Sleep(50 * time.Millisecond)
+			return nil
+		}
 
-	wrappedHandler := mw(handler)
+		wrappedHandler := mw(handler)
 
-	// 启动多个 goroutine，超过信号量限制
-	var wg sync.WaitGroup
-	numGoroutines := 20
-	wg.Add(numGoroutines)
+		var wg sync.WaitGroup
+		numGoroutines := 20
+		wg.Add(numGoroutines)
 
 	startTime := time.Now()
 
@@ -186,10 +183,10 @@ func TestAdaptiveRateLimiter_SemaphoreNoLeak(t *testing.T) {
 		t.Logf("Warning: No requests were rejected, rate limit might not be working properly")
 	}
 
-	// 验证 total = 成功 + 拒绝
 	if total != int64(numGoroutines) {
 		t.Errorf("Expected %d total requests, got: %d", numGoroutines, total)
 	}
+	})
 }
 
 // TestAdaptiveRateLimiter_ErrorPropagation 测试错误正确传播

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -50,85 +51,82 @@ func TestDedupFilter_Basic(t *testing.T) {
 // TestDedupFilter_Expiration 测试过期处理
 func TestDedupFilter_Expiration(t *testing.T) {
 	t.Run("expired_event_not_duplicate", func(t *testing.T) {
-		config := DedupConfig{
-			MaxSize:         100,
-			DefaultTTL:      100 * time.Millisecond,
-			CleanupInterval: 50 * time.Millisecond,
-		}
-		filter := NewDedupFilter(config)
-		defer filter.Stop()
+		synctest.Test(t, func(t *testing.T) {
+			config := DedupConfig{
+				MaxSize:         100,
+				DefaultTTL:      100 * time.Millisecond,
+				CleanupInterval: 50 * time.Millisecond,
+			}
+			filter := NewDedupFilter(config)
+			defer filter.Stop()
 
-		// 添加事件
-		isDup, err := filter.CheckDuplicate("event-1")
-		assert.NoError(t, err)
-		assert.False(t, isDup)
+			isDup, err := filter.CheckDuplicate("event-1")
+			assert.NoError(t, err)
+			assert.False(t, isDup)
 
-		// 等待过期 (略超 TTL)
-		time.Sleep(110 * time.Millisecond)
-		filter.cleanExpired()
+			time.Sleep(110 * time.Millisecond)
+			filter.cleanExpired()
 
-		// 再次检查，应该不是重复（已过期）
-		isDup, err = filter.CheckDuplicate("event-1")
-		assert.NoError(t, err)
-		assert.False(t, isDup, "Expired event should not be duplicate")
+			isDup, err = filter.CheckDuplicate("event-1")
+			assert.NoError(t, err)
+			assert.False(t, isDup, "Expired event should not be duplicate")
+		})
 	})
 
 	t.Run("cleanup_removes_expired", func(t *testing.T) {
-		config := DedupConfig{
-			MaxSize:         100,
-			DefaultTTL:      50 * time.Millisecond,
-			CleanupInterval: 100 * time.Millisecond,
-		}
-		filter := NewDedupFilter(config)
-		defer filter.Stop()
+		synctest.Test(t, func(t *testing.T) {
+			config := DedupConfig{
+				MaxSize:         100,
+				DefaultTTL:      50 * time.Millisecond,
+				CleanupInterval: 100 * time.Millisecond,
+			}
+			filter := NewDedupFilter(config)
+			defer filter.Stop()
 
-		// 添加多个事件
-		for i := range 10 {
-			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
-		}
+			for i := range 10 {
+				_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
+			}
 
-		stats := filter.GetStats()
-		assert.Equal(t, 10, stats["cache_size"].(int), "Should have 10 entries")
+			stats := filter.GetStats()
+			assert.Equal(t, 10, stats["cache_size"].(int), "Should have 10 entries")
 
-		// 等待 TTL 过期后直接清理
-		time.Sleep(60 * time.Millisecond)
-		filter.cleanExpired()
+			time.Sleep(60 * time.Millisecond)
+			filter.cleanExpired()
 
-		stats = filter.GetStats()
-		assert.Equal(t, 0, stats["cache_size"].(int), "All entries should be cleaned")
+			stats = filter.GetStats()
+			assert.Equal(t, 0, stats["cache_size"].(int), "All entries should be cleaned")
+		})
 	})
 }
 
 // TestDedupFilter_CacheFull 测试缓存满载处理（关键测试）
 func TestDedupFilter_CacheFull(t *testing.T) {
 	t.Run("immediate_cleanup_on_full", func(t *testing.T) {
-		config := DedupConfig{
-			MaxSize:         5,
-			DefaultTTL:      50 * time.Millisecond, // 短 TTL
-			CleanupInterval: 10 * time.Second,      // 长清理间隔，不依赖后台清理
-		}
-		filter := NewDedupFilter(config)
-		defer filter.Stop()
+		synctest.Test(t, func(t *testing.T) {
+			config := DedupConfig{
+				MaxSize:         5,
+				DefaultTTL:      50 * time.Millisecond,
+				CleanupInterval: 10 * time.Second,
+			}
+			filter := NewDedupFilter(config)
+			defer filter.Stop()
 
-		// 填满缓存
-		for i := range 5 {
-			isDup, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
-			assert.NoError(t, err)
+			for i := range 5 {
+				isDup, err := filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
+				assert.NoError(t, err)
+				assert.False(t, isDup)
+			}
+
+			time.Sleep(60 * time.Millisecond)
+			filter.cleanExpired()
+
+			isDup, err := filter.CheckDuplicate("new-event")
+			assert.NoError(t, err, "Should succeed after immediate cleanup")
 			assert.False(t, isDup)
-		}
 
-		// 等待 TTL 过期后直接清理
-		time.Sleep(60 * time.Millisecond)
-		filter.cleanExpired()
-
-		// 现在缓存满但都已过期，添加新事件应该触发立即清理
-		isDup, err := filter.CheckDuplicate("new-event")
-		assert.NoError(t, err, "Should succeed after immediate cleanup")
-		assert.False(t, isDup)
-
-		// 验证缓存中只有新事件
-		stats := filter.GetStats()
-		assert.Equal(t, 1, stats["cache_size"].(int), "Should have only new event after cleanup")
+			stats := filter.GetStats()
+			assert.Equal(t, 1, stats["cache_size"].(int), "Should have only new event after cleanup")
+		})
 	})
 
 	t.Run("error_when_full_and_no_expired", func(t *testing.T) {
@@ -154,38 +152,35 @@ func TestDedupFilter_CacheFull(t *testing.T) {
 	})
 
 	t.Run("partial_cleanup_allows_new_entry", func(t *testing.T) {
-		config := DedupConfig{
-			MaxSize:         5,
-			DefaultTTL:      100 * time.Millisecond,
-			CleanupInterval: 10 * time.Second,
-		}
-		filter := NewDedupFilter(config)
-		defer filter.Stop()
+		synctest.Test(t, func(t *testing.T) {
+			config := DedupConfig{
+				MaxSize:         5,
+				DefaultTTL:      100 * time.Millisecond,
+				CleanupInterval: 10 * time.Second,
+			}
+			filter := NewDedupFilter(config)
+			defer filter.Stop()
 
-		// 添加3个事件
-		for i := range 3 {
-			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
-		}
+			for i := range 3 {
+				_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
+			}
 
-		// 等待50ms
-		time.Sleep(50 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 
-		// 再添加2个事件，缓存满
-		for i := 3; i < 5; i++ {
-			_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
-		}
+			for i := 3; i < 5; i++ {
+				_, _ = filter.CheckDuplicate(fmt.Sprintf("event-%d", i))
+			}
 
-		// 等待前3个事件 TTL 过期后直接清理
-		time.Sleep(60 * time.Millisecond)
-		filter.cleanExpired()
+			time.Sleep(60 * time.Millisecond)
+			filter.cleanExpired()
 
-		// 添加新事件，应该触发清理并成功
-		isDup, err := filter.CheckDuplicate("new-event")
-		assert.NoError(t, err, "Should succeed after partial cleanup")
-		assert.False(t, isDup)
+			isDup, err := filter.CheckDuplicate("new-event")
+			assert.NoError(t, err, "Should succeed after partial cleanup")
+			assert.False(t, isDup)
 
-		stats := filter.GetStats()
-		assert.LessOrEqual(t, stats["cache_size"].(int), 3, "Should have at most 3 entries after cleanup")
+			stats := filter.GetStats()
+			assert.LessOrEqual(t, stats["cache_size"].(int), 3, "Should have at most 3 entries after cleanup")
+		})
 	})
 }
 
@@ -225,50 +220,46 @@ func TestDedupFilter_Concurrent(t *testing.T) {
 	})
 
 	t.Run("concurrent_with_cleanup", func(t *testing.T) {
-		config := DedupConfig{
-			MaxSize:         50,
-			DefaultTTL:      100 * time.Millisecond,
-			CleanupInterval: 50 * time.Millisecond,
-		}
-		filter := NewDedupFilter(config)
-		defer filter.Stop()
+		synctest.Test(t, func(t *testing.T) {
+			config := DedupConfig{
+				MaxSize:         50,
+				DefaultTTL:      100 * time.Millisecond,
+				CleanupInterval: 50 * time.Millisecond,
+			}
+			filter := NewDedupFilter(config)
+			defer filter.Stop()
 
-		const duration = 500 * time.Millisecond
-		const goroutines = 10
+			var wg sync.WaitGroup
+			stopCh := make(chan struct{})
 
-		var wg sync.WaitGroup
-		stopCh := make(chan struct{})
-
-		// 启动多个 goroutine 持续添加事件
-		for i := range goroutines {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				counter := 0
-				for {
-					select {
-					case <-stopCh:
-						return
-					default:
-						eventID := fmt.Sprintf("g%d-event-%d", id, counter)
-						_, _ = filter.CheckDuplicate(eventID)
-						counter++
-						time.Sleep(10 * time.Millisecond)
+			for i := range 10 {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					counter := 0
+					for {
+						select {
+						case <-stopCh:
+							return
+						default:
+							eventID := fmt.Sprintf("g%d-event-%d", id, counter)
+							_, _ = filter.CheckDuplicate(eventID)
+							counter++
+							time.Sleep(10 * time.Millisecond)
+						}
 					}
-				}
-			}(i)
-		}
+				}(i)
+			}
 
-		// 运行一段时间
-		time.Sleep(duration)
-		close(stopCh)
-		wg.Wait()
+			time.Sleep(500 * time.Millisecond)
+			close(stopCh)
+			wg.Wait()
 
-		// 验证没有崩溃，缓存大小合理
-		stats := filter.GetStats()
-		cacheSize := stats["cache_size"].(int)
-		t.Logf("Final cache size: %d", cacheSize)
-		assert.LessOrEqual(t, cacheSize, config.MaxSize, "Cache size should not exceed max")
+			stats := filter.GetStats()
+			cacheSize := stats["cache_size"].(int)
+			t.Logf("Final cache size: %d", cacheSize)
+			assert.LessOrEqual(t, cacheSize, config.MaxSize, "Cache size should not exceed max")
+		})
 	})
 }
 
@@ -479,31 +470,29 @@ func TestDedupFilter_DoubleStop(t *testing.T) {
 
 // TestDedupFilter_SubSecondTTL tests that TTL below 1 second works correctly
 func TestDedupFilter_SubSecondTTL(t *testing.T) {
-	config := DedupConfig{
-		MaxSize:         100,
-		DefaultTTL:      100 * time.Millisecond, // Sub-second TTL
-		CleanupInterval: 50 * time.Millisecond,
-	}
-	filter := NewDedupFilter(config)
-	defer filter.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		config := DedupConfig{
+			MaxSize:         100,
+			DefaultTTL:      100 * time.Millisecond,
+			CleanupInterval: 50 * time.Millisecond,
+		}
+		filter := NewDedupFilter(config)
+		defer filter.Stop()
 
-	// Add event
-	isDup, err := filter.CheckDuplicate("event-1")
-	assert.NoError(t, err)
-	assert.False(t, isDup, "First check should not be duplicate")
+		isDup, err := filter.CheckDuplicate("event-1")
+		assert.NoError(t, err)
+		assert.False(t, isDup, "First check should not be duplicate")
 
-	// Immediately check again - should be duplicate
-	time.Sleep(1 * time.Millisecond) // tiny sleep to ensure consistent behavior
-	isDup, err = filter.CheckDuplicate("event-1")
-	assert.NoError(t, err)
-	assert.True(t, isDup, "Second check should be duplicate")
+		time.Sleep(1 * time.Millisecond)
+		isDup, err = filter.CheckDuplicate("event-1")
+		assert.NoError(t, err)
+		assert.True(t, isDup, "Second check should be duplicate")
 
-	// Wait for expiration then force cleanup
-	time.Sleep(110 * time.Millisecond)
-	filter.cleanExpired()
+		time.Sleep(110 * time.Millisecond)
+		filter.cleanExpired()
 
-	// Check again - should not be duplicate (expired)
-	isDup, err = filter.CheckDuplicate("event-1")
-	assert.NoError(t, err)
-	assert.False(t, isDup, "After expiration should not be duplicate")
+		isDup, err = filter.CheckDuplicate("event-1")
+		assert.NoError(t, err)
+		assert.False(t, isDup, "After expiration should not be duplicate")
+	})
 }

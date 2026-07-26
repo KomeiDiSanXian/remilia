@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -9,47 +10,41 @@ import (
 
 // TestAdaptiveRateLimiter_RealCPUMetrics 测试真实 CPU 指标采集
 func TestAdaptiveRateLimiter_RealCPUMetrics(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping real CPU metrics test (6s observation window) in short mode")
-	}
-	config := AdaptiveConfig{
-		MinConcurrency: 10,
-		MaxConcurrency: 100,
-		InitialLimit:   50,
-		MetricsEnabled: true,
-		AdjustInterval: 1 * time.Second,
-	}
+	synctest.Test(t, func(t *testing.T) {
+		config := AdaptiveConfig{
+			MinConcurrency: 10,
+			MaxConcurrency: 100,
+			InitialLimit:   50,
+			MetricsEnabled: true,
+			AdjustInterval: 1 * time.Second,
+		}
 
-	limiter := NewAdaptiveRateLimiter(config)
-	limiter.Start()
-	defer limiter.Stop()
+		limiter := NewAdaptiveRateLimiter(config)
+		limiter.Start()
+		defer limiter.Stop()
 
-	// 等待采集一次指标
-	time.Sleep(6 * time.Second)
+		time.Sleep(6 * time.Second)
 
-	// 获取 CPU 使用率
-	cpuUsage := limiter.getCPUUsage()
+		cpuUsage := limiter.getCPUUsage()
 
-	t.Logf("CPU Usage: %.2f%%", cpuUsage*100)
+		t.Logf("CPU Usage: %.2f%%", cpuUsage*100)
 
-	// 验证 CPU 使用率在合理范围内
-	// 注意：-1.0 表示采集失败，这也是可接受的（在某些环境下可能失败）
-	if cpuUsage >= 0 {
-		assert.GreaterOrEqual(t, cpuUsage, 0.0, "CPU usage should be >= 0")
-		assert.LessOrEqual(t, cpuUsage, 1.0, "CPU usage should be <= 1.0")
-		t.Log("✓ Real CPU metrics collected successfully")
-	} else {
-		t.Log("⚠ CPU metrics collection failed (may be expected in some environments)")
-	}
+		if cpuUsage >= 0 {
+			assert.GreaterOrEqual(t, cpuUsage, 0.0, "CPU usage should be >= 0")
+			assert.LessOrEqual(t, cpuUsage, 1.0, "CPU usage should be <= 1.0")
+			t.Log("✓ Real CPU metrics collected successfully")
+		} else {
+			t.Log("⚠ CPU metrics collection failed (may be expected in some environments)")
+		}
 
-	// 验证内存使用率
-	memUsage := limiter.getMemoryUsage()
-	t.Logf("Memory Usage: %.2f%%", memUsage*100)
+		memUsage := limiter.getMemoryUsage()
+		t.Logf("Memory Usage: %.2f%%", memUsage*100)
 
-	assert.GreaterOrEqual(t, memUsage, 0.0, "Memory usage should be >= 0")
-	assert.LessOrEqual(t, memUsage, 1.0, "Memory usage should be <= 1.0")
+		assert.GreaterOrEqual(t, memUsage, 0.0, "Memory usage should be >= 0")
+		assert.LessOrEqual(t, memUsage, 1.0, "Memory usage should be <= 1.0")
 
-	t.Log("✓ Memory metrics valid")
+		t.Log("✓ Memory metrics valid")
+	})
 }
 
 // TestAdaptiveRateLimiter_CPUFailureFallback 测试 CPU 采集失败时的降级处理
@@ -91,33 +86,22 @@ func TestAdaptiveRateLimiter_CPUFailureFallback(t *testing.T) {
 
 // TestAdaptiveRateLimiter_NoGoroutineBasedCPU 验证不再使用 goroutine 数量计算 CPU
 func TestAdaptiveRateLimiter_NoGoroutineBasedCPU(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping real CPU metrics test (6s observation window) in short mode")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		config := DefaultAdaptiveConfig()
+		config.MetricsEnabled = true
 
-	// 这个测试确保我们使用了真实的 CPU 监控而不是 goroutine 计数
+		limiter := NewAdaptiveRateLimiter(config)
+		limiter.Start()
+		defer limiter.Stop()
 
-	config := DefaultAdaptiveConfig()
-	config.MetricsEnabled = true
+		time.Sleep(6 * time.Second)
 
-	limiter := NewAdaptiveRateLimiter(config)
-	limiter.Start()
-	defer limiter.Stop()
+		cpuUsage := limiter.getCPUUsage()
 
-	// 记录初始 goroutine 数量
-	// initialGoroutines := runtime.NumGoroutine()
-
-	// 等待采集指标
-	time.Sleep(6 * time.Second)
-
-	cpuUsage := limiter.getCPUUsage()
-
-	// 如果使用 goroutine 计算，CPU 使用率会非常低（< 0.01）
-	// 真实 CPU 使用率通常 > 0（除非系统完全空闲）
-	if cpuUsage > 0 {
-		// CPU 使用率应该是一个合理的值，不是基于 goroutine 计算的微小值
-		t.Logf("✓ CPU usage from real metrics: %.4f (not goroutine-based)", cpuUsage)
-	} else if cpuUsage == -1.0 {
-		t.Log("⚠ CPU metrics collection not available in this environment")
-	}
+		if cpuUsage > 0 {
+			t.Logf("✓ CPU usage from real metrics: %.4f (not goroutine-based)", cpuUsage)
+		} else if cpuUsage == -1.0 {
+			t.Log("⚠ CPU metrics collection not available in this environment")
+		}
+	})
 }
