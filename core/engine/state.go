@@ -209,6 +209,10 @@ func (s *state) withClearedMatchers() *state {
 }
 
 // withAddedMatcher 添加一个匹配器，仅复制需要的 map
+//
+// 索引分类以 m.commandIndexed 标志为准（由 OnCommand/RegisterCommandDef 在注册前置位）：
+// 仅设置了 Definition.Name 的普通 matcher 保留在常规索引中按规则匹配，
+// 避免其被移入 commandIndex 后 Match 跳过 Rules[0] 造成语义漂移。
 func (s *state) withAddedMatcher(m *Matcher) *state {
 	cmd := m.GetCommand()
 	et := m.EventType
@@ -223,8 +227,7 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 		maxMatchers:      s.maxMatchers,
 	}
 
-	if cmd != "" {
-		m.commandIndexed.Store(true)
+	if cmd != "" && m.commandIndexed.Load() {
 		dst.sortedCache = s.sortedCache
 		dst.matcherIndex = s.matcherIndex
 		dst.commandIndex = s.copyCommandIndexWithEntry(cmd, et, m)
@@ -239,6 +242,12 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 		sorted := makeRunnableSlice(matchers)
 		sortMatchersByPriority(sorted)
 		dst.sortedCache[et] = sorted
+
+		// 常规索引中的命令名 matcher（如 BindCommand/SetDefinition 补充了 Name）
+		// 同样维护 help 元数据缓存
+		if cmd != "" {
+			dst.rebuildCommandInfoCache(m, cmd)
+		}
 	}
 
 	if grp != "" {
@@ -270,6 +279,11 @@ func (s *state) copyCommandIndexWithEntry(cmd string, et EventType, m *Matcher) 
 }
 
 // withBatchMatchers 批量添加多个匹配器，仅复制一次 maps
+//
+// COW 安全性说明：copy*Index 复制出的子切片与旧 state 共享底层数组（cap=len），
+// 只有本批次 append 过的键才拥有独立数组、可以安全就地排序。
+// 绝不能对未触及的键就地排序——那会改写已发布旧 state 中
+// 正被 processEventMatchers 无锁读取的数组（数据竞争）。
 func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 	if len(matchers) == 0 {
 		return s
@@ -280,7 +294,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		matcherIndex:     copyMatcherIndex(s.matcherIndex),
 		commandIndex:     copyCommandIndex(s.commandIndex),
 		groupIndex:       copyGroupIndex(s.groupIndex),
-		sortedCache:      make(map[EventType][]*Matcher),
+		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
 		commandInfoCache: maps.Clone(s.commandInfoCache),
 		commandListCache: s.commandListCache,
 		commandListVer:   s.commandListVer,
@@ -288,19 +302,41 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		maxMatchers:      s.maxMatchers,
 	}
 
+	// 记录本批次实际修改过的键，仅对这些键重排/重建缓存
+	touchedEvents := make(map[EventType]struct{}, len(matchers))
+	type cmdKey struct {
+		cmd string
+		et  EventType
+	}
+	touchedCmds := make(map[cmdKey]struct{}, len(matchers))
+	infoDirty := false
+
 	for _, m := range matchers {
+		// 与 addMatcher 一致：直接设置 Handler 字段的 matcher 也纳入可运行集合
+		if m.Handler != nil {
+			m.hasHandler.Store(true)
+		}
+
 		cmd := m.GetCommand()
 		et := m.EventType
 		grp := m.GetGroup()
 
+		// 维护 help 元数据（无论进入哪个索引）
 		if cmd != "" {
-			m.commandIndexed.Store(true)
+			dst.updateCommandInfoCache(m, cmd)
+			infoDirty = true
+		}
+
+		// 索引分类以 commandIndexed 标志为准（见 withAddedMatcher 注释）
+		if cmd != "" && m.commandIndexed.Load() {
 			if dst.commandIndex[cmd] == nil {
 				dst.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			dst.commandIndex[cmd][et] = append(dst.commandIndex[cmd][et], m)
+			touchedCmds[cmdKey{cmd: cmd, et: et}] = struct{}{}
 		} else {
 			dst.matcherIndex[et] = append(dst.matcherIndex[et], m)
+			touchedEvents[et] = struct{}{}
 		}
 
 		if grp != "" {
@@ -308,19 +344,21 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		}
 	}
 
-	for eventType, mats := range dst.matcherIndex {
-		sortMatchersByPriority(mats)
-		sorted := makeRunnableSlice(mats)
-		dst.sortedCache[eventType] = sorted
+	// 仅重建受影响事件类型的排序缓存（makeRunnableSlice 分配新切片，排序安全）
+	for et := range touchedEvents {
+		sorted := makeRunnableSlice(dst.matcherIndex[et])
+		sortMatchersByPriority(sorted)
+		dst.sortedCache[et] = sorted
 	}
 
-	for _, eventMap := range dst.commandIndex {
-		for _, mats := range eventMap {
-			sortMatchersByPriority(mats)
-		}
+	// 仅排序本批次 append 过的命令桶：append 已使其底层数组独立于旧 state
+	for k := range touchedCmds {
+		sortMatchersByPriority(dst.commandIndex[k.cmd][k.et])
 	}
 
-	dst.rebuildCommandListCache()
+	if infoDirty {
+		dst.rebuildCommandListCache()
+	}
 	return dst
 }
 
@@ -471,12 +509,16 @@ func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 		maxMatchers:      s.maxMatchers,
 	}
 
-	if cmd != "" {
-		// 需要复制 commandIndex 以防就地排序破坏共享
-		if _, ok := s.commandIndex[cmd]; ok {
-			if _, ok := s.commandIndex[cmd][et]; ok {
+	if cmd != "" && m.commandIndexed.Load() {
+		// 重排命令桶时必须先做逐元素完整拷贝：
+		// copyCommandIndex 的子切片与旧 state 共享底层数组（COW-append 语义），
+		// 直接就地排序会改写已发布旧 state 中正被无锁读取的数组（数据竞争）。
+		if em, ok := s.commandIndex[cmd]; ok {
+			if lst, ok := em[et]; ok {
 				dst.commandIndex = copyCommandIndex(s.commandIndex)
-				sortMatchersByPriority(dst.commandIndex[cmd][et])
+				sorted := append([]*Matcher(nil), lst...)
+				sortMatchersByPriority(sorted)
+				dst.commandIndex[cmd][et] = sorted
 			}
 		}
 	} else {
@@ -565,17 +607,23 @@ func (s *state) rebuildIndex() {
 	// 重建索引
 	for _, m := range s.matchers {
 		cmd := m.GetCommand()
+
+		// 命令元数据缓存与索引分类解耦：只要有命令名就维护 help 元数据。
+		// 仅更新 commandInfoCache，不触发列表缓存重建（O(N²) 修复）
 		if cmd != "" {
-			m.commandIndexed.Store(true)
+			s.updateCommandInfoCache(m, cmd)
+		}
+
+		// 仅 OnCommand/RegisterCommandDef 创建（commandIndexed 已在注册前置位）的
+		// matcher 进入 O(1) 命令索引；普通 matcher 即使事后通过 SetDefinition/
+		// BindCommand 补充了 Definition.Name，也保留在常规索引中按全部规则匹配，
+		// 避免重建后 Match 跳过 Rules[0]（它未必是 OnCommand 规则）造成语义漂移。
+		if cmd != "" && m.commandIndexed.Load() {
 			if s.commandIndex[cmd] == nil {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
-
-			// 仅更新 commandInfoCache，不触发列表缓存重建（O(N²) 修复）
-			s.updateCommandInfoCache(m, cmd)
 		} else {
-			// 仅当没有 command 时加入常规索引
 			et := m.EventType
 			s.matcherIndex[et] = append(s.matcherIndex[et], m)
 		}

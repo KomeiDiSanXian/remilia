@@ -76,6 +76,13 @@ func (e *Engine) Use(mw ...context.Middleware) *Engine {
 		}
 	}
 
+	// TempManager 中的临时 matcher 不在 state.matchers 里，需要单独失效——
+	// 否则 invokeHandler 的 compiledVersion 快路径不检查中间件代际号，
+	// 活跃临时 matcher 会永久使用变更前的旧链。
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		m.invalidateCombinedChain()
+	})
+
 	return e
 }
 
@@ -118,6 +125,13 @@ func (e *Engine) UseForGroup(groupName string, mw ...context.Middleware) *Engine
 		}
 	}
 
+	// 同组的临时 matcher（TempManager 中，不一定在 groupIndex 里）同样需要失效
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		if m.GetGroup() == key {
+			m.invalidateCombinedChain()
+		}
+	})
+
 	return e
 }
 
@@ -132,6 +146,19 @@ func (e *Engine) ResetMiddlewares() *Engine {
 
 	// 原子替换
 	e.middleware.Store(newMwState)
+
+	// 失效全部 matcher（含临时 matcher）的链缓存：
+	// invokeHandler 快路径只比较 compiledVersion，不检查中间件代际号，
+	// 不失效的话已编译旧链会继续生效。
+	state := e.state.Load()
+	for _, m := range state.matchers {
+		if m != nil {
+			m.invalidateCombinedChain()
+		}
+	}
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		m.invalidateCombinedChain()
+	})
 
 	return e
 }
@@ -172,6 +199,13 @@ func (e *Engine) ResetGroupMiddleware(groupName string) *Engine {
 			}
 		}
 	}
+
+	// 同组的临时 matcher（如活跃会话）也要失效，防止其继续携带被清除的分组中间件
+	e.internals.tempManager.ForEach(func(m *Matcher) {
+		if m.GetGroup() == key {
+			m.invalidateCombinedChain()
+		}
+	})
 
 	return e
 }

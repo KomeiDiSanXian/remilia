@@ -111,15 +111,22 @@ func (m *Matcher) copy() *Matcher {
 	copy(newMiddlewares, m.middlewares)
 
 	newM := &Matcher{
-		rt:          matcherRuntime{isTemp: atomic.LoadInt32(&m.rt.isTemp)},
-		EventType:   m.EventType,
-		Rules:       newRules,
-		Handler:     m.Handler,
-		Source:      m.Source,
-		group:       m.group,
-		middlewares: newMiddlewares,
-		definition:  m.definition,
-		execProfile: m.execProfile,
+		rt: matcherRuntime{
+			isTemp:      atomic.LoadInt32(&m.rt.isTemp),
+			useCount:    m.rt.useCount,
+			maxUseCount: m.rt.maxUseCount,
+			createdAt:   m.rt.createdAt,
+			expiresAt:   m.rt.expiresAt,
+		},
+		EventType:     m.EventType,
+		Rules:         newRules,
+		Handler:       m.Handler,
+		Source:        m.Source,
+		group:         m.group,
+		middlewares:   newMiddlewares,
+		definition:    m.definition,
+		triggerPrefix: m.triggerPrefix,
+		execProfile:   m.execProfile,
 	}
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
@@ -455,6 +462,15 @@ func (m *Matcher) SetTempWithMaxUse(maxUse int) *Matcher {
 	return m
 }
 
+// tempExpirationSetter 由 *Engine 实现：在 TempManager 的 shard 锁内写入
+// createdAt/expiresAt，并在 matcher 已由管理器持有时补登过期堆。
+//
+// 使用带未导出方法的接口做类型断言（仅本包类型可实现），
+// 避免扩大 MatcherCoordinator 公共接口、破坏外部 mock。
+type tempExpirationSetter interface {
+	setTempMatcherExpiration(m *Matcher, createdAt, expiresAt time.Time)
+}
+
 func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 	if m.isNoop() {
 		return m
@@ -467,14 +483,28 @@ func (m *Matcher) SetTempWithTimeout(timeout time.Duration) *Matcher {
 
 	needsMigration := atomic.LoadInt32(&m.rt.isTemp) == 0
 	coord := m.coordinator
-	needsMigration = needsMigration && coord != nil
 
 	atomic.StoreInt32(&m.rt.isTemp, 1)
-	m.rt.createdAt = time.Now()
-	m.rt.expiresAt = m.rt.createdAt.Add(timeout)
 	m.rt.mu.Unlock()
 
-	if needsMigration {
+	now := time.Now()
+	expiresAt := now.Add(timeout)
+
+	if setter, ok := coord.(tempExpirationSetter); ok {
+		// 在 TempManager shard 锁内写入过期时间：
+		//   - 与清理器/过期堆对这两个字段的读取由同一把锁序列化（消除数据竞争）；
+		//   - matcher 已在管理器中时（如 OnTemp 之后调用）同时补登过期堆，
+		//     修复"已是 temp 再设超时 → 永不入堆、永不过期"的会话泄漏。
+		setter.setTempMatcherExpiration(m, now, expiresAt)
+	} else {
+		// 无协调器（未注册）或外部 mock：退化为直接写字段
+		m.rt.mu.Lock()
+		m.rt.createdAt = now
+		m.rt.expiresAt = expiresAt
+		m.rt.mu.Unlock()
+	}
+
+	if needsMigration && coord != nil {
 		coord.MigrateMatcherToTemp(m)
 	}
 	return m
@@ -620,11 +650,13 @@ func (m *Matcher) ensureChain(globalChain []context.Middleware, globalGen uint64
 }
 
 // getPriority 以线程安全方式返回优先级（无锁原子读取）。
-func (m *Matcher) getPriority() uint {
+//
+// 返回 uint64：避免 32 位平台上 uint 截断 atomic.Uint64 导致排序错乱。
+func (m *Matcher) getPriority() uint64 {
 	if m == nil {
 		return 0
 	}
-	return uint(m.priority.Load())
+	return m.priority.Load()
 }
 
 // isBlocking 以线程安全方式返回 matcher 是否应阻塞后续处理器。
@@ -682,6 +714,8 @@ func (m *Matcher) BindCommand(cmd string) *Matcher {
 
 	if coord != nil {
 		coord.UpdateMatcherCommand(m)
+		// 同步命令元数据缓存，使 GetAllCommands/FindCommand 立即可见新绑定的命令
+		coord.UpdateCommandCache(m)
 	}
 	return m
 }
@@ -747,8 +781,13 @@ func (m *Matcher) GetDefinition() *command.Definition {
 	return m.definition
 }
 
-// SetDescription 设置命令描述（便捷方法）
-func (m *Matcher) SetDescription(desc string) *Matcher {
+// mutateDefinition 在锁内应用 definition 变更，随后同步命令元数据缓存。
+//
+// commandInfoCache 中的 CommandInfo 是注册瞬间对 definition 的字段拷贝；
+// 若注册后再修改 definition（OnCommand(...).SetDescription(...) 是文档推荐链式写法），
+// 必须触发 UpdateCommandCache，否则 GetAllCommands/FindCommand//help
+// 将一直返回注册时的陈旧元数据（直到某次无关的全量索引重建）。
+func (m *Matcher) mutateDefinition(mutate func(def *command.Definition)) *Matcher {
 	if m.isNoop() {
 		return m
 	}
@@ -756,91 +795,63 @@ func (m *Matcher) SetDescription(desc string) *Matcher {
 	if m.definition == nil {
 		m.definition = &command.Definition{}
 	}
-	m.definition.Description = desc
+	mutate(m.definition)
+	coord := m.coordinator
 	m.rt.mu.Unlock()
+
+	// UpdateCommandCache 内部对 GetCommand()=="" 的 matcher 直接返回，
+	// 因此对未绑定命令名的 matcher 调用是安全的空操作。
+	if coord != nil {
+		coord.UpdateCommandCache(m)
+	}
 	return m
+}
+
+// SetDescription 设置命令描述（便捷方法）
+func (m *Matcher) SetDescription(desc string) *Matcher {
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Description = desc
+	})
 }
 
 // SetUsage 设置命令用法（便捷方法）
 func (m *Matcher) SetUsage(usage string) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Usage = usage
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Usage = usage
+	})
 }
 
 // SetCategory 设置命令分类（便捷方法）
 func (m *Matcher) SetCategory(category string) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Category = category
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Category = category
+	})
 }
 
 // SetAliases 设置命令别名（便捷方法）
 func (m *Matcher) SetAliases(aliases ...string) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Aliases = aliases
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Aliases = aliases
+	})
 }
 
 // SetExamples 设置命令示例（便捷方法）
 func (m *Matcher) SetExamples(examples ...string) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Examples = examples
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Examples = examples
+	})
 }
 
 // SetHidden 设置是否在帮助中隐藏（便捷方法）
 func (m *Matcher) SetHidden(hidden bool) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Hidden = hidden
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Hidden = hidden
+	})
 }
 
 // SetPermissions 设置所需权限（便捷方法）
 func (m *Matcher) SetPermissions(permissions ...string) *Matcher {
-	if m.isNoop() {
-		return m
-	}
-	m.rt.mu.Lock()
-	if m.definition == nil {
-		m.definition = &command.Definition{}
-	}
-	m.definition.Permissions = permissions
-	m.rt.mu.Unlock()
-	return m
+	return m.mutateDefinition(func(def *command.Definition) {
+		def.Permissions = permissions
+	})
 }

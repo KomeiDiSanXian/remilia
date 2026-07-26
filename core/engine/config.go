@@ -126,9 +126,15 @@ func WithExecPoolDisabled() Option {
 }
 
 // WithSharedExecPool 设置共享的 ExecPool，适用于多个 Engine 复用线程池的场景。
+//
+// 共享池的生命周期归调用方所有：
+//   - NewEngine 不会再为该 Engine 创建自有池；
+//   - Engine.Shutdown 不会 Drain/停止共享池（避免影响其他 Engine），
+//     调用方应在所有使用该池的 Engine 关闭后自行调用 pool.Stop()/Drain()。
 func WithSharedExecPool(pool *ExecPool) Option {
 	return func(e *Engine) {
 		e.internals.execPool = pool
+		e.internals.execPoolShared = true
 	}
 }
 

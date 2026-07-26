@@ -195,16 +195,25 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		// hasHandler 在 Handle() 中设置，由 InvalidateSortedCache 触发索引重建后，
 		// 无 Handler 的匹配器将不再出现在运行时列表中。
 		// 兜底：若 hasHandler atomic 未置位，检查 m.Handler 防止直接赋值场景。
+		// 该分支极少命中，加读锁读取 Handler，避免与 Handle() 的持锁写构成数据竞争。
 		if !m.hasHandler.Load() {
-			if m.Handler == nil {
+			m.rt.mu.RLock()
+			h := m.Handler
+			m.rt.mu.RUnlock()
+			if h == nil {
 				continue
 			}
 			m.hasHandler.Store(true)
 		}
 
 		if !m.Match(ctx) {
+			// 丢弃本 matcher 匹配过程中登记的延迟副作用
+			// （如 OnCooldown：前面的规则通过、后面的规则失败时不消耗冷却）
+			ctx.DiscardPendingRuleEffects()
 			continue
 		}
+		// 全部规则通过：提交延迟副作用（在克隆/入池之前，保证只提交一次）
+		ctx.CommitPendingRuleEffects()
 
 		profile := m.execProfile
 

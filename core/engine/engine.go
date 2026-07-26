@@ -128,8 +128,11 @@ func NewEngine(options ...Option) *Engine {
 		opt(e)
 	}
 
-	// 根据选项后的配置创建 ExecPool
-	e.internals.execPool = NewExecPool(e.internals.execPoolCfg)
+	// 根据选项后的配置创建 ExecPool。
+	// WithSharedExecPool 已注入共享池时不再创建（修复：此前无条件覆盖导致该选项失效）。
+	if e.internals.execPool == nil && !e.internals.execPoolShared {
+		e.internals.execPool = NewExecPool(e.internals.execPoolCfg)
+	}
 
 	// 创建 OutboundDispatcher（默认配置或用户自定义）
 	e.dispatcher = NewOutboundDispatcher(stdctx.Background(), e.internals.dispatcherCfg)
@@ -188,6 +191,11 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return err
 	}
 
+	// 等待 TempManager 的水位线清理 goroutine（若有）退出
+	if err := e.internals.tempManager.waitCleanups(ctx); err != nil {
+		return err
+	}
+
 	// 等待所有活跃的 ProcessEvent 调用完成
 	done := make(chan struct{})
 	go waitOnWaitgroup(&e.eventWg, done)
@@ -197,8 +205,9 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 		return ctx.Err()
 	}
 
-	// Drain ExecPool（等待 handler 结束，不再有新 Submit）
-	if e.internals.execPool != nil {
+	// Drain ExecPool（等待 handler 结束，不再有新 Submit）。
+	// 共享池（WithSharedExecPool）的生命周期归调用方所有，此处不 Drain。
+	if e.internals.execPool != nil && !e.internals.execPoolShared {
 		if err := e.internals.execPool.Drain(ctx); err != nil {
 			return err
 		}
@@ -210,6 +219,10 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 			return err
 		}
 	}
+
+	// 批量删除处理器已停止；把队列中残留的待删除 matcher 做最终收尾，
+	// 保证 Shutdown 返回后状态中不残留已标记删除的 matcher。
+	e.FlushPendingDeletes()
 
 	return nil
 }

@@ -97,7 +97,7 @@ func (p *ExecProfile) ShouldPool() ExecClass {
 	slices.Sort(snapSlice)
 	p50 := snapSlice[n/2]
 
-	if p50 > defaultSlowThreshold || p50 >= defaultSlowThreshold {
+	if p50 >= defaultSlowThreshold {
 		p.promoted.Store(true)
 		return ExecClassPool
 	}

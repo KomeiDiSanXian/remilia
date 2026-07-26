@@ -58,6 +58,49 @@ type Context struct {
 
 	contentOnce sync.Once
 	content     string
+
+	// pendingRuleEffects 收集规则在 Match 过程中登记的延迟副作用
+	// （如 OnCooldown 的冷却写入）。由引擎在当前 matcher 的全部规则
+	// 通过后统一提交，任一规则失败则丢弃。
+	// 仅在单个 matcher 的 Match 周期内使用（单 goroutine），不参与 Clone。
+	pendingRuleEffects []func()
+}
+
+// DeferRuleEffect 登记一个延迟到"当前 matcher 确认命中"才执行的规则副作用。
+//
+// 框架内部机制（参见 [OnCooldown]）：规则本身保持纯函数，把写状态动作放进 fn；
+// 引擎在该 matcher 的全部规则通过后调用 [Context.CommitPendingRuleEffects]
+// 统一执行，任一规则失败则调用 [Context.DiscardPendingRuleEffects] 丢弃。
+//
+// 注意：只有经 Engine 匹配路径执行的规则才会被提交；在 FSM 的 Event.Match
+// 等场景中直接调用带副作用的规则时，登记的副作用不会执行。
+func (ctx *Context) DeferRuleEffect(fn func()) {
+	if ctx == nil || fn == nil {
+		return
+	}
+	ctx.pendingRuleEffects = append(ctx.pendingRuleEffects, fn)
+}
+
+// CommitPendingRuleEffects 执行并清空所有已登记的延迟规则副作用。
+// 由引擎在 matcher 全部规则通过后调用（框架内部）。
+func (ctx *Context) CommitPendingRuleEffects() {
+	if ctx == nil || len(ctx.pendingRuleEffects) == 0 {
+		return
+	}
+	effects := ctx.pendingRuleEffects
+	ctx.pendingRuleEffects = nil
+	for _, fn := range effects {
+		fn()
+	}
+}
+
+// DiscardPendingRuleEffects 丢弃所有已登记的延迟规则副作用。
+// 由引擎在 matcher 匹配失败后调用（框架内部）。
+func (ctx *Context) DiscardPendingRuleEffects() {
+	if ctx == nil {
+		return
+	}
+	ctx.pendingRuleEffects = nil
 }
 
 // Cancel 主动释放 Clone 创建的 context 资源。

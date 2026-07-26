@@ -2,6 +2,9 @@ package engine
 
 import (
 	"container/heap"
+	"context"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -59,10 +62,41 @@ func newTempMatcherShard() *tempMatcherShard {
 }
 
 // TempSnapshot 是 TempManager 的只读一致性视图。
-// 在每次 Add/Remove/CleanExpired 后原子替换。
+//
+// Add/Remove 通过 COW 增量更新（仅替换受影响 eventType 的切片），
+// CleanExpired/水位线清理等批量路径做全量重建。
 type TempSnapshot struct {
 	specific map[EventType][]*Matcher // 按 eventType 预归并、排序
 	generic  []*Matcher               // eventType=="" 的结果
+}
+
+// withList 返回一个把 et 对应列表替换为 list 的新快照（COW：
+// 其余 eventType 的切片与原快照共享；specific map 本身复制以保证
+// 旧快照对无锁读者保持不可变）。list 为空时删除该键。
+func (s *TempSnapshot) withList(et EventType, list []*Matcher) *TempSnapshot {
+	ns := &TempSnapshot{generic: s.generic}
+	if et == "" {
+		ns.generic = list
+		ns.specific = s.specific
+		return ns
+	}
+	spec := make(map[EventType][]*Matcher, len(s.specific)+1)
+	maps.Copy(spec, s.specific)
+	if len(list) == 0 {
+		delete(spec, et)
+	} else {
+		spec[et] = list
+	}
+	ns.specific = spec
+	return ns
+}
+
+// snapshotList 返回快照中 et 对应的列表（et=="" 时为 generic）。
+func (s *TempSnapshot) snapshotList(et EventType) []*Matcher {
+	if et == "" {
+		return s.generic
+	}
+	return s.specific[et]
 }
 
 // tempMatcherManager manage temporary matchers with sharding and optimized insertion
@@ -162,10 +196,9 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	// 增加计数
 	newCount := atomic.AddInt32(&m.count, 1)
 
-	// 重建 RCU 快照（shard 锁已释放，不与 rebuildSnapshot 的 RLock 冲突）
-	m.snapMu.Lock()
-	m.rebuildSnapshot()
-	m.snapMu.Unlock()
+	// 增量更新 RCU 快照：仅 COW 替换该 eventType 的切片，
+	// 摆脱此前每次 Add 都全量收集 8 shard + 整体排序的 O(N log N) 写放大
+	m.snapshotInsert(matcher)
 
 	// 水位线清理：计数超过高水位时触发过期清理。
 	// rebuildSnapshot 在 Add 的 snapMu 段内执行，不与 shard 锁交叉，
@@ -177,6 +210,64 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 			m.rebuildSnapshot()
 			m.snapMu.Unlock()
 		})
+	}
+}
+
+// SetExpiration 在对应 shard 锁内写入 matcher 的 createdAt/expiresAt。
+//
+// 由 Matcher.SetTempWithTimeout 通过 Engine（tempExpirationSetter）调用：
+//   - 两个字段的读取方（CleanExpired、过期堆比较、cleanToWatermark）都在 shard 锁内，
+//     写入走同一把锁即可消除数据竞争；
+//   - matcher 已由本管理器持有时（byID 命中，如 OnTemp 之后再设超时）同时补登过期堆，
+//     修复"已是 temp 再设超时 → 永不入堆、永不过期"的泄漏。
+//
+// 重复调用（延长超时）会为同一 matcher 产生多个堆条目：CleanExpired 弹出时
+// 以 matcher 的实时 expiresAt 为准做判定，旧条目不会导致提前删除，
+// 只会让其后条目的清理时机被推迟到新的过期时间。
+func (m *tempMatcherManager) SetExpiration(matcher *Matcher, createdAt, expiresAt time.Time) {
+	shard := m.getShard(matcher)
+	shard.mu.Lock()
+	matcher.rt.createdAt = createdAt
+	matcher.rt.expiresAt = expiresAt
+	if _, ok := shard.byID[matcher]; ok && !expiresAt.IsZero() {
+		heap.Push(shard.expiration, matcher)
+	}
+	shard.mu.Unlock()
+}
+
+// ForEach 对当前管理的所有临时 matcher 依次调用 fn。
+//
+// fn 在 shard 锁之外执行（fn 通常会获取 matcher 自身的锁，如 invalidateCombinedChain），
+// 因此遍历到的集合是弱一致快照：期间新增/移除的 matcher 可能被包含或跳过。
+// 供 Engine.Use/UseForGroup/ResetGroupMiddleware 失效临时 matcher 的中间件链缓存。
+func (m *tempMatcherManager) ForEach(fn func(*Matcher)) {
+	for i := range tempMatcherShardCount {
+		shard := m.shards[i]
+		shard.mu.RLock()
+		batch := make([]*Matcher, 0, len(shard.byID))
+		for matcher := range shard.byID {
+			batch = append(batch, matcher)
+		}
+		shard.mu.RUnlock()
+		for _, matcher := range batch {
+			fn(matcher)
+		}
+	}
+}
+
+// waitCleanups 等待所有在途的水位线清理 goroutine 退出，或 ctx 结束。
+// 由 Engine.Shutdown 调用，保证清理 goroutine 不在关闭后残留。
+func (m *tempMatcherManager) waitCleanups(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		m.cleanupWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -216,12 +307,78 @@ func (m *tempMatcherManager) Remove(matcher *Matcher) {
 		m.removeLocked(shard, matcher)
 		shard.mu.Unlock()
 		atomic.AddInt32(&m.count, -1)
-		m.snapMu.Lock()
-		m.rebuildSnapshot()
-		m.snapMu.Unlock()
+		// 增量更新 RCU 快照（COW 移除，见 snapshotRemove）
+		m.snapshotRemove(matcher)
 	} else {
 		shard.mu.Unlock()
 	}
+}
+
+// snapshotInsert 把 matcher 按优先级 COW 插入快照中对应 eventType 的列表。
+//
+// 一致性协议：在 snapMu 内以 shard.byID 为准做二次校验——若 matcher 已被
+// 并发 Remove（shard 侧先删），放弃插入，避免快照残留"幽灵" matcher。
+// snapshotInsert/snapshotRemove/rebuildSnapshot 都遵循 snapMu → shard.mu
+// 的加锁顺序，与 Add/Remove（先释放 shard 锁再进 snapMu）无死锁交叉。
+func (m *tempMatcherManager) snapshotInsert(matcher *Matcher) {
+	m.snapMu.Lock()
+	defer m.snapMu.Unlock()
+
+	shard := m.getShard(matcher)
+	shard.mu.RLock()
+	_, present := shard.byID[matcher]
+	shard.mu.RUnlock()
+	if !present {
+		return // 已被并发 Remove，快照不应包含它
+	}
+
+	old := m.snapshot.Load()
+	et := matcher.EventType
+	oldList := old.snapshotList(et)
+
+	// 去重：与 CleanExpired 等全量重建并发时，重建可能已把本 matcher
+	// 收入快照（shard 侧先插入完成），此处再插会造成同事件双重执行
+	if slices.Contains(oldList, matcher) {
+		return
+	}
+
+	// 有序插入（稳定：等优先级插在已有元素之后），与 shard 内插入规则一致
+	prio := matcher.getPriority()
+	idx := sort.Search(len(oldList), func(i int) bool {
+		return oldList[i].getPriority() > prio
+	})
+	newList := make([]*Matcher, 0, len(oldList)+1)
+	newList = append(newList, oldList[:idx]...)
+	newList = append(newList, matcher)
+	newList = append(newList, oldList[idx:]...)
+
+	m.snapshot.Store(old.withList(et, newList))
+}
+
+// snapshotRemove 从快照中 COW 移除 matcher（幂等：不存在时为空操作）。
+func (m *tempMatcherManager) snapshotRemove(matcher *Matcher) {
+	m.snapMu.Lock()
+	defer m.snapMu.Unlock()
+
+	old := m.snapshot.Load()
+	et := matcher.EventType
+	oldList := old.snapshotList(et)
+
+	idx := -1
+	for i, v := range oldList {
+		if v == matcher {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return
+	}
+	newList := make([]*Matcher, 0, len(oldList)-1)
+	newList = append(newList, oldList[:idx]...)
+	newList = append(newList, oldList[idx+1:]...)
+
+	m.snapshot.Store(old.withList(et, newList))
 }
 
 // removeLocked removes matcher assuming lock is held
@@ -297,7 +454,11 @@ func (m *tempMatcherManager) rebuildSnapshot() {
 	m.snapshot.Store(snap)
 }
 
-// CleanExpired removes expired matchers and returns them
+// CleanExpired removes expired matchers and returns them.
+//
+// 被移除的 matcher 会统一在此标记 deleted（所有清理路径行为一致），
+// 且在有条目被移除时重建 RCU 快照——否则周期清理路径的快照会继续
+// 保留已移除的 matcher（此前只有 Add/Remove 会重建快照）。
 func (m *tempMatcherManager) CleanExpired() []*Matcher {
 	var expired []*Matcher
 	now := time.Now()
@@ -311,7 +472,9 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 			// Peek first
 			matcher := (*shard.expiration)[0]
 
-			// If expired or deleted
+			// If expired or deleted.
+			// 注意：判定使用 matcher 的实时 expiresAt（shard 锁内读取），
+			// 因此 SetExpiration 延长超时后残留的旧堆条目不会导致提前删除。
 			if matcher.rt.deleted.Load() || (!matcher.rt.expiresAt.IsZero() && now.After(matcher.rt.expiresAt)) {
 				heap.Pop(shard.expiration)
 
@@ -320,6 +483,7 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 				// Lock protects us, but deleted flag might be set by Remove)
 				if _, ok := shard.byID[matcher]; ok {
 					m.removeLocked(shard, matcher)
+					matcher.rt.deleted.Store(true)
 					expired = append(expired, matcher)
 					atomic.AddInt32(&m.count, -1)
 				}
@@ -328,6 +492,12 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 			}
 		}
 		shard.mu.Unlock()
+	}
+
+	if len(expired) > 0 {
+		m.snapMu.Lock()
+		m.rebuildSnapshot()
+		m.snapMu.Unlock()
 	}
 	return expired
 }
@@ -366,12 +536,13 @@ func (m *tempMatcherManager) cleanToWatermark() {
 			return matchers[i].rt.createdAt.Before(matchers[j].rt.createdAt)
 		})
 
-		// 删除最旧的
+		// 删除最旧的（同样标记 deleted，防止外部持引用者把已清理的 matcher 当作存活）
 		for _, matcher := range matchers {
 			if removed >= toRemove {
 				break
 			}
 			m.removeLocked(shard, matcher)
+			matcher.rt.deleted.Store(true)
 			atomic.AddInt32(&m.count, -1)
 			removed++
 		}

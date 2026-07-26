@@ -167,30 +167,48 @@ func (d *OutboundDispatcher) Submit(chatID string, task func(context.Context) er
 		return ErrDispatcherClosed
 	}
 
-	actual, _ := d.queues.LoadOrStore(chatID, &chatQueue{
-		chatID: chatID,
-		q:      *newRingBuffer(d.config.QueueSize),
-	})
-	q := actual.(*chatQueue)
+	for {
+		// 先 Load 再按需 LoadOrStore，避免热路径上每次都分配新的 chatQueue
+		var q *chatQueue
+		if v, ok := d.queues.Load(chatID); ok {
+			q = v.(*chatQueue)
+		} else {
+			v, _ := d.queues.LoadOrStore(chatID, &chatQueue{
+				chatID: chatID,
+				q:      *newRingBuffer(d.config.QueueSize),
+			})
+			q = v.(*chatQueue)
+		}
 
-	q.mu.Lock()
-	if !q.q.push(queuedTask{enqueueAt: time.Now(), run: task}) {
-		q.mu.Unlock()
-		d.reject(chatID, ErrQueueFull)
-		return ErrQueueFull
+		q.mu.Lock()
+
+		// 复查映射：worker 在 q.mu 下将空队列从 map 中移除；
+		// 若我们拿到的 q 已被移除，向其推送会导致同一 chat 出现两个并存的
+		// 队列与 worker（破坏 FIFO 保证）。此时重试整个流程。
+		// worker 的移除同样发生在 q.mu 临界区内，因此本检查无竞争窗口。
+		if cur, ok := d.queues.Load(chatID); !ok || cur.(*chatQueue) != q {
+			q.mu.Unlock()
+			continue
+		}
+
+		if !q.q.push(queuedTask{enqueueAt: time.Now(), run: task}) {
+			q.mu.Unlock()
+			d.reject(chatID, ErrQueueFull)
+			return ErrQueueFull
+		}
+		if h := d.config.Hooks.OnQueued; h != nil {
+			h(chatID, q.q.len)
+		}
+		if !q.running {
+			q.running = true
+			q.mu.Unlock()
+			d.wg.Add(1)
+			go d.worker(q)
+		} else {
+			q.mu.Unlock()
+		}
+		return nil
 	}
-	if h := d.config.Hooks.OnQueued; h != nil {
-		h(chatID, q.q.len)
-	}
-	if !q.running {
-		q.running = true
-		q.mu.Unlock()
-		d.wg.Add(1)
-		go d.worker(q)
-	} else {
-		q.mu.Unlock()
-	}
-	return nil
 }
 
 func (d *OutboundDispatcher) reject(chatID string, err error) {

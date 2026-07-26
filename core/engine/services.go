@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -36,6 +37,10 @@ type engineInternals struct {
 	pendingDeleteDone            chan struct{}
 	pendingDeleteProcessInterval time.Duration
 	pendingDeleteBatchSize       int
+	// pendingDeleteActive 标记批量删除处理器是否在运行。
+	// DeleteMatcher 据此决定入队（批量路径）还是同步 COW 删除（回退路径）；
+	// 用 atomic 以便在热路径无锁读取。
+	pendingDeleteActive atomic.Bool
 
 	// commandRegistry 是可选的 command.Registry
 	commandRegistry *command.Registry
@@ -43,8 +48,11 @@ type engineInternals struct {
 	// execPoolCfg 是 ExecPool 的配置，在 NewEngine 中由选项设置后创建 pool
 	execPoolCfg ExecPoolConfig
 	// execPool 是自适应 ExecPool，用于执行被判定为"慢"的 handler。
-	// 由 NewEngine 在选项应用后初始化，Shutdown 时 Drain。
+	// 未通过 WithSharedExecPool 注入时由 NewEngine 在选项应用后创建，Shutdown 时 Drain。
 	execPool *ExecPool
+	// execPoolShared 为 true 表示 execPool 由 WithSharedExecPool 注入、
+	// 生命周期归调用方所有：Engine.Shutdown 不会 Drain/停止它。
+	execPoolShared bool
 	// dispatcherCfg 是 OutboundDispatcher 的配置
 	dispatcherCfg DispatcherConfig
 }

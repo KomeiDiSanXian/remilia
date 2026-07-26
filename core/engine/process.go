@@ -214,11 +214,17 @@ func (e *Engine) getOrBuildIterChain(m *Matcher, chain []context.Middleware, he 
 // startPendingDeleteProcessor 启动批量删除处理器
 //
 // 从 pendingDeleteCh 通道中批量删除匹配器。
-// 每个批量处理间隔为 DefaultPendingDeleteProcessInterval，批量大小为 DefaultPendingDeleteBatchSize。
+// 处理间隔取 WithPendingDeleteProcessInterval 配置值（修复：此前误用常量，
+// 自定义间隔被忽略），批量大小为 pendingDeleteBatchSize。
 func (e *Engine) startPendingDeleteProcessor() func() {
-	ticker := time.NewTicker(DefaultPendingDeleteProcessInterval)
+	interval := e.internals.pendingDeleteProcessInterval
+	if interval <= 0 {
+		interval = DefaultPendingDeleteProcessInterval
+	}
+	ticker := time.NewTicker(interval)
 	done := make(chan struct{})
 	e.internals.pendingDeleteDone = done
+	e.internals.pendingDeleteActive.Store(true)
 
 	go func() {
 		defer ticker.Stop()
@@ -232,9 +238,13 @@ func (e *Engine) startPendingDeleteProcessor() func() {
 		}
 	}()
 
-	// 返回停止函数
+	// 返回停止函数（幂等；停止后 DeleteMatcher 回退为同步删除）
+	var once sync.Once
 	return func() {
-		close(done)
+		once.Do(func() {
+			e.internals.pendingDeleteActive.Store(false)
+			close(done)
+		})
 	}
 }
 
@@ -281,7 +291,7 @@ func (e *Engine) SetTempMatcherCleanInterval(interval time.Duration) *Engine {
 
 	e.internals.tempMatcherCleanerInterval = interval
 	if interval > 0 {
-		e.internals.tempMatcherCleanerStop = e.StartTempMatcherCleaner(interval)
+		e.internals.tempMatcherCleanerStop = e.startTempMatcherCleanerLocked(interval)
 	}
 
 	return e
@@ -311,6 +321,17 @@ func (e *Engine) GetTempMatcherCleanInterval() time.Duration {
 //   - 如需修改清理间隔，请优先使用 SetTempMatcherCleanInterval()
 //   - 清理器在后台 goroutine 中运行，不会阻塞
 func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
+	// 公开入口统一加 writeMu：tempMatcherCleanerStop/Done 也会被
+	// Shutdown 路径（tempCleanerComponent.stop/wait）在 writeMu 下访问，
+	// 无锁写入会在并发调用时产生双清理器/泄漏的竞态。
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.startTempMatcherCleanerLocked(interval)
+}
+
+// startTempMatcherCleanerLocked 是 StartTempMatcherCleaner 的内部实现，
+// 调用方必须已持有 e.writeMu。
+func (e *Engine) startTempMatcherCleanerLocked(interval time.Duration) func() {
 	// 防重复启动：若旧清理器仍在运行，先停止它再启动新的，
 	// 确保任意时刻最多只有一个清理器 goroutine 在运行。
 	if e.internals.tempMatcherCleanerStop != nil {
@@ -347,11 +368,8 @@ func (e *Engine) StartTempMatcherCleaner(interval time.Duration) func() {
 
 // cleanExpiredMatchers 清理过期的临时 matcher（COW 无锁读取 + TempManager 堆）
 func (e *Engine) cleanExpiredMatchers() {
-	// 1. 清理 TempManager 中的过期 matcher (高效堆实现)
+	// CleanExpired 内部已统一标记 deleted 并重建 RCU 快照
 	tempExpired := e.internals.tempManager.CleanExpired()
-	for _, m := range tempExpired {
-		m.rt.deleted.Store(true)
-	}
 	if len(tempExpired) > 0 {
 		logger.Debugf("[engine] Cleaned %d temp matchers from TempManager", len(tempExpired))
 	}

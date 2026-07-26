@@ -29,6 +29,11 @@ type ExecPool struct {
 	queue   chan func()   // 有界等待队列，容量 = queueSize
 	stopped atomic.Bool
 	wg      sync.WaitGroup
+
+	// exitMu 串行化「worker 归还令牌前的最终空队列检查」与「入队后确保存在消费者」
+	// 两个动作，消除任务在两者间隙入队后无人消费的滞留窗口。
+	// 临界区内只有非阻塞操作，不影响直接执行的快路径。
+	exitMu sync.Mutex
 }
 
 // ExecPoolConfig 是 ExecPool 的配置参数。
@@ -82,8 +87,9 @@ func (p *ExecPool) Wait() {
 //
 // 队列停滞预防：
 //
-//	每个执行完直接任务的 goroutine 会在退出前尝试 drain 队列，
-//	确保已入队的任务最终会被处理，无需依赖独立的 drain goroutine。
+//	worker 在归还令牌前的最终空队列检查与 TrySubmit 的入队动作由 exitMu
+//	串行化：入队成功后要么仍有 worker 持有令牌（其退出检查必然看到该任务），
+//	要么能立刻抢到令牌并启动一个 drain worker——任务不会滞留到下一次提交。
 func (p *ExecPool) TrySubmit(task func()) bool {
 	if p.stopped.Load() {
 		return false
@@ -94,26 +100,59 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 	case p.sem <- struct{}{}:
 		// 获取到令牌，启动 goroutine
 		p.wg.Add(1)
-		go func() {
-			defer func() {
-				<-p.sem // 释放令牌
-				p.wg.Done()
-			}()
-			runPoolTask(task)
-			// 执行完毕后尝试 drain 队列中的剩余任务
-			p.drainQueue()
-		}()
+		go p.runWorker(task)
 		return true
 	default:
 		// 池满，尝试入队
 	}
 
-	// 尝试入队（非阻塞）
+	// 尝试入队（非阻塞）。与 worker 的退出协议互斥（见 exitMu 注释）。
+	p.exitMu.Lock()
 	select {
 	case p.queue <- task:
+		// 入队成功后确保存在消费者：若所有 worker 都已释放令牌退出，
+		// 此处必然能抢到令牌，启动一个只 drain 队列的 worker。
+		select {
+		case p.sem <- struct{}{}:
+			p.exitMu.Unlock()
+			p.wg.Add(1)
+			go p.runWorker(nil)
+		default:
+			// 仍有 worker 持有令牌：其退出前的最终检查（exitMu 内）会消费该任务
+			p.exitMu.Unlock()
+		}
 		return true
 	default:
+		p.exitMu.Unlock()
 		return false
+	}
+}
+
+// runWorker 是池 worker 的主循环：执行首个任务（可为 nil），随后持续
+// drain 队列，直到在 exitMu 保护下确认队列为空才归还令牌退出。
+func (p *ExecPool) runWorker(first func()) {
+	defer p.wg.Done()
+
+	if first != nil {
+		runPoolTask(first)
+	}
+
+	for {
+		// 快路径批量消费，不持锁
+		p.drainQueue()
+
+		// 退出协议：在 exitMu 内做最终检查并归还令牌，
+		// 与 TrySubmit 的「入队 + 确保消费者」动作互斥
+		p.exitMu.Lock()
+		select {
+		case t := <-p.queue:
+			p.exitMu.Unlock()
+			runPoolTask(t)
+		default:
+			<-p.sem // 释放令牌（临界区内，令牌状态对 TrySubmit 可见）
+			p.exitMu.Unlock()
+			return
+		}
 	}
 }
 

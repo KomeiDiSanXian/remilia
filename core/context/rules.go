@@ -465,6 +465,18 @@ func initCooldownStore() {
 // keyFn 用于从 Context 中提取冷却 key（通常是用户 ID）。
 // 若 keyFn 为 nil，则默认使用 ctx.GetSenderInfo().ID（平台无关）。
 //
+// # 副作用语义（延迟提交）
+//
+// 冷却写入通过 [Context.DeferRuleEffect] 延迟到当前 matcher 的**全部规则
+// 通过后**才由引擎提交：
+//   - 同一 matcher 中排在 OnCooldown 之后的规则失败 → 冷却不消耗；
+//   - 事件最终命中的是其他 matcher → 冷却不消耗；
+//   - matcher 确认命中 → 冷却在 handler 执行前记录（handler 报错也视为已消耗）。
+//
+// 因此规则顺序不再影响正确性；仍建议把 OnCooldown 放在链尾以省去无谓的检查。
+// 注意：延迟提交仅在 Engine 匹配路径生效，在 FSM Event.Match 中直接使用
+// 本规则时冷却不会被记录。
+//
 // 使用示例:
 //
 //	engine.On(OnEventKind(platform.EventKindPrivateMessage), OnCommand("/sign"), OnCooldown(24*time.Hour, nil)).Handle(signHandler)
@@ -488,7 +500,11 @@ func OnCooldown(d time.Duration, keyFn func(*Context) string) Rule {
 			}).Debug("[OnCooldown] User is in cooldown")
 			return false
 		}
-		cooldownStore.Add(key, now)
+		// 通过检查后不立即写入：延迟到 matcher 确认命中后由引擎统一提交，
+		// 避免"本规则通过但后续规则失败/其他 matcher 才是处理者"时白白消耗冷却
+		ctx.DeferRuleEffect(func() {
+			cooldownStore.Add(key, now)
+		})
 		return true
 	}
 }
@@ -645,6 +661,13 @@ func OnMentionedBot() Rule {
 		event := ctx.GetPlatformEvent()
 		if event == nil {
 			return false
+		}
+		// 平台未实现 MentionsEvent（无法感知 @ 列表）时放行，
+		// 与文档语义一致：由 EventType 路由自行过滤
+		// （如 QQ GROUP_AT_MESSAGE_CREATE 事件本身已隐含 @ 机器人）。
+		// 此前实现对这类平台恒返回 false，导致挂载此规则的命令永不触发。
+		if _, ok := event.(platform.MentionsEvent); !ok {
+			return true
 		}
 		for _, m := range platform.GetMentions(event) {
 			if m.IsSelf {

@@ -12,6 +12,7 @@ package engine
 
 import (
 	"strings"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -51,13 +52,52 @@ func (e *Engine) DeleteAllMatchers() {
 	}
 }
 
-// DeleteMatcher 删除指定的匹配器（COW 写操作）
+// DeleteMatcher 删除指定的匹配器。
+//
+// 语义：
+//   - matcher 会**立即**被标记为 deleted（Match 即刻拒绝，不再命中新事件）；
+//   - 从索引/状态中的物理移除交给批量删除处理器**异步**完成
+//     （默认每 100ms 一批，见 WithPendingDeleteProcessInterval），
+//     单次 COW 全量重建即可回收整批 matcher，避免高频删除时的写放大；
+//   - 因此 GetMatcherCount/GetMatcherStats 在一个处理间隔内可能仍计入该 matcher，
+//     需要确定性时机时可调用 [Engine.FlushPendingDeletes]。
+//
+// 回退：处理器未运行（WithNoBackgroundWorkers / 间隔为 0 / 已 Shutdown）
+// 或队列已满时，退化为同步 COW 删除，删除永不丢失。
 func (e *Engine) DeleteMatcher(m *Matcher) {
+	if m == nil {
+		return
+	}
+	// 先置 deleted：无论走哪条路径，matcher 都立即停止匹配
+	m.rt.deleted.Store(true)
+
+	if e.internals.pendingDeleteActive.Load() {
+		select {
+		case e.internals.pendingDeleteCh <- m:
+			return
+		default:
+			// 队列满：退化为同步删除
+		}
+	}
+
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
 	state := e.state.Load()
 	e.state.Store(state.withDeletedMatcher(m))
+}
+
+// FlushPendingDeletes 立即处理批量删除队列中所有待删除的 matcher。
+//
+// 供测试和需要确定性删除时机的调用方使用；Shutdown 收尾时也会调用一次。
+// 并发安全：内部通过 writeMu 串行化实际删除。
+func (e *Engine) FlushPendingDeletes() {
+	for {
+		e.processPendingDeletes()
+		if len(e.internals.pendingDeleteCh) == 0 {
+			return
+		}
+	}
 }
 
 // DeleteMatchers 批量删除匹配器（COW 写操作）
@@ -222,7 +262,12 @@ func (e *Engine) SetMaxMatchers(limit int) *Engine {
 	return e
 }
 
-// EnableGlobalMatchers 启用/禁用全局匹配器
+// EnableGlobalMatchers 启用/禁用全局匹配器。
+//
+// 语义说明：本方法等价于 SetBlock(!enable)。SetBlock(true) 的含义是
+// "首个命中的 matcher 执行后阻断其余 matcher"——因此 EnableGlobalMatchers(false)
+// **并不会**让所有 matcher 停止响应：每个事件仍会执行优先级最高的一个命中者。
+// 若需要完全停止事件分发，请使用 DisableGroup 逐组禁用，或在上游停止投递事件。
 func (e *Engine) EnableGlobalMatchers(enable bool) {
 	e.SetBlock(!enable)
 }
@@ -340,6 +385,13 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 func (e *Engine) UpdateTempMatcherPriority(m *Matcher) {
 	e.internals.tempManager.Remove(m)
 	e.internals.tempManager.Add(m)
+}
+
+// setTempMatcherExpiration 实现 tempExpirationSetter：
+// 在 TempManager 的 shard 锁内写入 createdAt/expiresAt，并在 matcher
+// 已由管理器持有时补登过期堆（见 Matcher.SetTempWithTimeout）。
+func (e *Engine) setTempMatcherExpiration(m *Matcher, createdAt, expiresAt time.Time) {
+	e.internals.tempManager.SetExpiration(m, createdAt, expiresAt)
 }
 
 // MigrateMatcherToTemp 将 matcher 迁移到 TempManager

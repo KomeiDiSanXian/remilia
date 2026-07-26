@@ -73,7 +73,7 @@ func TestMatcher_CopySemantics(t *testing.T) {
 	t.Run("nil matcher nil-safety", func(t *testing.T) {
 		assert.Equal(t, "", (*Matcher)(nil).GetCommand())
 		assert.Equal(t, "", (*Matcher)(nil).GetSource())
-		assert.Equal(t, uint(0), (*Matcher)(nil).getPriority())
+		assert.Equal(t, uint64(0), (*Matcher)(nil).getPriority())
 		assert.False(t, (*Matcher)(nil).isBlocking(""))
 	})
 }

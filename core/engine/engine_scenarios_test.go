@@ -288,12 +288,19 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 
 	m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage)}
 	m1.priority.Store(10)
+	// 命令 matcher：索引分类以 commandIndexed 标志为准（OnCommand/RegisterCommandDef
+	// 在注册前置位），仅设置 definition.Name 不再进入 commandIndex
 	m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "test"}}
+	m2.commandIndexed.Store(true)
 	m2.priority.Store(20)
 	m3 := &Matcher{EventType: string(platform.EventKindGroupMessage), group: "plugin1"}
 	m3.priority.Store(5)
+	// 仅补充了命令名（未置 commandIndexed）的普通 matcher：保留在常规索引，
+	// 但其元数据仍进入 commandInfoCache（/help 可见）
+	m4 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "plainname"}}
+	m4.priority.Store(30)
 
-	state.matchers = []*Matcher{m1, m2, m3}
+	state.matchers = []*Matcher{m1, m2, m3, m4}
 	state.rebuildIndex()
 
 	// Verify all indices are built
@@ -301,6 +308,12 @@ func TestEngineState_RebuildIndex_WithMixedMatchers(t *testing.T) {
 	assert.Greater(t, len(state.sortedCache), 0)
 	assert.Equal(t, 1, len(state.commandIndex))
 	assert.Equal(t, 1, len(state.groupIndex))
+
+	// m4 留在常规索引而非命令索引（新不变式），元数据缓存则两者都有
+	assert.Contains(t, state.matcherIndex[string(platform.EventKindPrivateMessage)], m4)
+	assert.NotContains(t, state.commandIndex, "/plainname")
+	assert.Contains(t, state.commandInfoCache, "/plainname")
+	assert.Contains(t, state.commandInfoCache, "/test")
 }
 
 // ============================================================================

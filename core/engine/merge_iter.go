@@ -20,7 +20,6 @@ package engine
 //	}
 
 import (
-	"math"
 	"sync"
 )
 
@@ -40,14 +39,17 @@ type matcherMergeIter struct {
 
 // Next 前进到下一个优先级最低的 Matcher。
 // 返回 false 表示所有列表均已遍历完毕。
+//
+// 用 bestIdx==-1 判定首个候选而非 MaxUint 哨兵：
+// 哨兵写法会让优先级恰为 MaxUint 的 matcher 被跳过并提前终止整个归并。
 func (it *matcherMergeIter) Next() bool {
 	bestIdx := -1
-	var bestPrio uint = math.MaxUint
+	var bestPrio uint64
 
 	for i := range mergeIterListCount {
 		if it.idx[i] < len(it.lists[i]) {
 			p := it.lists[i][it.idx[i]].getPriority()
-			if p < bestPrio {
+			if bestIdx == -1 || p < bestPrio {
 				bestPrio = p
 				bestIdx = i
 			}

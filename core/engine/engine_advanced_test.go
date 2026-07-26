@@ -320,9 +320,13 @@ func TestEngineState_RebuildIndex(t *testing.T) {
 	t.Run("rebuild with command matchers", func(t *testing.T) {
 		state := newEngineState()
 
+		// 索引分类以 commandIndexed 标志为准（OnCommand/RegisterCommandDef 在注册前
+		// 置位）；仅设置 definition.Name 的普通 matcher 不再被迁入 commandIndex
 		m1 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/test"}}
+		m1.commandIndexed.Store(true)
 		m1.priority.Store(10)
 		m2 := &Matcher{EventType: string(platform.EventKindPrivateMessage), definition: &command.Definition{Name: "/help"}}
+		m2.commandIndexed.Store(true)
 		m2.priority.Store(20)
 
 		state.matchers = []*Matcher{m1, m2}
