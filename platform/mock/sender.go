@@ -2,6 +2,7 @@ package mock
 
 import (
 	stdctx "context"
+	"slices"
 	"sync"
 	"time"
 
@@ -41,6 +42,15 @@ func WithDeleteError(err error) SenderOption {
 	return func(s *MockSender) { s.deleteErr = err }
 }
 
+// WithSkipValidation 关闭 MockSender.Send 的 SendRequest 校验。
+//
+// 默认情况下 MockSender 与真实 Sender 一样先执行 req.Validate()，
+// 以免非法请求在测试里一路绿灯、到生产才失败。
+// 少数测试需要刻意构造非法请求来验证上游逻辑时，用这个选项关掉校验。
+func WithSkipValidation() SenderOption {
+	return func(s *MockSender) { s.skipValidation = true }
+}
+
 // MockSender is a full mock implementation of platform.Sender
 // plus all optional sender interfaces: MessageEditor, MessageDeleter,
 // ReactionSender, TypingNotifier, GroupManager, InvitationHandler,
@@ -52,6 +62,9 @@ type MockSender struct {
 	sendErr    error
 	editErr    error
 	deleteErr  error
+
+	// skipValidation 关闭 Send 的 req.Validate() 校验（见 WithSkipValidation）。
+	skipValidation bool
 
 	mu    sync.Mutex
 	Calls []SenderCall
@@ -67,16 +80,34 @@ func NewSender(opts ...SenderOption) *MockSender {
 }
 
 // Send records the call and returns configured result/error.
+//
+// 与真实 Sender 一致，先执行 req.Validate()。
+//
+// 之所以必须校验：platform.Sender 的契约要求实现方对非法请求返回
+// errutil.ErrNoChatInfo 等错误，milky / telegram / satori 等真实实现
+// 都在入口调用 Validate。此前这个替身不校验，于是"漏填 Target.ID"
+// 或"URL 与 Data 同时设置"这类错误在测试里一路绿灯，
+// 到了生产环境才静默失败——正好是测试替身最该拦住的一类问题。
+//
+// 需要保留旧行为（构造非法请求断言其它逻辑）时，用 WithSkipValidation()。
 func (s *MockSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	s.mu.Lock()
+	// 先记录调用再校验，使 CalledTimes 仍能反映"尝试发送过一次"。
 	s.Calls = append(s.Calls, SenderCall{
 		Method: "Send",
 		ChatID: req.Target.ID,
 		Msg:    req.Message,
 	})
+	skip := s.skipValidation
 	result := s.sendResult
 	err := s.sendErr
 	s.mu.Unlock()
+
+	if !skip {
+		if vErr := req.Validate(); vErr != nil {
+			return platform.SendResult{}, vErr
+		}
+	}
 	return result, err
 }
 
@@ -286,4 +317,17 @@ func (s *MockSender) ResetCalls() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Calls = nil
+}
+
+// Snapshot 返回已记录调用的副本，可安全地并发读取。
+//
+// 断言调用内容（ChatID / MessageID / Msg / Emoji）时请使用本方法，
+// 不要直接读取导出字段 Calls：所有写入都在 s.mu 保护下进行，而直接读取
+// Calls 不持锁，与内部的 append 构成数据竞争（-race 必报）。不加 -race 时
+// 还可能读到 append 扩容前的旧切片头，表现为"少了几次调用"的偶发失败。
+// 由于这是给使用者写测试用的替身，这类竞争最终会落在他们的测试套件里。
+func (s *MockSender) Snapshot() []SenderCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.Calls)
 }

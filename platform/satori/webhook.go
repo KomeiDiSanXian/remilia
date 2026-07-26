@@ -2,6 +2,7 @@ package satori
 
 import (
 	stdctx "context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,9 +11,19 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
+)
+
+const (
+	// bearerPrefix 是 Authorization 头中 Bearer 方案的前缀。
+	bearerPrefix = "Bearer "
+
+	// maxWebhookBodyBytes 是 WebHook 请求体允许的最大字节数。
+	// 无上限的 io.ReadAll 会让任意能访问该端口的客户端把进程打到 OOM。
+	maxWebhookBodyBytes = 4 << 20 // 4 MiB
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -183,7 +194,14 @@ func (a *WebhookAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 
 	srv := a.cfg.HTTPServer
 	if srv == nil {
-		srv = &http.Server{Addr: a.cfg.ListenAddr, Handler: mux}
+		// 设置读超时，防止慢速请求长期占用连接与 goroutine。
+		srv = &http.Server{
+			Addr:              a.cfg.ListenAddr,
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			IdleTimeout:       120 * time.Second,
+		}
 	} else {
 		srv.Handler = mux
 	}
@@ -210,7 +228,11 @@ func (a *WebhookAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 
 	select {
 	case <-cancelCtx.Done():
-		_ = srv.Shutdown(stdctx.Background())
+		// 必须使用带超时的 ctx：Shutdown(Background()) 会无限等待在途请求，
+		// 一个慢速请求就能让 Stop / 进程退出永久卡住。
+		shutCtx, shutCancel := stdctx.WithTimeout(stdctx.Background(), 10*time.Second)
+		defer shutCancel()
+		_ = srv.Shutdown(shutCtx)
 		return cancelCtx.Err()
 	case err := <-errCh:
 		return err
@@ -259,10 +281,16 @@ func (a *WebhookAdapter) makeHTTPHandler(handler func(platform.Event)) http.Hand
 		}
 
 		// 若已配置 Token，验证 Authorization 鉴权头。
+		//
+		// 鉴权方案名（"Bearer"）按 RFC 7235 大小写不敏感比较，凭证本身必须
+		// 大小写敏感且使用常量时间比较：此前用 strings.EqualFold 比较整串，
+		// 既让大小写不同的错误 Token 也能通过鉴权，又因短路返回泄漏了
+		// 与真实 Token 的公共前缀长度，可被逐字节爆破。
 		if a.cfg.Token != "" {
 			auth := r.Header.Get("Authorization")
-			expected := "Bearer " + a.cfg.Token
-			if !strings.EqualFold(auth, expected) {
+			if len(auth) < len(bearerPrefix) ||
+				!strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) ||
+				subtle.ConstantTimeCompare([]byte(auth[len(bearerPrefix):]), []byte(a.cfg.Token)) != 1 {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -277,7 +305,7 @@ func (a *WebhookAdapter) makeHTTPHandler(handler func(platform.Event)) http.Hand
 		}
 		op := Opcode(opcodeVal)
 
-		body, err := io.ReadAll(r.Body)
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes))
 		if err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -290,9 +318,11 @@ func (a *WebhookAdapter) makeHTTPHandler(handler func(platform.Event)) http.Hand
 				http.Error(w, "Bad Request: invalid event body", http.StatusBadRequest)
 				return
 			}
-			converted := convertEvent(&evt, a.Platform())
+			converted := convertEventWithBot(&evt, a.Platform(), a.cfg.UserID)
 			if handler != nil {
-				handler(converted)
+				// SafeDispatch：handler 由用户提供，panic 必须被隔离，
+				// 否则会击穿 HTTP goroutine 并终止整个进程。
+				platform.SafeDispatch(handler, converted)
 			}
 			w.WriteHeader(http.StatusOK)
 

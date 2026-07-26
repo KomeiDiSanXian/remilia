@@ -179,6 +179,12 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 	a.running = true
 	a.mu.Unlock()
 
+	// 重新拉起 interaction 缓存的清理协程（Stop 会停掉它）。
+	// 缺少这一步的话，任何一次 Stop→Start 之后 s.pending 就再无回收。
+	if a.sender != nil {
+		a.sender.startCleanup()
+	}
+
 	// Build HTTP mux
 	mux := http.NewServeMux()
 	mux.HandleFunc(a.config.Path, a.handleInteraction)
@@ -186,12 +192,17 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 		mux.HandleFunc("/", a.handleInteraction)
 	}
 
-	a.server = &http.Server{
-		Addr:         a.config.Addr,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	srv := &http.Server{
+		Addr:              a.config.Addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
 	}
+	// a.server 由 Stop() 在另一 goroutine 读取，必须在锁内写入。
+	a.mu.Lock()
+	a.server = srv
+	a.mu.Unlock()
 
 	ln, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
@@ -203,10 +214,32 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 	}
 
 	a.wg.Go(func() {
-		if err := a.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Errorf("[discord.InteractionsAdapter] HTTP server error: %v", err)
 		}
 	})
+
+	// ctx 取消看门狗。
+	//
+	// http.Server.Serve 只会在 Shutdown/Close 时返回，它不感知 cancelCtx。
+	// 缺少这段时，仅取消 ctx（platform.Adapter.Start 的既定契约，也是
+	// Registry.StartAll 的退出方式）无法关闭服务端，Start 会永久阻塞在
+	// a.wg.Wait()，监听端口继续接收 interaction 却无人消费。
+	//
+	// 该 goroutine 刻意不加入 a.wg：本函数结尾会调用 a.wg.Wait()，而看门狗要等到
+	// serveDone 关闭（即本函数返回）才退出，两者互等会直接死锁。
+	// 它由 defer close(serveDone) 显式收尾，不会泄漏。
+	serveDone := make(chan struct{})
+	defer close(serveDone)
+	go func() {
+		select {
+		case <-cancelCtx.Done():
+			shutCtx, shutCancel := stdctx.WithTimeout(stdctx.Background(), 10*time.Second)
+			defer shutCancel()
+			_ = srv.Shutdown(shutCtx)
+		case <-serveDone:
+		}
+	}()
 
 	logger.Infof("[discord.InteractionsAdapter] HTTP server listening on %s (path=%s, workers=%d)",
 		a.config.Addr, a.config.Path, a.workers)
@@ -254,8 +287,11 @@ func (a *InteractionsAdapter) Start(ctx stdctx.Context, handler func(platform.Ev
 
 // Stop shuts down the HTTP server and stops event processing.
 func (a *InteractionsAdapter) Stop(ctx stdctx.Context) error {
+	// a.server 由 Start 写入，必须在锁内读取，否则与 Start 构成数据竞争
+	// （-race 可直接检出），且可能读到尚未发布的 nil 而跳过 Shutdown。
 	a.mu.Lock()
 	cancel := a.cancel
+	srv := a.server
 	a.mu.Unlock()
 
 	if cancel != nil {
@@ -263,10 +299,16 @@ func (a *InteractionsAdapter) Stop(ctx stdctx.Context) error {
 	}
 
 	var shutdownErr error
-	if a.server != nil {
-		if err := a.server.Shutdown(ctx); err != nil {
+	if srv != nil {
+		if err := srv.Shutdown(ctx); err != nil {
 			shutdownErr = fmt.Errorf("discord interactions: HTTP shutdown error: %w", err)
 		}
+	}
+
+	// 停止 interaction 缓存的清理 goroutine，否则每次 Stop 都会泄漏一个
+	// goroutine 与一个 5 分钟 ticker（GatewayAdapter.Stop 已有此调用）。
+	if a.sender != nil {
+		a.sender.stopCleanup()
 	}
 
 	if a.session != nil {

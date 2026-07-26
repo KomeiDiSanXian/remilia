@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -726,5 +727,148 @@ func TestAdapter_CompletionFunc(t *testing.T) {
 	candidates = a.completionFunc("/xyz")
 	if len(candidates) != 0 {
 		t.Errorf("期望 0 个候选项, 得到 %d", len(candidates))
+	}
+}
+
+// TestAdapter_StopIsIdempotentAndConcurrencySafe 固定 Stop 的幂等性。
+//
+// 原实现是 select-default + close 的组合，这不是原子操作：两个 goroutine
+// （例如 API 的 DELETE /platforms/terminal 与 SIGINT 触发的 registry.StopAll）
+// 可以同时走到 default 分支并双双 close，触发
+// "close of closed channel" panic 直接终止进程。
+func TestAdapter_StopIsIdempotentAndConcurrencySafe(t *testing.T) {
+	a := NewAdapter(
+		WithInput(strings.NewReader("")),
+		WithOutput(io.Discard),
+	)
+
+	const n = 16
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			if err := a.Stop(context.Background()); err != nil {
+				t.Errorf("Stop 返回错误: %v", err)
+			}
+		}()
+	}
+	wg.Wait() // 未 panic 即通过
+}
+
+// TestAdapter_RestartAfterStop 固定"Stop 之后仍可再次 Start"。
+//
+// stopCh 原本只在 NewAdapter 里创建一次，Stop 关闭后就永久保持关闭状态，
+// 于是 Bot.Restart()（Stop 后用同一批实例再 Start）会让输入循环在第一次
+// 迭代就立刻退出——适配器在任何一次重启后即静默失效。
+func TestAdapter_RestartAfterStop(t *testing.T) {
+	a := NewAdapter(
+		WithInput(strings.NewReader("hello\n")),
+		WithOutput(io.Discard),
+	)
+
+	if err := a.Stop(context.Background()); err != nil {
+		t.Fatalf("首次 Stop 失败: %v", err)
+	}
+
+	var got int
+	done := make(chan error, 1)
+	go func() {
+		done <- a.Start(context.Background(), func(platform.Event) { got++ })
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("重启后 Start 未在预期时间内返回")
+	}
+
+	if got == 0 {
+		t.Error("重启后适配器未处理任何输入：stopCh 未随 Start 重建")
+	}
+}
+
+// ─── ANSI 清洗 ────────────────────────────────────────────────────────────────
+
+// TestSanitizeForTerminal 固定"保留 SGR 颜色、拦截其余控制序列"的策略。
+//
+// 终端适配器把消息内容原样写进一个处于 raw 模式的 tty。只要有中继 handler
+// 把远端消息镜像到操作员控制台，攻击者就能用 OSC 52 静默改写剪贴板、
+// 用 ESC[2J 清屏毁尸灭迹、用 \r 覆写 "[Bot Reply] " 前缀伪装成适配器输出。
+func TestSanitizeForTerminal(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"纯文本原样保留", "hello world", "hello world"},
+		{"换行与制表符保留", "a\nb\tc", "a\nb\tc"},
+		{"SGR 颜色保留", "\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m"},
+		{"SGR 复合参数保留", "\x1b[1;33;40mx\x1b[0m", "\x1b[1;33;40mx\x1b[0m"},
+		{"OSC 52 剪贴板注入被拦截", "a\x1b]52;c;ZXZpbA==\x07b", "ab"},
+		{"OSC 以 ST 结尾同样被拦截", "a\x1b]0;title\x1b\\b", "ab"},
+		{"清屏被拦截", "a\x1b[2Jb", "ab"},
+		{"光标移动被拦截", "a\x1b[10;10Hb", "ab"},
+		{"回车覆写被拦截", "[Bot Reply] x\rFAKE", "[Bot Reply] xFAKE"},
+		{"裸控制字符被剔除", "a\x00\x07b", "ab"},
+		{"DEL 被剔除", "a\x7fb", "ab"},
+		{"双字符 ESC 命令被拦截", "a\x1bcb", "ab"},
+		{"未终止的 OSC 整段丢弃", "a\x1b]52;c;unterminated", "a"},
+		{"未终止的 CSI 整段丢弃", "a\x1b[38;5", "a"},
+		{"结尾落单 ESC 被丢弃", "a\x1b", "a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeForTerminal(tt.in); got != tt.want {
+				t.Errorf("sanitizeForTerminal(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSanitizeForTerminal_NoAllocForPlainText 纯文本应走零分配快路径。
+func TestSanitizeForTerminal_NoAllocForPlainText(t *testing.T) {
+	const s = "普通消息，没有任何控制字符"
+	if got := sanitizeForTerminal(s); got != s {
+		t.Errorf("纯文本不应被改动: %q", got)
+	}
+}
+
+// TestSender_MessageIDStartsAtOne 固定 Sender 与 Adapter 的编号一致。
+//
+// atomic.Uint64.Add 返回的已是自增后的值，此前多加的 1 让首条消息
+// 变成 "term-msg-2"。
+func TestSender_MessageIDStartsAtOne(t *testing.T) {
+	s := NewSender()
+	res, err := s.Send(context.Background(), platform.SendRequest{
+		Target:  platform.ChatInfo{ID: "c1"},
+		Message: platform.OutboundMessage{Text: "hi"},
+	})
+	if err != nil {
+		t.Fatalf("Send 失败: %v", err)
+	}
+	if res.MessageID != "term-msg-1" {
+		t.Errorf("首条消息 ID: got %q, want %q", res.MessageID, "term-msg-1")
+	}
+}
+
+// TestSender_ConcurrentSendIsRaceFree messages 切片必须有锁保护。
+func TestSender_ConcurrentSendIsRaceFree(t *testing.T) {
+	s := NewSender()
+	const n = 16
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for range n {
+		go func() {
+			defer wg.Done()
+			_, _ = s.Send(context.Background(), platform.SendRequest{
+				Target:  platform.ChatInfo{ID: "c1"},
+				Message: platform.OutboundMessage{Text: "x"},
+			})
+		}()
+	}
+	wg.Wait()
+	if got := len(s.Messages()); got != n {
+		t.Errorf("并发发送后记录数: got %d, want %d", got, n)
 	}
 }

@@ -64,8 +64,25 @@ func (s *milkySender) Send(ctx stdctx.Context, req platform.SendRequest) (platfo
 	}
 
 	segs := buildOutgoingSegments(req.Message)
-	if len(segs) == 0 {
+
+	// 文件附件走独立的上传接口。
+	//
+	// Milky 的消息段里没有"文件"类型，文件必须通过 upload_private_file /
+	// upload_group_file 单独发送。此前这类附件在 buildOutgoingSegments 的
+	// default 分支被**静默丢弃**：Send 照常返回成功，用户只收到正文、
+	// 收不到文件，调用方也无从察觉——而 Capabilities().FileUpload 声明为 true。
+	fileAtts := fileAttachments(req.Message.Attachments)
+
+	if len(segs) == 0 && len(fileAtts) == 0 {
 		return platform.SendResult{}, errutil.ErrEmptyMessage
+	}
+
+	// 纯文件消息（无正文）：只做上传，不发空消息。
+	if len(segs) == 0 {
+		if err := s.uploadFiles(ctx, scene, peerID, fileAtts); err != nil {
+			return platform.SendResult{}, wrapSendError(err, req.Target.ID, scene)
+		}
+		return platform.SendResult{Platform: PlatformID}, nil
 	}
 
 	var out sendMessageOutput
@@ -86,12 +103,67 @@ func (s *milkySender) Send(ctx stdctx.Context, req platform.SendRequest) (platfo
 		return platform.SendResult{}, wrapSendError(err, req.Target.ID, scene)
 	}
 
+	// 正文发送成功后再上传文件；上传失败必须上报，不能像此前那样静默吞掉。
+	if len(fileAtts) > 0 {
+		if upErr := s.uploadFiles(ctx, scene, peerID, fileAtts); upErr != nil {
+			return platform.SendResult{}, wrapSendError(upErr, req.Target.ID, scene)
+		}
+	}
+
 	return platform.SendResult{
 		MessageID: strconv.FormatInt(out.MessageSeq, 10),
 		Timestamp: time.Unix(out.Time, 0),
 		Platform:  PlatformID,
 		Raw:       &SendResult{MessageSeq: out.MessageSeq, SentAt: time.Unix(out.Time, 0)},
 	}, nil
+}
+
+// fileAttachments 筛出需要走上传接口的文件类附件。
+func fileAttachments(atts []platform.Attachment) []platform.Attachment {
+	var out []platform.Attachment
+	for _, att := range atts {
+		if att.Kind == platform.AttachmentKindFile {
+			out = append(out, att)
+		}
+	}
+	return out
+}
+
+// uploadFiles 依次上传文件附件到指定会话。
+func (s *milkySender) uploadFiles(ctx stdctx.Context, scene string, peerID int64, atts []platform.Attachment) error {
+	for i, att := range atts {
+		uri := att.URL
+		if uri == "" && len(att.Data) > 0 {
+			uri = "base64://" + base64.StdEncoding.EncodeToString(att.Data)
+		}
+		if uri == "" {
+			return fmt.Errorf("milky: 附件 #%d 既无 URL 也无 Data，无法上传", i)
+		}
+		name := att.Name
+		if name == "" {
+			name = "file"
+		}
+
+		var out uploadFileOutput
+		var err error
+		if scene == sceneGroup {
+			err = s.client.call(ctx, "upload_group_file", &uploadGroupFileInput{
+				GroupID:  peerID,
+				FileURI:  uri,
+				FileName: name,
+			}, &out)
+		} else {
+			err = s.client.call(ctx, "upload_private_file", &uploadPrivateFileInput{
+				UserID:   peerID,
+				FileURI:  uri,
+				FileName: name,
+			}, &out)
+		}
+		if err != nil {
+			return fmt.Errorf("milky: 上传附件 %q 失败: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -192,11 +264,16 @@ func (s *milkySender) SetAdmin(ctx stdctx.Context, groupID, userID string, isAdm
 // DeleteMemberMessage 撤回群成员的消息。功能等同于群场景下的 Delete，
 // 作为自动审核的便捷方法提供。
 func (s *milkySender) DeleteMemberMessage(ctx stdctx.Context, groupID, messageID string) error {
-	chatID := encodeChatID(sceneGroup, func() int64 {
-		n, _ := strconv.ParseInt(groupID, 10, 64)
-		return n
-	}())
-	return s.Delete(ctx, chatID, messageID)
+	// 必须走 parseUin：调用方（core/context 的 TryDeleteMemberMessage）传入的
+	// 是 event.Chat().ID，形态为 "group:123456789" 而非裸 QQ 号。
+	// 此前直接 strconv.ParseInt 且丢弃 error，解析失败得到 0，于是向
+	// group_id=0 发起撤回——自动审核静默失效，而调用方通常忽略返回值，
+	// 完全无从察觉。本文件其余 GroupManager 方法都已使用 parseUin。
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	return s.Delete(ctx, encodeChatID(sceneGroup, gid), messageID)
 }
 
 // MuteAll 开启或关闭全群禁言。
@@ -282,9 +359,15 @@ func (s *milkySender) RemoveReaction(ctx stdctx.Context, chatID, messageID strin
 }
 
 func (s *milkySender) sendReaction(ctx stdctx.Context, chatID, messageID string, emoji platform.Emoji, add bool) error {
-	_, gid, ok := decodeChatID(chatID)
+	scene, gid, ok := decodeChatID(chatID)
 	if !ok {
 		return fmt.Errorf("milky: reaction: invalid chatID %q", chatID)
+	}
+	// 必须校验 scene：Milky 仅支持群消息表情回应。此前丢弃 scene 后，
+	// 私聊场景的 "friend:12345" 会把好友 QQ 号当作 group_id 用，
+	// 若机器人恰好在该号码对应的群里，就会把表情回应写到毫不相干的群消息上。
+	if scene != sceneGroup {
+		return fmt.Errorf("milky: reaction: 仅支持群消息，chatID=%q", chatID)
 	}
 	seq, err := strconv.ParseInt(messageID, 10, 64)
 	if err != nil {
@@ -379,8 +462,8 @@ func buildOutgoingSegments(msg platform.OutboundMessage) []outgoingSegment {
 				Data: outgoingSegData{URI: uri},
 			})
 		default:
-			// 文件附件——Milky 发送消息段中没有直接对应的类型；
-			// 尽力而为：跳过（文件上传需单独调用 API）。
+			// 文件类附件在这里刻意跳过：Milky 的消息段没有"文件"类型，
+			// 它们由 milkySender.Send 通过 upload_*_file 接口单独上传。
 		}
 	}
 

@@ -57,6 +57,18 @@ type MessageExtra struct {
 	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitempty"`
 }
 
+// messageOptions 把 MessageExtra 中各发送接口通用的开关转换为 payload 字段。
+//
+// DisableWebPreview 不在其中：它只对文本类消息有效（媒体消息没有链接预览），
+// 由 SendMessagePayload / EditMessageTextPayload 单独承载。
+func (e MessageExtra) messageOptions() MessageOptions {
+	return MessageOptions{
+		DisableNotification: e.DisableNotification,
+		ProtectContent:      e.ProtectContent,
+		AllowPaidBroadcast:  e.AllowPaidBroadcast,
+	}
+}
+
 // ApplyExtra injects Telegram-specific options into an OutboundMessage.
 //
 // Returns a new message; the original is not modified.

@@ -426,3 +426,39 @@ func TestEncodeParseRoundtrip_TextAndMentions(t *testing.T) {
 		t.Errorf("roundtrip mention: got %q, missing '@userA'", text)
 	}
 }
+
+// ─── 嵌套 <message> 的 @ 归属 ─────────────────────────────────────────────────
+
+// TestParseMessageContentFull_ForwardedMentionsNotLeaked 固定"被转发内容里的
+// @ 不算到外层消息头上"。
+//
+// 用户转发一条曾经 @ 过机器人的旧消息时，若把外层 parsedContent 直接传进
+// 嵌套遍历，IsSelf 会被置位，OnMentionedBot() 就会在一条根本没提及机器人的
+// 消息上命中。
+func TestParseMessageContentFull_ForwardedMentionsNotLeaked(t *testing.T) {
+	parsed := parseMessageContentFull(`<message forward><at id="10001"/>旧消息</message>转发给你`)
+
+	if len(parsed.Mentions) != 0 {
+		t.Errorf("转发内容中的 @ 不应计入外层消息: %+v", parsed.Mentions)
+	}
+}
+
+// TestParseMessageContentFull_PlainNestedMessageMentionsKept 无 id 且非 forward 的
+// <message> 只是消息分隔符，其中的 @ 仍属于当前这条消息。
+func TestParseMessageContentFull_PlainNestedMessageMentionsKept(t *testing.T) {
+	parsed := parseMessageContentFull(`<message><at id="10001"/>你好</message>`)
+
+	if len(parsed.Mentions) != 1 || parsed.Mentions[0].ID != "10001" {
+		t.Errorf("分隔用 <message> 内的 @ 应保留: %+v", parsed.Mentions)
+	}
+}
+
+// TestParseMessageContentFull_ForwardedMentionAllNotLeaked 转发内容中的
+// @全体成员 同样不应污染外层。
+func TestParseMessageContentFull_ForwardedMentionAllNotLeaked(t *testing.T) {
+	parsed := parseMessageContentFull(`<message id="m1"><at type="all"/>公告</message>看这个`)
+
+	if parsed.MentionsAll {
+		t.Error("转发内容中的 @全体成员 不应置位外层 MentionsAll")
+	}
+}

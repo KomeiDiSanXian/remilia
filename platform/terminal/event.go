@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -168,12 +169,17 @@ func (e *Event) Mentions() []platform.UserInfo {
 }
 
 // eventCounter 用于生成唯一事件 ID 的计数器。
-var eventCounter uint64
+//
+// 必须使用原子类型：NewEvent / NewGroupEvent 以及导出的测试辅助方法
+// SimulateMessage / SimulateGroupMessage 都可能被多个 goroutine 并发调用。
+// 普通的 ++ 是非同步的读-改-写（-race 直接报警），丢失更新还会让两个不同
+// 事件拿到同一个 ID，破坏一切以事件 ID 为键的去重与关联逻辑。
+// 同结构体内的 Adapter.msgCount 已经是 atomic.Uint64。
+var eventCounter atomic.Uint64
 
 // generateEventID 生成唯一的事件 ID。
 func generateEventID() string {
-	eventCounter++
-	return "terminal-" + formatUint64(eventCounter)
+	return "terminal-" + formatUint64(eventCounter.Add(1))
 }
 
 // formatUint64 将 uint64 格式化为字符串（避免依赖 strconv）。

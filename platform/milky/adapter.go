@@ -19,6 +19,15 @@ import (
 // PlatformID 是 Milky (QQ) 平台的唯一标识符。
 const PlatformID = "milky"
 
+const (
+	// maxWSMessageBytes 是单条 WebSocket 消息允许的最大字节数。
+	maxWSMessageBytes = 16 << 20 // 16 MiB
+
+	// healthyConnDuration 是判定一次连接"健康"的最短存活时长。
+	// 超过该时长后断线视为偶发故障，重连计数与退避从头开始。
+	healthyConnDuration = 60 * time.Second
+)
+
 // milkyCapabilities 返回 Milky 平台的能力集合。
 func milkyCapabilities() platform.Capabilities {
 	return platform.Capabilities{
@@ -234,10 +243,9 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 			continue
 		}
 
-		attempts = 0
-		delay = a.cfg.ReconnectDelay
 		logger.Infof("[milky.Adapter] WebSocket connected to %s", a.cfg.BaseURL)
 
+		connectedAt := time.Now()
 		disconnectErr := a.readLoop(ctx, conn, eventCh)
 		_ = conn.Close()
 
@@ -249,6 +257,22 @@ func (a *Adapter) eventLoop(ctx stdctx.Context, eventCh chan<- platform.Event) e
 			WithError(disconnectErr).
 			Warn("[milky.Adapter] WebSocket disconnected, reconnecting...")
 		a.NotifyDisconnect(disconnectErr)
+
+		// 只有稳定存活过一段时间的连接才算"健康"，才重置退避与重连计数。
+		//
+		// 此前是"握手成功即重置"，于是握手后才鉴权失败的服务端（或崩溃重启
+		// 循环中的服务端）会让 attempts 永远回到 0：MaxReconnect 永不生效，
+		// 退避也永远涨不上去，退化成固定节奏的无限重连风暴。
+		if time.Since(connectedAt) >= healthyConnDuration {
+			attempts = 0
+			delay = a.cfg.ReconnectDelay
+		} else {
+			attempts++
+			if a.cfg.MaxReconnect > 0 && attempts > a.cfg.MaxReconnect {
+				return fmt.Errorf("milky: exceeded max reconnect attempts (%d): %w",
+					a.cfg.MaxReconnect, disconnectErr)
+			}
+		}
 
 		select {
 		case <-time.After(delay):
@@ -275,6 +299,9 @@ func (a *Adapter) dial(ctx stdctx.Context, wsURL string) (*websocket.Conn, error
 		// 而该错误会被 Warn 日志与断连回调记录，等于把凭据写进日志。
 		return nil, fmt.Errorf("milky: dial %s: %w", redactURLSecrets(wsURL), err)
 	}
+	// 限制单帧大小：gorilla/websocket 默认不限制读取长度，
+	// 对端（或明文 ws:// 链路上的中间人）声明一个超大帧即可让进程 OOM。
+	conn.SetReadLimit(maxWSMessageBytes)
 	return conn, nil
 }
 

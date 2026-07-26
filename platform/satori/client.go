@@ -101,11 +101,32 @@ func newClient(cfg Config) *Client {
 	}
 	return &Client{
 		http:     &http.Client{Timeout: timeout},
-		baseURL:  strings.TrimRight(cfg.ServerURL, "/"),
+		baseURL:  httpBaseURL(cfg.ServerURL),
 		version:  version,
 		token:    cfg.Token,
 		platform: cfg.Platform,
 		userID:   cfg.UserID,
+	}
+}
+
+// httpBaseURL 把 ServerURL 归一化为可用于 HTTP 调用的形式。
+//
+// Config.ServerURL 的字段文档明确写着支持 "ws://localhost:5140" 这种写法，
+// wsConn.wsURL() 也确实兼容它。但 Client 此前直接把该字符串当作 REST 基地址，
+// 而 http.Transport 只认 http/https，其余 scheme 一律
+// "unsupported protocol scheme" 报错。
+//
+// 后果非常隐蔽：WebSocket 连得上、READY 正常、事件源源不断流入，适配器看起来
+// 完全健康，但**每一条出站消息**都会失败。这里统一把 ws→http、wss→https。
+func httpBaseURL(serverURL string) string {
+	base := strings.TrimRight(serverURL, "/")
+	switch {
+	case strings.HasPrefix(base, "wss://"):
+		return "https://" + strings.TrimPrefix(base, "wss://")
+	case strings.HasPrefix(base, "ws://"):
+		return "http://" + strings.TrimPrefix(base, "ws://")
+	default:
+		return base
 	}
 }
 

@@ -40,8 +40,10 @@ type discordSender struct {
 	intMu   sync.Mutex
 	pending map[string]*pendingInteraction // key: interaction ID
 
-	stopCh chan struct{} // closing signals cleanupLoop to exit
-	close  sync.Once     // ensures stopCh is closed exactly once
+	// cleanupMu 保护 stopCh / stopped，使 cleanupLoop 可以随 Start/Stop 反复启停。
+	cleanupMu sync.Mutex
+	stopCh    chan struct{} // closing signals cleanupLoop to exit
+	stopped   bool          // true 表示当前没有在运行的 cleanupLoop
 }
 
 // newSender creates a discordSender wrapping the given discordgo session.
@@ -51,13 +53,30 @@ func newSender(session *discordgo.Session) *discordSender {
 		pending: make(map[string]*pendingInteraction),
 		stopCh:  make(chan struct{}),
 	}
-	go s.cleanupLoop()
+	go s.cleanupLoop(s.stopCh)
 	return s
 }
 
+// startCleanup 在 cleanupLoop 已停止时重新启动它。幂等。
+//
+// 适配器支持 Stop → Start 的重启循环（见 GatewayAdapter.Start 的文档），
+// 而 stopCleanup 会永久终止清理协程。若不能重新启动，重启后
+// storeInteraction 仍在不断写入 s.pending，却再无任何东西回收，
+// 于是把"一个闲置协程"换成了"无上限的内存泄漏"。
+func (s *discordSender) startCleanup() {
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+	if !s.stopped {
+		return // 已在运行
+	}
+	s.stopCh = make(chan struct{})
+	s.stopped = false
+	go s.cleanupLoop(s.stopCh)
+}
+
 // cleanupLoop periodically removes expired interaction entries.
-// Exits when s.stopCh is closed (called by adapter Stop).
-func (s *discordSender) cleanupLoop() {
+// Exits when the stop channel it was started with is closed.
+func (s *discordSender) cleanupLoop(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
@@ -71,17 +90,24 @@ func (s *discordSender) cleanupLoop() {
 				}
 			}
 			s.intMu.Unlock()
-		case <-s.stopCh:
+		case <-stopCh:
 			return
 		}
 	}
 }
 
 // stopCleanup signals cleanupLoop to exit. Idempotent.
+//
+// 与 startCleanup 配对：Start 时重新拉起，Stop 时停掉，避免
+// "停一次就永久失去 GC" 或 "每次 Start 泄漏一个协程" 两种极端。
 func (s *discordSender) stopCleanup() {
-	s.close.Do(func() {
-		close(s.stopCh)
-	})
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+	if s.stopped {
+		return
+	}
+	s.stopped = true
+	close(s.stopCh)
 }
 
 // storeInteraction registers a Discord interaction so the sender can dispatch
@@ -162,11 +188,25 @@ func (s *discordSender) sendInteractionResponse(interactionID string, msg platfo
 
 	if !p.responded {
 		// First response: use InteractionRespond (type 4 = message with source)
+		//
+		// 乐观置位 + 失败回滚：置位必须在锁内完成，否则两个并发 Send 会同时
+		// 看到 !responded 并各发一次 type-4 响应，第二次被 Discord 以
+		// 40060（already acknowledged）拒绝。
 		p.responded = true
 		i := p.interaction
 		s.intMu.Unlock()
 
-		return s.session.InteractionRespond(i, buildInteractionResponse(msg, extra))
+		if err := s.session.InteractionRespond(i, buildInteractionResponse(msg, extra)); err != nil {
+			// 首响失败必须回滚：Discord 侧该 interaction 仍未被确认，而
+			// followup 走 /webhooks/{app}/{token}，要求先确认过。
+			// 不回滚的话，一次瞬时 5xx 会让这个 interaction 在其 15 分钟
+			// 生命周期内彻底无法再回复——任何重试都必然 404。
+			s.intMu.Lock()
+			p.responded = false
+			s.intMu.Unlock()
+			return err
+		}
+		return nil
 	}
 	// Subsequent responses: use follow-up messages
 	i := p.interaction

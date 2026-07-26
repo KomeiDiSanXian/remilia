@@ -343,6 +343,23 @@ type ChatMember struct {
 // Request payload types
 // ────────────────────────────────────────────────────────────────────────────
 
+// MessageOptions 是各发送接口共有的 Telegram 通用可选开关。
+//
+// 以匿名字段嵌入各 *Payload，encoding/json 会把这些字段平铺到顶层 JSON 对象，
+// 与 Bot API 的参数结构一致。
+//
+// 此前 MessageExtra 里的这些开关在 payload 结构体中根本没有对应字段，
+// telegram.ApplyExtra 完全是空转：调用方设置了 DisableNotification，
+// 五千人群依然会在凌晨收到推送，且没有任何报错。
+type MessageOptions struct {
+	// DisableNotification sends the message silently.
+	DisableNotification bool `json:"disable_notification,omitempty"`
+	// ProtectContent protects the message from being forwarded or saved.
+	ProtectContent bool `json:"protect_content,omitempty"`
+	// AllowPaidBroadcast allows sending as a paid broadcast (Bot API 7.10+).
+	AllowPaidBroadcast bool `json:"allow_paid_broadcast,omitempty"`
+}
+
 // SendMessagePayload is the JSON body for the sendMessage API method.
 type SendMessagePayload struct {
 	ChatID           string                `json:"chat_id"`
@@ -351,6 +368,9 @@ type SendMessagePayload struct {
 	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
 	MessageThreadID  int                   `json:"message_thread_id,omitempty"`
+	// DisableWebPreview 仅文本消息适用（媒体消息没有链接预览）。
+	DisableWebPreview bool `json:"disable_web_page_preview,omitempty"`
+	MessageOptions
 }
 
 // SendPhotoPayload is the JSON body for the sendPhoto API method.
@@ -362,6 +382,7 @@ type SendPhotoPayload struct {
 	ParseMode        string                `json:"parse_mode,omitempty"`
 	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	MessageOptions
 }
 
 // SendAudioPayload is the JSON body for the sendAudio API method.
@@ -372,6 +393,7 @@ type SendAudioPayload struct {
 	ParseMode        string                `json:"parse_mode,omitempty"`
 	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	MessageOptions
 }
 
 // SendVideoPayload is the JSON body for the sendVideo API method.
@@ -382,6 +404,7 @@ type SendVideoPayload struct {
 	ParseMode        string                `json:"parse_mode,omitempty"`
 	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	MessageOptions
 }
 
 // SendDocumentPayload is the JSON body for the sendDocument API method.
@@ -392,15 +415,17 @@ type SendDocumentPayload struct {
 	ParseMode        string                `json:"parse_mode,omitempty"`
 	ReplyToMessageID int                   `json:"reply_to_message_id,omitempty"`
 	ReplyMarkup      *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	MessageOptions
 }
 
 // EditMessageTextPayload is the JSON body for the editMessageText API method.
 type EditMessageTextPayload struct {
-	ChatID      string                `json:"chat_id,omitempty"`
-	MessageID   int                   `json:"message_id,omitempty"`
-	Text        string                `json:"text"`
-	ParseMode   string                `json:"parse_mode,omitempty"`
-	ReplyMarkup *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	ChatID            string                `json:"chat_id,omitempty"`
+	MessageID         int                   `json:"message_id,omitempty"`
+	Text              string                `json:"text"`
+	ParseMode         string                `json:"parse_mode,omitempty"`
+	ReplyMarkup       *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+	DisableWebPreview bool                  `json:"disable_web_page_preview,omitempty"`
 }
 
 // EditMessageReplyMarkupPayload is the JSON body for the editMessageReplyMarkup API method.
@@ -443,6 +468,25 @@ type GetUpdatesPayload struct {
 	Offset  int `json:"offset,omitempty"`
 	Timeout int `json:"timeout,omitempty"`
 	Limit   int `json:"limit,omitempty"`
+}
+
+// GetFilePayload is the JSON body for the getFile API method.
+type GetFilePayload struct {
+	FileID string `json:"file_id"`
+}
+
+// File represents a file ready to be downloaded, as returned by getFile.
+//
+// FilePath 的有效期约为 1 小时，过期后需重新调用 getFile。
+type File struct {
+	// FileID is the identifier for this file.
+	FileID string `json:"file_id"`
+	// FileUniqueID is the permanent unique identifier for this file.
+	FileUniqueID string `json:"file_unique_id"`
+	// FileSize is the file size in bytes.
+	FileSize int64 `json:"file_size,omitempty"`
+	// FilePath is the relative path used to build the download URL.
+	FilePath string `json:"file_path,omitempty"`
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -24,6 +24,10 @@ type Registry struct {
 	adapters map[string]Adapter
 	observer AdapterObserver // 可选，nil = 无操作
 
+	// fatalCh 用于向调用方实时推送适配器的致命错误（见 FatalErrors）。
+	// 有缓冲且非阻塞写入：没有消费者时直接丢弃，绝不拖慢适配器 goroutine。
+	fatalCh chan error
+
 	// disconnectUnregs 保存每个平台 RecoverableAdapter 的断连回调注销函数。
 	// StartAll 每次启动前先调用旧的注销函数，再注册新的，防止多次调用时回调累积。
 	// StopAll 完成后统一清理，释放对 Registry 的引用，避免 GC 泄漏。
@@ -35,6 +39,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		adapters:         make(map[string]Adapter),
 		disconnectUnregs: make(map[string]func()),
+		fatalCh:          make(chan error, fatalErrBuffer),
 	}
 }
 
@@ -47,6 +52,49 @@ func (r *Registry) WithObserver(o AdapterObserver) *Registry {
 	r.observer = o
 	r.mu.Unlock()
 	return r
+}
+
+// fatalErrBuffer 是致命错误 channel 的缓冲长度。
+const fatalErrBuffer = 8
+
+// FatalErrors 返回适配器致命错误的实时通知 channel。
+//
+// StartAll 只在**所有**适配器退出后才返回，健康平台会一直阻塞到 ctx 取消，
+// 因此单个平台的致命失败可能在数天内都无人知晓。订阅这个 channel 可以在
+// 错误发生的当下就拿到它，用于告警、重启或降级：
+//
+//	go func() {
+//	    for err := range reg.FatalErrors() {
+//	        alert(err)
+//	    }
+//	}()
+//	_ = reg.StartAll(ctx, handler)
+//
+// channel 有缓冲且写入是非阻塞的：没有消费者时错误会被直接丢弃，
+// 不会拖慢适配器 goroutine。需要不丢事件的完整通知请改用 AdapterObserver。
+//
+// channel 由 Registry 持有，不会被关闭。
+func (r *Registry) FatalErrors() <-chan error {
+	if r.fatalCh == nil {
+		// 零值 Registry（未经 NewRegistry 构造）：返回已关闭的 channel，
+		// 使文档中的 for-range 用法立即结束而不是永久阻塞在 nil channel 上。
+		closed := make(chan error)
+		close(closed)
+		return closed
+	}
+	return r.fatalCh
+}
+
+// publishFatal 以非阻塞方式推送一个致命错误。
+func (r *Registry) publishFatal(err error) {
+	if r.fatalCh == nil {
+		return
+	}
+	select {
+	case r.fatalCh <- err:
+	default:
+		// 无人消费或缓冲已满：丢弃。observer 与 StartAll 的返回值仍保留该错误。
+	}
 }
 
 // notifyObserver 内部辅助函数，无锁调用 observer（调用方自行保证 observer 安全读取）。
@@ -75,6 +123,9 @@ func isFatalErr(err error) bool {
 func (r *Registry) Register(adapter Adapter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// 覆盖注册同样要释放旧适配器的断线回调，否则被顶掉的实例仍会以同一个
+	// 平台名回调进 Registry，并被 disconnectUnregs 长期持有而无法回收。
+	r.releaseDisconnectHookLocked(adapter.Platform())
 	r.adapters[adapter.Platform()] = adapter
 }
 
@@ -97,7 +148,25 @@ func (r *Registry) Remove(platform string) bool {
 		return false
 	}
 	delete(r.adapters, platform)
+	r.releaseDisconnectHookLocked(platform)
 	return true
+}
+
+// releaseDisconnectHookLocked 注销 StartAll 为该平台注册的断线回调。
+//
+// 调用方必须持有 r.mu 写锁。
+//
+// 该回调闭包同时捕获了 Registry 与 Adapter，正是本结构体注释里要避免的引用环：
+// 不注销的话，已被移除的适配器仍能回调进 Registry，为一个已经下线的平台刷出
+// "waiting for recovery" 警告与断线指标；同时 disconnectUnregs 会一直持有该
+// 适配器使其无法被 GC。此前只有 StopAll 会清理，Remove/Replace 均遗漏。
+func (r *Registry) releaseDisconnectHookLocked(platform string) {
+	if unreg, ok := r.disconnectUnregs[platform]; ok {
+		if unreg != nil {
+			unreg()
+		}
+		delete(r.disconnectUnregs, platform)
+	}
 }
 
 // All 返回所有已注册适配器的快照（切片顺序不保证）
@@ -135,6 +204,9 @@ func (r *Registry) Replace(adapter Adapter) (old Adapter, replaced bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old, replaced = r.adapters[adapter.Platform()]
+	// 旧适配器的断线回调必须随其一起退场，否则它会继续以新适配器的
+	// 平台名回调进 Registry，并让旧实例常驻内存。
+	r.releaseDisconnectHookLocked(adapter.Platform())
 	r.adapters[adapter.Platform()] = adapter
 	return old, replaced
 }
@@ -169,7 +241,18 @@ func (r *Registry) CapabilitiesFor(platform string) (Capabilities, bool) {
 //
 // 每个适配器在独立 goroutine 中运行，ctx 取消时所有适配器退出。
 // handler 会收到来自所有平台的事件。
-// 若有适配器以非 context 取消的错误退出，StartAll 将返回该错误。
+//
+// # 错误语义
+//
+// 单个适配器致命失败**不会**中止其余平台——这是刻意的：一个平台配置有误
+// 不应让整个 Bot 起不来。但这也意味着返回值来得很晚：StartAll 只在所有
+// 适配器都退出后才返回，健康的平台会一直阻塞到 ctx 取消，实际可能是几天。
+//
+// 因此致命错误在**发生的当下**就通过两条途径立即上报，不必等到返回：
+//   - AdapterObserver.OnAdapterError（通过 WithObserver 注册）
+//   - FatalErrors() 返回的错误 channel
+//
+// 返回值仍是所有致命错误的合并结果，供关心最终状态的调用方使用。
 func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 	adapters := r.All()
 	if len(adapters) == 0 {
@@ -215,9 +298,12 @@ func (r *Registry) StartAll(ctx stdctx.Context, handler func(Event)) error {
 				// isFatalErr 统一封装过滤逻辑，避免此处与 wg.Wait() 后两处重复判断。
 				if isFatalErr(err) {
 					r.notifyObserver(func(o AdapterObserver) { o.OnAdapterError(a.Platform(), err.Error()) })
+					fatal := fmt.Errorf("platform %s: %w", a.Platform(), err)
 					mu.Lock()
-					errs = append(errs, fmt.Errorf("platform %s: %w", a.Platform(), err))
+					errs = append(errs, fatal)
 					mu.Unlock()
+					// 立即推送到错误 channel，让调用方无需等到 StartAll 返回。
+					r.publishFatal(fatal)
 				}
 			}
 		})

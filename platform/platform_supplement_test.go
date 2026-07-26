@@ -390,3 +390,41 @@ func TestMentionsEventHelper(t *testing.T) {
 		t.Error("expected nil mentions for plain event")
 	}
 }
+
+// TestTruncateText_SuffixCountsTowardBudget 固定"省略号计入 maxRunes 预算"的语义。
+//
+// 该函数的用途就是把文本压到平台长度上限以内（Capabilities.MaxTextLength、
+// Telegram 的 200 字符 callback 提示等）。若省略号不计入预算，返回值恰好
+// 超出上限一个字符，请求照样被平台拒绝——正好在这个函数存在的唯一场景里失效。
+func TestTruncateText_SuffixCountsTowardBudget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		in       string
+		max      int
+		want     string
+		wantRune int
+	}{
+		{"未超限时原样返回", "hello", 10, "hello", 5},
+		{"恰好等于上限时原样返回", "hello", 5, "hello", 5},
+		{"超限时总长度不超过 max", "hello world", 5, "hell…", 5},
+		{"max 为 1 时只返回省略号", "hello", 1, "…", 1},
+		{"max 非正数返回空串", "hello", 0, "", 0},
+		{"按 rune 而非字节计算", "你好世界啊", 3, "你好…", 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := platform.TruncateText(tt.in, tt.max)
+			if got != tt.want {
+				t.Errorf("TruncateText(%q, %d) = %q, want %q", tt.in, tt.max, got, tt.want)
+			}
+			if n := len([]rune(got)); n != tt.wantRune {
+				t.Errorf("TruncateText(%q, %d) 长度 %d rune，want %d", tt.in, tt.max, n, tt.wantRune)
+			}
+			if tt.max > 0 && len([]rune(got)) > tt.max {
+				t.Errorf("结果超出预算: %d > %d", len([]rune(got)), tt.max)
+			}
+		})
+	}
+}

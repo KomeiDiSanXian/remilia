@@ -4,6 +4,7 @@ import (
 	"bytes"
 	stdctx "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -12,7 +13,15 @@ import (
 	"time"
 )
 
-const apiBase = "https://api.telegram.org/bot"
+const (
+	apiBase = "https://api.telegram.org/bot"
+	// fileAPIBase 是附件下载端点的前缀（与 API 端点不同路径）。
+	fileAPIBase = "https://api.telegram.org/file/bot"
+	// defaultMaxDownloadBytes 是 DownloadFile 的默认读取上限。
+	defaultMaxDownloadBytes = 32 << 20 // 32 MiB，与 Telegram 的下载上限一致
+	// defaultHTTPTimeout 是普通 API 调用的默认超时。
+	defaultHTTPTimeout = 60 * time.Second
+)
 
 // Client is a lightweight Telegram Bot API client.
 //
@@ -24,13 +33,24 @@ type Client struct {
 	http    *http.Client
 }
 
-// NewClient creates a Client with the given bot token.
+// NewClient creates a Client with the given bot token and the default timeout.
 func NewClient(token string) *Client {
+	return NewClientWithTimeout(token, defaultHTTPTimeout)
+}
+
+// NewClientWithTimeout creates a Client with an explicit HTTP timeout.
+//
+// 长轮询的调用方必须让该超时大于 getUpdates 的 timeout 参数，
+// 否则客户端会在服务端正常返回之前先行中止，把健康连接误判为断线。
+func NewClientWithTimeout(token string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = defaultHTTPTimeout
+	}
 	return &Client{
 		baseURL: apiBase + token,
 		token:   token,
 		http: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -61,6 +81,35 @@ func (c *Client) redact(err error) error {
 		return err
 	}
 	return &redactedError{err: err, token: c.token}
+}
+
+// APIError 表示 Telegram API 以 ok=false 返回的业务错误。
+//
+// 保留结构化的 Description，使调用方能够按错误内容分支处理
+// （例如 parse_mode 解析失败后回退为纯文本重发），
+// 而不必对拼接后的错误字符串做模糊匹配。
+type APIError struct {
+	// Method 是触发错误的 Bot API 方法名，如 "sendMessage"。
+	Method string
+	// Description 是 Telegram 返回的 description 字段原文。
+	Description string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("telegram: %s API error: %s", e.Method, e.Description)
+}
+
+// IsParseEntitiesError 报告错误是否为 parse_mode 富文本解析失败。
+//
+// Telegram 对这类错误返回形如
+// "Bad Request: can't parse entities: Character '.' is reserved ..." 的描述。
+// 发送方据此把消息降级为纯文本重发，避免因为一处格式字符丢失整条消息。
+func IsParseEntitiesError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.Description), "can't parse entities")
 }
 
 // apiResponse is the standard Telegram API response wrapper.
@@ -207,6 +256,82 @@ func (c *Client) GetMe(ctx stdctx.Context) (*User, error) {
 	return &user, nil
 }
 
+// GetFile 用 file_id 换取文件的下载信息。
+//
+// Telegram 的入站附件只携带不透明的 file_id，必须先调用 getFile 得到
+// file_path，再拼出 https://api.telegram.org/file/bot<TOKEN>/<file_path>
+// 才能真正下载。
+func (c *Client) GetFile(ctx stdctx.Context, fileID string) (*File, error) {
+	if fileID == "" {
+		return nil, fmt.Errorf("telegram: GetFile: fileID must not be empty")
+	}
+	var f File
+	if err := c.call(ctx, "getFile", GetFilePayload{FileID: fileID}, &f); err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+// FileURL 把 getFile 返回的 file_path 拼成可直接下载的 URL。
+//
+// 注意：返回的 URL 路径里嵌着 bot token，属于**可直接调用 API 的活凭据**。
+// 不要把它写进日志、错误信息或转发给不受信任的下游；需要记录时先经
+// redactURL 处理。
+func (c *Client) FileURL(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	return fileAPIBase + c.token + "/" + filePath
+}
+
+// redactURL 抹掉 URL 中的 bot token，便于安全地记录日志。
+func (c *Client) redactURL(raw string) string {
+	if c.token == "" {
+		return raw
+	}
+	return strings.ReplaceAll(raw, c.token, "<redacted>")
+}
+
+// DownloadFile 按 file_id 下载附件内容。
+//
+// 相比 FileURL，这个方法不会把带 token 的 URL 暴露给调用方，
+// 是插件读取入站附件的推荐方式。maxBytes<=0 时使用默认上限。
+func (c *Client) DownloadFile(ctx stdctx.Context, fileID string, maxBytes int64) ([]byte, error) {
+	f, err := c.GetFile(ctx, fileID)
+	if err != nil {
+		return nil, err
+	}
+	if f.FilePath == "" {
+		return nil, fmt.Errorf("telegram: DownloadFile: empty file_path for %q", fileID)
+	}
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxDownloadBytes
+	}
+
+	rawURL := c.FileURL(f.FilePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		// 不能带上 rawURL：其中含 token。
+		return nil, fmt.Errorf("telegram: DownloadFile: create request: %w", c.redact(err))
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("telegram: DownloadFile: %w", c.redact(err))
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("telegram: DownloadFile: unexpected status %d for %s",
+			resp.StatusCode, c.redactURL(rawURL))
+	}
+	// 限制读取上限，避免超大附件把进程打到 OOM。
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		return nil, fmt.Errorf("telegram: DownloadFile: read body: %w", err)
+	}
+	return data, nil
+}
+
 // call performs a JSON POST request to the given Telegram Bot API method.
 //
 // params is marshaled as the JSON body. result, if non-nil, is unmarshaled
@@ -244,7 +369,7 @@ func (c *Client) call(ctx stdctx.Context, method string, params any, result any)
 	}
 
 	if !apiResp.OK {
-		return fmt.Errorf("telegram: %s API error: %s", method, apiResp.Description)
+		return &APIError{Method: method, Description: apiResp.Description}
 	}
 
 	if result != nil && len(apiResp.Result) > 0 {

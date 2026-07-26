@@ -31,7 +31,15 @@ func (api *Client) authHeader() string {
 
 // Post 发送一个 post 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
 func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result, error) {
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	result, err := httpclient.Post(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
@@ -47,7 +55,15 @@ func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result
 // Put 发送一个 put 请求到 url，自动添加 Authorization 头。
 // 若 data 为 nil，则发送无请求体的 PUT 请求（适用于如表情表态等不需要请求体的接口）。
 func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result, error) {
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	req := httpclient.Put(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader())
@@ -64,7 +80,15 @@ func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result,
 
 // Patch 发送一个 patch 请求到 url，自动添加 Authorization 头。
 func (api *Client) Patch(ctx context.Context, url string, data any) (gjson.Result, error) {
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	result, err := httpclient.Patch(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
@@ -79,7 +103,15 @@ func (api *Client) Patch(ctx context.Context, url string, data any) (gjson.Resul
 
 // Get 发送一个 get 请求到 url，自动添加 Authorization 头。
 func (api *Client) Get(ctx context.Context, url string) (gjson.Result, error) {
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	result, err := httpclient.Get(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
@@ -93,7 +125,15 @@ func (api *Client) Get(ctx context.Context, url string) (gjson.Result, error) {
 
 // Delete 发送一个 delete 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
 func (api *Client) Delete(ctx context.Context, url string) (gjson.Result, error) {
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	resp, err := httpclient.Delete(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
@@ -288,7 +328,15 @@ func (api *Client) DeleteGuildMember(ctx context.Context, guildID, userID string
 		DeleteHistoryMsgDays int  `json:"delete_history_msg_days"`
 	}
 	// DELETE 请求需要 body，直接通过 httpclient 以 DELETE 方法发送（类似 Post helper）。
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	result, err := httpclient.Delete(fmt.Sprintf(constant.GuildMemberURL, guildID, userID)).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
@@ -334,7 +382,15 @@ func (api *Client) AddGuildMemberRole(ctx context.Context, guildID, userID, role
 // DeleteGuildMemberRole 从身份组移除成员。
 func (api *Client) DeleteGuildMemberRole(ctx context.Context, guildID, userID, roleID, channelID string) (gjson.Result, error) {
 	// DELETE with optional body
-	api.tm.WaitReady()
+	// 必须传播错误并监听调用方 ctx。
+	//
+	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
+	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
+	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
+	// deadline。
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
 	req := httpclient.Delete(fmt.Sprintf(constant.GuildMemberRoleURL, guildID, userID, roleID)).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader())

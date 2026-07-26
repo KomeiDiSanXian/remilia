@@ -164,9 +164,14 @@ func (c *WebhookConn) start(ctx context.Context) error {
 	mux.HandleFunc("/webhook", c.webhookImpl.Handle)
 	mux.HandleFunc("/", c.webhookImpl.Handle)
 
+	// 该端口按设计对公网可达（QQ 回调），必须设置读超时，
+	// 否则慢速请求可长期占用连接与 goroutine（Slowloris）。
 	c.server = &http.Server{
-		Addr:    c.addr,
-		Handler: mux,
+		Addr:              c.addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	c.running = true

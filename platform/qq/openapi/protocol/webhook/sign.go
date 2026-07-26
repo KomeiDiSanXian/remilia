@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -20,6 +22,13 @@ type ed25519Key struct {
 }
 
 func (c *Conn) genSeed() (string, error) {
+	// info 允许为 nil：NewWebhookServerAdapter / SimpleWebhookAdapter 都明确
+	// 支持传入 nil BotInfo。缺少此判断时，任何带合法长度签名头的匿名请求
+	// 都会在这里空指针 panic（net/http 逐连接 recover，于是退化为可被外部
+	// 无限触发的日志风暴 + 连接重置，适配器 100% 不可用）。
+	if c.info == nil {
+		return "", fmt.Errorf("bot info is nil")
+	}
 	if c.info.AppSecret == "" {
 		return "", fmt.Errorf("app secret is empty")
 	}
@@ -44,14 +53,59 @@ func (c *Conn) decodeSign(sign string) ([]byte, error) {
 	return signBuf, nil
 }
 
+// signatureMaxSkew 是签名时间戳允许的最大偏差（前后各计）。
+//
+// 缺少这个窗口时，签名是永久有效的：任何一次被截获（日志、抓包、
+// 中间代理）的合法回调都能被无限次重放，重复触发指令、重复入账。
+// 取 5 分钟以容忍常见的服务器时钟漂移。
+const signatureMaxSkew = 5 * time.Minute
+
 func (c *Conn) buildMsg(timestamp string, body []byte) ([]byte, error) {
 	if timestamp == "" {
 		return nil, fmt.Errorf("timestamp is empty")
+	}
+	if err := checkTimestampSkew(timestamp); err != nil {
+		return nil, err
 	}
 	var msg bytes.Buffer
 	_, _ = msg.WriteString(timestamp)
 	_, _ = msg.Write(body)
 	return msg.Bytes(), nil
+}
+
+// checkTimestampSkew 校验签名时间戳是否落在允许的时间窗内。
+//
+// 同时兼容两种形态：Unix 秒（数字）与 RFC3339（含 Nano）。
+// 两种都解析不了时保守放行——此处的职责是收窄重放窗口，
+// 不应因为一个未预期的时间戳格式把正常回调全部挡在门外；
+// 真正的真伪判定仍由后续的 Ed25519 校验负责。
+func checkTimestampSkew(timestamp string) error {
+	ts := strings.TrimSpace(timestamp)
+
+	var t time.Time
+	if n, err := strconv.ParseInt(ts, 10, 64); err == nil {
+		// 13 位视为毫秒，10 位视为秒；避免把毫秒时间戳误判为遥远的未来
+		// 而把所有正常回调全部拒掉。
+		if len(ts) >= 13 {
+			t = time.UnixMilli(n)
+		} else {
+			t = time.Unix(n, 0)
+		}
+	} else if parsed, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		t = parsed
+	} else {
+		return nil
+	}
+
+	skew := time.Since(t)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > signatureMaxSkew {
+		return fmt.Errorf("signature timestamp out of range: skew=%v, max=%v",
+			skew.Truncate(time.Second), signatureMaxSkew)
+	}
+	return nil
 }
 
 func (c *Conn) genKey() (*ed25519Key, error) {

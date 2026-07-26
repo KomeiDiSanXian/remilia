@@ -254,7 +254,9 @@ func TestNewEvent_EditedMessage(t *testing.T) {
 	evt := telegram.NewEvent(upd)
 	require.NotNil(t, evt)
 
-	assert.Equal(t, platform.EventKindPrivateMessage, evt.Kind())
+	// 编辑消息映射为 MESSAGE_UPDATE，与 doc.go 的事件映射表及 Discord 适配器一致。
+	// 若仍按普通消息投递，一条被编辑成 "/ban" 的旧消息会重新触发命令。
+	assert.Equal(t, platform.EventKindMessageUpdate, evt.Kind())
 
 	ee, ok := evt.(platform.EditableEvent)
 	assert.True(t, ok)
@@ -413,6 +415,20 @@ func TestCollectAttachments_None(t *testing.T) {
 	assert.Empty(t, atts)
 }
 
+// assertFileID 断言附件的 Telegram file_id。
+//
+// file_id 不再放在 InboundAttachment.URL 里：它不是可下载的 URL，
+// 跨平台插件对其执行 http.Get 只会得到 unsupported protocol scheme。
+// 现在它挂在 Extra 的 *telegram.FileMeta 上，URL 由适配器调用
+// getFile 解析后回填。
+func assertFileID(t *testing.T, att platform.InboundAttachment, want string) {
+	t.Helper()
+	meta, ok := att.Extra.(*telegram.FileMeta)
+	require.True(t, ok, "附件 Extra 应为 *telegram.FileMeta")
+	assert.Equal(t, want, meta.FileID)
+	assert.Empty(t, att.URL, "URL 应留待适配器解析后回填")
+}
+
 func TestCollectAttachments_Photo(t *testing.T) {
 	msg := &telegram.Message{
 		Photo: []telegram.PhotoSize{
@@ -422,7 +438,7 @@ func TestCollectAttachments_Photo(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "large", atts[0].URL)
+	assertFileID(t, atts[0], "large")
 	assert.Equal(t, 800, atts[0].Width)
 	assert.Equal(t, 600, atts[0].Height)
 	assert.Equal(t, 50000, atts[0].Size)
@@ -436,7 +452,7 @@ func TestCollectAttachments_Audio(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "audio_id", atts[0].URL)
+	assertFileID(t, atts[0], "audio_id")
 	assert.Equal(t, "audio/mpeg", atts[0].MimeType)
 	assert.Equal(t, "song.mp3", atts[0].Name)
 }
@@ -448,8 +464,8 @@ func TestCollectAttachments_Multiple(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 2)
-	assert.Equal(t, "p1", atts[0].URL)
-	assert.Equal(t, "v1", atts[1].URL)
+	assertFileID(t, atts[0], "p1")
+	assertFileID(t, atts[1], "v1")
 }
 
 func TestCollectAttachments_Document(t *testing.T) {
@@ -460,7 +476,7 @@ func TestCollectAttachments_Document(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "doc_id", atts[0].URL)
+	assertFileID(t, atts[0], "doc_id")
 	assert.Equal(t, "application/pdf", atts[0].MimeType)
 	assert.Equal(t, "report.pdf", atts[0].Name)
 }
@@ -473,7 +489,7 @@ func TestCollectAttachments_Voice(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "voice_id", atts[0].URL)
+	assertFileID(t, atts[0], "voice_id")
 }
 
 func TestCollectAttachments_Animation(t *testing.T) {
@@ -484,7 +500,7 @@ func TestCollectAttachments_Animation(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "anim_id", atts[0].URL)
+	assertFileID(t, atts[0], "anim_id")
 	assert.Equal(t, 320, atts[0].Width)
 	assert.Equal(t, 240, atts[0].Height)
 }
@@ -497,7 +513,7 @@ func TestCollectAttachments_Sticker(t *testing.T) {
 	}
 	atts := telegram.CollectAttachments(msg)
 	require.Len(t, atts, 1)
-	assert.Equal(t, "sticker_id", atts[0].URL)
+	assertFileID(t, atts[0], "sticker_id")
 	assert.Equal(t, 512, atts[0].Width)
 	assert.Equal(t, 512, atts[0].Height)
 }
@@ -812,20 +828,22 @@ func TestEvent_WithAttachments(t *testing.T) {
 
 	atts := evt.Attachments()
 	require.Len(t, atts, 2)
-	assert.Equal(t, "pic1", atts[0].URL)
-	assert.Equal(t, "doc1", atts[1].URL)
+	assertFileID(t, atts[0], "pic1")
+	assertFileID(t, atts[1], "doc1")
 }
 
 // ── Event with mentions ─────────────────────────────────────────────────────
 
-func TestEvent_WithMentions(t *testing.T) {
+// TestEvent_WithTextMention 覆盖 "text_mention" 实体：这是唯一自带 User 对象的
+// @ 实体类型（Bot API 原文：user 字段 "For text_mention only"）。
+func TestEvent_WithTextMention(t *testing.T) {
 	msg := &telegram.Message{
 		MessageID: 1,
 		Chat:      &telegram.Chat{ID: 100, Type: telegram.ChatTypeGroup, Title: "Group"},
 		Date:      time.Now().Unix(),
-		Text:      "@user hello",
+		Text:      "User hello",
 		Entities: []telegram.MessageEntity{
-			{Type: "mention", Offset: 0, Length: 5, User: &telegram.User{ID: 42, FirstName: "User"}},
+			{Type: "text_mention", Offset: 0, Length: 4, User: &telegram.User{ID: 42, FirstName: "User"}},
 		},
 	}
 	upd := &telegram.Update{Message: msg}
@@ -833,10 +851,83 @@ func TestEvent_WithMentions(t *testing.T) {
 	require.NotNil(t, evt)
 
 	me, ok := evt.(platform.MentionsEvent)
-	assert.True(t, ok)
+	require.True(t, ok)
 	mentions := me.Mentions()
 	require.Len(t, mentions, 1)
 	assert.Equal(t, "42", mentions[0].ID)
+}
+
+// TestEvent_WithUsernameMention 覆盖 "mention" 实体：真实报文中它**不带** User，
+// 只能按 offset/length 从正文中切出 "@username"。
+//
+// 旧实现要求 Type=="mention" && User!=nil，该条件对真实报文恒为假，
+// 于是 Mentions() 永远为空、OnMentionedBot() 之类的规则在 Telegram 上永不命中。
+func TestEvent_WithUsernameMention(t *testing.T) {
+	msg := &telegram.Message{
+		MessageID: 1,
+		Chat:      &telegram.Chat{ID: 100, Type: telegram.ChatTypeGroup, Title: "Group"},
+		Date:      time.Now().Unix(),
+		Text:      "@user hello",
+		Entities: []telegram.MessageEntity{
+			{Type: "mention", Offset: 0, Length: 5},
+		},
+	}
+	upd := &telegram.Update{Message: msg}
+	evt := telegram.NewEvent(upd)
+	require.NotNil(t, evt)
+
+	me, ok := evt.(platform.MentionsEvent)
+	require.True(t, ok)
+	mentions := me.Mentions()
+	require.Len(t, mentions, 1)
+	assert.Equal(t, "user", mentions[0].DisplayName)
+}
+
+// TestEvent_MentionOffsetIsUTF16 固定 offset/length 的单位语义。
+//
+// Telegram 的实体偏移量以 UTF-16 代码单元计。"🎉" 在 UTF-16 中占 2 个单元、
+// 在 UTF-8 中占 4 字节、按 rune 只算 1 个——三者互不相同：若按字节或 rune 切片，
+// 这里切出来的都不会是 "@user"。
+func TestEvent_MentionOffsetIsUTF16(t *testing.T) {
+	msg := &telegram.Message{
+		MessageID: 1,
+		Chat:      &telegram.Chat{ID: 100, Type: telegram.ChatTypeGroup, Title: "Group"},
+		Date:      time.Now().Unix(),
+		Text:      "🎉 @user hello",
+		Entities: []telegram.MessageEntity{
+			{Type: "mention", Offset: 3, Length: 5}, // 🎉 占 2 个单元 + 空格 1 个
+		},
+	}
+	upd := &telegram.Update{Message: msg}
+	evt := telegram.NewEvent(upd)
+	require.NotNil(t, evt)
+
+	me, ok := evt.(platform.MentionsEvent)
+	require.True(t, ok)
+	mentions := me.Mentions()
+	require.Len(t, mentions, 1)
+	assert.Equal(t, "user", mentions[0].DisplayName)
+}
+
+// TestEvent_MentionOutOfRangeIgnored 越界实体应被跳过而非 panic。
+func TestEvent_MentionOutOfRangeIgnored(t *testing.T) {
+	msg := &telegram.Message{
+		MessageID: 1,
+		Chat:      &telegram.Chat{ID: 100, Type: telegram.ChatTypeGroup, Title: "Group"},
+		Date:      time.Now().Unix(),
+		Text:      "hi",
+		Entities: []telegram.MessageEntity{
+			{Type: "mention", Offset: 0, Length: 99},
+			{Type: "mention", Offset: -1, Length: 2},
+		},
+	}
+	upd := &telegram.Update{Message: msg}
+	evt := telegram.NewEvent(upd)
+	require.NotNil(t, evt)
+
+	me, ok := evt.(platform.MentionsEvent)
+	require.True(t, ok)
+	assert.Empty(t, me.Mentions())
 }
 
 // ── Client request verification ─────────────────────────────────────────────

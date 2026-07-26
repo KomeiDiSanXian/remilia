@@ -16,6 +16,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
+// maxWebhookBodyBytes 是 Webhook 请求体允许的最大字节数。
+// QQ 回调远小于该阈值；无上限读取会成为免鉴权的内存耗尽向量。
+const maxWebhookBodyBytes = 4 << 20 // 4 MiB
+
 // Webhook 表示一个 Webhook 连接接口
 type Webhook interface {
 	Verify(header http.Header, body []byte) (bool, error) // Verify 验证请求签名
@@ -85,7 +89,12 @@ func NewWithBuffer(info *dto.BotInfo, buffer int) *Conn {
 }
 
 // Addr returns the address of the webhook server.
+//
+// info 允许为 nil（见 genSeed 的说明），此时返回空串而非 panic。
 func (c *Conn) Addr() string {
+	if c == nil || c.info == nil {
+		return ""
+	}
 	return c.info.ServeAddr
 }
 
@@ -108,8 +117,11 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// 读取请求体
-	b, err := io.ReadAll(r.Body)
+	// 读取请求体。
+	//
+	// 必须限制大小：签名校验发生在读取之后，无上限的 io.ReadAll 让任何能访问
+	// 该端口的匿名客户端仅凭一个超大 body 就把进程打到 OOM（此时尚未鉴权）。
+	b, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes))
 	if err != nil {
 		logger.WithError(err).Error("[Webhook] Failed to read request body")
 		if errors.Is(err, io.EOF) {
@@ -267,9 +279,16 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 
 	c.totalEvents.Add(1)
 
+	// 在投递前快照日志所需字段：channel 发送即转移所有权，消费者
+	// (qq.NewEvent) 会立刻 ReleasePayload 把对象归还 sync.Pool，另一个
+	// 请求随即 Acquire 到同一指针并改写其字段。若在 send 之后再读
+	// payload.Type/ID，就是对已归还对象的读取——-race 可直接检出，
+	// 极端情况下还会读到撕裂的 string header。
+	evType, evID := payload.Type, payload.ID
+
 	select {
 	case c.eventChan <- payload:
-		logger.Tracef("[Webhook] Dispatched payload %s:%s to the event channel", payload.Type, payload.ID)
+		logger.Tracef("[Webhook] Dispatched payload %s:%s to the event channel", evType, evID)
 	default:
 		c.dropPayload(payload)
 	}

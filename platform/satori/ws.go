@@ -17,6 +17,15 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
+const (
+	// healthyConnDuration 是判定一次连接"健康"的最短存活时长。
+	// 超过该时长后断线视为偶发故障，重连计数与退避从头开始。
+	healthyConnDuration = 60 * time.Second
+
+	// minReadTimeout 是 WebSocket 读截止时间的下限。
+	minReadTimeout = 30 * time.Second
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // wsConn – 内部 WebSocket 连接管理器
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,6 +39,7 @@ import (
 type wsConn struct {
 	cfg          Config
 	platformID   string // 平台标识符，用于事件标记
+	botID        string // 机器人自身用户 ID，用于标记 @ 列表中的 IsSelf
 	handler      func(platform.Event)
 	onDisconnect func(error)
 
@@ -55,6 +65,7 @@ func newWSConn(cfg Config, platformID string, handler func(platform.Event), onDi
 	c := &wsConn{
 		cfg:          cfg,
 		platformID:   platformID,
+		botID:        cfg.UserID,
 		handler:      handler,
 		onDisconnect: onDisconnect,
 	}
@@ -88,6 +99,7 @@ func (c *wsConn) Run(ctx stdctx.Context) error {
 			return err // ctx 已取消，正常退出
 		}
 
+		startedAt := time.Now()
 		err := c.runOnce(ctx)
 		if err == nil || errors.Is(err, stdctx.Canceled) || errors.Is(err, stdctx.DeadlineExceeded) {
 			return err
@@ -96,6 +108,17 @@ func (c *wsConn) Run(ctx stdctx.Context) error {
 		// 触发断线回调
 		if c.onDisconnect != nil {
 			c.onDisconnect(err)
+		}
+
+		// 上一次连接稳定存活足够久，视为健康：重置重试计数与退避。
+		//
+		// attempt/delay 此前只增不减，统计的是"进程生命周期内的断线总数"而非
+		// MaxReconnects 语义上的"连续失败次数"：每晚重启一次 SDK 的部署会在
+		// 若干天后耗尽 MaxReconnects 而永久下线，且退避会被永久钉死在
+		// MaxReconnectDelay，一次 200ms 抖动也要付出满额延迟。
+		if time.Since(startedAt) >= healthyConnDuration {
+			attempt = 0
+			delay = c.cfg.ReconnectDelay
 		}
 
 		attempt++
@@ -189,7 +212,10 @@ func (c *wsConn) pingLoop(ctx stdctx.Context, conn *websocket.Conn) {
 			if err := c.writeSignal(conn, OpcodePing, nil); err != nil {
 				logger.WithFields(logger.Fields{
 					"platform": c.platformID,
-				}).WithError(err).Debug("[satori.wsConn] PING 发送失败")
+				}).WithError(err).Warn("[satori.wsConn] PING 发送失败，关闭连接以触发重连")
+				// 必须关闭连接：否则 readLoop 仍阻塞在 ReadMessage 上，
+				// 心跳失败不会转化为任何可观测的断线信号。
+				_ = conn.Close()
 				return
 			}
 		}
@@ -198,6 +224,17 @@ func (c *wsConn) pingLoop(ctx stdctx.Context, conn *websocket.Conn) {
 
 // readLoop 持续读取 WebSocket 消息并分发处理。
 func (c *wsConn) readLoop(ctx stdctx.Context, conn *websocket.Conn) error {
+	// 读超时是唯一的存活性检测手段：对端在 TCP 层存活但应用层卡死时，
+	// ReadMessage 会永久阻塞，重连逻辑（由 readLoop 返回驱动）永远不触发，
+	// 适配器会一直"看起来健康"却收不到任何事件。
+	// 每次成功读取后顺延截止时间；PONG 与 PING 同样会刷新它。
+	// 取下限，避免配置了极小 PingInterval（Validate 只拦 <=0）时，
+	// 一条完全健康的连接因为几百毫秒的读超时陷入无休止重连。
+	readTimeout := max(c.cfg.PingInterval*3, minReadTimeout)
+	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		return fmt.Errorf("satori ws: 设置读截止时间: %w", err)
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -209,6 +246,9 @@ func (c *wsConn) readLoop(ctx stdctx.Context, conn *websocket.Conn) error {
 				return err
 			}
 			return fmt.Errorf("satori ws: 读取消息: %w", err)
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+			return fmt.Errorf("satori ws: 刷新读截止时间: %w", err)
 		}
 
 		var sig Signal
@@ -237,9 +277,11 @@ func (c *wsConn) handleSignal(sig Signal) {
 		// 更新最后收到的序列号，用于会话恢复。
 		c.lastSN.Store(evt.SN)
 		// 转换并分发事件。
-		converted := convertEvent(&evt, c.platformID)
+		converted := convertEventWithBot(&evt, c.platformID, c.botID)
 		if c.handler != nil {
-			c.handler(converted)
+			// SafeDispatch：handler 由用户提供，panic 必须被隔离，
+			// 否则会击穿读取 goroutine 并终止整个进程。
+			platform.SafeDispatch(c.handler, converted)
 		}
 
 	case OpcodeReady:

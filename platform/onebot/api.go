@@ -108,17 +108,34 @@ func (c *wsAPIClient) Call(ctx stdctx.Context, action string, params any) (*APIR
 		c.pendingMu.Unlock()
 	}()
 
-	// 发送请求
+	// 发送请求。
+	//
+	// 必须设置写超时：gorilla/websocket 默认无写截止时间，对端停止读取时
+	// WriteMessage 会在持有 c.mu 的情况下无限期阻塞，进而拖死所有并发 API
+	// 调用——且此时读循环无错误可感知，不会触发重连。
+	writeTimeout := c.timeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if d := time.Until(deadline); d > 0 && d < writeTimeout {
+			writeTimeout = d
+		}
+	}
 	c.mu.Lock()
-	err = c.conn.WriteMessage(websocket.TextMessage, b)
+	if err = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err == nil {
+		err = c.conn.WriteMessage(websocket.TextMessage, b)
+	}
 	c.mu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("onebot api: ws write: %w", err)
 	}
 
-	// 等待响应，带超时
-	timeout := c.timeout
-	timer := time.NewTimer(timeout)
+	// 等待响应，带超时。
+	//
+	// 这里刻意使用完整的 c.timeout 而非上面收窄过的 writeTimeout：
+	// 调用方自己的 deadline 由下面的 ctx.Done() 分支负责，让两者共用同一个
+	// 时长会使定时器与 ctx.Done() 几乎同时就绪，select 随机选中定时器时会把
+	// context.DeadlineExceeded 变成本地的 timeout 文本错误，
+	// 破坏调用方的 errors.Is(err, context.DeadlineExceeded) 判断。
+	timer := time.NewTimer(c.timeout)
 	defer timer.Stop()
 	select {
 	case resp := <-ch:

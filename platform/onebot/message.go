@@ -42,11 +42,115 @@ const (
 	SegTypeFile     = "file"     // 文件（含 url, path, file_size 等）
 )
 
+// SegmentData 是消息段的参数字典。
+//
+// 底层仍是 map[string]string，既有的 s.Data["text"] 读取与
+// Data: map[string]string{...} 字面量写法都不受影响。
+// 区别在于它自带一个容错的 UnmarshalJSON。
+//
+// 为什么需要容错：OneBot V11 各实现（NapCat / Lagrange / go-cqhttp …）在
+// data 里混用类型非常普遍，例如 {"qq":123}（数字）、{"flash":true}（布尔）、
+// node 段的 {"content":[...]}（数组）。若直接声明成 map[string]string，
+// 这些值会让 json.Unmarshal 报错，而该错误会一路冒泡到 parseEvent，
+// receiveLoop 只能打一行 "Failed to parse event" 然后丢弃**整条事件**——
+// 一个无关紧要的字段类型不符，就吃掉了整条群消息。
+//
+// 现在标量一律按字面量转成字符串，数组/对象保留其原始 JSON 文本，
+// 未知字段最差也只是"这一个字段不好用"，不会波及整条事件。
+type SegmentData map[string]string
+
+// UnmarshalJSON 实现 json.Unmarshaler，对值类型做宽容降级。
+func (d *SegmentData) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		// data 不是对象（实测有实现会发 "data":"" 或 "data":[]）。
+		// 这里同样不能返回错误：错误会冒泡到 parseEvent 并丢弃整条事件，
+		// 正是本类型要消除的失败模式。降级为"无参数消息段"。
+		return nil
+	}
+	out := make(SegmentData, len(raw))
+	for k, v := range raw {
+		out[k] = rawJSONToString(v)
+	}
+	*d = out
+	return nil
+}
+
+// rawJSONToString 把任意 JSON 值降级为字符串表示。
+//
+//	"abc"      → abc          （解引号）
+//	123 / true → 123 / true   （字面量原样）
+//	[...] {...}→ 原始 JSON 文本（供调用方按需二次解析）
+//	null       → 空字符串
+func rawJSONToString(v json.RawMessage) string {
+	s := strings.TrimSpace(string(v))
+	if s == "" || s == "null" {
+		return ""
+	}
+	if s[0] == '"' {
+		var str string
+		if err := json.Unmarshal(v, &str); err == nil {
+			return str
+		}
+	}
+	return s
+}
+
 // MessageSegment 表示 OneBot V11 消息中的单个消息段。
 // Data 字段包含与消息段类型相关的参数。
 type MessageSegment struct {
-	Type string            `json:"type"`
-	Data map[string]string `json:"data"`
+	Type string      `json:"type"`
+	Data SegmentData `json:"data"`
+
+	// RawData 用于构造 data 中含有非字符串值的消息段（典型如 node 段的
+	// content 数组）。非 nil 时序列化以它为准，Data 被忽略。
+	//
+	// 仅用于发送侧；接收侧一律填充 Data。
+	RawData map[string]json.RawMessage `json:"-"`
+}
+
+// MarshalJSON 实现 json.Marshaler。
+//
+// RawData 非 nil 时按其内容原样输出，使 node 这类要求嵌套结构的消息段
+// 能够被正确构造；否则退回普通的字符串字典。
+func (s MessageSegment) MarshalJSON() ([]byte, error) {
+	if s.RawData == nil {
+		type plain struct {
+			Type string      `json:"type"`
+			Data SegmentData `json:"data"`
+		}
+		return json.Marshal(plain{Type: s.Type, Data: s.Data})
+	}
+	type rawSeg struct {
+		Type string                     `json:"type"`
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	return json.Marshal(rawSeg{Type: s.Type, Data: s.RawData})
+}
+
+// NewNodeSegment 构造合并转发的 node 段。
+//
+// node 段的 content 字段在协议里是**消息**类型（字符串或消息段数组），
+// 无法用 map[string]string 表达；此前 SegTypeNode 因此完全不可构造，
+// 合并转发发不出去。这里通过 RawData 承载嵌套结构。
+func NewNodeSegment(userID, nickname string, content MessageChain) (MessageSegment, error) {
+	contentJSON, err := json.Marshal(content)
+	if err != nil {
+		return MessageSegment{}, fmt.Errorf("onebot: marshal node content: %w", err)
+	}
+	uid, _ := json.Marshal(userID)
+	nick, _ := json.Marshal(nickname)
+	return MessageSegment{
+		Type: SegTypeNode,
+		RawData: map[string]json.RawMessage{
+			"user_id":  uid,
+			"nickname": nick,
+			"content":  contentJSON,
+		},
+	}, nil
 }
 
 // TextData 返回文本段中的 "text" 字段值。
@@ -88,6 +192,12 @@ type MessageChain []MessageSegment
 // UnmarshalJSON 实现 json.Unmarshaler，支持两种消息格式。
 func (mc *MessageChain) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 {
+		return nil
+	}
+	// encoding/json 明确规定：字面量 null 也会调用 UnmarshalJSON，
+	// 实现应将其视为空操作。缺少这一分支时，"message": null
+	// 会以 "unexpected message format" 报错并丢弃整条事件。
+	if string(b) == "null" {
 		return nil
 	}
 	switch b[0] {
@@ -301,11 +411,15 @@ func splitCQParams(s string) []string {
 }
 
 // unescapeText 还原纯文本（CQ 码之间的文本）的转义。
-// &amp; → &    &#91; → [    &#93; → ]
+// &#91; → [    &#93; → ]    &amp; → &
+//
+// &amp; 必须最后还原：否则 "&amp;#91;"（字面量文本 "&#91;" 的正确编码）
+// 会先变成 "&#91;"，再被二次解码成 "["，凭空产生 CQ 码分隔符。
+// 顺序与下方 unescapeCQValue 保持一致。
 func unescapeText(s string) string {
-	s = strings.ReplaceAll(s, "&amp;", "&")
 	s = strings.ReplaceAll(s, "&#91;", "[")
 	s = strings.ReplaceAll(s, "&#93;", "]")
+	s = strings.ReplaceAll(s, "&amp;", "&")
 	return s
 }
 

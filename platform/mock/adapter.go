@@ -19,6 +19,7 @@ package mock
 
 import (
 	stdctx "context"
+	"slices"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -213,4 +214,15 @@ func (a *Adapter) ResetCalls() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.Calls = nil
+}
+
+// Snapshot 返回已记录调用的副本，可安全地并发读取。
+//
+// 断言调用内容时请使用本方法，不要直接读取导出字段 Calls：
+// 所有写入都在 a.mu 保护下进行，而直接读取 Calls 不持锁，
+// 与内部的 append 构成数据竞争（-race 必报）。
+func (a *Adapter) Snapshot() []AdapterCall {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return slices.Clone(a.Calls)
 }

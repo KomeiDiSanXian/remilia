@@ -13,6 +13,11 @@ import (
 // selfClosingQuoteRe 匹配自闭合的 <quote .../> 元素（不匹配 <quote>...</quote>）。
 var selfClosingQuoteRe = regexp.MustCompile(`(?i)<quote\b[^>]*/>`)
 
+// quoteIDRe 从 <quote .../> 中提取 id 属性，用于还原被回复消息的 ID。
+// 元素本身会在解析正文前被整体剥离，因此必须先把 id 抠出来。
+// 前面必须是元素名或空白，避免匹配到 user-id / msg-id 之类的其它属性。
+var quoteIDRe = regexp.MustCompile(`(?i)(?:^|\s)id\s*=\s*["']([^"']*)["']`)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 编码：platform.OutboundMessage → Satori XML 消息字符串
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,19 +117,55 @@ func escapeAttr(s string) string {
 //   - text：所有文本节点和内联元素的纯文本表示
 //   - attachments：内容中找到的所有资源元素（img、audio、video、file）
 //
+// 需要 @ 列表与引用 ID 的调用方请使用 parseMessageContentFull。
+//
 // 参考：https://satori.chat/zh-CN/protocol/elements.html
 func ParseMessageContent(content string) (text string, attachments []platform.InboundAttachment) {
+	parsed := parseMessageContentFull(content)
+	return parsed.Text, parsed.Attachments
+}
+
+// parsedContent 是 Satori 消息内容的完整解析结果。
+type parsedContent struct {
+	// Text 是消息的纯文本表示。
+	Text string
+	// Attachments 是内容中的资源元素。
+	Attachments []platform.InboundAttachment
+	// Mentions 是 <at> 元素还原出的被 @ 用户。
+	Mentions []platform.UserInfo
+	// MentionsAll 表示内容中含 <at type="all"/>。
+	MentionsAll bool
+	// QuoteID 是 <quote id="..."/> 中的被回复消息 ID。
+	QuoteID string
+}
+
+// parseMessageContentFull 解析 Satori XML 消息内容，保留结构化信息。
+//
+// 相比 ParseMessageContent，这里额外还原 <at> 的用户 ID 与 <quote> 的消息 ID。
+// 此前这两者都在解析过程中被丢弃（at 只渲染成 "@name" 文本、quote 被正则整体
+// 剥离），导致 satoriEvent 无法实现 MentionsEvent/ReplyEvent：
+// 框架的 OnMentionedBot() 走的是结构化 mention 列表而非文本匹配，
+// 于是该规则在 Satori 上永不命中，回复关系也全部丢失。
+func parseMessageContentFull(content string) parsedContent {
+	var out parsedContent
 	if content == "" {
-		return "", nil
+		return out
 	}
 
-	// 先移除自闭合的 <quote .../>：HTML 解析器不认识该元素，会把其后的兄弟节点
-	// 解析为它的子节点，而 traverseNodes 对 quote 是整体跳过的，
-	// 导致 "<quote id=\"1\"/>用户正文" 这种（多数 Satori SDK 的回复格式）
-	// 整条正文与附件全部丢失。提取纯文本本就忽略引用内容，直接剥离最安全。
+	// 先摘出 <quote id="..."/> 的 id，再把该元素整体剥离。
+	//
+	// 剥离的原因：HTML 解析器不认识该元素，会把其后的兄弟节点解析为它的子节点，
+	// 而 traverseNodes 对 quote 是整体跳过的，导致
+	// "<quote id=\"1\"/>用户正文"（多数 Satori SDK 的回复格式）
+	// 整条正文与附件全部丢失。
+	if m := selfClosingQuoteRe.FindString(content); m != "" {
+		if idm := quoteIDRe.FindStringSubmatch(m); len(idm) == 2 {
+			out.QuoteID = html.UnescapeString(idm[1])
+		}
+	}
 	content = selfClosingQuoteRe.ReplaceAllString(content, "")
 	if content == "" {
-		return "", nil
+		return out
 	}
 
 	// 包裹在根元素中，使 HTML 解析器能正确处理片段。
@@ -133,16 +174,18 @@ func ParseMessageContent(content string) (text string, attachments []platform.In
 	doc, err := nethtml.Parse(strings.NewReader(wrapped))
 	if err != nil {
 		// 解析失败时，降级为返回原始内容的纯文本
-		return html.UnescapeString(content), nil
+		out.Text = html.UnescapeString(content)
+		return out
 	}
 
 	var textBuf strings.Builder
-	traverseNodes(doc, &textBuf, &attachments)
-	return strings.TrimSpace(textBuf.String()), attachments
+	traverseNodes(doc, &textBuf, &out.Attachments, &out)
+	out.Text = strings.TrimSpace(textBuf.String())
+	return out
 }
 
 // traverseNodes 递归遍历 HTML 节点，收集文本和附件。
-func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platform.InboundAttachment) {
+func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platform.InboundAttachment, out *parsedContent) {
 	switch n.Type {
 	case nethtml.TextNode:
 		// n.Data 已由 nethtml.Parse 完成实体解码，此处不可再次 UnescapeString，
@@ -189,7 +232,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			*attachments = append(*attachments, att)
 			text.WriteString("[语音]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -215,7 +258,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			*attachments = append(*attachments, att)
 			text.WriteString("[视频]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -233,7 +276,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				})
 			}
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -251,28 +294,39 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			*attachments = append(*attachments, att)
 			text.WriteString("[文件]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
 		case "at":
-			// @提及 → 显示为 "@name" 或 "@id" 或 "@role:name" 或 "@全体成员"
-			if name := attrs["name"]; name != "" {
+			// @提及 → 显示为 "@name" 或 "@id" 或 "@role:name" 或 "@全体成员"，
+			// 同时把结构化的用户 ID 收集到 out.Mentions 供 MentionsEvent 使用。
+			id, name := attrs["id"], attrs["name"]
+			switch {
+			case name != "":
 				text.WriteString("@" + name)
-			} else if id := attrs["id"]; id != "" {
+			case id != "":
 				text.WriteString("@" + id)
-			} else if role := attrs["role"]; role != "" {
+			case attrs["role"] != "":
 				// 角色提及（实验性）
-				text.WriteString("@role:" + role)
-			} else if typ := attrs["type"]; typ == "all" {
+				text.WriteString("@role:" + attrs["role"])
+			case attrs["type"] == "all":
 				text.WriteString("@全体成员")
-			} else if typ == "here" {
+			case attrs["type"] == "here":
 				text.WriteString("@在线成员")
+			}
+			if out != nil {
+				if typ := attrs["type"]; typ == "all" || typ == "here" {
+					out.MentionsAll = true
+				}
+				if id != "" || name != "" {
+					out.Mentions = append(out.Mentions, platform.UserInfo{ID: id, DisplayName: name})
+				}
 			}
 			// Go HTML 解析器会将紧跟在未知自闭合元素（如 <at/>）后面的兄弟节点
 			// 解析为该元素的子节点，需继续遍历以避免内容丢失。
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -284,7 +338,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				text.WriteString("#" + id)
 			}
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -295,7 +349,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				text.WriteString("[emoji:" + id + "]")
 			}
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -304,7 +358,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			href := attrs["href"]
 			var labelBuf strings.Builder
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, &labelBuf, attachments)
+				traverseNodes(c, &labelBuf, attachments, out)
 			}
 			label := strings.TrimSpace(labelBuf.String())
 			if label != "" && href != "" {
@@ -324,7 +378,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			// 段落：前后各加换行
 			text.WriteString("\n")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			text.WriteString("\n")
 			return
@@ -332,7 +386,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 		case "b", "strong", "i", "em", "u", "ins", "s", "del", "spl", "sup", "sub", "code":
 			// 装饰性元素：递归进入子节点
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -352,7 +406,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			}
 			// 继续递归处理子节点（通常 <author> 为自闭合元素，子节点为空）。
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, text, attachments)
+				traverseNodes(c, text, attachments, out)
 			}
 			return
 
@@ -364,10 +418,24 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 
 			var innerBuf strings.Builder
 			var innerAtts []platform.InboundAttachment
+			// 嵌套消息使用**独立**的 parsedContent 收集 @ 信息。
+			//
+			// 若把外层 out 直接传下去，被转发/被引用消息体内的 <at> 会算到
+			// 外层消息头上：用户转发一条曾经 @ 过机器人的旧消息，IsSelf 就会
+			// 被置位，OnMentionedBot() 在一条根本没提及机器人的消息上命中；
+			// 转发内容里的 @全体成员 同样会污染 MentionsAll。
+			var innerOut parsedContent
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, &innerBuf, &innerAtts)
+				traverseNodes(c, &innerBuf, &innerAtts, &innerOut)
 			}
 			inner := strings.TrimSpace(innerBuf.String())
+
+			// 无 id 且非 forward 的 <message> 只是消息分隔符，其内容仍属于
+			// 当前这条消息，因此把 @ 信息并回外层。
+			if id == "" && !isForward && out != nil {
+				out.Mentions = append(out.Mentions, innerOut.Mentions...)
+				out.MentionsAll = out.MentionsAll || innerOut.MentionsAll
+			}
 
 			// 转发消息（含 id 或 forward 属性）存入 attachments，供高层消费
 			if id != "" || isForward {
@@ -399,7 +467,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			// 渲染按钮标签文本
 			var labelBuf strings.Builder
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				traverseNodes(c, &labelBuf, attachments)
+				traverseNodes(c, &labelBuf, attachments, out)
 			}
 			label := strings.TrimSpace(labelBuf.String())
 			if label != "" {
@@ -414,7 +482,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 
 	// 默认：递归处理子节点
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		traverseNodes(c, text, attachments)
+		traverseNodes(c, text, attachments, out)
 	}
 }
 

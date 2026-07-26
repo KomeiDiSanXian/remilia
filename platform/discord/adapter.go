@@ -138,6 +138,13 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	a.running = true
 	a.mu.Unlock()
 
+	// 重新拉起 interaction 缓存的清理协程（Stop 会停掉它）。
+	// Start 明确支持被再次调用（Open 失败重试、Bot 热重启），
+	// 缺少这一步的话，重启之后 sender.pending 就再无任何东西回收。
+	if a.sender != nil {
+		a.sender.startCleanup()
+	}
+
 	removers := a.registerHandlers(cancelCtx, eventCh)
 
 	removers = append(removers, a.session.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {

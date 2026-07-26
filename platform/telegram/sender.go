@@ -6,7 +6,26 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
+)
+
+const (
+	// maxCallbackAnswerRunes 是 answerCallbackQuery.text 的长度上限（Bot API 规定）。
+	maxCallbackAnswerRunes = 200
+
+	// parseModeMarkdown 是发送富文本时使用的 parse_mode。
+	//
+	// 刻意不用 MarkdownV2：MarkdownV2 要求把 _ * [ ] ( ) ~ ` > # + - = | { } . !
+	// 全部反斜杠转义（包括普通散文里的句号和连字符），而 OutboundMessage.Markdown
+	// 是平台中立字段，内容由插件按通用 Markdown 书写，同一段文本在 Discord 侧
+	// 直接可用。用 MarkdownV2 会让几乎每一条带句号的消息都以
+	// "can't parse entities" 400 失败且完全不投递。
+	//
+	// 传统 Markdown 不保留 . - ! 等字符，覆盖了绝大多数常见写法；
+	// 剩余的边界情况（如 snake_case 里不成对的下划线）由发送侧的
+	// 纯文本降级重发兜底，见 Send/Edit 中的 IsParseEntitiesError 分支。
+	parseModeMarkdown = "Markdown"
 )
 
 // telegramSender implements platform.Sender and optional extension interfaces
@@ -33,7 +52,7 @@ func newSender(client *Client, botID string) *telegramSender {
 //   - If Target.Tokens has "callback_id", it answers the callback query and sends
 //     a follow-up message if there is content.
 //   - Otherwise, sends to chatID via the appropriate API method based on content:
-//     Markdown → sendMessage with ParseMode=MarkdownV2
+//     Markdown → sendMessage with ParseMode=Markdown（解析失败自动降级为纯文本）
 //     Text     → sendMessage with plain text
 //     Photo    → sendPhoto (URL or binary upload)
 //     Audio    → sendAudio
@@ -56,7 +75,7 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 	markup := buildInlineKeyboard(msg.Buttons)
 
 	text := msg.Markdown
-	parseMode := "MarkdownV2"
+	parseMode := parseModeMarkdown
 	if text == "" {
 		text = msg.Text
 		parseMode = ""
@@ -73,13 +92,28 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 		)
 	}
 
-	resp, err := s.client.SendMessage(ctx, &SendMessagePayload{
-		ChatID:           chatID,
-		Text:             text,
-		ParseMode:        parseMode,
-		ReplyToMessageID: replyToID,
-		ReplyMarkup:      markup,
-	})
+	payload := &SendMessagePayload{
+		ChatID:            chatID,
+		Text:              text,
+		ParseMode:         parseMode,
+		ReplyToMessageID:  replyToID,
+		ReplyMarkup:       markup,
+		DisableWebPreview: extra.DisableWebPreview,
+		MessageOptions:    extra.messageOptions(),
+	}
+	resp, err := s.client.SendMessage(ctx, payload)
+	if err != nil && parseMode != "" && IsParseEntitiesError(err) {
+		// 富文本解析失败时降级为纯文本重发。
+		//
+		// msg.Markdown 是框架的平台中立字段（Discord 直接当自己的 Content 用），
+		// 内容风格由插件决定，无法保证符合 Telegram 某一种 parse_mode 的语法。
+		// 与其让一处格式字符吃掉整条消息，不如去掉 parse_mode 重发一次：
+		// 用户看到的是带原始标记的纯文本，而不是什么都收不到。
+		logger.WithError(err).
+			Warn("[telegram.Sender] 富文本解析失败，降级为纯文本重发")
+		payload.ParseMode = ""
+		resp, err = s.client.SendMessage(ctx, payload)
+	}
 	if err != nil {
 		return platform.SendResult{}, platform.NewSendError(
 			platform.SendErrPlatform, PlatformID, chatID,
@@ -96,19 +130,22 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 
 // sendCallbackResponse answers a callback query and optionally sends a follow-up.
 func (s *telegramSender) sendCallbackResponse(ctx stdctx.Context, callbackID, chatID string, msg platform.OutboundMessage) (platform.SendResult, error) {
-	answerText := ""
-	if msg.Text != "" {
-		answerText = msg.Text
-	}
-	if err := s.client.AnswerCallbackQuery(ctx, &AnswerCallbackQueryPayload{
+	// answerCallbackQuery.text 上限为 200 字符，超长会被 API 拒绝。
+	// 必须截断：否则一条长回复会让 answer 失败，用户既收不到 toast，
+	// 也收不到下面的后续消息，按钮还会一直转圈到 Telegram 超时。
+	answerText := platform.TruncateText(msg.Text, maxCallbackAnswerRunes)
+
+	// ack 失败不再直接中断流程：真正的内容由下面的 Send 投递，
+	// 不应被 ack 的失败连坐。但若本次没有后续消息，ack 本身就是全部投递，
+	// 此时必须把错误如实返回，否则重试/指标/错误中间件将什么都看不到。
+	ackErr := s.client.AnswerCallbackQuery(ctx, &AnswerCallbackQueryPayload{
 		CallbackQueryID: callbackID,
 		Text:            answerText,
 		ShowAlert:       false,
-	}); err != nil {
-		return platform.SendResult{}, platform.NewSendError(
-			platform.SendErrPlatform, PlatformID, chatID,
-			err.Error(), 0, err,
-		)
+	})
+	if ackErr != nil {
+		logger.WithError(ackErr).
+			Warn("[telegram.Sender] answerCallbackQuery 失败")
 	}
 
 	if !msg.IsEmpty() || len(msg.Buttons) > 0 {
@@ -116,6 +153,14 @@ func (s *telegramSender) sendCallbackResponse(ctx stdctx.Context, callbackID, ch
 		req := platform.SendRequest{Target: platform.ChatInfo{ID: chatID}, Message: msg}
 		req.Target.Tokens = nil
 		return s.Send(ctx, req)
+	}
+
+	// 纯 ack 场景：没有后续消息，ack 就是全部投递，其失败必须上报。
+	if ackErr != nil {
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, PlatformID, chatID,
+			ackErr.Error(), 0, ackErr,
+		)
 	}
 
 	return platform.SendResult{Platform: PlatformID}, nil
@@ -132,17 +177,30 @@ func (s *telegramSender) sendWithAttachment(
 ) (platform.SendResult, error) {
 	att := atts[0]
 
-	if len(att.Data) > 0 {
-		return s.sendBinaryAttachment(ctx, chatID, caption, parseMode, replyToID, att, markup)
+	send := func(pm string) (platform.SendResult, error) {
+		if len(att.Data) > 0 {
+			return s.sendBinaryAttachment(ctx, chatID, caption, pm, replyToID, att, markup, extra)
+		}
+		return s.sendURLAttachment(ctx, chatID, caption, pm, replyToID, att, markup, extra)
 	}
-	return s.sendURLAttachment(ctx, chatID, caption, parseMode, replyToID, att, markup)
+
+	res, err := send(parseMode)
+	if err != nil && parseMode != "" && IsParseEntitiesError(err) {
+		// 与 Send/Edit 一致：caption 富文本解析失败时去掉 parse_mode 重发。
+		// 否则 caption 里一个不成对的下划线就会让整条带附件的消息发不出去。
+		// （SendError 实现了 Unwrap，IsParseEntitiesError 能穿透到 *APIError。）
+		logger.WithError(err).
+			Warn("[telegram.Sender] caption 富文本解析失败，降级为纯文本重发")
+		res, err = send("")
+	}
+	return res, err
 }
 
 // sendBinaryAttachment uploads binary data as a file via multipart/form-data.
 func (s *telegramSender) sendBinaryAttachment(
 	ctx stdctx.Context, chatID, caption, parseMode string,
 	replyToID int, att platform.Attachment,
-	markup *InlineKeyboardMarkup,
+	markup *InlineKeyboardMarkup, extra MessageExtra,
 ) (platform.SendResult, error) {
 	fileName := att.Name
 	if fileName == "" {
@@ -160,6 +218,7 @@ func (s *telegramSender) sendBinaryAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		}
 		ext := extensionFromMIME(att.MimeType, ".jpg")
 		resp, err = s.client.SendPhotoUpload(ctx, sp, fileName+ext, att.Data)
@@ -171,6 +230,7 @@ func (s *telegramSender) sendBinaryAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		}
 		ext := extensionFromMIME(att.MimeType, ".mp3")
 		resp, err = s.client.SendAudioUpload(ctx, sa, fileName+ext, att.Data)
@@ -182,6 +242,7 @@ func (s *telegramSender) sendBinaryAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		}
 		ext := extensionFromMIME(att.MimeType, ".mp4")
 		resp, err = s.client.SendVideoUpload(ctx, sv, fileName+ext, att.Data)
@@ -193,6 +254,7 @@ func (s *telegramSender) sendBinaryAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		}
 		resp, err = s.client.SendDocumentUpload(ctx, sd, fileName, att.Data)
 	}
@@ -215,7 +277,7 @@ func (s *telegramSender) sendBinaryAttachment(
 func (s *telegramSender) sendURLAttachment(
 	ctx stdctx.Context, chatID, caption, parseMode string,
 	replyToID int, att platform.Attachment,
-	markup *InlineKeyboardMarkup,
+	markup *InlineKeyboardMarkup, extra MessageExtra,
 ) (platform.SendResult, error) {
 	fileIDorURL := att.URL
 
@@ -231,6 +293,7 @@ func (s *telegramSender) sendURLAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		})
 	case platform.AttachmentKindAudio:
 		resp, err = s.client.SendAudio(ctx, &SendAudioPayload{
@@ -240,6 +303,7 @@ func (s *telegramSender) sendURLAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		})
 	case platform.AttachmentKindVideo:
 		resp, err = s.client.SendVideo(ctx, &SendVideoPayload{
@@ -249,6 +313,7 @@ func (s *telegramSender) sendURLAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		})
 	default:
 		resp, err = s.client.SendDocument(ctx, &SendDocumentPayload{
@@ -258,6 +323,7 @@ func (s *telegramSender) sendURLAttachment(
 			ParseMode:        parseMode,
 			ReplyToMessageID: replyToID,
 			ReplyMarkup:      markup,
+			MessageOptions:   extra.messageOptions(),
 		})
 	}
 
@@ -287,21 +353,31 @@ func (s *telegramSender) Edit(ctx stdctx.Context, chatID, messageID string, msg 
 		return fmt.Errorf("telegram sender: invalid messageID %q: %w", messageID, err)
 	}
 	text := msg.Markdown
-	parseMode := "MarkdownV2"
+	parseMode := parseModeMarkdown
 	if text == "" {
 		text = msg.Text
 		parseMode = ""
 	}
 
 	markup := buildInlineKeyboard(msg.Buttons)
+	extra := extractExtra(msg)
 
-	resp, apiErr := s.client.EditMessageText(ctx, &EditMessageTextPayload{
-		ChatID:      chatID,
-		MessageID:   mid,
-		Text:        text,
-		ParseMode:   parseMode,
-		ReplyMarkup: markup,
-	})
+	payload := &EditMessageTextPayload{
+		ChatID:            chatID,
+		MessageID:         mid,
+		Text:              text,
+		ParseMode:         parseMode,
+		ReplyMarkup:       markup,
+		DisableWebPreview: extra.DisableWebPreview,
+	}
+	resp, apiErr := s.client.EditMessageText(ctx, payload)
+	if apiErr != nil && parseMode != "" && IsParseEntitiesError(apiErr) {
+		// 与 Send 一致：解析失败降级为纯文本重试，而不是丢掉这次编辑。
+		logger.WithError(apiErr).
+			Warn("[telegram.Sender] 编辑时富文本解析失败，降级为纯文本重试")
+		payload.ParseMode = ""
+		resp, apiErr = s.client.EditMessageText(ctx, payload)
+	}
 	if apiErr != nil {
 		return platform.NewSendError(
 			platform.SendErrPlatform, PlatformID, chatID,

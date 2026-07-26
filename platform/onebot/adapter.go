@@ -16,6 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// healthyConnDuration 是判定一次连接"健康"的最短存活时长。
+// 超过该时长后断线视为偶发故障，重连退避从头开始而非继续放大。
+const healthyConnDuration = 60 * time.Second
+
 // ────────────────────────────────────────────────────────────────────────────
 // ForwardWSAdapter
 // ────────────────────────────────────────────────────────────────────────────
@@ -229,6 +233,7 @@ func (a *ForwardWSAdapter) runWithReconnect(ctx stdctx.Context, handler func(pla
 			}
 		}
 
+		connectedAt := time.Now()
 		err := a.runOnce(ctx, handler)
 		if ctx.Err() != nil {
 			// ctx 已取消，正常关闭
@@ -237,7 +242,16 @@ func (a *ForwardWSAdapter) runWithReconnect(ctx stdctx.Context, handler func(pla
 		if err != nil {
 			logger.WithError(err).Warn("[onebot.ForwardWSAdapter] Connection lost")
 			a.NotifyDisconnect(err)
-			attempt++
+			// 上一次连接稳定存活足够久，视为健康，重置退避。
+			//
+			// 不能只在 err == nil 时重置：runOnce 仅在 ctx 取消时才返回 nil，
+			// 而那种情况上面已经 return，因此 attempt 会随进程生命周期单调
+			// 递增——运行数周后一次普通断线也要等满 maxDelay 才重连。
+			if time.Since(connectedAt) >= healthyConnDuration {
+				attempt = 1
+			} else {
+				attempt++
+			}
 		} else {
 			attempt = 0
 		}
@@ -259,6 +273,25 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 	}
 
 	logger.Infof("[onebot.ForwardWSAdapter] Connected to %s", a.config.URL)
+
+	// 限制单帧大小，避免异常/恶意对端声明超大帧导致 OOM。
+	conn.SetReadLimit(maxWSMessageBytes)
+
+	// ctx 取消看门狗：ReadMessage 无法被 ctx 中断，必须显式关闭 socket 才能
+	// 唤醒读循环。否则对端静默时 Start 永不返回，Stop 也会卡在 wg.Wait()。
+	//
+	// 该 goroutine 刻意不加入 a.wg：本函数结尾会调用 a.wg.Wait()，而看门狗
+	// 要等到 connClosed 关闭才退出，两者互等会直接死锁。它由下方
+	// close(connClosed) 显式收尾，不会泄漏。
+	connClosed := make(chan struct{})
+	defer close(connClosed)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-connClosed:
+		}
+	}()
 
 	// 为此次连接创建新的 API 客户端
 	apiClient := newWSAPIClient(conn, a.config.APITimeout)

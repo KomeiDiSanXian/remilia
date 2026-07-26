@@ -359,3 +359,116 @@ func TestSatoriEvent_NilRaw(t *testing.T) {
 		t.Errorf("nil raw RawPayload: expected nil *Event, got %v", raw)
 	}
 }
+
+// ─── MentionsEvent / ReplyEvent ───────────────────────────────────────────────
+
+// TestConvertEvent_Mentions 固定 <at> 元素还原为结构化 @ 列表。
+//
+// 框架的 OnMentionedBot() 走的是 platform.GetMentions 返回的结构化列表，
+// 而不是对正文做文本匹配。此前 satoriEvent 未实现 MentionsEvent，
+// GetMentions 恒返回 nil，该规则在 Satori 上永不命中。
+func TestConvertEvent_Mentions(t *testing.T) {
+	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
+	content := `<at id="10001" name="Bot"/> 你好`
+	e.Message = &Message{ID: "m1", Content: &content}
+
+	se := convertEventWithBot(e, "p", "10001")
+
+	mentions := se.Mentions()
+	if len(mentions) != 1 {
+		t.Fatalf("Mentions 数量: got %d, want 1", len(mentions))
+	}
+	if mentions[0].ID != "10001" {
+		t.Errorf("Mentions[0].ID: got %q, want %q", mentions[0].ID, "10001")
+	}
+	if !mentions[0].IsSelf {
+		t.Error("被 @ 的是机器人自身，IsSelf 应为 true，否则 OnMentionedBot 不会命中")
+	}
+	if se.Content() != "@Bot 你好" {
+		t.Errorf("Content: got %q", se.Content())
+	}
+}
+
+// TestConvertEvent_MentionsNotSelf 他人被 @ 时不应标记 IsSelf。
+func TestConvertEvent_MentionsNotSelf(t *testing.T) {
+	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
+	content := `<at id="20002"/> hi`
+	e.Message = &Message{ID: "m1", Content: &content}
+
+	se := convertEventWithBot(e, "p", "10001")
+	mentions := se.Mentions()
+	if len(mentions) != 1 || mentions[0].IsSelf {
+		t.Errorf("他人被 @ 时 IsSelf 应为 false: %+v", mentions)
+	}
+}
+
+// TestConvertEvent_ReplyToID 固定 <quote id="..."/> 还原为回复关系。
+//
+// quote 元素在解析正文前会被整体剥离（HTML 解析器不认识它），
+// 此前连同 id 一起丢弃，导致 ReplyToID 恒为空。
+func TestConvertEvent_ReplyToID(t *testing.T) {
+	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
+	content := `<quote id="msg-123"/>这是回复`
+	e.Message = &Message{ID: "m2", Content: &content}
+
+	se := convertEvent(e, "p")
+	if se.ReplyToID() != "msg-123" {
+		t.Errorf("ReplyToID: got %q, want %q", se.ReplyToID(), "msg-123")
+	}
+	// 剥离 quote 后正文必须完整保留。
+	if se.Content() != "这是回复" {
+		t.Errorf("Content: got %q", se.Content())
+	}
+}
+
+// TestConvertEvent_NoMentionsReturnsNil 无 @ 时应返回 nil 而非空切片。
+func TestConvertEvent_NoMentionsReturnsNil(t *testing.T) {
+	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
+	content := "纯文本"
+	e.Message = &Message{ID: "m3", Content: &content}
+
+	se := convertEvent(e, "p")
+	if se.Mentions() != nil {
+		t.Errorf("无 @ 时 Mentions 应为 nil: %+v", se.Mentions())
+	}
+	if se.ReplyToID() != "" {
+		t.Errorf("非回复时 ReplyToID 应为空: %q", se.ReplyToID())
+	}
+}
+
+// TestConvertEvent_SenderUserNick 固定 User.Nick 优先于 User.Name。
+//
+// types.go 中该字段的文档写明"优先级高于 Name"，但此前代码从未读取它：
+// 私聊没有 Member 对象，于是显示的是 "qq_user_10001" 这类原始账号名
+// 而不是好友备注。
+func TestConvertEvent_SenderUserNick(t *testing.T) {
+	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
+	e.Member = nil
+	e.User = &User{ID: "10001", Name: new("qq_user_10001"), Nick: new("张三")}
+
+	se := convertEvent(e, "p")
+	if got := se.Sender().DisplayName; got != "张三" {
+		t.Errorf("Sender.DisplayName: got %q, want %q", got, "张三")
+	}
+}
+
+// ─── httpBaseURL ──────────────────────────────────────────────────────────────
+
+// TestHTTPBaseURL 固定 ws:// 归一化。
+//
+// ServerURL 的字段文档明确支持 ws:// 写法，但 http.Transport 只认 http/https。
+// 不归一化的话，WebSocket 一切正常而每一条出站消息都会以
+// "unsupported protocol scheme" 失败。
+func TestHTTPBaseURL(t *testing.T) {
+	cases := map[string]string{
+		"ws://localhost:5140":   "http://localhost:5140",
+		"wss://example.com":     "https://example.com",
+		"http://localhost:5140": "http://localhost:5140",
+		"https://example.com/":  "https://example.com",
+	}
+	for in, want := range cases {
+		if got := httpBaseURL(in); got != want {
+			t.Errorf("httpBaseURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -338,7 +338,12 @@ func (m OutboundMessage) WithExtra(key string, value any) OutboundMessage {
 // TruncateText 截断文本至指定字符数（按 Unicode rune 计算，非字节）。
 //
 // 若文本长度不超过 maxRunes，直接返回原字符串（无内存分配）。
-// 超出时返回截断后的文本加 "…" 后缀。
+// 超出时返回截断后的文本加 "…" 后缀，**返回值总长度不超过 maxRunes**
+// （省略号计入预算内）。
+//
+// 该函数的典型用法是把文本压到平台长度上限以内，例如
+// Capabilities.MaxTextLength 或 Telegram 的 200 字符 callback 提示；
+// 若省略号不计入预算，结果会恰好超出上限一个字符，请求仍被平台拒绝。
 //
 // 修复框架问题 #27：xhstext 发现生成文本可能超过平台消息长度限制，
 // 统一提供此工具函数避免各插件自行实现截断逻辑。
@@ -354,7 +359,8 @@ func TruncateText(text string, maxRunes int) string {
 	if len(r) <= maxRunes {
 		return text
 	}
-	return string(r[:maxRunes]) + "…"
+	// maxRunes == 1 时 r[:0] 为空，结果恰为 "…"，无需特判。
+	return string(r[:maxRunes-1]) + "…"
 }
 
 // IsEmpty 报告消息是否没有任何可发送的内容。

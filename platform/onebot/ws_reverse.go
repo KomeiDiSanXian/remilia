@@ -2,6 +2,7 @@ package onebot
 
 import (
 	stdctx "context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -63,6 +64,16 @@ type wsConn struct {
 	apiClient *wsAPIClient
 	sender    *onebotSender
 }
+
+const (
+	// bearerPrefix 是 Authorization 头中 Bearer 方案的前缀。
+	bearerPrefix = "Bearer "
+
+	// maxWSMessageBytes 是单条 WebSocket 消息允许的最大字节数。
+	// gorilla/websocket 默认不限制读取大小，恶意或异常对端可以声明
+	// 超大帧使进程 OOM。OneBot 事件远小于该阈值。
+	maxWSMessageBytes = 16 << 20 // 16 MiB
+)
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -137,8 +148,10 @@ func (a *ReverseWSAdapter) Start(ctx stdctx.Context, handler func(platform.Event
 	mux.HandleFunc("/", a.handleWS)
 
 	srv := &http.Server{
-		Addr:    listenAddr,
-		Handler: mux,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	a.mu.Lock()
@@ -227,11 +240,20 @@ func (a *ReverseWSAdapter) HealthDetail() map[string]any {
 
 // handleWS 将 HTTP 连接升级为 WebSocket 并处理事件。
 func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
-	// Token 验证
+	// Token 验证。
+	// OneBot V11 允许两种携带方式：Authorization: Bearer <token>，
+	// 或 URL 查询参数 ?access_token=<token>。使用常量时间比较避免时序侧信道。
 	if a.config.Token != "" {
-		auth := r.Header.Get("Authorization")
-		token := strings.TrimPrefix(auth, "Bearer ")
-		if token != a.config.Token {
+		token := r.URL.Query().Get("access_token")
+		if token == "" {
+			auth := r.Header.Get("Authorization")
+			if len(auth) >= len(bearerPrefix) && strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) {
+				token = auth[len(bearerPrefix):]
+			} else {
+				token = auth
+			}
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(a.config.Token)) != 1 {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -242,6 +264,8 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 		logger.WithError(err).Warn("[onebot.ReverseWSAdapter] Upgrade failed")
 		return
 	}
+	// 限制单帧大小，避免恶意/异常对端声明超大帧导致 OOM。
+	conn.SetReadLimit(maxWSMessageBytes)
 
 	apiClient := newWSAPIClient(conn, a.config.APITimeout)
 	sender := newSender(apiClient)
@@ -255,22 +279,6 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 	a.connMu.Unlock()
 
 	logger.Infof("[onebot.ReverseWSAdapter] New connection from %s", r.RemoteAddr)
-
-	// 从第一个客户端获取机器人身份
-	a.mu.RLock()
-	hasBotID := a.botID != ""
-	a.mu.RUnlock()
-	if !hasBotID {
-		fetchCtx, cancel := stdctx.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
-		if info, err := sender.GetLoginInfo(fetchCtx); err == nil {
-			a.mu.Lock()
-			a.botID = strconv.FormatInt(info.UserID, 10)
-			a.botName = info.Nickname
-			a.mu.Unlock()
-			logger.Infof("[onebot.ReverseWSAdapter] Bot: %s (%s)", info.Nickname, a.botID)
-		}
-	}
 
 	defer func() {
 		a.connMu.Lock()
@@ -318,6 +326,32 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
+
+	// 从第一个客户端获取机器人身份。
+	//
+	// 必须放在读取循环启动之后：get_login_info 的响应由上面的读取循环
+	// 通过 apiClient.routeResponse 投递，若在读取循环之前调用，响应永远
+	// 无法送达，只会在超时后失败，且每条新连接都要白白阻塞一次超时。
+	a.mu.RLock()
+	hasBotID := a.botID != ""
+	a.mu.RUnlock()
+	if !hasBotID {
+		a.wg.Go(func() {
+			fetchCtx, cancel := stdctx.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			info, err := sender.GetLoginInfo(fetchCtx)
+			if err != nil {
+				logger.WithError(err).Warn("[onebot.ReverseWSAdapter] Failed to fetch bot identity")
+				return
+			}
+			a.mu.Lock()
+			a.botID = strconv.FormatInt(info.UserID, 10)
+			a.botName = info.Nickname
+			botID := a.botID
+			a.mu.Unlock()
+			logger.Infof("[onebot.ReverseWSAdapter] Bot: %s (%s)", info.Nickname, botID)
+		})
+	}
 
 	handler := a.handler
 	for ev := range eventCh {

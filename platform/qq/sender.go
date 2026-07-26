@@ -21,6 +21,8 @@ const (
 	maxPassiveReplies = 5
 	// passiveReplyTTL 被动回复有效时长（QQ 平台限制）
 	passiveReplyTTL = 5 * time.Minute
+	// msgSeqSweepInterval 是 msgSeqMap 过期条目清理的最小间隔。
+	msgSeqSweepInterval = time.Minute
 )
 
 // msgSeqEntry 按 msg_id 跟踪被动回复状态。
@@ -33,7 +35,8 @@ type msgSeqEntry struct {
 // qqSender 将 platform.Sender 接口桥接到 openapi.OpenAPI
 type qqSender struct {
 	api       openapi.OpenAPI
-	msgSeqMap sync.Map // map[string]*msgSeqEntry，按 msg_id 管理回复状态
+	msgSeqMap sync.Map     // map[string]*msgSeqEntry，按 msg_id 管理回复状态
+	lastSweep atomic.Int64 // 上次清理 msgSeqMap 的 UnixNano 时间戳
 }
 
 // NewSender 创建 QQ 平台的消息发送器
@@ -141,6 +144,20 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 	dtoMsg := s.buildDTOMessage(msg, chat)
 	dtoMsg.Type = dto.MediaMessage
 	dtoMsg.Media = &dto.MediaResponse{FileInfo: fileInfo}
+
+	// 富媒体消息不走 markdown 渲染：若 buildDTOMessage 因为带按钮而把正文
+	// 迁移进了 Markdown，这里必须搬回 Content 并清掉 Markdown。
+	// 否则正文会连同 markdown 载荷一起丢失（下面的空值兜底会把它替换成一个
+	// 空格），用户只收到一张没有任何说明文字的图片。
+	if dtoMsg.Markdown != nil {
+		if dtoMsg.Content == "" {
+			dtoMsg.Content = dtoMsg.Markdown.Content
+		}
+		dtoMsg.Markdown = nil
+	}
+	// 富媒体消息不支持按钮，去掉以免服务端拒绝整条消息。
+	dtoMsg.Keyboard = nil
+
 	// 群聊接口 content 字段为必填（API 文档标注"是"），不可清空。
 	// 单聊接口 content 为可选，媒体消息通常不携带文本内容。
 	if !chat.IsGroup {
@@ -337,9 +354,28 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		}
 	}
 
-	// 交互按钮：转换为 InlineKeyboard（QQ 按钮需附在 Markdown 消息上）
+	// 交互按钮：转换为 InlineKeyboard。
+	//
+	// QQ 的群/C2C 发送接口按 msg_type 决定渲染方式，keyboard 必须挂在
+	// markdown 类型的消息上。此前这里只塞了 keyboard 而不改 msg_type，
+	// 消息仍以 msg_type=0（纯文本）发出，QQ 直接忽略按钮：
+	// 用户只看到一段没有任何按钮的文本，且**不会收到任何错误**，
+	// 而 Capabilities().Buttons 却声明为 true。
 	if len(msg.Buttons) > 0 && extra.Ark == nil {
 		dtoMsg.Keyboard = dto.MarshalKeyboard(convertButtons(msg.Buttons))
+		if dtoMsg.Type != dto.MarkdownMessage {
+			// 把已有的纯文本正文迁移到 markdown 载荷里，再切换消息类型。
+			content := dtoMsg.Content
+			if content == "" {
+				// 纯按钮消息（无正文）是合法的，见 OutboundMessage.IsEmpty 的说明。
+				// 但空的 markdown 载荷会序列化成 "markdown":{} 被服务端拒绝，
+				// 因此补一个占位空格。
+				content = " "
+			}
+			dtoMsg.Type = dto.MarkdownMessage
+			dtoMsg.Markdown = &dto.Markdown{Content: content}
+			dtoMsg.Content = ""
+		}
 	}
 
 	// 回复消息 ID（msg_id）：被动回复授权 token（message-based）
@@ -402,6 +438,7 @@ func (s *qqSender) nextMsgSeq(msgID string) uint64 {
 	if msgID == "" {
 		return 0
 	}
+	s.sweepExpired()
 	v, _ := s.msgSeqMap.LoadOrStore(msgID, &msgSeqEntry{})
 	entry := v.(*msgSeqEntry)
 	entry.count.Add(1)
@@ -409,6 +446,40 @@ func (s *qqSender) nextMsgSeq(msgID string) uint64 {
 		entry.createdAt.Store(time.Now())
 	}
 	return entry.seq.Add(1)
+}
+
+// sweepExpired 回收 msgSeqMap 中早已失效的条目。
+//
+// 正常路径（每条消息只回复一次）下条目一旦写入就再无人访问，此前没有任何
+// 回收机制：一个 10 QPS 的机器人每天新增约 86 万条永不释放的条目，运行数天
+// 即耗尽内存。msg_id 超过 passiveReplyTTL 后对 QQ 已不可用，条目纯属死重。
+//
+// 采用惰性清理而非后台 goroutine：qqSender 由 NewSender 构造且没有 Stop
+// 钩子，后台 goroutine 无处停止，反而会造成新的泄漏。
+func (s *qqSender) sweepExpired() {
+	now := time.Now()
+	last := s.lastSweep.Load()
+	if now.UnixNano()-last < int64(msgSeqSweepInterval) {
+		return
+	}
+	// CAS 保证并发调用下只有一个 goroutine 真正执行清理。
+	if !s.lastSweep.CompareAndSwap(last, now.UnixNano()) {
+		return
+	}
+	// 留出一个 TTL 的余量，避免与仍在判定过期的调用竞争。
+	deadline := now.Add(-2 * passiveReplyTTL)
+	s.msgSeqMap.Range(func(key, value any) bool {
+		entry, ok := value.(*msgSeqEntry)
+		if !ok {
+			s.msgSeqMap.Delete(key)
+			return true
+		}
+		created, ok := entry.createdAt.Load().(time.Time)
+		if ok && created.Before(deadline) {
+			s.msgSeqMap.Delete(key)
+		}
+		return true
+	})
 }
 
 // checkReplyLimit 检查对指定 msg_id 的被动回复是否超限。
@@ -426,9 +497,15 @@ func (s *qqSender) checkReplyLimit(msgID string) error {
 	}
 	entry := v.(*msgSeqEntry)
 
-	// 检查 5 分钟有效期
+	// 检查 5 分钟有效期。
+	//
+	// 这里**不能**删除条目：checkReplyLimit 把"查不到条目"解释为"首次回复，
+	// 放行"，删除会让下一次调用重新落入放行分支，nextMsgSeq 随即以
+	// count=1、seq=1 重建条目，向 QQ 发出与首条完全相同的
+	// (msg_id, msg_seq) 组合——过期拦截被自身绕过，且每 5 分钟循环一次。
+	// 过期条目改由 sweepExpired 在 2×TTL 之后统一回收；那时 msg_id 早已
+	// 失去任何复用价值，即便条目被清掉也不会再触发上述循环。
 	if created, ok := entry.createdAt.Load().(time.Time); ok && time.Since(created) > passiveReplyTTL {
-		s.msgSeqMap.Delete(msgID)
 		return fmt.Errorf("passive reply expired: msg_id=%q, created=%v, ttl=%v: %w",
 			msgID, created, passiveReplyTTL, errutil.ErrPassiveReplyExpired)
 	}

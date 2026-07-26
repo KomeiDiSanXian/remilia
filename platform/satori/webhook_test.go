@@ -305,6 +305,57 @@ func TestWebhookHTTPHandler_Auth_Unauthorized(t *testing.T) {
 	}
 }
 
+// TestWebhookHTTPHandler_Auth_TokenIsCaseSensitive 固定"凭证按大小写敏感比较"这一要求。
+//
+// 曾用 strings.EqualFold 比较整个 Authorization 头，于是仅大小写不同的 Token
+// 也能通过鉴权——攻击者无需知道真实大小写即可注入任意事件。
+// 现有的 "wrong-token" 用例抓不到这个问题，因为它与真实 Token 的差异不止大小写。
+func TestWebhookHTTPHandler_Auth_TokenIsCaseSensitive(t *testing.T) {
+	cfg := DefaultWebhookConfig(":8080", "p", "u")
+	cfg.Token = "S3cretTok3n"
+	a := NewWebhookAdapter(cfg)
+
+	h := a.makeHTTPHandler(func(platform.Event) { t.Error("handler should not be called") })
+
+	evt := Event{SN: 1, Type: EventTypeMessageCreated, Timestamp: 1_000_000}
+	req := makeWebhookRequest(t, OpcodeEvent, evt, "s3crettok3n") // 仅大小写不同
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("token differing only in case must be rejected: got %d, want 401", w.Code)
+	}
+}
+
+// TestWebhookHTTPHandler_Auth_SchemeIsCaseInsensitive 鉴权方案名按 RFC 7235
+// 大小写不敏感；只有凭证本身必须严格匹配。
+func TestWebhookHTTPHandler_Auth_SchemeIsCaseInsensitive(t *testing.T) {
+	cfg := DefaultWebhookConfig(":8080", "p", "u")
+	cfg.Token = "secret"
+	a := NewWebhookAdapter(cfg)
+
+	called := false
+	h := a.makeHTTPHandler(func(platform.Event) { called = true })
+
+	evt := Event{
+		SN:        1,
+		Type:      EventTypeMessageCreated,
+		Timestamp: 1_000_000,
+		Channel:   &Channel{ID: "ch", Type: ChannelTypeText},
+	}
+	req := makeWebhookRequest(t, OpcodeEvent, evt, "secret")
+	req.Header.Set("Authorization", "bearer secret") // 小写 scheme
+	w := httptest.NewRecorder()
+	h(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("lowercase scheme should be accepted: got %d, want 200", w.Code)
+	}
+	if !called {
+		t.Error("handler should have been called")
+	}
+}
+
 func TestWebhookHTTPHandler_Auth_NoToken_NoCheck(t *testing.T) {
 	// When no token is configured, any request should pass
 	a := NewWebhookAdapter(DefaultWebhookConfig(":8080", "p", "u"))

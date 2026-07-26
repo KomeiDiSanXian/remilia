@@ -143,26 +143,68 @@ type satoriEvent struct {
 	text     string
 	atts     []platform.InboundAttachment
 	platform string
+
+	// mentions 是消息中 <at> 元素还原出的被 @ 用户，
+	// replyToID 是 <quote id="..."/> 中的被回复消息 ID。
+	// 两者均由 parseMessageContentFull 提供，用于实现
+	// platform.MentionsEvent / platform.ReplyEvent。
+	mentions  []platform.UserInfo
+	replyToID string
+	// botID 用于标记 mentions 中的 IsSelf，由适配器在转换时注入。
+	botID string
 }
 
 // convertEvent 将原始 Satori Event 转换为 platform.Event。
 func convertEvent(e *Event, platformName string) *satoriEvent {
+	return convertEventWithBot(e, platformName, "")
+}
+
+// convertEventWithBot 在 convertEvent 的基础上注入机器人自身 ID，
+// 使 Mentions() 能够正确标记 IsSelf —— 框架的 OnMentionedBot() 正是
+// 依据该标志判定"机器人被 @"，缺少它规则将永不命中。
+func convertEventWithBot(e *Event, platformName, botID string) *satoriEvent {
 	kind := mapEventKind(e.Type, e.Channel)
 
-	var text string
-	var atts []platform.InboundAttachment
+	var parsed parsedContent
 	if e.Message != nil && e.Message.Content != nil {
-		text, atts = ParseMessageContent(*e.Message.Content)
+		parsed = parseMessageContentFull(*e.Message.Content)
 	}
 
+	mentions := parsed.Mentions
+	if botID != "" {
+		for i := range mentions {
+			if mentions[i].ID == botID {
+				mentions[i].IsSelf = true
+			}
+		}
+	}
+
+	// 被回复消息 ID 来自正文中的 <quote id="..."/> 元素：
+	// Satori 把引用关系编码在消息内容里，Message 结构体本身没有 quote 字段。
+	replyToID := parsed.QuoteID
+
 	return &satoriEvent{
-		raw:      e,
-		kind:     kind,
-		text:     text,
-		atts:     atts,
-		platform: platformName,
+		raw:       e,
+		kind:      kind,
+		text:      parsed.Text,
+		atts:      parsed.Attachments,
+		platform:  platformName,
+		mentions:  mentions,
+		replyToID: replyToID,
+		botID:     botID,
 	}
 }
+
+// Mentions 实现 platform.MentionsEvent，返回消息中 @ 的用户。
+func (e *satoriEvent) Mentions() []platform.UserInfo {
+	if len(e.mentions) == 0 {
+		return nil
+	}
+	return e.mentions
+}
+
+// ReplyToID 实现 platform.ReplyEvent，返回被回复消息的 ID。
+func (e *satoriEvent) ReplyToID() string { return e.replyToID }
 
 // Platform 返回平台标识符。
 func (e *satoriEvent) Platform() string { return e.platform }
@@ -197,6 +239,13 @@ func (e *satoriEvent) Sender() platform.UserInfo {
 	if u.Name != nil {
 		info.DisplayName = *u.Name
 	}
+	// User.Nick 的优先级高于 Name（见 types.go 中该字段的说明）：
+	// 私聊场景没有 Member 对象，此前这一分支缺失，导致显示的是
+	// "qq_user_10001" 这样的原始账号名而非好友备注。
+	if u.Nick != nil && *u.Nick != "" {
+		info.DisplayName = *u.Nick
+	}
+	// 群内昵称（Member.Nick）优先级最高。
 	if nick := memberNick(e.raw.Member); nick != "" {
 		info.DisplayName = nick
 	}
@@ -318,6 +367,8 @@ func memberNick(m *GuildMember) string {
 
 // 编译期接口断言，确保 satoriEvent 满足 platform 接口。
 var (
-	_ platform.Event    = (*satoriEvent)(nil)
-	_ platform.RawEvent = (*satoriEvent)(nil)
+	_ platform.Event         = (*satoriEvent)(nil)
+	_ platform.RawEvent      = (*satoriEvent)(nil)
+	_ platform.MentionsEvent = (*satoriEvent)(nil)
+	_ platform.ReplyEvent    = (*satoriEvent)(nil)
 )

@@ -145,9 +145,14 @@ func (a *HTTPPostAdapter) Start(ctx stdctx.Context, handler func(platform.Event)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", a.handlePost)
 
+	// 设置读超时，防止 Slowloris 式慢速请求长期占用连接与 goroutine。
+	// 不设置 WriteTimeout：handlePost 在响应期间会同步派发事件。
 	srv := &http.Server{
-		Addr:    listenAddr,
-		Handler: mux,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	a.mu.Lock()
 	a.server = srv
