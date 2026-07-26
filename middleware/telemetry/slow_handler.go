@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	stdctx "context"
+	"errors"
 	"time"
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
@@ -79,11 +80,12 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 				}
 			}
 
-			// SlowHandler 仅用于监控，不传播 deadline 超时错误。
-			// 仅当错误本身是 deadline 超时或 context 取消时才屏蔽，
-			// 保留 handler 返回的其他真实业务错误。
+			// SlowHandler 仅用于监控。仅屏蔽由本中间件注入的监控 deadline 触发的
+			// 超时错误：当返回错误是 DeadlineExceeded 且父 context 仍未取消/超时时，
+			// 说明超时来自本中间件的 Threshold，可安全屏蔽；其余（真实业务错误、
+			// 父级取消/超时）一律透传，避免把失败静默成功导致丢事件。
 			if err != nil {
-				if stdCtx.Err() != nil {
+				if errors.Is(err, stdctx.DeadlineExceeded) && originalCtx.Err() == nil {
 					return nil
 				}
 				return err

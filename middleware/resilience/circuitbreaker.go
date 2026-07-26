@@ -158,6 +158,17 @@ func NewCircuitBreaker(config CircuitBreakerConfig) *CircuitBreaker {
 	if config.SuccessThreshold <= 0 {
 		config.SuccessThreshold = 1
 	}
+	// SuccessThreshold 不能大于 HalfOpenMaxRequests：每个半开窗口最多只放行
+	// HalfOpenMaxRequests 个探测请求，且成功计数在进入半开时被清零，
+	// 因此累计成功数永远达不到更大的阈值，熔断器将在 开→半开 之间无限震荡，
+	// 即使下游已完全恢复也永远无法闭合。
+	if config.SuccessThreshold > config.HalfOpenMaxRequests {
+		logger.WithFields(logger.Fields{
+			"success_threshold":      config.SuccessThreshold,
+			"half_open_max_requests": config.HalfOpenMaxRequests,
+		}).Warn("[CircuitBreaker] SuccessThreshold > HalfOpenMaxRequests, clamping to HalfOpenMaxRequests")
+		config.SuccessThreshold = config.HalfOpenMaxRequests
+	}
 	if config.HalfOpenTimeout <= 0 {
 		config.HalfOpenTimeout = 10 * time.Second // 默认 10 秒
 	}
@@ -532,6 +543,14 @@ func (cb *CircuitBreaker) UpdateConfig(cfg CircuitBreakerConfig) {
 	}
 	if cfg.HalfOpenTimeout > 0 {
 		cb.config.HalfOpenTimeout = cfg.HalfOpenTimeout
+	}
+	// 热更新同样要维持该不变式，否则运行时改配置也能让熔断器永远无法闭合。
+	if cb.config.SuccessThreshold > cb.config.HalfOpenMaxRequests {
+		logger.WithFields(logger.Fields{
+			"success_threshold":      cb.config.SuccessThreshold,
+			"half_open_max_requests": cb.config.HalfOpenMaxRequests,
+		}).Warn("[CircuitBreaker] SuccessThreshold > HalfOpenMaxRequests, clamping to HalfOpenMaxRequests")
+		cb.config.SuccessThreshold = cb.config.HalfOpenMaxRequests
 	}
 	logger.Info("[CircuitBreaker] Config updated via hot-reload")
 }

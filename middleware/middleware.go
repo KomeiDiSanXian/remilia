@@ -216,8 +216,19 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 					return fmt.Errorf("backpressure limit exceeded (drop)")
 				}
 			case BackpressureBlock:
-				sema <- struct{}{}
-				acquired = true
+				// 必须同时监听 ctx：无条件阻塞在信号量上时，外层 Timeout 中间件
+				// 与停机取消都唤不醒等待者。一旦有 maxInFlight 个 handler 卡在
+				// 不响应 ctx 的 IO 上，后续每个事件的 goroutine 都会永久堆积，
+				// 直到内存耗尽，且全程没有任何丢弃或日志信号。
+				select {
+				case sema <- struct{}{}:
+					acquired = true
+				case <-ctx.Context().Done():
+					atomic.AddUint64(&dropped, 1)
+					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+						Warn("[Backpressure] Aborted while waiting (context done)")
+					return ctx.Context().Err()
+				}
 			case BackpressureTryWait:
 				timer := time.NewTimer(waitTimeout)
 				defer timer.Stop()
