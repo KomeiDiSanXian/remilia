@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -493,25 +494,27 @@ func TestCircuitBreakerEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very short reset timeout", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures:  1,
-			ResetTimeout: 10 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures:  1,
+				ResetTimeout: 10 * time.Millisecond,
+			})
+
+			mw := resilience.CircuitBreakerMiddleware(cb)
+
+			// Open circuit
+			failHandler := mw(mockHandler(errors.New("error"), 0))
+			failHandler(createTestContext())
+
+			assert.Equal(t, resilience.StateOpen, cb.GetState())
+
+			// Wait for reset
+			time.Sleep(20 * time.Millisecond)
+
+			// Should transition to half-open
+			successHandler := mw(mockHandler(nil, 0))
+			successHandler(createTestContext())
 		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-
-		// Open circuit
-		failHandler := mw(mockHandler(errors.New("error"), 0))
-		failHandler(createTestContext())
-
-		assert.Equal(t, resilience.StateOpen, cb.GetState())
-
-		// Wait for reset
-		time.Sleep(20 * time.Millisecond)
-
-		// Should transition to half-open
-		successHandler := mw(mockHandler(nil, 0))
-		successHandler(createTestContext())
 	})
 }
 
@@ -538,26 +541,28 @@ func TestDedupEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very short TTL", func(t *testing.T) {
-		filter := dedup.NewDedupFilter(dedup.DedupConfig{
-			MaxSize:         100,
-			DefaultTTL:      10 * time.Millisecond,
-			CleanupInterval: 5 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			filter := dedup.NewDedupFilter(dedup.DedupConfig{
+				MaxSize:         100,
+				DefaultTTL:      10 * time.Millisecond,
+				CleanupInterval: 5 * time.Millisecond,
+			})
+			defer filter.Stop()
+
+			mw := dedup.Dedup(filter)
+			handler := mw(mockHandler(nil, 0))
+
+			event := &middlewareTestEvent{id: "short-ttl", kind: platform.EventKindPrivateMessage}
+
+			// First
+			_ = handler(eventctx.NewContextFromEvent(event, nil))
+
+			// Wait for TTL
+			time.Sleep(20 * time.Millisecond)
+
+			// Should be allowed again
+			_ = handler(eventctx.NewContextFromEvent(event, nil))
 		})
-		defer filter.Stop()
-
-		mw := dedup.Dedup(filter)
-		handler := mw(mockHandler(nil, 0))
-
-		event := &middlewareTestEvent{id: "short-ttl", kind: platform.EventKindPrivateMessage}
-
-		// First
-		_ = handler(eventctx.NewContextFromEvent(event, nil))
-
-		// Wait for TTL
-		time.Sleep(20 * time.Millisecond)
-
-		// Should be allowed again
-		_ = handler(eventctx.NewContextFromEvent(event, nil))
 	})
 }
 
@@ -696,54 +701,58 @@ func TestMiddlewareIntegration(t *testing.T) {
 
 func TestConcurrentStress(t *testing.T) {
 	t.Run("concurrent rate limit", func(t *testing.T) {
-		mw := RateLimitTokenBucket(10, 10, func(ctx *eventctx.Context) string {
-			return "stress"
-		})
-
-		handler := mw(mockHandler(nil, 0))
-
-		var wg sync.WaitGroup
-		blocked := int32(0)
-
-		for range 50 {
-			wg.Go(func() {
-				if err := handler(createTestContext()); err != nil {
-					atomic.AddInt32(&blocked, 1)
-				}
+		synctest.Test(t, func(t *testing.T) {
+			mw := RateLimitTokenBucket(10, 10, func(ctx *eventctx.Context) string {
+				return "stress"
 			})
-		}
 
-		wg.Wait()
+			handler := mw(mockHandler(nil, 0))
 
-		// Some should be blocked
-		assert.Greater(t, blocked, int32(0))
+			var wg sync.WaitGroup
+			blocked := int32(0)
+
+			for range 50 {
+				wg.Go(func() {
+					if err := handler(createTestContext()); err != nil {
+						atomic.AddInt32(&blocked, 1)
+					}
+				})
+			}
+
+			wg.Wait()
+
+			// Some should be blocked
+			assert.Greater(t, blocked, int32(0))
+		})
 	})
 
 	t.Run("concurrent circuit breaker", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures: 3,
-		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-		handler := mw(mockHandler(errors.New("error"), 0))
-
-		var wg sync.WaitGroup
-		rejected := int32(0)
-
-		for range 20 {
-			wg.Go(func() {
-				err := handler(createTestContext())
-				if err != nil && errors.Is(err, errutil.ErrCircuitBreakerOpen) {
-					atomic.AddInt32(&rejected, 1)
-				}
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures: 3,
 			})
-			time.Sleep(5 * time.Millisecond)
-		}
 
-		wg.Wait()
+			mw := resilience.CircuitBreakerMiddleware(cb)
+			handler := mw(mockHandler(errors.New("error"), 0))
 
-		// Circuit should open and reject some
-		assert.Greater(t, rejected, int32(0))
+			var wg sync.WaitGroup
+			rejected := int32(0)
+
+			for range 20 {
+				wg.Go(func() {
+					err := handler(createTestContext())
+					if err != nil && errors.Is(err, errutil.ErrCircuitBreakerOpen) {
+						atomic.AddInt32(&rejected, 1)
+					}
+				})
+				time.Sleep(5 * time.Millisecond)
+			}
+
+			wg.Wait()
+
+			// Circuit should open and reject some
+			assert.Greater(t, rejected, int32(0))
+		})
 	})
 }
 

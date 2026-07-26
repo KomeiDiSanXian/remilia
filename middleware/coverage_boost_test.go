@@ -2,13 +2,15 @@ package middleware
 
 import (
 	"errors"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
-	"github.com/KomeiDiSanXian/remilia/platform"
 	resilience "github.com/KomeiDiSanXian/remilia/middleware/resilience"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,19 +21,18 @@ import (
 
 func TestDeadLetterMiddleware(t *testing.T) {
 	t.Run("enqueues on error", func(t *testing.T) {
-		q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
+		synctest.Test(t, func(t *testing.T) {
+			q := dlq.New[platform.Event](dlq.Config[platform.Event]{MaxSize: 100})
 
-		mw := resilience.DeadLetter(q)
-		handler := mw(mockHandler(errors.New("dlq error"), 0))
+			mw := resilience.DeadLetter(q)
+			handler := mw(mockHandler(errors.New("dlq error"), 0))
 
-		err := handler(createTestContext())
-		assert.Error(t, err)
+			err := handler(createTestContext())
+			assert.Error(t, err)
 
-		// Give it time to enqueue
-		time.Sleep(50 * time.Millisecond)
-
-		stats := q.Stats()
-		assert.GreaterOrEqual(t, stats.QueueSize, 0)
+			stats := q.Stats()
+			assert.GreaterOrEqual(t, stats.QueueSize, 0)
+		})
 	})
 
 	t.Run("no enqueue on success", func(t *testing.T) {
@@ -62,86 +63,79 @@ func TestDeadLetterMiddleware(t *testing.T) {
 
 func TestCircuitBreakerAdvanced(t *testing.T) {
 	t.Run("half-open to closed transition", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures:         1,
-			ResetTimeout:        50 * time.Millisecond,
-			HalfOpenMaxRequests: 2,
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures:         1,
+				ResetTimeout:        50 * time.Millisecond,
+				HalfOpenMaxRequests: 2,
+			})
+
+			mw := resilience.CircuitBreakerMiddleware(cb)
+
+			failHandler := mw(mockHandler(errors.New("fail"), 0))
+			failHandler(createTestContext())
+
+			assert.Equal(t, resilience.StateOpen, cb.GetState())
+
+			time.Sleep(60 * time.Millisecond)
+
+			successHandler := mw(mockHandler(nil, 0))
+			err := successHandler(createTestContext())
+			assert.NoError(t, err)
+
+			time.Sleep(10 * time.Millisecond)
 		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-
-		// Cause failure
-		failHandler := mw(mockHandler(errors.New("fail"), 0))
-		failHandler(createTestContext())
-
-		assert.Equal(t, resilience.StateOpen, cb.GetState())
-
-		// Wait for reset timeout
-		time.Sleep(60 * time.Millisecond)
-
-		// First success in half-open
-		successHandler := mw(mockHandler(nil, 0))
-		err := successHandler(createTestContext())
-		assert.NoError(t, err)
-
-		// Circuit should close after enough successes
-		time.Sleep(10 * time.Millisecond)
 	})
 
 	t.Run("half-open to open on failure", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures:  1,
-			ResetTimeout: 50 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures:  1,
+				ResetTimeout: 50 * time.Millisecond,
+			})
+
+			mw := resilience.CircuitBreakerMiddleware(cb)
+
+			handler := mw(mockHandler(errors.New("fail"), 0))
+			handler(createTestContext())
+
+			time.Sleep(60 * time.Millisecond)
+
+			handler(createTestContext())
+
+			assert.Equal(t, resilience.StateOpen, cb.GetState())
 		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-
-		// Open circuit
-		handler := mw(mockHandler(errors.New("fail"), 0))
-		handler(createTestContext())
-
-		// Wait for half-open
-		time.Sleep(60 * time.Millisecond)
-
-		// Fail in half-open state
-		handler(createTestContext())
-
-		// Should be open again
-		assert.Equal(t, resilience.StateOpen, cb.GetState())
 	})
 
 	t.Run("concurrent requests in half-open", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures:         1,
-			ResetTimeout:        50 * time.Millisecond,
-			HalfOpenMaxRequests: 1,
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures:         1,
+				ResetTimeout:        50 * time.Millisecond,
+				HalfOpenMaxRequests: 1,
+			})
+
+			mw := resilience.CircuitBreakerMiddleware(cb)
+
+			failHandler := mw(mockHandler(errors.New("fail"), 0))
+			failHandler(createTestContext())
+
+			time.Sleep(60 * time.Millisecond)
+
+			successHandler := mw(mockHandler(nil, 10*time.Millisecond))
+
+			done := make(chan error, 2)
+			for range 2 {
+				go func() {
+					done <- successHandler(createTestContext())
+				}()
+			}
+
+			err1 := <-done
+			err2 := <-done
+
+			assert.True(t, err1 == nil || err2 == nil)
 		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-
-		// Open circuit
-		failHandler := mw(mockHandler(errors.New("fail"), 0))
-		failHandler(createTestContext())
-
-		// Wait for half-open
-		time.Sleep(60 * time.Millisecond)
-
-		// Try multiple concurrent requests
-		successHandler := mw(mockHandler(nil, 10*time.Millisecond))
-
-		done := make(chan error, 2)
-		for range 2 {
-			go func() {
-				done <- successHandler(createTestContext())
-			}()
-		}
-
-		// One should succeed, one might be rejected
-		err1 := <-done
-		err2 := <-done
-
-		// At least one should execute
-		assert.True(t, err1 == nil || err2 == nil)
 	})
 
 	t.Run("get failures count", func(t *testing.T) {
@@ -186,45 +180,46 @@ func TestCircuitBreakerAdvanced(t *testing.T) {
 
 func TestRetryAdvanced(t *testing.T) {
 	t.Run("exponential backoff", func(t *testing.T) {
-		attempts := 0
-		start := time.Now()
+		synctest.Test(t, func(t *testing.T) {
+			attempts := 0
+			start := time.Now()
 
-		mw := resilience.Retry(resilience.RetryConfig{
-			MaxAttempts: 3,
-			BackoffBase: 50 * time.Millisecond,
-			BackoffMax:  200 * time.Millisecond,
+			mw := resilience.Retry(resilience.RetryConfig{
+				MaxAttempts: 3,
+				BackoffBase: 50 * time.Millisecond,
+				BackoffMax:  200 * time.Millisecond,
+			})
+
+			handler := mw(func(ctx *eventctx.Context) error {
+				attempts++
+				return errors.New("retry")
+			})
+
+			handler(createTestContext())
+
+			duration := time.Since(start)
+
+			assert.GreaterOrEqual(t, attempts, 3)
+			assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
 		})
-
-		handler := mw(func(ctx *eventctx.Context) error {
-			attempts++
-			return errors.New("retry")
-		})
-
-		handler(createTestContext())
-
-		duration := time.Since(start)
-
-		// MaxAttempts includes initial attempt
-		assert.GreaterOrEqual(t, attempts, 3)
-		// Should take at least 50ms (first retry)
-		assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
 	})
 
 	t.Run("max backoff limit", func(t *testing.T) {
-		mw := resilience.Retry(resilience.RetryConfig{
-			MaxAttempts: 5,
-			BackoffBase: 100 * time.Millisecond,
-			BackoffMax:  150 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			mw := resilience.Retry(resilience.RetryConfig{
+				MaxAttempts: 5,
+				BackoffBase: 100 * time.Millisecond,
+				BackoffMax:  150 * time.Millisecond,
+			})
+
+			handler := mw(mockHandler(errors.New("retry"), 0))
+
+			start := time.Now()
+			handler(createTestContext())
+			duration := time.Since(start)
+
+			assert.Less(t, duration, 1*time.Second)
 		})
-
-		handler := mw(mockHandler(errors.New("retry"), 0))
-
-		start := time.Now()
-		handler(createTestContext())
-		duration := time.Since(start)
-
-		// With exponential backoff capped at 150ms, total should be reasonable
-		assert.Less(t, duration, 1*time.Second)
 	})
 
 	t.Run("shouldRetry custom function", func(t *testing.T) {
@@ -276,31 +271,35 @@ func TestRetryAdvanced(t *testing.T) {
 
 func TestTimeoutAdvanced(t *testing.T) {
 	t.Run("handler completes just before timeout", func(t *testing.T) {
-		mw := Timeout(100 * time.Millisecond)
-		handler := mw(mockHandler(nil, 90*time.Millisecond))
+		synctest.Test(t, func(t *testing.T) {
+			mw := Timeout(100 * time.Millisecond)
+			handler := mw(mockHandler(nil, 90*time.Millisecond))
 
-		err := handler(createTestContext())
-		assert.NoError(t, err)
+			err := handler(createTestContext())
+			assert.NoError(t, err)
+		})
 	})
 
 	t.Run("handler times out exactly", func(t *testing.T) {
-		mw := Timeout(50 * time.Millisecond)
-		handler := mw(mockHandler(nil, 60*time.Millisecond))
+		synctest.Test(t, func(t *testing.T) {
+			mw := Timeout(50 * time.Millisecond)
+			handler := mw(mockHandler(nil, 60*time.Millisecond))
 
-		err := handler(createTestContext())
-		assert.Error(t, err)
+			err := handler(createTestContext())
+			assert.Error(t, err)
+		})
 	})
 
 	t.Run("panic propagation", func(t *testing.T) {
-		// 新实现中 Timeout 不捕获 panic（Recover() 负责）。
-		// 验证 Timeout + Recover 组合时 panic 被转换为错误。
-		panicHandler := mockPanicHandler("timeout panic")
-		withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
-		withRecover := Recover()(withTimeout)
+		synctest.Test(t, func(t *testing.T) {
+			panicHandler := mockPanicHandler("timeout panic")
+			withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
+			withRecover := Recover()(withTimeout)
 
-		err := withRecover(createTestContext())
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "panic")
+			err := withRecover(createTestContext())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "panic")
+		})
 	})
 }
 
@@ -313,47 +312,50 @@ func TestBackpressureAdvanced(t *testing.T) {
 		mw := Backpressure(2, BackpressureTryWait, 100*time.Millisecond)
 		handler := mw(mockHandler(nil, 10*time.Millisecond))
 
-		// First request
-		go handler(createTestContext())
-
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			handler(createTestContext())
+		})
 		time.Sleep(5 * time.Millisecond)
 
-		// Second request should wait and succeed
 		err := handler(createTestContext())
 		assert.NoError(t, err)
+		wg.Wait()
 	})
 
 	t.Run("block policy waits", func(t *testing.T) {
 		mw := Backpressure(1, BackpressureBlock, 0)
 		handler := mw(mockHandler(nil, 50*time.Millisecond))
 
-		start := time.Now()
-
-		// First in background
-		go handler(createTestContext())
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			handler(createTestContext())
+		})
 
 		time.Sleep(10 * time.Millisecond)
 
-		// Second should block
+		start := time.Now()
 		handler(createTestContext())
-
 		duration := time.Since(start)
+
 		assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
+		wg.Wait()
 	})
 
 	t.Run("drop policy immediate rejection", func(t *testing.T) {
 		mw := Backpressure(1, BackpressureDrop, 0)
 		handler := mw(mockHandler(nil, 100*time.Millisecond))
 
-		// First request
-		go handler(createTestContext())
-
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			handler(createTestContext())
+		})
 		time.Sleep(10 * time.Millisecond)
 
-		// Second should be dropped immediately
 		err := handler(createTestContext())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "backpressure limit")
+		wg.Wait()
 	})
 }
 
@@ -386,15 +388,17 @@ func TestLoggingAdvanced(t *testing.T) {
 
 func TestMetricsAdvanced(t *testing.T) {
 	t.Run("measures duration", func(t *testing.T) {
-		mw := Metrics()
-		handler := mw(mockHandler(nil, 50*time.Millisecond))
+		synctest.Test(t, func(t *testing.T) {
+			mw := Metrics()
+			handler := mw(mockHandler(nil, 50*time.Millisecond))
 
-		start := time.Now()
-		err := handler(createTestContext())
-		duration := time.Since(start)
+			start := time.Now()
+			err := handler(createTestContext())
+			duration := time.Since(start)
 
-		assert.NoError(t, err)
-		assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
+			assert.NoError(t, err)
+			assert.GreaterOrEqual(t, duration, 50*time.Millisecond)
+		})
 	})
 
 	t.Run("records error", func(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -116,23 +117,25 @@ func TestDedupRejectExtra(t *testing.T) {
 	})
 
 	t.Run("allows after TTL", func(t *testing.T) {
-		filter := dedup.NewDedupFilter(dedup.DedupConfig{
-			MaxSize:         100,
-			DefaultTTL:      50 * time.Millisecond,
-			CleanupInterval: 20 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			filter := dedup.NewDedupFilter(dedup.DedupConfig{
+				MaxSize:         100,
+				DefaultTTL:      50 * time.Millisecond,
+				CleanupInterval: 20 * time.Millisecond,
+			})
+			defer filter.Stop()
+			mw := dedup.DedupWithReject(filter)
+			handler := mw(mockHandler(nil, 0))
+
+			err1 := handler(createPlatformContextWithID("ttl"))
+			assert.NoError(t, err1)
+
+			time.Sleep(60 * time.Millisecond)
+			filter.Clear()
+
+			err2 := handler(createPlatformContextWithID("ttl"))
+			assert.NoError(t, err2)
 		})
-		defer filter.Stop()
-		mw := dedup.DedupWithReject(filter)
-		handler := mw(mockHandler(nil, 0))
-
-		err1 := handler(createPlatformContextWithID("ttl"))
-		assert.NoError(t, err1)
-
-		time.Sleep(60 * time.Millisecond)
-		filter.Clear()
-
-		err2 := handler(createPlatformContextWithID("ttl"))
-		assert.NoError(t, err2)
 	})
 }
 
@@ -142,33 +145,37 @@ func TestDedupRejectExtra(t *testing.T) {
 
 func TestRetryDeadLetterExtra(t *testing.T) {
 	t.Run("sends to dead letter", func(t *testing.T) {
-		dlCh := make(chan dlq.Item[platform.Event], 10)
-		mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 2, BackoffBase: 10 * time.Millisecond}, dlCh)
-		handler := mw(mockHandler(errors.New("fail"), 0))
-		err := handler(createPlatformContextWithID("dl-test"))
-		assert.Error(t, err)
-		select {
-		case item := <-dlCh:
-			_ = item // PlatformEventItem.Data may be nil for old-path ctx; just confirm item arrived
-			assert.Equal(t, 2, item.Attempt)
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("Expected dead letter")
-		}
+		synctest.Test(t, func(t *testing.T) {
+			dlCh := make(chan dlq.Item[platform.Event], 10)
+			mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 2, BackoffBase: 10 * time.Millisecond}, dlCh)
+			handler := mw(mockHandler(errors.New("fail"), 0))
+			err := handler(createPlatformContextWithID("dl-test"))
+			assert.Error(t, err)
+			select {
+			case item := <-dlCh:
+				_ = item // PlatformEventItem.Data may be nil for old-path ctx; just confirm item arrived
+				assert.Equal(t, 2, item.Attempt)
+			case <-time.After(100 * time.Millisecond):
+				t.Fatal("Expected dead letter")
+			}
+		})
 	})
 
 	t.Run("no dead letter on success", func(t *testing.T) {
-		dlCh := make(chan dlq.Item[platform.Event], 10)
-		mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 3, BackoffBase: 10 * time.Millisecond}, dlCh)
-		handler := mw(mockHandler(nil, 0))
-		err := handler(createTestContext())
-		assert.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			dlCh := make(chan dlq.Item[platform.Event], 10)
+			mw := resilience.RetryWithDeadLetter(resilience.RetryConfig{MaxAttempts: 3, BackoffBase: 10 * time.Millisecond}, dlCh)
+			handler := mw(mockHandler(nil, 0))
+			err := handler(createTestContext())
+			assert.NoError(t, err)
 
-		select {
-		case <-dlCh:
-			t.Fatal("Unexpected dead letter")
-		case <-time.After(50 * time.Millisecond):
-			// Expected
-		}
+			select {
+			case <-dlCh:
+				t.Fatal("Unexpected dead letter")
+			case <-time.After(50 * time.Millisecond):
+				// Expected
+			}
+		})
 	})
 }
 

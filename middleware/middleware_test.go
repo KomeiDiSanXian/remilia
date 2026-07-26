@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -188,17 +189,19 @@ func TestTimeout(t *testing.T) {
 	})
 
 	t.Run("panic in handler", func(t *testing.T) {
-		// 新实现：Timeout 不捕获 panic，应由 Recover() 处理。
-		// 验证 Recover() + Timeout() 组合时 panic 被正确转换为错误。
-		panicHandler := mockPanicHandler("timeout panic")
-		withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
-		withRecover := Recover()(withTimeout)
+		synctest.Test(t, func(t *testing.T) {
+			// 新实现：Timeout 不捕获 panic，应由 Recover() 处理。
+			// 验证 Recover() + Timeout() 组合时 panic 被正确转换为错误。
+			panicHandler := mockPanicHandler("timeout panic")
+			withTimeout := Timeout(100 * time.Millisecond)(panicHandler)
+			withRecover := Recover()(withTimeout)
 
-		ctx := createTestContext()
-		err := withRecover(ctx)
+			ctx := createTestContext()
+			err := withRecover(ctx)
 
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "panic")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "panic")
+		})
 	})
 }
 
@@ -477,29 +480,31 @@ func TestCircuitBreaker(t *testing.T) {
 	})
 
 	t.Run("open to half-open transition", func(t *testing.T) {
-		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
-			MaxFailures:  1,
-			ResetTimeout: 50 * time.Millisecond,
+		synctest.Test(t, func(t *testing.T) {
+			cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+				MaxFailures:  1,
+				ResetTimeout: 50 * time.Millisecond,
+			})
+
+			mw := resilience.CircuitBreakerMiddleware(cb)
+			handler := mw(mockHandler(errors.New("test error"), 0))
+
+			ctx := createTestContext()
+
+			// Trigger open
+			_ = handler(ctx)
+			assert.Equal(t, resilience.StateOpen, cb.GetState())
+
+			// Wait for reset timeout to elapse, allowing half-open transition
+			time.Sleep(50 * time.Millisecond)
+
+			// Should be half-open now
+			successHandler := mw(mockHandler(nil, 0))
+			err := successHandler(ctx)
+
+			assert.NoError(t, err)
+			assert.Equal(t, resilience.StateClosed, cb.GetState())
 		})
-
-		mw := resilience.CircuitBreakerMiddleware(cb)
-		handler := mw(mockHandler(errors.New("test error"), 0))
-
-		ctx := createTestContext()
-
-		// Trigger open
-		_ = handler(ctx)
-		assert.Equal(t, resilience.StateOpen, cb.GetState())
-
-		// Wait for reset timeout to elapse, allowing half-open transition
-		time.Sleep(50 * time.Millisecond)
-
-		// Should be half-open now
-		successHandler := mw(mockHandler(nil, 0))
-		err := successHandler(ctx)
-
-		assert.NoError(t, err)
-		assert.Equal(t, resilience.StateClosed, cb.GetState())
 	})
 
 	t.Run("success in closed state", func(t *testing.T) {

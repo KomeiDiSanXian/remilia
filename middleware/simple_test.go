@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -196,6 +197,7 @@ func BenchmarkMiddlewareFactories(b *testing.B) {
 
 // TestManagedAdaptive_StopReleasesGoroutines 测试 ManagedAdaptive Stop 能正确释放后台 goroutine
 func TestManagedAdaptive_StopReleasesGoroutines(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	managed := ratelimit.NewManagedAdaptive()
 	assert.NotNil(t, managed.Middleware())
 
@@ -212,7 +214,9 @@ func TestManagedAdaptive_StopReleasesGoroutines(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("Stop() did not return within 3 seconds")
 	}
+	})
 }
+
 
 // TestManagedAdaptiveWithLimit_Works 测试带限制的可管理限流器
 func TestManagedAdaptiveWithLimit_Works(t *testing.T) {
@@ -233,6 +237,7 @@ func TestProductionSet_MiddlewareOrder(t *testing.T) {
 
 // TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled 测试父 context 取消时自动退出
 func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 
 	managed := ratelimit.NewManagedAdaptiveWithContext(parent)
@@ -253,7 +258,9 @@ func TestNewManagedAdaptiveWithContext_StopsWhenParentCancelled(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("goroutines did not exit after parent context cancelled")
 	}
+	})
 }
+
 
 // TestNewManagedAdaptiveWithLimitContext_Works 测试带限制的 context 版本
 func TestNewManagedAdaptiveWithLimitContext_Works(t *testing.T) {

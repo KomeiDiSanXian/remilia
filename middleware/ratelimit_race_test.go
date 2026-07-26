@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -12,6 +14,7 @@ import (
 
 // TestRateLimitBucketRaceCondition 测试 Rate Limit Bucket 的并发竞态修复
 func TestRateLimitBucketRaceCondition(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 创建限流中间件
 	var accessCount atomic.Int32
 	mw := RateLimitTokenBucket(10, 20, func(ctx *eventctx.Context) string {
@@ -46,7 +49,7 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 
 				// 短暂延迟增加竞态可能性
 				if j%3 == 0 {
-					time.Sleep(time.Microsecond)
+					runtime.Gosched()
 				}
 			}
 		}(i)
@@ -56,10 +59,12 @@ func TestRateLimitBucketRaceCondition(t *testing.T) {
 
 	t.Logf("Completed %d concurrent accesses, access count: %d", concurrency*iterations, accessCount.Load())
 	t.Log("No race condition detected (test passed if no panic)")
+	})
 }
 
 // TestRateLimitBucketConcurrentKeys 测试多个不同 key 的并发访问
 func TestRateLimitBucketConcurrentKeys(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	mw := RateLimitTokenBucket(100, 100, func(ctx *eventctx.Context) string {
 		if pe := ctx.GetPlatformEvent(); pe != nil {
 			return pe.ID()
@@ -90,10 +95,13 @@ func TestRateLimitBucketConcurrentKeys(t *testing.T) {
 
 	wg.Wait()
 	t.Log("Multiple concurrent keys handled without race condition")
+	})
 }
+
 
 // TestRateLimitBucketUpdateLastVisit 测试 lastVisit 更新的线程安全性
 func TestRateLimitBucketUpdateLastVisit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	mw := RateLimitTokenBucket(1000, 1000, func(ctx *eventctx.Context) string {
 		return "shared-key"
 	})
@@ -118,7 +126,9 @@ func TestRateLimitBucketUpdateLastVisit(t *testing.T) {
 
 	wg.Wait()
 	t.Log("LastVisit updates completed without race condition")
+	})
 }
+
 
 // TestRateLimitBucketStressTest 压力测试
 func TestRateLimitBucketStressTest(t *testing.T) {
@@ -134,14 +144,12 @@ func TestRateLimitBucketStressTest(t *testing.T) {
 	})
 
 	handler := mw(func(ctx *eventctx.Context) error {
-		// 模拟一些处理时间
-		time.Sleep(time.Microsecond)
 		return nil
 	})
 
-	// 持续 2 秒的压力测试
+	// 持续 100ms 的压力测试（使用真实时间，synctest 会因日志 I/O 而停滞）
 	done := make(chan struct{})
-	time.AfterFunc(2*time.Second, func() { close(done) })
+	time.AfterFunc(100*time.Millisecond, func() { close(done) })
 
 	var wg sync.WaitGroup
 	workers := 20
@@ -169,8 +177,10 @@ func TestRateLimitBucketStressTest(t *testing.T) {
 	t.Log("Stress test completed without race condition or panic")
 }
 
+
 // TestRateLimitBucketCleanupDuringAccess 测试清理期间的并发访问
 func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
 	// 使用较小的 maxBuckets 和短 TTL 来触发清理
 	config := RateLimitConfig{
 		MaxBuckets:      10,
@@ -191,7 +201,7 @@ func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
 
 	// 持续访问，触发清理
 	done := make(chan struct{})
-	time.AfterFunc(500*time.Millisecond, func() { close(done) })
+	time.AfterFunc(200*time.Millisecond, func() { close(done) })
 
 	var wg sync.WaitGroup
 	wg.Add(10)
@@ -217,4 +227,6 @@ func TestRateLimitBucketCleanupDuringAccess(t *testing.T) {
 
 	wg.Wait()
 	t.Log("Cleanup during access completed without race condition")
+	})
 }
+
