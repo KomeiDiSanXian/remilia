@@ -274,8 +274,9 @@ func TestContextStdContext(t *testing.T) {
 	t.Run("nil_context_handling", func(t *testing.T) {
 		ctx := NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 
-		// 设置 nil context
-		ctx.SetStdContext(stdctx.TODO())
+		// 设置 nil context（lint:ignore — SetStdContext 内部将 nil 转为 Background）
+		//lint:ignore SA1012 intentional — SetStdContext handles nil via Background()
+		ctx.SetStdContext(nil) //nolint:SA1012
 
 		// 应该返回 Background
 		stdCtx := ctx.Context()
