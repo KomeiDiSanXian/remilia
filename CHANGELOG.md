@@ -1,6 +1,89 @@
 # Changelog
 
-## [Unreleased]
+## v1.22.0 (2026-07-27)
+
+### 🐛 Engine 核心修复（2026-07 core 深度复查）
+
+- **COW 就地排序数据竞争修复**: `withUpdatedMatcherIndex`/`withBatchMatchers` 对 `v[:len:len]` 复制（共享底层数组）出的切片就地排序，改写已发布旧 state 中正被 `processEventMatchers` 无锁读取的 commandIndex 数组。命令 matcher 的 `SetPriority`/`BindCommand`、插件 `BatchRegisterMatchers` 与事件处理并发时构成 data race。现排序前做逐元素完整拷贝，批量注册只重排本批次实际触及的桶
+- **`WithSharedExecPool` 失效修复**: NewEngine 在应用 options 后无条件覆盖 `execPool`，共享池被静默丢弃。现仅在未注入时创建自有池；`Engine.Shutdown` 不再 Drain 共享池（生命周期归调用方）
+- **中间件热更新不达临时 matcher 修复**: `Use`/`UseForGroup`/`ResetMiddlewares`/`ResetGroupMiddleware` 只失效 state 中的 matcher，TempManager 中的活跃会话 matcher 因 `compiledVersion` 快路径永久沿用旧链（插件重载的守卫中间件可被绕过）。新增 `tempManager.ForEach` 统一失效
+- **OnTemp 后设超时永不过期修复**: 已是 temp 的 matcher 调 `SetTempWithTimeout` 不会登记过期堆，未被使用的会话 matcher 泄漏至高水位强制清理。现通过 `SetExpiration` 在 shard 锁内写入过期时间并补登堆（同时消除 expiresAt 无锁读写竞态）
+- **`DeleteMatcher` 恢复批量删除路径**: 生产代码中批量删除处理器的入队端已不存在（纯死代码，每 100ms 空转）。现 `DeleteMatcher` 立即标记 deleted（即刻停止匹配）并入队，由处理器按配置间隔批量 COW 删除；处理器未运行或队列满时退化为同步删除。新增 `FlushPendingDeletes` 供确定性收尾；修复 ticker 误用常量导致 `WithPendingDeleteProcessInterval` 配置被忽略的问题
+- **链式元数据缓存陈旧修复**: `OnCommand().SetDescription()` 等文档推荐写法的元数据停留在注册瞬间的空值（/help 显示空描述、`SetHidden` 不生效），直到无关的全量索引重建。现 `SetDescription`/`SetUsage`/`SetCategory`/`SetAliases`/`SetExamples`/`SetPermissions`/`SetHidden`/`BindCommand` 统一触发 `UpdateCommandCache`
+- **批量注册命令元数据缺失修复**: `withBatchMatchers` 未更新 commandInfoCache，批量注册的命令不出现在 `GetAllCommands`//help 中
+- **命令索引分类收紧**: 索引重建改以 `commandIndexed` 标志（OnCommand/RegisterCommandDef 置位）判定命令 matcher；普通 matcher 事后补充 `Definition.Name` 不再于重建后被迁入 commandIndex 并跳过 Rules[0]（语义漂移）
+- **Dispatcher 同 chat 双 worker 竞态修复**: worker 摘除空队列与 Submit 获取队列并发时，同一 chat 可能出现两个并存队列与 worker，破坏 FIFO 保证。Submit 现持锁复查映射并重试；同时消除每次 Submit 的 chatQueue 预分配
+- **ExecPool 队列滞留修复**: 任务在所有 worker 完成最终 drain 之后入队时无人消费，直到下次提交才被处理。新增 exitMu 退出协议：入队后要么现存 worker 必然看到任务，要么立即抢到令牌启动 drain worker
+- **归并迭代器哨兵值边界修复**: 优先级恰为 `MaxUint` 的 matcher 会被 `bestPrio` 哨兵比较跳过并提前终止整个归并；`getPriority` 在 32 位平台截断 uint64。改用显式 found 判定 + uint64 全程比较
+- **TempManager 快照写放大修复**: 此前每次 Add/Remove 都全量收集 8 个 shard 并整体排序重建 RCU 快照（O(N log N)/操作），高频会话场景（OnTemp 一问一答 = 两次全量重建）写放大严重。现 Add/Remove 改为 COW 增量插入/移除（仅替换受影响 eventType 的切片），CleanExpired/水位清理保留全量重建；含防"幽灵 matcher"的 byID 二次校验与并发全量重建去重
+- **温和修复**: `StartTempMatcherCleaner` 公开入口补 writeMu（消除与 Shutdown 组件的竞态）；TempManager 水位/过期清理统一置 deleted 标志并重建 RCU 快照（周期清理路径此前快照不更新）；`cleanupWg` 纳入 Shutdown 等待；processEventMatchers 兜底分支加读锁读取 Handler；`EnableGlobalMatchers` 补充真实语义说明
+
+### 🐛 Context 规则修复
+
+- **`OnMentionedBot` 平台不支持时永不触发修复**: 文档承诺"平台未实现 MentionsEvent 时放行"，实现却恒返回 false。现按文档语义放行，由 EventType 路由过滤
+- **`OnCooldown` 误消耗冷却修复（延迟副作用机制）**: 此前规则命中瞬间即写入冷却——排在前面时，后续规则失败或其他 matcher 才是处理者，用户冷却已被白白消耗。新增 `Context.DeferRuleEffect/CommitPendingRuleEffects/DiscardPendingRuleEffects`：引擎在 matcher 全部规则通过后统一提交副作用、失败则丢弃，OnCooldown 改为延迟写入，规则顺序不再影响正确性
+
+### 🔒 Permission 内核修复
+
+- **请求侧通配符绕过修复**: `Permission.Match` 把 target 侧的 `"*"` 当通配符放行，用户可控字符串透传进 `HasPermission` 时可用 `"*"` 探测/绕过检查（与文档 "wildcards in target are treated literally" 相反）。现 target 侧一律按字面值处理
+- **`GrantPermission` 幂等化**、**`HasPermission` Provider 调用移出锁外**（慢查询不再长时间阻塞写操作）
+
+### 🐛 FSM 修复
+
+- **Session 并发保护**: 同一 sessionID 的启动/迁移现由 per-session 互斥锁串行化，消除并发事件对 `Session.Current`/`Data`（map）的数据竞争；两个并发 `StartSession` 不再互相覆盖。回调重入约束见 `FSMContext` 文档
+- **`TryStartSession` 持锁执行回调修复**: 此前整个遍历持有 `e.mu.RLock`，回调内 `Register`/`Unregister` 直接死锁。现锁内快照 FSM 列表、锁外执行回调
+- **孤儿会话永久阻塞修复**: 关联 FSM 被 `Unregister` 后，遗留会话导致该 sessionID 永远无法开启新会话（无 Timeout 时）。现自动清理孤儿会话
+- **`GetSession` 改为返回副本**（与文档一致，外部修改不再绕过会话锁）；新增 `UpdateSessionData` 作为外部写入 Data 的受支持方式（builtin/ai 已迁移）；`Timeout` 文档明确"自创建起计"
+- **新增 `FSM.RefreshOnActivity` 滑动 TTL**: 为 true 时每次成功迁移把过期时间重置为 now+Timeout，长对话保持活跃即不过期；默认 false 保持既有"自创建起计"语义
+
+### 🐛 平台适配器修复
+
+- **Discord handler 叠加泄漏修复**: `Start` 可被重复调用（重连/重启），旧 handler 未注销导致同一事件被重复分发。`registerHandlers` 返回注销函数列表，`defer` 统一清理。send-on-closed-channel 竞态修复：消除 `close(eventCh)` 与 goroutine 发送的竞态窗口
+- **Milky 适配器增强**: 错误响应脱敏，sender 补充内联键盘、消息编辑、消息删除、Reaction 等功能
+- **Mock 适配器**: 补充 `MessageDeleter`/`TypingNotifier` 接口实现，支持测试中模拟平台操作
+- **OneBot 深度修复**: `fetchBotIdentity` 时序修复（receiveLoop 启动前同步调用导致响应永远无法送达）；消息解析重构（支持 `CQ:xml`、`CQ:json`、`CQ:card` 等富媒体类型）；并发写入 WebSocket 竞态修复；补充大量单元测试
+- **QQ 平台修复**: Token 管理器 debug 日志泄漏 `AppSecret`/`access_token` 凭据，改为仅记录 token 长度；`openapi` 超时与重试增强；Webhook signing 签名算法补充；Sender 补充 Reply/成员接口
+- **Satori 修复**: quote 解析丢失正文（自闭合 `<quote/>` 被 HTML 解析器误认导致后续兄弟节点丢失）；XML 注入修复（`%q` 反斜杠转义不被 XML 识别，用户输入可提前闭合属性注入任意元素）；事件的 `message_id` 统一；WebSocket 重连增强；全面测试补充
+- **Telegram 全面增强**: 修复高频场景下的超时/重试逻辑；事件映射补全（频道、超级群组、话题组等消息类型）；Sender 补充 MarkdownV2 转义、内联键盘、编辑/删除/Reaction 全链路；消息类型定义标准化
+- **Terminal 重大重构**: 输入解析重写（支持补全、历史、多行）；新增 `sanitize.go` 输入净化；VT 控制序列增强；启动/窗口尺寸检测兼容性修复；全面测试覆盖
+- **Registry 增强**: `FindAdapter`/`GetAdapterNames`/`GetDefaultAdapters` 等新方法
+
+### 🐛 插件系统修复
+
+- **Manager 并发安全重构**: `StopAll`/`Manager.Stop` 竞态修复，`InvokeOnEvent` 锁协议重写；Shutdown 阶段等待所有插件平稳退出；`Manager.diag` 命令支持运行时诊断
+- **注册流程优化**: 依赖排序稳定性修复；批量注册场景下 `RegisterAll` 的并发安全；`ValidateDependencies` 死锁修复
+- **热重载修复**: `ReloadAll`/`Reload` 重入保护；配置变化时按拓扑序安全重启受影响插件
+- **Runtime 修复**: `runtime_context` 生命周期隔离（插件间不互相干扰）；`runtime_instance` 并发写保护
+- **WASM 运行时**: ABI 序列化边界修复；沙箱超时兜底；Sandbox 重连隔离；扩展点注册性能优化
+- **EventBus/Scope/Container**: Scope 销毁时的事件清理；Container 值变更通知并发安全；Proxy 调用超时传递
+
+### 🐛 中间件修复
+
+- **Dedup 并发加强**: 修复 `max_size` 缩减时的 LRU 淘汰竞态，热路径增加 `sync.Map` 兜底
+- **CircuitBreaker 无限震荡修复**: `SuccessThreshold > HalfOpenMaxRequests` 时，半开窗口永远达不到闭合所需的成功数，熔断器在 开↔半开 之间无限震荡。新增启动和热更新时的钳制逻辑；更新测试验证边界条件
+
+### 🐛 内置插件修复
+
+- **AI SubCommand**: 子命令错误处理链路修复，确保 `Skill add` 失败时正确返回错误而非静默继续
+
+### 🐛 杂项修复
+
+- **`bot.go` 关闭信号监听**: `WaitForShutdown` 已有监听者时后续调用从 panic 改为 warn 日志并直接返回，避免两个监听者竞争同一信号
+- **`doc.go` 文档更新**: 更新 Reply 异步语义和 Handler 示例
+
+### 📝 测试与验证
+
+- **新增复查回归测试套件**: `core/engine/review_fixes_test.go`（364 行，覆盖 Engine 核心修复的所有边界场景）；`core/fsm/fsm_review_test.go`（106 行，覆盖 FSM 并发/孤儿会话/RefreshOnActivity）；`core/permission/permission_review_test.go`（36 行，覆盖通配符绕过/GrantPermission 幂等/Provider 锁外调用）
+- **`tests/fixes_validation_test.go`**: 补充 22 行验证用例
+- **Router 测试**: 补充 `WaitForAsyncHandlers` 等待，确保 v1.21.1 的 ExecPool 异步化后断言正确
+
+### 📚 文档
+
+- **新增 5 篇架构笔记**: `20-core-review-lessons.md`（八个并发缺陷模式与契约方法论）、`21-outbound-dispatcher.md`（FIFO 调度与 Future 集成）、`22-adaptive-execution.md`（ExecProfile + ExecPool + 退出协议）、`23-context-design.md`（双键扩展系统、Clone 语义、延迟副作用）、`24-bot-assembly.md`（Bot/BotBuilder/BotManager 装配层）
+- **更新现有笔记**: 01-cow-engine、02-six-way-merge-matcher、08-command-system、12-fsm-engine、13-adaptive-router 全面修订；notes/README.md 索引更新
+- **用户指南更新**: `GETTING_STARTED.md`、`TROUBLESHOOTING.md`、`CONFIGURATION_QUICKREF.md`、`MATCHER_CHAINING_BEST_PRACTICES.md`、`README.md` 同步修订
+- **架构文档更新**: `CONCURRENT_EVENT_PROCESSING.md`、`permission-system.md`、`OUTBOUND_DISPATCHER_PLAN.md`
+- **测试文档**: `command/TESTING.md`、`config/TESTING.md`、`plugin/TESTING.md`
 
 ## v1.21.1 (2026-07-26)
 
