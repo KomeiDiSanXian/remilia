@@ -10,8 +10,13 @@
 
 <div align="center">
 
-![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
+[![CI](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml)
+[![govulncheck](https://github.com/KomeiDiSanXian/remilia/actions/workflows/vulncheck.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/vulncheck.yml)
+[![Coverage](https://codecov.io/gh/KomeiDiSanXian/remilia/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/KomeiDiSanXian/remilia)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&style=flat-square)](https://github.com/KomeiDiSanXian/remilia/security/dependabot)
 
 一个现代化、高性能、易于扩展的多平台机器人框架
 
@@ -20,6 +25,25 @@
 </div>
 
 ---
+
+## Quality Assurance
+
+每次提交和 PR 自动执行以下质量门禁，替代已停用的 Go Report Card，提供更全面、实时的代码质量反馈：
+
+| 检查项 | 工具 | 说明 |
+|--------|------|------|
+| **代码格式** | `go fmt` | 确保代码风格统一 |
+| **静态分析** | `go vet` | 检查可疑构造 |
+| **静态检查** | `staticcheck` | 额外的 Go 静态分析规则 |
+| **Lint** | `golangci-lint` | 聚合 lint 检查（errcheck, unused, ineffassign 等） |
+| **漏洞扫描** | `govulncheck` | 依赖项已知漏洞检测 |
+| **竞态检测** | `go test -race` | 并发安全测试 |
+| **测试覆盖率** | `go test -cover` | 代码覆盖率追踪（上传至 Codecov） |
+| **SAST** | GitHub CodeQL | 语义化代码安全分析 |
+| **依赖更新** | Dependabot | 自动检测依赖项更新 |
+
+> 这一组合覆盖了代码风格、静态分析、安全审计、依赖管理和测试质量等多个维度，
+> 符合 Kubernetes、Prometheus、etcd、Caddy 等主流 Go 项目的工程实践。
 
 ## ✨ 特性
 
