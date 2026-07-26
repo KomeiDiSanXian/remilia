@@ -276,7 +276,7 @@ func TestContextStdContext(t *testing.T) {
 
 		// 设置 nil context（lint:ignore — SetStdContext 内部将 nil 转为 Background）
 		//lint:ignore SA1012 intentional — SetStdContext handles nil via Background()
-		ctx.SetStdContext(nil) //nolint:SA1012
+		ctx.SetStdContext(nil) //nolint:staticcheck
 
 		// 应该返回 Background
 		stdCtx := ctx.Context()
