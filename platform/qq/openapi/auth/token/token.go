@@ -78,7 +78,11 @@ func NewManagerFromConfig(info *dto.BotInfo, cfg config.TokenManagerConfig) *Man
 // 当 parent ctx 被取消时，后台刷新 goroutine 自动退出，无需手动调用 Stop()。
 func NewManagerFromConfigWithContext(parent context.Context, info *dto.BotInfo, cfg config.TokenManagerConfig) *Manager {
 	logger.Debugf("[Token] Initializing Token Manager with config: %+v", cfg)
-	logger.Debugf("[Token] Bot Info: %+v", info)
+	// 不可打印整个 BotInfo：其中的 AppSecret 是长期凭据，
+	// 一旦开启 debug 日志就会被永久留存到日志文件/采集系统中。
+	if info != nil {
+		logger.Debugf("[Token] Bot Info: QQNum=%d AppID=%d", info.QQNum, info.AppID)
+	}
 	ctx, cancel := context.WithCancel(parent)
 
 	// 解析配置
@@ -260,8 +264,12 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 			firstSuccess = true
 			m.cond.Broadcast()
 		}
+		tokenLen := len(m.accessToken)
 		m.mu.Unlock()
-		logger.WithField("access_token", m.accessToken).WithField("expires_in", expiresIn).Debug("[Token] Updated")
+		// 只记录 token 长度而非内容：access_token 是可直接调用 API 的活凭据，
+		// 每次刷新（约 2 小时）都写一遍等于把凭据持续泄露到日志中。
+		// 长度在锁内取，避免与其他 goroutine 的写入竞争。
+		logger.WithField("token_len", tokenLen).WithField("expires_in", expiresIn).Debug("[Token] Updated")
 
 		// 计算刷新时间，使用配置的 refreshAdvance
 		refreshAfter := time.Duration(expiresIn)*time.Second - m.refreshAdvance

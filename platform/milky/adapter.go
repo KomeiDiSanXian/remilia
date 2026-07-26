@@ -271,9 +271,27 @@ func (a *Adapter) dial(ctx stdctx.Context, wsURL string) (*websocket.Conn, error
 	}
 	conn, _, err := dialer.DialContext(dialCtx, wsURL, header)
 	if err != nil {
-		return nil, fmt.Errorf("milky: dial %s: %w", wsURL, err)
+		// 不能把 wsURL 原样带进错误：它的 query 里含 access_token，
+		// 而该错误会被 Warn 日志与断连回调记录，等于把凭据写进日志。
+		return nil, fmt.Errorf("milky: dial %s: %w", redactURLSecrets(wsURL), err)
 	}
 	return conn, nil
+}
+
+// redactURLSecrets 移除 URL query 中的敏感参数值，用于安全地记录日志。
+func redactURLSecrets(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<url>"
+	}
+	q := u.Query()
+	for _, k := range []string{"access_token", "token", "secret", "password"} {
+		if q.Get(k) != "" {
+			q.Set(k, "<redacted>")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // readLoop 从 WebSocket 连接中持续读取 JSON 事件，直到连接关闭或 ctx 被取消。

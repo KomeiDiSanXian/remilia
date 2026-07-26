@@ -149,8 +149,14 @@ func (a *ForwardWSAdapter) Stop(_ stdctx.Context) error {
 		cancel()
 	}
 	if conn != nil {
-		_ = conn.WriteMessage(websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		// 必须用 WriteControl 而非 WriteMessage：gorilla/websocket 只允许一个并发写者，
+		// 而此刻可能有 handler 正在 wsAPIClient.Call 里向同一连接写数据帧
+		// （其写锁是 apiClient 私有的，管不到这里），并发 WriteMessage 会
+		// panic("concurrent write to websocket connection")。
+		// WriteControl 是唯一可安全并发调用的写方法。
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+			time.Now().Add(5*time.Second))
 		_ = conn.Close()
 	}
 	a.wg.Wait()
@@ -208,8 +214,9 @@ func (a *ForwardWSAdapter) runWithReconnect(ctx stdctx.Context, handler func(pla
 		}
 
 		if attempt > 0 {
-			// 指数退避
-			backoff := min(time.Duration(float64(delay)*math.Pow(1.5, float64(attempt-1))), maxDelay)
+			// 指数退避（限制指数上界，避免 float64→Duration 溢出为负值导致零延迟热重连循环）
+			exp := min(attempt-1, 40)
+			backoff := min(time.Duration(float64(delay)*math.Pow(1.5, float64(exp))), maxDelay)
 			logger.WithFields(logger.Fields{
 				"attempt": attempt,
 				"delay":   backoff,
@@ -263,15 +270,23 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 	a.sender = sender
 	a.mu.Unlock()
 
-	// 获取一次机器人身份
-	a.fetchBotIdentity(ctx, sender)
-
 	// 启动事件泵 goroutine
 	eventCh := make(chan platform.Event, a.config.EventBufferSize)
 	errCh := make(chan error, 1)
 
 	a.wg.Go(func() {
 		errCh <- a.receiveLoop(ctx, conn, apiClient, eventCh)
+	})
+
+	// 获取一次机器人身份。
+	//
+	// 必须放在 receiveLoop 启动之后：get_login_info 的响应由 receiveLoop 经
+	// apiClient.routeResponse 派发，若在此之前同步调用，响应永远无法送达，
+	// 必然空等满 APITimeout（每次连接/重连都白白阻塞数秒），
+	// 且 botID 始终为空，导致 IsFromSelf() 永不命中、可能自我回复成环。
+	// 这里用独立 goroutine 执行，避免拖慢首个事件的处理。
+	a.wg.Go(func() {
+		a.fetchBotIdentity(ctx, sender)
 	})
 
 	// 将事件分发给 handler

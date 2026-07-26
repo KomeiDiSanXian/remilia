@@ -138,19 +138,26 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	a.running = true
 	a.mu.Unlock()
 
-	a.registerHandlers(cancelCtx, eventCh)
+	removers := a.registerHandlers(cancelCtx, eventCh)
 
-	a.session.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {
+	removers = append(removers, a.session.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {
 		logger.Warn("[discord.GatewayAdapter] Disconnected from Gateway")
 		a.NotifyDisconnect(fmt.Errorf("discord: gateway disconnected"))
-	})
+	}))
+
+	// 返回前注销本次注册的所有 handler：Start 可被再次调用（Open 失败重试、
+	// Bot 热重启），不注销会造成 handler 叠加、同一事件被重复分发。
+	defer func() {
+		for _, rm := range removers {
+			rm()
+		}
+	}()
 
 	if err := a.session.Open(); err != nil {
 		cancel()
 		a.mu.Lock()
 		a.running = false
 		a.mu.Unlock()
-		close(eventCh)
 		return fmt.Errorf("discord gateway: failed to open connection: %w", err)
 	}
 
@@ -173,7 +180,11 @@ func (a *GatewayAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 	})
 
 	<-cancelCtx.Done()
-	close(eventCh)
+	// 不能 close(eventCh)：discordgo 在独立 goroutine 中调用 handler，
+	// 此刻可能正有 handler 停在 send() 的 select 上。select 在多个 case 同时就绪时
+	// 随机选择，因此即使 ctx 已取消，仍可能选中"向已关闭 channel 发送"而 panic，
+	// 且该 panic 位于 discordgo 的 goroutine 中无人 recover，会直接终止进程。
+	// 分发 goroutine 已由 cancelCtx.Done() 退出，channel 交给 GC 即可。
 	a.wg.Wait()
 
 	a.mu.Lock()
@@ -253,7 +264,7 @@ func (a *GatewayAdapter) Session() *discordgo.Session {
 // Event handler registration
 // ────────────────────────────────────────────────────────────────────────────
 
-func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- platform.Event) {
+func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- platform.Event) []func() {
 	send := func(e platform.Event) {
 		select {
 		case eventCh <- e:
@@ -261,73 +272,82 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 		}
 	}
 
+	// 收集 AddHandler 返回的注销函数：Start 可能被再次调用（重连/重启），
+	// 不注销旧 handler 会导致同一事件被重复投递，且旧闭包仍指向已废弃的 eventCh。
+	var removers []func()
+	add := func(h any) {
+		removers = append(removers, a.session.AddHandler(h))
+	}
+
 	// Message events
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+	add(func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		send(NewMessageCreateEvent(m))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageUpdate) {
+	add(func(s *discordgo.Session, m *discordgo.MessageUpdate) {
 		send(NewMessageUpdateEvent(m))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageDelete) {
+	add(func(s *discordgo.Session, m *discordgo.MessageDelete) {
 		send(NewMessageDeleteEvent(m))
 	})
 
 	// Interaction events — store the interaction object before dispatching
 	// so the sender can respond via the Interactions API.
-	a.session.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	add(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		a.sender.storeInteraction(i.Interaction)
 		send(NewInteractionCreateEvent(i))
 	})
 
 	// Guild lifecycle
-	a.session.AddHandler(func(s *discordgo.Session, g *discordgo.GuildCreate) {
+	add(func(s *discordgo.Session, g *discordgo.GuildCreate) {
 		send(NewGuildCreateEvent(g))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, g *discordgo.GuildDelete) {
+	add(func(s *discordgo.Session, g *discordgo.GuildDelete) {
 		send(NewGuildDeleteEvent(g))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, g *discordgo.GuildUpdate) {
+	add(func(s *discordgo.Session, g *discordgo.GuildUpdate) {
 		send(NewGuildUpdateEvent(g))
 	})
 
 	// Guild members
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
+	add(func(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 		send(NewGuildMemberAddEvent(m))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
+	add(func(s *discordgo.Session, m *discordgo.GuildMemberRemove) {
 		send(NewGuildMemberRemoveEvent(m))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {
+	add(func(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {
 		send(NewGuildMemberUpdateEvent(m))
 	})
 
 	// Reactions
-	a.session.AddHandler(func(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	add(func(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 		send(NewMessageReactionAddEvent(r))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
+	add(func(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
 		send(NewMessageReactionRemoveEvent(r))
 	})
 
 	// Channels
-	a.session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelCreate) {
+	add(func(s *discordgo.Session, c *discordgo.ChannelCreate) {
 		send(NewChannelCreateEvent(c))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
+	add(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		send(NewChannelUpdateEvent(c))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelDelete) {
+	add(func(s *discordgo.Session, c *discordgo.ChannelDelete) {
 		send(NewChannelDeleteEvent(c))
 	})
 
 	// System events
-	a.session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+	add(func(s *discordgo.Session, r *discordgo.Ready) {
 		logger.Infof("[discord.GatewayAdapter] Ready: logged in as %s#%s (ID: %s)",
 			r.User.Username, r.User.Discriminator, r.User.ID)
 		send(NewReadyEvent(r))
 	})
-	a.session.AddHandler(func(s *discordgo.Session, r *discordgo.Resumed) {
+	add(func(s *discordgo.Session, r *discordgo.Resumed) {
 		logger.Info("[discord.GatewayAdapter] Connection resumed")
 		send(NewResumedEvent(r))
 	})
+
+	return removers
 }

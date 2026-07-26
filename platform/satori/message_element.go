@@ -3,11 +3,15 @@ package satori
 import (
 	"fmt"
 	"html"
+	"regexp"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
 	nethtml "golang.org/x/net/html"
 )
+
+// selfClosingQuoteRe 匹配自闭合的 <quote .../> 元素（不匹配 <quote>...</quote>）。
+var selfClosingQuoteRe = regexp.MustCompile(`(?i)<quote\b[^>]*/>`)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 编码：platform.OutboundMessage → Satori XML 消息字符串
@@ -25,12 +29,12 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 
 	// 引用（回复）元素 – 必须出现在最前面
 	if msg.ReplyToID != "" {
-		fmt.Fprintf(&b, `<quote id=%q/>`, msg.ReplyToID)
+		fmt.Fprintf(&b, `<quote id=%s/>`, escapeAttr(msg.ReplyToID))
 	}
 
 	// @提及 → <at id="..."/>
 	for _, uid := range msg.Mentions {
-		fmt.Fprintf(&b, `<at id=%q/>`, uid)
+		fmt.Fprintf(&b, `<at id=%s/>`, escapeAttr(uid))
 	}
 
 	// 文本内容（XML 转义）
@@ -52,19 +56,19 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 		switch att.Kind {
 		case platform.AttachmentKindImage:
 			if att.Name != "" {
-				fmt.Fprintf(&b, `<img src=%q title=%q/>`, att.URL, att.Name)
+				fmt.Fprintf(&b, `<img src=%s title=%s/>`, escapeAttr(att.URL), escapeAttr(att.Name))
 			} else {
-				fmt.Fprintf(&b, `<img src=%q/>`, att.URL)
+				fmt.Fprintf(&b, `<img src=%s/>`, escapeAttr(att.URL))
 			}
 		case platform.AttachmentKindAudio:
-			fmt.Fprintf(&b, `<audio src=%q/>`, att.URL)
+			fmt.Fprintf(&b, `<audio src=%s/>`, escapeAttr(att.URL))
 		case platform.AttachmentKindVideo:
-			fmt.Fprintf(&b, `<video src=%q/>`, att.URL)
+			fmt.Fprintf(&b, `<video src=%s/>`, escapeAttr(att.URL))
 		default: // AttachmentKindFile
 			if att.Name != "" {
-				fmt.Fprintf(&b, `<file src=%q title=%q/>`, att.URL, att.Name)
+				fmt.Fprintf(&b, `<file src=%s title=%s/>`, escapeAttr(att.URL), escapeAttr(att.Name))
 			} else {
-				fmt.Fprintf(&b, `<file src=%q/>`, att.URL)
+				fmt.Fprintf(&b, `<file src=%s/>`, escapeAttr(att.URL))
 			}
 		}
 	}
@@ -73,10 +77,10 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 	for _, btn := range msg.Buttons {
 		switch btn.Style {
 		case platform.ButtonStyleLink:
-			fmt.Fprintf(&b, `<button type="link" href=%q>%s</button>`, btn.URL, escapeText(btn.Label))
+			fmt.Fprintf(&b, `<button type="link" href=%s>%s</button>`, escapeAttr(btn.URL), escapeText(btn.Label))
 		default:
 			if btn.ID != "" {
-				fmt.Fprintf(&b, `<button type="action" id=%q>%s</button>`, btn.ID, escapeText(btn.Label))
+				fmt.Fprintf(&b, `<button type="action" id=%s>%s</button>`, escapeAttr(btn.ID), escapeText(btn.Label))
 			} else {
 				fmt.Fprintf(&b, `<button type="action">%s</button>`, escapeText(btn.Label))
 			}
@@ -91,6 +95,15 @@ func escapeText(s string) string {
 	return html.EscapeString(s)
 }
 
+// escapeAttr 将字符串转义为带双引号的 XML 属性值。
+//
+// 不能使用 %q：Go 的 %q 以反斜杠转义双引号，而 XML/HTML 中反斜杠并非转义字符，
+// 属性值仍会被用户输入中的 " 提前闭合，从而可注入任意元素
+// （如文件名 `a"><at type='all'/>` 会变成真实的 @全体成员元素）。
+func escapeAttr(s string) string {
+	return `"` + html.EscapeString(s) + `"`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 解码：Satori 消息内容字符串 → 纯文本 + 附件
 // ─────────────────────────────────────────────────────────────────────────────
@@ -101,6 +114,15 @@ func escapeText(s string) string {
 //
 // 参考：https://satori.chat/zh-CN/protocol/elements.html
 func ParseMessageContent(content string) (text string, attachments []platform.InboundAttachment) {
+	if content == "" {
+		return "", nil
+	}
+
+	// 先移除自闭合的 <quote .../>：HTML 解析器不认识该元素，会把其后的兄弟节点
+	// 解析为它的子节点，而 traverseNodes 对 quote 是整体跳过的，
+	// 导致 "<quote id=\"1\"/>用户正文" 这种（多数 Satori SDK 的回复格式）
+	// 整条正文与附件全部丢失。提取纯文本本就忽略引用内容，直接剥离最安全。
+	content = selfClosingQuoteRe.ReplaceAllString(content, "")
 	if content == "" {
 		return "", nil
 	}
@@ -123,7 +145,9 @@ func ParseMessageContent(content string) (text string, attachments []platform.In
 func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platform.InboundAttachment) {
 	switch n.Type {
 	case nethtml.TextNode:
-		text.WriteString(html.UnescapeString(n.Data))
+		// n.Data 已由 nethtml.Parse 完成实体解码，此处不可再次 UnescapeString，
+		// 否则用户原文中的 "&amp;lt;" 会被二次解码成 "<"，破坏消息内容。
+		text.WriteString(n.Data)
 		return
 	case nethtml.ElementNode:
 		tag := strings.ToLower(n.Data)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const apiBase = "https://api.telegram.org/bot"
 // and multipart/form-data file uploads.
 type Client struct {
 	baseURL string
+	token   string
 	http    *http.Client
 }
 
@@ -26,10 +28,39 @@ type Client struct {
 func NewClient(token string) *Client {
 	return &Client{
 		baseURL: apiBase + token,
+		token:   token,
 		http: &http.Client{
 			Timeout: 60 * time.Second,
 		},
 	}
+}
+
+// redactedError 包装底层错误并在格式化时抹掉 bot token。
+//
+// net/http 的传输错误是 *url.Error，其 Error() 会带上完整请求 URL，
+// 而 Telegram 的 token 就嵌在 URL 路径里（/bot<TOKEN>/method），
+// 任何一次超时/DNS 抖动都会把凭据写进日志。
+// 保留 Unwrap 以便调用方的 errors.Is/As 判定不受影响。
+type redactedError struct {
+	err   error
+	token string
+}
+
+func (e *redactedError) Error() string {
+	return strings.ReplaceAll(e.err.Error(), e.token, "<redacted>")
+}
+
+func (e *redactedError) Unwrap() error { return e.err }
+
+// redact 在错误信息中抹掉 bot token。
+func (c *Client) redact(err error) error {
+	if err == nil || c.token == "" {
+		return err
+	}
+	if !strings.Contains(err.Error(), c.token) {
+		return err
+	}
+	return &redactedError{err: err, token: c.token}
 }
 
 // apiResponse is the standard Telegram API response wrapper.
@@ -198,7 +229,7 @@ func (c *Client) call(ctx stdctx.Context, method string, params any, result any)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram: %s request failed: %w", method, err)
+		return fmt.Errorf("telegram: %s request failed: %w", method, c.redact(err))
 	}
 	defer resp.Body.Close()
 
@@ -283,7 +314,7 @@ func (c *Client) upload(ctx stdctx.Context, method string, fileFieldName, fileNa
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("telegram: %s upload failed: %w", method, err)
+		return fmt.Errorf("telegram: %s upload failed: %w", method, c.redact(err))
 	}
 	defer resp.Body.Close()
 
