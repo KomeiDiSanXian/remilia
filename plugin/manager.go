@@ -3,7 +3,6 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -47,6 +46,7 @@ type Manager struct {
 	container   *Container
 	eventBus    EventBus
 	mu          sync.RWMutex
+	createdAt   time.Time // Manager 创建时间（Stats().Uptime 使用）
 
 	lifecycle *lifecycleController
 	config    *configController
@@ -67,6 +67,7 @@ func NewManager(coordinator engine.PluginCoordinator, opts ...ManagerOption) *Ma
 		loadOrder:   make([]string, 0),
 		container:   NewContainer(),
 		eventBus:    NewEventBus(),
+		createdAt:   time.Now(),
 	}
 	m.lifecycle = newLifecycleController(m)
 	m.config = newConfigController(m)
@@ -116,30 +117,74 @@ func (pm *Manager) ListAllGoroutines() []GoroutineInfo { return pm.stats.ListGor
 
 // Unregister 注销插件，返回错误信息。
 // ctx 用于控制超时：若 context 在 Teardown 完成前到期，返回 ctx.Err()。
+//
+// 并发安全说明：unload（含 Scope 清理、goroutine 等待、Teardown 用户代码）在
+// Manager 锁外执行。旧实现全程持有写锁，一旦 Teardown 或插件后台 goroutine
+// 调用任何 Manager API（如 ctx.Info.IsLoaded），整个 Manager 会永久死锁。
+// 通过先将状态置为 Unloading 防止并发的重复注销。
 func (pm *Manager) Unregister(ctx context.Context, name string) error {
 	pm.mu.Lock()
-
 	inst, exists := pm.plugins[name]
 	if !exists {
 		pm.mu.Unlock()
 		logger.Warnf("[PluginManager] Plugin %s not found", name)
 		return errutil.ErrPluginNotFound
 	}
+	if inst.GetState() == Unloading {
+		pm.mu.Unlock()
+		return fmt.Errorf("plugin %s is already being unregistered", name)
+	}
+	inst.SetState(Unloading)
+	pm.mu.Unlock()
 
+	// 锁外执行 unload：Teardown/Scope 钩子/后台 goroutine 可安全访问 Manager API
 	if err := inst.unload(ctx, pm.coordinator); err != nil {
 		inst.SetState(Error)
-		pm.mu.Unlock()
 		pm.notifyError(name, "unload", err)
 		return err
 	}
 
+	pm.mu.Lock()
 	delete(pm.plugins, name)
-	pm.container.Remove(name)
 	pm.mu.Unlock()
+
+	// 容器清理同样在锁外：Container 自身线程安全，且 Remove 会同步触发
+	// Watch 回调（插件代码），不能在持有 Manager 锁时调用。
+	pm.removeExportedKeys(inst, name)
 
 	logger.Infof("[PluginManager] Plugin %s unregistered", name)
 	pm.notifyUnloaded(name)
 	return nil
+}
+
+// removeExportedKeys 从容器移除插件的主 key 及其通过 ExportAs/ExportIface
+// 额外导出的所有 key，避免注销后容器残留悬挂引用。
+// 必须在不持有 pm.mu 时调用（Remove 会同步触发 Watch 回调）。
+func (pm *Manager) removeExportedKeys(inst *Instance, name string) {
+	pm.container.Remove(name)
+	if inst == nil {
+		return
+	}
+	for _, k := range inst.exportedKeys() {
+		if k != name {
+			pm.container.Remove(k)
+		}
+	}
+}
+
+// registerInstanceInContainer 将实例注册进容器（若插件 API 未占用该 key）。
+// 必须在不持有 pm.mu 时调用（Register 会同步触发 Watch 回调）。
+func (pm *Manager) registerInstanceInContainer(name string) {
+	pm.mu.RLock()
+	inst, ok := pm.plugins[name]
+	c := pm.container
+	pm.mu.RUnlock()
+	if !ok || c == nil {
+		return
+	}
+	if !c.Has(name) {
+		c.Register(name, inst)
+	}
 }
 
 // ForceUnregister 强制注销插件，忽略 Unload 错误直接从管理器中移除。
@@ -151,8 +196,8 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 // 注意：强制注销不会调用插件的资源清理逻辑，可能造成资源泄漏。
 func (pm *Manager) ForceUnregister(name string) error {
 	pm.mu.Lock()
-
-	if _, exists := pm.plugins[name]; !exists {
+	inst, exists := pm.plugins[name]
+	if !exists {
 		pm.mu.Unlock()
 		logger.Warnf("[PluginManager] ForceUnregister: plugin %s not found", name)
 		return errutil.ErrPluginNotFound
@@ -167,8 +212,10 @@ func (pm *Manager) ForceUnregister(name string) error {
 
 	pm.mu.Lock()
 	delete(pm.plugins, name)
-	pm.container.Remove(name)
 	pm.mu.Unlock()
+
+	// 容器清理在锁外（Remove 会同步触发 Watch 回调）
+	pm.removeExportedKeys(inst, name)
 
 	logger.Warnf("[PluginManager] Plugin %s force unregistered (Unload skipped, engine group/cleanup done)", name)
 	pm.notifyUnloaded(name)
@@ -192,10 +239,11 @@ func (pm *Manager) UnregisterCascade(ctx context.Context, name string) error {
 	}
 
 	// 构建反向依赖图（dependents[A] = 所有声明依赖了 A 的插件名称集合）
+	// 依赖声明可能带版本约束（"storage@>=1.0"），统一解析出插件名。
 	dependents := make(map[string][]string)
 	for pName, inst := range pm.plugins {
 		for _, dep := range inst.desc.Deps {
-			dependents[dep] = append(dependents[dep], pName)
+			dependents[parseDepSpec(dep).name] = append(dependents[parseDepSpec(dep).name], pName)
 		}
 	}
 	pm.mu.RUnlock()
@@ -298,7 +346,7 @@ func (pm *Manager) GetStatus(name string) (*Status, error) {
 		Uptime:       inst.GetUptime(),
 		MatcherCount: len(inst.GetMatchers()),
 		Metadata:     inst.Metadata(),
-		HasSaveState: inst.desc.effectiveAdvanced().SaveState != nil,
+		HasSaveState: inst.descriptor().effectiveAdvanced().SaveState != nil,
 	}
 
 	pm.mu.RLock()
@@ -508,23 +556,29 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	// Lock #3 延期到 Phase 2 批量处理，减少锁争用
 	type regResult struct {
 		desc            *Descriptor
-		loadErr         error
+		instance        *Instance
 		trackedDeps     []string
 		trackedOptional []string
 	}
-	results := make([]regResult, len(sorted))
+	results := make([]regResult, 0, len(sorted))
+	var batchErr error
 	for i, desc := range sorted {
 		instance, loadErr, tdeps, topts := pm.registerPreSetup(ctx, desc)
-		results[i] = regResult{desc: desc, loadErr: loadErr, trackedDeps: tdeps, trackedOptional: topts}
 		if loadErr != nil {
-			// 清理失败插件的 Lock #2 残留（已存入 plugins 但无法继续）
-			pm.mu.Lock()
-			if pm.coordinator != nil {
-				pm.coordinator.RemoveGroup(desc.Name)
+			// 清理失败插件的 Lock #2 残留（已存入 plugins 但无法继续）。
+			// 仅当 instance != nil（确实完成过插入）才清理——
+			// 例如 ErrPluginAlreadyExists 时 instance 为 nil，此时若无条件
+			// delete/RemoveGroup 会误删已注册的同名插件（历史 bug）。
+			// 引擎与容器清理在锁外进行（Watch 回调不能在持 Manager 锁时触发）。
+			if instance != nil {
+				pm.mu.Lock()
+				delete(pm.plugins, desc.Name)
+				pm.mu.Unlock()
+				if pm.coordinator != nil {
+					pm.coordinator.RemoveGroup(desc.Name)
+				}
+				pm.removeExportedKeys(instance, desc.Name)
 			}
-			delete(pm.plugins, desc.Name)
-			pm.container.Remove(desc.Name)
-			pm.mu.Unlock()
 
 			if opts.atomic {
 				// 回滚之前已注册的
@@ -547,54 +601,71 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 					Hint:              "all previously registered plugins in this batch have been rolled back",
 				}
 			}
-			return fmt.Errorf("failed to register plugin %s: %w", desc.Name, loadErr)
+			// 非原子模式：停止注册后续插件，但仍要完成已成功插件的 finalize
+			//（loadOrder/容器/通知），避免它们停留在"半注册"状态
+			//（在 plugins 表里、matcher 已挂 engine，却不受 StopAll 管理）。
+			batchErr = fmt.Errorf("failed to register plugin %s: %w", desc.Name, loadErr)
+			break
 		}
-		_ = instance
+		results = append(results, regResult{desc: desc, instance: instance, trackedDeps: tdeps, trackedOptional: topts})
 	}
 
-	// Phase 2: 批量 Lock #3 — 依赖合并 + loadOrder + 容器注册
+	// Phase 2: 批量 Lock #3 — 依赖合并 + loadOrder
 	pm.mu.Lock()
-	var finalLoadErr error
 	var succeeded []string
+	var strictFailed []regResult
 	for _, r := range results {
-		if r.loadErr != nil {
-			if pm.coordinator != nil {
-				pm.coordinator.RemoveGroup(r.desc.Name)
-			}
-			delete(pm.plugins, r.desc.Name)
-			pm.container.Remove(r.desc.Name)
-			finalLoadErr = r.loadErr
+		if pm.finalizeRegistration(r.desc, r.trackedDeps, r.trackedOptional) {
+			// 严格模式违规：不进 loadOrder，锁外统一回滚（与单插件路径行为一致）
+			strictFailed = append(strictFailed, r)
 			continue
-		}
-		strictViolation := pm.finalizeRegistration(r.desc, r.trackedDeps, r.trackedOptional)
-		if strictViolation {
-			// 严格模式下记录错误但不在此回滚（batch 模式下不启用 strictDeps）
-			logger.Warnf("[PluginManager] Plugin %s has undeclared dependencies (strict mode ignored in batch)", r.desc.Name)
 		}
 		succeeded = append(succeeded, r.desc.Name)
 	}
 	pm.mu.Unlock()
 
-	// 通知在锁外进行（notifyLoaded 会获取 RLock）
+	// 容器注册与通知在锁外进行（Register 触发 Watch 回调，notifyLoaded 获取 RLock）
+	for _, name := range succeeded {
+		pm.registerInstanceInContainer(name)
+	}
 	for _, name := range succeeded {
 		pm.notifyLoaded(name)
 	}
 
-	if finalLoadErr != nil {
-		return finalLoadErr
+	// 严格模式违规插件：锁外 unload（内部会 RemoveGroup）并移除
+	var strictErr error
+	for _, r := range strictFailed {
+		name := r.desc.Name
+		logger.Warnf("[PluginManager] Plugin %s uses undeclared dependencies, rolling back (strict mode)", name)
+		if r.instance != nil {
+			if err := r.instance.unload(context.Background(), pm.coordinator); err != nil {
+				logger.WithError(err).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
+			}
+		}
+		pm.mu.Lock()
+		delete(pm.plugins, name)
+		pm.mu.Unlock()
+		pm.removeExportedKeys(r.instance, name)
+		strictErr = fmt.Errorf("plugin %q uses undeclared dependencies; "+
+			"add them to Deps or disable strict mode via manager.SetStrictDeps(false)", name)
 	}
 
 	// 修正 loadOrder
-	registeredInsts := make([]*Instance, 0, len(results))
-	for _, r := range results {
-		if r.loadErr == nil {
-			if inst, ok := pm.Get(r.desc.Name); ok {
-				registeredInsts = append(registeredInsts, inst)
-			}
+	registeredInsts := make([]*Instance, 0, len(succeeded))
+	for _, name := range succeeded {
+		if inst, ok := pm.Get(name); ok {
+			registeredInsts = append(registeredInsts, inst)
 		}
 	}
 	pm.rectifyLoadOrder(registeredInsts)
-	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(sorted))
+
+	if batchErr != nil {
+		return batchErr
+	}
+	if strictErr != nil {
+		return strictErr
+	}
+	logger.Infof("[PluginManager] Successfully registered %d plugins in dependency order", len(succeeded))
 	return nil
 }
 
@@ -634,7 +705,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 		return nil, err, nil, nil
 	}
 
-	pm.ensureContainerInitialized()
+	backfill := pm.collectContainerBackfillLocked()
 
 	cp := pm.config.configProvider
 
@@ -646,6 +717,10 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 
 	pm.mu.Unlock()
 	// ========== Lock #1 结束 ==========
+
+	// 容器回填在锁外执行：Container.Register 会同步触发 Watch 回调（插件代码），
+	// 不能在持有 Manager 锁时调用。
+	pm.applyContainerBackfill(backfill)
 
 	// ========== 无锁区：Config 构造（可能 I/O）+ Schema 校验 ==========
 	var config Config
@@ -705,46 +780,45 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	return instance, loadErr, setupCtx.getTrackedDependencies(), setupCtx.getTrackedOptionalDependencies()
 }
 
-// registerPostSetupSingle Lock #3：在单个锁区间内完成依赖合并、loadOrder 更新、容器注册和通知。
+// registerPostSetupSingle Lock #3：完成依赖合并、loadOrder 更新，
+// 容器注册和通知在锁外执行（Register 会同步触发 Watch 回调）。
 // 适用于单插件注册（非批量路径直接调用的 finalize）。
-func (pm *Manager) registerPostSetupSingle(desc *Descriptor, loadErr error, trackedDeps, trackedOptional []string) error {
+func (pm *Manager) registerPostSetupSingle(inst *Instance, desc *Descriptor, loadErr error, trackedDeps, trackedOptional []string) error {
 	name := desc.Name
 
-	pm.mu.Lock()
-
 	if loadErr != nil {
+		pm.mu.Lock()
+		delete(pm.plugins, name)
+		pm.mu.Unlock()
 		if pm.coordinator != nil {
 			pm.coordinator.RemoveGroup(name)
 		}
-		delete(pm.plugins, name)
-		pm.container.Remove(name)
-		pm.mu.Unlock()
+		pm.removeExportedKeys(inst, name)
 		logger.WithError(loadErr).Errorf("[PluginManager] Failed to load plugin %s", name)
 		pm.notifyError(name, "load", loadErr)
 		return loadErr
 	}
 
+	pm.mu.Lock()
 	strictViolation := pm.finalizeRegistration(desc, trackedDeps, trackedOptional)
 	pm.mu.Unlock()
 
 	if strictViolation {
-		// 严格模式：撤销注册
-		if pm.coordinator != nil {
-			pm.coordinator.RemoveGroup(name)
-		}
-		if inst, ok := pm.plugins[name]; ok {
+		// 严格模式：撤销注册（unload 在锁外执行，内部会 RemoveGroup）
+		if inst != nil {
 			if err := inst.unload(context.Background(), pm.coordinator); err != nil {
 				logger.WithError(err).Warnf("[PluginManager] Failed to teardown plugin %s during strict-mode rollback", name)
 			}
 		}
 		pm.mu.Lock()
 		delete(pm.plugins, name)
-		pm.container.Remove(name)
 		pm.mu.Unlock()
+		pm.removeExportedKeys(inst, name)
 		return fmt.Errorf("plugin %q uses undeclared dependencies; "+
 			"add them to Deps or disable strict mode via manager.SetStrictDeps(false)", name)
 	}
 
+	pm.registerInstanceInContainer(name)
 	pm.notifyLoaded(name)
 	return nil
 }
@@ -755,7 +829,7 @@ func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
 	if instance == nil && loadErr != nil {
 		return loadErr
 	}
-	return pm.registerPostSetupSingle(desc, loadErr, trackedDeps, trackedOptional)
+	return pm.registerPostSetupSingle(instance, desc, loadErr, trackedDeps, trackedOptional)
 }
 
 // finalizeRegistration 在锁内执行 Lock #3 逻辑：依赖合并、loadOrder、容器注册。
@@ -773,12 +847,14 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 	}
 
 	if len(allTracked) > 0 {
+		// 声明可能带版本约束（"storage@>=1.0"），追踪到的是纯插件名，
+		// 比较前解析出名字，避免把已声明的依赖误判为未声明。
 		declaredDeps := make(map[string]bool)
 		for _, dep := range desc.Deps {
-			declaredDeps[dep] = true
+			declaredDeps[parseDepSpec(dep).name] = true
 		}
 		for _, dep := range desc.OptionalDeps {
-			declaredDeps[dep] = true
+			declaredDeps[parseDepSpec(dep).name] = true
 		}
 
 		undeclaredAll := make([]string, 0)
@@ -812,19 +888,16 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 			newDesc := *desc
 			newDesc.Deps = mergedDeps
 			if inst, ok := pm.plugins[name]; ok {
-				inst.desc = &newDesc
-				inst.depsModified = true
+				// COW 替换走 inst.mu，供无锁读取方（Metadata/GetStatus）安全读取
+				inst.setDescriptor(&newDesc)
 			}
 		}
 	}
 
 	pm.loadOrder = append(pm.loadOrder, name)
 
-	if inst, ok := pm.plugins[name]; ok {
-		if !pm.container.Has(name) {
-			pm.container.Register(name, inst)
-		}
-	}
+	// 注意：容器注册不在此处进行——Container.Register 会同步触发 Watch 回调，
+	// 而本方法在 pm.mu 写锁内执行。调用方在解锁后通过 registerInstanceInContainer 完成。
 
 	logger.Infof("[PluginManager] Plugin %s registered", name)
 	return false
@@ -862,7 +935,15 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 		deps := inst.desc.Deps
 		cb := inst.desc.getOnDependencyReloaded()
 		pm.mu.RUnlock()
-		if !slices.Contains(deps, reloadedPlugin) {
+		// 依赖声明可能带版本约束（"storage@>=1.0"），按解析后的名字匹配
+		matched := false
+		for _, d := range deps {
+			if parseDepSpec(d).name == reloadedPlugin {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			continue
 		}
 		if cb == nil {
@@ -881,24 +962,62 @@ func (pm *Manager) notifyDependents(reloadedPlugin string) {
 	}
 }
 
-// ensureContainerInitialized 确保依赖注入容器已初始化（须在持有 Manager 锁时调用）
+// ensureContainerInitialized 确保依赖注入容器已初始化并回填缺失条目。
+// 不要求调用方持有 Manager 锁；容器注册在锁外执行。
+// 内部注册路径使用 collectContainerBackfillLocked/applyContainerBackfill 两段式。
 func (pm *Manager) ensureContainerInitialized() {
+	pm.mu.Lock()
+	backfill := pm.collectContainerBackfillLocked()
+	pm.mu.Unlock()
+	pm.applyContainerBackfill(backfill)
+}
+
+// containerBackfill 待回填进容器的条目（名称 → 值）。
+type containerBackfill struct {
+	name  string
+	value any
+}
+
+// collectContainerBackfillLocked 收集需要回填进容器的条目（须在持有 Manager 锁时调用）。
+// 实际注册由 applyContainerBackfill 在锁外执行——Container.Register 会同步触发
+// Watch 回调（插件代码），不能在持有 Manager 锁时调用。
+func (pm *Manager) collectContainerBackfillLocked() []containerBackfill {
 	if pm.container == nil {
 		pm.container = NewContainer()
 	}
-	for pluginName, plugin := range pm.plugins {
+	var out []containerBackfill
+	for pluginName, inst := range pm.plugins {
 		if !pm.container.Has(pluginName) {
-			pm.container.Register(pluginName, plugin)
+			out = append(out, containerBackfill{pluginName, inst})
 		}
 	}
 	if !pm.container.Has("manager") {
-		pm.container.Register("manager", pm)
+		out = append(out, containerBackfill{"manager", pm})
 	}
 	if !pm.container.Has("engine") {
-		pm.container.Register("engine", pm.coordinator)
+		out = append(out, containerBackfill{"engine", pm.coordinator})
 	}
 	if !pm.container.Has("coordinator") {
-		pm.container.Register("coordinator", pm.coordinator)
+		out = append(out, containerBackfill{"coordinator", pm.coordinator})
+	}
+	return out
+}
+
+// applyContainerBackfill 在锁外将收集到的条目注册进容器。
+func (pm *Manager) applyContainerBackfill(items []containerBackfill) {
+	if len(items) == 0 {
+		return
+	}
+	pm.mu.RLock()
+	c := pm.container
+	pm.mu.RUnlock()
+	if c == nil {
+		return
+	}
+	for _, it := range items {
+		if !c.Has(it.name) {
+			c.Register(it.name, it.value)
+		}
 	}
 }
 
@@ -915,6 +1034,3 @@ type ManagerStats struct {
 	StrictDeps        bool             `json:"strict_deps"`
 	Uptime            string           `json:"uptime,omitempty"`
 }
-
-// startTime is set at package init for uptime tracking.
-var startTime = time.Now()

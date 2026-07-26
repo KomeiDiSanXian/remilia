@@ -74,7 +74,7 @@ func resolveName[T any](ctx *SetupContext, names []string) string {
 	entries := lookupServiceType[T](ctx.container)
 	if len(entries) == 0 {
 		if ctx.DryRun {
-			ctx.pendingType = reflect.TypeFor[T]()
+			ctx.pendingTypes = append(ctx.pendingTypes, reflect.TypeFor[T]())
 			return ""
 		}
 		panic(fmt.Sprintf("plugin.Service[%T](ctx): no service of this type is registered. "+

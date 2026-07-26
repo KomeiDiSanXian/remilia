@@ -26,6 +26,10 @@ type TokenBucket struct {
 	capacity int64
 	tokens   int64
 	lastTime time.Time
+	// remainderNanos 累积不足一个令牌的时间余量（单位：纳秒·rate）。
+	// 旧实现每次 Allow 都推进 lastTime 并把增量取整为 0，只要调用间隔
+	// 持续小于 1/rate，令牌就永远不会补充——突发额度耗尽后全部被拒。
+	remainderNanos int64
 }
 
 func NewTokenBucket(rate, capacity int64) *TokenBucket {
@@ -51,9 +55,15 @@ func (tb *TokenBucket) Allow() bool {
 	elapsed := now.Sub(tb.lastTime)
 	tb.lastTime = now
 
-	tb.tokens += int64(float64(elapsed.Nanoseconds()) * float64(tb.rate) / float64(time.Second.Nanoseconds()))
+	if elapsed > 0 {
+		// 以 (纳秒 × rate) 为单位累积，整除部分转为令牌，余数保留到下次
+		acc := elapsed.Nanoseconds()*tb.rate + tb.remainderNanos
+		tb.tokens += acc / time.Second.Nanoseconds()
+		tb.remainderNanos = acc % time.Second.Nanoseconds()
+	}
 	if tb.tokens > tb.capacity {
 		tb.tokens = tb.capacity
+		tb.remainderNanos = 0 // 桶已满，余量无意义，防止无限累积
 	}
 
 	if tb.tokens > 0 {

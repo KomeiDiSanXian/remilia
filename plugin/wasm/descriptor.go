@@ -31,7 +31,8 @@ type Descriptor struct {
 	Commands []CommandDef
 	// ResourceLimit 可选资源限制。为 nil 时使用默认值。
 	ResourceLimit *ResourceLimit
-	// CallTimeout 单次 handle 调用的超时时间。零值表示使用默认值（5s）。
+	// CallTimeout 单次 handle 调用的超时时间（ResourceLimit.CallTimeout 的便捷别名，
+	// 两者同时设置时以 ResourceLimit 为准）。零值表示使用默认值（30s）。
 	CallTimeout time.Duration
 	// Deps 声明此 WASM 插件依赖的 Go 插件列表。仅在使用 ToDescriptor/
 	// RegisterWithManager 时生效，确保依赖先于 WASM 模块加载。
@@ -41,7 +42,9 @@ type Descriptor struct {
 // ResourceLimit 定义 WASM 插件的所有资源限制和安全阈值。
 // 零值字段使用包级别的默认值。
 type ResourceLimit struct {
-	// MemoryPages 最大内存页数（每页 64KB）。默认 2（128KB）。
+	// MemoryPages 最大内存页数（每页 64KB）。默认 256（16MB）。
+	// 仅在独占 Runtime 路径（ToDescriptor）强制生效；
+	// wasm.Manager 的共享 Runtime 无法按插件区分，不做限制。
 	MemoryPages uint32
 	// MaxCallPerSec 每秒最大调用次数。默认 1000。
 	MaxCallPerSec int64
@@ -78,6 +81,11 @@ func (d *Descriptor) EffectiveResourceLimit() ResourceLimit {
 		ResponseSizeMax: DefaultResponseSizeMax,
 		WasmSizeMax:     DefaultWasmSizeMax,
 		ImportsMax:      DefaultImportsMax,
+	}
+	// Descriptor.CallTimeout 是 ResourceLimit.CallTimeout 的便捷别名，
+	// 后者优先（旧实现完全忽略此字段，设了等于没设）。
+	if d.CallTimeout > 0 {
+		rl.CallTimeout = d.CallTimeout
 	}
 	if d.ResourceLimit != nil {
 		if d.ResourceLimit.MemoryPages > 0 {

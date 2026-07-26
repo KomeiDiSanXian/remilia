@@ -11,6 +11,7 @@ import (
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // engineMWRegistrar 是可选的引擎中间件注册接口。
@@ -44,9 +45,22 @@ type setupContextInternal struct {
 	cronInitOnce  sync.Once
 	cronScheduler *cron.Cron
 
-	// pendingType 在三色 DryRun 中记录类型解析失败的 pending 类型。
-	// resolveName 在类型未就绪时记录在此处，resolution 轮次检查新注册的 API 是否匹配。
-	pendingType reflect.Type
+	// pendingTypes 在三色 DryRun 中记录所有类型解析失败的 pending 类型。
+	// resolveName 在类型未就绪时追加到此处，resolution 轮次逐个检查新注册的 API 是否匹配。
+	// （旧实现只有单个槽位，插件按类型解析多个未就绪依赖时会丢边。）
+	pendingTypes []reflect.Type
+
+	// exportedNames 记录 Setup 期间通过 ExportAs/ExportIface 导出的容器 key，
+	// Unregister 时据此清理额外导出的接口 key，避免容器中残留悬挂引用。
+	exportMu      sync.Mutex
+	exportedNames []string
+}
+
+// exportedKeysSnapshot 返回已导出 key 的快照（框架内部使用）。
+func (ctx *SetupContext) exportedKeysSnapshot() []string {
+	ctx.exportMu.Lock()
+	defer ctx.exportMu.Unlock()
+	return append([]string(nil), ctx.exportedNames...)
 }
 
 // SetupContext 插件 Setup 阶段的上下文。
@@ -115,9 +129,20 @@ type SetupContext struct {
 // Deprecated: 直接 return api, nil 即可，框架会自动以插件名为 key 注入容器。
 // 如需按接口导出，使用 ExportIface。
 func (ctx *SetupContext) ExportAs(name string, api any) {
-	if ctx.container != nil {
-		ctx.container.Register(name, api)
+	if ctx.container == nil {
+		return
 	}
+	// 保护内置 key：普通插件不得覆盖 manager/engine/coordinator，
+	// 否则等于劫持其他插件通过容器获取的核心对象。
+	//（插件名恰好等于内置 key 时放行其自身名下的自动导出。）
+	if builtinContainerKeys[name] && name != ctx.pluginName {
+		logger.Warnf("[plugin] %q: ExportAs(%q) rejected: reserved container key", ctx.pluginName, name)
+		return
+	}
+	ctx.container.Register(name, api)
+	ctx.exportMu.Lock()
+	ctx.exportedNames = append(ctx.exportedNames, name)
+	ctx.exportMu.Unlock()
 }
 
 // UseEngineGlobal 为所有 Matcher 注册全局中间件（跨插件生效）。
@@ -129,6 +154,11 @@ func (ctx *SetupContext) ExportAs(name string, api any) {
 // 若只需对特定插件生效，请使用 UseEngineForGroup。
 func (ctx *SetupContext) UseEngineGlobal(mw ...corectx.Middleware) {
 	if ctx.DryRun || ctx.eng == nil || len(mw) == 0 {
+		return
+	}
+	if ctx.Admin == nil {
+		// 权限模型对齐：与文档一致，仅 Privileged 插件可注册全局中间件。
+		logger.Warnf("[plugin] %q: UseEngineGlobal requires Privileged: true, ignored", ctx.pluginName)
 		return
 	}
 	if e, ok := ctx.eng.(engineMWRegistrar); ok {
@@ -146,6 +176,11 @@ func (ctx *SetupContext) UseEngineForGroup(group string, mw ...corectx.Middlewar
 	if ctx.DryRun || ctx.eng == nil || group == "" || len(mw) == 0 {
 		return
 	}
+	if ctx.Admin == nil {
+		// 权限模型对齐：与文档一致，仅 Privileged 插件可注册分组中间件。
+		logger.Warnf("[plugin] %q: UseEngineForGroup requires Privileged: true, ignored", ctx.pluginName)
+		return
+	}
 	if e, ok := ctx.eng.(engineMWRegistrar); ok {
 		e.UseForGroup(group, mw...)
 	}
@@ -159,8 +194,8 @@ func (ctx *SetupContext) UseEngineForGroup(group string, mw ...corectx.Middlewar
 // DryRun 或引擎不支持时返回 no-op 函数。
 func (ctx *SetupContext) NewGroupMiddlewareApplier() func(group string, mw ...corectx.Middleware) {
 	e, ok := ctx.eng.(engineMWRegistrar)
-	if !ok {
-		return func(_ string, _ ...corectx.Middleware) {} // no-op：测试/DryRun 场景
+	if !ok || ctx.Admin == nil {
+		return func(_ string, _ ...corectx.Middleware) {} // no-op：测试/DryRun/非 Privileged 场景
 	}
 	return func(group string, mw ...corectx.Middleware) {
 		if group != "" && len(mw) > 0 {
@@ -178,8 +213,8 @@ func (ctx *SetupContext) NewGroupMiddlewareApplier() func(group string, mw ...co
 // DryRun 或引擎不支持时返回 no-op 函数。
 func (ctx *SetupContext) NewGroupMiddlewareResetter() func(group string) {
 	e, ok := ctx.eng.(engineMWRegistrar)
-	if !ok {
-		return func(_ string) {} // no-op
+	if !ok || ctx.Admin == nil {
+		return func(_ string) {} // no-op：测试/DryRun/非 Privileged 场景
 	}
 	return func(group string) {
 		if group != "" {
@@ -327,8 +362,10 @@ func (ctx *SetupContext) After(name string, d time.Duration, fn func()) {
 //	    return nil, nil
 //	},
 func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
-	if ctx.goroutineMgr == nil {
-		// DryRun 阶段或 goroutineMgr 未初始化，no-op
+	if ctx.goroutineMgr == nil || ctx.DryRun {
+		// DryRun 阶段或 goroutineMgr 未初始化，no-op。
+		// 注意：DryRun 的 goroutineMgr 是真实实例（供 Spawn 使用），
+		// 必须显式判断 DryRun，否则推断阶段会真的启动 cron scheduler。
 		return nil
 	}
 
@@ -353,6 +390,14 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 
 // 未来展望：待 Go 支持泛型方法后，可改为 ctx.get[permission.Plugin]("permission") 的调用方式。
 
+// builtinContainerKeys 容器内置 key（非插件），不参与依赖追踪：
+// 它们不是插件名，被追踪后会被合并进 Deps，导致拓扑排序按"缺失插件"报错。
+var builtinContainerKeys = map[string]bool{
+	"manager":     true,
+	"engine":      true,
+	"coordinator": true,
+}
+
 // get 获取依赖插件（弱类型，内部使用）。
 // 自动记录依赖关系，用于 Smart 注册的依赖推断。
 // 插件开发者应使用 [Service] / [TryService] 代替。
@@ -361,7 +406,7 @@ func (ctx *SetupContext) get(name string) (any, bool) {
 		return nil, false
 	}
 	v, ok := ctx.container.Get(name)
-	if ok && ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
+	if ok && ctx.autoTrackEnabled && name != "" && name != ctx.pluginName && !builtinContainerKeys[name] {
 		// 找到时才追踪，且标记为可选（不影响 UnregisterCascade 级联语义）
 		if ctx.trackedOptionalDeps == nil {
 			ctx.trackedOptionalDeps = make(map[string]bool)
@@ -378,7 +423,7 @@ func (ctx *SetupContext) get(name string) (any, bool) {
 // deps 信息仍然被记录，DryRun 阶段能被 topologicalSort 检测到。
 func (ctx *SetupContext) mustGet(name string) any {
 	// 必要依赖追踪（在 panic 前执行，确保循环/缺失依赖也被记录）
-	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName {
+	if ctx.autoTrackEnabled && name != "" && name != ctx.pluginName && !builtinContainerKeys[name] {
 		if ctx.trackedDeps == nil {
 			ctx.trackedDeps = make(map[string]bool)
 		}

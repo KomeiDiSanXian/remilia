@@ -15,6 +15,15 @@ import (
 // ctx 用于控制超时：若 context 到期，跳过卸载/加载步骤并返回 ctx.Err()。
 func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordinator) error {
 	pi.mu.Lock()
+	// 与状态置位同锁完成检查，防止并发 Reload/Unregister 交叠执行双重热重载
+	switch pi.state {
+	case Reloading:
+		pi.mu.Unlock()
+		return fmt.Errorf("plugin %q is already reloading", pi.desc.Name)
+	case Unloading:
+		pi.mu.Unlock()
+		return fmt.Errorf("plugin %q is being unloaded", pi.desc.Name)
+	}
 	oldContext := pi.setupContext
 	pi.state = Reloading
 	oldVersion := pi.loadedVer // 保存旧版本号，供 MigrateState 使用
@@ -47,9 +56,21 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		},
 	}
 
-	pi.mu.Lock()
-	pi.setupContext = newContext
-	pi.mu.Unlock()
+	// 注意：此处不能提前替换 pi.setupContext。
+	// UnloadLoad 路径依赖 unload() 去 Dispose 旧 rootScope（EventBus 订阅、
+	// OnDispose 钩子）；若先替换成 rootScope 为 nil 的新 context，旧 scope
+	// 将永远无人清理——事件被旧 handler 重复处理、清理钩子不执行（历史 bug）。
+	// 各策略在自己合适的时机完成 context 切换与旧 scope 清理。
+	unloadThenLoad := func() error {
+		// pi.setupContext 仍是旧 context，unload Step 0 会 Dispose 旧 rootScope
+		if err := pi.unload(ctx, coordinator); err != nil {
+			return err
+		}
+		pi.mu.Lock()
+		pi.setupContext = newContext
+		pi.mu.Unlock()
+		return pi.load(ctx)
+	}
 
 	// 状态迁移：若版本号变化且设置了 MigrateState，在 RestoreState 前迁移旧状态。
 	maybeMigrateThenRestore := func() {
@@ -77,15 +98,19 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		if adv.Reload == nil {
 			// ReloadInPlace 要求提供 Reload 函数；未提供时降级并给出明确警告
 			logger.Warnf("[plugin] %s: ReloadInPlace specified but Advanced.Reload is nil, falling back to ReloadUnloadLoad", pi.desc.Name)
-			if err := pi.unload(ctx, coordinator); err != nil {
-				return err
-			}
-			if err := pi.load(ctx); err != nil {
+			if err := unloadThenLoad(); err != nil {
 				return err
 			}
 			maybeMigrateThenRestore()
 			return nil
 		}
+		// 原地重载不卸载旧实例：新 context 继承旧 rootScope（及已导出 key 记录），
+		// 保证订阅/清理钩子仍归本插件生命周期管理，后续 Unregister 时能被 Dispose。
+		newContext.rootScope = oldContext.rootScope
+		newContext.exportedNames = oldContext.exportedKeysSnapshot()
+		pi.mu.Lock()
+		pi.setupContext = newContext
+		pi.mu.Unlock()
 		if err := adv.Reload(newContext); err != nil {
 			pi.mu.Lock()
 			pi.state = Error
@@ -102,22 +127,22 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		return nil
 	case ReloadUnloadLoad:
 		// 此分支严格执行 unload → load，不检查 adv.Reload（避免与 ReloadInPlace 语义混淆）
-		if err := pi.unload(ctx, coordinator); err != nil {
-			return err
-		}
-		if err := pi.load(ctx); err != nil {
+		if err := unloadThenLoad(); err != nil {
 			return err
 		}
 		maybeMigrateThenRestore()
 	case ReloadBlueGreen:
-		if err := pi.reloadBlueGreen(ctx, coordinator, newContext); err != nil {
+		if err := pi.reloadBlueGreen(ctx, coordinator, newContext, oldContext); err != nil {
+			// 蓝绿失败时旧实例从未被移除、仍在正常服务：
+			// 状态恢复为 Loaded（而不是卡在 Reloading 阻塞后续 Reload），错误记入 lastError。
+			pi.mu.Lock()
+			pi.state = Loaded
+			pi.lastError = err
+			pi.mu.Unlock()
 			return err
 		}
 	default:
-		if err := pi.unload(ctx, coordinator); err != nil {
-			return err
-		}
-		if err := pi.load(ctx); err != nil {
+		if err := unloadThenLoad(); err != nil {
 			return err
 		}
 	}
@@ -128,7 +153,12 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 // reloadBlueGreen 蓝绿重载策略：并行运行新实例，就绪后原子切换，最后停止旧实例。
 //
 // 停机窗口从"整个 Setup 时间"缩短为两次 engine 操作的微秒级间隔。
-func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.PluginCoordinator, newContext *SetupContext) error {
+//
+// 双活防护：新实例的 Matcher（含别名 Matcher）注册后由 postRegister 回调立即
+// DisableGroup(tempGroup) 置为禁用态，Setup 期间不参与分发；切换时先移除旧组，
+// 迁移分组后统一 EnableGroup 激活。消息被新旧两组重复处理的窗口
+// 从整个 Setup 时长压缩到单次注册与禁用之间的微秒级间隔。
+func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.PluginCoordinator, newContext, oldContext *SetupContext) error {
 	pluginName := pi.desc.Name
 	tempGroup := pluginName + ".__bg"
 
@@ -139,9 +169,16 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		setupContext: newContext,
 	}
 	newContext.instance = newInstance
-	newContext.Reg = newLiveRegistryWriter(coordinator, tempGroup, newInstance)
+	if coordinator != nil {
+		// postRegister：每个新 Matcher 注册后立即禁用 tempGroup，避免 Setup 期间双活
+		newContext.Reg = newLiveRegistryWriterWithHook(coordinator, tempGroup, newInstance, func(_ *engine.Matcher) {
+			coordinator.DisableGroup(tempGroup)
+		})
+	} else {
+		newContext.Reg = newLiveRegistryWriter(coordinator, tempGroup, newInstance)
+	}
 
-	// Step 1: 并行运行新 Setup（旧实例继续处理消息）
+	// Step 1: 并行运行新 Setup（旧实例继续处理消息，新 Matcher 保持禁用）
 	if err := newInstance.load(ctx); err != nil {
 		if coordinator != nil {
 			coordinator.RemoveGroup(tempGroup)
@@ -149,14 +186,26 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		return fmt.Errorf("blue-green reload: new instance setup failed: %w", err)
 	}
 
-	// Step 2+3: 极短停机窗口
+	// Step 2+3: 极短停机窗口。
+	// 必须使用 coordinator.SetMatcherGroup（同步更新 engine 的 groupIndex），
+	// 而不是 m.SetGroup（只改 matcher 字段）：否则索引仍把新 matcher 记在
+	// tempGroup 下，随后 RemoveGroup(tempGroup) 因"按当前 group 过滤零命中"
+	// 而保留旧索引——后续 Disable/Unregister/再次 Reload 全部静默失效，
+	// 且每次重载都会累积一份旧 matcher（历史 bug）。
 	if coordinator != nil {
+		// 兜底：确保 Setup 期间注册的所有新 Matcher（含别名）处于禁用态
+		coordinator.DisableGroup(tempGroup)
 		coordinator.RemoveGroup(pluginName)
 		newInstance.mu.RLock()
-		for _, m := range newInstance.matchers {
-			m.SetGroup(pluginName)
-		}
+		ms := make([]*engine.Matcher, len(newInstance.matchers))
+		copy(ms, newInstance.matchers)
 		newInstance.mu.RUnlock()
+		for _, m := range ms {
+			coordinator.SetMatcherGroup(m, pluginName, "plugin:"+pluginName)
+		}
+		// 迁移完成后统一激活新组（Matcher 的禁用位不随分组迁移改变）
+		coordinator.EnableGroup(pluginName)
+		// 清理索引中可能残留的 tempGroup 空键（此时组内已无成员，调用幂等）
 		coordinator.RemoveGroup(tempGroup)
 	}
 
@@ -199,6 +248,13 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		}()
 		if oldGM != nil {
 			oldGM.stopAndWait()
+		}
+		// 清理旧实例的 rootScope：EventBus 订阅、OnDispose 钩子、子 Scope。
+		// 否则旧 handler 持续留在总线上，事件会被新旧实例各处理一次（历史 bug）。
+		if oldContext != nil && oldContext.rootScope != nil {
+			if err := oldContext.rootScope.Dispose(context.Background()); err != nil {
+				logger.WithField("plugin", pluginName).WithError(err).Warn("[plugin] Blue-green: old scope dispose failed")
+			}
 		}
 		tctx := &TeardownContext{
 			API:      oldAPI,

@@ -120,10 +120,27 @@ type liveRegistryWriter struct {
 	eng      registryBackend
 	name     string
 	instance *Instance
+
+	// postRegister 每个 Matcher（含别名 Matcher）注册完成后的回调（可选）。
+	// 蓝绿重载用它在注册后立即 DisableGroup(tempGroup)，
+	// 把"新旧两组同时活跃"的窗口从整个 Setup 时长压缩到微秒级。
+	postRegister func(*engine.Matcher)
 }
 
 func newLiveRegistryWriter(eng registryBackend, name string, instance *Instance) RegistryWriter {
 	return &liveRegistryWriter{eng: eng, name: name, instance: instance}
+}
+
+// newLiveRegistryWriterWithHook 创建带 postRegister 回调的 RegistryWriter（框架内部使用）。
+func newLiveRegistryWriterWithHook(eng registryBackend, name string, instance *Instance, hook func(*engine.Matcher)) RegistryWriter {
+	return &liveRegistryWriter{eng: eng, name: name, instance: instance, postRegister: hook}
+}
+
+// afterRegister 触发 postRegister 回调（matcher 为 nil 时跳过）。
+func (r *liveRegistryWriter) afterRegister(m *engine.Matcher) {
+	if r.postRegister != nil && m != nil {
+		r.postRegister(m)
+	}
 }
 
 func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, extraRules ...context.Rule) *engine.Matcher {
@@ -145,6 +162,7 @@ func (r *liveRegistryWriter) RegisterCommand(eventType string, pattern string, e
 		// 从而支持插件级别的 Disable/Enable 联动。
 		// 传入 extraRules 确保别名 Matcher 具有与主命令相同的额外规则（如权限检查）。
 		r.injectAliasRegistrar(matcher, eventType, extraRules)
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -183,6 +201,8 @@ func (r *liveRegistryWriter) injectAliasRegistrar(primary *engine.Matcher, event
 			if r.instance != nil {
 				r.instance.addMatcher(aliasMatcher)
 			}
+			// 别名 Matcher 同样触发注册后回调（蓝绿重载依赖它保持禁用态）
+			r.afterRegister(aliasMatcher)
 		}
 	})
 }
@@ -199,6 +219,7 @@ func (r *liveRegistryWriter) RegisterMatcher(eventType string, rules ...context.
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -233,6 +254,7 @@ func (r *liveRegistryWriter) RegisterPrefix(eventType string, prefixes []string,
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -263,6 +285,7 @@ func (r *liveRegistryWriter) RegisterRegex(eventType string, pattern string, ext
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -297,6 +320,7 @@ func (r *liveRegistryWriter) RegisterFullMatch(eventType string, texts []string,
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -331,6 +355,7 @@ func (r *liveRegistryWriter) RegisterSuffix(eventType string, suffixes []string,
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -363,6 +388,7 @@ func (r *liveRegistryWriter) RegisterKeyword(eventType string, keywords []string
 		if r.instance != nil {
 			r.instance.addMatcher(matcher)
 		}
+		r.afterRegister(matcher)
 	}
 	return matcher
 }
@@ -389,7 +415,11 @@ func (n *noopRegistryWriter) RegisterPrefix(_ string, _ []string, _ ...context.R
 	return noopMatcher
 }
 
-func (n *noopRegistryWriter) RegisterRegex(_ string, _ string, _ ...context.Rule) *engine.Matcher {
+func (n *noopRegistryWriter) RegisterRegex(_ string, pattern string, _ ...context.Rule) *engine.Matcher {
+	// 与真实实现保持一致：DryRun 阶段同样编译正则，
+	// 使非法 pattern 在推断阶段即可暴露（panic 由 DryRun 的 recover 捕获并记录），
+	// 而不是推迟到真实 Setup 才失败；合法 pattern 则提前进入共享 LRU 缓存。
+	context.MustGetCachedRegexp(pattern)
 	return noopMatcher
 }
 

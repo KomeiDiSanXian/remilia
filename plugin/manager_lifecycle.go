@@ -50,8 +50,16 @@ func (lc *lifecycleController) StartAll(ctx context.Context) error {
 		if !exists {
 			continue
 		}
-		if inst.GetState() == Loaded {
-			continue // 已加载，跳过
+		// 仅启动 Unloaded 状态的插件（与文档一致）：
+		//   - Loaded  已在运行，跳过（幂等）
+		//   - Disabled 由 Enable 恢复，重复 load 会二次 Setup、matcher 翻倍
+		//   - Error    由 Retry 处理
+		//   - Loading/Unloading 正在变更中，跳过
+		if st := inst.GetState(); st != Unloaded {
+			if st != Loaded {
+				logger.Debugf("[PluginManager] StartAll: skip plugin %s in state %s", name, st)
+			}
+			continue
 		}
 		if err := inst.load(ctx); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] StartAll: plugin %s failed to start", name)
@@ -112,8 +120,8 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 		}
 	}
 
-	// 等待蓝绿重载中异步清理的旧实例完成
-	lc.pm.stats.drainDrainingInstances()
+	// 等待蓝绿重载中异步清理的旧实例完成（受 ctx 超时约束）
+	lc.pm.stats.drainDrainingInstances(ctx)
 
 	// 停止 Manager 自身的后台 goroutine
 	lc.Shutdown()

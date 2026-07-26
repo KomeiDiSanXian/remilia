@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
 	"sync"
@@ -182,8 +183,11 @@ func (pc *pluginConfig) GetDuration(key string, defaultVal time.Duration) time.D
 		}
 	}
 
-	// 尝试解析数字（纳秒）
+	// 尝试解析数字（纳秒）。
+	// 注意补充 int：yaml.v3 把 YAML 整数解码为 int，缺了它数字时长配置会静默失效。
 	switch v := val.(type) {
+	case int:
+		return time.Duration(v)
 	case int64:
 		return time.Duration(v)
 	case float64:
@@ -212,15 +216,30 @@ func (pc *pluginConfig) GetFloat64(key string, defaultVal float64) float64 {
 	}
 }
 
-// GetStringSlice 获取字符串切片配置
+// GetStringSlice 获取字符串切片配置。
+//
+// 同时接受 []string 与 []any（yaml.v3 把 YAML 序列解码为 []any——
+// 旧实现只认 []string，导致 YAML 配置的列表被静默忽略）。
+// []any 中的非字符串元素按 fmt.Sprintf("%v") 转为字符串。
 func (pc *pluginConfig) GetStringSlice(key string, defaultVal []string) []string {
 	val := pc.Get(key)
 	if val == nil {
 		return defaultVal
 	}
 
-	if slice, ok := val.([]string); ok {
-		return slice
+	switch v := val.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			} else {
+				out = append(out, fmt.Sprintf("%v", item))
+			}
+		}
+		return out
 	}
 
 	return defaultVal

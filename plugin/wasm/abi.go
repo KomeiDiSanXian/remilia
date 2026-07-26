@@ -21,6 +21,7 @@ const (
 	ExportInit       = "plugin_init"
 	ExportHandle     = "plugin_handle"
 	ExportMalloc     = "malloc"
+	ExportFree       = "free"               // 可选，宿主用于释放通过 malloc 分配的请求缓冲
 	ExportABIVersion = "plugin_abi_version" // 可选，返回 i32 版本号
 	ExportMetadata   = "plugin_metadata"    // 可选，返回 (ptr,len) TLV 元数据
 )
@@ -52,7 +53,10 @@ func DecodeResult(v uint64) (ptr, len uint32) {
 // 资源限制和安全阈值默认值
 // 通过 Descriptor.ResourceLimit 可逐字段覆盖。
 const (
-	DefaultMemoryPages     = 2 // 128KB
+	// DefaultMemoryPages 默认内存页上限（每页 64KB）。
+	// 自内存限制真正生效（独占 Runtime 传入 WithMemoryLimitPages）起，
+	// 旧默认 2 页（128KB）对 TinyGo 模块过小，调整为 256 页（16MB）。
+	DefaultMemoryPages     = 256 // 16MB
 	DefaultMaxCallPerSec   = 1000
 	DefaultCallTimeout     = 30 * time.Second
 	DefaultCallInitTimeout = 10 * time.Second

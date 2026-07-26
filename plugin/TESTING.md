@@ -4,12 +4,18 @@
 
 本测试套件为 `plugin` 包提供了全面的测试覆盖，包括插件接口、BasePlugin、Manager 和生命周期监听器的所有功能。
 
-### 测试统计
+### 测试统计（2026-07 更新）
 
-- **总测试数**: 30+ 个测试用例（含子测试）
-- **代码覆盖率**: ~70%+
-- **测试文件**: 1 个
-  - `plugin_test.go` - 插件和管理器测试
+- **总测试数**: 199 个 Test 函数（含子测试则更多）+ 3 个 Benchmark
+- **测试文件**: 23 个，按主题分组：
+  - `plugin_test.go` - 插件接口、BasePlugin 和 Manager 基础测试（下文详述）
+  - `register_*_test.go` - 注册管线各阶段：依赖推断/DryRun/级联/别名/权限模型/分阶段修复批次
+  - `infra_*_test.go` - DI 容器、EventBus（含类型化订阅）、PluginScope 资源追踪
+  - `manager_*_test.go` - 启停/禁用启用/生命周期事件
+  - 其余按修复批次命名（`*_bugfix_test.go`、`*_p2_fixes_test.go` 等），每个文件头有说明
+
+> 下文的逐测试说明覆盖最初的核心套件（plugin_test.go）；
+> 后续新增文件的用途见各文件头部注释。
 
 ---
 

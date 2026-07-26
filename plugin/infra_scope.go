@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -28,13 +29,19 @@ type Scope struct {
 func (s *Scope) Name() string { return s.name }
 
 // Subscribe 在 EventBus 上订阅，订阅生命周期绑定到本 Scope。
-// Scope 被 Dispose 时自动 Unsubscribe。
+// Scope 被 Dispose 时自动 Unsubscribe；对已 Dispose 的 Scope 订阅会立即
+// 取消并返回错误（避免卸载并发窗口内产生无人管理的订阅泄漏）。
 func (s *Scope) Subscribe(topic string, handler EventHandler) (Subscription, error) {
 	sub, err := s.ctx.EventBus.Subscribe(topic, handler)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
+	if s.disposed {
+		s.mu.Unlock()
+		_ = sub.Unsubscribe()
+		return nil, fmt.Errorf("scope %q already disposed", s.name)
+	}
 	s.subscriptions = append(s.subscriptions, sub)
 	s.mu.Unlock()
 	return sub, nil
@@ -47,6 +54,11 @@ func (s *Scope) SubscribeAll(handler EventHandler) (Subscription, error) {
 		return nil, err
 	}
 	s.mu.Lock()
+	if s.disposed {
+		s.mu.Unlock()
+		_ = sub.Unsubscribe()
+		return nil, fmt.Errorf("scope %q already disposed", s.name)
+	}
 	s.subscriptions = append(s.subscriptions, sub)
 	s.mu.Unlock()
 	return sub, nil
@@ -75,7 +87,9 @@ func (s *Scope) Scope(name string) *Scope {
 }
 
 // Dispose 清理 Scope 及其所有子 Scope 的资源。
-// ctx 用于超时/取消控制：ctx 到期时跳过剩余清理步骤并返回 ctx.Err()。
+// ctx 用于超时/取消控制：ctx 到期时跳过剩余的 children/hooks 清理并返回 ctx.Err()，
+// 但 EventBus 订阅退订（纯框架操作，无用户代码）无论如何都会执行——
+// 否则被取消的 Dispose 已置 disposed=true，这些订阅将永远无人清理。
 // 清理顺序：children（逆序）→ hooks（逆序）→ subscriptions
 func (s *Scope) Dispose(ctx context.Context) error {
 	if ctx == nil {
@@ -91,6 +105,15 @@ func (s *Scope) Dispose(ctx context.Context) error {
 	subs := s.subscriptions
 	hooks := s.disposeHooks
 	s.mu.Unlock()
+
+	// 订阅退订放在 defer 中，保证即使 children/hooks 阶段因 ctx 取消提前返回也会执行
+	defer func() {
+		for _, sub := range subs {
+			if err := sub.Unsubscribe(); err != nil {
+				logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Unsubscribe failed")
+			}
+		}
+	}()
 
 	// 逆序销毁子 Scope（深度优先）
 	for i := len(children) - 1; i >= 0; i-- {
@@ -115,13 +138,6 @@ func (s *Scope) Dispose(ctx context.Context) error {
 		}
 		if err := hooks[i](); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
-		}
-	}
-
-	// 清理 EventBus 订阅
-	for _, sub := range subs {
-		if err := sub.Unsubscribe(); err != nil {
-			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Unsubscribe failed")
 		}
 	}
 

@@ -138,9 +138,11 @@ func TestRegisterV2_PluginCanAccessSpecialServices(t *testing.T) {
 func TestEnsureContainerInitialized_Idempotent(t *testing.T) {
 	manager := NewManager(nil)
 
-	// 手动调用多次（模拟多次 Register）
-	manager.mu.Lock()
-
+	// 手动调用多次（模拟多次 Register）。
+	// 注意：ensureContainerInitialized 现为自加锁实现（内部先取 Manager 锁
+	// 收集回填条目、释放后在锁外注册），调用方绝不能持有 manager.mu——
+	// 不可重入的 Mutex 会直接自死锁。此前测试在 mu.Lock() 内调用，
+	// 导致 -race 全量跑在此测试上挂满 5 分钟超时。
 	manager.ensureContainerInitialized()
 	container1 := manager.container
 
@@ -149,8 +151,6 @@ func TestEnsureContainerInitialized_Idempotent(t *testing.T) {
 
 	manager.ensureContainerInitialized()
 	container3 := manager.container
-
-	manager.mu.Unlock()
 
 	// 验证容器实例没有改变
 	assert.Same(t, container1, container2)

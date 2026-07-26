@@ -27,7 +27,7 @@ func TestDescriptor_Validate_NoPath(t *testing.T) {
 func TestDescriptor_EffectiveResourceLimit_Defaults(t *testing.T) {
 	d := &wasm.Descriptor{Name: "test", Path: "/x.wasm"}
 	rl := d.EffectiveResourceLimit()
-	assert.Equal(t, uint32(2), rl.MemoryPages)
+	assert.Equal(t, uint32(wasm.DefaultMemoryPages), rl.MemoryPages)
 	assert.Equal(t, int64(1000), rl.MaxCallPerSec)
 }
 

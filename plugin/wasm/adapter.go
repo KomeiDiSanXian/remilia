@@ -44,12 +44,13 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 				return nil, nil
 			}
 
-			rt, err := NewRuntime(context.Background(), hostRegistry)
+			// 先构建沙箱，把内存页限制传给独占运行时，使 ResourceLimit.MemoryPages 真正生效
+			sandbox := NewSandbox(wdesc.EffectiveResourceLimit())
+			rt, err := NewRuntime(context.Background(), hostRegistry, sandbox.memoryPages)
 			if err != nil {
 				return nil, fmt.Errorf("wasm(%q): runtime init: %w", wdesc.Name, err)
 			}
 
-			sandbox := NewSandbox(wdesc.EffectiveResourceLimit())
 			mod, err := rt.InstantiateModule(context.Background(), wdesc.Name, wasmBytes, sandbox)
 			if err != nil {
 				rt.Close(context.Background())
@@ -64,8 +65,12 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 			rt.SetModuleConfig(wdesc.Name, cfgMap)
 
 			for _, cmd := range wdesc.Commands {
+				// 注意：不要在这里调用 matcher.SetGroup("wasm:"+name)。
+				// ctx.Reg.RegisterCommand 已通过 engine.SetMatcherGroup 把 matcher
+				// 正确索引到插件名分组下；raw SetGroup 只改 matcher 字段、不更新
+				// engine 的 groupIndex，会导致卸载时 RemoveGroup(插件名) 一个都删
+				// 不掉——已 Close 的模块留下幽灵命令持续报错（历史 bug）。
 				matcher := ctx.Reg.RegisterCommand(cmd.EventType, cmd.Command)
-				matcher.SetGroup("wasm:" + wdesc.Name)
 
 				modRef := mod
 				matcher.Handle(func(ectx *corectx.Context) error {
@@ -107,6 +112,14 @@ func ToDescriptor(wdesc *Descriptor, wasmBytes []byte, hostRegistry *HostFuncReg
 		Teardown: func(tctx *plugin.TeardownContext) error {
 			if mod, ok := tctx.API.(*Module); ok {
 				mod.Close(context.Background())
+				// ToDescriptor 为每个插件创建独占的 Runtime，
+				// 必须一并关闭并清理配置条目，否则每次重载泄漏一个 wazero Runtime。
+				if mod.runtime != nil {
+					mod.runtime.RemoveModuleConfig(mod.name)
+					if err := mod.runtime.Close(context.Background()); err != nil {
+						return err
+					}
+				}
 			}
 			return nil
 		},

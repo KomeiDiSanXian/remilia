@@ -45,7 +45,7 @@ func (r *HostFuncRegistry) BuildModule(ctx context.Context, rt wazero.Runtime) (
 		funcName := name
 		builder.NewFunctionBuilder().
 			WithFunc(func(ctx context.Context, module api.Module, ptr uint32, length uint32) uint64 {
-				return r.callHostFunc(module, funcName, ptr, length)
+				return r.callHostFunc(ctx, module, funcName, ptr, length)
 			}).
 			Export(funcName)
 	}
@@ -53,7 +53,9 @@ func (r *HostFuncRegistry) BuildModule(ctx context.Context, rt wazero.Runtime) (
 }
 
 // callHostFunc 从 WASM 线性内存读取参数，调用宿主函数，写回结果。
-func (r *HostFuncRegistry) callHostFunc(mod api.Module, name string, ptr uint32, length uint32) uint64 {
+// ctx 必须是 wazero 传入宿主函数的调用 context——回调 guest 的 malloc 时
+// 复用它，才能继承 WithCloseOnContextDone 的超时/取消控制。
+func (r *HostFuncRegistry) callHostFunc(ctx context.Context, mod api.Module, name string, ptr uint32, length uint32) uint64 {
 	r.mu.RLock()
 	fn, ok := r.funcs[name]
 	r.mu.RUnlock()
@@ -86,7 +88,7 @@ func (r *HostFuncRegistry) callHostFunc(mod api.Module, name string, ptr uint32,
 		return 0
 	}
 
-	mallocResults, mallocErr := mallocFn.Call(bgCtx, uint64(len(result)))
+	mallocResults, mallocErr := mallocFn.Call(ctx, uint64(len(result)))
 	if mallocErr != nil || len(mallocResults) == 0 {
 		return 0
 	}
@@ -108,8 +110,6 @@ func (r *HostFuncRegistry) ListFunctionNames() []string {
 	}
 	return names
 }
-
-var bgCtx = context.Background()
 
 // RegisterDefaultHostFuncs 注册默认的宿主函数集，包括自描述函数。
 // get_config 默认返回空值；Runtime 创建后可通过 HostFuncRegistry.Register

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"reflect"
 	"runtime/debug"
 	"time"
 
@@ -27,6 +28,13 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 	logger.Infof("[PluginManager] DryRun (three-color): starting dependency inference for %d plugins", len(descriptors))
 
 	tempContainer := NewContainer()
+	// 与真实容器保持一致：注册内置 key（manager/engine/coordinator），
+	// 否则 Service(ctx, "engine") 类插件在推断阶段会被误判为缺失依赖。
+	tempContainer.Register("manager", pm)
+	if pm.coordinator != nil {
+		tempContainer.Register("engine", pm.coordinator)
+		tempContainer.Register("coordinator", pm.coordinator)
+	}
 	pm.mu.RLock()
 	for name, inst := range pm.plugins {
 		if api := inst.GetAPI(); api != nil {
@@ -162,15 +170,34 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		}
 	}
 
-	// 检查是否有 unresolved 的插件 → 循环依赖
+	// 检查是否有 unresolved 的插件。
+	// 由于批内插件都以占位实例预注册，按名依赖的就绪检查对批内/已注册插件恒真，
+	// 走到这里的 unresolved 几乎总是"依赖的名字根本不存在"——按缺失依赖报告，
+	// 而不是笼统的循环依赖（真正的循环由后续 TopologicalSort 检出）。
 	unresolved := make([]string, 0)
+	missingByPlugin := make(map[string][]string)
 	for _, p := range plugins {
 		if p.state != 2 {
 			unresolved = append(unresolved, p.name)
+			for _, d := range p.ctx.getTrackedDependencies() {
+				if _, ok := tempContainer.Get(d); !ok && d != p.name {
+					missingByPlugin[p.name] = append(missingByPlugin[p.name], d)
+				}
+			}
+			for _, d := range p.ctx.getTrackedOptionalDependencies() {
+				if _, ok := tempContainer.Get(d); !ok && d != p.name {
+					missingByPlugin[p.name] = append(missingByPlugin[p.name], d)
+				}
+			}
 		}
 	}
 	if len(unresolved) > 0 {
-		err := fmt.Errorf("%w: %v", errutil.ErrCircularDependency, unresolved)
+		var err error
+		if len(missingByPlugin) > 0 {
+			err = fmt.Errorf("%w: %v", errutil.ErrDependencyNotFound, missingByPlugin)
+		} else {
+			err = fmt.Errorf("%w: %v", errutil.ErrCircularDependency, unresolved)
+		}
 		logger.WithError(err).Errorf("[PluginManager] DryRun (three-color): %d plugin(s) unresolved after %v", len(unresolved), time.Since(start))
 		return inferred, err
 	}
@@ -179,26 +206,34 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 	return inferred, nil
 }
 
-// tryResolvePendingType 在容器中查找与 setupCtx.pendingType 匹配的已注册 API。
-// 找到后将 dep 名称追加到 trackedDeps，使依赖能被 topologicalSort 感知。
+// tryResolvePendingType 在容器中查找与 setupCtx.pendingTypes 匹配的已注册 API。
+// 每个成功解析的类型将其 dep 名称追加到 trackedDeps，使依赖能被 topologicalSort 感知；
+// 未解析的类型保留到下一轮。
 func tryResolvePendingType(setupCtx *SetupContext, pluginName string, c *Container) bool {
-	if setupCtx.pendingType == nil {
+	if len(setupCtx.pendingTypes) == 0 {
 		return false
 	}
-	entries := lookupServiceTypeByReflect(c, setupCtx.pendingType)
-	if len(entries) == 0 {
-		return false
+	changed := false
+	var remaining []reflect.Type
+	for _, pt := range setupCtx.pendingTypes {
+		entries := lookupServiceTypeByReflect(c, pt)
+		if len(entries) == 0 {
+			remaining = append(remaining, pt)
+			continue
+		}
+		if len(entries) > 1 {
+			logger.Warnf("[PluginManager] DryRun: pending type %v resolved to multiple services: %v, picking first", pt, entryNames(entries))
+		}
+		name := entries[0].name
+		if setupCtx.trackedDeps == nil {
+			setupCtx.trackedDeps = make(map[string]bool)
+		}
+		setupCtx.trackedDeps[name] = true
+		logger.Debugf("[PluginManager] DryRun: pending type %v resolved -> %q for plugin %q", pt, name, pluginName)
+		changed = true
 	}
-	if len(entries) > 1 {
-		logger.Warnf("[PluginManager] DryRun: pending type %v resolved to multiple services: %v, picking first", setupCtx.pendingType, entryNames(entries))
-	}
-	name := entries[0].name
-	if setupCtx.trackedDeps == nil {
-		setupCtx.trackedDeps = make(map[string]bool)
-	}
-	setupCtx.trackedDeps[name] = true
-	logger.Debugf("[PluginManager] DryRun: pending type %v resolved -> %q for plugin %q", setupCtx.pendingType, name, pluginName)
-	return true
+	setupCtx.pendingTypes = remaining
+	return changed
 }
 
 // mergeInferredDeps 将 DryRun 推断出的依赖合并到 descriptor 副本中，返回新的切片。
@@ -216,13 +251,15 @@ func mergeInferredDeps(descriptors []*Descriptor, inferred map[string][]string) 
 			continue
 		}
 
-		// 构建声明集合（Deps + OptionalDeps）
+		// 构建声明集合（Deps + OptionalDeps）。
+		// 声明可能带版本约束（如 "storage@>=1.0"），推断结果是纯插件名，
+		// 因此比较前先解析出名字，避免把已声明的依赖误判为新增。
 		declaredSet := make(map[string]bool, len(desc.Deps)+len(desc.OptionalDeps))
 		for _, dep := range desc.Deps {
-			declaredSet[dep] = true
+			declaredSet[parseDepSpec(dep).name] = true
 		}
 		for _, dep := range desc.OptionalDeps {
-			declaredSet[dep] = true
+			declaredSet[parseDepSpec(dep).name] = true
 		}
 
 		// 找出真正新增的 dep
@@ -250,10 +287,10 @@ func mergeInferredDeps(descriptors []*Descriptor, inferred map[string][]string) 
 			mergedDeps = append(mergedDeps, dep)
 		}
 
-		// 从 OptionalDeps 中移除已从推断升级的 dep
+		// 从 OptionalDeps 中移除已从推断升级的 dep（按解析后的名字比较）
 		newOptional := make([]string, 0, len(desc.OptionalDeps))
 		for _, dep := range desc.OptionalDeps {
-			if !depsSet[dep] {
+			if !depsSet[dep] && !depsSet[parseDepSpec(dep).name] {
 				newOptional = append(newOptional, dep)
 			}
 		}
@@ -283,7 +320,7 @@ func (pm *Manager) rectifyLoadOrder(instances []*Instance) {
 			continue
 		}
 		for _, dep := range inst.desc.Deps {
-			needFix = append(needFix, pair{dep: dep, dependent: inst.Name()})
+			needFix = append(needFix, pair{dep: parseDepSpec(dep).name, dependent: inst.Name()})
 		}
 	}
 	if len(needFix) == 0 {
@@ -351,7 +388,10 @@ func (pm *Manager) TopologicalSort(descriptors []*Descriptor) ([]*Descriptor, er
 		graph[name] = make([]string, 0)
 	}
 	for _, desc := range descriptors {
-		for _, dep := range desc.Deps {
+		for _, rawDep := range desc.Deps {
+			// 依赖可能带版本约束（"storage@>=1.0"），统一解析出插件名再查找，
+			// 否则带约束的依赖在批量注册时会被误报为 missing dependency。
+			dep := parseDepSpec(rawDep).name
 			pm.mu.RLock()
 			depInst, existsInManager := pm.plugins[dep]
 			pm.mu.RUnlock()
@@ -370,7 +410,8 @@ func (pm *Manager) TopologicalSort(descriptors []*Descriptor) ([]*Descriptor, er
 			}
 		}
 		// OptionalDeps：仅当可选依赖存在于同一批次时才参与拓扑排序，不存在则静默跳过
-		for _, dep := range desc.OptionalDeps {
+		for _, rawDep := range desc.OptionalDeps {
+			dep := parseDepSpec(rawDep).name
 			if _, existsInBatch := descMap[dep]; existsInBatch {
 				inDegree[desc.Name]++
 				graph[dep] = append(graph[dep], desc.Name)
@@ -417,7 +458,8 @@ func (pm *Manager) checkCrossBatchCyclicDependency(descriptors []*Descriptor, de
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 	for _, desc := range descriptors {
-		for _, depName := range desc.Deps {
+		for _, rawDep := range desc.Deps {
+			depName := parseDepSpec(rawDep).name
 			existingInst, existsInManager := pm.plugins[depName]
 			if !existsInManager {
 				continue
@@ -436,7 +478,8 @@ func (pm *Manager) detectCycleThroughExisting(existingInst *Instance, targetName
 		return nil
 	}
 	visited[pluginName] = true
-	for _, dep := range existingInst.dependencies() {
+	for _, rawDep := range existingInst.dependencies() {
+		dep := parseDepSpec(rawDep).name
 		if dep == targetName {
 			return fmt.Errorf("plugin %s (registered) depends on %s (in batch), which depends on %s", pluginName, dep, pluginName)
 		}
@@ -459,7 +502,8 @@ func (pm *Manager) batchPluginDependsOn(plugin *Descriptor, targetName string, b
 		return false
 	}
 	visited[plugin.Name] = true
-	for _, dep := range plugin.Deps {
+	for _, rawDep := range plugin.Deps {
+		dep := parseDepSpec(rawDep).name
 		if dep == targetName {
 			return true
 		}

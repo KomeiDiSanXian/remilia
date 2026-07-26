@@ -113,6 +113,10 @@ func NewEventBusWithOptions(opts EventBusOptions) EventBus {
 const wildcardTopic = "*"
 
 // Publish 发布事件（使用 context.Background()）。
+//
+// 注意：worker 池满时本方法会阻塞直到有空闲槽位。若在事件 handler 内
+// 同步调用 Publish，池饱和时可能互相等待；此类场景请使用
+// [PublishWithTimeout] 或 PublishContext 携带可取消的 context。
 func (eb *eventBus) Publish(topic string, data any) error {
 	return eb.PublishContext(context.Background(), topic, data)
 }
@@ -137,13 +141,11 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 	}
 
 	for _, sub := range allHandlers {
-		select {
-		case eb.workerPool <- struct{}{}:
-		case <-ctx.Done():
+		if err := eb.acquireWorkerSlot(ctx, topic); err != nil {
 			cnt := eb.droppedCount.Add(1)
-			logger.Warnf("[EventBus] PublishContext cancelled for topic %s (total dropped: %d): %v", topic, cnt, ctx.Err())
+			logger.Warnf("[EventBus] PublishContext cancelled for topic %s (total dropped: %d): %v", topic, cnt, err)
 			eb.publishCount.Add(1)
-			return ctx.Err()
+			return err
 		}
 		go func(h EventHandler) {
 			defer func() {
@@ -161,6 +163,34 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 	eb.publishCount.Add(1)
 	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d)", topic, len(handlers), len(wildcardHandlers))
 	return nil
+}
+
+// saturationWarnAfter 发布方在池满状态阻塞多久后打印一次诊断警告。
+const saturationWarnAfter = 10 * time.Second
+
+// acquireWorkerSlot 获取一个工作槽位。
+// 快速路径零开销；池满时阻塞等待，阻塞超过 saturationWarnAfter 打印一次
+// 诊断警告（典型场景：handler 内同步 Publish 且池已饱和，会互相等待）。
+func (eb *eventBus) acquireWorkerSlot(ctx context.Context, topic string) error {
+	select {
+	case eb.workerPool <- struct{}{}:
+		return nil
+	default:
+	}
+	warn := time.NewTimer(saturationWarnAfter)
+	defer warn.Stop()
+	for {
+		select {
+		case eb.workerPool <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-warn.C:
+			logger.Warnf("[EventBus] worker pool saturated for %v while publishing topic %q; "+
+				"if publishing from inside an event handler, use PublishWithTimeout to avoid pool deadlock",
+				saturationWarnAfter, topic)
+		}
+	}
 }
 
 // PublishWithTimeout 发布事件，若 timeout 内无法获取工作槽位则返回 [ErrEventDropped]。
@@ -218,7 +248,11 @@ func (eb *eventBus) Unsubscribe(sub Subscription) error {
 	return eb.unsubscribeByID(impl.topic, impl.id)
 }
 
-// unsubscribeByID 通过 ID 取消订阅
+// unsubscribeByID 通过 ID 取消订阅。
+//
+// 使用 copy-on-write 而非原地 append 移位：PublishContext 在 RUnlock 后
+// 才把 handler 切片拷贝出来，若这里原地移位共享底层数组，会与并发发布
+// 产生元素级数据竞争（可能拷出撕裂的 subscriptionImpl）。
 func (eb *eventBus) unsubscribeByID(topic, id string) error {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
@@ -228,17 +262,18 @@ func (eb *eventBus) unsubscribeByID(topic, id string) error {
 		return fmt.Errorf("topic not found: %s", topic)
 	}
 
-	// 查找并删除订阅
+	// 查找并删除订阅（构建新切片，不改动旧底层数组）
 	for i, sub := range handlers {
 		if sub.id == id {
-			eb.subscribers[topic] = append(handlers[:i], handlers[i+1:]...)
-			logger.Debugf("[EventBus] Unsubscribed from topic: %s, id: %s", topic, id)
-
-			// 如果该主题没有订阅者了，删除该主题
-			if len(eb.subscribers[topic]) == 0 {
+			if len(handlers) == 1 {
 				delete(eb.subscribers, topic)
+			} else {
+				newHandlers := make([]subscriptionImpl, 0, len(handlers)-1)
+				newHandlers = append(newHandlers, handlers[:i]...)
+				newHandlers = append(newHandlers, handlers[i+1:]...)
+				eb.subscribers[topic] = newHandlers
 			}
-
+			logger.Debugf("[EventBus] Unsubscribed from topic: %s, id: %s", topic, id)
 			return nil
 		}
 	}

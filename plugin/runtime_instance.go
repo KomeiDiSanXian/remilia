@@ -50,56 +50,80 @@ func (pi *Instance) name() string { return pi.desc.Name } //nolint:unused
 
 // load 加载插件（实现 pluginInternal）
 // ctx 用于控制超时：若 context 在 Setup 完成前到期则返回 ctx.Err()。
-func (pi *Instance) load(ctx context.Context) (loadErr error) {
+//
+// 并发安全说明：Setup 在子 goroutine 中执行，其结果通过带缓冲 channel 传回，
+// 主 goroutine 不与 Setup goroutine 共享可变变量（修复此前对命名返回值 loadErr 的数据竞争）。
+// 若 ctx 先到期，Setup goroutine 仍会跑完，但其返回的 API 不会被导出、
+// 其间 Spawn 的 goroutine 会在 Setup 结束后被统一停止，避免"僵尸 Setup"污染容器。
+func (pi *Instance) load(ctx context.Context) error {
 	pi.mu.Lock()
 	pi.state = Loading
 	gm := newGoroutineManagerForPlugin(pi.desc.Name)
 	pi.goroutineMgr = gm
-	if pi.setupContext != nil {
-		pi.setupContext.goroutineMgr = gm
+	setupCtx := pi.setupContext
+	if setupCtx != nil {
+		setupCtx.goroutineMgr = gm
 	}
 	pi.mu.Unlock()
 
 	startTime := time.Now()
 
-	done := make(chan struct{})
+	type setupResult struct {
+		api any
+		err error
+	}
+	resCh := make(chan setupResult, 1)
 	go func() {
-		defer close(done)
+		var res setupResult
 		defer func() {
 			if r := recover(); r != nil {
 				if e, ok := r.(error); ok {
-					loadErr = fmt.Errorf("plugin %q: Setup panicked: %w", pi.desc.Name, e)
+					res.err = fmt.Errorf("plugin %q: Setup panicked: %w", pi.desc.Name, e)
 				} else {
-					loadErr = fmt.Errorf("plugin %q: Setup panicked: %v", pi.desc.Name, r)
+					res.err = fmt.Errorf("plugin %q: Setup panicked: %v", pi.desc.Name, r)
 				}
+				res.api = nil
 			}
+			resCh <- res
 		}()
-		var api any
-		api, loadErr = pi.desc.callSetup(pi.setupContext)
-		if loadErr == nil && api != nil {
-			pi.mu.Lock()
-			pi.exportedAPI = api
-			pi.mu.Unlock()
-			if pi.setupContext != nil {
-				pi.setupContext.ExportAs(pi.desc.Name, api)
-			}
-		}
+		res.api, res.err = pi.desc.callSetup(setupCtx)
 	}()
 
+	var res setupResult
 	select {
-	case <-done:
+	case res = <-resCh:
 	case <-ctx.Done():
+		// Setup 仍在后台运行：标记失败，等它自然结束后回收其 goroutine。
+		// 不导出其 API、不改写容器——调用方会按失败流程清理本实例。
+		pi.mu.Lock()
+		pi.state = Error
+		pi.lastError = ctx.Err()
+		pi.goroutineMgr = nil
+		pi.mu.Unlock()
+		go func() {
+			<-resCh
+			gm.stopAndWait()
+		}()
 		return ctx.Err()
 	}
 
-	if loadErr != nil {
+	if res.err != nil {
 		gm.stopAndWait()
 		pi.mu.Lock()
 		pi.state = Error
-		pi.lastError = loadErr
+		pi.lastError = res.err
 		pi.goroutineMgr = nil
 		pi.mu.Unlock()
-		return loadErr
+		return res.err
+	}
+
+	if res.api != nil {
+		pi.mu.Lock()
+		pi.exportedAPI = res.api
+		pi.mu.Unlock()
+		if setupCtx != nil {
+			setupCtx.ExportAs(pi.desc.Name, res.api)
+		}
 	}
 
 	pi.mu.Lock()
@@ -160,6 +184,12 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 
 	select {
 	case <-ctx.Done():
+		// 置为 Error 而不是留在 Unloading：Unloading 没有任何恢复路径，
+		// Error 状态可通过 Retry/ForceUnregister 处理。
+		pi.mu.Lock()
+		pi.state = Error
+		pi.lastError = ctx.Err()
+		pi.mu.Unlock()
 		return ctx.Err()
 	default:
 	}
@@ -193,21 +223,54 @@ func (pi *Instance) unload(ctx context.Context, coordinator engine.GroupWriter) 
 // dependencies 返回依赖列表（实现 pluginInternal）
 func (pi *Instance) dependencies() []string { return pi.desc.Deps }
 
+// descriptor 返回当前描述符指针。
+// finalizeRegistration 会在合并未声明依赖时 COW 替换 desc（持 inst.mu），
+// 无锁调用方（Metadata/GetStatus 等）应通过此方法读取，避免数据竞争。
+func (pi *Instance) descriptor() *Descriptor {
+	pi.mu.RLock()
+	defer pi.mu.RUnlock()
+	return pi.desc
+}
+
+// setDescriptor 替换描述符（COW 合并未声明依赖时由 Manager 调用）。
+func (pi *Instance) setDescriptor(d *Descriptor) {
+	pi.mu.Lock()
+	pi.desc = d
+	pi.depsModified = true
+	pi.mu.Unlock()
+}
+
+// exportedKeys 返回本实例 Setup 期间通过 ExportAs/ExportIface 导出的所有容器 key 快照。
+func (pi *Instance) exportedKeys() []string {
+	pi.mu.RLock()
+	sc := pi.setupContext
+	pi.mu.RUnlock()
+	if sc == nil {
+		return nil
+	}
+	return sc.exportedKeysSnapshot()
+}
+
 // --- 公开 API ---
 
 // Name 返回插件名称
 func (pi *Instance) Name() string { return pi.desc.Name }
 
-// Metadata 返回插件元数据
+// Metadata 返回插件元数据。
+//
+// 返回的是副本：调用方修改返回值不会影响插件描述符，
+// 并发调用也不会像旧实现那样并发改写共享的 desc.Meta。
 func (pi *Instance) Metadata() *Metadata {
-	m := pi.desc.effectiveMeta()
-	if m == nil {
-		m = &Metadata{}
+	d := pi.descriptor()
+	m := Metadata{}
+	if em := d.effectiveMeta(); em != nil {
+		m = *em
+		m.Tags = append([]string(nil), em.Tags...)
 	}
-	m.Name = pi.desc.Name
-	m.Version = pi.desc.Version
-	m.Dependencies = pi.desc.Deps
-	return m
+	m.Name = d.Name
+	m.Version = d.Version
+	m.Dependencies = append([]string(nil), d.Deps...)
+	return &m
 }
 
 // GetState 获取插件状态（实现 StatefulPlugin 接口）

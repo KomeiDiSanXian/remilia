@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // manager_stats.go — 插件运行时统计控制器
@@ -65,7 +68,7 @@ func (sc *statsController) Snapshot() ManagerStats {
 		ContainerFrozen:   sc.pm.container != nil && sc.pm.container.frozen.Load(),
 		ContainerServices: containerSvcCount,
 		StrictDeps:        strictDeps,
-		Uptime:            time.Since(startTime).Round(time.Second).String(),
+		Uptime:            time.Since(sc.pm.createdAt).Round(time.Second).String(),
 	}
 }
 
@@ -132,7 +135,11 @@ func (sc *statsController) markDrainingDone(name string, err error) {
 }
 
 // drainDrainingInstances 等待所有 draining 实例清理完成（StopAll 时调用）。
-func (sc *statsController) drainDrainingInstances() {
+// ctx 到期时提前返回，避免单个卡死的蓝绿 Teardown 无限拖住 StopAll。
+func (sc *statsController) drainDrainingInstances(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	sc.mu.RLock()
 	names := make([]string, 0, len(sc.drainingInstances))
 	for name, e := range sc.drainingInstances {
@@ -155,12 +162,22 @@ func (sc *statsController) drainDrainingInstances() {
 					done <- struct{}{}
 					return
 				}
-				time.Sleep(10 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					done <- struct{}{}
+					return
+				case <-time.After(10 * time.Millisecond):
+				}
 			}
 		}(name)
 	}
 	for range names {
-		<-done
+		select {
+		case <-done:
+		case <-ctx.Done():
+			logger.Warn("[PluginManager] StopAll: context expired while waiting for draining instances")
+			return
+		}
 	}
 }
 

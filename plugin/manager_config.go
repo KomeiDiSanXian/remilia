@@ -1,6 +1,8 @@
 package plugin
 
 import (
+	"time"
+
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
@@ -72,28 +74,53 @@ func (cc *configController) SetProvider(cp ConfigProvider) {
 	cc.pm.mu.Unlock()
 }
 
+// propagateMaxRetries 配置变更传播在写锁被占用时的最大延迟重试次数。
+const propagateMaxRetries = 3
+
 // propagateConfigChange 按依赖顺序向所有插件广播配置变更。
 //
 // 使用 loadOrder（拓扑排序结果）确保依赖先于依赖方收到变更通知。
-// 使用 TryRLock 避免 SetProvider 持有写锁时同步触发导致死锁。
-// 若锁被写操作持有，直接返回（Phase 3 的全量替换已保证数据最新）。
+// 使用 TryRLock 避免 SetProvider 持有写锁时同步触发导致死锁；
+// 写锁被占用时不再直接丢弃通知，而是延迟重试若干次
+// （旧实现直接跳过，恰逢注册等写操作时插件会永久错过这次 OnChange）。
+//
+// 锁内仅做快照收集；cfg.Reload()（可能 I/O，且会同步执行插件 OnChange 回调）
+// 在锁外执行，避免插件回调触碰 Manager API 时死锁。
 func (cc *configController) propagateConfigChange() {
+	cc.propagateConfigChangeAttempt(0)
+}
+
+func (cc *configController) propagateConfigChangeAttempt(attempt int) {
 	if !cc.pm.mu.TryRLock() {
-		logger.Warn("[Manager] Config change notification skipped: write lock held (SetProvider in progress, Phase 3 full replacement already up to date)")
+		if attempt < propagateMaxRetries {
+			logger.Debugf("[Manager] Config change notification deferred (write lock held), retry %d/%d", attempt+1, propagateMaxRetries)
+			time.AfterFunc(200*time.Millisecond, func() {
+				cc.propagateConfigChangeAttempt(attempt + 1)
+			})
+			return
+		}
+		logger.Warn("[Manager] Config change notification skipped after retries: write lock held")
 		return
 	}
-	defer cc.pm.mu.RUnlock()
-
+	type nameConfig struct {
+		name string
+		cfg  Config
+	}
+	toReload := make([]nameConfig, 0, len(cc.pm.loadOrder))
 	for _, name := range cc.pm.loadOrder {
 		inst, exists := cc.pm.plugins[name]
 		if !exists {
 			continue
 		}
-		cfg := inst.GetConfig()
-		if cfg != nil {
-			if err := cfg.Reload(); err != nil {
-				logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", name)
-			}
+		if cfg := inst.GetConfig(); cfg != nil {
+			toReload = append(toReload, nameConfig{name, cfg})
+		}
+	}
+	cc.pm.mu.RUnlock()
+
+	for _, nc := range toReload {
+		if err := nc.cfg.Reload(); err != nil {
+			logger.WithError(err).Warnf("[Manager] Failed to reload config for plugin %s", nc.name)
 		}
 	}
 }

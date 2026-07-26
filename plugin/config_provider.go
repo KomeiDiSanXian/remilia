@@ -56,9 +56,10 @@ func NewYAMLConfigProvider(cfg *config.Config, configManager ...*config.Manager)
 		p.listener = configManager[0].Subscribe(func(newCfg *config.Config) {
 			p.mu.Lock()
 			p.cfg = newCfg
+			cb := p.onChange // 在锁内快照，避免与 OnConfigChange 的写并发
 			p.mu.Unlock()
-			if p.onChange != nil {
-				p.onChange()
+			if cb != nil {
+				cb()
 			}
 		})
 	}

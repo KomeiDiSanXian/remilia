@@ -23,6 +23,10 @@ type serviceEntry struct {
 type Container struct {
 	services sync.Map // name → *serviceEntry
 
+	// regMu 串行化 Register/Remove 的 check-then-act 序列，
+	// 避免同名并发注册时漏掉 typeIndex 清理或 watcher 通知。
+	regMu sync.Mutex
+
 	// typeIndex 类型索引：reflect.Type → []*serviceEntry
 	typeIndex   sync.Map
 	typeIndexMu sync.Mutex
@@ -57,6 +61,8 @@ func (c *Container) Register(name string, service any) {
 		typ:   reflect.TypeOf(service),
 	}
 
+	// regMu 保证 Load+Store+索引维护的原子性；watcher 通知在锁外执行
+	c.regMu.Lock()
 	oldRaw, loaded := c.services.Load(name)
 	c.services.Store(name, entry)
 
@@ -65,12 +71,18 @@ func (c *Container) Register(name string, service any) {
 		c.addToTypeIndex(entry)
 	}
 
+	var oldVal any
 	if loaded {
 		oldEntry := oldRaw.(*serviceEntry)
 		if oldEntry.typ != entry.typ {
 			c.removeFromTypeIndex(oldEntry)
 		}
-		c.notifyWatchers(name, oldEntry.value, service)
+		oldVal = oldEntry.value
+	}
+	c.regMu.Unlock()
+
+	if loaded {
+		c.notifyWatchers(name, oldVal, service)
 	}
 
 	if c.frozen.Load() {
@@ -253,13 +265,17 @@ func (c *Container) refreshSnapshot() {
 
 // Remove 移除服务。
 func (c *Container) Remove(name string) {
+	c.regMu.Lock()
 	raw, loaded := c.services.Load(name)
 	if !loaded {
+		c.regMu.Unlock()
 		return
 	}
 	entry := raw.(*serviceEntry)
 	c.services.Delete(name)
 	c.removeFromTypeIndex(entry)
+	c.regMu.Unlock()
+
 	c.notifyWatchers(name, entry.value, nil)
 	if c.frozen.Load() {
 		c.refreshSnapshot()

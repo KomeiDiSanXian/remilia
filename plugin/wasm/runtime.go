@@ -11,6 +11,8 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Module 表示一个已加载的 WASM 模块实例。
@@ -24,6 +26,12 @@ type Module struct {
 	metadata   []byte
 	sandbox    *Sandbox
 	config     map[string]any // 插件配置，通过 get_config 宿主函数返回
+
+	// callMu 串行化对模块导出函数的调用。
+	// wazero 模块实例（共享线性内存/栈）不是并发安全的，而 engine 的
+	// ExecPool 会并发执行 handler；无 malloc 导出时并发调用还会共用
+	// CommAreaOffset 通信区互相覆盖。
+	callMu sync.Mutex
 
 	runtime *Runtime
 }
@@ -86,6 +94,8 @@ func (m *Module) CallInit(ctx context.Context) error {
 	if initFn == nil {
 		return fmt.Errorf("wasm: module %q missing export %q", m.name, ExportInit)
 	}
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
 	callCtx, cancel := context.WithTimeout(ctx, m.initTimeout())
 	defer cancel()
 	results, err := initFn.Call(callCtx)
@@ -112,10 +122,18 @@ func (m *Module) CallHandle(ctx context.Context, eventTLV []byte) ([]byte, error
 		return nil, fmt.Errorf("wasm: module %q missing export %q", m.name, ExportHandle)
 	}
 
+	// 串行化整个 分配→写入→调用→读取 序列（模块实例非并发安全）
+	m.callMu.Lock()
+	defer m.callMu.Unlock()
+
 	ptr, err := m.allocOrCommArea(ctx, uint32(len(eventTLV)))
 	if err != nil {
 		return nil, err
 	}
+	// 请求缓冲由宿主 malloc，调用结束后归还给 guest 的 free（若导出），
+	// 否则每次调用都会在 guest 堆里泄漏一块请求区。
+	// 响应缓冲归 guest 的分配器/GC 管理（TinyGo 下通常是 GC 对象），宿主不 free。
+	defer m.freeGuestBuffer(ptr)
 
 	mem := m.instance.Memory()
 	if mem == nil {
@@ -158,6 +176,21 @@ func (m *Module) CallHandle(ctx context.Context, eventTLV []byte) ([]byte, error
 	resp := make([]byte, respLen)
 	copy(resp, buf)
 	return resp, nil
+}
+
+// freeGuestBuffer 将宿主通过 malloc 分配的缓冲归还给 guest。
+// 仅当 ptr 来自 guest 的 malloc 导出（非通信区回退）且 guest 导出 free 时执行。
+func (m *Module) freeGuestBuffer(ptr uint32) {
+	if ptr == CommAreaOffset {
+		return
+	}
+	freeFn := m.instance.ExportedFunction(ExportFree)
+	if freeFn == nil {
+		return
+	}
+	if _, err := freeFn.Call(context.Background(), uint64(ptr)); err != nil {
+		logger.Debugf("[wasm] %q: free(%d) failed: %v", m.name, ptr, err)
+	}
 }
 
 // allocOrCommArea 内存分配（带大小检查）
@@ -215,7 +248,13 @@ type Runtime struct {
 	moduleConfigs sync.Map // module name → map[string]any 配置
 }
 
-func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry) (*Runtime, error) {
+// NewRuntime 创建 WASM 运行时。
+//
+// memoryLimitPages 可选：限制本运行时内所有模块的最大线性内存页数
+// （每页 64KB）。不传或传 0 表示不限制。独占运行时（如 ToDescriptor
+// 为每个插件创建的）应传入 sandbox 的内存页限制，使 ResourceLimit.MemoryPages
+// 真正生效；共享运行时（wasm.Manager 默认路径）无法按插件区分，保持不限制。
+func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry, memoryLimitPages ...uint32) (*Runtime, error) {
 	if hostRegistry == nil {
 		hostRegistry = NewHostFuncRegistry()
 		RegisterDefaultHostFuncs(hostRegistry)
@@ -245,6 +284,9 @@ func NewRuntime(ctx context.Context, hostRegistry *HostFuncRegistry) (*Runtime, 
 
 	rtConfig := wazero.NewRuntimeConfig().
 		WithCloseOnContextDone(true)
+	if len(memoryLimitPages) > 0 && memoryLimitPages[0] > 0 {
+		rtConfig = rtConfig.WithMemoryLimitPages(memoryLimitPages[0])
+	}
 	rt.wazeroRuntime = wazero.NewRuntimeWithConfig(ctx, rtConfig)
 
 	if _, err := wasi_snapshot_preview1.Instantiate(ctx, rt.wazeroRuntime); err != nil {
@@ -345,17 +387,25 @@ func (r *Runtime) InstantiateModule(ctx context.Context, name string, wasmBytes 
 		if results, err := metaFn.Call(ctx); err == nil && len(results) >= 2 {
 			metaPtr := uint32(results[0])
 			metaLen := uint32(results[1])
-			if metaPtr != 0 && metaLen > 0 && metaLen <= 4096 {
+			switch {
+			case metaPtr != 0 && metaLen > 0 && metaLen <= 4096:
 				if buf, ok := instance.Memory().Read(metaPtr, metaLen); ok {
 					metadata = make([]byte, metaLen)
 					copy(metadata, buf)
 				}
+			case metaLen > 4096:
+				logger.Warnf("[wasm] %q: plugin_metadata size %d exceeds 4096 bytes, ignored", name, metaLen)
 			}
 		}
 	}
 
 	if abiVersion >= 0 && abiVersion != CurrentABIVersion {
-		fmt.Printf("[wasm] %q ABI v%d != host v%d\n", name, abiVersion, CurrentABIVersion)
+		// 模块显式声明了不兼容的 ABI 版本：拒绝加载。
+		// v1↔v2 的数据编码不同（JSON→TLV），继续加载只会得到未定义行为。
+		// 未导出 plugin_abi_version 的模块（abiVersion<0）不受影响。
+		instance.Close(ctx)
+		compiled.Close(ctx)
+		return nil, fmt.Errorf("wasm: module %q declares ABI v%d, host requires v%d", name, abiVersion, CurrentABIVersion)
 	}
 
 	return &Module{

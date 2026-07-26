@@ -45,7 +45,9 @@ func (b *Bridge) RegisterCommand(req RegistrationRequest) (*engine.Matcher, erro
 		return nil, fmt.Errorf("wasm: failed to create matcher for %q", req.Command)
 	}
 
-	matcher.SetGroup("wasm:" + b.module.Name())
+	// 使用 engine.SetMatcherGroup（同步更新 groupIndex），
+	// 使 DisableGroup/RemoveGroup("wasm:<name>") 能正确找到这些 matcher。
+	b.engine.SetMatcherGroup(matcher, "wasm:"+b.module.Name(), "wasm:"+b.module.Name())
 
 	mod := b.module
 	matcher.Handle(func(ctx *corectx.Context) error {
