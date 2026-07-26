@@ -147,34 +147,34 @@ def := &command.Definition{
 
 ```go
 import (
-    "github.com/KomeiDiSanXian/remilia"
     "github.com/KomeiDiSanXian/remilia/command"
+    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+    "github.com/KomeiDiSanXian/remilia/core/engine"
 )
 
-// 创建命令解析器
-parser := command.NewParser()
+// 创建命令解析器（参数为命令前缀，"" 表示无前缀）
+parser := command.NewParser("")
 parser.Register(&command.Definition{
     Name: "hello",
     Arguments: []*command.Argument{
         {Name: "name", Type: command.ArgTypeString, Required: true},
     },
     Handler: func(ctx any) {
-        rCtx := ctx.(*remilia.Context)
+        rCtx := ctx.(*eventctx.Context)
         parsed := rCtx.GetParsedCommand()
         name := parsed.GetString("name")
-        rCtx.Reply("你好，" + name)
+        rCtx.ReplyText("你好，" + name)
     },
 })
 
-// 使用规则匹配
-engine := remilia.NewEngine()
-engine.On(
-    remilia.OnCommandMatch(parser),
-).HandleE(func(ctx *remilia.Context) error {
-    remilia.ExecuteCommandDefinition(ctx)
-    return nil
-})
+// 使用规则匹配（OnAny 对所有事件生效；命中后执行定义上的 Handler）
+eng := engine.NewEngine()
+eng.OnAny(eventctx.OnCommandMatch(parser)).
+    Handle(eventctx.ExecuteCommandDefinition)
 ```
+
+> 更简洁的方式是 `eng.RegisterCommandDef("", def)`（eventType 为 "" 表示任意事件）——
+> 自动完成规则绑定与命令索引注册（O(1) 路由），无需手动创建 Parser。
 
 ## 参数类型
 
@@ -337,7 +337,7 @@ if len(args.Args) > 0 {
 
 **新代码** (增强系统):
 ```go
-parser := command.NewParser()
+parser := command.NewParser("")
 parser.Register(&command.Definition{
     Name: "search",
     Arguments: []*command.Argument{
@@ -345,13 +345,13 @@ parser.Register(&command.Definition{
     },
 })
 
-engine.On(
-    remilia.OnCommandMatch(parser),
-).HandleE(func(ctx *remilia.Context) error {
-    parsed := ctx.GetParsedCommand()
-    keyword := parsed.GetString("keyword")
-    return nil
-})
+eng.OnAny(eventctx.OnCommandMatch(parser)).
+    Handle(func(ctx *eventctx.Context) error {
+        parsed := ctx.GetParsedCommand()
+        keyword := parsed.GetString("keyword")
+        _ = keyword
+        return nil
+    })
 ```
 
 ## 性能
@@ -395,7 +395,7 @@ raw := ctx.GetMessageContent()
 ## 相关链接
 
 - [Remilia 文档](https://github.com/KomeiDiSanXian/remilia)
-- [命令系统设计文档](../docs/COMMAND_DESIGN.md)
+- [命令系统架构笔记](../docs/notes/08-command-system.md)
 - [API 参考](https://pkg.go.dev/github.com/KomeiDiSanXian/remilia/command)
 
 ## 许可证

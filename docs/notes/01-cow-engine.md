@@ -136,6 +136,11 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 
 使用 `atomic.Bool`（shutdown 标志）+ `sync.WaitGroup`（eventWg）替代了原有的 `eventGate` sentinel 编码设计，性能提升约 **3 倍**且语义更直观。
 
+> 上面是简化示意。当前完整的关闭序列为：置 shutdown 标志 → 停止后台组件并等待退出
+> （含 TempManager 水位清理 goroutine）→ 等待在途 ProcessEvent → Drain ExecPool
+> （共享池除外，其生命周期归调用方）→ Drain Dispatcher → `FlushPendingDeletes`
+> 收尾批量删除队列。每一步都受 ctx 超时控制。
+
 ## 迭代过程
 
 ### V1：裸 `atomic.Value` + 手动类型断言
@@ -321,6 +326,41 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 - 性能提升约 **3 倍**（从 CAS 循环降为 Load + Add/Wait）
 - 新的 ProcessEvent 入口进不来（`e.shutdown.Load()` 检查），已在处理的等 `WaitGroup` 完成
 
+### V5（2026-07）：COW 契约修复——"复制"不等于"可以就地修改"
+
+core 深度复查发现选择性 COW 里埋着一个契约裂缝。为了让 append 触发重分配，
+`copyCommandIndex`/`copyMatcherIndex` 用容量封顶的方式"复制"子切片：
+
+```go
+dst[k] = v[:len(v):len(v)]   // cap=len：append 会重分配 → COW 安全
+                             // 但底层数组仍与旧 state 共享！
+```
+
+这个技巧对 **append** 是对的，对**就地排序**是灾难：`withUpdatedMatcherIndex` 和
+`withBatchMatchers` 拿到"复制"出的切片后直接 `sort.Slice`——排序的 swap 发生在与
+已发布旧 state 共享的底层数组上，正被 `processEventMatchers` 无锁遍历的读者会看到
+元素凭空重复/丢失。触发条件全是运行期常规操作：对命令匹配器 `SetPriority`、
+`BindCommand`、插件批量注册，同时有事件在处理。
+
+修复原则：**排序之前必须拥有数组**——
+
+```go
+sorted := append([]*Matcher(nil), lst...)  // 逐元素完整拷贝，脱离共享
+sortMatchersByPriority(sorted)
+dst.commandIndex[cmd][et] = sorted
+```
+
+批量注册路径则只重排本批次 append 过的桶（append 已使其底层数组独立），
+未触及的桶严禁排序。
+
+**为什么 race detector 一直没抓到？** 因为没有任何测试在"事件处理中"并发做
+`SetPriority`/批量注册——写路径的单元测试都是串行的。修复时补了指针快照断言的
+回归测试（旧 state 切片在重排后必须保持原元素原顺序），串行即可验证契约，
+不依赖竞态时序。
+
+这一课的普适表述：*COW 结构里每一处"共享底层数组的浅复制"，都必须显式标注
+"只可 append、不可原位改写"；任何 sort/copy/swap 前先问一句——这个数组是谁的？*
+
 ## 迭代历程
 
 | 版本 | 核心变化 | 动机 |
@@ -328,7 +368,8 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 | V1 | `atomic.Value` 裸用 | 快速实现 COW 原型 |
 | V2 | `infraatomic.Value[T]` 泛型封装 | Go 1.26 泛型可用，消除类型断言 |
 | V3 | 选择性 COW 复制 + BatchRegister | 批量场景性能优化 |
-| V4（当前） | `shutdown` + `eventWg` 替代 `eventGate` sentinel | 简化正确性推理，提升性能 |
+| V4 | `shutdown` + `eventWg` 替代 `eventGate` sentinel | 简化正确性推理，提升性能 |
+| V5（当前） | 修复就地排序打破 COW 契约的数据竞争 | 共享底层数组只可 append、不可原位改写 |
 
 ## 设计权衡
 

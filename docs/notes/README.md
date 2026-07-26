@@ -29,6 +29,13 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 16 | [PluginScope 资源追踪](16-plugin-scope.md) | Scope 级联清理、订阅自动取消、子 Scope 管理 |
 | 17 | [ServiceProxy 服务代理](17-service-proxy.md) | 防过期的插件间同步调用、热重载安全 |
 | 18 | [状态迁移](18-state-migration.md) | 版本化状态迁移管线、MigrateState 自动触发 |
+| 19 | [三色标记法与依赖推断](19-three-color-dryrun.md) | DryRun 预跑 Setup 发现依赖、三色标记拓扑排序 |
+| 20 | [Core 深度复查实录](20-core-review-lessons.md) | 2026-07 全量复查提炼的八个并发缺陷模式与契约方法论 |
+| 21 | [OutboundDispatcher 出站调度](21-outbound-dispatcher.md) | 以会话为单位的 FIFO 调度、按需 worker、Future 集成 |
+| 22 | [自适应执行](22-adaptive-execution.md) | ExecProfile p50 判定 + ExecPool 有界池 + 退出协议 |
+| 23 | [Context 设计](23-context-design.md) | 双键扩展系统、Clone 语义、延迟副作用、Try* 能力探测 |
+| 24 | [Bot 装配层](24-bot-assembly.md) | Bot/BotBuilder/BotManager、平台热替换、优雅关闭、健康检查树 |
+| 附 | [Trie 前缀树](trie.md) | 命令补全的前缀树实现细节（08 的配套深潜） |
 
 ## 架构思路
 
@@ -118,7 +125,7 @@ plugin.Descriptor{
 
 本 `notes/` 目录是框架架构的**深度技术笔记**，强调每个模块的**迭代过程**（从 V0 的初始实现到当前版本的完整演进），适合作为技术博客发表。笔记中的代码片段来自 git commit 历史，每个演进阶段都有对应的 commit 可以追溯。
 
-官方架构文档位于 [`docs/03-architecture/`](../docs/03-architecture/)，其中 [`ARCHITECTURE_EVOLUTION.md`](../03-architecture/ARCHITECTURE_EVOLUTION.md) 是本文的总览。
+官方架构文档位于 [`docs/03-architecture/`](../03-architecture/)，其中 [`ARCHITECTURE_EVOLUTION.md`](../03-architecture/ARCHITECTURE_EVOLUTION.md) 是本文的总览。
 
 **推荐阅读路径**：
 1. [架构演进总览](../03-architecture/ARCHITECTURE_EVOLUTION.md) — 宏观脉络

@@ -4,15 +4,17 @@
 
 本测试套件为 `command` 包提供了全面的测试覆盖，包括单元测试、模糊测试和基准测试。
 
-### 测试统计
+### 测试统计（2026-07 更新）
 
-- **总测试数**: 47 个测试用例
-- **代码覆盖率**: 94.9%
-- **测试文件**: 4 个
-  - `parser_test.go` - 基础解析器测试
-  - `enhanced_system_test.go` - 增强系统测试
-  - `fuzz_test.go` - 模糊测试
-  - `benchmark_test.go` - 性能基准测试
+- **总测试数**: 51 个 Test 函数 + 6 个 Fuzz + 14 个 Benchmark
+- **测试文件**: 8 个
+  - `parser_test.go` - 基础解析器测试（下文详述）
+  - `enhanced_system_test.go` - 增强系统测试（下文详述）
+  - `fuzz_test.go` - 模糊测试（下文详述）
+  - `benchmark_test.go` - 性能基准测试（下文详述）
+  - `registry_test.go` / `registry_trie_optimization_test.go` - 命令注册表与 Trie 优化
+  - `trie_test.go` - Trie 前缀树（补全）测试
+  - `custom_prefix_test.go` - 自定义命令前缀解析
 
 ## 🧪 测试文件说明
 

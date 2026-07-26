@@ -191,11 +191,14 @@ func collectMatchers(e *Engine, eventType EventType) []*Matcher {
 
 ### 优先级排序
 
-每个匹配器有一个 `priority` 字段（`atomic.Int64`），合并后按优先级**降序**执行。高优先级的匹配器可以阻断（`block`）后续匹配。
+每个匹配器有一个 `priority` 字段（`atomic.Uint64`），合并后按优先级数值**升序**执行——数值越小越先运行（默认 50）。先执行的匹配器可以阻断（`block`）后续匹配。
 
 ```go
-m.priority.Store(50)  // 默认优先级
+m.priority.Store(50)  // 默认优先级；SetPriority(1) 会排到默认匹配器之前
 ```
+
+> 内部统一以 `uint64` 比较（`getPriority()` 返回 `uint64`）：早期版本曾转成 `uint`，
+> 在 32 位平台会截断高位导致排序错乱，2026-07 复查时修正。
 
 分组匹配器可以通过 `SetMatcherGroup` 和 `UseForGroup` 获得分组级中间件，但不影响路由优先级。
 
@@ -317,6 +320,46 @@ type tempMatcherShard struct {
 
 六路合并的引入使系统能够同时从 `matcherIndex`、`commandIndex`、`TempManager` 三个来源获取匹配器，并按优先级统一排序执行。三种来源各取 Specific 和 Generic 两路，共六路。
 
+### V5（当前）：惰性 K 路归并 + TempManager RCU 快照增量维护
+
+V4 之后热路径又经历了两次演进，并在 2026-07 的 core 深度复查中修掉了三个隐蔽缺陷：
+
+**1. 惰性 K 路归并迭代器（merge_iter.go）替代堆合并**
+
+六个已排序列表不再预先合并成一个大切片，而是用 `acquireMergeIter`（sync.Pool 复用）
+做惰性 6 路线性扫描——消费到哪归并到哪，天然支持 `isBlocking` 提前终止，且零分配：
+
+```go
+it := acquireMergeIter(l1, l2, l3, l4, l5, l6)
+defer releaseMergeIter(it)
+for it.Next() { m := it.Matcher(); ... }
+```
+
+*教训（2026-07 修复）*：`Next()` 最初用 `bestPrio = math.MaxUint` 作哨兵、严格小于比较——
+优先级恰好等于 MaxUint 的匹配器会被判为"没有候选"，连带其后所有列表被提前截断。
+哨兵值吃掉合法极值是经典边界缺陷，现改用 `bestIdx == -1` 显式判定首个候选。
+
+**2. TempManager 的 RCU 只读快照**
+
+热路径不再对 8 个分片逐一加读锁，而是读取一个原子指针指向的 `TempSnapshot`
+（按 eventType 预归并、预排序）。`HasAny()` 原子计数做快速短路，生产环境无临时
+匹配器时完全零开销。
+
+*教训 1*：快照最初在**每次** Add/Remove 后全量重建（收集 8 分片 + 整体排序，
+O(N log N)/操作）——对"高频创建/销毁"这一 TempManager 的设计初衷是严重写放大。
+2026-07 改为 COW 增量维护：Add/Remove 只替换受影响 eventType 的一条切片；
+CleanExpired/水位清理等批量路径才全量重建。
+
+*教训 2*：增量更新与全量重建并发时存在"幽灵 matcher"窗口（快照持有分片已删除的
+matcher，或同一 matcher 被插入两次）。解决方案是一致性协议：分片（shard.byID）是
+权威数据源，快照只是视图——`snapshotInsert` 在 snapMu 内先回查 byID（已被并发
+Remove 则放弃插入）并做指针去重（全量重建可能已包含该 matcher）。
+
+*教训 3*：`SetTempWithTimeout` 对已是 temp 的 matcher（如 `OnTemp` 创建后再设超时）
+此前不会补登过期堆——超时形同虚设，未被消费的会话匹配器泄漏到 1 万水位强制清理。
+现经 `SetExpiration` 在 shard 锁内写入过期时间并补登堆，同时消除了 expiresAt 的
+无锁读写竞态。
+
 ## 迭代历程
 
 | 版本 | 核心变化 | 延迟（1K Matcher） | 动机 |
@@ -324,6 +367,7 @@ type tempMatcherShard struct {
 | V1 | 线性遍历 + RWMutex | ~50 μs | 快速实现原型 |
 | V2 | COW + EventType 索引 | ~10 μs | 消除读锁竞争 |
 | V3 | + commandIndex O(1) 路由 | ~1-2 μs（命令事件） | 80% 事件是命令 |
-| V4（当前） | + TempManager 分片 + 六路合并 | ~5-6 μs（普通）/~1 μs（命令） | 临时匹配器隔离，延迟可预测 |
+| V4 | + TempManager 分片 + 六路合并 | ~5-6 μs（普通）/~1 μs（命令） | 临时匹配器隔离，延迟可预测 |
+| V5（当前） | 惰性 K 路归并迭代器 + RCU 快照增量维护 | 同 V4，写路径大幅降低 | 消除堆合并分配与快照写放大 |
 
 关键洞察：将命令事件与普通事件分离是量级上的优化——现实场景中 80%+ 的事件是命令事件，从 O(n) 降到 O(1) 意味着延迟从线性增长变为常数。

@@ -1,5 +1,9 @@
 # OutboundDispatcher 实现方案
 
+> **状态：已实现**（`core/engine/dispatcher.go` + `infra/future`）。
+> 本文是当时的设计方案存档；最终实现与演进（含 worker 自删除竞态的修复）
+> 见架构笔记 [`../notes/21-outbound-dispatcher.md`](../notes/21-outbound-dispatcher.md)。
+
 ## 概述
 
 新增 `OutboundDispatcher` 作为独立的发送调度层，将发送 I/O 与 Handler 执行解耦。

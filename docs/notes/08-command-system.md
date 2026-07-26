@@ -237,17 +237,49 @@ type state struct {
 }
 ```
 
-`commandListCache` 用于 `GetAllCommands()` 的 O(1) 返回，避免每次调用重新分配切片并遍历 map。
+`commandListCache` 在每次 COW 写操作时预先展开，`GetAllCommands()` 只做一次切片复制返回
+（复制是为了防止调用方修改缓存本体）：
 
 ```go
 func (e *Engine) GetAllCommands() []CommandInfo {
     state := e.state.Load()
-    if state.commandListCache != nil {
-        return state.commandListCache  // 直接返回缓存（零分配）
+    if len(state.commandListCache) == 0 {
+        return nil
     }
-    // 首次调用时构建
+    commands := make([]CommandInfo, len(state.commandListCache))
+    copy(commands, state.commandListCache)  // O(n) 复制，无 map 遍历
+    return commands
 }
 ```
+
+### 元数据缓存的一致性（2026-07 修复）
+
+`CommandInfo` 是注册瞬间对 `Definition` 的**字段拷贝**。此前文档推荐的链式写法：
+
+```go
+eng.OnCommand(et, "/hello").SetDescription("打招呼").Handle(h)
+```
+
+存在一个隐蔽缺陷：`OnCommand` 返回前就已注册并生成了 CommandInfo（此时 Description
+还是空的），随后的 `SetDescription` 只改 `Definition` 字段、不刷新缓存——/help 显示
+空描述、`SetHidden(true)` 不生效，直到某次无关的全量索引重建才被动修正。
+
+现在 `SetDescription/SetUsage/SetCategory/SetAliases/SetExamples/SetPermissions/
+SetHidden/BindCommand` 统一经 `mutateDefinition` 触发 `UpdateCommandCache`，
+注册后修改元数据即时反映到 `GetAllCommands`/`FindCommand`。同批修复的还有：
+批量注册（`BatchRegisterMatchers`）此前完全不更新 commandInfoCache，批量注册的
+命令不出现在 /help 中。
+
+### 索引分类不变式（2026-07 收紧）
+
+`commandIndexed` 标志是命令索引归属的**唯一权威**：只有 `OnCommand`/
+`RegisterCommandDef` 创建（注册前置位）的匹配器进入 `commandIndex` 并在 `Match()`
+中跳过 Rules[0]。此前 `rebuildIndex` 以 `Definition.Name != ""` 判定——普通匹配器
+事后补充 `SetDefinition`（只为出现在 /help 里）会在任意一次索引重建后被静默迁入
+commandIndex：路由方式从"逐规则匹配"变成"首 token 精确命中"，且第一条规则
+（可能是正则）被跳过。语义漂移的根源是把两个独立事实（"有命令名"与"Rules[0] 是
+命令前缀规则"）隐式绑定，现在由显式标志解耦：无标志的命令名匹配器留在常规索引
+按全部规则匹配，元数据照常进入 help 缓存。
 
 ## 5. Fuzz 测试保障
 

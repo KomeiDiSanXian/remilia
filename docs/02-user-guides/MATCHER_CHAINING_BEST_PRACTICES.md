@@ -21,18 +21,26 @@ Remilia 的 `Matcher` 支持完整的链式调用，所有配置方法都返回 
 eng.OnCommand("/ping").
     SetDescription("测试连接").
     SetPriority(100).
-    Handle(handler)  // ← 最后
+    Handle(handler)  // ← 最后（终结点，无返回值）
 
-// ❌ 不推荐：Handle 在中间
-eng.OnCommand("/ping").
-    Handle(handler).      // ← 不应该在这里
-    SetDescription("描述")  // ← 配置应该在前面
+// ❌ 无法编译：Handle 是链式调用的终结点（返回 void），
+// 从编译期杜绝 .Handle(h1).SetDescription(...) 这类误用。
+// 如需在 Handle 之后继续操作，请提前保存 *Matcher：
+m := eng.OnCommand("/ping").SetDescription("描述")
+m.Handle(handler)
+m.SetTemp(true) // 仍可操作 m
 ```
 
 **原因**:
 - ✅ 逻辑清晰：先配置，后设置行为
 - ✅ 易于阅读：符合自然的思维顺序
 - ✅ 易于维护：配置集中在一起
+
+> **元数据即时生效（2026-07 起）**：`SetDescription`/`SetUsage`/`SetAliases`/
+> `SetHidden` 等元数据 setter 无论在注册前后调用，都会即时刷新命令缓存
+> （`GetAllCommands`//help 立即可见）。此前存在"注册瞬间生成缓存、事后修改
+> 不刷新"的缺陷，链式写法的描述会在 /help 中显示为空。推荐顺序保持不变——
+> 配置前置仍是最清晰的写法。
 
 ### 原则 2: 相关配置应该分组
 

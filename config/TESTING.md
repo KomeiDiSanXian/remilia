@@ -4,13 +4,15 @@
 
 本测试套件为 `config` 包提供了全面的测试覆盖，包括配置验证、文件加载、环境变量处理和配置热重载。
 
-### 测试统计
+### 测试统计（2026-07 更新）
 
-- **总测试数**: 74 个测试用例
-- **代码覆盖率**: 93.3%
-- **测试文件**: 2 个
-  - `config_test.go` - 配置验证测试
-  - `load_test.go` - 配置加载和热重载测试
+- **总测试数**: 35 个 Test 函数（大量表驱动子测试，实际用例数远多于此）
+- **测试文件**: 6 个
+  - `config_test.go` - 配置验证测试（下文详述）
+  - `load_test.go` - 配置加载和热重载测试（下文详述）
+  - `watcher_test.go` / `watcher_lifecycle_test.go` - fsnotify 监听与生命周期
+  - `watcher_debounce_race_test.go` - 防抖合并的竞态回归测试
+  - `config_race_test.go` - 并发读写配置的 race 回归测试
 
 ## 🧪 测试文件说明
 

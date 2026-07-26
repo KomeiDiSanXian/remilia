@@ -47,7 +47,8 @@ type FSM struct {
     Events  []Event                    // 按顺序匹配，第一个胜出
     OnEnter map[State]func(ctx *FSMContext) error
     OnExit  map[State]func(ctx *FSMContext) error
-    Timeout time.Duration
+    Timeout time.Duration              // TTL：默认自会话创建起计
+    RefreshOnActivity bool             // true=滑动 TTL，每次成功迁移续期
 }
 
 type FSMContext struct {
@@ -111,7 +112,33 @@ type Storage interface {
 }
 ```
 
-`MemoryStorage` 使用 `sync.RWMutex`，自动忽略过期会话。
+`MemoryStorage` 使用 `sync.RWMutex`，自动忽略过期会话。注意 `Get` 只是把过期会话
+视为不存在、不做删除——真正回收依赖 `StartCleanup`，长期运行务必启动清理。
+
+### 并发模型与会话安全（2026-07 重构）
+
+Storage 的锁只保护 map 本身，保护不了 `Session.Current`/`Session.Data` 的内容。
+复查发现同一 sessionID 的并发事件（用户连发两条消息）会对 Data（map）产生
+无锁读写——并发 map 写可直接 panic。现行并发模型：
+
+- **per-session 互斥锁**：`sync.Map[sessionID]*sync.Mutex`（条目常驻，bot 场景基数=
+  会话数，成本可忽略）。TryTransition/TryStartSession/StartSession 全程持有该锁，
+  同一会话严格串行，不同会话完全并发。会话在锁内重新 Get，check-act 原子。
+- **回调重入约束**：Action/OnEnter/OnExit 在会话锁内执行。回调里调
+  `FSMContext.EndSession` 安全（不取会话锁）；对**同一** sessionID 再调
+  TryTransition/StartSession/GetSession 会自死锁；对其他 sessionID 安全。
+- **锁外执行回调的例外**：`TryStartSession` 此前整个遍历持有 `e.mu.RLock`，
+  回调内 Register/Unregister 直接死锁——现在先在锁内快照 FSM 列表，释放 e.mu
+  后再遍历执行（会话锁仍持有）。
+- **GetSession 返回副本**（含 Data 浅拷贝），与文档一致；外部写入 Data 的唯一
+  受支持方式是 `UpdateSessionData(sessionID, fn)`——在会话锁内应用变更并 Save。
+  builtin/ai 曾依赖旧的活指针行为（注释里自己承认"配合内存 Storage 修改即时
+  生效"），已迁移。
+- **孤儿会话清理**：FSM 被 Unregister 后，遗留会话曾让该 sessionID 永远无法
+  开启新会话（无 Timeout 时）；TryStartSession 现在检测到关联 FSM 不存在时
+  自动删除孤儿会话。
+- **TTL 语义**：默认自创建起计、活跃不续期；`RefreshOnActivity: true` 启用滑动
+  TTL（每次成功迁移重置为 now+Timeout）。
 
 ## 用法示例
 

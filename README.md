@@ -83,7 +83,9 @@ import (
 func main() {
     eng := engine.NewEngine()
 
-    eng.OnCommand(platform.EventKindGroupMessage, "/echo").
+    // 事件类型参数是 string：用 eventctx.EventGroup 常量
+    // （等价于 string(platform.EventKindGroupMessage)）
+    eng.OnCommand(eventctx.EventGroup, "/echo").
         Handle(func(ctx *eventctx.Context) error {
             ctx.Reply(platform.TextMessage("你说: " + ctx.GetMessageContent()))
             return nil
@@ -125,14 +127,17 @@ bot, err := remilia.NewBotBuilder().
 ### 3. 使用中间件
 
 ```go
-import "github.com/KomeiDiSanXian/remilia/middleware"
+import (
+    "github.com/KomeiDiSanXian/remilia/middleware"
+    "github.com/KomeiDiSanXian/remilia/middleware/resilience"
+)
 
 eng.Use(
     middleware.Logging(),
     middleware.Recover(),
     middleware.SimpleRateLimit(20),
     middleware.Timeout(5*time.Second),
-    middleware.Retry(3),
+    resilience.Retry(resilience.RetryConfig{MaxAttempts: 3}),
 )
 ```
 
@@ -152,7 +157,7 @@ func New() *plugin.Descriptor {
         Name:    "myplugin",
         Version: "1.0.0",
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").
+            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/hello").
                 Handle(func(c *eventctx.Context) error {
                     c.Reply(platform.TextMessage("Hello from plugin!"))
                     return nil

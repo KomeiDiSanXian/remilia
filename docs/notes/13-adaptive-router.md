@@ -103,6 +103,23 @@ dispatchToEngine 接收两个路径：
 
 所有规则均未匹配时，Router 调用 dispatchToEngine 保证事件不被丢弃。
 
+## 异步执行语义（v1.21.1 起）
+
+路由到 Engine 只保证事件**进入**引擎，不保证 handler 已执行完毕：
+命令处理器经 ExecPool 自适应调度（见 [22 — 自适应执行](22-adaptive-execution.md)），
+慢命令会在池中异步执行。`Dispatch` 返回 ≠ 副作用可见。
+
+对测试的影响：路由后立刻断言 handler 副作用会产生 flaky——
+需要先 `eng.WaitForAsyncHandlers()` 等待在途异步 handler 收敛：
+
+```go
+router.Dispatch(ctx)
+eng.WaitForAsyncHandlers()   // 等待异步命令处理器完成
+require.True(t, handled.Load())
+```
+
+router_test.go 中所有断言 handler 执行结果的用例都遵循此模式。
+
 ## 设计权衡
 
 | 方面 | 选择 | 理由 |

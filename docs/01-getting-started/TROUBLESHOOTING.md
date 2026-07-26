@@ -132,9 +132,10 @@ ngrok http 8080
 #### 检查 Matcher 是否注册
 ```go
 // 添加调试日志
-eng.OnCommand(platform.EventKindGroupMessage, "/test").Handle(func(ctx *eventctx.Context) error {
+eng.OnCommand(eventctx.EventGroup, "/test").Handle(func(ctx *eventctx.Context) error {
     log.Info("Test command received")
-    return ctx.Reply(platform.TextMessage("Test reply"))
+    ctx.Reply(platform.TextMessage("Test reply"))
+    return nil
 })
 
 // 打印 Matcher 数量

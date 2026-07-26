@@ -1,6 +1,6 @@
 # 并发事件分发优化说明
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-07-26  
 > 原始日期: 2026-01-23  
 > 优化类型: 性能提升 - 并发事件处理
 
@@ -28,6 +28,13 @@ Engine 的状态管理采用 COW 模式，保证高性能无锁读取：
 - 读操作：完全无锁，零分配（O(1) 原子指针读取）
 - 写操作：O(N) COW 复制（N = Matcher 数量），适用于写少读多场景
 
+> **删除语义（2026-07 起）**：`DeleteMatcher` 采用批量删除路径——matcher **立即**被标记
+> deleted（不再命中新事件），从索引/状态中的物理移除由后台处理器按
+> `WithPendingDeleteProcessInterval`（默认 100ms）批量完成，单次 COW 重建回收整批，
+> 避免高频删除的写放大。处理器未运行或队列满时退化为同步删除；
+> 需要确定性时机可调用 `FlushPendingDeletes()`。因此 `GetMatcherCount` 等统计
+> 在一个处理间隔内可能仍计入已删除的 matcher。
+
 ### Engine 文件结构（v2.0 拆分后）
 
 原 `engine.go`（1207 行）已拆分为四个职责清晰的文件：
@@ -41,7 +48,8 @@ Engine 的状态管理采用 COW 模式，保证高性能无锁读取：
 
 ### 6 路事件合并机制
 
-`ProcessEvent` 中使用 `mergeSortedMatchersSix` 将 6 个已排序的子列表合并：
+`ProcessEvent` 中使用惰性 6 路归并迭代器（`acquireMergeIter`，sync.Pool 复用，
+已替代早期的 `mergeSortedMatchersSix` 预合并实现）逐个消费 6 个已排序的子列表：
 
 ```
                   Specific（精确匹配事件类型）  Generic（EventType == ""）

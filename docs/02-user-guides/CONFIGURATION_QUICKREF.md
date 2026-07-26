@@ -1,7 +1,24 @@
-> **最后更新**: 2026-02-25
+> **最后更新**: 2026-07-26
 
 # 配置系统快速参考
 
+## 顶层配置总览
+
+`config.yaml` 共有 9 个顶层配置节（完整字段与热更新标注见 [config.example.yaml](../../config.example.yaml)）：
+
+| 顶层键 | Go 结构体 | 用途 | 热更新 |
+|--------|-----------|------|--------|
+| `bot` | `config.BotConfig` | 各平台适配器（qq/onebot/discord/satori/milky/telegram/wechat） | 增删平台、换 Token 可热替换；换端口需重启 |
+| `log` | `logger.Config` | 日志级别/格式/输出目标 | 级别即时生效，格式重建 logger |
+| `retry` | `config.RetryConfig` | 发送失败自动重试 | 即时生效 |
+| `middleware` | `config.MiddlewareConfig` | 内置中间件（限流/去重/降级/慢处理器等） | 多数开关即时生效 |
+| `dead_letter` | `config.DeadLetterConfig` | 失败事件持久化（file/kafka/webhook） | 需重启 |
+| `engine` | `config.EngineConfig` | 引擎内部参数（临时匹配器清理、批量删除等） | 需重启 |
+| `tracing` | `tracing.Config` | OpenTelemetry 分布式追踪 | 多数需重启；自适应采样率支持热更 |
+| `pprof` | `config.PprofConfig` | pprof 性能分析服务器 | 服务器开关/地址需重启，采样参数运行时生效 |
+| `api` | `config.APIConfig` | 管理 API（配置 reload、插件管理等） | 需重启 |
+
+另有 `plugins:` 扩展节点：任意插件的自定义键值配置，插件侧通过 `cfg.PluginString / PluginInt / PluginBool` 读取，无需为每个插件定义顶层结构体。
 
 ## 如何使用新增的配置项
 
@@ -193,6 +210,93 @@ if cfg.Degradation.Enable {
     engine.Use(deg.Middleware())
 }
 ```
+
+## 平台与运维配置
+
+### Bot 平台配置（bot）
+
+所有平台适配器的凭证与网络配置。每个平台均为指针字段 + `omitempty`，未使用的平台不出现在 YAML 中：
+
+```yaml
+bot:
+  qq:
+    app_id: 123456789
+    bot_id: 987654321
+    token: "your_qq_bot_token"
+    secret: "your_qq_bot_secret"
+    webhook:
+      host: "0.0.0.0"
+      port: 8080
+  # onebot: / discord: / satori: / milky: / telegram: / wechat: 同理
+```
+
+```go
+cfg, _ := config.Get()
+if cfg.Bot.QQ != nil {
+    logger.Infof("QQ AppID: %d", cfg.Bot.QQ.AppID)
+}
+```
+
+> 自 v1.14.1 起支持平台热替换（SyncPlatforms）：增删平台、更换 Token/URL 零停机；
+> 更换 webhook 监听端口等网络层变更仍需重启。
+
+### 死信队列（dead_letter）
+
+处理失败的事件写入死信队列，避免静默丢失。由 `infra/dlq` 消费，所有变更需重启：
+
+```yaml
+dead_letter:
+  enable: true
+  target: "file"                      # file / kafka / webhook
+  file_path: "./dead_letters.log"     # target=file 时使用
+  kafka_brokers: ["localhost:9092"]   # target=kafka 时使用
+  kafka_topic: "bot-dead-letters"
+  webhook_url: "https://..."          # target=webhook 时使用
+```
+
+### 分布式追踪（tracing）
+
+`Config.Tracing` 直接复用 `infra/tracing` 的 `tracing.Config`：
+
+```yaml
+tracing:
+  enable: false                       # [R] 需重建 TracerProvider
+  service_name: "remilia-bot"
+  exporter: "otlp"                    # 需部署 Tempo/Zipkin 等后端
+  endpoint: "http://localhost:4318"
+  sampling_rate: 1.0                  # 生产环境建议 < 1.0
+  use_adaptive_sampling: false        # 启用后 sampling_rate 支持运行时更新
+  include_event_detail: false         # [H] 运行时开关
+```
+
+### pprof 性能分析（pprof）
+
+```yaml
+pprof:
+  enabled: false                      # [R] HTTP 服务器开关
+  addr: ":9001"                       # [R]
+  auto_profile: false                 # [H] 周期性自动采样
+  profile_interval: "1h"              # [H]
+  profile_duration: "30s"             # [H]
+  output_dir: "data/profiles"         # [R] 仅创建时读取
+  enable_mutex: false                 # [H] mutex profile 开关
+  enable_block: false                 # [H] block profile 开关
+```
+
+### 管理 API（api）
+
+提供 `POST /api/v1/config/reload` 等运维端点，用于触发 [R] 级配置重载、插件与权限管理：
+
+```yaml
+api:
+  enabled: true
+  addr: ":9002"
+  api_key: ""
+```
+
+认证方式为 Bearer Token（`Authorization: Bearer <api_key>`，常数时间比较）。
+**`api_key` 留空时仅允许本机回环地址访问**——管理 API 能启停 Bot、改写配置、增删插件，
+远程访问必须配置 `api_key`。
 
 ## 配置优先级
 
@@ -410,8 +514,8 @@ if err := watcher.Start(); err != nil {
 
 ## 相关文档
 
-- [配置示例文件](../config.example.yaml)
+- [配置示例文件](../../config.example.yaml)（含每个字段的热更新标注：[H] 即时 / [H⚠] 有条件 / [R] 需重启）
 
 ---
 
-*最后更新: 2026-02-25*
+*最后更新: 2026-07-26*

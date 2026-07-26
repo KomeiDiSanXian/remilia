@@ -55,10 +55,15 @@ func main() {
         middleware.Recover(),
     )
 
-    // 注册命令处理器
-    eng.OnCommand(platform.EventKindGroupMessage, "/hello").
+    // 注册命令处理器。
+    // 事件类型参数是 string：请使用 eventctx.EventGroup 等常量
+    // （等价于 string(platform.EventKindGroupMessage)）；
+    // 若想直接用 platform.EventKindXxx 常量，请改用 eng.OnEventKind。
+    eng.OnCommand(eventctx.EventGroup, "/hello").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(platform.TextMessage("Hello, World!"))
+            // Reply 是异步的，返回 Future；忽略返回值即“发出即忘”
+            ctx.Reply(platform.TextMessage("Hello, World!"))
+            return nil
         })
 
     // 创建 QQ Webhook 适配器
@@ -127,7 +132,8 @@ func handler(ctx *eventctx.Context) error {
     // 删除数据（注意：ctx.Set(key, nil) 是 no-op！）
     ctx.Delete("key")
 
-    return ctx.Reply("Hello!")
+    ctx.ReplyText("Hello!")
+    return nil
 }
 ```
 
@@ -137,15 +143,19 @@ Matcher 定义了事件的匹配规则和处理器。
 
 ```go
 // 命令匹配（自动 O(1) 分发索引）
-eng.OnCommand(platform.EventKindGroupMessage, "/ping").
+eng.OnCommand(eventctx.EventGroup, "/ping").
     Handle(handler)
 
-// 事件类型匹配 + 额外规则
-eng.On(platform.EventKindC2CMessage, context.OnFullMatch("hello")).
+// 事件类型匹配 + 额外规则（私聊）
+eng.On(eventctx.EventPrivate, eventctx.OnFullMatch("hello")).
+    Handle(handler)
+
+// 平台常量写法：OnEventKind 直接接受 platform.EventKindXxx
+eng.OnEventKind(platform.EventKindGroupMessage, eventctx.OnKeyword("签到")).
     Handle(handler)
 
 // 通配（所有事件类型）
-eng.OnAny(context.OnRegex(`^\d+$`)).
+eng.OnAny(eventctx.OnRegex(`^\d+$`)).
     Handle(handler)
 ```
 
@@ -208,26 +218,30 @@ func main() {
     )
 
     // 命令注册
-    eng.OnCommand(platform.EventKindGroupMessage, "/echo").
+    eng.OnCommand(eventctx.EventGroup, "/echo").
         Handle(func(ctx *eventctx.Context) error {
             text := ctx.GetMessageContent()
-            return ctx.Reply(platform.TextMessage("你说: " + text))
+            ctx.Reply(platform.TextMessage("你说: " + text))
+            return nil
         })
 
-    eng.OnCommand(platform.EventKindGroupMessage, "/time").
+    eng.OnCommand(eventctx.EventGroup, "/time").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(platform.TextMessage("当前时间: " + time.Now().Format("2006-01-02 15:04:05")))
+            ctx.Reply(platform.TextMessage("当前时间: " + time.Now().Format("2006-01-02 15:04:05")))
+            return nil
         })
 
-    eng.OnCommand(platform.EventKindGroupMessage, "/ping").
+    eng.OnCommand(eventctx.EventGroup, "/ping").
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(platform.TextMessage("Pong! 🏓"))
+            ctx.Reply(platform.TextMessage("Pong! 🏓"))
+            return nil
         })
 
     // 事件处理器
-    eng.On(platform.EventKindGroupMessage).
+    eng.On(eventctx.EventGroup).
         Handle(func(ctx *eventctx.Context) error {
-            return ctx.Reply(platform.TextMessage(fmt.Sprintf("收到消息: %s", ctx.GetMessageContent())))
+            ctx.Reply(platform.TextMessage(fmt.Sprintf("收到消息: %s", ctx.GetMessageContent())))
+            return nil
         })
 
     // 创建适配器
@@ -339,9 +353,10 @@ func newMyPlugin() *plugin.Descriptor {
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/myplugin").
+            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/myplugin").
                 Handle(func(c *eventctx.Context) error {
-                    return c.Reply(platform.TextMessage("My Plugin is working!"))
+                    c.Reply(platform.TextMessage("My Plugin is working!"))
+                    return nil
                 })
             return nil, nil
         },
