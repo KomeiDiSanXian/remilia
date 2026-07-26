@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+## v1.21.1 (2026-07-26)
+
+### 🐛 API 安全加固
+
+- **config 密钥脱敏静默失效修复**: 因 Go 结构体只有 yaml 标签、json.Marshal 输出 Go 字段名，与脱敏路径不匹配导致密钥明文返回。新增 `normalizeKey`/`lookupKey` 归一化匹配，覆盖 `api_key`/`token`/`secret`/`password`/`access_token`
+- **CORS 通配放行修复**: `Access-Control-Allow-Origin: *` 改为仅放行 `tauri://` 和本机回环地址，避免恶意网页跨域调用管理 API
+- **未配置 api_key 时远程访问修复**: 降级策略从"无条件放行"改为"仅本机回环可访问"，防止监听 `0.0.0.0` 时管理 API 对整个网络裸奔
+
+### 🐛 Engine 核心修复
+
+- **OnCommand handler 同步阻塞修复**: 未设置 `execProfile` 导致命令 handler 始终同步执行在平台派发 goroutine，慢命令（AI、外部 API）阻塞该平台所有会话。现为每个命令匹配器创建执行 profile，使其正确进入 ExecPool 异步调度
+- **ExecPool 任务 panic 兜底修复**: 池中 handler 逃逸的 panic（中间件链构造、中间件自身）直接终止进程。新增 `runPoolTask` 带 `defer/recover` 保护
+- **processEventMatchers Block 语义失效修复**: 阻断判定在入池成功后被 `continue` 跳过，导致 `SetBlock(true)` 行为不确定、会话等待回复继续命中后续匹配器造成重复处理。现修复为入池前计算阻断标记，入池后立即 break
+- **Context 异步执行数据竞争修复**: 入池前缺少 `Clone`，池 goroutine 与派发循环并发写入同一个 `*Context`，造成 SetMatcher 撕裂、deadline/span 互相覆盖
+
+### 🔒 凭据泄露修复
+
+- **milky 适配器**: WebSocket 连接错误中原样返回含 `access_token` 的 URL，现予以脱敏
+- **QQ token 管理器**: `BotInfo` debug 日志泄漏 `AppSecret` 长期凭据；`access_token` 刷新日志直接记录活凭据内容，现改为仅记录 token 长度
+- **Telegram 客户端**: `net/http` 传输错误（超时/DNS 抖动）以 `*url.Error` 形式携带完整请求 URL，bot token 嵌入路径中。新增 `redactedError` 包装器，格式化时抹掉 token
+- **OneBot 适配器**: 使用 `WriteMessage` 发送关闭帧导致 `panic("concurrent write to websocket connection")`，改为 `WriteControl` 解决
+
+### 🐛 中间件修复
+
+- **BackpressureBlock 永久堆积修复**: 阻塞在信号量上时不监听 `ctx.Done()`，一旦 maxInFlight 个 handler 卡在不响应 ctx 的 IO 上，后续事件 goroutine 永久堆积直至 OOM。现添加 `select` 双路监听
+- **CircuitBreaker 无限震荡修复**: `SuccessThreshold > HalfOpenMaxRequests` 时，半开窗口永远达不到闭合所需的成功数，熔断器在 开↔半开 之间无限震荡。新增启动和热更新时的钳制逻辑
+- **重试退避溢出修复**: `BackoffBase * (1<<shift)` 在 attempt 较大时溢出为负值，导致零延迟重试。现钳制到 `BackoffMax`
+- **SlowHandler 错误屏蔽修复**: 此前用 `stdCtx.Err() != nil` 判断是否超时，但该错误可能来自父级取消而非本中间件注入的监控 deadline，导致真实业务错误被静默丢弃。现改为检查 `errors.Is(err, DeadlineExceeded) && originalCtx.Err() == nil`
+
+### 🐛 基础设施修复
+
+- **audit/pprof 二次 Close panic 修复**: 多条停机路径（显式 Close 与 defer 清理）先后关闭 `stopCh`，无条件 close 已关闭的 channel 会 panic。新增 `sync.Once` 保护
+- **DLQ Close 死锁修复**: `DropPolicyBlockUntilSpace` 生产者持有 `enqueueMu` 阻塞在 channel 发送上，Close 抢不到该锁造成死锁。新增 `closing` 通道先唤醒生产者，再安全 close channel
+- **HTTP Server Slowloris 防护**: 零值 `ReadHeaderTimeout` 表示"永不超时"，攻击者可逐字节发送请求头长期占住连接。设置 `ReadHeaderTimeout=10s`、`ReadTimeout=30s`、`IdleTimeout=120s`、`MaxHeaderBytes=1MB`
+
+### 🐛 平台适配器修复
+
+- **Discord handler 叠加泄漏**: `Start` 可被重复调用（重连/重启），旧 handler 未注销导致同一事件被重复分发。`registerHandlers` 返回注销函数列表，`defer` 统一清理
+- **Discord send-on-closed-channel 竞态**: `close(eventCh)` 时 discordgo goroutine 可能仍停留在 `send()` 的 select 上，随机选择时可能选中"向已关闭 channel 发送"造成 panic
+- **OneBot fetchBotIdentity 时序**: 在 `receiveLoop` 启动前同步调用 `get_login_info`，响应永远无法送达导致每次连接阻塞数秒、`botID` 为空引发自我回复成环
+- **Satori quote 解析丢失正文**: 自闭合 `<quote/>` 被 HTML 解析器误认，后续兄弟节点变为其子节点导致整条正文丢失。正则预剥离后再解析
+- **Satori XML 注入**: `%q` 用反斜杠转义双引号，XML 不识别该转义，用户输入可提前闭合属性注入任意元素
+
+### 🐛 内置插件修复
+
+- **Cooldown GC 绕过**: 固定 24h GC 提前删除 7 天冷却期的记录，`Allow` 把"键不存在"视为放行。现按 `max(entry.cooldown, maxAge)` 判定回收门槛
+- **Admin 权限提升**: 普通 admin（`*:*` 权限即可匹配 `perm.role`）可直接 `/perm role <自己ID> superadmin` 提权。现要求授予 superadmin 必须是 superadmin 本人
+- **Job panic 进程终止**: 后台作业未捕获的 panic 直接终止进程。新增 `safeInvoke` 将 panic 转为普通错误
+- **Kick --ban 误判**: `len(args) >= 3` 将可选"原因"参数视为永久拉黑开关，照文档操作的用户被意外拉黑。改为显式 `--ban`/`拉黑` 标记
+- **Stats 命令 map 无限增长**: 用户消息中的任意 token 被计入命令统计，map 既无淘汰又每 5 分钟整体落盘，可撑爆内存和磁盘。限制 `maxTrackedCommands=1000`、`maxCommandKeyLen=64`
+- **Subscription 死锁**: `Subscribe`/`Unsubscribe` 已持写锁后调用 `save()`（内部再取读锁），RWMutex 不可重入导致自死锁。拆分为 `save()`/`saveLocked()`
+- **Skill add 返回缺失**: 发送帮助提示后未 `return nil`，继续执行注册流程造成重复操作
+
+### 🔧 HTTP 安全增强
+
+- **HTTP Server 新增超时配置**: `ReadHeaderTimeout=10s`、`ReadTimeout=30s`、`IdleTimeout=120s`、`MaxHeaderBytes=1MB`，防止 Slowloris 攻击
+
 ## v1.21.0 (2026-07-26)
 
 ### 🚀 新平台适配器：Telegram
