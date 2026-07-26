@@ -414,12 +414,12 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 			ctx.ReplyText("❌ 无法创建技能注册会话：" + err.Error())
 			return nil
 		}
-		// GetSession 配合内存 Storage 返回的是存储中的指针，修改 Data 即时生效。
-		// 切换为持久化 Storage 时需改为显式 StartSession + Save 模式。
-		if sess := p.fsmEngine.GetSession(sessionID); sess != nil {
-			sess.Data["name"] = name
-			sess.Data["ownerID"] = ownerID
-		}
+		// GetSession 现在返回副本（core 复查修复）；
+		// 通过 UpdateSessionData 在会话锁内写入初始数据。
+		p.fsmEngine.UpdateSessionData(sessionID, func(data map[string]any) {
+			data["name"] = name
+			data["ownerID"] = ownerID
+		})
 		ctx.ReplyText(fmt.Sprintf(
 			"📝 请发送 Markdown 内容来定义技能 `%s`。\n"+
 				"支持文本消息或 .md 文件附件。\n"+
