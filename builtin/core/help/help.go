@@ -760,42 +760,6 @@ func (p *Plugin) showCommandDetail(ctx *eventctx.Context, cmdInfo *engine.Comman
 	return p.sendMessage(ctx, detailText, forceText, cacheKey)
 }
 
-// showCategoryCommands 显示特定分类下的所有命令
-func (p *Plugin) showCategoryCommands(ctx *eventctx.Context, category string, commands []*command.Meta) error { //nolint:unused
-	var help strings.Builder
-
-	help.WriteString(fmt.Sprintf("📂 分类【%s】的命令\n", category))
-	help.WriteString(strings.Repeat("=", 30) + "\n\n")
-
-	// 对命令排序
-	sort.Slice(commands, func(i, j int) bool {
-		return commands[i].Name < commands[j].Name
-	})
-
-	for _, cmd := range commands {
-		help.WriteString(fmt.Sprintf("  %s", cmd.Name))
-
-		if len(cmd.Aliases) > 0 {
-			help.WriteString(fmt.Sprintf(" (%s)", strings.Join(cmd.Aliases, ", ")))
-		}
-
-		if cmd.Description != "" {
-			help.WriteString(fmt.Sprintf("\n    %s", cmd.Description))
-		}
-
-		if cmd.Usage != "" {
-			help.WriteString(fmt.Sprintf("\n    用法: %s", cmd.Usage))
-		}
-
-		help.WriteString("\n\n")
-	}
-
-	help.WriteString(strings.Repeat("=", 30) + "\n")
-	help.WriteString("💡 使用 /help <命令名> 查看命令的详细用法")
-
-	return p.sendMessage(ctx, help.String(), false)
-}
-
 // showCommandNotFound 命令未找到时的提示
 func (p *Plugin) showCommandNotFound(ctx *eventctx.Context, target string, forceText bool) error {
 	var msg strings.Builder

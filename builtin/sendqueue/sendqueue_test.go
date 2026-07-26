@@ -65,7 +65,7 @@ func TestSetupAndEnqueue(t *testing.T) {
 		MaxRetries: 0, RetryDelay: time.Millisecond,
 	})
 
-	api, err, stop := plugintest.RunSetup(d, nil)
+	api, stop, err := plugintest.RunSetup(d, nil)
 	defer stop()
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -99,7 +99,7 @@ func TestEnqueueWithCustomSender(t *testing.T) {
 		MaxRetries: 0, RetryDelay: time.Millisecond,
 	})
 
-	api, err, stop := plugintest.RunSetup(d, nil)
+	api, stop, err := plugintest.RunSetup(d, nil)
 	defer stop()
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -128,7 +128,7 @@ func TestEnqueueQueueFull(t *testing.T) {
 		MaxRetries: 0,
 	})
 
-	api, err, stop := plugintest.RunSetup(d, nil)
+	api, stop, err := plugintest.RunSetup(d, nil)
 	defer stop()
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -169,7 +169,7 @@ func TestConfigEdgeCases(t *testing.T) {
 			if d == nil {
 				t.Fatal("New returned nil")
 			}
-			api, err, stop := plugintest.RunSetup(d, nil)
+			api, stop, err := plugintest.RunSetup(d, nil)
 			defer stop()
 			if err != nil {
 				t.Fatalf("Setup failed: %v", err)
@@ -185,7 +185,7 @@ func TestSetDefaultSenderNotSet(t *testing.T) {
 		Workers: 1, QueueSize: 10,
 	})
 
-	api, err, stop := plugintest.RunSetup(d, nil)
+	api, stop, err := plugintest.RunSetup(d, nil)
 	defer stop()
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)

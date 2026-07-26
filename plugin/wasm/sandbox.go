@@ -7,7 +7,6 @@ import (
 
 // Sandbox 为 WASM 模块提供资源限制和安全隔离。
 type Sandbox struct {
-	mu          sync.Mutex //nolint:unused
 	callLimiter *TokenBucket
 	memoryPages uint32
 

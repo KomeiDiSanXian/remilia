@@ -75,7 +75,7 @@ func TestSetupWithoutAuditLog(t *testing.T) {
 func TestSetupWithDeps(t *testing.T) {
 	auditSvc := auditlog.NewPlugin(auditlog.DefaultConfig())
 	d := logviewer.New()
-	_, err, stop := plugintest.RunSetup(d, &plugintest.SetupOptions{
+	_, stop, err := plugintest.RunSetup(d, &plugintest.SetupOptions{
 		Container: func() *plugin.Container {
 			c := plugin.NewContainer()
 			c.Register("auditlog", auditSvc)

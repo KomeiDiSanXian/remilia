@@ -181,10 +181,6 @@ func NewEngine(options ...Option) *Engine {
 func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	// 设置 shutdown 标志，阻止新事件进入 ProcessEvent
 	e.shutdown.Store(true)
-	// 确保 eventMu 释放后无新的 Add，保证 Wait 不会与 Add 并发
-	e.eventMu.Lock()
-	e.eventMu.Unlock() //nolint:staticcheck
-
 	// 停止所有后台 goroutine
 	e.internals.stopAll()
 	if err := e.internals.waitAll(ctx); err != nil {

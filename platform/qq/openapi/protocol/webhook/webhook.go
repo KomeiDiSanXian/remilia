@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"sync/atomic"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
@@ -32,7 +31,6 @@ type Webhook interface {
 // Conn 表示与 Webhook 服务器的连接。
 type Conn struct {
 	info          *dto.BotInfo
-	mu            sync.Mutex //nolint:unused
 	eventChan     chan *dto.Payload
 	droppedEvents atomic.Uint64 // 丢弃事件计数器
 	totalEvents   atomic.Uint64 // 总接收事件计数器

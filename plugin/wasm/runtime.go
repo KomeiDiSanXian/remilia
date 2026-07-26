@@ -73,20 +73,6 @@ func (m *Module) responseSizeMax() uint32 {
 	return DefaultResponseSizeMax
 }
 
-func (m *Module) wasmSizeMax() uint32 { //nolint:unused
-	if m.sandbox != nil && m.sandbox.WasmSizeMax > 0 {
-		return m.sandbox.WasmSizeMax
-	}
-	return DefaultWasmSizeMax
-}
-
-func (m *Module) importsMax() int { //nolint:unused
-	if m.sandbox != nil && m.sandbox.ImportsMax > 0 {
-		return m.sandbox.ImportsMax
-	}
-	return DefaultImportsMax
-}
-
 // ── CallInit 带超时 ──────────────────────────────────────────────────────────
 
 func (m *Module) CallInit(ctx context.Context) error {

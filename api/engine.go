@@ -81,19 +81,6 @@ func (s *Server) handleGetEngineMatchers(w http.ResponseWriter, _ *http.Request)
 	writeOK(w, resp)
 }
 
-// handleGetEngineMatcherGroup 处理 GET /api/v1/engine/matchers/group/{name}
-// 返回指定匹配器组的信息。
-func (s *Server) handleGetEngineMatcherGroup(w http.ResponseWriter, r *http.Request) { //nolint:unused
-	eng := s.engineRef()
-	if eng == nil {
-		writeErr(w, 404, "engine not available", http.StatusNotFound)
-		return
-	}
-	name := r.PathValue("name")
-	// 引擎不直接暴露按组查询的方法，返回组名以便前端判断可用性
-	writeOK(w, map[string]string{"group": name})
-}
-
 // handleDisableMatcherGroup 处理 POST /api/v1/engine/matchers/group/{name}/disable
 func (s *Server) handleDisableMatcherGroup(w http.ResponseWriter, r *http.Request) {
 	eng := s.engineRef()

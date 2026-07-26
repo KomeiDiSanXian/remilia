@@ -563,7 +563,7 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	results := make([]regResult, 0, len(sorted))
 	var batchErr error
 	for i, desc := range sorted {
-		instance, loadErr, tdeps, topts := pm.registerPreSetup(ctx, desc)
+		instance, tdeps, topts, loadErr := pm.registerPreSetup(ctx, desc)
 		if loadErr != nil {
 			// 清理失败插件的 Lock #2 残留（已存入 plugins 但无法继续）。
 			// 仅当 instance != nil（确实完成过插入）才清理——
@@ -672,9 +672,9 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 // registerPreSetup 执行三段锁的前两段：Lock #1（验证）+ Lock #2（存储）+ Setup。
 // 返回 instance、loadErr 和追踪的依赖列表，供最终化阶段处理。
 // 调用方负责在 Setup 后调用 finalizeRegistration 或 registerSingle 的 Lock #3。
-func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (instance *Instance, loadErr error, trackedDeps, trackedOptional []string) { //nolint:staticcheck
+func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (instance *Instance, trackedDeps, trackedOptional []string, loadErr error) {
 	if err := validateDescriptor(desc); err != nil {
-		return nil, err, nil, nil
+		return nil, nil, nil, err
 	}
 
 	name := desc.Name
@@ -684,7 +684,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		return nil, errutil.ErrPluginAlreadyExists, nil, nil
+		return nil, nil, nil, errutil.ErrPluginAlreadyExists
 	}
 
 	registeredList := func() []string {
@@ -697,12 +697,12 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 
 	if err := checkDependencies(pm, desc, registeredList); err != nil {
 		pm.mu.Unlock()
-		return nil, err, nil, nil
+		return nil, nil, nil, err
 	}
 
 	if err := validateVersionConstraints(pm, desc); err != nil {
 		pm.mu.Unlock()
-		return nil, err, nil, nil
+		return nil, nil, nil, err
 	}
 
 	backfill := pm.collectContainerBackfillLocked()
@@ -711,8 +711,8 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 
 	if desc.Advanced != nil && desc.Advanced.Reload != nil && desc.Advanced.Strategy != ReloadInPlace {
 		pm.mu.Unlock()
-		return nil, fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
-			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy), nil, nil
+		return nil, nil, nil, fmt.Errorf("plugin %q: Advanced.Reload is set but Strategy is %v (not ReloadInPlace). "+
+			"The Reload func will NOT be called with this strategy. Did you mean Strategy: plugin.ReloadInPlace", name, desc.Advanced.Strategy)
 	}
 
 	pm.mu.Unlock()
@@ -729,7 +729,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	}
 
 	if err := validateConfigSchema(name, desc, config); err != nil {
-		return nil, err, nil, nil
+		return nil, nil, nil, err
 	}
 
 	// ========== 无锁区：实例 + SetupContext 构建 ==========
@@ -768,7 +768,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	pm.mu.Lock()
 	if _, exists := pm.plugins[name]; exists {
 		pm.mu.Unlock()
-		return nil, errutil.ErrPluginAlreadyExists, nil, nil
+		return nil, nil, nil, errutil.ErrPluginAlreadyExists
 	}
 	pm.plugins[name] = instance
 	pm.mu.Unlock()
@@ -777,7 +777,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	// ========== 无锁区：执行 Setup ==========
 	loadErr = instance.load(ctx)
 
-	return instance, loadErr, setupCtx.getTrackedDependencies(), setupCtx.getTrackedOptionalDependencies()
+	return instance, setupCtx.getTrackedDependencies(), setupCtx.getTrackedOptionalDependencies(), loadErr
 }
 
 // registerPostSetupSingle Lock #3：完成依赖合并、loadOrder 更新，
@@ -825,7 +825,7 @@ func (pm *Manager) registerPostSetupSingle(inst *Instance, desc *Descriptor, loa
 
 // registerSingle 注册单个插件（三段锁策略）。
 func (pm *Manager) registerSingle(ctx context.Context, desc *Descriptor) error {
-	instance, loadErr, trackedDeps, trackedOptional := pm.registerPreSetup(ctx, desc)
+	instance, trackedDeps, trackedOptional, loadErr := pm.registerPreSetup(ctx, desc)
 	if instance == nil && loadErr != nil {
 		return loadErr
 	}
@@ -907,7 +907,6 @@ func (pm *Manager) finalizeRegistration(desc *Descriptor, trackedDeps, trackedOp
 
 func (pm *Manager) notifyLoaded(name string)               { pm.lifecycle.notifyLoaded(name) }
 func (pm *Manager) notifyUnloaded(name string)             { pm.lifecycle.notifyUnloaded(name) }
-func (pm *Manager) notifyReloaded(name string)             { pm.lifecycle.notifyReloaded(name) } //nolint:unused
 func (pm *Manager) notifyError(name, op string, err error) { pm.lifecycle.notifyError(name, op, err) }
 
 // --- 内部辅助方法 ---

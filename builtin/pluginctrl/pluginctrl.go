@@ -480,13 +480,6 @@ func (p *Plugin) hasSuperAdminRole(ctx *eventctx.Context) bool {
 	return slices.Contains(p.permSvc.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
-func (p *Plugin) isSuperUserOrAdmin(ctx *eventctx.Context) bool { //nolint:unused
-	if p.IsSuperUser(ctx.GetSenderID()) {
-		return true
-	}
-	return p.hasAdminRole(ctx)
-}
-
 // isSuperUserOrSuperAdmin 仅放行 config 超管列表用户或 superadmin 角色持有者。
 // 与 isSuperUserOrAdmin 的区别：普通 admin 角色不可通过此检查。
 func (p *Plugin) isSuperUserOrSuperAdmin(ctx *eventctx.Context) bool {
