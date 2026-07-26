@@ -10,6 +10,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
 // Persister 去重缓存的持久化接口。
@@ -317,7 +318,7 @@ func Dedup(filter *DedupFilter) eventctx.Middleware {
 				return next(ctx)
 			}
 
-			eventID := pe.ID()
+			eventID := dedupKey(pe)
 			if eventID == "" {
 				return next(ctx)
 			}
@@ -356,6 +357,21 @@ func (f *DedupFilter) UpdateConfig(cfg DedupConfig) {
 	}
 }
 
+// dedupKey 构造去重键。
+//
+// 不能直接使用 pe.ID()：Event.ID() 在多数适配器中就是平台消息 ID，而消息 ID
+// 的唯一性范围因平台而异——Telegram 的 message_id 仅在**单个会话内**唯一
+// （每个 chat 从 1 开始独立计数），因此两个不同群里的消息会撞上同一个 ID，
+// 导致后来的正常消息被误判为重复而静默丢弃。
+// 加上 platform 与 chat 前缀后，键在全局范围内唯一。
+func dedupKey(pe platform.Event) string {
+	id := pe.ID()
+	if id == "" {
+		return ""
+	}
+	return pe.Platform() + ":" + pe.Chat().ID + ":" + id
+}
+
 // DedupWithReject 创建严格的去重中间件（拒绝缓存满的情况）
 func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
@@ -365,7 +381,7 @@ func DedupWithReject(filter *DedupFilter) eventctx.Middleware {
 				return next(ctx)
 			}
 
-			eventID := pe.ID()
+			eventID := dedupKey(pe)
 			if eventID == "" {
 				return next(ctx)
 			}

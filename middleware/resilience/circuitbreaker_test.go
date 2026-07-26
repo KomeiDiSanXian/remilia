@@ -143,9 +143,12 @@ func TestCircuitBreaker_SuccessResetsFailures(t *testing.T) {
 func TestCircuitBreaker_SuccessThreshold(t *testing.T) {
 	t.Parallel()
 	cb := NewCircuitBreaker(CircuitBreakerConfig{
-		MaxFailures:      1,
-		ResetTimeout:     1 * time.Millisecond,
-		SuccessThreshold: 3,
+		MaxFailures:  1,
+		ResetTimeout: 1 * time.Millisecond,
+		// v1.21.1 起 SuccessThreshold 会被钳制到 HalfOpenMaxRequests（防止
+		// 开↔半开无限震荡），因此必须显式给足半开槽位，阈值 3 才有效。
+		HalfOpenMaxRequests: 3,
+		SuccessThreshold:    3,
 	})
 
 	cb.onFailure()
@@ -211,29 +214,57 @@ func TestCircuitBreaker_MiddlewareRejectsWhenOpen(t *testing.T) {
 
 func TestCircuitBreaker_MiddlewareHalfOpenMaxRequests(t *testing.T) {
 	t.Parallel()
+	// v1.21.1 起 SuccessThreshold 被钳制到 ≤ HalfOpenMaxRequests，
+	// "成功完成后再发下一个"的顺序探测在槽位耗尽前必然已闭合熔断器。
+	// 槽位上限如今约束的是**在途并发**探测：先用 canExecute 占满槽位
+	// （模拟两个尚未完成的探测请求），再验证第三个请求被拒绝。
 	cb := NewCircuitBreaker(CircuitBreakerConfig{
 		MaxFailures:         1,
 		ResetTimeout:        1 * time.Millisecond,
 		HalfOpenMaxRequests: 2,
-		SuccessThreshold:    10,
+		SuccessThreshold:    2,
 	})
 
 	cb.onFailure()
 	cb.lastFailure.Store(time.Now().Add(-10 * time.Millisecond))
 
+	// 两个在途探测占满半开槽位（只获取执行许可，尚未完成）
+	require.NoError(t, cb.canExecute())
+	assert.Equal(t, StateHalfOpen, cb.GetState())
+	require.NoError(t, cb.canExecute())
+	assert.Equal(t, StateHalfOpen, cb.GetState())
+
+	// 第三个请求经中间件进入：槽位耗尽，应被拒绝且不影响半开状态
 	mw := CircuitBreakerMiddleware(cb)
 	handler := mw(testutil.MockHandler(nil, 0))
 	ctx := testutil.CreateTestContext()
 
-	assert.NoError(t, handler(ctx))
-	assert.Equal(t, StateHalfOpen, cb.GetState())
-
-	assert.NoError(t, handler(ctx))
-	assert.Equal(t, StateHalfOpen, cb.GetState())
-
 	err := handler(ctx)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errutil.ErrCircuitBreakerHalfOpen)
+	assert.Equal(t, StateHalfOpen, cb.GetState())
+
+	// 在途探测陆续成功：达到阈值后闭合
+	cb.onSuccess()
+	assert.Equal(t, StateHalfOpen, cb.GetState())
+	cb.onSuccess()
+	assert.Equal(t, StateClosed, cb.GetState())
+}
+
+// TestCircuitBreaker_ClampSuccessThreshold 验证 v1.21.1 的钳制不变式：
+// 构造与热更新时 SuccessThreshold 都不允许超过 HalfOpenMaxRequests。
+func TestCircuitBreaker_ClampSuccessThreshold(t *testing.T) {
+	t.Parallel()
+	cb := NewCircuitBreaker(CircuitBreakerConfig{
+		MaxFailures:         1,
+		ResetTimeout:        time.Minute,
+		HalfOpenMaxRequests: 2,
+		SuccessThreshold:    10,
+	})
+	assert.Equal(t, 2, cb.config.SuccessThreshold, "constructor should clamp SuccessThreshold")
+
+	cb.UpdateConfig(CircuitBreakerConfig{SuccessThreshold: 5})
+	assert.Equal(t, 2, cb.config.SuccessThreshold, "hot-reload should clamp SuccessThreshold")
 }
 
 func TestCircuitBreaker_Reset(t *testing.T) {
