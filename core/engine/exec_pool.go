@@ -2,9 +2,12 @@ package engine
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // ExecPool 是有界 goroutine 池，用于执行慢 handler。
@@ -96,7 +99,7 @@ func (p *ExecPool) TrySubmit(task func()) bool {
 				<-p.sem // 释放令牌
 				p.wg.Done()
 			}()
-			task()
+			runPoolTask(task)
 			// 执行完毕后尝试 drain 队列中的剩余任务
 			p.drainQueue()
 		}()
@@ -122,11 +125,29 @@ func (p *ExecPool) drainQueue() {
 	for {
 		select {
 		case task := <-p.queue:
-			task()
+			runPoolTask(task)
 		default:
 			return
 		}
 	}
+}
+
+// runPoolTask 执行池任务并兜底 recover。
+//
+// 池中的任务运行在独立 goroutine 里，任何逃逸出来的 panic 都会直接终止进程。
+// invokeHandler 内部的 recover 只覆盖 handler 本身，中间件链的构造过程
+// （chain[i](tmp[i+1])）不在其保护范围内；同步路径上还有 processEventGuard
+// 兜底，池路径此前则完全没有保护。
+func runPoolTask(task func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WithFields(logger.Fields{
+				"panic": r,
+				"stack": string(debug.Stack()),
+			}).Error("[engine] Panic recovered in ExecPool task")
+		}
+	}()
+	task()
 }
 
 // Drain 等待所有正在执行的任务完成，直到超时或 context 取消。

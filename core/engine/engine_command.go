@@ -45,8 +45,13 @@ func (e *Engine) OnCommand(eventType EventType, cmdPattern string, extraRules ..
 	finalRules = append(finalRules, extraRules...)
 
 	m := &Matcher{
-		EventType:   eventType,
-		Rules:       finalRules,
+		EventType: eventType,
+		Rules:     finalRules,
+		// execProfile 不可缺省：processEventMatchers 要求 profile != nil 才会把
+		// handler 交给 ExecPool。此前 OnCommand 漏掉该字段，导致命令 handler
+		// 永远同步执行在平台的单条派发 goroutine 上——而"慢命令"（AI、外部 API 调用）
+		// 恰恰是 ExecPool 要卸载的对象，一个慢命令会阻塞该平台上的所有会话。
+		execProfile: newExecProfile(),
 		coordinator: e,
 		Source:      "global",
 	}

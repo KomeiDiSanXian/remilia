@@ -208,17 +208,36 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 
 		profile := m.execProfile
 
+		// Block 判定必须在"是否入池"之前算好。
+		// 此前入池成功后直接 continue，跳过了下方的阻断检查，于是
+		// SetBlock(true) 是否真正生效取决于该 handler 当时被判为快还是慢、
+		// 以及池是否有空位——行为不确定。尤其 OnTemp 会话匹配器因样本不足
+		// 恒被判定为 ExecClassPool，导致它的 Block 语义永远失效
+		// （会话等待中的回复会继续命中后续匹配器，造成重复处理）。
+		blocking := m.isBlocking(channelKey) || blockAll
+
 		if allowPool && profile != nil && profile.ShouldPool() == ExecClassPool {
+			// 入池前必须克隆 Context。
+			// 池 goroutine 与本循环会并发使用同一个 *Context：
+			// SetMatcher 是无同步的接口字段写入（两个字长，可撕裂），
+			// 中间件的 SetStdContext 也会互相覆盖 deadline / span。
+			// Clone 正是为异步执行准备的（复制 dispatcher、platformEvent、
+			// sender 等共享字段，并给出独立的 std context）。
+			pooledCtx := ctx.Clone()
 			if execPool != nil && execPool.TrySubmit(func() {
-				ctx.SetMatcher(m)
+				pooledCtx.SetMatcher(m)
 				start := time.Now()
-				e.invokeHandler(ctx, m)
+				e.invokeHandler(pooledCtx, m)
 				if p := m.execProfile; p != nil {
 					p.Record(time.Since(start))
 				}
 			}) {
+				if blocking {
+					break
+				}
 				continue
 			}
+			// TrySubmit 失败（池满）时回退到同步执行，pooledCtx 丢弃。
 		}
 
 		ctx.SetMatcher(m)
@@ -228,7 +247,7 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 			profile.Record(time.Since(start))
 		}
 
-		if m.isBlocking(channelKey) || blockAll {
+		if blocking {
 			break
 		}
 	}
