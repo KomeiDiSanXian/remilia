@@ -184,7 +184,8 @@ func (e *Engine) Shutdown(ctx stdctx.Context) error {
 	// Drain eventMu: 等待所有已通过 shutdown 检查的 processEventGuard
 	// 完成 Add/退出操作，确保后续 eventWg.Wait() 与 Add 不并发。
 	e.eventMu.Lock()
-	e.eventMu.Unlock() //lint:ignore SA2001 intentional drain barrier
+	//lint:ignore SA2001 intentional drain barrier — ensures eventWg.Add() != eventWg.Wait()
+	e.eventMu.Unlock() //nolint:SA2001
 	// 停止所有后台 goroutine
 	e.internals.stopAll()
 	if err := e.internals.waitAll(ctx); err != nil {
