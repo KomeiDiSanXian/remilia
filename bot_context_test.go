@@ -42,7 +42,7 @@ func waitBotRunning(t *testing.T, b *Bot) {
 		if b.IsRunning() {
 			return
 		}
-		synctest.Wait()
+		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("bot did not reach running state in time")
 }
@@ -54,7 +54,7 @@ func waitBotHealthy(t *testing.T, b *Bot) {
 		if h := b.Health(); h.Status == "healthy" {
 			return
 		}
-		synctest.Wait()
+		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("bot did not become healthy in time (last status: %s)", b.Health().Status)
 }
