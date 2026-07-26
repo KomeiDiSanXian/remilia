@@ -35,10 +35,10 @@ func (m *mockProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 
 func TestProcessWithToolsNoTools(t *testing.T) {
 	p := &Plugin{
-		cfg:    &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
-		sm:     NewSessionManager(100, 20, time.Hour, nil),
-		reg:    NewToolRegistry(),
-		prov:   &mockProvider{},
+		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second},
+		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		reg:      NewToolRegistry(),
+		prov:     &mockProvider{},
 		skillReg: NewSkillRegistry(),
 	}
 

@@ -87,8 +87,8 @@ func (m *mockConfig) GetAll() map[string]any {
 }
 
 // ConfigMutator methods - no-op for tests
-func (m *mockConfig) Override(key string, value any) error { return nil }
-func (m *mockConfig) Reload() error                         { return nil }
+func (m *mockConfig) Override(key string, value any) error                  { return nil }
+func (m *mockConfig) Reload() error                                         { return nil }
 func (m *mockConfig) OnChange(handler func(key string, oldVal, newVal any)) {}
 
 // Ensure mockConfig implements plugin.Config.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -125,17 +126,17 @@ func TestOpenAIProvider_ChatStream(t *testing.T) {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	var text string
+	var text strings.Builder
 	for evt := range ch {
 		switch evt.Type {
 		case StreamEventText:
-			text += evt.Content
+			text.WriteString(evt.Content)
 		case StreamEventError:
 			t.Fatalf("stream error: %v", evt.Err)
 		}
 	}
-	if text != "Hello World" {
-		t.Errorf("expected %q, got %q", "Hello World", text)
+	if text.String() != "Hello World" {
+		t.Errorf("expected %q, got %q", "Hello World", text.String())
 	}
 }
 
@@ -226,10 +227,10 @@ func TestAnthropicProvider_Chat(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"id":         "msg_1",
-			"type":       "message",
-			"role":       "assistant",
-			"content":    []map[string]any{{"type": "text", "text": "Hello from Claude!"}},
+			"id":          "msg_1",
+			"type":        "message",
+			"role":        "assistant",
+			"content":     []map[string]any{{"type": "text", "text": "Hello from Claude!"}},
 			"stop_reason": "end_turn",
 		})
 	}))
@@ -286,17 +287,17 @@ func TestAnthropicProvider_ChatStream(t *testing.T) {
 		t.Fatalf("ChatStream failed: %v", err)
 	}
 
-	var text string
+	var text strings.Builder
 	for evt := range ch {
 		switch evt.Type {
 		case StreamEventText:
-			text += evt.Content
+			text.WriteString(evt.Content)
 		case StreamEventError:
 			t.Fatalf("stream error: %v", evt.Err)
 		}
 	}
-	if text != "Hello World" {
-		t.Errorf("expected %q, got %q", "Hello World", text)
+	if text.String() != "Hello World" {
+		t.Errorf("expected %q, got %q", "Hello World", text.String())
 	}
 }
 

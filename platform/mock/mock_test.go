@@ -207,7 +207,7 @@ func TestSenderSendWithError(t *testing.T) {
 
 func TestSenderEditor(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.MessageEditor); !ok {
+	if _, ok := any(s).(platform.MessageEditor); !ok {
 		t.Fatal("MockSender should implement MessageEditor")
 	}
 	err := s.Edit(context.Background(), "chat_1", "msg_1", platform.OutboundMessage{Text: "edited"})
@@ -221,7 +221,7 @@ func TestSenderEditor(t *testing.T) {
 
 func TestSenderDeleter(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.MessageDeleter); !ok {
+	if _, ok := any(s).(platform.MessageDeleter); !ok {
 		t.Fatal("MockSender should implement MessageDeleter")
 	}
 	err := s.Delete(context.Background(), "chat_1", "msg_1")
@@ -232,7 +232,7 @@ func TestSenderDeleter(t *testing.T) {
 
 func TestSenderReaction(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.ReactionSender); !ok {
+	if _, ok := any(s).(platform.ReactionSender); !ok {
 		t.Fatal("MockSender should implement ReactionSender")
 	}
 	emoji := platform.Emoji{Kind: platform.EmojiKindUnicode, Value: "👍"}
@@ -248,7 +248,7 @@ func TestSenderReaction(t *testing.T) {
 
 func TestSenderTyping(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.TypingNotifier); !ok {
+	if _, ok := any(s).(platform.TypingNotifier); !ok {
 		t.Fatal("MockSender should implement TypingNotifier")
 	}
 	err := s.SendTyping(context.Background(), "chat_1")
@@ -259,7 +259,7 @@ func TestSenderTyping(t *testing.T) {
 
 func TestSenderGroupManager(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.GroupManager); !ok {
+	if _, ok := any(s).(platform.GroupManager); !ok {
 		t.Fatal("MockSender should implement GroupManager")
 	}
 	if err := s.KickMember(context.Background(), "g1", "u1", false); err != nil {
@@ -275,21 +275,21 @@ func TestSenderGroupManager(t *testing.T) {
 
 func TestSenderInvitationHandler(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.InvitationHandler); !ok {
+	if _, ok := any(s).(platform.InvitationHandler); !ok {
 		t.Fatal("MockSender should implement InvitationHandler")
 	}
 }
 
 func TestSenderAutoModerator(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.AutoModerator); !ok {
+	if _, ok := any(s).(platform.AutoModerator); !ok {
 		t.Fatal("MockSender should implement AutoModerator")
 	}
 }
 
 func TestSenderGroupInfoProvider(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.GroupInfoProvider); !ok {
+	if _, ok := any(s).(platform.GroupInfoProvider); !ok {
 		t.Fatal("MockSender should implement GroupInfoProvider")
 	}
 	info, err := s.GetGroupInfo(context.Background(), "g1")
@@ -303,14 +303,14 @@ func TestSenderGroupInfoProvider(t *testing.T) {
 
 func TestSenderAvatarProvider(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.AvatarProvider); !ok {
+	if _, ok := any(s).(platform.AvatarProvider); !ok {
 		t.Fatal("MockSender should implement AvatarProvider")
 	}
 }
 
 func TestSenderSessionNotifier(t *testing.T) {
 	s := mock.NewSender()
-	if _, ok := interface{}(s).(platform.SessionNotifier); !ok {
+	if _, ok := any(s).(platform.SessionNotifier); !ok {
 		t.Fatal("MockSender should implement SessionNotifier")
 	}
 }

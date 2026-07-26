@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/sendqueue"
-	"github.com/KomeiDiSanXian/remilia/plugin/plugintest"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/plugin/plugintest"
 )
 
 type mockSender struct {

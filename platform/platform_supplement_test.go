@@ -390,5 +390,3 @@ func TestMentionsEventHelper(t *testing.T) {
 		t.Error("expected nil mentions for plain event")
 	}
 }
-
-

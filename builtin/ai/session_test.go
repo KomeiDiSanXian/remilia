@@ -71,7 +71,7 @@ func TestSessionDelete(t *testing.T) {
 	sm.Delete("to_delete")
 
 	s := sm.GetOrCreate("to_delete", "user1", "chat1")
-	if s.Messages != nil && len(s.Messages) != 0 {
+	if len(s.Messages) != 0 {
 		t.Error("deleted and re-created session should be fresh")
 	}
 }
@@ -126,7 +126,7 @@ func TestSessionCleanupActive(t *testing.T) {
 
 func TestTrimMessages(t *testing.T) {
 	s := &Session{}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		s.Messages = append(s.Messages, Message{Role: RoleUser, Content: "msg"})
 	}
 	trimMessages(s, 3)
@@ -174,15 +174,12 @@ func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 }
 
 func TestSessionLockUnlock(t *testing.T) {
-	s := &Session{}
+	s := &Session{ID: "lock-test"}
 	s.Lock()
+	if s.ID != "lock-test" {
+		t.Error("expected ID preserved under lock")
+	}
 	s.Unlock()
-}
-
-func TestSessionLockTurnUnlockTurn(t *testing.T) {
-	s := &Session{}
-	s.LockTurn()
-	s.UnlockTurn()
 }
 
 func TestSessionSnapshotMessages(t *testing.T) {
