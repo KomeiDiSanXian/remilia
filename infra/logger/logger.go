@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -594,7 +595,18 @@ func GetExtraWriter() io.Writer {
 	return extraWriter
 }
 
+// isTestMode 检测当前进程是否运行在 go test 下。
+// 测试二进制的文件名以 .test 结尾，以此作为判断依据。
+func isTestMode() bool {
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
 func init() {
-	// 初始化时使用默认配置初始化
-	_ = InitDefault()
+	if isTestMode() {
+		// 测试环境下用 Nop logger 避免日志刷屏，
+		// 单个测试文件如需日志可通过 InitTest() 或 InitDefault() 覆盖。
+		InitNop()
+	} else {
+		_ = InitDefault()
+	}
 }
