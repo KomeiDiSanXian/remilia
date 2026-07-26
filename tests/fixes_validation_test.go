@@ -122,13 +122,19 @@ func TestDedupStrictMode(t *testing.T) {
 }
 
 // TestCircuitBreakerHalfOpenConcurrency tests the half-open state concurrency fix
+//
+// v1.21.1 起 SuccessThreshold 会被钳制到 ≤ HalfOpenMaxRequests，
+// 无法再用"超高阈值"阻止熔断器闭合——顺序完成的成功探测在槽位耗尽前
+// 必然已闭合。因此改用"在途探测占住槽位"的方式验证并发限流：
+// 被放行的 handler 阻塞在 release 通道上（模拟未完成的探测请求），
+// 其余请求在此期间到达即被槽位上限拒绝，结果完全确定。
 func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
 			MaxFailures:         1,
 			ResetTimeout:        100 * time.Millisecond,
 			HalfOpenMaxRequests: 3,
-			SuccessThreshold:    100, // High threshold to prevent early transition to Closed
+			SuccessThreshold:    3,
 		})
 
 		// Trigger circuit breaker to open
@@ -153,6 +159,7 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 		var startBarrier sync.WaitGroup
 		allowedCount := atomic.Int32{}
 		rejectedCount := atomic.Int32{}
+		release := make(chan struct{}) // 在途探测的放行门
 
 		startBarrier.Add(1) // Barrier to ensure all goroutines start at the same time
 
@@ -164,6 +171,8 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 
 				testMw := resilience.CircuitBreakerMiddleware(cb)
 				handler := testMw(func(ctx *eventctx.Context) error {
+					// 占住半开槽位直到统一放行，模拟尚未完成的在途探测
+					<-release
 					return nil // Success
 				})
 
@@ -179,6 +188,16 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 		// Release all goroutines at once
 		startBarrier.Done()
 
+		// 等待泡内所有 goroutine 稳定：3 个被放行的探测阻塞在 release 上，
+		// 其余 7 个已被槽位上限拒绝并结束
+		synctest.Wait()
+		require.Equal(t, int32(7), rejectedCount.Load(),
+			"exactly HalfOpenMaxRequests probes admitted, the rest rejected")
+		require.Equal(t, resilience.StateHalfOpen, cb.GetState(),
+			"breaker must stay half-open while probes are in flight")
+
+		// 放行在途探测：3 次成功达到阈值，熔断器闭合
+		close(release)
 		wg.Wait()
 
 		allowed := allowedCount.Load()
@@ -189,6 +208,8 @@ func TestCircuitBreakerHalfOpenConcurrency(t *testing.T) {
 			"Should not exceed HalfOpenMaxRequests, got %d allowed", allowed)
 		assert.GreaterOrEqual(t, rejected, int32(7),
 			"At least 7 requests should be rejected, got %d rejected", rejected)
+		assert.Equal(t, resilience.StateClosed, cb.GetState(),
+			"breaker should close after in-flight probes succeed")
 	})
 }
 
