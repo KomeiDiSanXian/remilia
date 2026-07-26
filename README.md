@@ -15,7 +15,7 @@
 [![CI](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml)
 [![govulncheck](https://github.com/KomeiDiSanXian/remilia/actions/workflows/vulncheck.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/vulncheck.yml)
-[![Coverage](https://codecov.io/gh/KomeiDiSanXian/remilia/branch/main/graph/badge.svg?style=flat-square)](https://codecov.io/gh/KomeiDiSanXian/remilia)
+[![Coverage](https://codecov.io/gh/KomeiDiSanXian/remilia/branch/master/graph/badge.svg?style=flat-square)](https://codecov.io/gh/KomeiDiSanXian/remilia)
 [![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&style=flat-square)](https://github.com/KomeiDiSanXian/remilia/security/dependabot)
 
 一个现代化、高性能、易于扩展的多平台机器人框架
