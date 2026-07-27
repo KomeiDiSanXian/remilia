@@ -235,7 +235,14 @@ api:
 #     ...
 #   weather:
 #     api_key: "your-weather-api-key"
-#   ...
+#   sauce:
+#     saucenao_api_key: ""            # [H]  SauceNAO API Key（必填，从 https://saucenao.com 获取）
+#     max_results: 3                  # [H]  最多返回的结果数
+#     send_thumbnails: false          # [H]  是否发送缩略图图片。开启后每条结果会单独发送
+#                                     #      （文本+图片嵌入同一条消息）。QQ 平台的媒体消息
+#                                     #      API 可能不展示附带文本，仅显示图片；
+#                                     #      Telegram / Discord 等平台正常显示。
+#     enable_ascii2d: false           # [H]  ASCII2D（可能被 Cloudflare 拦截，默认关闭）
 
 # ====================================
 # 配置说明

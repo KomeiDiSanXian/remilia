@@ -42,6 +42,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/coc"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dnd"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/sauce"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/starrail"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -122,6 +123,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		minecraft.New(),
 		genshin.New(),
 		starrail.New(),
+		sauce.New(),
 		dice.New(),
 		coc.New(),
 		dnd.New(),
