@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.24.0 (2026-07-27)
+
+### 🐛 AI 插件修复
+
+- **工具名不合法导致 API 400 错误修复**: 自动发现的命令中包含中文管理命令（`/开启`、`/关闭`、`/封禁` 等），其名称不匹配 OpenAI 的 `^[a-zA-Z0-9_-]+$` 规则，导致 `Invalid 'tools[2].function.name'` 错误。
+  - `isCommandSafeForAI` 新增名称为合法性检查，含不合法字符的命令不再自动暴露为 AI 工具
+  - `ToolRegistry.Register` 新增名称校验，不合法时自动修正并记录警告日志
+  - `buildToolFromCommand` 新增 `sanitizeToolName` 兜底清洗函数
+
+- **自动发现工具 token 过量消耗修复**: 所有自动发现的命令全部归入 `"general"` 分类，路由机制无法有效分组，67 个工具每次请求发送 ~1500-3000 tokens。
+  - 新增 `deriveToolCategory` 按来源插件名对自动发现的命令进行归类
+  - 路由阶段 LLM 先选分类再发对应工具，大幅降低 token 消耗
+
 ## v1.23.0 (2026-07-27)
 
 ### ✨ 新插件

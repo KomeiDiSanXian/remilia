@@ -72,17 +72,25 @@ func (p *Plugin) discoverTools() {
 	}
 }
 
+// validToolNameRegex 用于校验工具名称是否符合 AI API 的要求（仅含字母、数字、下划线、连字符）。
+var validToolNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 // isCommandSafeForAI 判断命令是否能安全地暴露给 AI。
 //
 // 安全条件（全部满足）：
 //  1. 命令无权限要求（Permissions 为空）
 //  2. 命令定义中也无权限要求（Definition.Permissions 为空）
 //  3. 不是 AI 自身命令
+//  4. 命令名称能构成合法的工具名（仅含 a-zA-Z0-9_-）
 //
 // 不满足任一条件 → AI 不可调用该命令。
 func isCommandSafeForAI(cmd engine.CommandInfo) bool {
 	name := strings.TrimLeft(cmd.Command, "/!$#")
+	name = strings.ReplaceAll(name, " ", "_")
 	if name == "" || name == "ai" {
+		return false
+	}
+	if !validToolNameRegex.MatchString(name) {
 		return false
 	}
 	if len(cmd.Permissions) > 0 {
@@ -94,6 +102,39 @@ func isCommandSafeForAI(cmd engine.CommandInfo) bool {
 	return true
 }
 
+// sanitizeToolName 确保工具名称只包含 [a-zA-Z0-9_-]。
+// 不符合的字符会被替换为下划线，连续多个下划线合并为一个。
+func sanitizeToolName(name string) string {
+	// 先替换所有非法字符为下划线
+	result := invalidToolNameChars.ReplaceAllString(name, "_")
+	// 合并连续下划线
+	result = multiUnderscore.ReplaceAllString(result, "_")
+	// 去掉首尾下划线
+	result = strings.Trim(result, "_")
+	if result == "" {
+		result = "unknown_tool"
+	}
+	return result
+}
+
+var invalidToolNameChars = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+var multiUnderscore = regexp.MustCompile(`_+`)
+
+// deriveToolCategory 从命令信息中推断工具的分类。
+// 优先使用命令定义中的 Category，其次使用插件名，兜底为 "general"。
+func deriveToolCategory(cmd engine.CommandInfo) string {
+	if cmd.Category != "" {
+		return cmd.Category
+	}
+	if cmd.Plugin != "" && cmd.Plugin != "global" {
+		return cmd.Plugin
+	}
+	if cmd.Definition != nil && cmd.Definition.Category != "" {
+		return cmd.Definition.Category
+	}
+	return CategoryGeneral
+}
+
 // buildToolFromCommand 将命令信息转换为 LLM 工具。
 //
 // 注意：调用方应确保已通过 isCommandSafeForAI 前置检查。
@@ -103,15 +144,17 @@ func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
 		return nil
 	}
 	name = strings.ReplaceAll(name, " ", "_")
+	name = sanitizeToolName(name)
 
 	desc := cmd.Description
 	if desc == "" {
 		desc = fmt.Sprintf("执行命令 %s", cmd.Command)
 	}
 
+	category := deriveToolCategory(cmd)
 	return &Tool{
 		Name:        name,
-		Categories:  []string{CategoryGeneral},
+		Categories:  []string{category},
 		Description: desc,
 		Parameters: ToolParamSchema{
 			Type: "object",

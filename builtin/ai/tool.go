@@ -112,9 +112,15 @@ func NewToolRegistry() *ToolRegistry {
 
 // Register 注册一个工具。同名工具仅首次注册生效，后续注册静默忽略。
 // 调用者应保证在 [processWithTools] 开始前完成注册。
+// 若工具名称不合法（不匹配 ^[a-zA-Z0-9_-]+$），会自动修正并记录警告。
 func (r *ToolRegistry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !validToolNameRegex.MatchString(t.Name) {
+		original := t.Name
+		t.Name = sanitizeToolName(t.Name)
+		logger.Warnf("[AI] Tool name %q is invalid (must match ^[a-zA-Z0-9_-]+$), sanitized to %q", original, t.Name)
+	}
 	if _, exists := r.tools[t.Name]; exists {
 		logger.Warnf("[AI] Tool %q already registered, skipping duplicate", t.Name)
 		return
