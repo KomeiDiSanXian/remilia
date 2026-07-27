@@ -73,7 +73,7 @@ jobs:
           cache: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=10m
