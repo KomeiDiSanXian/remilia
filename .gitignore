@@ -39,3 +39,8 @@ cmd/bot/dashboarddist/
 # ai
 .codex/
 .ai/
+
+# coverage output
+coverage
+coverage.out
+coverage.txt
