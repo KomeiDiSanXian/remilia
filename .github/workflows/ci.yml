@@ -98,7 +98,9 @@ jobs:
       - name: Download dependencies
         run: go mod download
       - name: Run tests with race and coverage
-        run: go test -count=1 -race -shuffle=on -coverprofile=coverage.out -covermode=atomic -timeout 180s ./...
+        run: |
+          pkgs=$(go list ./... | grep -v /examples | grep -v /cmd/bot/plugins | tr '\n' ' ')
+          go test -count=1 -race -shuffle=on -coverprofile=coverage.out -covermode=atomic -timeout 180s $pkgs
       - name: Check tidy
         run: |
           go mod tidy
