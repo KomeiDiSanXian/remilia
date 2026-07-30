@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.25.0 (2026-07-30)
+
+### ✨ QQ 平台 WebSocket 支持
+
+- **WebSocket 协议实现**: 新增 `platform/qq/wsconn.go`，完整实现 QQ Bot WebSocket 协议（Hello/Identify/Resume/Heartbeat/Reconnect），支持指数退避自动重连和 Session 恢复。
+  - 新增 11 个 Intents 位掩码常量，精确控制事件订阅
+  - `WSConn` 通过 `EventStream()` 实现 `qq.EventSource` 接口，可作为事件源复用现有 `Adapter`
+- **`WSAdapter` 工厂**: `NewWSAdapter` / `NewWSAdapterWithIntents` 开箱即用，自动管理 Token 和 WebSocket 连接
+- **Gateway API**: `GetGateway()` / `GetGatewayBot()` 端点方法
+- **接口改名**: `qq.Webhook` → `qq.EventSource`（WebSocket 也实现），`WebhookConn` → `WebhookService`（与 `webhook.Conn` 消歧义）
+
+### 🚀 新消息类型
+
+- **卡片消息 (msg_type=8)**: 新增 `dto.Card`/`CardContent` 结构体，支持群聊图文卡片
+- **流式消息**: 新增 `dto.StreamMessage` DTO 和 `SingleStreamChat()` API，支持 C2C 流式分片发送
+- **输入中状态 (msg_type=6)**: 新增 `dto.InputNotify` 和 `TypingIndicator: true`
+- **Button 扩展**: 新增 `ButtonExtra{Enter, Reply, Anchor}`，支持指令按钮自动发送/引用回复/选图器
+- **Markdown 模板参数**: `MessageExtra` 支持 `MarkdownTemplateID` 和 `MarkdownParams`
+- **富媒体分片上传**: 新增 `UploadPrepare` / `UploadPartFinish` 预上传和分片确认 API
+
+### 🎯 事件增强
+
+- **引用消息解析**: `message_type=103` 时自动从 `msg_elements[0].content` 提取正文
+- **群角色映射**: `author.member_role` 解析为 `platform.GroupRole`（owner/admin/member）
+- **能力声明更新**: `Capabilities().TypingIndicator = true`
+
+### ✅ 测试
+
+- `wsconn_test.go`: 8 个 WebSocket payload 序列化/解析测试
+- `sender_test.go`: 8 个消息发送 DTO 构建测试
+- `event_test.go`: 新增 3 个事件解析测试（quote/role/mentions）
+
 ## v1.24.0 (2026-07-27)
 
 ### 🐛 AI 插件修复
