@@ -28,7 +28,7 @@ func TestWebhookServerAdapter_New(t *testing.T) {
 	t.Run("with defaults", func(t *testing.T) {
 		adapter := NewWebhookServerAdapter(":0", info)
 		require.NotNil(t, adapter)
-		assert.Equal(t, ":0", adapter.conn.addr)
+		assert.Equal(t, ":0", adapter.svc.addr)
 	})
 
 	t.Run("with config", func(t *testing.T) {
@@ -38,7 +38,7 @@ func TestWebhookServerAdapter_New(t *testing.T) {
 		}
 		adapter := NewWebhookServerAdapterWithConfig(":0", info, cfg)
 		require.NotNil(t, adapter)
-		assert.Equal(t, 200, adapter.conn.bufferSize)
+		assert.Equal(t, 200, adapter.svc.bufferSize)
 	})
 }
 

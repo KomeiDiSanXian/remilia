@@ -13,20 +13,30 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 )
 
-// Webhook 是 QQ webhook 事件源所需的最简接口。
-type Webhook interface {
+// EventSource 是 QQ 平台事件源的抽象接口。
+//
+// 可由 Webhook（*WebhookService）或 WebSocket（*WSConn）实现，
+// 两者均通过 EventStream() 提供 *dto.Payload 事件流。
+type EventSource interface {
 	EventStream() <-chan *dto.Payload
 }
 
+// connectionType 标识当前适配器使用的事件源类型。
+type connectionType string
+
+const (
+	connWebhook  connectionType = "webhook"
+	connWS       connectionType = "websocket"
+)
+
 // Adapter 是 QQ 的 platform.Adapter 实现。
 //
-// 它从 Webhook 中读取 *dto.Payload，经过 NewEvent() 转换为 platform.Event 后
-// 直接交给框架提供的 handler 处理。handler 的并发控制由 Engine 的 ExecPool 负责。
+// 它从 EventSource（Webhook 或 WebSocket）中读取 *dto.Payload，
+// 经过 NewEvent() 转换为 platform.Event 后直接交给框架提供的 handler 处理。
+// handler 的并发控制由 Engine 的 ExecPool 负责。
 //
-// 多平台注册表用法示例（在已有 webhook.Conn 上注册）：
+// 多平台注册表用法示例（Webhook）：
 //
-//	// webhookConn 需实现 EventStream() <-chan *dto.Payload
-//	// 例如来自 openapi/protocol/webhook 的 *webhook.Conn
 //	qqAdapter := qq.NewAdapter(webhookConn, openAPIClient)
 //	registry := platform.NewRegistry()
 //	registry.Register(qqAdapter)
@@ -35,10 +45,16 @@ type Webhook interface {
 //
 //	webhookServer := qq.NewWebhookServerAdapter(":8080", botInfo)
 //	bot, _ := remilia.NewBotBuilder().WithPlatformAdapter(webhookServer).Build()
+//
+// WebSocket 用法：
+//
+//	wsConn := qq.NewWSConn(api, tokenMgr)
+//	wsConn.Start(ctx)
+//	qqAdapter := qq.NewAdapter(wsConn, api)
 type Adapter struct {
-	webhook Webhook
-	sender  platform.Sender
-	api     openapi.OpenAPI
+	eventSource EventSource
+	sender      platform.Sender
+	api         openapi.OpenAPI
 
 	ctx      stdctx.Context
 	cancel   stdctx.CancelFunc
@@ -49,17 +65,25 @@ type Adapter struct {
 	// BotIdentity
 	botID   string
 	botName string
+
+	connType connectionType
 }
 
 // NewAdapter 创建 QQ 平台适配器。
 //
-// webhook 是事件源（需实现 EventStream()）。
+// eventSource 是事件源，需实现 EventStream() <-chan *dto.Payload。
+// 可以是 *WebhookService、*webhook.Conn 或 *WSConn。
 // api 是用于发送消息的 QQ OpenAPI 客户端，传 nil 可禁用发送能力。
-func NewAdapter(webhook Webhook, api openapi.OpenAPI) *Adapter {
+func NewAdapter(eventSource EventSource, api openapi.OpenAPI) *Adapter {
+	connType := connWebhook
+	if _, ok := eventSource.(*WSConn); ok {
+		connType = connWS
+	}
 	return &Adapter{
-		webhook: webhook,
-		sender:  NewSender(api),
-		api:     api,
+		eventSource: eventSource,
+		sender:      NewSender(api),
+		api:         api,
+		connType:    connType,
 	}
 }
 
@@ -108,7 +132,7 @@ func (a *Adapter) IsRunning() bool {
 
 // Start 启动 QQ 事件循环。
 //
-// 从 Webhook 读取事件，转换后直接调用 handler。handler 的并发控制
+// 从 EventSource 读取事件，转换后直接调用 handler。handler 的并发控制
 // 由 Engine 的 ExecPool 负责，适配器不再维护自己的 worker pool。
 //
 // 直到 ctx 被取消或事件流关闭前此方法会一直阻塞。
@@ -123,7 +147,7 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 		a.mu.Unlock()
 		return nil
 	}
-	eventCh := a.webhook.EventStream()
+	eventCh := a.eventSource.EventStream()
 	if eventCh == nil {
 		a.mu.Unlock()
 		return fmt.Errorf("qq adapter: EventStream is nil")
@@ -201,9 +225,10 @@ func (a *Adapter) fetchBotIdentity(ctx stdctx.Context) {
 
 // ── platform.HealthDetailer ──────────────────────────────────────────────────
 
+// HealthDetail 返回适配器的健康详情，包括连接类型、API 可用性和机器人身份状态。
 func (a *Adapter) HealthDetail() map[string]any {
 	detail := map[string]any{
-		"connection": "webhook",
+		"connection": string(a.connType),
 	}
 	if a.api != nil {
 		detail["api_available"] = true
@@ -213,6 +238,11 @@ func (a *Adapter) HealthDetail() map[string]any {
 		detail["bot_identified"] = true
 	}
 	a.mu.RUnlock()
+	if a.connType == connWS {
+		if ws, ok := a.eventSource.(*WSConn); ok {
+			detail["session_active"] = ws.sessionID != ""
+		}
+	}
 	return detail
 }
 
