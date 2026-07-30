@@ -143,10 +143,10 @@ type UploadPrepareRequest struct {
 
 // UploadPrepareResponse 分片上传预上传响应。
 type UploadPrepareResponse struct {
-	UploadID      string            `json:"upload_id"`
-	BlockSize     int               `json:"block_size"`
-	PresignedURLs []string          `json:"presigned_urls"`
-	UploadConfig  *UploadConfig     `json:"upload_config,omitempty"`
+	UploadID      string        `json:"upload_id"`
+	BlockSize     int           `json:"block_size"`
+	PresignedURLs []string      `json:"presigned_urls"`
+	UploadConfig  *UploadConfig `json:"upload_config,omitempty"`
 }
 
 // UploadConfig 分片上传配置。
@@ -404,8 +404,8 @@ type KeyboardPermission struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
 type StreamMessage struct {
-	InputMode   string `json:"input_mode,omitempty"`  // "append" 或 "replace"
-	InputState  int    `json:"input_state"`            // 1=生成中, 10=生成结束
+	InputMode   string `json:"input_mode,omitempty"`    // "append" 或 "replace"
+	InputState  int    `json:"input_state"`             // 1=生成中, 10=生成结束
 	Index       int    `json:"index,omitempty"`         // 分片序号，从0递增
 	ContentType string `json:"content_type,omitempty"`  // "text" 或 "markdown"
 	ContentRaw  string `json:"content_raw,omitempty"`   // Markdown 格式内容

@@ -25,8 +25,8 @@ type EventSource interface {
 type connectionType string
 
 const (
-	connWebhook  connectionType = "webhook"
-	connWS       connectionType = "websocket"
+	connWebhook connectionType = "webhook"
+	connWS      connectionType = "websocket"
 )
 
 // Adapter 是 QQ 的 platform.Adapter 实现。

@@ -506,7 +506,9 @@ func (c *WSConn) readLoop(conn *websocket.Conn) error {
 
 		switch p.Op {
 		case dto.Heartbeat:
-			c.writeJSON(conn, wsPayload{Op: dto.HeartbeatACK})
+			if err := c.writeJSON(conn, wsPayload{Op: dto.HeartbeatACK}); err != nil {
+				logger.WithError(err).Warn("[qq.WSConn] Heartbeat ACK send failed")
+			}
 		case dto.HeartbeatACK:
 		case dto.Reconnect:
 			logger.Info("[qq.WSConn] Received Reconnect opcode, reconnecting...")

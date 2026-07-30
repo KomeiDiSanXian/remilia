@@ -195,18 +195,18 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"id",                          // [0] 消息 ID（用于 msg_id 被动回复授权）
-		"content",                     // [1]
-		"author.member_openid",        // [2]
-		"author.username",             // [3] 发送者昵称
-		"group_openid",                // [4]
-		"timestamp",                   // [5]
-		"attachments",                 // [6]
-		"message_type",                // [7] 消息内容类型
-		"author.member_role",          // [8] 群角色
-		"author.union_openid",         // [9] 跨应用统一 OpenID
-		"author.union_user_account",   // [10] 跨应用统一账号
-		"msg_elements",                // [11] 消息元素列表（quote/forward）
+		"id",                        // [0] 消息 ID（用于 msg_id 被动回复授权）
+		"content",                   // [1]
+		"author.member_openid",      // [2]
+		"author.username",           // [3] 发送者昵称
+		"group_openid",              // [4]
+		"timestamp",                 // [5]
+		"attachments",               // [6]
+		"message_type",              // [7] 消息内容类型
+		"author.member_role",        // [8] 群角色
+		"author.union_openid",       // [9] 跨应用统一 OpenID
+		"author.union_user_account", // [10] 跨应用统一账号
+		"msg_elements",              // [11] 消息元素列表（quote/forward）
 	)
 	e.content = results[1].String()
 	msgType := int(results[7].Int())

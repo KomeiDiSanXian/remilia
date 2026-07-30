@@ -79,7 +79,7 @@ func TestBuildDTOMessage_ArkPriority(t *testing.T) {
 	msg = ApplyExtra(msg, MessageExtra{
 		Ark: &Ark{TemplateID: 23},
 		Card: &dto.Card{
-			Type: "tuwen",
+			Type:    "tuwen",
 			Content: dto.CardContent{Title: "Card", Description: "desc"},
 		},
 	})
