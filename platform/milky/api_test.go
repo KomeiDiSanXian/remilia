@@ -131,8 +131,6 @@ func TestParseUin_Invalid(t *testing.T) {
 	assert.Error(t, err)
 }
 
-
-
 func TestWrapSendError_Nil(t *testing.T) {
 	assert.Nil(t, wrapSendError(nil, "chat1", "group"))
 }
@@ -292,8 +290,6 @@ func TestSegmentConstants(t *testing.T) {
 	assert.Equal(t, "friend", sceneFriend)
 	assert.Equal(t, "temp", sceneTemp)
 }
-
-
 
 func TestLoginInfo(t *testing.T) {
 	info := LoginInfo{Uin: 12345, Nickname: "Bot"}

@@ -66,11 +66,11 @@ func TestNormalizeKey(t *testing.T) {
 
 func TestLookupKey(t *testing.T) {
 	m := map[string]any{
-		"Bot":          1,
-		"AccessToken":  "secret",
-		"APIKey":       "key123",
-		"normal_key":   "value",
-		"exact":        "match",
+		"Bot":         1,
+		"AccessToken": "secret",
+		"APIKey":      "key123",
+		"normal_key":  "value",
+		"exact":       "match",
 	}
 	t.Run("exact match", func(t *testing.T) {
 		k, ok := lookupKey(m, "exact")

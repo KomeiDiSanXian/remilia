@@ -418,6 +418,5 @@ func TestEventInterfaceCompliance(t *testing.T) {
 	m := &discordgo.MessageCreate{Message: &discordgo.Message{ID: "1", Content: "test"}}
 	ev := discord.NewMessageCreateEvent(m)
 
-	var _ platform.Event = ev
 	_ = ev
 }

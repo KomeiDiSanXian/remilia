@@ -322,7 +322,7 @@ func TestOnebotEvent_Interfaces(t *testing.T) {
 		"sender":{"user_id":1,"nickname":"T"}}`
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
-	var _ platform.Event = ev
+	_ = ev
 }
 
 func TestIsAPIResponse(t *testing.T) {

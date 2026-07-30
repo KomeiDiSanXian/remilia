@@ -50,12 +50,12 @@ func TestBuildMentionPrefix_Empty(t *testing.T) {
 func TestConvertEmbeds(t *testing.T) {
 	embeds := []platform.Embed{
 		{
-			Title:       "Title",
-			Description: "Desc",
-			URL:         "https://example.com",
-			Color:       0xFF0000,
-			FooterText:  "Footer",
-			ImageURL:    "https://example.com/img.png",
+			Title:        "Title",
+			Description:  "Desc",
+			URL:          "https://example.com",
+			Color:        0xFF0000,
+			FooterText:   "Footer",
+			ImageURL:     "https://example.com/img.png",
 			ThumbnailURL: "https://example.com/thumb.png",
 			Fields: []platform.EmbedField{
 				{Name: "Field1", Value: "Val1", Inline: true},
