@@ -31,7 +31,7 @@ func TestBuildDTOMessage_Card(t *testing.T) {
 	s := &qqSender{}
 	dtoMsg := s.buildDTOMessage(msg, newTestChat())
 
-	assert.Equal(t, dto.CardMessage, dtoMsg.Type, "msg_type should be CardMessage")
+	assert.EqualValues(t, 8, dtoMsg.Type, "msg_type should be CardMessage (8)")
 	assert.NotNil(t, dtoMsg.Card, "Card should not be nil")
 	assert.Equal(t, "tuwen", dtoMsg.Card.Type)
 	assert.Equal(t, "Test Title", dtoMsg.Card.Content.Title)
@@ -49,7 +49,7 @@ func TestBuildDTOMessage_InputNotify(t *testing.T) {
 	s := &qqSender{}
 	dtoMsg := s.buildDTOMessage(msg, newTestChat())
 
-	assert.Equal(t, dto.InputNotifyMsg, dtoMsg.Type, "msg_type should be InputNotifyMsg")
+	assert.EqualValues(t, 6, dtoMsg.Type, "msg_type should be InputNotifyMsg (6)")
 	assert.NotNil(t, dtoMsg.InputNotify, "InputNotify should not be nil")
 	assert.Equal(t, 1, dtoMsg.InputNotify.InputType)
 	assert.Equal(t, 30, dtoMsg.InputNotify.InputSecond)
@@ -66,7 +66,7 @@ func TestBuildDTOMessage_MarkdownTemplate(t *testing.T) {
 	s := &qqSender{}
 	dtoMsg := s.buildDTOMessage(msg, newTestChat())
 
-	assert.Equal(t, dto.MarkdownMessage, dtoMsg.Type)
+	assert.EqualValues(t, 2, dtoMsg.Type, "msg_type should be MarkdownMessage (2)")
 	assert.NotNil(t, dtoMsg.Markdown)
 	assert.Equal(t, "# Hello", dtoMsg.Markdown.Content)
 	assert.Equal(t, "tmpl_001", dtoMsg.Markdown.CustomTemplateID)
@@ -75,7 +75,6 @@ func TestBuildDTOMessage_MarkdownTemplate(t *testing.T) {
 }
 
 func TestBuildDTOMessage_ArkPriority(t *testing.T) {
-	// Ark 应优先于 Card
 	msg := platform.TextMessage("")
 	msg = ApplyExtra(msg, MessageExtra{
 		Ark: &Ark{TemplateID: 23},
@@ -87,7 +86,7 @@ func TestBuildDTOMessage_ArkPriority(t *testing.T) {
 	s := &qqSender{}
 	dtoMsg := s.buildDTOMessage(msg, newTestChat())
 
-	assert.Equal(t, dto.ArkMessage, dtoMsg.Type, "Ark should take priority over Card")
+	assert.EqualValues(t, 3, dtoMsg.Type, "Ark (3) should take priority over Card (8)")
 	assert.NotNil(t, dtoMsg.Ark)
 	assert.Nil(t, dtoMsg.Card)
 }

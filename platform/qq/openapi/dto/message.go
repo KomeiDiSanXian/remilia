@@ -14,7 +14,11 @@ const (
 	MarkdownMessage
 	ArkMessage
 	EmbedMessage
-	MediaMessage = 7
+	_
+	_
+	MediaMessage   = 7
+	CardMessage    = 8
+	InputNotifyMsg = 6
 )
 
 // FileType ...
@@ -27,6 +31,30 @@ const (
 	File
 )
 
+// Card 卡片消息（msg_type=8），适用于群聊场景。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html
+type Card struct {
+	Type    string      `json:"type"`
+	Content CardContent `json:"content"`
+}
+
+// CardContent 卡片消息内容。
+type CardContent struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	PicURL      string `json:"pic_url,omitempty"`
+	URL         string `json:"url,omitempty"`
+}
+
+// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊场景。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html
+type InputNotify struct {
+	InputType   int `json:"input_type"`
+	InputSecond int `json:"input_second"`
+}
+
 // Message ...
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF
@@ -37,6 +65,7 @@ type Message struct {
 	Keyboard json.RawMessage `json:"keyboard,omitempty"` // Keyboard 按钮对象（InlineKeyboard）
 	Ark      *Ark            `json:"ark,omitempty"`
 	Media    *MediaResponse  `json:"media,omitempty"`
+	Card     *Card           `json:"card,omitempty"`
 	// MessageReference 消息引用（展示引用气泡），与 msg_id/event_id 独立，用于在消息中显示被引用消息。
 	// 与 GuildMessage.MessageReference 含义相同，但适用于 QQ 单聊与群聊场景。
 	MessageReference *MessageReference `json:"message_reference,omitempty"`
@@ -47,6 +76,8 @@ type Message struct {
 	// 与 msg_id / event_id 互斥使用；用户主动对话后每周期最多下发 1 条召回消息。
 	// 仅适用于 QQ 单聊（C2C），群聊不支持此字段。
 	IsWakeup bool `json:"is_wakeup,omitempty"`
+	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
+	InputNotify *InputNotify `json:"input_notify,omitempty"`
 }
 
 // MarkdownParam Markdown 模版参数，{key, values} 键值对。
@@ -82,6 +113,8 @@ type Media struct {
 	URL  string   `json:"url,omitempty"`
 	// FileData base64 编码的二进制数据，与 URL 二选一
 	FileData string `json:"file_data,omitempty"`
+	// UploadID 分片上传完成后返回的 upload_id，用于最终合并，与 url/file_data 互斥。
+	UploadID string `json:"upload_id,omitempty"`
 	// ActiveSend 已废弃 (2025-04-21)：主动推送能力已停用，设置 true 会返回错误。
 	// 请始终保持 false，改用两步发送（先上传获取 file_info，再通过发消息接口发送）。
 	// 官方公告：https://q.qq.com/miniapp#/news/detail/974e66a946a5e54c441ca983585a7aab
@@ -94,6 +127,45 @@ type MediaResponse struct {
 	FileInfo string `json:"file_info,omitempty"`
 	TTL      int    `json:"ttl,omitempty"`
 	ID       string `json:"id,omitempty"`
+}
+
+// UploadPrepareRequest 分片上传预上传请求。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html#%E5%88%86%E7%89%87%E4%B8%8A%E4%BC%A0%EF%BC%88%E6%8E%A8%E8%8D%90%EF%BC%89
+type UploadPrepareRequest struct {
+	FileType  FileType `json:"file_type"`
+	FileSize  int64    `json:"file_size"`
+	FileName  string   `json:"file_name,omitempty"`
+	BlockSize int      `json:"block_size,omitempty"`
+	FileMD5   string   `json:"file_md5,omitempty"`
+	MD510M    string   `json:"md5_10m,omitempty"`
+}
+
+// UploadPrepareResponse 分片上传预上传响应。
+type UploadPrepareResponse struct {
+	UploadID      string            `json:"upload_id"`
+	BlockSize     int               `json:"block_size"`
+	PresignedURLs []string          `json:"presigned_urls"`
+	UploadConfig  *UploadConfig     `json:"upload_config,omitempty"`
+}
+
+// UploadConfig 分片上传配置。
+type UploadConfig struct {
+	Concurrent   int `json:"concurrent"`
+	Retry        int `json:"retry"`
+	MaxBodyBytes int `json:"max_body_bytes"`
+}
+
+// UploadPartFinishRequest 分片上传完成确认请求。
+type UploadPartFinishRequest struct {
+	UploadID  string `json:"upload_id"`
+	PartIndex int    `json:"part_index"`
+}
+
+// UploadPartFinishResponse 分片上传完成确认响应。
+type UploadPartFinishResponse struct {
+	PartIndex int    `json:"part_index"`
+	ETag      string `json:"etag"`
 }
 
 // At 用于 at 用户
@@ -322,6 +394,26 @@ type KeyboardPermission struct {
 	SpecifyUserIDs []string `json:"specify_user_ids,omitempty"`
 	// SpecifyRoleIDs 有权限的身份组 ID 列表（Type=3，仅频道场景）
 	SpecifyRoleIDs []string `json:"specify_role_ids,omitempty"`
+}
+
+// StreamMessage 流式消息分片。
+//
+// 用于 /v2/users/{user_openid}/stream_messages 接口。
+// 首片由服务端返回 stream_msg_id，后续分片需携带。
+// index 从 0 递增，input_state=1 表示生成中，10 表示生成结束。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
+type StreamMessage struct {
+	InputMode   string `json:"input_mode,omitempty"`  // "append" 或 "replace"
+	InputState  int    `json:"input_state"`            // 1=生成中, 10=生成结束
+	Index       int    `json:"index,omitempty"`         // 分片序号，从0递增
+	ContentType string `json:"content_type,omitempty"`  // "text" 或 "markdown"
+	ContentRaw  string `json:"content_raw,omitempty"`   // Markdown 格式内容
+	EventID     string `json:"event_id,omitempty"`      // 被动回复事件ID（与 msg_id 二选一）
+	MsgID       string `json:"msg_id,omitempty"`        // 被动回复消息ID（与 event_id 二选一）
+	StreamMsgID string `json:"stream_msg_id,omitempty"` // 首片由服务端返回，后续分片携带
+	MsgSeq      int    `json:"msg_seq,omitempty"`       // 消息序号，用于去重
+	IsWakeup    bool   `json:"is_wakeup,omitempty"`     // 是否为召回消息
 }
 
 // MarshalKeyboard 将 InlineKeyboard 序列化为 json.RawMessage，便于赋值给 Message.Keyboard。

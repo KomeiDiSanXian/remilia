@@ -250,8 +250,8 @@ func (s *qqSender) buildGuildDTOMessage(msg platform.OutboundMessage, chat platf
 	// 消息类型优先级：Ark > Markdown > Text
 	if extra.Ark != nil {
 		guildMsg.Ark = convertArk(extra.Ark)
-	} else if msg.Markdown != "" {
-		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown}
+	} else if msg.Markdown != "" || extra.MarkdownTemplateID != "" {
+		guildMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams}
 	} else {
 		guildMsg.Content = msg.Text
 	}
@@ -329,13 +329,19 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	dtoMsg := &dto.Message{}
 	extra := extractExtra(msg)
 
-	// 消息类型优先级：Ark > Markdown > Text
-	if extra.Ark != nil {
+	// 消息类型优先级：InputNotify > Ark > Card > Markdown > Text
+	if extra.InputNotify != nil {
+		dtoMsg.Type = dto.InputNotifyMsg
+		dtoMsg.InputNotify = extra.InputNotify
+	} else if extra.Ark != nil {
 		dtoMsg.Type = dto.ArkMessage
 		dtoMsg.Ark = convertArk(extra.Ark)
-	} else if msg.Markdown != "" {
+	} else if extra.Card != nil {
+		dtoMsg.Type = dto.CardMessage
+		dtoMsg.Card = extra.Card
+	} else if msg.Markdown != "" || extra.MarkdownTemplateID != "" {
 		dtoMsg.Type = dto.MarkdownMessage
-		dtoMsg.Markdown = &dto.Markdown{Content: msg.Markdown}
+		dtoMsg.Markdown = &dto.Markdown{Content: msg.Markdown, CustomTemplateID: extra.MarkdownTemplateID, Params: extra.MarkdownParams}
 	} else {
 		dtoMsg.Type = dto.TextMessage
 		dtoMsg.Content = msg.Text
@@ -595,7 +601,7 @@ func qqCapabilities() platform.Capabilities {
 		GuildSupport:    true,
 		Reactions:       true,
 		ThreadReply:     true,
-		TypingIndicator: false,
+		TypingIndicator: true,
 		MentionAll:      true,
 		VoiceChannel:    false,
 		// QQ 按钮布局限制：最多 5 行，每行最多 5 个
@@ -654,6 +660,19 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 				actionType = 0 // 跳转
 				data = b.URL
 			}
+			action := &dto.KeyboardAction{
+				Type: actionType,
+				Permission: &dto.KeyboardPermission{
+					Type: 2, // 所有人可操作
+				},
+				Data:          data,
+				UnsupportTips: "当前版本不支持此操作",
+			}
+			if ext, ok := b.Extra.(*ButtonExtra); ok {
+				action.Enter = ext.Enter
+				action.Reply = ext.Reply
+				action.Anchor = ext.Anchor
+			}
 			kbBtns = append(kbBtns, dto.KeyboardButton{
 				ID: b.ID,
 				RenderData: &dto.KeyboardRenderData{
@@ -661,14 +680,7 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 					VisitedLabel: b.Label,
 					Style:        style,
 				},
-				Action: &dto.KeyboardAction{
-					Type: actionType,
-					Permission: &dto.KeyboardPermission{
-						Type: 2, // 所有人可操作
-					},
-					Data:          data,
-					UnsupportTips: "当前版本不支持此操作",
-				},
+				Action: action,
 			})
 		}
 		rows = append(rows, dto.KeyboardRow{Buttons: kbBtns})

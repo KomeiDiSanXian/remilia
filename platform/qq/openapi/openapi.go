@@ -156,10 +156,22 @@ func (api *Client) Delete(ctx context.Context, url string) (gjson.Result, error)
 
 // ── 消息发送 ────────────────────────────────────────────────────────────────
 
+// SingleChat 向指定用户发送单聊（C2C）消息。
+//
+// openid 为目标用户的 OpenID。
+// 支持文本、Markdown、富媒体、ARK 模板、键盘按钮等消息类型。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html
 func (api *Client) SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.SingleChatURL, openid), msg)
 }
 
+// GroupChat 向指定群发送消息。
+//
+// groupOpenid 为群 OpenID。
+// 支持文本、Markdown、卡片、富媒体、键盘按钮等消息类型。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html
 func (api *Client) GroupChat(ctx context.Context, groupOpenid string, msg *dto.Message) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.GroupChatURL, groupOpenid), msg)
 }
@@ -175,20 +187,79 @@ func (api *Client) DMChat(ctx context.Context, guildID string, msg *dto.GuildMes
 	return api.Post(ctx, fmt.Sprintf(constant.DMChatURL, guildID), msg)
 }
 
+// SingleRichMedia 上传单聊富媒体文件（图片、视频、语音、文件）。
+//
+// 上传后返回 file_info，用于发消息接口（msg_type=7）携带 media.file_info 发送。
+// 支持 URL 上传和 base64 数据上传。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_files.post.html
 func (api *Client) SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.SingleRichMediaURL, openid), media)
 }
 
+// GroupRichMedia 上传群聊富媒体文件。
+//
+// 与 SingleRichMedia 用法一致，但上传的文件只能在群聊场景使用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_files.post.html
 func (api *Client) GroupRichMedia(ctx context.Context, groupOpenid string, media *dto.Media) (gjson.Result, error) {
 	return api.Post(ctx, fmt.Sprintf(constant.GroupRichMediaURL, groupOpenid), media)
 }
 
+// SingleStreamChat 流式分批发送单聊消息。
+//
+// 每个分片使用相同 stream_msg_id，index 从 0 递增。
+// 适合 AI 回复等需要逐段展示内容的场景。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
+func (api *Client) SingleStreamChat(ctx context.Context, openid string, msg *dto.StreamMessage) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.StreamSingleChatURL, openid), msg)
+}
+
+// ── 富媒体分片上传 ───────────────────────────────────────────────────────────
+
+// UserUploadPrepare 单聊富媒体预上传（分片上传第一步）。
+//
+// 传入文件信息和校验值，返回 upload_id、block_size 和分片预签名 URL。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html#分片上传（推荐）
+func (api *Client) UserUploadPrepare(ctx context.Context, openid string, req *dto.UploadPrepareRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.UserUploadPrepareURL, openid), req)
+}
+
+// GroupUploadPrepare 群聊富媒体预上传（分片上传第一步）。
+func (api *Client) GroupUploadPrepare(ctx context.Context, groupID string, req *dto.UploadPrepareRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupUploadPrepareURL, groupID), req)
+}
+
+// UserUploadPartFinish 单聊分片上传完成确认（分片上传第三步）。
+//
+// 每个分片 PUT 到预签名 URL 后调用此接口通知服务端该分片已完成。
+func (api *Client) UserUploadPartFinish(ctx context.Context, openid string, req *dto.UploadPartFinishRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.UserUploadPartFinishURL, openid), req)
+}
+
+// GroupUploadPartFinish 群聊分片上传完成确认（分片上传第三步）。
+func (api *Client) GroupUploadPartFinish(ctx context.Context, groupID string, req *dto.UploadPartFinishRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupUploadPartFinishURL, groupID), req)
+}
+
 // ── 消息撤回 ────────────────────────────────────────────────────────────────
 
+// SingleReset 撤回单聊消息。
+//
+// 只能撤回机器人自己发送且不超过 2 分钟的消息。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages_message_id.delete.html
 func (api *Client) SingleReset(ctx context.Context, openid, messageID string) (gjson.Result, error) {
 	return api.Delete(ctx, fmt.Sprintf(constant.SingleResetURL, openid, messageID))
 }
 
+// GroupReset 撤回群聊消息。
+//
+// 只能撤回机器人自己发送且不超过 2 分钟的消息。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages_message_id.delete.html
 func (api *Client) GroupReset(ctx context.Context, groupOpenid, messageID string) (gjson.Result, error) {
 	return api.Delete(ctx, fmt.Sprintf(constant.GroupResetURL, groupOpenid, messageID))
 }
@@ -555,4 +626,16 @@ func (api *Client) CreateThread(ctx context.Context, channelID string, req *dto.
 // DeleteThread 删除帖子。
 func (api *Client) DeleteThread(ctx context.Context, channelID, threadID string) (gjson.Result, error) {
 	return api.Delete(ctx, fmt.Sprintf(constant.ChannelThreadURL, channelID, threadID))
+}
+
+// ── Gateway 接入点 ──────────────────────────────────────────────────────────
+
+// GetGateway 获取通用 WSS 接入点（GET /gateway）。
+func (api *Client) GetGateway(ctx context.Context) (gjson.Result, error) {
+	return api.Get(ctx, constant.GatewayURL)
+}
+
+// GetGatewayBot 获取带分片的 WSS 接入点（GET /gateway/bot）。
+func (api *Client) GetGatewayBot(ctx context.Context) (gjson.Result, error) {
+	return api.Get(ctx, constant.GatewayBotURL)
 }

@@ -280,6 +280,26 @@ const (
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/channel/get_channel.html
 	ChannelURL = OpenAPIURL + "/channels/%s"
 
+	// UserUploadPrepareURL POST /v2/users/{user_openid}/upload/prepare
+	//
+	// 单聊富媒体分片上传预上传。
+	UserUploadPrepareURL = OpenAPIURL + "/v2/users/%s/upload/prepare"
+
+	// GroupUploadPrepareURL POST /v2/groups/{group_openid}/upload/prepare
+	//
+	// 群聊富媒体分片上传预上传。
+	GroupUploadPrepareURL = OpenAPIURL + "/v2/groups/%s/upload/prepare"
+
+	// UserUploadPartFinishURL POST /v2/users/{user_openid}/upload/part/finish
+	//
+	// 单聊富媒体分片上传完成确认。
+	UserUploadPartFinishURL = OpenAPIURL + "/v2/users/%s/upload/part/finish"
+
+	// GroupUploadPartFinishURL POST /v2/groups/{group_openid}/upload/part/finish
+	//
+	// 群聊富媒体分片上传完成确认。
+	GroupUploadPartFinishURL = OpenAPIURL + "/v2/groups/%s/upload/part/finish"
+
 	// DMChatURL POST /dms/{guild_id}/messages
 	//
 	// 向频道私信会话发送消息，请求体与文字子频道发消息参数一致。
@@ -287,4 +307,18 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E9%A2%91%E9%81%93%E7%A7%81%E4%BF%A1
 	DMChatURL = OpenAPIURL + "/dms/%s/messages"
+
+	// GatewayBotURL GET /gateway/bot
+	//
+	// 获取带分片的 WSS 接入点，返回 url + shards + session_start_limit。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/openapi/wss/shard_url_get.html
+	GatewayBotURL = OpenAPIURL + "/gateway/bot"
+
+	// StreamSingleChatURL POST /v2/users/{user_openid}/stream_messages
+	//
+	// 流式分批发送单聊消息。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
+	StreamSingleChatURL = OpenAPIURL + "/v2/users/%s/stream_messages"
 )

@@ -1,6 +1,9 @@
 package qq
 
-import "github.com/KomeiDiSanXian/remilia/platform"
+import (
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Passive Reply Token Keys
@@ -50,6 +53,32 @@ type VoiceAttachmentMeta struct {
 // MessageExtra
 // ────────────────────────────────────────────────────────────────────────────
 
+// ButtonExtra 是 QQ 平台专属的按钮扩展字段。
+// 嵌入到 platform.Button.Extra 中，用于控制 QQ 按钮的独有特性。
+//
+// 示例：
+//
+//	btn := platform.Button{
+//	    ID:    "cmd_ping",
+//	    Label: "Ping",
+//	    Extra: &qq.ButtonExtra{
+//	        Enter:  true,           // 指令按钮：点击后自动发送
+//	        Reply:  true,           // 指令按钮：带引用回复
+//	        Anchor: 0,              // 1=唤起选图器
+//	    },
+//	}
+type ButtonExtra struct {
+	// Enter 指令按钮可用，点击按钮后直接自动发送 data，仅单聊可用，默认 false。
+	// 仅 type=2（指令按钮）有效。支持版本 8983。
+	Enter bool
+	// Reply 指令按钮可用，指令是否带引用回复本消息，默认 false。
+	// 仅 type=2（指令按钮）有效。支持版本 8983。
+	Reply bool
+	// Anchor 本字段仅在指令按钮下有效，设置为 1 时点击按钮自动唤起手Q选图器。
+	// 仅支持手机端版本 8983+ 的单聊场景，桌面端不支持。
+	Anchor int
+}
+
 // MessageExtra 是 QQ 平台专属的消息扩展参数。
 //
 // 使用 ApplyExtra 将其注入到 platform.OutboundMessage，
@@ -72,6 +101,15 @@ type MessageExtra struct {
 	// Ark ARK 模板消息（QQ 平台专属卡片消息）。
 	// 设置后优先于 Text/Markdown 等普通消息类型。
 	Ark *Ark
+	// Card 卡片消息（msg_type=8），适用于群聊图文卡片。
+	// 优先级高于 Ark。
+	Card *dto.Card
+	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
+	InputNotify *dto.InputNotify
+	// MarkdownTemplateID 自定义 Markdown 模板 ID（已废弃但仍可用）。
+	MarkdownTemplateID string
+	// MarkdownParams Markdown 模板参数，与 MarkdownTemplateID 配合使用。
+	MarkdownParams []dto.MarkdownParam
 }
 
 // qqExtraKey 是注入到 OutboundMessage.Extra 的键（包级私有常量）。

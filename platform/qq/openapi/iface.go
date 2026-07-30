@@ -9,6 +9,18 @@ import (
 
 // ── 子接口（按功能域划分）────────────────────────────────────────────────────
 
+// MediaUploader 富媒体分片上传管理。
+type MediaUploader interface {
+	// UserUploadPrepare 单聊富媒体预上传（分片上传第一步）。
+	UserUploadPrepare(ctx context.Context, openid string, req *dto.UploadPrepareRequest) (gjson.Result, error)
+	// GroupUploadPrepare 群聊富媒体预上传（分片上传第一步）。
+	GroupUploadPrepare(ctx context.Context, groupID string, req *dto.UploadPrepareRequest) (gjson.Result, error)
+	// UserUploadPartFinish 单聊分片上传完成确认。
+	UserUploadPartFinish(ctx context.Context, openid string, req *dto.UploadPartFinishRequest) (gjson.Result, error)
+	// GroupUploadPartFinish 群聊分片上传完成确认。
+	GroupUploadPartFinish(ctx context.Context, groupID string, req *dto.UploadPartFinishRequest) (gjson.Result, error)
+}
+
 // MessageSender 发送各类消息。
 type MessageSender interface {
 	SingleChat(ctx context.Context, openid string, msg *dto.Message) (gjson.Result, error)
@@ -17,6 +29,8 @@ type MessageSender interface {
 	DMChat(ctx context.Context, guildID string, msg *dto.GuildMessage) (gjson.Result, error)
 	SingleRichMedia(ctx context.Context, openid string, media *dto.Media) (gjson.Result, error)
 	GroupRichMedia(ctx context.Context, groupID string, media *dto.Media) (gjson.Result, error)
+	// SingleStreamChat 流式分批发送单聊消息。
+	SingleStreamChat(ctx context.Context, openid string, msg *dto.StreamMessage) (gjson.Result, error)
 }
 
 // MessageRecaller 撤回消息。
@@ -139,6 +153,14 @@ type ThreadManager interface {
 	DeleteThread(ctx context.Context, channelID, threadID string) (gjson.Result, error)
 }
 
+// GatewayManager WebSocket 网关接入点管理。
+type GatewayManager interface {
+	// GetGateway 获取通用 WSS 接入点。
+	GetGateway(ctx context.Context) (gjson.Result, error)
+	// GetGatewayBot 获取带分片的 WSS 接入点（含 shard 建议数）。
+	GetGatewayBot(ctx context.Context) (gjson.Result, error)
+}
+
 // ── 聚合接口 ────────────────────────────────────────────────────────────────
 
 // OpenAPI 是所有 QQ 开放平台能力的完整聚合接口。
@@ -159,4 +181,6 @@ type OpenAPI interface {
 	ScheduleManager
 	AudioManager
 	ThreadManager
+	GatewayManager
+	MediaUploader
 }
