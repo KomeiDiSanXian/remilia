@@ -470,3 +470,121 @@ func TestNewEvent_MessageReaction_ReplyToID(t *testing.T) {
 		}
 	}
 }
+
+// TestNewEvent_GroupMessageCreate_QuoteMessage 测试 message_type=103 引用消息的 content 提取。
+func TestNewEvent_GroupMessageCreate_QuoteMessage(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_q001",
+		"content":      " ",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Alice",
+			"member_role":   "admin",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+		"msg_elements": []any{
+			map[string]any{
+				"content": "=== 消息 1 ===\n今天完成了学习计划",
+			},
+		},
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"msg_idx=IDX001"},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	if event.Kind() != platform.EventKindGroupMessage {
+		t.Errorf("Kind: got %q, want %q", event.Kind(), platform.EventKindGroupMessage)
+	}
+	// 引用消息的 content 应从 msg_elements[0].content 提取
+	wantContent := "=== 消息 1 ===\n今天完成了学习计划"
+	if event.Content() != wantContent {
+		t.Errorf("Content: got %q, want %q", event.Content(), wantContent)
+	}
+	if event.Chat().ID != "group_001" {
+		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_WithRole 测试群消息携带成员角色信息。
+func TestNewEvent_GroupMessageCreate_WithRole(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_r001",
+		"content":      "hello",
+		"group_openid": "group_001",
+		"message_type": 0,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Bob",
+			"member_role":   "owner",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+	})
+
+	event := qq.NewEvent(payload)
+	if event.Sender().GroupRole != platform.GroupRoleOwner {
+		t.Errorf("GroupRole: got %v, want %v", event.Sender().GroupRole, platform.GroupRoleOwner)
+	}
+
+	// 测试普通成员
+	payload2 := makePayload(dto.GroupAtMessageCreate, map[string]any{
+		"id":           "msg_r002",
+		"content":      "@me hi",
+		"group_openid": "group_001",
+		"author": map[string]any{
+			"member_openid": "mem002",
+			"username":      "Charlie",
+			"member_role":   "member",
+		},
+		"timestamp": "2026-07-21T10:11:00+08:00",
+	})
+	event2 := qq.NewEvent(payload2)
+	if event2.Sender().GroupRole != platform.GroupRoleMember {
+		t.Errorf("GroupRole: got %v, want %v", event2.Sender().GroupRole, platform.GroupRoleMember)
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_Mentions 测试 GROUP_MESSAGE_CREATE 的 @ 用户列表。
+func TestNewEvent_GroupMessageCreate_Mentions(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_m001",
+		"content":      "<@u001> <@u002> hello everyone",
+		"group_openid": "group_001",
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Alice",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+		"mentions": []any{
+			map[string]any{"id": "u001", "username": "Bob", "bot": false},
+			map[string]any{"id": "u002", "username": "Charlie", "bot": true, "is_you": true},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	mentionsEvent, ok := event.(interface{ Mentions() []platform.UserInfo })
+	if !ok {
+		t.Fatal("event should implement Mentions()")
+	}
+	mentions := mentionsEvent.Mentions()
+	if len(mentions) != 2 {
+		t.Fatalf("Mentions: got %d, want 2", len(mentions))
+	}
+	if mentions[0].ID != "u001" {
+		t.Errorf("Mentions[0].ID: got %q, want u001", mentions[0].ID)
+	}
+	if mentions[1].IsBot != true {
+		t.Errorf("Mentions[1].IsBot: want true")
+	}
+	if mentions[1].IsSelf != true {
+		t.Errorf("Mentions[1].IsSelf: want true (is_you)")
+	}
+	// content 应已去除 <@id> 标记
+	wantContent := "hello everyone"
+	if event.Content() != wantContent {
+		t.Errorf("Content: got %q, want %q", event.Content(), wantContent)
+	}
+}

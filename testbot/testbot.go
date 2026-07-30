@@ -106,6 +106,21 @@ func (m *MockAPI) SingleRichMedia(_ context.Context, _ string, _ *dto.Media) (gj
 func (m *MockAPI) GroupRichMedia(_ context.Context, _ string, _ *dto.Media) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
+func (m *MockAPI) SingleStreamChat(_ context.Context, _ string, _ *dto.StreamMessage) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UserUploadPrepare(_ context.Context, _ string, _ *dto.UploadPrepareRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GroupUploadPrepare(_ context.Context, _ string, _ *dto.UploadPrepareRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UserUploadPartFinish(_ context.Context, _ string, _ *dto.UploadPartFinishRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GroupUploadPartFinish(_ context.Context, _ string, _ *dto.UploadPartFinishRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
 func (m *MockAPI) SingleReset(_ context.Context, _, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
@@ -305,6 +320,15 @@ func (m *MockAPI) DeleteReaction(_ context.Context, _, _ string, _ int, _ string
 	return gjson.Result{}, nil
 }
 func (m *MockAPI) GetReactionUsers(_ context.Context, _, _ string, _ int, _, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
+// ── Gateway 接入点 ──────────────────────────────────────────────────────────
+
+func (m *MockAPI) GetGateway(_ context.Context) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGatewayBot(_ context.Context) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 

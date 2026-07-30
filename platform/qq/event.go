@@ -14,6 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// PlatformID 是 QQ 平台适配器的平台标识符，值为 "qq"。
 const PlatformID = "qq"
 
 // qqEvent 将 QQ 的 *dto.Payload 解析后的字段存储为平台无关类型。
@@ -194,20 +195,37 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"id",                   // [0] 消息 ID（用于 msg_id 被动回复授权）
-		"content",              // [1]
-		"author.member_openid", // [2]
-		"author.username",      // [3] 发送者昵称
-		"group_openid",         // [4]
-		"timestamp",            // [5]
-		"attachments",          // [6]
+		"id",                          // [0] 消息 ID（用于 msg_id 被动回复授权）
+		"content",                     // [1]
+		"author.member_openid",        // [2]
+		"author.username",             // [3] 发送者昵称
+		"group_openid",                // [4]
+		"timestamp",                   // [5]
+		"attachments",                 // [6]
+		"message_type",                // [7] 消息内容类型
+		"author.member_role",          // [8] 群角色
+		"author.union_openid",         // [9] 跨应用统一 OpenID
+		"author.union_user_account",   // [10] 跨应用统一账号
+		"msg_elements",                // [11] 消息元素列表（quote/forward）
 	)
 	e.content = results[1].String()
+	msgType := int(results[7].Int())
+
+	// message_type=103 引用消息：content 为空格，真实内容在 msg_elements
+	if msgType == 103 && (e.content == "" || e.content == " ") {
+		elemContent := extractQuoteContent(results[11])
+		if elemContent != "" {
+			e.content = elemContent
+		}
+	}
+
 	memberOpenID := results[2].String()
 	e.sender = platform.UserInfo{
 		ID:          memberOpenID,
 		DisplayName: results[3].String(),
+		GroupRole:   parseQQGroupRole(results[8].String()),
 	}
+
 	e.chat = platform.ChatInfo{
 		ID:      results[4].String(),
 		IsGroup: true,
@@ -240,6 +258,19 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		}
 	}
 	e.content = strings.TrimSpace(e.content)
+}
+
+// extractQuoteContent 从 msg_elements 中提取引用消息的文本内容。
+// message_type=103 时，引用消息的文本在 msg_elements[0].content 中。
+func extractQuoteContent(r gjson.Result) string {
+	if !r.IsArray() {
+		return ""
+	}
+	arr := r.Array()
+	if len(arr) == 0 {
+		return ""
+	}
+	return arr[0].Get("content").String()
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
@@ -431,6 +462,20 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 // 使用 r.Array() 预获取元素数量，一次性分配输出切片，避免 append 扩容。
 // QQ 语音附件的专属字段（voice_wav_url、asr_refer_text）通过 Extra 字段
 // 以 *VoiceAttachmentMeta 类型携带，不污染平台无关的 InboundAttachment 结构体。
+// parseQQGroupRole 将 QQ 群角色字符串映射为 platform.GroupRole。
+func parseQQGroupRole(role string) platform.GroupRole {
+	switch role {
+	case "owner":
+		return platform.GroupRoleOwner
+	case "admin":
+		return platform.GroupRoleAdmin
+	case "member":
+		return platform.GroupRoleMember
+	default:
+		return platform.GroupRoleUnknown
+	}
+}
+
 func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	if !r.IsArray() || len(r.Raw) == 0 {
 		return nil
@@ -617,17 +662,32 @@ func (e *qqEvent) populateNoticeUser(detail json.RawMessage) {
 	}
 }
 
-func (e *qqEvent) Platform() string          { return PlatformID }
-func (e *qqEvent) ID() string                { return e.id }
-func (e *qqEvent) Kind() platform.EventKind  { return e.kind }
-func (e *qqEvent) RawType() string           { return e.rawType }
+// Platform 返回平台标识符 "qq"。
+func (e *qqEvent) Platform() string { return PlatformID }
+
+// ID 返回事件/消息的唯一标识符。
+func (e *qqEvent) ID() string { return e.id }
+
+// Kind 返回事件类型。
+func (e *qqEvent) Kind() platform.EventKind { return e.kind }
+
+// RawType 返回 QQ 平台原始事件类型字符串（如 "C2C_MESSAGE_CREATE"）。
+func (e *qqEvent) RawType() string { return e.rawType }
+
+// Sender 返回消息发送者信息。
 func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
-func (e *qqEvent) Chat() platform.ChatInfo   { return e.chat }
-func (e *qqEvent) Content() string           { return e.content }
+
+// Chat 返回消息所在会话信息。
+func (e *qqEvent) Chat() platform.ChatInfo { return e.chat }
+
+// Content 返回消息文本内容。
+func (e *qqEvent) Content() string { return e.content }
 
 // Attachments 返回消息中携带的附件列表。
 func (e *qqEvent) Attachments() []platform.InboundAttachment { return e.attachments }
-func (e *qqEvent) Timestamp() time.Time                      { return e.timestamp }
+
+// Timestamp 返回消息发送时间。
+func (e *qqEvent) Timestamp() time.Time { return e.timestamp }
 
 // ReplyToID 实现 platform.ReplyEvent，返回被回复消息的平台原生 ID。
 //
