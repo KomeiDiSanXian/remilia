@@ -43,6 +43,11 @@ type Session struct {
 	ToolCount int
 
 	contentCache map[string]*cachedContent `json:"-"`
+
+	// 工具分类路由缓存（json:"-" 不持久化，重启后首次消息会重新路由）。
+	routeCategory  string    `json:"-"`
+	routeAt        time.Time `json:"-"`
+	routeToolCount int       `json:"-"`
 }
 
 // Lock 锁定会话，禁止并发访问 Messages 等可变字段。
@@ -232,10 +237,11 @@ func (sm *SessionManager) Delete(sessionID string) {
 
 // CleanupExpired 清理过期的会话。
 // 由插件 Setup 中启动的后台 goroutine 定期调用。
+// 先持锁收集过期会话并移出缓存，释放锁后再执行持久化删除，避免 DB I/O 阻塞其他会话操作。
 func (sm *SessionManager) CleanupExpired() {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	var expiredIDs []string
 
+	sm.mu.Lock()
 	now := time.Now()
 	for id, elem := range sm.sessions {
 		entry := elem.Value.(*sessionEntry)
@@ -245,9 +251,14 @@ func (sm *SessionManager) CleanupExpired() {
 		if expired {
 			sm.lru.Remove(elem)
 			delete(sm.sessions, id)
-			if sm.storage != nil {
-				_ = sm.storage.Delete(id)
-			}
+			expiredIDs = append(expiredIDs, id)
+		}
+	}
+	sm.mu.Unlock()
+
+	if sm.storage != nil {
+		for _, id := range expiredIDs {
+			_ = sm.storage.Delete(id)
 		}
 	}
 }

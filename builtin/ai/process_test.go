@@ -285,6 +285,93 @@ func TestRouteToolCategory(t *testing.T) {
 	_ = cat
 }
 
+func TestGetOrRouteCategoryCaches(t *testing.T) {
+	var routeCalls int
+	p := &Plugin{
+		cfg: &Config{},
+		prov: &mockProvider{
+			chatFn: func(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+				routeCalls++
+				return &ChatResponse{
+					ToolCalls: []ToolCall{{
+						ID:        "call_1",
+						Name:      categorySelectToolName,
+						Arguments: map[string]any{"category": "weather"},
+					}},
+				}, nil
+			},
+		},
+	}
+
+	evt := platform.NewSyntheticEvent("c2c", "what's the weather?")
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	tools := []Tool{
+		{Name: "w", Categories: []string{"weather"}},
+		{Name: "n", Categories: []string{"news"}},
+	}
+	cats := collectToolCategories(tools)
+
+	// 第一次调用：发起路由
+	session := &Session{}
+	cat, err := p.getOrRouteCategory(ctx, session, "weather?", tools, cats)
+	if err != nil {
+		t.Fatalf("getOrRouteCategory failed: %v", err)
+	}
+	if cat != "weather" {
+		t.Errorf("expected category weather, got %q", cat)
+	}
+	if routeCalls != 1 {
+		t.Fatalf("expected 1 route call on first invoke, got %d", routeCalls)
+	}
+
+	// 第二次调用（TTL 内、工具集未变）：命中缓存，不重复路由
+	cat2, err := p.getOrRouteCategory(ctx, session, "unrelated question", tools, cats)
+	if err != nil {
+		t.Fatalf("getOrRouteCategory failed: %v", err)
+	}
+	if cat2 != "weather" {
+		t.Errorf("expected cached category weather, got %q", cat2)
+	}
+	if routeCalls != 1 {
+		t.Fatalf("expected cache hit (1 route call), got %d", routeCalls)
+	}
+
+	// 工具集变化（数量不同）→ 缓存失效，重新路由
+	tools2 := []Tool{
+		{Name: "w", Categories: []string{"weather"}},
+		{Name: "n", Categories: []string{"news"}},
+		{Name: "s", Categories: []string{"sport"}},
+	}
+	cats2 := collectToolCategories(tools2)
+	cat3, err := p.getOrRouteCategory(ctx, session, "weather again", tools2, cats2)
+	if err != nil {
+		t.Fatalf("getOrRouteCategory failed: %v", err)
+	}
+	if cat3 != "weather" {
+		t.Errorf("expected category weather after re-route, got %q", cat3)
+	}
+	if routeCalls != 2 {
+		t.Fatalf("expected 2 route calls after tool set change, got %d", routeCalls)
+	}
+
+	// TTL 过期 → 缓存失效，重新路由
+	session.Lock()
+	session.routeCategory = "weather"
+	session.routeAt = time.Now().Add(-routeCacheTTL - time.Second)
+	session.routeToolCount = len(tools2)
+	session.Unlock()
+	cat4, err := p.getOrRouteCategory(ctx, session, "weather once more", tools2, cats2)
+	if err != nil {
+		t.Fatalf("getOrRouteCategory failed: %v", err)
+	}
+	if cat4 != "weather" {
+		t.Errorf("expected category weather after TTL expiry, got %q", cat4)
+	}
+	if routeCalls != 3 {
+		t.Fatalf("expected 3 route calls after TTL expiry, got %d", routeCalls)
+	}
+}
+
 func TestRealCommandExecution(t *testing.T) {
 	p := &Plugin{
 		reg:         NewToolRegistry(),

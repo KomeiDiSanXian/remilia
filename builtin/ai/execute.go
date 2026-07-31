@@ -157,7 +157,7 @@ func (p *Plugin) executeSkill(ctx context.Context, skill Skill, args map[string]
 		msgs = append(msgs, Message{Role: RoleAssistant, Content: resp.Text, ToolCalls: resp.ToolCalls})
 		for _, tc := range resp.ToolCalls {
 			result := p.executeSkillTool(skillCtx, tc, tools)
-			msgs = append(msgs, Message{Role: RoleTool, Content: result, ToolCallID: tc.ID})
+			msgs = append(msgs, Message{Role: RoleTool, Content: truncateToolResult(result), ToolCallID: tc.ID})
 		}
 	}
 

@@ -166,7 +166,7 @@ func TestFormatAIError(t *testing.T) {
 		{"context deadline exceeded", "请求超时，请检查网络连接或增大超时配置"},
 		{"connection refused", "无法连接 API 服务器，请检查 base_url 配置"},
 		{"no such host", "API 域名解析失败，请检查 base_url 配置"},
-		{"unknown error", "AI 处理出错: unknown error"},
+		{"unknown error", "AI 处理出错，请稍后再试"},
 	}
 	for _, tt := range tests {
 		err := formatAIError(errFromString(tt.err))
@@ -215,8 +215,9 @@ func TestFilterToolsByCategory(t *testing.T) {
 		{Name: "d"},
 	}
 	filtered := filterToolsByCategory(tools, "weather")
-	if len(filtered) != 2 {
-		t.Errorf("expected 2 tools in weather category, got %d", len(filtered))
+	// weather 分类工具 (b, c) + 通用工具始终保留 (a, d)
+	if len(filtered) != 4 {
+		t.Errorf("expected 4 tools (weather + general fallback), got %d", len(filtered))
 	}
 }
 

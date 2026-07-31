@@ -2,8 +2,10 @@ package ai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestNewSessionManager(t *testing.T) {
@@ -170,6 +172,66 @@ func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 	trimMessages(s, 0)
 	if len(s.Messages) != 1 {
 		t.Error("trimMessages with 0 maxHistory should not modify")
+	}
+}
+
+func TestPrepareRequestMessagesKeepsLatestUserParts(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleSystem, Content: "sys"},
+		{Role: RoleUser, Content: "", ContentParts: []ContentPart{
+			{Type: ContentPartImage, Data: []byte("img1"), MimeType: "image/png"},
+		}},
+		{Role: RoleAssistant, Content: "reply"},
+		{Role: RoleUser, Content: "", ContentParts: []ContentPart{
+			{Type: ContentPartText, Text: "new question"},
+			{Type: ContentPartImage, Data: []byte("img2"), MimeType: "image/png"},
+		}},
+	}
+
+	out := prepareRequestMessages(msgs)
+
+	// 最后一条用户消息保留完整 ContentParts（含二进制数据）
+	last := out[len(out)-1]
+	if len(last.ContentParts) != 2 {
+		t.Fatalf("expected latest user message to keep 2 content parts, got %d", len(last.ContentParts))
+	}
+	if len(last.ContentParts[1].Data) != 4 {
+		t.Errorf("expected binary data retained for latest user message")
+	}
+
+	// 历史用户消息的二进制数据应被降级为占位文本
+	hist := out[1]
+	if len(hist.ContentParts) != 0 {
+		t.Errorf("expected historical message content parts to be stripped")
+	}
+	if hist.Content == "" || strings.Contains(hist.Content, "img1") {
+		t.Errorf("expected historical message content to be placeholder text, got %q", hist.Content)
+	}
+
+	// 原始切片不受影响
+	if len(msgs[1].ContentParts) != 1 {
+		t.Errorf("prepareRequestMessages must not mutate input")
+	}
+}
+
+func TestTruncateToolResult(t *testing.T) {
+	short := "short result"
+	if got := truncateToolResult(short); got != short {
+		t.Errorf("expected short result unchanged, got %q", got)
+	}
+
+	long := strings.Repeat("字", 9000) // 9000 runes > 8000 limit
+	got := truncateToolResult(long)
+	runes := []rune(got)
+	if len(runes) != maxToolResultLen+len([]rune("\n…(工具结果过长已截断)")) {
+		t.Errorf("expected truncated length, got %d runes", len(runes))
+	}
+	// 截断后仍是合法 UTF-8（rune 边界）
+	if !utf8.ValidString(got) {
+		t.Error("truncated result should be valid UTF-8")
+	}
+	if !strings.HasSuffix(got, "…(工具结果过长已截断)") {
+		t.Errorf("expected truncation marker suffix, got %q", got[len(got)-20:])
 	}
 }
 

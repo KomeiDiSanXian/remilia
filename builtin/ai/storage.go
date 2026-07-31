@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
+	"gorm.io/gorm/clause"
 )
 
 // gormSessionStore 基于 GORM 的会话持久化存储。
@@ -41,18 +42,16 @@ func (s *gormSessionStore) Load(sessionID string) (*Session, error) {
 	return rec.toSession(), nil
 }
 
-// Save 保存会话到数据库，不存在时创建，存在时更新。
+// Save 保存会话到数据库（单语句 upsert，避免 SELECT+INSERT/UPDATE 两次往返）。
+// 主键存在时更新全部字段，不存在时插入。
 func (s *gormSessionStore) Save(session *Session) error {
 	rec := session.toRecord()
-	var existing sessionRecord
-	err := s.client.Where("id = ?", session.ID).First(&existing)
-	if err != nil {
-		if errors.Is(err, infrastorage.ErrNotFound) {
-			return s.client.Create(rec)
-		}
-		return err
-	}
-	return s.client.Where("id = ?", session.ID).Updates(rec)
+	return s.client.DB().
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			UpdateAll: true,
+		}).
+		Create(rec).Error
 }
 
 // Delete 从数据库删除会话。
