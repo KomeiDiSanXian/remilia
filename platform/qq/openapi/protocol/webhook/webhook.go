@@ -31,6 +31,7 @@ type Webhook interface {
 // Conn 表示与 Webhook 服务器的连接。
 type Conn struct {
 	info          *dto.BotInfo
+	key           *ed25519Key // 构造时按协议规则派生的 Ed25519 密钥（只读，并发安全）
 	eventChan     chan *dto.Payload
 	droppedEvents atomic.Uint64 // 丢弃事件计数器
 	totalEvents   atomic.Uint64 // 总接收事件计数器
@@ -76,19 +77,28 @@ func NewWebhook(info *dto.BotInfo) *Conn {
 // NewWithBuffer creates a new connection with specified event channel buffer size.
 //
 // 事件去重由上层中间件负责，此处不做去重处理。
+//
+// 密钥在构造时派生一次并缓存：AppSecret 固定不变，每个请求重新派生是纯浪费。
+// info 为 nil 或 AppSecret 为空时 key 保持 nil，Verify/Sign 会返回明确错误
+// 而非 panic（见 genKey 的说明）。
 func NewWithBuffer(info *dto.BotInfo, buffer int) *Conn {
 	if buffer <= 0 {
 		buffer = 1
 	}
+	var key *ed25519Key
+	if info != nil && info.AppSecret != "" {
+		key = deriveKey(info.AppSecret)
+	}
 	return &Conn{
 		info:      info,
+		key:       key,
 		eventChan: make(chan *dto.Payload, buffer),
 	}
 }
 
 // Addr returns the address of the webhook server.
 //
-// info 允许为 nil（见 genSeed 的说明），此时返回空串而非 panic。
+// info 允许为 nil（见 genKey 的说明），此时返回空串而非 panic。
 func (c *Conn) Addr() string {
 	if c == nil || c.info == nil {
 		return ""
@@ -105,27 +115,45 @@ func (c *Conn) EventStream() <-chan *dto.Payload {
 func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	if c == nil {
 		logger.Error("[Webhook] Webhook connection is nil")
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, "webhook connection is nil", http.StatusInternalServerError)
 		return
 	}
 
+	// QQ 回调只通过 POST 推送，其余方法（GET 爬虫探测等）无需读取 body。
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 读取请求体。
+	//
+	// 必须限制大小：签名校验发生在读取之后，无上限的 io.ReadAll 让任何能访问
+	// 该端口的匿名客户端仅凭一个超大 body 就把进程打到 OOM（此时尚未鉴权）。
+	// http.MaxBytesReader 超限即报错并关闭连接，比 io.LimitReader 的静默截断
+	// 更能抵抗恶意大请求（后者只截断，仍会消耗连接与内存处理被截断的流）。
+	//
+	// 把返回值写回 r.Body 再在 defer 中关闭：MaxBytesReader 是包装 reader，
+	// 若不持有其返回值并显式 Close，超限等路径上该包装器便失去受控清理
+	// （defer 注册时求值 r.Body，若在包装之后注册 defer，捕获的将是包装器）。
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 	defer func() {
 		if err := r.Body.Close(); err != nil {
 			logger.WithError(err).Error("[Webhook] Failed to close request body")
 		}
 	}()
 
-	// 读取请求体。
-	//
-	// 必须限制大小：签名校验发生在读取之后，无上限的 io.ReadAll 让任何能访问
-	// 该端口的匿名客户端仅凭一个超大 body 就把进程打到 OOM（此时尚未鉴权）。
-	b, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes))
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.WithError(err).Error("[Webhook] Failed to read request body")
-		if errors.Is(err, io.EOF) {
-			w.WriteHeader(http.StatusBadRequest)
-		} else {
-			w.WriteHeader(http.StatusInternalServerError)
+		var maxErr *http.MaxBytesError
+		switch {
+		case errors.As(err, &maxErr):
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		case errors.Is(err, io.EOF):
+			http.Error(w, "request body is empty", http.StatusBadRequest)
+		default:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
@@ -133,7 +161,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	// 爬网机器人等请求通常不带签名头，提前静默拒绝
 	if r.Header.Get(HeaderSignature) == "" {
 		logger.Debug("[Webhook] Request missing signature header, ignored")
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "missing signature header", http.StatusBadRequest)
 		return
 	}
 
@@ -141,12 +169,12 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	verified, err := c.Verify(r.Header, b)
 	if err != nil {
 		logger.WithError(err).Error("[Webhook] Failed to verify request signature")
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Error(w, "invalid request signature", http.StatusUnauthorized)
 		return
 	}
 	if !verified {
 		logger.Error("[Webhook] Invalid request signature")
-		w.WriteHeader(http.StatusUnauthorized)
+		http.Error(w, "invalid request signature", http.StatusUnauthorized)
 		return
 	}
 
@@ -156,7 +184,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(b, payload); err != nil {
 		dto.ReleasePayload(payload)
 		logger.WithError(err).Error("[Webhook] Failed to unmarshal payload")
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
 
@@ -179,7 +207,7 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		logger.WithError(err).Error("[Webhook] Failed to handle operation")
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 

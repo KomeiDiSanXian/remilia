@@ -1,9 +1,11 @@
 package webhook
 
 import (
+	"bytes"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -78,6 +80,43 @@ func TestHandleDispatch_ChannelFull_DropsPayload(t *testing.T) {
 	c.handleDispatch(second)
 
 	assert.Equal(t, uint64(1), c.GetDroppedEventsCount())
+}
+
+func TestHandle_MethodNotAllowed(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWebhook(info)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rw := httptest.NewRecorder()
+	c.Handle(rw, req)
+
+	resp := rw.Result()
+	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
+	assert.Equal(t, http.MethodPost, resp.Header.Get("Allow"))
+}
+
+func TestHandle_MissingSignatureHeader(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWebhook(info)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+	rw := httptest.NewRecorder()
+	c.Handle(rw, req)
+
+	assert.Equal(t, http.StatusBadRequest, rw.Result().StatusCode)
+}
+
+func TestHandle_BodyTooLarge(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWebhook(info)
+
+	big := bytes.Repeat([]byte("a"), maxWebhookBodyBytes+1)
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(big))
+	req.Header.Set(HeaderSignature, "x")
+	rw := httptest.NewRecorder()
+	c.Handle(rw, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rw.Result().StatusCode)
 }
 
 type testWebHook struct{ *Conn }

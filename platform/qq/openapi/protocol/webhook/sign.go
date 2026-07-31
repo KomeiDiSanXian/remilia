@@ -21,22 +21,27 @@ type ed25519Key struct {
 	privateKey ed25519.PrivateKey
 }
 
-func (c *Conn) genSeed() (string, error) {
-	// info 允许为 nil：NewWebhookServerAdapter / SimpleWebhookAdapter 都明确
-	// 支持传入 nil BotInfo。缺少此判断时，任何带合法长度签名头的匿名请求
-	// 都会在这里空指针 panic（net/http 逐连接 recover，于是退化为可被外部
-	// 无限触发的日志风暴 + 连接重置，适配器 100% 不可用）。
-	if c.info == nil {
-		return "", fmt.Errorf("bot info is nil")
-	}
-	if c.info.AppSecret == "" {
-		return "", fmt.Errorf("app secret is empty")
-	}
-	seed := c.info.AppSecret
+// deriveKey 按腾讯协议规则从 AppSecret 派生 Ed25519 密钥对。
+//
+// 协议规定的派生方式：把 AppSecret 不断加倍直到长度 ≥ ed25519.SeedSize，
+// 再截断到 32 字节作为 Ed25519 的 seed。这是协议的一部分，不能用
+// SHA-256 或其他 KDF 替代，否则签名与官方 SDK 不兼容。
+//
+// 这里用 ed25519.NewKeyFromSeed 明确表达"从 seed 恢复私钥"的意图，与官方
+// ed25519.GenerateKey(strings.NewReader(seed)) 结果逐字节一致（Go 源码中
+// GenerateKey 就是 ReadFull(rand, seed) 后调用 NewKeyFromSeed），只是不再把
+// 确定性的密钥派生误用为 CSPRNG 接口。调用方保证 secret 非空。
+func deriveKey(secret string) *ed25519Key {
+	seed := secret
 	for len(seed) < ed25519.SeedSize {
-		seed = strings.Repeat(seed, 2)
+		seed += seed
 	}
-	return seed[:ed25519.SeedSize], nil
+	seed = seed[:ed25519.SeedSize]
+	privateKey := ed25519.NewKeyFromSeed([]byte(seed))
+	return &ed25519Key{
+		publicKey:  privateKey.Public().(ed25519.PublicKey),
+		privateKey: privateKey,
+	}
 }
 
 func (c *Conn) decodeSign(sign string) ([]byte, error) {
@@ -108,19 +113,23 @@ func checkTimestampSkew(timestamp string) error {
 	return nil
 }
 
+// genKey 返回缓存的 Ed25519 密钥对。
+//
+// AppSecret 在构造时即固定（见 NewWithBuffer），因此密钥只派生一次，
+// 避免每个请求都重新走一遍 seed 扩展 + 密钥派生。
+//
+// key 为 nil 表示没有可用密钥：NewWebhookServerAdapter / SimpleWebhookAdapter
+// 都明确支持传入 nil BotInfo。缺少此判断时，任何带合法长度签名头的匿名请求
+// 都会在空指针上 panic（net/http 逐连接 recover，于是退化为可被外部无限触发
+// 的日志风暴 + 连接重置，适配器 100% 不可用）。
 func (c *Conn) genKey() (*ed25519Key, error) {
-	seed, err := c.genSeed()
-	if err != nil {
-		return nil, err
+	if c.key != nil {
+		return c.key, nil
 	}
-	pub, pri, err := ed25519.GenerateKey(strings.NewReader(seed[:ed25519.SeedSize]))
-	if err != nil {
-		return nil, fmt.Errorf("generate key failed: %w", err)
+	if c.info == nil {
+		return nil, fmt.Errorf("bot info is nil")
 	}
-	return &ed25519Key{
-		publicKey:  pub,
-		privateKey: pri,
-	}, nil
+	return nil, fmt.Errorf("app secret is empty")
 }
 
 // Verify verifies the signature of the request
