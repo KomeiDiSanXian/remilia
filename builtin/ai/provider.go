@@ -154,3 +154,19 @@ func NewProvider(cfg *Config) (Provider, error) {
 		return nil, fmt.Errorf("ai: unknown provider %q (supported: openai, anthropic)", cfg.Provider)
 	}
 }
+
+// requestModel 优先使用请求级模型名，为空时回退到客户端默认模型。
+func requestModel(defaultModel, reqModel string) string {
+	if reqModel != "" {
+		return reqModel
+	}
+	return defaultModel
+}
+
+// requestMaxTokens 优先使用请求级 max_tokens，非正值时回退到客户端默认值。
+func requestMaxTokens(defaultTokens, reqTokens int) int {
+	if reqTokens > 0 {
+		return reqTokens
+	}
+	return defaultTokens
+}

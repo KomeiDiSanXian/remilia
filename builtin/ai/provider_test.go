@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -359,5 +360,219 @@ func TestOpenAIProvider_ContextCancel(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for context cancel/timeout")
+	}
+}
+
+func TestOpenAIProvider_ChatUsesRequestModelAndMaxTokens(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{
+				{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	cfg := &Config{BaseURL: server.URL, APIKey: "k", Model: "default-model", MaxTokens: 100}
+	prov, _ := NewOpenAIProvider(cfg)
+
+	_, err := prov.Chat(context.Background(), &ChatRequest{
+		Model:     "override-model",
+		MaxTokens: 77,
+		Messages:  []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	if !strings.Contains(gotBody, `"model":"override-model"`) {
+		t.Errorf("expected request-level model override, body: %s", gotBody)
+	}
+	if !strings.Contains(gotBody, `"max_tokens":77`) {
+		t.Errorf("expected request-level max_tokens, body: %s", gotBody)
+	}
+}
+
+func TestOpenAIProvider_ChatStreamUsesRequestModelAndMaxTokens(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"index\":0}]}\n\n"))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"index\":0,\"finish_reason\":\"stop\"}]}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{BaseURL: server.URL, APIKey: "k", Model: "default-model", MaxTokens: 100}
+	prov, _ := NewOpenAIProvider(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &ChatRequest{
+		Model:     "override-model",
+		MaxTokens: 88,
+		Messages:  []Message{{Role: RoleUser, Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+	for range ch {
+	}
+	if !strings.Contains(gotBody, `"model":"override-model"`) {
+		t.Errorf("expected request-level model override, body: %s", gotBody)
+	}
+	if !strings.Contains(gotBody, `"max_tokens":88`) {
+		t.Errorf("expected request-level max_tokens, body: %s", gotBody)
+	}
+}
+
+func TestOpenAIProvider_ChatStreamRetryOn5xx(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"index\":0}]}\n\n"))
+		w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"index\":0,\"finish_reason\":\"stop\"}]}\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{BaseURL: server.URL, APIKey: "k", Model: "gpt-4o-mini", MaxTokens: 100, MaxRetries: 3}
+	prov, _ := NewOpenAIProvider(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+
+	var text strings.Builder
+	for evt := range ch {
+		switch evt.Type {
+		case StreamEventText:
+			text.WriteString(evt.Content)
+		case StreamEventError:
+			t.Fatalf("stream error: %v", evt.Err)
+		}
+	}
+	if text.String() != "ok" {
+		t.Errorf("expected %q, got %q", "ok", text.String())
+	}
+	if attempts != 2 {
+		t.Errorf("expected 2 attempts (1 fail + 1 success), got %d", attempts)
+	}
+}
+
+func TestAnthropicProvider_ChatStreamParallelToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"get_weather\",\"input\":{}}}\n\n"))
+		w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\\\"Beijing\\\"\"}}\n\n"))
+		w.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"get_time\",\"input\":{}}}\n\n"))
+		w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"tz\\\":\\\"UTC\\\"\"}}\n\n"))
+		w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"}\"}}\n\n"))
+		w.Write([]byte("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"))
+		w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"}\"}}\n\n"))
+		w.Write([]byte("event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":1}\n\n"))
+		w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		Provider:  "anthropic",
+		BaseURL:   server.URL,
+		APIKey:    "test-key",
+		Model:     "claude-sonnet-4-20250514",
+		MaxTokens: 100,
+	}
+	prov, _ := NewAnthropicProvider(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Weather and time?"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+
+	var calls []ToolCall
+	for evt := range ch {
+		if evt.Type == StreamEventToolCall && evt.ToolCall != nil {
+			calls = append(calls, *evt.ToolCall)
+		}
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 parallel tool calls, got %d", len(calls))
+	}
+
+	byName := make(map[string]ToolCall, len(calls))
+	for _, c := range calls {
+		byName[c.Name] = c
+	}
+
+	wc, ok := byName["get_weather"]
+	if !ok {
+		t.Fatal("missing get_weather tool call")
+	}
+	if wc.ID != "toolu_1" {
+		t.Errorf("expected get_weather id %q, got %q", "toolu_1", wc.ID)
+	}
+	if wc.Arguments["city"] != "Beijing" {
+		t.Errorf("expected get_weather city=Beijing, got %v", wc.Arguments["city"])
+	}
+
+	tc, ok := byName["get_time"]
+	if !ok {
+		t.Fatal("missing get_time tool call")
+	}
+	if tc.ID != "toolu_2" {
+		t.Errorf("expected get_time id %q, got %q", "toolu_2", tc.ID)
+	}
+	if tc.Arguments["tz"] != "UTC" {
+		t.Errorf("expected get_time tz=UTC, got %v", tc.Arguments["tz"])
+	}
+}
+
+func TestAnthropicProvider_ChatStreamErrorEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		Provider:  "anthropic",
+		BaseURL:   server.URL,
+		APIKey:    "test-key",
+		Model:     "claude-sonnet-4-20250514",
+		MaxTokens: 100,
+	}
+	prov, _ := NewAnthropicProvider(cfg)
+
+	ch, err := prov.ChatStream(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: RoleUser, Content: "Hi"}},
+	})
+	if err != nil {
+		t.Fatalf("ChatStream failed: %v", err)
+	}
+
+	var gotErr error
+	for evt := range ch {
+		if evt.Type == StreamEventError {
+			gotErr = evt.Err
+		}
+	}
+	if gotErr == nil {
+		t.Fatal("expected stream error event")
+	}
+	if !strings.Contains(gotErr.Error(), "Overloaded") {
+		t.Errorf("expected error message %q in %q", "Overloaded", gotErr.Error())
 	}
 }

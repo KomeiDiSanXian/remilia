@@ -248,8 +248,8 @@ func (c *anthropicClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResp
 	systemPrompt := extractAnthropicSystem(req.Messages)
 
 	body := anthropicChatRequest{
-		Model:       c.model,
-		MaxTokens:   c.maxTokens,
+		Model:       requestModel(c.model, req.Model),
+		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
@@ -356,8 +356,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 	systemPrompt := extractAnthropicSystem(req.Messages)
 
 	body := anthropicChatRequest{
-		Model:       c.model,
-		MaxTokens:   c.maxTokens,
+		Model:       requestModel(c.model, req.Model),
+		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
 		System:      systemPrompt,
 		Messages:    toAnthropicMessages(req.Messages),
 		Temperature: req.Temperature,
@@ -373,16 +373,9 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		return nil, fmt.Errorf("ai: anthropic marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/v1/messages", bytes.NewReader(payload))
+	resp, err := c.doStreamRequest(ctx, c.baseURL+"/v1/messages", payload)
 	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic create request: %w", err)
-	}
-	c.setHeaders(httpReq)
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("ai: anthropic http request: %w", err)
+		return nil, err
 	}
 
 	go func() {
@@ -407,12 +400,15 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 
-		var pendingToolUse struct {
+		// anthropicStreamToolUse 累积单个 tool_use content block 的流式数据。
+		// Anthropic 支持并行工具调用：每个 tool_use block 有自己的 index，
+		// 因此按 index 独立累积，互不覆盖。
+		type anthropicStreamToolUse struct {
 			id    string
 			name  string
 			input string
 		}
-		var hasPendingTool bool
+		pendingTools := make(map[int]*anthropicStreamToolUse)
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -446,6 +442,10 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				Message *struct {
 					StopReason string `json:"stop_reason"`
 				} `json:"message,omitempty"`
+				Error *struct {
+					Type    string `json:"type"`
+					Message string `json:"message"`
+				} `json:"error,omitempty"`
 			}
 
 			if err := json.Unmarshal([]byte(data), &streamEvent); err != nil {
@@ -455,10 +455,10 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			switch streamEvent.Type {
 			case "content_block_start":
 				if streamEvent.ContentBlock != nil && streamEvent.ContentBlock.Type == "tool_use" {
-					pendingToolUse.id = streamEvent.ContentBlock.ID
-					pendingToolUse.name = streamEvent.ContentBlock.Name
-					pendingToolUse.input = ""
-					hasPendingTool = true
+					pendingTools[streamEvent.Index] = &anthropicStreamToolUse{
+						id:   streamEvent.ContentBlock.ID,
+						name: streamEvent.ContentBlock.Name,
+					}
 				}
 
 			case "content_block_delta":
@@ -471,26 +471,26 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 							}
 						}
 					case "input_json_delta":
-						if hasPendingTool {
-							pendingToolUse.input += streamEvent.Delta.PartialJSON
+						if tool, ok := pendingTools[streamEvent.Index]; ok {
+							tool.input += streamEvent.Delta.PartialJSON
 						}
 					}
 				}
 
 			case "content_block_stop":
-				if hasPendingTool {
+				if tool, ok := pendingTools[streamEvent.Index]; ok {
 					args := make(map[string]any)
-					if pendingToolUse.input != "" {
-						json.Unmarshal([]byte(pendingToolUse.input), &args)
+					if tool.input != "" {
+						json.Unmarshal([]byte(tool.input), &args)
 					}
 					if !sendEvent(StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{
-						ID:        pendingToolUse.id,
-						Name:      pendingToolUse.name,
+						ID:        tool.id,
+						Name:      tool.name,
 						Arguments: args,
 					}}) {
 						return
 					}
-					hasPendingTool = false
+					delete(pendingTools, streamEvent.Index)
 				}
 
 			case "message_delta":
@@ -501,8 +501,13 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 
 			case "error":
 				errMsg := "unknown anthropic error"
-				if streamEvent.Message != nil {
-					errMsg = streamEvent.Message.StopReason
+				if streamEvent.Error != nil {
+					switch {
+					case streamEvent.Error.Message != "":
+						errMsg = streamEvent.Error.Message
+					case streamEvent.Error.Type != "":
+						errMsg = streamEvent.Error.Type
+					}
 				}
 				sendEvent(StreamEvent{Type: StreamEventError, Err: fmt.Errorf("ai: anthropic stream error: %s", errMsg)})
 				return
@@ -518,6 +523,47 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 	}()
 
 	return ch, nil
+}
+
+// doStreamRequest 执行流式 HTTP 请求，并在传输错误或 5xx 响应时按
+// maxRetries 配置重试。每次重试都重建请求体（http.Request.Body 是一次性读取的）。
+// 4xx 等客户端错误不重试，交由调用方以错误事件处理。
+func (c *anthropicClient) doStreamRequest(ctx context.Context, url string, payload []byte) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("ai: anthropic create request: %w", err)
+		}
+		c.setHeaders(httpReq)
+		httpReq.Header.Set("Accept", "text/event-stream")
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("ai: anthropic http request: %w", err)
+			continue
+		}
+		if resp.StatusCode >= 500 {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("ai: anthropic api returned %d: %s", resp.StatusCode, string(errBody))
+			continue
+		}
+		return resp, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("ai: anthropic unexpected retry exit")
 }
 
 // setHeaders 设置 Anthropic API 请求头。

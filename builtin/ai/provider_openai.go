@@ -272,11 +272,11 @@ func buildOpenAIContentParts(parts []ContentPart) []openaiContentPart {
 
 func (c *openaiClient) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	body := openaiChatRequest{
-		Model:       c.model,
+		Model:       requestModel(c.model, req.Model),
 		Messages:    toOpenAIMessages(req.Messages),
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
-		MaxTokens:   c.maxTokens,
+		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
 	}
 	if len(req.Tools) > 0 {
 		body.Tools = toOpenAITools(req.Tools)
@@ -380,11 +380,11 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 	ch := make(chan StreamEvent, 64)
 
 	body := openaiChatRequest{
-		Model:       c.model,
+		Model:       requestModel(c.model, req.Model),
 		Messages:    toOpenAIMessages(req.Messages),
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
-		MaxTokens:   c.maxTokens,
+		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
 		Stream:      true,
 	}
 	if len(req.Tools) > 0 {
@@ -396,17 +396,9 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		return nil, fmt.Errorf("ai: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewReader(payload))
+	resp, err := c.doStreamRequest(ctx, c.baseURL+"/chat/completions", payload)
 	if err != nil {
-		return nil, fmt.Errorf("ai: create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("ai: http request: %w", err)
+		return nil, err
 	}
 
 	go func() {
@@ -518,6 +510,48 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 	}()
 
 	return ch, nil
+}
+
+// doStreamRequest 执行流式 HTTP 请求，并在传输错误或 5xx 响应时按
+// maxRetries 配置重试。每次重试都重建请求体（http.Request.Body 是一次性读取的）。
+// 4xx 等客户端错误不重试，交由调用方以错误事件处理。
+func (c *openaiClient) doStreamRequest(ctx context.Context, url string, payload []byte) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt) * time.Second):
+			}
+		}
+
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("ai: create request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			lastErr = fmt.Errorf("ai: http request: %w", err)
+			continue
+		}
+		if resp.StatusCode >= 500 {
+			errBody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			lastErr = fmt.Errorf("ai: api returned %d: %s", resp.StatusCode, string(errBody))
+			continue
+		}
+		return resp, nil
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("ai: unexpected retry exit")
 }
 
 // mergeOrAppendToolCall 合并流式分片传来的工具调用。
