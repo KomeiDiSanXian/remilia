@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -108,7 +109,13 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	}
 	session.Unlock()
 
-	// 构建用户消息：提取入站附件转为多模态 ContentParts
+	// 构建用户消息：前置回复上下文 → 追加 @ 提及的结构化信息 → 提取入站附件转为多模态 ContentParts
+	if p.cfg.IncludeReplyContext {
+		content = p.prependReplyContext(ctx, content)
+	}
+	if p.cfg.IncludeMentionInfo {
+		content = appendMentionInfo(content, platform.GetMentions(ctx.GetPlatformEvent()))
+	}
 	userMsg := p.buildUserMessage(ctx, content, session)
 	p.sm.AppendMessage(session, userMsg)
 
@@ -131,7 +138,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 			msg.Attachments = result.Attachments
 		}
 
-		ctx.Reply(msg)
+		p.replyAndRecord(ctx, msg)
 		return err
 	}
 	return nil
@@ -313,8 +320,10 @@ func isCommandMessage(msg string) bool {
 	return prefix != ""
 }
 
-// cleanMessage 清洗消息内容，去除 @ 提及和触发命令前缀。
+// cleanMessage 清洗消息内容，去除 @ 提及标记和触发命令前缀。
 func (p *Plugin) cleanMessage(content string) string {
+	content = strings.TrimSpace(content)
+	content = stripMentionMarkup(content)
 	content = strings.TrimSpace(content)
 	content = strings.TrimLeft(content, "@")
 	content = strings.TrimSpace(content)
@@ -325,11 +334,43 @@ func (p *Plugin) cleanMessage(content string) string {
 	return content
 }
 
+// mentionMarkupRegex 匹配各平台的 @ 提及标记：
+//   - Discord: <@123> / <@!123> / <@&123>(角色) / <#123>(频道) / @everyone / @here
+//   - onebot/QQ: @QQ号 / @all / @全体成员 / @所有人
+//
+// 不匹配 Telegram 的 @username（字母），避免误伤正文。
+var mentionMarkupRegex = regexp.MustCompile(`<@!?&?\d+>|<#\d+>|@\d+|@everyone|@here|@all|@全体成员|@所有人`)
+
+// stripMentionMarkup 从消息文本中去除所有平台的 @ 提及标记。
+func stripMentionMarkup(content string) string {
+	return mentionMarkupRegex.ReplaceAllString(content, "")
+}
+
+// appendMentionInfo 在用户消息末尾追加结构化提及信息（排除机器人自身），
+// 让 LLM 知道本条消息 @ 了哪些人，而非面对一串无意义的 ID 标记。
+func appendMentionInfo(content string, mentions []platform.UserInfo) string {
+	var others []string
+	for _, m := range mentions {
+		if m.IsSelf || m.ID == "" {
+			continue
+		}
+		name := m.DisplayName
+		if name == "" {
+			name = m.ID
+		}
+		others = append(others, name)
+	}
+	if len(others) == 0 {
+		return content
+	}
+	return content + "\n\n[本条消息 @ 提及了: " + strings.Join(others, ", ") + "]"
+}
+
 // buildSystemPrompt 构建复合系统提示词，由三层组成：
 //
 //  1. Framework Prompt — 硬编码的 AI 行为规则，不可被用户覆盖
 //  2. User Custom Prompt — 配置文件 system_prompt 中的自定义指令
-//  3. Runtime Context — 动态运行时环境信息
+//  3. Runtime Context — 动态运行时环境信息（受 include_runtime_context 配置控制）
 func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context) string {
 	var parts []string
 
@@ -341,49 +382,119 @@ func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context) string {
 		parts = append(parts, "===== 自定义指令 =====\n"+p.cfg.SystemPrompt)
 	}
 
-	// 3. Runtime Context
-	parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
+	// 3. Runtime Context（可通过 include_runtime_context / context_fields 控制，
+	//    避免用户 ID、群 ID 等隐私信息随请求发送给第三方 LLM）
+	if p.cfg.IncludeRuntimeContext {
+		parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
+	}
+
+	// 4. 群聊最近消息窗口（context_group_messages > 0 时开启，
+	//    独立于 include_runtime_context，由自身配置控制）
+	if p.cfg.ContextGroupMessages > 0 {
+		if groupCtx := p.buildGroupContext(ctx); groupCtx != "" {
+			parts = append(parts, "===== 群聊最近消息 =====\n"+groupCtx)
+		}
+	}
 
 	return strings.Join(parts, "\n\n")
 }
 
 // buildRuntimeContext 组装当前事件的运行时上下文信息。
+//
+// 注入的字段由配置 context_fields 白名单控制：
+// 为空表示注入全部字段；非空时仅注入列出的字段。
 func (p *Plugin) buildRuntimeContext(ctx *eventctx.Context) string {
 	sender := ctx.GetSenderInfo()
 	chat := ctx.GetChatInfo()
-	now := time.Now().Format("2006-01-02 15:04:05")
+
+	allow := make(map[string]bool, len(p.cfg.ContextFields))
+	for _, f := range p.cfg.ContextFields {
+		allow[f] = true
+	}
+	in := func(key string) bool {
+		if len(p.cfg.ContextFields) == 0 {
+			return true
+		}
+		return allow[key]
+	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "当前时间: %s\n", now)
-	fmt.Fprintf(&b, "平台: %s\n", ctx.GetEventPlatform())
-
-	botID := ctx.GetBotID()
-	if botID != "" {
-		fmt.Fprintf(&b, "机器人 ID: %s\n", botID)
+	if in("time") {
+		fmt.Fprintf(&b, "当前时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
 	}
-	botName := ctx.GetBotName()
-	if botName != "" {
-		fmt.Fprintf(&b, "机器人名称: %s\n", botName)
+	if in("platform") {
+		fmt.Fprintf(&b, "平台: %s\n", ctx.GetEventPlatform())
 	}
-
-	fmt.Fprintf(&b, "用户昵称: %s\n", sender.DisplayName)
-	fmt.Fprintf(&b, "用户 ID: %s\n", sender.ID)
-
+	if in("bot_id") {
+		if botID := ctx.GetBotID(); botID != "" {
+			fmt.Fprintf(&b, "机器人 ID: %s\n", botID)
+		}
+	}
+	if in("bot_name") {
+		if botName := ctx.GetBotName(); botName != "" {
+			fmt.Fprintf(&b, "机器人名称: %s\n", botName)
+		}
+	}
+	if in("user_name") {
+		fmt.Fprintf(&b, "用户昵称: %s\n", sender.DisplayName)
+	}
+	if in("user_id") {
+		fmt.Fprintf(&b, "用户 ID: %s\n", sender.ID)
+	}
+	if in("user_is_bot") {
+		isBot := "否"
+		if sender.IsBot {
+			isBot = "是"
+		}
+		fmt.Fprintf(&b, "发送者是否为机器人: %s\n", isBot)
+	}
+	if in("chat_type") {
+		switch {
+		case chat.IsGroup:
+			fmt.Fprintf(&b, "聊天类型: 群聊\n")
+		case chat.IsDM:
+			fmt.Fprintf(&b, "聊天类型: 频道私信\n")
+		default:
+			fmt.Fprintf(&b, "聊天类型: 私聊\n")
+		}
+	}
 	if chat.IsGroup {
-		fmt.Fprintf(&b, "聊天类型: 群聊\n")
-		if chat.Name != "" {
+		if in("chat_id") && chat.ID != "" {
+			fmt.Fprintf(&b, "群 ID: %s\n", chat.ID)
+		}
+		if in("chat_name") && chat.Name != "" {
 			fmt.Fprintf(&b, "群名称: %s\n", chat.Name)
 		}
-	} else if chat.IsDM {
-		fmt.Fprintf(&b, "聊天类型: 频道私信\n")
+		if in("parent_id") && chat.ParentID != "" {
+			fmt.Fprintf(&b, "所属服务器 ID: %s\n", chat.ParentID)
+		}
+		if in("group_role") {
+			fmt.Fprintf(&b, "发送者群角色: %s\n", groupRoleName(sender.GroupRole))
+		}
 	} else {
-		fmt.Fprintf(&b, "聊天类型: 私聊\n")
-	}
-	if chat.Name != "" && !chat.IsGroup {
-		fmt.Fprintf(&b, "会话名称: %s\n", chat.Name)
+		if in("chat_id") && chat.ID != "" {
+			fmt.Fprintf(&b, "会话 ID: %s\n", chat.ID)
+		}
+		if in("chat_name") && chat.Name != "" {
+			fmt.Fprintf(&b, "会话名称: %s\n", chat.Name)
+		}
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// groupRoleName 将平台群角色转换为可读文本。
+func groupRoleName(role platform.GroupRole) string {
+	switch role {
+	case platform.GroupRoleOwner:
+		return "群主/所有者"
+	case platform.GroupRoleAdmin:
+		return "管理员"
+	case platform.GroupRoleMember:
+		return "普通成员"
+	default:
+		return "未知"
+	}
 }
 
 // isAllowedDownloadURL 检查附件下载 URL 是否合法（SSRF 防护）。

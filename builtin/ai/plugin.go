@@ -21,6 +21,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/command"
 )
@@ -51,6 +52,14 @@ type Plugin struct {
 	cmdMu       sync.RWMutex
 	cmdPatterns map[string]string
 	skillReg    *SkillRegistry
+
+	// summaryMu / summaries 防止同一会话重复触发 /ai summary 产生无界后台 goroutine。
+	summaryMu sync.Mutex
+	summaries map[string]bool
+
+	// history 消息历史提供者（messagelog），用于回复上下文与群聊最近消息窗口。
+	// 默认 messagelog.Default()；messagelog 未启用时查询为空，相关功能自动降级为 no-op。
+	history *messagelog.Logger
 
 	fsmEngine       *fsm.Engine
 	lifecycleCtx    context.Context
@@ -146,6 +155,8 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				sm:              NewSessionManager(1000, cfg.MaxHistory, cfg.SessionTTL, store),
 				cmdPatterns:     make(map[string]string),
 				skillReg:        NewSkillRegistry(),
+				summaries:       make(map[string]bool),
+				history:         messagelog.Default(),
 				fsmEngine:       fsm.NewEngine(nil),
 				lifecycleCtx:    lifecycleCtx,
 				lifecycleCancel: lifecycleCancel,

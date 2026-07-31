@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,7 +11,8 @@ import (
 )
 
 func makeContext(content string) *eventctx.Context {
-	evt := platform.NewSyntheticEvent("c2c", content)
+	evt := platform.NewSyntheticEvent("c2c", content,
+		platform.WithSyntheticSender(platform.UserInfo{ID: "user", DisplayName: "User"}))
 	return eventctx.NewContextFromEvent(evt, nil)
 }
 
@@ -228,16 +231,25 @@ func TestHandleSkillListEmpty(t *testing.T) {
 func TestHandleSkillAddAndList(t *testing.T) {
 	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:       NewSessionManager(100, 20, time.Hour, nil),
-		cfg:      cfg,
-		reg:      NewToolRegistry(),
-		skillReg: NewSkillRegistry(),
+		sm:          NewSessionManager(100, 20, time.Hour, nil),
+		cfg:         cfg,
+		triggerCmd:  "/ai",
+		reg:         NewToolRegistry(),
+		skillReg:    NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai skill add my_skill You are a test skill for testing")
 	err := p.handleSkillCommand(ctx)
 	if err != nil {
 		t.Fatalf("handleSkillAdd failed: %v", err)
+	}
+
+	skills := p.skillReg.ListByOwner("user")
+	if len(skills) != 1 {
+		t.Fatalf("expected 1 registered skill, got %d", len(skills))
+	}
+	if skills[0].Name != "u_my_skill" {
+		t.Errorf("expected skill name u_my_skill, got %q", skills[0].Name)
 	}
 
 	listCtx := makeContext("/ai skill list")
@@ -318,5 +330,127 @@ func TestHandleSkillInfo(t *testing.T) {
 	err := p.handleSkillCommand(infoCtx)
 	if err != nil {
 		t.Fatalf("handleSkillInfo failed: %v", err)
+	}
+}
+
+func TestHandleSkillPromoteWithPrefixedName(t *testing.T) {
+	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
+	p := &Plugin{
+		sm:          NewSessionManager(100, 20, time.Hour, nil),
+		cfg:         cfg,
+		triggerCmd:  "/ai",
+		reg:         NewToolRegistry(),
+		skillReg:    NewSkillRegistry(),
+	}
+
+	if err := p.skillReg.Add(Skill{
+		Name:        "u_my_skill",
+		OwnerID:     "user",
+		Prompt:      "test prompt",
+		Description: "desc",
+		Enabled:     true,
+	}); err != nil {
+		t.Fatalf("add skill: %v", err)
+	}
+
+	// 带 u_ 前缀调用 promote，需要管理员身份
+	evt := platform.NewSyntheticEvent("c2c", "/ai skill promote u_my_skill",
+		platform.WithSyntheticSender(platform.UserInfo{ID: "user", DisplayName: "User"}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	pm := eventctx.NewPermissionManager()
+	if err := pm.AssignRole("user", "admin"); err != nil {
+		t.Fatalf("assign role: %v", err)
+	}
+	ctx.SetPermissionManager(pm)
+
+	if err := p.handleSkillCommand(ctx); err != nil {
+		t.Fatalf("handleSkillCommand promote failed: %v", err)
+	}
+
+	// 提升后：系统技能存在（去前缀）且已注册为工具
+	if _, ok := p.skillReg.GetSystem("my_skill"); !ok {
+		t.Error("expected system skill my_skill after promote")
+	}
+	if _, ok := p.reg.Get("my_skill"); !ok {
+		t.Error("expected promoted skill to be registered as a tool")
+	}
+	// 用户技能应已移除
+	if _, ok := p.skillReg.GetByOwner("user", "u_my_skill"); ok {
+		t.Error("expected user skill u_my_skill to be removed after promote")
+	}
+}
+
+// blockingProvider 用于测试 summary 单飞：Chat 阻塞直到 release。
+type blockingProvider struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	close(b.started)
+	select {
+	case <-b.release:
+		return &ChatResponse{Content: "summary done"}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (b *blockingProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+	return nil, fmt.Errorf("not used in summary test")
+}
+
+func TestExecSubCommandSummarySingleFlight(t *testing.T) {
+	prov := &blockingProvider{started: make(chan struct{}), release: make(chan struct{})}
+	p := &Plugin{
+		sm:           NewSessionManager(100, 20, time.Hour, nil),
+		cfg:          &Config{TriggerCmd: "/ai", APITimeout: time.Second},
+		prov:         prov,
+		summaries:    make(map[string]bool),
+		lifecycleCtx: context.Background(),
+	}
+	sessionID := "synthetic::user"
+	session := p.sm.GetOrCreate(sessionID, "user", "")
+	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "hello"})
+	p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: "hi"})
+
+	ctx := makeContext("/ai summary")
+	if err := p.execSubCommand(ctx, "summary"); err != nil {
+		t.Fatalf("execSubCommand summary failed: %v", err)
+	}
+
+	// 等待后台总结 goroutine 启动并阻塞
+	select {
+	case <-prov.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("summary goroutine did not start")
+	}
+
+	// 第二次调用不应再启动新的 goroutine
+	if err := p.execSubCommand(ctx, "summary"); err != nil {
+		t.Fatalf("second execSubCommand summary failed: %v", err)
+	}
+
+	p.summaryMu.Lock()
+	inFlight := p.summaries[sessionID]
+	p.summaryMu.Unlock()
+	if !inFlight {
+		t.Error("expected summary in-flight flag to be set")
+	}
+
+	// 释放后应清理标记
+	close(prov.release)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		p.summaryMu.Lock()
+		inFlight = p.summaries[sessionID]
+		p.summaryMu.Unlock()
+		if !inFlight {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if inFlight {
+		t.Error("expected summary in-flight flag cleared after completion")
 	}
 }

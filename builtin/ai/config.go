@@ -118,6 +118,43 @@ type Config struct {
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
 	ToolAllowlist []string `yaml:"tool_allowlist"`
+
+	// IncludeRuntimeContext 是否将运行时上下文（用户/群聊/时间等）注入系统提示。
+	// 这些信息会随每次请求发送给第三方 LLM，可能涉及隐私。
+	// 默认 true（保持旧行为）；设为 false 时完全不注入运行时上下文。
+	IncludeRuntimeContext bool `yaml:"include_runtime_context"`
+
+	// ContextFields 运行时上下文中要注入的字段白名单。
+	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
+	// 可选字段：
+	//   - time        当前时间
+	//   - platform    平台
+	//   - bot_id      机器人 ID
+	//   - bot_name    机器人名称
+	//   - user_name   用户昵称
+	//   - user_id     用户 ID
+	//   - user_is_bot 发送者是否为机器人
+	//   - chat_type   聊天类型（私聊/群聊/频道私信）
+	//   - chat_id     群 ID / 会话 ID
+	//   - chat_name   群名称 / 会话名称
+	//   - parent_id   所属服务器 ID（频道类平台）
+	//   - group_role  发送者群角色（群主/管理员/普通成员）
+	ContextFields []string `yaml:"context_fields"`
+
+	// IncludeMentionInfo 是否将本条消息 @ 提及的其他用户以昵称形式注入用户消息。
+	// 涉及第三方用户隐私，默认 true（保持旧行为）。
+	IncludeMentionInfo bool `yaml:"include_mention_info"`
+
+	// IncludeReplyContext 是否将"被回复的消息"内容前置到用户消息。
+	// 群聊中"回复某条消息再 @ 机器人"时，让 AI 知道回复针对的内容。
+	// 依赖 messagelog 插件记录消息历史（机器人自己的对话回复也会被记录）。
+	// 默认 true。设为 false 时不注入、也不记录出站回复。
+	IncludeReplyContext bool `yaml:"include_reply_context"`
+
+	// ContextGroupMessages 注入系统提示的最近群消息条数（0 = 关闭，默认）。
+	// 开启后 AI 能感知同群其他成员的发言，融入多人对话。
+	// 依赖 messagelog 插件；只注入入站消息（不含机器人自己的回复）。
+	ContextGroupMessages int `yaml:"context_group_messages"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -146,6 +183,10 @@ var DefaultConfig = Config{
 	MaxAttachmentSize:     20 * 1024 * 1024,
 	MaxUserSkills:         10,
 	MaxUserSkillPromptLen: 2000,
+	IncludeRuntimeContext: true,
+	IncludeMentionInfo:    true,
+	IncludeReplyContext:   true,
+	ContextGroupMessages:  0,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -245,6 +286,25 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 			for _, item := range list {
 				if s, ok := item.(string); ok && s != "" {
 					cfg.ToolAllowlist = append(cfg.ToolAllowlist, s)
+				}
+			}
+		}
+	}
+
+	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)
+	cfg.IncludeMentionInfo = ctx.Config.GetBool("include_mention_info", cfg.IncludeMentionInfo)
+	cfg.IncludeReplyContext = ctx.Config.GetBool("include_reply_context", cfg.IncludeReplyContext)
+
+	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {
+		cfg.ContextGroupMessages = v
+	}
+
+	if v := ctx.Config.Get("context_fields"); v != nil {
+		if list, ok := v.([]any); ok {
+			cfg.ContextFields = make([]string, 0, len(list))
+			for _, item := range list {
+				if s, ok := item.(string); ok && s != "" {
+					cfg.ContextFields = append(cfg.ContextFields, s)
 				}
 			}
 		}

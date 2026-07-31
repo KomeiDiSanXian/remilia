@@ -114,6 +114,89 @@ func TestLoadConfigToolAllowlist(t *testing.T) {
 	}
 }
 
+func TestLoadConfigContextPrivacyOptions(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"include_runtime_context": false,
+			"include_mention_info":    false,
+			"context_fields":          []any{"time", "platform", "user_name"},
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := loadConfig(ctx)
+	if result.IncludeRuntimeContext {
+		t.Error("expected include_runtime_context false")
+	}
+	if result.IncludeMentionInfo {
+		t.Error("expected include_mention_info false")
+	}
+	if len(result.ContextFields) != 3 {
+		t.Fatalf("expected 3 context fields, got %d: %v", len(result.ContextFields), result.ContextFields)
+	}
+	for _, f := range []string{"time", "platform", "user_name"} {
+		found := false
+		for _, got := range result.ContextFields {
+			if got == f {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected context field %q in %v", f, result.ContextFields)
+		}
+	}
+}
+
+func TestLoadConfigContextPrivacyDefaults(t *testing.T) {
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: &mockConfig{values: map[string]any{}}})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := loadConfig(ctx)
+	if !result.IncludeRuntimeContext {
+		t.Error("expected include_runtime_context default true")
+	}
+	if !result.IncludeMentionInfo {
+		t.Error("expected include_mention_info default true")
+	}
+	if len(result.ContextFields) != 0 {
+		t.Errorf("expected context_fields default empty (all fields), got %v", result.ContextFields)
+	}
+}
+
+func TestLoadConfigReplyAndGroupContext(t *testing.T) {
+	cfg := &mockConfig{
+		values: map[string]any{
+			"include_reply_context":    false,
+			"context_group_messages":   15,
+		},
+	}
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := loadConfig(ctx)
+	if result.IncludeReplyContext {
+		t.Error("expected include_reply_context false")
+	}
+	if result.ContextGroupMessages != 15 {
+		t.Errorf("expected context_group_messages 15, got %d", result.ContextGroupMessages)
+	}
+}
+
+func TestLoadConfigReplyAndGroupContextDefaults(t *testing.T) {
+	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: &mockConfig{values: map[string]any{}}})
+	defer plugintest.StopSetupContext(ctx)
+
+	result := loadConfig(ctx)
+	if !result.IncludeReplyContext {
+		t.Error("expected include_reply_context default true")
+	}
+	if result.ContextGroupMessages != 0 {
+		t.Errorf("expected context_group_messages default 0, got %d", result.ContextGroupMessages)
+	}
+}
+
 func TestLoadConfigInvalidTemperature(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{

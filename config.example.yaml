@@ -233,6 +233,16 @@ api:
 #     provider: "openai"
 #     model: "gpt-4o-mini"
 #     ...
+#     # —— 隐私控制（随请求发送给第三方 LLM 的内容）——
+#     include_runtime_context: true        # [R] 是否注入运行时上下文（用户/群聊/时间等）。false = 完全不注入
+#     context_fields: []                   # [R] 运行时上下文字段白名单；[] = 全部。
+#                                          #     可选: time, platform, bot_id, bot_name,
+#                                          #     user_name, user_id, user_is_bot, chat_type,
+#                                          #     chat_id, chat_name, parent_id, group_role
+#     include_mention_info: true           # [R] 是否将本条消息 @ 提及的其他用户昵称注入用户消息
+#     # —— 结构级上下文（依赖 messagelog 消息历史）——
+#     include_reply_context: true          # [R] 是否注入"被回复消息"的内容；机器人自己的对话回复也会被记录
+#     context_group_messages: 0            # [R] 注入系统提示的最近群消息条数；0 = 关闭
 #   weather:
 #     api_key: "your-weather-api-key"
 #   sauce:

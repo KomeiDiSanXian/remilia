@@ -16,11 +16,13 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
@@ -113,7 +115,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			if len(result.Attachments) > 0 {
 				msg.Attachments = result.Attachments
 			}
-			ctx.Reply(msg)
+			p.replyAndRecord(ctx, msg)
 			return nil
 		}
 		return nil
@@ -129,7 +131,25 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			ctx.ReplyText("还没有任何对话内容可以总结")
 			return nil
 		}
-		go p.doSummary(ctx, msgsSnapshot)
+
+		// 单飞：同一会话已有总结任务在跑时不再启动新的 goroutine
+		p.summaryMu.Lock()
+		if p.summaries[sessionID] {
+			p.summaryMu.Unlock()
+			ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
+			return nil
+		}
+		p.summaries[sessionID] = true
+		p.summaryMu.Unlock()
+
+		go func() {
+			defer func() {
+				p.summaryMu.Lock()
+				delete(p.summaries, sessionID)
+				p.summaryMu.Unlock()
+			}()
+			p.doSummary(ctx, msgsSnapshot)
+		}()
 		ctx.ReplyText("⏳ 正在生成对话总结，请稍候...")
 		return nil
 
@@ -228,7 +248,8 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 	cmd := strings.ToLower(strings.TrimSpace(content))
 	var err error
 
-	if strings.HasPrefix(cmd, "skill") || strings.HasPrefix(cmd, "技能") {
+	// 仅整词匹配 skill/技能 子命令前缀，避免误命中 "skillful"、"技能介绍" 等普通聊天
+	if cmd == "skill" || strings.HasPrefix(cmd, "skill ") || cmd == "技能" || strings.HasPrefix(cmd, "技能 ") {
 		err = p.handleSkillCommand(ctx)
 		return err == nil
 	}
@@ -309,9 +330,9 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 	if resp.Content != "" {
 		newCtx := eventctx.NewContextFromEvent(origCtx.GetPlatformEvent(), origCtx.GetPlatformSender())
 		if p.cfg.Markdown {
-			newCtx.Reply(platform.MarkdownMessage(resp.Content))
+			p.replyAndRecord(newCtx, platform.MarkdownMessage(resp.Content))
 		} else {
-			newCtx.ReplyText("📋 **对话总结**\n\n" + resp.Content)
+			p.replyAndRecord(newCtx, platform.TextMessage("📋 **对话总结**\n\n"+resp.Content))
 		}
 	}
 }
@@ -407,7 +428,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 		// 两步注册：通过 FSM 等待用户下一条消息
 		sessionID := makeSkillAddSessionID(ctx)
 		if err := p.fsmEngine.StartSession(ctx, "skill_add", sessionID); err != nil {
-			if err.Error() == fmt.Sprintf("fsm: session %q already exists for FSM %q", sessionID, "skill_add") {
+			if errors.Is(err, fsm.ErrSessionExists) {
 				ctx.ReplyText("❌ 你已有一个待完成的技能注册，请先发送内容或发送 cancel 取消。")
 				return nil
 			}
@@ -561,7 +582,10 @@ func (p *Plugin) handleSkillPromote(ctx *eventctx.Context, name, ownerID string)
 		return nil
 	}
 
-	if s, ok := p.skillReg.GetSystem(name); ok {
+	// Promote 内部已将用户技能重命名为去前缀的系统级名称，
+	// 必须用新名称查询并注册为工具（用户可能以带或不带 u_ 前缀的形式调用）。
+	newName := strings.TrimPrefix(fullName, UserSkillPrefix)
+	if s, ok := p.skillReg.GetSystem(newName); ok {
 		p.registerSkillAsTool(s)
 	}
 
@@ -610,10 +634,7 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 	fmt.Fprintf(&b, "  - **调用次数**：%d\n", s.UsageCount)
 	fmt.Fprintf(&b, "  - **Prompt 长度**：%d 字符\n\n", len(s.Prompt))
 
-	preview := s.Prompt
-	if len(preview) > 500 {
-		preview = preview[:500] + "..."
-	}
+	preview := truncateRunes(s.Prompt, 500)
 	b.WriteString("**Prompt 预览：**\n")
 	b.WriteString("```\n" + preview + "\n```")
 
@@ -626,9 +647,18 @@ func (p *Plugin) handleSkillInfo(ctx *eventctx.Context, name, ownerID string) er
 func extractSkillDescription(prompt string) string {
 	prompt = strings.TrimSpace(prompt)
 	lines := strings.SplitN(prompt, "\n", 2)
-	first := strings.TrimSpace(lines[0])
-	if len(first) > 200 {
-		first = first[:200] + "..."
+	return truncateRunes(strings.TrimSpace(lines[0]), 200)
+}
+
+// truncateRunes 按 rune 截断字符串，避免劈开多字节 UTF-8 字符。
+// 超过 max 个字符时以省略号结尾。
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
 	}
-	return first
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "..."
 }
