@@ -1,5 +1,70 @@
 # Changelog
 
+## v1.26.0 (2026-07-31)
+
+### 🎯 出站消息观察者（Outbound Observer）
+
+- **`ctx.Reply` 出站观察钩子**: 新增 `core/context/outbound_observer.go`，通过 `OutboundObserverExt` 上下文扩展注入，`ctx.Reply` / `ReplyWithContext` 在出站发送完成、Future 解析后同步回调观察者（`OnOutbound(chatID, req, res, err)`）
+- **不破坏平台能力接口**: 观察者仅依赖 ctx.Reply 的调度任务，区别于包装 `platform.Sender`——后者会破坏 `MessageDeleter`、`GroupManager`、`AutoModerator` 等可选接口断言。回调在 dispatcher 发送任务内同步执行，不阻塞 handler
+- **注意**: 仅覆盖经 `ctx.Reply*` 的出站消息；插件直接调用 `platform.Sender.Send`（如 sendqueue）不会被观察到
+
+### 📝 messagelog 出站消息记录
+
+- **记录所有机器人出站消息**: 新增 `RecordOutbound` / `OnOutbound`（实现 `OutboundObserver`），经 `ctx.Reply*` 发送的 bot 回复（含 AI 对话）自动入库；`RecordEntry`/`MessageRecord` 新增 `IsOutbound` 字段，出站消息存于独立 `botBuf` ring，`QueryGroup`/`QueryUser` 不含出站消息
+- **`QueryByEventID` 事件 ID 查找**: 按 `chat_id + event_id` 查找消息内容（入站 ring → 出站 ring → SQLite 兜底），支撑"回复机器人上一条消息"的语义
+- **AI 插件迁移**: `replyAndRecord` 薄封装确保 AI 的对话回复总能被记录（上下文缺少观察者时用 `p.history` 补上），替代原先 per-call goroutine 记录方案
+
+### 🧠 AI 插件：上下文注入与隐私控制
+
+- **回复上下文（`include_reply_context`）**: 群聊中"回复某条消息并 @ 机器人"时，把被回复消息内容前置到用户消息；命中机器人自己的出站消息时以"机器人"标注发送者
+- **群聊消息窗口（`context_group_messages`）**: 把同群最近 N 条入站消息（`昵称: 内容`，旧到新）注入系统提示，让 AI 感知多人对话
+- **提及净化与结构化**: `stripMentionMarkup` 剥离各平台 @ 提及标记（Discord `<@id>`/`@everyone`、onebot/QQ `@QQ号`/`@全体成员` 等，不误伤 Telegram `@username`）；`appendMentionInfo` 将本条消息 @ 的其他用户昵称结构化追加到用户消息
+- **运行时上下文字段白名单（`include_runtime_context` / `context_fields`）**: 可关闭整个运行时上下文注入，或通过白名单精确控制随请求发送给第三方 LLM 的字段（time/platform/bot_id/user_id/chat_id/group_role 等 12 项），保护用户 ID、群 ID 等隐私
+
+### 🧠 AI 插件：工具循环与会话加固
+
+- **工具结果截断**: `truncateToolResult` 单条工具结果回填上限 8000 rune，防止命令巨型输出撑爆上下文窗口
+- **历史附件二进制降级**: `prepareRequestMessages` / `stripBinaryParts` 仅保留当前轮用户消息的多模态附件，历史消息中的图片/音频降级为文本占位，避免每轮对话重复上传附件
+- **工具分类路由缓存**: `getOrRouteCategory` 按会话缓存路由决策（10 分钟 TTL + 工具集数量校验），避免每条消息都多一次路由 LLM 调用；`filterToolsByCategory` 始终保留通用工具作为缓存过期/误判时的兜底
+- **`CleanupExpired` 锁外持久化**: 先持锁收集过期会话并移出缓存，释放锁后再执行 DB 删除，不再阻塞其他会话操作
+- **会话保存 upsert**: GORM `OnConflict(UpdateAll)` 单语句 upsert 替代 `SELECT + INSERT/UPDATE` 两次往返
+
+### 🧠 AI 插件：LLM 提供商加固
+
+- **请求级模型覆盖**: `ChatRequest` 支持请求级 `Model` / `MaxTokens`，未指定时回退客户端默认值（OpenAI / Anthropic 双实现）
+- **流式请求重试**: `doStreamRequest` 对传输错误与 5xx 响应按 `max_retries` 配置指数退避重试（每次重建请求体；4xx 不重试）
+- **Anthropic 并行工具调用**: 按 `tool_use` block 的 index 独立累积流式分片，支持并行工具调用不再互相覆盖
+- **错误信息脱敏**: `formatAIError` 未处理错误不再向用户暴露原始 API 错误体（可能含组织/计费信息），改为记录详细日志后返回通用提示
+
+### 🐛 AI / FSM 修复
+
+- **触发命令排除**: `discoverTools` 不再把 AI 自身触发命令（默认 `/ai`，跟随 `trigger_cmd`）自动发现为工具，避免 AI 自我递归调用
+- **类型化 FSM 错误**: 新增 `fsm.ErrSessionExists`，`StartSession` 会话已存在时通过 `errors.Is` 判断（skill add 两阶段注册已迁移）
+- **总结任务单飞**: 同一会话已有总结任务在跑时不再启动新的 goroutine，避免重复总结
+- **Skill 整词匹配**: `handleSubCommand` 仅整词匹配 `skill`/`技能` 前缀，避免误命中 `skillful`、`技能介绍` 等普通聊天
+- **Skill promote 工具注册修复**: 用去除 `u_` 前缀的新名称查询系统技能并注册为工具
+
+### 🖼️ sauce 插件 v2.0：多引擎聚合搜图
+
+- **新增 IQDB / TraceMoe 引擎**: IQDB（booru 图库检索，对裁切图最友好，免费）；TraceMoe（动画截图逐帧识别，给出番剧/话数/时间点，免费），两者默认开启；ASCII2D 适配新检索流程并支持特征（BOVW）搜索
+- **SauceNAO 增强**: 改为 multipart 上传，可配置检索数据库 `saucenao_db`，显式上报限流错误
+- **裁切图预处理**: 上传前将小图（任一维 < 400px，多为裁切图）放大 2 倍，提高命中率
+- **跨引擎结果合并**: 结果去重合并、相似度阈值过滤（`similarity_threshold`），存在高匹配时只展示高匹配，否则保留全部避免裁切/滤镜图被过滤
+- **输出截断**: 单条结果标题（`max_title_len`）与整条文本消息（`max_message_len`）按 rune 截断；`report_errors` 可选展示引擎失败原因
+- **代码结构**: 按职责拆分为 client/merge/preprocess/format 等 14 个文件并补充 godoc，新增 6 个测试文件
+
+### 🔐 QQ Webhook 签名校验加固
+
+- **Ed25519 密钥缓存**: 构造时缓存密钥而非每请求重新派生；`GenerateKey(reader)` → `NewKeyFromSeed`（协议要求的种子展开字节级一致）
+- **HTTP 健壮性**: 拒绝非 POST（405）、`MaxBytesReader` 限制请求体（413）、所有路径关闭包裹 body、返回 `http.Error` 错误体
+- **测试补充**: sign/key/round-trip/handler 测试（sign_test.go / webhook_test.go）
+
+### 🧪 测试与 CI
+
+- **新增测试**: `api/handler_test.go`（HTTP handler 与 auth 中间件）、`platform/discord/sender_internal_test.go`、`platform/milky/api_test.go`、`platform/discord|onebot/event_test.go` 等，共 2400+ 行
+- **CI**: 覆盖率排除 `examples/` 与 `cmd/bot/plugins/`；coverage 输出文件加入 gitignore
+- **静态检查**: 修复 staticcheck lint 与 gofmt 问题；`go fix` 字段对齐（`builtin/messagelog`）
+
 ## v1.25.0 (2026-07-30)
 
 ### ✨ QQ 平台 WebSocket 支持
