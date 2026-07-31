@@ -463,6 +463,25 @@ func (l *Logger) RecordOutbound(chatID, eventID, content string, t time.Time) {
 	l.botMu.Unlock()
 }
 
+// OnOutbound 实现 eventctx.OutboundObserver，记录经 ctx.Reply* 发送的出站消息。
+//
+// 发送失败、平台未返回 MessageID、或消息无文本内容时跳过（无法建立可靠的回复键）。
+// 注意：仅覆盖经框架 ctx.Reply* 的出站；插件直接调用 platform.Sender.Send
+// （绕过 ctx.Reply，如 sendqueue）不会被观察到。
+func (l *Logger) OnOutbound(chatID string, req platform.SendRequest, res platform.SendResult, err error) {
+	if err != nil || chatID == "" || res.MessageID == "" {
+		return
+	}
+	text := req.Message.Text
+	if text == "" {
+		text = req.Message.Markdown
+	}
+	if text == "" {
+		return
+	}
+	l.RecordOutbound(chatID, res.MessageID, text, time.Now())
+}
+
 // eventToEntry 从 platform.Event 和 Context 提取完整的消息记录。
 func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {	chat := ev.Chat()
 	sender := ev.Sender()
@@ -848,9 +867,15 @@ func Default() *Logger { return defaultLogger }
 //
 // 必须在使用前调用 Default().UseDB(db) 和 Default().Start()。
 // 依赖于 RequestID 中间件先执行（应在 MessageLogger 之前注册）。
+//
+// 该中间件同时注入出站观察者（OutboundObserverExt），使所有经 ctx.Reply*
+// 发送的出站消息（任何插件）在发送完成后被记录（见 Logger.OnOutbound）。
 func MessageLogger() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
+			if defaultLogger.record != nil {
+				eventctx.ExtSet(ctx.Ext(), eventctx.OutboundObserverExt{Observer: defaultLogger})
+			}
 			err := next(ctx)
 			pe := ctx.GetPlatformEvent()
 			if pe != nil && defaultLogger.record != nil {

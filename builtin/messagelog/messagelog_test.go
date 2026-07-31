@@ -1,10 +1,13 @@
 package messagelog
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"gorm.io/gorm"
 )
 
@@ -272,5 +275,61 @@ func closeDB(t *testing.T, db *gorm.DB) {
 	}
 	if err := sqlDB.Close(); err != nil {
 		t.Fatalf("close db: %v", err)
+	}
+}
+
+func TestOnOutbound(t *testing.T) {
+	l := New(10)
+	req := platform.SendRequest{
+		Target:  platform.ChatInfo{ID: "g1", IsGroup: true},
+		Message: platform.TextMessage("bot reply"),
+	}
+
+	// 正常发送：记录出站消息
+	l.OnOutbound("g1", req, platform.SendResult{MessageID: "out-1"}, nil)
+	e, ok := l.QueryByEventID("g1", "out-1")
+	if !ok || e.Content != "bot reply" || !e.IsOutbound {
+		t.Fatalf("expected outbound recorded, got %+v ok=%v", e, ok)
+	}
+
+	// 发送失败：不记录
+	l.OnOutbound("g1", req, platform.SendResult{}, errors.New("send failed"))
+	// 平台未返回 MessageID：不记录
+	l.OnOutbound("g1", req, platform.SendResult{}, nil)
+	// 无文本内容：不记录
+	l.OnOutbound("g1", platform.SendRequest{
+		Target:  platform.ChatInfo{ID: "g1"},
+		Message: platform.OutboundMessage{},
+	}, platform.SendResult{MessageID: "out-2"}, nil)
+
+	if _, ok := l.QueryByEventID("g1", "out-2"); ok {
+		t.Error("expected empty-content outbound not recorded")
+	}
+	// 首次记录仍完整保留（未受后续跳过影响）
+	if e, ok := l.QueryByEventID("g1", "out-1"); !ok || e.Content != "bot reply" {
+		t.Errorf("expected original outbound intact, got %+v ok=%v", e, ok)
+	}
+}
+
+func TestMessageLogger_InjectsOutboundObserver(t *testing.T) {
+	defaultLogger.Start()
+	defer defaultLogger.Stop()
+
+	var gotObserver bool
+	mw := MessageLogger()
+	handler := mw(func(ctx *eventctx.Context) error {
+		if obs, ok := eventctx.ExtGet[eventctx.OutboundObserverExt](ctx.Ext()); ok && obs.Observer != nil {
+			gotObserver = true
+		}
+		return nil
+	})
+
+	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi")
+	ctx := eventctx.NewContextFromEvent(evt, &platform.NoopSender{})
+	if err := handler(ctx); err != nil {
+		t.Fatalf("handler failed: %v", err)
+	}
+	if !gotObserver {
+		t.Error("expected outbound observer injected by MessageLogger middleware")
 	}
 }
