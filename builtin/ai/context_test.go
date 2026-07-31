@@ -69,7 +69,7 @@ func TestReplyAndRecordRecordsOutbound(t *testing.T) {
 	}
 }
 
-func TestReplyAndRecordDisabled(t *testing.T) {
+func TestReplyAndRecordNotGatedByIncludeReplyContext(t *testing.T) {
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hello",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, fixedIDSender{})
@@ -82,10 +82,17 @@ func TestReplyAndRecordDisabled(t *testing.T) {
 	}
 
 	p.replyAndRecord(ctx, platform.TextMessage("bot reply"))
-	time.Sleep(50 * time.Millisecond)
 
-	if _, ok := p.history.QueryByEventID("g1", "msg-42"); ok {
-		t.Error("should not record outbound when include_reply_context is disabled")
+	// 记录是 messagelog 级行为，不受 include_reply_context 控制
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := p.history.QueryByEventID("g1", "msg-42"); ok {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, ok := p.history.QueryByEventID("g1", "msg-42"); !ok {
+		t.Error("outbound recording should not be gated by include_reply_context")
 	}
 }
 

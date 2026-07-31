@@ -4,50 +4,34 @@
 //   - 回复上下文：用户"回复某条消息再 @ 机器人"时，把被回复消息的内容前置到用户消息
 //   - 群聊消息窗口：把同群最近的若干条入站消息注入系统提示，让 AI 感知多人对话
 //
-// 同时提供 replyAndRecord：在保持异步发送的前提下，记录机器人自己的对话回复
-// （通过 ctx.Reply 返回的 Future 在发送完成后取得平台 MessageID 写入 messagelog），
+// 同时提供 replyAndRecord 薄封装：确保出站消息被 messagelog 的出站观察者记录，
 // 从而使"回复机器人上一条消息"也能被回复上下文命中。
 package ai
 
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/future"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
-// replyAndRecord 发送消息并异步记录出站消息（供回复上下文查询）。
+// replyAndRecord 发送消息并确保出站记录。
 //
-// 发送仍走 ctx.Reply 的异步调度器（提交即返回，不阻塞 handler）；
-// 记录通过后台 goroutine 等待 Future 完成、取得平台 MessageID 后写入 messagelog。
-// 仅在 include_reply_context 开启且 history 可用时记录；平台不返回 MessageID 时静默跳过。
+// 发送仍走 ctx.Reply 的异步调度器（提交即返回，不阻塞 handler）。
+// 出站消息的记录由 messagelog 的 OutboundObserver 在发送完成后同步完成
+// （见 messagelog.MessageLogger 中间件 / Logger.OnOutbound）。
+//
+// 此薄封装仅在上下文缺少观察者时（如 doSummary 用 NewContextFromEvent
+// 新建的上下文）用 p.history 补上，保证 AI 的对话回复总能被记录。
+// 记录不受 include_reply_context 控制——记录是 messagelog 级行为，
+// 该配置只控制回复上下文的注入（见 prependReplyContext）。
 func (p *Plugin) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {
-	f := ctx.Reply(msg)
-
-	if p.cfg.IncludeReplyContext && p.history != nil {
-		chatID := ctx.GetChatInfo().ID
-		text := msg.Text
-		if text == "" {
-			text = msg.Markdown
-		}
-		if text != "" && chatID != "" {
-			go func() {
-				select {
-				case <-f.Done():
-					res, _ := f.Result()
-					if res.MessageID != "" {
-						p.history.RecordOutbound(chatID, res.MessageID, text, time.Now())
-					}
-				case <-p.lifecycleCtx.Done():
-				}
-			}()
-		}
+	if _, ok := eventctx.ExtGet[eventctx.OutboundObserverExt](ctx.Ext()); !ok && p.history != nil {
+		eventctx.ExtSet(ctx.Ext(), eventctx.OutboundObserverExt{Observer: p.history})
 	}
-
-	return f
+	return ctx.Reply(msg)
 }
 
 // prependReplyContext 若本条消息是回复，将所回复消息的内容前置到用户消息。
