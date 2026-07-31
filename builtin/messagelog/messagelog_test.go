@@ -1,8 +1,11 @@
 package messagelog
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 func TestRecord_QueryGroup(t *testing.T) {
@@ -139,5 +142,135 @@ func TestTokenize(t *testing.T) {
 				t.Errorf("tokenize(%q)[%d]: expected %q, got %q", tt.input, i, w, got[i])
 			}
 		}
+	}
+}
+
+func TestQueryByEventID_InboundAndOutboundRings(t *testing.T) {
+	l := New(10)
+	now := time.Now()
+	l.Record(RecordEntry{
+		ChatID: "g1", UserID: "u1", Content: "user message", EventID: "in-1", Timestamp: now,
+	})
+	l.RecordOutbound("g1", "out-1", "bot reply", now)
+
+	// 命中入站消息
+	e, ok := l.QueryByEventID("g1", "in-1")
+	if !ok {
+		t.Fatal("expected inbound message found")
+	}
+	if e.Content != "user message" || e.IsOutbound {
+		t.Errorf("unexpected inbound entry: %+v", e)
+	}
+
+	// 命中出站消息
+	e, ok = l.QueryByEventID("g1", "out-1")
+	if !ok {
+		t.Fatal("expected outbound message found")
+	}
+	if e.Content != "bot reply" || !e.IsOutbound {
+		t.Errorf("unexpected outbound entry: %+v", e)
+	}
+
+	// 未命中
+	if _, ok := l.QueryByEventID("g1", "nonexistent"); ok {
+		t.Error("expected miss for nonexistent event ID")
+	}
+
+	// 会话不匹配
+	if _, ok := l.QueryByEventID("g2", "in-1"); ok {
+		t.Error("expected miss for different chat")
+	}
+}
+
+func TestRecordOutbound_NotInQueryGroup(t *testing.T) {
+	l := New(10)
+	now := time.Now()
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "user", EventID: "in-1", Timestamp: now})
+	l.RecordOutbound("g1", "out-1", "bot", now)
+
+	// QueryGroup 只返回入站消息，不含出站
+	msgs := l.QueryGroup("g1", 10)
+	if len(msgs) != 1 || msgs[0].Content != "user" {
+		t.Errorf("QueryGroup should exclude outbound messages, got %d entries", len(msgs))
+	}
+}
+
+func TestQueryByEventID_DBFallback(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "messagelog_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	now := time.Now().UnixNano()
+	// 模拟已持久化但不在内存 ring 中的旧消息（入站 + 出站）
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "old-in", Content: "old user message", Timestamp: now, CreatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("create inbound record: %v", err)
+	}
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "old-out", Content: "old bot reply", Timestamp: now, CreatedAt: now, IsOutbound: true,
+	}).Error; err != nil {
+		t.Fatalf("create outbound record: %v", err)
+	}
+
+	e, ok := l.QueryByEventID("g1", "old-in")
+	if !ok || e.Content != "old user message" || e.IsOutbound {
+		t.Errorf("expected DB fallback to find inbound, got %+v ok=%v", e, ok)
+	}
+
+	e, ok = l.QueryByEventID("g1", "old-out")
+	if !ok || e.Content != "old bot reply" || !e.IsOutbound {
+		t.Errorf("expected DB fallback to find outbound, got %+v ok=%v", e, ok)
+	}
+
+	if _, ok := l.QueryByEventID("g1", "missing"); ok {
+		t.Error("expected miss for nonexistent event ID in DB")
+	}
+}
+
+func TestQueryGroupFromDB_ExcludesOutbound(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "messagelog_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	now := time.Now()
+	ts := now.UnixNano()
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "in-1", Content: "user", Timestamp: ts, CreatedAt: ts, IsOutbound: false,
+	}).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "out-1", Content: "bot", Timestamp: ts, CreatedAt: ts, IsOutbound: true,
+	}).Error; err != nil {
+		t.Fatalf("create outbound: %v", err)
+	}
+
+	entries, err := l.QueryGroupFromDB("g1", now.Add(-time.Hour), now.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatalf("QueryGroupFromDB failed: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Content != "user" {
+		t.Errorf("QueryGroupFromDB should exclude outbound, got %d entries", len(entries))
+	}
+}
+
+// closeDB 关闭 gorm 底层连接，释放 SQLite 文件句柄（Windows 上否则会阻塞 TempDir 清理）。
+func closeDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
 	}
 }

@@ -67,6 +67,10 @@ type RecordEntry struct {
 	Mentions  []platform.UserInfo // @ 用户列表（平台提供时有效）
 	Timestamp time.Time           // 事件发生时间
 	CreatedAt time.Time           // 记录入库时间
+
+	// IsOutbound 是否为机器人发出的出站消息（如 AI 回复）。
+	// 出站消息记录在独立的 botBuf ring 中，QueryGroup/QueryUser 不含出站消息。
+	IsOutbound bool
 }
 
 // MessageRecord 对应 SQLite 表的 GORM 模型。
@@ -88,6 +92,9 @@ type MessageRecord struct {
 	RawType   string
 	Timestamp int64 `gorm:"index:idx_chat_time"`
 	CreatedAt int64
+
+	// IsOutbound 是否为机器人发出的出站消息（AI 回复等）。
+	IsOutbound bool `gorm:"index"`
 }
 
 // MessageMention 对应 SQLite message_mentions 表的 GORM 模型。
@@ -156,6 +163,9 @@ type Logger struct {
 	groupBuf map[string]*ring // groupID → ring
 	userMu   sync.RWMutex
 	userBuf  map[string]*ring // userID → ring
+
+	botMu  sync.RWMutex
+	botBuf map[string]*ring // chatID → ring（机器人出站消息，用于回复上下文查询）
 }
 
 // New 创建一个新的 Logger，cap 为每个群/用户的环形缓冲区容量。
@@ -168,6 +178,7 @@ func New(cap int) *Logger {
 		cap:      cap,
 		groupBuf: make(map[string]*ring),
 		userBuf:  make(map[string]*ring),
+		botBuf:   make(map[string]*ring),
 	}
 }
 
@@ -305,6 +316,7 @@ func recordToModel(e RecordEntry) MessageRecord {
 		RawType:   e.RawType,
 		Timestamp: e.Timestamp.UnixNano(),
 		CreatedAt: e.CreatedAt.UnixNano(),
+		IsOutbound: e.IsOutbound,
 	}
 }
 
@@ -346,6 +358,7 @@ func modelToEntry(m MessageRecord, mentions []platform.UserInfo) RecordEntry {
 		Mentions:  mentions,
 		Timestamp: time.Unix(0, m.Timestamp),
 		CreatedAt: time.Unix(0, m.CreatedAt),
+		IsOutbound: m.IsOutbound,
 	}
 }
 
@@ -413,9 +426,45 @@ func (l *Logger) RecordAsync(ev platform.Event, ctx *eventctx.Context) {
 	}
 }
 
+// RecordOutbound 记录一条机器人发出的出站消息（如 AI 回复）。
+//
+// 写入独立的 botBuf ring（供回复上下文查询，QueryGroup/QueryUser 不含出站消息），
+// 并在已 Start() 时异步持久化到 SQLite（IsOutbound=true）。
+// 调用方需持有平台发送返回的 MessageID（eventID）。
+func (l *Logger) RecordOutbound(chatID, eventID, content string, t time.Time) {
+	if chatID == "" || eventID == "" || content == "" {
+		return
+	}
+	e := RecordEntry{
+		Platform:   "bot",
+		Kind:       "OUTBOUND",
+		EventID:    eventID,
+		ChatID:     chatID,
+		Content:    content,
+		Timestamp:  t,
+		CreatedAt:  time.Now(),
+		IsOutbound: true,
+	}
+
+	// 异步写入 DB channel（未 Start 时 channel 为 nil，select 走 default 安全跳过）
+	select {
+	case l.record <- recordJob{entry: e}:
+	default:
+	}
+
+	// 同步写入 botBuf ring
+	l.botMu.Lock()
+	r, ok := l.botBuf[chatID]
+	if !ok {
+		r = newRing(l.cap)
+		l.botBuf[chatID] = r
+	}
+	r.add(e)
+	l.botMu.Unlock()
+}
+
 // eventToEntry 从 platform.Event 和 Context 提取完整的消息记录。
-func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
-	chat := ev.Chat()
+func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {	chat := ev.Chat()
 	sender := ev.Sender()
 
 	requestID, _ := ctx.Get(ctxkeys.CtxKeyRequestID)
@@ -493,6 +542,57 @@ func (l *Logger) QueryUser(userID string, n int) []RecordEntry {
 	return nil
 }
 
+// QueryByEventID 按事件 ID 在指定会话中查找消息内容（回复上下文查询）。
+//
+// 查找顺序：
+//  1. 入站消息 ring（groupBuf）
+//  2. 机器人出站消息 ring（botBuf）
+//  3. SQLite 兜底（入站与出站均持久化，按 chat_id + event_id 索引查询）
+//
+// 未找到返回零值和 false。
+func (l *Logger) QueryByEventID(chatID, eventID string) (RecordEntry, bool) {
+	if chatID == "" || eventID == "" {
+		return RecordEntry{}, false
+	}
+
+	l.groupMu.RLock()
+	r := l.groupBuf[chatID]
+	l.groupMu.RUnlock()
+	if r != nil {
+		if e, ok := findInRing(r, eventID); ok {
+			return e, true
+		}
+	}
+
+	l.botMu.RLock()
+	br := l.botBuf[chatID]
+	l.botMu.RUnlock()
+	if br != nil {
+		if e, ok := findInRing(br, eventID); ok {
+			return e, true
+		}
+	}
+
+	if l.db != nil {
+		var m MessageRecord
+		if err := l.db.Where("chat_id = ? AND event_id = ?", chatID, eventID).First(&m).Error; err == nil {
+			return modelToEntry(m, nil), true
+		}
+	}
+
+	return RecordEntry{}, false
+}
+
+// findInRing 在 ring 快照中按事件 ID 线性查找（容量上限为 DefaultCapacity）。
+func findInRing(r *ring, eventID string) (RecordEntry, bool) {
+	for _, e := range r.snapshot(r.size) {
+		if e.EventID == eventID {
+			return e, true
+		}
+	}
+	return RecordEntry{}, false
+}
+
 // WordFreq 统计群 groupID 最近 n 条消息中的词频（基于内存 ring buffer）。
 // 返回 map[词]出现次数，可用于简单词云展示。
 func (l *Logger) WordFreq(groupID string, n int) map[string]int {
@@ -521,7 +621,7 @@ func (l *Logger) WordFreqFromDB(chatID string, since, until time.Time, limit int
 		return nil, nil
 	}
 	var models []MessageRecord
-	err := l.db.Where("chat_id = ? AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
+	err := l.db.Where("chat_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
 		Order("id DESC").Limit(limit).Find(&models).Error
 	if err != nil {
 		return nil, err
@@ -567,7 +667,7 @@ func (l *Logger) QueryGroupFromDB(chatID string, since, until time.Time, limit i
 		return nil, nil
 	}
 	var models []MessageRecord
-	err := l.db.Where("chat_id = ? AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
+	err := l.db.Where("chat_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
 		Order("id DESC").Limit(limit).Find(&models).Error
 	if err != nil {
 		return nil, err
@@ -593,7 +693,7 @@ func (l *Logger) QueryUserFromDB(userID string, since, until time.Time, limit in
 		return nil, nil
 	}
 	var models []MessageRecord
-	err := l.db.Where("user_id = ? AND timestamp BETWEEN ? AND ?", userID, since.UnixNano(), until.UnixNano()).
+	err := l.db.Where("user_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", userID, since.UnixNano(), until.UnixNano()).
 		Order("id DESC").Limit(limit).Find(&models).Error
 	if err != nil {
 		return nil, err
@@ -639,6 +739,17 @@ func (l *Logger) Clear(before time.Time) {
 		}
 	}
 	l.userMu.Unlock()
+
+	l.botMu.Lock()
+	for cid, r := range l.botBuf {
+		pruned := pruneRing(r, before, l.cap)
+		if pruned.size == 0 {
+			delete(l.botBuf, cid)
+		} else {
+			l.botBuf[cid] = pruned
+		}
+	}
+	l.botMu.Unlock()
 
 	if l.db != nil {
 		cutoff := before.UnixNano()
