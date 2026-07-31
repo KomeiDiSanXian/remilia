@@ -47,6 +47,13 @@ func (p *Plugin) discoverTools() {
 		allowSet[name] = struct{}{}
 	}
 
+	// AI 自身的触发命令（默认 /ai）不应被自动发现为工具，避免 AI 自我递归调用。
+	// 若用户将 trigger_cmd 改为 /chat 等，也要一并排除。
+	triggerName := ""
+	if p.cfg.TriggerCmd != "" {
+		triggerName = strings.TrimLeft(p.cfg.TriggerCmd, "/!$#")
+	}
+
 	allCmds := p.coord.GetAllCommands()
 	for _, cmd := range allCmds {
 		if cmd.Definition != nil && cmd.Definition.Hidden {
@@ -57,6 +64,9 @@ func (p *Plugin) discoverTools() {
 		}
 		name := strings.TrimLeft(cmd.Command, "/!$#")
 		name = strings.ReplaceAll(name, " ", "_")
+		if triggerName != "" && name == triggerName {
+			continue
+		}
 		if hasAllowlist {
 			if _, ok := allowSet[name]; !ok {
 				continue

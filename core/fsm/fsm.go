@@ -23,6 +23,7 @@
 package fsm
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"sync"
@@ -33,6 +34,10 @@ import (
 
 // State 表示有限状态机中的一个节点。是 string 的类型别名，用于类型安全的状态引用。
 type State string
+
+// ErrSessionExists 表示尝试为同一 sessionID 创建会话时该会话已存在。
+// 调用方可通过 errors.Is(err, ErrSessionExists) 判断。
+var ErrSessionExists = errors.New("fsm: session already exists")
 
 // Event 定义 FSM 中的一条迁移规则。
 //
@@ -441,7 +446,7 @@ func (e *Engine) StartSession(ctx *corectx.Context, fsmName, sessionID string) e
 
 	existing := e.stores.Get(sessionID)
 	if existing != nil {
-		return fmt.Errorf("fsm: session %q already exists for FSM %q", sessionID, existing.FSMName)
+		return fmt.Errorf("%w: session %q for FSM %q", ErrSessionExists, sessionID, existing.FSMName)
 	}
 	now := time.Now().Unix()
 	session := &Session{

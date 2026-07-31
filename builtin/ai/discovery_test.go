@@ -1,10 +1,12 @@
 package ai
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -238,6 +240,51 @@ func TestMakeSkillAddSessionID(t *testing.T) {
 func TestDiscoverCommandsWithoutCoordinator(t *testing.T) {
 	p := &Plugin{coord: nil}
 	p.DiscoverCommands()
+}
+
+// mockReader 实现 engine.Reader，用于测试 discoverTools 的排除逻辑。
+type mockReader struct {
+	commands []engine.CommandInfo
+}
+
+func (m *mockReader) GetAllCommands() []engine.CommandInfo                  { return m.commands }
+func (m *mockReader) FindCommand(name string) *engine.CommandInfo            { return nil }
+func (m *mockReader) GetCommandsByPlugin() map[string][]engine.CommandInfo   { return nil }
+func (m *mockReader) GetCommandsByCategory() map[string][]engine.CommandInfo { return nil }
+func (m *mockReader) GetMatcherCount() int                                  { return 0 }
+func (m *mockReader) GetMatcherStats() engine.MatcherStats                   { return engine.MatcherStats{} }
+func (m *mockReader) GetMaxMatchers() int                                   { return 0 }
+func (m *mockReader) GetTempMatcherCount() int                              { return 0 }
+
+func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
+	coord := &mockReader{
+		commands: []engine.CommandInfo{
+			{Command: "/chat", Description: "AI trigger"},
+			{Command: "/weather", Description: "Get weather"},
+			{Command: "/secret", Description: "needs perms", Permissions: []string{"admin"}},
+		},
+	}
+	p := &Plugin{
+		cfg:      &Config{TriggerCmd: "/chat"},
+		coord:    coord,
+		reg:      NewToolRegistry(),
+		cmdMu:    sync.RWMutex{},
+		cmdPatterns: make(map[string]string),
+	}
+	p.DiscoverCommands()
+
+	// 触发命令 /chat 不应被暴露为工具
+	if _, ok := p.reg.Get("chat"); ok {
+		t.Error("trigger command /chat should not be exposed as a tool")
+	}
+	// 无权限命令应被发现
+	if _, ok := p.reg.Get("weather"); !ok {
+		t.Error("expected /weather to be discovered")
+	}
+	// 需权限命令不应被发现
+	if _, ok := p.reg.Get("secret"); ok {
+		t.Error("permission-gated command should not be discovered")
+	}
 }
 
 func TestRegisterSkillAsTool(t *testing.T) {
