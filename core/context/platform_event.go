@@ -4,7 +4,6 @@ package context
 
 import (
 	stdctx "context"
-	"fmt"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/future"
@@ -120,22 +119,14 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) *future.Future[platform.
 	}
 	sender := ctx.platformSender
 	chatID := ctx.platformEvent.Chat().ID
+	obs := outboundObserverFrom(ctx)
 
 	if ctx.dispatcher == nil {
 		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
 		return f
 	}
 	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
-		// Reply 层保证 Future 被 Resolve（即使是 panic）
-		defer func() {
-			if r := recover(); r != nil {
-				f.Resolve(platform.SendResult{}, fmt.Errorf("panic in send: %v", r))
-				panic(r) // 让 Dispatcher 的 recovery 继续处理
-			}
-		}()
-		res, err := sender.Send(sendCtx, req)
-		f.Resolve(res, err)
-		return err
+		return submitReply(sendCtx, req, sender, chatID, f, obs)
 	})
 	if err != nil {
 		f.Resolve(platform.SendResult{}, err)
@@ -160,21 +151,14 @@ func (ctx *Context) ReplyWithContext(stdCtx stdctx.Context, msg platform.Outboun
 	}
 	sender := ctx.platformSender
 	chatID := ctx.platformEvent.Chat().ID
+	obs := outboundObserverFrom(ctx)
 
 	if ctx.dispatcher == nil {
 		f.Resolve(platform.SendResult{}, ErrNoPlatformSender)
 		return f
 	}
 	err := ctx.dispatcher.Submit(chatID, func(sendCtx stdctx.Context) error {
-		defer func() {
-			if r := recover(); r != nil {
-				f.Resolve(platform.SendResult{}, fmt.Errorf("panic in send: %v", r))
-				panic(r)
-			}
-		}()
-		res, err := sender.Send(sendCtx, req)
-		f.Resolve(res, err)
-		return err
+		return submitReply(sendCtx, req, sender, chatID, f, obs)
 	})
 	if err != nil {
 		f.Resolve(platform.SendResult{}, err)
