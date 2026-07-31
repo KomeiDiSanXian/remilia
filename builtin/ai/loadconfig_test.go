@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -136,13 +137,7 @@ func TestLoadConfigContextPrivacyOptions(t *testing.T) {
 		t.Fatalf("expected 3 context fields, got %d: %v", len(result.ContextFields), result.ContextFields)
 	}
 	for _, f := range []string{"time", "platform", "user_name"} {
-		found := false
-		for _, got := range result.ContextFields {
-			if got == f {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(result.ContextFields, f)
 		if !found {
 			t.Errorf("expected context field %q in %v", f, result.ContextFields)
 		}
@@ -168,8 +163,8 @@ func TestLoadConfigContextPrivacyDefaults(t *testing.T) {
 func TestLoadConfigReplyAndGroupContext(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{
-			"include_reply_context":    false,
-			"context_group_messages":   15,
+			"include_reply_context":  false,
+			"context_group_messages": 15,
 		},
 	}
 	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})

@@ -300,22 +300,22 @@ func (l *Logger) flushLoop(ctx context.Context) {
 // recordToModel 将 RecordEntry 转换为 GORM 模型。
 func recordToModel(e RecordEntry) MessageRecord {
 	return MessageRecord{
-		RequestID: e.RequestID,
-		Platform:  e.Platform,
-		Kind:      e.Kind,
-		EventID:   e.EventID,
-		ChatID:    e.ChatID,
-		ChatName:  e.ChatName,
-		ParentID:  e.ParentID,
-		IsGroup:   e.IsGroup,
-		UserID:    e.UserID,
-		UserName:  e.UserName,
-		UserRole:  e.UserRole,
-		Content:   e.Content,
-		ReplyToID: e.ReplyToID,
-		RawType:   e.RawType,
-		Timestamp: e.Timestamp.UnixNano(),
-		CreatedAt: e.CreatedAt.UnixNano(),
+		RequestID:  e.RequestID,
+		Platform:   e.Platform,
+		Kind:       e.Kind,
+		EventID:    e.EventID,
+		ChatID:     e.ChatID,
+		ChatName:   e.ChatName,
+		ParentID:   e.ParentID,
+		IsGroup:    e.IsGroup,
+		UserID:     e.UserID,
+		UserName:   e.UserName,
+		UserRole:   e.UserRole,
+		Content:    e.Content,
+		ReplyToID:  e.ReplyToID,
+		RawType:    e.RawType,
+		Timestamp:  e.Timestamp.UnixNano(),
+		CreatedAt:  e.CreatedAt.UnixNano(),
 		IsOutbound: e.IsOutbound,
 	}
 }
@@ -341,23 +341,23 @@ func entryToMentions(e RecordEntry) []MessageMention {
 // modelToEntry 将 GORM 模型转换为 RecordEntry（mentions 需外部注入）。
 func modelToEntry(m MessageRecord, mentions []platform.UserInfo) RecordEntry {
 	return RecordEntry{
-		RequestID: m.RequestID,
-		Platform:  m.Platform,
-		Kind:      m.Kind,
-		EventID:   m.EventID,
-		ChatID:    m.ChatID,
-		ChatName:  m.ChatName,
-		ParentID:  m.ParentID,
-		IsGroup:   m.IsGroup,
-		UserID:    m.UserID,
-		UserName:  m.UserName,
-		UserRole:  m.UserRole,
-		Content:   m.Content,
-		ReplyToID: m.ReplyToID,
-		RawType:   m.RawType,
-		Mentions:  mentions,
-		Timestamp: time.Unix(0, m.Timestamp),
-		CreatedAt: time.Unix(0, m.CreatedAt),
+		RequestID:  m.RequestID,
+		Platform:   m.Platform,
+		Kind:       m.Kind,
+		EventID:    m.EventID,
+		ChatID:     m.ChatID,
+		ChatName:   m.ChatName,
+		ParentID:   m.ParentID,
+		IsGroup:    m.IsGroup,
+		UserID:     m.UserID,
+		UserName:   m.UserName,
+		UserRole:   m.UserRole,
+		Content:    m.Content,
+		ReplyToID:  m.ReplyToID,
+		RawType:    m.RawType,
+		Mentions:   mentions,
+		Timestamp:  time.Unix(0, m.Timestamp),
+		CreatedAt:  time.Unix(0, m.CreatedAt),
 		IsOutbound: m.IsOutbound,
 	}
 }
@@ -483,7 +483,8 @@ func (l *Logger) OnOutbound(chatID string, req platform.SendRequest, res platfor
 }
 
 // eventToEntry 从 platform.Event 和 Context 提取完整的消息记录。
-func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {	chat := ev.Chat()
+func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
+	chat := ev.Chat()
 	sender := ev.Sender()
 
 	requestID, _ := ctx.Get(ctxkeys.CtxKeyRequestID)

@@ -231,11 +231,11 @@ func TestHandleSkillListEmpty(t *testing.T) {
 func TestHandleSkillAddAndList(t *testing.T) {
 	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:          NewSessionManager(100, 20, time.Hour, nil),
-		cfg:         cfg,
-		triggerCmd:  "/ai",
-		reg:         NewToolRegistry(),
-		skillReg:    NewSkillRegistry(),
+		sm:         NewSessionManager(100, 20, time.Hour, nil),
+		cfg:        cfg,
+		triggerCmd: "/ai",
+		reg:        NewToolRegistry(),
+		skillReg:   NewSkillRegistry(),
 	}
 
 	ctx := makeContext("/ai skill add my_skill You are a test skill for testing")
@@ -336,11 +336,11 @@ func TestHandleSkillInfo(t *testing.T) {
 func TestHandleSkillPromoteWithPrefixedName(t *testing.T) {
 	cfg := &Config{MaxUserSkills: 10, MaxUserSkillPromptLen: 2000, TriggerCmd: "/ai"}
 	p := &Plugin{
-		sm:          NewSessionManager(100, 20, time.Hour, nil),
-		cfg:         cfg,
-		triggerCmd:  "/ai",
-		reg:         NewToolRegistry(),
-		skillReg:    NewSkillRegistry(),
+		sm:         NewSessionManager(100, 20, time.Hour, nil),
+		cfg:        cfg,
+		triggerCmd: "/ai",
+		reg:        NewToolRegistry(),
+		skillReg:   NewSkillRegistry(),
 	}
 
 	if err := p.skillReg.Add(Skill{

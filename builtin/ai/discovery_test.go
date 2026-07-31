@@ -247,14 +247,14 @@ type mockReader struct {
 	commands []engine.CommandInfo
 }
 
-func (m *mockReader) GetAllCommands() []engine.CommandInfo                  { return m.commands }
+func (m *mockReader) GetAllCommands() []engine.CommandInfo                   { return m.commands }
 func (m *mockReader) FindCommand(name string) *engine.CommandInfo            { return nil }
 func (m *mockReader) GetCommandsByPlugin() map[string][]engine.CommandInfo   { return nil }
 func (m *mockReader) GetCommandsByCategory() map[string][]engine.CommandInfo { return nil }
-func (m *mockReader) GetMatcherCount() int                                  { return 0 }
+func (m *mockReader) GetMatcherCount() int                                   { return 0 }
 func (m *mockReader) GetMatcherStats() engine.MatcherStats                   { return engine.MatcherStats{} }
-func (m *mockReader) GetMaxMatchers() int                                   { return 0 }
-func (m *mockReader) GetTempMatcherCount() int                              { return 0 }
+func (m *mockReader) GetMaxMatchers() int                                    { return 0 }
+func (m *mockReader) GetTempMatcherCount() int                               { return 0 }
 
 func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
 	coord := &mockReader{
@@ -265,10 +265,10 @@ func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
 		},
 	}
 	p := &Plugin{
-		cfg:      &Config{TriggerCmd: "/chat"},
-		coord:    coord,
-		reg:      NewToolRegistry(),
-		cmdMu:    sync.RWMutex{},
+		cfg:         &Config{TriggerCmd: "/chat"},
+		coord:       coord,
+		reg:         NewToolRegistry(),
+		cmdMu:       sync.RWMutex{},
 		cmdPatterns: make(map[string]string),
 	}
 	p.DiscoverCommands()

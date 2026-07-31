@@ -273,16 +273,16 @@ func TestStripMentionMarkup(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"@123456 帮我看看", " 帮我看看"},             // onebot/QQ 群
+		{"@123456 帮我看看", " 帮我看看"},            // onebot/QQ 群
 		{"<@123> 帮我看看", " 帮我看看"},             // Discord 用户
-		{"<@!123> hi", " hi"},                       // Discord 移动端用户
-		{"<@&456> 公告", " 公告"},                    // Discord 角色
-		{"@everyone 开会", " 开会"},                  // Discord @全体
-		{"@all 注意", " 注意"},                       // onebot @全体
-		{"帮我查 @123 的天气", "帮我查  的天气"},       // 中间位置的提及（留双空格，不影响语义）
-		{"<#789> 频道消息", " 频道消息"},               // Discord 频道引用
-		{"@username 保留", "@username 保留"},          // Telegram 昵称（字母）不误伤
-		{"联系我 abc@qq.com", "联系我 abc@qq.com"},    // 邮箱不被误伤
+		{"<@!123> hi", " hi"},                // Discord 移动端用户
+		{"<@&456> 公告", " 公告"},                // Discord 角色
+		{"@everyone 开会", " 开会"},              // Discord @全体
+		{"@all 注意", " 注意"},                   // onebot @全体
+		{"帮我查 @123 的天气", "帮我查  的天气"},         // 中间位置的提及（留双空格，不影响语义）
+		{"<#789> 频道消息", " 频道消息"},             // Discord 频道引用
+		{"@username 保留", "@username 保留"},     // Telegram 昵称（字母）不误伤
+		{"联系我 abc@qq.com", "联系我 abc@qq.com"}, // 邮箱不被误伤
 	}
 	for _, c := range cases {
 		if got := stripMentionMarkup(c.in); got != c.want {
