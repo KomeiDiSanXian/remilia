@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.26.1 (2026-07-31)
+
+### 🐛 sauce 插件解析修复
+
+- **SauceNAO 字符串 ID 字段解析失败修复**: 部分索引（Kemono / Patreon 等）将 `pixiv_id` / `member_id` / `twitter_user_id` 等 ID 以字符串返回（如 `"14792976"`），原 `int` 字段解析报 `cannot unmarshal string into ... of type int`，导致整次搜索失败。新增 `flexInt` 类型同时接受 JSON 数字与字符串，无法解析时置 0 而非报错；新增回归测试覆盖字符串/数字混合返回场景
+
 ## v1.26.0 (2026-07-31)
 
 ### 🎯 出站消息观察者（Outbound Observer）

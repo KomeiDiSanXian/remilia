@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -56,23 +58,49 @@ type saucenaoItemHeader struct {
 	IndexName  string `json:"index_name"`
 }
 
+// flexInt 兼容 SauceNAO 以字符串或数字返回的整型字段（如 twitter_user_id）。
+// 部分索引（Kemono / Patreon 等）将 id 以字符串形式返回，直接用 int 会导致
+// 整个结果集解析失败。
+type flexInt int
+
+// UnmarshalJSON 接受 JSON 数字或字符串形式的整数值，无法解析时置 0 而非报错，
+// 避免单个异常字段拖垮整次搜索。
+func (f *flexInt) UnmarshalJSON(b []byte) error {
+	*f = 0
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(b, &n); err == nil {
+		*f = flexInt(n)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		if v, perr := strconv.Atoi(strings.TrimSpace(s)); perr == nil {
+			*f = flexInt(v)
+		}
+	}
+	return nil
+}
+
 type saucenaoItemData struct {
 	ExtURLs           []string        `json:"ext_urls"`
 	Title             string          `json:"title"`
-	PixivID           int             `json:"pixiv_id"`
+	PixivID           flexInt         `json:"pixiv_id"`
 	MemberName        string          `json:"member_name"`
-	MemberID          int             `json:"member_id"`
+	MemberID          flexInt         `json:"member_id"`
 	Source            string          `json:"source"`
 	AuthorName        string          `json:"author_name"`
 	AuthorURL         string          `json:"author_url"`
 	Creator           json.RawMessage `json:"creator"`
 	Material          string          `json:"material"`
 	Part              string          `json:"part"`
-	DanbooruID        int             `json:"danbooru_id"`
-	GelbooruID        int             `json:"gelbooru_id"`
-	SankakuID         int             `json:"sankaku_id"`
+	DanbooruID        flexInt         `json:"danbooru_id"`
+	GelbooruID        flexInt         `json:"gelbooru_id"`
+	SankakuID         flexInt         `json:"sankaku_id"`
 	TwitterUserHandle string          `json:"twitter_user_handle"`
-	TwitterUserID     int             `json:"twitter_user_id"`
+	TwitterUserID     flexInt         `json:"twitter_user_id"`
 }
 
 // Search 通过 SauceNAO 搜索图片来源。
