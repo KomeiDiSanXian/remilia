@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -284,6 +285,84 @@ func TestDiscoverToolsExcludesTriggerCmd(t *testing.T) {
 	// 需权限命令不应被发现
 	if _, ok := p.reg.Get("secret"); ok {
 		t.Error("permission-gated command should not be discovered")
+	}
+}
+
+// sauceProvider 注册与命令同名的工具，用于验证显式注册覆盖自动发现。
+type sauceProvider struct{}
+
+func (sauceProvider) ListTools() []Tool {
+	return []Tool{
+		{Name: "sauce", Description: "explicit sauce tool", Execute: func(context.Context, map[string]any) (string, error) { return "explicit", nil }},
+	}
+}
+
+// TestRegisterToolProviderOverridesAutoDiscovered 验证显式注册的工具
+// 覆盖自动发现的同名命令工具：注册表条目被替换，且命令映射被清除
+// （否则 executeRealCommand 会抢走执行权）。
+func TestRegisterToolProviderOverridesAutoDiscovered(t *testing.T) {
+	coord := &mockReader{
+		commands: []engine.CommandInfo{
+			{Command: "/sauce", Description: "以图搜图"},
+		},
+	}
+	p := &Plugin{
+		cfg:         &Config{},
+		coord:       coord,
+		reg:         NewToolRegistry(),
+		cmdMu:       sync.RWMutex{},
+		cmdPatterns: make(map[string]string),
+	}
+	p.DiscoverCommands()
+
+	if _, ok := p.reg.Get("sauce"); !ok {
+		t.Fatal("expected /sauce to be auto-discovered first")
+	}
+	if _, ok := p.cmdPatterns["sauce"]; !ok {
+		t.Fatal("expected cmdPatterns to have sauce before override")
+	}
+
+	p.RegisterToolProvider(sauceProvider{})
+
+	tool, ok := p.reg.Get("sauce")
+	if !ok {
+		t.Fatal("expected sauce tool to remain after override")
+	}
+	if tool.Description != "explicit sauce tool" {
+		t.Errorf("expected provider tool to win, got %q", tool.Description)
+	}
+	if _, ok := p.cmdPatterns["sauce"]; ok {
+		t.Error("expected cmdPatterns entry for sauce to be removed after override")
+	}
+}
+
+// TestDiscoverToolsSkipsExplicitlyRegistered 验证已显式注册的名称
+// 不再被自动发现覆盖，且不会污染 cmdPatterns。
+func TestDiscoverToolsSkipsExplicitlyRegistered(t *testing.T) {
+	coord := &mockReader{
+		commands: []engine.CommandInfo{
+			{Command: "/sauce", Description: "以图搜图"},
+		},
+	}
+	p := &Plugin{
+		cfg:         &Config{},
+		coord:       coord,
+		reg:         NewToolRegistry(),
+		cmdMu:       sync.RWMutex{},
+		cmdPatterns: make(map[string]string),
+	}
+	p.RegisterToolProvider(sauceProvider{})
+	p.DiscoverCommands()
+
+	tool, ok := p.reg.Get("sauce")
+	if !ok {
+		t.Fatal("expected sauce tool from provider")
+	}
+	if tool.Description != "explicit sauce tool" {
+		t.Errorf("expected provider tool to win, got %q", tool.Description)
+	}
+	if _, ok := p.cmdPatterns["sauce"]; ok {
+		t.Error("expected no cmdPatterns entry for explicitly registered tool")
 	}
 }
 

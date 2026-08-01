@@ -136,6 +136,18 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	return t, ok
 }
 
+// Remove 按名称删除工具。返回是否实际删除了某个工具。
+// 用于显式注册的工具覆盖同名的自动发现命令工具。
+func (r *ToolRegistry) Remove(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.tools[name]; !ok {
+		return false
+	}
+	delete(r.tools, name)
+	return true
+}
+
 // List 返回当前注册的所有工具的切片副本。每次调用创建新切片。
 func (r *ToolRegistry) List() []Tool {
 	r.mu.RLock()

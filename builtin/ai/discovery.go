@@ -72,6 +72,11 @@ func (p *Plugin) discoverTools() {
 				continue
 			}
 		}
+		// 已被显式注册（RegisterToolProvider / RegisterSkill）占用的名称
+		// 不再自动发现为命令工具，避免覆盖或污染 cmdPatterns。
+		if _, exists := p.reg.Get(name); exists {
+			continue
+		}
 		tool := buildToolFromCommand(cmd)
 		if tool != nil {
 			p.cmdMu.Lock()
@@ -192,6 +197,10 @@ func (p *Plugin) DiscoverCommands() {
 // 其他插件可在自己的 Setup 中通过 plugin.TryService 获取 AI 插件的服务实例
 // 后调用此方法注册自定义工具，尤其是需要权限校验的敏感命令。
 //
+// 显式注册优先于自动发现：若工具名与自动发现的命令工具重名，
+// 会先移除自动发现的版本及其命令映射，保证 LLM 调用的是插件
+// 自己实现的 Execute，而非通过合成事件触发真实命令。
+//
 // 使用示例：
 //
 //	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
@@ -199,6 +208,13 @@ func (p *Plugin) DiscoverCommands() {
 //	}
 func (p *Plugin) RegisterToolProvider(tp ToolProvider) {
 	for _, t := range tp.ListTools() {
+		if t.Name == "" {
+			continue
+		}
+		p.reg.Remove(t.Name)
+		p.cmdMu.Lock()
+		delete(p.cmdPatterns, t.Name)
+		p.cmdMu.Unlock()
 		p.reg.Register(t)
 	}
 }
