@@ -38,20 +38,18 @@ import (
 // benchScenario defines one cell in the Benchmark Matrix.
 type benchScenario struct {
 	name string
-
 	// Matcher counts per category
-	numPermSpec int // sortedCache[eventType] specific permanent
-	numPermGen  int // sortedCache[""] generic permanent
-	numCmdSpec  int // commandIndex[cmd][eventType]
-	numCmdGen   int // commandIndex[cmd][""]
-	numTempSpec int // tempManager.Get(eventType)
-	numTempGen  int // tempManager.Get("")
-
-	// Behavior controls
-	cmdHit      bool    // whether the event's message hits an existing command
+	numPermSpec int     // sortedCache[eventType] specific permanent
+	numPermGen  int     // sortedCache[""] generic permanent
+	numCmdSpec  int     // commandIndex[cmd][eventType]
+	numCmdGen   int     // commandIndex[cmd][""]
+	numTempSpec int     // tempManager.Get(eventType)
+	numTempGen  int     // tempManager.Get("")
 	passRate    float64 // fraction of matchers where Match() returns true (0.0–1.0)
 	messageLen  int     // message content length for extractCommand
-	useExecPool bool    // whether to enable exec pool offload
+	// Behavior controls
+	cmdHit      bool // whether the event's message hits an existing command
+	useExecPool bool // whether to enable exec pool offload
 }
 
 // total returns the total number of candidate matchers after merge.

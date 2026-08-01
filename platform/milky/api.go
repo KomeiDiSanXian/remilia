@@ -180,15 +180,15 @@ type EssenceMessage struct {
 
 // GroupNotification 群通知（入群申请/邀请他人入群等）。
 type GroupNotification struct {
+	OperatorID      *int64
 	Type            string
+	State           string
+	Comment         string
 	GroupID         int64
 	NotificationSeq int64
-	IsFiltered      bool
 	InitiatorID     int64
 	TargetUserID    int64
-	State           string
-	OperatorID      *int64
-	Comment         string
+	IsFiltered      bool
 	IsSet           bool
 }
 

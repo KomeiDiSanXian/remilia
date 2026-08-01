@@ -24,9 +24,9 @@ func matcherWithMockCoord(et string) *Matcher {
 }
 
 type mockCoordinator struct {
+	invalidated         string
 	deleteCalled        bool
 	rebuildCalled       bool
-	invalidated         string
 	migratedToTemp      bool
 	migratedFromTemp    bool
 	priorityUpdated     bool

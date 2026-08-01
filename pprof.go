@@ -19,35 +19,26 @@ import (
 
 // PprofConfig pprof 配置
 type PprofConfig struct {
-	// Enabled 是否启用 pprof
-	Enabled bool
-
 	// Addr 监听地址
 	Addr string
-
-	// AutoProfile 是否启用自动性能分析
-	AutoProfile bool
-
-	// ProfileInterval 自动分析间隔
-	ProfileInterval time.Duration
-
-	// ProfileDuration 每次分析持续时间
-	ProfileDuration time.Duration
-
 	// OutputDir 性能分析文件输出目录
 	OutputDir string
-
-	// EnableMutex 是否启用互斥锁分析
-	EnableMutex bool
-
-	// EnableBlock 是否启用阻塞分析
-	EnableBlock bool
-
+	// ProfileInterval 自动分析间隔
+	ProfileInterval time.Duration
+	// ProfileDuration 每次分析持续时间
+	ProfileDuration time.Duration
 	// MutexProfileFraction 互斥锁分析采样率
 	MutexProfileFraction int
-
 	// BlockProfileRate 阻塞分析采样率
 	BlockProfileRate int
+	// Enabled 是否启用 pprof
+	Enabled bool
+	// AutoProfile 是否启用自动性能分析
+	AutoProfile bool
+	// EnableMutex 是否启用互斥锁分析
+	EnableMutex bool
+	// EnableBlock 是否启用阻塞分析
+	EnableBlock bool
 }
 
 // DefaultPprofConfig 返回默认配置

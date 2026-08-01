@@ -37,25 +37,10 @@ type SentMessage struct {
 
 // Adapter 是终端平台的适配器实现。
 type Adapter struct {
-	mu       sync.Mutex
-	running  atomic.Bool
-	msgMu    sync.Mutex
-	messages []*SentMessage
-	msgCount atomic.Uint64
-
-	reader     io.Reader
-	writer     io.Writer
-	prompt     string
-	welcomeMsg string
-	botID      string
-	botName    string
-
+	reader         io.Reader
+	writer         io.Writer
 	completionFunc func(string) []string
-
-	lastCompLine       string
-	lastCompCandidates []string
-
-	rawOldState *term.State
+	rawOldState    *term.State
 	// termOut 是 raw 模式下的行编辑器；非 nil 时所有输出都必须经由它。
 	//
 	// term.MakeRaw 会清掉 OPOST/ONLCR，裸 "\n" 只发 LF 而不回到行首，
@@ -63,14 +48,23 @@ type Adapter struct {
 	// 光标位置模型并用自己的锁串行化写入，绕过它还会在机器人回复与用户
 	// 正在输入的行交错时把屏幕状态彻底搞乱。
 	termOut *term.Terminal
-
 	handler func(platform.Event)
 	// stopCh 与 stopped 均由 a.mu 保护，且每次 Start 都会重置，
 	// 以支持 Stop → Start 的重启循环。
-	stopCh  chan struct{}
-	stopped bool
-
+	stopCh       chan struct{}
+	prompt       string
+	welcomeMsg   string
+	botID        string
+	botName      string
+	lastCompLine string
 	platform.DisconnectNotifier
+	messages           []*SentMessage
+	lastCompCandidates []string
+	msgCount           atomic.Uint64
+	mu                 sync.Mutex
+	msgMu              sync.Mutex
+	running            atomic.Bool
+	stopped            bool
 }
 
 type CompletionFunc func(prefix string) []string

@@ -151,11 +151,11 @@ type UserInfo struct {
 	ID string
 	// DisplayName 用户显示名（昵称/用户名）
 	DisplayName string
-	// IsBot 是否为机器人账号
-	IsBot bool
 	// GroupRole 发送者在当前群/频道中的角色等级。
 	// 私聊场景或平台未提供时为 GroupRoleUnknown。
 	GroupRole GroupRole
+	// IsBot 是否为机器人账号
+	IsBot bool
 	// IsSelf 此用户信息是否指向机器人自身（如 @ 列表中的机器人自身）。
 	// 主要用于 MentionsEvent，方便插件快速判断机器人是否被 @。
 	IsSelf bool

@@ -249,13 +249,13 @@ func (s *sysSampler) Aggregate() sysStats {
 // pumpAdapter — pumps platform.Events into the bot
 // ─────────────────────────────────────────────────────────────
 type pumpAdapter struct {
-	ch       chan platform.Event
 	ctx      context.Context
+	ch       chan platform.Event
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
-	started  atomic.Bool
 	injected atomic.Int64
 	dropped  atomic.Int64
+	started  atomic.Bool
 	blocking bool // true = blocking send (backpressure), false = non-blocking (real-world)
 }
 
@@ -454,19 +454,17 @@ func (m *runMetrics) recordLatency(ms float64) {
 // ScenarioResult
 // ─────────────────────────────────────────────────────────────
 type ScenarioResult struct {
-	Name            string  `json:"name"`
-	Workers         int     `json:"workers"`
-	RatePerWorker   int     `json:"rate_per_worker"`
-	TargetRate      int     `json:"target_rate_per_s"`
-	DurationSecs    float64 `json:"duration_secs"`
-	DrainTimeSecs   float64 `json:"drain_time_secs"`
-	GOMAXPROCS      int     `json:"gomaxprocs"`
-	GoVersion       string  `json:"go_version"`
-	IsUnlimited     bool    `json:"is_unlimited"`
-	ProdConcurrency int     `json:"prod_concurrency"`
-	ConsumerWorkers int     `json:"consumer_workers"`
-	InjectMode      string  `json:"inject_mode"`
-
+	Name             string  `json:"name"`
+	GoVersion        string  `json:"go_version"`
+	InjectMode       string  `json:"inject_mode"`
+	Workers          int     `json:"workers"`
+	RatePerWorker    int     `json:"rate_per_worker"`
+	TargetRate       int     `json:"target_rate_per_s"`
+	DurationSecs     float64 `json:"duration_secs"`
+	DrainTimeSecs    float64 `json:"drain_time_secs"`
+	GOMAXPROCS       int     `json:"gomaxprocs"`
+	ProdConcurrency  int     `json:"prod_concurrency"`
+	ConsumerWorkers  int     `json:"consumer_workers"`
 	EventsSent       int64   `json:"events_sent"`
 	EventsProcessed  int64   `json:"events_processed"`
 	EventsFailed     int64   `json:"events_failed"`
@@ -476,14 +474,12 @@ type ScenarioResult struct {
 	ThroughputActual float64 `json:"throughput_actual_per_s"`
 	ThroughputTarget float64 `json:"throughput_target_per_s"`
 	AchievementPct   float64 `json:"achievement_pct"`
-
-	AvgLatencyMs float64 `json:"avg_latency_ms"`
-	MinLatencyMs float64 `json:"min_latency_ms"`
-	MaxLatencyMs float64 `json:"max_latency_ms"`
-	LatencyP50   float64 `json:"latency_p50_ms"`
-	LatencyP95   float64 `json:"latency_p95_ms"`
-	LatencyP99   float64 `json:"latency_p99_ms"`
-
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+	MinLatencyMs     float64 `json:"min_latency_ms"`
+	MaxLatencyMs     float64 `json:"max_latency_ms"`
+	LatencyP50       float64 `json:"latency_p50_ms"`
+	LatencyP95       float64 `json:"latency_p95_ms"`
+	LatencyP99       float64 `json:"latency_p99_ms"`
 	CpuSysAvgPct     float64 `json:"cpu_sys_avg_pct"`
 	CpuSysMaxPct     float64 `json:"cpu_sys_max_pct"`
 	CpuProcAvgPct    float64 `json:"cpu_proc_avg_pct"`
@@ -498,10 +494,11 @@ type ScenarioResult struct {
 	StackInUseMaxMB  float64 `json:"stack_in_use_max_mb"`
 	GoroutinesAvg    float64 `json:"goroutines_avg"`
 	GoroutinesMax    int     `json:"goroutines_max"`
-	GCRuns           uint32  `json:"gc_runs"`
 	GCPauseDeltaMs   float64 `json:"gc_pause_delta_ms"`
 	GCPauseAvgMs     float64 `json:"gc_pause_avg_per_gc"`
 	EngineMatchers   int     `json:"engine_matchers"`
+	GCRuns           uint32  `json:"gc_runs"`
+	IsUnlimited      bool    `json:"is_unlimited"`
 }
 
 // ─────────────────────────────────────────────────────────────

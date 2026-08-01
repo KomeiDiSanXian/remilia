@@ -422,15 +422,15 @@ type getGroupNotificationsInput struct {
 }
 
 type groupNotificationJSON struct {
+	OperatorID      *int64 `json:"operator_id,omitempty"`
 	Type            string `json:"type"`
+	State           string `json:"state"`
+	Comment         string `json:"comment"`
 	GroupID         int64  `json:"group_id"`
 	NotificationSeq int64  `json:"notification_seq"`
-	IsFiltered      bool   `json:"is_filtered"`
 	InitiatorID     int64  `json:"initiator_id"`
 	TargetUserID    int64  `json:"target_user_id"`
-	State           string `json:"state"`
-	OperatorID      *int64 `json:"operator_id,omitempty"`
-	Comment         string `json:"comment"`
+	IsFiltered      bool   `json:"is_filtered"`
 	IsSet           bool   `json:"is_set"`
 }
 

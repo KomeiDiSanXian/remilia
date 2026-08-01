@@ -136,33 +136,24 @@ type Entry struct {
 
 // Config 审计日志配置
 type Config struct {
-	// Enabled 是否启用审计日志
-	Enabled bool
-
 	// OutputFile 输出文件路径
 	OutputFile string
-
 	// MaxSize 单个文件最大大小（MB）
 	MaxSize int
-
 	// MaxBackups 保留的备份文件数量
 	MaxBackups int
-
 	// MaxAge 保留天数
 	MaxAge int
-
-	// Compress 是否压缩备份文件
-	Compress bool
-
 	// BufferSize 缓冲区大小
 	BufferSize int
-
 	// FlushInterval 刷新间隔
 	FlushInterval time.Duration
-
 	// MinLevel 最低记录级别
 	MinLevel Level
-
+	// Enabled 是否启用审计日志
+	Enabled bool
+	// Compress 是否压缩备份文件
+	Compress bool
 	// AsyncWrite 是否异步写入
 	AsyncWrite bool
 }

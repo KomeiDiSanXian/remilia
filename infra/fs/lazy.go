@@ -66,34 +66,28 @@ const defaultTimeout = 60 * time.Second
 //	    RemoteURL: "https://example.com/font.ttf",
 //	}
 type LazyResource struct {
+	err error // ensure 最后一次执行的错误（done=true 时为 nil）
+	// HTTPClient 可选自定义 HTTP 客户端（nil 则使用 http.DefaultClient）。
+	// 用于测试（httptest）或需要代理/TLS 配置的场景。
+	HTTPClient *http.Client
 	// LocalPath 本地缓存文件的路径（含文件名，如 "data/wordlist.txt"）。
 	//
 	// 若文件已存在，Ensure 跳过下载直接返回。
 	// 若为空字符串且 RemoteURL 非空，下载完成后会将实际路径写回此字段。
 	LocalPath string
-
 	// RemoteURL 主下载 URL（LocalPath 不存在时使用）。
 	// 若为空且 LocalPath 也不存在，Ensure 返回 [ErrNoSource]。
 	RemoteURL string
-
 	// MirrorURLs 备用镜像 URL 列表（主 URL 下载失败时按顺序尝试）。
 	// 可为 nil，表示无镜像。
 	MirrorURLs []string
-
 	// Timeout 单次 HTTP 下载的超时时间（默认 60s，<=0 则使用默认值）。
 	Timeout time.Duration
-
+	mu      sync.Mutex
 	// ForceDownload 设为 true 时，即使本地文件已存在也重新下载。
 	// 适合在调用 [LazyResource.Reload] 后临时设置，更新资源版本。
 	ForceDownload bool
-
-	// HTTPClient 可选自定义 HTTP 客户端（nil 则使用 http.DefaultClient）。
-	// 用于测试（httptest）或需要代理/TLS 配置的场景。
-	HTTPClient *http.Client
-
-	mu   sync.Mutex
-	done bool  // true 表示 ensure 已成功完成
-	err  error // ensure 最后一次执行的错误（done=true 时为 nil）
+	done          bool // true 表示 ensure 已成功完成
 }
 
 // Ensure 确保本地文件存在于 LocalPath。

@@ -364,23 +364,23 @@ type KeyboardRenderData struct {
 
 // KeyboardAction 按钮操作配置。
 type KeyboardAction struct {
-	// Type 操作类型：0=跳转按钮（http/小程序 scheme），1=回调按钮（通知后台），2=指令按钮（插入输入框）
-	Type int `json:"type"`
 	// Permission 按钮可操作权限
 	Permission *KeyboardPermission `json:"permission"`
 	// Data 操作相关数据，跳转时为 URL，回调时透传给后台，指令时为指令文本
 	Data string `json:"data"`
 	// UnsupportTips 客户端不支持本 action 时弹出的 toast 文案
 	UnsupportTips string `json:"unsupport_tips"`
-	// Reply 指令按钮专有：是否带引用回复本消息，默认 false（v8983+）
-	Reply bool `json:"reply,omitempty"`
-	// Enter 指令按钮专有：点击后直接自动发送 data，默认 false（v8983+）
-	Enter bool `json:"enter,omitempty"`
+	// Type 操作类型：0=跳转按钮（http/小程序 scheme），1=回调按钮（通知后台），2=指令按钮（插入输入框）
+	Type int `json:"type"`
 	// Anchor 指令按钮专有：1=唤起手Q选图器（仅手机端 v8983+，桌面端不支持）
 	Anchor int `json:"anchor,omitempty"`
 	// ClickLimit 【已弃用】可操作点击的次数，默认不限。
 	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
 	ClickLimit int `json:"click_limit,omitempty"`
+	// Reply 指令按钮专有：是否带引用回复本消息，默认 false（v8983+）
+	Reply bool `json:"reply,omitempty"`
+	// Enter 指令按钮专有：点击后直接自动发送 data，默认 false（v8983+）
+	Enter bool `json:"enter,omitempty"`
 	// AtBotShowChannelList 【已弃用】指令按钮专有：弹出子频道选择器，默认 false。
 	// 已弃用，保留字段仅供反序列化旧版按钮数据使用，发送时请勿使用。
 	AtBotShowChannelList bool `json:"at_bot_show_channel_list,omitempty"`

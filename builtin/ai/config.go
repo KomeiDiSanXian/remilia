@@ -20,110 +20,28 @@ type Config struct {
 	// Provider LLM 提供商名称。
 	// 支持: "openai"（默认，兼容 DeepSeek 等）、"anthropic"
 	Provider string `yaml:"provider"`
-
 	// Model 模型名称。
 	// OpenAI: gpt-4o, gpt-4o-mini, gpt-4-turbo, o1-mini
 	// DeepSeek: deepseek-chat, deepseek-reasoner
 	// Anthropic: claude-sonnet-4-20250514, claude-3-5-sonnet-latest
 	Model string `yaml:"model"`
-
 	// BaseURL API 地址。
 	// OpenAI 默认: https://api.openai.com/v1
 	// DeepSeek:     https://api.deepseek.com
 	// Anthropic:    https://api.anthropic.com
 	// 本地 Ollama:  http://localhost:11434/v1
 	BaseURL string `yaml:"base_url"`
-
 	// APIKey API 密钥。推荐通过环境变量引用如 "${AI_API_KEY}"。
 	APIKey string `yaml:"api_key"`
-
-	// MaxTokens 每次请求的最大输出 token 数。
-	MaxTokens int `yaml:"max_tokens"`
-
-	// MaxDepth 工具调用的最大递归深度。
-	// 防止工具循环调用过深，默认 5。
-	MaxDepth int `yaml:"max_depth"`
-
-	// MaxHistory 保留的最大消息轮数（一对 user+assistant 算一轮）。
-	// 超出部分从中间裁剪，保留首尾。
-	MaxHistory int `yaml:"max_history"`
-
-	// Temperature 采样温度，0-2，默认 0.7。越高输出越随机。
-	Temperature float64 `yaml:"temperature"`
-
-	// TopP 核采样参数，0-1，默认 1.0。替代 temperature 使用。
-	TopP float64 `yaml:"top_p"`
-
-	// APITimeout API 请求超时时间，默认 60s。
-	APITimeout time.Duration `yaml:"api_timeout"`
-
-	// MaxRetries 请求失败时的最大重试次数，默认 0（不重试）。
-	MaxRetries int `yaml:"max_retries"`
-
-	// ToolTimeout 每个工具调用的最长执行时间，默认 30s。
-	// 超时后工具结果返回超时错误，对话继续。
-	ToolTimeout time.Duration `yaml:"tool_timeout"`
-
-	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
-	SessionTTL time.Duration `yaml:"session_ttl"`
-
 	// SystemPrompt 用户自定义指令，追加在 Framework Prompt 之后。
 	// 用于设定 AI 的角色、个性或额外行为约束。
 	SystemPrompt string `yaml:"system_prompt"`
-
 	// TriggerCmd 触发 AI 对话的命令前缀。为空则不注册命令触发。
 	TriggerCmd string `yaml:"trigger_cmd"`
-
-	// AtBot 是否响应 @机器人的消息。
-	AtBot bool `yaml:"at_bot"`
-
-	// PrivateChat 是否自动响应私聊消息。
-	//
-	// 注意：开启后 AI 会响应所有非命令消息（不以 "/" 开头）。
-	// 命令消息会被自动跳过，避免与命令 handler 发生并发 context 竞态。
-	PrivateChat bool `yaml:"private_chat"`
-
-	// Markdown 是否使用 Markdown 格式发送回复。
-	// true  = 平台支持 MD 时用 MarkdownMessage，否则回退纯文本
-	// false = 始终使用纯文本（即使平台支持 MD）
-	Markdown bool `yaml:"markdown"`
-
-	// Fallback 当没有命令匹配时，是否由 AI 兜底回复。
-	// 当前预留字段，需要配合 Router 低优先级 RouteRule 使用。
-	Fallback bool `yaml:"fallback"`
-
-	// SkillTimeout 每个 Skill 执行的最大时长，默认 60s。
-	SkillTimeout time.Duration `yaml:"skill_timeout"`
-
-	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
-	SkillMaxDepth int `yaml:"skill_max_depth"`
-
-	// VisionEnabled 是否启用图片识别。设为 false 时入站图片会被忽略。
-	VisionEnabled bool `yaml:"vision_enabled"`
-
-	// AudioEnabled 是否启用音频输入（仅 OpenAI GPT-4o 预览版，Anthropic 不支持）。
-	AudioEnabled bool `yaml:"audio_enabled"`
-
-	// MaxAttachmentSize 入站附件单文件大小上限（字节），超出则跳过。
-	// 默认 20MB。
-	MaxAttachmentSize int64 `yaml:"max_attachment_size"`
-
-	// MaxUserSkills 每个用户最多可注册的技能数，默认 10。
-	MaxUserSkills int `yaml:"max_user_skills"`
-
-	// MaxUserSkillPromptLen 用户技能 Prompt 的最大字符数，默认 2000。
-	MaxUserSkillPromptLen int `yaml:"max_user_skill_prompt_len"`
-
 	// ToolAllowlist 显式允许自动暴露为工具的命令名称列表。
 	// 为空时自动发现所有无权限命令（旧行为）；非空时仅将列表中的命令暴露为工具。
 	// 推荐用法：配置为 [] 启用旧行为，或列出具体命令名精确控制。
 	ToolAllowlist []string `yaml:"tool_allowlist"`
-
-	// IncludeRuntimeContext 是否将运行时上下文（用户/群聊/时间等）注入系统提示。
-	// 这些信息会随每次请求发送给第三方 LLM，可能涉及隐私。
-	// 默认 true（保持旧行为）；设为 false 时完全不注入运行时上下文。
-	IncludeRuntimeContext bool `yaml:"include_runtime_context"`
-
 	// ContextFields 运行时上下文中要注入的字段白名单。
 	// 为空表示注入全部字段（默认行为）；非空时仅注入列出的字段。
 	// 可选字段：
@@ -140,21 +58,72 @@ type Config struct {
 	//   - parent_id   所属服务器 ID（频道类平台）
 	//   - group_role  发送者群角色（群主/管理员/普通成员）
 	ContextFields []string `yaml:"context_fields"`
-
+	// MaxTokens 每次请求的最大输出 token 数。
+	MaxTokens int `yaml:"max_tokens"`
+	// MaxDepth 工具调用的最大递归深度。
+	// 防止工具循环调用过深，默认 5。
+	MaxDepth int `yaml:"max_depth"`
+	// MaxHistory 保留的最大消息轮数（一对 user+assistant 算一轮）。
+	// 超出部分从中间裁剪，保留首尾。
+	MaxHistory int `yaml:"max_history"`
+	// Temperature 采样温度，0-2，默认 0.7。越高输出越随机。
+	Temperature float64 `yaml:"temperature"`
+	// TopP 核采样参数，0-1，默认 1.0。替代 temperature 使用。
+	TopP float64 `yaml:"top_p"`
+	// APITimeout API 请求超时时间，默认 60s。
+	APITimeout time.Duration `yaml:"api_timeout"`
+	// MaxRetries 请求失败时的最大重试次数，默认 0（不重试）。
+	MaxRetries int `yaml:"max_retries"`
+	// ToolTimeout 每个工具调用的最长执行时间，默认 30s。
+	// 超时后工具结果返回超时错误，对话继续。
+	ToolTimeout time.Duration `yaml:"tool_timeout"`
+	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
+	SessionTTL time.Duration `yaml:"session_ttl"`
+	// SkillTimeout 每个 Skill 执行的最大时长，默认 60s。
+	SkillTimeout time.Duration `yaml:"skill_timeout"`
+	// SkillMaxDepth Skill 内部工具调用的最大递归深度，默认 3。
+	SkillMaxDepth int `yaml:"skill_max_depth"`
+	// MaxAttachmentSize 入站附件单文件大小上限（字节），超出则跳过。
+	// 默认 20MB。
+	MaxAttachmentSize int64 `yaml:"max_attachment_size"`
+	// MaxUserSkills 每个用户最多可注册的技能数，默认 10。
+	MaxUserSkills int `yaml:"max_user_skills"`
+	// MaxUserSkillPromptLen 用户技能 Prompt 的最大字符数，默认 2000。
+	MaxUserSkillPromptLen int `yaml:"max_user_skill_prompt_len"`
+	// ContextGroupMessages 注入系统提示的最近群消息条数（0 = 关闭，默认）。
+	// 开启后 AI 能感知同群其他成员的发言，融入多人对话。
+	// 依赖 messagelog 插件；只注入入站消息（不含机器人自己的回复）。
+	ContextGroupMessages int `yaml:"context_group_messages"`
+	// AtBot 是否响应 @机器人的消息。
+	AtBot bool `yaml:"at_bot"`
+	// PrivateChat 是否自动响应私聊消息。
+	//
+	// 注意：开启后 AI 会响应所有非命令消息（不以 "/" 开头）。
+	// 命令消息会被自动跳过，避免与命令 handler 发生并发 context 竞态。
+	PrivateChat bool `yaml:"private_chat"`
+	// Markdown 是否使用 Markdown 格式发送回复。
+	// true  = 平台支持 MD 时用 MarkdownMessage，否则回退纯文本
+	// false = 始终使用纯文本（即使平台支持 MD）
+	Markdown bool `yaml:"markdown"`
+	// Fallback 当没有命令匹配时，是否由 AI 兜底回复。
+	// 当前预留字段，需要配合 Router 低优先级 RouteRule 使用。
+	Fallback bool `yaml:"fallback"`
+	// VisionEnabled 是否启用图片识别。设为 false 时入站图片会被忽略。
+	VisionEnabled bool `yaml:"vision_enabled"`
+	// AudioEnabled 是否启用音频输入（仅 OpenAI GPT-4o 预览版，Anthropic 不支持）。
+	AudioEnabled bool `yaml:"audio_enabled"`
+	// IncludeRuntimeContext 是否将运行时上下文（用户/群聊/时间等）注入系统提示。
+	// 这些信息会随每次请求发送给第三方 LLM，可能涉及隐私。
+	// 默认 true（保持旧行为）；设为 false 时完全不注入运行时上下文。
+	IncludeRuntimeContext bool `yaml:"include_runtime_context"`
 	// IncludeMentionInfo 是否将本条消息 @ 提及的其他用户以昵称形式注入用户消息。
 	// 涉及第三方用户隐私，默认 true（保持旧行为）。
 	IncludeMentionInfo bool `yaml:"include_mention_info"`
-
 	// IncludeReplyContext 是否将"被回复的消息"内容前置到用户消息。
 	// 群聊中"回复某条消息再 @ 机器人"时，让 AI 知道回复针对的内容。
 	// 依赖 messagelog 插件记录消息历史（机器人自己的对话回复也会被记录）。
 	// 默认 true。设为 false 时不注入、也不记录出站回复。
 	IncludeReplyContext bool `yaml:"include_reply_context"`
-
-	// ContextGroupMessages 注入系统提示的最近群消息条数（0 = 关闭，默认）。
-	// 开启后 AI 能感知同群其他成员的发言，融入多人对话。
-	// 依赖 messagelog 插件；只注入入站消息（不含机器人自己的回复）。
-	ContextGroupMessages int `yaml:"context_group_messages"`
 }
 
 // DefaultConfig AI 插件默认配置。

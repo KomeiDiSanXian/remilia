@@ -505,20 +505,20 @@ type GetGroupMemberListParams struct {
 
 // GroupMemberInfo 是 get_group_member_info / get_group_member_list 的响应数据。
 type GroupMemberInfo struct {
-	GroupID         int64  `json:"group_id"`
-	UserID          int64  `json:"user_id"`
 	Nickname        string `json:"nickname"`
 	Card            string `json:"card"`
 	Sex             string `json:"sex"`
-	Age             int32  `json:"age"`
 	Area            string `json:"area"`
-	JoinTime        int64  `json:"join_time"`
-	LastSentTime    int64  `json:"last_sent_time"`
 	Level           string `json:"level"`
 	Role            string `json:"role"` // owner, admin, member
-	Unfriendly      bool   `json:"unfriendly"`
 	Title           string `json:"title"`
+	GroupID         int64  `json:"group_id"`
+	UserID          int64  `json:"user_id"`
+	JoinTime        int64  `json:"join_time"`
+	LastSentTime    int64  `json:"last_sent_time"`
 	TitleExpireTime int64  `json:"title_expire_time"`
+	Age             int32  `json:"age"`
+	Unfriendly      bool   `json:"unfriendly"`
 	CardChangeable  bool   `json:"card_changeable"`
 }
 

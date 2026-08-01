@@ -372,12 +372,12 @@ type APIConfig struct {
 
 // PprofConfig pprof 性能分析配置。
 type PprofConfig struct {
-	Enabled         bool   `yaml:"enabled" mapstructure:"enabled"`
 	Addr            string `yaml:"addr" mapstructure:"addr"`
-	AutoProfile     bool   `yaml:"auto_profile" mapstructure:"auto_profile"`
 	ProfileInterval string `yaml:"profile_interval" mapstructure:"profile_interval"`
 	ProfileDuration string `yaml:"profile_duration" mapstructure:"profile_duration"`
 	OutputDir       string `yaml:"output_dir" mapstructure:"output_dir"`
+	Enabled         bool   `yaml:"enabled" mapstructure:"enabled"`
+	AutoProfile     bool   `yaml:"auto_profile" mapstructure:"auto_profile"`
 	EnableMutex     bool   `yaml:"enable_mutex" mapstructure:"enable_mutex"`
 	EnableBlock     bool   `yaml:"enable_block" mapstructure:"enable_block"`
 }

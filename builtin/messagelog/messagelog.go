@@ -50,6 +50,8 @@ const DefaultCapacity = 1000
 
 // RecordEntry 一条消息的完整记录（内存缓存 + DB 查询的统一结构）。
 type RecordEntry struct {
+	Timestamp time.Time           // 事件发生时间
+	CreatedAt time.Time           // 记录入库时间
 	RequestID string              // RequestID 中间件分配的追踪 ID
 	Platform  string              // 平台标识符（"qq", "discord", "telegram"）
 	Kind      string              // 事件类别（"GROUP_MESSAGE", "PRIVATE_MESSAGE"）
@@ -57,7 +59,6 @@ type RecordEntry struct {
 	ChatID    string              // 会话 ID（群 ID / 用户 ID）
 	ChatName  string              // 会话名称（平台提供时有效）
 	ParentID  string              // 父容器 ID（频道场景的 guild_id / server_id）
-	IsGroup   bool                // 是否为群组/频道消息
 	UserID    string              // 发送者 ID
 	UserName  string              // 发送者显示名
 	UserRole  string              // 发送者在群中的角色（owner / admin / member）
@@ -65,9 +66,7 @@ type RecordEntry struct {
 	ReplyToID string              // 被回复的消息 ID（回复链追踪）
 	RawType   string              // 平台原始事件类型字符串
 	Mentions  []platform.UserInfo // @ 用户列表（平台提供时有效）
-	Timestamp time.Time           // 事件发生时间
-	CreatedAt time.Time           // 记录入库时间
-
+	IsGroup   bool                // 是否为群组/频道消息
 	// IsOutbound 是否为机器人发出的出站消息（如 AI 回复）。
 	// 出站消息记录在独立的 botBuf ring 中，QueryGroup/QueryUser 不含出站消息。
 	IsOutbound bool
@@ -75,7 +74,6 @@ type RecordEntry struct {
 
 // MessageRecord 对应 SQLite 表的 GORM 模型。
 type MessageRecord struct {
-	ID        int64  `gorm:"primaryKey;autoIncrement"`
 	RequestID string `gorm:"index;not null"`
 	Platform  string `gorm:"index;not null"`
 	Kind      string `gorm:"index;not null"`
@@ -83,16 +81,16 @@ type MessageRecord struct {
 	ChatID    string `gorm:"index:idx_chat_time;not null"`
 	ChatName  string
 	ParentID  string
-	IsGroup   bool
 	UserID    string `gorm:"index;not null"`
 	UserName  string
 	UserRole  string
 	Content   string `gorm:"type:text"`
 	ReplyToID string
 	RawType   string
+	ID        int64 `gorm:"primaryKey;autoIncrement"`
 	Timestamp int64 `gorm:"index:idx_chat_time"`
 	CreatedAt int64
-
+	IsGroup   bool
 	// IsOutbound 是否为机器人发出的出站消息（AI 回复等）。
 	IsOutbound bool `gorm:"index"`
 }

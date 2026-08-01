@@ -38,43 +38,33 @@ import (
 // 此类型同时作为 config.Config.Tracing 的配置结构体（config 包通过类型别名引用），
 // 因此所有字段均带有 yaml/mapstructure tag，可直接被 YAML 反序列化。
 type Config struct {
-	// Enable 是否启用追踪（原 Enabled）。
-	// yaml tag 同时支持 "enable" 和 "enabled" 向后兼容。
-	Enable bool `yaml:"enable" mapstructure:"enable"`
-
-	// ServiceName 服务名称
-	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
-
-	// ServiceVersion 服务版本
-	ServiceVersion string `yaml:"service_version" mapstructure:"service_version"`
-
-	// Environment 环境（dev, staging, prod）
-	Environment string `yaml:"environment" mapstructure:"environment"`
-
-	// Exporter 导出器类型（otlp, stdout）
-	Exporter string `yaml:"exporter" mapstructure:"exporter"`
-
-	// Endpoint 追踪后端地址
-	// OTLP: http://localhost:4318
-	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
-
-	// SamplingRate 采样率 (0.0 - 1.0)
-	// 1.0 = 100% 采样，0.1 = 10% 采样
-	SamplingRate float64 `yaml:"sampling_rate" mapstructure:"sampling_rate"`
-
-	// UseAdaptiveSampling 是否使用自适应采样
-	// 启用后，SamplingRate 将作为基础采样率
-	UseAdaptiveSampling bool `yaml:"use_adaptive_sampling" mapstructure:"use_adaptive_sampling"`
-
 	// AdaptiveSamplerConfig 自适应采样器配置
 	// 仅在 UseAdaptiveSampling = true 时有效
 	AdaptiveSamplerConfig *AdaptiveSamplerConfig `yaml:"adaptive_sampler" mapstructure:"adaptive_sampler"`
-
-	// IncludeEventDetail 是否在 Span 中包含事件详情（内容、作者等）
-	IncludeEventDetail bool `yaml:"include_event_detail" mapstructure:"include_event_detail"`
-
 	// Headers 额外的 HTTP 头（用于 OTLP 认证）
 	Headers map[string]string `yaml:"headers" mapstructure:"headers"`
+	// ServiceName 服务名称
+	ServiceName string `yaml:"service_name" mapstructure:"service_name"`
+	// ServiceVersion 服务版本
+	ServiceVersion string `yaml:"service_version" mapstructure:"service_version"`
+	// Environment 环境（dev, staging, prod）
+	Environment string `yaml:"environment" mapstructure:"environment"`
+	// Exporter 导出器类型（otlp, stdout）
+	Exporter string `yaml:"exporter" mapstructure:"exporter"`
+	// Endpoint 追踪后端地址
+	// OTLP: http://localhost:4318
+	Endpoint string `yaml:"endpoint" mapstructure:"endpoint"`
+	// SamplingRate 采样率 (0.0 - 1.0)
+	// 1.0 = 100% 采样，0.1 = 10% 采样
+	SamplingRate float64 `yaml:"sampling_rate" mapstructure:"sampling_rate"`
+	// Enable 是否启用追踪（原 Enabled）。
+	// yaml tag 同时支持 "enable" 和 "enabled" 向后兼容。
+	Enable bool `yaml:"enable" mapstructure:"enable"`
+	// UseAdaptiveSampling 是否使用自适应采样
+	// 启用后，SamplingRate 将作为基础采样率
+	UseAdaptiveSampling bool `yaml:"use_adaptive_sampling" mapstructure:"use_adaptive_sampling"`
+	// IncludeEventDetail 是否在 Span 中包含事件详情（内容、作者等）
+	IncludeEventDetail bool `yaml:"include_event_detail" mapstructure:"include_event_detail"`
 }
 
 // Validate 验证追踪配置有效性

@@ -31,23 +31,21 @@ import (
 //   - webhook.Conn：协议层，处理 HTTP 请求的验签、解析和操作分发
 //   - WebhookService：服务层，管理 HTTP 服务器生命周期、Token 刷新和事件流
 type WebhookService struct {
-	addr        string
-	botInfo     *dto.BotInfo
-	api         openapi.OpenAPI
-	apiExternal bool // true = 用户通过 WithAPI 注入，不自动创建 token.Manager
-	bufferSize  int
-
-	// 以下字段在 start() 中初始化
-	tokenMgr     *token.Manager
-	webhookImpl  *webhook.Conn
-	server       *http.Server
+	api          openapi.OpenAPI
 	ctx          context.Context
-	cancel       context.CancelFunc
 	cachedSender platform.Sender // start() 后缓存，避免每事件分配新 qqSender
-
-	wg      sync.WaitGroup
-	mu      sync.Mutex
-	running bool
+	botInfo      *dto.BotInfo
+	// 以下字段在 start() 中初始化
+	tokenMgr    *token.Manager
+	webhookImpl *webhook.Conn
+	server      *http.Server
+	cancel      context.CancelFunc
+	addr        string
+	wg          sync.WaitGroup
+	bufferSize  int
+	mu          sync.Mutex
+	apiExternal bool // true = 用户通过 WithAPI 注入，不自动创建 token.Manager
+	running     bool
 }
 
 // NewWebhookService 使用默认配置创建 WebhookService。

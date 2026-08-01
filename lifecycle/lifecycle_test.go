@@ -11,14 +11,14 @@ import (
 
 // testComponent is a test component
 type testComponent struct {
-	name         string
 	startErr     error
 	runErr       error
 	stopErr      error
+	runCompleted chan struct{}
+	name         string
 	startCalled  atomic.Bool
 	runCalled    atomic.Bool
 	stopCalled   atomic.Bool
-	runCompleted chan struct{}
 	blockRun     bool
 }
 

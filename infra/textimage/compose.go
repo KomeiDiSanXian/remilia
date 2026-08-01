@@ -24,9 +24,9 @@ type imageOpts struct {
 	align      Alignment // 水平对齐方式，默认 AlignLeft
 	paddingX   int       // 距画布左右边缘的水平内边距
 	paddingY   int       // 图片上下的垂直内边距
-	circle     bool      // 将图片裁剪为圆形（头像样式）
 	roundR     int       // 圆角半径（像素），circle=true 时忽略
 	opacity    float64   // 不透明度 [0.0, 1.0]，仅当 opacitySet=true 时有效
+	circle     bool      // 将图片裁剪为圆形（头像样式）
 	opacitySet bool      // true 表示调用方显式设置了 opacity
 }
 
