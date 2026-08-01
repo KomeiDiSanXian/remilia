@@ -160,6 +160,16 @@ type Descriptor struct {
 	// 存在于同一批次的依赖会被纳入拓扑排序，确保可选依赖先于当前插件加载。
 	OptionalDeps []string
 
+	// DryRunSafe 声明 Setup 可被安全地探测执行（依赖自动推断用）。
+	//
+	// 为 true 时，使用 [WithInferDeps] 的批量注册会对本插件执行一次探测
+	// Setup（总计执行两次：探测 + 正式）。声明此选项意味着 Setup 无副作用
+	// 或幂等。默认 false——第三方插件绝不会被探测执行，依赖推断对其退化为
+	// 纯静态（仅基于声明依赖 + 已注册插件的运行时追踪）。
+	//
+	// 不确定时保持 false 并显式声明 [Deps]——这是所有插件都应遵循的契约。
+	DryRunSafe bool
+
 	// Privileged 声明为管理类插件（可选，默认 false）
 	//
 	// 设为 true 后，框架在 Setup 时向 ctx.Admin 注入非 nil 的 ManagerWriter，

@@ -14,10 +14,12 @@ import (
 
 // dryRunInferDeps 通过三色标记法推断每个插件在 Setup 中实际访问的依赖。
 //
+// 仅对显式声明 DryRunSafe 的插件执行探测 Setup（第三方插件绝不会被探测执行）。
+// 未声明 DryRunSafe 的插件以声明依赖（Deps/OptionalDeps）参与排序。
+//
 // 算法（三色）：
-//  1. 第一轮：为每个插件运行一次 Setup（收集 API 类型 + 依赖追踪）。
+//  1. 第一轮：为每个声明 DryRunSafe 的插件运行一次 Setup（收集 API 类型 + 依赖追踪）。
 //     若依赖缺失，mustGet 在 panic 前已记录 deps。
-//     每个插件最多跑一次 Setup。
 //  2. 解析轮：检查所有 deps 是否已在临时容器中就绪。
 //     若就绪则标记为 resolved；否则等待下一轮。
 //  3. 重复步骤 2 直至无变化。剩余 unresolved 的插件形成循环依赖，返回 ErrCircularDependency。
@@ -25,7 +27,18 @@ import (
 // 返回 map[pluginName][]depName（含必需 + 可选依赖）。
 func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]string, error) {
 	start := time.Now()
-	logger.Infof("[PluginManager] DryRun (three-color): starting dependency inference for %d plugins", len(descriptors))
+
+	var probeCount int
+	for _, desc := range descriptors {
+		if desc.DryRunSafe {
+			probeCount++
+		}
+	}
+	if probeCount == 0 {
+		logger.Warn("[PluginManager] WithInferDeps: no plugin declared DryRunSafe; skipping probe execution (declared deps only)")
+		return nil, nil
+	}
+	logger.Infof("[PluginManager] DryRun (three-color): starting dependency inference for %d/%d plugins (DryRunSafe)", probeCount, len(descriptors))
 
 	tempContainer := NewContainer()
 	// 与真实容器保持一致：注册内置 key（manager/engine/coordinator），
@@ -61,10 +74,13 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		plugins[i] = &dryRunPlugin{name: desc.Name}
 	}
 
-	// 第一轮：每个插件跑一次 Setup（收集 API + 追踪 deps）
+	// 第一轮：仅为声明 DryRunSafe 的插件执行探测 Setup（收集 API + 追踪 deps）
 	// 使用真实的 goroutineManager 而非 nil，使 ctx.Spawn 在 DryRun 下正常工作。
 	// 插件无需判断 ctx.DryRun 即可安全使用 Spawn。
 	for i, desc := range descriptors {
+		if !desc.DryRunSafe {
+			continue
+		}
 		gm := newGoroutineManager()
 		ctx := &SetupContext{
 			Reg:      &noopRegistryWriter{},
@@ -107,11 +123,17 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		}
 	}
 
-	// 解析轮：逐步解析 pending 类型 + 检查 deps 就绪状态
+	// 解析轮：逐步解析 pending 类型 + 检查 deps 就绪状态。
+	// 未声明 DryRunSafe 的插件（ctx == nil，无追踪信息）直接视为已就绪。
 	for {
 		changed := false
 		for _, p := range plugins {
 			if p.state == 2 {
+				continue
+			}
+			if p.ctx == nil {
+				p.state = 2
+				changed = true
 				continue
 			}
 			// 尝试解析 pending type → name
@@ -154,6 +176,9 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 			logger.WithField("plugin", p.name).Warn("[PluginManager] DryRun (three-color): unresolved dependency (possible circular)")
 			continue
 		}
+		if p.ctx == nil {
+			continue // 未探测插件：无追踪信息，不产生推断
+		}
 		allTracked := make(map[string]bool)
 		for _, d := range p.ctx.getTrackedDependencies() {
 			allTracked[d] = true
@@ -179,6 +204,9 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 	for _, p := range plugins {
 		if p.state != 2 {
 			unresolved = append(unresolved, p.name)
+			if p.ctx == nil {
+				continue
+			}
 			for _, d := range p.ctx.getTrackedDependencies() {
 				if _, ok := tempContainer.Get(d); !ok && d != p.name {
 					missingByPlugin[p.name] = append(missingByPlugin[p.name], d)

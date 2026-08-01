@@ -128,7 +128,8 @@ func TestEdge_Smart_ServiceWithTryService(t *testing.T) {
 	}
 
 	consumer := &plugin.Descriptor{
-		Name: "smart-consumer",
+		Name:       "smart-consumer",
+		DryRunSafe: true,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			_ = plugin.Service[any](ctx, "smart-base")           // 存在 → 必要依赖追踪
 			_, _ = plugin.TryService[any](ctx, "optional-ghost") // 不存在 → 可选，安全返回 false
@@ -156,7 +157,8 @@ func TestEdge_Smart_PreRegisteredDep(t *testing.T) {
 	})
 
 	consumer := &plugin.Descriptor{
-		Name: "smart-consumer2",
+		Name:       "smart-consumer2",
+		DryRunSafe: true,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			_ = plugin.Service[any](ctx, "pre-registered")
 			return nil, nil

@@ -18,7 +18,8 @@ func TestDryRun_SmartInferenceSetsFlag(t *testing.T) {
 	var realRunSeen bool
 
 	desc := &Descriptor{
-		Name: "dryrun-test",
+		Name:       "dryrun-test",
+		DryRunSafe: true,
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
 				dryRunSeen = true
@@ -60,7 +61,8 @@ func TestDryRun_NoopEventBus_NoRealSubscription(t *testing.T) {
 	var subTopic string
 
 	desc := &Descriptor{
-		Name: "eventbus-dryrun-test",
+		Name:       "eventbus-dryrun-test",
+		DryRunSafe: true,
 		Setup: func(ctx *SetupContext) (any, error) {
 			if ctx.DryRun {
 				// DryRun 阶段：Scope.Subscribe 内部使用 noopEventBus，订阅不产生真实效果
@@ -88,7 +90,8 @@ func TestDryRun_PluginCanSkipSideEffects(t *testing.T) {
 	sideEffectCallCount := 0
 
 	desc := &Descriptor{
-		Name: "side-effect-guard",
+		Name:       "side-effect-guard",
+		DryRunSafe: true,
 		Setup: func(ctx *SetupContext) (any, error) {
 			if !ctx.DryRun {
 				// 仅在真实运行时执行副作用（如 HTTP 请求、全局变量写入）
@@ -101,6 +104,31 @@ func TestDryRun_PluginCanSkipSideEffects(t *testing.T) {
 	// Smart 注册：DryRun 阶段不增加，真实注册阶段 +1
 	require.NoError(t, pm.RegisterBatch(context.Background(), []*Descriptor{desc}, WithInferDeps()))
 	assert.Equal(t, 1, sideEffectCallCount, "副作用应仅在真实运行时执行一次")
+}
+
+// TestWithInferDeps_NonDryRunSafe_SetupRunsOnce 验证未声明 DryRunSafe 的插件
+// （第三方插件形态）即使调用方开启 WithInferDeps 也绝不会被探测执行，
+// Setup 恒只执行一次。
+func TestWithInferDeps_NonDryRunSafe_SetupRunsOnce(t *testing.T) {
+	pm := NewManager(nil)
+
+	setupCount := 0
+	var dryRunSeen bool
+	desc := &Descriptor{
+		Name: "third-party-plugin",
+		Setup: func(ctx *SetupContext) (any, error) {
+			setupCount++
+			if ctx.DryRun {
+				dryRunSeen = true
+			}
+			return nil, nil
+		},
+	}
+
+	require.NoError(t, pm.RegisterBatch(context.Background(), []*Descriptor{desc}, WithInferDeps()))
+
+	assert.Equal(t, 1, setupCount, "未声明 DryRunSafe 的插件 Setup 必须只执行一次")
+	assert.False(t, dryRunSeen, "未声明 DryRunSafe 的插件不应被探测执行")
 }
 
 // ===== L4: Service / ExportIface 测试 ==== (L3 testing helpers removed as MustAs/TryAs deprecated)

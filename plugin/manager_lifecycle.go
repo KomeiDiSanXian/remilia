@@ -32,6 +32,9 @@ func newLifecycleController(pm *Manager) *lifecycleController {
 // 已处于 Loaded 状态的插件会跳过（幂等）。
 // ctx 用于控制超时：若 context 在插件 Setup 完成前到期，返回 ctx.Err()。
 func (lc *lifecycleController) StartAll(ctx context.Context) error {
+	// StopAll 会停掉 metaGM；支持 Stop → Start 循环（StartAll 文档宣称幂等）
+	lc.ensureMetaGM()
+
 	lc.pm.mu.RLock()
 	names := make([]string, len(lc.pm.loadOrder))
 	copy(names, lc.pm.loadOrder)
@@ -55,8 +58,11 @@ func (lc *lifecycleController) StartAll(ctx context.Context) error {
 		//   - Disabled 由 Enable 恢复，重复 load 会二次 Setup、matcher 翻倍
 		//   - Error    由 Retry 处理
 		//   - Loading/Unloading 正在变更中，跳过
-		if st := inst.GetState(); st != Unloaded {
-			if st != Loaded {
+		// tryTransition 原子完成"检查 + 置 Loading"：并发 StartAll 或
+		// 与 UnloadLoad 重载的 Unloaded 窗口交叠时，只有一个调用方胜出，
+		// 杜绝二次 Setup 导致的 matcher 翻倍。
+		if !inst.tryTransition(Unloaded, Loading) {
+			if st := inst.GetState(); st != Loaded && st != Unloaded {
 				logger.Debugf("[PluginManager] StartAll: skip plugin %s in state %s", name, st)
 			}
 			continue
@@ -108,7 +114,9 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 		if !exists {
 			continue
 		}
-		if inst.GetState() != Loaded && inst.GetState() != Disabled {
+		// 原子转换：与 StartAll 的 tryTransition 对称，防止并发 StopAll 或
+		// 与 Reload/Unregister 交叠时对同一实例重复执行 unload。
+		if !inst.tryTransition(Loaded, Unloading) && !inst.tryTransition(Disabled, Unloading) {
 			continue
 		}
 		if err := inst.unload(ctx, lc.pm.coordinator); err != nil {
@@ -131,7 +139,7 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 		for i, e := range errs {
 			msgs[i] = e.Error()
 		}
-		return fmt.Errorf("StopAll: %d plugin(s) failed: %w", len(errs), errs[0])
+		return fmt.Errorf("StopAll: %d plugin(s) failed: %v", len(errs), msgs)
 	}
 	return nil
 }
@@ -140,6 +148,17 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 func (lc *lifecycleController) Shutdown() {
 	if lc.metaGM != nil {
 		lc.metaGM.stopAndWait()
+	}
+}
+
+// ensureMetaGM 确保元数据 goroutine 管理器可用。
+//
+// StopAll 结尾调用 Shutdown 停掉 metaGM 后，Manager 仍可继续使用
+// （StartAll 注释宣称幂等可重启）。若 metaGM 已被停止，此处重建一个，
+// 使 Stop → Start 循环中的元数据任务（notifyDependents 等）恢复正常。
+func (lc *lifecycleController) ensureMetaGM() {
+	if lc.metaGM == nil || lc.metaGM.isStopped() {
+		lc.metaGM = newGoroutineManagerForPlugin("manager")
 	}
 }
 

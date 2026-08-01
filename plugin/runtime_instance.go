@@ -44,6 +44,22 @@ func (pi *Instance) managerRef() *Manager {
 	return pi.manager
 }
 
+// tryTransition 原子地尝试将状态从 from 切换到 to。
+//
+// 生命周期批处理（StartAll/StopAll）用它消除"状态检查与状态变更分离"的
+// 竞态窗口：并发 StartAll×2 或 StartAll 恰逢 UnloadLoad 重载的 Unloaded
+// 窗口时，两个 goroutine 可能同时通过检查并触发二次 Setup（matcher 翻倍）。
+// 返回 false 表示当前状态不是 from，调用方应跳过。
+func (pi *Instance) tryTransition(from, to State) bool {
+	pi.mu.Lock()
+	defer pi.mu.Unlock()
+	if pi.state != from {
+		return false
+	}
+	pi.state = to
+	return true
+}
+
 // --- pluginInternal 实现（包私有，供 Manager 内部使用）---
 
 // load 加载插件（实现 pluginInternal）

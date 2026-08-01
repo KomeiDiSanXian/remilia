@@ -307,8 +307,9 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 	}
 
 	consumer := &plugin.Descriptor{
-		Name: "sm-consumer",
-		Deps: []string{},
+		Name:       "sm-consumer",
+		DryRunSafe: true,
+		Deps:       []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "sm-consumer")
 			_ = plugin.Service[any](ctx, "sm-base")           // 必要

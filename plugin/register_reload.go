@@ -39,7 +39,15 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		}
 	}
 
-	// 重新创建 SetupContext（保留 Admin 视图）
+	// 重新创建 SetupContext（保留 Admin 视图）。
+	// goroutineMgr 必须继承旧实例的 GM：InPlace 路径不经过 load()，
+	// 而 load() 是唯一为 setupContext.goroutineMgr 赋值的地方——若此处不赋值，
+	// adv.Reload 内及此后保留 ctx 的 Spawn/NewTaskGroup/RegisterCron 全部静默
+	// no-op（RegisterCron 还假装成功返回 nil），InPlace 插件的后台任务会整体丢失。
+	// UnloadLoad/BlueGreen 路径随后走 load()，会覆盖为新的 GM，此处赋值无副作用。
+	pi.mu.RLock()
+	inheritedGM := pi.goroutineMgr
+	pi.mu.RUnlock()
 	newContext := &SetupContext{
 		Reg:      newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
 		Log:      newPluginLogger(oldContext.pluginName),
@@ -53,6 +61,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 			instance:         oldContext.instance,
 			autoTrackEnabled: true,
 			eng:              oldContext.eng,
+			goroutineMgr:     inheritedGM,
 		},
 	}
 
@@ -124,6 +133,9 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		pi.lastError = nil
 		pi.loadedVer = pi.desc.Version
 		pi.mu.Unlock()
+		// InPlace 路径不经过 load()，须在此补 RestoreState/MigrateState
+		//（此前 SaveState 的成果被白白丢弃，MigrateState 永不生效）
+		maybeMigrateThenRestore()
 		return nil
 	case ReloadUnloadLoad:
 		// 此分支严格执行 unload → load，不检查 adv.Reload（避免与 ReloadInPlace 语义混淆）
@@ -141,6 +153,9 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 			pi.mu.Unlock()
 			return err
 		}
+		// 切换成功后对新实例（已换入 pi）恢复状态。
+		// 此前 SaveState 的成果在蓝绿路径被白白丢弃，MigrateState 永不生效。
+		maybeMigrateThenRestore()
 	default:
 		if err := unloadThenLoad(); err != nil {
 			return err
@@ -219,6 +234,7 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.matchers = newInstance.matchers
 	pi.goroutineMgr = newInstance.goroutineMgr
 	pi.exportedAPI = newInstance.exportedAPI
+	pi.loadedVer = newInstance.loadedVer // 回拷新实例版本，保证下次重载 MigrateState 版本比较正确
 	newInstance.mu.RUnlock()
 
 	pi.setupContext = newContext
@@ -226,6 +242,14 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	pi.loadTime = time.Now()
 	pi.lastError = nil
 	pi.mu.Unlock()
+
+	// 更新换入的 Reg writer：插件保留的 ctx.Reg 引用仍指向 __bg 临时组，
+	// 此后运行期注册会落到临时组并被清理。更新 writer 的分组与回调，
+	// 使后续注册进入正式插件组并保持活跃。
+	if rw, ok := newContext.Reg.(*liveRegistryWriter); ok {
+		rw.name = pluginName
+		rw.postRegister = nil
+	}
 
 	// Step 5: 更新容器中的 API 指针，使 ServiceProxy 获取到新实例
 	if oldContainer != nil && newInstance.exportedAPI != nil {
@@ -258,8 +282,8 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		}
 		tctx := &TeardownContext{
 			API:      oldAPI,
-			Config:   newContext.Config,
-			EventBus: newContext.EventBus,
+			Config:   oldContext.Config,   // 旧实例清理回调应看到旧配置
+			EventBus: oldContext.EventBus, // 旧实例的订阅归属旧总线
 			Log:      newPluginLogger(pluginName),
 		}
 		if teardownErr := pi.desc.callTeardown(tctx); teardownErr != nil {

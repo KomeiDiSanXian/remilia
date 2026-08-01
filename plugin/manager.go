@@ -490,7 +490,8 @@ func WithAtomic() RegisterOption {
 	return func(o *registerOptions) { o.atomic = true }
 }
 
-// WithInferDeps 注册选项：使用 DryRun 自动推断依赖关系。
+// WithInferDeps 注册选项：对声明了 [Descriptor.DryRunSafe] 的插件执行探测
+// Setup 以自动推断依赖；未声明的插件绝不参与探测（以声明依赖参与排序）。
 func WithInferDeps() RegisterOption {
 	return func(o *registerOptions) { o.inferDeps = true }
 }

@@ -113,6 +113,20 @@ func (gm *goroutineManager) stopAndWait() {
 	gm.wg.Wait()
 }
 
+// isStopped 返回 GM 是否已被停止（ctx 已取消）。
+// 供生命周期控制器判断是否需要重建（Stop → Start 循环）。
+func (gm *goroutineManager) isStopped() bool {
+	if gm == nil || gm.ctx == nil {
+		return true
+	}
+	select {
+	case <-gm.ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 // taskGroup 受生命周期管理的并发任务组。
 // 用于短生命周期并发任务（如并发网络请求后聚合结果），
 // 区别于生命周期绑定的长驻 goroutine。

@@ -62,7 +62,8 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 
 		plugins := []*Descriptor{
 			{
-				Name: "permission",
+				Name:       "permission",
+				DryRunSafe: true,
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
 					_ = ctx.mustGet("auth")
@@ -70,8 +71,9 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 				},
 			},
 			{
-				Name:  "auth",
-				Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
+				Name:       "auth",
+				DryRunSafe: true,
+				Setup:      func(ctx *SetupContext) (any, error) { return nil, nil },
 			},
 		}
 
@@ -87,7 +89,8 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 
 		plugins := []*Descriptor{
 			{
-				Name: "a",
+				Name:       "a",
+				DryRunSafe: true,
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
 					_ = ctx.mustGet("b")
@@ -95,7 +98,8 @@ func TestRegisterMultipleV2Smart(t *testing.T) {
 				},
 			},
 			{
-				Name: "b",
+				Name:       "b",
+				DryRunSafe: true,
 				Setup: func(ctx *SetupContext) (any, error) {
 					defer func() { recover() }()
 					_ = ctx.mustGet("a")
@@ -149,7 +153,8 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 	// Diamond: A -> B,C -> D
 	plugins := []*Descriptor{
 		{
-			Name: "d",
+			Name:       "d",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
 				_ = ctx.mustGet("b")
@@ -158,7 +163,8 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			},
 		},
 		{
-			Name: "c",
+			Name:       "c",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
 				_ = ctx.mustGet("a")
@@ -166,7 +172,8 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			},
 		},
 		{
-			Name: "b",
+			Name:       "b",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
 				_ = ctx.mustGet("a")
@@ -174,8 +181,9 @@ func TestSmartRegistration_ComplexCase(t *testing.T) {
 			},
 		},
 		{
-			Name:  "a",
-			Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
+			Name:       "a",
+			DryRunSafe: true,
+			Setup:      func(ctx *SetupContext) (any, error) { return nil, nil },
 		},
 	}
 
@@ -238,13 +246,15 @@ func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
 
 	plugins := []*Descriptor{
 		{
-			Name: "mysql",
+			Name:       "mysql",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				return &storageAPI{DB: "mysql://localhost"}, nil
 			},
 		},
 		{
-			Name: "app",
+			Name:       "app",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				v := Service[*storageAPI](ctx)
 				if v.DB != "mysql://localhost" {
@@ -270,7 +280,8 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 
 	plugins := []*Descriptor{
 		{
-			Name: "app",
+			Name:       "app",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				v := Service[*cacheAPI](ctx)
 				if v.Addr != "redis:6379" {
@@ -280,7 +291,8 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 			},
 		},
 		{
-			Name: "redis",
+			Name:       "redis",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				return &cacheAPI{Addr: "redis:6379"}, nil
 			},
@@ -302,13 +314,15 @@ func TestSmartRegistration_TypeBased_TryService(t *testing.T) {
 
 	plugins := []*Descriptor{
 		{
-			Name: "prometheus",
+			Name:       "prometheus",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				return nil, nil // 不提供 metricsAPI
 			},
 		},
 		{
-			Name: "app",
+			Name:       "app",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				proxy, ok := TryService[*metricsAPI](ctx)
 				if ok {
@@ -334,7 +348,8 @@ func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
 
 	plugins := []*Descriptor{
 		{
-			Name: "x",
+			Name:       "x",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
 				_ = Service[*yAPI](ctx)
@@ -342,7 +357,8 @@ func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
 			},
 		},
 		{
-			Name: "y",
+			Name:       "y",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
 				_ = Service[*xAPI](ctx)

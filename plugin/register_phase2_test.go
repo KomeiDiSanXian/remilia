@@ -79,7 +79,8 @@ func TestRegistryWriter_DryRun_InjectNoop(t *testing.T) {
 	var liveRegCalled bool
 	err := pm.RegisterBatch(stdctx.Background(), []*Descriptor{
 		{
-			Name: "smart-noop-test",
+			Name:       "smart-noop-test",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				// DryRun 阶段 ctx.Reg 为 noopRegistryWriter，返回 noopMatcher（isNoop = true）
 				// Live 阶段 ctx.Reg 为 live writer，注册到 engine
@@ -159,7 +160,8 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 	setupCallCount := 0
 	err := pm.RegisterBatch(stdctx.Background(), []*Descriptor{
 		{
-			Name: "no-dryrun-check",
+			Name:       "no-dryrun-check",
+			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				setupCallCount++
 				// 不检查 DryRun，直接调用 Reg — 框架保证安全
@@ -169,8 +171,8 @@ func TestDryRun_PluginNeedNotCheck(t *testing.T) {
 		},
 	}, WithInferDeps())
 	require.NoError(t, err)
-	// Setup 被调用至少 1 次（正式注册），可能 2 次（DryRun + 正式）
-	assert.GreaterOrEqual(t, setupCallCount, 1)
+	// DryRunSafe 插件：探测 + 正式，Setup 恰好执行 2 次
+	assert.Equal(t, 2, setupCallCount)
 
 	// 最终插件成功加载
 	_, ok := pm.Get("no-dryrun-check")

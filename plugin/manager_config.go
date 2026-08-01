@@ -95,6 +95,12 @@ func (cc *configController) propagateConfigChangeAttempt(attempt int) {
 		if attempt < propagateMaxRetries {
 			logger.Debugf("[Manager] Config change notification deferred (write lock held), retry %d/%d", attempt+1, propagateMaxRetries)
 			time.AfterFunc(200*time.Millisecond, func() {
+				// Manager 已 Shutdown（metaGM 停止）后丢弃重试，
+				// 避免定时器在停机后仍触发访问已卸载插件的 config。
+				if cc.pm.lifecycle.metaGM.isStopped() {
+					logger.Debug("[Manager] Config change notification dropped: manager shut down")
+					return
+				}
 				cc.propagateConfigChangeAttempt(attempt + 1)
 			})
 			return

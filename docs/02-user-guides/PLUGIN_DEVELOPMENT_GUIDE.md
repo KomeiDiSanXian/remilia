@@ -94,21 +94,28 @@ err := manager.RegisterMultipleAtomic(
 ### Smart 注册（自动推断依赖 + 拓扑排序）
 
 ```go
-// 无需手写 Deps，框架通过 DryRun 自动分析依赖图
-err := manager.RegisterMultipleSmart(
-    []*plugin.Descriptor{
-        weather.New(),
-        admin.New(),
-        storage.New(), // 任意顺序
-    },
-)
+// 推荐：显式声明 Deps（对所有插件都适用，第三方插件作者只需遵守此契约）
+err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
+    weather.New(),   // Deps: ["storage"]
+    admin.New(),
+    storage.New(),   // 任意顺序
+})
+
+// 可选：自动推断未声明依赖。只有显式声明 DryRunSafe 的插件才会被探测执行
+err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
+    weather.New(),
+    admin.New(),
+    storage.New(), // 任意顺序
+}, plugin.WithInferDeps())
 ```
 
-> Smart 模式在 DryRun 阶段会多次执行 `Setup`。
-> 对于有全局副作用的初始化，用 `ctx.DryRun` 保护：
-> ```go
-> if !ctx.DryRun { p.metrics = initPrometheusMetrics() }
-> ```
+> **DryRunSafe 契约（仅自动推断模式涉及）**：
+> 默认情况下（未声明 `DryRunSafe: true`），框架**绝不会**为依赖推断执行插件的
+> `Setup`——第三方插件的 Setup 在任何路径下都只执行一次，无需担心探测副作用。
+>
+> 只有插件作者显式声明 `DryRunSafe: true`，框架才会在 `WithInferDeps` 批量注册
+> 时额外执行一次探测 Setup（总计两次），以自动发现未声明的依赖。声明此选项
+> 意味着 Setup 必须无副作用或幂等。不确定时保持默认（false）并显式声明 `Deps`。
 
 ---
 
