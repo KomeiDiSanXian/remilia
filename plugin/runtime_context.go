@@ -89,14 +89,19 @@ type SetupContext struct {
 	// 未声明 Privileged 的插件此字段为 nil；误用会在运行时立即 panic。
 	Admin ManagerWriter
 
-	// DryRun 标识当前 Setup 调用是否处于 RegisterMultipleSmart 的依赖推断阶段。
+	// DryRun 标识当前 Setup 调用是否处于依赖推断的探测执行阶段。
 	//
-	// 推断阶段框架会多次调用 Setup 以分析依赖关系。此时：
+	// 只有声明了 [Descriptor.DryRunSafe] 的插件，在 [WithInferDeps] 批量注册
+	// 时才会被探测执行一次 Setup（此时本字段为 true）；未声明 DryRunSafe 的
+	// 插件任何路径下 Setup 只执行一次，本字段恒为 false，无需判断。
+	//
+	// 探测阶段：
 	//   - ctx.Reg 已替换为 no-op（不会注册真实 Matcher）
 	//   - ctx.EventBus 已替换为 no-op（不会注册真实订阅）
 	//   - ctx.Spawn / ctx.SpawnNamed 自动退化为 no-op（goroutineMgr 未初始化）
 	//
-	// 对于大多数插件，无需检查此字段——框架已通过 no-op 替换消除了常见副作用。
+	// 声明 DryRunSafe 意味着 Setup 无副作用或幂等。对于大多数插件，无需检查
+	// 此字段——框架已通过 no-op 替换消除了常见副作用。
 	// 仅当 Setup 中存在以下情况时才需要判断：
 	//   - 调用外部 HTTP/DB 请求（网络 I/O）
 	//   - 写入进程级全局变量
