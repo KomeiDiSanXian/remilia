@@ -49,12 +49,24 @@ type booruClient struct {
 }
 
 // newBooruClient 创建 booru 客户端，带认证凭据。
-func newBooruClient(creds booruCredentials) *booruClient {
+//
+// proxyURL 为可选代理地址（如 "http://127.0.0.1:7890"），仅本插件的
+// 请求走该代理（SauceNAO 等被墙站点的图库访问需要）；为空时沿用
+// 环境变量代理（HTTPS_PROXY/HTTP_PROXY）或直连。
+func newBooruClient(creds booruCredentials, proxyURL string) (*booruClient, error) {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyURL != "" {
+		proxy, perr := url.Parse(proxyURL)
+		if perr != nil {
+			return nil, fmt.Errorf("无效的代理地址 %q: %w", proxyURL, perr)
+		}
+		tr.Proxy = http.ProxyURL(proxy)
+	}
 	return &booruClient{
 		// 30s：gelbooru.com 的 dapi 查询全库较慢，15s 会频繁超时
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second, Transport: tr},
 		creds:      creds,
-	}
+	}, nil
 }
 
 // picPost 平台无关的图片作品模型，由两种协议解析结果统一而来。
@@ -388,7 +400,8 @@ func (c *booruClient) do(req *http.Request) ([]byte, error) {
 //
 // referer 为图片来源站点主页（如 "https://gelbooru.com/"）。
 // Gelbooru 系 CDN 有热链保护：无 Referer 时重定向到 hotlink.php 返回错误页。
-func downloadImage(ctx context.Context, rawURL, referer string, maxBytes int64) ([]byte, error) {
+// 使用客户端自身的 Transport（含代理配置）。
+func (c *booruClient) downloadImage(ctx context.Context, rawURL, referer string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -398,7 +411,7 @@ func downloadImage(ctx context.Context, rawURL, referer string, maxBytes int64) 
 		req.Header.Set("Referer", referer)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

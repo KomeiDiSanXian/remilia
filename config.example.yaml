@@ -270,6 +270,8 @@ api:
 #     sites: []                       # [H]  启用站点白名单（空 = 全部）:
 #                                     #      safebooru / gelbooru / rule34 / konachan / yandere
 #     max_count: 3                    # [H]  单次最多发送张数
+#     proxy: ""                       # [R]  图库请求代理地址（如 "http://127.0.0.1:7890"）。国内部署访问
+#                                     #      gelbooru 等被墙站点必需；空 = 环境变量代理或直连
 #     gelbooru_user_id: ""            # [R]  gelbooru.com 必需（与 gelbooru_api_key 配套，免费注册获取），否则返回 401
 #     gelbooru_api_key: ""            # [R]  gelbooru.com API key（免费注册获取），否则返回 401
 #     rule34_user_id: ""              # [R]  rule34.xxx 必需，在 https://rule34.xxx/index.php?page=account&s=options 获取

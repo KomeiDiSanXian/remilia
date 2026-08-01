@@ -75,8 +75,12 @@ rule34 等 NSFW 站点仅在 rating: explicit / all 时可用。
 			p.log = ctx.Log
 			p.cfg = ctx.Config
 			// 凭据仅在 Setup 时读取一次（修改需重启插件）
-			// 凭据仅在 Setup 时读取一次（修改需重启插件）
-			p.client = newBooruClient(p.credentials())
+			// 凭据与代理仅在 Setup 时读取一次（修改需重启插件）
+			client, cerr := newBooruClient(p.credentials(), p.proxy())
+			if cerr != nil {
+				return nil, fmt.Errorf("pic: 初始化客户端失败: %w", cerr)
+			}
+			p.client = client
 
 			picDef := command.NewDef("pic").Description("按标签发送随机图片").
 				Arg("tags", "图片标签，多个标签用空格分隔；末尾 xN 为数量后缀（如 cat x3），中间位置一律视为标签", false).
@@ -104,6 +108,15 @@ func (p *Plugin) credentials() booruCredentials {
 		Rule34UserID:   p.cfg.GetString("rule34_user_id", ""),
 		Rule34APIKey:   p.cfg.GetString("rule34_api_key", ""),
 	}
+}
+
+// proxy 返回图库请求的代理地址（如 "http://127.0.0.1:7890"）。
+// 空值沿用环境变量代理或直连；Setup 时读取一次（修改需重启）。
+func (p *Plugin) proxy() string {
+	if p.cfg == nil {
+		return ""
+	}
+	return p.cfg.GetString("proxy", "")
 }
 
 // rating 返回全局内容分级上限（默认 safe）。
@@ -275,7 +288,7 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 		wg.Add(1)
 		go func(i int, post picPost) {
 			defer wg.Done()
-			data, err := downloadImage(reqCtx, post.FileURL, referer, maxPicBytes)
+			data, err := p.client.downloadImage(reqCtx, post.FileURL, referer, maxPicBytes)
 			results[i] = dlResult{post: post, data: data, err: err}
 		}(i, post)
 	}
