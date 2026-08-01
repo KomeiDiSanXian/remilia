@@ -261,30 +261,48 @@ func (p *Plugin) handleSauce(ctx *eventctx.Context) error {
 	}
 
 	if p.sendThumbnails() {
+		// 发送策略：
+		//   - 支持图文同发（CapCaption）的平台：缩略图 + 单条结果信息 caption 一条消息
+		//   - 其他平台（QQ 等富媒体消息会丢弃 Text/Markdown）：图片逐张单独发，
+		//     作品信息汇总为一条（Markdown 优先，纯文本降级）
+		caps := ctx.GetPlatformCapabilities()
+		captionOK := caps.Has(platform.CapCaption)
+		var infos []string
 		for i, r := range results {
 			oneText := p.formatOneResult(r, i+1)
 			if r.Thumbnail == "" {
-				ctx.Reply(platform.TextMessage(oneText))
+				infos = append(infos, oneText)
 				continue
 			}
 			data, err := downloadImage(reqCtx, r.Thumbnail, 10*1024*1024)
 			if err != nil {
-				ctx.Reply(platform.TextMessage(oneText))
+				infos = append(infos, oneText)
 				continue
 			}
 			mimeType := detectMimeType(r.Thumbnail, data)
-			ctx.Reply(platform.OutboundMessage{
-				Text: oneText,
-				Attachments: []platform.Attachment{{
-					Kind:     platform.AttachmentKindImage,
-					Data:     data,
-					Name:     "sauce" + extByMime(mimeType),
-					MimeType: mimeType,
-				}},
-			})
+			att := platform.Attachment{
+				Kind:     platform.AttachmentKindImage,
+				Data:     data,
+				Name:     "sauce" + extByMime(mimeType),
+				MimeType: mimeType,
+			}
+			if captionOK {
+				ctx.Reply(platform.TextMessage(oneText).WithAttachments(att))
+			} else {
+				ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{att}})
+				infos = append(infos, oneText)
+			}
 		}
 		if p.reportErrors() && len(errReports) > 0 {
-			ctx.Reply(platform.TextMessage("（部分引擎异常）\n" + strings.Join(errReports, "\n")))
+			infos = append(infos, "（部分引擎异常）\n"+strings.Join(errReports, "\n"))
+		}
+		if len(infos) > 0 {
+			summary := strings.Join(infos, "\n\n")
+			if captionOK || !caps.Has(platform.CapMarkdown) {
+				ctx.Reply(platform.TextMessage(summary))
+			} else {
+				ctx.Reply(platform.MarkdownMessage(summary))
+			}
 		}
 		return nil
 	}

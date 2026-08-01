@@ -148,7 +148,8 @@ func (c *saucenaoClient) Search(ctx context.Context, apiKey string, db int, in e
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		// 传输错误携带的 URL 含 api_key 查询参数，必须脱敏后上报
+		return nil, fmt.Errorf("请求失败: %w", redactTransportError(err))
 	}
 	defer resp.Body.Close()
 

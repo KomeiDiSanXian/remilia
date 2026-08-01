@@ -1,7 +1,9 @@
 package sauce
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -27,4 +29,34 @@ func parseSimilarity(s string) float64 {
 		return 0
 	}
 	return v
+}
+
+// redactTransportError 抹掉传输错误 URL 中的认证查询参数。
+//
+// net/http 的传输错误是 *url.Error，其 Error() 会带上完整请求 URL，
+// 而 URL 查询参数里可能携带 api_key 等凭据（SauceNAO / Gelbooru 等），
+// 一次超时/DNS 抖动就会把凭据写进日志或回复给用户。
+// 保留 errors.Is/As 判定能力（重新构造 *url.Error）。
+func redactTransportError(err error) error {
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		return err
+	}
+	parsed, perr := url.Parse(uerr.URL)
+	if perr != nil {
+		return err
+	}
+	q := parsed.Query()
+	changed := false
+	for _, key := range []string{"api_key", "user_id"} {
+		if q.Has(key) {
+			q.Set(key, "<redacted>")
+			changed = true
+		}
+	}
+	if !changed {
+		return err
+	}
+	parsed.RawQuery = q.Encode()
+	return &url.Error{Op: uerr.Op, URL: parsed.String(), Err: uerr.Err}
 }
