@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.27.1 (2026-08-01)
+
+### 🐛 插件系统修复
+
+- **drainDrainingInstances 数据竞争修复**: BG 重载测试触发的预存 race——轮询 goroutine 在 `RLock` 释放后读取 `e.done`，与 `markDrainingDone` 的锁内写入并发。现 `e.done` 读取移回锁内
+
 ## v1.27.0 (2026-08-01)
 
 ### 🖼️ 新插件：pic — 按标签随机发图
@@ -28,11 +34,32 @@
 - **`RegisterToolProvider` 覆盖自动发现**: 显式注册的工具（同名）移除自动发现的命令工具及其命令映射（cmdPatterns），保证 LLM 调用插件自实现的 Execute；`discoverTools` 跳过已显式注册的名称
 - **`ToolRegistry.Remove`**: 新增按名删除工具的方法
 
+### ⚡ 性能优化（补记）
+
+- **`Context.Clone` 空存储短路**: `copyExtensions` 不再无条件初始化源/目标的扩展存储（此前克隆裸 Context 也会分配 Extensions+map+Snapshot 整表）。裸 Clone 从 7 allocs/op 降至 4 allocs/op（-43%，289→169ns）；带扩展场景 12→10 allocs。基准矩阵补充 ExecPool 池化场景（PooledLight/PooledHeavyCmdHit/PooledExtreme），覆盖此前缺失的 Clone+TrySubmit 分配路径
+- **EventBus.Publish 订阅者切片零拷贝**: 订阅切片按 COW 管理（Subscribe 只写超出旧 len 的下标、Unsubscribe 换新数组），RUnlock 后直接迭代安全，仅当主题与通配符订阅者同时存在才合并拷贝。Publish(1 订阅者) 4→3 allocs（371→329ns）
+
+### 🧩 插件系统设计修复（补记）
+
+- **DryRun 副作用隔离（`Descriptor.DryRunSafe`）**: 依赖推断的探测执行从"批级选项决定"下沉为"插件作者声明"。只有显式声明 `DryRunSafe: true` 的插件在 `WithInferDeps` 下才会被探测执行 Setup（总计两次）；**第三方插件在任何路径下 Setup 恒执行一次**，`ctx.DryRun` 对未声明插件恒为 false
+- **依赖声明契约化**: `Deps`/`OptionalDeps` 声明成为插件正确性的必要契约（加载顺序/循环检测/重载级联/级联注销均基于声明）；未声明时框架仅对"批内依赖顺序错误"提供自动重试兜底
+- **依赖感知重试**: 批量注册中因依赖缺失失败的插件不再中断整批——进入 pending，等本批依赖就绪后自动重试；失败时错误信息给出可操作提示（声明 Deps 或 DryRunSafe）；原子模式下重试最终失败触发整体回滚
+- **InPlace 重载 goroutineMgr 丢失修复**: `newContext` 继承旧 GM，`adv.Reload` 内 Spawn/NewTaskGroup/RegisterCron 不再静默 no-op
+- **StartAll/StopAll 状态转换原子化**: `tryTransition` CAS 消除并发双 Setup 导致的 matcher 翻倍窗口
+- **StopAll 后可重启**: metaGM 支持重建（Stop → Start 循环恢复 notifyDependents 等元数据任务）
+- **热重载语义一致性**: InPlace/BlueGreen 补 `RestoreState`+`MigrateState`（SaveState 不再白存）；BlueGreen swap 回拷 `loadedVer`（版本迁移比较正确）、`ctx.Reg` 组名回写正式插件组（运行期注册不再落入 `__bg`）、旧实例 Teardown 使用旧 Config/EventBus
+- **配置热更新**: `propagateConfigChange` 重试定时器在 Manager Shutdown 后丢弃；StopAll 错误聚合格式与 StartAll 统一
+
+### 🧪 测试与文档（补记）
+
+- **新增回归套件**: `core/context/context_escape_test.go`（Clone 分配预算护栏）、`plugin/benchmark_escape_test.go`（Container.Get/EventBus 分配基准）、`plugin/design_review_fixes_test.go`（DryRunSafe/生命周期原子性/BG 语义 7 项）
+- **插件开发指南更新**: Smart 注册章节重写（DryRunSafe 契约）、`ctx.DryRun` 字段文档、`Deps` godoc、三色 DryRun 架构笔记补充前提
+
 ### 📝 配置
 
 - **config.example.yaml**: 新增 pic 配置节（rating/sites/max_count/凭据），更新 sauce send_thumbnails 注释
 
-
+## v1.26.1 (2026-08-01)
 
 ### 🐛 sauce 插件解析修复
 
