@@ -157,6 +157,65 @@ func (p *Plugin) reportErrors() bool {
 
 // ── 命令处理 ───────────────────────────────────────────────────────────
 
+// searchAll 并发提交所有已启用引擎，返回合并前的全部结果与引擎错误报告。
+// 命令处理器与 AI 工具共用此流程，保证两者行为一致。
+func (p *Plugin) searchAll(reqCtx context.Context, in engineInput, maxResults int) ([]SearchResult, []string) {
+	type sourceResult struct {
+		name    string
+		results []SearchResult
+		err     error
+	}
+
+	ch := make(chan sourceResult, 4)
+	sources := 0
+	submit := func(name string, fn func() ([]SearchResult, error)) {
+		sources++
+		go func() {
+			results, err := fn()
+			ch <- sourceResult{name: name, results: results, err: err}
+		}()
+	}
+
+	if ak := p.apiKey(); ak != "" {
+		submit("SauceNAO", func() ([]SearchResult, error) {
+			return p.saucenao.Search(reqCtx, ak, p.saucenaoDB(), in, maxResults)
+		})
+	}
+	if p.enableIQDB() {
+		submit("IQDB", func() ([]SearchResult, error) {
+			return p.iqdb.Search(reqCtx, in, maxResults)
+		})
+	}
+	if p.enableTraceMoe() {
+		submit("TraceMoe", func() ([]SearchResult, error) {
+			return p.tracemoe.Search(reqCtx, in, maxResults, p.traceMoeMinSimilarity()/100)
+		})
+	}
+	if p.enableASCII2D() {
+		submit("ASCII2D", func() ([]SearchResult, error) {
+			return p.ascii2d.Search(reqCtx, in, maxResults)
+		})
+	}
+
+	var allResults []SearchResult
+	var errReports []string
+	for i := 0; i < sources; i++ {
+		select {
+		case res := <-ch:
+			if res.err != nil {
+				if p.reportErrors() {
+					errReports = append(errReports, res.name+": "+res.err.Error())
+				}
+				continue
+			}
+			allResults = append(allResults, res.results...)
+		case <-reqCtx.Done():
+			return nil, errReports
+		}
+	}
+	return allResults, errReports
+}
+
 // handleSauce 处理 /sauce 命令。
 //
 // 流程：提取消息图片 URL → 下载并预处理 → 并发提交各已启用引擎 → 合并、
@@ -187,60 +246,7 @@ func (p *Plugin) handleSauce(ctx *eventctx.Context) error {
 
 	in := engineInput{ImageURL: imageURL, Data: proc.Data, Mime: proc.Mime}
 
-	type sourceResult struct {
-		name    string
-		results []SearchResult
-		err     error
-	}
-
-	ch := make(chan sourceResult, 4)
-	sources := 0
-	submit := func(name string, fn func() ([]SearchResult, error)) {
-		sources++
-		go func() {
-			results, err := fn()
-			ch <- sourceResult{name: name, results: results, err: err}
-		}()
-	}
-
-	if ak := p.apiKey(); ak != "" {
-		submit("SauceNAO", func() ([]SearchResult, error) {
-			return p.saucenao.Search(reqCtx, ak, p.saucenaoDB(), in, p.maxResults())
-		})
-	}
-	if p.enableIQDB() {
-		submit("IQDB", func() ([]SearchResult, error) {
-			return p.iqdb.Search(reqCtx, in, p.maxResults())
-		})
-	}
-	if p.enableTraceMoe() {
-		submit("TraceMoe", func() ([]SearchResult, error) {
-			return p.tracemoe.Search(reqCtx, in, p.maxResults(), p.traceMoeMinSimilarity()/100)
-		})
-	}
-	if p.enableASCII2D() {
-		submit("ASCII2D", func() ([]SearchResult, error) {
-			return p.ascii2d.Search(reqCtx, in, p.maxResults())
-		})
-	}
-
-	var allResults []SearchResult
-	var errReports []string
-	for i := 0; i < sources; i++ {
-		select {
-		case res := <-ch:
-			if res.err != nil {
-				if p.reportErrors() {
-					errReports = append(errReports, res.name+": "+res.err.Error())
-				}
-				continue
-			}
-			allResults = append(allResults, res.results...)
-		case <-reqCtx.Done():
-			ctx.ReplyError("搜索超时，请稍后重试")
-			return nil
-		}
-	}
+	allResults, errReports := p.searchAll(reqCtx, in, p.maxResults())
 
 	merged := mergeResults(allResults, p.similarityThreshold())
 	results := pickResults(merged, p.maxResults())
