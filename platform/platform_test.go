@@ -812,6 +812,20 @@ func TestCapabilities_LimitFields_ZeroMeansUnknown(t *testing.T) {
 	}
 }
 
+func TestCapabilities_CaptionFlag(t *testing.T) {
+	// Caption 能力声明 → Has(CapCaption) 为 true
+	caps := platform.Capabilities{Caption: true}
+	if !caps.Has(platform.CapCaption) {
+		t.Error("Caption: true 应使 Has(CapCaption) 为 true")
+	}
+	if caps.Has(platform.CapVoiceChannel) {
+		t.Error("Caption 与 VoiceChannel 是独立位，不应互相影响")
+	}
+	if (platform.Capabilities{}).Has(platform.CapCaption) {
+		t.Error("零值 Capabilities 不应具备 Caption 能力")
+	}
+}
+
 func TestCapabilities_LimitFields_CanBeSet(t *testing.T) {
 	caps := platform.Capabilities{
 		MaxTextLength:    2000,

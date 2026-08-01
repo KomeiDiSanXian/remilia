@@ -472,6 +472,7 @@ func (a *Adapter) Capabilities() platform.Capabilities {
 		TypingIndicator: true,
 		MentionAll:      false,
 		VoiceChannel:    false,
+		Caption:         true, // 终端渲染器可同时展示文本与图片
 	}
 }
 

@@ -163,6 +163,7 @@ func (a *PollingAdapter) Capabilities() platform.Capabilities {
 		TypingIndicator: true,
 		MentionAll:      false,
 		VoiceChannel:    false,
+		Caption:         true, // 媒体消息支持 caption 文本
 		MaxTextLength:   4096,
 		MaxAttachmentMB: 50,
 	}

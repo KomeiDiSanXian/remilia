@@ -45,6 +45,7 @@ const (
 	CapTypingIndicator                            // 支持"正在输入"状态
 	CapMentionAll                                 // 支持 @全体成员
 	CapVoiceChannel                               // 支持语音频道
+	CapCaption                                    // 支持在同一条消息内同时携带文本与附件（图文同发）
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -97,6 +98,10 @@ type Capabilities struct {
 	MentionAll bool
 	// VoiceChannel 是否支持语音频道（Discord Stage/VC）
 	VoiceChannel bool
+	// Caption 是否支持在同一条消息内同时携带文本与附件（图文同发）。
+	// Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、
+	// Satori（元素列表）支持；QQ 富媒体消息会丢弃文本，不支持。
+	Caption bool
 
 	// ── 量化限制（0 = 无已知限制或平台未公开）────────────────────────────
 
@@ -170,6 +175,9 @@ func (c Capabilities) flags() CapabilityFlag {
 	}
 	if c.VoiceChannel {
 		f |= CapVoiceChannel
+	}
+	if c.Caption {
+		f |= CapCaption
 	}
 	return f
 }

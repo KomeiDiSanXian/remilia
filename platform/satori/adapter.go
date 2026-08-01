@@ -109,6 +109,7 @@ func satoriCapabilities() platform.Capabilities {
 		ThreadReply:     true,
 		TypingIndicator: false,
 		MentionAll:      true,
+		Caption:         true, // 元素列表消息支持文本与图片混排
 	}
 }
 

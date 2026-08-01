@@ -35,6 +35,7 @@ func discordCapabilities() platform.Capabilities {
 		TypingIndicator: true,
 		MentionAll:      true,
 		VoiceChannel:    true,
+		Caption:         true, // content 文本 + 附件同发
 		// Discord 量化限制（免费账号保守值）
 		MaxTextLength:    2000, // Discord 普通消息文本上限
 		MaxAttachmentMB:  8,    // 免费账号单文件上限（Nitro 为 50/500 MB）

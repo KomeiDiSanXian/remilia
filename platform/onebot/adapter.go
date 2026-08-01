@@ -97,6 +97,7 @@ func onebotCapabilities() platform.Capabilities {
 		MultiAttachment: false,
 		FileUpload:      false,
 		VoiceChannel:    false,
+		Caption:         true, // CQ 码文本段 + 图片段混排同一条消息
 	}
 }
 
