@@ -155,10 +155,13 @@ func (sc *statsController) drainDrainingInstances(ctx context.Context) {
 	for _, name := range names {
 		go func(n string) {
 			for {
+				// e.done 必须在锁内读取：markDrainingDone 在锁内写该字段，
+				// 锁外读取与 BG teardown 并发构成数据竞争（CI race 检出）。
 				sc.mu.RLock()
 				e, ok := sc.drainingInstances[n]
+				finished := ok && e.done
 				sc.mu.RUnlock()
-				if !ok || e.done {
+				if finished {
 					done <- struct{}{}
 					return
 				}
