@@ -563,6 +563,16 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 	}
 	results := make([]regResult, 0, len(sorted))
 	var batchErr error
+
+	// pendingDepFailed 收集"因依赖缺失失败"的插件（Setup 内访问过依赖且失败）。
+	// 这类失败通常源于插件作者漏写 Deps（未声明依赖 + 未开 DryRunSafe）：
+	// 不中断整批，等本批依赖就绪后自动重试（依赖感知的批内修复）。
+	// Setup 仅对真正失败的插件多执行一次（错误恢复路径），非全批探测。
+	type pendingRetry struct {
+		desc    *Descriptor
+		loadErr error
+	}
+	var pending []pendingRetry
 	for i, desc := range sorted {
 		instance, tdeps, topts, loadErr := pm.registerPreSetup(ctx, desc)
 		if loadErr != nil {
@@ -579,6 +589,13 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 					pm.coordinator.RemoveGroup(desc.Name)
 				}
 				pm.removeExportedKeys(instance, desc.Name)
+			}
+
+			// Setup 内通过 Service/mustGet 访问过依赖（mustGet 在 panic 前
+			// 已记录 deps）→ 疑似依赖缺失，跳过本插件继续注册后续插件。
+			if len(tdeps) > 0 || len(topts) > 0 {
+				pending = append(pending, pendingRetry{desc: desc, loadErr: loadErr})
+				continue
 			}
 
 			if opts.atomic {
@@ -609,6 +626,66 @@ func (pm *Manager) registerWithOptions(ctx context.Context, descriptors []*Descr
 			break
 		}
 		results = append(results, regResult{desc: desc, instance: instance, trackedDeps: tdeps, trackedOptional: topts})
+	}
+
+	// 重试轮：本批依赖注册完成后，重试因依赖缺失失败的插件。
+	// 每轮至少成功一个才继续；无进展或轮数耗尽则停止。
+	for round := 1; len(pending) > 0 && len(results) < len(sorted) && batchErr == nil; round++ {
+		if round > len(sorted) {
+			break
+		}
+		var nextPending []pendingRetry
+		progressed := false
+		for _, p := range pending {
+			instance, tdeps, topts, loadErr := pm.registerPreSetup(ctx, p.desc)
+			if loadErr != nil {
+				if instance != nil {
+					pm.mu.Lock()
+					delete(pm.plugins, p.desc.Name)
+					pm.mu.Unlock()
+					if pm.coordinator != nil {
+						pm.coordinator.RemoveGroup(p.desc.Name)
+					}
+					pm.removeExportedKeys(instance, p.desc.Name)
+				}
+				nextPending = append(nextPending, p)
+				continue
+			}
+			logger.Infof("[PluginManager] Dependency-aware retry: plugin %s registered after its dependency became available (round %d)", p.desc.Name, round)
+			results = append(results, regResult{desc: p.desc, instance: instance, trackedDeps: tdeps, trackedOptional: topts})
+			progressed = true
+		}
+		pending = nextPending
+		if !progressed {
+			break
+		}
+	}
+	// 剩余 pending：依赖确实缺失（本批与已注册插件中都不存在）。
+	// 给出可操作的补救提示（声明 Deps 或 DryRunSafe + WithInferDeps）。
+	if len(pending) > 0 && batchErr == nil {
+		names := make([]string, 0, len(pending))
+		for _, p := range pending {
+			names = append(names, fmt.Sprintf("%q (%v)", p.desc.Name, p.loadErr))
+		}
+		batchErr = fmt.Errorf("failed to register %d plugin(s) with missing dependencies: %v; "+
+			"declare them in Descriptor.Deps, or set DryRunSafe: true and use WithInferDeps for automatic inference",
+			len(pending), names)
+	}
+
+	// 依赖感知重试最终失败 + 原子模式：整体回滚已注册的插件
+	if batchErr != nil && opts.atomic && len(results) > 0 {
+		for _, r := range results {
+			if rollbackErr := pm.Unregister(context.Background(), r.desc.Name); rollbackErr != nil {
+				logger.WithError(rollbackErr).Warnf("[PluginManager] Rollback failed for plugin %s", r.desc.Name)
+			}
+		}
+		return &PluginError{
+			PluginName:        "batch",
+			Operation:         "register",
+			Cause:             batchErr,
+			RegisteredPlugins: nil,
+			Hint:              "all plugins in this batch have been rolled back",
+		}
 	}
 
 	// Phase 2: 批量 Lock #3 — 依赖合并 + loadOrder

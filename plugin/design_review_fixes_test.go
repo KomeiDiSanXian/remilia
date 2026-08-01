@@ -208,7 +208,90 @@ func TestReloadBlueGreen_OldTeardownSeesOldConfig(t *testing.T) {
 		"旧实例 Teardown 应看到旧 Config 对象，而非新实例替换后的 nil")
 }
 
-// stubConfigProvider 最小配置提供者测试桩。
+// TestBatch_DependencyAwareRetry 验证未声明依赖（非 DryRunSafe）的插件在
+// 批内依赖顺序错误时自动修复：consumer 排 base 之前且漏写 Deps，
+// 依赖感知重试会在 base 注册后自动重新注册 consumer，整批不再失败。
+func TestBatch_DependencyAwareRetry(t *testing.T) {
+	pm := NewManager(nil)
+
+	setupOrder := make([]string, 0, 3)
+	var orderMu sync.Mutex
+
+	consumer := &Descriptor{
+		Name: "retry-consumer", // 故意不写 Deps，也不声明 DryRunSafe
+		Setup: func(ctx *SetupContext) (any, error) {
+			orderMu.Lock()
+			setupOrder = append(setupOrder, "consumer")
+			orderMu.Unlock()
+			_ = Service[any](ctx, "retry-base")
+			return nil, nil
+		},
+	}
+	base := &Descriptor{
+		Name: "retry-base",
+		Setup: func(ctx *SetupContext) (any, error) {
+			orderMu.Lock()
+			setupOrder = append(setupOrder, "base")
+			orderMu.Unlock()
+			return "base-api", nil
+		},
+	}
+
+	// consumer 在 base 之前 → 首轮失败进 pending，重试轮自动修复
+	require.NoError(t, pm.RegisterBatch(context.Background(), []*Descriptor{consumer, base}))
+
+	assert.True(t, pm.IsLoaded("retry-consumer"))
+	assert.True(t, pm.IsLoaded("retry-base"))
+
+	orderMu.Lock()
+	defer orderMu.Unlock()
+	baseIdx := -1
+	consumerIdx := -1
+	for i, n := range setupOrder {
+		switch n {
+		case "base":
+			baseIdx = i
+		case "consumer":
+			consumerIdx = i
+		}
+	}
+	require.NotEqual(t, -1, baseIdx, "base 应至少 Setup 一次")
+	require.NotEqual(t, -1, consumerIdx, "consumer 应至少 Setup 一次")
+	assert.Less(t, baseIdx, consumerIdx, "最终顺序应为 base 先于 consumer")
+
+	// 依赖合并且已声明：消费方 Deps 中应包含 base（trackedDeps 合并）
+	inst, ok := pm.Get("retry-consumer")
+	require.True(t, ok)
+	assert.Contains(t, inst.desc.Deps, "retry-base")
+}
+
+// TestBatch_MissingDependency_ReportsActionableError 验证依赖确实缺失时
+// 返回可操作的错误信息，且不影响本批其他插件的注册。
+func TestBatch_MissingDependency_ReportsActionableError(t *testing.T) {
+	pm := NewManager(nil)
+
+	consumer := &Descriptor{
+		Name: "missing-dep-consumer",
+		Setup: func(ctx *SetupContext) (any, error) {
+			_ = Service[any](ctx, "ghost-plugin")
+			return nil, nil
+		},
+	}
+	independent := &Descriptor{
+		Name:  "independent-plugin",
+		Setup: func(ctx *SetupContext) (any, error) { return nil, nil },
+	}
+
+	err := pm.RegisterBatch(context.Background(), []*Descriptor{consumer, independent})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing dependencies", "错误信息应指明依赖缺失")
+	assert.Contains(t, err.Error(), "Deps", "错误信息应给出声明 Deps 的补救提示")
+
+	// 独立插件不受影响
+	assert.True(t, pm.IsLoaded("independent-plugin"))
+	assert.False(t, pm.IsLoaded("missing-dep-consumer"))
+}
+
 type stubConfigProvider struct {
 	subs map[string]map[string]any
 }
