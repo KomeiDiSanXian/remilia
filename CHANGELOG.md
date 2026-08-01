@@ -1,6 +1,38 @@
 # Changelog
 
-## v1.26.1 (2026-07-31)
+## v1.27.0 (2026-08-01)
+
+### 🖼️ 新插件：pic — 按标签随机发图
+
+- **`/pic` 命令**: 聚合 5 个 booru 图库（Safebooru / Gelbooru / rule34 / Konachan / Yande.re）按标签随机发送图片，附作品信息（画师/评分/标签/来源链接）
+- **内容分级策略**: `rating` 配置控制全局上限（默认 safe），rule34 等 NSFW 站点仅在 explicit/all 下可用；`sites` 白名单限定可用站点
+- **服务端随机**: 依据各站官方文档实测（Gelbooru cheatsheet `sort:random` / Moebooru `order:random` meta-tag），每次请求附加唯一参数 + `Cache-Control: no-cache` 防缓存，连续请求不重复
+- **站点并发降级**: 多站并发请求取最快成功者（慢站点不再拖垮整次命令）；多图并发下载后按序发送
+- **参数消歧**: 末尾 `xN` 数量后缀 + `-count N` 显式张数（想搜 `x3` 标签时 `-count 1` 即可）；`-site` 指定站点；命令定义标注 Arg/Flag
+- **AI 工具**: `get_random_image(tags, count?, site?)` 返回图片 URL 与作品信息（不依赖多模态）；`/pic` 命令自动发现即可被 AI 触发
+- **认证**: gelbooru.com / rule34.xxx 支持 user_id + api_key 配置；konachan 使用 SFW 镜像 konachan.net 绕过 Cloudflare
+- **凭据安全**: 传输错误 URL 中的 api_key/user_id 自动脱敏，不再泄露进日志或回复
+
+### 📤 平台能力：图文同发（CapCaption）
+
+- **`Capabilities.Caption` 新能力**: 声明"同一条消息内可同时携带文本与附件"。Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、Satori（元素列表）、Terminal 声明支持；QQ 富媒体消息会丢弃文本，不声明
+- **pic / sauce 发送策略**: 支持图文同发的平台图片+信息一条消息；其他平台图片逐张发、作品信息汇总一条（Markdown 优先，纯文本降级），修复 QQ 上 sauce 缩略图模式文字丢失问题
+
+### 🔒 sauce 插件：AI 工具与错误脱敏
+
+- **AI 工具**: 实现 ToolProvider，`sauce` 工具接受 image_url 参数走完整多引擎检索（命令与工具共用 searchAll 流程）；显式注册覆盖自动发现的同名命令工具
+- **错误脱敏**: SauceNAO 请求失败时 URL 中的 api_key 不再泄露（与 pic 相同的 redactTransportError）
+
+### 🧠 AI 插件：显式注册优先
+
+- **`RegisterToolProvider` 覆盖自动发现**: 显式注册的工具（同名）移除自动发现的命令工具及其命令映射（cmdPatterns），保证 LLM 调用插件自实现的 Execute；`discoverTools` 跳过已显式注册的名称
+- **`ToolRegistry.Remove`**: 新增按名删除工具的方法
+
+### 📝 配置
+
+- **config.example.yaml**: 新增 pic 配置节（rating/sites/max_count/凭据），更新 sauce send_thumbnails 注释
+
+
 
 ### 🐛 sauce 插件解析修复
 

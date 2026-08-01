@@ -44,3 +44,5 @@ cmd/bot/dashboarddist/
 coverage
 coverage.out
 coverage.txt
+# Playwright MCP 临时快照目录
+.playwright-mcp/
