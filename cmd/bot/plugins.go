@@ -39,6 +39,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/genshin"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/iss"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/minecraft"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/pic"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/coc"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dnd"
@@ -124,6 +125,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		genshin.New(),
 		starrail.New(),
 		sauce.New(),
+		pic.New(),
 		dice.New(),
 		coc.New(),
 		dnd.New(),

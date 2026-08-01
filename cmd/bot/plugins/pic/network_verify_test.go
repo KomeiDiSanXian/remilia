@@ -1,0 +1,125 @@
+//go:build network
+
+// 临时联网验证：确认各站点 API 请求、响应解析、图片下载真实可用。
+// 运行: go test -tags network -run TestNetworkFetchAllSites -v ./cmd/bot/plugins/pic/
+// 需要认证的站点（gelbooru / rule34）通过环境变量传入凭据：
+//
+//	PIC_GELBOORU_USER_ID / PIC_GELBOORU_API_KEY
+//	PIC_RULE34_USER_ID / PIC_RULE34_API_KEY
+package pic
+
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestNetworkFetchAllSites(t *testing.T) {
+	creds := booruCredentials{
+		GelbooruUserID: os.Getenv("PIC_GELBOORU_USER_ID"),
+		GelbooruAPIKey: os.Getenv("PIC_GELBOORU_API_KEY"),
+		Rule34UserID:   os.Getenv("PIC_RULE34_USER_ID"),
+		Rule34APIKey:   os.Getenv("PIC_RULE34_API_KEY"),
+	}
+
+	for _, s := range builtinSites {
+		s := s
+		t.Run(s.Name, func(t *testing.T) {
+			if s.Name == "gelbooru" && (creds.GelbooruUserID == "" || creds.GelbooruAPIKey == "") {
+				t.Skip("PIC_GELBOORU_USER_ID/PIC_GELBOORU_API_KEY 未配置，跳过 gelbooru")
+			}
+			if s.Name == "rule34" && (creds.Rule34UserID == "" || creds.Rule34APIKey == "") {
+				t.Skip("PIC_RULE34_USER_ID/PIC_RULE34_API_KEY 未配置，跳过 rule34")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			c := newBooruClient(creds)
+			// 用该站点允许的最高分级验证（rule34 在 safe 策略下本就不可用）
+			posts, err := c.fetchRandom(ctx, s, nil, s.maxRating(), 2)
+			if err != nil {
+				t.Fatalf("fetch failed: %v", err)
+			}
+			if len(posts) == 0 {
+				t.Fatalf("no posts returned")
+			}
+			t.Logf("got %d posts", len(posts))
+
+			for _, p := range posts {
+				if p.FileURL == "" {
+					t.Error("empty FileURL")
+					continue
+				}
+				data, err := downloadImage(ctx, p.FileURL, "https://"+s.Domain+"/", maxPicBytes)
+				if err != nil {
+					t.Errorf("download %s: %v", p.FileURL, err)
+					continue
+				}
+				if !isImageBytes(data) {
+					t.Errorf("downloaded bytes are not an image: %s (%d bytes)", p.FileURL, len(data))
+					continue
+				}
+				t.Logf("ok: %s (%d bytes, score=%d, author=%q)", p.FileURL, len(data), p.Score, p.Author)
+			}
+		})
+	}
+}
+
+func TestNetworkFetchWithTags(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	c := newBooruClient(booruCredentials{})
+	s, _ := findSite("safebooru")
+	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, s.maxRating(), 3)
+	if err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if len(posts) == 0 {
+		t.Fatal("no posts returned for tag touhou")
+	}
+	t.Logf("got %d posts for tag touhou", len(posts))
+}
+
+// TestNetworkFetchWithFallback 验证多站并发取最快成功者的降级路径与耗时。
+func TestNetworkFetchWithFallback(t *testing.T) {
+	creds := booruCredentials{
+		GelbooruUserID: os.Getenv("PIC_GELBOORU_USER_ID"),
+		GelbooruAPIKey: os.Getenv("PIC_GELBOORU_API_KEY"),
+		Rule34UserID:   os.Getenv("PIC_RULE34_USER_ID"),
+		Rule34APIKey:   os.Getenv("PIC_RULE34_API_KEY"),
+	}
+	p := &Plugin{client: newBooruClient(creds)}
+	candidates := candidateSites(nil, RatingSafe)
+	require.NotEmpty(t, candidates)
+
+	start := time.Now()
+	s, posts, err := p.fetchWithFallback(context.Background(), candidates, []string{"touhou"}, 2)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.NotEmpty(t, posts)
+	t.Logf("fallback 耗时 %v，命中站点 %s，%d 张", elapsed, s.DisplayName, len(posts))
+}
+
+func isImageBytes(data []byte) bool {
+	if len(data) < 4 {
+		return false
+	}
+	if data[0] == 0xFF && data[1] == 0xD8 { // JPEG
+		return true
+	}
+	if data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G' { // PNG
+		return true
+	}
+	if data[0] == 'G' && data[1] == 'I' && data[2] == 'F' { // GIF
+		return true
+	}
+	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" { // WebP
+		return true
+	}
+	return false
+}

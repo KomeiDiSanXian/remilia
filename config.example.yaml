@@ -249,10 +249,11 @@ api:
 #     saucenao_api_key: ""            # [H]  SauceNAO API Key（从 https://saucenao.com 获取）
 #     saucenao_db: 999                # [H]  SauceNAO 检索数据库（999 = 全部，可选具体 db id）
 #     max_results: 3                  # [H]  最多返回的结果数
-#     send_thumbnails: false          # [H]  是否发送缩略图图片。开启后每条结果会单独发送
-#                                     #      （文本+图片嵌入同一条消息）。QQ 平台的媒体消息
-#                                     #      API 可能不展示附带文本，仅显示图片；
-#                                     #      Telegram / Discord 等平台正常显示。
+#     send_thumbnails: false          # [H]  是否发送缩略图图片。开启后每条结果带图发送：
+#                                     #      支持图文同发的平台（Telegram / Discord /
+#                                     #      OneBot / Satori）文本与图片在同一条消息；
+#                                     #      其他平台（QQ 等富媒体会丢弃文本）图片逐张发、
+#                                     #      作品信息汇总一条（Markdown 优先）。
 #     enable_iqdb: true               # [H]  IQDB：booru 图库检索，对裁切图最友好（免费，默认开启）
 #     enable_trace_moe: true          # [H]  TraceMoe：动画截图逐帧识别，给出番名/话数/时间点（免费，默认开启）
 #     trace_moe_min_similarity: 75    # [H]  TraceMoe 最低相似度（0-100），过滤无意义弱匹配
@@ -263,6 +264,16 @@ api:
 #     report_errors: true             # [H]  引擎失败时在结果中显示原因
 #     max_title_len: 120              # [H]  单条结果标题最大长度（rune，0 = 不截断）
 #     max_message_len: 2000           # [H]  文本模式整条结果消息最大长度（rune，0 = 不截断）
+#   pic:
+#     rating: "safe"                  # [H]  全局内容分级上限: safe / questionable / explicit / all
+#                                     #      （rule34 等 NSFW 站点仅在 explicit / all 时可用）
+#     sites: []                       # [H]  启用站点白名单（空 = 全部）:
+#                                     #      safebooru / gelbooru / rule34 / konachan / yandere
+#     max_count: 3                    # [H]  单次最多发送张数
+#     gelbooru_user_id: ""            # [R]  gelbooru.com 必需（与 gelbooru_api_key 配套，免费注册获取），否则返回 401
+#     gelbooru_api_key: ""            # [R]  gelbooru.com API key（免费注册获取），否则返回 401
+#     rule34_user_id: ""              # [R]  rule34.xxx 必需，在 https://rule34.xxx/index.php?page=account&s=options 获取
+#     rule34_api_key: ""              # [R]  rule34.xxx API key（与 rule34_user_id 配套）
 
 # ====================================
 # 配置说明
