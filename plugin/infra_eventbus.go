@@ -131,16 +131,25 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 	}
 	eb.mu.RUnlock()
 
-	allHandlers := make([]subscriptionImpl, 0, len(handlers)+len(wildcardHandlers))
-	allHandlers = append(allHandlers, handlers...)
-	allHandlers = append(allHandlers, wildcardHandlers...)
+	// 订阅者切片按 COW 管理（Subscribe 只写 len 下标、Unsubscribe 换新数组），
+	// RUnlock 后直接迭代旧切片是安全的，无需拷贝。
+	// 仅当主题与通配符订阅者同时存在时才合并拷贝（罕见场景）。
+	switch {
+	case len(handlers) == 0:
+		handlers = wildcardHandlers
+	case len(wildcardHandlers) != 0:
+		merged := make([]subscriptionImpl, 0, len(handlers)+len(wildcardHandlers))
+		merged = append(merged, handlers...)
+		merged = append(merged, wildcardHandlers...)
+		handlers = merged
+	}
 
-	if len(allHandlers) == 0 {
+	if len(handlers) == 0 {
 		logger.Debugf("[EventBus] No subscribers for topic: %s", topic)
 		return nil
 	}
 
-	for _, sub := range allHandlers {
+	for _, sub := range handlers {
 		if err := eb.acquireWorkerSlot(ctx, topic); err != nil {
 			cnt := eb.droppedCount.Add(1)
 			logger.Warnf("[EventBus] PublishContext cancelled for topic %s (total dropped: %d): %v", topic, cnt, err)
@@ -198,7 +207,7 @@ func PublishWithTimeout(bus EventBus, topic string, data any, timeout time.Durat
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	err := bus.PublishContext(ctx, topic, data)
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrEventDropped
 	}
 	return err
