@@ -170,27 +170,35 @@ func (ctx *Context) SetStdContext(stdCtx stdctx.Context) {
 
 // copyExtensions 将 src 的两套扩展存储（类型键 + 字符串键）深拷贝到 dst。
 //
-// 两套存储分别对应：
-//   - 类型键（Extensions）：框架组件间强类型数据，跳过 *extensionState 条目（由字符串键路径单独拷贝）
-//   - 字符串键（extensionState）：插件/handler 层通用键值对，做 map 深拷贝保证隔离
+// 空存储快速路径：src 从未初始化扩展（extInitialized == false）时直接返回。
+// 此前无条件调用 src.Ext()/dst.Ext() 会触发两侧的惰性初始化，并为从未使用
+// 扩展的 Context（纯回复 handler 的常见形态）白白分配 Extensions + map +
+// Snapshot 整表拷贝——这是每事件 Clone 的分配大头（基准实测 7 allocs 中占 5）。
+// 类型键存储改为在读锁下逐条拷贝，替代 Snapshot 整表分配。
 func copyExtensions(src, dst *Context) {
-	if ex := src.Ext(); ex != nil {
-		dstExt := dst.Ext()
-		extStateType := extTypeOf[*extensionState]()
-		for k, v := range ex.Snapshot() {
-			if k == extStateType {
-				continue
-			}
-			dstExt.Set(k, v)
-		}
+	if src == nil || !src.extInitialized.Load() {
+		return
 	}
 
-	if s, ok := ExtGet[*extensionState](src.Ext()); ok && s != nil {
+	ex := src.extensions
+	extStateType := extTypeOf[*extensionState]()
+
+	dstExt := dst.Ext()
+	ex.mu.RLock()
+	for k, v := range ex.m {
+		if k == extStateType {
+			continue
+		}
+		dstExt.Set(k, v)
+	}
+	ex.mu.RUnlock()
+
+	if s, ok := ExtGet[*extensionState](ex); ok && s != nil {
 		s.mu.RLock()
 		cp := make(map[string]any, len(s.m))
 		maps.Copy(cp, s.m)
 		s.mu.RUnlock()
-		ExtSet(dst.Ext(), &extensionState{m: cp})
+		ExtSet(dstExt, &extensionState{m: cp})
 	}
 }
 

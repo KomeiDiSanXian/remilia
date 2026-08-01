@@ -192,6 +192,41 @@ func benchmarkMatrix() []benchScenario {
 			passRate:    0.5,
 			messageLen:  10000,
 		},
+		// ── ExecPool 池化路径（真实部署形态：慢 handler 常驻池中）───────────
+		// handler 被强制保持 promoted，每条事件稳定走 Clone + TrySubmit，
+		// 覆盖 ctx.Clone() / copyExtensions 的分配（benchmem + memprofile 验证）。
+		{
+			name:        "PooledLight",
+			numPermSpec: 10,
+			useExecPool: true,
+			passRate:    0.8,
+			messageLen:  20,
+		},
+		{
+			name:        "PooledHeavyCmdHit",
+			numPermSpec: 400,
+			numPermGen:  100,
+			numCmdSpec:  300,
+			numCmdGen:   100,
+			numTempSpec: 80,
+			numTempGen:  20,
+			cmdHit:      true,
+			useExecPool: true,
+			passRate:    0.3,
+			messageLen:  100,
+		},
+		{
+			name:        "PooledExtreme",
+			numPermSpec: 2000,
+			numPermGen:  500,
+			numCmdSpec:  1500,
+			numCmdGen:   500,
+			numTempSpec: 400,
+			numTempGen:  100,
+			useExecPool: true,
+			passRate:    0.1,
+			messageLen:  200,
+		},
 	}
 }
 
@@ -211,6 +246,10 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 	opts := []Option{WithNoBackgroundWorkers()}
 	if !s.useExecPool {
 		opts = append(opts, WithExecPoolDisabled())
+	} else {
+		// 共享池生命周期归测试所有（newEngineForTest 预置的
+		// WithExecPoolDisabled 会使 execPoolCfg=0，此处显式注入池）。
+		opts = append(opts, WithSharedExecPool(NewExecPool(DefaultExecPoolConfig())))
 	}
 	e := newEngineForTest(tb, opts...)
 
@@ -246,8 +285,11 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 	for range s.numPermSpec {
 		m := e.On(eventType, passRule())
 		m.Source = "bench-perm-spec"
-		if s.passRate > 0 {
+		if !s.useExecPool && s.passRate > 0 {
 			m.execProfile = nil // avoid ExecProfile overhead in benchmark
+		}
+		if s.useExecPool {
+			m.execProfile.promoted.Store(true) // 模拟常驻池的慢 handler
 		}
 		m.SetPriority(uint64(rng.Intn(10000)))
 		m.Handle(func(c *ctx.Context) error { return nil })
@@ -257,8 +299,11 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 	for range s.numPermGen {
 		m := e.On("", passRule())
 		m.Source = "bench-perm-gen"
-		if s.passRate > 0 {
+		if !s.useExecPool && s.passRate > 0 {
 			m.execProfile = nil
+		}
+		if s.useExecPool {
+			m.execProfile.promoted.Store(true)
 		}
 		m.SetPriority(uint64(rng.Intn(10000)))
 		m.Handle(func(c *ctx.Context) error { return nil })
@@ -273,8 +318,11 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 		}
 		m := e.OnCommand(eventType, cmdName, extraRules...)
 		m.Source = fmt.Sprintf("bench-cmd-spec-%d", i)
-		if s.passRate > 0 {
+		if !s.useExecPool && s.passRate > 0 {
 			m.execProfile = nil
+		}
+		if s.useExecPool {
+			m.execProfile.promoted.Store(true)
 		}
 		m.SetPriority(uint64(rng.Intn(10000)))
 		m.Handle(func(c *ctx.Context) error { return nil })
@@ -288,8 +336,11 @@ func buildFixture(s benchScenario, tb testing.TB) *benchFixture {
 		}
 		m := e.OnCommand("", cmdName, extraRules...)
 		m.Source = fmt.Sprintf("bench-cmd-gen-%d", i)
-		if s.passRate > 0 {
+		if !s.useExecPool && s.passRate > 0 {
 			m.execProfile = nil
+		}
+		if s.useExecPool {
+			m.execProfile.promoted.Store(true)
 		}
 		m.SetPriority(uint64(rng.Intn(10000)))
 		m.Handle(func(c *ctx.Context) error { return nil })
