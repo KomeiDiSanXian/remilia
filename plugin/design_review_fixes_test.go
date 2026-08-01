@@ -80,11 +80,9 @@ func TestStartAll_Concurrent_NoDoubleSetup(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			_ = pm.StartAll(context.Background())
-		}()
+		})
 	}
 	wg.Wait()
 
