@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.28.0 (2026-08-02)
+
+### ✨ 新插件：about — 机器人自我介绍
+
+- **`/about` 命令（别名 `/botinfo`）**: 展示框架版本、Git commit（短哈希）、构建时间、Go 版本、仓库地址、已加载插件数与运行时长，并提示 `/help`
+- **渐进增强**: 平台支持 Markdown 时以 Markdown 渲染；支持按钮时附带"查看命令列表"快捷按钮
+- **`api.GetBuildInfo()`**: 新增导出函数，暴露 main 包注入的构建信息（commit/date）
+- **默认注册**: 加入 `bundle.All()` 与 `cmd/bot` 插件集
+
+### 🔘 平台按钮：指令按钮支持（Button.Command）
+
+- **`platform.Button.Command` 新字段**: 指令按钮——点击后在输入框插入命令文本（如 `/help`），由用户自行发送，不产生交互回调事件
+- **QQ 映射**: `convertButtons` 操作类型扩展——`Command` 非空 → `action.type=2`（指令按钮）、Link+URL → `type=0`（跳转）、默认 → `type=1`（回调）
+- **QQ webhook 回调按钮实测不可靠**（互动事件偶发不投递、PUT 成功后客户端仍报"请求第三方失败"），故 about 按钮采用指令按钮规避互动生命周期
+
+### 🐛 QQ webhook 互动回调链路修复
+
+- **webhook 回包 op=12（HTTP Callback ACK）**: Dispatch 事件回包由空 200 改为 `{"op":12,"d":0}`（协议必需，否则平台视为投递未确认而重试，互动事件因此超时）；事件通道满被丢弃时回 `d=1` 让平台重试
+- **`RespondInteraction` 补全**: 携带 `X-Callback-AppID` 请求头（对照官方 botgo SDK）；显式检查 HTTP 状态码与 `err_code`，失败不再被静默吞掉
+- **互动事件自动回应**: 适配器收到 `INTERACTION_CREATE` 后自动异步调用 `PUT /interactions/{id}`（code=0），防止客户端 loading 超时
+- **送达延迟诊断**: 记录互动事件"触发→送达"延迟，超过 3 秒响应窗口时告警
+- **event_id 取值修正**: 被动回复 event_id 取事件最外层 id（payload.ID），与群消息发送接口文档"从事件最外层的 id 获取"一致
+- **token.Manager.GetAppID()**: 暴露机器人应用 ID
+
 ## v1.27.1 (2026-08-01)
 
 ### 🐛 插件系统修复
