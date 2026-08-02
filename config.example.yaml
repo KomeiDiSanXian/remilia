@@ -265,8 +265,33 @@ api:
 #     max_title_len: 120              # [H]  单条结果标题最大长度（rune，0 = 不截断）
 #     max_message_len: 2000           # [H]  文本模式整条结果消息最大长度（rune，0 = 不截断）
 #   pic:
-#     rating: "safe"                  # [H]  全局内容分级上限: safe / questionable / explicit / all
-#                                     #      （rule34 等 NSFW 站点仅在 explicit / all 时可用）
+#     # [H]  全局内容分级区间（精确档位或区间）:
+#     #      档位（由轻到重）:
+#     #        safe         安全级内容（gelbooru 新体系中的 general）
+#     #        sensitive    轻度敏感级内容（泳装、暗示等）
+#     #                      注意: 这是 gelbooru 迁移时新增的档位，旧三档体系
+#     #                      （safe/questionable/explicit）没有对应档位——旧站点上
+#     #                      此类内容归入 questionable。精确配置 sensitive 时
+#     #                      仅 gelbooru 可用；想覆盖旧 questionable 语义请用
+#     #                      "safe..questionable" 或 "sensitive..explicit"。
+#     #        questionable 敏感级内容
+#     #        explicit     露骨级内容（NSFW）
+#     #      语法:
+#     #        "safe"                   只发安全级（精确档位，默认）
+#     #        "safe..questionable"     发 safe+sensitive+questionable（不含 explicit）
+#     #        "questionable..explicit" 发 questionable+explicit（不含安全级图）
+#     #        "all"                    全部档位，不限制
+#     #      站点仅在其可提供的档位与区间有交集时参与请求，
+#     #      例如 rating: "explicit" 时 safebooru / konachan 自动不可用。
+#     rating: "safe"
+#     # [H]  启用站点白名单（空 = 全部）:
+#     #      safebooru / gelbooru / rule34 / konachan / yandere
+#     #      各站档位映射（自动处理，无需配置）:
+#     #        gelbooru   已迁移新体系: general↔safe, sensitive/questionable/explicit 一一对应
+#     #        safebooru  仅 safe（新旧评级并存，均视为 safe）
+#     #        rule34     仅 explicit
+#     #        konachan   仅 safe（SFW 镜像）
+#     #        yandere    旧体系: safe/questionable/explicit（无 sensitive 档）
 #     sites: []                       # [H]  启用站点白名单（空 = 全部）:
 #                                     #      safebooru / gelbooru / rule34 / konachan / yandere
 #     max_count: 3                    # [H]  单次最多发送张数

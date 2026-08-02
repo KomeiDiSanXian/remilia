@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.30.0 (2026-08-02)
+
+### 🖼️ pic：内容分级重构为区间模型 + gelbooru 迁移适配
+
+- **修复 gelbooru 不随机**: gelbooru.com 已迁移至 Danbooru 式 4 档分级（general/sensitive/questionable/explicit），旧标签 `rating:safe` 仅剩 4 张 2008 年遗留图，导致 `/pic -site gelbooru` 永远返回同一批图。现已按站点映射为 `rating:general`，实测每次返回全新随机结果
+- **rating 改为精确档位/区间模型**: 原"内容分级上限"语义（含下限档位内容）改为精确档位或区间——
+  - 单档: `rating: "safe"` 只发安全级；`rating: "explicit"` 只发露骨级
+  - 区间: `rating: "safe..questionable"` 发 safe+sensitive+questionable（不含 explicit）；`questionable..explicit` 不含安全图
+  - `"all"` 全部档位不限制
+- **新增 sensitive 档位**: 轻度敏感级（泳装、暗示等），与 gelbooru 新体系对齐；旧三档站点（safebooru/rule34/konachan/yande.re）无此档，精确配置 sensitive 时仅 gelbooru 可用，其他站点自动跳过
+- **站点可用性按区间筛选**: 站点仅在其可提供的档位与请求区间有交集时参与请求（如 `rating: "explicit"` 时 safebooru/konachan 自动不可用），避免空结果降级浪费
+- **请求标签按区间生成**: 单档用正向标签（`rating:general`），多档区间用排除法（`-rating:explicit` 等，Gelbooru 系多排除实测可靠；moebooru 档位少天然规避其多排除失效问题）
+- **各站档位映射自动处理**（实测验证）: gelbooru general↔safe 一一对应；safebooru/konachan 整站仅 safe 不加过滤（新旧评级并存全覆盖）；rule34 定位仅 explicit；yande.re 保留旧体系
+- **配置注释与 HelpText 补全**: 档位定义、区间语法、示例、各站映射关系、sensitive 档位来源说明
+
 ## v1.29.0 (2026-08-02)
 
 ### ✨ welcome：全局默认欢迎/告别设置

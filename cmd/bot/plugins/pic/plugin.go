@@ -53,11 +53,27 @@ func New() *plugin.Descriptor {
   /pic <tags...>        按标签随机，如 /pic 東方、/pic touhou hairband
   /pic cat x3           一次多张（xN 后缀须位于末尾，上限受 max_count 配置）
   /pic -count 3         显式指定张数（与 xN 等价，优先级更高）
-  /pic -site rule34 xxx 指定站点（受 rating 策略约束）
+  /pic -site rule34 xxx 指定站点（受 rating 配置约束）
   /pic x3 -count 1      搜索名为 x3 的标签（-count 显式张数可消除歧义）
 
-内容分级由 plugins.pic.rating 配置控制（默认 safe），
-rule34 等 NSFW 站点仅在 rating: explicit / all 时可用。
+内容分级由 plugins.pic.rating 配置控制（默认 safe）。
+档位（由轻到重）：safe（安全）< sensitive（轻度敏感，如泳装/暗示）
+< questionable（敏感级）< explicit（露骨级 NSFW）。
+注意：sensitive 是 gelbooru 迁移时新增的档位，旧三档体系
+（safe/questionable/explicit）没有对应档位——旧站点上此类内容
+归入 questionable。精确配置 sensitive 时仅 gelbooru 可用。
+
+rating 为精确档位或区间：
+  - 单档：rating: "safe" 只发安全级内容
+  - 区间：rating: "safe..questionable" 发安全+轻度敏感+敏感级
+  - all：全部档位不限制
+站点仅在其可提供的档位与区间有交集时参与请求
+（如 rating: "explicit" 时 safebooru / konachan 不可用）。
+
+各站档位映射（自动处理，无需配置）：
+  - gelbooru：general ↔ safe；sensitive / questionable / explicit 一一对应
+  - safebooru / konachan：仅 safe（safebooru 新旧评级并存，均视为 safe）
+  - yande.re / rule34：保留旧体系，与内部档位一致
 
 认证配置（可选）：
   - plugins.pic.gelbooru_user_id / gelbooru_api_key：gelbooru.com 必需
@@ -119,12 +135,12 @@ func (p *Plugin) proxy() string {
 	return p.cfg.GetString("proxy", "")
 }
 
-// rating 返回全局内容分级上限（默认 safe）。
-func (p *Plugin) rating() Rating {
+// rating 返回全局内容分级区间（默认 safe，即只发安全级内容）。
+func (p *Plugin) rating() RatingRange {
 	if p.cfg == nil {
-		return RatingSafe
+		return RatingRange{Min: RatingSafe, Max: RatingSafe}
 	}
-	return parseRating(p.cfg.GetString("rating", string(RatingSafe)))
+	return parseRatingRange(p.cfg.GetString("rating", string(RatingSafe)))
 }
 
 // enabledSites 返回站点白名单（空 = 全部内置站点）。
@@ -401,5 +417,5 @@ func (p *Plugin) fetchPosts(ctx context.Context, s site, tags []string, count in
 	if count <= 0 {
 		count = 1
 	}
-	return p.client.fetchRandom(ctx, s, tags, s.effectiveRating(p.rating()), count)
+	return p.client.fetchRandom(ctx, s, tags, p.rating(), count)
 }

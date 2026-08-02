@@ -154,21 +154,34 @@ func TestRandomTag(t *testing.T) {
 }
 
 func TestSearchTags(t *testing.T) {
+	gelbooru, _ := findSite("gelbooru")
+	konachan, _ := findSite("konachan")
+	yandere, _ := findSite("yandere")
+	safebooru, _ := findSite("safebooru")
+
 	// Gelbooru 系：用户标签 + rating + sort:random
-	assert.Equal(t, "cat rating:safe sort:random",
-		searchTags(protocolGelbooru, []string{"cat"}, RatingSafe))
+	assert.Equal(t, "cat rating:general sort:random",
+		searchTags(gelbooru, []string{"cat"}, rng(RatingSafe)))
 	assert.Equal(t, "cat rating:explicit sort:random",
-		searchTags(protocolGelbooru, []string{"cat"}, RatingExplicit))
-	// Moebooru：order:random
-	assert.Equal(t, "cat rating:safe order:random",
-		searchTags(protocolMoebooru, []string{"cat"}, RatingSafe))
-	// "all" rating 不附加 rating 标签
+		searchTags(gelbooru, []string{"cat"}, rng(RatingExplicit)))
+	// gelbooru 区间 [safe..questionable]：排除 explicit
+	assert.Equal(t, "cat -rating:explicit sort:random",
+		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable)))
+	// Moebooru：order:random；konachan.net 为 SFW 镜像整站 safe，不附加过滤
+	assert.Equal(t, "cat order:random",
+		searchTags(konachan, []string{"cat"}, rng(RatingSafe)))
+	// yande.re 区间 [safe..questionable]：排除 explicit
+	assert.Equal(t, "cat -rating:explicit order:random",
+		searchTags(yandere, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable)))
+	// 全区间（all）不附加 rating 标签
 	assert.Equal(t, "cat sort:random",
-		searchTags(protocolGelbooru, []string{"cat"}, "all"))
+		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingExplicit)))
 	// 无用户标签时仍包含 rating 与随机 meta-tag
-	assert.Equal(t, "rating:safe sort:random", searchTags(protocolGelbooru, nil, RatingSafe))
-	// rating=all 时只剩随机 meta-tag
-	assert.Equal(t, "sort:random", searchTags(protocolGelbooru, nil, "all"))
+	assert.Equal(t, "rating:general sort:random", searchTags(gelbooru, nil, rng(RatingSafe)))
+	// 全区间时只剩随机 meta-tag
+	assert.Equal(t, "sort:random", searchTags(gelbooru, nil, rngRange(RatingSafe, RatingExplicit)))
+	// safebooru 整站仅 safe 内容，不附加 rating 过滤（新旧评级并存）
+	assert.Equal(t, "cat sort:random", searchTags(safebooru, []string{"cat"}, rng(RatingSafe)))
 }
 
 func TestRandomPoolSize(t *testing.T) {

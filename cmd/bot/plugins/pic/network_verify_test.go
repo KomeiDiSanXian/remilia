@@ -48,7 +48,7 @@ func TestNetworkFetchAllSites(t *testing.T) {
 
 			c := mustNewClient(t, creds)
 			// 用该站点允许的最高分级验证（rule34 在 safe 策略下本就不可用）
-			posts, err := c.fetchRandom(ctx, s, nil, s.maxRating(), 2)
+			posts, err := c.fetchRandom(ctx, s, nil, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 2)
 			if err != nil {
 				t.Fatalf("fetch failed: %v", err)
 			}
@@ -83,7 +83,7 @@ func TestNetworkFetchWithTags(t *testing.T) {
 
 	c := mustNewClient(t, booruCredentials{})
 	s, _ := findSite("safebooru")
-	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, s.maxRating(), 3)
+	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 3)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestNetworkProxyConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s, _ := findSite("safebooru")
-	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, s.maxRating(), 1)
+	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 1)
 	require.NoError(t, err)
 	require.NotEmpty(t, posts)
 	t.Logf("客户端级代理生效：%s", posts[0].FileURL)

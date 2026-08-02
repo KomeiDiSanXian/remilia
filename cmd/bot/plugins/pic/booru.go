@@ -5,8 +5,9 @@
 //     注意各子站根属性键名不一致（"attributes" 与 "@attributes"），解析时需兼容。
 //   - Moebooru（konachan / yande.re）：/post.json
 //
-// 两种协议均支持通过 rating:xxx 标签过滤内容分级，
-// 随机取图分别使用 random=1（Gelbooru 系）与 order=random（Moebooru）。
+// 两种协议均支持通过 rating:xxx 标签过滤内容分级（部分站点已迁移分级体系，
+// 见 site.ratingSearchTag），随机取图分别使用 sort:random（Gelbooru 系）
+// 与 order:random（Moebooru）。
 package pic
 
 import (
@@ -90,7 +91,7 @@ type picPost struct {
 // 查询参数 random=1 / order=random 均无效（被忽略），不要使用。
 //
 // 双保险：请求 randomPoolSize(count) 条服务端随机结果，再本地随机选取 count 张。
-func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rating Rating, count int) ([]picPost, error) {
+func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
@@ -100,9 +101,9 @@ func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, ra
 		err   error
 	)
 	if s.Protocol == protocolMoebooru {
-		posts, err = c.fetchMoebooru(ctx, s, tags, rating, pool)
+		posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool)
 	} else {
-		posts, err = c.fetchGelbooru(ctx, s, tags, rating, pool)
+		posts, err = c.fetchGelbooru(ctx, s, tags, rng, pool)
 	}
 	if err != nil {
 		return nil, err
@@ -126,13 +127,16 @@ func randomTag(proto protocol) string {
 	return "sort:random"
 }
 
-// searchTags 拼接查询标签：用户标签 + rating 过滤 + 服务端随机排序 meta-tag。
-func searchTags(proto protocol, userTags []string, rating Rating) string {
-	base := buildTags(userTags, rating)
+// searchTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤 + 随机排序 meta-tag。
+//
+// rating 过滤按站点生成（见 site.rangeTags）：gelbooru.com 已迁移至
+// Danbooru 式分级，safe 需使用 rating:general 而非已失效的 rating:safe。
+func searchTags(s site, userTags []string, rng RatingRange) string {
+	base := buildTags(s, userTags, rng)
 	if base == "" {
-		return randomTag(proto)
+		return randomTag(s.Protocol)
 	}
-	return base + " " + randomTag(proto)
+	return base + " " + randomTag(s.Protocol)
 }
 
 // pickRandomPosts 从结果池中随机选取 count 张（不重复）。
@@ -152,10 +156,10 @@ func pickRandomPosts(posts []picPost, count int) []picPost {
 	return out
 }
 
-// buildTags 拼接查询标签：用户标签 + rating 过滤标签。
-func buildTags(userTags []string, rating Rating) string {
+// buildTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤标签。
+func buildTags(s site, userTags []string, rng RatingRange) string {
 	parts := append([]string(nil), userTags...)
-	if tag := ratingTag(rating); tag != "" {
+	for _, tag := range s.rangeTags(rng) {
 		parts = append(parts, tag)
 	}
 	return strings.Join(parts, " ")
@@ -195,12 +199,12 @@ type gelbooruPost struct {
 //   - safebooru.org：扁平 JSON 数组 [...]，无需认证
 //
 // 认证参数仅在对应站点凭据配置非空时附加。
-func (c *booruClient) fetchGelbooru(ctx context.Context, s site, tags []string, rating Rating, count int) ([]picPost, error) {
+func (c *booruClient) fetchGelbooru(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
 	endpoint := fmt.Sprintf("https://%s/index.php?page=dapi&s=post&q=index&json=1&limit=%d&tags=%s",
-		s.Domain, count, url.QueryEscape(searchTags(protocolGelbooru, tags, rating))) + cacheBust()
+		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng))) + cacheBust()
 
 	userID, apiKey := "", ""
 	if s.Name == "rule34" {
@@ -300,12 +304,12 @@ type moebooruRawPost struct {
 }
 
 // fetchMoebooru 请求 Moebooru 站点（konachan / yande.re）。
-func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rating Rating, count int) ([]picPost, error) {
+func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
 	endpoint := fmt.Sprintf("https://%s/post.json?limit=%d&tags=%s",
-		s.Domain, count, url.QueryEscape(searchTags(protocolMoebooru, tags, rating))) + cacheBust()
+		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng))) + cacheBust()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
