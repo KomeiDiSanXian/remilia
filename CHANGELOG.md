@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.29.0 (2026-08-02)
+
+### ✨ welcome：全局默认欢迎/告别设置
+
+- **`/welcome global <set|on|off|status>`**: 设置全局默认欢迎消息（所有未单独配置的群生效），支持 `{user}` `{group}` 占位符
+- **`/farewell global <set|on|off|status>`**: 设置全局默认告别消息
+- **回退语义**: 群内显式配置（set/off 过任意字段）优先，未配置的群自动继承全局默认；`/welcome status` 展示生效配置
+- **权限**: 全局设置要求 `superadmin` 角色或 `welcome.global` 权限；群级设置仍为 `welcome.manage`
+- **持久化**: 全局配置与群配置一同存入 kv（保留键 `__global__`）
+
 ## v1.28.0 (2026-08-02)
 
 ### ✨ 新插件：about — 机器人自我介绍
