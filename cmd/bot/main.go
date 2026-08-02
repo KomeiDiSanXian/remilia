@@ -12,6 +12,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/api"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/core/fsm"
@@ -70,6 +71,12 @@ func resolveConfig() *config.Config {
 }
 
 func main() {
+	// 更新后启动确认：等待旧进程退出并校验版本（详见 updater 包文档）。
+	// 必须位于任何端口绑定/配置加载之前。
+	if err := updater.HandlePendingUpdate(); err != nil {
+		log.Printf("[updater] 更新确认流程异常: %v", err)
+	}
+
 	cfg := resolveConfig()
 
 	logCfg := cfg.Log

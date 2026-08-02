@@ -301,6 +301,27 @@ api:
 #     gelbooru_api_key: ""            # [R]  gelbooru.com API key（免费注册获取），否则返回 401
 #     rule34_user_id: ""              # [R]  rule34.xxx 必需，在 https://rule34.xxx/index.php?page=account&s=options 获取
 #     rule34_api_key: ""              # [R]  rule34.xxx API key（与 rule34_user_id 配套）
+#   updater:
+#     # [H]  自动检查周期，0 = 关闭后台自动检查（/update 命令仍可用）
+#     #      /update auto on|off 可运行时切换自动检查开关（持久化）
+#     #      低于 10 分钟会被钳制（GitHub 匿名 API 限流 60 次/小时）
+#     check_interval: "6h"
+#     # [H]  发现新版本后是否后台自动应用并重启（高危，建议保持 false：
+#     #       自动更新绕过人工确认，坏版本会导致机器人反复启动失败）
+#     auto_apply: false
+#     # [R]  更新源仓库（owner/repo），从该仓库的 GitHub Releases 获取发布包
+#     repo: "KomeiDiSanXian/remilia"
+#     # [H]  替换前是否备份旧二进制（/update rollback 依赖它）
+#     backup: true
+#     # [H]  是否考虑 pre-release 版本（默认只跟踪正式版）
+#     allow_prerelease: false
+#     # [H]  容器环境（存在 /.dockerenv）是否禁用自更新——
+#     #       容器内替换二进制无意义（重启后回到原镜像），应 docker pull 新镜像
+#     disable_in_container: true
+#     # [R]  GitHub API / 下载代理（与 pic 的 proxy 相同语义），如 "http://127.0.0.1:7890"
+#     proxy: ""
+#     # [R]  单次请求（API/下载）超时
+#     timeout: "10m"
 
 # ====================================
 # 配置说明

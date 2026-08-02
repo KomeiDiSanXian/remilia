@@ -46,6 +46,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dnd"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/sauce"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/starrail"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
@@ -131,6 +132,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		coc.New(),
 		dnd.New(),
 		about.New(),
+		updater.New(updater.WithDataDir(dataDir + "/updater")),
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {
