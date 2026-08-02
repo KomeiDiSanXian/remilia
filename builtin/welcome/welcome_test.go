@@ -47,3 +47,44 @@ func TestGetOrCreateConfig(t *testing.T) {
 	p := welcome.NewPlugin()
 	_ = p // getOrCreateConfig is unexported, tested indirectly
 }
+
+func TestEffectiveConfig_FallsBackToGlobal(t *testing.T) {
+	p := welcome.NewPlugin()
+	p.SetGlobalWelcome("欢迎 {user} 加入本群！", true)
+
+	cfg := p.EffectiveConfig("group-1")
+	if !cfg.WelcomeEnabled {
+		t.Fatal("expected welcome enabled from global fallback")
+	}
+	if cfg.WelcomeMessage != "欢迎 {user} 加入本群！" {
+		t.Fatalf("unexpected welcome message: %q", cfg.WelcomeMessage)
+	}
+}
+
+func TestEffectiveConfig_GroupOverridesGlobal(t *testing.T) {
+	p := welcome.NewPlugin()
+	p.SetGlobalWelcome("全局欢迎", true)
+	p.SetGroupWelcome("group-1", "本群专属欢迎", true)
+	p.SetGroupWelcome("group-1", "", false)
+
+	cfg := p.EffectiveConfig("group-1")
+	if cfg.WelcomeEnabled {
+		t.Fatal("expected group-level off to override global on")
+	}
+	if cfg.WelcomeMessage != "" {
+		t.Fatalf("expected empty group message, got %q", cfg.WelcomeMessage)
+	}
+
+	cfg = p.EffectiveConfig("group-2")
+	if !cfg.WelcomeEnabled || cfg.WelcomeMessage != "全局欢迎" {
+		t.Fatalf("expected group-2 to fall back to global, got %+v", cfg)
+	}
+}
+
+func TestEffectiveConfig_EmptyPlugin(t *testing.T) {
+	p := welcome.NewPlugin()
+	cfg := p.EffectiveConfig("any-group")
+	if cfg.WelcomeEnabled || cfg.FarewellEnabled {
+		t.Fatal("expected empty plugin to be disabled everywhere")
+	}
+}

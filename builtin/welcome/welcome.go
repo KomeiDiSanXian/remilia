@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -16,6 +17,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
+
+// globalGroupID 全局默认配置在 configs 中使用的保留键。
+// 群组未显式配置（从未 set/off）时，回退到该全局配置。
+const globalGroupID = "__global__"
 
 type GroupConfig struct {
 	WelcomeMessage  string `json:"welcome_message,omitempty"`
@@ -66,9 +71,15 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			HelpText: `欢迎/告别消息管理：
   /welcome set <消息>      — 设置欢迎消息（支持 {user} {group}）
   /welcome off             — 关闭欢迎消息
+  /welcome status          — 查看当前设置
+  /welcome global set <消息> — 设置全局欢迎消息（所有未单独配置的群生效）
+  /welcome global on       — 全局开启欢迎消息
+  /welcome global off      — 全局关闭欢迎消息
   /farewell set <消息>     — 设置告别消息
   /farewell off            — 关闭告别消息
-  /welcome status          — 查看当前设置`,
+  /farewell global set <消息> — 设置全局告别消息
+  /farewell global on      — 全局开启告别消息
+  /farewell global off     — 全局关闭告别消息`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
@@ -99,12 +110,13 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	welcomeCmd := &command.Definition{
 		Name:        "welcome",
 		Description: "管理入群欢迎/退群告别设置",
-		Usage:       "/welcome <set|off|status> [消息]",
+		Usage:       "/welcome <set|off|status|global> [消息]",
 		Category:    "管理",
 		SubCommands: []*command.Definition{
 			{Name: "set", Description: "设置欢迎消息", Usage: "/welcome set <消息>", Examples: []string{"/welcome set 欢迎 {user} 加入本群！"}},
 			{Name: "off", Description: "关闭欢迎消息", Usage: "/welcome off", Examples: []string{"/welcome off"}},
 			{Name: "status", Description: "查看当前设置", Usage: "/welcome status", Examples: []string{"/welcome status"}},
+			{Name: "global", Description: "管理全局默认欢迎消息", Usage: "/welcome global <set|on|off|status> [消息]", Examples: []string{"/welcome global set 欢迎 {user} 加入本群！", "/welcome global on"}},
 		},
 	}
 	ctx.Reg.RegisterCommand("", "/welcome").SetDefinition(welcomeCmd).Handle(p.handleWelcomeCommand)
@@ -112,21 +124,20 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 	farewellCmd := &command.Definition{
 		Name:        "farewell",
 		Description: "管理退群告别设置",
-		Usage:       "/farewell <set|off> [消息]",
+		Usage:       "/farewell <set|off|global> [消息]",
 		Category:    "管理",
 		SubCommands: []*command.Definition{
 			{Name: "set", Description: "设置告别消息", Usage: "/farewell set <消息>", Examples: []string{"/farewell set {user} 离开了群聊"}},
 			{Name: "off", Description: "关闭告别消息", Usage: "/farewell off", Examples: []string{"/farewell off"}},
+			{Name: "global", Description: "管理全局默认告别消息", Usage: "/farewell global <set|on|off|status> [消息]", Examples: []string{"/farewell global set {user} 离开了群聊", "/farewell global on"}},
 		},
 	}
 	ctx.Reg.RegisterCommand("", "/farewell").SetDefinition(farewellCmd).Handle(p.handleFarewellCommand)
 
 	ctx.Reg.RegisterMatcher(string(platform.EventKindMemberJoin)).Handle(func(ctx *eventctx.Context) error {
 		chat := ctx.GetPlatformEvent().Chat()
-		p.mu.RLock()
-		cfg, ok := p.configs[chat.ID]
-		p.mu.RUnlock()
-		if !ok || !cfg.WelcomeEnabled || cfg.WelcomeMessage == "" {
+		cfg := p.effectiveConfig(chat.ID)
+		if !cfg.WelcomeEnabled || cfg.WelcomeMessage == "" {
 			return nil
 		}
 		msg := cfg.WelcomeMessage
@@ -139,10 +150,8 @@ func (p *Plugin) registerCommands(ctx *plugin.SetupContext) {
 
 	ctx.Reg.RegisterMatcher(string(platform.EventKindMemberLeave)).Handle(func(ctx *eventctx.Context) error {
 		chat := ctx.GetPlatformEvent().Chat()
-		p.mu.RLock()
-		cfg, ok := p.configs[chat.ID]
-		p.mu.RUnlock()
-		if !ok || !cfg.FarewellEnabled || cfg.FarewellMessage == "" {
+		cfg := p.effectiveConfig(chat.ID)
+		if !cfg.FarewellEnabled || cfg.FarewellMessage == "" {
 			return nil
 		}
 		msg := cfg.FarewellMessage
@@ -162,11 +171,30 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
-		ctx.Reply(platform.TextMessage("用法: /welcome set|off|status [消息]"))
+		ctx.Reply(platform.TextMessage("用法: /welcome set|off|status|global [消息]"))
 		return nil
 	}
 
 	subCmd := args[1]
+	if subCmd == "global" {
+		return p.handleWelcomeGlobal(ctx, args[2:])
+	}
+
+	if subCmd == "status" {
+		eff := p.effectiveConfig(chat.ID)
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "欢迎消息: %s\n", boolStr(eff.WelcomeEnabled))
+		if eff.WelcomeMessage != "" {
+			fmt.Fprintf(&sb, "内容: %s\n", eff.WelcomeMessage)
+		}
+		sb.WriteString(fmt.Sprintf("告别消息: %s", boolStr(eff.FarewellEnabled)))
+		if eff.FarewellMessage != "" {
+			sb.WriteString(fmt.Sprintf("\n内容: %s", eff.FarewellMessage))
+		}
+		ctx.Reply(platform.TextMessage(sb.String()))
+		return nil
+	}
+
 	p.mu.Lock()
 	cfg := p.getOrCreateConfig(chat.ID)
 
@@ -194,6 +222,51 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		p.save()
 		ctx.Reply(platform.TextMessage("欢迎消息已关闭"))
 		return nil
+	default:
+		p.mu.Unlock()
+		ctx.Reply(platform.TextMessage("未知子命令，可用: set, off, status, global"))
+		return nil
+	}
+}
+
+func (p *Plugin) handleWelcomeGlobal(ctx *eventctx.Context, args []string) error {
+	if !p.checkGlobalPermission(ctx) {
+		ctx.Reply(platform.TextMessage("权限不足：需要 superadmin 角色或 welcome.global 权限"))
+		return nil
+	}
+	if len(args) < 1 {
+		ctx.Reply(platform.TextMessage("用法: /welcome global set <消息>|on|off|status"))
+		return nil
+	}
+
+	p.mu.Lock()
+	cfg := p.getOrCreateConfig(globalGroupID)
+
+	switch args[0] {
+	case "set":
+		if len(args) < 2 {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("用法: /welcome global set <消息>"))
+			return nil
+		}
+		cfg.WelcomeMessage = strings.Join(args[1:], " ")
+		cfg.WelcomeEnabled = true
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局欢迎消息已设置"))
+		return nil
+	case "on":
+		cfg.WelcomeEnabled = true
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局欢迎消息已开启"))
+		return nil
+	case "off":
+		cfg.WelcomeEnabled = false
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局欢迎消息已关闭"))
+		return nil
 	case "status":
 		we := cfg.WelcomeEnabled
 		wm := cfg.WelcomeMessage
@@ -201,11 +274,11 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		fm := cfg.FarewellMessage
 		p.mu.Unlock()
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "欢迎消息: %s\n", boolStr(we))
+		fmt.Fprintf(&sb, "全局欢迎消息: %s\n", boolStr(we))
 		if wm != "" {
 			fmt.Fprintf(&sb, "内容: %s\n", wm)
 		}
-		sb.WriteString(fmt.Sprintf("告别消息: %s", boolStr(fe)))
+		fmt.Fprintf(&sb, "全局告别消息: %s", boolStr(fe))
 		if fm != "" {
 			sb.WriteString(fmt.Sprintf("\n内容: %s", fm))
 		}
@@ -213,7 +286,7 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		return nil
 	default:
 		p.mu.Unlock()
-		ctx.Reply(platform.TextMessage("未知子命令，可用: set, off, status"))
+		ctx.Reply(platform.TextMessage("未知子命令，可用: set, on, off, status"))
 		return nil
 	}
 }
@@ -226,8 +299,12 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 	}
 	args := strings.Fields(ctx.GetMessageContent())
 	if len(args) < 2 {
-		ctx.Reply(platform.TextMessage("用法: /farewell set|off [消息]"))
+		ctx.Reply(platform.TextMessage("用法: /farewell set|off|global [消息]"))
 		return nil
+	}
+
+	if args[1] == "global" {
+		return p.handleFarewellGlobal(ctx, args[2:])
 	}
 
 	p.mu.Lock()
@@ -259,7 +336,69 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 		return nil
 	default:
 		p.mu.Unlock()
-		ctx.Reply(platform.TextMessage("未知子命令，可用: set, off"))
+		ctx.Reply(platform.TextMessage("未知子命令，可用: set, off, global"))
+		return nil
+	}
+}
+
+func (p *Plugin) handleFarewellGlobal(ctx *eventctx.Context, args []string) error {
+	if !p.checkGlobalPermission(ctx) {
+		ctx.Reply(platform.TextMessage("权限不足：需要 superadmin 角色或 welcome.global 权限"))
+		return nil
+	}
+	if len(args) < 1 {
+		ctx.Reply(platform.TextMessage("用法: /farewell global set <消息>|on|off|status"))
+		return nil
+	}
+
+	p.mu.Lock()
+	cfg := p.getOrCreateConfig(globalGroupID)
+
+	switch args[0] {
+	case "set":
+		if len(args) < 2 {
+			p.mu.Unlock()
+			ctx.Reply(platform.TextMessage("用法: /farewell global set <消息>"))
+			return nil
+		}
+		cfg.FarewellMessage = strings.Join(args[1:], " ")
+		cfg.FarewellEnabled = true
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局告别消息已设置"))
+		return nil
+	case "on":
+		cfg.FarewellEnabled = true
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局告别消息已开启"))
+		return nil
+	case "off":
+		cfg.FarewellEnabled = false
+		p.mu.Unlock()
+		p.save()
+		ctx.Reply(platform.TextMessage("全局告别消息已关闭"))
+		return nil
+	case "status":
+		we := cfg.WelcomeEnabled
+		wm := cfg.WelcomeMessage
+		fe := cfg.FarewellEnabled
+		fm := cfg.FarewellMessage
+		p.mu.Unlock()
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "全局欢迎消息: %s\n", boolStr(we))
+		if wm != "" {
+			fmt.Fprintf(&sb, "内容: %s\n", wm)
+		}
+		fmt.Fprintf(&sb, "全局告别消息: %s", boolStr(fe))
+		if fm != "" {
+			sb.WriteString(fmt.Sprintf("\n内容: %s", fm))
+		}
+		ctx.Reply(platform.TextMessage(sb.String()))
+		return nil
+	default:
+		p.mu.Unlock()
+		ctx.Reply(platform.TextMessage("未知子命令，可用: set, on, off, status"))
 		return nil
 	}
 }
@@ -273,8 +412,57 @@ func (p *Plugin) getOrCreateConfig(groupID string) *GroupConfig {
 	return cfg
 }
 
+// effectiveConfig 返回指定群的生效配置：
+// 群内已显式设置（set/off 过任意字段）时使用群配置，否则回退到全局配置。
+func (p *Plugin) effectiveConfig(groupID string) *GroupConfig {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if cfg, ok := p.configs[groupID]; ok {
+		return cfg
+	}
+	if g, ok := p.configs[globalGroupID]; ok {
+		return g
+	}
+	return &GroupConfig{}
+}
+
+// EffectiveConfig 返回指定群的生效配置（公开接口，供测试或其他插件查询）。
+// 语义与 effectiveConfig 一致：群内显式配置优先，否则回退全局配置。
+func (p *Plugin) EffectiveConfig(groupID string) *GroupConfig {
+	return p.effectiveConfig(groupID)
+}
+
+// SetGroupWelcome 设置指定群的欢迎消息并指定开关状态。
+func (p *Plugin) SetGroupWelcome(groupID, message string, enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg := p.getOrCreateConfig(groupID)
+	cfg.WelcomeMessage = message
+	cfg.WelcomeEnabled = enabled
+}
+
+// SetGlobalWelcome 设置全局默认欢迎消息并指定开关状态。
+func (p *Plugin) SetGlobalWelcome(message string, enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg := p.getOrCreateConfig(globalGroupID)
+	cfg.WelcomeMessage = message
+	cfg.WelcomeEnabled = enabled
+}
+
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
 	return permcheck.HasPermission(p.permSvc, ctx, perm)
+}
+
+// checkGlobalPermission 全局设置要求 superadmin 角色或 welcome.global 权限。
+func (p *Plugin) checkGlobalPermission(ctx *eventctx.Context) bool {
+	if p.permSvc == nil {
+		return true
+	}
+	if p.permSvc.HasPermission(ctx.GetUserID(), "welcome.global") {
+		return true
+	}
+	return slices.Contains(p.permSvc.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 func (p *Plugin) save() {
