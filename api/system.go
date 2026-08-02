@@ -57,3 +57,9 @@ func SetBuildInfo(commit, date string) {
 	buildCommit = commit
 	buildDate = date
 }
+
+// GetBuildInfo 返回 main 包注入的构建信息（Git commit 与构建时间）。
+// 未经 SetBuildInfo 注入时两个返回值均为空字符串。
+func GetBuildInfo() (commit, date string) {
+	return buildCommit, buildDate
+}

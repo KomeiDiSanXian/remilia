@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/about"
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 	"github.com/KomeiDiSanXian/remilia/builtin/antispam"
@@ -129,6 +130,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		dice.New(),
 		coc.New(),
 		dnd.New(),
+		about.New(),
 	}
 
 	if err := pm.RegisterBatch(context.Background(), descriptors, plugin.WithInferDeps()); err != nil {

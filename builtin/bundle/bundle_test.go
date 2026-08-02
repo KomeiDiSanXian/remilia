@@ -25,12 +25,13 @@ func TestAllReturnsAllPlugins(t *testing.T) {
 	for _, name := range coreNames {
 		assert.Contains(t, allNames, name)
 	}
+	assert.Contains(t, allNames, "about")
 	assert.Contains(t, allNames, "cooldown")
 	assert.Contains(t, allNames, "welcome")
 	assert.Contains(t, allNames, "autoresponder")
 	assert.Contains(t, allNames, "moderation")
 	assert.Contains(t, allNames, "customcommands")
-	assert.Len(t, all, len(Core())+5)
+	assert.Len(t, all, len(Core())+6)
 }
 
 func TestDevReturnsDevPlugins(t *testing.T) {
@@ -58,11 +59,12 @@ func TestAllOrderIsCorrect(t *testing.T) {
 	assert.Equal(t, "permission", names[0])
 	assert.Equal(t, "acl", names[1])
 	assert.Equal(t, "help", names[2])
-	assert.Equal(t, "cooldown", names[3])
-	assert.Equal(t, "welcome", names[4])
-	assert.Equal(t, "autoresponder", names[5])
-	assert.Equal(t, "moderation", names[6])
-	assert.Equal(t, "customcommands", names[7])
+	assert.Equal(t, "about", names[3])
+	assert.Equal(t, "cooldown", names[4])
+	assert.Equal(t, "welcome", names[5])
+	assert.Equal(t, "autoresponder", names[6])
+	assert.Equal(t, "moderation", names[7])
+	assert.Equal(t, "customcommands", names[8])
 }
 
 func TestDevOrderIsCorrect(t *testing.T) {

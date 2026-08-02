@@ -18,6 +18,7 @@
 package bundle
 
 import (
+	"github.com/KomeiDiSanXian/remilia/builtin/about"
 	"github.com/KomeiDiSanXian/remilia/builtin/acl"
 	"github.com/KomeiDiSanXian/remilia/builtin/autoresponder"
 	"github.com/KomeiDiSanXian/remilia/builtin/cooldown"
@@ -50,6 +51,7 @@ func Core() []*plugin.Descriptor {
 // All 返回所有可通过零配置使用的内置插件。
 //
 // 包含 Core() 的全部插件，以及：
+//   - about          — 机器人自我介绍（/about、/botinfo）
 //   - cooldown       — 命令冷却时间控制
 //   - welcome        — 入群欢迎/退群告别消息
 //   - autoresponder  — 关键词触发自动回复
@@ -60,6 +62,7 @@ func Core() []*plugin.Descriptor {
 // 请手动 import 并调用对应的 New(cfg) 构造函数。
 func All() []*plugin.Descriptor {
 	return append(Core(),
+		about.New(),
 		cooldown.New(),
 		welcome.New(),
 		autoresponder.New(),
