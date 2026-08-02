@@ -170,6 +170,36 @@ func TestConvertButtons_Extra(t *testing.T) {
 	assert.Equal(t, 0, btn1.Action.Type, "link button action type should be 0 (jump)")
 }
 
+// TestConvertButtons_CommandButton 验证 Command 字段映射为指令按钮（type=2）。
+func TestConvertButtons_CommandButton(t *testing.T) {
+	buttons := []platform.Button{
+		{
+			ID:      "btn_help",
+			Label:   "查看命令列表",
+			Command: "/help",
+			Style:   platform.ButtonStyleSecondary,
+		},
+		{
+			ID:    "btn_cb",
+			Label: "Callback",
+			Style: platform.ButtonStylePrimary,
+		},
+	}
+	kb := convertButtons(buttons)
+	assert.NotNil(t, kb)
+	assert.Len(t, kb.Content.Rows, 2)
+
+	// Command 非空 → type=2（指令按钮），data 为命令文本
+	btn0 := kb.Content.Rows[0].Buttons[0]
+	assert.Equal(t, 2, btn0.Action.Type, "Command button should map to action type 2 (指令按钮)")
+	assert.Equal(t, "/help", btn0.Action.Data)
+
+	// 无 Command → 保持回调按钮（type=1），data 为按钮 ID
+	btn1 := kb.Content.Rows[1].Buttons[0]
+	assert.Equal(t, 1, btn1.Action.Type, "button without Command should stay callback (type 1)")
+	assert.Equal(t, "btn_cb", btn1.Action.Data)
+}
+
 func TestConvertButtons_RowGrouping(t *testing.T) {
 	buttons := []platform.Button{
 		{ID: "a", Label: "A", Row: 1},

@@ -122,6 +122,12 @@ type Button struct {
 	Label string
 	// URL 链接目标（Style 为 ButtonStyleLink 时有效）
 	URL string
+	// Command 指令按钮文本（如 "/help"）。
+	//
+	// 非空时按钮为"指令按钮"：点击后把命令插入输入框（如 QQ 的
+	// action.type=2，自动插入 "@bot <Command>"），不产生交互回调事件，
+	// 由用户自行发送。平台不支持指令按钮时忽略此字段。
+	Command string
 	// Style 按钮样式
 	Style ButtonStyle
 	// Disabled 按钮是否置灰不可点击（Discord/QQ 均支持）

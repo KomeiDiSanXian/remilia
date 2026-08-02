@@ -618,7 +618,10 @@ func qqCapabilities() platform.Capabilities {
 //
 // 最多 5 行，每行最多 5 个按钮（超出部分截断）。
 // 按钮样式映射：ButtonStylePrimary → style=1（蓝色），其余 → style=0（灰色）。
-// 按钮操作映射：ButtonStyleLink + URL → type=0（跳转），其余 → type=1（回调）。
+// 按钮操作映射：
+//   - ButtonStyleLink + URL → type=0（跳转）
+//   - Button.Command 非空 → type=2（指令按钮：点击后在输入框插入 @bot <Command>）
+//   - 其余 → type=1（回调按钮：data 为按钮 ID）
 func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 	const maxRows, maxPerRow = 5, 5
 
@@ -659,6 +662,11 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 			if b.Style == platform.ButtonStyleLink && b.URL != "" {
 				actionType = 0 // 跳转
 				data = b.URL
+			}
+			if b.Command != "" {
+				// 指令按钮：点击后在输入框插入 @bot <Command>，不产生互动回调
+				actionType = 2
+				data = b.Command
 			}
 			action := &dto.KeyboardAction{
 				Type: actionType,
