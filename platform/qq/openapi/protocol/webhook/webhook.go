@@ -145,7 +145,14 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 
 	b, err := io.ReadAll(r.Body)
 	if err != nil {
-		logger.WithError(err).Error("[Webhook] Failed to read request body")
+		logger.WithFields(logger.Fields{
+			"method":         r.Method,
+			"content_length": r.ContentLength,
+			"content_type":   r.Header.Get("Content-Type"),
+			"remote_addr":    r.RemoteAddr,
+			"user_agent":     r.Header.Get("User-Agent"),
+			"bot_appid":      r.Header.Get("X-Bot-Appid"),
+		}).WithError(err).Error("[Webhook] Failed to read request body")
 		var maxErr *http.MaxBytesError
 		switch {
 		case errors.As(err, &maxErr):
@@ -214,6 +221,35 @@ func (c *Conn) Handle(w http.ResponseWriter, r *http.Request) {
 	c.writeResponse(w, result)
 }
 
+// httpCallbackAck 是 HTTP 回调模式的回包结构（op=12，HTTP Callback ACK）。
+//
+// QQ v2 协议要求：webhook 收到平台推送（op=0 Dispatch）后，必须回包
+// {"op":12,"d":0} 表示"机器人已收到推送"；处理失败时回 {"op":12,"d":1}，
+// 平台会重试投递。不回该 ACK 会被视为投递未确认：
+//   - 普通事件被平台反复重试；
+//   - INTERACTION_CREATE 互动事件超时，用户侧显示"请求第三方失败"。
+//
+// 参考官方 botgo SDK：interaction/webhook/webhook.go 的 GenDispatchACK。
+type httpCallbackAck struct {
+	Op   dto.OperationCode `json:"op"`
+	Data uint32            `json:"d"`
+}
+
+// dispatchACK 生成 Dispatch 事件的回包。
+// success 为 false 时 d=1，平台会尝试重试投递。
+func dispatchACK(success bool) []byte {
+	data := uint32(0)
+	if !success {
+		data = 1
+	}
+	result, err := json.Marshal(&httpCallbackAck{Op: dto.HTTPCallbackACK, Data: data})
+	if err != nil {
+		// 构造常量结构不可能失败；失败时退化为不带 d 的 ACK
+		return []byte(`{"op":12,"d":0}`)
+	}
+	return result
+}
+
 func (c *Conn) writeResponse(w http.ResponseWriter, result []byte) {
 	if result == nil {
 		logger.Debug("[Webhook] No response needed")
@@ -248,8 +284,15 @@ func (c *Conn) handleOperation(payload *dto.Payload, header http.Header) (result
 		r, e := c.handleHeartbeat(payload)
 		return r, false, e
 	case dto.Dispatch:
-		c.handleDispatch(payload)
-		return nil, true, nil // payload 已进入 eventChan
+		// 平台推送事件。投递到事件通道后必须回包 HTTP Callback ACK（op=12），
+		// 表示"机器人已收到推送"；否则平台视为投递未确认而重试，互动事件
+		// （INTERACTION_CREATE）会因此超时，用户侧显示"请求第三方失败"。
+		//
+		// 通道满被丢弃时回 d=1，让平台重试投递。
+		// consumed 恒为 true：payload 已进入 eventChan（由消费者归还）
+		// 或已被 dropPayload 归还，Handle 不得再次归还。
+		ok := c.handleDispatch(payload)
+		return dispatchACK(ok), true, nil
 	default:
 		logger.Warnf("[Webhook] Received unknown operation code: %d", payload.Operation)
 		return nil, false, nil
@@ -298,9 +341,10 @@ func (c *Conn) dropPayload(payload *dto.Payload) {
 
 // handleDispatch 将 Dispatch 事件非阻塞投递到 eventChan。
 //
-// channel 满时立即丢弃（归还 payload 到对象池）并记录统计信息。
+// channel 满时立即丢弃（归还 payload 到对象池）并记录统计信息，返回 false，
+// 上层据此回 d=1 的 ACK 让平台重试。
 // 事件去重由上层中间件负责，此处不做去重处理。
-func (c *Conn) handleDispatch(payload *dto.Payload) {
+func (c *Conn) handleDispatch(payload *dto.Payload) bool {
 	logger.Debug("[Webhook] Received the event from the server")
 
 	c.totalEvents.Add(1)
@@ -315,8 +359,10 @@ func (c *Conn) handleDispatch(payload *dto.Payload) {
 	select {
 	case c.eventChan <- payload:
 		logger.Tracef("[Webhook] Dispatched payload %s:%s to the event channel", evType, evID)
+		return true
 	default:
 		c.dropPayload(payload)
+		return false
 	}
 }
 

@@ -104,9 +104,11 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 		// TokenMsgID 已在 populateGuildMessage 中写入 ChatInfo.Tokens
 	case dto.InteractionCreate:
 		e.kind = platform.EventKindInteraction
-		// 须在 populateInteraction 前保存 payload.ID 作为 event_id 被动回复 token，
-		// 因为 populateInteraction 会将 e.id 覆盖为 interaction body id，
-		// 且会重新赋值 e.chat（覆盖任何此前对 chat 的设置）。
+		// 被动回复 event_id 须取"事件最外层的 id"（即 payload.ID），
+		// 群消息发送接口文档明确：event_id 从事件最外层的 id 获取。
+		// 须在 populateInteraction 前保存 payload.ID，因为 populateInteraction
+		// 会将 e.id 覆盖为 interaction body id（即 RespondInteraction 所需的
+		// interaction_id），且会重新赋值 e.chat（覆盖任何此前对 chat 的设置）。
 		savedEventID := e.id
 		e.populateInteraction(detail)
 		e.chat.Tokens = map[string]string{TokenEventID: savedEventID}

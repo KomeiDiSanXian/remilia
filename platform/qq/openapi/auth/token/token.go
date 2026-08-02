@@ -46,6 +46,8 @@ type Manager struct {
 	expiresAt   time.Time
 	ready       bool
 	stopped     atomic.Bool // 标记 Manager 是否已停止
+	// appID 机器人应用 ID，构造时保存，供需要携带 X-Callback-AppID 的接口使用。
+	appID uint64
 
 	// 停止控制
 	ctx    context.Context
@@ -135,6 +137,7 @@ func NewManagerFromConfigWithContext(parent context.Context, info *dto.BotInfo, 
 	m := &Manager{
 		ctx:             ctx,
 		cancel:          cancel,
+		appID:           infoAppID(info),
 		retryDelay:      retryDelay,
 		refreshAdvance:  refreshAdvance,
 		minRefreshRatio: minRefreshRatio,
@@ -281,6 +284,22 @@ func (m *Manager) GetToken() string {
 	}
 
 	return m.accessToken
+}
+
+// GetAppID 返回机器人的应用 ID（AppID）。
+//
+// 互动事件回应（PUT /interactions/{id}）需要携带 X-Callback-AppID 请求头，
+// 官方 botgo SDK 的实现即为此用法。
+func (m *Manager) GetAppID() uint64 {
+	return m.appID
+}
+
+// infoAppID 从 BotInfo 中提取 AppID；info 为 nil 时返回 0。
+func infoAppID(info *dto.BotInfo) uint64 {
+	if info == nil {
+		return 0
+	}
+	return info.AppID
 }
 
 func (m *Manager) autoRefresh(info *dto.BotInfo) {

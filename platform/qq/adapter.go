@@ -174,6 +174,19 @@ func (a *Adapter) Start(ctx stdctx.Context, handler func(platform.Event)) error 
 			}
 			if payload != nil {
 				event := NewEvent(payload)
+				// QQ v2 要求：收到 INTERACTION_CREATE（按钮回调/快捷菜单）后
+				// 必须调用 PUT /interactions/{interaction_id} 回应（code=0），
+				// 否则客户端会一直处于 loading 状态直到超时，用户最终看到
+				// "请求第三方失败"。在事件分发前异步回应，不阻塞事件循环。
+				//
+				// 注意：响应窗口（3 秒）从事件触发时刻起算，而 QQ webhook
+				// 投递本身存在秒级延迟（实测可达 2~9 秒）。若送达延迟超过
+				// 响应窗口，无论回应多快都已超时——此时应改用指令按钮
+				// （platform.Button.Command，type=2），彻底绕开互动回调。
+				if event.Kind() == platform.EventKindInteraction {
+					a.logInteractionDeliveryLatency(event)
+					a.ackInteraction(event.ID())
+				}
 				platform.SafeDispatch(handler, event)
 			}
 		}
@@ -194,6 +207,60 @@ func (a *Adapter) Stop(ctx stdctx.Context) error {
 	a.mu.Unlock()
 	logger.Info("[qq.Adapter] Stopped")
 	return nil
+}
+
+// logInteractionDeliveryLatency 记录互动事件从触发（事件 timestamp）到本机送达的延迟。
+//
+// QQ 要求互动事件在触发后 3 秒内回应（PUT /interactions/{id}），
+// 若送达延迟已超过该窗口，回应必然超时。此日志用于实证定位
+// "请求第三方失败"是否由平台投递延迟导致（webhook 投递实测可达秒级）。
+func (a *Adapter) logInteractionDeliveryLatency(event platform.Event) {
+	ts := event.Timestamp()
+	if ts.IsZero() {
+		logger.Debugf("[qq.Adapter] Interaction %s has no timestamp", event.ID())
+		return
+	}
+	latency := time.Since(ts)
+	if latency > 3*time.Second {
+		logger.Warnf("[qq.Adapter] Interaction %s delivered %v after trigger, exceeding the 3s response window; client will show 'request third-party failed'",
+			event.ID(), latency.Round(time.Millisecond))
+		return
+	}
+	logger.Debugf("[qq.Adapter] Interaction %s delivered %v after trigger", event.ID(), latency.Round(time.Millisecond))
+}
+
+// ackInteraction 回应 INTERACTION_CREATE 事件（按钮回调/快捷菜单）。
+//
+// QQ v2 文档要求：收到互动事件后必须调用 PUT /interactions/{interaction_id}
+// 进行回应（code=0），否则客户端会一直处于 loading 状态直到超时，
+// 最终显示"请求第三方失败"。详见：
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/interactions_interaction_id.put.html
+//
+// 回应通过异步 goroutine 发送，避免阻塞事件分发循环。
+// interactionID 来自事件的 id 字段（NewEvent 已将其填充到 event.ID()）。
+func (a *Adapter) ackInteraction(interactionID string) {
+	if interactionID == "" {
+		return
+	}
+	a.mu.RLock()
+	api := a.api
+	ctx := a.ctx
+	a.mu.RUnlock()
+	if api == nil || ctx == nil {
+		logger.Warnf("[qq.Adapter] Cannot respond to interaction %s: api/ctx not ready", interactionID)
+		return
+	}
+	go func() {
+		ackCtx, cancel := stdctx.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		logger.Debugf("[qq.Adapter] Responding to interaction %s", interactionID)
+		result, err := api.RespondInteraction(ackCtx, interactionID, 0)
+		if err != nil {
+			logger.WithError(err).Warnf("[qq.Adapter] Failed to respond to interaction %s, client may show 'request third-party failed'", interactionID)
+			return
+		}
+		logger.Debugf("[qq.Adapter] Interaction %s responded: %s", interactionID, result.Raw)
+	}()
 }
 
 // fetchBotIdentity 调用 GetMe 以填充 botID 和 botName。

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -281,8 +282,43 @@ func (api *Client) DMReset(ctx context.Context, guildID, messageID string, hidet
 // ── 互动事件 ────────────────────────────────────────────────────────────────
 
 // RespondInteraction 回应 INTERACTION_CREATE 事件（PUT /interactions/{interaction_id}）。
+//
+// 参考官方 botgo SDK（openapi/v1/interaction.go）：必须携带 X-Callback-AppID
+// 请求头标识机器人身份，否则互动事件不会被正确关联，用户侧会显示
+// "请求第三方失败"。
+//
+// 返回错误的情形：
+//   - HTTP 状态码非 2xx（如 401 鉴权失败、404 接口不存在）；
+//   - 响应体携带非零 err_code（QQ 部分错误响应 HTTP 状态码也是 200，
+//     必须显式检查 err_code，否则调用方会误以为回应成功——
+//     互动事件未回应时用户侧会显示"请求第三方失败"）。
 func (api *Client) RespondInteraction(ctx context.Context, interactionID string, code int) (gjson.Result, error) {
-	return api.Put(ctx, fmt.Sprintf(constant.InteractionURL, interactionID), &dto.InteractionResponse{Code: code})
+	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
+	}
+	url := fmt.Sprintf(constant.InteractionURL, interactionID)
+	resp, err := httpclient.Put(url).
+		SetContext(ctx).
+		SetHeader("Authorization", api.authHeader()).
+		SetHeader("X-Callback-AppID", strconv.FormatUint(api.tm.GetAppID(), 10)).
+		SetJSON(&dto.InteractionResponse{Code: code}).
+		Do()
+	if err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: RespondInteraction %s: %w", url, err)
+	}
+	defer resp.Close()
+
+	result, err := resp.JSON()
+	if err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: RespondInteraction %s: parse response: %w", url, err)
+	}
+	if !resp.IsSuccess() {
+		return result, fmt.Errorf("qq openapi: RespondInteraction %s: HTTP %d: %s", url, resp.StatusCode, result.Get("message").String())
+	}
+	if ec := result.Get("err_code").Int(); ec != 0 {
+		return result, fmt.Errorf("qq openapi: RespondInteraction %s: err_code=%d message=%s", url, ec, result.Get("message").String())
+	}
+	return result, nil
 }
 
 // ── 表情表态（仅频道）────────────────────────────────────────────────────────

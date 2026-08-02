@@ -30,8 +30,17 @@ type SentMessage struct {
 
 // MockAPI implements openapi.OpenAPI and records all sent messages for assertions.
 type MockAPI struct {
-	mu      sync.Mutex
-	replies []*SentMessage
+	mu           sync.Mutex
+	replies      []*SentMessage
+	interactions []MockInteraction
+}
+
+// MockInteraction captures a single RespondInteraction (互动事件回应) call.
+type MockInteraction struct {
+	// ID 互动事件 ID（interaction_id）
+	ID string
+	// Code 回应结果码（0=成功）
+	Code int
 }
 
 // NewMockAPI creates a MockAPI.
@@ -136,8 +145,27 @@ func (m *MockAPI) DMReset(_ context.Context, _, _ string, _ bool) (gjson.Result,
 
 // ── 互动事件 ──────────────────────────────────────────────────────────────
 
-func (m *MockAPI) RespondInteraction(_ context.Context, _ string, _ int) (gjson.Result, error) {
+func (m *MockAPI) RespondInteraction(_ context.Context, interactionID string, code int) (gjson.Result, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.interactions = append(m.interactions, MockInteraction{ID: interactionID, Code: code})
 	return gjson.Result{}, nil
+}
+
+// Interactions returns a snapshot of all RespondInteraction calls.
+func (m *MockAPI) Interactions() []MockInteraction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := make([]MockInteraction, len(m.interactions))
+	copy(cp, m.interactions)
+	return cp
+}
+
+// ClearInteractions discards all recorded RespondInteraction calls.
+func (m *MockAPI) ClearInteractions() {
+	m.mu.Lock()
+	m.interactions = m.interactions[:0]
+	m.mu.Unlock()
 }
 
 // ── 频道成员 ──────────────────────────────────────────────────────────────

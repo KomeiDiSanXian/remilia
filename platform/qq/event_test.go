@@ -343,6 +343,10 @@ func TestNewEvent_Interaction_Button(t *testing.T) {
 	if event.ID() != "interact001" {
 		t.Errorf("ID: got %q, want interact001", event.ID())
 	}
+	// 被动回复 event_id 应取事件最外层的 id（payload.ID，envelope id）
+	if got := event.Chat().Tokens[qq.TokenEventID]; got != "evt001" {
+		t.Errorf("TokenEventID: got %q, want evt001 (outermost event id)", got)
+	}
 	// content 应为 button_data（type=11）
 	if event.Content() != "cmd_help" {
 		t.Errorf("Content: got %q, want cmd_help (button_data for type=11)", event.Content())

@@ -31,6 +31,31 @@ func TestTokenManagerStop(t *testing.T) {
 	t.Log("Token Manager stopped successfully")
 }
 
+// TestTokenManagerGetAppID 验证 GetAppID 返回构造时保存的 AppID。
+func TestTokenManagerGetAppID(t *testing.T) {
+	botInfo := &dto.BotInfo{
+		QQNum:     10001,
+		AppID:     102072748,
+		AppSecret: "test-secret",
+	}
+	manager := NewManager(botInfo)
+	defer manager.Stop()
+
+	if got := manager.GetAppID(); got != 102072748 {
+		t.Errorf("GetAppID: got %d, want 102072748", got)
+	}
+}
+
+// TestTokenManagerGetAppIDNilInfo 验证 info 为 nil 时 GetAppID 返回 0 而非 panic。
+func TestTokenManagerGetAppIDNilInfo(t *testing.T) {
+	manager := NewManager(nil)
+	defer manager.Stop()
+
+	if got := manager.GetAppID(); got != 0 {
+		t.Errorf("GetAppID with nil info: got %d, want 0", got)
+	}
+}
+
 // TestTokenManagerMultipleStop 测试多次调用 Stop 不会 panic
 func TestTokenManagerMultipleStop(t *testing.T) {
 	botInfo := &dto.BotInfo{

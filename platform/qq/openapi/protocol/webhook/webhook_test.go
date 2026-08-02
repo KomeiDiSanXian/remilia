@@ -3,6 +3,8 @@ package webhook
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -126,3 +128,80 @@ func (t *testWebHook) Sign(_ http.Header, _ []byte) ([]byte, error)  { return ni
 func (t *testWebHook) Handle(w http.ResponseWriter, r *http.Request) { t.Conn.Handle(w, r) }
 func (t *testWebHook) Addr() string                                  { return t.Conn.Addr() }
 func (t *testWebHook) EventStream() <-chan *dto.Payload              { return t.Conn.EventStream() }
+
+// dispatchBody 构造一个合法的 Dispatch 事件请求体（op=0）。
+func dispatchBody(t dto.EventType, id string) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"id": id,
+		"op": 0,
+		"d": map[string]any{
+			"id":      "msg1",
+			"content": "hi",
+		},
+		"s": 1,
+		"t": string(t),
+	})
+	return b
+}
+
+// signedDispatchRequest 构造携带真实签名的 Dispatch 请求。
+func signedDispatchRequest(t *testing.T, c *Conn, body []byte) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set(HeaderTimestamp, time.Now().UTC().Format(time.RFC3339Nano))
+	sign, err := c.Sign(req.Header, body)
+	assert.NoError(t, err)
+	req.Header.Set(HeaderSignature, hex.EncodeToString(sign))
+	return req
+}
+
+// TestHandleDispatch_AcksWithCallbackAck 验证 Dispatch 事件必须回包
+// {"op":12,"d":0}（HTTP Callback ACK），否则平台视为投递未确认。
+func TestHandleDispatch_AcksWithCallbackAck(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWithBuffer(info, 10)
+	adapter := &testWebHook{Conn: c}
+
+	req := signedDispatchRequest(t, c, dispatchBody(dto.C2CMessageCreate, "evt001"))
+	rw := httptest.NewRecorder()
+	http.HandlerFunc(adapter.Handle).ServeHTTP(rw, req)
+
+	resp := rw.Result()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	got, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"op":12,"d":0}`, string(got), "Dispatch 事件必须回 HTTP Callback ACK")
+
+	// 事件应已投递到事件流
+	select {
+	case p := <-c.EventStream():
+		assert.Equal(t, dto.C2CMessageCreate, p.Type)
+		assert.Equal(t, "evt001", string(p.ID))
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for dispatched event")
+	}
+}
+
+// TestHandleDispatch_ChannelFull_RetryAck 验证通道满丢弃事件时回 {"op":12,"d":1}，
+// 平台会重试投递。
+func TestHandleDispatch_ChannelFull_RetryAck(t *testing.T) {
+	info := &dto.BotInfo{ServeAddr: ":0", AppSecret: "secret"}
+	c := NewWithBuffer(info, 0) // buffer=1（最小值）
+	adapter := &testWebHook{Conn: c}
+
+	// 填满 channel
+	c.eventChan <- &dto.Payload{Type: dto.C2CMessageCreate, ID: "first", Raw: []byte("{}")}
+
+	req := signedDispatchRequest(t, c, dispatchBody(dto.C2CMessageCreate, "evt002"))
+	rw := httptest.NewRecorder()
+	http.HandlerFunc(adapter.Handle).ServeHTTP(rw, req)
+
+	resp := rw.Result()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	got, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.JSONEq(t, `{"op":12,"d":1}`, string(got), "通道满时回 d=1 让平台重试")
+	assert.Equal(t, uint64(1), c.GetDroppedEventsCount())
+}
