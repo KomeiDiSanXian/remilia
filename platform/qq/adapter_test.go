@@ -38,13 +38,13 @@ func TestAdapter_AcksInteractionEvent(t *testing.T) {
 	}()
 
 	detail, _ := json.Marshal(map[string]any{
-		"id":                 "interact-123",
-		"type":               11,
-		"scene":              "group",
-		"chat_type":          1,
-		"group_openid":       "group-1",
+		"id":                  "interact-123",
+		"type":                11,
+		"scene":               "group",
+		"chat_type":           1,
+		"group_openid":        "group-1",
 		"group_member_openid": "member-1",
-		"timestamp":          "2026-03-09T13:00:00Z",
+		"timestamp":           "2026-03-09T13:00:00Z",
 		"data": map[string]any{
 			"type": 11,
 			"resolved": map[string]any{
