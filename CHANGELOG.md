@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.31.0 (2026-08-03)
+
+### ✨ 新插件：updater — 自动更新（应用级）
+
+- **`/update` 命令族**（superadmin 角色或 `updater.manage` 权限）:
+  - `/update check` — 检查 GitHub Releases 是否有新版本
+  - `/update status` — 查看版本/更新源/上次检查/备份/容器环境
+  - `/update now [--force]` — 立即下载 → 校验 → 替换 → 重启（`--force` 重装同版本）
+  - `/update auto on|off` — 切换后台自动检查（默认开启，仅检查不自动应用）
+  - `/update rollback` — 回滚到上一个备份版本并重启
+- **发布源**: 默认 `KomeiDiSanXian/remilia` 的 GitHub Releases，资产名按 goreleaser 命名约定匹配当前平台（Linux/Darwin tar.gz、Windows zip，含 armv6/v7/riscv64 等全矩阵）
+- **安全设计**:
+  - 下载资产必须通过 goreleaser `checksums.txt` 的 sha256 校验，缺失即中止
+  - HTTPS 强制（含重定向最终 URL 复核）；归档解压防路径穿越；资产大小上限
+  - 先写更新标记、后替换二进制——任何失败路径要么二进制未动、要么标记在场可自愈
+- **原子替换与回滚**:
+  - 替换前备份旧二进制（`remilia.old.<版本>`），跨平台两步改名（Windows 运行中 exe 可改名不可覆盖）
+  - 新进程启动时校验版本（`HandlePendingUpdate`，main 最早期）：一致 → 确认成功并清理残留；不一致 → 自动回滚旧备份并重新执行
+  - 覆盖"替换后、拉起前崩溃"窗口：无环境变量时按默认数据目录探测标记
+  - 拉起新进程失败 → 自动回滚；备份不可用（未启用/未到替换阶段）→ 清除标记继续启动，不阻塞
+- **进程切换**: 新进程以分离会话启动并等待旧进程退出（Unix kill 探测 / Windows 进程句柄），避免端口冲突；旧进程通过自 SIGTERM 走既有优雅关闭路径（Windows 直接退出，注释说明）
+- **运行环境**:
+  - 容器（`/.dockerenv`）自动禁用自更新，提示 `docker pull` 拉取新镜像（可配置关闭）
+  - 代理配置（与 pic 相同语义）适配 GitHub 不可直连环境
+  - `check_interval` 低于 10 分钟自动钳制（GitHub 匿名 API 限流 60 次/小时）
+- **配置**: `plugins.updater` 节（`repo`/`check_interval`/`auto_apply`/`backup`/`allow_prerelease`/`disable_in_container`/`proxy`/`timeout`），`[H]` 字段热读，`[R]` 字段需重启
+- **放置位置**: `cmd/bot/plugins/updater/`（应用级，框架核心零改动）；`main.go` 最早期接入 `HandlePendingUpdate`
+- **测试**: 30 个单元/集成测试（semver 比较、GitHub API mock、checksums 校验、tar/zip 解压与路径穿越、原子替换/回滚、全链路 mock 服务器、崩溃窗口兜底、`-race` 并发验证），Windows/Linux 双平台编译通过
+
 ## v1.30.0 (2026-08-02)
 
 ### 🖼️ pic：内容分级重构为区间模型 + gelbooru 迁移适配
