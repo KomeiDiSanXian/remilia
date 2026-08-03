@@ -361,6 +361,35 @@ dst.commandIndex[cmd][et] = sorted
 这一课的普适表述：*COW 结构里每一处"共享底层数组的浅复制"，都必须显式标注
 "只可 append、不可原位改写"；任何 sort/copy/swap 前先问一句——这个数组是谁的？*
 
+### V6（注册批处理）：顺序注册写放大与 `RegisterBatch`
+
+COW 的顺序注册存在 O(n²) 写放大：每次 `OnCommand`/`Handle` 都会全量复制
+commandIndex（复制所有命令键 + 内层 map + 切片头）。实测 1000 个命令
+顺序注册约 800ms，而一次 `BatchRegisterMatchers` 仅 1.6ms（480 倍差距）。
+
+修复分两层：
+
+1. **Handle 首次绑定跳过命令 matcher 的无谓重建**：命令桶不过滤
+   hasHandler（执行循环兜底检查）、优先级变更走 `SetPriority` 专属路径，
+   首次绑定的重排是恒等操作却触发一次全量 commandIndex 复制。
+   实测单独此项使 1000 命令注册 786ms → 261ms。
+
+2. **`Engine.BeginRegisterBatch()` / `RegisterBatch.Flush()` 注册批处理会话**：
+   会话期间所有注册（On/OnCommand/OnTemp）与批内 matcher 的链式索引维护
+   （SetMatcherGroup/UpdateMatcherIndex/UpdateCommandCache/InvalidateSortedCache）
+   自动降级为收集，Flush 以一次 `withBatchMatchers` 提交。
+   插件 Manager 通过 `RegisterBatchStarter` 接口在插件 Setup 周围自动开启
+   （1000 命令 → 1.6ms）。语义约束：批期注册的 matcher 在 Flush 前不可路由，
+   插件 Setup 阶段无事件派发，安全。
+
+```go
+batch := e.BeginRegisterBatch()
+for _, cmd := range commands {
+    e.OnCommand("", cmd).Handle(handler)
+}
+batch.Flush() // 一次 COW 提交
+```
+
 ## 迭代历程
 
 | 版本 | 核心变化 | 动机 |
@@ -369,7 +398,8 @@ dst.commandIndex[cmd][et] = sorted
 | V2 | `infraatomic.Value[T]` 泛型封装 | Go 1.26 泛型可用，消除类型断言 |
 | V3 | 选择性 COW 复制 + BatchRegister | 批量场景性能优化 |
 | V4 | `shutdown` + `eventWg` 替代 `eventGate` sentinel | 简化正确性推理，提升性能 |
-| V5（当前） | 修复就地排序打破 COW 契约的数据竞争 | 共享底层数组只可 append、不可原位改写 |
+| V5 | 修复就地排序打破 COW 契约的数据竞争 | 共享底层数组只可 append、不可原位改写 |
+| V6（当前） | `RegisterBatch` 批处理会话 + Handle 命令重建跳过 | 顺序注册 O(n²) 写放大（1000 命令 786ms → 1.6ms） |
 
 ## 设计权衡
 

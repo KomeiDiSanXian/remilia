@@ -67,7 +67,7 @@ func (lc *lifecycleController) StartAll(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := inst.load(ctx); err != nil {
+		if err := loadWithRegisterBatch(lc.pm.coordinator, func() error { return inst.load(ctx) }); err != nil {
 			logger.WithError(err).Errorf("[PluginManager] StartAll: plugin %s failed to start", name)
 			lc.notifyError(name, "start", err)
 			errs = append(errs, fmt.Errorf("plugin %q: %w", name, err))

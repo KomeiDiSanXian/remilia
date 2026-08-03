@@ -853,7 +853,7 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	// ========== Lock #2 结束 ==========
 
 	// ========== 无锁区：执行 Setup ==========
-	loadErr = instance.load(ctx)
+	loadErr = loadWithRegisterBatch(pm.coordinator, func() error { return instance.load(ctx) })
 
 	return instance, setupCtx.getTrackedDependencies(), setupCtx.getTrackedOptionalDependencies(), loadErr
 }

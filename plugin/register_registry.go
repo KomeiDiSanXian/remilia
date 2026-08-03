@@ -106,6 +106,31 @@ type RegistryWriter interface {
 	RegisterKeyword(eventType string, keywords []string, extraRules ...context.Rule) *engine.Matcher
 }
 
+// loadWithRegisterBatch 在注册批处理会话中执行插件 load（启动期集中注册优化）。
+//
+// 协调器实现 engine.RegisterBatchStarter（Engine 即实现）时，Setup 期间的
+// 注册收集为一次 COW 提交（1000 个命令顺序注册约 800ms → 2ms）；
+// 否则退化为逐条注册。Flush 在 load 返回后立即执行（成功与否均提交）。
+//
+// 语义：批处理期间注册的 matcher 在 Flush 前不可路由——插件 Setup 阶段
+// 无事件派发，且蓝绿路径的禁用态由 reload 的兜底 DisableGroup 保证。
+//
+// 并发：Begin 返回 nil（已有活跃会话，如不同插件并发 Reload）时，
+// 本次 load 退化为逐条注册（功能正确，仅失去批量收益）。
+func loadWithRegisterBatch(coordinator engine.PluginCoordinator, load func() error) error {
+	starter, ok := coordinator.(engine.RegisterBatchStarter)
+	if !ok || starter == nil {
+		return load()
+	}
+	batch := starter.BeginRegisterBatch()
+	if batch == nil {
+		return load() // 并发加载重叠：退化为逐条注册
+	}
+	err := load()
+	batch.Flush()
+	return err
+}
+
 // --- 真实实现 ---
 
 // registryBackend 是 liveRegistryWriter 对 engine 的完整依赖。

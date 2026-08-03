@@ -116,6 +116,13 @@ func (e *Engine) registerMatcher(m *Matcher) *Matcher {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
+	if b := e.registerBatch; b != nil {
+		// 批处理会话：收集注册，Flush 时一次 COW 提交
+		b.matchers = append(b.matchers, m)
+		b.members[m] = struct{}{}
+		return m
+	}
+
 	oldState := e.state.Load()
 
 	if oldState.maxMatchers > 0 && len(oldState.matchers) >= oldState.maxMatchers {
@@ -227,6 +234,11 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 		},
 	}
 	matcher.priority.Store(50)
+	if b := e.registerBatch; b != nil {
+		// 批处理会话：收集临时 matcher，Flush 时统一入 TempManager
+		b.temps = append(b.temps, matcher)
+		return matcher
+	}
 	e.internals.tempManager.Add(matcher)
 	e.rebuildMatcherChainCOW(matcher)
 	return matcher
@@ -238,6 +250,12 @@ func (e *Engine) OnTemp(eventType EventType, rules ...context.Rule) *Matcher {
 func (e *Engine) InvalidateSortedCache(eventType EventType) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
+
+	if b := e.registerBatch; b != nil {
+		// 批处理会话：记录脏事件类型，Flush 统一重建
+		b.dirty[eventType] = struct{}{}
+		return
+	}
 
 	state := e.state.Load()
 	e.state.Store(state.withInvalidatedSortedCache(eventType))
@@ -365,7 +383,11 @@ func (e *Engine) SetMatcherGroup(m *Matcher, group, source string) {
 	if oldGroup != m.group {
 		e.writeMu.Lock()
 		newGroupName := strings.TrimSpace(group)
-		e.state.Store(e.state.Load().withSetMatcherGroup(m, oldGroup, newGroupName))
+		if b := e.registerBatch; b != nil && b.contains(m) {
+			// 批处理会话：group 字段已更新，Flush 的 withBatchMatchers 会重建 groupIndex
+		} else {
+			e.state.Store(e.state.Load().withSetMatcherGroup(m, oldGroup, newGroupName))
+		}
 		e.writeMu.Unlock()
 	}
 
@@ -429,6 +451,11 @@ func (e *Engine) UpdateMatcherIndex(m *Matcher) {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 
+	if b := e.registerBatch; b != nil && (m == nil || b.contains(m)) {
+		// 批处理会话：Flush 统一重建索引（m==nil 的全量重建同样延迟）
+		return
+	}
+
 	e.state.Store(e.state.Load().withUpdatedMatcherIndex(m))
 }
 
@@ -444,6 +471,11 @@ func (e *Engine) UpdateCommandCache(m *Matcher) {
 
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
+
+	if b := e.registerBatch; b != nil && b.contains(m) {
+		// 批处理会话：Flush 统一重建 commandInfoCache
+		return
+	}
 
 	e.state.Store(e.state.Load().withUpdatedCommandCache(m))
 }

@@ -78,7 +78,7 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 		pi.mu.Lock()
 		pi.setupContext = newContext
 		pi.mu.Unlock()
-		return pi.load(ctx)
+		return loadWithRegisterBatch(coordinator, func() error { return pi.load(ctx) })
 	}
 
 	// 状态迁移：若版本号变化且设置了 MigrateState，在 RestoreState 前迁移旧状态。
@@ -194,7 +194,7 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 	}
 
 	// Step 1: 并行运行新 Setup（旧实例继续处理消息，新 Matcher 保持禁用）
-	if err := newInstance.load(ctx); err != nil {
+	if err := loadWithRegisterBatch(coordinator, func() error { return newInstance.load(ctx) }); err != nil {
 		if coordinator != nil {
 			coordinator.RemoveGroup(tempGroup)
 		}
