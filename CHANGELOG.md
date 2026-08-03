@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.32.1 (2026-08-03)
+
+### 🐛 updater：Windows Job Object 杀死重启子进程修复
+
+- **Windows 下更新后"新进程没起来"修复**: 某些启动器/终端/进程守护会把进程放进带 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job Object，父进程（旧进程）退出瞬间 Job 关闭会连带杀死刚拉起的子进程——实测复现为"父进程关闭了但子进程没有起来"，且子进程无任何输出（分离进程、无控制台）。拉起新进程时现携带 `CREATE_BREAKAWAY_FROM_JOB` 尝试脱离父进程所在 Job；Job 不允许脱离（未置 BREAKAWAY_OK）时回退普通分离启动（行为不劣化）
+- **覆盖两条拉起路径**: `/update now` 与自动更新的 `spawnNewProcess`、回滚路径的 `restartCurrent` 统一走 `startDetachedChild`（`process_windows.go` / `process_unix.go`）
+- **验证**: Windows/Linux 双平台编译通过，updater 测试全绿；`KILL_ON_JOB_CLOSE + BREAKAWAY_OK` 环境实测子进程在父进程退出后继续存活
+
 ## v1.32.0 (2026-08-03)
 
 ### 🧭 核心引擎：RoutingStrategy 路由规划抽象（路由与执行分离）
