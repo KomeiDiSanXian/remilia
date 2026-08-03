@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.32.4 (2026-08-04)
+
+### 🐛 updater：更新后新进程启动撞 LevelDB 锁修复（等待完整终止 + 确定性释放数据文件）
+
+- **根因（实测复现）**: 子进程的等待用 `GetExitCodeProcess` 轮询——进程退出代码一可见即返回，但内核此时可能还没关完父进程的文件句柄；子进程"等待 0s"就继续启动并打开共享 LevelDB（antispam/stats 等），报 `The process cannot access the file because it is being used by another process`。E2E 对照：子进程 0s 继续 → 父进程 3 秒后才退出 → DB 打开失败
+- **等待完整终止**: `waitProcessExit` 改用 `WaitForSingleObject`（`SYNCHRONIZE` 权限）等待进程**完整终止**，不再轮询退出代码；原 500ms 宽限降级为异常退出（崩溃/未接 hook）时的兜底保险
+- **确定性释放数据文件**: 新增 `updater.SetShutdownHook`，cmd/bot 注入 `pm.StopAll`——Windows 退出前先跑全部插件 Teardown（确定性关闭 LevelDB 句柄）再 `os.Exit(0)`，子进程打开数据文件零时序依赖（与 Unix SIGTERM 优雅关闭路径等价；Windows 无法自发 SIGTERM，故进程内直接调用）。不用 `bot.Shutdown()`：从更新 handler 内部触发会等 engine 30s 超时
+- **等待诊断带时间戳**: 子进程"等待旧进程退出"日志现在带毫秒时间戳（`T=... 等待 528ms`），异常时一眼可查；`OpenProcess` 失败也记录原因
+- **多实例体检**: 更新前检测同目录其他 remilia 实例并警告（多实例共用 data 目录同样会撞 LevelDB 锁）
+- **验证**: 全量 E2E（mock GitHub + Windows）：子进程等待 ~0.5s，42 插件全部注册成功，重启总耗时 <1s；测试全绿，双平台编译通过
+
 ## v1.32.3 (2026-08-03)
 
 ### 🐛 updater：撤回"继承父进程控制台"方案（实测会杀死子进程），新增 `"file"` 模式
