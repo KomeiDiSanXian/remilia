@@ -123,6 +123,20 @@ func main() {
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
 	setupPlugins(pm, eng)
+
+	// 更新器在 Windows 上退出前先停止全部插件：Teardown 确定性释放 LevelDB 等
+	// 数据文件句柄，新进程随后启动时无需依赖任何时序猜测即可安全打开数据文件。
+	// 只用 pm.StopAll 而非 bot.Shutdown：hook 从更新 handler 内部触发，
+	// bot.Shutdown 会等 engine 停止当前 handler 直到 30s 超时（慢且无必要）。
+	updater.SetShutdownHook(func() {
+		logger.Info("[updater] 更新完成，停止插件以释放数据文件...")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := pm.StopAll(ctx); err != nil {
+			logger.WithError(err).Warn("[updater] 插件停止异常（将直接退出）")
+		}
+	})
+
 	discoverAll(bot, pm)
 
 	healthHandler := newHealthHandler(bot, reg)

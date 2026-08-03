@@ -53,6 +53,21 @@ type Plugin struct {
 // Option 是 updater 插件的构造选项。
 type Option func(*Plugin)
 
+// shutdownHook 由 cmd/bot 在启动时注入（SetShutdownHook）：
+// 触发主进程的优雅关闭（bot.Shutdown → 插件 Teardown → LevelDB 等数据文件句柄
+// 确定性释放）。Windows 上 os.Exit(0) 是粗暴退出，内核关闭句柄的时序不可依赖——
+// 子进程检测到退出代码时父进程的文件可能仍未释放（实测：子进程"等待 0s"继续
+// 启动，父进程数秒后才完成退出，LevelDB 打开报"文件被另一个进程占用"）。
+// 父进程先优雅关闭再退出，子进程无需任何时序猜测即可安全打开数据文件。
+var shutdownHook func()
+
+// SetShutdownHook 注入"更新后退出前"的优雅关闭回调（cmd/bot 在构建 Bot 后调用）。
+// 回调在 triggerSelfShutdown 内、进程退出前执行一次；未注入时退化为直接退出
+// （此时子进程侧的等待宽限作为兜底）。
+func SetShutdownHook(fn func()) {
+	shutdownHook = fn
+}
+
 // WithDataDir 设置状态数据目录（标记文件、状态文件）。
 func WithDataDir(dir string) Option {
 	return func(p *Plugin) { p.dataDir = dir }
@@ -284,6 +299,7 @@ func (p *Plugin) handleNow(ctx *eventctx.Context, force bool) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	ctx.ReplyText("🚀 更新完成，机器人即将重启（约 30 秒）...").Wait(waitCtx)
 	cancel()
+	logger.Infof("[updater] 旧进程退出中（pid=%d，T=%s）", os.Getpid(), time.Now().Format("15:04:05.000"))
 	triggerSelfShutdown()
 }
 
@@ -380,6 +396,14 @@ func (p *Plugin) applyUpdate(ctx context.Context, force bool, reply func(string)
 
 // applyUpdateTo 是 applyUpdate 的核心（exePath 可注入，便于测试）。
 func (p *Plugin) applyUpdateTo(ctx context.Context, exePath string, force bool, reply func(string)) error {
+	// 体检：其他同名实例仍在运行时，更新后的新进程会因数据文件（LevelDB 排他锁）
+	// 被占用而启动失败（"文件被另一个进程占用"）。警告但继续——用户可能确有多实例诉求。
+	if others := otherInstances(filepath.Base(exePath)); len(others) > 0 {
+		msg := fmt.Sprintf("⚠️ 检测到其他 remilia 实例（pid=%v）正在运行。多实例共用 data 目录时，更新后的新进程可能因数据文件被占用而无法启动，建议先停止其他实例", others)
+		reply(msg)
+		logger.Warnf("[updater] %s", msg)
+	}
+
 	reply("🔍 正在检查更新...")
 	rel, err := p.fetchLatest(ctx)
 	if err != nil {

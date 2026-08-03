@@ -99,12 +99,17 @@ func HandlePendingUpdate() error {
 	}
 
 	if pidStr != "" {
-		fmt.Fprintf(os.Stderr, "[updater] 更新后首次启动，等待旧进程（pid=%s）退出...\n", pidStr)
+		fmt.Fprintf(os.Stderr, "[updater] T=%s 更新后首次启动，等待旧进程（pid=%s）退出...\n", time.Now().Format("15:04:05.000"), pidStr)
 		pid, err := strconv.Atoi(pidStr)
 		if err != nil || pid <= 0 {
-			fmt.Fprintf(os.Stderr, "[updater] 环境变量 %s 非法（%q），跳过等待\n", envWaitParent, pidStr)
-		} else if err := waitProcessExit(pid, 60*time.Second, 300*time.Millisecond); err != nil {
-			fmt.Fprintf(os.Stderr, "[updater] %v，继续启动\n", err)
+			fmt.Fprintf(os.Stderr, "[updater] T=%s 环境变量 %s 非法（%q），跳过等待\n", time.Now().Format("15:04:05.000"), envWaitParent, pidStr)
+		} else {
+			t0 := time.Now()
+			if err := waitProcessExit(pid, 60*time.Second, 300*time.Millisecond); err != nil {
+				fmt.Fprintf(os.Stderr, "[updater] T=%s %v（已等待 %s），继续启动\n", time.Now().Format("15:04:05.000"), err, time.Since(t0).Round(time.Millisecond))
+			} else {
+				fmt.Fprintf(os.Stderr, "[updater] T=%s 旧进程已退出（等待 %s），继续启动\n", time.Now().Format("15:04:05.000"), time.Since(t0).Round(time.Millisecond))
+			}
 		}
 	}
 

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -55,6 +57,33 @@ func startDetachedChild(cmd *exec.Cmd) error {
 	return nil
 }
 
+// otherInstances 返回与本进程同名的其它运行实例 PID（排除自身）。
+//
+// 用于更新前的体检：多个实例共用同一 data 目录时，LevelDB（antispam 等
+// 插件存储）的排他锁会导致新进程启动即失败（"文件被另一个进程占用"）。
+func otherInstances(exeBase string) []int {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return nil
+	}
+	defer windows.CloseHandle(snapshot)
+
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+
+	var pids []int
+	for err := windows.Process32First(snapshot, &entry); err == nil; err = windows.Process32Next(snapshot, &entry) {
+		if int(entry.ProcessID) == os.Getpid() {
+			continue
+		}
+		name := windows.UTF16ToString(entry.ExeFile[:])
+		if strings.EqualFold(name, exeBase) {
+			pids = append(pids, int(entry.ProcessID))
+		}
+	}
+	return pids
+}
+
 // bindChildConsole 将子进程的标准句柄重绑定到自己的控制台（CONIN$/CONOUT$）。
 //
 // 仅当以 child_console="new" 拉起且本进程确实拥有新控制台时执行：CREATE_NEW_CONSOLE
@@ -93,30 +122,50 @@ func bindChildConsole() {
 	}
 }
 
-// waitProcessExit 等待 pid 对应的进程退出（Windows 使用进程句柄等待）。
-func waitProcessExit(pid int, timeout, pollInterval time.Duration) error {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		// 进程不存在（或句柄权限不足）视为已退出
-		return nil
-	}
-	defer windows.CloseHandle(handle)
+// exitGracePeriod 检测到旧进程退出后、子进程继续启动前的宽限时间：
+// 让内核完成旧进程文件句柄的关闭，避免新进程立即打开 LevelDB 等共享数据文件时
+// 撞上"文件被另一个进程占用"。
+const exitGracePeriod = 500 * time.Millisecond
 
-	deadline := time.Now().Add(timeout)
-	for {
-		var code uint32
-		if err := windows.GetExitCodeProcess(handle, &code); err == nil && code != uint32(windows.STATUS_PENDING) {
-			return nil
+// waitProcessExit 等待 pid 对应的进程退出（Windows）。
+//
+// 使用 WaitForSingleObject（需 SYNCHRONIZE 权限）等待进程**完整终止**：
+// 进程对象在句柄清理完成后才会置为 signaled。而 GetExitCodeProcess 在进程
+// 退出代码可见时即返回，此时内核可能尚未关闭该进程的全部文件句柄——新进程
+// 立即继续启动并打开共享数据文件（LevelDB 等）会报"文件被另一个进程占用"
+// （实测：子进程"等待 0s"继续启动，父进程数秒后才完成退出，DB 打开失败）。
+//
+// 等待结束后再宽限 exitGracePeriod，双保险确保句柄释放。
+func waitProcessExit(pid int, timeout, pollInterval time.Duration) error {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
+	if err == nil {
+		defer windows.CloseHandle(handle)
+		ev, err := windows.WaitForSingleObject(handle, uint32(timeout/time.Millisecond))
+		if err != nil {
+			return fmt.Errorf("等待旧进程（pid=%d）失败: %w", pid, err)
 		}
-		if time.Now().After(deadline) {
+		if ev == uint32(windows.WAIT_TIMEOUT) {
 			return fmt.Errorf("等待旧进程（pid=%d）退出超时（%s）", pid, timeout)
 		}
-		time.Sleep(pollInterval)
+		time.Sleep(exitGracePeriod)
+		return nil
 	}
+
+	// 进程已不存在（或句柄权限不足）→ 按已退出处理，但仍宽限等待句柄释放
+	fmt.Fprintf(os.Stderr, "[updater] OpenProcess(%d) 失败（%v），视为旧进程已退出\n", pid, err)
+	time.Sleep(exitGracePeriod)
+	return nil
 }
 
 // triggerSelfShutdown 在 Windows 上无法向自身发送 SIGTERM（Go 的
 // syscall.Kill 在 Windows 不存在），更新消息已冲刷完成后直接退出进程。
+//
+// 退出前先执行注入的优雅关闭回调（SetShutdownHook）：插件 Teardown 会确定性
+// 关闭 LevelDB 等数据文件句柄，子进程随后启动时不会撞上"文件被另一个进程占用"
+// （等待宽限仅作为回调缺失/异常退出时的兜底）。
 func triggerSelfShutdown() {
+	if hook := shutdownHook; hook != nil {
+		hook()
+	}
 	os.Exit(0)
 }
