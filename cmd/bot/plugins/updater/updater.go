@@ -99,8 +99,9 @@ func New(opts ...Option) *plugin.Descriptor {
 			p.client = newGitHubClient(owner, repo, p.cfg.GetString("proxy", ""), timeout)
 			p.state = newStateStore(p.dataDir)
 
-			// 拉起子进程的控制台策略（""=继承父进程终端；"new"=独立控制台窗口）
+			// 拉起子进程的控制台策略（""=安全默认 NUL 输出；"new"=独立控制台窗口；"file"=重定向到文件）
 			childConsoleMode = p.cfg.GetString("child_console", "")
+			childLogPath = filepath.Join(p.dataDir, "child.log")
 
 			st := p.state.load()
 			p.autoCheck.Store(st.AutoCheck)

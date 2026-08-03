@@ -158,8 +158,20 @@ func HandlePendingUpdate() error {
 func restartCurrent(exePath string) error {
 	cmd := newExecCommand(exePath, os.Args[1:]...)
 	cmd.Env = envWithout(envWaitParent, envUpdateMarker)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// 与 spawnNewProcess 相同的控制台策略："" 不传句柄；"file" 重定向到日志文件。
+	// 注意：绝不向 DETACHED_PROCESS 子进程传父进程控制台句柄（父进程退出时
+	// 子进程被连带终止）。"new" 模式由子进程启动早期自行重绑定新控制台。
+	if currentConsoleMode() == "file" {
+		if p := os.Getenv(envChildLog); p != "" {
+			if f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+				defer f.Close()
+				cmd.Stdout = f
+				cmd.Stderr = f
+			}
+		}
+	}
+
 	if err := startDetachedChild(cmd); err != nil {
 		return fmt.Errorf("回滚后重启失败: %w", err)
 	}
