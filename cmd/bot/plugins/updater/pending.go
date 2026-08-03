@@ -154,8 +154,7 @@ func HandlePendingUpdate() error {
 func restartCurrent(exePath string) error {
 	cmd := newExecCommand(exePath, os.Args[1:]...)
 	cmd.Env = envWithout(envWaitParent, envUpdateMarker)
-	setDetached(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := startDetachedChild(cmd); err != nil {
 		return fmt.Errorf("回滚后重启失败: %w", err)
 	}
 	_ = cmd.Process.Release()

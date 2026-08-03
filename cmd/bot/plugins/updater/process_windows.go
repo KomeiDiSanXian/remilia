@@ -12,12 +12,35 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// setDetached 让新进程脱离控制台（Windows）：
+// startDetachedChild 分离启动新进程（Windows）：
 // DETACHED_PROCESS 不继承控制台；CREATE_NEW_PROCESS_GROUP 使 Ctrl+C 不扩散到新进程。
-func setDetached(cmd *exec.Cmd) {
+//
+// 优先携带 CREATE_BREAKAWAY_FROM_JOB 尝试脱离父进程所在的 Job Object：
+// 某些启动器/终端会把启动的进程放进带 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 的
+// Job 中，父进程退出时 Job 关闭会连带杀死刚拉起的子进程——表现为"旧进程已退出
+// 但新进程没有起来"。脱离后子进程不再受父进程所在 Job 的生命周期约束。
+//
+// 若父进程所在 Job 不允许脱离（未置 BREAKAWAY_OK / SILENT_BREAKAWAY_OK），
+// CreateProcess 会返回 ERROR_ACCESS_DENIED，此时回退到不带该标志的普通分离启动
+// （行为与旧版一致，至少不劣化）。
+func startDetachedChild(cmd *exec.Cmd) error {
+	baseFlags := uint32(windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP)
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP,
+		CreationFlags: baseFlags | windows.CREATE_BREAKAWAY_FROM_JOB,
 	}
+	if err := cmd.Start(); err == nil {
+		return nil
+	}
+
+	// Job Object 不允许脱离 → 回退普通分离启动
+	fallback := *cmd
+	fallback.SysProcAttr = &syscall.SysProcAttr{CreationFlags: baseFlags}
+	if err := fallback.Start(); err != nil {
+		return err
+	}
+	*cmd = fallback
+	return nil
 }
 
 // waitProcessExit 等待 pid 对应的进程退出（Windows 使用进程句柄等待）。

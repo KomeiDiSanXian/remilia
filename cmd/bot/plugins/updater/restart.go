@@ -27,9 +27,8 @@ var spawnNewProcess = func(exePath string, markerPath string) error {
 		envWaitParent+"="+strconv.Itoa(os.Getpid()),
 		envUpdateMarker+"="+markerPath,
 	)
-	setDetached(cmd)
 
-	if err := cmd.Start(); err != nil {
+	if err := startDetachedChild(cmd); err != nil {
 		return fmt.Errorf("启动新进程失败: %w", err)
 	}
 	// 释放进程句柄：新进程生命周期与旧进程无关，由 OS 接管。

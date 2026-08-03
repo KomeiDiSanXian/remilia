@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
-// setDetached 让新进程脱离父进程的进程组与会话（Unix）：
-// 旧进程退出/终端关闭时新进程不受影响。
-func setDetached(cmd *exec.Cmd) {
+// startDetachedChild 分离启动新进程（Unix：Setsid 脱离父进程的进程组与会话，
+// 旧进程退出/终端关闭时新进程不受影响）。
+func startDetachedChild(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd.Start()
 }
 
 // waitProcessExit 轮询等待 pid 对应的进程退出，超时返回错误。
