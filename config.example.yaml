@@ -315,6 +315,14 @@ api:
 #     backup: true
 #     # [H]  是否考虑 pre-release 版本（默认只跟踪正式版）
 #     allow_prerelease: false
+#     # [R]  拉起子进程（新版本进程）的控制台策略:
+#     #        ""      继承父进程控制台句柄（默认）——更新后新进程的日志继续
+#     #               出现在启动它的终端里（此前子进程标准输出被接到 NUL，
+#     #               表现为"新进程活着但看不到任何日志"）
+#     #        "new"   Windows 上为新进程创建独立控制台窗口（CREATE_NEW_CONSOLE），
+#     #                日志自成一窗，与父进程终端完全分离
+#     #      其余平台（Linux/macOS）无控制台概念，此配置不生效
+#     child_console: ""
 #     # [H]  容器环境（存在 /.dockerenv）是否禁用自更新——
 #     #       容器内替换二进制无意义（重启后回到原镜像），应 docker pull 新镜像
 #     disable_in_container: true

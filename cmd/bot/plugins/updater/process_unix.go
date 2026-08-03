@@ -17,6 +17,9 @@ func startDetachedChild(cmd *exec.Cmd) error {
 	return cmd.Start()
 }
 
+// bindChildConsole Unix 无控制台概念，子进程直接继承父进程 stdout/stderr，no-op。
+func bindChildConsole() {}
+
 // waitProcessExit 轮询等待 pid 对应的进程退出，超时返回错误。
 func waitProcessExit(pid int, timeout, pollInterval time.Duration) error {
 	deadline := time.Now().Add(timeout)

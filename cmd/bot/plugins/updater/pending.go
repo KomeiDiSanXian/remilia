@@ -87,6 +87,10 @@ func removePending(markerPath string) error {
 //
 // 返回错误时调用方应记日志后继续启动（回滚路径已尽力执行）。
 func HandlePendingUpdate() error {
+	// child_console="new" 时重绑定标准句柄到自己的控制台窗口，
+	// 必须在任何日志输出之前（main 的最早期即此处）。
+	bindChildConsole()
+
 	pidStr := os.Getenv(envWaitParent)
 	markerPath := os.Getenv(envUpdateMarker)
 	if markerPath == "" {
@@ -154,6 +158,8 @@ func HandlePendingUpdate() error {
 func restartCurrent(exePath string) error {
 	cmd := newExecCommand(exePath, os.Args[1:]...)
 	cmd.Env = envWithout(envWaitParent, envUpdateMarker)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := startDetachedChild(cmd); err != nil {
 		return fmt.Errorf("回滚后重启失败: %w", err)
 	}
