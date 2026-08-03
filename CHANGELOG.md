@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.32.0 (2026-08-03)
+
+### 🧭 核心引擎：RoutingStrategy 路由规划抽象（路由与执行分离）
+
+- **路由/执行分离**: `processEventMatchers` 只负责执行；索引组织方式抽象为 `RoutingStrategy → CandidatePlan → MatcherIndex` 三层稳定边界（docs/notes/25-routing-strategy.md）
+- **可插拔 MatcherIndex**: permanent / command / temp / regex 四个内置索引成为插件点，第三方可通过 `WithMatcherIndex` 注册自定义索引（HashMap/Trie/DFA…），执行主循环零改动
+- **K 路归并**: 固定 6 路归并泛化为 K 路（上限 16），Source Budget 治理——框架内部超限 panic（框架 Bug）、第三方超限 warn 后继续
+- **快慢带 + 惰性执行**: BandFast（permanent/command/temp）急切构建，BandSlow（regex）惰性执行——fast 被 block 短路时慢带索引零查询，正则免费跳过
+- **候选 Meta**: regexIndex 预匹配携带捕获组，handler 经 `ctx.RegexResult()` 读取捕获组，无需重新执行正则（`matcher.Regex()` 注册，Match 跳过 Rules[0]）
+- **热路径优化**: 单归并迭代器 + 内置索引直引 + 池化零化裁剪——路由层 Empty 142→94 ns，重负载持平，全程 0 allocs
+
+### ⚡ 注册批处理会话 RegisterBatch（顺序注册写放大修复）
+
+- 插件 Setup 等启动期集中注册从每次 COW 全量复制收敛为一次提交：1000 个命令顺序注册 786ms → 1.6ms（约 480 倍）
+- `Engine.BeginRegisterBatch()` / `RegisterBatch.Flush()`；插件 Manager 在 Setup 周围自动开启（含 StartAll / UnloadLoad / 蓝绿重载路径）
+- 并发加载重叠（如不同插件并发 Reload）时自动退化为逐条注册——功能正确，仅失去批量收益
+- 附带修复: Handle() 首次绑定跳过命令 matcher 的无谓索引重建（顺序注册写放大主因之一）
+
 ## v1.31.0 (2026-08-03)
 
 ### ✨ 新插件：updater — 自动更新（应用级）
