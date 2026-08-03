@@ -35,6 +35,7 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 22 | [自适应执行](22-adaptive-execution.md) | ExecProfile p50 判定 + ExecPool 有界池 + 退出协议 |
 | 23 | [Context 设计](23-context-design.md) | 双键扩展系统、Clone 语义、延迟副作用、Try* 能力探测 |
 | 24 | [Bot 装配层](24-bot-assembly.md) | Bot/BotBuilder/BotManager、平台热替换、优雅关闭、健康检查树 |
+| 25 | [RoutingStrategy 路由规划](25-routing-strategy.md) | 路由与执行分离、CandidatePlan 执行计划、MatcherIndex 插件化、Source Budget、快慢带惰性阶段 |
 | 附 | [Trie 前缀树](trie.md) | 命令补全的前缀树实现细节（08 的配套深潜） |
 
 ## 架构思路

@@ -29,6 +29,13 @@ type state struct {
 	// 第二层 key 为事件类型（如 C2CMessageCreate），"" 表示通用类型
 	commandIndex map[string]map[EventType][]*Matcher
 
+	// 正则匹配器索引（按事件类型分组，桶内按优先级升序）
+	// 仅包含 Regex() 注册（regexIndexed 前置位）的 matcher，
+	// 供 regexIndex（BandSlow）在候选生成阶段预匹配。
+	// 与 commandIndex 一样为"裸桶"：不做 makeRunnableSlice 过滤，
+	// 由执行循环的 hasHandler 兜底检查负责。
+	regexIndex map[EventType][]*Matcher
+
 	// 分组索引（按组名分组）
 	// 用于快速删除特定组的所有匹配器
 	groupIndex map[string][]*Matcher
@@ -78,6 +85,7 @@ func newEngineState() *state {
 		matchers:         make([]*Matcher, 0),
 		matcherIndex:     make(map[EventType][]*Matcher),
 		commandIndex:     make(map[string]map[EventType][]*Matcher),
+		regexIndex:       make(map[EventType][]*Matcher),
 		groupIndex:       make(map[string][]*Matcher),
 		sortedCache:      make(map[EventType][]*Matcher),
 		commandInfoCache: make(map[string]*CommandInfo),
@@ -139,6 +147,18 @@ func copyGroupIndex(src map[string][]*Matcher) map[string][]*Matcher {
 	return dst
 }
 
+// copyRegexIndex 复制 regexIndex，子切片共享底层数组（COW-append 语义）
+func copyRegexIndex(src map[EventType][]*Matcher) map[EventType][]*Matcher {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[EventType][]*Matcher, len(src))
+	for k, v := range src {
+		dst[k] = v[:len(v):len(v)]
+	}
+	return dst
+}
+
 // ============================================================================
 // with* 方法 — 选择性 COW，只复制需要修改的 map
 // ============================================================================
@@ -149,6 +169,7 @@ func (s *state) clone() *state {
 		matchers:         s.matchers[:len(s.matchers):len(s.matchers)],
 		matcherIndex:     copyMatcherIndex(s.matcherIndex),
 		commandIndex:     copyCommandIndex(s.commandIndex),
+		regexIndex:       copyRegexIndex(s.regexIndex),
 		groupIndex:       copyGroupIndex(s.groupIndex),
 		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
 		commandInfoCache: make(map[string]*CommandInfo, len(s.commandInfoCache)),
@@ -167,6 +188,7 @@ func (s *state) withBlock(block bool) *state {
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		groupIndex:       s.groupIndex,
 		sortedCache:      s.sortedCache,
 		commandInfoCache: s.commandInfoCache,
@@ -183,6 +205,7 @@ func (s *state) withMaxMatchers(max int) *state {
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		groupIndex:       s.groupIndex,
 		sortedCache:      s.sortedCache,
 		commandInfoCache: s.commandInfoCache,
@@ -199,6 +222,7 @@ func (s *state) withClearedMatchers() *state {
 		matchers:         make([]*Matcher, 0),
 		matcherIndex:     make(map[EventType][]*Matcher),
 		commandIndex:     make(map[string]map[EventType][]*Matcher),
+		regexIndex:       make(map[EventType][]*Matcher),
 		groupIndex:       make(map[string][]*Matcher),
 		sortedCache:      make(map[EventType][]*Matcher),
 		commandInfoCache: make(map[string]*CommandInfo),
@@ -210,7 +234,11 @@ func (s *state) withClearedMatchers() *state {
 
 // withAddedMatcher 添加一个匹配器，仅复制需要的 map
 //
-// 索引分类以 m.commandIndexed 标志为准（由 OnCommand/RegisterCommandDef 在注册前置位）：
+// 索引分类（优先级从高到低）：
+//  1. 命令索引：cmd != "" 且 commandIndexed 置位（OnCommand/RegisterCommandDef 注册前置位）
+//  2. 正则索引：regexIndexed 置位（Regex() 注册前置位）
+//  3. 常规索引：其余 matcher
+//
 // 仅设置了 Definition.Name 的普通 matcher 保留在常规索引中按规则匹配，
 // 避免其被移入 commandIndex 后 Match 跳过 Rules[0] 造成语义漂移。
 func (s *state) withAddedMatcher(m *Matcher) *state {
@@ -230,13 +258,34 @@ func (s *state) withAddedMatcher(m *Matcher) *state {
 	if cmd != "" && m.commandIndexed.Load() {
 		dst.sortedCache = s.sortedCache
 		dst.matcherIndex = s.matcherIndex
+		dst.regexIndex = s.regexIndex
 		dst.commandIndex = s.copyCommandIndexWithEntry(cmd, et, m)
 		dst.rebuildCommandInfoCache(m, cmd)
+	} else if m.regexIndexed.Load() {
+		dst.sortedCache = s.sortedCache
+		dst.matcherIndex = s.matcherIndex
+		dst.commandIndex = s.commandIndex
+		// 正则桶按 Handler 过滤：慢带预匹配是最贵的候选生成操作，
+		// 无 handler 的 matcher 不应消耗正则求值（首次 Handle 绑定
+		// 会触发全量重建纳入，见 matcher.Handle）
+		if m.Handler != nil {
+			dst.regexIndex = copyRegexIndex(s.regexIndex)
+			dst.regexIndex[et] = append(dst.regexIndex[et][:len(dst.regexIndex[et]):len(dst.regexIndex[et])], m)
+			sortMatchersByPriority(dst.regexIndex[et])
+		} else {
+			dst.regexIndex = s.regexIndex
+		}
+
+		// 正则索引中的 matcher 若补充了命令名，同样维护 help 元数据缓存
+		if cmd != "" {
+			dst.rebuildCommandInfoCache(m, cmd)
+		}
 	} else {
 		dst.sortedCache = copySortedCacheForInvalidation(s.sortedCache)
 		dst.matcherIndex = copyMatcherIndex(s.matcherIndex)
 		dst.matcherIndex[et] = append(dst.matcherIndex[et][:len(dst.matcherIndex[et]):len(dst.matcherIndex[et])], m)
 		dst.commandIndex = s.commandIndex
+		dst.regexIndex = s.regexIndex
 
 		matchers := dst.matcherIndex[et]
 		sorted := makeRunnableSlice(matchers)
@@ -293,6 +342,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		matchers:         append(s.matchers[:len(s.matchers):len(s.matchers)], matchers...),
 		matcherIndex:     copyMatcherIndex(s.matcherIndex),
 		commandIndex:     copyCommandIndex(s.commandIndex),
+		regexIndex:       copyRegexIndex(s.regexIndex),
 		groupIndex:       copyGroupIndex(s.groupIndex),
 		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
 		commandInfoCache: maps.Clone(s.commandInfoCache),
@@ -309,6 +359,7 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 		et  EventType
 	}
 	touchedCmds := make(map[cmdKey]struct{}, len(matchers))
+	touchedRegex := make(map[EventType]struct{}, len(matchers))
 	infoDirty := false
 
 	for _, m := range matchers {
@@ -327,13 +378,18 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 			infoDirty = true
 		}
 
-		// 索引分类以 commandIndexed 标志为准（见 withAddedMatcher 注释）
+		// 索引分类以 commandIndexed / regexIndexed 标志为准（见 withAddedMatcher 注释）
 		if cmd != "" && m.commandIndexed.Load() {
 			if dst.commandIndex[cmd] == nil {
 				dst.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			dst.commandIndex[cmd][et] = append(dst.commandIndex[cmd][et], m)
 			touchedCmds[cmdKey{cmd: cmd, et: et}] = struct{}{}
+		} else if m.regexIndexed.Load() {
+			if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+				dst.regexIndex[et] = append(dst.regexIndex[et], m)
+				touchedRegex[et] = struct{}{}
+			}
 		} else {
 			dst.matcherIndex[et] = append(dst.matcherIndex[et], m)
 			touchedEvents[et] = struct{}{}
@@ -354,6 +410,11 @@ func (s *state) withBatchMatchers(matchers []*Matcher) *state {
 	// 仅排序本批次 append 过的命令桶：append 已使其底层数组独立于旧 state
 	for k := range touchedCmds {
 		sortMatchersByPriority(dst.commandIndex[k.cmd][k.et])
+	}
+
+	// 仅排序本批次 append 过的正则桶（同样已独立于旧 state）
+	for et := range touchedRegex {
+		sortMatchersByPriority(dst.regexIndex[et])
 	}
 
 	if infoDirty {
@@ -454,6 +515,7 @@ func (s *state) withInvalidatedSortedCache(eventType EventType) *state {
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		groupIndex:       s.groupIndex,
 		commandInfoCache: s.commandInfoCache,
 		commandListCache: s.commandListCache,
@@ -500,6 +562,7 @@ func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		groupIndex:       s.groupIndex,
 		sortedCache:      copySortedCacheForInvalidation(s.sortedCache),
 		commandInfoCache: s.commandInfoCache,
@@ -520,6 +583,14 @@ func (s *state) withUpdatedMatcherIndex(m *Matcher) *state {
 				sortMatchersByPriority(sorted)
 				dst.commandIndex[cmd][et] = sorted
 			}
+		}
+	} else if m.regexIndexed.Load() {
+		// 正则桶重排同样需要逐元素完整拷贝（COW 共享底层数组，见上）
+		if lst, ok := s.regexIndex[et]; ok {
+			dst.regexIndex = copyRegexIndex(s.regexIndex)
+			sorted := append([]*Matcher(nil), lst...)
+			sortMatchersByPriority(sorted)
+			dst.regexIndex[et] = sorted
 		}
 	} else {
 		if matchers, ok := dst.matcherIndex[et]; ok {
@@ -543,6 +614,7 @@ func (s *state) withUpdatedCommandCache(m *Matcher) *state {
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		groupIndex:       s.groupIndex,
 		sortedCache:      s.sortedCache,
 		commandInfoCache: maps.Clone(s.commandInfoCache),
@@ -559,6 +631,7 @@ func (s *state) withSetMatcherGroup(m *Matcher, oldGroup, newGroup string) *stat
 		matchers:         s.matchers,
 		matcherIndex:     s.matcherIndex,
 		commandIndex:     s.commandIndex,
+		regexIndex:       s.regexIndex,
 		sortedCache:      s.sortedCache,
 		commandInfoCache: s.commandInfoCache,
 		commandListCache: s.commandListCache,
@@ -598,6 +671,7 @@ func (s *state) rebuildIndex() {
 	// 清空旧索引
 	s.matcherIndex = make(map[EventType][]*Matcher)
 	s.commandIndex = make(map[string]map[EventType][]*Matcher)
+	s.regexIndex = make(map[EventType][]*Matcher)
 	s.groupIndex = make(map[string][]*Matcher)
 	s.sortedCache = make(map[EventType][]*Matcher)
 	s.commandInfoCache = make(map[string]*CommandInfo)
@@ -615,7 +689,8 @@ func (s *state) rebuildIndex() {
 		}
 
 		// 仅 OnCommand/RegisterCommandDef 创建（commandIndexed 已在注册前置位）的
-		// matcher 进入 O(1) 命令索引；普通 matcher 即使事后通过 SetDefinition/
+		// matcher 进入 O(1) 命令索引；Regex() 创建（regexIndexed 前置位）的
+		// matcher 进入正则索引；普通 matcher 即使事后通过 SetDefinition/
 		// BindCommand 补充了 Definition.Name，也保留在常规索引中按全部规则匹配，
 		// 避免重建后 Match 跳过 Rules[0]（它未必是 OnCommand 规则）造成语义漂移。
 		if cmd != "" && m.commandIndexed.Load() {
@@ -623,6 +698,10 @@ func (s *state) rebuildIndex() {
 				s.commandIndex[cmd] = make(map[EventType][]*Matcher)
 			}
 			s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
+		} else if m.regexIndexed.Load() {
+			if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+				s.regexIndex[m.EventType] = append(s.regexIndex[m.EventType], m)
+			}
 		} else {
 			et := m.EventType
 			s.matcherIndex[et] = append(s.matcherIndex[et], m)
@@ -646,6 +725,11 @@ func (s *state) rebuildIndex() {
 		for _, matchers := range eventMap {
 			sortMatchersByPriority(matchers)
 		}
+	}
+
+	// 对正则索引中的列表也进行排序
+	for _, matchers := range s.regexIndex {
+		sortMatchersByPriority(matchers)
 	}
 
 	// 改进 3.7: 重建命令列表缓存（只调用一次，修复 O(N²) 问题）
@@ -731,6 +815,11 @@ func (s *state) addMatcher(m *Matcher) {
 		s.commandIndex[cmd][m.EventType] = append(s.commandIndex[cmd][m.EventType], m)
 		sortMatchersByPriority(s.commandIndex[cmd][m.EventType])
 		s.rebuildCommandInfoCache(m, cmd)
+	} else if m.regexIndexed.Load() {
+		if m.Handler != nil { // 正则桶按 Handler 过滤（见 withAddedMatcher）
+			s.regexIndex[m.EventType] = append(s.regexIndex[m.EventType], m)
+			sortMatchersByPriority(s.regexIndex[m.EventType])
+		}
 	} else {
 		et := m.EventType
 		s.matcherIndex[et] = append(s.matcherIndex[et], m)

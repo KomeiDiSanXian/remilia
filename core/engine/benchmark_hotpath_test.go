@@ -562,7 +562,8 @@ func BenchmarkMergeIter(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l1, nil, nil, nil, nil, nil)
+			it := acquireMergeIter()
+			it.add(l1)
 			for it.Next() {
 				_ = it.Matcher()
 			}
@@ -576,7 +577,9 @@ func BenchmarkMergeIter(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l1, l2, nil, nil, nil, nil)
+			it := acquireMergeIter()
+			it.add(l1)
+			it.add(l2)
 			for it.Next() {
 				_ = it.Matcher()
 			}
@@ -594,7 +597,13 @@ func BenchmarkMergeIter(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l1, l2, l3, l4, l5, l6)
+			it := acquireMergeIter()
+			it.add(l1)
+			it.add(l2)
+			it.add(l3)
+			it.add(l4)
+			it.add(l5)
+			it.add(l6)
 			for it.Next() {
 				_ = it.Matcher()
 			}
@@ -612,7 +621,13 @@ func BenchmarkMergeIter(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l1, l2, l3, l4, l5, l6)
+			it := acquireMergeIter()
+			it.add(l1)
+			it.add(l2)
+			it.add(l3)
+			it.add(l4)
+			it.add(l5)
+			it.add(l6)
 			for it.Next() {
 				_ = it.Matcher()
 			}
@@ -807,7 +822,8 @@ func BenchmarkMergeIterAlloc(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l, nil, nil, nil, nil, nil)
+			it := acquireMergeIter()
+			it.add(l)
 			for it.Next() {
 				_ = it.Matcher()
 			}
@@ -820,11 +836,114 @@ func BenchmarkMergeIterAlloc(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			it := acquireMergeIter(l, nil, nil, nil, nil, nil)
+			it := acquireMergeIter()
+			it.add(l)
 			for it.Next() {
 				_ = it.Matcher()
 			}
 			releaseMergeIter(it)
+		}
+	})
+}
+
+// ============================================================================
+// RoutingStrategy.Plan Benchmarks
+// ============================================================================
+
+// BenchmarkRoutingPlan isolates RoutingStrategy.Plan + CandidatePlan iteration
+// with the three built-in indexes (permanent/command/temp).
+//
+// 覆盖路由抽象后的完整 Plan 路径：索引检索（含门控）+ K 路归并 + 计划释放。
+// 与 BenchmarkHotPath（ProcessEvent 端到端）互补，可单独定位路由层开销。
+func BenchmarkRoutingPlan(b *testing.B) {
+	eventType := string(platform.EventKindPrivateMessage)
+	benchCtx := ctx.NewContextFromEvent(
+		newTestPlatformEventWithContent(platform.EventKindPrivateMessage, "/bench hello"), nil)
+
+	makeMatcher := func(prio uint64) *Matcher {
+		m := &Matcher{Source: "bench"}
+		m.priority.Store(prio)
+		return m
+	}
+
+	b.Run("Empty", func(b *testing.B) {
+		router := newMatcherRouter()
+		router.addIndex(permanentIndex{}, true)
+		router.addIndex(commandIndex{}, true)
+		router.addIndex(tempIndex{tm: newTempMatcherManager()}, true)
+		st := newEngineState()
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			plan := router.Plan(st, benchCtx)
+			for plan.Next() {
+				_ = plan.Matcher()
+			}
+			plan.Release()
+		}
+	})
+
+	b.Run("CommandHit", func(b *testing.B) {
+		router := newMatcherRouter()
+		router.addIndex(permanentIndex{}, true)
+		router.addIndex(commandIndex{}, true)
+		tm := newTempMatcherManager()
+		router.addIndex(tempIndex{tm: tm}, true)
+
+		permSpec := make([]*Matcher, 50)
+		for i := range permSpec {
+			permSpec[i] = makeMatcher(uint64(100 + i))
+		}
+		cmdSpec := make([]*Matcher, 10)
+		for i := range cmdSpec {
+			cmdSpec[i] = makeMatcher(uint64(10 + i))
+		}
+		st := newEngineState()
+		st.sortedCache[eventType] = permSpec
+		st.commandIndex["/bench"] = map[EventType][]*Matcher{eventType: cmdSpec}
+		for range 5 {
+			tm.Add(makeMatcher(50))
+		}
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			plan := router.Plan(st, benchCtx)
+			for plan.Next() {
+				_ = plan.Matcher()
+			}
+			plan.Release()
+		}
+	})
+	b.Run("RegexHit", func(b *testing.B) {
+		// 慢带路径：正则预匹配（块命中）+ 惰性阶段构建
+		regexCtx := ctx.NewContextFromEvent(
+			newTestPlatformEventWithContent(platform.EventKindPrivateMessage, "order 42 total"), nil)
+
+		router := newMatcherRouter()
+		router.addIndex(permanentIndex{}, true)
+		router.addIndex(commandIndex{}, true)
+		router.addIndex(tempIndex{tm: newTempMatcherManager()}, true)
+		router.addIndex(regexIndex{}, true)
+
+		regexSpec := make([]*Matcher, 5)
+		for i := range regexSpec {
+			m := makeMatcher(uint64(100 + i))
+			m.regexPattern = `\d+`
+			m.regexIndexed.Store(true)
+			regexSpec[i] = m
+		}
+		st := newEngineState()
+		st.regexIndex[eventType] = regexSpec
+
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			plan := router.Plan(st, regexCtx)
+			for plan.Next() {
+				_ = plan.Matcher()
+			}
+			plan.Release()
 		}
 	})
 }

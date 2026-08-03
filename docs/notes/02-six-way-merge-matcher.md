@@ -371,3 +371,43 @@ Remove 则放弃插入）并做指针去重（全量重建可能已包含该 mat
 | V5（当前） | 惰性 K 路归并迭代器 + RCU 快照增量维护 | 同 V4，写路径大幅降低 | 消除堆合并分配与快照写放大 |
 
 关键洞察：将命令事件与普通事件分离是量级上的优化——现实场景中 80%+ 的事件是命令事件，从 O(n) 降到 O(1) 意味着延迟从线性增长变为常数。
+
+## V6+：RoutingStrategy——从六路归并到可插拔路由规划
+
+六路归并的架构瓶颈不是性能而是扩展性：`processEventMatchers` 硬编码了
+三个来源（Permanent/Command/Temp）× 两个维度（specific/generic），
+每增加一种索引都要改执行主循环。V6 把"如何组织索引、如何规划一次路由"
+抽成三层稳定边界（详见 [25 — RoutingStrategy](25-routing-strategy.md)）：
+
+```
+Engine → RoutingStrategy → CandidatePlan → MatcherIndex → matcherMergeIter
+```
+
+- **V6**：`RoutingStrategy.Plan()` 返回自包含的 `CandidatePlan`，
+  执行循环只消费 `Next()/Matcher()/Release()`，不知道任何索引组织方式；
+  三个内置索引（permanent/command/temp）成为 `MatcherIndex` 插件点
+- **V7**：多阶段惰性物化 + 第一个慢带索引 `regexIndex`——快带
+  （permanent/command/temp）被 block 短路时慢带（regex）零查询，
+  正则 matcher 的 Match 跳过 Rules[0]（索引已预匹配），正则不执行两次
+- **V9**：候选携带 Meta——regexIndex 用 `FindStringSubmatch` 预匹配，
+  捕获组随候选并行数组流入执行循环，handler 经 `ctx.RegexResult()` 读取，
+  无需重新执行正则
+
+六路归并本身演化为 K 路线性扫描（`matcherMergeIter`，K≤16 时线性优于 heap），
+作为归并算法实现细节被保留在 Plan 内部。
+
+### 归并迭代器基准（同机，0 allocs）
+
+| 基准 | V5（6 路硬编码） | V6+（add 动态流 + 池化零化） |
+|---|---|---|
+| SingleList | 805 ns | **473 ns**（-41%） |
+| TwoLists | 857 ns | **580 ns**（-32%） |
+| SixLists | 2,714 ns | 2,774 ns（+2%，噪声级） |
+| SixListsInterleaved | 3,325 ns | **3,119 ns**（-6%） |
+| Alloc/UnderThreshold | 3,843 ns | **2,303 ns**（-40%） |
+| Alloc/OverThreshold | 15,112 ns | **9,197 ns**（-39%） |
+
+单/双流的大幅提升来自 `add()` 跳过空列表使 K_act 自然衰减
+（非命令事件时命令索引输出 0 流）；代价是 SixLists 峰值场景的
+每次 add 空检查（+2%，噪声级）。池化零化裁剪（只重置游标、
+槽位由 add 覆写）使 acquire 不再每事件 memset ~500B 数组。

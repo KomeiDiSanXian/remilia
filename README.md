@@ -35,7 +35,7 @@
 - **多平台适配** — QQ / Discord / OneBot / Satori / Telegram / WeChat / Milky，统一 Adapter 接口
 - **FSM 状态机引擎** — 声明式多步骤对话管理，上下文感知的状态迁移
 - **Adaptive Router** — 策略路由层，优先级驱动的 FSM / Engine 事件分发
-- **6 路合并 Matcher** — commandIndex O(1) 命令路由 + 6 路优先级排序合并
+- **RoutingStrategy 路由规划** — 可插拔 MatcherIndex（permanent / command / temp / regex），O(1) 命令路由 + K 路优先级归并，正则慢带惰性执行（block 短路时零成本）
 - **中间件链** — 洋葱模型，限流 / 熔断 / 降级 / 重试 / 去重 / 超时，支持热更新阈值
 - **出站调度器** — 异步发送，按 Chat 严格 FIFO，跨 Chat 并发，不阻塞 Handler goroutine
 - **配置热更新** — YAML + 环境变量，fsnotify 监听，Bridge 推模式实时推送
@@ -286,7 +286,7 @@ manager.Register(myplugin.New())
 #### 1. COW 无锁引擎
 - **无锁读取**: ProcessEvent 完全无锁，atomic.Load 原子获取快照
 - **写时复制**: 修改创建新状态，不影响正在进行的读取
-- **6 路合并**: State(perm/cmd) × Specific/Generic + Temp 优先级排序
+- **RoutingStrategy 归并**: 可插拔索引（permanent/command/temp/regex），候选流按优先级 K 路归并，正则慢带 block 短路零查询
 
 #### 2. 智能路由
 - **commandIndex**: `/` 开头消息 O(1) 直接命中
@@ -321,9 +321,10 @@ manager.Register(myplugin.New())
 
 | 指标 | 值 | 说明 |
 |------|-----|------|
-| 端到端吞吐量（无匹配器） | **~450,000 msg/s** | 16 核端到端压测，100% 成功率 |
-| 端到端吞吐量（5K 匹配器） | **~235,000 msg/s** | 16 核，含 2500 个事件类型匹配器 |
-| Engine ProcessEvent（micro） | ~285 ns/op | 引擎分发热路径 |
+| 端到端吞吐量（50K msg/s 目标） | **~50,000 msg/s, 100%** | 16 核端到端压测，含 5K 匹配器场景达标 |
+| 饱和吞吐量（64 workers, sema=8） | **~1.4M msg/s** | unlimited 场景，16 核 |
+| Engine ProcessEvent（micro） | ~393 ns/op | 引擎分发热路径（272 B/op, 2 allocs）|
+| 路由层 Plan/Empty（micro） | ~94 ns/op, 0 allocs | RoutingStrategy 规划 + 归并（快带短路）|
 | 命令解析 | ~1,250 ns/op | 双索引 O(1) 路由 |
 | Context Get/Set | 0 allocs/op | 免 GC 上下文访问 |
 | Future 分配 | ~35 ns/op, 112 B/op, 1 alloc | 轻量 Future，低 GC 压力 |
@@ -331,6 +332,7 @@ manager.Register(myplugin.New())
 | 堆内存（50K msg/s）| ~12-17 MB | 极低内存占用 |
 
 > 端到端压测使用 `examples/benchmark/throughput_bench.go`（已修复 drain、延迟测量等设计问题）
+> RoutingStrategy 重构（v1.31.0 → 当前）后热路径 vs 前身：空事件 +61%（绝对 0.2µs）、轻负载 +15%、重负载（Heavy/正则/池化）持平，全程 0 allocs
 > 详细报告: [docs/05-performance/PERFORMANCE_REPORT.md](docs/05-performance/PERFORMANCE_REPORT.md)
 
 ---

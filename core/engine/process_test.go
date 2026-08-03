@@ -33,9 +33,12 @@ func TestExtractCommandBehavior(t *testing.T) {
 	}
 }
 
-func collectMergeIter(l1, l2, l3, l4, l5, l6 []*Matcher) []*Matcher {
-	it := acquireMergeIter(l1, l2, l3, l4, l5, l6)
+func collectMergeIter(lists ...[]*Matcher) []*Matcher {
+	it := acquireMergeIter()
 	defer releaseMergeIter(it)
+	for _, l := range lists {
+		it.add(l)
+	}
 	var result []*Matcher
 	for it.Next() {
 		result = append(result, it.Matcher())

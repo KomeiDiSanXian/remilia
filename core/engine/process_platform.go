@@ -149,47 +149,24 @@ func (e *Engine) ProcessEventSync(ctx *context.Context) {
 	e.processEventMatchers(ctx, false)
 }
 
-// processEventMatchers 是事件路由的核心逻辑，可控制是否允许 offload 到 ExecPool。
+// processEventMatchers 是事件执行的核心逻辑，可控制是否允许 offload 到 ExecPool。
+//
+// 路由部分已抽象为 RoutingStrategy.Plan → CandidatePlan
+// （见 docs/notes/25-routing-strategy.md）：
+// 本函数只负责执行——hasHandler 过滤、Match、blocking 判定、入池、invokeHandler，
+// 不知道任何索引组织方式。
 func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 	state := e.state.Load()
-
-	eventType := ctx.GetEventType()
-
-	permSpecific := state.sortedCache[eventType]
-	permGeneric := state.sortedCache[""]
-
-	var cmdSpecific []*Matcher
-	var cmdGeneric []*Matcher
-
-	msgContent := ctx.GetMessageContent()
-	if msgContent != "" {
-		cmd := extractCommand(msgContent)
-		if cmd != "" {
-			if matchersMap, ok := state.commandIndex[cmd]; ok {
-				cmdSpecific = matchersMap[eventType]
-				cmdGeneric = matchersMap[""]
-			}
-		}
-	}
-
-	var tempSpecific, tempGeneric []*Matcher
-	if e.internals.tempManager.HasAny() {
-		tempSpecific = e.internals.tempManager.Get(eventType)
-		tempGeneric = e.internals.tempManager.Get("")
-	}
 
 	execPool := e.internals.execPool
 	blockAll := state.block
 	channelKey := MakeChannelKey(ctx.GetEventPlatform(), ctx.GetChatInfo().ID)
 
-	iter := acquireMergeIter(
-		permSpecific, cmdSpecific, tempSpecific,
-		permGeneric, cmdGeneric, tempGeneric,
-	)
-	defer releaseMergeIter(iter)
+	plan := e.strategy.Load().Plan(state, ctx)
+	defer plan.Release()
 
-	for iter.Next() {
-		m := iter.Matcher()
+	for plan.Next() {
+		m := plan.Matcher()
 
 		// 无 Handler 的匹配器无需执行任何操作，直接跳过 Match/SetMatcher/invokeHandler
 		// hasHandler 在 Handle() 中设置，由 InvalidateSortedCache 触发索引重建后，
@@ -233,8 +210,13 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 			// Clone 正是为异步执行准备的（复制 dispatcher、platformEvent、
 			// sender 等共享字段，并给出独立的 std context）。
 			pooledCtx := ctx.Clone()
+			// Meta 必须在提交前取值：池任务异步执行时 plan 游标可能已前进/释放
+			meta := plan.Meta()
 			if execPool != nil && execPool.TrySubmit(func() {
 				pooledCtx.SetMatcher(m)
+				if meta != nil {
+					pooledCtx.SetCandidateMeta(meta)
+				}
 				start := time.Now()
 				e.invokeHandler(pooledCtx, m)
 				if p := m.execProfile; p != nil {
@@ -242,7 +224,7 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 				}
 			}) {
 				if blocking {
-					break
+					return
 				}
 				continue
 			}
@@ -250,6 +232,9 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		}
 
 		ctx.SetMatcher(m)
+		if meta := plan.Meta(); meta != nil {
+			ctx.SetCandidateMeta(meta)
+		}
 		start := time.Now()
 		e.invokeHandler(ctx, m)
 		if profile != nil {
@@ -257,7 +242,7 @@ func (e *Engine) processEventMatchers(ctx *context.Context, allowPool bool) {
 		}
 
 		if blocking {
-			break
+			return // 阻断：终止所有阶段（多阶段下等价于跳过全部慢索引）
 		}
 	}
 }

@@ -23,6 +23,13 @@ package engine
 //     用于 DisableGroup / EnableGroup / RemoveGroup 批量操作，
 //     与 Source 字段无关（Source 只用于调试和标签，不驱动分组行为）。
 //
+// 路由组织（见 docs/notes/25-routing-strategy.md）：
+//   - 索引的检索细节已抽象为 MatcherIndex 插件点，由 RoutingStrategy
+//     （默认实现 matcherRouter）在 Plan 中归并为 CandidatePlan
+//   - processEventMatchers 只负责执行，不知道任何索引组织方式
+//   - 新增索引来源（Regex/Mention/Prefix…）只需实现 MatcherIndex 并
+//     通过 WithMatcherIndex 注册，执行主循环零改动
+//
 // Source vs group：
 //   - Source（如 "global" / "plugin:admin"）：只读标签，用于日志/统计，不影响路由
 //   - group（如 "admin"）：可变，用于 DisableGroup/EnableGroup/UseForGroup 操作
@@ -57,6 +64,14 @@ type Engine struct {
 	// 不可变状态（COW 模式）- 使用类型安全的泛型包装器
 	state      *infraatomic.Value[*state]           // 引擎核心状态
 	middleware *infraatomic.Value[*middlewareState] // 中间件配置
+
+	// strategy 是路由规划策略（默认 matcherRouter，含三个内置索引）。
+	// 读侧 atomic.Load 无锁；索引在构造期注册，运行时不可增删（见 25 D5）。
+	strategy *infraatomic.Value[RoutingStrategy]
+
+	// registerBatch 是注册批处理会话（非 nil 表示批量注册进行中）。
+	// 受 writeMu 保护；见 Engine.BeginRegisterBatch / RegisterBatch。
+	registerBatch *RegisterBatch
 
 	// 写锁（仅用于修改操作）
 	writeMu sync.Mutex
@@ -119,6 +134,15 @@ func NewEngine(options ...Option) *Engine {
 	// 初始化不可变状态
 	e.state = infraatomic.NewValue(newEngineState())
 	e.middleware = infraatomic.NewValue(newMiddlewareState())
+
+	// 初始化默认路由策略：四个内置索引（internal=true，超预算 panic 属框架 Bug）。
+	// permanent/command/temp 为快带，regex 为慢带（惰性阶段，见 25 Fast/Slow 契约）。
+	router := newMatcherRouter()
+	router.addIndex(permanentIndex{}, true)
+	router.addIndex(commandIndex{}, true)
+	router.addIndex(tempIndex{tm: e.internals.tempManager}, true)
+	router.addIndex(regexIndex{}, true)
+	e.strategy = infraatomic.NewValue[RoutingStrategy](router)
 
 	// ExecPool 默认配置
 	e.internals.execPoolCfg = DefaultExecPoolConfig()

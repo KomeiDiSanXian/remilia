@@ -9,6 +9,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	infraatomic "github.com/KomeiDiSanXian/remilia/infra/atomic"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 type matcherRuntime struct {
@@ -46,14 +47,21 @@ type Matcher struct {
 	// 使用 atomic.Bool 以防止 rebuildIndex 写操作与
 	// 共享 *Matcher 对象（COW 共享指针）的并发 Match() 读操作之间出现数据竞争。
 	commandIndexed atomic.Bool
-	hasHandler     atomic.Bool
-	EventType      EventType
-	Rules          []context.Rule
-	Handler        context.Handler
-	coordinator    MatcherCoordinator
-	Source         string
-	group          string
-	middlewares    []context.Middleware
+	// regexIndexed 与 commandIndexed 同模式：Regex() 在注册前置位。
+	// 为 true 时，Match() 跳过 Rules[0]（OnRegex 规则）——该规则已由
+	// regexIndex（慢带）在候选生成阶段隐式验证，避免正则重复执行。
+	// 约定：Regex() 必须是第一条规则（与 OnCommand 的 Rules[0] 约定一致）。
+	regexIndexed atomic.Bool
+	// regexPattern 是 Regex() 注册的正则模式，供 regexIndex 候选预匹配使用。
+	regexPattern string
+	hasHandler   atomic.Bool
+	EventType    EventType
+	Rules        []context.Rule
+	Handler      context.Handler
+	coordinator  MatcherCoordinator
+	Source       string
+	group        string
+	middlewares  []context.Middleware
 
 	combinedChain    infraatomic.Value[[]context.Middleware] // 原始中间件切片
 	compiledHandlers infraatomic.Value[*compiledChain]       // 预构建的迭代器处理链切片
@@ -131,6 +139,8 @@ func (m *Matcher) copy() *Matcher {
 	newM.priority.Store(m.priority.Load())
 	newM.isBlock.Store(m.isBlock.Load())
 	newM.commandIndexed.Store(m.commandIndexed.Load())
+	newM.regexIndexed.Store(m.regexIndexed.Load())
+	newM.regexPattern = m.regexPattern
 	newM.hasHandler.Store(m.hasHandler.Load())
 	return newM
 }
@@ -272,15 +282,23 @@ func (m *Matcher) isNoop() bool {
 //   - Rules 在注册后不再修改，也无需加锁读取。
 //   - commandIndexed 为 true 时跳过 Rules[0]（OnCommand 前缀规则）——
 //     该规则已由 commandIndex O(1) 查找隐式验证，节省约 10% CPU。
+//   - regexIndexed 为 true 时跳过 Rules[0]（OnRegex 规则）——
+//     该规则已由 regexIndex（慢带）候选预匹配隐式验证，避免正则执行两次。
 func (m *Matcher) Match(ctx *context.Context) bool {
 	if m.rt.deleted.Load() || m.rt.disabled.Load() {
 		return false
 	}
 
 	rules := m.Rules
-	// 对于通过命令索引匹配的 matcher，跳过 Rules[0]（OnCommand 前缀检查）：
-	// commandIndex 查找已确认命令匹配，无需重复检查。
-	if m.commandIndexed.Load() && len(rules) > 0 {
+	// 对于通过命令索引或正则索引匹配的 matcher，跳过 Rules[0]
+	// （OnCommand 前缀检查 / OnRegex 规则）：
+	// 索引查找已确认匹配，无需重复检查。
+	//
+	// 不变式依赖：跳过基于标志而非"实际经索引桶命中"——路由（state
+	// withAddedMatcher/rebuildIndex 等）保证 commandIndexed matcher 只经
+	// commandIndex、regexIndexed matcher 只经 regexIndex 候选生成（正则已
+	// 预匹配）。未来新增索引不得把带这些标志的 matcher 引入未预匹配路径。
+	if (m.commandIndexed.Load() || m.regexIndexed.Load()) && len(rules) > 0 {
 		rules = rules[1:]
 	}
 	for _, rule := range rules {
@@ -337,11 +355,21 @@ func (m *Matcher) Handle(handler context.Handler) {
 
 	if coord != nil {
 		coord.RebuildMatcherChain(m)
-		// 首次绑定 Handler：触发运行时索引重建，将此前被过滤的匹配器纳入
+		// 首次绑定 Handler：触发运行时索引重建，将此前被过滤的匹配器纳入。
 		if !hadHandler {
-			coord.InvalidateSortedCache(m.EventType)
-			if def := m.definition; def != nil && def.Name != "" {
-				coord.UpdateMatcherIndex(m)
+			if m.commandIndexed.Load() {
+				// 命令 matcher 跳过：commandIndex 桶不过滤 hasHandler
+				//（执行循环兜底检查），优先级变更走 SetPriority →
+				// UpdateMatcherIndex 专属路径，首次绑定的重排是恒等操作
+				// 却要全量复制 commandIndex（顺序注册写放大主因之一）。
+			} else if m.regexIndexed.Load() {
+				// 正则桶写路径按 Handler != nil 过滤：首次绑定需全量重建纳入
+				coord.UpdateMatcherIndex(nil)
+			} else {
+				coord.InvalidateSortedCache(m.EventType)
+				if def := m.definition; def != nil && def.Name != "" {
+					coord.UpdateMatcherIndex(m)
+				}
 			}
 		}
 	}
@@ -578,11 +606,50 @@ func (m *Matcher) FullMatch(text string) *Matcher {
 }
 
 // Regex 添加正则表达式匹配规则
+//
+// 与 commandIndexed 同模式：此方法置位 regexIndexed 并记录 regexPattern，
+// 使该 matcher 进入 regexIndex（慢带）而非常规索引——正则由索引在
+// 候选生成阶段预匹配，Match() 跳过 Rules[0]，避免正则执行两次。
+//
+// 约定（与 OnCommand 的 Rules[0] 约定一致）：
+//   - Regex() 必须作为**第一条规则**调用（.Regex(...).Where(...) 链式顺序）。
+//     若已有其他规则（如 .Where(w).Regex(r)），本方法退化为普通规则
+//     （warn + 不置位索引标志）：正则照常生效，只是不经索引预匹配——
+//     因为置位后 Match 会跳过 Rules[0]，而它未必是 OnRegex 规则（语义漂移）。
+//   - 对已注册 matcher（eng.On(...).Regex(...)）会触发一次全量索引重建
+//     以迁移到正则索引（冷路径操作，O(N) 可接受）
+//   - 临时 matcher（OnTemp）不进入正则索引：规则仍生效，但不跳过
+//
+// 链式修改限定：对已注册 matcher 追加规则会改写 Rules（Match 无锁读取），
+// 与 Where/Keyword 等既有链式方法同类限制——仅应在注册阶段（启动期）
+// 使用；活跃引擎上并发修改规则存在数据竞争。
+//
+// 慢带语义：regex 索引的 matcher 仅在快带（permanent/command/temp）
+// 未阻断时参与执行，且优先级应低于快带 matcher（见 docs/notes/25 Fast/Slow）。
 func (m *Matcher) Regex(pattern string) *Matcher {
 	if m.isNoop() {
 		return m
 	}
+	if len(m.Rules) > 0 {
+		// 防御：regexIndexed 的跳过语义要求 Regex 是第一条规则（Match 跳过
+		// Rules[0] = 本 OnRegex 规则，由索引预匹配验证）。已有规则时置位
+		// 会导致 Rules[0] 被误跳——退化为普通规则路径（行为正确，仅不经索引）。
+		logger.Warnf("[matcher] Regex() must be the first rule to enable regexIndex pre-match; %d existing rule(s) found, falling back to regular matching", len(m.Rules))
+		m.Rules = append(m.Rules, context.OnRegex(pattern))
+		return m
+	}
 	m.Rules = append(m.Rules, context.OnRegex(pattern))
+	// 临时 matcher 走 TempManager（快带），不参与正则索引，跳过语义不适用
+	if m.rt.isTemp != 0 {
+		return m
+	}
+	m.regexPattern = pattern
+	m.regexIndexed.Store(true)
+	if m.coordinator != nil {
+		// 已注册（eng.On(...).Regex(...) 链式）：全量重建索引，
+		// 按 regexIndexed 标志把 matcher 重新路由到正则索引。
+		m.coordinator.UpdateMatcherIndex(nil)
+	}
 	return m
 }
 
