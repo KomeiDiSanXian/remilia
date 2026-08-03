@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.32.2 (2026-08-03)
+
+### 🐛 updater：更新后新进程日志不可见修复 + 独立控制台支持
+
+- **新进程日志不可见修复**: Go 的 `os/exec` 在 `Stdout/Stderr` 为 nil 时会把子进程标准输出接到 NUL（而非继承父进程控制台），更新后新进程"活着但看不到任何日志"。拉起子进程时现显式传递父进程的 stdout/stderr 句柄——新进程日志继续出现在启动它的终端里，父进程退出后仍持续输出（实测验证）
+- **新增 `plugins.updater.child_console: "new"` 配置**: Windows 上为子进程创建独立控制台窗口（`CREATE_NEW_CONSOLE`），子进程启动早期（`HandlePendingUpdate`，早于 logger 初始化）把 stdin/stdout/stderr 重绑定到 `CONIN$`/`CONOUT$`，日志自成一窗；默认 `""` 为继承模式。Unix 无控制台概念，配置不生效
+- **修复 v1.32.1 回退路径隐藏 bug**: Job Object 不允许脱离时，回退逻辑用 `*cmd` 复制已启动的 `exec.Cmd` 二次 `Start()`，但 `startCalled` 标志不可重置，必然报 `"exec: already started"`——处于此类 Job 的环境更新会错误触发"启动新进程失败"并回滚。现重建全新命令回退，并新增 Windows 回归测试（在真实 `KILL_ON_JOB_CLOSE` Job 中验证回退成功）
+- **验证**: 全量测试通过（含 `-race`），Windows/Linux 双平台编译通过；新增 `restart_test.go`（控制台策略优先级）与 `process_windows_test.go`（Job 回退回归）
+
 ## v1.32.1 (2026-08-03)
 
 ### 🐛 updater：Windows Job Object 杀死重启子进程修复
