@@ -10,6 +10,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GO_VERSION: "1.26"
 
@@ -166,6 +170,11 @@ jobs:
         run: |
           cd cmd/bot
           go test -count=1 -race -timeout 300s ./...
+      - name: Check tidy
+        run: |
+          cd cmd/bot
+          go mod tidy
+          git diff --exit-code go.mod go.sum
 
   windows:
     name: Test (Windows)
