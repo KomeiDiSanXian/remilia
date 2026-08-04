@@ -119,6 +119,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
       - name: Build Dashboard
         run: |
           (cd dashboard && npm ci && npx vite build)
@@ -202,6 +204,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
       - name: Build Dashboard
         run: |
           (cd dashboard && npm ci && npx vite build)
