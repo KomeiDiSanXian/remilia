@@ -141,10 +141,57 @@ jobs:
           file: coverage.out
           fail_ci_if_error: false
 
+  cmdbot:
+    name: cmd/bot module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Ensure dashboarddist for go:embed
+        run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
+      - name: Build
+        run: |
+          cd cmd/bot
+          go build ./...
+      - name: Vet
+        run: |
+          cd cmd/bot
+          go vet ./...
+      - name: Test
+        run: |
+          cd cmd/bot
+          go test -count=1 -race -timeout 300s ./...
+
+  windows:
+    name: Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Ensure dashboarddist for go:embed
+        shell: bash
+        run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
+      - name: Download dependencies
+        run: go mod download
+      - name: Run tests
+        run: |
+          $pkgs = go list ./... | Where-Object { $_ -notmatch '/examples' } | ForEach-Object { $_ }
+          go test -count=1 -timeout 300s $pkgs
+      - name: Run cmd/bot tests
+        run: |
+          cd cmd/bot
+          go test -count=1 -timeout 300s ./...
+
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, vet, staticcheck, lint, test]
+    needs: [fmt, vet, staticcheck, lint, test, cmdbot]
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v7
