@@ -15,22 +15,51 @@ env:
 
 jobs:
   fmt:
-    name: go fmt
+    name: go fmt & fix
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Check go fmt
+      - name: Ensure dashboarddist for go:embed
+        run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
+      - name: Apply go fmt
+        run: go fmt ./...
+      - name: Apply go fix
+        run: go fix ./...
+      - name: Detect changes
+        id: detect
         run: |
-          unformatted=$(go fmt ./...)
-          if [ -n "$unformatted" ]; then
-            echo "Unformatted files:"
-            echo "$unformatted"
-            exit 1
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Open auto-fix pull request
+        if: steps.detect.outputs.changed == 'true' && github.event_name == 'push'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "style: apply gofmt and go fix"
+          branch: "auto/fmt-fix"
+          delete-branch: true
+          base: master
+          title: "style: apply gofmt and go fix"
+          labels: ["auto-fix", "style"]
+          body: |
+            CI detected Go code that needs formatting (`gofmt`) or modernization (`go fix`).
+            This PR was created automatically by the fmt job.
+
+            > Merging this PR keeps the main branch clean.
+      - name: Report unformatted code in PR
+        if: steps.detect.outputs.changed == 'true' && github.event_name == 'pull_request'
+        run: |
+          echo "::warning::Go code needs gofmt/go fix. Run 'go fmt ./...' and 'go fix ./...' locally and re-push, or merge the auto/fmt-fix PR on master."
+          git diff --stat
 
   vet:
     name: go vet
