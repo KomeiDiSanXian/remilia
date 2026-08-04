@@ -161,7 +161,7 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 
 		png, renderErr := renderTarotCard(&reading, cardImg)
 		if renderErr != nil {
-			ctx.ReplyText(formatTarotText(readings[i : i+1])); return nil
+			ctx.ReplyText(formatTarotText(readings[i : i+1]))
 			continue
 		}
 
