@@ -1,7 +1,7 @@
 // Package about 提供机器人自我介绍插件。
 //
 // 通过 /about（别名 /botinfo）展示机器人名称、框架版本、
-// Git 提交、构建时间、仓库地址、运行时长等信息。
+// Git 提交、构建时间、仓库地址、运行状态、命令统计及系统资源等信息。
 // 支持平台时使用 Markdown 渲染，并附带"查看命令列表"快捷按钮。
 package about
 
@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/mem"
 
 	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/api"
@@ -41,16 +43,16 @@ func New() *plugin.Descriptor {
 	p := &Plugin{}
 	return &plugin.Descriptor{
 		Name:    "about",
-		Version: "1.0.0",
+		Version: "1.1.0",
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
-			Description: "查看机器人自身信息（版本、仓库、构建信息等）",
+			Description: "查看机器人自身信息（版本、仓库、运行状态、系统资源等）",
 			Category:    "系统",
 			Tags:        []string{"关于", "信息", "版本"},
 			Repository:  RepositoryURL,
 			Homepage:    RepositoryURL,
 			HelpText: `查看机器人自身信息：
-  /about             — 查看机器人基本信息
+  /about             — 查看机器人基本信息（版本、构建、运行状态、系统资源）
   /botinfo           — /about 的别名`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -70,7 +72,7 @@ func New() *plugin.Descriptor {
 // handleAbout 处理 /about（及别名 /botinfo）命令。
 func (p *Plugin) handleAbout(ctx *eventctx.Context) error {
 	caps := ctx.GetPlatformCapabilities()
-	md, text := p.buildInfo()
+	md, text := p.buildInfo(ctx.GetBotName(), ctx.GetEventPlatform())
 	msg := platform.OutboundMessage{Markdown: md, Text: text}
 	if caps.Has(platform.CapButtons) {
 		msg = msg.WithButtons(platform.Button{
@@ -94,47 +96,104 @@ func (p *Plugin) handleButtonClick(ctx *eventctx.Context) error {
 }
 
 // buildInfo 生成 Markdown 与纯文本两种形式的机器人介绍。
-func (p *Plugin) buildInfo() (md, text string) {
+//
+// botName 为机器人显示名称，platformName 为当前事件来源平台，
+// 均由 handler 从事件上下文获取，保持本函数可独立测试。
+func (p *Plugin) buildInfo(botName, platformName string) (md, text string) {
 	commit, buildDate := api.GetBuildInfo()
 	if commit != "" && len(commit) > 7 {
 		commit = commit[:7]
 	}
 
-	var pluginCount int
+	var pluginCount, commandCount, matcherCount int
 	if p.info != nil {
 		pluginCount = p.info.Count()
+		if coord := p.info.Coordinator(); coord != nil {
+			commandCount = len(coord.GetAllCommands())
+			matcherCount = coord.GetMatcherCount()
+		}
 	}
 	uptime := time.Since(p.startTime)
 
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	sysMem := "—"
+	procMem := formatBytes(ms.Sys)
+	if used, total, pct, ok := systemMemory(); ok {
+		sysMem = fmt.Sprintf("%s / %s（%.1f%%）", formatBytes(used), formatBytes(total), pct)
+		procMem = fmt.Sprintf("%s（占系统内存 %.2f%%）", formatBytes(ms.Sys),
+			float64(ms.Sys)/float64(total)*100)
+	}
+
 	md = fmt.Sprintf("**🤖 Remilia**\n"+
 		"开源的多平台聊天机器人框架\n\n"+
+		"**框架信息**\n"+
 		"- **框架版本**: `%s`\n"+
 		"- **Git 提交**: `%s`\n"+
 		"- **构建时间**: %s\n"+
 		"- **Go 版本**: %s\n"+
-		"- **仓库**: [%s](%s)\n"+
+		"- **仓库**: [%s](%s)\n\n"+
+		"**运行状态**\n"+
+		"- **机器人名称**: %s\n"+
+		"- **当前平台**: %s\n"+
+		"- **运行时长**: %s\n"+
 		"- **已加载插件**: %d 个\n"+
-		"- **运行时长**: %s\n\n"+
+		"- **注册命令**: %d 个\n"+
+		"- **Matcher**: %d 个\n\n"+
+		"**系统信息**\n"+
+		"- **操作系统**: %s\n"+
+		"- **CPU 核心**: %d 核\n"+
+		"- **系统内存**: %s\n"+
+		"- **进程内存**: %s\n"+
+		"- **Goroutine**: %d\n\n"+
 		"💡 使用 /help 查看所有可用命令",
 		remilia.Version, orDash(commit), orDash(buildDate),
 		runtime.Version(), RepositoryURL, RepositoryURL,
-		pluginCount, formatDuration(uptime))
+		orDash(botName), orDash(platformName), formatDuration(uptime),
+		pluginCount, commandCount, matcherCount,
+		runtime.GOOS+"/"+runtime.GOARCH, runtime.NumCPU(),
+		sysMem, procMem, runtime.NumGoroutine())
 
 	text = fmt.Sprintf("🤖 Remilia\n"+
 		"开源的多平台聊天机器人框架\n\n"+
+		"框架信息:\n"+
 		"框架版本: %s\n"+
 		"Git 提交: %s\n"+
 		"构建时间: %s\n"+
 		"Go 版本: %s\n"+
-		"仓库: %s\n"+
+		"仓库: %s\n\n"+
+		"运行状态:\n"+
+		"机器人名称: %s\n"+
+		"当前平台: %s\n"+
+		"运行时长: %s\n"+
 		"已加载插件: %d 个\n"+
-		"运行时长: %s\n\n"+
+		"注册命令: %d 个\n"+
+		"Matcher: %d 个\n\n"+
+		"系统信息:\n"+
+		"操作系统: %s\n"+
+		"CPU 核心: %d 核\n"+
+		"系统内存: %s\n"+
+		"进程内存: %s\n"+
+		"Goroutine: %d\n\n"+
 		"💡 使用 /help 查看所有可用命令",
 		remilia.Version, orDash(commit), orDash(buildDate),
 		runtime.Version(), RepositoryURL,
-		pluginCount, formatDuration(uptime))
+		orDash(botName), orDash(platformName), formatDuration(uptime),
+		pluginCount, commandCount, matcherCount,
+		runtime.GOOS+"/"+runtime.GOARCH, runtime.NumCPU(),
+		sysMem, procMem, runtime.NumGoroutine())
 
 	return md, text
+}
+
+// systemMemory 返回宿主机内存使用情况：已用、总量、占用百分比。
+// 平台不支持或获取失败时 ok 为 false。
+func systemMemory() (used, total uint64, percent float64, ok bool) {
+	v, err := mem.VirtualMemory()
+	if err != nil || v == nil || v.Total == 0 {
+		return 0, 0, 0, false
+	}
+	return v.Used, v.Total, v.UsedPercent, true
 }
 
 // orDash 空字符串返回占位符 "—"。
@@ -143,6 +202,20 @@ func orDash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+// formatBytes 将字节数格式化为人类可读的二进制单位（B/KB/MB/GB/TB）。
+func formatBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 // formatDuration 将时长格式化为 "Xd Xh Xm Xs"（0 值部分省略）。
