@@ -53,7 +53,7 @@ jobs:
           delete-branch: true
           base: master
           title: "style: apply gofmt and go fix"
-          labels: ["auto-fix", "style"]
+          labels: auto-fix, style
           body: |
             CI detected Go code that needs formatting (`gofmt`) or modernization (`go fix`).
             This PR was created automatically by the fmt job.
