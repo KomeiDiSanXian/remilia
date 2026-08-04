@@ -1,6 +1,6 @@
 # 插件开发最佳实践
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-08-04  
 
 
 ---
@@ -80,19 +80,22 @@ func main() {
 ### ✅ Smart 注册（自动推断依赖图）
 
 ```go
-// 无需手动排序，框架 DryRun 推断依赖关系
-err := plugin.RegisterMultipleV2Smart(manager,
+// 无需手动排序：显式声明 Deps 或使用 WithInferDeps 由框架推断依赖关系
+err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
     admin.New(),
     storage.New(),
     permission.New(),
-)
+})
 ```
+
+> 依赖推断仅对显式声明 `DryRunSafe: true` 的插件执行探测 Setup；第三方插件
+> 在任何路径下 Setup 只执行一次。未声明 `DryRunSafe` 时以声明依赖参与拓扑排序。
 
 ### ❌ 避免
 
 ```go
 // ❌ 依赖已通过 Service[T] 使用，却未在 Deps 声明
-// (使用 RegisterMultipleV2Smart 可免去这个困扰)
+// （应在 Deps 显式声明，或用 RegisterBatch 批量注册保证顺序）
 Deps: []string{}, // 漏了 storage
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     s := plugin.Service[storage.Plugin](ctx, "storage") // 运行时报错
@@ -126,10 +129,12 @@ func (p *Plugin) handle(ctx *eventctx.Context) error {
     result, err := p.fetch(city)
     if err != nil {
         // 记录详细错误，回复用户友好消息
-        ctx.Log().WithError(err).Error("fetch failed")
-        return ctx.Reply("查询暂时不可用，请稍后再试")
+        logger.WithError(err).Error("fetch failed")
+        ctx.Reply("查询暂时不可用，请稍后再试")
+        return nil
     }
-    return ctx.Reply(result)
+    ctx.Reply(result)
+    return nil
 }
 ```
 

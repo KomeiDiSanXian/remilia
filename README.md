@@ -180,7 +180,7 @@ manager := plugin.NewManager(eng)
 manager.Register(myplugin.New())
 ```
 
-**完整指南**: [docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md](docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
+**完整指南**: [docs/06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md](docs/06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)
 
 ---
 
@@ -194,11 +194,13 @@ manager.Register(myplugin.New())
 - [10 分钟快速开始](./docs/01-getting-started/GETTING_STARTED.md)
 - [故障排除](./docs/01-getting-started/TROUBLESHOOTING.md)
 
-#### 🔌 插件开发
-- [插件开发指南](./docs/02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
-- [插件接口速查](./docs/02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md)
-- [插件开发最佳实践](./docs/04-development/plugin-best-practices.md)
-- [WASM 跨语言插件](./docs/04-development/wasm-plugin-development.md)
+#### 🔌 插件文档
+- [插件文档索引](./docs/06-plugins/README.md)
+- [插件开发指南](./docs/06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)
+- [插件接口速查](./docs/06-plugins/PLUGIN_OPTIONAL_INTERFACES.md)
+- [插件开发最佳实践](./docs/06-plugins/plugin-best-practices.md)
+- [应用级插件指南](./docs/06-plugins/APP_PLUGINS.md)
+- [WASM 跨语言插件](./docs/06-plugins/wasm-plugin-development.md)
 
 #### 📖 用户指南
 - [最佳实践](./docs/02-user-guides/BEST_PRACTICES.md)

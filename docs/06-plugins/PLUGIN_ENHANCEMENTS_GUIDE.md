@@ -1,6 +1,6 @@
 # 插件系统功能速查
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-08-04  
 
 
 ---
@@ -98,11 +98,13 @@ if ok {
 }
 
 func (a *Admin) handleReload(ctx *eventctx.Context) error {
-    name := ctx.GetParsedCommand().Args["plugin"]
+    name := ctx.GetParsedCommand().Arguments["plugin"]
     if err := a.admin.Reload(name); err != nil {
-        return ctx.Reply("重载失败: " + err.Error())
+        ctx.Reply("重载失败: " + err.Error())
+            return nil
     }
-    return ctx.Reply("重载成功")
+    ctx.Reply("重载成功")
+        return nil
 }
 ```
 
@@ -168,7 +170,7 @@ info := reader.FindCommand("/weather")
 
 ---
 
-## 6. 资源追踪（v1.3.0+）
+## 6. 资源追踪
 
 通过 Scope 管理插件创建的所有资源，卸载时自动级联清理，无需手动编写 Teardown。
 
@@ -186,7 +188,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ---
 
-## 7. 防过期服务代理（v1.3.0+）
+## 7. 防过期服务代理
 
 替代直接使用 `plugin.Service`/`plugin.TryService`（获取后立即 Get），依赖插件热重载后仍然有效。
 
@@ -199,7 +201,7 @@ pp, ok := p.permSvc.Get()
 
 ---
 
-## 8. 状态迁移（v1.3.0+）
+## 8. 状态迁移
 
 ```go
 Advanced: &plugin.Advanced{
@@ -209,3 +211,65 @@ Advanced: &plugin.Advanced{
 },
 ```
 详见 `docs/notes/18-state-migration.md`。
+
+---
+
+## 9. 定时任务（RegisterCron / After）
+
+在 Setup 阶段注册**生命周期绑定**的定时任务，插件 Teardown 时自动停止，无需手动清理。
+
+```go
+Setup: func(ctx *plugin.SetupContext) (any, error) {
+    // cron 定时（支持 5 段标准格式与 6 段含秒格式）
+    if err := ctx.RegisterCron("0 2 * * *", func() {
+        p.cleanupExpired()
+    }); err != nil {
+        ctx.Log.Warnf("RegisterCron failed: %v", err)
+    }
+
+    // 一次性延迟任务（"N 分钟后执行一次"，如倒计时提醒）
+    ctx.After("remind:"+userID, 5*time.Minute, func() {
+        sender.NotifyUser(ctx, userID, platform.TextMessage("提醒时间到！"))
+    })
+    return p, nil
+},
+```
+
+- `RegisterCron(expr, fn)`：表达式由 `robfig/cron/v3` 解析，同一插件共享一个 scheduler，Teardown 自动停止
+- `After(name, duration, fn)`：到期执行一次；插件在到期前卸载则静默取消
+- 区别于 `ctx.Spawn`（长驻后台循环）：定时任务适合"到点触发"场景
+
+---
+
+## 10. 出站消息观察者（OutboundObserver）
+
+观察 `ctx.Reply*` 发送的**出站消息结果**（成功/失败/平台响应），用于消息记录、审计、失败统计等。
+与"包装 `platform.Sender`"不同：不依赖任何平台可选接口（MessageDeleter/GroupManager 等），只挂钩 `ctx.Reply` 的发送任务。
+
+```go
+// 中间件中注入观察者
+eng.Use(func(next eventctx.Handler) eventctx.Handler {
+    return func(ctx *eventctx.Context) error {
+        context.ExtSet(ctx.Ext(), context.OutboundObserverExt{
+            Observer: &MyOutboundRecorder{},
+        })
+        return next(ctx)
+    }
+})
+
+// 观察者实现
+type MyOutboundRecorder struct{}
+
+func (r *MyOutboundRecorder) OnOutbound(
+    chatID string,
+    req platform.SendRequest,
+    res platform.SendResult,
+    err error,
+) {
+    // chatID 目标会话；req/res 请求与平台响应；err 发送错误（成功为 nil）
+    logger.Info("outbound", "chat", chatID, "err", err)
+}
+```
+
+> 注意：观察者只观察经 `ctx.Reply*` 发送的消息；直接调用 `platform.Sender.Send`（绕过 ctx.Reply，如 sendqueue 插件）不会被观察到。
+> 参考实现：`builtin/messagelog`（出站消息落库）。

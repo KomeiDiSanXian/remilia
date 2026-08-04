@@ -1,5 +1,8 @@
 # 分布式追踪配置
 
+> **最后更新**: 2026-08-04  
+
+
 ## 启用追踪
 
 在 `config.yaml` 中添加追踪配置：
@@ -90,7 +93,7 @@ func main() {
     eng := engine.NewEngine()
     
     // 添加追踪中间件（会自动追踪所有事件）
-    eng.Use(middleware.Tracing(middleware.DefaultTracingConfig()))
+    eng.Use(telemetry.Tracing(telemetry.DefaultTracingConfig()))
     
     // 创建适配器并启动
     adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
@@ -104,7 +107,7 @@ func main() {
 ```go
 // 为自定义中间件添加追踪
 func MyMiddleware() context.Middleware {
-    return middleware.TracingNamed("my-middleware", func(next context.Handler) context.Handler {
+    return telemetry.TracingNamed("my-middleware", func(next context.Handler) context.Handler {
         return func(ctx *context.Context) error {
             // 中间件逻辑
             return next(ctx)
@@ -117,9 +120,10 @@ func MyMiddleware() context.Middleware {
 
 ```go
 // 追踪命令处理器
-eng.OnCommand(platform.EventKindGroupMessage, "/ping").Handle(
-    middleware.TracingHandler("ping", func(ctx *context.Context) error {
-        return ctx.Reply(platform.TextMessage("Pong!"))
+eng.OnCommand(eventctx.EventGroup, "/ping").Handle(
+    telemetry.TracingHandler("ping", func(ctx *context.Context) error {
+        ctx.Reply(platform.TextMessage("Pong!"))
+            return nil
     }),
 )
 ```
@@ -159,12 +163,12 @@ func myHandler(ctx *context.Context) error {
 ### 5. 日志关联（Trace Context）
 
 ```go
-import "github.com/KomeiDiSanXian/remilia/middleware"
+import "github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 
 func myHandler(ctx *context.Context) error {
     // 获取 trace ID（用于日志关联）
-    traceID := middleware.GetTraceID(ctx)
-    spanID := middleware.GetSpanID(ctx)
+    traceID := telemetry.GetTraceID(ctx)
+    spanID := telemetry.GetSpanID(ctx)
     
     logger.WithFields(logger.Fields{
         "trace_id": traceID,
@@ -208,7 +212,7 @@ tracing:
 
 ```go
 eng.Use(middleware.Logging())  // 日志中间件
-eng.Use(middleware.Tracing(middleware.DefaultTracingConfig()))  // 追踪中间件
+eng.Use(telemetry.Tracing(telemetry.DefaultTracingConfig()))  // 追踪中间件
 ```
 
 日志输出会自动包含 `trace_id` 和 `span_id` 字段。

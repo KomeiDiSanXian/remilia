@@ -1,6 +1,6 @@
 # 插件开发指南
 
-> **最后更新**: 2026-06-22  
+> **最后更新**: 2026-08-04  
 > **说明**: 本文是插件 API 的完整开发指南。
 
 ---
@@ -23,7 +23,7 @@ func New() *plugin.Descriptor {
         Version: "1.0.0",
 
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.On(platform.EventKindGroupMessage, eventctx.OnCommand("/hello")).
+            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/hello").
                 Handle(p.handleHello)
             return p, nil // 导出到容器；nil 也合法
         },
@@ -79,16 +79,14 @@ func New() *plugin.Descriptor {
 err := manager.Register(myplugin.New())
 ```
 
-### 批量注册（手动声明顺序，Deps 字段保证依赖校验）
+### 批量注册（显式声明 Deps，框架保证拓扑顺序与依赖校验）
 
 ```go
-err := manager.RegisterMultipleAtomic(
-    []*plugin.Descriptor{
-        storage.New(),
-        cache.New(),    // Deps: ["storage"]
-        weather.New(),  // Deps: ["cache"]
-    },
-)
+err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
+    storage.New(),
+    cache.New(),    // Deps: ["storage"]
+    weather.New(),  // Deps: ["cache"]
+})
 ```
 
 ### Smart 注册（自动推断依赖 + 拓扑排序）
@@ -124,8 +122,8 @@ err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
 ```go
 Setup: func(ctx *plugin.SetupContext) (any, error) {
     // Matcher / Command 注册
-    ctx.Reg.On(platform.EventKindPrivateMessage).Handle(handler)
-    ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/cmd").Handle(handler)
+    ctx.Reg.RegisterMatcher(eventctx.EventPrivate).Handle(handler)
+    ctx.Reg.RegisterCommand(eventctx.EventGroup, "/cmd").Handle(handler)
 
     // 带前缀结构化日志
     ctx.Log.Info("starting")
@@ -148,8 +146,8 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
         ctx.Config.OnChange(func(key string, old, newVal any) { })
     }
 
-    // 事件总线
-    sub := ctx.EventBus.Subscribe("user.login", func(data any) { })
+    // 事件总线（推荐 ctx.Scope().Subscribe：插件卸载自动取消订阅）
+    sub, err := ctx.Scope().Subscribe("user.login", func(data any) { })
     _ = sub // sub.Unsubscribe() 取消
 
     // 生命周期绑定 goroutine
@@ -232,7 +230,7 @@ func New() *plugin.Descriptor {
                 })
             }
 
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/weather").
+            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/weather").
                 Handle(p.handleWeather)
 
             ctx.Spawn(func(runCtx context.Context) {
@@ -258,14 +256,17 @@ func New() *plugin.Descriptor {
 func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
     cmd := ctx.GetParsedCommand()
     if cmd == nil {
-        return ctx.Reply("用法：/weather <城市>")
+        ctx.Reply(platform.TextMessage("用法：/weather <城市>"))
+        return nil
     }
-    city, _ := cmd.Args["city"]
+    city, _ := cmd.Arguments["city"].(string)
     result, err := p.fetch(city)
     if err != nil {
-        return ctx.Reply(fmt.Sprintf("查询失败: %v", err))
+        ctx.Reply(platform.TextMessage(fmt.Sprintf("查询失败: %v", err)))
+        return nil
     }
-    return ctx.Reply(result)
+    ctx.Reply(platform.TextMessage(result))
+    return nil
 }
 
 func (p *Plugin) fetch(city string) (string, error) { /* ... */ return "", nil }

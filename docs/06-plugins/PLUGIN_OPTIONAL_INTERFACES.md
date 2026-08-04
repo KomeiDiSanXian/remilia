@@ -1,6 +1,6 @@
 # 插件接口速查
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-08-04  
 
 
 ---
@@ -27,7 +27,7 @@
     // 初始化（必填）
     Setup: func(ctx *plugin.SetupContext) (any, error) {
         p := &MyPlugin{}
-        ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/hello").Handle(p.handle)
+        ctx.Reg.RegisterCommand(eventctx.EventGroup, "/hello").Handle(p.handle)
         return p, nil // 导出到容器（nil 也合法）
     },
 
@@ -61,13 +61,14 @@
 
 ```go
 // 事件匹配器
-ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/ping").
+ctx.Reg.RegisterCommand(eventctx.EventGroup, "/ping").
     Handle(func(c *eventctx.Context) error {
-        return c.Reply(platform.TextMessage("Pong!"))
+        c.Reply(platform.TextMessage("Pong!"))
+            return nil
     })
 
 // 命令匹配器（自动 O(1) 索引）
-ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/status").
+ctx.Reg.RegisterCommand(eventctx.EventGroup, "/status").
     Handle(p.handleStatus)
 ```
 

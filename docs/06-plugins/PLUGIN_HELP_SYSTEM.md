@@ -1,6 +1,6 @@
 # 插件帮助系统使用指南
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-08-04  
 
 
 ---
@@ -49,8 +49,8 @@ func New() *plugin.Descriptor {
         },
 
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/echo").Handle(p.handleEcho)
-ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/ping").Handle(p.handlePing)
+ctx.Reg.RegisterCommand(eventctx.EventGroup, "/echo").Handle(p.handleEcho)
+ctx.Reg.RegisterCommand(eventctx.EventGroup, "/ping").Handle(p.handlePing)
             return p, nil
         },
     }
@@ -58,12 +58,14 @@ ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/ping").Handle(p.handle
 
 func (p *MyPlugin) handleEcho(ctx *eventctx.Context) error {
     cmd := ctx.GetParsedCommand()
-    text, _ := cmd.Args["text"]
-    return ctx.Reply(platform.TextMessage(text))
+    text, _ := cmd.Arguments["text"]
+    ctx.Reply(platform.TextMessage(text))
+        return nil
 }
 
 func (p *MyPlugin) handlePing(ctx *eventctx.Context) error {
-	return ctx.Reply(platform.TextMessage("Pong!"))
+	ctx.Reply(platform.TextMessage("Pong!"))
+	    return nil
 }
 ```
 
@@ -141,7 +143,7 @@ func New() *plugin.Descriptor {
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             reader := ctx.Info.Coordinator()
 
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/help").
+            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/help").
                 Handle(func(c *eventctx.Context) error {
                     cmds := reader.GetAllCommands()
                     var sb strings.Builder
@@ -150,7 +152,8 @@ func New() *plugin.Descriptor {
                         sb.WriteString(fmt.Sprintf("  %s — %s\n",
                             cmd.Command, cmd.Description))
                     }
-                    return c.Reply(sb.String())
+                    c.Reply(sb.String())
+                        return nil
                 })
 
             return nil, nil
@@ -219,20 +222,7 @@ func TestPluginMetadata(t *testing.T) {
 
 ## 相关文档
 
-- [完整示例代码](../../examples/plugin-metadata/)
-- [插件系统增强方案](../03-architecture/PLUGIN_ENHANCEMENT_PROPOSAL.md)
-- [Help 插件设计](../03-architecture/HELP_PLUGIN_DESIGN.md)
-- [实施报告](../06-archived/PLUGIN_METADATA_ENHANCEMENT.md)
+- [插件开发指南](./PLUGIN_DEVELOPMENT_GUIDE.md)
+- [插件开发最佳实践](./plugin-best-practices.md)
 
 ---
-
-## 总结
-
-插件元数据系统让 Remilia 的插件生态更加规范和易用：
-
-✅ **统一的帮助系统**：用户可以轻松查询所有插件和命令  
-✅ **向后兼容**：旧插件无需修改即可工作  
-✅ **灵活扩展**：支持丰富的元数据字段  
-✅ **开发友好**：简单的 API，清晰的文档
-
-开始为你的插件添加元数据吧！🚀

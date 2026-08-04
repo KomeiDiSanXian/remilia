@@ -1,5 +1,8 @@
 # 多平台消息处理架构
 
+> **最后更新**: 2026-08-04  
+
+
 ## 背景
 
 原框架的事件处理与 QQ 官方数据结构（`dto.Payload`）深度耦合，导致：
@@ -70,6 +73,8 @@ type ChatInfo struct {
     ParentID string  // 父容器 ID（guild_id / 服务器 ID），私聊和普通群为空
     Name     string  // 会话名称（可选，部分平台不提供）
     IsGroup  bool    // 是否为群组/频道消息（false = 私聊）
+    IsDM     bool    // 是否为私信（DM）会话；与 IsGroup=true、ParentID 非空同时成立时为频道私信
+    Tokens   []Token // 平台专属授权令牌（被动回复授权等）
 }
 ```
 
@@ -79,30 +84,70 @@ type ChatInfo struct {
 
 ```go
 type Adapter interface {
-    Platform()     string
-    StartPlatform(ctx context.Context, handler func(Event)) error
-    Stop(ctx context.Context) error
+    Platform()     string                                  // 平台标识（小写），如 "qq"、"discord"
+    Start(ctx context.Context, handler func(Event)) error  // 启动事件循环，直到 ctx 取消
+    Stop(ctx context.Context) error                        // 停止适配器
     Sender()       Sender
-    Capabilities() Capabilities  // 平台特性声明
+    Capabilities() Capabilities                            // 平台特性声明
 }
 ```
 
 ### `platform.Capabilities`
 
-平台特性声明，用于 Handler 做渐进增强决策：
+平台特性声明，用于 Handler 做渐进增强决策。支持两种检查方式：
+`caps.Has(platform.CapMarkdown | platform.CapEmbeds)`（位掩码，推荐）或直接读布尔字段：
 
 ```go
 type Capabilities struct {
-    Markdown        bool  // 是否支持 Markdown
-    Buttons         bool  // 是否支持交互按钮
-    MultiAttachment bool  // 是否支持多附件
-    MessageEdit     bool  // 是否支持消息编辑（MessageEditor 接口）
-    MessageDelete   bool  // 是否支持消息删除（MessageDeleter 接口）
+    Markdown        bool  // 是否支持 Markdown 格式消息
+    Buttons         bool  // 是否支持交互按钮（内联键盘等）
+    MultiAttachment bool  // 是否支持一条消息内多个附件
+    MessageEdit     bool  // 是否支持编辑已发送消息（MessageEditor 接口）
+    MessageDelete   bool  // 是否支持删除/撤回消息（MessageDeleter 接口）
     Embeds          bool  // 是否支持富文本嵌入卡片
-    FileUpload      bool  // 是否支持二进制文件直传
+    FileUpload      bool  // 是否支持二进制文件直传（非 URL）
     GuildSupport    bool  // 是否有服务器/频道层级（ChatInfo.ParentID 有效）
+    Reactions       bool  // 是否支持表情回应
+    ThreadReply     bool  // 是否支持消息回复链/引用回复
+    TypingIndicator bool  // 是否支持"正在输入"状态
+    MentionAll      bool  // 是否支持 @全体成员
+    VoiceChannel    bool  // 是否支持语音频道
+    Caption         bool  // 是否支持同一条消息内文本与附件同发（图文同发）
+
+    // ── 量化限制（0 = 无已知限制）────────────────────────
+    MaxTextLength    int  // 单条文本最大字符数（Discord=2000，Telegram=4096）
+    MaxAttachmentMB  int  // 单个附件最大大小 MB
+    MaxButtonsPerRow int  // 每行最多按钮数
+    MaxButtonRows    int  // 最多按钮行数
+    MaxEmbedFields   int  // 单个 Embed 最多字段数
 }
 ```
+
+> **图文同发（CapCaption）**：`Caption` 声明平台支持"文本 + 附件同一条消息"。
+> Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、Satori（元素列表）支持；
+> QQ 富媒体消息会丢弃文本，**不**声明此能力——插件据此选择"图文同发"或"图与文字分条发送"（如 pic/sauce 插件）。
+
+### `platform.Button`
+
+交互按钮。支持三种形态：回调按钮、跳转链接按钮、指令按钮。
+
+```go
+type Button struct {
+    ID       string // 回调标识（Discord custom_id / Telegram callback_data）
+    Label    string // 按钮显示文字
+    URL      string // 跳转目标（Style == ButtonStyleLink 时有效）
+    Command  string // 指令按钮：非空时点击后自动插入 "@bot <Command>" 由用户发送
+    Style    ButtonStyle
+    Disabled bool   // 是否置灰不可点击
+    Row      int    // 按钮行号（1-5），同 Row 值的按钮排同一行
+    Emoji    string // 按钮前展示的 emoji（Discord 原生）
+}
+```
+
+- **回调按钮**（`ID` 非空）：点击产生 `EventKindInteraction` 回调事件，Handler 可响应
+- **指令按钮**（`Command` 非空）：点击后在输入框插入命令文本（如 `/help`），由用户自行发送，**不产生**交互回调
+  ——规避了 QQ webhook 模式互动回调不可靠的问题（见 [FAQ](../FAQ.md)），适合"查看命令列表"类快捷入口
+- **跳转按钮**（`Style == ButtonStyleLink` + `URL`）：点击打开链接
 
 ### `platform.Sender`
 
@@ -189,7 +234,8 @@ bot, err := remilia.NewBotBuilder().
 engine.On(context.OnEventKind(platform.EventKindPrivateMessage),
     context.OnCommand("/ping"),
 ).Handle(func(ctx *context.Context) error {
-    return ctx.Reply(platform.TextMessage("pong"))
+    ctx.Reply(platform.TextMessage("pong"))
+        return nil
 })
 
 // 渐进增强：根据平台能力选择消息格式
@@ -200,7 +246,8 @@ engine.OnAny().Handle(func(ctx *context.Context) error {
     }
     // 通过 Registry 获取平台能力（或从 Context 中读取）
     // 根据能力选择合适的消息格式
-    return ctx.Reply(platform.TextMessage("hello"))
+    ctx.Reply(platform.TextMessage("hello"))
+        return nil
 })
 ```
 
@@ -298,7 +345,7 @@ func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)
 平台适配器事件循环
   │
   ▼
-platform.PlatformAdapter.StartPlatform()
+adapter.Start(ctx, handler)   // 每个平台适配器的事件循环
   │  handler(platform.Event)
   ▼
 Bot.handlePlatformEvent(event)
@@ -326,25 +373,29 @@ context.ReleaseContextFromEvent(ctx)  ← 归还对象池
 platform/
   event.go          # Event / UserInfo / ChatInfo / EventKind 接口定义
   message.go        # OutboundMessage / Attachment / Embed / Button 统一消息模型
-  adapter.go        # PlatformAdapter / Sender / MessageEditor / MessageDeleter
-                    # PlatformCapabilities / Registry / NoopSender
+  adapter.go        # Adapter / Sender / MessageEditor / MessageDeleter
+                    # Capabilities / Registry / NoopSender
+  capabilities.go   # Capabilities 位掩码（CapabilityFlag）与 Has()
+  registry.go       # 多平台适配器注册表（并发启动/停止、致命错误通道）
   platform_test.go  # 接口与工具函数测试
   qq/
-    adapter.go      # QQ Adapter（轻量，包装 Webhook）
-    bot.go          # QQ 平台 Bot 辅助函数
+    adapter.go      # QQ Adapter（webhook / websocket 两种模式）
+    webhook_server.go  # WebhookServerAdapter（内置 HTTP 服务器 + 签名校验）
+    wsconn.go       # websocket 适配器（v1.25.0 起支持）
     event.go        # qqEvent（包装 *dto.Payload 为 platform.Event）
     sender.go       # QQ Sender + QQCapabilities
-    webhook_server.go  # WebhookServerAdapter（内置 HTTP 服务器）
-    event_test.go   # QQ 事件解析测试
-    webhook_server_test.go
+    event_test.go / webhook_server_test.go / wsconn_test.go
+    ark.go          # 富媒体卡片（ark）支持
     dlq/            # 死信队列支持
     openapi/        # QQ OpenAPI 客户端
-  discord/
-    adapter.go      # Discord 骨架（待社区贡献）
-  telegram/
-    adapter.go      # Telegram 骨架（待社区贡献）
-  wechat/
-    adapter.go      # WeChat 骨架（待社区贡献）
+  discord/          # 完整实现：adapter / event / sender / interactions / extra
+  telegram/         # 完整实现：adapter / client / event / sender / types
+  onebot/           # OneBot 实现：http_post / ws_reverse / message / event
+  satori/           # Satori 实现：webhook / ws / message_element / event
+  wechat/           # 完整实现：adapter / event / sender
+  milky/            # 完整实现：adapter / api / client / event / sender
+  terminal/         # 终端适配器（本地调试）
+  mock/             # 测试用 mock 适配器
 
 core/context/
   platform_event.go      # NewContextFromEvent / Reply / GetEventKind 等
@@ -359,13 +410,17 @@ core/engine/
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| `platform/` 抽象层 | ✅ 完成 | Event / PlatformAdapter / Sender / OutboundMessage / PlatformCapabilities / Registry |
-| `platform/qq` 完整实现 | ✅ 完成 | WebhookServerAdapter / Adapter / qqSender / qqEvent 均实现 |
+| `platform/` 抽象层 | ✅ 完成 | Event / Adapter / Sender / OutboundMessage / Capabilities（位掩码）/ Registry |
+| `platform/qq` 完整实现 | ✅ 完成 | WebhookServerAdapter / websocket 适配器 / qqSender / qqEvent 均实现 |
 | `core/context` 迁移 | ✅ 完成 | 完全切换到平台无关路径，旧 dto.Payload 字段已清除 |
 | `core/engine` 新入口 | ✅ 完成 | ProcessPlatformEvent 与旧 ProcessEvent 共用同一路由逻辑 |
 | Bot 多平台注册表 | ✅ 完成 | UsePlatformRegistry / WithPlatformRegistry 完整实现 |
 | `ctx.Reply()` | ✅ 完成 | 平台无关发送，自动注入 ChatInfo，正确传播超时/取消信号 |
 | `platform.EventKind` 路由 | ✅ 完成 | OnEventKind() 支持跨平台规则匹配 |
-| `platform/discord` | 🚧 骨架 | 接口签名存在，待社区贡献完整实现 |
-| `platform/telegram` | 🚧 骨架 | 同上 |
-| `platform/wechat` | 🚧 骨架 | 同上 |
+| `platform/discord` | ✅ 完成 | adapter / event / sender / interactions 完整实现 |
+| `platform/telegram` | ✅ 完成 | adapter / client / event / sender 完整实现 |
+| `platform/onebot` | ✅ 完成 | HTTP POST / WebSocket 反向连接实现 |
+| `platform/satori` | ✅ 完成 | Webhook / WebSocket / 消息元素实现 |
+| `platform/wechat` | ✅ 完成 | 完整实现 |
+| `platform/milky` | ✅ 完成 | 完整实现 |
+| `platform/terminal` | ✅ 完成 | 终端适配器（本地调试） |

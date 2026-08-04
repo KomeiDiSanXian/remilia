@@ -1,7 +1,6 @@
 # Matcher 链式调用最佳实践
 
-**版本**: v1.0  
-**日期**: 2026-01-25
+> **最后更新**: 2026-08-04
 
 ---
 
@@ -84,8 +83,8 @@ m.SetCategory("高级")
 m.SetUsage("/complex [options]")
 
 // 添加多个中间件
-m.Use(middleware.RequireAuth())
-m.Use(middleware.RateLimit(10))
+m.Use(auth.RequireAdmin())
+m.Use(middleware.SimpleRateLimit(10))
 m.Use(middleware.Logging())
 
 // 动态配置
@@ -108,12 +107,13 @@ m.Handle(complexHandler)
 ```go
 // ✅ 最佳实践：简单命令使用完整链式
 func registerPingCommand(eng *engine.Engine) {
-    eng.OnCommand(platform.EventKindGroupMessage, "/ping").
+    eng.OnCommand(eventctx.EventGroup, "/ping").
         SetDescription("测试机器人连接").
         SetCategory("系统").
         SetUsage("/ping").
         Handle(func(ctx *context.Context) error {
-            return ctx.Reply(platform.TextMessage("Pong! 🏓"))
+            ctx.Reply(platform.TextMessage("Pong! 🏓"))
+                return nil
         })
 }
 ```
@@ -153,7 +153,7 @@ func registerSearchCommand(eng *engine.Engine) {
 
     eng.RegisterCommandDef(dto.GroupAtMessageCreate, def).
         SetPriority(50).
-        Use(middleware.RateLimit(10)).
+        Use(middleware.SimpleRateLimit(10)).
         Handle(func(ctx *context.Context) error {
             parsed := ctx.GetParsedCommand()
             keyword := parsed.GetString("keyword")
@@ -189,7 +189,8 @@ func registerAdminCommand(eng *engine.Engine) {
     // 处理器（最后）
     m.Handle(func(ctx *context.Context) error {
         // 管理逻辑...
-        return ctx.Reply("Admin command executed")
+        ctx.Reply("Admin command executed")
+            return nil
     })
 }
 ```
@@ -213,11 +214,11 @@ func registerDynamicCommand(eng *engine.Engine, cfg *Config) {
     }
 
     if cfg.RequireAuth {
-        m.Use(middleware.RequireAuth())
+        m.Use(auth.RequireAdmin())
     }
 
     if cfg.EnableRateLimit {
-        m.Use(middleware.RateLimit(cfg.RateLimit))
+        m.Use(middleware.SimpleRateLimit(cfg.RateLimit))
     }
 
     // Handler 最后设置
@@ -307,12 +308,14 @@ m.Handle(complexHandler)
 m := eng.OnCommand("/test")
 
 m.Handle(func(ctx *context.Context) error {
-    return ctx.Reply("Handler 1")
+    ctx.Reply("Handler 1")
+        return nil
 })
 
 // 这会覆盖上面的 Handler
 m.Handle(func(ctx *context.Context) error {
-    return ctx.Reply("Handler 2")  // ← 只有这个会执行
+    ctx.Reply("Handler 2")  // ← 只有这个会执行
+    return nil
 })
 ```
 
@@ -366,7 +369,7 @@ m.SetBlock(false)
 
 // Group 3: 权限和中间件
 m.SetPermissions("admin")
-m.Use(middleware.RequireAuth())
+m.Use(auth.RequireAdmin())
 m.Use(middleware.Logging())
 
 // Group 4: 处理器（最后）
@@ -409,7 +412,7 @@ m := eng.OnCommand("/search").
 
 // 动态配置
 if needAuth {
-    m.Use(middleware.RequireAuth())
+    m.Use(auth.RequireAdmin())
 }
 
 m.Handle(searchHandler)
@@ -432,27 +435,13 @@ m.Handle(searchHandler)
 
 ## 📚 参考
 
-### 相关文档
-
-- [Matcher API 文档](./MATCHER_API.md)
-- [中间件使用指南](./MIDDLEWARE_GUIDE.md)
-- [命令系统文档](./COMMAND_SYSTEM.md)
-
 ### 设计分析
 
-- [Handle 方法设计分析](./HANDLE_METHOD_DESIGN_ANALYSIS.md)
+- [Handle 方法设计分析](../notes/HANDLE_METHOD_DESIGN_ANALYSIS.md)
 
 ---
 
-## 🎯 总结
-
-### 核心要点
-
-1. **Handle 应该最后调用** - 使代码逻辑清晰
-2. **相关配置应该分组** - 提高可读性
-3. **复杂配置使用分步** - 便于维护
-
-### 快速参考
+## 🎯 快速参考
 
 ```go
 // ✅ 推荐模式
@@ -469,8 +458,3 @@ matcher.
     SetDescription("...")   // ← 配置应该在前面
 ```
 
----
-
-**版本**: v1.0  
-**维护者**: Remilia Team  
-**更新日期**: 2026-01-25

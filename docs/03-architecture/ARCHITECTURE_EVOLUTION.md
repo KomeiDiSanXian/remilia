@@ -1,6 +1,6 @@
 # 架构演进总览
 
-> **最后更新**: 2026-05-05
+> **最后更新**: 2026-08-04
 
 本文档从宏观视角梳理 Remilia 框架的架构演进历程、核心设计原则和各模块的迭代路径。帮助开发者理解"为什么这样设计"背后的决策上下文。
 
@@ -102,8 +102,8 @@ type Bot struct {
 
 | 模块 | V0 | V1 | V2 | V3 | V4（当前） |
 |------|----|----|----|----|-----------|
-| **事件引擎** | bare `atomic.Value` + 手动断言 | `infraatomic.Value[T]` 泛型 | 选择性 COW 复制 | eventGate sentinel | `shutdown`+`WaitGroup` |
-| **匹配器路由** | RWMutex 线性遍历 | COW + EventType 索引 | +commandIndex O(1) | +TempManager 分片 | 六路合并 |
+| **事件引擎** | bare `atomic.Value` + 手动断言 | `infraatomic.Value[T]` 泛型 | 选择性 COW 复制 | eventGate sentinel | shutdown+WaitGroup + RegisterBatch 批量注册 |
+| **匹配器路由** | RWMutex 线性遍历 | COW + EventType 索引 | +commandIndex O(1) | +TempManager 分片 | RoutingStrategy（可插拔 MatcherIndex + K 路归并） |
 | **插件系统** | 继承 BasePlugin | Coordinator 接口隔离 | 函数式 Descriptor | +OptionalDeps | DryRun+BlueGreen |
 | **中间件链** | 全局无缓存 | 三层+代际号 | 版本计数器替代 reflect | 迭代式构建 | 三级调用路径 |
 | **生命周期** | Bot 内嵌启动逻辑 | Context 区分 Start/Stop | lifecycle 独立包 | 双层 Context | 状态机+回滚 |

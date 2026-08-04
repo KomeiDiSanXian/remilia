@@ -1,10 +1,10 @@
-> **最后更新**: 2026-07-26
+> **最后更新**: 2026-08-04
 
 # 配置系统快速参考
 
 ## 顶层配置总览
 
-`config.yaml` 共有 9 个顶层配置节（完整字段与热更新标注见 [config.example.yaml](../../config.example.yaml)）：
+`config.yaml` 共有 9 个顶层配置节（完整字段与热更新标注见 [config.example.yaml](https://github.com/KomeiDiSanXian/remilia/blob/master/config.example.yaml)）：
 
 | 顶层键 | Go 结构体 | 用途 | 热更新 |
 |--------|-----------|------|--------|
@@ -111,7 +111,7 @@ eng := engine.NewEngine(
 )
 ```
 
-> **`WithMaxMatchers`（v2.0+）**: 设置 Matcher 注册上限。
+> **`WithMaxMatchers`**: 设置 Matcher 注册上限。
 > 达到上限后新注册的 Matcher 返回 noop（链式调用安全，但不执行）。
 > 默认值 0 表示不限制。
 
@@ -144,9 +144,7 @@ engine.Use(middleware.SimpleRateLimit(10))
 
 // 按用户限流（每用户每秒 2 次）
 engine.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
-    author := ctx.GetAuthor()
-    if author == nil { return "" }
-    return author.UserOpenID
+    return ctx.GetSenderInfo().ID
 }))
 ```
 
@@ -168,7 +166,7 @@ middleware:
   slow_handler_threshold: "1s"  # 超过 1 秒记录警告
 ```
 
-#### 自适应降级热更新阈值（v2.0+）
+#### 自适应降级热更新阈值
 
 ```yaml
 middleware:
@@ -201,7 +199,7 @@ degradation:
 ```go
 // 使用降级配置
 if cfg.Degradation.Enable {
-    deg := middleware.NewAdaptiveDegradation(middleware.DegradationConfig{
+    deg := degradation.NewAdaptiveDegradation(degradation.DegradationConfig{
         CPUThreshold:    cfg.Degradation.CPUThreshold,
         MemoryThreshold: cfg.Degradation.MemoryThreshold,
         // ... 其他配置
@@ -514,8 +512,6 @@ if err := watcher.Start(); err != nil {
 
 ## 相关文档
 
-- [配置示例文件](../../config.example.yaml)（含每个字段的热更新标注：[H] 即时 / [H⚠] 有条件 / [R] 需重启）
+- [配置示例文件](https://github.com/KomeiDiSanXian/remilia/blob/master/config.example.yaml)（含每个字段的热更新标注：[H] 即时 / [H⚠] 有条件 / [R] 需重启）
 
 ---
-
-*最后更新: 2026-07-26*

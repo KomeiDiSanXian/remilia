@@ -1,8 +1,11 @@
 # OutboundDispatcher 实现方案
 
+> **最后更新**: 2026-08-04  
+
+
 > **状态：已实现**（`core/engine/dispatcher.go` + `infra/future`）。
 > 本文是当时的设计方案存档；最终实现与演进（含 worker 自删除竞态的修复）
-> 见架构笔记 [`../notes/21-outbound-dispatcher.md`](../notes/21-outbound-dispatcher.md)。
+> 见架构笔记 [`./21-outbound-dispatcher.md`](./21-outbound-dispatcher.md)。
 
 ## 概述
 
@@ -366,7 +369,8 @@ func (ctx *Context) Reply(msg platform.OutboundMessage) *future.Future[platform.
 
 ```go
 func (ctx *Context) ReplyText(text string) *future.Future[platform.SendResult] {
-    return ctx.Reply(platform.TextMessage(text))
+    ctx.Reply(platform.TextMessage(text))
+        return nil
 }
 ```
 

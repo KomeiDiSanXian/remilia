@@ -1,5 +1,8 @@
 # Handle 方法签名设计分析
 
+> **最后更新**: 2026-08-04  
+
+
 **日期**: 2026-01-25  
 **问题**: `Handle` 方法是否应该改为终结点（不返回 `*Matcher`）？
 
@@ -37,7 +40,8 @@ func (m *Matcher) Handle(handler context.Handler) *Matcher {
 eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
     SetDescription("测试连接").
     Handle(func(ctx *context.Context) error {
-        return ctx.Reply("Pong!")
+        ctx.Reply("Pong!")
+            return nil
     }).
     SetPriority(100).  // ← Handle 之后继续设置
     SetBlock(true)
@@ -45,7 +49,8 @@ eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
 // 场景 1b: Handle 之后使用中间件
 eng.OnCommand(dto.GroupAtMessageCreate, "/admin").
     Handle(func(ctx *context.Context) error {
-        return ctx.Reply("Admin command")
+        ctx.Reply("Admin command")
+            return nil
     }).
     Use(middleware.RequireAdmin())  // ← Handle 之后添加中间件
 ```
@@ -63,7 +68,8 @@ eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
     SetPriority(100).
     SetBlock(true).
     Handle(func(ctx *context.Context) error {  // ← 最后设置
-        return ctx.Reply("Pong!")
+        ctx.Reply("Pong!")
+            return nil
     })
 
 // 场景 2b: 分步骤设置
@@ -71,7 +77,8 @@ m := eng.OnCommand(dto.GroupAtMessageCreate, "/admin")
 m.SetDescription("管理命令")
 m.Use(middleware.RequireAdmin())
 m.Handle(func(ctx *context.Context) error {  // ← 最后设置
-    return ctx.Reply("Admin panel")
+    ctx.Reply("Admin panel")
+        return nil
 })
 ```
 
@@ -86,13 +93,15 @@ m.Handle(func(ctx *context.Context) error {  // ← 最后设置
 m := eng.OnCommand(dto.GroupAtMessageCreate, "/dynamic").
     SetDescription("动态命令").
     Handle(func(ctx *context.Context) error {
-        return ctx.Reply("Initial handler")
+        ctx.Reply("Initial handler")
+            return nil
     })
 
 // 稍后修改
 m.SetPriority(200)
 m.Handle(func(ctx *context.Context) error {  // 替换 Handler
-    return ctx.Reply("Updated handler")
+    ctx.Reply("Updated handler")
+        return nil
 })
 
 // 场景 3b: 如果 Handle 不返回 *Matcher
@@ -100,14 +109,16 @@ m := eng.OnCommand(dto.GroupAtMessageCreate, "/dynamic").
     SetDescription("动态命令")
     
 m.Handle(func(ctx *context.Context) error {  // 终结点
-    return ctx.Reply("Initial handler")
+    ctx.Reply("Initial handler")
+        return nil
 })
 // m 仍然可用，可以继续修改
 
 // 稍后修改
 m.SetPriority(200)
 m.Handle(func(ctx *context.Context) error {
-    return ctx.Reply("Updated handler")
+    ctx.Reply("Updated handler")
+        return nil
 })
 ```
 
@@ -288,9 +299,10 @@ eng.OnCommand(dto.GroupAtMessageCreate, "/ping").
     SetDescription("测试连接").
     SetCategory("系统").
     SetPriority(100).
-    Use(middleware.RateLimit(10)).
+    Use(middleware.SimpleRateLimit(10)).
     Handle(func(ctx *context.Context) error {  // ← 最后调用
-        return ctx.Reply("Pong!")
+        ctx.Reply("Pong!")
+            return nil
     })
 
 // 方式 2: 分步配置（Handle 最后）
@@ -299,7 +311,8 @@ m.SetDescription("管理命令")
 m.SetCategory("管理")
 m.Use(middleware.RequireAdmin())
 m.Handle(func(ctx *context.Context) error {  // ← 最后调用
-    return ctx.Reply("Admin panel")
+    ctx.Reply("Admin panel")
+        return nil
 })
 
 // 方式 3: 先保存引用，配置后设置 Handler
@@ -364,7 +377,8 @@ func goodExample(eng *engine.Engine) {
         SetDescription("好的示例").
         SetPriority(100).
         Handle(func(ctx *context.Context) error {  // ← 最后
-            return ctx.Reply("Good!")
+            ctx.Reply("Good!")
+                return nil
         })
 }
 
@@ -372,7 +386,8 @@ func goodExample(eng *engine.Engine) {
 func badExample(eng *engine.Engine) {
     eng.OnCommand("/bad").
         Handle(func(ctx *context.Context) error {
-            return ctx.Reply("Bad!")
+            ctx.Reply("Bad!")
+                return nil
         }).
         SetDescription("不好的示例")  // ← Handle 之后配置
 }

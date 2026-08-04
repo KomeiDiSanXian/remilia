@@ -1,5 +1,8 @@
 # 黑白名单功能
 
+> **最后更新**: 2026-08-04  
+
+
 ## 概述
 
 黑白名单功能允许管理员控制哪些用户可以访问机器人。支持两种模式：
@@ -288,7 +291,7 @@ func main() {
     pm.Register(permission.New())
 
     // 获取插件实例
-    p := plugin.Must[permission.Plugin](pm.Info(), "permission")
+    p := plugin.MustGetService[permission.Plugin](pm.GetContainer(), "permission")
 
     // 1. 设置黑名单模式
     p.SetACLMode(permission.ModeBlacklist)
@@ -326,7 +329,7 @@ func main() {
 eng.Use(p.RequireACL())
 
 // 或在特定命令中使用
-eng.OnCommand(platform.EventKindC2CMessage, "/sensitive").
+eng.OnCommand(eventctx.EventPrivate, "/sensitive").
     Use(p.RequireACL()).
     Handle(handler)
 ```
@@ -539,20 +542,4 @@ VIP会员
 - [ ] 时间限制（临时封禁）
 - [ ] 自动解封
 - [ ] 审计日志
-
-## 总结
-
-黑白名单功能提供了灵活的访问控制：
-
-1. ✅ **三种模式**: 禁用、黑名单、白名单
-2. ✅ **易于管理**: 简单的命令接口
-3. ✅ **安全可靠**: 并发安全、备注支持
-4. ✅ **灵活切换**: 随时切换模式
-5. ✅ **测试完善**: 12个测试全部通过
-
-**适用场景:**
-- 封禁违规用户（黑名单）
-- 内测阶段控制（白名单）
-- 私有服务限制（白名单）
-- 公开服务运营（禁用或黑名单）
 

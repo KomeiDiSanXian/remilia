@@ -61,29 +61,34 @@ nav:
   - 常见问题: FAQ.md
   - 用户指南:
       - 最佳实践: 02-user-guides/BEST_PRACTICES.md
+      - FSM 状态机指南: 02-user-guides/FSM_GUIDE.md
       - Matcher 链式调用: 02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md
       - 工厂函数指南: 02-user-guides/FACTORY_FUNCTIONS_GUIDE.md
       - 错误处理: 02-user-guides/ERROR_HANDLING.md
       - 配置快速参考: 02-user-guides/CONFIGURATION_QUICKREF.md
       - 配置热更新: 02-user-guides/CONFIG_HOTRELOAD_QUICKREF.md
+      - API 服务器: 02-user-guides/API_SERVER.md
       - 访问控制列表: 02-user-guides/access-control-list.md
       - 验证码系统: 02-user-guides/verification-code-system.md
       - 链路追踪: 02-user-guides/tracing.md
-  - 插件开发:
-      - 插件开发指南: 02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md
-      - 插件接口速查: 02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md
-      - 插件增强能力: 02-user-guides/PLUGIN_ENHANCEMENTS_GUIDE.md
-      - 插件帮助系统: 02-user-guides/PLUGIN_HELP_SYSTEM.md
-      - 插件开发最佳实践: 04-development/plugin-best-practices.md
-      - WASM 插件开发: 04-development/wasm-plugin-development.md
+  - 插件文档:
+      - 插件文档索引: 06-plugins/README.md
+      - 插件开发指南: 06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md
+      - 插件接口速查: 06-plugins/PLUGIN_OPTIONAL_INTERFACES.md
+      - 插件增强能力: 06-plugins/PLUGIN_ENHANCEMENTS_GUIDE.md
+      - 命令系统: 06-plugins/COMMAND_SYSTEM.md
+      - infra 工具包: 06-plugins/INFRA_TOOLKIT.md
+      - 插件帮助系统: 06-plugins/PLUGIN_HELP_SYSTEM.md
+      - 插件开发最佳实践: 06-plugins/plugin-best-practices.md
+      - 内置插件指南: 06-plugins/BUILTIN_PLUGINS.md
+      - 应用级插件指南: 06-plugins/APP_PLUGINS.md
+      - AI 对话插件: 06-plugins/AI_PLUGIN.md
+      - WASM 插件开发: 06-plugins/wasm-plugin-development.md
   - 架构设计:
       - 并发事件处理: 03-architecture/CONCURRENT_EVENT_PROCESSING.md
       - 多平台抽象: 03-architecture/MULTI_PLATFORM.md
       - 权限系统架构: 03-architecture/permission-system.md
       - Context 传播模式: 03-architecture/CONTEXT_PROPAGATION.md
-      - Handle 方法设计分析: 03-architecture/HANDLE_METHOD_DESIGN_ANALYSIS.md
       - 架构演进总览: 03-architecture/ARCHITECTURE_EVOLUTION.md
   - 性能:
       - 性能报告: 05-performance/PERFORMANCE_REPORT.md
-      - OutboundDispatcher 设计方案: 05-performance/OUTBOUND_DISPATCHER_PLAN.md
-  - 开发指南: 04-development/README.md

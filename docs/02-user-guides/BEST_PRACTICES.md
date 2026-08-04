@@ -1,6 +1,6 @@
 # Remilia 最佳实践
 
-> **最后更新**: 2026-02-25  
+> **最后更新**: 2026-08-04  
 
 
 本文档总结了使用 Remilia 框架开发 QQ 机器人的最佳实践和常见模式。
@@ -70,13 +70,14 @@ import (
 )
 
 func RegisterCommands(eng *engine.Engine) {
-    eng.OnCommand(platform.EventKindGroupMessage, "/help").Handle(HandleHelp)
-    eng.OnCommand(platform.EventKindGroupMessage, "/weather").Handle(HandleWeather)
+    eng.OnCommand(eventctx.EventGroup, "/help").Handle(HandleHelp)
+    eng.OnCommand(eventctx.EventGroup, "/weather").Handle(HandleWeather)
 }
 
 // handlers/help.go
 func HandleHelp(ctx *eventctx.Context) error {
-    return ctx.Reply(helpText)
+    ctx.Reply(helpText)
+        return nil
 }
 ```
 
@@ -114,7 +115,7 @@ var (
 
 // 处理器中返回明确的错误
 func HandleCommand(ctx *eventctx.Context) error {
-    data := ctx.GetPlainText()
+    data := ctx.GetMessageContent()
     if data == "" {
         return ErrInvalidInput
     }
@@ -124,7 +125,9 @@ func HandleCommand(ctx *eventctx.Context) error {
         return fmt.Errorf("process failed: %w", err)
     }
     
-    return ctx.Reply(result)
+    ctx.Reply(result)
+    
+        return nil
 }
 
 // 使用中间件统一处理错误
@@ -186,16 +189,15 @@ eng.Use(middleware.SimpleRateLimit(10)) // 每秒最多 10 个事件
 
 // 按用户/Group 限流
 eng.Use(middleware.RateLimitTokenBucket(2, 4, func(ctx *context.Context) string {
-    if a := ctx.GetAuthor(); a != nil { return a.UserOpenID }
-    return ""
+    return ctx.GetSenderInfo().ID
 }))
 
 // 自适应限流（自动根据负载调整）
-config := middleware.DefaultAdaptiveConfig()
+config := ratelimit.DefaultAdaptiveConfig()
 config.MinConcurrency = 10
 config.MaxConcurrency = 500
 
-limiter := middleware.NewAdaptiveRateLimiter(config)
+limiter := ratelimit.NewAdaptiveRateLimiter(config)
 limiter.Start()
 defer limiter.Stop()
 eng.Use(limiter.Middleware())
@@ -225,9 +227,11 @@ func HandleLongTask(ctx *eventctx.Context) error {
     
     select {
     case data := <-result:
-        return ctx.Reply(data)
+        ctx.Reply(data)
+            return nil
     case <-taskCtx.Done():
-        return ctx.Reply("处理超时，请稍后重试")
+        ctx.Reply("处理超时，请稍后重试")
+            return nil
     }
 }
 ```
@@ -262,7 +266,9 @@ func HandleBatch(ctx *eventctx.Context) error {
         allResults = append(allResults, r)
     }
     
-    return ctx.Reply(strings.Join(allResults, "\n"))
+    ctx.Reply(strings.Join(allResults, "\n"))
+    
+        return nil
 }
 ```
 
@@ -375,9 +381,9 @@ import "github.com/KomeiDiSanXian/remilia/infra/logger"
 // 使用结构化字段
 func HandleCommand(ctx *eventctx.Context) error {
     log := logger.WithFields(logger.Fields{
-        "command": "/weather",
-        "user":    ctx.GetAuthor(),
-        "guild":   ctx.GetGuildID(),
+        "command":  "/weather",
+        "user_id":  ctx.GetSenderInfo().ID,
+        "guild":    ctx.GetChatInfo().ParentID,
     })
     
     log.Info("Processing command")
@@ -389,7 +395,8 @@ func HandleCommand(ctx *eventctx.Context) error {
     }
     
     log.WithField("result_len", len(result)).Info("Command succeeded")
-    return ctx.Reply(result)
+    ctx.Reply(result)
+        return nil
 }
 ```
 
@@ -526,16 +533,18 @@ func GetData(key string) (string, error) {
 ```go
 // 验证和清理用户输入
 func HandleCommand(ctx *eventctx.Context) error {
-    input := ctx.GetPlainText()
+    input := ctx.GetMessageContent()
     
     // 长度检查
     if len(input) > 1000 {
-        return ctx.Reply("输入过长")
+        ctx.Reply("输入过长")
+            return nil
     }
     
     // 格式验证
     if !isValidFormat(input) {
-        return ctx.Reply("格式错误")
+        ctx.Reply("格式错误")
+            return nil
     }
     
     // SQL 注入防护 - 使用参数化查询
@@ -547,7 +556,8 @@ func HandleCommand(ctx *eventctx.Context) error {
 // XSS 防护 - 转义输出
 func SafeReply(ctx *eventctx.Context, text string) error {
     escaped := html.EscapeString(text)
-    return ctx.Reply(escaped)
+    ctx.Reply(escaped)
+        return nil
 }
 ```
 
@@ -560,10 +570,11 @@ func SafeReply(ctx *eventctx.Context, text string) error {
 func RequireAdmin() eventctx.Middleware {
     return func(next eventctx.Handler) eventctx.Handler {
         return func(ctx *eventctx.Context) error {
-            userID := ctx.GetAuthor()
+            userID := ctx.GetSenderInfo().ID
             
             if !isAdmin(userID) {
-                return ctx.Reply("权限不足")
+                ctx.Reply("权限不足")
+                    return nil
             }
             
             return next(ctx)
@@ -716,10 +727,12 @@ func AuthMiddleware() eventctx.Middleware {
 func HandleCommand(ctx *eventctx.Context) error {
     user, ok := ctx.Get("current_user")
     if !ok {
-        return ctx.Reply("未登录")
+        ctx.Reply("未登录")
+            return nil
     }
     u := user.(*User)
-    return ctx.Reply("你好, " + u.Name)
+    ctx.Reply("你好, " + u.Name)
+        return nil
 }
 ```
 
@@ -751,7 +764,7 @@ func New() *plugin.Descriptor {
 }
 ```
 
-详细指南：[插件开发最佳实践](../../04-development/plugin-best-practices.md)
+详细指南：[插件开发最佳实践](../06-plugins/plugin-best-practices.md)
 
 ---
 

@@ -1,5 +1,8 @@
 # Remilia 故障排查指南
 
+> **最后更新**: 2026-08-04  
+
+
 本指南帮助你诊断和解决使用 Remilia 时可能遇到的常见问题。
 
 ## 📋 目录
@@ -175,8 +178,8 @@ eng.OnCommand("/test", handler)
 
 #### 检查并发限制
 ```go
-// 查看被限流的消息
-eng.Use(middleware.ConcurrencyLimit(100, middleware.ConcurrencyDrop, 0))
+// 背压：超过上限丢弃
+eng.Use(middleware.Backpressure(100, middleware.BackpressureDrop, 100*time.Millisecond))
 
 // 添加监控
 var dropped atomic.Int64
@@ -584,8 +587,8 @@ func HandleCommand(ctx *eventctx.Context) error {
     // 打印所有相关信息
     log.Debug("Handler called",
         "type", ctx.GetEventType(),
-        "author", ctx.GetAuthor(),
-        "content", ctx.GetPlainText())
+        "sender_id", ctx.GetSenderInfo().ID,
+        "content", ctx.GetMessageContent())
     
     // 继续处理...
     return nil
@@ -636,7 +639,7 @@ http.HandleFunc("/debug/diagnostics", func(w http.ResponseWriter, r *http.Reques
 
 1. **查看文档**
    - [快速上手](./GETTING_STARTED.md)
-   - [最佳实践](./BEST_PRACTICES.md)
+   - [最佳实践](../02-user-guides/BEST_PRACTICES.md)
 
 2. **搜索 Issues**
    - https://github.com/KomeiDiSanXian/remilia/issues

@@ -55,7 +55,7 @@ YAML 格式。`cmd/bot/config.default.yaml` 是完整参考；以库方式集成
 
 ### 如何开始写一个插件？
 
-参考 [插件开发指南](02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)：函数式 `plugin.Descriptor` + `Setup` 中注册命令/Matcher，无需继承。
+参考 [插件开发指南](06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)：函数式 `plugin.Descriptor` + `Setup` 中注册命令/Matcher，无需继承。
 
 ### 插件之间如何共享服务和通信？
 
@@ -64,11 +64,11 @@ YAML 格式。`cmd/bot/config.default.yaml` 是完整参考；以库方式集成
 
 ### 热重载对插件有什么要求？
 
-默认 `ReloadUnloadLoad` 策略（卸载再加载）；无状态插件可声明 `ReloadBlueGreen`（零停机）。需要状态迁移时实现 `SaveState/RestoreState` + `MigrateState`。详见 [插件开发指南](02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)。
+默认 `ReloadUnloadLoad` 策略（卸载再加载）；无状态插件可声明 `ReloadBlueGreen`（零停机）。需要状态迁移时实现 `SaveState/RestoreState` + `MigrateState`。详见 [插件开发指南](06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)。
 
 ### 可以用其他语言写插件吗？
 
-可以。WASM 插件支持 TinyGo / Rust / C，经 wazero 沙箱隔离，见 [WASM 插件开发](04-development/wasm-plugin-development.md)。
+可以。WASM 插件支持 TinyGo / Rust / C，经 wazero 沙箱隔离，见 [WASM 插件开发](06-plugins/wasm-plugin-development.md)。
 
 ### 为什么我的插件在注册时提示依赖未找到？
 
@@ -83,6 +83,13 @@ zerolog 结构化日志输出到 stdout（终端），配置 `log.file` 后同�
 ### 健康检查如何确认 Bot 正常？
 
 启动健康 HTTP 端点（默认端口见配置），`/health` 返回多层级健康状态（Bot / Adapter / DLQ）；开启 pprof 后可进一步排查性能问题。
+
+### QQ 平台用 webhook 还是 websocket？
+
+两者都支持：`qq.NewWebhookServerAdapter`（HTTP 回调）或 websocket 适配器（`qq` 包 v1.25.0 起）。
+
+- **webhook 模式**：需要公网可达的 HTTPS 回调地址；回调采用签名校验（`X-Signature`），事件回包必须按协议返回 `op=12`（HTTP Callback ACK），否则平台视为投递未确认而重试
+- **websocket 模式**：由机器人主动建立长连接，无需公网入口，适合内网/无固定公网 IP 的部署
 
 ### QQ 平台按钮回调不稳定？
 

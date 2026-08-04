@@ -1,6 +1,6 @@
 # 架构设计
 
-> **最后更新**: 2026-05-05
+> **最后更新**: 2026-08-04
 
 本目录包含 Remilia 的架构设计文档，帮助你深入理解框架内部。
 
@@ -35,17 +35,8 @@
 
 ---
 
-### [HANDLE_METHOD_DESIGN_ANALYSIS.md](./HANDLE_METHOD_DESIGN_ANALYSIS.md) 🎯
-**Handle 方法设计分析**
-
-深入：
-- Handler 设计模式
-- 错误处理策略
-- 生命周期管理
-- 最佳实践
-- 性能考量
-
-**适合**: 需要编写高质量 Handler 的开发者
+### [HANDLE_METHOD_DESIGN_ANALYSIS.md](../notes/HANDLE_METHOD_DESIGN_ANALYSIS.md) 🎯
+**Handle 方法设计分析**（内部设计讨论文档，已移入架构笔记）
 
 ---
 
@@ -122,9 +113,8 @@
 2. [Context 传播模式](./CONTEXT_PROPAGATION.md)
 
 ### 中级：深入组件设计
-1. [Handle 方法设计分析](./HANDLE_METHOD_DESIGN_ANALYSIS.md)
-2. [多平台抽象](./MULTI_PLATFORM.md)
-3. [权限系统架构](./permission-system.md)
+1. [多平台抽象](./MULTI_PLATFORM.md)
+2. [权限系统架构](./permission-system.md)
 
 ### 高级：参与架构演进
 1. **[架构演进总览](./ARCHITECTURE_EVOLUTION.md)** — 理解"为什么"
@@ -155,12 +145,13 @@
 ### 想要优化性能？
 阅读：
 - [并发事件处理](./CONCURRENT_EVENT_PROCESSING.md) - 了解 COW 优化
-- [命令系统集成](./COMMAND_INTEGRATION_PLAN.md) - 了解 Trie 优化
+- [路由策略](../notes/25-routing-strategy.md) - 了解路由与索引优化
 
 ### 想要开发插件？
 阅读：
-- [插件接口速查](../02-user-guides/PLUGIN_OPTIONAL_INTERFACES.md)
-- [插件开发最佳实践](../04-development/plugin-best-practices.md)
+- [插件文档索引](../06-plugins/README.md)
+- [插件接口速查](../06-plugins/PLUGIN_OPTIONAL_INTERFACES.md)
+- [插件开发最佳实践](../06-plugins/plugin-best-practices.md)
 
 ### 想要贡献代码？
 阅读：
@@ -172,6 +163,6 @@
 ## 🔗 相关资源
 
 - [用户指南](../02-user-guides/)
-- [质量报告](../05-reports/)
+- [插件文档](../06-plugins/)
 - [主文档](../README.md)
 - [示例代码](../../examples/)

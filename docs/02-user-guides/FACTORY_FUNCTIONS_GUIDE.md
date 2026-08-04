@@ -1,6 +1,6 @@
 # 工厂函数简化指南
 
-**最后更新**: 2026年4月30日
+> **最后更新**: 2026-08-04
 
 本文档说明Remilia框架中简化的工厂函数使用方法。
 
@@ -104,9 +104,9 @@ eng.Use(middleware.BasicSet()...)
 engine.Use(
     middleware.Recover(),           // panic恢复
     middleware.Logging(),           // 日志
-    middleware.SimpleAdaptive(),    // 自适应限流（默认配置）
-    middleware.SimpleCircuitBreaker(), // 熔断器（默认配置）
-    middleware.SimpleDedup(),       // 去重（默认配置）
+    ratelimit.SimpleAdaptive(),     // 自适应限流（默认配置）
+    resilience.SimpleCircuitBreaker(), // 熔断器（默认配置）
+    dedup.SimpleDedup(),            // 去重（默认配置）
 )
 ```
 
@@ -114,8 +114,8 @@ engine.Use(
 
 ```go
 engine.Use(
-    middleware.SimpleAdaptiveWithLimit(200),     // 最大200并发
-    middleware.SimpleDedupWithTTL(5*time.Minute), // 5分钟去重
+    ratelimit.SimpleAdaptiveWithLimit(200),  // 最大200并发
+    dedup.SimpleDedupWithTTL(5*time.Minute), // 5分钟去重
 )
 ```
 
@@ -135,14 +135,14 @@ engine.Use(middlewares...)
 ### 方式4: 完全自定义配置
 
 ```go
-config := middleware.AdaptiveConfig{
+config := ratelimit.AdaptiveConfig{
     MinConcurrency: 10,
     MaxConcurrency: 500,
     InitialLimit:   100,
     TargetCPU:      0.70,
     // ... 其他配置
 }
-arl := middleware.NewAdaptiveRateLimiter(config)
+arl := ratelimit.NewAdaptiveRateLimiter(config)
 arl.Start()
 engine.Use(arl.Middleware())
 ```
@@ -190,7 +190,7 @@ adapter := qq.NewWebhookServerAdapter(":8080", botInfo)
 
 ```go
 // 创建中间件（需要了解所有配置参数）
-cfg := middleware.AdaptiveConfig{
+cfg := ratelimit.AdaptiveConfig{
     MinConcurrency: 10,
     MaxConcurrency: 1000,
     InitialLimit:   100,
@@ -203,7 +203,7 @@ cfg := middleware.AdaptiveConfig{
     SampleWindow:   60 * time.Second,
     MetricsEnabled: true,
 }
-arl := middleware.NewAdaptiveRateLimiter(cfg)
+arl := ratelimit.NewAdaptiveRateLimiter(cfg)
 arl.Start()
 
 // 创建Bot（参数较多）
@@ -250,9 +250,9 @@ bot := remilia.NewBotBuilder().
 |------|----------|------|
 | 创建Bot | `NewBotBuilder()` | `NewBotBuilder().WithPlatformAdapter(adapter).Build()` |
 | 中间件集 | `ProductionSet()` | `eng.Use(middleware.ProductionSet()...)` |
-| 自适应限流 | `SimpleAdaptive()` | `eng.Use(middleware.SimpleAdaptive())` |
-| 熔断器 | `SimpleCircuitBreaker()` | `eng.Use(middleware.SimpleCircuitBreaker())` |
-| 去重 | `SimpleDedup()` | `eng.Use(middleware.SimpleDedup())` |
+| 自适应限流 | `SimpleAdaptive()` | `eng.Use(ratelimit.SimpleAdaptive())` |
+| 熔断器 | `SimpleCircuitBreaker()` | `eng.Use(resilience.SimpleCircuitBreaker())` |
+| 去重 | `SimpleDedup()` | `eng.Use(dedup.SimpleDedup())` |
 | Webhook (QQ) | `qq.NewWebhookServerAdapter()` | `qq.NewWebhookServerAdapter(":8080", botInfo)` |
 
 ---
@@ -272,7 +272,8 @@ func main() {
     
     // 注册处理器
     bot.Engine().OnMessage(func(ctx *eventctx.Context) error {
-        return ctx.Reply(platform.TextMessage("Hello!"))
+        ctx.Reply(platform.TextMessage("Hello!"))
+            return nil
     })
     
     bot.Start()
@@ -327,8 +328,8 @@ func main() {
     bot.Engine().Use(
         middleware.Recover(),
         middleware.Logging(),
-        middleware.SimpleAdaptiveWithLimit(500), // 自定义限制
-        middleware.SimpleDedupWithTTL(10*time.Minute), // 自定义TTL
+        ratelimit.SimpleAdaptiveWithLimit(500),   // 自定义限制
+        dedup.SimpleDedupWithTTL(10*time.Minute), // 自定义TTL
     )
     
     bot.Start()
@@ -374,7 +375,3 @@ func main() {
 - [最佳实践](./BEST_PRACTICES.md)
 - [架构设计](../03-architecture/)
 
----
-
-**最后更新**: 2026年2月5日  
-**适用版本**: v1.0.0+

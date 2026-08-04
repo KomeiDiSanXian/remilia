@@ -323,7 +323,7 @@ func main() {
     pm.Register(permission.New())
 
     // 获取插件实例
-    p := plugin.Must[permission.Plugin](pm.Info(), "permission")
+    p := plugin.MustGetService[permission.Plugin](pm.GetContainer(), "permission")
     
     // 生成验证码
     code, err := p.GenerateVerificationCode(
@@ -442,15 +442,4 @@ maxUses := -1             // 无限次
 - [ ] 验证码模板
 - [ ] IP白名单限制
 - [ ] 二次验证
-
-## 总结
-
-验证码权限系统提供了一种简单、安全、灵活的权限授予方式，特别适合：
-
-1. **首次部署**: 快速授予首位管理员权限
-2. **临时授权**: 临时授予某些用户权限
-3. **批量邀请**: 通过验证码批量邀请用户
-4. **安全分享**: 避免直接暴露用户ID
-
-通过合理配置有效期和使用次数，可以在便捷性和安全性之间取得良好平衡。
 

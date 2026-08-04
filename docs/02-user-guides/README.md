@@ -1,6 +1,6 @@
 # 用户指南
 
-> **最后更新**: 2026-02-25
+> **最后更新**: 2026-08-04
 
 本目录包含 Remilia 的使用指南和最佳实践。
 
@@ -21,64 +21,6 @@
 - 插件 v2 开发模式
 
 **适合**: 所有用户，特别是准备上线的开发者
-
----
-
-### [PLUGIN_DEVELOPMENT_GUIDE.md](./PLUGIN_DEVELOPMENT_GUIDE.md) 🔌
-**插件开发指南**
-
-学习：
-- Descriptor 完整字段说明
-- SetupContext 所有字段（Reg / Log / Info / Admin / Config / EventBus / Spawn / SpawnNamed / NewTaskGroup / DryRun）
-- 三种注册方式（Register / RegisterMultipleAtomic / RegisterMultipleSmart）
-- 依赖获取（Service[T] / TryService[T] / ExportIface[T]）
-- 完整示例：天气插件
-
-**适合**: 所有插件开发者
-
----
-
-### [PLUGIN_OPTIONAL_INTERFACES.md](./PLUGIN_OPTIONAL_INTERFACES.md) 📋
-**插件接口速查**
-
-速查：
-- Descriptor / Metadata 结构
-- SetupContext 字段表格
-- PluginInfo 只读查询接口
-- ManagerWriter 管理写视图
-- TeardownContext
-- Advanced 高级选项（热重载策略 / SaveState）
-- goroutine 生命周期绑定
-- DryRun 保护
-
-**适合**: 需要快速查阅 API 签名的开发者
-
----
-
-### [PLUGIN_ENHANCEMENTS_GUIDE.md](./PLUGIN_ENHANCEMENTS_GUIDE.md) 🛠️
-**插件系统功能速查**
-
-包含：
-- 配置管理（ctx.Config）
-- 插件状态查询（ctx.Info）
-- 管理操作（ctx.Admin）
-- 插件间事件总线（ctx.EventBus）
-- Engine 只读视图（ctx.Info.Coordinator()）
-
-**适合**: 需要查阅插件高级功能的开发者
-
----
-
-### [PLUGIN_HELP_SYSTEM.md](./PLUGIN_HELP_SYSTEM.md) ❓
-**插件帮助系统**
-
-了解：
-- Metadata 字段说明
-- Help 插件命令发现（Reader / GetAllCommands）
-- 自定义 Help 插件实现
-- 最佳实践
-
-**适合**: 需要为插件添加帮助文档的开发者
 
 ---
 
@@ -158,10 +100,10 @@
 👉 阅读 [BEST_PRACTICES.md](./BEST_PRACTICES.md)
 
 #### 开发一个插件（从零开始）
-👉 阅读 [PLUGIN_DEVELOPMENT_GUIDE.md](./PLUGIN_DEVELOPMENT_GUIDE.md)
+👉 阅读 [插件文档索引](../06-plugins/README.md)
 
 #### 快速查阅插件 API
-👉 阅读 [PLUGIN_OPTIONAL_INTERFACES.md](./PLUGIN_OPTIONAL_INTERFACES.md)
+👉 阅读 [插件接口速查](../06-plugins/PLUGIN_OPTIONAL_INTERFACES.md)
 
 #### 构建复杂的事件处理逻辑
 👉 阅读 [MATCHER_CHAINING_BEST_PRACTICES.md](./MATCHER_CHAINING_BEST_PRACTICES.md)
@@ -182,9 +124,9 @@
 3. [配置快速参考](./CONFIGURATION_QUICKREF.md)
 
 ### 插件开发路径
-1. [插件开发指南](./PLUGIN_DEVELOPMENT_GUIDE.md)
-2. [插件接口速查](./PLUGIN_OPTIONAL_INTERFACES.md)
-3. [插件开发最佳实践](../04-development/plugin-best-practices.md)
+1. [插件开发指南](../06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)
+2. [插件接口速查](../06-plugins/PLUGIN_OPTIONAL_INTERFACES.md)
+3. [插件开发最佳实践](../06-plugins/plugin-best-practices.md)
 
 ### 进阶路径
 1. [Matcher 链式调用](./MATCHER_CHAINING_BEST_PRACTICES.md)
@@ -197,6 +139,5 @@
 
 - [快速开始](../01-getting-started/)
 - [架构设计](../03-architecture/)
-- [开发指南](../04-development/)
-- [质量报告](../05-reports/)
+- [插件文档](../06-plugins/)
 - [主文档](../README.md)

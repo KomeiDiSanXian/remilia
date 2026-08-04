@@ -1,6 +1,6 @@
 # Configuration Hot-Reload Quick Reference
 
-> **最后更新**: 2026-02-25
+> **最后更新**: 2026-08-04
 
 
 
@@ -179,7 +179,7 @@ watcher.Start()
 
 ### WatchDedup — 去重过滤器热更新
 
-当 `config.yaml` 中的 `middleware.dedup_max_size` 或 `middleware.dedup_default_ttl` 变更时，
+当 `config.yaml` 中的 `middleware.dedup.max_size` 或 `middleware.dedup.default_ttl` 变更时，
 自动调用 `DedupFilter.UpdateConfig()`：
 
 ```go
@@ -386,9 +386,6 @@ vim config.yaml
 
 ## 更多资源
 
-- 💡 [使用示例](../examples/config_hotreload/main.go)
-- 🔧 [配置模板](../config.example.yaml)
+- 💡 [使用示例](https://github.com/KomeiDiSanXian/remilia/blob/master/examples/config_hotreload/main.go)
+- 🔧 [配置模板](https://github.com/KomeiDiSanXian/remilia/blob/master/config.example.yaml)
 
----
-
-**最后更新**: 2026-02-25

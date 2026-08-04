@@ -1,7 +1,6 @@
 # Remilia 快速上手指南
 
-> **最后更新**: 2026-04-30  
-> **适用版本**: v1.0.0+
+> **最后更新**: 2026-08-04
 
 欢迎使用 Remilia！本指南将帮助你在 10 分钟内创建并运行你的第一个机器人。
 
@@ -122,8 +121,8 @@ Context 提供访问事件数据和回复消息的方法。
 
 ```go
 func handler(ctx *eventctx.Context) error {
-    text := ctx.GetMessageContent()   // 消息内容
-    author := ctx.GetAuthor()          // 发送者信息
+    text := ctx.GetMessageContent()     // 消息内容
+    sender := ctx.GetSenderInfo()       // 发送者信息
 
     // 存储自定义数据
     ctx.Set("key", "value")
@@ -168,12 +167,12 @@ eng.Use(
     middleware.Logging(),                   // 请求日志
     middleware.Recover(),                   // panic → error（自适应堆栈缓冲）
     middleware.Timeout(5*time.Second),      // 超时（context 注入，非 goroutine）
-    middleware.ConcurrencyLimit(100, ...),  // 并发限制
+    middleware.Backpressure(100, middleware.BackpressureDrop, 100*time.Millisecond), // 背压
     middleware.SimpleRateLimit(10),         // 全局限流：每秒最多 10 个事件
 )
 ```
 
-> **Timeout 说明**：v2.0 起，`Timeout` 通过向 ctx 注入 deadline 实现，
+> **Timeout 说明**：`Timeout` 通过向 ctx 注入 deadline 实现，
 > 不再创建额外 goroutine。Handler 需要监听 `ctx.Context().Done()` 才能被中断；
 > panic 不会被 `Timeout` 捕获，需配合 `Recover()` 使用。
 
@@ -263,40 +262,47 @@ func main() {
 
 ## 🔧 使用配置文件
 
+框架提供 `config` 包加载 YAML 配置，并可从配置节构建平台适配器：
+
 `config.yaml`:
 ```yaml
 bot:
-  app_id: 123456
-  bot_id: 654321
-  token: "your-token"
-  secret: "your-secret"
-
-server:
-  host: "0.0.0.0"
-  port: 8080
+  qq:
+    app_id: 123456
+    bot_id: 654321
+    token: "your-token"
+    secret: "your-secret"
+    webhook:
+      host: "0.0.0.0"
+      port: 8080
 
 engine:
   temp_matcher_cleanup_interval: "5m"
   pending_delete_buffer_size: 1000
-
-middleware:
-  logging: true
-  rate_limit: true
-  rate_limit_rate: 100
 ```
 
 ```go
 cfg, err := config.Load("config.yaml")
 if err != nil { panic(err) }
 
+// 从配置节构建 QQ 适配器（cfg.Bot.QQ 对应 config.yaml 的 bot.qq 节）
+q := cfg.Bot.QQ
+adapter := qq.NewWebhookServerAdapter(
+    fmt.Sprintf("%s:%d", q.Webhook.Host, q.Webhook.Port),
+    &dto.BotInfo{AppID: q.AppID, Token: q.Token, AppSecret: q.Secret},
+)
+
 bot, err := remilia.NewBotBuilder().
-    WithEngine(eng).
+    WithPlatformAdapter(adapter).
+    WithEngineOptions(config.EngineOptions(cfg.Engine)...).
     Build()
 if err != nil { panic(err) }
 
 bot.Start()
 bot.WaitForShutdown()
 ```
+
+> 完整可运行的示例见仓库 `cmd/bot/`（含多平台适配、插件装配与配置热更新）。
 
 ---
 
@@ -311,18 +317,21 @@ eng.Use(middleware.Recover())     // panic → error（自适应堆栈）
 eng.Use(middleware.RequestID())   // 注入 request_id
 
 // 流量控制
-eng.Use(middleware.SimpleRateLimit(10))                       // 全局限流，每秒 10
-eng.Use(middleware.RateLimitTokenBucket(2, 4, keyFunc))       // 按 key 限流
-eng.Use(middleware.ConcurrencyLimit(100, ConcurrencyDrop, 0)) // 并发限制
-eng.Use(middleware.Timeout(5*time.Second))                    // 超时（context-based）
+eng.Use(middleware.SimpleRateLimit(10))                                                  // 全局限流，每秒 10
+eng.Use(middleware.RateLimitTokenBucket(2, 4, keyFunc))                                  // 按 key 限流
+eng.Use(middleware.Backpressure(100, middleware.BackpressureDrop, 100*time.Millisecond)) // 背压：超过上限丢弃
+eng.Use(middleware.Timeout(5*time.Second))                                               // 超时（context-based）
 
-// 可靠性
-eng.Use(middleware.Retry(3))
-eng.Use(middleware.SimpleCircuitBreaker(5, 30*time.Second))
-eng.Use(middleware.Dedup(filter))  // 去重
+// 可靠性（子包：middleware/resilience）
+eng.Use(resilience.Retry(resilience.RetryConfig{MaxAttempts: 3}))   // 重试（指数退避）
+eng.Use(resilience.SimpleCircuitBreaker())                          // 熔断
 
-// 自适应
-ctrl := middleware.NewManagedAdaptiveWithContext(ctx)
+// 去重（子包：middleware/dedup）
+filter := dedup.NewDedupFilter(dedup.DedupConfig{MaxSize: 10000})
+eng.Use(dedup.Dedup(filter))
+
+// 自适应限流（子包：middleware/ratelimit）
+ctrl := ratelimit.NewManagedAdaptiveWithContext(ctx)
 eng.Use(ctrl.Middleware())
 ```
 
@@ -376,6 +385,10 @@ func main() {
         WithEngine(eng).
         Build()
     if err != nil { panic(err) }
+
+    // 将插件管理器接入 Bot 生命周期（Start/Stop/优雅关闭）
+    bot.UsePlugins(manager)
+
     bot.Start()
     bot.WaitForShutdown()
 }
@@ -385,8 +398,8 @@ func main() {
 
 ## 📚 下一步
 
-- [插件开发指南](../02-user-guides/PLUGIN_DEVELOPMENT_GUIDE.md)
-- [插件最佳实践](../04-development/plugin-best-practices.md)
+- [插件开发指南](../06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md)
+- [插件最佳实践](../06-plugins/plugin-best-practices.md)
 - [配置系统](../02-user-guides/CONFIGURATION_QUICKREF.md)
 - [中间件链最佳实践](../02-user-guides/MATCHER_CHAINING_BEST_PRACTICES.md)
 - [示例代码](../../examples/)
