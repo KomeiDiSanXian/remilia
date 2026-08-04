@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.33.1 (2026-08-04)
+
+### 🐛 fortune：`/tarot` 处理中不可达代码修复（go vet 检出）
+
+- **修复**: `handleTarot` 渲染卡片失败分支中 `return nil` 后的不可达 `continue`（`go vet` unreachable code 告警）
+- **背景**: CI 新增 `cmd/bot` 独立 module 的 `go vet` 检查——该 module 此前从未被静态检查覆盖，此问题随之暴露；属静态检查级修复，运行时行为无变化
+- **验证**: `cmd/bot` 全量 build/vet/test 通过（含 updater Windows 路径测试）
+
 ## v1.33.0 (2026-08-04)
 
 ### ✨ about：`/about` 展示增强（运行状态 + 系统资源）
