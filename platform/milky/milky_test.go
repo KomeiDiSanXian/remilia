@@ -249,39 +249,50 @@ func TestBuildWSURL(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// encodeChatID / decodeChatID
+// chatInfoFromScene（ChatInfo.ID 语义对齐：纯数字 peerID + IsGroup/IsDM/Tokens）
 // ────────────────────────────────────────────────────────────────────────────
 
-func TestEncodeDecodeChatID(t *testing.T) {
+func TestChatInfoFromScene(t *testing.T) {
 	t.Parallel()
-	t.Run("group round-trip", func(t *testing.T) {
-		id := encodeChatID("group", 12345)
-		assert.Equal(t, "group:12345", id)
+	t.Run("group", func(t *testing.T) {
+		ci := chatInfoFromScene("group", 12345)
+		assert.Equal(t, "12345", ci.ID)
+		assert.True(t, ci.IsGroup)
+		assert.False(t, ci.IsDM)
+		assert.Equal(t, "group", ci.Tokens[TokenMessageScene])
+	})
 
-		scene, peerID, ok := decodeChatID(id)
+	t.Run("friend", func(t *testing.T) {
+		ci := chatInfoFromScene("friend", 98765)
+		assert.Equal(t, "98765", ci.ID)
+		assert.False(t, ci.IsGroup)
+		assert.False(t, ci.IsDM)
+		assert.Equal(t, "friend", ci.Tokens[TokenMessageScene])
+	})
+
+	t.Run("temp treated as DM", func(t *testing.T) {
+		ci := chatInfoFromScene("temp", 55555)
+		assert.Equal(t, "55555", ci.ID)
+		assert.False(t, ci.IsGroup)
+		assert.True(t, ci.IsDM)
+		assert.Equal(t, "temp", ci.Tokens[TokenMessageScene])
+	})
+
+	t.Run("empty scene keeps nil tokens", func(t *testing.T) {
+		ci := chatInfoFromScene("", 12345)
+		assert.Equal(t, "12345", ci.ID)
+		assert.Nil(t, ci.Tokens)
+	})
+}
+
+// decodeChatID 兼容旧缓存格式（"scene:peerID"）。
+func TestDecodeChatID(t *testing.T) {
+	t.Parallel()
+	t.Run("legacy scene format", func(t *testing.T) {
+		scene, peerID, ok := decodeChatID("group:12345")
 		assert.True(t, ok)
 		assert.Equal(t, "group", scene)
 		assert.Equal(t, int64(12345), peerID)
-	})
-
-	t.Run("friend round-trip", func(t *testing.T) {
-		id := encodeChatID("friend", 98765)
-		assert.Equal(t, "friend:98765", id)
-
-		scene, peerID, ok := decodeChatID(id)
-		assert.True(t, ok)
-		assert.Equal(t, "friend", scene)
-		assert.Equal(t, int64(98765), peerID)
-	})
-
-	t.Run("temp round-trip", func(t *testing.T) {
-		id := encodeChatID("temp", 55555)
-		assert.Equal(t, "temp:55555", id)
-
-		scene, peerID, ok := decodeChatID(id)
-		assert.True(t, ok)
-		assert.Equal(t, "temp", scene)
-		assert.Equal(t, int64(55555), peerID)
 	})
 
 	t.Run("plain number without scene", func(t *testing.T) {

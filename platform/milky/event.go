@@ -14,13 +14,12 @@ import (
 // Chat ID 辅助函数
 // ────────────────────────────────────────────────────────────────────────────
 //
-// Milky 通过 (message_scene, peer_id) 路由消息。由于 platform.Event.Chat()
-// 返回的 ChatInfo.ID 是普通字符串，而部分操作（如 Delete）仅能获取到 chatID
-// 而没有额外上下文，因此将 scene 编码进 ID 中：
+// 约定（与其他平台一致）：ChatInfo.ID = 平台原生会话 ID（peerID 纯数字），
+// 场景由 IsGroup/IsDM 表达；原始 scene 保留在 ChatInfo.Tokens[TokenMessageScene]
+// （见 chatInfoFromScene）。
 //
-//   - "group:123456789"   — 群消息   (IsGroup=true)
-//   - "friend:987654321"  — 好友消息  (IsGroup=false)
-//   - "temp:555555555"    — 临时会话  (IsGroup=false)
+// decodeChatID 仅为兼容旧缓存保留：旧版本把 scene 编码进 ID（"group:123"），
+// 存量缓存/配置中的旧格式 ID 仍可解析。
 
 const (
 	sceneGroup  = "group"
@@ -28,12 +27,8 @@ const (
 	sceneTemp   = "temp"
 )
 
-func encodeChatID(scene string, peerID int64) string {
-	return scene + ":" + strconv.FormatInt(peerID, 10)
-}
-
-// decodeChatID 解析由 encodeChatID 生成的 chatID。
-// 返回 (scene, peerID, ok)，若格式无法识别则 ok=false。
+// decodeChatID 解析旧格式 "scene:peerID" 的 chatID。
+// 返回 (scene, peerID, ok)；纯数字 ID 返回未知 scene（ok=true）。
 func decodeChatID(chatID string) (scene string, peerID int64, ok bool) {
 	before, after, ok0 := strings.Cut(chatID, ":")
 	if !ok0 {
@@ -184,6 +179,24 @@ func parseRawEvent(data []byte) (platform.Event, error) {
 	}
 }
 
+// chatInfoFromScene 构造会话信息（ChatInfo.ID = 平台原生 peerID 纯数字）。
+//
+// 场景由 IsGroup/IsDM 表达（temp 会话视同私信），原始 scene 保留在
+// Tokens[TokenMessageScene] 供 Delete/sendReaction 等无上下文的操作路由。
+func chatInfoFromScene(scene string, peerID int64) platform.ChatInfo {
+	ci := platform.ChatInfo{
+		ID:      strconv.FormatInt(peerID, 10),
+		IsGroup: scene == sceneGroup,
+	}
+	if scene == sceneTemp {
+		ci.IsDM = true
+	}
+	if scene != "" {
+		ci.Tokens = map[string]string{TokenMessageScene: scene}
+	}
+	return ci
+}
+
 // ── message_receive ──────────────────────────────────────────────────────────
 
 func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
@@ -196,15 +209,9 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	e.timestamp = time.Unix(msg.Time, 0)
 	e.rawPayload = &msg
 
-	// 会话路由
-	chatID := encodeChatID(msg.MessageScene, msg.PeerID)
-	isGroup := msg.MessageScene == sceneGroup
-
-	chat := platform.ChatInfo{
-		ID:      chatID,
-		IsGroup: isGroup,
-	}
-	if isGroup && msg.Group != nil {
+	// 会话路由：ID = 纯数字 peerID；场景由 IsGroup/IsDM + Tokens 表达
+	chat := chatInfoFromScene(msg.MessageScene, msg.PeerID)
+	if msg.MessageScene == sceneGroup && msg.Group != nil {
 		chat.Name = msg.Group.GroupName
 	}
 	e.chat = chat
@@ -345,10 +352,7 @@ func parseMessageRecallEvent(e *milkyEvent, data []byte) (platform.Event, error)
 	e.kind = platform.EventKindMessageDelete
 	e.id = strconv.FormatInt(d.MessageSeq, 10)
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(d.MessageScene, d.PeerID),
-		IsGroup: d.MessageScene == sceneGroup,
-	}
+	e.chat = chatInfoFromScene(d.MessageScene, d.PeerID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.OperatorID, 10)}
 	return e, nil
 }
@@ -363,10 +367,7 @@ func parseGroupMemberIncreaseEvent(e *milkyEvent, data []byte) (platform.Event, 
 	e.kind = platform.EventKindMemberJoin
 	e.id = fmt.Sprintf("member_join:%d:%d:%d", d.GroupID, d.UserID, e.timestamp.Unix())
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	return e, nil
 }
@@ -379,10 +380,7 @@ func parseGroupMemberDecreaseEvent(e *milkyEvent, data []byte) (platform.Event, 
 	e.kind = platform.EventKindMemberLeave
 	e.id = fmt.Sprintf("member_leave:%d:%d:%d", d.GroupID, d.UserID, e.timestamp.Unix())
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	return e, nil
 }
@@ -397,10 +395,7 @@ func parseGroupAdminChangeEvent(e *milkyEvent, data []byte) (platform.Event, err
 	e.kind = platform.EventKindMemberUpdate
 	e.id = fmt.Sprintf("admin_change:%d:%d:%d", d.GroupID, d.UserID, e.timestamp.Unix())
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	return e, nil
 }
@@ -415,10 +410,7 @@ func parseGroupMuteEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	e.kind = platform.EventKindNotice
 	e.id = fmt.Sprintf("group_mute:%d:%d:%d", d.GroupID, d.UserID, e.timestamp.Unix())
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	return e, nil
 }
@@ -431,10 +423,7 @@ func parseGroupWholeMuteEvent(e *milkyEvent, data []byte) (platform.Event, error
 	e.kind = platform.EventKindNotice
 	e.id = fmt.Sprintf("group_whole_mute:%d:%d", d.GroupID, e.timestamp.Unix())
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.OperatorID, 10)}
 	return e, nil
 }
@@ -449,10 +438,7 @@ func parseGroupMessageReactionEvent(e *milkyEvent, data []byte) (platform.Event,
 	e.kind = platform.EventKindReaction
 	e.id = fmt.Sprintf("reaction:%d:%d:%d:%s", d.GroupID, d.UserID, d.MessageSeq, d.FaceID)
 	e.rawPayload = &d
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	return e, nil
 }
@@ -468,7 +454,7 @@ func parseFriendRequestEvent(e *milkyEvent, data []byte) (platform.Event, error)
 	e.id = fmt.Sprintf("friend_req:%d:%d", d.InitiatorID, e.timestamp.Unix())
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.InitiatorID, 10)}
-	e.chat = platform.ChatInfo{ID: encodeChatID(sceneFriend, d.InitiatorID)}
+	e.chat = chatInfoFromScene(sceneFriend, d.InitiatorID)
 	return e, nil
 }
 
@@ -483,10 +469,7 @@ func parseGroupJoinRequestEvent(e *milkyEvent, data []byte) (platform.Event, err
 	e.id = fmt.Sprintf("group_req:%d:%d:%d", d.GroupID, d.InitiatorID, d.NotificationSeq)
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.InitiatorID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	return e, nil
 }
 
@@ -501,10 +484,7 @@ func parseGroupInvitationEvent(e *milkyEvent, data []byte) (platform.Event, erro
 	e.id = fmt.Sprintf("group_inv:%d:%d", d.GroupID, d.InvitationSeq)
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.InitiatorID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	return e, nil
 }
 
@@ -532,11 +512,7 @@ func parsePeerPinChangeEvent(e *milkyEvent, data []byte) (platform.Event, error)
 	e.kind = platform.EventKindNotice
 	e.id = fmt.Sprintf("peer_pin_change:%s:%d:%d", d.MessageScene, d.PeerID, e.timestamp.Unix())
 	e.rawPayload = &d
-	isGroup := d.MessageScene == sceneGroup
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(d.MessageScene, d.PeerID),
-		IsGroup: isGroup,
-	}
+	e.chat = chatInfoFromScene(d.MessageScene, d.PeerID)
 	return e, nil
 }
 
@@ -554,10 +530,7 @@ func parseGroupInvitedJoinRequestEvent(e *milkyEvent, data []byte) (platform.Eve
 	e.id = fmt.Sprintf("invited_join_req:%d:%d:%d", d.GroupID, d.InitiatorID, d.NotificationSeq)
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.InitiatorID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	return e, nil
 }
 
@@ -572,7 +545,7 @@ func parseFriendNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	e.id = fmt.Sprintf("friend_nudge:%d:%d", d.UserID, e.timestamp.Unix())
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
-	e.chat = platform.ChatInfo{ID: encodeChatID(sceneFriend, d.UserID)}
+	e.chat = chatInfoFromScene(sceneFriend, d.UserID)
 	e.segments = textSegments(d.DisplayAction + d.DisplaySuffix)
 	return e, nil
 }
@@ -588,7 +561,7 @@ func parseFriendFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, err
 	e.id = fmt.Sprintf("friend_file:%d:%s", d.UserID, d.FileID)
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
-	e.chat = platform.ChatInfo{ID: encodeChatID(sceneFriend, d.UserID)}
+	e.chat = chatInfoFromScene(sceneFriend, d.UserID)
 	e.segments = fileSegments(platform.Attachment{
 		Kind: platform.AttachmentKindFile,
 		Name: d.FileName,
@@ -613,10 +586,7 @@ func parseGroupEssenceMessageChangeEvent(e *milkyEvent, data []byte) (platform.E
 	e.id = fmt.Sprintf("essence_change:%d:%d:%d", d.GroupID, d.MessageSeq, e.timestamp.Unix())
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.OperatorID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	return e, nil
 }
 
@@ -631,11 +601,9 @@ func parseGroupNameChangeEvent(e *milkyEvent, data []byte) (platform.Event, erro
 	e.id = fmt.Sprintf("group_name_change:%d:%d", d.GroupID, e.timestamp.Unix())
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.OperatorID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-		Name:    d.NewGroupName,
-	}
+	chat := chatInfoFromScene(sceneGroup, d.GroupID)
+	chat.Name = d.NewGroupName
+	e.chat = chat
 	e.segments = textSegments(d.NewGroupName)
 	return e, nil
 }
@@ -651,10 +619,7 @@ func parseGroupNudgeEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	e.id = fmt.Sprintf("group_nudge:%d:%d:%d:%d", d.GroupID, d.SenderID, d.ReceiverID, e.timestamp.Unix())
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.SenderID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.segments = textSegments(d.DisplayAction + d.DisplaySuffix)
 	return e, nil
 }
@@ -670,10 +635,7 @@ func parseGroupFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, erro
 	e.id = fmt.Sprintf("group_file:%d:%s", d.GroupID, d.FileID)
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
-	e.chat = platform.ChatInfo{
-		ID:      encodeChatID(sceneGroup, d.GroupID),
-		IsGroup: true,
-	}
+	e.chat = chatInfoFromScene(sceneGroup, d.GroupID)
 	e.segments = fileSegments(platform.Attachment{
 		Kind: platform.AttachmentKindFile,
 		Name: d.FileName,

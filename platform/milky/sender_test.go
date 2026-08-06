@@ -32,7 +32,7 @@ func TestSender_Send_GroupMessage(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	req := sendReq(platform.ChatInfo{ID: "group:555", IsGroup: true}, platform.TextMessage("hello"))
+	req := sendReq(platform.ChatInfo{ID: "555", IsGroup: true}, platform.TextMessage("hello"))
 	result, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
 
@@ -53,7 +53,7 @@ func TestSender_Send_PrivateMessage(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	req := sendReq(platform.ChatInfo{ID: "friend:1001", IsGroup: false}, platform.TextMessage("hi"))
+	req := sendReq(platform.ChatInfo{ID: "1001", IsGroup: false}, platform.TextMessage("hi"))
 	result, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
 	assert.Equal(t, "123", result.MessageID)
@@ -107,7 +107,7 @@ func TestSender_Send_EmptyMessage(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	req := sendReq(platform.ChatInfo{ID: "group:555", IsGroup: true}, platform.TextMessage(""))
+	req := sendReq(platform.ChatInfo{ID: "555", IsGroup: true}, platform.TextMessage(""))
 	_, err := s.Send(context.Background(), req)
 	assert.ErrorIs(t, err, errutil.ErrEmptyMessage)
 	assert.Empty(t, m.reqs)
@@ -120,7 +120,7 @@ func TestSender_Send_FileOnlyMessage(t *testing.T) {
 	msg := platform.TextMessage("").WithAttachments(
 		platform.Attachment{URL: "https://ex.com/a.pdf", Kind: platform.AttachmentKindFile, Name: "a.pdf"},
 	)
-	req := sendReq(platform.ChatInfo{ID: "group:555", IsGroup: true}, msg)
+	req := sendReq(platform.ChatInfo{ID: "555", IsGroup: true}, msg)
 
 	result, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestSender_Send_TextPlusFile(t *testing.T) {
 	msg := platform.TextMessage("正文").WithAttachments(
 		platform.Attachment{URL: "https://ex.com/b.pdf", Kind: platform.AttachmentKindFile, Name: "b.pdf"},
 	)
-	req := sendReq(platform.ChatInfo{ID: "friend:1001"}, msg)
+	req := sendReq(platform.ChatInfo{ID: "1001"}, msg)
 
 	_, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestSender_Send_FileBase64Data(t *testing.T) {
 	msg := platform.TextMessage("").WithAttachments(
 		platform.Attachment{Data: []byte("pdf-bytes"), Kind: platform.AttachmentKindFile, Name: "c.pdf"},
 	)
-	req := sendReq(platform.ChatInfo{ID: "friend:1001"}, msg)
+	req := sendReq(platform.ChatInfo{ID: "1001"}, msg)
 
 	_, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestSender_Send_FileNoURINoData(t *testing.T) {
 	msg := platform.TextMessage("").WithAttachments(
 		platform.Attachment{Kind: platform.AttachmentKindFile},
 	)
-	req := sendReq(platform.ChatInfo{ID: "friend:1001"}, msg)
+	req := sendReq(platform.ChatInfo{ID: "1001"}, msg)
 
 	_, err := s.Send(context.Background(), req)
 	require.Error(t, err)
@@ -187,21 +187,21 @@ func TestSender_Send_ApiErrorWrapped(t *testing.T) {
 	})
 	s := newTestSender(t, m)
 
-	req := sendReq(platform.ChatInfo{ID: "group:555", IsGroup: true}, platform.TextMessage("hi"))
+	req := sendReq(platform.ChatInfo{ID: "555", IsGroup: true}, platform.TextMessage("hi"))
 	_, err := s.Send(context.Background(), req)
 	require.Error(t, err)
 
 	se, ok := err.(*platform.SendError)
 	require.True(t, ok)
 	assert.Equal(t, platform.SendErrPermDenied, se.Code)
-	assert.Equal(t, "group:555", se.ChatID)
+	assert.Equal(t, "555", se.ChatID)
 }
 
 func TestSender_Send_MarkdownFallsBackToText(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	req := sendReq(platform.ChatInfo{ID: "group:555", IsGroup: true}, platform.MarkdownMessage("**bold**"))
+	req := sendReq(platform.ChatInfo{ID: "555", IsGroup: true}, platform.MarkdownMessage("**bold**"))
 	_, err := s.Send(context.Background(), req)
 	require.NoError(t, err)
 
@@ -217,16 +217,35 @@ func TestSender_Delete_Group(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.Delete(context.Background(), "group:555", "456"))
+	require.NoError(t, s.Delete(context.Background(), "555", "456"))
 	assertReq(t, m, "/api/recall_group_message", `{"group_id":555,"message_seq":456}`)
 }
 
 func TestSender_Delete_Private(t *testing.T) {
 	m := newMockMilkyServer(t)
+	// 双尝试：群撤回先失败 → 落到私聊撤回
+	m.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/recall_group_message" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"failed","retcode":-1,"data":{}}`))
+			return
+		}
+		m.handle(w, r)
+	})
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.Delete(context.Background(), "friend:1001", "123"))
+	require.NoError(t, s.Delete(context.Background(), "1001", "123"))
 	assertReq(t, m, "/api/recall_private_message", `{"user_id":1001,"message_seq":123}`)
+}
+
+func TestSender_Delete_PrivateOnlyOneAttempt(t *testing.T) {
+	m := newMockMilkyServer(t)
+	s := newTestSender(t, m)
+
+	// 群撤回成功 → 不再尝试私聊
+	require.NoError(t, s.Delete(context.Background(), "1001", "123"))
+	assertReq(t, m, "/api/recall_group_message", `{"group_id":1001,"message_seq":123}`)
+	require.Len(t, m.reqs, 1)
 }
 
 func TestSender_Delete_InvalidChatID(t *testing.T) {
@@ -241,7 +260,7 @@ func TestSender_Delete_InvalidMessageID(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	err := s.Delete(context.Background(), "group:555", "abc")
+	err := s.Delete(context.Background(), "555", "abc")
 	assert.Error(t, err)
 }
 
@@ -306,7 +325,7 @@ func TestSender_DeleteMemberMessage(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.DeleteMemberMessage(context.Background(), "group:555", "456"))
+	require.NoError(t, s.DeleteMemberMessage(context.Background(), "555", "456"))
 	assertReq(t, m, "/api/recall_group_message", `{"group_id":555,"message_seq":456}`)
 }
 
@@ -379,7 +398,7 @@ func TestSender_AddReaction_Face(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.AddReaction(context.Background(), "group:555", "456", platform.Emoji{ID: "21", Kind: platform.EmojiKindSystem}))
+	require.NoError(t, s.AddReaction(context.Background(), "555", "456", platform.Emoji{ID: "21", Kind: platform.EmojiKindSystem}))
 	assertReq(t, m, "/api/send_group_message_reaction", `{"group_id":555,"message_seq":456,"reaction":"21","reaction_type":"face","is_add":true}`)
 }
 
@@ -387,7 +406,7 @@ func TestSender_AddReaction_Unicode(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.AddReaction(context.Background(), "group:555", "456", platform.Emoji{Value: "👍", Kind: platform.EmojiKindUnicode}))
+	require.NoError(t, s.AddReaction(context.Background(), "555", "456", platform.Emoji{Value: "👍", Kind: platform.EmojiKindUnicode}))
 	assertReq(t, m, "/api/send_group_message_reaction", `{"group_id":555,"message_seq":456,"reaction":"👍","reaction_type":"emoji","is_add":true}`)
 }
 
@@ -395,7 +414,7 @@ func TestSender_RemoveReaction(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	require.NoError(t, s.RemoveReaction(context.Background(), "group:555", "456", platform.Emoji{ID: "21"}))
+	require.NoError(t, s.RemoveReaction(context.Background(), "555", "456", platform.Emoji{ID: "21"}))
 	body := gjson.Parse(m.lastReq().body)
 	assert.False(t, body.Get("is_add").Bool())
 }
@@ -408,20 +427,19 @@ func TestSender_Reaction_InvalidChatID(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestSender_Reaction_PrivateChatRejected(t *testing.T) {
+func TestSender_Reaction_PlainIDAccepted(t *testing.T) {
+	// 纯数字 ID 无法判断场景：不再做 scene 校验，文档注明仅群消息支持
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	err := s.AddReaction(context.Background(), "friend:1001", "456", platform.Emoji{ID: "21"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "仅支持群消息")
-	assert.Empty(t, m.reqs)
+	require.NoError(t, s.AddReaction(context.Background(), "555", "456", platform.Emoji{ID: "21"}))
+	assertReq(t, m, "/api/send_group_message_reaction", `{"group_id":555,"message_seq":456,"reaction":"21","reaction_type":"face","is_add":true}`)
 }
 
 func TestSender_Reaction_InvalidMessageID(t *testing.T) {
 	m := newMockMilkyServer(t)
 	s := newTestSender(t, m)
 
-	err := s.AddReaction(context.Background(), "group:555", "abc", platform.Emoji{ID: "21"})
+	err := s.AddReaction(context.Background(), "555", "abc", platform.Emoji{ID: "21"})
 	assert.Error(t, err)
 }

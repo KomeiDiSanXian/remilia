@@ -134,7 +134,7 @@ func toPlatformMessages(msgs []Message, scene string) []platform.Message {
 			ID:          strconv.FormatInt(m.MessageSeq, 10),
 			Platform:    PlatformID,
 			Sender:      platform.UserInfo{ID: strconv.FormatInt(m.SenderID, 10)},
-			Chat:        platform.ChatInfo{ID: encodeChatID(scene, m.PeerID), IsGroup: scene == sceneGroup},
+			Chat:        chatInfoFromScene(scene, m.PeerID),
 			Segments:    segs,
 			Content:     platform.SegmentsContent(segs),
 			Attachments: platform.SegmentsAttachments(segs),
@@ -194,20 +194,30 @@ func (s *milkySender) GetAnnouncements(ctx stdctx.Context, groupID string) ([]pl
 // 路由规则：
 //   - chat.IsGroup=true  → send_group_message（发送群消息）
 //   - chat.IsGroup=false → send_private_message（发送私聊消息）
+//
+// scene 判定优先级：ChatInfo.Tokens[TokenMessageScene]（事件解析时保留）
+// → MessageExtra.Scene（显式覆盖）→ 按 IsGroup 推断。
 func (s *milkySender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.SendResult, error) {
 	if err := req.Validate(); err != nil {
 		return platform.SendResult{}, err
 	}
 
-	scene, peerID, ok := decodeChatID(req.Target.ID)
-	if !ok {
-		return platform.SendResult{}, fmt.Errorf("%w: invalid milky chatID %q", errutil.ErrNoChatInfo, req.Target.ID)
+	peerID, err := parseUin(req.Target.ID, "chatID")
+	if err != nil {
+		return platform.SendResult{}, fmt.Errorf("%w: %v", errutil.ErrNoChatInfo, err)
+	}
+	// 事件级 scene（TokenMessageScene）优先；兼容旧格式 "scene:peerID" 缓存 ID
+	scene := req.Target.Tokens[TokenMessageScene]
+	if scene == "" {
+		if oldScene, _, ok := decodeChatID(req.Target.ID); ok && oldScene != "" {
+			scene = oldScene
+		}
 	}
 	// 如果 MessageExtra 中指定了 scene，则以其为准
 	if extra := extractExtra(req.Message); extra.Scene != "" {
 		scene = extra.Scene
 	}
-	// 兜底：若 chatID 中未编码 scene，则根据 IsGroup 推断
+	// 兜底：根据 IsGroup 推断
 	if scene == "" {
 		if req.Target.IsGroup {
 			scene = sceneGroup
@@ -239,7 +249,6 @@ func (s *milkySender) Send(ctx stdctx.Context, req platform.SendRequest) (platfo
 	}
 
 	var out sendMessageOutput
-	var err error
 
 	if scene == sceneGroup {
 		err = s.client.call(ctx, "send_group_message", &sendGroupMessageInput{
@@ -325,23 +334,25 @@ func (s *milkySender) uploadFiles(ctx stdctx.Context, scene string, peerID int64
 
 // Delete 通过 message_seq 撤回一条消息。
 //
-// chatID 须为 "scene:peer_id" 格式（由 milkyEvent.Chat().ID 设置）。
+// chatID 为平台原生会话 ID（纯数字 peerID，由 milkyEvent.Chat().ID 设置）；
+// 无 scene 上下文时双尝试：先群撤回、失败再试私聊撤回。
 // messageID 为十进制 message_seq 字符串（由 SendResult.MessageID 返回）。
 func (s *milkySender) Delete(ctx stdctx.Context, chatID, messageID string) error {
-	scene, peerID, ok := decodeChatID(chatID)
-	if !ok {
-		return fmt.Errorf("milky: Delete: invalid chatID %q", chatID)
+	peerID, err := parseUin(chatID, "chatID")
+	if err != nil {
+		return fmt.Errorf("milky: Delete: %v", err)
 	}
 	seq, err := strconv.ParseInt(messageID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("milky: Delete: invalid messageID %q: %w", messageID, err)
 	}
 
-	if scene == sceneGroup {
-		return s.client.call(ctx, "recall_group_message", &recallGroupMessageInput{
-			GroupID:    peerID,
-			MessageSeq: seq,
-		}, nil)
+	groupErr := s.client.call(ctx, "recall_group_message", &recallGroupMessageInput{
+		GroupID:    peerID,
+		MessageSeq: seq,
+	}, nil)
+	if groupErr == nil {
+		return nil
 	}
 	return s.client.call(ctx, "recall_private_message", &recallPrivateMessageInput{
 		UserID:     peerID,
@@ -418,15 +429,15 @@ func (s *milkySender) SetAdmin(ctx stdctx.Context, groupID, userID string, isAdm
 // 作为自动审核的便捷方法提供。
 func (s *milkySender) DeleteMemberMessage(ctx stdctx.Context, groupID, messageID string) error {
 	// 必须走 parseUin：调用方（core/context 的 TryDeleteMemberMessage）传入的
-	// 是 event.Chat().ID，形态为 "group:123456789" 而非裸 QQ 号。
-	// 此前直接 strconv.ParseInt 且丢弃 error，解析失败得到 0，于是向
-	// group_id=0 发起撤回——自动审核静默失效，而调用方通常忽略返回值，
-	// 完全无从察觉。本文件其余 GroupManager 方法都已使用 parseUin。
+	// 是 event.Chat().ID。改造后为纯数字 peerID（旧缓存可能仍是 "group:123"，
+	// parseUin 兼容两种形态）。此前直接 strconv.ParseInt 且丢弃 error，
+	// 解析失败得到 0，于是向 group_id=0 发起撤回——自动审核静默失效，
+	// 而调用方通常忽略返回值，完全无从察觉。
 	gid, err := parseUin(groupID, "groupID")
 	if err != nil {
 		return err
 	}
-	return s.Delete(ctx, encodeChatID(sceneGroup, gid), messageID)
+	return s.Delete(ctx, strconv.FormatInt(gid, 10), messageID)
 }
 
 // MuteAll 开启或关闭全群禁言。
@@ -500,8 +511,8 @@ func (s *milkySender) RejectFriendRequest(ctx stdctx.Context, requestID, reason 
 
 // AddReaction 为群消息添加表情回应。
 //
-// chatID 须为群 chatID；messageID 为十进制 message_seq。
-// Milky 仅支持群消息的表情回应。
+// chatID 为平台原生会话 ID（纯数字 peerID）；messageID 为十进制 message_seq。
+// Milky 仅支持群消息的表情回应（纯数字 ID 无法校验场景，调用方需保证群会话）。
 func (s *milkySender) AddReaction(ctx stdctx.Context, chatID, messageID string, emoji platform.Emoji) error {
 	return s.sendReaction(ctx, chatID, messageID, emoji, true)
 }
@@ -512,15 +523,9 @@ func (s *milkySender) RemoveReaction(ctx stdctx.Context, chatID, messageID strin
 }
 
 func (s *milkySender) sendReaction(ctx stdctx.Context, chatID, messageID string, emoji platform.Emoji, add bool) error {
-	scene, gid, ok := decodeChatID(chatID)
-	if !ok {
-		return fmt.Errorf("milky: reaction: invalid chatID %q", chatID)
-	}
-	// 必须校验 scene：Milky 仅支持群消息表情回应。此前丢弃 scene 后，
-	// 私聊场景的 "friend:12345" 会把好友 QQ 号当作 group_id 用，
-	// 若机器人恰好在该号码对应的群里，就会把表情回应写到毫不相干的群消息上。
-	if scene != sceneGroup {
-		return fmt.Errorf("milky: reaction: 仅支持群消息，chatID=%q", chatID)
+	gid, err := parseUin(chatID, "chatID")
+	if err != nil {
+		return fmt.Errorf("milky: reaction: %v", err)
 	}
 	seq, err := strconv.ParseInt(messageID, 10, 64)
 	if err != nil {

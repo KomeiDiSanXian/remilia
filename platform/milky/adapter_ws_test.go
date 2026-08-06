@@ -131,7 +131,7 @@ func TestAdapter_Start_ReceivesEvents(t *testing.T) {
 	}
 
 	assert.Equal(t, "from ws", got.Content())
-	assert.Equal(t, "group:555", got.Chat().ID)
+	assert.Equal(t, "555", got.Chat().ID)
 	require.Eventually(t, func() bool { return adapter.BotID() == "10001" }, 3*time.Second, 20*time.Millisecond)
 	assert.Equal(t, "Bot", adapter.BotName())
 	assert.True(t, adapter.IsRunning())

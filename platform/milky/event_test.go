@@ -46,8 +46,9 @@ func TestParseMessageEvent_Group(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindGroupMessage, evt.Kind())
 	assert.Equal(t, "123", evt.ID())
-	assert.Equal(t, "group:555", evt.Chat().ID)
+	assert.Equal(t, "555", evt.Chat().ID)
 	assert.True(t, evt.Chat().IsGroup)
+	assert.Equal(t, "group", evt.Chat().Tokens[TokenMessageScene])
 	assert.Equal(t, "测试群", evt.Chat().Name)
 	assert.Equal(t, "你好", evt.Content())
 	assert.Equal(t, "1", evt.Sender().ID)
@@ -77,7 +78,7 @@ func TestParseMessageEvent_Friend(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindPrivateMessage, evt.Kind())
 	assert.Equal(t, "7", evt.ID())
-	assert.Equal(t, "friend:1001", evt.Chat().ID)
+	assert.Equal(t, "1001", evt.Chat().ID)
 	assert.False(t, evt.Chat().IsGroup)
 	assert.Equal(t, "hi", evt.Content())
 	assert.Equal(t, "特别好友", evt.Sender().DisplayName)
@@ -92,7 +93,11 @@ func TestParseMessageEvent_TempScene(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindPrivateMessage, evt.Kind())
-	assert.Equal(t, "temp:1001", evt.Chat().ID)
+	assert.Equal(t, "8", evt.ID())
+	assert.Equal(t, "1001", evt.Chat().ID)
+	assert.False(t, evt.Chat().IsGroup)
+	assert.True(t, evt.Chat().IsDM, "temp 会话应置 IsDM")
+	assert.Equal(t, "temp", evt.Chat().Tokens[TokenMessageScene])
 }
 
 func TestParseMessageEvent_AllAttachmentTypes(t *testing.T) {
@@ -186,7 +191,7 @@ func TestParseMessageRecallEvent(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindMessageDelete, evt.Kind())
 	assert.Equal(t, "123", evt.ID())
-	assert.Equal(t, "group:555", evt.Chat().ID)
+	assert.Equal(t, "555", evt.Chat().ID)
 	assert.Equal(t, "2", evt.Sender().ID)
 	rawEvt, ok := evt.(platform.RawEvent)
 	require.True(t, ok)
@@ -201,7 +206,7 @@ func TestParseGroupMemberIncreaseEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindMemberJoin, evt.Kind())
-	assert.Equal(t, "group:555", evt.Chat().ID)
+	assert.Equal(t, "555", evt.Chat().ID)
 	assert.Equal(t, "3", evt.Sender().ID)
 	assert.Contains(t, evt.ID(), "member_join:555:3")
 }
@@ -263,7 +268,7 @@ func TestParseFriendRequestEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindRequest, evt.Kind())
-	assert.Equal(t, "friend:200", evt.Chat().ID)
+	assert.Equal(t, "200", evt.Chat().ID)
 	assert.Equal(t, "200", evt.Sender().ID)
 	assert.Contains(t, evt.ID(), "friend_req:200")
 }
@@ -275,7 +280,7 @@ func TestParseGroupJoinRequestEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindRequest, evt.Kind())
-	assert.Equal(t, "group:555", evt.Chat().ID)
+	assert.Equal(t, "555", evt.Chat().ID)
 	assert.Equal(t, "group_req:555:7:9", evt.ID())
 }
 
@@ -306,7 +311,7 @@ func TestParsePeerPinChangeEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
-	assert.Equal(t, "friend:1001", evt.Chat().ID)
+	assert.Equal(t, "1001", evt.Chat().ID)
 	assert.Contains(t, evt.ID(), "peer_pin_change:friend:1001")
 }
 
@@ -327,7 +332,7 @@ func TestParseFriendNudgeEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
-	assert.Equal(t, "friend:1001", evt.Chat().ID)
+	assert.Equal(t, "1001", evt.Chat().ID)
 	assert.Equal(t, "戳了戳", evt.Content())
 }
 
