@@ -169,7 +169,7 @@ func TestSyntheticEvent_WithAttachments(t *testing.T) {
 		"GROUP_MESSAGE",
 		"check this",
 		platform.WithSyntheticAttachments(
-			platform.InboundAttachment{URL: "https://example.com/img.png", MimeType: "image/png"},
+			platform.Attachment{URL: "https://example.com/img.png", MimeType: "image/png"},
 		),
 	)
 	atts := e.Attachments()

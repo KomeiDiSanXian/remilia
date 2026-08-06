@@ -57,6 +57,13 @@ func newSender(session *discordgo.Session) *discordSender {
 	return s
 }
 
+// PlatformAPI 实现 platform.APIProvider，返回 Discord 原生 SDK 会话，
+// 调用方可断言 *discordgo.Session 访问 Discord 全部 REST API。
+func (s *discordSender) PlatformAPI() any { return s.session }
+
+// 编译期接口实现检查。
+var _ platform.APIProvider = (*discordSender)(nil)
+
 // startCleanup 在 cleanupLoop 已停止时重新启动它。幂等。
 //
 // 适配器支持 Stop → Start 的重启循环（见 GatewayAdapter.Start 的文档），

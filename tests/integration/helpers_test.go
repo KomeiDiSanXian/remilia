@@ -20,7 +20,7 @@ func (e *integrationTestEvent) Chat() platform.ChatInfo                   { retu
 func (e *integrationTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "test_user"} }
 func (e *integrationTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *integrationTestEvent) ID() string                                { return "integration-event" }
-func (e *integrationTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *integrationTestEvent) Attachments() []platform.Attachment { return nil }
 func (e *integrationTestEvent) RawPayload() any                           { return nil }
 
 // newIntegrationEvent creates a platform.Event with the given message content.

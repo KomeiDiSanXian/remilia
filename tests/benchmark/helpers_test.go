@@ -20,7 +20,7 @@ func (e *benchmarkTestEvent) Chat() platform.ChatInfo                   { return
 func (e *benchmarkTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
 func (e *benchmarkTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *benchmarkTestEvent) ID() string                                { return "bench-event" }
-func (e *benchmarkTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *benchmarkTestEvent) Attachments() []platform.Attachment { return nil }
 func (e *benchmarkTestEvent) RawPayload() any                           { return nil }
 
 // newBenchmarkEvent creates a platform.Event with the given message content.

@@ -24,12 +24,210 @@ import (
 //   - platform.AutoModerator
 //   - platform.InvitationHandler
 //   - platform.ReactionSender
+//   - platform.APIProvider（PlatformAPI 返回 *Adapter，暴露 Milky 全部 API 动作）
 type milkySender struct {
-	client *milkyClient
+	client  *milkyClient
+	adapter *Adapter
 }
 
-func newSender(client *milkyClient) *milkySender {
-	return &milkySender{client: client}
+func newSender(adapter *Adapter) *milkySender {
+	return &milkySender{client: adapter.client, adapter: adapter}
+}
+
+// PlatformAPI 实现 platform.APIProvider，返回 Milky 适配器本身，
+// 调用方可断言 *milky.Adapter 访问全部 Milky API 动作
+// （get_login_info、send_group_message、群管理、文件上传等）。
+func (s *milkySender) PlatformAPI() any { return s.adapter }
+
+// 编译期接口实现检查。
+var _ platform.APIProvider = (*milkySender)(nil)
+var _ platform.GroupSettings = (*milkySender)(nil)
+var _ platform.MessageHistoryProvider = (*milkySender)(nil)
+var _ platform.AnnouncementManager = (*milkySender)(nil)
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.GroupSettings（委托 Adapter 的 Milky API）
+// ────────────────────────────────────────────────────────────────────────────
+
+// SetGroupName 实现 platform.GroupSettings，修改群名称。
+func (s *milkySender) SetGroupName(ctx stdctx.Context, groupID, name string) error {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	return s.adapter.SetGroupName(ctx, gid, name)
+}
+
+// SetGroupCard 实现 platform.GroupSettings，设置群成员名片。
+func (s *milkySender) SetGroupCard(ctx stdctx.Context, groupID, userID, card string) error {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	uid, err := parseUin(userID, "userID")
+	if err != nil {
+		return err
+	}
+	return s.adapter.SetGroupMemberCard(ctx, gid, uid, card)
+}
+
+// SetGroupSpecialTitle 实现 platform.GroupSettings，设置群成员专属头衔。
+func (s *milkySender) SetGroupSpecialTitle(ctx stdctx.Context, groupID, userID, title string) error {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	uid, err := parseUin(userID, "userID")
+	if err != nil {
+		return err
+	}
+	return s.adapter.SetGroupMemberSpecialTitle(ctx, gid, uid, title)
+}
+
+// LeaveGroup 实现 platform.GroupSettings，退出群组。
+func (s *milkySender) LeaveGroup(ctx stdctx.Context, groupID string, dismiss bool) error {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	// Milky 无解散群接口，dismiss 参数被忽略。
+	_ = dismiss
+	return s.adapter.QuitGroup(ctx, gid)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.MessageHistoryProvider（委托 Adapter 的 Milky API）
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetGroupHistory 实现 platform.MessageHistoryProvider，获取群历史消息。
+func (s *milkySender) GetGroupHistory(ctx stdctx.Context, chatID string, limit int) ([]platform.Message, error) {
+	peerID, err := parseUin(chatID, "groupID")
+	if err != nil {
+		return nil, err
+	}
+	msgs, _, err := s.adapter.GetHistoryMessages(ctx, sceneGroup, peerID, nil, limit)
+	if err != nil {
+		return nil, err
+	}
+	return toPlatformMessages(msgs, sceneGroup), nil
+}
+
+// GetFriendHistory 实现 platform.MessageHistoryProvider，获取好友历史消息。
+func (s *milkySender) GetFriendHistory(ctx stdctx.Context, chatID string, limit int) ([]platform.Message, error) {
+	peerID, err := parseUin(chatID, "userID")
+	if err != nil {
+		return nil, err
+	}
+	msgs, _, err := s.adapter.GetHistoryMessages(ctx, sceneFriend, peerID, nil, limit)
+	if err != nil {
+		return nil, err
+	}
+	return toPlatformMessages(msgs, sceneFriend), nil
+}
+
+// toPlatformMessages 将 Milky Message 列表转换为平台无关消息快照。
+func toPlatformMessages(msgs []Message, scene string) []platform.Message {
+	out := make([]platform.Message, 0, len(msgs))
+	for _, m := range msgs {
+		var text string
+		var atts []platform.Attachment
+		var mentions []platform.UserInfo
+		var replyID string
+		for _, seg := range m.Segments {
+			switch seg.Type {
+			case "text":
+				text += seg.Data.Text
+			case "mention":
+				mentions = append(mentions, platform.UserInfo{
+					ID:          strconv.FormatInt(seg.Data.UserID, 10),
+					DisplayName: seg.Data.Name,
+				})
+			case "mention_all":
+				// @全体成员——无具体用户信息
+			case "reply":
+				replyID = strconv.FormatInt(seg.Data.MessageSeq, 10)
+			case "face":
+				atts = append(atts, platform.Attachment{
+					Extra: map[string]any{ExtraKeyFace: &FaceSegmentMeta{FaceID: seg.Data.FaceID, IsLarge: seg.Data.IsLarge}},
+				})
+			case "image":
+				atts = append(atts, platform.Attachment{
+					URL:      seg.Data.TempURL,
+					MimeType: "image/jpeg",
+					Width:    seg.Data.Width,
+					Height:   seg.Data.Height,
+					Extra:    map[string]any{ExtraKeyImage: &ImageSegmentMeta{SubType: seg.Data.SubType, ResourceID: seg.Data.ResourceID}},
+				})
+			case "record":
+				atts = append(atts, platform.Attachment{
+					URL:      seg.Data.TempURL,
+					MimeType: "audio/mpeg",
+					Extra:    map[string]any{ExtraKeyRecord: &RecordSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration}},
+				})
+			case "file":
+				atts = append(atts, platform.Attachment{
+					Name: seg.Data.FileName,
+					Size: int(seg.Data.FileSize),
+					Extra: map[string]any{ExtraKeyFile: &FileSegmentMeta{
+						FileID:   seg.Data.FileID,
+						FileName: seg.Data.FileName,
+						FileSize: seg.Data.FileSize,
+						FileHash: seg.Data.FileHash,
+					}},
+				})
+			}
+		}
+		out = append(out, platform.Message{
+			ID:          strconv.FormatInt(m.MessageSeq, 10),
+			Sender:      platform.UserInfo{ID: strconv.FormatInt(m.SenderID, 10)},
+			Chat:        platform.ChatInfo{ID: encodeChatID(scene, m.PeerID), IsGroup: scene == sceneGroup},
+			Content:     text,
+			Attachments: atts,
+			Mentions:    mentions,
+			ReplyToID:   replyID,
+			Timestamp:   time.Unix(m.Time, 0),
+		})
+	}
+	return out
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.AnnouncementManager（委托 Adapter 的 Milky API）
+// ────────────────────────────────────────────────────────────────────────────
+
+// SendAnnouncement 实现 platform.AnnouncementManager，发布群公告。
+func (s *milkySender) SendAnnouncement(ctx stdctx.Context, groupID, content, imageURL string) error {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return err
+	}
+	return s.adapter.SendGroupAnnouncement(ctx, gid, content, imageURL)
+}
+
+// GetAnnouncements 实现 platform.AnnouncementManager，获取群公告列表。
+func (s *milkySender) GetAnnouncements(ctx stdctx.Context, groupID string) ([]platform.Announcement, error) {
+	gid, err := parseUin(groupID, "groupID")
+	if err != nil {
+		return nil, err
+	}
+	anns, err := s.adapter.GetGroupAnnouncements(ctx, gid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]platform.Announcement, 0, len(anns))
+	for _, a := range anns {
+		ann := platform.Announcement{
+			ID:          a.AnnouncementID,
+			Content:     a.Content,
+			PublisherID: strconv.FormatInt(a.UserID, 10),
+			Timestamp:   a.Time,
+		}
+		if a.ImageURL != nil {
+			ann.ImageURL = *a.ImageURL
+		}
+		out = append(out, ann)
+	}
+	return out, nil
 }
 
 // ────────────────────────────────────────────────────────────────────────────

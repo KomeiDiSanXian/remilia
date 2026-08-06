@@ -29,7 +29,7 @@ func (e *fuzzEvent) Sender() platform.UserInfo                 { return platform
 func (e *fuzzEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *fuzzEvent) ID() string                                { return "fuzz-id" }
 func (e *fuzzEvent) RawPayload() any                           { return nil }
-func (e *fuzzEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *fuzzEvent) Attachments() []platform.Attachment { return nil }
 
 // newFuzzContext creates a platform context with the given content.
 func newFuzzContext(content string) *rcontext.Context {

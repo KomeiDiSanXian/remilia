@@ -297,3 +297,125 @@ func GetSessionNotifier(a Adapter) (SessionNotifier, bool) {
 	sn, ok := a.Sender().(SessionNotifier)
 	return sn, ok
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// GroupSettings（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// GroupSettings 可选接口：支持群资料管理的平台适配器 Sender 实现此接口。
+//
+// 覆盖群名称、群名片、专属头衔、退群等群资料操作，
+// 与 [GroupManager]（成员管理）互补。
+//
+// 使用前用 [GetGroupSettings] 检查支持：
+//
+//	if gs, ok := platform.GetGroupSettings(adapter); ok {
+//	    _ = gs.SetGroupName(ctx, groupID, "新群名")
+//	}
+type GroupSettings interface {
+	// SetGroupName 修改群名称。
+	// 平台不支持时返回 [ErrNotSupported]。
+	SetGroupName(ctx stdctx.Context, groupID, name string) error
+
+	// SetGroupCard 设置群成员名片（备注名）。
+	// card 为空字符串时清除名片。
+	// 平台不支持时返回 [ErrNotSupported]。
+	SetGroupCard(ctx stdctx.Context, groupID, userID, card string) error
+
+	// SetGroupSpecialTitle 设置群成员专属头衔。
+	// title 为空字符串时清除头衔。
+	// 平台不支持时返回 [ErrNotSupported]。
+	SetGroupSpecialTitle(ctx stdctx.Context, groupID, userID, title string) error
+
+	// LeaveGroup 退出群组；dismiss 为 true 时尝试解散群（仅群主）。
+	// 平台不支持时返回 [ErrNotSupported]。
+	LeaveGroup(ctx stdctx.Context, groupID string, dismiss bool) error
+}
+
+// GetGroupSettings 安全获取适配器 Sender 的群资料管理接口。
+//
+// 若 Sender 未实现 [GroupSettings]，返回 (nil, false)。
+func GetGroupSettings(a Adapter) (GroupSettings, bool) {
+	gs, ok := a.Sender().(GroupSettings)
+	return gs, ok
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MessageHistoryProvider（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// MessageHistoryProvider 可选接口：支持查询历史消息的平台适配器 Sender 实现此接口。
+//
+// 使用前用 [GetMessageHistoryProvider] 检查支持：
+//
+//	if hp, ok := platform.GetMessageHistoryProvider(adapter); ok {
+//	    msgs, err := hp.GetGroupHistory(ctx, groupID, 20)
+//	}
+type MessageHistoryProvider interface {
+	// GetGroupHistory 获取群历史消息。
+	// chatID 为群会话 ID（取事件 Chat().ID 原样传入）；limit 为最大返回条数（0 使用平台默认值）。
+	// 返回按时间从新到旧排列的消息快照列表。
+	// 平台不支持时返回 [ErrNotSupported]。
+	GetGroupHistory(ctx stdctx.Context, chatID string, limit int) ([]Message, error)
+
+	// GetFriendHistory 获取好友（私聊）历史消息。
+	// chatID 为用户会话 ID；limit 为最大返回条数（0 使用平台默认值）。
+	// 平台不支持时返回 [ErrNotSupported]。
+	GetFriendHistory(ctx stdctx.Context, chatID string, limit int) ([]Message, error)
+}
+
+// GetMessageHistoryProvider 安全获取适配器 Sender 的历史消息接口。
+//
+// 若 Sender 未实现 [MessageHistoryProvider]，返回 (nil, false)。
+func GetMessageHistoryProvider(a Adapter) (MessageHistoryProvider, bool) {
+	hp, ok := a.Sender().(MessageHistoryProvider)
+	return hp, ok
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// AnnouncementManager（可选接口）
+// ────────────────────────────────────────────────────────────────────────────
+
+// AnnouncementManager 可选接口：支持群公告的平台适配器 Sender 实现此接口。
+//
+// 使用前用 [GetAnnouncementManager] 检查支持：
+//
+//	if am, ok := platform.GetAnnouncementManager(adapter); ok {
+//	    _ = am.SendAnnouncement(ctx, groupID, "公告内容")
+//	}
+type AnnouncementManager interface {
+	// SendAnnouncement 发布群公告。
+	// imageURL 为可选配图 URL，空字符串表示纯文字公告。
+	// 平台不支持时返回 [ErrNotSupported]。
+	SendAnnouncement(ctx stdctx.Context, groupID, content, imageURL string) error
+
+	// GetAnnouncements 获取群公告列表。
+	// 平台不支持时返回 [ErrNotSupported]。
+	GetAnnouncements(ctx stdctx.Context, groupID string) ([]Announcement, error)
+}
+
+// Announcement 是群公告的跨平台摘要。
+//
+// 平台特有字段（如置顶、生效时间）通过 Extra 携带（key-value 形式）。
+type Announcement struct {
+	// ID 公告 ID（用于删除）。
+	ID string
+	// Content 公告内容。
+	Content string
+	// PublisherID 发布者用户 ID。
+	PublisherID string
+	// ImageURL 公告配图 URL（平台不提供时为空）。
+	ImageURL string
+	// Timestamp Unix 时间戳（秒）。
+	Timestamp int64
+	// Extra 平台特有扩展字段（key-value 形式）。
+	Extra map[string]any
+}
+
+// GetAnnouncementManager 安全获取适配器 Sender 的群公告接口。
+//
+// 若 Sender 未实现 [AnnouncementManager]，返回 (nil, false)。
+func GetAnnouncementManager(a Adapter) (AnnouncementManager, bool) {
+	am, ok := a.Sender().(AnnouncementManager)
+	return am, ok
+}

@@ -64,7 +64,7 @@ func (e *middlewareTestEvent) Sender() platform.UserInfo                 { retur
 func (e *middlewareTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *middlewareTestEvent) ID() string                                { return e.id }
 func (e *middlewareTestEvent) RawPayload() any                           { return nil }
-func (e *middlewareTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *middlewareTestEvent) Attachments() []platform.Attachment { return nil }
 
 // createPlatformContextWithID 创建带指定 eventID 的新路径 Context，
 // 供 Dedup 等依赖 GetPlatformEvent() 的中间件测试使用。

@@ -92,11 +92,12 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	cfg.setDefaults()
 
 	client := newMilkyClient(cfg)
-	return &Adapter{
+	adapter := &Adapter{
 		cfg:    cfg,
 		client: client,
-		sender: newSender(client),
-	}, nil
+	}
+	adapter.sender = newSender(adapter)
+	return adapter, nil
 }
 
 // Platform 返回 "milky"。

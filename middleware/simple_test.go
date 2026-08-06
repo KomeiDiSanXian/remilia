@@ -27,7 +27,7 @@ func (e *simpleTestEvent) Sender() platform.UserInfo                 { return pl
 func (e *simpleTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *simpleTestEvent) ID() string                                { return "simple-test-event" }
 func (e *simpleTestEvent) RawPayload() any                           { return nil }
-func (e *simpleTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *simpleTestEvent) Attachments() []platform.Attachment { return nil }
 
 // TestSimpleMiddleware tests simplified middleware factories
 func TestSimpleMiddleware(t *testing.T) {

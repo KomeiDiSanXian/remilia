@@ -69,7 +69,7 @@ type milkyEvent struct {
 	chat        platform.ChatInfo
 	content     string
 	timestamp   time.Time
-	attachments []platform.InboundAttachment
+	attachments []platform.Attachment
 	rawType     string // 线上传输的 event_type 字符串
 	rawPayload  any    // 解析后的载荷结构体
 
@@ -80,14 +80,14 @@ type milkyEvent struct {
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *milkyEvent) Platform() string                          { return PlatformID }
-func (e *milkyEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *milkyEvent) ID() string                                { return e.id }
-func (e *milkyEvent) Sender() platform.UserInfo                 { return e.senderInfo }
-func (e *milkyEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *milkyEvent) Content() string                           { return e.content }
-func (e *milkyEvent) Timestamp() time.Time                      { return e.timestamp }
-func (e *milkyEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *milkyEvent) Platform() string                   { return PlatformID }
+func (e *milkyEvent) Kind() platform.EventKind           { return e.kind }
+func (e *milkyEvent) ID() string                         { return e.id }
+func (e *milkyEvent) Sender() platform.UserInfo          { return e.senderInfo }
+func (e *milkyEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *milkyEvent) Content() string                    { return e.content }
+func (e *milkyEvent) Timestamp() time.Time               { return e.timestamp }
+func (e *milkyEvent) Attachments() []platform.Attachment { return e.attachments }
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	var (
 		textParts []string
 		mentions  []platform.UserInfo
-		atts      []platform.InboundAttachment
+		atts      []platform.Attachment
 		replyID   string
 	)
 	for _, seg := range msg.Segments {
@@ -229,74 +229,74 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 		case "reply":
 			replyID = strconv.FormatInt(seg.Data.MessageSeq, 10)
 		case "face":
-			atts = append(atts, platform.InboundAttachment{
-				Extra: &FaceSegmentMeta{
+			atts = append(atts, platform.Attachment{
+				Extra: map[string]any{ExtraKeyFace: &FaceSegmentMeta{
 					FaceID:  seg.Data.FaceID,
 					IsLarge: seg.Data.IsLarge,
-				},
+				}},
 			})
 		case "image":
-			att := platform.InboundAttachment{
+			att := platform.Attachment{
 				URL:      seg.Data.TempURL,
 				MimeType: "image/jpeg",
 				Width:    seg.Data.Width,
 				Height:   seg.Data.Height,
 			}
+			subType := "normal"
 			if seg.Data.SubType == "sticker" {
-				att.Extra = &ImageSegmentMeta{SubType: "sticker", ResourceID: seg.Data.ResourceID}
-			} else {
-				att.Extra = &ImageSegmentMeta{SubType: "normal", ResourceID: seg.Data.ResourceID}
+				subType = "sticker"
 			}
+			att.Extra = map[string]any{ExtraKeyImage: &ImageSegmentMeta{SubType: subType, ResourceID: seg.Data.ResourceID}}
 			atts = append(atts, att)
 		case "record":
-			atts = append(atts, platform.InboundAttachment{
+			atts = append(atts, platform.Attachment{
 				URL:      seg.Data.TempURL,
 				MimeType: "audio/mpeg",
-				Extra:    &RecordSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration},
+				Extra:    map[string]any{ExtraKeyRecord: &RecordSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration}},
 			})
 		case "video":
-			atts = append(atts, platform.InboundAttachment{
+			atts = append(atts, platform.Attachment{
 				URL:      seg.Data.TempURL,
 				MimeType: "video/mp4",
 				Width:    seg.Data.Width,
 				Height:   seg.Data.Height,
-				Extra:    &VideoSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration},
+				Extra:    map[string]any{ExtraKeyVideo: &VideoSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration}},
 			})
 		case "file":
-			atts = append(atts, platform.InboundAttachment{
+			atts = append(atts, platform.Attachment{
 				Name: seg.Data.FileName,
 				Size: int(seg.Data.FileSize),
-				Extra: &FileSegmentMeta{
+				Extra: map[string]any{ExtraKeyFile: &FileSegmentMeta{
 					FileID:   seg.Data.FileID,
 					FileName: seg.Data.FileName,
 					FileSize: seg.Data.FileSize,
 					FileHash: seg.Data.FileHash,
-				},
+				}},
 			})
 		case "market_face":
-			atts = append(atts, platform.InboundAttachment{
+			atts = append(atts, platform.Attachment{
 				URL: seg.Data.EmojiURL,
-				Extra: &MarketFaceSegmentMeta{
+				Extra: map[string]any{ExtraKeyMarketFace: &MarketFaceSegmentMeta{
 					EmojiPackageID: seg.Data.EmojiPackageID,
 					EmojiID:        seg.Data.EmojiID,
 					Key:            seg.Data.EmojiKey,
 					Summary:        seg.Data.Summary,
 					URL:            seg.Data.EmojiURL,
-				},
+				}},
 			})
 		case "light_app":
-			atts = append(atts, platform.InboundAttachment{
-				Extra: &LightAppSegmentMeta{
+			atts = append(atts, platform.Attachment{
+				Extra: map[string]any{ExtraKeyLightApp: &LightAppSegmentMeta{
 					AppName:     seg.Data.AppName,
 					JSONPayload: seg.Data.JSONPayload,
-				},
+				}},
 			})
 		case "xml":
-			atts = append(atts, platform.InboundAttachment{
-				Extra: &XMLSegmentMeta{
+			atts = append(atts, platform.Attachment{
+				Extra: map[string]any{ExtraKeyXML: &XMLSegmentMeta{
 					ServiceID:  seg.Data.ServiceID,
 					XMLPayload: seg.Data.XMLPayload,
-				},
+				}},
 			})
 		}
 	}
@@ -562,14 +562,14 @@ func parseFriendFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, err
 	e.rawPayload = &d
 	e.senderInfo = platform.UserInfo{ID: strconv.FormatInt(d.UserID, 10)}
 	e.chat = platform.ChatInfo{ID: encodeChatID(sceneFriend, d.UserID)}
-	e.attachments = []platform.InboundAttachment{{
+	e.attachments = []platform.Attachment{{
 		Name: d.FileName,
 		Size: int(d.FileSize),
-		Extra: &FileSegmentMeta{
+		Extra: map[string]any{ExtraKeyFile: &FileSegmentMeta{
 			FileID:   d.FileID,
 			FileName: d.FileName,
 			FileSize: d.FileSize,
-		},
+		}},
 	}}
 	return e, nil
 }
@@ -646,14 +646,14 @@ func parseGroupFileUploadEvent(e *milkyEvent, data []byte) (platform.Event, erro
 		ID:      encodeChatID(sceneGroup, d.GroupID),
 		IsGroup: true,
 	}
-	e.attachments = []platform.InboundAttachment{{
+	e.attachments = []platform.Attachment{{
 		Name: d.FileName,
 		Size: int(d.FileSize),
-		Extra: &FileSegmentMeta{
+		Extra: map[string]any{ExtraKeyFile: &FileSegmentMeta{
 			FileID:   d.FileID,
 			FileName: d.FileName,
 			FileSize: d.FileSize,
-		},
+		}},
 	}}
 	return e, nil
 }

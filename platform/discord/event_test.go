@@ -1,5 +1,18 @@
 package discord_test
 
+// 本文档核验说明
+//
+// 本文件中的 Gateway 事件名与交互类型断言均对照 Discord API 官方文档
+// （2026-07 核验，discord/discord-api-docs 仓库 developers/events/ 目录）：
+//
+//	- Gateway 事件（MESSAGE_CREATE、GUILD_MEMBER_ADD、INTERACTION_CREATE、
+//	  MESSAGE_REACTION_ADD、CHANNEL_CREATE、READY 等）：gateway-events.mdx
+//	- Interaction Type 枚举（1=ping、2=application_command、
+//	  3=message_component、4=autocomplete、5=modal_submit）：由 discordgo
+//	  v0.29.0 的 InteractionType 常量提供，与官方枚举值一致
+//
+// REST 端点由 discordgo 库封装，不在本测试的断言范围内。
+
 import (
 	"testing"
 	"time"

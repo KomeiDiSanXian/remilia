@@ -22,7 +22,7 @@ func (e *MiddlewareTestEvent) Chat() platform.ChatInfo                   { retur
 func (e *MiddlewareTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
 func (e *MiddlewareTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *MiddlewareTestEvent) RawPayload() any                           { return nil }
-func (e *MiddlewareTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *MiddlewareTestEvent) Attachments() []platform.Attachment { return nil }
 
 func MockHandler(err error, delay time.Duration) eventctx.Handler {
 	return func(ctx *eventctx.Context) error {

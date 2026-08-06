@@ -134,11 +134,11 @@ func TestConvertButtons_Extra(t *testing.T) {
 			ID:    "btn_cmd",
 			Label: "Run",
 			Style: platform.ButtonStylePrimary,
-			Extra: &ButtonExtra{
+			Extra: map[string]any{ExtraKeyButton: &ButtonExtra{
 				Enter:  true,
 				Reply:  true,
 				Anchor: 0,
-			},
+			}},
 		},
 		{
 			ID:    "btn_link",

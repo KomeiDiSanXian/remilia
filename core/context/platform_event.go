@@ -44,6 +44,44 @@ func (ctx *Context) GetPlatformSender() platform.Sender {
 	return ctx.platformSender
 }
 
+// GetPlatformAPI 返回当前 Context 平台特有的 API 句柄。
+//
+// 平台 Sender 实现 platform.APIProvider 时返回其 API 句柄（如
+// *onebot.Sender、*milky.Adapter、openapi.OpenAPI、*satori.Client、
+// *discordgo.Session、*telegram.Client），否则返回 nil。
+//
+// 调用示例（OneBot 平台扩展动作）：
+//
+//	api, ok := ctx.GetPlatformAPI().(*onebot.Sender)
+//	if ok {
+//	    _, _ = api.SendGroupForwardMsg(ctx, groupID, nodes)
+//	}
+//
+// 推荐使用包级泛型函数 [GetPlatformAPIAs] 免去类型断言。
+func (ctx *Context) GetPlatformAPI() any {
+	if ctx == nil {
+		return nil
+	}
+	return platform.GetPlatformAPI(ctx.platformSender)
+}
+
+// GetPlatformAPIAs 泛型获取 Context 平台特有的 API 句柄。
+//
+// Go 方法不支持类型参数，因此以包级函数提供（等价于
+// platform.GetPlatformAPIAs[T](ctx.GetPlatformSender())）。
+//
+//	api, ok := context.GetPlatformAPIAs[*onebot.Sender](ctx)
+//	if ok {
+//	    _, _ = api.SendGroupSign(ctx, groupID)
+//	}
+func GetPlatformAPIAs[T any](ctx *Context) (T, bool) {
+	if ctx == nil {
+		var zero T
+		return zero, false
+	}
+	return platform.GetPlatformAPIAs[T](ctx.platformSender)
+}
+
 // GetEventKind 返回平台无关的事件类别。
 func (ctx *Context) GetEventKind() platform.EventKind {
 	if ctx == nil {

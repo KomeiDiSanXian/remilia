@@ -29,7 +29,7 @@ type SyntheticEvent struct {
 	chatInfo    ChatInfo
 	content     string
 	timestamp   time.Time
-	attachments []InboundAttachment
+	attachments []Attachment
 }
 
 // NewSyntheticEvent 创建一个合成事件。
@@ -79,7 +79,7 @@ func WithSyntheticTimestamp(t time.Time) SyntheticOption {
 }
 
 // WithSyntheticAttachments 追加附件列表。
-func WithSyntheticAttachments(a ...InboundAttachment) SyntheticOption {
+func WithSyntheticAttachments(a ...Attachment) SyntheticOption {
 	return func(e *SyntheticEvent) { e.attachments = append(e.attachments, a...) }
 }
 
@@ -107,4 +107,4 @@ func (e *SyntheticEvent) Content() string { return e.content }
 func (e *SyntheticEvent) Timestamp() time.Time { return e.timestamp }
 
 // Attachments 返回附件列表。
-func (e *SyntheticEvent) Attachments() []InboundAttachment { return e.attachments }
+func (e *SyntheticEvent) Attachments() []Attachment { return e.attachments }

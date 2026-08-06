@@ -24,24 +24,43 @@ const (
 	AttachmentKindFile AttachmentKind = "file"
 )
 
-// Attachment 单个附件。
+// Attachment 单个附件（出站发送与入站接收共用）。
 //
-// URL 与 Data 互斥：
-//   - URL 非空 → 使用远程 URL 发送（平台支持时直接引用）
-//   - Data 非空 → 使用二进制直传（Telegram sendDocument、Discord 附件等）
+// 出站语义（Sender 使用）：
+//   - URL 与 Data 互斥：URL 非空 → 远程 URL 发送；Data 非空 → 二进制直传
+//   - 两者均为空时，Sender 应将其忽略
 //
-// 两者均为空时，Sender 应将其忽略。
+// 入站语义（Event.Attachments 返回）：
+//   - 平台填充能力不同，无法提供的字段返回零值
+//   - Size/Width/Height 为接收时元信息，出站时忽略（零值无害）
+//
+// 平台专属扩展元数据通过 Extra 携带（key-value 形式）：
+//
+//	att.Extra = map[string]any{"wav_url": ..., "asr_text": ...}   // QQ 语音
+//	att.Extra["resource_id"] = "r1"                               // 平台资源 ID
 type Attachment struct {
-	// Kind 附件媒体类型
+	// Kind 附件媒体类型（出站必填；入站平台可推断时填充）
 	Kind AttachmentKind
-	// URL 远程附件 URL（https://...）
+	// URL 附件远程 URL（出站发送 / 入站接收）
 	URL string
-	// Data 本地二进制数据（直传，URL 为空时使用）
+	// Data 本地二进制数据（出站直传，URL 为空时使用；入站为空）
 	Data []byte
 	// MimeType MIME 类型，如 "image/png"（可选，辅助平台正确处理）
 	MimeType string
 	// Name 文件名（与 Data 或 URL 配合；平台不支持时可忽略）
 	Name string
+	// Size 文件大小（字节），入站平台不提供时为 0
+	Size int
+	// Width 图片/视频宽度（像素），非媒体类型或平台不提供时为 0
+	Width int
+	// Height 图片/视频高度（像素），非媒体类型或平台不提供时为 0
+	Height int
+	// Extra 平台专属扩展元数据（key-value 形式），无扩展数据时为 nil。
+	//
+	// 已知键（见各平台 extra.go 中的常量定义）：
+	//   - "voice":  QQ 语音附件的 WAV 链接与 ASR 文本（*qq.VoiceAttachmentMeta）
+	//   - "button": QQ 按钮权限控制（*qq.ButtonExtra）
+	Extra map[string]any
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -141,15 +160,15 @@ type Button struct {
 	Row int
 	// Emoji 按钮前展示的 emoji（Discord 原生支持，其他平台忽略）
 	Emoji string
-	// Extra 平台专属按钮扩展字段。
+	// Extra 平台专属按钮扩展字段（key-value 形式）。
 	//
-	// 用于携带通用字段无法表达的平台特定配置，各平台 Sender 通过类型断言读取。
+	// 用于携带通用字段无法表达的平台特定配置，各平台 Sender 读取。
 	// 不支持此字段的平台可安全忽略。
 	//
-	// 已知类型：
-	//   - *qq.ButtonExtra：QQ 按钮权限控制（visitable_user_id、enter_type 等）
-	//   - *telegram.InlineButtonExtra：Telegram switch_inline_query 等扩展字段
-	Extra any
+	// 已知键（见各平台 extra.go 中的常量定义）：
+	//   - "button": QQ 按钮权限控制（*qq.ButtonExtra）
+	//   - "inline": Telegram switch_inline_query 等扩展字段（*telegram.InlineButtonExtra）
+	Extra map[string]any
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -200,6 +219,65 @@ type OutboundMessage struct {
 	// 示例（QQ 平台传递 msg_seq）：
 	//   msg.Extra = map[string]any{"msg_seq": 1}
 	Extra map[string]any
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 入站消息（Message）
+// ────────────────────────────────────────────────────────────────────────────
+
+// Message 是入站消息的静态快照（平台无关）。
+//
+// 字段语义与 [Event] 接口一致，用于历史消息、消息检索等
+// 需要"拿到一条完整消息数据"的场景（事件流使用动态 [Event] 接口）。
+//
+// 与 [OutboundMessage] 的区别：Message 是接收视角（含 Sender/Chat/
+// Timestamp/附件元信息），OutboundMessage 是发送视角（含 Markdown/
+// Buttons/二进制数据）。跨平台转发时用 [MessageFromEvent] 或
+// 平台历史消息接口获得 Message，再构造 OutboundMessage。
+type Message struct {
+	// ID 平台消息 ID（可用于撤回/编辑）。
+	ID string
+	// Sender 发送者信息。
+	Sender UserInfo
+	// Chat 消息所在会话。
+	Chat ChatInfo
+	// Content 消息文本内容（纯文本，不含平台特定格式）。
+	Content string
+	// Timestamp 消息发送时间（平台不提供时为零值）。
+	Timestamp time.Time
+	// Attachments 消息携带的附件列表。
+	Attachments []Attachment
+	// Mentions 消息中 @ 的用户列表（不含机器人自身）。
+	Mentions []UserInfo
+	// ReplyToID 被回复消息的平台原生 ID（非回复时为空）。
+	ReplyToID string
+	// Extra 平台特有扩展字段（key-value 形式）。
+	Extra map[string]any
+}
+
+// MessageFromEvent 将动态事件转换为消息静态快照。
+//
+// 从 [Event] 接口的基础方法 + [ReplyEvent]/[MentionsEvent] 可选接口
+// 提取全部字段；事件未实现可选接口时对应字段为空。
+//
+// 使用示例（把收到的消息转发为历史消息存档）：
+//
+//	msg := platform.MessageFromEvent(ev)
+//	store.Append(ev.Chat().ID, msg)
+func MessageFromEvent(e Event) Message {
+	m := Message{
+		Sender:      e.Sender(),
+		Chat:        e.Chat(),
+		Content:     e.Content(),
+		Timestamp:   e.Timestamp(),
+		Attachments: e.Attachments(),
+		Mentions:    GetMentions(e),
+		ReplyToID:   GetReplyToID(e),
+	}
+	if id := e.ID(); id != "" {
+		m.ID = id
+	}
+	return m
 }
 
 // ────────────────────────────────────────────────────────────────────────────

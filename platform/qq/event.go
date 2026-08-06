@@ -27,7 +27,7 @@ type qqEvent struct {
 	chat        platform.ChatInfo
 	content     string
 	timestamp   time.Time
-	attachments []platform.InboundAttachment
+	attachments []platform.Attachment
 	id          string              // 对应 payload.ID，populate 后独立持有
 	rawType     string              // 对应 payload.Type，populate 后独立持有
 	replyToID   string              // 被回复消息 ID（仅频道消息有效）
@@ -459,11 +459,11 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 	}
 }
 
-// parseAttachments 将 gjson 数组结果转换为平台无关的 InboundAttachment 切片。
+// parseAttachments 将 gjson 数组结果转换为平台无关的 Attachment 切片。
 //
 // 使用 r.Array() 预获取元素数量，一次性分配输出切片，避免 append 扩容。
-// QQ 语音附件的专属字段（voice_wav_url、asr_refer_text）通过 Extra 字段
-// 以 *VoiceAttachmentMeta 类型携带，不污染平台无关的 InboundAttachment 结构体。
+// QQ 语音附件的专属字段（voice_wav_url、asr_refer_text）通过 Extra map
+// 以 ExtraKeyVoice → *VoiceAttachmentMeta 携带，不污染平台无关字段。
 // parseQQGroupRole 将 QQ 群角色字符串映射为 platform.GroupRole。
 func parseQQGroupRole(role string) platform.GroupRole {
 	switch role {
@@ -478,7 +478,7 @@ func parseQQGroupRole(role string) platform.GroupRole {
 	}
 }
 
-func parseAttachments(r gjson.Result) []platform.InboundAttachment {
+func parseAttachments(r gjson.Result) []platform.Attachment {
 	if !r.IsArray() || len(r.Raw) == 0 {
 		return nil
 	}
@@ -486,9 +486,9 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 	if len(arr) == 0 {
 		return nil
 	}
-	out := make([]platform.InboundAttachment, 0, len(arr))
+	out := make([]platform.Attachment, 0, len(arr))
 	for _, v := range arr {
-		att := platform.InboundAttachment{
+		att := platform.Attachment{
 			URL:      v.Get("url").String(),
 			MimeType: v.Get("content_type").String(),
 			Name:     v.Get("filename").String(),
@@ -500,7 +500,7 @@ func parseAttachments(r gjson.Result) []platform.InboundAttachment {
 		wavURL := v.Get("voice_wav_url").String()
 		asrText := v.Get("asr_refer_text").String()
 		if wavURL != "" || asrText != "" {
-			att.Extra = &VoiceAttachmentMeta{WavURL: wavURL, AsrText: asrText}
+			att.Extra = map[string]any{ExtraKeyVoice: &VoiceAttachmentMeta{WavURL: wavURL, AsrText: asrText}}
 		}
 		if att.URL != "" || att.Name != "" {
 			out = append(out, att)
@@ -686,7 +686,7 @@ func (e *qqEvent) Chat() platform.ChatInfo { return e.chat }
 func (e *qqEvent) Content() string { return e.content }
 
 // Attachments 返回消息中携带的附件列表。
-func (e *qqEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *qqEvent) Attachments() []platform.Attachment { return e.attachments }
 
 // Timestamp 返回消息发送时间。
 func (e *qqEvent) Timestamp() time.Time { return e.timestamp }

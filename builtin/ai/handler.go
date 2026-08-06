@@ -193,7 +193,7 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 }
 
 // downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
-func (p *Plugin) downloadAttachment(att platform.InboundAttachment, session *Session) *ContentPart {
+func (p *Plugin) downloadAttachment(att platform.Attachment, session *Session) *ContentPart {
 	// 先检查缓存
 	if cached := session.getCachedContent(att.URL); cached != nil {
 		return &ContentPart{
@@ -593,7 +593,7 @@ func (p *Plugin) handleFSMTransition(ctx *eventctx.Context) bool {
 }
 
 // downloadTextAttachment 下载文本附件内容，使用传入的 context 控制生命周期。
-func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.InboundAttachment) string {
+func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.Attachment) string {
 	if !isAllowedDownloadURL(att.URL) {
 		return ""
 	}

@@ -30,7 +30,7 @@ func (e *fixtureEvent) Sender() platform.UserInfo                 { return platf
 func (e *fixtureEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *fixtureEvent) ID() string                                { return e.id }
 func (e *fixtureEvent) RawPayload() any                           { return nil }
-func (e *fixtureEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *fixtureEvent) Attachments() []platform.Attachment { return nil }
 
 func newFixtureEvent(id string) platform.Event { return &fixtureEvent{id: id} }
 

@@ -102,7 +102,7 @@ func (e *Event) Content() string {
 }
 
 // Attachments 返回附件列表（终端始终为 nil）。
-func (e *Event) Attachments() []platform.InboundAttachment {
+func (e *Event) Attachments() []platform.Attachment {
 	return nil
 }
 

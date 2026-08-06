@@ -195,32 +195,18 @@ type ChatInfo struct {
 	Tokens map[string]string
 }
 
-// InboundAttachment 入站消息中携带的附件（平台无关抽象）。
+// EventBody 是事件的消息载荷接口。
 //
-// 各平台填充能力不同，无法提供的字段返回零值。
-// 平台专属扩展元数据通过 Extra 字段携带，使用类型断言访问：
-//
-//	if meta, ok := att.Extra.(*qq.VoiceAttachmentMeta); ok {
-//	    // 访问 meta.WavURL、meta.AsrText（QQ 语音附件专属）
-//	}
-type InboundAttachment struct {
-	// URL 附件远程 URL（平台托管；部分平台的 URL 有时效，勿长期持有）
-	URL string
-	// MimeType MIME 类型，如 "image/png"（平台不提供时为空字符串）
-	MimeType string
-	// Name 文件名（平台不提供时为空字符串）
-	Name string
-	// Size 文件大小（字节），平台不提供时为 0
-	Size int
-	// Width 图片/视频宽度（像素），非媒体类型或平台不提供时为 0
-	Width int
-	// Height 图片/视频高度（像素），非媒体类型或平台不提供时为 0
-	Height int
-	// Extra 平台专属附件元数据（类型断言后访问，无扩展数据时为 nil）。
+// 包含 Content（文本内容）和 Attachments（附件列表）。
+// 只关心消息内容的插件可依赖此接口，无需依赖完整的 Event。
+type EventBody interface {
+	// Content 返回消息文本内容（纯文本，不含平台特定格式）
+	Content() string
+
+	// Attachments 返回消息中携带的附件列表。
 	//
-	// 已知类型：
-	//   - *qq.VoiceAttachmentMeta：QQ 语音附件的 WAV 链接与 ASR 文本
-	Extra any
+	// 平台不支持附件或消息无附件时返回 nil。
+	Attachments() []Attachment
 }
 
 // EventIdentity 是事件路由和去重标识接口。
@@ -239,20 +225,6 @@ type EventIdentity interface {
 	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
 	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
 	ID() string
-}
-
-// EventBody 是事件的消息载荷接口。
-//
-// 包含 Content（文本内容）和 Attachments（附件列表）。
-// 只关心消息内容的插件可依赖此接口，无需依赖完整的 Event。
-type EventBody interface {
-	// Content 返回消息文本内容（纯文本，不含平台特定格式）
-	Content() string
-
-	// Attachments 返回消息中携带的附件列表。
-	//
-	// 平台不支持附件或消息无附件时返回 nil。
-	Attachments() []InboundAttachment
 }
 
 // Event 是平台无关的事件抽象接口（最小必要集合）。

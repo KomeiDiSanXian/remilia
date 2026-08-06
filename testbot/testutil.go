@@ -234,7 +234,7 @@ func (e *mockPlatformEvent) RawType() string                           { return 
 func (e *mockPlatformEvent) Sender() platform.UserInfo                 { return e.sender }
 func (e *mockPlatformEvent) Chat() platform.ChatInfo                   { return e.chat }
 func (e *mockPlatformEvent) Content() string                           { return e.content }
-func (e *mockPlatformEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *mockPlatformEvent) Attachments() []platform.Attachment { return nil }
 func (e *mockPlatformEvent) Timestamp() time.Time                      { return e.ts }
 func (e *mockPlatformEvent) RawPayload() any                           { return nil }
 

@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -146,6 +147,26 @@ func main() {
 				}
 				fmt.Printf("[bot] accepted group invite flag=%s\n", flag)
 			}
+		}
+		return nil
+	})
+
+	// ── 平台扩展动作示例 ────────────────────────────────────────────────────
+	// 通过 GetPlatformAPIAs 泛型获取 OneBot 平台特有的 API 句柄
+	// （*onebot.Sender，包含 160+ 个 OneBot 扩展动作）。
+	eng.OnEventKind(platform.EventKindGroupMessage,
+		func(ctx *eventctx.Context) bool {
+			ev := ctx.GetPlatformEvent()
+			return ev != nil && strings.TrimSpace(ev.Content()) == "!sign"
+		},
+	).Handle(func(ctx *eventctx.Context) error {
+		api, ok := platform.GetPlatformAPIAs[*onebot.Sender](ctx.GetPlatformSender())
+		if !ok {
+			return nil
+		}
+		groupID, _ := strconv.ParseInt(ctx.GetPlatformEvent().Chat().ID, 10, 64)
+		if err := api.SendGroupSign(context.Background(), groupID); err != nil {
+			fmt.Fprintf(os.Stderr, "sign error: %v\n", err)
 		}
 		return nil
 	})

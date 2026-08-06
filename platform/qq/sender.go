@@ -44,6 +44,13 @@ func NewSender(api openapi.OpenAPI) platform.Sender {
 	return &qqSender{api: api}
 }
 
+// PlatformAPI 实现 platform.APIProvider，返回 QQ 开放平台 OpenAPI 客户端，
+// 调用方可断言 openapi.OpenAPI 访问全部 QQ 能力（频道管理、富媒体、互动等）。
+func (s *qqSender) PlatformAPI() any { return s.api }
+
+// 编译期接口实现检查。
+var _ platform.APIProvider = (*qqSender)(nil)
+
 // Send 将 OutboundMessage 转换并发送到 QQ 平台，返回平台响应摘要。
 //
 // 路由规则：
@@ -676,7 +683,7 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 				Data:          data,
 				UnsupportTips: "当前版本不支持此操作",
 			}
-			if ext, ok := b.Extra.(*ButtonExtra); ok {
+			if ext, ok := b.Extra[ExtraKeyButton].(*ButtonExtra); ok {
 				action.Enter = ext.Enter
 				action.Reply = ext.Reply
 				action.Anchor = ext.Anchor

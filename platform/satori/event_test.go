@@ -1,5 +1,19 @@
 package satori
 
+// 本文档核验说明
+//
+// 本文件中的事件类型、消息元素断言均对照 Satori 协议官方规范
+// （2026-07 核验）：https://satori.chat/zh-CN/protocol/
+//
+//	- API（{resource}.{method} 形式）：/zh-CN/protocol/api.html
+//	- 事件（message-created、guild-member-added、reaction-added 等）：
+//	  /zh-CN/protocol/events.html
+//	- 标准元素（at、image、button、quote 等）：/zh-CN/protocol/elements.html
+//	- 各资源 API 参数：/zh-CN/resources/{channel,message,reaction,...}.html
+//
+// 注意：reaction.create/delete/list 的请求参数为 emoji_id（而非 emoji），
+// 已在 client.go 中按规范修正，参见 /zh-CN/resources/reaction.html。
+
 import (
 	"testing"
 	"time"

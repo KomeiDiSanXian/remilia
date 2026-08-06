@@ -30,7 +30,7 @@ func (e *mockPlainEvent) Sender() platform.UserInfo                 { return pla
 func (e *mockPlainEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *mockPlainEvent) ID() string                                { return "" }
 func (e *mockPlainEvent) RawPayload() any                           { return nil }
-func (e *mockPlainEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *mockPlainEvent) Attachments() []platform.Attachment { return nil }
 func TestI18n_LoadBytes_T(t *testing.T) {
 	p := newI18nPlugin(i18n.Config{DefaultLocale: "zh-CN"})
 	if err := p.LoadBytes("zh-CN", []byte("help: \"帮助菜单\"")); err != nil {

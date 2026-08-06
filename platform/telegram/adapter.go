@@ -260,7 +260,7 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 // 因为只有这里同时拿得到 Client 和 ctx。
 //
 // 解析失败不影响事件投递：URL 保持为空，插件仍可通过
-// InboundAttachment.Extra 中的 *FileMeta 拿到 file_id 自行处理。
+// Attachment.Extra 中的 *FileMeta 拿到 file_id 自行处理。
 //
 // 安全提示：生成的 URL 路径中嵌有 bot token，属于可直接调用 API 的活凭据。
 // 插件不应将其写入日志或转发给不受信任的下游；只需读取内容时，
@@ -276,7 +276,7 @@ func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platfor
 
 	started := time.Now()
 	for i := range atts {
-		meta, ok := atts[i].Extra.(*FileMeta)
+		meta, ok := atts[i].Extra[ExtraKeyFile].(*FileMeta)
 		if !ok || meta == nil || meta.FileID == "" || atts[i].URL != "" {
 			continue
 		}

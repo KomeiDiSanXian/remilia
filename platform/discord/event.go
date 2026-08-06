@@ -23,7 +23,7 @@ type discordEvent struct {
 	chat          platform.ChatInfo
 	content       string
 	timestamp     time.Time
-	attachments   []platform.InboundAttachment
+	attachments   []platform.Attachment
 	id            string
 	rawType       string
 	rawPayload    any
@@ -35,14 +35,14 @@ type discordEvent struct {
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *discordEvent) Platform() string                          { return PlatformID }
-func (e *discordEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *discordEvent) ID() string                                { return e.id }
-func (e *discordEvent) Sender() platform.UserInfo                 { return e.senderInfo }
-func (e *discordEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *discordEvent) Content() string                           { return e.content }
-func (e *discordEvent) Timestamp() time.Time                      { return e.timestamp }
-func (e *discordEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *discordEvent) Platform() string                   { return PlatformID }
+func (e *discordEvent) Kind() platform.EventKind           { return e.kind }
+func (e *discordEvent) ID() string                         { return e.id }
+func (e *discordEvent) Sender() platform.UserInfo          { return e.senderInfo }
+func (e *discordEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *discordEvent) Content() string                    { return e.content }
+func (e *discordEvent) Timestamp() time.Time               { return e.timestamp }
+func (e *discordEvent) Attachments() []platform.Attachment { return e.attachments }
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -122,17 +122,17 @@ func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 	}
 }
 
-// attachmentsFromMessage converts Discord message attachments to platform.InboundAttachment.
-func attachmentsFromMessage(atts []*discordgo.MessageAttachment) []platform.InboundAttachment {
+// attachmentsFromMessage converts Discord message attachments to platform.Attachment.
+func attachmentsFromMessage(atts []*discordgo.MessageAttachment) []platform.Attachment {
 	if len(atts) == 0 {
 		return nil
 	}
-	result := make([]platform.InboundAttachment, 0, len(atts))
+	result := make([]platform.Attachment, 0, len(atts))
 	for _, a := range atts {
 		if a == nil {
 			continue
 		}
-		result = append(result, platform.InboundAttachment{
+		result = append(result, platform.Attachment{
 			URL:      a.URL,
 			MimeType: a.ContentType,
 			Name:     a.Filename,

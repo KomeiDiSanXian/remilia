@@ -22,7 +22,7 @@ type telegramEvent struct {
 	chat        platform.ChatInfo
 	content     string
 	timestamp   time.Time
-	attachments []platform.InboundAttachment
+	attachments []platform.Attachment
 	replyToID   string
 	isEdited    bool
 	origTS      time.Time
@@ -31,14 +31,14 @@ type telegramEvent struct {
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *telegramEvent) Platform() string                          { return PlatformID }
-func (e *telegramEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *telegramEvent) ID() string                                { return e.id }
-func (e *telegramEvent) Sender() platform.UserInfo                 { return e.senderInfo }
-func (e *telegramEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *telegramEvent) Content() string                           { return e.content }
-func (e *telegramEvent) Timestamp() time.Time                      { return e.timestamp }
-func (e *telegramEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *telegramEvent) Platform() string                   { return PlatformID }
+func (e *telegramEvent) Kind() platform.EventKind           { return e.kind }
+func (e *telegramEvent) ID() string                         { return e.id }
+func (e *telegramEvent) Sender() platform.UserInfo          { return e.senderInfo }
+func (e *telegramEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *telegramEvent) Content() string                    { return e.content }
+func (e *telegramEvent) Timestamp() time.Time               { return e.timestamp }
+func (e *telegramEvent) Attachments() []platform.Attachment { return e.attachments }
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -299,7 +299,7 @@ func chatFromTelegram(c *Chat) platform.ChatInfo {
 }
 
 // FileMeta 是 Telegram 附件的平台专属元数据，挂在
-// platform.InboundAttachment.Extra 上。
+// platform.Attachment.Extra 上。
 //
 // Telegram 的入站附件只携带不透明的 file_id，必须先调用 getFile 换取
 // file_path，再拼出下载地址；且下载地址的路径里嵌着 bot token。
@@ -323,65 +323,65 @@ type FileMeta struct {
 // 跨平台插件对 att.URL 执行 http.Get 会得到
 // "unsupported protocol scheme \"\"" ——既不能用，也不报错在点子上。
 // file_id 现在放进 Extra，URL 由适配器解析后回填。
-func collectAttachments(msg *Message) []platform.InboundAttachment {
-	var atts []platform.InboundAttachment
+func collectAttachments(msg *Message) []platform.Attachment {
+	var atts []platform.Attachment
 
 	if len(msg.Photo) > 0 {
 		p := msg.Photo[len(msg.Photo)-1]
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			Width:  p.Width,
 			Height: p.Height,
 			Size:   p.FileSize,
-			Extra:  &FileMeta{FileID: p.FileID, FileUniqueID: p.FileUniqueID},
+			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: p.FileID, FileUniqueID: p.FileUniqueID}},
 		})
 	}
 	if msg.Audio != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			MimeType: msg.Audio.MimeType,
 			Name:     msg.Audio.FileName,
 			Size:     msg.Audio.FileSize,
-			Extra:    &FileMeta{FileID: msg.Audio.FileID, FileUniqueID: msg.Audio.FileUniqueID},
+			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Audio.FileID, FileUniqueID: msg.Audio.FileUniqueID}},
 		})
 	}
 	if msg.Video != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			MimeType: msg.Video.MimeType,
 			Name:     msg.Video.FileName,
 			Width:    msg.Video.Width,
 			Height:   msg.Video.Height,
 			Size:     msg.Video.FileSize,
-			Extra:    &FileMeta{FileID: msg.Video.FileID, FileUniqueID: msg.Video.FileUniqueID},
+			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Video.FileID, FileUniqueID: msg.Video.FileUniqueID}},
 		})
 	}
 	if msg.Document != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			MimeType: msg.Document.MimeType,
 			Name:     msg.Document.FileName,
 			Size:     msg.Document.FileSize,
-			Extra:    &FileMeta{FileID: msg.Document.FileID, FileUniqueID: msg.Document.FileUniqueID},
+			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Document.FileID, FileUniqueID: msg.Document.FileUniqueID}},
 		})
 	}
 	if msg.Voice != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			MimeType: msg.Voice.MimeType,
 			Size:     msg.Voice.FileSize,
-			Extra:    &FileMeta{FileID: msg.Voice.FileID, FileUniqueID: msg.Voice.FileUniqueID},
+			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Voice.FileID, FileUniqueID: msg.Voice.FileUniqueID}},
 		})
 	}
 	if msg.Animation != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			Width:  msg.Animation.Width,
 			Height: msg.Animation.Height,
 			Size:   msg.Animation.FileSize,
-			Extra:  &FileMeta{FileID: msg.Animation.FileID, FileUniqueID: msg.Animation.FileUniqueID},
+			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Animation.FileID, FileUniqueID: msg.Animation.FileUniqueID}},
 		})
 	}
 	if msg.Sticker != nil {
-		atts = append(atts, platform.InboundAttachment{
+		atts = append(atts, platform.Attachment{
 			Width:  msg.Sticker.Width,
 			Height: msg.Sticker.Height,
 			Size:   msg.Sticker.FileSize,
-			Extra:  &FileMeta{FileID: msg.Sticker.FileID, FileUniqueID: msg.Sticker.FileUniqueID},
+			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Sticker.FileID, FileUniqueID: msg.Sticker.FileUniqueID}},
 		})
 	}
 

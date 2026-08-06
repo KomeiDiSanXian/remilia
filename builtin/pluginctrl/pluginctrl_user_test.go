@@ -36,7 +36,7 @@ func (e *pcTestEvent) Content() string                           { return e.cont
 func (e *pcTestEvent) ID() string                                { return "test-event-id" }
 func (e *pcTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *pcTestEvent) RawPayload() any                           { return nil }
-func (e *pcTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *pcTestEvent) Attachments() []platform.Attachment { return nil }
 func (e *pcTestEvent) Chat() platform.ChatInfo {
 	return platform.ChatInfo{ID: e.groupID, IsGroup: e.isGroup}
 }

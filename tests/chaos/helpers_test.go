@@ -20,7 +20,7 @@ func (e *chaosTestEvent) Chat() platform.ChatInfo                   { return pla
 func (e *chaosTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
 func (e *chaosTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *chaosTestEvent) ID() string                                { return "chaos-event" }
-func (e *chaosTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *chaosTestEvent) Attachments() []platform.Attachment { return nil }
 func (e *chaosTestEvent) RawPayload() any                           { return nil }
 
 // newChaosEvent creates a platform.Event with the given message content.

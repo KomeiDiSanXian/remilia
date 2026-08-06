@@ -35,6 +35,14 @@ type InlineButtonExtra struct {
 	SwitchInlineQueryChosen string `json:"switch_inline_query_chosen,omitempty"`
 }
 
+// Attachment/Button 的 Extra map 中使用的键名常量。
+const (
+	// ExtraKeyFile 文件元数据键，值为 *FileMeta。
+	ExtraKeyFile = "file"
+	// ExtraKeyInline 按钮扩展元数据键，值为 *InlineButtonExtra。
+	ExtraKeyInline = "inline"
+)
+
 // telegramExtraKey is the private key used to store Telegram-specific
 // options inside platform.OutboundMessage.Extra.
 const telegramExtraKey = "__telegram_message_extra__"

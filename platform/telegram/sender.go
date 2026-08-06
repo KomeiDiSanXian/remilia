@@ -46,6 +46,13 @@ func newSender(client *Client, botID string) *telegramSender {
 	return &telegramSender{client: client, botID: botID}
 }
 
+// PlatformAPI 实现 platform.APIProvider，返回 Telegram 封装客户端，
+// 调用方可断言 *telegram.Client 访问 Telegram Bot API 的全部能力。
+func (s *telegramSender) PlatformAPI() any { return s.client }
+
+// 编译期接口实现检查。
+var _ platform.APIProvider = (*telegramSender)(nil)
+
 // Send implements platform.Sender.
 //
 // Routing logic:
@@ -519,7 +526,7 @@ func buildInlineKeyboard(buttons []platform.Button) *InlineKeyboardMarkup {
 		}
 
 		if btn.Extra != nil {
-			if ext, ok := btn.Extra.(*InlineButtonExtra); ok {
+			if ext, ok := btn.Extra[ExtraKeyInline].(*InlineButtonExtra); ok {
 				tb.SwitchInline = ext.SwitchInlineQuery
 			}
 		}

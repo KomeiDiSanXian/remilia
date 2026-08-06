@@ -43,7 +43,7 @@ func (e *awTestEvent) Content() string                           { return "hello
 func (e *awTestEvent) ID() string                                { return "test-aw-event" }
 func (e *awTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *awTestEvent) RawPayload() any                           { return nil }
-func (e *awTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *awTestEvent) Attachments() []platform.Attachment { return nil }
 func (e *awTestEvent) Chat() platform.ChatInfo {
 	return platform.ChatInfo{ID: e.groupID, IsGroup: true}
 }

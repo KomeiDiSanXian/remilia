@@ -28,6 +28,13 @@ func newSender(client *Client) *satoriSender {
 	return &satoriSender{client: client}
 }
 
+// PlatformAPI 实现 platform.APIProvider，返回 Satori 协议客户端，
+// 调用方可断言 *satori.Client 访问全部 Satori 资源 API（消息/频道/群组/表态等）。
+func (s *satoriSender) PlatformAPI() any { return s.client }
+
+// 编译期接口实现检查。
+var _ platform.APIProvider = (*satoriSender)(nil)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // platform.Sender
 // ─────────────────────────────────────────────────────────────────────────────

@@ -28,7 +28,7 @@ func (e *flexibleTestEvent) Sender() platform.UserInfo                 { return 
 func (e *flexibleTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *flexibleTestEvent) ID() string                                { return e.id }
 func (e *flexibleTestEvent) RawPayload() any                           { return nil }
-func (e *flexibleTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *flexibleTestEvent) Attachments() []platform.Attachment { return nil }
 
 func createPermCtx(senderID string, isGroup bool) *eventctx.Context {
 	event := &flexibleTestEvent{

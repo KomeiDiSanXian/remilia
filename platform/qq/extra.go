@@ -27,16 +27,30 @@ const (
 )
 
 // ────────────────────────────────────────────────────────────────────────────
+// 附件/按钮扩展键
+// ────────────────────────────────────────────────────────────────────────────
+
+// Attachment/Button 的 Extra map 中使用的键名（包级常量）。
+const (
+	// ExtraKeyVoice QQ 语音附件元数据键，值为 *VoiceAttachmentMeta。
+	ExtraKeyVoice = "voice"
+	// ExtraKeyButton QQ 按钮扩展元数据键，值为 *ButtonExtra。
+	ExtraKeyButton = "button"
+	// ExtraKeyInline Telegram 按钮扩展元数据键，值为 *telegram.InlineButtonExtra。
+	ExtraKeyInline = "inline"
+)
+
+// ────────────────────────────────────────────────────────────────────────────
 // VoiceAttachmentMeta
 // ────────────────────────────────────────────────────────────────────────────
 
 // VoiceAttachmentMeta 携带 QQ 平台语音附件的专属元数据。
 //
-// 当 platform.InboundAttachment.Extra 为 *VoiceAttachmentMeta 时，
-// 表示该附件是 QQ 语音消息。使用方式：
+// 存储于 platform.Attachment.Extra[qq.ExtraKeyVoice]。
+// 使用方式：
 //
 //	for _, att := range event.Attachments() {
-//	    if meta, ok := att.Extra.(*qq.VoiceAttachmentMeta); ok {
+//	    if meta, ok := att.Extra[qq.ExtraKeyVoice].(*qq.VoiceAttachmentMeta); ok {
 //	        // 访问语音 WAV 链接和 ASR 识别文本
 //	        wavURL := meta.WavURL
 //	        text   := meta.AsrText
@@ -54,17 +68,19 @@ type VoiceAttachmentMeta struct {
 // ────────────────────────────────────────────────────────────────────────────
 
 // ButtonExtra 是 QQ 平台专属的按钮扩展字段。
-// 嵌入到 platform.Button.Extra 中，用于控制 QQ 按钮的独有特性。
+// 存储于 platform.Button.Extra[qq.ExtraKeyButton]，用于控制 QQ 按钮的独有特性。
 //
 // 示例：
 //
 //	btn := platform.Button{
 //	    ID:    "cmd_ping",
 //	    Label: "Ping",
-//	    Extra: &qq.ButtonExtra{
-//	        Enter:  true,           // 指令按钮：点击后自动发送
-//	        Reply:  true,           // 指令按钮：带引用回复
-//	        Anchor: 0,              // 1=唤起选图器
+//	    Extra: map[string]any{
+//	        qq.ExtraKeyButton: &qq.ButtonExtra{
+//	            Enter:  true,           // 指令按钮：点击后自动发送
+//	            Reply:  true,           // 指令按钮：带引用回复
+//	            Anchor: 0,              // 1=唤起选图器
+//	        },
 //	    },
 //	}
 type ButtonExtra struct {

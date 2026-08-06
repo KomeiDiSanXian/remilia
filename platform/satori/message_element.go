@@ -120,7 +120,7 @@ func escapeAttr(s string) string {
 // 需要 @ 列表与引用 ID 的调用方请使用 parseMessageContentFull。
 //
 // 参考：https://satori.chat/zh-CN/protocol/elements.html
-func ParseMessageContent(content string) (text string, attachments []platform.InboundAttachment) {
+func ParseMessageContent(content string) (text string, attachments []platform.Attachment) {
 	parsed := parseMessageContentFull(content)
 	return parsed.Text, parsed.Attachments
 }
@@ -130,7 +130,7 @@ type parsedContent struct {
 	// Text 是消息的纯文本表示。
 	Text string
 	// Attachments 是内容中的资源元素。
-	Attachments []platform.InboundAttachment
+	Attachments []platform.Attachment
 	// Mentions 是 <at> 元素还原出的被 @ 用户。
 	Mentions []platform.UserInfo
 	// MentionsAll 表示内容中含 <at type="all"/>。
@@ -185,7 +185,7 @@ func parseMessageContentFull(content string) parsedContent {
 }
 
 // traverseNodes 递归遍历 HTML 节点，收集文本和附件。
-func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platform.InboundAttachment, out *parsedContent) {
+func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platform.Attachment, out *parsedContent) {
 	switch n.Type {
 	case nethtml.TextNode:
 		// n.Data 已由 nethtml.Parse 完成实体解码，此处不可再次 UnescapeString，
@@ -200,7 +200,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 		case "img":
 			src := attrs["src"]
 			title := attrs["title"]
-			att := platform.InboundAttachment{
+			att := platform.Attachment{
 				URL:  src,
 				Name: title,
 			}
@@ -217,17 +217,17 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			return
 
 		case "audio":
-			att := platform.InboundAttachment{
+			att := platform.Attachment{
 				URL:      attrs["src"],
 				MimeType: "audio/*",
 				Name:     attrs["title"],
 			}
 			// 扩展属性：时长与封面（实验性）
 			if dur := attrFloat(attrs, "duration"); dur > 0 || attrs["poster"] != "" {
-				att.Extra = &MediaExtra{
+				att.Extra = map[string]any{ExtraKeyMedia: &MediaExtra{
 					Duration: dur,
 					Poster:   attrs["poster"],
-				}
+				}}
 			}
 			*attachments = append(*attachments, att)
 			text.WriteString("[语音]")
@@ -237,7 +237,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			return
 
 		case "video":
-			att := platform.InboundAttachment{
+			att := platform.Attachment{
 				URL:      attrs["src"],
 				MimeType: "video/*",
 				Name:     attrs["title"],
@@ -250,10 +250,10 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			}
 			// 扩展属性：时长与封面（实验性）
 			if dur := attrFloat(attrs, "duration"); dur > 0 || attrs["poster"] != "" {
-				att.Extra = &MediaExtra{
+				att.Extra = map[string]any{ExtraKeyMedia: &MediaExtra{
 					Duration: dur,
 					Poster:   attrs["poster"],
-				}
+				}}
 			}
 			*attachments = append(*attachments, att)
 			text.WriteString("[视频]")
@@ -270,7 +270,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			}
 			if src != "" {
 				text.WriteString("[链接: " + src + "]")
-				*attachments = append(*attachments, platform.InboundAttachment{
+				*attachments = append(*attachments, platform.Attachment{
 					URL:  src,
 					Name: attrs["title"],
 				})
@@ -281,15 +281,15 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			return
 
 		case "file":
-			att := platform.InboundAttachment{
+			att := platform.Attachment{
 				URL:  attrs["src"],
 				Name: attrs["title"],
 			}
 			// 扩展属性：缩略图（实验性）
 			if attrs["poster"] != "" {
-				att.Extra = &MediaExtra{
+				att.Extra = map[string]any{ExtraKeyMedia: &MediaExtra{
 					Poster: attrs["poster"],
-				}
+				}}
 			}
 			*attachments = append(*attachments, att)
 			text.WriteString("[文件]")
@@ -417,7 +417,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			_, isForward := attrs["forward"] // boolean 属性：存在即为 true
 
 			var innerBuf strings.Builder
-			var innerAtts []platform.InboundAttachment
+			var innerAtts []platform.Attachment
 			// 嵌套消息使用**独立**的 parsedContent 收集 @ 信息。
 			//
 			// 若把外层 out 直接传下去，被转发/被引用消息体内的 <at> 会算到
@@ -446,8 +446,8 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				}
 				// 提取 <author> 信息（已被 traverseNodes 写入 innerBuf，
 				// 此处直接从 inner 获取内容即可；精细解析可按需扩展）
-				*attachments = append(*attachments, platform.InboundAttachment{
-					Extra: fwd,
+				*attachments = append(*attachments, platform.Attachment{
+					Extra: map[string]any{ExtraKeyForwarded: fwd},
 				})
 				if inner != "" {
 					text.WriteString("[转发: " + inner + "]")

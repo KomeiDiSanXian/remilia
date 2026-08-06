@@ -240,31 +240,47 @@ func extractExtra(msg platform.OutboundMessage) MessageExtra {
 // 附件元数据类型（入站消息）
 // ────────────────────────────────────────────────────────────────────────────
 
-// ImageSegmentMeta 是图片类型 InboundAttachment 的 Extra 载荷。
+// ImageSegmentMeta 是图片类型 Attachment 的 Extra 载荷。
 //
 // 通过类型断言访问：
 //
 //	if meta, ok := att.Extra.(*milky.ImageSegmentMeta); ok {
 //	    id := meta.ResourceID
 //	}
+// ────────────────────────────────────────────────────────────────────────────
+// 附件扩展键（Attachment.Extra 的键名常量）
+// ────────────────────────────────────────────────────────────────────────────
+
+// 各段类型的元数据在 Attachment.Extra 中使用的键名。
+const (
+	ExtraKeyImage      = "image"
+	ExtraKeyRecord     = "record"
+	ExtraKeyVideo      = "video"
+	ExtraKeyFile       = "file"
+	ExtraKeyFace       = "face"
+	ExtraKeyMarketFace = "market_face"
+	ExtraKeyLightApp   = "light_app"
+	ExtraKeyXML        = "xml"
+)
+
 type ImageSegmentMeta struct {
 	ResourceID string
 	SubType    string // "normal" 或 "sticker"
 }
 
-// RecordSegmentMeta 是语音/录音类型 InboundAttachment 的 Extra 载荷。
+// RecordSegmentMeta 是语音/录音类型 Attachment 的 Extra 载荷。
 type RecordSegmentMeta struct {
 	ResourceID string
 	Duration   int // 秒
 }
 
-// VideoSegmentMeta 是视频类型 InboundAttachment 的 Extra 载荷。
+// VideoSegmentMeta 是视频类型 Attachment 的 Extra 载荷。
 type VideoSegmentMeta struct {
 	ResourceID string
 	Duration   int // 秒
 }
 
-// FileSegmentMeta 是文件类型 InboundAttachment 的 Extra 载荷。
+// FileSegmentMeta 是文件类型 Attachment 的 Extra 载荷。
 type FileSegmentMeta struct {
 	FileID   string
 	FileName string
@@ -272,13 +288,13 @@ type FileSegmentMeta struct {
 	FileHash string // TriSHA1 哈希值，仅私聊文件存在
 }
 
-// FaceSegmentMeta 是 QQ 表情类型 InboundAttachment 的 Extra 载荷。
+// FaceSegmentMeta 是 QQ 表情类型 Attachment 的 Extra 载荷。
 type FaceSegmentMeta struct {
 	FaceID  string
 	IsLarge bool
 }
 
-// MarketFaceSegmentMeta 是市场表情类型 InboundAttachment 的 Extra 载荷。
+// MarketFaceSegmentMeta 是市场表情类型 Attachment 的 Extra 载荷。
 type MarketFaceSegmentMeta struct {
 	EmojiPackageID int
 	EmojiID        string
@@ -287,13 +303,13 @@ type MarketFaceSegmentMeta struct {
 	URL            string
 }
 
-// LightAppSegmentMeta 是小程序类型 InboundAttachment 的 Extra 载荷。
+// LightAppSegmentMeta 是小程序类型 Attachment 的 Extra 载荷。
 type LightAppSegmentMeta struct {
 	AppName     string
 	JSONPayload string
 }
 
-// XMLSegmentMeta 是 XML 消息类型 InboundAttachment 的 Extra 载荷。
+// XMLSegmentMeta 是 XML 消息类型 Attachment 的 Extra 载荷。
 type XMLSegmentMeta struct {
 	ServiceID  int
 	XMLPayload string

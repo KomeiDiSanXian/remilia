@@ -295,9 +295,17 @@ const (
 // ─────────────────────────────────────────────────────────────────────────────
 
 // MediaExtra 是 Satori 音频/视频/文件元素的扩展元数据，
-// 存储于 platform.InboundAttachment.Extra 字段。
+// 存储于 platform.Attachment.Extra 字段。
 //
 // 解析 <audio>、<video>、<file> 元素时，若存在 duration 或 poster 属性则填充此结构。
+// Attachment/Button 的 Extra map 中使用的键名常量。
+const (
+	// ExtraKeyMedia 媒体元素元数据键，值为 *MediaExtra。
+	ExtraKeyMedia = "media"
+	// ExtraKeyForwarded 转发消息元数据键，值为 *ForwardedMessage。
+	ExtraKeyForwarded = "forwarded"
+)
+
 type MediaExtra struct {
 	// Duration 媒体时长（秒），来自 duration 属性。
 	Duration float64
@@ -306,7 +314,7 @@ type MediaExtra struct {
 }
 
 // ForwardedMessage 表示消息内容中的 <message> 转发元素。
-// 存储于 platform.InboundAttachment.Extra 字段。
+// 存储于 platform.Attachment.Extra 字段。
 //
 // 参见：https://satori.chat/zh-CN/protocol/elements.html#消息-message
 type ForwardedMessage struct {

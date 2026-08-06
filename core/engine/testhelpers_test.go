@@ -32,7 +32,7 @@ func (e *engineTestEvent) Sender() platform.UserInfo                 { return pl
 func (e *engineTestEvent) Timestamp() time.Time                      { return time.Time{} }
 func (e *engineTestEvent) ID() string                                { return e.id }
 func (e *engineTestEvent) RawPayload() any                           { return nil }
-func (e *engineTestEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *engineTestEvent) Attachments() []platform.Attachment { return nil }
 
 // newTestPlatformEvent 创建指定 EventKind 的测试桩事件。
 func newTestPlatformEvent(kind platform.EventKind) platform.Event {

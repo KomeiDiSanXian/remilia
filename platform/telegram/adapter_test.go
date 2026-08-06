@@ -417,14 +417,14 @@ func TestCollectAttachments_None(t *testing.T) {
 
 // assertFileID 断言附件的 Telegram file_id。
 //
-// file_id 不再放在 InboundAttachment.URL 里：它不是可下载的 URL，
+// file_id 不再放在 Attachment.URL 里：它不是可下载的 URL，
 // 跨平台插件对其执行 http.Get 只会得到 unsupported protocol scheme。
 // 现在它挂在 Extra 的 *telegram.FileMeta 上，URL 由适配器调用
 // getFile 解析后回填。
-func assertFileID(t *testing.T, att platform.InboundAttachment, want string) {
+func assertFileID(t *testing.T, att platform.Attachment, want string) {
 	t.Helper()
-	meta, ok := att.Extra.(*telegram.FileMeta)
-	require.True(t, ok, "附件 Extra 应为 *telegram.FileMeta")
+	meta, ok := att.Extra[telegram.ExtraKeyFile].(*telegram.FileMeta)
+	require.True(t, ok, "附件 Extra[ExtraKeyFile] 应为 *telegram.FileMeta")
 	assert.Equal(t, want, meta.FileID)
 	assert.Empty(t, att.URL, "URL 应留待适配器解析后回填")
 }
@@ -634,7 +634,7 @@ func TestBuildInlineKeyboard_WithExtra(t *testing.T) {
 		{
 			ID:    "search",
 			Label: "Search",
-			Extra: &telegram.InlineButtonExtra{SwitchInlineQuery: "query text"},
+			Extra: map[string]any{telegram.ExtraKeyInline: &telegram.InlineButtonExtra{SwitchInlineQuery: "query text"}},
 		},
 	}
 	kb := telegram.BuildInlineKeyboard(buttons)

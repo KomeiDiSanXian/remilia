@@ -141,7 +141,7 @@ type satoriEvent struct {
 	raw      *Event
 	kind     platform.EventKind
 	text     string
-	atts     []platform.InboundAttachment
+	atts     []platform.Attachment
 	platform string
 
 	// mentions 是消息中 <at> 元素还原出的被 @ 用户，
@@ -298,7 +298,7 @@ func (e *satoriEvent) Timestamp() time.Time {
 }
 
 // Attachments 返回消息内容中解析出的资源附件列表。
-func (e *satoriEvent) Attachments() []platform.InboundAttachment { return e.atts }
+func (e *satoriEvent) Attachments() []platform.Attachment { return e.atts }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 可选接口扩展

@@ -78,7 +78,7 @@ func (e *benchEvent) Content() string                           { return e.conte
 func (e *benchEvent) Sender() platform.UserInfo                 { return e.sender }
 func (e *benchEvent) Chat() platform.ChatInfo                   { return e.chat }
 func (e *benchEvent) Timestamp() time.Time                      { return e.ts }
-func (e *benchEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *benchEvent) Attachments() []platform.Attachment { return nil }
 
 // ─────────────────────────────────────────────────────────────
 // System metrics sampler
