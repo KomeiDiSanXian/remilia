@@ -2,6 +2,7 @@ package qq_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -958,5 +959,54 @@ func TestNewEvent_C2CMessageCreate_Quote(t *testing.T) {
 	}
 	if event.Content() != "789" {
 		t.Errorf("Content: got %q, want %q（C2C 正文）", event.Content(), "789")
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_QuoteCompositeRef 引用一条引用消息（复合引用链）：
+//   - ref_msg_idx 为 TMP_<UUID> 前缀（引用临时消息），提取逻辑兼容
+//   - msg_elements[0] 仅 content（文本化视图：=== 消息 1 ===/[关联消息]/--- 第1条 ---），
+//     无 msg_idx/message_type/attachments 字段
+//   - 被引用消息的 @ 无结构化表示（平台限制），完整文本在 parallel_message.msg_nodes
+func TestNewEvent_GroupMessageCreate_QuoteCompositeRef(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_q_composite",
+		"content":      " 1234567",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice", "member_role": "owner"},
+		"timestamp":    "2026-08-06T18:19:46+08:00",
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext": []string{
+				"msg_idx=REFIDX_iw8MH8SfgkxATI/BgWdeDw==",
+				"auth_token=vNDTRxQiRvlCR0G_JZukkdHB-31JtYv7MWTOcav2ixg",
+				"ref_msg_idx=TMP_f42d1567-58d2-4650-91a2-96081cf571e8",
+			},
+		},
+		"msg_elements": []any{
+			map[string]any{
+				"content": "=== 消息 1 ===\n[消息内容]   123456\n[消息类型] 引用消息\n[关联消息]\n--- 第1条 ---\n    [消息内容]  \n    [消息类型] 引用消息\n    [附件1] 类型:图片 文件名:a.png 尺寸:700x1099 大小:146.7KB URL:https://img",
+			},
+		},
+		"parallel_message": map[string]any{
+			"msg_nodes": []any{map[string]any{"message_type": 0, "content": "@蕾米莉亚 123456"}},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	require.True(t, len(segs) == 2, "Segments: got %+v", segs)
+	// TMP_ 前缀同样提取为 reply ID
+	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "TMP_f42d1567-58d2-4650-91a2-96081cf571e8" {
+		t.Errorf("Segments[0]: got %+v, want SegmentReply(TMP_f42d...)（TMP_ 前缀兼容）", segs[0])
+	}
+	// 正文非空：被引用消息的文本化视图不进入本条正文
+	if event.Content() != "1234567" {
+		t.Errorf("Content: got %q, want %q（正文，不含被引用文本化视图）", event.Content(), "1234567")
+	}
+	// 被引用 @ 无结构化：parallel_message 原始文本保留在 reply 段 Extra
+	pm, ok := segs[0].Extra["parallel_message"].(string)
+	if !ok || !strings.Contains(pm, "@蕾米莉亚 123456") {
+		t.Error("reply 段 Extra 应保留 parallel_message（含被引用消息完整文本）")
 	}
 }
