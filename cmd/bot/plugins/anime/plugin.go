@@ -27,6 +27,7 @@ type Plugin struct {
 	client *bangumiClient
 	probes []*health.APIProbe
 	log    plugin.Logger
+	cfg    plugin.ConfigReader
 }
 
 // New 创建番剧查询插件的 Descriptor。
@@ -63,7 +64,9 @@ func New() *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
-			p.client = newBangumiClient("")
+			p.cfg = ctx.Config
+			p.client = newBangumiClient(p.apiBase(), p.proxy())
+			coverTransport = p.client.transport
 
 			bgmProbe := health.NewAPIProbe("api.bgm.tv", "https://api.bgm.tv/calendar", 5*time.Second, health.WithMaxSeverity(health.Degraded))
 			p.probes = []*health.APIProbe{bgmProbe}
@@ -238,4 +241,22 @@ func (p *Plugin) HealthCheckers() []health.Checker {
 		out[i] = pr
 	}
 	return out
+}
+
+// apiBase 返回 Bangumi API 基础 URL（默认 https://api.bgm.tv），
+// 可通过 plugins.anime.api_base 更换为镜像/代理地址。
+func (p *Plugin) apiBase() string {
+	if p.cfg == nil {
+		return ""
+	}
+	return p.cfg.GetString("api_base", "")
+}
+
+// proxy 返回 Bangumi 请求的代理地址（如 "http://127.0.0.1:7890"）。
+// 空值沿用环境变量代理或直连；Setup 时读取一次（修改需重启）。
+func (p *Plugin) proxy() string {
+	if p.cfg == nil {
+		return ""
+	}
+	return p.cfg.GetString("proxy", "")
 }

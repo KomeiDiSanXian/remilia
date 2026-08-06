@@ -52,10 +52,15 @@ import (
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	infrastorage "github.com/KomeiDiSanXian/remilia/infra/storage"
+	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 const dataDir = "data"
+
+// pluginPlatformRegistry 平台适配器注册表，由 main 在 setupPlugins 前注入，
+// 供需要主动推送的插件（如 bilibili 开播通知）在 Setup 阶段获取 sender。
+var pluginPlatformRegistry *platform.Registry
 
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	for _, dir := range []string{dataDir, dataDir + "/db"} {
@@ -120,7 +125,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		weather.New(),
 		iss.New(iss.WithDataDir(dataDir + "/iss")),
 		css.New(css.WithDataDir(dataDir + "/css")),
-		bilibili.New(),
+		bilibili.New(bilibili.WithPlatformRegistry(pluginPlatformRegistry)),
 		anime.New(),
 		fortune.New(fortune.WithDataDir(dataDir + "/fortune")),
 		minecraft.New(),

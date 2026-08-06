@@ -51,6 +51,28 @@ func (s *qqSender) PlatformAPI() any { return s.api }
 // 编译期接口实现检查。
 var _ platform.APIProvider = (*qqSender)(nil)
 
+// NotifyUser 向指定用户发送私聊消息，实现 platform.SessionNotifier。
+// QQ 开放平台 API 本身支持主动消息，无需事件上下文。
+func (s *qqSender) NotifyUser(ctx stdctx.Context, userID string, msg platform.OutboundMessage) error {
+	_, err := s.Send(ctx, platform.SendRequest{
+		Target:  platform.ChatInfo{ID: userID, IsGroup: false},
+		Message: msg,
+	})
+	return err
+}
+
+// NotifyGroup 向指定群组发送消息，实现 platform.SessionNotifier。
+func (s *qqSender) NotifyGroup(ctx stdctx.Context, groupID string, msg platform.OutboundMessage) error {
+	_, err := s.Send(ctx, platform.SendRequest{
+		Target:  platform.ChatInfo{ID: groupID, IsGroup: true},
+		Message: msg,
+	})
+	return err
+}
+
+// 编译期接口实现检查。
+var _ platform.SessionNotifier = (*qqSender)(nil)
+
 // Send 将 OutboundMessage 转换并发送到 QQ 平台，返回平台响应摘要。
 //
 // 路由规则：

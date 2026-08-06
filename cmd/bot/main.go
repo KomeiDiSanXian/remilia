@@ -122,6 +122,7 @@ func main() {
 
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
+	pluginPlatformRegistry = reg
 	setupPlugins(pm, eng)
 
 	// 更新器在 Windows 上退出前先停止全部插件：Teardown 确定性释放 LevelDB 等

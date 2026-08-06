@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.36.0 (2026-08-06)
+
+### 🖼️ bilibili 插件重构增强：WBI 签名修复 + 视频/番剧/开播订阅
+
+- **WBI 签名两处致命 bug 修复**（实测复现）:
+  - **混合密钥算法错误**: 旧实现 `sub_key[:4] + img_key[:4]` 已被 B 站废弃，`wbi/acc/info` 返回 `-403 访问权限不足`；改为现行算法——取 `img_key+sub_key` 拼接串按官方 `mixinKeyEncTab` 索引表取 32 位
+  - **签名串尾随 `&`**: 参数拼接循环每个 key 后追加 `&`，签名串结尾多一个 `&` 导致 w_rid 无效；改为参数间以 `&` 连接（首项不带前缀）
+  - 两处修复均用真实 SESSDATA 实测验证：`FetchUserInfo` 正常返回「陈哥1」粉丝 57 万
+- **SESSDATA 编码修复**: 含逗号/星号等特殊字符的 SESSDATA 必须 URL 编码后发送（浏览器标准形式），否则被 -352 风控拦截；已编码值（含 `%`）不重复编码
+- **直播字段解析修复**: `LiveInfo` JSON 字段名与真实 API（camelCase `liveStatus`/`online`/`roomStatus`）不匹配，导致直播状态、观看人数永远读不到、恒显示"未开播"
+- **新增 `FetchLiveInfoByRoom`**: 按房间号查询（`get_info` 接口为 snake_case，独立解析结构），`/bili live room:<房间号>` 消除 UID/房间号歧义，纯数字输入自动回退
+- **`/bili video <BV号>`**: 播放/弹幕/点赞/硬币/收藏/分享、时长、发布日、封面（`view` 接口）
+- **`/bili videos <uid/用户名>`**: 接线原有 `FetchVideos`，修复 `wbi/arc/search` 带 Origin 头被 412 风控问题（该接口对 Origin 检查更严格，须移除）
+- **`/bili bangumi <关键词>`**: 番剧/影视搜索，修正 `areas`（字符串）/`media_score`（对象）/`pubtime`（unix 时间戳）三处字段类型
+- **开播订阅通知**: `/bili watch <uid>` / `unwatch` / `watch list`，持久化到 `data/bilibili/watch.json`，后台轮询（`watch_interval`，下限 30s）检测开播并主动推送群通知
+  - **notifier 持久化**: 新增 `bilibili.WithPlatformRegistry` 注入 `platform.Registry`，Setup 阶段即注册推送能力——**重启后订阅通知自动恢复，无需任何命令触发**；未注入时回退事件上下文方式
+- **代理支持**: `plugins.bilibili.proxy`（API + 封面图下载），海外/云服务器部署（数据中心 IP 风控严格）推荐配置
+- **AI 工具**: 新增 `get_bilibili_video_info` / `get_bilibili_user_videos` / `search_bilibili_bangumi`，共 7 个工具
+- **测试**: watchManager 增删/状态转换/持久化/notifier 4 项 + notifier 注册 3 项集成测试
+
+### 🖼️ anime 插件：代理与 API 镜像支持
+
+- **`plugins.anime.proxy`**: 配置代理（如 `http://127.0.0.1:7890`），空值沿用环境变量代理或直连；API 与封面图共享 transport
+- **`plugins.anime.api_base`**: 可更换 Bangumi API 基础 URL 为镜像/代理地址
+- **Cloudflare DNS 保留说明**: 自定义 Resolver 仅直连时生效，代理模式下域名解析由代理端完成（注释澄清）
+
+### 📤 QQ 平台：SessionNotifier 主动推送支持
+
+- `qqSender` 实现 `platform.SessionNotifier`（`NotifyUser`/`NotifyGroup`）——QQ 开放平台 API 本身支持主动消息，此前未实现该接口导致 bilibili 开播通知等主动推送在 QQ 平台不可用
+
+### 🖼️ minecraft 插件：卡片渲染重设计 + 边界修复
+
+- **卡片重设计**: MC 风格渐变背景；favicon 圆角缩略图 + 服务器地址头部；状态徽章行（● 在线/Java·Bedrock/延迟）；玩家进度条（<55% 绿、55-85% 金、>85% 红）收窄居中不再分割画面；版本/协议标签行；底部查询时间戳；MOTD 深色阴影提升可读性；离线卡片统一 600 宽同款渐变布局
+- **MOTD 超长修复**: 图片宽度钳制到画布宽度，超长段按字符级二分截断（兼容 CJK），修复"首段超长整行空白 + 图片被撑宽"
+- **玩家名截断**: 异常 API 数据（超 16 字符名）截断处理，防止 badge 过宽
+- **压力验证**: 200+ 玩家、50 个 100 字符名、300 字符单段 MOTD 均正常渲染，宽度恒 600 不溢出
+
+### 📝 配置
+
+- `config.example.yaml`: 新增 anime（api_base/proxy）与 bilibili（sessdata/proxy/watch_interval）配置节及注释
+
 ## v1.35.0 (2026-08-06)
 
 ### 🎯 Event 接口收窄：Content/Attachments 移出接口，正文从段统一派生

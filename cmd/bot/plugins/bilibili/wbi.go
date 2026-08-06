@@ -29,14 +29,15 @@ type wbiKeys struct {
 // wbiSigner 实现 B 站 WBI 签名算法，线程安全。
 // 通过从 nav 接口获取密钥对，对请求参数进行排序后计算 MD5 签名。
 type wbiSigner struct {
-	mu     sync.RWMutex
-	keys   *wbiKeys
-	client *http.Client
+	mu       sync.RWMutex
+	keys     *wbiKeys
+	client   *http.Client
+	sessdata string // 真实账号登录 Cookie（SESSDATA），用于规避风控限流
 }
 
 // newWBISigner 创建 WBI 签名器。
-func newWBISigner() *wbiSigner {
-	return &wbiSigner{client: http.DefaultClient}
+func newWBISigner(sessdata string) *wbiSigner {
+	return &wbiSigner{client: http.DefaultClient, sessdata: sessdata}
 }
 
 // ensureKeys 确保密钥已加载。首次调用时会从 nav 接口拉取并缓存。
@@ -74,7 +75,7 @@ func (s *wbiSigner) fetchKeys(ctx context.Context) (*wbiKeys, error) {
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Referer", "https://www.bilibili.com")
 	req.Header.Set("Origin", "https://www.bilibili.com")
-	req.Header.Set("Cookie", generateBiliCookies())
+	req.Header.Set("Cookie", generateBiliCookies(s.sessdata))
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -125,10 +126,28 @@ func extractKey(rawURL string) string {
 	return ""
 }
 
+// mixinKeyEncTab WBI 混合密钥索引表（官方算法）。
+// mixin key = 取 img_key+sub_key 拼接串中这些索引位置的字符（前 32 个）。
+var mixinKeyEncTab = [32]int{
+	46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+	27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+}
+
+// mixinKey 计算 WBI 混合密钥：
+// 将 img_key 与 sub_key 拼接后，按 mixinKeyEncTab 索引取出 32 个字符。
+func mixinKey(imgKey, subKey string) string {
+	concat := imgKey + subKey
+	b := make([]byte, 0, len(mixinKeyEncTab))
+	for _, i := range mixinKeyEncTab {
+		b = append(b, concat[i])
+	}
+	return string(b)
+}
+
 // sign 为请求参数添加 WBI 签名。算法：
-//  1. 混合密钥: mix_key = sub_key[:4] + img_key[:4]
+//  1. 混合密钥: mixin_key = mixinKey(img_key, sub_key)
 //  2. 添加时间戳 wts
-//  3. 参数按 key 排序后拼接 + mix_key
+//  3. 参数按 key 排序后拼接 + mixin_key
 //  4. 计算 MD5 作为 w_rid
 func (s *wbiSigner) sign(ctx context.Context, params url.Values) (url.Values, error) {
 	if err := s.ensureKeys(ctx); err != nil {
@@ -138,8 +157,6 @@ func (s *wbiSigner) sign(ctx context.Context, params url.Values) (url.Values, er
 	s.mu.RLock()
 	subKey, imgKey := s.keys.subKey, s.keys.imgKey
 	s.mu.RUnlock()
-
-	mixKey := subKey[:min(len(subKey), 4)] + imgKey[:min(len(imgKey), 4)]
 
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	params.Set("wts", ts)
@@ -154,13 +171,15 @@ func (s *wbiSigner) sign(ctx context.Context, params url.Values) (url.Values, er
 	sort.Strings(keys)
 
 	var sb strings.Builder
-	for _, k := range keys {
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString("&")
+		}
 		sb.WriteString(k)
 		sb.WriteString("=")
 		sb.WriteString(params.Get(k))
-		sb.WriteString("&")
 	}
-	sb.WriteString(mixKey)
+	sb.WriteString(mixinKey(imgKey, subKey))
 
 	hash := md5.Sum([]byte(sb.String()))
 	wRid := hex.EncodeToString(hash[:])

@@ -264,6 +264,20 @@ api:
 #     report_errors: true             # [H]  引擎失败时在结果中显示原因
 #     max_title_len: 120              # [H]  单条结果标题最大长度（rune，0 = 不截断）
 #     max_message_len: 2000           # [H]  文本模式整条结果消息最大长度（rune，0 = 不截断）
+#   anime:
+#     api_base: "https://api.bgm.tv"  # [R]  Bangumi API 基础 URL，可更换为镜像/代理地址（如 http://api.bgm.tv）
+#     proxy: ""                       # [R]  Bangumi API 与封面图请求代理地址（如 "http://127.0.0.1:7890"）。
+#                                     #      国内部署访问 api.bgm.tv 时推荐配置；空 = 环境变量代理或直连
+#                                     #      客户端自带 Cloudflare DNS (1.1.1.1) 绕过 DNS 污染，仅在
+#                                     #      无代理直连时生效；配置代理后域名解析由代理端完成。
+#   bilibili:
+#     sessdata: ""                    # [R]  真实 B 站账号的 SESSDATA Cookie（浏览器登录 B 站后 F12 →
+#                                     #      Application → Cookies 中复制）。匿名随机指纹 Cookie 极易
+#                                     #      触发 -799 风控限流，配置后可稳定访问；空 = 仅随机指纹
+#     proxy: ""                       # [R]  B 站 API 与封面图请求代理地址（如 "http://127.0.0.1:7890"）。
+#                                     #      海外/云服务器部署（数据中心 IP 风控严格）时推荐配置；
+#                                     #      空 = 环境变量代理或直连
+#     watch_interval: "60s"           # [R]  开播订阅轮询间隔（下限 30s），开播通知的检测延迟取决于此值
 #   pic:
 #     # [H]  全局内容分级区间（精确档位或区间）:
 #     #      档位（由轻到重）:

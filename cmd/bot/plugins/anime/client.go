@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -68,34 +69,37 @@ type SearchResult struct {
 // 包含 700ms 间隔的限流器，确保不超过官方限制（100 次/分钟）。
 type bangumiClient struct {
 	client    *http.Client
+	transport *http.Transport
 	rateLimit *time.Ticker
 	apiBase   string // API 基础 URL，可通过插件配置更换为镜像/代理
 }
 
 // newBangumiClient 创建 Bangumi API 客户端。
-// 使用自定义 DNS 解析器（Cloudflare 1.1.1.1）绕过 DNS 污染，
-// 支持 HTTP_PROXY/HTTPS_PROXY 环境变量配置代理。
+// 使用自定义 DNS 解析器（Cloudflare 1.1.1.1）绕过 DNS 污染。
+// proxy 为可选代理地址（如 "http://127.0.0.1:7890"），为空时沿用环境变量代理或直连。
 // apiBase 为 API 基础 URL，默认 https://api.bgm.tv，可改为 http://api.bgm.tv 或代理地址。
-func newBangumiClient(apiBase string) *bangumiClient {
+func newBangumiClient(apiBase, proxy string) *bangumiClient {
 	if apiBase == "" {
 		apiBase = "https://api.bgm.tv"
 	}
+	transport := newBypassTransport(proxy)
 	return &bangumiClient{
-		client:    newBypassHTTPClient(15 * time.Second),
+		client:    &http.Client{Timeout: 15 * time.Second, Transport: transport},
+		transport: transport,
 		rateLimit: time.NewTicker(700 * time.Millisecond),
 		apiBase:   apiBase,
 	}
 }
 
 // fetchImageA 从 URL 下载并解码图片（支持 JPEG/PNG）。
-func fetchImageA(rawURL string) (image.Image, error) {
+func fetchImageA(transport *http.Transport, rawURL string) (image.Image, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
 	client := &http.Client{
-		Transport: bypassTransport,
+		Transport: transport,
 		Timeout:   15 * time.Second,
 	}
 	resp, err := client.Do(req)
@@ -107,45 +111,36 @@ func fetchImageA(rawURL string) (image.Image, error) {
 	return img, err
 }
 
-// newBypassHTTPClient 创建一个可绕过 DNS 污染的 HTTP 客户端。
+// newBypassTransport 创建一个可绕过 DNS 污染的 HTTP 传输层。
 // 使用 Cloudflare DNS (1.1.1.1) 进行域名解析，避免 ISP 级别的 DNS 劫持。
-// 支持标准 HTTP_PROXY / HTTPS_PROXY 环境变量配置代理。
-func newBypassHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-				Resolver: &net.Resolver{
-					PreferGo: true,
-					Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-						d := net.Dialer{Timeout: 5 * time.Second}
-						return d.DialContext(ctx, "udp", "1.1.1.1:53")
-					},
+// proxy 为可选代理地址，非空时走该代理；为空时沿用 HTTP_PROXY/HTTPS_PROXY 环境变量或直连。
+//
+// 注意：自定义 Resolver 仅在直连（无代理）时生效——配置代理后连接目标是代理地址，
+// 域名解析由代理端完成，此处 Resolver 不会被调用；因此代理场景与 DNS 解析互不影响，
+// Cloudflare DNS 始终作为无代理场景绕过 DNS 污染的保底手段保留。
+func newBypassTransport(proxy string) *http.Transport {
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Resolver: &net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					d := net.Dialer{Timeout: 5 * time.Second}
+					return d.DialContext(ctx, "udp", "1.1.1.1:53")
 				},
-			}).DialContext,
-			TLSHandshakeTimeout: 10 * time.Second,
-		},
-	}
-}
-
-// newBypassTransport 为 fetchImageA 等临时请求创建可复用的传输层。
-var bypassTransport = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	DialContext: (&net.Dialer{
-		Timeout:   15 * time.Second,
-		KeepAlive: 30 * time.Second,
-		Resolver: &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				d := net.Dialer{Timeout: 5 * time.Second}
-				return d.DialContext(ctx, "udp", "1.1.1.1:53")
 			},
-		},
-	}).DialContext,
-	TLSHandshakeTimeout: 10 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	if proxy != "" {
+		if u, perr := url.Parse(proxy); perr == nil {
+			transport.Proxy = http.ProxyURL(u)
+		}
+	} else {
+		transport.Proxy = http.ProxyFromEnvironment
+	}
+	return transport
 }
 
 // doRequest 发起带限流的 HTTP 请求，自动处理 JSON 反序列化。

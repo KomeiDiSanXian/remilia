@@ -3,12 +3,16 @@ package anime
 import (
 	"fmt"
 	"image/color"
+	"net/http"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
 )
 
 const cardWidth = 640
+
+// coverTransport 复用在 Setup 阶段构造的传输层，使封面下载与 API 请求共享代理配置。
+var coverTransport *http.Transport
 
 var (
 	accentColorA    = color.RGBA{R: 80, G: 160, B: 240, A: 255}
@@ -106,7 +110,7 @@ func renderAnimeCard(sub *AnimeSubject) ([]byte, error) {
 	canvas.AddSpacer(8)
 
 	if sub.ImageURL() != "" {
-		cover, _ := fetchImageA(sub.ImageURL())
+		cover, _ := fetchImageA(coverTransport, sub.ImageURL())
 		if cover != nil {
 			canvas.AddImage(cover, textimage.WithImgWidth(200), textimage.WithImgAlign(textimage.AlignCenter))
 			canvas.AddSpacer(8)

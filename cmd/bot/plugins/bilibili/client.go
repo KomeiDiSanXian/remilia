@@ -13,10 +13,18 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
 const biliUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+// biliImageSessdata 保存 Setup 阶段读取的 SESSDATA，供 fetchImage 等
+// 独立图片下载请求复用同一登录态。
+var biliImageSessdata string
+
+// biliImageProxy 保存 Setup 阶段读取的代理地址，供 fetchImage 图片下载复用。
+var biliImageProxy string
 
 // UserInfo B 站用户空间信息。
 type UserInfo struct {
@@ -63,8 +71,9 @@ type LiveInfo struct {
 	RoomID     int64  `json:"roomid"`
 	Title      string `json:"title"`
 	Cover      string `json:"cover"`
-	WatcherNum int64  `json:"watcher_num"`
-	LiveStatus int    `json:"live_status"`
+	WatcherNum int64  `json:"online"`
+	LiveStatus int    `json:"liveStatus"`
+	RoomStatus int    `json:"roomStatus"` // 1 = 已开通直播间；0 = 从未开播/无直播间
 	UID        int64  `json:"uid"`
 	UserName   string `json:"uname"`
 	IsLiving   bool
@@ -107,6 +116,39 @@ type VideoItem struct {
 	MID         int64  `json:"mid"`
 }
 
+// VideoInfo B 站视频详细信息（/x/web-interface/view）。
+type VideoInfo struct {
+	BVID     string     `json:"bvid"`
+	AID      int64      `json:"aid"`
+	Title    string     `json:"title"`
+	Pic      string     `json:"pic"`
+	Duration int64      `json:"duration"`
+	PubDate  int64      `json:"pubdate"`
+	Desc     string     `json:"desc"`
+	Owner    VideoOwner `json:"owner"`
+	Stat     VideoStat  `json:"stat"`
+}
+
+// VideoOwner 视频作者信息。
+type VideoOwner struct {
+	MID  int64  `json:"mid"`
+	Name string `json:"name"`
+}
+
+// VideoStat 视频统计数据。
+type VideoStat struct {
+	View     int64 `json:"view"`
+	Danmaku  int64 `json:"danmaku"`
+	Reply    int64 `json:"reply"`
+	Favorite int64 `json:"favorite"`
+	Coin     int64 `json:"coin"`
+	Share    int64 `json:"share"`
+	Like     int64 `json:"like"`
+	Dislike  int64 `json:"dislike"`
+	NowRank  int   `json:"now_rank"`
+	HisRank  int   `json:"his_rank"`
+}
+
 // biliHeaderTransport 自动为每个请求添加标准 HTTP 头部和 Cookie。
 // Cookie 在启动时生成一次，之后复用同一套浏览器指纹。
 type biliHeaderTransport struct {
@@ -114,16 +156,24 @@ type biliHeaderTransport struct {
 	cookie string
 }
 
-func newBiliTransport() *biliHeaderTransport {
+func newBiliTransport(sessdata, proxy string) *biliHeaderTransport {
+	tr := &http.Transport{}
+	if proxy != "" {
+		if u, perr := url.Parse(proxy); perr == nil {
+			tr.Proxy = http.ProxyURL(u)
+		}
+	} else {
+		tr.Proxy = http.ProxyFromEnvironment
+	}
 	return &biliHeaderTransport{
-		inner:  http.DefaultTransport,
-		cookie: generateBiliCookies(),
+		inner:  tr,
+		cookie: generateBiliCookies(sessdata),
 	}
 }
 
 // refreshCookie 生成新 Cookie，在检测到被风控时调用。
-func (t *biliHeaderTransport) refreshCookie() {
-	t.cookie = generateBiliCookies()
+func (t *biliHeaderTransport) refreshCookie(sessdata string) {
+	t.cookie = generateBiliCookies(sessdata)
 }
 
 func (t *biliHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -131,12 +181,25 @@ func (t *biliHeaderTransport) RoundTrip(req *http.Request) (*http.Response, erro
 }
 
 // generateBiliCookies 生成随机的 B 站浏览器指纹 Cookie。
-func generateBiliCookies() string {
+// sessdata 为真实账号 Cookie（登录态），非空时附加 SESSDATA=buvid3 前缀，
+// 用于避免匿名请求被 -799 风控限流。
+func generateBiliCookies(sessdata string) string {
 	buvid3 := randomHex(32) + "infoc"
 	buvid4 := randomUUID()
 	lsid := randomHex(8) + "_" + randomHex(8)
-	return fmt.Sprintf("buvid3=%s; buvid4=%s; b_lsid=%s; _uuid=%s",
+	cookies := fmt.Sprintf("buvid3=%s; buvid4=%s; b_lsid=%s; _uuid=%s",
 		buvid3, buvid4, lsid, randomUUID())
+	if sessdata != "" {
+		// SESSDATA 含逗号/星号等特殊字符，必须 URL 编码后发送，
+		// 否则 B 站风控会以 -352 拦截（浏览器中的标准形式即编码后的值）。
+		// 若配置的已是编码值（含 %），则不再重复编码。
+		if strings.ContainsRune(sessdata, '%') {
+			cookies = "SESSDATA=" + sessdata + "; " + cookies
+		} else {
+			cookies = "SESSDATA=" + url.QueryEscape(sessdata) + "; " + cookies
+		}
+	}
+	return cookies
 }
 
 func randomHex(n int) string {
@@ -163,19 +226,26 @@ type biliClient struct {
 	transport *biliHeaderTransport
 	client    *http.Client
 	rateLimit *time.Ticker // 1 秒间隔，避免触发 -799 频率限制
+	sessdata  string       // 真实账号登录 Cookie（SESSDATA），用于规避风控限流
+	proxy     string       // 代理地址（如 http://127.0.0.1:7890），空 = 环境变量代理或直连
 }
 
-// newBiliClient 创建 B 站 API 客户端，自动生成随机浏览器指纹 Cookie 绕过反爬。
-func newBiliClient() *biliClient {
-	transport := newBiliTransport()
+// newBiliClient 创建 B 站 API 客户端。
+// sessdata 为真实账号 Cookie（登录态），非空时附加到请求 Cookie，
+// 避免匿名请求触发 -799 风控限流；为空时仅使用随机浏览器指纹 Cookie。
+// proxy 为可选代理地址，仅本插件的请求走该代理；为空时沿用环境变量代理或直连。
+func newBiliClient(sessdata, proxy string) *biliClient {
+	transport := newBiliTransport(sessdata, proxy)
 	return &biliClient{
-		signer:    newWBISigner(),
+		signer:    newWBISigner(sessdata),
 		transport: transport,
 		client: &http.Client{
 			Transport: transport,
 			Timeout:   30 * time.Second,
 		},
 		rateLimit: time.NewTicker(1 * time.Second),
+		sessdata:  sessdata,
+		proxy:     proxy,
 	}
 }
 
@@ -361,7 +431,7 @@ func (c *biliClient) FetchRelationStat(ctx context.Context, mid int64) (*Relatio
 	return &result.Data, nil
 }
 
-// FetchLiveInfo 获取 UP 主的直播状态和直播间信息。
+// FetchLiveInfo 按 UID 获取 UP 主的直播状态和直播间信息。
 func (c *biliClient) FetchLiveInfo(ctx context.Context, mid int64) (*LiveInfo, error) {
 	u := fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/getRoomInfoOld?mid=%d", mid)
 	req, err := c.newBiliRequest(ctx, http.MethodGet, u, "https://live.bilibili.com/")
@@ -391,14 +461,71 @@ func (c *biliClient) FetchLiveInfo(ctx context.Context, mid int64) (*LiveInfo, e
 	if result.Code != 0 {
 		return nil, fmt.Errorf("bilibili live api error: %s (code=%d)", result.Message, result.Code)
 	}
-	result.Data.IsLiving = result.Data.LiveStatus == 1
-	return &result.Data, nil
+	info := result.Data
+	info.UserName = result.Data.UserName
+	info.UID = mid
+	info.IsLiving = info.LiveStatus == 1
+	return &info, nil
+}
+
+// FetchLiveInfoByRoom 按直播间房间号获取直播状态。
+// get_info 接口字段为 snake_case（room_id/live_status/user_cover），与
+// getRoomInfoOld（camelCase）不同，故使用独立解析结构。
+func (c *biliClient) FetchLiveInfoByRoom(ctx context.Context, roomID int64) (*LiveInfo, error) {
+	u := fmt.Sprintf("https://api.live.bilibili.com/room/v1/Room/get_info?room_id=%d", roomID)
+	req, err := c.newBiliRequest(ctx, http.MethodGet, u, "https://live.bilibili.com/")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("FetchLiveInfoByRoom: %w", err)
+	}
+
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"msg"`
+		Data    struct {
+			UID        int64  `json:"uid"`
+			RoomID     int64  `json:"room_id"`
+			Title      string `json:"title"`
+			Cover      string `json:"user_cover"`
+			WatcherNum int64  `json:"online"`
+			LiveStatus int    `json:"live_status"`
+			RoomStatus int    `json:"room_status"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("FetchLiveInfoByRoom json: %w", err)
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("bilibili live api error: %s (code=%d)", result.Message, result.Code)
+	}
+	d := result.Data
+	info := &LiveInfo{
+		RoomID:     d.RoomID,
+		Title:      d.Title,
+		Cover:      d.Cover,
+		WatcherNum: d.WatcherNum,
+		LiveStatus: d.LiveStatus,
+		RoomStatus: d.RoomStatus,
+		UID:        d.UID,
+	}
+	info.IsLiving = info.LiveStatus == 1
+	return info, nil
 }
 
 // retrySearch 在被风控时刷新 Cookie 并重试搜索。
 func (c *biliClient) retrySearch(ctx context.Context, keyword string, page int) ([]SearchUserResult, int, error) {
 	time.Sleep(2 * time.Second)
-	c.transport.refreshCookie()
+	c.transport.refreshCookie(c.sessdata)
 	return c.SearchUser(ctx, keyword, page)
 }
 
@@ -475,9 +602,17 @@ func fetchImage(rawURL string) (image.Image, error) {
 	}
 	req.Header.Set("User-Agent", biliUA)
 	req.Header.Set("Referer", "https://www.bilibili.com")
-	req.Header.Set("Cookie", generateBiliCookies())
+	req.Header.Set("Cookie", generateBiliCookies(biliImageSessdata))
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	tr := &http.Transport{}
+	if biliImageProxy != "" {
+		if u, perr := url.Parse(biliImageProxy); perr == nil {
+			tr.Proxy = http.ProxyURL(u)
+		}
+	} else {
+		tr.Proxy = http.ProxyFromEnvironment
+	}
+	client := &http.Client{Timeout: 15 * time.Second, Transport: tr}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -490,11 +625,23 @@ func fetchImage(rawURL string) (image.Image, error) {
 
 // FetchVideos 获取 UP 主的视频列表（按发布时间排序，每页 5 条）。
 func (c *biliClient) FetchVideos(ctx context.Context, mid int64, page int) ([]VideoItem, error) {
-	u := fmt.Sprintf("https://api.bilibili.com/x/space/wbi/arc/search?mid=%d&pn=%d&ps=5&order=pubdate", mid, page)
+	params := url.Values{}
+	params.Set("mid", strconv.FormatInt(mid, 10))
+	params.Set("pn", strconv.Itoa(page))
+	params.Set("ps", "5")
+	params.Set("order", "pubdate")
+	signed, err := c.signer.sign(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	u := "https://api.bilibili.com/x/space/wbi/arc/search?" + signed.Encode()
 	req, err := c.newBiliRequest(ctx, http.MethodGet, u, "https://space.bilibili.com/"+strconv.FormatInt(mid, 10))
 	if err != nil {
 		return nil, err
 	}
+	// 实测：arc/search 接口带 Origin 头会触发 412 风控，必须移除
+	// （与 wbi/acc/info 不同，该接口对 Origin 检查更严格）。
+	req.Header.Del("Origin")
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -523,4 +670,107 @@ func (c *biliClient) FetchVideos(ctx context.Context, mid int64, page int) ([]Vi
 		return nil, fmt.Errorf("bilibili video api error: %s (code=%d)", result.Message, result.Code)
 	}
 	return result.Data.List.VList, nil
+}
+
+// FetchVideoInfo 按 BV 号获取视频详细信息。
+// 该接口无需 WBI 签名，参考: /x/web-interface/view?bvid=xxx
+func (c *biliClient) FetchVideoInfo(ctx context.Context, bvid string) (*VideoInfo, error) {
+	u := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?bvid=%s", url.QueryEscape(bvid))
+	req, err := c.newBiliRequest(ctx, http.MethodGet, u, "https://www.bilibili.com/video/"+bvid)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("FetchVideoInfo: %w", err)
+	}
+
+	var result struct {
+		Code    int       `json:"code"`
+		Message string    `json:"message"`
+		Data    VideoInfo `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("FetchVideoInfo json: %w", err)
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("bilibili video api error: %s (code=%d)", result.Message, result.Code)
+	}
+	return &result.Data, nil
+}
+
+// SearchBangumi 按关键词搜索番剧/影视（PGC 内容）。
+// 该接口与 SearchUser 同源（search/type），需 SESSDATA 登录态才能稳定访问。
+func (c *biliClient) SearchBangumi(ctx context.Context, keyword string, limit int) ([]BangumiResult, error) {
+	if limit <= 0 || limit > 10 {
+		limit = 5
+	}
+	u := fmt.Sprintf("https://api.bilibili.com/x/web-interface/search/type?search_type=media_bangumi&keyword=%s&page=1", url.QueryEscape(keyword))
+	req, err := c.newBiliRequest(ctx, http.MethodGet, u, "https://search.bilibili.com")
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := readBody(resp)
+	if err != nil {
+		return nil, fmt.Errorf("SearchBangumi: %w", err)
+	}
+
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+		Data    struct {
+			Result []BangumiResult `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("SearchBangumi json: %w", err)
+	}
+	if result.Code != 0 {
+		return nil, fmt.Errorf("bilibili bangumi search api error: %s (code=%d)", result.Message, result.Code)
+	}
+	if len(result.Data.Result) > limit {
+		result.Data.Result = result.Data.Result[:limit]
+	}
+	for i := range result.Data.Result {
+		if ms := result.Data.Result[i].MediaScore; ms != nil {
+			result.Data.Result[i].Score = ms.Score
+		}
+	}
+	return result.Data.Result, nil
+}
+
+// BangumiResult B 站番剧/影视搜索结果。
+type BangumiResult struct {
+	SeasonID   int64  `json:"season_id"`
+	MediaID    int64  `json:"media_id"`
+	Title      string `json:"title"`
+	OrgTitle   string `json:"org_title"`
+	Cover      string `json:"cover"`
+	Desc       string `json:"desc"`
+	PubTime    int64  `json:"pubtime"` // unix 时间戳，0 = 未知
+	Areas      string `json:"areas"`   // 地区字符串（如 "日本"）
+	Score      float64
+	TypeName   string             `json:"season_type_name"`
+	EpSize     int64              `json:"ep_size"`
+	MediaScore *bangumiMediaScore `json:"media_score"`
+}
+
+// bangumiMediaScore 番剧评分对象（score + user_count）。
+type bangumiMediaScore struct {
+	Score     float64 `json:"score"`
+	UserCount int64   `json:"user_count"`
 }
