@@ -333,7 +333,7 @@ func (a *Adapter) readLoop(ctx stdctx.Context, conn *websocket.Conn, eventCh cha
 				return
 			}
 
-			evt, parseErr := parseRawEvent(msg)
+			evt, parseErr := parseRawEventWithBot(msg, a.BotID())
 			if parseErr != nil {
 				logger.WithError(parseErr).Warn("[milky.Adapter] Failed to parse event, skipping")
 				continue

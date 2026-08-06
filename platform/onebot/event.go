@@ -29,6 +29,8 @@ type onebotEvent struct {
 	id         string
 	rawType    string
 	rawPayload any
+	// botID 机器人自身 ID（来自事件 self_id），用于 Mentions() 的 IsSelf 判定。
+	botID string
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -58,9 +60,9 @@ func (e *onebotEvent) ReplyToID() string { return segmentsReplyToID(e.segments) 
 
 // ── platform.MentionsEvent ──────────────────────────────────────────────────
 //
-// 聚合视图：由段派生（保序去重，含 @ 自身 IsSelf=true 语义）。
+// 聚合视图：由段派生（保序去重）；IsSelf 以事件 self_id 判定（@ 机器人自身命中）。
 
-func (e *onebotEvent) Mentions() []platform.UserInfo { return segmentsToMentions(e.segments, "") }
+func (e *onebotEvent) Mentions() []platform.UserInfo { return segmentsToMentions(e.segments, e.botID) }
 
 // ────────────────────────────────────────────────────────────────────────────
 // 顶层事件解析
@@ -128,6 +130,7 @@ func parsePrivateMessageEvent(raw []byte) (platform.Event, error) {
 		id:         strconv.FormatInt(int64(ev.MessageID), 10),
 		timestamp:  time.Unix(ev.Time, 0),
 		segments:   ev.Message.Segments(),
+		botID:      strconv.FormatInt(ev.SelfID, 10), // self_id 用于 @ 机器人判定
 		senderInfo: platform.UserInfo{
 			ID:          strconv.FormatInt(ev.UserID, 10),
 			DisplayName: ev.Sender.Nickname,
@@ -168,6 +171,7 @@ func parseGroupMessageEvent(raw []byte) (platform.Event, error) {
 		id:         strconv.FormatInt(int64(ev.MessageID), 10),
 		timestamp:  time.Unix(ev.Time, 0),
 		segments:   ev.Message.Segments(),
+		botID:      strconv.FormatInt(ev.SelfID, 10), // self_id 用于 @ 机器人判定
 		senderInfo: platform.UserInfo{
 			ID:          strconv.FormatInt(ev.UserID, 10),
 			DisplayName: displayName,

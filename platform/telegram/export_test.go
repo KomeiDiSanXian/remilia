@@ -8,18 +8,20 @@ package telegram
 // access package-internal functions without making them public API.
 
 var (
-	NewEvent              = newEvent
-	BuildInlineKeyboard   = buildInlineKeyboard
-	ExtensionFromMIME     = extensionFromMIME
-	UserFromTelegram      = userFromTelegram
-	ChatFromTelegram      = chatFromTelegram
-	CollectAttachments    = collectAttachments
-	ParseMessageID        = parseMessageID
-	ExtractMessageID      = extractMessageID
-	NewMessageEvent       = newMessageEvent
-	NewCallbackQueryEvent = newCallbackQueryEvent
-	NewChatMemberEvent    = newChatMemberEvent
-	NewSender             = newSender
+	NewEvent               = newEvent
+	NewEventWithBot        = newEventWithBot
+	BuildInlineKeyboard    = buildInlineKeyboard
+	ExtensionFromMIME      = extensionFromMIME
+	UserFromTelegram       = userFromTelegram
+	ChatFromTelegram       = chatFromTelegram
+	CollectAttachments     = collectAttachments
+	ParseMessageID         = parseMessageID
+	ExtractMessageID       = extractMessageID
+	NewMessageEvent        = newMessageEvent
+	NewMessageEventWithBot = newMessageEventWithBot
+	NewCallbackQueryEvent  = newCallbackQueryEvent
+	NewChatMemberEvent     = newChatMemberEvent
+	NewSender              = newSender
 
 	// For Client testing with a custom base URL
 	SetClientBaseURL = func(c *Client, baseURL string) {

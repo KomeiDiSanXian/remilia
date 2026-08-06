@@ -118,6 +118,35 @@ func TestNewMessageCreateEvent_WithMentions(t *testing.T) {
 	assert.Equal(t, "Mentioned User", mentions[0].DisplayName)
 }
 
+func TestNewMessageCreateEventWithBot_MentionSelf(t *testing.T) {
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ID:      "1006",
+			Content: "hello @bot",
+			Mentions: []*discordgo.User{
+				{ID: "bot1", Username: "MyBot"},
+			},
+		},
+	}
+	// 不注入 botID：IsSelf 不标记
+	plain := discord.NewMessageCreateEvent(m)
+	ms := platform.GetMentions(plain)
+	require.Len(t, ms, 1)
+	assert.False(t, ms[0].IsSelf)
+
+	// 注入 botID（=被 @ 的 user id）：IsSelf=true，OnMentionedBot 可命中
+	withBot := discord.NewMessageCreateEventWithBot(m, "bot1")
+	ms = platform.GetMentions(withBot)
+	require.Len(t, ms, 1)
+	assert.True(t, ms[0].IsSelf, "@ 机器人自身（botID 匹配）应标记 IsSelf")
+
+	// botID 不匹配他人：不标记
+	other := discord.NewMessageCreateEventWithBot(m, "999")
+	ms = platform.GetMentions(other)
+	require.Len(t, ms, 1)
+	assert.False(t, ms[0].IsSelf)
+}
+
 func TestNewMessageUpdateEvent(t *testing.T) {
 	now := time.Now()
 	m := &discordgo.MessageUpdate{

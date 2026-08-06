@@ -29,6 +29,8 @@ type discordEvent struct {
 	isEdited      bool
 	origTimestamp time.Time
 	mentions      []platform.UserInfo
+	// botID 机器人自身 ID（适配器注入），用于 Mentions() 的 IsSelf 判定。
+	botID string
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -63,7 +65,22 @@ func (e *discordEvent) OriginalTimestamp() time.Time { return e.origTimestamp }
 
 // ── platform.MentionsEvent ──────────────────────────────────────────────────
 
-func (e *discordEvent) Mentions() []platform.UserInfo { return e.mentions }
+// Mentions 返回消息中 @ 的用户列表；命中 botID 的条目标记 IsSelf=true
+// （@ 机器人自身可被 OnMentionedBot 感知）。
+func (e *discordEvent) Mentions() []platform.UserInfo {
+	if len(e.mentions) == 0 {
+		return nil
+	}
+	if e.botID == "" {
+		return e.mentions
+	}
+	for i := range e.mentions {
+		if e.mentions[i].ID == e.botID {
+			e.mentions[i].IsSelf = true
+		}
+	}
+	return e.mentions
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helper converters
@@ -149,7 +166,17 @@ func mentionsFromUsers(users []*discordgo.User) []platform.UserInfo {
 //   - EventKindPrivateMessage  — DM channel (GuildID == "")
 //   - EventKindGuildMessage    — guild channel (GuildID != "")
 func NewMessageCreateEvent(m *discordgo.MessageCreate) platform.Event {
-	e := &discordEvent{rawType: "MESSAGE_CREATE", rawPayload: m}
+	return newMessageCreateEventWithBot(m, "")
+}
+
+// NewMessageCreateEventWithBot 与 NewMessageCreateEvent 相同，额外注入机器人
+// 自身 ID 用于 Mentions() 的 IsSelf 判定。
+func NewMessageCreateEventWithBot(m *discordgo.MessageCreate, botID string) platform.Event {
+	return newMessageCreateEventWithBot(m, botID)
+}
+
+func newMessageCreateEventWithBot(m *discordgo.MessageCreate, botID string) platform.Event {
+	e := &discordEvent{rawType: "MESSAGE_CREATE", rawPayload: m, botID: botID}
 	if m.Message == nil {
 		e.kind = platform.EventKindUnknown
 		return e
@@ -181,11 +208,22 @@ func NewMessageCreateEvent(m *discordgo.MessageCreate) platform.Event {
 //
 // EventKind: EventKindMessageUpdate
 func NewMessageUpdateEvent(m *discordgo.MessageUpdate) platform.Event {
+	return newMessageUpdateEventWithBot(m, "")
+}
+
+// NewMessageUpdateEventWithBot 与 NewMessageUpdateEvent 相同，额外注入机器人
+// 自身 ID 用于 Mentions() 的 IsSelf 判定。
+func NewMessageUpdateEventWithBot(m *discordgo.MessageUpdate, botID string) platform.Event {
+	return newMessageUpdateEventWithBot(m, botID)
+}
+
+func newMessageUpdateEventWithBot(m *discordgo.MessageUpdate, botID string) platform.Event {
 	e := &discordEvent{
 		rawType:    "MESSAGE_UPDATE",
 		rawPayload: m,
 		kind:       platform.EventKindMessageUpdate,
 		isEdited:   true,
+		botID:      botID,
 	}
 	if m.Message == nil {
 		return e

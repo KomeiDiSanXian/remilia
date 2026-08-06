@@ -66,6 +66,8 @@ type milkyEvent struct {
 	timestamp  time.Time
 	rawType    string // 线上传输的 event_type 字符串
 	rawPayload any    // 解析后的载荷结构体
+	// botID 机器人自身 QQ 号（适配器注入），用于 Mentions() 的 IsSelf 判定。
+	botID string
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -95,9 +97,11 @@ func (e *milkyEvent) ReplyToID() string { return platform.SegmentsReplyToID(e.se
 
 // ── platform.MentionsEvent ──────────────────────────────────────────────────
 //
-// 聚合视图：由段派生（保序去重，含 @ 自身 IsSelf=true 语义）。
+// 聚合视图：由段派生（保序去重）；IsSelf 以注入的 botID 判定（@ 机器人自身命中）。
 
-func (e *milkyEvent) Mentions() []platform.UserInfo { return platform.SegmentsMentions(e.segments, "") }
+func (e *milkyEvent) Mentions() []platform.UserInfo {
+	return platform.SegmentsMentions(e.segments, e.botID)
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // 事件解析
@@ -118,6 +122,12 @@ func fileSegments(att platform.Attachment) []platform.Segment {
 
 // parseRawEvent 将 Milky WebSocket 原始消息转换为 platform.Event。
 func parseRawEvent(data []byte) (platform.Event, error) {
+	return parseRawEventWithBot(data, "")
+}
+
+// parseRawEventWithBot 与 parseRawEvent 相同，额外注入机器人自身 QQ 号
+// 用于 Mentions() 的 IsSelf 判定（@ 机器人自身 → OnMentionedBot 命中）。
+func parseRawEventWithBot(data []byte, botID string) (platform.Event, error) {
 	var env rawEvent
 	if err := json.Unmarshal(data, &env); err != nil {
 		return nil, fmt.Errorf("milky: parse event envelope: %w", err)
@@ -127,6 +137,7 @@ func parseRawEvent(data []byte) (platform.Event, error) {
 	e := &milkyEvent{
 		rawType:   env.EventType,
 		timestamp: ts,
+		botID:     botID,
 	}
 
 	switch env.EventType {

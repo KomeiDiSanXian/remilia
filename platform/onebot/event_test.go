@@ -120,6 +120,39 @@ func TestParseEvent_GroupMessage_WithMentions(t *testing.T) {
 	assert.Equal(t, "123", mentions[0].ID)
 }
 
+func TestParseEvent_GroupMessage_MentionSelf(t *testing.T) {
+	// @ 机器人自身（at qq == self_id）→ IsSelf=true，OnMentionedBot 可命中
+	raw := `{
+		"time": 1700000003,
+		"self_id": 123456,
+		"post_type": "message",
+		"message_type": "group",
+		"sub_type": "normal",
+		"message_id": 4002,
+		"group_id": 555,
+		"user_id": 98765,
+		"message": [{"type":"text","data":{"text":"hi "}},{"type":"at","data":{"qq":"123456"}}],
+		"sender": {"user_id": 98765, "nickname": "Dave"}
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	mentions := platform.GetMentions(ev)
+	require.Len(t, mentions, 1)
+	assert.Equal(t, "123456", mentions[0].ID)
+	assert.True(t, mentions[0].IsSelf, "@ 机器人自身（self_id 匹配）应标记 IsSelf")
+
+	// 普通消息（无 @）→ GetMentions 为空，OnMentionedBotOrNoMentions 放行
+	raw2 := `{
+		"time": 1, "self_id": 123456, "post_type": "message", "message_type": "group",
+		"sub_type": "normal", "message_id": 1, "group_id": 1, "user_id": 1,
+		"message": "hi",
+		"sender": {"user_id": 1, "nickname": "N"}
+	}`
+	ev2, err := parseEvent([]byte(raw2))
+	require.NoError(t, err)
+	assert.Empty(t, platform.GetMentions(ev2))
+}
+
 func TestParseEvent_GroupMessage_OwnerRole(t *testing.T) {
 	raw := `{
 		"time": 1, "self_id": 1, "post_type": "message", "message_type": "group",

@@ -289,10 +289,10 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 
 	// Message events
 	add(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		send(NewMessageCreateEvent(m))
+		send(NewMessageCreateEventWithBot(m, a.BotID()))
 	})
 	add(func(s *discordgo.Session, m *discordgo.MessageUpdate) {
-		send(NewMessageUpdateEvent(m))
+		send(NewMessageUpdateEventWithBot(m, a.BotID()))
 	})
 	add(func(s *discordgo.Session, m *discordgo.MessageDelete) {
 		send(NewMessageDeleteEvent(m))

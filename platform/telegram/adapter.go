@@ -243,7 +243,7 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 		budget := attachmentResolveBudget
 
 		for _, upd := range updates {
-			event := newEvent(&upd)
+			event := newEventWithBot(&upd, fmt.Sprintf("%d", a.botUser.ID))
 			if event != nil {
 				budget -= a.resolveAttachmentURLs(cancelCtx, event, budget)
 				platform.SafeDispatch(handler, event)

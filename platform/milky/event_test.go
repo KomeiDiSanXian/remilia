@@ -67,6 +67,30 @@ func TestParseMessageEvent_Group(t *testing.T) {
 	assert.Equal(t, "Bob", mentionsEvt.Mentions()[0].DisplayName)
 }
 
+func TestParseMessageEvent_MentionSelf(t *testing.T) {
+	raw := envelope("message_receive", `{
+		"message_scene":"group","peer_id":555,"message_seq":123,"sender_id":1,"time":1700000000,
+		"segments":[
+			{"type":"text","data":{"text":"hi "}},
+			{"type":"mention","data":{"user_id":10001,"name":"Remilia"}},
+			{"type":"text","data":{"text":" 123"}}
+		]}`)
+
+	// 不注入 botID：IsSelf 不标记
+	evt, err := parseRawEvent(raw)
+	require.NoError(t, err)
+	ms := evt.(platform.MentionsEvent).Mentions()
+	require.Len(t, ms, 1)
+	assert.False(t, ms[0].IsSelf)
+
+	// 注入 botID（=被 @ 的用户）：IsSelf=true，OnMentionedBot 可命中
+	evt2, err := parseRawEventWithBot(raw, "10001")
+	require.NoError(t, err)
+	ms = evt2.(platform.MentionsEvent).Mentions()
+	require.Len(t, ms, 1)
+	assert.True(t, ms[0].IsSelf, "@ 机器人自身（botID 匹配）应标记 IsSelf")
+}
+
 func TestParseMessageEvent_Friend(t *testing.T) {
 	raw := envelope("message_receive", `{
 		"message_scene":"friend","peer_id":1001,"message_seq":7,"sender_id":1001,"time":1700000000,

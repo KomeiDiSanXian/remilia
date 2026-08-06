@@ -857,6 +857,39 @@ func TestEvent_WithTextMention(t *testing.T) {
 	assert.Equal(t, "42", mentions[0].ID)
 }
 
+// TestEvent_WithBotMentionIsSelf 注入 botID 后，@ 机器人自身的条目标记 IsSelf=true，
+// OnMentionedBot 在 Telegram 上可命中。
+func TestEvent_WithBotMentionIsSelf(t *testing.T) {
+	msg := &telegram.Message{
+		MessageID: 1,
+		Chat:      &telegram.Chat{ID: 100, Type: telegram.ChatTypeGroup, Title: "Group"},
+		Date:      time.Now().Unix(),
+		Text:      "user hello",
+		Entities: []telegram.MessageEntity{
+			{Type: "text_mention", Offset: 0, Length: 4, User: &telegram.User{ID: 42, FirstName: "User"}},
+		},
+	}
+	upd := &telegram.Update{Message: msg}
+
+	// 不带 botID：IsSelf 不标记
+	plain := telegram.NewEvent(upd)
+	ms := plain.(platform.MentionsEvent).Mentions()
+	require.Len(t, ms, 1)
+	assert.False(t, ms[0].IsSelf)
+
+	// 注入 botID（=被 @ 的 user id 42）：IsSelf=true
+	withBot := telegram.NewEventWithBot(upd, "42")
+	ms = withBot.(platform.MentionsEvent).Mentions()
+	require.Len(t, ms, 1)
+	assert.True(t, ms[0].IsSelf, "@ 机器人自身（botID 匹配）应标记 IsSelf")
+
+	// botID 不匹配他人：不标记
+	other := telegram.NewEventWithBot(upd, "999")
+	ms = other.(platform.MentionsEvent).Mentions()
+	require.Len(t, ms, 1)
+	assert.False(t, ms[0].IsSelf)
+}
+
 // TestEvent_WithUsernameMention 覆盖 "mention" 实体：真实报文中它**不带** User，
 // 只能按 offset/length 从正文中切出 "@username"。
 //

@@ -25,6 +25,8 @@ type telegramEvent struct {
 	isEdited   bool
 	origTS     time.Time
 	mentions   []platform.UserInfo
+	// botID 机器人自身 ID（适配器注入），用于 Mentions() 的 IsSelf 判定。
+	botID string
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
@@ -59,7 +61,22 @@ func (e *telegramEvent) OriginalTimestamp() time.Time { return e.origTS }
 
 // ── platform.MentionsEvent ──────────────────────────────────────────────────
 
-func (e *telegramEvent) Mentions() []platform.UserInfo { return e.mentions }
+// Mentions 返回消息中 @ 的用户列表；命中 botID 的条目标记 IsSelf=true
+// （@ 机器人自身可被 OnMentionedBot 感知）。
+func (e *telegramEvent) Mentions() []platform.UserInfo {
+	if len(e.mentions) == 0 {
+		return nil
+	}
+	if e.botID == "" {
+		return e.mentions
+	}
+	for i := range e.mentions {
+		if e.mentions[i].ID == e.botID {
+			e.mentions[i].IsSelf = true
+		}
+	}
+	return e.mentions
+}
 
 // compile-time interface checks
 var (
@@ -74,17 +91,23 @@ var (
 //
 // Returns nil if the update type is not supported or recognized.
 func newEvent(upd *Update) platform.Event {
+	return newEventWithBot(upd, "")
+}
+
+// newEventWithBot 与 newEvent 相同，额外注入机器人自身 ID 用于
+// Mentions() 的 IsSelf 判定（@ 机器人自身 → OnMentionedBot 命中）。
+func newEventWithBot(upd *Update, botID string) platform.Event {
 	if upd == nil {
 		return nil
 	}
 
 	switch {
 	case upd.Message != nil:
-		return newMessageEvent(upd.Message, false)
+		return newMessageEventWithBot(upd.Message, false, botID)
 	case upd.EditedMessage != nil:
-		return newMessageEvent(upd.EditedMessage, true)
+		return newMessageEventWithBot(upd.EditedMessage, true, botID)
 	case upd.ChannelPost != nil:
-		return newMessageEvent(upd.ChannelPost, false)
+		return newMessageEventWithBot(upd.ChannelPost, false, botID)
 	case upd.CallbackQuery != nil:
 		return newCallbackQueryEvent(upd.CallbackQuery)
 	case upd.MyChatMember != nil:
@@ -99,12 +122,18 @@ func newEvent(upd *Update) platform.Event {
 // When edited is true the event is marked as a message edit (MESSAGE_UPDATE)
 // and the EditableEvent interface returns isEdited = true.
 func newMessageEvent(msg *Message, edited bool) platform.Event {
+	return newMessageEventWithBot(msg, edited, "")
+}
+
+// newMessageEventWithBot 与 newMessageEvent 相同，额外注入机器人自身 ID。
+func newMessageEventWithBot(msg *Message, edited bool, botID string) platform.Event {
 	e := &telegramEvent{
 		rawType:    "message",
 		rawPayload: msg,
 		id:         strconv.Itoa(msg.MessageID),
 		timestamp:  time.Unix(msg.Date, 0),
 		isEdited:   edited,
+		botID:      botID,
 	}
 
 	if edited {
