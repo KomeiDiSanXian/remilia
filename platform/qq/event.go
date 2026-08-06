@@ -5,6 +5,7 @@
 package qq
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"regexp"
 	"strings"
@@ -177,6 +178,9 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		"attachments",        // [5]
 		"message_type",       // [6] 消息内容类型
 		"ark_data",           // [7] 结构化卡片数据（message_type=3）
+		"message_scene.ext",  // [8] 场景扩展（含 ref_msg_idx=REFIDX_... 引用标识）
+		"msg_elements",       // [9] 消息元素列表（引用消息）
+		"parallel_message",   // [10] 被引用消息并行视图（msg_nodes）
 	)
 	userOpenID := results[2].String()
 	e.sender = platform.UserInfo{
@@ -194,14 +198,37 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		}
 	}
 
+	msgType := int(results[6].Int())
+	content := results[1].String()
+
 	// message_type=3 结构化卡片：content 为空，卡片数据在 ark_data
-	if int(results[6].Int()) == 3 {
+	if msgType == 3 {
 		if raw := results[7].Raw; raw != "" {
 			e.segments = append(e.segments, arkDataSegment(raw))
 			return
 		}
 	}
-	e.segments = textAndMediaSegments(results[1].String(), parseAttachments(results[5]))
+
+	// message_type=103 引用消息（实测结构与群消息一致：ref_msg_idx + msg_elements）
+	if msgType == 103 {
+		if refIdx := quoteReplyID(results[8]); refIdx != "" {
+			replyExtra := map[string]any{"raw_quote": results[9].Raw}
+			if pm := results[10]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
+				replyExtra["parallel_message"] = pm.Raw
+			}
+			e.segments = append(e.segments, platform.Segment{
+				Type:      platform.SegmentReply,
+				ReplyToID: refIdx,
+				Extra:     replyExtra,
+			})
+		}
+		if content == "" || content == " " {
+			content = extractQuoteContent(results[9])
+		}
+	}
+
+	e.segments = append(e.segments, splitMentionedContent(content, nil)...)
+	e.segments = append(e.segments, mediaSegments(parseAttachments(results[5]))...)
 }
 
 func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
@@ -239,20 +266,18 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	// message_type=103 引用消息（实测结构，2026-08 报文核验）：
 	//   - 引用目标标识在外层 message_scene.ext 的 ref_msg_idx=REFIDX_xxx（非 msg_elements）
 	//   - msg_elements[0] 为被引用消息：content（文本）+ attachments（媒体）
+	//   - parallel_message.msg_nodes 为被引用消息的并行视图（非独立转发段），并入 reply 段 Extra
 	//   - 外层 content 是回复者正文（含 <@id> 占位符，非空格时同样解析）
-	//   - parallel_message.msg_nodes 为并行消息/转发形态
 	if msgType == 103 {
 		if refIdx := quoteReplyID(results[13]); refIdx != "" {
+			replyExtra := map[string]any{"raw_quote": msgElements.Raw}
+			if pm := results[14]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
+				replyExtra["parallel_message"] = pm.Raw
+			}
 			e.segments = append(e.segments, platform.Segment{
 				Type:      platform.SegmentReply,
 				ReplyToID: refIdx,
-				Extra:     map[string]any{"raw_quote": msgElements.Raw}, // 同平台转发还原
-			})
-		}
-		if pm := results[14]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
-			e.segments = append(e.segments, platform.Segment{
-				Type:  platform.SegmentForward,
-				Extra: map[string]any{"parallel_message": pm.Raw},
+				Extra:     replyExtra,
 			})
 		}
 		if content == "" || content == " " {
@@ -306,30 +331,44 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	e.segments = append(e.segments, mediaSegments(parseAttachments(results[6]))...)
 }
 
-// splitMentionedContent 按 <@id> 占位符把正文切成 text/at 交错段。
+// splitMentionedContent 按内联标记把正文切成 text/at/face 交错段。
 //
-// 占位符即位置信息：@ 出现在正文中的实际位置（QQ 群消息 mentions 格式）。
-// 无法匹配 mentions 数组的占位符按原样作为文本保留。
+// 实测的两种内联标记（2026-08 报文核验）：
+//   - `<@openid>`：@ 占位符，位置即 @ 在正文中的实际位置（群消息 mentions 数组对应）
+//   - `<faceType=1,faceId="9",ext="...">`：内置表情，ext 为 base64 的 {"text":"显示文本"}
+//
+// 无法匹配 mentions 数组的 @ 占位符按原样作为文本保留。
 func splitMentionedContent(content string, mentionByID map[string]platform.UserInfo) []platform.Segment {
 	if content == "" {
 		return nil
 	}
 	var out []platform.Segment
 	pos := 0
-	for _, loc := range qqMentionTokenRe.FindAllStringIndex(content, -1) {
-		id := content[loc[0]+2 : loc[1]-1] // <@id> → id
+	for _, loc := range qqInlineTokenRe.FindAllStringIndex(content, -1) {
+		tok := content[loc[0]:loc[1]]
 		if loc[0] > pos {
 			out = append(out, platform.Segment{Type: platform.SegmentText, Text: content[pos:loc[0]]})
 		}
-		if u, ok := mentionByID[id]; ok {
-			out = append(out, platform.Segment{
-				Type:   platform.SegmentAt,
-				UserID: u.ID,
-				Text:   u.DisplayName,
-				Extra:  map[string]any{platform.SegmentExtraIsSelf: u.IsSelf},
-			})
+		if strings.HasPrefix(tok, "<@") {
+			id := tok[2 : len(tok)-1] // <@id> → id
+			if u, ok := mentionByID[id]; ok {
+				out = append(out, platform.Segment{
+					Type:   platform.SegmentAt,
+					UserID: u.ID,
+					Text:   u.DisplayName,
+					Extra:  map[string]any{platform.SegmentExtraIsSelf: u.IsSelf},
+				})
+			} else {
+				out = append(out, platform.Segment{Type: platform.SegmentText, Text: tok})
+			}
 		} else {
-			out = append(out, platform.Segment{Type: platform.SegmentText, Text: content[loc[0]:loc[1]]})
+			// face 内联标记 → SegmentFace（FaceID + ext 解码的显示文本）
+			m := qqFaceTokenRe.FindStringSubmatch(tok)
+			out = append(out, platform.Segment{
+				Type:   platform.SegmentFace,
+				FaceID: m[1],
+				Text:   decodeFaceExt(m[2]),
+			})
 		}
 		pos = loc[1]
 	}
@@ -575,8 +614,31 @@ func parseQQGroupRole(role string) platform.GroupRole {
 	}
 }
 
-// qqMentionTokenRe 匹配 QQ 群消息正文中的 @ 占位符 <@member_openid>。
-var qqMentionTokenRe = regexp.MustCompile(`<@([^>]+)>`)
+// qqInlineTokenRe 匹配 QQ 文本链内联标记：
+//   - `<@openid>`（群消息 @ 占位符）
+//   - `<faceType=1,faceId="9",ext="...">`（内置表情）
+var qqInlineTokenRe = regexp.MustCompile(`<@([^>]+)>|<faceType=\d+,faceId="([^"]*)",ext="([^"]*)"\s*>`)
+
+// qqFaceTokenRe 提取 face 标记的 faceId 与 ext。
+var qqFaceTokenRe = regexp.MustCompile(`faceId="([^"]*)",ext="([^"]*)"`)
+
+// decodeFaceExt 解码 face 标记 ext（base64 的 {"text":"显示文本"}）。
+func decodeFaceExt(ext string) string {
+	if ext == "" {
+		return ""
+	}
+	raw, err := base64.StdEncoding.DecodeString(ext)
+	if err != nil {
+		return ""
+	}
+	var m struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return ""
+	}
+	return m.Text
+}
 
 // arkDataSegment 将结构化卡片（message_type=3）的 ark_data 原始 JSON 包装为段。
 //

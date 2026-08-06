@@ -751,13 +751,13 @@ func TestNewEvent_GroupMessageCreate_QuoteRealSample(t *testing.T) {
 	if _, ok := segs[0].Extra["raw_quote"].(string); !ok {
 		t.Error("reply 段应携带 raw_quote（被引用消息原始 JSON，同平台转发还原）")
 	}
-	// forward 段：parallel_message.msg_nodes
-	if segs[1].Type != platform.SegmentForward {
-		t.Errorf("Segments[1]: got %+v, want SegmentForward（parallel_message）", segs[1])
+	// parallel_message 是被引用消息的并行视图，并入 reply 段 Extra（非独立段）
+	if _, ok := segs[0].Extra["parallel_message"].(string); !ok {
+		t.Error("reply 段应携带 parallel_message（被引用消息并行视图）")
 	}
 
 	// 正文 @ 交错：text(" "), at(A), text(" "), at(B), text(" 123"), at(A), text(" ")
-	body := segs[2:]
+	body := segs[1:]
 	if body[0].Type != platform.SegmentText || body[1].Type != platform.SegmentAt || body[1].UserID != "A1" {
 		t.Errorf("正文开头: got %+v, want [text, at(A1), ...]", body[:2])
 	}
@@ -814,5 +814,149 @@ func TestNewEvent_GroupMessageCreate_QuotePlainTextFallback(t *testing.T) {
 	}
 	if event.Content() != "被引用的旧消息文本" {
 		t.Errorf("Content: got %q, want 被引用的旧消息文本（正文空时兜底）", event.Content())
+	}
+}
+
+// ── 实测样本补充（2026-08 v1.33.1 报文核验）─────────────────────────────────
+
+// TestNewEvent_GroupMessageCreate_QuotePlainText 引用图片消息、回复正文 " 123"：
+// 正文非空时不走被引用文本兜底；被引用图片不进入本条段。
+func TestNewEvent_GroupMessageCreate_QuotePlainText(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_q_plain",
+		"content":      " 123",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice", "member_role": "owner"},
+		"timestamp":    "2026-08-06T18:08:06+08:00",
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"ref_msg_idx=REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==", "msg_idx=REFIDX_x", "auth_token=t"},
+		},
+		"msg_elements": []any{
+			map[string]any{
+				"msg_idx":      "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==",
+				"message_type": 103,
+				"content":      " ",
+				"attachments": []any{
+					map[string]any{"url": "https://img", "filename": "a.png", "content_type": "image/png"},
+				},
+			},
+		},
+		"parallel_message": map[string]any{
+			"msg_nodes": []any{map[string]any{"message_type": 7, "content": "[图片] "}},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	require.True(t, len(segs) >= 2, "Segments: got %+v", segs)
+	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==" {
+		t.Errorf("Segments[0]: got %+v, want SegmentReply", segs[0])
+	}
+	if _, ok := segs[0].Extra["parallel_message"].(string); !ok {
+		t.Error("reply 段应携带 parallel_message")
+	}
+	if event.Content() != "123" {
+		t.Errorf("Content: got %q, want %q（正文 123，被引用图片不进入正文）", event.Content(), "123")
+	}
+	require.Len(t, event.Attachments(), 0, "被引用消息的附件不属于本条消息")
+}
+
+// TestNewEvent_GroupMessageCreate_QuoteMentionBot 引用消息、回复正文 "@机器人 123456"：
+// 外层 content 的 <@id> 占位符交错为 at 段（此前 103 消息的 @ 全丢）。
+func TestNewEvent_GroupMessageCreate_QuoteMentionBot(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_q_at",
+		"content":      " <@BOT1> 123456",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice", "member_role": "owner"},
+		"timestamp":    "2026-08-06T18:09:34+08:00",
+		"mentions": []any{
+			map[string]any{"id": "BOT1", "username": "蕾米莉亚", "bot": true, "is_you": true},
+		},
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"ref_msg_idx=REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==", "msg_idx=REFIDX_y"},
+		},
+		"msg_elements": []any{
+			map[string]any{"msg_idx": "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==", "message_type": 103, "content": " "},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	// [reply, text(" "), at(BOT1), text(" 123456")]
+	require.True(t, len(segs) == 4, "Segments: got %+v", segs)
+	if segs[2].Type != platform.SegmentAt || segs[2].UserID != "BOT1" || !segs[2].Extra[platform.SegmentExtraIsSelf].(bool) {
+		t.Errorf("Segments[2]: got %+v, want at(BOT1) IsSelf=true", segs[2])
+	}
+	if event.Content() != "123456" {
+		t.Errorf("Content: got %q, want %q（@ 剥离）", event.Content(), "123456")
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_FaceMarker 表情内联标记（message_type=0）：
+// <faceType=1,faceId="9",ext="..."> → SegmentFace，Content 剥离。
+func TestNewEvent_GroupMessageCreate_FaceMarker(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_face",
+		"content":      "😀<faceType=1,faceId=\"9\",ext=\"eyJ0ZXh0Ijoi5aSn5ZOtIn0=\">",
+		"group_openid": "group_001",
+		"message_type": 0,
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice", "member_role": "member"},
+		"timestamp":    "2026-08-06T18:11:56+08:00",
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	require.True(t, len(segs) == 2, "Segments: got %+v", segs)
+	if segs[0].Type != platform.SegmentText || segs[0].Text != "😀" {
+		t.Errorf("Segments[0]: got %+v, want text(😀)", segs[0])
+	}
+	if segs[1].Type != platform.SegmentFace || segs[1].FaceID != "9" {
+		t.Errorf("Segments[1]: got %+v, want face(9)", segs[1])
+	}
+	if segs[1].Text != "大哭" {
+		t.Errorf("face 显示文本: got %q, want 大哭（ext base64 解码）", segs[1].Text)
+	}
+	if event.Content() != "😀" {
+		t.Errorf("Content: got %q, want %q（face 标记剥离）", event.Content(), "😀")
+	}
+}
+
+// TestNewEvent_C2CMessageCreate_Quote 单聊引用消息（实测）：C2C 同样带
+// ref_msg_idx + msg_elements，被引用文本在 msg_elements[0].content。
+func TestNewEvent_C2CMessageCreate_Quote(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":           "msg_c2c_quote",
+		"content":      "789",
+		"author":       map[string]any{"user_openid": "user001"},
+		"timestamp":    "2026-08-06T18:12:33+08:00",
+		"message_type": 103,
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"ref_msg_idx=REFIDX_y8cQLJYVRPp/g5f0s6c0hstG81ovPjw88HwjHppK6Gc=", "msg_idx=REFIDX_jIE79XAMtuOhlLaa681sz8tG81ovPjw88HwjHppK6Gc="},
+		},
+		"msg_elements": []any{
+			map[string]any{"msg_idx": "REFIDX_y8cQLJYVRPp/g5f0s6c0hstG81ovPjw88HwjHppK6Gc=", "message_type": 103, "content": "该命令仅支持群聊"},
+		},
+		"parallel_message": map[string]any{
+			"msg_nodes": []any{map[string]any{"message_type": 0, "content": "该命令仅支持群聊"}},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	require.True(t, len(segs) == 2, "Segments: got %+v", segs)
+	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "REFIDX_y8cQLJYVRPp/g5f0s6c0hstG81ovPjw88HwjHppK6Gc=" {
+		t.Errorf("Segments[0]: got %+v, want SegmentReply(REFIDX_y8c...)", segs[0])
+	}
+	if _, ok := segs[0].Extra["parallel_message"].(string); !ok {
+		t.Error("reply 段应携带 parallel_message")
+	}
+	if event.Content() != "789" {
+		t.Errorf("Content: got %q, want %q（C2C 正文）", event.Content(), "789")
 	}
 }
