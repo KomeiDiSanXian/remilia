@@ -2,6 +2,7 @@ package onebot
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -280,17 +281,17 @@ func TestMessageToOutbound_RoundTripCrossPlatform(t *testing.T) {
 	require.Len(t, out.Segments, 8)
 
 	// 出站：目标平台（discord 风格）内联渲染
-	content := ""
+	var content strings.Builder
 	for _, s := range out.Segments {
 		switch s.Type {
 		case platform.SegmentText:
-			content += s.Text
+			content.WriteString(s.Text)
 		case platform.SegmentAt:
-			content += "<@" + s.UserID + ">"
+			content.WriteString("<@" + s.UserID + ">")
 		}
 	}
 	want := "@A用户 一段文本 <@B> 又是一段文本 <@C><@D> 文本...<@E>21"
-	assert.Equal(t, want, content)
+	assert.Equal(t, want, content.String())
 	assert.Empty(t, out.ReplyToID, "跨平台 reply 段应剥离")
 
 	// 同平台转发（WithTargetPlatform）：全量透传

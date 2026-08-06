@@ -266,16 +266,14 @@ func TestAdapter_ConcurrentStartStop(t *testing.T) {
 	ctx := context.Background()
 	done := make(chan error, 1)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		done <- adapter.Start(ctx, func(platform.Event) {})
-	}()
+	})
 
 	require.Eventually(t, func() bool { return adapter.IsRunning() }, 3*time.Second, 10*time.Millisecond)
 
 	// 并发调用 Start 与 Stop，不应死锁或 panic。
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = adapter.Start(ctx, func(platform.Event) {})
 	}
 	assert.NoError(t, adapter.Stop(context.Background()))
