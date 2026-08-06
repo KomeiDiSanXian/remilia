@@ -37,7 +37,7 @@ func (e *testPlatformEvent) Sender() platform.UserInfo                 { return 
 func (e *testPlatformEvent) Timestamp() time.Time                      { return time.Unix(1700000000, 0) }
 func (e *testPlatformEvent) ID() string                                { return "" }
 func (e *testPlatformEvent) RawPayload() any                           { return nil }
-func (e *testPlatformEvent) Attachments() []platform.InboundAttachment { return nil }
+func (e *testPlatformEvent) Attachments() []platform.Attachment { return nil }
 
 func makeTestPlatformEvent(platformID, rawType string) platform.Event {
 	return &testPlatformEvent{
