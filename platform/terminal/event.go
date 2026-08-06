@@ -98,7 +98,20 @@ func (e *Event) ID() string {
 
 // Content 返回消息文本内容。
 func (e *Event) Content() string {
-	return e.content
+	return platform.SegmentsContent(e.segments())
+}
+
+// Segments 返回保序统一消息段（唯一真相源）。
+func (e *Event) Segments() []platform.Segment {
+	return e.segments()
+}
+
+// segments 将终端内容包装为 text 段（终端无富文本）。
+func (e *Event) segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
 
 // Attachments 返回附件列表（终端始终为 nil）。

@@ -28,7 +28,13 @@ func (e *mockEvent) Sender() platform.UserInfo          { return e.sender }
 func (e *mockEvent) Chat() platform.ChatInfo            { return e.chat }
 func (e *mockEvent) Content() string                    { return e.content }
 func (e *mockEvent) Attachments() []platform.Attachment { return nil }
-func (e *mockEvent) Timestamp() time.Time               { return time.Time{} }
+func (e *mockEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
+func (e *mockEvent) Timestamp() time.Time { return time.Time{} }
 
 // mockRawEvent 在 mockEvent 基础上额外实现 platform.RawEvent 可选接口。
 // 用于测试帮助函数走"已实现可选接口"路径时的行为。

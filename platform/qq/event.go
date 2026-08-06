@@ -6,6 +6,7 @@ package qq
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,16 +23,18 @@ const PlatformID = "qq"
 // D5：不再持有 *dto.Payload 引用，populate 完成后立即将 payload 释放回对象池，
 // 避免事件对象长期持有池资源，降低 GC 压力。
 type qqEvent struct {
-	kind        platform.EventKind
-	sender      platform.UserInfo
-	chat        platform.ChatInfo
-	content     string
-	timestamp   time.Time
-	attachments []platform.Attachment
-	id          string              // 对应 payload.ID，populate 后独立持有
-	rawType     string              // 对应 payload.Type，populate 后独立持有
-	replyToID   string              // 被回复消息 ID（仅频道消息有效）
-	mentions    []platform.UserInfo // @ 用户列表（仅 GROUP_MESSAGE_CREATE 含 mentions 字段）
+	kind      platform.EventKind
+	sender    platform.UserInfo
+	chat      platform.ChatInfo
+	segments  []platform.Segment
+	timestamp time.Time
+	id        string // 对应 payload.ID，populate 后独立持有
+	rawType   string // 对应 payload.Type，populate 后独立持有
+	// replyToID 事件级上下文回复目标（interaction 被操作消息 / reaction 被表态消息等非内容场景）；
+	// 内容型回复（消息 message_reference / 引用消息）以段中的 SegmentReply 为准。
+	replyToID string
+	// mentions @ 用户列表（仅 GROUP_MESSAGE_CREATE 含 mentions 字段）
+	mentions []platform.UserInfo
 }
 
 // NewEvent 从 QQ payload 创建 platform.Event。
@@ -174,7 +177,6 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		"attachments",        // [5]
 	)
 	userOpenID := results[2].String()
-	e.content = results[1].String()
 	e.sender = platform.UserInfo{
 		ID:          userOpenID,
 		DisplayName: results[3].String(),
@@ -189,7 +191,7 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 			e.timestamp = t
 		}
 	}
-	e.attachments = parseAttachments(results[5])
+	e.segments = textAndMediaSegments(results[1].String(), parseAttachments(results[5]))
 }
 
 func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
@@ -210,15 +212,15 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		"author.union_user_account", // [10] 跨应用统一账号
 		"msg_elements",              // [11] 消息元素列表（quote/forward）
 	)
-	e.content = results[1].String()
+	content := results[1].String()
 	msgType := int(results[7].Int())
+	msgElements := results[11]
 
 	// message_type=103 引用消息：content 为空格，真实内容在 msg_elements
-	if msgType == 103 && (e.content == "" || e.content == " ") {
-		elemContent := extractQuoteContent(results[11])
-		if elemContent != "" {
-			e.content = elemContent
-		}
+	isQuote := msgType == 103 && (content == "" || content == " ")
+	if isQuote {
+		content = extractQuoteContent(msgElements)
+		e.segments = append(e.segments, quoteSegments(msgElements)...)
 	}
 
 	memberOpenID := results[2].String()
@@ -238,9 +240,9 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 			e.timestamp = t
 		}
 	}
-	e.attachments = parseAttachments(results[6])
 
-	// 解析 mentions 数组并清理 content 中的 <@id> 标记
+	// 解析 mentions 数组（payload 级结构化 @，含 bot/is_you 标记）
+	mentionByID := make(map[string]platform.UserInfo, 2)
 	mentionsResult := gjson.GetBytes(detail, "mentions")
 	if mentionsResult.IsArray() {
 		arr := mentionsResult.Array()
@@ -250,16 +252,56 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 			if mentionedID == "" {
 				continue
 			}
-			e.mentions = append(e.mentions, platform.UserInfo{
+			u := platform.UserInfo{
 				ID:          mentionedID,
 				DisplayName: m.Get("username").String(),
 				IsBot:       m.Get("bot").Bool(),
 				IsSelf:      m.Get("is_you").Bool(),
-			})
-			e.content = strings.ReplaceAll(e.content, "<@"+mentionedID+">", "")
+			}
+			mentionByID[mentionedID] = u
+			e.mentions = append(e.mentions, u)
 		}
 	}
-	e.content = strings.TrimSpace(e.content)
+
+	// 段：文本/at 按 <@id> 占位符位置内联交错（§3.1 基准用例）→ 附件。
+	// 引用消息的正文已由 quoteSegments 输出（含 reply 段），此处不再重复。
+	if !isQuote {
+		e.segments = append(e.segments, splitMentionedContent(content, mentionByID)...)
+	}
+	e.segments = append(e.segments, mediaSegments(parseAttachments(results[6]))...)
+}
+
+// splitMentionedContent 按 <@id> 占位符把正文切成 text/at 交错段。
+//
+// 占位符即位置信息：@ 出现在正文中的实际位置（QQ 群消息 mentions 格式）。
+// 无法匹配 mentions 数组的占位符按原样作为文本保留。
+func splitMentionedContent(content string, mentionByID map[string]platform.UserInfo) []platform.Segment {
+	if content == "" {
+		return nil
+	}
+	var out []platform.Segment
+	pos := 0
+	for _, loc := range qqMentionTokenRe.FindAllStringIndex(content, -1) {
+		id := content[loc[0]+2 : loc[1]-1] // <@id> → id
+		if loc[0] > pos {
+			out = append(out, platform.Segment{Type: platform.SegmentText, Text: content[pos:loc[0]]})
+		}
+		if u, ok := mentionByID[id]; ok {
+			out = append(out, platform.Segment{
+				Type:   platform.SegmentAt,
+				UserID: u.ID,
+				Text:   u.DisplayName,
+				Extra:  map[string]any{platform.SegmentExtraIsSelf: u.IsSelf},
+			})
+		} else {
+			out = append(out, platform.Segment{Type: platform.SegmentText, Text: content[loc[0]:loc[1]]})
+		}
+		pos = loc[1]
+	}
+	if pos < len(content) {
+		out = append(out, platform.Segment{Type: platform.SegmentText, Text: content[pos:]})
+	}
+	return out
 }
 
 // extractQuoteContent 从 msg_elements 中提取引用消息的文本内容。
@@ -273,6 +315,44 @@ func extractQuoteContent(r gjson.Result) string {
 		return ""
 	}
 	return arr[0].Get("content").String()
+}
+
+// quoteSegments 将引用消息（message_type=103）的 msg_elements 映射为段。
+//
+// msg_elements[0] 是被引用消息元素：内容文本 → text 段；
+// 引用目标 ID 从 message_id/id/msg_seq 尽力提取（官方文档未全量公开，
+// 实测缺失时仅输出文本，行为与重构前一致）。其余元素 → SegmentUnknown+Extra。
+func quoteSegments(r gjson.Result) []platform.Segment {
+	if !r.IsArray() {
+		return nil
+	}
+	arr := r.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	first := arr[0]
+	var segs []platform.Segment
+	replyID := first.Get("message_id").String()
+	if replyID == "" {
+		replyID = first.Get("id").String()
+	}
+	if replyID == "" {
+		replyID = first.Get("msg_seq").String()
+	}
+	if replyID != "" {
+		segs = append(segs, platform.Segment{Type: platform.SegmentReply, ReplyToID: replyID})
+	}
+	if content := first.Get("content").String(); content != "" {
+		segs = append(segs, platform.Segment{Type: platform.SegmentText, Text: content})
+	}
+	// 其余元素（如嵌套 forward）按未知段保留原始数据
+	for i := 1; i < len(arr); i++ {
+		segs = append(segs, platform.Segment{
+			Type:  platform.SegmentUnknown,
+			Extra: map[string]any{"type": int(arr[i].Get("type").Int()), "raw": arr[i].Raw},
+		})
+	}
+	return segs
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
@@ -290,7 +370,7 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 		"attachments",
 		"message_reference.message_id",
 	)
-	e.content = results[0].String()
+	content := results[0].String()
 	e.sender = platform.UserInfo{
 		ID:          results[1].String(),
 		DisplayName: results[2].String(),
@@ -329,8 +409,11 @@ func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
 			e.timestamp = t
 		}
 	}
-	e.attachments = parseAttachments(results[7])
-	e.replyToID = results[8].String()
+	// 段：message_reference 回复 → 正文文本 → 附件
+	if refID := results[8].String(); refID != "" {
+		e.segments = append(e.segments, platform.Segment{Type: platform.SegmentReply, ReplyToID: refID})
+	}
+	e.segments = append(e.segments, textAndMediaSegments(content, parseAttachments(results[7]))...)
 }
 
 // populateGuildEvent 解析频道事件（机器人加入/退出/更新频道）。
@@ -451,7 +534,7 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 		ParentID: results[2].String(),
 		IsGroup:  true,
 	}
-	e.content = results[0].String() // audit_id 作为 content 供 handler 匹配
+	e.segments = textSegments(results[0].String()) // audit_id 作为 content 供 handler 匹配
 	if ts := results[5].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
@@ -476,6 +559,44 @@ func parseQQGroupRole(role string) platform.GroupRole {
 	default:
 		return platform.GroupRoleUnknown
 	}
+}
+
+// qqMentionTokenRe 匹配 QQ 群消息正文中的 @ 占位符 <@member_openid>。
+var qqMentionTokenRe = regexp.MustCompile(`<@([^>]+)>`)
+
+// textSegments 将纯文本包装为单条 text 段。
+func textSegments(text string) []platform.Segment {
+	if text == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: text}}
+}
+
+// mediaSegments 将附件列表按 MIME 分类映射为媒体段（保序）。
+func mediaSegments(atts []platform.Attachment) []platform.Segment {
+	var segs []platform.Segment
+	for _, att := range atts {
+		var t platform.SegmentType
+		mime := strings.ToLower(att.MimeType)
+		switch {
+		case strings.HasPrefix(mime, "image/"):
+			t = platform.SegmentImage
+		case strings.HasPrefix(mime, "audio/"):
+			t = platform.SegmentAudio
+		case strings.HasPrefix(mime, "video/"):
+			t = platform.SegmentVideo
+		default:
+			t = platform.SegmentFile
+		}
+		segs = append(segs, platform.Segment{Type: t, Attachment: att})
+	}
+	return segs
+}
+
+// textAndMediaSegments 拼接文本段与媒体段（正文在前）。
+func textAndMediaSegments(text string, atts []platform.Attachment) []platform.Segment {
+	segs := textSegments(text)
+	return append(segs, mediaSegments(atts)...)
 }
 
 func parseAttachments(r gjson.Result) []platform.Attachment {
@@ -587,9 +708,9 @@ func (e *qqEvent) populateInteraction(detail json.RawMessage) {
 	//   type=11 或其他（消息按钮）→ button_data（按钮 action.data 值）
 	interactionType := int(results[11].Int())
 	if interactionType == 12 {
-		e.content = results[12].String() // feature_id
+		e.segments = textSegments(results[12].String()) // feature_id
 	} else {
-		e.content = results[8].String() // button_data
+		e.segments = textSegments(results[8].String()) // button_data
 	}
 	// replyToID 设为被操作消息 ID（仅频道场景下存在，其他场景为空）
 	e.replyToID = results[13].String()
@@ -622,7 +743,7 @@ func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
 		IsGroup:  true,
 	}
 	// content 设为 emoji.id，方便 handler 判断是哪个表情
-	e.content = results[3].String()
+	e.segments = textSegments(results[3].String())
 	// replyToID 设为被表态的消息 ID，方便 handler 知道哪条消息被表态
 	e.replyToID = results[4].String()
 }
@@ -682,20 +803,34 @@ func (e *qqEvent) Sender() platform.UserInfo { return e.sender }
 // Chat 返回消息所在会话信息。
 func (e *qqEvent) Chat() platform.ChatInfo { return e.chat }
 
-// Content 返回消息文本内容。
-func (e *qqEvent) Content() string { return e.content }
+// Segments 返回保序统一消息段（唯一真相源）。
+func (e *qqEvent) Segments() []platform.Segment { return e.segments }
 
-// Attachments 返回消息中携带的附件列表。
-func (e *qqEvent) Attachments() []platform.Attachment { return e.attachments }
+// Content 返回段派生文本（at/quote 等剥离，见 platform.SegmentsContent）。
+//
+// 保持 qq 历史 TrimSpace 语义：段内首尾空白不进入 Content。
+func (e *qqEvent) Content() string {
+	return strings.TrimSpace(platform.SegmentsContent(e.segments))
+}
+
+// Attachments 返回段派生附件列表（image/audio/video/file）。
+func (e *qqEvent) Attachments() []platform.Attachment {
+	return platform.SegmentsAttachments(e.segments)
+}
 
 // Timestamp 返回消息发送时间。
 func (e *qqEvent) Timestamp() time.Time { return e.timestamp }
 
 // ReplyToID 实现 platform.ReplyEvent，返回被回复消息的平台原生 ID。
 //
-// 仅频道消息（AT_MESSAGE_CREATE 等）填充此字段；
-// 私聊和群消息不携带 message_reference，返回空字符串。
-func (e *qqEvent) ReplyToID() string { return e.replyToID }
+// 派生顺序：段内 SegmentReply（消息引用/引用消息）→ 事件级上下文字段
+// （interaction 被操作消息 / reaction 被表态消息）。
+func (e *qqEvent) ReplyToID() string {
+	if id := platform.SegmentsReplyToID(e.segments); id != "" {
+		return id
+	}
+	return e.replyToID
+}
 
 // Mentions 实现 platform.MentionsEvent，返回 @ 用户列表。
 //

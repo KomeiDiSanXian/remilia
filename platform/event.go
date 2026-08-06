@@ -259,6 +259,13 @@ type Event interface {
 	EventIdentity
 	EventBody
 
+	// Segments 返回有序消息段（唯一真相源）。
+	//
+	// Content()/Attachments() 是便捷派生视图：
+	//   - Content()      = SegmentsContent(Segments())
+	//   - Attachments()  = SegmentsAttachments(Segments())
+	Segments() []Segment
+
 	// Sender 返回消息发送者信息
 	Sender() UserInfo
 
@@ -364,8 +371,15 @@ func RawPayload(e Event) any {
 
 // GetReplyToID 安全获取被回复消息的 ID。
 //
-// 若事件未实现 [ReplyEvent] 或消息不是回复，返回空字符串。
+// 派生顺序（§3.2 reply 单一真相源）：段内首个 SegmentReply → 接口断言兜底。
+// 平台实现其 ReplyToID() 时应直接委托段查找，杜绝双写。
+// 若事件无 reply 段且未实现 [ReplyEvent]，返回空字符串。
 func GetReplyToID(e Event) string {
+	for _, s := range e.Segments() {
+		if s.Type == SegmentReply && s.ReplyToID != "" {
+			return s.ReplyToID
+		}
+	}
 	if re, ok := e.(ReplyEvent); ok {
 		return re.ReplyToID()
 	}
@@ -384,10 +398,12 @@ func IsEdited(e Event) bool {
 
 // GetMentions 安全获取消息中 @ 的用户列表。
 //
-// 若事件未实现 [MentionsEvent] 或消息没有 @ 用户，返回 nil。
+// 派生顺序：接口断言优先（平台可实现更丰富的 UserInfo，如 qq 的 IsBot）、
+// 段兜底（SegmentsMentions 派生，botID 缺失时以段内 Extra[SegmentExtraIsSelf] 覆盖为准）。
+// 若事件无 @ 用户，返回 nil。
 func GetMentions(e Event) []UserInfo {
 	if me, ok := e.(MentionsEvent); ok {
 		return me.Mentions()
 	}
-	return nil
+	return SegmentsMentions(e.Segments(), "")
 }

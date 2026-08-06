@@ -46,6 +46,7 @@ const (
 	CapMentionAll                                 // 支持 @全体成员
 	CapVoiceChannel                               // 支持语音频道
 	CapCaption                                    // 支持在同一条消息内同时携带文本与附件（图文同发）
+	CapForward                                    // 支持合并转发（发送与接收）
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -102,6 +103,9 @@ type Capabilities struct {
 	// Telegram（媒体 caption）、Discord（content+附件）、OneBot（CQ 码混排）、
 	// Satori（元素列表）支持；QQ 富媒体消息会丢弃文本，不支持。
 	Caption bool
+	// Forward 是否支持合并转发（发送与接收）。
+	// 例：OneBot/QQ 原生支持；Discord/Telegram 不支持（出站转发时降级）。
+	Forward bool
 
 	// ── 量化限制（0 = 无已知限制或平台未公开）────────────────────────────
 
@@ -178,6 +182,9 @@ func (c Capabilities) flags() CapabilityFlag {
 	}
 	if c.Caption {
 		f |= CapCaption
+	}
+	if c.Forward {
+		f |= CapForward
 	}
 	return f
 }

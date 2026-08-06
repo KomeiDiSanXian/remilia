@@ -19,10 +19,17 @@ type cloneTestEvent struct {
 	kind       platform.EventKind
 }
 
-func (e *cloneTestEvent) Platform() string                   { return e.platformID }
-func (e *cloneTestEvent) Kind() platform.EventKind           { return e.kind }
-func (e *cloneTestEvent) RawType() string                    { return "test.event" }
-func (e *cloneTestEvent) Content() string                    { return e.content }
+func (e *cloneTestEvent) Platform() string         { return e.platformID }
+func (e *cloneTestEvent) Kind() platform.EventKind { return e.kind }
+func (e *cloneTestEvent) RawType() string          { return "test.event" }
+func (e *cloneTestEvent) Content() string          { return e.content }
+
+func (e *cloneTestEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
 func (e *cloneTestEvent) Chat() platform.ChatInfo            { return platform.ChatInfo{ID: "chat-001"} }
 func (e *cloneTestEvent) Sender() platform.UserInfo          { return platform.UserInfo{ID: "user-001"} }
 func (e *cloneTestEvent) Timestamp() time.Time               { return time.Time{} }

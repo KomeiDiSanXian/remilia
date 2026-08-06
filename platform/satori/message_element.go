@@ -137,6 +137,8 @@ type parsedContent struct {
 	MentionsAll bool
 	// QuoteID 是 <quote id="..."/> 中的被回复消息 ID。
 	QuoteID string
+	// Segments 是保序的统一消息段（唯一真相源）。
+	Segments []platform.Segment
 }
 
 // parseMessageContentFull 解析 Satori XML 消息内容，保留结构化信息。
@@ -181,6 +183,13 @@ func parseMessageContentFull(content string) parsedContent {
 	var textBuf strings.Builder
 	traverseNodes(doc, &textBuf, &out.Attachments, &out)
 	out.Text = strings.TrimSpace(textBuf.String())
+
+	// 引用关系以段的形式保序输出（quote 恒在消息最前，Satori 约定）。
+	if out.QuoteID != "" {
+		out.Segments = append([]platform.Segment{
+			{Type: platform.SegmentReply, ReplyToID: out.QuoteID},
+		}, out.Segments...)
+	}
 	return out
 }
 
@@ -191,6 +200,9 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 		// n.Data 已由 nethtml.Parse 完成实体解码，此处不可再次 UnescapeString，
 		// 否则用户原文中的 "&amp;lt;" 会被二次解码成 "<"，破坏消息内容。
 		text.WriteString(n.Data)
+		if out != nil && n.Data != "" {
+			out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentText, Text: n.Data})
+		}
 		return
 	case nethtml.ElementNode:
 		tag := strings.ToLower(n.Data)
@@ -201,6 +213,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			src := attrs["src"]
 			title := attrs["title"]
 			att := platform.Attachment{
+				Kind: platform.AttachmentKindImage,
 				URL:  src,
 				Name: title,
 			}
@@ -212,12 +225,14 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			}
 			att.MimeType = "image/*"
 			*attachments = append(*attachments, att)
+			out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentImage, Attachment: att})
 			// 在文本中插入占位标记，表示图片位置
 			text.WriteString("[图片]")
 			return
 
 		case "audio":
 			att := platform.Attachment{
+				Kind:     platform.AttachmentKindAudio,
 				URL:      attrs["src"],
 				MimeType: "audio/*",
 				Name:     attrs["title"],
@@ -230,6 +245,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				}}
 			}
 			*attachments = append(*attachments, att)
+			out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentAudio, Attachment: att})
 			text.WriteString("[语音]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				traverseNodes(c, text, attachments, out)
@@ -238,6 +254,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 
 		case "video":
 			att := platform.Attachment{
+				Kind:     platform.AttachmentKindVideo,
 				URL:      attrs["src"],
 				MimeType: "video/*",
 				Name:     attrs["title"],
@@ -256,6 +273,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				}}
 			}
 			*attachments = append(*attachments, att)
+			out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentVideo, Attachment: att})
 			text.WriteString("[视频]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				traverseNodes(c, text, attachments, out)
@@ -274,6 +292,11 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 					URL:  src,
 					Name: attrs["title"],
 				})
+				out.Segments = append(out.Segments, platform.Segment{
+					Type:  platform.SegmentUnknown,
+					Text:  attrs["title"],
+					Extra: map[string]any{"type": "link", "url": src, "title": attrs["title"]},
+				})
 			}
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				traverseNodes(c, text, attachments, out)
@@ -282,8 +305,10 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 
 		case "file":
 			att := platform.Attachment{
-				URL:  attrs["src"],
-				Name: attrs["title"],
+				Kind:     platform.AttachmentKindFile,
+				URL:      attrs["src"],
+				MimeType: "application/octet-stream",
+				Name:     attrs["title"],
 			}
 			// 扩展属性：缩略图（实验性）
 			if attrs["poster"] != "" {
@@ -292,6 +317,7 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				}}
 			}
 			*attachments = append(*attachments, att)
+			out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentFile, Attachment: att})
 			text.WriteString("[文件]")
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				traverseNodes(c, text, attachments, out)
@@ -318,6 +344,9 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			if out != nil {
 				if typ := attrs["type"]; typ == "all" || typ == "here" {
 					out.MentionsAll = true
+					out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentMentionAll})
+				} else {
+					out.Segments = append(out.Segments, platform.Segment{Type: platform.SegmentAt, UserID: id, Text: name})
 				}
 				if id != "" || name != "" {
 					out.Mentions = append(out.Mentions, platform.UserInfo{ID: id, DisplayName: name})
@@ -348,6 +377,11 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			} else if id := attrs["id"]; id != "" {
 				text.WriteString("[emoji:" + id + "]")
 			}
+			out.Segments = append(out.Segments, platform.Segment{
+				Type:   platform.SegmentFace,
+				FaceID: attrs["id"],
+				Text:   attrs["name"],
+			})
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				traverseNodes(c, text, attachments, out)
 			}
@@ -431,10 +465,11 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			inner := strings.TrimSpace(innerBuf.String())
 
 			// 无 id 且非 forward 的 <message> 只是消息分隔符，其内容仍属于
-			// 当前这条消息，因此把 @ 信息并回外层。
+			// 当前这条消息，因此把 @ 信息与段并回外层。
 			if id == "" && !isForward && out != nil {
 				out.Mentions = append(out.Mentions, innerOut.Mentions...)
 				out.MentionsAll = out.MentionsAll || innerOut.MentionsAll
+				out.Segments = append(out.Segments, innerOut.Segments...)
 			}
 
 			// 转发消息（含 id 或 forward 属性）存入 attachments，供高层消费
@@ -448,6 +483,14 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 				// 此处直接从 inner 获取内容即可；精细解析可按需扩展）
 				*attachments = append(*attachments, platform.Attachment{
 					Extra: map[string]any{ExtraKeyForwarded: fwd},
+				})
+				out.Segments = append(out.Segments, platform.Segment{
+					Type: platform.SegmentForward,
+					Extra: map[string]any{
+						ExtraKeyForwarded:            fwd,
+						platform.SegmentExtraTitle:   id,
+						platform.SegmentExtraSummary: inner,
+					},
 				})
 				if inner != "" {
 					text.WriteString("[转发: " + inner + "]")
@@ -473,6 +516,11 @@ func traverseNodes(n *nethtml.Node, text *strings.Builder, attachments *[]platfo
 			if label != "" {
 				text.WriteString("[" + label + "]")
 			}
+			out.Segments = append(out.Segments, platform.Segment{
+				Type:  platform.SegmentButton,
+				Text:  label,
+				Extra: map[string]any{"type": "button"},
+			})
 			return
 
 		case "root", "html", "head", "body":

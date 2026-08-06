@@ -475,13 +475,24 @@ func TestAPIResponse_IsAsync(t *testing.T) {
 	assert.False(t, (&APIResponse{Status: "ok", Retcode: 0}).IsAsync())
 }
 
-func TestBuildMentions(t *testing.T) {
-	assert.Nil(t, buildMentions(nil))
-	assert.Nil(t, buildMentions([]string{}))
-	mentions := buildMentions([]string{"123", "456"})
+func TestSegmentsToMentions(t *testing.T) {
+	// 空段 → nil
+	assert.Nil(t, segmentsToMentions(nil, ""))
+	// at 段 → 聚合视图（保序去重）
+	segs := []platform.Segment{
+		{Type: platform.SegmentAt, UserID: "123"},
+		{Type: platform.SegmentAt, UserID: "456"},
+		{Type: platform.SegmentAt, UserID: "123"}, // 去重
+		{Type: platform.SegmentMentionAll},
+	}
+	mentions := segmentsToMentions(segs, "")
 	require.Len(t, mentions, 2)
 	assert.Equal(t, "123", mentions[0].ID)
 	assert.Equal(t, "456", mentions[1].ID)
+	// botID 命中 → IsSelf
+	mentions = segmentsToMentions([]platform.Segment{{Type: platform.SegmentAt, UserID: "123"}}, "123")
+	require.Len(t, mentions, 1)
+	assert.True(t, mentions[0].IsSelf)
 }
 
 func TestGroupChat(t *testing.T) {

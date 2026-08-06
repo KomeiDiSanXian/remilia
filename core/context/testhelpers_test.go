@@ -21,10 +21,17 @@ type mockEvent struct {
 	platform string
 }
 
-func (e *mockEvent) Platform() string                   { return e.platform }
-func (e *mockEvent) Kind() platform.EventKind           { return e.kind }
-func (e *mockEvent) RawType() string                    { return e.rawType }
-func (e *mockEvent) Content() string                    { return e.content }
+func (e *mockEvent) Platform() string         { return e.platform }
+func (e *mockEvent) Kind() platform.EventKind { return e.kind }
+func (e *mockEvent) RawType() string          { return e.rawType }
+func (e *mockEvent) Content() string          { return e.content }
+
+func (e *mockEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
 func (e *mockEvent) Chat() platform.ChatInfo            { return e.chat }
 func (e *mockEvent) Sender() platform.UserInfo          { return e.sender }
 func (e *mockEvent) Timestamp() time.Time               { return time.Time{} }

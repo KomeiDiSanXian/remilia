@@ -92,11 +92,14 @@ func historyToMessages(msgs []HistoryMsg, isGroup bool) []platform.Message {
 		} else {
 			chat = platform.ChatInfo{ID: strconv.FormatInt(m.UserID, 10)}
 		}
+		segs := m.Message.Segments()
 		out = append(out, platform.Message{
 			ID:        strconv.FormatInt(int64(m.MessageID), 10),
+			Platform:  PlatformID,
 			Sender:    platform.UserInfo{ID: strconv.FormatInt(m.UserID, 10)},
 			Chat:      chat,
-			Content:   m.Message.FullText(),
+			Segments:  segs,
+			Content:   platform.SegmentsContent(segs),
 			Timestamp: time.Unix(m.Time, 0),
 		})
 	}

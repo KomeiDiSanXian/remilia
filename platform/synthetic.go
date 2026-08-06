@@ -32,6 +32,27 @@ type SyntheticEvent struct {
 	attachments []Attachment
 }
 
+// segments 将合成事件内容包装为段列表（text → 段，附件 → 媒体段）。
+func (e *SyntheticEvent) segments() []Segment {
+	var segs []Segment
+	if e.content != "" {
+		segs = append(segs, Segment{Type: SegmentText, Text: e.content})
+	}
+	for _, att := range e.attachments {
+		t := SegmentFile
+		switch att.Kind {
+		case AttachmentKindImage:
+			t = SegmentImage
+		case AttachmentKindAudio:
+			t = SegmentAudio
+		case AttachmentKindVideo:
+			t = SegmentVideo
+		}
+		segs = append(segs, Segment{Type: t, Attachment: att})
+	}
+	return segs
+}
+
 // NewSyntheticEvent 创建一个合成事件。
 //
 // kind 指定事件类型（如 [EventKindGroupMessage]）；
@@ -102,6 +123,9 @@ func (e *SyntheticEvent) Chat() ChatInfo { return e.chatInfo }
 
 // Content 返回消息文本内容。
 func (e *SyntheticEvent) Content() string { return e.content }
+
+// Segments 返回保序统一消息段（唯一真相源，text + 媒体段）。
+func (e *SyntheticEvent) Segments() []Segment { return e.segments() }
 
 // Timestamp 返回事件时间戳。
 func (e *SyntheticEvent) Timestamp() time.Time { return e.timestamp }

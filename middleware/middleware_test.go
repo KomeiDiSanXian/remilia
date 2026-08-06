@@ -55,15 +55,22 @@ type middlewareTestEvent struct {
 	content string
 }
 
-func (e *middlewareTestEvent) Platform() string                          { return "test" }
-func (e *middlewareTestEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *middlewareTestEvent) RawType() string                           { return string(e.kind) }
-func (e *middlewareTestEvent) Content() string                           { return e.content }
-func (e *middlewareTestEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: "chat-001"} }
-func (e *middlewareTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
-func (e *middlewareTestEvent) Timestamp() time.Time                      { return time.Time{} }
-func (e *middlewareTestEvent) ID() string                                { return e.id }
-func (e *middlewareTestEvent) RawPayload() any                           { return nil }
+func (e *middlewareTestEvent) Platform() string         { return "test" }
+func (e *middlewareTestEvent) Kind() platform.EventKind { return e.kind }
+func (e *middlewareTestEvent) RawType() string          { return string(e.kind) }
+func (e *middlewareTestEvent) Content() string          { return e.content }
+
+func (e *middlewareTestEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
+func (e *middlewareTestEvent) Chat() platform.ChatInfo            { return platform.ChatInfo{ID: "chat-001"} }
+func (e *middlewareTestEvent) Sender() platform.UserInfo          { return platform.UserInfo{ID: "sender-001"} }
+func (e *middlewareTestEvent) Timestamp() time.Time               { return time.Time{} }
+func (e *middlewareTestEvent) ID() string                         { return e.id }
+func (e *middlewareTestEvent) RawPayload() any                    { return nil }
 func (e *middlewareTestEvent) Attachments() []platform.Attachment { return nil }
 
 // createPlatformContextWithID 创建带指定 eventID 的新路径 Context，

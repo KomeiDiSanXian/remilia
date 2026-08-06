@@ -32,6 +32,13 @@ func (e *testPlatformEvent) Platform() string                          { return 
 func (e *testPlatformEvent) Kind() platform.EventKind                  { return e.kind }
 func (e *testPlatformEvent) RawType() string                           { return e.rawType }
 func (e *testPlatformEvent) Content() string                           { return e.content }
+
+func (e *testPlatformEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
 func (e *testPlatformEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: e.chatID} }
 func (e *testPlatformEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: e.senderID} }
 func (e *testPlatformEvent) Timestamp() time.Time                      { return time.Unix(1700000000, 0) }

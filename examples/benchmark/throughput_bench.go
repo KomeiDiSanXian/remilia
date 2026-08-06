@@ -71,14 +71,20 @@ var benchEventPool = sync.Pool{
 	New: func() any { return &benchEvent{} },
 }
 
-func (e *benchEvent) Platform() string                          { return e.platform }
-func (e *benchEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *benchEvent) ID() string                                { return e.id }
-func (e *benchEvent) Content() string                           { return e.content }
-func (e *benchEvent) Sender() platform.UserInfo                 { return e.sender }
-func (e *benchEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *benchEvent) Timestamp() time.Time                      { return e.ts }
+func (e *benchEvent) Platform() string                   { return e.platform }
+func (e *benchEvent) Kind() platform.EventKind           { return e.kind }
+func (e *benchEvent) ID() string                         { return e.id }
+func (e *benchEvent) Content() string                    { return e.content }
+func (e *benchEvent) Sender() platform.UserInfo          { return e.sender }
+func (e *benchEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *benchEvent) Timestamp() time.Time               { return e.ts }
 func (e *benchEvent) Attachments() []platform.Attachment { return nil }
+func (e *benchEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
 
 // ─────────────────────────────────────────────────────────────
 // System metrics sampler

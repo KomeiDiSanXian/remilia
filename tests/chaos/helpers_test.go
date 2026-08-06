@@ -12,16 +12,23 @@ type chaosTestEvent struct {
 	content string
 }
 
-func (e *chaosTestEvent) Platform() string                          { return "test" }
-func (e *chaosTestEvent) Kind() platform.EventKind                  { return platform.EventKindPrivateMessage }
-func (e *chaosTestEvent) RawType() string                           { return string(platform.EventKindPrivateMessage) }
-func (e *chaosTestEvent) Content() string                           { return e.content }
-func (e *chaosTestEvent) Chat() platform.ChatInfo                   { return platform.ChatInfo{ID: "chat-001"} }
-func (e *chaosTestEvent) Sender() platform.UserInfo                 { return platform.UserInfo{ID: "sender-001"} }
-func (e *chaosTestEvent) Timestamp() time.Time                      { return time.Time{} }
-func (e *chaosTestEvent) ID() string                                { return "chaos-event" }
+func (e *chaosTestEvent) Platform() string         { return "test" }
+func (e *chaosTestEvent) Kind() platform.EventKind { return platform.EventKindPrivateMessage }
+func (e *chaosTestEvent) RawType() string          { return string(platform.EventKindPrivateMessage) }
+func (e *chaosTestEvent) Content() string          { return e.content }
+
+func (e *chaosTestEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
+func (e *chaosTestEvent) Chat() platform.ChatInfo            { return platform.ChatInfo{ID: "chat-001"} }
+func (e *chaosTestEvent) Sender() platform.UserInfo          { return platform.UserInfo{ID: "sender-001"} }
+func (e *chaosTestEvent) Timestamp() time.Time               { return time.Time{} }
+func (e *chaosTestEvent) ID() string                         { return "chaos-event" }
 func (e *chaosTestEvent) Attachments() []platform.Attachment { return nil }
-func (e *chaosTestEvent) RawPayload() any                           { return nil }
+func (e *chaosTestEvent) RawPayload() any                    { return nil }
 
 // newChaosEvent creates a platform.Event with the given message content.
 func newChaosEvent(content string) platform.Event {

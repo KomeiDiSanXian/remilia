@@ -3,6 +3,7 @@ package platform
 import (
 	"maps"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -172,6 +173,163 @@ type Button struct {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// 消息段（Segment）—— 跨平台消息的唯一真相源
+// ────────────────────────────────────────────────────────────────────────────
+
+// SegmentType 统一消息段类型。
+type SegmentType string
+
+const (
+	// SegmentText 纯文本段
+	SegmentText SegmentType = "text"
+	// SegmentAt  @ 单个用户段（一个 at 一个 Segment，保序）
+	SegmentAt SegmentType = "at"
+	// SegmentMentionAll @ 全体成员段
+	SegmentMentionAll SegmentType = "mention_all"
+	// SegmentImage 图片段
+	SegmentImage SegmentType = "image"
+	// SegmentAudio 音频/语音段
+	SegmentAudio SegmentType = "audio"
+	// SegmentVideo 视频段
+	SegmentVideo SegmentType = "video"
+	// SegmentFile 文件段
+	SegmentFile SegmentType = "file"
+	// SegmentFace 表情段（贴图/内置表情，身份保留在 FaceID）
+	SegmentFace SegmentType = "face"
+	// SegmentReply 引用/回复段
+	SegmentReply SegmentType = "reply"
+	// SegmentForward 合并转发段
+	SegmentForward SegmentType = "forward"
+	// SegmentButton 交互按钮段
+	SegmentButton SegmentType = "button"
+	// SegmentUnknown 平台特有/未识别段（Extra 保留原始数据）
+	SegmentUnknown SegmentType = "unknown"
+)
+
+// SegmentExtraKey 是 Segment.Extra 的通用键。
+const (
+	// SegmentExtraIsSelf 平台 payload 自带自我标记时（qq is_you、satori is_self）
+	// 解析器在 at 段上标注 true，作为 botID 判定的覆盖路径。
+	SegmentExtraIsSelf = "is_self"
+	// SegmentExtraFromPlatform 段来源平台标记（防御性，防跨平台误透传）。
+	SegmentExtraFromPlatform = "from_platform"
+	// SegmentExtraTitle forward 段摘要标题（跨平台降级用）。
+	SegmentExtraTitle = "title"
+	// SegmentExtraSummary forward 段摘要文本（跨平台降级用）。
+	SegmentExtraSummary = "summary"
+)
+
+// Segment 一条原子消息段，保留原文顺序。
+//
+// 入站：各平台解析器输出；出站：OutboundMessage.Segments 复用同一类型
+// （image/audio/video/file 段通过 Attachment.URL/Data 表达出站载荷）。
+//
+// 派生规则（唯一真相源 → 便捷视图）：
+//   - SegmentsContent    段 → 纯文本（at/mention_all/face/reply/forward/button/unknown 剥离）
+//   - SegmentsAttachments 段 → 附件列表（仅 image/audio/video/file）
+//   - SegmentsMentions   段 → 被 @ 用户聚合视图（保序去重，含自身 IsSelf=true）
+type Segment struct {
+	// Type 段类型
+	Type SegmentType
+	// Text text 段内容 / at 段的显示文本（平台提供时）
+	Text string
+	// UserID at 段的目标用户 ID
+	UserID string
+	// ReplyToID reply 段的目标消息 ID
+	ReplyToID string
+	// Attachment image/audio/video/file 段载荷（复用统一附件类型）
+	Attachment Attachment
+	// FaceID face 段的表情 ID
+	FaceID string
+	// Extra 平台特有段数据（forward id、button 结构、ARK payload 等），
+	// 通用键见 SegmentExtraKey 常量。
+	Extra map[string]any
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 派生辅助（统一实现，保证 Content/Attachments 与段一致）
+// ────────────────────────────────────────────────────────────────────────────
+
+// SegmentsContent 将有序消息段拼接为纯文本。
+//
+// 规则：
+//   - text 段：直接拼接 Text
+//   - at / mention_all：**剥离**（不进入 Content）——统一后各平台 Content
+//     命令友好（OnCommand 可匹配 "@机器人 /ping"），修复平台间行为分裂
+//   - face / reply / forward / button / unknown：跳过
+//   - image/audio/video/file：跳过（无文本）
+//
+// 本函数对段不做任何过滤（含 @ 机器人自身的段也在段列表中）。
+func SegmentsContent(segs []Segment) string {
+	var sb strings.Builder
+	for _, s := range segs {
+		if s.Type == SegmentText {
+			sb.WriteString(s.Text)
+		}
+	}
+	return sb.String()
+}
+
+// SegmentsAttachments 从有序消息段中提取附件列表（仅 image/audio/video/file，按出现顺序）。
+func SegmentsAttachments(segs []Segment) []Attachment {
+	var out []Attachment
+	for _, s := range segs {
+		switch s.Type {
+		case SegmentImage, SegmentAudio, SegmentVideo, SegmentFile:
+			out = append(out, s.Attachment)
+		}
+	}
+	return out
+}
+
+// SegmentsMentions 从有序消息段中提取被 @ 用户聚合视图（保序去重）。
+//
+// botID 为机器人自身 ID（适配器 GetBotID），用于推导 IsSelf；
+// 无法推导时（botID 为空）以 Segment.Extra[SegmentExtraIsSelf] 覆盖为准。
+//
+// 与现状 Mentions() 语义一致（satori/qq 均保留自身并标记 IsSelf=true）：
+//   - **包含**被 @ 的机器人自身（IsSelf=true）——OnMentionedBot 依赖此语义
+//   - 排除 SegmentMentionAll（@ 全体成员不是具体用户）
+//   - 排除无法解析 UserID 的 at 段
+func SegmentsMentions(segs []Segment, botID string) []UserInfo {
+	var out []UserInfo
+	seen := make(map[string]struct{}, 4)
+	for _, s := range segs {
+		if s.Type != SegmentAt || s.UserID == "" {
+			continue
+		}
+		if _, ok := seen[s.UserID]; ok {
+			continue
+		}
+		seen[s.UserID] = struct{}{}
+
+		isSelf := botID != "" && s.UserID == botID
+		if v, ok := s.Extra[SegmentExtraIsSelf]; ok {
+			if b, ok := v.(bool); ok {
+				isSelf = b
+			}
+		}
+		out = append(out, UserInfo{
+			ID:          s.UserID,
+			DisplayName: s.Text,
+			IsSelf:      isSelf,
+			IsBot:       isSelf,
+		})
+	}
+	return out
+}
+
+// SegmentsReplyToID 返回段中首个 reply 段的目标消息 ID（无 reply 段时返回空字符串）。
+func SegmentsReplyToID(segs []Segment) string {
+	for _, s := range segs {
+		if s.Type == SegmentReply {
+			return s.ReplyToID
+		}
+	}
+	return ""
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // 出站消息（OutboundMessage）
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -186,6 +344,11 @@ type Button struct {
 //  3. Markdown（格式文本）
 //  4. Text（纯文本，最广泛兼容）
 type OutboundMessage struct {
+	// Segments 有序消息段（主字段，新增）。
+	// 非空时 Sender 按段顺序发送，忽略下方扁平字段（唯一真相源）。
+	// 为空时走下方便捷字段路径（兼容旧调用方）。
+	Segments []Segment
+
 	// Text 纯文本内容
 	Text string
 
@@ -221,6 +384,71 @@ type OutboundMessage struct {
 	Extra map[string]any
 }
 
+// SegmentsToOutbound 将有序消息段转换为出站消息（段 → 便捷字段派生填充）。
+//
+// Segments 原样保留为主字段（Sender 段路径优先）；Text/Attachments/Mentions/ReplyToID
+// 由派生函数填充，便于段路径之外的代码阅读。
+func SegmentsToOutbound(segs []Segment) OutboundMessage {
+	m := OutboundMessage{Segments: segs}
+	m.Text = SegmentsContent(segs)
+	m.Attachments = SegmentsAttachments(segs)
+	for _, s := range segs {
+		if s.Type == SegmentAt && s.UserID != "" {
+			m.Mentions = append(m.Mentions, s.UserID)
+		}
+	}
+	for _, s := range segs {
+		if s.Type == SegmentReply && s.ReplyToID != "" {
+			m.ReplyToID = s.ReplyToID
+		}
+	}
+	return m
+}
+
+// OutboundSegments 将便捷字段逆向为有序段（尽力）。
+//
+// 已有 Segments 时直接返回原值；否则按 reply → at → 文本（Markdown 优先，
+// 标注 Extra["markdown"]=true）→ 附件的顺序拼接。
+// 注意：便捷字段无法表达交错位置（如「文本夹 at」），仅适用于旧路径消息。
+func OutboundSegments(m OutboundMessage) []Segment {
+	if len(m.Segments) > 0 {
+		return m.Segments
+	}
+	var segs []Segment
+	if m.ReplyToID != "" {
+		segs = append(segs, Segment{Type: SegmentReply, ReplyToID: m.ReplyToID})
+	}
+	for _, uid := range m.Mentions {
+		segs = append(segs, Segment{Type: SegmentAt, UserID: uid})
+	}
+	if m.Markdown != "" {
+		segs = append(segs, Segment{
+			Type:  SegmentText,
+			Text:  m.Markdown,
+			Extra: map[string]any{"markdown": true},
+		})
+	} else if m.Text != "" {
+		segs = append(segs, Segment{Type: SegmentText, Text: m.Text})
+	}
+	for _, att := range m.Attachments {
+		var t SegmentType
+		switch att.Kind {
+		case AttachmentKindImage:
+			t = SegmentImage
+		case AttachmentKindAudio:
+			t = SegmentAudio
+		case AttachmentKindVideo:
+			t = SegmentVideo
+		case AttachmentKindFile:
+			t = SegmentFile
+		default:
+			continue
+		}
+		segs = append(segs, Segment{Type: t, Attachment: att})
+	}
+	return segs
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 入站消息（Message）
 // ────────────────────────────────────────────────────────────────────────────
@@ -237,17 +465,22 @@ type OutboundMessage struct {
 type Message struct {
 	// ID 平台消息 ID（可用于撤回/编辑）。
 	ID string
+	// Platform 消息来源平台 ID（= EventIdentity.Platform()，MessageFromEvent 填充；
+	// 转发判定用，见 MessageToOutbound）。
+	Platform string
 	// Sender 发送者信息。
 	Sender UserInfo
 	// Chat 消息所在会话。
 	Chat ChatInfo
-	// Content 消息文本内容（纯文本，不含平台特定格式）。
+	// Segments 有序消息段（唯一真相源）。
+	Segments []Segment
+	// Content 消息文本内容（纯文本，不含平台特定格式；= SegmentsContent(Segments())）。
 	Content string
 	// Timestamp 消息发送时间（平台不提供时为零值）。
 	Timestamp time.Time
-	// Attachments 消息携带的附件列表。
+	// Attachments 消息携带的附件列表（= SegmentsAttachments(Segments())）。
 	Attachments []Attachment
-	// Mentions 消息中 @ 的用户列表（不含机器人自身）。
+	// Mentions 消息中 @ 的用户列表。
 	Mentions []UserInfo
 	// ReplyToID 被回复消息的平台原生 ID（非回复时为空）。
 	ReplyToID string
@@ -266,8 +499,10 @@ type Message struct {
 //	store.Append(ev.Chat().ID, msg)
 func MessageFromEvent(e Event) Message {
 	m := Message{
+		Platform:    e.Platform(),
 		Sender:      e.Sender(),
 		Chat:        e.Chat(),
+		Segments:    e.Segments(),
 		Content:     e.Content(),
 		Timestamp:   e.Timestamp(),
 		Attachments: e.Attachments(),
@@ -278,6 +513,96 @@ func MessageFromEvent(e Event) Message {
 		m.ID = id
 	}
 	return m
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 转发辅助（MessageToOutbound）
+// ────────────────────────────────────────────────────────────────────────────
+
+// ForwardOption 是 MessageToOutbound 的可选配置。
+type ForwardOption func(*forwardConfig)
+
+type forwardConfig struct {
+	targetPlatform string
+	degrade        DegradePolicy
+}
+
+// WithTargetPlatform 声明转发目标平台 ID。
+//
+// 目标平台与消息来源平台（Message.Platform）一致时，reply/face/forward/button/unknown
+// 等平台原生段按「同平台透传」处理（原始数据可还原）；
+// 缺省或跨平台时按 §8.4 处置表保守降级。
+func WithTargetPlatform(platformID string) ForwardOption {
+	return func(c *forwardConfig) { c.targetPlatform = platformID }
+}
+
+// WithDegrade 覆盖默认降级策略（默认使用内置处置表）。
+//
+// 策略接收待处置段，返回降级产物（0 个 = 剥离，1+ 个 = 替换为该组段）。
+func WithDegrade(p DegradePolicy) ForwardOption {
+	return func(c *forwardConfig) { c.degrade = p }
+}
+
+// DegradePolicy 是跨平台转发时对段的处置策略。
+type DegradePolicy func(s Segment, samePlatform bool) []Segment
+
+// MessageToOutbound 将消息快照转换为出站消息（跨平台转发）。
+//
+// 直接按段 → 段映射，保留文本夹 at 的交错位置；不经扁平字段中转。
+// 转发语义（§8 决议）：
+//   - WithTargetPlatform(m.Platform) → 同平台透传（reply/face/forward/button/unknown 还原）
+//   - 缺省/跨平台 → 保守降级（reply/button/unknown 剥离，face 降 text，forward 摘要）
+func MessageToOutbound(m Message, opts ...ForwardOption) OutboundMessage {
+	cfg := forwardConfig{}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	same := cfg.targetPlatform != "" && cfg.targetPlatform == m.Platform
+
+	segs := make([]Segment, 0, len(m.Segments))
+	for _, s := range m.Segments {
+		if cfg.degrade != nil {
+			segs = append(segs, cfg.degrade(s, same)...)
+			continue
+		}
+		segs = append(segs, degradeSegment(s, same)...)
+	}
+	return SegmentsToOutbound(segs)
+}
+
+// degradeSegment 内置处置表（§8.4）。
+func degradeSegment(s Segment, samePlatform bool) []Segment {
+	if samePlatform {
+		return []Segment{s}
+	}
+	switch s.Type {
+	case SegmentText, SegmentAt, SegmentMentionAll,
+		SegmentImage, SegmentAudio, SegmentVideo, SegmentFile:
+		return []Segment{s}
+	case SegmentReply, SegmentButton, SegmentUnknown:
+		return nil
+	case SegmentFace:
+		return []Segment{{Type: SegmentText, Text: s.FaceID}}
+	case SegmentForward:
+		if summary := extraString(s.Extra, SegmentExtraSummary); summary != "" {
+			return []Segment{{Type: SegmentText, Text: summary}}
+		}
+		if title := extraString(s.Extra, SegmentExtraTitle); title != "" {
+			return []Segment{{Type: SegmentText, Text: title}}
+		}
+		return nil
+	default:
+		return []Segment{s}
+	}
+}
+
+// extraString 安全读取 Segment.Extra 中的字符串值。
+func extraString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	s, _ := m[key].(string)
+	return s
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -458,6 +783,9 @@ func TruncateText(text string, maxRunes int) string {
 //	    return errutil.ErrEmptyMessage
 //	}
 func (m OutboundMessage) IsEmpty() bool {
+	if len(m.Segments) > 0 {
+		return false
+	}
 	return m.Text == "" &&
 		m.Markdown == "" &&
 		len(m.Attachments) == 0 &&

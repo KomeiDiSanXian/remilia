@@ -227,16 +227,22 @@ type mockPlatformEvent struct {
 	ts      time.Time
 }
 
-func (e *mockPlatformEvent) Platform() string                          { return "test" }
-func (e *mockPlatformEvent) ID() string                                { return "" }
-func (e *mockPlatformEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *mockPlatformEvent) RawType() string                           { return string(e.kind) }
-func (e *mockPlatformEvent) Sender() platform.UserInfo                 { return e.sender }
-func (e *mockPlatformEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *mockPlatformEvent) Content() string                           { return e.content }
+func (e *mockPlatformEvent) Platform() string                   { return "test" }
+func (e *mockPlatformEvent) ID() string                         { return "" }
+func (e *mockPlatformEvent) Kind() platform.EventKind           { return e.kind }
+func (e *mockPlatformEvent) RawType() string                    { return string(e.kind) }
+func (e *mockPlatformEvent) Sender() platform.UserInfo          { return e.sender }
+func (e *mockPlatformEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *mockPlatformEvent) Content() string                    { return e.content }
 func (e *mockPlatformEvent) Attachments() []platform.Attachment { return nil }
-func (e *mockPlatformEvent) Timestamp() time.Time                      { return e.ts }
-func (e *mockPlatformEvent) RawPayload() any                           { return nil }
+func (e *mockPlatformEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
+func (e *mockPlatformEvent) Timestamp() time.Time { return e.ts }
+func (e *mockPlatformEvent) RawPayload() any      { return nil }
 
 // MakePlatformC2CEvent creates a platform-agnostic private chat (C2C) event for tests.
 func MakePlatformC2CEvent(userID, content string) platform.Event {

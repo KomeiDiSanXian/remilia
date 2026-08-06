@@ -113,14 +113,21 @@ func TestParseMessageEvent_AllAttachmentTypes(t *testing.T) {
 	evt, err := parseRawEvent(raw)
 	require.NoError(t, err)
 
-	atts := evt.Attachments()
-	require.Len(t, atts, 9)
+	// 段模型（§4）：face/market_face/light_app/xml 为段而非附件；
+	// Attachments() 仅派生 image/record/video/file（5 个）。
+	segs := evt.Segments()
+	require.Len(t, segs, 9)
 
-	face := atts[0].Extra[ExtraKeyFace].(*FaceSegmentMeta)
+	// face → SegmentFace
+	assert.Equal(t, platform.SegmentFace, segs[0].Type)
+	face := segs[0].Extra[ExtraKeyFace].(*FaceSegmentMeta)
 	assert.Equal(t, "21", face.FaceID)
 	assert.True(t, face.IsLarge)
 
-	sticker := atts[1]
+	atts := evt.Attachments()
+	require.Len(t, atts, 5)
+
+	sticker := atts[0]
 	assert.Equal(t, "https://ex.com/a.jpg", sticker.URL)
 	assert.Equal(t, "image/jpeg", sticker.MimeType)
 	assert.Equal(t, 100, sticker.Width)
@@ -128,36 +135,41 @@ func TestParseMessageEvent_AllAttachmentTypes(t *testing.T) {
 	assert.Equal(t, "sticker", imgMeta.SubType)
 	assert.Equal(t, "r1", imgMeta.ResourceID)
 
-	normal := atts[2].Extra[ExtraKeyImage].(*ImageSegmentMeta)
+	normal := atts[1].Extra[ExtraKeyImage].(*ImageSegmentMeta)
 	assert.Equal(t, "normal", normal.SubType)
 
-	rec := atts[3].Extra[ExtraKeyRecord].(*RecordSegmentMeta)
+	rec := atts[2].Extra[ExtraKeyRecord].(*RecordSegmentMeta)
 	assert.Equal(t, "r3", rec.ResourceID)
 	assert.Equal(t, 30, rec.Duration)
-	assert.Equal(t, "audio/mpeg", atts[3].MimeType)
+	assert.Equal(t, "audio/mpeg", atts[2].MimeType)
 
-	vid := atts[4].Extra[ExtraKeyVideo].(*VideoSegmentMeta)
+	vid := atts[3].Extra[ExtraKeyVideo].(*VideoSegmentMeta)
 	assert.Equal(t, "r4", vid.ResourceID)
 	assert.Equal(t, 60, vid.Duration)
 
-	file := atts[5].Extra[ExtraKeyFile].(*FileSegmentMeta)
+	file := atts[4].Extra[ExtraKeyFile].(*FileSegmentMeta)
 	assert.Equal(t, "f1", file.FileID)
 	assert.Equal(t, "a.pdf", file.FileName)
 	assert.Equal(t, int64(1024), file.FileSize)
 	assert.Equal(t, "hash1", file.FileHash)
-	assert.Equal(t, "a.pdf", atts[5].Name)
-	assert.Equal(t, 1024, atts[5].Size)
+	assert.Equal(t, "a.pdf", atts[4].Name)
+	assert.Equal(t, 1024, atts[4].Size)
 
-	mf := atts[6].Extra[ExtraKeyMarketFace].(*MarketFaceSegmentMeta)
+	// market_face → SegmentFace
+	assert.Equal(t, platform.SegmentFace, segs[6].Type)
+	mf := segs[6].Extra[ExtraKeyMarketFace].(*MarketFaceSegmentMeta)
 	assert.Equal(t, 5, mf.EmojiPackageID)
 	assert.Equal(t, "e1", mf.EmojiID)
 	assert.Equal(t, "k1", mf.Key)
 
-	la := atts[7].Extra[ExtraKeyLightApp].(*LightAppSegmentMeta)
+	// light_app / xml → SegmentUnknown（Extra 保留原始数据）
+	assert.Equal(t, platform.SegmentUnknown, segs[7].Type)
+	la := segs[7].Extra[ExtraKeyLightApp].(*LightAppSegmentMeta)
 	assert.Equal(t, "App", la.AppName)
 	assert.Equal(t, `{"app":"x"}`, la.JSONPayload)
 
-	xml := atts[8].Extra[ExtraKeyXML].(*XMLSegmentMeta)
+	assert.Equal(t, platform.SegmentUnknown, segs[8].Type)
+	xml := segs[8].Extra[ExtraKeyXML].(*XMLSegmentMeta)
 	assert.Equal(t, 3, xml.ServiceID)
 	assert.Equal(t, "<msg/>", xml.XMLPayload)
 }

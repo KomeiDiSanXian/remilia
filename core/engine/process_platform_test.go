@@ -42,10 +42,17 @@ type stubEvent struct {
 	sndr       platform.UserInfo
 }
 
-func (e *stubEvent) Platform() string                   { return e.platformID }
-func (e *stubEvent) Kind() platform.EventKind           { return e.kind }
-func (e *stubEvent) RawType() string                    { return e.rawType }
-func (e *stubEvent) Content() string                    { return e.content }
+func (e *stubEvent) Platform() string         { return e.platformID }
+func (e *stubEvent) Kind() platform.EventKind { return e.kind }
+func (e *stubEvent) RawType() string          { return e.rawType }
+func (e *stubEvent) Content() string          { return e.content }
+
+func (e *stubEvent) Segments() []platform.Segment {
+	if e.content == "" {
+		return nil
+	}
+	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
+}
 func (e *stubEvent) Attachments() []platform.Attachment { return nil }
 func (e *stubEvent) Chat() platform.ChatInfo            { return e.chat }
 func (e *stubEvent) Sender() platform.UserInfo          { return e.sndr }

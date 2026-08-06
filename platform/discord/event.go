@@ -21,13 +21,11 @@ type discordEvent struct {
 	kind          platform.EventKind
 	senderInfo    platform.UserInfo
 	chat          platform.ChatInfo
-	content       string
+	segments      []platform.Segment
 	timestamp     time.Time
-	attachments   []platform.Attachment
 	id            string
 	rawType       string
 	rawPayload    any
-	replyToID     string
 	isEdited      bool
 	origTimestamp time.Time
 	mentions      []platform.UserInfo
@@ -35,14 +33,17 @@ type discordEvent struct {
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *discordEvent) Platform() string                   { return PlatformID }
-func (e *discordEvent) Kind() platform.EventKind           { return e.kind }
-func (e *discordEvent) ID() string                         { return e.id }
-func (e *discordEvent) Sender() platform.UserInfo          { return e.senderInfo }
-func (e *discordEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *discordEvent) Content() string                    { return e.content }
-func (e *discordEvent) Timestamp() time.Time               { return e.timestamp }
-func (e *discordEvent) Attachments() []platform.Attachment { return e.attachments }
+func (e *discordEvent) Platform() string             { return PlatformID }
+func (e *discordEvent) Kind() platform.EventKind     { return e.kind }
+func (e *discordEvent) ID() string                   { return e.id }
+func (e *discordEvent) Sender() platform.UserInfo    { return e.senderInfo }
+func (e *discordEvent) Chat() platform.ChatInfo      { return e.chat }
+func (e *discordEvent) Timestamp() time.Time         { return e.timestamp }
+func (e *discordEvent) Segments() []platform.Segment { return e.segments }
+func (e *discordEvent) Content() string              { return platform.SegmentsContent(e.segments) }
+func (e *discordEvent) Attachments() []platform.Attachment {
+	return platform.SegmentsAttachments(e.segments)
+}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -50,8 +51,10 @@ func (e *discordEvent) RawType() string { return e.rawType }
 func (e *discordEvent) RawPayload() any { return e.rawPayload }
 
 // ── platform.ReplyEvent ─────────────────────────────────────────────────────
+//
+// Reply 单一真相源：委托段查找（§3.2）。
 
-func (e *discordEvent) ReplyToID() string { return e.replyToID }
+func (e *discordEvent) ReplyToID() string { return platform.SegmentsReplyToID(e.segments) }
 
 // ── platform.EditableEvent ──────────────────────────────────────────────────
 
@@ -122,28 +125,6 @@ func memberFromDiscord(m *discordgo.Member) platform.UserInfo {
 	}
 }
 
-// attachmentsFromMessage converts Discord message attachments to platform.Attachment.
-func attachmentsFromMessage(atts []*discordgo.MessageAttachment) []platform.Attachment {
-	if len(atts) == 0 {
-		return nil
-	}
-	result := make([]platform.Attachment, 0, len(atts))
-	for _, a := range atts {
-		if a == nil {
-			continue
-		}
-		result = append(result, platform.Attachment{
-			URL:      a.URL,
-			MimeType: a.ContentType,
-			Name:     a.Filename,
-			Size:     a.Size,
-			Width:    a.Width,
-			Height:   a.Height,
-		})
-	}
-	return result
-}
-
 // mentionsFromUsers converts []*discordgo.User to []platform.UserInfo.
 func mentionsFromUsers(users []*discordgo.User) []platform.UserInfo {
 	if len(users) == 0 {
@@ -182,7 +163,6 @@ func NewMessageCreateEvent(m *discordgo.MessageCreate) platform.Event {
 	}
 
 	e.id = m.ID
-	e.content = m.Content
 	e.senderInfo = userFromDiscord(m.Author)
 	e.chat = platform.ChatInfo{
 		ID:       m.ChannelID,
@@ -191,12 +171,8 @@ func NewMessageCreateEvent(m *discordgo.MessageCreate) platform.Event {
 		IsDM:     isDM,
 	}
 
-	if m.MessageReference != nil && m.MessageReference.MessageID != "" {
-		e.replyToID = m.MessageReference.MessageID
-	}
-
 	e.timestamp = m.Timestamp
-	e.attachments = attachmentsFromMessage(m.Attachments)
+	e.segments = buildDiscordSegments(m.Message)
 	e.mentions = mentionsFromUsers(m.Mentions)
 	return e
 }
@@ -215,7 +191,6 @@ func NewMessageUpdateEvent(m *discordgo.MessageUpdate) platform.Event {
 		return e
 	}
 	e.id = m.ID
-	e.content = m.Content
 	e.senderInfo = userFromDiscord(m.Author)
 	isDM := m.GuildID == ""
 	e.chat = platform.ChatInfo{
@@ -229,7 +204,7 @@ func NewMessageUpdateEvent(m *discordgo.MessageUpdate) platform.Event {
 		e.timestamp = *m.EditedTimestamp
 	}
 	e.origTimestamp = m.Timestamp
-	e.attachments = attachmentsFromMessage(m.Attachments)
+	e.segments = buildDiscordSegments(m.Message)
 	e.mentions = mentionsFromUsers(m.Mentions)
 	return e
 }
@@ -302,13 +277,13 @@ func NewInteractionCreateEvent(i *discordgo.InteractionCreate) platform.Event {
 		for _, opt := range data.Options {
 			fmt.Fprintf(&sb, " %s:%v", opt.Name, opt.Value)
 		}
-		e.content = sb.String()
+		e.segments = []platform.Segment{{Type: platform.SegmentText, Text: sb.String()}}
 
 	case discordgo.InteractionMessageComponent:
-		e.content = i.MessageComponentData().CustomID
+		e.segments = []platform.Segment{{Type: platform.SegmentText, Text: i.MessageComponentData().CustomID}}
 
 	case discordgo.InteractionModalSubmit:
-		e.content = i.ModalSubmitData().CustomID
+		e.segments = []platform.Segment{{Type: platform.SegmentText, Text: i.ModalSubmitData().CustomID}}
 	}
 
 	return e
@@ -463,9 +438,9 @@ func NewMessageReactionAddEvent(r *discordgo.MessageReactionAdd) platform.Event 
 			IsDM:     isDM,
 		}
 		if r.Emoji.ID != "" {
-			e.content = r.Emoji.ID + ":" + r.Emoji.Name
+			e.segments = []platform.Segment{{Type: platform.SegmentText, Text: r.Emoji.ID + ":" + r.Emoji.Name}}
 		} else {
-			e.content = r.Emoji.Name
+			e.segments = []platform.Segment{{Type: platform.SegmentText, Text: r.Emoji.Name}}
 		}
 		e.senderInfo = platform.UserInfo{ID: r.UserID}
 	}
@@ -492,9 +467,9 @@ func NewMessageReactionRemoveEvent(r *discordgo.MessageReactionRemove) platform.
 			IsDM:     isDM,
 		}
 		if r.Emoji.ID != "" {
-			e.content = r.Emoji.ID + ":" + r.Emoji.Name
+			e.segments = []platform.Segment{{Type: platform.SegmentText, Text: r.Emoji.ID + ":" + r.Emoji.Name}}
 		} else {
-			e.content = r.Emoji.Name
+			e.segments = []platform.Segment{{Type: platform.SegmentText, Text: r.Emoji.Name}}
 		}
 		e.senderInfo = platform.UserInfo{ID: r.UserID}
 	}

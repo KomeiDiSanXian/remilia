@@ -611,6 +611,7 @@ func qqCapabilities() platform.Capabilities {
 		TypingIndicator: true,
 		MentionAll:      true,
 		VoiceChannel:    false,
+		Forward:         true, // 合并转发（msg_type=3 富媒体外，msg_elements 引用内可含 forward）
 		// QQ 按钮布局限制：最多 5 行，每行最多 5 个
 		MaxButtonsPerRow: 5,
 		MaxButtonRows:    5,

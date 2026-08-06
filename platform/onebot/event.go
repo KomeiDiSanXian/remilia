@@ -21,31 +21,29 @@ const PlatformID = "onebot"
 // 实现了核心 platform.Event 接口以及可选扩展接口：
 // RawEvent、ReplyEvent、MentionsEvent。
 type onebotEvent struct {
-	kind        platform.EventKind
-	senderInfo  platform.UserInfo
-	chat        platform.ChatInfo
-	content     string
-	timestamp   time.Time
-	attachments []platform.Attachment
-	id          string
-	rawType     string
-	rawPayload  any
-
-	// Optional extension fields
-	replyToID string
-	mentions  []platform.UserInfo
+	kind       platform.EventKind
+	senderInfo platform.UserInfo
+	chat       platform.ChatInfo
+	segments   []platform.Segment
+	timestamp  time.Time
+	id         string
+	rawType    string
+	rawPayload any
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *onebotEvent) Platform() string                   { return PlatformID }
-func (e *onebotEvent) Kind() platform.EventKind           { return e.kind }
-func (e *onebotEvent) ID() string                         { return e.id }
-func (e *onebotEvent) Sender() platform.UserInfo          { return e.senderInfo }
-func (e *onebotEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *onebotEvent) Content() string                    { return e.content }
-func (e *onebotEvent) Timestamp() time.Time               { return e.timestamp }
-func (e *onebotEvent) Attachments() []platform.Attachment { return e.attachments }
+func (e *onebotEvent) Platform() string             { return PlatformID }
+func (e *onebotEvent) Kind() platform.EventKind     { return e.kind }
+func (e *onebotEvent) ID() string                   { return e.id }
+func (e *onebotEvent) Sender() platform.UserInfo    { return e.senderInfo }
+func (e *onebotEvent) Chat() platform.ChatInfo      { return e.chat }
+func (e *onebotEvent) Timestamp() time.Time         { return e.timestamp }
+func (e *onebotEvent) Segments() []platform.Segment { return e.segments }
+func (e *onebotEvent) Content() string              { return platform.SegmentsContent(e.segments) }
+func (e *onebotEvent) Attachments() []platform.Attachment {
+	return platform.SegmentsAttachments(e.segments)
+}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -53,12 +51,16 @@ func (e *onebotEvent) RawType() string { return e.rawType }
 func (e *onebotEvent) RawPayload() any { return e.rawPayload }
 
 // ── platform.ReplyEvent ─────────────────────────────────────────────────────
+//
+// Reply 单一真相源：委托段查找（§3.2），杜绝与段双写。
 
-func (e *onebotEvent) ReplyToID() string { return e.replyToID }
+func (e *onebotEvent) ReplyToID() string { return segmentsReplyToID(e.segments) }
 
 // ── platform.MentionsEvent ──────────────────────────────────────────────────
+//
+// 聚合视图：由段派生（保序去重，含 @ 自身 IsSelf=true 语义）。
 
-func (e *onebotEvent) Mentions() []platform.UserInfo { return e.mentions }
+func (e *onebotEvent) Mentions() []platform.UserInfo { return segmentsToMentions(e.segments, "") }
 
 // ────────────────────────────────────────────────────────────────────────────
 // 顶层事件解析
@@ -120,14 +122,12 @@ func parsePrivateMessageEvent(raw []byte) (platform.Event, error) {
 	}
 
 	e := &onebotEvent{
-		kind:        platform.EventKindPrivateMessage,
-		rawType:     "message/private/" + ev.SubType,
-		rawPayload:  &ev,
-		id:          strconv.FormatInt(int64(ev.MessageID), 10),
-		timestamp:   time.Unix(ev.Time, 0),
-		content:     ev.Message.FullText(),
-		attachments: ev.Message.ToAttachments(),
-		replyToID:   ev.Message.GetReplyToID(),
+		kind:       platform.EventKindPrivateMessage,
+		rawType:    "message/private/" + ev.SubType,
+		rawPayload: &ev,
+		id:         strconv.FormatInt(int64(ev.MessageID), 10),
+		timestamp:  time.Unix(ev.Time, 0),
+		segments:   ev.Message.Segments(),
 		senderInfo: platform.UserInfo{
 			ID:          strconv.FormatInt(ev.UserID, 10),
 			DisplayName: ev.Sender.Nickname,
@@ -139,8 +139,6 @@ func parsePrivateMessageEvent(raw []byte) (platform.Event, error) {
 		},
 	}
 
-	// 从 @ 段构建 mention 列表
-	e.mentions = buildMentions(ev.Message.GetAtList())
 	return e, nil
 }
 
@@ -164,14 +162,12 @@ func parseGroupMessageEvent(raw []byte) (platform.Event, error) {
 	}
 
 	e := &onebotEvent{
-		kind:        platform.EventKindGroupMessage,
-		rawType:     "message/group/" + ev.SubType,
-		rawPayload:  &ev,
-		id:          strconv.FormatInt(int64(ev.MessageID), 10),
-		timestamp:   time.Unix(ev.Time, 0),
-		content:     ev.Message.FullText(),
-		attachments: ev.Message.ToAttachments(),
-		replyToID:   ev.Message.GetReplyToID(),
+		kind:       platform.EventKindGroupMessage,
+		rawType:    "message/group/" + ev.SubType,
+		rawPayload: &ev,
+		id:         strconv.FormatInt(int64(ev.MessageID), 10),
+		timestamp:  time.Unix(ev.Time, 0),
+		segments:   ev.Message.Segments(),
 		senderInfo: platform.UserInfo{
 			ID:          strconv.FormatInt(ev.UserID, 10),
 			DisplayName: displayName,
@@ -189,7 +185,6 @@ func parseGroupMessageEvent(raw []byte) (platform.Event, error) {
 		TokenMessageID: strconv.FormatInt(int64(ev.MessageID), 10),
 	}
 
-	e.mentions = buildMentions(ev.Message.GetAtList())
 	return e, nil
 }
 
@@ -282,24 +277,24 @@ func parseNoticeEvent(raw []byte) (platform.Event, error) {
 		e.chat = groupChat(ev.GroupID)
 		switch ev.SubType {
 		case NotifySubTypePoke:
-			e.content = fmt.Sprintf("poke:%s→%s",
+			e.setNoticeContent(fmt.Sprintf("poke:%s→%s",
 				strconv.FormatInt(ev.UserID, 10),
-				strconv.FormatInt(ev.TargetID, 10))
+				strconv.FormatInt(ev.TargetID, 10)))
 		case NotifySubTypeLuckyKing:
-			e.content = fmt.Sprintf("lucky_king:%s",
-				strconv.FormatInt(ev.TargetID, 10))
+			e.setNoticeContent(fmt.Sprintf("lucky_king:%s",
+				strconv.FormatInt(ev.TargetID, 10)))
 		case NotifySubTypeHonor:
-			e.content = fmt.Sprintf("honor:%s:%s",
-				strconv.FormatInt(ev.UserID, 10), ev.HonorType)
+			e.setNoticeContent(fmt.Sprintf("honor:%s:%s",
+				strconv.FormatInt(ev.UserID, 10), ev.HonorType))
 		case NotifySubTypePokeRecall: // LLOneBot/LuckyLilliaBot 扩展
-			e.content = fmt.Sprintf("poke_recall:%s→%s",
+			e.setNoticeContent(fmt.Sprintf("poke_recall:%s→%s",
 				strconv.FormatInt(ev.UserID, 10),
-				strconv.FormatInt(ev.TargetID, 10))
+				strconv.FormatInt(ev.TargetID, 10)))
 		case NotifySubTypeTitle: // LLOneBot/LuckyLilliaBot 扩展
-			e.content = ev.Title
+			e.setNoticeContent(ev.Title)
 		case NotifySubTypeProfileLike: // LLOneBot/LuckyLilliaBot 扩展
-			e.content = fmt.Sprintf("profile_like:%s×%d",
-				strconv.FormatInt(ev.OperatorID, 10), ev.Times)
+			e.setNoticeContent(fmt.Sprintf("profile_like:%s×%d",
+				strconv.FormatInt(ev.OperatorID, 10), ev.Times))
 		}
 
 	// ── LLOneBot / LuckyLilliaBot 扩展通知 ─────────────────────────────────
@@ -308,7 +303,7 @@ func parseNoticeEvent(raw []byte) (platform.Event, error) {
 		e.kind = platform.EventKindMemberUpdate
 		e.rawType = "notice/group_card"
 		e.chat = groupChat(ev.GroupID)
-		e.content = fmt.Sprintf("card:%s→%s", ev.CardOld, ev.CardNew)
+		e.setNoticeContent(fmt.Sprintf("card:%s→%s", ev.CardOld, ev.CardNew))
 
 	case NoticeTypeGroupDismiss:
 		e.kind = platform.EventKindNotice
@@ -353,7 +348,7 @@ func parseRequestEvent(raw []byte) (platform.Event, error) {
 		rawPayload: &ev,
 		timestamp:  time.Unix(ev.Time, 0),
 		id:         fmt.Sprintf("request/%s/%d", ev.RequestType, ev.Time),
-		content:    ev.Comment,
+		segments:   textSegments(ev.Comment),
 		senderInfo: platform.UserInfo{
 			ID: strconv.FormatInt(ev.UserID, 10),
 		},
@@ -405,9 +400,9 @@ func parseMetaEvent(raw []byte) (platform.Event, error) {
 	switch ev.MetaEventType {
 	case MetaEventTypeLifecycle:
 		e.rawType = "meta_event/lifecycle/" + ev.SubType
-		e.content = ev.SubType
+		e.setNoticeContent(ev.SubType)
 	case MetaEventTypeHeartbeat:
-		e.content = "heartbeat"
+		e.setNoticeContent("heartbeat")
 	}
 
 	return e, nil
@@ -438,16 +433,17 @@ func groupChat(groupID int64) platform.ChatInfo {
 	}
 }
 
-// buildMentions 将 QQ 号字符串列表转换为 []platform.UserInfo。
-func buildMentions(qqList []string) []platform.UserInfo {
-	if len(qqList) == 0 {
+// textSegments 将纯文本包装为单条 text 段。
+func textSegments(text string) []platform.Segment {
+	if text == "" {
 		return nil
 	}
-	result := make([]platform.UserInfo, 0, len(qqList))
-	for _, qq := range qqList {
-		result = append(result, platform.UserInfo{ID: qq})
-	}
-	return result
+	return []platform.Segment{{Type: platform.SegmentText, Text: text}}
+}
+
+// setNoticeContent 为通知/元事件设置文本内容（以 text 段存储，Content() 派生一致）。
+func (e *onebotEvent) setNoticeContent(text string) {
+	e.segments = textSegments(text)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -398,8 +398,20 @@ func TestConvertEvent_Mentions(t *testing.T) {
 	if !mentions[0].IsSelf {
 		t.Error("被 @ 的是机器人自身，IsSelf 应为 true，否则 OnMentionedBot 不会命中")
 	}
-	if se.Content() != "@Bot 你好" {
-		t.Errorf("Content: got %q", se.Content())
+	// at 剥离（§4.1）：@ 不进入 Content，命令可直接 OnCommand 匹配
+	if se.Content() != "你好" {
+		t.Errorf("Content: got %q, want %q（at 已剥离）", se.Content(), "你好")
+	}
+	// 段保真：at 段保留 UserID/显示名
+	segs := se.Segments()
+	if len(segs) != 2 {
+		t.Fatalf("Segments: got %d, want 2", len(segs))
+	}
+	if segs[0].Type != platform.SegmentAt || segs[0].UserID != "10001" || segs[0].Text != "Bot" {
+		t.Errorf("Segments[0]: got %+v, want at(10001, Bot)", segs[0])
+	}
+	if segs[1].Type != platform.SegmentText || segs[1].Text != " 你好" {
+		t.Errorf("Segments[1]: got %+v, want text(\" 你好\")", segs[1])
 	}
 }
 

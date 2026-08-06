@@ -3,6 +3,7 @@ package satori
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -140,8 +141,7 @@ func mapEventKind(satoriType string, channel *Channel) platform.EventKind {
 type satoriEvent struct {
 	raw      *Event
 	kind     platform.EventKind
-	text     string
-	atts     []platform.Attachment
+	segments []platform.Segment
 	platform string
 
 	// mentions 是消息中 <at> 元素还原出的被 @ 用户，
@@ -186,13 +186,27 @@ func convertEventWithBot(e *Event, platformName, botID string) *satoriEvent {
 	return &satoriEvent{
 		raw:       e,
 		kind:      kind,
-		text:      parsed.Text,
-		atts:      parsed.Attachments,
+		segments:  parsed.Segments,
 		platform:  platformName,
 		mentions:  mentions,
 		replyToID: replyToID,
 		botID:     botID,
 	}
+}
+
+// Segments 实现 platform.Event，返回保序统一消息段（唯一真相源）。
+func (e *satoriEvent) Segments() []platform.Segment { return e.segments }
+
+// Content 实现 platform.Event，返回段派生文本（at/mention_all/face/quote 剥离）。
+//
+// 保持 satori 历史 TrimSpace 语义：段内首尾空白不进入 Content。
+func (e *satoriEvent) Content() string {
+	return strings.TrimSpace(platform.SegmentsContent(e.segments))
+}
+
+// Attachments 实现 platform.Event，返回段派生附件列表（image/audio/video/file）。
+func (e *satoriEvent) Attachments() []platform.Attachment {
+	return platform.SegmentsAttachments(e.segments)
 }
 
 // Mentions 实现 platform.MentionsEvent，返回消息中 @ 的用户。
@@ -286,9 +300,6 @@ func (e *satoriEvent) Chat() platform.ChatInfo {
 	return info
 }
 
-// Content 返回消息的纯文本内容。
-func (e *satoriEvent) Content() string { return e.text }
-
 // Timestamp 返回事件时间戳。
 func (e *satoriEvent) Timestamp() time.Time {
 	if e.raw == nil {
@@ -296,9 +307,6 @@ func (e *satoriEvent) Timestamp() time.Time {
 	}
 	return time.UnixMilli(e.raw.Timestamp)
 }
-
-// Attachments 返回消息内容中解析出的资源附件列表。
-func (e *satoriEvent) Attachments() []platform.Attachment { return e.atts }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 可选接口扩展

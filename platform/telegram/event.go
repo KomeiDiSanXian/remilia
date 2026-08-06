@@ -14,31 +14,32 @@ import (
 // Implements the core platform.Event interface plus the optional extension
 // interfaces: RawEvent, ReplyEvent, EditableEvent, MentionsEvent.
 type telegramEvent struct {
-	kind        platform.EventKind
-	rawType     string
-	rawPayload  any
-	id          string
-	senderInfo  platform.UserInfo
-	chat        platform.ChatInfo
-	content     string
-	timestamp   time.Time
-	attachments []platform.Attachment
-	replyToID   string
-	isEdited    bool
-	origTS      time.Time
-	mentions    []platform.UserInfo
+	kind       platform.EventKind
+	rawType    string
+	rawPayload any
+	id         string
+	senderInfo platform.UserInfo
+	chat       platform.ChatInfo
+	segments   []platform.Segment
+	timestamp  time.Time
+	isEdited   bool
+	origTS     time.Time
+	mentions   []platform.UserInfo
 }
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *telegramEvent) Platform() string                   { return PlatformID }
-func (e *telegramEvent) Kind() platform.EventKind           { return e.kind }
-func (e *telegramEvent) ID() string                         { return e.id }
-func (e *telegramEvent) Sender() platform.UserInfo          { return e.senderInfo }
-func (e *telegramEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *telegramEvent) Content() string                    { return e.content }
-func (e *telegramEvent) Timestamp() time.Time               { return e.timestamp }
-func (e *telegramEvent) Attachments() []platform.Attachment { return e.attachments }
+func (e *telegramEvent) Platform() string             { return PlatformID }
+func (e *telegramEvent) Kind() platform.EventKind     { return e.kind }
+func (e *telegramEvent) ID() string                   { return e.id }
+func (e *telegramEvent) Sender() platform.UserInfo    { return e.senderInfo }
+func (e *telegramEvent) Chat() platform.ChatInfo      { return e.chat }
+func (e *telegramEvent) Timestamp() time.Time         { return e.timestamp }
+func (e *telegramEvent) Segments() []platform.Segment { return e.segments }
+func (e *telegramEvent) Content() string              { return platform.SegmentsContent(e.segments) }
+func (e *telegramEvent) Attachments() []platform.Attachment {
+	return platform.SegmentsAttachments(e.segments)
+}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -46,8 +47,10 @@ func (e *telegramEvent) RawType() string { return e.rawType }
 func (e *telegramEvent) RawPayload() any { return e.rawPayload }
 
 // ── platform.ReplyEvent ─────────────────────────────────────────────────────
+//
+// Reply 单一真相源：委托段查找（§3.2）。
 
-func (e *telegramEvent) ReplyToID() string { return e.replyToID }
+func (e *telegramEvent) ReplyToID() string { return platform.SegmentsReplyToID(e.segments) }
 
 // ── platform.EditableEvent ──────────────────────────────────────────────────
 
@@ -134,16 +137,7 @@ func newMessageEvent(msg *Message, edited bool) platform.Event {
 		e.kind = platform.EventKindMessageUpdate
 	}
 
-	e.content = msg.Text
-	if e.content == "" {
-		e.content = msg.Caption
-	}
-
-	if msg.ReplyToMsg != nil {
-		e.replyToID = strconv.Itoa(msg.ReplyToMsg.MessageID)
-	}
-
-	e.attachments = collectAttachments(msg)
+	e.segments = buildTelegramSegments(msg)
 
 	e.mentions = collectMentions(msg)
 
@@ -160,7 +154,7 @@ func newCallbackQueryEvent(cq *CallbackQuery) platform.Event {
 		rawType:    "callback_query",
 		rawPayload: cq,
 		id:         cq.ID,
-		content:    cq.Data,
+		segments:   []platform.Segment{{Type: platform.SegmentText, Text: cq.Data}},
 	}
 
 	if cq.From != nil {
