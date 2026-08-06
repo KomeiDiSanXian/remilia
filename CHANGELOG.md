@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.35.0 (2026-08-06)
+
+### 🎯 Event 接口收窄：Content/Attachments 移出接口，正文从段统一派生
+
+- **Event 最小化**: `Event` 从「EventIdentity + EventBody + 4 方法」收窄为「EventIdentity + Segments/Sender/Chat/Timestamp」；`EventBody` 接口删除（0 外部引用）
+- **帮助函数**: 新增 `platform.Content(e)`（段拼接 + 首尾空白裁剪）与 `platform.Attachments(e)`（段派生附件）——正文/附件只能从段派生，**平台实现不可能再与段不一致**（强制单一真相源）
+- **TrimSpace 语义统一**: Content 统一裁剪首尾空白（QQ/Satori 既有行为，QQ 群消息 @ 占位符前有平台分隔空格）；onebot 等平台正文尾随空白同步收敛，跨平台行为一致
+- **平台实现精简**: 删除 8 个事件类型共 16 个 Content/Attachments 方法（onebot/milky/qq/satori/discord/telegram/terminal/synthetic）
+- **调用方迁移**: `ctx.GetMessageContent()` 热路径内部改调 `platform.Content`（103 处调用零改动）；ai/about/messagelog/helper/examples 同步
+- **MentionsEvent 文档修正**: "不含机器人自身" → 包含被 @ 的机器人自身（IsSelf=true 标记）
+- **破坏性变更**: Event 接口移除 Content()/Attachments() 方法
+
 ## v1.34.0 (2026-08-06)
 
 ### 🚀 统一消息段模型：`Segments()` 成为跨平台消息唯一真相源
