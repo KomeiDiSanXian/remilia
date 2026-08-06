@@ -15,7 +15,7 @@ import (
 // findImageURL 从平台事件中提取第一张图片附件的 URL；无图片或 URL 为空时
 // 返回空字符串。平台无法提供 URL（仅本地文件）的图片暂不支持。
 func findImageURL(event platform.Event) string {
-	for _, att := range event.Attachments() {
+	for _, att := range platform.Attachments(event) {
 		if att.URL == "" {
 			continue
 		}
