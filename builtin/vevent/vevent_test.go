@@ -39,8 +39,8 @@ func TestPlugin_Inject(t *testing.T) {
 	if evt.Kind() != platform.EventKindGroupMessage {
 		t.Errorf("expected kind %s, got %s", platform.EventKindGroupMessage, evt.Kind())
 	}
-	if evt.Content() != "/ping" {
-		t.Errorf("expected content /ping, got %q", evt.Content())
+	if platform.Content(evt) != "/ping" {
+		t.Errorf("expected content /ping, got %q", platform.Content(evt))
 	}
 	if evt.Chat().ID != "g1" {
 		t.Errorf("expected chat ID g1, got %q", evt.Chat().ID)

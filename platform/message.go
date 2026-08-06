@@ -503,9 +503,9 @@ func MessageFromEvent(e Event) Message {
 		Sender:      e.Sender(),
 		Chat:        e.Chat(),
 		Segments:    e.Segments(),
-		Content:     e.Content(),
+		Content:     Content(e),
 		Timestamp:   e.Timestamp(),
-		Attachments: e.Attachments(),
+		Attachments: Attachments(e),
 		Mentions:    GetMentions(e),
 		ReplyToID:   GetReplyToID(e),
 	}

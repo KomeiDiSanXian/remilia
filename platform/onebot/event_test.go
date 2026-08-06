@@ -49,7 +49,7 @@ func TestParseEvent_PrivateMessage(t *testing.T) {
 	assert.Equal(t, platform.EventKindPrivateMessage, ev.Kind())
 	assert.Equal(t, "onebot", ev.Platform())
 	assert.Equal(t, "1001", ev.ID())
-	assert.Equal(t, "hello", ev.Content())
+	assert.Equal(t, "hello", platform.Content(ev))
 	assert.Equal(t, "98765", ev.Sender().ID)
 	assert.Equal(t, "Alice", ev.Sender().DisplayName)
 	assert.True(t, ev.Chat().IsDM)
@@ -75,7 +75,7 @@ func TestParseEvent_GroupMessage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindGroupMessage, ev.Kind())
 	assert.Equal(t, "2001", ev.ID())
-	assert.Equal(t, "group hi", ev.Content())
+	assert.Equal(t, "group hi", platform.Content(ev))
 	assert.Equal(t, "Bobby", ev.Sender().DisplayName)
 	assert.Equal(t, platform.GroupRoleAdmin, ev.Sender().GroupRole)
 	assert.True(t, ev.Chat().IsGroup)
@@ -97,7 +97,7 @@ func TestParseEvent_PrivateMessage_WithCQString(t *testing.T) {
 	}`
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
-	assert.Equal(t, "hello ", ev.Content())
+	assert.Equal(t, "hello", platform.Content(ev))
 }
 
 func TestParseEvent_GroupMessage_WithMentions(t *testing.T) {
@@ -272,7 +272,7 @@ func TestParseEvent_Notice_Notify_Poke(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindNotice, ev.Kind())
-	assert.Contains(t, ev.Content(), "poke")
+	assert.Contains(t, platform.Content(ev), "poke")
 }
 
 // ── LLOneBot / LuckyLilliaBot 扩展通知（2026-08 对照其源码核验）────────────
@@ -286,7 +286,7 @@ func TestParseEvent_Notice_GroupCard(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindMemberUpdate, ev.Kind())
-	assert.Equal(t, "card:旧名片→新名片", ev.Content())
+	assert.Equal(t, "card:旧名片→新名片", platform.Content(ev))
 	re, ok := ev.(platform.RawEvent)
 	require.True(t, ok)
 	assert.Equal(t, "notice/group_card", re.RawType())
@@ -335,7 +335,7 @@ func TestParseEvent_Notice_Notify_PokeRecall(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, "notice/notify/poke_recall", ev.(platform.RawEvent).RawType())
-	assert.Contains(t, ev.Content(), "poke_recall")
+	assert.Contains(t, platform.Content(ev), "poke_recall")
 }
 
 func TestParseEvent_Notice_Notify_Title(t *testing.T) {
@@ -346,7 +346,7 @@ func TestParseEvent_Notice_Notify_Title(t *testing.T) {
 	}`
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
-	assert.Equal(t, "新头衔", ev.Content())
+	assert.Equal(t, "新头衔", platform.Content(ev))
 }
 
 func TestParseEvent_Notice_Notify_ProfileLike(t *testing.T) {
@@ -358,7 +358,7 @@ func TestParseEvent_Notice_Notify_ProfileLike(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, "notice/notify/profile_like", ev.(platform.RawEvent).RawType())
-	assert.Contains(t, ev.Content(), "×3")
+	assert.Contains(t, platform.Content(ev), "×3")
 }
 
 func TestParseEvent_Notice_FlashFile(t *testing.T) {
@@ -406,7 +406,7 @@ func TestParseEvent_Meta_Lifecycle(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindSystem, ev.Kind())
-	assert.Equal(t, "connect", ev.Content())
+	assert.Equal(t, "connect", platform.Content(ev))
 }
 
 func TestParseEvent_Meta_Heartbeat(t *testing.T) {
@@ -419,7 +419,7 @@ func TestParseEvent_Meta_Heartbeat(t *testing.T) {
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindSystem, ev.Kind())
-	assert.Equal(t, "heartbeat", ev.Content())
+	assert.Equal(t, "heartbeat", platform.Content(ev))
 }
 
 func TestParseEvent_UnknownPostType(t *testing.T) {
@@ -599,7 +599,7 @@ func TestParseEvent_Notice_Notify_LuckyKing(t *testing.T) {
 	}`
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
-	assert.Contains(t, ev.Content(), "lucky_king")
+	assert.Contains(t, platform.Content(ev), "lucky_king")
 }
 
 func TestParseEvent_Notice_Notify_Honor(t *testing.T) {
@@ -610,7 +610,7 @@ func TestParseEvent_Notice_Notify_Honor(t *testing.T) {
 	}`
 	ev, err := parseEvent([]byte(raw))
 	require.NoError(t, err)
-	assert.Contains(t, ev.Content(), "honor")
+	assert.Contains(t, platform.Content(ev), "honor")
 }
 
 func TestParseEvent_UnmarshalError_PrivateMessage(t *testing.T) {

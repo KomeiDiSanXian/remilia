@@ -202,7 +202,7 @@ func TestNewEvent_PrivateMessage(t *testing.T) {
 	assert.Equal(t, "telegram", evt.Platform())
 	assert.Equal(t, platform.EventKindPrivateMessage, evt.Kind())
 	assert.Equal(t, "100", evt.ID())
-	assert.Equal(t, "Hello, bot!", evt.Content())
+	assert.Equal(t, "Hello, bot!", platform.Content(evt))
 	assert.False(t, evt.Timestamp().IsZero())
 	assert.Equal(t, "1000", evt.Sender().ID)
 	assert.Equal(t, "Alice (@alice)", evt.Sender().DisplayName)
@@ -302,7 +302,7 @@ func TestNewEvent_CallbackQuery(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindInteraction, evt.Kind())
 	assert.Equal(t, "callback_123", evt.ID())
-	assert.Equal(t, "btn_data", evt.Content())
+	assert.Equal(t, "btn_data", platform.Content(evt))
 	assert.Equal(t, "4000", evt.Chat().ID)
 
 	// Token should be set
@@ -826,7 +826,7 @@ func TestEvent_WithAttachments(t *testing.T) {
 	evt := telegram.NewEvent(upd)
 	require.NotNil(t, evt)
 
-	atts := evt.Attachments()
+	atts := platform.Attachments(evt)
 	require.Len(t, atts, 2)
 	assertFileID(t, atts[0], "pic1")
 	assertFileID(t, atts[1], "doc1")
@@ -1098,7 +1098,7 @@ func TestAdapter_StartStop(t *testing.T) {
 	select {
 	case evt := <-eventCh:
 		require.NotNil(t, evt)
-		assert.Equal(t, "ping", evt.Content())
+		assert.Equal(t, "ping", platform.Content(evt))
 	case <-ctx.Done():
 		t.Log("no event received within timeout (expected if polling returns empty)")
 	}

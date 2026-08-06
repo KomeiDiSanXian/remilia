@@ -42,10 +42,6 @@ func (e *discordEvent) Sender() platform.UserInfo    { return e.senderInfo }
 func (e *discordEvent) Chat() platform.ChatInfo      { return e.chat }
 func (e *discordEvent) Timestamp() time.Time         { return e.timestamp }
 func (e *discordEvent) Segments() []platform.Segment { return e.segments }
-func (e *discordEvent) Content() string              { return platform.SegmentsContent(e.segments) }
-func (e *discordEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 

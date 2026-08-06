@@ -21,8 +21,8 @@ func TestEvent_BasicFields(t *testing.T) {
 	if e.Kind() != platform.EventKindPrivateMessage {
 		t.Errorf("期望事件类型 PRIVATE_MESSAGE, 得到 %s", e.Kind())
 	}
-	if e.Content() != "hello world" {
-		t.Errorf("期望内容 %q, 得到 %q", "hello world", e.Content())
+	if platform.Content(e) != "hello world" {
+		t.Errorf("期望内容 %q, 得到 %q", "hello world", platform.Content(e))
 	}
 	if e.ID() == "" {
 		t.Error("期望 ID 非空")
@@ -564,8 +564,8 @@ func TestAdapter_SimulateMessage(t *testing.T) {
 	if len(received) != 1 {
 		t.Fatalf("期望 1 个事件, 得到 %d", len(received))
 	}
-	if received[0].Content() != "test message" {
-		t.Errorf("期望内容 %q, 得到 %q", "test message", received[0].Content())
+	if platform.Content(received[0]) != "test message" {
+		t.Errorf("期望内容 %q, 得到 %q", "test message", platform.Content(received[0]))
 	}
 }
 

@@ -79,10 +79,6 @@ func (e *milkyEvent) Sender() platform.UserInfo    { return e.senderInfo }
 func (e *milkyEvent) Chat() platform.ChatInfo      { return e.chat }
 func (e *milkyEvent) Timestamp() time.Time         { return e.timestamp }
 func (e *milkyEvent) Segments() []platform.Segment { return e.segments }
-func (e *milkyEvent) Content() string              { return platform.SegmentsContent(e.segments) }
-func (e *milkyEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 

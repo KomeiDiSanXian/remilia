@@ -52,7 +52,7 @@ const (
 // 存储于 platform.Attachment.Extra[qq.ExtraKeyVoice]。
 // 使用方式：
 //
-//	for _, att := range event.Attachments() {
+//	for _, att := range platform.Attachments(event) {
 //	    if meta, ok := att.Extra[qq.ExtraKeyVoice].(*qq.VoiceAttachmentMeta); ok {
 //	        // 访问语音 WAV 链接和 ASR 识别文本
 //	        wavURL := meta.WavURL

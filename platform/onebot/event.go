@@ -42,10 +42,6 @@ func (e *onebotEvent) Sender() platform.UserInfo    { return e.senderInfo }
 func (e *onebotEvent) Chat() platform.ChatInfo      { return e.chat }
 func (e *onebotEvent) Timestamp() time.Time         { return e.timestamp }
 func (e *onebotEvent) Segments() []platform.Segment { return e.segments }
-func (e *onebotEvent) Content() string              { return platform.SegmentsContent(e.segments) }
-func (e *onebotEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 

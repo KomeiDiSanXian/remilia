@@ -39,7 +39,7 @@ func TestNewMessageCreateEvent_DM(t *testing.T) {
 	assert.Equal(t, platform.EventKindPrivateMessage, ev.Kind())
 	assert.Equal(t, "discord", ev.Platform())
 	assert.Equal(t, "1001", ev.ID())
-	assert.Equal(t, "hello", ev.Content())
+	assert.Equal(t, "hello", platform.Content(ev))
 	assert.Equal(t, "u1", ev.Sender().ID)
 	assert.Equal(t, "User One", ev.Sender().DisplayName)
 	assert.True(t, ev.Chat().IsDM)
@@ -94,7 +94,7 @@ func TestNewMessageCreateEvent_WithAttachments(t *testing.T) {
 		},
 	}
 	ev := discord.NewMessageCreateEvent(m)
-	atts := ev.Attachments()
+	atts := platform.Attachments(ev)
 	require.Len(t, atts, 1)
 	assert.Equal(t, "https://cdn.discord.com/attachments/1.png", atts[0].URL)
 	assert.Equal(t, "img.png", atts[0].Name)
@@ -161,7 +161,7 @@ func TestNewMessageUpdateEvent(t *testing.T) {
 	}
 	ev := discord.NewMessageUpdateEvent(m)
 	assert.Equal(t, platform.EventKindMessageUpdate, ev.Kind())
-	assert.Equal(t, "edited content", ev.Content())
+	assert.Equal(t, "edited content", platform.Content(ev))
 }
 
 func TestNewMessageUpdateEvent_NilMessage(t *testing.T) {
@@ -212,7 +212,7 @@ func TestNewInteractionCreateEvent_SlashCommand(t *testing.T) {
 	}
 	ev := discord.NewInteractionCreateEvent(i)
 	assert.Equal(t, platform.EventKindInteraction, ev.Kind())
-	assert.Equal(t, "/ping", ev.Content())
+	assert.Equal(t, "/ping", platform.Content(ev))
 	assert.Equal(t, "int1", ev.Chat().Tokens[discord.TokenInteractionID])
 	assert.Equal(t, "tok123", ev.Chat().Tokens[discord.TokenInteractionToken])
 }
@@ -232,8 +232,8 @@ func TestNewInteractionCreateEvent_DM(t *testing.T) {
 	}
 	ev := discord.NewInteractionCreateEvent(i)
 	assert.True(t, ev.Chat().IsDM)
-	assert.Contains(t, ev.Content(), "/echo")
-	assert.Contains(t, ev.Content(), "text:hello")
+	assert.Contains(t, platform.Content(ev), "/echo")
+	assert.Contains(t, platform.Content(ev), "text:hello")
 }
 
 func TestNewInteractionCreateEvent_MessageComponent(t *testing.T) {
@@ -250,7 +250,7 @@ func TestNewInteractionCreateEvent_MessageComponent(t *testing.T) {
 		},
 	}
 	ev := discord.NewInteractionCreateEvent(i)
-	assert.Equal(t, "btn_click", ev.Content())
+	assert.Equal(t, "btn_click", platform.Content(ev))
 }
 
 func TestNewInteractionCreateEvent_ModalSubmit(t *testing.T) {
@@ -264,7 +264,7 @@ func TestNewInteractionCreateEvent_ModalSubmit(t *testing.T) {
 		},
 	}
 	ev := discord.NewInteractionCreateEvent(i)
-	assert.Equal(t, "modal_1", ev.Content())
+	assert.Equal(t, "modal_1", platform.Content(ev))
 }
 
 func TestNewGuildCreateEvent(t *testing.T) {
@@ -335,7 +335,7 @@ func TestNewMessageReactionAddEvent(t *testing.T) {
 	}
 	ev := discord.NewMessageReactionAddEvent(r)
 	assert.Equal(t, platform.EventKindReaction, ev.Kind())
-	assert.Equal(t, "👍", ev.Content())
+	assert.Equal(t, "👍", platform.Content(ev))
 }
 
 func TestNewMessageReactionAddEvent_CustomEmoji(t *testing.T) {
@@ -348,7 +348,7 @@ func TestNewMessageReactionAddEvent_CustomEmoji(t *testing.T) {
 		},
 	}
 	ev := discord.NewMessageReactionAddEvent(r)
-	assert.Equal(t, "123:custom", ev.Content())
+	assert.Equal(t, "123:custom", platform.Content(ev))
 }
 
 func TestNewMessageReactionRemoveEvent(t *testing.T) {
@@ -362,7 +362,7 @@ func TestNewMessageReactionRemoveEvent(t *testing.T) {
 	}
 	ev := discord.NewMessageReactionRemoveEvent(r)
 	assert.Equal(t, platform.EventKindReaction, ev.Kind())
-	assert.Equal(t, "❌", ev.Content())
+	assert.Equal(t, "❌", platform.Content(ev))
 }
 
 func TestNewReadyEvent(t *testing.T) {

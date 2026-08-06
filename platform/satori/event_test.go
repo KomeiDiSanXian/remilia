@@ -281,8 +281,8 @@ func TestConvertEvent_ChatDM(t *testing.T) {
 func TestConvertEvent_Content(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
 	se := convertEvent(e, "p")
-	if se.Content() != "hello world" {
-		t.Errorf("Content: got %q", se.Content())
+	if platform.Content(se) != "hello world" {
+		t.Errorf("Content: got %q", platform.Content(se))
 	}
 }
 
@@ -290,8 +290,8 @@ func TestConvertEvent_ContentNilMessage(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
 	e.Message = nil
 	se := convertEvent(e, "p")
-	if se.Content() != "" {
-		t.Errorf("nil message Content: got %q", se.Content())
+	if platform.Content(se) != "" {
+		t.Errorf("nil message Content: got %q", platform.Content(se))
 	}
 }
 
@@ -309,7 +309,7 @@ func TestConvertEvent_Attachments(t *testing.T) {
 	e := makeEvent(EventTypeMessageCreated, ChannelTypeText)
 	e.Message.Content = new(`<img src="https://example.com/img.png"/>`)
 	se := convertEvent(e, "p")
-	atts := se.Attachments()
+	atts := platform.Attachments(se)
 	if len(atts) != 1 {
 		t.Fatalf("Attachments: expected 1, got %d", len(atts))
 	}
@@ -399,8 +399,8 @@ func TestConvertEvent_Mentions(t *testing.T) {
 		t.Error("被 @ 的是机器人自身，IsSelf 应为 true，否则 OnMentionedBot 不会命中")
 	}
 	// at 剥离：@ 不进入 Content，命令可直接 OnCommand 匹配
-	if se.Content() != "你好" {
-		t.Errorf("Content: got %q, want %q（at 已剥离）", se.Content(), "你好")
+	if platform.Content(se) != "你好" {
+		t.Errorf("Content: got %q, want %q（at 已剥离）", platform.Content(se), "你好")
 	}
 	// 段保真：at 段保留 UserID/显示名
 	segs := se.Segments()
@@ -442,8 +442,8 @@ func TestConvertEvent_ReplyToID(t *testing.T) {
 		t.Errorf("ReplyToID: got %q, want %q", se.ReplyToID(), "msg-123")
 	}
 	// 剥离 quote 后正文必须完整保留。
-	if se.Content() != "这是回复" {
-		t.Errorf("Content: got %q", se.Content())
+	if platform.Content(se) != "这是回复" {
+		t.Errorf("Content: got %q", platform.Content(se))
 	}
 }
 

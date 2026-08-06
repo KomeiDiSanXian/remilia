@@ -50,11 +50,11 @@ func TestParseMessageEvent_Group(t *testing.T) {
 	assert.True(t, evt.Chat().IsGroup)
 	assert.Equal(t, "group", evt.Chat().Tokens[TokenMessageScene])
 	assert.Equal(t, "测试群", evt.Chat().Name)
-	assert.Equal(t, "你好", evt.Content())
+	assert.Equal(t, "你好", platform.Content(evt))
 	assert.Equal(t, "1", evt.Sender().ID)
 	assert.Equal(t, "阿莉", evt.Sender().DisplayName)
 	assert.Equal(t, platform.GroupRoleAdmin, evt.Sender().GroupRole)
-	assert.Len(t, evt.Attachments(), 0)
+	assert.Len(t, platform.Attachments(evt), 0)
 
 	replyEvt, ok := evt.(platform.ReplyEvent)
 	require.True(t, ok)
@@ -104,7 +104,7 @@ func TestParseMessageEvent_Friend(t *testing.T) {
 	assert.Equal(t, "7", evt.ID())
 	assert.Equal(t, "1001", evt.Chat().ID)
 	assert.False(t, evt.Chat().IsGroup)
-	assert.Equal(t, "hi", evt.Content())
+	assert.Equal(t, "hi", platform.Content(evt))
 	assert.Equal(t, "特别好友", evt.Sender().DisplayName)
 }
 
@@ -153,7 +153,7 @@ func TestParseMessageEvent_AllAttachmentTypes(t *testing.T) {
 	assert.Equal(t, "21", face.FaceID)
 	assert.True(t, face.IsLarge)
 
-	atts := evt.Attachments()
+	atts := platform.Attachments(evt)
 	require.Len(t, atts, 5)
 
 	sticker := atts[0]
@@ -325,7 +325,7 @@ func TestParseBotOfflineEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindSystem, evt.Kind())
-	assert.Equal(t, "登录被顶", evt.Content())
+	assert.Equal(t, "登录被顶", platform.Content(evt))
 }
 
 func TestParsePeerPinChangeEvent(t *testing.T) {
@@ -357,7 +357,7 @@ func TestParseFriendNudgeEvent(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
 	assert.Equal(t, "1001", evt.Chat().ID)
-	assert.Equal(t, "戳了戳", evt.Content())
+	assert.Equal(t, "戳了戳", platform.Content(evt))
 }
 
 func TestParseFriendFileUploadEvent(t *testing.T) {
@@ -367,9 +367,9 @@ func TestParseFriendFileUploadEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
-	require.Len(t, evt.Attachments(), 1)
-	assert.Equal(t, "a.pdf", evt.Attachments()[0].Name)
-	meta := evt.Attachments()[0].Extra[ExtraKeyFile].(*FileSegmentMeta)
+	require.Len(t, platform.Attachments(evt), 1)
+	assert.Equal(t, "a.pdf", platform.Attachments(evt)[0].Name)
+	meta := platform.Attachments(evt)[0].Extra[ExtraKeyFile].(*FileSegmentMeta)
 	assert.Equal(t, "f1", meta.FileID)
 }
 
@@ -391,7 +391,7 @@ func TestParseGroupNameChangeEvent(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
 	assert.Equal(t, "新群名", evt.Chat().Name)
-	assert.Equal(t, "新群名", evt.Content())
+	assert.Equal(t, "新群名", platform.Content(evt))
 }
 
 func TestParseGroupNudgeEvent(t *testing.T) {
@@ -402,7 +402,7 @@ func TestParseGroupNudgeEvent(t *testing.T) {
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
 	assert.Equal(t, "1", evt.Sender().ID)
-	assert.Equal(t, "戳了戳", evt.Content())
+	assert.Equal(t, "戳了戳", platform.Content(evt))
 }
 
 func TestParseGroupFileUploadEvent(t *testing.T) {
@@ -412,9 +412,9 @@ func TestParseGroupFileUploadEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, platform.EventKindNotice, evt.Kind())
-	require.Len(t, evt.Attachments(), 1)
-	assert.Equal(t, "b.pdf", evt.Attachments()[0].Name)
-	assert.Equal(t, 2048, evt.Attachments()[0].Size)
+	require.Len(t, platform.Attachments(evt), 1)
+	assert.Equal(t, "b.pdf", platform.Attachments(evt)[0].Name)
+	assert.Equal(t, 2048, platform.Attachments(evt)[0].Size)
 }
 
 // ────────────────────────────────────────────────────────────────────────────

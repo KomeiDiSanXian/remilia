@@ -121,14 +121,8 @@ func (e *SyntheticEvent) Sender() UserInfo { return e.senderInfo }
 // Chat 返回会话信息。
 func (e *SyntheticEvent) Chat() ChatInfo { return e.chatInfo }
 
-// Content 返回消息文本内容。
-func (e *SyntheticEvent) Content() string { return e.content }
-
 // Segments 返回保序统一消息段（唯一真相源，text + 媒体段）。
 func (e *SyntheticEvent) Segments() []Segment { return e.segments() }
 
 // Timestamp 返回事件时间戳。
 func (e *SyntheticEvent) Timestamp() time.Time { return e.timestamp }
-
-// Attachments 返回附件列表。
-func (e *SyntheticEvent) Attachments() []Attachment { return e.attachments }

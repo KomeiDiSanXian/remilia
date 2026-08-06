@@ -44,7 +44,7 @@ func main() {
 	eng.OnEventKind(platform.EventKindPrivateMessage,
 		func(ctx *eventctx.Context) bool {
 			ev := ctx.GetPlatformEvent()
-			return ev != nil && strings.TrimSpace(ev.Content()) == "ping"
+			return ev != nil && strings.TrimSpace(platform.Content(ev)) == "ping"
 		},
 	).Handle(func(ctx *eventctx.Context) error {
 		ctx.Reply(platform.TextMessage("pong"))
@@ -55,7 +55,7 @@ func main() {
 	eng.OnEventKind(platform.EventKindGroupMessage,
 		func(ctx *eventctx.Context) bool {
 			ev := ctx.GetPlatformEvent()
-			return ev != nil && strings.Contains(ev.Content(), "hello")
+			return ev != nil && strings.Contains(platform.Content(ev), "hello")
 		},
 	).Handle(func(ctx *eventctx.Context) error {
 		ev := ctx.GetPlatformEvent()
@@ -72,7 +72,7 @@ func main() {
 	eng.OnEventKind(platform.EventKindGroupMessage,
 		func(ctx *eventctx.Context) bool {
 			ev := ctx.GetPlatformEvent()
-			return ev != nil && strings.TrimSpace(ev.Content()) == "!delete"
+			return ev != nil && strings.TrimSpace(platform.Content(ev)) == "!delete"
 		},
 	).Handle(func(ctx *eventctx.Context) error {
 		ev := ctx.GetPlatformEvent()
@@ -92,7 +92,7 @@ func main() {
 	eng.OnEventKind(platform.EventKindGroupMessage,
 		func(ctx *eventctx.Context) bool {
 			ev := ctx.GetPlatformEvent()
-			return ev != nil && strings.HasPrefix(ev.Content(), "!ban ")
+			return ev != nil && strings.HasPrefix(platform.Content(ev), "!ban ")
 		},
 	).Handle(func(ctx *eventctx.Context) error {
 		ev := ctx.GetPlatformEvent()
@@ -157,7 +157,7 @@ func main() {
 	eng.OnEventKind(platform.EventKindGroupMessage,
 		func(ctx *eventctx.Context) bool {
 			ev := ctx.GetPlatformEvent()
-			return ev != nil && strings.TrimSpace(ev.Content()) == "!sign"
+			return ev != nil && strings.TrimSpace(platform.Content(ev)) == "!sign"
 		},
 	).Handle(func(ctx *eventctx.Context) error {
 		api, ok := platform.GetPlatformAPIAs[*onebot.Sender](ctx.GetPlatformSender())

@@ -269,7 +269,7 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 // 预算耗尽时直接跳过解析（附件 URL 留空），保证事件投递不被阻塞。
 func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platform.Event, budget time.Duration) time.Duration {
 	// Attachments() 返回的是事件内部切片本身，逐元素改写即可生效。
-	atts := event.Attachments()
+	atts := platform.Attachments(event)
 	if len(atts) == 0 {
 		return 0
 	}

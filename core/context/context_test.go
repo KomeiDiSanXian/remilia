@@ -474,7 +474,7 @@ func TestRule_OnFullMatch(t *testing.T) {
 	}{
 		{"exact match", "hello", "hello", true},
 		{"with leading spaces", "  hello", "hello", true},
-		{"with trailing spaces", "hello  ", "hello", false}, // trailing not trimmed
+		{"with trailing spaces", "hello  ", "hello", true}, // 事件层统一 TrimSpace，尾部空格不可见（与 qq/satori 一致）
 		{"no match", "hello world", "hello", false},
 		{"case sensitive", "Hello", "hello", false},
 	}

@@ -21,13 +21,11 @@ type mockEvent struct {
 	content    string
 }
 
-func (e *mockEvent) Platform() string                   { return e.platformID }
-func (e *mockEvent) ID() string                         { return "" }
-func (e *mockEvent) Kind() platform.EventKind           { return e.kind }
-func (e *mockEvent) Sender() platform.UserInfo          { return e.sender }
-func (e *mockEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *mockEvent) Content() string                    { return e.content }
-func (e *mockEvent) Attachments() []platform.Attachment { return nil }
+func (e *mockEvent) Platform() string          { return e.platformID }
+func (e *mockEvent) ID() string                { return "" }
+func (e *mockEvent) Kind() platform.EventKind  { return e.kind }
+func (e *mockEvent) Sender() platform.UserInfo { return e.sender }
+func (e *mockEvent) Chat() platform.ChatInfo   { return e.chat }
 func (e *mockEvent) Segments() []platform.Segment {
 	if e.content == "" {
 		return nil

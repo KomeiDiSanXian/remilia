@@ -23,7 +23,6 @@ func (e *testEvent) ID() string                { return "" }
 func (e *testEvent) Kind() platform.EventKind  { return e.kind }
 func (e *testEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: "user1"} }
 func (e *testEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: e.chatID} }
-func (e *testEvent) Content() string           { return e.content }
 
 func (e *testEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -31,8 +30,7 @@ func (e *testEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *testEvent) Attachments() []platform.Attachment { return nil }
-func (e *testEvent) Timestamp() time.Time               { return time.Time{} }
+func (e *testEvent) Timestamp() time.Time { return time.Time{} }
 
 func newTestContext(content string) *corectx.Context {
 	evt := &testEvent{

@@ -22,7 +22,6 @@ type flexibleTestEvent struct {
 func (e *flexibleTestEvent) Platform() string         { return e.platform }
 func (e *flexibleTestEvent) Kind() platform.EventKind { return e.kind }
 func (e *flexibleTestEvent) RawType() string          { return string(e.kind) }
-func (e *flexibleTestEvent) Content() string          { return e.content }
 
 func (e *flexibleTestEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -30,12 +29,11 @@ func (e *flexibleTestEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *flexibleTestEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *flexibleTestEvent) Sender() platform.UserInfo          { return e.sender }
-func (e *flexibleTestEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *flexibleTestEvent) ID() string                         { return e.id }
-func (e *flexibleTestEvent) RawPayload() any                    { return nil }
-func (e *flexibleTestEvent) Attachments() []platform.Attachment { return nil }
+func (e *flexibleTestEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *flexibleTestEvent) Sender() platform.UserInfo { return e.sender }
+func (e *flexibleTestEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *flexibleTestEvent) ID() string                { return e.id }
+func (e *flexibleTestEvent) RawPayload() any           { return nil }
 
 func createPermCtx(senderID string, isGroup bool) *eventctx.Context {
 	event := &flexibleTestEvent{

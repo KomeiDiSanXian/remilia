@@ -23,7 +23,6 @@ type testPlatformEvent struct {
 func (e *testPlatformEvent) Platform() string         { return e.platformID }
 func (e *testPlatformEvent) Kind() platform.EventKind { return e.kind }
 func (e *testPlatformEvent) RawType() string          { return e.rawType }
-func (e *testPlatformEvent) Content() string          { return e.content }
 
 func (e *testPlatformEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -31,12 +30,11 @@ func (e *testPlatformEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *testPlatformEvent) Attachments() []platform.Attachment { return nil }
-func (e *testPlatformEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *testPlatformEvent) Sender() platform.UserInfo          { return e.sender }
-func (e *testPlatformEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *testPlatformEvent) ID() string                         { return "" }
-func (e *testPlatformEvent) RawPayload() any                    { return nil }
+func (e *testPlatformEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *testPlatformEvent) Sender() platform.UserInfo { return e.sender }
+func (e *testPlatformEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *testPlatformEvent) ID() string                { return "" }
+func (e *testPlatformEvent) RawPayload() any           { return nil }
 
 func makeTestEvent(platformID, rawType, content string, kind platform.EventKind) platform.Event {
 	return &testPlatformEvent{

@@ -136,8 +136,8 @@ func TestSyntheticEvent_Basic(t *testing.T) {
 	if e.Kind() != platform.EventKindPrivateMessage {
 		t.Errorf("expected PRIVATE_MESSAGE, got %v", e.Kind())
 	}
-	if e.Content() != "hello" {
-		t.Errorf("expected 'hello', got %q", e.Content())
+	if platform.Content(e) != "hello" {
+		t.Errorf("expected 'hello', got %q", platform.Content(e))
 	}
 }
 
@@ -172,7 +172,7 @@ func TestSyntheticEvent_WithAttachments(t *testing.T) {
 			platform.Attachment{URL: "https://example.com/img.png", MimeType: "image/png"},
 		),
 	)
-	atts := e.Attachments()
+	atts := platform.Attachments(e)
 	if len(atts) != 1 {
 		t.Fatalf("expected 1 attachment, got %d", len(atts))
 	}

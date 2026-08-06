@@ -8,7 +8,7 @@ package engine_test
 //
 // 验证：
 //   1. platform.Event 按 EventKind 路由到正确的 Matcher
-//   2. ctx.GetMessageContent() 返回 event.Content()
+//   2. ctx.GetMessageContent() 返回 platform.Content(event)
 //   3. ctx.GetPlatformEvent() 返回原始 platform.Event
 //   4. ctx.Reply() 通过 Sender 发送消息
 //   5. nil event 不 panic
@@ -45,7 +45,6 @@ type stubEvent struct {
 func (e *stubEvent) Platform() string         { return e.platformID }
 func (e *stubEvent) Kind() platform.EventKind { return e.kind }
 func (e *stubEvent) RawType() string          { return e.rawType }
-func (e *stubEvent) Content() string          { return e.content }
 
 func (e *stubEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -53,12 +52,11 @@ func (e *stubEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *stubEvent) Attachments() []platform.Attachment { return nil }
-func (e *stubEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *stubEvent) Sender() platform.UserInfo          { return e.sndr }
-func (e *stubEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *stubEvent) ID() string                         { return "" }
-func (e *stubEvent) RawPayload() any                    { return nil }
+func (e *stubEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *stubEvent) Sender() platform.UserInfo { return e.sndr }
+func (e *stubEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *stubEvent) ID() string                { return "" }
+func (e *stubEvent) RawPayload() any           { return nil }
 
 type captureSender struct {
 	mu       sync.Mutex
@@ -170,7 +168,7 @@ func TestProcessPlatformEvent_GetPlatformEvent(t *testing.T) {
 	eng.WaitForAsyncHandlers()
 
 	require.NotNil(t, got)
-	assert.Equal(t, "check event ref", got.Content())
+	assert.Equal(t, "check event ref", platform.Content(got))
 	assert.Equal(t, "qq", got.Platform())
 }
 

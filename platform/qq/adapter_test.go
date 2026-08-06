@@ -59,8 +59,8 @@ func TestAdapter_AcksInteractionEvent(t *testing.T) {
 		if e.Kind() != platform.EventKindInteraction {
 			t.Fatalf("Kind: got %q, want INTERACTION", e.Kind())
 		}
-		if e.Content() != "about:help" {
-			t.Errorf("Content: got %q, want about:help", e.Content())
+		if platform.Content(e) != "about:help" {
+			t.Errorf("Content: got %q, want about:help", platform.Content(e))
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for event dispatch")

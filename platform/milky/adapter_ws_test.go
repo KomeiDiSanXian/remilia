@@ -130,7 +130,7 @@ func TestAdapter_Start_ReceivesEvents(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 
-	assert.Equal(t, "from ws", got.Content())
+	assert.Equal(t, "from ws", platform.Content(got))
 	assert.Equal(t, "555", got.Chat().ID)
 	require.Eventually(t, func() bool { return adapter.BotID() == "10001" }, 3*time.Second, 20*time.Millisecond)
 	assert.Equal(t, "Bot", adapter.BotName())
@@ -242,7 +242,7 @@ func TestReadLoop_CancelledContext(t *testing.T) {
 	select {
 	case evt := <-eventCh:
 		assert.Equal(t, platform.EventKindSystem, evt.Kind())
-		assert.Equal(t, "test", evt.Content())
+		assert.Equal(t, "test", platform.Content(evt))
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for event")
 	}

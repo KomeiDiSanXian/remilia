@@ -17,7 +17,10 @@
 //	└──────────────┘
 package platform
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // EventKind 平台无关的事件类别枚举。
 //
@@ -195,49 +198,18 @@ type ChatInfo struct {
 	Tokens map[string]string
 }
 
-// EventBody 是事件的消息载荷接口。
-//
-// 包含 Content（文本内容）和 Attachments（附件列表）。
-// 只关心消息内容的插件可依赖此接口，无需依赖完整的 Event。
-type EventBody interface {
-	// Content 返回消息文本内容（纯文本，不含平台特定格式）
-	Content() string
-
-	// Attachments 返回消息中携带的附件列表。
-	//
-	// 平台不支持附件或消息无附件时返回 nil。
-	Attachments() []Attachment
-}
-
-// EventIdentity 是事件路由和去重标识接口。
-//
-// 包含 Platform（路由到对应适配器）、Kind（事件分类路由）、
-// ID（去重/追踪）。中间件（dedup、retry、deadletter）通常只需此接口。
-type EventIdentity interface {
-	// Platform 返回平台标识符（如 "qq"、"discord"、"telegram"）
-	Platform() string
-
-	// Kind 返回平台无关的事件类别
-	Kind() EventKind
-
-	// ID 返回平台级别的唯一事件标识符。
-	//
-	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
-	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
-	ID() string
-}
-
 // Event 是平台无关的事件抽象接口（最小必要集合）。
 //
-// 组合 EventIdentity（路由/去重）和 EventBody（消息载荷），
-// 外加 Sender、Chat、Timestamp 三个独立方法。
+// 组合 EventIdentity（路由/去重），外加 Segments、Sender、Chat、Timestamp。
+// 消息内容（正文/附件）不占用接口方法——由 [Content] / [Attachments] 帮助函数
+// 从 [Segments] 统一派生，杜绝平台实现与段不一致。
 //
 // 各平台适配器将原始 payload 包装为 Event 实现，
 // 框架核心只依赖此接口，不直接引用任何平台特定结构体。
 //
 // 调用方可选择性收窄依赖：
 //   - 仅需去重追踪：依赖 EventIdentity（如 dedup 中间件）
-//   - 仅需消息内容：依赖 EventBody（如内容分析插件）
+//   - 仅需消息内容：依赖 [Content] / [Attachments]（从段派生）
 //   - 完整事件处理：依赖 Event
 //
 // 平台特定或可选功能通过独立接口扩展：
@@ -257,13 +229,12 @@ type EventIdentity interface {
 //	replyID := platform.GetReplyToID(event) // 若不支持则返回 ""
 type Event interface {
 	EventIdentity
-	EventBody
 
 	// Segments 返回有序消息段（唯一真相源）。
 	//
-	// Content()/Attachments() 是便捷派生视图：
-	//   - Content()      = SegmentsContent(Segments())
-	//   - Attachments()  = SegmentsAttachments(Segments())
+	// 正文/附件便捷视图由帮助函数派生：
+	//   - Content(e)      = TrimSpace(SegmentsContent(e.Segments()))
+	//   - Attachments(e)  = SegmentsAttachments(e.Segments())
 	Segments() []Segment
 
 	// Sender 返回消息发送者信息
@@ -274,6 +245,24 @@ type Event interface {
 
 	// Timestamp 返回事件时间戳（尽力而为，平台不提供时返回零值）
 	Timestamp() time.Time
+}
+
+// EventIdentity 是事件路由和去重标识接口。
+//
+// 包含 Platform（路由到对应适配器）、Kind（事件分类路由）、
+// ID（去重/追踪）。中间件（dedup、retry、deadletter）通常只需此接口。
+type EventIdentity interface {
+	// Platform 返回平台标识符（如 "qq"、"discord"、"telegram"）
+	Platform() string
+
+	// Kind 返回平台无关的事件类别
+	Kind() EventKind
+
+	// ID 返回平台级别的唯一事件标识符。
+	//
+	// 用途：去重、追踪、死信队列等需要唯一标识的场景。
+	// 平台不提供时返回空字符串；调用方应对空字符串做兼容处理。
+	ID() string
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -340,7 +329,8 @@ type ReplyEvent interface {
 //	    }
 //	}
 type MentionsEvent interface {
-	// Mentions 返回消息中 @ 的用户列表（不含机器人自身）。
+	// Mentions 返回消息中 @ 的用户列表。
+	// 包含被 @ 的机器人自身（IsSelf=true 标记，OnMentionedBot 依赖此语义）；
 	// 无 @ 用户时返回 nil。
 	Mentions() []UserInfo
 }
@@ -348,6 +338,22 @@ type MentionsEvent interface {
 // ────────────────────────────────────────────────────────────────────────────
 // 可选接口帮助函数
 // ────────────────────────────────────────────────────────────────────────────
+
+// Content 返回事件的正文文本（段拼接 + 首尾空白裁剪）。
+//
+// 裁剪语义与 QQ/Satori 既有行为一致：QQ 群消息在 @ 占位符前自动插入分隔
+// 空格（实测格式 " <@id> 正文"），占位符剥离后正文首部会残留空白。
+// 段模型保留原文（Segments() 可恢复完整原文），本便捷视图统一裁剪。
+func Content(e Event) string {
+	return strings.TrimSpace(SegmentsContent(e.Segments()))
+}
+
+// Attachments 返回事件携带的附件列表（段派生，仅 image/audio/video/file）。
+//
+// 平台不支持附件或消息无附件时返回 nil。
+func Attachments(e Event) []Attachment {
+	return SegmentsAttachments(e.Segments())
+}
 
 // RawType 安全获取平台原始事件类型字符串。
 //

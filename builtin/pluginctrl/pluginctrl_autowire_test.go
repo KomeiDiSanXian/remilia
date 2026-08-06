@@ -39,14 +39,12 @@ type awTestEvent struct {
 func (e *awTestEvent) Platform() string         { return "test" }
 func (e *awTestEvent) Kind() platform.EventKind { return platform.EventKindGroupMessage }
 func (e *awTestEvent) RawType() string          { return string(platform.EventKindGroupMessage) }
-func (e *awTestEvent) Content() string          { return "hello" }
 func (e *awTestEvent) Segments() []platform.Segment {
 	return []platform.Segment{{Type: platform.SegmentText, Text: "hello"}}
 }
-func (e *awTestEvent) ID() string                         { return "test-aw-event" }
-func (e *awTestEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *awTestEvent) RawPayload() any                    { return nil }
-func (e *awTestEvent) Attachments() []platform.Attachment { return nil }
+func (e *awTestEvent) ID() string           { return "test-aw-event" }
+func (e *awTestEvent) Timestamp() time.Time { return time.Time{} }
+func (e *awTestEvent) RawPayload() any      { return nil }
 func (e *awTestEvent) Chat() platform.ChatInfo {
 	return platform.ChatInfo{ID: e.groupID, IsGroup: true}
 }

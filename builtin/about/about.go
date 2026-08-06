@@ -88,7 +88,7 @@ func (p *Plugin) handleAbout(ctx *eventctx.Context) error {
 
 // handleButtonClick 处理"查看命令列表"按钮回调。
 func (p *Plugin) handleButtonClick(ctx *eventctx.Context) error {
-	if ctx.GetPlatformEvent().Content() != helpButtonID {
+	if platform.Content(ctx.GetPlatformEvent()) != helpButtonID {
 		return nil
 	}
 	ctx.Reply(platform.TextMessage("💡 使用 /help 查看所有可用命令"))

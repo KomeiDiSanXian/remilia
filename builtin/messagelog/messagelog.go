@@ -507,7 +507,7 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		UserID:    sender.ID,
 		UserName:  sender.DisplayName,
 		UserRole:  groupRoleString(sender.GroupRole),
-		Content:   ev.Content(),
+		Content:   platform.Content(ev),
 		ReplyToID: replyToID,
 		RawType:   platform.RawType(ev),
 		Mentions:  mentions,

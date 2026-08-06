@@ -413,7 +413,7 @@ func (p *Plugin) handleSkillAdd(ctx *eventctx.Context, rest, ownerID string) err
 
 	// 尝试附件
 	if prompt == "" {
-		atts := ctx.GetPlatformEvent().Attachments()
+		atts := platform.Attachments(ctx.GetPlatformEvent())
 		for _, att := range atts {
 			if strings.HasPrefix(att.MimeType, "text/") || strings.HasSuffix(att.URL, ".md") {
 				if content := p.downloadTextAttachment(ctx.Context(), att); content != "" {

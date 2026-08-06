@@ -893,18 +893,6 @@ func (e *qqEvent) Chat() platform.ChatInfo { return e.chat }
 // Segments 返回保序统一消息段（唯一真相源）。
 func (e *qqEvent) Segments() []platform.Segment { return e.segments }
 
-// Content 返回段派生文本（at/quote 等剥离，见 platform.SegmentsContent）。
-//
-// 保持 qq 历史 TrimSpace 语义：段内首尾空白不进入 Content。
-func (e *qqEvent) Content() string {
-	return strings.TrimSpace(platform.SegmentsContent(e.segments))
-}
-
-// Attachments 返回段派生附件列表（image/audio/video/file）。
-func (e *qqEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
-
 // Timestamp 返回消息发送时间。
 func (e *qqEvent) Timestamp() time.Time { return e.timestamp }
 

@@ -51,7 +51,7 @@ func ExtractContent(e platform.Event) string {
 	if e == nil {
 		return ""
 	}
-	return e.Content()
+	return platform.Content(e)
 }
 
 // ExtractSenderID 从平台无关事件中提取发送者 ID。

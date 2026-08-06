@@ -22,7 +22,7 @@ func (ctx *Context) GetMessageContent() string {
 		return ""
 	}
 	ctx.contentOnce.Do(func() {
-		ctx.content = ctx.platformEvent.Content()
+		ctx.content = platform.Content(ctx.platformEvent)
 	})
 	return ctx.content
 }

@@ -32,7 +32,6 @@ func (e *pcTestEvent) Kind() platform.EventKind {
 	return platform.EventKindPrivateMessage
 }
 func (e *pcTestEvent) RawType() string { return string(e.Kind()) }
-func (e *pcTestEvent) Content() string { return e.content }
 
 func (e *pcTestEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -40,10 +39,9 @@ func (e *pcTestEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *pcTestEvent) ID() string                         { return "test-event-id" }
-func (e *pcTestEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *pcTestEvent) RawPayload() any                    { return nil }
-func (e *pcTestEvent) Attachments() []platform.Attachment { return nil }
+func (e *pcTestEvent) ID() string           { return "test-event-id" }
+func (e *pcTestEvent) Timestamp() time.Time { return time.Time{} }
+func (e *pcTestEvent) RawPayload() any      { return nil }
 func (e *pcTestEvent) Chat() platform.ChatInfo {
 	return platform.ChatInfo{ID: e.groupID, IsGroup: e.isGroup}
 }

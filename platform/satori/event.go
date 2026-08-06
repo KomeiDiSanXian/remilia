@@ -3,7 +3,6 @@ package satori
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -196,18 +195,6 @@ func convertEventWithBot(e *Event, platformName, botID string) *satoriEvent {
 
 // Segments 实现 platform.Event，返回保序统一消息段（唯一真相源）。
 func (e *satoriEvent) Segments() []platform.Segment { return e.segments }
-
-// Content 实现 platform.Event，返回段派生文本（at/mention_all/face/quote 剥离）。
-//
-// 保持 satori 历史 TrimSpace 语义：段内首尾空白不进入 Content。
-func (e *satoriEvent) Content() string {
-	return strings.TrimSpace(platform.SegmentsContent(e.segments))
-}
-
-// Attachments 实现 platform.Event，返回段派生附件列表（image/audio/video/file）。
-func (e *satoriEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
 
 // Mentions 实现 platform.MentionsEvent，返回消息中 @ 的用户。
 func (e *satoriEvent) Mentions() []platform.UserInfo {

@@ -38,10 +38,6 @@ func (e *telegramEvent) Sender() platform.UserInfo    { return e.senderInfo }
 func (e *telegramEvent) Chat() platform.ChatInfo      { return e.chat }
 func (e *telegramEvent) Timestamp() time.Time         { return e.timestamp }
 func (e *telegramEvent) Segments() []platform.Segment { return e.segments }
-func (e *telegramEvent) Content() string              { return platform.SegmentsContent(e.segments) }
-func (e *telegramEvent) Attachments() []platform.Attachment {
-	return platform.SegmentsAttachments(e.segments)
-}
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 

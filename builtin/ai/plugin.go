@@ -258,7 +258,7 @@ func (p *Plugin) registerSkillAddFSM() {
 					}
 
 					prompt := strings.TrimSpace(fsmCtx.GetMessageContent())
-					for _, att := range fsmCtx.GetPlatformEvent().Attachments() {
+					for _, att := range platform.Attachments(fsmCtx.GetPlatformEvent()) {
 						if strings.HasPrefix(att.MimeType, "text/") || strings.HasSuffix(att.URL, ".md") {
 							if content := p.downloadTextAttachment(fsmCtx.Context.Context(), att); content != "" {
 								prompt = content

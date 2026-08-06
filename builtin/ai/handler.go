@@ -151,7 +151,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session *Session) Message {
 	msg := Message{Role: RoleUser, Content: content}
 
-	atts := ctx.GetPlatformEvent().Attachments()
+	atts := platform.Attachments(ctx.GetPlatformEvent())
 	if len(atts) == 0 {
 		return msg
 	}

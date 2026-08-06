@@ -24,7 +24,6 @@ type mockEvent struct {
 func (e *mockEvent) Platform() string         { return e.platform }
 func (e *mockEvent) Kind() platform.EventKind { return e.kind }
 func (e *mockEvent) RawType() string          { return e.rawType }
-func (e *mockEvent) Content() string          { return e.content }
 
 func (e *mockEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -32,12 +31,11 @@ func (e *mockEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *mockEvent) Chat() platform.ChatInfo            { return e.chat }
-func (e *mockEvent) Sender() platform.UserInfo          { return e.sender }
-func (e *mockEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *mockEvent) ID() string                         { return e.id }
-func (e *mockEvent) RawPayload() any                    { return nil }
-func (e *mockEvent) Attachments() []platform.Attachment { return nil }
+func (e *mockEvent) Chat() platform.ChatInfo   { return e.chat }
+func (e *mockEvent) Sender() platform.UserInfo { return e.sender }
+func (e *mockEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *mockEvent) ID() string                { return e.id }
+func (e *mockEvent) RawPayload() any           { return nil }
 
 // newMockEvent 创建指定 EventKind 的测试桩（content 为空，chat ID 为 "chat001"）。
 func newMockEvent(kind platform.EventKind) *mockEvent {

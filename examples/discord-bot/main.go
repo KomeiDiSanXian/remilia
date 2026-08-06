@@ -198,7 +198,7 @@ func registerHandlers(eng *engine.Engine) {
 		Handle(func(ctx *eventctx.Context) error {
 			event := ctx.GetPlatformEvent()
 			if event != nil {
-				fmt.Printf("[DM] %s: %s\n", event.Sender().DisplayName, event.Content())
+				fmt.Printf("[DM] %s: %s\n", event.Sender().DisplayName, platform.Content(event))
 			}
 			ctx.Reply(platform.TextMessage("Hi! Got your DM."))
 			return nil
@@ -211,7 +211,7 @@ func registerHandlers(eng *engine.Engine) {
 			if event == nil {
 				return nil
 			}
-			content := event.Content()
+			content := platform.Content(event)
 			fmt.Printf("[Interaction] %s: %s\n", event.Sender().DisplayName, content)
 
 			var msg platform.OutboundMessage

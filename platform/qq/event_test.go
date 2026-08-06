@@ -46,8 +46,8 @@ func TestNewEvent_C2C(t *testing.T) {
 	if platform.RawType(event) != dto.C2CMessageCreate {
 		t.Errorf("RawType: got %q", platform.RawType(event))
 	}
-	if event.Content() != "hello bot" {
-		t.Errorf("Content: got %q", event.Content())
+	if platform.Content(event) != "hello bot" {
+		t.Errorf("Content: got %q", platform.Content(event))
 	}
 	if event.Sender().ID != "openid_alice" {
 		t.Errorf("Sender.ID: got %q", event.Sender().ID)
@@ -85,8 +85,8 @@ func TestNewEvent_GroupAt(t *testing.T) {
 	if event.Kind() != platform.EventKindGroupMessage {
 		t.Errorf("Kind: got %q, want GroupMessage", event.Kind())
 	}
-	if event.Content() != "/ping" {
-		t.Errorf("Content: got %q", event.Content())
+	if platform.Content(event) != "/ping" {
+		t.Errorf("Content: got %q", platform.Content(event))
 	}
 	if event.Sender().ID != "member_openid_bob" {
 		t.Errorf("Sender.ID: got %q", event.Sender().ID)
@@ -121,8 +121,8 @@ func TestNewEvent_GuildMessage(t *testing.T) {
 	if event.Kind() != platform.EventKindGuildMessage {
 		t.Errorf("Kind: got %q, want GuildMessage", event.Kind())
 	}
-	if event.Content() != "hello guild" {
-		t.Errorf("Content: got %q", event.Content())
+	if platform.Content(event) != "hello guild" {
+		t.Errorf("Content: got %q", platform.Content(event))
 	}
 	if event.Sender().ID != "author001" {
 		t.Errorf("Sender.ID: got %q", event.Sender().ID)
@@ -301,7 +301,7 @@ func TestNewEvent_NilPayload(t *testing.T) {
 	if event.ID() != "" {
 		t.Errorf("nil payload ID: got %q, want empty", event.ID())
 	}
-	if event.Content() != "" {
+	if platform.Content(event) != "" {
 		t.Error("nil payload content should be empty")
 	}
 }
@@ -350,8 +350,8 @@ func TestNewEvent_Interaction_Button(t *testing.T) {
 		t.Errorf("TokenEventID: got %q, want evt001 (outermost event id)", got)
 	}
 	// content 应为 button_data（type=11）
-	if event.Content() != "cmd_help" {
-		t.Errorf("Content: got %q, want cmd_help (button_data for type=11)", event.Content())
+	if platform.Content(event) != "cmd_help" {
+		t.Errorf("Content: got %q, want cmd_help (button_data for type=11)", platform.Content(event))
 	}
 	if event.Sender().ID != "user_abc" {
 		t.Errorf("Sender.ID: got %q, want user_abc", event.Sender().ID)
@@ -386,8 +386,8 @@ func TestNewEvent_Interaction_QuickMenu(t *testing.T) {
 		t.Errorf("Kind: got %q, want Interaction", event.Kind())
 	}
 	// content 应为 feature_id（type=12 单聊快捷菜单）
-	if event.Content() != "menu_feature_001" {
-		t.Errorf("Content: got %q, want menu_feature_001 (feature_id for type=12)", event.Content())
+	if platform.Content(event) != "menu_feature_001" {
+		t.Errorf("Content: got %q, want menu_feature_001 (feature_id for type=12)", platform.Content(event))
 	}
 	if event.Sender().ID != "user_xyz" {
 		t.Errorf("Sender.ID: got %q, want user_xyz", event.Sender().ID)
@@ -426,8 +426,8 @@ func TestNewEvent_Interaction_GuildReplyToID(t *testing.T) {
 	if replyEvent.ReplyToID() != "msg_origin_001" {
 		t.Errorf("ReplyToID: got %q, want msg_origin_001 (data.resolved.message_id)", replyEvent.ReplyToID())
 	}
-	if event.Content() != "action_data" {
-		t.Errorf("Content: got %q, want action_data", event.Content())
+	if platform.Content(event) != "action_data" {
+		t.Errorf("Content: got %q, want action_data", platform.Content(event))
 	}
 }
 
@@ -454,8 +454,8 @@ func TestNewEvent_MessageReaction_ReplyToID(t *testing.T) {
 		if event.Kind() != platform.EventKindReaction {
 			t.Errorf("[%s] Kind: got %q, want Reaction", evType, event.Kind())
 		}
-		if event.Content() != "277" {
-			t.Errorf("[%s] Content: got %q, want 277 (emoji.id)", evType, event.Content())
+		if platform.Content(event) != "277" {
+			t.Errorf("[%s] Content: got %q, want 277 (emoji.id)", evType, platform.Content(event))
 		}
 		if event.Sender().ID != "user001" {
 			t.Errorf("[%s] Sender.ID: got %q, want user001", evType, event.Sender().ID)
@@ -507,8 +507,8 @@ func TestNewEvent_GroupMessageCreate_QuoteMessage(t *testing.T) {
 	}
 	// 引用消息的 content 应从 msg_elements[0].content 提取
 	wantContent := "=== 消息 1 ===\n今天完成了学习计划"
-	if event.Content() != wantContent {
-		t.Errorf("Content: got %q, want %q", event.Content(), wantContent)
+	if platform.Content(event) != wantContent {
+		t.Errorf("Content: got %q, want %q", platform.Content(event), wantContent)
 	}
 	if event.Chat().ID != "group_001" {
 		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
@@ -590,8 +590,8 @@ func TestNewEvent_GroupMessageCreate_Mentions(t *testing.T) {
 	}
 	// content 应已去除 <@id> 标记
 	wantContent := "hello everyone"
-	if event.Content() != wantContent {
-		t.Errorf("Content: got %q, want %q", event.Content(), wantContent)
+	if platform.Content(event) != wantContent {
+		t.Errorf("Content: got %q, want %q", platform.Content(event), wantContent)
 	}
 }
 
@@ -623,8 +623,8 @@ func TestNewEvent_GroupMessageCreate_ArkData(t *testing.T) {
 	if event.Kind() != platform.EventKindGroupMessage {
 		t.Errorf("Kind: got %q, want %q", event.Kind(), platform.EventKindGroupMessage)
 	}
-	if event.Content() != "" {
-		t.Errorf("卡片消息 Content 应为空: got %q", event.Content())
+	if platform.Content(event) != "" {
+		t.Errorf("卡片消息 Content 应为空: got %q", platform.Content(event))
 	}
 	segs := event.Segments()
 	if len(segs) != 1 || segs[0].Type != platform.SegmentUnknown {
@@ -680,8 +680,8 @@ func TestNewEvent_GroupMessageCreate_TextStillParsed(t *testing.T) {
 		"timestamp": "2026-07-21T10:10:00+08:00",
 	})
 	event := qq.NewEvent(payload)
-	if event.Content() != "hello" {
-		t.Errorf("Content: got %q, want hello", event.Content())
+	if platform.Content(event) != "hello" {
+		t.Errorf("Content: got %q, want hello", platform.Content(event))
 	}
 }
 
@@ -767,8 +767,8 @@ func TestNewEvent_GroupMessageCreate_QuoteRealSample(t *testing.T) {
 	}
 
 	// Content：@ 剥离后仅剩正文文本（TrimSpace）
-	if event.Content() != "123" {
-		t.Errorf("Content: got %q, want %q", event.Content(), "123")
+	if platform.Content(event) != "123" {
+		t.Errorf("Content: got %q, want %q", platform.Content(event), "123")
 	}
 
 	// Mentions：payload 结构化 @（含自身 IsSelf）
@@ -813,8 +813,8 @@ func TestNewEvent_GroupMessageCreate_QuotePlainTextFallback(t *testing.T) {
 	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "REFIDX_plain" {
 		t.Errorf("Segments[0]: got %+v, want SegmentReply(REFIDX_plain)", segs[0])
 	}
-	if event.Content() != "被引用的旧消息文本" {
-		t.Errorf("Content: got %q, want 被引用的旧消息文本（正文空时兜底）", event.Content())
+	if platform.Content(event) != "被引用的旧消息文本" {
+		t.Errorf("Content: got %q, want 被引用的旧消息文本（正文空时兜底）", platform.Content(event))
 	}
 }
 
@@ -858,10 +858,10 @@ func TestNewEvent_GroupMessageCreate_QuotePlainText(t *testing.T) {
 	if _, ok := segs[0].Extra["parallel_message"].(string); !ok {
 		t.Error("reply 段应携带 parallel_message")
 	}
-	if event.Content() != "123" {
-		t.Errorf("Content: got %q, want %q（正文 123，被引用图片不进入正文）", event.Content(), "123")
+	if platform.Content(event) != "123" {
+		t.Errorf("Content: got %q, want %q（正文 123，被引用图片不进入正文）", platform.Content(event), "123")
 	}
-	require.Len(t, event.Attachments(), 0, "被引用消息的附件不属于本条消息")
+	require.Len(t, platform.Attachments(event), 0, "被引用消息的附件不属于本条消息")
 }
 
 // TestNewEvent_GroupMessageCreate_QuoteMentionBot 引用消息、回复正文 "@机器人 123456"：
@@ -893,8 +893,8 @@ func TestNewEvent_GroupMessageCreate_QuoteMentionBot(t *testing.T) {
 	if segs[2].Type != platform.SegmentAt || segs[2].UserID != "BOT1" || !segs[2].Extra[platform.SegmentExtraIsSelf].(bool) {
 		t.Errorf("Segments[2]: got %+v, want at(BOT1) IsSelf=true", segs[2])
 	}
-	if event.Content() != "123456" {
-		t.Errorf("Content: got %q, want %q（@ 剥离）", event.Content(), "123456")
+	if platform.Content(event) != "123456" {
+		t.Errorf("Content: got %q, want %q（@ 剥离）", platform.Content(event), "123456")
 	}
 }
 
@@ -922,8 +922,8 @@ func TestNewEvent_GroupMessageCreate_FaceMarker(t *testing.T) {
 	if segs[1].Text != "大哭" {
 		t.Errorf("face 显示文本: got %q, want 大哭（ext base64 解码）", segs[1].Text)
 	}
-	if event.Content() != "😀" {
-		t.Errorf("Content: got %q, want %q（face 标记剥离）", event.Content(), "😀")
+	if platform.Content(event) != "😀" {
+		t.Errorf("Content: got %q, want %q（face 标记剥离）", platform.Content(event), "😀")
 	}
 }
 
@@ -957,8 +957,8 @@ func TestNewEvent_C2CMessageCreate_Quote(t *testing.T) {
 	if _, ok := segs[0].Extra["parallel_message"].(string); !ok {
 		t.Error("reply 段应携带 parallel_message")
 	}
-	if event.Content() != "789" {
-		t.Errorf("Content: got %q, want %q（C2C 正文）", event.Content(), "789")
+	if platform.Content(event) != "789" {
+		t.Errorf("Content: got %q, want %q（C2C 正文）", platform.Content(event), "789")
 	}
 }
 
@@ -1001,8 +1001,8 @@ func TestNewEvent_GroupMessageCreate_QuoteCompositeRef(t *testing.T) {
 		t.Errorf("Segments[0]: got %+v, want SegmentReply(TMP_f42d...)（TMP_ 前缀兼容）", segs[0])
 	}
 	// 正文非空：被引用消息的文本化视图不进入本条正文
-	if event.Content() != "1234567" {
-		t.Errorf("Content: got %q, want %q（正文，不含被引用文本化视图）", event.Content(), "1234567")
+	if platform.Content(event) != "1234567" {
+		t.Errorf("Content: got %q, want %q（正文，不含被引用文本化视图）", platform.Content(event), "1234567")
 	}
 	// 被引用 @ 无结构化：parallel_message 原始文本保留在 reply 段 Extra
 	pm, ok := segs[0].Extra["parallel_message"].(string)

@@ -26,7 +26,6 @@ type engineTestEvent struct {
 func (e *engineTestEvent) Platform() string         { return "test" }
 func (e *engineTestEvent) Kind() platform.EventKind { return e.kind }
 func (e *engineTestEvent) RawType() string          { return e.rawType }
-func (e *engineTestEvent) Content() string          { return e.content }
 
 func (e *engineTestEvent) Segments() []platform.Segment {
 	if e.content == "" {
@@ -34,12 +33,11 @@ func (e *engineTestEvent) Segments() []platform.Segment {
 	}
 	return []platform.Segment{{Type: platform.SegmentText, Text: e.content}}
 }
-func (e *engineTestEvent) Chat() platform.ChatInfo            { return platform.ChatInfo{ID: e.chatID} }
-func (e *engineTestEvent) Sender() platform.UserInfo          { return platform.UserInfo{ID: e.senderID} }
-func (e *engineTestEvent) Timestamp() time.Time               { return time.Time{} }
-func (e *engineTestEvent) ID() string                         { return e.id }
-func (e *engineTestEvent) RawPayload() any                    { return nil }
-func (e *engineTestEvent) Attachments() []platform.Attachment { return nil }
+func (e *engineTestEvent) Chat() platform.ChatInfo   { return platform.ChatInfo{ID: e.chatID} }
+func (e *engineTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: e.senderID} }
+func (e *engineTestEvent) Timestamp() time.Time      { return time.Time{} }
+func (e *engineTestEvent) ID() string                { return e.id }
+func (e *engineTestEvent) RawPayload() any           { return nil }
 
 // newTestPlatformEvent 创建指定 EventKind 的测试桩事件。
 func newTestPlatformEvent(kind platform.EventKind) platform.Event {
