@@ -1,5 +1,25 @@
 package satori
 
+// 对接实现核验说明（2026-08）
+//
+// 本客户端按 Satori 协议官方规范实现：https://satori.chat/zh-CN/protocol/
+// 主要对接目标实现：
+//
+//   - LuckyLilliaBot（github.com/LLOneBot/LuckyLilliaBot，src/satori/）：
+//     已实现 message.create/get/delete/list、channel.get/list/update/delete/mute、
+//     user.channel.create、user.get、guild.get/list/approve、guild.member.*、
+//     guild.role.list、guild.member.role.set、friend.list/approve/delete、
+//     login.get、reaction.create/delete/list。参数用法与规范一致：
+//     channel.mute 用 duration（毫秒）、reaction 用 emoji_id。
+//   - Lagrange.Core 官方已移除 Satori 支持（master 现仅 Lagrange.Milky），
+//     社区 Satori 对接主要走上述 LuckyLilliaBot 与 Chronocat。
+//
+// 已知差异（本客户端有、LuckyLilliaBot 未实现的 API，调用将返回
+// "method not found" 404）：message.update、channel.create、
+// guild.role.create/update/delete、guild.member.role.unset、interaction.respond
+// （interaction.respond 本身在官方规范中也不存在，属实验性扩展）。
+// 调用前可用 Login.Features（协议 /zh-CN/protocol/api.html#平台特性）探测。
+
 import (
 	"bytes"
 	stdctx "context"
@@ -586,7 +606,7 @@ func (c *Client) ReactionCreate(ctx stdctx.Context, channelID, messageID, emojiI
 	params := map[string]any{
 		"channel_id": channelID,
 		"message_id": messageID,
-		"emoji":      emojiID,
+		"emoji_id":   emojiID,
 	}
 	return c.call(ctx, "reaction", "create", params, nil)
 }
@@ -597,7 +617,7 @@ func (c *Client) ReactionDelete(ctx stdctx.Context, channelID, messageID, emojiI
 	params := map[string]any{
 		"channel_id": channelID,
 		"message_id": messageID,
-		"emoji":      emojiID,
+		"emoji_id":   emojiID,
 	}
 	if userID != "" {
 		params["user_id"] = userID
@@ -610,7 +630,7 @@ func (c *Client) ReactionList(ctx stdctx.Context, channelID, messageID, emojiID,
 	params := map[string]any{
 		"channel_id": channelID,
 		"message_id": messageID,
-		"emoji":      emojiID,
+		"emoji_id":   emojiID,
 	}
 	if next != "" {
 		params["next"] = next

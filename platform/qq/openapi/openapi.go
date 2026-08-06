@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 
 	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
@@ -54,7 +55,8 @@ func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result
 }
 
 // Put 发送一个 put 请求到 url，自动添加 Authorization 头。
-// 若 data 为 nil，则发送无请求体的 PUT 请求（适用于如表情表态等不需要请求体的接口）。
+// 若 data 为 nil（含类型化的 nil 指针），则发送无请求体的 PUT 请求
+// （适用于如表情表态等不需要请求体的接口）。
 func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result, error) {
 	// 必须传播错误并监听调用方 ctx。
 	//
@@ -68,7 +70,7 @@ func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result,
 	req := httpclient.Put(url).
 		SetContext(ctx).
 		SetHeader("Authorization", api.authHeader())
-	if data != nil {
+	if !isNilPayload(data) {
 		req = req.SetJSON(data)
 	}
 	result, err := req.DoJSON()
@@ -77,6 +79,23 @@ func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result,
 		return gjson.Result{}, err
 	}
 	return result, nil
+}
+
+// isNilPayload 判断 data 是否为 nil，包括"类型化的 nil"（如
+// (*dto.AddMemberRoleRequest)(nil) 装入 any 后 data != nil 但实际无值）。
+// 此前 AddGuildMemberRole 在 channelID 为空时会把这种类型化 nil 传给 Put，
+// 导致请求体被序列化成字面量 "null"，与 PinMessage/AddReaction 等
+// 无请求体 PUT 的行为不一致。
+func isNilPayload(data any) bool {
+	if data == nil {
+		return true
+	}
+	v := reflect.ValueOf(data)
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	}
+	return false
 }
 
 // Patch 发送一个 patch 请求到 url，自动添加 Authorization 头。

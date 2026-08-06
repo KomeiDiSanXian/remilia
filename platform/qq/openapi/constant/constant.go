@@ -280,25 +280,25 @@ const (
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/manage/channel/get_channel.html
 	ChannelURL = OpenAPIURL + "/channels/%s"
 
-	// UserUploadPrepareURL POST /v2/users/{user_openid}/upload/prepare
+	// UserUploadPrepareURL POST /v2/users/{user_id}/upload_prepare
 	//
 	// 单聊富媒体分片上传预上传。
-	UserUploadPrepareURL = OpenAPIURL + "/v2/users/%s/upload/prepare"
+	UserUploadPrepareURL = OpenAPIURL + "/v2/users/%s/upload_prepare"
 
-	// GroupUploadPrepareURL POST /v2/groups/{group_openid}/upload/prepare
+	// GroupUploadPrepareURL POST /v2/groups/{group_id}/upload_prepare
 	//
 	// 群聊富媒体分片上传预上传。
-	GroupUploadPrepareURL = OpenAPIURL + "/v2/groups/%s/upload/prepare"
+	GroupUploadPrepareURL = OpenAPIURL + "/v2/groups/%s/upload_prepare"
 
-	// UserUploadPartFinishURL POST /v2/users/{user_openid}/upload/part/finish
+	// UserUploadPartFinishURL POST /v2/users/{user_id}/upload_part_finish
 	//
 	// 单聊富媒体分片上传完成确认。
-	UserUploadPartFinishURL = OpenAPIURL + "/v2/users/%s/upload/part/finish"
+	UserUploadPartFinishURL = OpenAPIURL + "/v2/users/%s/upload_part_finish"
 
-	// GroupUploadPartFinishURL POST /v2/groups/{group_openid}/upload/part/finish
+	// GroupUploadPartFinishURL POST /v2/groups/{group_id}/upload_part_finish
 	//
 	// 群聊富媒体分片上传完成确认。
-	GroupUploadPartFinishURL = OpenAPIURL + "/v2/groups/%s/upload/part/finish"
+	GroupUploadPartFinishURL = OpenAPIURL + "/v2/groups/%s/upload_part_finish"
 
 	// DMChatURL POST /dms/{guild_id}/messages
 	//

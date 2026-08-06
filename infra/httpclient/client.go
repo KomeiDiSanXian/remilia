@@ -571,6 +571,20 @@ func (r *Response) Close() error {
 // 全局默认客户端
 var defaultClient = NewClient()
 
+// SetDefaultHTTPClient 替换全局默认客户端的底层 http.Client，并返回被替换的旧值。
+//
+// 主要供测试使用：将默认客户端指向本地 httptest.Server，即可为使用包级
+// 便捷函数（httpclient.Post/Get/...）的代码提供可控的伪 HTTP 环境；
+// 测试结束时应恢复旧值：
+//
+//	old := httpclient.SetDefaultHTTPClient(server.Client())
+//	defer httpclient.SetDefaultHTTPClient(old)
+func SetDefaultHTTPClient(client *http.Client) *http.Client {
+	old := defaultClient.client
+	defaultClient.client = client
+	return old
+}
+
 // Get 使用默认客户端创建 GET 请求
 func Get(url string) *Request {
 	return defaultClient.Get(url)
