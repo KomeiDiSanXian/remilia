@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -237,4 +238,51 @@ func callDecoded(ctx stdctx.Context, c APIClient, action string, params any, dst
 		return nil
 	}
 	return json.Unmarshal(resp.Data, dst)
+}
+
+// callCompat 调用主动作；若协议端返回"动作不存在"（retcode=404 或 not found），
+// 依次尝试备选动作。
+//
+// 不同 OneBot 协议端对同一功能使用不同动作名（如群签到：
+// NapCat 用 set_group_sign、LLB 用 send_group_sign；群公告公开名 vs
+// 下划线隐藏名）。通过主/备动作链，一个方法即可跨端兼容。
+//
+// 注意：fallback 仅在动作不存在时触发，参数不变；业务错误（如权限不足）
+// 不会触发 fallback。
+func callCompat(ctx stdctx.Context, c APIClient, primary string, fallbacks []string, params any) (*APIResponse, error) {
+	resp, err := c.Call(ctx, primary, params)
+	if err == nil || !isActionNotFound(err) {
+		return resp, err
+	}
+	for _, fb := range fallbacks {
+		if resp2, err2 := c.Call(ctx, fb, params); err2 == nil || !isActionNotFound(err2) {
+			return resp2, err2
+		}
+	}
+	return resp, err
+}
+
+// callCompatDecoded 是 callCompat 的解码版本。
+func callCompatDecoded(ctx stdctx.Context, c APIClient, primary string, fallbacks []string, params any, dst any) error {
+	resp, err := callCompat(ctx, c, primary, fallbacks, params)
+	if err != nil {
+		return err
+	}
+	if dst == nil || len(resp.Data) == 0 {
+		return nil
+	}
+	return json.Unmarshal(resp.Data, dst)
+}
+
+// isActionNotFound 判断错误是否为"动作不存在"。
+//
+// 覆盖两种错误来源：
+//   - wsAPIClient：checkResponse 产生的 "retcode=404"
+//   - httpAPIClient：HTTP 404 产生的 "not found"
+func isActionNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "retcode=404") || strings.Contains(msg, "not found")
 }

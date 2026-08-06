@@ -46,7 +46,7 @@ import (
 //	adapter := onebot.NewHTTPPostAdapter(cfg)
 type HTTPPostAdapter struct {
 	config  Config
-	sender  *onebotSender
+	sender  *Sender
 	apiHTTP *httpAPIClient
 
 	mu      sync.RWMutex

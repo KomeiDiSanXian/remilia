@@ -1,5 +1,26 @@
 package onebot
 
+// 本文档核验说明
+//
+// 本文件中的事件类型、事件字段断言均对照 OneBot 11 标准
+// （onebot.dev/11，内容源 botuniverse/onebot-11）与主流协议端实现源码
+// （2026-08 核验）：
+//
+//	- OneBot 11 标准：onebot.dev/11/specs/event/、/11/specs/message/、/11/specs/cqcode/
+//	- NapCat：github.com/NapNeko/NapCatQQ（扩展动作 get_group_at_all_remain 等）
+//	- LLOneBot / LuckyLilliaBot：github.com/LLOneBot/LuckyLilliaBot
+//	  （src/onebot11/event/notice/ 与 src/onebot11/types.ts，扩展通知
+//	  group_card/group_dismiss/essence/group_msg_emoji_like/flash_file、
+//	  notify 子类型 poke_recall/title/profile_like、keyboard 消息段）
+//	- Lagrange.OneBot（Lagrange.Core v1 分支）：event/notice 共 15 种，无扩展
+//
+// 已知差异（2026-08 核验）：
+//   - post_type=message_sent 非 OneBot 11 标准，为 NapCat/go-cqhttp 扩展；
+//   - notice_type=friend_remove 在标准与 NapCat/go-cqhttp/LLB/Lagrange 中
+//     均未定义，仅保留宽容解析（见 types.go 注释）；
+//   - notify/lucky_king、notify/honor 为 go-cqhttp 遗留子类型，
+//     LLB/Lagrange 不产生，保留解析无碍。
+
 import (
 	"encoding/json"
 	"testing"
@@ -219,6 +240,104 @@ func TestParseEvent_Notice_Notify_Poke(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, platform.EventKindNotice, ev.Kind())
 	assert.Contains(t, ev.Content(), "poke")
+}
+
+// ── LLOneBot / LuckyLilliaBot 扩展通知（2026-08 对照其源码核验）────────────
+
+func TestParseEvent_Notice_GroupCard(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "group_card", "group_id": 555, "user_id": 98765,
+		"card_new": "新名片", "card_old": "旧名片"
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, platform.EventKindMemberUpdate, ev.Kind())
+	assert.Equal(t, "card:旧名片→新名片", ev.Content())
+	re, ok := ev.(platform.RawEvent)
+	require.True(t, ok)
+	assert.Equal(t, "notice/group_card", re.RawType())
+}
+
+func TestParseEvent_Notice_GroupDismiss(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "group_dismiss", "group_id": 555, "user_id": 1
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "notice/group_dismiss", ev.(platform.RawEvent).RawType())
+}
+
+func TestParseEvent_Notice_Essence(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "essence", "sub_type": "add",
+		"group_id": 555, "message_id": 999, "sender_id": 98765, "operator_id": 1
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "notice/essence/add", ev.(platform.RawEvent).RawType())
+}
+
+func TestParseEvent_Notice_GroupMsgEmojiLike(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "group_msg_emoji_like",
+		"group_id": 555, "user_id": 98765, "message_id": 999,
+		"likes": [{"emoji_id": "21", "emoji_count": 1}], "is_add": true
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, platform.EventKindReaction, ev.Kind())
+	assert.Equal(t, "notice/group_msg_emoji_like", ev.(platform.RawEvent).RawType())
+}
+
+func TestParseEvent_Notice_Notify_PokeRecall(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "notify", "sub_type": "poke_recall",
+		"group_id": 555, "user_id": 98765, "target_id": 123
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "notice/notify/poke_recall", ev.(platform.RawEvent).RawType())
+	assert.Contains(t, ev.Content(), "poke_recall")
+}
+
+func TestParseEvent_Notice_Notify_Title(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "notify", "sub_type": "title",
+		"group_id": 555, "user_id": 98765, "title": "新头衔"
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "新头衔", ev.Content())
+}
+
+func TestParseEvent_Notice_Notify_ProfileLike(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "notify", "sub_type": "profile_like",
+		"user_id": 98765, "operator_id": 1, "operator_nick": "Admin", "times": 3
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "notice/notify/profile_like", ev.(platform.RawEvent).RawType())
+	assert.Contains(t, ev.Content(), "×3")
+}
+
+func TestParseEvent_Notice_FlashFile(t *testing.T) {
+	raw := `{
+		"time": 1, "self_id": 123, "post_type": "notice",
+		"notice_type": "flash_file", "sub_type": "downloaded",
+		"title": "闪照", "share_link": "https://ex.com", "file_set_id": "f1",
+		"files": [{"file_id": "1"}]
+	}`
+	ev, err := parseEvent([]byte(raw))
+	require.NoError(t, err)
+	assert.Equal(t, "notice/flash_file/downloaded", ev.(platform.RawEvent).RawType())
 }
 
 func TestParseEvent_Request_Friend(t *testing.T) {

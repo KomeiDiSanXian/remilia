@@ -42,7 +42,7 @@ type ForwardWSAdapter struct {
 	platform.DisconnectNotifier
 
 	config    Config
-	sender    *onebotSender
+	sender    *Sender
 	apiClient *wsAPIClient // 与 sender 共享，重连时更新
 
 	mu      sync.RWMutex
@@ -398,7 +398,7 @@ func (a *ForwardWSAdapter) receiveLoop(
 }
 
 // fetchBotIdentity 调用 get_login_info 以填充 botID 和 botName。
-func (a *ForwardWSAdapter) fetchBotIdentity(ctx stdctx.Context, s *onebotSender) {
+func (a *ForwardWSAdapter) fetchBotIdentity(ctx stdctx.Context, s *Sender) {
 	fetchCtx, cancel := stdctx.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 

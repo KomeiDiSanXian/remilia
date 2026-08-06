@@ -62,7 +62,7 @@ type ReverseWSAdapter struct {
 type wsConn struct {
 	conn      *websocket.Conn
 	apiClient *wsAPIClient
-	sender    *onebotSender
+	sender    *Sender
 }
 
 const (

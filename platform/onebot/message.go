@@ -36,10 +36,16 @@ const (
 	SegTypeJSON      = "json"
 
 	// 扩展段类型（常见 OneBot 实现提供的扩展）
-	SegTypeMface    = "mface"    // 商城表情（带 emoji_package_id / emoji_id / key）
-	SegTypeMarkdown = "markdown" // Markdown 消息
+	SegTypeMface    = "mface"    // 商城表情（NapCat/LuckyLilliaBot 扩展，带 emoji_package_id / emoji_id / key）
+	SegTypeMarkdown = "markdown" // Markdown 消息（NapCat 扩展，仅可在双层合并转发内发送）
+	SegTypeFile     = "file"     // 文件（NapCat 扩展，含 url, path, file_size 等）
+	// SegTypeKeyboard 为 LLOneBot/LuckyLilliaBot 扩展（接收侧）：
+	// 来源 github.com/LLOneBot/LuckyLilliaBot src/onebot11/types.ts OB11MessageKeyboard
+	// （2026-08 核验），NapCat/go-cqhttp/Lagrange.OneBot 无此段。
+	// 数据字段：rows[].buttons[].{id, render_data{label,visited_label,style},
+	// action{type,permission{type,specify_role_ids,specify_user_ids},
+	// unsupport_tips,data,reply,enter}}；LLB 仅接收不上报 CQ:keyboard，发送侧不支持。
 	SegTypeKeyboard = "keyboard" // 按钮交互
-	SegTypeFile     = "file"     // 文件（含 url, path, file_size 等）
 )
 
 // SegmentData 是消息段的参数字典。
@@ -257,15 +263,15 @@ func (mc MessageChain) FullText() string {
 	return sb.String()
 }
 
-// ToAttachments 从图片/语音/视频段中提取 platform.InboundAttachment。
-func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
-	var result []platform.InboundAttachment
+// ToAttachments 从图片/语音/视频段中提取 platform.Attachment。
+func (mc MessageChain) ToAttachments() []platform.Attachment {
+	var result []platform.Attachment
 	for _, s := range mc {
 		switch s.Type {
 		case SegTypeImage:
 			u := s.ImageURL()
 			if u != "" {
-				result = append(result, platform.InboundAttachment{
+				result = append(result, platform.Attachment{
 					URL:      u,
 					MimeType: "image/*",
 					Name:     s.Data["file"],
@@ -277,7 +283,7 @@ func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
 				u = s.Data["file"]
 			}
 			if u != "" {
-				result = append(result, platform.InboundAttachment{
+				result = append(result, platform.Attachment{
 					URL:      u,
 					MimeType: "audio/*",
 					Name:     s.Data["file"],
@@ -289,7 +295,7 @@ func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
 				u = s.Data["file"]
 			}
 			if u != "" {
-				result = append(result, platform.InboundAttachment{
+				result = append(result, platform.Attachment{
 					URL:      u,
 					MimeType: "video/*",
 					Name:     s.Data["file"],
@@ -298,7 +304,7 @@ func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
 		case SegTypeMface:
 			// 商城表情：若有 url 则作为附件处理
 			if u := s.Data["url"]; u != "" {
-				result = append(result, platform.InboundAttachment{
+				result = append(result, platform.Attachment{
 					URL:      u,
 					MimeType: "image/*",
 					Name:     s.Data["summary"],
@@ -311,7 +317,7 @@ func (mc MessageChain) ToAttachments() []platform.InboundAttachment {
 				u = s.Data["path"]
 			}
 			if u != "" {
-				result = append(result, platform.InboundAttachment{
+				result = append(result, platform.Attachment{
 					URL:      u,
 					MimeType: "application/octet-stream",
 					Name:     s.Data["name"],

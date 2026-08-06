@@ -26,7 +26,7 @@ type onebotEvent struct {
 	chat        platform.ChatInfo
 	content     string
 	timestamp   time.Time
-	attachments []platform.InboundAttachment
+	attachments []platform.Attachment
 	id          string
 	rawType     string
 	rawPayload  any
@@ -38,14 +38,14 @@ type onebotEvent struct {
 
 // ── platform.Event ──────────────────────────────────────────────────────────
 
-func (e *onebotEvent) Platform() string                          { return PlatformID }
-func (e *onebotEvent) Kind() platform.EventKind                  { return e.kind }
-func (e *onebotEvent) ID() string                                { return e.id }
-func (e *onebotEvent) Sender() platform.UserInfo                 { return e.senderInfo }
-func (e *onebotEvent) Chat() platform.ChatInfo                   { return e.chat }
-func (e *onebotEvent) Content() string                           { return e.content }
-func (e *onebotEvent) Timestamp() time.Time                      { return e.timestamp }
-func (e *onebotEvent) Attachments() []platform.InboundAttachment { return e.attachments }
+func (e *onebotEvent) Platform() string                   { return PlatformID }
+func (e *onebotEvent) Kind() platform.EventKind           { return e.kind }
+func (e *onebotEvent) ID() string                         { return e.id }
+func (e *onebotEvent) Sender() platform.UserInfo          { return e.senderInfo }
+func (e *onebotEvent) Chat() platform.ChatInfo            { return e.chat }
+func (e *onebotEvent) Content() string                    { return e.content }
+func (e *onebotEvent) Timestamp() time.Time               { return e.timestamp }
+func (e *onebotEvent) Attachments() []platform.Attachment { return e.attachments }
 
 // ── platform.RawEvent ───────────────────────────────────────────────────────
 
@@ -291,7 +291,44 @@ func parseNoticeEvent(raw []byte) (platform.Event, error) {
 		case NotifySubTypeHonor:
 			e.content = fmt.Sprintf("honor:%s:%s",
 				strconv.FormatInt(ev.UserID, 10), ev.HonorType)
+		case NotifySubTypePokeRecall: // LLOneBot/LuckyLilliaBot 扩展
+			e.content = fmt.Sprintf("poke_recall:%s→%s",
+				strconv.FormatInt(ev.UserID, 10),
+				strconv.FormatInt(ev.TargetID, 10))
+		case NotifySubTypeTitle: // LLOneBot/LuckyLilliaBot 扩展
+			e.content = ev.Title
+		case NotifySubTypeProfileLike: // LLOneBot/LuckyLilliaBot 扩展
+			e.content = fmt.Sprintf("profile_like:%s×%d",
+				strconv.FormatInt(ev.OperatorID, 10), ev.Times)
 		}
+
+	// ── LLOneBot / LuckyLilliaBot 扩展通知 ─────────────────────────────────
+
+	case NoticeTypeGroupCard:
+		e.kind = platform.EventKindMemberUpdate
+		e.rawType = "notice/group_card"
+		e.chat = groupChat(ev.GroupID)
+		e.content = fmt.Sprintf("card:%s→%s", ev.CardOld, ev.CardNew)
+
+	case NoticeTypeGroupDismiss:
+		e.kind = platform.EventKindNotice
+		e.rawType = "notice/group_dismiss"
+		e.chat = groupChat(ev.GroupID)
+
+	case NoticeTypeEssence:
+		e.kind = platform.EventKindNotice
+		e.rawType = "notice/essence/" + ev.SubType
+		e.chat = groupChat(ev.GroupID)
+
+	case NoticeTypeGroupMsgEmojiLike:
+		e.kind = platform.EventKindReaction
+		e.rawType = "notice/group_msg_emoji_like"
+		e.chat = groupChat(ev.GroupID)
+
+	case NoticeTypeFlashFile:
+		e.kind = platform.EventKindNotice
+		e.rawType = "notice/flash_file/" + ev.SubType
+		e.chat = groupChat(ev.GroupID)
 
 	default:
 		e.kind = platform.EventKindNotice
