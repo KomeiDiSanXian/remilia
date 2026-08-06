@@ -304,7 +304,7 @@ func (s *discordSender) SendTyping(_ stdctx.Context, chatID string) error {
 
 // buildMessageSend converts a platform.OutboundMessage to *discordgo.MessageSend.
 func buildMessageSend(msg platform.OutboundMessage, extra MessageExtra) *discordgo.MessageSend {
-	// 出站段优先路径（§4.2）：at 内联 <@id> 保序交错进 Content
+	// 出站段优先路径：at 内联 <@id> 保序交错进 Content
 	if len(msg.Segments) > 0 {
 		msg = discordSegmentsToFlat(msg)
 	}
@@ -354,7 +354,7 @@ func buildMessageSend(msg platform.OutboundMessage, extra MessageExtra) *discord
 
 // buildMessageEdit converts a platform.OutboundMessage to *discordgo.MessageEdit.
 func buildMessageEdit(channelID, messageID string, msg platform.OutboundMessage, extra MessageExtra) *discordgo.MessageEdit {
-	// 出站段优先路径（§4.2）：at 内联 <@id> 保序交错进 Content
+	// 出站段优先路径：at 内联 <@id> 保序交错进 Content
 	if len(msg.Segments) > 0 {
 		msg = discordSegmentsToFlat(msg)
 	}

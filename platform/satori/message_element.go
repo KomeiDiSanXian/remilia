@@ -30,7 +30,7 @@ var quoteIDRe = regexp.MustCompile(`(?i)(?:^|\s)id\s*=\s*["']([^"']*)["']`)
 //
 // 参考：https://satori.chat/zh-CN/protocol/elements.html
 func EncodeOutboundMessage(msg platform.OutboundMessage) string {
-	// 出站段优先路径（§4.2）：按段保序，保留文本夹 at 的交错位置
+	// 出站段优先路径：按段保序，保留文本夹 at 的交错位置
 	if len(msg.Segments) > 0 {
 		return encodeSegments(msg.Segments)
 	}
@@ -100,7 +100,7 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 	return b.String()
 }
 
-// encodeSegments 将统一出站段编码为 Satori XML（保序，§4.2）。
+// encodeSegments 将统一出站段编码为 Satori XML（保序，出站段路径）。
 //
 // 与 EncodeOutboundMessage 的便捷字段路径互补；face → <emoji>（ID 可用时）、
 // forward/unknown 无通用 XML 表达 → 跳过（同平台还原走 RawPayload/Extra 路径）。

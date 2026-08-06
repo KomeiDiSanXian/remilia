@@ -531,7 +531,7 @@ type forwardConfig struct {
 //
 // 目标平台与消息来源平台（Message.Platform）一致时，reply/face/forward/button/unknown
 // 等平台原生段按「同平台透传」处理（原始数据可还原）；
-// 缺省或跨平台时按 §8.4 处置表保守降级。
+// 缺省或跨平台时按内置处置表保守降级（reply/unknown 剥离、face 降 text、forward 摘要）。
 func WithTargetPlatform(platformID string) ForwardOption {
 	return func(c *forwardConfig) { c.targetPlatform = platformID }
 }
@@ -549,7 +549,7 @@ type DegradePolicy func(s Segment, samePlatform bool) []Segment
 // MessageToOutbound 将消息快照转换为出站消息（跨平台转发）。
 //
 // 直接按段 → 段映射，保留文本夹 at 的交错位置；不经扁平字段中转。
-// 转发语义（§8 决议）：
+// 转发语义（转发语义决议）：
 //   - WithTargetPlatform(m.Platform) → 同平台透传（reply/face/forward/button/unknown 还原）
 //   - 缺省/跨平台 → 保守降级（reply/button/unknown 剥离，face 降 text，forward 摘要）
 func MessageToOutbound(m Message, opts ...ForwardOption) OutboundMessage {
@@ -570,7 +570,7 @@ func MessageToOutbound(m Message, opts ...ForwardOption) OutboundMessage {
 	return SegmentsToOutbound(segs)
 }
 
-// degradeSegment 内置处置表（§8.4）。
+// degradeSegment 内置处置表（转发处置表）。
 func degradeSegment(s Segment, samePlatform bool) []Segment {
 	if samePlatform {
 		return []Segment{s}

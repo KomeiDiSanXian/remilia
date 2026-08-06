@@ -84,7 +84,7 @@ func splitMentionEntities(text string, entities []MessageEntity) []platform.Segm
 	return out
 }
 
-// buildTelegramOutboundText 将统一出站段映射为 Telegram 文本（§4.2）。
+// buildTelegramOutboundText 将统一出站段映射为 Telegram 文本。
 //
 // 注意：at 段无法还原为 text_mention 实体（实体需要完整 User 对象，出站仅有
 // UserID）→ 按"尽力降级"渲染为 "@UserID" 文本；reply/face/forward/button/

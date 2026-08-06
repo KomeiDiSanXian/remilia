@@ -52,7 +52,7 @@ func (e *onebotEvent) RawPayload() any { return e.rawPayload }
 
 // ── platform.ReplyEvent ─────────────────────────────────────────────────────
 //
-// Reply 单一真相源：委托段查找（§3.2），杜绝与段双写。
+// Reply 单一真相源：委托段查找，杜绝与段双写。
 
 func (e *onebotEvent) ReplyToID() string { return segmentsReplyToID(e.segments) }
 

@@ -265,7 +265,7 @@ func TestBuildOutgoingSegments_BadMention(t *testing.T) {
 	assert.Equal(t, "text", segs[0].Type)
 }
 
-// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+// ── 出站段路径：Segments 优先、保序、交错 at 保真 ─────────────────────
 
 func TestBuildOutgoingSegments_SegmentsPriority(t *testing.T) {
 	msg := platform.TextMessage("flat")
@@ -277,7 +277,7 @@ func TestBuildOutgoingSegments_SegmentsPriority(t *testing.T) {
 }
 
 func TestBuildOutgoingSegments_SegmentsInterleavedAt(t *testing.T) {
-	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	// 分散 at 基准用例：文本夹 at 保序
 	segs := buildOutgoingSegments(platform.OutboundMessage{Segments: []platform.Segment{
 		{Type: platform.SegmentAt, UserID: "1001"},
 		{Type: platform.SegmentText, Text: "一段文本 "},

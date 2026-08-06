@@ -552,7 +552,7 @@ func (s *milkySender) sendReaction(ctx stdctx.Context, chatID, messageID string,
 
 // buildOutgoingSegments 将 platform.OutboundMessage 转换为 Milky 发送消息段列表。
 func buildOutgoingSegments(msg platform.OutboundMessage) []outgoingSegment {
-	// 出站段优先路径（§4.2）：按段保序，保留文本夹 at 的交错位置
+	// 出站段优先路径：按段保序，保留文本夹 at 的交错位置
 	if len(msg.Segments) > 0 {
 		return buildOutgoingFromSegments(msg.Segments)
 	}

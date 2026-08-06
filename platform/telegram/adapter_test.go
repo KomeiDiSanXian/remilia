@@ -965,7 +965,7 @@ func TestClient_SendMessage_RequestBody(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+// ── 出站段路径：Segments 优先、保序、交错 at 保真 ─────────────────────
 
 func TestSender_SegmentsInterleavedAt(t *testing.T) {
 	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {

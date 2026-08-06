@@ -493,7 +493,7 @@ func (mc MessageChain) ToCQString() string {
 // OutboundToChain 将 platform.OutboundMessage 转换为 OneBot MessageChain。
 //
 // 转换规则：
-//   - Message.Segments 非空 → 按段保序转换（§4.2 出站段路径，保留交错位置）
+//   - Message.Segments 非空 → 按段保序转换（出站段路径，保留交错位置）
 //   - Message.Text / Message.Markdown → 文本段
 //   - Message.ReplyToID              → 回复段（前置）
 //   - Message.Mentions               → at 段（回复段之后前置）

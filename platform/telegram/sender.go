@@ -81,7 +81,7 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 
 	markup := buildInlineKeyboard(msg.Buttons)
 
-	// 出站段优先路径（§4.2）：按段保序发送
+	// 出站段优先路径：按段保序发送
 	if len(msg.Segments) > 0 {
 		return s.sendSegments(ctx, chatID, msg, markup, extra)
 	}
@@ -140,7 +140,7 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 	}, nil
 }
 
-// sendSegments 按统一出站段发送（§4.2 段优先路径）。
+// sendSegments 按统一出站段发送（段优先路径）。
 //
 // 媒体段 → sendWithAttachment（文本部分作为 caption）；纯文本段 → sendMessage。
 // reply 段 → ReplyToMessageID；at 段降级为 "@UserID" 文本（无法还原实体）。

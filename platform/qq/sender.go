@@ -73,7 +73,7 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 
 	msg := req.Message
 
-	// 出站段优先路径（§4.2）：段 → 便捷字段等价物（at 内联标签保序，§7-6 混排受限）
+	// 出站段优先路径：段 → 便捷字段等价物（at 内联标签保序，按钮混排受限）
 	if len(msg.Segments) > 0 {
 		msg = qqSegmentsToFlat(msg)
 	}
@@ -436,12 +436,12 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 	return dtoMsg
 }
 
-// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（§4.2 段路径、§7-6 混排受限）。
+// qqSegmentsToFlat 将统一出站段折叠为 QQ 便捷字段等价物（段路径、混排受限）。
 //
 // QQ 的文本接口支持内联 AT 标签（<qqbot-at-user id="..."/>），因此文本/at
 // 可以保序交错进 Content；媒体取首个（QQ 单媒体限制，富媒体不可混排文本）；
 // reply 段 → ReplyToID（复用既有"引用即被动回复 msg_id / 频道 MessageReference"逻辑）；
-// 按钮不参与段路径（不可与正文混排，§7-6 降级）。
+// 按钮不参与段路径（QQ 按钮不可与正文混排，降级处理）。
 func qqSegmentsToFlat(msg platform.OutboundMessage) platform.OutboundMessage {
 	segs := msg.Segments
 	var sb strings.Builder

@@ -263,7 +263,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		}
 	}
 
-	// 段：文本/at 按 <@id> 占位符位置内联交错（§3.1 基准用例）→ 附件。
+	// 段：文本/at 按 <@id> 占位符位置内联交错（分散 at 基准用例）→ 附件。
 	// 引用消息的正文已由 quoteSegments 输出（含 reply 段），此处不再重复。
 	if !isQuote {
 		e.segments = append(e.segments, splitMentionedContent(content, mentionByID)...)

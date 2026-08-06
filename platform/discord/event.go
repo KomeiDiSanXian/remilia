@@ -52,7 +52,7 @@ func (e *discordEvent) RawPayload() any { return e.rawPayload }
 
 // ── platform.ReplyEvent ─────────────────────────────────────────────────────
 //
-// Reply 单一真相源：委托段查找（§3.2）。
+// Reply 单一真相源：委托段查找。
 
 func (e *discordEvent) ReplyToID() string { return platform.SegmentsReplyToID(e.segments) }
 

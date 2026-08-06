@@ -129,10 +129,10 @@ func TestBuildGuildDTOMessage_MarkdownTemplate(t *testing.T) {
 	assert.Equal(t, "tmpl_chan", guildMsg.Markdown.CustomTemplateID)
 }
 
-// ── 出站段路径（§4.2）：段 → 便捷字段等价物，at 内联标签保序 ──────────────────
+// ── 出站段路径：段 → 便捷字段等价物，at 内联标签保序 ──────────────────
 
 func TestQQSegmentsToFlat_InterleavedAt(t *testing.T) {
-	// 分散 at 基准用例（§3.1）：at 内联标签保序交错
+	// 分散 at 基准用例：at 内联标签保序交错
 	msg := qqSegmentsToFlat(platform.OutboundMessage{Segments: []platform.Segment{
 		{Type: platform.SegmentAt, UserID: "openidA"},
 		{Type: platform.SegmentText, Text: "一段文本 "},
@@ -156,7 +156,7 @@ func TestQQSegmentsToFlat_ReplyAndMedia(t *testing.T) {
 	assert.Equal(t, "hi", msg.Text)
 	require.Len(t, msg.Attachments, 1)
 	assert.Equal(t, "https://ex.com/a.png", msg.Attachments[0].URL)
-	assert.Empty(t, msg.Buttons, "按钮不参与段路径（§7-6 混排受限）")
+	assert.Empty(t, msg.Buttons, "按钮不参与段路径（混排受限）")
 }
 
 func TestConvertButtons_Extra(t *testing.T) {

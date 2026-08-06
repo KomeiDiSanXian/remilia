@@ -398,7 +398,7 @@ func TestConvertEvent_Mentions(t *testing.T) {
 	if !mentions[0].IsSelf {
 		t.Error("被 @ 的是机器人自身，IsSelf 应为 true，否则 OnMentionedBot 不会命中")
 	}
-	// at 剥离（§4.1）：@ 不进入 Content，命令可直接 OnCommand 匹配
+	// at 剥离：@ 不进入 Content，命令可直接 OnCommand 匹配
 	if se.Content() != "你好" {
 		t.Errorf("Content: got %q, want %q（at 已剥离）", se.Content(), "你好")
 	}

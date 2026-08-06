@@ -185,7 +185,7 @@ func TestOutboundToChain_Empty(t *testing.T) {
 	assert.Empty(t, chain)
 }
 
-// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+// ── 出站段路径：Segments 优先、保序、交错 at 保真 ─────────────────────
 
 func TestOutboundToChain_SegmentsPriority(t *testing.T) {
 	// Segments 非空时忽略便捷字段
@@ -197,7 +197,7 @@ func TestOutboundToChain_SegmentsPriority(t *testing.T) {
 }
 
 func TestOutboundToChain_SegmentsInterleavedAt(t *testing.T) {
-	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	// 分散 at 基准用例：文本夹 at 保序
 	segs := []platform.Segment{
 		{Type: platform.SegmentAt, UserID: "A"},
 		{Type: platform.SegmentText, Text: "一段文本 "},
@@ -257,7 +257,7 @@ func TestOutboundChainFromSegments_ForwardNoID(t *testing.T) {
 	assert.Empty(t, chain)
 }
 
-// ── 跨平台转发往返（§3.3）：入站段 → MessageToOutbound → 出站段 ────────────────
+// ── 跨平台转发往返（跨平台转发）：入站段 → MessageToOutbound → 出站段 ────────────────
 
 func TestMessageToOutbound_RoundTripCrossPlatform(t *testing.T) {
 	// 入站：onebot CQ 链（分散 at 基准用例）

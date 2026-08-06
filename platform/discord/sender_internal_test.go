@@ -47,10 +47,10 @@ func TestBuildMentionPrefix_Empty(t *testing.T) {
 	assert.Equal(t, "", result)
 }
 
-// ── 出站段路径（§4.2）：Segments 优先、at 内联 <@id> 保序 ─────────────────────
+// ── 出站段路径：Segments 优先、at 内联 <@id> 保序 ─────────────────────
 
 func TestBuildMessageSend_SegmentsInterleavedAt(t *testing.T) {
-	// 分散 at 基准用例（§3.1）：at 内联 <@id> 保序交错
+	// 分散 at 基准用例：at 内联 <@id> 保序交错
 	msg := buildMessageSend(platform.OutboundMessage{Segments: []platform.Segment{
 		{Type: platform.SegmentAt, UserID: "u1"},
 		{Type: platform.SegmentText, Text: "一段文本 "},

@@ -12,7 +12,7 @@ import (
 //
 // 段是跨平台唯一真相源：Content()/Attachments() 均由本映射结果派生。
 // Discord 无实体 offset 信息，但 mention 在正文中的位置可用
-// "<@id> / <@!id> / <@&role> / <#channel>" 占位符精确还原（§5 已注明）。
+// "<@id> / <@!id> / <@&role> / <#channel>" 占位符精确还原（已注明）。
 
 // mentionTokenRe 匹配 Discord 的四种 mention 占位符：
 //   - <@123>    用户 mention
@@ -21,7 +21,7 @@ import (
 //   - <#123>    频道 mention
 var mentionTokenRe = regexp.MustCompile(`<@!?(\d+)>|<@&(\d+)>|<#(\d+)>`)
 
-// discordSegmentsToFlat 将统一出站段折叠为 Discord 便捷字段等价物（§4.2）。
+// discordSegmentsToFlat 将统一出站段折叠为 Discord 便捷字段等价物。
 //
 // Discord 原生支持 Content 内联 <@id> 渲染 → at 段保序交错进 Content；
 // text 段原文拼接；reply 段 → ReplyToID（MessageReference）；媒体段 → Attachments；

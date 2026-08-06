@@ -127,7 +127,7 @@ func TestSegmentsReplyToID(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 分散 at 基准用例（§3.1）：段 → 出站段 往返保真
+// 分散 at 基准用例：段 → 出站段 往返保真
 // ────────────────────────────────────────────────────────────────────────────
 
 func TestMessageToOutbound_InterleavedAtRoundTrip(t *testing.T) {
@@ -153,7 +153,7 @@ func TestMessageToOutbound_InterleavedAtRoundTrip(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// 转发处置表（§8.4）：同平台透传 vs 跨平台降级
+// 转发处置表（转发处置表）：同平台透传 vs 跨平台降级
 // ────────────────────────────────────────────────────────────────────────────
 
 func TestMessageToOutbound_SamePlatformPassthrough(t *testing.T) {

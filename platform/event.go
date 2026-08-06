@@ -371,7 +371,7 @@ func RawPayload(e Event) any {
 
 // GetReplyToID 安全获取被回复消息的 ID。
 //
-// 派生顺序（§3.2 reply 单一真相源）：段内首个 SegmentReply → 接口断言兜底。
+// 派生顺序（reply 段为单一真相源）：段内首个 SegmentReply → 接口断言兜底。
 // 平台实现其 ReplyToID() 时应直接委托段查找，杜绝双写。
 // 若事件无 reply 段且未实现 [ReplyEvent]，返回空字符串。
 func GetReplyToID(e Event) string {

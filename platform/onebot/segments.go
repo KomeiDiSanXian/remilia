@@ -96,7 +96,7 @@ func segmentsReplyToID(segs []platform.Segment) string {
 	return platform.SegmentsReplyToID(segs)
 }
 
-// segmentToMessageSegment 将统一段逆向映射为 OneBot 段（出站，§4.2）。
+// segmentToMessageSegment 将统一段逆向映射为 OneBot 段（出站段路径）。
 //
 // 已知段全量映射；forward 用 Extra["forward_id"] 还原；button/unknown 无
 // 对应发送能力 → 返回零值（调用方跳过）。

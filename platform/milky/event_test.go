@@ -113,7 +113,7 @@ func TestParseMessageEvent_AllAttachmentTypes(t *testing.T) {
 	evt, err := parseRawEvent(raw)
 	require.NoError(t, err)
 
-	// 段模型（§4）：face/market_face/light_app/xml 为段而非附件；
+	// 段模型：face/market_face/light_app/xml 为段而非附件；
 	// Attachments() 仅派生 image/record/video/file（5 个）。
 	segs := evt.Segments()
 	require.Len(t, segs, 9)

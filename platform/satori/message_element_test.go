@@ -17,7 +17,7 @@ func TestEncodeOutboundMessage_Text(t *testing.T) {
 	}
 }
 
-// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+// ── 出站段路径：Segments 优先、保序、交错 at 保真 ─────────────────────
 
 func TestEncodeOutboundMessage_SegmentsPriority(t *testing.T) {
 	msg := platform.TextMessage("flat")
@@ -29,7 +29,7 @@ func TestEncodeOutboundMessage_SegmentsPriority(t *testing.T) {
 }
 
 func TestEncodeOutboundMessage_SegmentsInterleavedAt(t *testing.T) {
-	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	// 分散 at 基准用例：文本夹 at 保序
 	segs := []platform.Segment{
 		{Type: platform.SegmentAt, UserID: "A"},
 		{Type: platform.SegmentText, Text: "一段文本 "},
