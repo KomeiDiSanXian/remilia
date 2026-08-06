@@ -84,6 +84,26 @@ func splitMentionEntities(text string, entities []MessageEntity) []platform.Segm
 	return out
 }
 
+// buildTelegramOutboundText 将统一出站段映射为 Telegram 文本（§4.2）。
+//
+// 注意：at 段无法还原为 text_mention 实体（实体需要完整 User 对象，出站仅有
+// UserID）→ 按"尽力降级"渲染为 "@UserID" 文本；reply/face/forward/button/
+// unknown 段无文本表达 → 跳过（reply 由调用方经 ReplyToID 单独传递）。
+func buildTelegramOutboundText(segs []platform.Segment) string {
+	var b strings.Builder
+	for _, s := range segs {
+		switch s.Type {
+		case platform.SegmentText:
+			b.WriteString(s.Text)
+		case platform.SegmentAt:
+			b.WriteString("@" + s.UserID)
+		case platform.SegmentMentionAll:
+			b.WriteString("@全体成员")
+		}
+	}
+	return b.String()
+}
+
 // attachmentSegments 将媒体附件映射为媒体段（顺序：photo/audio/video/document/voice/animation/sticker）。
 //
 // 与 collectAttachments 一一对应，保证 Attachments() 派生视图与旧行为一致。

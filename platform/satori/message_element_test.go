@@ -17,6 +17,55 @@ func TestEncodeOutboundMessage_Text(t *testing.T) {
 	}
 }
 
+// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+
+func TestEncodeOutboundMessage_SegmentsPriority(t *testing.T) {
+	msg := platform.TextMessage("flat")
+	msg.Segments = []platform.Segment{{Type: platform.SegmentText, Text: "segmented"}}
+	got := EncodeOutboundMessage(msg)
+	if got != "segmented" {
+		t.Errorf("segments priority: got %q, want %q", got, "segmented")
+	}
+}
+
+func TestEncodeOutboundMessage_SegmentsInterleavedAt(t *testing.T) {
+	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	segs := []platform.Segment{
+		{Type: platform.SegmentAt, UserID: "A"},
+		{Type: platform.SegmentText, Text: "一段文本 "},
+		{Type: platform.SegmentAt, UserID: "B"},
+		{Type: platform.SegmentText, Text: "文本..."},
+	}
+	got := encodeSegments(segs)
+	want := `<at id="A"/>一段文本 <at id="B"/>文本...`
+	if got != want {
+		t.Errorf("interleaved at: got %q, want %q", got, want)
+	}
+}
+
+func TestEncodeOutboundMessage_SegmentsFullMapping(t *testing.T) {
+	segs := []platform.Segment{
+		{Type: platform.SegmentReply, ReplyToID: "r1"},
+		{Type: platform.SegmentMentionAll},
+		{Type: platform.SegmentFace, FaceID: "21"},
+		{Type: platform.SegmentImage, Attachment: platform.Attachment{URL: "https://ex.com/a.jpg", Name: "a.jpg"}},
+		{Type: platform.SegmentAudio, Attachment: platform.Attachment{URL: "https://ex.com/a.mp3"}},
+		{Type: platform.SegmentVideo, Attachment: platform.Attachment{URL: "https://ex.com/a.mp4"}},
+		{Type: platform.SegmentFile, Attachment: platform.Attachment{URL: "https://ex.com/a.pdf", Name: "a.pdf"}},
+		{Type: platform.SegmentForward}, // 跳过
+		{Type: platform.SegmentButton},  // 跳过
+		{Type: platform.SegmentUnknown}, // 跳过
+	}
+	got := encodeSegments(segs)
+	want := `<quote id="r1"/><at type="all"/><emoji id="21"/>` +
+		`<img src="https://ex.com/a.jpg" title="a.jpg"/>` +
+		`<audio src="https://ex.com/a.mp3"/><video src="https://ex.com/a.mp4"/>` +
+		`<file src="https://ex.com/a.pdf" title="a.pdf"/>`
+	if got != want {
+		t.Errorf("full mapping: got %q, want %q", got, want)
+	}
+}
+
 func TestEncodeOutboundMessage_TextEscape(t *testing.T) {
 	msg := platform.TextMessage("<script>alert('xss')</script>")
 	got := EncodeOutboundMessage(msg)

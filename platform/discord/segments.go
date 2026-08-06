@@ -21,6 +21,32 @@ import (
 //   - <#123>    频道 mention
 var mentionTokenRe = regexp.MustCompile(`<@!?(\d+)>|<@&(\d+)>|<#(\d+)>`)
 
+// discordSegmentsToFlat 将统一出站段折叠为 Discord 便捷字段等价物（§4.2）。
+//
+// Discord 原生支持 Content 内联 <@id> 渲染 → at 段保序交错进 Content；
+// text 段原文拼接；reply 段 → ReplyToID（MessageReference）；媒体段 → Attachments；
+// mention_all 无等效表达 → 跳过；face/forward/unknown 无等效 → 跳过；
+// Buttons/Embeds 为段之外的可选便捷字段，保留原值（Discord 支持与正文同发）。
+func discordSegmentsToFlat(msg platform.OutboundMessage) platform.OutboundMessage {
+	segs := msg.Segments
+	var sb strings.Builder
+	for _, s := range segs {
+		switch s.Type {
+		case platform.SegmentText:
+			sb.WriteString(s.Text)
+		case platform.SegmentAt:
+			sb.WriteString("<@" + s.UserID + ">")
+		}
+	}
+	msg.Segments = nil
+	msg.Text = sb.String()
+	msg.Markdown = ""
+	msg.Mentions = nil // 已内联进 Content
+	msg.ReplyToID = platform.SegmentsReplyToID(segs)
+	msg.Attachments = platform.SegmentsAttachments(segs)
+	return msg
+}
+
 // buildDiscordSegments 将 Discord Message 映射为保序统一段。
 //
 // 顺序：reply 段（MessageReference 前置）→ 文本/at 交错段 → 媒体段。

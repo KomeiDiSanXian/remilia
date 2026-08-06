@@ -30,6 +30,11 @@ var quoteIDRe = regexp.MustCompile(`(?i)(?:^|\s)id\s*=\s*["']([^"']*)["']`)
 //
 // 参考：https://satori.chat/zh-CN/protocol/elements.html
 func EncodeOutboundMessage(msg platform.OutboundMessage) string {
+	// 出站段优先路径（§4.2）：按段保序，保留文本夹 at 的交错位置
+	if len(msg.Segments) > 0 {
+		return encodeSegments(msg.Segments)
+	}
+
 	var b strings.Builder
 
 	// 引用（回复）元素 – 必须出现在最前面
@@ -93,6 +98,58 @@ func EncodeOutboundMessage(msg platform.OutboundMessage) string {
 	}
 
 	return b.String()
+}
+
+// encodeSegments 将统一出站段编码为 Satori XML（保序，§4.2）。
+//
+// 与 EncodeOutboundMessage 的便捷字段路径互补；face → <emoji>（ID 可用时）、
+// forward/unknown 无通用 XML 表达 → 跳过（同平台还原走 RawPayload/Extra 路径）。
+func encodeSegments(segs []platform.Segment) string {
+	var b strings.Builder
+	for _, s := range segs {
+		switch s.Type {
+		case platform.SegmentText:
+			b.WriteString(escapeText(s.Text))
+		case platform.SegmentAt:
+			fmt.Fprintf(&b, `<at id=%s/>`, escapeAttr(s.UserID))
+		case platform.SegmentMentionAll:
+			b.WriteString(`<at type="all"/>`)
+		case platform.SegmentReply:
+			fmt.Fprintf(&b, `<quote id=%s/>`, escapeAttr(s.ReplyToID))
+		case platform.SegmentImage:
+			writeMedia(&b, "img", s.Attachment)
+		case platform.SegmentAudio:
+			writeMedia(&b, "audio", s.Attachment)
+		case platform.SegmentVideo:
+			writeMedia(&b, "video", s.Attachment)
+		case platform.SegmentFile:
+			writeMedia(&b, "file", s.Attachment)
+		case platform.SegmentFace:
+			if s.FaceID != "" {
+				fmt.Fprintf(&b, `<emoji id=%s/>`, escapeAttr(s.FaceID))
+			}
+		default:
+			// forward/button/unknown：跳过（无通用 XML 表达）
+		}
+	}
+	return b.String()
+}
+
+// writeMedia 输出媒体元素（URL 为空时跳过——仅含数据的附件需先上传）。
+func writeMedia(b *strings.Builder, tag string, att platform.Attachment) {
+	if att.URL == "" {
+		return
+	}
+	switch tag {
+	case "img", "file":
+		if att.Name != "" {
+			fmt.Fprintf(b, `<%s src=%s title=%s/>`, tag, escapeAttr(att.URL), escapeAttr(att.Name))
+		} else {
+			fmt.Fprintf(b, `<%s src=%s/>`, tag, escapeAttr(att.URL))
+		}
+	default:
+		fmt.Fprintf(b, `<%s src=%s/>`, tag, escapeAttr(att.URL))
+	}
 }
 
 // escapeText 转义 Satori XML 消息内容中具有特殊含义的字符：<、>、& 和 "。

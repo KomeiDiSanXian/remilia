@@ -965,6 +965,55 @@ func TestClient_SendMessage_RequestBody(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+
+func TestSender_SegmentsInterleavedAt(t *testing.T) {
+	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		assert.Equal(t, "100", body["chat_id"])
+		// at 段降级为 "@ID" 文本，保序拼接（原文不含 at 后空格）
+		assert.Equal(t, "@42一段文本 @7文本...", body["text"])
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 1}})
+	})
+	defer srv.Close()
+
+	sender := telegram.NewSender(newTestClient("test:token", srv.URL), "bot1")
+	_, err := sender.Send(context.Background(), platform.SendRequest{
+		Target: platform.ChatInfo{ID: "100"},
+		Message: platform.OutboundMessage{Segments: []platform.Segment{
+			{Type: platform.SegmentAt, UserID: "42"},
+			{Type: platform.SegmentText, Text: "一段文本 "},
+			{Type: platform.SegmentAt, UserID: "7"},
+			{Type: platform.SegmentText, Text: "文本..."},
+		}},
+	})
+	assert.NoError(t, err)
+}
+
+func TestSender_SegmentsReplyToMessageID(t *testing.T) {
+	srv := testAPIFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		assert.Equal(t, float64(555), body["reply_to_message_id"])
+		assert.Equal(t, "hi", body["text"])
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 2}})
+	})
+	defer srv.Close()
+
+	sender := telegram.NewSender(newTestClient("test:token", srv.URL), "bot1")
+	_, err := sender.Send(context.Background(), platform.SendRequest{
+		Target: platform.ChatInfo{ID: "100"},
+		Message: platform.OutboundMessage{Segments: []platform.Segment{
+			{Type: platform.SegmentReply, ReplyToID: "555"},
+			{Type: platform.SegmentText, Text: "hi"},
+		}},
+	})
+	assert.NoError(t, err)
+}
+
 // ── Context cancellation ────────────────────────────────────────────────────
 
 func TestClient_ContextCancellation(t *testing.T) {

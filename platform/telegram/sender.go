@@ -81,6 +81,11 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 
 	markup := buildInlineKeyboard(msg.Buttons)
 
+	// 出站段优先路径（§4.2）：按段保序发送
+	if len(msg.Segments) > 0 {
+		return s.sendSegments(ctx, chatID, msg, markup, extra)
+	}
+
 	text := msg.Markdown
 	parseMode := parseModeMarkdown
 	if text == "" {
@@ -132,6 +137,46 @@ func (s *telegramSender) Send(ctx stdctx.Context, req platform.SendRequest) (pla
 	return platform.SendResult{
 		Platform:  PlatformID,
 		MessageID: msgID,
+	}, nil
+}
+
+// sendSegments 按统一出站段发送（§4.2 段优先路径）。
+//
+// 媒体段 → sendWithAttachment（文本部分作为 caption）；纯文本段 → sendMessage。
+// reply 段 → ReplyToMessageID；at 段降级为 "@UserID" 文本（无法还原实体）。
+func (s *telegramSender) sendSegments(ctx stdctx.Context, chatID string, msg platform.OutboundMessage, markup *InlineKeyboardMarkup, extra MessageExtra) (platform.SendResult, error) {
+	text := buildTelegramOutboundText(msg.Segments)
+	replyToID := parseMessageID(platform.SegmentsReplyToID(msg.Segments))
+	atts := platform.SegmentsAttachments(msg.Segments)
+
+	if len(atts) > 0 {
+		return s.sendWithAttachment(ctx, chatID, text, "", replyToID, atts, markup, extra)
+	}
+
+	if text == "" && len(msg.Buttons) == 0 {
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrUnsupported, PlatformID, chatID,
+			"no content to send", 0, nil,
+		)
+	}
+
+	payload := &SendMessagePayload{
+		ChatID:           chatID,
+		Text:             text,
+		ReplyToMessageID: replyToID,
+		ReplyMarkup:      markup,
+		MessageOptions:   extra.messageOptions(),
+	}
+	resp, err := s.client.SendMessage(ctx, payload)
+	if err != nil {
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrPlatform, PlatformID, chatID,
+			err.Error(), 0, err,
+		)
+	}
+	return platform.SendResult{
+		Platform:  PlatformID,
+		MessageID: extractMessageID(resp),
 	}, nil
 }
 

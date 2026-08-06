@@ -47,6 +47,33 @@ func TestBuildMentionPrefix_Empty(t *testing.T) {
 	assert.Equal(t, "", result)
 }
 
+// ── 出站段路径（§4.2）：Segments 优先、at 内联 <@id> 保序 ─────────────────────
+
+func TestBuildMessageSend_SegmentsInterleavedAt(t *testing.T) {
+	// 分散 at 基准用例（§3.1）：at 内联 <@id> 保序交错
+	msg := buildMessageSend(platform.OutboundMessage{Segments: []platform.Segment{
+		{Type: platform.SegmentAt, UserID: "u1"},
+		{Type: platform.SegmentText, Text: "一段文本 "},
+		{Type: platform.SegmentAt, UserID: "u2"},
+		{Type: platform.SegmentText, Text: "文本..."},
+	}}, MessageExtra{})
+	assert.Equal(t, "<@u1>一段文本 <@u2>文本...", msg.Content)
+}
+
+func TestBuildMessageSend_SegmentsReplyAndMedia(t *testing.T) {
+	msg := buildMessageSend(platform.OutboundMessage{Segments: []platform.Segment{
+		{Type: platform.SegmentReply, ReplyToID: "r1"},
+		{Type: platform.SegmentText, Text: "hi"},
+		{Type: platform.SegmentImage, Attachment: platform.Attachment{Data: []byte("png"), Name: "a.png", Kind: platform.AttachmentKindImage}},
+		{Type: platform.SegmentFace, FaceID: "21"}, // 无等效 → 跳过
+		{Type: platform.SegmentForward},            // 无等效 → 跳过
+	}}, MessageExtra{})
+	assert.Equal(t, "hi", msg.Content)
+	require.NotNil(t, msg.Reference)
+	assert.Equal(t, "r1", msg.Reference.MessageID)
+	require.Len(t, msg.Files, 1)
+}
+
 func TestConvertEmbeds(t *testing.T) {
 	embeds := []platform.Embed{
 		{

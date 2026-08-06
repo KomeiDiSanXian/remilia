@@ -281,6 +281,50 @@ func toMessageSegments(segs []incomingSegment) []MessageSegment {
 	return out
 }
 
+// toIncomingSegments 将历史消息段反向转换为入站段结构（共享段映射用）。
+func toIncomingSegments(segs []MessageSegment) []incomingSegment {
+	out := make([]incomingSegment, len(segs))
+	for i, s := range segs {
+		out[i] = incomingSegment{
+			Type: s.Type,
+			Data: incomingSegmentData{
+				Text:           s.Data.Text,
+				UserID:         s.Data.UserID,
+				Name:           s.Data.Name,
+				FaceID:         s.Data.FaceID,
+				IsLarge:        s.Data.IsLarge,
+				MessageSeq:     s.Data.MessageSeq,
+				SenderID:       s.Data.SenderID,
+				SenderName:     s.Data.SenderName,
+				ReplyTime:      s.Data.ReplyTime,
+				ResourceID:     s.Data.ResourceID,
+				TempURL:        s.Data.TempURL,
+				SubType:        s.Data.SubType,
+				Width:          s.Data.Width,
+				Height:         s.Data.Height,
+				Duration:       s.Data.Duration,
+				FileID:         s.Data.FileID,
+				FileName:       s.Data.FileName,
+				FileSize:       s.Data.FileSize,
+				FileHash:       s.Data.FileHash,
+				ForwardID:      s.Data.ForwardID,
+				Title:          s.Data.Title,
+				Preview:        s.Data.Preview,
+				Summary:        s.Data.Summary,
+				EmojiPackageID: s.Data.EmojiPackageID,
+				EmojiID:        s.Data.EmojiID,
+				EmojiKey:       s.Data.EmojiKey,
+				EmojiURL:       s.Data.EmojiURL,
+				AppName:        s.Data.AppName,
+				JSONPayload:    s.Data.JSONPayload,
+				ServiceID:      s.Data.ServiceID,
+				XMLPayload:     s.Data.XMLPayload,
+			},
+		}
+	}
+	return out
+}
+
 func toMessage(m incomingMessage) Message {
 	return Message{
 		Scene:      m.MessageScene,

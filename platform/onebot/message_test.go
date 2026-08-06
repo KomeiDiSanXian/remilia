@@ -185,6 +185,123 @@ func TestOutboundToChain_Empty(t *testing.T) {
 	assert.Empty(t, chain)
 }
 
+// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+
+func TestOutboundToChain_SegmentsPriority(t *testing.T) {
+	// Segments 非空时忽略便捷字段
+	msg := platform.TextMessage("flat")
+	msg.Segments = []platform.Segment{{Type: platform.SegmentText, Text: "segmented"}}
+	chain := OutboundToChain(msg)
+	require.Len(t, chain, 1)
+	assert.Equal(t, "segmented", chain[0].TextData())
+}
+
+func TestOutboundToChain_SegmentsInterleavedAt(t *testing.T) {
+	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	segs := []platform.Segment{
+		{Type: platform.SegmentAt, UserID: "A"},
+		{Type: platform.SegmentText, Text: "一段文本 "},
+		{Type: platform.SegmentAt, UserID: "B"},
+		{Type: platform.SegmentText, Text: "又是一段文本 "},
+		{Type: platform.SegmentAt, UserID: "C"},
+		{Type: platform.SegmentAt, UserID: "D"},
+		{Type: platform.SegmentText, Text: "文本..."},
+		{Type: platform.SegmentAt, UserID: "E"},
+	}
+	chain := OutboundChainFromSegments(segs)
+	require.Len(t, chain, 8)
+	assert.Equal(t, "at", chain[0].Type)
+	assert.Equal(t, "A", chain[0].AtQQ())
+	assert.Equal(t, "text", chain[1].Type)
+	assert.Equal(t, "一段文本 ", chain[1].TextData())
+	assert.Equal(t, "at", chain[2].Type)
+	assert.Equal(t, "B", chain[2].AtQQ())
+	assert.Equal(t, "at", chain[5].Type)
+	assert.Equal(t, "D", chain[5].AtQQ())
+	assert.Equal(t, "at", chain[7].Type)
+	assert.Equal(t, "E", chain[7].AtQQ())
+}
+
+func TestOutboundChainFromSegments_FullMapping(t *testing.T) {
+	segs := []platform.Segment{
+		{Type: platform.SegmentReply, ReplyToID: "r1"},
+		{Type: platform.SegmentMentionAll},
+		{Type: platform.SegmentFace, FaceID: "21"},
+		{Type: platform.SegmentImage, Attachment: platform.Attachment{URL: "u1", MimeType: "image/png"}},
+		{Type: platform.SegmentAudio, Attachment: platform.Attachment{URL: "u2"}},
+		{Type: platform.SegmentVideo, Attachment: platform.Attachment{URL: "u3"}},
+		{Type: platform.SegmentFile, Attachment: platform.Attachment{URL: "u4", Name: "f.pdf"}},
+		{Type: platform.SegmentForward, Extra: map[string]any{"forward_id": "fwd1"}},
+		{Type: platform.SegmentButton},                                        // 无发送能力 → 跳过
+		{Type: platform.SegmentUnknown, Extra: map[string]any{"type": "xml"}}, // 跳过
+	}
+	chain := OutboundChainFromSegments(segs)
+	require.Len(t, chain, 8)
+	assert.Equal(t, "reply", chain[0].Type)
+	assert.Equal(t, SegTypeAt, chain[1].Type)
+	assert.Equal(t, "all", chain[1].AtQQ())
+	assert.Equal(t, "face", chain[2].Type)
+	assert.Equal(t, "21", chain[2].Data["id"])
+	assert.Equal(t, "image", chain[3].Type)
+	assert.Equal(t, "record", chain[4].Type)
+	assert.Equal(t, "video", chain[5].Type)
+	assert.Equal(t, "file", chain[6].Type)
+	assert.Equal(t, "f.pdf", chain[6].Data["name"])
+	assert.Equal(t, "forward", chain[7].Type)
+	assert.Equal(t, "fwd1", chain[7].Data["id"])
+}
+
+func TestOutboundChainFromSegments_ForwardNoID(t *testing.T) {
+	// 无 forward_id 的 forward 段（跨平台摘要已降级为 text，此路径为同平台异常）→ 跳过
+	chain := OutboundChainFromSegments([]platform.Segment{{Type: platform.SegmentForward}})
+	assert.Empty(t, chain)
+}
+
+// ── 跨平台转发往返（§3.3）：入站段 → MessageToOutbound → 出站段 ────────────────
+
+func TestMessageToOutbound_RoundTripCrossPlatform(t *testing.T) {
+	// 入站：onebot CQ 链（分散 at 基准用例）
+	chain := MessageChain{
+		{Type: SegTypeText, Data: map[string]string{"text": "@A用户 一段文本 "}},
+		{Type: SegTypeAt, Data: map[string]string{"qq": "B"}},
+		{Type: SegTypeText, Data: map[string]string{"text": " 又是一段文本 "}},
+		{Type: SegTypeAt, Data: map[string]string{"qq": "C"}},
+		{Type: SegTypeAt, Data: map[string]string{"qq": "D"}},
+		{Type: SegTypeText, Data: map[string]string{"text": " 文本..."}},
+		{Type: SegTypeAt, Data: map[string]string{"qq": "E"}},
+		{Type: SegTypeFace, Data: map[string]string{"id": "21"}},
+		{Type: SegTypeReply, Data: map[string]string{"id": "5000"}},
+	}
+	inSegs := chain.Segments()
+
+	// 跨平台转发（缺省保守）：face → text，reply 剥离
+	m := platform.Message{Platform: PlatformID, Segments: inSegs}
+	out := platform.MessageToOutbound(m)
+	require.Len(t, out.Segments, 8)
+
+	// 出站：目标平台（discord 风格）内联渲染
+	content := ""
+	for _, s := range out.Segments {
+		switch s.Type {
+		case platform.SegmentText:
+			content += s.Text
+		case platform.SegmentAt:
+			content += "<@" + s.UserID + ">"
+		}
+	}
+	want := "@A用户 一段文本 <@B> 又是一段文本 <@C><@D> 文本...<@E>21"
+	assert.Equal(t, want, content)
+	assert.Empty(t, out.ReplyToID, "跨平台 reply 段应剥离")
+
+	// 同平台转发（WithTargetPlatform）：全量透传
+	same := platform.MessageToOutbound(m, platform.WithTargetPlatform(PlatformID))
+	require.Len(t, same.Segments, len(inSegs))
+	for i := range inSegs {
+		assert.Equal(t, inSegs[i], same.Segments[i], "同平台第 %d 段应保真", i)
+	}
+	assert.Equal(t, "5000", same.ReplyToID)
+}
+
 func TestAttachmentToSegment_Image(t *testing.T) {
 	seg := attachmentToSegment(platform.Attachment{URL: "https://ex.com/img.jpg", MimeType: "image/jpeg"})
 	assert.Equal(t, "image", seg.Type)

@@ -265,6 +265,67 @@ func TestBuildOutgoingSegments_BadMention(t *testing.T) {
 	assert.Equal(t, "text", segs[0].Type)
 }
 
+// ── 出站段路径（§4.2）：Segments 优先、保序、交错 at 保真 ─────────────────────
+
+func TestBuildOutgoingSegments_SegmentsPriority(t *testing.T) {
+	msg := platform.TextMessage("flat")
+	msg.Segments = []platform.Segment{{Type: platform.SegmentText, Text: "segmented"}}
+	segs := buildOutgoingSegments(msg)
+	require.Len(t, segs, 1)
+	assert.Equal(t, "text", segs[0].Type)
+	assert.Equal(t, "segmented", segs[0].Data.Text)
+}
+
+func TestBuildOutgoingSegments_SegmentsInterleavedAt(t *testing.T) {
+	// 分散 at 基准用例（§3.1）：文本夹 at 保序
+	segs := buildOutgoingSegments(platform.OutboundMessage{Segments: []platform.Segment{
+		{Type: platform.SegmentAt, UserID: "1001"},
+		{Type: platform.SegmentText, Text: "一段文本 "},
+		{Type: platform.SegmentAt, UserID: "1002"},
+		{Type: platform.SegmentText, Text: "文本..."},
+	}})
+	require.Len(t, segs, 4)
+	assert.Equal(t, "mention", segs[0].Type)
+	assert.Equal(t, int64(1001), segs[0].Data.UserID)
+	assert.Equal(t, "text", segs[1].Type)
+	assert.Equal(t, "一段文本 ", segs[1].Data.Text)
+	assert.Equal(t, "mention", segs[2].Type)
+	assert.Equal(t, "text", segs[3].Type)
+}
+
+func TestBuildOutgoingSegments_SegmentsFullMapping(t *testing.T) {
+	segs := buildOutgoingSegments(platform.OutboundMessage{Segments: []platform.Segment{
+		{Type: platform.SegmentReply, ReplyToID: "42"},
+		{Type: platform.SegmentMentionAll},
+		{Type: platform.SegmentFace, FaceID: "21"},
+		{Type: platform.SegmentImage, Attachment: platform.Attachment{URL: "https://ex.com/a.jpg"}},
+		{Type: platform.SegmentAudio, Attachment: platform.Attachment{URL: "https://ex.com/a.mp3"}},
+		{Type: platform.SegmentVideo, Attachment: platform.Attachment{URL: "https://ex.com/a.mp4"}},
+		{Type: platform.SegmentFile, Attachment: platform.Attachment{URL: "https://ex.com/a.pdf"}}, // 跳过（upload API）
+		{Type: platform.SegmentForward},                                                            // 跳过
+		{Type: platform.SegmentButton},                                                             // 跳过
+		{Type: platform.SegmentUnknown},                                                            // 跳过
+	}})
+	require.Len(t, segs, 6)
+	assert.Equal(t, "reply", segs[0].Type)
+	assert.Equal(t, int64(42), segs[0].Data.MessageSeq)
+	assert.Equal(t, "mention_all", segs[1].Type)
+	assert.Equal(t, "face", segs[2].Type)
+	assert.Equal(t, "21", segs[2].Data.FaceID)
+	assert.Equal(t, "image", segs[3].Type)
+	assert.Equal(t, "https://ex.com/a.jpg", segs[3].Data.URI)
+	assert.Equal(t, "record", segs[4].Type)
+	assert.Equal(t, "video", segs[5].Type)
+}
+
+func TestBuildOutgoingSegments_SegmentsBase64Data(t *testing.T) {
+	segs := buildOutgoingSegments(platform.OutboundMessage{Segments: []platform.Segment{
+		{Type: platform.SegmentImage, Attachment: platform.Attachment{Data: []byte{1, 2, 3}}},
+	}})
+	require.Len(t, segs, 1)
+	assert.Equal(t, "base64://AQID", segs[0].Data.URI)
+}
+
 func TestConvertOutgoingSegment_UnknownType(t *testing.T) {
 	result := convertOutgoingSegment(nil)
 	assert.Nil(t, result)

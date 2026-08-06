@@ -223,8 +223,16 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 	}
 
 	// 解析消息段（保序输出统一段）
-	segs := make([]platform.Segment, 0, len(msg.Segments))
-	for _, seg := range msg.Segments {
+	e.segments = incomingSegmentsToPlatform(msg.Segments)
+	return e, nil
+}
+
+// incomingSegmentsToPlatform 将 Milky 入站消息段映射为统一段（保序）。
+//
+// 事件解析与历史消息快照（toPlatformMessages）共用同一映射，保证视图一致。
+func incomingSegmentsToPlatform(incoming []incomingSegment) []platform.Segment {
+	segs := make([]platform.Segment, 0, len(incoming))
+	for _, seg := range incoming {
 		switch seg.Type {
 		case "text":
 			segs = append(segs, platform.Segment{Type: platform.SegmentText, Text: seg.Data.Text})
@@ -324,9 +332,7 @@ func parseMessageEvent(e *milkyEvent, data []byte) (platform.Event, error) {
 			segs = append(segs, platform.Segment{Type: platform.SegmentUnknown, Extra: map[string]any{"type": seg.Type}})
 		}
 	}
-
-	e.segments = segs
-	return e, nil
+	return segs
 }
 
 // ── message_recall ───────────────────────────────────────────────────────────

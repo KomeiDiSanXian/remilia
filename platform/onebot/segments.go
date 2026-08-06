@@ -95,3 +95,65 @@ func segmentsToMentions(segs []platform.Segment, botID string) []platform.UserIn
 func segmentsReplyToID(segs []platform.Segment) string {
 	return platform.SegmentsReplyToID(segs)
 }
+
+// segmentToMessageSegment 将统一段逆向映射为 OneBot 段（出站，§4.2）。
+//
+// 已知段全量映射；forward 用 Extra["forward_id"] 还原；button/unknown 无
+// 对应发送能力 → 返回零值（调用方跳过）。
+func segmentToMessageSegment(s platform.Segment) (MessageSegment, bool) {
+	switch s.Type {
+	case platform.SegmentText:
+		return textSegment(s.Text), true
+	case platform.SegmentAt:
+		return MessageSegment{Type: SegTypeAt, Data: map[string]string{"qq": s.UserID}}, true
+	case platform.SegmentMentionAll:
+		return MessageSegment{Type: SegTypeAt, Data: map[string]string{"qq": "all"}}, true
+	case platform.SegmentImage:
+		return mediaSegmentToChain(s.Attachment, SegTypeImage), true
+	case platform.SegmentAudio:
+		return mediaSegmentToChain(s.Attachment, SegTypeRecord), true
+	case platform.SegmentVideo:
+		return mediaSegmentToChain(s.Attachment, SegTypeVideo), true
+	case platform.SegmentFile:
+		return mediaSegmentToChain(s.Attachment, SegTypeFile), true
+	case platform.SegmentFace:
+		return MessageSegment{Type: SegTypeFace, Data: map[string]string{"id": s.FaceID}}, true
+	case platform.SegmentReply:
+		return MessageSegment{Type: SegTypeReply, Data: map[string]string{"id": s.ReplyToID}}, true
+	case platform.SegmentForward:
+		if id, ok := s.Extra["forward_id"].(string); ok && id != "" {
+			return MessageSegment{Type: SegTypeForward, Data: map[string]string{"id": id}}, true
+		}
+		return MessageSegment{}, false
+	default:
+		return MessageSegment{}, false
+	}
+}
+
+// mediaSegmentToChain 将统一附件段映射为 OneBot 媒体段。
+func mediaSegmentToChain(att platform.Attachment, segType string) MessageSegment {
+	data := map[string]string{"file": att.URL}
+	if att.URL == "" {
+		data["file"] = att.Name
+	}
+	if segType == SegTypeFile && att.Name != "" {
+		data["name"] = att.Name
+	}
+	return MessageSegment{Type: segType, Data: data}
+}
+
+// OutboundChainFromSegments 将统一出站段转换为 OneBot MessageChain（保序）。
+//
+// 与 OutboundToChain 的便捷字段路径互补：段路径保留文本夹 at 的交错位置；
+// 无法映射的段（button/unknown）跳过，不中断整体发送。
+func OutboundChainFromSegments(segs []platform.Segment) MessageChain {
+	var chain MessageChain
+	for _, s := range segs {
+		seg, ok := segmentToMessageSegment(s)
+		if !ok {
+			continue
+		}
+		chain = append(chain, seg)
+	}
+	return chain
+}

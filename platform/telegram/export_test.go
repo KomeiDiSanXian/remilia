@@ -19,6 +19,7 @@ var (
 	NewMessageEvent       = newMessageEvent
 	NewCallbackQueryEvent = newCallbackQueryEvent
 	NewChatMemberEvent    = newChatMemberEvent
+	NewSender             = newSender
 
 	// For Client testing with a custom base URL
 	SetClientBaseURL = func(c *Client, baseURL string) {

@@ -129,62 +129,17 @@ func (s *milkySender) GetFriendHistory(ctx stdctx.Context, chatID string, limit 
 func toPlatformMessages(msgs []Message, scene string) []platform.Message {
 	out := make([]platform.Message, 0, len(msgs))
 	for _, m := range msgs {
-		var text string
-		var atts []platform.Attachment
-		var mentions []platform.UserInfo
-		var replyID string
-		for _, seg := range m.Segments {
-			switch seg.Type {
-			case "text":
-				text += seg.Data.Text
-			case "mention":
-				mentions = append(mentions, platform.UserInfo{
-					ID:          strconv.FormatInt(seg.Data.UserID, 10),
-					DisplayName: seg.Data.Name,
-				})
-			case "mention_all":
-				// @全体成员——无具体用户信息
-			case "reply":
-				replyID = strconv.FormatInt(seg.Data.MessageSeq, 10)
-			case "face":
-				atts = append(atts, platform.Attachment{
-					Extra: map[string]any{ExtraKeyFace: &FaceSegmentMeta{FaceID: seg.Data.FaceID, IsLarge: seg.Data.IsLarge}},
-				})
-			case "image":
-				atts = append(atts, platform.Attachment{
-					URL:      seg.Data.TempURL,
-					MimeType: "image/jpeg",
-					Width:    seg.Data.Width,
-					Height:   seg.Data.Height,
-					Extra:    map[string]any{ExtraKeyImage: &ImageSegmentMeta{SubType: seg.Data.SubType, ResourceID: seg.Data.ResourceID}},
-				})
-			case "record":
-				atts = append(atts, platform.Attachment{
-					URL:      seg.Data.TempURL,
-					MimeType: "audio/mpeg",
-					Extra:    map[string]any{ExtraKeyRecord: &RecordSegmentMeta{ResourceID: seg.Data.ResourceID, Duration: seg.Data.Duration}},
-				})
-			case "file":
-				atts = append(atts, platform.Attachment{
-					Name: seg.Data.FileName,
-					Size: int(seg.Data.FileSize),
-					Extra: map[string]any{ExtraKeyFile: &FileSegmentMeta{
-						FileID:   seg.Data.FileID,
-						FileName: seg.Data.FileName,
-						FileSize: seg.Data.FileSize,
-						FileHash: seg.Data.FileHash,
-					}},
-				})
-			}
-		}
+		segs := incomingSegmentsToPlatform(toIncomingSegments(m.Segments))
 		out = append(out, platform.Message{
 			ID:          strconv.FormatInt(m.MessageSeq, 10),
+			Platform:    PlatformID,
 			Sender:      platform.UserInfo{ID: strconv.FormatInt(m.SenderID, 10)},
 			Chat:        platform.ChatInfo{ID: encodeChatID(scene, m.PeerID), IsGroup: scene == sceneGroup},
-			Content:     text,
-			Attachments: atts,
-			Mentions:    mentions,
-			ReplyToID:   replyID,
+			Segments:    segs,
+			Content:     platform.SegmentsContent(segs),
+			Attachments: platform.SegmentsAttachments(segs),
+			Mentions:    platform.SegmentsMentions(segs, ""),
+			ReplyToID:   platform.SegmentsReplyToID(segs),
 			Timestamp:   time.Unix(m.Time, 0),
 		})
 	}
@@ -597,6 +552,11 @@ func (s *milkySender) sendReaction(ctx stdctx.Context, chatID, messageID string,
 
 // buildOutgoingSegments 将 platform.OutboundMessage 转换为 Milky 发送消息段列表。
 func buildOutgoingSegments(msg platform.OutboundMessage) []outgoingSegment {
+	// 出站段优先路径（§4.2）：按段保序，保留文本夹 at 的交错位置
+	if len(msg.Segments) > 0 {
+		return buildOutgoingFromSegments(msg.Segments)
+	}
+
 	var segs []outgoingSegment
 
 	// 引用回复（必须排在最前面）
@@ -674,6 +634,57 @@ func buildOutgoingSegments(msg platform.OutboundMessage) []outgoingSegment {
 	}
 
 	return segs
+}
+
+// buildOutgoingFromSegments 将统一出站段转换为 Milky 发送消息段（保序）。
+//
+// 与 buildOutgoingSegments 的便捷字段路径互补；文件段与便捷路径一致刻意跳过
+// （由 milkySender.Send 通过 upload_*_file 单独上传）；button/unknown 无发送
+// 能力 → 跳过；forward 无通用载荷 → 跳过（同平台还原走 MessageExtra 路径）。
+func buildOutgoingFromSegments(segs []platform.Segment) []outgoingSegment {
+	var out []outgoingSegment
+	for _, s := range segs {
+		switch s.Type {
+		case platform.SegmentText:
+			out = append(out, outgoingSegment{Type: "text", Data: outgoingSegData{Text: s.Text}})
+		case platform.SegmentAt:
+			uin, err := strconv.ParseInt(s.UserID, 10, 64)
+			if err != nil {
+				continue
+			}
+			out = append(out, outgoingSegment{Type: "mention", Data: outgoingSegData{UserID: uin}})
+		case platform.SegmentMentionAll:
+			out = append(out, outgoingSegment{Type: "mention_all", Data: outgoingSegData{}})
+		case platform.SegmentFace:
+			out = append(out, outgoingSegment{Type: "face", Data: outgoingSegData{FaceID: s.FaceID}})
+		case platform.SegmentReply:
+			seq, err := strconv.ParseInt(s.ReplyToID, 10, 64)
+			if err != nil {
+				continue
+			}
+			out = append(out, outgoingSegment{Type: "reply", Data: outgoingSegData{MessageSeq: seq}})
+		case platform.SegmentImage:
+			out = append(out, outgoingSegment{Type: "image", Data: outgoingSegData{URI: mediaURI(s.Attachment), SubType: "normal"}})
+		case platform.SegmentAudio:
+			out = append(out, outgoingSegment{Type: "record", Data: outgoingSegData{URI: mediaURI(s.Attachment)}})
+		case platform.SegmentVideo:
+			out = append(out, outgoingSegment{Type: "video", Data: outgoingSegData{URI: mediaURI(s.Attachment)}})
+		default:
+			// file/forward/button/unknown：跳过（见函数注释）
+		}
+	}
+	return out
+}
+
+// mediaURI 提取统一附件段的发送 URI（URL 优先，二进制 Data 转 base64）。
+func mediaURI(att platform.Attachment) string {
+	if att.URL != "" {
+		return att.URL
+	}
+	if len(att.Data) > 0 {
+		return "base64://" + base64.StdEncoding.EncodeToString(att.Data)
+	}
+	return ""
 }
 
 // convertOutgoingSegment 将 Milky 特有的 OutgoingSegment 接口值转换为内部 outgoingSegment。
