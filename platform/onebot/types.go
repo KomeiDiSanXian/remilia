@@ -1431,7 +1431,7 @@ type GroupAlbumMedia struct {
 
 // GetGroupAlbumMediaListResult 是 get_group_album_media_list 的响应数据。
 type GetGroupAlbumMediaListResult struct {
-	Album          GroupAlbum        `json:"album,omitempty"`
+	Album          GroupAlbum        `json:"album"`
 	MediaList      []GroupAlbumMedia `json:"media_list"`
 	NextAttachInfo string            `json:"next_attach_info,omitempty"`
 	NextHasMore    bool              `json:"next_has_more"`
