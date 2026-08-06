@@ -38,6 +38,9 @@ const (
 	ExtraKeyButton = "button"
 	// ExtraKeyInline Telegram 按钮扩展元数据键，值为 *telegram.InlineButtonExtra。
 	ExtraKeyInline = "inline"
+	// ExtraKeyArkData 结构化卡片（message_type=3）的 ark_data 原始 JSON 键。
+	// 挂在 Segment.Extra 上（SegmentUnknown 段），值为 string。
+	ExtraKeyArkData = "ark_data"
 )
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -175,6 +175,8 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 		"author.id",          // [3]
 		"timestamp",          // [4]
 		"attachments",        // [5]
+		"message_type",       // [6] 消息内容类型
+		"ark_data",           // [7] 结构化卡片数据（message_type=3）
 	)
 	userOpenID := results[2].String()
 	e.sender = platform.UserInfo{
@@ -189,6 +191,14 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 	if ts := results[4].String(); ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
+		}
+	}
+
+	// message_type=3 结构化卡片：content 为空，卡片数据在 ark_data
+	if int(results[6].Int()) == 3 {
+		if raw := results[7].Raw; raw != "" {
+			e.segments = append(e.segments, arkDataSegment(raw))
+			return
 		}
 	}
 	e.segments = textAndMediaSegments(results[1].String(), parseAttachments(results[5]))
@@ -211,10 +221,18 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		"author.union_openid",       // [9] 跨应用统一 OpenID
 		"author.union_user_account", // [10] 跨应用统一账号
 		"msg_elements",              // [11] 消息元素列表（quote/forward）
+		"ark_data",                  // [12] 结构化卡片数据（message_type=3）
 	)
 	content := results[1].String()
 	msgType := int(results[7].Int())
 	msgElements := results[11]
+
+	// message_type=3 结构化卡片：content 为空，卡片数据在 ark_data
+	if msgType == 3 {
+		if raw := results[12].Raw; raw != "" {
+			e.segments = append(e.segments, arkDataSegment(raw))
+		}
+	}
 
 	// message_type=103 引用消息：content 为空格，真实内容在 msg_elements
 	isQuote := msgType == 103 && (content == "" || content == " ")
@@ -563,6 +581,17 @@ func parseQQGroupRole(role string) platform.GroupRole {
 
 // qqMentionTokenRe 匹配 QQ 群消息正文中的 @ 占位符 <@member_openid>。
 var qqMentionTokenRe = regexp.MustCompile(`<@([^>]+)>`)
+
+// arkDataSegment 将结构化卡片（message_type=3）的 ark_data 原始 JSON 包装为段。
+//
+// 卡片载荷为平台原生 KV 结构（字段名官方文档未全量公开），整体保留在
+// Extra[ExtraKeyArkData]，供同平台转发还原；跨平台转发按未知段剥离。
+func arkDataSegment(raw string) platform.Segment {
+	return platform.Segment{
+		Type:  platform.SegmentUnknown,
+		Extra: map[string]any{"type": "ark_data", ExtraKeyArkData: raw},
+	}
+}
 
 // textSegments 将纯文本包装为单条 text 段。
 func textSegments(text string) []platform.Segment {

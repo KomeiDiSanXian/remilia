@@ -592,3 +592,93 @@ func TestNewEvent_GroupMessageCreate_Mentions(t *testing.T) {
 		t.Errorf("Content: got %q, want %q", event.Content(), wantContent)
 	}
 }
+
+// ── 结构化卡片（message_type=3，ark_data）─────────────────────────────────────
+
+// TestNewEvent_GroupMessageCreate_ArkData 测试群聊结构化卡片：
+// 卡片数据在 ark_data 字段，content 为空 → SegmentUnknown + Extra 保留原始。
+func TestNewEvent_GroupMessageCreate_ArkData(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_ark001",
+		"content":      "",
+		"group_openid": "group_001",
+		"message_type": 3,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Alice",
+			"member_role":   "member",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+		"ark_data": map[string]any{
+			"template_id": 3,
+			"kv": []any{
+				map[string]any{"key": "#title", "value": "卡片标题"},
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	if event.Kind() != platform.EventKindGroupMessage {
+		t.Errorf("Kind: got %q, want %q", event.Kind(), platform.EventKindGroupMessage)
+	}
+	if event.Content() != "" {
+		t.Errorf("卡片消息 Content 应为空: got %q", event.Content())
+	}
+	segs := event.Segments()
+	if len(segs) != 1 || segs[0].Type != platform.SegmentUnknown {
+		t.Fatalf("Segments: got %+v, want 1 个 SegmentUnknown（ark_data）", segs)
+	}
+	raw, ok := segs[0].Extra[qq.ExtraKeyArkData].(string)
+	if !ok || raw == "" {
+		t.Errorf("Extra[%q] 应保留 ark_data 原始 JSON", qq.ExtraKeyArkData)
+	}
+}
+
+// TestNewEvent_C2CMessageCreate_ArkData 测试单聊结构化卡片（C2C 同样收 message_type=3）。
+func TestNewEvent_C2CMessageCreate_ArkData(t *testing.T) {
+	payload := makePayload(dto.C2CMessageCreate, map[string]any{
+		"id":           "msg_ark002",
+		"content":      "",
+		"author":       map[string]any{"user_openid": "user001"},
+		"timestamp":    "2026-07-21T10:10:00+08:00",
+		"message_type": 3,
+		"ark_data": map[string]any{
+			"template_id": 3,
+			"kv": []any{
+				map[string]any{"key": "#title", "value": "单聊卡片"},
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	if event.Kind() != platform.EventKindPrivateMessage {
+		t.Errorf("Kind: got %q, want %q", event.Kind(), platform.EventKindPrivateMessage)
+	}
+	segs := event.Segments()
+	if len(segs) != 1 || segs[0].Type != platform.SegmentUnknown {
+		t.Fatalf("Segments: got %+v, want 1 个 SegmentUnknown（ark_data）", segs)
+	}
+	if _, ok := segs[0].Extra[qq.ExtraKeyArkData].(string); !ok {
+		t.Errorf("Extra[%q] 应保留 ark_data 原始 JSON", qq.ExtraKeyArkData)
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_TextStillParsed 常规文本消息不受 ark_data 分支影响。
+func TestNewEvent_GroupMessageCreate_TextStillParsed(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_t001",
+		"content":      "hello",
+		"group_openid": "group_001",
+		"message_type": 0,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Alice",
+			"member_role":   "member",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+	})
+	event := qq.NewEvent(payload)
+	if event.Content() != "hello" {
+		t.Errorf("Content: got %q, want hello", event.Content())
+	}
+}
