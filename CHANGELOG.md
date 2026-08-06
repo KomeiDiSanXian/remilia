@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.35.0 (2026-08-06)
+
+### 🎯 Event 接口收窄：Content/Attachments 移出接口，正文从段统一派生
+
+- **Event 最小化**: `Event` 从「EventIdentity + EventBody + 4 方法」收窄为「EventIdentity + Segments/Sender/Chat/Timestamp」；`EventBody` 接口删除（0 外部引用）
+- **帮助函数**: 新增 `platform.Content(e)`（段拼接 + 首尾空白裁剪）与 `platform.Attachments(e)`（段派生附件）——正文/附件只能从段派生，**平台实现不可能再与段不一致**（强制单一真相源）
+- **TrimSpace 语义统一**: Content 统一裁剪首尾空白（QQ/Satori 既有行为，QQ 群消息 @ 占位符前有平台分隔空格）；onebot 等平台正文尾随空白同步收敛，跨平台行为一致
+- **平台实现精简**: 删除 8 个事件类型共 16 个 Content/Attachments 方法（onebot/milky/qq/satori/discord/telegram/terminal/synthetic）
+- **调用方迁移**: `ctx.GetMessageContent()` 热路径内部改调 `platform.Content`（103 处调用零改动）；ai/about/messagelog/helper/examples 同步
+- **MentionsEvent 文档修正**: "不含机器人自身" → 包含被 @ 的机器人自身（IsSelf=true 标记）
+- **破坏性变更**: Event 接口移除 Content()/Attachments() 方法
+
+### 🐛 AI 回复上下文对 QQ 引用消息生效（段兜底）
+
+- **根因**: QQ 引用消息（message_type=103）的回复标识是 `ref_msg_idx`（`REFIDX_`/`TMP_` 前缀，平台内部引用标识），与 messagelog 存储的事件 ID（`ROBOT1.0_...`）不对应——`include_reply_context` 在 QQ 上始终查不到被回复消息（其余平台回复 ID 均为真实消息 ID，正常命中）
+- **修复**: `prependReplyContext` 在 messagelog 未命中时走段兜底——解析 reply 段 `Extra["parallel_message"]`（v1.34.0 起事件解析时保留的被引用消息并行视图，`msg_nodes[0].content` 含完整文本）注入被回复内容（发送者标注"对方"）；富媒体引用（占位文本 `"[图片] "`）净化后与空文本同样跳过
+- **验证**: 新增 QQ 兜底路径与 `replyQuoteFromSegments`（文本/媒体/无 parallel_message/无 reply 段）测试
+
+### 🐛 messagelog 回复 ID 记录改走段真相源
+
+- `eventToEntry` 原先直接断言 `ReplyEvent` 接口取回复 ID——绕过段模型（回复单一真相源）；统一改调 `platform.GetReplyToID`（段优先、接口兜底），与 AI 回复上下文修复同类问题一并收敛
+
 ## v1.34.0 (2026-08-06)
 
 ### 🚀 统一消息段模型：`Segments()` 成为跨平台消息唯一真相源

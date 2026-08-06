@@ -488,10 +488,9 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 	requestID, _ := ctx.Get(ctxkeys.CtxKeyRequestID)
 	rid, _ := requestID.(string)
 
-	var replyToID string
-	if re, ok := ev.(platform.ReplyEvent); ok {
-		replyToID = re.ReplyToID()
-	}
+	// Reply 单一真相源是段（GetReplyToID 段优先、接口兜底）；
+	// 不直接断言 ReplyEvent，避免绕过段模型（与 AI 回复上下文同类问题）。
+	replyToID := platform.GetReplyToID(ev)
 
 	mentions := platform.GetMentions(ev)
 

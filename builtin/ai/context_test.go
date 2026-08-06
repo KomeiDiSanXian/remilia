@@ -162,6 +162,80 @@ func TestPrependReplyContextMiss(t *testing.T) {
 	}
 }
 
+// TestPrependReplyContextQQQuoteFallback 覆盖 QQ 引用消息的段兜底：
+// 回复标识是 ref_msg_idx（与 messagelog 事件 ID 不对应，查不到），
+// 从 reply 段 Extra["parallel_message"] 提取被引用内容。
+func TestPrependReplyContextQQQuoteFallback(t *testing.T) {
+	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
+
+	// SyntheticEvent 无段注入接口：用 segmentsReplyEvent 包装注入 reply 段
+	// （QQ 引用消息：回复标识 ref_msg_idx 与 messagelog 事件 ID 不对应，
+	// 被引用内容在 reply 段 Extra["parallel_message"]）。
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "789",
+			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true})),
+		segs: []platform.Segment{{
+			Type:      platform.SegmentReply,
+			ReplyToID: "REFIDX_y8cQLJYVRPp/g5f0s6c0hstG81ovPjw88HwjHppK6Gc=",
+			Extra: map[string]any{
+				"parallel_message": `{"msg_nodes":[{"message_type":0,"content":"该命令仅支持群聊"}]}`,
+			},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	got := p.prependReplyContext(ctx, "789")
+	if !strings.Contains(got, "该命令仅支持群聊") {
+		t.Errorf("expected QQ quote context from parallel_message fallback, got %q", got)
+	}
+	if !strings.Contains(got, "[你正在回复 对方 的消息]") {
+		t.Errorf("expected reply context marker with 对方, got %q", got)
+	}
+}
+
+// segmentsReplyEvent 包装平台事件并注入有序段（SyntheticEvent 无段注入接口）。
+type segmentsReplyEvent struct {
+	platform.Event
+	segs []platform.Segment
+}
+
+func (e *segmentsReplyEvent) Segments() []platform.Segment { return e.segs }
+
+func TestReplyQuoteFromSegments(t *testing.T) {
+	// 命中：parallel_message.msg_nodes[0].content
+	segs := []platform.Segment{{
+		Type:      platform.SegmentReply,
+		ReplyToID: "REFIDX_x",
+		Extra: map[string]any{
+			"parallel_message": `{"msg_nodes":[{"message_type":0,"content":"@蕾米莉亚 123456"}]}`,
+		},
+	}}
+	if got := replyQuoteFromSegments(segs); got != "@蕾米莉亚 123456" {
+		t.Errorf("expected quoted content, got %q", got)
+	}
+
+	// 无 parallel_message（其他平台）→ 空
+	if got := replyQuoteFromSegments([]platform.Segment{{Type: platform.SegmentReply, ReplyToID: "m1"}}); got != "" {
+		t.Errorf("expected empty without parallel_message, got %q", got)
+	}
+
+	// 非 reply 段 → 空
+	if got := replyQuoteFromSegments([]platform.Segment{{Type: platform.SegmentText, Text: "x"}}); got != "" {
+		t.Errorf("expected empty without reply segment, got %q", got)
+	}
+
+	// 富媒体引用（content 为占位）→ 返回占位，由调用方净化后跳过
+	media := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			"parallel_message": `{"msg_nodes":[{"message_type":7,"content":"[图片] "}]}`,
+		},
+	}}
+	if got := replyQuoteFromSegments(media); got != "[图片] " {
+		t.Errorf("expected placeholder content for media quote, got %q", got)
+	}
+}
+
 func TestBuildGroupContext(t *testing.T) {
 	l := messagelog.New(10)
 	now := time.Now()

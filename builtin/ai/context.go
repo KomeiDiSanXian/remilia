@@ -15,6 +15,7 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/future"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/tidwall/gjson"
 )
 
 // replyAndRecord 发送消息并确保出站记录。
@@ -37,6 +38,11 @@ func (p *Plugin) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMess
 // prependReplyContext 若本条消息是回复，将所回复消息的内容前置到用户消息。
 // 命中出站消息（机器人自己的回复）时以"机器人"标注发送者。
 // 未命中或关闭时不改变 content。
+//
+// 查询路径：messagelog 按事件 ID 查（各平台回复 ID = 消息 ID，可命中）；
+// 查不到时走段兜底——QQ 引用消息的回复标识是 ref_msg_idx（REFIDX_xxx，
+// 平台内部引用标识，与 messagelog 的事件 ID 不对应），此时从 reply 段的
+// Extra["parallel_message"] 提取被引用内容（v1.34.0 起事件解析时保留）。
 func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) string {
 	if p.history == nil {
 		return content
@@ -46,20 +52,23 @@ func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) stri
 		return content
 	}
 
-	entry, ok := p.history.QueryByEventID(ctx.GetChatInfo().ID, replyID)
-	if !ok || entry.Content == "" {
+	name := "对方"
+	replyContent := ""
+	if entry, ok := p.history.QueryByEventID(ctx.GetChatInfo().ID, replyID); ok && entry.Content != "" {
+		name = entry.UserName
+		if entry.IsOutbound {
+			name = "机器人"
+		}
+		replyContent = entry.Content
+	} else if q := replyQuoteFromSegments(ctx.GetPlatformEvent().Segments()); q != "" {
+		// QQ 引用消息段兜底：被引用内容在 parallel_message.msg_nodes[0].content
+		replyContent = q
+	}
+	if replyContent == "" {
 		return content
 	}
 
-	name := entry.UserName
-	if entry.IsOutbound {
-		name = "机器人"
-	}
-	if name == "" {
-		name = "对方"
-	}
-
-	msg := strings.TrimSpace(stripMentionMarkup(entry.Content))
+	msg := strings.TrimSpace(stripMentionMarkup(replyContent))
 	msg = truncateRunes(msg, 200)
 	if msg == "" {
 		return content
@@ -70,6 +79,26 @@ func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) stri
 		return prefix
 	}
 	return prefix + "\n\n" + content
+}
+
+// replyQuoteFromSegments 从 reply 段 Extra 提取被引用消息文本。
+//
+// QQ 引用消息（message_type=103）的 parallel_message 是被引用消息的并行视图
+// （msg_nodes[0].message_type 跟随内容类型：0=文本、7=富媒体；content 为
+// 被引用消息完整文本，含 @ 占位）。图片等富媒体引用时 content 为占位文本
+// （如 "[图片] "），返回非空但调用方会在净化后为空时跳过。
+func replyQuoteFromSegments(segs []platform.Segment) string {
+	for _, s := range segs {
+		if s.Type != platform.SegmentReply {
+			continue
+		}
+		raw, ok := s.Extra["parallel_message"].(string)
+		if !ok || raw == "" {
+			continue
+		}
+		return gjson.Get(raw, "msg_nodes.0.content").String()
+	}
+	return ""
 }
 
 // buildGroupContext 组装同群最近 N 条入站消息（昵称: 内容，旧到新）。
