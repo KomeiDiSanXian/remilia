@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.34.0 (2026-08-06)
+
+### 🚀 统一消息段模型：`Segments()` 成为跨平台消息唯一真相源
+
+- **新增 `platform.Segment` / `SegmentType`（12 种）**: `Event.Segments()` 保序输出原子消息段（text/at/mention_all/image/audio/video/file/face/reply/forward/button/unknown）；`Content()`/`Attachments()` 变为派生视图（`SegmentsContent`/`SegmentsAttachments`），调用方零改动
+- **at 统一剥离**: `@机器人 /ping` 在全部平台 `Content()` 统一为 `/ping`——修复 onebot/satori/discord 现状把 `@id` 混入正文导致 `OnCommand` 不匹配的隐性问题（行为修正）；@ 保真由段承担（含分散 at 交错、相邻 at）
+- **聚合视图**: `SegmentsMentions(segs, botID)` 保序去重、含 @ 机器人自身（IsSelf=true）；`Reply` 单一真相源：首个 `SegmentReply` 为 canonical，平台 `ReplyToID()` 委托段查找
+
+### ✨ 六平台段映射（入站 + 出站对称）
+
+- **入站**: onebot 22 种 CQ 段全映射、milky 13 种段保序输出、satori 元素树输出段（quote 前置）、telegram 按 UTF-16 实体切分文本/at 交错、qq `<@openid>` 占位符内联交错 + 引用消息解析、discord `<@id>` 占位符位置还原
+- **出站**: `OutboundMessage.Segments` 段优先路径，六平台 Sender 按段保序发送（onebot CQ 链 / milky 消息段 / satori XML / telegram 文本+reply / qq 内联 AT 标签 / discord `<@id>` 内联），便捷字段路径保留为降级
+
+### ✨ 跨平台转发辅助 `MessageToOutbound`
+
+- 段 → 段直转保留交错位置；`WithTargetPlatform` 同平台透传（reply/face/forward/unknown 还原）、跨平台保守降级（reply/unknown 剥离、face 降 text、forward 摘要）；新增 `CapForward` 能力标志
+
+### ♻️ milky ChatInfo.ID 语义对齐
+
+- `ChatInfo.ID` 改为平台原生纯数字（`"group:123"` → `"123"`），场景由 `IsGroup`/`IsDM`（temp 置 IsDM）表达，原始 scene 保留在 `Tokens[milky_message_scene]`；`Delete` 双尝试（先群撤回、失败再私聊撤回）；`decodeChatID`/`parseUin` 保留旧格式缓存兼容
+
+### 🐛 qq 富文本解析按真实报文校准（v1.33.1 实测）
+
+- **引用消息（message_type=103）**: 引用目标 ID 实测在外层 `message_scene.ext` 的 `ref_msg_idx=`（REFIDX_/TMP_ 前缀）而非 msg_elements；`parallel_message.msg_nodes` 为被引用消息并行视图；C2C 引用消息补齐解析
+- **表情内联标记**: `<faceType=1,faceId="9",ext="...">`（ext 为 base64 的 `{"text":"显示文本"}`）→ `SegmentFace`，不再泄漏进 Content
+- **结构化卡片（message_type=3）**: `ark_data` → `SegmentUnknown` + 原始 JSON 保留（群/C2C）
+
+### 🐛 OnMentionedBot 六平台统一生效
+
+- onebot/milky/telegram/discord 事件解析注入机器人自身 ID（onebot 用事件 `self_id`，其余用适配器 BotID），`@机器人` 在全部平台可触发 `OnMentionedBot` / `OnMentionedBotOrNoMentions`（此前仅 qq/satori 有效）
+
 ## v1.33.1 (2026-08-04)
 
 ### 🐛 fortune：`/tarot` 处理中不可达代码修复（go vet 检出）
