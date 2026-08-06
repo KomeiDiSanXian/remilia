@@ -7,6 +7,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/stretchr/testify/require"
 )
 
 func makePayload(t dto.EventType, detail any) *dto.Payload {
@@ -680,5 +681,138 @@ func TestNewEvent_GroupMessageCreate_TextStillParsed(t *testing.T) {
 	event := qq.NewEvent(payload)
 	if event.Content() != "hello" {
 		t.Errorf("Content: got %q, want hello", event.Content())
+	}
+}
+
+// ── 引用消息（message_type=103）实测样本（2026-08 报文核验） ────────────────
+
+// TestNewEvent_GroupMessageCreate_QuoteRealSample 覆盖真实报文结构：
+//   - 引用目标 ID 在外层 message_scene.ext 的 ref_msg_idx=REFIDX_...（非 msg_elements）
+//   - msg_elements[0] 为被引用消息（content + attachments）
+//   - 外层 content 为回复者正文（含 <@id> 占位符，@ 交错解析）
+//   - parallel_message.msg_nodes 为并行消息形态
+func TestNewEvent_GroupMessageCreate_QuoteRealSample(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_quote_real",
+		"content":      " <@A1> <@B2> 123<@A1> ",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "月莫法师",
+			"member_role":   "owner",
+		},
+		"timestamp": "2026-08-06T18:00:48+08:00",
+		"mentions": []any{
+			map[string]any{"id": "A1", "username": "蕾米莉亚", "bot": true, "is_you": true},
+			map[string]any{"id": "B2", "username": "蕾米莉亚二号", "bot": false, "is_you": false},
+		},
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext": []string{
+				"ref_msg_idx=REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==",
+				"msg_idx=REFIDX_6QtGfkqC/dO0WqCl1YSM4A==",
+				"auth_token=uvjlPc7jnD-YG2d8r4iqpU0UMGKUu40IhEuEX3Sujp4X_p95PZCSiSfRz_2uD4D9DlWIWy1tSJDkn1HX-JxweHj7BQFHbxdXEDRyrjsx4Zg9CuCdOzfZGkCU318",
+			},
+		},
+		"msg_elements": []any{
+			map[string]any{
+				"msg_idx":      "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==",
+				"message_type": 103,
+				"content":      " ",
+				"attachments": []any{
+					map[string]any{
+						"url":          "https://multimedia.nt.qq.com.cn/download?appid=1407&fileid=EhRZQ6kypMVpjThZht4dkMs0ta9krBjIlQkg_woo94SF4dWJlgMyBHByb2RQgL2jAVoQV71_juPXS3w4id2EZuYpSnoCMIOCAQJneg&rkey=CAMSOLgthq-6lGU_Xf8W8f4lldlTW7oMRCc-24LzIkTfrL4B03eCtrJlCFgspVXL00XUl60dSAGz82aA&spec=0",
+						"filename":     "53e8d4a7d3d620ceecc51d651ed9f7a0.png",
+						"width":        700,
+						"height":       1099,
+						"size":         150216,
+						"content_type": "image/png",
+						"content":      "",
+					},
+				},
+			},
+		},
+		"parallel_message": map[string]any{
+			"msg_nodes": []any{
+				map[string]any{"message_type": 7, "content": "[图片] "},
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+
+	// reply 段：引用标识来自 message_scene.ext 的 ref_msg_idx
+	segs := event.Segments()
+	require.True(t, len(segs) >= 3, "Segments: got %+v", segs)
+	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==" {
+		t.Errorf("Segments[0]: got %+v, want SegmentReply(REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==)", segs[0])
+	}
+	if _, ok := segs[0].Extra["raw_quote"].(string); !ok {
+		t.Error("reply 段应携带 raw_quote（被引用消息原始 JSON，同平台转发还原）")
+	}
+	// forward 段：parallel_message.msg_nodes
+	if segs[1].Type != platform.SegmentForward {
+		t.Errorf("Segments[1]: got %+v, want SegmentForward（parallel_message）", segs[1])
+	}
+
+	// 正文 @ 交错：text(" "), at(A), text(" "), at(B), text(" 123"), at(A), text(" ")
+	body := segs[2:]
+	if body[0].Type != platform.SegmentText || body[1].Type != platform.SegmentAt || body[1].UserID != "A1" {
+		t.Errorf("正文开头: got %+v, want [text, at(A1), ...]", body[:2])
+	}
+	if body[2].Type != platform.SegmentText || body[3].Type != platform.SegmentAt || body[3].UserID != "B2" {
+		t.Errorf("正文中段: got %+v, want [text, at(B2), ...]", body[2:4])
+	}
+
+	// Content：@ 剥离后仅剩正文文本（TrimSpace）
+	if event.Content() != "123" {
+		t.Errorf("Content: got %q, want %q", event.Content(), "123")
+	}
+
+	// Mentions：payload 结构化 @（含自身 IsSelf）
+	mentions := platform.GetMentions(event)
+	require.Len(t, mentions, 2)
+	if mentions[0].ID != "A1" || !mentions[0].IsSelf {
+		t.Errorf("Mentions[0]: got %+v, want A1 IsSelf=true", mentions[0])
+	}
+	if mentions[1].ID != "B2" || mentions[1].IsSelf {
+		t.Errorf("Mentions[1]: got %+v, want B2 IsSelf=false", mentions[1])
+	}
+}
+
+// TestNewEvent_GroupMessageCreate_QuotePlainTextFallback 纯文本引用（正文为空）：
+// 被引用文本经 msg_elements[0].content 兜底为正文。
+func TestNewEvent_GroupMessageCreate_QuotePlainTextFallback(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_quote_plain",
+		"content":      " ",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author": map[string]any{
+			"member_openid": "mem001",
+			"username":      "Alice",
+			"member_role":   "member",
+		},
+		"timestamp": "2026-07-21T10:10:00+08:00",
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"ref_msg_idx=REFIDX_plain", "msg_idx=REFIDX_x"},
+		},
+		"msg_elements": []any{
+			map[string]any{
+				"content": "被引用的旧消息文本",
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	require.True(t, len(segs) >= 2, "Segments: got %+v", segs)
+	if segs[0].Type != platform.SegmentReply || segs[0].ReplyToID != "REFIDX_plain" {
+		t.Errorf("Segments[0]: got %+v, want SegmentReply(REFIDX_plain)", segs[0])
+	}
+	if event.Content() != "被引用的旧消息文本" {
+		t.Errorf("Content: got %q, want 被引用的旧消息文本（正文空时兜底）", event.Content())
 	}
 }

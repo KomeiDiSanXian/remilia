@@ -220,8 +220,10 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		"author.member_role",        // [8] 群角色
 		"author.union_openid",       // [9] 跨应用统一 OpenID
 		"author.union_user_account", // [10] 跨应用统一账号
-		"msg_elements",              // [11] 消息元素列表（quote/forward）
+		"msg_elements",              // [11] 消息元素列表（引用消息）
 		"ark_data",                  // [12] 结构化卡片数据（message_type=3）
+		"message_scene.ext",         // [13] 场景扩展（含 ref_msg_idx=REFIDX_... 引用标识）
+		"parallel_message",          // [14] 并行消息/转发节点（msg_nodes）
 	)
 	content := results[1].String()
 	msgType := int(results[7].Int())
@@ -234,11 +236,29 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 		}
 	}
 
-	// message_type=103 引用消息：content 为空格，真实内容在 msg_elements
-	isQuote := msgType == 103 && (content == "" || content == " ")
-	if isQuote {
-		content = extractQuoteContent(msgElements)
-		e.segments = append(e.segments, quoteSegments(msgElements)...)
+	// message_type=103 引用消息（实测结构，2026-08 报文核验）：
+	//   - 引用目标标识在外层 message_scene.ext 的 ref_msg_idx=REFIDX_xxx（非 msg_elements）
+	//   - msg_elements[0] 为被引用消息：content（文本）+ attachments（媒体）
+	//   - 外层 content 是回复者正文（含 <@id> 占位符，非空格时同样解析）
+	//   - parallel_message.msg_nodes 为并行消息/转发形态
+	if msgType == 103 {
+		if refIdx := quoteReplyID(results[13]); refIdx != "" {
+			e.segments = append(e.segments, platform.Segment{
+				Type:      platform.SegmentReply,
+				ReplyToID: refIdx,
+				Extra:     map[string]any{"raw_quote": msgElements.Raw}, // 同平台转发还原
+			})
+		}
+		if pm := results[14]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
+			e.segments = append(e.segments, platform.Segment{
+				Type:  platform.SegmentForward,
+				Extra: map[string]any{"parallel_message": pm.Raw},
+			})
+		}
+		if content == "" || content == " " {
+			// 正文为空时用被引用消息文本兜底（纯文本引用场景）
+			content = extractQuoteContent(msgElements)
+		}
 	}
 
 	memberOpenID := results[2].String()
@@ -282,10 +302,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	}
 
 	// 段：文本/at 按 <@id> 占位符位置内联交错（分散 at 基准用例）→ 附件。
-	// 引用消息的正文已由 quoteSegments 输出（含 reply 段），此处不再重复。
-	if !isQuote {
-		e.segments = append(e.segments, splitMentionedContent(content, mentionByID)...)
-	}
+	e.segments = append(e.segments, splitMentionedContent(content, mentionByID)...)
 	e.segments = append(e.segments, mediaSegments(parseAttachments(results[6]))...)
 }
 
@@ -322,8 +339,8 @@ func splitMentionedContent(content string, mentionByID map[string]platform.UserI
 	return out
 }
 
-// extractQuoteContent 从 msg_elements 中提取引用消息的文本内容。
-// message_type=103 时，引用消息的文本在 msg_elements[0].content 中。
+// extractQuoteContent 从 msg_elements 中提取被引用消息的文本内容。
+// 纯文本引用场景（正文为空）时用作正文兜底。
 func extractQuoteContent(r gjson.Result) string {
 	if !r.IsArray() {
 		return ""
@@ -335,42 +352,21 @@ func extractQuoteContent(r gjson.Result) string {
 	return arr[0].Get("content").String()
 }
 
-// quoteSegments 将引用消息（message_type=103）的 msg_elements 映射为段。
+// quoteReplyID 从 message_scene.ext 中提取引用目标标识（ref_msg_idx=REFIDX_xxx）。
 //
-// msg_elements[0] 是被引用消息元素：内容文本 → text 段；
-// 引用目标 ID 从 message_id/id/msg_seq 尽力提取（官方文档未全量公开，
-// 实测缺失时仅输出文本，行为与重构前一致）。其余元素 → SegmentUnknown+Extra。
-func quoteSegments(r gjson.Result) []platform.Segment {
-	if !r.IsArray() {
-		return nil
+// 实测（2026-08 报文核验）：引用消息的引用目标 ID 不在 msg_elements 内，
+// 而在外层 message_scene.ext 数组中，格式为 "ref_msg_idx=REFIDX_..."。
+func quoteReplyID(ext gjson.Result) string {
+	if !ext.IsArray() {
+		return ""
 	}
-	arr := r.Array()
-	if len(arr) == 0 {
-		return nil
+	const prefix = "ref_msg_idx="
+	for _, e := range ext.Array() {
+		if s := e.String(); strings.HasPrefix(s, prefix) {
+			return strings.TrimPrefix(s, prefix)
+		}
 	}
-	first := arr[0]
-	var segs []platform.Segment
-	replyID := first.Get("message_id").String()
-	if replyID == "" {
-		replyID = first.Get("id").String()
-	}
-	if replyID == "" {
-		replyID = first.Get("msg_seq").String()
-	}
-	if replyID != "" {
-		segs = append(segs, platform.Segment{Type: platform.SegmentReply, ReplyToID: replyID})
-	}
-	if content := first.Get("content").String(); content != "" {
-		segs = append(segs, platform.Segment{Type: platform.SegmentText, Text: content})
-	}
-	// 其余元素（如嵌套 forward）按未知段保留原始数据
-	for i := 1; i < len(arr); i++ {
-		segs = append(segs, platform.Segment{
-			Type:  platform.SegmentUnknown,
-			Extra: map[string]any{"type": int(arr[i].Get("type").Int()), "raw": arr[i].Raw},
-		})
-	}
-	return segs
+	return ""
 }
 
 func (e *qqEvent) populateGuildMessage(evType string, detail json.RawMessage) {
