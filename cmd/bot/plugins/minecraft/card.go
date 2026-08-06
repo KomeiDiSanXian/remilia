@@ -333,29 +333,35 @@ func renderMCOfflineCard(status *MCServerStatus) ([]byte, error) {
 
 func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (image.Image, error) {
 	fontPath := textimage.SystemCJKFontPath()
-	if fontPath == "" {
-		return nil, fmt.Errorf("no CJK font available")
-	}
-
-	raw, err := os.ReadFile(fontPath)
-	if err != nil {
-		return nil, err
+	var raw []byte
+	if fontPath != "" {
+		data, err := os.ReadFile(fontPath)
+		if err != nil {
+			return nil, err
+		}
+		raw = data
+	} else {
+		// 无系统 CJK 字体（如精简 CI 环境）：回退内置 Go Regular 字体，
+		// 保证 ASCII MOTD（多数服务器名）仍可渲染。
+		raw = textimage.DefaultFontTTF()
+		fontPath = ""
 	}
 
 	var parsed *opentype.Font
+	var perr error
 	if isTTCBytes(raw) {
 		col, err := opentype.ParseCollection(raw)
 		if err != nil {
 			return nil, err
 		}
-		parsed, err = col.Font(0)
-		if err != nil {
-			return nil, err
+		parsed, perr = col.Font(0)
+		if perr != nil {
+			return nil, perr
 		}
 	} else {
-		parsed, err = opentype.Parse(raw)
-		if err != nil {
-			return nil, err
+		parsed, perr = opentype.Parse(raw)
+		if perr != nil {
+			return nil, perr
 		}
 	}
 
