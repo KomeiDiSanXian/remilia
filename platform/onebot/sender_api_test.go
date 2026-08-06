@@ -645,7 +645,7 @@ func TestSender_NapCatGroup(t *testing.T) {
 	require.NoError(t, s.SetGroupMemberInvitePolicy(context.Background(), 555, 1))
 	assertAction(t, m, "set_group_member_invite_policy", `{"group_id":555,"policy":1}`)
 
-	require.NoError(t, s.SetGroupMemberPermissions(context.Background(), SetGroupMemberPermissionsParams{GroupID: 555, AllowMemberCreateGroup: boolPtr(true)}))
+	require.NoError(t, s.SetGroupMemberPermissions(context.Background(), SetGroupMemberPermissionsParams{GroupID: 555, AllowMemberCreateGroup: new(true)}))
 	assertAction(t, m, "set_group_member_permissions", `{"group_id":555,"allow_member_create_group":true}`)
 
 	require.NoError(t, s.SetGroupNewMemberHistoryVisibility(context.Background(), 555, true))
@@ -670,7 +670,8 @@ func TestSender_NapCatGroup(t *testing.T) {
 	assertAction(t, m, "get_group_ignored_notifies", "{}")
 }
 
-func boolPtr(b bool) *bool { return &b }
+//go:fix inline
+func boolPtr(b bool) *bool { return new(b) }
 
 func TestSender_NapCatMsg(t *testing.T) {
 	s, m := newMockSender(t)
