@@ -1,5 +1,37 @@
 # Changelog
 
+## v1.37.0 (2026-08-07)
+
+### 🔎 sauce 插件 v2.1：多引擎重构 + 输入增强 + IQDB 排队处理
+
+- **移除 ASCII2D 引擎**: 一直被 Cloudflare 拦截（实测 403 挑战页），彻底删除（含解析/测试文件与配置项）
+- **新增 AnimeTrace 引擎**: 免费无 key 的动画/Galgame 角色识别（`POST api.animetrace.com/v1/search`），与 trace.moe 的逐帧找番互补；业务状态码映射可读错误（17701 过大 / 17702 繁忙 / 17704 维护等）
+- **`-engine` 参数**: `/sauce -engine saucenao,tracemoe` 指定引擎集合（`all` = 全部，默认）；AI 工具保持默认全引擎
+- **代理配置**: `plugins.sauce.proxy` 统一覆盖全部引擎与图片下载（共享 Transport，各引擎独立超时）
+- **输入增强（三种方式）**:
+  - 引用消息图片：reply 段 `Extra["raw_quote"]`/`parallel_message` 提取被引用图片（QQ 等平台）
+  - 等待补图：`/sauce` 无图时注册一次性临时 Matcher 等待（`image_wait_timeout` 默认 60s），收到图片即检索、**非图片消息即取消**、超时提示取消
+  - 原有"图片 + 标题附带命令"保持不变
+- **IQDB 排队处理**（真实实测：高峰期队列 1300+，单次请求可达 60s+）:
+  - `iqdb_timeout`（默认 45s）/ `iqdb_retries`（默认 1，排队/断流时重试拿新队列位置）
+  - **流式快速失败**: 排队页头部即回传 `queue('N','0')` 标记，检测到长排队（位置 > 20）毫秒级中止，不再挂满超时
+  - **中途断流可重试**: 读取错误包装为可重试错误（等价浏览器刷新重新提交表单，服务端队列任务不因连接断开取消）
+  - **分批发送**: 其他引擎结果先回并提示"IQDB 排队中"（`iqdb_grace` 默认 10s 宽限期），IQDB 完成后补发一条（成功/失败/超时均覆盖）
+- **配置整理**: getter 移入 `config.go`；`search_timeout`（默认 90s）控制检索总预算；`report_errors` 上报引擎失败
+
+### 🖼️ pic 插件：随机图片年份过滤
+
+- **`recent_days` 配置**（默认 730 天 ≈ 近两年，0 = 不过滤）: 随机图片默认取近两年内上传，避免总是抽到老图
+- **`/pic -recent <N>` 参数**: 单次命令覆盖年份窗口（`0`/`all` = 不过滤）；AI 工具 `get_random_image` 同步支持 `recent` 参数
+- **双协议实现**（官方文档核实 + 实测）:
+  - konachan / yande.re（Moebooru）：服务端 `date:YYYY-MM-DD..` meta-tag 过滤（实测 2020/2024 窗口准确生效）
+  - safebooru / gelbooru / rule34（Gelbooru 系）：官方 cheatsheet 无 date meta-tag，按 `change` 字段**客户端过滤**——随机池放大 3 倍 + 累积补充至凑够张数；站点不提供时间字段时自动降级不过滤（避免永久空结果）
+
+### 📝 配置与文档
+
+- `config.example.yaml`: sauce 节（proxy/iqdb_timeout/iqdb_retries/iqdb_grace/enable_animetrace/search_timeout/image_wait_timeout）与 pic 节（recent_days）新增配置及注释
+- `docs/06-plugins/APP_PLUGINS.md`: sauce 三输入方式、`-engine` 参数、IQDB 排队提示；pic `-recent` 参数与时间过滤说明
+
 ## v1.36.0 (2026-08-06)
 
 ### 🖼️ bilibili 插件重构增强：WBI 签名修复 + 视频/番剧/开播订阅
