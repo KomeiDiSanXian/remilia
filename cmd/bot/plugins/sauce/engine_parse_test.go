@@ -71,6 +71,23 @@ func TestResolveEnginesFromCommand(t *testing.T) {
 		assert.True(t, s["animetrace"])
 	})
 
+	t.Run("short flag -e works via enhanced parser", func(t *testing.T) {
+		// Flag 定义了 shortName "e"，增强解析器能原生识别 -e <value>
+		def := command.NewDef("sauce").
+			Flag("engine", "e", "引擎", command.ArgTypeString).
+			Build()
+		parsed, perr := command.ParseFromDefinition("/sauce -e iqdb", def, "/")
+		require.NoError(t, perr)
+		assert.Equal(t, "iqdb", parsed.GetString("engine"))
+
+		ctx := newSauceCmdCtx("/sauce -e iqdb")
+		ctx.SetParsedCommand(parsed)
+		s, err := p.resolveEnginesFromCommand(ctx)
+		require.NoError(t, err)
+		assert.Len(t, s, 1)
+		assert.True(t, s["iqdb"])
+	})
+
 	t.Run("engine flag with attached value", func(t *testing.T) {
 		s, err := parse("/sauce -engine=iqdb")
 		require.NoError(t, err)

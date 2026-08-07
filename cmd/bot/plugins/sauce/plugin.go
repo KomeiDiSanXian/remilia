@@ -60,6 +60,7 @@ func New() *plugin.Descriptor {
 
 参数：
   -engine <name>  指定引擎：saucenao / iqdb / tracemoe / animetrace / all（默认 all）
+                  可简写 -e，或用 --engine；多引擎逗号分隔（如 -engine tracemoe,animetrace）
 
 支持引擎：
   SauceNAO（需 API key）、IQDB（booru，对裁切图友好）、
@@ -90,7 +91,7 @@ func New() *plugin.Descriptor {
 			p.animetrace = newAnimeTraceClient(newSauceHTTPClient(20 * time.Second))
 
 			sauceDef := command.NewDef("sauce").Description("以图搜图，查找图片来源").
-				Flag("engine", "", "指定引擎：saucenao / iqdb / tracemoe / animetrace / all（默认 all）", command.ArgTypeString).
+				Flag("engine", "e", "指定引擎：saucenao / iqdb / tracemoe / animetrace / all（默认 all）", command.ArgTypeString).
 				Example("/sauce").Example("/sauce -engine animetrace").Build()
 			ctx.OnCommandDefWith("", "/sauce", sauceDef, p.handleSauce, eventctx.OnMentionedBotOrNoMentions())
 
