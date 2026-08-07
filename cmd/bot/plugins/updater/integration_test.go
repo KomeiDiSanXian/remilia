@@ -101,10 +101,10 @@ func mockReleaseServer(t *testing.T, assetName string, archive []byte) *httptest
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
-			w.Write([]byte(fmt.Sprintf(`{"tag_name":"v9.9.9","assets":[
+			w.Write(fmt.Appendf(nil, `{"tag_name":"v9.9.9","assets":[
 				{"name":"%s","browser_download_url":"%s/download/asset"},
 				{"name":"checksums.txt","browser_download_url":"%s/download/checksums"}
-			]}`, assetName, srv.URL, srv.URL)))
+			]}`, assetName, srv.URL, srv.URL))
 		case strings.HasSuffix(r.URL.Path, "/download/checksums"):
 			w.Write([]byte(sums))
 		case strings.HasSuffix(r.URL.Path, "/download/asset"):
@@ -241,7 +241,7 @@ func TestApplyUpdateAlreadyLatest(t *testing.T) {
 func TestApplyUpdateNoChecksums(t *testing.T) {
 	assetName := expectedAssetName(runtime.GOOS, runtime.GOARCH, goarm())
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf(`{"tag_name":"v9.9.9","assets":[{"name":"%s","browser_download_url":"https://e/x"}]}`, assetName)))
+		w.Write(fmt.Appendf(nil, `{"tag_name":"v9.9.9","assets":[{"name":"%s","browser_download_url":"https://e/x"}]}`, assetName))
 	}))
 	defer srv.Close()
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -156,12 +157,7 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 			return true // 未启用时放行
 		}
 		userID := ctx.GetChatInfo().ID
-		for _, id := range ac.Whitelist {
-			if id == userID {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(ac.Whitelist, userID)
 	}))
 
 	// Dedup — 配置开关 + 参数，支持热重载

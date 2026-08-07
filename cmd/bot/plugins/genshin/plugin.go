@@ -89,21 +89,24 @@ func New() *plugin.Descriptor {
 func (p *gsPlugin) handleGS(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) < 2 {
-		ctx.ReplyError("用法: /genshin showcase <uid>"); return nil
+		ctx.ReplyError("用法: /genshin showcase <uid>")
+		return nil
 	}
 
 	switch parsed.Positional[0] {
 	case "showcase":
 		return p.showcase(ctx, parsed.Positional[1])
 	default:
-		ctx.ReplyError("未知子命令，可用: showcase"); return nil
+		ctx.ReplyError("未知子命令，可用: showcase")
+		return nil
 	}
 }
 
 func (p *gsPlugin) showcase(ctx *eventctx.Context, uid string) error {
 	showcase, err := FetchShowcase(ctx.Context(), uid)
 	if err != nil {
-		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err)); return nil
+		ctx.ReplyError(fmt.Sprintf("查询失败: %v", err))
+		return nil
 	}
 
 	var wg sync.WaitGroup
@@ -125,7 +128,8 @@ func (p *gsPlugin) showcase(ctx *eventctx.Context, uid string) error {
 
 	png, imgErr := renderGSShowcase(showcase)
 	if imgErr != nil {
-		ctx.ReplyText(formatGSText(showcase)); return nil
+		ctx.ReplyText(formatGSText(showcase))
+		return nil
 	}
 
 	if ctx.Reply(platform.ImageDataMessage(png, "genshin.png", "image/png")); err != nil {

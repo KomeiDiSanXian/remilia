@@ -18,7 +18,7 @@ var (
 	white  = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 	black  = color.RGBA{R: 40, G: 30, B: 20, A: 255}
 	darkBg = color.RGBA{R: 140, G: 20, B: 30, A: 255} //nolint:unused
-	greyBg = color.RGBA{R: 80, G: 80, B: 85, A: 255} //nolint:unused
+	greyBg = color.RGBA{R: 80, G: 80, B: 85, A: 255}  //nolint:unused
 )
 
 // levelColor 返回运势等级对应的文字颜色。

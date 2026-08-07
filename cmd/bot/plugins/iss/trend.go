@@ -4,9 +4,9 @@ import "time"
 
 // Trend 轨道高度趋势分析结果。
 type Trend struct {
-	Slope     float64 // 变化率 (km/天)，正值表示上升，负值表示下降
-	MinAlt    float64 // 最低高度 (km)
-	MaxAlt    float64 // 最高高度 (km)
+	Slope  float64 // 变化率 (km/天)，正值表示上升，负值表示下降
+	MinAlt float64 // 最低高度 (km)
+	MaxAlt float64 // 最高高度 (km)
 }
 
 // computeTrend 分析高度时间序列，计算最低、最高高度和线性变化率。

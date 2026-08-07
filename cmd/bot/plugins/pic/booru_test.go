@@ -134,7 +134,7 @@ func TestPickRandomPosts(t *testing.T) {
 	// 多次选取应产生不同组合（池 10 选 3 有 120 种组合，几乎必变）
 	first := pickRandomPosts(posts, 3)
 	different := false
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		next := pickRandomPosts(posts, 3)
 		if next[0].ID != first[0].ID || next[1].ID != first[1].ID {
 			different = true
@@ -275,7 +275,7 @@ func TestFetchRandomGelbooruAccumulatesRecency(t *testing.T) {
 		pool := randomPoolSize(3) * recencyPoolMultiplier
 		posts := make([]string, 0, pool)
 		// 池中只有 1/3 是近 730 天的新图
-		for i := 0; i < pool; i++ {
+		for i := range pool {
 			if i%3 == 0 {
 				posts = append(posts, fmt.Sprintf(`{"id":%d,"change":%d,"file_url":"https://x/%d.jpg","tags":"a"}`, 9000000+i, now, i))
 			} else {

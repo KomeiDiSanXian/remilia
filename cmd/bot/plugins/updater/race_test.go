@@ -12,11 +12,11 @@ func TestStateStoreConcurrent(t *testing.T) {
 	store := newStateStore(t.TempDir())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			for j := 0; j < 200; j++ {
+			for j := range 200 {
 				store.update(func(st *updaterState) {
 					st.LastVersion = fmt.Sprintf("1.%d.%d", n, j)
 					st.LastCheck = st.LastCheck.Add(1)
@@ -50,14 +50,12 @@ func TestPluginSingleFlight(t *testing.T) {
 	<-acquired
 
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 16 {
+		wg.Go(func() {
 			if !p.updating.CompareAndSwap(false, true) {
 				rejected.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(release)
@@ -72,15 +70,13 @@ func TestPluginAutoCheckFlag(t *testing.T) {
 	p := newTestPlugin(t)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
+	for range 8 {
+		wg.Go(func() {
+			for j := range 100 {
 				p.autoCheck.Store(j%2 == 0)
 				_ = p.autoCheck.Load()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

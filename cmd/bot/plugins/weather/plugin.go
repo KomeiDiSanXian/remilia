@@ -111,7 +111,8 @@ func New() *plugin.Descriptor {
 func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		ctx.ReplyError("请输入城市名，例如：/weather 北京"); return nil
+		ctx.ReplyError("请输入城市名，例如：/weather 北京")
+		return nil
 	}
 	city := parsed.Positional[0]
 
@@ -144,12 +145,14 @@ func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
 		res.r.Source = res.source
 		png, err := renderCard(res.r)
 		if err != nil {
-			ctx.ReplyText(formatWeatherText(res.r)); return nil
+			ctx.ReplyText(formatWeatherText(res.r))
+			return nil
 		}
 		ctx.Reply(platform.ImageDataMessage(png, "weather.png", "image/png"))
 		return err
 	case <-reqCtx.Done():
-		ctx.ReplyError("天气服务暂时不可用，请稍后再试"); return nil
+		ctx.ReplyError("天气服务暂时不可用，请稍后再试")
+		return nil
 	}
 }
 

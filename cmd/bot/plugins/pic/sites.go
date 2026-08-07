@@ -6,6 +6,7 @@ package pic
 
 import (
 	"math/rand"
+	"slices"
 	"strings"
 )
 
@@ -197,12 +198,7 @@ func (s site) rangeTags(rng RatingRange) []string {
 
 // usable 报告在 rng 区间下该站点是否可用（站点档位与区间有交集）。
 func (s site) usable(rng RatingRange) bool {
-	for _, r := range s.Ratings {
-		if rng.contains(r) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Ratings, rng.contains)
 }
 
 // builtinSites 内置站点表。

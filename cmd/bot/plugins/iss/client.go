@@ -29,6 +29,7 @@ type issPositionResponse struct {
 	ID         int64   `json:"id"`
 	Name       string  `json:"name"`
 }
+
 // astrosResponse API 在轨航天员响应数据结构。
 type astrosResponse struct {
 	Number int `json:"number"`

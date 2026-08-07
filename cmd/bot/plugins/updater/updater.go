@@ -648,11 +648,11 @@ func (p *Plugin) latestBackup() string {
 // backupVersion 从备份文件名（remilia.old.v1.30.0）解析版本号。
 func backupVersion(backupPath string) string {
 	base := filepath.Base(backupPath)
-	idx := strings.Index(base, ".old.")
-	if idx < 0 {
+	_, after, ok := strings.Cut(base, ".old.")
+	if !ok {
 		return "unknown"
 	}
-	return strings.TrimPrefix(base[idx+len(".old."):], "v")
+	return strings.TrimPrefix(after, "v")
 }
 
 // splitRepo 将 "owner/repo" 拆分为 owner 与 repo。

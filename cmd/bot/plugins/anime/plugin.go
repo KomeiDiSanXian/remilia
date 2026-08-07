@@ -93,7 +93,8 @@ func New() *plugin.Descriptor {
 func (p *Plugin) handleAnime(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil || len(parsed.Positional) == 0 {
-		ctx.ReplyError("用法：/anime season 或 /anime search <关键词> 或 /anime info <id>"); return nil
+		ctx.ReplyError("用法：/anime season 或 /anime search <关键词> 或 /anime info <id>")
+		return nil
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx.Context(), 10*time.Second)
@@ -105,55 +106,66 @@ func (p *Plugin) handleAnime(ctx *eventctx.Context) error {
 	case "season", "s":
 		entries, err := p.client.FetchCalendar(reqCtx)
 		if err != nil {
-			ctx.ReplyError(fmt.Sprintf("获取番剧时间表失败: %v", err)); return nil
+			ctx.ReplyError(fmt.Sprintf("获取番剧时间表失败: %v", err))
+			return nil
 		}
 		png, imgErr := renderCalendar(entries)
 		if imgErr != nil {
-			ctx.ReplyError(fmt.Sprintf("渲染图片失败: %v", imgErr)); return nil
+			ctx.ReplyError(fmt.Sprintf("渲染图片失败: %v", imgErr))
+			return nil
 		}
 		ctx.Reply(platform.ImageDataMessage(png, "anime_season.png", "image/png"))
 		return err
 
 	case "search", "q":
 		if len(parsed.Positional) < 2 {
-			ctx.ReplyError("请输入搜索关键词，例如：/anime search 间谍过家家"); return nil
+			ctx.ReplyError("请输入搜索关键词，例如：/anime search 间谍过家家")
+			return nil
 		}
 		keyword := strings.Join(parsed.Positional[1:], " ")
 		results, err := p.client.SearchSubjects(reqCtx, keyword, 8)
 		if err != nil {
-			ctx.ReplyError(fmt.Sprintf("搜索失败: %v", err)); return nil
+			ctx.ReplyError(fmt.Sprintf("搜索失败: %v", err))
+			return nil
 		}
 		if len(results) == 0 {
-			ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的番剧", keyword)); return nil
+			ctx.ReplyText(fmt.Sprintf("未找到与「%s」相关的番剧", keyword))
+			return nil
 		}
 		png, imgErr := renderSearchResults(results, keyword)
 		if imgErr != nil {
-			ctx.ReplyText(formatSearchText(results)); return nil
+			ctx.ReplyText(formatSearchText(results))
+			return nil
 		}
 		ctx.Reply(platform.ImageDataMessage(png, "anime_search.png", "image/png"))
 		return err
 
 	case "info", "i":
 		if len(parsed.Positional) < 2 {
-			ctx.ReplyError("请输入番剧 ID，例如：/anime info 123456"); return nil
+			ctx.ReplyError("请输入番剧 ID，例如：/anime info 123456")
+			return nil
 		}
 		id, err := strconv.ParseInt(parsed.Positional[1], 10, 64)
 		if err != nil {
-			ctx.ReplyError("ID 格式不正确"); return nil
+			ctx.ReplyError("ID 格式不正确")
+			return nil
 		}
 		sub, err := p.client.FetchSubject(reqCtx, id)
 		if err != nil {
-			ctx.ReplyError(fmt.Sprintf("获取番剧信息失败: %v", err)); return nil
+			ctx.ReplyError(fmt.Sprintf("获取番剧信息失败: %v", err))
+			return nil
 		}
 		png, imgErr := renderAnimeCard(sub)
 		if imgErr != nil {
-			ctx.ReplyText(formatAnimeText(sub)); return nil
+			ctx.ReplyText(formatAnimeText(sub))
+			return nil
 		}
 		ctx.Reply(platform.ImageDataMessage(png, "anime_info.png", "image/png"))
 		return err
 
 	default:
-		ctx.ReplyError("未知子命令，支持：season, search, info"); return nil
+		ctx.ReplyError("未知子命令，支持：season, search, info")
+		return nil
 	}
 }
 

@@ -47,12 +47,12 @@ type MihomoPath struct {
 
 // MihomoSkill 表示角色的一个行迹/技能。
 type MihomoSkill struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Level  int    `json:"level"`
-	Desc   string `json:"desc"`
-	Icon   string `json:"icon"`
-	IsUlt  bool   `json:"is_ult"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Level int    `json:"level"`
+	Desc  string `json:"desc"`
+	Icon  string `json:"icon"`
+	IsUlt bool   `json:"is_ult"`
 }
 
 // MihomoEidon 表示角色的一个星魂。
@@ -108,36 +108,36 @@ type MihomoRelicSet struct {
 
 // MihomoCharacter 表示 mihomo.me API 返回的角色详细信息。
 type MihomoCharacter struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Rarity    int             `json:"rarity"`
-	Level     int             `json:"level"`
-	Promotion int             `json:"promotion"`
-	Icon      string          `json:"icon"`
-	Preview   string          `json:"preview"`
-	Portrait  string          `json:"portrait"`
-	Element   MihomoElement   `json:"element"`
-	Path      MihomoPath     `json:"path"`
-	HP        float64         `json:"hp"`
-	ATK       float64         `json:"atk"`
-	DEF       float64         `json:"def"`
-	Speed     float64         `json:"speed"`
-	CritRate  float64         `json:"crit_rate"`
-	CritDMG   float64         `json:"crit_dmg"`
-	BreakDMG  float64         `json:"break_dmg"`
-	EnergyRegen float64       `json:"energy_regen"`
-	Skills    []MihomoSkill   `json:"skills"`
-	Eidons    []MihomoEidon   `json:"eidons"`
-	LightCone *MihomoLightCone `json:"light_cone"`
-	Relics    []MihomoRelic   `json:"relics"`
-	RelicSets map[string]int  `json:"relic_sets"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Rarity      int              `json:"rarity"`
+	Level       int              `json:"level"`
+	Promotion   int              `json:"promotion"`
+	Icon        string           `json:"icon"`
+	Preview     string           `json:"preview"`
+	Portrait    string           `json:"portrait"`
+	Element     MihomoElement    `json:"element"`
+	Path        MihomoPath       `json:"path"`
+	HP          float64          `json:"hp"`
+	ATK         float64          `json:"atk"`
+	DEF         float64          `json:"def"`
+	Speed       float64          `json:"speed"`
+	CritRate    float64          `json:"crit_rate"`
+	CritDMG     float64          `json:"crit_dmg"`
+	BreakDMG    float64          `json:"break_dmg"`
+	EnergyRegen float64          `json:"energy_regen"`
+	Skills      []MihomoSkill    `json:"skills"`
+	Eidons      []MihomoEidon    `json:"eidons"`
+	LightCone   *MihomoLightCone `json:"light_cone"`
+	Relics      []MihomoRelic    `json:"relics"`
+	RelicSets   map[string]int   `json:"relic_sets"`
 }
 
 // MihomoResponse 是 mihomo.me API 的完整响应结构。
 type MihomoResponse struct {
-	UID        string             `json:"uid"`
-	Player     MihomoPlayer       `json:"player"`
-	Characters []MihomoCharacter  `json:"characters"`
+	UID        string            `json:"uid"`
+	Player     MihomoPlayer      `json:"player"`
+	Characters []MihomoCharacter `json:"characters"`
 }
 
 // HSRShowcase 是经过解析的星穹铁道玩家展柜数据。
@@ -165,10 +165,10 @@ type HSRShowcaseChar struct {
 
 // HSRLightCone 表示解析后的角色光锥信息。
 type HSRLightCone struct {
-	Name   string
-	Rarity int
-	Level  int
-	Rank   int
+	Name    string
+	Rarity  int
+	Level   int
+	Rank    int
 	IconURL string
 }
 

@@ -80,8 +80,8 @@ func downloadFile(ctx context.Context, hc *http.Client, url, destPath string) (i
 
 // redactURL 剥离 URL 的查询串（下载地址可能携带临时签名参数）。
 func redactURL(u string) string {
-	if i := strings.IndexByte(u, '?'); i >= 0 {
-		return u[:i]
+	if before, _, ok := strings.Cut(u, "?"); ok {
+		return before
 	}
 	return u
 }

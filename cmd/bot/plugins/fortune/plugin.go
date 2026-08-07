@@ -87,12 +87,12 @@ func New(opts ...Option) *plugin.Descriptor {
 			omikujiDef := command.NewDef("omikuji").Description("抽取御神签占卜运势").
 				Arg("number", "签号 1-100（可选，不指定则随机）", false).
 				Example("/omikuji").Example("/omikuji 42").Build()
-ctx.OnCommandDefWith("", "/omikuji", omikujiDef, p.handleOmikuji, eventctx.OnMentionedBotOrNoMentions())
+			ctx.OnCommandDefWith("", "/omikuji", omikujiDef, p.handleOmikuji, eventctx.OnMentionedBotOrNoMentions())
 
-tarotDef := command.NewDef("tarot").Description("塔罗牌占卜").
-	Arg("count", "牌数 1 或 3（可选，默认 1）", false).
-	Example("/tarot").Example("/tarot 3").Build()
-ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot, eventctx.OnMentionedBotOrNoMentions())
+			tarotDef := command.NewDef("tarot").Description("塔罗牌占卜").
+				Arg("count", "牌数 1 或 3（可选，默认 1）", false).
+				Example("/tarot").Example("/tarot 3").Build()
+			ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
 		},
@@ -106,14 +106,16 @@ ctx.OnCommandDefWith("", "/tarot", tarotDef, p.handleTarot, eventctx.OnMentioned
 func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
-		ctx.ReplyError("用法: /omikuji [番号], /omikuji = 随机"); return nil
+		ctx.ReplyError("用法: /omikuji [番号], /omikuji = 随机")
+		return nil
 	}
 
 	number := 0
 	if len(parsed.Positional) > 0 {
 		n, parseErr := strconv.Atoi(parsed.Positional[0])
 		if parseErr != nil || n < 1 || n > 100 {
-			ctx.ReplyError("番号需为 1-100 之间的数字"); return nil
+			ctx.ReplyError("番号需为 1-100 之间的数字")
+			return nil
 		}
 		number = n
 	}
@@ -127,14 +129,16 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 
 	png, renderErr := renderOmikujiCard(slip, bgImg)
 	if renderErr != nil {
-		ctx.ReplyText(formatOmikujiText(slip)); return nil
+		ctx.ReplyText(formatOmikujiText(slip))
+		return nil
 	}
 
 	if ctx.Reply(platform.ImageDataMessage(png, "omikuji.png", "image/png")); err != nil {
 		return err
 	}
 
-	ctx.ReplyText(formatOmikujiText(slip)); return nil
+	ctx.ReplyText(formatOmikujiText(slip))
+	return nil
 }
 
 // handleTarot 处理 /tarot 命令。
@@ -142,7 +146,8 @@ func (p *Plugin) handleOmikuji(ctx *eventctx.Context) error {
 func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err != nil {
-		ctx.ReplyError("用法: /tarot [数量], /tarot = 1张, /tarot 3 = 三张"); return nil
+		ctx.ReplyError("用法: /tarot [数量], /tarot = 1张, /tarot 3 = 三张")
+		return nil
 	}
 
 	count := 1
@@ -168,7 +173,8 @@ func (p *Plugin) handleTarot(ctx *eventctx.Context) error {
 		ctx.Reply(platform.ImageDataMessage(png, fmt.Sprintf("tarot_%d.png", i), "image/png"))
 	}
 
-	ctx.ReplyText(formatTarotText(readings)); return nil
+	ctx.ReplyText(formatTarotText(readings))
+	return nil
 }
 
 // ListTools 返回可供 AI 调用的工具列表。实现 ai.ToolProvider。

@@ -87,10 +87,7 @@ func (p *Plugin) executePicTool(ctx context.Context, args map[string]any) (strin
 	// recent 参数覆盖配置默认值（0 = 不过滤；未指定用 recent_days）
 	recentDays := p.recentDays()
 	if v, ok := args["recent"].(float64); ok {
-		recentDays = int(v)
-		if recentDays < 0 {
-			recentDays = 0
-		}
+		recentDays = max(int(v), 0)
 	}
 
 	s, posts, err := p.fetchWithFallback(reqCtx, candidates, tags, count, recentDays)

@@ -143,7 +143,7 @@ func TestSiteRangeTags(t *testing.T) {
 
 func TestCandidateSitesByRating(t *testing.T) {
 	// safe 精确档位：safebooru / gelbooru / konachan / yandere（无 rule34）
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sites := candidateSites(nil, rng(RatingSafe))
 		require.NotEmpty(t, sites)
 		for _, s := range sites {
@@ -154,7 +154,7 @@ func TestCandidateSitesByRating(t *testing.T) {
 
 	// explicit 精确档位：rule34 可入选，safebooru/konachan 不可用
 	foundRule34 := false
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		for _, s := range candidateSites(nil, rng(RatingExplicit)) {
 			if s.Name == "rule34" {
 				foundRule34 = true
@@ -166,7 +166,7 @@ func TestCandidateSitesByRating(t *testing.T) {
 	assert.True(t, foundRule34, "explicit 区间下应包含 rule34")
 
 	// sensitive 精确档位：仅 gelbooru（其余站点无此档）
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		for _, s := range candidateSites(nil, rng(RatingSensitive)) {
 			assert.Equal(t, "gelbooru", s.Name)
 		}
@@ -179,7 +179,7 @@ func TestCandidateSitesByRating(t *testing.T) {
 
 func TestCandidateSitesWithAllowlist(t *testing.T) {
 	// 白名单限制在 konachan / yandere
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sites := candidateSites([]string{"konachan", "yandere"}, rng(RatingSafe))
 		require.NotEmpty(t, sites)
 		for _, s := range sites {

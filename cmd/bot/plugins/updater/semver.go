@@ -2,6 +2,7 @@ package updater
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -30,13 +31,11 @@ func parseVersion(s string) (version, error) {
 
 	core := s
 	var pre []string
-	if i := strings.IndexByte(s, '-'); i >= 0 {
-		core = s[:i]
-		pre = strings.Split(s[i+1:], ".")
-		for _, id := range pre {
-			if id == "" {
-				return version{}, fmt.Errorf("invalid version %q: empty prerelease identifier", s)
-			}
+	if before, after, ok := strings.Cut(s, "-"); ok {
+		core = before
+		pre = strings.Split(after, ".")
+		if slices.Contains(pre, "") {
+			return version{}, fmt.Errorf("invalid version %q: empty prerelease identifier", s)
 		}
 	}
 

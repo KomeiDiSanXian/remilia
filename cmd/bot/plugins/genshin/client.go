@@ -35,13 +35,13 @@ type enkaCharacter struct {
 
 // EnkaPlayerInfo 表示 Enka API 返回的玩家基本信息。
 type EnkaPlayerInfo struct {
-	Nickname         string `json:"nickname"`
-	Level            int    `json:"level"`
-	Signature        string `json:"signature"`
-	WorldLevel       int    `json:"worldLevel"`
-	NameCardID       int    `json:"nameCardId"`
-	FinishAchievementNum int `json:"finishAchievementNum"`
-	ProfilePicture   struct {
+	Nickname             string `json:"nickname"`
+	Level                int    `json:"level"`
+	Signature            string `json:"signature"`
+	WorldLevel           int    `json:"worldLevel"`
+	NameCardID           int    `json:"nameCardId"`
+	FinishAchievementNum int    `json:"finishAchievementNum"`
+	ProfilePicture       struct {
 		AvatarID int `json:"avatarId"`
 	} `json:"profilePicture"`
 	ShowAvatarInfoList []EnkaShowAvatar `json:"showAvatarInfoList"`
@@ -64,14 +64,14 @@ type EnkaAPIResponse struct {
 
 // EnkaAvatarInfo 表示 Enka API 返回的单个角色详细信息。
 type EnkaAvatarInfo struct {
-	AvatarID        int                            `json:"avatarId"`
-	PropMap         map[string]json.RawMessage     `json:"propMap"`
-	FightPropMap    map[string]float64             `json:"fightPropMap"`
-	SkillLevelMap   map[string]int                 `json:"skillLevelMap"`
-	EquipList       []EnkaEquip                    `json:"equipList"`
-	TalentIDList    []int                          `json:"talentIdList"`
-	InherentProudMap map[string]int                `json:"inherentProudMap"`
-	SkillDepotID    int                            `json:"skillDepotId"`
+	AvatarID         int                        `json:"avatarId"`
+	PropMap          map[string]json.RawMessage `json:"propMap"`
+	FightPropMap     map[string]float64         `json:"fightPropMap"`
+	SkillLevelMap    map[string]int             `json:"skillLevelMap"`
+	EquipList        []EnkaEquip                `json:"equipList"`
+	TalentIDList     []int                      `json:"talentIdList"`
+	InherentProudMap map[string]int             `json:"inherentProudMap"`
+	SkillDepotID     int                        `json:"skillDepotId"`
 }
 
 // EnkaEquip 表示角色装备的一个物品（武器或圣遗物）。
@@ -84,8 +84,8 @@ type EnkaEquip struct {
 
 // EnkaWeapon 表示 Enka API 中的武器数据。
 type EnkaWeapon struct {
-	Level        int           `json:"level"`
-	PromoteLevel int           `json:"promoteLevel"`
+	Level        int            `json:"level"`
+	PromoteLevel int            `json:"promoteLevel"`
 	AffixMap     map[string]int `json:"affixMap"`
 }
 
@@ -139,12 +139,12 @@ type GenshinWeapon struct {
 
 // GenshinArtifact 表示解析后的圣遗物信息。
 type GenshinArtifact struct {
-	Name     string
-	IconURL  string
-	SetName  string
+	Name      string
+	IconURL   string
+	SetName   string
 	RankLevel int
-	MainStat *EnkaStat
-	SubStats []EnkaStat
+	MainStat  *EnkaStat
+	SubStats  []EnkaStat
 }
 
 var defaultStore = &enkaStore{}
@@ -403,5 +403,3 @@ func fetchRawJSON(ctx context.Context, url string) (json.RawMessage, error) {
 	}
 	return raw, nil
 }
-
-
