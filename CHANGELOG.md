@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.37.1 (2026-08-07)
+
+### 🐛 sauce 插件修复
+
+- **`-engine` 参数失效修复**: 框架解析器只识别 `--engine`（双横线）与单字符短标志，单横线多字符 `-engine` 落入 Positional 被静默忽略（实际跑全部引擎）。改为手动从 Positional 解析（与 pic 的 `-site` 同策略），并支持 `-engine=value` 等号形式
+- **`-e` 短标志**: `sauceDef` Flag 声明 shortName `e`，增强解析器原生识别 `-e iqdb`；配合手动解析，`-e` / `-engine` / `--engine` 三种形式均可指定引擎
+- **检索超时隔离 handler 生命周期**: `runSearch` 的 reqCtx 改从 `context.Background()` 派生，仅受 `search_timeout` 控制——中间件注入的短 deadline 不再让 `waitIQDBOutcome` 在宽限期前被 `reqCtx.Done()` 提前触发，避免 `IQDB: context deadline exceeded` 混入主结果而非走排队补发
+- **IQDB 错误提示友好化**: 请求阶段超时（连接/上传被卡，实测 iqdb.org 高峰期 POST 阶段即超时）提示"IQDB 无法访问（可能排队过长或网络异常）"；补发路径超时类错误提示"排队过久或暂时不可用"，不再透传裸 `context deadline exceeded`
+
+### ♻️ go fix 现代化重构
+
+- `cmd/bot` 全插件应用 `go fix`（range-over-int `SplitSeq`/`range`、`slices.Contains`、`max()` 等）与 `gofmt` 格式化：anime/css/fortune/genshin/iss/pic/rpg/starrail/sauce/updater/weather/setup.go 等 30 个文件
+
 ## v1.37.0 (2026-08-07)
 
 ### 🔎 sauce 插件 v2.1：多引擎重构 + 输入增强 + IQDB 排队处理
