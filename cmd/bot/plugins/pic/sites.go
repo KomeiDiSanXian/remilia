@@ -228,7 +228,7 @@ func (s site) usable(rng RatingRange) bool {
 //   - yande.re 保留旧体系（s/q/e）
 var builtinSites = []site{
 	{Name: "safebooru", DisplayName: "Safebooru", Domain: "safebooru.org", Protocol: protocolGelbooru,
-		Ratings: []Rating{RatingSafe},
+		Ratings:    []Rating{RatingSafe},
 		RatingTags: map[Rating]string{RatingSafe: ""}},
 	{Name: "gelbooru", DisplayName: "Gelbooru", Domain: "gelbooru.com", Protocol: protocolGelbooru,
 		Ratings: []Rating{RatingSafe, RatingSensitive, RatingQuestionable, RatingExplicit},
@@ -239,10 +239,10 @@ var builtinSites = []site{
 			RatingExplicit:     "rating:explicit",
 		}},
 	{Name: "rule34", DisplayName: "rule34.xxx", Domain: "api.rule34.xxx", Protocol: protocolGelbooru,
-		Ratings: []Rating{RatingExplicit},
+		Ratings:    []Rating{RatingExplicit},
 		RatingTags: map[Rating]string{RatingExplicit: "rating:explicit"}},
 	{Name: "konachan", DisplayName: "Konachan", Domain: "konachan.net", Protocol: protocolMoebooru,
-		Ratings: []Rating{RatingSafe},
+		Ratings:    []Rating{RatingSafe},
 		RatingTags: map[Rating]string{RatingSafe: ""}},
 	{Name: "yandere", DisplayName: "Yande.re", Domain: "yande.re", Protocol: protocolMoebooru,
 		Ratings: []Rating{RatingSafe, RatingQuestionable, RatingExplicit},

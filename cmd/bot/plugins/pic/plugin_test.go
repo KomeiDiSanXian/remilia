@@ -84,6 +84,40 @@ func TestParsePicArgs(t *testing.T) {
 	assert.Equal(t, []string{"cat"}, args.Tags)
 }
 
+// TestParsePicArgsRecent 验证 -recent 时间过滤参数。
+func TestParsePicArgsRecent(t *testing.T) {
+	// 未指定 → Recent = -1（使用配置默认值）
+	args := parsePicArgs([]string{"cat"}, 3)
+	assert.Equal(t, -1, args.Recent)
+	assert.Equal(t, []string{"cat"}, args.Tags)
+
+	// -recent 30 → 近 30 天
+	args = parsePicArgs([]string{"cat", "-recent", "30"}, 3)
+	assert.Equal(t, 30, args.Recent)
+	assert.Equal(t, []string{"cat"}, args.Tags)
+
+	// -recent 0 → 不过滤
+	args = parsePicArgs([]string{"-recent", "0", "touhou"}, 3)
+	assert.Equal(t, 0, args.Recent)
+	assert.Equal(t, []string{"touhou"}, args.Tags)
+
+	// -recent all → 不过滤（等价 0）
+	args = parsePicArgs([]string{"cat", "-recent", "all"}, 3)
+	assert.Equal(t, 0, args.Recent)
+
+	// -recent 非法值 → 回退未指定（-1，使用配置默认）
+	args = parsePicArgs([]string{"cat", "-recent", "abc"}, 3)
+	assert.Equal(t, -1, args.Recent)
+	assert.Equal(t, []string{"cat"}, args.Tags)
+
+	// 与其他参数共存
+	args = parsePicArgs([]string{"touhou", "-recent", "90", "-site", "yandere", "x2"}, 3)
+	assert.Equal(t, 90, args.Recent)
+	assert.Equal(t, "yandere", args.Site)
+	assert.Equal(t, 2, args.Count)
+	assert.Equal(t, []string{"touhou"}, args.Tags)
+}
+
 func TestFormatResults(t *testing.T) {
 	posts := []picPost{
 		{

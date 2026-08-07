@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,33 +166,174 @@ func TestSearchTags(t *testing.T) {
 
 	// Gelbooru 系：用户标签 + rating + sort:random
 	assert.Equal(t, "cat rating:general sort:random",
-		searchTags(gelbooru, []string{"cat"}, rng(RatingSafe)))
+		searchTags(gelbooru, []string{"cat"}, rng(RatingSafe), 0))
 	assert.Equal(t, "cat rating:explicit sort:random",
-		searchTags(gelbooru, []string{"cat"}, rng(RatingExplicit)))
+		searchTags(gelbooru, []string{"cat"}, rng(RatingExplicit), 0))
 	// gelbooru 区间 [safe..questionable]：排除 explicit
 	assert.Equal(t, "cat -rating:explicit sort:random",
-		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable)))
+		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable), 0))
 	// Moebooru：order:random；konachan.net 为 SFW 镜像整站 safe，不附加过滤
 	assert.Equal(t, "cat order:random",
-		searchTags(konachan, []string{"cat"}, rng(RatingSafe)))
+		searchTags(konachan, []string{"cat"}, rng(RatingSafe), 0))
 	// yande.re 区间 [safe..questionable]：排除 explicit
 	assert.Equal(t, "cat -rating:explicit order:random",
-		searchTags(yandere, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable)))
+		searchTags(yandere, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable), 0))
 	// 全区间（all）不附加 rating 标签
 	assert.Equal(t, "cat sort:random",
-		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingExplicit)))
+		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingExplicit), 0))
 	// 无用户标签时仍包含 rating 与随机 meta-tag
-	assert.Equal(t, "rating:general sort:random", searchTags(gelbooru, nil, rng(RatingSafe)))
+	assert.Equal(t, "rating:general sort:random", searchTags(gelbooru, nil, rng(RatingSafe), 0))
 	// 全区间时只剩随机 meta-tag
-	assert.Equal(t, "sort:random", searchTags(gelbooru, nil, rngRange(RatingSafe, RatingExplicit)))
+	assert.Equal(t, "sort:random", searchTags(gelbooru, nil, rngRange(RatingSafe, RatingExplicit), 0))
 	// safebooru 整站仅 safe 内容，不附加 rating 过滤（新旧评级并存）
-	assert.Equal(t, "cat sort:random", searchTags(safebooru, []string{"cat"}, rng(RatingSafe)))
+	assert.Equal(t, "cat sort:random", searchTags(safebooru, []string{"cat"}, rng(RatingSafe), 0))
 }
 
 func TestRandomPoolSize(t *testing.T) {
 	assert.Equal(t, 10, randomPoolSize(1))
 	assert.Equal(t, 10, randomPoolSize(3))
 	assert.Equal(t, 12, randomPoolSize(4))
+}
+
+// TestRecencyTag 验证 Moebooru 的 date meta-tag 生成。
+func TestRecencyTag(t *testing.T) {
+	// Moebooru：近 730 天 → date:YYYY-MM-DD..
+	tag := recencyTag(protocolMoebooru, 730)
+	assert.Regexp(t, `^date:\d{4}-\d{2}-\d{2}\.\.$`, tag)
+
+	// Gelbooru 系不支持 → 空
+	assert.Equal(t, "", recencyTag(protocolGelbooru, 730))
+	// recentDays <= 0 → 空
+	assert.Equal(t, "", recencyTag(protocolMoebooru, 0))
+	assert.Equal(t, "", recencyTag(protocolMoebooru, -1))
+}
+
+// TestSearchTagsRecency 验证近 N 天过滤加入查询标签。
+func TestSearchTagsRecency(t *testing.T) {
+	yandere, _ := findSite("yandere")
+	gelbooru, _ := findSite("gelbooru")
+
+	// Moebooru：date tag 在 rating 之后、order:random 之前
+	out := searchTags(yandere, []string{"cat"}, rng(RatingSafe), 730)
+	assert.Regexp(t, `^cat rating:safe date:\d{4}-\d{2}-\d{2}\.\. order:random$`, out)
+
+	// 无用户标签时 date tag 仍然存在
+	out = searchTags(yandere, nil, rngRange(RatingSafe, RatingExplicit), 730)
+	assert.Regexp(t, `^date:\d{4}-\d{2}-\d{2}\.\. order:random$`, out)
+
+	// Gelbooru 系：recentDays 被忽略（客户端过滤）
+	assert.Equal(t, "cat sort:random", searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingExplicit), 730))
+}
+
+// TestFilterRecent 验证客户端按 change 字段过滤。
+func TestFilterRecent(t *testing.T) {
+	now := time.Now().Unix()
+	posts := []picPost{
+		{ID: 1, Change: now},             // 今天
+		{ID: 2, Change: now - 86400*100}, // 100 天前
+		{ID: 3, Change: now - 86400*800}, // 800 天前
+		{ID: 4, Change: 0},               // 无时间字段
+	}
+
+	// 近 730 天：保留今天与 100 天前，过滤 800 天前与无时间字段
+	filtered := filterRecent(posts, 730)
+	require.Len(t, filtered, 2)
+	assert.Equal(t, 1, filtered[0].ID)
+	assert.Equal(t, 2, filtered[1].ID)
+
+	// recentDays <= 0：原样返回
+	assert.Len(t, filterRecent(posts, 0), 4)
+	assert.Len(t, filterRecent(posts, -1), 4)
+}
+
+// TestHasChangeField 验证时间字段存在性判断。
+func TestHasChangeField(t *testing.T) {
+	assert.False(t, hasChangeField(nil))
+	assert.False(t, hasChangeField([]picPost{{ID: 1, Change: 0}, {ID: 2, Change: 0}}))
+	assert.True(t, hasChangeField([]picPost{{ID: 1, Change: 0}, {ID: 2, Change: 123}}))
+	assert.True(t, hasChangeField([]picPost{{ID: 1, Change: 123}}))
+}
+
+// newGelbooruTestServer 构造一个支持 https 的 mock gelbooru 服务器，
+// 返回配套的可信 HTTP 客户端（fetchGelbooru 强制 https:// 前缀）。
+func newGelbooruTestServer(t *testing.T, handler http.HandlerFunc) (*httptest.Server, *http.Client) {
+	t.Helper()
+	srv := httptest.NewTLSServer(handler)
+	client := srv.Client()
+	client.Timeout = 5 * time.Second
+	return srv, client
+}
+
+// TestFetchRandomGelbooruAccumulatesRecency 验证客户端年份过滤的累积补充：
+// 单次随机池中只有部分帖子在窗口内，多次拉取凑够 count。
+func TestFetchRandomGelbooruAccumulatesRecency(t *testing.T) {
+	now := time.Now().Unix()
+	// 每次请求返回 1 张新图 + 若干老图；请求 3 张需要 3 次拉取凑齐
+	var calls atomic.Int32
+	srv, client := newGelbooruTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		pool := randomPoolSize(3) * recencyPoolMultiplier
+		posts := make([]string, 0, pool)
+		// 池中只有 1/3 是近 730 天的新图
+		for i := 0; i < pool; i++ {
+			if i%3 == 0 {
+				posts = append(posts, fmt.Sprintf(`{"id":%d,"change":%d,"file_url":"https://x/%d.jpg","tags":"a"}`, 9000000+i, now, i))
+			} else {
+				posts = append(posts, fmt.Sprintf(`{"id":%d,"change":%d,"file_url":"https://x/%d.jpg","tags":"a"}`, 100+i, now-86400*1000, i))
+			}
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(posts, ",") + "]"))
+	})
+	defer srv.Close()
+
+	c := &booruClient{httpClient: client}
+	s := site{Name: "safebooru", Domain: srv.Listener.Addr().String(), Protocol: protocolGelbooru}
+
+	posts, err := c.fetchRandom(context.Background(), s, nil, rngRange(RatingSafe, RatingExplicit), 3, 730)
+	require.NoError(t, err)
+	require.Len(t, posts, 3, "应累积拉取凑齐 3 张新图")
+	assert.LessOrEqual(t, calls.Load(), int32(maxRecencyAttempts))
+	for _, p := range posts {
+		assert.GreaterOrEqual(t, p.Change, time.Now().AddDate(0, 0, -730).Unix())
+	}
+}
+
+// TestFetchRandomGelbooruNoChangeField 验证站点不提供 change 字段时
+// 跳过年份过滤（避免永久空结果），且不无限重试。
+func TestFetchRandomGelbooruNoChangeField(t *testing.T) {
+	var calls atomic.Int32
+	srv, client := newGelbooruTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`[{"id":1,"file_url":"https://x/1.jpg","tags":"a"},
+			{"id":2,"file_url":"https://x/2.jpg","tags":"b"}]`))
+	})
+	defer srv.Close()
+
+	c := &booruClient{httpClient: client}
+	s := site{Name: "safebooru", Domain: srv.Listener.Addr().String(), Protocol: protocolGelbooru}
+
+	posts, err := c.fetchRandom(context.Background(), s, nil, rngRange(RatingSafe, RatingExplicit), 2, 730)
+	require.NoError(t, err)
+	require.Len(t, posts, 2, "无时间字段时应降级返回全部，而非空结果")
+	assert.Equal(t, int32(1), calls.Load(), "整批无时间字段时不应重试")
+}
+
+// TestFetchRandomGelbooruNoRecency 验证 recentDays=0 时不做年份过滤与放大。
+func TestFetchRandomGelbooruNoRecency(t *testing.T) {
+	var calls atomic.Int32
+	srv, client := newGelbooruTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`[{"id":1,"change":123,"file_url":"https://x/1.jpg","tags":"a"}]`))
+	})
+	defer srv.Close()
+
+	c := &booruClient{httpClient: client}
+	s := site{Name: "safebooru", Domain: srv.Listener.Addr().String(), Protocol: protocolGelbooru}
+
+	posts, err := c.fetchRandom(context.Background(), s, nil, rngRange(RatingSafe, RatingExplicit), 1, 0)
+	require.NoError(t, err)
+	require.Len(t, posts, 1)
+	assert.Equal(t, int32(1), calls.Load())
 }
 
 // TestRedactTransportError 验证传输错误中的认证凭据被脱敏。

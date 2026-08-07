@@ -21,6 +21,7 @@ import (
 //   - tags: 标签列表（空格分隔），可为空表示完全随机
 //   - count: 张数（1-3），可选
 //   - site: 指定站点名（可选，受 rating 策略约束）
+//   - recent: 近 N 天内上传的图片（可选，默认取配置 recent_days；0 = 不过滤）
 //
 // 返回图片 URL 与作品信息文本，不下载图片字节。
 func (p *Plugin) ListTools() []ai.Tool {
@@ -42,6 +43,10 @@ func (p *Plugin) ListTools() []ai.Tool {
 				"site": {
 					Type:        "string",
 					Description: "指定图库站点：safebooru / gelbooru / rule34 / konachan / yandere（可选，默认自动选择）",
+				},
+				"recent": {
+					Type:        "integer",
+					Description: "只取近 N 天内上传的图片（0 = 不过滤；默认取配置 recent_days，通常为 730）",
 				},
 			},
 		},
@@ -79,7 +84,16 @@ func (p *Plugin) executePicTool(ctx context.Context, args map[string]any) (strin
 		}
 	}
 
-	s, posts, err := p.fetchWithFallback(reqCtx, candidates, tags, count)
+	// recent 参数覆盖配置默认值（0 = 不过滤；未指定用 recent_days）
+	recentDays := p.recentDays()
+	if v, ok := args["recent"].(float64); ok {
+		recentDays = int(v)
+		if recentDays < 0 {
+			recentDays = 0
+		}
+	}
+
+	s, posts, err := p.fetchWithFallback(reqCtx, candidates, tags, count, recentDays)
 	if err != nil {
 		return "", err
 	}

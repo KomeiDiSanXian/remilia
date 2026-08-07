@@ -54,6 +54,8 @@ func New() *plugin.Descriptor {
   /pic cat x3           一次多张（xN 后缀须位于末尾，上限受 max_count 配置）
   /pic -count 3         显式指定张数（与 xN 等价，优先级更高）
   /pic -site rule34 xxx 指定站点（受 rating 配置约束）
+  /pic -recent 30       只发近 30 天内上传的图片（0 / all = 不过滤；
+                        未指定用配置 recent_days，默认 730 天）
   /pic x3 -count 1      搜索名为 x3 的标签（-count 显式张数可消除歧义）
 
 内容分级由 plugins.pic.rating 配置控制（默认 safe）。
@@ -62,6 +64,10 @@ func New() *plugin.Descriptor {
 注意：sensitive 是 gelbooru 迁移时新增的档位，旧三档体系
 （safe/questionable/explicit）没有对应档位——旧站点上此类内容
 归入 questionable。精确配置 sensitive 时仅 gelbooru 可用。
+
+时间过滤：随机图片默认取近两年内上传的内容（plugins.pic.recent_days，
+0 = 不过滤）。konachan / yande.re 使用服务端 date 过滤，
+safebooru / gelbooru / rule34 使用上传时间客户端过滤。
 
 rating 为精确档位或区间：
   - 单档：rating: "safe" 只发安全级内容
@@ -102,8 +108,9 @@ rating 为精确档位或区间：
 				Arg("tags", "图片标签，多个标签用空格分隔；末尾 xN 为数量后缀（如 cat x3），中间位置一律视为标签", false).
 				Flag("count", "", "显式指定张数（与 xN 后缀等价，优先级更高）", command.ArgTypeInt).
 				Flag("site", "", "指定图库站点：safebooru/gelbooru/rule34/konachan/yandere（受 rating 策略约束）", command.ArgTypeString).
+				Flag("recent", "", "只发近 N 天内上传的图片（0/all = 不过滤；未指定用配置 recent_days）", command.ArgTypeInt).
 				Example("/pic").Example("/pic 東方").Example("/pic cat x3").
-				Example("/pic -site konachan original").Example("/pic x3 -count 1").Build()
+				Example("/pic -site konachan original").Example("/pic x3 -count 1").Example("/pic -recent 30 touhou").Build()
 			ctx.OnCommandDefWith("", "/pic", picDef, p.handlePic, eventctx.OnMentionedBotOrNoMentions())
 
 			return p, nil
@@ -163,6 +170,18 @@ func (p *Plugin) maxCount() int {
 	return n
 }
 
+// recentDays 返回随机图片的年份过滤天数（默认 730 天 ≈ 近两年，0 = 不过滤）。
+func (p *Plugin) recentDays() int {
+	if p.cfg == nil {
+		return 730
+	}
+	n := p.cfg.GetInt("recent_days", 730)
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
 // ── 参数解析 ───────────────────────────────────────────────────────────
 
 // picArgs 解析后的 /pic 命令参数。
@@ -170,18 +189,21 @@ type picArgs struct {
 	Tags  []string
 	Count int
 	Site  string // 指定站点名（空 = 自动选择）
+	// Recent 近 N 天内上传过滤（-recent 指定；-1 表示未指定，用配置默认值）。
+	Recent int
 }
 
 // parsePicArgs 解析 /pic 参数：
 //   - -site <name> 指定站点
 //   - -count N 显式指定张数（与 xN 后缀等价，优先级更高）
+//   - -recent N 只发近 N 天内上传的图片（0 / "all" = 不过滤；未指定用配置默认值）
 //   - 末尾的 xN（如 x3）作为数量后缀；中间位置的 xN 一律视为标签
 //   - 其余全部视为标签
 //
 // 消歧说明：想搜索名为 x3 的标签时，用 -count 显式指定张数，
 // 如 /pic x3 -count 1，此时 x3 作为标签、张数为 1。
 func parsePicArgs(positional []string, maxCount int) picArgs {
-	args := picArgs{Count: 1}
+	args := picArgs{Count: 1, Recent: -1}
 	countSet := false // 是否显式指定过 -count
 	var tags []string
 	for i := 0; i < len(positional); i++ {
@@ -195,6 +217,15 @@ func parsePicArgs(positional []string, maxCount int) picArgs {
 			if n, err := strconv.Atoi(positional[i+1]); err == nil && n > 0 {
 				args.Count = n
 				countSet = true
+			}
+			i++
+			continue
+		}
+		if strings.EqualFold(arg, "-recent") && i+1 < len(positional) {
+			if n, err := strconv.Atoi(positional[i+1]); err == nil && n >= 0 {
+				args.Recent = n
+			} else if strings.EqualFold(positional[i+1], "all") {
+				args.Recent = 0
 			}
 			i++
 			continue
@@ -246,6 +277,12 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 
 	args := parsePicArgs(parsed.Positional, p.maxCount())
 
+	// -recent 指定时覆盖配置默认值；未指定（-1）用 recent_days
+	recentDays := p.recentDays()
+	if args.Recent >= 0 {
+		recentDays = args.Recent
+	}
+
 	var candidates []site
 	if args.Site != "" {
 		s, ok := p.resolveSite(args.Site)
@@ -265,7 +302,7 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 	reqCtx, cancel := context.WithTimeout(ctx.Context(), 90*time.Second)
 	defer cancel()
 
-	s, posts, err := p.fetchWithFallback(reqCtx, candidates, args.Tags, args.Count)
+	s, posts, err := p.fetchWithFallback(reqCtx, candidates, args.Tags, args.Count, recentDays)
 	if err != nil {
 		ctx.ReplyError(err.Error())
 		return nil
@@ -339,10 +376,11 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 
 // fetchWithFallback 获取随机图片：单站直接尝试，多站并发取最快成功者。
 //
+// recentDays 为近 N 天上传过滤（0 = 不过滤），透传给 fetchPosts。
 // 多站场景下并发请求全部候选站点（每站独立 20s 超时），返回第一个
 // 成功的结果并取消其余请求——慢站点（如 gelbooru）不再拖垮整次命令。
 // 全部站点失败时返回汇总错误（含各站点失败原因）。
-func (p *Plugin) fetchWithFallback(ctx context.Context, candidates []site, tags []string, count int) (site, []picPost, error) {
+func (p *Plugin) fetchWithFallback(ctx context.Context, candidates []site, tags []string, count, recentDays int) (site, []picPost, error) {
 	if len(candidates) == 0 {
 		return site{}, nil, nil
 	}
@@ -351,7 +389,7 @@ func (p *Plugin) fetchWithFallback(ctx context.Context, candidates []site, tags 
 		s := candidates[0]
 		siteCtx, scancel := context.WithTimeout(ctx, 20*time.Second)
 		defer scancel()
-		posts, err := p.fetchPosts(siteCtx, s, tags, count)
+		posts, err := p.fetchPosts(siteCtx, s, tags, count, recentDays)
 		if err != nil {
 			return site{}, nil, fmt.Errorf("获取图片失败：%s", s.DisplayName+": "+err.Error())
 		}
@@ -373,11 +411,10 @@ func (p *Plugin) fetchWithFallback(ctx context.Context, candidates []site, tags 
 		go func(s site) {
 			siteCtx, scancel := context.WithTimeout(raceCtx, 20*time.Second)
 			defer scancel()
-			posts, err := p.fetchPosts(siteCtx, s, tags, count)
+			posts, err := p.fetchPosts(siteCtx, s, tags, count, recentDays)
 			ch <- result{s: s, posts: posts, err: err}
 		}(s)
 	}
-
 	var errs []string
 	for range candidates {
 		select {
@@ -413,9 +450,9 @@ func (p *Plugin) resolveSite(name string) (site, bool) {
 }
 
 // fetchPosts 在指定站点请求随机图片（供命令与 AI 工具共用）。
-func (p *Plugin) fetchPosts(ctx context.Context, s site, tags []string, count int) ([]picPost, error) {
+func (p *Plugin) fetchPosts(ctx context.Context, s site, tags []string, count, recentDays int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
-	return p.client.fetchRandom(ctx, s, tags, p.rating(), count)
+	return p.client.fetchRandom(ctx, s, tags, p.rating(), count, recentDays)
 }

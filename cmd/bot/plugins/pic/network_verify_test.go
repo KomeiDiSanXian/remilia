@@ -48,7 +48,7 @@ func TestNetworkFetchAllSites(t *testing.T) {
 
 			c := mustNewClient(t, creds)
 			// 用该站点允许的最高分级验证（rule34 在 safe 策略下本就不可用）
-			posts, err := c.fetchRandom(ctx, s, nil, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 2)
+			posts, err := c.fetchRandom(ctx, s, nil, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 2, 730)
 			if err != nil {
 				t.Fatalf("fetch failed: %v", err)
 			}
@@ -83,7 +83,7 @@ func TestNetworkFetchWithTags(t *testing.T) {
 
 	c := mustNewClient(t, booruCredentials{})
 	s, _ := findSite("safebooru")
-	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 3)
+	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 3, 730)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -91,6 +91,48 @@ func TestNetworkFetchWithTags(t *testing.T) {
 		t.Fatal("no posts returned for tag touhou")
 	}
 	t.Logf("got %d posts for tag touhou", len(posts))
+}
+
+// TestNetworkRecencyFilter 验证 recent_days 过滤真实生效：
+// 所有返回帖子的 Change（上传时间）都应落在近 N 天内。
+func TestNetworkRecencyFilter(t *testing.T) {
+	creds := booruCredentials{
+		GelbooruUserID: os.Getenv("PIC_GELBOORU_USER_ID"),
+		GelbooruAPIKey: os.Getenv("PIC_GELBOORU_API_KEY"),
+		Rule34UserID:   os.Getenv("PIC_RULE34_USER_ID"),
+		Rule34APIKey:   os.Getenv("PIC_RULE34_API_KEY"),
+	}
+
+	recentDays := 730
+	cutoff := time.Now().AddDate(0, 0, -recentDays).Unix()
+
+	for _, s := range builtinSites {
+		s := s
+		t.Run(s.Name, func(t *testing.T) {
+			if s.Name == "gelbooru" && (creds.GelbooruUserID == "" || creds.GelbooruAPIKey == "") {
+				t.Skip("凭据未配置，跳过 gelbooru")
+			}
+			if s.Name == "rule34" && (creds.Rule34UserID == "" || creds.Rule34APIKey == "") {
+				t.Skip("凭据未配置，跳过 rule34")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			c := mustNewClient(t, creds)
+			posts, err := c.fetchRandom(ctx, s, nil, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 3, recentDays)
+			if err != nil {
+				t.Fatalf("fetch failed: %v", err)
+			}
+			require.NotEmpty(t, posts)
+			for _, p := range posts {
+				if p.Change < cutoff {
+					t.Errorf("%s: post %d 上传时间 %d 早于截止 %d（不在近 %d 天内）",
+						s.DisplayName, p.ID, p.Change, cutoff, recentDays)
+				}
+			}
+		})
+	}
 }
 
 // TestNetworkFetchWithFallback 验证多站并发取最快成功者的降级路径与耗时。
@@ -102,11 +144,11 @@ func TestNetworkFetchWithFallback(t *testing.T) {
 		Rule34APIKey:   os.Getenv("PIC_RULE34_API_KEY"),
 	}
 	p := &Plugin{client: mustNewClient(t, creds)}
-	candidates := candidateSites(nil, RatingSafe)
+	candidates := candidateSites(nil, RatingRange{Min: RatingSafe, Max: RatingExplicit})
 	require.NotEmpty(t, candidates)
 
 	start := time.Now()
-	s, posts, err := p.fetchWithFallback(context.Background(), candidates, []string{"touhou"}, 2)
+	s, posts, err := p.fetchWithFallback(context.Background(), candidates, []string{"touhou"}, 2, 730)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	require.NotEmpty(t, posts)
@@ -137,7 +179,7 @@ func TestNetworkProxyConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s, _ := findSite("safebooru")
-	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 1)
+	posts, err := c.fetchRandom(ctx, s, []string{"touhou"}, RatingRange{Min: RatingSafe, Max: RatingExplicit}, 1, 730)
 	require.NoError(t, err)
 	require.NotEmpty(t, posts)
 	t.Logf("客户端级代理生效：%s", posts[0].FileURL)

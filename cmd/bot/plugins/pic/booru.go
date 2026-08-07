@@ -80,6 +80,7 @@ type picPost struct {
 	Author   string // 画师名（Gelbooru 系可能为空，可从 artist: 标签提取）
 	Score    int
 	SiteName string // 来源站点展示名
+	Change   int64  // 上传/更新时间（unix 秒），用于 recency 过滤；站点未提供时为 0
 }
 
 // fetchRandom 从指定站点获取随机图片。
@@ -91,24 +92,84 @@ type picPost struct {
 // 查询参数 random=1 / order=random 均无效（被忽略），不要使用。
 //
 // 双保险：请求 randomPoolSize(count) 条服务端随机结果，再本地随机选取 count 张。
-func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
+//
+// recentDays 为"近 N 天内上传"过滤（0 = 不过滤）：
+//   - Moebooru（konachan / yande.re）：服务端 date:YYYY-MM-DD.. 过滤（实测可靠）
+//   - Gelbooru 系（safebooru / gelbooru / rule34）：不支持 date meta-tag，
+//     改用客户端按 change 字段过滤；随机池放大并累积补充直到凑够 count。
+func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rng RatingRange, count, recentDays int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
 	pool := randomPoolSize(count)
+	if recentDays > 0 && s.Protocol == protocolGelbooru {
+		// 客户端过滤：放大随机池，保证过滤后仍有足够候选
+		pool = pool * recencyPoolMultiplier
+	}
 	var (
 		posts []picPost
 		err   error
 	)
 	if s.Protocol == protocolMoebooru {
-		posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool)
-	} else {
+		posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool, recentDays)
+		if err != nil {
+			return nil, err
+		}
+		return pickRandomPosts(posts, count), nil
+	}
+
+	// Gelbooru 系：客户端过滤 + 累积补充。
+	// 每次拉取放大后的随机池，过滤后并入结果；不足 count 时继续拉取，
+	// 最多 maxRecencyAttempts 次（避免冷门标签/低新图占比时只返回 1 张）。
+	var collected []picPost
+	for attempt := 0; attempt < maxRecencyAttempts && len(collected) < count; attempt++ {
 		posts, err = c.fetchGelbooru(ctx, s, tags, rng, pool)
+		if err != nil {
+			return nil, err
+		}
+		if recentDays > 0 && hasChangeField(posts) {
+			// 站点提供时间字段：按近 N 天过滤
+			posts = filterRecent(posts, recentDays)
+		}
+		// 站点不提供时间字段（整批 Change=0）：跳过过滤直接使用，
+		// 避免"年份过滤"在该站点上永久返回空结果。
+		collected = append(collected, posts...)
 	}
-	if err != nil {
-		return nil, err
+	return pickRandomPosts(collected, count), nil
+}
+
+// maxRecencyAttempts 客户端年份过滤的最大拉取次数（凑够 count 用）。
+const maxRecencyAttempts = 3
+
+// recencyPoolMultiplier 客户端年份过滤时随机池的放大倍数。
+// 放大后池内近 N 天新图期望数 = pool × 新图占比；放大 3 倍保证
+// 冷门标签（老图占比高）下仍有足够候选。
+const recencyPoolMultiplier = 3
+
+// hasChangeField 报告结果中是否存在携带时间字段的帖子。
+// 整批 Change=0 说明站点未提供时间字段，客户端年份过滤应跳过。
+func hasChangeField(posts []picPost) bool {
+	for _, p := range posts {
+		if p.Change != 0 {
+			return true
+		}
 	}
-	return pickRandomPosts(posts, count), nil
+	return false
+}
+
+// filterRecent 按"近 N 天内上传"过滤结果（recentDays <= 0 时原样返回）。
+func filterRecent(posts []picPost, recentDays int) []picPost {
+	if recentDays <= 0 {
+		return posts
+	}
+	cutoff := time.Now().AddDate(0, 0, -recentDays).Unix()
+	out := make([]picPost, 0, len(posts))
+	for _, p := range posts {
+		if p.Change >= cutoff {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // randomPoolSize 本地随机池大小：至少 10 条，随请求张数放大。
@@ -127,12 +188,33 @@ func randomTag(proto protocol) string {
 	return "sort:random"
 }
 
-// searchTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤 + 随机排序 meta-tag。
+// recencyTag 返回协议对应的"近 N 天内上传"过滤 meta-tag。
+//
+// 仅 Moebooru（konachan / yande.re）支持 date:YYYY-MM-DD.. 服务端过滤
+// （实测可靠）；Gelbooru 系不支持 date meta-tag，返回空串由调用方
+// 客户端过滤。recentDays <= 0 时返回空串。
+func recencyTag(proto protocol, recentDays int) string {
+	if recentDays <= 0 || proto != protocolMoebooru {
+		return ""
+	}
+	cutoff := time.Now().AddDate(0, 0, -recentDays)
+	return "date:" + cutoff.Format("2006-01-02") + ".."
+}
+
+// searchTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤 +
+// 近 N 天过滤（Moebooru 服务端）+ 随机排序 meta-tag。
 //
 // rating 过滤按站点生成（见 site.rangeTags）：gelbooru.com 已迁移至
 // Danbooru 式分级，safe 需使用 rating:general 而非已失效的 rating:safe。
-func searchTags(s site, userTags []string, rng RatingRange) string {
+func searchTags(s site, userTags []string, rng RatingRange, recentDays int) string {
 	base := buildTags(s, userTags, rng)
+	if t := recencyTag(s.Protocol, recentDays); t != "" {
+		if base == "" {
+			base = t
+		} else {
+			base += " " + t
+		}
+	}
 	if base == "" {
 		return randomTag(s.Protocol)
 	}
@@ -189,6 +271,7 @@ type gelbooruPost struct {
 	Score     int    `json:"score"`
 	Owner     string `json:"owner"`
 	CreatorID int    `json:"creator_id"`
+	Change    int64  `json:"change"` // 上传/更新时间（unix 秒）
 }
 
 // fetchGelbooru 请求 Gelbooru 系站点。
@@ -199,12 +282,13 @@ type gelbooruPost struct {
 //   - safebooru.org：扁平 JSON 数组 [...]，无需认证
 //
 // 认证参数仅在对应站点凭据配置非空时附加。
+// Gelbooru 系不支持 date meta-tag，recency 由调用方按 change 字段客户端过滤。
 func (c *booruClient) fetchGelbooru(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
 	endpoint := fmt.Sprintf("https://%s/index.php?page=dapi&s=post&q=index&json=1&limit=%d&tags=%s",
-		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng))) + cacheBust()
+		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng, 0))) + cacheBust()
 
 	userID, apiKey := "", ""
 	if s.Name == "rule34" {
@@ -276,6 +360,7 @@ func gelbooruToPost(raw gelbooruPost, s site) picPost {
 		Score:    raw.Score,
 		Author:   raw.Owner,
 		SiteName: s.DisplayName,
+		Change:   raw.Change,
 	}
 
 	// owner 为空时尝试从 artist: 标签提取（少量帖子的兜底）
@@ -294,22 +379,25 @@ func gelbooruToPost(raw gelbooruPost, s site) picPost {
 
 // moebooruRawPost Moebooru 单条结果（响应为 JSON 数组）。
 type moebooruRawPost struct {
-	ID      int    `json:"id"`
-	Rating  string `json:"rating"`
-	Tags    string `json:"tags"`
-	FileURL string `json:"file_url"`
-	Source  string `json:"source"`
-	Author  string `json:"author"`
-	Score   int    `json:"score"`
+	ID        int    `json:"id"`
+	Rating    string `json:"rating"`
+	Tags      string `json:"tags"`
+	FileURL   string `json:"file_url"`
+	Source    string `json:"source"`
+	Author    string `json:"author"`
+	Score     int    `json:"score"`
+	CreatedAt int64  `json:"created_at"` // 上传时间（unix 秒）
 }
 
 // fetchMoebooru 请求 Moebooru 站点（konachan / yande.re）。
-func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rng RatingRange, count int) ([]picPost, error) {
+//
+// recentDays > 0 时附加 date:YYYY-MM-DD.. 服务端过滤（实测可靠）。
+func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rng RatingRange, count, recentDays int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
 	endpoint := fmt.Sprintf("https://%s/post.json?limit=%d&tags=%s",
-		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng))) + cacheBust()
+		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng, recentDays))) + cacheBust()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -341,6 +429,7 @@ func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, 
 			Author:   raw.Author,
 			Score:    raw.Score,
 			SiteName: s.DisplayName,
+			Change:   raw.CreatedAt,
 		})
 	}
 	return posts, nil
