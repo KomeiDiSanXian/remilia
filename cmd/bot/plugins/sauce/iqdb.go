@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -204,7 +206,14 @@ func (c *iqdbClient) searchURL(ctx context.Context, imageURL string, maxResults 
 func (c *iqdbClient) doSearch(ctx context.Context, req *http.Request, maxResults int) ([]SearchResult, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, &iqdbRetryableError{msg: "请求失败: " + err.Error(), err: err}
+		// 请求阶段失败（连接/上传/代理）：无法到达 IQDB，重试可能无意义。
+		// 提示语区分：超时多半是排队过长或网络被墙，非超时是连接错误。
+		msg := "IQDB 请求失败: " + redactTransportError(err).Error()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) ||
+			os.IsTimeout(err) || isNetTimeout(err) {
+			msg = "IQDB 无法访问（可能排队过长或网络异常）"
+		}
+		return nil, &iqdbRetryableError{msg: msg, err: err}
 	}
 	defer resp.Body.Close()
 
@@ -225,6 +234,12 @@ func (c *iqdbClient) doSearch(ctx context.Context, req *http.Request, maxResults
 		}
 	}
 	return results, nil
+}
+
+// isNetTimeout 报告 err 是否属于网络层超时（net.Error.Timeout）。
+func isNetTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // queueDetectWindow 排队检测窗口大小（字节）。

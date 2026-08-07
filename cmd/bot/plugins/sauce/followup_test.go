@@ -2,6 +2,8 @@ package sauce
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -109,3 +111,22 @@ func TestSendIQDBFollowUpCtxDone(t *testing.T) {
 		t.Fatal("sendIQDBFollowUp 未在超时前返回")
 	}
 }
+
+// TestIsTimeoutLike 验证超时类错误识别。
+func TestIsTimeoutLike(t *testing.T) {
+	assert.False(t, isTimeoutLike(nil))
+	assert.False(t, isTimeoutLike(errors.New("boom")))
+	assert.False(t, isTimeoutLike(fmt.Errorf("wrap: %w", errors.New("x"))))
+	assert.True(t, isTimeoutLike(context.DeadlineExceeded))
+	assert.True(t, isTimeoutLike(fmt.Errorf("wrap: %w", context.DeadlineExceeded)))
+	// net.Error.Timeout() 实现
+	nt := &netTimeoutErr{}
+	assert.True(t, isTimeoutLike(nt))
+}
+
+// netTimeoutErr 模拟 net.Error 且 Timeout()=true。
+type netTimeoutErr struct{}
+
+func (e *netTimeoutErr) Error() string   { return "i/o timeout" }
+func (e *netTimeoutErr) Timeout() bool   { return true }
+func (e *netTimeoutErr) Temporary() bool { return false }

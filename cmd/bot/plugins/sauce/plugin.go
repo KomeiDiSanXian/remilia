@@ -8,7 +8,9 @@ package sauce
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -202,7 +204,7 @@ func (p *Plugin) engineTasks(reqCtx context.Context, in engineInput, maxResults 
 
 // submitEngines 并发提交所有引擎任务，返回结果通道。
 // 通道容量与任务数相同，所有任务完成后无需调用方关闭通道。
-func submitEngines(reqCtx context.Context, tasks []engineTask) <-chan engineOutcome {
+func submitEngines(tasks []engineTask) <-chan engineOutcome {
 	ch := make(chan engineOutcome, len(tasks))
 	for _, t := range tasks {
 		go func(t engineTask) {
@@ -218,7 +220,7 @@ func submitEngines(reqCtx context.Context, tasks []engineTask) <-chan engineOutc
 // 命令流程使用 searchBatched 以获得分批回复体验。
 func (p *Plugin) searchAll(reqCtx context.Context, in engineInput, maxResults int, engines engineSet) ([]SearchResult, []string) {
 	tasks := p.engineTasks(reqCtx, in, maxResults, engines)
-	ch := submitEngines(reqCtx, tasks)
+	ch := submitEngines(tasks)
 
 	var allResults []SearchResult
 	var errReports []string
@@ -300,7 +302,11 @@ func (p *Plugin) resolveEnginesFromCommand(ctx *eventctx.Context) (engineSet, er
 //   - 宽限期结束仍未返回 → 先发送其他引擎结果并提示"IQDB 排队中"，
 //     IQDB 完成后（成功或失败）补发一条消息
 func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engineSet) {
-	reqCtx, cancel := context.WithTimeout(ctx.Context(), p.searchTimeout())
+	// 检索总预算独立于 handler 生命周期：从 Background 派生，仅受
+	// search_timeout 控制。若继承 ctx.Context()，中间件注入的短 deadline
+	// 会让 waitIQDBOutcome 在宽限期前被 reqCtx.Done() 提前触发，
+	// 导致 IQDB 以 "context deadline exceeded" 混入主结果而非排队补发。
+	reqCtx, cancel := context.WithTimeout(context.Background(), p.searchTimeout())
 	// 进入 IQDB 后台补发路径后，取消权移交给补发 goroutine：
 	// runSearch 返回时不得提前 cancel reqCtx，否则 IQDB 任务被立即中断。
 	followUpStarted := false
@@ -336,7 +342,7 @@ func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engin
 			nonIQDB++
 		}
 	}
-	ch := submitEngines(reqCtx, tasks)
+	ch := submitEngines(tasks)
 
 	// 第一阶段：等待所有非 IQDB 引擎完成（顺带收集提前返回的 IQDB）
 	var results []SearchResult
@@ -413,8 +419,13 @@ func (p *Plugin) sendIQDBFollowUp(origCtx *eventctx.Context, ch <-chan engineOut
 	select {
 	case res := <-ch:
 		if res.err != nil {
+			// 超时类错误提示排队/不可用，而非透传裸 context deadline exceeded
+			msg := res.err.Error()
+			if isTimeoutLike(res.err) {
+				msg = "IQDB 排队过久或暂时不可用，未获取结果"
+			}
 			if p.reportErrors() {
-				clone.ReplyText("📡 " + res.err.Error())
+				clone.ReplyText("📡 " + msg)
 			}
 			return
 		}
@@ -438,6 +449,18 @@ func (p *Plugin) sendIQDBFollowUp(origCtx *eventctx.Context, ch <-chan engineOut
 	case <-reqCtx.Done():
 		clone.ReplyText("📡 IQDB 排队超时，未获取结果")
 	}
+}
+
+// isTimeoutLike 报告错误是否属于超时类（context deadline / net timeout）。
+func isTimeoutLike(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // sendSearchResults 合并、排序、截断结果并按 send_thumbnails 配置回复。
@@ -464,7 +487,7 @@ func (p *Plugin) sendSearchResults(ctx *eventctx.Context, allResults []SearchRes
 		//   - 支持图文同发（CapCaption）的平台：缩略图 + 单条结果信息 caption 一条消息
 		//   - 其他平台（QQ 等富媒体消息会丢弃 Text/Markdown）：图片逐张单独发，
 		//     作品信息汇总为一条（Markdown 优先，纯文本降级）
-		reqCtx, cancel := context.WithTimeout(ctx.Context(), p.searchTimeout())
+		reqCtx, cancel := context.WithTimeout(context.Background(), p.searchTimeout())
 		defer cancel()
 		caps := ctx.GetPlatformCapabilities()
 		captionOK := caps.Has(platform.CapCaption)
