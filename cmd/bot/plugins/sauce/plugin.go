@@ -260,11 +260,32 @@ func (p *Plugin) handleSauce(ctx *eventctx.Context) error {
 }
 
 // resolveEnginesFromCommand 解析命令中的 -engine 参数。
+//
+// 框架解析器只识别 --engine（双横线）与单字符短标志；
+// 单横线多字符形式 -engine 会落入 Positional，与 pic 的 -site 同策略，
+// 这里手动从 Positional 中解析。两种形式都支持：
+//   - --engine iqdb / -e iqdb（增强解析 Flags，需 def 定义）
+//   - -engine iqdb / -engine=iqdb（手动 Positional 解析）
 func (p *Plugin) resolveEnginesFromCommand(ctx *eventctx.Context) (engineSet, error) {
+	// 1. 增强解析 Flags（覆盖 --engine 与定义的单字符短标志）
+	if parsed := ctx.GetParsedCommand(); parsed != nil {
+		if raw := parsed.GetString("engine"); raw != "" {
+			return p.parseEngineSet(raw)
+		}
+	}
+
+	// 2. 手动从 Positional 解析 -engine <value> / -engine=<value>
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err == nil {
-		if raw, ok := parsed.Flags["engine"]; ok {
-			return p.parseEngineSet(raw)
+		pos := parsed.Positional
+		for i := 0; i < len(pos); i++ {
+			arg := pos[i]
+			if strings.EqualFold(arg, "-engine") && i+1 < len(pos) {
+				return p.parseEngineSet(pos[i+1])
+			}
+			if v, ok := strings.CutPrefix(arg, "-engine="); ok && v != "" {
+				return p.parseEngineSet(v)
+			}
 		}
 	}
 	return p.allEngines(), nil
