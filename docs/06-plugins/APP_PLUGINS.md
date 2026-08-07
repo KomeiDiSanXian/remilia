@@ -62,6 +62,7 @@ plugins:
 | `/pic <标签> x3` | 末尾 `xN` 数量后缀，发 3 张 |
 | `/pic <标签> -count 3` | `-count N` 显式张数（想搜 `x3` 标签时用 `-count 1`） |
 | `/pic <标签> -site gelbooru` | 指定站点 |
+| `/pic <标签> -recent 30` | 只发近 30 天内上传的图（`0`/`all` = 不过滤；未指定用 `recent_days` 配置） |
 
 ### 内容分级（rating 区间模型）
 
@@ -74,6 +75,13 @@ plugins:
 档位：`safe` / `sensitive`（轻度敏感，泳装/暗示）/ `questionable` / `explicit`。
 站点仅在其可提供的档位与请求区间有交集时参与请求（如 `rating: "explicit"` 时 safebooru/konachan 自动不可用）。
 
+### 时间过滤
+
+随机图片默认取**近两年内上传**的内容（`recent_days: 730`，`0` = 不过滤），避免总是抽到老图：
+- konachan / yande.re：服务端 `date:` 过滤
+- safebooru / gelbooru / rule34：按上传时间客户端过滤（随机池放大 + 空结果自动重试）
+- 单次命令可用 `/pic -recent <N>` 覆盖（`0`/`all` = 不过滤）
+
 ### 配置（`plugins.pic`）
 
 ```yaml
@@ -82,6 +90,7 @@ plugins:
     rating: "safe"                    # 内容分级：档位或区间，如 "safe..questionable"
     sites: []                         # 站点白名单（空 = 全部可用）
     max_count: 3                      # 默认最大张数
+    recent_days: 730                  # 只发近 N 天内上传的图片（0 = 不过滤）
     gelbooru_user_id: ""              # gelbooru.com 认证（可选）
     gelbooru_api_key: ""
     rule34_user_id: ""                # rule34.xxx 认证（可选）
@@ -93,10 +102,15 @@ plugins:
 
 ## 🔎 sauce — 以图搜图
 
-位于 `cmd/bot/plugins/sauce/`。聚合 **SauceNAO / IQDB / TraceMoe / ASCII2D** 多引擎检索图片来源。
+位于 `cmd/bot/plugins/sauce/`。聚合 **SauceNAO / IQDB / TraceMoe / AnimeTrace** 多引擎检索图片来源。
 
-- 用法：回复图片并在消息中附带 `/sauce`，或 `图片 + /sauce` 同发
+- 用法：
+  - 回复图片并在消息中附带 `/sauce`，或 `图片 + /sauce` 同发
+  - 直接发送 `/sauce` 后等待补发图片（`image_wait_timeout`，默认 60s；发送非图片消息即取消）
+  - 引用一条含图片的消息并发送 `/sauce`（QQ 等平台可直接提取引用消息图片）
+- 参数：`/sauce -engine <name>` 指定引擎（`saucenao / iqdb / tracemoe / animetrace / all`，默认 all）
 - 多引擎并发检索，聚合展示结果；`SauceNAO` 请求失败时 URL 中的 api_key 自动脱敏
+- 引擎请求统一走 `plugins.sauce.proxy` 代理（可选）；IQDB 高峰期排队时自动重试并提示队列状态
 
 ## 👋 welcome — 群欢迎/告别
 

@@ -246,24 +246,35 @@ api:
 #   weather:
 #     api_key: "your-weather-api-key"
 #   sauce:
-#     saucenao_api_key: ""            # [H]  SauceNAO API Key（从 https://saucenao.com 获取）
-#     saucenao_db: 999                # [H]  SauceNAO 检索数据库（999 = 全部，可选具体 db id）
-#     max_results: 3                  # [H]  最多返回的结果数
-#     send_thumbnails: false          # [H]  是否发送缩略图图片。开启后每条结果带图发送：
-#                                     #      支持图文同发的平台（Telegram / Discord /
-#                                     #      OneBot / Satori）文本与图片在同一条消息；
-#                                     #      其他平台（QQ 等富媒体会丢弃文本）图片逐张发、
-#                                     #      作品信息汇总一条（Markdown 优先）。
-#     enable_iqdb: true               # [H]  IQDB：booru 图库检索，对裁切图最友好（免费，默认开启）
-#     enable_trace_moe: true          # [H]  TraceMoe：动画截图逐帧识别，给出番名/话数/时间点（免费，默认开启）
-#     trace_moe_min_similarity: 75    # [H]  TraceMoe 最低相似度（0-100），过滤无意义弱匹配
-#     enable_ascii2d: false           # [H]  ASCII2D（色合+特征检索），可能被 Cloudflare 拦截，默认关闭
-#     similarity_threshold: 60        # [H]  全局相似度阈值。存在不低于该值的匹配时只展示这些；
-#                                     #      否则保留全部（避免裁切/滤镜图被过滤，0 = 不过滤）
-#     upscale_small: true             # [H]  上传前将小图（任一边 < 400px，多为裁切图）放大 2 倍
-#     report_errors: true             # [H]  引擎失败时在结果中显示原因
-#     max_title_len: 120              # [H]  单条结果标题最大长度（rune，0 = 不截断）
-#     max_message_len: 2000           # [H]  文本模式整条结果消息最大长度（rune，0 = 不截断）
+#     proxy: ""                   # [R]  引擎请求代理地址（如 "http://127.0.0.1:7890"）。
+#                                 #      国内部署访问 SauceNAO / IQDB 等被墙站点必需；
+#                                 #      空 = 环境变量代理或直连
+#     saucenao_api_key: ""        # [H]  SauceNAO API Key（从 https://saucenao.com 获取）
+#     saucenao_db: 999            # [H]  SauceNAO 检索数据库（999 = 全部，可选具体 db id）
+#     max_results: 3              # [H]  最多返回的结果数
+#     send_thumbnails: false      # [H]  是否发送缩略图图片。开启后每条结果带图发送：
+#                                 #      支持图文同发的平台（Telegram / Discord /
+#                                 #      OneBot / Satori）文本与图片在同一条消息；
+#                                 #      其他平台（QQ 等富媒体会丢弃文本）图片逐张发、
+#                                 #      作品信息汇总一条（Markdown 优先）。
+#     enable_iqdb: true           # [H]  IQDB：booru 图库检索，对裁切图最友好（免费，默认开启）
+#     iqdb_timeout: "45s"         # [H]  IQDB 单次请求超时（高峰期排队时单次可达 60s）
+#     iqdb_retries: 1             # [H]  IQDB 失败重试次数（排队/断流时重试可拿到新的队列位置）
+#     iqdb_grace: "10s"           # [H]  其他引擎结果就绪后为 IQDB 额外等待的宽限期。
+#                                 #      宽限期内返回 → 合并为一条消息；超时 → 先发其他引擎
+#                                 #      结果并提示"IQDB 排队中"，完成后补发
+#     enable_trace_moe: true      # [H]  TraceMoe：动画截图逐帧识别，给出番名/话数/时间点（免费，默认开启）
+#     trace_moe_min_similarity: 75  # [H]  TraceMoe 最低相似度（0-100），过滤无意义弱匹配
+#     enable_animetrace: true     # [H]  AnimeTrace：动画/Galgame 图片角色与作品识别（免费，默认开启）
+#     search_timeout: "90s"       # [H]  单次检索总体超时（下载+预处理+全部引擎并发）
+#     image_wait_timeout: "60s"   # [H]  发送 /sauce 未带图片时等待用户补发图片的超时；
+#                                 #      超时或发送非图片消息即取消
+#     similarity_threshold: 60    # [H]  全局相似度阈值。存在不低于该值的匹配时只展示这些；
+#                                 #      否则保留全部（避免裁切/滤镜图被过滤，0 = 不过滤）
+#     upscale_small: true         # [H]  上传前将小图（任一边 < 400px，多为裁切图）放大 2 倍
+#     report_errors: true         # [H]  引擎失败时在结果中显示原因
+#     max_title_len: 120          # [H]  单条结果标题最大长度（rune，0 = 不截断）
+#     max_message_len: 2000       # [H]  文本模式整条结果消息最大长度（rune，0 = 不截断）
 #   anime:
 #     api_base: "https://api.bgm.tv"  # [R]  Bangumi API 基础 URL，可更换为镜像/代理地址（如 http://api.bgm.tv）
 #     proxy: ""                       # [R]  Bangumi API 与封面图请求代理地址（如 "http://127.0.0.1:7890"）。
@@ -309,6 +320,11 @@ api:
 #     sites: []                       # [H]  启用站点白名单（空 = 全部）:
 #                                     #      safebooru / gelbooru / rule34 / konachan / yandere
 #     max_count: 3                    # [H]  单次最多发送张数
+#     recent_days: 730                # [H]  只发近 N 天内上传的图片（0 = 不过滤）。随机图片默认
+#                                     #      取近两年（730 天）内上传的内容，避免总是抽到老图；
+#                                     #      konachan / yande.re 用服务端 date 过滤，
+#                                     #      safebooru / gelbooru / rule34 用上传时间客户端过滤；
+#                                     #      /pic -recent <N> 可单次覆盖此值（0/all = 不过滤）
 #     proxy: ""                       # [R]  图库请求代理地址（如 "http://127.0.0.1:7890"）。国内部署访问
 #                                     #      gelbooru 等被墙站点必需；空 = 环境变量代理或直连
 #     gelbooru_user_id: ""            # [R]  gelbooru.com 必需（与 gelbooru_api_key 配套，免费注册获取），否则返回 401
