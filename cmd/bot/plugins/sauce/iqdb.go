@@ -1,8 +1,10 @@
 package sauce
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -23,9 +25,15 @@ import (
 // 的支持显著优于 SauceNAO。免费、无需 API key。
 //
 // 限制：仅支持 JPEG / PNG / GIF，最大 8MB，最大尺寸 7500x7500。
+// 服务高峰期需要排队，可能出现超时或明显延迟，Search 内对瞬时失败做
+// 有限次重试（重试次数与单次超时由配置控制）。
 type iqdbClient struct {
 	httpClient *http.Client
+	retries    int
 }
+
+// iqdbEndpoint IQDB 检索端点（测试中可替换为 mock 服务器）。
+var iqdbEndpoint = "https://iqdb.org/"
 
 // iqdbServiceIDs 对应 IQDB 检索表单中勾选的全部服务（默认全选）。
 var iqdbServiceIDs = []string{"1", "2", "3", "4", "5", "6", "11", "13"}
@@ -34,20 +42,110 @@ var iqdbServiceIDs = []string{"1", "2", "3", "4", "5", "6", "11", "13"}
 const maxIQDBFileSize = 8 * 1024 * 1024
 
 // newIQDBClient 创建 IQDB 客户端。
-func newIQDBClient() *iqdbClient {
-	return &iqdbClient{
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+//
+// httpClient 为共享 Transport 上的客户端（超时已按 iqdb_timeout 配置）；
+// retries 为失败重试次数（默认 1）。
+func newIQDBClient(httpClient *http.Client, retries int) *iqdbClient {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 45 * time.Second}
 	}
+	if retries < 0 {
+		retries = 0
+	}
+	return &iqdbClient{
+		httpClient: httpClient,
+		retries:    retries,
+	}
+}
+
+// iqdbRetryableError 标记可重试的 IQDB 失败（超时/连接错误/5xx 排队满载）。
+type iqdbRetryableError struct {
+	msg string
+	err error
+}
+
+func (e *iqdbRetryableError) Error() string { return e.msg }
+func (e *iqdbRetryableError) Unwrap() error { return e.err }
+
+// iqdbStatusError 将非 200 状态码转换为错误。
+// 5xx（排队满载等瞬时失败）包装为可重试错误；4xx 直接返回不可重试错误。
+func iqdbStatusError(statusCode int) error {
+	err := fmt.Errorf("status %d", statusCode)
+	if statusCode >= 500 {
+		return &iqdbRetryableError{
+			msg: fmt.Sprintf("IQDB 返回状态 %d", statusCode),
+			err: err,
+		}
+	}
+	return err
+}
+
+// iqdbQueuedError 表示 IQDB 正在长排队（高峰期常见，等待时间不可控）。
+type iqdbQueuedError struct {
+	position int
+}
+
+func (e *iqdbQueuedError) Error() string {
+	return fmt.Sprintf("IQDB 正在排队（队列位置 %d），请稍后重试", e.position)
+}
+
+// iqdbQueueRe 匹配 IQDB 排队标记脚本：queue('N','0')。
+// 实测（2026-08）：高峰期响应页逐位置回传排队进度，N 为当前队列位置；
+// 队列过长时单次请求可达 60s+ 仍未轮到，此时应明确提示排队而非静默超时。
+var iqdbQueueRe = regexp.MustCompile(`queue\('(\d+)','(\d+)'\)`)
+
+// iqdbQueuedPosition 从响应 HTML 中提取排队位置。
+//
+// 返回 (position, wait, true)：
+//   - position>0：队列中第 N 个（wait=0）
+//   - position=0 && wait=1：正在处理（无需排队）
+//   - 无匹配标记：返回 0, 0, false
+func iqdbQueuedPosition(body []byte) (int, int, bool) {
+	// 只统计页面末尾的最新进度：页面内按时间顺序回传多个 queue 标记，
+	// 取最后一个为当前状态。
+	var pos, wait int
+	var found bool
+	for _, m := range iqdbQueueRe.FindAllSubmatch(body, -1) {
+		if len(m) == 3 {
+			if v, err := strconv.Atoi(string(m[1])); err == nil {
+				pos = v
+				found = true
+			}
+			if v, err := strconv.Atoi(string(m[2])); err == nil {
+				wait = v
+			}
+		}
+	}
+	return pos, wait, found
 }
 
 // Search 通过 IQDB 搜索图片来源。
 //
 // 优先直传本地图片字节（multipart file 字段）；无字节数据时回退为 URL 检索。
+// 瞬时失败（超时/连接错误/5xx/长排队）时按配置重试，重试间短暂退避。
 func (c *iqdbClient) Search(ctx context.Context, in engineInput, maxResults int) ([]SearchResult, error) {
-	if len(in.Data) > 0 {
-		return c.searchUpload(ctx, in.Data, maxResults)
+	search := func() ([]SearchResult, error) {
+		if len(in.Data) > 0 {
+			return c.searchUpload(ctx, in.Data, maxResults)
+		}
+		return c.searchURL(ctx, in.ImageURL, maxResults)
 	}
-	return c.searchURL(ctx, in.ImageURL, maxResults)
+
+	results, err := search()
+	for attempt := 0; err != nil && attempt < c.retries; attempt++ {
+		var re *iqdbRetryableError
+		var qe *iqdbQueuedError
+		if !errors.As(err, &re) && !errors.As(err, &qe) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(time.Duration(attempt+1) * 500 * time.Millisecond):
+		}
+		results, err = search()
+	}
+	return results, err
 }
 
 // searchUpload 以 multipart 直传图片字节执行检索。
@@ -77,29 +175,14 @@ func (c *iqdbClient) searchUpload(ctx context.Context, data []byte, maxResults i
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://iqdb.org/", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, iqdbEndpoint, body)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Content-Type", w.FormDataContentType())
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("IQDB 返回状态 %d", resp.StatusCode)
-	}
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	return limitResults(parseIQDBResults(raw), maxResults), nil
+	return c.doSearch(ctx, req, maxResults)
 }
 
 // searchURL 以远程图片 URL 执行检索（IQDB 服务端自行抓取）。
@@ -108,28 +191,107 @@ func (c *iqdbClient) searchURL(ctx context.Context, imageURL string, maxResults 
 		return nil, fmt.Errorf("无可用图片数据")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://iqdb.org/?url="+escapeURLParam(imageURL), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, iqdbEndpoint+"?url="+escapeURLParam(imageURL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 
+	return c.doSearch(ctx, req, maxResults)
+}
+
+// doSearch 发送请求、流式读取响应并解析结果；排队时快速失败。
+func (c *iqdbClient) doSearch(ctx context.Context, req *http.Request, maxResults int) ([]SearchResult, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		return nil, &iqdbRetryableError{msg: "请求失败: " + err.Error(), err: err}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("IQDB 返回状态 %d", resp.StatusCode)
+		return nil, iqdbStatusError(resp.StatusCode)
 	}
 
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
+	raw, qerr := readIQDBBody(ctx, resp.Body)
+	if qerr != nil {
+		return nil, qerr
 	}
 
-	return limitResults(parseIQDBResults(raw), maxResults), nil
+	results := limitResults(parseIQDBResults(raw), maxResults)
+	if len(results) == 0 {
+		// 响应结束时仍未出结果：可能仍在排队或确无匹配
+		if qerr := iqdbQueuedOrNil(raw); qerr != nil {
+			return nil, qerr
+		}
+	}
+	return results, nil
+}
+
+// queueDetectWindow 排队检测窗口大小（字节）。
+// IQDB 排队页在响应头几 KB 内即回传 queue('N','0') 进度标记，
+// 无需等待完整响应即可判定仍在排队。
+const queueDetectWindow = 16 * 1024
+
+// iqdbQueueFastFailThreshold 排队快速失败的队列位置阈值。
+// 实测排队进度约 0.7 位/秒（1335→1313 用时约 30s），因此：
+//   - 位置 ≤ 阈值：队列较短，继续读取等待结果（数秒内可完成）
+//   - 位置 > 阈值：队列较长（预估等待 >30s），立即中止以免拖累整体回复
+const iqdbQueueFastFailThreshold = 20
+
+// readIQDBBody 流式读取响应体；头部检测到长排队（position>阈值）时立即中止。
+//
+// 实测（2026-08）：高峰期队列位置 1300+ 时，响应头数百 ms 内即包含
+// queue('1335','0') 等进度脚本。边读边检测可让长排队请求毫秒级失败，
+// 而不是挂满整个超时拖累其它引擎的回复——其他引擎的结果可立即返回，
+// 排队由重试或用户稍后重试解决。短排队（位置 ≤ 阈值）继续读取，
+// 等待响应自然完成，避免误杀几秒后就能出结果的情况。
+//
+// 中途断流（连接中断/读取错误）同样包装为可重试错误：IQDB 服务端的
+// 队列任务不会因连接断开而取消，但结果已无法送达；重试即重新排队
+// （与浏览器刷新后重新提交表单的行为一致），拿到新的队列位置。
+func readIQDBBody(ctx context.Context, body io.Reader) ([]byte, error) {
+	br := bufio.NewReader(body)
+	var buf bytes.Buffer
+	tmp := make([]byte, 4096)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, &iqdbRetryableError{msg: "读取响应失败: " + ctx.Err().Error(), err: ctx.Err()}
+		default:
+		}
+		n, rerr := br.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+			// 仅在窗口内检测：判定长排队不需要大页面，也避免反复正则扫描
+			if buf.Len() <= queueDetectWindow {
+				if pos, wait, found := iqdbQueuedPosition(buf.Bytes()); found && pos > iqdbQueueFastFailThreshold && wait == 0 {
+					return nil, &iqdbQueuedError{position: pos}
+				}
+			}
+		}
+		if rerr != nil {
+			if rerr == io.EOF {
+				break
+			}
+			// 排队中途断流：可重试（重试 = 重新排队，等价浏览器刷新重新提交）
+			return nil, &iqdbRetryableError{msg: "读取响应失败: " + rerr.Error(), err: rerr}
+		}
+	}
+	return buf.Bytes(), nil
+}
+
+// iqdbQueuedOrNil 检测响应中的排队标记。
+//
+// IQDB 排队页面在结果区渲染前会不断回传 queue('N','0') 脚本；
+// 若响应完成时仍在长队列中（position>阈值 且无结果），返回 iqdbQueuedError，
+// 让用户明确知晓排队而非误报"未找到匹配"。position=0 表示正在处理，
+// 短排队（≤阈值）则继续等待响应完成，此时若仍无结果按正常无匹配处理。
+func iqdbQueuedOrNil(body []byte) error {
+	pos, wait, found := iqdbQueuedPosition(body)
+	if found && pos > iqdbQueueFastFailThreshold && wait == 0 {
+		return &iqdbQueuedError{position: pos}
+	}
+	return nil
 }
 
 // parseIQDBResults 解析 IQDB 结果页面 HTML。

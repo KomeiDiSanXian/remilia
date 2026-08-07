@@ -28,13 +28,18 @@ func findImageURL(event platform.Event) string {
 }
 
 // downloadImage 下载远程图片字节，maxBytes 为体积上限（<=0 表示不限制）。
-func downloadImage(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
+//
+// 使用与引擎相同的共享 HTTP 客户端（含 plugins.sauce.proxy 代理配置）。
+func (p *Plugin) downloadImage(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
+	if p.httpClient == nil {
+		return nil, fmt.Errorf("HTTP 客户端未初始化")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

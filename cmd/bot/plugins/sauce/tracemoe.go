@@ -23,9 +23,12 @@ type traceMoeClient struct {
 }
 
 // newTraceMoeClient 创建 trace.moe 客户端。
-func newTraceMoeClient() *traceMoeClient {
+func newTraceMoeClient(httpClient *http.Client) *traceMoeClient {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 20 * time.Second}
+	}
 	return &traceMoeClient{
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+		httpClient: httpClient,
 	}
 }
 

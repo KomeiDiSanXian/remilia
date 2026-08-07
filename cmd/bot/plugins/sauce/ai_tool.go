@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/ai"
 )
@@ -28,7 +27,7 @@ const aiToolName = "sauce"
 func (p *Plugin) ListTools() []ai.Tool {
 	return []ai.Tool{{
 		Name:        aiToolName,
-		Description: "以图搜图，聚合 SauceNAO / IQDB / TraceMoe / ASCII2D 查找图片出处（画作、插画、动画截图等）。提供图片 URL 作为 image_url 参数即可检索",
+		Description: "以图搜图，聚合 SauceNAO / IQDB / TraceMoe / AnimeTrace 查找图片出处（画作、插画、动画截图等）。提供图片 URL 作为 image_url 参数即可检索",
 		Categories:  []string{ai.CategoryGeneral},
 		Parameters: ai.ToolParamSchema{
 			Type: "object",
@@ -79,10 +78,10 @@ func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (str
 		return "", fmt.Errorf("未配置 SauceNAO API Key，无法使用 db 参数")
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, p.searchTimeout())
 	defer cancel()
 
-	raw, err := downloadImage(reqCtx, imageURL, 20*1024*1024)
+	raw, err := p.downloadImage(reqCtx, imageURL, 20*1024*1024)
 	if err != nil {
 		return "", fmt.Errorf("下载图片失败: %w", err)
 	}
@@ -103,7 +102,7 @@ func (p *Plugin) executeSauceTool(ctx context.Context, args map[string]any) (str
 		return p.finishToolSearch(results, nil, maxResults)
 	}
 
-	allResults, errReports := p.searchAll(reqCtx, in, maxResults)
+	allResults, errReports := p.searchAll(reqCtx, in, maxResults, p.allEngines())
 	return p.finishToolSearch(allResults, errReports, maxResults)
 }
 

@@ -26,9 +26,12 @@ type saucenaoClient struct {
 }
 
 // newSauceNAOClient 创建 SauceNAO 客户端。
-func newSauceNAOClient() *saucenaoClient {
+func newSauceNAOClient(httpClient *http.Client) *saucenaoClient {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
 	return &saucenaoClient{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: httpClient,
 	}
 }
 
