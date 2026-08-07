@@ -194,10 +194,7 @@ func traceMoeEpisode(raw json.RawMessage) string {
 
 // formatTraceMoeTime 将秒数格式化为 分:秒（超过 1 小时显示 时:分:秒）。
 func formatTraceMoeTime(seconds float64) string {
-	s := int(seconds)
-	if s < 0 {
-		s = 0
-	}
+	s := max(int(seconds), 0)
 	h := s / 3600
 	m := (s % 3600) / 60
 	sec := s % 60

@@ -58,11 +58,11 @@ func TestSubmitEnginesCollectsAll(t *testing.T) {
 			return []SearchResult{{Title: "c1"}}, nil
 		}},
 	}
-	ch := submitEngines(context.Background(), tasks)
+	ch := submitEngines(tasks)
 
 	var names []string
 	var errCount int
-	for i := 0; i < len(tasks); i++ {
+	for range tasks {
 		res := <-ch
 		names = append(names, res.name)
 		if res.err != nil {

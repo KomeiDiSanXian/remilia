@@ -269,9 +269,9 @@ func TestIQDBSearchMidStreamDisconnect(t *testing.T) {
 			// 写一个声明 Content-Length 大于实际内容的响应（短排队标记 +
 			// 截断的 HTML），客户端读取时遇到 unexpected EOF → 模拟中途断流
 			partial := "<html><body><script type='text/javascript'>queue('5','0');</script>"
-			_, _ = conn.Write([]byte(fmt.Sprintf(
+			_, _ = conn.Write(fmt.Appendf(nil,
 				"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s",
-				len(partial)+4096, partial)))
+				len(partial)+4096, partial))
 			_ = conn.Close()
 			return
 		}

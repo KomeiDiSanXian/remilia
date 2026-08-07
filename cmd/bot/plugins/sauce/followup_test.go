@@ -15,8 +15,7 @@ func TestWaitIQDBOutcomeWithinGrace(t *testing.T) {
 	ch := make(chan engineOutcome, 1)
 	ch <- engineOutcome{name: "IQDB", results: []SearchResult{{Title: "x"}}}
 
-	reqCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	reqCtx := t.Context()
 
 	res, ok := waitIQDBOutcome(ch, reqCtx, 5*time.Second)
 	assert.True(t, ok)
@@ -26,8 +25,7 @@ func TestWaitIQDBOutcomeWithinGrace(t *testing.T) {
 // TestWaitIQDBOutcomeGraceExpired 宽限期结束仍未返回 → (_, false)。
 func TestWaitIQDBOutcomeGraceExpired(t *testing.T) {
 	ch := make(chan engineOutcome, 1) // 永不投递
-	reqCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	reqCtx := t.Context()
 
 	start := time.Now()
 	res, ok := waitIQDBOutcome(ch, reqCtx, 30*time.Millisecond)

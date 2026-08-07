@@ -144,7 +144,7 @@ func (p *Plugin) parseEngineSet(raw string) (engineSet, error) {
 	}
 
 	s := engineSet{}
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		name := strings.TrimSpace(part)
 		if name == "" {
 			continue
@@ -224,7 +224,7 @@ func (p *Plugin) searchAll(reqCtx context.Context, in engineInput, maxResults in
 
 	var allResults []SearchResult
 	var errReports []string
-	for i := 0; i < len(tasks); i++ {
+	for range tasks {
 		select {
 		case res := <-ch:
 			if res.err != nil {
@@ -281,7 +281,7 @@ func (p *Plugin) resolveEnginesFromCommand(ctx *eventctx.Context) (engineSet, er
 	parsed, err := eventctx.ParseCommand(ctx)
 	if err == nil {
 		pos := parsed.Positional
-		for i := 0; i < len(pos); i++ {
+		for i := range pos {
 			arg := pos[i]
 			if strings.EqualFold(arg, "-engine") && i+1 < len(pos) {
 				return p.parseEngineSet(pos[i+1])
