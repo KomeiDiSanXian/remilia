@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.37.2 (2026-08-08)
+
+### 🐛 AI 插件：群聊消息窗口默认开启（修复 AI 无法读取群聊历史）
+
+- **根因**: `context_group_messages`（把同群最近 N 条入站消息注入系统提示，让 AI 感知多人对话）默认值为 `0`（关闭）——未显式配置时 AI 永远看不到群聊历史，只会回答"只能看到当前这一条消息"。实测 QQ 官方平台群聊复现
+- **修复**: 默认值 `0 → 10`——AI 默认即可读取同群最近 10 条入站消息（`昵称: 内容`，旧到新）；显式配置 `context_group_messages: N` 可调整条数，`0` 仍可关闭（显式配置行为与旧版完全一致）
+
+### 🐛 messagelog：QueryGroupRecent SQLite 兜底（重启后群历史仍可读）
+
+- **根因**: `QueryGroup` 只读内存 ring buffer——机器人重启后热缓存为空，重启前的消息只持久化在 SQLite、不会被加载回内存。实测：重启后 AI 只能读到重启后新产生的消息，重启前的群聊历史不可见（非时间范围限制）
+- **修复**: 新增 `messagelog.QueryGroupRecent`——内存 ring 条数不足时自动以 SQLite 最近记录补齐（按 EventID 去重、排除出站消息、旧→新排序）；AI `buildGroupContext` 改用它，重启后仍能读到重启前的群聊历史
+- **验证**: 新增 `QueryGroupRecent` DB 兜底/去重/顺序测试
+
+### 🧠 AI 插件：群聊窗口包含机器人回复开关（context_group_include_bot）
+
+- **`context_group_include_bot`**（默认 false）: 群聊消息窗口是否包含机器人的出站回复——AI 自己的回复与其他插件的回复均进入窗口（`messagelog.QueryGroupRecentWithBot`，入站/出站 ring 与 SQLite 合并、时间排序、去重）
+- **身份标注与归属提示**: 出站消息以**机器人自身名称**（`ctx.GetBotName()`，未注入时兜底"机器人"）标注，且窗口顶部附加说明行"标注「名称」的消息由本机器人账号发出——AI 对话回复或插件命令输出，均为自己/本账号的发言"，消除 AI 把自身回复误认为其他账号发言的歧义
+- **会话历史防重复**: AI 自己的回复已以 assistant 轮次存在于会话历史，开启开关后 `buildSystemPrompt` 收集会话内 AI 已回复的内容集合，`buildGroupContext` 按内容精确匹配跳过同一条回复——窗口与对话历史不会重复注入同一文本；其他插件的回复不进会话、不受影响
+- **验证**: `QueryGroupRecentWithBot` 混合/排序/截断测试 + `buildGroupContext` 含机器人/名称标注/归属提示/去重测试
+
+### 📝 配置
+
+- **config.example.yaml**: `plugins.ai` 节补全全部 33 个配置项（提供商与模型/模型参数/触发方式/输出与多模态/工具白名单/技能系统/隐私控制/结构级上下文），逐项标注 `[R]` 标记、默认值与取值范围
+
 ## v1.37.1 (2026-08-07)
 
 ### 🐛 sauce 插件修复
