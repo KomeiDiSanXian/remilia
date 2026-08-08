@@ -163,8 +163,9 @@ func TestLoadConfigContextPrivacyDefaults(t *testing.T) {
 func TestLoadConfigReplyAndGroupContext(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{
-			"include_reply_context":  false,
-			"context_group_messages": 15,
+			"include_reply_context":      false,
+			"context_group_messages":     15,
+			"context_group_include_bot": true,
 		},
 	}
 	ctx := plugintest.NewSetupContext("ai", &plugintest.SetupOptions{Config: cfg})
@@ -177,6 +178,9 @@ func TestLoadConfigReplyAndGroupContext(t *testing.T) {
 	if result.ContextGroupMessages != 15 {
 		t.Errorf("expected context_group_messages 15, got %d", result.ContextGroupMessages)
 	}
+	if !result.ContextGroupIncludeBot {
+		t.Error("expected context_group_include_bot true")
+	}
 }
 
 func TestLoadConfigReplyAndGroupContextDefaults(t *testing.T) {
@@ -187,8 +191,11 @@ func TestLoadConfigReplyAndGroupContextDefaults(t *testing.T) {
 	if !result.IncludeReplyContext {
 		t.Error("expected include_reply_context default true")
 	}
-	if result.ContextGroupMessages != 0 {
-		t.Errorf("expected context_group_messages default 0, got %d", result.ContextGroupMessages)
+	if result.ContextGroupMessages != 10 {
+		t.Errorf("expected context_group_messages default 10, got %d", result.ContextGroupMessages)
+	}
+	if result.ContextGroupIncludeBot {
+		t.Error("expected context_group_include_bot default false")
 	}
 }
 

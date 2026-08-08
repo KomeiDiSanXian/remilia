@@ -2,6 +2,7 @@ package messagelog
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -263,6 +264,104 @@ func TestQueryGroupFromDB_ExcludesOutbound(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Content != "user" {
 		t.Errorf("QueryGroupFromDB should exclude outbound, got %d entries", len(entries))
+	}
+}
+
+func TestQueryGroupRecent_DBFallback(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "messagelog_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	now := time.Now().UnixNano()
+	// 模拟重启后场景：内存 ring 为空，旧消息已持久化在 SQLite
+	for i := 1; i <= 5; i++ {
+		if err := l.db.Create(&MessageRecord{
+			ChatID: "g1", EventID: fmt.Sprintf("db-%d", i),
+			Content: fmt.Sprintf("db message %d", i),
+			Timestamp: now + int64(i), CreatedAt: now + int64(i),
+		}).Error; err != nil {
+			t.Fatalf("create db record %d: %v", i, err)
+		}
+	}
+	// 出站消息不应被返回
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "db-out", Content: "bot", Timestamp: now + 100, CreatedAt: now + 100, IsOutbound: true,
+	}).Error; err != nil {
+		t.Fatalf("create outbound record: %v", err)
+	}
+	// 新消息进入内存 ring
+	l.Record(RecordEntry{ChatID: "g1", EventID: "mem-1", Content: "mem message", Timestamp: time.Unix(0, now+200)})
+
+	entries := l.QueryGroupRecent("g1", 3)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+	if entries[0].Content != "db message 4" || entries[1].Content != "db message 5" || entries[2].Content != "mem message" {
+		t.Errorf("unexpected merged order: %+v", entries)
+	}
+
+	// 重复写入同 EventID 到内存 ring：合并时按 EventID 去重，条数不变
+	l.Record(RecordEntry{ChatID: "g1", EventID: "mem-1", Content: "dup", Timestamp: time.Unix(0, now+200)})
+	entries = l.QueryGroupRecent("g1", 3)
+	if len(entries) != 3 {
+		t.Errorf("expected dedup to keep 3 entries, got %d", len(entries))
+	}
+}
+
+func TestQueryGroupRecentWithBot(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "messagelog_test.db"))
+	if err != nil {
+		t.Fatalf("OpenDB failed: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	now := time.Now().UnixNano()
+	// 重启后场景：内存 ring 为空，入站 + 出站（机器人回复）均在 SQLite
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "in-1", Content: "user msg", Timestamp: now + 1, CreatedAt: now + 1,
+	}).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "out-1", Content: "bot reply", Timestamp: now + 2, CreatedAt: now + 2, IsOutbound: true,
+	}).Error; err != nil {
+		t.Fatalf("create outbound: %v", err)
+	}
+
+	// 仅入站：不含机器人回复
+	onlyIn := l.QueryGroupRecent("g1", 10)
+	if len(onlyIn) != 1 || onlyIn[0].EventID != "in-1" {
+		t.Errorf("QueryGroupRecent should exclude outbound, got %+v", onlyIn)
+	}
+
+	// 含机器人：两者都返回，且时间旧→新
+	withBot := l.QueryGroupRecentWithBot("g1", 10)
+	if len(withBot) != 2 {
+		t.Fatalf("expected 2 entries, got %d: %+v", len(withBot), withBot)
+	}
+	if withBot[0].EventID != "in-1" || withBot[1].EventID != "out-1" {
+		t.Errorf("expected old-to-new order in-1, out-1, got %+v", withBot)
+	}
+
+	// 内存 ring 与出站 ring 混合（含去重与排序）
+	l.Record(RecordEntry{ChatID: "g1", EventID: "in-2", Content: "new user", Timestamp: time.Unix(0, now+100)})
+	l.RecordOutbound("g1", "out-2", "new bot reply", time.Unix(0, now+101))
+	got := l.QueryGroupRecentWithBot("g1", 3)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %+v", len(got), got)
+	}
+	// 应取最新 3 条且旧→新：in-2, out-1(DB), out-2(mem) 或 in-2, out-2 相关组合，
+	// 只要保序且不含被截断的 in-1
+	for _, e := range got {
+		if e.EventID == "in-1" {
+			t.Errorf("in-1 should be truncated, got %+v", got)
+		}
 	}
 }
 

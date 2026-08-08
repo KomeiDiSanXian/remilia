@@ -446,14 +446,14 @@ func TestBuildSystemPromptGatesRuntimeContext(t *testing.T) {
 
 	// 开启（默认）：包含运行时上下文
 	p := &Plugin{cfg: &Config{IncludeRuntimeContext: true}}
-	prompt := p.buildSystemPrompt(ctx)
+	prompt := p.buildSystemPrompt(ctx, nil)
 	if !strings.Contains(prompt, "运行时上下文") {
 		t.Error("expected runtime context section when enabled")
 	}
 
 	// 关闭：不包含运行时上下文，但保留框架与自定义提示
 	p2 := &Plugin{cfg: &Config{IncludeRuntimeContext: false, SystemPrompt: "自定义"}}
-	prompt2 := p2.buildSystemPrompt(ctx)
+	prompt2 := p2.buildSystemPrompt(ctx, nil)
 	if strings.Contains(prompt2, "运行时上下文") {
 		t.Error("expected runtime context section omitted when disabled")
 	}

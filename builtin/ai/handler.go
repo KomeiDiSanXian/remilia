@@ -90,7 +90,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	session.LockTurn()
 	defer session.UnlockTurn()
 
-	systemPrompt := p.buildSystemPrompt(ctx)
+	systemPrompt := p.buildSystemPrompt(ctx, session)
 
 	session.Lock()
 	if session.Messages == nil {
@@ -371,7 +371,10 @@ func appendMentionInfo(content string, mentions []platform.UserInfo) string {
 //  1. Framework Prompt — 硬编码的 AI 行为规则，不可被用户覆盖
 //  2. User Custom Prompt — 配置文件 system_prompt 中的自定义指令
 //  3. Runtime Context — 动态运行时环境信息（受 include_runtime_context 配置控制）
-func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context) string {
+//
+// session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含
+// 机器人回复（context_group_include_bot）时去重；nil 时不去重。
+func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) string {
 	var parts []string
 
 	// 1. Framework Prompt
@@ -388,10 +391,21 @@ func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context) string {
 		parts = append(parts, "===== 运行时上下文 =====\n"+p.buildRuntimeContext(ctx))
 	}
 
-	// 4. 群聊最近消息窗口（context_group_messages > 0 时开启，
+	// 4. 群聊最近消息窗口（context_group_messages > 0 时开启，默认 10，
 	//    独立于 include_runtime_context，由自身配置控制）
 	if p.cfg.ContextGroupMessages > 0 {
-		if groupCtx := p.buildGroupContext(ctx); groupCtx != "" {
+		// 会话历史已包含 AI 自己的回复（assistant 轮次）——
+		// 开启 context_group_include_bot 时按内容去重，避免重复注入
+		var skipBot map[string]bool
+		if p.cfg.ContextGroupIncludeBot && session != nil {
+			skipBot = make(map[string]bool)
+			for _, m := range session.Messages {
+				if m.Role == RoleAssistant && m.Content != "" {
+					skipBot[m.Content] = true
+				}
+			}
+		}
+		if groupCtx := p.buildGroupContext(ctx, skipBot); groupCtx != "" {
 			parts = append(parts, "===== 群聊最近消息 =====\n"+groupCtx)
 		}
 	}

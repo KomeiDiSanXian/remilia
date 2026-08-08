@@ -32,6 +32,7 @@ package messagelog
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -543,6 +544,90 @@ func (l *Logger) QueryGroup(groupID string, n int) []RecordEntry {
 		return r.snapshot(n)
 	}
 	return nil
+}
+
+// QueryGroupRecent 返回群 groupID 最近 n 条入站消息（从旧到新）。
+//
+// 优先内存 ring buffer；条数不足时以 SQLite 最近记录补齐——
+// 重启后内存热缓存为空，此方法仍能读到重启前的群历史
+// （QueryGroup 的 DB 增强版，供 AI 群聊消息窗口等场景使用）。
+// 出站消息（IsOutbound）不参与。
+func (l *Logger) QueryGroupRecent(groupID string, n int) []RecordEntry {
+	return l.queryGroupRecent(groupID, n, false)
+}
+
+// QueryGroupRecentWithBot 与 QueryGroupRecent 相同，但额外包含机器人的
+// 出站回复（AI 与其他插件的回复，存于 botBuf / SQLite IsOutbound=true）。
+// 供"群聊消息窗口包含机器人回复"的配置使用。
+func (l *Logger) QueryGroupRecentWithBot(groupID string, n int) []RecordEntry {
+	return l.queryGroupRecent(groupID, n, true)
+}
+
+func (l *Logger) queryGroupRecent(groupID string, n int, includeBot bool) []RecordEntry {
+	if groupID == "" || n <= 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var mem []RecordEntry
+	for _, e := range l.QueryGroup(groupID, n) {
+		if !seen[e.EventID] {
+			seen[e.EventID] = true
+			mem = append(mem, e)
+		}
+	}
+	if includeBot {
+		l.botMu.RLock()
+		br := l.botBuf[groupID]
+		l.botMu.RUnlock()
+		if br != nil {
+			for _, e := range br.snapshot(n) {
+				if !seen[e.EventID] {
+					seen[e.EventID] = true
+					mem = append(mem, e)
+				}
+			}
+		}
+	}
+
+	if len(mem) >= n || l.db == nil {
+		sortEntriesByTime(mem)
+		return lastN(mem, n)
+	}
+
+	q := l.db.Where("chat_id = ?", groupID)
+	if !includeBot {
+		q = q.Where("is_outbound = false")
+	}
+	var models []MessageRecord
+	if err := q.Order("id DESC").Limit(n).Find(&models).Error; err != nil {
+		logger.WithError(err).Warn("[MessageLog] Failed to query recent messages from DB")
+		sortEntriesByTime(mem)
+		return lastN(mem, n)
+	}
+	for i := len(models) - 1; i >= 0; i-- {
+		m := models[i]
+		if seen[m.EventID] {
+			continue
+		}
+		seen[m.EventID] = true
+		mem = append(mem, modelToEntry(m, nil))
+	}
+	sortEntriesByTime(mem)
+	return lastN(mem, n)
+}
+
+// sortEntriesByTime 按时间戳旧→新稳定排序（内存 ring 与 SQLite 条目混合后使用）。
+func sortEntriesByTime(entries []RecordEntry) {
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Timestamp.Before(entries[j].Timestamp) })
+}
+
+// lastN 截取切片末尾 n 条（不足 n 条时原样返回）。
+func lastN(entries []RecordEntry, n int) []RecordEntry {
+	if len(entries) > n {
+		return entries[len(entries)-n:]
+	}
+	return entries
 }
 
 // QueryUser 返回用户 userID 最近 n 条消息（从旧到新）。

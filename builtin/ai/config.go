@@ -90,10 +90,17 @@ type Config struct {
 	MaxUserSkills int `yaml:"max_user_skills"`
 	// MaxUserSkillPromptLen 用户技能 Prompt 的最大字符数，默认 2000。
 	MaxUserSkillPromptLen int `yaml:"max_user_skill_prompt_len"`
-	// ContextGroupMessages 注入系统提示的最近群消息条数（0 = 关闭，默认）。
+	// ContextGroupMessages 注入系统提示的最近群消息条数（0 = 关闭，默认 10）。
 	// 开启后 AI 能感知同群其他成员的发言，融入多人对话。
 	// 依赖 messagelog 插件；只注入入站消息（不含机器人自己的回复）。
 	ContextGroupMessages int `yaml:"context_group_messages"`
+	// ContextGroupIncludeBot 群聊消息窗口是否包含机器人的出站回复
+	// （AI 自己的回复与其他插件的回复）。
+	// 默认 false。开启后出站消息以机器人自身名称标注（未注入名称时
+	// 兜底"机器人"），窗口顶部附加说明行提示这些消息由本账号发出；
+	// 与 AI 会话历史重合的回复（当前会话内 AI 已说过的内容）会被
+	// 自动去重，不会在窗口与对话历史中重复出现。
+	ContextGroupIncludeBot bool `yaml:"context_group_include_bot"`
 	// AtBot 是否响应 @机器人的消息。
 	AtBot bool `yaml:"at_bot"`
 	// PrivateChat 是否自动响应私聊消息。
@@ -155,7 +162,8 @@ var DefaultConfig = Config{
 	IncludeRuntimeContext: true,
 	IncludeMentionInfo:    true,
 	IncludeReplyContext:   true,
-	ContextGroupMessages:  0,
+	ContextGroupMessages:  10,
+	ContextGroupIncludeBot: false,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -267,6 +275,7 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {
 		cfg.ContextGroupMessages = v
 	}
+	cfg.ContextGroupIncludeBot = ctx.Config.GetBool("context_group_include_bot", cfg.ContextGroupIncludeBot)
 
 	if v := ctx.Config.Get("context_fields"); v != nil {
 		if list, ok := v.([]any); ok {

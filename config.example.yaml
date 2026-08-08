@@ -229,20 +229,64 @@ api:
 # 插件扩展配置（可选）
 # ====================================
 # plugins:
-#   ai: (所有字段 [N/A] 各插件通过 YAMLConfigProvider 读取，暂不支持热更新)
-#     provider: "openai"
-#     model: "gpt-4o-mini"
-#     ...
+#   ai: (所有字段 [R] 各插件通过 YAMLConfigProvider 读取，仅在插件启动时加载)
+#     # —— 提供商与模型 ——
+#     provider: "openai"                  # [R] LLM 提供商: openai（默认，兼容 DeepSeek/Kimi 等）/ anthropic
+#     model: "gpt-4o-mini"                # [R] 模型名称（DeepSeek: deepseek-chat / deepseek-reasoner）
+#     base_url: ""                        # [R] API 地址；空 = 默认（OpenAI https://api.openai.com/v1，
+#                                         #     DeepSeek https://api.deepseek.com，Anthropic https://api.anthropic.com，
+#                                         #     Ollama http://localhost:11434/v1）
+#     api_key: "${AI_API_KEY}"            # [R] API 密钥，推荐环境变量引用
+#     system_prompt: "你是 Remilia Bot 的 AI 助手。"  # [R] 自定义系统提示词（角色/个性/行为约束，追加在框架规则之后）
+#     trigger_cmd: "/ai"                  # [R] AI 对话触发命令前缀；空 = 不注册命令触发
+#
+#     # —— 模型参数 ——
+#     max_tokens: 2048                    # [R] 每次请求的最大输出 token 数
+#     max_depth: 5                        # [R] 工具调用的最大递归深度（防止工具循环过深）
+#     max_history: 20                     # [R] 保留的最大消息轮数（user+assistant 算一轮），超出从中间裁剪
+#     temperature: 0.7                    # [R] 采样温度 0-2，越高输出越随机
+#     top_p: 1.0                          # [R] 核采样参数 0-1，替代 temperature 使用
+#     api_timeout: "60s"                  # [R] API 请求超时
+#     max_retries: 0                      # [R] 请求失败时的最大重试次数（0 = 不重试）
+#     tool_timeout: "30s"                 # [R] 每个工具调用的最长执行时间；超时返回错误，对话继续
+#     session_ttl: "24h"                  # [R] 会话过期时间，超过未活跃的会话被清理
+#
+#     # —— 触发方式 ——
+#     at_bot: true                        # [R] 是否响应 @机器人的消息（群聊中 @机器人 触发）
+#     private_chat: true                  # [R] 是否自动响应私聊消息（命令消息自动跳过）
+#     fallback: false                     # [R] 无命令匹配时是否由 AI 兜底回复（预留字段）
+#
+#     # —— 输出与多模态 ——
+#     markdown: true                      # [R] 平台支持 MD 时用 Markdown 回复，否则回退纯文本
+#     vision_enabled: true                # [R] 是否启用图片识别（不支持的模型建议关闭，如 deepseek-chat）
+#     audio_enabled: false                # [R] 是否启用音频输入（仅 OpenAI 部分模型支持，Anthropic 不支持）
+#     max_attachment_size: 20971520       # [R] 入站附件单文件大小上限（字节，默认 20MB），超出则跳过
+#
+#     # —— AI 工具 ——
+#     tool_allowlist: []                  # [R] 显式允许暴露为 AI 工具的命令白名单；
+#                                         #     [] = 自动发现所有无权限命令（旧行为）；非空 = 仅列表中的命令
+#
+#     # —— 技能（Skill）系统 ——
+#     max_user_skills: 10                 # [R] 每个用户最多可注册的技能数
+#     max_user_skill_prompt_len: 2000     # [R] 用户技能 Prompt 的最大字符数
+#     skill_timeout: "60s"                # [R] 每个 Skill 执行的最大时长
+#     skill_max_depth: 3                  # [R] Skill 内部工具调用的最大递归深度
+#
 #     # —— 隐私控制（随请求发送给第三方 LLM 的内容）——
-#     include_runtime_context: true        # [R] 是否注入运行时上下文（用户/群聊/时间等）。false = 完全不注入
-#     context_fields: []                   # [R] 运行时上下文字段白名单；[] = 全部。
-#                                          #     可选: time, platform, bot_id, bot_name,
-#                                          #     user_name, user_id, user_is_bot, chat_type,
-#                                          #     chat_id, chat_name, parent_id, group_role
-#     include_mention_info: true           # [R] 是否将本条消息 @ 提及的其他用户昵称注入用户消息
+#     include_runtime_context: true       # [R] 是否注入运行时上下文（用户/群聊/时间等）。false = 完全不注入
+#     context_fields: []                  # [R] 运行时上下文字段白名单；[] = 全部。
+#                                         #     可选: time, platform, bot_id, bot_name,
+#                                         #     user_name, user_id, user_is_bot, chat_type,
+#                                         #     chat_id, chat_name, parent_id, group_role
+#     include_mention_info: true          # [R] 是否将本条消息 @ 提及的其他用户昵称注入用户消息
+#
 #     # —— 结构级上下文（依赖 messagelog 消息历史）——
-#     include_reply_context: true          # [R] 是否注入"被回复消息"的内容；机器人自己的对话回复也会被记录
-#     context_group_messages: 0            # [R] 注入系统提示的最近群消息条数；0 = 关闭
+#     include_reply_context: true         # [R] 是否注入"被回复消息"的内容；机器人自己的对话回复也会被记录
+#     context_group_messages: 10          # [R] 注入系统提示的最近群消息条数；0 = 关闭（默认 10，开启 AI 感知群聊历史）
+#     context_group_include_bot: false    # [R] 群聊消息窗口是否包含机器人的出站回复（AI 与其他插件的回复，
+#                                         #     以机器人自身名称标注，未注入时兜底"机器人"，并附说明行
+#                                         #     提示由本账号发出）；默认 false。开启后与当前会话历史重合的
+#                                         #     AI 回复自动去重，不会重复出现
 #   weather:
 #     api_key: "your-weather-api-key"
 #   sauce:

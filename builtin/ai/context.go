@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/future"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -101,9 +102,17 @@ func replyQuoteFromSegments(segs []platform.Segment) string {
 	return ""
 }
 
-// buildGroupContext 组装同群最近 N 条入站消息（昵称: 内容，旧到新）。
+// buildGroupContext 组装同群最近 N 条消息（昵称: 内容，旧到新）。
+// 默认只含入站消息；ContextGroupIncludeBot 开启时额外包含机器人的
+// 出站回复（AI 与其他插件的回复），并以机器人自身名称标注
+// （未注入名称时兜底"机器人"），同时窗口顶部加提示行说明这些
+// 消息由本账号发出，避免 AI 误认为其他账号的发言。
 // 跳过空内容与合成事件（AI 工具调用的内部命令），剥 @ 标记并单行截断。
-func (p *Plugin) buildGroupContext(ctx *eventctx.Context) string {
+//
+// skipBotContents 为当前会话内 AI 已回复的内容集合——开启
+// ContextGroupIncludeBot 时用于去重：机器人在会话历史中已说过的
+// 内容不再重复注入群聊窗口（会话与窗口两侧存的是同一文本）。
+func (p *Plugin) buildGroupContext(ctx *eventctx.Context, skipBotContents map[string]bool) string {
 	if p.history == nil || p.cfg.ContextGroupMessages <= 0 {
 		return ""
 	}
@@ -112,17 +121,44 @@ func (p *Plugin) buildGroupContext(ctx *eventctx.Context) string {
 		return ""
 	}
 
-	entries := p.history.QueryGroup(chat.ID, p.cfg.ContextGroupMessages)
+	var entries []messagelog.RecordEntry
+	if p.cfg.ContextGroupIncludeBot {
+		// 包含机器人回复（含其他插件的回复）；内存 ring 不足时
+		// 自动以 SQLite 最近记录补齐，重启后群聊历史仍可读
+		entries = p.history.QueryGroupRecentWithBot(chat.ID, p.cfg.ContextGroupMessages)
+	} else {
+		// 仅入站消息；内存 ring 不足时自动以 SQLite 最近记录补齐，
+		// 重启后 AI 仍能读到重启前的群聊历史（QueryGroup 仅读内存热缓存）。
+		entries = p.history.QueryGroupRecent(chat.ID, p.cfg.ContextGroupMessages)
+	}
 	if len(entries) == 0 {
 		return ""
 	}
 
+	botName := ctx.GetBotName()
+	if botName == "" {
+		botName = "机器人"
+	}
+
 	var b strings.Builder
+	if p.cfg.ContextGroupIncludeBot {
+		// 提示行：标注为机器人自身名称的消息由本账号发出
+		// （AI 对话回复 + 其他插件命令输出），并非群内其他用户发言
+		fmt.Fprintf(&b, "（标注「%s」的消息由本机器人账号发出——AI 对话回复或插件命令输出，均为你自己/本账号的发言，而非其他用户）\n", botName)
+	}
 	for _, e := range entries {
 		if e.Content == "" || e.Platform == "synthetic" {
 			continue
 		}
 		name := e.UserName
+		if e.IsOutbound {
+			name = botName
+			// 会话历史已包含 AI 自己的回复（assistant 轮次），
+			// 内容一致的出站条目跳过，避免窗口与对话历史重复
+			if skipBotContents[e.Content] {
+				continue
+			}
+		}
 		if name == "" {
 			name = e.UserID
 		}

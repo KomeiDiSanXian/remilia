@@ -254,7 +254,7 @@ func TestBuildGroupContext(t *testing.T) {
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	got := p.buildGroupContext(ctx)
+	got := p.buildGroupContext(ctx, nil)
 	if !strings.Contains(got, "小明: 在吗") {
 		t.Errorf("expected user message in group context, got %q", got)
 	}
@@ -272,12 +272,60 @@ func TestBuildGroupContext(t *testing.T) {
 	}
 }
 
+func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
+	l := messagelog.New(10)
+	now := time.Now()
+	l.Record(messagelog.RecordEntry{ChatID: "g1", UserName: "小明", Content: "你好", EventID: "1", Timestamp: now})
+	l.RecordOutbound("g1", "out-1", "AI 的回复", now.Add(time.Second))
+	// 其他插件（如 /pic）的回复也应进入窗口
+	l.RecordOutbound("g1", "out-2", "图片结果", now.Add(2*time.Second))
+
+	p := &Plugin{cfg: &Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
+	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	// 注入机器人名称：出站消息应以机器人自身名称标注
+	ctx.SetBotName("蕾米莉亚")
+
+	got := p.buildGroupContext(ctx, nil)
+	if !strings.Contains(got, "蕾米莉亚: AI 的回复") {
+		t.Errorf("expected bot outbound labeled with bot name, got %q", got)
+	}
+	if !strings.Contains(got, "蕾米莉亚: 图片结果") {
+		t.Errorf("expected other plugin reply in group window, got %q", got)
+	}
+	if !strings.Contains(got, "小明: 你好") {
+		t.Errorf("expected user message in group window, got %q", got)
+	}
+	// 提示行：说明本账号消息的归属，避免 AI 误认为其他账号发言
+	if !strings.Contains(got, "由本机器人账号发出") || !strings.Contains(got, "蕾米莉亚") {
+		t.Errorf("expected attribution hint in group window, got %q", got)
+	}
+
+	// 会话历史已含 "AI 的回复"（assistant 轮次）：开启去重后该条目被跳过
+	skip := map[string]bool{"AI 的回复": true}
+	got = p.buildGroupContext(ctx, skip)
+	if strings.Contains(got, "AI 的回复") {
+		t.Errorf("expected dedup against session history, got %q", got)
+	}
+	if !strings.Contains(got, "图片结果") {
+		t.Errorf("other plugin reply should not be deduped, got %q", got)
+	}
+
+	// 未注入机器人名称时兜底"机器人"
+	ctx2 := eventctx.NewContextFromEvent(evt, nil)
+	got2 := p.buildGroupContext(ctx2, nil)
+	if !strings.Contains(got2, "机器人: AI 的回复") {
+		t.Errorf("expected fallback label, got %q", got2)
+	}
+}
+
 func TestBuildGroupContextDisabled(t *testing.T) {
 	p := &Plugin{cfg: &Config{ContextGroupMessages: 0}, history: messagelog.New(10)}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
 	ctx := eventctx.NewContextFromEvent(evt, nil)
-	if got := p.buildGroupContext(ctx); got != "" {
+	if got := p.buildGroupContext(ctx, nil); got != "" {
 		t.Errorf("expected empty when context_group_messages=0, got %q", got)
 	}
 
@@ -285,13 +333,13 @@ func TestBuildGroupContextDisabled(t *testing.T) {
 	evt2 := platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hi",
 		platform.WithSyntheticChat(platform.ChatInfo{ID: "u1"}))
 	p2 := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: messagelog.New(10)}
-	if got := p2.buildGroupContext(eventctx.NewContextFromEvent(evt2, nil)); got != "" {
+	if got := p2.buildGroupContext(eventctx.NewContextFromEvent(evt2, nil), nil); got != "" {
 		t.Errorf("expected empty for private chat, got %q", got)
 	}
 
 	// history 为 nil
 	p3 := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: nil}
-	if got := p3.buildGroupContext(ctx); got != "" {
+	if got := p3.buildGroupContext(ctx, nil); got != "" {
 		t.Errorf("expected empty when history unavailable, got %q", got)
 	}
 }
