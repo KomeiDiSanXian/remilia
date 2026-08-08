@@ -163,8 +163,8 @@ func TestLoadConfigContextPrivacyDefaults(t *testing.T) {
 func TestLoadConfigReplyAndGroupContext(t *testing.T) {
 	cfg := &mockConfig{
 		values: map[string]any{
-			"include_reply_context":      false,
-			"context_group_messages":     15,
+			"include_reply_context":     false,
+			"context_group_messages":    15,
 			"context_group_include_bot": true,
 		},
 	}

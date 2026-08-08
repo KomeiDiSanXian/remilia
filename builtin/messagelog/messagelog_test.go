@@ -281,7 +281,7 @@ func TestQueryGroupRecent_DBFallback(t *testing.T) {
 	for i := 1; i <= 5; i++ {
 		if err := l.db.Create(&MessageRecord{
 			ChatID: "g1", EventID: fmt.Sprintf("db-%d", i),
-			Content: fmt.Sprintf("db message %d", i),
+			Content:   fmt.Sprintf("db message %d", i),
 			Timestamp: now + int64(i), CreatedAt: now + int64(i),
 		}).Error; err != nil {
 			t.Fatalf("create db record %d: %v", i, err)

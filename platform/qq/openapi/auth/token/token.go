@@ -395,6 +395,9 @@ func (m *Manager) autoRefresh(info *dto.BotInfo) {
 }
 
 func requestToken(info *dto.BotInfo) (gjson.Result, error) {
+	if info == nil {
+		return gjson.Result{}, fmt.Errorf("token: bot info is nil, cannot request access token")
+	}
 	bodyMap := map[string]string{
 		"appId":        strconv.FormatUint(info.AppID, 10),
 		"clientSecret": info.AppSecret,
