@@ -344,7 +344,6 @@ func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (im
 		// 无系统 CJK 字体（如精简 CI 环境）：回退内置 Go Regular 字体，
 		// 保证 ASCII MOTD（多数服务器名）仍可渲染。
 		raw = textimage.DefaultFontTTF()
-		fontPath = ""
 	}
 
 	var parsed *opentype.Font

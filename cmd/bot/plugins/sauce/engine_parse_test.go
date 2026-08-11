@@ -1,6 +1,7 @@
 package sauce
 
 import (
+	"context"
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -97,7 +98,7 @@ func TestResolveEnginesFromCommand(t *testing.T) {
 	t.Run("engine tasks only submit selected", func(t *testing.T) {
 		s, err := parse("/sauce -engine iqdb")
 		require.NoError(t, err)
-		tasks := p.engineTasks(nil, engineInput{}, 3, s)
+		tasks := p.engineTasks(context.TODO(), engineInput{}, 3, s)
 		require.Len(t, tasks, 1)
 		assert.Equal(t, "IQDB", tasks[0].name)
 	})

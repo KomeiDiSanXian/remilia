@@ -241,9 +241,7 @@ func pickRandomPosts(posts []picPost, count int) []picPost {
 // buildTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤标签。
 func buildTags(s site, userTags []string, rng RatingRange) string {
 	parts := append([]string(nil), userTags...)
-	for _, tag := range s.rangeTags(rng) {
-		parts = append(parts, tag)
-	}
+	parts = append(parts, s.rangeTags(rng)...)
 	return strings.Join(parts, " ")
 } // ── Gelbooru 系协议 ─────────────────────────────────────────────────────
 

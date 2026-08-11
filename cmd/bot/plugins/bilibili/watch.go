@@ -20,11 +20,6 @@ type watchEntry struct {
 	Living bool   `json:"living"`
 }
 
-// watchState 持久化的订阅列表。
-type watchState struct {
-	Entries []watchEntry `json:"entries"`
-}
-
 // notifierFn 主动推送函数（chatID, 消息）→ error。
 type notifierFn func(chatID, msg string) error
 

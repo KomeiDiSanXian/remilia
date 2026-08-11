@@ -52,12 +52,6 @@ func (s *stateStore) loadLocked() *updaterState {
 	return st
 }
 
-func (s *stateStore) save(st *updaterState) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.saveLocked(st)
-}
-
 func (s *stateStore) saveLocked(st *updaterState) error {
 	if err := os.MkdirAll(s.dir, 0o755); err != nil {
 		return err
