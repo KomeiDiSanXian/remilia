@@ -113,7 +113,13 @@ func replyQuoteFromSegments(segs []platform.Segment) string {
 // ContextGroupIncludeBot 时用于去重：机器人在会话历史中已说过的
 // 内容不再重复注入群聊窗口（会话与窗口两侧存的是同一文本）。
 func (p *Plugin) buildGroupContext(ctx *eventctx.Context, skipBotContents map[string]bool) string {
-	if p.history == nil || p.cfg.ContextGroupMessages <= 0 {
+	return p.buildGroupContextN(ctx, skipBotContents, p.cfg.ContextGroupMessages)
+}
+
+// buildGroupContextN 组装同群最近 N 条消息（昵称: 内容，旧到新）。
+// N 由调用方给定（预算编排时可动态缩减）。
+func (p *Plugin) buildGroupContextN(ctx *eventctx.Context, skipBotContents map[string]bool, n int) string {
+	if p.history == nil || n <= 0 {
 		return ""
 	}
 	chat := ctx.GetChatInfo()
@@ -125,11 +131,11 @@ func (p *Plugin) buildGroupContext(ctx *eventctx.Context, skipBotContents map[st
 	if p.cfg.ContextGroupIncludeBot {
 		// 包含机器人回复（含其他插件的回复）；内存 ring 不足时
 		// 自动以 SQLite 最近记录补齐，重启后群聊历史仍可读
-		entries = p.history.QueryGroupRecentWithBot(chat.ID, p.cfg.ContextGroupMessages)
+		entries = p.history.QueryGroupRecentWithBot(chat.ID, n)
 	} else {
 		// 仅入站消息；内存 ring 不足时自动以 SQLite 最近记录补齐，
 		// 重启后 AI 仍能读到重启前的群聊历史（QueryGroup 仅读内存热缓存）。
-		entries = p.history.QueryGroupRecent(chat.ID, p.cfg.ContextGroupMessages)
+		entries = p.history.QueryGroupRecent(chat.ID, n)
 	}
 	if len(entries) == 0 {
 		return ""

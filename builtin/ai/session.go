@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -42,12 +43,36 @@ type Session struct {
 	CallCount int
 	ToolCount int
 
+	// turnActive / interruptCh 回合活跃标志与中断信号（用户抢占机制）。
+	// BeginTurn 开始回合并创建新信号；RequestInterrupt 关闭信号让进行中的
+	// 回合尽快收尾；EndTurn 清理。processWithTools 在轮次与工具之间检查。
+	turnActive   atomic.Bool
+	interruptCh  chan struct{}
+	interruptOne sync.Once
+
 	contentCache map[string]*cachedContent `json:"-"`
 
-	// 工具分类路由缓存（json:"-" 不持久化，重启后首次消息会重新路由）。
-	routeCategory  string    `json:"-"`
-	routeAt        time.Time `json:"-"`
-	routeToolCount int       `json:"-"`
+	// 工具选择缓存（json:"-" 不持久化，重启后首次消息重新选择）。
+	selCache *selectionCache `json:"-"`
+
+	// toolFailures 各工具在本会话中的连续失败次数（json:"-" 不持久化）。
+	// 用于工具执行的重试预算与反思引导；成功执行后归零。
+	toolFailures map[string]int `json:"-"`
+
+	// plan 当前任务计划（json:"-" 不持久化，重启后计划丢失）。
+	// 由 create_plan 创建、update_plan_step 更新；每轮 LLM 调用前注入。
+	plan *Plan `json:"-"`
+
+	// ragCache 历史消息检索缓存（json:"-" 不持久化）。
+	ragCache *ragCache `json:"-"`
+
+	// trace 工具调用追踪（json:"-" 不持久化，诊断用途）。
+	trace []ToolTraceEntry `json:"-"`
+
+	// planAutoRounds 当前计划已后台自动推进的轮次（json:"-" 不持久化）。
+	// 用户发新消息或 create_plan 时重置；planAutoStopped 为无进度停止标记。
+	planAutoRounds  int  `json:"-"`
+	planAutoStopped bool `json:"-"`
 }
 
 // Lock 锁定会话，禁止并发访问 Messages 等可变字段。
@@ -61,6 +86,92 @@ func (s *Session) LockTurn() { s.turnMu.Lock() }
 
 // UnlockTurn 解锁当前会话回合。
 func (s *Session) UnlockTurn() { s.turnMu.Unlock() }
+
+// TryLockTurn 非阻塞获取回合锁（用于后台任务：用户回合进行中时跳过本轮）。
+func (s *Session) TryLockTurn() bool { return s.turnMu.TryLock() }
+
+// --- 用户中断/抢占 ---
+
+// TurnActive 返回是否有回合正在执行。
+func (s *Session) TurnActive() bool { return s.turnActive.Load() }
+
+// BeginTurn 标记回合开始并重置中断信号。已活跃时返回 false（重复进入）。
+func (s *Session) BeginTurn() bool {
+	if !s.turnActive.CompareAndSwap(false, true) {
+		return false
+	}
+	s.interruptCh = make(chan struct{})
+	s.interruptOne = sync.Once{}
+	return true
+}
+
+// EndTurn 结束回合并清理中断信号。
+func (s *Session) EndTurn() {
+	s.turnActive.Store(false)
+	s.interruptCh = nil
+}
+
+// RequestInterrupt 请求中断进行中的回合（非阻塞；无活跃回合时 no-op）。
+func (s *Session) RequestInterrupt() {
+	ch := s.interruptCh
+	if ch == nil {
+		return
+	}
+	s.interruptOne.Do(func() { close(ch) })
+}
+
+// Interrupted 返回当前回合是否被请求中断（非阻塞）。
+func (s *Session) Interrupted() bool {
+	ch := s.interruptCh
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// --- 计划后台自动推进状态 ---
+
+// PlanAutoRounds 返回已自动推进轮次。
+func (s *Session) PlanAutoRounds() int {
+	s.Lock()
+	defer s.Unlock()
+	return s.planAutoRounds
+}
+
+// BumpPlanAutoRounds 递增自动推进轮次并返回新值。
+func (s *Session) BumpPlanAutoRounds() int {
+	s.Lock()
+	defer s.Unlock()
+	s.planAutoRounds++
+	return s.planAutoRounds
+}
+
+// PlanAutoStopped 返回是否被无进度停止标记。
+func (s *Session) PlanAutoStopped() bool {
+	s.Lock()
+	defer s.Unlock()
+	return s.planAutoStopped
+}
+
+// StopPlanAuto 标记无进度停止（停止后续自动推进）。
+func (s *Session) StopPlanAuto() {
+	s.Lock()
+	defer s.Unlock()
+	s.planAutoStopped = true
+}
+
+// ResetPlanAuto 重置自动推进预算与停止标记（用户发消息 / 创建新计划时）。
+func (s *Session) ResetPlanAuto() {
+	s.Lock()
+	defer s.Unlock()
+	s.planAutoRounds = 0
+	s.planAutoStopped = false
+}
 
 // getCachedContent 从内存缓存中获取附件内容。已过期或不存在返回 nil。
 // 线程安全，持有 session 读锁。
@@ -325,6 +436,64 @@ func (s *Session) SnapshotMessages() []Message {
 	return msgs
 }
 
+// ToolTraceEntry 一次工具调用的追踪记录（调用链可观测性）。
+type ToolTraceEntry struct {
+	// Time 调用开始时间。
+	Time time.Time `json:"time"`
+	// ToolName 工具名。
+	ToolName string `json:"tool_name"`
+	// Args 参数摘要（截断，防敏感信息泄漏）。
+	Args string `json:"args,omitempty"`
+	// Duration 执行耗时。
+	Duration time.Duration `json:"duration"`
+	// Err 非空表示执行失败（错误文本摘要）。
+	Err string `json:"err,omitempty"`
+}
+
+// maxToolTrace 每个会话保留的最大工具调用追踪条数（超出淘汰最旧）。
+const maxToolTrace = 50
+
+// appendToolTrace 追加一条工具调用追踪（线程安全，超出上限淘汰最旧）。
+func (s *Session) appendToolTrace(e ToolTraceEntry) {
+	s.Lock()
+	defer s.Unlock()
+	s.trace = append(s.trace, e)
+	if len(s.trace) > maxToolTrace {
+		s.trace = s.trace[len(s.trace)-maxToolTrace:]
+	}
+}
+
+// ToolTrace 返回会话的工具调用追踪副本（从旧到新）。
+func (s *Session) ToolTrace() []ToolTraceEntry {
+	s.Lock()
+	defer s.Unlock()
+	out := make([]ToolTraceEntry, len(s.trace))
+	copy(out, s.trace)
+	return out
+}
+
+// incrToolFailure 递增指定工具的连续失败次数并返回新值。
+// 线程安全。
+func (s *Session) incrToolFailure(name string) int {
+	s.Lock()
+	defer s.Unlock()
+	if s.toolFailures == nil {
+		s.toolFailures = make(map[string]int)
+	}
+	s.toolFailures[name]++
+	return s.toolFailures[name]
+}
+
+// resetToolFailure 清除指定工具的连续失败计数（执行成功时调用）。
+// 线程安全。
+func (s *Session) resetToolFailure(name string) {
+	s.Lock()
+	defer s.Unlock()
+	if s.toolFailures != nil {
+		delete(s.toolFailures, name)
+	}
+}
+
 // --- GORM 持久化记录 ---
 
 // sessionRecord 对应数据库表，用于 GORM 持久化。
@@ -335,6 +504,8 @@ type sessionRecord struct {
 	Messages  string `gorm:"type:text"`
 	CallCount int    `gorm:"default:0"`
 	ToolCount int    `gorm:"default:0"`
+	// Plan 进行中的任务计划（JSON；跨重启继续执行）。
+	Plan      string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -346,6 +517,14 @@ func (s *Session) toRecord() *sessionRecord {
 		logger.Errorf("[AI] Failed to marshal session messages for %s: %v", s.ID, err)
 		data = []byte("[]")
 	}
+	var planJSON string
+	if s.plan != nil {
+		if pb, perr := json.Marshal(s.plan); perr == nil {
+			planJSON = string(pb)
+		} else {
+			logger.Errorf("[AI] Failed to marshal session plan for %s: %v", s.ID, perr)
+		}
+	}
 	return &sessionRecord{
 		ID:        s.ID,
 		UserID:    s.UserID,
@@ -353,6 +532,7 @@ func (s *Session) toRecord() *sessionRecord {
 		Messages:  string(data),
 		CallCount: s.CallCount,
 		ToolCount: s.ToolCount,
+		Plan:      planJSON,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
@@ -393,7 +573,7 @@ func (r *sessionRecord) toSession() *Session {
 	if err := json.Unmarshal([]byte(r.Messages), &msgs); err != nil {
 		logger.Warnf("[AI] Failed to unmarshal session messages (corrupted?): %v", err)
 	}
-	return &Session{
+	s := &Session{
 		ID:        r.ID,
 		UserID:    r.UserID,
 		ChatID:    r.ChatID,
@@ -403,4 +583,13 @@ func (r *sessionRecord) toSession() *Session {
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}
+	if r.Plan != "" {
+		var plan Plan
+		if err := json.Unmarshal([]byte(r.Plan), &plan); err == nil {
+			s.plan = &plan
+		} else {
+			logger.Warnf("[AI] Failed to unmarshal session plan (corrupted?): %v", err)
+		}
+	}
+	return s
 }

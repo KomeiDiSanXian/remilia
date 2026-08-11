@@ -14,11 +14,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/permission"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -76,9 +78,21 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	if p.syncer != nil {
-		if result := p.executeRealCommand(ctx, tc.Name, tc.Arguments, cs); result != "" {
+		// 并行工具执行时串行化真实命令路径（syncer 非线程安全）。
+		p.realCmdMu.Lock()
+		result := p.executeRealCommand(ctx, tc.Name, tc.Arguments, cs)
+		p.realCmdMu.Unlock()
+		if result != "" {
 			return result
 		}
+	}
+
+	// 工具级权限强制校验：工具声明了 Permissions 时，调用前校验调用者
+	// RBAC 权限（任一命中即放行）。权限管理器缺失时拒绝（安全默认），
+	// 不依赖插件自觉实现校验。
+	if len(tool.Permissions) > 0 && !p.hasToolPermission(ctx, tool.Permissions) {
+		return fmt.Sprintf("错误: 工具 %q 需要权限（%s），当前用户无权调用",
+			tc.Name, strings.Join(tool.Permissions, ", "))
 	}
 
 	result, execErr := tool.Execute(callerCtx, tc.Arguments)
@@ -233,4 +247,40 @@ func isSafeCommandArg(s string) bool {
 		}
 	}
 	return true
+}
+
+// hasToolPermission 校验调用者是否拥有任一指定权限。
+// 权限管理器缺失时返回 false（安全默认）。支持格式：
+// "resource.action" / "resource:action" / "resource"（action 通配）。
+func (p *Plugin) hasToolPermission(ctx *eventctx.Context, perms []string) bool {
+	pm := ctx.GetPermissionManager()
+	if pm == nil {
+		return false
+	}
+	userID := ctx.GetUserID()
+	for _, perm := range perms {
+		perm = strings.TrimSpace(perm)
+		if perm == "" {
+			continue
+		}
+		resource, action := parseToolPermission(perm)
+		if pm.HasPermission(userID, permission.Permission{Resource: resource, Action: action}) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseToolPermission 解析工具权限字符串（与框架 parsePermission 同语义）。
+func parseToolPermission(perm string) (resource, action string) {
+	if idx := strings.Index(perm, ":"); idx > 0 {
+		return perm[:idx], perm[idx+1:]
+	}
+	if idx := strings.LastIndex(perm, "."); idx > 0 {
+		return perm[:idx], perm[idx+1:]
+	}
+	if perm == "*" {
+		return "*", "*"
+	}
+	return perm, "*"
 }

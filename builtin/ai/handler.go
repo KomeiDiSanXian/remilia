@@ -107,8 +107,24 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		ctx.ReplyError("创建会话失败")
 		return nil
 	}
+
+	// 用户抢占：若上一回合仍在执行（长任务/慢工具），请求中断让其尽快收尾，
+	// 避免新消息被长时间阻塞（用户侧永远优先）。
+	if session.TurnActive() {
+		session.RequestInterrupt()
+	}
 	session.LockTurn()
 	defer session.UnlockTurn()
+
+	// 用户发消息重置计划后台推进预算（自动推进让位于用户）。
+	session.ResetPlanAuto()
+
+	// 标记回合活跃（中断信号生命周期：BeginTurn → 检查点 → EndTurn）。
+	if !session.BeginTurn() {
+		ctx.ReplyError("对话正在处理中，请稍后再试")
+		return nil
+	}
+	defer session.EndTurn()
 
 	systemPrompt := p.buildSystemPrompt(ctx, session)
 
@@ -143,7 +159,8 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	// 平台不支持（如 QQ 群聊）时 TrySendTyping 静默 no-op。
 	_ = ctx.TrySendTyping()
 
-	result, err := p.processWithTools(ctx, session)
+	// 生成回答并（开启 verify_enabled 时）经校验器校验，失败按反馈重新生成。
+	result, err := p.generateVerified(ctx, session)
 	if err != nil {
 		ctx.ReplyError(formatAIError(err))
 		return nil
@@ -163,8 +180,16 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		}
 
 		p.replyAndRecord(ctx, msg)
-		return err
 	}
+
+	// 对话回复完成后异步抽取长期记忆（memory_enabled 开启时）。
+	// 不阻塞回复发送；节流与失败均由 maybeExtractMemory 内部处理。
+	p.maybeExtractMemory(ctx, session)
+
+	// 计划后台自动推进（plan_auto_continue 开启时）：计划未完成且
+	// 用户无新消息时，按间隔自动继续执行并主动汇报。
+	p.maybeContinuePlan(ctx, session)
+
 	return nil
 }
 
@@ -410,6 +435,14 @@ func appendMentionInfo(content string, mentions []platform.UserInfo) string {
 // session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含
 // 机器人回复（context_group_include_bot）时去重；nil 时不去重。
 func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) string {
+	// 全局预算编排（context_window > 0 时启用）：按优先级动态缩减各注入节，
+	// 防止小上下文模型被注入内容撑爆；非法预算回退默认构建。
+	if p.cfg.ContextWindow > 0 {
+		if budgeted := p.buildSystemPromptBudgeted(ctx, session); budgeted != "" {
+			return budgeted
+		}
+	}
+
 	var parts []string
 
 	// 1. Framework Prompt
@@ -451,7 +484,64 @@ func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) stri
 		}
 	}
 
+	// 5. 长期记忆（memory_enabled 开启时，按用户消息关键词检索注入）
+	if p.memory != nil && p.memory.Enabled() {
+		if memCtx := p.buildMemoryContext(ctx, session); memCtx != "" {
+			parts = append(parts, "===== 长期记忆 =====\n"+memCtx)
+		}
+	}
+
+	// 6. 相关历史消息（context_rag_messages > 0 时开启，消息级 RAG）
+	if p.cfg.ContextRAGMessages > 0 {
+		if ragCtx := p.buildRAGContext(ctx, session); ragCtx != "" {
+			parts = append(parts, "===== 相关历史消息 =====\n"+ragCtx)
+		}
+	}
+
 	return strings.Join(parts, "\n\n")
+}
+
+// buildMemoryContext 检索并格式化长期记忆注入系统提示。
+// 群聊注入"用户相关记忆 + 群相关记忆"，私聊仅用户记忆；
+// 按用户最近消息关键词对事实打分取 Top-N。
+func (p *Plugin) buildMemoryContext(ctx *eventctx.Context, session *Session) string {
+	return p.buildMemoryContextN(ctx, session, p.cfg.MemoryInjectMax)
+}
+
+// buildMemoryContextN 同上，注入条数由调用方给定（预算编排时可动态缩减）。
+func (p *Plugin) buildMemoryContextN(ctx *eventctx.Context, session *Session, limit int) string {
+	sender := ctx.GetSenderInfo()
+	if sender.ID == "" {
+		return ""
+	}
+	query := getLastUserMessage(session)
+	if query == "" {
+		return ""
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+
+	var facts []string
+	if hits := p.memory.Retrieve(ctx.Context(), userScope(sender.ID), query, limit); len(hits) > 0 {
+		facts = append(facts, "【用户相关记忆】")
+		for _, f := range hits {
+			facts = append(facts, "- "+f.Text)
+		}
+	}
+	if chat := ctx.GetChatInfo(); chat.IsGroup && chat.ID != "" {
+		if hits := p.memory.Retrieve(ctx.Context(), groupScope(chat.ID), query, limit); len(hits) > 0 {
+			facts = append(facts, "【群相关记忆】")
+			for _, f := range hits {
+				facts = append(facts, "- "+f.Text)
+			}
+		}
+	}
+	if len(facts) == 0 {
+		return ""
+	}
+	return "以下为长期对话中记住的关于用户/本群的事实，可据此提供个性化服务（如有冲突以用户当前说法为准）：\n" +
+		strings.Join(facts, "\n")
 }
 
 // buildRuntimeContext 组装当前事件的运行时上下文信息。

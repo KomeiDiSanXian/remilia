@@ -206,6 +206,35 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		ctx.ReplyText(b.String())
 		return nil
 
+	case "trace":
+		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
+		if session == nil {
+			ctx.ReplyText("当前没有活跃的对话")
+			return nil
+		}
+		entries := session.ToolTrace()
+		if len(entries) == 0 {
+			ctx.ReplyText("当前会话还没有工具调用记录。")
+			return nil
+		}
+		var b strings.Builder
+		b.WriteString("🔍 **工具调用追踪**（最近 " + fmt.Sprint(len(entries)) + " 条）\n\n")
+		for _, e := range entries {
+			mark := "✅"
+			if e.Err != "" {
+				mark = "❌"
+			}
+			fmt.Fprintf(&b, "%s `%s` 耗时 %s\n", mark, e.ToolName, formatDuration(e.Duration))
+			if e.Args != "" {
+				fmt.Fprintf(&b, "    参数：`%s`\n", e.Args)
+			}
+			if e.Err != "" {
+				fmt.Fprintf(&b, "    错误：%s\n", e.Err)
+			}
+		}
+		ctx.ReplyText(b.String())
+		return nil
+
 	case "tools", "help":
 		var b strings.Builder
 		b.WriteString("我可以使用以下工具：\n\n")

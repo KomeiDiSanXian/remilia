@@ -36,9 +36,6 @@ func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
 
 const CategoryGeneral = "general"
 
-// categorySelectToolName 是路由阶段使用的工具名称。
-const categorySelectToolName = "select_toolset"
-
 // ToolParamSchema JSON Schema 格式的工具参数描述。
 // 用于向 LLM 描述工具的输入参数结构，符合 OpenAI tool calling 的 JSON Schema 规范。
 type ToolParamSchema struct {
@@ -72,7 +69,12 @@ type Tool struct {
 	Parameters  ToolParamSchema
 	// RequiresApproval 工具执行前是否需要用户审批（tool_approval=restricted 时生效）。
 	RequiresApproval bool
-	Execute          func(ctx context.Context, args map[string]any) (string, error)
+	// Permissions 工具执行所需的 RBAC 权限列表（如 "bilibili.manage"）。
+	// 非空时 executeTool 在调用前**强制校验**调用者权限（任一命中即放行），
+	// 不依赖插件自觉——权限不足返回可读错误、不执行。
+	// 支持格式与框架命令一致：resource.action / resource:action / resource。
+	Permissions []string
+	Execute     func(ctx context.Context, args map[string]any) (string, error)
 }
 
 // SkillProvider 插件可通过实现此接口向 AI 插件注册自定义 Skill。

@@ -75,6 +75,17 @@ type Plugin struct {
 	// groupPolicies per-group 工具策略/提示词（/ai group）。
 	// LevelDB 持久化（data/ai）；store 为 nil 时纯内存（测试场景）。
 	groupPolicies *groupPolicyManager
+
+	// emb 文本向量缓存（embedding_base_url 配置时启用）。
+	// 工具选择与记忆检索共用；为 nil 时两者均退化为纯关键词打分。
+	emb *textVectorCache
+
+	// memory 长期事实记忆（memory_enabled 配置时启用）。
+	// LevelDB 持久化（data/ai_memory）；store 为 nil 时功能关闭。
+	memory *memoryStore
+
+	// realCmdMu 并行工具执行时真实命令路径（syncer）的串行化互斥。
+	realCmdMu sync.Mutex
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -121,6 +132,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
   /ai summary         — 总结当前对话
   /ai status          — 查看会话状态
   /ai stats           — 查看使用统计
+  /ai trace           — 查看工具调用追踪（耗时/参数/错误）
   /ai tools           — 列出可用工具
   /ai remind 5分钟 去喝水 — 设置定时提醒（到期主动推送）
   /ai approve <ID>    — 批准工具执行（/ai deny <ID> 拒绝）
@@ -174,6 +186,37 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				groupPolicies = newGroupPolicyManager(nil, "")
 			}
 
+			// 语义检索基础设施（embedding_base_url 配置时启用）：
+			// 文本向量按内容惰性嵌入并缓存，查询向量每轮一次；失败自动降级纯关键词。
+			// 工具选择与记忆检索共用同一缓存实例（相同文本不重复嵌入）。
+			var emb *textVectorCache
+			if cfg.EmbeddingBaseURL != "" {
+				embKey := cfg.EmbeddingAPIKey
+				if embKey == "" {
+					embKey = cfg.APIKey
+				}
+				if e := newOpenAIEmbedder(cfg.EmbeddingBaseURL, embKey, cfg.EmbeddingModel); e != nil {
+					emb = newTextVectorCache(e)
+					ctx.Log.Infof("AI semantic retrieval enabled (embedding model %s)", e.Model())
+				} else {
+					ctx.Log.Warn("Invalid embedding_base_url, semantic retrieval disabled")
+				}
+			}
+
+			// 长期事实记忆（memory_enabled 配置时启用）：独立 LevelDB 目录，
+			// 避免与群策略共用 data/ai 触发 LevelDB 锁冲突。
+			var memory *memoryStore
+			if cfg.MemoryEnabled && !ctx.DryRun {
+				mem, memErr := OpenMemoryStore("data", cfg.MemoryMaxFacts, cfg.MemoryMinInterval)
+				if memErr != nil {
+					ctx.Log.Warnf("Failed to open memory store: %v, memory disabled", memErr)
+				} else {
+					memory = mem
+					memory.SetEmbedder(emb)
+					ctx.Log.Info("AI long-term memory enabled (auto-extract, data/ai_memory)")
+				}
+			}
+
 			p := &Plugin{
 				cfg:             cfg,
 				coord:           coord,
@@ -191,9 +234,17 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				reminders:       newReminderManager(),
 				approvals:       newApprovalManager(),
 				groupPolicies:   groupPolicies,
+				emb:             emb,
+				memory:          memory,
 			}
 
 			p.registerSkillAddFSM()
+
+			// 规划层内置工具（create_plan / update_plan_step，general 类别恒被选中）。
+			// 模型按需调用：简单任务不创建计划零开销；复杂任务先建计划再逐步执行。
+			for _, t := range buildPlanTools(cfg.PlanMaxSteps) {
+				p.reg.Register(t)
+			}
 
 			p.registerHandlers(ctx)
 
@@ -231,8 +282,13 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			return p, nil
 		},
 		Teardown: func(tctx *plugin.TeardownContext) error {
-			if p := tctx.API.(*Plugin); p != nil && p.groupPolicies != nil {
-				p.groupPolicies.Close()
+			if p := tctx.API.(*Plugin); p != nil {
+				if p.groupPolicies != nil {
+					p.groupPolicies.Close()
+				}
+				if p.memory != nil {
+					p.memory.Close()
+				}
 			}
 			return nil
 		},
@@ -363,6 +419,7 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("summary").Description("总结当前对话").Build()).
 		SubCommand(command.NewDef("status").Description("查看会话状态").Build()).
 		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
+		SubCommand(command.NewDef("trace").Description("查看工具调用追踪（最近 50 条）").Build()).
 		SubCommand(command.NewDef("tools").Description("列出可用工具").Alias("help").Build()).
 		SubCommand(command.NewDef("remind").Description("设置定时提醒（如：remind 5分钟 去喝水）").
 			SubCommand(command.NewDef("list").Description("列出本会话的提醒").Build()).

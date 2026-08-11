@@ -12,19 +12,16 @@ package ai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
-
-// toolThreshold 触发两阶段路由的最小工具数。低于此值时直接发送全部工具。
-const toolThreshold = 20
 
 // ChatResult AI 对话的最终回复结果，包含文字和附件。
 type ChatResult struct {
@@ -38,11 +35,17 @@ type singleRoundResult struct {
 	ToolCalls []ToolCall
 }
 
-// runSingleRound 执行单轮非流式 LLM 调用，返回文本回复和工具调用。
+// runSingleRound 使用主模型执行单轮非流式 LLM 调用，返回文本回复和工具调用。
 // 不涉及 session 管理，纯函数式，供 executeSkill 内部循环使用。
 func (p *Plugin) runSingleRound(ctx context.Context, messages []Message, tools []Tool) (*singleRoundResult, error) {
+	return p.runSingleRoundModel(ctx, p.cfg.Model, messages, tools)
+}
+
+// runSingleRoundModel 使用指定模型执行单轮非流式 LLM 调用。
+// 模型为空时回退主模型；供校验/抽取等任务使用独立模型（多模型分层）。
+func (p *Plugin) runSingleRoundModel(ctx context.Context, model string, messages []Message, tools []Tool) (*singleRoundResult, error) {
 	req := &ChatRequest{
-		Model:       p.cfg.Model,
+		Model:       model,
 		Messages:    messages,
 		Tools:       tools,
 		Temperature: p.cfg.Temperature,
@@ -70,13 +73,15 @@ func (p *Plugin) runSingleRound(ctx context.Context, messages []Message, tools [
 // processWithTools 执行 AI 对话的工具调用循环。
 //
 // 循环逻辑：
-//  1. 如果工具总数超过 toolThreshold 且有多个分类，先进行一轮路由确定分类
-//  2. 发送会话消息 + 对应分类的工具列表到 LLM
+//  1. 工具总数超过 tool_select_max 时按用户消息本地检索 Top-K（selectToolsForTurn）
+//  2. 发送会话消息 + 选中工具列表到 LLM
 //  3. LLM 返回文本回复和/或工具调用请求
 //  4. 有工具调用时：
 //     a. 追加 assistant 消息（含 tool_calls）
 //     b. 逐个执行工具，结果追加为 tool 消息
-//     c. 回到步骤 2（递归深度 +1）
+//     c. 失败工具按重试预算处理：连续失败第 2 次起注入反思指令，
+//     达到 tool_retry_limit+1 次时优雅中止（见 retry.go）
+//     d. 回到步骤 2（递归深度 +1）
 //  5. 无工具调用时返回最终文本（含捕获的附件）
 //
 // maxDepth 防止无限循环，默认最多 5 轮。
@@ -86,8 +91,8 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 
 	cs := &captureSender{}
 
-	// 工具分类路由 — 当工具数量超过阈值时先让 LLM 选择分类。
-	// 路由决策按会话缓存（TTL 内且工具集未变化时复用），避免每条消息都多一次 LLM 调用。
+	// 工具选择 — 工具较多时按当前用户消息本地检索 Top-K，
+	// 替代旧的 LLM 单分类路由（零额外 LLM 调用，跨域任务自然覆盖多个分类）。
 	activeTools := p.reg.List()
 	activeTools = append(activeTools, p.buildUserSkillTools(session.UserID)...)
 	// per-group 工具白名单过滤（/ai group set tools）
@@ -98,24 +103,15 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			logger.Debugf("[AI] Group policy filtered tools: %d→%d", before, len(activeTools))
 		}
 	}
-	if len(activeTools) > toolThreshold {
-		cats := collectToolCategories(activeTools)
-		if len(cats) > 1 {
-			if userContent := getLastUserMessage(session); userContent != "" {
-				category, err := p.getOrRouteCategory(ctx, session, userContent, activeTools, cats)
-				if err != nil {
-					logger.Debugf("[AI] Tool routing failed, using all tools: %v", err)
-				} else {
-					before := len(activeTools)
-					activeTools = filterToolsByCategory(activeTools, category)
-					logger.Debugf("[AI] Routed to category %q, tools: %d→%d", category, before, len(activeTools))
-				}
-			}
-		}
-	}
+	activeTools = p.selectToolsForTurn(ctx, session, activeTools)
 
 	for currentDepth < maxDepth {
 		currentDepth++
+
+		// 中断检查点：用户新消息抢占时，未开始的轮次直接收尾。
+		if session.Interrupted() {
+			return &ChatResult{Text: cs.capturedText}, nil
+		}
 
 		session.Lock()
 		session.CallCount++
@@ -126,6 +122,20 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		// 除当前轮（最后一条用户消息）外，历史消息中的附件二进制数据
 		// 降级为文本占位，避免每轮向 LLM 重复上传图片/音频（内存与 token 浪费）。
 		msgs = prepareRequestMessages(msgs)
+
+		// 计划注入：存在进行中的任务计划时，把"当前计划+进度"作为 system 消息
+		// 插在主系统提示之后，让模型有状态可依地推进多步任务。
+		if planText := session.planText(); planText != "" {
+			planMsg := Message{Role: RoleSystem, Content: "===== 当前执行计划 =====\n" + planText}
+			idx := 0
+			for i, m := range msgs {
+				if m.Role != RoleSystem {
+					idx = i
+					break
+				}
+			}
+			msgs = append(msgs[:idx], append([]Message{planMsg}, msgs[idx:]...)...)
+		}
 
 		req := &ChatRequest{
 			Model:       p.cfg.Model,
@@ -170,9 +180,23 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			}
 		}
 
+		// 重规划闭环：前序步骤全部终态、自身失败的前沿步骤 → 自动追加
+		// 重规划指令（要求模型调整计划而非按旧计划继续），替代"软计划"
+		// 依赖模型自觉的现状。同一条指令不重复追加。
+		var replanMsg *Message
+		if plan := session.planSnapshot(); plan != nil && plan.Active {
+			if f := plan.firstFailedFrontier(); f != nil && !lastUserIsReplan(session) {
+				m := buildReplanMessage(f)
+				replanMsg = &m
+			}
+		}
+
 		if len(toolCalls) == 0 {
 			if responseText != "" {
 				p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText})
+			}
+			if replanMsg != nil {
+				p.sm.AppendMessage(session, *replanMsg)
 			}
 			return &ChatResult{
 				Text:        responseText,
@@ -181,40 +205,148 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		}
 
 		p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText, ToolCalls: toolCalls})
+		if replanMsg != nil {
+			p.sm.AppendMessage(session, *replanMsg)
+		}
 
-		for _, tc := range toolCalls {
-			session.Lock()
-			session.ToolCount++
-			session.Unlock()
+		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；
+		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
+		results := p.executeToolCallsParallel(ctx, session, cs, toolCalls)
 
-			// 命令执行审批：根据生效的审批模式（全局 tool_approval 或群策略
-			// approval）决定是否需要用户批准后才执行工具。
-			// 拒绝或超时时返回工具级结果（不中断整个对话），并跳过执行。
-			if p.approvalModeFor(ctx, tc.Name) {
-				approved := p.requestApproval(ctx, tc.Name, summarizeArgs(tc.Arguments), p.effectiveApprovalTimeout(ctx))
-				if !approved {
-					result := fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)
-					p.sm.AppendMessage(session, Message{
-						Role:       RoleTool,
-						Content:    truncateToolResult(result),
-						ToolCallID: tc.ID,
-					})
-					continue
-				}
+		for i, tc := range toolCalls {
+			// 中断抢占后未启动的工具调用被跳过（不入历史）。
+			if results[i].skipped {
+				continue
 			}
-
-			toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
-			toolResult := p.executeTool(ctx, tc, toolCtx, cs)
-			cancel()
+			toolResult := results[i].result
 			p.sm.AppendMessage(session, Message{
 				Role:       RoleTool,
 				Content:    truncateToolResult(toolResult),
 				ToolCallID: tc.ID,
 			})
+
+			// 计划创建时同步展示给用户（chat 内可见计划，后续步骤更新不打扰）。
+			if tc.Name == planCreateToolName && !isToolErrorResult(toolResult) {
+				p.replyAndRecord(ctx, platform.OutboundMessage{Text: toolResult})
+			}
+
+			// 失败重试预算与反思引导：
+			//   - 失败结果已回填（模型天然可重试）
+			//   - 同一工具连续失败第 2 次起，追加"反思指令"用户消息，
+			//     强制模型先分析原因再采用不同策略（显式反思轮）
+			//   - 连续失败达到 tool_retry_limit+1 次时优雅中止本轮，
+			//     替代撞 max_depth 的裸错误
+			if !isToolErrorResult(toolResult) {
+				session.resetToolFailure(tc.Name)
+				continue
+			}
+			fails := session.incrToolFailure(tc.Name)
+			if fails > p.effectiveToolRetryLimit() {
+				msg := buildRetryAbortMessage(tc.Name, fails, toolResult)
+				p.sm.AppendMessage(session, Message{Role: RoleUser, Content: msg})
+				return &ChatResult{Text: msg, Attachments: cs.capturedAttachments}, nil
+			}
+			if fails >= 2 {
+				p.sm.AppendMessage(session, buildReflectionMessage(tc.Name, fails, toolResult))
+			}
 		}
 	}
 
 	return &ChatResult{Text: cs.capturedText}, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+}
+
+// recordToolTrace 记录一次工具调用的追踪信息（耗时、参数摘要、失败标记）。
+func (p *Plugin) recordToolTrace(session *Session, tc ToolCall, start time.Time, result string) {
+	entry := ToolTraceEntry{
+		Time:     start,
+		ToolName: tc.Name,
+		Args:     truncateRunes(summarizeArgs(tc.Arguments), 80),
+		Duration: time.Since(start),
+	}
+	if isToolErrorResult(result) {
+		entry.Err = truncateRunes(result, 120)
+	}
+	session.appendToolTrace(entry)
+}
+
+// toolExecResult 单个工具调用的并行执行结果。
+type toolExecResult struct {
+	// result 工具执行结果文本。
+	result string
+	// skipped 中断抢占后未启动的工具调用（不入历史、不计数）。
+	skipped bool
+}
+
+// executeToolCallsParallel 并行执行一轮的全部工具调用（tool_parallel 并发度）。
+// 结果按原始顺序返回；审批/执行/追踪相互独立；真实命令执行经 realCmdMu 串行化
+// （syncer 非线程安全）。并发度 1 时退化为顺序执行（行为与旧版一致）。
+func (p *Plugin) executeToolCallsParallel(ctx *eventctx.Context, session *Session, cs *captureSender, calls []ToolCall) []toolExecResult {
+	results := make([]toolExecResult, len(calls))
+	parallel := p.cfg.ToolParallel
+	if parallel <= 1 || len(calls) <= 1 {
+		for i := range calls {
+			results[i] = p.execOneTool(ctx, session, cs, calls[i])
+		}
+		return results
+	}
+	if parallel > len(calls) {
+		parallel = len(calls)
+	}
+
+	sem := make(chan struct{}, parallel)
+	var wg sync.WaitGroup
+	for i := range calls {
+		if session.Interrupted() {
+			// 抢占信号到达：未启动的工具调用直接跳过。
+			results[i] = toolExecResult{skipped: true}
+			continue
+		}
+		wg.Add(1)
+		go func(i int, tc ToolCall) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			results[i] = p.execOneTool(ctx, session, cs, tc)
+		}(i, calls[i])
+	}
+	wg.Wait()
+	return results
+}
+
+// execOneTool 执行单个工具调用（计数 + 审批 + 执行 + 追踪）。
+func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captureSender, tc ToolCall) toolExecResult {
+	session.Lock()
+	session.ToolCount++
+	session.Unlock()
+
+	// 命令执行审批：根据生效的审批模式（全局 tool_approval 或群策略
+	// approval）决定是否需要用户批准后才执行工具。
+	// 拒绝或超时时返回工具级结果（不中断整个对话）。
+	if p.approvalModeFor(ctx, tc.Name) {
+		approved := p.requestApproval(ctx, tc.Name, summarizeArgs(tc.Arguments), p.effectiveApprovalTimeout(ctx))
+		if !approved {
+			return toolExecResult{result: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}
+		}
+	}
+
+	toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
+	defer cancel()
+	toolCtx = WithPlanSession(toolCtx, session)
+	traceStart := time.Now()
+	toolResult := p.executeTool(ctx, tc, toolCtx, cs)
+	p.recordToolTrace(session, tc, traceStart, toolResult)
+	return toolExecResult{result: toolResult}
+}
+
+// lastUserIsReplan 判断会话最后一条用户消息是否已是重规划指令（防重复追加）。
+func lastUserIsReplan(session *Session) bool {
+	msgs := session.SnapshotMessages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == RoleUser {
+			return strings.HasPrefix(msgs[i].Content, "计划步骤")
+		}
+	}
+	return false
 }
 
 // summarizeArgs 生成工具参数摘要（按键排序、截断，用于审批展示，避免敏感信息泄漏）。
@@ -277,6 +409,14 @@ func (p *Plugin) effectiveApprovalTimeout(ctx *eventctx.Context) time.Duration {
 	return t
 }
 
+// effectiveToolRetryLimit 返回工具失败重试预算（<=0 时用默认值 2）。
+func (p *Plugin) effectiveToolRetryLimit() int {
+	if p.cfg.ToolRetryLimit <= 0 {
+		return 2
+	}
+	return p.cfg.ToolRetryLimit
+}
+
 // groupPolicyFor 返回当前会话生效的群策略（仅群聊；私聊返回 nil 表示不受群策略约束）。
 func (p *Plugin) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
 	if p.groupPolicies == nil {
@@ -287,148 +427,6 @@ func (p *Plugin) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
 		return nil
 	}
 	return p.groupPolicies.Effective(chat.ID)
-}
-
-// routeCacheTTL 工具分类路由决策在会话内的缓存有效期。
-// 过期后下一条消息会重新路由，避免用户切换话题后被陈旧分类长期困住。
-const routeCacheTTL = 10 * time.Minute
-
-// getOrRouteCategory 获取本次消息应使用的工具分类。
-//
-// 优先复用会话内缓存的分类（TTL 内且工具集数量未变化），
-// 命中则直接返回，避免每条消息都触发一次路由 LLM 调用。
-// 未命中时执行 routeToolCategory 并把结果写入会话缓存。
-func (p *Plugin) getOrRouteCategory(ctx *eventctx.Context, session *Session, userContent string, activeTools []Tool, cats []string) (string, error) {
-	session.Lock()
-	cached := session.routeCategory
-	cachedAt := session.routeAt
-	cachedCount := session.routeToolCount
-	session.Unlock()
-
-	if cached != "" && containsCategory(cats, cached) &&
-		time.Since(cachedAt) <= routeCacheTTL && cachedCount == len(activeTools) {
-		logger.Debugf("[AI] Reusing cached route category %q", cached)
-		return cached, nil
-	}
-
-	category, err := p.routeToolCategory(ctx.Context(), userContent, activeTools)
-	if err != nil {
-		return "", err
-	}
-
-	session.Lock()
-	session.routeCategory = category
-	session.routeAt = time.Now()
-	session.routeToolCount = len(activeTools)
-	session.Unlock()
-	return category, nil
-}
-
-// routeToolCategory 执行一轮非流式 LLM 调用，让 LLM 从工具分类中选择最合适的。
-// 不修改 session，纯函数式。
-func (p *Plugin) routeToolCategory(ctx context.Context, userContent string, allTools []Tool) (string, error) {
-	cats := collectToolCategories(allTools)
-	if len(cats) == 0 {
-		return "", errors.New("no categories found")
-	}
-	routeTool := buildCategorySelectTool(cats)
-
-	msgs := []Message{
-		{Role: RoleSystem, Content: routeSystemPrompt},
-		{Role: RoleUser, Content: userContent},
-	}
-
-	result, err := p.runSingleRound(ctx, msgs, []Tool{routeTool})
-	if err != nil {
-		return "", err
-	}
-
-	for _, tc := range result.ToolCalls {
-		if tc.Name == categorySelectToolName {
-			cat, _ := tc.Arguments["category"].(string)
-			if cat != "" && containsCategory(cats, cat) {
-				return cat, nil
-			}
-		}
-	}
-
-	return "", errors.New("unable to determine tool category")
-}
-
-// routeSystemPrompt 路由阶段的系统提示词。
-const routeSystemPrompt = `你是一个工具分类助手。根据用户的问题，从可选类别中选择最合适的工具集类别。
-如果问题涉及多个领域或不确定，请选择 "general"。
-注意：你只需要使用 select_toolset 工具选择一个类别，不需要回答用户的问题。`
-
-// collectToolCategories 收集所有工具的唯一分类。
-func collectToolCategories(tools []Tool) []string {
-	seen := make(map[string]struct{})
-	var cats []string
-	for _, t := range tools {
-		cs := t.Categories
-		if len(cs) == 0 {
-			cs = []string{CategoryGeneral}
-		}
-		for _, c := range cs {
-			if _, ok := seen[c]; !ok {
-				seen[c] = struct{}{}
-				cats = append(cats, c)
-			}
-		}
-	}
-	return cats
-}
-
-// containsCategory 检查分类是否在列表中。
-func containsCategory(cats []string, target string) bool {
-	return slices.Contains(cats, target)
-}
-
-// filterToolsByCategory 按分类过滤工具列表。
-// 一个工具只要在 Categories 中包含目标分类即视为匹配。
-// 通用工具（Categories 为空或包含 "general"）始终保留，
-// 作为分类路由缓存过期/误判时的兜底，保证基础工具永远可用。
-func filterToolsByCategory(tools []Tool, category string) []Tool {
-	var out []Tool
-	for _, t := range tools {
-		if toolHasCategory(t, category) || toolHasCategory(t, CategoryGeneral) {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
-// toolHasCategory 判断工具是否属于指定分类。
-// "general" 匹配所有 Categories 为空或包含 "general" 的工具。
-func toolHasCategory(t Tool, category string) bool {
-	if len(t.Categories) == 0 {
-		return category == CategoryGeneral
-	}
-	return slices.Contains(t.Categories, category)
-}
-
-// buildCategorySelectTool 构建用于路由阶段的选择分类工具。
-func buildCategorySelectTool(categories []string) Tool {
-	props := make(map[string]ToolParamSchema)
-	props["category"] = ToolParamSchema{
-		Type:        "string",
-		Enum:        categories,
-		Description: "根据用户问题选择的工具集类别",
-	}
-
-	return Tool{
-		Name:        categorySelectToolName,
-		Description: "根据用户的问题选择最合适的工具集类别",
-		Parameters: ToolParamSchema{
-			Type:       "object",
-			Properties: props,
-			Required:   []string{"category"},
-		},
-		Execute: func(ctx context.Context, args map[string]any) (string, error) {
-			cat, _ := args["category"].(string)
-			return cat, nil
-		},
-	}
 }
 
 // buildUserSkillTools 构建当前会话用户的已启用 Skill 列表，包装为 Tool。

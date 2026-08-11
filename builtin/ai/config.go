@@ -77,6 +77,12 @@ type Config struct {
 	// ToolTimeout 每个工具调用的最长执行时间，默认 30s。
 	// 超时后工具结果返回超时错误，对话继续。
 	ToolTimeout time.Duration `yaml:"tool_timeout"`
+	// ToolRetryLimit 同一工具连续失败的允许次数（默认 2）。
+	// 每次失败的结果都会回填给 LLM 供其调整策略；从第 2 次连续失败起，
+	// 额外注入一条"反思指令"（要求模型分析原因并采用不同策略）；
+	// 连续失败达到 limit+1 次时优雅中止本轮回合并向用户说明，
+	// 替代原先撞 max_depth 的裸错误。
+	ToolRetryLimit int `yaml:"tool_retry_limit"`
 	// SessionTTL 会话过期时间。超过此时间未活跃的会话会被清理。
 	SessionTTL time.Duration `yaml:"session_ttl"`
 	// SkillTimeout 每个 Skill 执行的最大时长，默认 60s。
@@ -150,6 +156,80 @@ type Config struct {
 	ToolApproval string `yaml:"tool_approval"`
 	// ApprovalTimeout 审批等待超时（默认 60s）。超时按拒绝处理。
 	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
+	// ToolSelectMax 每轮实际发送给 LLM 的最大工具数（默认 20）。
+	// 工具总数超过此值时按用户消息内容本地检索打分，取相关度最高的子集，
+	// 替代旧的"LLM 单分类路由"（本地计算，零额外 LLM 调用）。
+	ToolSelectMax int `yaml:"tool_select_max"`
+	// ToolBudget 工具 schema 的 token 预算（默认 8000）。
+	// 选择工具时按 schema 大小估算逐条累加，超过预算即停止追加。
+	// 防止大量工具的描述与参数撑爆上下文窗口。
+	ToolBudget int `yaml:"tool_budget"`
+	// EmbeddingBaseURL Embedding API 地址（OpenAI 兼容 /embeddings 端点）。
+	// 非空时启用语义检索加权：工具选择叠加 embedding 余弦相似度，
+	// 未配置或请求失败时自动降级为纯关键词打分。
+	// 注意：Anthropic 不提供 embedding API，可配置第三方兼容服务或本地 Ollama。
+	EmbeddingBaseURL string `yaml:"embedding_base_url"`
+	// EmbeddingAPIKey Embedding API 密钥。为空时回退使用 api_key。
+	EmbeddingAPIKey string `yaml:"embedding_api_key"`
+	// EmbeddingModel Embedding 模型名称。为空时默认 text-embedding-3-small。
+	EmbeddingModel string `yaml:"embedding_model"`
+	// MemoryEnabled 是否启用长期事实记忆（自动抽取，默认 false，隐私考虑）。
+	// 开启后每轮对话回复完成后异步调用一次 LLM，从最近一轮对话提取
+	// 稳定长期事实（偏好/习惯/约定），按用户/群作用域存入 LevelDB
+	// （data/ai_memory），并在后续对话中按关键词检索注入系统提示。
+	MemoryEnabled bool `yaml:"memory_enabled"`
+	// MemoryMinInterval 同一作用域（用户/群）两次自动抽取的最小间隔（默认 10 分钟）。
+	// 防止高频对话造成 LLM 调用成本失控。
+	MemoryMinInterval time.Duration `yaml:"memory_min_interval"`
+	// MemoryMaxFacts 每个作用域最多保留的事实条数（默认 50），
+	// 超出后按出现次数最少、最旧的优先淘汰。
+	MemoryMaxFacts int `yaml:"memory_max_facts"`
+	// MemoryInjectMax 每次注入系统提示的长期记忆条数上限（默认 8），
+	// 按用户消息关键词相关度取 Top-N。
+	MemoryInjectMax int `yaml:"memory_inject_max"`
+	// PlanMaxSteps 单个任务计划的最大步骤数（默认 8）。
+	// create_plan 超过此上限会报错并提示模型合并步骤。
+	PlanMaxSteps int `yaml:"plan_max_steps"`
+	// VerifyEnabled 是否开启回答质量校验（LLM-as-judge，默认 false）。
+	// 开启后每次对话多一次评审 LLM 调用：最终回答发送前评审是否
+	// 回答了用户问题、是否捏造信息；不通过则注入修正指令重新生成。
+	VerifyEnabled bool `yaml:"verify_enabled"`
+	// VerifyMaxRetries 校验不通过后的最大重新生成次数（默认 1）。
+	VerifyMaxRetries int `yaml:"verify_max_retries"`
+	// ContextRAGMessages 相关历史消息检索（消息级 RAG，默认 0 = 关闭）。
+	// 开启后按用户消息在 messagelog 历史（默认最近 7 天）中检索相关消息注入
+	// 系统提示，覆盖"上周讨论的方案""上次谁说的"这类时间线/细节查询
+	// （最近的 context_group_messages 窗口与长期事实记忆均覆盖不到）。
+	// 两阶段检索：本地关键词预筛（零成本，无命中不花 embedding）→
+	// 对候选集做 embedding 语义精排（复用 embedding_base_url）。
+	ContextRAGMessages int `yaml:"context_rag_messages"`
+	// ContextRAGDays 历史检索的时间窗口（天，默认 7）。
+	ContextRAGDays int `yaml:"context_rag_days"`
+	// ContextRAGCandidates 关键词预筛的候选消息上限（默认 500）。
+	ContextRAGCandidates int `yaml:"context_rag_candidates"`
+	// ContextRAGInjectMax 每次注入的相关历史消息条数上限（默认 3）。
+	ContextRAGInjectMax int `yaml:"context_rag_inject_max"`
+	// ContextWindow 系统提示的全局 token 预算（默认 0 = 不限，维持现状）。
+	// 开启后按模型上下文窗口控制注入总量：超出预算时按优先级
+	// （群聊窗口 > 长期记忆 > 相关历史 > 运行时上下文）动态缩减各节，
+	// 防止小上下文模型被注入内容撑爆。
+	ContextWindow int `yaml:"context_window"`
+	// VerifyModel 回答校验器使用的模型（默认空 = 跟随主模型）。
+	// 可配置便宜的轻量模型降低校验成本。
+	VerifyModel string `yaml:"verify_model"`
+	// ExtractModel 记忆抽取使用的模型（默认空 = 跟随主模型）。
+	ExtractModel string `yaml:"extract_model"`
+	// ToolParallel 工具调用的并行度（默认 4，最小 1）。
+	// 模型一次返回多个工具调用时并发执行，缩短多查询回合延迟。
+	ToolParallel int `yaml:"tool_parallel"`
+	// PlanAutoContinue 计划后台自动推进（默认 false）。
+	// 开启后创建计划后机器人按 plan_auto_interval 自动继续执行未完成步骤
+	// 并主动汇报，用户无需逐条消息推动；用户发消息时重置推进预算。
+	PlanAutoContinue bool `yaml:"plan_auto_continue"`
+	// PlanAutoInterval 计划后台推进的间隔（默认 15s）。
+	PlanAutoInterval time.Duration `yaml:"plan_auto_interval"`
+	// PlanAutoRounds 单个计划的后台自动推进轮次上限（默认 3）。
+	PlanAutoRounds int `yaml:"plan_auto_rounds"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -164,6 +244,7 @@ var DefaultConfig = Config{
 	APITimeout:             60 * time.Second,
 	MaxRetries:             0,
 	ToolTimeout:            30 * time.Second,
+	ToolRetryLimit:         2,
 	SessionTTL:             24 * time.Hour,
 	SystemPrompt:           "你是 Remilia Bot 的 AI 助手。",
 	TriggerCmd:             "/ai",
@@ -185,6 +266,20 @@ var DefaultConfig = Config{
 	ContextGroupIncludeBot: false,
 	ToolApproval:           "off",
 	ApprovalTimeout:        60 * time.Second,
+	ToolSelectMax:          20,
+	ToolBudget:             8000,
+	EmbeddingModel:         "text-embedding-3-small",
+	MemoryMinInterval:      10 * time.Minute,
+	MemoryMaxFacts:         50,
+	MemoryInjectMax:        8,
+	PlanMaxSteps:           8,
+	VerifyMaxRetries:       1,
+	ContextRAGDays:         7,
+	ContextRAGCandidates:   500,
+	ContextRAGInjectMax:    3,
+	ToolParallel:           4,
+	PlanAutoInterval:       15 * time.Second,
+	PlanAutoRounds:         3,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -245,6 +340,9 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetDuration("tool_timeout", 0); v > 0 {
 		cfg.ToolTimeout = v
 	}
+	if v := ctx.Config.GetInt("tool_retry_limit", 0); v > 0 {
+		cfg.ToolRetryLimit = v
+	}
 	if v := ctx.Config.GetDuration("session_ttl", 0); v > 0 {
 		cfg.SessionTTL = v
 	}
@@ -304,6 +402,70 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetDuration("approval_timeout", 0); v > 0 {
 		cfg.ApprovalTimeout = v
+	}
+
+	if v := ctx.Config.GetInt("tool_select_max", 0); v > 0 {
+		cfg.ToolSelectMax = v
+	}
+	if v := ctx.Config.GetInt("tool_budget", 0); v > 0 {
+		cfg.ToolBudget = v
+	}
+	if v := ctx.Config.GetString("embedding_base_url", ""); v != "" {
+		cfg.EmbeddingBaseURL = v
+	}
+	if v := ctx.Config.GetString("embedding_api_key", ""); v != "" {
+		cfg.EmbeddingAPIKey = v
+	}
+	if v := ctx.Config.GetString("embedding_model", ""); v != "" {
+		cfg.EmbeddingModel = v
+	}
+	cfg.MemoryEnabled = ctx.Config.GetBool("memory_enabled", cfg.MemoryEnabled)
+	if v := ctx.Config.GetDuration("memory_min_interval", 0); v > 0 {
+		cfg.MemoryMinInterval = v
+	}
+	if v := ctx.Config.GetInt("memory_max_facts", 0); v > 0 {
+		cfg.MemoryMaxFacts = v
+	}
+	if v := ctx.Config.GetInt("memory_inject_max", 0); v > 0 {
+		cfg.MemoryInjectMax = v
+	}
+	if v := ctx.Config.GetInt("plan_max_steps", 0); v > 0 {
+		cfg.PlanMaxSteps = v
+	}
+	cfg.VerifyEnabled = ctx.Config.GetBool("verify_enabled", cfg.VerifyEnabled)
+	if v := ctx.Config.GetInt("verify_max_retries", 0); v > 0 {
+		cfg.VerifyMaxRetries = v
+	}
+	if v := ctx.Config.GetInt("context_rag_messages", 0); v > 0 {
+		cfg.ContextRAGMessages = v
+	}
+	if v := ctx.Config.GetInt("context_rag_days", 0); v > 0 {
+		cfg.ContextRAGDays = v
+	}
+	if v := ctx.Config.GetInt("context_rag_candidates", 0); v > 0 {
+		cfg.ContextRAGCandidates = v
+	}
+	if v := ctx.Config.GetInt("context_rag_inject_max", 0); v > 0 {
+		cfg.ContextRAGInjectMax = v
+	}
+	if v := ctx.Config.GetInt("context_window", 0); v > 0 {
+		cfg.ContextWindow = v
+	}
+	if v := ctx.Config.GetString("verify_model", ""); v != "" {
+		cfg.VerifyModel = v
+	}
+	if v := ctx.Config.GetString("extract_model", ""); v != "" {
+		cfg.ExtractModel = v
+	}
+	if v := ctx.Config.GetInt("tool_parallel", 0); v > 0 {
+		cfg.ToolParallel = v
+	}
+	cfg.PlanAutoContinue = ctx.Config.GetBool("plan_auto_continue", cfg.PlanAutoContinue)
+	if v := ctx.Config.GetDuration("plan_auto_interval", 0); v > 0 {
+		cfg.PlanAutoInterval = v
+	}
+	if v := ctx.Config.GetInt("plan_auto_rounds", 0); v > 0 {
+		cfg.PlanAutoRounds = v
 	}
 
 	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {
