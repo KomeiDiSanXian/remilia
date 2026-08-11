@@ -30,6 +30,29 @@
 - `config.example.yaml`: `plugins.ai` 新增 `group_autonomous` 配置说明
 - 新增测试: AI remind 时长/参数解析、fireReminder 群/私聊/容错、附件 ASR 优先注入、分片上传辅助函数（md5/PUT/截断）、`AttachmentTranscript` 全分支、`nextMsgSeq` 多回复/回收
 
+### 🔐 AI 插件：命令执行审批（Command Execution Approval）
+
+- **`tool_approval` 配置**（off 默认 / restricted / always）: 对齐官方 OpenClaw 插件的命令执行审批——
+  - `restricted`: 仅审批标记 `RequiresApproval=true` 的工具（`Tool` 结构体新增字段，显式注册的敏感工具建议标记）
+  - `always`: 审批所有工具调用
+- **审批交互双通道**:
+  - **按钮**: 平台支持回调按钮（CapButtons）时发送"✅ 允许 / ❌ 拒绝"按钮，经 `EventKindInteraction` 回调处理（ID 形如 `ai:approve:A1`）
+  - **文本命令**: 任何平台可用 `/ai approve <ID>` / `/ai deny <ID>`（含"批准/拒绝/允许/驳回"自然语言），可靠兜底
+- **安全约束**: 只有**发起该工具调用的用户**能审批（防他人代批）；审批等待超时（`approval_timeout`，默认 60s）按拒绝处理，不中断对话（拒绝时返回工具级结果）
+
+### 📐 AI 插件：per-group 工具策略/提示词（Group Policy）
+
+- **`/ai group` 管理命令**（群管理员权限；全局默认需 superadmin）:
+  - `group status` — 查看本群生效配置
+  - `group set prompt <text>` — 设置群提示词（覆盖全局 system_prompt）
+  - `group set tools all|none|工具名,工具名` — 设置群工具白名单
+  - `group set approval off|restricted|always` — 设置群审批模式（覆盖全局 tool_approval）
+  - `group set mention on|off` — 设置群 @ 触发要求（on=必须 @，off=自主发言）
+  - `group reset [字段|all]` / `group global status|reset` — 重置群/全局配置
+- **存储**: LevelDB `data/ai` 持久化（仿 welcome 插件，`__global__` 全局回退链）
+- **运行时生效**: 群提示词覆盖 `buildSystemPrompt`、群工具白名单过滤 `processWithTools`、群审批模式覆盖 `effectiveApprovalMode`、群 @ 触发要求门控 `handleAI` 与兜底 matcher（全局 GroupAutonomous 下按群过滤）
+- **测试**: 新增 24+ 用例（审批 ID/文本解析、管理器生命周期、模式判定、审批全链路、超时拒绝；群策略回退/持久化/JSON/工具过滤/mention 门控/管理员权限）
+
 ## v1.37.2 (2026-08-08)
 
 ### 🐛 AI 插件：群聊消息窗口默认开启（修复 AI 无法读取群聊历史）

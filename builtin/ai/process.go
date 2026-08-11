@@ -90,6 +90,14 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	// 路由决策按会话缓存（TTL 内且工具集未变化时复用），避免每条消息都多一次 LLM 调用。
 	activeTools := p.reg.List()
 	activeTools = append(activeTools, p.buildUserSkillTools(session.UserID)...)
+	// per-group 工具白名单过滤（/ai group set tools）
+	if gp := p.groupPolicyFor(ctx); gp != nil {
+		before := len(activeTools)
+		activeTools = filterToolsByGroupPolicy(activeTools, gp)
+		if len(activeTools) != before {
+			logger.Debugf("[AI] Group policy filtered tools: %d→%d", before, len(activeTools))
+		}
+	}
 	if len(activeTools) > toolThreshold {
 		cats := collectToolCategories(activeTools)
 		if len(cats) > 1 {
@@ -178,6 +186,23 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			session.Lock()
 			session.ToolCount++
 			session.Unlock()
+
+			// 命令执行审批：根据生效的审批模式（全局 tool_approval 或群策略
+			// approval）决定是否需要用户批准后才执行工具。
+			// 拒绝或超时时返回工具级结果（不中断整个对话），并跳过执行。
+			if p.approvalModeFor(ctx, tc.Name) {
+				approved := p.requestApproval(ctx, tc.Name, summarizeArgs(tc.Arguments), p.effectiveApprovalTimeout(ctx))
+				if !approved {
+					result := fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)
+					p.sm.AppendMessage(session, Message{
+						Role:       RoleTool,
+						Content:    truncateToolResult(result),
+						ToolCallID: tc.ID,
+					})
+					continue
+				}
+			}
+
 			toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
 			toolResult := p.executeTool(ctx, tc, toolCtx, cs)
 			cancel()
@@ -190,6 +215,73 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	}
 
 	return &ChatResult{Text: cs.capturedText}, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
+}
+
+// summarizeArgs 生成工具参数摘要（截断，用于审批展示，避免敏感信息泄漏）。
+func summarizeArgs(args map[string]any) string {
+	if len(args) == 0 {
+		return ""
+	}
+	var parts []string
+	for k, v := range args {
+		if k == "arguments" {
+			continue // 真实命令的原始参数串单独展示
+		}
+		s := fmt.Sprintf("%v", v)
+		if len(s) > 40 {
+			s = s[:40] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", k, s))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// approvalModeFor 判断指定工具是否需要审批（按生效的审批模式）。
+func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
+	mode := p.effectiveApprovalMode(ctx)
+	if mode == "" || mode == string(ApprovalOff) {
+		return false
+	}
+	tool, ok := p.reg.Get(toolName)
+	if !ok {
+		// 工具不存在（如 Skill）时：always 模式审批，restricted 不审批
+		return mode == string(ApprovalAlways)
+	}
+	return p.needsApproval(tool, mode)
+}
+
+// effectiveApprovalMode 返回生效的审批模式：群策略 > 全局配置 > 默认 off。
+func (p *Plugin) effectiveApprovalMode(ctx *eventctx.Context) string {
+	if gp := p.groupPolicyFor(ctx); gp != nil {
+		if m := gp.EffectiveApproval(); m != "" {
+			return m
+		}
+	}
+	if p.cfg.ToolApproval != "" {
+		return p.cfg.ToolApproval
+	}
+	return string(ApprovalOff)
+}
+
+// effectiveApprovalTimeout 返回生效的审批超时（群策略未配置时用全局）。
+func (p *Plugin) effectiveApprovalTimeout(ctx *eventctx.Context) time.Duration {
+	t := p.cfg.ApprovalTimeout
+	if t <= 0 {
+		t = 60 * time.Second
+	}
+	return t
+}
+
+// groupPolicyFor 返回当前会话生效的群策略（仅群聊；私聊返回 nil 表示不受群策略约束）。
+func (p *Plugin) groupPolicyFor(ctx *eventctx.Context) *GroupPolicy {
+	if p.groupPolicies == nil {
+		return nil
+	}
+	chat := ctx.GetChatInfo()
+	if !chat.IsGroup || chat.ID == "" {
+		return nil
+	}
+	return p.groupPolicies.Effective(chat.ID)
 }
 
 // routeCacheTTL 工具分类路由决策在会话内的缓存有效期。

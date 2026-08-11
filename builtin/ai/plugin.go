@@ -68,6 +68,13 @@ type Plugin struct {
 	// reminders 定时提醒管理器（/ai remind）。
 	// 依赖 plugin.SessionNotifier 主动推送；进程内存储，重启后失效。
 	reminders *reminderManager
+
+	// approvals 命令执行审批管理器（tool_approval）。
+	approvals *approvalManager
+
+	// groupPolicies per-group 工具策略/提示词（/ai group）。
+	// LevelDB 持久化（data/ai）；store 为 nil 时纯内存（测试场景）。
+	groupPolicies *groupPolicyManager
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -116,6 +123,8 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
   /ai stats           — 查看使用统计
   /ai tools           — 列出可用工具
   /ai remind 5分钟 去喝水 — 设置定时提醒（到期主动推送）
+  /ai approve <ID>    — 批准工具执行（/ai deny <ID> 拒绝）
+  /ai group           — 管理本群 AI 策略（提示词/工具白名单/审批/@触发）
   @机器人 <消息>       — 在群聊中 @机器人 触发
 
 配置示例（config.yaml plugins.ai 节）：
@@ -151,6 +160,20 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 
+			// 群策略存储：优先使用 data/ai 目录（LevelDB），失败时降级为纯内存。
+			var groupPolicies *groupPolicyManager
+			if !ctx.DryRun {
+				gp, gpErr := OpenGroupPolicyStore("data")
+				if gpErr != nil {
+					ctx.Log.Warnf("Failed to open group policy store: %v, using in-memory only", gpErr)
+					groupPolicies = newGroupPolicyManager(nil, "")
+				} else {
+					groupPolicies = gp
+				}
+			} else {
+				groupPolicies = newGroupPolicyManager(nil, "")
+			}
+
 			p := &Plugin{
 				cfg:             cfg,
 				coord:           coord,
@@ -166,6 +189,8 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				lifecycleCtx:    lifecycleCtx,
 				lifecycleCancel: lifecycleCancel,
 				reminders:       newReminderManager(),
+				approvals:       newApprovalManager(),
+				groupPolicies:   groupPolicies,
 			}
 
 			p.registerSkillAddFSM()
@@ -204,6 +229,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			})
 
 			return p, nil
+		},
+		Teardown: func(tctx *plugin.TeardownContext) error {
+			if p := tctx.API.(*Plugin); p != nil && p.groupPolicies != nil {
+				p.groupPolicies.Close()
+			}
+			return nil
 		},
 	}
 }
@@ -337,6 +368,24 @@ func buildAIDefinition() *command.Definition {
 			SubCommand(command.NewDef("list").Description("列出本会话的提醒").Build()).
 			SubCommand(command.NewDef("cancel").Description("取消指定提醒，后接提醒 ID").Build()).
 			Build()).
+		SubCommand(command.NewDef("approve").Description("批准工具执行（后接审批 ID，如：approve A1）").Build()).
+		SubCommand(command.NewDef("deny").Description("拒绝工具执行（后接审批 ID，如：deny A1）").Build()).
+		SubCommand(
+			command.NewDef("group").Description("管理本群 AI 策略（工具白名单/提示词/审批模式/@触发）").
+				SubCommand(command.NewDef("status").Description("查看本群生效配置").Build()).
+				SubCommand(command.NewDef("set").Description("设置本群配置").
+					SubCommand(command.NewDef("prompt").Description("设置群提示词，后接文本").Build()).
+					SubCommand(command.NewDef("tools").Description("设置群工具白名单：all|none|工具名,工具名").Build()).
+					SubCommand(command.NewDef("approval").Description("设置群审批模式：off|restricted|always").Build()).
+					SubCommand(command.NewDef("mention").Description("设置群 @ 触发要求：on|off").Build()).
+					Build()).
+				SubCommand(command.NewDef("reset").Description("重置群配置：reset [prompt|tools|approval|mention|all]").Build()).
+				SubCommand(command.NewDef("global").Description("管理全局默认策略（需超级管理员）").
+					SubCommand(command.NewDef("status").Description("查看全局配置").Build()).
+					SubCommand(command.NewDef("reset").Description("重置全局配置").Build()).
+					Build()).
+				Build(),
+		).
 		SubCommand(
 			command.NewDef("skill").Description("管理自定义技能").
 				SubCommand(command.NewDef("add").Description("注册新技能，后接技能名称和 Markdown 内容，或发送 .md 附件").Build()).
@@ -370,6 +419,10 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
+	// 审批按钮回调（EventKindInteraction）：处理 /ai approve|deny 按钮点击。
+	// 按钮 ID 形如 "ai:approve:A1" / "ai:deny:A1"（见 approval.go）。
+	ctx.Reg.RegisterMatcher(string(platform.EventKindInteraction)).Handle(p.handleApprovalButton)
+
 	if p.cfg.GroupAutonomous {
 		// 群聊自主发言：不 @ 机器人也响应群内非命令消息。
 		// 等价官方 OpenClaw 插件的 requireMention=false。
@@ -396,6 +449,26 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 				}).
 				Handle(p.handleAI)
 		}
+	}
+
+	// per-group @ 触发要求（/ai group set mention off）：群策略显式允许自主发言时，
+	// 即使全局 at_bot=true 也放行未 @ 的消息。@ 机器人时仍需 @（OnMentionedBot
+	// 规则已覆盖），此处仅兜底"未 @ 但群策略允许自主"的路径。
+	//
+	// 全局 GroupAutonomous=true 时不注册此兜底：自主 matcher 已覆盖全部
+	// 非命令消息，群策略 mention=on 的"必须 @"限制在 handleAI 内按群过滤。
+	if !p.cfg.GroupAutonomous {
+		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+			Where(func(c *eventctx.Context) bool {
+				require, ok := p.groupRequireMention(c)
+				// 群策略未配置或要求 @ 时，本兜底 matcher 不处理（由上方 matcher 路由）
+				if !ok || require {
+					return false
+				}
+				// 群策略允许自主发言：放行未 @ 且非命令的消息
+				return !eventctx.OnMentionedBot()(c) && !isCommandMessage(c.GetMessageContent())
+			}).
+			Handle(p.handleAI)
 	}
 
 	if p.cfg.PrivateChat {

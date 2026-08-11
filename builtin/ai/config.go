@@ -139,6 +139,17 @@ type Config struct {
 	// 依赖 messagelog 插件记录消息历史（机器人自己的对话回复也会被记录）。
 	// 默认 true。设为 false 时不注入、也不记录出站回复。
 	IncludeReplyContext bool `yaml:"include_reply_context"`
+	// ToolApproval 命令执行审批模式（2026-08 新增，对齐官方 OpenClaw 插件的
+	// Command Execution Approval 能力）：
+	//   - "off"（默认）: 不审批，工具直接执行
+	//   - "restricted": 仅审批标记 RequiresApproval=true 的工具
+	//   - "always":    审批所有工具调用
+	// 审批交互双通道：平台支持回调按钮时发送"允许/拒绝"按钮；
+	// 任何平台都可用 /ai approve <ID> /ai deny <ID> 文本命令。
+	// 可被 per-group 策略覆盖（/ai group set approval <mode>）。
+	ToolApproval string `yaml:"tool_approval"`
+	// ApprovalTimeout 审批等待超时（默认 60s）。超时按拒绝处理。
+	ApprovalTimeout time.Duration `yaml:"approval_timeout"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -172,6 +183,8 @@ var DefaultConfig = Config{
 	IncludeReplyContext:    true,
 	ContextGroupMessages:   10,
 	ContextGroupIncludeBot: false,
+	ToolApproval:           "off",
+	ApprovalTimeout:        60 * time.Second,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -280,6 +293,18 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	cfg.IncludeRuntimeContext = ctx.Config.GetBool("include_runtime_context", cfg.IncludeRuntimeContext)
 	cfg.IncludeMentionInfo = ctx.Config.GetBool("include_mention_info", cfg.IncludeMentionInfo)
 	cfg.IncludeReplyContext = ctx.Config.GetBool("include_reply_context", cfg.IncludeReplyContext)
+
+	if v := ctx.Config.GetString("tool_approval", ""); v != "" {
+		switch v {
+		case "off", "restricted", "always":
+			cfg.ToolApproval = v
+		default:
+			ctx.Log.Warnf("invalid tool_approval %q, must be off|restricted|always, ignoring", v)
+		}
+	}
+	if v := ctx.Config.GetDuration("approval_timeout", 0); v > 0 {
+		cfg.ApprovalTimeout = v
+	}
 
 	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {
 		cfg.ContextGroupMessages = v

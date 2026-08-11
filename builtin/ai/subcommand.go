@@ -234,6 +234,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s remind` — 设置定时提醒（如 `%s remind 5分钟 去喝水`）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s approve <ID>` — 批准工具执行（`%s deny <ID>` 拒绝）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s group` — 管理本群 AI 策略（提示词/工具白名单/审批/@触发）", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s skill` — 管理自定义技能", p.cfg.TriggerCmd)
 		ctx.ReplyText(b.String())
 		return nil
@@ -250,6 +252,15 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		}
 		content = strings.TrimSpace(content)
 		return p.handleRemindCommand(ctx, content)
+
+	case "approve", "允许", "批准":
+		return p.handleApprovalCommand(ctx, true)
+
+	case "deny", "拒绝", "驳回":
+		return p.handleApprovalCommand(ctx, false)
+
+	case "group", "群配置":
+		return p.handleGroupCommand(ctx)
 	}
 	return nil
 }
@@ -290,6 +301,13 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		}
 		content = strings.TrimSpace(content)
 		err = p.handleRemindCommand(ctx, content)
+	case "approve", "允许", "批准", "同意":
+		// 支持 "@机器人 批准 A1" 自然语言路径
+		err = p.handleApprovalCommand(ctx, true)
+	case "deny", "拒绝", "驳回", "不同意":
+		err = p.handleApprovalCommand(ctx, false)
+	case "group", "群配置":
+		err = p.handleGroupCommand(ctx)
 	default:
 		return false
 	}

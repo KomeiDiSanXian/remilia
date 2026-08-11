@@ -58,6 +58,9 @@ type ToolParamSchema struct {
 //   - Categories: 工具所属类别列表。一个工具可属于多个类别（如 ["space","science"]）。
 //     空切片视为 ["general"]。
 //   - Parameters: JSON Schema 格式的参数描述，LLM 据此生成调用参数
+//   - RequiresApproval: 标记该工具需要人工审批后才执行（配合 tool_approval=restricted
+//     模式使用；always 模式下所有工具都审批）。显式注册的敏感工具（如文件操作、
+//     命令执行）建议标记为 true。
 //   - Execute: 工具执行回调，接收 context 和参数，返回结果文本或错误
 //
 // Execute 的调用方通常已通过 [WithCallerInfo] 注入了调用者身份，
@@ -67,7 +70,9 @@ type Tool struct {
 	Description string
 	Categories  []string // "general"、"space"、"weather"、"admin" 等
 	Parameters  ToolParamSchema
-	Execute     func(ctx context.Context, args map[string]any) (string, error)
+	// RequiresApproval 工具执行前是否需要用户审批（tool_approval=restricted 时生效）。
+	RequiresApproval bool
+	Execute          func(ctx context.Context, args map[string]any) (string, error)
 }
 
 // SkillProvider 插件可通过实现此接口向 AI 插件注册自定义 Skill。

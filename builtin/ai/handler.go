@@ -58,6 +58,13 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	if content == "" {
 		return nil
 	}
+
+	// per-group @ 触发要求（/ai group set mention on）：群策略显式要求必须 @ 时，
+	// 未 @ 机器人的群消息（全局 GroupAutonomous 模式下会进入此路径）直接跳过。
+	if require, ok := p.groupRequireMention(ctx); ok && require && !mentionedBot(ctx) {
+		return nil
+	}
+
 	content = p.cleanMessage(content)
 	if content == "" {
 		return nil
@@ -74,6 +81,19 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	}
 
 	return p.handleAIChat(ctx, content)
+}
+
+// mentionedBot 判断当前群消息是否 @ 了机器人自身。
+func mentionedBot(ctx *eventctx.Context) bool {
+	if ctx == nil || ctx.GetPlatformEvent() == nil {
+		return false
+	}
+	for _, m := range platform.GetMentions(ctx.GetPlatformEvent()) {
+		if m.IsSelf {
+			return true
+		}
+	}
+	return false
 }
 
 // handleAIChat 执行 AI 对话流程：获取/创建会话、注入系统提示、追加用户消息（含附件）、调用 LLM。
@@ -384,6 +404,7 @@ func appendMentionInfo(content string, mentions []platform.UserInfo) string {
 //
 //  1. Framework Prompt — 硬编码的 AI 行为规则，不可被用户覆盖
 //  2. User Custom Prompt — 配置文件 system_prompt 中的自定义指令
+//     （群聊时被 per-group 策略的 prompt 覆盖，见 /ai group set prompt）
 //  3. Runtime Context — 动态运行时环境信息（受 include_runtime_context 配置控制）
 //
 // session 提供当前会话的 assistant 回复内容，供群聊消息窗口包含
@@ -394,9 +415,15 @@ func (p *Plugin) buildSystemPrompt(ctx *eventctx.Context, session *Session) stri
 	// 1. Framework Prompt
 	parts = append(parts, DefaultFrameworkPrompt)
 
-	// 2. User Custom Prompt
-	if p.cfg.SystemPrompt != "" {
-		parts = append(parts, "===== 自定义指令 =====\n"+p.cfg.SystemPrompt)
+	// 2. User Custom Prompt（群聊时优先使用群策略 prompt）
+	systemPrompt := p.cfg.SystemPrompt
+	if gp := p.groupPolicyFor(ctx); gp != nil {
+		if gpPrompt := gp.EffectiveSystemPrompt(); gpPrompt != "" {
+			systemPrompt = gpPrompt
+		}
+	}
+	if systemPrompt != "" {
+		parts = append(parts, "===== 自定义指令 =====\n"+systemPrompt)
 	}
 
 	// 3. Runtime Context（可通过 include_runtime_context / context_fields 控制，

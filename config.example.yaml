@@ -268,6 +268,18 @@ api:
 #     # —— AI 工具 ——
 #     tool_allowlist: []                  # [R] 显式允许暴露为 AI 工具的命令白名单；
 #                                         #     [] = 自动发现所有无权限命令（旧行为）；非空 = 仅列表中的命令
+#     tool_approval: "off"                # [R] 命令执行审批模式：off=不审批（默认）/ restricted=仅审批
+#                                         #     标记 RequiresApproval 的工具 / always=审批所有工具调用。
+#                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用
+#                                         #     /ai approve <ID> 与 /ai deny <ID> 文本命令。仅发起者可审批。
+#     approval_timeout: "60s"             # [R] 审批等待超时；超时按拒绝处理
+#
+#     # —— per-group 策略（/ai group，LevelDB 持久化 data/ai）——
+#     # 每个群可独立配置以下四项（群管理员用 /ai group set 修改；全局默认需 superadmin）：
+#     #   prompt    群级系统提示词（覆盖全局 system_prompt）
+#     #   tools     群级工具白名单（all=全部 / none=禁用全部工具 / 逗号分隔工具名）
+#     #   approval  群级审批模式（off/restricted/always，覆盖全局 tool_approval）
+#     #   mention   群级 @ 触发要求（on=必须 @，off=自主发言）
 #
 #     # —— 技能（Skill）系统 ——
 #     max_user_skills: 10                 # [R] 每个用户最多可注册的技能数
