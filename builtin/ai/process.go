@@ -217,17 +217,22 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	return &ChatResult{Text: cs.capturedText}, fmt.Errorf("超过最大工具调用深度 (%d)", maxDepth)
 }
 
-// summarizeArgs 生成工具参数摘要（截断，用于审批展示，避免敏感信息泄漏）。
+// summarizeArgs 生成工具参数摘要（按键排序、截断，用于审批展示，避免敏感信息泄漏）。
 func summarizeArgs(args map[string]any) string {
 	if len(args) == 0 {
 		return ""
 	}
-	var parts []string
-	for k, v := range args {
+	keys := make([]string, 0, len(args))
+	for k := range args {
 		if k == "arguments" {
 			continue // 真实命令的原始参数串单独展示
 		}
-		s := fmt.Sprintf("%v", v)
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		s := fmt.Sprintf("%v", args[k])
 		if len(s) > 40 {
 			s = s[:40] + "..."
 		}
