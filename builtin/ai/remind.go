@@ -205,8 +205,8 @@ func parseRemindDuration(s string) (time.Duration, error) {
 	}
 	for _, u := range units {
 		for _, name := range u.names {
-			if strings.HasSuffix(s, name) {
-				numStr := strings.TrimSuffix(s, name)
+			if before, ok := strings.CutSuffix(s, name); ok {
+				numStr := before
 				n, err := strconv.Atoi(numStr)
 				if err != nil || n <= 0 {
 					return 0, fmt.Errorf("invalid duration: %q", s)

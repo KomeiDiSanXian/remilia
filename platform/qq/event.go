@@ -629,9 +629,9 @@ func (e *qqEvent) populateForumEvent(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"guild_id",         // [0]
-		"channel_id",       // [1]
-		"author_id",        // [2]
+		"guild_id",              // [0]
+		"channel_id",            // [1]
+		"author_id",             // [2]
 		"thread_info.thread_id", // [3] 主题 ID
 		"post_info.post_id",     // [4] 帖子 ID
 		"reply_info.reply_id",   // [5] 回复 ID
@@ -957,10 +957,10 @@ func (e *qqEvent) populateGroupJoinRequest(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"group_openid",   // [0]
-		"member_openid",  // [1] 申请人 openid
-		"username",       // [2] 申请人昵称
-		"apply_at",       // [3] 申请时间戳（RFC3339）
+		"group_openid",    // [0]
+		"member_openid",   // [1] 申请人 openid
+		"username",        // [2] 申请人昵称
+		"apply_at",        // [3] 申请时间戳（RFC3339）
 		"join_request_id", // [4] 申请 ID（可用于审批）
 	)
 	groupOpenID := results[0].String()

@@ -15,42 +15,42 @@ package dto
 
 // GroupInfo 群基本信息。
 type GroupInfo struct {
-	GroupOpenID      string   `json:"group_openid,omitempty"`
-	GroupName        string   `json:"group_name,omitempty"`
-	GroupFingerMemo  string   `json:"group_finger_memo,omitempty"`
-	GroupClassText   string   `json:"group_class_text,omitempty"`
-	GroupTags        []string `json:"group_tags,omitempty"`
-	GroupMemberNum   int      `json:"group_member_num,omitempty"`
+	GroupOpenID     string   `json:"group_openid,omitempty"`
+	GroupName       string   `json:"group_name,omitempty"`
+	GroupFingerMemo string   `json:"group_finger_memo,omitempty"`
+	GroupClassText  string   `json:"group_class_text,omitempty"`
+	GroupTags       []string `json:"group_tags,omitempty"`
+	GroupMemberNum  int      `json:"group_member_num,omitempty"`
 }
 
 // GroupBotState 机器人群内状态。
 type GroupBotState struct {
-	MemberOpenID     string `json:"member_openid,omitempty"`
-	JoinedAt         string `json:"joined_at,omitempty"`
+	MemberOpenID      string `json:"member_openid,omitempty"`
+	JoinedAt          string `json:"joined_at,omitempty"`
 	AllowProactiveMsg bool   `json:"allow_proactive_msg,omitempty"`
-	RecvMsgSetting   string `json:"recv_msg_setting,omitempty"`
-	MemberRole       string `json:"member_role,omitempty"`
+	RecvMsgSetting    string `json:"recv_msg_setting,omitempty"`
+	MemberRole        string `json:"member_role,omitempty"`
 }
 
 // JoinRequest 入群申请。
 type JoinRequest struct {
-	JoinRequestID string     `json:"join_request_id,omitempty"`
-	RiskTips      string     `json:"risk_tips,omitempty"`
-	UnionOpenID   string     `json:"union_openid,omitempty"`
-	MemberOpenID  string     `json:"member_openid,omitempty"`
-	Username      string     `json:"username,omitempty"`
-	ApplyAt       string     `json:"apply_at,omitempty"`
-	ApplySource   string     `json:"apply_source,omitempty"`
-	InvitedBy     string     `json:"invited_by,omitempty"`
-	Bot           bool       `json:"bot,omitempty"`
+	JoinRequestID string      `json:"join_request_id,omitempty"`
+	RiskTips      string      `json:"risk_tips,omitempty"`
+	UnionOpenID   string      `json:"union_openid,omitempty"`
+	MemberOpenID  string      `json:"member_openid,omitempty"`
+	Username      string      `json:"username,omitempty"`
+	ApplyAt       string      `json:"apply_at,omitempty"`
+	ApplySource   string      `json:"apply_source,omitempty"`
+	InvitedBy     string      `json:"invited_by,omitempty"`
+	Bot           bool        `json:"bot,omitempty"`
 	VerifyInfo    *VerifyInfo `json:"verify_info,omitempty"`
 }
 
 // VerifyInfo 用户入群验证方式。
 type VerifyInfo struct {
-	Method        string      `json:"method,omitempty"`
-	VerifyMessage string      `json:"verify_message,omitempty"`
-	ReviewQAList  []ReviewQA  `json:"review_qa_list,omitempty"`
+	Method        string     `json:"method,omitempty"`
+	VerifyMessage string     `json:"verify_message,omitempty"`
+	ReviewQAList  []ReviewQA `json:"review_qa_list,omitempty"`
 }
 
 // ReviewQA 入群验证问答。
@@ -84,8 +84,8 @@ type GroupRestrictChatSetting struct {
 
 // GlobalMuteRule 群级禁言规则（全员禁言配置）。
 type GlobalMuteRule struct {
-	Mode          string             `json:"mode,omitempty"`
-	ScheduleRules []MuteScheduleRule `json:"schedule_rules,omitempty"`
+	Mode           string              `json:"mode,omitempty"`
+	ScheduleRules  []MuteScheduleRule  `json:"schedule_rules,omitempty"`
 	RecurringRules []MuteRecurringRule `json:"recurring_rules,omitempty"`
 }
 
@@ -174,10 +174,10 @@ type GroupAction struct {
 
 // UpdateJoinApprovalStrategyRequest 修改入群自动审批策略请求体。
 type UpdateJoinApprovalStrategyRequest struct {
-	IsEnable   string       `json:"is_enable,omitempty"`
-	ExpireAt   string       `json:"expire_at,omitempty"`
+	IsEnable    string       `json:"is_enable,omitempty"`
+	ExpireAt    string       `json:"expire_at,omitempty"`
 	GroupAction *GroupAction `json:"group_action,omitempty"`
-	Remark     string       `json:"remark,omitempty"`
+	Remark      string       `json:"remark,omitempty"`
 }
 
 // UpdateWhitelistUsersRequest 修改策略白名单号码请求体。

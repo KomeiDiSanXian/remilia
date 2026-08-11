@@ -268,10 +268,7 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 		if start >= len(data) {
 			break
 		}
-		end := start + blockSize
-		if end > len(data) {
-			end = len(data)
-		}
+		end := min(start+blockSize, len(data))
 		chunk := data[start:end]
 
 		if err := putPresignedChunk(ctx, pu.String(), chunk); err != nil {

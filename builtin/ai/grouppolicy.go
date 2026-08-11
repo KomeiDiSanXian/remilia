@@ -273,7 +273,7 @@ func (p *GroupPolicy) effectiveTools() (allowSet map[string]struct{}, filter boo
 		return map[string]struct{}{}, true
 	default:
 		set := make(map[string]struct{})
-		for _, name := range strings.Split(policy, ",") {
+		for name := range strings.SplitSeq(policy, ",") {
 			name = strings.TrimSpace(name)
 			if name != "" {
 				set[name] = struct{}{}

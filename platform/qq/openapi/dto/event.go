@@ -14,7 +14,7 @@ const (
 	GroupDelRobot         EventType = "GROUP_DEL_ROBOT"
 	GroupMemberAdd        EventType = "GROUP_MEMBER_ADD"
 	GroupMemberRemove     EventType = "GROUP_MEMBER_REMOVE"
-	GroupJoinRequest      EventType = "GROUP_JOIN_REQUEST"      // 用户申请加群事件（机器人需为群管理员）
+	GroupJoinRequest      EventType = "GROUP_JOIN_REQUEST" // 用户申请加群事件（机器人需为群管理员）
 	GroupMsgReject        EventType = "GROUP_MSG_REJECT"
 	GroupMsgReceive       EventType = "GROUP_MSG_RECEIVE"
 	FriendAdd             EventType = "FRIEND_ADD"
@@ -45,19 +45,19 @@ const (
 	MessageAudit        EventType = "MESSAGE_AUDIT"         // 消息审核结果（旧事件名，兼容保留）
 
 	// ── 论坛事件（FORUMS_EVENT 1<<28，仅私域机器人）─────────────────────────
-	ForumThreadCreate EventType = "FORUM_THREAD_CREATE" // 创建主题
-	ForumThreadUpdate EventType = "FORUM_THREAD_UPDATE" // 更新主题
-	ForumThreadDelete EventType = "FORUM_THREAD_DELETE" // 删除主题
-	ForumPostCreate   EventType = "FORUM_POST_CREATE"   // 创建帖子
-	ForumPostDelete   EventType = "FORUM_POST_DELETE"   // 删除帖子
-	ForumReplyCreate  EventType = "FORUM_REPLY_CREATE"  // 回复评论
-	ForumReplyDelete  EventType = "FORUM_REPLY_DELETE"  // 删除评论
+	ForumThreadCreate EventType = "FORUM_THREAD_CREATE"        // 创建主题
+	ForumThreadUpdate EventType = "FORUM_THREAD_UPDATE"        // 更新主题
+	ForumThreadDelete EventType = "FORUM_THREAD_DELETE"        // 删除主题
+	ForumPostCreate   EventType = "FORUM_POST_CREATE"          // 创建帖子
+	ForumPostDelete   EventType = "FORUM_POST_DELETE"          // 删除帖子
+	ForumReplyCreate  EventType = "FORUM_REPLY_CREATE"         // 回复评论
+	ForumReplyDelete  EventType = "FORUM_REPLY_DELETE"         // 删除评论
 	ForumAuditResult  EventType = "FORUM_PUBLISH_AUDIT_RESULT" // 发帖审核结果
 
 	// ── 音频事件（AUDIO_ACTION 1<<29）───────────────────────────────────────
-	AudioStart EventType = "AUDIO_START"  // 音频开始播放
-	AudioFinish EventType = "AUDIO_FINISH" // 音频播放结束
-	AudioOnMic  EventType = "AUDIO_ON_MIC" // 机器人上麦
+	AudioStart  EventType = "AUDIO_START"   // 音频开始播放
+	AudioFinish EventType = "AUDIO_FINISH"  // 音频播放结束
+	AudioOnMic  EventType = "AUDIO_ON_MIC"  // 机器人上麦
 	AudioOffMic EventType = "AUDIO_OFF_MIC" // 机器人下麦
 
 	// ── 音视频/直播子频道成员进出事件 ────────────────────────────────────────
@@ -177,18 +177,18 @@ type GroupMemberRemoveEvent struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_join_request.html
 type GroupJoinRequestEvent struct {
-	GroupOpenID    string      `json:"group_openid,omitempty"`
-	JoinRequestID  string      `json:"join_request_id,omitempty"`
-	RiskTips       string      `json:"risk_tips,omitempty"`
-	UnionOpenID    string      `json:"union_openid,omitempty"`
-	MemberOpenID   string      `json:"member_openid,omitempty"`
-	Username       string      `json:"username,omitempty"`
-	ApplyAt        string      `json:"apply_at,omitempty"`
-	ApplySource    string      `json:"apply_source,omitempty"`
-	InvitedBy      string      `json:"invited_by,omitempty"`
-	Bot            bool        `json:"bot,omitempty"`
-	VerifyInfo     *VerifyInfo `json:"verify_info,omitempty"`
-	AutoApproved   *struct {
+	GroupOpenID   string      `json:"group_openid,omitempty"`
+	JoinRequestID string      `json:"join_request_id,omitempty"`
+	RiskTips      string      `json:"risk_tips,omitempty"`
+	UnionOpenID   string      `json:"union_openid,omitempty"`
+	MemberOpenID  string      `json:"member_openid,omitempty"`
+	Username      string      `json:"username,omitempty"`
+	ApplyAt       string      `json:"apply_at,omitempty"`
+	ApplySource   string      `json:"apply_source,omitempty"`
+	InvitedBy     string      `json:"invited_by,omitempty"`
+	Bot           bool        `json:"bot,omitempty"`
+	VerifyInfo    *VerifyInfo `json:"verify_info,omitempty"`
+	AutoApproved  *struct {
 		StrategyID string `json:"strategy_id,omitempty"`
 	} `json:"auto_approved,omitempty"`
 }
@@ -503,10 +503,10 @@ type ForumEvent struct {
 
 // ForumThread 主题信息。
 type ForumThread struct {
-	ThreadID string            `json:"thread_id,omitempty"`
-	Title    []ForumRichText   `json:"title,omitempty"`
-	Content  []ForumRichText   `json:"content,omitempty"`
-	DateTime string            `json:"date_time,omitempty"`
+	ThreadID string          `json:"thread_id,omitempty"`
+	Title    []ForumRichText `json:"title,omitempty"`
+	Content  []ForumRichText `json:"content,omitempty"`
+	DateTime string          `json:"date_time,omitempty"`
 }
 
 // ForumPost 帖子信息。

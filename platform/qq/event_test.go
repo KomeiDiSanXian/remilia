@@ -270,10 +270,10 @@ func TestNewEvent_MemberJoinLeaveUserFields(t *testing.T) {
 
 func TestNewEvent_GroupJoinRequest(t *testing.T) {
 	payload := makePayload(dto.GroupJoinRequest, map[string]any{
-		"group_openid":   "group_001",
-		"member_openid":  "member_abc",
-		"username":       "张三",
-		"apply_at":       "2026-08-05T14:19:09+08:00",
+		"group_openid":    "group_001",
+		"member_openid":   "member_abc",
+		"username":        "张三",
+		"apply_at":        "2026-08-05T14:19:09+08:00",
 		"join_request_id": "req_123",
 		"verify_info": map[string]any{
 			"method":         "verify_message",

@@ -16,6 +16,7 @@ package ai
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -134,16 +135,16 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		norm := strings.ToLower(strings.ReplaceAll(value, "，", ","))
 		switch {
 		case norm == "all", norm == "全部":
-			policy.ToolPolicy = strPtr("all")
+			policy.ToolPolicy = new("all")
 		case norm == "none", norm == "无", norm == "off":
-			policy.ToolPolicy = strPtr("none")
+			policy.ToolPolicy = new("none")
 		default:
 			// 逗号分隔工具名白名单
-			policy.ToolPolicy = strPtr(norm)
+			policy.ToolPolicy = new(norm)
 		}
 	case "approval", "审批":
 		norm := strings.ToLower(value)
-		if !contains(ValidApprovalModes, norm) {
+		if !slices.Contains(ValidApprovalModes, norm) {
 			ctx.ReplyText("❌ 审批模式必须为 off / restricted / always")
 			return nil
 		}
@@ -152,9 +153,9 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		norm := strings.ToLower(value)
 		switch norm {
 		case "on", "true", "1", "必须", "开启":
-			policy.RequireMention = boolPtr(true)
+			policy.RequireMention = new(true)
 		case "off", "false", "0", "自主", "关闭":
-			policy.RequireMention = boolPtr(false)
+			policy.RequireMention = new(false)
 		default:
 			ctx.ReplyText("❌ mention 必须为 on / off")
 			return nil
@@ -259,12 +260,7 @@ func (p *Plugin) isSuperAdmin(ctx *eventctx.Context) bool {
 	if pm == nil {
 		return false
 	}
-	for _, r := range pm.GetUserRoles(ctx.GetUserID()) {
-		if r == "superadmin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pm.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 // groupCommandHelp 返回 /ai group 帮助文本。
@@ -293,17 +289,3 @@ func ellipsize(s string, max int) string {
 	}
 	return string(r[:max]) + "…"
 }
-
-// contains 判断字符串切片是否包含目标。
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
-// strPtr / boolPtr 返回指向字面量的指针。
-func strPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool    { return &b }
