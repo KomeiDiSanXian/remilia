@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.38.0 (2026-08-11)
+
+### 🤖 QQ 平台：官方 OpenAPI 全面同步（2026-08 更新）
+
+- **接口域名统一**: `OpenAPIURL` 从 `api.sgroup.qq.com` 改为 `api.bot.qq.com`（官方 20260810 变更记录要求）
+- **群聊管理接口（12 个）**: 新增 `GroupManager` 子接口——获取群基本信息、获取机器人群内状态、入群申请列表拉取（cursor/limit 分页）、入群申请审批（approve/decline）、查询群禁言状态、设置群成员禁言，以及入群自动审批策略全量管理（列表/创建/修改/删除/执行/白名单号码）
+- **事件补充**: 新增 `GROUP_JOIN_REQUEST`（用户申请加群，含邀请审批 inviteID 编码进 ChatInfo.Tokens）；`MESSAGE_AUDIT_PASS/REJECT`（修正旧 `MESSAGE_AUDIT` 事件名）；`PUBLIC_MESSAGE_DELETE`（公域频道消息删除）；`DIRECT_MESSAGE_DELETE`；论坛事件 8 个（`FORUM_THREAD/POST/REPLY_*`、`FORUM_PUBLISH_AUDIT_RESULT`）；音频事件 4 个（`AUDIO_START/FINISH/ON_MIC/OFF_MIC`）；音视频/直播子频道成员进出事件 2 个
+- **机器人接口**: 新增 `BotManager.GenerateURLLink`（生成机器人分享链接，callback_data 透传）
+- **消息 DTO**: `Markdown` 新增 `force_verify_image_resource`（图片转存失败即中断发送）；`MessageAudited` 补全 `audit_time`/`seq_in_channel` 字段
+- **平台可选接口落地**: `qqSender` 实现 `GroupManager.BanMember`（群禁言）、`InvitationHandler`（入群申请审批）、`GroupInfoProvider.GetGroupInfo`（群信息查询）——群聊管理能力可经框架统一入口使用
+
+### 🧠 AI 插件：QQ Agent 能力对齐（官方 OpenClaw 插件）
+
+- **语音转写（STT）**: 平台附带的官方 ASR 文本（QQ `asr_refer_text`）自动注入对话为 `[语音转写] xxx`——任何模型都能理解语音，无需下载音频/依赖多模态音频能力（无 ASR 时回退原音频直传）
+- **打字指示器（TypingIndicator）**: `qqSender` 实现 `platform.TypingNotifier`（C2C 用 `input_notify` msg_type=6），修复 `Capabilities.TypingIndicator: true` 声明与实现不一致；AI 在 LLM 处理前调用 `ctx.TrySendTyping()` 给用户即时反馈（平台不支持自动降级）
+- **大文件分片上传**: `sendAttachment` 对 >5MB 的本地附件自动走官方四步分片流程（`upload_prepare` → 分片 PUT → `upload_part_finish` → 合并），对齐官方 100MB 大文件能力（此前分片接口仅存在于 openapi 层、发送链路未接线）
+- **群聊自主发言（`group_autonomous`）**: 新配置，默认 false；开启后不 @ 机器人也响应群内非命令消息（等价 OpenClaw `requireMention=false`，需平台授予群全量消息权限），命令消息仍排除避免与命令 handler 竞态
+- **对话式定时提醒（`/ai remind`）**: `/ai remind <时长> <内容>` / `remind list` / `remind cancel`；时长支持 `30秒/5分钟/1小时/2天` 与 `30s/5m/1h/2d/纯数字`；到期经 `SessionNotifier`（QQ 已实现）主动推送；插件 Teardown 自动停止全部提醒
+
+### 🔓 QQ 平台：移除客户端被动回复限制
+
+- **根因**: 官方文档虽写"群聊 5 分钟/5 次、C2C 60 分钟/4 次"，但实测平台限制已放宽（agent 场景远超文档值）；官方 SDK（botgo）与 OpenClaw 插件均**不做客户端拦截**，限制完全由服务端校验（错误码 40034128"被动回复时间或次数超限"）
+- **修复**: 移除 `checkReplyLimit` 发送前硬拦截（5 次/5 分钟）及 `maxPassiveReplies` 常量、`msgSeqEntry.count` 计数、死代码 `resolveMsgID`；保留 `msg_seq` 递增防重放（相同 `msg_id+msg_seq` 组合会被平台去重）；`passiveReplyTTL` 调整为 60 分钟（C2C 最长有效期）仅作 `sweepExpired` 内存清理基准，防止有效期内误清导致 seq 重置撞上平台去重；`errutil` 两个废弃错误标记 deprecated（保留定义兼容）
+- **验证**: 新增同 msg_id 连续 20 次回复不拦截测试、sweep 回收后 seq 重置测试
+
+### 📝 配置与测试
+
+- `config.example.yaml`: `plugins.ai` 新增 `group_autonomous` 配置说明
+- 新增测试: AI remind 时长/参数解析、fireReminder 群/私聊/容错、附件 ASR 优先注入、分片上传辅助函数（md5/PUT/截断）、`AttachmentTranscript` 全分支、`nextMsgSeq` 多回复/回收
+
 ## v1.37.2 (2026-08-08)
 
 ### 🐛 AI 插件：群聊消息窗口默认开启（修复 AI 无法读取群聊历史）

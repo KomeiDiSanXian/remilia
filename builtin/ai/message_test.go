@@ -494,6 +494,83 @@ func TestBuildUserMessageNoAttachments(t *testing.T) {
 	}
 }
 
+// fakeTranscriptMeta 实现 platform.VoiceTranscript，模拟平台语音 ASR 元数据。
+type fakeTranscriptMeta struct {
+	text string
+}
+
+func (m *fakeTranscriptMeta) Transcript() string { return m.text }
+
+func TestBuildUserMessage_ASRTranscriptPreferred(t *testing.T) {
+	evt := platform.NewSyntheticEvent(
+		platform.EventKind("c2c"),
+		"",
+		platform.WithSyntheticAttachments(
+			platform.Attachment{
+				Kind:     platform.AttachmentKindAudio,
+				URL:      "https://ex.com/voice.silk",
+				MimeType: "audio/silk",
+				Extra:    map[string]any{"voice": &fakeTranscriptMeta{text: "今天天气怎么样"}},
+			},
+		),
+	)
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	// AudioEnabled=false：ASR 文本路径不应受开关限制（文本无需音频能力）
+	p := &Plugin{cfg: &Config{AudioEnabled: false}}
+	session := &Session{}
+	msg := p.buildUserMessage(ctx, "", session)
+
+	if msg.Content != "" {
+		t.Errorf("expected empty Content in ContentParts mode, got %q", msg.Content)
+	}
+	if len(msg.ContentParts) != 1 {
+		t.Fatalf("expected 1 content part (ASR text), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
+	}
+	part := msg.ContentParts[0]
+	if part.Type != ContentPartText {
+		t.Errorf("expected text part, got %v", part.Type)
+	}
+	if part.Text != "[语音转写] 今天天气怎么样" {
+		t.Errorf("expected ASR text injected, got %q", part.Text)
+	}
+}
+
+func TestBuildUserMessage_ASRMissingFallsBackToAudio(t *testing.T) {
+	evt := platform.NewSyntheticEvent(
+		platform.EventKind("c2c"),
+		"",
+		platform.WithSyntheticAttachments(
+			platform.Attachment{
+				Kind:     platform.AttachmentKindAudio,
+				URL:      "https://ex.com/voice.wav",
+				MimeType: "audio/wav",
+			},
+		),
+	)
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	// 无 ASR 文本：AudioEnabled=true 时尝试下载为音频部件
+	p := &Plugin{cfg: &Config{AudioEnabled: true}}
+	session := &Session{}
+	msg := p.buildUserMessage(ctx, "", session)
+	// 下载会被 SSRF 防护拦截（ex.com 可能解析失败），ContentParts 可能为空——
+	// 这里只验证不 panic 且未注入 ASR 文本
+	if len(msg.ContentParts) > 0 {
+		for _, part := range msg.ContentParts {
+			if part.Type == ContentPartText && strings.Contains(part.Text, "语音转写") {
+				t.Error("should not inject ASR text when attachment has no transcript meta")
+			}
+		}
+	}
+
+	// AudioEnabled=false：无 ASR 时音频被忽略
+	p2 := &Plugin{cfg: &Config{AudioEnabled: false}}
+	msg2 := p2.buildUserMessage(ctx, "", session)
+	if len(msg2.ContentParts) != 0 {
+		t.Errorf("expected no content parts when audio disabled and no ASR, got %+v", msg2.ContentParts)
+	}
+}
+
 func TestSkillKey(t *testing.T) {
 	key := skillKey("owner1", "skill1")
 	expected := "owner1\x00skill1"

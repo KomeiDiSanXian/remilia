@@ -1,7 +1,12 @@
 package qq
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -294,4 +299,96 @@ func TestParseJoinInviteID(t *testing.T) {
 			assert.Equal(t, tc.wantJ, j)
 		})
 	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 大文件分片上传辅助函数
+// ────────────────────────────────────────────────────────────────────────────
+
+func TestMD5Sum(t *testing.T) {
+	assert.Equal(t, "d41d8cd98f00b204e9800998ecf8427e", md5Sum(nil))
+	assert.Equal(t, "900150983cd24fb0d6963f7d28e17f72", md5Sum([]byte("abc")))
+}
+
+func TestFirstBytes(t *testing.T) {
+	data := []byte("hello world")
+	assert.Equal(t, "hello", string(firstBytes(data, 5)))
+	assert.Equal(t, data, firstBytes(data, 100)) // 超出返回原切片
+	assert.Nil(t, firstBytes(nil, 5))
+}
+
+func TestTruncateForLog(t *testing.T) {
+	assert.Equal(t, "short", truncateForLog([]byte("short")))
+	long := make([]byte, 500)
+	for i := range long {
+		long[i] = 'a'
+	}
+	out := truncateForLog(long)
+	assert.Equal(t, 200+len("..."), len(out))
+	assert.Equal(t, "...", out[len(out)-3:])
+}
+
+func TestPutPresignedChunk_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPut, r.Method)
+		body, _ := io.ReadAll(r.Body)
+		assert.Equal(t, "chunk-data", string(body))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	err := putPresignedChunk(context.Background(), srv.URL, []byte("chunk-data"))
+	require.NoError(t, err)
+}
+
+func TestPutPresignedChunk_Non2xx(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	err := putPresignedChunk(context.Background(), srv.URL, []byte("chunk-data"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "403")
+}
+
+func TestSendTyping_BuildsInputNotify(t *testing.T) {
+	msg := &dto.Message{}
+	msg.Type = dto.InputNotifyMsg
+	msg.InputNotify = &dto.InputNotify{InputType: 1, InputSecond: 30}
+	assert.EqualValues(t, 6, msg.Type)
+	assert.Equal(t, 1, msg.InputNotify.InputType)
+	assert.Equal(t, 30, msg.InputNotify.InputSecond)
+}
+
+// TestNextMsgSeq_MultipleRepliesAllowed 验证同一 msg_id 可无限次回复：
+// 被动回复次数/时长限制已移除（平台端校验，官方 SDK/插件同策略），
+// msg_seq 仍按 msg_id 递增防重放。
+func TestNextMsgSeq_MultipleRepliesAllowed(t *testing.T) {
+	s := &qqSender{}
+	// 同一 msg_id 连续多次回复：seq 递增，且不报错（无次数上限）
+	for i := 1; i <= 20; i++ { // 远超旧上限 5 次
+		seq := s.nextMsgSeq("msg_001")
+		assert.Equal(t, uint64(i), seq, "seq should increment per reply (iteration %d)", i)
+	}
+	// 不同 msg_id 各自从 1 开始
+	assert.Equal(t, uint64(1), s.nextMsgSeq("msg_002"))
+	// 空 msg_id（主动消息）返回 0 不设置 seq
+	assert.Equal(t, uint64(0), s.nextMsgSeq(""))
+}
+
+// TestNextMsgSeq_ExpiredEntryRecycled 验证过期条目被 sweep 回收后
+// seq 从 1 重新开始（sweep 基准 60 分钟 > 平台最长有效期，正常不触发）。
+func TestNextMsgSeq_ExpiredEntryRecycled(t *testing.T) {
+	s := &qqSender{}
+	s.nextMsgSeq("msg_x")
+	// 直接把 createdAt 拨回 3 小时前，模拟过期
+	v, _ := s.msgSeqMap.Load("msg_x")
+	entry := v.(*msgSeqEntry)
+	entry.createdAt.Store(time.Now().Add(-3 * time.Hour))
+	// 重置惰性清理节流，强制触发 sweep
+	s.lastSweep.Store(0)
+	s.sweepExpired()
+	// sweep 后条目被回收，重新计数
+	assert.Equal(t, uint64(1), s.nextMsgSeq("msg_x"))
 }

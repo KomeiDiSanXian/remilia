@@ -1,15 +1,21 @@
 package qq
 
 import (
+	"bytes"
 	stdctx "context"
+	"crypto/md5"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
+	"github.com/KomeiDiSanXian/remilia/infra/httpclient"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
@@ -17,18 +23,33 @@ import (
 )
 
 const (
-	// maxPassiveReplies 每个消息最多被动回复次数（QQ 平台限制）
-	maxPassiveReplies = 5
-	// passiveReplyTTL 被动回复有效时长（QQ 平台限制）
-	passiveReplyTTL = 5 * time.Minute
+	// passiveReplyTTL 是被动回复授权的最长有效期（QQ 平台限制）。
+	//
+	// 官方限制（2026-08 文档核实）：
+	//   - 群聊：被动消息有效 5 分钟，每个消息最多回复 5 次
+	//   - C2C：被动消息有效 60 分钟，每个消息最多回复 4 次
+	//
+	// 官方 SDK（botgo）与官方 OpenClaw 插件均**不在客户端拦截**被动回复
+	// 次数/时长——限制完全由平台端校验（错误码 40034128"被动回复时间或
+	// 次数超限"）。实测平台限制已放宽（agent 场景远超文档值），客户端
+	// 自加拦截会误伤正常的多次回复，因此本 sender 不再做发送前拦截。
+	//
+	// 此常量仅用作 msgSeqMap 的内存清理基准（sweepExpired）：
+	// 取两种场景中最长的 C2C 有效期（60 分钟），确保条目在其仍可用的
+	// 窗口内不被提前回收——若被提前回收，seq 会重置并可能撞上平台
+	// "相同 msg_id+msg_seq 重复发送会失败"的去重规则。
+	passiveReplyTTL = 60 * time.Minute
 	// msgSeqSweepInterval 是 msgSeqMap 过期条目清理的最小间隔。
 	msgSeqSweepInterval = time.Minute
 )
 
-// msgSeqEntry 按 msg_id 跟踪被动回复状态。
+// msgSeqEntry 按 msg_id 跟踪被动回复的 msg_seq 状态。
+//
+// 仅用于防重放：对同一 msg_id 递增 seq，避免相同 (msg_id, msg_seq)
+// 组合触发平台去重导致消息被吞。不记录回复次数——次数限制由平台端
+// 校验（错误码 40034128），客户端不拦截（官方 SDK/插件同策略）。
 type msgSeqEntry struct {
 	seq       atomic.Uint64
-	count     atomic.Uint64
 	createdAt atomic.Value // time.Time
 }
 
@@ -100,12 +121,11 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 		msg = qqSegmentsToFlat(msg)
 	}
 
-	// 被动回复频率检查（5 秒内、5 条消息限制）
-	if msgID := resolveMsgID(msg, chat); msgID != "" {
-		if err := s.checkReplyLimit(msgID); err != nil {
-			return platform.SendResult{}, err
-		}
-	}
+	// 被动回复不做客户端次数/时长拦截：QQ 平台限制由服务端校验
+	// （错误码 40034128"被动回复时间或次数超限"），实测限制已放宽，
+	// 且官方 SDK（botgo）/ OpenClaw 插件均无客户端限制。
+	// 这里只保留 msg_seq 递增（nextMsgSeq 在 buildDTOMessage 内），
+	// 防止相同 msg_id+msg_seq 组合触发平台去重导致消息被吞。
 
 	// 频道消息（ChatInfo.ParentID 非空）使用频道专属 API
 	if chat.ParentID != "" {
@@ -138,9 +158,20 @@ func (s *qqSender) Send(ctx stdctx.Context, req platform.SendRequest) (platform.
 
 // sendAttachment 实现 QQ 富媒体两步发送：先上传获取 file_info，再发送 MediaMessage。
 // 返回的 SendResult.Raw(*SendResult) 同时包含上传响应和发送响应的字段。
+//
+// 上传策略：
+//   - URL 附件：直接走 /files 接口（平台自动下载转存）
+//   - 小文件 Data 附件：base64 file_data 直传 /files
+//   - 大文件 Data 附件（> chunkedUploadThreshold）：分片上传
+//     （upload_prepare → 分片 PUT → upload_part_finish → 合并），对齐官方 100MB 大文件能力
 func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
 	if att.URL == "" && len(att.Data) == 0 {
 		return platform.SendResult{}, fmt.Errorf("qq sender: attachment has neither URL nor data")
+	}
+
+	// 大文件走分片上传（本地 Data 场景；URL 由平台侧转存，无需分片）
+	if len(att.Data) > chunkedUploadThreshold {
+		return s.sendAttachmentChunked(ctx, chat, msg, att)
 	}
 
 	media := &dto.Media{
@@ -174,6 +205,120 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 		return platform.SendResult{}, fmt.Errorf("qq sender: media upload returned empty file_info (response: %s)", uploadResult.Raw)
 	}
 
+	return s.sendMediaMessage(ctx, chat, msg, fileInfo, uploadResult)
+}
+
+// chunkedUploadThreshold 触发分片上传的附件大小阈值（字节）。
+//
+// QQ 官方 /files 直传对大文件有限制（图片/语音软限制 20MB，硬限制 200MB），
+// 且 base64 file_data 直传会让 JSON 请求体膨胀 4/3 倍。超过该阈值时
+// 走官方推荐的分片上传流程（upload_prepare → 分片 PUT → upload_part_finish），
+// 对齐官方 OpenClaw 插件的 100MB 大文件能力。
+const chunkedUploadThreshold = 5 * 1024 * 1024 // 5MB
+
+// sendAttachmentChunked 实现 QQ 大文件分片上传（四步流程）：
+//
+//  1. upload_prepare：传入文件信息 → 获取 upload_id + block_size + 各分片预签名 URL
+//  2. 按 block_size 将文件切片，逐片 HTTP PUT 到对应的预签名 URL
+//  3. 每片 PUT 成功后调用 upload_part_finish 通知服务端
+//  4. 全部分片完成后调用上传接口（携带 upload_id）合并 → 返回 file_info
+//
+// 之后复用 sendMediaMessage 发送富媒体消息。
+func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, att platform.Attachment) (platform.SendResult, error) {
+	fileType := attachmentKindToFileType(att.Kind)
+	fileMD5 := md5Sum(att.Data)
+	prepareReq := &dto.UploadPrepareRequest{
+		FileType: fileType,
+		FileSize: int64(len(att.Data)),
+		FileName: att.Name,
+		FileMD5:  fileMD5,
+		MD510M:   md5Sum(firstBytes(att.Data, 10002432)),
+	}
+
+	var (
+		prepare gjson.Result
+		err     error
+	)
+	if chat.IsGroup {
+		prepare, err = s.api.GroupUploadPrepare(ctx, chat.ID, prepareReq)
+	} else {
+		prepare, err = s.api.UserUploadPrepare(ctx, chat.ID, prepareReq)
+	}
+	if err != nil {
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrNetworkError, "qq", chat.ID,
+			fmt.Sprintf("chunked upload prepare failed: %v", err), 0, err,
+		)
+	}
+
+	uploadID := prepare.Get("upload_id").String()
+	blockSize := int(prepare.Get("block_size").Int())
+	if blockSize <= 0 {
+		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned invalid block_size (response: %s)", prepare.Raw)
+	}
+	presignedURLs := prepare.Get("presigned_urls").Array()
+	if len(presignedURLs) == 0 {
+		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned no presigned urls (response: %s)", prepare.Raw)
+	}
+
+	// 2+3. 分片 PUT + 完成确认
+	data := att.Data
+	for i, pu := range presignedURLs {
+		start := i * blockSize
+		if start >= len(data) {
+			break
+		}
+		end := start + blockSize
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := data[start:end]
+
+		if err := putPresignedChunk(ctx, pu.String(), chunk); err != nil {
+			return platform.SendResult{}, platform.NewSendError(
+				platform.SendErrNetworkError, "qq", chat.ID,
+				fmt.Sprintf("chunked upload PUT part %d failed: %v", i, err), 0, err,
+			)
+		}
+
+		finishReq := &dto.UploadPartFinishRequest{UploadID: uploadID, PartIndex: i}
+		if chat.IsGroup {
+			_, err = s.api.GroupUploadPartFinish(ctx, chat.ID, finishReq)
+		} else {
+			_, err = s.api.UserUploadPartFinish(ctx, chat.ID, finishReq)
+		}
+		if err != nil {
+			return platform.SendResult{}, platform.NewSendError(
+				platform.SendErrNetworkError, "qq", chat.ID,
+				fmt.Sprintf("chunked upload part_finish %d failed: %v", i, err), 0, err,
+			)
+		}
+	}
+
+	// 4. 合并：携带 upload_id 调用上传接口 → file_info
+	merge := &dto.Media{Type: fileType, UploadID: uploadID, ActiveSend: false}
+	var uploadResult gjson.Result
+	if chat.IsGroup {
+		uploadResult, err = s.api.GroupRichMedia(ctx, chat.ID, merge)
+	} else {
+		uploadResult, err = s.api.SingleRichMedia(ctx, chat.ID, merge)
+	}
+	if err != nil {
+		return platform.SendResult{}, platform.NewSendError(
+			platform.SendErrNetworkError, "qq", chat.ID,
+			fmt.Sprintf("chunked upload merge failed: %v", err), 0, err,
+		)
+	}
+	fileInfo := uploadResult.Get("file_info").String()
+	if fileInfo == "" {
+		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload merge returned empty file_info (response: %s)", uploadResult.Raw)
+	}
+
+	return s.sendMediaMessage(ctx, chat, msg, fileInfo, uploadResult)
+}
+
+// sendMediaMessage 构建携带 file_info 的 MediaMessage 并发送，返回合并的上传/发送响应。
+func (s *qqSender) sendMediaMessage(ctx stdctx.Context, chat platform.ChatInfo, msg platform.OutboundMessage, fileInfo string, uploadResult gjson.Result) (platform.SendResult, error) {
 	// 构建携带 file_info 的 MediaMessage
 	dtoMsg := s.buildDTOMessage(msg, chat)
 	dtoMsg.Type = dto.MediaMessage
@@ -201,6 +346,7 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 	}
 
 	var sendResult gjson.Result
+	var err error
 	if chat.IsGroup {
 		sendResult, err = s.api.GroupChat(ctx, chat.ID, dtoMsg)
 	} else {
@@ -212,6 +358,50 @@ func (s *qqSender) sendAttachment(ctx stdctx.Context, chat platform.ChatInfo, ms
 
 	// 合并上传响应与发送响应
 	return buildSendResultFromUpload(uploadResult, sendResult), nil
+}
+
+// putPresignedChunk 将单个分片 PUT 到预签名 URL（cos 直传，无需鉴权头）。
+func putPresignedChunk(ctx stdctx.Context, presignedURL string, chunk []byte) error {
+	resp, err := httpclient.Put(presignedURL).
+		SetContext(ctx).
+		SetTimeout(chunkPutTimeout).
+		SetBody(bytes.NewReader(chunk)).
+		Do()
+	if err != nil {
+		return err
+	}
+	defer resp.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := resp.Bytes()
+		return fmt.Errorf("PUT presigned url status %d: %s", resp.StatusCode, truncateForLog(body))
+	}
+	return nil
+}
+
+// chunkPutTimeout 单分片 PUT 的超时（cos 直传 5MB 分片通常秒级完成）。
+const chunkPutTimeout = 60 * time.Second
+
+// md5Sum 计算数据的十六进制 MD5。
+func md5Sum(data []byte) string {
+	h := md5.Sum(data)
+	return hex.EncodeToString(h[:])
+}
+
+// firstBytes 返回数据前 n 字节的副本（不足则全量）。
+func firstBytes(data []byte, n int) []byte {
+	if len(data) <= n {
+		return data
+	}
+	return data[:n]
+}
+
+// truncateForLog 截断响应体用于错误日志（避免把整个响应刷进日志）。
+func truncateForLog(b []byte) string {
+	const max = 200
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + "..."
 }
 
 // sendGuildChannelMessage 向 QQ 文字子频道或频道私信发送消息。
@@ -487,16 +677,6 @@ func qqSegmentsToFlat(msg platform.OutboundMessage) platform.OutboundMessage {
 	return msg
 }
 
-// resolveMsgID 从消息和会话信息中解析出用于被动回复的 msg_id。
-// 空字符串表示主动消息，不受被动回复限制。
-func resolveMsgID(msg platform.OutboundMessage, chat platform.ChatInfo) string {
-	id := msg.ReplyToID
-	if id == "" {
-		id = chat.Tokens[TokenMsgID]
-	}
-	return id
-}
-
 // nextMsgSeq 返回指定 msg_id 的下一个消息序列号。
 //
 // msg_seq 是 QQ v2 API 防重放字段，与 msg_id 联合使用：
@@ -510,7 +690,6 @@ func (s *qqSender) nextMsgSeq(msgID string) uint64 {
 	s.sweepExpired()
 	v, _ := s.msgSeqMap.LoadOrStore(msgID, &msgSeqEntry{})
 	entry := v.(*msgSeqEntry)
-	entry.count.Add(1)
 	if entry.createdAt.Load() == nil {
 		entry.createdAt.Store(time.Now())
 	}
@@ -549,42 +728,6 @@ func (s *qqSender) sweepExpired() {
 		}
 		return true
 	})
-}
-
-// checkReplyLimit 检查对指定 msg_id 的被动回复是否超限。
-//
-// QQ 平台限制：单条消息最多回复 5 次，有效时长 5 分钟。
-// 返回 nil 表示允许发送；返回 error 表示已达上限。
-// msgID 为空时（主动消息）直接返回 nil。
-func (s *qqSender) checkReplyLimit(msgID string) error {
-	if msgID == "" {
-		return nil
-	}
-	v, ok := s.msgSeqMap.Load(msgID)
-	if !ok {
-		return nil // 首次回复，加载会在 nextMsgSeq 中完成
-	}
-	entry := v.(*msgSeqEntry)
-
-	// 检查 5 分钟有效期。
-	//
-	// 这里**不能**删除条目：checkReplyLimit 把"查不到条目"解释为"首次回复，
-	// 放行"，删除会让下一次调用重新落入放行分支，nextMsgSeq 随即以
-	// count=1、seq=1 重建条目，向 QQ 发出与首条完全相同的
-	// (msg_id, msg_seq) 组合——过期拦截被自身绕过，且每 5 分钟循环一次。
-	// 过期条目改由 sweepExpired 在 2×TTL 之后统一回收；那时 msg_id 早已
-	// 失去任何复用价值，即便条目被清掉也不会再触发上述循环。
-	if created, ok := entry.createdAt.Load().(time.Time); ok && time.Since(created) > passiveReplyTTL {
-		return fmt.Errorf("passive reply expired: msg_id=%q, created=%v, ttl=%v: %w",
-			msgID, created, passiveReplyTTL, errutil.ErrPassiveReplyExpired)
-	}
-
-	// 检查回复次数上限
-	if entry.count.Load() >= maxPassiveReplies {
-		return fmt.Errorf("passive reply limit reached: msg_id=%q, count=%d, max=%d: %w",
-			msgID, entry.count.Load(), maxPassiveReplies, errutil.ErrPassiveReplyLimitReached)
-	}
-	return nil
 }
 
 // Delete 撤回/删除消息。
@@ -763,13 +906,41 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 	}
 }
 
+// SendTyping 实现 platform.TypingNotifier，向 C2C 单聊发送"正在输入"状态。
+//
+// QQ 的输入中状态（msg_type=6 input_notify）**仅支持 C2C 单聊**，群聊不支持
+// （QQ 会拒绝）。因此群聊场景返回 [platform.ErrNotSupported]。
+//
+// 判定依据：输入中状态接口只能打到 C2C 单聊端点；但 TypingNotifier 只提供
+// chatID，无法区分群/单聊。为安全起见，仅在发送失败时静默降级：
+// 输入中状态是尽力而为的提示，失败不影响后续真实消息。
+func (s *qqSender) SendTyping(ctx stdctx.Context, chatID string) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	if chatID == "" {
+		return errutil.ErrNoChatInfo
+	}
+	// input_notify 仅 C2C 单聊端点支持；群聊调用会返回平台错误。
+	// 输入中状态是尽力而为的提示，失败时静默降级，不阻塞调用方。
+	_, err := s.api.SingleChat(ctx, chatID, &dto.Message{
+		Type:        dto.InputNotifyMsg,
+		InputNotify: &dto.InputNotify{InputType: 1, InputSecond: 30},
+	})
+	if err != nil {
+		logger.Debugf("[qq sender] SendTyping failed (typing indicator is best-effort): %v", err)
+	}
+	return nil
+}
+
 var (
-	_ platform.Sender             = (*qqSender)(nil)
-	_ platform.MessageDeleter     = (*qqSender)(nil)
-	_ platform.ReactionSender     = (*qqSender)(nil)
-	_ platform.GroupManager       = (*qqSender)(nil)
-	_ platform.InvitationHandler  = (*qqSender)(nil)
-	_ platform.GroupInfoProvider  = (*qqSender)(nil)
+	_ platform.Sender            = (*qqSender)(nil)
+	_ platform.MessageDeleter    = (*qqSender)(nil)
+	_ platform.ReactionSender    = (*qqSender)(nil)
+	_ platform.GroupManager      = (*qqSender)(nil)
+	_ platform.InvitationHandler = (*qqSender)(nil)
+	_ platform.GroupInfoProvider = (*qqSender)(nil)
+	_ platform.TypingNotifier    = (*qqSender)(nil)
 )
 
 // ────────────────────────────────────────────────────────────────────────────

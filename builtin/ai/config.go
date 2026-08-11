@@ -103,6 +103,14 @@ type Config struct {
 	ContextGroupIncludeBot bool `yaml:"context_group_include_bot"`
 	// AtBot 是否响应 @机器人的消息。
 	AtBot bool `yaml:"at_bot"`
+	// GroupAutonomous 群聊自主发言：不 @ 机器人也响应群内消息（仅 QQ 群全量消息场景）。
+	//
+	// 官方 OpenClaw 插件的 requireMention=false 等价能力。开启后：
+	//   - 群内所有非命令消息都会触发 AI（无需 @，需平台授予群全量消息权限）
+	//   - 命令消息（以 / 开头）仍被排除，避免与命令 handler 并发争抢
+	//   - @机器人 + 触发命令（trigger_cmd）的组合仍生效
+	// 默认 false（仅 @ 触发）。
+	GroupAutonomous bool `yaml:"group_autonomous"`
 	// PrivateChat 是否自动响应私聊消息。
 	//
 	// 注意：开启后 AI 会响应所有非命令消息（不以 "/" 开头）。
@@ -234,6 +242,7 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 		cfg.TriggerCmd = v
 	}
 	cfg.AtBot = ctx.Config.GetBool("at_bot", cfg.AtBot)
+	cfg.GroupAutonomous = ctx.Config.GetBool("group_autonomous", cfg.GroupAutonomous)
 	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
 	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
 	cfg.Fallback = ctx.Config.GetBool("fallback", cfg.Fallback)
@@ -288,8 +297,8 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 		}
 	}
 
-	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.PrivateChat {
-		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, or private_chat in config")
+	if cfg.TriggerCmd == "" && !cfg.AtBot && !cfg.GroupAutonomous && !cfg.PrivateChat {
+		ctx.Log.Warn("No trigger method enabled: set trigger_cmd, at_bot, group_autonomous, or private_chat in config")
 	}
 
 	return &cfg

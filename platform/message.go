@@ -64,6 +64,32 @@ type Attachment struct {
 	Extra map[string]any
 }
 
+// VoiceTranscript 语音转写文本提供者。
+//
+// 平台适配器可将携带语音转写结果的元数据放入 Attachment.Extra 中，
+// 并让该元数据类型实现本接口；通用消费者（如 AI 插件）即可通过
+// [AttachmentTranscript] 读取平台侧免费的 ASR 转写文本，
+// 无需自行下载音频再调用 STT。
+type VoiceTranscript interface {
+	// Transcript 返回语音转写文本；为空表示无转写结果。
+	Transcript() string
+}
+
+// AttachmentTranscript 从附件的 Extra 元数据中提取语音转写文本。
+//
+// 遍历 Extra 中所有值，返回第一个实现 [VoiceTranscript] 且转写文本非空的；
+// 无则返回空字符串。
+func AttachmentTranscript(att Attachment) string {
+	for _, v := range att.Extra {
+		if vt, ok := v.(VoiceTranscript); ok {
+			if s := vt.Transcript(); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // 富文本嵌入卡片（Embed）
 // ────────────────────────────────────────────────────────────────────────────

@@ -100,6 +100,7 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		p.sm.saveNoLock(session)
 		session.Unlock()
 
+		_ = ctx.TrySendTyping()
 		result, err := p.processWithTools(ctx, session)
 		if err != nil {
 			ctx.ReplyText(formatAIError(err))
@@ -232,12 +233,23 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		fmt.Fprintf(&b, "\n  `%s status` — 查看会话状态", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s stats` — 查看使用统计", p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s tools` — 列出可用工具", p.cfg.TriggerCmd)
+		fmt.Fprintf(&b, "\n  `%s remind` — 设置定时提醒（如 `%s remind 5分钟 去喝水`）", p.cfg.TriggerCmd, p.cfg.TriggerCmd)
 		fmt.Fprintf(&b, "\n  `%s skill` — 管理自定义技能", p.cfg.TriggerCmd)
 		ctx.ReplyText(b.String())
 		return nil
 
 	case "skill":
 		return p.handleSkillCommand(ctx)
+
+	case "remind", "提醒":
+		// 从消息内容中提取 "remind" 之后的参数（时长 + 内容）
+		content := p.cleanMessage(ctx.GetMessageContent())
+		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
+		for _, prefix := range []string{"remind", "提醒"} {
+			content = strings.TrimPrefix(content, prefix)
+		}
+		content = strings.TrimSpace(content)
+		return p.handleRemindCommand(ctx, content)
 	}
 	return nil
 }
@@ -269,6 +281,15 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		err = p.execSubCommand(ctx, "stats")
 	case "tools", "工具", "help", "帮助":
 		err = p.execSubCommand(ctx, "tools")
+	case "remind", "提醒":
+		// 支持 "@机器人 提醒 5分钟 去喝水" 自然语言路径
+		content := p.cleanMessage(ctx.GetMessageContent())
+		content = strings.TrimSpace(strings.TrimLeft(content, "@"))
+		for _, prefix := range []string{"remind", "提醒"} {
+			content = strings.TrimPrefix(content, prefix)
+		}
+		content = strings.TrimSpace(content)
+		err = p.handleRemindCommand(ctx, content)
 	default:
 		return false
 	}

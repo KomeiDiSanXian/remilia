@@ -64,6 +64,10 @@ type Plugin struct {
 	fsmEngine       *fsm.Engine
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
+
+	// reminders 定时提醒管理器（/ai remind）。
+	// 依赖 plugin.SessionNotifier 主动推送；进程内存储，重启后失效。
+	reminders *reminderManager
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -111,6 +115,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
   /ai status          — 查看会话状态
   /ai stats           — 查看使用统计
   /ai tools           — 列出可用工具
+  /ai remind 5分钟 去喝水 — 设置定时提醒（到期主动推送）
   @机器人 <消息>       — 在群聊中 @机器人 触发
 
 配置示例（config.yaml plugins.ai 节）：
@@ -160,6 +165,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				fsmEngine:       fsm.NewEngine(nil),
 				lifecycleCtx:    lifecycleCtx,
 				lifecycleCancel: lifecycleCancel,
+				reminders:       newReminderManager(),
 			}
 
 			p.registerSkillAddFSM()
@@ -183,6 +189,8 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			ctx.Spawn(func(runCtx context.Context) {
 				defer p.lifecycleCancel()
+				// 插件 Teardown：停止全部待触发的定时提醒
+				defer p.reminders.stopAll()
 				ticker := time.NewTicker(10 * time.Minute)
 				defer ticker.Stop()
 				for {
@@ -325,6 +333,10 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("status").Description("查看会话状态").Build()).
 		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
 		SubCommand(command.NewDef("tools").Description("列出可用工具").Alias("help").Build()).
+		SubCommand(command.NewDef("remind").Description("设置定时提醒（如：remind 5分钟 去喝水）").
+			SubCommand(command.NewDef("list").Description("列出本会话的提醒").Build()).
+			SubCommand(command.NewDef("cancel").Description("取消指定提醒，后接提醒 ID").Build()).
+			Build()).
 		SubCommand(
 			command.NewDef("skill").Description("管理自定义技能").
 				SubCommand(command.NewDef("add").Description("注册新技能，后接技能名称和 Markdown 内容，或发送 .md 附件").Build()).
@@ -341,9 +353,10 @@ func buildAIDefinition() *command.Definition {
 
 // registerHandlers 注册 AI 对话的触发处理器。
 //
-// 支持三种触发方式（可组合）：
+// 支持四种触发方式（可组合）：
 //   - 命令前缀（如 /ai），通过 command.Definition 定义子命令
 //   - @机器人 正则匹配
+//   - 群聊自主发言（group_autonomous）：不 @ 也响应群内非命令消息
 //   - 私聊自动响应
 //
 // ⚠️ 私聊自动响应会过滤以 "/" 开头的命令消息，避免与现有命令的
@@ -357,7 +370,17 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
-	if p.cfg.AtBot {
+	if p.cfg.GroupAutonomous {
+		// 群聊自主发言：不 @ 机器人也响应群内非命令消息。
+		// 等价官方 OpenClaw 插件的 requireMention=false。
+		// 注意：此模式覆盖 @机器人 的群聊路径（@ 消息也命中），
+		// 因此开启时不再单独注册 AtBot 群聊 matcher，避免重复处理。
+		ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
+			Where(func(c *eventctx.Context) bool {
+				return !isCommandMessage(c.GetMessageContent())
+			}).
+			Handle(p.handleAI)
+	} else if p.cfg.AtBot {
 		if trigger != "" {
 			// trigger_cmd 已设置：@机器人 时仅响应带触发前缀的消息
 			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).

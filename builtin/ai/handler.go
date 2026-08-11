@@ -119,6 +119,10 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 	userMsg := p.buildUserMessage(ctx, content, session)
 	p.sm.AppendMessage(session, userMsg)
 
+	// LLM 处理前发送"正在输入"状态（平台支持时），给用户即时反馈。
+	// 平台不支持（如 QQ 群聊）时 TrySendTyping 静默 no-op。
+	_ = ctx.TrySendTyping()
+
 	result, err := p.processWithTools(ctx, session)
 	if err != nil {
 		ctx.ReplyError(formatAIError(err))
@@ -164,6 +168,16 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 	for _, att := range atts {
 		if att.URL == "" {
 			continue
+		}
+
+		// 平台已提供语音转写文本（如 QQ 官方 ASR asr_refer_text）时，
+		// 直接注入转写文本，无需下载音频二进制再送 STT。
+		// 这比把音频直传给多模态模型更通用：任何模型都能理解文本。
+		if strings.HasPrefix(att.MimeType, "audio/") {
+			if asr := platform.AttachmentTranscript(att); asr != "" {
+				parts = append(parts, ContentPart{Type: ContentPartText, Text: "[语音转写] " + asr})
+				continue
+			}
 		}
 
 		var cp *ContentPart

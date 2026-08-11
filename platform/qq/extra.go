@@ -72,6 +72,14 @@ type VoiceAttachmentMeta struct {
 	AsrText string
 }
 
+// Transcript 实现 platform.VoiceTranscript，返回 QQ 官方 ASR 转写文本。
+func (m *VoiceAttachmentMeta) Transcript() string {
+	if m == nil {
+		return ""
+	}
+	return m.AsrText
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // MessageExtra
 // ────────────────────────────────────────────────────────────────────────────

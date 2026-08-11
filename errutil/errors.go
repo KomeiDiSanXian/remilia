@@ -73,7 +73,14 @@ var (
 	ErrCircuitBreakerHalfOpen   = errors.New("circuit breaker is half-open")
 	ErrCircuitBreakerContention = errors.New("circuit breaker state transition contention")
 
-	ErrPassiveReplyExpired      = errors.New("passive reply window expired")
+	// ErrPassiveReplyExpired 被动回复窗口过期。
+	//
+	// 已废弃（2026-08）：QQ 平台限制由服务端校验（错误码 40034128），
+	// 客户端不再拦截被动回复次数/时长。保留定义仅为兼容旧版引用。
+	ErrPassiveReplyExpired = errors.New("passive reply window expired")
+	// ErrPassiveReplyLimitReached 被动回复次数达到上限。
+	//
+	// 已废弃（2026-08）：同上，平台端校验，客户端不再拦截。保留定义兼容。
 	ErrPassiveReplyLimitReached = errors.New("passive reply limit reached")
 )
 

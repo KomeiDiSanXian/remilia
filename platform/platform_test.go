@@ -645,6 +645,52 @@ func TestAttachmentFromData(t *testing.T) {
 	}
 }
 
+// fakeVoiceMeta 实现 platform.VoiceTranscript，模拟平台语音 ASR 元数据。
+type fakeVoiceMeta struct {
+	text string
+}
+
+func (m *fakeVoiceMeta) Transcript() string { return m.text }
+
+func TestAttachmentTranscript(t *testing.T) {
+	// 无 Extra → 空
+	if got := platform.AttachmentTranscript(platform.Attachment{Kind: platform.AttachmentKindAudio}); got != "" {
+		t.Errorf("no Extra: got %q, want empty", got)
+	}
+	// Extra 无 VoiceTranscript → 空
+	if got := platform.AttachmentTranscript(platform.Attachment{
+		Kind:  platform.AttachmentKindAudio,
+		Extra: map[string]any{"foo": "bar"},
+	}); got != "" {
+		t.Errorf("Extra without transcript: got %q, want empty", got)
+	}
+	// 实现 VoiceTranscript 且非空 → 返回转写文本
+	att := platform.Attachment{
+		Kind:  platform.AttachmentKindAudio,
+		Extra: map[string]any{"voice": &fakeVoiceMeta{text: "今天天气怎么样"}},
+	}
+	if got := platform.AttachmentTranscript(att); got != "今天天气怎么样" {
+		t.Errorf("transcript: got %q, want %q", got, "今天天气怎么样")
+	}
+	// 转写文本为空 → 空
+	if got := platform.AttachmentTranscript(platform.Attachment{
+		Kind:  platform.AttachmentKindAudio,
+		Extra: map[string]any{"voice": &fakeVoiceMeta{}},
+	}); got != "" {
+		t.Errorf("empty transcript: got %q, want empty", got)
+	}
+	// 多个值取第一个非空的
+	if got := platform.AttachmentTranscript(platform.Attachment{
+		Kind: platform.AttachmentKindAudio,
+		Extra: map[string]any{
+			"a": &fakeVoiceMeta{},
+			"b": &fakeVoiceMeta{text: "x"},
+		},
+	}); got != "x" {
+		t.Errorf("multi extra: got %q, want x", got)
+	}
+}
+
 // ── SendRequest.Validate() 附件校验 ─────────────────────────────────────────
 
 func TestSendRequest_Validate_AttachmentBothSet(t *testing.T) {
