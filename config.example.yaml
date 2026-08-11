@@ -249,6 +249,9 @@ api:
 #     api_timeout: "60s"                  # [R] API 请求超时
 #     max_retries: 0                      # [R] 请求失败时的最大重试次数（0 = 不重试）
 #     tool_timeout: "30s"                 # [R] 每个工具调用的最长执行时间；超时返回错误，对话继续
+#     tool_retry_limit: 2                 # [R] 同一工具连续失败的允许次数。每次失败结果回填 LLM 供其
+#                                         #     调整策略；第 2 次连续失败起注入"反思指令"（要求模型分析
+#                                         #     原因并采用不同策略）；达到 limit+1 次时优雅中止并向用户说明
 #     session_ttl: "24h"                  # [R] 会话过期时间，超过未活跃的会话被清理
 #
 #     # —— 触发方式 ——
@@ -273,6 +276,53 @@ api:
 #                                         #     审批交互：平台支持按钮时发送"允许/拒绝"按钮，任何平台可用
 #                                         #     /ai approve <ID> 与 /ai deny <ID> 文本命令。仅发起者可审批。
 #     approval_timeout: "60s"             # [R] 审批等待超时；超时按拒绝处理
+#     tool_select_max: 20                 # [R] 每轮实际发送给 LLM 的最大工具数。工具总数超过此值时按用户
+#                                         #     消息内容本地检索打分（关键词 + 会话热用 + 可选 embedding），
+#                                         #     取相关度最高的子集发送（零额外 LLM 调用，跨域任务自动覆盖）。
+#                                         #     通用工具（Categories 为空或含 general）与会话已用工具恒被保留。
+#     tool_budget: 8000                   # [R] 工具 schema 的 token 预算；选择工具时按 schema 大小估算
+#                                         #     逐条累加，超过预算即停止追加（防止工具描述撑爆上下文窗口）
+#     embedding_base_url: ""              # [R] Embedding API 地址（OpenAI 兼容 /embeddings 端点，如
+#                                         #     https://api.openai.com/v1 或本地 Ollama）。非空时启用工具
+#                                         #     选择语义检索加权；未配置或请求失败自动降级纯关键词打分。
+#                                         #     注意：Anthropic 不提供 embedding API，需配置第三方或本地服务
+#     embedding_api_key: "${AI_API_KEY}"  # [R] Embedding API 密钥；为空时回退使用 api_key
+#     embedding_model: "text-embedding-3-small"  # [R] Embedding 模型名称
+#     memory_enabled: false               # [R] 长期事实记忆（默认关闭，隐私考虑）。开启后每轮对话回复
+#                                         #     完成后异步调用一次 LLM 自动提取稳定长期事实（偏好/习惯/
+#                                         #     约定），按 用户/群 作用域存入 LevelDB（data/ai_memory），
+#                                         #     后续对话按用户消息检索注入系统提示（无新增命令）。
+#                                         #     配置了 embedding_base_url 时记忆检索叠加语义余弦
+#                                         #     （无关键词重叠也能命中，如"想喝点东西"→"喜欢喝咖啡"）；
+#                                         #     未配置则纯关键词打分
+#     memory_min_interval: "10m"          # [R] 同一作用域两次自动抽取的最小间隔，防止高频对话烧 token
+#     memory_max_facts: 50                # [R] 每个作用域最多保留的事实条数；超出按次数最少、最旧淘汰
+#     memory_inject_max: 8                # [R] 每次注入系统提示的长期记忆条数上限（按相关度取 Top-N）
+#     plan_max_steps: 8                   # [R] 单个任务计划的最大步骤数（create_plan 超限报错并提示合并）
+#     verify_enabled: false               # [R] 回答质量校验（LLM-as-judge，默认关闭）。开启后最终回答发送
+#                                         #     前多一次评审 LLM 调用：检查是否回答了问题/是否捏造信息；
+#                                         #     不通过则注入修正指令重新生成（成本：每次对话 +1 次调用）
+#     verify_max_retries: 1               # [R] 校验不通过后的最大重新生成次数（每次生成都会先评审）
+#     context_rag_messages: 0             # [R] 相关历史消息检索（消息级 RAG，默认 0=关闭）。开启后按用户
+#                                         #     消息在 messagelog 历史中检索相关消息注入系统提示，覆盖
+#                                         #     "上周讨论的方案""上次谁说的"这类时间线/细节查询。两阶段：
+#                                         #     本地关键词预筛（零成本，无命中不花 embedding）→ 候选集
+#                                         #     embedding 语义精排（复用 embedding_base_url；未配置则纯关键词）。
+#                                         #     仅检索当前群/当前用户（不跨群），与最近消息窗口自动去重
+#     context_rag_days: 7                 # [R] 历史检索的时间窗口（天）
+#     context_rag_candidates: 500         # [R] 关键词预筛的候选消息上限
+#     context_rag_inject_max: 3           # [R] 每次注入的相关历史消息条数上限
+#     context_window: 0                   # [R] 系统提示的全局 token 预算（默认 0=不限）。开启后按模型
+#                                         #     上下文窗口控制注入总量，超出时按优先级（群聊窗口 > 长期记忆
+#                                         #     > 相关历史 > 运行时上下文）动态缩减，防止小上下文模型被撑爆
+#     verify_model: ""                    # [R] 回答校验器使用的模型（空=跟随主模型）；可配置便宜轻量模型
+#     extract_model: ""                   # [R] 记忆抽取使用的模型（空=跟随主模型）
+#     tool_parallel: 4                    # [R] 工具调用并行度（最小 1）。模型一次返回多个工具调用时并发执行
+#     plan_auto_continue: false           # [R] 计划后台自动推进（默认关闭）。开启后创建计划后机器人按
+#                                         #     plan_auto_interval 自动继续执行未完成步骤并主动汇报，
+#                                         #     无需用户逐条消息推动；用户发消息时重置推进预算
+#     plan_auto_interval: "15s"           # [R] 计划后台推进的间隔
+#     plan_auto_rounds: 3                 # [R] 单个计划的后台自动推进轮次上限（无进度自动停止）
 #
 #     # —— per-group 策略（/ai group，LevelDB 持久化 data/ai）——
 #     # 每个群可独立配置以下四项（群管理员用 /ai group set 修改；全局默认需 superadmin）：
@@ -304,6 +354,19 @@ api:
 #                                         #     AI 回复自动去重，不会重复出现
 #   weather:
 #     api_key: "your-weather-api-key"
+#   websearch:
+#     engine: "searxng"               # [R]  搜索引擎：searxng（默认，自建实例免费无 key）/
+#                                     #      serper（Google 搜索 API，需 key）
+#     searxng_url: "http://127.0.0.1:8080"  # [R]  SearXNG 实例地址。可填公共实例（JSON 输出多被
+#                                     #      禁用，插件自动回退 HTML 解析），但公共实例不稳定且
+#                                     #      有限流，生产建议自建（Docker 一条命令）或 serper
+#     serper_api_key: ""              # [R]  Serper API Key（engine=serper 时必填）
+#     proxy: ""                       # [R]  搜索与网页抓取代理地址（如 "http://127.0.0.1:7890"）；
+#                                     #      空 = 环境变量代理或直连
+#     timeout: "15s"                  # [H]  单次搜索/抓取超时
+#     max_results: 5                  # [H]  单次搜索返回的结果条数
+#     max_fetch_bytes: 2097152        # [R]  网页抓取响应大小上限（字节，默认 2MB）
+#     max_fetch_runes: 4000           # [R]  抓取正文最大字符数（超出截断）
 #   sauce:
 #     proxy: ""                   # [R]  引擎请求代理地址（如 "http://127.0.0.1:7890"）。
 #                                 #      国内部署访问 SauceNAO / IQDB 等被墙站点必需；
