@@ -266,10 +266,10 @@ func (p *GroupPolicy) effectiveTools() (allowSet map[string]struct{}, filter boo
 		return nil, false
 	}
 	policy := strings.TrimSpace(*p.ToolPolicy)
-	switch {
-	case policy == "" || policy == "all":
+	switch policy {
+	case "", "all":
 		return nil, false
-	case policy == "none":
+	case "none":
 		return map[string]struct{}{}, true
 	default:
 		set := make(map[string]struct{})

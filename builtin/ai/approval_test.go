@@ -140,16 +140,6 @@ func (s *approvalCtxSender) Send(_ context.Context, req platform.SendRequest) (p
 	return platform.SendResult{MessageID: "mock-msg"}, nil
 }
 
-func (s *approvalCtxSender) last() *platform.OutboundMessage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.replies) == 0 {
-		return nil
-	}
-	msg := s.replies[len(s.replies)-1]
-	return &msg
-}
-
 // newApprovalTestContext 构造带捕获 sender 的真实事件上下文。
 func newApprovalTestContext(senderID string) (*eventctx.Context, *approvalCtxSender) {
 	evt := platform.NewSyntheticEvent(

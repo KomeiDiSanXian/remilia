@@ -133,10 +133,10 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		policy.SystemPrompt = &value
 	case "tools", "工具":
 		norm := strings.ToLower(strings.ReplaceAll(value, "，", ","))
-		switch {
-		case norm == "all", norm == "全部":
+		switch norm {
+		case "all", "全部":
 			policy.ToolPolicy = new("all")
-		case norm == "none", norm == "无", norm == "off":
+		case "none", "无", "off":
 			policy.ToolPolicy = new("none")
 		default:
 			// 逗号分隔工具名白名单

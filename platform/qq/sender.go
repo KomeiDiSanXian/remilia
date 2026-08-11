@@ -367,7 +367,7 @@ func putPresignedChunk(ctx stdctx.Context, presignedURL string, chunk []byte) er
 	if err != nil {
 		return err
 	}
-	defer resp.Close()
+	defer func() { _ = resp.Close() }()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := resp.Bytes()
 		return fmt.Errorf("PUT presigned url status %d: %s", resp.StatusCode, truncateForLog(body))
