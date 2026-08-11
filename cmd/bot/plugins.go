@@ -48,6 +48,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/starrail"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/updater"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/weather"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/websearch"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -123,6 +124,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		ping.New(),
 		ai.New(eng),
 		weather.New(),
+		websearch.New(),
 		iss.New(iss.WithDataDir(dataDir + "/iss")),
 		css.New(css.WithDataDir(dataDir + "/css")),
 		bilibili.New(bilibili.WithPlatformRegistry(pluginPlatformRegistry)),
