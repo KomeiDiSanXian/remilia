@@ -46,7 +46,7 @@ jobs:
           fi
       - name: Open auto-fix pull request
         if: steps.detect.outputs.changed == 'true' && github.event_name == 'push'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "style: apply gofmt and go fix"
           branch: "auto/fmt-fix"
