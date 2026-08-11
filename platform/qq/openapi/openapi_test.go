@@ -930,7 +930,7 @@ func TestClient_Post_TokenNotReady(t *testing.T) {
 	api, mgr := newTestAPI(t, m)
 	mgr.Stop() // 停止后 WaitReadyWithContext 应立即失败
 
-	_, err := api.Post(context.Background(), "https://api.sgroup.qq.com/v2/users/u1/messages", map[string]any{"content": "hi"})
+	_, err := api.Post(context.Background(), "https://api.bot.qq.com/v2/users/u1/messages", map[string]any{"content": "hi"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "access token 未就绪")
 }
@@ -943,7 +943,7 @@ func TestClient_Post_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := api.Post(ctx, "https://api.sgroup.qq.com/v2/users/u1/messages", map[string]any{"content": "hi"})
+	_, err := api.Post(ctx, "https://api.bot.qq.com/v2/users/u1/messages", map[string]any{"content": "hi"})
 	require.Error(t, err)
 }
 
@@ -956,4 +956,141 @@ func TestClient_ResponseData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "new_msg_1", result.Get("data.id").String())
 	assert.True(t, result.Get("data.id").Exists())
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 群聊管理（2026-08 新增）
+// ────────────────────────────────────────────────────────────────────────────
+
+func TestClient_GetGroupInfo(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupInfo(context.Background(), "gid_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/groups/gid_1/info", "")
+}
+
+func TestClient_GetGroupBotState(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupBotState(context.Background(), "gid_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/groups/gid_1/bot_state", "")
+}
+
+func TestClient_GetGroupJoinRequestList(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupJoinRequestList(context.Background(), "gid_1", "cursor_1", 50)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/gid_1/join_request_list", req.path)
+	assert.Equal(t, "cursor=cursor_1&limit=50", req.query)
+}
+
+func TestClient_GetGroupJoinRequestList_NoCursor(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupJoinRequestList(context.Background(), "gid_1", "", 0)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/gid_1/join_request_list", req.path)
+	assert.Equal(t, "", req.query)
+}
+
+func TestClient_ApproveJoinRequest(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.ApproveJoinRequest(context.Background(), "gid_1", "mem_1", &dto.ApprovalJoinRequest{Op: "approve", JoinRequestID: "req_1"})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/approval_join_request/mem_1", `{"op":"approve","join_request_id":"req_1"}`)
+}
+
+func TestClient_GetGroupRestrictChatSetting(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupRestrictChatSetting(context.Background(), "gid_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/groups/gid_1/restrict_chat_setting", "")
+}
+
+func TestClient_SetGroupMemberMute(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	req := &dto.SetRestrictChatSettingRequest{Members: []dto.SetMemberMuteState{{Op: "add", MemberOpenID: "mem_1", MuteExpireAt: "2026-08-05T11:23:05+08:00"}}}
+	_, err := api.SetGroupMemberMute(context.Background(), "gid_1", req)
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/restrict_chat_setting", `{"members":[{"op":"add","member_openid":"mem_1","mute_expire_at":"2026-08-05T11:23:05+08:00"}]}`)
+}
+
+func TestClient_GetJoinApprovalStrategyList(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetJoinApprovalStrategyList(context.Background(), "cursor_1", 20)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/join_approval_strategy", req.path)
+	assert.Equal(t, "cursor=cursor_1&limit=20", req.query)
+}
+
+func TestClient_CreateJoinApprovalStrategy(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.CreateJoinApprovalStrategy(context.Background(), &dto.CreateJoinApprovalStrategyRequest{GroupIDs: []string{"123456"}, IsEnable: "on"})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/join_approval_strategy", `{"group_ids":["123456"],"is_enable":"on"}`)
+}
+
+func TestClient_UpdateJoinApprovalStrategy(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdateJoinApprovalStrategy(context.Background(), "st_1", &dto.UpdateJoinApprovalStrategyRequest{IsEnable: "off"})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPatch, "/v2/groups/join_approval_strategy/st_1", `{"is_enable":"off"}`)
+}
+
+func TestClient_DeleteJoinApprovalStrategy(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.DeleteJoinApprovalStrategy(context.Background(), "st_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodDelete, "/v2/groups/join_approval_strategy/st_1", "")
+}
+
+func TestClient_ExecuteJoinApprovalStrategy(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.ExecuteJoinApprovalStrategy(context.Background(), "st_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/join_approval_strategy/st_1/execute", `{}`)
+}
+
+func TestClient_UpdateJoinApprovalStrategyWhitelist(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdateJoinApprovalStrategyWhitelist(context.Background(), "st_1", &dto.UpdateWhitelistUsersRequest{Op: "add", WhitelistUsers: []string{"1234567"}})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/join_approval_strategy/st_1/whitelist_users", `{"op":"add","whitelist_users":["1234567"]}`)
+}
+
+func TestClient_GenerateURLLink(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GenerateURLLink(context.Background(), &dto.GenerateURLLinkRequest{CallbackData: "custom_data_123"})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/generate_url_link", `{"callback_data":"custom_data_123"}`)
 }

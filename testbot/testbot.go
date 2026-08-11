@@ -360,6 +360,51 @@ func (m *MockAPI) GetGatewayBot(_ context.Context) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 
+// ── 群聊管理 ────────────────────────────────────────────────────────────────
+
+func (m *MockAPI) GetGroupInfo(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGroupBotState(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGroupJoinRequestList(_ context.Context, _, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) ApproveJoinRequest(_ context.Context, _, _ string, _ *dto.ApprovalJoinRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGroupRestrictChatSetting(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) SetGroupMemberMute(_ context.Context, _ string, _ *dto.SetRestrictChatSettingRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetJoinApprovalStrategyList(_ context.Context, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) CreateJoinApprovalStrategy(_ context.Context, _ *dto.CreateJoinApprovalStrategyRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdateJoinApprovalStrategy(_ context.Context, _ string, _ *dto.UpdateJoinApprovalStrategyRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) DeleteJoinApprovalStrategy(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) ExecuteJoinApprovalStrategy(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdateJoinApprovalStrategyWhitelist(_ context.Context, _ string, _ *dto.UpdateWhitelistUsersRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
+// ── 机器人自身管理 ──────────────────────────────────────────────────────────
+
+func (m *MockAPI) GenerateURLLink(_ context.Context, _ *dto.GenerateURLLinkRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 
 // ---------------------------------------------------------------------------

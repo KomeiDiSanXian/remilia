@@ -764,7 +764,145 @@ func convertButtons(buttons []platform.Button) *dto.InlineKeyboard {
 }
 
 var (
-	_ platform.Sender         = (*qqSender)(nil)
-	_ platform.MessageDeleter = (*qqSender)(nil)
-	_ platform.ReactionSender = (*qqSender)(nil)
+	_ platform.Sender             = (*qqSender)(nil)
+	_ platform.MessageDeleter     = (*qqSender)(nil)
+	_ platform.ReactionSender     = (*qqSender)(nil)
+	_ platform.GroupManager       = (*qqSender)(nil)
+	_ platform.InvitationHandler  = (*qqSender)(nil)
+	_ platform.GroupInfoProvider  = (*qqSender)(nil)
 )
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.GroupManager（群成员管理，2026-08 新增能力）
+// ────────────────────────────────────────────────────────────────────────────
+
+// BanMember 通过设置群成员禁言实现 platform.GroupManager。
+//
+// duration <= 0 时解除禁言（op=del）；否则设置禁言到期时间（op=add，
+// mute_expire_at = now + duration）。
+// 注意：QQ 群禁言只能操作普通成员，不能操作群主、管理员、机器人。
+func (s *qqSender) BanMember(ctx stdctx.Context, groupID, userID string, duration time.Duration) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	state := dto.SetMemberMuteState{
+		MemberOpenID: userID,
+	}
+	if duration <= 0 {
+		state.Op = "del"
+	} else {
+		state.Op = "add"
+		state.MuteExpireAt = time.Now().Add(duration).Format(time.RFC3339)
+	}
+	_, err := s.api.SetGroupMemberMute(ctx, groupID, &dto.SetRestrictChatSettingRequest{
+		Members: []dto.SetMemberMuteState{state},
+	})
+	return err
+}
+
+// KickMember QQ 官方 v2 群聊暂无踢人接口，返回 ErrNotSupported。
+func (s *qqSender) KickMember(_ stdctx.Context, _, _ string, _ bool) error {
+	return platform.ErrNotSupported
+}
+
+// SetAdmin QQ 官方 v2 群聊暂无设置管理员接口，返回 ErrNotSupported。
+func (s *qqSender) SetAdmin(_ stdctx.Context, _, _ string, _ bool) error {
+	return platform.ErrNotSupported
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.InvitationHandler（入群申请审批，2026-08 新增能力）
+// ────────────────────────────────────────────────────────────────────────────
+
+// AcceptGroupInvite 通过审批入群申请实现 platform.InvitationHandler。
+//
+// inviteID 为 GROUP_JOIN_REQUEST 事件中编码的
+// "group_openid:member_openid:join_request_id" 格式字符串
+// （存于 ChatInfo.Tokens[TokenJoinRequest]）。
+func (s *qqSender) AcceptGroupInvite(ctx stdctx.Context, inviteID string) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	gid, mid, jid, err := parseJoinInviteID(inviteID)
+	if err != nil {
+		return err
+	}
+	_, err = s.api.ApproveJoinRequest(ctx, gid, mid, &dto.ApprovalJoinRequest{
+		Op:            "approve",
+		JoinRequestID: jid,
+	})
+	return err
+}
+
+// RejectGroupInvite 通过拒绝入群申请实现 platform.InvitationHandler。
+// reason 为拒绝理由（可选）。
+func (s *qqSender) RejectGroupInvite(ctx stdctx.Context, inviteID, reason string) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	gid, mid, jid, err := parseJoinInviteID(inviteID)
+	if err != nil {
+		return err
+	}
+	_, err = s.api.ApproveJoinRequest(ctx, gid, mid, &dto.ApprovalJoinRequest{
+		Op:            "decline",
+		JoinRequestID: jid,
+		RejectReason:  reason,
+	})
+	return err
+}
+
+// AcceptFriendRequest QQ 官方 v2 无好友申请审批接口，返回 ErrNotSupported。
+func (s *qqSender) AcceptFriendRequest(_ stdctx.Context, _ string) error {
+	return platform.ErrNotSupported
+}
+
+// RejectFriendRequest QQ 官方 v2 无好友申请审批接口，返回 ErrNotSupported。
+func (s *qqSender) RejectFriendRequest(_ stdctx.Context, _, _ string) error {
+	return platform.ErrNotSupported
+}
+
+// parseJoinInviteID 解析 "group_openid:member_openid:join_request_id" 格式的邀请 ID。
+func parseJoinInviteID(id string) (groupOpenID, memberOpenID, joinRequestID string, err error) {
+	parts := strings.Split(id, ":")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", fmt.Errorf("qq sender: invalid join invite id %q, want group_openid:member_openid:join_request_id", id)
+	}
+	return parts[0], parts[1], parts[2], nil
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// platform.GroupInfoProvider（群信息查询，2026-08 新增能力）
+// ────────────────────────────────────────────────────────────────────────────
+
+// GetGroupInfo 通过获取群基本信息实现 platform.GroupInfoProvider。
+func (s *qqSender) GetGroupInfo(ctx stdctx.Context, groupID string) (platform.GroupInfo, error) {
+	if s.api == nil {
+		return platform.GroupInfo{}, fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	result, err := s.api.GetGroupInfo(ctx, groupID)
+	if err != nil {
+		return platform.GroupInfo{}, err
+	}
+	return platform.GroupInfo{
+		ID:          result.Get("group_openid").String(),
+		Name:        result.Get("group_name").String(),
+		MemberCount: int(result.Get("group_member_num").Int()),
+		Description: result.Get("group_finger_memo").String(),
+	}, nil
+}
+
+// GetGroupMemberList QQ 官方 v2 无群成员列表接口，返回 ErrNotSupported。
+func (s *qqSender) GetGroupMemberList(_ stdctx.Context, _ string) ([]platform.GroupMemberInfo, error) {
+	return nil, platform.ErrNotSupported
+}
+
+// GetGroupMember QQ 官方 v2 无单成员查询接口，返回 ErrNotSupported。
+func (s *qqSender) GetGroupMember(_ stdctx.Context, _, _ string) (platform.GroupMemberInfo, error) {
+	return platform.GroupMemberInfo{}, platform.ErrNotSupported
+}
+
+// GetJoinedGroups QQ 官方 v2 无机器人已加入群列表接口，返回 ErrNotSupported。
+func (s *qqSender) GetJoinedGroups(_ stdctx.Context) ([]platform.GroupInfo, error) {
+	return nil, platform.ErrNotSupported
+}

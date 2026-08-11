@@ -252,3 +252,46 @@ func TestConvertButtons_RowGrouping(t *testing.T) {
 	assert.Len(t, kb.Content.Rows[2].Buttons, 1)
 	assert.Equal(t, "d", kb.Content.Rows[2].Buttons[0].ID)
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// 平台可选接口（2026-08 新增能力）
+// ────────────────────────────────────────────────────────────────────────────
+
+func TestQQSender_ImplementsOptionalInterfaces(t *testing.T) {
+	s := &qqSender{}
+	assert.Implements(t, (*platform.GroupManager)(nil), s)
+	assert.Implements(t, (*platform.InvitationHandler)(nil), s)
+	assert.Implements(t, (*platform.GroupInfoProvider)(nil), s)
+}
+
+func TestParseJoinInviteID(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		wantG   string
+		wantM   string
+		wantJ   string
+		wantErr bool
+	}{
+		{name: "valid", id: "g1:m1:j1", wantG: "g1", wantM: "m1", wantJ: "j1"},
+		{name: "empty group", id: ":m1:j1", wantErr: true},
+		{name: "empty member", id: "g1::j1", wantErr: true},
+		{name: "empty join id", id: "g1:m1:", wantErr: true},
+		{name: "too few parts", id: "g1:m1", wantErr: true},
+		{name: "too many parts", id: "g1:m1:j1:extra", wantErr: true},
+		{name: "empty", id: "", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g, m, j, err := parseJoinInviteID(tc.id)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantG, g)
+			assert.Equal(t, tc.wantM, m)
+			assert.Equal(t, tc.wantJ, j)
+		})
+	}
+}

@@ -147,18 +147,36 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.GroupMemberRemove:
 		e.kind = platform.EventKindMemberLeave
 		e.populateNoticeGroup(detail)
+	// ── 群聊入群申请事件 ────────────────────────────────────────────────────
+	case dto.GroupJoinRequest:
+		e.kind = platform.EventKindRequest
+		e.populateGroupJoinRequest(detail)
 	// ── 子频道事件 ──────────────────────────────────────────────────────────
 	case dto.ChannelCreate, dto.ChannelUpdate, dto.ChannelDelete:
 		e.kind = platform.EventKindChannelChange
 		e.populateChannelEvent(detail)
 	// ── 消息撤回事件 ────────────────────────────────────────────────────────
-	case dto.MessageDeleteEvent:
+	case dto.MessageDeleteEvent, dto.PublicMessageDelete, dto.DirectMessageDelete:
 		e.kind = platform.EventKindMessageDelete
 		e.populateMessageDelete(detail)
 	// ── 消息审核事件 ────────────────────────────────────────────────────────
-	case dto.MessageAudit:
+	case dto.MessageAuditPass, dto.MessageAuditReject, dto.MessageAudit:
 		e.kind = platform.EventKindMessageAudit
 		e.populateMessageAudit(detail)
+	// ── 论坛事件（FORUMS_EVENT）────────────────────────────────────────────
+	case dto.ForumThreadCreate, dto.ForumThreadUpdate, dto.ForumThreadDelete,
+		dto.ForumPostCreate, dto.ForumPostDelete,
+		dto.ForumReplyCreate, dto.ForumReplyDelete, dto.ForumAuditResult:
+		e.kind = platform.EventKindNotice
+		e.populateForumEvent(detail)
+	// ── 音频事件（AUDIO_ACTION）────────────────────────────────────────────
+	case dto.AudioStart, dto.AudioFinish, dto.AudioOnMic, dto.AudioOffMic:
+		e.kind = platform.EventKindNotice
+		e.populateAudioActionEvent(detail)
+	// ── 音视频/直播子频道成员进出事件 ───────────────────────────────────────
+	case dto.AudioOrLiveChannelMemberEnter, dto.AudioOrLiveChannelMemberExit:
+		e.kind = platform.EventKindNotice
+		e.populateAudioOrLiveChannelMemberEvent(detail)
 	default:
 		e.kind = platform.EventKindUnknown
 	}
@@ -574,12 +592,14 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"audit_id",     // [0]
-		"message_id",   // [1]
-		"guild_id",     // [2]
-		"channel_id",   // [3]
-		"audit_result", // [4]
-		"create_time",  // [5]
+		"audit_id",       // [0]
+		"message_id",     // [1]
+		"guild_id",       // [2]
+		"channel_id",     // [3]
+		"audit_result",   // [4]
+		"create_time",    // [5]
+		"audit_time",     // [6]
+		"seq_in_channel", // [7]
 	)
 	e.id = results[1].String() // 被审核的消息 ID
 	e.chat = platform.ChatInfo{
@@ -588,11 +608,87 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 		IsGroup:  true,
 	}
 	e.segments = textSegments(results[0].String()) // audit_id 作为 content 供 handler 匹配
-	if ts := results[5].String(); ts != "" {
+	// 时间戳优先取 create_time，缺省时退回 audit_time
+	ts := results[5].String()
+	if ts == "" {
+		ts = results[6].String()
+	}
+	if ts != "" {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			e.timestamp = t
 		}
 	}
+}
+
+// populateForumEvent 解析论坛事件（FORUM_THREAD/POST/REPLY_*、FORUM_PUBLISH_AUDIT_RESULT）。
+//
+// 统一映射为 EventKindNotice，通过 RawType 区分具体事件。
+// 帖子/主题文本内容折叠为 content 段，便于 handler 匹配。
+func (e *qqEvent) populateForumEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"guild_id",         // [0]
+		"channel_id",       // [1]
+		"author_id",        // [2]
+		"thread_info.thread_id", // [3] 主题 ID
+		"post_info.post_id",     // [4] 帖子 ID
+		"reply_info.reply_id",   // [5] 回复 ID
+	)
+	e.chat = platform.ChatInfo{
+		ID:       results[1].String(),
+		ParentID: results[0].String(),
+		IsGroup:  true,
+	}
+	e.sender = platform.UserInfo{ID: results[2].String()}
+	// 以主题/帖子/回复 ID 作为 content，供 handler 区分具体对象
+	id := results[3].String()
+	if id == "" {
+		id = results[4].String()
+	}
+	if id == "" {
+		id = results[5].String()
+	}
+	e.segments = textSegments(id)
+}
+
+// populateAudioActionEvent 解析音频事件（AUDIO_START/FINISH/ON_MIC/OFF_MIC）。
+//
+// 统一映射为 EventKindNotice，通过 RawType 区分具体事件。
+func (e *qqEvent) populateAudioActionEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"guild_id",
+		"channel_id",
+	)
+	e.chat = platform.ChatInfo{
+		ID:       results[1].String(),
+		ParentID: results[0].String(),
+		IsGroup:  true,
+	}
+}
+
+// populateAudioOrLiveChannelMemberEvent 解析音视频/直播子频道成员进出事件。
+//
+// 统一映射为 EventKindNotice，通过 RawType 区分进入/退出。
+func (e *qqEvent) populateAudioOrLiveChannelMemberEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"guild_id",
+		"channel_id",
+		"user_id",
+	)
+	e.chat = platform.ChatInfo{
+		ID:       results[1].String(),
+		ParentID: results[0].String(),
+		IsGroup:  true,
+	}
+	e.sender = platform.UserInfo{ID: results[2].String()}
 }
 
 // parseAttachments 将 gjson 数组结果转换为平台无关的 Attachment 切片。
@@ -854,6 +950,42 @@ func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {
 	if ts := results[2].Int(); ts != 0 {
 		e.timestamp = time.Unix(ts, 0)
 	}
+}
+
+func (e *qqEvent) populateGroupJoinRequest(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"group_openid",   // [0]
+		"member_openid",  // [1] 申请人 openid
+		"username",       // [2] 申请人昵称
+		"apply_at",       // [3] 申请时间戳（RFC3339）
+		"join_request_id", // [4] 申请 ID（可用于审批）
+	)
+	groupOpenID := results[0].String()
+	memberOpenID := results[1].String()
+	joinRequestID := results[4].String()
+	e.chat = platform.ChatInfo{
+		ID:      groupOpenID,
+		IsGroup: true,
+		// 编码 inviteID（"group_openid:member_openid:join_request_id"），
+		// 供 InvitationHandler 解析后调用审批接口。
+		Tokens: map[string]string{
+			TokenJoinRequest: groupOpenID + ":" + memberOpenID + ":" + joinRequestID,
+		},
+	}
+	e.sender = platform.UserInfo{
+		ID:          memberOpenID,
+		DisplayName: results[2].String(),
+	}
+	if ts := results[3].String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			e.timestamp = t
+		}
+	}
+	// 将 join_request_id 作为 content，便于 handler 获取后调用审批接口
+	e.segments = textSegments(joinRequestID)
 }
 
 func (e *qqEvent) populateNoticeUser(detail json.RawMessage) {

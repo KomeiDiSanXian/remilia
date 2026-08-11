@@ -9,8 +9,10 @@ const (
 	//
 	// should fill authorization header with access token like: QQBot {access_token}
 	//
+	// 2026-08-10 起所有接口调用域名统一为 api.bot.qq.com（旧域名 api.sgroup.qq.com 已下线）。
+	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/api-use.html#%E9%89%B4%E6%9D%83%E6%96%B9%E5%BC%8F
-	OpenAPIURL = "https://api.sgroup.qq.com"
+	OpenAPIURL = "https://api.bot.qq.com"
 	// GatewayURL is the url to get websocket gateway
 	//
 	// must fill Content-Type with application/json
@@ -321,4 +323,85 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_stream_messages.post.html
 	StreamSingleChatURL = OpenAPIURL + "/v2/users/%s/stream_messages"
+
+	// ── 群聊管理（2026-08 新增）──────────────────────────────────────────────
+
+	// GroupInfoURL GET /v2/groups/{group_openid}/info
+	//
+	// 获取群基本信息。该接口仅白名单机器人可用。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_info.get.html
+	GroupInfoURL = OpenAPIURL + "/v2/groups/%s/info"
+
+	// GroupBotStateURL GET /v2/groups/{group_openid}/bot_state
+	//
+	// 获取机器人群内状态。该接口仅白名单机器人可用。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_bot_state.get.html
+	GroupBotStateURL = OpenAPIURL + "/v2/groups/%s/bot_state"
+
+	// GroupJoinRequestListURL GET /v2/groups/{group_openid}/join_request_list
+	//
+	// 拉取入群申请列表，支持分页（cursor/limit）。机器人需拥有群管理员身份。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_join_request_list.get.html
+	GroupJoinRequestListURL = OpenAPIURL + "/v2/groups/%s/join_request_list"
+
+	// GroupApprovalJoinRequestURL POST /v2/groups/{group_openid}/approval_join_request/{member_openid}
+	//
+	// 审批入群申请：approve 通过，decline 拒绝。机器人需拥有群管理员身份。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_approval_join_request_member_openid.post.html
+	GroupApprovalJoinRequestURL = OpenAPIURL + "/v2/groups/%s/approval_join_request/%s"
+
+	// GroupRestrictChatSettingURL GET|POST /v2/groups/{group_openid}/restrict_chat_setting
+	//
+	// GET：查询群禁言状态（全员禁言模式与成员级禁言列表）。
+	// POST：设置群成员禁言（每项通过 op 控制增/改/删，单次设置不能超过 10 个）。
+	// 机器人需拥有群管理员身份。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_restrict_chat_setting.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_restrict_chat_setting.post.html
+	GroupRestrictChatSettingURL = OpenAPIURL + "/v2/groups/%s/restrict_chat_setting"
+
+	// JoinApprovalStrategyURL GET|POST /v2/groups/join_approval_strategy
+	//
+	// GET：查询入群自动审批策略列表（cursor/limit 分页）。
+	// POST：创建入群自动审批策略。一个机器人最多 20 个策略。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy.post.html
+	JoinApprovalStrategyURL = OpenAPIURL + "/v2/groups/join_approval_strategy"
+
+	// JoinApprovalStrategyIDURL PATCH|DELETE /v2/groups/join_approval_strategy/{strategy_id}
+	//
+	// PATCH：修改策略的生效状态、失效时间或增删关联群。
+	// DELETE：删除指定的入群自动审批策略。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id.patch.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id.delete.html
+	JoinApprovalStrategyIDURL = OpenAPIURL + "/v2/groups/join_approval_strategy/%s"
+
+	// JoinApprovalStrategyExecuteURL POST /v2/groups/join_approval_strategy/{strategy_id}/execute
+	//
+	// 对策略关联的全部群发起全量扫描，命中白名单号码的入群申请自动审批通过。
+	// 异步执行，约 10 分钟完成。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id_execute.post.html
+	JoinApprovalStrategyExecuteURL = OpenAPIURL + "/v2/groups/join_approval_strategy/%s/execute"
+
+	// JoinApprovalStrategyWhitelistURL POST /v2/groups/join_approval_strategy/{strategy_id}/whitelist_users
+	//
+	// 对指定策略批量新增或删除白名单 QQ 号码，单次最多 10000 个，号码上限 10W。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id_whitelist_users.post.html
+	JoinApprovalStrategyWhitelistURL = OpenAPIURL + "/v2/groups/join_approval_strategy/%s/whitelist_users"
+
+	// GenerateURLLinkURL POST /v2/generate_url_link
+	//
+	// 生成机器人分享链接，用于邀请用户添加机器人为好友。
+	// 用户通过链接添加机器人时 callback_data 参数会透传给开发者（最长 32 字符）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_generate_url_link.post.html
+	GenerateURLLinkURL = OpenAPIURL + "/v2/generate_url_link"
 )

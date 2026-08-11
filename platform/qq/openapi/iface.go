@@ -161,6 +161,40 @@ type GatewayManager interface {
 	GetGatewayBot(ctx context.Context) (gjson.Result, error)
 }
 
+// BotManager 机器人自身管理。
+type BotManager interface {
+	// GenerateURLLink 生成机器人分享链接，用于邀请用户添加机器人为好友。
+	GenerateURLLink(ctx context.Context, req *dto.GenerateURLLinkRequest) (gjson.Result, error)
+}
+
+// GroupManager 群聊管理（2026-08 新增，部分接口仅白名单机器人可用）。
+type GroupManager interface {
+	// GetGroupInfo 获取群基本信息。
+	GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.Result, error)
+	// GetGroupBotState 获取机器人群内状态。
+	GetGroupBotState(ctx context.Context, groupOpenID string) (gjson.Result, error)
+	// GetGroupJoinRequestList 拉取入群申请列表（cursor/limit 分页）。
+	GetGroupJoinRequestList(ctx context.Context, groupOpenID, cursor string, limit int) (gjson.Result, error)
+	// ApproveJoinRequest 审批入群申请（approve/decline）。
+	ApproveJoinRequest(ctx context.Context, groupOpenID, memberOpenID string, req *dto.ApprovalJoinRequest) (gjson.Result, error)
+	// GetGroupRestrictChatSetting 查询群禁言状态。
+	GetGroupRestrictChatSetting(ctx context.Context, groupOpenID string) (gjson.Result, error)
+	// SetGroupMemberMute 设置群成员禁言。
+	SetGroupMemberMute(ctx context.Context, groupOpenID string, req *dto.SetRestrictChatSettingRequest) (gjson.Result, error)
+	// GetJoinApprovalStrategyList 查询入群自动审批策略列表。
+	GetJoinApprovalStrategyList(ctx context.Context, cursor string, limit int) (gjson.Result, error)
+	// CreateJoinApprovalStrategy 创建入群自动审批策略。
+	CreateJoinApprovalStrategy(ctx context.Context, req *dto.CreateJoinApprovalStrategyRequest) (gjson.Result, error)
+	// UpdateJoinApprovalStrategy 修改入群自动审批策略。
+	UpdateJoinApprovalStrategy(ctx context.Context, strategyID string, req *dto.UpdateJoinApprovalStrategyRequest) (gjson.Result, error)
+	// DeleteJoinApprovalStrategy 删除入群自动审批策略。
+	DeleteJoinApprovalStrategy(ctx context.Context, strategyID string) (gjson.Result, error)
+	// ExecuteJoinApprovalStrategy 执行入群自动审批策略（异步）。
+	ExecuteJoinApprovalStrategy(ctx context.Context, strategyID string) (gjson.Result, error)
+	// UpdateJoinApprovalStrategyWhitelist 修改入群自动审批策略的白名单号码。
+	UpdateJoinApprovalStrategyWhitelist(ctx context.Context, strategyID string, req *dto.UpdateWhitelistUsersRequest) (gjson.Result, error)
+}
+
 // ── 聚合接口 ────────────────────────────────────────────────────────────────
 
 // OpenAPI 是所有 QQ 开放平台能力的完整聚合接口。
@@ -183,4 +217,6 @@ type OpenAPI interface {
 	ThreadManager
 	GatewayManager
 	MediaUploader
+	GroupManager
+	BotManager
 }

@@ -95,6 +95,9 @@ type Markdown struct {
 	Content          string          `json:"content,omitempty"`
 	CustomTemplateID string          `json:"custom_template_id,omitempty"`
 	Params           []MarkdownParam `json:"params,omitempty"`
+	// ForceVerifyImageResource 是否校验图片转存结果（2026-08 新增）。
+	// 为 true 时，若图片转存失败则返回错误，消息不会发送。默认 false。
+	ForceVerifyImageResource bool `json:"force_verify_image_resource,omitempty"`
 }
 
 // Ark ...

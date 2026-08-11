@@ -24,6 +24,12 @@ const (
 	// 来源：INTERACTION_CREATE、GROUP_ADD_ROBOT、GROUP_MSG_RECEIVE、
 	//        FRIEND_ADD、C2C_MSG_RECEIVE 等事件的 payload.ID。
 	TokenEventID = "event_id"
+
+	// TokenJoinRequest 入群申请审批 token（GROUP_JOIN_REQUEST 事件）。
+	//
+	// 值为编码后的 inviteID（格式 "group_openid:member_openid:join_request_id"），
+	// 供 platform.InvitationHandler（AcceptGroupInvite / RejectGroupInvite）解析使用。
+	TokenJoinRequest = "join_request"
 )
 
 // ────────────────────────────────────────────────────────────────────────────

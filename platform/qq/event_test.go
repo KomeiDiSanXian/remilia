@@ -268,6 +268,56 @@ func TestNewEvent_MemberJoinLeaveUserFields(t *testing.T) {
 	}
 }
 
+func TestNewEvent_GroupJoinRequest(t *testing.T) {
+	payload := makePayload(dto.GroupJoinRequest, map[string]any{
+		"group_openid":   "group_001",
+		"member_openid":  "member_abc",
+		"username":       "张三",
+		"apply_at":       "2026-08-05T14:19:09+08:00",
+		"join_request_id": "req_123",
+		"verify_info": map[string]any{
+			"method":         "verify_message",
+			"verify_message": "验证消息",
+		},
+	})
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindRequest {
+		t.Fatalf("Kind: got %q, want %q", event.Kind(), platform.EventKindRequest)
+	}
+	if !event.Chat().IsGroup {
+		t.Error("Chat.IsGroup: want true")
+	}
+	if event.Chat().ID != "group_001" {
+		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
+	}
+	if event.Sender().ID != "member_abc" {
+		t.Errorf("Sender.ID: got %q, want member_abc", event.Sender().ID)
+	}
+	if event.Sender().DisplayName != "张三" {
+		t.Errorf("Sender.DisplayName: got %q, want 张三", event.Sender().DisplayName)
+	}
+	if event.Timestamp().IsZero() {
+		t.Error("Timestamp: should not be zero for RFC3339 apply_at")
+	}
+	// join_request_id 作为 content，供 handler 审批使用
+	if len(event.Segments()) != 1 || event.Segments()[0].Type != platform.SegmentText || event.Segments()[0].Text != "req_123" {
+		t.Errorf("Segments: got %+v, want single text segment 'req_123'", event.Segments())
+	}
+	// 编码 inviteID 存入 TokenJoinRequest，供 InvitationHandler 审批使用
+	if got := event.Chat().Tokens[qq.TokenJoinRequest]; got != "group_001:member_abc:req_123" {
+		t.Errorf("Tokens[%s]: got %q, want %q", qq.TokenJoinRequest, got, "group_001:member_abc:req_123")
+	}
+}
+
+func TestNewEvent_GroupJoinRequest_NilDetail(t *testing.T) {
+	payload := makePayload(dto.GroupJoinRequest, map[string]any{})
+	event := qq.NewEvent(payload)
+	if event.Kind() != platform.EventKindRequest {
+		t.Fatalf("Kind: got %q, want %q", event.Kind(), platform.EventKindRequest)
+	}
+}
+
 func TestNewEvent_NilDetail(t *testing.T) {
 	// 无 Detail 时不应 panic，Kind 仍正确，字段保留零值
 	cases := []struct {
@@ -1008,5 +1058,146 @@ func TestNewEvent_GroupMessageCreate_QuoteCompositeRef(t *testing.T) {
 	pm, ok := segs[0].Extra["parallel_message"].(string)
 	if !ok || !strings.Contains(pm, "@蕾米莉亚 123456") {
 		t.Error("reply 段 Extra 应保留 parallel_message（含被引用消息完整文本）")
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 频道相关新增事件（2026-08 核验官方文档补充）
+// ────────────────────────────────────────────────────────────────────────────
+
+func TestNewEvent_MessageAuditPassReject(t *testing.T) {
+	// 官方事件名为 MESSAGE_AUDIT_PASS / MESSAGE_AUDIT_REJECT
+	for _, et := range []dto.EventType{dto.MessageAuditPass, dto.MessageAuditReject} {
+		payload := makePayload(et, map[string]any{
+			"audit_id":     "audit_1",
+			"message_id":   "msg_1",
+			"guild_id":     "guild_1",
+			"channel_id":   "chan_1",
+			"audit_result": 1,
+			"create_time":  "2026-08-05T14:19:09+08:00",
+		})
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindMessageAudit {
+			t.Errorf("[%s] Kind: got %q, want %q", et, event.Kind(), platform.EventKindMessageAudit)
+		}
+		if event.Chat().ID != "chan_1" || event.Chat().ParentID != "guild_1" {
+			t.Errorf("[%s] Chat: got %+v, want chan_1/guild_1", et, event.Chat())
+		}
+	}
+	// create_time 缺省时退回 audit_time
+	event := qq.NewEvent(makePayload(dto.MessageAuditPass, map[string]any{
+		"message_id": "msg_1",
+		"audit_time": "2026-08-05T15:00:00+08:00",
+	}))
+	if event.Timestamp().IsZero() {
+		t.Error("audit_time fallback: Timestamp should not be zero")
+	}
+}
+
+func TestNewEvent_PublicMessageDelete(t *testing.T) {
+	// PUBLIC_MESSAGE_DELETE 是公域频道消息删除事件，与 MESSAGE_DELETE 载荷一致
+	payload := makePayload(dto.PublicMessageDelete, map[string]any{
+		"message": map[string]any{
+			"id":         "msg_1",
+			"channel_id": "chan_1",
+			"guild_id":   "guild_1",
+		},
+		"op_user": map[string]any{"id": "op_1"},
+	})
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindMessageDelete {
+		t.Errorf("Kind: got %q, want %q", event.Kind(), platform.EventKindMessageDelete)
+	}
+	if event.Chat().ID != "chan_1" || event.Chat().ParentID != "guild_1" {
+		t.Errorf("Chat: got %+v, want chan_1/guild_1", event.Chat())
+	}
+	if event.ID() != "msg_1" {
+		t.Errorf("ID: got %q, want msg_1", event.ID())
+	}
+}
+
+func TestNewEvent_ForumEvents(t *testing.T) {
+	cases := []struct {
+		et   dto.EventType
+		body map[string]any
+		want string // 期望 content（对象 ID）
+	}{
+		{dto.ForumThreadCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"thread_info": map[string]any{"thread_id": "tid_1"},
+		}, "tid_1"},
+		{dto.ForumPostCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"post_info": map[string]any{"post_id": "pid_1", "thread_id": "tid_1"},
+		}, "pid_1"},
+		{dto.ForumReplyCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"reply_info": map[string]any{"reply_id": "rid_1", "post_id": "pid_1", "thread_id": "tid_1"},
+		}, "rid_1"},
+	}
+	for _, tc := range cases {
+		payload := makePayload(tc.et, tc.body)
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", tc.et, event.Kind(), platform.EventKindNotice)
+		}
+		if event.Chat().ID != "c1" || event.Chat().ParentID != "g1" {
+			t.Errorf("[%s] Chat: got %+v, want c1/g1", tc.et, event.Chat())
+		}
+		if event.Sender().ID != "u1" {
+			t.Errorf("[%s] Sender.ID: got %q, want u1", tc.et, event.Sender().ID)
+		}
+		if platform.Content(event) != tc.want {
+			t.Errorf("[%s] Content: got %q, want %q", tc.et, platform.Content(event), tc.want)
+		}
+	}
+	// 删除类事件同样映射为 Notice
+	for _, et := range []dto.EventType{dto.ForumThreadDelete, dto.ForumPostDelete, dto.ForumReplyDelete, dto.ForumAuditResult} {
+		event := qq.NewEvent(makePayload(et, map[string]any{}))
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", et, event.Kind(), platform.EventKindNotice)
+		}
+	}
+}
+
+func TestNewEvent_AudioEvents(t *testing.T) {
+	for _, et := range []dto.EventType{dto.AudioStart, dto.AudioFinish, dto.AudioOnMic, dto.AudioOffMic} {
+		payload := makePayload(et, map[string]any{
+			"guild_id":   "g1",
+			"channel_id": "c1",
+		})
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", et, event.Kind(), platform.EventKindNotice)
+		}
+		if event.Chat().ID != "c1" || event.Chat().ParentID != "g1" {
+			t.Errorf("[%s] Chat: got %+v, want c1/g1", et, event.Chat())
+		}
+	}
+}
+
+func TestNewEvent_AudioOrLiveChannelMember(t *testing.T) {
+	for _, et := range []dto.EventType{dto.AudioOrLiveChannelMemberEnter, dto.AudioOrLiveChannelMemberExit} {
+		payload := makePayload(et, map[string]any{
+			"guild_id":     "g1",
+			"channel_id":   "c1",
+			"channel_type": 2,
+			"user_id":      "u1",
+		})
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", et, event.Kind(), platform.EventKindNotice)
+		}
+		if event.Chat().ID != "c1" || event.Chat().ParentID != "g1" {
+			t.Errorf("[%s] Chat: got %+v, want c1/g1", et, event.Chat())
+		}
+		if event.Sender().ID != "u1" {
+			t.Errorf("[%s] Sender.ID: got %q, want u1", et, event.Sender().ID)
+		}
 	}
 }

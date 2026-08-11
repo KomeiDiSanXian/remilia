@@ -694,3 +694,140 @@ func (api *Client) GetGateway(ctx context.Context) (gjson.Result, error) {
 func (api *Client) GetGatewayBot(ctx context.Context) (gjson.Result, error) {
 	return api.Get(ctx, constant.GatewayBotURL)
 }
+
+// ── 群聊管理（2026-08 新增）────────────────────────────────────────────────
+
+// GetGroupInfo 获取群基本信息（GET /v2/groups/{group_openid}/info）。
+//
+// 该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_info.get.html
+func (api *Client) GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GroupInfoURL, groupOpenID))
+}
+
+// GetGroupBotState 获取机器人群内状态（GET /v2/groups/{group_openid}/bot_state）。
+//
+// 该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_bot_state.get.html
+func (api *Client) GetGroupBotState(ctx context.Context, groupOpenID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GroupBotStateURL, groupOpenID))
+}
+
+// GetGroupJoinRequestList 拉取入群申请列表（GET /v2/groups/{group_openid}/join_request_list）。
+//
+// 机器人需拥有群管理员身份。cursor 为分页游标（首次传空串），limit 单页数量
+// （默认 20，最大 100）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_join_request_list.get.html
+func (api *Client) GetGroupJoinRequestList(ctx context.Context, groupOpenID, cursor string, limit int) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.GroupJoinRequestListURL, groupOpenID)
+	sep := "?"
+	if cursor != "" {
+		url += sep + "cursor=" + cursor
+		sep = "&"
+	}
+	if limit > 0 {
+		url += fmt.Sprintf("%slimit=%d", sep, limit)
+	}
+	return api.Get(ctx, url)
+}
+
+// ApproveJoinRequest 审批入群申请（POST /v2/groups/{group_openid}/approval_join_request/{member_openid}）。
+//
+// 机器人需拥有群管理员身份。req.Op 为 approve（通过）或 decline（拒绝）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_approval_join_request_member_openid.post.html
+func (api *Client) ApproveJoinRequest(ctx context.Context, groupOpenID, memberOpenID string, req *dto.ApprovalJoinRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupApprovalJoinRequestURL, groupOpenID, memberOpenID), req)
+}
+
+// GetGroupRestrictChatSetting 查询群禁言状态（GET /v2/groups/{group_openid}/restrict_chat_setting）。
+//
+// 机器人需拥有群管理员身份。返回全员禁言模式与成员级禁言列表。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_restrict_chat_setting.get.html
+func (api *Client) GetGroupRestrictChatSetting(ctx context.Context, groupOpenID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GroupRestrictChatSettingURL, groupOpenID))
+}
+
+// SetGroupMemberMute 设置群成员禁言（POST /v2/groups/{group_openid}/restrict_chat_setting）。
+//
+// 机器人需拥有群管理员身份。每项通过 op 控制增/改/删，单次设置不能超过 10 个。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_restrict_chat_setting.post.html
+func (api *Client) SetGroupMemberMute(ctx context.Context, groupOpenID string, req *dto.SetRestrictChatSettingRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupRestrictChatSettingURL, groupOpenID), req)
+}
+
+// GetJoinApprovalStrategyList 查询入群自动审批策略列表（GET /v2/groups/join_approval_strategy）。
+//
+// cursor 为分页游标（首次传空串），limit 单页数量（默认 20，最大 100）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy.get.html
+func (api *Client) GetJoinApprovalStrategyList(ctx context.Context, cursor string, limit int) (gjson.Result, error) {
+	url := constant.JoinApprovalStrategyURL
+	sep := "?"
+	if cursor != "" {
+		url += sep + "cursor=" + cursor
+		sep = "&"
+	}
+	if limit > 0 {
+		url += fmt.Sprintf("%slimit=%d", sep, limit)
+	}
+	return api.Get(ctx, url)
+}
+
+// CreateJoinApprovalStrategy 创建入群自动审批策略（POST /v2/groups/join_approval_strategy）。
+//
+// 一个机器人最多 20 个策略。设置的规则只有当机器人拥有群管理员身份时才会生效运行。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy.post.html
+func (api *Client) CreateJoinApprovalStrategy(ctx context.Context, req *dto.CreateJoinApprovalStrategyRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.JoinApprovalStrategyURL, req)
+}
+
+// UpdateJoinApprovalStrategy 修改入群自动审批策略（PATCH /v2/groups/join_approval_strategy/{strategy_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id.patch.html
+func (api *Client) UpdateJoinApprovalStrategy(ctx context.Context, strategyID string, req *dto.UpdateJoinApprovalStrategyRequest) (gjson.Result, error) {
+	return api.Patch(ctx, fmt.Sprintf(constant.JoinApprovalStrategyIDURL, strategyID), req)
+}
+
+// DeleteJoinApprovalStrategy 删除入群自动审批策略（DELETE /v2/groups/join_approval_strategy/{strategy_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id.delete.html
+func (api *Client) DeleteJoinApprovalStrategy(ctx context.Context, strategyID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.JoinApprovalStrategyIDURL, strategyID))
+}
+
+// ExecuteJoinApprovalStrategy 执行入群自动审批策略（POST /v2/groups/join_approval_strategy/{strategy_id}/execute）。
+//
+// 对策略关联的全部群发起全量扫描，命中白名单号码的入群申请自动审批通过。异步执行，约 10 分钟完成。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id_execute.post.html
+func (api *Client) ExecuteJoinApprovalStrategy(ctx context.Context, strategyID string) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.JoinApprovalStrategyExecuteURL, strategyID), struct{}{})
+}
+
+// UpdateJoinApprovalStrategyWhitelist 修改入群自动审批策略的白名单号码（POST /v2/groups/join_approval_strategy/{strategy_id}/whitelist_users）。
+//
+// 单次最多 10000 个，号码上限 10W。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_join_approval_strategy_strategy_id_whitelist_users.post.html
+func (api *Client) UpdateJoinApprovalStrategyWhitelist(ctx context.Context, strategyID string, req *dto.UpdateWhitelistUsersRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.JoinApprovalStrategyWhitelistURL, strategyID), req)
+}
+
+// ── 机器人自身管理 ──────────────────────────────────────────────────────────
+
+// GenerateURLLink 生成机器人分享链接（POST /v2/generate_url_link）。
+//
+// 用于邀请用户添加机器人为好友；用户通过链接添加机器人时，
+// req.CallbackData（最长 32 字符）会透传给开发者。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_generate_url_link.post.html
+func (api *Client) GenerateURLLink(ctx context.Context, req *dto.GenerateURLLinkRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.GenerateURLLinkURL, req)
+}

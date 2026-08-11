@@ -14,6 +14,7 @@ const (
 	GroupDelRobot         EventType = "GROUP_DEL_ROBOT"
 	GroupMemberAdd        EventType = "GROUP_MEMBER_ADD"
 	GroupMemberRemove     EventType = "GROUP_MEMBER_REMOVE"
+	GroupJoinRequest      EventType = "GROUP_JOIN_REQUEST"      // 用户申请加群事件（机器人需为群管理员）
 	GroupMsgReject        EventType = "GROUP_MSG_REJECT"
 	GroupMsgReceive       EventType = "GROUP_MSG_RECEIVE"
 	FriendAdd             EventType = "FRIEND_ADD"
@@ -35,9 +36,33 @@ const (
 	GuildMemberRemove   EventType = "GUILD_MEMBER_REMOVE"   // 频道成员移除
 	AtMessageCreate     EventType = "AT_MESSAGE_CREATE"     // 频道内 @机器人 消息
 	MessageCreate       EventType = "MESSAGE_CREATE"        // 频道内消息（需申请权限）
-	MessageDeleteEvent  EventType = "MESSAGE_DELETE"        // 频道消息删除（撤回）
+	MessageDeleteEvent  EventType = "MESSAGE_DELETE"        // 频道消息删除（撤回，私域）
+	PublicMessageDelete EventType = "PUBLIC_MESSAGE_DELETE" // 频道消息删除（公域）
 	DirectMessageCreate EventType = "DIRECT_MESSAGE_CREATE" // 频道私信消息
-	MessageAudit        EventType = "MESSAGE_AUDIT"         // 消息审核结果
+	DirectMessageDelete EventType = "DIRECT_MESSAGE_DELETE" // 频道私信消息撤回
+	MessageAuditPass    EventType = "MESSAGE_AUDIT_PASS"    // 消息审核通过
+	MessageAuditReject  EventType = "MESSAGE_AUDIT_REJECT"  // 消息审核不通过
+	MessageAudit        EventType = "MESSAGE_AUDIT"         // 消息审核结果（旧事件名，兼容保留）
+
+	// ── 论坛事件（FORUMS_EVENT 1<<28，仅私域机器人）─────────────────────────
+	ForumThreadCreate EventType = "FORUM_THREAD_CREATE" // 创建主题
+	ForumThreadUpdate EventType = "FORUM_THREAD_UPDATE" // 更新主题
+	ForumThreadDelete EventType = "FORUM_THREAD_DELETE" // 删除主题
+	ForumPostCreate   EventType = "FORUM_POST_CREATE"   // 创建帖子
+	ForumPostDelete   EventType = "FORUM_POST_DELETE"   // 删除帖子
+	ForumReplyCreate  EventType = "FORUM_REPLY_CREATE"  // 回复评论
+	ForumReplyDelete  EventType = "FORUM_REPLY_DELETE"  // 删除评论
+	ForumAuditResult  EventType = "FORUM_PUBLISH_AUDIT_RESULT" // 发帖审核结果
+
+	// ── 音频事件（AUDIO_ACTION 1<<29）───────────────────────────────────────
+	AudioStart EventType = "AUDIO_START"  // 音频开始播放
+	AudioFinish EventType = "AUDIO_FINISH" // 音频播放结束
+	AudioOnMic  EventType = "AUDIO_ON_MIC" // 机器人上麦
+	AudioOffMic EventType = "AUDIO_OFF_MIC" // 机器人下麦
+
+	// ── 音视频/直播子频道成员进出事件 ────────────────────────────────────────
+	AudioOrLiveChannelMemberEnter EventType = "AUDIO_OR_LIVE_CHANNEL_MEMBER_ENTER" // 用户进入音视频/直播子频道
+	AudioOrLiveChannelMemberExit  EventType = "AUDIO_OR_LIVE_CHANNEL_MEMBER_EXIT"  // 用户离开音视频/直播子频道
 )
 
 // EventID 事件 ID
@@ -142,6 +167,30 @@ type GroupMemberAddEvent struct {
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/event.html#%E7%BE%A4%E6%88%90%E5%91%98%E5%8A%A0%E5%85%A5-%E9%80%80%E5%87%BA%E7%BE%A4%E8%81%8A
 type GroupMemberRemoveEvent struct {
 	GroupOpRobotEvent
+}
+
+// GroupJoinRequestEvent 表示用户申请加群事件。
+//
+// 只有当机器人是群管理员时才可以收到此事件。
+// intents: GROUP_AND_C2C_EVENT = 1<<25
+// 收到后可调用 openapi.ApproveJoinRequest 审批（approve/decline）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/group_join_request.html
+type GroupJoinRequestEvent struct {
+	GroupOpenID    string      `json:"group_openid,omitempty"`
+	JoinRequestID  string      `json:"join_request_id,omitempty"`
+	RiskTips       string      `json:"risk_tips,omitempty"`
+	UnionOpenID    string      `json:"union_openid,omitempty"`
+	MemberOpenID   string      `json:"member_openid,omitempty"`
+	Username       string      `json:"username,omitempty"`
+	ApplyAt        string      `json:"apply_at,omitempty"`
+	ApplySource    string      `json:"apply_source,omitempty"`
+	InvitedBy      string      `json:"invited_by,omitempty"`
+	Bot            bool        `json:"bot,omitempty"`
+	VerifyInfo     *VerifyInfo `json:"verify_info,omitempty"`
+	AutoApproved   *struct {
+		StrategyID string `json:"strategy_id,omitempty"`
+	} `json:"auto_approved,omitempty"`
 }
 
 // UserOpRobotEvent 表示用户操作机器人事件
@@ -405,6 +454,126 @@ type MessageAudited struct {
 	ChannelID string `json:"channel_id,omitempty"`
 	// AuditResult 审核结果：0=未审核，1=通过，2=拒绝
 	AuditResult int `json:"audit_result,omitempty"`
-	// CreateTime 审核时间（RFC3339 格式）
+	// AuditTime 消息审核时间（RFC3339 格式）
+	AuditTime string `json:"audit_time,omitempty"`
+	// CreateTime 消息创建时间（RFC3339 格式）
 	CreateTime string `json:"create_time,omitempty"`
+	// SeqInChannel 子频道消息 seq，用于消息排序
+	SeqInChannel string `json:"seq_in_channel,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 论坛事件（FORUMS_EVENT 1<<28，仅私域机器人）
+//
+// FORUM_THREAD_CREATE/UPDATE/DELETE、FORUM_POST_CREATE/DELETE、
+// FORUM_REPLY_CREATE/DELETE、FORUM_PUBLISH_AUDIT_RESULT
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/content/forum/forum.html
+// ────────────────────────────────────────────────────────────────────────────
+
+// ForumEvent 论坛事件公共载体。
+//
+// thread_info/post_info/reply_info 按事件类型二选一携带：
+//   - 主题事件（FORUM_THREAD_*）：thread_info
+//   - 帖子事件（FORUM_POST_*）：post_info
+//   - 回复事件（FORUM_REPLY_*）：reply_info
+//   - 审核事件（FORUM_PUBLISH_AUDIT_RESULT）：type/result/err_msg + 各 id
+type ForumEvent struct {
+	GuildID   string `json:"guild_id,omitempty"`
+	ChannelID string `json:"channel_id,omitempty"`
+	AuthorID  string `json:"author_id,omitempty"`
+	// ThreadInfo 主题信息（主题事件）
+	ThreadInfo *ForumThread `json:"thread_info,omitempty"`
+	// PostInfo 帖子信息（帖子事件）
+	PostInfo *ForumPost `json:"post_info,omitempty"`
+	// ReplyInfo 回复信息（回复事件）
+	ReplyInfo *ForumReply `json:"reply_info,omitempty"`
+	// Type 审核事件类型：1=发帖审核
+	Type int `json:"type,omitempty"`
+	// Result 审核结果：0=通过，1=拒绝
+	Result int `json:"result,omitempty"`
+	// ErrMsg 审核失败原因（result=1 时有值）
+	ErrMsg string `json:"err_msg,omitempty"`
+	// ThreadID 审核事件关联的主题 ID
+	ThreadID string `json:"thread_id,omitempty"`
+	// PostID 审核事件关联的帖子 ID
+	PostID string `json:"post_id,omitempty"`
+	// ReplyID 审核事件关联的回复 ID
+	ReplyID string `json:"reply_id,omitempty"`
+}
+
+// ForumThread 主题信息。
+type ForumThread struct {
+	ThreadID string            `json:"thread_id,omitempty"`
+	Title    []ForumRichText   `json:"title,omitempty"`
+	Content  []ForumRichText   `json:"content,omitempty"`
+	DateTime string            `json:"date_time,omitempty"`
+}
+
+// ForumPost 帖子信息。
+type ForumPost struct {
+	ThreadID string          `json:"thread_id,omitempty"`
+	PostID   string          `json:"post_id,omitempty"`
+	Content  []ForumRichText `json:"content,omitempty"`
+	DateTime string          `json:"date_time,omitempty"`
+}
+
+// ForumReply 回复信息。
+type ForumReply struct {
+	ThreadID string          `json:"thread_id,omitempty"`
+	PostID   string          `json:"post_id,omitempty"`
+	ReplyID  string          `json:"reply_id,omitempty"`
+	Content  []ForumRichText `json:"content,omitempty"`
+	DateTime string          `json:"date_time,omitempty"`
+}
+
+// ForumRichText 论坛富文本节点。
+type ForumRichText struct {
+	// Type 节点类型：1=文本，3=链接，4=表情，5=频道
+	Type int `json:"type,omitempty"`
+	// TextInfo 文本节点内容（type=1）
+	TextInfo *struct {
+		Text string `json:"text,omitempty"`
+	} `json:"text_info,omitempty"`
+	// URLInfo 链接节点内容（type=3）
+	URLInfo *struct {
+		URL         string `json:"url,omitempty"`
+		DisplayText string `json:"display_text,omitempty"`
+	} `json:"url_info,omitempty"`
+	// EmojiInfo 表情节点内容（type=4）
+	EmojiInfo *struct {
+		ID   int    `json:"id,omitempty"`
+		Type string `json:"type,omitempty"`
+	} `json:"emoji_info,omitempty"`
+	// ChannelInfo 频道节点内容（type=5）
+	ChannelInfo *struct {
+		ChannelID   string `json:"channel_id,omitempty"`
+		ChannelName string `json:"channel_name,omitempty"`
+	} `json:"channel_info,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 音频事件（AUDIO_ACTION 1<<29）
+//
+// AUDIO_START / AUDIO_FINISH / AUDIO_ON_MIC / AUDIO_OFF_MIC
+// ────────────────────────────────────────────────────────────────────────────
+
+// AudioActionEvent 音频事件载体。
+type AudioActionEvent struct {
+	ChannelID string `json:"channel_id,omitempty"`
+	GuildID   string `json:"guild_id,omitempty"`
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 音视频/直播子频道成员进出事件
+//
+// AUDIO_OR_LIVE_CHANNEL_MEMBER_ENTER / AUDIO_OR_LIVE_CHANNEL_MEMBER_EXIT
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/role/audio_or_live_channel_member.html
+// ────────────────────────────────────────────────────────────────────────────
+
+// AudioOrLiveChannelMemberEvent 音视频/直播子频道成员进出事件载体。
+type AudioOrLiveChannelMemberEvent struct {
+	GuildID     string `json:"guild_id,omitempty"`
+	ChannelID   string `json:"channel_id,omitempty"`
+	ChannelType int    `json:"channel_type,omitempty"` // 2=音视频子频道，5=直播子频道
+	UserID      string `json:"user_id,omitempty"`
 }
