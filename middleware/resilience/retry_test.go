@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -331,70 +332,78 @@ func TestRetry_RetryAttemptTracking(t *testing.T) {
 
 // TestSleepWithContext_ResourceCleanup
 func TestSleepWithContext_ResourceCleanup(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping sleep timing-dependent tests in short mode")
-	}
-
+	// 使用 synctest 虚拟时钟：sleep/timer 走虚拟时间，elapsed 确定等于请求时长，
+	// 避免真实计时在 CI 上因调度抖动导致 flaky。
 	t.Run("normal_completion", func(t *testing.T) {
-		ctx := context.Background()
-		start := time.Now()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
+			start := time.Now()
 
-		result := sleepWithContext(ctx, 50*time.Millisecond)
+			result := sleepWithContext(ctx, 50*time.Millisecond)
 
-		elapsed := time.Since(start)
-		assert.True(t, result, "Should return true on normal completion")
-		assert.True(t, elapsed >= 30*time.Millisecond && elapsed <= 200*time.Millisecond, "Should sleep for correct duration")
+			elapsed := time.Since(start)
+			assert.True(t, result, "Should return true on normal completion")
+			assert.True(t, elapsed >= 30*time.Millisecond && elapsed <= 200*time.Millisecond, "Should sleep for correct duration")
+		})
 	})
 
 	t.Run("context_canceled", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
 
-		cancel()
+			cancel()
 
-		start := time.Now()
-		result := sleepWithContext(ctx, 1*time.Second)
-		elapsed := time.Since(start)
+			start := time.Now()
+			result := sleepWithContext(ctx, 1*time.Second)
+			elapsed := time.Since(start)
 
-		assert.False(t, result, "Should return false on cancel")
-		assert.True(t, elapsed < 200*time.Millisecond, "Should return immediately on cancel")
+			assert.False(t, result, "Should return false on cancel")
+			assert.True(t, elapsed < 200*time.Millisecond, "Should return immediately on cancel")
+		})
 	})
 
 	t.Run("context_canceled_during_sleep", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
 
-		go func() {
-			time.Sleep(50 * time.Millisecond)
-			cancel()
-		}()
+			go func() {
+				time.Sleep(50 * time.Millisecond)
+				cancel()
+			}()
 
-		start := time.Now()
-		result := sleepWithContext(ctx, 1*time.Second)
-		elapsed := time.Since(start)
+			start := time.Now()
+			result := sleepWithContext(ctx, 1*time.Second)
+			elapsed := time.Since(start)
 
-		assert.False(t, result, "Should return false on cancel")
-		assert.True(t, elapsed >= 30*time.Millisecond && elapsed <= 300*time.Millisecond, "Should return when canceled. Got: %v", elapsed)
+			assert.False(t, result, "Should return false on cancel")
+			assert.True(t, elapsed >= 30*time.Millisecond && elapsed <= 300*time.Millisecond, "Should return when canceled. Got: %v", elapsed)
+		})
 	})
 
 	t.Run("nil_context", func(t *testing.T) {
-		start := time.Now()
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
 
-		result := sleepWithContext(nil, 50*time.Millisecond)
+			result := sleepWithContext(nil, 50*time.Millisecond)
 
-		elapsed := time.Since(start)
-		assert.True(t, result, "Should return true with nil context")
-		assert.True(t, elapsed >= 40*time.Millisecond && elapsed <= 70*time.Millisecond, "Should sleep for correct duration")
+			elapsed := time.Since(start)
+			assert.True(t, result, "Should return true with nil context")
+			assert.True(t, elapsed >= 40*time.Millisecond && elapsed <= 70*time.Millisecond, "Should sleep for correct duration")
+		})
 	})
 
 	t.Run("no_timer_leak", func(t *testing.T) {
 		// 测试大量调用不会泄漏 timer
-		ctx := context.Background()
+		synctest.Test(t, func(t *testing.T) {
+			ctx := context.Background()
 
-		for range 1000 {
-			sleepWithContext(ctx, 1*time.Millisecond)
-		}
+			for range 1000 {
+				sleepWithContext(ctx, 1*time.Millisecond)
+			}
 
-		// 如果有 timer 泄漏，这会导致内存增长
-		// 这个测试主要确保 defer timer.Stop() 被调用
+			// 如果有 timer 泄漏，这会导致内存增长
+			// 这个测试主要确保 defer timer.Stop() 被调用
+		})
 	})
 }
 
