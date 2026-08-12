@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.40.0 (2026-08-12)
+
+### 💬 AI 插件：消息发送工具（send_message / send_to）
+
+为 AI 补齐消息发送能力，覆盖两种场景：多步骤任务中向用户展示**中间进度**，以及**跨会话推送**（提醒某人、给某群发通知）。
+
+- **`send_message`**（当前会话，无需审批）: 向当前会话发送中间进度消息——文本/Markdown/图片/@提及（`format`/`image_url`/`mention_ids` 可选参数），支持现有 `OutboundMessage` 全消息类型，经 messagelog 记录（群聊窗口可见）
+- **`send_to`**（跨会话推送，强制审批）: 向指定用户/群推送消息——`AlwaysRequireApproval` 保证 **`tool_approval=off` 模式下也强制审批**，审批之上叠加 **`ai.message.send` RBAC 权限**（权限不足直接拒绝、不发起审批）
+- **目标自动解析（零配置）**，按优先级：
+  1. 内置别名：`本群/这个群/当前群`（→ 当前群）、`我/我自己`（→ 调用者）、`对方/本会话`（私聊 → 会话对方）
+  2. **当前会话近期发言者昵称**（messagelog，全平台可用）：精确 → 大小写不敏感，按用户去重
+  3. **已加入群群名**（平台实现 `GroupInfoProvider` 时，如 QQ 官方不支持则自动跳过）
+  4. **原始 ID 兜底**：仅接受 ASCII 标识符（`[A-Za-z0-9_-]`），避免中文昵称被静默当作 ID；`is_group` 参数指定类型
+- **同名歧义**: 匹配到多个用户时返回候选 ID 列表错误（如「张三」匹配到多个近期发言者（u1、u2）），模型读到后改用原始 ID 重试
+- **审批前预解析**: `send_to` 的审批消息展示**解析后的目标**（如 `target=张三（u1）`），批准者明确知道消息将发送给谁；目标无法解析时模型可在批准前获知并调整
+- **能力注入模型**: `Tool.Execute` 签名不变——发送能力经 context 注入（`WithToolSender`/`ToolSenderFromContext`，复用 `WithCallerInfo` 模式）；**`SendTo` 仅在本次调用通过审批门后注入**（`sendToAllowed`），嵌套 Skill 调用继承同一 context，无法绕过审批；`ResolveTarget` 为只读操作不受门控
+- **防滥用**: `max_sends_per_round` 配置（默认 5，<=0=不限）——一次对话处理内发送总次数上限，原子计数，并行工具执行下同样生效
+- **实现**: 新增 `sendtool.go`（loopToolSender + 工具定义 + 目标解析）、`ToolSender`/`ChatTarget` 类型与 `Tool.AlwaysRequireApproval` 字段；审批流优化——权限校验前移至审批之前（避免"先批准后告知无权"）
+- **测试**: 新增 15 个用例——目标解析表驱动（内置别名/群成员昵称/私聊对方昵称/大小写不敏感/歧义候选/群名匹配/原始 ID/无效目标）、发送路径（NotifyUser/NotifyGroup/普通 Send 回退/未授权拒绝/预算上限）、审批链路（off 模式强制审批、无权限不发起审批、审批消息显示解析后目标）
+
 ## v1.39.0 (2026-08-11)
 
 ### 🎯 AI 插件：工具选择器（本地检索 Top-K，替代 LLM 单分类路由）
