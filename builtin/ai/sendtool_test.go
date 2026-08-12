@@ -76,6 +76,35 @@ func withHistory(p *Plugin, groupChat bool, speakers map[string]string) *Plugin 
 	return p
 }
 
+// TestProgressReportingGuidance 保证"长任务报进度"的行为规范同时存在于
+// 框架提示词与 send_message 工具描述（防止后续重构删掉其中一侧）。
+func TestProgressReportingGuidance(t *testing.T) {
+	if !strings.Contains(DefaultFrameworkPrompt, "先用 send_message 向用户报告进度") {
+		t.Error("framework prompt should guide progress reporting via send_message")
+	}
+	if !strings.Contains(DefaultFrameworkPrompt, "单轮即可完成的任务不要调用 send_message") {
+		t.Error("framework prompt should restrict send_message to multi-round tasks")
+	}
+	p := &Plugin{cfg: &Config{}}
+	tools := p.buildSendTools()
+	var msgTool *Tool
+	for i := range tools {
+		if tools[i].Name == sendMessageToolName {
+			msgTool = &tools[i]
+			break
+		}
+	}
+	if msgTool == nil {
+		t.Fatal("send_message tool not built")
+	}
+	if !strings.Contains(msgTool.Description, "每完成一步先调用本工具报告进度") {
+		t.Error("send_message description should instruct step-by-step progress reporting")
+	}
+	if !strings.Contains(msgTool.Description, "单轮即可完成的任务不要调用") {
+		t.Error("send_message description should discourage single-round usage")
+	}
+}
+
 func TestToolSenderContext(t *testing.T) {
 	ctx := context.Background()
 	_, ok := ToolSenderFromContext(ctx)
@@ -89,16 +118,34 @@ func TestToolSenderContext(t *testing.T) {
 }
 
 func TestBuildOutboundMessage(t *testing.T) {
-	msg, err := buildOutboundMessage(map[string]any{"message": "hello"})
+	mdPlugin := &Plugin{cfg: &Config{Markdown: true}}
+	textPlugin := &Plugin{cfg: &Config{Markdown: false}}
+
+	// 默认跟随插件 markdown 配置（Markdown=true → Markdown 渲染）
+	msg, err := mdPlugin.buildOutboundMessage(map[string]any{"message": "hello"})
+	require.NoError(t, err)
+	assert.Empty(t, msg.Text)
+	assert.Equal(t, "hello", msg.Markdown)
+
+	// Markdown=false → 纯文本
+	msg, err = textPlugin.buildOutboundMessage(map[string]any{"message": "hello"})
 	require.NoError(t, err)
 	assert.Equal(t, "hello", msg.Text)
 	assert.Empty(t, msg.Markdown)
 
-	msg, err = buildOutboundMessage(map[string]any{"message": "# title", "format": "markdown"})
+	// format 显式覆盖：markdown=false 配置下指定 markdown
+	msg, err = textPlugin.buildOutboundMessage(map[string]any{"message": "# title", "format": "markdown"})
 	require.NoError(t, err)
+	assert.Empty(t, msg.Text)
 	assert.Equal(t, "# title", msg.Markdown)
 
-	msg, err = buildOutboundMessage(map[string]any{
+	// format 显式覆盖：markdown=true 配置下指定 text
+	msg, err = mdPlugin.buildOutboundMessage(map[string]any{"message": "# title", "format": "text"})
+	require.NoError(t, err)
+	assert.Equal(t, "# title", msg.Text)
+	assert.Empty(t, msg.Markdown)
+
+	msg, err = mdPlugin.buildOutboundMessage(map[string]any{
 		"message":     "pic",
 		"image_url":   "https://example.com/a.png",
 		"mention_ids": []any{"u1", "u2"},
@@ -109,11 +156,11 @@ func TestBuildOutboundMessage(t *testing.T) {
 	assert.Equal(t, "https://example.com/a.png", msg.Attachments[0].URL)
 	assert.Equal(t, []string{"u1", "u2"}, msg.Mentions)
 
-	_, err = buildOutboundMessage(map[string]any{})
+	_, err = mdPlugin.buildOutboundMessage(map[string]any{})
 	assert.Error(t, err)
 
 	long := strings.Repeat("a", maxSendMessageRunes+1)
-	_, err = buildOutboundMessage(map[string]any{"message": long})
+	_, err = mdPlugin.buildOutboundMessage(map[string]any{"message": long})
 	assert.Error(t, err)
 }
 

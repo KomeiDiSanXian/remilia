@@ -3,6 +3,9 @@ package ai
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +34,298 @@ func (m *mockProvider) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 	ch <- StreamEvent{Type: StreamEventDone}
 	close(ch)
 	return ch, nil
+}
+
+func TestRepairToolCallSequence(t *testing.T) {
+	assistant2 := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1"}, {ID: "c2"}}}
+	assistant1 := Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1"}}}
+
+	tests := []struct {
+		name string
+		in   []Message
+		want []Message
+	}{
+		{
+			name: "完整序列不变",
+			in: []Message{
+				assistant2,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleTool, ToolCallID: "c2"},
+				{Role: RoleUser, Content: "ok"},
+			},
+			want: []Message{
+				assistant2,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleTool, ToolCallID: "c2"},
+				{Role: RoleUser, Content: "ok"},
+			},
+		},
+		{
+			name: "缺失中间工具响应补位",
+			in: []Message{
+				assistant2,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleUser, Content: "hi"},
+			},
+			want: []Message{
+				assistant2,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleTool, ToolCallID: "c2", Content: toolResultMissing},
+				{Role: RoleUser, Content: "hi"},
+			},
+		},
+		{
+			name: "末尾全部缺失补位",
+			in: []Message{
+				assistant1,
+				{Role: RoleUser, Content: "新问题"},
+			},
+			want: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1", Content: toolResultMissing},
+				{Role: RoleUser, Content: "新问题"},
+			},
+		},
+		{
+			name: "孤儿 tool 消息不影响待补清单",
+			in: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "cX"},
+			},
+			want: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "cX"},
+				{Role: RoleTool, ToolCallID: "c1", Content: toolResultMissing},
+			},
+		},
+		{
+			name: "多轮工具调用互不影响",
+			in: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1"},
+				assistant1,
+				{Role: RoleUser, Content: "end"},
+			},
+			want: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1"},
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1", Content: toolResultMissing},
+				{Role: RoleUser, Content: "end"},
+			},
+		},
+		{
+			name: "无工具调用原样返回",
+			in: []Message{
+				{Role: RoleUser, Content: "hi"},
+				{Role: RoleAssistant, Content: "hello"},
+			},
+			want: []Message{
+				{Role: RoleUser, Content: "hi"},
+				{Role: RoleAssistant, Content: "hello"},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := repairToolCallSequence(tc.in)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("repairToolCallSequence mismatch\ngot:  %+v\nwant: %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestProcessWithToolsSkippedToolCallsGetPlaceholderResponses 验证中断跳过的
+// 工具调用也会补占位 tool 消息：assistant(tool_calls) 之后每个 tool_call_id
+// 都必须有对应 tool 响应（API 硬性约束，缺失会导致下次请求 400）。
+func TestProcessWithToolsSkippedToolCallsGetPlaceholderResponses(t *testing.T) {
+	var session *Session
+	p := &Plugin{
+		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolParallel: 2},
+		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		reg:      NewToolRegistry(),
+		skillReg: NewSkillRegistry(),
+		prov: &mockProvider{
+			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+				// 模拟 LLM 流式返回工具调用期间用户发新消息抢占
+				session.RequestInterrupt()
+				ch := make(chan StreamEvent, 3)
+				ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "c1", Name: "t1"}}
+				ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "c2", Name: "t2"}}
+				ch <- StreamEvent{Type: StreamEventDone}
+				close(ch)
+				return ch, nil
+			},
+		},
+	}
+	p.reg.Register(Tool{Name: "t1", Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		return "ok", nil
+	}})
+	p.reg.Register(Tool{Name: "t2", Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		return "ok", nil
+	}})
+
+	session = p.sm.GetOrCreate("test:skip", "user", "chat")
+	if !session.BeginTurn() {
+		t.Fatal("BeginTurn failed")
+	}
+	defer session.EndTurn()
+	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "run"})
+
+	evt := platform.NewSyntheticEvent("c2c", "run")
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	if _, err := p.processWithTools(ctx, session); err != nil {
+		t.Fatalf("processWithTools failed: %v", err)
+	}
+
+	msgs := session.SnapshotMessages()
+	assistantIdx := -1
+	for i, m := range msgs {
+		if m.Role == RoleAssistant && len(m.ToolCalls) == 2 {
+			assistantIdx = i
+			break
+		}
+	}
+	if assistantIdx < 0 {
+		t.Fatalf("expected assistant with 2 tool calls, got %+v", msgs)
+	}
+	if assistantIdx+2 >= len(msgs) {
+		t.Fatalf("tool calls must be followed by tool messages, got %+v", msgs)
+	}
+	first, second := msgs[assistantIdx+1], msgs[assistantIdx+2]
+	if first.Role != RoleTool || second.Role != RoleTool {
+		t.Fatalf("tool calls must be followed by tool messages, got %+v %+v", first, second)
+	}
+	contents := map[string]string{first.ToolCallID: first.Content, second.ToolCallID: second.Content}
+	for _, id := range []string{"c1", "c2"} {
+		content, ok := contents[id]
+		if !ok {
+			t.Fatalf("missing tool response for %s (got %+v)", id, msgs)
+		}
+		if !strings.Contains(content, "未执行") {
+			t.Errorf("skipped call %s should have placeholder content, got %q", id, content)
+		}
+	}
+}
+
+func TestEffectiveTurnTimeout(t *testing.T) {
+	// 默认推导：api_timeout × max(2, min(max_depth, 5))
+	p := &Plugin{cfg: &Config{APITimeout: 60 * time.Second, MaxDepth: 5}}
+	if got := p.effectiveTurnTimeout(); got != 5*time.Minute {
+		t.Errorf("default turn timeout = %v, want 5m", got)
+	}
+	// max_depth 很大时封顶 5 轮
+	p.cfg.MaxDepth = 15
+	if got := p.effectiveTurnTimeout(); got != 5*time.Minute {
+		t.Errorf("capped turn timeout = %v, want 5m", got)
+	}
+	// max_depth 很小时至少 2 轮
+	p.cfg.MaxDepth = 1
+	if got := p.effectiveTurnTimeout(); got != 2*time.Minute {
+		t.Errorf("min turn timeout = %v, want 2m", got)
+	}
+	// 显式配置优先
+	p.cfg = &Config{APITimeout: 60 * time.Second, MaxDepth: 5, TurnTimeout: 90 * time.Second}
+	if got := p.effectiveTurnTimeout(); got != 90*time.Second {
+		t.Errorf("explicit turn timeout = %v, want 90s", got)
+	}
+	// api_timeout 未配置时回退 60s
+	p.cfg = &Config{}
+	if got := p.effectiveTurnTimeout(); got != 5*time.Minute {
+		t.Errorf("fallback turn timeout = %v, want 5m", got)
+	}
+}
+
+func TestLiftEventDeadline(t *testing.T) {
+	evt := platform.NewSyntheticEvent("c2c", "test")
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	// 模拟全局 Timeout 中间件注入的 30s deadline
+	shortCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ctx.SetStdContext(shortCtx)
+
+	p := &Plugin{cfg: &Config{APITimeout: 60 * time.Second, MaxDepth: 5}}
+	restore := p.liftEventDeadline(ctx)
+
+	// 替换后：使用独立预算（默认推导 5m），不再继承 30s 中间件 deadline
+	deadline, ok := ctx.Context().Deadline()
+	if !ok {
+		t.Fatal("lifted context should have a deadline")
+	}
+	if remaining := time.Until(deadline); remaining < 4*time.Minute || remaining > 6*time.Minute {
+		t.Errorf("lifted deadline remaining = %v, want ~5m", remaining)
+	}
+
+	restore()
+	// 恢复后回到原始上下文
+	restoredDL, ok := ctx.Context().Deadline()
+	if !ok {
+		t.Fatal("restored context should keep the original deadline")
+	}
+	if time.Until(restoredDL) > 2*time.Minute {
+		t.Errorf("restored deadline should be the original 30s, got %v remaining", time.Until(restoredDL))
+	}
+}
+
+// TestProcessWithToolsUsesTurnBudgetNotEventDeadline 复现生产场景：
+// 事件上下文携带已过期的 deadline（全局 Timeout 中间件注入），
+// 多轮工具循环必须使用插件独立预算而非继承该 deadline，
+// 否则第一轮请求就因 deadline 已过而被切断。
+func TestProcessWithToolsUsesTurnBudgetNotEventDeadline(t *testing.T) {
+	var streamCalls atomic.Int32
+	p := &Plugin{
+		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolParallel: 1},
+		sm:       NewSessionManager(100, 20, time.Hour, nil),
+		reg:      NewToolRegistry(),
+		skillReg: NewSkillRegistry(),
+		prov: &mockProvider{
+			chatStreamFn: func(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
+				// 模拟真实 provider：context 已死时返回超时错误
+				if ctx.Err() != nil {
+					ch := make(chan StreamEvent, 1)
+					ch <- StreamEvent{Type: StreamEventError, Err: ctx.Err()}
+					close(ch)
+					return ch, nil
+				}
+				streamCalls.Add(1)
+				ch := make(chan StreamEvent, 2)
+				if streamCalls.Load() == 1 {
+					ch <- StreamEvent{Type: StreamEventToolCall, ToolCall: &ToolCall{ID: "c1", Name: "t1"}}
+				} else {
+					ch <- StreamEvent{Type: StreamEventText, Content: "done"}
+				}
+				ch <- StreamEvent{Type: StreamEventDone}
+				close(ch)
+				return ch, nil
+			},
+		},
+	}
+	p.reg.Register(Tool{Name: "t1", Execute: func(ctx context.Context, args map[string]any) (string, error) {
+		return "ok", nil
+	}})
+
+	session := p.sm.GetOrCreate("test:deadline", "user", "chat")
+	p.sm.AppendMessage(session, Message{Role: RoleUser, Content: "run"})
+
+	evt := platform.NewSyntheticEvent("c2c", "run")
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	// 事件上下文 deadline 已过期（全局 Timeout 中间件的极端情形）
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	ctx.SetStdContext(expired)
+
+	result, err := p.processWithTools(ctx, session)
+	if err != nil {
+		t.Fatalf("multi-round loop should survive expired event deadline, got err: %v", err)
+	}
+	if result.Text != "done" {
+		t.Errorf("expected final text %q, got %q", "done", result.Text)
+	}
+	if got := streamCalls.Load(); got != 2 {
+		t.Errorf("expected 2 LLM rounds (tool call + final), got %d", got)
+	}
 }
 
 func TestProcessWithToolsNoTools(t *testing.T) {

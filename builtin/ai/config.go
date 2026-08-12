@@ -234,6 +234,13 @@ type Config struct {
 	// send_to）的总发送次数上限（默认 5；<=0 表示不限）。
 	// 防止模型滥用发送工具刷屏，并行执行下同样生效。
 	MaxSendsPerRound int `yaml:"max_sends_per_round"`
+	// TurnTimeout AI 一次完整处理（processWithTools 一次调用，含多轮 LLM
+	// 调用与工具执行）的总时间预算。默认 0 = 自动推导：
+	// api_timeout × max(2, min(max_depth, 5))。
+	// 全局 Timeout 中间件（cmd/bot 默认 30s）会给事件上下文注入单次
+	// deadline，多轮工具任务（如 send_message 分步执行、计划推进）会在
+	// 该 deadline 处被整段切断——本配置以独立预算替换之。
+	TurnTimeout time.Duration `yaml:"turn_timeout"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -474,6 +481,9 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetInt("max_sends_per_round", 0); v > 0 {
 		cfg.MaxSendsPerRound = v
+	}
+	if v := ctx.Config.GetDuration("turn_timeout", 0); v > 0 {
+		cfg.TurnTimeout = v
 	}
 
 	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {

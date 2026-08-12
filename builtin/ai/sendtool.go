@@ -306,7 +306,7 @@ func (s *loopToolSender) matchJoinedGroupName(ctx context.Context, raw string) (
 func (p *Plugin) buildSendTools() []Tool {
 	msgProps := map[string]ToolParamSchema{
 		"message":     {Type: "string", Description: "消息文本内容"},
-		"format":      {Type: "string", Description: "消息格式：text（默认）或 markdown", Enum: []string{"text", "markdown"}},
+		"format":      {Type: "string", Description: "消息格式：默认跟随插件 markdown 配置（推荐不传）；显式指定 text=纯文本 / markdown=Markdown", Enum: []string{"text", "markdown"}},
 		"image_url":   {Type: "string", Description: "可选，附带一张图片的 URL"},
 		"mention_ids": {Type: "array", Items: &ToolParamSchema{Type: "string"}, Description: "可选，需要 @ 的用户 ID 列表"},
 	}
@@ -314,7 +314,7 @@ func (p *Plugin) buildSendTools() []Tool {
 	sendMessage := Tool{
 		Name:        sendMessageToolName,
 		Categories:  []string{CategoryGeneral},
-		Description: "向当前会话发送一条消息（文本/Markdown/图片/@提及）。用于多步骤任务中向用户展示阶段性进度或中间结果；最终答复请直接作为回复文本返回，不要使用本工具",
+		Description: "向当前会话发送一条消息（文本/Markdown/图片/@提及）。需要多轮工具调用的任务中，每完成一步先调用本工具报告进度（如\"正在搜索…\"\"第 1 步完成\"），再继续下一步；单轮即可完成的任务不要调用。最终答复直接作为回复文本返回，不要使用本工具",
 		Parameters: ToolParamSchema{
 			Type:       "object",
 			Properties: msgProps,
@@ -325,7 +325,7 @@ func (p *Plugin) buildSendTools() []Tool {
 			if !ok {
 				return "", fmt.Errorf("当前上下文无消息发送能力")
 			}
-			msg, err := buildOutboundMessage(args)
+			msg, err := p.buildOutboundMessage(args)
 			if err != nil {
 				return "", err
 			}
@@ -381,7 +381,7 @@ func (p *Plugin) buildSendTools() []Tool {
 			if err != nil {
 				return "", err
 			}
-			msg, err := buildOutboundMessage(args)
+			msg, err := p.buildOutboundMessage(args)
 			if err != nil {
 				return "", err
 			}
@@ -398,7 +398,11 @@ func (p *Plugin) buildSendTools() []Tool {
 }
 
 // buildOutboundMessage 将 LLM 参数组装为平台消息（文本/Markdown/图片/@提及）。
-func buildOutboundMessage(args map[string]any) (platform.OutboundMessage, error) {
+//
+// 格式选择与 AI 最终回复一致：默认跟随插件 markdown 配置
+// （p.cfg.Markdown，默认 true 即 Markdown 渲染、平台不支持时自动降级纯文本），
+// format 参数可显式覆盖（"text"=纯文本 / "markdown"=Markdown）。
+func (p *Plugin) buildOutboundMessage(args map[string]any) (platform.OutboundMessage, error) {
 	text, _ := args["message"].(string)
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -408,9 +412,18 @@ func buildOutboundMessage(args map[string]any) (platform.OutboundMessage, error)
 		return platform.OutboundMessage{}, fmt.Errorf("message 过长（最多 %d 字）", maxSendMessageRunes)
 	}
 
-	msg := platform.OutboundMessage{Text: text}
-	if format, _ := args["format"].(string); format == "markdown" {
+	useMarkdown := p.cfg != nil && p.cfg.Markdown
+	if format, _ := args["format"].(string); format != "" {
+		useMarkdown = format == "markdown"
+	}
+
+	// 与 handler.go 的最终回复一致：Markdown 模式只填 Markdown 字段
+	// （平台不支持时由 Sender 自动降级纯文本）。
+	msg := platform.OutboundMessage{}
+	if useMarkdown {
 		msg.Markdown = text
+	} else {
+		msg.Text = text
 	}
 	if url, _ := args["image_url"].(string); strings.TrimSpace(url) != "" {
 		msg.Attachments = append(msg.Attachments, platform.Attachment{
