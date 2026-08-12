@@ -332,6 +332,11 @@ api:
 #                                         #                     本群/我/对方、本会话内近期发言者昵称、
 #                                         #                     已加入群群名，或用户/群原始 ID（同名歧义
 #                                         #                     时返回候选 ID 由模型改用 ID 重试）
+#     turn_timeout: "0"                   # [R] AI 一次完整处理（含多轮 LLM 调用与工具执行）的总时间预算。
+#                                         #     默认 0 = 自动推导：api_timeout × max(2, min(max_depth, 5))。
+#                                         #     全局 Timeout 中间件会给事件上下文注入单次 deadline
+#                                         #     （cmd/bot 默认 30s），多轮工具任务（send_message 分步
+#                                         #     执行、计划推进）会被整段切断——此配置以独立预算替换之
 #
 #     # —— per-group 策略（/ai group，LevelDB 持久化 data/ai）——
 #     # 每个群可独立配置以下四项（群管理员用 /ai group set 修改；全局默认需 superadmin）：

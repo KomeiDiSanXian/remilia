@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.40.1 (2026-08-12)
+
+### 💬 AI 插件：长任务进度汇报引导（send_message 主动使用）
+
+- **背景**: 实测"搜索一下最近关于显卡方面的消息"这类单查询任务不会调用 send_message 分步汇报——工具虽恒被选中（general 必保集），但框架提示词无任何引导、工具描述为被动许可（"用于多步骤任务"），模型默认跳过
+- **修复**: 双管齐下（措辞均限定"多轮任务"防小任务刷屏）——
+  - `DefaultFrameworkPrompt` 新增"进度汇报"节：需要多轮工具调用的任务每完成一步先用 send_message 报告进度（"正在搜索…""第 1 步完成"），再继续下一步；单轮即可完成的任务不要调用
+  - `send_message` 工具描述改为祈使句："每完成一步先调用本工具报告进度…；单轮即可完成的任务不要调用"
+- **测试**: 新增守卫用例，断言两处引导文本同时存在（防止后续重构删掉任一侧）
+
+### 🐛 AI 插件：send_message / send_to 消息格式跟随 markdown 配置（修复）
+
+- **根因**: 发送工具组装消息时一律走纯文本 `Text` 字段，仅显式 `format: "markdown"` 才填 `Markdown`——与 AI 最终回复的行为（`markdown` 配置默认 true 即 Markdown 渲染）不一致，中间进度消息即使包含 Markdown 也按纯文本发送
+- **修复**: `buildOutboundMessage` 默认跟随插件 `markdown` 配置（与最终回复一致，平台不支持时由 Sender 自动降级纯文本），`format` 参数仅作显式覆盖（text / markdown）
+- **测试**: 更新 6 项——默认跟随（true→Markdown / false→纯文本）、双向显式覆盖、图片/@提及、空消息与超长校验
+
+### 🐛 AI 插件：多轮工具任务被全局 30s 超时整段切断（修复）
+
+- **根因**: `cmd/bot` 全局 `middleware.Timeout(30s)`（setup.go）给事件上下文注入单次 deadline，AI 多轮工具循环（每轮 LLM 调用 + 工具执行）共享该 deadline——第一轮 LLM 与工具执行耗掉部分预算后，第二轮请求在 30s 整被切断（`context deadline exceeded` → 用户看到"请求超时"）。插件的 `api_timeout`（默认 60s）因继承更短 deadline 永远到不了
+- **修复**: `processWithTools` 入口以插件独立预算替换事件上下文 deadline——`context.WithoutCancel` 剥离全局中间件注入的 deadline（保留 values/tracing），再套 `turn_timeout`（默认 0 = 自动推导 `api_timeout × max(2, min(max_depth, 5))`，如默认配置 60s×5=5 分钟）；退出时恢复原上下文
+- **配置**: 新增 `turn_timeout`（见 `config.example.yaml`），显式设置可精确控制单次 AI 处理总预算
+- **测试**: 新增 3 个用例——默认推导/封顶/回退/显式优先、deadline 替换与恢复、多轮循环在事件 deadline 已过期时仍完整跑完（复现生产场景）
+
+### 🐛 AI 插件：工具调用序列损坏导致 LLM API 400（修复）
+
+- **根因**: OpenAI/Anthropic 硬性要求 `assistant(tool_calls)` 后必须紧跟每个 `tool_call_id` 的 tool 消息，缺失即 400 `insufficient tool messages following tool_calls message`。三条损坏路径：① 中断抢占跳过的工具调用不入历史；② `replanMsg`（user 角色）插在 assistant(tool_calls) 与 tool 消息之间；③ 进程异常退出/持久化损坏导致历史残缺
+- **修复**: ① 跳过的工具调用补占位 tool 消息（"对话被新消息打断"）；② 重规划指令挪到全部工具结果之后追加；③ 新增 `repairToolCallSequence`——每轮发请求前扫描历史，缺失的 `tool_call_id` 自动补占位 tool 消息，**已损坏的持久化会话自愈**，无需手动 `/ai reset`
+- **测试**: 新增 7 个用例——修复函数表驱动 6 项（完整序列不变/缺失中间/末尾全缺/孤儿消息/多轮隔离/无工具调用）+ 中断跳过补位集成用例
+
 ## v1.40.0 (2026-08-12)
 
 ### 💬 AI 插件：消息发送工具（send_message / send_to）
