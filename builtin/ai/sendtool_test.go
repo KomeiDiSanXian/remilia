@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	stdctx "context"
 	"fmt"
 	"strings"
 	"testing"
@@ -20,8 +19,8 @@ import (
 // syncDispatcher 同步执行发送任务，便于测试中立即拿到发送结果。
 type syncDispatcher struct{}
 
-func (d *syncDispatcher) Submit(_ string, task func(stdctx.Context) error) error {
-	return task(stdctx.Background())
+func (d *syncDispatcher) Submit(_ string, task func(context.Context) error) error {
+	return task(context.Background())
 }
 
 // newSendTestContext 构造私聊事件上下文（带平台发送器与同步调度器）。
@@ -218,19 +217,19 @@ type groupNameSender struct {
 	platform.NoopSender
 }
 
-func (s *groupNameSender) GetGroupInfo(_ stdctx.Context, _ string) (platform.GroupInfo, error) {
+func (s *groupNameSender) GetGroupInfo(_ context.Context, _ string) (platform.GroupInfo, error) {
 	return platform.GroupInfo{}, platform.ErrNotSupported
 }
 
-func (s *groupNameSender) GetGroupMemberList(_ stdctx.Context, _ string) ([]platform.GroupMemberInfo, error) {
+func (s *groupNameSender) GetGroupMemberList(_ context.Context, _ string) ([]platform.GroupMemberInfo, error) {
 	return nil, platform.ErrNotSupported
 }
 
-func (s *groupNameSender) GetGroupMember(_ stdctx.Context, _, _ string) (platform.GroupMemberInfo, error) {
+func (s *groupNameSender) GetGroupMember(_ context.Context, _, _ string) (platform.GroupMemberInfo, error) {
 	return platform.GroupMemberInfo{}, platform.ErrNotSupported
 }
 
-func (s *groupNameSender) GetJoinedGroups(_ stdctx.Context) ([]platform.GroupInfo, error) {
+func (s *groupNameSender) GetJoinedGroups(_ context.Context) ([]platform.GroupInfo, error) {
 	return []platform.GroupInfo{
 		{ID: "g9", Name: "开发群"},
 		{ID: "g10", Name: "闲聊群"},
