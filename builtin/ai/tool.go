@@ -34,6 +34,47 @@ func CallerInfoFromContext(ctx context.Context) (platform.UserInfo, bool) {
 	return caller, ok
 }
 
+// ctxKeyToolSender 是 context 中存储工具消息发送能力的键。
+type ctxKeyToolSenderType struct{}
+
+// ToolSender 工具可用的消息发送能力。
+//
+// 由 AI 插件在工具执行前注入工具调用的 context（见 [WithToolSender]），
+// 实现方通过 [ToolSenderFromContext] 提取后即可发送消息：
+//   - [ToolSender.ReplyToChat] 向当前会话发送消息（无需审批）
+//   - [ToolSender.SendTo] 向指定用户/群发送消息（仅审批通过后被注入）
+type ToolSender interface {
+	// ReplyToChat 向当前会话发送一条消息，返回平台发送结果。
+	ReplyToChat(ctx context.Context, msg platform.OutboundMessage) (platform.SendResult, error)
+	// SendTo 向指定用户/群发送一条消息，返回平台发送结果。
+	// 仅当该工具调用通过了审批门（sendToAllowed）时可用，否则返回错误。
+	SendTo(ctx context.Context, target ChatTarget, msg platform.OutboundMessage) (platform.SendResult, error)
+	// ResolveTarget 将目标（内置别名/近期发言者昵称/已加入群群名/原始 ID）
+	// 自动解析为 ChatTarget，返回 (目标, 展示文本, 错误)。
+	// isGroup 提示仅在按原始 ID 兜底时生效；只读操作，不受审批门控。
+	ResolveTarget(ctx context.Context, raw string, isGroup bool) (ChatTarget, string, error)
+}
+
+// ChatTarget 消息发送的目标（用户私聊或群聊）。
+type ChatTarget struct {
+	// ID 目标用户/群 ID（平台内唯一标识符）。
+	ID string
+	// IsGroup 是否为群聊目标。
+	IsGroup bool
+}
+
+// WithToolSender 将消息发送能力注入 context，供工具 Execute 回调使用。
+func WithToolSender(ctx context.Context, s ToolSender) context.Context {
+	return context.WithValue(ctx, ctxKeyToolSenderType{}, s)
+}
+
+// ToolSenderFromContext 从 context 中提取消息发送能力。
+// 若 context 中无发送能力，返回 nil 和 false。
+func ToolSenderFromContext(ctx context.Context) (ToolSender, bool) {
+	s, ok := ctx.Value(ctxKeyToolSenderType{}).(ToolSender)
+	return s, ok
+}
+
 const CategoryGeneral = "general"
 
 // ToolParamSchema JSON Schema 格式的工具参数描述。
@@ -69,6 +110,10 @@ type Tool struct {
 	Parameters  ToolParamSchema
 	// RequiresApproval 工具执行前是否需要用户审批（tool_approval=restricted 时生效）。
 	RequiresApproval bool
+	// AlwaysRequireApproval 无论 tool_approval 模式（含 off）都强制审批。
+	// 适用于 send_to 这类影响其他会话的高风险工具——off 模式下
+	// RequiresApproval 会被豁免，本字段确保审批不可关闭。
+	AlwaysRequireApproval bool
 	// Permissions 工具执行所需的 RBAC 权限列表（如 "bilibili.manage"）。
 	// 非空时 executeTool 在调用前**强制校验**调用者权限（任一命中即放行），
 	// 不依赖插件自觉——权限不足返回可读错误、不执行。

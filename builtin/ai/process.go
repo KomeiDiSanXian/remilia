@@ -13,6 +13,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -90,6 +91,9 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	maxDepth := p.cfg.MaxDepth
 
 	cs := &captureSender{}
+	// 消息发送预算：一次运行内 send_message/send_to 的总发送次数上限，
+	// 跨工具调用共享（含并行路径），超限报错回填给模型。
+	budget := &sendBudget{limit: p.cfg.MaxSendsPerRound}
 
 	// 工具选择 — 工具较多时按当前用户消息本地检索 Top-K，
 	// 替代旧的 LLM 单分类路由（零额外 LLM 调用，跨域任务自然覆盖多个分类）。
@@ -211,7 +215,7 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 
 		// 并行执行本轮全部工具调用（tool_parallel 控制并发度，默认 4；
 		// 审批/执行/追踪各自独立，结果按原始顺序回填）。
-		results := p.executeToolCallsParallel(ctx, session, cs, toolCalls)
+		results := p.executeToolCallsParallel(ctx, session, cs, budget, toolCalls)
 
 		for i, tc := range toolCalls {
 			// 中断抢占后未启动的工具调用被跳过（不入历史）。
@@ -280,12 +284,12 @@ type toolExecResult struct {
 // executeToolCallsParallel 并行执行一轮的全部工具调用（tool_parallel 并发度）。
 // 结果按原始顺序返回；审批/执行/追踪相互独立；真实命令执行经 realCmdMu 串行化
 // （syncer 非线程安全）。并发度 1 时退化为顺序执行（行为与旧版一致）。
-func (p *Plugin) executeToolCallsParallel(ctx *eventctx.Context, session *Session, cs *captureSender, calls []ToolCall) []toolExecResult {
+func (p *Plugin) executeToolCallsParallel(ctx *eventctx.Context, session *Session, cs *captureSender, budget *sendBudget, calls []ToolCall) []toolExecResult {
 	results := make([]toolExecResult, len(calls))
 	parallel := p.cfg.ToolParallel
 	if parallel <= 1 || len(calls) <= 1 {
 		for i := range calls {
-			results[i] = p.execOneTool(ctx, session, cs, calls[i])
+			results[i] = p.execOneTool(ctx, session, cs, budget, calls[i])
 		}
 		return results
 	}
@@ -306,24 +310,33 @@ func (p *Plugin) executeToolCallsParallel(ctx *eventctx.Context, session *Sessio
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = p.execOneTool(ctx, session, cs, tc)
+			results[i] = p.execOneTool(ctx, session, cs, budget, tc)
 		}(i, calls[i])
 	}
 	wg.Wait()
 	return results
 }
 
-// execOneTool 执行单个工具调用（计数 + 审批 + 执行 + 追踪）。
-func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captureSender, tc ToolCall) toolExecResult {
+// execOneTool 执行单个工具调用（计数 + 权限 + 审批 + 执行 + 追踪）。
+func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captureSender, budget *sendBudget, tc ToolCall) toolExecResult {
 	session.Lock()
 	session.ToolCount++
 	session.Unlock()
 
+	// 审批前先做 RBAC 权限校验（工具声明 Permissions 时），避免
+	// "先请求审批后告知无权"的坏体验；executeTool 内的校验保留为
+	// 纵深防御（双保险）。
+	if tool, ok := p.reg.Get(tc.Name); ok && len(tool.Permissions) > 0 && !p.hasToolPermission(ctx, tool.Permissions) {
+		return toolExecResult{result: fmt.Sprintf("错误: 工具 %q 需要权限（%s），当前用户无权调用",
+			tc.Name, strings.Join(tool.Permissions, ", "))}
+	}
+
 	// 命令执行审批：根据生效的审批模式（全局 tool_approval 或群策略
 	// approval）决定是否需要用户批准后才执行工具。
 	// 拒绝或超时时返回工具级结果（不中断整个对话）。
-	if p.approvalModeFor(ctx, tc.Name) {
-		approved := p.requestApproval(ctx, tc.Name, summarizeArgs(tc.Arguments), p.effectiveApprovalTimeout(ctx))
+	needApproval := p.approvalModeFor(ctx, tc.Name)
+	if needApproval {
+		approved := p.requestApproval(ctx, tc.Name, p.approvalSummaryForTool(ctx, tc), p.effectiveApprovalTimeout(ctx))
 		if !approved {
 			return toolExecResult{result: fmt.Sprintf("工具 `%s` 已被用户拒绝执行（审批未通过）", tc.Name)}
 		}
@@ -332,8 +345,11 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captur
 	toolCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.ToolTimeout)
 	defer cancel()
 	toolCtx = WithPlanSession(toolCtx, session)
+	// SendTo 能力仅在本次调用通过审批门后注入（sendToAllowed）；
+	// 嵌套 Skill 工具调用继承同一 context，无法绕过审批。
+	sender := &loopToolSender{ctx: ctx, p: p, sendToAllowed: needApproval, budget: budget}
 	traceStart := time.Now()
-	toolResult := p.executeTool(ctx, tc, toolCtx, cs)
+	toolResult := p.executeTool(ctx, tc, toolCtx, cs, sender)
 	p.recordToolTrace(session, tc, traceStart, toolResult)
 	return toolExecResult{result: toolResult}
 }
@@ -347,6 +363,36 @@ func lastUserIsReplan(session *Session) bool {
 		}
 	}
 	return false
+}
+
+// approvalSummaryForTool 生成工具审批展示用的参数摘要。
+// send_to 在审批前预解析目标，审批消息中显示解析后的目标
+// （如 张三（12345）），让批准者明确知道消息将发送给谁；
+// 解析失败时回退原始参数摘要。
+func (p *Plugin) approvalSummaryForTool(ctx *eventctx.Context, tc ToolCall) string {
+	summary := summarizeArgs(tc.Arguments)
+	if tc.Name != sendToToolName {
+		return summary
+	}
+	raw, _ := tc.Arguments["target"].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return summary
+	}
+	isGroup := false
+	if v, ok := tc.Arguments["is_group"].(bool); ok {
+		isGroup = v
+	}
+	sender := &loopToolSender{ctx: ctx, p: p}
+	previewCtx, cancel := context.WithTimeout(ctx.Context(), 5*time.Second)
+	defer cancel()
+	if _, display, err := sender.resolveTarget(previewCtx, raw, isGroup); err == nil {
+		args := make(map[string]any, len(tc.Arguments))
+		maps.Copy(args, tc.Arguments)
+		args["target"] = display
+		return summarizeArgs(args)
+	}
+	return summary
 }
 
 // summarizeArgs 生成工具参数摘要（按键排序、截断，用于审批展示，避免敏感信息泄漏）。
@@ -377,6 +423,10 @@ func summarizeArgs(args map[string]any) string {
 func (p *Plugin) approvalModeFor(ctx *eventctx.Context, toolName string) bool {
 	mode := p.effectiveApprovalMode(ctx)
 	if mode == "" || mode == string(ApprovalOff) {
+		// AlwaysRequireApproval 工具（如 send_to）不受 off 模式豁免，强制审批。
+		if tool, ok := p.reg.Get(toolName); ok && tool.AlwaysRequireApproval {
+			return true
+		}
 		return false
 	}
 	tool, ok := p.reg.Get(toolName)

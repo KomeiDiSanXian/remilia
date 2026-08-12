@@ -121,7 +121,7 @@ func TestExecuteToolSkill(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "do skill")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result := p.executeTool(ctx, ToolCall{Name: "test_skill", Arguments: map[string]any{"query": "help"}}, context.Background(), &captureSender{})
+	result := p.executeTool(ctx, ToolCall{Name: "test_skill", Arguments: map[string]any{"query": "help"}}, context.Background(), &captureSender{}, nil)
 	if result == "" {
 		t.Error("expected non-empty result from skill execution")
 	}
@@ -136,7 +136,7 @@ func TestExecuteToolNotFound(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result := p.executeTool(ctx, ToolCall{Name: "nonexistent"}, context.Background(), &captureSender{})
+	result := p.executeTool(ctx, ToolCall{Name: "nonexistent"}, context.Background(), &captureSender{}, nil)
 	if result == "" {
 		t.Error("expected error message for nonexistent tool")
 	}
@@ -159,7 +159,7 @@ func TestExecuteToolDirect(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result := p.executeTool(ctx, ToolCall{Name: "echo"}, context.Background(), &captureSender{})
+	result := p.executeTool(ctx, ToolCall{Name: "echo"}, context.Background(), &captureSender{}, nil)
 	if result != "echo: hello" {
 		t.Errorf("expected %q, got %q", "echo: hello", result)
 	}
@@ -182,7 +182,7 @@ func TestExecuteToolError(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result := p.executeTool(ctx, ToolCall{Name: "failing_tool"}, context.Background(), &captureSender{})
+	result := p.executeTool(ctx, ToolCall{Name: "failing_tool"}, context.Background(), &captureSender{}, nil)
 	if result == "" {
 		t.Error("expected error message for failing tool")
 	}
@@ -205,7 +205,7 @@ func TestExecuteToolTimeout(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "test")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	result := p.executeTool(ctx, ToolCall{Name: "slow_tool"}, context.Background(), &captureSender{})
+	result := p.executeTool(ctx, ToolCall{Name: "slow_tool"}, context.Background(), &captureSender{}, nil)
 	if result == "" {
 		t.Error("expected timeout message")
 	}
@@ -345,7 +345,7 @@ func TestRealCommandExecution(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	cs := &captureSender{}
-	result := p.executeTool(ctx, ToolCall{Name: "ping"}, context.Background(), cs)
+	result := p.executeTool(ctx, ToolCall{Name: "ping"}, context.Background(), cs, nil)
 	if result == "" {
 		t.Error("expected non-empty result from ping tool")
 	}

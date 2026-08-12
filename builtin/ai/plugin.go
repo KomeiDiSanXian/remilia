@@ -246,6 +246,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				p.reg.Register(t)
 			}
 
+			// 消息发送工具（send_message / send_to，默认启用）：
+			// send_message 无需审批；send_to 强制审批 + ai.message.send 权限。
+			for _, t := range p.buildSendTools() {
+				p.reg.Register(t)
+			}
+
 			p.registerHandlers(ctx)
 
 			// 多模态配置警告

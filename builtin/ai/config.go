@@ -230,6 +230,10 @@ type Config struct {
 	PlanAutoInterval time.Duration `yaml:"plan_auto_interval"`
 	// PlanAutoRounds 单个计划的后台自动推进轮次上限（默认 3）。
 	PlanAutoRounds int `yaml:"plan_auto_rounds"`
+	// MaxSendsPerRound 一次对话处理内 AI 消息发送工具（send_message /
+	// send_to）的总发送次数上限（默认 5；<=0 表示不限）。
+	// 防止模型滥用发送工具刷屏，并行执行下同样生效。
+	MaxSendsPerRound int `yaml:"max_sends_per_round"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -280,6 +284,7 @@ var DefaultConfig = Config{
 	ToolParallel:           4,
 	PlanAutoInterval:       15 * time.Second,
 	PlanAutoRounds:         3,
+	MaxSendsPerRound:       5,
 }
 
 // loadConfig 从插件配置中读取配置项，未配置时使用默认值。
@@ -466,6 +471,9 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	if v := ctx.Config.GetInt("plan_auto_rounds", 0); v > 0 {
 		cfg.PlanAutoRounds = v
+	}
+	if v := ctx.Config.GetInt("max_sends_per_round", 0); v > 0 {
+		cfg.MaxSendsPerRound = v
 	}
 
 	if v := ctx.Config.GetInt("context_group_messages", 0); v > 0 {

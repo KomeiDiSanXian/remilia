@@ -58,7 +58,7 @@ func execProtectedTool(t *testing.T, withPM bool, grant string, perms []string) 
 		ctx.SetPermissionManager(pm)
 	}
 
-	return p.executeTool(ctx, ToolCall{Name: "protected_tool"}, context.Background(), &captureSender{})
+	return p.executeTool(ctx, ToolCall{Name: "protected_tool"}, context.Background(), &captureSender{}, nil)
 }
 
 func TestExecuteToolPermissionDenied(t *testing.T) {

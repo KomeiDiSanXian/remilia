@@ -53,10 +53,14 @@ func (s *captureSender) Send(_ context.Context, req platform.SendRequest) (platf
 //
 // toolCtx 是调用方传入的超时 context，用于限制工具执行的最长时间。
 // cs 用于捕获 real command 执行过程中产生的消息附件。
+// sender 非空时注入工具调用 context（含审批门控的 SendTo 能力）。
 // 优先通过 vevent 触发真实命令执行并捕获其回复内容；
 // 若捕获失败或工具无对应命令，回退到 tool.Execute 的占位结果。
-func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context, cs *captureSender) string {
+func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context.Context, cs *captureSender, sender ToolSender) string {
 	callerCtx := WithCallerInfo(toolCtx, ctx.GetSenderInfo())
+	if sender != nil {
+		callerCtx = WithToolSender(callerCtx, sender)
+	}
 	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
 		result, err := p.executeSkill(callerCtx, skill, tc.Arguments)
 		if err != nil {
