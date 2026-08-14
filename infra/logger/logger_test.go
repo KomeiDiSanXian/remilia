@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -111,4 +113,85 @@ func TestWithError(t *testing.T) {
 	logger := WithError(assert.AnError)
 	require.NotNil(t, logger)
 	logger.Error("test with error")
+}
+
+// setupBufferLogger 将全局 logger 切换到写入内存缓冲区的实例，并返回该缓冲区。
+func setupBufferLogger(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	testLogger := zerolog.New(&buf).With().Timestamp().Logger()
+	globalLogger = testLogger
+	log.Logger = globalLogger
+	defaultLogger.Store(&Logger{l: testLogger})
+	zerolog.SetGlobalLevel(zerolog.TraceLevel)
+	return &buf
+}
+
+func TestPackageLevelCaller(t *testing.T) {
+	saveZerologState(t)
+	buf := setupBufferLogger(t)
+
+	Error("pkg-level-caller")
+	WithError(assert.AnError).Error("with-fields-caller")
+	Errorf("pkg-level-caller-%s", "f")
+
+	out := buf.String()
+	// caller 应指向真实调用方（本测试文件），而不是 logger 包内部或 testing 框架
+	if strings.Contains(out, "testing.go") {
+		t.Fatalf("caller resolved into testing framework, got output:\n%s", out)
+	}
+	if !strings.Contains(out, "logger_test.go") {
+		t.Fatalf("caller should point to logger_test.go, got output:\n%s", out)
+	}
+}
+
+func TestLogWithFieldsAllLevels(t *testing.T) {
+	saveZerologState(t)
+	buf := setupBufferLogger(t)
+
+	lwf := WithField("key", "value")
+	lwf.Trace("trace-msg")
+	lwf.Tracef("trace-%s", "f")
+	lwf.Debug("debug-msg")
+	lwf.Debugf("debug-%s", "f")
+	lwf.Info("info-msg")
+	lwf.Infof("info-%s", "f")
+	lwf.Warn("warn-msg")
+	lwf.Warnf("warn-%s", "f")
+	lwf.Error("error-msg")
+	lwf.Errorf("error-%s", "f")
+
+	out := buf.String()
+	for _, want := range []string{
+		"trace-msg", "trace-f",
+		"debug-msg", "debug-f",
+		"info-msg", "info-f",
+		"warn-msg", "warn-f",
+		"error-msg", "error-f",
+	} {
+		assert.Contains(t, out, want)
+	}
+}
+
+func TestLogWithFieldsPanic(t *testing.T) {
+	saveZerologState(t)
+	buf := setupBufferLogger(t)
+
+	assert.Panics(t, func() {
+		WithField("key", "value").Panic("panic-msg")
+	})
+	assert.Contains(t, buf.String(), "panic-msg")
+}
+
+func TestInitEmptyLevelDefaultsToInfo(t *testing.T) {
+	saveZerologState(t)
+
+	var buf bytes.Buffer
+	SetExtraWriter(&buf)
+	defer SetExtraWriter(nil)
+
+	require.NoError(t, Init(Config{Console: false, File: false}))
+
+	Info("should-be-visible")
+	assert.Contains(t, buf.String(), "should-be-visible")
 }

@@ -267,8 +267,12 @@ func Init(cfg Config) error {
 	}
 	zerolog.TimeFieldFormat = timeFormat
 
-	// 解析日志级别
-	level, err := zerolog.ParseLevel(cfg.Level)
+	// 解析日志级别：未配置时默认 info，避免 ParseLevel("") 返回 NoLevel 而关闭全部日志
+	levelStr := cfg.Level
+	if levelStr == "" {
+		levelStr = "info"
+	}
+	level, err := zerolog.ParseLevel(levelStr)
 	if err != nil {
 		level = zerolog.InfoLevel
 	}
@@ -414,6 +418,16 @@ func (l *LogWithFields) WithError(err error) *LogWithFields {
 	}
 }
 
+// Trace 输出 trace 级别日志
+func (l *LogWithFields) Trace(msg string) {
+	l.logger.Trace().Msg(msg)
+}
+
+// Tracef 输出格式化 trace 级别日志
+func (l *LogWithFields) Tracef(format string, v ...any) {
+	l.logger.Trace().Msgf(format, v...)
+}
+
 // Info 输出 info 级别日志
 func (l *LogWithFields) Info(msg string) {
 	l.logger.Info().Msg(msg)
@@ -464,6 +478,16 @@ func (l *LogWithFields) Fatalf(format string, v ...any) {
 	l.logger.Fatal().Caller(1).Msgf(format, v...)
 }
 
+// Panic 输出带调用位置信息的 panic 级别日志并 panic
+func (l *LogWithFields) Panic(msg string) {
+	l.logger.Panic().Caller(1).Msg(msg)
+}
+
+// Panicf 输出带调用位置信息的格式化 panic 级别日志并 panic
+func (l *LogWithFields) Panicf(format string, v ...any) {
+	l.logger.Panic().Caller(1).Msgf(format, v...)
+}
+
 // WithFields 创建带多个字段的 logger
 func WithFields(fields Fields) *LogWithFields {
 	return defaultLogger.Load().WithFields(fields)
@@ -479,7 +503,10 @@ func WithError(err error) *LogWithFields {
 	return defaultLogger.Load().WithError(err)
 }
 
-// 日志级别函数 — 委托给 defaultLogger
+// 日志级别函数 — 委托给 defaultLogger。
+// Error/Fatal/Panic 及其 f 版本直接访问底层 zerolog（少一层 Logger 方法转发），
+// 因此 Caller(1) 即指向真实调用方；配合 //go:noinline 保证栈帧数量稳定，
+// 避免内联消除包级包装函数后 caller 字段偏移。
 
 // Trace 输出 trace 级别日志
 func Trace(msg string) {
@@ -521,34 +548,46 @@ func Warnf(format string, v ...any) {
 	defaultLogger.Load().Warnf(format, v...)
 }
 
+//go:noinline
+
 // Error 输出带调用位置信息的 error 级别日志
 func Error(msg string) {
-	defaultLogger.Load().Error(msg)
+	defaultLogger.Load().l.Error().Caller(1).Msg(msg)
 }
+
+//go:noinline
 
 // Errorf 输出带调用位置信息的格式化 error 级别日志
 func Errorf(format string, v ...any) {
-	defaultLogger.Load().Errorf(format, v...)
+	defaultLogger.Load().l.Error().Caller(1).Msgf(format, v...)
 }
+
+//go:noinline
 
 // Fatal 输出带调用位置信息的 fatal 级别日志并退出
 func Fatal(msg string) {
-	defaultLogger.Load().Fatal(msg)
+	defaultLogger.Load().l.Fatal().Caller(1).Msg(msg)
 }
+
+//go:noinline
 
 // Fatalf 输出带调用位置信息的格式化 fatal 级别日志并退出
 func Fatalf(format string, v ...any) {
-	defaultLogger.Load().Fatalf(format, v...)
+	defaultLogger.Load().l.Fatal().Caller(1).Msgf(format, v...)
 }
+
+//go:noinline
 
 // Panic 输出带调用位置信息的 panic 级别日志并 panic
 func Panic(msg string) {
-	defaultLogger.Load().Panic(msg)
+	defaultLogger.Load().l.Panic().Caller(1).Msg(msg)
 }
+
+//go:noinline
 
 // Panicf 输出带调用位置信息的格式化 panic 级别日志并 panic
 func Panicf(format string, v ...any) {
-	defaultLogger.Load().Panicf(format, v...)
+	defaultLogger.Load().l.Panic().Caller(1).Msgf(format, v...)
 }
 
 // InitNop 初始化一个静默的 logger（丢弃所有输出）。

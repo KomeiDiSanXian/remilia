@@ -1,18 +1,29 @@
 // Package logger 提供结构化日志功能。
 //
-// 该包封装了 zerolog，提供统一的日志接口和字段管理，便于日志查询和分析。
+// 该包封装了 zerolog，提供统一的日志接口：支持控制台、文件与自定义 Writer
+// 多路输出，以及运行时调整日志级别与时间格式。
 //
-// 主要功能：
-//   - 统一的日志字段名称常量
-//   - 结构化日志记录器（StructuredLogger）
-//   - 便捷的上下文字段提取（WithContext, WithMatcher, WithPlugin）
-//   - 全局日志实例（按组件分类）
+// # 主要功能
 //
-// 使用示例：
+//   - 包级便捷函数：Trace / Debug / Info / Warn / Error / Fatal / Panic 及 f 版本
+//   - 实例化 Logger：NewLogger(zerolog.Logger) 创建独立实例
+//   - 链式字段：WithField / WithFields / WithError 返回 *LogWithFields
+//   - 多路输出：Init 支持 console / file / extra writer 组合
+//   - 测试辅助：InitNop / InitTest
 //
-//	logger := logger.NewLogger("my-component")
-//	logger.Info("component started")
+// # 使用示例
 //
-//	// 使用预定义的全局日志器
-//	logger.GetEngineLogger().WithContext(ctx).Info("processing event")
+//	// 初始化（进程入口）
+//	if err := logger.Init(cfg.Log); err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// 包级函数
+//	logger.Info("bot started")
+//	logger.WithField("platform", "qq").Warn("reconnecting")
+//	logger.WithError(err).Error("request failed")
+//
+//	// 独立实例
+//	l := logger.NewLogger(zerolog.New(os.Stdout))
+//	l.Info("component started")
 package logger
