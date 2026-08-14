@@ -18,8 +18,25 @@ import (
 	"fmt"
 
 	"github.com/KomeiDiSanXian/remilia/infra/future"
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
+
+// msgPreview 返回消息内容的截断预览（仅用于日志定位）。
+func msgPreview(msg platform.OutboundMessage) string {
+	text := msg.Text
+	if text == "" {
+		text = msg.Markdown
+	}
+	if text == "" {
+		return "(非文本消息)"
+	}
+	const maxLen = 64
+	if len(text) <= maxLen {
+		return text
+	}
+	return text[:maxLen] + "..."
+}
 
 // OutboundObserver 观察出站消息发送完成后的结果。
 //
@@ -63,6 +80,16 @@ func submitReply(sendCtx stdctx.Context, req platform.SendRequest, sender platfo
 		}
 	}()
 	res, err := sender.Send(sendCtx, req)
+	if err != nil {
+		// 发送失败必须可见：此前所有 ctx.Reply 的发送错误都被静默吞掉
+		// （dispatcher 不记日志、messagelog.OnOutbound 遇错跳过、handler 忽略 Future），
+		// 导致"handler 执行成功但消息未发出"类问题无法定位。
+		logger.WithError(err).WithFields(logger.Fields{
+			"chat_id":  chatID,
+			"is_group": req.Target.IsGroup,
+			"text":     msgPreview(req.Message),
+		}).Warn("[Outbound] message send failed")
+	}
 	f.Resolve(res, err)
 	if obs != nil {
 		obs.OnOutbound(chatID, req, res, err)

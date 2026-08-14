@@ -234,6 +234,63 @@ func TestNewEvent_MemberJoinLeaveGroupFields(t *testing.T) {
 	}
 }
 
+// TestNewEvent_GroupMemberAdd 验证群成员加入事件：
+// 入群者字段为 member_openid（非 op_member_openid），且携带 event_id
+// 被动回复 token（入群欢迎消息不依赖群"允许主动发送"开关）。
+func TestNewEvent_GroupMemberAdd(t *testing.T) {
+	payload := makePayload(dto.GroupMemberAdd, map[string]any{
+		"group_openid":  "group_001",
+		"member_openid": "member_join",
+		"timestamp":     int64(1710000000),
+	})
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindMemberJoin {
+		t.Errorf("Kind: got %q, want MemberJoin", event.Kind())
+	}
+	if !event.Chat().IsGroup {
+		t.Error("Chat.IsGroup: want true")
+	}
+	if event.Chat().ID != "group_001" {
+		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
+	}
+	if event.Sender().ID != "member_join" {
+		t.Errorf("Sender.ID: got %q, want member_join (member_openid)", event.Sender().ID)
+	}
+	if got := event.Chat().Tokens[qq.TokenEventID]; got != "evt001" {
+		t.Errorf("TokenEventID: got %q, want evt001 (payload.ID)", got)
+	}
+	if event.Timestamp().IsZero() {
+		t.Error("Timestamp: should not be zero for unix ts=1710000000")
+	}
+}
+
+// TestNewEvent_GroupMemberRemove 验证群成员退出事件：
+// 退出成员字段为 member_openid（非 op_member_openid）。
+// 注意：实测 QQ 返回 40034027（该事件不能回复消息），
+// GROUP_MEMBER_REMOVE 不支持 event_id 被动回复，故不携带 token。
+func TestNewEvent_GroupMemberRemove(t *testing.T) {
+	payload := makePayload(dto.GroupMemberRemove, map[string]any{
+		"group_openid":  "group_001",
+		"member_openid": "member_gone",
+		"timestamp":     int64(1710000000),
+	})
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindMemberLeave {
+		t.Errorf("Kind: got %q, want MemberLeave", event.Kind())
+	}
+	if event.Chat().ID != "group_001" {
+		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
+	}
+	if event.Sender().ID != "member_gone" {
+		t.Errorf("Sender.ID: got %q, want member_gone (member_openid)", event.Sender().ID)
+	}
+	if len(event.Chat().Tokens) != 0 {
+		t.Errorf("Chat.Tokens: want empty, got %v", event.Chat().Tokens)
+	}
+}
+
 func TestNewEvent_MemberJoinLeaveUserFields(t *testing.T) {
 	// FriendAdd/FriendDel 是好友关系变更事件，映射为 FriendAdded/FriendRemoved
 	friendEvents := []struct {

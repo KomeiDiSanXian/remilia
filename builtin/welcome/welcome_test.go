@@ -81,6 +81,52 @@ func TestEffectiveConfig_GroupOverridesGlobal(t *testing.T) {
 	}
 }
 
+// TestEffectiveConfig_FarewellOnlyDoesNotShadowGlobalWelcome 验证：
+// 群内只配置了告别字段时，欢迎字段必须继续回退到全局配置，
+// 不允许出现"只设置了告别就意外屏蔽全局欢迎"。
+func TestEffectiveConfig_FarewellOnlyDoesNotShadowGlobalWelcome(t *testing.T) {
+	p := welcome.NewPlugin()
+	p.SetGlobalWelcome("全局欢迎", true)
+	p.SetGroupFarewell("group-1", "本群告别", true)
+
+	cfg := p.EffectiveConfig("group-1")
+	if !cfg.WelcomeEnabled || cfg.WelcomeMessage != "全局欢迎" {
+		t.Fatalf("expected welcome to fall back to global, got %+v", cfg)
+	}
+	if !cfg.FarewellEnabled || cfg.FarewellMessage != "本群告别" {
+		t.Fatalf("expected farewell from group config, got %+v", cfg)
+	}
+}
+
+// TestEffectiveConfig_WelcomeOnlyDoesNotShadowGlobalFarewell 验证反向场景：
+// 群内只配置了欢迎字段时，告别字段回退到全局配置。
+func TestEffectiveConfig_WelcomeOnlyDoesNotShadowGlobalFarewell(t *testing.T) {
+	p := welcome.NewPlugin()
+	p.SetGlobalFarewell("全局告别", true)
+	p.SetGroupWelcome("group-1", "本群欢迎", true)
+
+	cfg := p.EffectiveConfig("group-1")
+	if !cfg.FarewellEnabled || cfg.FarewellMessage != "全局告别" {
+		t.Fatalf("expected farewell to fall back to global, got %+v", cfg)
+	}
+	if !cfg.WelcomeEnabled || cfg.WelcomeMessage != "本群欢迎" {
+		t.Fatalf("expected welcome from group config, got %+v", cfg)
+	}
+}
+
+// TestEffectiveConfig_GroupOffOverridesGlobalWelcome 验证：
+// 群内显式 /welcome off（无消息）时，欢迎保持关闭、不回退全局。
+func TestEffectiveConfig_GroupOffOverridesGlobalWelcome(t *testing.T) {
+	p := welcome.NewPlugin()
+	p.SetGlobalWelcome("全局欢迎", true)
+	p.SetGroupWelcome("group-1", "", false)
+
+	cfg := p.EffectiveConfig("group-1")
+	if cfg.WelcomeEnabled {
+		t.Fatal("expected group welcome off to override global on")
+	}
+}
+
 func TestEffectiveConfig_EmptyPlugin(t *testing.T) {
 	p := welcome.NewPlugin()
 	cfg := p.EffectiveConfig("any-group")

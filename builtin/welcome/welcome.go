@@ -27,6 +27,11 @@ type GroupConfig struct {
 	FarewellMessage string `json:"farewell_message,omitempty"`
 	WelcomeEnabled  bool   `json:"welcome_enabled"`
 	FarewellEnabled bool   `json:"farewell_enabled"`
+	// WelcomeSet / FarewellSet 标记对应字段是否被显式配置过（set/off）。
+	// 群配置条目存在但某字段未显式配置时，该字段回退到全局配置，
+	// 避免"只设置了告别就意外屏蔽全局欢迎"。
+	WelcomeSet  bool `json:"welcome_set,omitempty"`
+	FarewellSet bool `json:"farewell_set,omitempty"`
 }
 
 type Plugin struct {
@@ -212,12 +217,14 @@ func (p *Plugin) handleWelcomeCommand(ctx *eventctx.Context) error {
 		}
 		cfg.WelcomeMessage = strings.Join(args[2:], " ")
 		cfg.WelcomeEnabled = true
+		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("欢迎消息已设置"))
 		return nil
 	case "off":
 		cfg.WelcomeEnabled = false
+		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("欢迎消息已关闭"))
@@ -251,18 +258,21 @@ func (p *Plugin) handleWelcomeGlobal(ctx *eventctx.Context, args []string) error
 		}
 		cfg.WelcomeMessage = strings.Join(args[1:], " ")
 		cfg.WelcomeEnabled = true
+		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("全局欢迎消息已设置"))
 		return nil
 	case "on":
 		cfg.WelcomeEnabled = true
+		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("全局欢迎消息已开启"))
 		return nil
 	case "off":
 		cfg.WelcomeEnabled = false
+		cfg.WelcomeSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("全局欢迎消息已关闭"))
@@ -324,12 +334,14 @@ func (p *Plugin) handleFarewellCommand(ctx *eventctx.Context) error {
 		}
 		cfg.FarewellMessage = strings.Join(args[2:], " ")
 		cfg.FarewellEnabled = true
+		cfg.FarewellSet = true
 		p.mu.Unlock()
 		p.save()
-		ctx.Reply(platform.TextMessage("告别消息已设置"))
+		ctx.Reply(platform.TextMessage(p.farewellSetReply(ctx)))
 		return nil
 	case "off":
 		cfg.FarewellEnabled = false
+		cfg.FarewellSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("告别消息已关闭"))
@@ -363,18 +375,21 @@ func (p *Plugin) handleFarewellGlobal(ctx *eventctx.Context, args []string) erro
 		}
 		cfg.FarewellMessage = strings.Join(args[1:], " ")
 		cfg.FarewellEnabled = true
+		cfg.FarewellSet = true
 		p.mu.Unlock()
 		p.save()
-		ctx.Reply(platform.TextMessage("全局告别消息已设置"))
+		ctx.Reply(platform.TextMessage(p.farewellSetReply(ctx)))
 		return nil
 	case "on":
 		cfg.FarewellEnabled = true
+		cfg.FarewellSet = true
 		p.mu.Unlock()
 		p.save()
-		ctx.Reply(platform.TextMessage("全局告别消息已开启"))
+		ctx.Reply(platform.TextMessage(p.farewellSetReply(ctx)))
 		return nil
 	case "off":
 		cfg.FarewellEnabled = false
+		cfg.FarewellSet = true
 		p.mu.Unlock()
 		p.save()
 		ctx.Reply(platform.TextMessage("全局告别消息已关闭"))
@@ -412,18 +427,33 @@ func (p *Plugin) getOrCreateConfig(groupID string) *GroupConfig {
 	return cfg
 }
 
-// effectiveConfig 返回指定群的生效配置：
-// 群内已显式设置（set/off 过任意字段）时使用群配置，否则回退到全局配置。
+// effectiveConfig 返回指定群的生效配置（按字段合并）：
+//   - 群内已显式配置（set/off 过）的字段使用群配置；
+//   - 群未显式配置的字段回退到全局配置；
+//   - 群无任何显式配置时整体使用全局配置。
+//
+// 注意：返回的可能是全局配置指针（未创建副本），调用方只应读取。
 func (p *Plugin) effectiveConfig(groupID string) *GroupConfig {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	if cfg, ok := p.configs[groupID]; ok {
-		return cfg
+	group, hasGroup := p.configs[groupID]
+	global, hasGlobal := p.configs[globalGroupID]
+	if !hasGroup {
+		if hasGlobal {
+			return global
+		}
+		return &GroupConfig{}
 	}
-	if g, ok := p.configs[globalGroupID]; ok {
-		return g
+	eff := *group
+	if !eff.WelcomeSet && hasGlobal {
+		eff.WelcomeMessage = global.WelcomeMessage
+		eff.WelcomeEnabled = global.WelcomeEnabled
 	}
-	return &GroupConfig{}
+	if !eff.FarewellSet && hasGlobal {
+		eff.FarewellMessage = global.FarewellMessage
+		eff.FarewellEnabled = global.FarewellEnabled
+	}
+	return &eff
 }
 
 // EffectiveConfig 返回指定群的生效配置（公开接口，供测试或其他插件查询）。
@@ -439,6 +469,17 @@ func (p *Plugin) SetGroupWelcome(groupID, message string, enabled bool) {
 	cfg := p.getOrCreateConfig(groupID)
 	cfg.WelcomeMessage = message
 	cfg.WelcomeEnabled = enabled
+	cfg.WelcomeSet = true
+}
+
+// SetGroupFarewell 设置指定群的告别消息并指定开关状态。
+func (p *Plugin) SetGroupFarewell(groupID, message string, enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg := p.getOrCreateConfig(groupID)
+	cfg.FarewellMessage = message
+	cfg.FarewellEnabled = enabled
+	cfg.FarewellSet = true
 }
 
 // SetGlobalWelcome 设置全局默认欢迎消息并指定开关状态。
@@ -448,6 +489,29 @@ func (p *Plugin) SetGlobalWelcome(message string, enabled bool) {
 	cfg := p.getOrCreateConfig(globalGroupID)
 	cfg.WelcomeMessage = message
 	cfg.WelcomeEnabled = enabled
+	cfg.WelcomeSet = true
+}
+
+// SetGlobalFarewell 设置全局默认告别消息并指定开关状态。
+func (p *Plugin) SetGlobalFarewell(message string, enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cfg := p.getOrCreateConfig(globalGroupID)
+	cfg.FarewellMessage = message
+	cfg.FarewellEnabled = enabled
+	cfg.FarewellSet = true
+}
+
+// farewellSetReply 返回告别消息设置成功的提示。
+// QQ 平台退群事件（GROUP_MEMBER_REMOVE）实测不支持 event_id 被动回复
+// （错误码 40034027），告别消息只能以主动消息发送，依赖群内
+// "允许主动在群聊内发言"开关，因此仅 QQ 平台附加提醒。
+func (p *Plugin) farewellSetReply(ctx *eventctx.Context) string {
+	msg := "告别消息已设置"
+	if ctx.GetEventPlatform() == "qq" {
+		msg += "\n（QQ 平台退群事件不支持被动回复，发送告别消息需要群内开启「允许主动在群聊内发言」开关）"
+	}
+	return msg
 }
 
 func (p *Plugin) checkPermission(ctx *eventctx.Context, perm string) bool {
@@ -496,6 +560,16 @@ func (p *Plugin) load() {
 		return
 	}
 	p.mu.Lock()
+	for _, cfg := range data {
+		// 兼容旧数据（无 welcome_set/farewell_set 字段）：
+		// 字段非空的条目视为已显式配置，避免升级后意外回退到全局。
+		if !cfg.WelcomeSet && (cfg.WelcomeMessage != "" || cfg.WelcomeEnabled) {
+			cfg.WelcomeSet = true
+		}
+		if !cfg.FarewellSet && (cfg.FarewellMessage != "" || cfg.FarewellEnabled) {
+			cfg.FarewellSet = true
+		}
+	}
 	p.configs = data
 	p.mu.Unlock()
 	logger.Infof("[Welcome] Loaded %d group configs", len(data))

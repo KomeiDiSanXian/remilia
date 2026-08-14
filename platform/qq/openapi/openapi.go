@@ -4,7 +4,6 @@ package openapi
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"reflect"
 	"strconv"
 
@@ -33,52 +32,18 @@ func (api *Client) authHeader() string {
 
 // Post 发送一个 post 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
 func (api *Client) Post(ctx context.Context, url string, data any) (gjson.Result, error) {
-	// 必须传播错误并监听调用方 ctx。
-	//
-	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
-	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
-	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
-	// deadline。
-	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
-		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
-	}
-	result, err := httpclient.Post(url).
-		SetContext(ctx).
-		SetHeader("Authorization", api.authHeader()).
-		SetJSON(data).
-		DoJSON()
-	if err != nil {
-		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Post failed")
-		return gjson.Result{}, err
-	}
-	return result, nil
+	return api.doAndCheck(ctx, url, httpclient.Post(url).SetJSON(data))
 }
 
 // Put 发送一个 put 请求到 url，自动添加 Authorization 头。
 // 若 data 为 nil（含类型化的 nil 指针），则发送无请求体的 PUT 请求
 // （适用于如表情表态等不需要请求体的接口）。
 func (api *Client) Put(ctx context.Context, url string, data any) (gjson.Result, error) {
-	// 必须传播错误并监听调用方 ctx。
-	//
-	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
-	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
-	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
-	// deadline。
-	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
-		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
-	}
-	req := httpclient.Put(url).
-		SetContext(ctx).
-		SetHeader("Authorization", api.authHeader())
+	req := httpclient.Put(url)
 	if !isNilPayload(data) {
 		req = req.SetJSON(data)
 	}
-	result, err := req.DoJSON()
-	if err != nil {
-		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Put failed")
-		return gjson.Result{}, err
-	}
-	return result, nil
+	return api.doAndCheck(ctx, url, req)
 }
 
 // isNilPayload 判断 data 是否为 nil，包括"类型化的 nil"（如
@@ -100,51 +65,28 @@ func isNilPayload(data any) bool {
 
 // Patch 发送一个 patch 请求到 url，自动添加 Authorization 头。
 func (api *Client) Patch(ctx context.Context, url string, data any) (gjson.Result, error) {
-	// 必须传播错误并监听调用方 ctx。
-	//
-	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
-	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
-	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
-	// deadline。
-	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
-		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
-	}
-	result, err := httpclient.Patch(url).
-		SetContext(ctx).
-		SetHeader("Authorization", api.authHeader()).
-		SetJSON(data).
-		DoJSON()
-	if err != nil {
-		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Patch failed")
-		return gjson.Result{}, err
-	}
-	return result, nil
+	return api.doAndCheck(ctx, url, httpclient.Patch(url).SetJSON(data))
 }
 
 // Get 发送一个 get 请求到 url，自动添加 Authorization 头。
 func (api *Client) Get(ctx context.Context, url string) (gjson.Result, error) {
-	// 必须传播错误并监听调用方 ctx。
-	//
-	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
-	// "QQBot "（空 token）照发不误，QQ 一律回 401，调用方拿到的是一个
-	// 看不出所以然的平台错误；同时固定 30 秒的等待完全无视调用方自己的
-	// deadline。
-	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
-		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
-	}
-	result, err := httpclient.Get(url).
-		SetContext(ctx).
-		SetHeader("Authorization", api.authHeader()).
-		DoJSON()
-	if err != nil {
-		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Get failed")
-		return gjson.Result{}, err
-	}
-	return result, nil
+	return api.doAndCheck(ctx, url, httpclient.Get(url))
 }
 
 // Delete 发送一个 delete 请求到 url，自动添加 Authorization 头，ctx 用于传播超时/取消。
 func (api *Client) Delete(ctx context.Context, url string) (gjson.Result, error) {
+	return api.doAndCheck(ctx, url, httpclient.Delete(url).SetHeader("Content-Type", "application/json"))
+}
+
+// doAndCheck 执行请求并解析响应，同时识别 QQ API 错误响应。
+//
+// httpclient.DoJSON 不检查 HTTP 状态码：QQ 的错误响应（4xx/5xx + 错误码体）
+// 会被当作成功解析并返回，调用方（如消息发送）拿到空 MessageID + nil 错误，
+// 表现为"handler 成功但消息未发出"且日志无任何报错。此处统一检查：
+//   - HTTP 状态码非 2xx → 返回错误（附响应体中的 code/message）
+//   - HTTP 2xx 但响应体携带非零 code / err_code → 返回错误
+//     （QQ 部分接口错误时 HTTP 状态码也是 200，必须显式检查）
+func (api *Client) doAndCheck(ctx context.Context, url string, req *httpclient.Request) (gjson.Result, error) {
 	// 必须传播错误并监听调用方 ctx。
 	//
 	// 此前这里直接丢弃返回值：token 未就绪时 authHeader() 会拼出
@@ -154,24 +96,41 @@ func (api *Client) Delete(ctx context.Context, url string) (gjson.Result, error)
 	if err := api.tm.WaitReadyWithContext(ctx); err != nil {
 		return gjson.Result{}, fmt.Errorf("qq openapi: access token 未就绪: %w", err)
 	}
-	resp, err := httpclient.Delete(url).
-		SetContext(ctx).
+	resp, err := req.SetContext(ctx).
 		SetHeader("Authorization", api.authHeader()).
-		SetHeader("Content-Type", "application/json").
 		Do()
 	if err != nil {
-		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Delete failed")
+		logger.WithError(err).WithField("url", url).Error("[OpenAPI] Request failed")
 		return gjson.Result{}, err
 	}
-	defer resp.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		logger.WithField("status", resp.Status).WithField("url", url).Error("[OpenAPI] Delete failed")
-		return gjson.Result{}, fmt.Errorf("status code %d: %s", resp.StatusCode, resp.Status)
+	defer func() { _ = resp.Close() }()
+
+	body, err := resp.Bytes()
+	if err != nil {
+		return gjson.Result{}, fmt.Errorf("qq openapi: %s: read response: %w", url, err)
 	}
-	if resp.StatusCode == http.StatusNoContent {
-		return gjson.Result{}, nil
+	result := gjson.ParseBytes(body)
+
+	code := result.Get("code").Int()
+	if code == 0 {
+		code = result.Get("err_code").Int()
 	}
-	return resp.JSON()
+	msg := result.Get("message").String()
+	if msg == "" {
+		msg = result.Get("err_msg").String()
+	}
+
+	if !resp.IsSuccess() {
+		if code == 0 && msg == "" {
+			return gjson.Result{}, fmt.Errorf("qq openapi: %s: HTTP %d", url, resp.StatusCode)
+		}
+		return gjson.Result{}, fmt.Errorf("qq openapi: %s: HTTP %d code=%d message=%q",
+			url, resp.StatusCode, code, msg)
+	}
+	if code != 0 {
+		return gjson.Result{}, fmt.Errorf("qq openapi: %s: code=%d message=%q", url, code, msg)
+	}
+	return result, nil
 }
 
 // ── 消息发送 ────────────────────────────────────────────────────────────────

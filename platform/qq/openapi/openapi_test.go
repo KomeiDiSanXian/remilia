@@ -175,6 +175,44 @@ func TestClient_GroupChat(t *testing.T) {
 	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/messages", `{"content":"hi","msg_type":0}`)
 }
 
+// TestClient_GroupChat_ErrorBody 验证：QQ 以 4xx + 错误码体拒绝消息时，
+// GroupChat 必须返回错误（此前 DoJSON 不检查状态码，错误被当作成功吞掉，
+// 表现为"handler 成功但消息未发出"）。
+func TestClient_GroupChat_ErrorBody(t *testing.T) {
+	m := newMockQQ(t)
+	m.status["/v2/groups/gid_1/messages"] = http.StatusForbidden
+	m.resp["/v2/groups/gid_1/messages"] = `{"code":40034105,"message":"主动消息发送失败，无权限"}`
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GroupChat(context.Background(), "gid_1", &dto.Message{Content: "hi"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "40034105")
+	assert.Contains(t, err.Error(), "主动消息发送失败")
+}
+
+// TestClient_GroupChat_ErrorCodeIn2xx 验证：QQ 部分接口 HTTP 200 但响应体携带
+// 非零错误码时同样必须报错（与 RespondInteraction 的 err_code 检查一致）。
+func TestClient_GroupChat_ErrorCodeIn2xx(t *testing.T) {
+	m := newMockQQ(t)
+	m.resp["/v2/groups/gid_1/messages"] = `{"code":40034125,"message":"参数错误"}`
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GroupChat(context.Background(), "gid_1", &dto.Message{Content: "hi"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "40034125")
+}
+
+// TestClient_GroupChat_ErrCodeIn2xx 验证 err_code 字段（HTTP 200 时）同样被识别。
+func TestClient_GroupChat_ErrCodeIn2xx(t *testing.T) {
+	m := newMockQQ(t)
+	m.resp["/v2/groups/gid_1/messages"] = `{"err_code":40034128,"err_msg":"被动回复时间或次数超限"}`
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GroupChat(context.Background(), "gid_1", &dto.Message{Content: "hi"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "40034128")
+}
+
 func TestClient_ChannelChat(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)
@@ -318,7 +356,7 @@ func TestClient_Delete_Non2xx(t *testing.T) {
 
 	_, err := api.SingleReset(context.Background(), "openid_1", "msg_1")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "status code 404")
+	assert.Contains(t, err.Error(), "HTTP 404")
 }
 
 // ────────────────────────────────────────────────────────────────────────────

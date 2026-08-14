@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.40.2 (2026-08-14)
+
+### 🐛 QQ 平台：OpenAPI 错误响应被静默吞掉（修复）
+
+- **根因**: `infra/httpclient.DoJSON` 不检查 HTTP 状态码，QQ 的错误响应（4xx/5xx + 错误码体）被当作成功解析——消息发送类接口拿到空 `MessageID` + `nil` 错误，表现为"handler 执行成功但消息未发出"且日志无任何报错
+- **修复**: `platform/qq/openapi` 的 `Post`/`Put`/`Patch`/`Get`/`Delete` 统一走 `doAndCheck`——检查 HTTP 状态码与响应体 `code`/`err_code` 字段，错误以结构化错误返回
+- **补充**: `core/context` 的 `submitReply` 对发送失败记录 WARN（chat_id + 消息预览），所有 `ctx.Reply` 出站失败不再静默
+- **测试**: 新增错误体（4xx）、2xx 内嵌 `code`、2xx 内嵌 `err_code` 三类用例
+
+### ✨ QQ 平台：入群欢迎消息不再依赖群"允许主动在群聊内发言"开关
+
+- `GROUP_MEMBER_ADD` 事件实测支持 `event_id` 被动回复（官方文档的支持清单未列出），欢迎消息以被动回复发送，无需开启群主动消息权限
+- `GROUP_MEMBER_REMOVE` 实测**不支持** `event_id` 被动回复（错误码 40034027），告别消息只能以主动消息发送，仍依赖群开关——设置告别消息时 QQ 平台附加提醒
+
+### 🐛 QQ 平台：群成员进出事件字段解析错误（修复）
+
+- `GROUP_MEMBER_ADD`/`GROUP_MEMBER_REMOVE` 事件体的成员字段为 `member_openid`（非 `op_member_openid`），原解析导致进出成员 ID 为空（`{user}` 占位符渲染为空）
+- 两个事件的解析合并为 `populateGroupMemberEvent`，token 差异由事件类型决定
+
+### 🐛 welcome 插件：群配置遮蔽全局配置（修复）
+
+- **根因**: 群内执行任意 `set`/`off`（如 `/farewell set`）会新建群配置条目，而生效配置"存在条目即整体使用"——半空的群配置意外屏蔽全局欢迎/告别
+- **修复**: 改为**按字段回退**——`GroupConfig` 新增 `WelcomeSet`/`FarewellSet` 显式配置标记，群内未显式配置的字段继续回退到全局；`load()` 对旧数据（无标记）做字段推断兼容
+- **测试**: 新增 4 项——只配告别不影响全局欢迎、只配欢迎不影响全局告别、群级关闭优先、群级配置优先
+
 ## v1.40.1 (2026-08-12)
 
 ### 💬 AI 插件：长任务进度汇报引导（send_message 主动使用）

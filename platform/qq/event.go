@@ -143,10 +143,14 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	// ── 群聊成员事件 ────────────────────────────────────────────────────────
 	case dto.GroupMemberAdd:
 		e.kind = platform.EventKindMemberJoin
-		e.populateNoticeGroup(detail)
+		e.populateGroupMemberEvent(detail)
+		// GROUP_MEMBER_ADD 支持 event_id 被动回复：欢迎消息不依赖群"允许主动发送"开关
+		e.chat.Tokens = map[string]string{TokenEventID: e.id}
 	case dto.GroupMemberRemove:
 		e.kind = platform.EventKindMemberLeave
-		e.populateNoticeGroup(detail)
+		// GROUP_MEMBER_REMOVE 不支持 event_id 被动回复（40034027），
+		// 告别消息只能以主动消息发送，依赖群"允许主动发送"开关
+		e.populateGroupMemberEvent(detail)
 	// ── 群聊入群申请事件 ────────────────────────────────────────────────────
 	case dto.GroupJoinRequest:
 		e.kind = platform.EventKindRequest
@@ -929,6 +933,35 @@ func (e *qqEvent) populateMessageReaction(detail json.RawMessage) {
 	e.segments = textSegments(results[3].String())
 	// replyToID 设为被表态的消息 ID，方便 handler 知道哪条消息被表态
 	e.replyToID = results[4].String()
+}
+
+// populateGroupMemberEvent 解析群成员进出事件（GROUP_MEMBER_ADD / GROUP_MEMBER_REMOVE）。
+//
+// 与 populateNoticeGroup 不同：进出成员字段为 member_openid（而非 op_member_openid）。
+// event_id 被动回复 token 由调用方按事件类型决定：
+//   - GROUP_MEMBER_ADD：支持（欢迎消息不依赖群"允许主动发送"开关；
+//     官方文档的 event_id 支持清单虽未列出本事件，但实测可用）
+//   - GROUP_MEMBER_REMOVE：不支持（实测错误码 40034027"该事件不能回复消息"），
+//     告别消息只能以主动消息发送
+func (e *qqEvent) populateGroupMemberEvent(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"group_openid",
+		"member_openid",
+		"timestamp",
+	)
+	e.chat = platform.ChatInfo{
+		ID:      results[0].String(),
+		IsGroup: true,
+	}
+	e.sender = platform.UserInfo{
+		ID: results[1].String(),
+	}
+	if ts := results[2].Int(); ts != 0 {
+		e.timestamp = time.Unix(ts, 0)
+	}
 }
 
 func (e *qqEvent) populateNoticeGroup(detail json.RawMessage) {
