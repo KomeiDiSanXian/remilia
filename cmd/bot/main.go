@@ -78,47 +78,18 @@ func main() {
 	}
 
 	cfg := resolveConfig()
+	initLogger(cfg)
 
-	logCfg := cfg.Log
-	if logCfg.TimeFormat == "" {
-		logCfg.TimeFormat = "2006-01-02 15:04:05"
-	}
-	// 在 Init 之前注册日志捕获 writer，使 /api/v1/logs 能获取实时日志
-	logger.SetExtraWriter(api.NewLogCaptureWriter())
-
-	if err := logger.Init(logCfg); err != nil {
-		log.Fatalf("Failed to init logger: %v", err)
-	}
-
-	tp, err := tracing.NewProvider(cfg.Tracing)
-	if err != nil {
-		logger.WithError(err).Fatal("[remilia] Failed to initialize tracing")
-	}
+	tp := initTracing(cfg)
 
 	reg := setupPlatforms(cfg)
-
-	bot, err := remilia.NewBotBuilder().
-		WithPlatformRegistry(reg).
-		WithName("remilia").
-		WithVersion(remilia.Version).
-		WithEngineOptions(config.EngineOptions(cfg.Engine)...).
-		WithOption(remilia.WithGoroutineThreshold(cfg.Middleware.Degradation.GoroutineThreshold)).
-		Build()
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to build bot")
-	}
-
+	bot := buildBot(cfg, reg)
 	eng := bot.Engine()
+
 	bridge := setupMiddleware(eng, &cfg.Tracing, cfg)
 	bridge.SetTracingProvider(tp)
 
-	configWatcher, err := config.NewWatcher("config.yaml")
-	if err != nil {
-		logger.WithError(err).Warn("[remilia] Failed to create config watcher, hot-reload disabled")
-	} else {
-		configWatcher.Start()
-		logger.Info("[remilia] Config file watcher started for hot-reload")
-	}
+	configWatcher := startConfigWatcher()
 
 	fsmMgr := setupRouter(bot, eng)
 	pm := setupPluginManager(bot, eng, cfg)
@@ -129,30 +100,27 @@ func main() {
 	// 数据文件句柄，新进程随后启动时无需依赖任何时序猜测即可安全打开数据文件。
 	// 只用 pm.StopAll 而非 bot.Shutdown：hook 从更新 handler 内部触发，
 	// bot.Shutdown 会等 engine 停止当前 handler 直到 30s 超时（慢且无必要）。
-	updater.SetShutdownHook(func() {
-		logger.Info("[updater] 更新完成，停止插件以释放数据文件...")
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := pm.StopAll(ctx); err != nil {
-			logger.WithError(err).Warn("[updater] 插件停止异常（将直接退出）")
-		}
-	})
+	registerUpdaterShutdownHook(pm)
 
 	discoverAll(bot, pm)
 
 	healthHandler := newHealthHandler(bot, reg)
-	if hc := bot.HealthCheck(); hc != nil {
-		hc.Version = remilia.Version
-		hc.Commit = commit
-		hc.BuildTime = date
-	}
+	applyBuildInfo(bot)
+
 	pprofSrv := startPprof(cfg.Pprof, healthHandler)
 	if pprofSrv != nil {
 		bridge.SetPprofServer(pprofSrv)
 	}
 	healthSrv := startHealthServer(cfg.Pprof.Addr, healthHandler, pprofSrv != nil)
 
-	apiSrv := startAPIServer(cfg.API, "config.yaml", bot, eng, fsmMgr, pm, reg, dashboardHandler())
+	apiSrv := startAPIServer(cfg.API, "config.yaml", apiServerDeps{
+		bot:       bot,
+		engine:    eng,
+		fsm:       fsmMgr,
+		plugins:   pm,
+		registry:  reg,
+		dashboard: dashboardHandler(),
+	})
 
 	logger.Infof("[remilia] Starting... (version=%s commit=%s date=%s)", remilia.Version, commit, date)
 	if err := bot.Start(); err != nil {
@@ -163,6 +131,123 @@ func main() {
 	setupAdaptiveLimiter(eng, bridge, bot.Context())
 
 	// 订阅 platform 热更新（仅在 bot.* 配置实际变化时触发，避免修改日志级别等无关字段导致连接断开）
+	subscribePlatformHotReload(bot, cfg)
+
+	bot.WaitForShutdown()
+
+	logger.Info("[remilia] Shutting down...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	shutdownComponents(shutdownCtx,
+		shutdownStep{name: "API server", stop: func(ctx context.Context) error {
+			if apiSrv == nil {
+				return nil
+			}
+			return apiSrv.Stop(ctx)
+		}},
+		shutdownStep{name: "Config watcher", stop: func(context.Context) error {
+			if configWatcher == nil {
+				return nil
+			}
+			return configWatcher.Stop()
+		}},
+		shutdownStep{name: "Health server", stop: func(ctx context.Context) error {
+			if healthSrv == nil {
+				return nil
+			}
+			return healthSrv.Shutdown(ctx)
+		}},
+		shutdownStep{name: "Pprof server", stop: func(ctx context.Context) error {
+			if pprofSrv == nil {
+				return nil
+			}
+			return pprofSrv.Stop(ctx)
+		}},
+	)
+	if err := bot.Shutdown(); err != nil {
+		logger.WithError(err).Error("[remilia] Shutdown error")
+	}
+	if err := tp.Shutdown(shutdownCtx); err != nil {
+		logger.WithError(err).Warn("[remilia] Tracing shutdown error")
+	}
+	logger.Info("[remilia] Stopped")
+}
+
+// initLogger 初始化日志：补全默认时间格式，并在 Init 前注册实时日志捕获 writer，
+// 使 /api/v1/logs 能获取实时日志。
+func initLogger(cfg *config.Config) {
+	logCfg := cfg.Log
+	if logCfg.TimeFormat == "" {
+		logCfg.TimeFormat = "2006-01-02 15:04:05"
+	}
+	logger.SetExtraWriter(api.NewLogCaptureWriter())
+
+	if err := logger.Init(logCfg); err != nil {
+		log.Fatalf("Failed to init logger: %v", err)
+	}
+}
+
+// initTracing 初始化 OpenTelemetry tracing provider。
+func initTracing(cfg *config.Config) *tracing.Provider {
+	tp, err := tracing.NewProvider(cfg.Tracing)
+	if err != nil {
+		logger.WithError(err).Fatal("[remilia] Failed to initialize tracing")
+	}
+	return tp
+}
+
+// buildBot 基于配置和平台注册表构建 Bot 实例。
+func buildBot(cfg *config.Config, reg *platform.Registry) *remilia.Bot {
+	bot, err := remilia.NewBotBuilder().
+		WithPlatformRegistry(reg).
+		WithName("remilia").
+		WithVersion(remilia.Version).
+		WithEngineOptions(config.EngineOptions(cfg.Engine)...).
+		WithOption(remilia.WithGoroutineThreshold(cfg.Middleware.Degradation.GoroutineThreshold)).
+		Build()
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to build bot")
+	}
+	return bot
+}
+
+// startConfigWatcher 启动配置热更新监听；创建失败时返回 nil（热更新被禁用）。
+func startConfigWatcher() *config.Watcher {
+	configWatcher, err := config.NewWatcher("config.yaml")
+	if err != nil {
+		logger.WithError(err).Warn("[remilia] Failed to create config watcher, hot-reload disabled")
+		return nil
+	}
+	configWatcher.Start()
+	logger.Info("[remilia] Config file watcher started for hot-reload")
+	return configWatcher
+}
+
+// registerUpdaterShutdownHook 注册更新流程退出钩子：更新完成后先停止全部插件，
+// 确定性释放 LevelDB 等数据文件句柄，便于新进程立即打开同一批数据文件。
+func registerUpdaterShutdownHook(pm *plugin.Manager) {
+	updater.SetShutdownHook(func() {
+		logger.Info("[updater] 更新完成，停止插件以释放数据文件...")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := pm.StopAll(ctx); err != nil {
+			logger.WithError(err).Warn("[updater] 插件停止异常（将直接退出）")
+		}
+	})
+}
+
+// applyBuildInfo 将编译期注入的版本信息写入健康检查。
+func applyBuildInfo(bot *remilia.Bot) {
+	if hc := bot.HealthCheck(); hc != nil {
+		hc.Version = remilia.Version
+		hc.Commit = commit
+		hc.BuildTime = date
+	}
+}
+
+// subscribePlatformHotReload 订阅平台热更新：仅当 bot.* 配置实际变化时同步平台适配器，
+// 避免修改日志级别等无关字段导致连接断开。
+func subscribePlatformHotReload(bot *remilia.Bot, cfg *config.Config) {
 	var lastBotCfg = &cfg.Bot // 启动时的 bot 配置
 	var lastBotMu sync.Mutex  // 保护 lastBotCfg 并发读写
 	config.Subscribe(func(newCfg *config.Config) {
@@ -183,64 +268,25 @@ func main() {
 			logger.WithError(err).Error("[remilia] Failed to sync platforms")
 		}
 	})
-
-	bot.WaitForShutdown()
-
-	logger.Info("[remilia] Shutting down...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if apiSrv != nil {
-		if err := apiSrv.Stop(shutdownCtx); err != nil {
-			logger.Warnf("[remilia] API server shutdown error: %v", err)
-		}
-	}
-	if configWatcher != nil {
-		if err := configWatcher.Stop(); err != nil {
-			logger.Warnf("[remilia] Config watcher shutdown error: %v", err)
-		}
-	}
-	if healthSrv != nil {
-		if err := healthSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Warnf("[remilia] Health server shutdown error: %v", err)
-		}
-	}
-	if pprofSrv != nil {
-		if err := pprofSrv.Stop(shutdownCtx); err != nil {
-			logger.Warnf("[remilia] Pprof server shutdown error: %v", err)
-		}
-	}
-	if err := bot.Shutdown(); err != nil {
-		logger.WithError(err).Error("[remilia] Shutdown error")
-	}
-	if err := tp.Shutdown(shutdownCtx); err != nil {
-		logger.WithError(err).Warn("[remilia] Tracing shutdown error")
-	}
-	logger.Info("[remilia] Stopped")
 }
 
+// startPprof 启动 pprof 服务器；未启用或启动失败时返回 nil。
 func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *remilia.PprofServer {
 	if !pprofCfg.Enabled {
 		return nil
-	}
-	interval, err := time.ParseDuration(pprofCfg.ProfileInterval)
-	if err != nil {
-		logger.Warnf("[remilia] Invalid pprof profile_interval %q, using default", pprofCfg.ProfileInterval)
-	}
-	duration, err := time.ParseDuration(pprofCfg.ProfileDuration)
-	if err != nil {
-		logger.Warnf("[remilia] Invalid pprof profile_duration %q, using default", pprofCfg.ProfileDuration)
 	}
 	addr := pprofCfg.Addr
 	if addr == "" {
 		addr = defaultHealthAddr
 	}
+	def := remilia.DefaultPprofConfig()
 
 	srv := remilia.NewPprofServer(remilia.PprofConfig{
 		Enabled:         true,
 		Addr:            addr,
 		AutoProfile:     pprofCfg.AutoProfile,
-		ProfileInterval: interval,
-		ProfileDuration: duration,
+		ProfileInterval: parsePprofDuration("profile_interval", pprofCfg.ProfileInterval, def.ProfileInterval),
+		ProfileDuration: parsePprofDuration("profile_duration", pprofCfg.ProfileDuration, def.ProfileDuration),
 		OutputDir:       pprofCfg.OutputDir,
 		EnableMutex:     pprofCfg.EnableMutex,
 		EnableBlock:     pprofCfg.EnableBlock,
@@ -256,33 +302,48 @@ func startPprof(pprofCfg config.PprofConfig, healthHandler http.HandlerFunc) *re
 	return srv
 }
 
+// parsePprofDuration 解析 pprof 时间配置，解析失败时回退默认值并告警。
+func parsePprofDuration(name, value string, fallback time.Duration) time.Duration {
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		logger.Warnf("[remilia] Invalid pprof %s %q, using default", name, value)
+		return fallback
+	}
+	return d
+}
+
+// newHealthHandler 返回健康检查 HTTP handler。
+// 已挂载自定义健康检查时直接委托其输出，否则输出内置 JSON 状态。
 func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if hc := bot.HealthCheck(); hc != nil {
+			hc.HTTPHandler(w, r)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 
-		platforms := make([]map[string]any, 0)
+		platforms := make([]map[string]any, 0, reg.Len())
 		for _, a := range reg.All() {
 			platforms = append(platforms, map[string]any{
 				"name": a.Platform(),
 			})
 		}
 
+		running := bot.IsRunning()
 		resp := map[string]any{
-			"running":   bot.IsRunning(),
+			"running":   running,
 			"uptime":    bot.Uptime().String(),
 			"version":   remilia.Version,
 			"commit":    commit,
 			"buildDate": date,
 			"platforms": platforms,
+			"status":    "ok",
 		}
-
-		if hc := bot.HealthCheck(); hc != nil {
-			hc.HTTPHandler(w, r)
-			return
-		}
-
-		resp["status"] = "ok"
-		if !bot.IsRunning() {
+		if !running {
 			resp["status"] = "error"
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
@@ -291,24 +352,36 @@ func newHealthHandler(bot *remilia.Bot, reg *platform.Registry) http.HandlerFunc
 	}
 }
 
-func startAPIServer(cfg config.APIConfig, configPath string, bot *remilia.Bot, eng *engine.Engine, fsmMgr *fsm.Manager, pm *plugin.Manager, reg *platform.Registry, dash http.Handler) *api.Server {
+// apiServerDeps API 服务器启动所需的运行时组件。
+type apiServerDeps struct {
+	bot       *remilia.Bot
+	engine    *engine.Engine
+	fsm       *fsm.Manager
+	plugins   *plugin.Manager
+	registry  *platform.Registry
+	dashboard http.Handler
+}
+
+// startAPIServer 启动管理 API 服务器；未启用时返回 nil。
+func startAPIServer(cfg config.APIConfig, configPath string, deps apiServerDeps) *api.Server {
 	if !cfg.Enabled {
 		return nil
 	}
 	api.SetBuildInfo(commit, date)
 	srv := api.NewServer(cfg.Addr, cfg.APIKey, api.Deps{
-		Bot:              bot,
-		PluginMgr:        pm,
-		Registry:         reg,
-		Engine:           eng,
-		FSMMgr:           fsmMgr,
+		Bot:              deps.bot,
+		PluginMgr:        deps.plugins,
+		Registry:         deps.registry,
+		Engine:           deps.engine,
+		FSMMgr:           deps.fsm,
 		ConfigPath:       configPath,
-		DashboardHandler: dash,
+		DashboardHandler: deps.dashboard,
 	})
 	srv.Start()
 	return srv
 }
 
+// startHealthServer 启动健康检查服务器；pprof 已占用同一地址时返回 nil。
 func startHealthServer(addr string, healthHandler http.HandlerFunc, pprofRunning bool) *infraserver.HTTPServer {
 	if pprofRunning {
 		return nil
@@ -325,4 +398,22 @@ func startHealthServer(addr string, healthHandler http.HandlerFunc, pprofRunning
 	srv.Start()
 	logger.Infof("[remilia] Health endpoint at http://%s/health", addr)
 	return srv
+}
+
+// shutdownStep 描述一个关闭步骤；stop 为 nil 时表示组件未启动，跳过执行。
+type shutdownStep struct {
+	name string
+	stop func(context.Context) error
+}
+
+// shutdownComponents 按顺序执行关闭步骤：单步失败只记录 Warn 日志，不中断后续步骤。
+func shutdownComponents(ctx context.Context, steps ...shutdownStep) {
+	for _, s := range steps {
+		if s.stop == nil {
+			continue
+		}
+		if err := s.stop(ctx); err != nil {
+			logger.Warnf("[remilia] %s shutdown error: %v", s.name, err)
+		}
+	}
 }

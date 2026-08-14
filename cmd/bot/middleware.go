@@ -2,15 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
-	"github.com/KomeiDiSanXian/remilia"
 	"github.com/KomeiDiSanXian/remilia/config"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
-	"github.com/KomeiDiSanXian/remilia/core/fsm"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/tracing"
 	"github.com/KomeiDiSanXian/remilia/middleware"
@@ -19,118 +16,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
 	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
 	"github.com/KomeiDiSanXian/remilia/middleware/telemetry"
-	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/KomeiDiSanXian/remilia/platform/discord"
-	"github.com/KomeiDiSanXian/remilia/platform/milky"
-	"github.com/KomeiDiSanXian/remilia/platform/onebot"
-	"github.com/KomeiDiSanXian/remilia/platform/qq"
-	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
-	"github.com/KomeiDiSanXian/remilia/platform/satori"
-	"github.com/KomeiDiSanXian/remilia/platform/telegram"
-	"github.com/KomeiDiSanXian/remilia/platform/terminal"
-	"github.com/KomeiDiSanXian/remilia/plugin"
-	"github.com/KomeiDiSanXian/remilia/router"
 )
-
-func setupPlatforms(cfg *config.Config) *platform.Registry {
-	reg := platform.NewRegistry()
-	registerPlatforms(reg, cfg)
-	if reg.Len() == 0 {
-		logger.Warn("[remilia] No platform configured, using Terminal adapter for development")
-		reg.Register(terminal.NewAdapter(
-			terminal.WithPrompt("Bot> "),
-			terminal.WithBotName("DevBot"),
-		))
-	}
-	return reg
-}
-
-// registerPlatforms 根据 cfg 将所有已启用的平台适配器注册到 reg 中。
-// 供 setupPlatforms 和平台热更新 listener 复用。
-func registerPlatforms(reg *platform.Registry, cfg *config.Config) {
-	for name, factory := range platformFactories(cfg) {
-		a, err := factory()
-		if err != nil {
-			logger.WithError(err).Errorf("[remilia] Failed to create %s adapter, skipping", name)
-			continue
-		}
-		reg.Register(a)
-		logger.Infof("[remilia] Registered %s adapter", name)
-	}
-}
-
-// buildDesiredAdapters 根据 cfg 构建期望的平台适配器集合。
-// 供平台热更新 listener 使用。
-func buildDesiredAdapters(cfg *config.Config) map[string]platform.Adapter {
-	desired := make(map[string]platform.Adapter)
-	for name, factory := range platformFactories(cfg) {
-		a, err := factory()
-		if err != nil {
-			logger.WithError(err).Errorf("[remilia] Failed to create %s adapter for hot-swap, skipping", name)
-			continue
-		}
-		desired[name] = a
-	}
-	return desired
-}
-
-// platformFactories 返回当前配置中所有启用的平台及其创建函数。
-func platformFactories(cfg *config.Config) map[string]func() (platform.Adapter, error) {
-	factories := make(map[string]func() (platform.Adapter, error))
-
-	if c := cfg.Bot.QQ; c != nil {
-		factories["qq"] = func() (platform.Adapter, error) {
-			addr := fmt.Sprintf("%s:%d", c.Webhook.Host, c.Webhook.Port)
-			return qq.NewWebhookServerAdapter(addr, &dto.BotInfo{
-				QQNum: c.BotID, AppID: c.AppID,
-				Token: c.Token, AppSecret: c.Secret,
-			}), nil
-		}
-	}
-
-	if c := cfg.Bot.OneBot; c != nil {
-		factories["onebot"] = func() (platform.Adapter, error) {
-			return onebot.NewForwardWSAdapter(onebot.Config{
-				URL: c.URL, Token: c.Token, Secret: c.Secret,
-				Mode: onebot.ModeForwardWS,
-			}), nil
-		}
-	}
-
-	if c := cfg.Bot.Discord; c != nil {
-		factories["discord"] = func() (platform.Adapter, error) {
-			return discord.NewAdapter(c.Token)
-		}
-	}
-
-	if c := cfg.Bot.Satori; c != nil {
-		factories["satori"] = func() (platform.Adapter, error) {
-			return satori.NewAdapter(satori.Config{
-				ServerURL: c.ServerURL, Token: c.Token,
-				Platform: c.Platform, UserID: c.UserID,
-			})
-		}
-	}
-
-	if c := cfg.Bot.Milky; c != nil {
-		factories["milky"] = func() (platform.Adapter, error) {
-			return milky.NewAdapter(milky.Config{
-				BaseURL: c.BaseURL, AccessToken: c.AccessToken,
-			})
-		}
-	}
-
-	if c := cfg.Bot.Telegram; c != nil {
-		factories["telegram"] = func() (platform.Adapter, error) {
-			return telegram.NewPollingAdapter(telegram.Config{
-				Token:       c.Token,
-				PollTimeout: c.PollTimeout,
-			})
-		}
-	}
-
-	return factories
-}
 
 // setupMiddleware 创建中间件链（不含自适应限流器）并返回热重载桥接器。
 // 自适应限流器需要绑 bot.Context()，由调用方在 bot.Start() 之后 setupAdaptiveLimiter 完成。
@@ -248,22 +134,7 @@ func setupAdaptiveLimiter(eng *engine.Engine, bridge *hotreload.Bridge, botCtx c
 	logger.Info("[remilia] Adaptive rate limiter started (bound to bot lifecycle)")
 }
 
-func setupRouter(bot *remilia.Bot, eng *engine.Engine) *fsm.Manager {
-	fsmMgr := fsm.NewManager(nil)
-	rtr := router.New(eng, fsmMgr.Engine())
-	rtr.Route(router.WithCommandPrefix())
-	bot.UseRouter(rtr)
-	return fsmMgr
-}
-
-func setupPluginManager(bot *remilia.Bot, eng *engine.Engine, cfg *config.Config) *plugin.Manager {
-	cp := plugin.NewYAMLConfigProvider(cfg)
-	pm := plugin.NewManager(eng, plugin.WithConfigProvider(cp))
-	pm.SetStrictDeps(false)
-	bot.UsePlugins(pm)
-	return pm
-}
-
+// errorHandlerMiddleware 捕获 handler 错误并记录日志。
 func errorHandlerMiddleware() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
@@ -276,6 +147,7 @@ func errorHandlerMiddleware() eventctx.Middleware {
 	}
 }
 
+// slowRequestMiddleware 检测超过阈值的慢请求并告警。
 func slowRequestMiddleware(bridge *hotreload.Bridge) eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {

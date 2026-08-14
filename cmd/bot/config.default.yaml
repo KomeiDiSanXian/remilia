@@ -1,28 +1,128 @@
 # Remilia 默认配置（fallback 自动使用）
 # 当 config.yaml 不存在且环境变量不足以构建完整配置时启用。
+# 本文件保持安全的开箱即用默认值：不启用任何平台，管理 API 默认开启。
+# 需要完整字段注释与示例时，参考根目录 config.example.yaml。
 #
 # 热更新标注:
 #   [H]  = 热更新生效 / [H⚠] = 有条件热更新 / [R] = 需重启
 
-log:
-  level: "info"                 # [H]
-  format: "text"                # [H⚠]
+# ====================================
+# Bot 平台配置  [R]
+# 默认不启用任何平台：未配置平台时自动使用 Terminal 适配器（本地开发）。
+# 启用平台示例见根目录 config.example.yaml。
+# ====================================
+# bot:
+#   qq:
+#     app_id: 123456789
+#     bot_id: 987654321
+#     token: "your_qq_bot_token"
+#     secret: "your_qq_bot_secret"
+#     webhook:
+#       host: "0.0.0.0"
+#       port: 8080
+#   onebot:
+#     url: "ws://127.0.0.1:6700"
+#     token: "your_onebot_token"
+#     secret: "your_onebot_secret"
+#   discord:
+#     token: "your_discord_bot_token"
+#   satori:
+#     server_url: "http://localhost:5140"
+#     token: "your_satori_token"
+#     platform: "chronocat"
+#     user_id: "1234567890"
+#   milky:
+#     base_url: "http://127.0.0.1:6700"
+#     access_token: "your_milky_token"
+#   telegram:
+#     token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+#     poll_timeout: 30
+#   wechat: {}
 
+# ====================================
+# 日志配置
+# ====================================
+log:
+  level: "info"                 # [H]  修改后即时生效
+  format: "text"                # [H⚠] 重新初始化 logger，日志流暂断
+  # console: true               # [H⚠] 重新初始化 logger
+  # file: false                 # [H⚠] 重新打开文件句柄
+  # file_path: "logs/remilia.log"
+  # time_format: "2006-01-02 15:04:05"
+
+# ====================================
+# 重试配置
+# ====================================
 retry:
   enable: true                  # [H]
   max_attempts: 3               # [H]
   backoff_base: "200ms"         # [H]
   backoff_max: "2s"             # [H]
 
+# ====================================
+# 中间件配置
+# ====================================
 middleware:
-  logging: true                 # [H]
-  recover: true                 # [H]
-  metrics: true                 # [H]
+  logging: true                 # [H]  运行时开关
+  recover: true                 # [H]  运行时开关
+  metrics: true                 # [H]  运行时开关
 
+  auth:                         # [H]
+    enable: false               # [H]  运行时开关，白名单热读
+    whitelist: []               # [H]
+
+  rate_limit:                   # [H⚠]
+    enable: false               # [H]  运行时开关
+    rate: 100
+    burst: 200
+    max_buckets: 10000
+    bucket_ttl: "10m"
+    cleanup_interval: "5m"
+
+  dedup:                        # [H]
+    enable: false               # [H]  运行时开关
+    max_size: 10000             # [H]
+    default_ttl: "5m"           # [H]
+    cleanup_interval: "1m"
+
+  slow_handler:                 # [H]
+    enable: false               # [H]  运行时开关
+    threshold: "1s"             # [H]
+
+  backpressure:                 # [H⚠]
+    limit: 0                    # [H]  limit>0 启用，limit<=0 关闭
+    policy: "drop"
+    wait_timeout: "500ms"
+
+  degradation:                  # [H⚠]
+    enable: false               # [H]  运行时开关
+    cpu_threshold: 80.0
+    memory_threshold: 85.0
+    latency_threshold: "500ms"
+    monitor_interval: "5s"
+    recovery_interval: "10s"
+    delay_queue_size: 1000
+    goroutine_threshold: 10000
+    strategy: "drop"
+
+# ====================================
+# 死信队列配置（可选）  [R]
+# 默认关闭；启用时需要同时配置 target 对应的字段。
+# ====================================
 dead_letter:
   enable: false                 # [R]
+  target: "file"                # [R]
+  file_path: "./dead_letters.log"
+  # kafka_brokers:
+  #   - "localhost:9092"
+  # kafka_topic: "bot-dead-letters"
+  # webhook_url: "https://your-webhook-endpoint.com"
 
-engine:                         # [R] 全部需重启
+# ====================================
+# Engine 引擎配置  [R]
+# 引擎初始化时读取，所有变更需重启生效。
+# ====================================
+engine:
   temp_matcher_cleanup_interval: "5m"
   pending_delete_buffer_size: 1000
   pending_delete_process_interval: "100ms"
@@ -31,7 +131,55 @@ engine:                         # [R] 全部需重启
   matcher_pool_capacity: 16
   matcher_pool_max_capacity: 1024
 
-api:                            # [R] 全部需重启
-  enabled: true
-  addr: ":9002"
-  api_key: ""
+# ====================================
+# 分布式追踪配置（可选）
+# 默认关闭；启用时需部署 OTLP 兼容后端（如 Tempo / Zipkin）。
+# ====================================
+tracing:
+  enable: false                 # [R]  需重建 TracerProvider
+  service_name: "remilia-bot"   # [R]
+  service_version: "1.0.0"      # [R]
+  environment: "dev"            # [R]
+  exporter: "otlp"              # [R]
+  endpoint: "http://localhost:4318"   # [R]
+  sampling_rate: 1.0            # [H⚠] 仅自适应模式支持运行时更新
+  use_adaptive_sampling: false  # [R]
+  include_event_detail: false   # [H]  运行时开关
+  # adaptive_sampler:           # [R] 嵌套字段全部需重启
+  # headers:                    # [R] 自定义 OTLP HTTP 头
+
+# ====================================
+# pprof 性能分析配置（可选）
+# ====================================
+pprof:
+  enabled: false                # [R]  需重启 HTTP 服务器
+  addr: ":9001"                 # [R]
+  auto_profile: false           # [H]
+  profile_interval: "1h"        # [H]
+  profile_duration: "30s"       # [H]
+  output_dir: "data/profiles"   # [R]
+  enable_mutex: false           # [H]
+  enable_block: false           # [H]
+
+# ====================================
+# 管理 API 配置  [R]
+# ====================================
+api:
+  enabled: true                 # [R]
+  addr: ":9002"                 # [R]
+  api_key: ""                   # [R]
+
+# ====================================
+# 插件扩展配置（可选）
+# 各插件通过 plugins.<plugin_name> 读取自定义配置。
+# 完整字段说明见根目录 config.example.yaml 的 plugins 节。
+# ====================================
+# plugins:
+#   weather:
+#     api_key: "${WEATHER_API_KEY}"
+#   ai:
+#     api_key: "${AI_API_KEY}"
+#     model: "gpt-4o-mini"
+#   updater:
+#     check_interval: "6h"
+#     auto_apply: false
