@@ -81,9 +81,9 @@ func writeTLV(key, val string) uint64 {
 	if uint32(total) > uint32(len(respBuf)) {
 		return 0
 	}
-	respBuf[0] = byte(keyLen)         // key length (assumes < 128)
-	copy(respBuf[1:], key)            // key
-	respBuf[1+keyLen] = byte(valLen)  // value length (assumes < 128)
+	respBuf[0] = byte(keyLen)        // key length (assumes < 128)
+	copy(respBuf[1:], key)           // key
+	respBuf[1+keyLen] = byte(valLen) // value length (assumes < 128)
 	copy(respBuf[1+keyLen+1:], []byte(val))
 
 	ptr := uint32(uintptr(unsafe.Pointer(&respBuf[0])))

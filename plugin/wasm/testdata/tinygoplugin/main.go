@@ -95,8 +95,8 @@ func pluginHandle(ptr uint32, length uint32) uint64 {
 
 	// 直接构建 TLV 响应（避免任何中间 slice）
 	// TLV: [key_len=1][key='r'][val_len=n][val_bytes...]
-	respBuf[0] = 1         // key length: 1
-	respBuf[1] = 'r'       // key: "r"
+	respBuf[0] = 1                // key length: 1
+	respBuf[1] = 'r'              // key: "r"
 	respBuf[2] = byte(len(reply)) // value length
 	copy(respBuf[3:], []byte(reply))
 	respLen := uint32(3 + len(reply))
