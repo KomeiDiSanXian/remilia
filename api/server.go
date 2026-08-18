@@ -88,6 +88,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Engine
 	mux.HandleFunc("GET /api/v1/engine/commands", s.auth(s.handleGetEngineCommands))
 	mux.HandleFunc("GET /api/v1/engine/matchers", s.auth(s.handleGetEngineMatchers))
+	mux.HandleFunc("GET /api/v1/engine/matchers/groups", s.auth(s.handleListMatcherGroups))
 	mux.HandleFunc("POST /api/v1/engine/matchers/group/{name}/disable", s.auth(s.handleDisableMatcherGroup))
 	mux.HandleFunc("POST /api/v1/engine/matchers/group/{name}/enable", s.auth(s.handleEnableMatcherGroup))
 

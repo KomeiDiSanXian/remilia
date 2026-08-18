@@ -61,6 +61,36 @@ func TestScheduler_Cron(t *testing.T) {
 		}
 	})
 }
+
+func TestScheduler_ListJobs(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p, stop := newSched(t)
+		defer stop()
+
+		tickerID := p.Every(500*time.Millisecond, func() {})
+		cronID := p.Cron("0 0 9 * * *", func() {})
+
+		jobs := p.ListJobs()
+		if len(jobs) != 2 {
+			t.Fatalf("expected 2 jobs, got %d", len(jobs))
+		}
+		byID := make(map[scheduler.JobID]scheduler.JobInfo, len(jobs))
+		for _, j := range jobs {
+			byID[j.ID] = j
+		}
+		if j := byID[tickerID]; j.Kind != "ticker" {
+			t.Errorf("ticker job: expected kind=ticker, got %q", j.Kind)
+		}
+		if j := byID[cronID]; j.Kind != "cron" {
+			t.Errorf("cron job: expected kind=cron, got %q", j.Kind)
+		}
+
+		p.Remove(tickerID)
+		if got := len(p.ListJobs()); got != 1 {
+			t.Errorf("expected 1 job after remove, got %d", got)
+		}
+	})
+}
 func TestScheduler_Remove(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		p, stop := newSched(t)

@@ -47,10 +47,36 @@ func (s *Server) handleGetFSM(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListFSMSessions 处理 GET /api/v1/fsm/sessions
-// FSM 引擎不提供枚举所有会话的公开方法。
+// 返回当前所有 FSM 会话的只读快照。
 func (s *Server) handleListFSMSessions(w http.ResponseWriter, _ *http.Request) {
+	eng := s.fsmEngine()
+	if eng == nil {
+		writeErr(w, 404, "FSM engine not available", http.StatusNotFound)
+		return
+	}
+	type sessionResp struct {
+		ID        string `json:"id"`
+		FSMName   string `json:"fsm_name"`
+		Current   string `json:"current"`
+		CreatedAt int64  `json:"created_at"`
+		UpdatedAt int64  `json:"updated_at"`
+		ExpireAt  int64  `json:"expire_at,omitempty"`
+	}
+	sessions := eng.ListSessions()
+	out := make([]sessionResp, 0, len(sessions))
+	for _, sess := range sessions {
+		out = append(out, sessionResp{
+			ID:        sess.ID,
+			FSMName:   sess.FSMName,
+			Current:   string(sess.Current),
+			CreatedAt: sess.CreatedAt,
+			UpdatedAt: sess.UpdatedAt,
+			ExpireAt:  sess.ExpireAt,
+		})
+	}
 	writeOK(w, map[string]any{
-		"sessions": []any{},
+		"sessions": out,
+		"count":    len(out),
 	})
 }
 

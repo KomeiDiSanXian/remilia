@@ -54,6 +54,47 @@ func TestEnableGroup_ResumesMatchers(t *testing.T) {
 	}
 }
 
+func TestListGroups_SnapshotsGroups(t *testing.T) {
+	eng := newEngineForTest(t)
+
+	m1 := eng.On(string(platform.EventKindPrivateMessage))
+	m1.Handle(func(c *ctx.Context) error { return nil })
+	eng.SetMatcherGroup(m1, "group-a", "test")
+
+	m2 := eng.On(string(platform.EventKindGroupMessage))
+	m2.Handle(func(c *ctx.Context) error { return nil })
+	eng.SetMatcherGroup(m2, "group-a", "test")
+
+	m3 := eng.On(string(platform.EventKindGroupMessage))
+	m3.Handle(func(c *ctx.Context) error { return nil })
+	eng.SetMatcherGroup(m3, "group-b", "test")
+
+	groups := eng.ListGroups()
+	if len(groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(groups))
+	}
+	byName := make(map[string]MatcherGroupInfo, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	if g := byName["group-a"]; g.Count != 2 || !g.Enabled {
+		t.Errorf("group-a: expected count=2 enabled=true, got %+v", g)
+	}
+	if g := byName["group-b"]; g.Count != 1 || !g.Enabled {
+		t.Errorf("group-b: expected count=1 enabled=true, got %+v", g)
+	}
+
+	eng.DisableGroup("group-a")
+	groups = eng.ListGroups()
+	byName = make(map[string]MatcherGroupInfo, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	if g := byName["group-a"]; g.Enabled {
+		t.Error("group-a should be disabled after DisableGroup")
+	}
+}
+
 func TestDisableGroup_DoesNotDeleteMatchers(t *testing.T) {
 	eng := newEngineForTest(t)
 

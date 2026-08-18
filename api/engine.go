@@ -81,6 +81,21 @@ func (s *Server) handleGetEngineMatchers(w http.ResponseWriter, _ *http.Request)
 	writeOK(w, resp)
 }
 
+// handleListMatcherGroups 处理 GET /api/v1/engine/matchers/groups
+// 返回所有匹配器分组的只读快照（名称、匹配器数、启用状态）。
+func (s *Server) handleListMatcherGroups(w http.ResponseWriter, _ *http.Request) {
+	eng := s.engineRef()
+	if eng == nil {
+		writeErr(w, 404, "engine not available", http.StatusNotFound)
+		return
+	}
+	groups := eng.ListGroups()
+	writeOK(w, map[string]any{
+		"groups": groups,
+		"count":  len(groups),
+	})
+}
+
 // handleDisableMatcherGroup 处理 POST /api/v1/engine/matchers/group/{name}/disable
 func (s *Server) handleDisableMatcherGroup(w http.ResponseWriter, r *http.Request) {
 	eng := s.engineRef()

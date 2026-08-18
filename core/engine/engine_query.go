@@ -9,6 +9,7 @@ package engine
 //   - MatcherStats 类型定义
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/KomeiDiSanXian/remilia/infra/metrics"
@@ -20,6 +21,13 @@ type MatcherStats struct {
 	Global        int
 	ByPlugin      map[string]int
 	GlobalEnabled bool
+}
+
+// MatcherGroupInfo 是匹配器分组的只读快照。
+type MatcherGroupInfo struct {
+	Name    string `json:"name"`
+	Count   int    `json:"count"`
+	Enabled bool   `json:"enabled"` // 组内所有匹配器均启用时为 true
 }
 
 // ---- 计数与统计 --------------------------------------------------------------
@@ -57,6 +65,28 @@ func (e *Engine) GetMatcherStats() MatcherStats {
 
 	stats.GlobalEnabled = !state.block
 	return stats
+}
+
+// ListGroups 返回所有匹配器分组的只读快照，按名称排序。
+func (e *Engine) ListGroups() []MatcherGroupInfo {
+	state := e.state.Load()
+	groups := make([]MatcherGroupInfo, 0, len(state.groupIndex))
+	for name, ms := range state.groupIndex {
+		enabled := true
+		for _, m := range ms {
+			if m != nil && m.IsDisabled() {
+				enabled = false
+				break
+			}
+		}
+		groups = append(groups, MatcherGroupInfo{
+			Name:    name,
+			Count:   len(ms),
+			Enabled: enabled,
+		})
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].Name < groups[j].Name })
+	return groups
 }
 
 // ---- 指标收集器 --------------------------------------------------------------

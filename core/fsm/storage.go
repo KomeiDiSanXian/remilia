@@ -75,6 +75,21 @@ func (s *MemoryStorage) Save(session *Session) {
 	s.sessions[session.ID] = session
 }
 
+// List 返回当前所有会话的浅拷贝快照（过期会话同样返回，由调用方自行过滤）。
+func (s *MemoryStorage) List() []*Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Session, 0, len(s.sessions))
+	for _, sess := range s.sessions {
+		if sess == nil {
+			continue
+		}
+		cp := *sess
+		out = append(out, &cp)
+	}
+	return out
+}
+
 // Delete 按 ID 删除一个会话。如果会话不存在则为空操作。
 func (s *MemoryStorage) Delete(id string) {
 	s.mu.Lock()

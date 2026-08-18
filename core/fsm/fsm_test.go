@@ -260,6 +260,35 @@ func TestEngine_Unregister(t *testing.T) {
 	assert.Nil(t, eng.GetFSM("gone"))
 }
 
+func TestEngine_ListSessions(t *testing.T) {
+	eng := NewEngine(nil)
+	fsm := &FSM{
+		Name: "listme", Initial: "s",
+		Events: []Event{{Name: "e", From: "s", To: "d", Match: func(ctx *corectx.Context) bool { return true }}},
+	}
+	require.NoError(t, eng.Register(fsm))
+
+	assert.Empty(t, eng.ListSessions())
+
+	require.NoError(t, eng.StartSession(newTestContext("x"), "listme", "sess-a"))
+	require.NoError(t, eng.StartSession(newTestContext("x"), "listme", "sess-b"))
+
+	sessions := eng.ListSessions()
+	assert.Len(t, sessions, 2)
+	seen := make(map[string]bool)
+	for _, s := range sessions {
+		seen[s.ID] = true
+		assert.Equal(t, "listme", s.FSMName)
+		assert.Equal(t, State("s"), s.Current)
+	}
+	assert.True(t, seen["sess-a"] && seen["sess-b"], "expected both sessions, got %v", seen)
+
+	eng.EndSession("sess-a")
+	sessions = eng.ListSessions()
+	assert.Len(t, sessions, 1)
+	assert.Equal(t, "sess-b", sessions[0].ID)
+}
+
 func TestMemoryStorage_Concurrent(t *testing.T) {
 	s := NewMemoryStorage()
 	done := make(chan struct{})

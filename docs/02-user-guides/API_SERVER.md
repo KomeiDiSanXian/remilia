@@ -69,6 +69,7 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plu
 |------|------|------|
 | GET | `/api/v1/engine/commands` | 全部命令定义 |
 | GET | `/api/v1/engine/matchers` | Matcher 统计 |
+| GET | `/api/v1/engine/matchers/groups` | 匹配器分组列表（名称/数量/启用状态） |
 | POST | `/api/v1/engine/matchers/group/{name}/disable` | 禁用分组 |
 | POST | `/api/v1/engine/matchers/group/{name}/enable` | 启用分组 |
 
@@ -98,16 +99,16 @@ curl -H "Authorization: Bearer your-secret-key" http://localhost:8081/api/v1/plu
 |------|------|------|
 | GET | `/api/v1/fsm` | 已注册 FSM 列表 |
 | GET | `/api/v1/fsm/{name}` | FSM 定义 |
-| GET | `/api/v1/fsm/sessions` | 活跃会话列表 |
+| GET | `/api/v1/fsm/sessions` | 活跃会话列表（会话 ID / FSM / 当前状态 / 时间戳） |
 | DELETE | `/api/v1/fsm/sessions/{id}` | 强制结束会话 |
 
 ### 调度任务（scheduler 插件）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/scheduler/jobs` | 任务列表 |
+| GET | `/api/v1/scheduler/jobs` | 任务列表（ID / 名称 / 调度方式 cron / ticker） |
 | DELETE | `/api/v1/scheduler/jobs/{id}` | 删除任务 |
-| GET | `/api/v1/scheduler/history` | 执行历史 |
+| GET | `/api/v1/scheduler/history?n=50` | 执行历史（最近 n 条） |
 
 ### 日志
 
@@ -137,7 +138,13 @@ curl -H "Authorization: Bearer key" http://localhost:8081/api/v1/plugins
 curl -X POST -H "Authorization: Bearer key" http://localhost:8081/api/v1/plugins/weather/reload
 
 # 查询日志
-curl -H "Authorization: Bearer key" "http://localhost:8081/api/v1/logs?limit=50"
+curl -H "Authorization: Bearer key" "http://localhost:8081/api/v1/logs?n=50"
+
+# 查看匹配器分组
+curl -H "Authorization: Bearer key" http://localhost:8081/api/v1/engine/matchers/groups
+
+# 查看调度任务列表
+curl -H "Authorization: Bearer key" http://localhost:8081/api/v1/scheduler/jobs
 ```
 
 > 所有端点返回统一 JSON 结构（成功：`{"code":0,"data":...}`；错误：`{"code":<非零>,"message":"..."}`）。

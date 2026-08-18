@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
 )
@@ -29,7 +30,7 @@ func (s *Server) resolveScheduler() *scheduler.Plugin {
 }
 
 // handleListSchedulerJobs 处理 GET /api/v1/scheduler/jobs
-// scheduler 只暴露 count 不暴露列表。返回计数供前端参考。
+// 返回当前已注册任务的列表（id、名称、调度方式）与总数。
 func (s *Server) handleListSchedulerJobs(w http.ResponseWriter, _ *http.Request) {
 	p := s.resolveScheduler()
 	if p == nil {
@@ -38,6 +39,7 @@ func (s *Server) handleListSchedulerJobs(w http.ResponseWriter, _ *http.Request)
 	}
 	writeOK(w, map[string]any{
 		"count": p.Jobs(),
+		"jobs":  p.ListJobs(),
 	})
 }
 
@@ -50,9 +52,20 @@ func (s *Server) handleGetSchedulerHistory(w http.ResponseWriter, r *http.Reques
 	}
 	n := parseLimit(r.URL.Query().Get("n"), 50)
 	history := p.History(n)
+	records := make([]map[string]any, 0, len(history))
+	for _, rec := range history {
+		records = append(records, map[string]any{
+			"job_id":   rec.JobID,
+			"job_name": rec.JobName,
+			"start_at": rec.StartAt.Format(time.RFC3339),
+			"duration": rec.Duration.String(),
+			"success":  rec.Success,
+			"error":    rec.Error,
+		})
+	}
 	writeOK(w, map[string]any{
-		"history": history,
-		"count":   len(history),
+		"history": records,
+		"count":   len(records),
 	})
 }
 

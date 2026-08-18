@@ -18,6 +18,7 @@ package scheduler
 import (
 	stdctx "context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,12 +37,19 @@ type JobID int
 
 // JobRecord 任务执行记录
 type JobRecord struct {
-	JobID    JobID
-	JobName  string
-	StartAt  time.Time
-	Duration time.Duration
-	Success  bool
-	Error    string
+	JobID    JobID         `json:"job_id"`
+	JobName  string        `json:"job_name"`
+	StartAt  time.Time     `json:"start_at"`
+	Duration time.Duration `json:"duration"`
+	Success  bool          `json:"success"`
+	Error    string        `json:"error,omitempty"`
+}
+
+// JobInfo 是已注册任务的只读快照，用于管理界面展示。
+type JobInfo struct {
+	ID   JobID  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"` // "cron" 或 "ticker"
 }
 
 // jobEntry 内部任务记录
@@ -261,6 +269,22 @@ func (p *Plugin) Jobs() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.jobs)
+}
+
+// ListJobs 返回当前已注册任务的只读快照，按任务 ID 升序排列。
+func (p *Plugin) ListJobs() []JobInfo {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	jobs := make([]JobInfo, 0, len(p.jobs))
+	for id, entry := range p.jobs {
+		kind := "cron"
+		if entry.cancel != nil {
+			kind = "ticker"
+		}
+		jobs = append(jobs, JobInfo{ID: id, Name: entry.name, Kind: kind})
+	}
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
+	return jobs
 }
 
 // wrap 包装任务函数，加入防重入保护、panic 恢复和执行历史记录

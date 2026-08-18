@@ -232,6 +232,29 @@ func (e *Engine) ListFSMs() []string {
 	return names
 }
 
+// sessionLister 是可选接口：存储后端支持时返回全部会话的快照。
+// 通过类型断言而非扩展 Storage 接口，避免破坏第三方存储实现。
+type sessionLister interface {
+	List() []*Session
+}
+
+// ListSessions 返回当前所有会话的只读快照；存储后端不支持枚举时返回空切片。
+func (e *Engine) ListSessions() []Session {
+	lister, ok := e.stores.(sessionLister)
+	if !ok {
+		return []Session{}
+	}
+	all := lister.List()
+	sessions := make([]Session, 0, len(all))
+	for _, s := range all {
+		if s == nil {
+			continue
+		}
+		sessions = append(sessions, *s)
+	}
+	return sessions
+}
+
 // TryStartSession 检查所有已注册 FSM 的启动事件。
 // 若消息匹配某个 FSM 的 Initial 状态事件，自动创建会话并执行该迁移。
 // 返回 true 表示成功启动了一个 FSM 会话。
