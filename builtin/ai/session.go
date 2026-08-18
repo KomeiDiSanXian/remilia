@@ -389,6 +389,11 @@ func (sm *SessionManager) evictLocked() {
 
 // trimMessages 裁剪消息列表，保留最近的 maxHistory 条消息。
 // System 消息优先保留。
+//
+// 裁剪边界不会落在 tool 消息上：tool 消息必须紧邻其前的
+// assistant(tool_calls)（OpenAI/Anthropic API 硬性约束），若 assistant
+// 被裁掉而 tool 消息残留，会产生孤儿 tool 消息，下一次请求会被 400 拒绝。
+// 因此起点会向前推进，把残留的 tool 响应连同其 assistant 一起裁掉。
 func trimMessages(s *Session, maxHistory int) {
 	if maxHistory <= 0 {
 		return
@@ -412,6 +417,9 @@ func trimMessages(s *Session, maxHistory int) {
 	targetOther := max(usable-len(systemMsgs), 0)
 	if len(otherMsgs) > targetOther {
 		start := max(len(otherMsgs)-targetOther, 0)
+		for start < len(otherMsgs) && otherMsgs[start].Role == RoleTool {
+			start++
+		}
 		otherMsgs = otherMsgs[start:]
 	}
 

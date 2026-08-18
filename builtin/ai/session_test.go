@@ -167,6 +167,32 @@ func TestTrimMessagesNoop(t *testing.T) {
 	}
 }
 
+func TestTrimMessagesDoesNotLeaveOrphanToolMessage(t *testing.T) {
+	// 边界恰好落在 assistant(tool_calls) 与其 tool 响应之间时，
+	// 起点应向前推进，首条保留消息不能是 tool（否则 API 会以 400 拒绝）。
+	s := &Session{
+		Messages: []Message{
+			{Role: RoleSystem, Content: "sys1"},
+			{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1"}, {ID: "c2"}}},
+			{Role: RoleTool, ToolCallID: "c1", Content: "r1"},
+			{Role: RoleTool, ToolCallID: "c2", Content: "r2"},
+			{Role: RoleUser, Content: "u1"},
+		},
+	}
+	trimMessages(s, 3)
+	if len(s.Messages) > 3 {
+		t.Errorf("expected at most 3 messages after trim, got %d", len(s.Messages))
+	}
+	for _, m := range s.Messages {
+		if m.Role == RoleTool {
+			t.Errorf("trimmed messages must not contain orphan tool messages, got %+v", s.Messages)
+		}
+	}
+	if len(s.Messages) == 0 || s.Messages[len(s.Messages)-1].Content != "u1" {
+		t.Errorf("recent user message should be retained, got %+v", s.Messages)
+	}
+}
+
 func TestTrimMessagesZeroMaxHistory(t *testing.T) {
 	s := &Session{Messages: []Message{{Role: RoleUser, Content: "test"}}}
 	trimMessages(s, 0)

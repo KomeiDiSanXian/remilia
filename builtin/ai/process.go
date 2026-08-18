@@ -577,15 +577,38 @@ const toolResultMissing = "（工具结果缺失，消息序列已修复）"
 // 每条含 tool_calls 的 assistant 消息之后，必须为其中每个 tool_call_id
 // 提供对应的 tool 消息（OpenAI/Anthropic API 硬性约束，缺失即 400）。
 //
-// 中断抢占跳过的工具、进程异常退出或持久化损坏都可能导致缺失，
-// 这里按需插入占位 tool 消息（tool 消息必须紧跟在 assistant 之后，
-// 因此在遇到下一条非 tool 消息或序列末尾时补位），保证下一次请求合法。
+// 中断抢占跳过的工具、进程异常退出、持久化损坏或上下文裁剪
+// 都可能导致序列残缺，这里双向自愈：
+//   - 缺失的 tool 响应：插入占位 tool 消息（tool 消息必须紧跟在
+//     assistant 之后，因此在遇到下一条非 tool 消息或序列末尾时补位）
+//   - 孤儿的 tool 消息：前置 assistant(tool_calls) 被裁掉后残留的
+//     tool 消息没有可响应的 tool_call_id，API 同样会以 400 拒绝，直接丢弃
+//
 // 返回新的消息切片，不修改原切片。
 func repairToolCallSequence(msgs []Message) []Message {
 	out := make([]Message, 0, len(msgs)+4)
 	var pending []string // 尚未响应的 tool_call_id
 	for _, m := range msgs {
-		if len(pending) > 0 && m.Role != RoleTool {
+		if m.Role == RoleTool {
+			// 只保留响应当前 assistant(tool_calls) 组的 tool 消息；
+			// 找不到对应 tool_call_id 即为孤儿消息（如上下文裁剪切掉了
+			// 前置 assistant），丢弃以免整个请求被 API 以 400 拒绝。
+			idx := -1
+			for i, id := range pending {
+				if id == m.ToolCallID {
+					idx = i
+					break
+				}
+			}
+			if idx < 0 {
+				continue
+			}
+			pending = append(pending[:idx], pending[idx+1:]...)
+			out = append(out, m)
+			continue
+		}
+
+		if len(pending) > 0 {
 			// 非 tool 消息出现：先把前面 assistant 缺失的工具响应补位插回
 			// （插在本消息之前，确保 tool 消息紧随 assistant）。
 			for _, id := range pending {
@@ -604,15 +627,6 @@ func repairToolCallSequence(msgs []Message) []Message {
 				}
 				seen[tc.ID] = true
 				pending = append(pending, tc.ID)
-			}
-			continue
-		}
-		if m.Role == RoleTool && len(pending) > 0 {
-			for i, id := range pending {
-				if id == m.ToolCallID {
-					pending = append(pending[:i], pending[i+1:]...)
-					break
-				}
 			}
 		}
 	}

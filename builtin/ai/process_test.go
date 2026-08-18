@@ -87,15 +87,28 @@ func TestRepairToolCallSequence(t *testing.T) {
 			},
 		},
 		{
-			name: "孤儿 tool 消息不影响待补清单",
+			name: "孤儿 tool 消息被丢弃且待补清单不受影响",
 			in: []Message{
 				assistant1,
 				{Role: RoleTool, ToolCallID: "cX"},
 			},
 			want: []Message{
 				assistant1,
-				{Role: RoleTool, ToolCallID: "cX"},
 				{Role: RoleTool, ToolCallID: "c1", Content: toolResultMissing},
+			},
+		},
+		{
+			name: "前置孤儿 tool 消息被丢弃",
+			in: []Message{
+				{Role: RoleTool, ToolCallID: "c1"},
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleUser, Content: "hi"},
+			},
+			want: []Message{
+				assistant1,
+				{Role: RoleTool, ToolCallID: "c1"},
+				{Role: RoleUser, Content: "hi"},
 			},
 		},
 		{

@@ -368,6 +368,9 @@ func (p *Plugin) doSummary(origCtx *eventctx.Context, msgs []Message) {
 			filtered = append(filtered, m)
 		}
 	}
+	// 会话历史可能残留孤儿 tool 消息（上下文裁剪/中断导致），
+	// 先修复工具调用序列再发送，避免后台总结也被 API 以 400 拒绝。
+	filtered = repairToolCallSequence(filtered)
 	filtered = append(filtered, Message{
 		Role:    RoleUser,
 		Content: "请用简短的几句话总结以上对话的要点。",
