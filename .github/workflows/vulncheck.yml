@@ -24,6 +24,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: govulncheck

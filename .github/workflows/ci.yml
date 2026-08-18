@@ -30,6 +30,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: Apply go fmt
@@ -74,6 +75,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: go vet
@@ -88,6 +90,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: staticcheck
@@ -104,6 +107,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - uses: golangci/golangci-lint-action@v9
@@ -120,6 +124,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -156,6 +161,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
       - name: Build
@@ -185,6 +191,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - name: Ensure dashboarddist for go:embed
         shell: bash
         run: mkdir -p cmd/bot/dashboarddist && touch cmd/bot/dashboarddist/.stub
@@ -210,6 +217,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+          check-latest: true
       - uses: actions/setup-node@v7
         with:
           node-version: 22
