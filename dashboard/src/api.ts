@@ -211,6 +211,8 @@ export interface CommandInfo {
   description: string
   usage: string
   aliases: string[]
+  examples?: string[]
+  permissions?: string[]
   category: string
   plugin: string
 }
@@ -229,6 +231,17 @@ export async function listCommands(): Promise<CommandInfo[]> {
 
 export async function getMatcherStats(): Promise<MatcherStats> {
   return request<MatcherStats>('GET', '/api/v1/engine/matchers')
+}
+
+export interface MatcherGroupInfo {
+  name: string
+  count: number
+  enabled: boolean
+}
+
+export async function listMatcherGroups(): Promise<MatcherGroupInfo[]> {
+  const data = await request<{ groups: MatcherGroupInfo[] }>('GET', '/api/v1/engine/matchers/groups')
+  return data.groups ?? []
 }
 
 export async function disableMatcherGroup(name: string): Promise<void> {
@@ -317,6 +330,34 @@ export async function listFSMs(): Promise<{ fsms: string[] }> {
   return request<{ fsms: string[] }>('GET', '/api/v1/fsm')
 }
 
+export interface FSMSummary {
+  name: string
+  initial: string
+  timeout: string
+}
+
+export async function getFSMDetail(name: string): Promise<FSMSummary> {
+  return request<FSMSummary>('GET', `/api/v1/fsm/${encodeURIComponent(name)}`)
+}
+
+export interface FSMSessionInfo {
+  id: string
+  fsm_name: string
+  current: string
+  created_at: number
+  updated_at: number
+  expire_at?: number
+}
+
+export async function listFSMSessions(): Promise<FSMSessionInfo[]> {
+  const data = await request<{ sessions: FSMSessionInfo[] }>('GET', '/api/v1/fsm/sessions')
+  return data.sessions ?? []
+}
+
+export async function endFSMSession(id: string): Promise<void> {
+  await request('DELETE', `/api/v1/fsm/sessions/${encodeURIComponent(id)}`)
+}
+
 // --- Scheduler API ---
 
 export interface JobRecord {
@@ -328,8 +369,14 @@ export interface JobRecord {
   error?: string
 }
 
-export async function getSchedulerJobs(): Promise<{ count: number }> {
-  return request<{ count: number }>('GET', '/api/v1/scheduler/jobs')
+export interface SchedulerJobInfo {
+  id: number
+  name: string
+  kind: 'cron' | 'ticker'
+}
+
+export async function getSchedulerJobs(): Promise<{ count: number; jobs: SchedulerJobInfo[] }> {
+  return request<{ count: number; jobs: SchedulerJobInfo[] }>('GET', '/api/v1/scheduler/jobs')
 }
 
 export async function getSchedulerHistory(n = 50): Promise<{ history: JobRecord[]; count: number }> {
@@ -364,4 +411,21 @@ export interface LogEntry {
 
 export async function getLogs(n = 100): Promise<{ entries: LogEntry[] }> {
   return request('GET', `/api/v1/logs?n=${n}`)
+}
+
+// --- System Stats ---
+
+export interface SystemStats {
+  plugins_total: number
+  plugins_by_state?: Record<string, number>
+  load_order?: string[]
+  goroutine_summary?: { total: number; by_plugin?: Record<string, number> }
+  draining_count?: number
+  container_services?: number
+  strict_deps?: boolean
+  uptime?: string
+}
+
+export async function getStats(): Promise<SystemStats> {
+  return request<SystemStats>('GET', '/api/v1/stats')
 }

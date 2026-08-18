@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Icon } from './Icons.tsx'
 
 interface LoginProps {
   onLogin: (apiKey: string, url: string) => void
@@ -47,8 +48,9 @@ export function Login({ onLogin }: LoginProps) {
   return (
     <div className="login-container">
       <div className="login-card">
+        <div className="login-logo">R</div>
         <h1>Remilia Dashboard</h1>
-        <p className="subtitle">管理 API 登录</p>
+        <p className="subtitle">连接管理 API 以管理你的机器人实例</p>
         <form onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="url">API 地址</label>
@@ -79,7 +81,9 @@ export function Login({ onLogin }: LoginProps) {
             />
           </div>
           {error && <p className="error">{error}</p>}
-          <button type="submit">连接</button>
+          <button type="submit">
+            <Icon name="link" size={15} />连接
+          </button>
         </form>
       </div>
     </div>

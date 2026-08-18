@@ -4,12 +4,14 @@ import { useToast } from './Toast.tsx'
 import { ConfirmDialog } from './ConfirmDialog.tsx'
 import { SkeletonBlock } from './Skeleton.tsx'
 import { EmptyState } from './EmptyState.tsx'
+import { Icon } from './Icons.tsx'
 
 const REFRESH_INTERVAL = 8000
 
 export function BotStatus() {
   const [bots, setBots] = useState<api.BotInfo[]>([])
   const [health, setHealth] = useState<Record<string, unknown> | null>(null)
+  const [stats, setStats] = useState<api.SystemStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [confirmTarget, setConfirmTarget] = useState<{ name: string; action: string } | null>(null)
@@ -31,6 +33,10 @@ export function BotStatus() {
       const h = await api.getHealth()
       setHealth(h)
     } catch { /* ignore health timeout */ }
+    try {
+      const s = await api.getStats()
+      setStats(s)
+    } catch { /* ignore stats */ }
     setLoading(false)
   }, [])
 
@@ -67,10 +73,15 @@ export function BotStatus() {
   if (loading) return <div className="section"><h2>Bot 状态</h2><SkeletonBlock /><SkeletonBlock /></div>
   if (error && bots.length === 0) return <div className="error-card">连接失败: {error}</div>
 
+  const running = bots.filter((b) => b.status === 'running').length
+  const states = stats?.plugins_by_state ?? {}
+  const stateCount = Object.values(states).reduce((a, b) => a + b, 0)
+  const goroutines = stats?.goroutine_summary?.total ?? 0
+
   return (
     <div className="section">
       <div className="section-header">
-        <h2>Bot 状态</h2>
+        <h2><Icon name="grid" size={18} />概览</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span className="auto-refresh-hint">{paused ? '已暂停' : `每 ${REFRESH_INTERVAL / 1000}s 自动刷新`}</span>
           <button className="btn-secondary" onClick={() => setPaused((v) => !v)}>{paused ? '继续' : '暂停'}</button>
@@ -79,10 +90,55 @@ export function BotStatus() {
 
       {error && <div className="banner error">{error}</div>}
 
+      <div className="stat-grid">
+        <div className="stat-card">
+          <span className={`stat-icon ${running > 0 ? 'green' : ''}`}><Icon name={running > 0 ? 'play' : 'stop'} size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{running}/{bots.length}</div>
+            <div className="stat-label">运行中的 Bot</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon"><Icon name="plugin" size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{stateCount || bots[0]?.plugin_count || 0}</div>
+            <div className="stat-label">已注册插件</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon blue"><Icon name="platform" size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{bots[0]?.platforms?.length ?? 0}</div>
+            <div className="stat-label">接入平台</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon amber"><Icon name="cpu" size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{goroutines}</div>
+            <div className="stat-label">插件 goroutine</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon"><Icon name="box" size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{bots[0]?.version || '-'}</div>
+            <div className="stat-label">框架版本</div>
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon green"><Icon name="activity" size={18} /></span>
+          <div className="stat-body">
+            <div className="stat-value">{bots[0]?.uptime || '-'}</div>
+            <div className="stat-label">运行时长</div>
+          </div>
+        </div>
+      </div>
+
       {bots.length === 0 ? (
         <EmptyState message="没有配置 Bot" hint="请先在配置中添加平台并启动 Bot，或连接到运行中的 Bot 实例。">
           <div style={{ marginTop: '0.75rem' }}>
-            <span className="auto-refresh-hint">按 Ctrl+6 快速切换到配置页</span>
+            <span className="auto-refresh-hint">可在左侧导航中切换到「配置」页</span>
           </div>
         </EmptyState>
       ) : (
@@ -91,7 +147,9 @@ export function BotStatus() {
             <div className="card-header">
               <span className={`status-dot ${bot.status}`} />
               <strong>{bot.name}</strong>
-              <span className="tag">{bot.status === 'running' ? '运行中' : '已停止'}</span>
+              <span className={`state-tag ${bot.status === 'running' ? 'loaded' : 'disabled'}`}>
+                {bot.status === 'running' ? '运行中' : '已停止'}
+              </span>
             </div>
             <div className="card-body">
               <div className="info-row"><span className="label">版本</span><span>{bot.version}</span></div>
@@ -102,11 +160,17 @@ export function BotStatus() {
             <div className="card-actions">
               {bot.status === 'running' ? (
                 <>
-                  <button className="warn" onClick={() => setConfirmTarget({ name: bot.name, action: '停止' })}>停止</button>
-                  <button onClick={() => setConfirmTarget({ name: bot.name, action: '重启' })}>重启</button>
+                  <button className="warn" onClick={() => setConfirmTarget({ name: bot.name, action: '停止' })}>
+                    <Icon name="stop" size={14} />停止
+                  </button>
+                  <button onClick={() => setConfirmTarget({ name: bot.name, action: '重启' })}>
+                    <Icon name="restart" size={14} />重启
+                  </button>
                 </>
               ) : (
-                <button onClick={() => handleAction(bot.name, '启动', api.startBot)}>启动</button>
+                <button onClick={() => handleAction(bot.name, '启动', api.startBot)}>
+                  <Icon name="play" size={14} />启动
+                </button>
               )}
             </div>
           </div>
@@ -126,8 +190,8 @@ export function BotStatus() {
 
       {health && (
         <>
-          <div className="section-header">
-            <h2>健康检查</h2>
+          <div className="section-header" style={{ marginTop: '1.5rem' }}>
+            <h2><Icon name="activity" size={18} />健康检查</h2>
             <span className={`health-badge ${healthStatus}`}>{healthStatus}</span>
           </div>
           {healthChildren.length > 0 ? (
@@ -151,7 +215,7 @@ function HealthNode({ node, depth }: { node: Record<string, unknown>; depth: num
   return (
     <div className="health-node" style={{ marginLeft: depth * 1.5 + 'rem' }}>
       <div className="health-node-header">
-        <span className={`status-dot ${status}`} />
+        <span className={`status-dot ${status === 'healthy' || status === 'running' ? 'running' : status === 'unhealthy' || status === 'critical' || status === 'error' ? 'error' : 'stopped'}`} />
         <span className="health-node-name">{name || kind}</span>
         <span className={`health-badge ${status}`}>{status}</span>
       </div>

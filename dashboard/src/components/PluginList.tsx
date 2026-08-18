@@ -4,13 +4,23 @@ import { useToast } from './Toast.tsx'
 import { ConfirmDialog } from './ConfirmDialog.tsx'
 import { SkeletonGrid } from './Skeleton.tsx'
 import { EmptyState } from './EmptyState.tsx'
+import { Icon } from './Icons.tsx'
 
 type SortKey = 'name' | 'name_desc' | 'state' | 'matchers'
+type StateFilter = 'all' | 'Loaded' | 'Disabled' | 'Error' | 'Other'
 
 const stateLabels: Record<string, string> = {
   Loaded: '已加载', Disabled: '已禁用', Error: '错误',
   Loading: '加载中', Unloaded: '未加载', Unloading: '卸载中',
 }
+
+const FILTERS: { key: StateFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'Loaded', label: '已加载' },
+  { key: 'Disabled', label: '已禁用' },
+  { key: 'Error', label: '错误' },
+  { key: 'Other', label: '其他' },
+]
 
 export function PluginList() {
   const [plugins, setPlugins] = useState<api.PluginInfo[]>([])
@@ -21,6 +31,7 @@ export function PluginList() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [stateFilter, setStateFilter] = useState<StateFilter>('all')
   const [confirmTarget, setConfirmTarget] = useState<{ name: string; action: 'disable' | 'reload' } | null>(null)
   const [confirmLoading, setConfirmLoading] = useState(false)
   const [paused, setPaused] = useState(false)
@@ -29,7 +40,12 @@ export function PluginList() {
   const { toast } = useToast()
 
   const filtered = plugins
-    .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
+    .filter((p) => {
+      if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
+      if (stateFilter === 'all') return true
+      if (stateFilter === 'Other') return !['Loaded', 'Disabled', 'Error'].includes(p.state)
+      return p.state === stateFilter
+    })
     .sort((a, b) => {
       switch (sortKey) {
         case 'name_desc': return b.name.localeCompare(a.name)
@@ -90,22 +106,38 @@ export function PluginList() {
   if (error) return <div className="error-card">获取失败: {error}</div>
 
   const meta = detailData?.Metadata
+  const countBy = (f: StateFilter) => {
+    if (f === 'all') return plugins.length
+    if (f === 'Other') return plugins.filter((p) => !['Loaded', 'Disabled', 'Error'].includes(p.state)).length
+    return plugins.filter((p) => p.state === f).length
+  }
 
   return (
     <div className="section">
       <div className="section-header">
-        <h2>插件管理 ({plugins.length})</h2>
+        <h2>插件管理 <span className="plugin-count">({plugins.length})</span></h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span className="auto-refresh-hint">{paused ? '已暂停' : '每 10s 自动刷新'}</span>
           <button className="btn-secondary" onClick={() => setPaused((v) => !v)}>{paused ? '继续' : '暂停'}</button>
-          <button className="refresh" onClick={fetchData}>刷新</button>
+          <button className="btn-secondary" onClick={fetchData}><Icon name="refresh" size={13} />刷新</button>
         </div>
       </div>
 
       <div className="plugin-toolbar">
         <div className="plugin-search">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <Icon name="search" size={14} />
           <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索插件..." spellCheck={false} />
+        </div>
+        <div className="filter-chips">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`filter-chip ${stateFilter === f.key ? 'active' : ''}`}
+              onClick={() => setStateFilter(f.key)}
+            >
+              {f.label}<span className="count">{countBy(f.key)}</span>
+            </button>
+          ))}
         </div>
         <select className="plugin-sort" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
           <option value="name">名称 A-Z</option>
@@ -113,37 +145,40 @@ export function PluginList() {
           <option value="state">按状态</option>
           <option value="matchers">匹配器数</option>
         </select>
-        <span className="plugin-count">{filtered.length} / {plugins.length}</span>
       </div>
 
-      {filtered.length === 0 && (plugins.length === 0
-        ? <EmptyState message="没有注册插件" hint="插件在 Bot 启动时自动注册。请确认 Bot 正在运行。" />
-        : <p className="empty">没有匹配的插件</p>
-      )}
+      {filtered.length === 0 && <EmptyState message="没有匹配的插件" hint="调整搜索关键词或状态筛选条件。" />}
 
       <div className="plugin-grid">
         {filtered.map((p) => (
-          <div key={p.name} className={`card plugin-card state-${p.state.toLowerCase()}`}>
+          <div key={p.name} className={`card plugin-card ${p.state === 'Error' || p.last_error ? 'state-error' : ''}`}>
             <div className="card-header">
-              <span className={`state-tag ${p.state.toLowerCase()}`}>{stateLabels[p.state] || p.state}</span>
+              <span className={`status-dot ${p.state === 'Loaded' ? 'running' : p.state === 'Error' ? 'error' : 'stopped'}`} />
               <strong>{p.name}</strong>
-              <span className="version">{p.version || '-'}</span>
+              <span className={`state-tag ${p.state}`}>{stateLabels[p.state] || p.state}</span>
             </div>
+            <div className="plugin-meta-row">
+              {p.version && <span className="chip muted">{p.version}</span>}
+              <span className="chip info"><Icon name="matcher" size={11} />{p.matcher_count}</span>
+              {p.uptime && <span className="chip muted"><Icon name="clock" size={11} />{p.uptime}</span>}
+            </div>
+            {p.last_error && (
+              <div className="plugin-error">
+                <Icon name="alert" size={12} /> {p.last_error}
+              </div>
+            )}
             <div className="card-body">
-              <div className="info-row"><span className="label">匹配器</span><span>{p.matcher_count}</span></div>
-              <div className="info-row"><span className="label">运行时长</span><span>{p.uptime || '-'}</span></div>
               {p.dependencies && p.dependencies.length > 0 && (
                 <div className="info-row"><span className="label">依赖</span><span>{p.dependencies.join(', ')}</span></div>
               )}
-              {p.last_error && <div className="info-row error-text"><span className="label">错误</span><span>{p.last_error}</span></div>}
             </div>
             <div className="card-actions">
               {p.state === 'Disabled' ? (
-                <button onClick={() => doAction(p.name, 'enable')}>启用</button>
+                <button onClick={() => doAction(p.name, 'enable')}><Icon name="play" size={13} />启用</button>
               ) : (
                 <button className="warn" onClick={() => setConfirmTarget({ name: p.name, action: 'disable' })}>禁用</button>
               )}
-              <button onClick={() => setConfirmTarget({ name: p.name, action: 'reload' })}>重载</button>
+              <button onClick={() => setConfirmTarget({ name: p.name, action: 'reload' })}><Icon name="restart" size={13} />重载</button>
               <button className="btn-secondary" onClick={() => openDetail(p.name)}>详情</button>
             </div>
           </div>
@@ -165,11 +200,14 @@ export function PluginList() {
       {detailTarget && (
         <div className="dialog-overlay" onClick={() => { setDetailTarget(null); setDetailData(null) }}>
           <div className="dialog plugin-detail-dialog" onClick={(e) => e.stopPropagation()}>
-            <div className="dialog-header">{detailTarget}</div>
+            <div className="dialog-header">
+              {detailTarget}
+              {detailData && <span className={`dialog-header-tag ${detailData.State === 'Loaded' ? 'running' : 'stopped'}`}>{stateLabels[detailData.State] || detailData.State}</span>}
+            </div>
             {detailLoading && <div className="dialog-body">加载中...</div>}
             {detailData && (
               <div className="dialog-body plugin-detail-body">
-                <div className="info-row"><span className="label">状态</span><span>{detailData.State}</span></div>
+                <div className="info-row"><span className="label">状态</span><span>{stateLabels[detailData.State] || detailData.State}</span></div>
                 <div className="info-row"><span className="label">匹配器</span><span>{detailData.MatcherCount}</span></div>
                 <div className="info-row"><span className="label">运行时长</span><span>{Math.floor(detailData.Uptime / 1e9)}s</span></div>
                 <div className="info-row"><span className="label">Goroutines</span><span>{detailData.GoroutineCount}</span></div>
@@ -183,15 +221,17 @@ export function PluginList() {
                     {meta.Author && <div className="info-row"><span className="label">作者</span><span>{meta.Author}</span></div>}
                     {meta.Description && <div className="info-row"><span className="label">描述</span><span>{meta.Description}</span></div>}
                     {meta.Category && <div className="info-row"><span className="label">分类</span><span>{meta.Category}</span></div>}
-                    {meta.Homepage && <div className="info-row"><span className="label">主页</span><a href={meta.Homepage} rel="noopener noreferrer">{meta.Homepage}</a></div>}
-                    {meta.Repository && <div className="info-row"><span className="label">仓库</span><a href={meta.Repository} rel="noopener noreferrer">{meta.Repository}</a></div>}
+                    {meta.Homepage && <div className="info-row"><span className="label">主页</span><a href={meta.Homepage} target="_blank" rel="noopener noreferrer">{meta.Homepage}</a></div>}
+                    {meta.Repository && <div className="info-row"><span className="label">仓库</span><a href={meta.Repository} target="_blank" rel="noopener noreferrer">{meta.Repository}</a></div>}
                     {meta.Tags && meta.Tags.length > 0 && <div className="info-row"><span className="label">标签</span><span>{meta.Tags.join(', ')}</span></div>}
                     {meta.Dependencies && meta.Dependencies.length > 0 && <div className="info-row"><span className="label">依赖</span><span>{meta.Dependencies.join(', ')}</span></div>}
                   </>
                 )}
               </div>
             )}
-            <div className="dialog-actions"><button onClick={() => { setDetailTarget(null); setDetailData(null) }}>关闭</button></div>
+            <div className="dialog-actions">
+              <button className="btn-secondary" onClick={() => { setDetailTarget(null); setDetailData(null) }}>关闭</button>
+            </div>
           </div>
         </div>
       )}

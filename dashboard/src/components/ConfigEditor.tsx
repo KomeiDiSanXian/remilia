@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import * as api from '../api'
 import { ConfigForm } from './ConfigForm'
+import { Icon } from './Icons.tsx'
 
 type Status = 'idle' | 'loading' | 'saving' | 'saved' | 'error'
 type Mode = 'form' | 'raw'
@@ -163,8 +164,12 @@ export function ConfigEditor() {
       <div className="section-header">
         <h2>配置编辑</h2>
         <div className="config-actions">
-          <button onClick={fetchConfig} disabled={status === 'loading' || status === 'saving'}>刷新</button>
-          <button className="warn" onClick={handleReload} disabled={status === 'loading' || status === 'saving'}>从磁盘重新加载</button>
+          <button className="btn-secondary" onClick={fetchConfig} disabled={status === 'loading' || status === 'saving'}>
+            <Icon name="refresh" size={13} />刷新
+          </button>
+          <button className="btn-secondary" onClick={handleReload} disabled={status === 'loading' || status === 'saving'}>
+            <Icon name="download" size={13} />从磁盘重新加载
+          </button>
         </div>
       </div>
 

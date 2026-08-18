@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import * as api from '../api'
 import { useToast } from './Toast.tsx'
 import { EmptyState } from './EmptyState.tsx'
+import { Icon } from './Icons.tsx'
 
 interface RoleDef {
   name: string
@@ -111,15 +112,15 @@ export function PermissionView() {
         <div className="permission-hint">权限修改即时生效，无需重启</div>
       </div>
 
-      <div className="config-mode-tabs" style={{ marginBottom: '1rem' }}>
-        <button className={`config-mode-tab ${activeTab === 'users' ? 'active' : ''}`} onClick={() => setActiveTab('users')}>用户分配 ({userEntries.length})</button>
-        <button className={`config-mode-tab ${activeTab === 'roles' ? 'active' : ''}`} onClick={() => setActiveTab('roles')}>角色定义 ({data.roles?.length || 0})</button>
+      <div className="tab-bar" style={{ marginBottom: '1rem' }}>
+        <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>用户分配 ({userEntries.length})</button>
+        <button className={activeTab === 'roles' ? 'active' : ''} onClick={() => setActiveTab('roles')}>角色定义 ({data.roles?.length || 0})</button>
       </div>
 
       {activeTab === 'users' && (
         <>
           <div style={{ marginBottom: '0.75rem' }}>
-            <button onClick={() => setShowAssignRole({ userId: '', roles: [] })}>分配角色</button>
+            <button onClick={() => setShowAssignRole({ userId: '', roles: [] })}><Icon name="plus" size={14} />分配角色</button>
           </div>
           {userEntries.length === 0
             ? <EmptyState message="暂无用户-角色分配" hint="点击「分配角色」为指定用户分配角色。" />
@@ -132,12 +133,23 @@ export function PermissionView() {
                 <div className="card-body">
                   {roleList.length === 0
                     ? <span className="empty" style={{ padding: '0.5rem 0' }}>无角色</span>
-                    : roleList.map((r) => (
-                      <div key={r} className="info-row">
-                        <span className="label">{r}</span>
-                        <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }} onClick={() => handleRevokeRole(userId, r)}>撤销</button>
+                    : (
+                      <div className="capability-list">
+                        {roleList.map((r) => (
+                          <span key={r} className="chip accent">
+                            {r}
+                            <button
+                              className="btn-icon"
+                              style={{ width: 16, height: 16, marginLeft: '0.15rem' }}
+                              title="撤销角色"
+                              onClick={() => handleRevokeRole(userId, r)}
+                            >
+                              <Icon name="close" size={11} />
+                            </button>
+                          </span>
+                        ))}
                       </div>
-                    ))}
+                    )}
                 </div>
               </div>
             ))}
@@ -147,7 +159,7 @@ export function PermissionView() {
       {activeTab === 'roles' && (
         <>
           <div style={{ marginBottom: '0.75rem' }}>
-            <button onClick={() => setShowCreateRole(true)}>创建角色</button>
+            <button onClick={() => setShowCreateRole(true)}><Icon name="plus" size={14} />创建角色</button>
           </div>
           {(!data.roles || data.roles.length === 0)
             ? <EmptyState message="暂无角色定义" hint="点击「创建角色」创建一个新角色。" />
@@ -159,17 +171,31 @@ export function PermissionView() {
                 </div>
                 <div className="card-body">
                   {(!role.permissions || role.permissions.length === 0) && <div className="empty" style={{ padding: '0.5rem 0' }}>无权限</div>}
-                  {role.permissions?.map((p) => {
-                    const [res, act = '*'] = p.split(':')
-                    return (
-                      <div key={p} className="info-row">
-                        <span className="label">{res}</span>
-                        <span>{act}</span>
-                        <button className="btn-secondary" style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem' }} onClick={() => handleRemovePerm(role.name, res, act)}>移除</button>
-                      </div>
-                    )
-                  })}
-                  <button className="btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => { setShowAddPerm(role.name); setPermResource(''); setPermAction('') }}>添加权限</button>
+                  {role.permissions && role.permissions.length > 0 && (
+                    <div className="capability-list">
+                      {role.permissions.map((p) => {
+                        const [res, act = '*'] = p.split(':')
+                        return (
+                          <span key={p} className="chip info">
+                            <span className="mono">{res}:{act}</span>
+                            <button
+                              className="btn-icon"
+                              style={{ width: 16, height: 16, marginLeft: '0.15rem' }}
+                              title="移除权限"
+                              onClick={() => handleRemovePerm(role.name, res, act)}
+                            >
+                              <Icon name="close" size={11} />
+                            </button>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button className="btn-secondary btn-sm" onClick={() => { setShowAddPerm(role.name); setPermResource(''); setPermAction('') }}>
+                      <Icon name="plus" size={12} />添加权限
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

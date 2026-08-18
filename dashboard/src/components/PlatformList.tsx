@@ -4,6 +4,7 @@ import { useToast } from './Toast.tsx'
 import { ConfirmDialog } from './ConfirmDialog.tsx'
 import { SkeletonBlock } from './Skeleton.tsx'
 import { EmptyState } from './EmptyState.tsx'
+import { Icon } from './Icons.tsx'
 
 const PLATFORM_TYPES = [
   { type: 'qq', label: 'QQ', fields: ['app_id', 'bot_id', 'token', 'secret'] },
@@ -63,7 +64,7 @@ export function PlatformList() {
     } finally {
       setAdding(false)
     }
-  }, [addForm])
+  }, [addForm, toast])
 
   const handleDelete = useCallback(async (name: string) => {
     setDeleting(true)
@@ -77,45 +78,61 @@ export function PlatformList() {
     } finally {
       setDeleting(false)
     }
-  }, [])
+  }, [toast])
 
   if (loading) return <div className="section"><h2>平台适配器</h2><SkeletonBlock /><SkeletonBlock /></div>
   if (error) return <div className="error-card">获取失败: {error}</div>
 
   const selectedType = PLATFORM_TYPES.find((t) => t.type === addForm.type)
+  const runningCount = platforms.filter((p) => p.running).length
 
   return (
     <div className="section">
       <div className="section-header">
-        <h2>平台适配器 ({platforms.length})</h2>
+        <h2>平台适配器 <span className="plugin-count">({runningCount}/{platforms.length} 运行中)</span></h2>
         <div className="config-actions">
-          <button onClick={() => setShowAdd(true)}>添加平台</button>
-          <button onClick={fetchData}>刷新</button>
+          <button onClick={() => setShowAdd(true)}><Icon name="plus" size={14} />添加平台</button>
+          <button className="btn-secondary" onClick={fetchData}><Icon name="refresh" size={13} />刷新</button>
         </div>
       </div>
 
-      {platforms.length === 0 && <EmptyState message="没有已注册的平台" hint="点击「添加平台」按钮添加一个新的聊天平台适配器。" />}
+      {platforms.length === 0 && (
+        <EmptyState
+          message="没有已注册的平台"
+          hint="点击「添加平台」按钮添加一个新的聊天平台适配器。"
+          action={{ label: '添加平台', onClick: () => setShowAdd(true) }}
+        />
+      )}
 
-      {platforms.map((p) => (
-        <div key={p.name} className="card clickable" onClick={() => setDetailTarget(p)}>
-          <div className="card-header">
-            <span className={`status-dot ${p.running ? 'running' : 'stopped'}`} />
-            <strong>{p.name}</strong>
-            <span className="tag">{p.running ? '运行中' : '已停止'}</span>
+      <div className="platform-grid">
+        {platforms.map((p) => (
+          <div key={p.name} className="card platform-card clickable" onClick={() => setDetailTarget(p)}>
+            <div className="card-header">
+              <span className={`status-dot ${p.running ? 'running' : 'stopped'}`} />
+              <strong>{p.name}</strong>
+              <span className={`state-tag ${p.running ? 'loaded' : 'disabled'}`}>{p.running ? '运行中' : '已停止'}</span>
+            </div>
+            <div className="card-body">
+              {p.bot_id && (
+                <div className="info-row"><span className="label">Bot ID</span><span className="mono">{p.bot_id}</span></div>
+              )}
+              {p.capabilities && (
+                <div className="info-row" style={{ alignItems: 'flex-start' }}>
+                  <span className="label">能力集</span>
+                  <div className="capability-list">
+                    {Object.keys(p.capabilities).filter((k) => p.capabilities![k]).map((k) => (
+                      <span key={k} className="chip info">{k}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="card-actions">
+              <button className="btn-secondary" onClick={(e) => { e.stopPropagation(); setDetailTarget(p) }}>详情</button>
+            </div>
           </div>
-          <div className="card-body">
-            {p.bot_id && (
-              <div className="info-row"><span className="label">Bot ID</span><span>{p.bot_id}</span></div>
-            )}
-            {p.capabilities && (
-              <div className="info-row">
-                <span className="label">能力集</span>
-                <span>{Object.keys(p.capabilities).filter((k) => p.capabilities![k]).join(', ') || '-'}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
       {/* --- Detail Modal --- */}
       {detailTarget && (
@@ -130,20 +147,24 @@ export function PlatformList() {
             <div className="dialog-body">
               <div className="info-row"><span className="label">名称</span><span>{detailTarget.name}</span></div>
               <div className="info-row"><span className="label">状态</span><span>{detailTarget.running ? '运行中' : '已停止'}</span></div>
-              {detailTarget.bot_id && <div className="info-row"><span className="label">Bot ID</span><span>{detailTarget.bot_id}</span></div>}
+              {detailTarget.bot_id && <div className="info-row"><span className="label">Bot ID</span><span className="mono">{detailTarget.bot_id}</span></div>}
               {detailTarget.bot_name && <div className="info-row"><span className="label">Bot 名称</span><span>{detailTarget.bot_name}</span></div>}
               {detailTarget.capabilities && (
-                <div className="info-row">
+                <div className="info-row" style={{ alignItems: 'flex-start' }}>
                   <span className="label">能力集</span>
-                  <span>{Object.keys(detailTarget.capabilities).filter((k) => detailTarget.capabilities![k]).join(', ') || '-'}</span>
+                  <div className="capability-list">
+                    {Object.keys(detailTarget.capabilities).filter((k) => detailTarget.capabilities![k]).map((k) => (
+                      <span key={k} className="chip info">{k}</span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
             <div className="dialog-actions">
               <button className="warn" onClick={() => { setDeleteConfirm(detailTarget.name); setDetailTarget(null) }} disabled={deleting}>
-                删除此平台
+                <Icon name="trash" size={13} />删除此平台
               </button>
-              <button onClick={() => setDetailTarget(null)}>关闭</button>
+              <button className="btn-secondary" onClick={() => setDetailTarget(null)}>关闭</button>
             </div>
           </div>
         </div>
