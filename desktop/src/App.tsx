@@ -7,6 +7,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { setBaseURL, setStoredApiKey, clearApiKey, getStoredApiKey } from '@dashboard/api'
 import { Dashboard } from '@dashboard/components/Dashboard'
+import { Icon } from '@dashboard/components/Icons'
 
 const URL_STORAGE_KEY = 'remilia_api_url'
 const SIDECAR_URL = 'http://localhost:9002'
@@ -126,17 +127,18 @@ export default function App() {
         <div className="app">
           <TitleBar />
           <div className="startup-choice">
+            <div className="startup-logo">R</div>
             <h1>Remilia Desktop</h1>
             <p className="startup-subtitle">选择连接方式</p>
             {localError && <div className="banner error" style={{ marginBottom: '1rem' }}>{localError}</div>}
             <div className="startup-cards">
               <button className="startup-card" onClick={handleStartLocal}>
-                <span className="startup-card-icon">🚀</span>
+                <span className="startup-card-icon"><Icon name="play" size={22} /></span>
                 <span className="startup-card-title">启动本地后端</span>
                 <span className="startup-card-desc">自动启动内置 Go 后端并连接</span>
               </button>
               <button className="startup-card" onClick={handleConnectRemote}>
-                <span className="startup-card-icon">🌐</span>
+                <span className="startup-card-icon"><Icon name="platform" size={22} /></span>
                 <span className="startup-card-title">连接远程后端</span>
                 <span className="startup-card-desc">连接到已运行的远程 Remilia 实例</span>
               </button>
@@ -151,7 +153,9 @@ export default function App() {
           <TitleBar />
           <div className="settings-page">
             {startupChoice === 'connecting' && (
-              <button className="back-btn" onClick={() => setStartupChoice('choose')}>← 返回</button>
+              <button className="back-btn" onClick={() => setStartupChoice('choose')}>
+                <Icon name="chevronLeft" size={14} />返回
+              </button>
             )}
             <Settings initialUrl={localStorage.getItem(URL_STORAGE_KEY) || SIDECAR_URL} onConnect={(url, key) => {
               setBaseURL(url)

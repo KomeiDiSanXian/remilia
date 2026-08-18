@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Icon } from '@dashboard/components/Icons'
 
 interface SettingsProps {
   initialUrl?: string
@@ -52,6 +53,7 @@ export function Settings({ initialUrl = 'http://localhost:9002', onConnect }: Se
   return (
     <div className="settings-container">
       <div className="settings-card">
+        <div className="login-logo">R</div>
         <h1>连接到 Bot</h1>
         <p className="subtitle">输入 Remilia 管理 API 地址和密钥</p>
         <form onSubmit={handleSubmit}>
@@ -84,7 +86,7 @@ export function Settings({ initialUrl = 'http://localhost:9002', onConnect }: Se
             />
           </div>
           {error && <p className="error">{error}</p>}
-          <button type="submit">连接</button>
+          <button type="submit"><Icon name="link" size={15} />连接</button>
         </form>
       </div>
     </div>

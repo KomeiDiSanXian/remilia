@@ -1,4 +1,7 @@
-/* desktop 专用样式覆盖 */
+/* ==========================================================================
+   Remilia Desktop — 桌面端专用样式
+   （继承 dashboard/src/style.css 的设计系统，仅覆盖桌面特有部分）
+   ========================================================================== */
 
 html, body, #root {
   margin: 0; padding: 0; height: 100%;
@@ -8,137 +11,183 @@ html, body, #root {
   display: flex; flex-direction: column; height: 100vh; overflow: hidden;
 }
 
+/* Dashboard 嵌入桌面窗口：在自定义标题栏下方填满剩余高度 */
+.app .dashboard {
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+}
+.app .sidebar {
+  height: 100%;
+  position: sticky;
+  top: 0;
+}
+.app .dashboard-main {
+  height: 100%;
+}
+
 /* --- 自定义标题栏 --- */
 .titlebar {
   display: flex; align-items: center; justify-content: space-between;
-  height: 36px; padding: 0 0 0 16px;
-  background: #1e293b; border-bottom: 1px solid #334155;
+  height: 38px; padding: 0 0 0 16px;
+  background: rgba(13, 18, 32, 0.94);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(14px);
   user-select: none; flex-shrink: 0;
   position: sticky; top: 0; z-index: 1000;
 }
 .titlebar-title {
-  font-size: 0.8rem; color: #94a3b8;
+  font-size: 0.78rem; color: var(--text-faint);
+  font-weight: 550; letter-spacing: 0.02em;
+  display: flex; align-items: center; gap: 0.5rem;
 }
-.titlebar-controls {
-  display: flex; height: 100%;
+.titlebar-title::before {
+  content: '';
+  width: 8px; height: 8px; border-radius: 3px;
+  background: linear-gradient(135deg, var(--accent), var(--blue));
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
 }
+.titlebar-controls { display: flex; height: 100%; }
 .titlebar-btn {
   width: 46px; height: 100%; border: none;
-  background: transparent; color: #94a3b8;
+  background: transparent; color: var(--text-dim);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; transition: all 0.15s;
+  border-radius: 0;
 }
-.titlebar-btn:hover { background: #334155; color: #e2e8f0; }
-.titlebar-close:hover { background: #dc2626; color: #fff; }
+.titlebar-btn:hover { background: var(--surface-3); color: var(--text); }
+.titlebar-close:hover { background: var(--danger); color: #fff; }
 
-/* --- 加载/设置页 --- */
+/* --- 加载 / 启动页 --- */
 .loading-screen {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  flex: 1; color: #64748b; font-size: 1rem; gap: 1rem;
+  flex: 1; color: var(--text-faint); font-size: 0.95rem; gap: 1rem;
 }
 .loading-spinner {
-  width: 32px; height: 32px; border: 3px solid #334155;
-  border-top-color: #3b82f6; border-radius: 50%;
+  width: 34px; height: 34px;
+  border: 3px solid var(--surface-3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* --- 启动选择页 --- */
 .startup-choice {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   flex: 1; padding: 2rem;
+  gap: 0.35rem;
 }
-.startup-choice h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
-.startup-subtitle { color: #64748b; margin-bottom: 1.5rem; font-size: 0.9rem; }
-.startup-cards { display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; }
+.startup-logo {
+  width: 64px; height: 64px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 1.9rem; font-weight: 700;
+  box-shadow: 0 12px 32px rgba(99, 102, 241, 0.45);
+  margin-bottom: 0.6rem;
+}
+.startup-choice h1 { font-size: 1.45rem; margin-bottom: 0.1rem; letter-spacing: -0.01em; }
+.startup-subtitle { color: var(--text-faint); margin-bottom: 1.6rem; font-size: 0.88rem; }
+.startup-cards { display: flex; gap: 1.1rem; flex-wrap: wrap; justify-content: center; }
 .startup-card {
-  display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
-  width: 220px; padding: 2rem 1.5rem; border: 1px solid #334155; border-radius: 12px;
-  background: #1e293b; color: #e2e8f0; cursor: pointer; transition: all 0.2s;
-  text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 0.6rem;
+  width: 240px; padding: 2.2rem 1.6rem;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 55%), var(--surface);
+  color: var(--text); cursor: pointer;
+  transition: all 0.2s; text-align: center;
 }
-.startup-card:hover { border-color: #3b82f6; background: #1e3a5f; }
-.startup-card-icon { font-size: 2rem; }
-.startup-card-title { font-size: 1rem; font-weight: 600; }
-.startup-card-desc { font-size: 0.8rem; color: #94a3b8; line-height: 1.4; }
-.settings-page { display: flex; flex-direction: column; flex: 1; }
+.startup-card:hover {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.1), transparent 60%), var(--surface);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.startup-card-icon {
+  width: 48px; height: 48px;
+  border-radius: 13px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--accent-soft); color: var(--accent-strong);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  margin-bottom: 0.2rem;
+}
+.startup-card-title { font-size: 1rem; font-weight: 650; }
+.startup-card-desc { font-size: 0.8rem; color: var(--text-faint); line-height: 1.5; }
+
+.settings-page { display: flex; flex-direction: column; flex: 1; overflow-y: auto; }
 .back-btn {
-  align-self: flex-start; margin: 0.5rem 1rem 0;
-  padding: 0.3rem 0.75rem; border: 1px solid #475569; border-radius: 6px;
-  background: transparent; color: #94a3b8; cursor: pointer; font-size: 0.85rem;
+  align-self: flex-start; margin: 0.6rem 1rem 0;
+  padding: 0.3rem 0.8rem;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  font-size: 0.85rem;
+  display: inline-flex; align-items: center; gap: 0.35rem;
 }
-.back-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.back-btn:hover { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-soft); }
 
 .settings-container {
   display: flex; align-items: center; justify-content: center;
   flex: 1; padding: 2rem;
 }
 .settings-card {
-  background: #1e293b; border-radius: 12px; padding: 2.5rem;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 50%), var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 2.6rem 2.4rem;
   width: 100%; max-width: 480px;
+  box-shadow: var(--shadow-lg);
+  position: relative; overflow: hidden;
 }
-.settings-card h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+.settings-card::before {
+  content: '';
+  position: absolute; inset: 0 0 auto 0; height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--blue), var(--accent));
+}
+.settings-card h1 { font-size: 1.35rem; margin-bottom: 0.25rem; }
 
-.key-hint { color: #22c55e; font-size: 0.75rem; margin-left: 0.25rem; }
-
-/* --- Error boundary --- */
+/* --- 错误边界 --- */
 .error-boundary { padding: 2rem; max-width: 800px; margin: 1rem auto; }
-.error-boundary h1 { color: #ef4444; margin-bottom: 1rem; }
+.error-boundary h1 { color: var(--danger); margin-bottom: 1rem; }
 .error-msg { color: #fca5a5; margin-bottom: 0.5rem; }
 .error-stack {
-  background: #0f172a; padding: 1rem; border-radius: 8px;
-  font-size: 0.75rem; line-height: 1.4; overflow-x: auto; color: #e2e8f0;
+  background: rgba(10, 14, 26, 0.8);
+  border: 1px solid var(--border);
+  padding: 1rem; border-radius: var(--radius-sm);
+  font-size: 0.75rem; line-height: 1.4; overflow-x: auto; color: var(--text);
   margin-bottom: 1rem; max-height: 50vh; overflow-y: auto;
 }
 .error-actions { display: flex; gap: 0.5rem; }
 
-/* --- 测试按钮 --- */
-.field-row { display: flex; gap: 0.5rem; }
-.field-row input { flex: 1; }
-.btn-secondary {
-  padding: 0.4rem 0.75rem; border: 1px solid #475569; border-radius: 8px;
-  background: transparent; color: #94a3b8; cursor: pointer;
-  font-size: 0.8rem; white-space: nowrap; transition: all 0.2s;
-}
-.btn-secondary:hover { border-color: #3b82f6; color: #3b82f6; }
-.btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* --- Dialog / Modal --- */
-.dialog-overlay {
-  position: fixed; inset: 0; z-index: 2000;
-  background: rgba(0,0,0,0.6);
+/* --- 关于对话框 --- */
+.about-content { text-align: center; }
+.about-logo {
+  width: 56px; height: 56px; margin: 0 auto 0.75rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
   display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem;
+  box-shadow: 0 10px 26px rgba(99, 102, 241, 0.4);
 }
-.dialog {
-  background: #1e293b; border-radius: 12px; padding: 1.5rem;
-  width: 400px; max-width: 90vw; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.dialog-header {
-  font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;
-}
-.dialog-body { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin-bottom: 1rem; }
-.dialog-remember {
-  display: flex; align-items: center; gap: 0.5rem;
-  font-size: 0.85rem; color: #94a3b8; cursor: pointer; margin-bottom: 1rem;
-}
-.dialog-remember input { accent-color: #3b82f6; }
-.dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+.about-name { font-size: 1.1rem; font-weight: 650; color: var(--text); margin-bottom: 0.25rem; }
+.about-version { font-size: 0.8rem; color: var(--text-faint); margin-bottom: 0.75rem; }
+.about-desc { font-size: 0.85rem; color: var(--text-dim); line-height: 1.6; margin-bottom: 0.75rem; }
+.about-link a { color: var(--info); text-decoration: none; font-size: 0.85rem; }
+.about-link a:hover { text-decoration: underline; }
+
+/* --- 桌面端对话框按钮（独立于 dashboard 全局 button 样式） --- */
 .dialog-btn {
-  padding: 0.5rem 1rem; border: 1px solid #475569; border-radius: 8px;
-  background: transparent; color: #e2e8f0; font-size: 0.85rem; cursor: pointer;
+  padding: 0.5rem 1rem; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font-size: 0.85rem; cursor: pointer;
   transition: all 0.15s;
 }
-.dialog-btn:hover { border-color: #3b82f6; color: #3b82f6; }
-.dialog-btn-primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
-.dialog-btn-primary:hover { background: #2563eb; border-color: #2563eb; }
-.dialog-btn-danger { border-color: #ef4444; color: #fca5a5; }
-.dialog-btn-danger:hover { background: #ef4444; color: #fff; }
+.dialog-btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+.dialog-btn-primary { background: linear-gradient(135deg, var(--accent), #4f46e5); border-color: transparent; color: #fff; }
+.dialog-btn-primary:hover { background: linear-gradient(135deg, #7c7ff5, #5b5ef0); color: #fff; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35); }
+.dialog-btn-danger { border-color: rgba(248, 113, 113, 0.4); color: #fca5a5; }
+.dialog-btn-danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
 
-/* --- About dialog --- */
-.about-content { text-align: center; }
-.about-logo { font-size: 2.5rem; margin-bottom: 0.5rem; }
-.about-name { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.25rem; }
-.about-version { font-size: 0.8rem; color: #64748b; margin-bottom: 0.75rem; }
-.about-desc { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; margin-bottom: 0.75rem; }
-.about-link a { color: #3b82f6; text-decoration: none; font-size: 0.85rem; }
-.about-link a:hover { text-decoration: underline; }
+.dialog-remember {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; color: var(--text-dim); cursor: pointer; margin-bottom: 1rem;
+}
+.dialog-remember input { accent-color: var(--accent); }

@@ -14,7 +14,7 @@ export function AboutDialog({ open, onClose }: AboutDialogProps) {
       onClose={onClose}
     >
       <div className="about-content">
-        <div className="about-logo">🌸</div>
+        <div className="about-logo">R</div>
         <p className="about-name">Remilia Desktop</p>
         <p className="about-version">版本 0.1.0</p>
         <p className="about-desc">
