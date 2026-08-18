@@ -1,5 +1,46 @@
 # Changelog
 
+## v1.40.3 (2026-08-18)
+
+### 🐛 AI 插件：孤儿 tool 消息导致 LLM API 400（修复）
+
+- **根因**: OpenAI/Anthropic 硬性要求 `tool` 消息必须紧邻其前的 `assistant(tool_calls)` 消息，否则 400 `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`。上下文裁剪（`trimMessages` 只保留末尾 N 条）可能把 `assistant(tool_calls)` 裁掉而残留其后的 `tool` 消息；上一版 `repairToolCallSequence` 只补缺失的 tool 响应、不删多余的孤儿 tool 消息，请求依旧被 400 拒绝，AI 插件表现为不可用
+- **修复**: `repairToolCallSequence` 双向自愈——缺失的 tool 响应补占位消息、孤儿 tool 消息直接丢弃；`trimMessages` 裁剪起点跳过残留的 tool 消息，不再制造孤儿；后台总结（`doSummary`）发送前同样先修复序列
+- **测试**: `repairToolCallSequence` 孤儿丢弃 2 项（跟随待补清单 / 前置孤儿）+ `trimMessages` 裁剪边界不落在 tool 消息上
+
+### 🎨 Dashboard：图标系统、分组导航与数据视图重构
+
+- 新增统一 SVG 图标系统（`Icons.tsx`），导航从字符图标升级为图标化侧边栏，并按「运营 / 引擎 / 管理」三组分栏
+- 概览与各视图数据展示增强：插件/平台角标实时统计（插件数、平台在线数、插件错误标记），移动端侧边栏适配
+- 全量重绘各视图（插件、平台、命令、匹配器、状态机、调度器、审计日志、权限、配置、日志）与全局样式（`style.css`）
+
+### 🖥 Desktop：统一图标系统与共享设计令牌
+
+- 桌面端（Tauri）接入与 Dashboard 同源的图标系统与设计令牌（颜色/圆角/阴影等 CSS 变量）
+- 标题栏与启动页 UI 重构，AboutDialog / Settings 视觉风格统一
+
+### 🎯 API：匹配器分组 / FSM 会话 / 调度任务只读快照
+
+- `GET /api/v1/engine/matchers/groups`：返回匹配器分组列表（名称、匹配器数、启用状态）
+- `GET /api/v1/fsm/sessions`：从空列表升级为真实会话快照（会话 ID、FSM 名、当前状态、创建/更新时间、过期时间）
+- `GET /api/v1/scheduler/jobs`：补充任务列表（ID、名称、cron/ticker 调度方式）
+- `GET /api/v1/scheduler/history`：执行历史改为结构化记录（job_id、job_name、start_at、duration、success、error）
+- `docs/02-user-guides/API_SERVER.md` 同步更新端点说明与 curl 示例
+
+### 🛠 Bot：启动与中间件编排模块化（重构）
+
+- `cmd/bot` 拆分为 bootstrap / 路由 / 生命周期 / 服务装配等聚焦模块，依赖装配共享、资源清理确定性
+- 新增可热重载的中间件编排（`middleware.go`）：自适应限流、Recover、消息去重、背压、指标/链路遥测、慢请求告警，开关与参数均支持配置热更新
+- 平台工厂集中管理（`platforms.go`）：未配置平台时回退 Terminal 适配器，支持配置驱动的适配器热切换
+- 健康检查、pprof、管理 API 与优雅关停的装配统一；`cmd/bot/config.default.yaml` 补充完整注释与默认值
+
+### 📝 Logger：补齐 Trace/Panic API，默认级别回退 info
+
+- 链式与包级 logger 补齐 `Trace`/`Tracef`/`Panic`/`Panicf`（panic 带调用位置信息）
+- 日志级别未配置（空字符串）时默认回退 `info`，避免 `ParseLevel("")` 返回 NoLevel 导致全部日志被关闭
+- 包级 `Error`/`Fatal`/`Panic` 日志保留真实调用方归属（`//go:noinline` 稳定栈帧）
+- 刷新 `infra/logger/TESTING.md` 测试与使用文档
+
 ## v1.40.2 (2026-08-14)
 
 ### 🐛 QQ 平台：OpenAPI 错误响应被静默吞掉（修复）
