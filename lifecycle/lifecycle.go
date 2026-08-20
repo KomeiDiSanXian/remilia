@@ -145,6 +145,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -553,8 +554,7 @@ func (m *Manager) rollback(startCtx context.Context, startedComponents []Compone
 	defer cancel()
 
 	var rollbackErrs []error
-	for i := len(startedComponents) - 1; i >= 0; i-- {
-		comp := startedComponents[i]
+	for _, comp := range slices.Backward(startedComponents) {
 		if err := comp.OnStop(ctx); err != nil {
 			logger.WithFields(logger.Fields{
 				"component": comp.Name(),
@@ -626,8 +626,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	// 逆序调用 OnStop，仅对经历过 OnStart 的组件调用
 	var stopErrors []error
-	for i := len(components) - 1; i >= 0; i-- {
-		comp := components[i]
+	for _, comp := range slices.Backward(components) {
 		if err := comp.OnStop(ctx); err != nil {
 			logger.WithFields(logger.Fields{
 				"component": comp.Name(),

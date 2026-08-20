@@ -824,19 +824,17 @@ func (pm *Manager) registerPreSetup(ctx context.Context, desc *Descriptor) (inst
 	}
 
 	setupCtx := &SetupContext{
-		Reg:      newLiveRegistryWriter(pm.coordinator, name, instance),
-		Log:      newPluginLogger(name),
-		Info:     newPluginInfo(pm),
-		Admin:    adminView,
-		Config:   config,
-		EventBus: pm.eventBus,
-		setupContextInternal: setupContextInternal{
-			container:        pm.container,
-			pluginName:       name,
-			instance:         instance,
-			autoTrackEnabled: true,
-			eng:              pm.coordinator,
-		},
+		Reg:              newLiveRegistryWriter(pm.coordinator, name, instance),
+		Log:              newPluginLogger(name),
+		Info:             newPluginInfo(pm),
+		Admin:            adminView,
+		Config:           config,
+		EventBus:         pm.eventBus,
+		container:        pm.container,
+		pluginName:       name,
+		instance:         instance,
+		autoTrackEnabled: true,
+		eng:              pm.coordinator,
 	}
 
 	instance.setupContext = setupCtx

@@ -43,18 +43,16 @@ func NewTestSetupContext(pluginName string, opts *TestSetupOptions) *SetupContex
 	}
 
 	ctx := &SetupContext{
-		Reg:      rw,
-		Log:      newPluginLogger(pluginName),
-		Info:     &nullPluginInfo{},
-		Config:   opts.Config,
-		EventBus: bus,
-		setupContextInternal: setupContextInternal{
-			container:        container,
-			pluginName:       pluginName,
-			instance:         instance,
-			autoTrackEnabled: true,
-			goroutineMgr:     gm,
-		},
+		Reg:              rw,
+		Log:              newPluginLogger(pluginName),
+		Info:             &nullPluginInfo{},
+		Config:           opts.Config,
+		EventBus:         bus,
+		container:        container,
+		pluginName:       pluginName,
+		instance:         instance,
+		autoTrackEnabled: true,
+		goroutineMgr:     gm,
 	}
 
 	return ctx

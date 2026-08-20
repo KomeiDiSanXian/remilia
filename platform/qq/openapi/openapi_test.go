@@ -759,7 +759,7 @@ func TestClient_MuteGuildMultiMembers(t *testing.T) {
 	api, _ := newTestAPI(t, m)
 
 	_, err := api.MuteGuildMultiMembers(context.Background(), "guild_1", &dto.MultipleMuteRequest{
-		MuteRequest: dto.MuteRequest{MuteSeconds: "300"},
+		MuteSeconds: "300",
 		UserIDs:     []string{"u1", "u2"},
 	})
 	require.NoError(t, err)

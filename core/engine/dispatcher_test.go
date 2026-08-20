@@ -276,11 +276,11 @@ func TestHooksOnStartOnDone(t *testing.T) {
 }
 
 func TestHooksOnRejected(t *testing.T) {
-	var rejected int32
+	var rejected atomic.Int32
 	hooks := DispatcherHooks{
 		OnRejected: func(chatID string, err error) {
 			if errors.Is(err, ErrDispatcherClosed) {
-				atomic.AddInt32(&rejected, 1)
+				rejected.Add(1)
 			}
 		},
 	}
@@ -298,7 +298,7 @@ func TestHooksOnRejected(t *testing.T) {
 	if !errors.Is(err, ErrDispatcherClosed) {
 		t.Fatalf("expected ErrDispatcherClosed, got %v", err)
 	}
-	if n := atomic.LoadInt32(&rejected); n != 1 {
+	if n := rejected.Load(); n != 1 {
 		t.Fatalf("expected 1 OnRejected call, got %d", n)
 	}
 }

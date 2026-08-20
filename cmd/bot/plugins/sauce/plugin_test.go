@@ -98,7 +98,7 @@ func TestFormatOneResultTruncatesLongTitle(t *testing.T) {
 func TestFormatOneResultTruncationRespectsConfig(t *testing.T) {
 	p := &Plugin{cfg: &fakeConfig{vals: map[string]any{"max_title_len": 10}}}
 	out := p.formatOneResult(SearchResult{Title: strings.Repeat("x", 100)}, 1)
-	first := strings.SplitN(out, "\n", 2)[0]
+	first, _, _ := strings.Cut(out, "\n")
 	assert.LessOrEqual(t, utf8.RuneCountInString(first), 1+10+5) // "1. <title10…>"
 	assert.Contains(t, first, "…")
 }

@@ -50,8 +50,8 @@ func (e *Engine) GetMaxMatchers() int {
 // GetMatcherStats 获取匹配器统计信息（COW 无锁读取）
 func (e *Engine) GetMatcherStats() MatcherStats {
 	state := e.state.Load()
-	stats := MatcherStats{ByPlugin: make(map[string]int)}
-	stats.Total = len(state.matchers)
+	stats := MatcherStats{ByPlugin: make(map[string]int),
+		Total: len(state.matchers)}
 
 	for _, m := range state.matchers {
 		if m.Source == "global" || m.Source == "" {

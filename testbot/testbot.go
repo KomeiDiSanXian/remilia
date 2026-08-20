@@ -447,10 +447,8 @@ func (tb *QQBot) RegisterPlugin(desc *plugin.Descriptor) *QQBot {
 // SendGroupAt simulates a QQ group @-bot message via the full *dto.Payload path.
 func (tb *QQBot) SendGroupAt(groupID, userOpenID, content string) {
 	event := dto.GroupAtMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{
-			Content: content,
-			Author:  dto.Author{UserOpenID: userOpenID, MemberOpenID: userOpenID},
-		},
+		Content:     content,
+		Author:      dto.Author{UserOpenID: userOpenID, MemberOpenID: userOpenID},
 		GroupOpenID: groupID,
 	}
 	tb.inject(dto.GroupAtMessageCreate, event)
@@ -459,10 +457,8 @@ func (tb *QQBot) SendGroupAt(groupID, userOpenID, content string) {
 // SendC2C simulates a QQ C2C (private) message via the full *dto.Payload path.
 func (tb *QQBot) SendC2C(userOpenID, content string) {
 	event := dto.C2CMessageCreateEvent{
-		MessageCreateEvent: dto.MessageCreateEvent{
-			Content: content,
-			Author:  dto.Author{UserOpenID: userOpenID},
-		},
+		Content: content,
+		Author:  dto.Author{UserOpenID: userOpenID},
 	}
 	tb.inject(dto.C2CMessageCreate, event)
 }

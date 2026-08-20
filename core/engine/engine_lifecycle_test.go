@@ -177,17 +177,17 @@ func TestEngine_ProcessEvent_WithCommandOptimization(t *testing.T) {
 func TestEngine_ProcessEvent_GenericMatchers(t *testing.T) {
 	eng := newEngineForTest(t)
 
-	var count int32
+	var count atomic.Int32
 
 	// Generic matcher (matches all event types)
 	eng.OnAny().Handle(func(c *ctx.Context) error {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		return nil
 	})
 
 	// Specific matcher
 	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		return nil
 	})
 
@@ -196,18 +196,18 @@ func TestEngine_ProcessEvent_GenericMatchers(t *testing.T) {
 	eng.ProcessEvent(context)
 
 	// Both should execute
-	assert.Equal(t, int32(2), atomic.LoadInt32(&count))
+	assert.Equal(t, int32(2), count.Load())
 }
 
 func TestEngine_ProcessEvent_TempMatcherExecution(t *testing.T) {
 	eng := newEngineForTest(t)
 
-	var count int32
+	var count atomic.Int32
 
 	matcher := eng.OnTemp(string(platform.EventKindPrivateMessage))
 	matcher.rt.maxUseCount = 2
 	matcher.Handle(func(c *ctx.Context) error {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		return nil
 	})
 
@@ -218,7 +218,7 @@ func TestEngine_ProcessEvent_TempMatcherExecution(t *testing.T) {
 	}
 
 	// Should execute limited times
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&count), int32(2))
+	assert.GreaterOrEqual(t, count.Load(), int32(2))
 }
 
 func TestEngine_ProcessEventBatch_AllEventTypes(t *testing.T) {

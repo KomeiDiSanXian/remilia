@@ -477,8 +477,7 @@ func (p *Plugin) loadModels(models []LogEntryModel) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.entries = make([]LogEntry, 0, len(models))
-	for i := len(models) - 1; i >= 0; i-- {
-		m := models[i]
+	for _, m := range slices.Backward(models) {
 		entry := LogEntry{
 			ID:        m.ID,
 			Timestamp: m.Timestamp,

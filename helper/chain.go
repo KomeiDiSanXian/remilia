@@ -2,6 +2,7 @@ package helper
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -146,8 +147,8 @@ func (f Fn[T]) Pipe(others ...func(T) T) Fn[T] {
 func (f Fn[T]) Compose(others ...func(T) T) Fn[T] {
 	return func(input T) T {
 		result := input
-		for i := len(others) - 1; i >= 0; i-- {
-			result = others[i](result)
+		for _, other := range slices.Backward(others) {
+			result = other(result)
 		}
 		if f != nil {
 			result = f(result)

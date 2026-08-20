@@ -22,25 +22,25 @@ import (
 
 // TestHandle_TriggersAliasRegistrar 验证 Handle() 调用时别名回调被触发。
 func TestHandle_TriggersAliasRegistrar(t *testing.T) {
-	var called int32
+	var called atomic.Int32
 	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/ping")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
-		atomic.AddInt32(&called, 1)
+		called.Add(1)
 	})
 	m.SetDefinition(&command.Definition{Name: "ping", Aliases: []string{"p"}})
 	m.Handle(func(c *ctx.Context) error { return nil })
 
-	assert.EqualValues(t, 1, atomic.LoadInt32(&called), "aliasRegistrar should be called exactly once")
+	assert.EqualValues(t, 1, called.Load(), "aliasRegistrar should be called exactly once")
 }
 
 // TestHandle_AliasRegistrarCalledOnce 验证多次调用 Handle() 时回调只触发一次。
 func TestHandle_AliasRegistrarCalledOnce(t *testing.T) {
-	var called int32
+	var called atomic.Int32
 	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/ping2")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
-		atomic.AddInt32(&called, 1)
+		called.Add(1)
 	})
 	m.SetDefinition(&command.Definition{Name: "ping2", Aliases: []string{"p2"}})
 
@@ -49,21 +49,21 @@ func TestHandle_AliasRegistrarCalledOnce(t *testing.T) {
 	m.Handle(handler) // 第二次调用不应再触发
 	m.Handle(handler) // 第三次
 
-	assert.EqualValues(t, 1, atomic.LoadInt32(&called), "aliasRegistrar must fire only once regardless of Handle() call count")
+	assert.EqualValues(t, 1, called.Load(), "aliasRegistrar must fire only once regardless of Handle() call count")
 }
 
 // TestHandle_NoAliases_RegistrarNotCalled 验证无别名时回调不触发。
 func TestHandle_NoAliases_RegistrarNotCalled(t *testing.T) {
-	var called int32
+	var called atomic.Int32
 	eng := newEngineForTest(t)
 	m := eng.OnCommand(string(platform.EventKindPrivateMessage), "/noalias")
 	m.SetAliasRegistrar(func(def *command.Definition, h ctx.Handler) {
-		atomic.AddInt32(&called, 1)
+		called.Add(1)
 	})
 	m.SetDefinition(&command.Definition{Name: "noalias"}) // 无 Aliases
 	m.Handle(func(c *ctx.Context) error { return nil })
 
-	assert.EqualValues(t, 0, atomic.LoadInt32(&called), "aliasRegistrar should NOT fire when Aliases is empty")
+	assert.EqualValues(t, 0, called.Load(), "aliasRegistrar should NOT fire when Aliases is empty")
 }
 
 // getFirstMatcherForCmd 从 commandIndex 中取出指定命令词的第一个 Matcher（辅助函数）。

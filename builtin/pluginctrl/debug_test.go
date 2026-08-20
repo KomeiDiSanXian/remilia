@@ -22,7 +22,7 @@ func TestDebug_UnloadReregister(t *testing.T) {
 	require.NoError(t, pm.Register(pluginctrl.New(pluginctrl.WithSuperUsers("su"))))
 	ctrl := getPluginCtrl(t, pm)
 
-	var handlerCalls int32
+	var handlerCalls atomic.Int32
 	makeDesc := func() *plugin.Descriptor {
 		return &plugin.Descriptor{
 			Name: "weather",
@@ -30,8 +30,8 @@ func TestDebug_UnloadReregister(t *testing.T) {
 				m := ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage))
 				fmt.Printf("[DEBUG] weather Setup: registered matcher %p\n", m)
 				m.Handle(func(_ *eventctx.Context) error {
-					atomic.AddInt32(&handlerCalls, 1)
-					fmt.Printf("[DEBUG] handler called! handlerCalls now = %d\n", atomic.LoadInt32(&handlerCalls))
+					handlerCalls.Add(1)
+					fmt.Printf("[DEBUG] handler called! handlerCalls now = %d\n", handlerCalls.Load())
 					return nil
 				})
 				return nil, nil
@@ -45,17 +45,17 @@ func TestDebug_UnloadReregister(t *testing.T) {
 	fmt.Println("[DEBUG] After first register + setGroupEnabled")
 
 	eng.ProcessEvent(makeGroupCtx("g2", "u1"))
-	fmt.Printf("[DEBUG] After g2 event (first round): handlerCalls=%d\n", atomic.LoadInt32(&handlerCalls))
+	fmt.Printf("[DEBUG] After g2 event (first round): handlerCalls=%d\n", handlerCalls.Load())
 
 	// Unregister
 	require.NoError(t, pm.Unregister(stdctx.Background(), "weather"))
 	fmt.Println("[DEBUG] After unregister")
 
 	// Re-register
-	atomic.StoreInt32(&handlerCalls, 0)
+	handlerCalls.Store(0)
 	require.NoError(t, pm.Register(makeDesc()))
 	fmt.Println("[DEBUG] After second register")
 
 	eng.ProcessEvent(makeGroupCtx("g2", "u1"))
-	fmt.Printf("[DEBUG] After g2 event (second round): handlerCalls=%d\n", atomic.LoadInt32(&handlerCalls))
+	fmt.Printf("[DEBUG] After g2 event (second round): handlerCalls=%d\n", handlerCalls.Load())
 }

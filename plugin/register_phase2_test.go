@@ -27,17 +27,17 @@ func TestRegistryWriter_LiveTracksMatchers(t *testing.T) {
 	defer eng.Shutdown(stdctx.Background())
 	pm := NewManager(eng)
 
-	var matcherCount int32
+	var matcherCount atomic.Int32
 	err := pm.Register(&Descriptor{
 		Name: "rw-test",
 		Setup: func(ctx *SetupContext) (any, error) {
 			m1 := ctx.Reg.RegisterMatcher(testEvent)
 			m2 := ctx.Reg.RegisterMatcher(testEvent)
 			if m1 != nil {
-				atomic.AddInt32(&matcherCount, 1)
+				matcherCount.Add(1)
 			}
 			if m2 != nil {
-				atomic.AddInt32(&matcherCount, 1)
+				matcherCount.Add(1)
 			}
 			return nil, nil
 		},
@@ -46,7 +46,7 @@ func TestRegistryWriter_LiveTracksMatchers(t *testing.T) {
 
 	inst, ok := pm.Get("rw-test")
 	require.True(t, ok)
-	assert.Equal(t, int(atomic.LoadInt32(&matcherCount)), len(inst.GetMatchers()),
+	assert.Equal(t, int(matcherCount.Load()), len(inst.GetMatchers()),
 		"Matchers registered via ctx.Reg should be tracked")
 }
 
@@ -379,10 +379,8 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 
 func TestService_PanicsOnMissing(t *testing.T) {
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{
-			container:  NewContainer(),
-			pluginName: "test",
-		},
+		container:  NewContainer(),
+		pluginName: "test",
 	}
 	assert.Panics(t, func() {
 		ctx.Service[struct{}]("nonexistent")
@@ -391,10 +389,8 @@ func TestService_PanicsOnMissing(t *testing.T) {
 
 func TestTryService_ReturnsNilOnMissing(t *testing.T) {
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{
-			container:  NewContainer(),
-			pluginName: "test",
-		},
+		container:  NewContainer(),
+		pluginName: "test",
 	}
 	svc, ok := ctx.TryService[*struct{}]("nonexistent")
 	assert.Nil(t, svc)
@@ -405,7 +401,7 @@ func TestTryService_ReturnsValueWhenPresent(t *testing.T) {
 	type Svc struct{ X int }
 	c := NewContainer()
 	c.Register("svc", &Svc{X: 42})
-	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: c, pluginName: "test"}}
+	ctx := &SetupContext{container: c, pluginName: "test"}
 
 	svc, ok := ctx.TryService[*Svc]("svc")
 	require.True(t, ok)
@@ -414,7 +410,7 @@ func TestTryService_ReturnsValueWhenPresent(t *testing.T) {
 
 func TestExportAs_NilContainerSafe(t *testing.T) {
 	// container 为 nil 时不应 panic
-	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: nil}}
+	ctx := &SetupContext{container: nil}
 	assert.NotPanics(t, func() {
 		ctx.ExportAs("x", "value")
 	})

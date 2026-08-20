@@ -193,10 +193,9 @@ func (c *saucenaoClient) Search(ctx context.Context, apiKey string, db int, in e
 			Similarity: item.Header.Similarity,
 			Thumbnail:  item.Header.Thumbnail,
 			ExtURLs:    item.Data.ExtURLs,
-		}
 
-		// 确定来源站点名
-		r.SourceName = lookupIndexName(item.Header.IndexID, item.Header.IndexName)
+			// 确定来源站点名
+			SourceName: lookupIndexName(item.Header.IndexID, item.Header.IndexName)}
 		if r.SourceName == "" {
 			r.SourceName = item.Data.Source
 		}

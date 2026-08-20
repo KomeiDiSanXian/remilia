@@ -53,16 +53,16 @@ func (e *awTestEvent) Sender() platform.UserInfo { return platform.UserInfo{ID: 
 // countingSender counts how many times ctx.Reply (→ sender.Send) is called.
 // Used to detect whether a guard fires once or multiple times per event.
 type countingSender struct {
-	n int32
+	n atomic.Int32
 }
 
 func (s *countingSender) Send(_ stdctx.Context, _ platform.SendRequest) (platform.SendResult, error) {
-	atomic.AddInt32(&s.n, 1)
+	s.n.Add(1)
 	return platform.SendResult{}, nil
 }
 
-func (s *countingSender) calls() int { return int(atomic.LoadInt32(&s.n)) }
-func (s *countingSender) reset()     { atomic.StoreInt32(&s.n, 0) }
+func (s *countingSender) calls() int { return int(s.n.Load()) }
+func (s *countingSender) reset()     { s.n.Store(0) }
 
 // newAWGroupEvent creates an engine context whose replies go to cs.
 func newAWGroupEvent(groupID string, cs *countingSender) *eventctx.Context {

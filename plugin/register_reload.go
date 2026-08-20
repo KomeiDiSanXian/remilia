@@ -49,20 +49,18 @@ func (pi *Instance) reload(ctx context.Context, coordinator engine.PluginCoordin
 	inheritedGM := pi.goroutineMgr
 	pi.mu.RUnlock()
 	newContext := &SetupContext{
-		Reg:      newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
-		Log:      newPluginLogger(oldContext.pluginName),
-		Info:     oldContext.Info,
-		Admin:    oldContext.Admin,
-		Config:   oldContext.Config,
-		EventBus: oldContext.EventBus,
-		setupContextInternal: setupContextInternal{
-			container:        oldContext.container,
-			pluginName:       oldContext.pluginName,
-			instance:         oldContext.instance,
-			autoTrackEnabled: true,
-			eng:              oldContext.eng,
-			goroutineMgr:     inheritedGM,
-		},
+		Reg:              newLiveRegistryWriter(oldContext.eng, oldContext.pluginName, oldContext.instance),
+		Log:              newPluginLogger(oldContext.pluginName),
+		Info:             oldContext.Info,
+		Admin:            oldContext.Admin,
+		Config:           oldContext.Config,
+		EventBus:         oldContext.EventBus,
+		container:        oldContext.container,
+		pluginName:       oldContext.pluginName,
+		instance:         oldContext.instance,
+		autoTrackEnabled: true,
+		eng:              oldContext.eng,
+		goroutineMgr:     inheritedGM,
 	}
 
 	// 注意：此处不能提前替换 pi.setupContext。

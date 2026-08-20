@@ -461,7 +461,7 @@ func TestRawEventHelpers_Implemented(t *testing.T) {
 	// mockRawEvent 实现 RawEvent → 帮助函数应返回真实值
 	sentinel := struct{ v int }{v: 42}
 	e := &mockRawEvent{
-		mockEvent:  mockEvent{platformID: "test"},
+		platformID: "test",
 		rawType:    "MY_EVENT_TYPE",
 		rawPayload: sentinel,
 	}

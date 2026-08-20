@@ -460,9 +460,9 @@ func TestEngine_ProcessEventBatch(t *testing.T) {
 	t.Run("process multiple events", func(t *testing.T) {
 		eng := newEngineForTest(t)
 
-		var count int32
+		var count atomic.Int32
 		eng.OnEventKind(platform.EventKindPrivateMessage).Handle(func(c *ctx.Context) error {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			return nil
 		})
 
@@ -475,7 +475,7 @@ func TestEngine_ProcessEventBatch(t *testing.T) {
 		eng.ProcessPlatformEventBatch(events, nil)
 		eng.WaitForAsyncHandlers()
 
-		assert.Equal(t, int32(3), atomic.LoadInt32(&count))
+		assert.Equal(t, int32(3), count.Load())
 	})
 
 	t.Run("process empty batch", func(t *testing.T) {
@@ -763,9 +763,9 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 	t.Run("concurrent event processing", func(t *testing.T) {
 		eng := newEngineForTest(t)
 
-		var count int32
+		var count atomic.Int32
 		eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *ctx.Context) error {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			return nil
 		})
 
@@ -781,7 +781,7 @@ func TestEngine_ConcurrentProcessing(t *testing.T) {
 
 		wg.Wait()
 
-		assert.Equal(t, int32(100), atomic.LoadInt32(&count))
+		assert.Equal(t, int32(100), count.Load())
 	})
 
 	t.Run("concurrent matcher registration", func(t *testing.T) {

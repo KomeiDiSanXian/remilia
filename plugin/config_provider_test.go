@@ -69,10 +69,8 @@ func TestSetConfigProvider_Basic(t *testing.T) {
 
 	// 先注册一个插件（使用旧 provider，实现 Stop 接口）
 	oldCp := &stopProvider{
-		mockConfigProvider: mockConfigProvider{
-			subFn: func(name string) map[string]any {
-				return oldData
-			},
+		subFn: func(name string) map[string]any {
+			return oldData
 		},
 	}
 	pm.config.configProvider = oldCp
@@ -188,10 +186,8 @@ func TestSetConfigProvider_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cp := &stopProvider{
-				mockConfigProvider: mockConfigProvider{
-					subFn: func(name string) map[string]any {
-						return map[string]any{"val": val}
-					},
+				subFn: func(name string) map[string]any {
+					return map[string]any{"val": val}
 				},
 			}
 			pm.SetConfigProvider(cp)
@@ -226,10 +222,8 @@ func TestSetConfigProvider_SyncOnConfigChange(t *testing.T) {
 
 	// 使用同步触发回调的 provider——不应死锁
 	syncCp := &syncConfigProvider{
-		mockConfigProvider: mockConfigProvider{
-			subFn: func(name string) map[string]any {
-				return map[string]any{"synced": "ok"}
-			},
+		subFn: func(name string) map[string]any {
+			return map[string]any{"synced": "ok"}
 		},
 	}
 	pm.SetConfigProvider(syncCp)

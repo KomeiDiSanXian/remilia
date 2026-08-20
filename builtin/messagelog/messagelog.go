@@ -32,6 +32,7 @@ package messagelog
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -605,8 +606,7 @@ func (l *Logger) queryGroupRecent(groupID string, n int, includeBot bool) []Reco
 		sortEntriesByTime(mem)
 		return lastN(mem, n)
 	}
-	for i := len(models) - 1; i >= 0; i-- {
-		m := models[i]
+	for _, m := range slices.Backward(models) {
 		if seen[m.EventID] {
 			continue
 		}

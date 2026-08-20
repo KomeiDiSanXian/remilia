@@ -103,7 +103,7 @@ func (s *TempSnapshot) snapshotList(et EventType) []*Matcher {
 type tempMatcherManager struct {
 	shards [tempMatcherShardCount]*tempMatcherShard
 	config TempManagerConfig
-	count  int32 // 原子计数，避免频繁加锁统计
+	count  atomic.Int32 // 原子计数，避免频繁加锁统计
 
 	snapshot atomic.Pointer[TempSnapshot] // RCU 只读快照
 	snapMu   sync.Mutex                   // 保护 rebuildSnapshot
@@ -194,7 +194,7 @@ func (m *tempMatcherManager) Add(matcher *Matcher) {
 	shard.mu.Unlock()
 
 	// 增加计数
-	newCount := atomic.AddInt32(&m.count, 1)
+	newCount := m.count.Add(1)
 
 	// 增量更新 RCU 快照：仅 COW 替换该 eventType 的切片，
 	// 摆脱此前每次 Add 都全量收集 8 shard + 整体排序的 O(N log N) 写放大
@@ -273,7 +273,7 @@ func (m *tempMatcherManager) waitCleanups(ctx context.Context) error {
 
 // Count returns the number of temporary matchers
 func (m *tempMatcherManager) Count() int {
-	return int(atomic.LoadInt32(&m.count))
+	return int(m.count.Load())
 }
 
 // HasAny reports whether there are any temporary matchers registered.
@@ -282,7 +282,7 @@ func (m *tempMatcherManager) Count() int {
 // Use this as a fast-path guard before calling Get to skip the shard scan
 // entirely when temp matchers are absent (the common case in production bots).
 func (m *tempMatcherManager) HasAny() bool {
-	return atomic.LoadInt32(&m.count) > 0
+	return m.count.Load() > 0
 }
 
 // CountAccurate returns accurate count by scanning all shards (slower)
@@ -306,7 +306,7 @@ func (m *tempMatcherManager) Remove(matcher *Matcher) {
 	if _, exists := shard.byID[matcher]; exists {
 		m.removeLocked(shard, matcher)
 		shard.mu.Unlock()
-		atomic.AddInt32(&m.count, -1)
+		m.count.Add(-1)
 		// 增量更新 RCU 快照（COW 移除，见 snapshotRemove）
 		m.snapshotRemove(matcher)
 	} else {
@@ -485,7 +485,7 @@ func (m *tempMatcherManager) CleanExpired() []*Matcher {
 					m.removeLocked(shard, matcher)
 					matcher.rt.deleted.Store(true)
 					expired = append(expired, matcher)
-					atomic.AddInt32(&m.count, -1)
+					m.count.Add(-1)
 				}
 			} else {
 				break
@@ -543,7 +543,7 @@ func (m *tempMatcherManager) cleanToWatermark() {
 			}
 			m.removeLocked(shard, matcher)
 			matcher.rt.deleted.Store(true)
-			atomic.AddInt32(&m.count, -1)
+			m.count.Add(-1)
 			removed++
 		}
 

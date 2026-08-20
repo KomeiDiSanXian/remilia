@@ -199,7 +199,7 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 	}
 
 	sema := make(chan struct{}, maxInFlight)
-	var dropped uint64
+	var dropped atomic.Uint64
 
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
@@ -210,8 +210,8 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 				case sema <- struct{}{}:
 					acquired = true
 				default:
-					atomic.AddUint64(&dropped, 1)
-					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+					dropped.Add(1)
+					logger.WithField("dropped_total", dropped.Load()).
 						Warn("[Backpressure] Dropped due to limit")
 					return fmt.Errorf("backpressure limit exceeded (drop)")
 				}
@@ -224,8 +224,8 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 				case sema <- struct{}{}:
 					acquired = true
 				case <-ctx.Context().Done():
-					atomic.AddUint64(&dropped, 1)
-					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+					dropped.Add(1)
+					logger.WithField("dropped_total", dropped.Load()).
 						Warn("[Backpressure] Aborted while waiting (context done)")
 					return ctx.Context().Err()
 				}
@@ -236,8 +236,8 @@ func Backpressure(maxInFlight int, policy BackpressurePolicy, waitTimeout time.D
 				case sema <- struct{}{}:
 					acquired = true
 				case <-timer.C:
-					atomic.AddUint64(&dropped, 1)
-					logger.WithField("dropped_total", atomic.LoadUint64(&dropped)).
+					dropped.Add(1)
+					logger.WithField("dropped_total", dropped.Load()).
 						WithField("timeout", waitTimeout).
 						Warn("[Backpressure] Dropped due to wait timeout")
 					return fmt.Errorf("backpressure limit exceeded (timeout)")

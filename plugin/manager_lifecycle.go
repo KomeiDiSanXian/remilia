@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -101,13 +102,13 @@ func (lc *lifecycleController) StopAll(ctx context.Context) error {
 
 	var errs []error
 	// 从后往前遍历
-	for i := len(order) - 1; i >= 0; i-- {
+	for _, name := range slices.Backward(order) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		name := order[i]
+
 		lc.pm.mu.RLock()
 		inst, exists := lc.pm.plugins[name]
 		lc.pm.mu.RUnlock()

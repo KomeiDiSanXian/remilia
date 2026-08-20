@@ -22,20 +22,20 @@ func TestMatcher_TempOnce(t *testing.T) {
 	t.Run("auto delete after one execution", func(t *testing.T) {
 		eng := newEngineForTest(t)
 
-		var count int32
+		var count atomic.Int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 1
 		matcher.rt.useCount = 0
 		matcher.Handle(func(c *ctx.Context) error {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			return nil
 		})
 
 		// First execution
 		ctx1 := ctx.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
 		eng.ProcessEvent(ctx1)
-		assert.Equal(t, int32(1), atomic.LoadInt32(&count))
+		assert.Equal(t, int32(1), count.Load())
 
 		// Check if matcher should be deleted
 		matcher.rt.mu.RLock()
@@ -54,13 +54,13 @@ func TestMatcher_TempN(t *testing.T) {
 	t.Run("execute N times then delete", func(t *testing.T) {
 		eng := newEngineForTest(t)
 
-		var count int32
+		var count atomic.Int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 3
 		matcher.rt.useCount = 0
 		matcher.Handle(func(c *ctx.Context) error {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			return nil
 		})
 
@@ -71,18 +71,18 @@ func TestMatcher_TempN(t *testing.T) {
 		}
 
 		// Should execute at most 3 times
-		assert.LessOrEqual(t, atomic.LoadInt32(&count), int32(3))
+		assert.LessOrEqual(t, count.Load(), int32(3))
 	})
 
 	t.Run("zero count means no auto-delete", func(t *testing.T) {
 		eng := newEngineForTest(t)
 
-		var count int32
+		var count atomic.Int32
 		matcher := eng.On(string(platform.EventKindPrivateMessage))
 		matcher.SetTemp(true)
 		matcher.rt.maxUseCount = 0 // 0 means no auto-delete
 		matcher.Handle(func(c *ctx.Context) error {
-			atomic.AddInt32(&count, 1)
+			count.Add(1)
 			return nil
 		})
 
@@ -90,7 +90,7 @@ func TestMatcher_TempN(t *testing.T) {
 		eng.ProcessEvent(context)
 
 		// With maxUseCount=0, handler should still execute (no auto-delete)
-		assert.Equal(t, int32(1), atomic.LoadInt32(&count))
+		assert.Equal(t, int32(1), count.Load())
 	})
 }
 

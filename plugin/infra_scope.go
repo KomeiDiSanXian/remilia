@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -116,27 +117,27 @@ func (s *Scope) Dispose(ctx context.Context) error {
 	}()
 
 	// 逆序销毁子 Scope（深度优先）
-	for i := len(children) - 1; i >= 0; i-- {
+	for _, c := range slices.Backward(children) {
 		select {
 		case <-ctx.Done():
 			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during child cleanup")
 			return ctx.Err()
 		default:
 		}
-		if err := children[i].Dispose(ctx); err != nil {
+		if err := c.Dispose(ctx); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] child scope Dispose failed")
 		}
 	}
 
 	// 执行用户注册的清理回调（逆序）
-	for i := len(hooks) - 1; i >= 0; i-- {
+	for _, hook := range slices.Backward(hooks) {
 		select {
 		case <-ctx.Done():
 			logger.WithField("scope", s.name).Warn("[Scope] Dispose cancelled during hook execution")
 			return ctx.Err()
 		default:
 		}
-		if err := hooks[i](); err != nil {
+		if err := hook(); err != nil {
 			logger.WithField("scope", s.name).WithError(err).Warn("[Scope] Dispose hook failed")
 		}
 	}

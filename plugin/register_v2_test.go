@@ -61,7 +61,7 @@ func TestSetupContext_Get(t *testing.T) {
 	container.Register("dep1", "value1")
 
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{container: container},
+		container: container,
 	}
 
 	// Test get
@@ -81,7 +81,7 @@ func TestSetupContext_MustGet(t *testing.T) {
 	container.Register("dep1", "value1")
 
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{container: container},
+		container: container,
 	}
 
 	// Test mustGet success
@@ -113,7 +113,7 @@ func TestPluginInstance_Lifecycle(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{container: NewContainer()},
+		container: NewContainer(),
 	}
 
 	instance := &Instance{
@@ -344,7 +344,7 @@ func TestPluginInstance_Reload_Default(t *testing.T) {
 
 	eng := engine.NewEngine()
 	ctx := &SetupContext{
-		setupContextInternal: setupContextInternal{container: NewContainer()},
+		container: NewContainer(),
 	}
 
 	instance := &Instance{

@@ -415,9 +415,9 @@ type OutboundMessage struct {
 // Segments 原样保留为主字段（Sender 段路径优先）；Text/Attachments/Mentions/ReplyToID
 // 由派生函数填充，便于段路径之外的代码阅读。
 func SegmentsToOutbound(segs []Segment) OutboundMessage {
-	m := OutboundMessage{Segments: segs}
-	m.Text = SegmentsContent(segs)
-	m.Attachments = SegmentsAttachments(segs)
+	m := OutboundMessage{Segments: segs,
+		Text:        SegmentsContent(segs),
+		Attachments: SegmentsAttachments(segs)}
 	for _, s := range segs {
 		if s.Type == SegmentAt && s.UserID != "" {
 			m.Mentions = append(m.Mentions, s.UserID)

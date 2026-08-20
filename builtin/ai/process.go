@@ -379,9 +379,9 @@ func (p *Plugin) execOneTool(ctx *eventctx.Context, session *Session, cs *captur
 // lastUserIsReplan 判断会话最后一条用户消息是否已是重规划指令（防重复追加）。
 func lastUserIsReplan(session *Session) bool {
 	msgs := session.SnapshotMessages()
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == RoleUser {
-			return strings.HasPrefix(msgs[i].Content, "计划步骤")
+	for _, msg := range slices.Backward(msgs) {
+		if msg.Role == RoleUser {
+			return strings.HasPrefix(msg.Content, "计划步骤")
 		}
 	}
 	return false
@@ -562,9 +562,9 @@ func (p *Plugin) buildUserSkillTools(userID string) []Tool {
 func getLastUserMessage(session *Session) string {
 	session.Lock()
 	defer session.Unlock()
-	for i := len(session.Messages) - 1; i >= 0; i-- {
-		if session.Messages[i].Role == RoleUser {
-			return session.Messages[i].Content
+	for _, v := range slices.Backward(session.Messages) {
+		if v.Role == RoleUser {
+			return v.Content
 		}
 	}
 	return ""
@@ -642,8 +642,8 @@ func repairToolCallSequence(msgs []Message) []Message {
 // 的图片/音频内容被替换为文本占位，防止每轮对话重复上传附件。
 func prepareRequestMessages(msgs []Message) []Message {
 	lastUserIdx := -1
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == RoleUser {
+	for i, msg := range slices.Backward(msgs) {
+		if msg.Role == RoleUser {
 			lastUserIdx = i
 			break
 		}

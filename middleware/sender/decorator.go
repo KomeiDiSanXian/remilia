@@ -14,6 +14,8 @@
 package sender
 
 import (
+	"slices"
+
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -25,8 +27,8 @@ type SenderDecorator func(platform.Sender) platform.Sender
 // 等价于 Chain(a, b, c)(s) == a(b(c(s)))。
 func Chain(decorators ...SenderDecorator) SenderDecorator {
 	return func(s platform.Sender) platform.Sender {
-		for i := len(decorators) - 1; i >= 0; i-- {
-			s = decorators[i](s)
+		for _, decorator := range slices.Backward(decorators) {
+			s = decorator(s)
 		}
 		return s
 	}

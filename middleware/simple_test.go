@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -147,8 +148,8 @@ func TestMiddlewareExecution(t *testing.T) {
 
 		// Wrap handler with middleware
 		wrapped := handler
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			wrapped = middlewares[i](wrapped)
+		for _, middleware := range slices.Backward(middlewares) {
+			wrapped = middleware(wrapped)
 		}
 
 		// Create test context

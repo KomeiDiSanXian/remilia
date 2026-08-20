@@ -267,13 +267,13 @@ func TestAutoWire_InfraPlugin_NotWired(t *testing.T) {
 	)))
 	ctrl := getPluginCtrl(t, pm)
 
-	var handlerCalls int32
+	var handlerCalls atomic.Int32
 	infraDesc := &plugin.Descriptor{
 		Name: "infra-svc",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Reg.RegisterMatcher(string(platform.EventKindGroupMessage)).
 				Handle(func(_ *eventctx.Context) error {
-					atomic.AddInt32(&handlerCalls, 1)
+					handlerCalls.Add(1)
 					return nil
 				})
 			return nil, nil
@@ -286,6 +286,6 @@ func TestAutoWire_InfraPlugin_NotWired(t *testing.T) {
 
 	// infra-svc 不受 guard 管控，handler 应正常执行
 	eng.ProcessEvent(makeGroupCtx("g1", "u1"))
-	assert.Equal(t, int32(1), atomic.LoadInt32(&handlerCalls),
+	assert.Equal(t, int32(1), handlerCalls.Load(),
 		"豁免列表中的插件不应被 guard 拦截，handler 应执行")
 }

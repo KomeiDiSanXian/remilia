@@ -11,19 +11,19 @@ import (
 // SimpleLogger 简单的日志实现
 type SimpleLogger struct{}
 
-func (l *SimpleLogger) Debugf(format string, args ...interface{}) {
+func (l *SimpleLogger) Debugf(format string, args ...any) {
 	log.Printf("[DEBUG] "+format, args...)
 }
 
-func (l *SimpleLogger) Infof(format string, args ...interface{}) {
+func (l *SimpleLogger) Infof(format string, args ...any) {
 	log.Printf("[INFO] "+format, args...)
 }
 
-func (l *SimpleLogger) Warnf(format string, args ...interface{}) {
+func (l *SimpleLogger) Warnf(format string, args ...any) {
 	log.Printf("[WARN] "+format, args...)
 }
 
-func (l *SimpleLogger) Errorf(format string, args ...interface{}) {
+func (l *SimpleLogger) Errorf(format string, args ...any) {
 	log.Printf("[ERROR] "+format, args...)
 }
 
@@ -56,7 +56,7 @@ func main() {
 	fmt.Println("2️⃣  POST JSON 请求")
 	fmt.Println("----------------------------------------")
 
-	userData := map[string]interface{}{
+	userData := map[string]any{
 		"name":  "Bob",
 		"age":   30,
 		"email": "bob@example.com",

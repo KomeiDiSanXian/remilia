@@ -83,18 +83,16 @@ func (pm *Manager) dryRunInferDeps(descriptors []*Descriptor) (map[string][]stri
 		}
 		gm := newGoroutineManager()
 		ctx := &SetupContext{
-			Reg:      &noopRegistryWriter{},
-			Log:      newDryRunLogger(desc.Name),
-			Info:     newPluginInfo(pm),
-			EventBus: newNoopEventBus(),
-			Config:   NewPluginConfigFromProvider(desc.Name, nil),
-			DryRun:   true,
-			setupContextInternal: setupContextInternal{
-				container:        tempContainer,
-				pluginName:       desc.Name,
-				autoTrackEnabled: true,
-				goroutineMgr:     gm,
-			},
+			Reg:              &noopRegistryWriter{},
+			Log:              newDryRunLogger(desc.Name),
+			Info:             newPluginInfo(pm),
+			EventBus:         newNoopEventBus(),
+			Config:           NewPluginConfigFromProvider(desc.Name, nil),
+			DryRun:           true,
+			container:        tempContainer,
+			pluginName:       desc.Name,
+			autoTrackEnabled: true,
+			goroutineMgr:     gm,
 		}
 		var api any
 		func() {

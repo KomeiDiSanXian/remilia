@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,8 +56,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			return nil
 		}
 		lastUserIdx := -1
-		for i := len(session.Messages) - 1; i >= 0; i-- {
-			if session.Messages[i].Role == RoleUser {
+		for i, v := range slices.Backward(session.Messages) {
+			if v.Role == RoleUser {
 				lastUserIdx = i
 				break
 			}
@@ -85,8 +86,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 			return nil
 		}
 		lastAssistantIdx := -1
-		for i := len(session.Messages) - 1; i >= 0; i-- {
-			if session.Messages[i].Role == RoleAssistant {
+		for i, v := range slices.Backward(session.Messages) {
+			if v.Role == RoleAssistant {
 				lastAssistantIdx = i
 				break
 			}
