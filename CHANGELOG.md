@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.41.1 (2026-08-20)
+
+### 🐛 修复：时序敏感的 flaky 测试与 Prometheus 重复注册
+
+- **SlowHandler 阈值边界竞态**（`middleware/telemetry`）：`duration` 计时起点晚于注入 deadline 的基准，恰好消耗完整预算的 handler 会被测出略小于阈值而漏报慢日志/告警。修复：`start` 提前到 `WithTimeout` 之前采集，判定由 `>` 改为 `>=`；测试迁移至 `testing/synctest`，虚拟时钟下确定性验证
+- **AI 并行工具执行测试**（`builtin/ai`）：`TestProcessWithToolsParallelTools` 迁移至 `synctest`，并发度断言不再依赖真实调度时序
+- **Prometheus 指标幂等注册**（`middleware/telemetry`、`middleware/sender`）：`PrometheusMetrics` 与 `sender.Metrics` 由 `promauto` 全局注册改为 `MustRegisterOrGet` 幂等注册，重复调用（插件重载、`go test -count>1`）不再因重复注册 panic
+- **测试隔离**（`core/context`、`core/engine`、`infra/metrics`）：冷却测试改用每轮唯一 key（`cooldownStore` 为全局 LRU）、nil 注册表测试改用每轮唯一 namespace（默认注册表全局共享），消除跨轮残留导致的偶发失败
+
 ## v1.41.0 (2026-08-20)
 
 ### 🚀 Go 1.27：泛型方法与 JSON v2 落地

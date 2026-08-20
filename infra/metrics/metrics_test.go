@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// nilRegTestSeq 为 nil 注册表测试生成每轮唯一的 namespace（默认注册表全局共享）。
+var nilRegTestSeq atomic.Int64
 
 // TestNewMetricsCollector tests creating a new metrics collector
 func TestNewMetricsCollector(t *testing.T) {
@@ -479,7 +484,10 @@ func TestMetricsCollector_DifferentNamespaces(t *testing.T) {
 // TestMetricsCollector_NilRegistry tests that nil registry falls back to default
 func TestMetricsCollector_NilRegistry(t *testing.T) {
 	assert.NotPanics(t, func() {
-		_ = NewMetricsCollectorWithRegistry("test_nil_reg", nil)
+		// 每轮唯一 namespace：nil 回退到默认注册表，固定名字会在 -count>1 时
+		// 因重复注册而 panic。
+		ns := fmt.Sprintf("test_nil_reg_%d", nilRegTestSeq.Add(1))
+		_ = NewMetricsCollectorWithRegistry(ns, nil)
 	}, "Collector with nil registry should use default registry")
 }
 

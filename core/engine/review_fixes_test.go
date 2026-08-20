@@ -14,7 +14,9 @@ package engine
 
 import (
 	stdctx "context"
+	"fmt"
 	"math"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -254,13 +256,17 @@ func TestReviewFix_DeleteMatcherSyncFallbackAndFlush(t *testing.T) {
 	}
 }
 
+var cdReviewTestSeq atomic.Int64
+
 // TestReviewFix_CooldownDeferredCommit 验证 OnCooldown 的延迟副作用语义：
 // 规则通过但所在 matcher 未命中（后续规则失败）时不消耗冷却，
 // 只有确认命中的 matcher 才提交冷却写入。
 func TestReviewFix_CooldownDeferredCommit(t *testing.T) {
 	eng := newEngineForTest(t)
 	et := string(platform.EventKindPrivateMessage)
-	key := func(*context.Context) string { return "review_cd_user" }
+	// 每轮唯一 key：cooldownStore 是全局存储，固定 key 在 -count>1 时会跨轮残留。
+	cdKey := fmt.Sprintf("review_cd_user_%d", cdReviewTestSeq.Add(1))
+	key := func(*context.Context) string { return cdKey }
 
 	// matcher A：OnCooldown 在前，后续规则恒失败 → 永不命中，也不得消耗冷却
 	mA := eng.On(et,

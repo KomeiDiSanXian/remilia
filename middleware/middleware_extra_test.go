@@ -268,55 +268,63 @@ func TestRateLimitExtra(t *testing.T) {
 
 func TestSlowHandlerExtra(t *testing.T) {
 	t.Run("logs slow handler", func(t *testing.T) {
-		logged := false
-		var loggedDuration time.Duration
-		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
-			Threshold: 50 * time.Millisecond,
-			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
-				logged = true
-				loggedDuration = duration
-			},
+		synctest.Test(t, func(t *testing.T) {
+			logged := false
+			var loggedDuration time.Duration
+			mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
+				Threshold: 50 * time.Millisecond,
+				Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
+					logged = true
+					loggedDuration = duration
+				},
+			})
+			handler := mw(mockHandler(nil, 200*time.Millisecond))
+			handler(createTestContext())
+			assert.True(t, logged)
+			// handler 被 deadline 打断，虚拟时钟下 duration 精确等于 threshold
+			assert.GreaterOrEqual(t, loggedDuration, 50*time.Millisecond)
+			assert.Less(t, loggedDuration, 100*time.Millisecond)
 		})
-		handler := mw(mockHandler(nil, 100*time.Millisecond))
-		handler(createTestContext())
-		assert.True(t, logged)
-		// handler 被 deadline 打断（~50ms 超时），duration 接近 threshold 而非 100ms
-		assert.GreaterOrEqual(t, loggedDuration, 40*time.Millisecond)
-		assert.Less(t, loggedDuration, 100*time.Millisecond)
 	})
 
 	t.Run("does not log fast handler", func(t *testing.T) {
-		logged := false
-		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
-			Threshold: 100 * time.Millisecond,
-			Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
-				logged = true
-			},
+		synctest.Test(t, func(t *testing.T) {
+			logged := false
+			mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
+				Threshold: 100 * time.Millisecond,
+				Logger: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
+					logged = true
+				},
+			})
+			handler := mw(mockHandler(nil, 10*time.Millisecond))
+			handler(createTestContext())
+			assert.False(t, logged)
 		})
-		handler := mw(mockHandler(nil, 10*time.Millisecond))
-		handler(createTestContext())
-		assert.False(t, logged)
 	})
 
 	t.Run("calls OnSlowHandler callback", func(t *testing.T) {
-		called := false
-		mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
-			Threshold: 50 * time.Millisecond,
-			OnSlowHandler: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
-				called = true
-			},
+		synctest.Test(t, func(t *testing.T) {
+			called := false
+			mw := telemetry.SlowHandler(telemetry.SlowHandlerConfig{
+				Threshold: 50 * time.Millisecond,
+				OnSlowHandler: func(handlerName string, duration time.Duration, ctx *eventctx.Context) {
+					called = true
+				},
+			})
+			handler := mw(mockHandler(nil, 200*time.Millisecond))
+			handler(createTestContext())
+			assert.True(t, called)
 		})
-		handler := mw(mockHandler(nil, 100*time.Millisecond))
-		handler(createTestContext())
-		assert.True(t, called)
 	})
 }
 
 func TestSlowHandlerSimpleExtra(t *testing.T) {
-	mw := telemetry.SlowHandlerSimple(50 * time.Millisecond)
-	handler := mw(mockHandler(nil, 100*time.Millisecond))
-	err := handler(createTestContext())
-	assert.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		mw := telemetry.SlowHandlerSimple(50 * time.Millisecond)
+		handler := mw(mockHandler(nil, 200*time.Millisecond))
+		err := handler(createTestContext())
+		assert.NoError(t, err)
+	})
 }
 
 // ============================================================================

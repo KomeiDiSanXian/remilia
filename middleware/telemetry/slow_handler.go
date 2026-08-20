@@ -52,13 +52,16 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 			// ctx.Context().Done() 感知"被监控"并主动缩短路径。
 			// 此 deadline 仅用于监控提示，不强制执行——若 handler 因 deadline
 			// 返回 deadline 超时错误，此处会将其屏蔽，避免影响正常处理结果。
+			// start 必须先于 WithTimeout 采集：deadline 以 start 为基准，
+			// 否则恰好在阈值处返回的 handler（感知监控而主动缩短路径）会被
+			// 测出略小于 threshold 的耗时而漏报。比较用 >=：这类 handler 恰好
+			// 消耗完整预算，理应视为慢（synctest 虚拟时钟下耗时精确等于阈值）。
+			start := time.Now()
 			stdCtx, cancel := stdctx.WithTimeout(ctx.Context(), config.Threshold)
 			defer cancel()
 			originalCtx := ctx.Context()
 			ctx.SetStdContext(stdCtx)
 			defer ctx.SetStdContext(originalCtx)
-
-			start := time.Now()
 
 			// 执行处理器
 			err := next(ctx)
@@ -66,8 +69,8 @@ func SlowHandler(config SlowHandlerConfig) context.Middleware {
 			// 计算耗时
 			duration := time.Since(start)
 
-			// 检查是否超过阈值
-			if duration > config.Threshold {
+			// 检查是否达到阈值
+			if duration >= config.Threshold {
 				// 获取处理器名称（使用事件类型作为标识）
 				handlerName := ctx.GetEventType()
 

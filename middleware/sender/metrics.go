@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // Metrics 包装 Sender，记录发送耗时、成功/失败次数到 Prometheus。
@@ -21,18 +21,18 @@ import (
 func Metrics(namespace string) SenderDecorator {
 	labels := prometheus.Labels{"namespace": namespace}
 
-	duration := promauto.NewHistogramVec(prometheus.HistogramOpts{
+	duration := inframetrics.MustRegisterOrGet(nil, prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespace,
 		Name:      "send_duration_seconds",
 		Help:      "消息发送耗时",
 		Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
-	}, []string{})
+	}, []string{})).(*prometheus.HistogramVec)
 
-	total := promauto.NewCounterVec(prometheus.CounterOpts{
+	total := inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "send_total",
 		Help:      "消息发送总数",
-	}, []string{"status"})
+	}, []string{"status"})).(*prometheus.CounterVec)
 
 	return func(next platform.Sender) platform.Sender {
 		return metricsSender{next: next, labels: labels, duration: duration, total: total}

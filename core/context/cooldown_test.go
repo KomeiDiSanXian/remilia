@@ -1,6 +1,8 @@
 package context
 
 import (
+	"fmt"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -11,6 +13,10 @@ import (
 func makeFakeContext() *Context {
 	return NewContextFromEvent(newMockEvent(platform.EventKindPrivateMessage), nil)
 }
+
+// cdTestSeq 为冷却测试生成每轮唯一的 key，避免全局 cooldownStore 跨轮残留。
+var cdTestSeq atomic.Int64
+
 func TestOnCooldown_AllowsFirst(t *testing.T) {
 	rule := OnCooldown(1*time.Second, func(c *Context) string { return "cd_user_first" })
 	c := makeFakeContext()
@@ -19,7 +25,8 @@ func TestOnCooldown_AllowsFirst(t *testing.T) {
 	}
 }
 func TestOnCooldown_BlocksSecond(t *testing.T) {
-	rule := OnCooldown(10*time.Second, func(c *Context) string { return "cd_user_second" })
+	key := fmt.Sprintf("cd_user_second_%d", cdTestSeq.Add(1))
+	rule := OnCooldown(10*time.Second, func(c *Context) string { return key })
 	c := makeFakeContext()
 	rule(c)
 	// 冷却写入是延迟副作用：模拟引擎在 matcher 命中后的提交
@@ -51,7 +58,8 @@ func TestOnCooldown_EmptyKeyAllows(t *testing.T) {
 // TestOnCooldown_DiscardDoesNotConsume 验证延迟副作用被丢弃时不消耗冷却：
 // 对应"规则通过但所在 matcher 未命中（后续规则失败/其他 matcher 处理）"的场景。
 func TestOnCooldown_DiscardDoesNotConsume(t *testing.T) {
-	rule := OnCooldown(1*time.Hour, func(c *Context) string { return "cd_user_discard" })
+	key := fmt.Sprintf("cd_user_discard_%d", cdTestSeq.Add(1))
+	rule := OnCooldown(1*time.Hour, func(c *Context) string { return key })
 	c := makeFakeContext()
 
 	if !rule(c) {

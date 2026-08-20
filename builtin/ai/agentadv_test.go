@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
@@ -46,7 +47,9 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 					maxConcurrent.Store(v)
 				}
 				defer curConcurrent.Add(-1)
-				time.Sleep(150 * time.Millisecond)
+				// 工具内 sleep 提供阻塞点：synctest 调度器逐个运行 goroutine，
+				// 没有阻塞点会串行跑完导致并发度观测为 1。
+				time.Sleep(50 * time.Millisecond)
 				return "ok", nil
 			},
 		})
@@ -58,29 +61,32 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 	evt := platform.NewSyntheticEvent("c2c", "do both")
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
-	start := time.Now()
-	if _, err := p.processWithTools(ctx, session); err != nil {
-		t.Fatalf("processWithTools failed: %v", err)
-	}
-	elapsed := time.Since(start)
-	if maxConcurrent.Load() < 2 {
-		t.Errorf("expected parallel execution (concurrency >= 2), got %d", maxConcurrent.Load())
-	}
-	// 两个 150ms 工具并行 ≈ 150-200ms，串行应 ≥ 300ms
-	if elapsed > 280*time.Millisecond {
-		t.Errorf("expected parallel speedup, took %v", elapsed)
-	}
-	// 结果按原始顺序回填（tool_a 在前）
-	msgs := session.SnapshotMessages()
-	var toolOrder []string
-	for _, m := range msgs {
-		if m.Role == RoleTool {
-			toolOrder = append(toolOrder, m.ToolCallID)
+	synctest.Test(t, func(t *testing.T) {
+		start := time.Now()
+		if _, err := p.processWithTools(ctx, session); err != nil {
+			t.Fatalf("processWithTools failed: %v", err)
 		}
-	}
-	if len(toolOrder) != 2 || toolOrder[0] != "c1" || toolOrder[1] != "c2" {
-		t.Errorf("results should be in original order, got %v", toolOrder)
-	}
+		elapsed := time.Since(start)
+		if maxConcurrent.Load() < 2 {
+			t.Errorf("expected parallel execution (concurrency >= 2), got %d", maxConcurrent.Load())
+		}
+		// 虚拟时钟下两个 50ms 工具并行耗时恰为 50ms；退化为串行时并发度断言
+		// 已能确定性捕获，此处仅作兜底。
+		if elapsed > time.Second {
+			t.Errorf("expected parallel speedup, took %v", elapsed)
+		}
+		// 结果按原始顺序回填（tool_a 在前）
+		msgs := session.SnapshotMessages()
+		var toolOrder []string
+		for _, m := range msgs {
+			if m.Role == RoleTool {
+				toolOrder = append(toolOrder, m.ToolCallID)
+			}
+		}
+		if len(toolOrder) != 2 || toolOrder[0] != "c1" || toolOrder[1] != "c2" {
+			t.Errorf("results should be in original order, got %v", toolOrder)
+		}
+	})
 }
 
 // --- 用户中断/抢占 ---
