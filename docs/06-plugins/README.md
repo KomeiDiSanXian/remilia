@@ -46,7 +46,7 @@
 - 事件总线（ctx.EventBus / ctx.Scope().Subscribe）
 - Engine 只读视图（ctx.Info.Coordinator）
 - 资源追踪（Scope / OnDispose）
-- 防过期服务代理（ServiceProxy）
+- 服务依赖注入与热重载刷新（ctx.Service / OnDependencyReloaded）
 - 状态迁移（SaveState / MigrateState / RestoreState）
 - 定时任务（RegisterCron / After）
 - 出站消息观察者（OutboundObserver）

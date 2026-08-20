@@ -323,7 +323,7 @@ func main() {
     pm.Register(permission.New())
 
     // 获取插件实例
-    p := plugin.MustGetService[permission.Plugin](pm.GetContainer(), "permission")
+    p := pm.GetContainer().MustGetService[permission.Plugin]("permission")
     
     // 生成验证码
     code, err := p.GenerateVerificationCode(
@@ -442,4 +442,3 @@ maxUses := -1             // 无限次
 - [ ] 验证码模板
 - [ ] IP白名单限制
 - [ ] 二次验证
-

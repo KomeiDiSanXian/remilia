@@ -17,13 +17,13 @@ Context 提供两套完全隔离的键值存储：
 
 | | 字符串键 | 类型键（typed extensions） |
 |---|---------|--------------------------|
-| API | `ctx.Set("k", v)` / `ctx.Get("k")` | `ExtSet(ctx.Ext(), v)` / `ExtGet[T](ctx.Ext())` |
+| API | `ctx.Set("k", v)` / `ctx.Get("k")` | `ctx.Ext().SetTyped(v)` / `ctx.Ext().GetTyped[T]()` |
 | 键 | string | `reflect.Type`（由泛型参数隐式给出） |
 | 使用者 | 插件 / handler | 框架组件（parsedCommand、retryMetadata、middlewareTrace…） |
 | 冲突面 | 保留键黑名单拦截（`mw_trace` 等） | 类型即键，编译期唯一 |
 
 隔离是硬保证：两套系统底层是不同的 map，`ctx.Set("parsed_command", v)` 永远
-碰不到框架经 `ExtSet` 存的 `parsedCommand`。框架侧选类型键的动机：零字符串
+碰不到框架经 `SetTyped` 存的 `parsedCommand`。框架侧选类型键的动机：零字符串
 分配、编译期检查、且**插件作者无法拼写出框架的键**。
 
 热路径字段不进任何 map：`GetMessageContent()` 用 `sync.Once` 缓存解析结果——

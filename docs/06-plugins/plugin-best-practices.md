@@ -29,7 +29,7 @@ func New() *plugin.Descriptor {
             Category:    "工具",
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
-            // 依赖注入（ServiceProxy 在依赖热重载后仍有效）
+            // 依赖注入（Setup 时一次性解析；依赖热重载后用 OnDependencyReloaded 刷新）
             p.cache = ctx.Service[cachePlugin.Plugin]("cache")
 
             // 配置

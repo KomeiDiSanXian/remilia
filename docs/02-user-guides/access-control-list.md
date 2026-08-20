@@ -291,7 +291,7 @@ func main() {
     pm.Register(permission.New())
 
     // 获取插件实例
-    p := plugin.MustGetService[permission.Plugin](pm.GetContainer(), "permission")
+    p := pm.GetContainer().MustGetService[permission.Plugin]("permission")
 
     // 1. 设置黑名单模式
     p.SetACLMode(permission.ModeBlacklist)
@@ -542,4 +542,3 @@ VIP会员
 - [ ] 时间限制（临时封禁）
 - [ ] 自动解封
 - [ ] 审计日志
-

@@ -27,7 +27,7 @@ Remilia 基于 Go 1.26+ 构建，核心设计围绕**写时复制（COW）无锁
 | 14 | [WASM 插件沙箱](14-wasm-plugin.md) | wazero 运行时、ABI 约定、资源限流 |
 | 15 | [Per-Channel Engine](15-per-channel-engine.md) | **[v1.3.0 已归档]** 通道级引擎隔离（已被 Matcher.BlockForChannel 替代） |
 | 16 | [PluginScope 资源追踪](16-plugin-scope.md) | Scope 级联清理、订阅自动取消、子 Scope 管理 |
-| 17 | [ServiceProxy 服务代理](17-service-proxy.md) | 防过期的插件间同步调用、热重载安全 |
+| 17 | [依赖热重载与引用刷新](17-service-proxy.md) | ctx.Service 动态解析、OnDependencyReloaded 刷新引用 |
 | 18 | [状态迁移](18-state-migration.md) | 版本化状态迁移管线、MigrateState 自动触发 |
 | 19 | [三色标记法与依赖推断](19-three-color-dryrun.md) | DryRun 预跑 Setup 发现依赖、三色标记拓扑排序 |
 | 20 | [Core 深度复查实录](20-core-review-lessons.md) | 2026-07 全量复查提炼的八个并发缺陷模式与契约方法论 |

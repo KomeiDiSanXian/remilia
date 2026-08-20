@@ -75,9 +75,8 @@ ctx.Reg.RegisterCommand(eventctx.EventGroup, "/status").
 ### 依赖获取
 
 ```go
-// Service[T]：获取必要依赖（返回 ServiceProxy，在依赖热重载后仍有效）
+// Service[T]：获取必要依赖（Setup 时一次性解析，返回具体值）
 store := ctx.Service[storage.Plugin]("storage")
-store.Get() // 运行时获取实际值
 
 // TryService[T]：获取可选依赖，找不到返回 nil
 cache, ok := ctx.TryService[cache.Plugin]("cache")

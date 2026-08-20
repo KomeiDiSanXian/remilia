@@ -188,15 +188,25 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 
 ---
 
-## 7. 防过期服务代理
+## 7. 依赖热重载与引用刷新
 
-替代直接使用 `plugin.Service`/`plugin.TryService`（获取后立即 Get），依赖插件热重载后仍然有效。
+`ctx.Service[T]` / `ctx.TryService[T]` 在 Setup 时**一次性解析**依赖并返回具体值（非代理）。
+若依赖插件之后热重载，已保存的引用不会自动更新；需要持续访问的依赖通过 `Advanced.OnDependencyReloaded` 在依赖重载后重新解析。
 
 ```go
-p.permSvc = ctx.Service[*permission.Plugin]("permission")
-// 运行时
-pp, ok := p.permSvc.Get()
+// Setup 中一次性解析
+p.ctx  = ctx // 保存 ctx 供运行时重新解析
+p.perm = ctx.Service[*permission.Plugin]("permission")
+
+// Advanced.OnDependencyReloaded：依赖插件热重载后重新解析
+OnDependencyReloaded: func(dep string) {
+    if dep == "permission" {
+        p.perm = p.ctx.Service[*permission.Plugin]("permission")
+    }
+},
 ```
+
+> `ctx.Service[T]` 每次调用都会从容器动态解析最新实现，重新调用即可拿到热重载后的新实例。
 详见 `docs/notes/17-service-proxy.md`。
 
 ---

@@ -136,7 +136,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
     reader := ctx.Info.Coordinator()       // engine.Reader（只读）
     cmds   := reader.GetAllCommands()      // []engine.CommandInfo
 
-    // 依赖获取（ServiceProxy 在依赖插件热重载后仍有效）
+    // 依赖获取（Setup 时一次性解析；依赖热重载后用 OnDependencyReloaded 刷新）
     store     := ctx.Service[storage.Plugin]("storage")
     cache, ok := ctx.TryService[cache.Plugin]("cache")
 
