@@ -13,7 +13,7 @@
 
 ### 有什么运行要求？
 
-- **Go 1.26+**（框架与 `cmd/bot` 均要求）
+- **Go 1.27+**（框架与 `cmd/bot` 均要求）
 - Linux / Windows / macOS 均可运行；Windows 下存在大量专项适配（updater 进程管理、控制台等），行为与 Unix 等价
 - 无强制数据库要求：内存态插件（antispam/stats 等）可选对接 LevelDB 持久化
 

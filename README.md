@@ -10,7 +10,7 @@
 
 <div align="center">
 
-![Go Version](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&style=flat-square)
+![Go Version](https://img.shields.io/badge/Go-1.27+-00ADD8?logo=go&style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 [![CI](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml/badge.svg?style=flat-square)](https://github.com/KomeiDiSanXian/remilia/actions/workflows/codeql.yml)
@@ -65,7 +65,7 @@
 go get github.com/KomeiDiSanXian/remilia
 ```
 
-**要求**: Go 1.26+
+**要求**: Go 1.27+
 
 ---
 

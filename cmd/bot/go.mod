@@ -1,6 +1,6 @@
 module github.com/KomeiDiSanXian/remilia/cmd/bot
 
-go 1.26
+go 1.27
 
 require (
 	github.com/KomeiDiSanXian/remilia v0.0.0
