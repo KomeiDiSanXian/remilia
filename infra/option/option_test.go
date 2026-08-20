@@ -30,17 +30,17 @@ func WithEnabled(enabled bool) Option[TestConfig] {
 	return func(c *TestConfig) { c.Enabled = enabled }
 }
 
-// TestApply tests the Apply function
+// TestApply tests the Apply method
 func TestApply(t *testing.T) {
 	t.Run("applies single option", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg, WithName("test"))
+		WithName("test").Apply(cfg)
 		assert.Equal(t, "test", cfg.Name)
 	})
 
 	t.Run("applies multiple options in order", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("test"),
 			WithPort(8080),
 			WithTimeout(5*time.Second),
@@ -52,7 +52,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("last option wins for same field", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("first"),
 			WithName("second"),
 		)
@@ -61,7 +61,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("handles nil options", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("test"),
 			nil,
 			WithPort(8080),
@@ -72,7 +72,7 @@ func TestApply(t *testing.T) {
 
 	t.Run("no options is safe", func(t *testing.T) {
 		cfg := &TestConfig{Name: "default"}
-		Apply(cfg)
+		ApplyAll(cfg)
 		assert.Equal(t, "default", cfg.Name)
 	})
 }
@@ -101,13 +101,13 @@ func TestApplyNew(t *testing.T) {
 	})
 }
 
-// TestConditional tests the Conditional function
+// TestConditional tests the Conditional method
 func TestConditional(t *testing.T) {
 	t.Run("applies option when condition is true", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("base"),
-			Conditional(true, WithPort(8080)),
+			WithPort(8080).Conditional(true),
 		)
 		assert.Equal(t, "base", cfg.Name)
 		assert.Equal(t, 8080, cfg.Port)
@@ -115,9 +115,9 @@ func TestConditional(t *testing.T) {
 
 	t.Run("skips option when condition is false", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("base"),
-			Conditional(false, WithPort(8080)),
+			WithPort(8080).Conditional(false),
 		)
 		assert.Equal(t, "base", cfg.Name)
 		assert.Equal(t, 0, cfg.Port)
@@ -128,11 +128,11 @@ func TestConditional(t *testing.T) {
 		production := false
 
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("app"),
-			Conditional(debugMode, WithTimeout(time.Hour)),
-			Conditional(production, WithPort(443)),
-			Conditional(!production, WithPort(8080)),
+			WithTimeout(time.Hour).Conditional(debugMode),
+			WithPort(443).Conditional(production),
+			WithPort(8080).Conditional(!production),
 		)
 
 		assert.Equal(t, "app", cfg.Name)
@@ -141,17 +141,16 @@ func TestConditional(t *testing.T) {
 	})
 }
 
-// TestCompose tests the Compose function
+// TestCompose tests the Compose method
 func TestCompose(t *testing.T) {
 	t.Run("composes multiple options", func(t *testing.T) {
-		productionOpts := Compose(
-			WithPort(443),
+		productionOpts := WithPort(443).Compose(
 			WithTimeout(30*time.Second),
 			WithEnabled(true),
 		)
 
 		cfg := &TestConfig{}
-		Apply(cfg, productionOpts)
+		productionOpts.Apply(cfg)
 
 		assert.Equal(t, 443, cfg.Port)
 		assert.Equal(t, 30*time.Second, cfg.Timeout)
@@ -159,13 +158,12 @@ func TestCompose(t *testing.T) {
 	})
 
 	t.Run("can be combined with other options", func(t *testing.T) {
-		baseOpts := Compose(
-			WithPort(8080),
-			WithTimeout(5*time.Second),
+		baseOpts := WithPort(8080).Compose(
+			WithTimeout(5 * time.Second),
 		)
 
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithName("app"),
 			baseOpts,
 			WithEnabled(true),
@@ -186,7 +184,7 @@ func TestWith(t *testing.T) {
 		})
 
 		cfg := &TestConfig{}
-		Apply(cfg, WithCustomPort(4000))
+		WithCustomPort(4000).Apply(cfg)
 		assert.Equal(t, 8000, cfg.Port)
 	})
 }
@@ -195,7 +193,7 @@ func TestWith(t *testing.T) {
 func TestWithDefault(t *testing.T) {
 	t.Run("sets value when field is zero", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithDefault(func(c *TestConfig) *string { return &c.Name }, "default-name"),
 		)
 		assert.Equal(t, "default-name", cfg.Name)
@@ -203,7 +201,7 @@ func TestWithDefault(t *testing.T) {
 
 	t.Run("does not override existing value", func(t *testing.T) {
 		cfg := &TestConfig{Name: "existing"}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithDefault(func(c *TestConfig) *string { return &c.Name }, "default-name"),
 		)
 		assert.Equal(t, "existing", cfg.Name)
@@ -211,29 +209,28 @@ func TestWithDefault(t *testing.T) {
 
 	t.Run("works with numbers", func(t *testing.T) {
 		cfg := &TestConfig{Port: 8080}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithDefault(func(c *TestConfig) *int { return &c.Port }, 3000),
 		)
 		assert.Equal(t, 8080, cfg.Port)
 
 		cfg2 := &TestConfig{}
-		Apply(cfg2,
+		ApplyAll(cfg2,
 			WithDefault(func(c *TestConfig) *int { return &c.Port }, 3000),
 		)
 		assert.Equal(t, 3000, cfg2.Port)
 	})
 }
 
-// TestChain tests the Chain function
+// TestChain tests the Chain method
 func TestChain(t *testing.T) {
 	t.Run("chains options", func(t *testing.T) {
-		chained := Chain(
-			WithName("app"),
+		chained := WithName("app").Chain(
 			WithPort(8080),
 		)
 
 		cfg := &TestConfig{}
-		Apply(cfg, chained)
+		chained.Apply(cfg)
 		assert.Equal(t, "app", cfg.Name)
 		assert.Equal(t, 8080, cfg.Port)
 	})
@@ -243,58 +240,54 @@ func TestChain(t *testing.T) {
 func TestNoOp(t *testing.T) {
 	t.Run("does nothing", func(t *testing.T) {
 		cfg := &TestConfig{Name: "original"}
-		Apply(cfg, NoOp[TestConfig]())
+		NoOp[TestConfig]().Apply(cfg)
 		assert.Equal(t, "original", cfg.Name)
 	})
 }
 
-// TestWhen tests the When function
+// TestWhen tests the When method
 func TestWhen(t *testing.T) {
 	t.Run("applies when true", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg, When(true, WithPort(8080)))
+		WithPort(8080).When(true).Apply(cfg)
 		assert.Equal(t, 8080, cfg.Port)
 	})
 
 	t.Run("skips when false", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg, When(false, WithPort(8080)))
+		WithPort(8080).When(false).Apply(cfg)
 		assert.Equal(t, 0, cfg.Port)
 	})
 }
 
-// TestUnless tests the Unless function
+// TestUnless tests the Unless method
 func TestUnless(t *testing.T) {
 	t.Run("applies when false", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg, Unless(false, WithPort(8080)))
+		WithPort(8080).Unless(false).Apply(cfg)
 		assert.Equal(t, 8080, cfg.Port)
 	})
 
 	t.Run("skips when true", func(t *testing.T) {
 		cfg := &TestConfig{}
-		Apply(cfg, Unless(true, WithPort(8080)))
+		WithPort(8080).Unless(true).Apply(cfg)
 		assert.Equal(t, 0, cfg.Port)
 	})
 
 	t.Run("unless production example", func(t *testing.T) {
 		production := false
 		cfg := &TestConfig{}
-		Apply(cfg,
-			Unless(production, WithEnabled(true)),
-		)
+		WithEnabled(true).Unless(production).Apply(cfg)
 		assert.True(t, cfg.Enabled)
 
 		production = true
 		cfg2 := &TestConfig{}
-		Apply(cfg2,
-			Unless(production, WithEnabled(true)),
-		)
+		WithEnabled(true).Unless(production).Apply(cfg2)
 		assert.False(t, cfg2.Enabled)
 	})
 }
 
-// TestMapOption tests the MapOption function
+// TestMapOption tests the Map method
 func TestMapOption(t *testing.T) {
 	type HTTPConfig struct {
 		Port int
@@ -310,13 +303,12 @@ func TestMapOption(t *testing.T) {
 			return func(c *HTTPConfig) { c.Port = port }
 		}
 
-		serverOpt := MapOption(
+		serverOpt := WithHTTPPort(8080).Map(
 			func(s *ServerConfig) *HTTPConfig { return &s.HTTP },
-			WithHTTPPort(8080),
 		)
 
 		cfg := &ServerConfig{}
-		Apply(cfg, serverOpt)
+		serverOpt.Apply(cfg)
 		assert.Equal(t, 8080, cfg.HTTP.Port)
 	})
 
@@ -330,12 +322,9 @@ func TestMapOption(t *testing.T) {
 		}
 
 		cfg := &ServerConfig{}
-		Apply(cfg,
+		ApplyAll(cfg,
 			WithServerName("myserver"),
-			MapOption(
-				func(s *ServerConfig) *HTTPConfig { return &s.HTTP },
-				WithHTTPPort(9000),
-			),
+			WithHTTPPort(9000).Map(func(s *ServerConfig) *HTTPConfig { return &s.HTTP }),
 		)
 		assert.Equal(t, "myserver", cfg.Name)
 		assert.Equal(t, 9000, cfg.HTTP.Port)
@@ -345,8 +334,7 @@ func TestMapOption(t *testing.T) {
 // TestRealWorldExample demonstrates real-world usage
 func TestRealWorldExample(t *testing.T) {
 	t.Run("development configuration", func(t *testing.T) {
-		developmentOpts := Compose(
-			WithPort(8080),
+		developmentOpts := WithPort(8080).Compose(
 			WithTimeout(time.Hour),
 			WithEnabled(true),
 		)
@@ -365,11 +353,10 @@ func TestRealWorldExample(t *testing.T) {
 		isProduction := true
 		enableSSL := true
 
-		productionOpts := Compose(
-			When(isProduction, WithPort(443)),
-			Unless(isProduction, WithPort(8080)),
-			When(enableSSL, WithEnabled(true)),
-			When(isProduction, WithTimeout(30*time.Second)),
+		productionOpts := WithPort(443).When(isProduction).Compose(
+			WithPort(8080).Unless(isProduction),
+			WithEnabled(true).When(enableSSL),
+			WithTimeout(30*time.Second).When(isProduction),
 		)
 
 		cfg := ApplyNew(TestConfig{Name: "prod-app"},
