@@ -67,7 +67,7 @@ type SingleRoll struct {
 	KeepLow int   // 取最低 K 个（0 表示不启用）
 }
 
-// Servicer 骰子服务接口，供其他插件通过 plugin.TryService 获取。
+// Servicer 骰子服务接口，供其他插件通过 ctx.TryService 获取。
 //
 // coc 和 dnd 插件在 Setup 阶段依赖此接口完成所有掷骰操作，
 // 便于测试时注入 mock。

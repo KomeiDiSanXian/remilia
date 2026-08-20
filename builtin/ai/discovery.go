@@ -194,7 +194,7 @@ func (p *Plugin) DiscoverCommands() {
 
 // RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。
 //
-// 其他插件可在自己的 Setup 中通过 plugin.TryService 获取 AI 插件的服务实例
+// 其他插件可在自己的 Setup 中通过 ctx.TryService 获取 AI 插件的服务实例
 // 后调用此方法注册自定义工具，尤其是需要权限校验的敏感命令。
 //
 // 显式注册优先于自动发现：若工具名与自动发现的命令工具重名，

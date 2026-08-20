@@ -39,7 +39,7 @@ func setupWasmDemo(pm *plugin.Manager, eng *engine.Engine) *wasmDemo {
 		var val string
 		switch key {
 		case "host_info":
-			val = "Remilia Showcase / Go 1.26 / wazero"
+			val = "Remilia Showcase / Go 1.27 / wazero"
 		case "plugin_name":
 			val = "showcase-wasm"
 		default:

@@ -1,7 +1,7 @@
 // Package dice 骰子引擎插件。
 //
 // 提供通用掷骰能力，作为 coc 和 dnd 插件的底层依赖。
-// Setup 返回 *Service，通过 plugin.Service/dice.Servicer 供其他插件使用。
+// Setup 返回 *Service，通过 ctx.Service/dice.Servicer 供其他插件使用。
 package dice
 
 import (
