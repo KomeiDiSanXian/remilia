@@ -105,7 +105,7 @@ type Plugin struct {
 //
 //	 示例：
 //
-//		if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//		if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //		    aiSvc.RegisterToolProvider(myProvider)
 //		}
 func New(syncer vevent.EventProcessor) *plugin.Descriptor {
@@ -156,7 +156,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 
 			var store SessionStore = &noopSessionStore{}
 			if !ctx.DryRun {
-				if storageSvc, ok := plugin.TryService[*infrastorage.Plugin](ctx, "storage"); ok {
+				if storageSvc, ok := ctx.TryService[*infrastorage.Plugin]("storage"); ok {
 					if s, err := NewGormSessionStore(storageSvc); err == nil {
 						store = s
 						ctx.Log.Info("Session persistence enabled via storage plugin")

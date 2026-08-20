@@ -40,10 +40,10 @@ func (a *PluginA) checkPerm(userID string) bool {
 
 ```go
 // 硬依赖（不存在则 panic）
-permSvc := plugin.Service[*permission.Plugin](ctx, "permission")
+permSvc := ctx.Service[*permission.Plugin]("permission")
 
 // 可选依赖（返回 nil, false 不 panic）
-if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
+if svc, ok := ctx.TryService[*storage.Plugin]("storage"); ok {
     p.storageSvc = svc
 }
 ```
@@ -102,6 +102,6 @@ func (p *Plugin) perm() *permission.Plugin {
 |------|---------|-----------|
 | `plugin.Must[T]` | Setup 一次性获取 | ❌ 重载后指针过时 |
 | `plugin.Try[T]` | 可选依赖获取 | ❌ 重载后指针过时 |
-| `plugin.Service[T]` | 需要持续访问的硬依赖 | ✅ 每次动态解析 |
-| `plugin.TryService[T]` | 需要持续访问的可选依赖 | ✅ 每次动态解析 |
+| `ctx.Service[T]` | 需要持续访问的硬依赖 | ✅ 每次动态解析 |
+| `ctx.TryService[T]` | 需要持续访问的可选依赖 | ✅ 每次动态解析 |
 | `OnDependencyReloaded` | 手动刷新指针 | ⚠️ 容易遗漏 |

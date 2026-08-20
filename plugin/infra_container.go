@@ -10,7 +10,7 @@ import (
 // container.go — 依赖注入容器（类型索引版）
 //
 // 除 string 键值访问外，容器维护 reflect.Type → []name 反向索引，
-// 支持通过 [GetService[T]] 按类型自动解析。
+// 支持通过 GetService 方法按类型自动解析。
 
 // serviceEntry 容器中的一个注册条目。
 type serviceEntry struct {
@@ -156,7 +156,7 @@ func (c *Container) Has(name string) bool {
 
 // GetService 通过 name 获取类型安全的服务值。
 // 若 name 为空，按类型自动解析（要求唯一匹配）。
-func GetService[T any](c *Container, name string) (T, bool) {
+func (c *Container) GetService[T any](name string) (T, bool) {
 	var zero T
 	if name != "" {
 		v, ok := c.Get(name)
@@ -167,7 +167,7 @@ func GetService[T any](c *Container, name string) (T, bool) {
 		return tv, ok
 	}
 	// 按类型解析
-	entries := lookupServiceType[T](c)
+	entries := c.lookupServiceType[T]()
 	if len(entries) == 0 {
 		return zero, false
 	}
@@ -176,15 +176,15 @@ func GetService[T any](c *Container, name string) (T, bool) {
 		for i, e := range entries {
 			names[i] = e.name
 		}
-		panic(fmt.Sprintf("container: multiple services of type %T found: %v; use GetService[T](c, name)", zero, names))
+		panic(fmt.Sprintf("container: multiple services of type %T found: %v; use (*Container).GetService[T](name)", zero, names))
 	}
 	tv, ok := entries[0].value.(T)
 	return tv, ok
 }
 
 // MustGetService 同 GetService，不存在或类型不匹配时 panic。
-func MustGetService[T any](c *Container, name string) T {
-	v, ok := GetService[T](c, name)
+func (c *Container) MustGetService[T any](name string) T {
+	v, ok := c.GetService[T](name)
 	if !ok {
 		panic(fmt.Sprintf("container: service %T(%q) not found", *new(T), name))
 	}
@@ -192,8 +192,8 @@ func MustGetService[T any](c *Container, name string) T {
 }
 
 // ListServices 返回所有实现了 T 的服务（name → value）。
-func ListServices[T any](c *Container) map[string]T {
-	entries := lookupServiceType[T](c)
+func (c *Container) ListServices[T any]() map[string]T {
+	entries := c.lookupServiceType[T]()
 	result := make(map[string]T, len(entries))
 	for _, e := range entries {
 		if tv, ok := e.value.(T); ok {
@@ -204,12 +204,12 @@ func ListServices[T any](c *Container) map[string]T {
 }
 
 // lookupServiceType 从类型索引查找所有匹配的条目（泛型版）。
-func lookupServiceType[T any](c *Container) []*serviceEntry {
-	return lookupServiceTypeByReflect(c, typeIndexKey[T]())
+func (c *Container) lookupServiceType[T any]() []*serviceEntry {
+	return c.lookupServiceTypeByReflect(typeIndexKey[T]())
 }
 
 // lookupServiceTypeByReflect 从类型索引查找（非泛型版，供三色 DryRun 的 pending 类型使用）。
-func lookupServiceTypeByReflect(c *Container, typ reflect.Type) []*serviceEntry {
+func (c *Container) lookupServiceTypeByReflect(typ reflect.Type) []*serviceEntry {
 	c.typeIndexMu.Lock()
 	defer c.typeIndexMu.Unlock()
 	raw, ok := c.typeIndex.Load(typ)

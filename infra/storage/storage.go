@@ -18,7 +18,7 @@
 //	pm.Register(builtin_storage.New(storage.WithDSN("data/bot.db")))
 //
 //	// 在其他插件中获取存储客户端（面向接口）
-//	client := plugin.Service[storage.Client](ctx, "storage")
+//	client := ctx.Service[storage.Client]("storage")
 //	client.Must().AutoMigrate(&MyModel{})
 //	client.Must().Create(&MyModel{Name: "test"})
 //
@@ -60,8 +60,8 @@ type Client interface {
 
 // Plugin 存储插件 API 对象，同时实现 Client 接口。
 //
-// 通常通过 plugin.Service[storage.Client](ctx, "storage") 获取为接口类型代理，
-// 需要使用 GORM 高级特性时可用 plugin.Service[*storage.Plugin](ctx, "storage") 获取具体指针代理。
+// 通常通过 ctx.Service[storage.Client]("storage") 获取为接口类型代理，
+// 需要使用 GORM 高级特性时可用 ctx.Service[*storage.Plugin]("storage") 获取具体指针代理。
 type Plugin struct {
 	db *gorm.DB
 }

@@ -244,7 +244,7 @@ func tryResolvePendingType(setupCtx *SetupContext, pluginName string, c *Contain
 	changed := false
 	var remaining []reflect.Type
 	for _, pt := range setupCtx.pendingTypes {
-		entries := lookupServiceTypeByReflect(c, pt)
+		entries := c.lookupServiceTypeByReflect(pt)
 		if len(entries) == 0 {
 			remaining = append(remaining, pt)
 			continue

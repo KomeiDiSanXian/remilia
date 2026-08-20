@@ -150,7 +150,7 @@ func TestService_ResolveValue(t *testing.T) {
 		Deps:    []string{"provider"},
 		Version: "1.0.0",
 		Setup: func(ctx *SetupContext) (any, error) {
-			svc = Service[*Counter](ctx, "provider")
+			svc = ctx.Service[*Counter]("provider")
 			return nil, nil
 		},
 	}
@@ -178,7 +178,7 @@ func TestService_NotAvailable(t *testing.T) {
 		Name: "consumer",
 		Deps: []string{"temp-provider"},
 		Setup: func(ctx *SetupContext) (any, error) {
-			svc = Service[*struct{}](ctx, "temp-provider")
+			svc = ctx.Service[*struct{}]("temp-provider")
 			return nil, nil
 		},
 	}
@@ -200,7 +200,7 @@ func TestTryService_Optional(t *testing.T) {
 	desc := &Descriptor{
 		Name: "optional-consumer",
 		Setup: func(ctx *SetupContext) (any, error) {
-			svc, ok = TryService[*struct{}](ctx, "nonexistent")
+			svc, ok = ctx.TryService[*struct{}]("nonexistent")
 			return nil, nil
 		},
 	}

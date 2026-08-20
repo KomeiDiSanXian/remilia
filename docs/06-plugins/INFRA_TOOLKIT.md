@@ -54,10 +54,10 @@ Setup 打开、Teardown 关闭（参考 `builtin/stats`）。
 
 ```go
 // 插件中获取存储客户端（依赖声明 Deps: ["storage"]）
-client := plugin.Service[storage.Client](ctx, "storage")
+client := ctx.Service[storage.Client]("storage")
 
 // 或直接使用 Plugin 方法（与 GORM 同构）
-p := plugin.Service[*storage.Plugin](ctx, "storage")
+p := ctx.Service[*storage.Plugin]("storage")
 p.AutoMigrate(&MyRecord{})
 p.Create(&rec)
 p.Where("user_id = ?", uid).First(&dest)

@@ -126,7 +126,7 @@ type Tool struct {
 //
 // 使用示例：
 //
-//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //	    aiSvc.RegisterSkillProvider(mySkillProvider)
 //	}
 type SkillProvider interface {
@@ -135,14 +135,14 @@ type SkillProvider interface {
 
 // ToolProvider 插件可通过实现此接口并提供给 AI 插件显式注册自定义工具。
 //
-// 其他插件在自己的 Setup 中通过 [plugin.TryService] 获取 AI 插件服务实例
+// 其他插件在自己的 Setup 中通过 [(*SetupContext).TryService] 获取 AI 插件服务实例
 // 后调用 [Plugin.RegisterToolProvider] 注册工具集。此接口是暴露需要权限的
 // 工具给 AI 的推荐方式——插件自行控制哪些工具可被 AI 调用，并在 Execute 中
 // 完成权限校验。
 //
 // 使用示例：
 //
-//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //	    aiSvc.RegisterToolProvider(myToolProvider)
 //	}
 //

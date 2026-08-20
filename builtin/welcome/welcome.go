@@ -87,7 +87,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   /farewell global off     — 全局关闭告别消息`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 			}
 			if !ctx.DryRun && p.kvPath != "" {

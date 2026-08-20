@@ -4,7 +4,7 @@
 //
 // pm.Register(sendqueue.New(sendqueue.Config{Rate: 5, Burst: 10}))
 // // In a Handler:
-// sqSvc := plugin.Service[*sendqueue.Plugin](ctx, "sendqueue")
+// sqSvc := ctx.Service[*sendqueue.Plugin]("sendqueue")
 // sq.Enqueue("chat_id", platform.TextMessage("hello"), nil)
 package sendqueue
 

@@ -20,7 +20,7 @@ func SetDegraded(ctx *context.Context) {
 	if ctx == nil {
 		return
 	}
-	context.ExtSet(ctx.Ext(), DegradedExt{})
+	ctx.Ext().SetTyped(DegradedExt{})
 	// Compatibility (temporary): also set user-state key.
 	ctx.Set(ctxkeys.CtxKeyDegraded, true)
 }
@@ -31,7 +31,7 @@ func IsDegraded(ctx *context.Context) bool {
 	if ctx == nil {
 		return false
 	}
-	if _, ok := context.ExtGet[DegradedExt](ctx.Ext()); ok {
+	if _, ok := ctx.Ext().GetTyped[DegradedExt](); ok {
 		return true
 	}
 	v, ok := ctx.Get(ctxkeys.CtxKeyDegraded)

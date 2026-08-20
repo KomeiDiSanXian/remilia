@@ -17,7 +17,7 @@
 //	        Version: "1.0.0",
 //	        Deps:    []string{"cache"},
 //	        Setup: func(ctx *plugin.SetupContext) (any, error) {
-//	            p.cache = plugin.Service[cache.Plugin](ctx, "cache")
+//	            p.cache = ctx.Service[cache.Plugin]("cache")
 //	            ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/hello").Handle(p.handleHello)
 //	            return p, nil // 框架自动以插件名注册到容器
 //	        },

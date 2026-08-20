@@ -10,7 +10,7 @@ Remilia 的权限系统分为**两个层次**，包名相同但职责完全不�
 ┌───────────────────────────────────────────────────────────────┐
 │                       Bot / 插件开发者                          │
 │                                                               │
-│  plugin.Service[permission.Plugin](ctx, "permission")            │
+│  ctx.Service[permission.Plugin]("permission")            │
 │  perm.CheckPermission(ctx, Permission{"admin","kick"})        │
 └─────────────────────────┬─────────────────────────────────────┘
                           │ 使用
@@ -100,7 +100,7 @@ pm.Register(permission.New()) // 自动通过 Try[storage.Plugin] 获取存储�
 import permission "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 
 Setup: func(ctx *plugin.SetupContext) (any, error) {
-    perm := plugin.Service[permission.Plugin](ctx, "permission")
+    perm := ctx.Service[permission.Plugin]("permission")
     ctx.Reg.RegisterCommand(dto.C2CMessageCreate, "/kick").Handle(func(c *eventctx.Context) error {
         if !perm.CheckPermission(c, eventctx.NewPermission("admin", "kick")) {
             c.ReplyText("权限不足")

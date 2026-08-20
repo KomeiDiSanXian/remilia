@@ -110,7 +110,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
   /ar cooldown <ID> <秒>         — 设置规则冷却`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 			}
 			if !ctx.DryRun && p.kvPath != "" {

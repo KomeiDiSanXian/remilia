@@ -52,7 +52,7 @@ func TestContextClone_ExtensionsCopied(t *testing.T) {
 	orig.Set("chat_name", "测试群")
 	orig.Set("group_role", "member")
 	type typedKey struct{ n int }
-	ExtSet(orig.Ext(), typedKey{n: 42})
+	orig.Ext().SetTyped(typedKey{n: 42})
 
 	cloned := orig.Clone()
 
@@ -65,11 +65,11 @@ func TestContextClone_ExtensionsCopied(t *testing.T) {
 	assert.Equal(t, "测试群", origV, "mutating clone must not affect source")
 
 	// 类型键隔离
-	tv, ok := ExtGet[typedKey](cloned.Ext())
+	tv, ok := cloned.Ext().GetTyped[typedKey]()
 	require.True(t, ok, "typed key must be copied to clone")
 	assert.Equal(t, 42, tv.n)
-	ExtSet(cloned.Ext(), typedKey{n: 1})
-	tv2, _ := ExtGet[typedKey](orig.Ext())
+	cloned.Ext().SetTyped(typedKey{n: 1})
+	tv2, _ := orig.Ext().GetTyped[typedKey]()
 	assert.Equal(t, 42, tv2.n, "mutating clone typed ext must not affect source")
 }
 

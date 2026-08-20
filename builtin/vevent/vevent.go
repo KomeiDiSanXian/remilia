@@ -5,7 +5,7 @@
 //	pm.Register(vevent.New(engine))
 //
 //	// 在其他插件 Setup 中：
-//	vev := plugin.Service[*vevent.Plugin](ctx, "vevent")
+//	vev := ctx.Service[*vevent.Plugin]("vevent")
 //
 //	// 注入一条群消息（触发已注册的 /ping handler）
 //	vev.Inject(platform.EventKindGroupMessage, "/ping",
@@ -39,7 +39,7 @@ type EventProcessor interface {
 	ProcessPlatformEventSync(event platform.Event, sender platform.Sender, caps ...platform.Capabilities)
 }
 
-// Plugin 虚拟事件注入器，通过 plugin.Service[*vevent.Plugin](ctx, "vevent") 获取。
+// Plugin 虚拟事件注入器，通过 ctx.Service[*vevent.Plugin]("vevent") 获取。
 type Plugin struct {
 	ep EventProcessor
 }
@@ -126,7 +126,7 @@ func (p *Plugin) InjectSync(_ stdctx.Context, kind platform.EventKind, content s
 //
 //	pm.Register(vevent.New(engine))
 //	// 其他插件中：
-//	vev := plugin.Service[*vevent.Plugin](ctx, "vevent")
+//	vev := ctx.Service[*vevent.Plugin]("vevent")
 //	vev.Inject(platform.EventKindGroupMessage, "/cmd")
 func New(ep EventProcessor) *plugin.Descriptor {
 	p := NewPlugin(ep)

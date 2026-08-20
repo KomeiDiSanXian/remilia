@@ -607,7 +607,7 @@ func TestSetDegraded_IsDegraded(t *testing.T) {
 	t.Run("SetDegraded sets both ext and user-state key", func(t *testing.T) {
 		ctx := testutil.CreateTestContext()
 		SetDegraded(ctx)
-		_, extOK := eventctx.ExtGet[DegradedExt](ctx.Ext())
+		_, extOK := ctx.Ext().GetTyped[DegradedExt]()
 		assert.True(t, extOK, "DegradedExt should be set in typed extensions")
 		_, stateOK := ctx.Get(ctxkeys.CtxKeyDegraded)
 

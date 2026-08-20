@@ -25,7 +25,7 @@ var ErrNoPlatformSender = errors.New("no platform sender available: context was 
 // isReservedUserStateKey reports whether key is reserved for framework internal use.
 //
 // 注意：此保留键列表仅针对字符串键系统（ctx.Set/ctx.Get）。
-// 框架内部通过 ExtSet[T]/ExtGet[T]（类型键系统）存储的数据（如 parsedCommand、
+// 框架内部通过 SetTyped[T]/GetTyped[T]（类型键系统）存储的数据（如 parsedCommand、
 // retryMetadata、middlewareTrace）与字符串键系统完全隔离——
 // 即使用户调用 ctx.Set("retry_attempt", v)，也不会覆盖框架存储的 retryMetadata。
 // 两套系统使用不同的底层 map，不存在任何键冲突风险。
@@ -63,7 +63,7 @@ func (ctx *Context) Set(key string, value any) {
 		logger.WithField("key", key).Debug("[Context] Set(nil) is a no-op; use ctx.Delete(key) to remove a key")
 		return
 	}
-	s := ExtGetOrInit(ctx.Ext(), func() *extensionState { return newStateExt() })
+	s := ctx.Ext().GetOrInitTyped(func() *extensionState { return newStateExt() })
 	s.mu.Lock()
 	s.m[key] = value
 	s.mu.Unlock()
@@ -78,7 +78,7 @@ func (ctx *Context) Delete(key string) {
 		logger.WithField("key", key).Warn("[Context] delete reserved extensionState key is forbidden")
 		return
 	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
+	s, ok := ctx.Ext().GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return
 	}
@@ -92,7 +92,7 @@ func (ctx *Context) Get(key string) (any, bool) {
 	if ctx == nil {
 		return nil, false
 	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
+	s, ok := ctx.Ext().GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return nil, false
 	}
@@ -107,7 +107,7 @@ func (ctx *Context) All() map[string]any {
 	if ctx == nil {
 		return nil
 	}
-	s, ok := ExtGet[*extensionState](ctx.Ext())
+	s, ok := ctx.Ext().GetTyped[*extensionState]()
 	if !ok || s == nil {
 		return map[string]any{}
 	}

@@ -49,7 +49,7 @@ type OutboundObserver interface {
 }
 
 // OutboundObserverExt 通过类型扩展注入出站观察者。
-// 中间件/插件可用 ExtSet 注入，Reply 在发送任务内通过 ExtGet 读取。
+// 中间件/插件可用 SetTyped 注入，Reply 在发送任务内通过 GetTyped 读取。
 type OutboundObserverExt struct {
 	Observer OutboundObserver
 }
@@ -59,7 +59,7 @@ func outboundObserverFrom(ctx *Context) OutboundObserver {
 	if ctx == nil {
 		return nil
 	}
-	ext, ok := ExtGet[OutboundObserverExt](ctx.Ext())
+	ext, ok := ctx.Ext().GetTyped[OutboundObserverExt]()
 	if !ok {
 		return nil
 	}

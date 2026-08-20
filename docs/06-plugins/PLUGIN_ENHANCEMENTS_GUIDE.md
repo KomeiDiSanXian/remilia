@@ -193,7 +193,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 替代直接使用 `plugin.Service`/`plugin.TryService`（获取后立即 Get），依赖插件热重载后仍然有效。
 
 ```go
-p.permSvc = plugin.Service[*permission.Plugin](ctx, "permission")
+p.permSvc = ctx.Service[*permission.Plugin]("permission")
 // 运行时
 pp, ok := p.permSvc.Get()
 ```
@@ -250,7 +250,7 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 // 中间件中注入观察者
 eng.Use(func(next eventctx.Handler) eventctx.Handler {
     return func(ctx *eventctx.Context) error {
-        context.ExtSet(ctx.Ext(), context.OutboundObserverExt{
+        ctx.Ext().SetTyped(context.OutboundObserverExt{
             Observer: &MyOutboundRecorder{},
         })
         return next(ctx)

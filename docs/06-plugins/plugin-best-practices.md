@@ -30,7 +30,7 @@ func New() *plugin.Descriptor {
         },
         Setup: func(ctx *plugin.SetupContext) (any, error) {
             // 依赖注入（ServiceProxy 在依赖热重载后仍有效）
-            p.cache = plugin.Service[cachePlugin.Plugin](ctx, "cache")
+            p.cache = ctx.Service[cachePlugin.Plugin]("cache")
 
             // 配置
             if ctx.Config != nil {
@@ -70,8 +70,8 @@ func main() {
     Name: "admin",
     Deps: []string{"permission", "storage"}, // 明确声明所有依赖
     Setup: func(ctx *plugin.SetupContext) (any, error) {
-        perm    := plugin.Service[permission.Plugin](ctx, "permission")
-        storage := plugin.Service[storage.Plugin](ctx, "storage")
+        perm    := ctx.Service[permission.Plugin]("permission")
+        storage := ctx.Service[storage.Plugin]("storage")
         // ...
     },
 }
@@ -98,7 +98,7 @@ err := manager.RegisterBatch(ctx, []*plugin.Descriptor{
 // （应在 Deps 显式声明，或用 RegisterBatch 批量注册保证顺序）
 Deps: []string{}, // 漏了 storage
 Setup: func(ctx *plugin.SetupContext) (any, error) {
-    s := plugin.Service[storage.Plugin](ctx, "storage") // 运行时报错
+    s := ctx.Service[storage.Plugin]("storage") // 运行时报错
     // ...
 },
 ```

@@ -15,7 +15,7 @@ func TestEdge_Service_NonExistent(t *testing.T) {
 	err := pm.Register(&plugin.Descriptor{
 		Name: "bad-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "ghost") // ghost 不存在，应 panic
+			_ = ctx.Service[any]("ghost") // ghost 不存在，应 panic
 			return nil, nil
 		},
 	})
@@ -36,7 +36,7 @@ func TestEdge_TryService_NonExistent(t *testing.T) {
 	err := pm.Register(&plugin.Descriptor{
 		Name: "safe-plugin",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, ok := plugin.TryService[any](ctx, "ghost")
+			_, ok := ctx.TryService[any]("ghost")
 			if ok {
 				t.Error("TryService 不存在的依赖应返回 false")
 			}
@@ -131,8 +131,8 @@ func TestEdge_Smart_ServiceWithTryService(t *testing.T) {
 		Name:       "smart-consumer",
 		DryRunSafe: true,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "smart-base")           // 存在 → 必要依赖追踪
-			_, _ = plugin.TryService[any](ctx, "optional-ghost") // 不存在 → 可选，安全返回 false
+			_ = ctx.Service[any]("smart-base")           // 存在 → 必要依赖追踪
+			_, _ = ctx.TryService[any]("optional-ghost") // 不存在 → 可选，安全返回 false
 			return nil, nil
 		},
 	}
@@ -160,7 +160,7 @@ func TestEdge_Smart_PreRegisteredDep(t *testing.T) {
 		Name:       "smart-consumer2",
 		DryRunSafe: true,
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "pre-registered")
+			_ = ctx.Service[any]("pre-registered")
 			return nil, nil
 		},
 	}
@@ -212,7 +212,7 @@ func TestEdge_Service_NonExistent_NoSideEffect(t *testing.T) {
 	err := pm.Register(&plugin.Descriptor{
 		Name: "will-fail",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "totally-nonexistent")
+			_ = ctx.Service[any]("totally-nonexistent")
 			return nil, nil
 		},
 	})
@@ -240,7 +240,7 @@ func TestEdge_SelfDependency(t *testing.T) {
 	err := pm.Register(&plugin.Descriptor{
 		Name: "self-dep",
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, ok := plugin.TryService[any](ctx, "self-dep")
+			_, ok := ctx.TryService[any]("self-dep")
 			_ = ok // 自身未注册完成，容器中没有
 			return nil, nil
 		},

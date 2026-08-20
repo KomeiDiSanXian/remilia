@@ -27,7 +27,7 @@
 //	// 挂载中间件：
 //	engine.Use(statsPlugin.Middleware())
 //	// 查询：
-//	statsSvc := plugin.Service[*stats.Plugin](ctx, "stats")
+//	statsSvc := ctx.Service[*stats.Plugin]("stats")
 //	top := sp.TopCommands(10)
 package stats
 

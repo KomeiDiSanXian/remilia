@@ -362,21 +362,21 @@ func TestExtensions_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			ExtSet(ext, n)
+			ext.SetTyped(n)
 		}(i)
 	}
 
 	// Concurrent Get
 	for range 100 {
 		wg.Go(func() {
-			_, _ = ExtGet[int](ext)
+			_, _ = ext.GetTyped[int]()
 		})
 	}
 
 	// Concurrent GetOrInit
 	for range 50 {
 		wg.Go(func() {
-			_ = ExtGetOrInit(ext, func() string { return "test" })
+			_ = ext.GetOrInitTyped(func() string { return "test" })
 		})
 	}
 
@@ -702,8 +702,8 @@ func TestExtensions_Snapshot(t *testing.T) {
 	t.Run("snapshot creates copy", func(t *testing.T) {
 		ext := newExtensions()
 
-		ExtSet(ext, "value1")
-		ExtSet(ext, 123)
+		ext.SetTyped("value1")
+		ext.SetTyped(123)
 
 		snapshot := ext.Snapshot()
 		assert.Equal(t, 2, len(snapshot))
@@ -714,7 +714,7 @@ func TestExtensions_Snapshot(t *testing.T) {
 		}
 
 		// Original still has values
-		val, ok := ExtGet[string](ext)
+		val, ok := ext.GetTyped[string]()
 		assert.True(t, ok)
 		assert.Equal(t, "value1", val)
 	})
@@ -737,7 +737,7 @@ func TestExtensions_GetOrInit(t *testing.T) {
 		var wg sync.WaitGroup
 		for range 100 {
 			wg.Go(func() {
-				ExtGetOrInit(ext, func() string {
+				ext.GetOrInitTyped(func() string {
 					mu.Lock()
 					initCount++
 					mu.Unlock()
@@ -751,7 +751,7 @@ func TestExtensions_GetOrInit(t *testing.T) {
 		// Init should only be called once
 		assert.Equal(t, 1, initCount)
 
-		val, ok := ExtGet[string](ext)
+		val, ok := ext.GetTyped[string]()
 		assert.True(t, ok)
 		assert.Equal(t, "initialized", val)
 	})
@@ -916,6 +916,6 @@ func BenchmarkExtensions_GetOrInit(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = ExtGetOrInit(ext, func() string { return "test" })
+		_ = ext.GetOrInitTyped(func() string { return "test" })
 	}
 }

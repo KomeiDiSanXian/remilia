@@ -15,7 +15,7 @@
 //	pm.Register(pluginstore.New())
 //
 //	// 在你的插件 Setup 中：
-//	storeSvc := plugin.Service[*pluginstore.Plugin](ctx, "pluginstore")
+//	storeSvc := ctx.Service[*pluginstore.Plugin]("pluginstore")
 //	store.RegisterFunc("myplugin",
 //	    func() (any, error) { return myState, nil },       // SaveState
 //	    func(v any) error { return loadFrom(v) },          // RestoreState

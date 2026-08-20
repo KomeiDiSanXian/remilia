@@ -56,7 +56,7 @@ func TestReply_NotifiesOutboundObserver(t *testing.T) {
 
 	obs := &recordingObserver{}
 	ctx := context.NewContextFromEvent(event, idSender{})
-	context.ExtSet(ctx.Ext(), context.OutboundObserverExt{Observer: obs})
+	ctx.Ext().SetTyped(context.OutboundObserverExt{Observer: obs})
 	ctx.SetDispatcher(&testDispatcher{})
 
 	ctx.Reply(platform.TextMessage("pong"))
@@ -75,7 +75,7 @@ func TestReplyWithContext_NotifiesOutboundObserver(t *testing.T) {
 
 	obs := &recordingObserver{}
 	ctx := context.NewContextFromEvent(event, idSender{})
-	context.ExtSet(ctx.Ext(), context.OutboundObserverExt{Observer: obs})
+	ctx.Ext().SetTyped(context.OutboundObserverExt{Observer: obs})
 	ctx.SetDispatcher(&testDispatcher{})
 
 	ctx.ReplyWithContext(stdctx.Background(), platform.MarkdownMessage("**hello**"))
@@ -104,7 +104,7 @@ func TestReply_SubmitFailureSkipsObserver(t *testing.T) {
 
 	obs := &recordingObserver{}
 	ctx := context.NewContextFromEvent(event, idSender{})
-	context.ExtSet(ctx.Ext(), context.OutboundObserverExt{Observer: obs})
+	ctx.Ext().SetTyped(context.OutboundObserverExt{Observer: obs})
 	ctx.SetDispatcher(failingDispatcher{})
 
 	ctx.Reply(platform.TextMessage("pong"))
@@ -117,7 +117,7 @@ func TestReply_ObserverSurvivesClone(t *testing.T) {
 
 	obs := &recordingObserver{}
 	ctx := context.NewContextFromEvent(event, idSender{})
-	context.ExtSet(ctx.Ext(), context.OutboundObserverExt{Observer: obs})
+	ctx.Ext().SetTyped(context.OutboundObserverExt{Observer: obs})
 	ctx.SetDispatcher(&testDispatcher{})
 
 	cloned := ctx.Clone()

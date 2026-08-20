@@ -8,7 +8,7 @@
 //   - 多表达式组合：2d20+1d6+3
 //
 // 本包导出 [Servicer] 接口和 [Service] 实现，供 coc、dnd 等插件的
-// Setup 阶段通过 plugin.TryService[dice.Servicer] 获取。
+// Setup 阶段通过 ctx.TryService[dice.Servicer] 获取。
 //
 // 命令:
 //   - /r <表达式> — 通用掷骰

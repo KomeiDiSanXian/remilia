@@ -2,7 +2,7 @@
 
 ## 问题
 
-插件通过 `Service[T](ctx)` 在 Setup 闭包内声明依赖。在注册依赖未知前，无法进行拓扑排序。
+插件通过 `ctx.Service[T]()` 在 Setup 闭包内声明依赖。在注册依赖未知前，无法进行拓扑排序。
 需要一种方法"预跑"Setup 来发现依赖关系——但不能真的跑两次。
 
 ## 重要前提（v1.27+）：DryRunSafe 白名单
@@ -46,7 +46,7 @@ Round N:
 
 1. **每个 Setup 最多跑一次**。即使出现了依赖不满足的情况，`mustGet` 也已在 panic 前记录了 dep name。
 
-2. **Type-based resolution**：`Service[T](ctx)` 不带 name 的调用，在类型未就绪时不会 panic。而是将 `reflect.Type` 记入 `pendingType`，等待后续轮次匹配新注册的 API。
+2. **Type-based resolution**：`ctx.Service[T]()` 不带 name 的调用，在类型未就绪时不会 panic。而是将 `reflect.Type` 记入 `pendingType`，等待后续轮次匹配新注册的 API。
 
 3. **两阶段的职责分离**：
    - 三色 DryRun：发现 dep 边 + 检测循环

@@ -17,7 +17,7 @@
 //	}))
 //
 //	// 作为规则使用
-//	kfSvc := plugin.Service[*keywordfilter.Plugin](ctx, "keywordfilter")
+//	kfSvc := ctx.Service[*keywordfilter.Plugin]("keywordfilter")
 //	engine.On(string(platform.EventKindGroupMessage), kf.Rule()).Handle(handler)
 package keywordfilter
 

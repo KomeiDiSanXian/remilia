@@ -35,7 +35,7 @@ func (ctx *Context) SetRetryAttempt(attempt int) {
 	if ctx == nil {
 		return
 	}
-	ExtSet(ctx.Ext(), retryMetadata{Attempt: attempt})
+	ctx.Ext().SetTyped(retryMetadata{Attempt: attempt})
 }
 
 // GetRetryAttempt returns the current retry attempt set by Retry middleware.
@@ -43,7 +43,7 @@ func (ctx *Context) GetRetryAttempt() (int, bool) {
 	if ctx == nil {
 		return 0, false
 	}
-	if ra, ok := ExtGet[retryMetadata](ctx.Ext()); ok {
+	if ra, ok := ctx.Ext().GetTyped[retryMetadata](); ok {
 		return ra.Attempt, true
 	}
 	return 0, false
@@ -55,7 +55,7 @@ func (ctx *Context) SetMiddlewareTrace(trace []string) {
 		return
 	}
 	cp := append([]string(nil), trace...)
-	ExtSet(ctx.Ext(), middlewareTrace{Trace: cp})
+	ctx.Ext().SetTyped(middlewareTrace{Trace: cp})
 }
 
 // GetMiddlewareTrace returns the executed named middleware trace recorded by engine.Named tracing.
@@ -64,7 +64,7 @@ func (ctx *Context) GetMiddlewareTrace() ([]string, bool) {
 	if ctx == nil {
 		return nil, false
 	}
-	if mt, ok := ExtGet[middlewareTrace](ctx.Ext()); ok {
+	if mt, ok := ctx.Ext().GetTyped[middlewareTrace](); ok {
 		cp := make([]string, len(mt.Trace))
 		copy(cp, mt.Trace)
 		return cp, true
@@ -77,7 +77,7 @@ func (ctx *Context) GetParsedCommand() *command.Parsed {
 	if ctx == nil {
 		return nil
 	}
-	if pc, ok := ExtGet[parsedCommand](ctx.Ext()); ok {
+	if pc, ok := ctx.Ext().GetTyped[parsedCommand](); ok {
 		return pc.Cmd
 	}
 	return nil
@@ -88,7 +88,7 @@ func (ctx *Context) SetParsedCommand(cmd *command.Parsed) {
 	if ctx == nil {
 		return
 	}
-	ExtSet(ctx.Ext(), parsedCommand{Cmd: cmd})
+	ctx.Ext().SetTyped(parsedCommand{Cmd: cmd})
 }
 
 // MatchCommand 使用给定的解析器匹配命令

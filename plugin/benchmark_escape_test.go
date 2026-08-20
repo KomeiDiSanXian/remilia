@@ -35,7 +35,7 @@ func BenchmarkGetServiceByName(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = GetService[*benchSvc](c, "svc")
+		_, _ = c.GetService[*benchSvc]("svc")
 	}
 }
 

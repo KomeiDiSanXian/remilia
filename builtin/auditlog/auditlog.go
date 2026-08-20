@@ -103,7 +103,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			p.Engine = ctx.Info.Coordinator()
 
 			if !ctx.DryRun {
-				if svc, ok := plugin.TryService[storage.Client](ctx, "storage"); ok {
+				if svc, ok := ctx.TryService[storage.Client]("storage"); ok {
 					p.storageSvc = svc
 					if err := svc.AutoMigrate(&LogEntryModel{}); err != nil {
 						ctx.Log.Warnf("Failed to migrate auditlog table: %v", err)

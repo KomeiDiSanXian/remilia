@@ -109,7 +109,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 			Category:    "核心",
 			Tags:        []string{"广播", "推送", "通知"},
 			HelpText: `广播插件使用说明：
-  bc := plugin.Service[broadcast.Plugin](ctx, "broadcast")
+  bc := ctx.Service[broadcast.Plugin]("broadcast")
   bc.SetSender(sender)
   bc.Broadcast(chatIDs, platform.TextMessage("公告"))`,
 		},

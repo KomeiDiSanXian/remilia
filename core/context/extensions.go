@@ -25,8 +25,8 @@ import (
 //
 // ## 2. 类型键 API（框架内部使用）
 //
-//		context.ExtSet(ctx.Ext(), myTypedValue{})
-//		val, ok := context.ExtGet[myTypedValue](ctx.Ext())
+//		ctx.Ext().SetTyped(myTypedValue{})
+//		val, ok := ctx.Ext().GetTyped[myTypedValue]()
 //
 //	  - 键类型：reflect.Type（通过泛型参数隐式传入）
 //	  - 用途：框架组件间共享强类型数据（如 retryMetadata、middlewareTrace、parsedCommand）
@@ -37,7 +37,7 @@ import (
 // ## 隔离性保证
 //
 // 两套系统使用完全不同的底层存储（字符串 map vs reflect.Type map），
-// ctx.Set("parsed_command", v) 不会与框架通过 ExtSet 存储的 parsedCommand 产生任何冲突。
+// ctx.Set("parsed_command", v) 不会与框架通过 SetTyped 存储的 parsedCommand 产生任何冲突。
 type Extensions struct {
 	mu sync.RWMutex
 	m  map[reflect.Type]any
@@ -119,15 +119,15 @@ func (e *Extensions) Clear() {
 	}
 }
 
-// --- 泛型辅助函数（包级别）---
+// --- 泛型方法（Go 1.27 泛型方法）---
 
 // extTypeOf 返回 T 对应的 reflect.Type 键。
 func extTypeOf[T any]() reflect.Type {
 	return reflect.TypeFor[T]()
 }
 
-// ExtGet 读取指定类型的扩展值。
-func ExtGet[T any](e *Extensions) (T, bool) {
+// GetTyped 读取指定类型的扩展值。
+func (e *Extensions) GetTyped[T any]() (T, bool) {
 	var zero T
 	if e == nil {
 		return zero, false
@@ -143,16 +143,16 @@ func ExtGet[T any](e *Extensions) (T, bool) {
 	return tv, true
 }
 
-// ExtSet 存储指定类型的扩展值。
-func ExtSet[T any](e *Extensions, v T) {
+// SetTyped 存储指定类型的扩展值。
+func (e *Extensions) SetTyped[T any](v T) {
 	if e == nil {
 		return
 	}
 	e.Set(extTypeOf[T](), v)
 }
 
-// ExtGetOrInit 返回指定类型的扩展值，若不存在则初始化一次。
-func ExtGetOrInit[T any](e *Extensions, init func() T) T {
+// GetOrInitTyped 返回指定类型的扩展值，若不存在则初始化一次。
+func (e *Extensions) GetOrInitTyped[T any](init func() T) T {
 	var zero T
 	if e == nil {
 		return zero

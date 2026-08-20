@@ -12,7 +12,7 @@
 // 使用示例:
 //
 //	pm.Register(verifycode.New())
-//	vcSvc := plugin.Service[*verifycode.Plugin](ctx, "verifycode")
+//	vcSvc := ctx.Service[*verifycode.Plugin]("verifycode")
 //	code, _ := vc.Generate(verifycode.Config{Role: "vip", TTL: 24*time.Hour, MaxUses: 1})
 //	role, err := vc.Verify(userID, codeStr)
 package verifycode

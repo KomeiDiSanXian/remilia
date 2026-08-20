@@ -15,7 +15,7 @@
 //	    BanOnViolation: true, BanDuration: 5*time.Minute,
 //	}))
 //	// Handler 中：
-//	spam := plugin.Service[*antispam.Plugin](ctx, "antispam").Must()
+//	spam := ctx.Service[*antispam.Plugin]("antispam").Must()
 //	engine.On(string(platform.EventKindGroupMessage), spam.Rule()).Handle(myHandler)
 package antispam
 

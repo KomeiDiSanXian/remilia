@@ -50,13 +50,13 @@ func New() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
 
-			diceSvc, ok := plugin.TryService[dice.Servicer](ctx, "dice")
+			diceSvc, ok := ctx.TryService[dice.Servicer]("dice")
 			if !ok {
 				return nil, fmt.Errorf("coc: dice service not available")
 			}
 			p.dice = diceSvc
 
-			storageSvc, ok := plugin.TryService[*storage.Plugin](ctx, "storage")
+			storageSvc, ok := ctx.TryService[*storage.Plugin]("storage")
 			if !ok {
 				return nil, fmt.Errorf("coc: storage service not available")
 			}

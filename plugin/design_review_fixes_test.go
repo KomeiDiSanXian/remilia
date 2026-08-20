@@ -221,7 +221,7 @@ func TestBatch_DependencyAwareRetry(t *testing.T) {
 			orderMu.Lock()
 			setupOrder = append(setupOrder, "consumer")
 			orderMu.Unlock()
-			_ = Service[any](ctx, "retry-base")
+			_ = ctx.Service[any]("retry-base")
 			return nil, nil
 		},
 	}
@@ -271,7 +271,7 @@ func TestBatch_MissingDependency_ReportsActionableError(t *testing.T) {
 	consumer := &Descriptor{
 		Name: "missing-dep-consumer",
 		Setup: func(ctx *SetupContext) (any, error) {
-			_ = Service[any](ctx, "ghost-plugin")
+			_ = ctx.Service[any]("ghost-plugin")
 			return nil, nil
 		},
 	}

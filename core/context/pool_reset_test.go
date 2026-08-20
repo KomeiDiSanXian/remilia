@@ -32,6 +32,6 @@ func TestMultiCycle(t *testing.T) {
 		ext := ctx.Ext()
 		assert.NotNil(t, ext)
 		type cycleKey struct{}
-		ExtSet(ctx.Ext(), cycleKey{})
+		ctx.Ext().SetTyped(cycleKey{})
 	}
 }

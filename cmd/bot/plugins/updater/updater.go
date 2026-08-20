@@ -102,7 +102,7 @@ func New(opts ...Option) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.cfg = ctx.Config
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 			}
 			if p.dataDir == "" {

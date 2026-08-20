@@ -9,7 +9,7 @@
 //	    LocaleDir:     "locales/",
 //	}))
 //	// Handler 中：
-//	tSvc := plugin.Service[*i18n.Plugin](ctx, "i18n")
+//	tSvc := ctx.Service[*i18n.Plugin]("i18n")
 //	msg := t.T(ctx, "welcome", map[string]any{"name": "Alice"})
 //
 // locale 文件格式（locales/zh-CN.yaml）：

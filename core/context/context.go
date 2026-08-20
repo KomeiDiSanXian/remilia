@@ -193,12 +193,12 @@ func copyExtensions(src, dst *Context) {
 	}
 	ex.mu.RUnlock()
 
-	if s, ok := ExtGet[*extensionState](ex); ok && s != nil {
+	if s, ok := ex.GetTyped[*extensionState](); ok && s != nil {
 		s.mu.RLock()
 		cp := make(map[string]any, len(s.m))
 		maps.Copy(cp, s.m)
 		s.mu.RUnlock()
-		ExtSet(dstExt, &extensionState{m: cp})
+		dstExt.SetTyped(&extensionState{m: cp})
 	}
 }
 

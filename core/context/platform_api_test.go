@@ -19,21 +19,22 @@ func (s *apiProviderSender) Send(_ stdctx.Context, _ platform.SendRequest) (plat
 }
 func (s *apiProviderSender) PlatformAPI() any { return s.api }
 
-// TestGetPlatformAPIAs_Generic 验证包级泛型获取函数。
+// TestGetPlatformAPIAs_Generic 验证 Context 泛型方法。
 func TestGetPlatformAPIAs_Generic(t *testing.T) {
 	type fakeAPI struct{ name string }
 	fake := &fakeAPI{name: "fake"}
 	ctx := NewContextFromEvent(nil, &apiProviderSender{api: fake})
 
-	got, ok := GetPlatformAPIAs[*fakeAPI](ctx)
+	got, ok := ctx.GetPlatformAPIAs[*fakeAPI]()
 	require.True(t, ok)
 	assert.Same(t, fake, got)
 
 	// 类型不匹配。
-	_, ok = GetPlatformAPIAs[platform.Sender](ctx)
+	_, ok = ctx.GetPlatformAPIAs[platform.Sender]()
 	assert.False(t, ok)
 
 	// nil Context。
-	_, ok = GetPlatformAPIAs[*fakeAPI](nil)
+	var nilCtx *Context
+	_, ok = nilCtx.GetPlatformAPIAs[*fakeAPI]()
 	assert.False(t, ok)
 }

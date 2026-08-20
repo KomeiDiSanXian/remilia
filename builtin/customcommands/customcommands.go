@@ -72,7 +72,7 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 支持变量: {user} {group} {time} {date}`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 			}
 			if !ctx.DryRun && p.kvPath != "" {

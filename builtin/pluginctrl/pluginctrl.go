@@ -48,7 +48,7 @@
 //	})
 //
 //	// 若需要冷却控制，仍可手动使用 Middleware（与自动注入兼容）：
-//	ctrl := plugin.Service[pluginctrl.Plugin](ctx, "pluginctrl")
+//	ctrl := ctx.Service[pluginctrl.Plugin]("pluginctrl")
 //	ctrl.RegisterPolicy("weather", pluginctrl.PluginPolicy{UserLimit: 10 * time.Second})
 //	ctx.Reg.RegisterCommand(groupEvent, "/天气").
 //	    Use(ctrl.CooldownOnly("weather")).  // 只挂冷却，其他由 combinedGuard 处理
@@ -112,7 +112,7 @@ type PluginPolicy struct {
 
 // Plugin 逐群/逐用户插件开关管理器。
 //
-// 通过 plugin.Service[pluginctrl.Plugin](ctx, "pluginctrl") 获取。
+// 通过 ctx.Service[pluginctrl.Plugin]("pluginctrl") 获取。
 type Plugin struct {
 	mu sync.RWMutex
 	// groupStates[groupID][pluginName] = enabled
@@ -233,7 +233,7 @@ func (p *Plugin) IsGroupSilenced(groupID string) bool {
 //
 // 用法：
 //
-//	ctrl := plugin.Service[pluginctrl.Plugin](ctx, "pluginctrl")
+//	ctrl := ctx.Service[pluginctrl.Plugin]("pluginctrl")
 //	ctx.Reg.On(string(platform.EventKindGroupMessage), ctrl.Rule("weather")).Handle(handler)
 func (p *Plugin) Rule(pluginName string) eventctx.Rule {
 	return func(ctx *eventctx.Context) bool {
@@ -885,12 +885,12 @@ func New(opts ...Option) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			// 尝试获取权限插件（可选依赖）
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 				ctx.Log.Info("Permission plugin connected, admin role check enabled")
 			}
 			// 尝试获取存储（可选依赖）
-			if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
+			if svc, ok := ctx.TryService[*storage.Plugin]("storage"); ok {
 				p.storage = svc
 				ctx.Log.Info("Storage backend connected, plugin states will be persisted")
 				if !ctx.DryRun {

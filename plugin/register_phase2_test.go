@@ -369,7 +369,7 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 		Name: "consumer",
 		Deps: []string{"exporter"},
 		Setup: func(ctx *SetupContext) (any, error) {
-			got = Service[*MyAPI](ctx, "exporter")
+			got = ctx.Service[*MyAPI]("exporter")
 			return nil, nil
 		},
 	}))
@@ -385,7 +385,7 @@ func TestService_PanicsOnMissing(t *testing.T) {
 		},
 	}
 	assert.Panics(t, func() {
-		Service[struct{}](ctx, "nonexistent")
+		ctx.Service[struct{}]("nonexistent")
 	})
 }
 
@@ -396,7 +396,7 @@ func TestTryService_ReturnsNilOnMissing(t *testing.T) {
 			pluginName: "test",
 		},
 	}
-	svc, ok := TryService[*struct{}](ctx, "nonexistent")
+	svc, ok := ctx.TryService[*struct{}]("nonexistent")
 	assert.Nil(t, svc)
 	assert.False(t, ok)
 }
@@ -407,7 +407,7 @@ func TestTryService_ReturnsValueWhenPresent(t *testing.T) {
 	c.Register("svc", &Svc{X: 42})
 	ctx := &SetupContext{setupContextInternal: setupContextInternal{container: c, pluginName: "test"}}
 
-	svc, ok := TryService[*Svc](ctx, "svc")
+	svc, ok := ctx.TryService[*Svc]("svc")
 	require.True(t, ok)
 	assert.Equal(t, 42, svc.X)
 }

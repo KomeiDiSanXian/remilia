@@ -74,7 +74,7 @@ func (p *Plugin) Load(ctx *plugin.SetupContext) error {
 	p.Engine = ctx.Info.Coordinator()
 	p.setupCtx = ctx
 	// 获取 permission 插件实例（Deps 已确保先加载）
-	if ppSvc := plugin.Service[*permission.Plugin](ctx, "permission"); ppSvc != nil {
+	if ppSvc := ctx.Service[*permission.Plugin]("permission"); ppSvc != nil {
 		p.PermPlugin = ppSvc
 	}
 	p.registerDebugCommands(ctx)

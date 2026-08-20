@@ -957,7 +957,7 @@ func MessageLogger() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
 			if defaultLogger.record != nil {
-				eventctx.ExtSet(ctx.Ext(), eventctx.OutboundObserverExt{Observer: defaultLogger})
+				ctx.Ext().SetTyped(eventctx.OutboundObserverExt{Observer: defaultLogger})
 			}
 			err := next(ctx)
 			pe := ctx.GetPlatformEvent()

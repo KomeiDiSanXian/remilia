@@ -15,7 +15,7 @@
 //	pm.Register(builtin_storage.New(storage.WithDSN("data/bot.db")))
 //
 //	// 在其他插件中获取存储客户端（面向接口）
-//	clientProxy := plugin.Service[storage.Client](ctx, "storage")
+//	clientProxy := ctx.Service[storage.Client]("storage")
 //	clientProxy.Must().AutoMigrate(&MyModel{})
 //	clientProxy.Must().Create(&MyModel{Name: "test"})
 package storage
@@ -34,10 +34,10 @@ import (
 // 注册后，其他插件通过以下方式获取：
 //
 //	// 接口方式（基础 CRUD）
-//	clientProxy := plugin.Service[storage.Client](ctx, "storage")
+//	clientProxy := ctx.Service[storage.Client]("storage")
 //
 //	// 具体类型方式（需要链式查询或 GORM 高级特性时）
-//	p := plugin.Service[*storage.Plugin](ctx, "storage")
+//	p := ctx.Service[*storage.Plugin]("storage")
 //	p.Must().Where("...").First(...)
 //	p.Must().DB().Transaction(...)
 //
@@ -56,7 +56,7 @@ func New(opts ...infrastorage.Option) *plugin.Descriptor {
 			Category:    "基础设施",
 			Tags:        []string{"存储", "数据库", "持久化", "gorm", "sqlite"},
 			HelpText: `存储插件无需手动使用。其他插件通过依赖注入获取：
-  clientProxy := plugin.Service[storage.Client](ctx, "storage")
+  clientProxy := ctx.Service[storage.Client]("storage")
   clientProxy.Must().AutoMigrate(&MyModel{})
   clientProxy.Must().Create(&MyModel{...})`,
 		},
@@ -70,8 +70,8 @@ func New(opts ...infrastorage.Option) *plugin.Descriptor {
 				return nil, fmt.Errorf("storage: open db failed: %w", err)
 			}
 			ctx.Log.Info("Database connected")
-			// 额外以接口类型导出，供消费者通过 plugin.Service[storage.Client] 获取
-			plugin.ExportIface[infrastorage.Client](ctx, "storage", p)
+			// 额外以接口类型导出，供消费者通过 ctx.Service[storage.Client] 获取
+			ctx.ExportIface[infrastorage.Client]("storage", p)
 			return p, nil
 		},
 		Teardown: func(ctx *plugin.TeardownContext) error {

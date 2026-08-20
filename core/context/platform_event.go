@@ -57,7 +57,7 @@ func (ctx *Context) GetPlatformSender() platform.Sender {
 //	    _, _ = api.SendGroupForwardMsg(ctx, groupID, nodes)
 //	}
 //
-// 推荐使用包级泛型函数 [GetPlatformAPIAs] 免去类型断言。
+// 推荐使用泛型方法 GetPlatformAPIAs 免去类型断言。
 func (ctx *Context) GetPlatformAPI() any {
 	if ctx == nil {
 		return nil
@@ -65,16 +65,15 @@ func (ctx *Context) GetPlatformAPI() any {
 	return platform.GetPlatformAPI(ctx.platformSender)
 }
 
-// GetPlatformAPIAs 泛型获取 Context 平台特有的 API 句柄。
+// GetPlatformAPIAs 泛型获取 Context 平台特有的 API 句柄（Go 1.27 泛型方法）。
 //
-// Go 方法不支持类型参数，因此以包级函数提供（等价于
-// platform.GetPlatformAPIAs[T](ctx.GetPlatformSender())）。
+// 等价于 platform.GetPlatformAPIAs[T](ctx.GetPlatformSender())。
 //
-//	api, ok := context.GetPlatformAPIAs[*onebot.Sender](ctx)
+//	api, ok := ctx.GetPlatformAPIAs[*onebot.Sender]()
 //	if ok {
 //	    _, _ = api.SendGroupSign(ctx, groupID)
 //	}
-func GetPlatformAPIAs[T any](ctx *Context) (T, bool) {
+func (ctx *Context) GetPlatformAPIAs[T any]() (T, bool) {
 	if ctx == nil {
 		var zero T
 		return zero, false

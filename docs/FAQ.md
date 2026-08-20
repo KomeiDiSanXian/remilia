@@ -59,7 +59,7 @@ YAML 格式。`cmd/bot/config.default.yaml` 是完整参考；以库方式集成
 
 ### 插件之间如何共享服务和通信？
 
-- **服务共享**：Setup 返回值自动注入容器，其他插件通过 `plugin.Service[T]` 获取；依赖用 `Deps`/`OptionalDeps` 声明（决定加载顺序与重载级联）
+- **服务共享**：Setup 返回值自动注入容器，其他插件通过 `ctx.Service[T]` 获取；依赖用 `Deps`/`OptionalDeps` 声明（决定加载顺序与重载级联）
 - **事件通信**：`ctx.EventBus` 发布/订阅，订阅推荐 `ctx.Scope().Subscribe`（插件卸载自动清理）
 
 ### 热重载对插件有什么要求？

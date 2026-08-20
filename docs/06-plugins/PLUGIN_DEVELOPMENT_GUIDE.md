@@ -137,8 +137,8 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
     cmds   := reader.GetAllCommands()      // []engine.CommandInfo
 
     // 依赖获取（ServiceProxy 在依赖插件热重载后仍有效）
-    store     := plugin.Service[storage.Plugin](ctx, "storage")
-    cache, ok := plugin.TryService[cache.Plugin](ctx, "cache")
+    store     := ctx.Service[storage.Plugin]("storage")
+    cache, ok := ctx.TryService[cache.Plugin]("cache")
 
     // 插件配置
     if ctx.Config != nil {
@@ -177,11 +177,11 @@ Setup: func(ctx *plugin.SetupContext) (any, error) {
 ## 导出 API 给其他插件
 
 ```go
-// 方式 1：直接返回（框架以 Name 注入容器，消费方用 plugin.Service[T] 获取）
+// 方式 1：直接返回（框架以 Name 注入容器，消费方用 ctx.Service[T] 获取）
 return &WeatherPlugin{}, nil
 
-// 方式 2：按接口导出（消费方用 plugin.Service[WeatherAPI] 获取）
-plugin.ExportIface[WeatherAPI](ctx, "weather", impl)
+// 方式 2：按接口导出（消费方用 ctx.Service[WeatherAPI] 获取）
+ctx.ExportIface[WeatherAPI]("weather", impl)
 return impl, nil
 ```
 

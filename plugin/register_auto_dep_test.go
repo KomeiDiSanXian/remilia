@@ -236,7 +236,7 @@ func TestDeclaredVsInferred(t *testing.T) {
 	t.Log("✓ Undeclared dependency detection works")
 }
 
-// ========== 类型推断测试：Service[T](ctx) 不带 name ==========
+// ========== 类型推断测试：ctx.Service[T]() 不带 name ==========
 
 // TestSmartRegistration_TypeBasedResolution 验证类型推断在 Smart 注册中工作。
 func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
@@ -256,7 +256,7 @@ func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
 			Name:       "app",
 			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
-				v := Service[*storageAPI](ctx)
+				v := ctx.Service[*storageAPI]()
 				if v.DB != "mysql://localhost" {
 					t.Fatal("unexpected value")
 				}
@@ -269,7 +269,7 @@ func TestSmartRegistration_TypeBasedResolution(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("mysql"))
 	assert.True(t, manager.IsLoaded("app"))
-	t.Log("✓ Type-based Service[T](ctx) with straight order works")
+	t.Log("✓ Type-based ctx.Service[T]() with straight order works")
 }
 
 // TestSmartRegistration_TypeBasedResolution_Reversed 验证依赖在后时类型推断仍有效。
@@ -283,7 +283,7 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 			Name:       "app",
 			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
-				v := Service[*cacheAPI](ctx)
+				v := ctx.Service[*cacheAPI]()
 				if v.Addr != "redis:6379" {
 					t.Fatal("unexpected value")
 				}
@@ -303,7 +303,7 @@ func TestSmartRegistration_TypeBasedResolution_Reversed(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, manager.IsLoaded("redis"))
 	assert.True(t, manager.IsLoaded("app"))
-	t.Log("✓ Type-based Service[T](ctx) with reversed order works (three-color)")
+	t.Log("✓ Type-based ctx.Service[T]() with reversed order works (three-color)")
 }
 
 // TestSmartRegistration_TypeBased_TryService 验证 TryService 类型推断。
@@ -324,7 +324,7 @@ func TestSmartRegistration_TypeBased_TryService(t *testing.T) {
 			Name:       "app",
 			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
-				proxy, ok := TryService[*metricsAPI](ctx)
+				proxy, ok := ctx.TryService[*metricsAPI]()
 				if ok {
 					t.Fatal("expected no metrics service")
 				}
@@ -336,7 +336,7 @@ func TestSmartRegistration_TypeBased_TryService(t *testing.T) {
 
 	err := manager.RegisterBatch(context.Background(), plugins, WithInferDeps())
 	assert.NoError(t, err)
-	t.Log("✓ Type-based TryService[T](ctx) works when type not registered")
+	t.Log("✓ Type-based ctx.TryService[T]() works when type not registered")
 }
 
 // TestSmartRegistration_TypeBased_Circular 验证类型解析的循环依赖检测。
@@ -352,7 +352,7 @@ func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
 			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
-				_ = Service[*yAPI](ctx)
+				_ = ctx.Service[*yAPI]()
 				return &xAPI{val: "x"}, nil
 			},
 		},
@@ -361,7 +361,7 @@ func TestSmartRegistration_TypeBased_Circular(t *testing.T) {
 			DryRunSafe: true,
 			Setup: func(ctx *SetupContext) (any, error) {
 				defer func() { recover() }()
-				_ = Service[*xAPI](ctx)
+				_ = ctx.Service[*xAPI]()
 				return &yAPI{val: "y"}, nil
 			},
 		},

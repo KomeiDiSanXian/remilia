@@ -68,15 +68,15 @@ func New() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading admin plugin...")
 			// 使用 Service 代理，确保 permission 热重载后仍有效
-			v1Plugin.permSvc = plugin.Service[*permission.Plugin](ctx, "permission")
+			v1Plugin.permSvc = ctx.Service[*permission.Plugin]("permission")
 			// 通过 ctx.Admin 获取管理写视图（合法路径，无需私有接口断言）
 			v1Plugin.PluginManager = ctx.Admin
 			v1Plugin.setupCtx = ctx
-			if svc, ok := plugin.TryService[*acl.Plugin](ctx, "acl"); ok {
+			if svc, ok := ctx.TryService[*acl.Plugin]("acl"); ok {
 				v1Plugin.aclSvc = svc
 				ctx.Log.Info("Using standalone acl plugin")
 			}
-			if svc, ok := plugin.TryService[*verifycode.Plugin](ctx, "verifycode"); ok {
+			if svc, ok := ctx.TryService[*verifycode.Plugin]("verifycode"); ok {
 				v1Plugin.vcSvc = svc
 				ctx.Log.Info("Using standalone verifycode plugin")
 			}

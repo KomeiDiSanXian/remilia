@@ -30,7 +30,7 @@
 //	pm.Register(permission.New())
 //
 //	// 在其他插件中获取权限 API
-//	perm := plugin.Service[permission.Plugin](ctx, "permission")
+//	perm := ctx.Service[permission.Plugin]("permission")
 //
 //	// 在事件处理中检查权限
 //	if !perm.CheckPermission(ctx, eventctx.NewPermission("admin", "kick")) {
@@ -146,7 +146,7 @@ func New() *plugin.Descriptor {
 
 			// 通过 storage 插件持久化（DryRun 下跳过，避免空壳 DB）
 			if !ctx.DryRun {
-				if svc, ok := plugin.TryService[*storage.Plugin](ctx, "storage"); ok {
+				if svc, ok := ctx.TryService[*storage.Plugin]("storage"); ok {
 					pluginAPI.tryBindStorage(svc)
 				}
 			}

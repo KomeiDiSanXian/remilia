@@ -20,7 +20,7 @@ func (ctx *Context) GetPermissionManager() *permission.Manager {
 	if ctx == nil {
 		return nil
 	}
-	if ext, ok := ExtGet[PermissionManagerExt](ctx.Ext()); ok {
+	if ext, ok := ctx.Ext().GetTyped[PermissionManagerExt](); ok {
 		return ext.PM
 	}
 	return nil
@@ -31,5 +31,5 @@ func (ctx *Context) SetPermissionManager(pm *permission.Manager) {
 	if ctx == nil {
 		return
 	}
-	ExtSet(ctx.Ext(), PermissionManagerExt{PM: pm})
+	ctx.Ext().SetTyped(PermissionManagerExt{PM: pm})
 }

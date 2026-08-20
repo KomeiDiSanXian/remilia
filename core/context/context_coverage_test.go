@@ -223,11 +223,11 @@ func TestExtensions_Set_NilCase(t *testing.T) {
 	ext.Set(extTypeOf[string](), "value")
 }
 
-func TestExtGet_WrongType(t *testing.T) {
+func TestGetTyped_WrongType(t *testing.T) {
 	ext := newExtensions()
 	ext.Set(extTypeOf[string](), 123) // Store int with string key
 
-	result, ok := ExtGet[string](ext)
+	result, ok := ext.GetTyped[string]()
 	assert.False(t, ok)
 	assert.Equal(t, "", result)
 }

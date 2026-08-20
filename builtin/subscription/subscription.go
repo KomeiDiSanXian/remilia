@@ -33,7 +33,7 @@
 //	pm.Register(subPlugin.Descriptor())
 //
 //	// 3. 在 Handler 中管理订阅
-//	mgrSvc := plugin.Service[*subscription.Manager](ctx, "subscription")
+//	mgrSvc := ctx.Service[*subscription.Manager]("subscription")
 //	id, err := mgr.Subscribe("my_source", "param", subscription.Target{ChatID: "group-001", IsGroup: true})
 package subscription
 
@@ -530,7 +530,7 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
   pm.Register(h.Descriptor())
 
   // 在 Handler 中订阅/退订
-  mgr := plugin.Service[*subscription.Manager](ctx, "subscription")
+  mgr := ctx.Service[*subscription.Manager]("subscription")
   id, _ := mgr.Subscribe("rss", "https://...", subscription.Target{ChatID: groupID, IsGroup: true})
   _ = mgr.Unsubscribe(id)`,
 		},
@@ -543,7 +543,7 @@ func (h *PluginHandle) Descriptor() *plugin.Descriptor {
 			}
 
 			// 获取 scheduler 插件（Service 确保热重载后仍有效）
-			m.schedSvc = plugin.Service[*scheduler.Plugin](ctx, "scheduler")
+			m.schedSvc = ctx.Service[*scheduler.Plugin]("scheduler")
 
 			// 打开 LevelDB 存储
 			if m.kvPath != "" {

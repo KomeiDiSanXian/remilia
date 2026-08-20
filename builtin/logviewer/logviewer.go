@@ -38,12 +38,12 @@ func New() *plugin.Descriptor {
   /logs recent [数量]        — 查看最近日志`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			svc, ok := plugin.TryService[*auditlog.Plugin](ctx, "auditlog")
+			svc, ok := ctx.TryService[*auditlog.Plugin]("auditlog")
 			if !ok {
 				return nil, fmt.Errorf("auditlog plugin not found")
 			}
 			p.auditLogSvc = svc
-			if permSvc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if permSvc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = permSvc
 			}
 			p.registerCommands(ctx)

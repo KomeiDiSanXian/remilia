@@ -417,7 +417,7 @@ func TestMessageLogger_InjectsOutboundObserver(t *testing.T) {
 	var gotObserver bool
 	mw := MessageLogger()
 	handler := mw(func(ctx *eventctx.Context) error {
-		if obs, ok := eventctx.ExtGet[eventctx.OutboundObserverExt](ctx.Ext()); ok && obs.Observer != nil {
+		if obs, ok := ctx.Ext().GetTyped[eventctx.OutboundObserverExt](); ok && obs.Observer != nil {
 			gotObserver = true
 		}
 		return nil

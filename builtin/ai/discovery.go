@@ -203,7 +203,7 @@ func (p *Plugin) DiscoverCommands() {
 //
 // 使用示例：
 //
-//	if aiSvc, ok := plugin.TryService[*ai.Plugin](ctx, "ai"); ok {
+//	if aiSvc, ok := ctx.TryService[*ai.Plugin]("ai"); ok {
 //	    aiSvc.RegisterToolProvider(myToolProvider)
 //	}
 func (p *Plugin) RegisterToolProvider(tp ToolProvider) {

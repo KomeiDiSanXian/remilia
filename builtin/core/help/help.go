@@ -130,7 +130,7 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Loading help plugin")
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permSvc = svc
 			}
 			p.Info = ctx.Info
@@ -154,7 +154,7 @@ func New(opts ...PluginOption) *plugin.Descriptor {
 			}
 
 			ctx.Log.Info("Help plugin loaded")
-			// 返回 *Plugin 注入容器，其他插件可通过 plugin.Service[*help.Plugin](ctx, "help") 获取
+			// 返回 *Plugin 注入容器，其他插件可通过 ctx.Service[*help.Plugin]("help") 获取
 			return p, nil
 		},
 	}

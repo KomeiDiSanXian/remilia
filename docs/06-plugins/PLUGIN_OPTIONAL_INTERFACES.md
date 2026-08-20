@@ -76,17 +76,17 @@ ctx.Reg.RegisterCommand(eventctx.EventGroup, "/status").
 
 ```go
 // Service[T]：获取必要依赖（返回 ServiceProxy，在依赖热重载后仍有效）
-store := plugin.Service[storage.Plugin](ctx, "storage")
+store := ctx.Service[storage.Plugin]("storage")
 store.Get() // 运行时获取实际值
 
 // TryService[T]：获取可选依赖，找不到返回 nil
-cache, ok := plugin.TryService[cache.Plugin](ctx, "cache")
+cache, ok := ctx.TryService[cache.Plugin]("cache")
 
 // ExportIface[T]：以接口类型额外导出，消费方通过 Service[T] 按接口获取
 // 生产者：
-plugin.ExportIface[io.Writer](ctx, "log-writer", impl)
+ctx.ExportIface[io.Writer]("log-writer", impl)
 // 消费者：
-writer := plugin.Service[io.Writer](ctx, "log-writer")
+writer := ctx.Service[io.Writer]("log-writer")
 ```
 
 ---

@@ -30,8 +30,8 @@ import (
 // 记录不受 include_reply_context 控制——记录是 messagelog 级行为，
 // 该配置只控制回复上下文的注入（见 prependReplyContext）。
 func (p *Plugin) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMessage) *future.Future[platform.SendResult] {
-	if _, ok := eventctx.ExtGet[eventctx.OutboundObserverExt](ctx.Ext()); !ok && p.history != nil {
-		eventctx.ExtSet(ctx.Ext(), eventctx.OutboundObserverExt{Observer: p.history})
+	if _, ok := ctx.Ext().GetTyped[eventctx.OutboundObserverExt](); !ok && p.history != nil {
+		ctx.Ext().SetTyped(eventctx.OutboundObserverExt{Observer: p.history})
 	}
 	return ctx.Reply(msg)
 }

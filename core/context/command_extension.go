@@ -36,10 +36,10 @@ func (c CommandExtension) ParseCommand() (*command.Args, error) {
 
 	return parseCommandWithCache(
 		func() (*commandArgsCache, bool) {
-			return ExtGet[*commandArgsCache](c.ctx.Ext())
+			return c.ctx.Ext().GetTyped[*commandArgsCache]()
 		},
 		func(v *commandArgsCache) {
-			ExtSet(c.ctx.Ext(), v)
+			c.ctx.Ext().SetTyped(v)
 		},
 		c.ctx.GetMessageContent(),
 	)

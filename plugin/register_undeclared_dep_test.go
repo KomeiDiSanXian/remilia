@@ -29,7 +29,7 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 				OnDependencyReloaded: func(dep string) { notifiedDeclared.Add(1) },
 			},
 			Setup: func(ctx *plugin.SetupContext) (any, error) {
-				_ = plugin.Service[any](ctx, "base")
+				_ = ctx.Service[any]("base")
 				return nil, nil
 			},
 		})
@@ -41,7 +41,7 @@ func TestUndeclaredDep_NotifiesDependents(t *testing.T) {
 				OnDependencyReloaded: func(dep string) { notifiedUndeclared.Add(1) },
 			},
 			Setup: func(ctx *plugin.SetupContext) (any, error) {
-				_ = plugin.Service[any](ctx, "base") // Service → 必要依赖 → 被合并到 desc.Deps
+				_ = ctx.Service[any]("base") // Service → 必要依赖 → 被合并到 desc.Deps
 				return nil, nil
 			},
 		})
@@ -76,7 +76,7 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 		Name: "consumer-declared",
 		Deps: []string{"base"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "base")
+			_ = ctx.Service[any]("base")
 			return nil, nil
 		},
 	})
@@ -85,7 +85,7 @@ func TestUndeclaredDep_UnregisterCascade(t *testing.T) {
 		Name: "consumer-undeclared",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_ = plugin.Service[any](ctx, "base") // 必要 → 合并 → 级联
+			_ = ctx.Service[any]("base") // 必要 → 合并 → 级联
 			return nil, nil
 		},
 	})
@@ -118,7 +118,7 @@ func TestUndeclaredDep_OptionalNotCascaded(t *testing.T) {
 		Name: "consumer-optional",
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, _ = plugin.TryService[any](ctx, "optional-base") // TryService → 可选依赖
+			_, _ = ctx.TryService[any]("optional-base") // TryService → 可选依赖
 			return nil, nil
 		},
 	})
@@ -151,7 +151,7 @@ func TestUndeclaredDep_OptionalNotNotified(t *testing.T) {
 				OnDependencyReloaded: func(dep string) { notified.Add(1) },
 			},
 			Setup: func(ctx *plugin.SetupContext) (any, error) {
-				_, _ = plugin.TryService[any](ctx, "optional-base") // 可选
+				_, _ = ctx.TryService[any]("optional-base") // 可选
 				return nil, nil
 			},
 		})
@@ -186,7 +186,7 @@ func TestUndeclaredDep_TopologicalSort(t *testing.T) {
 		Deps: []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "consumer-topo")
-			if _, ok := plugin.TryService[any](ctx, "base-topo"); !ok {
+			if _, ok := ctx.TryService[any]("base-topo"); !ok {
 				t.Log("  注: 批量注册未声明 Deps 时顺序不保证（已知限制，建议声明 Deps 或用 Smart 模式）")
 			}
 			return nil, nil
@@ -219,7 +219,7 @@ func TestOptionalDeps_TopologicalSort(t *testing.T) {
 		OptionalDeps: []string{"base-opt"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "consumer-opt")
-			_, _ = plugin.TryService[any](ctx, "base-opt")
+			_, _ = ctx.TryService[any]("base-opt")
 			return nil, nil
 		},
 	}
@@ -246,7 +246,7 @@ func TestOptionalDeps_NoFailWhenMissing(t *testing.T) {
 		Name:         "consumer-missing-opt",
 		OptionalDeps: []string{"nonexistent-plugin"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, ok := plugin.TryService[any](ctx, "nonexistent-plugin")
+			_, ok := ctx.TryService[any]("nonexistent-plugin")
 			if ok {
 				t.Error("不应找到不存在的插件")
 			}
@@ -274,7 +274,7 @@ func TestOptionalDeps_NoWarnWhenDeclared(t *testing.T) {
 		Name:         "opt-consumer-declared",
 		OptionalDeps: []string{"opt-base"},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
-			_, _ = plugin.TryService[any](ctx, "opt-base")
+			_, _ = ctx.TryService[any]("opt-base")
 			return nil, nil
 		},
 	})
@@ -312,8 +312,8 @@ func TestUndeclaredDep_SmartMode(t *testing.T) {
 		Deps:       []string{},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			setupOrder = append(setupOrder, "sm-consumer")
-			_ = plugin.Service[any](ctx, "sm-base")           // 必要
-			_, _ = plugin.TryService[any](ctx, "sm-optional") // 可选
+			_ = ctx.Service[any]("sm-base")           // 必要
+			_, _ = ctx.TryService[any]("sm-optional") // 可选
 			return nil, nil
 		},
 	}

@@ -104,15 +104,15 @@ func (p *Plugin) Descriptor() *plugin.Descriptor {
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			ctx.Log.Info("Plugin loaded")
 			p.setupCtx = ctx
-			if svc, ok := plugin.TryService[*antispam.Plugin](ctx, "antispam"); ok {
+			if svc, ok := ctx.TryService[*antispam.Plugin]("antispam"); ok {
 				p.antispamSvc = svc
 				ctx.Log.Info("Bound to antispam plugin")
 			}
-			if svc, ok := plugin.TryService[*cooldown.Plugin](ctx, "cooldown"); ok {
+			if svc, ok := ctx.TryService[*cooldown.Plugin]("cooldown"); ok {
 				p.cooldownSvc = svc
 				ctx.Log.Info("Bound to cooldown plugin")
 			}
-			if svc, ok := plugin.TryService[*permission.Plugin](ctx, "permission"); ok {
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
 				p.permissionSvc = svc
 				ctx.Log.Info("Bound to permission plugin (sensitive commands protected)")
 			}

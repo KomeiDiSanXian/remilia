@@ -393,7 +393,9 @@ func (ctx *SetupContext) RegisterCron(expr string, fn func()) error {
 	return nil
 }
 
-// 未来展望：待 Go 支持泛型方法后，可改为 ctx.get[permission.Plugin]("permission") 的调用方式。
+// 说明：Go 1.27 已支持泛型方法；需要类型安全访问时请使用
+// ctx.Service[T] / ctx.TryService[T]（见 infra_proxy.go）。
+// 这里保持弱类型返回，以便依赖追踪逻辑集中处理。
 
 // builtinContainerKeys 容器内置 key（非插件），不参与依赖追踪：
 // 它们不是插件名，被追踪后会被合并进 Deps，导致拓扑排序按"缺失插件"报错。
@@ -499,14 +501,14 @@ func (ctx *SetupContext) Watch(key string, fn func(name string, oldVal, newVal a
 //	    p := NewPlugin()
 //	    // 主 key 导出具体类型（return p 自动以插件名注册）
 //	    // 额外以接口类型导出，供依赖接口的消费者使用
-//	    plugin.ExportIface[storage.Client](ctx, "storage.Client", p)
-//	    plugin.ExportIface[storage.Storage](ctx, "storage.Storage", p)
+//	    ctx.ExportIface[storage.Client]("storage.Client", p)
+//	    ctx.ExportIface[storage.Storage]("storage.Storage", p)
 //	    return p, nil
 //	},
 //
 //	// 消费者：面向接口，不依赖具体实现
-//	clientProxy := plugin.Service[storage.Client](ctx, "storage.Client")
-func ExportIface[T any](ctx *SetupContext, key string, impl T) {
+//	clientProxy := ctx.Service[storage.Client]("storage.Client")
+func (ctx *SetupContext) ExportIface[T any](key string, impl T) {
 	ctx.ExportAs(key, impl)
 }
 

@@ -30,7 +30,7 @@ func (ctx *Context) SetCandidateMeta(meta any) {
 	if ctx == nil || meta == nil {
 		return
 	}
-	ExtSet(ctx.Ext(), candidateMeta{Meta: meta})
+	ctx.Ext().SetTyped(candidateMeta{Meta: meta})
 }
 
 // CandidateMeta 返回当前候选携带的 Meta；未注入时为 nil。
@@ -38,7 +38,7 @@ func (ctx *Context) CandidateMeta() any {
 	if ctx == nil {
 		return nil
 	}
-	if cm, ok := ExtGet[candidateMeta](ctx.Ext()); ok {
+	if cm, ok := ctx.Ext().GetTyped[candidateMeta](); ok {
 		return cm.Meta
 	}
 	return nil
