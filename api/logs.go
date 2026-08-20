@@ -1,11 +1,14 @@
 package api
 
 import (
-	"encoding/json"
+	jsontext "encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // LogEntry 日志条目
@@ -86,9 +89,19 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	enc := jsontext.NewEncoder(w)
+	writeLog := func(entry LogEntry) {
+		fmt.Fprint(w, "data: ")
+		// 直接流式编码到 ResponseWriter，避免每次分配中间 []byte。
+		if err := jsonv2.MarshalEncode(enc, entry); err != nil {
+			logger.WithError(err).Error("[API] Failed to encode log entry")
+			return
+		}
+		fmt.Fprint(w, "\n\n")
+	}
+
 	for _, entry := range logBuffer.Recent(50) {
-		data, _ := json.Marshal(entry)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		writeLog(entry)
 	}
 	flusher.Flush()
 
@@ -104,8 +117,7 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			entries := logBuffer.Recent(9999)
 			if len(entries) > lastCount {
 				for _, entry := range entries[lastCount:] {
-					data, _ := json.Marshal(entry)
-					fmt.Fprintf(w, "data: %s\n\n", data)
+					writeLog(entry)
 				}
 				lastCount = len(entries)
 				flusher.Flush()

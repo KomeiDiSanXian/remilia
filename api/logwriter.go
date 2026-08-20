@@ -2,7 +2,7 @@ package api
 
 import (
 	"bytes"
-	"strings"
+	jsonv2 "encoding/json/v2"
 	"sync"
 )
 
@@ -10,6 +10,12 @@ import (
 type LogCaptureWriter struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
+}
+
+// logLine 是 zerolog JSON 行中关注的字段。
+type logLine struct {
+	Level   string `json:"level"`
+	Message string `json:"message"`
 }
 
 func (w *LogCaptureWriter) Write(p []byte) (int, error) {
@@ -32,12 +38,8 @@ func (w *LogCaptureWriter) Write(p []byte) (int, error) {
 			continue
 		}
 
-		// 尝试解析 zerolog JSON 行：{"level":"info","time":"...","message":"..."}
-		level := extractField(line, `"level":"`)
-		msg := extractField(line, `"message":"`)
-		if level == "" {
-			level = "info"
-		}
+		// 解析 zerolog JSON 行：{"level":"info","time":"...","message":"..."}
+		level, msg := parseLogLine(line)
 		if msg == "" {
 			msg = string(line)
 		}
@@ -46,17 +48,18 @@ func (w *LogCaptureWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func extractField(data []byte, prefix string) string {
-	start := bytes.Index(data, []byte(prefix))
-	if start < 0 {
-		return ""
+// parseLogLine 使用 encoding/json/v2（Go 1.27）解析 zerolog 行：
+// 字段顺序无关，字符串转义（如 \n）由解码器正确处理。
+// 无法解析时返回 ("info", "")，由调用方回退到原始行。
+func parseLogLine(line []byte) (level, msg string) {
+	var entry logLine
+	if err := jsonv2.Unmarshal(line, &entry); err != nil {
+		return "info", ""
 	}
-	start += len(prefix)
-	end := bytes.IndexByte(data[start:], '"')
-	if end < 0 {
-		return ""
+	if entry.Level == "" {
+		entry.Level = "info"
 	}
-	return strings.ReplaceAll(string(data[start:start+end]), `\n`, "\n")
+	return entry.Level, entry.Message
 }
 
 // NewLogCaptureWriter 创建一个日志捕获 writer。
