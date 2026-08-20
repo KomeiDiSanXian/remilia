@@ -23,6 +23,9 @@
 - `api/logwriter` zerolog 行解析改为 `jsonv2.Unmarshal` 结构化解析：字段顺序无关、字符串转义（如 `\n`）正确处理，并新增单测
 - 说明：`infra/httpclient` 保持 `encoding/json`（v1 包自 Go 1.27 起由 v2 引擎驱动）；v2 的 `omitempty` 不省略数字 `0`/`false`，暂不迁移含数字/布尔 omitempty 与 `any` 字段的场景
 
+**已知问题**
+- CI 的 staticcheck（golangci-lint 内置与独立 job）暂不支持 Go 1.27：`honnef.co/go/tools` 尚未跟进（export data version 4、nilness 分析 panic）。已临时降级为仅 errcheck + ineffassign，待上游支持后恢复
+
 ## v1.40.3 (2026-08-18)
 
 ### 🐛 AI 插件：孤儿 tool 消息导致 LLM API 400（修复）
