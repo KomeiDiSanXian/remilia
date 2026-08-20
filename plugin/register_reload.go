@@ -251,7 +251,7 @@ func (pi *Instance) reloadBlueGreen(ctx context.Context, coordinator engine.Plug
 		rw.postRegister = nil
 	}
 
-	// Step 5: 更新容器中的 API 指针，使 ServiceProxy 获取到新实例
+	// Step 5: 更新容器中的 API 指针，使依赖方重新解析到新实例
 	if oldContainer != nil && newInstance.exportedAPI != nil {
 		oldContainer.Register(pluginName, newInstance.exportedAPI)
 	}
