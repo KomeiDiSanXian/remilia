@@ -164,22 +164,22 @@ func TestChainWithNext(t *testing.T) {
 	})
 }
 
-// TestPipe tests the Pipe function
-func TestPipe(t *testing.T) {
+// TestFnPipe tests the Fn.Pipe method
+func TestFnPipe(t *testing.T) {
 	t.Run("empty pipe returns input", func(t *testing.T) {
-		pipe := Pipe[int]()
+		pipe := FnOf(func(x int) int { return x }).Pipe()
 		result := pipe(42)
 		assert.Equal(t, 42, result)
 	})
 
 	t.Run("single function", func(t *testing.T) {
-		pipe := Pipe(func(x int) int { return x * 2 })
+		pipe := FnOf(func(x int) int { return x * 2 })
 		result := pipe(21)
 		assert.Equal(t, 42, result)
 	})
 
 	t.Run("multiple functions compose correctly", func(t *testing.T) {
-		pipe := Pipe(
+		pipe := FnOf(func(x int) int { return x }).Pipe(
 			func(x int) int { return x + 1 }, // 42 -> 43
 			func(x int) int { return x * 2 }, // 43 -> 86
 			func(x int) int { return x - 2 }, // 86 -> 84
@@ -189,7 +189,7 @@ func TestPipe(t *testing.T) {
 	})
 
 	t.Run("string transformation pipeline", func(t *testing.T) {
-		slugify := Pipe(
+		slugify := FnOf(func(s string) string { return s }).Pipe(
 			strings.TrimSpace,
 			strings.ToLower,
 			func(s string) string { return strings.ReplaceAll(s, " ", "-") },
@@ -197,18 +197,25 @@ func TestPipe(t *testing.T) {
 		result := slugify("  Hello World  ")
 		assert.Equal(t, "hello-world", result)
 	})
+
+	t.Run("nil Fn with others", func(t *testing.T) {
+		var f Fn[int]
+		pipe := f.Pipe(func(x int) int { return x + 1 })
+		result := pipe(42)
+		assert.Equal(t, 43, result)
+	})
 }
 
-// TestCompose tests the Compose function
-func TestCompose(t *testing.T) {
+// TestFnCompose tests the Fn.Compose method
+func TestFnCompose(t *testing.T) {
 	t.Run("empty compose returns input", func(t *testing.T) {
-		composed := Compose[int]()
+		composed := FnOf(func(x int) int { return x }).Compose()
 		result := composed(42)
 		assert.Equal(t, 42, result)
 	})
 
 	t.Run("single function", func(t *testing.T) {
-		composed := Compose(func(x int) int { return x * 2 })
+		composed := FnOf(func(x int) int { return x * 2 })
 		result := composed(21)
 		assert.Equal(t, 42, result)
 	})
@@ -216,7 +223,7 @@ func TestCompose(t *testing.T) {
 	t.Run("composes in reverse order of Pipe", func(t *testing.T) {
 		// Compose: f(g(h(x)))
 		// Same functions as Pipe test but reversed order
-		composed := Compose(
+		composed := FnOf(func(x int) int { return x }).Compose(
 			func(x int) int { return x - 2 }, // Applied third: 86 - 2 = 84
 			func(x int) int { return x * 2 }, // Applied second: 43 * 2 = 86
 			func(x int) int { return x + 1 }, // Applied first: 42 + 1 = 43
@@ -226,111 +233,181 @@ func TestCompose(t *testing.T) {
 	})
 }
 
-// TestFilter tests the generic Filter function
+// TestFilter tests the Seq.Filter method
 func TestFilter(t *testing.T) {
 	t.Run("filters even numbers", func(t *testing.T) {
 		numbers := []int{1, 2, 3, 4, 5, 6}
-		evens := Filter(numbers, func(n int) bool { return n%2 == 0 })
-		assert.Equal(t, []int{2, 4, 6}, evens)
+		evens := From(numbers).Filter(func(n int) bool { return n%2 == 0 })
+		assert.Equal(t, []int{2, 4, 6}, evens.Unwrap())
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
 		var numbers []int
-		result := Filter(numbers, func(n int) bool { return true })
-		assert.Equal(t, []int{}, result)
+		result := From(numbers).Filter(func(n int) bool { return true })
+		assert.Equal(t, []int{}, result.Unwrap())
 	})
 
 	t.Run("no matches", func(t *testing.T) {
 		numbers := []int{1, 3, 5}
-		evens := Filter(numbers, func(n int) bool { return n%2 == 0 })
-		assert.Equal(t, []int{}, evens)
+		evens := From(numbers).Filter(func(n int) bool { return n%2 == 0 })
+		assert.Equal(t, []int{}, evens.Unwrap())
 	})
 
 	t.Run("works with strings", func(t *testing.T) {
 		words := []string{"hello", "world", "foo", "bar"}
-		long := Filter(words, func(s string) bool { return len(s) > 3 })
-		assert.Equal(t, []string{"hello", "world"}, long)
+		long := From(words).Filter(func(s string) bool { return len(s) > 3 })
+		assert.Equal(t, []string{"hello", "world"}, long.Unwrap())
 	})
 }
 
-// TestMap tests the generic Map function
+// TestMap tests the Seq.Map method
 func TestMap(t *testing.T) {
 	t.Run("doubles numbers", func(t *testing.T) {
 		numbers := []int{1, 2, 3}
-		doubled := Map(numbers, func(n int) int { return n * 2 })
-		assert.Equal(t, []int{2, 4, 6}, doubled)
+		doubled := From(numbers).Map(func(n int) int { return n * 2 })
+		assert.Equal(t, []int{2, 4, 6}, doubled.Unwrap())
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
 		var numbers []int
-		result := Map(numbers, func(n int) int { return n * 2 })
-		assert.Equal(t, []int{}, result)
+		result := From(numbers).Map(func(n int) int { return n * 2 })
+		assert.Equal(t, []int{}, result.Unwrap())
 	})
 
 	t.Run("changes type", func(t *testing.T) {
 		numbers := []int{1, 2, 3}
-		s := Map(numbers, func(n int) string {
+		s := From(numbers).Map(func(n int) string {
 			return "num" + string(rune('0'+n))
 		})
-		assert.Equal(t, []string{"num1", "num2", "num3"}, s)
+		assert.Equal(t, []string{"num1", "num2", "num3"}, s.Unwrap())
 	})
 }
 
-// TestReduce tests the generic Reduce function
+// TestReduce tests the Seq.Reduce method
 func TestReduce(t *testing.T) {
 	t.Run("sum of numbers", func(t *testing.T) {
 		numbers := []int{1, 2, 3, 4}
-		sum := Reduce(numbers, 0, func(acc, n int) int { return acc + n })
+		sum := From(numbers).Reduce(0, func(acc, n int) int { return acc + n })
 		assert.Equal(t, 10, sum)
 	})
 
 	t.Run("product of numbers", func(t *testing.T) {
 		numbers := []int{2, 3, 4}
-		product := Reduce(numbers, 1, func(acc, n int) int { return acc * n })
+		product := From(numbers).Reduce(1, func(acc, n int) int { return acc * n })
 		assert.Equal(t, 24, product)
 	})
 
 	t.Run("empty slice returns initial", func(t *testing.T) {
 		var numbers []int
-		result := Reduce(numbers, 42, func(acc, n int) int { return acc + n })
+		result := From(numbers).Reduce(42, func(acc, n int) int { return acc + n })
 		assert.Equal(t, 42, result)
 	})
 
 	t.Run("concatenate strings", func(t *testing.T) {
 		words := []string{"hello", " ", "world"}
-		result := Reduce(words, "", func(acc, s string) string { return acc + s })
+		result := From(words).Reduce("", func(acc, s string) string { return acc + s })
 		assert.Equal(t, "hello world", result)
 	})
 }
 
-// TestFind tests the generic Find function
+// TestFind tests the Seq.Find method
 func TestFind(t *testing.T) {
 	t.Run("finds first match", func(t *testing.T) {
 		numbers := []int{1, 2, 3, 4, 5}
-		found, ok := Find(numbers, func(n int) bool { return n > 3 })
+		found, ok := From(numbers).Find(func(n int) bool { return n > 3 })
 		assert.True(t, ok)
 		assert.Equal(t, 4, found)
 	})
 
 	t.Run("no match returns zero value", func(t *testing.T) {
 		numbers := []int{1, 2, 3}
-		found, ok := Find(numbers, func(n int) bool { return n > 10 })
+		found, ok := From(numbers).Find(func(n int) bool { return n > 10 })
 		assert.False(t, ok)
 		assert.Equal(t, 0, found)
 	})
 
 	t.Run("empty slice", func(t *testing.T) {
 		var numbers []int
-		found, ok := Find(numbers, func(n int) bool { return true })
+		found, ok := From(numbers).Find(func(n int) bool { return true })
 		assert.False(t, ok)
 		assert.Equal(t, 0, found)
 	})
 
 	t.Run("works with strings", func(t *testing.T) {
 		words := []string{"foo", "bar", "hello", "world"}
-		found, ok := Find(words, func(s string) bool { return len(s) > 4 })
+		found, ok := From(words).Find(func(s string) bool { return len(s) > 4 })
 		assert.True(t, ok)
 		assert.Equal(t, "hello", found)
+	})
+}
+
+// TestEach tests the Seq.Each method
+func TestEach(t *testing.T) {
+	t.Run("visits every element in order", func(t *testing.T) {
+		numbers := []int{1, 2, 3}
+		var visited []int
+		From(numbers).Each(func(n int) {
+			visited = append(visited, n*10)
+		})
+		assert.Equal(t, []int{10, 20, 30}, visited)
+	})
+
+	t.Run("empty slice visits nothing", func(t *testing.T) {
+		var numbers []int
+		count := 0
+		From(numbers).Each(func(n int) { count++ })
+		assert.Equal(t, 0, count)
+	})
+}
+
+// TestSort tests the Seq.Sort method
+func TestSort(t *testing.T) {
+	t.Run("sorts ascending", func(t *testing.T) {
+		numbers := From([]int{3, 1, 2})
+		numbers.Sort(func(a, b int) bool { return a < b })
+		assert.Equal(t, []int{1, 2, 3}, numbers.Unwrap())
+	})
+
+	t.Run("sort is stable for equal keys", func(t *testing.T) {
+		type item struct {
+			key int
+			val string
+		}
+		items := From([]item{
+			{key: 1, val: "a"},
+			{key: 0, val: "b"},
+			{key: 1, val: "c"},
+		})
+		items.Sort(func(a, b item) bool { return a.key < b.key })
+		assert.Equal(t, []item{
+			{key: 0, val: "b"},
+			{key: 1, val: "a"},
+			{key: 1, val: "c"},
+		}, items.Unwrap())
+	})
+}
+
+// TestContains tests the Seq.Contains method
+func TestContains(t *testing.T) {
+	t.Run("finds existing element", func(t *testing.T) {
+		numbers := []int{1, 2, 3}
+		assert.True(t, From(numbers).Contains(2))
+	})
+
+	t.Run("missing element", func(t *testing.T) {
+		numbers := []int{1, 2, 3}
+		assert.False(t, From(numbers).Contains(4))
+	})
+
+	t.Run("works with strings", func(t *testing.T) {
+		words := []string{"foo", "bar"}
+		assert.True(t, From(words).Contains("bar"))
+		assert.False(t, From(words).Contains("baz"))
+	})
+
+	t.Run("empty slice", func(t *testing.T) {
+		var numbers []int
+		assert.False(t, From(numbers).Contains(1))
 	})
 }
 
@@ -362,9 +439,9 @@ func BenchmarkChainGeneric(b *testing.B) {
 	}
 }
 
-// BenchmarkPipe benchmarks the Pipe function
-func BenchmarkPipe(b *testing.B) {
-	pipe := Pipe(
+// BenchmarkFnPipe benchmarks the Fn.Pipe method
+func BenchmarkFnPipe(b *testing.B) {
+	pipe := FnOf(func(x int) int { return x }).Pipe(
 		func(x int) int { return x + 1 },
 		func(x int) int { return x * 2 },
 		func(x int) int { return x - 1 },

@@ -1,6 +1,10 @@
 package helper
 
-import "strings"
+import (
+	"reflect"
+	"sort"
+	"strings"
+)
 
 // ChainGeneric 将多个具有相同签名的函数合并为一个函数。
 //
@@ -95,30 +99,37 @@ func ChainWithNext[Ctx any](middlewares ...func(Ctx, func(Ctx) error) error) fun
 	}
 }
 
-// Pipe 将函数组合成管道，前一个函数的输出作为后一个函数的输入。
+// Fn 是承载函数组合的具名函数类型（Go 1.27 泛型方法）。
+//
+// 通过 [FnOf] 构造后，可用 Pipe/Compose 方法组合数据转换管道。
+type Fn[T any] func(T) T
+
+// FnOf 将普通函数包装为 Fn。
+func FnOf[T any](f func(T) T) Fn[T] {
+	return f
+}
+
+// Pipe 将当前函数与其它函数组合成管道，前一个函数的输出作为后一个函数的输入。
 //
 // 适用于构建数据转换管道。
 //
 // 示例：
 //
-//	transform := Pipe[string](
-//	    strings.TrimSpace,
+//	transform := helper.FnOf(func(s string) string { return strings.TrimSpace(s) }).Pipe(
 //	    strings.ToLower,
 //	    func(s string) string { return strings.ReplaceAll(s, " ", "-") },
 //	)
-//	slug := transform("  Hello World  ")  // "hello-world"
-func Pipe[T any](funcs ...func(T) T) func(T) T {
-	if len(funcs) == 0 {
-		return func(t T) T { return t }
+//	slug := transform("  Hello World  ") // "hello-world"
+func (f Fn[T]) Pipe(others ...func(T) T) Fn[T] {
+	all := make([]func(T) T, 0, 1+len(others))
+	if f != nil {
+		all = append(all, f)
 	}
-	if len(funcs) == 1 {
-		return funcs[0]
-	}
-
+	all = append(all, others...)
 	return func(input T) T {
 		result := input
-		for _, f := range funcs {
-			result = f(result)
+		for _, fn := range all {
+			result = fn(result)
 		}
 		return result
 	}
@@ -126,40 +137,56 @@ func Pipe[T any](funcs ...func(T) T) func(T) T {
 
 // Compose 与 Pipe 类似，但以逆序应用函数。
 //
-// 遵循数学函数合成：(f ∘ g)(x) = f(g(x))
+// 遵循数学函数合成：f.Compose(g, h)(x) = f(g(h(x)))
 //
 // 示例：
 //
-//	// f(g(h(x)))
-//	composed := Compose[string](f, g, h)
-//	result := composed(x)  // 等同于 f(g(h(x)))
-func Compose[T any](funcs ...func(T) T) func(T) T {
-	if len(funcs) == 0 {
-		return func(t T) T { return t }
-	}
-	if len(funcs) == 1 {
-		return funcs[0]
-	}
-
+//	composed := helper.FnOf(f).Compose(g, h)
+//	result := composed(x) // 等同于 f(g(h(x)))
+func (f Fn[T]) Compose(others ...func(T) T) Fn[T] {
 	return func(input T) T {
 		result := input
-		for i := len(funcs) - 1; i >= 0; i-- {
-			result = funcs[i](result)
+		for i := len(others) - 1; i >= 0; i-- {
+			result = others[i](result)
+		}
+		if f != nil {
+			result = f(result)
 		}
 		return result
 	}
 }
 
-// Filter 根据谓词函数过滤切片。
+// Seq 是承载链式切片操作的具名切片类型（Go 1.27 泛型方法）。
 //
 // 示例：
 //
 //	numbers := []int{1, 2, 3, 4, 5}
-//	evens := Filter(numbers, func(n int) bool { return n%2 == 0 })
-//	// evens = [2, 4]
-func Filter[T any](slice []T, predicate func(T) bool) []T {
-	result := make([]T, 0, len(slice))
-	for _, item := range slice {
+//	evens := helper.From(numbers).Filter(func(n int) bool { return n%2 == 0 })
+//	doubled := helper.From(numbers).Map(func(n int) int { return n * 2 })
+//	sum := helper.From(numbers).Reduce(0, func(acc, n int) int { return acc + n })
+//	found, ok := helper.From(numbers).Find(func(n int) bool { return n > 3 })
+//
+// 链式组合（Map 方法自带类型参数 R）：
+//
+//	helper.From(numbers).
+//	    Filter(func(n int) bool { return n > 0 }).
+//	    Map(func(n int) string { return fmt.Sprint(n) })
+type Seq[T any] []T
+
+// From 将普通切片转换为 Seq，用于链式调用。
+func From[T any](slice []T) Seq[T] {
+	return slice
+}
+
+// Unwrap 返回底层切片。
+func (s Seq[T]) Unwrap() []T {
+	return s
+}
+
+// Filter 返回满足谓词的元素组成的新 Seq。
+func (s Seq[T]) Filter(predicate func(T) bool) Seq[T] {
+	result := make(Seq[T], 0, len(s))
+	for _, item := range s {
 		if predicate(item) {
 			result = append(result, item)
 		}
@@ -167,45 +194,53 @@ func Filter[T any](slice []T, predicate func(T) bool) []T {
 	return result
 }
 
-// Map 通过对每个元素应用函数来转换切片。
+// Each 对每个元素执行 fn（副作用遍历）。
+func (s Seq[T]) Each(fn func(T)) {
+	for _, item := range s {
+		fn(item)
+	}
+}
+
+// Sort 按 less 排序（稳定排序，原地修改），返回自身以便链式调用。
+func (s Seq[T]) Sort(less func(T, T) bool) Seq[T] {
+	sort.SliceStable(s, func(i, j int) bool { return less(s[i], s[j]) })
+	return s
+}
+
+// Contains 报告 Seq 中是否存在与 target 相等的元素。
 //
-// 示例：
-//
-//	numbers := []int{1, 2, 3}
-//	doubled := Map(numbers, func(n int) int { return n * 2 })
-//	// doubled = [2, 4, 6]
-func Map[T, R any](slice []T, fn func(T) R) []R {
-	result := make([]R, len(slice))
-	for i, item := range slice {
+// 由于方法无法为接收者类型参数追加 comparable 约束，相等性通过
+// reflect.DeepEqual 判断（对 int/string 等常见类型与 == 一致）。
+func (s Seq[T]) Contains(target T) bool {
+	for _, item := range s {
+		if reflect.DeepEqual(item, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// Map 对每个元素应用 fn，返回新元素类型的 Seq（方法自带类型参数 R）。
+func (s Seq[T]) Map[R any](fn func(T) R) Seq[R] {
+	result := make(Seq[R], len(s))
+	for i, item := range s {
 		result[i] = fn(item)
 	}
 	return result
 }
 
-// Reduce 使用累加器函数将切片归约为单个值。
-//
-// 示例：
-//
-//	numbers := []int{1, 2, 3, 4}
-//	sum := Reduce(numbers, 0, func(acc, n int) int { return acc + n })
-//	// sum = 10
-func Reduce[T, R any](slice []T, initial R, fn func(R, T) R) R {
+// Reduce 使用累加器函数将 Seq 归约为单个值。
+func (s Seq[T]) Reduce[R any](initial R, fn func(R, T) R) R {
 	result := initial
-	for _, item := range slice {
+	for _, item := range s {
 		result = fn(result, item)
 	}
 	return result
 }
 
 // Find 返回满足谓词的第一个元素，若未找到则返回零值。
-//
-// 示例：
-//
-//	numbers := []int{1, 2, 3, 4, 5}
-//	found, ok := Find(numbers, func(n int) bool { return n > 3 })
-//	// found = 4, ok = true
-func Find[T any](slice []T, predicate func(T) bool) (T, bool) {
-	for _, item := range slice {
+func (s Seq[T]) Find(predicate func(T) bool) (T, bool) {
+	for _, item := range s {
 		if predicate(item) {
 			return item, true
 		}
@@ -227,7 +262,7 @@ func Find[T any](slice []T, predicate func(T) bool) (T, bool) {
 //	)
 //	slug := slugify("  Hello World  ")  // "hello-world"
 func StringPipe(funcs ...func(string) string) func(string) string {
-	return Pipe(funcs...)
+	return FnOf(func(s string) string { return s }).Pipe(funcs...)
 }
 
 // StringReplace 创建一个将所有 old 替换为 new 的函数。
