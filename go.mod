@@ -1,6 +1,6 @@
 module github.com/KomeiDiSanXian/remilia
 
-go 1.26
+go 1.27
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
