@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.41.0 (2026-08-20)
+
+### 🚀 Go 1.27：泛型方法与 JSON v2 落地
+
+**工具链升级**
+- 框架与 `cmd/bot` 升级至 Go 1.27（`go.mod` / `go.work` / CI 工作流 / Dockerfile / README 版本声明同步）
+- 泛型方法（Go 1.27 新特性）在框架内全面落地，包级泛型函数迁移为方法化 API
+
+**泛型方法（框架内 API 方法化）**
+- `core/context.Extensions`：`ExtGet/ExtSet/ExtGetOrInit` 包级函数 → `GetTyped[T]/SetTyped[T]/GetOrInitTyped[T]` 方法
+- `plugin.(*SetupContext)`：`Service[T]/TryService[T]/ExportIface[T](ctx, ...)` → `ctx.Service[T](...)/ctx.TryService[T]/ctx.ExportIface[T]`
+- `plugin.(*Container)`：`GetService[T]/MustGetService[T]/ListServices[T]` 方法化
+- `core/context.(*Context)`：平台 API 句柄获取新增泛型方法 `GetPlatformAPIAs[T]()`
+- `helper`：新增 `Seq[T]` 链式操作（`Filter/Map/Reduce/Find/Each/Sort/Contains`）与 `Fn[T]` 函数组合（`Pipe/Compose`），`From/FnOf` 构造
+- `infra/option`：`Option[T]` 方法化（`Apply/ApplyAll/Compose/Chain/Conditional/When/Unless/Map`），保留 `With/WithDefault/NoOp/ApplyNew` 工厂
+- 破坏性变更：以上均为框架内 API 调整，内置插件与 `cmd/bot` 调用点已同步迁移（无外部插件作者）
+
+**JSON：encoding/json/v2 与 jsontext**
+- `builtin/internal/jsonfile` 迁移至 `encoding/json/v2`，启用 `MatchCaseInsensitiveNames` 与 `Deterministic` 确定性输出
+- `api` SSE 日志流改用 `jsontext.Encoder` + `jsonv2.MarshalEncode` 流式编码，省去中间 `[]byte` 缓冲
+- `api/logwriter` zerolog 行解析改为 `jsonv2.Unmarshal` 结构化解析：字段顺序无关、字符串转义（如 `\n`）正确处理，并新增单测
+- 说明：`infra/httpclient` 保持 `encoding/json`（v1 包自 Go 1.27 起由 v2 引擎驱动）；v2 的 `omitempty` 不省略数字 `0`/`false`，暂不迁移含数字/布尔 omitempty 与 `any` 字段的场景
+
 ## v1.40.3 (2026-08-18)
 
 ### 🐛 AI 插件：孤儿 tool 消息导致 LLM API 400（修复）
