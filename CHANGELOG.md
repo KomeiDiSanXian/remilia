@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.41.2 (2026-08-21)
+
+### 🖼 引用消息图片跨平台统一
+
+- **归一化引用附件**（`platform/quote.go`、`platform/message.go`）：新增共享助手 `QuoteAttachments` / `QuotedImage` / `PickQuotedImage`，统一从 reply 段 `Extra[SegmentExtraQuoteAtts]`（`[]Attachment`，平台归一化结构）提取被引用图片；QQ 兼容兜底 `raw_quote` / `parallel_message` 原始 JSON。AI 插件与 sauce 插件原各自实现的提取逻辑收敛至此
+- **AI 视觉注入被引用图片**（`builtin/ai`）：用户"回复一张图片并 @ 机器人"而本条消息无自带附件时（如 QQ 富媒体引用），从引用段提取被引用图片作为视觉输入（`vision_enabled` 且经内容嗅探校验）；本条消息自带图片时不重复注入
+- **Discord**（`platform/discord`）：reply payload 内嵌的 `referenced_message` 归一化填充引用附件；缺失时先命中本地状态缓存（`State.MaxMessageCount=100`），再受并发上限（4）约束执行 REST 回查（`ChannelMessage`），超时静默跳过，避免已删除/无权限引用的无谓 404 调用与 goroutine 堆积
+- **OneBot**（`platform/onebot`）：`get_msg` 回查改在分发侧 goroutine 执行（WS / 反向 WS 读循环内同步调用会与 `routeResponse` 互相等待的死锁修复），HTTP 适配器同步调用；锚定首个 reply 段填充、超时收紧至 1s
+- **Telegram**（`platform/telegram`）：轮询适配器 `resolveAttachmentURLs` 收集引用附件指针一并换链，同一 `FileID` 只 `getFile` 一次（去重）；sauce 插件同步受益
+
+### 🛡 SSRF 防护收敛到共享包
+
+- 新增 `infra/netguard`：`AllowURL` / `IsPublicHost` / `IsPublicIP` / `DialContext` / `RedirectPolicy`，覆盖 URL 合法性（仅 https + 公网目标）、DNS 重绑定窗口（连接前二次校验）与重定向逐跳校验
+- AI 附件下载（`builtin/ai`）、sauce 下载客户端（`cmd/bot/plugins/sauce`）、websearch 抓页（`cmd/bot/plugins/websearch`）删除各自重复的 `isAllowedDownloadURL` / `isPublicIP` / `isPublicHost` 实现，统一委托 `netguard`；websearch 保留包级 `ssrfPolicy` 便于测试替换
+
+### 🧹 平台附件 Kind 标注与 CI 恢复
+
+- 各平台附件（Discord / Telegram 等）补全 `AttachmentKind`（image/audio/video/file）标注，AI 插件媒体判定改为 Kind 优先、MimeType 兜底；`config.example.yaml` 与 `builtin/ai/config.go` 补充 DeepSeek 视觉模型（`deepseek-v4-flash-vision-exp`）说明
+- **CI 恢复 staticcheck**：staticcheck 2026.2 已官方支持 Go 1.27，恢复 `.github/workflows/ci.yml` 独立 staticcheck job 与 `.golangci.yml` 的 staticcheck/unused；因 2026.2 将 `ExportAs` 的 `Deprecated` 注释错挂到 `NewGroupMiddlewareResetter`（SA1019 误报），在 `builtin/pluginctrl` 调用点加 `//lint:ignore SA1019` 定向压制（待上游修复后移除）
+
 ## v1.41.1 (2026-08-20)
 
 ### 🐛 修复：时序敏感的 flaky 测试与 Prometheus 重复注册
