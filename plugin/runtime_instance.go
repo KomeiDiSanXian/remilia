@@ -136,7 +136,7 @@ func (pi *Instance) load(ctx context.Context) error {
 		pi.exportedAPI = res.api
 		pi.mu.Unlock()
 		if setupCtx != nil {
-			setupCtx.ExportAs(pi.desc.Name, res.api)
+			setupCtx.exportAs(pi.desc.Name, res.api)
 		}
 	}
 
@@ -254,7 +254,7 @@ func (pi *Instance) setDescriptor(d *Descriptor) {
 	pi.mu.Unlock()
 }
 
-// exportedKeys 返回本实例 Setup 期间通过 ExportAs/ExportIface 导出的所有容器 key 快照。
+// exportedKeys 返回本实例 Setup 期间通过 exportAs/ExportIface 导出的所有容器 key 快照。
 func (pi *Instance) exportedKeys() []string {
 	pi.mu.RLock()
 	sc := pi.setupContext

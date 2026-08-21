@@ -157,7 +157,7 @@ func (pm *Manager) Unregister(ctx context.Context, name string) error {
 	return nil
 }
 
-// removeExportedKeys 从容器移除插件的主 key 及其通过 ExportAs/ExportIface
+// removeExportedKeys 从容器移除插件的主 key 及其通过 exportAs/ExportIface
 // 额外导出的所有 key，避免注销后容器残留悬挂引用。
 // 必须在不持有 pm.mu 时调用（Remove 会同步触发 Watch 回调）。
 func (pm *Manager) removeExportedKeys(inst *Instance, name string) {

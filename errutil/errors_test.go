@@ -92,29 +92,6 @@ func TestConfigError_AsStruct(t *testing.T) {
 	}
 }
 
-// ─── PluginError ────────────────────────────────────────────────────────
-
-func TestPluginError_New(t *testing.T) {
-	err := errutil.NewPluginError("plugin", "msg")
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "plugin")
-	assert.Contains(t, err.Error(), "msg")
-}
-
-func TestPluginError_IsSentinel(t *testing.T) {
-	err := errutil.NewPluginError("p", "m")
-	assert.True(t, errors.Is(err, errutil.ErrPluginLoadFailed))
-}
-
-func TestPluginError_AsStruct(t *testing.T) {
-	err := errutil.NewPluginError("p", "m")
-	var pe *errutil.PluginError
-	if assert.True(t, errors.As(err, &pe)) {
-		assert.Equal(t, "p", pe.PluginName)
-		assert.Equal(t, "m", pe.Message)
-	}
-}
-
 // ─── Stack ──────────────────────────────────────────────────────────────
 
 func TestStack_EnableDisable(t *testing.T) {

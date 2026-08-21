@@ -50,7 +50,7 @@ type setupContextInternal struct {
 	// （旧实现只有单个槽位，插件按类型解析多个未就绪依赖时会丢边。）
 	pendingTypes []reflect.Type
 
-	// exportedNames 记录 Setup 期间通过 ExportAs/ExportIface 导出的容器 key，
+	// exportedNames 记录 Setup 期间通过 exportAs/ExportIface 导出的容器 key，
 	// Unregister 时据此清理额外导出的接口 key，避免容器中残留悬挂引用。
 	exportMu      sync.Mutex
 	exportedNames []string
@@ -129,19 +129,21 @@ type SetupContext struct {
 	setupContextInternal
 }
 
-// ExportAs 将插件 API 对象以指定名称导出到容器。
+// exportAs 将插件 API 对象以指定名称注册到容器（框架内部使用）。
 //
-// Deprecated: 直接 return api, nil 即可，框架会自动以插件名为 key 注入容器。
-// 如需按接口导出，使用 ExportIface。
-func (ctx *SetupContext) ExportAs(name string, api any) {
+// 调用方：
+//   - Setup 返回 API 对象后，框架自动以插件名为 key 导出（见 runtime_instance.go）
+//   - ExportIface 以接口类型额外导出
+//
+// 保护内置 key：普通插件不得覆盖 manager/engine/coordinator，否则等于劫持
+// 其他插件通过容器获取的核心对象。
+//（插件名恰好等于内置 key 时放行其自身名下的自动导出。）
+func (ctx *SetupContext) exportAs(name string, api any) {
 	if ctx.container == nil {
 		return
 	}
-	// 保护内置 key：普通插件不得覆盖 manager/engine/coordinator，
-	// 否则等于劫持其他插件通过容器获取的核心对象。
-	//（插件名恰好等于内置 key 时放行其自身名下的自动导出。）
 	if builtinContainerKeys[name] && name != ctx.pluginName {
-		logger.Warnf("[plugin] %q: ExportAs(%q) rejected: reserved container key", ctx.pluginName, name)
+		logger.Warnf("[plugin] %q: exportAs(%q) rejected: reserved container key", ctx.pluginName, name)
 		return
 	}
 	ctx.container.Register(name, api)
@@ -509,7 +511,7 @@ func (ctx *SetupContext) Watch(key string, fn func(name string, oldVal, newVal a
 //	// 消费者：面向接口，不依赖具体实现
 //	clientProxy := ctx.Service[storage.Client]("storage.Client")
 func (ctx *SetupContext) ExportIface[T any](key string, impl T) {
-	ctx.ExportAs(key, impl)
+	ctx.exportAs(key, impl)
 }
 
 // --- 资源追踪：Scope / Subscribe / OnDispose ---

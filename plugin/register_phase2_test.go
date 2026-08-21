@@ -358,7 +358,7 @@ func TestExportAs_MakesAPIAvailableToOtherPlugins(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "exporter",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.ExportAs("exporter", myAPI)
+			ctx.exportAs("exporter", myAPI)
 			return nil, nil
 		},
 	}))
@@ -412,6 +412,6 @@ func TestExportAs_NilContainerSafe(t *testing.T) {
 	// container 为 nil 时不应 panic
 	ctx := &SetupContext{container: nil}
 	assert.NotPanics(t, func() {
-		ctx.ExportAs("x", "value")
+		ctx.exportAs("x", "value")
 	})
 }

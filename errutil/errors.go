@@ -72,16 +72,6 @@ var (
 	ErrCircuitBreakerOpen       = errors.New("circuit breaker is open")
 	ErrCircuitBreakerHalfOpen   = errors.New("circuit breaker is half-open")
 	ErrCircuitBreakerContention = errors.New("circuit breaker state transition contention")
-
-	// ErrPassiveReplyExpired 被动回复窗口过期。
-	//
-	// 已废弃（2026-08）：QQ 平台限制由服务端校验（错误码 40034128），
-	// 客户端不再拦截被动回复次数/时长。保留定义仅为兼容旧版引用。
-	ErrPassiveReplyExpired = errors.New("passive reply window expired")
-	// ErrPassiveReplyLimitReached 被动回复次数达到上限。
-	//
-	// 已废弃（2026-08）：同上，平台端校验，客户端不再拦截。保留定义兼容。
-	ErrPassiveReplyLimitReached = errors.New("passive reply limit reached")
 )
 
 // RecoverError 将 panic 转换为 error。
@@ -146,30 +136,4 @@ func (e *ConfigError) Unwrap() error {
 // 返回 *ConfigError 类型，可通过 errors.As 提取结构化信息。
 func NewConfigError(key, reason string) error {
 	return &ConfigError{Key: key, Reason: reason}
-}
-
-// PluginError 结构化插件错误。
-//
-// Deprecated: 请使用 plugin.PluginError（定义于 plugin/errors.go），
-// 它提供更丰富的诊断上下文（Operation、Hint、RegisteredPlugins）。
-// errutil.PluginError 仅保留以兼容旧代码，新代码不应使用。
-type PluginError struct {
-	PluginName string
-	Message    string
-}
-
-func (e *PluginError) Error() string {
-	return fmt.Sprintf("plugin '%s': %s", e.PluginName, e.Message)
-}
-
-func (e *PluginError) Unwrap() error {
-	return ErrPluginLoadFailed
-}
-
-// NewPluginError 创建插件专属错误。
-//
-// Deprecated: 使用 plugin.PluginError（import "github.com/KomeiDiSanXian/remilia/plugin"）。
-// 返回 *PluginError 类型，可通过 errors.As 提取结构化信息。
-func NewPluginError(pluginName, message string) error {
-	return &PluginError{PluginName: pluginName, Message: message}
 }

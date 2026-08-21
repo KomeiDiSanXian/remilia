@@ -166,14 +166,6 @@ func (tb *TestBot) UseRouter() *TestBot {
 	return tb
 }
 
-// UseEngineManager is deprecated. Per-channel blocking is now achieved via
-// Matcher.BlockForChannel without requiring separate Engine instances.
-// UseEngineManager 已弃用。per-channel 阻塞现在通过 Matcher.BlockForChannel 实现，
-// 无需单独的 Engine 实例。
-func (tb *TestBot) UseEngineManager() *TestBot {
-	return tb
-}
-
 // Engine returns the underlying event engine for advanced usage.
 func (tb *TestBot) Engine() *engine.Engine { return tb.eng }
 
@@ -342,13 +334,6 @@ func (b *Bot) UseRouter() *Bot {
 	}
 	b.router = router.New(b.eng, b.fsmMgr.Engine())
 	b.router.Route(router.WithCommandPrefix())
-	return b
-}
-
-// UseEngineManager is deprecated. Per-channel blocking is now achieved via
-// Matcher.BlockForChannel without requiring separate Engine instances.
-// UseEngineManager 已弃用。
-func (b *Bot) UseEngineManager() *Bot {
 	return b
 }
 

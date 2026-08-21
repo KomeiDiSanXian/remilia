@@ -85,7 +85,7 @@ func TestP3_ExportAs_CustomKey(t *testing.T) {
 	require.NoError(t, pm.Register(&Descriptor{
 		Name: "p3-old-setup",
 		Setup: func(ctx *SetupContext) (any, error) {
-			ctx.ExportAs("p3-old-setup", api)
+			ctx.exportAs("p3-old-setup", api)
 			return nil, nil
 		},
 	}))
@@ -192,7 +192,7 @@ func TestP3_ExportAs_StillWorks(t *testing.T) {
 		Name: "p3-manual-export",
 		Setup: func(ctx *SetupContext) (any, error) {
 			// 旧式：手动导出到自定义 key
-			ctx.ExportAs("my-service", svc)
+			ctx.exportAs("my-service", svc)
 			return nil, nil
 		},
 	}))

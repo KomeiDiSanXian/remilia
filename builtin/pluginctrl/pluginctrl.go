@@ -909,7 +909,6 @@ func New(opts ...Option) *plugin.Descriptor {
 				// ── 自动注入阶段 ──────────────────────────────────────────────
 				// 1. 捕获引擎分组中间件注入/清除函数，供 autoWireListener 使用
 				p.groupWireFn = ctx.NewGroupMiddlewareApplier()
-				//lint:ignore SA1019 上游误报：staticcheck 2026.2 将 ExportAs 的 Deprecated 注释错挂到 NewGroupMiddlewareResetter
 				p.groupResetFn = ctx.NewGroupMiddlewareResetter()
 
 				// 2. 为 pluginctrl 加载前已存在的业务插件补充 combinedGuard
