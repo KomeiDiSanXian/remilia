@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.41.3 (2026-08-21)
+
+### 🧹 移除废弃 API
+
+- **`errutil.PluginError` / `NewPluginError`**（`errutil/errors.go`）：废弃的插件错误类型与构造函数移除，统一使用 `plugin.PluginError`（更丰富的诊断上下文）；同步删除对应单元测试
+- **`errutil` 废弃哨兵**：`ErrPassiveReplyExpired` / `ErrPassiveReplyLimitReached`（2026-08 起废弃，QQ 被动回复限制改由服务端校验）无任何引用，移除
+- **`plugin.SetupContext.ExportAs`**：公开导出方法取消导出为内部 `exportAs`——框架自动导出（Setup 返回 API 对象）与 `ExportIface` 仍复用其逻辑，插件作者无需再手动调用
+- **`testbot.UseEngineManager`**：`TestBot` 与 `Bot` 两个版本均为零调用的 no-op（per-channel 阻塞已由 `Matcher.BlockForChannel` 替代），移除
+- **`core/engine/runtime.go`**：纯占位文件（内容已移至 component.go / services.go），删除
+
+### 🔧 顺带修复
+
+- **staticcheck 2026.2 SA1019 误报解除**：v1.41.2 为压制"`ExportAs` 的 `Deprecated` 注释被错挂到 `NewGroupMiddlewareResetter`"加入的 `//lint:ignore SA1019`，随 `ExportAs` 的 `Deprecated` 标记移除而不再需要，已一并删除
+
 ## v1.41.2 (2026-08-21)
 
 ### 🖼 引用消息图片跨平台统一
