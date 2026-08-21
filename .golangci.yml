@@ -1,21 +1,17 @@
 version: "2"
 linters:
-  # TODO(go1.27): staticcheck / unused 依赖 honnef.co/go/tools，尚未支持 Go 1.27
-  # （export data version 4 > 最大支持 2，nilness 亦会 panic）。
-  # 临时仅启用 errcheck + ineffassign；待上游支持后恢复 default: standard 与下方配置。
-  default: none
   enable:
     - errcheck
     - ineffassign
-    # - staticcheck
-    # - unused
+    - staticcheck
+    - unused
   settings:
-    # staticcheck:
-    #   checks:
-    #     - SA*
-    #     - S*
-    #     - QF*
-    #     - -QF1012
+    staticcheck:
+      checks:
+        - SA*
+        - S*
+        - QF*
+        - -QF1012
     errcheck:
       exclude-functions:
         - (io.ReadCloser).Close

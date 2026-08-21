@@ -232,7 +232,8 @@ api:
 #   ai: (所有字段 [R] 各插件通过 YAMLConfigProvider 读取，仅在插件启动时加载)
 #     # —— 提供商与模型 ——
 #     provider: "openai"                  # [R] LLM 提供商: openai（默认，兼容 DeepSeek/Kimi 等）/ anthropic
-#     model: "gpt-4o-mini"                # [R] 模型名称（DeepSeek: deepseek-chat / deepseek-reasoner）
+#     model: "gpt-4o-mini"                # [R] 模型名称（DeepSeek: deepseek-chat / deepseek-reasoner /
+#                                         #     deepseek-v4-flash-vision-exp，后者支持图片理解）
 #     base_url: ""                        # [R] API 地址；空 = 默认（OpenAI https://api.openai.com/v1，
 #                                         #     DeepSeek https://api.deepseek.com，Anthropic https://api.anthropic.com，
 #                                         #     Ollama http://localhost:11434/v1）
@@ -264,7 +265,8 @@ api:
 #
 #     # —— 输出与多模态 ——
 #     markdown: true                      # [R] 平台支持 MD 时用 Markdown 回复，否则回退纯文本
-#     vision_enabled: true                # [R] 是否启用图片识别（不支持的模型建议关闭，如 deepseek-chat）
+#     vision_enabled: true                # [R] 是否启用图片识别（需模型支持，如 DeepSeek
+#                                         #     deepseek-v4-flash-vision-exp；纯文本模型如 deepseek-chat 建议关闭）
 #     audio_enabled: false                # [R] 是否启用音频输入（仅 OpenAI 部分模型支持，Anthropic 不支持）
 #     max_attachment_size: 20971520       # [R] 入站附件单文件大小上限（字节，默认 20MB），超出则跳过
 #

@@ -17,9 +17,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -27,6 +25,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -197,15 +196,27 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 //
 // 附件下载后通过 session.contentCache 缓存（TTL 10 分钟），同一附件多次使用不需重复下载。
 // 超出大小限制或下载失败的附件会被静默跳过（日志 Debug 记录）。
+//
+// 引用消息中的被引用图片：用户"回复一张图片并 @ 机器人"时本条消息自身没有
+// 图片附件（如 QQ 引用富媒体消息 message_type=103），此时从 reply 段
+// Extra（raw_quote / parallel_message）提取被引用图片作为视觉输入注入，
+// 使模型能看到被回复的图。本条消息自带图片附件时不注入，避免重复上传与
+// 语义混淆。
 func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session *Session) Message {
 	msg := Message{Role: RoleUser, Content: content}
 
 	atts := platform.Attachments(ctx.GetPlatformEvent())
-	if len(atts) == 0 {
+
+	var quotedImg *ContentPart
+	if p.cfg.VisionEnabled && !hasImageAttachment(atts) {
+		quotedImg = p.quotedImagePart(ctx, session)
+	}
+
+	if len(atts) == 0 && quotedImg == nil {
 		return msg
 	}
 
-	parts := make([]ContentPart, 0, 1+len(atts))
+	parts := make([]ContentPart, 0, 1+len(atts)+2)
 	if content != "" {
 		parts = append(parts, ContentPart{Type: ContentPartText, Text: content})
 	}
@@ -218,7 +229,7 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 		// 平台已提供语音转写文本（如 QQ 官方 ASR asr_refer_text）时，
 		// 直接注入转写文本，无需下载音频二进制再送 STT。
 		// 这比把音频直传给多模态模型更通用：任何模型都能理解文本。
-		if strings.HasPrefix(att.MimeType, "audio/") {
+		if isAudioAttachment(att) {
 			if asr := platform.AttachmentTranscript(att); asr != "" {
 				parts = append(parts, ContentPart{Type: ContentPartText, Text: "[语音转写] " + asr})
 				continue
@@ -227,12 +238,12 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 
 		var cp *ContentPart
 		switch {
-		case strings.HasPrefix(att.MimeType, "image/"):
+		case isImageAttachment(att):
 			if !p.cfg.VisionEnabled {
 				continue
 			}
 			cp = p.downloadAttachment(att, session)
-		case strings.HasPrefix(att.MimeType, "audio/"):
+		case isAudioAttachment(att):
 			if !p.cfg.AudioEnabled {
 				continue
 			}
@@ -244,11 +255,60 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 		}
 	}
 
+	if quotedImg != nil {
+		parts = append(parts,
+			ContentPart{Type: ContentPartText, Text: "[你回复（引用）的消息中包含这张图片]"},
+			*quotedImg)
+	}
+
 	if len(parts) > 0 {
 		msg.Content = "" // ContentParts 模式，清空 Content 避免内容重复
 		msg.ContentParts = parts
 	}
 	return msg
+}
+
+// hasImageAttachment 判断附件列表中是否包含图片附件。
+//
+// Kind 与 MimeType 双通道：部分平台（OneBot）只填 Kind、MimeType 为空，
+// 另一些平台（QQ）只填 MimeType、Kind 为空，两者都缺失才算无图片。
+func hasImageAttachment(atts []platform.Attachment) bool {
+	for _, att := range atts {
+		if att.Kind == platform.AttachmentKindImage || strings.HasPrefix(att.MimeType, "image/") {
+			return true
+		}
+	}
+	return false
+}
+
+// isImageAttachment 判断附件是否为图片（Kind 优先，MimeType 兜底）。
+func isImageAttachment(att platform.Attachment) bool {
+	return att.Kind == platform.AttachmentKindImage || strings.HasPrefix(att.MimeType, "image/")
+}
+
+// isAudioAttachment 判断附件是否为音频（Kind 优先，MimeType 兜底）。
+func isAudioAttachment(att platform.Attachment) bool {
+	return att.Kind == platform.AttachmentKindAudio || strings.HasPrefix(att.MimeType, "audio/")
+}
+
+// quotedImagePart 提取引用消息中的被引用图片并下载；不可用时返回 nil。
+//
+// 下载复用 downloadAttachment 的缓存 / SSRF 防护 / 大小限制逻辑；
+// 下载结果经内容嗅探校验为图片后才注入。
+func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *ContentPart {
+	evt := ctx.GetPlatformEvent()
+	if evt == nil {
+		return nil
+	}
+	url, mime := quotedImageFromSegments(evt.Segments())
+	if url == "" {
+		return nil
+	}
+	cp := p.downloadAttachment(platform.Attachment{URL: url, MimeType: mime}, session)
+	if cp == nil || cp.Type != ContentPartImage {
+		return nil
+	}
+	return cp
 }
 
 // downloadAttachment 下载附件并缓存到 session。超出大小限制或下载失败返回 nil。
@@ -264,7 +324,7 @@ func (p *Plugin) downloadAttachment(att platform.Attachment, session *Session) *
 		}
 	}
 
-	if !isAllowedDownloadURL(att.URL) {
+	if !netguard.AllowURL(att.URL) {
 		logger.Debugf("[AI] Attachment URL blocked (SSRF prevention): %s", att.URL)
 		return nil
 	}
@@ -642,78 +702,13 @@ func groupRoleName(role platform.GroupRole) string {
 	}
 }
 
-// isAllowedDownloadURL 检查附件下载 URL 是否合法（SSRF 防护）。
-// 只允许 https 协议，禁止内网地址。对域名会执行 DNS 解析检查目标 IP。
-func isAllowedDownloadURL(rawURL string) bool {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil {
-		return false
-	}
-	if ip := net.ParseIP(u.Hostname()); ip != nil {
-		return isPublicIP(ip)
-	}
-	// 域名：执行 DNS 解析，检查所有解析结果是否为公网 IP
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", u.Hostname())
-	if err != nil {
-		return false
-	}
-	if len(ips) == 0 {
-		return false
-	}
-	for _, ip := range ips {
-		if !isPublicIP(ip) {
-			return false
-		}
-	}
-	return true
-}
-
+// attachmentHTTPClient 是受 SSRF 防护的附件下载客户端（见 infra/netguard）：
+// 连接目标须为公网 IP，重定向目标逐跳校验。
 var attachmentHTTPClient = &http.Client{
 	Transport: &http.Transport{
-		DialContext: safeAttachmentDialContext,
+		DialContext: netguard.DialContext,
 	},
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		if !isAllowedDownloadURL(req.URL.String()) {
-			return fmt.Errorf("redirect to unsafe attachment URL blocked")
-		}
-		if len(via) >= 10 {
-			return fmt.Errorf("too many redirects")
-		}
-		return nil
-	},
-}
-
-func safeAttachmentDialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if !isPublicIP(ip) {
-			return nil, fmt.Errorf("connection to non-public address blocked")
-		}
-	} else {
-		ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-		if err != nil {
-			return nil, err
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("no IP address found for attachment host")
-		}
-		for _, ip := range ips {
-			if !isPublicIP(ip) {
-				return nil, fmt.Errorf("attachment host resolves to non-public address")
-			}
-		}
-	}
-	return (&net.Dialer{}).DialContext(ctx, network, address)
-}
-
-func isPublicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
+	CheckRedirect: netguard.RedirectPolicy(10),
 }
 
 // makeSessionID 生成会话唯一标识。
@@ -739,7 +734,7 @@ func (p *Plugin) handleFSMTransition(ctx *eventctx.Context) bool {
 
 // downloadTextAttachment 下载文本附件内容，使用传入的 context 控制生命周期。
 func (p *Plugin) downloadTextAttachment(ctx context.Context, att platform.Attachment) string {
-	if !isAllowedDownloadURL(att.URL) {
+	if !netguard.AllowURL(att.URL) {
 		return ""
 	}
 	dlCtx, dlCancel := context.WithTimeout(ctx, 30*time.Second)

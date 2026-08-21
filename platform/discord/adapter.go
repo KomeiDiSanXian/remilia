@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -86,6 +87,10 @@ func NewGatewayAdapter(cfg GatewayConfig) (*GatewayAdapter, error) {
 	session.Identify.Intents = cfg.Intents
 	session.ShouldReconnectOnError = cfg.ShouldReconnect
 	session.StateEnabled = true
+	// 启用消息状态缓存：引用回查（fetchReferencedMessage）优先命中本地缓存，
+	// 避免对"已删除/无权限"的引用发起必然 404 的 REST 调用。上限 100 条/频道，
+	// 权衡内存占用（discordgo 默认 MaxMessageCount=0 时不缓存任何消息）。
+	session.State.MaxMessageCount = 100
 
 	if cfg.NumShards > 1 {
 		session.ShardID = cfg.ShardID
@@ -272,6 +277,79 @@ func (a *GatewayAdapter) Session() *discordgo.Session {
 // Event handler registration
 // ────────────────────────────────────────────────────────────────────────────
 
+// quotedFetchTimeout 回查被引用消息（ChannelMessage）的单次超时。
+//
+// 包级变量而非常量，便于测试缩短。注意 discordgo 的 ChannelMessage 不接收
+// context：超时只放弃等待，底层 REST 请求仍会在后台完成——因此并发回查
+// 必须用 quotedFetchSem 限制数量，防止限流/慢网络下 goroutine 无界堆积。
+var quotedFetchTimeout = 3 * time.Second
+
+// quotedFetchSem 限制并发引用回查数量（Discord 全局限流 50 req/s）。
+var quotedFetchSem = make(chan struct{}, 4)
+
+// fetchChannelMessage 是 ChannelMessage 回查的可注入实现（测试替身点）。
+var fetchChannelMessage = func(s *discordgo.Session, channelID, messageID string) (*discordgo.Message, error) {
+	return s.ChannelMessage(channelID, messageID)
+}
+
+// fetchReferencedMessage 尽力回查缺失的被引用消息。
+//
+// Discord 的 reply payload 通常内嵌 referenced_message；消息已删除、缓存
+// 过期或部分跨频道引用时缺省。此时回查一次 ChannelMessage 补齐，使引用段
+// 能携带被引用附件（buildDiscordSegments 填充 Extra[SegmentExtraQuoteAtts]）。
+//
+// 顺序：本地状态缓存（网关已缓存近期消息，零网络开销）→ 受并发上限约束的
+// REST 回查。被引用消息已删除或无权限时 ChannelMessage 必然 404，属白耗
+// 调用——状态缓存命中失败可部分规避（已删除消息通常不在缓存中）。
+// 失败、超时或并发信号量已满时静默跳过，不影响事件投递。
+func fetchReferencedMessage(s *discordgo.Session, m *discordgo.Message) {
+	if s == nil || m == nil || m.MessageReference == nil || m.ReferencedMessage != nil {
+		return
+	}
+	if m.MessageReference.MessageID == "" {
+		return
+	}
+
+	// 1) 本地状态缓存：命中则无需网络调用
+	if s.State != nil {
+		if cached, err := s.State.Message(m.ChannelID, m.MessageReference.MessageID); err == nil && cached != nil {
+			m.ReferencedMessage = cached
+			return
+		}
+	}
+
+	// 2) REST 回查：并发上限已满时直接跳过（尽力而为，不排队）
+	select {
+	case quotedFetchSem <- struct{}{}:
+	default:
+		return
+	}
+	defer func() { <-quotedFetchSem }()
+
+	type fetchResult struct {
+		msg *discordgo.Message
+		err error
+	}
+	ctx, cancel := stdctx.WithTimeout(stdctx.Background(), quotedFetchTimeout)
+	defer cancel()
+	ch := make(chan fetchResult, 1)
+	go func() {
+		msg, err := fetchChannelMessage(s, m.ChannelID, m.MessageReference.MessageID)
+		ch <- fetchResult{msg: msg, err: err}
+	}()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			logger.WithError(r.err).Debug("[discord] 回查被引用消息失败")
+			return
+		}
+		m.ReferencedMessage = r.msg
+	case <-ctx.Done():
+		logger.Debug("[discord] 回查被引用消息超时")
+	}
+}
+
 func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- platform.Event) []func() {
 	send := func(e platform.Event) {
 		select {
@@ -289,8 +367,11 @@ func (a *GatewayAdapter) registerHandlers(ctx stdctx.Context, eventCh chan<- pla
 
 	// Message events
 	add(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		fetchReferencedMessage(s, m.Message)
 		send(NewMessageCreateEventWithBot(m, a.BotID()))
 	})
+	// 编辑事件不做引用回查：Discord 编辑事件通常已内嵌 referenced_message，
+	// 且编辑频率远高于创建（链接预览等也会触发），逐条回查成本过高。
 	add(func(s *discordgo.Session, m *discordgo.MessageUpdate) {
 		send(NewMessageUpdateEventWithBot(m, a.BotID()))
 	})

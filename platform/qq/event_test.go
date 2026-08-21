@@ -971,6 +971,55 @@ func TestNewEvent_GroupMessageCreate_QuotePlainText(t *testing.T) {
 	require.Len(t, platform.Attachments(event), 0, "被引用消息的附件不属于本条消息")
 }
 
+// TestNewEvent_GroupMessageCreate_QuoteAttachmentsExtra 引用图片消息：
+// 被引用附件经 parseAttachments 归一化进 reply 段
+// Extra[SegmentExtraQuoteAtts]，供下游（AI 视觉等）跨平台消费。
+func TestNewEvent_GroupMessageCreate_QuoteAttachmentsExtra(t *testing.T) {
+	payload := makePayload(dto.GroupMessageCreate, map[string]any{
+		"id":           "msg_q_atts",
+		"content":      " 123",
+		"group_openid": "group_001",
+		"message_type": 103,
+		"author":       map[string]any{"member_openid": "mem001", "username": "Alice", "member_role": "owner"},
+		"timestamp":    "2026-08-21T20:32:23+08:00",
+		"message_scene": map[string]any{
+			"source": "default",
+			"ext":    []string{"ref_msg_idx=REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==", "msg_idx=REFIDX_x"},
+		},
+		"msg_elements": []any{
+			map[string]any{
+				"msg_idx":      "REFIDX_7NQsHTV9A8ulz+4Tiu3qSg==",
+				"message_type": 7,
+				"content":      "[图片]",
+				"attachments": []any{
+					map[string]any{
+						"url":          "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0",
+						"filename":     "B3C3E2FB03E5EDFB7C8E7BC54EA645E9.jpg",
+						"content_type": "image/jpeg",
+						"size":         49276,
+						"width":        1070,
+						"height":       473,
+					},
+				},
+			},
+		},
+	})
+
+	event := qq.NewEvent(payload)
+	segs := event.Segments()
+	if len(segs) == 0 || segs[0].Type != platform.SegmentReply {
+		t.Fatalf("expected reply segment first, got %+v", segs)
+	}
+	atts, ok := segs[0].Extra[platform.SegmentExtraQuoteAtts].([]platform.Attachment)
+	if !ok || len(atts) != 1 {
+		t.Fatalf("expected normalized quote attachment in reply Extra, got %+v", segs[0].Extra)
+	}
+	if atts[0].URL != "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0" ||
+		atts[0].MimeType != "image/jpeg" || atts[0].Width != 1070 {
+		t.Errorf("unexpected quote attachment: %+v", atts[0])
+	}
+}
+
 // TestNewEvent_GroupMessageCreate_QuoteMentionBot 引用消息、回复正文 "@机器人 123456"：
 // 外层 content 的 <@id> 占位符交错为 at 段（此前 103 消息的 @ 全丢）。
 func TestNewEvent_GroupMessageCreate_QuoteMentionBot(t *testing.T) {

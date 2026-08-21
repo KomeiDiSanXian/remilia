@@ -356,6 +356,9 @@ func (a *ReverseWSAdapter) handleWS(w http.ResponseWriter, r *http.Request) {
 	handler := a.handler
 	for ev := range eventCh {
 		if handler != nil {
+			// 引用消息回查（get_msg）须在分发侧 goroutine 执行：
+			// 读循环内同步调用会与 routeResponse 互相等待（见 quote.go）
+			enrichQuotedAttachments(stdctx.Background(), sender, ev)
 			platform.SafeDispatch(handler, ev)
 		}
 	}

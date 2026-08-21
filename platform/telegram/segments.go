@@ -18,10 +18,18 @@ import (
 // buildTelegramSegments 将 Telegram Message 映射为保序统一段。
 //
 // 顺序：reply 段（引用在消息最前）→ 文本/at 交错段 → 媒体段（附属于正文之后）。
+//
+// 引用消息：Telegram update 内嵌完整被引用消息（reply_to_message），其媒体
+// 以 file_id 归一化进 reply 段 Extra[platform.SegmentExtraQuoteAtts]；URL
+// 由适配器的附件解析步骤统一换取（见 PollingAdapter.resolveAttachmentURLs）。
 func buildTelegramSegments(msg *Message) []platform.Segment {
 	var segs []platform.Segment
 	if msg.ReplyToMsg != nil {
-		segs = append(segs, platform.Segment{Type: platform.SegmentReply, ReplyToID: strconv.Itoa(msg.ReplyToMsg.MessageID)})
+		seg := platform.Segment{Type: platform.SegmentReply, ReplyToID: strconv.Itoa(msg.ReplyToMsg.MessageID)}
+		if qa := collectAttachments(msg.ReplyToMsg); len(qa) > 0 {
+			seg.Extra = map[string]any{platform.SegmentExtraQuoteAtts: qa}
+		}
+		segs = append(segs, seg)
 	}
 
 	text := msg.Text
@@ -106,69 +114,26 @@ func buildTelegramOutboundText(segs []platform.Segment) string {
 
 // attachmentSegments 将媒体附件映射为媒体段（顺序：photo/audio/video/document/voice/animation/sticker）。
 //
-// 与 collectAttachments 一一对应，保证 Attachments() 派生视图与旧行为一致。
+// 与 collectAttachments 共用同一套附件提取与 Kind 标注（单一真相源），
+// 保证本条消息与引用消息的附件元数据一致。
 func attachmentSegments(msg *Message) []platform.Segment {
 	var segs []platform.Segment
-	appendMedia := func(t platform.SegmentType, att platform.Attachment) {
-		segs = append(segs, platform.Segment{Type: t, Attachment: att})
-	}
-	if len(msg.Photo) > 0 {
-		p := msg.Photo[len(msg.Photo)-1]
-		appendMedia(platform.SegmentImage, platform.Attachment{
-			Width:  p.Width,
-			Height: p.Height,
-			Size:   p.FileSize,
-			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: p.FileID, FileUniqueID: p.FileUniqueID}},
-		})
-	}
-	if msg.Audio != nil {
-		appendMedia(platform.SegmentAudio, platform.Attachment{
-			MimeType: msg.Audio.MimeType,
-			Name:     msg.Audio.FileName,
-			Size:     msg.Audio.FileSize,
-			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Audio.FileID, FileUniqueID: msg.Audio.FileUniqueID}},
-		})
-	}
-	if msg.Video != nil {
-		appendMedia(platform.SegmentVideo, platform.Attachment{
-			MimeType: msg.Video.MimeType,
-			Name:     msg.Video.FileName,
-			Width:    msg.Video.Width,
-			Height:   msg.Video.Height,
-			Size:     msg.Video.FileSize,
-			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Video.FileID, FileUniqueID: msg.Video.FileUniqueID}},
-		})
-	}
-	if msg.Document != nil {
-		appendMedia(platform.SegmentFile, platform.Attachment{
-			MimeType: msg.Document.MimeType,
-			Name:     msg.Document.FileName,
-			Size:     msg.Document.FileSize,
-			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Document.FileID, FileUniqueID: msg.Document.FileUniqueID}},
-		})
-	}
-	if msg.Voice != nil {
-		appendMedia(platform.SegmentAudio, platform.Attachment{
-			MimeType: msg.Voice.MimeType,
-			Size:     msg.Voice.FileSize,
-			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Voice.FileID, FileUniqueID: msg.Voice.FileUniqueID}},
-		})
-	}
-	if msg.Animation != nil {
-		appendMedia(platform.SegmentVideo, platform.Attachment{
-			Width:  msg.Animation.Width,
-			Height: msg.Animation.Height,
-			Size:   msg.Animation.FileSize,
-			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Animation.FileID, FileUniqueID: msg.Animation.FileUniqueID}},
-		})
-	}
-	if msg.Sticker != nil {
-		appendMedia(platform.SegmentImage, platform.Attachment{
-			Width:  msg.Sticker.Width,
-			Height: msg.Sticker.Height,
-			Size:   msg.Sticker.FileSize,
-			Extra:  map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Sticker.FileID, FileUniqueID: msg.Sticker.FileUniqueID}},
-		})
+	for _, att := range collectAttachments(msg) {
+		segs = append(segs, platform.Segment{Type: segmentTypeFromKind(att.Kind), Attachment: att})
 	}
 	return segs
+}
+
+// segmentTypeFromKind 将附件 Kind 映射为统一段类型。
+func segmentTypeFromKind(kind platform.AttachmentKind) platform.SegmentType {
+	switch kind {
+	case platform.AttachmentKindImage:
+		return platform.SegmentImage
+	case platform.AttachmentKindAudio:
+		return platform.SegmentAudio
+	case platform.AttachmentKindVideo:
+		return platform.SegmentVideo
+	default:
+		return platform.SegmentFile
+	}
 }

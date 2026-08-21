@@ -253,6 +253,10 @@ func (a *HTTPPostAdapter) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 引用消息回查被引用附件（get_msg）：HTTP 适配器的 API 客户端独立于
+	// 事件接收路径，此处同步调用无死锁风险；失败静默跳过。
+	enrichQuotedAttachments(r.Context(), a.sender, ev)
+
 	// 构建快速操作上下文，以便 handler 可以调度快速操作。
 	quickOp := &quickOpContext{w: w}
 

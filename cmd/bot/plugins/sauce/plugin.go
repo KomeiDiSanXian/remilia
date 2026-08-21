@@ -86,7 +86,7 @@ func New() *plugin.Descriptor {
 			if terr := initSauceTransport(p.proxy()); terr != nil {
 				return nil, fmt.Errorf("sauce: 初始化代理失败: %w", terr)
 			}
-			p.httpClient = newSauceHTTPClient(30 * time.Second)
+			p.httpClient = newSauceDownloadClient(30 * time.Second)
 			p.saucenao = newSauceNAOClient(newSauceHTTPClient(15 * time.Second))
 			p.iqdb = newIQDBClient(newSauceHTTPClient(p.iqdbTimeout()), p.iqdbRetries())
 			p.tracemoe = newTraceMoeClient(newSauceHTTPClient(20 * time.Second))

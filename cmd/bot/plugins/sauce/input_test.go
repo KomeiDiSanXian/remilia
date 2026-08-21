@@ -16,7 +16,9 @@ func TestQuotedImageFromRawQuote(t *testing.T) {
 			{"url":"https://img.example.com/photo1.png","content_type":"image/png"}
 		 ]}
 	]`
-	assert.Equal(t, "https://img.example.com/photo1.png", quotedImageFromRawQuote(raw))
+	url, mime := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: map[string]any{"raw_quote": raw}}})
+	assert.Equal(t, "https://img.example.com/photo1.png", url)
+	assert.Equal(t, "image/png", mime)
 }
 
 func TestQuotedImageFromRawQuoteNoImageType(t *testing.T) {
@@ -28,7 +30,8 @@ func TestQuotedImageFromRawQuoteNoImageType(t *testing.T) {
 			{"url":"https://img.example.com/b.png","content_type":"image/png"}
 		 ]}
 	]`
-	assert.Equal(t, "https://img.example.com/b.png", quotedImageFromRawQuote(raw))
+	url, _ := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: map[string]any{"raw_quote": raw}}})
+	assert.Equal(t, "https://img.example.com/b.png", url)
 }
 
 func TestQuotedImageFromRawQuoteNoContentType(t *testing.T) {
@@ -39,15 +42,25 @@ func TestQuotedImageFromRawQuoteNoContentType(t *testing.T) {
 			{"url":"https://img.example.com/only.png"}
 		 ]}
 	]`
-	assert.Equal(t, "https://img.example.com/only.png", quotedImageFromRawQuote(raw))
+	url, _ := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: map[string]any{"raw_quote": raw}}})
+	assert.Equal(t, "https://img.example.com/only.png", url)
 }
 
 func TestQuotedImageFromRawQuoteEmpty(t *testing.T) {
-	assert.Equal(t, "", quotedImageFromRawQuote(""))
-	assert.Equal(t, "", quotedImageFromRawQuote("not-json"))
-	assert.Equal(t, "", quotedImageFromRawQuote(`[]`))
-	assert.Equal(t, "", quotedImageFromRawQuote(`[{"attachments":[]}]`))
-	assert.Equal(t, "", quotedImageFromRawQuote(`[{"attachments":[{"url":""}]}]`))
+	cases := []map[string]any{
+		{"raw_quote": ""},
+		{"raw_quote": "not-json"},
+		{"raw_quote": `[]`},
+		{"raw_quote": `[{"attachments":[]}]`},
+		{"raw_quote": `[{"attachments":[{"url":""}]}]`},
+	}
+	for _, extra := range cases {
+		url, _ := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: extra}})
+		assert.Equal(t, "", url)
+	}
+	// 无 reply 段
+	url, _ := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentText, Text: "x"}})
+	assert.Equal(t, "", url)
 }
 
 func TestQuotedImageFromParallel(t *testing.T) {
@@ -56,13 +69,21 @@ func TestQuotedImageFromParallel(t *testing.T) {
 		{"message_type":7,"content":"[图片] ",
 		 "attachments":[{"url":"https://img.example.com/n1.png","content_type":"image/png"}]}
 	]}`
-	assert.Equal(t, "https://img.example.com/n1.png", quotedImageFromParallel(raw))
+	url, mime := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: map[string]any{"parallel_message": raw}}})
+	assert.Equal(t, "https://img.example.com/n1.png", url)
+	assert.Equal(t, "image/png", mime)
 }
 
 func TestQuotedImageFromParallelEmpty(t *testing.T) {
-	assert.Equal(t, "", quotedImageFromParallel(""))
-	assert.Equal(t, "", quotedImageFromParallel(`{"msg_nodes":[]}`))
-	assert.Equal(t, "", quotedImageFromParallel(`{"msg_nodes":[{"attachments":[]}]}`))
+	cases := []map[string]any{
+		{"parallel_message": ""},
+		{"parallel_message": `{"msg_nodes":[]}`},
+		{"parallel_message": `{"msg_nodes":[{"attachments":[]}]}`},
+	}
+	for _, extra := range cases {
+		url, _ := platform.QuotedImage([]platform.Segment{{Type: platform.SegmentReply, Extra: extra}})
+		assert.Equal(t, "", url)
+	}
 }
 
 func TestFindQuotedImageURL(t *testing.T) {
@@ -83,6 +104,22 @@ func TestFindQuotedImageURL(t *testing.T) {
 	assert.Equal(t, "", findQuotedImageURL(&replyQuoteEvent{
 		segments: []platform.Segment{{Type: platform.SegmentText, Text: "x"}},
 	}))
+}
+
+func TestFindQuotedImageURLPrefersTypedExtra(t *testing.T) {
+	// 平台归一化引用附件（SegmentExtraQuoteAtts）优先于 QQ 原始 JSON 兜底
+	evt := &replyQuoteEvent{
+		segments: []platform.Segment{{
+			Type: platform.SegmentReply,
+			Extra: map[string]any{
+				platform.SegmentExtraQuoteAtts: []platform.Attachment{
+					{Kind: platform.AttachmentKindImage, URL: "https://typed.example/a.png", MimeType: "image/png"},
+				},
+				"raw_quote": `[{"attachments":[{"url":"https://raw.example/b.jpg","content_type":"image/jpeg"}]}]`,
+			},
+		}},
+	}
+	assert.Equal(t, "https://typed.example/a.png", findQuotedImageURL(evt))
 }
 
 // replyQuoteEvent 实现 platform.Event 的最小测试事件。

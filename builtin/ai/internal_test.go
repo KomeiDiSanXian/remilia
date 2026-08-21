@@ -9,6 +9,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -194,15 +195,15 @@ func TestIsPublicIP(t *testing.T) {
 	}
 	for _, tt := range tests {
 		ip := net.ParseIP(tt.ip)
-		got := isPublicIP(ip)
+		got := netguard.IsPublicIP(ip)
 		if got != tt.want {
-			t.Errorf("isPublicIP(%q) = %v, want %v", tt.ip, got, tt.want)
+			t.Errorf("netguard.IsPublicIP(%q) = %v, want %v", tt.ip, got, tt.want)
 		}
 	}
 }
 
 func TestIsPublicIPNil(t *testing.T) {
-	if isPublicIP(nil) {
+	if netguard.IsPublicIP(nil) {
 		t.Error("nil IP should not be public")
 	}
 }

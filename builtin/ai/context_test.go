@@ -2,6 +2,7 @@ package ai
 
 import (
 	stdctx "context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -359,5 +360,305 @@ func TestBuildRuntimeContextUserIsBot(t *testing.T) {
 	p2 := &Plugin{cfg: &Config{ContextFields: []string{"user_is_bot"}}}
 	if runtime := p2.buildRuntimeContext(eventctx.NewContextFromEvent(evt2, nil)); !strings.Contains(runtime, "发送者是否为机器人: 否") {
 		t.Errorf("expected non-bot flag in runtime context, got %q", runtime)
+	}
+}
+
+// ── 引用消息图片提取（quotedImageFromSegments）──────────────────────────
+
+// TestQuotedImageFromRawQuote QQ 引用富媒体消息：raw_quote 的
+// msg_elements[].attachments[] 携带被引用图片（2026-08 实测报文结构）。
+func TestQuotedImageFromRawQuote(t *testing.T) {
+	segs := []platform.Segment{{
+		Type:      platform.SegmentReply,
+		ReplyToID: "REFIDX_x",
+		Extra: map[string]any{
+			"raw_quote": `[{"message_type":7,"content":"","attachments":[` +
+				`{"url":"https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0","content_type":"image/jpeg","width":1070,"height":473,"size":49276}]}]`,
+		},
+	}}
+	url, mime := quotedImageFromSegments(segs)
+	if url != "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0" || mime != "image/jpeg" {
+		t.Errorf("expected quoted image url+mime, got (%q, %q)", url, mime)
+	}
+}
+
+// TestQuotedImageParallelFallback raw_quote 缺失/无附件时回退 parallel_message。
+func TestQuotedImageParallelFallback(t *testing.T) {
+	segs := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			"raw_quote":        `[{"message_type":7,"content":"[图片] "}]`,
+			"parallel_message": `{"msg_nodes":[{"message_type":7,"content":"[图片] ","attachments":[{"url":"https://ex.com/b.png","content_type":"image/png"}]}]}`,
+		},
+	}}
+	url, mime := quotedImageFromSegments(segs)
+	if url != "https://ex.com/b.png" || mime != "image/png" {
+		t.Errorf("expected parallel fallback image, got (%q, %q)", url, mime)
+	}
+
+	// 仅 parallel_message（无 raw_quote）
+	segs2 := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			"parallel_message": `{"msg_nodes":[{"attachments":[{"url":"https://ex.com/c.gif","content_type":"image/gif"}]}]}`,
+		},
+	}}
+	if url, _ := quotedImageFromSegments(segs2); url != "https://ex.com/c.gif" {
+		t.Errorf("expected image from parallel only, got %q", url)
+	}
+}
+
+// TestQuotedImageSkipsNonImage 非 image/* 附件跳过，取后续图片项。
+func TestQuotedImageSkipsNonImage(t *testing.T) {
+	segs := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			"raw_quote": `[{"attachments":[{"url":"https://ex.com/v.mp4","content_type":"video/mp4"},{"url":"https://ex.com/a.jpg","content_type":"image/jpeg"}]}]`,
+		},
+	}}
+	url, mime := quotedImageFromSegments(segs)
+	if url != "https://ex.com/a.jpg" || mime != "image/jpeg" {
+		t.Errorf("expected image attachment picked over video, got (%q, %q)", url, mime)
+	}
+}
+
+// TestQuotedImageUntypedFallback 所有附件均未标注 content_type 时回退首个带 url 项。
+func TestQuotedImageUntypedFallback(t *testing.T) {
+	segs := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			"raw_quote": `[{"attachments":[{"url":"https://ex.com/no-type"}]}]`,
+		},
+	}}
+	url, mime := quotedImageFromSegments(segs)
+	if url != "https://ex.com/no-type" || mime != "" {
+		t.Errorf("expected fallback to untyped attachment, got (%q, %q)", url, mime)
+	}
+}
+
+// TestQuotedImageNone 无引用段 / 非法 JSON / 无 Extra 时返回空。
+func TestQuotedImageNone(t *testing.T) {
+	cases := [][]platform.Segment{
+		nil,
+		{{Type: platform.SegmentText, Text: "hello"}},
+		{{Type: platform.SegmentReply, ReplyToID: "m1"}},
+		{{Type: platform.SegmentReply, Extra: map[string]any{"raw_quote": "{invalid json"}}},
+		{{Type: platform.SegmentReply, Extra: map[string]any{
+			"parallel_message": `{"msg_nodes":[{"message_type":0,"content":"纯文本引用"}]}`,
+		}}},
+	}
+	for i, segs := range cases {
+		if url, _ := quotedImageFromSegments(segs); url != "" {
+			t.Errorf("case %d: expected empty, got %q", i, url)
+		}
+	}
+}
+
+// ── buildUserMessage 引用图片注入 ────────────────────────────────────────
+
+// TestQuotedImagePrefersTypedExtra 平台归一化引用附件（SegmentExtraQuoteAtts）
+// 优先于 QQ 原始 JSON 兜底路径。
+func TestQuotedImagePrefersTypedExtra(t *testing.T) {
+	segs := []platform.Segment{{
+		Type: platform.SegmentReply,
+		Extra: map[string]any{
+			platform.SegmentExtraQuoteAtts: []platform.Attachment{
+				{Kind: platform.AttachmentKindImage, URL: "https://typed.example/a.png", MimeType: "image/png"},
+			},
+			"raw_quote": `[{"attachments":[{"url":"https://raw.example/b.jpg","content_type":"image/jpeg"}]}]`,
+		},
+	}}
+	url, mime := quotedImageFromSegments(segs)
+	if url != "https://typed.example/a.png" || mime != "image/png" {
+		t.Errorf("expected typed Extra to win, got (%q, %q)", url, mime)
+	}
+}
+
+// TestPickQuotedImage 归一化附件选择：Kind/MimeType 显式图片优先；
+// 显式非图片类型跳过；全部未标注类型时回退首个带 URL 的项。
+func TestPickQuotedImage(t *testing.T) {
+	// Kind 标注优先
+	url, _ := platform.PickQuotedImage([]platform.Attachment{
+		{Kind: platform.AttachmentKindFile, URL: "https://x/doc.pdf", Name: "doc.pdf"},
+		{Kind: platform.AttachmentKindImage, URL: "https://x/pic.jpg"},
+	})
+	if url != "https://x/pic.jpg" {
+		t.Errorf("expected image-kind attachment, got %q", url)
+	}
+
+	// MimeType 标注优先于未标注项
+	url, mime := platform.PickQuotedImage([]platform.Attachment{
+		{URL: "https://x/unknown"},
+		{URL: "https://x/a.png", MimeType: "image/png"},
+	})
+	if url != "https://x/a.png" || mime != "image/png" {
+		t.Errorf("expected mime-typed image, got (%q, %q)", url, mime)
+	}
+
+	// 显式标注的非图片类型不作为兜底
+	if url, _ := platform.PickQuotedImage([]platform.Attachment{
+		{Kind: platform.AttachmentKindVideo, URL: "https://x/v.mp4"},
+	}); url != "" {
+		t.Errorf("expected typed non-image to be skipped, got %q", url)
+	}
+
+	// 无类型标注回退首个
+	url, mime = platform.PickQuotedImage([]platform.Attachment{{URL: "https://x/unknown"}})
+	if url != "https://x/unknown" || mime != "" {
+		t.Errorf("expected untyped fallback, got (%q, %q)", url, mime)
+	}
+
+	// 无可用项
+	if url, _ := platform.PickQuotedImage([]platform.Attachment{{Kind: platform.AttachmentKindVideo}}); url != "" {
+		t.Errorf("expected empty without URL, got %q", url)
+	}
+}
+
+// TestBuildUserMessageInjectsQuotedImage 引用图片场景：本条消息无图片附件，
+// 从 reply 段提取被引用图片作为视觉输入注入。
+//
+// 通过预置 session.contentCache 命中缓存分支，绕过真实网络下载
+// （SSRF 防护会拦截 httptest 的 loopback 地址），覆盖注入链路本身。
+func TestBuildUserMessageInjectsQuotedImage(t *testing.T) {
+	const imgURL = "https://multimedia.nt.qq.com.cn/download?appid=1407&spec=0"
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, ""),
+		segs: []platform.Segment{{
+			Type:      platform.SegmentReply,
+			ReplyToID: "REFIDX_x",
+			Extra: map[string]any{
+				"raw_quote": fmt.Sprintf(`[{"attachments":[{"url":%q,"content_type":"image/jpeg"}]}]`, imgURL),
+			},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	session := &Session{}
+	session.setCachedContent(imgURL, []byte("fake-jpeg-bytes"), "image/jpeg", "")
+
+	p := &Plugin{cfg: &Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "这是什么", session)
+
+	if len(msg.ContentParts) != 3 {
+		t.Fatalf("expected 3 content parts (text+note+image), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
+	}
+	if msg.ContentParts[0].Type != ContentPartText || msg.ContentParts[0].Text != "这是什么" {
+		t.Errorf("expected user text part first, got %+v", msg.ContentParts[0])
+	}
+	if msg.ContentParts[1].Type != ContentPartText || !strings.Contains(msg.ContentParts[1].Text, "引用") {
+		t.Errorf("expected quote note text part, got %+v", msg.ContentParts[1])
+	}
+	img := msg.ContentParts[2]
+	if img.Type != ContentPartImage || img.MimeType != "image/jpeg" || len(img.Data) == 0 {
+		t.Errorf("expected downloaded image part, got %+v", img)
+	}
+	if msg.Content != "" {
+		t.Errorf("expected empty Content in parts mode, got %q", msg.Content)
+	}
+}
+
+// TestBuildUserMessageQuotedImageDisabled vision_enabled=false 时忽略引用图片，
+// 不触发任何下载尝试，消息保持纯文本。
+func TestBuildUserMessageQuotedImageDisabled(t *testing.T) {
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, ""),
+		segs: []platform.Segment{{
+			Type: platform.SegmentReply,
+			Extra: map[string]any{
+				"raw_quote": `[{"attachments":[{"url":"https://ex.com/img.jpg","content_type":"image/jpeg"}]}]`,
+			},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	p := &Plugin{cfg: &Config{VisionEnabled: false}}
+	msg := p.buildUserMessage(ctx, "这是什么", &Session{})
+
+	if msg.Content != "这是什么" || msg.ContentParts != nil {
+		t.Errorf("expected plain text message unchanged, got content=%q parts=%+v", msg.Content, msg.ContentParts)
+	}
+}
+
+// TestBuildUserMessageQuotedImageDownloadFail 下载失败时优雅降级为纯文本。
+func TestBuildUserMessageQuotedImageDownloadFail(t *testing.T) {
+	// 内网地址被 SSRF 防护拦截 → 下载必然失败
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, ""),
+		segs: []platform.Segment{{
+			Type: platform.SegmentReply,
+			Extra: map[string]any{
+				"raw_quote": `[{"attachments":[{"url":"http://127.0.0.1:1/x.jpg","content_type":"image/jpeg"}]}]`,
+			},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	p := &Plugin{cfg: &Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "这是什么", &Session{})
+
+	if msg.Content != "这是什么" || msg.ContentParts != nil {
+		t.Errorf("expected graceful fallback to plain text, got content=%q parts=%+v", msg.Content, msg.ContentParts)
+	}
+}
+
+// TestHasImageAttachment Kind 与 MimeType 双通道识别图片附件
+// （OneBot 只填 Kind、QQ 只填 MimeType、Telegram 两者皆空）。
+func TestHasImageAttachment(t *testing.T) {
+	cases := []struct {
+		name string
+		atts []platform.Attachment
+		want bool
+	}{
+		{"Kind-only (OneBot)", []platform.Attachment{{Kind: platform.AttachmentKindImage, URL: "https://x/a.jpg"}}, true},
+		{"MimeType-only (QQ)", []platform.Attachment{{MimeType: "image/jpeg", URL: "https://x/a.jpg"}}, true},
+		{"both", []platform.Attachment{{Kind: platform.AttachmentKindImage, MimeType: "image/png"}}, true},
+		{"audio not image", []platform.Attachment{{Kind: platform.AttachmentKindAudio, MimeType: "audio/ogg"}}, false},
+		{"untyped (Telegram photo)", []platform.Attachment{{URL: "https://x/a.jpg"}}, false},
+		{"empty", nil, false},
+	}
+	for _, tc := range cases {
+		if got := hasImageAttachment(tc.atts); got != tc.want {
+			t.Errorf("%s: hasImageAttachment=%v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestBuildUserMessageOwnImageSkipsQuotedImage 自身消息携带图片（Kind 标注、
+// OneBot 风格）时不再注入引用图片，避免重复/语义混淆。
+func TestBuildUserMessageOwnImageSkipsQuotedImage(t *testing.T) {
+	const quotedURL = "https://quoted.example/q.jpg"
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, ""),
+		segs: []platform.Segment{
+			{
+				Type: platform.SegmentImage,
+				Attachment: platform.Attachment{
+					Kind: platform.AttachmentKindImage,
+					URL:  "https://own.example/own.jpg",
+				},
+			},
+			{
+				Type:      platform.SegmentReply,
+				ReplyToID: "m1",
+				Extra: map[string]any{
+					platform.SegmentExtraQuoteAtts: []platform.Attachment{
+						{Kind: platform.AttachmentKindImage, URL: quotedURL, MimeType: "image/jpeg"},
+					},
+				},
+			},
+		},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	session := &Session{}
+	session.setCachedContent(quotedURL, []byte("fake-jpeg"), "image/jpeg", "")
+
+	p := &Plugin{cfg: &Config{VisionEnabled: true}}
+	msg := p.buildUserMessage(ctx, "看图", session)
+
+	for _, part := range msg.ContentParts {
+		if part.Type == ContentPartText && strings.Contains(part.Text, "引用") {
+			t.Fatalf("quoted image should not be injected when own image present: %+v", msg.ContentParts)
+		}
 	}
 }

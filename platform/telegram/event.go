@@ -348,6 +348,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	if len(msg.Photo) > 0 {
 		p := msg.Photo[len(msg.Photo)-1]
 		atts = append(atts, platform.Attachment{
+			Kind:   platform.AttachmentKindImage,
 			Width:  p.Width,
 			Height: p.Height,
 			Size:   p.FileSize,
@@ -356,6 +357,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Audio != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:     platform.AttachmentKindAudio,
 			MimeType: msg.Audio.MimeType,
 			Name:     msg.Audio.FileName,
 			Size:     msg.Audio.FileSize,
@@ -364,6 +366,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Video != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:     platform.AttachmentKindVideo,
 			MimeType: msg.Video.MimeType,
 			Name:     msg.Video.FileName,
 			Width:    msg.Video.Width,
@@ -374,6 +377,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Document != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:     platform.AttachmentKindFile,
 			MimeType: msg.Document.MimeType,
 			Name:     msg.Document.FileName,
 			Size:     msg.Document.FileSize,
@@ -382,6 +386,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Voice != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:     platform.AttachmentKindAudio,
 			MimeType: msg.Voice.MimeType,
 			Size:     msg.Voice.FileSize,
 			Extra:    map[string]any{ExtraKeyFile: &FileMeta{FileID: msg.Voice.FileID, FileUniqueID: msg.Voice.FileUniqueID}},
@@ -389,6 +394,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Animation != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:   platform.AttachmentKindVideo,
 			Width:  msg.Animation.Width,
 			Height: msg.Animation.Height,
 			Size:   msg.Animation.FileSize,
@@ -397,6 +403,7 @@ func collectAttachments(msg *Message) []platform.Attachment {
 	}
 	if msg.Sticker != nil {
 		atts = append(atts, platform.Attachment{
+			Kind:   platform.AttachmentKindImage,
 			Width:  msg.Sticker.Width,
 			Height: msg.Sticker.Height,
 			Size:   msg.Sticker.FileSize,

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -29,10 +30,14 @@ func findImageURL(event platform.Event) string {
 
 // downloadImage 下载远程图片字节，maxBytes 为体积上限（<=0 表示不限制）。
 //
-// 使用与引擎相同的共享 HTTP 客户端（含 plugins.sauce.proxy 代理配置）。
+// 使用带 SSRF 防护的专用下载客户端（基于共享代理配置叠加公网目标校验，
+// 见 newSauceDownloadClient）。URL 不合法（非 https / 指向内网）直接拒绝。
 func (p *Plugin) downloadImage(ctx context.Context, url string, maxBytes int64) ([]byte, error) {
 	if p.httpClient == nil {
 		return nil, fmt.Errorf("HTTP 客户端未初始化")
+	}
+	if !netguard.AllowURL(url) {
+		return nil, fmt.Errorf("图片 URL 不被允许下载（仅支持公网 https 地址）")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

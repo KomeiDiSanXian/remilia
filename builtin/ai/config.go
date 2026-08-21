@@ -22,7 +22,8 @@ type Config struct {
 	Provider string `yaml:"provider"`
 	// Model 模型名称。
 	// OpenAI: gpt-4o, gpt-4o-mini, gpt-4-turbo, o1-mini
-	// DeepSeek: deepseek-chat, deepseek-reasoner
+	// DeepSeek: deepseek-chat, deepseek-reasoner,
+	//           deepseek-v4-flash-vision-exp（图片理解）
 	// Anthropic: claude-sonnet-4-20250514, claude-3-5-sonnet-latest
 	Model string `yaml:"model"`
 	// BaseURL API 地址。

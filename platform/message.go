@@ -243,6 +243,17 @@ const (
 	SegmentExtraTitle = "title"
 	// SegmentExtraSummary forward 段摘要文本（跨平台降级用）。
 	SegmentExtraSummary = "summary"
+	// SegmentExtraQuoteAtts reply 段携带的被引用消息附件列表（[]Attachment）。
+	//
+	// 引用图片等富媒体时，被引用内容通常不在本条消息的段列表中；适配器在
+	// 解析引用消息时把被引用附件归一化后存入本键，供下游（AI 视觉、识图
+	// 插件等）直接消费。取值约定：
+	//   - 类型恒为 []Attachment（平台归一化结构，非平台原始 JSON）
+	//   - URL 为事件时刻获取的直链（Telegram 经 getFile 换链、Discord 取自
+	//     referenced_message、OneBot 经 get_msg 回查）；多数平台直链会过期，
+	//     下游应及时使用，不应持久化 URL
+	//   - 填充是尽力而为：payload 未内嵌且回查失败时键缺省，调用方须容忍
+	SegmentExtraQuoteAtts = "quote_attachments"
 )
 
 // Segment 一条原子消息段，保留原文顺序。

@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"golang.org/x/net/html"
 )
 
 // ssrfPolicy 目标主机 SSRF 准入策略（默认仅公网）。
 // 测试可覆盖以访问本地 TLS 服务器（httptest.NewTLSServer 绑定回环地址）。
-var ssrfPolicy = func(host string) bool { return isPublicHost(host) }
+var ssrfPolicy = func(host string) bool { return netguard.IsPublicHost(host) }
 
 // fetchPage 抓取网页并提取纯文本（标题 + 正文段落）。
 //
@@ -78,31 +77,6 @@ func fetchPage(ctx context.Context, client *http.Client, rawURL string, maxBytes
 		text = string(runes[:maxRunes]) + "\n…(内容过长已截断)"
 	}
 	return text, nil
-}
-
-// isPublicHost 检查主机名解析结果是否全部为公网 IP（SSRF 防护）。
-func isPublicHost(host string) bool {
-	if ip := net.ParseIP(host); ip != nil {
-		return isPublicIP(ip)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
-	if err != nil || len(ips) == 0 {
-		return false
-	}
-	for _, ip := range ips {
-		if !isPublicIP(ip) {
-			return false
-		}
-	}
-	return true
-}
-
-// isPublicIP 判断 IP 是否为公网地址。
-func isPublicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsPrivate() &&
-		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
 }
 
 // extractPageText 将 HTML 提取为可读纯文本：

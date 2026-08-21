@@ -259,6 +259,15 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 // 得到 file_path。这一步放在适配器里做（而不是 collectAttachments 里），
 // 因为只有这里同时拿得到 Client 和 ctx。
 //
+// 解析范围：本条消息的媒体段 + reply 段 Extra[SegmentExtraQuoteAtts] 中被
+// 引用消息的附件（Telegram update 内嵌 reply_to_message，其媒体同样只有
+// file_id，需要同一换链步骤）。
+//
+// 改写目标必须是事件内部段：platform.Attachments() 返回的是段附件的值拷贝，
+// 写拷贝无法回传事件（此前直接遍历其返回值改写，URL 在分发前全部丢失）。
+// 媒体段经 event.Segments() 取内部切片索引改写；引用附件是 Extra 中的
+// []Attachment 切片，元素指针共享底层数组，回写同样生效。
+//
 // 解析失败不影响事件投递：URL 保持为空，插件仍可通过
 // Attachment.Extra 中的 *FileMeta 拿到 file_id 自行处理。
 //
@@ -268,16 +277,37 @@ func (a *PollingAdapter) Start(ctx stdctx.Context, handler func(platform.Event))
 // budget 是本批更新剩余的解析时间预算，返回本次实际消耗的时长。
 // 预算耗尽时直接跳过解析（附件 URL 留空），保证事件投递不被阻塞。
 func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platform.Event, budget time.Duration) time.Duration {
-	// Attachments() 返回的是事件内部切片本身，逐元素改写即可生效。
-	atts := platform.Attachments(event)
-	if len(atts) == 0 {
+	started := time.Now()
+
+	// 收集待解析附件的指针：媒体段指向事件内部段的附件字段；
+	// 引用附件指向 Extra 切片的元素（共享底层数组）。
+	segs := event.Segments()
+	var targets []*platform.Attachment
+	for i := range segs {
+		switch segs[i].Type {
+		case platform.SegmentImage, platform.SegmentAudio, platform.SegmentVideo, platform.SegmentFile:
+			targets = append(targets, &segs[i].Attachment)
+		case platform.SegmentReply:
+			if atts, ok := segs[i].Extra[platform.SegmentExtraQuoteAtts].([]platform.Attachment); ok {
+				for j := range atts {
+					targets = append(targets, &atts[j])
+				}
+			}
+		}
+	}
+	if len(targets) == 0 {
 		return 0
 	}
 
-	started := time.Now()
-	for i := range atts {
-		meta, ok := atts[i].Extra[ExtraKeyFile].(*FileMeta)
-		if !ok || meta == nil || meta.FileID == "" || atts[i].URL != "" {
+	resolved := make(map[string]string, len(targets)) // FileID → 已换取的 URL
+	for _, att := range targets {
+		meta, ok := att.Extra[ExtraKeyFile].(*FileMeta)
+		if !ok || meta == nil || meta.FileID == "" || att.URL != "" {
+			continue
+		}
+		// 同一 FileID（本条消息与引用段为同一文件）只 getFile 一次
+		if url, ok := resolved[meta.FileID]; ok {
+			att.URL = url
 			continue
 		}
 		spent := time.Since(started)
@@ -298,9 +328,11 @@ func (a *PollingAdapter) resolveAttachmentURLs(ctx stdctx.Context, event platfor
 				Debug("[telegram.PollingAdapter] getFile 失败，附件 URL 留空")
 			continue
 		}
-		atts[i].URL = a.client.FileURL(f.FilePath)
-		if atts[i].Size == 0 && f.FileSize > 0 && f.FileSize <= math.MaxInt32 {
-			atts[i].Size = int(f.FileSize)
+		url := a.client.FileURL(f.FilePath)
+		resolved[meta.FileID] = url
+		att.URL = url
+		if att.Size == 0 && f.FileSize > 0 && f.FileSize <= math.MaxInt32 {
+			att.Size = int(f.FileSize)
 		}
 	}
 	return time.Since(started)

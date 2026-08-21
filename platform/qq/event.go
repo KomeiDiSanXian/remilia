@@ -238,6 +238,9 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 			if pm := results[10]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
 				replyExtra["parallel_message"] = pm.Raw
 			}
+			if qa := quoteAttachmentsFromElements(results[9]); len(qa) > 0 {
+				replyExtra[platform.SegmentExtraQuoteAtts] = qa
+			}
 			e.segments = append(e.segments, platform.Segment{
 				Type:      platform.SegmentReply,
 				ReplyToID: refIdx,
@@ -295,6 +298,9 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 			replyExtra := map[string]any{"raw_quote": msgElements.Raw}
 			if pm := results[14]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
 				replyExtra["parallel_message"] = pm.Raw
+			}
+			if qa := quoteAttachmentsFromElements(msgElements); len(qa) > 0 {
+				replyExtra[platform.SegmentExtraQuoteAtts] = qa
 			}
 			e.segments = append(e.segments, platform.Segment{
 				Type:      platform.SegmentReply,
@@ -411,6 +417,25 @@ func extractQuoteContent(r gjson.Result) string {
 		return ""
 	}
 	return arr[0].Get("content").String()
+}
+
+// quoteAttachmentsFromElements 从 msg_elements 提取被引用消息的附件列表。
+//
+// 103 引用消息的 msg_elements[0] 为被引用消息本体（与 extractQuoteContent
+// 的取数语义一致），其 attachments[] 与外层 attachments 同构，复用
+// parseAttachments 归一化。只收集首个元素的附件——后续元素属于回复正文
+// 等其他内容，不应混入引用附件。供 reply 段
+// Extra[platform.SegmentExtraQuoteAtts] 使用；URL 为事件时刻直链（rkey 会
+// 过期），下游应及时消费。
+func quoteAttachmentsFromElements(elements gjson.Result) []platform.Attachment {
+	if !elements.IsArray() {
+		return nil
+	}
+	arr := elements.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+	return parseAttachments(arr[0].Get("attachments"))
 }
 
 // quoteReplyID 从 message_scene.ext 中提取引用目标标识（ref_msg_idx=REFIDX_xxx）。
@@ -759,25 +784,54 @@ func textSegments(text string) []platform.Segment {
 	return []platform.Segment{{Type: platform.SegmentText, Text: text}}
 }
 
-// mediaSegments 将附件列表按 MIME 分类映射为媒体段（保序）。
+// mediaSegments 将附件列表按 Kind（缺失时按 MIME）分类映射为媒体段（保序）。
 func mediaSegments(atts []platform.Attachment) []platform.Segment {
 	var segs []platform.Segment
 	for _, att := range atts {
-		var t platform.SegmentType
-		mime := strings.ToLower(att.MimeType)
-		switch {
-		case strings.HasPrefix(mime, "image/"):
-			t = platform.SegmentImage
-		case strings.HasPrefix(mime, "audio/"):
-			t = platform.SegmentAudio
-		case strings.HasPrefix(mime, "video/"):
-			t = platform.SegmentVideo
-		default:
-			t = platform.SegmentFile
-		}
-		segs = append(segs, platform.Segment{Type: t, Attachment: att})
+		segs = append(segs, platform.Segment{Type: mediaSegmentType(att), Attachment: att})
 	}
 	return segs
+}
+
+// mediaSegmentType 根据附件 Kind/MimeType 推导媒体段类型。
+func mediaSegmentType(att platform.Attachment) platform.SegmentType {
+	if att.Kind != "" {
+		switch att.Kind {
+		case platform.AttachmentKindImage:
+			return platform.SegmentImage
+		case platform.AttachmentKindAudio:
+			return platform.SegmentAudio
+		case platform.AttachmentKindVideo:
+			return platform.SegmentVideo
+		default:
+			return platform.SegmentFile
+		}
+	}
+	mime := strings.ToLower(att.MimeType)
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return platform.SegmentImage
+	case strings.HasPrefix(mime, "audio/"):
+		return platform.SegmentAudio
+	case strings.HasPrefix(mime, "video/"):
+		return platform.SegmentVideo
+	default:
+		return platform.SegmentFile
+	}
+}
+
+// attachmentKindFromMime 从 MIME 类型推断附件 Kind；无法识别时按文件处理。
+func attachmentKindFromMime(mime string) platform.AttachmentKind {
+	switch {
+	case strings.HasPrefix(mime, "image/"):
+		return platform.AttachmentKindImage
+	case strings.HasPrefix(mime, "audio/"):
+		return platform.AttachmentKindAudio
+	case strings.HasPrefix(mime, "video/"):
+		return platform.AttachmentKindVideo
+	default:
+		return platform.AttachmentKindFile
+	}
 }
 
 // textAndMediaSegments 拼接文本段与媒体段（正文在前）。
@@ -808,7 +862,10 @@ func parseAttachments(r gjson.Result) []platform.Attachment {
 		wavURL := v.Get("voice_wav_url").String()
 		asrText := v.Get("asr_refer_text").String()
 		if wavURL != "" || asrText != "" {
+			att.Kind = platform.AttachmentKindAudio
 			att.Extra = map[string]any{ExtraKeyVoice: &VoiceAttachmentMeta{WavURL: wavURL, AsrText: asrText}}
+		} else {
+			att.Kind = attachmentKindFromMime(att.MimeType)
 		}
 		if att.URL != "" || att.Name != "" {
 			out = append(out, att)

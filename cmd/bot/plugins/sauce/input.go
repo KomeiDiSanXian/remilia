@@ -1,11 +1,8 @@
 package sauce
 
 import (
-	"strings"
-
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
-	"github.com/tidwall/gjson"
 )
 
 // ── 图片输入解析 ───────────────────────────────────────────────────────
@@ -45,92 +42,11 @@ func (p *Plugin) resolveImageSource(ctx *eventctx.Context, engines engineSet) (s
 
 // findQuotedImageURL 从引用消息段中提取被引用图片的 URL。
 //
-// 各平台实现：
-//   - QQ：reply 段 Extra["raw_quote"] 为被引用消息的 msg_elements 原始 JSON，
-//     取其中首个 attachments[].url；Extra["parallel_message"] 为并行视图兜底
-//   - 其他平台：尽力从 reply 段 Extra 中查找 "raw_quote"/"parallel_message"
-//     同构数据；Telegram 等平台被引用消息只有 file_id 无直链时返回空
+// 委托 platform.QuotedImage 统一提取：优先 reply 段
+// Extra[platform.SegmentExtraQuoteAtts]（各平台适配器归一化填充的
+// 被引用附件列表），QQ 兼容兜底 raw_quote / parallel_message 原始 JSON。
+// Telegram 等平台被引用消息只有 file_id 无直链时返回空。
 func findQuotedImageURL(event platform.Event) string {
-	for _, s := range event.Segments() {
-		if s.Type != platform.SegmentReply {
-			continue
-		}
-		if raw, ok := s.Extra["raw_quote"].(string); ok && raw != "" {
-			if url := quotedImageFromRawQuote(raw); url != "" {
-				return url
-			}
-		}
-		if raw, ok := s.Extra["parallel_message"].(string); ok && raw != "" {
-			if url := quotedImageFromParallel(raw); url != "" {
-				return url
-			}
-		}
-	}
-	return ""
-}
-
-// quotedImageFromRawQuote 从 QQ msg_elements JSON 中提取被引用图片 URL。
-//
-// 结构：msg_elements 为数组，其元素（被引用消息）的 attachments 数组内
-// 每条含 url/content_type 等字段。优先取 image/* 类型的附件。
-func quotedImageFromRawQuote(raw string) string {
-	if !gjson.Valid(raw) {
-		return ""
-	}
-	for _, elem := range gjson.Parse(raw).Array() {
-		atts := elem.Get("attachments").Array()
-		if len(atts) == 0 {
-			continue
-		}
-		for _, att := range atts {
-			ct := att.Get("content_type").String()
-			u := att.Get("url").String()
-			if ct != "" && !strings.HasPrefix(ct, "image/") {
-				continue
-			}
-			if u != "" {
-				return u
-			}
-		}
-		// 无 content_type 时取第一个带 url 的附件
-		for _, att := range atts {
-			if u := att.Get("url").String(); u != "" {
-				return u
-			}
-		}
-	}
-	return ""
-}
-
-// quotedImageFromParallel 从 QQ parallel_message（msg_nodes 并行视图）中提取图片 URL。
-//
-// parallel_message 是被引用消息的并行视图，结构：
-// {"msg_nodes": [{"message_type": 7, "attachments": [{"url": ...}]}]}
-// 富媒体消息（message_type=7）的 content 仅为 "[图片]" 占位文本，图片在
-// attachments 内。作为 raw_quote 解析失败时的兜底。
-func quotedImageFromParallel(raw string) string {
-	if !gjson.Valid(raw) {
-		return ""
-	}
-	nodes := gjson.Get(raw, "msg_nodes").Array()
-	for _, n := range nodes {
-		// 节点本身可能是富媒体元素数组（元素带 message_type/attachments）
-		if u := quotedImageFromRawQuote(n.Raw); u != "" {
-			return u
-		}
-		if n.IsObject() {
-			atts := n.Get("attachments").Array()
-			for _, att := range atts {
-				ct := att.Get("content_type").String()
-				u := att.Get("url").String()
-				if ct != "" && !strings.HasPrefix(ct, "image/") {
-					continue
-				}
-				if u != "" {
-					return u
-				}
-			}
-		}
-	}
-	return ""
+	url, _ := platform.QuotedImage(event.Segments())
+	return url
 }

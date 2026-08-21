@@ -332,6 +332,9 @@ func (a *ForwardWSAdapter) runOnce(ctx stdctx.Context, handler func(platform.Eve
 				if !ok {
 					return
 				}
+				// 引用消息回查（get_msg）须在分发侧 goroutine 执行：
+				// 读循环内同步调用会与 routeResponse 互相等待（见 quote.go）
+				enrichQuotedAttachments(ctx, sender, ev)
 				platform.SafeDispatch(handler, ev)
 			case <-ctx.Done():
 				return

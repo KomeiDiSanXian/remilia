@@ -102,6 +102,18 @@ func replyQuoteFromSegments(segs []platform.Segment) string {
 	return ""
 }
 
+// quotedImageFromSegments 从 reply 段提取被引用消息中的图片 URL 与 MIME 类型。
+//
+// 各平台适配器在解析引用消息时把被引用附件归一化存入
+// Extra[platform.SegmentExtraQuoteAtts]（[]platform.Attachment，URL 为事件
+// 时刻直链），优先消费；QQ 引用消息另以 Extra["raw_quote"]（msg_elements
+// 原始 JSON）与 Extra["parallel_message"]（并行视图）保留原始数据，作为
+// 约定键缺省时的兜底路径。实现委托 platform.QuotedImage，跨插件共享同一
+// 套提取/类型判定语义。
+func quotedImageFromSegments(segs []platform.Segment) (url, mimeType string) {
+	return platform.QuotedImage(segs)
+}
+
 // buildGroupContext 组装同群最近 N 条消息（昵称: 内容，旧到新）。
 // 默认只含入站消息；ContextGroupIncludeBot 开启时额外包含机器人的
 // 出站回复（AI 与其他插件的回复），并以机器人自身名称标注

@@ -56,7 +56,17 @@ func buildDiscordSegments(m *discordgo.Message) []platform.Segment {
 	}
 	var segs []platform.Segment
 	if m.MessageReference != nil && m.MessageReference.MessageID != "" {
-		segs = append(segs, platform.Segment{Type: platform.SegmentReply, ReplyToID: m.MessageReference.MessageID})
+		seg := platform.Segment{Type: platform.SegmentReply, ReplyToID: m.MessageReference.MessageID}
+		// Discord 在 reply payload 中内嵌被引用消息（referenced_message；
+		// 已删除或部分跨频道引用时缺省，后者由适配器回查补齐）。有媒体时
+		// 归一化进 reply 段 Extra[SegmentExtraQuoteAtts]，URL 为事件时刻的
+		// CDN 直链（带签名参数，会过期，下游应及时消费）。
+		if ref := m.ReferencedMessage; ref != nil {
+			if qa := mediaAttachments(ref.Attachments); len(qa) > 0 {
+				seg.Extra = map[string]any{platform.SegmentExtraQuoteAtts: qa}
+			}
+		}
+		segs = append(segs, seg)
 	}
 	segs = append(segs, splitDiscordMentions(m.Content, m.Mentions)...)
 	segs = append(segs, attachmentSegments(m.Attachments)...)
@@ -110,7 +120,8 @@ func splitDiscordMentions(content string, mentions []*discordgo.User) []platform
 	return out
 }
 
-// attachmentSegments 将 Discord 附件按 MIME 分类映射为媒体段（保序）。
+// attachmentSegments 将 Discord 附件按 MIME 分类映射为媒体段（保序），
+// 同时标注 Attachment.Kind 供下游统一消费。
 func attachmentSegments(atts []*discordgo.MessageAttachment) []platform.Segment {
 	var segs []platform.Segment
 	for _, a := range atts {
@@ -128,15 +139,24 @@ func attachmentSegments(atts []*discordgo.MessageAttachment) []platform.Segment 
 		var t platform.SegmentType
 		switch {
 		case strings.HasPrefix(a.ContentType, "image/"):
-			t = platform.SegmentImage
+			t, att.Kind = platform.SegmentImage, platform.AttachmentKindImage
 		case strings.HasPrefix(a.ContentType, "audio/"):
-			t = platform.SegmentAudio
+			t, att.Kind = platform.SegmentAudio, platform.AttachmentKindAudio
 		case strings.HasPrefix(a.ContentType, "video/"):
-			t = platform.SegmentVideo
+			t, att.Kind = platform.SegmentVideo, platform.AttachmentKindVideo
 		default:
-			t = platform.SegmentFile
+			t, att.Kind = platform.SegmentFile, platform.AttachmentKindFile
 		}
 		segs = append(segs, platform.Segment{Type: t, Attachment: att})
 	}
 	return segs
+}
+
+// mediaAttachments 从 Discord 附件列表提取归一化附件（供引用段 Extra 使用）。
+func mediaAttachments(atts []*discordgo.MessageAttachment) []platform.Attachment {
+	var out []platform.Attachment
+	for _, s := range attachmentSegments(atts) {
+		out = append(out, s.Attachment)
+	}
+	return out
 }

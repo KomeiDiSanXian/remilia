@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/netguard"
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
@@ -234,9 +235,9 @@ func TestIsAllowedDownloadURL(t *testing.T) {
 		{"not-a-url", false},
 	}
 	for _, tt := range tests {
-		got := isAllowedDownloadURL(tt.url)
+		got := netguard.AllowURL(tt.url)
 		if got != tt.want {
-			t.Logf("isAllowedDownloadURL(%q) = %v, want %v", tt.url, got, tt.want)
+			t.Logf("netguard.AllowURL(%q) = %v, want %v", tt.url, got, tt.want)
 		}
 	}
 }
