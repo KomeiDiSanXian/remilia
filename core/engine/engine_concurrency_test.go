@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/core/context"
@@ -149,9 +150,11 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 		for range eventCount {
 			<-started
 		}
-		// 给事件一点时间进入处理状态
+		// 等待全部事件进入处理状态（handler 入口自增 processingCount、睡眠 100ms，
+		// 观测到 == eventCount 时所有事件必已通过 shutdown 检查并处于 in-flight，
+		// 避免仅等待 goroutine 调度时 Shutdown 抢先丢弃事件导致 processedCount 不足）
 		assert.Eventually(t, func() bool {
-			return processingCount.Load() > 0
+			return processingCount.Load() == eventCount
 		}, time.Second, 10*time.Millisecond)
 
 		// 开始关闭（应该等待）
@@ -166,38 +169,45 @@ func TestEngineShutdownWithPendingEvents(t *testing.T) {
 	})
 
 	t.Run("shutdown_respects_context_timeout", func(t *testing.T) {
-		engine := newEngineForTest(t)
+		// synctest：虚拟时钟下确定性验证超时行为（handler 500ms > shutdown 超时 200ms），
+		// 不依赖真实时间与调度时序。
+		synctest.Test(t, func(t *testing.T) {
+			engine := newEngineForTest(t)
 
-		// 注册一个慢速处理器（500ms 大于 shutdown 的 200ms 超时，确保测试验证超时行为）
-		matcher := engine.OnAny()
-		matcher.Handle(func(ctx *context.Context) error {
-			select {
-			case <-time.After(500 * time.Millisecond):
-			case <-ctx.Context().Done():
-				return ctx.Context().Err()
-			}
-			return nil
+			// 注册一个慢速处理器（500ms 大于 shutdown 的 200ms 超时，确保测试验证超时行为）。
+			// started 在 handler 真正进入执行后关闭，作为"事件已在处理中"的确定性握手：
+			// 仅等待 goroutine 调度（原 ready 通道）无法保证事件已通过 shutdown 检查，
+			// Shutdown 可能抢先设置标志导致事件被丢弃、eventWg 为空而立即成功。
+			started := make(chan struct{})
+			matcher := engine.OnAny()
+			matcher.Handle(func(ctx *context.Context) error {
+				close(started)
+				select {
+				case <-time.After(500 * time.Millisecond):
+				case <-ctx.Context().Done():
+					return ctx.Context().Err()
+				}
+				return nil
+			})
+
+			// 启动事件 goroutine，并等待 handler 真正开始执行后再 shutdown
+			go func() {
+				ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
+				engine.ProcessEvent(ctx)
+			}()
+			<-started
+
+			// 使用有超时的 context 关闭；超时值比测试下界宽松以适应并行负载
+			ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 200*time.Millisecond)
+			defer cancel()
+
+			shutdownStart := time.Now()
+			err := engine.Shutdown(ctx)
+			shutdownDuration := time.Since(shutdownStart)
+
+			assert.Error(t, err)
+			assert.Less(t, shutdownDuration, 500*time.Millisecond, "Should timeout quickly")
 		})
-
-		// 确保事件 goroutine 已调度后再 shutdown
-		ready := make(chan struct{})
-		go func() {
-			ready <- struct{}{}
-			ctx := context.NewContextFromEvent(newTestPlatformEvent(platform.EventKindPrivateMessage), nil)
-			engine.ProcessEvent(ctx)
-		}()
-		<-ready
-
-		// 使用有超时的 context 关闭；超时值比测试下界宽松以适应并行负载
-		ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 200*time.Millisecond)
-		defer cancel()
-
-		shutdownStart := time.Now()
-		err := engine.Shutdown(ctx)
-		shutdownDuration := time.Since(shutdownStart)
-
-		assert.Error(t, err)
-		assert.Less(t, shutdownDuration, 500*time.Millisecond, "Should timeout quickly")
 	})
 
 	t.Run("shutdown_is_idempotent", func(t *testing.T) {
