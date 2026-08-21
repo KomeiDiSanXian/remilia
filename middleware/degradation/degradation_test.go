@@ -7,7 +7,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/middleware/ctxkeys"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"

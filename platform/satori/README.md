@@ -26,38 +26,38 @@
 package main
 
 import (
-    "log"
+	"log"
 
-    remilia "github.com/KomeiDiSanXian/remilia"
-    "github.com/KomeiDiSanXian/remilia/platform/satori"
+	"github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia/platform/satori"
 )
 
 func main() {
-    // 1. 创建 Satori 适配器（WebSocket 模式）
-    adapter, err := satori.NewAdapter(satori.DefaultConfig(
-        "http://localhost:5140", // Satori SDK 服务地址
-        "chronocat",             // 平台标识符
-        "1234567890",            // 机器人用户 ID
-    ))
-    if err != nil {
-        log.Fatal(err)
-    }
+	// 1. 创建 Satori 适配器（WebSocket 模式）
+	adapter, err := satori.NewAdapter(satori.DefaultConfig(
+		"http://localhost:5140", // Satori SDK 服务地址
+		"chronocat",             // 平台标识符
+		"1234567890",            // 机器人用户 ID
+	))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // 2. 构建 bot
-    bot, err := remilia.NewBotBuilder().
-        WithPlatformAdapter(adapter).
-        Build()
-    if err != nil {
-        log.Fatal(err)
-    }
+	// 2. 构建 bot
+	bot, err := remilia.NewBotBuilder().
+		WithPlatformAdapter(adapter).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    // 3. 注册处理器
-    bot.OnPrivateMessage(func(ctx *remilia.BotContext) {
-        ctx.Reply(platform.TextMessage("pong"))
-    })
+	// 3. 注册处理器
+	bot.OnPrivateMessage(func(ctx *remilia.BotContext) {
+		ctx.Reply(platform.TextMessage("pong"))
+	})
 
-    // 4. 运行
-    log.Fatal(bot.Run())
+	// 4. 运行
+	log.Fatal(bot.Run())
 }
 ```
 

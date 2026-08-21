@@ -343,54 +343,56 @@ eng.Use(ctrl.Middleware())
 package main
 
 import (
-    "github.com/KomeiDiSanXian/remilia"
-    "github.com/KomeiDiSanXian/remilia/core/engine"
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    "github.com/KomeiDiSanXian/remilia/platform"
-    "github.com/KomeiDiSanXian/remilia/platform/qq"
-    "github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // 定义插件
 func newMyPlugin() *plugin.Descriptor {
-    return &plugin.Descriptor{
-        Name:    "my-plugin",
-        Version: "1.0.0",
-        Meta: &plugin.Metadata{
-            Description: "示例插件",
-            Category:    "工具",
-        },
-        Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/myplugin").
-                Handle(func(c *eventctx.Context) error {
-                    c.Reply(platform.TextMessage("My Plugin is working!"))
-                    return nil
-                })
-            return nil, nil
-        },
-    }
+	return &plugin.Descriptor{
+		Name:    "my-plugin",
+		Version: "1.0.0",
+		Meta: &plugin.Metadata{
+			Description: "示例插件",
+			Category:    "工具",
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(eventctx.EventGroup, "/myplugin").
+				Handle(func(c *eventctx.Context) error {
+					c.Reply(platform.TextMessage("My Plugin is working!"))
+					return nil
+				})
+			return nil, nil
+		},
+	}
 }
 
 func main() {
-    eng := engine.NewEngine()
-    manager := plugin.NewManager(eng)
+	eng := engine.NewEngine()
+	manager := plugin.NewManager(eng)
 
-    // 注册插件
-    manager.Register(newMyPlugin())
+	// 注册插件
+	manager.Register(newMyPlugin())
 
-    adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
-    bot, err := remilia.NewBotBuilder().
-        WithPlatformAdapter(adapter).
-        WithEngine(eng).
-        Build()
-    if err != nil { panic(err) }
+	adapter := qq.NewWebhookServerAdapter(":8080", &dto.BotInfo{AppID: 123456})
+	bot, err := remilia.NewBotBuilder().
+		WithPlatformAdapter(adapter).
+		WithEngine(eng).
+		Build()
+	if err != nil {
+		panic(err)
+	}
 
-    // 将插件管理器接入 Bot 生命周期（Start/Stop/优雅关闭）
-    bot.UsePlugins(manager)
+	// 将插件管理器接入 Bot 生命周期（Start/Stop/优雅关闭）
+	bot.UsePlugins(manager)
 
-    bot.Start()
-    bot.WaitForShutdown()
+	bot.Start()
+	bot.WaitForShutdown()
 }
 ```
 

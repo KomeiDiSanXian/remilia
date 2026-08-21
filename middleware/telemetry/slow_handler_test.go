@@ -6,7 +6,7 @@ import (
 
 	appconfig "github.com/KomeiDiSanXian/remilia/config"
 	"github.com/KomeiDiSanXian/remilia/core/context"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

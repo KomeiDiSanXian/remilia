@@ -137,7 +137,7 @@ type SetupContext struct {
 //
 // 保护内置 key：普通插件不得覆盖 manager/engine/coordinator，否则等于劫持
 // 其他插件通过容器获取的核心对象。
-//（插件名恰好等于内置 key 时放行其自身名下的自动导出。）
+// （插件名恰好等于内置 key 时放行其自身名下的自动导出。）
 func (ctx *SetupContext) exportAs(name string, api any) {
 	if ctx.container == nil {
 		return

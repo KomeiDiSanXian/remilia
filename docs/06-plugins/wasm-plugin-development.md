@@ -252,21 +252,22 @@ func main() {
 package main
 
 import (
-    _ "embed"
-    "github.com/KomeiDiSanXian/remilia/plugin/wasm"
+	_ "embed"
+
+	"github.com/KomeiDiSanXian/remilia/plugin/wasm"
 )
 
 //go:embed plugin.wasm
 var pluginWasm []byte
 
 func loadWasmPlugin(mgr *wasm.Manager) {
-    desc := &wasm.Descriptor{
-        Name: "myplugin",
-        Commands: []wasm.CommandDef{
-            {Command: "/hello"},
-        },
-    }
-    mgr.Instantiate(context.Background(), desc, pluginWasm)
+	desc := &wasm.Descriptor{
+		Name: "myplugin",
+		Commands: []wasm.CommandDef{
+			{Command: "/hello"},
+		},
+	}
+	mgr.Instantiate(context.Background(), desc, pluginWasm)
 }
 ```
 

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/stretchr/testify/assert"
 )
 

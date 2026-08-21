@@ -11,9 +11,10 @@
 package myplugin
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/platform"
+
+eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+"github.com/KomeiDiSanXian/remilia/platform"
+"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 func New() *plugin.Descriptor {
@@ -193,80 +194,82 @@ return impl, nil
 package weather
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    "github.com/KomeiDiSanXian/remilia/platform"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 type Plugin struct {
-    apiKey  string
-    timeout time.Duration
+	apiKey  string
+	timeout time.Duration
 }
 
 func New() *plugin.Descriptor {
-    p := &Plugin{}
-    return &plugin.Descriptor{
-        Name:    "weather",
-        Version: "1.0.0",
-        Meta: &plugin.Metadata{
-            Description: "天气查询插件",
-            Category:    "工具",
-            HelpText:    "/weather <城市> — 查询天气",
-        },
-        Setup: func(ctx *plugin.SetupContext) (any, error) {
-            if ctx.Config != nil {
-                p.apiKey  = ctx.Config.GetString("api_key", "")
-                p.timeout = ctx.Config.GetDuration("timeout", 10*time.Second)
-                ctx.Config.OnChange(func(key string, _, newVal any) {
-                    if key == "api_key" {
-                        if s, ok := newVal.(string); ok {
-                            p.apiKey = s
-                        }
-                    }
-                })
-            }
+	p := &Plugin{}
+	return &plugin.Descriptor{
+		Name:    "weather",
+		Version: "1.0.0",
+		Meta: &plugin.Metadata{
+			Description: "天气查询插件",
+			Category:    "工具",
+			HelpText:    "/weather <城市> — 查询天气",
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			if ctx.Config != nil {
+				p.apiKey = ctx.Config.GetString("api_key", "")
+				p.timeout = ctx.Config.GetDuration("timeout", 10*time.Second)
+				ctx.Config.OnChange(func(key string, _, newVal any) {
+					if key == "api_key" {
+						if s, ok := newVal.(string); ok {
+							p.apiKey = s
+						}
+					}
+				})
+			}
 
-            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/weather").
-                Handle(p.handleWeather)
+			ctx.Reg.RegisterCommand(eventctx.EventGroup, "/weather").
+				Handle(p.handleWeather)
 
-            ctx.Spawn(func(runCtx context.Context) {
-                ticker := time.NewTicker(time.Hour)
-                defer ticker.Stop()
-                for {
-                    select {
-                    case <-ticker.C:      p.prefetchCache()
-                    case <-runCtx.Done(): return
-                    }
-                }
-            })
+			ctx.Spawn(func(runCtx context.Context) {
+				ticker := time.NewTicker(time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						p.prefetchCache()
+					case <-runCtx.Done():
+						return
+					}
+				}
+			})
 
-            return p, nil
-        },
-        Teardown: func(ctx *plugin.TeardownContext) error {
-            ctx.Log.Info("weather plugin stopped")
-            return nil
-        },
-    }
+			return p, nil
+		},
+		Teardown: func(ctx *plugin.TeardownContext) error {
+			ctx.Log.Info("weather plugin stopped")
+			return nil
+		},
+	}
 }
 
 func (p *Plugin) handleWeather(ctx *eventctx.Context) error {
-    cmd := ctx.GetParsedCommand()
-    if cmd == nil {
-        ctx.Reply(platform.TextMessage("用法：/weather <城市>"))
-        return nil
-    }
-    city, _ := cmd.Arguments["city"].(string)
-    result, err := p.fetch(city)
-    if err != nil {
-        ctx.Reply(platform.TextMessage(fmt.Sprintf("查询失败: %v", err)))
-        return nil
-    }
-    ctx.Reply(platform.TextMessage(result))
-    return nil
+	cmd := ctx.GetParsedCommand()
+	if cmd == nil {
+		ctx.Reply(platform.TextMessage("用法：/weather <城市>"))
+		return nil
+	}
+	city, _ := cmd.Arguments["city"].(string)
+	result, err := p.fetch(city)
+	if err != nil {
+		ctx.Reply(platform.TextMessage(fmt.Sprintf("查询失败: %v", err)))
+		return nil
+	}
+	ctx.Reply(platform.TextMessage(result))
+	return nil
 }
 
 func (p *Plugin) fetch(city string) (string, error) { /* ... */ return "", nil }

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 )
 
 // TestAdaptiveRateLimiter_PanicRecovery 测试 handler panic 时信号量正确释放

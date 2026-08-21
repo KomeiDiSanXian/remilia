@@ -8,7 +8,7 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 )
 
 // TestCircuitBreakerAutoRecovery 测试自动恢复功能

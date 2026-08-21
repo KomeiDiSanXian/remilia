@@ -304,36 +304,37 @@ engine.On(context.OnEventKind(platform.EventKindGuildMessage)).Handle(func(ctx *
 package telegram
 
 import (
-    stdctx "context"
-    tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-    "github.com/KomeiDiSanXian/remilia/platform"
+	stdctx "context"
+
+	"github.com/KomeiDiSanXian/remilia/platform"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 type Adapter struct {
-    bot    *tgbotapi.BotAPI
-    sender *telegramSender
+	bot    *tgbotapi.BotAPI
+	sender *telegramSender
 }
 
-func (a *Adapter) Platform() string { return "telegram" }
+func (a *Adapter) Platform() string        { return "telegram" }
 func (a *Adapter) Sender() platform.Sender { return a.sender }
 func (a *Adapter) Capabilities() platform.PlatformCapabilities {
-    return platform.PlatformCapabilities{
-        Markdown: true, Buttons: true, MultiAttachment: true,
-        MessageEdit: true, MessageDelete: true, FileUpload: true,
-    }
+	return platform.PlatformCapabilities{
+		Markdown: true, Buttons: true, MultiAttachment: true,
+		MessageEdit: true, MessageDelete: true, FileUpload: true,
+	}
 }
 
 func (a *Adapter) StartPlatform(ctx stdctx.Context, handler func(platform.Event)) error {
-    u := tgbotapi.NewUpdate(0)
-    updates := a.bot.GetUpdatesChan(u)
-    for {
-        select {
-        case <-ctx.Done():
-            return nil
-        case update := <-updates:
-            handler(newTelegramEvent(update))  // 包装为 platform.Event
-        }
-    }
+	u := tgbotapi.NewUpdate(0)
+	updates := a.bot.GetUpdatesChan(u)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case update := <-updates:
+			handler(newTelegramEvent(update)) // 包装为 platform.Event
+		}
+	}
 }
 ```
 

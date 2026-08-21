@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/KomeiDiSanXian/remilia/infra/dlq"
-	testutil "github.com/KomeiDiSanXian/remilia/middleware/testutil"
+	"github.com/KomeiDiSanXian/remilia/middleware/testutil"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

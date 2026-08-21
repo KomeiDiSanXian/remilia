@@ -23,7 +23,7 @@ import (
 	"log"
 	"os"
 
-	remilia "github.com/KomeiDiSanXian/remilia"
+	"github.com/KomeiDiSanXian/remilia"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"

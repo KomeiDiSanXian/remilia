@@ -26,46 +26,46 @@ Remilia 框架提供完整的插件元数据与帮助系统，每个插件可以
 package myplugin
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/platform"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 func New() *plugin.Descriptor {
-    p := &MyPlugin{}
-    return &plugin.Descriptor{
-        Name:    "myplugin",
-        Version: "1.0.0",
+	p := &MyPlugin{}
+	return &plugin.Descriptor{
+		Name:    "myplugin",
+		Version: "1.0.0",
 
-        Meta: &plugin.Metadata{
-            Author:      "Your Name",
-            Description: "这是一个示例插件，提供 /echo 和 /ping 命令",
-            HelpText: `可用命令：
+		Meta: &plugin.Metadata{
+			Author:      "Your Name",
+			Description: "这是一个示例插件，提供 /echo 和 /ping 命令",
+			HelpText: `可用命令：
   /echo <文本>  — 回显输入的文本
   /ping         — 测试 Bot 是否在线`,
-            Category: "工具",
-            Tags:     []string{"示例", "工具"},
-            // Hidden: true  // 设为 true 则不在 /help 中显示
-        },
+			Category: "工具",
+			Tags:     []string{"示例", "工具"},
+			// Hidden: true  // 设为 true 则不在 /help 中显示
+		},
 
-        Setup: func(ctx *plugin.SetupContext) (any, error) {
-ctx.Reg.RegisterCommand(eventctx.EventGroup, "/echo").Handle(p.handleEcho)
-ctx.Reg.RegisterCommand(eventctx.EventGroup, "/ping").Handle(p.handlePing)
-            return p, nil
-        },
-    }
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(eventctx.EventGroup, "/echo").Handle(p.handleEcho)
+			ctx.Reg.RegisterCommand(eventctx.EventGroup, "/ping").Handle(p.handlePing)
+			return p, nil
+		},
+	}
 }
 
 func (p *MyPlugin) handleEcho(ctx *eventctx.Context) error {
-    cmd := ctx.GetParsedCommand()
-    text, _ := cmd.Arguments["text"]
-    ctx.Reply(platform.TextMessage(text))
-        return nil
+	cmd := ctx.GetParsedCommand()
+	text, _ := cmd.Arguments["text"]
+	ctx.Reply(platform.TextMessage(text))
+	return nil
 }
 
 func (p *MyPlugin) handlePing(ctx *eventctx.Context) error {
 	ctx.Reply(platform.TextMessage("Pong!"))
-	    return nil
+	return nil
 }
 ```
 

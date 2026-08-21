@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	fsm "github.com/KomeiDiSanXian/remilia/core/fsm"
+	"github.com/KomeiDiSanXian/remilia/core/fsm"
 
 	corectx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"

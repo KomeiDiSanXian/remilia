@@ -77,45 +77,45 @@ go run -tags example main.go
 package myplugin
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/openapi/dto"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/openapi/dto"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 // GreeterPlugin 保存插件运行时状态
 type GreeterPlugin struct {
-    greeting string
+	greeting string
 }
 
 // New 返回插件描述符，供 pm.Register 使用
 func New() *plugin.Descriptor {
-    p := &GreeterPlugin{greeting: "你好"}
-    return &plugin.Descriptor{
-        Name:    "greeter",
-        Version: "1.0.0",
-        Meta: &plugin.Metadata{
-            Description: "问候插件",
-            Category:    "工具",
-        },
-        Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/greet").
-                Handle(func(c *eventctx.Context) error {
-                    name := c.GetMessageContent()
-                    if name == "" {
-                        name = "朋友"
-                    }
-                    return c.Reply(platform.TextMessage(p.greeting + ", " + name + "!"))
-                })
+	p := &GreeterPlugin{greeting: "你好"}
+	return &plugin.Descriptor{
+		Name:    "greeter",
+		Version: "1.0.0",
+		Meta: &plugin.Metadata{
+			Description: "问候插件",
+			Category:    "工具",
+		},
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/greet").
+				Handle(func(c *eventctx.Context) error {
+					name := c.GetMessageContent()
+					if name == "" {
+						name = "朋友"
+					}
+					return c.Reply(platform.TextMessage(p.greeting + ", " + name + "!"))
+				})
 
-            ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/setgreeting").
-                Handle(func(c *eventctx.Context) error {
-                    p.greeting = c.GetMessageContent()
-                    return c.Reply(platform.TextMessage("问候语已更新: " + p.greeting))
-                })
+			ctx.Reg.RegisterCommand(platform.EventKindGroupMessage, "/setgreeting").
+				Handle(func(c *eventctx.Context) error {
+					p.greeting = c.GetMessageContent()
+					return c.Reply(platform.TextMessage("问候语已更新: " + p.greeting))
+				})
 
-            return p, nil
-        },
-    }
+			return p, nil
+		},
+	}
 }
 ```
 

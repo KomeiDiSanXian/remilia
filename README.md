@@ -152,24 +152,24 @@ eng.Use(
 package myplugin
 
 import (
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    eventctx "github.com/KomeiDiSanXian/remilia/core/context"
-    "github.com/KomeiDiSanXian/remilia/platform"
+	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 func New() *plugin.Descriptor {
-    return &plugin.Descriptor{
-        Name:    "myplugin",
-        Version: "1.0.0",
-        Setup: func(ctx *plugin.SetupContext) (any, error) {
-            ctx.Reg.RegisterCommand(eventctx.EventGroup, "/hello").
-                Handle(func(c *eventctx.Context) error {
-                    c.Reply(platform.TextMessage("Hello from plugin!"))
-                    return nil
-                })
-            return nil, nil
-        },
-    }
+	return &plugin.Descriptor{
+		Name:    "myplugin",
+		Version: "1.0.0",
+		Setup: func(ctx *plugin.SetupContext) (any, error) {
+			ctx.Reg.RegisterCommand(eventctx.EventGroup, "/hello").
+				Handle(func(c *eventctx.Context) error {
+					c.Reply(platform.TextMessage("Hello from plugin!"))
+					return nil
+				})
+			return nil, nil
+		},
+	}
 }
 ```
 

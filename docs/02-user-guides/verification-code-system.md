@@ -309,47 +309,48 @@ fmt.Println("初始管理员验证码:", code)
 package main
 
 import (
-    "time"
-    "github.com/KomeiDiSanXian/remilia/builtin/core/permission"
-    "github.com/KomeiDiSanXian/remilia/plugin"
-    "github.com/KomeiDiSanXian/remilia/core/engine"
+	"time"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
+	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
 func main() {
-    eng := engine.NewEngine()
-    pm := plugin.NewManager(eng)
+	eng := engine.NewEngine()
+	pm := plugin.NewManager(eng)
 
-    // 注册权限插件
-    pm.Register(permission.New())
+	// 注册权限插件
+	pm.Register(permission.New())
 
-    // 获取插件实例
-    p := pm.GetContainer().MustGetService[permission.Plugin]("permission")
-    
-    // 生成验证码
-    code, err := p.GenerateVerificationCode(
-        "admin",           // 角色
-        1*time.Hour,       // 有效期
-        0,                 // 一次性使用
-    )
-    if err != nil {
-        panic(err)
-    }
-    
-    println("验证码:", code)
-    
-    // 验证并授予角色
-    role, err := p.VerifyAndGrantRole(code, "USER_ID_HERE")
-    if err != nil {
-        panic(err)
-    }
-    
-    println("授予角色:", role)
-    
-    // 列出所有验证码
-    codes := p.ListVerificationCodes()
-    for _, c := range codes {
-        println("Code:", c.Code, "Role:", c.Role)
-    }
+	// 获取插件实例
+	p := pm.GetContainer().MustGetService[permission.Plugin]("permission")
+
+	// 生成验证码
+	code, err := p.GenerateVerificationCode(
+		"admin",     // 角色
+		1*time.Hour, // 有效期
+		0,           // 一次性使用
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	println("验证码:", code)
+
+	// 验证并授予角色
+	role, err := p.VerifyAndGrantRole(code, "USER_ID_HERE")
+	if err != nil {
+		panic(err)
+	}
+
+	println("授予角色:", role)
+
+	// 列出所有验证码
+	codes := p.ListVerificationCodes()
+	for _, c := range codes {
+		println("Code:", c.Code, "Role:", c.Role)
+	}
 }
 ```
 

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
-	qq "github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
