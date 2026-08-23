@@ -1,0 +1,340 @@
+{
+  "tools": [
+    {
+      "name": "get_weather",
+      "category": "weather",
+      "description": "查询指定城市的当前天气、温度、湿度、风力与降水概率"
+    },
+    {
+      "name": "search_memo",
+      "category": "memo",
+      "description": "搜索用户备忘录中的内容，支持关键词和时间范围"
+    },
+    {
+      "name": "add_memo",
+      "category": "memo",
+      "description": "新增一条备忘录，记录待办事项或临时想法"
+    },
+    {
+      "name": "set_reminder",
+      "category": "reminder",
+      "description": "创建定时提醒，到点后主动推送通知给用户"
+    },
+    {
+      "name": "order_coffee",
+      "category": "order",
+      "description": "为用户下单购买咖啡，支持美式、拿铁、卡布奇诺等品类"
+    },
+    {
+      "name": "translate_text",
+      "category": "translate",
+      "description": "将文本翻译为指定语言，支持中英日韩"
+    },
+    {
+      "name": "search_web",
+      "category": "search",
+      "description": "搜索互联网获取最新信息并返回摘要"
+    },
+    {
+      "name": "calc",
+      "category": "general",
+      "description": "执行数学计算"
+    },
+    {
+      "name": "time_now",
+      "category": "general",
+      "description": "查询当前日期时间"
+    },
+    {
+      "name": "acl_check",
+      "category": "acl",
+      "description": "检查指定用户是否被 ACL 黑白名单放行"
+    },
+    {
+      "name": "audit_query",
+      "category": "audit",
+      "description": "查询最近的审计日志条目，返回操作用户和内容"
+    },
+    {
+      "name": "antispam_ban",
+      "category": "antispam",
+      "description": "检查用户是否被反垃圾系统封禁"
+    },
+    {
+      "name": "group_policy",
+      "category": "group",
+      "description": "管理群聊的 AI 策略（提示词、工具白名单）"
+    },
+    {
+      "name": "memory_summary",
+      "category": "memory",
+      "description": "查看当前会话的长期记忆摘要"
+    },
+    {
+      "name": "pic_search",
+      "category": "search",
+      "description": "按关键词搜索图片"
+    },
+    {
+      "name": "music_play",
+      "category": "music",
+      "description": "播放指定歌手的歌曲"
+    },
+    {
+      "name": "stock_query",
+      "category": "finance",
+      "description": "查询股票实时行情与涨跌幅"
+    },
+    {
+      "name": "news_top",
+      "category": "news",
+      "description": "获取今日新闻头条"
+    },
+    {
+      "name": "event_create",
+      "category": "calendar",
+      "description": "创建日历事件或会议邀请"
+    },
+    {
+      "name": "send_email",
+      "category": "email",
+      "description": "发送邮件给指定收件人"
+    },
+    {
+      "name": "speech_tts",
+      "category": "audio",
+      "description": "将文本合成为语音播放"
+    },
+    {
+      "name": "ocr_image",
+      "category": "vision",
+      "description": "识别图片中的文字"
+    }
+  ],
+  "tool_cases": [
+    {
+      "query": "今天上海天气怎么样",
+      "expected": [
+        "get_weather"
+      ]
+    },
+    {
+      "query": "出门要带伞吗",
+      "expected": [
+        "get_weather"
+      ]
+    },
+    {
+      "query": "帮我订一杯冰美式",
+      "expected": [
+        "order_coffee"
+      ]
+    },
+    {
+      "query": "想喝点东西，附近有推荐吗",
+      "expected": [
+        "order_coffee"
+      ]
+    },
+    {
+      "query": "周三下午三点提醒我开会",
+      "expected": [
+        "set_reminder"
+      ]
+    },
+    {
+      "query": "别忘了明天早上叫我起床",
+      "expected": [
+        "set_reminder"
+      ]
+    },
+    {
+      "query": "帮我查一下昨天记的待办",
+      "expected": [
+        "search_memo"
+      ]
+    },
+    {
+      "query": "记一下：周五交周报",
+      "expected": [
+        "add_memo"
+      ]
+    },
+    {
+      "query": "把这句话翻译成英文",
+      "expected": [
+        "translate_text"
+      ]
+    },
+    {
+      "query": "日文怎么说谢谢",
+      "expected": [
+        "translate_text"
+      ]
+    },
+    {
+      "query": "算一下 15% 的税后价格",
+      "expected": [
+        "calc"
+      ]
+    },
+    {
+      "query": "现在几点了",
+      "expected": [
+        "time_now"
+      ]
+    },
+    {
+      "query": "查一下这个用户能不能进群",
+      "expected": [
+        "acl_check"
+      ]
+    },
+    {
+      "query": "看看谁最近动过配置",
+      "expected": [
+        "audit_query"
+      ]
+    },
+    {
+      "query": "这个人是不是被封了",
+      "expected": [
+        "antispam_ban"
+      ]
+    },
+    {
+      "query": "群里的 AI 设置谁改过",
+      "expected": [
+        "group_policy"
+      ]
+    },
+    {
+      "query": "帮我搜一下最新的 iPhone 发布",
+      "expected": [
+        "search_web"
+      ]
+    },
+    {
+      "query": "来首周杰伦的歌",
+      "expected": [
+        "music_play"
+      ]
+    },
+    {
+      "query": "茅台今天什么价",
+      "expected": [
+        "stock_query"
+      ]
+    },
+    {
+      "query": "今天有什么大新闻",
+      "expected": [
+        "news_top"
+      ]
+    },
+    {
+      "query": "下周二下午建个会议邀请",
+      "expected": [
+        "event_create"
+      ]
+    },
+    {
+      "query": "帮我把这段话发邮件给老板",
+      "expected": [
+        "send_email"
+      ]
+    },
+    {
+      "query": "把这段文字读出来",
+      "expected": [
+        "speech_tts"
+      ]
+    },
+    {
+      "query": "识别这张图里的字",
+      "expected": [
+        "ocr_image"
+      ]
+    }
+  ],
+  "rag_corpus": [
+    "Redis 连接池故障排查：客户端报 too many open connections",
+    "MySQL 慢查询优化：给 order 表加了联合索引之后快了 3 倍",
+    "新版本部署到测试环境之后记得跑一遍回归测试",
+    "K8s pod 一直 CrashLoopBackOff，看了日志是内存 OOM",
+    "Nginx 502 是因为后端服务没起来，先看健康检查",
+    "Docker 镜像构建缓存失效问题，加了 --no-cache 解决",
+    "线上告警：磁盘使用率超过 90%，需要扩容或清理日志",
+    "prometheus 指标抓取超时，调整了 scrape_timeout",
+    "今晚一起打游戏吗",
+    "团建订了周五下午的剧本杀",
+    "咖啡机坏了，明天找行政报修",
+    "年会抽奖名单发在群里了",
+    "中午吃啥，有人推荐吗",
+    "新来的同事叫小明，负责前端",
+    "周末去爬山，有人一起吗",
+    "项目评审定在周四下午两点",
+    "golang 的 goroutine 泄漏排查：用 pprof 抓了堆栈",
+    "接口延迟高，看了是慢 SQL 导致的",
+    "SSL 证书明天到期，记得续",
+    "日志里出现大量 401，怀疑有人在扫接口"
+  ],
+  "rag_cases": [
+    {
+      "query": "怎么处理 Redis 连接池异常？",
+      "expected": [
+        "Redis 连接池故障排查：客户端报 too many open connections"
+      ]
+    },
+    {
+      "query": "上周说的那个部署方案",
+      "expected": [
+        "新版本部署到测试环境之后记得跑一遍回归测试"
+      ]
+    },
+    {
+      "query": "内存溢出那个 pod 现在好了吗",
+      "expected": [
+        "K8s pod 一直 CrashLoopBackOff，看了日志是内存 OOM"
+      ]
+    },
+    {
+      "query": "证书是不是快过期了",
+      "expected": [
+        "SSL 证书明天到期，记得续"
+      ]
+    },
+    {
+      "query": "晚上有什么安排吗",
+      "expected": [
+        "今晚一起打游戏吗"
+      ]
+    },
+    {
+      "query": "午饭吃什么好",
+      "expected": [
+        "中午吃啥，有人推荐吗"
+      ]
+    }
+  ],
+  "memory_facts": [
+    "用户喜欢喝咖啡，每天早晨一杯",
+    "用户在公司担任后端工程师",
+    "用户养了一只叫小咪的猫",
+    "用户每周三下午有团队例会"
+  ],
+  "memory_cases": [
+    {
+      "query": "想喝点东西",
+      "expected": [
+        "用户喜欢喝咖啡，每天早晨一杯"
+      ]
+    },
+    {
+      "query": "上班是做什么的",
+      "expected": [
+        "用户在公司担任后端工程师"
+      ]
+    }
+  ]
+}

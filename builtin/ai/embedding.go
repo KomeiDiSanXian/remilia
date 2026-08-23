@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
@@ -43,6 +44,7 @@ type openAIEmbedder struct {
 	model   string
 	client  *http.Client
 	breaker *embeddingBreaker
+	dims    atomic.Int32 // 已确认的向量维度；0 = 未知。维度漂移（服务端换模型）即报错。
 }
 
 // newOpenAIEmbedder 创建 OpenAI 兼容的嵌入客户端。
@@ -54,6 +56,11 @@ func newOpenAIEmbedder(baseURL, apiKey, model string) Embedder {
 
 // newOpenAIEmbedderWithBreaker 同上，但允许注入自定义熔断器（测试用）。
 func newOpenAIEmbedderWithBreaker(baseURL, apiKey, model string, breaker *embeddingBreaker) Embedder {
+	return newOpenAIEmbedderWithClient(baseURL, apiKey, model, breaker, &http.Client{Timeout: 30 * time.Second})
+}
+
+// newOpenAIEmbedderWithClient 同上，允许注入自定义 HTTP 客户端（测试 timeout 分支用）。
+func newOpenAIEmbedderWithClient(baseURL, apiKey, model string, breaker *embeddingBreaker, client *http.Client) Embedder {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		return nil
@@ -66,9 +73,7 @@ func newOpenAIEmbedderWithBreaker(baseURL, apiKey, model string, breaker *embedd
 		apiKey:  apiKey,
 		model:   model,
 		breaker: breaker,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client:  client,
 	}
 }
 
@@ -224,11 +229,46 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 			return nil, fmt.Errorf("embed: missing vector for index %d", i)
 		}
 	}
+	// 数值防御：维度一致性 + 有限值校验。垃圾响应视为失败（计入熔断），
+	// 防止 NaN/Inf 或维度漂移产生 score=NaN 的诡异排序。
+	dim := len(out[0])
+	if dim == 0 {
+		e.breaker.RecordFailure()
+		return nil, fmt.Errorf("embed: empty vector for index 0")
+	}
+	if prev := e.dims.Load(); prev != 0 && prev != int32(dim) {
+		e.breaker.RecordFailure()
+		return nil, fmt.Errorf("embed: embedding dimension changed from %d to %d (model switched?)", prev, dim)
+	}
+	e.dims.CompareAndSwap(0, int32(dim))
+	for i, v := range out {
+		if err := validateVector(v, dim); err != nil {
+			e.breaker.RecordFailure()
+			return nil, fmt.Errorf("embed: invalid vector at index %d: %w", i, err)
+		}
+	}
 	e.breaker.RecordSuccess()
 	return out, nil
 }
 
 func (e *openAIEmbedder) Model() string { return e.model }
+
+// validateVector 校验单个向量的数值合法性：非空、长度与期望维度一致、全部元素有限
+// （拒绝 NaN / ±Inf）。供 embedding 响应边界防御使用。
+func validateVector(v []float32, expectedDim int) error {
+	if len(v) == 0 {
+		return errors.New("empty vector")
+	}
+	if expectedDim > 0 && len(v) != expectedDim {
+		return fmt.Errorf("dimension mismatch: got %d, want %d", len(v), expectedDim)
+	}
+	for _, x := range v {
+		if math.IsNaN(float64(x)) || math.IsInf(float64(x), 0) {
+			return errors.New("vector contains NaN or Inf")
+		}
+	}
+	return nil
+}
 
 // truncateBytes 截断响应正文用于错误提示，避免泄露完整 API 错误体。
 func truncateBytes(b []byte, n int) string {

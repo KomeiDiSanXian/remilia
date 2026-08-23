@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -132,6 +133,211 @@ func TestOpenAIEmbedderBreakerCooldown(t *testing.T) {
 	}
 	if got := calls.Load(); got != 3 {
 		t.Errorf("expected 3 server calls before cooldown, got %d", got)
+	}
+}
+
+func TestValidateVector(t *testing.T) {
+	if err := validateVector(nil, 2); err == nil {
+		t.Error("empty vector should be rejected")
+	}
+	if err := validateVector([]float32{1, 2}, 3); err == nil {
+		t.Error("dimension mismatch should be rejected")
+	}
+	if err := validateVector([]float32{float32(math.NaN()), 1}, 2); err == nil {
+		t.Error("NaN should be rejected")
+	}
+	if err := validateVector([]float32{float32(math.Inf(1)), 1}, 2); err == nil {
+		t.Error("+Inf should be rejected")
+	}
+	if err := validateVector([]float32{float32(math.Inf(-1)), 1}, 2); err == nil {
+		t.Error("-Inf should be rejected")
+	}
+	if err := validateVector([]float32{0.1, 0.2}, 2); err != nil {
+		t.Errorf("valid vector should pass: %v", err)
+	}
+}
+
+func TestOpenAIEmbedderInvalidJSON(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`not json at all`))
+	}))
+	defer srv.Close()
+	emb := newOpenAIEmbedder(srv.URL, "", "m")
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Error("expected parse error on invalid JSON")
+	}
+}
+
+func TestOpenAIEmbedderEmptyVector(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": []float32{}}},
+		})
+	}))
+	defer srv.Close()
+	emb := newOpenAIEmbedder(srv.URL, "", "m")
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Error("expected error on empty vector")
+	}
+}
+
+func TestOpenAIEmbedderInconsistentBatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data": []map[string]any{
+				{"object": "embedding", "index": 0, "embedding": []float32{0.1, 0.2}},
+				{"object": "embedding", "index": 1, "embedding": []float32{0.1, 0.2, 0.3}},
+			},
+		})
+	}))
+	defer srv.Close()
+	emb := newOpenAIEmbedder(srv.URL, "", "m")
+	if _, err := emb.Embed(context.Background(), []string{"a", "b"}); err == nil {
+		t.Error("expected error on inconsistent batch dimensions")
+	}
+}
+
+func TestOpenAIEmbedderDimensionChanged(t *testing.T) {
+	var call atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		dim := 2
+		if call.Add(1) >= 2 {
+			dim = 3 // 模拟服务端切换模型导致维度漂移
+		}
+		vec := make([]float32, dim)
+		for i := range vec {
+			vec[i] = 0.1
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"object": "list",
+			"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": vec}},
+		})
+	}))
+	defer srv.Close()
+	emb := newOpenAIEmbedder(srv.URL, "", "m")
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err != nil {
+		t.Fatalf("first call should succeed: %v", err)
+	}
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil ||
+		!strings.Contains(err.Error(), "dimension changed") {
+		t.Fatalf("expected dimension changed error, got %v", err)
+	}
+}
+
+func TestOpenAIEmbedderTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+	}))
+	defer srv.Close()
+	brk := &embeddingBreaker{threshold: 3, cooldown: time.Hour}
+	emb := newOpenAIEmbedderWithClient(srv.URL, "", "m", brk, &http.Client{Timeout: 50 * time.Millisecond})
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Error("expected timeout error")
+	}
+	if brk.consecutiveFailures != 1 {
+		t.Errorf("timeout should count as a failure, got %d", brk.consecutiveFailures)
+	}
+}
+
+func TestOpenAIEmbedderConnectionRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	addr := srv.URL
+	srv.Close() // 端口已关闭 → connection refused
+	emb := newOpenAIEmbedder(addr, "", "m")
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Error("expected connection refused error")
+	}
+}
+
+func TestOpenAIEmbedderRecovery(t *testing.T) {
+	var calls atomic.Int32
+	var healthy atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if healthy.Load() {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"object": "list",
+				"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": []float32{0.1, 0.2}}},
+			})
+			return
+		}
+		http.Error(w, `{"error":{"message":"boom","type":"server_error"}}`, http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	brk := &embeddingBreaker{threshold: 3, cooldown: 50 * time.Millisecond}
+	emb := newOpenAIEmbedderWithBreaker(srv.URL, "", "m", brk)
+	for i := 0; i < 3; i++ {
+		if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+			t.Fatalf("call %d should fail while unhealthy", i+1)
+		}
+	}
+	if _, err := emb.Embed(context.Background(), []string{"x"}); !errors.Is(err, errEmbeddingCooldown) {
+		t.Fatalf("expected cooldown error while breaker open, got %v", err)
+	}
+
+	// 服务恢复 + 冷却结束 → 探活成功 → 熔断恢复。
+	healthy.Store(true)
+	time.Sleep(80 * time.Millisecond)
+	vecs, err := emb.Embed(context.Background(), []string{"x"})
+	if err != nil {
+		t.Fatalf("probe after recovery should succeed: %v", err)
+	}
+	if len(vecs) != 1 || len(vecs[0]) != 2 {
+		t.Errorf("unexpected recovered vector: %v", vecs)
+	}
+	if _, err := emb.Embed(context.Background(), []string{"x"}); err != nil {
+		t.Errorf("breaker should stay closed after recovery: %v", err)
+	}
+}
+
+func TestOpenAIEmbedderConcurrentFailureNoStorm(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, `{"error":{"message":"boom","type":"server_error"}}`, http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	brk := &embeddingBreaker{threshold: 3, cooldown: time.Hour}
+	emb := newOpenAIEmbedderWithBreaker(srv.URL, "", "m", brk)
+	for i := range 3 {
+		if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+			t.Fatalf("call %d should fail", i+1)
+		}
+	}
+
+	// 熔断已打开：100 个并发请求应全部快速失败，且不再打到服务（无 retry storm）。
+	start := time.Now()
+	var wg sync.WaitGroup
+	errs := make([]error, 100)
+	for i := range 100 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = emb.Embed(context.Background(), []string{"x"})
+		}(i)
+	}
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	if got := calls.Load(); got != 3 {
+		t.Errorf("breaker should prevent further server calls, got %d (want 3)", got)
+	}
+	if elapsed > 3*time.Second {
+		t.Errorf("concurrent cooldown failures should fail fast, took %v", elapsed)
+	}
+	for i, err := range errs {
+		if !errors.Is(err, errEmbeddingCooldown) {
+			t.Fatalf("goroutine %d: expected cooldown error, got %v", i, err)
+		}
 	}
 }
 
