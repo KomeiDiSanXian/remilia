@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.44.0 (2026-08-23)
+
+### 🧰 AI 工具缺口补齐（定时提醒 / 长期记忆 / 待办清单）
+
+- **定时提醒工具**（`set_reminder` / `list_reminders` / `cancel_reminder`，`builtin/ai/remindtool.go`）：AI 可在对话中主动设置、查询、取消提醒，与 `/ai remind` 共用同一 `reminderManager` 与到期推送链路；时长解析复用（30秒/5分钟/1小时/2天、30s/5m/1h/2d）
+- **长期记忆工具**（`memory_add` / `memory_query` / `memory_forget`，`builtin/ai/memorytool.go`）：仅 `memory_enabled` 开启时注册（未开启不让模型看到）；主动写入/检索/删除事实，支持 `user` / `group` 作用域，写入复用去重合并与上限淘汰；`memoryStore` 新增 `Remove`（精确匹配并持久化）
+- **待办清单工具**（`todo_add` / `todo_list` / `todo_done` / `todo_remove`，`builtin/ai/todotool.go`）：会话级待办，进程内存储（与定时提醒一致，重启后失效）
+- **提醒跨会话 ID 冲突修复**（`builtin/ai/remind.go`）：`reminderManager` 存储键改为 `chatID\x00ID`，两个会话的同名 `R1` 不再互相覆盖；`remove` 改为按会话定位
+- **工具上下文注入**（`builtin/ai/toolctx.go`）：`executeTool` 向工具注入发送者/会话/平台发送器/插件实例，提醒/记忆/待办工具不接触事件上下文，保持与 `send_message` 一致的安全边界
+
+### 🛡 结构性加固
+
+- **管理类工具挂 RBAC 权限**：`acl_check_user`/`acl_stats`→`acl.view`，`antispam_*`→`antispam.view`，`audit_log_*`→`audit.view`，`stats_*`→`stats.view`，`keyword_check`→`keyword.check`；admin（通配 `*:*`）放行，普通用户拒绝
+- **按角色注入工具**（`builtin/ai/process.go`）：工具池在注入前按调用者权限过滤（声明 `Permissions` 且无权的工具不进模型视野）；`/ai tools` 列表同步过滤；执行路径的权限校验保留为纵深防御
+- **AI 插件接线 permission 插件**（`builtin/ai/plugin.go`）：Setup 解析权限插件，`hasToolPermission` 优先走插件、回退上下文权限管理器（测试场景）；顺带修复 `send_to` 在生产环境的权限校验——此前上下文权限管理器从未被注入导致恒 fail-closed
+- **自动发现命令工具去重**（`builtin/ai/discovery.go` + `cmd/bot/discovery.go`）：已实现 `ToolProvider`/`SkillProvider` 的插件，其命令不再自动包装为粗糙命令工具（避免与结构化工具双份占用选择名额）；`tool_allowlist` 显式列出的命令仍保留（用户显式意图优先）；发现顺序调整为"先显式工具/技能、后命令"
+
+### 🧪 测试
+
+- 新增：提醒工具 设置/查询/取消/跨会话隔离、记忆工具 添加/检索/删除/作用域/未启用、待办管理器与工具全流程、权限过滤三态（普通用户/admin/上下文回退/fail-closed）、`DiscoverCommands` 排除与 allowlist 覆盖
+
 ## v1.43.0 (2026-08-23)
 
 ### 🖼 多模态图片处理（先图后字 / 追问细节 / 数量上限）
