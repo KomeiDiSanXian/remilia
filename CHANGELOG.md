@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.45.0 (2026-08-23)
+
+### 📚 本地文档知识库检索（knowledgebase 插件）
+
+- **新插件 `builtin/knowledgebase`**：以本地 Markdown 文档目录为数据源建立可检索知识库（**默认关闭，opt-in**——由部署者配置 `enabled=true` + `source_dir` 指向自己的内容，框架不预置任何文档）；`Setup` 后台增量构建（按文件 hash 只重建变更），启动不阻塞
+- **AI 工具**（`kb_search` / `kb_stats`，实现 `ai.ToolProvider` 自动注册）：LLM 按需调用，返回来源路径/标题/相关度与内容片段；embedding 可用时全量余弦精排（含同源同标题近似去重），不可用时自动降级关键词重叠；工具描述可通过 `tool_description` 自定义（数据源非项目文档时不会被写死的"项目文档"误导 LLM）
+- **索引持久化**：分块向量（float32）与源文件 hash 存 SQLite（`data/db/knowledgebase.db`，GORM + glebarez/sqlite），重启复用不重嵌
+- **管理命令**（`/kb rebuild` / `/kb status`）：仅 superadmin 可执行，重建异步进行、`kb_stats`/`/kb status` 可见进度与最近构建时间
+- **回复格式**：新增 `markdown` 配置（默认 `true`），`/kb` 子命令回复按配置走 `MarkdownMessage`（平台不支持自动降级纯文本），与 AI 插件子命令一致，不再以纯文本发送字面 `**`/反引号
+- **复用 ai 包嵌入基建**：导出 `ai.NewOpenAIEmbedder` / `ai.CosineSimilarity`（`builtin/ai/embedding.go`），知识库与工具选择/记忆/RAG 共用同一套熔断器 + 维度校验客户端
+- **配置**：`plugins.knowledgebase`（`source_dir` / `exclude_dirs` / `db_path` / `embedding_base_url` / `embedding_model` / `chunk_size` / `chunk_overlap` / `max_results`），`config.example.yaml` 与 `config.yaml` 已同步
+
+### 🍳 插件 Cookbook（docs/07-cookbook）
+
+- 新增 `COOKBOOK.md`：「问题 → 最小可运行示例」速查，首批 3 篇——定时任务插件（scheduler）、简单 AI Tool（ToolProvider）、消息去重（middleware/dedup）；挂载到 `mkdocs.yml` 与 `docs/README.md`
+
+### 🎨 AI 子命令回复 Markdown 化
+
+- 新增 `replyFormatted`（`builtin/ai/context.go`）：status/stats/trace/tools/help/skill/group/remind/approval 等 36 处子命令回复由纯文本改为按 `markdown` 配置走 `MarkdownMessage`（平台不支持自动降级纯文本），支持 MD 的平台不再显示字面 `**`/反引号
+- 修复 summary 纯文本兜底残留的 `**对话总结**` 标记；修复 `builtin/ai/memorytool.go` 的 ineffassign（CI lint）
+
 ## v1.44.0 (2026-08-23)
 
 ### 🧰 AI 工具缺口补齐（定时提醒 / 长期记忆 / 待办清单）
