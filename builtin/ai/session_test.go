@@ -214,7 +214,8 @@ func TestPrepareRequestMessagesKeepsLatestUserParts(t *testing.T) {
 		}},
 	}
 
-	out := prepareRequestMessages(msgs)
+	retention := imageRetention{maxTurns: 5, window: 10 * time.Minute, maxPerRequest: 8}
+	out, budgetDropped, staleDropped := prepareRequestMessages(msgs, retention)
 
 	// 最后一条用户消息保留完整 ContentParts（含二进制数据）
 	last := out[len(out)-1]
@@ -225,18 +226,108 @@ func TestPrepareRequestMessagesKeepsLatestUserParts(t *testing.T) {
 		t.Errorf("expected binary data retained for latest user message")
 	}
 
-	// 历史用户消息的二进制数据应被降级为占位文本
+	// 历史用户消息在保留窗口内（最近 5 条 + 10 分钟内）：二进制保留，支持追问图片细节
 	hist := out[1]
-	if len(hist.ContentParts) != 0 {
-		t.Errorf("expected historical message content parts to be stripped")
+	if len(hist.ContentParts) != 1 || len(hist.ContentParts[0].Data) != 4 {
+		t.Errorf("expected historical image retained within context window, got %+v", hist.ContentParts)
 	}
-	if hist.Content == "" || strings.Contains(hist.Content, "img1") {
-		t.Errorf("expected historical message content to be placeholder text, got %q", hist.Content)
+	if budgetDropped != 0 || staleDropped != 0 {
+		t.Errorf("expected no dropped images, got budget=%d stale=%d", budgetDropped, staleDropped)
 	}
 
 	// 原始切片不受影响
 	if len(msgs[1].ContentParts) != 1 {
 		t.Errorf("prepareRequestMessages must not mutate input")
+	}
+}
+
+func TestPrepareRequestMessagesDropsBeyondContextTurns(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "", ContentParts: []ContentPart{{Type: ContentPartImage, Data: []byte("img0")}}},
+		{Role: RoleAssistant, Content: "r1"},
+		{Role: RoleUser, Content: "q1"},
+		{Role: RoleAssistant, Content: "r2"},
+		{Role: RoleUser, Content: "q2"},
+	}
+
+	// maxTurns=2：只保留最近 2 条 user 消息（q1、q2）；img0 为第 3 旧 → 降级
+	out, budgetDropped, staleDropped := prepareRequestMessages(msgs, imageRetention{maxTurns: 2, window: 0, maxPerRequest: 8})
+	if staleDropped != 1 || budgetDropped != 0 {
+		t.Fatalf("expected 1 stale-dropped image, got budget=%d stale=%d", budgetDropped, staleDropped)
+	}
+	if len(out[0].ContentParts) != 0 || out[0].Content == "" {
+		t.Errorf("expected oldest user image stripped to placeholder, got %+v", out[0])
+	}
+	if len(out[2].ContentParts) != 0 || out[2].Content != "q1" {
+		t.Errorf("expected q1 retained without parts, got %+v", out[2])
+	}
+}
+
+func TestPrepareRequestMessagesDropsStaleImagesByWindow(t *testing.T) {
+	now := time.Now()
+	msgs := []Message{
+		{Role: RoleUser, Content: "", Timestamp: now.Add(-30 * time.Minute),
+			ContentParts: []ContentPart{{Type: ContentPartImage, Data: []byte("old")}}},
+		{Role: RoleAssistant, Content: "r"},
+		{Role: RoleUser, Content: "q", Timestamp: now},
+	}
+
+	// 时间窗 10 分钟：30 分钟前的图片即使条数在窗口内也降级
+	out, budgetDropped, staleDropped := prepareRequestMessages(msgs, imageRetention{maxTurns: 5, window: 10 * time.Minute, maxPerRequest: 8})
+	if staleDropped != 1 || budgetDropped != 0 {
+		t.Fatalf("expected 1 stale-dropped image, got budget=%d stale=%d", budgetDropped, staleDropped)
+	}
+	if len(out[0].ContentParts) != 0 {
+		t.Errorf("expected stale image stripped, got %+v", out[0].ContentParts)
+	}
+}
+
+func TestPrepareRequestMessagesCapsImagesPerRequest(t *testing.T) {
+	now := time.Now()
+	msgs := []Message{
+		{Role: RoleUser, Content: "", Timestamp: now.Add(-1 * time.Minute),
+			ContentParts: []ContentPart{
+				{Type: ContentPartImage, Data: []byte("a")},
+				{Type: ContentPartImage, Data: []byte("b")},
+			}},
+		{Role: RoleAssistant, Content: "r"},
+		{Role: RoleUser, Content: "", Timestamp: now,
+			ContentParts: []ContentPart{
+				{Type: ContentPartImage, Data: []byte("c")},
+				{Type: ContentPartImage, Data: []byte("d")},
+				{Type: ContentPartImage, Data: []byte("e")},
+				{Type: ContentPartImage, Data: []byte("f")},
+			}},
+	}
+
+	// maxPerRequest=5：当前轮 4 张 + 历史 2 张 → 预算只够 1 张，历史整条降级
+	out, budgetDropped, staleDropped := prepareRequestMessages(msgs, imageRetention{maxTurns: 5, window: 10 * time.Minute, maxPerRequest: 5})
+	if budgetDropped != 2 || staleDropped != 0 {
+		t.Fatalf("expected 2 budget-dropped images, got budget=%d stale=%d", budgetDropped, staleDropped)
+	}
+	if len(out[0].ContentParts) != 0 {
+		t.Errorf("expected over-budget historical images stripped, got %+v", out[0].ContentParts)
+	}
+	last := out[len(out)-1]
+	if countImageParts(last.ContentParts) != 4 {
+		t.Errorf("expected current turn 4 images retained, got %d", countImageParts(last.ContentParts))
+	}
+}
+
+func TestPrepareRequestMessagesMaxTurnsZeroKeepsOnlyCurrent(t *testing.T) {
+	msgs := []Message{
+		{Role: RoleUser, Content: "", ContentParts: []ContentPart{{Type: ContentPartImage, Data: []byte("old")}}},
+		{Role: RoleAssistant, Content: "r"},
+		{Role: RoleUser, Content: "q"},
+	}
+
+	// maxTurns=0：仅当前轮保留附件（旧行为）
+	out, budgetDropped, staleDropped := prepareRequestMessages(msgs, imageRetention{maxTurns: 0, window: 0, maxPerRequest: 8})
+	if staleDropped != 1 || budgetDropped != 0 {
+		t.Fatalf("expected 1 stale-dropped image, got budget=%d stale=%d", budgetDropped, staleDropped)
+	}
+	if len(out[0].ContentParts) != 0 {
+		t.Errorf("expected historical image stripped when maxTurns=0, got %+v", out[0].ContentParts)
 	}
 }
 
@@ -391,5 +482,89 @@ func TestSessionRecordJSONRoundTrip(t *testing.T) {
 	json.Unmarshal(data, &restored)
 	if restored.Role != RoleUser {
 		t.Errorf("expected RoleUser, got %v", restored.Role)
+	}
+}
+
+func TestSessionPendingImageExtendAndConsume(t *testing.T) {
+	s := &Session{}
+	now := time.Now()
+	imgPart := func(data string) []ContentPart {
+		return []ContentPart{{Type: ContentPartImage, Data: []byte(data)}}
+	}
+
+	s.extendPendingImage(imgPart("a"), now, 30*time.Second, 4)
+	s.extendPendingImage(imgPart("b"), now.Add(5*time.Second), 30*time.Second, 4)
+
+	// 窗口内：返回累积的 2 张图，并清除 pending
+	parts, extra := s.consumePendingImage(30*time.Second, now.Add(6*time.Second))
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 accumulated pending images, got %d", len(parts))
+	}
+	if extra != 0 {
+		t.Fatalf("expected 0 extra images, got %d", extra)
+	}
+	// 已消费：再次调用返回 nil
+	if got, extra := s.consumePendingImage(30*time.Second, now.Add(10*time.Second)); got != nil || extra != 0 {
+		t.Errorf("expected nil after consume, got %+v extra=%d", got, extra)
+	}
+}
+
+func TestSessionPendingImageExpired(t *testing.T) {
+	s := &Session{}
+	now := time.Now()
+	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 30*time.Second, 4)
+
+	// 超过窗口：消费返回 nil（静默丢弃，表情包防误触发）
+	if got, extra := s.consumePendingImage(30*time.Second, now.Add(31*time.Second)); got != nil || extra != 0 {
+		t.Errorf("expected nil for expired pending, got %+v extra=%d", got, extra)
+	}
+
+	// 过期后的新图片开启新窗口
+	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("b")}}, now.Add(40*time.Second), 30*time.Second, 4)
+	if got, _ := s.consumePendingImage(30*time.Second, now.Add(45*time.Second)); len(got) != 1 {
+		t.Errorf("expected new pending window valid, got %+v", got)
+	}
+}
+
+func TestSessionPendingImageZeroWindowAlwaysValid(t *testing.T) {
+	s := &Session{}
+	now := time.Now()
+	// window <= 0 表示合并关闭：pending 不被记录（extend 不会创建窗口时也直接返回？）
+	// 这里验证 window<=0 时 pending 永不失效（虽然入口已禁止记录，防御性验证）。
+	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 0, 4)
+	if got, _ := s.consumePendingImage(0, now.Add(24*time.Hour)); len(got) != 1 {
+		t.Errorf("expected pending valid when window=0, got %+v", got)
+	}
+}
+
+func TestSessionPendingImageRejectPath(t *testing.T) {
+	s := &Session{}
+	now := time.Now()
+	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 30*time.Second, 4)
+	// 图片数量超限拒绝时清空 pending，避免残留状态
+	s.clearPendingImage()
+	if got, extra := s.consumePendingImage(30*time.Second, now.Add(5*time.Second)); got != nil || extra != 0 {
+		t.Errorf("expected pending cleared after reject, got %+v", got)
+	}
+}
+
+func TestSessionPendingImageExtraCount(t *testing.T) {
+	s := &Session{}
+	now := time.Now()
+	imgPart := func(data string) []ContentPart {
+		return []ContentPart{{Type: ContentPartImage, Data: []byte(data)}}
+	}
+
+	// maxKeep=2：3 张图只持有前 2 张二进制，第 3 张仅计数
+	s.extendPendingImage(imgPart("a"), now, 30*time.Second, 2)
+	s.extendPendingImage(imgPart("b"), now.Add(1*time.Second), 30*time.Second, 2)
+	s.extendPendingImage(imgPart("c"), now.Add(2*time.Second), 30*time.Second, 2)
+
+	parts, extra := s.consumePendingImage(30*time.Second, now.Add(3*time.Second))
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 held image parts, got %d", len(parts))
+	}
+	if extra != 1 {
+		t.Fatalf("expected 1 extra image count, got %d", extra)
 	}
 }

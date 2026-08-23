@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/netguard"
@@ -577,5 +578,120 @@ func TestSkillKey(t *testing.T) {
 	expected := "owner1\x00skill1"
 	if key != expected {
 		t.Errorf("expected %q, got %q", expected, key)
+	}
+}
+
+func TestHasSubstantiveText(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", false},
+		{"   ", false},
+		{"[图片]", false},
+		{"[图片][语音]", false},
+		{"[表情]", false},
+		{"[图片] 分析这张图", true},
+		{"分析这张图", true},
+	}
+	for _, c := range cases {
+		if got := hasSubstantiveText(c.in); got != c.want {
+			t.Errorf("hasSubstantiveText(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMergePendingImageParts(t *testing.T) {
+	pending := []ContentPart{{Type: ContentPartImage, Data: []byte("img"), MimeType: "image/png"}}
+
+	// 纯文本消息 + pending：图片前置 + 文字转 text part，Content 清空
+	userMsg := mergePendingImageParts(Message{Role: RoleUser, Content: "看看细节"}, pending)
+	if userMsg.Content != "" {
+		t.Errorf("expected Content cleared after merge, got %q", userMsg.Content)
+	}
+	if len(userMsg.ContentParts) != 2 {
+		t.Fatalf("expected 2 parts (image+text), got %d", len(userMsg.ContentParts))
+	}
+	if userMsg.ContentParts[0].Type != ContentPartImage {
+		t.Errorf("expected image part first, got %v", userMsg.ContentParts[0].Type)
+	}
+	if userMsg.ContentParts[1].Type != ContentPartText || userMsg.ContentParts[1].Text != "看看细节" {
+		t.Errorf("expected text part second with original text, got %+v", userMsg.ContentParts[1])
+	}
+
+	// 已有 ContentParts 的消息：pending 前置，原 parts 保留
+	userMsg2 := mergePendingImageParts(Message{Role: RoleUser, ContentParts: []ContentPart{
+		{Type: ContentPartText, Text: "hi"},
+		{Type: ContentPartImage, Data: []byte("own")},
+	}}, pending)
+	if len(userMsg2.ContentParts) != 3 {
+		t.Fatalf("expected 3 parts, got %d", len(userMsg2.ContentParts))
+	}
+	if userMsg2.ContentParts[0].Type != ContentPartImage || userMsg2.ContentParts[2].Type != ContentPartImage {
+		t.Errorf("expected pending image first and own image last, got %+v", userMsg2.ContentParts)
+	}
+}
+
+func TestCountImageParts(t *testing.T) {
+	parts := []ContentPart{
+		{Type: ContentPartText, Text: "x"},
+		{Type: ContentPartImage, Data: []byte("1")},
+		{Type: ContentPartImage, Data: []byte("2")},
+	}
+	if got := countImageParts(parts); got != 2 {
+		t.Errorf("expected 2 image parts, got %d", got)
+	}
+	if got := countImageParts(nil); got != 0 {
+		t.Errorf("expected 0 image parts for nil, got %d", got)
+	}
+}
+
+func TestGetLastUserMessageExtractsContentPartsText(t *testing.T) {
+	s := &Session{Messages: []Message{
+		{Role: RoleUser, Content: "", ContentParts: []ContentPart{
+			{Type: ContentPartImage, Data: []byte("img")},
+			{Type: ContentPartText, Text: "这张图里有什么？"},
+		}},
+	}}
+	if got := getLastUserMessage(s); got != "这张图里有什么？" {
+		t.Errorf("expected text from content parts, got %q", got)
+	}
+}
+
+func TestMaybeRecordPendingImageGate(t *testing.T) {
+	mkCtx := func(kind platform.EventKind, content string, chat platform.ChatInfo, atts ...platform.Attachment) *eventctx.Context {
+		evt := platform.NewSyntheticEvent(kind, content,
+			platform.WithSyntheticChat(chat),
+			platform.WithSyntheticAttachments(atts...),
+		)
+		return eventctx.NewContextFromEvent(evt, nil)
+	}
+	img := platform.Attachment{Kind: platform.AttachmentKindImage, URL: "https://example.com/a.png", MimeType: "image/png"}
+	group := platform.ChatInfo{ID: "g1", IsGroup: true}
+	priv := platform.ChatInfo{ID: "u1", IsGroup: false}
+
+	// 合并窗口关闭 → 不挂起
+	p := &Plugin{cfg: &Config{ImageMergeWindow: 0, VisionEnabled: true}}
+	if p.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "[图片]", group, img), "[图片]", []platform.Attachment{img}) {
+		t.Error("expected false when merge window disabled")
+	}
+
+	p = &Plugin{cfg: &Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: true}}
+	// 无图片附件 → 不挂起
+	if p.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "hi", group), "hi", nil) {
+		t.Error("expected false without image attachments")
+	}
+	// 有实质文本（图+字一条消息）→ 不挂起
+	if p.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "分析这张图", group, img), "分析这张图", []platform.Attachment{img}) {
+		t.Error("expected false when message has substantive text")
+	}
+	// 私聊 → 不挂起（私聊图片视为明确意图，立即处理）
+	if p.maybeRecordPendingImage(mkCtx(platform.EventKindPrivateMessage, "[图片]", priv, img), "[图片]", []platform.Attachment{img}) {
+		t.Error("expected false in private chat")
+	}
+	// vision 关闭 → 不挂起
+	p2 := &Plugin{cfg: &Config{ImageMergeWindow: 30 * time.Second, VisionEnabled: false}}
+	if p2.maybeRecordPendingImage(mkCtx(platform.EventKindGroupMessage, "[图片]", group, img), "[图片]", []platform.Attachment{img}) {
+		t.Error("expected false when vision disabled")
 	}
 }

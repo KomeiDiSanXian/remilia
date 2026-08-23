@@ -40,21 +40,26 @@ import (
 // 注意：FSM 检查必须在 AI 对话之前，确保用户发送的内容被正确处理为技能 Prompt。
 func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	parsed := ctx.GetParsedCommand()
+	atts := platform.Attachments(ctx.GetPlatformEvent())
 
 	if parsed != nil {
 		if len(parsed.CommandPath) > 1 {
 			return p.execSubCommand(ctx, parsed.CommandPath[1])
 		}
 		content := p.cleanMessage(ctx.GetMessageContent())
-		if content == "" {
+		if content == "" && len(atts) == 0 {
 			return nil
 		}
-		// 命令路径不检查 FSM：避免 /ai cancel 这类消息被 FSM 的 cancel 事件消费
+		// 命令路径不检查 FSM：避免 /ai cancel 这类消息被 FSM 的 cancel 事件消费。
+		// 纯附件消息（无文本）没有命令语义，直接进入对话。
+		if content == "" {
+			return p.handleAIChat(ctx, "")
+		}
 		return p.handleAIChat(ctx, content)
 	}
 
 	content := ctx.GetMessageContent()
-	if content == "" {
+	if content == "" && len(atts) == 0 {
 		return nil
 	}
 
@@ -64,9 +69,18 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	content = p.cleanMessage(content)
-	if content == "" {
+	// 纯图片消息（无实质文本）：群聊且未 @/未引用时记录合并窗口，不回复。
+	if p.maybeRecordPendingImage(ctx, content, atts) {
 		return nil
+	}
+
+	content = p.cleanMessage(content)
+	if content == "" && len(atts) == 0 {
+		return nil
+	}
+	// 纯附件消息（无文本）不进子命令/FSM 路径，直接进入对话。
+	if content == "" {
+		return p.handleAIChat(ctx, "")
 	}
 	if p.handleSubCommand(ctx, content) {
 		return nil
@@ -152,6 +166,36 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 		content = appendMentionInfo(content, platform.GetMentions(ctx.GetPlatformEvent()))
 	}
 	userMsg := p.buildUserMessage(ctx, content, session)
+	userMsg.Timestamp = time.Now()
+
+	// 合并窗口：消费未消费图片并入本条（引用/回复消息优先级更高，跳过合并，
+	// 避免双图语义混乱）。消费即清除 pending，防止跨回合误合并。
+	if pendingParts, pendingExtra := session.consumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingParts) > 0 || pendingExtra > 0 {
+		// 窗口被热重载关闭（<=0）时同样消费 pending，但不合并。
+		if p.cfg.ImageMergeWindow > 0 && platform.GetReplyToID(ctx.GetPlatformEvent()) == "" {
+			if total := len(pendingParts) + pendingExtra + countImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
+				logger.Warnf("[AI] Rejected merged message with %d images (max_images_per_message=%d)",
+					total, p.cfg.MaxImagesPerMessage)
+				ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
+				return nil
+			}
+			userMsg = mergePendingImageParts(userMsg, pendingParts)
+		}
+	}
+
+	// 单条消息图片数上限：超限拒绝本次请求，不调用 LLM（合并累加后同样生效）。
+	if imgCount := countImageParts(userMsg.ContentParts); imgCount > p.cfg.MaxImagesPerMessage {
+		logger.Warnf("[AI] Rejected message with %d images (max_images_per_message=%d)",
+			imgCount, p.cfg.MaxImagesPerMessage)
+		ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
+		return nil
+	}
+
+	// 无文本且附件全部下载失败（SSRF/超限/超时）：无可处理内容，静默跳过。
+	if userMsg.Content == "" && len(userMsg.ContentParts) == 0 {
+		return nil
+	}
+
 	p.sm.AppendMessage(session, userMsg)
 
 	// LLM 处理前发送"正在输入"状态（平台支持时），给用户即时反馈。
@@ -279,6 +323,93 @@ func hasImageAttachment(atts []platform.Attachment) bool {
 		}
 	}
 	return false
+}
+
+// maybeRecordPendingImage 处理"纯图片消息"（无实质文本）在群聊中的合并窗口记录。
+//
+// 判定为纯图片且可记录时返回 true（消息被消费，不触发回复）：
+//   - 群聊、未 @ 机器人、未引用其他消息（无明确意图，表情包场景）
+//   - 有图片附件、无实质文本（QQ 的 "[图片]" 占位符视为无实质文本）
+//   - image_merge_window > 0 且 vision_enabled
+//
+// 私聊或已 @/引用的图片消息走正常对话流程（明确意图，立即处理）。
+func (p *Plugin) maybeRecordPendingImage(ctx *eventctx.Context, content string, atts []platform.Attachment) bool {
+	if p.cfg.ImageMergeWindow <= 0 || !p.cfg.VisionEnabled {
+		return false
+	}
+	if !hasImageAttachment(atts) {
+		return false
+	}
+	if hasSubstantiveText(content) {
+		return false
+	}
+	chat := ctx.GetChatInfo()
+	if !chat.IsGroup {
+		return false
+	}
+	if mentionedBot(ctx) {
+		return false
+	}
+	if platform.GetReplyToID(ctx.GetPlatformEvent()) != "" {
+		return false
+	}
+
+	sender := ctx.GetSenderInfo()
+	session := p.sm.GetOrCreate(makeSessionID(ctx.GetEventPlatform(), chat.ID, sender.ID), sender.ID, chat.ID)
+	if session == nil {
+		return false
+	}
+	session.LockTurn()
+	defer session.UnlockTurn()
+
+	// 复用 buildUserMessage 下载附件（含 SSRF/大小限制/缓存），提取图片 parts。
+	userMsg := p.buildUserMessage(ctx, "", session)
+	parts := make([]ContentPart, 0, len(userMsg.ContentParts))
+	for _, part := range userMsg.ContentParts {
+		if part.Type == ContentPartImage {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		// 判定为纯图片场景但下载失败（URL 过期/SSRF/超限）：仍静默消费，
+		// 避免表情包走旧路径用 "[图片]" 占位内容回复。
+		return true
+	}
+	session.extendPendingImage(parts, time.Now(), p.cfg.ImageMergeWindow, p.cfg.MaxImagesPerMessage)
+	logger.Debugf("[AI] Recorded pending image(s) for merge (chat=%s, parts=%d)", chat.ID, len(parts))
+	return true
+}
+
+// mergePendingImageParts 将未消费图片前置到当前 user 消息（图片在前，文字在后），
+// 与文字合成一条多模态消息，保证模型强关联"图+文"。
+func mergePendingImageParts(userMsg Message, pending []ContentPart) Message {
+	parts := make([]ContentPart, 0, len(pending)+len(userMsg.ContentParts)+1)
+	parts = append(parts, pending...)
+	if len(userMsg.ContentParts) == 0 && userMsg.Content != "" {
+		// 纯文本消息：把文字转为 text part，图片前置
+		parts = append(parts, ContentPart{Type: ContentPartText, Text: userMsg.Content})
+	} else {
+		parts = append(parts, userMsg.ContentParts...)
+	}
+	userMsg.ContentParts = parts
+	userMsg.Content = ""
+	return userMsg
+}
+
+// mediaPlaceholderTokens 各平台无实质语义的媒体占位符文本。
+// QQ 纯图片消息正文为 "[图片]"；Satori 渲染 HTML 时也会插入 "[图片]"/"[语音]" 等。
+var mediaPlaceholderTokens = []string{"[图片]", "[表情]", "[动画表情]", "[语音]", "[视频]", "[文件]"}
+
+// hasSubstantiveText 判断消息是否含实质文本（剔除媒体占位符后仍有内容）。
+func hasSubstantiveText(content string) bool {
+	s := strings.TrimSpace(content)
+	if s == "" {
+		return false
+	}
+	for _, t := range mediaPlaceholderTokens {
+		s = strings.ReplaceAll(s, t, "")
+	}
+	return strings.TrimSpace(s) != ""
 }
 
 // isImageAttachment 判断附件是否为图片（Kind 优先，MimeType 兜底）。

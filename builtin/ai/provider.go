@@ -93,6 +93,8 @@ type Message struct {
 	ContentParts []ContentPart `json:"content_parts,omitempty"`
 	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
 	ToolCallID   string        `json:"tool_call_id,omitempty"`
+	// Timestamp 消息到达时间（用于历史图片保留时间窗判定；0 值表示未知）。
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // ChatRequest 发送给 LLM 的聊天请求。

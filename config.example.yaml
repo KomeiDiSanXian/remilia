@@ -269,6 +269,16 @@ api:
 #                                         #     deepseek-v4-flash-vision-exp；纯文本模型如 deepseek-chat 建议关闭）
 #     audio_enabled: false                # [R] 是否启用音频输入（仅 OpenAI 部分模型支持，Anthropic 不支持）
 #     max_attachment_size: 20971520       # [R] 入站附件单文件大小上限（字节，默认 20MB），超出则跳过
+#     image_merge_window: "30s"           # [R] 群聊"先发图再发字"合并窗口（默认 30s，0=关闭）。窗口内
+#                                         #     未 @/未引用的纯图片消息不回复，等待后续文字合并为一条多模态
+#                                         #     消息；超时无文字则静默丢弃（表情包防误触发）。@/引用/私聊仍立即处理
+#     image_context_turns: 5              # [R] 历史图片保留条数（默认 5）：最近 N 条 user 消息中的图片随请求
+#                                         #     发送，支持"分析图片后继续追问细节"；更早的降级为文本占位（0=仅当前轮）
+#     image_context_window: "10m"         # [R] 历史图片保留时间窗（默认 10 分钟，与附件缓存 TTL 对齐，
+#                                         #     0=仅按条数）；超过窗口的旧图不再随请求上传
+#     max_images_per_message: 4           # [R] 单条消息最大图片数（默认 4）：超限拒绝并提示重新编辑（不调用 LLM）
+#     max_images_per_request: 8           # [R] 单次请求最大图片总数（默认 8）：跨轮累计超限时保留最近图片，
+#                                         #     提示一次后继续处理
 #
 #     # —— AI 工具 ——
 #     tool_allowlist: []                  # [R] 显式允许暴露为 AI 工具的命令白名单；

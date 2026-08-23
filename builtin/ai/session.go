@@ -73,6 +73,90 @@ type Session struct {
 	// 用户发新消息或 create_plan 时重置；planAutoStopped 为无进度停止标记。
 	planAutoRounds  int  `json:"-"`
 	planAutoStopped bool `json:"-"`
+
+	// pendingImage 群聊"先发图再发字"的未消费图片（json:"-" 不持久化）。
+	// 纯图片消息（无实质文本、未 @、未引用）到达时记录，等待窗口内文字
+	// 合并为一条多模态消息；窗口超时或下一条已处理消息到达时清除。
+	pendingImage *pendingImageState `json:"-"`
+	// imageOverflowNotified 本次会话是否已提示过图片数量超限（json:"-" 不持久化）。
+	imageOverflowNotified bool `json:"-"`
+}
+
+// pendingImageState 未消费的纯图片消息（合并窗口状态）。
+type pendingImageState struct {
+	Parts     []ContentPart // 已下载的图片 ContentPart
+	Extra     int           // 超出二进制保留上限的额外图片数（仅计数，不持有二进制）
+	Timestamp time.Time     // 最近一张图片的到达时间
+}
+
+// extendPendingImage 追加图片到当前合并窗口；无有效窗口或窗口已过期时新建。
+// 纯图片消息本身不回复，仅记录等待后续文字合并（表情包防误触发）。
+// maxKeep 限制 pending 持有的二进制图片数（超出部分仅计数，不下载/持有），
+// 防止群里连发表情包导致内存无界增长；合并时用计数补足总数判断超限。
+func (s *Session) extendPendingImage(parts []ContentPart, at time.Time, window time.Duration, maxKeep int) {
+	if len(parts) == 0 {
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+	if pendingImageWithin(s.pendingImage, window, at) {
+		keep := min(maxKeep-len(s.pendingImage.Parts), len(parts))
+		if keep > 0 {
+			s.pendingImage.Parts = append(s.pendingImage.Parts, parts[:keep]...)
+		}
+		s.pendingImage.Extra += len(parts) - keep
+		s.pendingImage.Timestamp = at
+		return
+	}
+	keep := min(maxKeep, len(parts))
+	s.pendingImage = &pendingImageState{
+		Parts:     append([]ContentPart(nil), parts[:keep]...),
+		Extra:     len(parts) - keep,
+		Timestamp: at,
+	}
+}
+
+// consumePendingImage 返回并清除窗口内的未消费图片；窗口不存在或已过期返回 nil。
+// 返回值 (parts, extra)：parts 为持有的二进制图片，extra 为仅计数的额外图片数。
+// 每次处理真实回合时调用：无论是否合并，pending 都被消费（防止跨回合误合并）。
+func (s *Session) consumePendingImage(window time.Duration, now time.Time) ([]ContentPart, int) {
+	s.Lock()
+	defer s.Unlock()
+	p := s.pendingImage
+	s.pendingImage = nil
+	if !pendingImageWithin(p, window, now) {
+		return nil, 0
+	}
+	return p.Parts, p.Extra
+}
+
+// clearPendingImage 清除未消费图片状态（如单条图片数超限拒绝时）。
+func (s *Session) clearPendingImage() {
+	s.Lock()
+	defer s.Unlock()
+	s.pendingImage = nil
+}
+
+// markImageOverflowNotified 标记已提示过图片数量超限；返回是否为首次提示。
+func (s *Session) markImageOverflowNotified() bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.imageOverflowNotified {
+		return false
+	}
+	s.imageOverflowNotified = true
+	return true
+}
+
+// pendingImageWithin 判断 pending 是否处于合并窗口内。
+func pendingImageWithin(p *pendingImageState, window time.Duration, now time.Time) bool {
+	if p == nil || len(p.Parts) == 0 {
+		return false
+	}
+	if window <= 0 || p.Timestamp.IsZero() {
+		return true
+	}
+	return now.Sub(p.Timestamp) <= window
 }
 
 // Lock 锁定会话，禁止并发访问 Messages 等可变字段。

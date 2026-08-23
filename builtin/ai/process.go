@@ -130,9 +130,16 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 		copy(msgs, session.Messages)
 		session.Unlock()
 
-		// 除当前轮（最后一条用户消息）外，历史消息中的附件二进制数据
-		// 降级为文本占位，避免每轮向 LLM 重复上传图片/音频（内存与 token 浪费）。
-		msgs = prepareRequestMessages(msgs)
+		// 附件保留策略：当前轮附件始终保留；历史图片在保留窗口（最近 N 条
+		// user 消息 + 时间窗）内随请求发送，支持"继续追问图片细节"；
+		// 更早/更老的图片降级为文本占位，避免无限上传（内存与 token 浪费）。
+		msgs, budgetDropped, _ := prepareRequestMessages(msgs, p.imageRetentionConfig())
+		if budgetDropped > 0 && session.markImageOverflowNotified() {
+			logger.Warnf("[AI] %d historical image(s) dropped over budget (max_images_per_request=%d)",
+				budgetDropped, p.cfg.MaxImagesPerRequest)
+			ctx.ReplyText(fmt.Sprintf("本次对话图片较多，已保留最近 %d 张，更早的图片不再显示",
+				p.cfg.MaxImagesPerRequest))
+		}
 
 		// 兜底修复工具调用序列：中断跳过的工具、进程异常退出或持久化损坏
 		// 都可能让 assistant(tool_calls) 缺少对应 tool 消息（OpenAI/Anthropic
@@ -559,15 +566,49 @@ func (p *Plugin) buildUserSkillTools(userID string) []Tool {
 }
 
 // getLastUserMessage 从 session 中提取最后一条用户消息的文本内容。
+// 多模态消息（ContentParts 模式）时从 text part 提取，保证工具选择/RAG/
+// 记忆查询拿到的是文字而非空串或媒体占位符。
 func getLastUserMessage(session *Session) string {
 	session.Lock()
 	defer session.Unlock()
 	for _, v := range slices.Backward(session.Messages) {
-		if v.Role == RoleUser {
-			return v.Content
+		if v.Role != RoleUser {
+			continue
 		}
+		if text := messageText(v); text != "" {
+			return text
+		}
+		return ""
 	}
 	return ""
+}
+
+// messageText 提取消息的文本内容：优先 Content，其次 ContentParts 中的 text part。
+func messageText(m Message) string {
+	if m.Content != "" {
+		return m.Content
+	}
+	var b strings.Builder
+	for _, p := range m.ContentParts {
+		if p.Type == ContentPartText && p.Text != "" {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
+}
+
+// countImageParts 统计消息中图片 ContentPart 的数量。
+func countImageParts(parts []ContentPart) int {
+	n := 0
+	for _, p := range parts {
+		if p.Type == ContentPartImage {
+			n++
+		}
+	}
+	return n
 }
 
 // toolResultMissing 工具结果缺失时的占位回填文本（用于修复消息序列）。
@@ -637,27 +678,91 @@ func repairToolCallSequence(msgs []Message) []Message {
 	return out
 }
 
+// imageRetention 历史图片保留策略参数（来自 Config）。
+type imageRetention struct {
+	maxTurns      int           // ImageContextTurns：最近 N 条 user 消息
+	window        time.Duration // ImageContextWindow：时间窗（0 = 仅按条数）
+	maxPerRequest int           // MaxImagesPerRequest：单请求图片总数上限
+}
+
+// imageRetentionConfig 返回当前配置下的历史图片保留策略参数。
+func (p *Plugin) imageRetentionConfig() imageRetention {
+	return imageRetention{
+		maxTurns:      p.cfg.ImageContextTurns,
+		window:        p.cfg.ImageContextWindow,
+		maxPerRequest: p.cfg.MaxImagesPerRequest,
+	}
+}
+
 // prepareRequestMessages 返回用于 LLM 请求的消息副本。
-// 仅保留最后一条用户消息（当前轮）的附件二进制数据，其余历史消息中
-// 的图片/音频内容被替换为文本占位，防止每轮对话重复上传附件。
-func prepareRequestMessages(msgs []Message) []Message {
+//
+// 附件保留策略：
+//   - 最后一条 user 消息（当前轮）的附件二进制始终保留；
+//   - 历史 user 消息中的图片仅在"最近 maxTurns 条内且时间窗内"时保留，
+//     支持"继续追问图片细节"；更早/更老的图片降级为文本占位；
+//   - 单次请求图片总数不超过 maxPerRequest（从最近开始保留，超出降级）。
+//
+// 返回 (请求消息副本, 预算超限丢弃数, 时间/条数过期丢弃数)。
+// 只有预算超限（max_images_per_request）需要提醒用户；过期丢弃是正常衰减。
+func prepareRequestMessages(msgs []Message, retention imageRetention) ([]Message, int, int) {
 	lastUserIdx := -1
-	for i, msg := range slices.Backward(msgs) {
-		if msg.Role == RoleUser {
+	for i := range msgs {
+		if msgs[i].Role == RoleUser {
 			lastUserIdx = i
-			break
+		}
+	}
+
+	var refTime time.Time
+	if lastUserIdx >= 0 {
+		refTime = msgs[lastUserIdx].Timestamp
+	}
+
+	// user 消息序号（从最近的算起）：1 = 最后一条（当前轮，始终保留）。
+	ordinal := make([]int, len(msgs))
+	cnt := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == RoleUser {
+			cnt++
+			ordinal[i] = cnt
 		}
 	}
 
 	out := make([]Message, len(msgs))
-	for i, m := range msgs {
-		if i == lastUserIdx {
+	imgBudget := retention.maxPerRequest
+	budgetDropped := 0
+	staleDropped := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Role != RoleUser {
 			out[i] = m
 			continue
 		}
+		if ordinal[i] == 1 {
+			// 当前轮：附件始终保留（图片计数计入请求预算）
+			out[i] = m
+			imgBudget -= countImageParts(m.ContentParts)
+			continue
+		}
+
+		// maxTurns <= 0 表示仅保留当前轮（旧行为）
+		withinCount := retention.maxTurns > 0 && ordinal[i] <= retention.maxTurns
+		withinTime := retention.window <= 0 ||
+			refTime.IsZero() || m.Timestamp.IsZero() ||
+			refTime.Sub(m.Timestamp) <= retention.window
+		if withinCount && withinTime {
+			n := countImageParts(m.ContentParts)
+			if retention.maxPerRequest <= 0 || imgBudget >= n {
+				imgBudget -= n
+				out[i] = m
+				continue
+			}
+			budgetDropped += n
+		} else {
+			staleDropped += countImageParts(m.ContentParts)
+		}
 		out[i] = stripBinaryParts(m)
 	}
-	return out
+	return out, budgetDropped, staleDropped
 }
 
 // stripBinaryParts 将消息中的多模态附件二进制内容替换为文本占位。
@@ -674,9 +779,9 @@ func stripBinaryParts(m Message) Message {
 				parts = append(parts, p.Text)
 			}
 		case ContentPartImage:
-			parts = append(parts, "[历史图片内容已过期]")
+			parts = append(parts, "[历史图片未随本次请求发送]")
 		case ContentPartAudio:
-			parts = append(parts, "[历史音频内容已过期]")
+			parts = append(parts, "[历史音频未随本次请求发送]")
 		}
 	}
 	m.ContentParts = nil

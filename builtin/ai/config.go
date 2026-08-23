@@ -242,6 +242,25 @@ type Config struct {
 	// deadline，多轮工具任务（如 send_message 分步执行、计划推进）会在
 	// 该 deadline 处被整段切断——本配置以独立预算替换之。
 	TurnTimeout time.Duration `yaml:"turn_timeout"`
+
+	// ImageMergeWindow 群聊"先发图再发字"的合并窗口（默认 30s）。
+	// 窗口内未 @/未引用的纯图片消息不回复，仅记录待后续文字合并为一条
+	// 多模态消息；窗口超时仍无文字则静默丢弃（表情包防误触发）。
+	// 0 = 关闭合并（纯图片消息按旧行为处理）。
+	ImageMergeWindow time.Duration `yaml:"image_merge_window"`
+	// ImageContextTurns 历史图片保留条数（默认 5）：最近 N 条 user 消息中的
+	// 图片二进制随请求发送给模型，支持"继续追问图片细节"；更早的降级为
+	// 文本占位。0 = 仅保留当前轮（旧行为）。
+	ImageContextTurns int `yaml:"image_context_turns"`
+	// ImageContextWindow 历史图片保留时间窗（默认 10 分钟，与附件缓存
+	// contentCache TTL 对齐）。超过窗口的旧图不再随请求上传；0 = 仅按条数。
+	ImageContextWindow time.Duration `yaml:"image_context_window"`
+	// MaxImagesPerMessage 单条 user 消息最大图片数（默认 4）。超限时拒绝
+	// 本次请求并提示用户重新编辑（不调用 LLM）。合并窗口累加后同样生效。
+	MaxImagesPerMessage int `yaml:"max_images_per_message"`
+	// MaxImagesPerRequest 单次 LLM 请求的最大图片总数（默认 8）。超限时
+	// 从最近开始保留并提示用户（本次对话图片较多），继续处理。
+	MaxImagesPerRequest int `yaml:"max_images_per_request"`
 }
 
 // DefaultConfig AI 插件默认配置。
@@ -269,6 +288,11 @@ var DefaultConfig = Config{
 	VisionEnabled:          true,
 	AudioEnabled:           false,
 	MaxAttachmentSize:      20 * 1024 * 1024,
+	ImageMergeWindow:       30 * time.Second,
+	ImageContextTurns:      5,
+	ImageContextWindow:     10 * time.Minute,
+	MaxImagesPerMessage:    4,
+	MaxImagesPerRequest:    8,
 	MaxUserSkills:          10,
 	MaxUserSkillPromptLen:  2000,
 	IncludeRuntimeContext:  true,
@@ -382,6 +406,22 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	}
 	cfg.VisionEnabled = ctx.Config.GetBool("vision_enabled", cfg.VisionEnabled)
 	cfg.AudioEnabled = ctx.Config.GetBool("audio_enabled", cfg.AudioEnabled)
+
+	if v := ctx.Config.GetDuration("image_merge_window", 0); v > 0 {
+		cfg.ImageMergeWindow = v
+	}
+	if v := ctx.Config.GetInt("image_context_turns", 0); v > 0 {
+		cfg.ImageContextTurns = v
+	}
+	if v := ctx.Config.GetDuration("image_context_window", 0); v > 0 {
+		cfg.ImageContextWindow = v
+	}
+	if v := ctx.Config.GetInt("max_images_per_message", 0); v > 0 {
+		cfg.MaxImagesPerMessage = v
+	}
+	if v := ctx.Config.GetInt("max_images_per_request", 0); v > 0 {
+		cfg.MaxImagesPerRequest = v
+	}
 
 	if v := ctx.Config.GetInt("max_user_skills", 0); v > 0 {
 		cfg.MaxUserSkills = v

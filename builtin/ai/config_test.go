@@ -73,6 +73,21 @@ func TestDefaultConfigValues(t *testing.T) {
 	if cfg.MaxAttachmentSize != 20*1024*1024 {
 		t.Errorf("MaxAttachmentSize: expected %d, got %d", 20*1024*1024, cfg.MaxAttachmentSize)
 	}
+	if cfg.ImageMergeWindow != 30*time.Second {
+		t.Errorf("ImageMergeWindow: expected %v, got %v", 30*time.Second, cfg.ImageMergeWindow)
+	}
+	if cfg.ImageContextTurns != 5 {
+		t.Errorf("ImageContextTurns: expected %d, got %d", 5, cfg.ImageContextTurns)
+	}
+	if cfg.ImageContextWindow != 10*time.Minute {
+		t.Errorf("ImageContextWindow: expected %v, got %v", 10*time.Minute, cfg.ImageContextWindow)
+	}
+	if cfg.MaxImagesPerMessage != 4 {
+		t.Errorf("MaxImagesPerMessage: expected %d, got %d", 4, cfg.MaxImagesPerMessage)
+	}
+	if cfg.MaxImagesPerRequest != 8 {
+		t.Errorf("MaxImagesPerRequest: expected %d, got %d", 8, cfg.MaxImagesPerRequest)
+	}
 	if cfg.MaxUserSkills != 10 {
 		t.Errorf("MaxUserSkills: expected %d, got %d", 10, cfg.MaxUserSkills)
 	}
