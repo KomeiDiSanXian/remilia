@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.43.0 (2026-08-23)
+
+### 🖼 多模态图片处理（先图后字 / 追问细节 / 数量上限）
+
+- **纯附件消息入口放行**（`builtin/ai/handler.go`）：`handleAI` 不再丢弃"无文本但有附件"的消息（OneBot/Satori 纯图片消息 Content 为空会被拦截，QQ 为 `[图片]` 占位符），无文本附件消息直接进入对话流程，跳过子命令/FSM 路径
+- **群聊"先发图再发字"合并窗口**（`image_merge_window`，默认 30s）：群聊中未 @/未引用的纯图片消息不再立即回复，仅记录为 pending（表情包防误触发）；窗口内文字消息到达时把图片与文字合并为**一条**多模态 user 消息（图片在前、文字在后），模型强关联"图+文"；窗口超时无文字则静默丢弃，不产生任何回复。`@机器人`/引用图片/私聊仍立即处理（明确意图）
+- **历史图片保留窗口**（`image_context_turns` 默认 5 + `image_context_window` 默认 10 分钟）：`prepareRequestMessages` 从"仅保留当前轮附件"改为"最近 N 条 user 消息且时间窗内的图片随请求发送"，支持"分析图片 → 回复 → 继续追问细节"的多轮看图对话；更早/更老的图片降级为文本占位。`maxTurns=0` 恢复旧行为
+- **单条消息图片数上限**（`max_images_per_message` 默认 4）：超限（含合并窗口累加后）拒绝本次请求并提示"请重新编辑后再发送"，不调用 LLM、不写入会话历史
+- **单次请求图片总数上限**（`max_images_per_request` 默认 8）：跨轮累计超限时从最近开始保留，提示一次"本次对话图片较多，已保留最近 N 张"后继续处理（按 session 去重，不刷屏）
+- **查询文本提取**：`getLastUserMessage` 支持从多模态消息的 text part 提取文本，工具选择/RAG/记忆查询不再拿到空串或 `[图片]` 占位符
+- **排查加固**：pending 合并窗口只持有前 `max_images_per_message` 张图片二进制、超出部分仅计数（群里连发表情包不再内存无界）；纯图片消息附件下载失败时同样静默消费（不再用 `[图片]` 占位内容回复）；图片丢弃通知仅针对预算超限（时间/条数过期属正常衰减不打扰）；历史占位文案改为中性的"未随本次请求发送"
+- **单元测试**：新增 `prepareRequestMessages` 保留/条数/时间窗/预算 4 组测试、pending 合并窗口 4 组测试、`hasSubstantiveText`/`mergePendingImageParts`/`countImageParts`/`getLastUserMessage` 与 `maybeRecordPendingImage` 入口条件测试；默认配置断言补充
+
 ## v1.42.1 (2026-08-23)
 
 ### 🛡 Embedding 数值防御
