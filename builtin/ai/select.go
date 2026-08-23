@@ -11,6 +11,7 @@
 package ai
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -136,25 +137,35 @@ func isGeneralTool(t Tool) bool {
 	return slices.Contains(t.Categories, CategoryGeneral)
 }
 
-// scoreTool 计算工具与查询的相关度得分。
-// queryVec/toolVec 为可选 embedding 向量，为 nil 时跳过语义项。
-func scoreTool(query string, queryTokens map[string]float64, t Tool, used bool, queryVec, toolVec []float32) float64 {
-	var score float64
+// scoreToolParts 计算工具得分的三个组成部分：
+// kw 关键词分（名称命中 + 名称/描述 token + 会话热用）、
+// cos embedding 余弦相似度（向量为 nil 时为 0）、
+// final 最终分（kw + cos×scoreEmbedW）。
+// 排序与可观测日志共用，避免重复计算。
+func scoreToolParts(query string, queryTokens map[string]float64, t Tool, used bool, queryVec, toolVec []float32) (kw, cos, final float64) {
 	q := strings.ToLower(query)
 
 	if name := strings.ToLower(t.Name); name != "" && strings.Contains(q, name) {
-		score += scoreNameHit
+		kw += scoreNameHit
 	}
-	score += scoreNameTok * tokenOverlap(queryTokens, tokenizeText(t.Name))
-	score += scoreDescTok * tokenOverlap(queryTokens, tokenizeText(t.Description+" "+strings.Join(t.Categories, " ")))
+	kw += scoreNameTok * tokenOverlap(queryTokens, tokenizeText(t.Name))
+	kw += scoreDescTok * tokenOverlap(queryTokens, tokenizeText(t.Description+" "+strings.Join(t.Categories, " ")))
 
 	if used {
-		score += scoreUsedBonus
+		kw += scoreUsedBonus
 	}
 	if queryVec != nil && toolVec != nil {
-		score += float64(cosineSimilarity(queryVec, toolVec)) * scoreEmbedW
+		cos = float64(cosineSimilarity(queryVec, toolVec))
 	}
-	return score
+	final = kw + cos*scoreEmbedW
+	return kw, cos, final
+}
+
+// scoreTool 计算工具与查询的相关度得分。
+// queryVec/toolVec 为可选 embedding 向量，为 nil 时跳过语义项。
+func scoreTool(query string, queryTokens map[string]float64, t Tool, used bool, queryVec, toolVec []float32) float64 {
+	_, _, final := scoreToolParts(query, queryTokens, t, used, queryVec, toolVec)
+	return final
 }
 
 // selectionCache 会话级工具选择缓存（json:"-" 不持久化）。
@@ -226,6 +237,8 @@ func (p *Plugin) sessionUsedTools(session *Session) map[string]bool {
 type scoredTool struct {
 	tool  Tool
 	score float64
+	kw    float64
+	cos   float64
 }
 
 func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, tools []Tool) []Tool {
@@ -274,7 +287,8 @@ func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, too
 
 	scored := make([]scoredTool, 0, len(tools))
 	for _, t := range tools {
-		scored = append(scored, scoredTool{t, scoreTool(query, queryTokens, t, used[t.Name], queryVec, textVecs[toolEmbeddingText(t)])})
+		kw, cos, final := scoreToolParts(query, queryTokens, t, used[t.Name], queryVec, textVecs[toolEmbeddingText(t)])
+		scored = append(scored, scoredTool{tool: t, score: final, kw: kw, cos: cos})
 	}
 	// 分数降序，同分按工具名升序，保证选择结果确定（工具注册表为 map，原始顺序随机）。
 	sort.Slice(scored, func(i, j int) bool {
@@ -283,6 +297,20 @@ func (p *Plugin) selectToolsForTurn(ctx *eventctx.Context, session *Session, too
 		}
 		return scored[i].tool.Name < scored[j].tool.Name
 	})
+
+	// 可观测性：每轮输出 Top-5 排名（关键词分/余弦/总分），
+	// 用于核对 embedding 权重是否合适、以及失败降级是否影响选择。
+	if len(scored) > 0 {
+		top := scored
+		if len(top) > 5 {
+			top = top[:5]
+		}
+		var b strings.Builder
+		for i, s := range top {
+			fmt.Fprintf(&b, " #%d=%s(kw %.2f cos %.3f tot %.2f)", i+1, s.tool.Name, s.kw, s.cos, s.score)
+		}
+		logger.Debugf("[AI] ToolSelect query=%q tools=%d embed=%v%s", truncateRunes(query, 60), len(scored), queryVec != nil, b.String())
+	}
 
 	budget := p.cfg.ToolBudget
 	if budget <= 0 {

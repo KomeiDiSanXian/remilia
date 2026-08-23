@@ -167,6 +167,7 @@ func (p *Plugin) formatRAGHitsN(ctx *eventctx.Context, entries []messagelog.Reco
 		}
 	}
 
+	prefilterHits := 0
 	var scored []ragHit
 	for _, e := range entries {
 		if e.Content == "" || e.Platform == "synthetic" {
@@ -180,16 +181,19 @@ func (p *Plugin) formatRAGHitsN(ctx *eventctx.Context, entries []messagelog.Reco
 			continue
 		}
 		if score := tokenOverlap(queryTokens, tokenizeText(text)); score >= ragKeywordMinScore {
+			prefilterHits++
 			scored = append(scored, ragHit{Entry: e, Score: score})
 		}
 	}
 
 	// 语义兜底：关键词零命中但 embedding 可用时，取最近候选直接语义精排
 	// （覆盖"上次说的那个方案"这类记不清原话的查询）。
+	usedFallback := false
 	if len(scored) == 0 {
 		if p.emb == nil || !p.emb.Enabled() {
 			return ""
 		}
+		usedFallback = true
 		for _, e := range entries {
 			if e.Content == "" || e.Platform == "synthetic" {
 				continue
@@ -215,6 +219,10 @@ func (p *Plugin) formatRAGHitsN(ctx *eventctx.Context, entries []messagelog.Reco
 			scored = scored[:ragRankCandidates]
 		}
 	}
+	// 可观测性：预筛监控。keyword_hits 为达到门槛的原始命中数；
+	// fallback=true 表示关键词零命中、走语义兜底（覆盖"记不清原话"查询）。
+	logger.Debugf("[AI] RAG prefilter query=%q keyword_hits=%d candidates=%d fallback=%v",
+		truncateRunes(query, 60), prefilterHits, len(scored), usedFallback)
 
 	// 阶段 2：embedding 语义精排（复用共享缓存；失败降级纯关键词排序）。
 	queryVec, textVecs := p.embedRAGTexts(ctx.Context(), query, scored)
@@ -229,6 +237,12 @@ func (p *Plugin) formatRAGHitsN(ctx *eventctx.Context, entries []messagelog.Reco
 
 	if len(scored) > max {
 		scored = scored[:max]
+	}
+	// 可观测性：最终注入的 Top-3（含分数），用于核对 embedding 精排是否改变结果。
+	for i := 0; i < len(scored) && i < 3; i++ {
+		h := scored[i]
+		logger.Debugf("[AI] RAG hit #%d score=%.2f %s", i+1, h.Score,
+			truncateRunes(stripMentionMarkup(h.Entry.Content), 60))
 	}
 
 	var b strings.Builder

@@ -3,11 +3,14 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestCosineSimilarity(t *testing.T) {
@@ -77,6 +80,58 @@ func TestOpenAIEmbedderErrorStatus(t *testing.T) {
 	emb := newOpenAIEmbedder(srv.URL, "", "")
 	if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
 		t.Error("expected error on non-200 status")
+	}
+}
+
+func TestEmbeddingBreaker(t *testing.T) {
+	b := &embeddingBreaker{threshold: 3, cooldown: 40 * time.Millisecond}
+	if !b.Allow() {
+		t.Fatal("breaker should allow requests initially")
+	}
+	b.RecordFailure()
+	b.RecordFailure()
+	if !b.Allow() {
+		t.Error("breaker should stay closed below failure threshold")
+	}
+	b.RecordFailure()
+	if b.Allow() {
+		t.Error("breaker should open after threshold failures")
+	}
+	if b.Allow() {
+		t.Error("breaker should reject requests during cooldown")
+	}
+	// 冷却结束后放行一次探活。
+	time.Sleep(60 * time.Millisecond)
+	if !b.Allow() {
+		t.Error("breaker should allow a probe request after cooldown")
+	}
+	b.RecordSuccess()
+	if !b.Allow() {
+		t.Error("breaker should reset after a successful probe")
+	}
+}
+
+func TestOpenAIEmbedderBreakerCooldown(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, `{"error":{"message":"boom","type":"server_error"}}`, http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	// 大冷却期：验证熔断打开后不再向服务发起无意义请求。
+	brk := &embeddingBreaker{threshold: 3, cooldown: time.Hour}
+	emb := newOpenAIEmbedderWithBreaker(srv.URL, "", "test-model", brk)
+	for i := range 3 {
+		if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
+			t.Fatalf("call %d should fail", i+1)
+		}
+	}
+	if _, err := emb.Embed(context.Background(), []string{"x"}); !errors.Is(err, errEmbeddingCooldown) {
+		t.Fatalf("expected cooldown error after breaker opens, got %v", err)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Errorf("expected 3 server calls before cooldown, got %d", got)
 	}
 }
 

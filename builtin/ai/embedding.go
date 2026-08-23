@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -22,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
 
 // Embedder 将文本列表转换为向量。实现需保证返回顺序与输入一致。
@@ -39,12 +42,18 @@ type openAIEmbedder struct {
 	apiKey  string
 	model   string
 	client  *http.Client
+	breaker *embeddingBreaker
 }
 
 // newOpenAIEmbedder 创建 OpenAI 兼容的嵌入客户端。
 // baseURL 需为 API 根地址（如 https://api.openai.com/v1），
 // /embeddings 会在其后拼接。为空时返回 nil（不启用语义检索）。
 func newOpenAIEmbedder(baseURL, apiKey, model string) Embedder {
+	return newOpenAIEmbedderWithBreaker(baseURL, apiKey, model, newEmbeddingBreaker())
+}
+
+// newOpenAIEmbedderWithBreaker 同上，但允许注入自定义熔断器（测试用）。
+func newOpenAIEmbedderWithBreaker(baseURL, apiKey, model string, breaker *embeddingBreaker) Embedder {
 	baseURL = strings.TrimRight(baseURL, "/")
 	if baseURL == "" {
 		return nil
@@ -56,10 +65,80 @@ func newOpenAIEmbedder(baseURL, apiKey, model string) Embedder {
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		model:   model,
+		breaker: breaker,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// 熔断器参数：连续失败达到阈值后进入冷却期，冷却期内直接拒绝请求
+// （调用方降级纯关键词），到期放行一次探活，成功即恢复。
+const (
+	embeddingBreakerThreshold = 3
+	embeddingBreakerCooldown  = 30 * time.Second
+)
+
+// errEmbeddingCooldown 熔断冷却期内拒绝请求的哨兵错误。
+var errEmbeddingCooldown = errors.New("embedding service in cooldown")
+
+// embeddingBreaker 轻量熔断器：连续失败计数 + 冷却期。
+// 防止 embedding 服务挂掉后每条消息都产生无意义的失败请求。
+type embeddingBreaker struct {
+	mu                  sync.Mutex
+	threshold           int
+	cooldown            time.Duration
+	consecutiveFailures int
+	openUntil           time.Time // 冷却截止时间；zero 表示未熔断
+}
+
+func newEmbeddingBreaker() *embeddingBreaker {
+	return &embeddingBreaker{
+		threshold: embeddingBreakerThreshold,
+		cooldown:  embeddingBreakerCooldown,
+	}
+}
+
+// Allow 返回当前是否允许发起 embedding 请求。
+// 冷却期结束后的第一次调用放行（探活），调用方成功则恢复、失败则重新熔断。
+func (b *embeddingBreaker) Allow() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.openUntil.IsZero() {
+		return true
+	}
+	if time.Now().After(b.openUntil) {
+		b.openUntil = time.Time{}
+		return true
+	}
+	return false
+}
+
+// RecordSuccess 记录一次成功，重置失败计数并解除熔断。
+func (b *embeddingBreaker) RecordSuccess() {
+	b.mu.Lock()
+	failures := b.consecutiveFailures
+	b.consecutiveFailures = 0
+	b.openUntil = time.Time{}
+	b.mu.Unlock()
+	if failures > 0 {
+		logger.Infof("[AI] Embedding breaker recovered after %d failures", failures)
+	}
+}
+
+// RecordFailure 记录一次失败；达到阈值时进入冷却期。
+func (b *embeddingBreaker) RecordFailure() {
+	b.mu.Lock()
+	b.consecutiveFailures++
+	if b.consecutiveFailures >= b.threshold {
+		b.openUntil = time.Now().Add(b.cooldown)
+		n := b.consecutiveFailures
+		b.consecutiveFailures = 0
+		b.mu.Unlock()
+		logger.Warnf("[AI] Embedding breaker opened after %d consecutive failures, cooldown %v", n, b.cooldown)
+		return
+	}
+	b.mu.Unlock()
 }
 
 // embedRequest OpenAI 兼容嵌入请求体。
@@ -87,6 +166,9 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	if len(texts) == 0 {
 		return nil, nil
 	}
+	if !e.breaker.Allow() {
+		return nil, errEmbeddingCooldown
+	}
 	body, err := json.Marshal(embedRequest{Model: e.model, Input: texts})
 	if err != nil {
 		return nil, fmt.Errorf("embed: marshal request: %w", err)
@@ -103,6 +185,10 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 
 	resp, err := e.client.Do(req)
 	if err != nil {
+		// 上下文主动取消不算服务故障，避免误熔断。
+		if ctx.Err() == nil {
+			e.breaker.RecordFailure()
+		}
 		return nil, fmt.Errorf("embed: request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -112,14 +198,17 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 		return nil, fmt.Errorf("embed: read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		e.breaker.RecordFailure()
 		return nil, fmt.Errorf("embed: status %d: %s", resp.StatusCode, truncateBytes(raw, 200))
 	}
 
 	var parsed embedResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
+		e.breaker.RecordFailure()
 		return nil, fmt.Errorf("embed: parse response: %w", err)
 	}
 	if parsed.Error != nil {
+		e.breaker.RecordFailure()
 		return nil, fmt.Errorf("embed: api error: %s", parsed.Error.Message)
 	}
 
@@ -131,9 +220,11 @@ func (e *openAIEmbedder) Embed(ctx context.Context, texts []string) ([][]float32
 	}
 	for i := range out {
 		if out[i] == nil {
+			e.breaker.RecordFailure()
 			return nil, fmt.Errorf("embed: missing vector for index %d", i)
 		}
 	}
+	e.breaker.RecordSuccess()
 	return out, nil
 }
 
@@ -172,7 +263,7 @@ func cosineSimilarity(a, b []float32) float32 {
 type textVectorCache struct {
 	mu       sync.Mutex
 	embedder Embedder
-	vectors  map[string][]float32 // text → vector
+	vectors  map[string][]float32 // model\x00text → vector
 }
 
 // newTextVectorCache 创建文本向量缓存。
@@ -183,6 +274,15 @@ func newTextVectorCache(e Embedder) *textVectorCache {
 // Enabled 返回是否配置了可用的嵌入器。
 func (c *textVectorCache) Enabled() bool {
 	return c != nil && c.embedder != nil
+}
+
+// cacheKey 生成缓存键：模型名 + 文本。
+// 切换 embedding 模型/维度后旧向量不复用，避免同文本复用不同模型的向量。
+func (c *textVectorCache) cacheKey(text string) string {
+	if c.embedder == nil {
+		return text
+	}
+	return c.embedder.Model() + "\x00" + text
 }
 
 // EmbedQuery 嵌入单条查询文本（查询随消息变化，不缓存）。
@@ -203,7 +303,7 @@ func (c *textVectorCache) EmbedTexts(ctx context.Context, texts []string) (map[s
 
 	var need []string
 	for _, t := range texts {
-		if _, ok := c.vectors[t]; !ok {
+		if _, ok := c.vectors[c.cacheKey(t)]; !ok {
 			need = append(need, t)
 		}
 	}
@@ -213,13 +313,13 @@ func (c *textVectorCache) EmbedTexts(ctx context.Context, texts []string) (map[s
 			return nil, err
 		}
 		for i, t := range need {
-			c.vectors[t] = vecs[i]
+			c.vectors[c.cacheKey(t)] = vecs[i]
 		}
 	}
 
 	out := make(map[string][]float32, len(texts))
 	for _, t := range texts {
-		if v, ok := c.vectors[t]; ok {
+		if v, ok := c.vectors[c.cacheKey(t)]; ok {
 			out[t] = v
 		}
 	}

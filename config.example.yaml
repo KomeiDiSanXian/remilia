@@ -305,7 +305,9 @@ api:
 #                                         #     前多一次评审 LLM 调用：检查是否回答了问题/是否捏造信息；
 #                                         #     不通过则注入修正指令重新生成（成本：每次对话 +1 次调用）
 #     verify_max_retries: 1               # [R] 校验不通过后的最大重新生成次数（每次生成都会先评审）
-#     context_rag_messages: 0             # [R] 相关历史消息检索（消息级 RAG，默认 0=关闭）。开启后按用户
+#     context_rag_messages: 0             # [R] 相关历史消息检索（消息级 RAG，默认 0=关闭；>0 开启，数值同时作为注入上限）。
+#                                          #     实际每次注入条数 = min(context_rag_messages, context_rag_inject_max)，
+#                                          #     建议设为 ≥ context_rag_inject_max。开启后按用户
 #                                         #     消息在 messagelog 历史中检索相关消息注入系统提示，覆盖
 #                                         #     "上周讨论的方案""上次谁说的"这类时间线/细节查询。两阶段：
 #                                         #     本地关键词预筛（零成本，无命中不花 embedding）→ 候选集

@@ -339,9 +339,13 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 		fact  MemoryFact
 		score float64
 	}, 0, len(facts))
+	// semanticOnly 统计仅靠 embedding 语义信号入选的事实条数
+	// （关键词零重叠），用于监控"embedding 创造候选"的实际价值。
+	semanticOnly := 0
 	for _, f := range facts {
 		// 基础信号：关键词重叠 +（可选）语义余弦。
-		signal := tokenOverlap(qt, tokenizeText(f.Text))
+		base := tokenOverlap(qt, tokenizeText(f.Text))
+		signal := base
 		if queryVec != nil {
 			if fv, ok := textVecs[f.Text]; ok {
 				signal += float64(cosineSimilarity(queryVec, fv)) * scoreEmbedW
@@ -351,6 +355,9 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 		// 防止零重叠噪声事实入选；计数加成不得单独构成入选理由）。
 		if signal <= 0 {
 			continue
+		}
+		if base == 0 {
+			semanticOnly++
 		}
 		// 出现次数作为弱加成：更常被确认的事实更可靠
 		score := signal + float64(min(f.Count, 5))*0.1
@@ -368,6 +375,17 @@ func (m *memoryStore) Retrieve(ctx context.Context, scope, query string, limit i
 	if len(scored) > limit {
 		scored = scored[:limit]
 	}
+	// 可观测性：检索概况（embed 是否参与、纯语义命中数、Top-3）。
+	var sb strings.Builder
+	for i, s := range scored {
+		if i >= 3 {
+			break
+		}
+		fmt.Fprintf(&sb, " %s(%.2f)", truncateRunes(s.fact.Text, 24), s.score)
+	}
+	logger.Debugf("[AI] MemoryRetrieve scope=%s facts=%d embed=%v kept=%d semantic_only=%d top=%s",
+		scope, len(facts), queryVec != nil, len(scored), semanticOnly, sb.String())
+
 	out := make([]MemoryFact, 0, len(scored))
 	for _, s := range scored {
 		out = append(out, s.fact)
