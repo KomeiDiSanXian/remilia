@@ -93,6 +93,33 @@ func (m *todoManager) remove(chatID, id string) bool {
 	return false
 }
 
+// clearDone 清除指定会话中已完成的待办，返回清除条数。
+func (m *todoManager) clearDone(chatID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := m.items[chatID]
+	kept := items[:0]
+	cleared := 0
+	for _, it := range items {
+		if it.Done {
+			cleared++
+			continue
+		}
+		kept = append(kept, it)
+	}
+	m.items[chatID] = kept
+	return cleared
+}
+
+// clearAll 清空指定会话的全部待办，返回清除条数。
+func (m *todoManager) clearAll(chatID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := len(m.items[chatID])
+	m.items[chatID] = nil
+	return n
+}
+
 // buildTodoTools 构建待办工具集（general 类别，恒被选中）。
 func (p *Plugin) buildTodoTools() []Tool {
 	return []Tool{

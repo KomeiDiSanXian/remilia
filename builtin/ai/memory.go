@@ -178,6 +178,50 @@ func (m *memoryStore) Remove(scope, text string) bool {
 	return removed
 }
 
+// Clear 清空指定作用域的全部事实，返回删除条数并持久化。
+// 供 /ai memory clear 子命令使用。
+func (m *memoryStore) Clear(scope string) int {
+	if scope == "" {
+		return 0
+	}
+	m.mu.Lock()
+	facts := m.loadLocked(scope)
+	n := len(facts)
+	m.scopes[scope] = nil
+	m.mu.Unlock()
+	if n > 0 {
+		m.save(scope, nil)
+	}
+	return n
+}
+
+// RemoveWhere 删除作用域内所有满足 match 条件的记忆事实，返回删除条数并持久化。
+// 供 /ai memory remove 子命令使用（按序号或文本片段删除）。
+func (m *memoryStore) RemoveWhere(scope string, match func(MemoryFact) bool) int {
+	if scope == "" || match == nil {
+		return 0
+	}
+	m.mu.Lock()
+	facts := m.loadLocked(scope)
+	kept := facts[:0]
+	removed := 0
+	for _, f := range facts {
+		if match(f) {
+			removed++
+			continue
+		}
+		kept = append(kept, f)
+	}
+	if removed > 0 {
+		m.scopes[scope] = kept
+	}
+	m.mu.Unlock()
+	if removed > 0 {
+		m.save(scope, kept)
+	}
+	return removed
+}
+
 // mergeSimilar 判断两条事实是否应合并（精确相等 / 二元组 Jaccard / 字符包含度）。
 // 相似合并额外要求长度比例 ≥ 0.5：防止长句与短句（仅共享片段）被错误合并。
 func mergeSimilar(a, b string) bool {

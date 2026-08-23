@@ -18,6 +18,11 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 	var maxConcurrent atomic.Int32
 	var curConcurrent atomic.Int32
 	var streamCalls atomic.Int32
+	// 就绪屏障：确保两个工具都进入执行体后再放行，避免依赖
+	// synctest + -race 下的 goroutine 调度时序（若第二个工具 goroutine
+	// 在第一个 sleep 完成前未被调度，并发度会被观测为 1，CI 偶发）。
+	ready := make(chan struct{}, 2)
+	startCh := make(chan struct{})
 	p := &Plugin{
 		cfg:      &Config{MaxDepth: 5, APITimeout: 5 * time.Second, ToolTimeout: 3 * time.Second, ToolParallel: 4},
 		sm:       NewSessionManager(100, 20, time.Hour, nil),
@@ -42,13 +47,15 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 		p.reg.Register(Tool{
 			Name: name,
 			Execute: func(ctx context.Context, args map[string]any) (string, error) {
+				// 双方就绪后同时进入"并发窗口"，再各自 sleep 提供阻塞点：
+				// 保证 Add(1) 必然在任一工具完成前被双方执行。
+				ready <- struct{}{}
+				<-startCh
 				v := curConcurrent.Add(1)
 				if v > maxConcurrent.Load() {
 					maxConcurrent.Store(v)
 				}
 				defer curConcurrent.Add(-1)
-				// 工具内 sleep 提供阻塞点：synctest 调度器逐个运行 goroutine，
-				// 没有阻塞点会串行跑完导致并发度观测为 1。
 				time.Sleep(50 * time.Millisecond)
 				return "ok", nil
 			},
@@ -62,11 +69,25 @@ func TestProcessWithToolsParallelTools(t *testing.T) {
 	ctx := eventctx.NewContextFromEvent(evt, nil)
 
 	synctest.Test(t, func(t *testing.T) {
-		start := time.Now()
-		if _, err := p.processWithTools(ctx, session); err != nil {
-			t.Fatalf("processWithTools failed: %v", err)
+		started := time.Now()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if _, err := p.processWithTools(ctx, session); err != nil {
+				t.Errorf("processWithTools failed: %v", err)
+			}
+		}()
+		// 等待两个工具都进入就绪点（防御：若提前结束说明流程异常）。
+		for range 2 {
+			select {
+			case <-ready:
+			case <-done:
+				t.Fatalf("processWithTools finished before both tools became ready")
+			}
 		}
-		elapsed := time.Since(start)
+		close(startCh)
+		<-done
+		elapsed := time.Since(started)
 		if maxConcurrent.Load() < 2 {
 			t.Errorf("expected parallel execution (concurrency >= 2), got %d", maxConcurrent.Load())
 		}

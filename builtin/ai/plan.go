@@ -157,6 +157,18 @@ func (s *Session) planSnapshot() *Plan {
 	return clonePlan(s.plan)
 }
 
+// cancelPlan 取消当前计划（标记为非活跃：停止注入与自动推进），
+// 返回是否存在可取消的进行中计划。
+func (s *Session) cancelPlan() bool {
+	s.Lock()
+	defer s.Unlock()
+	if s.plan == nil || !s.plan.Active {
+		return false
+	}
+	s.plan.Active = false
+	return true
+}
+
 // planText 返回当前计划的注入文本（无进行中的计划返回空串）。
 func (s *Session) planText() string {
 	s.Lock()

@@ -459,6 +459,22 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
 		SubCommand(command.NewDef("trace").Description("查看工具调用追踪（最近 50 条）").Build()).
 		SubCommand(command.NewDef("tools").Description("列出可用工具").Alias("help").Build()).
+		SubCommand(command.NewDef("memory").Description("查看/删除/清空长期记忆").
+			SubCommand(command.NewDef("list").Description("列出我的记忆（群聊同时显示本群记忆）").Build()).
+			SubCommand(command.NewDef("remove").Description("删除记忆，后接序号或文本（群记忆：remove group <序号|文本>）").Build()).
+			SubCommand(command.NewDef("clear").Description("清空记忆，后接 user|group（group 需群管理员）").Build()).
+			Build()).
+		SubCommand(command.NewDef("todo").Description("管理会话待办清单").
+			SubCommand(command.NewDef("list").Description("列出待办（可加 pending|done 过滤）").Build()).
+			SubCommand(command.NewDef("add").Description("新增待办，后接内容").Build()).
+			SubCommand(command.NewDef("done").Description("标记完成，后接待办 ID（如 T1）").Build()).
+			SubCommand(command.NewDef("remove").Description("删除待办，后接待办 ID（如 T1）").Build()).
+			SubCommand(command.NewDef("clear").Description("清除待办，后接 done（默认）或 all").Build()).
+			Build()).
+		SubCommand(command.NewDef("plan").Description("查看/取消任务计划").
+			SubCommand(command.NewDef("status").Description("查看当前计划进度").Build()).
+			SubCommand(command.NewDef("cancel").Description("取消当前计划").Build()).
+			Build()).
 		SubCommand(command.NewDef("remind").Description("设置定时提醒（如：remind 5分钟 去喝水）").
 			SubCommand(command.NewDef("list").Description("列出本会话的提醒").Build()).
 			SubCommand(command.NewDef("cancel").Description("取消指定提醒，后接提醒 ID").Build()).

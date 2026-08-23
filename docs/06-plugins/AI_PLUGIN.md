@@ -20,6 +20,9 @@
 | `/ai status` | 查看会话状态（提供商/模型/消息数/时长） |
 | `/ai stats` | 查看使用统计（LLM 调用次数、工具调用次数） |
 | `/ai tools` | 列出当前可用工具 |
+| `/ai memory` | 查看长期记忆；`remove <序号\|文本>` 删除单条/按内容删，`clear [user\|group]` 清空（`clear group` 需群管理员） |
+| `/ai todo` | 管理会话待办清单（list / add / done / remove / clear） |
+| `/ai plan` | 查看/取消当前任务计划（status / cancel） |
 | `/ai skill ...` | 自定义技能管理（见下） |
 
 ## 配置（`plugins.ai`）

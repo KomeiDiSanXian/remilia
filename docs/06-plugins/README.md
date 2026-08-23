@@ -119,7 +119,7 @@
 ### [AI_PLUGIN.md](./AI_PLUGIN.md) 🤖
 **AI 对话插件**
 
-- `/ai` 命令与子命令（reset / undo / retry / summary / status / stats / tools / skill）
+- `/ai` 命令与子命令（reset / undo / retry / summary / status / stats / tools / memory / todo / plan / remind / group / skill）
 - 配置（provider / model / vision 等）
 - 工具调用（自动发现 + 显式注册优先）
 - 自定义技能管理
