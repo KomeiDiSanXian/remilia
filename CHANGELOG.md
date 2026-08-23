@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.42.1 (2026-08-23)
+
+### 🛡 Embedding 数值防御
+
+- **向量校验**（`builtin/ai/embedding.go`）：新增 `validateVector`，在 provider 边界拒绝空向量、维度不一致与 NaN/±Inf，防止异常数值穿透 `cosineSimilarity` 产生 `score=NaN` 的诡异排序；垃圾响应计入熔断（连错 3 次自动冷却）
+- **维度漂移检测**：`openAIEmbedder` 记录已确认向量维度，服务端中途切换模型导致维度变化时明确报错并降级，不再静默复用旧向量
+- **可测试性**：新增 `newOpenAIEmbedderWithClient`，支持注入短超时 HTTP 客户端
+
+### 🧪 检索契约测试
+
+- **env-gated 回归测试**（`builtin/ai/contract_test.go` + `testdata/retrieval_cases.json`）：设置 `REMILIA_EMBED_TEST_URL` 后自动跑固定数据集（22 工具 / 24 查询 / 20 RAG 消息 / 4 记忆事实），输出工具选择权重扫描（Top1 / Recall@k / MRR）、RAG 预筛保留率与语义兜底找回率、记忆关键词 vs embedding 命中；断言 embedding 不劣于纯关键词；未设置环境变量时自动跳过，不影响 CI
+
+### 🧪 异常与并发测试矩阵
+
+- 新增 9 个测试：`TestValidateVector`、invalid JSON、空向量、批内维度不一致、跨调用维度漂移、timeout、connection refused、服务恢复（探活→熔断解除）、100 并发失败请求（无 retry storm、全部快速失败）
+
+
 ## v1.42.0 (2026-08-23)
 
 ### 🧯 Embedding 语义检索可靠性
