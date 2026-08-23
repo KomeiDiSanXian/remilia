@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.42.0 (2026-08-23)
+
+### 🧯 Embedding 语义检索可靠性
+
+- **熔断器**（`builtin/ai/embedding.go`）：`openAIEmbedder` 新增轻量熔断器——连续 3 次失败进入 30s 冷却，冷却期内直接降级纯关键词（不再每条消息空转失败请求），到期放行一次探活、成功即恢复；上下文主动取消不计入失败。工具选择 / RAG / 记忆三个路径共享同一实例，服务故障时自动兜底不阻塞主流程
+- **缓存键绑定模型**（`textVectorCache`）：向量缓存键改为 `model\x00text`，切换 embedding 模型 / 维度后不再复用旧向量，消除长度不符时 `cosineSimilarity` 静默归零的隐患
+- **单元测试**：新增 `TestEmbeddingBreaker`（熔断状态机）与 `TestOpenAIEmbedderBreakerCooldown`（熔断后不再向服务发起无意义请求）
+
+### 📊 语义检索可观测性
+
+- **工具选择**（`builtin/ai/select.go`）：`scoreTool` 拆出 `scoreToolParts`（关键词分 / 余弦 / 总分），每轮输出 Top-5 排名日志（`[AI] ToolSelect`），便于核对 embedding 权重与失败降级的影响
+- **记忆检索**（`builtin/ai/memory.go`）：`Retrieve` 输出检索概况与 `semantic_only` 计数（仅靠 embedding 语义信号入选的事实数），量化"embedding 创造候选"的实际价值
+- **RAG 预筛监控**（`builtin/ai/rag.go`）：每轮输出 `keyword_hits / candidates / fallback`（语义兜底标记）与最终注入 Top-3 分数，便于统计预筛漏检率与精排效果
+- 以上均为 Debug 级日志，不增加 Info 级噪声
+
+### 📝 配置文档
+
+- `config.example.yaml`：澄清 `context_rag_messages` 数值开关语义（0=关闭；>0 同时作为注入上限，实际注入条数 = min(与 `context_rag_inject_max`)）
+
+
 ## v1.41.3 (2026-08-21)
 
 ### 🧹 移除废弃 API
