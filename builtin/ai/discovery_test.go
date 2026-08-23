@@ -366,6 +366,54 @@ func TestDiscoverToolsSkipsExplicitlyRegistered(t *testing.T) {
 	}
 }
 
+// TestDiscoverCommandsExcludesToolProviderPlugins 验证已提供显式 AI 工具
+// 的插件，其命令不再自动发现为工具（去重）。
+func TestDiscoverCommandsExcludesToolProviderPlugins(t *testing.T) {
+	coord := &mockReader{
+		commands: []engine.CommandInfo{
+			{Command: "/search", Description: "搜索", Plugin: "websearch"},
+			{Command: "/ping", Description: "延迟检测", Plugin: "ping"},
+		},
+	}
+	p := &Plugin{
+		cfg:         &Config{},
+		coord:       coord,
+		reg:         NewToolRegistry(),
+		cmdMu:       sync.RWMutex{},
+		cmdPatterns: make(map[string]string),
+	}
+	p.DiscoverCommands("websearch")
+
+	if _, ok := p.reg.Get("search"); ok {
+		t.Error("command of a ToolProvider plugin should not be auto-discovered")
+	}
+	if _, ok := p.reg.Get("ping"); !ok {
+		t.Error("command of a non-excluded plugin should still be discovered")
+	}
+}
+
+// TestDiscoverCommandsAllowlistOverridesExclusion 验证 tool_allowlist 显式
+// 列出被排除插件的命令时，该命令仍被发现（用户显式意图优先）。
+func TestDiscoverCommandsAllowlistOverridesExclusion(t *testing.T) {
+	coord := &mockReader{
+		commands: []engine.CommandInfo{
+			{Command: "/tarot", Description: "塔罗占卜", Plugin: "fortune"},
+		},
+	}
+	p := &Plugin{
+		cfg:         &Config{ToolAllowlist: []string{"tarot"}},
+		coord:       coord,
+		reg:         NewToolRegistry(),
+		cmdMu:       sync.RWMutex{},
+		cmdPatterns: make(map[string]string),
+	}
+	p.DiscoverCommands("fortune")
+
+	if _, ok := p.reg.Get("tarot"); !ok {
+		t.Error("allowlisted command should override plugin exclusion")
+	}
+}
+
 func TestRegisterSkillAsTool(t *testing.T) {
 	p := &Plugin{reg: NewToolRegistry(), skillReg: NewSkillRegistry()}
 	skill := Skill{Name: "tool_skill", OwnerID: OwnerSystem, Description: "a skill that becomes a tool", Prompt: "test"}

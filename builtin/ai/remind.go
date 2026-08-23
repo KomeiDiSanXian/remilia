@@ -46,7 +46,7 @@ type reminder struct {
 // reminderManager 管理全部定时提醒（进程内存储，重启后失效）。
 type reminderManager struct {
 	mu    sync.Mutex
-	items map[string]*reminder
+	items map[string]*reminder // key: chatID + "\x00" + ID（不同会话的同名 ID 不冲突）
 	// seq 按会话递增的序号，用于生成提醒 ID。
 	seq map[string]int
 }
@@ -66,19 +66,25 @@ func (m *reminderManager) nextID(chatID string) string {
 	return "R" + strconv.Itoa(m.seq[chatID])
 }
 
+// reminderKey 生成提醒在管理器中的唯一键（会话内 ID 仅保证本会话唯一）。
+func reminderKey(chatID, id string) string {
+	return chatID + "\x00" + id
+}
+
 // add 注册一条提醒并启动定时器。
 func (m *reminderManager) add(r *reminder) {
 	m.mu.Lock()
-	m.items[r.ID] = r
+	m.items[reminderKey(r.ChatID, r.ID)] = r
 	m.mu.Unlock()
 }
 
-// remove 移除提醒并取消定时器，返回是否命中。
-func (m *reminderManager) remove(id string) bool {
+// remove 移除指定会话的提醒并取消定时器，返回是否命中。
+func (m *reminderManager) remove(chatID, id string) bool {
 	m.mu.Lock()
-	r, ok := m.items[id]
+	key := reminderKey(chatID, id)
+	r, ok := m.items[key]
 	if ok {
-		delete(m.items, id)
+		delete(m.items, key)
 	}
 	m.mu.Unlock()
 	if ok && r.cancel != nil {
@@ -220,15 +226,21 @@ func parseRemindDuration(s string) (time.Duration, error) {
 
 // handleRemindAdd 设置一条定时提醒，到期后主动推送到原会话。
 func (p *Plugin) handleRemindAdd(ctx *eventctx.Context, duration time.Duration, content string) error {
-	if p.reminders == nil {
-		p.reminders = newReminderManager()
-	}
-
-	chat := ctx.GetChatInfo()
 	sender := ctx.GetPlatformSender()
 	if sender == nil {
 		ctx.ReplyText("❌ 无法获取平台发送器，提醒不可用")
 		return nil
+	}
+	_, confirm := p.addReminder(ctx.GetChatInfo(), sender, duration, content)
+	ctx.ReplyText(confirm)
+	return nil
+}
+
+// addReminder 创建并注册一条定时提醒，返回提醒对象与确认文本。
+// 供 /ai remind 子命令与 set_reminder 工具共用。
+func (p *Plugin) addReminder(chat platform.ChatInfo, sender platform.Sender, duration time.Duration, content string) (*reminder, string) {
+	if p.reminders == nil {
+		p.reminders = newReminderManager()
 	}
 
 	remindCtx, cancel := context.WithCancel(p.lifecycleCtx)
@@ -255,8 +267,7 @@ func (p *Plugin) handleRemindAdd(ctx *eventctx.Context, duration time.Duration, 
 		}
 	}()
 
-	ctx.ReplyText(fmt.Sprintf("⏰ 已设置提醒：%s（%s 后触发，ID: %s）", content, formatRemindDuration(duration), r.ID))
-	return nil
+	return r, fmt.Sprintf("⏰ 已设置提醒：%s（%s 后触发，ID: %s）", content, formatRemindDuration(duration), r.ID)
 }
 
 // fireReminder 触发提醒：通过 SessionNotifier（如 QQ）主动推送，
@@ -320,7 +331,7 @@ func (p *Plugin) handleRemindCancel(ctx *eventctx.Context, id string) error {
 		ctx.ReplyText("❌ 没有可取消的提醒")
 		return nil
 	}
-	if p.reminders.remove(id) {
+	if p.reminders.remove(ctx.GetChatInfo().ID, id) {
 		ctx.ReplyText(fmt.Sprintf("✅ 已取消提醒 `%s`", id))
 	} else {
 		ctx.ReplyText(fmt.Sprintf("❌ 未找到提醒 `%s`（ID 见 `/ai remind list`）", id))

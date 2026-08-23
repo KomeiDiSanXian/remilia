@@ -121,9 +121,14 @@ func TestReminderManagerLifecycle(t *testing.T) {
 	assert.Equal(t, "a", items[1].Text)
 
 	// remove 命中并删除
-	assert.True(t, m.remove("R1"))
+	assert.True(t, m.remove(chatID, "R1"))
 	assert.Len(t, m.list(chatID), 1)
-	assert.False(t, m.remove("R9"))
+	assert.False(t, m.remove(chatID, "R9"))
+
+	// 不同会话的同名 ID 互不影响（R1 在另一个会话仍可注册）
+	m.add(&reminder{ID: m.nextID("chat_2"), Text: "x", At: time.Now().Add(time.Minute), ChatID: "chat_2"})
+	assert.True(t, m.remove("chat_2", "R1"))
+	assert.False(t, m.remove(chatID, "R1"))
 
 	// stopAll 清空
 	m.add(&reminder{ID: m.nextID(chatID), Text: "c", At: time.Now().Add(time.Minute), ChatID: chatID})

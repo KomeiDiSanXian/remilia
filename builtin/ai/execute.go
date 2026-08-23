@@ -61,6 +61,13 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	if sender != nil {
 		callerCtx = WithToolSender(callerCtx, sender)
 	}
+	callerCtx = withToolSource(callerCtx, toolSource{
+		userID:  ctx.GetSenderInfo().ID,
+		chatID:  ctx.GetChatInfo().ID,
+		isGroup: ctx.GetChatInfo().IsGroup,
+		sender:  ctx.GetPlatformSender(),
+		p:       p,
+	})
 	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
 		result, err := p.executeSkill(callerCtx, skill, tc.Arguments)
 		if err != nil {
@@ -257,11 +264,25 @@ func isSafeCommandArg(s string) bool {
 // 权限管理器缺失时返回 false（安全默认）。支持格式：
 // "resource.action" / "resource:action" / "resource"（action 通配）。
 func (p *Plugin) hasToolPermission(ctx *eventctx.Context, perms []string) bool {
+	userID := ctx.GetUserID()
+	if p.perms != nil {
+		for _, perm := range perms {
+			perm = strings.TrimSpace(perm)
+			if perm == "" {
+				continue
+			}
+			if p.perms.HasPermission(userID, perm) {
+				return true
+			}
+		}
+		return false
+	}
+	// 权限插件未接线时回退到上下文权限管理器（测试场景）；
+	// 两者皆无时安全拒绝。
 	pm := ctx.GetPermissionManager()
 	if pm == nil {
 		return false
 	}
-	userID := ctx.GetUserID()
 	for _, perm := range perms {
 		perm = strings.TrimSpace(perm)
 		if perm == "" {
@@ -273,6 +294,19 @@ func (p *Plugin) hasToolPermission(ctx *eventctx.Context, perms []string) bool {
 		}
 	}
 	return false
+}
+
+// filterToolsByPermission 从工具列表中剔除当前调用者无权调用的工具
+// （声明了 Permissions 且校验不通过）。供 processWithTools 按角色注入使用。
+func (p *Plugin) filterToolsByPermission(ctx *eventctx.Context, tools []Tool) []Tool {
+	out := make([]Tool, 0, len(tools))
+	for _, t := range tools {
+		if len(t.Permissions) > 0 && !p.hasToolPermission(ctx, t.Permissions) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // parseToolPermission 解析工具权限字符串（与框架 parsePermission 同语义）。

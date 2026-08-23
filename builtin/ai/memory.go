@@ -151,6 +151,33 @@ func (m *memoryStore) Facts(scope string) []MemoryFact {
 	return out
 }
 
+// Remove 从指定作用域删除一条事实（精确文本匹配），返回是否命中并持久化。
+// 供 memory_forget 工具与记忆管理使用。
+func (m *memoryStore) Remove(scope, text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || scope == "" {
+		return false
+	}
+	m.mu.Lock()
+	facts := m.loadLocked(scope)
+	removed := false
+	for i := range facts {
+		if facts[i].Text == text {
+			facts = append(facts[:i], facts[i+1:]...)
+			removed = true
+			break
+		}
+	}
+	if removed {
+		m.scopes[scope] = facts
+	}
+	m.mu.Unlock()
+	if removed {
+		m.save(scope, facts)
+	}
+	return removed
+}
+
 // mergeSimilar 判断两条事实是否应合并（精确相等 / 二元组 Jaccard / 字符包含度）。
 // 相似合并额外要求长度比例 ≥ 0.5：防止长句与短句（仅共享片段）被错误合并。
 func mergeSimilar(a, b string) bool {

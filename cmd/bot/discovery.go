@@ -18,9 +18,12 @@ import (
 func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 	if aiRaw, ok := pm.GetContainer().Get("ai"); ok {
 		aiPlugin := aiRaw.(*ai.Plugin)
-		aiPlugin.DiscoverCommands()
+		// 先注册显式工具/技能，再自动发现命令工具：
+		// 已实现 ToolProvider/SkillProvider 的插件视为已向 AI 暴露结构化
+		// 工具，其命令不再自动发现（避免粗糙命令工具挤占选择名额）。
 		aiPlugin.DiscoverToolProviders(pm)
 		aiPlugin.DiscoverSkillProviders(pm)
+		aiPlugin.DiscoverCommands(excludedToolPlugins(pm)...)
 	}
 
 	if hc := bot.HealthCheck(); hc != nil {
@@ -38,4 +41,24 @@ func discoverAll(bot *remilia.Bot, pm *plugin.Manager) {
 	}
 
 	logger.Info("[remilia] Plugin discovery complete")
+}
+
+// excludedToolPlugins 返回已实现 ai.ToolProvider 或 ai.SkillProvider 的插件名，
+// 用于跳过这些插件命令的自动发现（去重）。
+func excludedToolPlugins(pm *plugin.Manager) []string {
+	var out []string
+	for _, name := range pm.List() {
+		svc, ok := pm.GetContainer().Get(name)
+		if !ok || svc == nil {
+			continue
+		}
+		if _, ok := svc.(ai.ToolProvider); ok {
+			out = append(out, name)
+			continue
+		}
+		if _, ok := svc.(ai.SkillProvider); ok {
+			out = append(out, name)
+		}
+	}
+	return out
 }

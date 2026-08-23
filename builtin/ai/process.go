@@ -114,6 +114,14 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			logger.Debugf("[AI] Group policy filtered tools: %d→%d", before, len(activeTools))
 		}
 	}
+	// RBAC 按角色注入：声明了 Permissions 但当前调用者无权的工具
+	// 不进入模型视野（避免占名额与"调用了才被告知无权"）。执行路径
+	// 的权限校验（execOneTool/executeTool）保留为纵深防御。
+	beforePerm := len(activeTools)
+	activeTools = p.filterToolsByPermission(ctx, activeTools)
+	if len(activeTools) != beforePerm {
+		logger.Debugf("[AI] Permission filtered tools: %d→%d", beforePerm, len(activeTools))
+	}
 	activeTools = p.selectToolsForTurn(ctx, session, activeTools)
 
 	for currentDepth < maxDepth {

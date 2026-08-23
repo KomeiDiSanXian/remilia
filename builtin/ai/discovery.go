@@ -26,6 +26,13 @@ import (
 // ⚠️ 仅自动发现不需要任何权限的命令（Permissions 为空）。
 // 需要权限的命令不会被 AI 自动发现，防止通过 AI 绕过权限检查。
 //
+// # 去重
+//
+// 显式实现了 ToolProvider / SkillProvider 的插件（已向 AI 暴露结构化工具）
+// 会通过 excludeSet 排除其命令的自动发现，避免"结构化工具 + 粗糙命令工具"
+// 双份占用选择名额、稀释检索精度。若配置了 tool_allowlist 且命令被显式
+// 列入，则以 allowlist 为准（用户显式意图优先）。
+//
 // 对于需要 AI 调用的权限命令，插件应在自己的 Setup 中调用
 // [Plugin.RegisterToolProvider] 显式注册工具，并在 Execute 中自行校验身份。
 //
@@ -36,7 +43,7 @@ import (
 //  3. 每个安全命令生成一个 Tool 供 LLM 调用
 //
 // 应在所有插件完成注册后调用，确保不会遗漏后注册的命令。
-func (p *Plugin) discoverTools() {
+func (p *Plugin) discoverTools(excludeSet map[string]struct{}) {
 	if p.coord == nil {
 		return
 	}
@@ -61,6 +68,19 @@ func (p *Plugin) discoverTools() {
 		}
 		if !isCommandSafeForAI(cmd) {
 			continue
+		}
+		// 已提供显式 AI 工具的插件，其命令默认不再自动发现（allowlist 例外）。
+		if cmd.Plugin != "" {
+			if _, excluded := excludeSet[cmd.Plugin]; excluded {
+				if !hasAllowlist {
+					continue
+				}
+				name := strings.TrimLeft(cmd.Command, "/!$#")
+				name = strings.ReplaceAll(name, " ", "_")
+				if _, allowed := allowSet[name]; !allowed {
+					continue
+				}
+			}
 		}
 		name := strings.TrimLeft(cmd.Command, "/!$#")
 		name = strings.ReplaceAll(name, " ", "_")
@@ -187,9 +207,17 @@ func buildToolFromCommand(cmd engine.CommandInfo) *Tool {
 }
 
 // DiscoverCommands 扫描当前所有已注册的无权限命令。
+// excludePlugins 为已提供显式 AI 工具（ToolProvider/SkillProvider）的插件名，
+// 这些插件的命令不再自动发现为工具（避免与结构化工具重复）。
 // 应在插件容器冻结后、开始处理平台事件前调用。
-func (p *Plugin) DiscoverCommands() {
-	p.discoverTools()
+func (p *Plugin) DiscoverCommands(excludePlugins ...string) {
+	excludeSet := make(map[string]struct{}, len(excludePlugins))
+	for _, name := range excludePlugins {
+		if name != "" {
+			excludeSet[name] = struct{}{}
+		}
+	}
+	p.discoverTools(excludeSet)
 }
 
 // RegisterToolProvider 注册一个实现了 ToolProvider 接口的插件所提供的工具集。

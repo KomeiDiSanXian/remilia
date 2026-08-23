@@ -426,6 +426,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "antispam_check_ban",
 			Categories:  []string{"admin"},
+			Permissions: []string{"antispam.view"},
 			Description: "检查用户是否被反垃圾系统封禁。返回封禁状态和统计概览。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
@@ -450,6 +451,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "antispam_stats",
 			Categories:  []string{"admin"},
+			Permissions: []string{"antispam.view"},
 			Description: "查询反垃圾系统统计信息：封禁数、用户限流器数、群组限流器数。",
 			Parameters: ai.ToolParamSchema{
 				Type:       "object",

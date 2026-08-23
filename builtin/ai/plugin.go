@@ -21,6 +21,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/core/permission"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/vevent"
 	"github.com/KomeiDiSanXian/remilia/command"
@@ -69,6 +70,15 @@ type Plugin struct {
 	// 依赖 plugin.SessionNotifier 主动推送；进程内存储，重启后失效。
 	reminders *reminderManager
 
+	// todos 会话内待办清单管理器（todo_* 工具）。
+	// 进程内存储，重启后失效。
+	todos *todoManager
+
+	// perms RBAC 权限插件（用于工具级权限校验与按角色注入）。
+	// permission 插件未注册时为 nil，此时权限校验回退到上下文权限管理器
+	// （测试场景），两者皆无则安全拒绝。
+	perms *permission.Plugin
+
 	// approvals 命令执行审批管理器（tool_approval）。
 	approvals *approvalManager
 
@@ -112,7 +122,7 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 	return &plugin.Descriptor{
 		Name:         "ai",
 		Version:      "1.0.0",
-		OptionalDeps: []string{"storage"},
+		OptionalDeps: []string{"storage", "permission"},
 		Meta: &plugin.Metadata{
 			Author:      "Remilia Team",
 			Description: "AI 对话插件，支持多提供商和工具调用",
@@ -171,6 +181,12 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			coord := ctx.Info.Coordinator()
 
 			lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+
+			// RBAC 权限插件（工具级权限校验与按角色注入；未注册时保持 nil）。
+			var perms *permission.Plugin
+			if svc, ok := ctx.TryService[*permission.Plugin]("permission"); ok {
+				perms = svc
+			}
 
 			// 群策略存储：优先使用 data/ai 目录（LevelDB），失败时降级为纯内存。
 			var groupPolicies *groupPolicyManager
@@ -232,6 +248,8 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 				lifecycleCtx:    lifecycleCtx,
 				lifecycleCancel: lifecycleCancel,
 				reminders:       newReminderManager(),
+				todos:           newTodoManager(),
+				perms:           perms,
 				approvals:       newApprovalManager(),
 				groupPolicies:   groupPolicies,
 				emb:             emb,
@@ -250,6 +268,20 @@ func New(syncer vevent.EventProcessor) *plugin.Descriptor {
 			// send_message 无需审批；send_to 强制审批 + ai.message.send 权限。
 			for _, t := range p.buildSendTools() {
 				p.reg.Register(t)
+			}
+
+			// 会话内能力工具（定时提醒 / 待办清单，默认启用）。
+			for _, t := range p.buildReminderTools() {
+				p.reg.Register(t)
+			}
+			for _, t := range p.buildTodoTools() {
+				p.reg.Register(t)
+			}
+			// 长期记忆工具仅在 memory_enabled 开启时注册（未开启时不让模型看到）。
+			if memory != nil {
+				for _, t := range p.buildMemoryTools() {
+					p.reg.Register(t)
+				}
 			}
 
 			p.registerHandlers(ctx)

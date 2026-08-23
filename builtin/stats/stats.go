@@ -322,6 +322,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "stats_top_commands",
 			Categories:  []string{"admin"},
+			Permissions: []string{"stats.view"},
 			Description: "返回调用次数最多的 N 个命令及其调用次数。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
@@ -349,6 +350,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "stats_command_count",
 			Categories:  []string{"admin"},
+			Permissions: []string{"stats.view"},
 			Description: "查询指定命令的累计调用次数。",
 			Parameters: ai.ToolParamSchema{
 				Type: "object",
@@ -369,6 +371,7 @@ func (p *Plugin) ListTools() []ai.Tool {
 		{
 			Name:        "stats_total_messages",
 			Categories:  []string{"admin"},
+			Permissions: []string{"stats.view"},
 			Description: "查询 bot 处理的总消息数。",
 			Parameters: ai.ToolParamSchema{
 				Type:       "object",

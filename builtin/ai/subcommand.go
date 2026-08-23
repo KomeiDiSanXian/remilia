@@ -239,7 +239,8 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 	case "tools", "help":
 		var b strings.Builder
 		b.WriteString("我可以使用以下工具：\n\n")
-		tools := p.reg.List()
+		// 按 RBAC 过滤：声明了 Permissions 且当前用户无权的工具不展示。
+		tools := p.filterToolsByPermission(ctx, p.reg.List())
 		userSkills := p.skillReg.ListByOwner(sender.ID)
 		totalTools := len(tools) + len(userSkills)
 		if totalTools == 0 {
