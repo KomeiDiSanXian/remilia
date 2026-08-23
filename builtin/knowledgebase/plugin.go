@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -246,12 +247,7 @@ func isSuperAdmin(ctx *eventctx.Context) bool {
 	if pm == nil {
 		return false
 	}
-	for _, role := range pm.GetUserRoles(ctx.GetUserID()) {
-		if role == "superadmin" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pm.GetUserRoles(ctx.GetUserID()), "superadmin")
 }
 
 // replyFormatted 按 markdown 配置发送 /kb 子命令回复。

@@ -99,10 +99,7 @@ func (p *Plugin) buildMemoryTools() []Tool {
 					}
 				}
 				if src.isGroup {
-					rem := limit - len(out)
-					if rem < 0 {
-						rem = 0
-					}
+					rem := max(limit-len(out), 0)
 					if rem > 0 {
 						if f := src.p.memory.Retrieve(ctx, groupScope(src.chatID), query, rem); len(f) > 0 {
 							for _, x := range f {

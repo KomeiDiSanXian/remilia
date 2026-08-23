@@ -182,10 +182,7 @@ func (p *Plugin) buildFile(ctx context.Context, path, hash string) error {
 func (p *Plugin) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	var out [][]float32
 	for i := 0; i < len(texts); i += embedBatchSize {
-		end := i + embedBatchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
+		end := min(i+embedBatchSize, len(texts))
 		vecs, err := p.embedder.Embed(ctx, texts[i:end])
 		if err != nil {
 			return nil, err
@@ -283,7 +280,7 @@ func chunkMarkdown(md string, chunkSize, overlap int) []chunkPiece {
 		curLen = 0
 	}
 
-	for _, line := range strings.Split(md, "\n") {
+	for line := range strings.SplitSeq(md, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if isMarkdownHeading(trimmed) {
 			flush()
@@ -327,10 +324,7 @@ func splitLongLine(line string, size, overlap int) []string {
 	var segs []string
 	start := 0
 	for start < len(runes) {
-		end := start + size
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(start+size, len(runes))
 		segs = append(segs, string(runes[start:end]))
 		if end == len(runes) {
 			break

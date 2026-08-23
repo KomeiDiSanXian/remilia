@@ -274,7 +274,7 @@ func TestOpenAIEmbedderRecovery(t *testing.T) {
 
 	brk := &embeddingBreaker{threshold: 3, cooldown: 50 * time.Millisecond}
 	emb := newOpenAIEmbedderWithBreaker(srv.URL, "", "m", brk)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := emb.Embed(context.Background(), []string{"x"}); err == nil {
 			t.Fatalf("call %d should fail while unhealthy", i+1)
 		}
