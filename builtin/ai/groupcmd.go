@@ -39,7 +39,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 
 	parts := strings.Fields(content)
 	if len(parts) == 0 {
-		ctx.ReplyText(groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
@@ -51,7 +51,7 @@ func (p *Plugin) handleGroupCommand(ctx *eventctx.Context) error {
 	case "reset", "重置", "clear":
 		return p.handleGroupReset(ctx, parts[1:])
 	default:
-		ctx.ReplyText(groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 }
@@ -104,7 +104,7 @@ func (p *Plugin) handleGroupStatus(ctx *eventctx.Context) error {
 		fmt.Fprintf(&b, "  - **@ 触发**: %s（全局默认）\n", globalMode)
 	}
 
-	ctx.ReplyText(b.String())
+	p.replyFormatted(ctx, b.String())
 	return nil
 }
 
@@ -120,7 +120,7 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 		return nil
 	}
 	if len(args) < 2 {
-		ctx.ReplyText(groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
@@ -161,12 +161,12 @@ func (p *Plugin) handleGroupSet(ctx *eventctx.Context, args []string) error {
 			return nil
 		}
 	default:
-		ctx.ReplyText(groupCommandHelp(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, groupCommandHelp(p.cfg.TriggerCmd))
 		return nil
 	}
 
 	p.groupPolicies.SetGroup(chat.ID, policy)
-	ctx.ReplyText(fmt.Sprintf("✅ 已更新本群 `%s` 配置", field))
+	p.replyFormatted(ctx, fmt.Sprintf("✅ 已更新本群 `%s` 配置", field))
 	return nil
 }
 
@@ -244,12 +244,12 @@ func (p *Plugin) handleGroupGlobal(ctx *eventctx.Context, rest string) error {
 			}
 			fmt.Fprintf(&b, "  - **@ 触发**: %s\n", mode)
 		}
-		ctx.ReplyText(b.String())
+		p.replyFormatted(ctx, b.String())
 	case "reset", "重置", "clear":
 		p.groupPolicies.ResetGroup(globalGroupID)
 		ctx.ReplyText("✅ 已重置全局 AI 策略")
 	default:
-		ctx.ReplyText("❌ 用法：`" + p.cfg.TriggerCmd + " group global status|reset`")
+		p.replyFormatted(ctx, "❌ 用法：`"+p.cfg.TriggerCmd+" group global status|reset`")
 	}
 	return nil
 }

@@ -380,6 +380,23 @@ api:
 #                                         #     以机器人自身名称标注，未注入时兜底"机器人"，并附说明行
 #                                         #     提示由本账号发出）；默认 false。开启后与当前会话历史重合的
 #                                         #     AI 回复自动去重，不会重复出现
+#   knowledgebase:                        # [R] 本地文档知识库检索（kb_search / kb_stats 工具 + /kb 管理命令）。
+#                                         #     默认关闭（opt-in）：由部署者按自己的内容启用，框架不预置任何文档
+#     enabled: false                      # [R] 是否启用（默认 false；启用后才注册 AI 工具并建索引）
+#     markdown: true                      # [R] 平台支持 MD 时用 Markdown 回复（/kb status 等），否则回退纯文本
+#     source_dir: ""                      # [R] 数据源根目录（相对工作目录），指向你自己的 Markdown 文档目录；
+#                                         #     留空时索引为空（/kb status 会提示数据源目录不存在）
+#     exclude_dirs: ["notes"]             # [R] 扫描时排除的子目录（默认 ["notes"]：设计笔记多为历史/计划内容）
+#     db_path: "data/db/knowledgebase.db" # [R] 索引持久化路径（SQLite，默认 data/db/knowledgebase.db）
+#     embedding_base_url: ""              # [R] OpenAI 兼容 /embeddings 端点根地址（如 http://host:8080/v1）。
+#                                         #     为空时禁用语义检索，仅关键词兜底；建议与 ai.embedding_base_url 一致
+#     embedding_api_key: ""               # [R] 嵌入服务 API Key（自托管服务通常为空）
+#     embedding_model: ""                 # [R] 嵌入模型名（如 Qwen3-Embedding-0.6B-Q8_0.gguf）
+#     chunk_size: 600                     # [R] 分块目标长度（rune，默认 600）
+#     chunk_overlap: 100                  # [R] 相邻分块重叠长度（rune，默认 100）
+#     max_results: 5                      # [R] kb_search 单次返回片段条数上限（默认 5）
+#     tool_description: ""                # [R] kb_search 工具的自定义描述（告诉 LLM 知识库包含什么内容，
+#                                         #     如"公司内部运维手册"）。为空时使用通用描述并带上 source_dir
 #   weather:
 #     api_key: "your-weather-api-key"
 #   websearch:

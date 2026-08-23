@@ -54,6 +54,14 @@ func newOpenAIEmbedder(baseURL, apiKey, model string) Embedder {
 	return newOpenAIEmbedderWithBreaker(baseURL, apiKey, model, newEmbeddingBreaker())
 }
 
+// NewOpenAIEmbedder 创建 OpenAI 兼容的嵌入客户端（对外导出）。
+//
+// 供其他插件（如知识库检索）复用同一套嵌入实现：包含熔断器、
+// 维度漂移检测与 30s 超时。baseURL 为空时返回 nil。
+func NewOpenAIEmbedder(baseURL, apiKey, model string) Embedder {
+	return newOpenAIEmbedder(baseURL, apiKey, model)
+}
+
 // newOpenAIEmbedderWithBreaker 同上，但允许注入自定义熔断器（测试用）。
 func newOpenAIEmbedderWithBreaker(baseURL, apiKey, model string, breaker *embeddingBreaker) Embedder {
 	return newOpenAIEmbedderWithClient(baseURL, apiKey, model, breaker, &http.Client{Timeout: 30 * time.Second})
@@ -296,6 +304,12 @@ func cosineSimilarity(a, b []float32) float32 {
 		return 0
 	}
 	return float32(dot / (math.Sqrt(na) * math.Sqrt(nb)))
+}
+
+// CosineSimilarity 计算两个向量的余弦相似度（对外导出）。
+// 任一向量为空或维度不一致时返回 0。
+func CosineSimilarity(a, b []float32) float32 {
+	return cosineSimilarity(a, b)
 }
 
 // textVectorCache 按文本键缓存的嵌入向量。

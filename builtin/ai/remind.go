@@ -133,18 +133,18 @@ func (p *Plugin) handleRemindCommand(ctx *eventctx.Context, rest string) error {
 		return p.handleRemindList(ctx)
 	case "cancel", "rm", "del", "delete":
 		if len(parts) < 2 {
-			ctx.ReplyText("❌ 请指定提醒 ID，用法：`/ai remind cancel <ID>`（ID 见 `/ai remind list`）")
+			p.replyFormatted(ctx, "❌ 请指定提醒 ID，用法：`/ai remind cancel <ID>`（ID 见 `/ai remind list`）")
 			return nil
 		}
 		return p.handleRemindCancel(ctx, strings.TrimSpace(parts[1]))
 	case "":
-		ctx.ReplyText(remindHelpText(p.cfg.TriggerCmd))
+		p.replyFormatted(ctx, remindHelpText(p.cfg.TriggerCmd))
 		return nil
 	default:
 		// 默认视为设置提醒：<时长> <内容>
 		duration, content, ok := parseRemindArgs(rest)
 		if !ok {
-			ctx.ReplyText(remindHelpText(p.cfg.TriggerCmd))
+			p.replyFormatted(ctx, remindHelpText(p.cfg.TriggerCmd))
 			return nil
 		}
 		return p.handleRemindAdd(ctx, duration, content)
@@ -321,7 +321,7 @@ func (p *Plugin) handleRemindList(ctx *eventctx.Context) error {
 		fmt.Fprintf(&b, "  - `%s` — %s（%s 后触发）\n", r.ID, r.Text, formatRemindDuration(time.Until(r.At)))
 	}
 	b.WriteString("\n用 `/ai remind cancel <ID>` 取消提醒")
-	ctx.ReplyText(b.String())
+	p.replyFormatted(ctx, b.String())
 	return nil
 }
 
@@ -332,9 +332,9 @@ func (p *Plugin) handleRemindCancel(ctx *eventctx.Context, id string) error {
 		return nil
 	}
 	if p.reminders.remove(ctx.GetChatInfo().ID, id) {
-		ctx.ReplyText(fmt.Sprintf("✅ 已取消提醒 `%s`", id))
+		p.replyFormatted(ctx, fmt.Sprintf("✅ 已取消提醒 `%s`", id))
 	} else {
-		ctx.ReplyText(fmt.Sprintf("❌ 未找到提醒 `%s`（ID 见 `/ai remind list`）", id))
+		p.replyFormatted(ctx, fmt.Sprintf("❌ 未找到提醒 `%s`（ID 见 `/ai remind list`）", id))
 	}
 	return nil
 }

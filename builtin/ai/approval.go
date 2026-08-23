@@ -214,14 +214,14 @@ func (p *Plugin) requestApproval(ctx *eventctx.Context, toolName, argsSummary st
 	case approved, ok := <-req.result:
 		if !ok {
 			// 通道被关闭 = 超时清理
-			ctx.ReplyText(fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", formatApprovalTimeout(approvalTimeout), toolName))
+			p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", formatApprovalTimeout(approvalTimeout), toolName))
 			return false
 		}
 		return approved
 	case <-time.After(approvalTimeout):
 		// 本地超时兜底：从 pending 移除（幂等，已处理则 no-op）
 		p.approvals.resolve(id, "", false)
-		ctx.ReplyText(fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", formatApprovalTimeout(approvalTimeout), toolName))
+		p.replyFormatted(ctx, fmt.Sprintf("⏰ 审批超时（%s），工具 `%s` 已按拒绝处理", formatApprovalTimeout(approvalTimeout), toolName))
 		return false
 	}
 }
@@ -286,7 +286,7 @@ func (p *Plugin) handleApprovalCommand(ctx *eventctx.Context, approve bool) erro
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		ctx.ReplyText("❌ 请指定审批 ID，用法：`" + p.cfg.TriggerCmd + " approve <ID>` 或 `" + p.cfg.TriggerCmd + " deny <ID>`（ID 见审批请求消息）")
+		p.replyFormatted(ctx, "❌ 请指定审批 ID，用法：`"+p.cfg.TriggerCmd+" approve <ID>` 或 `"+p.cfg.TriggerCmd+" deny <ID>`（ID 见审批请求消息）")
 		return nil
 	}
 

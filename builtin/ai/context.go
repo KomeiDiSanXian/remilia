@@ -36,6 +36,18 @@ func (p *Plugin) replyAndRecord(ctx *eventctx.Context, msg platform.OutboundMess
 	return ctx.Reply(msg)
 }
 
+// replyFormatted 按 markdown 配置发送带格式的子命令回复。
+//
+// markdown=true 时使用 MarkdownMessage（平台不支持时由发送层自动降级为纯文本）；
+// markdown=false 时始终发送纯文本。与主回复路径（handler/runner/sendtool）保持一致，
+// 避免子命令文案（粗体/行内代码等）在支持 Markdown 的平台上一律以字面符号展示。
+func (p *Plugin) replyFormatted(ctx *eventctx.Context, text string) *future.Future[platform.SendResult] {
+	if p.cfg != nil && p.cfg.Markdown {
+		return ctx.Reply(platform.MarkdownMessage(text))
+	}
+	return ctx.ReplyText(text)
+}
+
 // prependReplyContext 若本条消息是回复，将所回复消息的内容前置到用户消息。
 // 命中出站消息（机器人自己的回复）时以"机器人"标注发送者。
 // 未命中或关闭时不改变 content。

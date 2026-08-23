@@ -71,6 +71,8 @@ nav:
       - 访问控制列表: 02-user-guides/access-control-list.md
       - 验证码系统: 02-user-guides/verification-code-system.md
       - 链路追踪: 02-user-guides/tracing.md
+  - 插件 Cookbook:
+      - Cookbook 菜谱: 07-cookbook/COOKBOOK.md
   - 插件文档:
       - 插件文档索引: 06-plugins/README.md
       - 插件开发指南: 06-plugins/PLUGIN_DEVELOPMENT_GUIDE.md

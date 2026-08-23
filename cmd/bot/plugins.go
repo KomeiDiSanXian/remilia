@@ -20,6 +20,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/dev/debug"
 	"github.com/KomeiDiSanXian/remilia/builtin/job"
 	"github.com/KomeiDiSanXian/remilia/builtin/keywordfilter"
+	"github.com/KomeiDiSanXian/remilia/builtin/knowledgebase"
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	"github.com/KomeiDiSanXian/remilia/builtin/moderation"
 	"github.com/KomeiDiSanXian/remilia/builtin/ping"
@@ -142,6 +143,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 
 		// AI 与内容工具
 		ai.New(eng),
+		knowledgebase.New(),
 		weather.New(),
 		websearch.New(),
 		iss.New(iss.WithDataDir(dataDir + "/iss")),

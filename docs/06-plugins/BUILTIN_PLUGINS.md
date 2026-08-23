@@ -104,6 +104,28 @@ engine.On(string(platform.EventKindGroupMessage), spam.Rule()).Handle(myHandler)
 
 ## 🧩 其他核心插件
 
+## 📚 知识库检索
+
+### knowledgebase — 本地文档知识库
+
+从本地 Markdown 文档目录建立可检索的知识库：注册 `kb_search` / `kb_stats` 两个 AI 工具（LLM 按需调用），并提供 `/kb rebuild` / `/kb status` 管理命令（需 superadmin 角色）。
+
+**默认关闭（opt-in）**——由部署者显式启用并配置数据源，框架不预置任何文档内容：
+
+```yaml
+plugins:
+  knowledgebase:
+    enabled: true                          # 显式启用
+    source_dir: "docs"                     # 指向你自己的 Markdown 文档目录（相对工作目录）
+    embedding_base_url: "http://127.0.0.1:8080/v1"  # 语义检索端点（OpenAI 兼容 /embeddings；空=仅关键词）
+    embedding_model: "Qwen3-Embedding-0.6B-Q8_0.gguf"
+    tool_description: "这里描述你的知识库包含什么内容，帮助 LLM 判断何时调用"  # 可选
+```
+
+索引分块后持久化到 SQLite（`data/db/knowledgebase.db`），启动时增量更新（按文件 hash 只重建变更），不阻塞启动；embedding 不可用时自动降级为关键词检索。
+
+---
+
 | 插件 | 说明 |
 |------|------|
 | `core/help` | `/help` 命令：按分类展示全部命令与插件信息 |

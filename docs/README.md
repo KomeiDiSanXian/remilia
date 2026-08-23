@@ -24,6 +24,10 @@
 - [AI 对话插件](./06-plugins/AI_PLUGIN.md) — /ai 对话、工具调用与自定义技能
 - [WASM 插件开发](./06-plugins/wasm-plugin-development.md) — 沙箱插件
 
+### 🍳 插件 Cookbook
+
+- [Cookbook 菜谱](./07-cookbook/COOKBOOK.md) — 定时任务 / AI Tool / 消息去重等「问题 → 示例」速查
+
 ### 📖 用户指南
 
 - [最佳实践](./02-user-guides/BEST_PRACTICES.md) — 推荐的使用模式
