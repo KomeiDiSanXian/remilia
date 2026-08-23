@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.46.0 (2026-08-23)
+
+### 🧰 AI 管理子命令补齐（/ai memory / todo / plan）
+
+- **`/ai memory`**：查看我的长期记忆（群聊同时显示本群记忆）；`remove <序号|文本>` 删除单条/按内容删除（可加 `group` 作用域），`clear` 清空我的记忆、`clear group` 清空本群公共记忆（需群管理员/群主）；补充 `memoryStore.Clear` / `RemoveWhere`
+- **`/ai todo`**：会话待办清单的直接管理入口（list / add / done / remove / clear [done|all]），与 `todo_*` 工具共用同一存储
+- **`/ai plan`**：查看当前任务计划进度（status）与取消（cancel），与 `create_plan`/`update_plan_step` 共用会话计划；补充 `Session.cancelPlan`
+- 命令定义、`/ai tools` 帮助与 `docs/06-plugins/AI_PLUGIN.md` 同步更新
+
+### 🧪 测试稳定性修复
+
+- `TestProcessWithToolsParallelTools`（synctest）：加入"双方就绪"屏障，两个工具进入执行体后再放行，`maxConcurrent ≥ 2` 不再依赖 goroutine 调度时序——修复 `-race -shuffle` 下偶发观测到并发度为 1 的问题
+- `TestMemoryRemoveByIndex`：改为自洽断言（删除前快照的第 2 条即被删条目），不再假设列表顺序——修复 Windows 上 `time.Now()` 同 tick 时间戳相同导致的顺序抖动
+
 ## v1.45.0 (2026-08-23)
 
 ### 📚 本地文档知识库检索（knowledgebase 插件）
