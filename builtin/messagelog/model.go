@@ -2,6 +2,7 @@ package messagelog
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
@@ -98,6 +99,18 @@ const TopicMessageRecorded = "messagelog.message_recorded"
 // 可通过 [Logger.ScanAfter] 全量重建。
 type MessageRecorded struct {
 	Record RecordEntry
+}
+
+// LogContext 实现 plugin.ContextLogger：为 EventBus 发布日志提供紧凑摘要。
+// 不含正文与附件明细，避免日志噪音；direction 便于区分入站/出站发布。
+func (e MessageRecorded) LogContext() string {
+	r := e.Record
+	direction := "inbound"
+	if r.IsOutbound {
+		direction = "outbound"
+	}
+	return fmt.Sprintf("event_id=%s direction=%s chat_id=%s user_id=%s user_name=%q platform=%s kind=%s send_status=%s edited=%v recalled=%v",
+		r.EventID, direction, r.ChatID, r.UserID, r.UserName, r.Platform, r.Kind, r.SendStatus, r.IsEdited, r.IsRecalled)
 }
 
 // MessageRecord 对应 SQLite message_records 表的 GORM 模型。

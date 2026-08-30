@@ -18,6 +18,13 @@ var ErrEventDropped = errors.New("eventbus: worker pool full, event dropped")
 // 返回 error 表示处理失败（当前仅记录日志，未来可用于重试策略）。
 type EventHandler func(ctx context.Context, data any) error
 
+// ContextLogger 可选接口：事件负载可提供紧凑的发布日志摘要。
+// 实现后，PublishContext 的 Debug 日志会附加该摘要（如 messagelog 消息的
+// event_id / 方向 / 会话），便于排查订阅消费链路。
+type ContextLogger interface {
+	LogContext() string
+}
+
 // Subscription 订阅凭证
 type Subscription interface {
 	// Unsubscribe 取消订阅
@@ -170,7 +177,13 @@ func (eb *eventBus) PublishContext(ctx context.Context, topic string, data any) 
 	}
 
 	eb.publishCount.Add(1)
-	logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d)", topic, len(handlers), len(wildcardHandlers))
+	if cl, ok := data.(ContextLogger); ok {
+		logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d) payload=%s",
+			topic, len(handlers), len(wildcardHandlers), cl.LogContext())
+	} else {
+		logger.Debugf("[EventBus] Published event to topic: %s, subscribers: %d (wildcard: %d) payload_type=%T",
+			topic, len(handlers), len(wildcardHandlers), data)
+	}
 	return nil
 }
 
