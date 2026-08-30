@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.48.1 (2026-08-30)
+
+### 🐛 修复
+
+- **统计派生表原子提交**（builtin/statistics）：`flush()` 的四张派生表
+  （words / daily / users / chats）改为单事务提交，读者不再观察到「词频已更新而
+  daily/chats 未更新」的中间状态；`truncateAll()` 同样改为单事务，崩溃不再留下
+  只清空部分表的半截状态
+- **messagelog retention 删除原子化**：`deleteMessageIDs` 将 mentions / 附件引用 /
+  消息记录放在同一事务内删除，失败整体回滚，不再残留孤儿附件引用
+  （此前残留会阻塞二进制 GC 回收）
+
+### 🧪 测试
+
+- 统计订阅测试改用 `testing/synctest`：虚拟时钟推进 flush 间隔，消除轮询与真实
+  等待，修复 `TestIncremental_EventSubscription` 偶发 `got []`（flush 中间窗口竞态）
+
 ## v1.48.0 (2026-08-30)
 
 ### 🤖 AI 上下文基于 messagelog v2（builtin/ai）
