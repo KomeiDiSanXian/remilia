@@ -1080,6 +1080,8 @@ func (l *Logger) deleteMessagesBefore(before time.Time) {
 }
 
 // deleteMessageIDs 按 message_records.id 删除消息及其关联行。
+// mentions / 附件引用 / 消息在同一事务内删除：失败整体回滚，避免残留
+// 孤儿关联行（附件引用残留会导致二进制 GC 永远无法回收）。
 func (l *Logger) deleteMessageIDs(ids []int64) {
 	if l.db == nil || len(ids) == 0 {
 		return
@@ -1090,18 +1092,18 @@ func (l *Logger) deleteMessageIDs(ids []int64) {
 		chunk := ids[start:end]
 		var eventIDs []string
 		l.db.Model(&MessageRecord{}).Where("id IN ?", chunk).Pluck("event_id", &eventIDs)
-		if len(eventIDs) > 0 {
-			for _, tx := range []*gorm.DB{
-				l.db.Where("event_id IN ?", eventIDs).Delete(&MessageMention{}),
-				l.db.Where("event_id IN ?", eventIDs).Delete(&AttachmentRecord{}),
-			} {
-				if tx.Error != nil {
-					logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear related rows from DB")
+		if err := l.db.Transaction(func(tx *gorm.DB) error {
+			if len(eventIDs) > 0 {
+				if err := tx.Where("event_id IN ?", eventIDs).Delete(&MessageMention{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Where("event_id IN ?", eventIDs).Delete(&AttachmentRecord{}).Error; err != nil {
+					return err
 				}
 			}
-		}
-		if tx := l.db.Where("id IN ?", chunk).Delete(&MessageRecord{}); tx.Error != nil {
-			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
+			return tx.Where("id IN ?", chunk).Delete(&MessageRecord{}).Error
+		}); err != nil {
+			logger.WithError(err).Warn("[MessageLog] Failed to clear old messages from DB")
 		}
 	}
 }

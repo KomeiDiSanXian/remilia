@@ -285,15 +285,21 @@ func (p *Plugin) rebuild(ctx context.Context) {
 	}
 }
 
-// truncateAll 清空全部派生表。
+// truncateAll 清空全部派生表（单事务：四表要么全清、要么全不清，
+// 避免崩溃后只剩部分表被清空的中间状态）。
 func (p *Plugin) truncateAll() {
 	if p.db == nil {
 		return
 	}
-	for _, m := range []any{&WordStat{}, &DailyMessageStat{}, &UserMessageStat{}, &ChatMessageStat{}} {
-		if err := p.db.Session(&gorm.Session{}).Where("1 = 1").Delete(m).Error; err != nil {
-			logger.WithError(err).Warn("[Statistics] failed to truncate derived table")
+	if err := p.db.Transaction(func(tx *gorm.DB) error {
+		for _, m := range []any{&WordStat{}, &DailyMessageStat{}, &UserMessageStat{}, &ChatMessageStat{}} {
+			if err := tx.Session(&gorm.Session{}).Where("1 = 1").Delete(m).Error; err != nil {
+				return err
+			}
 		}
+		return nil
+	}); err != nil {
+		logger.WithError(err).Warn("[Statistics] failed to truncate derived tables")
 	}
 }
 
