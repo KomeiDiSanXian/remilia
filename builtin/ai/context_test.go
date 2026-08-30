@@ -140,6 +140,44 @@ func TestPrependReplyContextBotMessage(t *testing.T) {
 	}
 }
 
+// TestPrependReplyContextReplyChain 回复的回复：沿 ReplyToMessageID 向上追溯。
+func TestPrependReplyContextReplyChain(t *testing.T) {
+	l := messagelog.New(10)
+	now := time.Now()
+	// 小明回复小红 → 当前消息再回复小明
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserID: "u1", UserName: "小明", Content: "你说得对",
+		EventID: "e1", Timestamp: now, ReplyToMessageID: "e2",
+	})
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserID: "u2", UserName: "小红", Content: "我觉得不行",
+		EventID: "e2", Timestamp: now.Add(-time.Second),
+	})
+	p := &Plugin{cfg: &Config{}, history: l}
+
+	evt := &replyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "详细说说",
+			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}),
+			platform.WithSyntheticSender(platform.UserInfo{ID: "u3", DisplayName: "阿伟"})),
+		replyID: "e1",
+	}
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	got := p.prependReplyContext(ctx, "详细说说")
+	if !strings.Contains(got, "[你正在回复 小明 的消息]") {
+		t.Errorf("expected first-level marker, got %q", got)
+	}
+	if !strings.Contains(got, "小明: 你说得对") {
+		t.Errorf("expected first-level content, got %q", got)
+	}
+	if !strings.Contains(got, "[小明 在回复 小红 的消息]") {
+		t.Errorf("expected second-level marker, got %q", got)
+	}
+	if !strings.Contains(got, "小红: 我觉得不行") {
+		t.Errorf("expected second-level content, got %q", got)
+	}
+}
+
 func TestPrependReplyContextMiss(t *testing.T) {
 	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
 
@@ -318,6 +356,107 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 	got2 := p.buildGroupContext(ctx2, nil)
 	if !strings.Contains(got2, "机器人: AI 的回复") {
 		t.Errorf("expected fallback label, got %q", got2)
+	}
+}
+
+func TestBuildGroupContextSkipsUnsentOutbound(t *testing.T) {
+	l := messagelog.New(10)
+	now := time.Now()
+	l.Record(messagelog.RecordEntry{ChatID: "g1", UserName: "小明", Content: "你好", EventID: "1", Timestamp: now})
+	l.RecordOutboundSent("g1", "out-1", "成功回复", now.Add(time.Second))
+	// 发送失败的回复：不应以机器人身份注入群窗口
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", IsOutbound: true, Content: "失败回复", EventID: "2",
+		Timestamp: now.Add(2 * time.Second), SendStatus: messagelog.SendStatusFailed,
+	})
+	// unknown（发送结果不明）同样跳过
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", IsOutbound: true, Content: "未知回复", EventID: "3",
+		Timestamp: now.Add(3 * time.Second), SendStatus: messagelog.SendStatusUnknown,
+	})
+	// pending（未确认发送）由查询层 ExcludePending 排除
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", IsOutbound: true, Content: "发送中回复", EventID: "4",
+		Timestamp: now.Add(4 * time.Second), SendStatus: messagelog.SendStatusPending,
+	})
+
+	p := &Plugin{cfg: &Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
+	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+	ctx.SetBotName("蕾米莉亚")
+
+	got := p.buildGroupContext(ctx, nil)
+	if !strings.Contains(got, "成功回复") {
+		t.Errorf("expected confirmed reply in window, got %q", got)
+	}
+	if !strings.Contains(got, "小明: 你好") {
+		t.Errorf("expected user message in window, got %q", got)
+	}
+	for _, bad := range []string{"失败回复", "未知回复", "发送中回复"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("unsent outbound %q must not appear as bot speech, got %q", bad, got)
+		}
+	}
+}
+
+// TestBuildGroupContextReplyInline 窗口条目是回复时内联被回复内容。
+func TestBuildGroupContextReplyInline(t *testing.T) {
+	l := messagelog.New(10)
+	now := time.Now()
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserName: "小红", Content: "我觉得不行",
+		EventID: "e2", Timestamp: now.Add(-time.Second),
+	})
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserName: "小明", Content: "你说得对",
+		EventID: "e1", Timestamp: now, ReplyToMessageID: "e2",
+	})
+
+	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
+	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	got := p.buildGroupContext(ctx, nil)
+	if !strings.Contains(got, "小明: 你说得对（回复 小红: 我觉得不行）") {
+		t.Errorf("expected reply inline suffix, got %q", got)
+	}
+}
+
+// TestBuildGroupContextMentions 窗口条目标注 @ 提及对象（跳过机器人自身）。
+func TestBuildGroupContextMentions(t *testing.T) {
+	l := messagelog.New(10)
+	now := time.Now()
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserName: "小明", Content: "在吗",
+		EventID: "1", Timestamp: now,
+		Mentions: []platform.UserInfo{
+			{ID: "u2", DisplayName: "小红"},
+			{ID: "bot", DisplayName: "蕾米莉亚", IsSelf: true},
+			{ID: "u4", DisplayName: "小刚"},
+		},
+	})
+	// 无 Mentions 的普通条目不受影响
+	l.Record(messagelog.RecordEntry{
+		ChatID: "g1", UserName: "小红", Content: "好的", EventID: "2",
+		Timestamp: now.Add(time.Second),
+	})
+
+	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
+	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	got := p.buildGroupContext(ctx, nil)
+	if !strings.Contains(got, "小明: 在吗（@小红、@小刚）") {
+		t.Errorf("expected mention annotation, got %q", got)
+	}
+	if strings.Contains(got, "蕾米莉亚") {
+		t.Errorf("bot self-mention should be skipped, got %q", got)
+	}
+	if !strings.Contains(got, "小红: 好的") {
+		t.Errorf("entry without mentions should render unchanged, got %q", got)
 	}
 }
 

@@ -238,17 +238,6 @@ func (c *cache) evictLocked() bool {
 	return evicted > 0
 }
 
-// snapshot 返回 chatID 最近 n 条（旧→新）。
-func (c *cache) snapshot(chatID string, n int) []RecordEntry {
-	c.mu.RLock()
-	r := c.chats[chatID]
-	c.mu.RUnlock()
-	if r == nil {
-		return nil
-	}
-	return r.snapshot(n)
-}
-
 // snapshotAll 返回 chatID 全部缓存条目（旧→新，数量受 perChat 限制）。
 func (c *cache) snapshotAll(chatID string) []RecordEntry {
 	c.mu.RLock()

@@ -135,3 +135,85 @@ func TestQueryChat_BackfillsFromDB(t *testing.T) {
 		t.Errorf("expected newest mem-1 last, got %+v", got)
 	}
 }
+
+// TestQueryChat_LoadsMentions DB 兜底路径同样加载 @ 提及（与缓存条目一致，
+// 群窗口/回复上下文等消费者依赖 Mentions 字段）。
+func TestQueryChat_LoadsMentions(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "query_mentions.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	now := time.Now().UnixNano()
+	if err := l.db.Create(&MessageRecord{
+		ChatID: "g1", EventID: "db-1", Content: "hi", Timestamp: now, CreatedAt: now,
+	}).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	if err := l.db.Create(&MessageMention{
+		EventID: "db-1", MentionID: "u2", DisplayName: "小红",
+	}).Error; err != nil {
+		t.Fatalf("create mention: %v", err)
+	}
+
+	got := l.QueryChat("g1", 10, QueryOptions{Direction: DirectionInbound})
+	if len(got) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(got))
+	}
+	if len(got[0].Mentions) != 1 || got[0].Mentions[0].DisplayName != "小红" {
+		t.Errorf("expected mention loaded from DB, got %+v", got[0].Mentions)
+	}
+}
+
+// TestAttachmentsByEventID 按 event_id 返回附件行（含 ID/Status），
+// deleted 行跳过、其他消息的附件不串。
+func TestAttachmentsByEventID(t *testing.T) {
+	db, err := OpenDB(filepath.Join(t.TempDir(), "att_by_event.db"))
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer closeDB(t, db)
+	l := New(10)
+	l.UseDB(db)
+
+	rows := []AttachmentRecord{
+		{EventID: "evt-1", Type: "image", Name: "a.png", MimeType: "image/png", Size: 100, URL: "http://x/a.png", Status: "ready", StorageKey: "k1"},
+		{EventID: "evt-1", Type: "file", Name: "b.bin", MimeType: "application/octet-stream", URL: "http://x/b.bin", Status: "pending_lazy"},
+		{EventID: "evt-1", Type: "image", Name: "gone.png", URL: "http://x/gone.png", Status: "deleted"},
+		{EventID: "evt-2", Type: "image", Name: "other.png", URL: "http://x/other.png", Status: "ready", StorageKey: "k2"},
+	}
+	for i := range rows {
+		if err := db.Create(&rows[i]).Error; err != nil {
+			t.Fatalf("create attachment row: %v", err)
+		}
+	}
+
+	atts, err := l.AttachmentsByEventID("evt-1")
+	if err != nil {
+		t.Fatalf("AttachmentsByEventID: %v", err)
+	}
+	if len(atts) != 2 {
+		t.Fatalf("expected 2 non-deleted rows, got %d: %+v", len(atts), atts)
+	}
+	if atts[0].ID == 0 || atts[0].Name != "a.png" || atts[0].Status != "ready" || atts[0].StorageKey != "k1" {
+		t.Errorf("first row mismatch: %+v", atts[0])
+	}
+	if atts[1].Name != "b.bin" || atts[1].Status != "pending_lazy" {
+		t.Errorf("second row mismatch: %+v", atts[1])
+	}
+	for _, a := range atts {
+		if a.Name == "gone.png" || a.Name == "other.png" {
+			t.Errorf("unexpected attachment %q returned", a.Name)
+		}
+	}
+
+	if got, _ := l.AttachmentsByEventID("no-such-event"); len(got) != 0 {
+		t.Errorf("expected empty for unknown event, got %+v", got)
+	}
+	if got, _ := l.AttachmentsByEventID(""); got != nil {
+		t.Errorf("expected nil for empty event_id, got %+v", got)
+	}
+}

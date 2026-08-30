@@ -104,13 +104,18 @@ func (l *Logger) QueryChat(chatID string, n int, opts QueryOptions) []RecordEntr
 		if err := q.Order("timestamp DESC, id DESC").Limit(n).Find(&models).Error; err != nil {
 			logger.WithError(err).Warn("[MessageLog] Failed to query recent messages from DB")
 		} else {
+			eventIDs := make([]string, 0, len(models))
+			for _, m := range models {
+				eventIDs = append(eventIDs, m.EventID)
+			}
+			mentionsMap := l.loadMentions(eventIDs)
 			attachmentsMap := l.loadAttachments(models)
 			for _, m := range slices.Backward(models) {
 				if seen[m.EventID] {
 					continue
 				}
 				seen[m.EventID] = true
-				entry := modelToEntry(m, nil)
+				entry := modelToEntry(m, mentionsMap[m.EventID])
 				entry.Attachments = attachmentsMap[m.EventID]
 				entries = append(entries, entry)
 			}
@@ -204,17 +209,64 @@ func (l *Logger) QueryByEventID(chatID, eventID string) (RecordEntry, bool) {
 	return RecordEntry{}, false
 }
 
-// Fetch 按附件行 ID 获取二进制内容（触发懒加载）。
+// AttachmentsByEventID 返回指定消息（event_id）已落库的附件行（含行 ID / 状态）。
+//
+// 直接从 message_attachments 表查询，不经热缓存——缓存条目中的附件元数据
+// 在落库前不含行 ID（行由 flush 创建），需要 [Logger.Fetch] 时必须以行 ID 定位。
+// 调用时机：
+//   - 当前事件刚记录、尚未 flush 时可能返回空，调用方应回退到平台事件附件；
+//   - 历史消息（已落库）可直接使用，对非 ready 的行经 [Logger.Fetch] 显式
+//     同步触发下载。
+//
+// deleted 行（GC 已回收二进制）不返回；返回顺序按行 ID 升序（= 记录顺序）。
+func (l *Logger) AttachmentsByEventID(eventID string) ([]AttachmentMeta, error) {
+	if l.db == nil || eventID == "" {
+		return nil, nil
+	}
+	var rows []AttachmentRecord
+	if err := l.db.Where("event_id = ?", eventID).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	out := make([]AttachmentMeta, 0, len(rows))
+	for _, r := range rows {
+		if r.Status == string(attachments.StatusDeleted) {
+			continue
+		}
+		out = append(out, AttachmentMeta{
+			ID:         r.ID,
+			Type:       r.Type,
+			Name:       r.Name,
+			MimeType:   r.MimeType,
+			Size:       r.Size,
+			URL:        r.URL,
+			Status:     r.Status,
+			StorageKey: r.StorageKey,
+		})
+	}
+	return out, nil
+}
+
+// Fetch 按附件行 ID 获取二进制内容（触发懒加载），等价于
+// FetchContext(context.Background(), attachmentID)。
 //
 //   - ready：直接打开存储文件；
 //   - pending_lazy / pending_retry / pending：同步触发下载（显式请求可突破
 //     磁盘预算，不突破单文件硬上限）；
 //   - failed / expired / deleted：返回错误。
 func (l *Logger) Fetch(attachmentID int64) (io.ReadCloser, error) {
+	return l.FetchContext(context.Background(), attachmentID)
+}
+
+// FetchContext 同 Fetch，但使用调用方上下文（超时/取消）包裹下载。
+// 调用方应传入有界的 ctx（如 AI 回合 30s 超时），避免同步下载卡住调用路径。
+func (l *Logger) FetchContext(ctx context.Context, attachmentID int64) (io.ReadCloser, error) {
 	if l.att == nil || l.db == nil {
 		return nil, attachments.ErrNotAvailable
 	}
-	return l.att.Fetch(context.Background(), attachmentID)
+	return l.att.Fetch(ctx, attachmentID)
 }
 
 // AttachmentsReady 判断某条记录的附件是否全部可用（status=ready）。

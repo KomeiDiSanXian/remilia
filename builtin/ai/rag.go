@@ -2,8 +2,8 @@
 //
 // 本文件实现从 messagelog 历史中检索相关消息注入系统提示：
 //   - buildRAGContext：构建"相关历史消息"节（context_rag_messages > 0 时启用）
-//   - ragCandidates：候选筛选——SQL 时间窗查询（复用 messagelog.QueryGroupFromDB /
-//     QueryUserFromDB，群聊仅检索当前群，私聊按当前用户，不做跨群检索）
+//   - ragCandidates：候选筛选——时间窗查询（messagelog.QueryRange，热缓存 +
+//     SQLite 合并；群聊仅检索当前群，私聊按当前会话，不做跨群检索）
 //   - rankHistory：两阶段排序——本地关键词预筛（零成本门槛，无命中不花
 //     embedding）→ 对候选集做 embedding 语义精排（复用共享 textVectorCache）
 //   - 与最近消息窗口（context_group_messages）按 EventID 去重
@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -122,7 +123,10 @@ func (p *Plugin) buildRAGContextN(ctx *eventctx.Context, session *Session, max i
 	return text
 }
 
-// ragCandidates 查询候选消息：当前群/当前用户、最近 N 天、上限 M 条（仅入站）。
+// ragCandidates 查询候选消息：当前会话、最近 N 天、上限 M 条（仅入站）。
+// 统一走 QueryRange（热缓存 + SQLite 合并，私聊刚发未 flush 的消息也能命中），
+// 返回最新在前——语义兜底"取最近候选"依赖此顺序（与旧 QueryGroupFromDB /
+// QueryUserFromDB 语义一致）。
 func (p *Plugin) ragCandidates(chat platform.ChatInfo) ([]messagelog.RecordEntry, error) {
 	days := p.cfg.ContextRAGDays
 	if days <= 0 {
@@ -133,10 +137,13 @@ func (p *Plugin) ragCandidates(chat platform.ChatInfo) ([]messagelog.RecordEntry
 		limit = 500
 	}
 	since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	if chat.IsGroup {
-		return p.history.QueryGroupFromDB(chat.ID, since, time.Now(), limit)
+	entries, err := p.history.QueryRange(chat.ID, since, time.Now(), limit,
+		messagelog.QueryOptions{Direction: messagelog.DirectionInbound})
+	if err != nil {
+		return nil, err
 	}
-	return p.history.QueryUserFromDB(chat.ID, since, time.Now(), limit)
+	slices.Reverse(entries)
+	return entries, nil
 }
 
 // formatRAGHitsN 两阶段排序并格式化命中消息。

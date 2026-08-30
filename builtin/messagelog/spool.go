@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 )
@@ -241,33 +240,6 @@ func (s *spool) unacked() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.records
-}
-
-// oldestAge 返回最旧未确认记录的年龄（秒）；无未确认记录返回 0。
-func (s *spool) oldestAge() float64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.records <= 0 || s.cursor >= s.size {
-		return 0
-	}
-	f, err := os.Open(s.file)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	if _, err := f.Seek(s.cursor, io.SeekStart); err != nil {
-		return 0
-	}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	if !sc.Scan() {
-		return 0
-	}
-	var e RecordEntry
-	if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-		return 0
-	}
-	return time.Since(e.Timestamp).Seconds()
 }
 
 func (s *spool) persistCursorLocked() error {

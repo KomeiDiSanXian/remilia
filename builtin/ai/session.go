@@ -82,36 +82,46 @@ type Session struct {
 	imageOverflowNotified bool `json:"-"`
 }
 
+// pendingImageRef 未消费纯图片消息的引用（不持有二进制）。
+// 消费时经 messagelog 附件存储解析为多模态 ContentPart（URL 过期免疫）；
+// 引用持久化于会话记录，重启后窗口内 follow-up 仍可合并。
+type pendingImageRef struct {
+	ChatID        string // 会话 ID（消费时解析 messagelog）
+	PlatformMsgID string // 平台消息 ID（= messagelog platform_message_id）
+	URL           string // 直链兜底（存储未落库/不可用时回退下载）
+	MimeType      string // 直链兜底时的类型提示
+}
+
 // pendingImageState 未消费的纯图片消息（合并窗口状态）。
 type pendingImageState struct {
-	Parts     []ContentPart // 已下载的图片 ContentPart
-	Extra     int           // 超出二进制保留上限的额外图片数（仅计数，不持有二进制）
-	Timestamp time.Time     // 最近一张图片的到达时间
+	Parts     []pendingImageRef // 待合并的图片引用（不持有二进制）
+	Extra     int               // 超出二进制保留上限的额外图片数（仅计数，不持有二进制）
+	Timestamp time.Time         // 最近一张图片的到达时间
 }
 
 // extendPendingImage 追加图片到当前合并窗口；无有效窗口或窗口已过期时新建。
 // 纯图片消息本身不回复，仅记录等待后续文字合并（表情包防误触发）。
 // maxKeep 限制 pending 持有的二进制图片数（超出部分仅计数，不下载/持有），
 // 防止群里连发表情包导致内存无界增长；合并时用计数补足总数判断超限。
-func (s *Session) extendPendingImage(parts []ContentPart, at time.Time, window time.Duration, maxKeep int) {
-	if len(parts) == 0 {
+func (s *Session) extendPendingImage(refs []pendingImageRef, at time.Time, window time.Duration, maxKeep int) {
+	if len(refs) == 0 {
 		return
 	}
 	s.Lock()
 	defer s.Unlock()
 	if pendingImageWithin(s.pendingImage, window, at) {
-		keep := min(maxKeep-len(s.pendingImage.Parts), len(parts))
+		keep := min(maxKeep-len(s.pendingImage.Parts), len(refs))
 		if keep > 0 {
-			s.pendingImage.Parts = append(s.pendingImage.Parts, parts[:keep]...)
+			s.pendingImage.Parts = append(s.pendingImage.Parts, refs[:keep]...)
 		}
-		s.pendingImage.Extra += len(parts) - keep
+		s.pendingImage.Extra += len(refs) - keep
 		s.pendingImage.Timestamp = at
 		return
 	}
-	keep := min(maxKeep, len(parts))
+	keep := min(maxKeep, len(refs))
 	s.pendingImage = &pendingImageState{
-		Parts:     append([]ContentPart(nil), parts[:keep]...),
-		Extra:     len(parts) - keep,
+		Parts:     append([]pendingImageRef(nil), refs[:keep]...),
+		Extra:     len(refs) - keep,
 		Timestamp: at,
 	}
 }
@@ -119,7 +129,7 @@ func (s *Session) extendPendingImage(parts []ContentPart, at time.Time, window t
 // consumePendingImage 返回并清除窗口内的未消费图片；窗口不存在或已过期返回 nil。
 // 返回值 (parts, extra)：parts 为持有的二进制图片，extra 为仅计数的额外图片数。
 // 每次处理真实回合时调用：无论是否合并，pending 都被消费（防止跨回合误合并）。
-func (s *Session) consumePendingImage(window time.Duration, now time.Time) ([]ContentPart, int) {
+func (s *Session) consumePendingImage(window time.Duration, now time.Time) ([]pendingImageRef, int) {
 	s.Lock()
 	defer s.Unlock()
 	p := s.pendingImage
@@ -598,6 +608,8 @@ type sessionRecord struct {
 	ToolCount int    `gorm:"default:0"`
 	// Plan 进行中的任务计划（JSON；跨重启继续执行）。
 	Plan      string `gorm:"type:text"`
+	// PendingImages 未消费图片引用（JSON；跨重启窗口内仍可合并）。
+	PendingImages string `gorm:"type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -617,6 +629,14 @@ func (s *Session) toRecord() *sessionRecord {
 			logger.Errorf("[AI] Failed to marshal session plan for %s: %v", s.ID, perr)
 		}
 	}
+	var pendingJSON string
+	if s.pendingImage != nil {
+		if pb, perr := json.Marshal(s.pendingImage); perr == nil {
+			pendingJSON = string(pb)
+		} else {
+			logger.Errorf("[AI] Failed to marshal pending images for %s: %v", s.ID, perr)
+		}
+	}
 	return &sessionRecord{
 		ID:        s.ID,
 		UserID:    s.UserID,
@@ -625,6 +645,7 @@ func (s *Session) toRecord() *sessionRecord {
 		CallCount: s.CallCount,
 		ToolCount: s.ToolCount,
 		Plan:      planJSON,
+		PendingImages: pendingJSON,
 		CreatedAt: s.CreatedAt,
 		UpdatedAt: s.UpdatedAt,
 	}
@@ -681,6 +702,14 @@ func (r *sessionRecord) toSession() *Session {
 			s.plan = &plan
 		} else {
 			logger.Warnf("[AI] Failed to unmarshal session plan (corrupted?): %v", err)
+		}
+	}
+	if r.PendingImages != "" {
+		var pi pendingImageState
+		if err := json.Unmarshal([]byte(r.PendingImages), &pi); err == nil {
+			s.pendingImage = &pi
+		} else {
+			logger.Warnf("[AI] Failed to unmarshal pending images (corrupted?): %v", err)
 		}
 	}
 	return s

@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.48.0 (2026-08-30)
+
+### 🤖 AI 上下文基于 messagelog v2（builtin/ai）
+
+**群聊窗口**
+
+- 统一走 `QueryChat`（热缓存 + SQLite 补齐）：`context_group_include_bot` 时查询层
+  排除 pending，failed/unknown 的未发出回复不再以机器人身份注入（以 `send_status`
+  为准，旧数据视为已发出）
+- @ 提及标注：窗口条目结构化呈现记录的 `Mentions`（跳过机器人自身，最多 3 个），
+  避免 QQ 等平台剥除 @ 标记后 AI 漏看被提及对象
+- 回复上下文支持回复链追溯：沿 `ReplyToEventID` / `ReplyToMessageID` 逐层向上
+  （最多 3 层），命中出站消息以"机器人"标注发送者；QQ 引用消息段兜底保留
+
+**多模态图片**
+
+- 引用图片优先从 messagelog 附件存储解析（平台消息 ID → event_id → 附件行 →
+  `FetchContext` 有界同步下载）：URL 过期免疫、内容去重、会话缓存复用；未命中
+  回退段提取直链
+- 待合并图片窗口改为记录附件引用而非二进制：表情包不再提前下载，窗口内文字消息
+  到达时才水合（存储优先、URL 兜底）；引用持久化到 session，重启后 follow-up
+  仍可合并；图片数量限制（`max_images_per_message`）在合并前统一校验
+
+**RAG**
+
+- 候选统一走 `QueryRange`（热缓存 + SQLite 合并）：私聊刚发送未 flush 的消息
+  也能进入候选，替代旧的仅 DB 查询路径；保持最新在前供语义兜底排序
+
+### 🧩 messagelog API 补充
+
+- 新增 `AttachmentsByEventID`：按 `event_id` 返回已落库附件行
+- 新增 `FetchContext(ctx, id)`：有界同步下载（供 AI 等消费方拉取未 ready 附件）
+- `QueryChat` DB 兜底路径补载 Mentions，与缓存条目一致（群窗口 / 回复上下文依赖）
+
+### 🔧 工程
+
+- golangci-lint 清理：errcheck（`DiscardTemp` / `ROLLBACK` / GC 错误处理）与
+  unused（`diskBudget` 锁、`cache.snapshot`、`spool.oldestAge`）
+- 临时暂停 standalone staticcheck：staticcheck 在 Go 1.27 泛型方法下崩溃
+  （上游 golang/go#81188，暂无修复版），golangci-lint 侧排除 SA4023，
+  待上游修复后恢复
+
 ## v1.47.0 (2026-08-30)
 
 ### 🧠 消息日志重设计（事实层）

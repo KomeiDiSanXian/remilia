@@ -83,6 +83,11 @@ jobs:
 
   staticcheck:
     name: staticcheck
+    # Temporarily disabled: staticcheck crashes on Go 1.27 generic methods
+    # (upstream golang/go#81188; no fixed staticcheck or Go release yet).
+    # The lint job still runs staticcheck's SA*/S*/QF* checks via golangci-lint
+    # with SA4023 excluded. Remove `if: false` once upstream ships a fix.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

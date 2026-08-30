@@ -488,17 +488,20 @@ func TestSessionRecordJSONRoundTrip(t *testing.T) {
 func TestSessionPendingImageExtendAndConsume(t *testing.T) {
 	s := &Session{}
 	now := time.Now()
-	imgPart := func(data string) []ContentPart {
-		return []ContentPart{{Type: ContentPartImage, Data: []byte(data)}}
+	imgRef := func(id string) []pendingImageRef {
+		return []pendingImageRef{{ChatID: "g1", PlatformMsgID: id, URL: "http://x/" + id + ".png", MimeType: "image/png"}}
 	}
 
-	s.extendPendingImage(imgPart("a"), now, 30*time.Second, 4)
-	s.extendPendingImage(imgPart("b"), now.Add(5*time.Second), 30*time.Second, 4)
+	s.extendPendingImage(imgRef("a"), now, 30*time.Second, 4)
+	s.extendPendingImage(imgRef("b"), now.Add(5*time.Second), 30*time.Second, 4)
 
 	// 窗口内：返回累积的 2 张图，并清除 pending
-	parts, extra := s.consumePendingImage(30*time.Second, now.Add(6*time.Second))
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 accumulated pending images, got %d", len(parts))
+	refs, extra := s.consumePendingImage(30*time.Second, now.Add(6*time.Second))
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 accumulated pending image refs, got %d", len(refs))
+	}
+	if refs[0].PlatformMsgID != "a" || refs[1].PlatformMsgID != "b" {
+		t.Errorf("expected refs in order a,b, got %+v", refs)
 	}
 	if extra != 0 {
 		t.Fatalf("expected 0 extra images, got %d", extra)
@@ -512,7 +515,7 @@ func TestSessionPendingImageExtendAndConsume(t *testing.T) {
 func TestSessionPendingImageExpired(t *testing.T) {
 	s := &Session{}
 	now := time.Now()
-	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 30*time.Second, 4)
+	s.extendPendingImage([]pendingImageRef{{ChatID: "g1", PlatformMsgID: "a"}}, now, 30*time.Second, 4)
 
 	// 超过窗口：消费返回 nil（静默丢弃，表情包防误触发）
 	if got, extra := s.consumePendingImage(30*time.Second, now.Add(31*time.Second)); got != nil || extra != 0 {
@@ -520,7 +523,7 @@ func TestSessionPendingImageExpired(t *testing.T) {
 	}
 
 	// 过期后的新图片开启新窗口
-	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("b")}}, now.Add(40*time.Second), 30*time.Second, 4)
+	s.extendPendingImage([]pendingImageRef{{ChatID: "g1", PlatformMsgID: "b"}}, now.Add(40*time.Second), 30*time.Second, 4)
 	if got, _ := s.consumePendingImage(30*time.Second, now.Add(45*time.Second)); len(got) != 1 {
 		t.Errorf("expected new pending window valid, got %+v", got)
 	}
@@ -531,7 +534,7 @@ func TestSessionPendingImageZeroWindowAlwaysValid(t *testing.T) {
 	now := time.Now()
 	// window <= 0 表示合并关闭：pending 不被记录（extend 不会创建窗口时也直接返回？）
 	// 这里验证 window<=0 时 pending 永不失效（虽然入口已禁止记录，防御性验证）。
-	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 0, 4)
+	s.extendPendingImage([]pendingImageRef{{ChatID: "g1", PlatformMsgID: "a"}}, now, 0, 4)
 	if got, _ := s.consumePendingImage(0, now.Add(24*time.Hour)); len(got) != 1 {
 		t.Errorf("expected pending valid when window=0, got %+v", got)
 	}
@@ -540,7 +543,7 @@ func TestSessionPendingImageZeroWindowAlwaysValid(t *testing.T) {
 func TestSessionPendingImageRejectPath(t *testing.T) {
 	s := &Session{}
 	now := time.Now()
-	s.extendPendingImage([]ContentPart{{Type: ContentPartImage, Data: []byte("a")}}, now, 30*time.Second, 4)
+	s.extendPendingImage([]pendingImageRef{{ChatID: "g1", PlatformMsgID: "a"}}, now, 30*time.Second, 4)
 	// 图片数量超限拒绝时清空 pending，避免残留状态
 	s.clearPendingImage()
 	if got, extra := s.consumePendingImage(30*time.Second, now.Add(5*time.Second)); got != nil || extra != 0 {
@@ -551,20 +554,56 @@ func TestSessionPendingImageRejectPath(t *testing.T) {
 func TestSessionPendingImageExtraCount(t *testing.T) {
 	s := &Session{}
 	now := time.Now()
-	imgPart := func(data string) []ContentPart {
-		return []ContentPart{{Type: ContentPartImage, Data: []byte(data)}}
+	imgRef := func(id string) []pendingImageRef {
+		return []pendingImageRef{{ChatID: "g1", PlatformMsgID: id, URL: "http://x/" + id + ".png"}}
 	}
 
 	// maxKeep=2：3 张图只持有前 2 张二进制，第 3 张仅计数
-	s.extendPendingImage(imgPart("a"), now, 30*time.Second, 2)
-	s.extendPendingImage(imgPart("b"), now.Add(1*time.Second), 30*time.Second, 2)
-	s.extendPendingImage(imgPart("c"), now.Add(2*time.Second), 30*time.Second, 2)
+	s.extendPendingImage(imgRef("a"), now, 30*time.Second, 2)
+	s.extendPendingImage(imgRef("b"), now.Add(1*time.Second), 30*time.Second, 2)
+	s.extendPendingImage(imgRef("c"), now.Add(2*time.Second), 30*time.Second, 2)
 
-	parts, extra := s.consumePendingImage(30*time.Second, now.Add(3*time.Second))
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 held image parts, got %d", len(parts))
+	refs, extra := s.consumePendingImage(30*time.Second, now.Add(3*time.Second))
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 held image refs, got %d", len(refs))
 	}
 	if extra != 1 {
 		t.Fatalf("expected 1 extra image count, got %d", extra)
+	}
+}
+
+// TestSessionPendingImagePersistence 引用随会话记录持久化，重启后可恢复。
+func TestSessionPendingImagePersistence(t *testing.T) {
+	s := &Session{ID: "s1", UserID: "u1", ChatID: "g1"}
+	now := time.Now()
+	s.extendPendingImage([]pendingImageRef{
+		{ChatID: "g1", PlatformMsgID: "img-1", URL: "http://x/1.png", MimeType: "image/png"},
+		{ChatID: "g1", PlatformMsgID: "img-2", URL: "http://x/2.png"},
+	}, now, 30*time.Second, 4)
+
+	rec := s.toRecord()
+	if rec.PendingImages == "" {
+		t.Fatal("expected pending images serialized in session record")
+	}
+
+	restored := rec.toSession()
+	refs, extra := restored.consumePendingImage(30*time.Second, now.Add(5*time.Second))
+	if extra != 0 {
+		t.Errorf("expected no extra, got %d", extra)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 restored refs, got %d", len(refs))
+	}
+	if refs[0].PlatformMsgID != "img-1" || refs[0].URL != "http://x/1.png" || refs[0].MimeType != "image/png" {
+		t.Errorf("ref[0] mismatch: %+v", refs[0])
+	}
+	if refs[1].PlatformMsgID != "img-2" {
+		t.Errorf("ref[1] mismatch: %+v", refs[1])
+	}
+
+	// 窗口过期后恢复：消费返回 nil（时间戳参与判定）
+	restored2 := rec.toSession()
+	if got, _ := restored2.consumePendingImage(30*time.Second, now.Add(time.Hour)); got != nil {
+		t.Errorf("expected nil after window expiry post-restore, got %+v", got)
 	}
 }

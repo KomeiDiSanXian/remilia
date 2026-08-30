@@ -18,7 +18,6 @@ import (
 //   - 80% ~ 100%：仅监控（指标 + 日志）；
 //   - >= 100%：停止低优先级回填并触发 GC；GC 后仍超限则停止所有非显式下载。
 type diskBudget struct {
-	mu        sync.Mutex
 	max       int64
 	soft      int64 // 80% 阈值
 	store     Store

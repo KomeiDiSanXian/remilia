@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/infra/netguard"
@@ -170,16 +171,20 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 
 	// 合并窗口：消费未消费图片并入本条（引用/回复消息优先级更高，跳过合并，
 	// 避免双图语义混乱）。消费即清除 pending，防止跨回合误合并。
-	if pendingParts, pendingExtra := session.consumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingParts) > 0 || pendingExtra > 0 {
+	if pendingRefs, pendingExtra := session.consumePendingImage(p.cfg.ImageMergeWindow, userMsg.Timestamp); len(pendingRefs) > 0 || pendingExtra > 0 {
 		// 窗口被热重载关闭（<=0）时同样消费 pending，但不合并。
 		if p.cfg.ImageMergeWindow > 0 && platform.GetReplyToID(ctx.GetPlatformEvent()) == "" {
-			if total := len(pendingParts) + pendingExtra + countImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
+			if total := len(pendingRefs) + pendingExtra + countImageParts(userMsg.ContentParts); total > p.cfg.MaxImagesPerMessage {
 				logger.Warnf("[AI] Rejected merged message with %d images (max_images_per_message=%d)",
 					total, p.cfg.MaxImagesPerMessage)
 				ctx.ReplyText(fmt.Sprintf("图片数量超出限制（最多 %d 张），请重新编辑后再发送", p.cfg.MaxImagesPerMessage))
 				return nil
 			}
-			userMsg = mergePendingImageParts(userMsg, pendingParts)
+			// 引用 → 多模态 ContentPart（messagelog 存储优先，URL 兜底）；
+			// 解析失败（存储未启用/URL 过期）的图片跳过，不影响本条文字。
+			if parts := p.hydratePendingImageRefs(ctx, session, pendingRefs); len(parts) > 0 {
+				userMsg = mergePendingImageParts(userMsg, parts)
+			}
 		}
 	}
 
@@ -362,22 +367,88 @@ func (p *Plugin) maybeRecordPendingImage(ctx *eventctx.Context, content string, 
 	session.LockTurn()
 	defer session.UnlockTurn()
 
-	// 复用 buildUserMessage 下载附件（含 SSRF/大小限制/缓存），提取图片 parts。
-	userMsg := p.buildUserMessage(ctx, "", session)
-	parts := make([]ContentPart, 0, len(userMsg.ContentParts))
-	for _, part := range userMsg.ContentParts {
-		if part.Type == ContentPartImage {
-			parts = append(parts, part)
-		}
-	}
-	if len(parts) == 0 {
-		// 判定为纯图片场景但下载失败（URL 过期/SSRF/超限）：仍静默消费，
-		// 避免表情包走旧路径用 "[图片]" 占位内容回复。
+	// 记录引用而非二进制：不下载表情包，等待窗口内文字消息合并时才水合
+	// （messagelog 存储优先，URL 直链兜底）。SSRF/大小校验在水合阶段执行。
+	evt := ctx.GetPlatformEvent()
+	refs := pendingImageRefsFromAttachments(chat.ID, evt.ID(), atts)
+	if len(refs) == 0 {
+		// 判定为纯图片场景但无可用附件引用：仍静默消费，避免表情包走旧路径
+		// 用 "[图片]" 占位内容回复。
 		return true
 	}
-	session.extendPendingImage(parts, time.Now(), p.cfg.ImageMergeWindow, p.cfg.MaxImagesPerMessage)
-	logger.Debugf("[AI] Recorded pending image(s) for merge (chat=%s, parts=%d)", chat.ID, len(parts))
+	session.extendPendingImage(refs, time.Now(), p.cfg.ImageMergeWindow, p.cfg.MaxImagesPerMessage)
+	// 立即持久化引用：重启后窗口内 follow-up 仍可合并（二进制由
+	// messagelog 附件存储兜底，不依赖会话内存）。
+	p.sm.SaveSession(session)
+	logger.Debugf("[AI] Recorded pending image refs for merge (chat=%s, refs=%d)", chat.ID, len(refs))
 	return true
+}
+
+// pendingImageRefsFromAttachments 提取事件中的图片附件为待合并引用。
+// 判定与 hasImageAttachment 一致（Kind/MimeType 双通道）；跳过无 URL 项。
+func pendingImageRefsFromAttachments(chatID, platformMsgID string, atts []platform.Attachment) []pendingImageRef {
+	var refs []pendingImageRef
+	for _, att := range atts {
+		if att.URL == "" {
+			continue
+		}
+		if !isImageAttachment(att) {
+			continue
+		}
+		refs = append(refs, pendingImageRef{
+			ChatID:        chatID,
+			PlatformMsgID: platformMsgID,
+			URL:           att.URL,
+			MimeType:      att.MimeType,
+		})
+	}
+	return refs
+}
+
+// hydratePendingImageRefs 把未消费图片引用解析为多模态 ContentPart。
+// 每个引用按"messagelog 存储 → URL 直链"顺序解析；解析失败跳过该图。
+func (p *Plugin) hydratePendingImageRefs(ctx *eventctx.Context, session *Session, refs []pendingImageRef) []ContentPart {
+	parts := make([]ContentPart, 0, len(refs))
+	for _, ref := range refs {
+		if cp := p.resolvePendingImageRef(ctx, session, ref); cp != nil {
+			parts = append(parts, *cp)
+		}
+	}
+	return parts
+}
+
+// resolvePendingImageRef 解析单个图片引用。
+//   - 存储路径：PlatformMsgID → messagelog event → 附件行（URL 匹配优先）→ Fetch；
+//   - 未命中回退 URL 直链下载（合并窗口内直链通常仍有效）。
+func (p *Plugin) resolvePendingImageRef(ctx *eventctx.Context, session *Session, ref pendingImageRef) *ContentPart {
+	if p.history != nil && ref.PlatformMsgID != "" {
+		if entry, ok := p.history.QueryByEventID(ref.ChatID, ref.PlatformMsgID); ok && entry.EventID != "" {
+			if rows, err := p.history.AttachmentsByEventID(entry.EventID); err == nil {
+				var fallback *messagelog.AttachmentMeta
+				for i := range rows {
+					if !isImageAttachmentMeta(&rows[i]) {
+						continue
+					}
+					if ref.URL != "" && rows[i].URL == ref.URL {
+						if cp := p.fetchStoredAttachment(ctx.Context(), &rows[i], session); cp != nil {
+							return cp
+						}
+					} else if fallback == nil {
+						fallback = &rows[i]
+					}
+				}
+				if fallback != nil {
+					if cp := p.fetchStoredAttachment(ctx.Context(), fallback, session); cp != nil {
+						return cp
+					}
+				}
+			}
+		}
+	}
+	if ref.URL != "" {
+		return p.downloadAttachment(platform.Attachment{URL: ref.URL, MimeType: ref.MimeType}, session)
+	}
+	return nil
 }
 
 // mergePendingImageParts 将未消费图片前置到当前 user 消息（图片在前，文字在后），
@@ -431,6 +502,18 @@ func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *Conte
 	if evt == nil {
 		return nil
 	}
+	// 优先：被引用消息在 messagelog 的已落库附件（URL 过期免疫、内容去重）。
+	// 被引用消息是历史消息（已记录/已 flush），按平台消息 ID 解析 event_id 后
+	// 从附件存储读取二进制；未命中再走段提取的直链。
+	if replyID := platform.GetReplyToID(evt); replyID != "" && p.history != nil {
+		chat := ctx.GetChatInfo()
+		if entry, ok := p.history.QueryByEventID(chat.ID, replyID); ok && entry.EventID != "" {
+			if cp := p.storedImagePart(ctx.Context(), entry.EventID, session); cp != nil {
+				return cp
+			}
+		}
+	}
+	// 兜底：从 reply 段 Extra 提取被引用图片 URL（存储未启用/未落库时）。
 	url, mime := quotedImageFromSegments(evt.Segments())
 	if url == "" {
 		return nil
@@ -439,6 +522,91 @@ func (p *Plugin) quotedImagePart(ctx *eventctx.Context, session *Session) *Conte
 	if cp == nil || cp.Type != ContentPartImage {
 		return nil
 	}
+	return cp
+}
+
+// storedImagePart 从 messagelog 附件存储读取指定消息的第一张图片（含同步下载）。
+// 存储不可用 / 无图片行 / 下载失败返回 nil（调用方回退 URL 直链）。
+func (p *Plugin) storedImagePart(ctx context.Context, eventID string, session *Session) *ContentPart {
+	rows, err := p.history.AttachmentsByEventID(eventID)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	for i := range rows {
+		if !isImageAttachmentMeta(&rows[i]) {
+			continue
+		}
+		if cp := p.fetchStoredAttachment(ctx, &rows[i], session); cp != nil {
+			return cp
+		}
+	}
+	return nil
+}
+
+// isImageAttachmentMeta 判断附件元数据是否为图片（Type/MimeType 双通道，
+// 与 hasImageAttachment 的平台附件判定语义一致）。
+func isImageAttachmentMeta(a *messagelog.AttachmentMeta) bool {
+	return a.Type == string(platform.AttachmentKindImage) || strings.HasPrefix(a.MimeType, "image/")
+}
+
+// fetchStoredAttachment 经 messagelog 附件存储读取单个附件二进制并构造 ContentPart。
+// 未 ready 的行由 FetchContext 同步触发下载（带 30s 超时）；失败返回 nil。
+// 结果写入会话缓存（按 URL key，与 URL 下载路径共用，避免同一附件重复读盘）。
+func (p *Plugin) fetchStoredAttachment(ctx context.Context, a *messagelog.AttachmentMeta, session *Session) *ContentPart {
+	if cached := session.getCachedContent(a.URL); cached != nil {
+		return &ContentPart{
+			Type:        inferPartType(cached.MimeType),
+			SourceURL:   a.URL,
+			Data:        cached.Data,
+			MimeType:    cached.MimeType,
+			AudioFormat: cached.AudioFormat,
+		}
+	}
+	if a.ID == 0 {
+		return nil
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	rc, err := p.history.FetchContext(fetchCtx, a.ID)
+	if err != nil {
+		logger.Debugf("[AI] stored attachment fetch failed (id=%d): %v", a.ID, err)
+		return nil
+	}
+	defer rc.Close()
+
+	maxBytes := p.cfg.MaxAttachmentSize
+	if maxBytes <= 0 {
+		maxBytes = 20 * 1024 * 1024
+	}
+	data, err := io.ReadAll(io.LimitReader(rc, maxBytes+1))
+	if err != nil {
+		return nil
+	}
+	if int64(len(data)) > maxBytes {
+		return nil
+	}
+
+	mimeType := a.MimeType
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	cp := &ContentPart{
+		Type:      inferPartType(mimeType),
+		SourceURL: a.URL,
+		Data:      data,
+		MimeType:  mimeType,
+	}
+	if cp.Type == "" {
+		return nil
+	}
+	if cp.Type == ContentPartAudio {
+		cp.AudioFormat = inferAudioFormat(mimeType)
+		if cp.AudioFormat == "" {
+			return nil
+		}
+	}
+	session.setCachedContent(a.URL, data, mimeType, cp.AudioFormat)
 	return cp
 }
 

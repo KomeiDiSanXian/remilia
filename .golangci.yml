@@ -12,6 +12,9 @@ linters:
         - S*
         - QF*
         - -QF1012
+        # SA4023 crashes on Go 1.27 generic methods (upstream golang/go#81188);
+        # golangci-lint drops the analyzer before running it. Restore once fixed.
+        - -SA4023
     errcheck:
       exclude-functions:
         - (io.ReadCloser).Close

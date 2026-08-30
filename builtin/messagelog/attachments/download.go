@@ -157,27 +157,27 @@ func (d *Downloader) downloadOne(ctx context.Context, id int64, explicit bool) (
 	// 目标文件可能因旧引用删除而成为孤儿，必须在锁内重新建立）。
 	sqlDB, err := d.db.DB()
 	if err != nil {
-		d.store.DiscardTemp(tmp)
+		_ = d.store.DiscardTemp(tmp)
 		ce := classifyNetError(err)
 		return false, d.finishFailure(row, ce), ce
 	}
 	conn, err := sqlDB.Conn(ctx)
 	if err != nil {
-		d.store.DiscardTemp(tmp)
+		_ = d.store.DiscardTemp(tmp)
 		ce := classifyNetError(err)
 		return false, d.finishFailure(row, ce), ce
 	}
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		d.store.DiscardTemp(tmp)
+		_ = d.store.DiscardTemp(tmp)
 		ce := classifyNetError(err)
 		return false, d.finishFailure(row, ce), ce
 	}
 	// 失败路径先显式回滚释放写锁，再走 finishFailure（后者经 d.db 写行状态，
 	// 若锁未释放会自锁至 busy_timeout）。
 	rollback := func() {
-		conn.ExecContext(context.Background(), "ROLLBACK")
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 	}
 
 	if err := d.store.CommitTemp(key, tmp); err != nil {

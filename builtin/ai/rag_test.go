@@ -100,6 +100,30 @@ func TestFormatRAGHitsKeywordPrefilter(t *testing.T) {
 	}
 }
 
+func TestBuildRAGContextPrivateChat(t *testing.T) {
+	l, db := newRAGTestLogger(t)
+	// 私聊会话：chat_id == user_id
+	insertMessage(t, db, "u1", "u1", "我上次说想换显卡", 2*time.Hour, "")
+	// 其他用户的私聊不串台（QueryRange 按 chat_id 隔离）
+	insertMessage(t, db, "u2", "u2", "无关的私聊内容", 2*time.Hour, "")
+
+	p := newRAGPlugin(t, l, ragBaseCfg())
+	evt := platform.NewSyntheticEvent("c2c", "想换显卡",
+		platform.WithSyntheticChat(platform.ChatInfo{ID: "u1"}))
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	session := &Session{ID: "s1", UserID: "u1", ChatID: "u1"}
+	session.Messages = []Message{{Role: RoleUser, Content: "想换显卡"}}
+
+	text := p.buildRAGContext(ctx, session)
+	if !strings.Contains(text, "我上次说想换显卡") {
+		t.Errorf("expected private chat history in RAG, got %q", text)
+	}
+	if strings.Contains(text, "无关的私聊内容") {
+		t.Errorf("other user's private chat leaked into RAG, got %q", text)
+	}
+}
+
 func TestBuildRAGContextDisabled(t *testing.T) {
 	l, db := newRAGTestLogger(t)
 	insertMessage(t, db, "g1", "张三", "服务器方案选型讨论", time.Hour, "")

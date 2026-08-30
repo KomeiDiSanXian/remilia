@@ -19,9 +19,13 @@ func (m *Manager) gcLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-m.triggerGC:
-			m.gcOnce(ctx)
+			if err := m.gcOnce(ctx); err != nil {
+				logger.WithError(err).Warn("[attachments] GC round failed")
+			}
 		case <-ticker.C:
-			m.gcOnce(ctx)
+			if err := m.gcOnce(ctx); err != nil {
+				logger.WithError(err).Warn("[attachments] GC round failed")
+			}
 		}
 	}
 }
@@ -94,7 +98,7 @@ func (m *Manager) deleteIfUnreferenced(ctx context.Context, sqlDB *sql.DB, key s
 	committed := false
 	defer func() {
 		if !committed {
-			conn.ExecContext(context.Background(), "ROLLBACK")
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
 

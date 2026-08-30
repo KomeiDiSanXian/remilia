@@ -163,6 +163,11 @@ func (l *Logger) UseDB(db *gorm.DB) {
 	l.db = db
 }
 
+// DB 返回底层 SQLite 句柄（只读/高级查询用）。
+// 热缓存与持久化写入仍应走 Record / Query* API，此方法供需要直接
+// 访问事实表的消费者（如测试、迁移工具）使用。
+func (l *Logger) DB() *gorm.DB { return l.db }
+
 // SetEventPublisher 注入插件间事件发布器（cmd/bot 使用 plugin.Manager 的 EventBus）。
 // 必须在 Start 之前调用；Start 后设置不生效（广播循环已按当时状态启动）。
 func (l *Logger) SetEventPublisher(pub EventPublisher) {
@@ -448,7 +453,7 @@ func (l *Logger) flushLoop(ctx context.Context) {
 					continue
 				}
 				if err := l.att.Store().CommitTemp(attBatch[i].StorageKey, tmp); err != nil {
-					l.att.Store().DiscardTemp(tmp)
+					_ = l.att.Store().DiscardTemp(tmp)
 					ok = false
 					logger.WithError(err).Warn("[MessageLog] failed to commit attachment binary")
 					break
@@ -470,7 +475,7 @@ func (l *Logger) flushLoop(ctx context.Context) {
 			if l.att != nil {
 				for _, tmp := range attTmp {
 					if tmp != "" {
-						l.att.Store().DiscardTemp(tmp)
+						_ = l.att.Store().DiscardTemp(tmp)
 					}
 				}
 			}

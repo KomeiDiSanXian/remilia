@@ -50,10 +50,12 @@ func (p *Plugin) replyFormatted(ctx *eventctx.Context, text string) *future.Futu
 
 // prependReplyContext 若本条消息是回复，将所回复消息的内容前置到用户消息。
 // 命中出站消息（机器人自己的回复）时以"机器人"标注发送者。
+// 支持回复链追溯（回复的回复），最多 replyContextMaxDepth 层。
 // 未命中或关闭时不改变 content。
 //
 // 查询路径：messagelog 按事件 ID 查（各平台回复 ID = 消息 ID，可命中）；
-// 查不到时走段兜底——QQ 引用消息的回复标识是 ref_msg_idx（REFIDX_xxx，
+// 逐层沿 ReplyToEventID / ReplyToMessageID 向上追溯；查不到时走段兜底——
+// QQ 引用消息的回复标识是 ref_msg_idx（REFIDX_xxx，
 // 平台内部引用标识，与 messagelog 的事件 ID 不对应），此时从 reply 段的
 // Extra["parallel_message"] 提取被引用内容（v1.34.0 起事件解析时保留）。
 func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) string {
@@ -65,33 +67,81 @@ func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) stri
 		return content
 	}
 
-	name := "对方"
-	replyContent := ""
-	if entry, ok := p.history.QueryByEventID(ctx.GetChatInfo().ID, replyID); ok && entry.Content != "" {
-		name = entry.UserName
-		if entry.IsOutbound {
-			name = "机器人"
-		}
-		replyContent = entry.Content
-	} else if q := replyQuoteFromSegments(ctx.GetPlatformEvent().Segments()); q != "" {
+	chain := p.resolveReplyChain(ctx.GetChatInfo().ID, replyID)
+	if len(chain) == 0 {
 		// QQ 引用消息段兜底：被引用内容在 parallel_message.msg_nodes[0].content
-		replyContent = q
+		if q := replyQuoteFromSegments(ctx.GetPlatformEvent().Segments()); q != "" {
+			chain = append(chain, replyChainLink{Name: "对方", Content: q})
+		}
 	}
-	if replyContent == "" {
+	if len(chain) == 0 {
 		return content
 	}
 
-	msg := strings.TrimSpace(stripMentionMarkup(replyContent))
-	msg = truncateRunes(msg, 200)
-	if msg == "" {
-		return content
+	var b strings.Builder
+	fmt.Fprintf(&b, "[你正在回复 %s 的消息]\n", chain[0].Name)
+	for i, link := range chain {
+		if i == 0 {
+			fmt.Fprintf(&b, "%s: %s\n", link.Name, link.Content)
+			continue
+		}
+		fmt.Fprintf(&b, "[%s 在回复 %s 的消息]\n%s: %s\n",
+			chain[i-1].Name, link.Name, link.Name, link.Content)
 	}
-
-	prefix := fmt.Sprintf("[你正在回复 %s 的消息]\n%s", name, msg)
+	prefix := strings.TrimRight(b.String(), "\n")
 	if content == "" {
 		return prefix
 	}
 	return prefix + "\n\n" + content
+}
+
+// replyChainLink 回复链上的一环。
+type replyChainLink struct {
+	Name    string
+	Content string
+}
+
+// replyContextMaxDepth 回复上下文追溯的最大层数（含第一层被回复消息）。
+const replyContextMaxDepth = 3
+
+// resolveReplyChain 沿回复链向上追溯（被回复消息 → 其被回复消息……），
+// 返回最新在前，最多 replyContextMaxDepth 层。每条内容剥 @ 标记并单行截断。
+// 优先按 messagelog event_id 追溯，其次平台消息 ID（旧数据回填字段）。
+func (p *Plugin) resolveReplyChain(chatID, replyID string) []replyChainLink {
+	chain := make([]replyChainLink, 0, replyContextMaxDepth)
+	curID := replyID
+	for len(chain) < replyContextMaxDepth {
+		entry, ok := p.history.QueryByEventID(chatID, curID)
+		if !ok {
+			break
+		}
+		text := strings.TrimSpace(stripMentionMarkup(entry.Content))
+		text = truncateRunes(text, 200)
+		if text == "" {
+			break
+		}
+		name := entry.UserName
+		if entry.IsOutbound {
+			name = "机器人"
+		}
+		if name == "" {
+			name = entry.UserID
+		}
+		if name == "" {
+			name = "未知"
+		}
+		chain = append(chain, replyChainLink{Name: name, Content: text})
+
+		next := entry.ReplyToEventID
+		if next == "" {
+			next = entry.ReplyToMessageID
+		}
+		if next == "" || next == curID {
+			break
+		}
+		curID = next
+	}
+	return chain
 }
 
 // replyQuoteFromSegments 从 reply 段 Extra 提取被引用消息文本。
@@ -151,16 +201,15 @@ func (p *Plugin) buildGroupContextN(ctx *eventctx.Context, skipBotContents map[s
 		return ""
 	}
 
-	var entries []messagelog.RecordEntry
+	// 统一走新查询 API：热缓存 + SQLite 补齐，方向/出站状态在查询层过滤。
+	// 仅入站消息时 Direction=Inbound；包含机器人回复时 Direction=Both 并
+	// 排除 pending（未确认发送的出站不当作本账号发言）。
+	opts := messagelog.QueryOptions{Direction: messagelog.DirectionInbound}
 	if p.cfg.ContextGroupIncludeBot {
-		// 包含机器人回复（含其他插件的回复）；内存 ring 不足时
-		// 自动以 SQLite 最近记录补齐，重启后群聊历史仍可读
-		entries = p.history.QueryGroupRecentWithBot(chat.ID, n)
-	} else {
-		// 仅入站消息；内存 ring 不足时自动以 SQLite 最近记录补齐，
-		// 重启后 AI 仍能读到重启前的群聊历史（QueryGroup 仅读内存热缓存）。
-		entries = p.history.QueryGroupRecent(chat.ID, n)
+		opts.Direction = messagelog.DirectionBoth
+		opts.ExcludePending = true
 	}
+	entries := p.history.QueryChat(chat.ID, n, opts)
 	if len(entries) == 0 {
 		return ""
 	}
@@ -182,6 +231,12 @@ func (p *Plugin) buildGroupContextN(ctx *eventctx.Context, skipBotContents map[s
 		}
 		name := e.UserName
 		if e.IsOutbound {
+			// 只把"已确认发出"的机器人回复当作本账号发言：failed/unknown
+			// 的失败回复不注入，避免模型误以为说过一句没发出去的话。
+			// 旧数据 send_status 为空视为已发出（旧实现只记录成功的出站）。
+			if e.SendStatus != "" && e.SendStatus != messagelog.SendStatusSent {
+				continue
+			}
 			name = botName
 			// 会话历史已包含 AI 自己的回复（assistant 轮次），
 			// 内容一致的出站条目跳过，避免窗口与对话历史重复
@@ -200,8 +255,64 @@ func (p *Plugin) buildGroupContextN(ctx *eventctx.Context, skipBotContents map[s
 		if text == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "%s: %s\n", name, text)
+		// @ 提及标注：窗口历史不依赖当前消息的 IncludeMentionInfo，
+		// 把记录中的 Mentions 结构化呈现（QQ 等平台的 @ 标记被剥除后
+		// 文本无痕迹，补充标注避免 AI 漏看被提及对象）。跳过 @ 机器人自身
+		// （窗口顶部已说明本账号发言），最多标注 3 个。
+		mentionSuffix := ""
+		if len(e.Mentions) > 0 {
+			var names []string
+			for _, m := range e.Mentions {
+				if m.IsSelf {
+					continue
+				}
+				if m.DisplayName != "" {
+					names = append(names, m.DisplayName)
+				} else if m.ID != "" {
+					names = append(names, m.ID)
+				}
+				if len(names) >= 3 {
+					break
+				}
+			}
+			if len(names) > 0 {
+				mentionSuffix = "（@" + strings.Join(names, "、@") + "）"
+			}
+		}
+		// 回复内联：该条目是回复时，把被回复消息内容附在行尾
+		// （仅追溯 1 层，保持窗口紧凑；目标通常在最近缓存内，开销可忽略）。
+		suffix := ""
+		if targetID := firstNonEmpty(e.ReplyToEventID, e.ReplyToMessageID); targetID != "" && targetID != e.EventID {
+			if target, ok := p.history.QueryByEventID(chat.ID, targetID); ok && target.Content != "" {
+				tName := target.UserName
+				if target.IsOutbound {
+					tName = botName
+				}
+				if tName == "" {
+					tName = target.UserID
+				}
+				if tName == "" {
+					tName = "未知"
+				}
+				tText := strings.TrimSpace(stripMentionMarkup(target.Content))
+				tText = truncateRunes(tText, 60)
+				if tText != "" {
+					suffix = "（回复 " + tName + ": " + tText + "）"
+				}
+			}
+		}
+		fmt.Fprintf(&b, "%s: %s%s%s\n", name, text, mentionSuffix, suffix)
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// firstNonEmpty 返回第一个非空字符串（回复目标 ID 解析的兜底顺序）。
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
