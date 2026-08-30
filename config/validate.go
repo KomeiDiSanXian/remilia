@@ -34,10 +34,89 @@ func (c *Config) Validate() error {
 		{"tracing", c.Tracing.Validate},
 		{"pprof", c.Pprof.Validate},
 		{"api", c.API.Validate},
+		{"messagelog", c.Messagelog.Validate},
 	}
 	for _, v := range validators {
 		if err := v.fn(); err != nil {
 			return fmt.Errorf("invalid %s config: %w", v.name, err)
+		}
+	}
+	return nil
+}
+
+// Validate 验证 Messagelog 配置（nil 时跳过，使用默认值）。
+func (mc *MessagelogConfig) Validate() error {
+	if mc == nil {
+		return nil
+	}
+	if mc.Flush.Interval != "" {
+		if _, err := time.ParseDuration(mc.Flush.Interval); err != nil {
+			return fmt.Errorf("messagelog.flush.interval is not a valid duration: %w", err)
+		}
+	}
+	if mc.Flush.BatchSize < 0 {
+		return fmt.Errorf("messagelog.flush.batch_size must be >= 0, got %d", mc.Flush.BatchSize)
+	}
+	if mc.Flush.QueueSize < 0 {
+		return fmt.Errorf("messagelog.flush.queue_size must be >= 0, got %d", mc.Flush.QueueSize)
+	}
+	if mc.Spool.MaxSize != "" {
+		if _, err := ParseSize(mc.Spool.MaxSize); err != nil {
+			return fmt.Errorf("messagelog.spool.max_size: %w", err)
+		}
+	}
+	if mc.Spool.ReplayBatch < 0 {
+		return fmt.Errorf("messagelog.spool.replay_batch must be >= 0, got %d", mc.Spool.ReplayBatch)
+	}
+	if mc.Cache.PerChatCapacity < 0 {
+		return fmt.Errorf("messagelog.cache.per_chat_capacity must be >= 0, got %d", mc.Cache.PerChatCapacity)
+	}
+	if mc.Cache.GlobalMaxEntries < 0 {
+		return fmt.Errorf("messagelog.cache.global_max_entries must be >= 0, got %d", mc.Cache.GlobalMaxEntries)
+	}
+	if mc.Attachments.HotWindowAge != "" {
+		if _, err := time.ParseDuration(mc.Attachments.HotWindowAge); err != nil {
+			return fmt.Errorf("messagelog.attachments.hot_window_age is not a valid duration: %w", err)
+		}
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"messagelog.attachments.max_disk_usage", mc.Attachments.MaxDiskUsage},
+		{"messagelog.attachments.max_size", mc.Attachments.MaxSize},
+	} {
+		if field.value != "" {
+			if _, err := ParseSize(field.value); err != nil {
+				return fmt.Errorf("%s: %w", field.name, err)
+			}
+		}
+	}
+	if mc.Attachments.DownloadConcurrency < 0 {
+		return fmt.Errorf("messagelog.attachments.download_concurrency must be >= 0, got %d", mc.Attachments.DownloadConcurrency)
+	}
+	if mc.Attachments.DownloadRetries < 0 {
+		return fmt.Errorf("messagelog.attachments.download_retries must be >= 0, got %d", mc.Attachments.DownloadRetries)
+	}
+	for _, b := range mc.Attachments.DownloadBackoff {
+		if _, err := time.ParseDuration(b); err != nil {
+			return fmt.Errorf("messagelog.attachments.download_backoff contains invalid duration %q: %w", b, err)
+		}
+	}
+	if mc.Attachments.GC.GracePeriod != "" {
+		if _, err := time.ParseDuration(mc.Attachments.GC.GracePeriod); err != nil {
+			return fmt.Errorf("messagelog.attachments.gc.grace_period is not a valid duration: %w", err)
+		}
+	}
+	if mc.Retention.Days < 0 {
+		return fmt.Errorf("messagelog.retention.days must be >= 0, got %d", mc.Retention.Days)
+	}
+	if mc.Retention.MaxEntries < 0 {
+		return fmt.Errorf("messagelog.retention.max_entries must be >= 0, got %d", mc.Retention.MaxEntries)
+	}
+	if mc.Retention.CleanupInterval != "" {
+		if _, err := time.ParseDuration(mc.Retention.CleanupInterval); err != nil {
+			return fmt.Errorf("messagelog.retention.cleanup_interval is not a valid duration: %w", err)
 		}
 	}
 	return nil

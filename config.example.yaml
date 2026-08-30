@@ -226,6 +226,56 @@ api:
   api_key: ""                                                  # [R]
 
 # ====================================
+# 消息日志配置（builtin/messagelog，可选）                         [R]
+# 框架事实层：SQLite 持久化 + 有界热缓存 + durable 队列（spool 兜底）+ 附件生命周期。
+# 全部字段省略时使用内置默认值；需要重启生效。
+# ====================================
+messagelog:
+  enabled: true                                                # [R] 总开关（默认 true）
+  db_path: "data/db/messagelog.db"                             # [R] SQLite 事实库路径
+  record:
+    system_events: false                                       # [R] 是否记录非消息事件（进群退群等）
+    failed_outbound: true                                      # [R] 是否记录发送失败的出站消息
+    edit_history: false                                        # [R] 是否保留编辑历史（默认只存最新内容）
+  flush:
+    interval: "500ms"                                          # [R] 批量写库周期
+    batch_size: 1000                                           # [R] 单批最大条数
+    queue_size: 50000                                          # [R] 内存队列上限（不含 spool）
+  spool:
+    enabled: true                                              # [R] 默认启用（Durable 不丢）；显式 false 关闭
+    dir: "data/spool/messagelog"                               # [R] spool 落盘目录
+    max_size: "1GB"                                            # [R] spool 磁盘上限；达上限后阻塞生产者并告警
+    replay_batch: 500                                          # [R] 重启重放每批条数
+  cache:
+    per_chat_capacity: 200                                     # [R] 每会话热缓存条数
+    global_max_entries: 50000                                  # [R] 热缓存全局条目上限（内存与群数解耦的关键）
+    idle_evict: true                                           # [R] 空闲会话近似淘汰
+  attachments:                                                  # [R] 附件生命周期（元数据落库 + 异步下载）
+    dir: "data/attachments"                                     # [R] 附件二进制存储目录
+    scope: "hot_window"                                         # [R] hot_window / none / all
+    hot_window_age: "24h"                                       # [R] 近期消息窗口（按时间；或按最近 N 条，二选一）
+    max_disk_usage: "50GB"                                      # [R] 附件独立磁盘预算（超限触发 GC/停止新下载）
+    max_pending_tasks: 10000                                    # [R] 待下载任务上限
+    download_concurrency: 8                                     # [R] 下载并发 worker 数
+    download_retries: 3                                         # [R] 临时失败重试次数
+    download_backoff: ["1s", "5s", "30s"]                       # [R] 指数退避序列
+    max_size: "20MB"                                            # [R] 单文件下载上限
+    rate_limit_per_host: "10/s"                                 # [R] 按 host 限速
+    lazy_fallback: true                                         # [R] 队列满降级 pending_lazy（懒加载）
+    gc:
+      enabled: true                                             # [R] 引用计数 + 宽限期后回收二进制
+      grace_period: "7d"                                        # [R] 引用删除后的二进制宽限期
+    backfill:
+      enabled: true                                             # [R] 空闲回填（优先救快过期的 URL）
+      batch_size: 50                                            # [R] 每批回填条数
+      idle_threshold: 0.3                                       # [R] 队列深度/负载阈值
+      max_attempts: 3                                           # [R] 回填最大尝试次数
+  retention:
+    days: 0                                                    # [R] 0 = 永久保留
+    max_entries: 0                                             # [R] 0 = 无限；与 days 同时配置按更严格者
+    cleanup_interval: "1h"                                     # [R] 后台清理周期
+
+# ====================================
 # 插件扩展配置（可选）
 # ====================================
 # plugins:

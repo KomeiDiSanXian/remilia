@@ -124,7 +124,7 @@ func TestPrependReplyContextInbound(t *testing.T) {
 
 func TestPrependReplyContextBotMessage(t *testing.T) {
 	l := messagelog.New(10)
-	l.RecordOutbound("g1", "out-1", "这是机器人的回复", time.Now())
+	l.RecordOutboundSent("g1", "out-1", "这是机器人的回复", time.Now())
 	p := &Plugin{cfg: &Config{}, history: l}
 
 	evt := &replyEvent{
@@ -248,7 +248,7 @@ func TestBuildGroupContext(t *testing.T) {
 		Platform: "synthetic", Timestamp: now.Add(2 * time.Second),
 	})
 	// 出站消息不在 QueryGroup 中，天然排除
-	l.RecordOutbound("g1", "out-1", "bot", now.Add(3*time.Second))
+	l.RecordOutboundSent("g1", "out-1", "bot", now.Add(3*time.Second))
 
 	p := &Plugin{cfg: &Config{ContextGroupMessages: 10}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",
@@ -277,9 +277,9 @@ func TestBuildGroupContextIncludeBotAndDedup(t *testing.T) {
 	l := messagelog.New(10)
 	now := time.Now()
 	l.Record(messagelog.RecordEntry{ChatID: "g1", UserName: "小明", Content: "你好", EventID: "1", Timestamp: now})
-	l.RecordOutbound("g1", "out-1", "AI 的回复", now.Add(time.Second))
+	l.RecordOutboundSent("g1", "out-1", "AI 的回复", now.Add(time.Second))
 	// 其他插件（如 /pic）的回复也应进入窗口
-	l.RecordOutbound("g1", "out-2", "图片结果", now.Add(2*time.Second))
+	l.RecordOutboundSent("g1", "out-2", "图片结果", now.Add(2*time.Second))
 
 	p := &Plugin{cfg: &Config{ContextGroupMessages: 10, ContextGroupIncludeBot: true}, history: l}
 	evt := platform.NewSyntheticEvent(platform.EventKindGroupMessage, "hi",

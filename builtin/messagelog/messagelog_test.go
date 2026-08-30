@@ -38,13 +38,18 @@ func TestRecord_QueryGroup(t *testing.T) {
 func TestRecord_QueryUser(t *testing.T) {
 	l := New(10)
 	now := time.Now()
-	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "hello world", Timestamp: now})
-	l.Record(RecordEntry{ChatID: "g2", UserID: "u1", Content: "foo bar", Timestamp: now.Add(time.Second)})
-	l.Record(RecordEntry{ChatID: "g1", UserID: "u2", Content: "baz", Timestamp: now.Add(2 * time.Second)})
+	// 私聊场景 chat_id == user_id：命中该会话热缓存
+	l.Record(RecordEntry{ChatID: "u1", UserID: "u1", Content: "hello", Timestamp: now})
+	l.Record(RecordEntry{ChatID: "u1", UserID: "u1", Content: "world", Timestamp: now.Add(time.Second)})
+	// 群消息（chat != user）：不属于 QueryUser 的使用范围
+	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "group msg", Timestamp: now.Add(2 * time.Second)})
 
 	msgs := l.QueryUser("u1", 10)
 	if len(msgs) != 2 {
-		t.Fatalf("expected 2 messages for u1, got %d", len(msgs))
+		t.Fatalf("expected 2 private-chat messages for u1, got %d", len(msgs))
+	}
+	if msgs[0].Content != "hello" || msgs[1].Content != "world" {
+		t.Errorf("unexpected order/content: %+v", msgs)
 	}
 }
 
@@ -63,24 +68,6 @@ func TestRing_Overflow(t *testing.T) {
 	}
 	if msgs[4].Content != "msg7" {
 		t.Errorf("expected msg7, got %s", msgs[4].Content)
-	}
-}
-
-func TestWordFreq(t *testing.T) {
-	l := New(100)
-	now := time.Now()
-	l.Record(RecordEntry{ChatID: "g1", Content: "你好 世界 你好", Timestamp: now})
-	l.Record(RecordEntry{ChatID: "g1", Content: "世界 再见", Timestamp: now.Add(time.Second)})
-
-	freq := l.WordFreq("g1", 100)
-	if freq["你好"] != 2 {
-		t.Errorf("expected '你好' freq=2, got %d", freq["你好"])
-	}
-	if freq["世界"] != 2 {
-		t.Errorf("expected '世界' freq=2, got %d", freq["世界"])
-	}
-	if freq["再见"] != 1 {
-		t.Errorf("expected '再见' freq=1, got %d", freq["再见"])
 	}
 }
 
@@ -125,37 +112,13 @@ func TestGroupMessageCount(t *testing.T) {
 	}
 }
 
-func TestTokenize(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected []string
-	}{
-		{"hello world", []string{"hello", "world"}},
-		{"你好 世界", []string{"你好", "世界"}},
-		{"a bc", []string{"bc"}},
-		{"!!! ???", []string{}},
-	}
-	for _, tt := range tests {
-		got := tokenize(tt.input)
-		if len(got) != len(tt.expected) {
-			t.Errorf("tokenize(%q): expected %v, got %v", tt.input, tt.expected, got)
-			continue
-		}
-		for i, w := range tt.expected {
-			if got[i] != w {
-				t.Errorf("tokenize(%q)[%d]: expected %q, got %q", tt.input, i, w, got[i])
-			}
-		}
-	}
-}
-
 func TestQueryByEventID_InboundAndOutboundRings(t *testing.T) {
 	l := New(10)
 	now := time.Now()
 	l.Record(RecordEntry{
 		ChatID: "g1", UserID: "u1", Content: "user message", EventID: "in-1", Timestamp: now,
 	})
-	l.RecordOutbound("g1", "out-1", "bot reply", now)
+	l.RecordOutboundSent("g1", "out-1", "bot reply", now)
 
 	// 命中入站消息
 	e, ok := l.QueryByEventID("g1", "in-1")
@@ -190,7 +153,7 @@ func TestRecordOutbound_NotInQueryGroup(t *testing.T) {
 	l := New(10)
 	now := time.Now()
 	l.Record(RecordEntry{ChatID: "g1", UserID: "u1", Content: "user", EventID: "in-1", Timestamp: now})
-	l.RecordOutbound("g1", "out-1", "bot", now)
+	l.RecordOutboundSent("g1", "out-1", "bot", now)
 
 	// QueryGroup 只返回入站消息，不含出站
 	msgs := l.QueryGroup("g1", 10)
@@ -351,7 +314,7 @@ func TestQueryGroupRecentWithBot(t *testing.T) {
 
 	// 内存 ring 与出站 ring 混合（含去重与排序）
 	l.Record(RecordEntry{ChatID: "g1", EventID: "in-2", Content: "new user", Timestamp: time.Unix(0, now+100)})
-	l.RecordOutbound("g1", "out-2", "new bot reply", time.Unix(0, now+101))
+	l.RecordOutboundSent("g1", "out-2", "new bot reply", time.Unix(0, now+101))
 	got := l.QueryGroupRecentWithBot("g1", 3)
 	if len(got) != 3 {
 		t.Fatalf("expected 3 entries, got %d: %+v", len(got), got)
@@ -366,7 +329,7 @@ func TestQueryGroupRecentWithBot(t *testing.T) {
 }
 
 // closeDB 关闭 gorm 底层连接，释放 SQLite 文件句柄（Windows 上否则会阻塞 TempDir 清理）。
-func closeDB(t *testing.T, db *gorm.DB) {
+func closeDB(t testing.TB, db *gorm.DB) {
 	t.Helper()
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -391,18 +354,26 @@ func TestOnOutbound(t *testing.T) {
 		t.Fatalf("expected outbound recorded, got %+v ok=%v", e, ok)
 	}
 
-	// 发送失败：不记录
+	// 发送失败：记录为 failed（失败也是事实，默认记录）
 	l.OnOutbound("g1", req, platform.SendResult{}, errors.New("send failed"))
-	// 平台未返回 MessageID：不记录
+	failed := l.QueryChat("g1", 10, QueryOptions{Direction: DirectionOutbound})
+	if len(failed) != 2 || failed[0].SendStatus != SendStatusSent || failed[1].SendStatus != SendStatusFailed {
+		t.Errorf("expected [sent, failed] outbound statuses, got %+v", failed)
+	}
+	// 平台未返回 MessageID（err==nil）：仍记录为 sent（空 ID 不影响成功状态）
 	l.OnOutbound("g1", req, platform.SendResult{}, nil)
-	// 无文本内容：不记录
+	// 无文本内容：记录「发送过一条消息」的事实（非文本/附件消息）
 	l.OnOutbound("g1", platform.SendRequest{
 		Target:  platform.ChatInfo{ID: "g1"},
 		Message: platform.OutboundMessage{},
 	}, platform.SendResult{MessageID: "out-2"}, nil)
 
-	if _, ok := l.QueryByEventID("g1", "out-2"); ok {
-		t.Error("expected empty-content outbound not recorded")
+	all := l.QueryChat("g1", 10, QueryOptions{Direction: DirectionOutbound})
+	if len(all) != 4 {
+		t.Fatalf("expected 4 outbound records, got %d: %+v", len(all), all)
+	}
+	if e, ok := l.QueryByEventID("g1", "out-2"); !ok || e.SendStatus != SendStatusSent {
+		t.Errorf("expected empty-content outbound recorded as sent, got %+v ok=%v", e, ok)
 	}
 	// 首次记录仍完整保留（未受后续跳过影响）
 	if e, ok := l.QueryByEventID("g1", "out-1"); !ok || e.Content != "bot reply" {

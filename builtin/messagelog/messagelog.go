@@ -1,13 +1,23 @@
-// Package messagelog 提供群消息历史记录功能，包含内存热缓存 + SQLite 持久化。
+// Package messagelog 提供消息历史记录（事实层）插件：内存热缓存 + SQLite 持久化。
 //
 // 架构设计：
 //   - 每条消息通过 [MessageLogger] 中间件异步记录，不阻塞主流程
-//   - 内存 ring buffer（热缓存）保留近期消息，查询优先走内存
-//   - 异步批量写入独立的 SQLite 数据库（data/db/messagelog.db）
-//   - 写入采用 channel + 批量 flush（每100ms/累积1000条），10k msg/s 下亦可胜任
+//   - 有界热缓存（per-chat ring + 全局预算 + 近似 LRU 淘汰）保留近期消息，
+//     内存与群数/用户数解耦；查询优先走内存，DB 补齐后统一去重排序
+//   - durable 队列 + spool 兜底，批量 flush 写入独立 SQLite（data/db/messagelog.db），
+//     提交成功后才推进游标，重启重放 + event_id 幂等（0 丢失 0 重复）
+//   - 出站记录：包装平台 Sender（[RecordingSender]）记录 pending → sent/failed/unknown
+//     状态机；附件元数据始终落库、二进制按内容哈希存于独立目录
+//   - 派生数据（词频 / 群 / 用户 / 会话统计）经 [Logger.ScanAfter] 或事件订阅
+//     由独立插件消费，本包只负责「事实是什么」
 //
-// 数据模型基于 platform.Event，记录 RequestID / 平台 / 群组 / 用户 / 内容 / 回复链等信息，
-// 可用于历史查询、词频统计、词云、排查（通过 RequestID 关联审计日志）。
+// 部署形态：本插件为单机部署设计。热缓存 / durable 队列 / spool 均为进程内状态，
+// SQLite 为单写者模型，不支持多实例共享同一数据库文件；横向扩展请按实例
+// 独立部署（各自独立数据库）。
+//
+// 数据模型基于 platform.Event，记录 RequestID / 平台 / 群组 / 用户 / 内容 /
+// 回复链 / 编辑与撤回墓碑等信息，可用于历史查询、排查（通过 RequestID 关联
+// 审计日志）与派生数据重建。
 //
 // 使用示例（在 cmd/bot/plugins.go 中初始化）：
 //
@@ -18,167 +28,97 @@
 //
 // 查询接口：
 //
-//	// 内存热缓存（最近 N 条）
-//	msgs := messagelog.QueryGroup("groupID", 10)
-//	msgs := messagelog.QueryUser("userID", 10)
+//	// 内存热缓存 + DB 补齐（方向 / 撤回 / 附件过滤选项）
+//	msgs := logger.QueryChat("groupID", 10, messagelog.QueryOptions{})
+//	msgs, _ := logger.QueryRange("groupID", since, until, 1000, messagelog.QueryOptions{})
+//	msg, ok := logger.QueryByEventID("groupID", "eventID")
 //
-//	// SQLite 时间区间查询（词云插件使用）
-//	entries, _ := logger.QueryGroupFromDB("groupID", since, until, 1000)
-//	freq, _ := logger.WordFreqFromDB("groupID", since, until, 1000)
+//	// 全量重建（统计插件等派生数据消费者使用）
+//	_ = logger.ScanAfter(time.Time{}, 0, func(e messagelog.RecordEntry) error { return nil })
 //
-// 注意：Clear 只清理内存缓存。数据库消息默认永久保留（无TTL），
-// 如需清理请调用 logger.Clear(before) 或通过管理命令定期执行。
+// 注意：Clear 只清理内存缓存。数据库消息默认永久保留，如需清理请调用
+// logger.Clear(before) 或配置 retention（天数 / 条数上限）定期执行。
 package messagelog
 
 import (
+	"bytes"
 	"context"
-	"slices"
-	"sort"
+	"errors"
 	"sync"
 	"time"
+	"uuid"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	gormlogger "gorm.io/gorm/logger"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/middleware/ctxkeys"
 	"github.com/KomeiDiSanXian/remilia/platform"
+
+	"github.com/KomeiDiSanXian/remilia/builtin/messagelog/attachments"
 )
 
-// DefaultCapacity 每个群/用户的内存环形缓冲区默认大小。
-const DefaultCapacity = 1000
-
-// RecordEntry 一条消息的完整记录（内存缓存 + DB 查询的统一结构）。
-type RecordEntry struct {
-	Timestamp time.Time           // 事件发生时间
-	CreatedAt time.Time           // 记录入库时间
-	RequestID string              // RequestID 中间件分配的追踪 ID
-	Platform  string              // 平台标识符（"qq", "discord", "telegram"）
-	Kind      string              // 事件类别（"GROUP_MESSAGE", "PRIVATE_MESSAGE"）
-	EventID   string              // 平台级唯一事件 ID
-	ChatID    string              // 会话 ID（群 ID / 用户 ID）
-	ChatName  string              // 会话名称（平台提供时有效）
-	ParentID  string              // 父容器 ID（频道场景的 guild_id / server_id）
-	UserID    string              // 发送者 ID
-	UserName  string              // 发送者显示名
-	UserRole  string              // 发送者在群中的角色（owner / admin / member）
-	Content   string              // 消息文本内容
-	ReplyToID string              // 被回复的消息 ID（回复链追踪）
-	RawType   string              // 平台原始事件类型字符串
-	Mentions  []platform.UserInfo // @ 用户列表（平台提供时有效）
-	IsGroup   bool                // 是否为群组/频道消息
-	// IsOutbound 是否为机器人发出的出站消息（如 AI 回复）。
-	// 出站消息记录在独立的 botBuf ring 中，QueryGroup/QueryUser 不含出站消息。
-	IsOutbound bool
-}
-
-// MessageRecord 对应 SQLite 表的 GORM 模型。
-type MessageRecord struct {
-	RequestID string `gorm:"index;not null"`
-	Platform  string `gorm:"index;not null"`
-	Kind      string `gorm:"index;not null"`
-	EventID   string `gorm:"index"`
-	ChatID    string `gorm:"index:idx_chat_time;not null"`
-	ChatName  string
-	ParentID  string
-	UserID    string `gorm:"index;not null"`
-	UserName  string
-	UserRole  string
-	Content   string `gorm:"type:text"`
-	ReplyToID string
-	RawType   string
-	ID        int64 `gorm:"primaryKey;autoIncrement"`
-	Timestamp int64 `gorm:"index:idx_chat_time"`
-	CreatedAt int64
-	IsGroup   bool
-	// IsOutbound 是否为机器人发出的出站消息（AI 回复等）。
-	IsOutbound bool `gorm:"index"`
-}
-
-// MessageMention 对应 SQLite message_mentions 表的 GORM 模型。
-// EventID 关联到 MessageRecord.EventID，支持通过平台事件 ID 追溯 @ 信息。
-type MessageMention struct {
-	ID          int64  `gorm:"primaryKey;autoIncrement"`
-	EventID     string `gorm:"index;not null"`
-	MentionID   string `gorm:"index;not null"`
-	DisplayName string
-	IsBot       bool
-	IsSelf      bool
-}
-
-// ring 单个维度（群或用户）的环形缓冲区（内存热缓存）。
-type ring struct {
-	buf  []RecordEntry
-	head int
-	size int
-	cap_ int
-}
-
-func newRing(cap int) *ring {
-	if cap <= 0 {
-		cap = DefaultCapacity
-	}
-	return &ring{buf: make([]RecordEntry, cap), cap_: cap}
-}
-
-func (r *ring) add(e RecordEntry) {
-	r.buf[r.head] = e
-	r.head = (r.head + 1) % r.cap_
-	if r.size < r.cap_ {
-		r.size++
-	}
-}
-
-func (r *ring) snapshot(n int) []RecordEntry {
-	if n <= 0 || r.size == 0 {
-		return nil
-	}
-	if n > r.size {
-		n = r.size
-	}
-	out := make([]RecordEntry, n)
-	start := (r.head - n + r.cap_) % r.cap_
-	for i := range out {
-		out[i] = r.buf[(start+i)%r.cap_]
-	}
-	return out
-}
-
-// recordJob 异步写入队列的任务。
-type recordJob struct {
-	entry RecordEntry
-}
-
-// Logger 消息日志记录器。包含内存 ring buffer + 异步 SQLite 写入。
+// Logger 消息日志记录器。包含有界热缓存 + durable 队列 + 异步 SQLite 写入。
 type Logger struct {
-	db     *gorm.DB
-	cap    int
-	stop   context.CancelFunc
-	wg     sync.WaitGroup
-	record chan recordJob
+	db    *gorm.DB
+	cap   int
+	stop  context.CancelFunc
+	wg    sync.WaitGroup
+	queue *durableQueue
 
-	groupMu  sync.RWMutex
-	groupBuf map[string]*ring // groupID → ring
-	userMu   sync.RWMutex
-	userBuf  map[string]*ring // userID → ring
+	flushInterval time.Duration
+	batchSize     int
+	queueSize     int
+	spool         *spool // 引用，Stop 时关闭
 
-	botMu  sync.RWMutex
-	botBuf map[string]*ring // chatID → ring（机器人出站消息，用于回复上下文查询）
+	cache *cache // 有界热缓存（per-chat ring + 全局预算）
+
+	// publisher 插件间事件发布器（统计等派生数据消费者订阅 TopicMessageRecorded）。
+	publisher EventPublisher
+	// stopDrainTimeout Stop 时排空剩余记录的等待上限（默认 10s；超时记录留在
+	// spool，重启重放，不丢）。
+	stopDrainTimeout time.Duration
+	// recordedCh 已落库记录的广播队列；best-effort，满则丢弃（可经 ScanAfter 重建）。
+	recordedCh chan RecordEntry
+	// flushDone flushLoop 退出后关闭，广播循环据此排空收尾事件。
+	flushDone chan struct{}
+
+	outboundMu        sync.Mutex
+	outboundPending   map[string]RecordEntry // event_id → pending 出站（结果阶段合并字段）
+	outboundDataMu    sync.Mutex
+	outboundData      map[string][]platform.Attachment // event_id → Data 附件（flush 时写入 Store）
+	outboundDataBytes int64                            // outboundData 总字节数（上限保护）
+
+	att *attachments.Manager
+
+	retention RetentionOptions
+	// attScope / attHotWindow / attMaxSize 附件下载范围与单文件上限
+	// （与 attachments.Manager 解耦：元数据落库始终发生，即使未启用下载）。
+	attScope     string
+	attHotWindow time.Duration
+	attMaxSize   int64
+
+	// recordFailedOutbound 是否记录发送失败的出站（默认 true，见 Start）。
+	recordFailedOutbound bool
+	// recordSystemEvents 是否记录非消息类事件（默认 false）。
+	recordSystemEvents bool
 }
 
-// New 创建一个新的 Logger，cap 为每个群/用户的环形缓冲区容量。
-// cap <= 0 时使用 DefaultCapacity。
+// New 创建一个新的 Logger，cap 为每个会话的热缓存容量。
+// cap <= 0 时使用 DefaultCapacity。Start 时可经 Options 覆盖缓存预算。
 func New(cap int) *Logger {
 	if cap <= 0 {
 		cap = DefaultCapacity
 	}
 	return &Logger{
-		cap:      cap,
-		groupBuf: make(map[string]*ring),
-		userBuf:  make(map[string]*ring),
-		botBuf:   make(map[string]*ring),
+		cap:                  cap,
+		cache:                newCache(cap, 0, true), // 全局不限：测试/基准场景的默认
+		outboundPending:      make(map[string]RecordEntry),
+		outboundData:         make(map[string][]platform.Attachment),
+		recordFailedOutbound: true, // 默认记录失败出站
 	}
 }
 
@@ -197,13 +137,22 @@ func OpenDB(path string) (*gorm.DB, error) {
 	db.Exec("PRAGMA synchronous = NORMAL")
 	// auto_vacuum = INCREMENTAL：跟踪空闲页，Clear 时回收磁盘空间
 	db.Exec("PRAGMA auto_vacuum = INCREMENTAL")
+	// busy_timeout：多连接（MaxOpenConns>1）下写锁竞争时等待而非立即 SQLITE_BUSY
+	db.Exec("PRAGMA busy_timeout = 5000")
 
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(&MessageRecord{}, &MessageMention{}); err != nil {
+	// WAL 多读者：放开单连接限制供查询并发读；SQLite 同一时刻仅一个写者，
+	// 写仍由 flushLoop 单写者串行化（写路径天然不会并行）。
+	sqlDB.SetMaxOpenConns(5)
+	sqlDB.SetMaxIdleConns(5)
+	if err := db.AutoMigrate(&MessageRecord{}, &MessageMention{}, &AttachmentRecord{}); err != nil {
+		return nil, err
+	}
+	// 迁移：遗留库一步升级 + 全新库幂等（列回填 + raw 索引 + user_version，见 migrate.go）
+	if err := migrate(db); err != nil {
 		return nil, err
 	}
 	return db, nil
@@ -214,15 +163,209 @@ func (l *Logger) UseDB(db *gorm.DB) {
 	l.db = db
 }
 
+// SetEventPublisher 注入插件间事件发布器（cmd/bot 使用 plugin.Manager 的 EventBus）。
+// 必须在 Start 之前调用；Start 后设置不生效（广播循环已按当时状态启动）。
+func (l *Logger) SetEventPublisher(pub EventPublisher) {
+	l.publisher = pub
+}
+
+// Options 控制 Logger 的资源边界（队列 / spool / flush 批参数）。
+// 零值使用默认值。
+type Options struct {
+	CacheIdleEvict *bool // nil = 默认 true（空闲会话优先淘汰）
+	// RecordFailedOutbound 是否记录发送失败的出站；nil = 默认 true。
+	RecordFailedOutbound *bool
+	SpoolDir             string
+	FlushInterval        time.Duration // 默认 500ms
+	BatchSize            int           // 默认 1000
+	QueueSize            int           // 默认 50000
+	SpoolMaxSize         int64         // 默认 1GB
+	CachePerChat         int           // 默认 200
+	CacheGlobal          int           // 默认 50000；< 0 = 全局不限
+	SpoolEnabled         bool
+	// RecordSystemEvents 是否记录非消息类事件（进群退群等）；默认 false。
+	RecordSystemEvents bool
+	// Attachments 附件生命周期配置；nil = 不启用附件管理（仅测试/无附件场景）。
+	Attachments *AttachmentOptions
+	// Retention 历史保留策略；nil = 不启用后台清理。
+	Retention *RetentionOptions
+	// StopDrainTimeout Stop 排空剩余记录的等待上限；<=0 使用默认 10s。
+	StopDrainTimeout time.Duration
+}
+
+// AttachmentOptions 附件生命周期（由 config.MessagelogAttachmentsConfig 翻译）。
+type AttachmentOptions struct {
+	Dir                 string
+	Scope               string // hot_window / none / all
+	DownloadBackoff     []time.Duration
+	HotWindowAge        time.Duration // scope=hot_window 时的时间窗口
+	MaxDiskUsage        int64         // 附件磁盘预算（soft limit）
+	MaxPending          int           // 待下载任务上限
+	DownloadConcurrency int
+	DownloadRetries     int
+	MaxSize             int64
+	RatePerHost         float64 // 每秒请求数
+	GracePeriod         time.Duration
+	BackfillBatch       int
+	IdleThreshold       float64
+	BackfillAttempts    int
+	BackfillInterval    time.Duration
+	GCInterval          time.Duration
+	LazyFallback        bool
+	GCEnabled           bool
+	BackfillEnabled     bool
+}
+
+// RetentionOptions 历史保留策略。
+// Days / MaxEntries 同时配置时按更严格者删除最旧记录。
+type RetentionOptions struct {
+	Days            int
+	MaxEntries      int
+	CleanupInterval time.Duration
+}
+
 // Start 启动后台异步写入 goroutine。
 // 在注册 MessageLogger 中间件前必须调用。
-func (l *Logger) Start() {
-	if l.record != nil {
+func (l *Logger) Start(opts ...Options) {
+	if l.queue != nil {
 		return
 	}
+	o := Options{}
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.FlushInterval <= 0 {
+		o.FlushInterval = 500 * time.Millisecond
+	}
+	if o.BatchSize <= 0 {
+		o.BatchSize = 1000
+	}
+	if o.QueueSize <= 0 {
+		o.QueueSize = 50000
+	}
+	if o.SpoolMaxSize <= 0 {
+		o.SpoolMaxSize = 1 << 30 // 1GB
+	}
+
+	l.flushInterval = o.FlushInterval
+	l.batchSize = o.BatchSize
+	l.queueSize = o.QueueSize
+	l.stopDrainTimeout = o.StopDrainTimeout
+	if l.stopDrainTimeout <= 0 {
+		l.stopDrainTimeout = 10 * time.Second
+	}
+	l.recordFailedOutbound = true
+	if o.RecordFailedOutbound != nil {
+		l.recordFailedOutbound = *o.RecordFailedOutbound
+	}
+	l.recordSystemEvents = o.RecordSystemEvents
+
+	// 重启 reconcile：上次运行遗留的 pending 出站无法确定结果，标记 unknown
+	// （不伪造 sent/failed；重启时不存在合法在途 pending）。
+	if l.db != nil {
+		if err := l.db.Model(&MessageRecord{}).
+			Where("is_outbound = ? AND send_status = ?", true, string(SendStatusPending)).
+			Update("send_status", string(SendStatusUnknown)).Error; err != nil {
+			logger.WithError(err).Warn("[MessageLog] Failed to reconcile pending outbound on start")
+		}
+	}
+
+	// 有界热缓存：默认 per-chat 200 / 全局 50000，内存与群数解耦。
+	perChat := o.CachePerChat
+	if perChat <= 0 {
+		perChat = 200
+	}
+	global := o.CacheGlobal
+	if global == 0 {
+		global = 50000
+	}
+	idleEvict := true
+	if o.CacheIdleEvict != nil {
+		idleEvict = *o.CacheIdleEvict
+	}
+	l.cache = newCache(perChat, global, idleEvict)
+
+	var sp *spool
+	if o.SpoolEnabled {
+		sp, _ = openSpool(o.SpoolDir, o.SpoolMaxSize)
+		if sp == nil {
+			logger.Warn("[MessageLog] spool init failed, falling back to bounded queue with drop-on-full")
+		} else {
+			l.spool = sp
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	l.stop = cancel
-	l.record = make(chan recordJob, 10000)
+	l.queue = newDurableQueue(o.QueueSize, sp)
+
+	// 附件下载范围/上限默认值（元数据落库不依赖 manager）
+	l.attScope = "hot_window"
+	l.attHotWindow = 24 * time.Hour
+	l.attMaxSize = 20 << 20
+	if o.Attachments != nil {
+		if o.Attachments.Scope != "" {
+			l.attScope = o.Attachments.Scope
+		}
+		if o.Attachments.HotWindowAge > 0 {
+			l.attHotWindow = o.Attachments.HotWindowAge
+		}
+		if o.Attachments.MaxSize > 0 {
+			l.attMaxSize = o.Attachments.MaxSize
+		}
+	}
+
+	// 附件生命周期（best-effort 层）：仅在有目录配置时启用
+	if o.Attachments != nil && o.Attachments.Dir != "" && l.db != nil {
+		cfg := attachments.Config{
+			Dir:              o.Attachments.Dir,
+			Scope:            o.Attachments.Scope,
+			HotWindowAge:     o.Attachments.HotWindowAge,
+			MaxDiskUsage:     o.Attachments.MaxDiskUsage,
+			MaxPending:       o.Attachments.MaxPending,
+			Concurrency:      o.Attachments.DownloadConcurrency,
+			Retries:          o.Attachments.DownloadRetries,
+			Backoff:          o.Attachments.DownloadBackoff,
+			MaxSize:          o.Attachments.MaxSize,
+			RatePerHost:      o.Attachments.RatePerHost,
+			LazyFallback:     o.Attachments.LazyFallback,
+			GCEnabled:        o.Attachments.GCEnabled,
+			GracePeriod:      o.Attachments.GracePeriod,
+			BackfillEnabled:  o.Attachments.BackfillEnabled,
+			BackfillBatch:    o.Attachments.BackfillBatch,
+			IdleThreshold:    o.Attachments.IdleThreshold,
+			BackfillAttempts: o.Attachments.BackfillAttempts,
+			BackfillInterval: o.Attachments.BackfillInterval,
+			GCInterval:       o.Attachments.GCInterval,
+		}
+		if mgr, err := attachments.NewManager(l.db, cfg); err == nil {
+			l.att = mgr
+			mgr.Start(ctx)
+		} else {
+			logger.WithError(err).Warn("[MessageLog] attachments manager init failed, attachment download disabled")
+		}
+	}
+
+	// 历史保留：配置了 days/max_entries 时启动后台清理
+	if o.Retention != nil {
+		l.retention = *o.Retention
+		if l.retention.CleanupInterval <= 0 {
+			l.retention.CleanupInterval = time.Hour
+		}
+		if l.retention.Days > 0 || l.retention.MaxEntries > 0 {
+			l.wg.Add(1)
+			go l.retentionLoop(ctx)
+		}
+	}
+
+	// 事件广播：仅在注入了发布器时启动（统计插件等派生数据消费者）。
+	if l.publisher != nil {
+		l.recordedCh = make(chan RecordEntry, 10000)
+		l.flushDone = make(chan struct{})
+		l.wg.Add(1)
+		go l.eventBroadcastLoop(ctx)
+	}
+
 	l.wg.Add(1)
 	go l.flushLoop(ctx)
 }
@@ -233,91 +376,250 @@ func (l *Logger) Stop() {
 		l.stop()
 	}
 	l.wg.Wait()
+	if l.queue != nil {
+		l.queue.close()
+	}
+	if l.att != nil {
+		l.att.Stop()
+	}
 }
 
-// flushLoop 后台批量写入循环。
-// 每 100ms 或积攒 1000 条执行一次批量 INSERT，减少 SQLite 事务开销。
+// flushLoop 后台批量写入循环：从 durable queue 取批 → SQLite 事务 →
+// 成功后推进 spool cursor；失败则回写 spool（不丢，下轮重试）。
 func (l *Logger) flushLoop(ctx context.Context) {
 	defer l.wg.Done()
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-	msgBatch := make([]MessageRecord, 0, 1000)
-	mentionBatch := make([]MessageMention, 0, 1000)
-
-	flush := func() {
-		if l.db == nil {
-			msgBatch = msgBatch[:0]
-			mentionBatch = mentionBatch[:0]
-			return
+	defer func() {
+		if l.flushDone != nil {
+			close(l.flushDone)
 		}
+	}()
+	ticker := time.NewTicker(l.flushInterval)
+	defer ticker.Stop()
+
+	flush := func() bool {
+		recs := l.queue.drain(l.batchSize)
+		if len(recs) == 0 {
+			return true
+		}
+		if l.db == nil {
+			// 无 DB（测试场景）：仅消费队列，不落盘
+			return true
+		}
+
+		msgBatch := make([]MessageRecord, 0, len(recs))
+		var mentionBatch []MessageMention
+		var attBatch []AttachmentRecord
+		var attTmp []string
+		for _, r := range recs {
+			msgBatch = append(msgBatch, recordToModel(r.job))
+			if ms := entryToMentions(r.job); len(ms) > 0 {
+				mentionBatch = append(mentionBatch, ms...)
+			}
+			if rows, tmps := l.buildAttachmentRows(r.job); len(rows) > 0 {
+				attBatch = append(attBatch, rows...)
+				attTmp = append(attTmp, tmps...)
+			}
+		}
+		mlMetricsInst.recordsTotal.Add(float64(len(recs)))
+
+		start := time.Now()
 		tx := l.db.Begin()
 		if tx.Error != nil {
+			l.queue.requeue(recs)
+			mlMetricsInst.flushFailedTotal.Inc()
 			logger.WithError(tx.Error).Warn("[MessageLog] Failed to begin transaction")
-			return
+			return false
 		}
-		if len(msgBatch) > 0 {
-			if err := tx.CreateInBatches(msgBatch, 500).Error; err != nil {
-				tx.Rollback()
-				logger.WithError(err).Warn("[MessageLog] Failed to flush message batch")
-				msgBatch = msgBatch[:0]
-				mentionBatch = mentionBatch[:0]
-				return
+		// UPSERT on event_id：普通写入幂等（重放恰好一条）；出站 pending →
+		// sent/failed 的完成记录覆盖状态，最终状态以完成记录为准。
+		ok := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "event_id"}},
+			DoUpdates: clause.AssignmentColumns(recordUpsertColumns),
+		}).CreateInBatches(msgBatch, 500).Error == nil
+		if ok && len(mentionBatch) > 0 {
+			// mentions 由 (event_id, mention_id) 唯一索引保证幂等（见 migrate.go）
+			ok = tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(mentionBatch, 500).Error == nil
+		}
+		if ok && len(attBatch) > 0 && l.att != nil {
+			// 出站 Data 附件两阶段提交：rename 与引用行插入同在 flush 写事务内，
+			// 与附件 GC 删除（BEGIN IMMEDIATE）串行化，杜绝悬空引用。
+			for i, tmp := range attTmp {
+				if tmp == "" {
+					continue
+				}
+				if err := l.att.Store().CommitTemp(attBatch[i].StorageKey, tmp); err != nil {
+					l.att.Store().DiscardTemp(tmp)
+					ok = false
+					logger.WithError(err).Warn("[MessageLog] failed to commit attachment binary")
+					break
+				}
 			}
 		}
-		if len(mentionBatch) > 0 {
-			if err := tx.CreateInBatches(mentionBatch, 500).Error; err != nil {
-				tx.Rollback()
-				logger.WithError(err).Warn("[MessageLog] Failed to flush mention batch")
-				msgBatch = msgBatch[:0]
-				mentionBatch = mentionBatch[:0]
-				return
+		if ok && len(attBatch) > 0 {
+			// 附件引用行幂等：唯一索引 (event_id, url, name)（见 migrate.go）
+			ok = tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(attBatch, 200).Error == nil
+		}
+		if ok {
+			ok = tx.Commit().Error == nil
+		} else {
+			tx.Rollback()
+		}
+		if !ok {
+			// 事务失败：清理未提交的临时文件（已 CommitTemp 的要么已 rename、
+			// 要么去重丢弃，DiscardTemp 对缺失文件是 no-op）
+			if l.att != nil {
+				for _, tmp := range attTmp {
+					if tmp != "" {
+						l.att.Store().DiscardTemp(tmp)
+					}
+				}
+			}
+			l.queue.requeue(recs)
+			mlMetricsInst.flushFailedTotal.Inc()
+			logger.Warn("[MessageLog] Failed to flush message batch, records kept in spool")
+			return false
+		}
+		mlMetricsInst.flushTotal.Inc()
+		mlMetricsInst.dbWriteLatency.Observe(time.Since(start).Seconds())
+		// 提交成功后：入队待下载附件（pending），并释放出站 Data 缓冲
+		if l.att != nil {
+			var ids []int64
+			for _, ar := range attBatch {
+				if ar.Status == string(attachments.StatusPending) && ar.ID > 0 {
+					ids = append(ids, ar.ID)
+				}
+			}
+			if len(ids) > 0 {
+				l.att.Enqueue(ids)
 			}
 		}
-		tx.Commit()
-		msgBatch = msgBatch[:0]
-		mentionBatch = mentionBatch[:0]
+		eventIDs := make([]string, 0, len(recs))
+		for _, r := range recs {
+			eventIDs = append(eventIDs, r.job.EventID)
+		}
+		l.enqueueRecorded(recs)
+		l.clearOutboundData(eventIDs)
+		l.queue.ack(recs)
+		return true
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			flush()
+			// 排空剩余任务再落盘；提交失败则留在 spool，重启重放
+			deadline := time.Now().Add(l.stopDrainTimeout)
+			for time.Now().Before(deadline) {
+				if !flush() {
+					return
+				}
+				if l.queue.depth() == 0 && (l.queue.spool == nil || l.queue.spool.unacked() == 0) {
+					return
+				}
+			}
+			logger.Warn("[MessageLog] Stop drain timeout, records remain in spool for replay")
 			return
-		case job := <-l.record:
-			msgBatch = append(msgBatch, recordToModel(job.entry))
-			if ms := entryToMentions(job.entry); len(ms) > 0 {
-				mentionBatch = append(mentionBatch, ms...)
-			}
-			if len(msgBatch) >= 1000 {
-				flush()
-			}
+		case <-l.queue.notify:
+			flush()
 		case <-ticker.C:
 			flush()
 		}
 	}
 }
 
+// enqueueRecorded 将本批已提交记录放入广播队列（非阻塞）。
+// 队列满则丢弃并告警：事件仅用于派生数据增量，丢失可经 ScanAfter 全量重建。
+func (l *Logger) enqueueRecorded(recs []queuedRecord) {
+	if l.recordedCh == nil {
+		return
+	}
+	for _, r := range recs {
+		select {
+		case l.recordedCh <- r.job:
+		default:
+			mlMetricsInst.recordedDroppedTotal.Inc()
+			logger.Warn("[MessageLog] recorded event channel full, event dropped (rebuild via ScanAfter)")
+		}
+	}
+}
+
+// eventBroadcastLoop 将已落库记录广播给派生数据消费者（统计插件等）。
+// 停止时等待 flushLoop 退出后排空剩余事件，保证已提交记录全部广播。
+func (l *Logger) eventBroadcastLoop(ctx context.Context) {
+	defer l.wg.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			// 等 flushLoop 排空完成（其内部有 10s 截止），再消费剩余事件
+			if l.flushDone != nil {
+				<-l.flushDone
+			}
+			for {
+				select {
+				case e := <-l.recordedCh:
+					l.publishRecorded(e)
+				default:
+					return
+				}
+			}
+		case e := <-l.recordedCh:
+			l.publishRecorded(e)
+		}
+	}
+}
+
+// publishRecorded 发布单条消息记录事件；发布失败仅告警（可经 ScanAfter 重建）。
+func (l *Logger) publishRecorded(e RecordEntry) {
+	if l.publisher == nil {
+		return
+	}
+	if err := l.publisher.PublishContext(context.Background(), TopicMessageRecorded, MessageRecorded{Record: e}); err != nil {
+		mlMetricsInst.recordedDroppedTotal.Inc()
+		logger.WithError(err).Warn("[MessageLog] failed to broadcast message recorded event")
+	}
+}
+
 // recordToModel 将 RecordEntry 转换为 GORM 模型。
 func recordToModel(e RecordEntry) MessageRecord {
 	return MessageRecord{
-		RequestID:  e.RequestID,
-		Platform:   e.Platform,
-		Kind:       e.Kind,
-		EventID:    e.EventID,
-		ChatID:     e.ChatID,
-		ChatName:   e.ChatName,
-		ParentID:   e.ParentID,
-		IsGroup:    e.IsGroup,
-		UserID:     e.UserID,
-		UserName:   e.UserName,
-		UserRole:   e.UserRole,
-		Content:    e.Content,
-		ReplyToID:  e.ReplyToID,
-		RawType:    e.RawType,
-		Timestamp:  e.Timestamp.UnixNano(),
-		CreatedAt:  e.CreatedAt.UnixNano(),
-		IsOutbound: e.IsOutbound,
+		RequestID:         e.RequestID,
+		Platform:          e.Platform,
+		Kind:              e.Kind,
+		EventID:           e.EventID,
+		PlatformMessageID: e.PlatformMessageID,
+		ChatID:            e.ChatID,
+		ChatName:          e.ChatName,
+		ParentID:          e.ParentID,
+		IsGroup:           e.IsGroup,
+		UserID:            e.UserID,
+		UserName:          e.UserName,
+		UserRole:          e.UserRole,
+		Content:           e.Content,
+		ReplyToID:         e.ReplyToID,
+		ReplyToEventID:    e.ReplyToEventID,
+		ReplyToMessageID:  e.ReplyToMessageID,
+		RawType:           e.RawType,
+		Timestamp:         e.Timestamp.UnixNano(),
+		CreatedAt:         e.CreatedAt.UnixNano(),
+		IsOutbound:        e.IsOutbound,
+		SendStatus:        string(e.SendStatus),
+		LastError:         e.LastError,
+		TriggeredBy:       e.TriggeredBy,
+		IsEdited:          e.IsEdited,
+		EditedAt:          e.EditedAt.UnixNano(),
+		IsRecalled:        e.IsRecalled,
+		RecalledAt:        e.RecalledAt.UnixNano(),
 	}
+}
+
+// recordUpsertColumns 冲突（同 event_id）时更新的列：完整覆盖可变字段，
+// 使 pending → sent/failed 的完成记录能覆盖状态（幂等重放同结果）。
+var recordUpsertColumns = []string{
+	"request_id", "platform", "kind", "platform_message_id",
+	"chat_id", "chat_name", "parent_id", "user_id", "user_name", "user_role",
+	"content", "reply_to_id", "reply_to_event_id", "reply_to_message_id",
+	"raw_type", "send_status", "last_error", "triggered_by",
+	"timestamp", "created_at", "edited_at", "recalled_at",
+	"is_group", "is_outbound", "is_edited", "is_recalled",
 }
 
 // entryToMentions 将 RecordEntry 中的 Mentions 转换为 MessageMention 切片。
@@ -338,55 +640,206 @@ func entryToMentions(e RecordEntry) []MessageMention {
 	return out
 }
 
-// modelToEntry 将 GORM 模型转换为 RecordEntry（mentions 需外部注入）。
-func modelToEntry(m MessageRecord, mentions []platform.UserInfo) RecordEntry {
-	return RecordEntry{
-		RequestID:  m.RequestID,
-		Platform:   m.Platform,
-		Kind:       m.Kind,
-		EventID:    m.EventID,
-		ChatID:     m.ChatID,
-		ChatName:   m.ChatName,
-		ParentID:   m.ParentID,
-		IsGroup:    m.IsGroup,
-		UserID:     m.UserID,
-		UserName:   m.UserName,
-		UserRole:   m.UserRole,
-		Content:    m.Content,
-		ReplyToID:  m.ReplyToID,
-		RawType:    m.RawType,
-		Mentions:   mentions,
-		Timestamp:  time.Unix(0, m.Timestamp),
-		CreatedAt:  time.Unix(0, m.CreatedAt),
-		IsOutbound: m.IsOutbound,
+// buildAttachmentRows 为一条记录构建附件引用行（元数据始终落库）。
+// 返回 (行, 与行对齐的临时文件路径)：Data 附件走两阶段写入，tmp 由
+// flush 事务内 CommitTemp 提交，保证「二进制可见」与「引用行就绪」在
+// SQLite 写锁内原子（与附件 GC 删除串行化，杜绝悬空引用）。
+//
+//   - URL 附件：按下载范围策略取初始状态（pending → 入队下载；pending_lazy → 回填/懒加载）；
+//   - Data 附件（出站二进制直传）：字节经 outboundData 缓冲带到这里，写入
+//     AttachmentStore 临时文件并在 flush 事务内提交后标记 ready；写入失败
+//     降级 pending_lazy（元数据保留）。
+//
+// 幂等：唯一索引 (event_id, url, name) + ON CONFLICT DO NOTHING，重放恰好一行。
+func (l *Logger) buildAttachmentRows(e RecordEntry) ([]AttachmentRecord, []string) {
+	if len(e.Attachments) == 0 && !l.hasOutboundData(e.EventID) {
+		return nil, nil
 	}
+	now := time.Now().Unix()
+	data := l.peekOutboundData(e.EventID)
+	dataUsed := make(map[int]bool)
+
+	rows := make([]AttachmentRecord, 0, len(e.Attachments)+len(data))
+	tmps := make([]string, 0, len(e.Attachments)+len(data))
+	for _, am := range e.Attachments {
+		if am.URL != "" {
+			rows = append(rows, AttachmentRecord{
+				EventID:      e.EventID,
+				Type:         am.Type,
+				URL:          am.URL,
+				Name:         am.Name,
+				MimeType:     am.MimeType,
+				Size:         am.Size,
+				Status:       attachments.InitialStatus(l.attScope, l.attHotWindow, e.Timestamp),
+				URLExpiresAt: attachments.URLExpiryUnix(am.URL),
+				CreatedAt:    now,
+			})
+			tmps = append(tmps, "")
+			continue
+		}
+		// URL 为空：优先匹配出站 Data 附件（同 Type+Name），否则 pending_lazy 兜底
+		status := attachments.StatusPendingLazy
+		lastErr := ""
+		key, size, tmp := "", int64(0), ""
+		for j, att := range data {
+			if dataUsed[j] || string(att.Kind) != am.Type || att.Name != am.Name {
+				continue
+			}
+			dataUsed[j] = true
+			var err error
+			key, size, tmp, err = l.storeAttachmentTemp(att)
+			if err != nil {
+				lastErr = "store data attachment: " + err.Error()
+				if len(lastErr) > 256 {
+					lastErr = lastErr[:256]
+				}
+			} else {
+				status = attachments.StatusReady
+			}
+			break
+		}
+		rows = append(rows, AttachmentRecord{
+			EventID:    e.EventID,
+			Type:       am.Type,
+			URL:        am.URL,
+			Name:       am.Name,
+			MimeType:   am.MimeType,
+			Size:       size,
+			SHA256:     key,
+			StorageKey: key,
+			Status:     status,
+			LastError:  lastErr,
+			CreatedAt:  now,
+		})
+		tmps = append(tmps, tmp)
+	}
+	return rows, tmps
 }
 
-// Record 直接记录一条消息到内存缓存（不经过异步写入）。
-// 适用于测试或需要同步记录的场景。生产环境推荐使用 RecordAsync。
-func (l *Logger) Record(e RecordEntry) {
-	if e.Content == "" {
+// storeAttachmentTemp 把出站 Data 附件写入 AttachmentStore 临时文件，
+// 返回 storage key、大小与临时路径（由调用方在写锁事务内 CommitTemp 提交）。
+func (l *Logger) storeAttachmentTemp(att platform.Attachment) (string, int64, string, error) {
+	if l.att == nil || len(att.Data) == 0 {
+		return "", 0, "", errors.New("attachment store unavailable")
+	}
+	return l.att.Store().PutTemp(bytes.NewReader(att.Data), l.attMaxSize)
+}
+
+// attachmentMetas 把 platform.Attachment 列表转为元数据视图（不含二进制）。
+func attachmentMetas(atts []platform.Attachment) []AttachmentMeta {
+	if len(atts) == 0 {
+		return nil
+	}
+	out := make([]AttachmentMeta, 0, len(atts))
+	for _, a := range atts {
+		out = append(out, AttachmentMeta{
+			Type:     string(a.Kind),
+			Name:     a.Name,
+			MimeType: a.MimeType,
+			Size:     int64(a.Size),
+			URL:      a.URL,
+		})
+	}
+	return out
+}
+
+// setOutboundData 暂存出站 Data 附件字节（flush 时写入 Store）。
+// 带总量上限（异常路径保护：DB 持续失败时不会无限占内存，元数据不受影响）。
+func (l *Logger) setOutboundData(eventID string, atts []platform.Attachment) {
+	if eventID == "" || len(atts) == 0 {
 		return
 	}
-	if e.ChatID != "" {
-		l.groupMu.Lock()
-		r, ok := l.groupBuf[e.ChatID]
-		if !ok {
-			r = newRing(l.cap)
-			l.groupBuf[e.ChatID] = r
+	var data []platform.Attachment
+	var total int64
+	for _, a := range atts {
+		if len(a.Data) == 0 {
+			continue
 		}
-		r.add(e)
-		l.groupMu.Unlock()
+		data = append(data, a)
+		total += int64(len(a.Data))
 	}
-	if e.UserID != "" {
-		l.userMu.Lock()
-		r, ok := l.userBuf[e.UserID]
-		if !ok {
-			r = newRing(l.cap)
-			l.userBuf[e.UserID] = r
+	if len(data) == 0 {
+		return
+	}
+	l.outboundDataMu.Lock()
+	defer l.outboundDataMu.Unlock()
+	const maxOutboundDataBytes = 64 << 20 // 64MB
+	if l.outboundDataBytes+total > maxOutboundDataBytes {
+		logger.Warn("[MessageLog] outbound data buffer over limit, attachment binary dropped (metadata kept)")
+		return
+	}
+	l.outboundData[eventID] = data
+	l.outboundDataBytes += total
+}
+
+func (l *Logger) hasOutboundData(eventID string) bool {
+	l.outboundDataMu.Lock()
+	defer l.outboundDataMu.Unlock()
+	_, ok := l.outboundData[eventID]
+	return ok
+}
+
+// peekOutboundData 读取（不消费）eventID 的 Data 附件。
+func (l *Logger) peekOutboundData(eventID string) []platform.Attachment {
+	l.outboundDataMu.Lock()
+	defer l.outboundDataMu.Unlock()
+	return l.outboundData[eventID]
+}
+
+// clearOutboundData 在 flush 提交成功后释放 Data 缓冲。
+func (l *Logger) clearOutboundData(eventIDs []string) {
+	if len(eventIDs) == 0 {
+		return
+	}
+	l.outboundDataMu.Lock()
+	for _, id := range eventIDs {
+		if atts, ok := l.outboundData[id]; ok {
+			for _, a := range atts {
+				l.outboundDataBytes -= int64(len(a.Data))
+			}
+			delete(l.outboundData, id)
 		}
-		r.add(e)
-		l.userMu.Unlock()
+	}
+	l.outboundDataMu.Unlock()
+}
+
+// modelToEntry 将 GORM 模型转换为 RecordEntry（mentions 需外部注入）。
+func modelToEntry(m MessageRecord, mentions []platform.UserInfo) RecordEntry {
+	// 兼容旧行：迁移前的行只有 reply_to_id（= 平台消息 ID）；迁移已回填到
+	// reply_to_message_id，此处兜底防御。
+	replyToMessageID := m.ReplyToMessageID
+	if replyToMessageID == "" {
+		replyToMessageID = m.ReplyToID
+	}
+	return RecordEntry{
+		RequestID:         m.RequestID,
+		Platform:          m.Platform,
+		Kind:              m.Kind,
+		EventID:           m.EventID,
+		PlatformMessageID: m.PlatformMessageID,
+		ChatID:            m.ChatID,
+		ChatName:          m.ChatName,
+		ParentID:          m.ParentID,
+		IsGroup:           m.IsGroup,
+		UserID:            m.UserID,
+		UserName:          m.UserName,
+		UserRole:          m.UserRole,
+		Content:           m.Content,
+		ReplyToID:         m.ReplyToID,
+		ReplyToEventID:    m.ReplyToEventID,
+		ReplyToMessageID:  replyToMessageID,
+		RawType:           m.RawType,
+		Mentions:          mentions,
+		Timestamp:         time.Unix(0, m.Timestamp),
+		CreatedAt:         time.Unix(0, m.CreatedAt),
+		IsOutbound:        m.IsOutbound,
+		SendStatus:        SendStatus(m.SendStatus),
+		LastError:         m.LastError,
+		TriggeredBy:       m.TriggeredBy,
+		IsEdited:          m.IsEdited,
+		EditedAt:          time.Unix(0, m.EditedAt),
+		IsRecalled:        m.IsRecalled,
+		RecalledAt:        time.Unix(0, m.RecalledAt),
 	}
 }
 
@@ -395,91 +848,49 @@ func (l *Logger) Record(e RecordEntry) {
 //
 // 提取的信息包括：RequestID、平台、事件类型、群/用户、内容、回复链、原始类型等。
 func (l *Logger) RecordAsync(ev platform.Event, ctx *eventctx.Context) {
-	e := eventToEntry(ev, ctx)
-
-	// 异步写入 DB channel（buffer 满时静默丢弃，保护进程）
-	select {
-	case l.record <- recordJob{entry: e}:
-	default:
-	}
-
-	// 同步写入内存 ring buffer
-	if e.ChatID != "" {
-		l.groupMu.Lock()
-		r, ok := l.groupBuf[e.ChatID]
-		if !ok {
-			r = newRing(l.cap)
-			l.groupBuf[e.ChatID] = r
-		}
-		r.add(e)
-		l.groupMu.Unlock()
-	}
-	if e.UserID != "" {
-		l.userMu.Lock()
-		r, ok := l.userBuf[e.UserID]
-		if !ok {
-			r = newRing(l.cap)
-			l.userBuf[e.UserID] = r
-		}
-		r.add(e)
-		l.userMu.Unlock()
-	}
-}
-
-// RecordOutbound 记录一条机器人发出的出站消息（如 AI 回复）。
-//
-// 写入独立的 botBuf ring（供回复上下文查询，QueryGroup/QueryUser 不含出站消息），
-// 并在已 Start() 时异步持久化到 SQLite（IsOutbound=true）。
-// 调用方需持有平台发送返回的 MessageID（eventID）。
-func (l *Logger) RecordOutbound(chatID, eventID, content string, t time.Time) {
-	if chatID == "" || eventID == "" || content == "" {
+	if !l.recordSystemEvents && !isMessageKind(ev.Kind()) {
 		return
 	}
-	e := RecordEntry{
-		Platform:   "bot",
-		Kind:       "OUTBOUND",
-		EventID:    eventID,
-		ChatID:     chatID,
-		Content:    content,
-		Timestamp:  t,
-		CreatedAt:  time.Now(),
-		IsOutbound: true,
-	}
+	e := eventToEntry(ev, ctx)
+	l.Record(e)
+}
 
-	// 异步写入 DB channel（未 Start 时 channel 为 nil，select 走 default 安全跳过）
-	select {
-	case l.record <- recordJob{entry: e}:
+// isMessageKind 判断事件是否属于消息类（默认只记录消息类事件，避免系统事件噪音）。
+func isMessageKind(k platform.EventKind) bool {
+	switch k {
+	case platform.EventKindPrivateMessage, platform.EventKindGroupMessage,
+		platform.EventKindGuildMessage:
+		return true
 	default:
+		return false
 	}
-
-	// 同步写入 botBuf ring
-	l.botMu.Lock()
-	r, ok := l.botBuf[chatID]
-	if !ok {
-		r = newRing(l.cap)
-		l.botBuf[chatID] = r
-	}
-	r.add(e)
-	l.botMu.Unlock()
 }
 
 // OnOutbound 实现 eventctx.OutboundObserver，记录经 ctx.Reply* 发送的出站消息。
 //
-// 发送失败、平台未返回 MessageID、或消息无文本内容时跳过（无法建立可靠的回复键）。
+// 发送结果以 send_status 记录：成功 = sent；失败 = failed（默认记录，可配置关闭）。
+// 无文本内容（纯附件/卡片消息）同样记录「发送过一条消息」的事实。
 // 注意：仅覆盖经框架 ctx.Reply* 的出站；插件直接调用 platform.Sender.Send
-// （绕过 ctx.Reply，如 sendqueue）不会被观察到。
+// （绕过 ctx.Reply）不会被观察到，此类路径应使用 [RecordingSender]。
 func (l *Logger) OnOutbound(chatID string, req platform.SendRequest, res platform.SendResult, err error) {
-	if err != nil || chatID == "" || res.MessageID == "" {
+	if chatID == "" {
 		return
 	}
-	text := req.Message.Text
-	if text == "" {
-		text = req.Message.Markdown
-	}
-	if text == "" {
+	if err != nil && !l.recordFailedOutbound {
 		return
 	}
-	l.RecordOutbound(chatID, res.MessageID, text, time.Now())
+	e := outboundEntry(chatID, req)
+	e.EventID = uuid.NewV7().String()
+	l.setOutboundData(e.EventID, req.Message.Attachments)
+	e.Platform = res.Platform
+	if err != nil {
+		e.SendStatus = SendStatusFailed
+		e.LastError = truncateError(err)
+	} else {
+		e.SendStatus = SendStatusSent
+		e.PlatformMessageID = res.MessageID
+	}
+	l.Record(e)
 }
 
 // eventToEntry 从 platform.Event 和 Context 提取完整的消息记录。
@@ -500,20 +911,23 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		RequestID: rid,
 		Platform:  ev.Platform(),
 		Kind:      string(ev.Kind()),
-		EventID:   ev.ID(),
-		ChatID:    chat.ID,
-		ChatName:  chat.Name,
-		ParentID:  chat.ParentID,
-		IsGroup:   chat.IsGroup,
-		UserID:    sender.ID,
-		UserName:  sender.DisplayName,
-		UserRole:  groupRoleString(sender.GroupRole),
-		Content:   platform.Content(ev),
-		ReplyToID: replyToID,
-		RawType:   platform.RawType(ev),
-		Mentions:  mentions,
-		Timestamp: ev.Timestamp(),
-		CreatedAt: time.Now(),
+		// 逻辑身份（EventID）由统一 Record 入口分配 UUIDv7
+		PlatformMessageID: ev.ID(),
+		ChatID:            chat.ID,
+		ChatName:          chat.Name,
+		ParentID:          chat.ParentID,
+		IsGroup:           chat.IsGroup,
+		UserID:            sender.ID,
+		UserName:          sender.DisplayName,
+		UserRole:          groupRoleString(sender.GroupRole),
+		Content:           platform.Content(ev),
+		ReplyToID:         replyToID,
+		ReplyToMessageID:  replyToID, // 回复目标按平台消息 ID 记录，查询时解析
+		RawType:           platform.RawType(ev),
+		Mentions:          mentions,
+		Attachments:       attachmentMetas(platform.Attachments(ev)),
+		Timestamp:         ev.Timestamp(),
+		CreatedAt:         time.Now(),
 	}
 }
 
@@ -528,217 +942,6 @@ func groupRoleString(r platform.GroupRole) string {
 	default:
 		return ""
 	}
-}
-
-// --- 内存热缓存查询（优先走 ring buffer） ---
-
-// QueryGroup 返回群 groupID 最近 n 条消息（从旧到新）。
-// 只查询内存 ring buffer，n 超出缓冲区容量时只返回缓冲区内的条数。
-func (l *Logger) QueryGroup(groupID string, n int) []RecordEntry {
-	if groupID == "" || n <= 0 {
-		return nil
-	}
-	l.groupMu.RLock()
-	r := l.groupBuf[groupID]
-	l.groupMu.RUnlock()
-	if r != nil {
-		return r.snapshot(n)
-	}
-	return nil
-}
-
-// QueryGroupRecent 返回群 groupID 最近 n 条入站消息（从旧到新）。
-//
-// 优先内存 ring buffer；条数不足时以 SQLite 最近记录补齐——
-// 重启后内存热缓存为空，此方法仍能读到重启前的群历史
-// （QueryGroup 的 DB 增强版，供 AI 群聊消息窗口等场景使用）。
-// 出站消息（IsOutbound）不参与。
-func (l *Logger) QueryGroupRecent(groupID string, n int) []RecordEntry {
-	return l.queryGroupRecent(groupID, n, false)
-}
-
-// QueryGroupRecentWithBot 与 QueryGroupRecent 相同，但额外包含机器人的
-// 出站回复（AI 与其他插件的回复，存于 botBuf / SQLite IsOutbound=true）。
-// 供"群聊消息窗口包含机器人回复"的配置使用。
-func (l *Logger) QueryGroupRecentWithBot(groupID string, n int) []RecordEntry {
-	return l.queryGroupRecent(groupID, n, true)
-}
-
-func (l *Logger) queryGroupRecent(groupID string, n int, includeBot bool) []RecordEntry {
-	if groupID == "" || n <= 0 {
-		return nil
-	}
-
-	seen := make(map[string]bool)
-	var mem []RecordEntry
-	for _, e := range l.QueryGroup(groupID, n) {
-		if !seen[e.EventID] {
-			seen[e.EventID] = true
-			mem = append(mem, e)
-		}
-	}
-	if includeBot {
-		l.botMu.RLock()
-		br := l.botBuf[groupID]
-		l.botMu.RUnlock()
-		if br != nil {
-			for _, e := range br.snapshot(n) {
-				if !seen[e.EventID] {
-					seen[e.EventID] = true
-					mem = append(mem, e)
-				}
-			}
-		}
-	}
-
-	if len(mem) >= n || l.db == nil {
-		sortEntriesByTime(mem)
-		return lastN(mem, n)
-	}
-
-	q := l.db.Where("chat_id = ?", groupID)
-	if !includeBot {
-		q = q.Where("is_outbound = false")
-	}
-	var models []MessageRecord
-	if err := q.Order("id DESC").Limit(n).Find(&models).Error; err != nil {
-		logger.WithError(err).Warn("[MessageLog] Failed to query recent messages from DB")
-		sortEntriesByTime(mem)
-		return lastN(mem, n)
-	}
-	for _, m := range slices.Backward(models) {
-		if seen[m.EventID] {
-			continue
-		}
-		seen[m.EventID] = true
-		mem = append(mem, modelToEntry(m, nil))
-	}
-	sortEntriesByTime(mem)
-	return lastN(mem, n)
-}
-
-// sortEntriesByTime 按时间戳旧→新稳定排序（内存 ring 与 SQLite 条目混合后使用）。
-func sortEntriesByTime(entries []RecordEntry) {
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Timestamp.Before(entries[j].Timestamp) })
-}
-
-// lastN 截取切片末尾 n 条（不足 n 条时原样返回）。
-func lastN(entries []RecordEntry, n int) []RecordEntry {
-	if len(entries) > n {
-		return entries[len(entries)-n:]
-	}
-	return entries
-}
-
-// QueryUser 返回用户 userID 最近 n 条消息（从旧到新）。
-func (l *Logger) QueryUser(userID string, n int) []RecordEntry {
-	if userID == "" || n <= 0 {
-		return nil
-	}
-	l.userMu.RLock()
-	r := l.userBuf[userID]
-	l.userMu.RUnlock()
-	if r != nil {
-		return r.snapshot(n)
-	}
-	return nil
-}
-
-// QueryByEventID 按事件 ID 在指定会话中查找消息内容（回复上下文查询）。
-//
-// 查找顺序：
-//  1. 入站消息 ring（groupBuf）
-//  2. 机器人出站消息 ring（botBuf）
-//  3. SQLite 兜底（入站与出站均持久化，按 chat_id + event_id 索引查询）
-//
-// 未找到返回零值和 false。
-func (l *Logger) QueryByEventID(chatID, eventID string) (RecordEntry, bool) {
-	if chatID == "" || eventID == "" {
-		return RecordEntry{}, false
-	}
-
-	l.groupMu.RLock()
-	r := l.groupBuf[chatID]
-	l.groupMu.RUnlock()
-	if r != nil {
-		if e, ok := findInRing(r, eventID); ok {
-			return e, true
-		}
-	}
-
-	l.botMu.RLock()
-	br := l.botBuf[chatID]
-	l.botMu.RUnlock()
-	if br != nil {
-		if e, ok := findInRing(br, eventID); ok {
-			return e, true
-		}
-	}
-
-	if l.db != nil {
-		var m MessageRecord
-		if err := l.db.Where("chat_id = ? AND event_id = ?", chatID, eventID).First(&m).Error; err == nil {
-			return modelToEntry(m, nil), true
-		}
-	}
-
-	return RecordEntry{}, false
-}
-
-// findInRing 在 ring 快照中按事件 ID 线性查找（容量上限为 DefaultCapacity）。
-func findInRing(r *ring, eventID string) (RecordEntry, bool) {
-	for _, e := range r.snapshot(r.size) {
-		if e.EventID == eventID {
-			return e, true
-		}
-	}
-	return RecordEntry{}, false
-}
-
-// WordFreq 统计群 groupID 最近 n 条消息中的词频（基于内存 ring buffer）。
-// 返回 map[词]出现次数，可用于简单词云展示。
-func (l *Logger) WordFreq(groupID string, n int) map[string]int {
-	msgs := l.QueryGroup(groupID, n)
-	freq := make(map[string]int)
-	for _, m := range msgs {
-		for _, word := range tokenize(m.Content) {
-			freq[word]++
-		}
-	}
-	return freq
-}
-
-// --- SQLite 查询（时间区间 + 大数据量） ---
-
-// WordFreqEntry 词频统计结果条目。
-type WordFreqEntry struct {
-	Word  string
-	Count int
-}
-
-// WordFreqFromDB 从 SQLite 查询指定时间区间内的词频（Go 侧分词）。
-// 用于词云等需要分析大量历史消息的场景。
-func (l *Logger) WordFreqFromDB(chatID string, since, until time.Time, limit int) ([]WordFreqEntry, error) {
-	if l.db == nil {
-		return nil, nil
-	}
-	var models []MessageRecord
-	err := l.db.Where("chat_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
-		Order("id DESC").Limit(limit).Find(&models).Error
-	if err != nil {
-		return nil, err
-	}
-	freq := make(map[string]int)
-	for _, m := range models {
-		for _, word := range tokenize(m.Content) {
-			freq[word]++
-		}
-	}
-	out := make([]WordFreqEntry, 0, len(freq))
-	for word, count := range freq {
-		out = append(out, WordFreqEntry{Word: word, Count: count})
-	}
-	return out, nil
 }
 
 // loadMentions 批量加载多条消息的 @ 列表，按 EventID 分组。
@@ -763,180 +966,162 @@ func (l *Logger) loadMentions(eventIDs []string) map[string][]platform.UserInfo 
 	return m
 }
 
-// QueryGroupFromDB 从 SQLite 查询群指定时间区间的消息记录。
-func (l *Logger) QueryGroupFromDB(chatID string, since, until time.Time, limit int) ([]RecordEntry, error) {
-	if l.db == nil {
-		return nil, nil
+// loadAttachments 批量加载多条消息的附件元数据，按 EventID 分组。
+func (l *Logger) loadAttachments(models []MessageRecord) map[string][]AttachmentMeta {
+	if l.db == nil || len(models) == 0 {
+		return nil
 	}
-	var models []MessageRecord
-	err := l.db.Where("chat_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", chatID, since.UnixNano(), until.UnixNano()).
-		Order("id DESC").Limit(limit).Find(&models).Error
-	if err != nil {
-		return nil, err
+	eventIDs := make([]string, 0, len(models))
+	for _, m := range models {
+		eventIDs = append(eventIDs, m.EventID)
 	}
-	if len(models) == 0 {
-		return nil, nil
+	var rows []AttachmentRecord
+	if err := l.db.Where("event_id IN ?", eventIDs).Find(&rows).Error; err != nil {
+		logger.WithError(err).Warn("[MessageLog] Failed to load attachments")
+		return nil
 	}
-	eventIDs := make([]string, len(models))
-	for i, m := range models {
-		eventIDs[i] = m.EventID
+	out := make(map[string][]AttachmentMeta, len(models))
+	for _, r := range rows {
+		out[r.EventID] = append(out[r.EventID], attachmentMetaFromRecord(r))
 	}
-	mentionsMap := l.loadMentions(eventIDs)
-	out := make([]RecordEntry, len(models))
-	for i, m := range models {
-		out[i] = modelToEntry(m, mentionsMap[m.EventID])
-	}
-	return out, nil
+	return out
 }
 
-// QueryUserFromDB 从 SQLite 查询用户指定时间区间的消息记录。
-func (l *Logger) QueryUserFromDB(userID string, since, until time.Time, limit int) ([]RecordEntry, error) {
-	if l.db == nil {
-		return nil, nil
+func attachmentMetaFromRecord(r AttachmentRecord) AttachmentMeta {
+	return AttachmentMeta{
+		ID:         r.ID,
+		Type:       r.Type,
+		Name:       r.Name,
+		MimeType:   r.MimeType,
+		Size:       r.Size,
+		URL:        r.URL,
+		Status:     r.Status,
+		StorageKey: r.StorageKey,
 	}
-	var models []MessageRecord
-	err := l.db.Where("user_id = ? AND is_outbound = false AND timestamp BETWEEN ? AND ?", userID, since.UnixNano(), until.UnixNano()).
-		Order("id DESC").Limit(limit).Find(&models).Error
-	if err != nil {
-		return nil, err
-	}
-	if len(models) == 0 {
-		return nil, nil
-	}
-	eventIDs := make([]string, len(models))
-	for i, m := range models {
-		eventIDs[i] = m.EventID
-	}
-	mentionsMap := l.loadMentions(eventIDs)
-	out := make([]RecordEntry, len(models))
-	for i, m := range models {
-		out[i] = modelToEntry(m, mentionsMap[m.EventID])
-	}
-	return out, nil
 }
 
 // --- 清理 ---
 
-// Clear 从内存 ring buffer 中删除时间戳早于 before 的消息。
-// 同时从 SQLite 中删除对应记录（DB 清理可选）。
+// Clear 删除时间戳早于 before 的消息：内存热缓存裁剪 + SQLite 删除。
 func (l *Logger) Clear(before time.Time) {
-	l.groupMu.Lock()
-	for gid, r := range l.groupBuf {
-		pruned := pruneRing(r, before, l.cap)
-		if pruned.size == 0 {
-			delete(l.groupBuf, gid)
-		} else {
-			l.groupBuf[gid] = pruned
-		}
+	if l.cache != nil {
+		l.cache.pruneBefore(before)
 	}
-	l.groupMu.Unlock()
-
-	l.userMu.Lock()
-	for uid, r := range l.userBuf {
-		pruned := pruneRing(r, before, l.cap)
-		if pruned.size == 0 {
-			delete(l.userBuf, uid)
-		} else {
-			l.userBuf[uid] = pruned
-		}
-	}
-	l.userMu.Unlock()
-
-	l.botMu.Lock()
-	for cid, r := range l.botBuf {
-		pruned := pruneRing(r, before, l.cap)
-		if pruned.size == 0 {
-			delete(l.botBuf, cid)
-		} else {
-			l.botBuf[cid] = pruned
-		}
-	}
-	l.botMu.Unlock()
 
 	if l.db != nil {
-		cutoff := before.UnixNano()
-		var ids []string
-		l.db.Model(&MessageRecord{}).Where("timestamp < ?", cutoff).Pluck("event_id", &ids)
-		if len(ids) > 0 {
-			if tx := l.db.Where("event_id IN ?", ids).Delete(&MessageMention{}); tx.Error != nil {
-				logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear mentions from DB")
+		l.deleteMessagesBefore(before)
+	}
+}
+
+// retentionLoop 后台历史保留清理：按 retention_days / max_entries 删除最旧记录。
+func (l *Logger) retentionLoop(ctx context.Context) {
+	defer l.wg.Done()
+	ticker := time.NewTicker(l.retention.CleanupInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			l.applyRetention()
+		}
+	}
+}
+
+// applyRetention 执行一轮保留清理（days 与 max_entries 同时配置时按更严格者）。
+func (l *Logger) applyRetention() {
+	if l.db == nil {
+		return
+	}
+	cleaned := false
+	if l.retention.Days > 0 {
+		cutoff := time.Now().Add(-time.Duration(l.retention.Days) * 24 * time.Hour)
+		l.deleteMessagesBefore(cutoff)
+		cleaned = true
+	}
+	if l.retention.MaxEntries > 0 {
+		var total int64
+		if err := l.db.Model(&MessageRecord{}).Count(&total).Error; err == nil && total > int64(l.retention.MaxEntries) {
+			var ids []int64
+			if err := l.db.Model(&MessageRecord{}).Order("id ASC").
+				Limit(int(total-int64(l.retention.MaxEntries))).Pluck("id", &ids).Error; err == nil && len(ids) > 0 {
+				l.deleteMessageIDs(ids)
+				cleaned = true
 			}
 		}
-		if tx := l.db.Where("timestamp < ?", cutoff).Delete(&MessageRecord{}); tx.Error != nil {
-			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
+	}
+	if cleaned {
+		// 附件引用已删：触发二进制 GC（grace_period 过后回收）
+		if l.att != nil {
+			l.att.TriggerGC()
 		}
 		// DELETE 后回收空闲页，控制 DB 文件膨胀
 		l.db.Exec("PRAGMA incremental_vacuum(500)")
 	}
 }
 
+// deleteMessagesBefore 删除时间早于 before 的消息及其 mentions / 附件引用。
+func (l *Logger) deleteMessagesBefore(before time.Time) {
+	if l.db == nil {
+		return
+	}
+	cutoff := before.UnixNano()
+	var ids []int64
+	l.db.Model(&MessageRecord{}).Where("timestamp < ?", cutoff).Pluck("id", &ids)
+	if len(ids) == 0 {
+		return
+	}
+	l.deleteMessageIDs(ids)
+}
+
+// deleteMessageIDs 按 message_records.id 删除消息及其关联行。
+func (l *Logger) deleteMessageIDs(ids []int64) {
+	if l.db == nil || len(ids) == 0 {
+		return
+	}
+	// 分批避免 SQLite 变量上限（999）
+	for start := 0; start < len(ids); start += 500 {
+		end := min(start+500, len(ids))
+		chunk := ids[start:end]
+		var eventIDs []string
+		l.db.Model(&MessageRecord{}).Where("id IN ?", chunk).Pluck("event_id", &eventIDs)
+		if len(eventIDs) > 0 {
+			for _, tx := range []*gorm.DB{
+				l.db.Where("event_id IN ?", eventIDs).Delete(&MessageMention{}),
+				l.db.Where("event_id IN ?", eventIDs).Delete(&AttachmentRecord{}),
+			} {
+				if tx.Error != nil {
+					logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear related rows from DB")
+				}
+			}
+		}
+		if tx := l.db.Where("id IN ?", chunk).Delete(&MessageRecord{}); tx.Error != nil {
+			logger.WithError(tx.Error).Warn("[MessageLog] Failed to clear old messages from DB")
+		}
+	}
+}
+
 // --- 统计 ---
 
-// GroupCount 返回已记录消息的群数量。
+// GroupCount 返回热缓存中有条目的会话数量。
 func (l *Logger) GroupCount() int {
-	l.groupMu.RLock()
-	defer l.groupMu.RUnlock()
-	return len(l.groupBuf)
-}
-
-// UserCount 返回已记录消息的用户数量。
-func (l *Logger) UserCount() int {
-	l.userMu.RLock()
-	defer l.userMu.RUnlock()
-	return len(l.userBuf)
-}
-
-// GroupMessageCount 返回群 groupID 在内存缓存中的消息数量。
-func (l *Logger) GroupMessageCount(groupID string) int {
-	l.groupMu.RLock()
-	r := l.groupBuf[groupID]
-	l.groupMu.RUnlock()
-	if r == nil {
+	if l.cache == nil {
 		return 0
 	}
-	return r.size
+	return l.cache.chatCount()
 }
 
-// --- 内部工具 ---
-
-func pruneRing(r *ring, before time.Time, cap int) *ring {
-	all := r.snapshot(r.size)
-	out := newRing(cap)
-	for _, m := range all {
-		if !m.Timestamp.Before(before) {
-			out.add(m)
-		}
-	}
-	return out
+// UserCount 兼容占位：热缓存按会话维度存储，不再维护独立的用户维度。
+func (l *Logger) UserCount() int {
+	return 0
 }
 
-// tokenize 简单分词：按空白切割，过滤长度 < 2 的词及纯标点词。
-func tokenize(text string) []string {
-	var out []string
-	var buf []rune
-	for _, r := range text {
-		if !isWordRune(r) {
-			if len(buf) >= 2 {
-				out = append(out, string(buf))
-			}
-			buf = buf[:0]
-			continue
-		}
-		buf = append(buf, r)
+// GroupMessageCount 返回群 groupID 在热缓存中的消息数量。
+func (l *Logger) GroupMessageCount(groupID string) int {
+	if l.cache == nil {
+		return 0
 	}
-	if len(buf) >= 2 {
-		out = append(out, string(buf))
-	}
-	return out
-}
-
-func isWordRune(r rune) bool {
-	return (r >= 'a' && r <= 'z') ||
-		(r >= 'A' && r <= 'Z') ||
-		(r >= '0' && r <= '9') ||
-		(r >= 0x4e00 && r <= 0x9fff) || // CJK 统一表意文字
-		(r >= 0x3400 && r <= 0x4dbf) || // CJK 扩展A
-		r == '\''
+	return l.cache.entryCount(groupID)
 }
 
 // --- 全局默认实例 ---
@@ -956,12 +1141,12 @@ func Default() *Logger { return defaultLogger }
 func MessageLogger() eventctx.Middleware {
 	return func(next eventctx.Handler) eventctx.Handler {
 		return func(ctx *eventctx.Context) error {
-			if defaultLogger.record != nil {
+			if defaultLogger.queue != nil {
 				ctx.Ext().SetTyped(eventctx.OutboundObserverExt{Observer: defaultLogger})
 			}
 			err := next(ctx)
 			pe := ctx.GetPlatformEvent()
-			if pe != nil && defaultLogger.record != nil {
+			if pe != nil && defaultLogger.queue != nil {
 				defaultLogger.RecordAsync(pe, ctx)
 			}
 			return err

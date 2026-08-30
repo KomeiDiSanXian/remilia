@@ -58,6 +58,10 @@ type Config struct {
 	DeadLetter DeadLetterConfig `yaml:"dead_letter" mapstructure:"dead_letter"`
 	Engine     EngineConfig     `yaml:"engine" mapstructure:"engine"`
 	Tracing    tracing.Config   `yaml:"tracing" mapstructure:"tracing"`
+	// Messagelog 消息日志（builtin/messagelog）配置。
+	// 对应框架事实层：SQLite 持久化 + 有界热缓存 + durable 队列 + 附件生命周期。
+	// 需要重启生效 [R]。
+	Messagelog *MessagelogConfig `yaml:"messagelog,omitempty" mapstructure:"messagelog,omitempty"`
 
 	// Plugins 业务插件的扩展配置节点。
 	//
@@ -382,6 +386,92 @@ type PprofConfig struct {
 	EnableBlock     bool   `yaml:"enable_block" mapstructure:"enable_block"`
 }
 
+// MessagelogConfig 消息日志配置（builtin/messagelog）。
+//
+// 字段对应设计文档 §12。未配置时使用 messagelog 包内默认值；
+// 大小类字段（如 spool.max_size）支持 "500MB" / "1GB" 形式（见 ParseSize）。
+type MessagelogConfig struct {
+	Enabled     bool                        `yaml:"enabled" mapstructure:"enabled"`
+	DBPath      string                      `yaml:"db_path" mapstructure:"db_path"`
+	Record      MessagelogRecordConfig      `yaml:"record" mapstructure:"record"`
+	Flush       MessagelogFlushConfig       `yaml:"flush" mapstructure:"flush"`
+	Spool       MessagelogSpoolConfig       `yaml:"spool" mapstructure:"spool"`
+	Cache       MessagelogCacheConfig       `yaml:"cache" mapstructure:"cache"`
+	Attachments MessagelogAttachmentsConfig `yaml:"attachments" mapstructure:"attachments"`
+	Retention   MessagelogRetentionConfig   `yaml:"retention" mapstructure:"retention"`
+}
+
+// MessagelogRecordConfig 记录范围策略。
+type MessagelogRecordConfig struct {
+	// FailedOutbound 是否记录发送失败的出站；默认 true（nil = true）。
+	FailedOutbound *bool `yaml:"failed_outbound" mapstructure:"failed_outbound"`
+	SystemEvents   bool  `yaml:"system_events" mapstructure:"system_events"`
+	EditHistory    bool  `yaml:"edit_history" mapstructure:"edit_history"`
+}
+
+// MessagelogFlushConfig 异步批量写库参数。
+type MessagelogFlushConfig struct {
+	Interval  string `yaml:"interval" mapstructure:"interval"`
+	BatchSize int    `yaml:"batch_size" mapstructure:"batch_size"`
+	QueueSize int    `yaml:"queue_size" mapstructure:"queue_size"`
+}
+
+// MessagelogSpoolConfig durable spool 兜底缓冲。
+type MessagelogSpoolConfig struct {
+	// Enabled 默认启用（nil = true）；显式 false 关闭并退化为「内存满丢弃」。
+	Enabled     *bool  `yaml:"enabled" mapstructure:"enabled"`
+	Dir         string `yaml:"dir" mapstructure:"dir"`
+	MaxSize     string `yaml:"max_size" mapstructure:"max_size"`
+	ReplayBatch int    `yaml:"replay_batch" mapstructure:"replay_batch"`
+}
+
+// MessagelogCacheConfig 有界热缓存。
+type MessagelogCacheConfig struct {
+	PerChatCapacity  int `yaml:"per_chat_capacity" mapstructure:"per_chat_capacity"`
+	GlobalMaxEntries int `yaml:"global_max_entries" mapstructure:"global_max_entries"`
+	// IdleEvict 空闲优先淘汰；默认开启（nil = true）。
+	IdleEvict *bool `yaml:"idle_evict" mapstructure:"idle_evict"`
+}
+
+// MessagelogAttachmentsConfig 附件生命周期（元数据落库 + 异步下载 + GC）。
+type MessagelogAttachmentsConfig struct {
+	// Dir 附件二进制存储目录（默认 data/attachments）。
+	Dir                 string                       `yaml:"dir" mapstructure:"dir"`
+	Scope               string                       `yaml:"scope" mapstructure:"scope"`
+	HotWindowAge        string                       `yaml:"hot_window_age" mapstructure:"hot_window_age"`
+	MaxDiskUsage        string                       `yaml:"max_disk_usage" mapstructure:"max_disk_usage"`
+	MaxPendingTasks     int                          `yaml:"max_pending_tasks" mapstructure:"max_pending_tasks"`
+	DownloadConcurrency int                          `yaml:"download_concurrency" mapstructure:"download_concurrency"`
+	DownloadRetries     int                          `yaml:"download_retries" mapstructure:"download_retries"`
+	DownloadBackoff     []string                     `yaml:"download_backoff" mapstructure:"download_backoff"`
+	MaxSize             string                       `yaml:"max_size" mapstructure:"max_size"`
+	RateLimitPerHost    string                       `yaml:"rate_limit_per_host" mapstructure:"rate_limit_per_host"`
+	LazyFallback        *bool                        `yaml:"lazy_fallback" mapstructure:"lazy_fallback"`
+	GC                  MessagelogAttachmentGCConfig `yaml:"gc" mapstructure:"gc"`
+	Backfill            MessagelogBackfillConfig     `yaml:"backfill" mapstructure:"backfill"`
+}
+
+// MessagelogAttachmentGCConfig 附件二进制回收。
+type MessagelogAttachmentGCConfig struct {
+	Enabled     *bool  `yaml:"enabled" mapstructure:"enabled"`
+	GracePeriod string `yaml:"grace_period" mapstructure:"grace_period"`
+}
+
+// MessagelogBackfillConfig 空闲回填。
+type MessagelogBackfillConfig struct {
+	Enabled       *bool   `yaml:"enabled" mapstructure:"enabled"`
+	BatchSize     int     `yaml:"batch_size" mapstructure:"batch_size"`
+	IdleThreshold float64 `yaml:"idle_threshold" mapstructure:"idle_threshold"`
+	MaxAttempts   int     `yaml:"max_attempts" mapstructure:"max_attempts"`
+}
+
+// MessagelogRetentionConfig 历史保留策略。
+type MessagelogRetentionConfig struct {
+	Days            int    `yaml:"days" mapstructure:"days"`
+	MaxEntries      int    `yaml:"max_entries" mapstructure:"max_entries"`
+	CleanupInterval string `yaml:"cleanup_interval" mapstructure:"cleanup_interval"`
+}
+
 // Manager 管理配置的加载、存储和变更通知。
 //
 // 支持创建独立实例以隔离多 Bot 场景下的配置，同时保持包级便捷函数
@@ -497,6 +587,13 @@ func (m *Manager) Get() (*Config, bool) {
 	if cfg.Tracing.Headers != nil {
 		c.Tracing.Headers = make(map[string]string, len(cfg.Tracing.Headers))
 		maps.Copy(c.Tracing.Headers, cfg.Tracing.Headers)
+	}
+	if cfg.Messagelog != nil {
+		ml := *cfg.Messagelog
+		if cfg.Messagelog.Attachments.DownloadBackoff != nil {
+			ml.Attachments.DownloadBackoff = append([]string(nil), cfg.Messagelog.Attachments.DownloadBackoff...)
+		}
+		c.Messagelog = &ml
 	}
 	if cfg.Plugins != nil {
 		c.Plugins = make(map[string]map[string]any, len(cfg.Plugins))

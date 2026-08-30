@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia"
@@ -29,6 +31,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/ratelimitui"
 	"github.com/KomeiDiSanXian/remilia/builtin/scheduler"
 	"github.com/KomeiDiSanXian/remilia/builtin/sendqueue"
+	"github.com/KomeiDiSanXian/remilia/builtin/statistics"
 	"github.com/KomeiDiSanXian/remilia/builtin/stats"
 	builtinstorage "github.com/KomeiDiSanXian/remilia/builtin/storage"
 	subscriptionpkg "github.com/KomeiDiSanXian/remilia/builtin/subscription"
@@ -82,6 +85,10 @@ func setupPluginManager(bot *remilia.Bot, eng *engine.Engine, cfg *config.Config
 func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 	ensureDataDirs()
 
+	// messagelog 事实层事件广播：必须在插件 Setup（订阅 MessageRecorded）之前
+	// 注入发布器，且早于 setupMessageLogger 内的 Start()。
+	messagelog.Default().SetEventPublisher(pm.GetEventBus())
+
 	// 需要共享状态或跨插件绑定的实例先单独创建
 	asPlugin := antispam.NewPlugin(antispam.DefaultConfig(), antispam.WithStore(dataDir+"/antispam"))
 	cdPlugin := cooldown.NewPlugin()
@@ -131,6 +138,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		// 数据、统计与调度
 		sp.Descriptor(),
 		auditlog.New(),
+		statistics.New(statistics.WithStore(dataDir + "/db/statistics.db")),
 		schedPlugin.Descriptor(),
 		rlPlugin.Descriptor(),
 		pluginstore.New(),
@@ -196,13 +204,175 @@ func registerPluginMiddlewares(eng *engine.Engine, pm *plugin.Manager, sp *stats
 
 // setupMessageLogger 打开消息历史数据库并挂载日志中间件；打开失败时仅禁用该功能。
 func setupMessageLogger(eng *engine.Engine) {
-	mlDB, err := messagelog.OpenDB(dataDir + "/db/messagelog.db")
+	cfg, _ := config.Get()
+	var mlCfg *config.MessagelogConfig
+	if cfg != nil {
+		mlCfg = cfg.Messagelog
+	}
+	if mlCfg != nil && !mlCfg.Enabled {
+		logger.Info("[remilia] MessageLogger disabled by config")
+		return
+	}
+
+	dbPath := dataDir + "/db/messagelog.db"
+	if mlCfg != nil && mlCfg.DBPath != "" {
+		dbPath = mlCfg.DBPath
+	}
+	mlDB, err := messagelog.OpenDB(dbPath)
 	if err != nil {
 		logger.WithError(err).Warn("[remilia] Failed to open messagelog DB, message history disabled")
 		return
 	}
 	messagelog.Default().UseDB(mlDB)
-	messagelog.Default().Start()
+
+	opts := messagelog.Options{}
+	if mlCfg != nil {
+		if d, err := time.ParseDuration(mlCfg.Flush.Interval); err == nil && d > 0 {
+			opts.FlushInterval = d
+		}
+		if mlCfg.Flush.BatchSize > 0 {
+			opts.BatchSize = mlCfg.Flush.BatchSize
+		}
+		if mlCfg.Flush.QueueSize > 0 {
+			opts.QueueSize = mlCfg.Flush.QueueSize
+		}
+		// spool 默认启用（Durable 语义）；显式配置 false 才关闭
+		opts.SpoolEnabled = mlCfg.Spool.Enabled == nil || *mlCfg.Spool.Enabled
+		if mlCfg.Spool.Dir != "" {
+			opts.SpoolDir = mlCfg.Spool.Dir
+		} else {
+			opts.SpoolDir = dataDir + "/spool/messagelog"
+		}
+		if n, err := config.ParseSize(mlCfg.Spool.MaxSize); err == nil && n > 0 {
+			opts.SpoolMaxSize = n
+		}
+		if mlCfg.Cache.PerChatCapacity > 0 {
+			opts.CachePerChat = mlCfg.Cache.PerChatCapacity
+		}
+		if mlCfg.Cache.GlobalMaxEntries > 0 {
+			opts.CacheGlobal = mlCfg.Cache.GlobalMaxEntries
+		}
+		// 空闲优先淘汰默认开启；显式 false 关闭
+		if mlCfg.Cache.IdleEvict != nil {
+			opts.CacheIdleEvict = mlCfg.Cache.IdleEvict
+		}
+		opts.RecordSystemEvents = mlCfg.Record.SystemEvents
+		// 记录失败出站默认开启；显式 false 关闭
+		if mlCfg.Record.FailedOutbound != nil && !*mlCfg.Record.FailedOutbound {
+			f := false
+			opts.RecordFailedOutbound = &f
+		}
+		// 附件生命周期（默认：metadata 落库 + hot_window 下载）
+		attDir := mlCfg.Attachments.Dir
+		if attDir == "" {
+			attDir = dataDir + "/attachments"
+		}
+		att := &messagelog.AttachmentOptions{
+			Dir:                 attDir,
+			Scope:               "hot_window",
+			HotWindowAge:        24 * time.Hour,
+			MaxPending:          10000,
+			DownloadConcurrency: 8,
+			DownloadRetries:     3,
+			DownloadBackoff:     []time.Duration{time.Second, 5 * time.Second, 30 * time.Second},
+			MaxSize:             20 << 20,
+			LazyFallback:        true,
+			GCEnabled:           true,
+			GracePeriod:         7 * 24 * time.Hour,
+			BackfillEnabled:     true,
+			BackfillBatch:       50,
+			IdleThreshold:       0.3,
+			BackfillAttempts:    3,
+			BackfillInterval:    time.Minute,
+			GCInterval:          30 * time.Minute,
+		}
+		if mlCfg.Attachments.Scope != "" {
+			att.Scope = mlCfg.Attachments.Scope
+		}
+		if d, err := time.ParseDuration(mlCfg.Attachments.HotWindowAge); err == nil && d > 0 {
+			att.HotWindowAge = d
+		}
+		if n, err := config.ParseSize(mlCfg.Attachments.MaxDiskUsage); err == nil && n >= 0 {
+			att.MaxDiskUsage = n
+		}
+		if mlCfg.Attachments.MaxPendingTasks > 0 {
+			att.MaxPending = mlCfg.Attachments.MaxPendingTasks
+		}
+		if mlCfg.Attachments.DownloadConcurrency > 0 {
+			att.DownloadConcurrency = mlCfg.Attachments.DownloadConcurrency
+		}
+		if mlCfg.Attachments.DownloadRetries >= 0 {
+			att.DownloadRetries = mlCfg.Attachments.DownloadRetries
+		}
+		if len(mlCfg.Attachments.DownloadBackoff) > 0 {
+			var seq []time.Duration
+			for _, s := range mlCfg.Attachments.DownloadBackoff {
+				if d, err := time.ParseDuration(s); err == nil {
+					seq = append(seq, d)
+				}
+			}
+			if len(seq) > 0 {
+				att.DownloadBackoff = seq
+			}
+		}
+		if n, err := config.ParseSize(mlCfg.Attachments.MaxSize); err == nil && n >= 0 {
+			att.MaxSize = n
+		}
+		// rate_limit_per_host 形如 "10/s"
+		if rl := mlCfg.Attachments.RateLimitPerHost; rl != "" {
+			if f, ok := parsePerSecond(rl); ok {
+				att.RatePerHost = f
+			}
+		}
+		if mlCfg.Attachments.LazyFallback != nil {
+			att.LazyFallback = *mlCfg.Attachments.LazyFallback
+		}
+		if mlCfg.Attachments.GC.Enabled != nil {
+			att.GCEnabled = *mlCfg.Attachments.GC.Enabled
+		}
+		if d, err := time.ParseDuration(mlCfg.Attachments.GC.GracePeriod); err == nil && d > 0 {
+			att.GracePeriod = d
+		}
+		if mlCfg.Attachments.Backfill.Enabled != nil {
+			att.BackfillEnabled = *mlCfg.Attachments.Backfill.Enabled
+		}
+		if mlCfg.Attachments.Backfill.BatchSize > 0 {
+			att.BackfillBatch = mlCfg.Attachments.Backfill.BatchSize
+		}
+		if mlCfg.Attachments.Backfill.IdleThreshold > 0 {
+			att.IdleThreshold = mlCfg.Attachments.Backfill.IdleThreshold
+		}
+		if mlCfg.Attachments.Backfill.MaxAttempts > 0 {
+			att.BackfillAttempts = mlCfg.Attachments.Backfill.MaxAttempts
+		}
+		opts.Attachments = att
+
+		// 历史保留（默认永久保留）
+		if mlCfg.Retention.Days > 0 || mlCfg.Retention.MaxEntries > 0 {
+			ret := &messagelog.RetentionOptions{
+				Days:            mlCfg.Retention.Days,
+				MaxEntries:      mlCfg.Retention.MaxEntries,
+				CleanupInterval: time.Hour,
+			}
+			if d, err := time.ParseDuration(mlCfg.Retention.CleanupInterval); err == nil && d > 0 {
+				ret.CleanupInterval = d
+			}
+			opts.Retention = ret
+		}
+	}
+	messagelog.Default().Start(opts)
 	eng.Use(messagelog.MessageLogger())
 	logger.Info("[remilia] MessageLogger middleware enabled")
+}
+
+// parsePerSecond 解析 "10/s" 形式的每秒速率；无法解析返回 ok=false。
+func parsePerSecond(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "/s")
+	s = strings.TrimSuffix(s, "/S")
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || f <= 0 {
+		return 0, false
+	}
+	return f, true
 }

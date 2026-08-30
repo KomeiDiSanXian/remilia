@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -78,7 +77,7 @@ func (p *Plugin) Once(name string, fn Func, opts ...Option) ID {
 	for _, o := range opts {
 		o(&cfg)
 	}
-	id := ID(uuid.NewString())
+	id := ID(uuid.New().String())
 	e := newEntry(id, name)
 	p.register(e)
 	go p.runOnce(e, fn, cfg)

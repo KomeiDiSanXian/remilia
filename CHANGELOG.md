@@ -1,5 +1,86 @@
 # Changelog
 
+## v1.47.0 (2026-08-30)
+
+### 🧠 消息日志重设计（事实层）
+
+- **统一事实入口**：入站/出站共用 `Record()`，`event_id`（UUIDv7）为消息逻辑身份，
+  SQLite UPSERT 幂等（重放恰好一条）；schema 迁移（`PRAGMA user_version` v1→v5）
+  事务内执行，旧库升级不丢数据
+- **Durable 消息队列 + spool 兜底**：内存队列满时落盘（append-only spool），
+  SQLite 提交成功后才推进游标；重启重放 + 幂等写入，`queue_dropped_total` 恒为 0
+- **有界热缓存**：per-chat ring + 全局预算 + 近似 LRU 淘汰，内存与群数/用户数解耦，
+  消除旧版 `groupBuf/userBuf/botBuf` 随 320 群线性增长的问题
+- **统一查询 API**：`QueryChat` / `QueryRange` / `QueryByEventID`（方向 / 已撤回 /
+  pending / 附件过滤选项），隐藏热缓存与 SQLite 边界，旧 API 保留为薄封装
+- **出站记录**：`RecordingSender` 包装全部平台 Sender + `OnOutbound` 观察者双路径，
+  `send_status` 状态机（pending → sent / failed / unknown），重启 reconcile 遗留 pending
+- **编辑 / 撤回墓碑**：`is_edited` / `is_recalled` 记录；编辑历史默认关闭
+  （`record.edit_history: false`，仅存最新内容）
+- **单机部署**：热缓存 / durable 队列 / spool 均为进程内状态，SQLite 单写者，
+  不支持多实例共享同一数据库文件；横向扩展请按实例独立部署（各自独立数据库）
+
+### 🖼️ 附件生命周期（best-effort 层）
+
+- 附件元数据始终落库（`message_attachments`），二进制按内容哈希（sha256）去重存于
+  独立目录（默认 `data/attachments`），URL 过期不影响元数据
+- 状态机：`pending → downloading → ready`；5xx/超时走 `pending_retry` 指数退避，
+  4xx/无来源降级 `pending_lazy`（懒加载 / 空闲回填再试），404/410 标记 `expired`
+- 懒加载 `Fetch()` + 空闲回填（按 `url_expires_at` 升序优先救快过期 URL）、
+  按 host 限速、单文件与磁盘预算分级响应
+- 引用计数 GC：消息删除只删引用，二进制在 `reference_count == 0` 且宽限期（默认 7d）
+  过后回收；GC 在 `BEGIN IMMEDIATE` 写锁事务内核对并删除；下载完成与出站附件写入
+  采用两阶段提交（临时文件 + 写锁事务内 rename 与标记 ready 原子），与 GC 删除
+  在同一把写锁下串行化——任何 ready 引用必有对应二进制，无「文件可见后、
+  引用就绪前」的悬空窗口（含共享内容去重复用旧孤儿文件的场景）
+
+### 📊 统计插件拆分（builtin/statistics）
+
+- 派生数据独立插件：`word_stats` / `daily_message_stats` / `user_message_stats` /
+  `chat_message_stats`，存于独立 SQLite（`data/db/statistics.db`）
+- 依赖方向 `statistics → messagelog`：订阅 `TopicMessageRecorded` 事件（flush 提交
+  成功后广播）做增量聚合；事件丢失不影响事实层，`Rebuild()` 经 `ScanAfter` 全量重建
+- 查询 API：`WordFreq` / `DailyStats` / `UserStats` / `ChatStats`；词频统计职责
+  从 messagelog 移出（messagelog 不再 import statistics）
+
+### 🧪 可靠性（灾难测试）
+
+- spool crash recovery：kill -9 后未 ack 记录重启重放恰好一次（0 丢失 0 重复）
+- SQLite commit race：8 生产者 × 500 条并发记录恰好一次落库
+- 附件 GC race：并发真实下载流 + GC 竞争下所有 ready 引用二进制均存在（含
+  共享内容去重、引用删除后立即回收等边界），`-race` 下稳定通过
+- Stop 排空超时可配置（`Options.StopDrainTimeout`，默认 10s）：race 检测/慢盘下
+  排空不误报丢失，超时记录留在 spool 由重启重放兜底
+- send unknown：发送超时崩溃后重启，遗留 pending 标记 unknown（不伪造 sent/failed）
+
+### ⚡ 性能（同机同参，AMD Ryzen 7 5800H / Windows / Go 1.27）
+
+**重构前后对比（320 群场景）**
+
+| 基准 | 重构前基线（同机） | v1.47.0 | 说明 |
+|------|-------------|---------|------|
+| `HotCacheQueryGroup` | 2498 ns/op，21.8 KB，1 alloc | ≈6.5 µs/op，50.9 KB，5 alloc | event_id 去重 + 统一缓存；AI 上下文读取路径 |
+| `SQLiteQueryRecent` | 188 µs/op | ≈150–180 µs/op | 满足微秒级目标 |
+| `SQLiteWriteBatch` | 208 ms/批（≈4.8k msg/s） | ≈210 ms/批（≈4.8k msg/s） | 原始 insert 吞吐持平（磁盘状态波动 ±15%）；收益在 durable 队列与幂等重放 |
+| `ConcurrentRecordAsync` | 194 ns/op* | ≈0.98 µs/op* | UUIDv7 逻辑身份 + durable 队列 + 有界缓存；热路径非瓶颈 |
+
+> *`ConcurrentRecordAsync` 基准已修正：合成事件此前未设置群 ID，热缓存写入被短路，
+> 旧数值（194 ns/op）不含缓存写入，不可直接对比；修正后（含真实缓存写入）约 0.98 µs/op。
+> 热路径变慢来自设计取舍：UUIDv7 全局唯一可排序事件 ID、durable 队列与全局预算热缓存；
+> 实际吞吐远高于落盘需求（SQLite 单写者约 4.7k msg/s，热路径仍有百万级余量）。
+
+**规模压测（生产缓存预算 per-chat 200 / 全局 50000，全群活跃最坏情形）**
+
+| 基准 | 320 群 | 1k 群 | 3k 群 | 10k 群 | 结论 |
+|------|--------|-------|-------|--------|------|
+| `HotCache_Scale` | 6.5 µs/op | 6.3 µs/op | 6.1 µs/op | 6.2 µs/op | 查询 O(1) 定位 + O(n) ring 扫描，不随群数增长 |
+| `RecordAsync_Scale` | 1.06 µs/op | 1.52 µs/op | 2.30 µs/op | 4.55 µs/op | 预算淘汰成本；修复前 10k 群 33 µs/op |
+
+> 压测暴露并修复全局预算淘汰的 O(群数) 全表扫描（近似 LRU 逐批找最旧会话）：
+> 10k 群时 `RecordAsync` 从 33 µs/op 降至 4.6 µs/op（淘汰改为写序链表 O(1) 定位）。
+> 剩余退化来自预算压力下的 ring 重建抖动（10k 群全活跃、每群仅约 5 个缓存槽的
+> 最坏情形）；真实部署以空闲群为主，写序 LRU 优先回收闲置会话，代价更低。
+
 ## v1.46.0 (2026-08-23)
 
 ### 🧰 AI 管理子命令补齐（/ai memory / todo / plan）

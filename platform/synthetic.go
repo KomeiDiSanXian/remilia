@@ -2,8 +2,7 @@ package platform
 
 import (
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // SyntheticEvent 是程序化构造的虚拟事件，实现 [Event] 接口。
@@ -59,7 +58,7 @@ func (e *SyntheticEvent) segments() []Segment {
 // content 为消息文本；其余字段通过 opts 配置（未配置时使用合理默认值）。
 func NewSyntheticEvent(kind EventKind, content string, opts ...SyntheticOption) *SyntheticEvent {
 	e := &SyntheticEvent{
-		id:          uuid.NewString(),
+		id:          uuid.New().String(),
 		platformStr: "synthetic",
 		kind:        kind,
 		content:     content,
