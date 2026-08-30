@@ -607,11 +607,11 @@ type sessionRecord struct {
 	CallCount int    `gorm:"default:0"`
 	ToolCount int    `gorm:"default:0"`
 	// Plan 进行中的任务计划（JSON；跨重启继续执行）。
-	Plan      string `gorm:"type:text"`
+	Plan string `gorm:"type:text"`
 	// PendingImages 未消费图片引用（JSON；跨重启窗口内仍可合并）。
 	PendingImages string `gorm:"type:text"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // toRecord 将 Session 转换为数据库记录。
@@ -638,16 +638,16 @@ func (s *Session) toRecord() *sessionRecord {
 		}
 	}
 	return &sessionRecord{
-		ID:        s.ID,
-		UserID:    s.UserID,
-		ChatID:    s.ChatID,
-		Messages:  string(data),
-		CallCount: s.CallCount,
-		ToolCount: s.ToolCount,
-		Plan:      planJSON,
+		ID:            s.ID,
+		UserID:        s.UserID,
+		ChatID:        s.ChatID,
+		Messages:      string(data),
+		CallCount:     s.CallCount,
+		ToolCount:     s.ToolCount,
+		Plan:          planJSON,
 		PendingImages: pendingJSON,
-		CreatedAt: s.CreatedAt,
-		UpdatedAt: s.UpdatedAt,
+		CreatedAt:     s.CreatedAt,
+		UpdatedAt:     s.UpdatedAt,
 	}
 }
 
