@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.48.2 (2026-08-30)
+
+### 🔧 工程
+
+- **EventBus 发布日志补充上下文**：`PublishContext` 的 Debug 日志在事件负载实现
+  新增可选接口 `plugin.ContextLogger` 时附加紧凑摘要；`MessageRecorded` 实现该接口，
+  输出 `event_id` / `direction`（inbound/outbound）/ 会话 / 用户 / 平台 / kind /
+  send_status / 编辑撤回标记，入站与出站的 `message_recorded` 发布一目了然；
+  其它主题回退打印 `payload_type`
+
 ## v1.48.1 (2026-08-30)
 
 ### 🐛 修复
