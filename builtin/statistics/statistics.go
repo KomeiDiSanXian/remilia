@@ -320,53 +320,66 @@ func (p *Plugin) apply(e messagelog.RecordEntry) {
 }
 
 // flush 将内存聚合批量 upsert 到派生表（整值覆盖：全量重建路径下结果精确）。
+// 四张派生表在同一事务内提交：读者不会观察到「words 已更新而 daily/chats 未更新」
+// 的中间状态（词频可见 ⇔ 全部派生表可见）。
 func (p *Plugin) flush() {
 	if p.db == nil {
 		return
 	}
-	if len(p.words) > 0 {
-		rows := make([]WordStat, 0, len(p.words))
-		now := time.Now().UnixNano()
-		for k, v := range p.words {
-			rows = append(rows, WordStat{Word: k.word, ChatID: k.chat, Count: v, UpdatedAt: now})
+	if err := p.db.Transaction(func(tx *gorm.DB) error {
+		if len(p.words) > 0 {
+			rows := make([]WordStat, 0, len(p.words))
+			now := time.Now().UnixNano()
+			for k, v := range p.words {
+				rows = append(rows, WordStat{Word: k.word, ChatID: k.chat, Count: v, UpdatedAt: now})
+			}
+			if err := p.upsert(tx, []string{"word", "chat_id"}, []string{"count", "updated_at"}, rows); err != nil {
+				return err
+			}
 		}
-		p.upsert([]string{"word", "chat_id"}, []string{"count", "updated_at"}, rows)
-	}
-	if len(p.daily) > 0 {
-		rows := make([]DailyMessageStat, 0, len(p.daily))
-		for k, v := range p.daily {
-			rows = append(rows, DailyMessageStat{ChatID: k.chat, Day: k.day, IsOutbound: k.outbound, Count: v})
+		if len(p.daily) > 0 {
+			rows := make([]DailyMessageStat, 0, len(p.daily))
+			for k, v := range p.daily {
+				rows = append(rows, DailyMessageStat{ChatID: k.chat, Day: k.day, IsOutbound: k.outbound, Count: v})
+			}
+			if err := p.upsert(tx, []string{"chat_id", "day", "is_outbound"}, []string{"count"}, rows); err != nil {
+				return err
+			}
 		}
-		p.upsert([]string{"chat_id", "day", "is_outbound"}, []string{"count"}, rows)
-	}
-	if len(p.users) > 0 {
-		rows := make([]UserMessageStat, 0, len(p.users))
-		for k, v := range p.users {
-			rows = append(rows, UserMessageStat{ChatID: k.chat, UserID: k.user, Day: k.day, Count: v})
+		if len(p.users) > 0 {
+			rows := make([]UserMessageStat, 0, len(p.users))
+			for k, v := range p.users {
+				rows = append(rows, UserMessageStat{ChatID: k.chat, UserID: k.user, Day: k.day, Count: v})
+			}
+			if err := p.upsert(tx, []string{"chat_id", "user_id", "day"}, []string{"count"}, rows); err != nil {
+				return err
+			}
 		}
-		p.upsert([]string{"chat_id", "user_id", "day"}, []string{"count"}, rows)
-	}
-	if len(p.chats) > 0 {
-		rows := make([]ChatMessageStat, 0, len(p.chats))
-		for k, v := range p.chats {
-			rows = append(rows, ChatMessageStat{ChatID: k.chat, Day: k.day, Count: v})
+		if len(p.chats) > 0 {
+			rows := make([]ChatMessageStat, 0, len(p.chats))
+			for k, v := range p.chats {
+				rows = append(rows, ChatMessageStat{ChatID: k.chat, Day: k.day, Count: v})
+			}
+			if err := p.upsert(tx, []string{"chat_id", "day"}, []string{"count"}, rows); err != nil {
+				return err
+			}
 		}
-		p.upsert([]string{"chat_id", "day"}, []string{"count"}, rows)
+		return nil
+	}); err != nil {
+		logger.WithError(err).Warn("[Statistics] failed to flush aggregates")
 	}
 }
 
-// upsert 批量 upsert（ON CONFLICT 更新指定列）。
-func (p *Plugin) upsert(conflictCols, updateCols []string, rows any) {
+// upsert 在给定事务内批量 upsert（ON CONFLICT 更新指定列）。
+func (p *Plugin) upsert(tx *gorm.DB, conflictCols, updateCols []string, rows any) error {
 	cols := make([]clause.Column, len(conflictCols))
 	for i, c := range conflictCols {
 		cols[i] = clause.Column{Name: c}
 	}
-	if err := p.db.Clauses(clause.OnConflict{
+	return tx.Clauses(clause.OnConflict{
 		Columns:   cols,
 		DoUpdates: clause.AssignmentColumns(updateCols),
-	}).CreateInBatches(rows, 500).Error; err != nil {
-		logger.WithError(err).Warn("[Statistics] failed to flush aggregates")
-	}
+	}).CreateInBatches(rows, 500).Error
 }
 
 // --- 查询 API ---

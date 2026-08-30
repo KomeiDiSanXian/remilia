@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/builtin/messagelog"
@@ -127,79 +128,86 @@ func TestTokenize(t *testing.T) {
 }
 
 // TestIncremental_EventSubscription 事件订阅增量聚合：词频 / 每日 / 用户 / 会话。
+// 用 synctest 把聚合 goroutine 放进 bubble：虚拟时钟推进触发 flush 落盘后直接
+// 断言，避免轮询撞上 flush 中间状态（flush 本身是单事务原子提交）。
 func TestIncremental_EventSubscription(t *testing.T) {
-	src := &fakeSource{}
-	p, cleanup := newTestPlugin(t, src)
-	defer cleanup()
+	synctest.Test(t, func(t *testing.T) {
+		src := &fakeSource{}
+		p, cleanup := newTestPlugin(t, src)
+		defer cleanup()
 
-	base := time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC)
-	p.handleRecorded(messagelog.MessageRecorded{Record: entry("e1", "g1", "u1", "你好 世界", base, false)})
-	p.handleRecorded(messagelog.MessageRecorded{Record: entry("e2", "g1", "u2", "世界 再见", base.Add(time.Hour), false)})
-	p.handleRecorded(messagelog.MessageRecorded{Record: entry("e3", "g1", "u1", "out", base.Add(2*time.Hour), true)})
+		base := time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC)
+		p.handleRecorded(messagelog.MessageRecorded{Record: entry("e1", "g1", "u1", "你好 世界", base, false)})
+		p.handleRecorded(messagelog.MessageRecorded{Record: entry("e2", "g1", "u2", "世界 再见", base.Add(time.Hour), false)})
+		p.handleRecorded(messagelog.MessageRecorded{Record: entry("e3", "g1", "u1", "out", base.Add(2*time.Hour), true)})
 
-	requireEventually(t, func() bool {
+		// 聚合器处理完事件后阻塞在 flush ticker；推进虚拟时钟越过 flush 周期，
+		// 落盘（单事务）完成后直接断言，无轮询、无真实时间等待。
+		synctest.Wait()
+		time.Sleep(2 * p.flushInterval)
+
 		words, err := p.WordFreq("g1", 10)
-		return err == nil && len(words) == 4
-	}, "word stats not flushed")
+		if err != nil {
+			t.Fatalf("WordFreq: %v", err)
+		}
+		if len(words) != 4 {
+			t.Fatalf("expected 4 words, got %+v", words)
+		}
+		countOf := func(w string) int {
+			for _, e := range words {
+				if e.Word == w {
+					return e.Count
+				}
+			}
+			return 0
+		}
+		if countOf("世界") != 2 || countOf("你好") != 1 || countOf("再见") != 1 || countOf("out") != 1 {
+			t.Errorf("unexpected word counts: %+v", words)
+		}
 
-	words, err := p.WordFreq("g1", 10)
-	if err != nil {
-		t.Fatalf("WordFreq: %v", err)
-	}
-	countOf := func(w string) int {
-		for _, e := range words {
-			if e.Word == w {
-				return e.Count
+		daily, err := p.DailyStats("g1", time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC))
+		if err != nil {
+			t.Fatalf("DailyStats: %v", err)
+		}
+		if len(daily) != 2 {
+			t.Fatalf("expected 2 daily rows (inbound/outbound), got %+v", daily)
+		}
+		for _, d := range daily {
+			if d.Day != "2026-08-30" {
+				t.Errorf("unexpected day %q", d.Day)
+			}
+			if d.IsOutbound && d.Count != 1 {
+				t.Errorf("expected outbound count 1, got %d", d.Count)
+			}
+			if !d.IsOutbound && d.Count != 2 {
+				t.Errorf("expected inbound count 2, got %d", d.Count)
 			}
 		}
-		return 0
-	}
-	if countOf("世界") != 2 || countOf("你好") != 1 || countOf("再见") != 1 || countOf("out") != 1 {
-		t.Errorf("unexpected word counts: %+v", words)
-	}
 
-	daily, err := p.DailyStats("g1", time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("DailyStats: %v", err)
-	}
-	if len(daily) != 2 {
-		t.Fatalf("expected 2 daily rows (inbound/outbound), got %+v", daily)
-	}
-	for _, d := range daily {
-		if d.Day != "2026-08-30" {
-			t.Errorf("unexpected day %q", d.Day)
+		users, err := p.UserStats("g1", time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), 10)
+		if err != nil {
+			t.Fatalf("UserStats: %v", err)
 		}
-		if d.IsOutbound && d.Count != 1 {
-			t.Errorf("expected outbound count 1, got %d", d.Count)
+		if len(users) != 2 {
+			t.Fatalf("expected 2 users, got %+v", users)
 		}
-		if !d.IsOutbound && d.Count != 2 {
-			t.Errorf("expected inbound count 2, got %d", d.Count)
+		for _, u := range users {
+			if u.UserID == "u1" && u.Count != 2 {
+				t.Errorf("expected u1 count 2, got %d", u.Count)
+			}
+			if u.UserID == "u2" && u.Count != 1 {
+				t.Errorf("expected u2 count 1, got %d", u.Count)
+			}
 		}
-	}
 
-	users, err := p.UserStats("g1", time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatalf("UserStats: %v", err)
-	}
-	if len(users) != 2 {
-		t.Fatalf("expected 2 users, got %+v", users)
-	}
-	for _, u := range users {
-		if u.UserID == "u1" && u.Count != 2 {
-			t.Errorf("expected u1 count 2, got %d", u.Count)
+		chats, err := p.ChatStats(time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), 10)
+		if err != nil {
+			t.Fatalf("ChatStats: %v", err)
 		}
-		if u.UserID == "u2" && u.Count != 1 {
-			t.Errorf("expected u2 count 1, got %d", u.Count)
+		if len(chats) != 1 || chats[0].ChatID != "g1" || chats[0].Count != 3 {
+			t.Fatalf("unexpected chat stats: %+v", chats)
 		}
-	}
-
-	chats, err := p.ChatStats(time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC), time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC), 10)
-	if err != nil {
-		t.Fatalf("ChatStats: %v", err)
-	}
-	if len(chats) != 1 || chats[0].ChatID != "g1" || chats[0].Count != 3 {
-		t.Fatalf("unexpected chat stats: %+v", chats)
-	}
+	})
 }
 
 // TestRebuild_FullScan 全量重建：扫描事实源并聚合。
