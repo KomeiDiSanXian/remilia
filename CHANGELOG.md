@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.48.4 (2026-08-31)
+
+### 🐛 修复
+
+- **sauce 走代理时图片下载失败**：下载客户端把 SSRF 拨号守卫叠加在代理
+  Transport 上，拨号目标是代理地址（如 `127.0.0.1:7890`）时被公网校验误伤，
+  报 `proxyconnect tcp: connection to non-public address blocked`。netguard
+  新增代理感知的 `GuardTransport`：代理地址白名单放行（显式配置或环境变量
+  `HTTP(S)_PROXY`/`ALL_PROXY`），直连目标仍校验公网 IP（保留 DNS 重绑定防线）；
+  sauce 下载客户端改用 `GuardTransport`，URL 级 SSRF 校验（`AllowURL` +
+  逐跳 `RedirectPolicy`）保持不变
+
+### 🧪 测试
+
+- netguard 新增 `GuardTransport` 用例：显式/环境变量代理拨号放行、直连非公网
+  目标仍拦截、代理白名单不放行白名单外的回环地址；sauce 下载客户端回归用例更新
+
 ## v1.48.3 (2026-08-31)
 
 ### 🐛 修复
