@@ -47,11 +47,12 @@ func newSauceHTTPClient(timeout time.Duration) *http.Client {
 // newSauceDownloadClient 构建带 SSRF 防护的图片下载客户端。
 //
 // 下载的 URL 来自平台附件/引用消息（用户可控），须限制目标为公网地址：
-// 在共享 Transport 基础上叠加 netguard.DialContext（连接前校验目标 IP）
-// 与逐跳重定向校验。引擎 API 调用仍走共享 Transport（目标固定为引擎域名）。
+// netguard.GuardTransport 在共享 Transport 上安装代理感知的拨号守卫
+// （直连目标校验公网 IP，防 DNS 重绑定；代理拨号放行），配合请求前的
+// AllowURL 与逐跳 RedirectPolicy 完成 URL 级校验。引擎 API 调用仍走
+// 共享 Transport（目标固定为引擎域名）。
 func newSauceDownloadClient(timeout time.Duration) *http.Client {
-	tr := sauceTransport.Clone()
-	tr.DialContext = netguard.DialContext
+	tr := netguard.GuardTransport(sauceTransport)
 	return &http.Client{
 		Timeout:       timeout,
 		Transport:     tr,

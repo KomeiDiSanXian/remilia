@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 )
 
@@ -80,6 +81,78 @@ func DialContext(ctx context.Context, network, address string) (net.Conn, error)
 		}
 	}
 	return (&net.Dialer{}).DialContext(ctx, network, address)
+}
+
+// GuardTransport 返回克隆后的 Transport，拨号器替换为代理感知的 SSRF 守卫：
+//
+//   - 拨号目标是已配置代理（显式 tr.Proxy 或环境变量 HTTP(S)_PROXY/ALL_PROXY）
+//     时放行（走原拨号器）——代理通常位于本机回环/内网，公网校验会误伤；
+//   - 其余拨号（直连目标）沿用公网 IP 校验，保留 DNS 重绑定防线。
+//
+// 无代理时行为与直接设置 DialContext 完全一致（严格公网）。
+// URL 级校验（AllowURL / RedirectPolicy）仍须由调用方叠加，本函数只处理拨号层。
+func GuardTransport(tr *http.Transport) *http.Transport {
+	if tr == nil {
+		return nil
+	}
+	cloned := tr.Clone()
+	allow := proxyDialAllowlist(tr)
+	origDial := cloned.DialContext
+	if origDial == nil {
+		origDial = (&net.Dialer{}).DialContext
+	}
+	cloned.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if _, ok := allow[address]; ok {
+			return origDial(ctx, network, address)
+		}
+		return DialContext(ctx, network, address)
+	}
+	return cloned
+}
+
+// proxyDialAllowlist 收集 Transport 可能拨号到的代理地址（显式代理配置 +
+// 环境变量代理），归一化为 "host:port"（IPv6 加括号、无端口补 scheme 默认值）。
+func proxyDialAllowlist(tr *http.Transport) map[string]struct{} {
+	allow := make(map[string]struct{})
+	add := func(u *url.URL) {
+		if u == nil || u.Host == "" {
+			return
+		}
+		host := u.Hostname()
+		if host == "" {
+			return
+		}
+		port := u.Port()
+		if port == "" {
+			port = defaultProxyPort(u.Scheme)
+		}
+		allow[net.JoinHostPort(host, port)] = struct{}{}
+	}
+	if tr.Proxy != nil {
+		// 显式代理（ProxyURL）对所有请求返回同一地址；ProxyFromEnvironment
+		// 按探测主机返回环境代理。探测主机选不常见的域名，降低被 NO_PROXY
+		// 豁免导致漏收集的概率（下方环境变量扫描兜底）。
+		probe := &http.Request{URL: &url.URL{Scheme: "https", Host: "netguard-probe.invalid"}}
+		if pu, err := tr.Proxy(probe); err == nil {
+			add(pu)
+		}
+	}
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		if raw := os.Getenv(key); raw != "" {
+			if u, err := url.Parse(raw); err == nil {
+				add(u)
+			}
+		}
+	}
+	return allow
+}
+
+// defaultProxyPort 返回代理 URL 未显式携带端口时的默认端口。
+func defaultProxyPort(scheme string) string {
+	if scheme == "https" {
+		return "443"
+	}
+	return "80"
 }
 
 // RedirectPolicy 返回限制重定向目标的 CheckRedirect 策略。
