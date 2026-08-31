@@ -548,6 +548,33 @@ messagelog:
 #     gelbooru_api_key: ""            # [R]  gelbooru.com API key（免费注册获取），否则返回 401
 #     rule34_user_id: ""              # [R]  rule34.xxx 必需，在 https://rule34.xxx/index.php?page=account&s=options 获取
 #     rule34_api_key: ""              # [R]  rule34.xxx API key（与 rule34_user_id 配套）
+#   aimage:
+#     # [R]  文生图（Text-to-Image）插件：AI 工具 generate_image + /aimage 命令。
+#     #      false = 不注册工具与命令（默认）
+#     enabled: false
+#     # [R]  后端二选一：
+#     #      openai  — OpenAI 兼容 /images/generations（DALL-E、SiliconFlow 等中转）
+#     #      sdwebui — 本地 Stable Diffusion WebUI /sdapi/v1/txt2img（AUTOMATIC1111 风格）
+#     provider: "openai"
+#     # [R]  后端地址：openai 为 API 根地址（如 https://api.openai.com/v1）；
+#     #      sdwebui 为 WebUI 地址（如 http://127.0.0.1:7860）
+#     base_url: ""
+#     # [R]  openai 兼容需要的 API 密钥（sdwebui 通常留空）
+#     api_key: ""
+#     # [R]  openai 模型名（如 dall-e-3）；sdwebui 留空使用默认 checkpoint
+#     model: "dall-e-3"
+#     # [R]  默认生成尺寸（宽x高）
+#     size: "1024x1024"
+#     # [R]  单次生成张数上限（命令/工具共用的硬上限）
+#     max_n: 3
+#     # [R]  生成请求超时（图片生成通常较慢）
+#     timeout: "120s"
+#     # [R]  以下为 sdwebui 专用参数
+#     steps: 20                        # 采样步数
+#     cfg_scale: 7                     # CFG 引导强度
+#     negative_prompt: ""              # 负面提示词（如 "低质量, 模糊"）
+#     # [R]  请求代理地址（可选；空 = 环境变量代理或直连）
+#     proxy: ""
 #   updater:
 #     # [H]  自动检查周期，0 = 关闭后台自动检查（/update 命令仍可用）
 #     #      /update auto on|off 可运行时切换自动检查开关（持久化）

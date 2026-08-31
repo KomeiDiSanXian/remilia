@@ -100,6 +100,50 @@ plugins:
 
 凭据安全：传输错误 URL 中的 `api_key`/`user_id` 自动脱敏，不泄露进日志或回复。
 
+## 🎨 aimage — 文生图
+
+位于 `cmd/bot/plugins/aimage/`。根据文字描述生成图片，支持两种后端（`plugins.aimage.provider` 切换）：
+
+- **openai**（默认）：OpenAI 兼容 `/images/generations` 端点（DALL-E、SiliconFlow 等中转）
+- **sdwebui**：本地 Stable Diffusion WebUI `/sdapi/v1/txt2img`（AUTOMATIC1111 风格，适合本地部署）
+
+生成的图片统一物化为二进制后直传会话（不走 URL 转发，规避 URL 过期与 SSRF 问题）。
+
+### 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/aimage <提示词>` | 生成一张图（尺寸取配置，默认 1024x1024） |
+| `/aimage <提示词> -size 512x512` | 指定尺寸（宽x高） |
+| `/aimage <提示词> -n 2` | 一次生成多张（上限 `max_n`，默认 3） |
+
+### AI 工具
+
+| 工具 | 说明 |
+|------|------|
+| `generate_image(prompt, size?, n?)` | 文生图。生成成功后图片自动发送到当前会话，工具只返回简短结果文本 |
+
+`generate_image` 标记 `RequiresApproval`：`tool_approval=restricted` 模式下生成需人工审批（`off` 默认行为不变）。
+
+### 配置（`plugins.aimage`）
+
+```yaml
+plugins:
+  aimage:
+    enabled: false              # 未启用不注册工具与命令
+    provider: "openai"          # openai（OpenAI 兼容 /images/generations）| sdwebui（Stable Diffusion WebUI）
+    base_url: ""                # openai 为 API 根地址；sdwebui 为 WebUI 地址（如 http://127.0.0.1:7860）
+    api_key: ""                 # openai 兼容需要；sdwebui 通常留空
+    model: "dall-e-3"           # openai 模型名；sdwebui 留空用默认 checkpoint
+    size: "1024x1024"           # 默认尺寸（宽x高）
+    max_n: 3                    # 单次生成张数上限
+    timeout: "120s"             # 生成请求超时
+    steps: 20                   # sdwebui 采样步数
+    cfg_scale: 7                # sdwebui CFG 引导强度
+    negative_prompt: ""         # sdwebui 负面提示词
+    proxy: ""                   # 可选代理
+```
+
 ## 🔎 sauce — 以图搜图
 
 位于 `cmd/bot/plugins/sauce/`。聚合 **SauceNAO / IQDB / TraceMoe / AnimeTrace** 多引擎检索图片来源。

@@ -38,6 +38,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/builtin/welcome"
 	"github.com/KomeiDiSanXian/remilia/config"
 
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/aimage"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/anime"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/bilibili"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/css"
@@ -164,6 +165,7 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		starrail.New(),
 		sauce.New(),
 		pic.New(),
+		aimage.New(),
 		dice.New(),
 		coc.New(),
 		dnd.New(),
