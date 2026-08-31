@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.49.0 (2026-08-31)
+
+### ✨ 新插件：aimage — 文生图
+
+- **新增 `aimage` 插件**（`cmd/bot/plugins/aimage/`）：AI 工具 `generate_image(prompt, size?, n?)`
+  + `/aimage <提示词> [-size 宽x高] [-n 张数]` 命令，双入口按需选用（只想走命令触发的用户
+  无需经过 AI 编排）
+- **双后端**（`plugins.aimage.provider` 切换）：
+  - `openai`：OpenAI 兼容 `/images/generations`（DALL-E、SiliconFlow 等中转），支持
+    `url` / `b64_json` 两种响应
+  - `sdwebui`：本地 Stable Diffusion WebUI `/sdapi/v1/txt2img`（AUTOMATIC1111 风格），
+    支持 `steps` / `cfg_scale` / `negative_prompt` 参数，`n>1` 时逐张请求
+- **结果统一物化为二进制直传**：base64 直接解码、URL 先下载再直传（不走 URL 转发），
+  规避生成 URL 过期与 SSRF 问题；下载走 `netguard` 公网校验 + 逐跳 `RedirectPolicy`
+- **安全与成本**：`generate_image` 标记 `RequiresApproval`（`tool_approval=restricted`
+  模式下生成需人工审批）；`max_n` 硬上限防刷；默认 120s 生成超时防挂起
+- 配置 `plugins.aimage`：`enabled / provider / base_url / api_key / model / size /
+  max_n / timeout / steps / cfg_scale / negative_prompt / proxy`；`enabled=false`
+  （默认）时不注册工具与命令
+
+### 🧪 测试
+
+- aimage 客户端/插件测试：openai `b64_json` 与 URL 下载两条路径、API 错误透传、
+  HTTP 错误、sdwebui 请求参数与循环生成、空结果、空 prompt、尺寸解析、MIME 嗅探、
+  工具注册条件（未启用返回 nil）、`n` 钳制、无发送能力回退、配置默认值/覆盖
+
 ## v1.48.4 (2026-08-31)
 
 ### 🐛 修复
