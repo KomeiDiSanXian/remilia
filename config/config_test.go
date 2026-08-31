@@ -6,6 +6,8 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestQQConfig_Validate 测试 QQ 平台配置验证
@@ -766,4 +768,21 @@ server:
 
 func writeFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// TestMessagelogAttachmentsConfig_RetriesDecode 验证 download_retries 的
+// 指针语义：缺省 = nil（OptionsFromConfig 回退默认 3），显式 0 = &0（不重试）。
+func TestMessagelogAttachmentsConfig_RetriesDecode(t *testing.T) {
+	var cfg Config
+	err := yaml.Unmarshal([]byte("messagelog:\n  attachments:\n    download_retries: 0\n    gc:\n      grace_period: 7d\n"), &cfg)
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Messagelog)
+	require.NotNil(t, cfg.Messagelog.Attachments.DownloadRetries)
+	assert.Equal(t, 0, *cfg.Messagelog.Attachments.DownloadRetries)
+	assert.NoError(t, cfg.Messagelog.Validate(), "7d duration must pass validation")
+
+	var absent Config
+	require.NoError(t, yaml.Unmarshal([]byte("messagelog:\n  attachments:\n    download_concurrency: 2\n"), &absent))
+	require.NotNil(t, absent.Messagelog)
+	assert.Nil(t, absent.Messagelog.Attachments.DownloadRetries, "unset download_retries must stay nil")
 }

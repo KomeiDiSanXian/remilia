@@ -50,7 +50,7 @@ func (mc *MessagelogConfig) Validate() error {
 		return nil
 	}
 	if mc.Flush.Interval != "" {
-		if _, err := time.ParseDuration(mc.Flush.Interval); err != nil {
+		if _, err := ParseDuration(mc.Flush.Interval); err != nil {
 			return fmt.Errorf("messagelog.flush.interval is not a valid duration: %w", err)
 		}
 	}
@@ -75,7 +75,7 @@ func (mc *MessagelogConfig) Validate() error {
 		return fmt.Errorf("messagelog.cache.global_max_entries must be >= 0, got %d", mc.Cache.GlobalMaxEntries)
 	}
 	if mc.Attachments.HotWindowAge != "" {
-		if _, err := time.ParseDuration(mc.Attachments.HotWindowAge); err != nil {
+		if _, err := ParseDuration(mc.Attachments.HotWindowAge); err != nil {
 			return fmt.Errorf("messagelog.attachments.hot_window_age is not a valid duration: %w", err)
 		}
 	}
@@ -95,16 +95,16 @@ func (mc *MessagelogConfig) Validate() error {
 	if mc.Attachments.DownloadConcurrency < 0 {
 		return fmt.Errorf("messagelog.attachments.download_concurrency must be >= 0, got %d", mc.Attachments.DownloadConcurrency)
 	}
-	if mc.Attachments.DownloadRetries < 0 {
-		return fmt.Errorf("messagelog.attachments.download_retries must be >= 0, got %d", mc.Attachments.DownloadRetries)
+	if mc.Attachments.DownloadRetries != nil && *mc.Attachments.DownloadRetries < 0 {
+		return fmt.Errorf("messagelog.attachments.download_retries must be >= 0, got %d", *mc.Attachments.DownloadRetries)
 	}
 	for _, b := range mc.Attachments.DownloadBackoff {
-		if _, err := time.ParseDuration(b); err != nil {
+		if _, err := ParseDuration(b); err != nil {
 			return fmt.Errorf("messagelog.attachments.download_backoff contains invalid duration %q: %w", b, err)
 		}
 	}
 	if mc.Attachments.GC.GracePeriod != "" {
-		if _, err := time.ParseDuration(mc.Attachments.GC.GracePeriod); err != nil {
+		if _, err := ParseDuration(mc.Attachments.GC.GracePeriod); err != nil {
 			return fmt.Errorf("messagelog.attachments.gc.grace_period is not a valid duration: %w", err)
 		}
 	}
@@ -115,7 +115,7 @@ func (mc *MessagelogConfig) Validate() error {
 		return fmt.Errorf("messagelog.retention.max_entries must be >= 0, got %d", mc.Retention.MaxEntries)
 	}
 	if mc.Retention.CleanupInterval != "" {
-		if _, err := time.ParseDuration(mc.Retention.CleanupInterval); err != nil {
+		if _, err := ParseDuration(mc.Retention.CleanupInterval); err != nil {
 			return fmt.Errorf("messagelog.retention.cleanup_interval is not a valid duration: %w", err)
 		}
 	}

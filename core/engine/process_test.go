@@ -343,3 +343,35 @@ func TestProcessEvent_ShutdownWaits(t *testing.T) {
 		assert.Equal(t, int32(n), count.Load())
 	})
 }
+
+// TestTempMatcher_HandlerSelfDelete_RemovedFromManager 回归测试：
+// 一次性临时 matcher 的 handler 内主动调用 matcher.Delete()（如 sauce 的
+// cancelOnce 路径）后，invokeHandler 的 useCount 分支会被 !deleted 条件跳过，
+// 此前导致临时 matcher 残留为僵尸（GetTempMatcherCount 永不归零、HasAny 恒真）。
+// 现在必须兜底从 TempManager 移除，保持 GetTempMatcherCount() == 0。
+func TestTempMatcher_HandlerSelfDelete_RemovedFromManager(t *testing.T) {
+	eng := newEngineForTest(t)
+
+	var fired atomic.Bool
+	m := eng.On("",
+		func(c *corectx.Context) bool { return c.GetChatInfo().ID == "chat-001" },
+		corectx.OnFromUser("sender-001"),
+	)
+	m.SetTempWithMaxUse(1)
+	m.SetTempWithTimeout(60 * time.Second)
+	m.Handle(func(c *corectx.Context) error {
+		fired.Store(true)
+		m.Delete() // 模拟 sauce cancelOnce：handler 内自行删除
+		return nil
+	})
+
+	require.Equal(t, 1, eng.GetTempMatcherCount())
+
+	evt := newTestPlatformEvent(platform.EventKindPrivateMessage)
+	eng.ProcessPlatformEvent(evt, nil)
+	eng.WaitForAsyncHandlers()
+
+	assert.True(t, fired.Load(), "temp matcher should fire")
+	assert.Equal(t, 0, eng.GetTempMatcherCount(),
+		"self-deleted temp matcher must be removed from TempManager")
+}

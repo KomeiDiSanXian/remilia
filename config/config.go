@@ -436,19 +436,20 @@ type MessagelogCacheConfig struct {
 // MessagelogAttachmentsConfig 附件生命周期（元数据落库 + 异步下载 + GC）。
 type MessagelogAttachmentsConfig struct {
 	// Dir 附件二进制存储目录（默认 data/attachments）。
-	Dir                 string                       `yaml:"dir" mapstructure:"dir"`
-	Scope               string                       `yaml:"scope" mapstructure:"scope"`
-	HotWindowAge        string                       `yaml:"hot_window_age" mapstructure:"hot_window_age"`
-	MaxDiskUsage        string                       `yaml:"max_disk_usage" mapstructure:"max_disk_usage"`
-	MaxPendingTasks     int                          `yaml:"max_pending_tasks" mapstructure:"max_pending_tasks"`
-	DownloadConcurrency int                          `yaml:"download_concurrency" mapstructure:"download_concurrency"`
-	DownloadRetries     int                          `yaml:"download_retries" mapstructure:"download_retries"`
-	DownloadBackoff     []string                     `yaml:"download_backoff" mapstructure:"download_backoff"`
-	MaxSize             string                       `yaml:"max_size" mapstructure:"max_size"`
-	RateLimitPerHost    string                       `yaml:"rate_limit_per_host" mapstructure:"rate_limit_per_host"`
-	LazyFallback        *bool                        `yaml:"lazy_fallback" mapstructure:"lazy_fallback"`
-	GC                  MessagelogAttachmentGCConfig `yaml:"gc" mapstructure:"gc"`
-	Backfill            MessagelogBackfillConfig     `yaml:"backfill" mapstructure:"backfill"`
+	Dir                 string `yaml:"dir" mapstructure:"dir"`
+	Scope               string `yaml:"scope" mapstructure:"scope"`
+	HotWindowAge        string `yaml:"hot_window_age" mapstructure:"hot_window_age"`
+	MaxDiskUsage        string `yaml:"max_disk_usage" mapstructure:"max_disk_usage"`
+	MaxPendingTasks     int    `yaml:"max_pending_tasks" mapstructure:"max_pending_tasks"`
+	DownloadConcurrency int    `yaml:"download_concurrency" mapstructure:"download_concurrency"`
+	// DownloadRetries 临时失败重试次数；nil = 默认 3，显式 0 = 不重试。
+	DownloadRetries  *int                         `yaml:"download_retries" mapstructure:"download_retries"`
+	DownloadBackoff  []string                     `yaml:"download_backoff" mapstructure:"download_backoff"`
+	MaxSize          string                       `yaml:"max_size" mapstructure:"max_size"`
+	RateLimitPerHost string                       `yaml:"rate_limit_per_host" mapstructure:"rate_limit_per_host"`
+	LazyFallback     *bool                        `yaml:"lazy_fallback" mapstructure:"lazy_fallback"`
+	GC               MessagelogAttachmentGCConfig `yaml:"gc" mapstructure:"gc"`
+	Backfill         MessagelogBackfillConfig     `yaml:"backfill" mapstructure:"backfill"`
 }
 
 // MessagelogAttachmentGCConfig 附件二进制回收。

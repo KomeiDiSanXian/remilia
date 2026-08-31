@@ -150,7 +150,15 @@ func (e *Engine) invokeHandler(ctx *context.Context, m *Matcher) {
 			return
 		}
 	}
+	// handler 自行 Delete() 的一次性 matcher：deleted 已置位导致上面的
+	// useCount 分支被跳过，这里兜底从 TempManager 移除，避免临时 matcher
+	// 残留为僵尸（GetTempMatcherCount 永不归零、HasAny 恒真）。
+	remove := m.rt.deleted.Load()
 	m.rt.mu.Unlock()
+
+	if remove {
+		e.internals.tempManager.Remove(m)
+	}
 }
 
 // getOrBuildIterChain returns a single Handler that, when called, executes

@@ -1,13 +1,17 @@
 package sauce
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/core/engine"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/platform/mock"
+	"github.com/KomeiDiSanXian/remilia/plugin/plugintest"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newSauceCtx 构造带事件与 mock sender 的最小 Context。
@@ -46,6 +50,50 @@ func TestImageWaitDisabledRegistry(t *testing.T) {
 	ctx := newSauceCtx()
 	p.beginImageWait(ctx, p.allEngines())
 	assert.NotEmpty(t, ctx)
+}
+
+// TestImageWaitBlocksSubsequentMatchers 验证等待 matcher 在等待窗口内
+// 独占消费发起者的下一条消息（优先级提前 + 阻断），阻止 AI 等后续
+// matcher 对窗口内消息（尤其是图片）抢先响应。
+func TestImageWaitBlocksSubsequentMatchers(t *testing.T) {
+	eng := engine.NewEngine(engine.WithNoBackgroundWorkers())
+	defer func() { _ = eng.Shutdown(t.Context()) }()
+	sctx := plugintest.NewSetupContext("sauce", &plugintest.SetupOptions{Engine: eng})
+	defer plugintest.StopSetupContext(sctx)
+
+	api, err := New().Setup(sctx)
+	require.NoError(t, err)
+	p := api.(*Plugin)
+
+	// 模拟 AI：同事件上的普通 matcher（默认优先级 50），等待窗口内不应命中
+	var aiFired bool
+	eng.On(string(platform.EventKindPrivateMessage)).Handle(func(c *eventctx.Context) error {
+		aiFired = true
+		return nil
+	})
+
+	sender := mock.NewSender()
+	cmdEvt := &replyQuoteEvent{segments: []platform.Segment{{Type: platform.SegmentText, Text: "/sauce"}}}
+	p.beginImageWait(eventctx.NewContextFromEvent(cmdEvt, sender), p.allEngines())
+	require.Equal(t, 1, eng.GetTempMatcherCount())
+
+	// 等待窗口内发起者发送非图片消息：应由等待 matcher 独占消费并阻断后续 matcher
+	textEvt := &replyQuoteEvent{segments: []platform.Segment{{Type: platform.SegmentText, Text: "hello"}}}
+	eng.ProcessEvent(eventctx.NewContextFromEvent(textEvt, sender))
+	eng.WaitForAsyncHandlers()
+
+	assert.False(t, aiFired, "wait matcher must block subsequent matchers (AI) during the wait window")
+	assert.Equal(t, 0, eng.GetTempMatcherCount(), "consumed wait matcher must be removed")
+
+	// 取消提示经 OutboundDispatcher 异步发送，轮询等待落盘到 mock sender
+	assert.Eventually(t, func() bool {
+		for _, c := range sender.Snapshot() {
+			if strings.Contains(c.Msg.Text, "已取消本次搜索") {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "non-image message during wait should trigger cancel notice")
 }
 
 func TestSearchTimeoutConfig(t *testing.T) {

@@ -62,6 +62,11 @@ func (p *Plugin) beginImageWait(ctx *eventctx.Context, engines engineSet) {
 	// 一次性：命中一次即自动删除（maxUse=1），并带超时清理
 	m.SetTempWithMaxUse(1)
 	m.SetTempWithTimeout(p.imageWaitTimeout())
+	// 等待窗口内由本 matcher 独占消费发起者的下一条消息：优先级提到默认
+	// matcher（AI/命令，50）之前并阻断，避免 AI 等插件对窗口内消息
+	// （尤其是图片）抢先响应。规则已限定同一会话 + 同一用户，不影响他人。
+	m.SetPriority(10)
+	m.SetBlock(true)
 
 	// 超时提示：TempManager 到期清理 matcher 不回调，这里用定时器兜底
 	timeout := p.imageWaitTimeout()

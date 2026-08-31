@@ -257,14 +257,14 @@ messagelog:
     max_disk_usage: "50GB"                                      # [R] 附件独立磁盘预算（超限触发 GC/停止新下载）
     max_pending_tasks: 10000                                    # [R] 待下载任务上限
     download_concurrency: 8                                     # [R] 下载并发 worker 数
-    download_retries: 3                                         # [R] 临时失败重试次数
+    download_retries: 3                                         # [R] 临时失败重试次数（缺省 3；显式 0 = 不重试）
     download_backoff: ["1s", "5s", "30s"]                       # [R] 指数退避序列
     max_size: "20MB"                                            # [R] 单文件下载上限
     rate_limit_per_host: "10/s"                                 # [R] 按 host 限速
     lazy_fallback: true                                         # [R] 队列满降级 pending_lazy（懒加载）
     gc:
       enabled: true                                             # [R] 引用计数 + 宽限期后回收二进制
-      grace_period: "7d"                                        # [R] 引用删除后的二进制宽限期
+      grace_period: "7d"                                        # [R] 引用删除后的二进制宽限期（时长支持 d/w 单位，如 "7d"、"2w3d"）
     backfill:
       enabled: true                                             # [R] 空闲回填（优先救快过期的 URL）
       batch_size: 50                                            # [R] 每批回填条数
