@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.48.3 (2026-08-31)
+
+### 🐛 修复
+
+- **sauce 等待窗口被 AI 抢先消费**：等待 matcher 优先级提到默认 matcher 之前并
+  阻断后续匹配（规则限定同一会话 + 同一用户，不影响他人），窗口内消息（尤其是
+  图片）不再被 AI 等插件抢先响应；附带修复 handler 内自删的一次性临时 matcher
+  残留为僵尸的问题（此前 `GetTempMatcherCount` 永不归零）
+- **配置时长支持 d/w 单位**：新增 `config.ParseDuration`（`time.ParseDuration`
+  超集，额外支持天/周，如 `7d`、`2w3d`），修复 `messagelog.attachments.gc.grace_period:
+  "7d"` 等配置热重载报 `unknown unit "d"` 的问题；messagelog 校验全部改用新解析器
+
+### 🧩 messagelog
+
+- **配置解析迁入插件自身**：新增 `OptionsFromConfig`，`cmd/bot/plugins.go` 不再
+  内联逐字段解析；非法配置拒绝生效并回退默认选项启动（与热重载语义一致）
+- **`download_retries` 指针化**：缺省 = 3 次重试，显式 `0` = 不重试；此前未配置
+  会被零值覆盖成 0
+
+### 🔧 工程
+
+- 全库 `go fmt` / `go fix` 清理（Go 1.27 `new(expr)` 指针字面量，移除 `xxxPtr`
+  辅助函数）
+
 ## v1.48.2 (2026-08-30)
 
 ### 🔧 工程
