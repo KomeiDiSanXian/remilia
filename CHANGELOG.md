@@ -1,5 +1,47 @@
 # Changelog
 
+## v1.50.0 (2026-09-02)
+
+### ✨ 新插件：qqpanel — QQ 指令面板与自定义菜单
+
+- **新增 `qqpanel` 插件**（`cmd/bot/plugins/qqpanel/`）：基于 QQ 开放平台
+  `/v2/panels`（指令面板）与 `/v2/menu`（自定义菜单）接口，自动从引擎命令表
+  提取命令生成面板 / 菜单：
+  - `/qqpanel setup [scope]` 自动创建指令面板（默认 `group`）、`/qqpanel list
+    [scope]` 列出面板、`/qqpanel rm <panel_id>` 删除面板
+  - `/qqmenu synchelp` 按命令表构建 C2C 自定义菜单、`/qqmenu status` 查询菜单
+  - 写操作需 `qqpanel.manage` 权限；`plugins.qqpanel.exclude` 可追加排除命令
+- **自动构建排除规则**：隐藏命令、插件自身命令、声明了 `Permissions` 的命令，
+  以及默认管理类命令（`/plugin`、`/perm`、`/welcome`、`/mute`、`/update` 等）
+  默认不进入面板 / 菜单，避免普通用户点击后收到"权限不足"；面板元素名/描述
+  按平台 14/30 字符（中文按 2 字符计）限制自动截断
+
+### 🚀 QQ 平台能力
+
+- **指令面板与自定义菜单 v2 接口**：`GET/PUT /v2/menu`、`GET/POST /v2/panels`、
+  `GET/PUT/DELETE /v2/panels/{panel_id}`、`PUT /v2/panels/{panel_id}/target`，
+  聚合进 `openapi.OpenAPI` 的 `MenuManager` / `PanelManager` 子接口
+- **群成员列表与消息详情**：`POST /v2/groups/{group_openid}/members` 群成员列表
+  （limit/start_index 分页）；`GET /channels/{channel_id}/messages/{message_id}`
+  子频道消息详情；群消息富媒体发送支持 `action_button` / `prompt_keyboard`
+- **事件解析与订阅**：新增 `SUBSCRIBE_MESSAGE_STATUS`（消息订阅状态）事件解析；
+  订阅 `open_forum` / `audio_live` / `group_members` intents 并解析
+  `OPEN_FORUM` 论坛事件
+
+### 🐛 修复
+
+- **QQ 大文件分片上传**：`upload_prepare` 返回的 `parts` 数组解析与
+  `md5/sha1` 字段补齐，修复部分场景下 "chunked upload prepare returned no
+  presigned urls" 导致附件发送失败的问题
+
+### 🔧 工程
+
+- **imagekit 压缩能力抽取**：sauce / pic 共用的发送前图片压缩逻辑提取为
+  `infra/imagekit`（PNG 无损优先、超限转 JPEG 降质量、边长等比缩小），
+  两个插件统一走同一套软限制；sauce 新增 `send_thumbnail_max_bytes` /
+  `send_thumbnail_max_dimension` 配置与 `/sauce -original` 发送原图 flag
+- `go fix` 清理：整数区间 `for i := range n` 现代化改写
+
 ## v1.49.0 (2026-08-31)
 
 ### ✨ 新插件：aimage — 文生图
