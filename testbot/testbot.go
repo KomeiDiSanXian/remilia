@@ -411,6 +411,36 @@ func (m *MockAPI) GenerateURLLink(_ context.Context, _ *dto.GenerateURLLinkReque
 	return gjson.Result{}, nil
 }
 
+// ── 自定义菜单管理 ────────────────────────────────────────────────────────────
+
+func (m *MockAPI) GetMenu(_ context.Context) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdateMenu(_ context.Context, _ *dto.UpdateMenuRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
+// ── 指令面板管理 ──────────────────────────────────────────────────────────────
+
+func (m *MockAPI) GetPanelList(_ context.Context, _, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) CreatePanel(_ context.Context, _ *dto.CreatePanelRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetPanel(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdatePanel(_ context.Context, _ string, _ *dto.UpdatePanelRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) DeletePanel(_ context.Context, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdatePanelTarget(_ context.Context, _ string, _ *dto.UpdatePanelTargetRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+
 var _ openapi.OpenAPI = (*MockAPI)(nil)
 
 // ---------------------------------------------------------------------------

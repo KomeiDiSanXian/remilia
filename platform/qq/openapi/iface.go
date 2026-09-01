@@ -199,6 +199,30 @@ type GroupManager interface {
 	UpdateJoinApprovalStrategyWhitelist(ctx context.Context, strategyID string, req *dto.UpdateWhitelistUsersRequest) (gjson.Result, error)
 }
 
+// MenuManager 全局自定义菜单管理（仅 C2C 场景）。
+type MenuManager interface {
+	// GetMenu 查询机器人自定义菜单。
+	GetMenu(ctx context.Context) (gjson.Result, error)
+	// UpdateMenu 修改机器人自定义菜单，最多 10 项，覆盖式更新。
+	UpdateMenu(ctx context.Context, req *dto.UpdateMenuRequest) (gjson.Result, error)
+}
+
+// PanelManager 指令面板管理（c2c/group/channel/dm 四种场景）。
+type PanelManager interface {
+	// GetPanelList 查询指令面板列表（scope 必填，cursor/limit 分页，默认 20 最大 50）。
+	GetPanelList(ctx context.Context, scope, cursor string, limit int) (gjson.Result, error)
+	// CreatePanel 创建指令面板，一个机器人最多 20 个面板。
+	CreatePanel(ctx context.Context, req *dto.CreatePanelRequest) (gjson.Result, error)
+	// GetPanel 查询指定指令面板详情。
+	GetPanel(ctx context.Context, panelID string) (gjson.Result, error)
+	// UpdatePanel 修改指令面板内容。
+	UpdatePanel(ctx context.Context, panelID string, req *dto.UpdatePanelRequest) (gjson.Result, error)
+	// DeletePanel 删除指令面板。
+	DeletePanel(ctx context.Context, panelID string) (gjson.Result, error)
+	// UpdatePanelTarget 修改指令面板关联对象（add/del）。
+	UpdatePanelTarget(ctx context.Context, panelID string, req *dto.UpdatePanelTargetRequest) (gjson.Result, error)
+}
+
 // ── 聚合接口 ────────────────────────────────────────────────────────────────
 
 // OpenAPI 是所有 QQ 开放平台能力的完整聚合接口。
@@ -223,4 +247,6 @@ type OpenAPI interface {
 	MediaUploader
 	GroupManager
 	BotManager
+	MenuManager
+	PanelManager
 }

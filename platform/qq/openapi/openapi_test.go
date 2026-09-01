@@ -1133,6 +1133,93 @@ func TestClient_GenerateURLLink(t *testing.T) {
 	assertLast(t, m, http.MethodPost, "/v2/generate_url_link", `{"callback_data":"custom_data_123"}`)
 }
 
+func TestClient_GetMenu(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetMenu(context.Background())
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/menu", "")
+}
+
+func TestClient_UpdateMenu(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdateMenu(context.Background(), &dto.UpdateMenuRequest{Menu: &dto.Menu{Items: []dto.MenuItem{{Name: "menu_1", Type: "send_message", SendMessage: "hello"}}}})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPut, "/v2/menu", `{"menu":{"items":[{"name":"menu_1","type":"send_message","send_message":"hello"}]}}`)
+}
+
+func TestClient_GetPanelList(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetPanelList(context.Background(), "group", "cursor_1", 30)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, http.MethodGet, req.method)
+	assert.Equal(t, "/v2/panels", req.path)
+	assert.Equal(t, "scope=group&cursor=cursor_1&limit=30", req.query)
+}
+
+func TestClient_GetPanelList_ScopeOnly(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetPanelList(context.Background(), "c2c", "", 0)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, http.MethodGet, req.method)
+	assert.Equal(t, "/v2/panels", req.path)
+	assert.Equal(t, "scope=c2c", req.query)
+}
+
+func TestClient_CreatePanel(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.CreatePanel(context.Background(), &dto.CreatePanelRequest{Scope: "group", TargetType: "all", Panel: &dto.Panel{Items: []dto.PanelItem{{Name: "p1", Type: "command"}}}})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/panels", `{"scope":"group","target_type":"all","panel":{"items":[{"name":"p1","type":"command"}]}}`)
+}
+
+func TestClient_GetPanel(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetPanel(context.Background(), "panel_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/panels/panel_1", "")
+}
+
+func TestClient_UpdatePanel(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdatePanel(context.Background(), "panel_1", &dto.UpdatePanelRequest{Panel: &dto.Panel{Remark: "test_panel"}})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPut, "/v2/panels/panel_1", `{"panel":{"remark":"test_panel"}}`)
+}
+
+func TestClient_DeletePanel(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.DeletePanel(context.Background(), "panel_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodDelete, "/v2/panels/panel_1", "")
+}
+
+func TestClient_UpdatePanelTarget(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdatePanelTarget(context.Background(), "panel_1", &dto.UpdatePanelTargetRequest{Op: "add", UserOpenIDs: []string{"u_1"}})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPut, "/v2/panels/panel_1/target", `{"op":"add","user_openids":["u_1"]}`)
+}
+
 func TestClient_GetGroupMembers(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)

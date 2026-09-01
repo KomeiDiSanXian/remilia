@@ -419,4 +419,40 @@ const (
 	//
 	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_generate_url_link.post.html
 	GenerateURLLinkURL = OpenAPIURL + "/v2/generate_url_link"
+
+	// MenuURL GET|PUT /v2/menu
+	//
+	// GET：查询机器人自定义菜单。
+	// PUT：修改机器人自定义菜单，仅支持 C2C（单聊）场景，最多 10 项。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.put.html
+	MenuURL = OpenAPIURL + "/v2/menu"
+
+	// PanelsURL GET|POST /v2/panels
+	//
+	// GET：查询指令面板列表（scope 必填，cursor/limit 分页，默认 20 最大 50）。
+	// POST：创建指令面板，一个机器人最多 20 个面板。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.post.html
+	PanelsURL = OpenAPIURL + "/v2/panels"
+
+	// PanelIDURL GET|PUT|DELETE /v2/panels/{panel_id}
+	//
+	// GET：查询指定指令面板详情。
+	// PUT：修改指令面板内容。
+	// DELETE：删除指令面板。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.put.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.delete.html
+	PanelIDURL = PanelsURL + "/%s"
+
+	// PanelTargetURL PUT /v2/panels/{panel_id}/target
+	//
+	// 修改指令面板关联对象（add/del）。c2c 场景操作用户 openid，group 场景操作群 openid。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id_target.put.html
+	PanelTargetURL = PanelsURL + "/%s/target"
 )

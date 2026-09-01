@@ -814,3 +814,81 @@ func (api *Client) UpdateJoinApprovalStrategyWhitelist(ctx context.Context, stra
 func (api *Client) GenerateURLLink(ctx context.Context, req *dto.GenerateURLLinkRequest) (gjson.Result, error) {
 	return api.Post(ctx, constant.GenerateURLLinkURL, req)
 }
+
+// ── 自定义菜单管理 ────────────────────────────────────────────────────────────
+
+// GetMenu 查询机器人自定义菜单（GET /v2/menu）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.get.html
+func (api *Client) GetMenu(ctx context.Context) (gjson.Result, error) {
+	return api.Get(ctx, constant.MenuURL)
+}
+
+// UpdateMenu 修改机器人自定义菜单（PUT /v2/menu）。
+//
+// 仅支持 C2C（单聊）场景，最多 10 项，传入后覆盖原有完整菜单配置。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_menu.put.html
+func (api *Client) UpdateMenu(ctx context.Context, req *dto.UpdateMenuRequest) (gjson.Result, error) {
+	return api.Put(ctx, constant.MenuURL, req)
+}
+
+// ── 指令面板管理 ─────────────────────────────────────────────────────────────
+
+// GetPanelList 查询指令面板列表（GET /v2/panels）。
+//
+// scope 必填（c2c/group/channel/dm），cursor 为分页游标（首次传空串），
+// limit 单页数量（默认 20，最大 50）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.get.html
+func (api *Client) GetPanelList(ctx context.Context, scope, cursor string, limit int) (gjson.Result, error) {
+	url := constant.PanelsURL + "?scope=" + scope
+	if cursor != "" {
+		url += "&cursor=" + cursor
+	}
+	if limit > 0 {
+		url += fmt.Sprintf("&limit=%d", limit)
+	}
+	return api.Get(ctx, url)
+}
+
+// CreatePanel 创建指令面板（POST /v2/panels）。
+//
+// 一个机器人最多 20 个面板。c2c 和 group 场景支持按指定用户/群生效，
+// channel 和 dm 场景仅支持全局配置。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.post.html
+func (api *Client) CreatePanel(ctx context.Context, req *dto.CreatePanelRequest) (gjson.Result, error) {
+	return api.Post(ctx, constant.PanelsURL, req)
+}
+
+// GetPanel 查询指定指令面板详情（GET /v2/panels/{panel_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.get.html
+func (api *Client) GetPanel(ctx context.Context, panelID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.PanelIDURL, panelID))
+}
+
+// UpdatePanel 修改指令面板内容（PUT /v2/panels/{panel_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.put.html
+func (api *Client) UpdatePanel(ctx context.Context, panelID string, req *dto.UpdatePanelRequest) (gjson.Result, error) {
+	return api.Put(ctx, fmt.Sprintf(constant.PanelIDURL, panelID), req)
+}
+
+// DeletePanel 删除指令面板（DELETE /v2/panels/{panel_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.delete.html
+func (api *Client) DeletePanel(ctx context.Context, panelID string) (gjson.Result, error) {
+	return api.Delete(ctx, fmt.Sprintf(constant.PanelIDURL, panelID))
+}
+
+// UpdatePanelTarget 修改指令面板关联对象（PUT /v2/panels/{panel_id}/target）。
+//
+// c2c 场景操作用户 openid，group 场景操作群 openid；
+// channel 和 dm 场景为全局配置，不支持此操作。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id_target.put.html
+func (api *Client) UpdatePanelTarget(ctx context.Context, panelID string, req *dto.UpdatePanelTargetRequest) (gjson.Result, error) {
+	return api.Put(ctx, fmt.Sprintf(constant.PanelTargetURL, panelID), req)
+}
