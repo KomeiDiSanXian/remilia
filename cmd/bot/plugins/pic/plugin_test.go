@@ -2,9 +2,45 @@ package pic
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// fakePicConfig 最小化的 plugin.ConfigReader 实现，用于测试配置读取。
+type fakePicConfig struct {
+	vals map[string]any
+}
+
+func (f *fakePicConfig) Get(k string) any                   { return f.vals[k] }
+func (f *fakePicConfig) GetString(k, d string) string       { if v, ok := f.vals[k].(string); ok { return v }; return d }
+func (f *fakePicConfig) GetInt(k string, d int) int         { if v, ok := f.vals[k].(int); ok { return v }; return d }
+func (f *fakePicConfig) GetBool(k string, d bool) bool      { if v, ok := f.vals[k].(bool); ok { return v }; return d }
+func (f *fakePicConfig) GetDuration(k string, d time.Duration) time.Duration {
+	if v, ok := f.vals[k].(time.Duration); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetFloat64(k string, d float64) float64 {
+	if v, ok := f.vals[k].(float64); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetStringSlice(k string, d []string) []string {
+	if v, ok := f.vals[k].([]string); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetStringMap(k string, d map[string]any) map[string]any {
+	if v, ok := f.vals[k].(map[string]any); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetAll() map[string]any { return f.vals }
 
 func TestParsePicArgs(t *testing.T) {
 	// 无参数 → 随机 1 张
@@ -155,4 +191,29 @@ func TestFormatPostSourceURLNormalization(t *testing.T) {
 	}
 	out := formatPostText(post, 1)
 	assert.Contains(t, out, "https://twitter.com/zun")
+}
+
+func TestSendPicCompressionConfig(t *testing.T) {
+	p := &Plugin{}
+	assert.Equal(t, int64(5*1024*1024), p.sendPicMaxBytes())
+	assert.Equal(t, 4096, p.sendPicMaxDimension())
+
+	p2 := &Plugin{cfg: &fakePicConfig{vals: map[string]any{
+		"send_thumbnail_max_bytes":     1024 * 1024,
+		"send_thumbnail_max_dimension": 2000,
+	}}}
+	assert.Equal(t, int64(1024*1024), p2.sendPicMaxBytes())
+	assert.Equal(t, 2000, p2.sendPicMaxDimension())
+
+	p3 := &Plugin{cfg: &fakePicConfig{vals: map[string]any{"send_thumbnail_max_bytes": 0}}}
+	assert.Equal(t, int64(0), p3.sendPicMaxBytes(), "0 表示关闭体积压缩")
+}
+
+func TestSniffMimeAndExt(t *testing.T) {
+	assert.Equal(t, "image/jpeg", sniffMime(nil))
+	assert.Equal(t, "image/jpeg", sniffMime([]byte("not an image")))
+	assert.Equal(t, ".jpg", extByMime("image/jpeg"))
+	assert.Equal(t, ".png", extByMime("image/png"))
+	assert.Equal(t, ".gif", extByMime("image/gif"))
+	assert.Equal(t, ".webp", extByMime("image/webp"))
 }

@@ -2,6 +2,8 @@ package sauce
 
 import (
 	"time"
+
+	"github.com/KomeiDiSanXian/remilia/infra/imagekit"
 )
 
 // ── 配置读取 ───────────────────────────────────────────────────────────
@@ -49,6 +51,24 @@ func (p *Plugin) saucenaoDB() int {
 // sendThumbnails 是否逐条附带缩略图图片发送结果。
 func (p *Plugin) sendThumbnails() bool {
 	return p.cfg != nil && p.cfg.GetBool("send_thumbnails", false)
+}
+
+// sendThumbnailMaxBytes 返回发送缩略图前允许的最大体积（字节）。
+// <=0 表示不限制体积（不因体积触发压缩）。
+func (p *Plugin) sendThumbnailMaxBytes() int64 {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxBytes
+	}
+	return int64(p.cfg.GetInt("send_thumbnail_max_bytes", int(imagekit.DefaultMaxBytes)))
+}
+
+// sendThumbnailMaxDimension 返回发送缩略图前允许的最大边长（像素）。
+// <=0 表示不限制边长。
+func (p *Plugin) sendThumbnailMaxDimension() int {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxDimension
+	}
+	return p.cfg.GetInt("send_thumbnail_max_dimension", imagekit.DefaultMaxDimension)
 }
 
 // enableIQDB 是否启用 IQDB 引擎（默认开启）。

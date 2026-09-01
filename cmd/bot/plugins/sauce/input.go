@@ -18,7 +18,7 @@ import (
 //
 // 返回 (imageURL, true) 表示已取得图片并可继续；返回 ("", false) 表示
 // 已进入等待流程或无可恢复的错误，调用方应直接返回。
-func (p *Plugin) resolveImageSource(ctx *eventctx.Context, engines engineSet) (string, bool) {
+func (p *Plugin) resolveImageSource(ctx *eventctx.Context, engines engineSet, sendOriginal bool) (string, bool) {
 	event := ctx.GetPlatformEvent()
 	if event == nil {
 		ctx.ReplyError("无法获取消息内容")
@@ -36,7 +36,7 @@ func (p *Plugin) resolveImageSource(ctx *eventctx.Context, engines engineSet) (s
 	}
 
 	// 3. 等待用户补发图片（60 秒超时；发送非图片消息即取消）
-	p.beginImageWait(ctx, engines)
+	p.beginImageWait(ctx, engines, sendOriginal)
 	return "", false
 }
 

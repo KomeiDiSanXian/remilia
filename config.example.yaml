@@ -474,6 +474,11 @@ messagelog:
 #                                 #      OneBot / Satori）文本与图片在同一条消息；
 #                                 #      其他平台（QQ 等富媒体会丢弃文本）图片逐张发、
 #                                 #      作品信息汇总一条（Markdown 优先）。
+#     send_thumbnail_max_bytes: 5242880  # [H]  发送缩略图前体积上限（字节，默认 5MB）。超过则压缩
+#                                 #      （PNG 无损优先，超限转 JPEG 降质量）；0 = 不限制体积。
+#                                 #      用户可用 /sauce -original 临时跳过压缩发送原图
+#     send_thumbnail_max_dimension: 4096  # [H]  发送缩略图前边长上限（像素，默认 4096）。超出等比缩小；
+#                                 #      0 = 不限制
 #     enable_iqdb: true           # [H]  IQDB：booru 图库检索，对裁切图最友好（免费，默认开启）
 #     iqdb_timeout: "45s"         # [H]  IQDB 单次请求超时（高峰期排队时单次可达 60s）
 #     iqdb_retries: 1             # [H]  IQDB 失败重试次数（排队/断流时重试可拿到新的队列位置）
@@ -537,6 +542,10 @@ messagelog:
 #     sites: []                       # [H]  启用站点白名单（空 = 全部）:
 #                                     #      safebooru / gelbooru / rule34 / konachan / yandere
 #     max_count: 3                    # [H]  单次最多发送张数
+#     send_thumbnail_max_bytes: 5242880  # [H]  发送图片前体积上限（字节，默认 5MB）。超过则压缩
+#                                     #      （PNG 无损优先，超限转 JPEG 降质量）；0 = 不限制体积
+#     send_thumbnail_max_dimension: 4096  # [H]  发送图片前边长上限（像素，默认 4096）。超出等比缩小；
+#                                     #      0 = 不限制
 #     recent_days: 730                # [H]  只发近 N 天内上传的图片（0 = 不过滤）。随机图片默认
 #                                     #      取近两年（730 天）内上传的内容，避免总是抽到老图；
 #                                     #      konachan / yande.re 用服务端 date 过滤，

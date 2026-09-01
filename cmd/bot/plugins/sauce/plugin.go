@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +64,7 @@ func New() *plugin.Descriptor {
 参数：
   -engine <name>  指定引擎：saucenao / iqdb / tracemoe / animetrace / all（默认 all）
                   可简写 -e，或用 --engine；多引擎逗号分隔（如 -engine tracemoe,animetrace）
+  -original       发送原图，不压缩缩略图（可简写 -o；默认按配置 send_thumbnail_max_bytes 压缩）
 
 支持引擎：
   SauceNAO（需 API key）、IQDB（booru，对裁切图友好）、
@@ -74,7 +76,8 @@ func New() *plugin.Descriptor {
 
 示例：
   发送图片 + 标题 /sauce
-  /sauce -engine animetrace`,
+  /sauce -engine animetrace
+  /sauce -o`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.log = ctx.Log
@@ -94,6 +97,7 @@ func New() *plugin.Descriptor {
 
 			sauceDef := command.NewDef("sauce").Description("以图搜图，查找图片来源").
 				Flag("engine", "e", "指定引擎：saucenao / iqdb / tracemoe / animetrace / all（默认 all）", command.ArgTypeString).
+				Flag("original", "o", "发送原图，不压缩缩略图", command.ArgTypeBool).
 				Example("/sauce").Example("/sauce -engine animetrace").Build()
 			ctx.OnCommandDefWith("", "/sauce", sauceDef, p.handleSauce, eventctx.OnMentionedBotOrNoMentions())
 
@@ -253,13 +257,38 @@ func (p *Plugin) handleSauce(ctx *eventctx.Context) error {
 		return nil
 	}
 
-	imageURL, ok := p.resolveImageSource(ctx, engines)
+	sendOriginal := p.resolveOriginalFlag(ctx)
+	imageURL, ok := p.resolveImageSource(ctx, engines, sendOriginal)
 	if !ok {
 		return nil // 已进入等待流程或已回复错误
 	}
 
-	p.runSearch(ctx, imageURL, engines)
+	p.runSearch(ctx, imageURL, engines, sendOriginal)
 	return nil
+}
+
+// resolveOriginalFlag 解析命令中的 -original / -o 标志：本次发送原图、跳过压缩。
+//
+// 与 resolveEnginesFromCommand 同策略：--original / -o 走增强解析 Flags
+// （需 def 定义）；单横线多字符形式 -original 会落入 Positional，这里手动解析。
+func (p *Plugin) resolveOriginalFlag(ctx *eventctx.Context) bool {
+	if parsed := ctx.GetParsedCommand(); parsed != nil && parsed.GetBool("original") {
+		return true
+	}
+	parsed, err := eventctx.ParseCommand(ctx)
+	if err != nil {
+		return false
+	}
+	for _, arg := range parsed.Positional {
+		if arg == "-original" {
+			return true
+		}
+		if v, ok := strings.CutPrefix(arg, "-original="); ok {
+			b, perr := strconv.ParseBool(v)
+			return perr == nil && b
+		}
+	}
+	return false
 }
 
 // resolveEnginesFromCommand 解析命令中的 -engine 参数。
@@ -301,7 +330,7 @@ func (p *Plugin) resolveEnginesFromCommand(ctx *eventctx.Context) (engineSet, er
 //   - 宽限期内返回 → 所有结果合并为一条消息发送
 //   - 宽限期结束仍未返回 → 先发送其他引擎结果并提示"IQDB 排队中"，
 //     IQDB 完成后（成功或失败）补发一条消息
-func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engineSet) {
+func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engineSet, sendOriginal bool) {
 	// 检索总预算独立于 handler 生命周期：从 Background 派生，仅受
 	// search_timeout 控制。若继承 ctx.Context()，中间件注入的短 deadline
 	// 会让 waitIQDBOutcome 在宽限期前被 reqCtx.Done() 提前触发，
@@ -368,7 +397,7 @@ func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engin
 			pending--
 			collect(res)
 		case <-reqCtx.Done():
-			p.sendSearchResults(ctx, results, errs, "")
+			p.sendSearchResults(ctx, results, errs, "", sendOriginal)
 			return
 		}
 	}
@@ -381,7 +410,7 @@ func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engin
 		} else {
 			// 宽限期到：先发第一批，IQDB 后台继续等待并补发
 			note := "IQDB 正在排队，结果稍后补充"
-			p.sendSearchResults(ctx, results, errs, note)
+			p.sendSearchResults(ctx, results, errs, note, sendOriginal)
 			followUpStarted = true
 			go func() {
 				defer cancel()
@@ -391,7 +420,7 @@ func (p *Plugin) runSearch(ctx *eventctx.Context, imageURL string, engines engin
 		}
 	}
 
-	p.sendSearchResults(ctx, results, errs, "")
+	p.sendSearchResults(ctx, results, errs, "", sendOriginal)
 }
 
 // waitIQDBOutcome 在宽限期内等待 IQDB 结果。
@@ -466,7 +495,7 @@ func isTimeoutLike(err error) bool {
 // sendSearchResults 合并、排序、截断结果并按 send_thumbnails 配置回复。
 //
 // note 为附加提示（如"IQDB 正在排队，结果稍后补充"），追加在消息末尾。
-func (p *Plugin) sendSearchResults(ctx *eventctx.Context, allResults []SearchResult, errReports []string, note string) {
+func (p *Plugin) sendSearchResults(ctx *eventctx.Context, allResults []SearchResult, errReports []string, note string, sendOriginal bool) {
 	merged := mergeResults(allResults, p.similarityThreshold())
 	results := pickResults(merged, p.maxResults())
 
@@ -504,6 +533,7 @@ func (p *Plugin) sendSearchResults(ctx *eventctx.Context, allResults []SearchRes
 				continue
 			}
 			mimeType := detectMimeType(r.Thumbnail, data)
+			data, mimeType = p.compressThumbnailForSend(data, mimeType, sendOriginal)
 			att := platform.Attachment{
 				Kind:     platform.AttachmentKindImage,
 				Data:     data,

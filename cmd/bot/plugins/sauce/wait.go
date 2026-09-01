@@ -25,10 +25,11 @@ type imageWait struct {
 	matcher *engine.Matcher
 	once    sync.Once // 保证取消清理只执行一次
 	engines engineSet
+	original bool    // 命中后发送原图（用户指定 -original / -o）
 }
 
 // beginImageWait 注册等待 Matcher 并提示用户。
-func (p *Plugin) beginImageWait(ctx *eventctx.Context, engines engineSet) {
+func (p *Plugin) beginImageWait(ctx *eventctx.Context, engines engineSet, sendOriginal bool) {
 	if p.reg == nil {
 		ctx.ReplyError("请在消息中包含图片（如发送图片并在标题中附带 /sauce）")
 		return
@@ -59,6 +60,7 @@ func (p *Plugin) beginImageWait(ctx *eventctx.Context, engines engineSet) {
 		return
 	}
 	w.matcher = m
+	w.original = sendOriginal
 	// 一次性：命中一次即自动删除（maxUse=1），并带超时清理
 	m.SetTempWithMaxUse(1)
 	m.SetTempWithTimeout(p.imageWaitTimeout())
@@ -83,7 +85,7 @@ func (p *Plugin) beginImageWait(ctx *eventctx.Context, engines engineSet) {
 			return nil
 		}
 		w.cancelOnce(c, "") // 静默清理（成功后不再发取消提示）
-		p.runSearch(c, url, w.engines)
+		p.runSearch(c, url, w.engines, w.original)
 		return nil
 	})
 

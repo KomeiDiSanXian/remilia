@@ -48,7 +48,7 @@ func TestImageWaitDisabledRegistry(t *testing.T) {
 	// reg 为 nil 时应回退到旧行为（提示必须带图），不 panic
 	p := &Plugin{}
 	ctx := newSauceCtx()
-	p.beginImageWait(ctx, p.allEngines())
+	p.beginImageWait(ctx, p.allEngines(), false)
 	assert.NotEmpty(t, ctx)
 }
 
@@ -74,7 +74,7 @@ func TestImageWaitBlocksSubsequentMatchers(t *testing.T) {
 
 	sender := mock.NewSender()
 	cmdEvt := &replyQuoteEvent{segments: []platform.Segment{{Type: platform.SegmentText, Text: "/sauce"}}}
-	p.beginImageWait(eventctx.NewContextFromEvent(cmdEvt, sender), p.allEngines())
+	p.beginImageWait(eventctx.NewContextFromEvent(cmdEvt, sender), p.allEngines(), false)
 	require.Equal(t, 1, eng.GetTempMatcherCount())
 
 	// 等待窗口内发起者发送非图片消息：应由等待 matcher 独占消费并阻断后续 matcher

@@ -7,6 +7,7 @@ package pic
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/imagekit"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
 	"github.com/KomeiDiSanXian/remilia/platform"
 	"github.com/KomeiDiSanXian/remilia/plugin"
@@ -148,6 +150,24 @@ func (p *Plugin) rating() RatingRange {
 		return RatingRange{Min: RatingSafe, Max: RatingSafe}
 	}
 	return parseRatingRange(p.cfg.GetString("rating", string(RatingSafe)))
+}
+
+// sendPicMaxBytes 返回发送图片前允许的最大体积（字节）。
+// <=0 表示不限制体积（不因体积触发压缩）。
+func (p *Plugin) sendPicMaxBytes() int64 {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxBytes
+	}
+	return int64(p.cfg.GetInt("send_thumbnail_max_bytes", int(imagekit.DefaultMaxBytes)))
+}
+
+// sendPicMaxDimension 返回发送图片前允许的最大边长（像素）。
+// <=0 表示不限制边长。
+func (p *Plugin) sendPicMaxDimension() int {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxDimension
+	}
+	return p.cfg.GetInt("send_thumbnail_max_dimension", imagekit.DefaultMaxDimension)
 }
 
 // enabledSites 返回站点白名单（空 = 全部内置站点）。
@@ -352,11 +372,16 @@ func (p *Plugin) sendPicResult(ctx *eventctx.Context, reqCtx context.Context, s 
 			logger.Warnf("[pic] download %s failed: %v", res.post.FileURL, res.err)
 			continue
 		}
+		mime := sniffMime(res.data)
+		comp := imagekit.Compress(res.data, mime, imagekit.Options{
+			MaxBytes:     p.sendPicMaxBytes(),
+			MaxDimension: p.sendPicMaxDimension(),
+		})
 		att := platform.Attachment{
 			Kind:     platform.AttachmentKindImage,
-			Data:     res.data,
-			Name:     "pic_" + strconv.Itoa(res.post.ID) + ".jpg",
-			MimeType: "image/jpeg",
+			Data:     comp.Data,
+			Name:     "pic_" + strconv.Itoa(res.post.ID) + extByMime(comp.Mime),
+			MimeType: comp.Mime,
 		}
 		if captionOK {
 			ctx.Reply(platform.TextMessage(formatPostText(res.post, i+1)).WithAttachments(att))
@@ -455,4 +480,30 @@ func (p *Plugin) fetchPosts(ctx context.Context, s site, tags []string, count, r
 		count = 1
 	}
 	return p.client.fetchRandom(ctx, s, tags, p.rating(), count, recentDays)
+}
+
+// sniffMime 通过内容嗅探图片 MIME 类型，非图片数据回退为 image/jpeg。
+func sniffMime(data []byte) string {
+	if len(data) == 0 {
+		return "image/jpeg"
+	}
+	mime := http.DetectContentType(data)
+	if strings.HasPrefix(mime, "image/") {
+		return mime
+	}
+	return "image/jpeg"
+}
+
+// extByMime 根据 MIME 类型返回图片文件扩展名。
+func extByMime(mime string) string {
+	switch mime {
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".jpg"
+	}
 }

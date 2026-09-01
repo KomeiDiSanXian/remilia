@@ -15,6 +15,8 @@ import (
 	_ "golang.org/x/image/webp"
 
 	"golang.org/x/image/draw"
+
+	"github.com/KomeiDiSanXian/remilia/infra/imagekit"
 )
 
 // ProcessedImage 预处理后的图片。
@@ -44,6 +46,23 @@ const (
 	defaultMaxBytes     = 8 * 1024 * 1024
 	upscaleFactor       = 2
 )
+
+// ── 发送前压缩（逻辑在 infra/imagekit，与 pic 等插件共用）───────────────
+
+// compressThumbnailForSend 压缩待发送的缩略图，使其满足配置的发送体积/尺寸上限。
+//
+// sendOriginal 为 true 时（用户指定 -original / -o）跳过压缩，原样发送；
+// 仅当图片体积或边长超过上限时才解码重编码；GIF 动图与压缩失败时原样返回。
+func (p *Plugin) compressThumbnailForSend(data []byte, mime string, sendOriginal bool) ([]byte, string) {
+	if sendOriginal {
+		return data, mime
+	}
+	res := imagekit.Compress(data, mime, imagekit.Options{
+		MaxDimension: p.sendThumbnailMaxDimension(),
+		MaxBytes:     p.sendThumbnailMaxBytes(),
+	})
+	return res.Data, res.Mime
+}
 
 // preprocessImage 解码、可选放大、限制尺寸/体积后重新编码图片。
 //
