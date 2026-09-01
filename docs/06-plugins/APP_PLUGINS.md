@@ -178,6 +178,42 @@ plugins:
 位于 `builtin/about/`。`/about`（别名 `/botinfo`）展示框架版本、Git 提交、构建时间、运行状态、命令统计及系统资源（含宿主机内存占用/百分比）。
 详见 [文档首页](../README.md)。
 
+## 📌 qqpanel — QQ 指令面板与自定义菜单
+
+位于 `cmd/bot/plugins/qqpanel/`，仅 QQ 平台生效。基于 QQ 开放平台
+`/v2/panels`（指令面板）与 `/v2/menu`（自定义菜单）接口，自动从引擎命令表
+提取命令生成面板 / 菜单，无需手工在 QQ 管理后台逐条配置。
+
+### 命令（需 `qqpanel.manage` 权限）
+
+| 命令 | 说明 |
+|------|------|
+| `/qqpanel setup [scope]` | 自动提取前 20 条命令创建指令面板（scope 默认 `group`） |
+| `/qqpanel list [scope]` | 列出指定场景的指令面板 |
+| `/qqpanel rm <panel_id>` | 删除指定指令面板 |
+| `/qqmenu synchelp` | 按命令表自动构建 C2C 自定义菜单（折叠菜单 5 子项 + 顶级项，共 ≤10 项） |
+| `/qqmenu status` | 查询当前自定义菜单 |
+
+`scope` 取值：`c2c` / `group` / `channel` / `dm`。面板元素名为点击后填入
+聊天输入框的命令文本，受平台 14 字符（中文按 2 字符计）限制自动截断。
+
+### 自动构建的排除规则
+
+自动构建**不会**包含：
+
+- 隐藏命令（`Hidden=true`）与插件自身命令（`/qqpanel`、`/qqmenu`）
+- 命令定义中声明了 `Permissions` 的命令
+- 默认的管理类命令（权限在 handler 内校验，如 `/plugin`、`/perm`、`/welcome`、
+  `/mute`、`/update` 等），避免普通用户点击后收到"权限不足"
+
+可通过 `plugins.qqpanel.exclude` 追加排除项（默认清单始终生效）：
+
+```yaml
+plugins:
+  qqpanel:
+    exclude: ["/weather", "/genshin"]   # 追加不进入面板/菜单的命令
+```
+
 ---
 
 *各插件的完整命令帮助可在机器人内使用 `/help` 查看。*

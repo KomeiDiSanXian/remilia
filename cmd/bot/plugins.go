@@ -47,6 +47,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/iss"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/minecraft"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/pic"
+	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/qqpanel"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/coc"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dice"
 	"github.com/KomeiDiSanXian/remilia/cmd/bot/plugins/rpg/dnd"
@@ -169,6 +170,9 @@ func setupPlugins(pm *plugin.Manager, eng *engine.Engine) {
 		dice.New(),
 		coc.New(),
 		dnd.New(),
+
+		// QQ 平台能力（指令面板 / 自定义菜单）
+		qqpanel.New(),
 
 		// 系统维护
 		about.New(),

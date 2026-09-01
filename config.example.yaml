@@ -618,6 +618,12 @@ messagelog:
 #     proxy: ""
 #     # [R]  单次请求（API/下载）超时
 #     timeout: "10m"
+#   qqpanel:
+#     # [R]  QQ 指令面板/自定义菜单自动构建时追加排除的命令（前缀须含 "/"）。
+#     #      默认管理类命令清单始终生效: /plugin /perm /code /acl /status /info
+#     #      /mute /kick /warn /warnings /clean /rl /welcome /farewell /ar /cc
+#     #      /debug /update /qqpanel /qqmenu
+#     exclude: []
 
 # ====================================
 # 配置说明
