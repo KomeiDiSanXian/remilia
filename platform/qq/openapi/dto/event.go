@@ -44,6 +44,15 @@ const (
 	MessageAuditReject  EventType = "MESSAGE_AUDIT_REJECT"  // 消息审核不通过
 	MessageAudit        EventType = "MESSAGE_AUDIT"         // 消息审核结果（旧事件名，兼容保留）
 
+	// ── 公域论坛事件（OPEN_FORUM_EVENT 1<<18，公域机器人）────────────────────
+	OpenForumThreadCreate EventType = "OPEN_FORUM_THREAD_CREATE" // 创建主题
+	OpenForumThreadUpdate EventType = "OPEN_FORUM_THREAD_UPDATE" // 更新主题
+	OpenForumThreadDelete EventType = "OPEN_FORUM_THREAD_DELETE" // 删除主题
+	OpenForumPostCreate   EventType = "OPEN_FORUM_POST_CREATE"   // 创建帖子
+	OpenForumPostDelete   EventType = "OPEN_FORUM_POST_DELETE"   // 删除帖子
+	OpenForumReplyCreate  EventType = "OPEN_FORUM_REPLY_CREATE"  // 回复评论
+	OpenForumReplyDelete  EventType = "OPEN_FORUM_REPLY_DELETE"  // 删除评论
+
 	// ── 论坛事件（FORUMS_EVENT 1<<28，仅私域机器人）─────────────────────────
 	ForumThreadCreate EventType = "FORUM_THREAD_CREATE"        // 创建主题
 	ForumThreadUpdate EventType = "FORUM_THREAD_UPDATE"        // 更新主题

@@ -43,6 +43,13 @@ const (
 	IntentGuildMessageReacts Intents = 1 << 10
 	// IntentDirectMessage 频道私信事件：DIRECT_MESSAGE_CREATE / DIRECT_MESSAGE_DELETE。
 	IntentDirectMessage Intents = 1 << 12
+	// IntentOpenForumEvent 公域论坛事件：OPEN_FORUM_THREAD/POST/REPLY_*。
+	IntentOpenForumEvent Intents = 1 << 18
+	// IntentAudioLiveMember 音视频/直播子频道成员进出事件：
+	// AUDIO_OR_LIVE_CHANNEL_MEMBER_ENTER / AUDIO_OR_LIVE_CHANNEL_MEMBER_EXIT。
+	IntentAudioLiveMember Intents = 1 << 19
+	// IntentGroupMembers 群聊成员事件：GROUP_MEMBER_ADD / GROUP_MEMBER_REMOVE。
+	IntentGroupMembers Intents = 1 << 24
 	// IntentGroupAndC2C 群聊与单聊事件：C2C_MESSAGE_CREATE、FRIEND_ADD/DEL、GROUP_AT_MESSAGE_CREATE 等 8 个。
 	IntentGroupAndC2C Intents = 1 << 25
 	// IntentInteraction 互动事件：INTERACTION_CREATE（按钮回调等）。
@@ -581,6 +588,7 @@ func mustMarshal(v any) json.RawMessage {
 // 注意：某些 intent（如 FORUMS_EVENT、GUILD_MESSAGES）仅私域机器人可用，
 // 公域机器人使用 AllIntents 时 Identify 会被拒绝。
 var AllIntents = IntentGuilds | IntentGuildMembers | IntentGuildMessages |
-	IntentGuildMessageReacts | IntentDirectMessage | IntentGroupAndC2C |
+	IntentGuildMessageReacts | IntentDirectMessage | IntentOpenForumEvent |
+	IntentAudioLiveMember | IntentGroupMembers | IntentGroupAndC2C |
 	IntentInteraction | IntentMessageAudit | IntentForumsEvent |
 	IntentAudioAction | IntentPublicGuildMsg

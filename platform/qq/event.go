@@ -167,10 +167,13 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.MessageAuditPass, dto.MessageAuditReject, dto.MessageAudit:
 		e.kind = platform.EventKindMessageAudit
 		e.populateMessageAudit(detail)
-	// ── 论坛事件（FORUMS_EVENT）────────────────────────────────────────────
+	// ── 论坛事件（FORUMS_EVENT / OPEN_FORUM_EVENT）─────────────────────────
 	case dto.ForumThreadCreate, dto.ForumThreadUpdate, dto.ForumThreadDelete,
 		dto.ForumPostCreate, dto.ForumPostDelete,
-		dto.ForumReplyCreate, dto.ForumReplyDelete, dto.ForumAuditResult:
+		dto.ForumReplyCreate, dto.ForumReplyDelete, dto.ForumAuditResult,
+		dto.OpenForumThreadCreate, dto.OpenForumThreadUpdate, dto.OpenForumThreadDelete,
+		dto.OpenForumPostCreate, dto.OpenForumPostDelete,
+		dto.OpenForumReplyCreate, dto.OpenForumReplyDelete:
 		e.kind = platform.EventKindNotice
 		e.populateForumEvent(detail)
 	// ── 音频事件（AUDIO_ACTION）────────────────────────────────────────────
@@ -649,7 +652,8 @@ func (e *qqEvent) populateMessageAudit(detail json.RawMessage) {
 	}
 }
 
-// populateForumEvent 解析论坛事件（FORUM_THREAD/POST/REPLY_*、FORUM_PUBLISH_AUDIT_RESULT）。
+// populateForumEvent 解析论坛事件（FORUM_* 私域与 OPEN_FORUM_* 公域、
+// FORUM_PUBLISH_AUDIT_RESULT）。
 //
 // 统一映射为 EventKindNotice，通过 RawType 区分具体事件。
 // 帖子/主题文本内容折叠为 content 段，便于 handler 匹配。

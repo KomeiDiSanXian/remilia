@@ -153,3 +153,14 @@ func TestHeartbeatAckParsing(t *testing.T) {
 	json.Unmarshal([]byte(`{"op":11}`), &ack)
 	assert.Equal(t, dto.HeartbeatACK, ack.Op)
 }
+
+func TestAllIntents_CoversNewEventFamilies(t *testing.T) {
+	// 新补齐的事件族必须出现在默认订阅中，否则解析逻辑就绪但事件收不到。
+	for _, intent := range []Intents{IntentOpenForumEvent, IntentAudioLiveMember, IntentGroupMembers} {
+		assert.NotZero(t, int(AllIntents)&int(intent), "AllIntents should include %d", intent)
+	}
+	// 确认位定义与官方文档一致（18=open_forum, 19=audio_live_member, 24=group_members）。
+	assert.Equal(t, Intents(1<<18), IntentOpenForumEvent)
+	assert.Equal(t, Intents(1<<19), IntentAudioLiveMember)
+	assert.Equal(t, Intents(1<<24), IntentGroupMembers)
+}

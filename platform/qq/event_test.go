@@ -1269,6 +1269,51 @@ func TestNewEvent_ForumEvents(t *testing.T) {
 	}
 }
 
+func TestNewEvent_OpenForumEvents(t *testing.T) {
+	cases := []struct {
+		et   dto.EventType
+		body map[string]any
+		want string // 期望 content（对象 ID）
+	}{
+		{dto.OpenForumThreadCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"thread_info": map[string]any{"thread_id": "otid_1"},
+		}, "otid_1"},
+		{dto.OpenForumPostCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"post_info": map[string]any{"post_id": "opid_1", "thread_id": "otid_1"},
+		}, "opid_1"},
+		{dto.OpenForumReplyCreate, map[string]any{
+			"guild_id": "g1", "channel_id": "c1", "author_id": "u1",
+			"reply_info": map[string]any{"reply_id": "orid_1", "post_id": "opid_1", "thread_id": "otid_1"},
+		}, "orid_1"},
+	}
+	for _, tc := range cases {
+		payload := makePayload(tc.et, tc.body)
+		event := qq.NewEvent(payload)
+
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", tc.et, event.Kind(), platform.EventKindNotice)
+		}
+		if event.Chat().ID != "c1" || event.Chat().ParentID != "g1" {
+			t.Errorf("[%s] Chat: got %+v, want c1/g1", tc.et, event.Chat())
+		}
+		if event.Sender().ID != "u1" {
+			t.Errorf("[%s] Sender.ID: got %q, want u1", tc.et, event.Sender().ID)
+		}
+		if platform.Content(event) != tc.want {
+			t.Errorf("[%s] Content: got %q, want %q", tc.et, platform.Content(event), tc.want)
+		}
+	}
+	// 删除类事件同样映射为 Notice
+	for _, et := range []dto.EventType{dto.OpenForumThreadDelete, dto.OpenForumPostDelete, dto.OpenForumReplyDelete} {
+		event := qq.NewEvent(makePayload(et, map[string]any{}))
+		if event.Kind() != platform.EventKindNotice {
+			t.Errorf("[%s] Kind: got %q, want %q", et, event.Kind(), platform.EventKindNotice)
+		}
+	}
+}
+
 func TestNewEvent_AudioEvents(t *testing.T) {
 	for _, et := range []dto.EventType{dto.AudioStart, dto.AudioFinish, dto.AudioOnMic, dto.AudioOffMic} {
 		payload := makePayload(et, map[string]any{
