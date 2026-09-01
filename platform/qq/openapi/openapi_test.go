@@ -262,18 +262,18 @@ func TestClient_UserUploadPrepare(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)
 
-	_, err := api.UserUploadPrepare(context.Background(), "openid_1", &dto.UploadPrepareRequest{FileType: dto.ImageFile, FileSize: 1024, FileName: "a.png"})
+	_, err := api.UserUploadPrepare(context.Background(), "openid_1", &dto.UploadPrepareRequest{FileType: dto.ImageFile, FileSize: "1024", FileName: "a.png"})
 	require.NoError(t, err)
-	assertLast(t, m, http.MethodPost, "/v2/users/openid_1/upload_prepare", `{"file_type":1,"file_size":1024,"file_name":"a.png"}`)
+	assertLast(t, m, http.MethodPost, "/v2/users/openid_1/upload_prepare", `{"file_type":1,"file_size":"1024","file_name":"a.png"}`)
 }
 
 func TestClient_GroupUploadPrepare(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)
 
-	_, err := api.GroupUploadPrepare(context.Background(), "gid_1", &dto.UploadPrepareRequest{FileType: dto.ImageFile, FileSize: 2048})
+	_, err := api.GroupUploadPrepare(context.Background(), "gid_1", &dto.UploadPrepareRequest{FileType: dto.ImageFile, FileSize: "2048"})
 	require.NoError(t, err)
-	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/upload_prepare", `{"file_type":1,"file_size":2048}`)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/upload_prepare", `{"file_type":1,"file_size":"2048"}`)
 }
 
 func TestClient_UserUploadPartFinish(t *testing.T) {

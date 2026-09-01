@@ -134,29 +134,37 @@ type MediaResponse struct {
 
 // UploadPrepareRequest 分片上传预上传请求。
 //
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/rich-media.html#%E5%88%86%E7%89%87%E4%B8%8A%E4%BC%A0%EF%BC%88%E6%8E%A8%E8%8D%90%EF%BC%89
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_id_upload_prepare.post.html
 type UploadPrepareRequest struct {
 	FileType  FileType `json:"file_type"`
-	FileSize  int64    `json:"file_size"`
+	FileSize  string   `json:"file_size"`
 	FileName  string   `json:"file_name,omitempty"`
-	BlockSize int      `json:"block_size,omitempty"`
-	FileMD5   string   `json:"file_md5,omitempty"`
+	FileMD5   string   `json:"md5,omitempty"`
+	FileSHA1  string   `json:"sha1,omitempty"`
 	MD510M    string   `json:"md5_10m,omitempty"`
 }
 
 // UploadPrepareResponse 分片上传预上传响应。
 type UploadPrepareResponse struct {
-	UploadID      string        `json:"upload_id"`
-	BlockSize     int           `json:"block_size"`
-	PresignedURLs []string      `json:"presigned_urls"`
-	UploadConfig  *UploadConfig `json:"upload_config,omitempty"`
+	UploadID     string        `json:"upload_id"`
+	BlockSize    string        `json:"block_size"`
+	Parts        []UploadPart  `json:"parts"`
+	UploadConfig *UploadConfig `json:"upload_config,omitempty"`
+}
+
+// UploadPart 预上传返回的单个分片信息。
+// index 为服务端分片序号（真实响应从 1 开始），字节偏移按数组顺序累加。
+type UploadPart struct {
+	Index        int    `json:"index"`
+	PresignedURL string `json:"presigned_url"`
+	BlockSize    string `json:"block_size"`
 }
 
 // UploadConfig 分片上传配置。
 type UploadConfig struct {
-	Concurrent   int `json:"concurrent"`
-	Retry        int `json:"retry"`
-	MaxBodyBytes int `json:"max_body_bytes"`
+	Concurrency  int `json:"concurrency"`
+	RetryTimeout int `json:"retry_timeout"`
+	RetryDelay   int `json:"retry_delay"`
 }
 
 // UploadPartFinishRequest 分片上传完成确认请求。

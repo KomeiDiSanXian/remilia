@@ -4,10 +4,12 @@ import (
 	"bytes"
 	stdctx "context"
 	"crypto/md5"
+	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -229,9 +231,10 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 	fileMD5 := md5Sum(att.Data)
 	prepareReq := &dto.UploadPrepareRequest{
 		FileType: fileType,
-		FileSize: int64(len(att.Data)),
+		FileSize: strconv.FormatInt(int64(len(att.Data)), 10),
 		FileName: att.Name,
 		FileMD5:  fileMD5,
+		FileSHA1: sha1Sum(att.Data),
 		MD510M:   md5Sum(firstBytes(att.Data, 10002432)),
 	}
 
@@ -256,14 +259,14 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 	if blockSize <= 0 {
 		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned invalid block_size (response: %s)", prepare.Raw)
 	}
-	presignedURLs := prepare.Get("presigned_urls").Array()
-	if len(presignedURLs) == 0 {
-		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned no presigned urls (response: %s)", prepare.Raw)
+	parts := prepare.Get("parts").Array()
+	if len(parts) == 0 {
+		return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned no parts (response: %s)", prepare.Raw)
 	}
 
 	// 2+3. 分片 PUT + 完成确认
 	data := att.Data
-	for i, pu := range presignedURLs {
+	for i, part := range parts {
 		start := i * blockSize
 		if start >= len(data) {
 			break
@@ -271,14 +274,20 @@ func (s *qqSender) sendAttachmentChunked(ctx stdctx.Context, chat platform.ChatI
 		end := min(start+blockSize, len(data))
 		chunk := data[start:end]
 
-		if err := putPresignedChunk(ctx, pu.String(), chunk); err != nil {
+		presignedURL := part.Get("presigned_url").String()
+		if presignedURL == "" {
+			return platform.SendResult{}, fmt.Errorf("qq sender: chunked upload prepare returned part %d without presigned_url (response: %s)", i, prepare.Raw)
+		}
+		if err := putPresignedChunk(ctx, presignedURL, chunk); err != nil {
 			return platform.SendResult{}, platform.NewSendError(
 				platform.SendErrNetworkError, "qq", chat.ID,
 				fmt.Sprintf("chunked upload PUT part %d failed: %v", i, err), 0, err,
 			)
 		}
 
-		finishReq := &dto.UploadPartFinishRequest{UploadID: uploadID, PartIndex: i}
+		// part_index 使用服务端返回的 UploadPart.index（真实响应从 1 开始，
+		// 文档示例从 0 开始）；字节偏移按数组顺序累加 blockSize。
+		finishReq := &dto.UploadPartFinishRequest{UploadID: uploadID, PartIndex: int(part.Get("index").Int())}
 		if chat.IsGroup {
 			_, err = s.api.GroupUploadPartFinish(ctx, chat.ID, finishReq)
 		} else {
@@ -381,6 +390,12 @@ const chunkPutTimeout = 60 * time.Second
 // md5Sum 计算数据的十六进制 MD5。
 func md5Sum(data []byte) string {
 	h := md5.Sum(data)
+	return hex.EncodeToString(h[:])
+}
+
+// sha1Sum 计算数据的十六进制 SHA1（QQ upload_prepare 要求的必填校验值）。
+func sha1Sum(data []byte) string {
+	h := sha1.Sum(data)
 	return hex.EncodeToString(h[:])
 }
 

@@ -1,17 +1,23 @@
 package qq
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi"
 	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func newTestChat() platform.ChatInfo {
@@ -350,6 +356,98 @@ func TestPutPresignedChunk_Non2xx(t *testing.T) {
 	err := putPresignedChunk(context.Background(), srv.URL, []byte("chunk-data"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "403")
+}
+
+// fakeChunkedAPI 记录分片上传各阶段请求，返回与真实响应一致的形状。
+type fakeChunkedAPI struct {
+	openapi.OpenAPI
+	prepareResult gjson.Result
+	prepareReq    *dto.UploadPrepareRequest
+	finishReqs    []*dto.UploadPartFinishRequest
+	mergeMedia    *dto.Media
+	chatMsg       *dto.Message
+}
+
+func (f *fakeChunkedAPI) GroupUploadPrepare(_ context.Context, _ string, req *dto.UploadPrepareRequest) (gjson.Result, error) {
+	f.prepareReq = req
+	return f.prepareResult, nil
+}
+
+func (f *fakeChunkedAPI) GroupUploadPartFinish(_ context.Context, _ string, req *dto.UploadPartFinishRequest) (gjson.Result, error) {
+	f.finishReqs = append(f.finishReqs, req)
+	return gjson.Result{}, nil
+}
+
+func (f *fakeChunkedAPI) GroupRichMedia(_ context.Context, _ string, media *dto.Media) (gjson.Result, error) {
+	f.mergeMedia = media
+	return gjson.Parse(`{"file_info":"fi_123"}`), nil
+}
+
+func (f *fakeChunkedAPI) GroupChat(_ context.Context, _ string, msg *dto.Message) (gjson.Result, error) {
+	f.chatMsg = msg
+	return gjson.Parse(`{"id":"msg_1"}`), nil
+}
+
+// TestSendAttachmentChunked_ParseParts 验证分片上传正确解析 upload_prepare 返回的
+// parts 数组（真实响应中 index 从 1 开始），而不是文档之外的 presigned_urls。
+func TestSendAttachmentChunked_ParseParts(t *testing.T) {
+	const blockSize = 3 * 1024 * 1024 // 3MB 每片
+	data := bytes.Repeat([]byte{0xAB}, blockSize*2)
+
+	var mu sync.Mutex
+	putChunks := map[string][]byte{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		putChunks[r.URL.Path] = body
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	prepareResp := gjson.Parse(fmt.Sprintf(
+		`{"upload_id":"upload_1","block_size":"%d","parts":[`+
+			`{"index":1,"presigned_url":%q,"block_size":"%d"},`+
+			`{"index":2,"presigned_url":%q,"block_size":"%d"}],`+
+			`"upload_config":{"concurrency":1,"retry_timeout":300,"retry_delay":1}}`,
+		blockSize, srv.URL+"/p1", blockSize, srv.URL+"/p2", blockSize))
+
+	fake := &fakeChunkedAPI{prepareResult: prepareResp}
+	s := &qqSender{api: fake}
+
+	res, err := s.sendAttachmentChunked(context.Background(), newTestChat(), platform.OutboundMessage{}, platform.Attachment{
+		Kind: platform.AttachmentKindFile,
+		Name: "a.bin",
+		Data: data,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, res.Raw, "send result should be populated")
+
+	// prepare 请求按官方文档发送字符串 file_size 与 md5/sha1 校验值
+	require.NotNil(t, fake.prepareReq)
+	assert.Equal(t, strconv.FormatInt(int64(len(data)), 10), fake.prepareReq.FileSize)
+	assert.Equal(t, md5Sum(data), fake.prepareReq.FileMD5)
+	assert.Equal(t, sha1Sum(data), fake.prepareReq.FileSHA1)
+
+	// 每个分片都 PUT 到对应预签名 URL，并按数组顺序切片
+	require.Len(t, putChunks, 2)
+	assert.Equal(t, data[:blockSize], putChunks["/p1"])
+	assert.Equal(t, data[blockSize:], putChunks["/p2"])
+
+	// part_finish 使用服务端返回的 index（1 起），而非循环下标
+	require.Len(t, fake.finishReqs, 2)
+	assert.Equal(t, 1, fake.finishReqs[0].PartIndex)
+	assert.Equal(t, 2, fake.finishReqs[1].PartIndex)
+	assert.Equal(t, "upload_1", fake.finishReqs[0].UploadID)
+
+	// 合并请求携带 upload_id
+	require.NotNil(t, fake.mergeMedia)
+	assert.Equal(t, "upload_1", fake.mergeMedia.UploadID)
+
+	// 最终媒体消息携带 file_info
+	require.NotNil(t, fake.chatMsg)
+	require.NotNil(t, fake.chatMsg.Media)
+	assert.Equal(t, "fi_123", fake.chatMsg.Media.FileInfo)
 }
 
 func TestSendTyping_BuildsInputNotify(t *testing.T) {
