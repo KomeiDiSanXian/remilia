@@ -206,6 +206,9 @@ plugins:
 - 默认的管理类命令（权限在 handler 内校验，如 `/plugin`、`/perm`、`/welcome`、
   `/mute`、`/update` 等），避免普通用户点击后收到"权限不足"
 
+`/help` **固定置顶**：面板首位与菜单折叠项首项始终保留 `/help`（除非被
+显式排除），保证新用户可发现。
+
 可通过 `plugins.qqpanel.exclude` 追加排除项（默认清单始终生效）：
 
 ```yaml

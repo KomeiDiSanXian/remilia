@@ -250,6 +250,39 @@ func TestBuildPanelItems_Limit(t *testing.T) {
 	}
 }
 
+func TestBuildPanelItems_PinsHelp(t *testing.T) {
+	// /help 排在字母序末尾（25 个 /a 前缀命令之后），
+	// 无置顶逻辑时会被 20 项上限截掉。
+	cmds := make([]string, 25)
+	for i := range cmds {
+		cmds[i] = "/a" + string(rune('a'+i))
+	}
+	cmds = append(cmds, "/help")
+	eng := newEngineWithCommands(cmds...)
+	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: eng}}
+
+	items := p.buildPanelItems()
+	if len(items) == 0 {
+		t.Fatal("items is empty")
+	}
+	if items[0].Name != "/help" {
+		t.Errorf("items[0] = %q, want /help", items[0].Name)
+	}
+	found := false
+	for _, it := range items {
+		if it.Name == "/help" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("/help missing from panel items")
+	}
+	if len(items) > maxPanelItems {
+		t.Errorf("items = %d, want <= %d", len(items), maxPanelItems)
+	}
+}
+
 func TestBuildMenu(t *testing.T) {
 	eng := newEngineWithCommands("/a", "/b", "/c", "/d", "/e", "/f", "/g")
 	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: eng}}
@@ -283,6 +316,28 @@ func TestBuildMenu(t *testing.T) {
 	}
 	if len(menu.Items) > maxMenuItems {
 		t.Errorf("items = %d, want <= %d", len(menu.Items), maxMenuItems)
+	}
+}
+
+func TestBuildMenu_PinsHelp(t *testing.T) {
+	cmds := make([]string, 25)
+	for i := range cmds {
+		cmds[i] = "/a" + string(rune('a'+i))
+	}
+	cmds = append(cmds, "/help")
+	eng := newEngineWithCommands(cmds...)
+	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: eng}}
+
+	menu := p.buildMenu()
+	if menu == nil || len(menu.Items) == 0 {
+		t.Fatal("menu is nil or empty")
+	}
+	first := menu.Items[0]
+	if first.Type != "menu" || len(first.SubMenuItems) == 0 {
+		t.Fatalf("first item = %+v, want menu fold with sub items", first)
+	}
+	if first.SubMenuItems[0].SendMessage != "/help" {
+		t.Errorf("first sub item send_message = %q, want /help", first.SubMenuItems[0].SendMessage)
 	}
 }
 

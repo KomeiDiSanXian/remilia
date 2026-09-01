@@ -78,7 +78,8 @@ func New() *plugin.Descriptor {
 
 需要 qqpanel.manage 权限。scope 取值: c2c / group / channel / dm。
 自动构建会排除隐藏命令、自身命令、声明了 Permissions 的命令以及默认的管理类
-命令（可通过 plugins.qqpanel.exclude 配置追加排除项）。`,
+命令（可通过 plugins.qqpanel.exclude 配置追加排除项）。
+/help 固定置顶，保证新用户可发现（除非被显式排除）。`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
 			p.info = ctx.Info
@@ -385,44 +386,76 @@ func (p *Plugin) commandInfos() []engine.CommandInfo {
 	return out
 }
 
-// buildPanelItems 从命令表提取前 maxPanelItems 条命令构建面板元素。
+// buildPanelItems 从命令表构建面板元素，/help 固定保留在首位。
 func (p *Plugin) buildPanelItems() []dto.PanelItem {
 	cmds := p.commandInfos()
 	items := make([]dto.PanelItem, 0, min(len(cmds), maxPanelItems))
+	// /help 固定置顶，保证其一定出现在面板中（除非被用户显式排除）。
+	if c, ok := findCommand(cmds, "/help"); ok {
+		items = append(items, panelItem(c))
+	}
 	for _, c := range cmds {
-		items = append(items, dto.PanelItem{
-			Name: truncateWeight(c.Command, 14),
-			Desc: truncateWeight(c.Description, 30),
-			Type: "command",
-		})
 		if len(items) >= maxPanelItems {
 			break
 		}
+		if c.Command == "/help" {
+			continue
+		}
+		items = append(items, panelItem(c))
 	}
 	return items
 }
 
+// panelItem 将命令信息转换为面板元素。
+func panelItem(c engine.CommandInfo) dto.PanelItem {
+	return dto.PanelItem{
+		Name: truncateWeight(c.Command, 14),
+		Desc: truncateWeight(c.Description, 30),
+		Type: "command",
+	}
+}
+
+// findCommand 在命令列表中按命令名查找。
+func findCommand(cmds []engine.CommandInfo, name string) (engine.CommandInfo, bool) {
+	for _, c := range cmds {
+		if c.Command == name {
+			return c, true
+		}
+	}
+	return engine.CommandInfo{}, false
+}
+
 // buildMenu 从命令表构建 C2C 自定义菜单：
-// 第一个顶级项为折叠菜单（最多 5 个子项），其余指令作为顶级 send_message 项。
+// 第一个顶级项为折叠菜单（/help 固定为首个子项，其余最多 4 个子项），
+// 剩余指令作为顶级 send_message 项。
 func (p *Plugin) buildMenu() *dto.Menu {
 	cmds := p.commandInfos()
 	if len(cmds) == 0 {
 		return nil
 	}
 	menu := &dto.Menu{}
-	subs := make([]dto.SubMenuItem, 0, min(len(cmds), maxSubMenuItems))
-	for _, c := range cmds[:min(len(cmds), maxSubMenuItems)] {
-		subs = append(subs, dto.SubMenuItem{
-			Name:        truncateWeight(c.Command, 14),
-			Type:        "send_message",
-			SendMessage: c.Command,
-		})
+	// 折叠菜单子项：/help 固定为首项。
+	subs := make([]dto.SubMenuItem, 0, maxSubMenuItems)
+	if c, ok := findCommand(cmds, "/help"); ok {
+		subs = append(subs, subMenuItem(c))
+	}
+	for _, c := range cmds {
+		if len(subs) >= maxSubMenuItems {
+			break
+		}
+		if c.Command == "/help" {
+			continue
+		}
+		subs = append(subs, subMenuItem(c))
 	}
 	menu.Items = append(menu.Items, dto.MenuItem{Name: "常用指令", Type: "menu", SubMenuItems: subs})
 
-	for _, c := range cmds[min(len(cmds), maxSubMenuItems):] {
+	for _, c := range cmds {
 		if len(menu.Items) >= maxMenuItems {
 			break
+		}
+		if c.Command == "/help" {
+			continue
 		}
 		menu.Items = append(menu.Items, dto.MenuItem{
 			Name:        truncateWeight(c.Command, 10),
@@ -431,6 +464,15 @@ func (p *Plugin) buildMenu() *dto.Menu {
 		})
 	}
 	return menu
+}
+
+// subMenuItem 将命令信息转换为菜单子项。
+func subMenuItem(c engine.CommandInfo) dto.SubMenuItem {
+	return dto.SubMenuItem{
+		Name:        truncateWeight(c.Command, 14),
+		Type:        "send_message",
+		SendMessage: c.Command,
+	}
 }
 
 // truncateWeight 按平台字符权重截断字符串：ASCII 计 1 个字符，其余字符
