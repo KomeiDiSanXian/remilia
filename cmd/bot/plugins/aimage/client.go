@@ -195,7 +195,7 @@ func (c *imageClient) generateSDWebUI(ctx context.Context, prompt string, n int)
 		return nil, fmt.Errorf("无效的 size %q（应为 宽x高，如 1024x1024）: %w", c.size, err)
 	}
 	images := make([]imageResult, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		body, err := json.Marshal(sdWebUIRequest{
 			Prompt:         prompt,
 			NegativePrompt: c.negative,
