@@ -5,25 +5,26 @@ package dto
 type EventType = string
 
 const (
-	Ready                 EventType = "READY"
-	Resumed               EventType = "RESUMED"
-	C2CMessageCreate      EventType = "C2C_MESSAGE_CREATE"
-	GroupMessageCreate    EventType = "GROUP_MESSAGE_CREATE"
-	GroupAtMessageCreate  EventType = "GROUP_AT_MESSAGE_CREATE"
-	GroupAddRobot         EventType = "GROUP_ADD_ROBOT"
-	GroupDelRobot         EventType = "GROUP_DEL_ROBOT"
-	GroupMemberAdd        EventType = "GROUP_MEMBER_ADD"
-	GroupMemberRemove     EventType = "GROUP_MEMBER_REMOVE"
-	GroupJoinRequest      EventType = "GROUP_JOIN_REQUEST" // 用户申请加群事件（机器人需为群管理员）
-	GroupMsgReject        EventType = "GROUP_MSG_REJECT"
-	GroupMsgReceive       EventType = "GROUP_MSG_RECEIVE"
-	FriendAdd             EventType = "FRIEND_ADD"
-	FriendDel             EventType = "FRIEND_DEL"
-	C2CMsgReject          EventType = "C2C_MSG_REJECT"
-	C2CMsgReceive         EventType = "C2C_MSG_RECEIVE"
-	InteractionCreate     EventType = "INTERACTION_CREATE"      // 互动事件（按钮回调等）
-	MessageReactionAdd    EventType = "MESSAGE_REACTION_ADD"    // 用户发表表情表态
-	MessageReactionRemove EventType = "MESSAGE_REACTION_REMOVE" // 用户取消表情表态
+	Ready                  EventType = "READY"
+	Resumed                EventType = "RESUMED"
+	C2CMessageCreate       EventType = "C2C_MESSAGE_CREATE"
+	GroupMessageCreate     EventType = "GROUP_MESSAGE_CREATE"
+	GroupAtMessageCreate   EventType = "GROUP_AT_MESSAGE_CREATE"
+	GroupAddRobot          EventType = "GROUP_ADD_ROBOT"
+	GroupDelRobot          EventType = "GROUP_DEL_ROBOT"
+	GroupMemberAdd         EventType = "GROUP_MEMBER_ADD"
+	GroupMemberRemove      EventType = "GROUP_MEMBER_REMOVE"
+	GroupJoinRequest       EventType = "GROUP_JOIN_REQUEST"       // 用户申请加群事件（机器人需为群管理员）
+	SubscribeMessageStatus EventType = "SUBSCRIBE_MESSAGE_STATUS" // 订阅消息授权状态变更事件（intents: GROUP_AND_C2C_EVENT 1<<25）
+	GroupMsgReject         EventType = "GROUP_MSG_REJECT"
+	GroupMsgReceive        EventType = "GROUP_MSG_RECEIVE"
+	FriendAdd              EventType = "FRIEND_ADD"
+	FriendDel              EventType = "FRIEND_DEL"
+	C2CMsgReject           EventType = "C2C_MSG_REJECT"
+	C2CMsgReceive          EventType = "C2C_MSG_RECEIVE"
+	InteractionCreate      EventType = "INTERACTION_CREATE"      // 互动事件（按钮回调等）
+	MessageReactionAdd     EventType = "MESSAGE_REACTION_ADD"    // 用户发表表情表态
+	MessageReactionRemove  EventType = "MESSAGE_REACTION_REMOVE" // 用户取消表情表态
 
 	ChannelCreate       EventType = "CHANNEL_CREATE"        // 子频道创建
 	ChannelUpdate       EventType = "CHANNEL_UPDATE"        // 子频道更新
@@ -200,6 +201,38 @@ type GroupJoinRequestEvent struct {
 	AutoApproved  *struct {
 		StrategyID string `json:"strategy_id,omitempty"`
 	} `json:"auto_approved,omitempty"`
+}
+
+// SubscribeMessageStatusEvent 表示订阅消息授权状态变更事件。
+//
+// 用户对订阅消息模板的授权状态发生变化时触发，可用于判断用户是否允许/拒绝
+// 接收某个订阅消息模板。
+// intents: GROUP_AND_C2C_EVENT = 1<<25
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/event/subscribe_message_status.html
+type SubscribeMessageStatusEvent struct {
+	// GroupOpenID 群 OpenID（群订阅场景时有值）
+	GroupOpenID string `json:"group_openid,omitempty"`
+	// OpenID 用户 OpenID（个人订阅场景时有值）
+	OpenID string `json:"openid,omitempty"`
+	// Result 各模板的授权结果列表
+	Result []SubscribeMsgTemplateResult `json:"result,omitempty"`
+}
+
+// SubscribeMsgTemplateResult 表示单个订阅模板的授权结果。
+type SubscribeMsgTemplateResult struct {
+	// TemplateID 平台提供的订阅模板 ID
+	TemplateID int `json:"template_id,omitempty"`
+	// CustomTemplateID 自定义订阅模板 ID
+	CustomTemplateID string `json:"custom_template_id,omitempty"`
+	// Op 用户操作。1=允许订阅，2=拒绝订阅
+	Op int `json:"op,omitempty"`
+	// SubscribeID 订阅 ID，发送订阅消息时需使用
+	SubscribeID string `json:"subscribe_id,omitempty"`
+	// SubscribeTS 订阅操作时间戳（Unix 秒）
+	SubscribeTS int `json:"subscribe_ts,omitempty"`
+	// UpdateTS 订阅状态最后更新时间戳（Unix 秒）
+	UpdateTS int `json:"update_ts,omitempty"`
 }
 
 // UserOpRobotEvent 表示用户操作机器人事件

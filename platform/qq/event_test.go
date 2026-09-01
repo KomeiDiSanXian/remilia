@@ -375,6 +375,73 @@ func TestNewEvent_GroupJoinRequest_NilDetail(t *testing.T) {
 	}
 }
 
+func TestNewEvent_SubscribeMessageStatus(t *testing.T) {
+	// 群订阅场景
+	payload := makePayload(dto.SubscribeMessageStatus, map[string]any{
+		"group_openid": "group_001",
+		"openid":       "user_abc",
+		"result": []map[string]any{
+			{
+				"template_id":        10001,
+				"custom_template_id": "tpl_abc123",
+				"op":                 1,
+				"subscribe_id":       "sub_def456",
+				"subscribe_ts":       int64(1784276820),
+				"update_ts":          int64(1784276820),
+			},
+		},
+	})
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindNotice {
+		t.Fatalf("Kind: got %q, want %q", event.Kind(), platform.EventKindNotice)
+	}
+	if !event.Chat().IsGroup {
+		t.Error("Chat.IsGroup: want true for group subscription")
+	}
+	if event.Chat().ID != "group_001" {
+		t.Errorf("Chat.ID: got %q, want group_001", event.Chat().ID)
+	}
+	if event.Sender().ID != "user_abc" {
+		t.Errorf("Sender.ID: got %q, want user_abc", event.Sender().ID)
+	}
+	// result 原始 JSON 作为 content 供 handler 使用
+	if len(event.Segments()) != 1 || event.Segments()[0].Type != platform.SegmentText {
+		t.Errorf("Segments: got %+v, want single text segment", event.Segments())
+	}
+	if !strings.Contains(event.Segments()[0].Text, "tpl_abc123") {
+		t.Errorf("Segments[0].Text: got %q, want to contain result JSON", event.Segments()[0].Text)
+	}
+
+	// 个人订阅场景
+	payload = makePayload(dto.SubscribeMessageStatus, map[string]any{
+		"openid": "user_xyz",
+		"result": []map[string]any{},
+	})
+	event = qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindNotice {
+		t.Fatalf("Kind: got %q, want %q", event.Kind(), platform.EventKindNotice)
+	}
+	if event.Chat().IsGroup {
+		t.Error("Chat.IsGroup: want false for c2c subscription")
+	}
+	if event.Chat().ID != "user_xyz" {
+		t.Errorf("Chat.ID: got %q, want user_xyz", event.Chat().ID)
+	}
+	if event.Sender().ID != "user_xyz" {
+		t.Errorf("Sender.ID: got %q, want user_xyz", event.Sender().ID)
+	}
+}
+
+func TestNewEvent_SubscribeMessageStatus_NilDetail(t *testing.T) {
+	payload := makePayload(dto.SubscribeMessageStatus, map[string]any{})
+	event := qq.NewEvent(payload)
+	if event.Kind() != platform.EventKindNotice {
+		t.Fatalf("Kind: got %q, want %q", event.Kind(), platform.EventKindNotice)
+	}
+}
+
 func TestNewEvent_NilDetail(t *testing.T) {
 	// 无 Detail 时不应 panic，Kind 仍正确，字段保留零值
 	cases := []struct {

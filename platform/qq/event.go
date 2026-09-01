@@ -155,6 +155,10 @@ func (e *qqEvent) populateFrom(evType string, detail json.RawMessage) {
 	case dto.GroupJoinRequest:
 		e.kind = platform.EventKindRequest
 		e.populateGroupJoinRequest(detail)
+	// ── 订阅消息授权状态变更事件 ─────────────────────────────────────────────
+	case dto.SubscribeMessageStatus:
+		e.kind = platform.EventKindNotice
+		e.populateSubscribeMessageStatus(detail)
 	// ── 子频道事件 ──────────────────────────────────────────────────────────
 	case dto.ChannelCreate, dto.ChannelUpdate, dto.ChannelDelete:
 		e.kind = platform.EventKindChannelChange
@@ -1080,6 +1084,34 @@ func (e *qqEvent) populateGroupJoinRequest(detail json.RawMessage) {
 	}
 	// 将 join_request_id 作为 content，便于 handler 获取后调用审批接口
 	e.segments = textSegments(joinRequestID)
+}
+
+// populateSubscribeMessageStatus 解析订阅消息授权状态变更事件。
+//
+// 事件体同时可能携带 group_openid（群订阅场景）或 openid（个人订阅场景），
+// 二者至少存在其一：优先按群订阅处理（IsGroup=true），否则按个人订阅处理。
+func (e *qqEvent) populateSubscribeMessageStatus(detail json.RawMessage) {
+	if detail == nil {
+		return
+	}
+	results := gjson.GetManyBytes(detail,
+		"group_openid", // [0] 群 OpenID（群订阅场景）
+		"openid",       // [1] 用户 OpenID（个人订阅场景）
+		"result",       // [2] 各模板的授权结果列表
+	)
+	groupOpenID := results[0].String()
+	userOpenID := results[1].String()
+	e.chat = platform.ChatInfo{
+		ID:      groupOpenID,
+		IsGroup: groupOpenID != "",
+	}
+	// 个人订阅场景以用户 OpenID 作为会话 ID
+	if e.chat.ID == "" {
+		e.chat.ID = userOpenID
+	}
+	e.sender = platform.UserInfo{ID: userOpenID}
+	// 授权结果 JSON 作为 content 供 handler 使用（原始 result 数组）
+	e.segments = textSegments(results[2].Raw)
 }
 
 func (e *qqEvent) populateNoticeUser(detail json.RawMessage) {
