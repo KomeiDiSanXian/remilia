@@ -121,6 +121,7 @@ AI 工具：
 			p := &Plugin{cfg: cfg, log: ctx.Log}
 			// 命令注册（无论是否启用都可查看状态）。
 			kbDef := command.NewDef("kb").
+				Description("本地文档知识库检索与索引管理").
 				SubCommand(command.NewDef("rebuild").Description("重建知识库索引（需 superadmin）").Build()).
 				SubCommand(command.NewDef("status").Description("查看知识库索引状态（需 superadmin）").Build()).
 				Build()

@@ -451,6 +451,7 @@ func buildHealthProbeURL(cfg *Config) string {
 // 子命令支持嵌套（如 /ai skill add），帮助插件会自动展开显示。
 func buildAIDefinition() *command.Definition {
 	return command.NewDef("ai").
+		Description("与 AI 对话（支持工具调用、技能、待办、计划与提醒）").
 		SubCommand(command.NewDef("reset").Description("清空对话历史").Build()).
 		SubCommand(command.NewDef("undo").Description("撤销上一条对话").Build()).
 		SubCommand(command.NewDef("retry").Description("重新生成上一条回复").Build()).
