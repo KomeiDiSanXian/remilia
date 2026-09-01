@@ -657,6 +657,10 @@ func (s *qqSender) buildDTOMessage(msg platform.OutboundMessage, chat platform.C
 		dtoMsg.MessageID = ""
 	}
 
+	// 操作按钮与提示键盘：与 keyboard 字段相互独立，msg_type 保持原样。
+	dtoMsg.ActionButton = extra.ActionButton
+	dtoMsg.PromptKeyboard = extra.PromptKeyboard
+
 	return dtoMsg
 }
 
@@ -1075,12 +1079,44 @@ func (s *qqSender) GetGroupInfo(ctx stdctx.Context, groupID string) (platform.Gr
 	}, nil
 }
 
-// GetGroupMemberList QQ 官方 v2 无群成员列表接口，返回 ErrNotSupported。
-func (s *qqSender) GetGroupMemberList(_ stdctx.Context, _ string) ([]platform.GroupMemberInfo, error) {
-	return nil, platform.ErrNotSupported
+// GetGroupMemberList 通过分页拉取群成员列表实现 platform.GroupInfoProvider。
+//
+// 官方 v2 接口 POST /v2/groups/{group_openid}/members 仅返回 member_openid 与
+// join_timestamp（不含昵称/头像），故 DisplayName/AvatarURL 无法填充。
+// 接口按 start_index/next_index 分页，此处循环拉取直至服务端不再返回下一页。
+func (s *qqSender) GetGroupMemberList(ctx stdctx.Context, groupID string) ([]platform.GroupMemberInfo, error) {
+	if s.api == nil {
+		return nil, fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	const pageSize = 100
+	var members []platform.GroupMemberInfo
+	startIndex := 0
+	for {
+		result, err := s.api.GetGroupMembers(ctx, groupID, pageSize, startIndex)
+		if err != nil {
+			return nil, err
+		}
+		arr := result.Get("members")
+		for _, m := range arr.Array() {
+			info := platform.GroupMemberInfo{UserID: m.Get("member_openid").String()}
+			if ts := m.Get("join_timestamp").String(); ts != "" {
+				if t, err := time.Parse(time.RFC3339, ts); err == nil {
+					info.JoinedAt = t
+				}
+			}
+			members = append(members, info)
+		}
+		next := int(result.Get("next_index").Int())
+		if next <= startIndex || len(arr.Array()) == 0 {
+			break
+		}
+		startIndex = next
+	}
+	return members, nil
 }
 
 // GetGroupMember QQ 官方 v2 无单成员查询接口，返回 ErrNotSupported。
+// 如需查询某成员，可通过 GetGroupMemberList 拉取后按 UserID 过滤。
 func (s *qqSender) GetGroupMember(_ stdctx.Context, _, _ string) (platform.GroupMemberInfo, error) {
 	return platform.GroupMemberInfo{}, platform.ErrNotSupported
 }

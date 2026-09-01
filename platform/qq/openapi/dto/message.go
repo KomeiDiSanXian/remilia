@@ -55,6 +55,83 @@ type InputNotify struct {
 	InputSecond int `json:"input_second"`
 }
 
+// ActionButton 操作按钮，发送消息时随消息下发。
+//
+// 适用于 AI 回复场景，支持反馈（赞踩）、TTS 播放、重新生成、停止生成等动作；
+// 用户点击后通过 INTERACTION_CREATE 事件回调。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html
+type ActionButton struct {
+	// TemplateID 模板 ID："1"=操作按钮，"10"=重新生成/停止生成按钮。
+	// 官方已标注为待废弃字段，新接入优先使用 callback_data 驱动。
+	TemplateID string `json:"template_id,omitempty"`
+	// CallbackData 回调数据，用户点击按钮后原样透传给开发者（INTERACTION_CREATE）。
+	CallbackData string `json:"callback_data,omitempty"`
+	// Feedback 反馈按钮（赞踩按钮）。
+	Feedback bool `json:"feedback,omitempty"`
+	// TTS TTS 语音播放按钮。
+	TTS bool `json:"tts,omitempty"`
+	// ReGenerate 重新生成按钮。
+	ReGenerate bool `json:"re_generate,omitempty"`
+	// StopGenerate 停止生成按钮。
+	StopGenerate bool `json:"stop_generate,omitempty"`
+}
+
+// PromptKeyboard 提示键盘，发送消息时随消息下发。
+//
+// 用户点击键盘按钮后，按钮文案自动填充到输入框（type 固定为 2）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html
+type PromptKeyboard struct {
+	Keyboard PromptKeyboardContent `json:"keyboard"`
+}
+
+// PromptKeyboardContent 提示键盘内容。
+type PromptKeyboardContent struct {
+	Content PromptKeyboardRows `json:"content"`
+}
+
+// PromptKeyboardRows 提示键盘按钮行集合。
+type PromptKeyboardRows struct {
+	Rows []PromptKeyboardRow `json:"rows"`
+}
+
+// PromptKeyboardRow 提示键盘单行按钮。
+type PromptKeyboardRow struct {
+	Buttons []PromptKeyboardButton `json:"buttons"`
+}
+
+// PromptKeyboardButton 提示键盘按钮。
+type PromptKeyboardButton struct {
+	// RenderData 按钮展示数据。
+	RenderData PromptKeyboardRenderData `json:"render_data"`
+	// Action 按钮动作，type 固定为 2（填充输入框）。
+	Action PromptKeyboardAction `json:"action"`
+}
+
+// PromptKeyboardRenderData 按钮展示数据。
+type PromptKeyboardRenderData struct {
+	// Label 按钮文案。
+	Label string `json:"label"`
+	// Style 按钮样式，2=主按钮。
+	Style int `json:"style"`
+}
+
+// PromptKeyboardAction 提示键盘按钮动作。
+type PromptKeyboardAction struct {
+	// Type 动作类型，固定为 2。
+	Type int `json:"type"`
+}
+
+// NewPromptKeyboard 便捷构造提示键盘：每个参数代表一行按钮。
+func NewPromptKeyboard(rows ...[]PromptKeyboardButton) *PromptKeyboard {
+	k := &PromptKeyboard{}
+	for _, row := range rows {
+		k.Keyboard.Content.Rows = append(k.Keyboard.Content.Rows, PromptKeyboardRow{Buttons: row})
+	}
+	return k
+}
+
 // Message ...
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html#%E5%8F%91%E9%80%81%E6%B6%88%E6%81%AF
@@ -78,6 +155,11 @@ type Message struct {
 	IsWakeup bool `json:"is_wakeup,omitempty"`
 	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
 	InputNotify *InputNotify `json:"input_notify,omitempty"`
+	// ActionButton 操作按钮（AI 回复场景：停止生成/重新生成/反馈等）。
+	// 与 keyboard 相互独立，msg_type 保持原样即可。
+	ActionButton *ActionButton `json:"action_button,omitempty"`
+	// PromptKeyboard 提示键盘（用户点击后自动填充输入框的快捷指令）。
+	PromptKeyboard *PromptKeyboard `json:"prompt_keyboard,omitempty"`
 }
 
 // MarkdownParam Markdown 模版参数，{key, values} 键值对。
@@ -136,12 +218,12 @@ type MediaResponse struct {
 //
 // https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_id_upload_prepare.post.html
 type UploadPrepareRequest struct {
-	FileType  FileType `json:"file_type"`
-	FileSize  string   `json:"file_size"`
-	FileName  string   `json:"file_name,omitempty"`
-	FileMD5   string   `json:"md5,omitempty"`
-	FileSHA1  string   `json:"sha1,omitempty"`
-	MD510M    string   `json:"md5_10m,omitempty"`
+	FileType FileType `json:"file_type"`
+	FileSize string   `json:"file_size"`
+	FileName string   `json:"file_name,omitempty"`
+	FileMD5  string   `json:"md5,omitempty"`
+	FileSHA1 string   `json:"sha1,omitempty"`
+	MD510M   string   `json:"md5_10m,omitempty"`
 }
 
 // UploadPrepareResponse 分片上传预上传响应。

@@ -365,6 +365,12 @@ func (m *MockAPI) GetGatewayBot(_ context.Context) (gjson.Result, error) {
 func (m *MockAPI) GetGroupInfo(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
+func (m *MockAPI) GetGroupMembers(_ context.Context, _ string, _, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetChannelMessage(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
 func (m *MockAPI) GetGroupBotState(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }

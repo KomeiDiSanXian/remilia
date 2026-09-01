@@ -143,6 +143,10 @@ type MessageExtra struct {
 	MarkdownTemplateID string
 	// MarkdownParams Markdown 模板参数，与 MarkdownTemplateID 配合使用。
 	MarkdownParams []dto.MarkdownParam
+	// ActionButton 操作按钮（AI 回复场景：停止生成/重新生成/反馈等）。
+	ActionButton *dto.ActionButton
+	// PromptKeyboard 提示键盘（用户点击后自动填充输入框的快捷指令）。
+	PromptKeyboard *dto.PromptKeyboard
 }
 
 // qqExtraKey 是注入到 OutboundMessage.Extra 的键（包级私有常量）。

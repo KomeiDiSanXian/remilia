@@ -36,7 +36,7 @@
 |---|---|---|---|---|---|---|---|
 | `GroupManager` | `GetGroupManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `GroupSettings` | `GetGroupSettings` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `AnnouncementManager` | `GetAnnouncementManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `MessageHistoryProvider` | `GetMessageHistoryProvider` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 

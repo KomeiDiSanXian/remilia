@@ -65,6 +65,8 @@ type GuildManager interface {
 	GetGuild(ctx context.Context, guildID string) (gjson.Result, error)
 	GetGuildChannels(ctx context.Context, guildID string) (gjson.Result, error)
 	GetChannel(ctx context.Context, channelID string) (gjson.Result, error)
+	// GetChannelMessage 获取子频道消息详情。
+	GetChannelMessage(ctx context.Context, channelID, messageID string) (gjson.Result, error)
 	CreateGuildChannel(ctx context.Context, guildID string, req *dto.ChannelRequest) (gjson.Result, error)      // 仅私域
 	UpdateGuildChannel(ctx context.Context, channelID string, req *dto.ChannelRequest) (gjson.Result, error)    // 仅私域
 	DeleteGuildChannel(ctx context.Context, channelID string) (gjson.Result, error)                             // 仅私域
@@ -171,6 +173,8 @@ type BotManager interface {
 type GroupManager interface {
 	// GetGroupInfo 获取群基本信息。
 	GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.Result, error)
+	// GetGroupMembers 获取群成员列表（limit/start_index 分页，响应含 next_index）。
+	GetGroupMembers(ctx context.Context, groupOpenID string, limit, startIndex int) (gjson.Result, error)
 	// GetGroupBotState 获取机器人群内状态。
 	GetGroupBotState(ctx context.Context, groupOpenID string) (gjson.Result, error)
 	// GetGroupJoinRequestList 拉取入群申请列表（cursor/limit 分页）。

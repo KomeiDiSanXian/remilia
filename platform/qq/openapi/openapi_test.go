@@ -1132,3 +1132,30 @@ func TestClient_GenerateURLLink(t *testing.T) {
 	require.NoError(t, err)
 	assertLast(t, m, http.MethodPost, "/v2/generate_url_link", `{"callback_data":"custom_data_123"}`)
 }
+
+func TestClient_GetGroupMembers(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupMembers(context.Background(), "gid_1", 50, 0)
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/members", `{"limit":50}`)
+}
+
+func TestClient_GetGroupMembers_WithStartIndex(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupMembers(context.Background(), "gid_1", 50, 100)
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/members", `{"limit":50,"start_index":100}`)
+}
+
+func TestClient_GetChannelMessage(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetChannelMessage(context.Background(), "chan_1", "msg_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/channels/chan_1/messages/msg_1", "")
+}

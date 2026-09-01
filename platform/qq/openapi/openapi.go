@@ -665,6 +665,30 @@ func (api *Client) GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.
 	return api.Get(ctx, fmt.Sprintf(constant.GroupInfoURL, groupOpenID))
 }
 
+// GetGroupMembers 获取群成员列表（POST /v2/groups/{group_openid}/members）。
+//
+// limit 单页数量（默认 100），start_index 分页起始下标（首次传 0）。
+// 响应包含 members 列表与 next_index（下一页起始下标，缺失即拉取完毕）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.post.html
+func (api *Client) GetGroupMembers(ctx context.Context, groupOpenID string, limit, startIndex int) (gjson.Result, error) {
+	body := map[string]any{}
+	if limit > 0 {
+		body["limit"] = limit
+	}
+	if startIndex > 0 {
+		body["start_index"] = startIndex
+	}
+	return api.Post(ctx, fmt.Sprintf(constant.GroupMembersURL, groupOpenID), body)
+}
+
+// GetChannelMessage 获取子频道消息详情（GET /channels/{channel_id}/messages/{message_id}）。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/get_message.html
+func (api *Client) GetChannelMessage(ctx context.Context, channelID, messageID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.ChannelMessageURL, channelID, messageID))
+}
+
 // GetGroupBotState 获取机器人群内状态（GET /v2/groups/{group_openid}/bot_state）。
 //
 // 该接口仅白名单机器人可用。

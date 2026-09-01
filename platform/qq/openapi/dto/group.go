@@ -13,6 +13,24 @@ package dto
 //   - 入群自动审批策略：.../v2_groups_join_approval_strategy*.html
 // ────────────────────────────────────────────────────────────────────────────
 
+// GroupMember 群成员（群成员列表接口返回）。
+//
+// 官方接口仅返回 member_openid 与 join_timestamp，不包含昵称/头像等资料。
+type GroupMember struct {
+	// MemberOpenID 成员 openid。
+	MemberOpenID string `json:"member_openid,omitempty"`
+	// JoinTimestamp 加入群聊的时间（RFC3339）。
+	JoinTimestamp string `json:"join_timestamp,omitempty"`
+}
+
+// GroupMemberList 群成员列表响应。
+type GroupMemberList struct {
+	// Members 当前页成员列表。
+	Members []GroupMember `json:"members,omitempty"`
+	// NextIndex 下一页起始下标；为空表示已拉取完所有成员。
+	NextIndex int `json:"next_index,omitempty"`
+}
+
 // GroupInfo 群基本信息。
 type GroupInfo struct {
 	GroupOpenID     string   `json:"group_openid,omitempty"`

@@ -66,6 +66,13 @@ const (
 	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/reset.html#%E6%96%87%E5%AD%97%E5%AD%90%E9%A2%91%E9%81%93
 	ChannelResetURL = OpenAPIURL + "/channels/%s/messages/%s"
 
+	// ChannelMessageURL GET /channels/{channel_id}/messages/{message_id}
+	//
+	// 获取子频道消息详情。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/channel/message/get_message.html
+	ChannelMessageURL = OpenAPIURL + "/channels/%s/messages/%s"
+
 	// DMResetURL DELETE /dms/{guild_id}/messages/{message_id}?hidetip=false
 	//
 	// 撤回频道私信消息（仅私域机器人可用，只能撤回机器人自己发送的私信）。
@@ -325,6 +332,14 @@ const (
 	StreamSingleChatURL = OpenAPIURL + "/v2/users/%s/stream_messages"
 
 	// ── 群聊管理（2026-08 新增）──────────────────────────────────────────────
+
+	// GroupMembersURL POST /v2/groups/{group_openid}/members
+	//
+	// 获取群成员列表。请求体 limit（单页数量，默认 100）与 start_index（分页
+	// 起始下标，首次传 0），响应返回 members 与 next_index 供下一页继续拉取。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.post.html
+	GroupMembersURL = OpenAPIURL + "/v2/groups/%s/members"
 
 	// GroupInfoURL GET /v2/groups/{group_openid}/info
 	//

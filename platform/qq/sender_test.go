@@ -490,3 +490,72 @@ func TestNextMsgSeq_ExpiredEntryRecycled(t *testing.T) {
 	// sweep 后条目被回收，重新计数
 	assert.Equal(t, uint64(1), s.nextMsgSeq("msg_x"))
 }
+
+// fakeGroupMembersAPI 返回预设分页的群成员列表响应。
+type fakeGroupMembersAPI struct {
+	openapi.OpenAPI
+	pages []gjson.Result
+	calls int
+}
+
+func (f *fakeGroupMembersAPI) GetGroupMembers(_ context.Context, _ string, _, _ int) (gjson.Result, error) {
+	if f.calls >= len(f.pages) {
+		return gjson.Parse(`{"members":[]}`), nil
+	}
+	res := f.pages[f.calls]
+	f.calls++
+	return res, nil
+}
+
+// TestGetGroupMemberList_Pagination 验证群成员列表按 next_index 循环分页拉取。
+func TestGetGroupMemberList_Pagination(t *testing.T) {
+	api := &fakeGroupMembersAPI{pages: []gjson.Result{
+		gjson.Parse(`{"members":[{"member_openid":"u1","join_timestamp":"2026-01-02T03:04:05+08:00"},{"member_openid":"u2","join_timestamp":"2026-02-02T03:04:05+08:00"}],"next_index":100}`),
+		gjson.Parse(`{"members":[{"member_openid":"u3","join_timestamp":"2026-03-02T03:04:05+08:00"}],"next_index":0}`),
+	}}
+	s := &qqSender{api: api}
+
+	members, err := s.GetGroupMemberList(context.Background(), "gid_1")
+	require.NoError(t, err)
+	require.Len(t, members, 3)
+	assert.Equal(t, "u1", members[0].UserID)
+	assert.Equal(t, "u3", members[2].UserID)
+	assert.Equal(t, 2026, members[2].JoinedAt.Year())
+	assert.Equal(t, time.March, members[2].JoinedAt.Month())
+	assert.Equal(t, 2, api.calls, "应恰好请求两页")
+}
+
+// TestGetGroupMemberList_APIError 验证接口错误向上传播。
+func TestGetGroupMemberList_APIError(t *testing.T) {
+	s := &qqSender{api: nil}
+	_, err := s.GetGroupMemberList(context.Background(), "gid_1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "openAPI client is nil")
+}
+
+// TestBuildDTOMessage_ActionButtonAndPromptKeyboard 验证操作按钮与提示键盘透传。
+func TestBuildDTOMessage_ActionButtonAndPromptKeyboard(t *testing.T) {
+	msg := platform.TextMessage("hello")
+	msg = ApplyExtra(msg, MessageExtra{
+		ActionButton: &dto.ActionButton{TemplateID: "1", CallbackData: "stop", StopGenerate: true},
+		PromptKeyboard: dto.NewPromptKeyboard(
+			[]dto.PromptKeyboardButton{{
+				RenderData: dto.PromptKeyboardRenderData{Label: "帮助", Style: 2},
+				Action:     dto.PromptKeyboardAction{Type: 2},
+			}},
+		),
+	})
+	s := &qqSender{}
+	dtoMsg := s.buildDTOMessage(msg, newTestChat())
+
+	require.NotNil(t, dtoMsg.ActionButton)
+	assert.Equal(t, "stop", dtoMsg.ActionButton.CallbackData)
+	assert.True(t, dtoMsg.ActionButton.StopGenerate)
+
+	require.NotNil(t, dtoMsg.PromptKeyboard)
+	require.Len(t, dtoMsg.PromptKeyboard.Keyboard.Content.Rows, 1)
+	require.Len(t, dtoMsg.PromptKeyboard.Keyboard.Content.Rows[0].Buttons, 1)
+	btn := dtoMsg.PromptKeyboard.Keyboard.Content.Rows[0].Buttons[0]
+	assert.Equal(t, "帮助", btn.RenderData.Label)
+	assert.Equal(t, 2, btn.Action.Type)
+}
