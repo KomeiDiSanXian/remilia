@@ -18,6 +18,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -75,12 +76,23 @@ func (p *Plugin) handleAbout(ctx *eventctx.Context) error {
 	md, text := p.buildInfo(ctx.GetBotName(), ctx.GetEventPlatform())
 	msg := platform.OutboundMessage{Markdown: md, Text: text}
 	if caps.Has(platform.CapButtons) {
-		msg = msg.WithButtons(platform.Button{
+		btn := platform.Button{
 			ID:      helpButtonID,
 			Label:   "查看命令列表",
 			Command: "/help",
 			Style:   platform.ButtonStyleSecondary,
-		})
+		}
+		// QQ 指令按钮（action.type=2）自动发送：Enter 仅 QQ 单聊手机端
+		// （8983+）生效，点击后直接发送 /help；群聊/桌面端点击仅把命令填入
+		// 输入框由用户手动发送（与 builtin/ai 操作按钮同一通道，见
+		// platform/qq/extra.go 的 ButtonExtra.Enter）。其他平台忽略 Extra。
+		if chat := ctx.GetChatInfo(); ctx.GetEventPlatform() == "qq" &&
+			!chat.IsGroup && chat.ParentID == "" {
+			btn.Extra = map[string]any{
+				qq.ExtraKeyButton: &qq.ButtonExtra{Enter: true},
+			}
+		}
+		msg = msg.WithButtons(btn)
 	}
 	ctx.Reply(msg)
 	return nil
