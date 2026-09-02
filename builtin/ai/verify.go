@@ -143,6 +143,11 @@ func (p *Plugin) generateVerified(ctx *eventctx.Context, session *Session) (*Cha
 		if err != nil {
 			return result, err
 		}
+		// 主动停止/抢占：生成被 /ai stop 或用户新消息打断，直接返回已到手
+		// 的部分结果，不再送入校验器（避免额外 LLM 调用与二次生成）。
+		if session.Interrupted() {
+			return result, nil
+		}
 		if !p.cfg.VerifyEnabled || result == nil || result.Text == "" {
 			return result, nil
 		}

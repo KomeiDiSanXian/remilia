@@ -10,6 +10,7 @@ package ai
 
 import (
 	"container/list"
+	"context"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -228,6 +229,36 @@ func (s *Session) Interrupted() bool {
 	}
 }
 
+// TurnCtx 返回随当前回合中断信号自动取消的子上下文。
+//
+// RequestInterrupt 触发时会关闭 interruptCh，从而取消返回的上下文，使
+// 进行中的 LLM 流请求尽快中止——/ai stop 与用户新消息抢占由此对"单轮流"
+// 同样生效（此前中断只在工具轮之间的检查点生效，单轮流需等流自然结束）。
+// 未处于回合（interruptCh 为 nil，如后台总结/校验子任务）时等价于 parent。
+//
+// 返回的 cancel 必须在流结束（本轮结束，含出错提前返回）时调用，以回收
+// 监听 goroutine；cancel 会等待监听协程退出，不会泄漏。
+func (s *Session) TurnCtx(parent context.Context) (context.Context, context.CancelFunc) {
+	ch := s.interruptCh
+	if ch == nil {
+		return parent, func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ch:
+			cancel()
+		case <-ctx.Done():
+		}
+		close(done)
+	}()
+	return ctx, func() {
+		cancel()
+		<-done
+	}
+}
+
 // --- 计划后台自动推进状态 ---
 
 // PlanAutoRounds 返回已自动推进轮次。
@@ -402,6 +433,18 @@ func (sm *SessionManager) GetOrCreate(sessionID, userID, chatID string) *Session
 	sm.evictLocked()
 
 	return session
+}
+
+// Peek 仅从内存缓存查找会话，不创建、不触碰持久化存储。
+// 用于只需判断"会话是否存在/当前是否活跃"的场景（如 QQ 按钮回调忙时预检，
+// 不应因误点旧消息的按钮而凭空创建一个空会话）；未命中返回 nil。
+func (sm *SessionManager) Peek(sessionID string) *Session {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	if elem, ok := sm.sessions[sessionID]; ok {
+		return elem.Value.(*sessionEntry).session
+	}
+	return nil
 }
 
 // Save 持久化保存会话到存储后端。调用方应已持有 session 锁。
