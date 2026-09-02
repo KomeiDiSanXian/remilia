@@ -49,3 +49,6 @@ coverage.txt
 .playwright-mcp/
 
 site/
+
+# runtime logs
+logs/
