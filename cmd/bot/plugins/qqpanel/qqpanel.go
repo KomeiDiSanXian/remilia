@@ -46,7 +46,7 @@ const (
 var defaultExcludes = []string{
 	"/plugin", "/perm", "/code", "/acl", "/status", "/info",
 	"/mute", "/kick", "/warn", "/warnings", "/clean",
-	"/rl", "/welcome", "/farewell", "/ar", "/cc", "/debug", "/update",
+	"/rl", "/welcome", "/farewell", "/ar", "/cc", "/debug", "/logs", "/update",
 	"/qqpanel", "/qqmenu",
 }
 
@@ -77,8 +77,9 @@ func New() *plugin.Descriptor {
   /qqmenu status          — 查询当前自定义菜单
 
 需要 qqpanel.manage 权限。scope 取值: c2c / group / channel / dm。
-自动构建会排除隐藏命令、自身命令、声明了 Permissions 的命令以及默认的管理类
-命令（可通过 plugins.qqpanel.exclude 配置追加排除项）。
+自动构建会排除隐藏命令、自身命令、声明了 Permissions 的命令、未声明描述的
+内部指令（如 pluginctrl 的动态管理指令）以及默认的管理类命令（可通过
+plugins.qqpanel.exclude 配置追加排除项）。
 /help 固定置顶，保证新用户可发现（除非被显式排除）。`,
 		},
 		Setup: func(ctx *plugin.SetupContext) (any, error) {
@@ -373,6 +374,13 @@ func (p *Plugin) commandInfos() []engine.CommandInfo {
 		}
 		// 跳过在命令定义中声明了所需权限的命令
 		if len(c.Permissions) > 0 {
+			continue
+		}
+		// 跳过未声明描述的命令：这类命令通常由内部/框架插件以裸
+		// OnCommand 注册（如 pluginctrl 的 /开启、/封禁、/沉默 等动态管理
+		// 指令），没有面向用户的说明文本，放进面板/菜单只会产生空白描述项，
+		// 并挤占 20/10 项上限。用户可见命令均经 command.Definition 声明描述。
+		if strings.TrimSpace(c.Description) == "" {
 			continue
 		}
 		// 跳过默认或用户配置的管理类命令

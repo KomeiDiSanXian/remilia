@@ -139,7 +139,7 @@ func newTestPlugin(t *testing.T, eng *engine.Engine) *Plugin {
 func newEngineWithCommands(commands ...string) *engine.Engine {
 	eng := engine.NewEngine()
 	for _, c := range commands {
-		eng.OnCommand("", c)
+		eng.OnCommand("", c).SetDescription("test command " + c)
 	}
 	return eng
 }
@@ -343,7 +343,7 @@ func TestBuildMenu_PinsHelp(t *testing.T) {
 
 func TestCommandInfos_ExcludesSelfAndPermissions(t *testing.T) {
 	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: &fakeReader{cmds: []engine.CommandInfo{
-		{Command: "/foo", Plugin: "anime"},
+		{Command: "/foo", Plugin: "anime", Description: "foo desc"},
 		{Command: "/qqpanel", Plugin: "qqpanel"},
 		{Command: "/qqmenu", Plugin: "qqpanel"},
 		{Command: "/perm", Plugin: "admin", Permissions: []string{"perm.list"}},
@@ -356,9 +356,10 @@ func TestCommandInfos_ExcludesSelfAndPermissions(t *testing.T) {
 
 func TestCommandInfos_DefaultExcludes(t *testing.T) {
 	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: &fakeReader{cmds: []engine.CommandInfo{
-		{Command: "/welcome", Plugin: "welcome"},
-		{Command: "/help", Plugin: "help"},
-		{Command: "/update", Plugin: "updater"},
+		{Command: "/welcome", Plugin: "welcome", Description: "welcome desc"},
+		{Command: "/help", Plugin: "help", Description: "help desc"},
+		{Command: "/update", Plugin: "updater", Description: "update desc"},
+		{Command: "/logs", Plugin: "logviewer", Description: "审计日志查询"},
 	}}}}
 	got := p.commandInfos()
 	if len(got) != 1 || got[0].Command != "/help" {
@@ -366,11 +367,25 @@ func TestCommandInfos_DefaultExcludes(t *testing.T) {
 	}
 }
 
+func TestCommandInfos_SkipsCommandsWithoutDescription(t *testing.T) {
+	// 内部插件以裸 OnCommand 注册的指令（如 pluginctrl 动态管理指令）
+	// 没有 Description，应被排除，避免面板/菜单出现空白描述项。
+	p := &Plugin{info: &plugintest.MockPluginInfo{CoordinatorValue: &fakeReader{cmds: []engine.CommandInfo{
+		{Command: "/开启", Plugin: "pluginctrl"},
+		{Command: "/封禁", Plugin: "pluginctrl"},
+		{Command: "/pic", Plugin: "pic", Description: "按标签发送随机图片"},
+	}}}}
+	got := p.commandInfos()
+	if len(got) != 1 || got[0].Command != "/pic" {
+		t.Errorf("commandInfos = %+v, want only /pic", got)
+	}
+}
+
 func TestCommandInfos_ConfigExcludes(t *testing.T) {
 	p := &Plugin{
 		info: &plugintest.MockPluginInfo{CoordinatorValue: &fakeReader{cmds: []engine.CommandInfo{
-			{Command: "/weather", Plugin: "weather"},
-			{Command: "/pic", Plugin: "pic"},
+			{Command: "/weather", Plugin: "weather", Description: "weather desc"},
+			{Command: "/pic", Plugin: "pic", Description: "pic desc"},
 		}}},
 		exclude: []string{"/weather"},
 	}

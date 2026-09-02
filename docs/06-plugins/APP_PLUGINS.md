@@ -213,6 +213,8 @@ plugins:
 
 - 隐藏命令（`Hidden=true`）与插件自身命令（`/qqpanel`、`/qqmenu`）
 - 命令定义中声明了 `Permissions` 的命令
+- 未声明 `Description` 的内部指令（如 pluginctrl 动态注册的 `/开启`、`/封禁`
+  等管理指令），避免面板出现空白描述项
 - 默认的管理类命令（权限在 handler 内校验，如 `/plugin`、`/perm`、`/welcome`、
   `/mute`、`/update` 等），避免普通用户点击后收到"权限不足"
 
