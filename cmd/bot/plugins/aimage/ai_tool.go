@@ -85,12 +85,7 @@ func (p *Plugin) executeGenerateImage(ctx context.Context, args map[string]any) 
 	if sender, ok := ai.ToolSenderFromContext(ctx); ok {
 		atts := make([]platform.Attachment, 0, len(images))
 		for _, img := range images {
-			atts = append(atts, platform.Attachment{
-				Kind:     platform.AttachmentKindImage,
-				Data:     img.Data,
-				Name:     "aimage.png",
-				MimeType: img.MimeType,
-			})
+			atts = append(atts, p.attachmentFor(img))
 		}
 		sendCtx, sendCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer sendCancel()

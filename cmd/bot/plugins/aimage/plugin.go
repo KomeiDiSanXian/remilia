@@ -17,7 +17,10 @@ import (
 
 	"github.com/KomeiDiSanXian/remilia/command"
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
+	"github.com/KomeiDiSanXian/remilia/infra/imagekit"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/KomeiDiSanXian/remilia/platform/qq"
+	"github.com/KomeiDiSanXian/remilia/platform/qq/openapi/dto"
 	"github.com/KomeiDiSanXian/remilia/plugin"
 )
 
@@ -139,12 +142,7 @@ func (p *Plugin) handleAimage(ctx *eventctx.Context) error {
 	caps := ctx.GetPlatformCapabilities()
 	captionOK := caps.Has(platform.CapCaption)
 	for _, img := range images {
-		att := platform.Attachment{
-			Kind:     platform.AttachmentKindImage,
-			Data:     img.Data,
-			Name:     "aimage.png",
-			MimeType: img.MimeType,
-		}
+		att := p.attachmentFor(img)
 		if captionOK {
 			// 支持图文同发的平台：图片 + 提示词 caption 一条消息
 			ctx.Reply(platform.TextMessage(prompt).WithAttachments(att))
@@ -152,6 +150,14 @@ func (p *Plugin) handleAimage(ctx *eventctx.Context) error {
 			// QQ 等富媒体会丢弃文本：图片单独发
 			ctx.Reply(platform.OutboundMessage{Attachments: []platform.Attachment{att}})
 		}
+	}
+
+	// QQ 平台：单图生成完成后追加一条"变体建议"提示键盘。按钮均为 type=2
+	//（点击后自动把 /aimage 变体命令填入输入框，由用户确认发送），不产生
+	// 互动回调，规避 QQ webhook 互动事件投递不可靠的问题（见 docs/FAQ.md）。
+	// 多图场景跳过，避免被动回复条数占用过高。
+	if len(images) == 1 && p.variantKeyboardEnabled() && ctx.GetEventPlatform() == "qq" {
+		ctx.Reply(p.variantKeyboardMessage(prompt))
 	}
 	return nil
 }
@@ -209,6 +215,118 @@ func (p *Plugin) maxN() int {
 		return 3
 	}
 	return n
+}
+
+// sendMaxBytes 返回发送图片前允许的最大体积（字节）。
+// <=0 表示不限制体积（不因体积触发压缩）。
+func (p *Plugin) sendMaxBytes() int64 {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxBytes
+	}
+	return int64(p.cfg.GetInt("send_max_bytes", int(imagekit.DefaultMaxBytes)))
+}
+
+// sendMaxDimension 返回发送图片前允许的最大边长（像素）。
+// <=0 表示不限制边长。
+func (p *Plugin) sendMaxDimension() int {
+	if p.cfg == nil {
+		return imagekit.DefaultMaxDimension
+	}
+	return p.cfg.GetInt("send_max_dimension", imagekit.DefaultMaxDimension)
+}
+
+// attachmentFor 将生成结果转换为待发送附件。
+//
+// 发送前经 infra/imagekit 压缩到配置的体积/边长上限内：体积与边长均未超限
+// 时原样返回；GIF 与解码失败的数据不重编码，避免阻塞发送。文件名后缀跟随
+// 压缩后的真实 MIME（PNG 重编码后可能变为 JPEG）。
+func (p *Plugin) attachmentFor(img imageResult) platform.Attachment {
+	comp := imagekit.Compress(img.Data, img.MimeType, imagekit.Options{
+		MaxBytes:     p.sendMaxBytes(),
+		MaxDimension: p.sendMaxDimension(),
+	})
+	if comp.Reencoded && p.log != nil {
+		p.log.Warnf("[aimage] 生成图超出发送限制，已压缩（%d → %d bytes）", len(img.Data), len(comp.Data))
+	}
+	return platform.Attachment{
+		Kind:     platform.AttachmentKindImage,
+		Data:     comp.Data,
+		Name:     "aimage" + extByMime(comp.Mime),
+		MimeType: comp.Mime,
+	}
+}
+
+// extByMime 根据 MIME 返回图片文件扩展名（JPEG 统一 .jpg）。
+func extByMime(mime string) string {
+	switch mime {
+	case "image/png":
+		return ".png"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	default:
+		return ".jpg"
+	}
+}
+
+// variantKeyboardEnabled 返回是否在 QQ 平台生成完成后附带"变体建议"提示键盘
+// （plugins.aimage.qq_variant_keyboard，默认 true）。
+func (p *Plugin) variantKeyboardEnabled() bool {
+	if p.cfg == nil {
+		return true
+	}
+	return p.cfg.GetBool("qq_variant_keyboard", true)
+}
+
+// variantKeyboardMessage 构造携带 QQ 提示键盘的文本消息。
+//
+// 提示键盘按钮文案即点击后填入输入框的 /aimage 命令，因此按钮 Label 直接
+// 使用完整命令；原提示词过长时截断，避免按钮文案过长。
+func (p *Plugin) variantKeyboardMessage(prompt string) platform.OutboundMessage {
+	msg := platform.TextMessage("✨ 已生成，试试这些变体？（点击按钮自动填入指令，确认后发送）")
+	return qq.ApplyExtra(msg, qq.MessageExtra{PromptKeyboard: p.variantKeyboard(prompt)})
+}
+
+// variantKeyboard 构造 QQ"变体建议"提示键盘：首行为同款重绘与风格变体，
+// 次行为常用尺寸。返回 nil 表示提示词为空（无可变体建议）。
+func (p *Plugin) variantKeyboard(prompt string) *dto.PromptKeyboard {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return nil
+	}
+	// 截断不补省略号：按钮文案即填入输入框的完整命令，省略号会原样进入
+	// 重生成的提示词。
+	prompt = clipRunes(prompt, 24)
+	return dto.NewPromptKeyboard(
+		[]dto.PromptKeyboardButton{
+			variantButton("/aimage " + prompt),
+			variantButton("/aimage " + prompt + "，水彩风格"),
+			variantButton("/aimage " + prompt + "，赛博朋克风"),
+		},
+		[]dto.PromptKeyboardButton{
+			variantButton("/aimage " + prompt + " -size 1344x768"),
+			variantButton("/aimage " + prompt + " -size 768x1344"),
+			variantButton("/aimage " + prompt + " -size 1024x1024"),
+		},
+	)
+}
+
+// variantButton 构造单颗提示键盘按钮（type=2：点击后把文案填入输入框）。
+func variantButton(cmd string) dto.PromptKeyboardButton {
+	return dto.PromptKeyboardButton{
+		RenderData: dto.PromptKeyboardRenderData{Label: cmd, Style: 2},
+		Action:     dto.PromptKeyboardAction{Type: 2},
+	}
+}
+
+// clipRunes 按字符数截断字符串，不追加任何占位符（区别于 client.truncateRunes）。
+func clipRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
 }
 
 func (p *Plugin) timeout() time.Duration {

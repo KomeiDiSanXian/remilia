@@ -2,8 +2,13 @@
 package aimage
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"image"
+	"image/color"
+	"image/png"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -286,4 +291,216 @@ func TestConfigOverrides(t *testing.T) {
 	if p.size() != "768x512" || p.maxN() != 5 || p.timeout() != 30*time.Second || p.steps() != 30 || p.cfgScale() != 6.5 || p.negativePrompt() != "低质量" || p.proxy() != "http://127.0.0.1:7890" {
 		t.Error("size/max_n/timeout/steps/cfg_scale/negative_prompt/proxy overrides not applied")
 	}
+}
+
+func TestSendMaxConfig(t *testing.T) {
+	p := &Plugin{} // cfg nil
+	if got := p.sendMaxBytes(); got != 5*1024*1024 {
+		t.Errorf("send_max_bytes default = %d", got)
+	}
+	if got := p.sendMaxDimension(); got != 4096 {
+		t.Errorf("send_max_dimension default = %d", got)
+	}
+
+	p2 := &Plugin{cfg: &fakeConfig{vals: map[string]any{
+		"send_max_bytes":     1024 * 1024,
+		"send_max_dimension": 2000,
+	}}}
+	if got := p2.sendMaxBytes(); got != 1024*1024 {
+		t.Errorf("send_max_bytes override = %d", got)
+	}
+	if got := p2.sendMaxDimension(); got != 2000 {
+		t.Errorf("send_max_dimension override = %d", got)
+	}
+
+	p3 := &Plugin{cfg: &fakeConfig{vals: map[string]any{"send_max_bytes": 0}}}
+	if got := p3.sendMaxBytes(); got != 0 {
+		t.Errorf("send_max_bytes=0 应关闭体积压缩，got %d", got)
+	}
+}
+
+func TestAttachmentForUnderLimitPassthrough(t *testing.T) {
+	p := &Plugin{}
+	data := solidPNG(t, 100, 100)
+	att := p.attachmentFor(imageResult{Data: data, MimeType: "image/png"})
+	if att.Kind != platform.AttachmentKindImage {
+		t.Errorf("unexpected kind %v", att.Kind)
+	}
+	if !bytes.Equal(att.Data, data) {
+		t.Error("未超限时应原样返回图片数据")
+	}
+	if att.MimeType != "image/png" || att.Name != "aimage.png" {
+		t.Errorf("unexpected mime/name: %q / %q", att.MimeType, att.Name)
+	}
+}
+
+func TestAttachmentForCompressOverBytes(t *testing.T) {
+	p := &Plugin{cfg: &fakeConfig{vals: map[string]any{"send_max_bytes": 256 * 1024}}}
+	data := noisePNG(t, 600, 600)
+	if len(data) <= 256*1024 {
+		t.Fatalf("test noise PNG too small: %d bytes", len(data))
+	}
+
+	att := p.attachmentFor(imageResult{Data: data, MimeType: "image/png"})
+	if len(att.Data) > 256*1024 {
+		t.Errorf("压缩后仍超过体积上限: %d bytes", len(att.Data))
+	}
+	if att.MimeType != "image/jpeg" || att.Name != "aimage.jpg" {
+		t.Errorf("unexpected mime/name after re-encode: %q / %q", att.MimeType, att.Name)
+	}
+}
+
+func TestAttachmentForCompressOverDimension(t *testing.T) {
+	p := &Plugin{cfg: &fakeConfig{vals: map[string]any{"send_max_dimension": 64}}}
+	data := solidPNG(t, 512, 512)
+
+	att := p.attachmentFor(imageResult{Data: data, MimeType: "image/png"})
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(att.Data))
+	if err != nil {
+		t.Fatalf("decode compressed image: %v", err)
+	}
+	if cfg.Width > 64 || cfg.Height > 64 {
+		t.Errorf("超边长图片应等比缩小，got %dx%d", cfg.Width, cfg.Height)
+	}
+	if att.MimeType != "image/png" {
+		t.Errorf("PNG 缩小后应保持 PNG，got %q", att.MimeType)
+	}
+}
+
+func TestAttachmentForConfigDisabled(t *testing.T) {
+	p := &Plugin{cfg: &fakeConfig{vals: map[string]any{
+		"send_max_bytes":     0,
+		"send_max_dimension": 0,
+	}}}
+	data := noisePNG(t, 300, 300)
+	att := p.attachmentFor(imageResult{Data: data, MimeType: "image/png"})
+	if !bytes.Equal(att.Data, data) {
+		t.Error("send_max_bytes/dimension=0 时应跳过压缩")
+	}
+	if att.MimeType != "image/png" {
+		t.Errorf("unexpected mime %q", att.MimeType)
+	}
+}
+
+func TestVariantKeyboardEnabled(t *testing.T) {
+	p := &Plugin{} // cfg nil → 默认开启
+	if !p.variantKeyboardEnabled() {
+		t.Error("cfg nil 时应默认开启变体键盘")
+	}
+	p2 := &Plugin{cfg: &fakeConfig{vals: map[string]any{}}}
+	if !p2.variantKeyboardEnabled() {
+		t.Error("未配置时应默认开启变体键盘")
+	}
+	p3 := &Plugin{cfg: &fakeConfig{vals: map[string]any{"qq_variant_keyboard": false}}}
+	if p3.variantKeyboardEnabled() {
+		t.Error("qq_variant_keyboard=false 时应关闭变体键盘")
+	}
+}
+
+func TestVariantKeyboard(t *testing.T) {
+	p := &Plugin{}
+	kb := p.variantKeyboard("一只戴帽子的橘猫")
+	if kb == nil {
+		t.Fatal("variantKeyboard 不应返回 nil")
+	}
+	rows := kb.Keyboard.Content.Rows
+	if len(rows) != 2 {
+		t.Fatalf("应为 2 行按钮，got %d", len(rows))
+	}
+	if len(rows[0].Buttons) != 3 || len(rows[1].Buttons) != 3 {
+		t.Fatalf("每行应为 3 个按钮，got %d / %d", len(rows[0].Buttons), len(rows[1].Buttons))
+	}
+
+	want := []string{
+		"/aimage 一只戴帽子的橘猫",
+		"/aimage 一只戴帽子的橘猫，水彩风格",
+		"/aimage 一只戴帽子的橘猫，赛博朋克风",
+		"/aimage 一只戴帽子的橘猫 -size 1344x768",
+		"/aimage 一只戴帽子的橘猫 -size 768x1344",
+		"/aimage 一只戴帽子的橘猫 -size 1024x1024",
+	}
+	got := make([]string, 0, 6)
+	for _, row := range rows {
+		for _, b := range row.Buttons {
+			got = append(got, b.RenderData.Label)
+			if b.Action.Type != 2 {
+				t.Errorf("按钮 %q 应为 type=2（填入输入框），got %d", b.RenderData.Label, b.Action.Type)
+			}
+		}
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("按钮[%d] = %q，want %q", i, got[i], w)
+		}
+	}
+
+	// 空提示词不生成键盘。
+	if kb2 := p.variantKeyboard("   "); kb2 != nil {
+		t.Error("空提示词应返回 nil 键盘")
+	}
+}
+
+func TestVariantKeyboardTruncatesLongPrompt(t *testing.T) {
+	p := &Plugin{}
+	long := "一只戴帽子的橘猫坐在窗台上晒太阳，背景是樱花树与远山"
+	kb := p.variantKeyboard(long)
+	if kb == nil {
+		t.Fatal("variantKeyboard 不应返回 nil")
+	}
+	label := kb.Keyboard.Content.Rows[0].Buttons[0].RenderData.Label
+	if got := []rune(label); len(got) > 24+len([]rune("/aimage ")) {
+		t.Errorf("超长提示词应被截断，label %q 长度 %d", label, len(got))
+	}
+	if strings.Contains(label, "…") {
+		t.Errorf("命令截断不应包含省略号，label %q", label)
+	}
+}
+
+func TestVariantKeyboardMessageCarriesExtra(t *testing.T) {
+	p := &Plugin{}
+	msg := p.variantKeyboardMessage("一只猫")
+	if msg.Text == "" {
+		t.Error("键盘消息应带说明文本")
+	}
+	if len(msg.Extra) != 1 {
+		t.Fatalf("应注入 QQ MessageExtra，got %d extra keys", len(msg.Extra))
+	}
+}
+
+// solidPNG 生成纯色 PNG（体积小，用于边长/透传场景）。
+func solidPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{R: 200, G: 120, B: 60, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// noisePNG 生成随机噪点 PNG（压缩率极低，用于触发体积限制）。
+func noisePNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	rng := rand.New(rand.NewSource(42))
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{
+				R: uint8(rng.Intn(256)),
+				G: uint8(rng.Intn(256)),
+				B: uint8(rng.Intn(256)),
+				A: 255,
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png encode: %v", err)
+	}
+	return buf.Bytes()
 }

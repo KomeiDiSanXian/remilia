@@ -108,6 +108,13 @@ plugins:
 - **sdwebui**：本地 Stable Diffusion WebUI `/sdapi/v1/txt2img`（AUTOMATIC1111 风格，适合本地部署）
 
 生成的图片统一物化为二进制后直传会话（不走 URL 转发，规避 URL 过期与 SSRF 问题）。
+发送前会按配置将图片压缩到体积/边长上限内（与 pic / sauce 共用
+`infra/imagekit` 压缩逻辑，避免 QQ 等平台超限降级为文件类型或走分片上传）。
+
+QQ 平台单图生成完成后会附带一条"变体建议"提示键盘（`qq_variant_keyboard`，
+默认开启）：按钮为 type=2 指令型——点击后自动把 `/aimage` 变体命令（同款
+重绘 / 风格变体 / 常用尺寸）填入输入框，由用户确认发送，不产生互动回调，
+规避 QQ webhook 回调投递不可靠的问题。
 
 ### 命令
 
@@ -137,6 +144,9 @@ plugins:
     model: "dall-e-3"           # openai 模型名；sdwebui 留空用默认 checkpoint
     size: "1024x1024"           # 默认尺寸（宽x高）
     max_n: 3                    # 单次生成张数上限
+    send_max_bytes: 5242880     # 发送前体积上限（字节，默认 5MB，0=不限制）
+    send_max_dimension: 4096    # 发送前最长边上限（像素，默认 4096，0=不限制）
+    qq_variant_keyboard: true   # QQ 平台生成后附带"变体建议"提示键盘（默认 true，仅 QQ 单图场景）
     timeout: "120s"             # 生成请求超时
     steps: 20                   # sdwebui 采样步数
     cfg_scale: 7                # sdwebui CFG 引导强度

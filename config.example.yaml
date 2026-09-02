@@ -591,6 +591,15 @@ messagelog:
 #     size: "1024x1024"
 #     # [R]  单次生成张数上限（命令/工具共用的硬上限）
 #     max_n: 3
+#     # [H]  发送图片前体积上限（字节，默认 5MB）。超过则压缩（PNG 无损优先，
+#     #      超限转 JPEG 降质量）；0 = 不限制体积。语义同 pic/sauce 的
+#     #      send_thumbnail_max_bytes
+#     send_max_bytes: 5242880
+#     # [H]  发送图片前最长边上限（像素，默认 4096）。超出等比缩小；0 = 不限制
+#     send_max_dimension: 4096
+#     # [H]  QQ 平台生成完成后是否附带"变体建议"提示键盘（默认 true，仅 QQ 生效）。
+#     #      按钮点击后自动填入 /aimage 变体命令（type=2，不产生回调）；多图场景跳过
+#     qq_variant_keyboard: true
 #     # [R]  生成请求超时（图片生成通常较慢）
 #     timeout: "120s"
 #     # [R]  以下为 sdwebui 专用参数
