@@ -48,6 +48,16 @@ func (p *Plugin) replyFormatted(ctx *eventctx.Context, text string) *future.Futu
 	return ctx.ReplyText(text)
 }
 
+// formatReplyMessage 按 markdown 配置构造带格式的回复消息（markdown=true 时
+// 用 MarkdownMessage，否则纯文本），语义与 replyFormatted 一致；供需要先
+// 构造消息再追加平台扩展（如 QQ 指令按钮，见 qqaction.go）的调用方使用。
+func (p *Plugin) formatReplyMessage(text string) platform.OutboundMessage {
+	if p.cfg != nil && p.cfg.Markdown {
+		return platform.MarkdownMessage(text)
+	}
+	return platform.TextMessage(text)
+}
+
 // prependReplyContext 若本条消息是回复，将所回复消息的内容前置到用户消息。
 // 命中出站消息（机器人自己的回复）时以"机器人"标注发送者。
 // 支持回复链追溯（回复的回复），最多 replyContextMaxDepth 层。

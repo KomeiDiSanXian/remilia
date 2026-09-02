@@ -227,7 +227,7 @@ func (p *Plugin) handleAIChat(ctx *eventctx.Context, content string) error {
 			msg.Attachments = result.Attachments
 		}
 
-		p.replyAndRecord(ctx, msg)
+		p.replyAndRecord(ctx, p.maybeAttachQQButtons(ctx, msg))
 	}
 
 	// 对话回复完成后异步抽取长期记忆（memory_enabled 开启时）。

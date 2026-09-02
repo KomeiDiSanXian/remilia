@@ -102,6 +102,12 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 	restoreDeadline := p.liftEventDeadline(ctx)
 	defer restoreDeadline()
 
+	// 回合中断感知上下文：RequestInterrupt（/ai stop 命令、用户新消息抢占）
+	// 会取消该上下文，从而中止进行中的 LLM 流请求，使"停止生成"对单轮流
+	// 同样生效（否则中断只在工具轮之间的检查点生效，单轮流需等流自然结束）。
+	turnCtx, cancelTurnCtx := session.TurnCtx(ctx.Context())
+	defer cancelTurnCtx()
+
 	// 工具选择 — 工具较多时按当前用户消息本地检索 Top-K，
 	// 替代旧的 LLM 单分类路由（零额外 LLM 调用，跨域任务自然覆盖多个分类）。
 	activeTools := p.reg.List()
@@ -177,15 +183,21 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			MaxTokens:   p.cfg.MaxTokens,
 		}
 
-		streamCtx, cancel := context.WithTimeout(ctx.Context(), p.cfg.APITimeout)
+		streamCtx, cancel := context.WithTimeout(turnCtx, p.cfg.APITimeout)
 		streamCh, err := p.prov.ChatStream(streamCtx, req)
 		if err != nil {
 			cancel()
+			if session.Interrupted() {
+				// 主动停止：流尚未产生任何内容，按已捕获内容收尾，不报错。
+				return &ChatResult{Text: cs.capturedText, Attachments: cs.capturedAttachments}, nil
+			}
 			return &ChatResult{Text: cs.capturedText}, fmt.Errorf("chat stream: %w", err)
 		}
 
 		var fullResponse strings.Builder
 		var toolCalls []ToolCall
+		var streamErr error
+		doneReceived := false
 
 		for event := range streamCh {
 			switch event.Type {
@@ -196,14 +208,33 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 					toolCalls = append(toolCalls, *event.ToolCall)
 				}
 			case StreamEventError:
-				cancel()
-				return &ChatResult{Text: cs.capturedText}, event.Err
+				// 部分 provider（如 Anthropic）在流被取消时会以错误事件收尾：
+				// 是否主动停止在收尾处按 Interrupted 判定，此处仅记录。
+				streamErr = event.Err
 			case StreamEventDone:
+				doneReceived = true
 			}
 		}
 		cancel()
 
 		responseText := fullResponse.String()
+
+		// 主动停止收尾：流因中断被取消（未收到 [DONE]，或 provider 以错误事件
+		// 收尾）。把已到手部分记入会话并作为最终回复返回，不视为错误——停止
+		// 由 /ai stop 命令或用户新消息抢占触发，二者语义一致。
+		if session.Interrupted() && (!doneReceived || streamErr != nil) {
+			if responseText != "" {
+				p.sm.AppendMessage(session, Message{Role: RoleAssistant, Content: responseText})
+			}
+			text := responseText
+			if text == "" {
+				text = cs.capturedText
+			}
+			return &ChatResult{Text: text, Attachments: cs.capturedAttachments}, nil
+		}
+		if streamErr != nil {
+			return &ChatResult{Text: cs.capturedText}, streamErr
+		}
 
 		for i := range toolCalls {
 			if toolCalls[i].ID == "" {
@@ -261,8 +292,12 @@ func (p *Plugin) processWithTools(ctx *eventctx.Context, session *Session) (*Cha
 			})
 
 			// 计划创建时同步展示给用户（chat 内可见计划，后续步骤更新不打扰）。
+			// 发生在进行中的回合：QQ 单聊/群聊（频道除外）Markdown 场景附带
+			// "查看计划/停止生成"指令按钮（见 maybeAttachQQPlanButtons），长任务
+			// 期间可一键刷新进度或中断。
 			if tc.Name == planCreateToolName && !isToolErrorResult(toolResult) {
-				p.replyAndRecord(ctx, platform.OutboundMessage{Text: toolResult})
+				msg := p.formatReplyMessage(toolResult)
+				p.replyAndRecord(ctx, p.maybeAttachQQPlanButtons(ctx, msg, true))
 			}
 
 			// 失败重试预算与反思引导：

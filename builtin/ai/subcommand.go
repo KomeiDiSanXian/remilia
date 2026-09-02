@@ -4,6 +4,7 @@
 //   - /ai reset: 清空对话历史
 //   - /ai undo: 撤销上一条对话
 //   - /ai retry: 重新生成上一条回复
+//   - /ai stop: 停止当前正在生成的回复（中断进行中的 LLM 流）
 //   - /ai summary: 后台生成对话总结
 //   - /ai status: 查看对话状态
 //   - /ai stats: 查看使用统计
@@ -28,6 +29,10 @@ import (
 	"github.com/KomeiDiSanXian/remilia/platform"
 )
 
+// sessionClearedText 清空会话后的确认文案（/ai reset 与 QQ"清空会话"指令按钮/
+// 原生 type=14 清空会话共用，见 qqaction.go 的 handleClearAction）。
+const sessionClearedText = "✅ 对话历史已清空，开始全新的对话吧！"
+
 // execSubCommand 根据子命令名称执行对应的操作。
 // 用于 /ai 命令路径（通过 GetParsedCommand 获取子命令名）。
 func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
@@ -37,9 +42,11 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 
 	switch subCmd {
 	case "reset":
-		p.sm.Delete(sessionID)
-		ctx.ReplyText("✅ 对话历史已清空，开始全新的对话吧！")
-		return nil
+		// 与 QQ"清空会话"指令按钮 / 原生 type=14 清空会话共用 handleClearAction：
+		// 忙时拒绝并节流提示（生成中的回合仍持有会话指针，此时删除会让进行中
+		// 回合失去历史且仍会输出）；空闲时冷却窗口内重复触发静默忽略，通过后
+		// 删除会话历史并以确认文案回复。详见 qqaction.go。
+		return p.handleClearAction(ctx)
 
 	case "undo":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
@@ -72,55 +79,17 @@ func (p *Plugin) execSubCommand(ctx *eventctx.Context, subCmd string) error {
 		return nil
 
 	case "retry":
-		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
-		if session == nil {
-			ctx.ReplyText("没有可以重试的对话")
+		// 指令按钮连点会连发多条 /ai retry 文本命令：进入重试前先做会话级
+		// 触发冷却（与 type=1 回调共用动作键 regenButtonData，见 qqaction.go），
+		// 窗口内重复触发直接静默忽略，避免多次重新生成刷屏；冷却通过后保持
+		// 文本命令"忙时等待当前回合结束后再执行"的既有语义。
+		if !p.qqActionClickAllowed(regenButtonData, sessionID) {
 			return nil
 		}
-		session.LockTurn()
-		defer session.UnlockTurn()
-		session.Lock()
-		if len(session.Messages) <= 1 {
-			session.Unlock()
-			ctx.ReplyText("没有可以重试的对话")
-			return nil
-		}
-		lastAssistantIdx := -1
-		for i, v := range slices.Backward(session.Messages) {
-			if v.Role == RoleAssistant {
-				lastAssistantIdx = i
-				break
-			}
-		}
-		if lastAssistantIdx < 0 {
-			session.Unlock()
-			ctx.ReplyText("没有可以重试的对话")
-			return nil
-		}
-		session.Messages = session.Messages[:lastAssistantIdx]
-		p.sm.saveNoLock(session)
-		session.Unlock()
+		return p.retryLastReply(ctx, sessionID, sender.ID, chat.ID, true)
 
-		_ = ctx.TrySendTyping()
-		result, err := p.processWithTools(ctx, session)
-		if err != nil {
-			ctx.ReplyText(formatAIError(err))
-			return nil
-		}
-		if result.Text != "" || len(result.Attachments) > 0 {
-			msg := platform.OutboundMessage{}
-			if p.cfg.Markdown {
-				msg.Markdown = result.Text
-			} else {
-				msg.Text = result.Text
-			}
-			if len(result.Attachments) > 0 {
-				msg.Attachments = result.Attachments
-			}
-			p.replyAndRecord(ctx, msg)
-			return nil
-		}
-		return nil
+	case "stop":
+		return p.handleStopCommand(ctx)
 
 	case "summary":
 		session := p.sm.GetOrCreate(sessionID, sender.ID, chat.ID)
@@ -327,6 +296,8 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		err = p.execSubCommand(ctx, "undo")
 	case "retry", "重试":
 		err = p.execSubCommand(ctx, "retry")
+	case "stop", "停止":
+		err = p.execSubCommand(ctx, "stop")
 	case "summary", "总结":
 		err = p.execSubCommand(ctx, "summary")
 	case "status":
@@ -364,6 +335,125 @@ func (p *Plugin) handleSubCommand(ctx *eventctx.Context, content string) bool {
 		logger.Errorf("exec subcommand %q: %v", cmd, err)
 	}
 	return true
+}
+
+// handleStopCommand 处理 /ai stop（停止）：中断当前正在进行的生成，并一并
+// 取消会话中尚未结束的任务计划。
+//
+// 停止生成与计划取消绑定处理：进行中的回合被中断（RequestInterrupt 取消 LLM
+// 流请求，见 Session.TurnCtx / process.go，已生成的部分会作为回复保留）时，
+// 若该回合正在按任务计划推进，不取消计划会让后续回合/后台自动推进继续按旧
+// 计划执行；因此回合空闲但仍有进行中计划时同样取消计划，阻止已调度的后台
+// 推进轮继续运行（计划取消见 plan.go cancelPlan / runner.go）。无进行中生成
+// 也无计划时（如仅在等待审批）仅提示无操作。
+func (p *Plugin) handleStopCommand(ctx *eventctx.Context) error {
+	sessionID := makeSessionID(ctx.GetEventPlatform(), ctx.GetChatInfo().ID, ctx.GetSenderInfo().ID)
+	if p.sm == nil {
+		ctx.ReplyText("当前没有正在进行的生成")
+		return nil
+	}
+	s := p.sm.Peek(sessionID)
+	if s == nil {
+		ctx.ReplyText("当前没有正在进行的生成")
+		return nil
+	}
+	stopped := false
+	if s.TurnActive() {
+		s.RequestInterrupt()
+		stopped = true
+	}
+	planCancelled := s.cancelPlan()
+	switch {
+	case stopped && planCancelled:
+		ctx.ReplyText("🛑 已停止当前生成，任务计划一并取消")
+	case stopped:
+		ctx.ReplyText("🛑 已停止当前生成")
+	case planCancelled:
+		ctx.ReplyText("🛑 已取消当前任务计划")
+	default:
+		ctx.ReplyText("当前没有正在进行的生成")
+	}
+	return nil
+}
+
+// retryLastReply 重新生成上一条回复，/ai retry 与 QQ"重新生成"操作按钮共用。
+//
+// waitTurn 控制会话忙时的行为：
+//   - true（文本命令路径 /ai retry）：忙时等待当前回合结束再执行，语义与
+//     旧实现保持一致；
+//   - false（QQ 按钮回调路径）：忙时立即拒绝并提示，不让连点产生的多次
+//     重试排队逐条执行造成消息刷屏（按钮侧另有 regenClickCooldown 窗口
+//     静默吸收短时间内的重复点击/平台重复投递）。
+func (p *Plugin) retryLastReply(ctx *eventctx.Context, sessionID, senderID, chatID string, waitTurn bool) error {
+	if p.sm == nil {
+		return nil
+	}
+	session := p.sm.GetOrCreate(sessionID, senderID, chatID)
+	if session == nil {
+		ctx.ReplyText("没有可以重试的对话")
+		return nil
+	}
+	if waitTurn {
+		session.LockTurn()
+	} else if !session.TryLockTurn() {
+		// 按钮回调路径：忙时立即拒绝且不排队；提示按会话节流，
+		// 防止生成期间反复点击造成提示刷屏（见 qqaction.go）。
+		p.notifyQQActionBusy(ctx, "重新生成", sessionID)
+		return nil
+	}
+	defer session.UnlockTurn()
+
+	// 与 handleAIChat 一致：标记回合活跃（BeginTurn）。这样按钮/命令触发的
+	// 长重新生成也能被用户新消息抢占（RequestInterrupt），并被 qqaction.go
+	// 的忙时预检（TurnActive）识别。turnMu 已串行化同会话回合，BeginTurn
+	// 此处只会成功；失败仅作防御性兜底。
+	if !session.BeginTurn() {
+		p.notifyQQActionBusy(ctx, "重新生成", sessionID)
+		return nil
+	}
+	defer session.EndTurn()
+
+	session.Lock()
+	if len(session.Messages) <= 1 {
+		session.Unlock()
+		ctx.ReplyText("没有可以重试的对话")
+		return nil
+	}
+	lastAssistantIdx := -1
+	for i, v := range slices.Backward(session.Messages) {
+		if v.Role == RoleAssistant {
+			lastAssistantIdx = i
+			break
+		}
+	}
+	if lastAssistantIdx < 0 {
+		session.Unlock()
+		ctx.ReplyText("没有可以重试的对话")
+		return nil
+	}
+	session.Messages = session.Messages[:lastAssistantIdx]
+	p.sm.saveNoLock(session)
+	session.Unlock()
+
+	_ = ctx.TrySendTyping()
+	result, err := p.processWithTools(ctx, session)
+	if err != nil {
+		ctx.ReplyText(formatAIError(err))
+		return nil
+	}
+	if result.Text != "" || len(result.Attachments) > 0 {
+		msg := platform.OutboundMessage{}
+		if p.cfg.Markdown {
+			msg.Markdown = result.Text
+		} else {
+			msg.Text = result.Text
+		}
+		if len(result.Attachments) > 0 {
+			msg.Attachments = result.Attachments
+		}
+		p.replyAndRecord(ctx, p.maybeAttachQQButtons(ctx, msg))
+	}
+	return nil
 }
 
 // formatDuration 将 time.Duration 格式化为人类可读的字符串。

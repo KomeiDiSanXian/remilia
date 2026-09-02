@@ -377,7 +377,11 @@ func (p *Plugin) handlePlanCommand(ctx *eventctx.Context, rest string) error {
 			return nil
 		}
 		text := strings.ReplaceAll(formatPlan(plan), "\n", "\n  ")
-		p.replyFormatted(ctx, "🗺️ **当前计划**\n\n  "+text)
+		// QQ 单聊/群聊（频道除外）Markdown 场景附带"查看计划/停止生成"指令
+		// 按钮：计划可能仍在长回合中逐步执行，用户可一键刷新进度或在回合
+		// 进行中中断（见 maybeAttachQQPlanButtons）。
+		msg := p.formatReplyMessage("🗺️ **当前计划**\n\n  " + text)
+		ctx.Reply(p.maybeAttachQQPlanButtons(ctx, msg, session.TurnActive()))
 		return nil
 	case "cancel", "取消":
 		if session.cancelPlan() {

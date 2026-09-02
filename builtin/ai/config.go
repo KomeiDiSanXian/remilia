@@ -127,6 +127,26 @@ type Config struct {
 	// true  = 平台支持 MD 时用 MarkdownMessage，否则回退纯文本
 	// false = 始终使用纯文本（即使平台支持 MD）
 	Markdown bool `yaml:"markdown"`
+	// QQRegenButton 是否在 QQ 单聊/群聊（频道除外）的 AI Markdown 回复上附加
+	// "重新生成"键盘按钮（默认 true）。按钮为 QQ 指令按钮（action.type=2），
+	// 点击后把 /ai retry 填入输入框——单聊手机端（8983+）自动发送、其余
+	// （桌面端/群聊）手动发送，等价输入文本命令 /ai retry；纯文本/富媒体/
+	// 频道回复不附加。
+	QQRegenButton bool `yaml:"qq_regen_button"`
+	// QQClearButton 是否在 QQ 单聊/群聊（频道除外）的 AI Markdown 回复上附加
+	// "清空会话"键盘按钮（默认 true）。按钮为 QQ 指令按钮（action.type=2），
+	// 点击后把 /ai reset 填入输入框，由用户手动发送（不自动发送，避免误触），
+	// 等价输入文本命令 /ai reset：删除本插件会话历史；QQ 客户端原生"清空会话"
+	// 入口（type=14 清空会话事件）不依赖此开关，始终会清空本插件会话。
+	// 纯文本/富媒体/频道回复不附加。
+	QQClearButton bool `yaml:"qq_clear_button"`
+	// QQPlanButton 是否在 QQ 单聊/群聊（频道除外）的 Markdown 计划消息上附加
+	// "查看计划/停止生成"键盘按钮（默认 true）：AI 创建任务计划时推送的
+	// "计划已创建"消息与 /ai plan 状态回复会附带指令按钮（action.type=2）：
+	// "查看计划"填入 /ai plan（单聊手机端自动发送），"停止生成"填入 /ai stop
+	// （不自动发送；仅回合进行中时附带，触发时同时取消进行中计划）。
+	// markdown=false 或非 Markdown 消息/频道不附加。
+	QQPlanButton bool `yaml:"qq_plan_button"`
 	// Fallback 当没有命令匹配时，是否由 AI 兜底回复。
 	// 当前预留字段，需要配合 Router 低优先级 RouteRule 使用。
 	Fallback bool `yaml:"fallback"`
@@ -282,6 +302,9 @@ var DefaultConfig = Config{
 	AtBot:                  true,
 	PrivateChat:            true,
 	Markdown:               true,
+	QQRegenButton:          true,
+	QQClearButton:          true,
+	QQPlanButton:           true,
 	Fallback:               false,
 	SkillTimeout:           60 * time.Second,
 	SkillMaxDepth:          3,
@@ -393,6 +416,9 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	cfg.GroupAutonomous = ctx.Config.GetBool("group_autonomous", cfg.GroupAutonomous)
 	cfg.PrivateChat = ctx.Config.GetBool("private_chat", cfg.PrivateChat)
 	cfg.Markdown = ctx.Config.GetBool("markdown", cfg.Markdown)
+	cfg.QQRegenButton = ctx.Config.GetBool("qq_regen_button", cfg.QQRegenButton)
+	cfg.QQClearButton = ctx.Config.GetBool("qq_clear_button", cfg.QQClearButton)
+	cfg.QQPlanButton = ctx.Config.GetBool("qq_plan_button", cfg.QQPlanButton)
 	cfg.Fallback = ctx.Config.GetBool("fallback", cfg.Fallback)
 
 	if v := ctx.Config.GetDuration("skill_timeout", 0); v > 0 {

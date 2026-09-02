@@ -96,6 +96,12 @@ type Plugin struct {
 
 	// realCmdMu 并行工具执行时真实命令路径（syncer）的串行化互斥。
 	realCmdMu sync.Mutex
+
+	// actionMu / actionRate 记录同一会话操作按钮（"重新生成"/"清空会话"）
+	// 与相应文本命令（/ai retry、/ai reset）的限流状态（触发冷却 + 忙时提示
+	// 节流，见 qqaction.go）。键为 action + sessionID。惰性初始化并按需清理。
+	actionMu   sync.Mutex
+	actionRate map[string]qqActionRateState
 }
 
 // New 创建 AI 对话插件的描述符。
@@ -455,6 +461,7 @@ func buildAIDefinition() *command.Definition {
 		SubCommand(command.NewDef("reset").Description("清空对话历史").Build()).
 		SubCommand(command.NewDef("undo").Description("撤销上一条对话").Build()).
 		SubCommand(command.NewDef("retry").Description("重新生成上一条回复").Build()).
+		SubCommand(command.NewDef("stop").Description("停止当前正在生成的回复").Build()).
 		SubCommand(command.NewDef("summary").Description("总结当前对话").Build()).
 		SubCommand(command.NewDef("status").Description("查看会话状态").Build()).
 		SubCommand(command.NewDef("stats").Description("查看使用统计").Build()).
@@ -531,9 +538,12 @@ func (p *Plugin) registerHandlers(ctx *plugin.SetupContext) {
 		ctx.OnCommandDefWith("", trigger, def, p.handleAI)
 	}
 
-	// 审批按钮回调（EventKindInteraction）：处理 /ai approve|deny 按钮点击。
-	// 按钮 ID 形如 "ai:approve:A1" / "ai:deny:A1"（见 approval.go）。
-	ctx.Reg.RegisterMatcher(string(platform.EventKindInteraction)).Handle(p.handleApprovalButton)
+	// 互动事件回调（EventKindInteraction）：统一分派审批按钮
+	// （ai:approve:* / ai:deny:*，见 approval.go）与 QQ 操作按钮回调兜底——
+	// "重新生成"（ai:regenerate）与"清空会话"（ai:clear / 原生 type=14
+	// 的 clear_session，见 qqaction.go）。当前下发的操作按钮为指令按钮
+	// （type=2），点击不产生互动事件，文本命令路径已覆盖其语义。
+	ctx.Reg.RegisterMatcher(string(platform.EventKindInteraction)).Handle(p.handleInteraction)
 
 	if p.cfg.GroupAutonomous {
 		// 群聊自主发言：不 @ 机器人也响应群内非命令消息。

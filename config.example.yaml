@@ -315,6 +315,21 @@ messagelog:
 #
 #     # —— 输出与多模态 ——
 #     markdown: true                      # [R] 平台支持 MD 时用 Markdown 回复，否则回退纯文本
+#     qq_regen_button: true               # [R] QQ 单聊/群聊（频道除外）AI Markdown 回复是否附加
+#                                         #     "重新生成"键盘按钮（指令按钮 type=2，默认 true）。点击把
+#                                         #     /ai retry 填入输入框——单聊手机端（8983+）自动发送，
+#                                         #     桌面端/群聊手动发送，等价文本命令；纯文本/富媒体/频道不附加
+#     qq_clear_button: true               # [R] QQ 单聊/群聊（频道除外）AI Markdown 回复是否附加
+#                                         #     "清空会话"键盘按钮（指令按钮 type=2，默认 true）。点击把
+#                                         #     /ai reset 填入输入框，由用户手动发送（不自动发送，避免
+#                                         #     误触），删除本插件会话历史；QQ 客户端原生"清空会话"入口
+#                                         #     （type=14 事件）不受此开关限制，始终会清空
+#     qq_plan_button: true                # [R] QQ 单聊/群聊（频道除外）Markdown 计划消息（计划创建
+#                                         #     推送与 /ai plan 状态回复）是否附加"查看计划/停止生成"
+#                                         #     指令按钮（type=2，默认 true）。"查看计划"填入 /ai plan
+#                                         #     （单聊手机端自动发送），"停止生成"填入 /ai stop（不自动
+#                                         #     发送，仅回合进行中时附带，触发同时取消进行中计划）；
+#                                         #     markdown=false 不附加
 #     vision_enabled: true                # [R] 是否启用图片识别（需模型支持，如 DeepSeek
 #                                         #     deepseek-v4-flash-vision-exp；纯文本模型如 deepseek-chat 建议关闭）
 #     audio_enabled: false                # [R] 是否启用音频输入（仅 OpenAI 部分模型支持，Anthropic 不支持）
