@@ -287,7 +287,9 @@ type C2CMsgReceiveEvent struct {
 type InteractionCreateEvent struct {
 	// ID 平台方事件 ID，可用于被动消息发送
 	ID string `json:"id"`
-	// Type 11=消息按钮，12=单聊快捷菜单
+	// Type 互动类型：11=消息按钮回调（INLINE_KEYBOARD）、12=单聊快捷菜单回调、
+	// 13=消息反馈（MESSAGE_FEEDBACK）、14=清空会话（CLEAR_SESSION）、
+	// 15=进出故事集、16=切换模型、18/19=用户/群授权、20=群授权状态变更。
 	Type int `json:"type"`
 	// Scene 事件场景：c2c、group、guild
 	Scene string `json:"scene"`
@@ -315,7 +317,9 @@ type InteractionCreateEvent struct {
 type InteractionData struct {
 	// Resolved 解析后的操作详情
 	Resolved *InteractionResolved `json:"resolved,omitempty"`
-	// Type 11=消息按钮，12=单聊快捷菜单
+	// Type 互动数据类型，与外层 type 含义一致：
+	// 11=消息按钮点击，12=快捷菜单点击，13=消息反馈点击，14=清空会话点击，
+	// 15=故事集点击，16=切换模型点击。
 	Type int `json:"type"`
 }
 
@@ -325,6 +329,10 @@ type InteractionResolved struct {
 	ButtonData string `json:"button_data,omitempty"`
 	// ButtonID 被点击按钮的 id 值
 	ButtonID string `json:"button_id,omitempty"`
+	// FeedbackOpt 消息反馈选项（type=13）：LIKE=赞，DISLIKE=踩。
+	// 反馈事件同时会把被操作 AI 消息 action_button 的 callback_data 原样
+	// 回传为 ButtonData，判别应以 FeedbackOpt 为准。
+	FeedbackOpt string `json:"feedback_opt,omitempty"`
 	// UserID 操作用户 userid（仅频道场景）
 	UserID string `json:"user_id,omitempty"`
 	// FeatureID 自定义菜单的按钮 id（仅自定义菜单，后台设置）

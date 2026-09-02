@@ -55,15 +55,17 @@ type InputNotify struct {
 	InputSecond int `json:"input_second"`
 }
 
-// ActionButton 操作按钮，发送消息时随消息下发。
+// ActionButton 操作按钮，发送消息时随消息下发（实验性透传字段）。
 //
-// 适用于 AI 回复场景，支持反馈（赞踩）、TTS 播放、重新生成、停止生成等动作；
-// 用户点击后通过 INTERACTION_CREATE 事件回调。
-//
-// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html
+// QQ v2 公开文档中暂无该字段——官方消息按钮仅提供 keyboard（见
+// https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html）。
+// 真机冒烟（2026-09，C2C 被动发送）确认：模板 "1" 只渲染"赞/踩"反馈行
+// （INTERACTION_CREATE type=13，feedback_opt=LIKE/DISLIKE），模板 "10" 被
+// 服务端以 HTTP 400 code=50061 "请求参数不支持"拒绝。普通被动消息请改用
+// keyboard 按钮（platform.Button → msg.Buttons），保留本结构仅为兼容可能的
+// 内部 AI 通道。
 type ActionButton struct {
-	// TemplateID 模板 ID："1"=操作按钮，"10"=重新生成/停止生成按钮。
-	// 官方已标注为待废弃字段，新接入优先使用 callback_data 驱动。
+	// TemplateID 模板 ID（无公开文档）：冒烟 "1" 渲染赞/踩反馈行、"10" 被拒。
 	TemplateID string `json:"template_id,omitempty"`
 	// CallbackData 回调数据，用户点击按钮后原样透传给开发者（INTERACTION_CREATE）。
 	CallbackData string `json:"callback_data,omitempty"`
@@ -155,7 +157,7 @@ type Message struct {
 	IsWakeup bool `json:"is_wakeup,omitempty"`
 	// InputNotify 输入中状态（msg_type=6），仅 C2C 单聊。
 	InputNotify *InputNotify `json:"input_notify,omitempty"`
-	// ActionButton 操作按钮（AI 回复场景：停止生成/重新生成/反馈等）。
+	// ActionButton 操作按钮（实验性透传字段，见 ActionButton 说明）。
 	// 与 keyboard 相互独立，msg_type 保持原样即可。
 	ActionButton *ActionButton `json:"action_button,omitempty"`
 	// PromptKeyboard 提示键盘（用户点击后自动填充输入框的快捷指令）。

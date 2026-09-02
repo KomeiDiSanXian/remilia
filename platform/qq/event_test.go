@@ -535,6 +535,44 @@ func TestNewEvent_Interaction_Button(t *testing.T) {
 	}
 }
 
+func TestNewEvent_Interaction_ClearSession(t *testing.T) {
+	// type=14 原生清空会话（CLEAR_SESSION）：data.resolved 无按钮/反馈字段，
+	// content 应为平台合成标记 "clear_session"（builtin/ai 据此清空会话）。
+	payload := makePayload(dto.InteractionCreate, map[string]any{
+		"id":          "interact014",
+		"type":        14,
+		"scene":       "c2c",
+		"chat_type":   2,
+		"user_openid": "user_abc",
+		"timestamp":   "2026-03-09T13:00:00Z",
+		"data": map[string]any{
+			"type": 14,
+			"resolved": map[string]any{
+				"button_data": "",
+			},
+		},
+		"version": 1,
+	})
+
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindInteraction {
+		t.Errorf("Kind: got %q, want Interaction", event.Kind())
+	}
+	if event.ID() != "interact014" {
+		t.Errorf("ID: got %q, want interact014", event.ID())
+	}
+	if got := platform.Content(event); got != "clear_session" {
+		t.Errorf("Content: got %q, want clear_session (type=14 清空会话合成标记)", got)
+	}
+	if event.Sender().ID != "user_abc" {
+		t.Errorf("Sender.ID: got %q, want user_abc", event.Sender().ID)
+	}
+	if event.Chat().IsGroup {
+		t.Error("c2c interaction chat should not be group")
+	}
+}
+
 func TestNewEvent_Interaction_QuickMenu(t *testing.T) {
 	// type=12 单聊快捷菜单：content 应为 feature_id
 	payload := makePayload(dto.InteractionCreate, map[string]any{
@@ -565,6 +603,38 @@ func TestNewEvent_Interaction_QuickMenu(t *testing.T) {
 	}
 	if event.Sender().ID != "user_xyz" {
 		t.Errorf("Sender.ID: got %q, want user_xyz", event.Sender().ID)
+	}
+}
+
+func TestNewEvent_Interaction_Feedback(t *testing.T) {
+	// type=13 消息反馈（AI 赞/踩）：button_data 会把 action_button 的
+	// callback_data 原样回传，content 必须以 feedback_opt 为准，避免被
+	// 上层误判为按钮命令（如"重新生成"）。
+	payload := makePayload(dto.InteractionCreate, map[string]any{
+		"id":          "interact_fb",
+		"type":        13,
+		"scene":       "c2c",
+		"chat_type":   2,
+		"user_openid": "user_abc",
+		"timestamp":   "2026-03-09T13:00:00Z",
+		"data": map[string]any{
+			"type": 13,
+			"resolved": map[string]any{
+				"button_data":  "ai:regenerate", // action_button callback_data 原样回传
+				"feedback_opt": "LIKE",
+				"checked":      1,
+			},
+		},
+		"version": 1,
+	})
+
+	event := qq.NewEvent(payload)
+
+	if event.Kind() != platform.EventKindInteraction {
+		t.Errorf("Kind: got %q, want Interaction", event.Kind())
+	}
+	if got := platform.Content(event); got != "LIKE" {
+		t.Errorf("Content: got %q, want LIKE (feedback_opt，而非 button_data)", got)
 	}
 }
 

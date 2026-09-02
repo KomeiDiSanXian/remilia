@@ -893,6 +893,9 @@ func parseAttachments(r gjson.Result) []platform.Attachment {
 // e.content 根据交互类型填充：
 //   - type=11（消息按钮）：设为 data.resolved.button_data（按钮 action.data 值）
 //   - type=12（单聊快捷菜单）：设为 data.resolved.feature_id（菜单按钮 ID）
+//   - type=13（消息反馈，AI 赞/踩）：设为 data.resolved.feedback_opt（LIKE/DISLIKE）
+//   - type=14（清空会话，CLEAR_SESSION）：data.resolved 无按钮/反馈字段，
+//     合成固定内容 clearSessionContent 供上层插件识别（builtin/ai 据此清空会话）
 //
 // e.replyToID 被设为 data.resolved.message_id（仅频道场景，被操作的消息 ID）。
 func (e *qqEvent) populateInteraction(detail json.RawMessage) {
@@ -900,20 +903,21 @@ func (e *qqEvent) populateInteraction(detail json.RawMessage) {
 		return
 	}
 	results := gjson.GetManyBytes(detail,
-		"id",                        // [0]  interaction body id（用于 RespondInteraction）
-		"scene",                     // [1]  事件场景：c2c、group、guild
-		"chat_type",                 // [2]  0=频道，1=群聊，2=单聊
-		"user_openid",               // [3]  单聊触发用户 openid
-		"group_openid",              // [4]  群聊 openid
-		"group_member_openid",       // [5]  群成员 openid
-		"guild_id",                  // [6]  频道 openid
-		"channel_id",                // [7]  文字子频道 openid
-		"data.resolved.button_data", // [8]  消息按钮 action.data（type=11）
-		"data.resolved.user_id",     // [9]  操作用户 userid（仅频道）
-		"timestamp",                 // [10] 触发时间（RFC3339）
-		"type",                      // [11] 交互类型：11=消息按钮，12=单聊快捷菜单
-		"data.resolved.feature_id",  // [12] 快捷菜单按钮 ID（type=12）
-		"data.resolved.message_id",  // [13] 被操作消息 ID（仅频道场景）
+		"id",                         // [0]  interaction body id（用于 RespondInteraction）
+		"scene",                      // [1]  事件场景：c2c、group、guild
+		"chat_type",                  // [2]  0=频道，1=群聊，2=单聊
+		"user_openid",                // [3]  单聊触发用户 openid
+		"group_openid",               // [4]  群聊 openid
+		"group_member_openid",        // [5]  群成员 openid
+		"guild_id",                   // [6]  频道 openid
+		"channel_id",                 // [7]  文字子频道 openid
+		"data.resolved.button_data",  // [8]  消息按钮 action.data（type=11）
+		"data.resolved.user_id",      // [9]  操作用户 userid（仅频道）
+		"timestamp",                  // [10] 触发时间（RFC3339）
+		"type",                       // [11] 交互类型：11=消息按钮，12=单聊快捷菜单
+		"data.resolved.feature_id",   // [12] 快捷菜单按钮 ID（type=12）
+		"data.resolved.message_id",   // [13] 被操作消息 ID（仅频道场景）
+		"data.resolved.feedback_opt", // [14] 消息反馈（type=13）：LIKE/DISLIKE（AI 赞/踩）
 	)
 	// 覆盖 e.id 为 interaction body 中的 id（用于 RespondInteraction）
 	if id := results[0].String(); id != "" {
@@ -957,11 +961,24 @@ func (e *qqEvent) populateInteraction(detail json.RawMessage) {
 	}
 	// content 根据交互类型填充：
 	//   type=12（单聊快捷菜单）→ feature_id（菜单按钮 ID，管理端配置）
+	//   type=14（清空会话）→ 固定标记 clearSessionContent（见其定义）
+	//   携带 feedback_opt（type=13，AI 赞/踩）→ feedback_opt（LIKE/DISLIKE）
 	//   type=11 或其他（消息按钮）→ button_data（按钮 action.data 值）
+	//
+	// 注意：type=13 反馈事件会把被点击 AI 消息所带 action_button 的
+	// callback_data 原样回传为 button_data（真机冒烟 2026-09 验证），若仍按
+	// button_data 填充内容，会被上层误判为按钮命令（如"重新生成"被赞/踩触发）；
+	// 因此携带 feedback_opt 的反馈事件必须以 feedback_opt 为内容。
 	interactionType := int(results[11].Int())
-	if interactionType == 12 {
+	feedbackOpt := results[14].String()
+	switch {
+	case interactionType == 12:
 		e.segments = textSegments(results[12].String()) // feature_id
-	} else {
+	case interactionType == 14:
+		e.segments = textSegments(clearSessionContent) // 清空会话（无按钮数据）
+	case feedbackOpt != "":
+		e.segments = textSegments(feedbackOpt) // feedback_opt（赞/踩）
+	default:
 		e.segments = textSegments(results[8].String()) // button_data
 	}
 	// replyToID 设为被操作消息 ID（仅频道场景下存在，其他场景为空）
@@ -972,6 +989,13 @@ func (e *qqEvent) populateInteraction(detail json.RawMessage) {
 		}
 	}
 }
+
+// clearSessionContent 是平台层为原生"清空会话"互动（type=14，CLEAR_SESSION）
+// 合成的内容标记。官方《互动事件》文档（autogen/event/interaction_create.html）
+// 定义该类事件 data.resolved 不携带按钮/反馈数据，无法像 type=11 那样透传
+// button_data，故合成固定值：builtin/ai 插件以 "clear_session" 触发与
+// "清空会话"按钮（button_data=ai:clear）相同的清空逻辑。
+const clearSessionContent = "clear_session"
 
 // populateMessageReaction 解析表情表态事件（MESSAGE_REACTION_ADD / MESSAGE_REACTION_REMOVE）。
 //
