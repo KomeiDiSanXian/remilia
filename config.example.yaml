@@ -477,6 +477,19 @@ messagelog:
 #     max_results: 5                  # [H]  单次搜索返回的结果条数
 #     max_fetch_bytes: 2097152        # [R]  网页抓取响应大小上限（字节，默认 2MB）
 #     max_fetch_runes: 4000           # [R]  抓取正文最大字符数（超出截断）
+#   minecraft:                      # [H]  Minecraft 服务器状态查询（/mc 命令 + AI 工具）
+#     default_server: ""          # [H]  默认服务器（主机[:端口]）；/mc 不带参数时查询
+#     timeout: "10s"              # [H]  单次查询总超时（Java/Bedrock 直连与 API 回退共享预算）
+#     cache_ttl: "60s"            # [H]  查询结果缓存时长（避免连查打满 mcsrvstat.us 限额）
+#     avatars: true               # [H]  是否拉取在线玩家头像（mc-heads.net，关闭可省流量）
+#     direct_query: true          # [H]  是否先尝试直连发包查询（Java SLP / Bedrock RakNet）。
+#                                 #      直连是裸 TCP/UDP，无法经过 HTTP 代理：在出站需代理
+#                                 #      或防火墙限制的部署中仅内网可用、外网必失败，
+#                                 #      此类环境设为 false 全部走 mcsrvstat.us API
+#                                 #      （注意：API 无法看到内网服务器，关闭后内网查询不可用）
+#     enable_query: true          # [H]  是否尝试 GS4 Query 获取完整玩家列表（需服务器开启 enable-query；
+#                                 #      直连 UDP，direct_query=false 时一并禁用）
+#     query_port: 0               # [H]  Query 端口；0 = 与服务器端口一致（仅服务器单独设置过 query.port 时需要）
 #   sauce:
 #     proxy: ""                   # [R]  引擎请求代理地址（如 "http://127.0.0.1:7890"）。
 #                                 #      国内部署访问 SauceNAO / IQDB 等被墙站点必需；

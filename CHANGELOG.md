@@ -1,5 +1,58 @@
 # Changelog
 
+## v1.52.0 (2026-09-05)
+
+### ✨ minecraft 插件全面升级
+
+- **按会话收藏服务器**：`/mc add <名称> <地址>` / `/mc rm <名称>` / `/mc list`
+  （SQLite 持久化，每会话最多 10 个，storage 服务缺失时优雅降级）；
+  `/mc <名称|序号>` 快捷查询；版本参数支持前后两种顺序
+  （`/mc java <目标>` 与 `/mc <目标> java`）
+- **GS4 Query 完整玩家列表**：服务器开启 enable-query 时绕过 SLP sample 数量
+  限制获取全部在线玩家，并解析服务端软件与插件数量（卡片新增"服务端"行，
+  含地图/模式行）；带本地 UDP 仿真服务器端到端测试
+- **玩家头像**：Java 版在线玩家经 mc-heads.net 拉取头像（正版 v4 UUID 优先；
+  离线模式服务器的 v3 UUID 自动回退按玩家名解析），卡片玩家列表渲染为
+  两列头像网格；头像缓存 10 分钟
+- **查询缓存与并发合并**：查询结果 TTL 缓存（默认 60s，`cache_ttl`）防打满
+  mcsrvstat.us 限额；singleflight 合并 TTL 过期瞬间的并发同 key 查询；查询
+  失败（离线等）走 15 秒负缓存，群聊连查离线服务器不再反复重走完整链路；
+  SRV 解析结果缓存 5 分钟（无 SRV 记录的主机同样缓存）
+- **直连查询加固**：新增 `direct_query` 配置（默认 true）——出站需代理或
+  防火墙限制（直连仅内网可用）的部署可设为 false 全部走 API；私有（内网）
+  地址不再发送给第三方 mcsrvstat.us（防内网拓扑泄露）；连接改双栈
+  （tcp/udp，支持 IPv6-only 服务器）
+- **修复 MOTD 渲染**：§ 颜色码按 UTF-8 rune 解析（原按字节处理会在正文混入
+  杂散 0xC2 乱码字节）；JSON 文本组件内嵌旧式 § 码现在生效（颜色/加粗继承
+  组件属性，颜色码按 MC 语义重置加粗）；多行 MOTD 按行拆分（第二行走次级
+  MOTD）；加粗段伪加粗渲染；`&` 仅在后跟合法代码字符时作前缀
+- **Bedrock 字段补全**：次级 MOTD、游戏模式、协议版本号；**协议号 → 版本名**
+  兜底显示（version name 缺失时显示 ≈近似版本）
+- **修复地址解析**：`net.SplitHostPort` 支持 `[::1]:25565` 与裸 IPv6、端口
+  合法性校验、http(s):// 前缀剥离；查询超时预算由直连与 API 回退共享
+  （原先最坏 4×timeout）；mcsrvstat.us 非 200 响应给出明确错误（429 限流提示）
+- **离线状态卡片**：查询失败时渲染离线卡片（附错误原因），替代纯文本错误
+  （原离线卡片为不可达死代码）
+- **Prometheus 指标**：`minecraft_queries_total{result,via,edition}` /
+  `minecraft_query_duration_seconds` / `minecraft_cache_hits_total` /
+  `minecraft_gs4_queries_total`；状态新增 `Via` 字段标记查询途径（slp/raknet/api）
+- AI 工具 `query_minecraft_server` 支持**收藏名/序号**（与 /mc 命令同一收藏库，
+  按来源会话隔离）；工具参数描述与 minecraft_query 技能提示同步更新
+- 手写 base64 解码替换为标准库；favicon 解码容错（无填充 base64）
+
+### ✨ AI 工具会话上下文
+
+- `executeTool` 注入的工具源信息新增 `platform` 字段，并新增导出 API
+  `WithToolSource` / `ToolSourceFromContext`（仿 CallerInfo 惯例）——插件工具
+  现可读取当前会话信息（平台/会话 ID/发送者/是否群聊），用于会话级状态
+
+### 🔧 工程
+
+- cmd/bot 新增依赖 `golang.org/x/sync`（singleflight）
+- `config.example.yaml` 补充 minecraft 插件配置节文档（direct_query 等新键）
+- minecraft 插件测试扩至 26+ 用例：本地 SLP / RakNet / GS4 仿真服务器端到端、
+  收藏 SQLite CRUD 与会话隔离、MOTD/地址解析/私有地址判定/协议映射
+
 ## v1.51.0 (2026-09-02)
 
 ### ✨ AI 插件：QQ 操作/计划按钮与可靠的停止生成
