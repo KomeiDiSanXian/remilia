@@ -12,10 +12,25 @@ type fakePicConfig struct {
 	vals map[string]any
 }
 
-func (f *fakePicConfig) Get(k string) any                   { return f.vals[k] }
-func (f *fakePicConfig) GetString(k, d string) string       { if v, ok := f.vals[k].(string); ok { return v }; return d }
-func (f *fakePicConfig) GetInt(k string, d int) int         { if v, ok := f.vals[k].(int); ok { return v }; return d }
-func (f *fakePicConfig) GetBool(k string, d bool) bool      { if v, ok := f.vals[k].(bool); ok { return v }; return d }
+func (f *fakePicConfig) Get(k string) any { return f.vals[k] }
+func (f *fakePicConfig) GetString(k, d string) string {
+	if v, ok := f.vals[k].(string); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetInt(k string, d int) int {
+	if v, ok := f.vals[k].(int); ok {
+		return v
+	}
+	return d
+}
+func (f *fakePicConfig) GetBool(k string, d bool) bool {
+	if v, ok := f.vals[k].(bool); ok {
+		return v
+	}
+	return d
+}
 func (f *fakePicConfig) GetDuration(k string, d time.Duration) time.Duration {
 	if v, ok := f.vals[k].(time.Duration); ok {
 		return v

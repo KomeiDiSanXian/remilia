@@ -22,10 +22,10 @@ import (
 
 // imageWait 是单次等待会话的状态。
 type imageWait struct {
-	matcher *engine.Matcher
-	once    sync.Once // 保证取消清理只执行一次
-	engines engineSet
-	original bool    // 命中后发送原图（用户指定 -original / -o）
+	matcher  *engine.Matcher
+	once     sync.Once // 保证取消清理只执行一次
+	engines  engineSet
+	original bool // 命中后发送原图（用户指定 -original / -o）
 }
 
 // beginImageWait 注册等待 Matcher 并提示用户。
