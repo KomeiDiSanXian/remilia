@@ -89,11 +89,13 @@ func TestSiteUsable(t *testing.T) {
 	assert.True(t, rule34.usable(rng(RatingExplicit)))
 	assert.True(t, rule34.usable(rngRange(RatingSafe, RatingExplicit)))
 
-	// safebooru 仅 safe 档：不含 safe 的区间不可用
+	// safebooru 含 safe/questionable（2026-09 实测存在 q 内容）、无 explicit：
+	// 不含 safe 的区间不可用，questionable 起点区间可用
 	assert.True(t, safebooru.usable(rng(RatingSafe)))
 	assert.True(t, safebooru.usable(rngRange(RatingSafe, RatingExplicit)))
+	assert.True(t, safebooru.usable(rngRange(RatingQuestionable, RatingExplicit)))
 	assert.False(t, safebooru.usable(rng(RatingSensitive)))
-	assert.False(t, safebooru.usable(rngRange(RatingQuestionable, RatingExplicit)))
+	assert.False(t, safebooru.usable(rng(RatingExplicit)))
 
 	// gelbooru 4 档齐全
 	assert.True(t, gelbooru.usable(rng(RatingSafe)))
@@ -120,10 +122,13 @@ func TestSiteRangeTags(t *testing.T) {
 	// 全区间：无过滤
 	assert.Empty(t, gelbooru.rangeTags(rngRange(RatingSafe, RatingExplicit)))
 
-	// safebooru 整站仅 safe：覆盖即无过滤
-	assert.Empty(t, safebooru.rangeTags(rng(RatingSafe)))
-	assert.Empty(t, safebooru.rangeTags(rngRange(RatingSafe, RatingExplicit)))
+	// safebooru 存在 questionable 内容（2026-09 实测）、无 explicit；
+	// safe 正标签不可用（新旧评级并存）→ 降级为排除法
+	assert.Equal(t, []string{"-rating:questionable"}, safebooru.rangeTags(rng(RatingSafe)))
+	assert.Empty(t, safebooru.rangeTags(rngRange(RatingSafe, RatingQuestionable)), "覆盖全部档位无过滤")
 	assert.Nil(t, safebooru.rangeTags(rng(RatingSensitive)))
+	assert.Equal(t, []string{"rating:questionable"}, safebooru.rangeTags(rngRange(RatingQuestionable, RatingExplicit)))
+	assert.Empty(t, safebooru.rangeTags(rngRange(RatingSafe, RatingExplicit)))
 
 	// konachan 同 safebooru
 	assert.Empty(t, konachan.rangeTags(rng(RatingSafe)))
@@ -224,8 +229,11 @@ func TestSiteRatingSearchTag(t *testing.T) {
 	assert.Equal(t, "rating:questionable", gelbooru.ratingSearchTag(RatingQuestionable))
 	assert.Equal(t, "rating:explicit", gelbooru.ratingSearchTag(RatingExplicit))
 
-	// safebooru 整站仅 safe 内容，不附加 rating 过滤（新旧评级并存）
+	// safebooru 新旧评级并存：safe 无可用正标签（走排除法），
+	// questionable / explicit 有正向标签
 	assert.Equal(t, "", safebooru.ratingSearchTag(RatingSafe))
+	assert.Equal(t, "rating:questionable", safebooru.ratingSearchTag(RatingQuestionable))
+	assert.Equal(t, "rating:explicit", safebooru.ratingSearchTag(RatingExplicit))
 
 	// konachan.net 为 SFW 镜像，整站仅 safe 内容，不附加过滤
 	assert.Equal(t, "", konachan.ratingSearchTag(RatingSafe))
@@ -253,7 +261,8 @@ func TestBuildTags(t *testing.T) {
 	// gelbooru：safe 映射为 rating:general；区间 [safe..questionable] 排除 explicit
 	assert.Equal(t, "cat rating:general", buildTags(gelbooru, []string{"cat"}, rng(RatingSafe)))
 	assert.Equal(t, "cat -rating:explicit", buildTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable)))
-	// safebooru/konachan：不附加 rating 标签
-	assert.Equal(t, "cat", buildTags(safebooru, []string{"cat"}, rng(RatingSafe)))
+	// safebooru：safe 档经排除法过滤（实测存在 questionable 内容）；
+	// konachan.net 整站仅 safe，不附加过滤
+	assert.Equal(t, "cat -rating:questionable", buildTags(safebooru, []string{"cat"}, rng(RatingSafe)))
 	assert.Equal(t, "cat", buildTags(konachan, []string{"cat"}, rng(RatingSafe)))
 }

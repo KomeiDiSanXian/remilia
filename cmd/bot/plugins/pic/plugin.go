@@ -60,6 +60,9 @@ func New() *plugin.Descriptor {
                         未指定用配置 recent_days，默认 730 天）
   /pic x3 -count 1      搜索名为 x3 的标签（-count 显式张数可消除歧义）
 
+无结果时自动向 Moebooru 站点（konachan / yande.re）探测相似标签，
+按相似度给出"你是不是想找"建议（如 /pic touhuo → 提示 touhou）。
+
 内容分级由 plugins.pic.rating 配置控制（默认 safe）。
 档位（由轻到重）：safe（安全）< sensitive（轻度敏感，如泳装/暗示）
 < questionable（敏感级）< explicit（露骨级 NSFW）。
@@ -80,8 +83,13 @@ rating 为精确档位或区间：
 
 各站档位映射（自动处理，无需配置）：
   - gelbooru：general ↔ safe；sensitive / questionable / explicit 一一对应
-  - safebooru / konachan：仅 safe（safebooru 新旧评级并存，均视为 safe）
+  - safebooru：新旧评级并存（safe/general/questionable，无 explicit）；
+    safe 档经排除法过滤（正向过滤会漏掉一半）
+  - konachan.net：仅 safe（SFW 镜像，无需过滤）
   - yande.re / rule34：保留旧体系，与内部档位一致
+
+安全：标签中的 meta 标签（rating: / sort: / order: / date:）、取反
+（-tag）与通配符（* ?）由用户输入时一律忽略，防止绕过内容分级。
 
 认证配置（可选）：
   - plugins.pic.gelbooru_user_id / gelbooru_api_key：gelbooru.com 必需
@@ -328,7 +336,7 @@ func (p *Plugin) handlePic(ctx *eventctx.Context) error {
 		return nil
 	}
 	if len(posts) == 0 {
-		ctx.ReplyText("没有找到匹配的图片，换个标签试试？")
+		ctx.ReplyText(p.noMatchMessage(reqCtx, args.Tags, suggestProbes(args.Site)))
 		return nil
 	}
 
@@ -474,12 +482,41 @@ func (p *Plugin) resolveSite(name string) (site, bool) {
 	return s, true
 }
 
+// sanitizeUserTags 过滤用户输入标签中的 meta 标签与注入向量。
+//
+// booru 常规标签为英文小写+下划线，不含冒号、不以 - 开头、不含 * ? 通配。
+// rating: / sort: / order: / date: 等 meta 标签只能由插件按 rating 配置
+// 注入——用户注入会绕过内容分级（实测 rating:questionable、rating:e
+// 注入均生效）或破坏查询（如 -rating:general 清空结果、sort:score 偏置
+// 随机性）；- 开头可注入排除标签；* ? 是标签通配符，可大幅扩面。
+// 一律丢弃（不中断请求），由调用方记录告警。
+func sanitizeUserTags(tags []string) (clean []string, dropped []string) {
+	clean = make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if strings.ContainsAny(t, ":*?") || strings.HasPrefix(t, "-") {
+			dropped = append(dropped, t)
+			continue
+		}
+		clean = append(clean, t)
+	}
+	return clean, dropped
+}
+
 // fetchPosts 在指定站点请求随机图片（供命令与 AI 工具共用）。
 func (p *Plugin) fetchPosts(ctx context.Context, s site, tags []string, count, recentDays int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
-	return p.client.fetchRandom(ctx, s, tags, p.rating(), count, recentDays)
+	clean, dropped := sanitizeUserTags(tags)
+	if len(dropped) > 0 {
+		// meta/取反/通配标签注入是绕过 rating 的尝试，记录告警便于审计
+		logger.Warnf("[pic] dropped illegal tags (meta/negation/wildcard): %q", dropped)
+	}
+	return p.client.fetchRandom(ctx, s, clean, p.rating(), count, recentDays)
 }
 
 // sniffMime 通过内容嗅探图片 MIME 类型，非图片数据回退为 image/jpeg。

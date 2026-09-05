@@ -1,10 +1,14 @@
 package pic
 
 import (
+	"context"
+	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakePicConfig 最小化的 plugin.ConfigReader 实现，用于测试配置读取。
@@ -231,4 +235,42 @@ func TestSniffMimeAndExt(t *testing.T) {
 	assert.Equal(t, ".png", extByMime("image/png"))
 	assert.Equal(t, ".gif", extByMime("image/gif"))
 	assert.Equal(t, ".webp", extByMime("image/webp"))
+}
+
+// TestSanitizeUserTags 验证 meta 标签 / 取反 / 通配符注入被丢弃：
+// 这些注入可绕过内容分级（rating:questionable 等，实测生效）或破坏查询。
+func TestSanitizeUserTags(t *testing.T) {
+	clean, dropped := sanitizeUserTags([]string{
+		"cat", " rating:explicit ", "rating:e", "-dog", "sort:score",
+		"order:random", "date:2020-01-01..", "a*", "b?", "", "  ",
+		"TOUHOU",
+	})
+	assert.Equal(t, []string{"cat", "TOUHOU"}, clean)
+	assert.Equal(t, []string{"rating:explicit", "rating:e", "-dog", "sort:score", "order:random", "date:2020-01-01..", "a*", "b?"}, dropped)
+
+	// 正常标签不受影响
+	clean, dropped = sanitizeUserTags([]string{"touhou", "hair_band"})
+	assert.Equal(t, []string{"touhou", "hair_band"}, clean)
+	assert.Empty(t, dropped)
+}
+
+// TestFetchPostsSanitizesTags 端到端验证 fetchPosts 在请求前过滤注入标签。
+func TestFetchPostsSanitizesTags(t *testing.T) {
+	var gotTags atomic.Value
+	srv, client := newGelbooruTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotTags.Store(r.URL.Query().Get("tags"))
+		_, _ = w.Write([]byte(`[{"id":1,"file_url":"https://x/1.jpg","tags":"a","change":123}]`))
+	})
+	defer srv.Close()
+
+	c := &booruClient{httpClient: client}
+	p := &Plugin{client: c}
+	s, _ := findSite("safebooru") // 真实站点模型（含 q/e 档位）
+	s.Domain = srv.Listener.Addr().String()
+
+	_, err := p.fetchPosts(context.Background(), s,
+		[]string{"cat", "rating:explicit", "-dog", "sort:score"}, 1, 0)
+	require.NoError(t, err)
+	assert.Equal(t, "cat -rating:questionable sort:random", gotTags.Load(),
+		"注入的 meta/取反标签应被过滤，仅保留合法标签与插件自身注入的 rating/sort 标签")
 }

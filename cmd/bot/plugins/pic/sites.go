@@ -142,8 +142,10 @@ type site struct {
 	// 站点选择时与请求区间求交集，交集为空则不可用。
 	Ratings []Rating
 	// RatingTags 该站点各档位对应的正向搜索标签，key 为内部 Rating。
-	// 未配置的档位回退为 "rating:<name>"；空字符串表示该档无需过滤
-	// （仅限整站仅含该档内容的站点，如 safebooru / konachan）。
+	// 未配置的档位回退为 "rating:<name>"；空字符串表示该档无可用的
+	// 正向标签（如 safebooru 新旧评级并存，正向过滤会漏掉一半），
+	// rangeTags 会降级为排除法——整站仅含该档内容时（konachan.net）
+	// 排除集为空，等效于无过滤。
 	RatingTags map[Rating]string
 }
 
@@ -161,10 +163,13 @@ func (s site) ratingSearchTag(r Rating) string {
 //
 // 规则：
 //   - 区间与站点档位无交集 → 返回 nil（站点不可用）
-//   - 区间覆盖站点全部档位 → 返回空列表（无需过滤）
 //   - 区间内只有一个档位 → 正向标签（如 rating:general）
 //   - 区间内多个档位 → 排除法：排除区间外（低于 Min / 高于 Max）的档位，
-//     使用 -rating:xxx 形式（Gelbooru 系多排除实测可靠）
+//     使用 -rating:xxx 形式（Gelbooru 系多排除实测可靠；
+//     Moebooru 多排除只认最后一个，见 builtinSites 注释）
+//   - 区间内单档但正标签不可用（如 safebooru 新旧评级并存，正向过滤
+//     会漏掉一半）→ 降级为排除法；整站仅含该档内容时结果自然为空
+//     （无过滤，如 konachan.net）
 //
 // moebooru（konachan / yande.re）的多个 -rating 排除不可靠（实测只取最后一个），
 // 但这两站档位少（≤3 档），区间多档时排除数至多 1 个，天然规避该问题。
@@ -182,7 +187,7 @@ func (s site) rangeTags(rng RatingRange) []string {
 		if tag := s.ratingSearchTag(inRange[0]); tag != "" {
 			return []string{tag}
 		}
-		return nil
+		// 正标签不可用 → 降级为排除法（见函数注释）
 	}
 	var out []string
 	for _, r := range s.Ratings {
@@ -213,19 +218,29 @@ func (s site) usable(rng RatingRange) bool {
 //     仅提供 safe 内容；konachan.com 被 Cloudflare 挑战拦截，不可用
 //   - yande.re：公开 API 直连可用
 //
-// RatingTags 为各档位正向搜索标签（实测 2026-08）：
+// RatingTags 为各档位正向搜索标签（实测 2026-08 / 2026-09）：
 //   - gelbooru.com 已迁移至 Danbooru 式 4 档：general / sensitive / questionable / explicit，
 //     其中 general 与内部 safe 同档；旧标签 rating:safe 仅剩 4 张遗留图，不可用
-//   - safebooru.org 新旧评级并存（safe 与 general 均有），整站仅 safe 内容，
-//     无需 rating 过滤（过滤会漏掉一半）
+//   - safebooru.org 新旧评级并存（safe 与 general 均有），且实测存在大量
+//     questionable 内容（2026-09，rating:questionable 可查到成批帖子）、
+//     无 explicit。"整站仅 safe"是误解：正向 rating 过滤会漏掉一半
+//     （safe 与 general 各占其一），safe 档必须用排除法
+//     （-rating:questionable）过滤
 //   - api.rule34.xxx 保留旧体系；站点定位仅 explicit（遗留少量 safe/questionable 帖），
 //     显式过滤到 rating:explicit 符合站点定位
-//   - konachan.net 为 SFW 镜像，整站仅 safe 内容，无需 rating 过滤
-//   - yande.re 保留旧体系（s/q/e）
+//   - konachan.net 为 SFW 镜像，整站仅 safe 内容（rating:e / rating:q 均为 0 结果），
+//     无需 rating 过滤
+//   - yande.re 保留旧体系（s/q/e）；全拼正/负向 rating 标签均有效
+//     （rating:safe ✓ / -rating:explicit ✓），单字母形式正向无效
+//     （rating:s → 0 结果）——注意 yande.re 的 order:random 不可靠，
+//     见 booru.go searchTags
 var builtinSites = []site{
 	{Name: "safebooru", DisplayName: "Safebooru", Domain: "safebooru.org", Protocol: protocolGelbooru,
-		Ratings:    []Rating{RatingSafe},
-		RatingTags: map[Rating]string{RatingSafe: ""}},
+		Ratings: []Rating{RatingSafe, RatingQuestionable},
+		RatingTags: map[Rating]string{
+			RatingSafe:         "",
+			RatingQuestionable: "rating:questionable",
+		}},
 	{Name: "gelbooru", DisplayName: "Gelbooru", Domain: "gelbooru.com", Protocol: protocolGelbooru,
 		Ratings: []Rating{RatingSafe, RatingSensitive, RatingQuestionable, RatingExplicit},
 		RatingTags: map[Rating]string{

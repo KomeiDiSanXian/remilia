@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -183,6 +184,57 @@ func TestNetworkProxyConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, posts)
 	t.Logf("客户端级代理生效：%s", posts[0].FileURL)
+}
+
+// TestNetworkRatingFilterEnforced 联网验证内容分级过滤真实生效（防绕过）：
+//   - rating: safe 精确档下 safebooru 必须经 -rating:questionable 排除
+//     （2026-09 实测 safebooru 存在 questionable 内容，旧模型"整站仅 safe"
+//     会将其放过）
+//   - safe..questionable 区间下 gelbooru / yande.re 不得返回 explicit
+//   - Moebooru 弃用 order:random（随机页码路径）后仍稳定返回结果
+func TestNetworkRatingFilterEnforced(t *testing.T) {
+	creds := booruCredentials{
+		GelbooruUserID: os.Getenv("PIC_GELBOORU_USER_ID"),
+		GelbooruAPIKey: os.Getenv("PIC_GELBOORU_API_KEY"),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	// 与 TestNetworkProxyConfig 一致：从 PIC_PROXY_URL 读取代理
+	// （yande.re 等站点在国内网络下 DNS 被污染，直连不可达）
+	c, err := newBooruClient(creds, os.Getenv("PIC_PROXY_URL"))
+	require.NoError(t, err)
+
+	// 1) safebooru @ rating:safe：结果不得含 questionable/explicit
+	s, _ := findSite("safebooru")
+	posts, err := c.fetchRandom(ctx, s, []string{"nude"}, RatingRange{Min: RatingSafe, Max: RatingSafe}, 5, 730)
+	require.NoError(t, err)
+	require.NotEmpty(t, posts)
+	for _, p := range posts {
+		assert.Equal(t, RatingSafe, p.Rating, "safebooru safe 档不应返回 q/e 内容")
+	}
+
+	// 2) yande.re @ safe..questionable（随机页码路径 + 单排除）
+	sy, _ := findSite("yandere")
+	posts, err = c.fetchRandom(ctx, sy, nil, RatingRange{Min: RatingSafe, Max: RatingQuestionable}, 3, 1825)
+	require.NoError(t, err)
+	require.NotEmpty(t, posts, "yande.re 应稳定返回结果（order:random 已弃用）")
+	for _, p := range posts {
+		assert.NotEqual(t, RatingExplicit, p.Rating)
+	}
+
+	// 3) gelbooru @ safe..questionable：explicit 高占比标签不得泄漏
+	// （nude 基线查询 10/10 explicit、排除后全为 q/sensitive，2026-09 实测）
+	if creds.GelbooruUserID == "" || creds.GelbooruAPIKey == "" {
+		t.Skip("PIC_GELBOORU_USER_ID/PIC_GELBOORU_API_KEY 未配置，跳过 gelbooru")
+	}
+	sg, _ := findSite("gelbooru")
+	posts, err = c.fetchRandom(ctx, sg, []string{"nude"}, RatingRange{Min: RatingSafe, Max: RatingQuestionable}, 5, 730)
+	require.NoError(t, err)
+	require.NotEmpty(t, posts)
+	for _, p := range posts {
+		assert.NotEqual(t, RatingExplicit, p.Rating)
+	}
 }
 
 func isImageBytes(data []byte) bool {

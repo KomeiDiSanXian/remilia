@@ -6,8 +6,8 @@
 //   - Moebooru（konachan / yande.re）：/post.json
 //
 // 两种协议均支持通过 rating:xxx 标签过滤内容分级（部分站点已迁移分级体系，
-// 见 site.ratingSearchTag），随机取图分别使用 sort:random（Gelbooru 系）
-// 与 order:random（Moebooru）。
+// 见 site.ratingSearchTag），随机取图仅 Gelbooru 系使用服务端 sort:random
+// （Moebooru 的 order:random 实测不可靠，改客户端随机，见 fetchRandom）。
 package pic
 
 import (
@@ -85,13 +85,16 @@ type picPost struct {
 
 // fetchRandom 从指定站点获取随机图片。
 //
-// 服务端随机方式（依据各站官方文档实测，2026-08）：
-//   - Gelbooru 系：tags 中附加 sort:random meta-tag（gelbooru cheatsheet 文档）
-//   - Moebooru：tags 中附加 order:random meta-tag（Danbooru 兼容语法）
+// 服务端随机方式（2026-09 实测）：
+//   - Gelbooru 系：tags 中附加 sort:random meta-tag（gelbooru cheatsheet
+//     文档，实测稳定）
+//   - Moebooru：order:random **不可靠**——yande.re 间歇性返回 0 或远少于
+//     limit 的结果（10 条 limit 实测常返回 0-2 条），不附加；
+//     改用随机页码取池 + 客户端随机选取（见 fetchRandom Moebooru 分支）
 //
-// 查询参数 random=1 / order=random 均无效（被忽略），不要使用。
+// 查询参数 random=1 无效（被忽略），不要使用。
 //
-// 双保险：请求 randomPoolSize(count) 条服务端随机结果，再本地随机选取 count 张。
+// 双保险：请求 randomPoolSize(count) 条结果，再本地随机选取 count 张。
 //
 // recentDays 为"近 N 天内上传"过滤（0 = 不过滤）：
 //   - Moebooru（konachan / yande.re）：服务端 date:YYYY-MM-DD.. 过滤（实测可靠）
@@ -102,6 +105,9 @@ func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rn
 		count = 1
 	}
 	pool := randomPoolSize(count)
+	if s.Protocol == protocolMoebooru && pool < moebooruPoolMin {
+		pool = moebooruPoolMin
+	}
 	if recentDays > 0 && s.Protocol == protocolGelbooru {
 		// 客户端过滤：放大随机池，保证过滤后仍有足够候选
 		pool = pool * recencyPoolMultiplier
@@ -111,9 +117,18 @@ func (c *booruClient) fetchRandom(ctx context.Context, s site, tags []string, rn
 		err   error
 	)
 	if s.Protocol == protocolMoebooru {
-		posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool, recentDays)
+		// 服务端 order:random 不可靠（见函数注释）：随机页码取池提供
+		// 跨页多样性；冷门标签页码越界返回空时回退第 1 页重取一次。
+		page := 1 + rand.Intn(moebooruRandomPages)
+		posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool, recentDays, page)
 		if err != nil {
 			return nil, err
+		}
+		if len(posts) == 0 && page != 1 {
+			posts, err = c.fetchMoebooru(ctx, s, tags, rng, pool, recentDays, 1)
+			if err != nil {
+				return nil, err
+			}
 		}
 		return pickRandomPosts(posts, count), nil
 	}
@@ -180,6 +195,13 @@ func randomPoolSize(count int) int {
 	return 10
 }
 
+// moebooruPoolMin Moebooru 取池下限（弃用 order:random 后单页即池，
+// 取大些保证客户端随机的多样性）。
+const moebooruPoolMin = 30
+
+// moebooruRandomPages Moebooru 随机页码范围（1..N），提供跨页多样性。
+const moebooruRandomPages = 8
+
 // randomTag 返回协议对应的服务端随机排序 meta-tag。
 func randomTag(proto protocol) string {
 	if proto == protocolMoebooru {
@@ -202,23 +224,26 @@ func recencyTag(proto protocol, recentDays int) string {
 }
 
 // searchTags 拼接查询标签：用户标签 + 区间对应的 rating 过滤 +
-// 近 N 天过滤（Moebooru 服务端）+ 随机排序 meta-tag。
+// 近 N 天过滤（Moebooru 服务端）+ 随机排序 meta-tag（仅 Gelbooru 系）。
 //
 // rating 过滤按站点生成（见 site.rangeTags）：gelbooru.com 已迁移至
 // Danbooru 式分级，safe 需使用 rating:general 而非已失效的 rating:safe。
+//
+// Moebooru 不附加 order:random：2026-09 实测 yande.re 间歇性返回 0
+// 或远少于 limit 的结果（10 条 limit 常返回 0-2 条），konachan 偶发异常。
+// Moebooru 的随机性改由 fetchRandom 以随机页码取池 + 客户端选取提供。
 func searchTags(s site, userTags []string, rng RatingRange, recentDays int) string {
-	base := buildTags(s, userTags, rng)
+	var parts []string
+	if base := buildTags(s, userTags, rng); base != "" {
+		parts = append(parts, base)
+	}
 	if t := recencyTag(s.Protocol, recentDays); t != "" {
-		if base == "" {
-			base = t
-		} else {
-			base += " " + t
-		}
+		parts = append(parts, t)
 	}
-	if base == "" {
-		return randomTag(s.Protocol)
+	if s.Protocol == protocolGelbooru {
+		parts = append(parts, randomTag(s.Protocol))
 	}
-	return base + " " + randomTag(s.Protocol)
+	return strings.Join(parts, " ")
 }
 
 // pickRandomPosts 从结果池中随机选取 count 张（不重复）。
@@ -331,7 +356,13 @@ func (c *booruClient) fetchGelbooru(ctx context.Context, s site, tags []string, 
 // parseGelbooruPosts 解析 Gelbooru 系响应体，兼容对象包装与扁平数组两种格式。
 func parseGelbooruPosts(body []byte) ([]gelbooruPost, error) {
 	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) > 0 && trimmed[0] == '[' {
+	// safebooru.org（Gelbooru 0.2.x）对无结果查询返回 200 + 空响应体
+	// （而非空数组），视为 0 条结果而非解析错误——否则任何查无此标签的
+	// 请求都会以 safebooru 的报错抢跑，用户看到的是报错而非"没有找到"。
+	if len(trimmed) == 0 {
+		return nil, nil
+	}
+	if trimmed[0] == '[' {
 		// safebooru / api.rule34.xxx 直接返回扁平数组
 		var posts []gelbooruPost
 		if err := json.Unmarshal(body, &posts); err != nil {
@@ -390,12 +421,17 @@ type moebooruRawPost struct {
 // fetchMoebooru 请求 Moebooru 站点（konachan / yande.re）。
 //
 // recentDays > 0 时附加 date:YYYY-MM-DD.. 服务端过滤（实测可靠）。
-func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rng RatingRange, count, recentDays int) ([]picPost, error) {
+// page 为结果页码（1 起，0 视为 1）；调用方随机化页码提供取池多样性
+// （服务端 order:random 不可靠，见 searchTags）。
+func (c *booruClient) fetchMoebooru(ctx context.Context, s site, tags []string, rng RatingRange, count, recentDays, page int) ([]picPost, error) {
 	if count <= 0 {
 		count = 1
 	}
-	endpoint := fmt.Sprintf("https://%s/post.json?limit=%d&tags=%s",
-		s.Domain, count, url.QueryEscape(searchTags(s, tags, rng, recentDays))) + cacheBust()
+	if page <= 0 {
+		page = 1
+	}
+	endpoint := fmt.Sprintf("https://%s/post.json?limit=%d&page=%d&tags=%s",
+		s.Domain, count, page, url.QueryEscape(searchTags(s, tags, rng, recentDays))) + cacheBust()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {

@@ -81,6 +81,19 @@ func TestParseGelbooruFlatArray(t *testing.T) {
 	assert.Equal(t, "", gelbooruToPost(posts[1], s).Author)
 }
 
+// TestParseGelbooruEmptyBody 覆盖 safebooru.org 无结果时的 200 + 空响应体：
+// 应视为 0 条结果（nil, nil）而非解析错误。
+// 真实场景：查询不存在的标签时 safebooru 返回空 body（2026-09 实测），
+// 之前会报"解析响应失败: unexpected end of JSON input"并抢占竞速结果，
+// 导致 /pic 查无标签时回复报错而非"没有找到匹配的图片"。
+func TestParseGelbooruEmptyBody(t *testing.T) {
+	for _, body := range []string{"", "   \r\n", "\x20\x09"} {
+		posts, err := parseGelbooruPosts([]byte(body))
+		require.NoError(t, err)
+		assert.Empty(t, posts)
+	}
+}
+
 // ── Moebooru 协议解析 ───────────────────────────────────────────────────
 
 // TestParseMoebooruResponse 覆盖 konachan.net / yande.re 的 post.json 数组格式。
@@ -172,11 +185,13 @@ func TestSearchTags(t *testing.T) {
 	// gelbooru 区间 [safe..questionable]：排除 explicit
 	assert.Equal(t, "cat -rating:explicit sort:random",
 		searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable), 0))
-	// Moebooru：order:random；konachan.net 为 SFW 镜像整站 safe，不附加过滤
-	assert.Equal(t, "cat order:random",
-		searchTags(konachan, []string{"cat"}, rng(RatingSafe), 0))
-	// yande.re 区间 [safe..questionable]：排除 explicit
-	assert.Equal(t, "cat -rating:explicit order:random",
+	// Moebooru 不附加 order:random（yande.re 实测间歇返回 0/少量结果，
+	// 随机性由客户端随机页码 + pickRandomPosts 提供）；
+	// konachan.net 为 SFW 镜像整站 safe，不附加过滤
+	assert.Equal(t, "cat", searchTags(konachan, []string{"cat"}, rng(RatingSafe), 0))
+	assert.Empty(t, searchTags(konachan, nil, rng(RatingSafe), 0), "Moebooru 无标签无过滤时为空查询")
+	// yande.re 区间 [safe..questionable]：排除 explicit（负向全拼实测有效）
+	assert.Equal(t, "cat -rating:explicit",
 		searchTags(yandere, []string{"cat"}, rngRange(RatingSafe, RatingQuestionable), 0))
 	// 全区间（all）不附加 rating 标签
 	assert.Equal(t, "cat sort:random",
@@ -185,8 +200,9 @@ func TestSearchTags(t *testing.T) {
 	assert.Equal(t, "rating:general sort:random", searchTags(gelbooru, nil, rng(RatingSafe), 0))
 	// 全区间时只剩随机 meta-tag
 	assert.Equal(t, "sort:random", searchTags(gelbooru, nil, rngRange(RatingSafe, RatingExplicit), 0))
-	// safebooru 整站仅 safe 内容，不附加 rating 过滤（新旧评级并存）
-	assert.Equal(t, "cat sort:random", searchTags(safebooru, []string{"cat"}, rng(RatingSafe), 0))
+	// safebooru safe 精确档：排除 questionable（实测站点存在 q 内容）
+	assert.Equal(t, "cat -rating:questionable sort:random",
+		searchTags(safebooru, []string{"cat"}, rng(RatingSafe), 0))
 }
 
 func TestRandomPoolSize(t *testing.T) {
@@ -213,13 +229,13 @@ func TestSearchTagsRecency(t *testing.T) {
 	yandere, _ := findSite("yandere")
 	gelbooru, _ := findSite("gelbooru")
 
-	// Moebooru：date tag 在 rating 之后、order:random 之前
+	// Moebooru：date tag 在 rating 之后（无 order:random）
 	out := searchTags(yandere, []string{"cat"}, rng(RatingSafe), 730)
-	assert.Regexp(t, `^cat rating:safe date:\d{4}-\d{2}-\d{2}\.\. order:random$`, out)
+	assert.Regexp(t, `^cat rating:safe date:\d{4}-\d{2}-\d{2}\.\.$`, out)
 
 	// 无用户标签时 date tag 仍然存在
 	out = searchTags(yandere, nil, rngRange(RatingSafe, RatingExplicit), 730)
-	assert.Regexp(t, `^date:\d{4}-\d{2}-\d{2}\.\. order:random$`, out)
+	assert.Regexp(t, `^date:\d{4}-\d{2}-\d{2}\.\.$`, out)
 
 	// Gelbooru 系：recentDays 被忽略（客户端过滤）
 	assert.Equal(t, "cat sort:random", searchTags(gelbooru, []string{"cat"}, rngRange(RatingSafe, RatingExplicit), 730))
@@ -334,6 +350,38 @@ func TestFetchRandomGelbooruNoRecency(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, posts, 1)
 	assert.Equal(t, int32(1), calls.Load())
+}
+
+// TestFetchRandomMoebooruRandomPage 验证 Moebooru 弃用 order:random 后的
+// 随机页码取池路径：页码参数被传递、查询不含 order:random、
+// 越界页（返回空）时回退第 1 页重取。
+func TestFetchRandomMoebooruRandomPage(t *testing.T) {
+	var page1Hits, otherPages atomic.Int32
+	var gotTags atomic.Value
+	srv, client := newGelbooruTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotTags.Store(r.URL.Query().Get("tags"))
+		if r.URL.Query().Get("page") != "1" {
+			otherPages.Add(1)
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		page1Hits.Add(1)
+		_, _ = w.Write([]byte(`[{"id":1,"rating":"s","file_url":"https://x/1.jpg","tags":"a","created_at":123},
+			{"id":2,"rating":"s","file_url":"https://x/2.jpg","tags":"b","created_at":456}]`))
+	})
+	defer srv.Close()
+
+	c := &booruClient{httpClient: client}
+	s := site{Name: "konachan", Domain: srv.Listener.Addr().String(), Protocol: protocolMoebooru}
+
+	posts, err := c.fetchRandom(context.Background(), s, []string{"cat"}, rngRange(RatingSafe, RatingExplicit), 1, 730)
+	require.NoError(t, err)
+	require.Len(t, posts, 1, "随机页越界时应回退第 1 页拿到结果")
+	assert.Equal(t, int32(1), page1Hits.Load(), "第 1 页恰请求一次")
+	assert.LessOrEqual(t, otherPages.Load(), int32(1), "随机页至多请求一次")
+
+	tags, _ := gotTags.Load().(string)
+	assert.Regexp(t, `^cat date:\d{4}-\d{2}-\d{2}\.\.$`, tags, "应含 date 过滤且不含 order:random")
 }
 
 // TestRedactTransportError 验证传输错误中的认证凭据被脱敏。
