@@ -108,6 +108,7 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 	}
 
 	result, execErr := tool.Execute(callerCtx, tc.Arguments)
+	RecordToolCall(tc.Name, execErr)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
 			return fmt.Sprintf("错误: 工具 %q 执行超时", tc.Name)

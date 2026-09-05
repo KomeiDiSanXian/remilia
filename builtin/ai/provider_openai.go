@@ -38,13 +38,14 @@ import (
 //
 // 所有兼容 /v1/chat/completions 格式的服务均可使用。
 type openaiClient struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	maxTokens  int
-	apiTimeout time.Duration
-	maxRetries int
-	httpClient *http.Client
+	baseURL      string
+	apiKey       string
+	model        string
+	maxTokens    int
+	apiTimeout   time.Duration
+	maxRetries   int
+	includeUsage bool
+	httpClient   *http.Client
 }
 
 func NewOpenAIProvider(cfg *Config) (Provider, error) {
@@ -55,12 +56,13 @@ func NewOpenAIProvider(cfg *Config) (Provider, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	return &openaiClient{
-		baseURL:    baseURL,
-		apiKey:     cfg.APIKey,
-		model:      cfg.Model,
-		maxTokens:  cfg.MaxTokens,
-		apiTimeout: cfg.APITimeout,
-		maxRetries: cfg.MaxRetries,
+		baseURL:      baseURL,
+		apiKey:       cfg.APIKey,
+		model:        cfg.Model,
+		maxTokens:    cfg.MaxTokens,
+		apiTimeout:   cfg.APITimeout,
+		maxRetries:   cfg.MaxRetries,
+		includeUsage: cfg.IncludeUsage,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
@@ -150,13 +152,21 @@ type openaiChatMessage struct {
 }
 
 type openaiChatRequest struct {
-	Model       string              `json:"model"`
-	Messages    []openaiChatMessage `json:"messages"`
-	Tools       []openaiTool        `json:"tools,omitempty"`
-	Temperature float64             `json:"temperature,omitempty"`
-	TopP        float64             `json:"top_p,omitempty"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
-	Stream      bool                `json:"stream,omitempty"`
+	Model         string              `json:"model"`
+	Messages      []openaiChatMessage `json:"messages"`
+	Tools         []openaiTool        `json:"tools,omitempty"`
+	Temperature   float64             `json:"temperature,omitempty"`
+	TopP          float64             `json:"top_p,omitempty"`
+	MaxTokens     int                 `json:"max_tokens,omitempty"`
+	Stream        bool                `json:"stream,omitempty"`
+	StreamOptions *struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options,omitempty"`
+}
+
+type openaiUsageBody struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
 }
 
 type openaiChatChoice struct {
@@ -170,6 +180,7 @@ type openaiChatResponse struct {
 	ID      string             `json:"id"`
 	Object  string             `json:"object"`
 	Choices []openaiChatChoice `json:"choices"`
+	Usage   *openaiUsageBody   `json:"usage,omitempty"`
 	Error   *openaiErrorBody   `json:"error,omitempty"`
 }
 
@@ -363,6 +374,13 @@ func (c *openaiClient) processOpenAIResponse(resp *http.Response) (*ChatResponse
 		Content: choice.Message.Content.String(),
 	}
 
+	if openaiResp.Usage != nil {
+		result.Usage = &TokenUsage{
+			PromptTokens:     openaiResp.Usage.PromptTokens,
+			CompletionTokens: openaiResp.Usage.CompletionTokens,
+		}
+	}
+
 	if len(choice.Message.ToolCalls) > 0 {
 		tcs, err := parseOpenAIToolCalls(choice.Message.ToolCalls)
 		if err != nil {
@@ -386,6 +404,13 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		TopP:        req.TopP,
 		MaxTokens:   requestMaxTokens(c.maxTokens, req.MaxTokens),
 		Stream:      true,
+	}
+	// 请求流式 usage 统计（OpenAI 需显式开启；不兼容的网关可通过
+	// include_usage=false 关闭，避免未知字段被拒）
+	if c.includeUsage {
+		body.StreamOptions = &struct {
+			IncludeUsage bool `json:"include_usage"`
+		}{IncludeUsage: true}
 	}
 	if len(req.Tools) > 0 {
 		body.Tools = toOpenAITools(req.Tools)
@@ -424,6 +449,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 		scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
 
 		var pendingToolCalls []openaiToolCall
+		var usage *TokenUsage
 
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -447,7 +473,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 						}
 					}
 				}
-				sendEvent(StreamEvent{Type: StreamEventDone})
+				sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage})
 				return
 			}
 
@@ -460,10 +486,19 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 					} `json:"delta"`
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
+				Usage *openaiUsageBody `json:"usage"`
 			}
 
 			if err := json.Unmarshal([]byte(data), &streamResp); err != nil {
 				continue
+			}
+
+			// usage 块（include_usage 开启时在 [DONE] 前到达，choices 为空）
+			if streamResp.Usage != nil {
+				usage = &TokenUsage{
+					PromptTokens:     streamResp.Usage.PromptTokens,
+					CompletionTokens: streamResp.Usage.CompletionTokens,
+				}
 			}
 
 			if len(streamResp.Choices) == 0 {
@@ -506,7 +541,7 @@ func (c *openaiClient) ChatStream(ctx context.Context, req *ChatRequest) (<-chan
 			return
 		}
 
-		sendEvent(StreamEvent{Type: StreamEventDone})
+		sendEvent(StreamEvent{Type: StreamEventDone, Usage: usage})
 	}()
 
 	return ch, nil

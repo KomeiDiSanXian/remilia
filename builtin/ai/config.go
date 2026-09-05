@@ -61,6 +61,9 @@ type Config struct {
 	ContextFields []string `yaml:"context_fields"`
 	// MaxTokens 每次请求的最大输出 token 数。
 	MaxTokens int `yaml:"max_tokens"`
+	// IncludeUsage 流式请求是否携带 stream_options.include_usage（OpenAI 兼容 API）。
+	// 用于 token 用量统计；极少数不兼容 stream_options 的网关可设为 false。
+	IncludeUsage bool `yaml:"include_usage"`
 	// MaxDepth 工具调用的最大递归深度。
 	// 防止工具循环调用过深，默认 5。
 	MaxDepth int `yaml:"max_depth"`
@@ -288,6 +291,7 @@ var DefaultConfig = Config{
 	Provider:               "openai",
 	Model:                  "gpt-4o-mini",
 	MaxTokens:              2048,
+	IncludeUsage:           true,
 	MaxDepth:               5,
 	MaxHistory:             20,
 	Temperature:            0.7,
@@ -367,6 +371,7 @@ func loadConfig(ctx *plugin.SetupContext) *Config {
 	if v := ctx.Config.GetInt("max_tokens", 0); v > 0 {
 		cfg.MaxTokens = v
 	}
+	cfg.IncludeUsage = ctx.Config.GetBool("include_usage", DefaultConfig.IncludeUsage)
 	if v := ctx.Config.GetInt("max_depth", 0); v > 0 {
 		cfg.MaxDepth = v
 	}

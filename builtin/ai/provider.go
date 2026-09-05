@@ -108,10 +108,18 @@ type ChatRequest struct {
 	Stream      bool
 }
 
+// TokenUsage 一次 LLM 调用的 token 用量（由提供商响应解析；缺失时为 nil）。
+type TokenUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+}
+
 // ChatResponse 非流式聊天的响应。
 type ChatResponse struct {
 	Content   string
 	ToolCalls []ToolCall
+	// Usage token 用量（提供商返回时填充，可能为 nil）。
+	Usage *TokenUsage
 }
 
 // StreamEventType 流式事件的类型。
@@ -134,6 +142,8 @@ type StreamEvent struct {
 	Content  string    // StreamEventText 时有效
 	ToolCall *ToolCall // StreamEventToolCall 时有效
 	Err      error     // StreamEventError 时有效
+	// Usage token 用量（StreamEventDone 时有效；提供商未返回时为 nil）。
+	Usage *TokenUsage
 }
 
 // Provider LLM 提供商抽象接口。
@@ -146,15 +156,26 @@ type Provider interface {
 }
 
 // NewProvider 根据配置创建对应的 LLM 提供商实例。
+// 返回的 Provider 外层包装了指标采集（ai_llm_* 指标族）。
 func NewProvider(cfg *Config) (Provider, error) {
+	var prov Provider
 	switch cfg.Provider {
 	case "openai", "":
-		return NewOpenAIProvider(cfg)
+		p, err := NewOpenAIProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		prov = p
 	case "anthropic":
-		return NewAnthropicProvider(cfg)
+		p, err := NewAnthropicProvider(cfg)
+		if err != nil {
+			return nil, err
+		}
+		prov = p
 	default:
 		return nil, fmt.Errorf("ai: unknown provider %q (supported: openai, anthropic)", cfg.Provider)
 	}
+	return &metricsProvider{next: prov, defaultModel: cfg.Model}, nil
 }
 
 // requestModel 优先使用请求级模型名，为空时回退到客户端默认模型。

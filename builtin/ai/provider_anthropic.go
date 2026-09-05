@@ -110,12 +110,18 @@ type anthropicChatRequest struct {
 	Stream      bool                  `json:"stream,omitempty"`
 }
 
+type anthropicUsageBody struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 type anthropicChatResponse struct {
 	ID         string                  `json:"id"`
 	Type       string                  `json:"type"`
 	Role       string                  `json:"role"`
 	Content    []anthropicContentBlock `json:"content"`
 	StopReason string                  `json:"stop_reason"`
+	Usage      *anthropicUsageBody     `json:"usage,omitempty"`
 	Error      *anthropicErrorBody     `json:"error,omitempty"`
 }
 
@@ -341,6 +347,13 @@ func (c *anthropicClient) processAnthropicResponse(resp *http.Response) (*ChatRe
 		}
 	}
 
+	if anthropicResp.Usage != nil {
+		result.Usage = &TokenUsage{
+			PromptTokens:     anthropicResp.Usage.InputTokens,
+			CompletionTokens: anthropicResp.Usage.OutputTokens,
+		}
+	}
+
 	if anthropicResp.StopReason == "tool_use" {
 		result.ToolCalls = parseAnthropicToolCalls(anthropicResp.Content)
 	}
@@ -410,6 +423,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 		}
 		pendingTools := make(map[int]*anthropicStreamToolUse)
 
+		var promptTokens, completionTokens int
+
 		for scanner.Scan() {
 			line := scanner.Text()
 
@@ -433,6 +448,8 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					Text        string `json:"text"`
 					PartialJSON string `json:"partial_json"`
 				} `json:"delta,omitempty"`
+				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
+				Usage *anthropicUsageBody `json:"usage,omitempty"`
 				ContentBlock *struct {
 					Type  string `json:"type"`
 					ID    string `json:"id"`
@@ -440,7 +457,9 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					Input any    `json:"input"`
 				} `json:"content_block,omitempty"`
 				Message *struct {
-					StopReason string `json:"stop_reason"`
+					StopReason string              `json:"stop_reason"`
+					// message_start 携带输入 token 用量
+					Usage *anthropicUsageBody `json:"usage,omitempty"`
 				} `json:"message,omitempty"`
 				Error *struct {
 					Type    string `json:"type"`
@@ -453,6 +472,12 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 			}
 
 			switch streamEvent.Type {
+			case "message_start":
+				// 输入 token 用量在 message_start 的 message.usage 中
+				if streamEvent.Message != nil && streamEvent.Message.Usage != nil {
+					promptTokens = streamEvent.Message.Usage.InputTokens
+				}
+
 			case "content_block_start":
 				if streamEvent.ContentBlock != nil && streamEvent.ContentBlock.Type == "tool_use" {
 					pendingTools[streamEvent.Index] = &anthropicStreamToolUse{
@@ -494,9 +519,16 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 				}
 
 			case "message_delta":
+				// 输出 token 用量在 message_delta 顶层 usage（累计值）
+				if streamEvent.Usage != nil {
+					completionTokens = streamEvent.Usage.OutputTokens
+				}
 
 			case "message_stop":
-				sendEvent(StreamEvent{Type: StreamEventDone})
+				sendEvent(StreamEvent{Type: StreamEventDone, Usage: &TokenUsage{
+					PromptTokens:     promptTokens,
+					CompletionTokens: completionTokens,
+				}})
 				return
 
 			case "error":

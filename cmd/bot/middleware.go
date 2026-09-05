@@ -15,6 +15,7 @@ import (
 	"github.com/KomeiDiSanXian/remilia/middleware/hotreload"
 	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
 	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
+	"github.com/KomeiDiSanXian/remilia/middleware/sender"
 	"github.com/KomeiDiSanXian/remilia/middleware/telemetry"
 )
 
@@ -83,6 +84,9 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	// Metrics — 运行时检查开关
 	eng.Use(wrapEnabled(func() bool { return bridge.GetMiddlewareConfig().Metrics }, telemetry.PrometheusMetrics("remilia")))
 
+	// 出站发送指标 — 经 ctx.Reply 观察者记录（不包装 Sender，保留平台能力接口）
+	eng.Use(outboundMetricsMiddleware())
+
 	eng.Use(telemetry.Tracing(telemetry.TracingConfig{
 		TracerName:         "remilia",
 		IncludeEventDetail: traceCfg.IncludeEventDetail,
@@ -96,6 +100,20 @@ func setupMiddleware(eng *engine.Engine, traceCfg *tracing.Config, cfg *config.C
 	logger.Info("[remilia] Hot-reload bridge initialized")
 
 	return bridge
+}
+
+// outboundMetricsMiddleware 按事件注入出站发送观察者（remilia_send_total{platform,status}）。
+func outboundMetricsMiddleware() eventctx.Middleware {
+	return func(next eventctx.Handler) eventctx.Handler {
+		return func(ctx *eventctx.Context) error {
+			if plt := ctx.GetEventPlatform(); plt != "" {
+				ctx.Ext().SetTyped(eventctx.OutboundObserverExt{
+					Observer: sender.NewOutboundObserver(plt),
+				})
+			}
+			return next(ctx)
+		}
+	}
 }
 
 // parseBackpressurePolicy 将配置字符串转换为 BackpressurePolicy。
