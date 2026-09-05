@@ -1,5 +1,41 @@
 # Changelog
 
+## v1.55.0 (2026-09-06)
+
+### 🖼 pic 插件：无结果引导与内容分级防绕过
+
+- **修复：查无标签必报错**（`plugins/pic`）：safebooru.org 对无结果查询返回
+  200 + 空响应体（Gelbooru 0.2.x 行为），解析层此前以"解析响应失败：
+  unexpected end of JSON input"报错并在多站竞速中稳定抢跑——任何查无此标签
+  的请求必然回复报错而非"没有找到匹配的图片"；
+  空响应体现按 0 条结果处理
+- **相似标签推荐**（新增 `suggest.go`）：无结果时向 Moebooru
+  （konachan.net / yande.re）`tag.json?name=<前缀>*` 探测相似标签（Gelbooru
+  系标签补全接口已废弃：safebooru 返回空、gelbooru.com 返回 "Deprecated"，
+  2026-09 实测）。完整前缀 + 前 3 字符双路探测覆盖中间拼错
+  （touhuo → tou* → touhou），编辑距离升序 + 站内热度降序取 top3，回复
+  "标签「x」未收录，你是不是想找：…（试试：/pic …）"；标签存在但无结果时
+  提示组合冷门或分级过滤；探测失败降级通用提示不误导（10s 超时、至多
+  3 标签、单站失败换站、命中即提前结束）
+- **meta 标签注入过滤（防绕过）**：用户标签中含 rating: / sort: / order: /
+  date: 等冒号 meta、取反（-tag）与通配符（* ?）的一律丢弃并记录 warn
+  （`/pic` 命令与 AI 工具 `get_random_image` 共用路径全覆盖）——实测
+  rating:questionable / rating:e 注入可绕过内容分级，sort:score 等可偏置
+  随机性，-rating:general 可清空查询
+- **safebooru 分级模型修正**："整站仅 safe"为错误假设——2026-09 实测存在
+  大量 questionable 内容（rating:questionable 成批可查）、无 explicit；模型
+  改为 [safe, questionable]，`rating: safe` 精确档经 -rating:questionable
+  排除法过滤（正向过滤会漏掉一半：新旧评级 safe/general 并存）；rangeTags
+  新增正标签不可用时降级为排除法的路径
+- **Moebooru 弃用 order:random**：yande.re 实测间歇性返回 0 或远少于 limit
+  的结果（10 条 limit 常返回 0-2 条）、konachan 偶发异常——yande.re 在
+  safe..questionable 配置下长期静默失效；改为随机页码（1..8）取池 +
+  客户端随机选取，冷门标签越界页自动回退第 1 页，yande.re 自此恢复出图
+- **防回归**：新增联网测试 TestNetworkRatingFilterEnforced（`-tags network`）：
+  safebooru@rating:safe 查 nude 全部 safe 级（q 被排除）、yande.re 稳定出图
+  且无 explicit、gelbooru 查 nude 无 explicit（基线 10/10 explicit）；单测
+  覆盖注入过滤、随机页码回退、空响应体解析、推荐排序与降级
+
 ## v1.54.0 (2026-09-05)
 
 ### 💬 QQ 合并转发消息全链路支持
