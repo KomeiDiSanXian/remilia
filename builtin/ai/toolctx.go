@@ -21,6 +21,8 @@ type toolSource struct {
 	userID string
 	// chatID 当前会话 ID（群或私聊）。
 	chatID string
+	// platform 当前平台标识（如 qq / telegram）。
+	platform string
 	// isGroup 是否为群聊会话。
 	isGroup bool
 	// sender 平台发送器（可能为 nil，如测试或平台不可用时）。
@@ -29,9 +31,31 @@ type toolSource struct {
 	p *Plugin
 }
 
+// ToolSource 插件可读取的会话源信息（经 [ToolSourceFromContext] 提取）。
+type ToolSource struct {
+	// UserID 当前发送者 ID。
+	UserID string
+	// ChatID 当前会话 ID（群或私聊）。
+	ChatID string
+	// Platform 当前平台标识（如 qq / telegram）。
+	Platform string
+	// IsGroup 是否为群聊会话。
+	IsGroup bool
+}
+
 // withToolSource 将工具源信息注入 context。
 func withToolSource(ctx context.Context, src toolSource) context.Context {
 	return context.WithValue(ctx, ctxKeyToolSource{}, src)
+}
+
+// WithToolSource 将会话源信息注入 context（测试或自定义执行方使用）。
+func WithToolSource(ctx context.Context, src ToolSource) context.Context {
+	return context.WithValue(ctx, ctxKeyToolSource{}, toolSource{
+		userID:   src.UserID,
+		chatID:   src.ChatID,
+		platform: src.Platform,
+		isGroup:  src.IsGroup,
+	})
 }
 
 // toolSourceFromContext 从 context 中提取工具源信息。
@@ -39,4 +63,20 @@ func withToolSource(ctx context.Context, src toolSource) context.Context {
 func toolSourceFromContext(ctx context.Context) (toolSource, bool) {
 	s, ok := ctx.Value(ctxKeyToolSource{}).(toolSource)
 	return s, ok
+}
+
+// ToolSourceFromContext 从工具执行 context 中提取会话源信息。
+// 信息由 AI 插件在 executeTool 时注入；无注入时返回零值和 false
+// （如直接调用工具的测试场景）。供需要会话级状态的插件工具使用。
+func ToolSourceFromContext(ctx context.Context) (ToolSource, bool) {
+	s, ok := toolSourceFromContext(ctx)
+	if !ok {
+		return ToolSource{}, false
+	}
+	return ToolSource{
+		UserID:   s.userID,
+		ChatID:   s.chatID,
+		Platform: s.platform,
+		IsGroup:  s.isGroup,
+	}, true
 }

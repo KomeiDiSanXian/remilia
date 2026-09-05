@@ -62,11 +62,12 @@ func (p *Plugin) executeTool(ctx *eventctx.Context, tc ToolCall, toolCtx context
 		callerCtx = WithToolSender(callerCtx, sender)
 	}
 	callerCtx = withToolSource(callerCtx, toolSource{
-		userID:  ctx.GetSenderInfo().ID,
-		chatID:  ctx.GetChatInfo().ID,
-		isGroup: ctx.GetChatInfo().IsGroup,
-		sender:  ctx.GetPlatformSender(),
-		p:       p,
+		userID:   ctx.GetSenderInfo().ID,
+		chatID:   ctx.GetChatInfo().ID,
+		platform: ctx.GetEventPlatform(),
+		isGroup:  ctx.GetChatInfo().IsGroup,
+		sender:   ctx.GetPlatformSender(),
+		p:        p,
 	})
 	if skill, ok := p.skillReg.GetByOwner(ctx.GetSenderInfo().ID, tc.Name); ok {
 		result, err := p.executeSkill(callerCtx, skill, tc.Arguments)
