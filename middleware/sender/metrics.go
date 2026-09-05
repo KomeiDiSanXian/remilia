@@ -35,7 +35,7 @@ var (
 //	remilia_send_total — 发送次数计数器（标签：platform, status）
 //
 // 注意：直接包装 Sender 会使 platform.Sender 上的可选接口断言失效
-//（SessionNotifier、GroupManager 等）。出站指标的主流接线方式是
+// （SessionNotifier、GroupManager 等）。出站指标的主流接线方式是
 // [NewOutboundObserver]（经 ctx.Reply 的观察者机制，不包装 sender）。
 func Metrics(namespace string) SenderDecorator {
 	_ = namespace // 指标名固定为 remilia_ 前缀（与观察者共用同一族）
@@ -69,7 +69,7 @@ func (s metricsSender) Send(ctx context.Context, req platform.SendRequest) (plat
 
 // outboundObserver 通过 ctx.Reply 的观察者机制记录出站发送指标。
 // 不包装 Sender，因此不影响平台可选接口断言；仅覆盖经 ctx.Reply* 的发送
-//（插件绕过 ctx.Reply 直接调 Sender 的路径不会被观察到）。
+// （插件绕过 ctx.Reply 直接调 Sender 的路径不会被观察到）。
 type outboundObserver struct {
 	platform string
 }

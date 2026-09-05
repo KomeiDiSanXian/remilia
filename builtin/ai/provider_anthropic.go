@@ -449,7 +449,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					PartialJSON string `json:"partial_json"`
 				} `json:"delta,omitempty"`
 				// usage 位于事件顶层（message_start 的输入量 / message_delta 的累计输出量）
-				Usage *anthropicUsageBody `json:"usage,omitempty"`
+				Usage        *anthropicUsageBody `json:"usage,omitempty"`
 				ContentBlock *struct {
 					Type  string `json:"type"`
 					ID    string `json:"id"`
@@ -457,7 +457,7 @@ func (c *anthropicClient) ChatStream(ctx context.Context, req *ChatRequest) (<-c
 					Input any    `json:"input"`
 				} `json:"content_block,omitempty"`
 				Message *struct {
-					StopReason string              `json:"stop_reason"`
+					StopReason string `json:"stop_reason"`
 					// message_start 携带输入 token 用量
 					Usage *anthropicUsageBody `json:"usage,omitempty"`
 				} `json:"message,omitempty"`
