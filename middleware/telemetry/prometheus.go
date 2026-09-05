@@ -3,10 +3,18 @@ package telemetry
 import (
 	"time"
 
+	"github.com/KomeiDiSanXian/remilia/command"
 	"github.com/KomeiDiSanXian/remilia/core/context"
 	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+// commands 命令使用计数器（包级单例，幂等注册）。
+var commands = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "remilia",
+	Name:      "command_total",
+	Help:      "命令使用次数（按命令名，子命令以父名计）",
+}, []string{"command"})).(*prometheus.CounterVec)
 
 // PrometheusMetrics 提供 Histogram/Counter 采集。
 //
@@ -33,7 +41,25 @@ func PrometheusMetrics(namespace string) context.Middleware {
 			evt := ctx.GetEventType()
 			requests.WithLabelValues(evt).Inc()
 			latency.WithLabelValues(evt).Observe(el.Seconds())
+			// 命令使用统计：命令规则在 handler 前已解析并缓存到 ctx。
+			if parsed := ctx.GetParsedCommand(); parsed != nil {
+				if name := commandName(parsed); name != "" {
+					commands.WithLabelValues(name).Inc()
+				}
+			}
 			return err
 		}
 	}
+}
+
+// commandName 从解析结果中提取命令名：优先 Definition.Name，
+// 否则取命令路径首段（/ai reset → "ai"）。
+func commandName(parsed *command.Parsed) string {
+	if parsed.Definition != nil && parsed.Definition.Name != "" {
+		return parsed.Definition.Name
+	}
+	if len(parsed.CommandPath) > 0 && parsed.CommandPath[0] != "" {
+		return parsed.CommandPath[0]
+	}
+	return ""
 }

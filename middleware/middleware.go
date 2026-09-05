@@ -12,11 +12,30 @@ import (
 
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/KomeiDiSanXian/remilia/middleware/ctxkeys"
 	"github.com/KomeiDiSanXian/remilia/middleware/dedup"
 	"github.com/KomeiDiSanXian/remilia/middleware/ratelimit"
 	"github.com/KomeiDiSanXian/remilia/middleware/resilience"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
+)
+
+// handlerOutcomeMetrics handler 层异常信号指标（幂等注册，供 /metrics 暴露）：
+//   - {namespace}_handler_panics_total   Recover 中间件捕获的 panic 次数
+//   - {namespace}_handler_timeouts_total Timeout 中间件触发的超时次数
+var (
+	handlerPanics = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "remilia",
+		Name:      "handler_panics_total",
+		Help:      "Recover 中间件捕获的 handler panic 次数",
+	})).(prometheus.Counter)
+
+	handlerTimeouts = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "remilia",
+		Name:      "handler_timeouts_total",
+		Help:      "Timeout 中间件触发的 handler 超时次数",
+	})).(prometheus.Counter)
 )
 
 // Logging 记录处理耗时、事件类型及上下文信息（平台、用户、会话、请求链路 ID）。
@@ -81,6 +100,7 @@ func Recover() eventctx.Middleware {
 		return func(ctx *eventctx.Context) (err error) {
 			defer func() {
 				if r := recover(); r != nil {
+					handlerPanics.Inc()
 					stack := captureStack()
 
 					logger.WithFields(logger.Fields{
@@ -146,6 +166,7 @@ func Timeout(timeout time.Duration) eventctx.Middleware {
 
 			err := next(ctx)
 			if err != nil && stdCtx.Err() != nil {
+				handlerTimeouts.Inc()
 				logger.WithFields(logger.Fields{
 					"timeout":    timeout,
 					"event_type": ctx.GetEventType(),

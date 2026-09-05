@@ -10,8 +10,20 @@ import (
 	eventctx "github.com/KomeiDiSanXian/remilia/core/context"
 	"github.com/KomeiDiSanXian/remilia/errutil"
 	"github.com/KomeiDiSanXian/remilia/infra/logger"
+	inframetrics "github.com/KomeiDiSanXian/remilia/infra/metrics"
 	"github.com/KomeiDiSanXian/remilia/platform"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+// dedupDropped 重复事件被阻断的计数（按平台细分，供 /metrics 暴露）。
+var dedupDropped = inframetrics.MustRegisterOrGet(nil, prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: "remilia",
+		Name:      "dedup_dropped_total",
+		Help:      "被去重中间件阻断的重复事件数（按平台）",
+	},
+	[]string{"platform"},
+)).(*prometheus.CounterVec)
 
 // Persister 去重缓存的持久化接口。
 // 设置后缓存会在启动时从 Load 恢复，并在每次清理过期条目后 Save。
@@ -332,6 +344,7 @@ func Dedup(filter *DedupFilter) eventctx.Middleware {
 			}
 
 			if isDup {
+				dedupDropped.WithLabelValues(pe.Platform()).Inc()
 				logger.WithField("event_id", eventID).
 					Debug("[Dedup] Duplicate event blocked")
 				return nil
