@@ -293,6 +293,8 @@ messagelog:
 #
 #     # —— 模型参数 ——
 #     max_tokens: 2048                    # [R] 每次请求的最大输出 token 数
+#     include_usage: true                 # [R] 流式请求携带 stream_options.include_usage 以统计 token 用量
+#                                         #     （OpenAI 兼容 API；个别不兼容该字段的网关可设为 false）
 #     max_depth: 5                        # [R] 工具调用的最大递归深度（防止工具循环过深）
 #     max_history: 20                     # [R] 保留的最大消息轮数（user+assistant 算一轮），超出从中间裁剪
 #     temperature: 0.7                    # [R] 采样温度 0-2，越高输出越随机

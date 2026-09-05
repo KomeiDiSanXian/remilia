@@ -46,6 +46,32 @@
   `WithToolSource` / `ToolSourceFromContext`（仿 CallerInfo 惯例）——插件工具
   现可读取当前会话信息（平台/会话 ID/发送者/是否群聊），用于会话级状态
 
+### 📊 可观测性：框架与 AI 全面指标化
+
+- **出站发送指标**（`remilia_send_total{platform,status}` / 
+  `remilia_send_duration_seconds{platform}`）：经 ctx.Reply 的 OutboundObserver
+  机制按事件注入（不包装 Sender，保留平台可选接口断言）；sender.Metrics 装饰器
+  同步启用（此前已实现但从未接线），标签新增 platform
+- **Handler 异常信号**（Recover/Timeout 中间件）：`remilia_handler_panics_total`、
+  `remilia_handler_timeouts_total`——最强的问题定位信号
+- **命令使用统计**：`remilia_command_total{command}`（telemetry 中间件，
+  子命令按父命令名计数），可用于命令热度分析与面板排序
+- **事件入口画像**：`remilia_events_received_total{platform,kind}`
+  （引擎 ProcessPlatformEvent* 三入口统一打点）
+- **去重丢弃**：`remilia_dedup_dropped_total{platform}`
+- **AI LLM 指标**（Provider 装饰器，NewProvider 统一包装）：
+  `ai_llm_calls_total{model,result}`（ok/error/stopped，`/ai stop` 中断单独计数）、
+  `ai_llm_latency_seconds{model}`（流式覆盖整段消费时长）、
+  `ai_llm_tokens_total{model,type}`（prompt/completion）、
+  `ai_tool_calls_total{tool,result}`
+- **Token 用量解析**：ChatResponse/StreamEvent 新增 `Usage` 字段；
+  OpenAI 流式经 `stream_options.include_usage`（新配置 `include_usage`，默认
+  true，不兼容该字段的网关可关闭）；Anthropic 解析 message_start（输入）与
+  message_delta（输出）
+- Grafana "Remilia Bot" 看板扩至 23 个面板（新增出站发送、panic/超时、
+  去重丢弃、LLM 调用/Token/延迟、命令与工具 Top10 排行）
+- 新增配置：`plugins.ai.include_usage`（默认 true）
+
 ### 🔧 工程
 
 - cmd/bot 新增依赖 `golang.org/x/sync`（singleflight）
