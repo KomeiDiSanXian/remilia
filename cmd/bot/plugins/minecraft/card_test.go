@@ -169,14 +169,47 @@ func TestRenderMCCardWithAvatars(t *testing.T) {
 }
 
 func TestHeadIdentifier(t *testing.T) {
-	if got := headIdentifier(&PlayerInfo{Name: "Steve", UUID: "abc"}); got != "abc" {
-		t.Errorf("UUID 应优先, got %q", got)
+	// 正版 v4 UUID 优先
+	if got := headIdentifier(&PlayerInfo{Name: "Steve", UUID: "069a79f4-44e9-4726-a5be-fca90e38aaf5"}); got != "069a79f4-44e9-4726-a5be-fca90e38aaf5" {
+		t.Errorf("正版 v4 UUID 应优先, got %q", got)
+	}
+	// 离线模式 v3 UUID（按玩家名派生）→ 回退玩家名
+	offlineUUID := "11111111-2222-3333-4444-555566667777"
+	if got := headIdentifier(&PlayerInfo{Name: "Steve", UUID: offlineUUID}); got != "Steve" {
+		t.Errorf("离线 v3 UUID 应回退玩家名, got %q", got)
+	}
+	// 非法 UUID → 回退玩家名
+	if got := headIdentifier(&PlayerInfo{Name: "Steve_123", UUID: "abc"}); got != "Steve_123" {
+		t.Errorf("非法 UUID 应回退玩家名, got %q", got)
 	}
 	if got := headIdentifier(&PlayerInfo{Name: "Steve_123"}); got != "Steve_123" {
 		t.Errorf("合法玩家名应通过, got %q", got)
 	}
 	if got := headIdentifier(&PlayerInfo{Name: "bad name!"}); got != "" {
 		t.Errorf("含特殊字符的名字应被拒绝, got %q", got)
+	}
+}
+
+func TestIsPremiumUUID(t *testing.T) {
+	premium := []string{
+		"069a79f4-44e9-4726-a5be-fca90e38aaf5", // Notch（v4）
+		"069a79f444e94726a5befca90e38aaf5",     // 无连字符
+		"853c80ef-3c37-49ec-a4d0-5c1f8f7d8e91", // jeb_（v4）
+	}
+	for _, id := range premium {
+		if !isPremiumUUID(id) {
+			t.Errorf("%s 应判定为正版 v4 UUID", id)
+		}
+	}
+	offline := []string{
+		"11111111-2222-3333-4444-555566667777",          // 离线 v3（nameUUIDFromBytes）
+		"00000000-0000-0000-0009-1c9b48c9a1b2",          // Floodgate（基岩玩家）
+		"", "abc", "11111111-2222-4333-444-55556666777", // 残缺
+	}
+	for _, id := range offline {
+		if isPremiumUUID(id) {
+			t.Errorf("%q 不应判定为正版 UUID", id)
+		}
 	}
 }
 

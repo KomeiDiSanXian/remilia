@@ -64,9 +64,12 @@ func fetchPlayerHeads(ctx context.Context, client *http.Client, players []Player
 	wg.Wait()
 }
 
-// headIdentifier 返回头像请求标识：优先 UUID，否则校验玩家名合法性。
+// headIdentifier 返回头像请求标识。
+// 正版（在线模式）服务器派发随机 v4 UUID，优先用 UUID 查询（玩家改名不影响）；
+// 离线模式服务器的 UUID 是按玩家名派生的 v3 UUID，用它查 mc-heads 只会 404，
+// 此时回退玩家名（mc-heads 按名解析，可命中同名的正版皮肤）。
 func headIdentifier(p *PlayerInfo) string {
-	if p.UUID != "" {
+	if isPremiumUUID(p.UUID) {
 		return p.UUID
 	}
 	for _, r := range p.Name {
@@ -76,6 +79,18 @@ func headIdentifier(p *PlayerInfo) string {
 		return ""
 	}
 	return p.Name
+}
+
+// isPremiumUUID 判断是否为随机 v4 UUID（正版账号标识）。
+// 离线模式服务器经 nameUUIDFromBytes 派生的是 v3 UUID（版本号位于第三组首字符）。
+func isPremiumUUID(id string) bool {
+	switch {
+	case len(id) == 36 && id[8] == '-' && id[13] == '-' && id[18] == '-' && id[23] == '-':
+		return id[14] == '4'
+	case len(id) == 32: // 无连字符形式
+		return id[12] == '4'
+	}
+	return false
 }
 
 func fetchPlayerHead(ctx context.Context, client *http.Client, id string) ([]byte, error) {

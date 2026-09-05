@@ -203,7 +203,7 @@ func TestQueryNegativeCache(t *testing.T) {
 		cfg:      Config{Timeout: 2 * time.Second, CacheTTL: time.Minute, Avatars: false, EnableQuery: false, DirectQuery: true},
 		client:   &http.Client{Timeout: 2 * time.Second},
 		cache:    newTTLCache[*MCServerStatus](time.Minute, 8),
-		errCache: newTTLCache[error](40 * time.Millisecond, 8),
+		errCache: newTTLCache[error](40*time.Millisecond, 8),
 	}
 	if _, queryErr := p.query(context.Background(), "127.0.0.1", port, "java"); queryErr == nil {
 		t.Fatal("离线端口应报错")
