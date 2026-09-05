@@ -25,6 +25,7 @@ func (e *Engine) ProcessPlatformEvent(event platform.Event, sender platform.Send
 		logger.Warn("[engine] ProcessPlatformEvent: nil event, skipping")
 		return
 	}
+	recordEventReceived(event)
 
 	ctx := context.NewContextFromEvent(event, sender)
 
@@ -42,6 +43,7 @@ func (e *Engine) ProcessPlatformEventSync(event platform.Event, sender platform.
 		logger.Warn("[engine] ProcessPlatformEventSync: nil event, skipping")
 		return
 	}
+	recordEventReceived(event)
 
 	ctx := context.NewContextFromEvent(event, sender)
 
@@ -60,6 +62,7 @@ func (e *Engine) ProcessPlatformEventEx(event platform.Event, sender platform.Se
 		logger.Warn("[engine] ProcessPlatformEventEx: nil event, skipping")
 		return
 	}
+	recordEventReceived(event)
 
 	ctx := context.NewContextFromEvent(event, sender)
 
