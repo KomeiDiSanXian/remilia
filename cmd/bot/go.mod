@@ -9,6 +9,7 @@ require (
 	github.com/tidwall/gjson v1.19.0
 	golang.org/x/image v0.45.0
 	golang.org/x/net v0.58.0
+	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	gorm.io/gorm v1.31.2
 )

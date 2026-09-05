@@ -2,6 +2,7 @@ package minecraft
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -46,23 +48,24 @@ var motdColors = map[byte]color.Color{
 	'f': color.RGBA{255, 255, 255, 255},
 }
 
-var motdBoldColors = map[byte]color.Color{ //nolint:unused
-	'0': color.RGBA{30, 30, 30, 255},
-	'1': color.RGBA{30, 30, 220, 255},
-	'2': color.RGBA{30, 220, 30, 255},
-	'3': color.RGBA{30, 220, 220, 255},
-	'4': color.RGBA{220, 30, 30, 255},
-	'5': color.RGBA{220, 30, 220, 255},
-	'6': color.RGBA{255, 200, 30, 255},
-	'7': color.RGBA{180, 180, 180, 255},
-	'8': color.RGBA{100, 100, 100, 255},
-	'9': color.RGBA{100, 100, 255, 255},
-	'a': color.RGBA{100, 255, 100, 255},
-	'b': color.RGBA{100, 255, 255, 255},
-	'c': color.RGBA{255, 100, 100, 255},
-	'd': color.RGBA{255, 100, 255, 255},
-	'e': color.RGBA{255, 255, 100, 255},
-	'f': color.RGBA{255, 255, 255, 255},
+// motdNamedColors Java 文本组件中的命名颜色（JSON color 字段）。
+var motdNamedColors = map[string]color.Color{
+	"black":        color.RGBA{0, 0, 0, 255},
+	"dark_blue":    color.RGBA{0, 0, 170, 255},
+	"dark_green":   color.RGBA{0, 170, 0, 255},
+	"dark_aqua":    color.RGBA{0, 170, 170, 255},
+	"dark_red":     color.RGBA{170, 0, 0, 255},
+	"dark_purple":  color.RGBA{170, 0, 170, 255},
+	"gold":         color.RGBA{255, 170, 0, 255},
+	"gray":         color.RGBA{170, 170, 170, 255},
+	"dark_gray":    color.RGBA{85, 85, 85, 255},
+	"blue":         color.RGBA{85, 85, 255, 255},
+	"green":        color.RGBA{85, 255, 85, 255},
+	"aqua":         color.RGBA{85, 85, 255, 255},
+	"red":          color.RGBA{255, 85, 85, 255},
+	"light_purple": color.RGBA{255, 85, 255, 255},
+	"yellow":       color.RGBA{255, 255, 85, 255},
+	"white":        color.RGBA{255, 255, 255, 255},
 }
 
 // MotdSegment 表示 MOTD 中一个具有特定颜色和加粗属性的文本段。
@@ -74,27 +77,43 @@ type MotdSegment struct {
 
 // MCServerStatus 包含 Minecraft 服务器查询的完整结果。
 type MCServerStatus struct {
-	Online    bool
-	Host      string
-	Port      int
-	Latency   time.Duration
-	Edition   string
-	Version   string
-	Protocol  int
+	Online   bool
+	Host     string
+	Port     int
+	Latency  time.Duration
+	Edition  string
+	Version  string
+	Protocol int
+	// Via 查询途径：slp（Java 直连）/ raknet（Bedrock 直连）/ api（mcsrvstat.us）。
+	Via       string
 	MOTD      []MotdSegment
 	MOTDPlain string
-	Players   struct {
+	// SubMOTD 第二行 MOTD（Bedrock sub-MOTD / API 多行 MOTD），可为空。
+	SubMOTD      []MotdSegment
+	SubMOTDPlain string
+	GameMode     string
+	Map          string
+	// Software 服务端软件（GS4 plugins 字段解析，如 "Paper 1.21.1"）。
+	Software string
+	// PluginCount / PluginNames 服务端插件数量与名称（GS4，可为空）。
+	PluginCount int
+	PluginNames []string
+	Players     struct {
 		Online int
 		Max    int
 		List   []PlayerInfo
 	}
 	Favicon []byte
+	// Error 服务器无法连接时的错误描述（仅离线状态卡片使用）。
+	Error string
 }
 
 // PlayerInfo 表示服务器上的一个在线玩家。
 type PlayerInfo struct {
 	Name string `json:"name"`
 	UUID string `json:"id"`
+	// Head 玩家头像 PNG 字节（mc-heads.net，仅开启头像功能时填充）。
+	Head []byte `json:"-"`
 }
 
 type javaResponse struct {
@@ -119,20 +138,64 @@ func parseJavaDescription(raw json.RawMessage, result *MCServerStatus) {
 		result.MOTDPlain = "A Minecraft Server"
 		return
 	}
+	var segments []MotdSegment
 	if raw[0] == '"' {
 		var s string
 		json.Unmarshal(raw, &s)
-		result.MOTD = ParseMotd(s)
-		result.MOTDPlain = stripMotd(s)
-		return
+		segments = ParseMotd(s)
+	} else {
+		segments = parseTextComponents(raw)
 	}
+
+	// 按 \n 拆分两行 MOTD（MC 惯例两行）；第二行复用 SubMOTD 渲染
+	line1, line2 := splitMotdLines(segments)
+	if len(line1) == 0 {
+		line1 = []MotdSegment{{Text: "A Minecraft Server", Color: color.White}}
+	}
+	result.MOTD = line1
+	result.SubMOTD = line2
+	result.MOTDPlain = motdLinesText(line1, line2)
+	result.SubMOTDPlain = motdSegmentText(line2)
+}
+
+// splitMotdLines 将分段文本按换行拆为最多两行（换行后的所有内容都归第二行）。
+func splitMotdLines(segments []MotdSegment) (line1, line2 []MotdSegment) {
+	line := 0
+	for _, seg := range segments {
+		parts := strings.Split(seg.Text, "\n")
+		for j, part := range parts {
+			if j > 0 {
+				line++ // 先推进行号：空段（如换行结尾）也计入换行
+			}
+			if part == "" {
+				continue
+			}
+			if line >= 1 {
+				line2 = append(line2, MotdSegment{Text: part, Color: seg.Color, Bold: seg.Bold})
+			} else {
+				line1 = append(line1, MotdSegment{Text: part, Color: seg.Color, Bold: seg.Bold})
+			}
+		}
+	}
+	return line1, line2
+}
+
+// motdSegmentText 拼接分段文本（分段已不含颜色码）。
+func motdSegmentText(segments []MotdSegment) string {
 	var sb strings.Builder
-	segments := parseTextComponents(raw)
-	result.MOTD = segments
 	for _, s := range segments {
 		sb.WriteString(s.Text)
 	}
-	result.MOTDPlain = sb.String()
+	return sb.String()
+}
+
+// motdLinesText 拼接两行 MOTD 为纯文本（行间以 \n 分隔）。
+func motdLinesText(line1, line2 []MotdSegment) string {
+	text := motdSegmentText(line1)
+	if sub := motdSegmentText(line2); sub != "" {
+		return text + "\n" + sub
+	}
+	return text
 }
 
 type textComponent struct {
@@ -162,7 +225,8 @@ func collectTextComponents(c *textComponent, out *[]MotdSegment, parentBold bool
 		}
 	}
 	if c.Text != "" {
-		*out = append(*out, MotdSegment{Text: c.Text, Color: col, Bold: bold})
+		// 兼容旧式 § 颜色码混入 JSON 文本组件（继承组件自身的颜色/加粗为基准）
+		*out = append(*out, parseMotdWithBase(c.Text, col, bold)...)
 	}
 	for _, extra := range c.Extra {
 		var child textComponent
@@ -174,25 +238,7 @@ func collectTextComponents(c *textComponent, out *[]MotdSegment, parentBold bool
 }
 
 func resolveColor(nameOrCode string) (color.Color, bool) {
-	named := map[string]color.Color{
-		"black":        color.RGBA{0, 0, 0, 255},
-		"dark_blue":    color.RGBA{0, 0, 170, 255},
-		"dark_green":   color.RGBA{0, 170, 0, 255},
-		"dark_aqua":    color.RGBA{0, 170, 170, 255},
-		"dark_red":     color.RGBA{170, 0, 0, 255},
-		"dark_purple":  color.RGBA{170, 0, 170, 255},
-		"gold":         color.RGBA{255, 170, 0, 255},
-		"gray":         color.RGBA{170, 170, 170, 255},
-		"dark_gray":    color.RGBA{85, 85, 85, 255},
-		"blue":         color.RGBA{85, 85, 255, 255},
-		"green":        color.RGBA{85, 255, 85, 255},
-		"aqua":         color.RGBA{85, 255, 255, 255},
-		"red":          color.RGBA{255, 85, 85, 255},
-		"light_purple": color.RGBA{255, 85, 255, 255},
-		"yellow":       color.RGBA{255, 255, 85, 255},
-		"white":        color.RGBA{255, 255, 255, 255},
-	}
-	if c, ok := named[nameOrCode]; ok {
+	if c, ok := motdNamedColors[nameOrCode]; ok {
 		return c, true
 	}
 	if len(nameOrCode) == 6 || len(nameOrCode) == 8 {
@@ -213,42 +259,217 @@ func parseHexColor(hex string) color.Color {
 	return color.RGBA{R: r, G: g, B: b, A: a}
 }
 
-// Ping 自动探测服务器版本，先尝试 Java 版查询（超时减半），失败后回退到 Bedrock。
+// parseHostPort 解析 "主机[:端口]" 形式的服务器地址。
+// 兼容 IPv6：[::1]:25565 正确拆分端口，裸 IPv6（多个冒号且无端口）整体视为主机名。
+// 返回 port=0 表示未指定端口，由调用方按版本选择默认值。
+func parseHostPort(addr string) (string, int, error) {
+	addr = strings.TrimSpace(addr)
+	for _, scheme := range []string{"https://", "http://", "tcp://"} {
+		addr = strings.TrimPrefix(addr, scheme)
+	}
+	if addr == "" {
+		return "", 0, errors.New("服务器地址为空")
+	}
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		// 无端口：整体视为主机名（含裸 IPv6）
+		return addr, 0, nil
+	}
+	if host == "" {
+		return "", 0, fmt.Errorf("服务器地址无效: %q", addr)
+	}
+	if portStr == "" {
+		return host, 0, nil
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("端口无效: %q", portStr)
+	}
+	return host, port, nil
+}
+
+// remainingTimeout 返回自 start 起的剩余超时预算，下限 2s，
+// 保证每次回退（API 查询等）至少仍有一次尝试机会。
+func remainingTimeout(start time.Time, total time.Duration) time.Duration {
+	return max(total-time.Since(start), 2*time.Second)
+}
+
+// Ping 自动探测服务器版本，先尝试 Java 版查询，失败后回退到 Bedrock。
+// 显式指定 Bedrock 默认端口（19132）时优先探测 Bedrock。
+// timeout 为两版探测共享的总预算，直连与 API 回退均从该预算扣减。
 func Ping(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
-	half := max(timeout/2, 2*time.Second)
-	status, err := PingJava(host, port, half)
+	start := time.Now()
+	if port == DefaultBedrockPort {
+		status, err := PingBedrock(host, port, timeout/2)
+		if err == nil {
+			return status, nil
+		}
+		return PingJava(host, port, remainingTimeout(start, timeout))
+	}
+	status, err := PingJava(host, port, timeout/2)
 	if err == nil {
 		return status, nil
 	}
-	remaining := max(timeout-half, 2*time.Second)
-	return PingBedrock(host, port, remaining)
+	return PingBedrock(host, port, remainingTimeout(start, timeout))
 }
 
-// ResolveAddr 解析服务器地址。若 port > 0 直接返回；否则尝试 SRV 记录查询 minecraft._tcp。
+// srvEntry SRV 解析结果缓存条目（成功与"无 SRV 记录"均缓存，避免重复 DNS 查询）。
+type srvEntry struct {
+	host string
+	port int
+}
+
+// srvCache SRV 解析缓存。
+var srvCache = newTTLCache[srvEntry](5*time.Minute, 1024)
+
+// ResolveAddr 解析服务器地址。若 port > 0 直接返回；否则尝试 SRV 记录查询 minecraft._tcp
+// （结果缓存 5 分钟，未配置 SRV 的主机同样缓存，避免每次查询都打 DNS）。
 func ResolveAddr(host string, port int) (string, int, error) {
 	if port > 0 {
 		return host, port, nil
 	}
-	_, srvs, err := net.LookupSRV("minecraft", "tcp", host)
-	if err == nil && len(srvs) > 0 {
-		return srvs[0].Target, int(srvs[0].Port), nil
+	if e, ok := srvCache.get(host); ok {
+		return e.host, e.port, nil
 	}
-	return host, DefaultJavaPort, nil
+	target, tport := host, DefaultJavaPort
+	if _, srvs, err := net.LookupSRV("minecraft", "tcp", host); err == nil && len(srvs) > 0 {
+		target = srvs[0].Target
+		tport = int(srvs[0].Port)
+	}
+	srvCache.set(host, srvEntry{host: target, port: tport})
+	return target, tport, nil
+}
+
+// isPrivateIP 判断 IP 是否为私有/保留地址（回环、链路本地、RFC1918、CGNAT、IPv6 ULA）。
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		switch {
+		case v4[0] == 10:
+			return true
+		case v4[0] == 172 && v4[1] >= 16 && v4[1] <= 31:
+			return true
+		case v4[0] == 192 && v4[1] == 168:
+			return true
+		case v4[0] == 169 && v4[1] == 254:
+			return true
+		case v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127: // CGNAT（Tailscale 等）
+			return true
+		}
+		return false
+	}
+	// IPv6 ULA fc00::/7
+	return len(ip) >= 2 && ip[0]&0xfe == 0xfc
+}
+
+// isPrivateTarget 判断目标是否为私有地址（字面 IP 直接判断；主机名解析后判断，
+// 解析失败视为非私有——交由直连/API 各自报错）。
+func isPrivateTarget(host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		return isPrivateIP(ip)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupHost(ctx, host)
+	if err != nil {
+		return false
+	}
+	for _, s := range ips {
+		if ip := net.ParseIP(s); ip != nil && isPrivateIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// protocolNames 常见协议号 → 版本名（仅用于 version name 缺失时的兜底展示）。
+var protocolNames = map[int]string{
+	47:  "1.8",
+	107: "1.9",
+	110: "1.9.4",
+	210: "1.10.2",
+	315: "1.11",
+	316: "1.11.1",
+	335: "1.12",
+	338: "1.12.1",
+	340: "1.12.2",
+	393: "1.13",
+	401: "1.13.1",
+	404: "1.13.2",
+	441: "1.14",
+	480: "1.14.4",
+	498: "1.15",
+	578: "1.15.2",
+	735: "1.16",
+	751: "1.16.5",
+	754: "1.17.1",
+	757: "1.18.2",
+	758: "1.19.2",
+	761: "1.19.4",
+	763: "1.20.1",
+	765: "1.20.4",
+	766: "1.20.6",
+	767: "1.21",
+	768: "1.21.1",
+	769: "1.21.4",
+}
+
+// protocolVersionName 返回协议号对应的近似版本名（未知协议返回 "未知"）。
+func protocolVersionName(protocol int) string {
+	if name, ok := protocolNames[protocol]; ok {
+		return name
+	}
+	return "未知"
+}
+
+// PingViaAPI 仅通过 mcsrvstat.us HTTP API 查询，跳过直连发包。
+//
+// 直连发包是裸 TCP/UDP socket，无法经过 HTTP 代理；在出站需代理或有
+// 防火墙限制的部署环境中，直连仅内网可用、外网必失败。此类环境可将
+// 插件配置 direct_query 设为 false，全部改走 API（net/http 遵循代理
+// 环境变量，因而可穿透）。
+func PingViaAPI(host string, port int, edition string, timeout time.Duration) (*MCServerStatus, error) {
+	start := time.Now()
+	switch edition {
+	case "java":
+		return pingJavaViaAPI(host, port, timeout)
+	case "bedrock":
+		return pingBedrockViaAPI(host, port, timeout)
+	default:
+		if port == DefaultBedrockPort {
+			status, err := pingBedrockViaAPI(host, port, timeout/2)
+			if err == nil {
+				return status, nil
+			}
+			return pingJavaViaAPI(host, port, remainingTimeout(start, timeout))
+		}
+		status, err := pingJavaViaAPI(host, port, timeout/2)
+		if err == nil {
+			return status, nil
+		}
+		return pingBedrockViaAPI(host, port, remainingTimeout(start, timeout))
+	}
 }
 
 // PingJava 使用 Minecraft Server List Ping 协议查询 Java 版服务器状态。
-// 首先尝试 TCP SLP 直连，失败后自动回退到 mcsrvstat.us HTTP API。
+// 首先尝试 TCP SLP 直连，失败后自动回退到 mcsrvstat.us HTTP API；
+// 直连与 API 回退共享 timeout 总预算。
 func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
+	start := time.Now()
 	origHost, origPort := host, port
 	host, port, _ = ResolveAddr(host, port)
 	addr := net.JoinHostPort(host, fmt.Sprint(port))
 
-	conn, err := net.DialTimeout("tcp4", addr, timeout)
+	// "tcp" 双栈：IPv4/IPv6 均可（Go 会按解析结果逐一尝试）
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
-		return pingJavaViaAPI(origHost, origPort, timeout)
+		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(timeout))
+	// 整个握手 + 往返共享同一 deadline，避免各阶段超时被逐一拉长
+	conn.SetDeadline(start.Add(timeout))
 
 	pkt := &packetBuffer{}
 	pkt.writeVarInt(protocolVersion)
@@ -256,14 +477,17 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	pkt.writeUint16(uint16(port))
 	pkt.writeVarInt(1)
 
-	sendPacket(conn, 0x00, pkt.bytes())
+	if err := sendPacket(conn, 0x00, pkt.bytes()); err != nil {
+		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+	}
+	// 握手后立即发送空的 Status Request
+	if err := sendPacket(conn, 0x00, nil); err != nil {
+		return pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
+	}
 
-	sendPacket(conn, 0x00, nil)
-
-	start := time.Now()
 	respData, err := readPacket(conn)
 	if err != nil {
-		status, apiErr := pingJavaViaAPI(origHost, origPort, timeout)
+		status, apiErr := pingJavaViaAPI(origHost, origPort, remainingTimeout(start, timeout))
 		if apiErr == nil {
 			return status, nil
 		}
@@ -274,7 +498,9 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 	if err != nil {
 		return nil, fmt.Errorf("read packet id: %w", err)
 	}
-	_ = pid
+	if pid != 0x00 {
+		return nil, fmt.Errorf("unexpected status packet id 0x%02x", pid)
+	}
 	jsonStr, err := r.readString()
 	if err != nil {
 		return nil, fmt.Errorf("read json string: %w", err)
@@ -285,10 +511,12 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 		return nil, fmt.Errorf("parse json: %w", err)
 	}
 
-	sendPing := &packetBuffer{}
-	sendPing.writeInt64(start.UnixMilli())
 	pingStart := time.Now()
-	sendPacket(conn, 0x01, sendPing.bytes())
+	sendPing := &packetBuffer{}
+	sendPing.writeInt64(pingStart.UnixMilli())
+	if err := sendPacket(conn, 0x01, sendPing.bytes()); err != nil {
+		return nil, fmt.Errorf("send ping: %w", err)
+	}
 	pongData, err := readPacket(conn)
 	if err == nil {
 		pr := &packetReader{data: pongData}
@@ -303,6 +531,7 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 		Port:     port,
 		Latency:  latency,
 		Edition:  "java",
+		Via:      "slp",
 		Version:  jr.Version.Name,
 		Protocol: jr.Version.Protocol,
 		Players: struct {
@@ -329,34 +558,35 @@ func PingJava(host string, port int, timeout time.Duration) (*MCServerStatus, er
 }
 
 // PingBedrock 使用 RakNet Unconnected Ping 协议查询 Bedrock 版服务器状态。
-// 首先尝试 UDP 直连（速度快），失败后自动回退到 mcsrvstat.us HTTP API。
+// 首先尝试 UDP 直连（速度快），失败后自动回退到 mcsrvstat.us HTTP API；
+// 直连与 API 回退共享 timeout 总预算。
 func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
+	start := time.Now()
 	if port <= 0 {
 		port = DefaultBedrockPort
 	}
 
 	addr := net.JoinHostPort(host, fmt.Sprint(port))
-	ra, err := net.ResolveUDPAddr("udp4", addr)
+	ra, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: resolve: %w", ErrNotOnline, err)
 	}
-	laddr, err := net.ResolveUDPAddr("udp4", ":0")
+	laddr, err := net.ResolveUDPAddr("udp", ":0")
 	if err != nil {
 		return nil, fmt.Errorf("%w: local addr: %w", ErrNotOnline, err)
 	}
-	conn, err := net.ListenUDP("udp4", laddr)
+	conn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: listen: %w", ErrNotOnline, err)
 	}
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(timeout))
+	conn.SetDeadline(start.Add(timeout))
 
 	pingData := make([]byte, 25)
 	pingData[0] = 0x01
 	binary.BigEndian.PutUint64(pingData[1:9], uint64(time.Now().UnixMilli()))
 	copy(pingData[9:25], []byte{0x00, 0xff, 0xff, 0x00, 0xfe, 0xfe, 0xfe, 0xfe, 0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78})
 
-	start := time.Now()
 	if _, err := conn.WriteTo(pingData, ra); err != nil {
 		return nil, fmt.Errorf("%w: write: %w", ErrNotOnline, err)
 	}
@@ -364,7 +594,7 @@ func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus,
 	resp := make([]byte, 2048)
 	n, _, err := conn.ReadFrom(resp)
 	if err != nil {
-		status, apiErr := pingBedrockViaAPI(host, port, timeout)
+		status, apiErr := pingBedrockViaAPI(host, port, remainingTimeout(start, timeout))
 		if apiErr == nil {
 			return status, nil
 		}
@@ -392,23 +622,34 @@ func PingBedrock(host string, port int, timeout time.Duration) (*MCServerStatus,
 		Port:    port,
 		Latency: latency,
 		Edition: "bedrock",
+		Via:     "raknet",
 	}
 
-	if len(fields) >= 1 {
-		_ = fields[0]
+	// Bedrock pong 字段布局：
+	// 0 GameName | 1 MOTD | 2 协议版本 | 3 游戏版本 | 4 在线玩家 | 5 最大玩家
+	// 6 服务器 ID | 7 次级 MOTD | 8 游戏模式 | 9 模式编号 | 10/11 IPv4/IPv6 端口
+	if len(fields) > 1 && fields[1] != "" {
+		result.MOTD = ParseMotd(fields[1])
+		result.MOTDPlain = stripMotd(fields[1])
 	}
-	if len(fields) >= 2 {
-		result.MOTDPlain = fields[1]
-		result.MOTD = []MotdSegment{{Text: fields[1], Color: color.White}}
+	if len(fields) > 2 {
+		result.Protocol, _ = strconv.Atoi(fields[2])
 	}
-	if len(fields) >= 4 {
+	if len(fields) > 3 {
 		result.Version = fields[3]
 	}
-	if len(fields) >= 5 {
-		fmt.Sscanf(fields[4], "%d", &result.Players.Online)
+	if len(fields) > 4 {
+		result.Players.Online, _ = strconv.Atoi(fields[4])
 	}
-	if len(fields) >= 6 {
-		fmt.Sscanf(fields[5], "%d", &result.Players.Max)
+	if len(fields) > 5 {
+		result.Players.Max, _ = strconv.Atoi(fields[5])
+	}
+	if len(fields) > 7 && fields[7] != "" {
+		result.SubMOTD = ParseMotd(fields[7])
+		result.SubMOTDPlain = stripMotd(fields[7])
+	}
+	if len(fields) > 8 {
+		result.GameMode = fields[8]
 	}
 
 	return result, nil
@@ -435,11 +676,49 @@ type bedrockAPIResponse struct {
 	} `json:"players"`
 }
 
+// apiHTTPClient mcsrvstat.us API 共享客户端。
+// 请求级超时由各调用方的 context 控制，Client.Timeout 仅作兜底上限。
+var apiHTTPClient = &http.Client{Timeout: 20 * time.Second}
+
+// apiResponseError 将非 2xx 的 API 响应转为可读错误。
+// mcsrvstat.us 存在速率限制，429 时给出明确提示。
+func apiResponseError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return fmt.Errorf("mcsrvstat.us API 限流（HTTP 429），请稍后重试")
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	return fmt.Errorf("mcsrvstat.us API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+// applyAPIMOTD 将 API 返回的多行 MOTD 写入状态（Raw 保留颜色码，Clean 兜底）。
+func applyAPIMOTD(result *MCServerStatus, raw, clean []string) {
+	if len(raw) > 0 {
+		result.MOTD = ParseMotd(raw[0])
+	}
+	if len(raw) > 1 {
+		result.SubMOTD = ParseMotd(raw[1])
+	}
+	if len(clean) > 0 {
+		result.MOTDPlain = clean[0]
+		result.MOTD = []MotdSegment{{Text: clean[0], Color: color.White}}
+	}
+	if len(clean) > 1 {
+		result.SubMOTDPlain = clean[1]
+		if len(raw) <= 1 {
+			result.SubMOTD = []MotdSegment{{Text: clean[1], Color: color.White}}
+		}
+	}
+}
+
 // pingBedrockViaAPI 通过 mcsrvstat.us HTTP API 查询 Bedrock 服务器状态。
 // 用于 UDP 直连失败时的回退方案，API 使用 HTTPS 因而能穿透 UDP 封锁。
+// 私有地址不经过第三方 API（公网 API 无法路由内网地址，且会泄露内网拓扑）。
 func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
 	if port <= 0 {
 		port = DefaultBedrockPort
+	}
+	if isPrivateTarget(host) {
+		return nil, fmt.Errorf("%w（私有地址不通过第三方 API 查询）", ErrNotOnline)
 	}
 	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/bedrock/3/%s:%d", host, port)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -450,14 +729,18 @@ func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerS
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("api: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, apiResponseError(resp)
+	}
+
 	var apiResp bedrockAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("api json: %w", err)
 	}
 	if !apiResp.Online {
@@ -465,11 +748,11 @@ func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerS
 	}
 
 	result := &MCServerStatus{
-		Online:    true,
-		Host:      apiResp.Hostname,
-		Port:      apiResp.Port,
-		Edition:   "bedrock",
-		MOTDPlain: strings.Join(apiResp.MOTD.Clean, " | "),
+		Online:  true,
+		Host:    apiResp.Hostname,
+		Port:    apiResp.Port,
+		Edition: "bedrock",
+		Via:     "api",
 	}
 
 	version := apiResp.Version
@@ -477,12 +760,9 @@ func pingBedrockViaAPI(host string, port int, timeout time.Duration) (*MCServerS
 		version = apiResp.Protocol.Name
 	}
 	result.Version = version
+	result.Protocol = apiResp.Protocol.Version
 
-	if len(apiResp.MOTD.Raw) > 0 {
-		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Raw, " | "), Color: color.White}}
-	} else if len(apiResp.MOTD.Clean) > 0 {
-		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Clean, " | "), Color: color.White}}
-	}
+	applyAPIMOTD(result, apiResp.MOTD.Raw, apiResp.MOTD.Clean)
 
 	result.Players.Online = apiResp.Players.Online
 	result.Players.Max = apiResp.Players.Max
@@ -514,9 +794,13 @@ type javaAPIResponse struct {
 }
 
 // pingJavaViaAPI 通过 mcsrvstat.us HTTP API 查询 Java 版服务器状态。
+// 私有地址不经过第三方 API（公网 API 无法路由内网地址，且会泄露内网拓扑）。
 func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStatus, error) {
 	if port <= 0 {
 		port = DefaultJavaPort
+	}
+	if isPrivateTarget(host) {
+		return nil, fmt.Errorf("%w（私有地址不通过第三方 API 查询）", ErrNotOnline)
 	}
 	apiURL := fmt.Sprintf("https://api.mcsrvstat.us/3/%s:%d", host, port)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -527,14 +811,18 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "RemiliaBot/1.0")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("api: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, apiResponseError(resp)
+	}
+
 	var apiResp javaAPIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("api json: %w", err)
 	}
 	if !apiResp.Online {
@@ -547,6 +835,7 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 		Port:     apiResp.Port,
 		Latency:  time.Duration(apiResp.Ping) * time.Millisecond,
 		Edition:  "java",
+		Via:      "api",
 		Version:  apiResp.Version,
 		Protocol: apiResp.Protocol,
 		Players: struct {
@@ -557,14 +846,9 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 			Online: apiResp.Players.Online,
 			Max:    apiResp.Players.Max,
 		},
-		MOTDPlain: strings.Join(apiResp.MOTD.Clean, " | "),
 	}
 
-	if len(apiResp.MOTD.Raw) > 0 {
-		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Raw, " | "), Color: color.White}}
-	} else if len(apiResp.MOTD.Clean) > 0 {
-		result.MOTD = []MotdSegment{{Text: strings.Join(apiResp.MOTD.Clean, " | "), Color: color.White}}
-	}
+	applyAPIMOTD(result, apiResp.MOTD.Raw, apiResp.MOTD.Clean)
 
 	if apiResp.Favicon != "" {
 		clean := strings.TrimPrefix(apiResp.Favicon, "data:image/png;base64,")
@@ -581,40 +865,51 @@ func pingJavaViaAPI(host string, port int, timeout time.Duration) (*MCServerStat
 
 // ParseMotd 解析 Minecraft MOTD 中的 § 颜色代码，返回带颜色和属性的文本段切片。
 // 支持 §0-§f 颜色、§l 加粗、§r 重置；§k、§m、§n、§o 被直接忽略。
+// '&' 仅在其后紧跟合法代码字符时作为前缀，避免误伤正文中的字面 &。
 func ParseMotd(raw string) []MotdSegment {
-	if raw == "" {
+	return parseMotdWithBase(raw, color.White, false)
+}
+
+// parseMotdWithBase 同 ParseMotd，但初始颜色/加粗继承调用方——用于 JSON
+// 文本组件内嵌旧式颜色码的场景（继承组件自身的颜色与加粗属性）。
+// 按 rune 迭代：§ 在 UTF-8 中占两个字节，按字节处理会混入杂散 0xC2。
+func parseMotdWithBase(raw string, baseColor color.Color, baseBold bool) []MotdSegment {
+	runes := []rune(raw)
+	if len(runes) == 0 {
 		return []MotdSegment{{Text: "A Minecraft Server", Color: color.White}}
 	}
 	var segments []MotdSegment
 	var buf strings.Builder
-	var currentColor color.Color = color.White
-	bold := false
+	currentColor := baseColor
+	bold := baseBold
 
-	i := 0
 	flush := func() {
 		if buf.Len() > 0 {
 			segments = append(segments, MotdSegment{Text: buf.String(), Color: currentColor, Bold: bold})
 			buf.Reset()
 		}
 	}
-	for i < len(raw) {
-		if raw[i] == '\u00a7' || raw[i] == '\u0026' {
+	for i := 0; i < len(runes); {
+		r := runes[i]
+		if r == '\u00a7' || (r == '&' && i+1 < len(runes) && isMotdCode(runes[i+1])) {
 			i++
-			if i >= len(raw) {
+			if i >= len(runes) {
 				break
 			}
-			code := raw[i]
+			code := toLowerRune(runes[i])
 			i++
 			switch {
-			case code >= '0' && code <= '9' || code >= 'a' && code <= 'f' || code >= 'A' && code <= 'F':
+			case code >= '0' && code <= '9' || code >= 'a' && code <= 'f':
 				flush()
-				if c, ok := motdColors[toLower(code)]; ok {
+				if c, ok := motdColors[byte(code)]; ok {
 					currentColor = c
 				}
 				bold = false
-			case code == 'l' || code == 'L':
+			case code == 'l':
+				// 样式变更前先落盘缓冲文本：加粗只作用于之后的文本
+				flush()
 				bold = true
-			case code == 'r' || code == 'R':
+			case code == 'r':
 				flush()
 				currentColor = color.White
 				bold = false
@@ -622,7 +917,7 @@ func ParseMotd(raw string) []MotdSegment {
 			}
 			continue
 		}
-		buf.WriteByte(raw[i])
+		buf.WriteRune(r)
 		i++
 	}
 	flush()
@@ -632,23 +927,42 @@ func ParseMotd(raw string) []MotdSegment {
 	return segments
 }
 
+// stripMotd 去除 MOTD 文本中的 § 颜色码（含紧随其后的代码字符）。
+// '&'/§ 处理规则与 ParseMotd 一致。按 rune 迭代避免 UTF-8 杂散字节。
 func stripMotd(raw string) string {
+	runes := []rune(raw)
 	var sb strings.Builder
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '\u00a7' || raw[i] == '\u0026' {
-			i++
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		if r == '\u00a7' || (r == '&' && i+1 < len(runes) && isMotdCode(runes[i+1])) {
+			i++ // 跳过代码字符
 			continue
 		}
-		sb.WriteByte(raw[i])
+		sb.WriteRune(r)
 	}
 	return sb.String()
 }
 
-func toLower(b byte) byte {
-	if b >= 'A' && b <= 'Z' {
-		return b + 32
+// isMotdCode 判断 rune 是否为合法的 MOTD 格式代码字符。
+func isMotdCode(r rune) bool {
+	switch {
+	case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		return true
+	case r >= 'A' && r <= 'Z':
+		r += 32
 	}
-	return b
+	switch r {
+	case 'l', 'r', 'k', 'm', 'n', 'o':
+		return true
+	}
+	return false
+}
+
+func toLowerRune(r rune) rune {
+	if r >= 'A' && r <= 'Z' {
+		return r + 32
+	}
+	return r
 }
 
 type packetBuffer struct {
@@ -773,51 +1087,11 @@ func readPacket(conn net.Conn) ([]byte, error) {
 	return data, nil
 }
 
+// b64Decode 解码 base64 数据（favicon 等）。
+// 优先按标准填充解码，失败时回退到无填充解码（部分服务器省略 padding）。
 func b64Decode(s string) ([]byte, error) {
-	data := make([]byte, len(s)*3/4)
-	ndst := 0
-	pad := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		var val byte
-		switch {
-		case c >= 'A' && c <= 'Z':
-			val = c - 'A'
-		case c >= 'a' && c <= 'z':
-			val = c - 'a' + 26
-		case c >= '0' && c <= '9':
-			val = c - '0' + 52
-		case c == '+':
-			val = 62
-		case c == '/':
-			val = 63
-		case c == '=':
-			pad++
-			if pad > 2 {
-				return nil, fmt.Errorf("invalid base64: too many padding")
-			}
-			continue
-		default:
-			return nil, fmt.Errorf("invalid base64 char: %c", c)
-		}
-		switch i % 4 {
-		case 0:
-			data[ndst] = val << 2
-		case 1:
-			data[ndst] |= val >> 4
-			ndst++
-			data[ndst] = val << 4
-		case 2:
-			data[ndst] |= val >> 2
-			ndst++
-			data[ndst] = val << 6
-		case 3:
-			data[ndst] |= val
-			ndst++
-		}
+	if data, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return data, nil
 	}
-	if pad > 0 {
-		ndst -= pad
-	}
-	return data[:ndst], nil
+	return base64.RawStdEncoding.DecodeString(s)
 }

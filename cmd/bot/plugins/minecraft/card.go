@@ -2,11 +2,13 @@ package minecraft
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/textimage"
@@ -109,13 +111,26 @@ func renderMCCard(status *MCServerStatus) ([]byte, error) {
 	)
 	canvas.AddSpacer(10)
 
-	// ── MOTD 彩色横幅 ──────────────────────────────────────────
+	// ── MOTD 彩色横幅（两行：主 MOTD + 次级 MOTD）───────────────
+	bannerRendered := false
 	if len(status.MOTD) > 0 {
 		motdImg, err := renderMotdImage(status.MOTD, cardWidthMC-48, 17)
 		if err == nil {
 			canvas.AddImage(motdImg, textimage.WithImgAlign(textimage.AlignCenter))
-			canvas.AddSpacer(10)
+			bannerRendered = true
 		}
+	}
+	if len(status.SubMOTD) > 0 {
+		if subImg, err := renderMotdImage(status.SubMOTD, cardWidthMC-48, 15); err == nil {
+			if bannerRendered {
+				canvas.AddSpacer(4)
+			}
+			canvas.AddImage(subImg, textimage.WithImgAlign(textimage.AlignCenter))
+			bannerRendered = true
+		}
+	}
+	if bannerRendered {
+		canvas.AddSpacer(10)
 	}
 
 	canvas.AddDivider(textimage.WithDividerColor(mcDivider))
@@ -162,42 +177,20 @@ func renderMCCard(status *MCServerStatus) ([]byte, error) {
 	canvas.AddSpacer(10)
 
 	// ── 版本信息行 ─────────────────────────────────────────────
-	canvas.AddRow(
-		textimage.RowItem{
-			Text: "版本",
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(13),
-				textimage.WithFontColor(mcTextFaint),
-			},
-		},
-		textimage.RowItem{
-			Text: status.Version,
-			TextOpts: []textimage.Option{
-				textimage.WithFontSize(13),
-				textimage.WithFontColor(mcTextPrimary),
-				textimage.WithAlign(textimage.AlignRight),
-			},
-		},
-	)
-	if status.Protocol > 0 {
-		canvas.AddSpacer(2)
-		canvas.AddRow(
-			textimage.RowItem{
-				Text: "协议",
-				TextOpts: []textimage.Option{
-					textimage.WithFontSize(12),
-					textimage.WithFontColor(mcTextFaint),
-				},
-			},
-			textimage.RowItem{
-				Text: fmt.Sprintf("%d", status.Protocol),
-				TextOpts: []textimage.Option{
-					textimage.WithFontSize(12),
-					textimage.WithFontColor(mcTextDim),
-					textimage.WithAlign(textimage.AlignRight),
-				},
-			},
-		)
+	if versionText := displayVersion(status); versionText != "" {
+		addKVRow(canvas, "版本", 13, versionText, mcTextPrimary, 13)
+	}
+	if softwareText := displaySoftware(status); softwareText != "" {
+		addKVRow(canvas, "服务端", 12, softwareText, mcTextDim, 12)
+	}
+	if status.Protocol > 0 && displayVersion(status) == status.Version {
+		addKVRow(canvas, "协议", 12, fmt.Sprintf("%d", status.Protocol), mcTextDim, 12)
+	}
+	if status.GameMode != "" {
+		addKVRow(canvas, "模式", 12, truncateRunes(status.GameMode, 24), mcTextDim, 12)
+	}
+	if status.Map != "" {
+		addKVRow(canvas, "地图", 12, truncateRunes(status.Map, 40), mcTextDim, 12)
 	}
 	canvas.AddSpacer(12)
 
@@ -225,28 +218,44 @@ func renderMCCard(status *MCServerStatus) ([]byte, error) {
 		)
 		canvas.AddSpacer(8)
 
-		var badges []textimage.BadgeItem
 		maxPlayers := min(len(status.Players.List), 10)
-		for _, player := range status.Players.List[:maxPlayers] {
-			badges = append(badges, textimage.BadgeItem{
-				// MC 玩家名上限 16 字符；截断异常数据防止 badge 过宽
-				Text:      truncateRunes(player.Name, 16),
-				BgColor:   mcBgCard,
-				TextColor: mcTextPrimary,
-			})
+		shown := status.Players.List[:maxPlayers]
+
+		if hasPlayerHeads(shown) {
+			// 头像网格：两列（头像 + 名字）
+			for i := 0; i < len(shown); i += 2 {
+				items := []textimage.RowItem{headCell(shown[i].Head), nameCell(shown[i].Name)}
+				if i+1 < len(shown) {
+					items = append(items, headCell(shown[i+1].Head), nameCell(shown[i+1].Name))
+				} else {
+					items = append(items, textimage.RowItem{}, textimage.RowItem{})
+				}
+				canvas.AddRow(items...)
+				canvas.AddSpacer(4)
+			}
+		} else {
+			var badges []textimage.BadgeItem
+			for _, player := range shown {
+				badges = append(badges, textimage.BadgeItem{
+					// MC 玩家名上限 16 字符；截断异常数据防止 badge 过宽
+					Text:      truncateRunes(player.Name, 16),
+					BgColor:   mcBgCard,
+					TextColor: mcTextPrimary,
+				})
+			}
+			if len(status.Players.List) > maxPlayers {
+				badges = append(badges, textimage.BadgeItem{
+					Text:      fmt.Sprintf("+%d", len(status.Players.List)-maxPlayers),
+					BgColor:   mcBgCardHover,
+					TextColor: mcTextDim,
+				})
+			}
+			canvas.AddBadgeRow(badges,
+				textimage.WithBadgeFontSize(12),
+				textimage.WithBadgePadding(8, 4),
+				textimage.WithBadgeGap(4),
+			)
 		}
-		if len(status.Players.List) > maxPlayers {
-			badges = append(badges, textimage.BadgeItem{
-				Text:      fmt.Sprintf("+%d", len(status.Players.List)-maxPlayers),
-				BgColor:   mcBgCardHover,
-				TextColor: mcTextDim,
-			})
-		}
-		canvas.AddBadgeRow(badges,
-			textimage.WithBadgeFontSize(12),
-			textimage.WithBadgePadding(8, 4),
-			textimage.WithBadgeGap(4),
-		)
 	}
 
 	// ── 底部时间戳 ─────────────────────────────────────────────
@@ -321,6 +330,14 @@ func renderMCOfflineCard(status *MCServerStatus) ([]byte, error) {
 		textimage.WithFontColor(mcTextDim),
 		textimage.WithAlign(textimage.AlignCenter),
 	)
+	if status.Error != "" {
+		canvas.AddSpacer(4)
+		canvas.AddText("原因: "+truncateRunes(status.Error, 80),
+			textimage.WithFontSize(11),
+			textimage.WithFontColor(mcTextFaint),
+			textimage.WithAlign(textimage.AlignCenter),
+		)
+	}
 	canvas.AddSpacer(6)
 	canvas.AddText("请检查主机名、端口与服务器运行状态",
 		textimage.WithFontSize(12),
@@ -331,37 +348,49 @@ func renderMCOfflineCard(status *MCServerStatus) ([]byte, error) {
 	return canvas.ResultPNG()
 }
 
-func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (image.Image, error) {
-	fontPath := textimage.SystemCJKFontPath()
-	var raw []byte
-	if fontPath != "" {
-		data, err := os.ReadFile(fontPath)
-		if err != nil {
-			return nil, err
-		}
-		raw = data
-	} else {
-		// 无系统 CJK 字体（如精简 CI 环境）：回退内置 Go Regular 字体，
-		// 保证 ASCII MOTD（多数服务器名）仍可渲染。
-		raw = textimage.DefaultFontTTF()
-	}
+// motdFont MOTD 渲染字体缓存：字体文件读取与解析只在首次发生，
+// 避免每次查询重复读盘 + 解析（CJK 字体可达数十 MB）。
+// *opentype.Font 为只读对象，可安全并发复用；font.Face 需每次调用新建。
+var (
+	motdFontOnce sync.Once
+	motdFont     *opentype.Font
+)
 
-	var parsed *opentype.Font
-	var perr error
-	if isTTCBytes(raw) {
-		col, err := opentype.ParseCollection(raw)
-		if err != nil {
-			return nil, err
+func motdFontForRender() (*opentype.Font, error) {
+	motdFontOnce.Do(func() {
+		fontPath := textimage.SystemCJKFontPath()
+		var raw []byte
+		if fontPath != "" {
+			if data, err := os.ReadFile(fontPath); err == nil {
+				raw = data
+			}
 		}
-		parsed, perr = col.Font(0)
-		if perr != nil {
-			return nil, perr
+		if len(raw) == 0 {
+			// 无系统 CJK 字体（如精简 CI 环境）：回退内置 Go Regular 字体，
+			// 保证 ASCII MOTD（多数服务器名）仍可渲染。
+			raw = textimage.DefaultFontTTF()
 		}
-	} else {
-		parsed, perr = opentype.Parse(raw)
-		if perr != nil {
-			return nil, perr
+
+		if isTTCBytes(raw) {
+			col, err := opentype.ParseCollection(raw)
+			if err != nil {
+				return
+			}
+			motdFont, _ = col.Font(0)
+		} else {
+			motdFont, _ = opentype.Parse(raw)
 		}
+	})
+	if motdFont == nil {
+		return nil, errors.New("解析 MOTD 字体失败")
+	}
+	return motdFont, nil
+}
+
+func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (image.Image, error) {
+	parsed, err := motdFontForRender()
+	if err != nil {
+		return nil, err
 	}
 
 	face, err := opentype.NewFace(parsed, &opentype.FaceOptions{Size: fontSize, DPI: 72})
@@ -422,6 +451,16 @@ func renderMotdImage(segments []MotdSegment, maxWidth int, fontSize float64) (im
 			Dot:  fixed.P(x.Round(), ascent+padTop),
 		}
 		d.DrawString(text)
+		if seg.Bold {
+			// 伪加粗：向右偏移 1px 重绘一次
+			b := &font.Drawer{
+				Dst:  img,
+				Src:  image.NewUniform(seg.Color),
+				Face: face,
+				Dot:  fixed.P(x.Round()+1, ascent+padTop),
+			}
+			b.DrawString(text)
+		}
 		x += w
 	}
 
@@ -455,6 +494,91 @@ func truncateRunes(s string, maxRunes int) string {
 	return string(r[:maxRunes]) + "..."
 }
 
+// displayVersion 版本展示文本：Version 优先；缺失时用协议号近似映射兜底。
+func displayVersion(status *MCServerStatus) string {
+	if status.Version != "" {
+		return status.Version
+	}
+	if status.Protocol > 0 {
+		return fmt.Sprintf("≈%s（协议 %d）", protocolVersionName(status.Protocol), status.Protocol)
+	}
+	return ""
+}
+
+// displaySoftware 服务端/插件信息展示文本（GS4 plugins 字段，可为空）。
+func displaySoftware(status *MCServerStatus) string {
+	if status.Software == "" {
+		return ""
+	}
+	text := status.Software
+	if status.PluginCount > 0 {
+		text += fmt.Sprintf("（%d 个插件）", status.PluginCount)
+	}
+	return truncateRunes(text, 48)
+}
+
+// addKVRow 追加一行"标签（左，暗色）+ 值（右）"。
+func addKVRow(canvas *textimage.Canvas, label string, labelSize float64, value string, valueColor color.Color, valueSize float64) {
+	canvas.AddRow(
+		textimage.RowItem{
+			Text: label,
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(labelSize),
+				textimage.WithFontColor(mcTextFaint),
+			},
+		},
+		textimage.RowItem{
+			Text: value,
+			TextOpts: []textimage.Option{
+				textimage.WithFontSize(valueSize),
+				textimage.WithFontColor(valueColor),
+				textimage.WithAlign(textimage.AlignRight),
+			},
+		},
+	)
+}
+
+// hasPlayerHeads 判断玩家列表中是否已有头像数据。
+func hasPlayerHeads(players []PlayerInfo) bool {
+	for _, p := range players {
+		if len(p.Head) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// headCell 玩家头像单元格（Head 为空时退化为空白占位）。
+func headCell(head []byte) textimage.RowItem {
+	if len(head) == 0 {
+		return textimage.RowItem{}
+	}
+	if img, _, err := image.Decode(bytes.NewReader(head)); err == nil {
+		return textimage.RowItem{
+			Width: 34,
+			Image: img,
+			ImageOpts: []textimage.ImageOption{
+				textimage.WithImgWidth(26),
+				textimage.WithImgHeight(26),
+				textimage.WithImgRoundRadius(5),
+			},
+		}
+	}
+	return textimage.RowItem{}
+}
+
+// nameCell 玩家名字单元格。
+func nameCell(name string) textimage.RowItem {
+	return textimage.RowItem{
+		Text: truncateRunes(name, 16),
+		TextOpts: []textimage.Option{
+			textimage.WithFontSize(13),
+			textimage.WithFontColor(mcTextPrimary),
+		},
+	}
+}
+
+// isTTCBytes 判断字体文件是否为 TrueType Collection 格式。
 func isTTCBytes(data []byte) bool {
 	return len(data) >= 4 && data[0] == 0x74 && data[1] == 0x74 &&
 		data[2] == 0x63 && data[3] == 0x66
@@ -491,8 +615,22 @@ func formatMCText(status *MCServerStatus) string {
 	if status.MOTDPlain != "" {
 		b.WriteString(fmt.Sprintf("MOTD: %s\n", status.MOTDPlain))
 	}
-	b.WriteString(fmt.Sprintf("版本: %s\n", status.Version))
+	if status.SubMOTDPlain != "" {
+		b.WriteString(fmt.Sprintf("次级 MOTD: %s\n", status.SubMOTDPlain))
+	}
+	if versionText := displayVersion(status); versionText != "" {
+		b.WriteString(fmt.Sprintf("版本: %s\n", versionText))
+	}
+	if softwareText := displaySoftware(status); softwareText != "" {
+		b.WriteString(fmt.Sprintf("服务端: %s\n", softwareText))
+	}
 	b.WriteString(fmt.Sprintf("玩家: %d / %d\n", status.Players.Online, status.Players.Max))
+	if status.GameMode != "" {
+		b.WriteString(fmt.Sprintf("模式: %s\n", status.GameMode))
+	}
+	if status.Map != "" {
+		b.WriteString(fmt.Sprintf("地图: %s\n", status.Map))
+	}
 	if len(status.Players.List) > 0 {
 		var names []string
 		max := min(len(status.Players.List), 10)
