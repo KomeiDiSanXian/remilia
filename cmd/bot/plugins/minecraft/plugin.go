@@ -59,13 +59,19 @@ var DefaultConfig = Config{
 // queryTimeout GS4 Query 单次超时（未开启 enable-query 的服务器会静默等待到超时）。
 const queryTimeout = 3 * time.Second
 
+// errCacheTTL 查询失败（离线等）的负缓存时长：
+// 防止群聊连查离线服务器反复走完整链路（直连超时 + API 回退），
+// 同时保留"刚炸了再查一次"的及时性。
+const errCacheTTL = 15 * time.Second
+
 type mcPlugin struct {
-	log    plugin.Logger
-	cfg    Config
-	client *http.Client
-	cache  *ttlCache[*MCServerStatus]
-	sf     singleflight.Group
-	fav    *FavManager
+	log      plugin.Logger
+	cfg      Config
+	client   *http.Client
+	cache    *ttlCache[*MCServerStatus]
+	errCache *ttlCache[error]
+	sf       singleflight.Group
+	fav      *FavManager
 }
 
 // loadConfig 从配置中读取设置，未配置时使用默认值。
@@ -152,6 +158,7 @@ func New() *plugin.Descriptor {
 			p.cfg = loadConfig(ctx)
 			p.client = &http.Client{Timeout: 15 * time.Second}
 			p.cache = newTTLCache[*MCServerStatus](p.cfg.CacheTTL, 256)
+			p.errCache = newTTLCache[error](errCacheTTL, 256)
 
 			if storageSvc, ok := ctx.TryService[*storage.Plugin]("storage"); ok && !ctx.DryRun {
 				if err := storageSvc.AutoMigrate(&FavServer{}); err != nil {
@@ -362,12 +369,16 @@ func pingEdition(host string, port int, edition string, timeout time.Duration) (
 }
 
 // query 查询服务器状态：TTL 缓存 + singleflight 并发合并；
-// Java 版在线时按需补全 GS4 完整玩家列表与玩家头像。
+// 查询失败走短 TTL 负缓存；Java 版在线时按需补全 GS4 完整玩家列表与玩家头像。
 func (p *mcPlugin) query(ctx context.Context, host string, port int, edition string) (*MCServerStatus, error) {
 	key := fmt.Sprintf("%s|%d|%s", host, port, edition)
 	if s, ok := p.cache.get(key); ok {
 		mcCacheHitsTotal.Inc()
 		return s, nil
+	}
+	if err, ok := p.errCache.get(key); ok {
+		mcCacheHitsTotal.Inc()
+		return nil, err
 	}
 
 	// 并发合并：TTL 过期瞬间多个请求只触发一次真实查询
@@ -376,6 +387,10 @@ func (p *mcPlugin) query(ctx context.Context, host string, port int, edition str
 		if s, ok := p.cache.get(key); ok {
 			mcCacheHitsTotal.Inc()
 			return s, nil
+		}
+		if e, ok := p.errCache.get(key); ok {
+			mcCacheHitsTotal.Inc()
+			return nil, e
 		}
 		return p.fetch(key, ctx, host, port, edition)
 	})
@@ -399,6 +414,7 @@ func (p *mcPlugin) fetch(key string, ctx context.Context, host string, port int,
 	}
 	if err != nil {
 		recordQuery(ed, "-", "error")
+		p.errCache.set(key, err)
 		return nil, err
 	}
 	recordQuery(status.Edition, status.Via, "ok")

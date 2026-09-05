@@ -1,9 +1,14 @@
 package minecraft
 
 import (
+	"context"
+	"errors"
 	"net"
+	"net/http"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/KomeiDiSanXian/remilia/infra/storage"
 )
@@ -181,5 +186,39 @@ func TestFavManagerCap(t *testing.T) {
 	}
 	if _, err := fav.Add(scope, "over", "a.example.com"); err == nil {
 		t.Error("超出上限应报错")
+	}
+}
+
+// TestQueryNegativeCache 验证查询失败的负缓存：命中期间不重走网络。
+func TestQueryNegativeCache(t *testing.T) {
+	// 找一个无人监听的本地端口（连接拒绝，测试离线路径且不触外网）
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+
+	p := &mcPlugin{
+		cfg:      Config{Timeout: 2 * time.Second, CacheTTL: time.Minute, Avatars: false, EnableQuery: false, DirectQuery: true},
+		client:   &http.Client{Timeout: 2 * time.Second},
+		cache:    newTTLCache[*MCServerStatus](time.Minute, 8),
+		errCache: newTTLCache[error](40 * time.Millisecond, 8),
+	}
+	if _, queryErr := p.query(context.Background(), "127.0.0.1", port, "java"); queryErr == nil {
+		t.Fatal("离线端口应报错")
+	}
+
+	key := "127.0.0.1|" + strconv.Itoa(port) + "|java"
+	sentinel := errors.New("负缓存命中")
+	p.errCache.set(key, sentinel)
+	if _, err := p.query(context.Background(), "127.0.0.1", port, "java"); !errors.Is(err, sentinel) {
+		t.Errorf("第二次查询应命中负缓存, got %v", err)
+	}
+
+	// 过期后应重新真实查询（返回真实错误而非哨兵）
+	time.Sleep(60 * time.Millisecond)
+	if _, err := p.query(context.Background(), "127.0.0.1", port, "java"); errors.Is(err, sentinel) {
+		t.Error("负缓存过期后不应再返回缓存错误")
 	}
 }

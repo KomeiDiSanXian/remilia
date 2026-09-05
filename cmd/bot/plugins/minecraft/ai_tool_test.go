@@ -24,10 +24,11 @@ func TestAIToolResolvesFavorite(t *testing.T) {
 	}
 
 	p := &mcPlugin{
-		fav:    fav,
-		cfg:    Config{Timeout: 5 * time.Second, CacheTTL: time.Minute, Avatars: false, EnableQuery: false, DirectQuery: true},
-		client: &http.Client{Timeout: 5 * time.Second},
-		cache:  newTTLCache[*MCServerStatus](time.Minute, 8),
+		fav:      fav,
+		cfg:      Config{Timeout: 5 * time.Second, CacheTTL: time.Minute, Avatars: false, EnableQuery: false, DirectQuery: true},
+		client:   &http.Client{Timeout: 5 * time.Second},
+		cache:    newTTLCache[*MCServerStatus](time.Minute, 8),
+		errCache: newTTLCache[error](15 * time.Second, 8),
 	}
 	tool := p.ListTools()[0]
 	toolCtx := ai.WithToolSource(context.Background(), ai.ToolSource{Platform: "qq", ChatID: "888"})

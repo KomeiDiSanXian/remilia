@@ -31,6 +31,10 @@ func newTTLCache[T any](ttl time.Duration, maxEntries int) *ttlCache[T] {
 }
 
 func (c *ttlCache[T]) get(key string) (T, bool) {
+	if c == nil {
+		var zero T
+		return zero, false
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var zero T
@@ -46,6 +50,9 @@ func (c *ttlCache[T]) get(key string) (T, bool) {
 }
 
 func (c *ttlCache[T]) set(key string, value T) {
+	if c == nil {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.entries) >= c.max {
