@@ -60,6 +60,17 @@ func (p *Plugin) handleAI(ctx *eventctx.Context) error {
 	}
 
 	content := ctx.GetMessageContent()
+	if content == "" {
+		// 直发合并转发消息：Content 为空（forward 段不进入派生文本），
+		// 按会话类型决定是否触发对话（forwardTriggerContent）。
+		if rec := forwardRecordFromEvent(ctx.GetPlatformEvent()); rec != nil {
+			text, trigger := forwardTriggerContent(ctx.GetChatInfo(), rec)
+			if !trigger {
+				return nil
+			}
+			content = text
+		}
+	}
 	if content == "" && len(atts) == 0 {
 		return nil
 	}
@@ -255,6 +266,13 @@ func (p *Plugin) buildUserMessage(ctx *eventctx.Context, content string, session
 	msg := Message{Role: RoleUser, Content: content}
 
 	atts := platform.Attachments(ctx.GetPlatformEvent())
+
+	if p.cfg.VisionEnabled && !hasImageAttachment(atts) {
+		// 直发合并转发记录内的图片：作为本条消息的视觉输入注入
+		// （上限 max_images_per_message，超出截断；截断部分仍以 [图片]
+		// 占位符出现在渲染文本中）。
+		atts = append(atts, forwardRecordImageAtts(ctx.GetPlatformEvent(), p.cfg.MaxImagesPerMessage)...)
+	}
 
 	var quotedImg *ContentPart
 	if p.cfg.VisionEnabled && !hasImageAttachment(atts) {

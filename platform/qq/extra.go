@@ -47,6 +47,12 @@ const (
 	// ExtraKeyArkData 结构化卡片（message_type=3）的 ark_data 原始 JSON 键。
 	// 挂在 Segment.Extra 上（SegmentUnknown 段），值为 string。
 	ExtraKeyArkData = "ark_data"
+	// ExtraKeyForwardNodes 合并转发消息（message_type=102）结构化节点键。
+	// 挂在 SegmentForward 段上，值为 *ForwardRecord（= *platform.ForwardRecord）。
+	ExtraKeyForwardNodes = platform.SegmentExtraForwardNodes
+	// ExtraKeyQuotedForward 被引用合并转发键（103 引用消息的被引用者是 102）。
+	// 挂在 SegmentReply 段上，值为 *ForwardRecord。
+	ExtraKeyQuotedForward = platform.SegmentExtraQuotedForward
 )
 
 // ────────────────────────────────────────────────────────────────────────────

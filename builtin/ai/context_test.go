@@ -240,6 +240,211 @@ type segmentsReplyEvent struct {
 
 func (e *segmentsReplyEvent) Segments() []platform.Segment { return e.segs }
 
+// TestPrependReplyContextQuotedForward 引用的消息是合并转发（QQ 103 引 102）：
+// parallel_message 只有 "[聊天记录]" 占位符，被引用记录经 reply 段 Extra 的
+// 结构化载荷渲染为可读文本注入回复上下文（优先于占位符兜底）。
+func TestPrependReplyContextQuotedForward(t *testing.T) {
+	p := &Plugin{cfg: &Config{}, history: messagelog.New(10)}
+
+	rec := &platform.ForwardRecord{
+		Title: "月莫法师和蕾米莉亚的聊天记录",
+		Nodes: []platform.ForwardNode{
+			{Sender: platform.UserInfo{DisplayName: "月莫法师"},
+				Segments: []platform.Segment{{Type: platform.SegmentText, Text: "/update now"}}},
+			{Sender: platform.UserInfo{DisplayName: "蕾米莉亚"},
+				Segments: []platform.Segment{{Type: platform.SegmentImage, Attachment: platform.Attachment{URL: "https://ex/a.png"}}}},
+		},
+	}
+	segsEvt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindGroupMessage, "能读到这个聊天记录吗？",
+			platform.WithSyntheticChat(platform.ChatInfo{ID: "g1", IsGroup: true})),
+		segs: []platform.Segment{
+			{
+				Type:      platform.SegmentReply,
+				ReplyToID: "TMP_93b5da4d",
+				Extra: map[string]any{
+					platform.SegmentExtraQuotedForward: rec,
+					// 占位符并行视图：不应作为上下文内容
+					"parallel_message": `{"msg_nodes":[{"message_type":0,"content":"[聊天记录]"}]}`,
+				},
+			},
+			{Type: platform.SegmentText, Text: "能读到这个聊天记录吗？"},
+		},
+	}
+	ctx := eventctx.NewContextFromEvent(segsEvt, nil)
+
+	got := p.prependReplyContext(ctx, "能读到这个聊天记录吗？")
+	if !strings.Contains(got, "[你正在回复 对方 的消息]") {
+		t.Errorf("expected reply context marker, got %q", got)
+	}
+	if !strings.Contains(got, "【合并转发聊天记录】月莫法师和蕾米莉亚的聊天记录（共 2 条消息）") {
+		t.Errorf("expected forward record rendered, got %q", got)
+	}
+	if !strings.Contains(got, "1. 月莫法师: /update now") || !strings.Contains(got, "2. 蕾米莉亚: [图片]") {
+		t.Errorf("expected record messages rendered, got %q", got)
+	}
+	if strings.Contains(got, "[聊天记录]\n") {
+		t.Errorf("placeholder should not be injected, got %q", got)
+	}
+}
+
+// TestForwardRecordFromEvent 直发合并转发消息（SegmentForward 段）的
+// 结构化载荷提取：命中 / 无段 / 无载荷。
+func TestForwardRecordFromEvent(t *testing.T) {
+	rec := &platform.ForwardRecord{Nodes: []platform.ForwardNode{{Segments: []platform.Segment{{Type: platform.SegmentText, Text: "hi"}}}}}
+
+	hit := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindPrivateMessage, ""),
+		segs: []platform.Segment{{
+			Type:  platform.SegmentForward,
+			Extra: map[string]any{platform.SegmentExtraForwardNodes: rec},
+		}},
+	}
+	if got := forwardRecordFromEvent(hit); got != rec {
+		t.Errorf("expected record from forward segment, got %v", got)
+	}
+
+	if got := forwardRecordFromEvent(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "hello")); got != nil {
+		t.Errorf("expected nil without forward segment, got %v", got)
+	}
+	if got := forwardRecordFromEvent(nil); got != nil {
+		t.Errorf("expected nil for nil event, got %v", got)
+	}
+}
+
+// TestForwardTriggerContent 直发合并转发的触发决策：私聊触发（渲染记录
+// 文本），群聊不触发（QQ 转发无法携带 @，不存在显式触发意图）。
+func TestForwardTriggerContent(t *testing.T) {
+	rec := &platform.ForwardRecord{Title: "T", Nodes: []platform.ForwardNode{
+		{Sender: platform.UserInfo{DisplayName: "A"},
+			Segments: []platform.Segment{{Type: platform.SegmentText, Text: "hi"}}},
+	}}
+
+	text, trigger := forwardTriggerContent(platform.ChatInfo{ID: "u1", IsGroup: false}, rec)
+	if !trigger || !strings.Contains(text, "【合并转发聊天记录】T") || !strings.Contains(text, "1. A: hi") {
+		t.Errorf("private chat should trigger with rendered record, got trigger=%v text=%q", trigger, text)
+	}
+
+	if text, trigger = forwardTriggerContent(platform.ChatInfo{ID: "g1", IsGroup: true}, rec); trigger || text != "" {
+		t.Errorf("group chat should not trigger, got trigger=%v text=%q", trigger, text)
+	}
+}
+
+// TestForwardRecordImageAtts 覆盖记录图片提取：节点顺序、递归嵌套、
+// 上限截断。
+func TestForwardRecordImageAtts(t *testing.T) {
+	rec := &platform.ForwardRecord{Nodes: []platform.ForwardNode{
+		{Segments: []platform.Segment{{Type: platform.SegmentText, Text: "纯文本"}}},
+		{Segments: []platform.Segment{{Type: platform.SegmentImage,
+			Attachment: platform.Attachment{URL: "https://ex/1.png", Kind: platform.AttachmentKindImage}}}},
+		{Kind: platform.ForwardKindRecord, Related: []platform.ForwardNode{
+			{Segments: []platform.Segment{{Type: platform.SegmentImage,
+				Attachment: platform.Attachment{URL: "https://ex/2.png", Kind: platform.AttachmentKindImage}}}},
+		}},
+		{Segments: []platform.Segment{{Type: platform.SegmentImage,
+			Attachment: platform.Attachment{URL: "https://ex/3.png", Kind: platform.AttachmentKindImage}}}},
+	}}
+	evt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindPrivateMessage, ""),
+		segs: []platform.Segment{{
+			Type:  platform.SegmentForward,
+			Extra: map[string]any{platform.SegmentExtraForwardNodes: rec},
+		}},
+	}
+
+	atts := forwardRecordImageAtts(evt, 0)
+	if len(atts) != 3 || atts[0].URL != "https://ex/1.png" || atts[1].URL != "https://ex/2.png" || atts[2].URL != "https://ex/3.png" {
+		t.Errorf("expected 3 images in order (nested included), got %+v", atts)
+	}
+
+	atts = forwardRecordImageAtts(evt, 2)
+	if len(atts) != 2 || atts[1].URL != "https://ex/2.png" {
+		t.Errorf("expected capped to first 2, got %+v", atts)
+	}
+
+	if got := forwardRecordImageAtts(platform.NewSyntheticEvent(platform.EventKindPrivateMessage, "text"), 0); got != nil {
+		t.Errorf("expected nil without forward record, got %+v", got)
+	}
+}
+
+// TestBuildUserMessageInjectsForwardRecordImages 直发合并转发（纯图片记录）
+// 场景：记录内图片作为视觉输入注入 ContentParts。
+//
+// 通过预置 session.contentCache 命中缓存分支，绕过真实网络下载。
+func TestBuildUserMessageInjectsForwardRecordImages(t *testing.T) {
+	const img1 = "https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=1"
+	const img2 = "https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=2"
+	rec := &platform.ForwardRecord{Title: "T", Nodes: []platform.ForwardNode{
+		{Sender: platform.UserInfo{DisplayName: "A"},
+			Segments: []platform.Segment{{Type: platform.SegmentImage,
+				Attachment: platform.Attachment{URL: img1, Kind: platform.AttachmentKindImage}}}},
+		{Sender: platform.UserInfo{DisplayName: "B"},
+			Segments: []platform.Segment{{Type: platform.SegmentImage,
+				Attachment: platform.Attachment{URL: img2, Kind: platform.AttachmentKindImage}}}},
+	}}
+	evt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindPrivateMessage, ""),
+		segs: []platform.Segment{{
+			Type:  platform.SegmentForward,
+			Extra: map[string]any{platform.SegmentExtraForwardNodes: rec},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	session := &Session{}
+	session.setCachedContent(img1, []byte("fake-png-1"), "image/png", "")
+	session.setCachedContent(img2, []byte("fake-png-2"), "image/png", "")
+
+	p := &Plugin{cfg: &Config{VisionEnabled: true, MaxImagesPerMessage: 4}}
+	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】T\n1. A: [图片]\n2. B: [图片]", session)
+
+	if len(msg.ContentParts) != 3 {
+		t.Fatalf("expected 3 content parts (text+2 images), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
+	}
+	if msg.ContentParts[0].Type != ContentPartText {
+		t.Errorf("expected text part first, got %+v", msg.ContentParts[0])
+	}
+	if msg.ContentParts[1].Type != ContentPartImage || msg.ContentParts[1].MimeType != "image/png" || len(msg.ContentParts[1].Data) == 0 {
+		t.Errorf("expected first record image part, got %+v", msg.ContentParts[1])
+	}
+	if msg.ContentParts[2].Type != ContentPartImage {
+		t.Errorf("expected second record image part, got %+v", msg.ContentParts[2])
+	}
+}
+
+// TestBuildUserMessageForwardRecordImageCap 记录图片超出 max_images_per_message
+// 时截断注入（不触发整条拒绝），截断部分在渲染文本中以 [图片] 占位可感知。
+func TestBuildUserMessageForwardRecordImageCap(t *testing.T) {
+	rec := &platform.ForwardRecord{Nodes: []platform.ForwardNode{
+		{Segments: []platform.Segment{{Type: platform.SegmentImage,
+			Attachment: platform.Attachment{URL: "https://ex/1.png", Kind: platform.AttachmentKindImage}}}},
+		{Segments: []platform.Segment{{Type: platform.SegmentImage,
+			Attachment: platform.Attachment{URL: "https://ex/2.png", Kind: platform.AttachmentKindImage}}}},
+	}}
+	evt := &segmentsReplyEvent{
+		Event: platform.NewSyntheticEvent(platform.EventKindPrivateMessage, ""),
+		segs: []platform.Segment{{
+			Type:  platform.SegmentForward,
+			Extra: map[string]any{platform.SegmentExtraForwardNodes: rec},
+		}},
+	}
+	ctx := eventctx.NewContextFromEvent(evt, nil)
+
+	session := &Session{}
+	session.setCachedContent("https://ex/1.png", []byte("fake-png-1"), "image/png", "")
+	session.setCachedContent("https://ex/2.png", []byte("fake-png-2"), "image/png", "")
+
+	p := &Plugin{cfg: &Config{VisionEnabled: true, MaxImagesPerMessage: 1}}
+	msg := p.buildUserMessage(ctx, "【合并转发聊天记录】\n1. A: [图片]\n2. B: [图片]", session)
+
+	if len(msg.ContentParts) != 2 {
+		t.Fatalf("expected 2 content parts (text+1 capped image), got %d: %+v", len(msg.ContentParts), msg.ContentParts)
+	}
+	if msg.ContentParts[1].SourceURL != "https://ex/1.png" {
+		t.Errorf("expected only first image injected, got %+v", msg.ContentParts[1])
+	}
+}
+
 func TestReplyQuoteFromSegments(t *testing.T) {
 	// 命中：parallel_message.msg_nodes[0].content
 	segs := []platform.Segment{{

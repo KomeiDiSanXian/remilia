@@ -925,7 +925,7 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		UserID:            sender.ID,
 		UserName:          sender.DisplayName,
 		UserRole:          groupRoleString(sender.GroupRole),
-		Content:           platform.Content(ev),
+		Content:           recordContent(ev),
 		ReplyToID:         replyToID,
 		ReplyToMessageID:  replyToID, // 回复目标按平台消息 ID 记录，查询时解析
 		RawType:           platform.RawType(ev),
@@ -934,6 +934,29 @@ func eventToEntry(ev platform.Event, ctx *eventctx.Context) RecordEntry {
 		Timestamp:         ev.Timestamp(),
 		CreatedAt:         time.Now(),
 	}
+}
+
+// recordContent 返回记录用文本内容。
+//
+// 平台派生 Content 为空且事件携带合并转发记录时（SegmentForward 段的
+// platform.SegmentExtraForwardNodes 载荷，如 QQ message_type=102），渲染
+// 结构化记录文本：转发消息在段派生规则下不产生正文（防记录内命令文本
+// 误触发），记录渲染文本使消息窗口 / 回复上下文 / 统计等文本型下游能
+// 感知转发内容。渲染文本含防膨胀上限（单条截断、每层 50 条、3 层深）。
+func recordContent(ev platform.Event) string {
+	content := platform.Content(ev)
+	if content != "" {
+		return content
+	}
+	for _, s := range ev.Segments() {
+		if s.Type != platform.SegmentForward {
+			continue
+		}
+		if rec, ok := s.Extra[platform.SegmentExtraForwardNodes].(*platform.ForwardRecord); ok {
+			return platform.ForwardRecordText(rec)
+		}
+	}
+	return ""
 }
 
 func groupRoleString(r platform.GroupRole) string {

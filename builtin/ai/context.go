@@ -79,6 +79,16 @@ func (p *Plugin) prependReplyContext(ctx *eventctx.Context, content string) stri
 
 	chain := p.resolveReplyChain(ctx.GetChatInfo().ID, replyID)
 	if len(chain) == 0 {
+		// QQ 引用合并转发兜底（优先于 parallel_message 占位符）：被引用消息
+		// 是合并转发时，并行视图只有 "[聊天记录]" 占位文本，AI 无法得知
+		// 记录内容；reply 段 Extra 携带的结构化记录渲染为可读文本注入
+		if rec := quotedForwardRecordFromSegments(ctx.GetPlatformEvent().Segments()); rec != nil {
+			if text := platform.ForwardRecordText(rec); text != "" {
+				chain = append(chain, replyChainLink{Name: "对方", Content: text})
+			}
+		}
+	}
+	if len(chain) == 0 {
 		// QQ 引用消息段兜底：被引用内容在 parallel_message.msg_nodes[0].content
 		if q := replyQuoteFromSegments(ctx.GetPlatformEvent().Segments()); q != "" {
 			chain = append(chain, replyChainLink{Name: "对方", Content: q})
@@ -172,6 +182,81 @@ func replyQuoteFromSegments(segs []platform.Segment) string {
 		return gjson.Get(raw, "msg_nodes.0.content").String()
 	}
 	return ""
+}
+
+// quotedForwardRecordFromSegments 提取 reply 段携带的被引用合并转发记录
+// （platform.SegmentExtraQuotedForward，*platform.ForwardRecord；QQ 103
+// 引用 102 时由平台适配器解析填充）。
+func quotedForwardRecordFromSegments(segs []platform.Segment) *platform.ForwardRecord {
+	for _, s := range segs {
+		if s.Type != platform.SegmentReply {
+			continue
+		}
+		if rec, ok := s.Extra[platform.SegmentExtraQuotedForward].(*platform.ForwardRecord); ok {
+			return rec
+		}
+	}
+	return nil
+}
+
+// forwardRecordFromEvent 提取事件本体携带的合并转发记录
+// （SegmentForward 段的 platform.SegmentExtraForwardNodes 载荷）。
+func forwardRecordFromEvent(ev platform.Event) *platform.ForwardRecord {
+	if ev == nil {
+		return nil
+	}
+	for _, s := range ev.Segments() {
+		if s.Type != platform.SegmentForward {
+			continue
+		}
+		if rec, ok := s.Extra[platform.SegmentExtraForwardNodes].(*platform.ForwardRecord); ok {
+			return rec
+		}
+	}
+	return nil
+}
+
+// forwardTriggerContent 直发合并转发消息的 AI 触发决策。
+//
+// QQ 的合并转发消息无法携带 @：群聊里直发转发不存在"发给机器人"的显式
+// 意图，自动回复会刷屏（自主发言群亦然），故不触发——记录仍由 messagelog
+// 入库作为群聊窗口上下文，需要讨论时引用该记录（引用上下文会渲染记录全文）。
+// 私聊直发视为直接对话，渲染记录文本后触发。
+func forwardTriggerContent(chat platform.ChatInfo, rec *platform.ForwardRecord) (string, bool) {
+	if chat.IsGroup {
+		return "", false
+	}
+	return platform.ForwardRecordText(rec), true
+}
+
+// forwardRecordImageAtts 提取直发合并转发记录中的图片附件（节点顺序，
+// 递归嵌套关联子条目），供视觉管线注入。
+//
+// maxImages 为注入上限（<=0 不限制）：超出截断——避免超出
+// max_images_per_message 触发整条消息拒绝；截断部分的占位符仍在渲染
+// 文本中，模型可感知"此处有图但未注入"。
+func forwardRecordImageAtts(ev platform.Event, maxImages int) []platform.Attachment {
+	rec := forwardRecordFromEvent(ev)
+	if rec == nil {
+		return nil
+	}
+	var out []platform.Attachment
+	collectForwardRecordImages(rec.Nodes, &out)
+	if maxImages > 0 && len(out) > maxImages {
+		out = out[:maxImages]
+	}
+	return out
+}
+
+func collectForwardRecordImages(nodes []platform.ForwardNode, out *[]platform.Attachment) {
+	for _, n := range nodes {
+		for _, s := range n.Segments {
+			if s.Type == platform.SegmentImage && s.Attachment.URL != "" {
+				*out = append(*out, s.Attachment)
+			}
+		}
+		collectForwardRecordImages(n.Related, out)
+	}
 }
 
 // quotedImageFromSegments 从 reply 段提取被引用消息中的图片 URL 与 MIME 类型。

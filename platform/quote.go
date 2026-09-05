@@ -29,9 +29,12 @@ func QuoteAttachments(segs []Segment) []Attachment {
 //
 // 提取顺序（对每个 reply 段）：
 //  1. 归一化附件 Extra[SegmentExtraQuoteAtts]（跨平台统一路径）
-//  2. QQ 兼容兜底 Extra["raw_quote"]（msg_elements 原始 JSON，图片位于
+//  2. 结构化被引用合并转发记录 Extra[SegmentExtraQuotedForward]
+//     （*ForwardRecord，QQ 103 引用 102 时由适配器解析填充；图片按记录
+//     节点顺序提取，递归嵌套关联子条目）
+//  3. QQ 兼容兜底 Extra["raw_quote"]（msg_elements 原始 JSON，图片位于
 //     elements[].attachments[]）
-//  3. QQ 兼容兜底 Extra["parallel_message"]（并行视图 msg_nodes[].attachments）
+//  4. QQ 兼容兜底 Extra["parallel_message"]（并行视图 msg_nodes[].attachments）
 //
 // 类型判定：优先 Kind 或 content_type 显式标注 image/* 的项；显式标注其他
 // 类型（video/audio/file）的项跳过，不作为兜底；所有项均未标注类型时回退
@@ -44,6 +47,11 @@ func QuotedImage(segs []Segment) (url, mimeType string) {
 		}
 		if atts, ok := s.Extra[SegmentExtraQuoteAtts].([]Attachment); ok {
 			if u, mt := PickQuotedImage(atts); u != "" {
+				return u, mt
+			}
+		}
+		if rec, ok := s.Extra[SegmentExtraQuotedForward].(*ForwardRecord); ok {
+			if u, mt := quotedImageFromRecord(rec); u != "" {
 				return u, mt
 			}
 		}
@@ -62,6 +70,39 @@ func QuotedImage(segs []Segment) (url, mimeType string) {
 					}
 				}
 			}
+		}
+	}
+	return "", ""
+}
+
+// quotedImageFromRecord 从合并转发记录中取首个图片附件（按节点顺序，
+// 递归嵌套关联子条目）。
+func quotedImageFromRecord(rec *ForwardRecord) (string, string) {
+	if rec == nil {
+		return "", ""
+	}
+	for _, n := range rec.Nodes {
+		if u, mt := quotedImageFromNode(n); u != "" {
+			return u, mt
+		}
+	}
+	return "", ""
+}
+
+// quotedImageFromNode 提取单条记录节点（及其关联子树）的首个图片附件。
+func quotedImageFromNode(n ForwardNode) (string, string) {
+	var atts []Attachment
+	for _, s := range n.Segments {
+		if s.Type == SegmentImage && s.Attachment.URL != "" {
+			atts = append(atts, s.Attachment)
+		}
+	}
+	if u, mt := PickQuotedImage(atts); u != "" {
+		return u, mt
+	}
+	for _, r := range n.Related {
+		if u, mt := quotedImageFromNode(r); u != "" {
+			return u, mt
 		}
 	}
 	return "", ""

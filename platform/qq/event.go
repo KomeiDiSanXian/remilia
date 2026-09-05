@@ -240,6 +240,7 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 
 	// message_type=103 引用消息（实测结构与群消息一致：ref_msg_idx + msg_elements）
 	if msgType == 103 {
+		var quotedFwd *ForwardRecord
 		if refIdx := quoteReplyID(results[8]); refIdx != "" {
 			replyExtra := map[string]any{"raw_quote": results[9].Raw}
 			if pm := results[10]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
@@ -248,14 +249,39 @@ func (e *qqEvent) populateC2C(detail json.RawMessage) {
 			if qa := quoteAttachmentsFromElements(results[9]); len(qa) > 0 {
 				replyExtra[platform.SegmentExtraQuoteAtts] = qa
 			}
+			// 被引用消息是合并转发（102）时解析为结构化记录挂 reply 段
+			if qf := quotedForwardRecord(results[9], results[10]); qf != nil {
+				replyExtra[ExtraKeyQuotedForward] = qf
+				quotedFwd = qf
+			}
 			e.segments = append(e.segments, platform.Segment{
 				Type:      platform.SegmentReply,
 				ReplyToID: refIdx,
 				Extra:     replyExtra,
 			})
+		} else if qf := quotedForwardRecord(results[9], results[10]); qf != nil {
+			// 无引用标识但被引用元素是合并转发：作为 forward 段追加（防御）
+			quotedFwd = qf
+			e.segments = append(e.segments, forwardRecordSegment(qf))
 		}
-		if content == "" || content == " " {
+		if quotedFwd != nil && strings.TrimSpace(content) == "" {
+			// 被引用的是合并转发且正文为空：跳过扁平文本兜底，不留空白正文
+			content = ""
+		} else if content == "" || content == " " {
+			// 正文为空时用被引用消息文本兜底（纯文本引用场景）
 			content = extractQuoteContent(results[9])
+		}
+	}
+
+	// message_type=102 合并转发：content 为服务端扁平渲染的聊天记录文本
+	// （首行 [标题]，按 === 消息 N === 分块，图片 URL 内嵌于 [附件N] 行，
+	// 无顶层 attachments 数组）。解析为结构化 forward 段：子消息文本不进入
+	// Content（防记录内命令文本误触发插件），附件归一化为媒体段；
+	// 解析失败退化为普通文本，保证不丢数据。
+	if msgType == 102 {
+		if seg, ok := forwardSegment(content); ok {
+			e.segments = append(e.segments, seg)
+			content = ""
 		}
 	}
 
@@ -301,6 +327,7 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 	//   - parallel_message.msg_nodes 为被引用消息的并行视图（非独立转发段），并入 reply 段 Extra
 	//   - 外层 content 是回复者正文（含 <@id> 占位符，非空格时同样解析）
 	if msgType == 103 {
+		var quotedFwd *ForwardRecord
 		if refIdx := quoteReplyID(results[13]); refIdx != "" {
 			replyExtra := map[string]any{"raw_quote": msgElements.Raw}
 			if pm := results[14]; pm.IsObject() && pm.Get("msg_nodes").IsArray() {
@@ -309,15 +336,36 @@ func (e *qqEvent) populateGroupAt(detail json.RawMessage) {
 			if qa := quoteAttachmentsFromElements(msgElements); len(qa) > 0 {
 				replyExtra[platform.SegmentExtraQuoteAtts] = qa
 			}
+			// 被引用消息是合并转发（102）时解析为结构化记录挂 reply 段
+			if qf := quotedForwardRecord(msgElements, results[14]); qf != nil {
+				replyExtra[ExtraKeyQuotedForward] = qf
+				quotedFwd = qf
+			}
 			e.segments = append(e.segments, platform.Segment{
 				Type:      platform.SegmentReply,
 				ReplyToID: refIdx,
 				Extra:     replyExtra,
 			})
+		} else if qf := quotedForwardRecord(msgElements, results[14]); qf != nil {
+			// 无引用标识但被引用元素是合并转发：作为 forward 段追加（防御）
+			quotedFwd = qf
+			e.segments = append(e.segments, forwardRecordSegment(qf))
 		}
-		if content == "" || content == " " {
+		if quotedFwd != nil && strings.TrimSpace(content) == "" {
+			// 被引用的是合并转发且正文为空：跳过扁平文本兜底，不留空白正文
+			content = ""
+		} else if content == "" || content == " " {
 			// 正文为空时用被引用消息文本兜底（纯文本引用场景）
 			content = extractQuoteContent(msgElements)
+		}
+	}
+
+	// message_type=102 合并转发：content 为服务端扁平渲染的聊天记录文本
+	// （结构同 populateC2C 注释），解析为结构化 forward 段，失败退化为普通文本。
+	if msgType == 102 {
+		if seg, ok := forwardSegment(content); ok {
+			e.segments = append(e.segments, seg)
+			content = ""
 		}
 	}
 
