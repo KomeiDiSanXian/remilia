@@ -1220,22 +1220,82 @@ func TestClient_UpdatePanelTarget(t *testing.T) {
 	assertLast(t, m, http.MethodPut, "/v2/panels/panel_1/target", `{"op":"add","user_openids":["u_1"]}`)
 }
 
-func TestClient_GetGroupMembers(t *testing.T) {
+func TestClient_GetGroupMemberList(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)
 
-	_, err := api.GetGroupMembers(context.Background(), "gid_1", 50, 0)
+	_, err := api.GetGroupMemberList(context.Background(), "gid_1", "")
 	require.NoError(t, err)
-	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/members", `{"limit":50}`)
+	req := m.last()
+	assert.Equal(t, http.MethodGet, req.method)
+	assert.Equal(t, "/v2/groups/gid_1/members", req.path)
+	assert.Equal(t, "", req.query)
 }
 
-func TestClient_GetGroupMembers_WithStartIndex(t *testing.T) {
+func TestClient_GetGroupMemberList_WithCursor(t *testing.T) {
 	m := newMockQQ(t)
 	api, _ := newTestAPI(t, m)
 
-	_, err := api.GetGroupMembers(context.Background(), "gid_1", 50, 100)
+	_, err := api.GetGroupMemberList(context.Background(), "gid_1", "cur_1")
 	require.NoError(t, err)
-	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/members", `{"limit":50,"start_index":100}`)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/gid_1/members", req.path)
+	assert.Equal(t, "cursor=cur_1", req.query)
+}
+
+func TestClient_GetGroupMember(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupMember(context.Background(), "gid_1", "mem_1")
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodGet, "/v2/groups/gid_1/members/mem_1", "")
+}
+
+func TestClient_BatchRemoveGroupMembers(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.BatchRemoveGroupMembers(context.Background(), "gid_1", &dto.BatchRemoveGroupMembersRequest{
+		MemberOpenIDs:        []string{"mem_1", "mem_2"},
+		AddToMemberBlacklist: true,
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/batch_remove_members", `{"member_openids":["mem_1","mem_2"],"add_to_member_blacklist":true}`)
+}
+
+func TestClient_GetGroupMemberBlacklist(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupMemberBlacklist(context.Background(), "gid_1", "cur_1", 100)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/gid_1/member_blacklist", req.path)
+	assert.Equal(t, "cursor=cur_1&limit=100", req.query)
+}
+
+func TestClient_GetGroupMemberBlacklist_NoQuery(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.GetGroupMemberBlacklist(context.Background(), "gid_1", "", 0)
+	require.NoError(t, err)
+	req := m.last()
+	assert.Equal(t, "/v2/groups/gid_1/member_blacklist", req.path)
+	assert.Equal(t, "", req.query)
+}
+
+func TestClient_UpdateGroupMemberBlacklist(t *testing.T) {
+	m := newMockQQ(t)
+	api, _ := newTestAPI(t, m)
+
+	_, err := api.UpdateGroupMemberBlacklist(context.Background(), "gid_1", &dto.UpdateGroupMemberBlacklistRequest{
+		Op:            "add",
+		MemberOpenIDs: []string{"mem_1"},
+	})
+	require.NoError(t, err)
+	assertLast(t, m, http.MethodPost, "/v2/groups/gid_1/member_blacklist", `{"op":"add","member_openids":["mem_1"]}`)
 }
 
 func TestClient_GetChannelMessage(t *testing.T) {

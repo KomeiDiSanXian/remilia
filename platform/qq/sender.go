@@ -992,9 +992,21 @@ func (s *qqSender) BanMember(ctx stdctx.Context, groupID, userID string, duratio
 	return err
 }
 
-// KickMember QQ 官方 v2 群聊暂无踢人接口，返回 ErrNotSupported。
-func (s *qqSender) KickMember(_ stdctx.Context, _, _ string, _ bool) error {
-	return platform.ErrNotSupported
+// KickMember 通过官方群成员批量移除接口实现 platform.GroupManager
+// （POST /v2/groups/{group_openid}/batch_remove_members，2026-09 新增）。
+//
+// permanent=true 时同时加入群黑名单（add_to_member_blacklist=true，禁止重新
+// 加入）；false 时仅移除出群。移除操作需要机器人拥有群管理员身份，且仅能
+// 操作普通成员（不能移除群主/管理员/机器人）。该接口目前仅白名单机器人可用。
+func (s *qqSender) KickMember(ctx stdctx.Context, groupID, userID string, permanent bool) error {
+	if s.api == nil {
+		return fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	_, err := s.api.BatchRemoveGroupMembers(ctx, groupID, &dto.BatchRemoveGroupMembersRequest{
+		MemberOpenIDs:        []string{userID},
+		AddToMemberBlacklist: permanent,
+	})
+	return err
 }
 
 // SetAdmin QQ 官方 v2 群聊暂无设置管理员接口，返回 ErrNotSupported。
@@ -1084,46 +1096,63 @@ func (s *qqSender) GetGroupInfo(ctx stdctx.Context, groupID string) (platform.Gr
 	}, nil
 }
 
-// GetGroupMemberList 通过分页拉取群成员列表实现 platform.GroupInfoProvider。
+// GetGroupMemberList 通过 cursor 分页拉取群成员列表实现
+// platform.GroupInfoProvider。
 //
-// 官方 v2 接口 POST /v2/groups/{group_openid}/members 仅返回 member_openid 与
-// join_timestamp（不含昵称/头像），故 DisplayName/AvatarURL 无法填充。
-// 接口按 start_index/next_index 分页，此处循环拉取直至服务端不再返回下一页。
+// 官方 v2 接口（2026-09 更新为 GET /v2/groups/{group_openid}/members）每次
+// 最多返回 30 条，且返回 username/member_role/joined_at 等资料，可填充
+// DisplayName/GroupRole/JoinedAt（头像仍不提供）。此处循环拉取直至服务端
+// 返回空 next_cursor（末页）。
 func (s *qqSender) GetGroupMemberList(ctx stdctx.Context, groupID string) ([]platform.GroupMemberInfo, error) {
 	if s.api == nil {
 		return nil, fmt.Errorf("qq sender: openAPI client is nil")
 	}
-	const pageSize = 100
 	var members []platform.GroupMemberInfo
-	startIndex := 0
+	cursor := ""
 	for {
-		result, err := s.api.GetGroupMembers(ctx, groupID, pageSize, startIndex)
+		result, err := s.api.GetGroupMemberList(ctx, groupID, cursor)
 		if err != nil {
 			return nil, err
 		}
-		arr := result.Get("members")
-		for _, m := range arr.Array() {
-			info := platform.GroupMemberInfo{UserID: m.Get("member_openid").String()}
-			if ts := m.Get("join_timestamp").String(); ts != "" {
-				if t, err := time.Parse(time.RFC3339, ts); err == nil {
-					info.JoinedAt = t
-				}
-			}
-			members = append(members, info)
+		for _, m := range result.Get("members").Array() {
+			members = append(members, groupMemberFromResult(m))
 		}
-		next := int(result.Get("next_index").Int())
-		if next <= startIndex || len(arr.Array()) == 0 {
+		next := result.Get("next_cursor").String()
+		if next == "" || next == cursor {
 			break
 		}
-		startIndex = next
+		cursor = next
 	}
 	return members, nil
 }
 
-// GetGroupMember QQ 官方 v2 无单成员查询接口，返回 ErrNotSupported。
-// 如需查询某成员，可通过 GetGroupMemberList 拉取后按 UserID 过滤。
-func (s *qqSender) GetGroupMember(_ stdctx.Context, _, _ string) (platform.GroupMemberInfo, error) {
-	return platform.GroupMemberInfo{}, platform.ErrNotSupported
+// GetGroupMember 通过官方单成员查询接口实现 platform.GroupInfoProvider
+// （GET /v2/groups/{group_openid}/members/{member_openid}，2026-09 新增）。
+func (s *qqSender) GetGroupMember(ctx stdctx.Context, groupID, userID string) (platform.GroupMemberInfo, error) {
+	if s.api == nil {
+		return platform.GroupMemberInfo{}, fmt.Errorf("qq sender: openAPI client is nil")
+	}
+	result, err := s.api.GetGroupMember(ctx, groupID, userID)
+	if err != nil {
+		return platform.GroupMemberInfo{}, err
+	}
+	return groupMemberFromResult(result), nil
+}
+
+// groupMemberFromResult 将官方群成员对象（成员列表/单成员查询响应）
+// 映射为 platform.GroupMemberInfo。
+func groupMemberFromResult(m gjson.Result) platform.GroupMemberInfo {
+	info := platform.GroupMemberInfo{
+		UserID:      m.Get("member_openid").String(),
+		DisplayName: m.Get("username").String(),
+		GroupRole:   parseQQGroupRole(m.Get("member_role").String()),
+	}
+	if ts := m.Get("joined_at").String(); ts != "" {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			info.JoinedAt = t
+		}
+	}
+	return info
 }
 
 // GetJoinedGroups QQ 官方 v2 无机器人已加入群列表接口，返回 ErrNotSupported。

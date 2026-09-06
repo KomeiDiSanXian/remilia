@@ -665,21 +665,67 @@ func (api *Client) GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.
 	return api.Get(ctx, fmt.Sprintf(constant.GroupInfoURL, groupOpenID))
 }
 
-// GetGroupMembers 获取群成员列表（POST /v2/groups/{group_openid}/members）。
+// GetGroupMemberList 获取群成员列表（GET /v2/groups/{group_openid}/members）。
 //
-// limit 单页数量（默认 100），start_index 分页起始下标（首次传 0）。
-// 响应包含 members 列表与 next_index（下一页起始下标，缺失即拉取完毕）。
+// 2026-09 起官方将原 POST（limit/start_index 分页）改为 GET + cursor 分页，
+// 每次最多返回 30 条。cursor 为分页游标（首次传空串），响应包含 members 与
+// next_cursor（空串表示已到末页）。该接口仅白名单机器人可用。
 //
-// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.post.html
-func (api *Client) GetGroupMembers(ctx context.Context, groupOpenID string, limit, startIndex int) (gjson.Result, error) {
-	body := map[string]any{}
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.get.html
+func (api *Client) GetGroupMemberList(ctx context.Context, groupOpenID, cursor string) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.GroupMembersURL, groupOpenID)
+	if cursor != "" {
+		url += "?cursor=" + cursor
+	}
+	return api.Get(ctx, url)
+}
+
+// GetGroupMember 获取指定群成员信息（GET /v2/groups/{group_openid}/members/{member_openid}）。
+//
+// 返回成员 openid、昵称、角色、入群时间等。该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members_member_openid.get.html
+func (api *Client) GetGroupMember(ctx context.Context, groupOpenID, memberOpenID string) (gjson.Result, error) {
+	return api.Get(ctx, fmt.Sprintf(constant.GroupMemberURL, groupOpenID, memberOpenID))
+}
+
+// BatchRemoveGroupMembers 批量移除群成员（POST /v2/groups/{group_openid}/batch_remove_members）。
+//
+// 单次最多移除 20 个成员；req.AddToMemberBlacklist=true 时同时加入群黑名单。
+// 机器人需拥有群管理员身份，且该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_batch_remove_members.post.html
+func (api *Client) BatchRemoveGroupMembers(ctx context.Context, groupOpenID string, req *dto.BatchRemoveGroupMembersRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupBatchRemoveMembersURL, groupOpenID), req)
+}
+
+// GetGroupMemberBlacklist 查询群黑名单（GET /v2/groups/{group_openid}/member_blacklist）。
+//
+// cursor 为分页游标（首次传空串），limit 单页数量（默认 20，最大 100）。
+// 响应包含 users 与 next_cursor。该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_member_blacklist.get.html
+func (api *Client) GetGroupMemberBlacklist(ctx context.Context, groupOpenID, cursor string, limit int) (gjson.Result, error) {
+	url := fmt.Sprintf(constant.GroupMemberBlacklistURL, groupOpenID)
+	sep := "?"
+	if cursor != "" {
+		url += sep + "cursor=" + cursor
+		sep = "&"
+	}
 	if limit > 0 {
-		body["limit"] = limit
+		url += fmt.Sprintf("%slimit=%d", sep, limit)
 	}
-	if startIndex > 0 {
-		body["start_index"] = startIndex
-	}
-	return api.Post(ctx, fmt.Sprintf(constant.GroupMembersURL, groupOpenID), body)
+	return api.Get(ctx, url)
+}
+
+// UpdateGroupMemberBlacklist 群黑名单操作（POST /v2/groups/{group_openid}/member_blacklist）。
+//
+// req.Op 为 add（加入黑名单）或 del（移出黑名单），单次最多操作 20 个成员；
+// 目标成员仍在群中时无法加入黑名单。该接口仅白名单机器人可用。
+//
+// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_member_blacklist.post.html
+func (api *Client) UpdateGroupMemberBlacklist(ctx context.Context, groupOpenID string, req *dto.UpdateGroupMemberBlacklistRequest) (gjson.Result, error) {
+	return api.Post(ctx, fmt.Sprintf(constant.GroupMemberBlacklistURL, groupOpenID), req)
 }
 
 // GetChannelMessage 获取子频道消息详情（GET /channels/{channel_id}/messages/{message_id}）。

@@ -591,27 +591,30 @@ func TestNextMsgSeq_ExpiredEntryRecycled(t *testing.T) {
 	assert.Equal(t, uint64(1), s.nextMsgSeq("msg_x"))
 }
 
-// fakeGroupMembersAPI 返回预设分页的群成员列表响应。
+// fakeGroupMembersAPI 返回预设分页的群成员列表响应，并记录每页请求的 cursor。
 type fakeGroupMembersAPI struct {
 	openapi.OpenAPI
-	pages []gjson.Result
-	calls int
+	pages   []gjson.Result
+	calls   int
+	cursors []string
 }
 
-func (f *fakeGroupMembersAPI) GetGroupMembers(_ context.Context, _ string, _, _ int) (gjson.Result, error) {
+func (f *fakeGroupMembersAPI) GetGroupMemberList(_ context.Context, _ string, cursor string) (gjson.Result, error) {
 	if f.calls >= len(f.pages) {
 		return gjson.Parse(`{"members":[]}`), nil
 	}
+	f.cursors = append(f.cursors, cursor)
 	res := f.pages[f.calls]
 	f.calls++
 	return res, nil
 }
 
-// TestGetGroupMemberList_Pagination 验证群成员列表按 next_index 循环分页拉取。
-func TestGetGroupMemberList_Pagination(t *testing.T) {
+// TestGetGroupMemberList_CursorPagination 验证群成员列表按 next_cursor 循环分页
+// 拉取，并解析 username/member_role/joined_at 等新字段。
+func TestGetGroupMemberList_CursorPagination(t *testing.T) {
 	api := &fakeGroupMembersAPI{pages: []gjson.Result{
-		gjson.Parse(`{"members":[{"member_openid":"u1","join_timestamp":"2026-01-02T03:04:05+08:00"},{"member_openid":"u2","join_timestamp":"2026-02-02T03:04:05+08:00"}],"next_index":100}`),
-		gjson.Parse(`{"members":[{"member_openid":"u3","join_timestamp":"2026-03-02T03:04:05+08:00"}],"next_index":0}`),
+		gjson.Parse(`{"members":[{"member_openid":"u1","username":"甲","member_role":"member","joined_at":"2026-01-02T03:04:05+08:00"},{"member_openid":"u2","username":"乙","member_role":"admin","joined_at":"2026-02-02T03:04:05+08:00"}],"next_cursor":"cur_2"}`),
+		gjson.Parse(`{"members":[{"member_openid":"u3","username":"丙","member_role":"owner","bot":true,"joined_at":"2026-03-02T03:04:05+08:00"}],"next_cursor":""}`),
 	}}
 	s := &qqSender{api: api}
 
@@ -619,16 +622,88 @@ func TestGetGroupMemberList_Pagination(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, members, 3)
 	assert.Equal(t, "u1", members[0].UserID)
+	assert.Equal(t, "甲", members[0].DisplayName)
+	assert.Equal(t, platform.GroupRoleMember, members[0].GroupRole)
+	assert.Equal(t, "乙", members[1].DisplayName)
+	assert.Equal(t, platform.GroupRoleAdmin, members[1].GroupRole)
 	assert.Equal(t, "u3", members[2].UserID)
+	assert.Equal(t, "丙", members[2].DisplayName)
+	assert.Equal(t, platform.GroupRoleOwner, members[2].GroupRole)
 	assert.Equal(t, 2026, members[2].JoinedAt.Year())
 	assert.Equal(t, time.March, members[2].JoinedAt.Month())
 	assert.Equal(t, 2, api.calls, "应恰好请求两页")
+	assert.Equal(t, []string{"", "cur_2"}, api.cursors, "首次请求 cursor 为空串，后续传上一页 next_cursor")
 }
 
 // TestGetGroupMemberList_APIError 验证接口错误向上传播。
 func TestGetGroupMemberList_APIError(t *testing.T) {
 	s := &qqSender{api: nil}
 	_, err := s.GetGroupMemberList(context.Background(), "gid_1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "openAPI client is nil")
+}
+
+// fakeGroupMemberOpsAPI 覆盖单成员查询与批量移除，供 sender 层测试断言。
+type fakeGroupMemberOpsAPI struct {
+	openapi.OpenAPI
+	memberResult gjson.Result
+	memberErr    error
+	kickedGroup  string
+	kickedReq    *dto.BatchRemoveGroupMembersRequest
+}
+
+func (f *fakeGroupMemberOpsAPI) GetGroupMember(_ context.Context, _, _ string) (gjson.Result, error) {
+	return f.memberResult, f.memberErr
+}
+
+func (f *fakeGroupMemberOpsAPI) BatchRemoveGroupMembers(_ context.Context, groupID string, req *dto.BatchRemoveGroupMembersRequest) (gjson.Result, error) {
+	f.kickedGroup = groupID
+	f.kickedReq = req
+	return gjson.Parse(`{"remove_members_result":"success"}`), nil
+}
+
+// TestGetGroupMember 验证单成员查询映射与错误传播。
+func TestGetGroupMember(t *testing.T) {
+	api := &fakeGroupMemberOpsAPI{
+		memberResult: gjson.Parse(`{"member_openid":"u9","username":"管理员","member_role":"admin","joined_at":"2025-08-20T09:15:00+08:00"}`),
+	}
+	s := &qqSender{api: api}
+
+	member, err := s.GetGroupMember(context.Background(), "gid_1", "u9")
+	require.NoError(t, err)
+	assert.Equal(t, "u9", member.UserID)
+	assert.Equal(t, "管理员", member.DisplayName)
+	assert.Equal(t, platform.GroupRoleAdmin, member.GroupRole)
+	assert.Equal(t, 2025, member.JoinedAt.Year())
+}
+
+func TestGetGroupMember_APIError(t *testing.T) {
+	s := &qqSender{api: nil}
+	_, err := s.GetGroupMember(context.Background(), "gid_1", "u1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "openAPI client is nil")
+}
+
+// TestKickMember 验证 KickMember 走批量移除接口，permanent=true 时同时拉黑。
+func TestKickMember(t *testing.T) {
+	api := &fakeGroupMemberOpsAPI{}
+	s := &qqSender{api: api}
+
+	require.NoError(t, s.KickMember(context.Background(), "gid_1", "u1", false))
+	assert.Equal(t, "gid_1", api.kickedGroup)
+	require.NotNil(t, api.kickedReq)
+	assert.Equal(t, []string{"u1"}, api.kickedReq.MemberOpenIDs)
+	assert.False(t, api.kickedReq.AddToMemberBlacklist)
+
+	require.NoError(t, s.KickMember(context.Background(), "gid_1", "u2", true))
+	require.NotNil(t, api.kickedReq)
+	assert.Equal(t, []string{"u2"}, api.kickedReq.MemberOpenIDs)
+	assert.True(t, api.kickedReq.AddToMemberBlacklist, "permanent=true 应同时加入群黑名单")
+}
+
+func TestKickMember_APIError(t *testing.T) {
+	s := &qqSender{api: nil}
+	err := s.KickMember(context.Background(), "gid_1", "u1", false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "openAPI client is nil")
 }

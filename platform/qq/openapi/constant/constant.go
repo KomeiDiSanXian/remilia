@@ -333,13 +333,38 @@ const (
 
 	// ── 群聊管理（2026-08 新增）──────────────────────────────────────────────
 
-	// GroupMembersURL POST /v2/groups/{group_openid}/members
+	// GroupMembersURL GET /v2/groups/{group_openid}/members
 	//
-	// 获取群成员列表。请求体 limit（单页数量，默认 100）与 start_index（分页
-	// 起始下标，首次传 0），响应返回 members 与 next_index 供下一页继续拉取。
+	// 获取群成员列表（2026-09 起官方改为 GET + cursor 分页，每页最多 30 条）。
+	// 响应返回 members 与 next_cursor（空串表示已到末页）。
 	//
-	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.post.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members.get.html
 	GroupMembersURL = OpenAPIURL + "/v2/groups/%s/members"
+
+	// GroupMemberURL GET /v2/groups/{group_openid}/members/{member_openid}
+	//
+	// 获取指定群成员的详细信息（用户名、角色、入群时间等）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_members_member_openid.get.html
+	GroupMemberURL = OpenAPIURL + "/v2/groups/%s/members/%s"
+
+	// GroupBatchRemoveMembersURL POST /v2/groups/{group_openid}/batch_remove_members
+	//
+	// 批量移除群成员，单次最多 20 个；add_to_member_blacklist=true 时同时加入
+	// 群黑名单（禁止重新加入）。机器人需拥有群管理员身份。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_batch_remove_members.post.html
+	GroupBatchRemoveMembersURL = OpenAPIURL + "/v2/groups/%s/batch_remove_members"
+
+	// GroupMemberBlacklistURL GET|POST /v2/groups/{group_openid}/member_blacklist
+	//
+	// GET：查询群黑名单（cursor/limit 分页，limit 默认 20 最大 100）。
+	// POST：群黑名单操作（op=add 加入黑名单，op=del 移出黑名单，单次最多 20 个；
+	// 目标成员仍在群中时无法加入黑名单）。
+	//
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_member_blacklist.get.html
+	// https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_member_blacklist.post.html
+	GroupMemberBlacklistURL = OpenAPIURL + "/v2/groups/%s/member_blacklist"
 
 	// GroupInfoURL GET /v2/groups/{group_openid}/info
 	//

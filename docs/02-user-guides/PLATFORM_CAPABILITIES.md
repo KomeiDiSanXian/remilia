@@ -34,11 +34,16 @@
 
 | 可选接口 | 辅助函数 | onebot | milky | qq | satori | discord | telegram |
 |---|---|---|---|---|---|---|---|
-| `GroupManager` | `GetGroupManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GroupManager` | `GetGroupManager` | ✅ | ✅ | ✅¹ | ❌ | ❌ | ❌ |
 | `GroupSettings` | `GetGroupSettings` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| `GroupInfoProvider` | `GetGroupInfoProvider` | ❌ | ❌ | ✅² | ❌ | ❌ | ❌ |
 | `AnnouncementManager` | `GetAnnouncementManager` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | `MessageHistoryProvider` | `GetMessageHistoryProvider` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+¹ QQ：`KickMember` 走 2026-09 群成员批量移除接口（`permanent=true` 同时加入群黑名单），
+`BanMember` 走 2026-08 群禁言接口；`SetAdmin` 暂不支持。相关接口目前仅白名单机器人可用。
+² QQ：`GetGroupMemberList`/`GetGroupMember`/`GetGroupInfo` 均已支持；群黑名单查询/操作
+属平台特有能力，通过通道 B（`openapi.OpenAPI`）调用。
 
 ## 请求处理与账号
 

@@ -11,24 +11,79 @@ package dto
 //   - 查询群禁言状态：.../v2_groups_group_openid_restrict_chat_setting.get.html
 //   - 设置群成员禁言：.../v2_groups_group_openid_restrict_chat_setting.post.html
 //   - 入群自动审批策略：.../v2_groups_join_approval_strategy*.html
+//   - 获取群成员列表：.../v2_groups_group_openid_members.get.html
+//   - 获取群成员信息：.../v2_groups_group_openid_members_member_openid.get.html
+//   - 群成员批量移除：.../v2_groups_group_openid_batch_remove_members.post.html
+//   - 群黑名单查询/操作：.../v2_groups_group_openid_member_blacklist.get.html
+//     .../v2_groups_group_openid_member_blacklist.post.html
 // ────────────────────────────────────────────────────────────────────────────
 
-// GroupMember 群成员（群成员列表接口返回）。
-//
-// 官方接口仅返回 member_openid 与 join_timestamp，不包含昵称/头像等资料。
+// GroupMember 群成员（2026-09 起官方群成员接口返回的完整字段）。
 type GroupMember struct {
 	// MemberOpenID 成员 openid。
 	MemberOpenID string `json:"member_openid,omitempty"`
-	// JoinTimestamp 加入群聊的时间（RFC3339）。
-	JoinTimestamp string `json:"join_timestamp,omitempty"`
+	// Username 用户昵称。
+	Username string `json:"username,omitempty"`
+	// MemberRole 群成员角色：member-普通成员，owner-群主，admin-管理员。
+	MemberRole string `json:"member_role,omitempty"`
+	// Bot 是否机器人。
+	Bot bool `json:"bot,omitempty"`
+	// JoinedAt 入群时间（RFC3339）。
+	JoinedAt string `json:"joined_at,omitempty"`
+	// UnionOpenID 用户在应用/开放平台下的统一标识（如有）。
+	UnionOpenID string `json:"union_openid,omitempty"`
 }
 
 // GroupMemberList 群成员列表响应。
 type GroupMemberList struct {
 	// Members 当前页成员列表。
 	Members []GroupMember `json:"members,omitempty"`
-	// NextIndex 下一页起始下标；为空表示已拉取完所有成员。
-	NextIndex int `json:"next_index,omitempty"`
+	// NextCursor 下一页游标；空串表示已到末页。
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// BatchRemoveGroupMembersRequest 群成员批量移除请求体。
+//
+// 单次最多移除 20 个成员；AddToMemberBlacklist=true 时同时加入群黑名单
+// （禁止重新加入）。机器人需拥有群管理员身份。
+type BatchRemoveGroupMembersRequest struct {
+	// MemberOpenIDs 需要移除的成员 openid 列表，单次最多 20 个。
+	MemberOpenIDs []string `json:"member_openids"`
+	// AddToMemberBlacklist 是否同时加入群黑名单，默认 false。
+	AddToMemberBlacklist bool `json:"add_to_member_blacklist,omitempty"`
+}
+
+// BlacklistUser 群黑名单用户。
+type BlacklistUser struct {
+	// UnionOpenID 用户在应用/开放平台下的统一标识（如有）。
+	UnionOpenID string `json:"union_openid,omitempty"`
+	// MemberOpenID 用户 openid。
+	MemberOpenID string `json:"member_openid,omitempty"`
+	// Username 用户昵称。
+	Username string `json:"username,omitempty"`
+	// BannedAt 拉黑时间（RFC3339）。
+	BannedAt string `json:"banned_at,omitempty"`
+	// Bot 是否为机器人账号。
+	Bot bool `json:"bot,omitempty"`
+}
+
+// GroupMemberBlacklist 群黑名单响应。
+type GroupMemberBlacklist struct {
+	// Users 黑名单用户列表。
+	Users []BlacklistUser `json:"users,omitempty"`
+	// NextCursor 下一页游标；空串表示已到末页。
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
+// UpdateGroupMemberBlacklistRequest 群黑名单操作请求体。
+//
+// Op=add 加入黑名单（目标成员在群中时无法加入），Op=del 移出黑名单；
+// 单次最多操作 20 个成员。
+type UpdateGroupMemberBlacklistRequest struct {
+	// Op 操作类型：del 移出黑名单，add 加入黑名单。
+	Op string `json:"op"`
+	// MemberOpenIDs 目标成员 openid 列表，单次最多 20 个。
+	MemberOpenIDs []string `json:"member_openids"`
 }
 
 // GroupInfo 群基本信息。

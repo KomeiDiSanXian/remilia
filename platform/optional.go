@@ -36,7 +36,9 @@ var ErrNotSupported = errors.New("operation not supported by this platform")
 // GroupManager 可选接口：支持群成员管理操作的平台适配器 Sender 实现此接口。
 //
 // 不同平台对群管理的支持程度不同：
-//   - QQ：支持禁言（BanMember，2026-08 新增群禁言接口）；踢人/设置管理员暂不支持
+//   - QQ：支持禁言与踢人（BanMember 走 2026-08 群禁言接口；KickMember 走
+//     2026-09 群成员批量移除接口，permanent=true 同时加入群黑名单）；
+//     设置管理员暂不支持
 //   - Discord：支持踢出/禁言（通过 Guild 管理 API）
 //   - Telegram：支持踢出成员（ban/unban）
 //   - WeChat：通常不支持（返回 ErrNotSupported）

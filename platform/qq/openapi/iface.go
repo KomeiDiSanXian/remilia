@@ -169,12 +169,21 @@ type BotManager interface {
 	GenerateURLLink(ctx context.Context, req *dto.GenerateURLLinkRequest) (gjson.Result, error)
 }
 
-// GroupManager 群聊管理（2026-08 新增，部分接口仅白名单机器人可用）。
+// GroupManager 群聊管理（2026-08/2026-09 新增，部分接口仅白名单机器人可用）。
 type GroupManager interface {
 	// GetGroupInfo 获取群基本信息。
 	GetGroupInfo(ctx context.Context, groupOpenID string) (gjson.Result, error)
-	// GetGroupMembers 获取群成员列表（limit/start_index 分页，响应含 next_index）。
-	GetGroupMembers(ctx context.Context, groupOpenID string, limit, startIndex int) (gjson.Result, error)
+	// GetGroupMemberList 获取群成员列表（cursor 分页，每页最多 30 条，
+	// 响应含 members 与 next_cursor，空串表示已到末页）。
+	GetGroupMemberList(ctx context.Context, groupOpenID, cursor string) (gjson.Result, error)
+	// GetGroupMember 获取指定群成员的详细信息。
+	GetGroupMember(ctx context.Context, groupOpenID, memberOpenID string) (gjson.Result, error)
+	// BatchRemoveGroupMembers 批量移除群成员（单次最多 20 个，可选同时加入群黑名单）。
+	BatchRemoveGroupMembers(ctx context.Context, groupOpenID string, req *dto.BatchRemoveGroupMembersRequest) (gjson.Result, error)
+	// GetGroupMemberBlacklist 查询群黑名单（cursor/limit 分页，limit 默认 20 最大 100）。
+	GetGroupMemberBlacklist(ctx context.Context, groupOpenID, cursor string, limit int) (gjson.Result, error)
+	// UpdateGroupMemberBlacklist 群黑名单操作（op=add 加入/op=del 移出，单次最多 20 个）。
+	UpdateGroupMemberBlacklist(ctx context.Context, groupOpenID string, req *dto.UpdateGroupMemberBlacklistRequest) (gjson.Result, error)
 	// GetGroupBotState 获取机器人群内状态。
 	GetGroupBotState(ctx context.Context, groupOpenID string) (gjson.Result, error)
 	// GetGroupJoinRequestList 拉取入群申请列表（cursor/limit 分页）。

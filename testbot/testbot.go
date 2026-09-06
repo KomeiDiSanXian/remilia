@@ -365,7 +365,19 @@ func (m *MockAPI) GetGatewayBot(_ context.Context) (gjson.Result, error) {
 func (m *MockAPI) GetGroupInfo(_ context.Context, _ string) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
-func (m *MockAPI) GetGroupMembers(_ context.Context, _ string, _, _ int) (gjson.Result, error) {
+func (m *MockAPI) GetGroupMemberList(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGroupMember(_ context.Context, _, _ string) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) BatchRemoveGroupMembers(_ context.Context, _ string, _ *dto.BatchRemoveGroupMembersRequest) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) GetGroupMemberBlacklist(_ context.Context, _ string, _ string, _ int) (gjson.Result, error) {
+	return gjson.Result{}, nil
+}
+func (m *MockAPI) UpdateGroupMemberBlacklist(_ context.Context, _ string, _ *dto.UpdateGroupMemberBlacklistRequest) (gjson.Result, error) {
 	return gjson.Result{}, nil
 }
 func (m *MockAPI) GetChannelMessage(_ context.Context, _, _ string) (gjson.Result, error) {
