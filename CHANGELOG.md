@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.56.0 (2026-09-06)
+
+### 🚀 QQ 群成员管理接口（2026-09-03 官方新增）
+
+- **群成员列表/单成员查询升级**（`platform/qq`）：官方将群成员列表由
+  `POST /v2/groups/{group_openid}/members`（limit/start_index 分页）改为
+  `GET .../members` cursor 分页（每页最多 30 条），并新增单成员查询
+  `GET .../members/{member_openid}`。`GetGroupMemberList` 现按 next_cursor
+  翻页并填充 DisplayName/GroupRole/JoinedAt（原仅 UserID/JoinedAt），
+  `GetGroupMember` 不再返回 ErrNotSupported
+- **踢人/拉黑**（`platform.GroupManager`）：`KickMember` 映射官方群成员
+  批量移除 `POST /v2/groups/{group_openid}/batch_remove_members`（单次最多
+  20 个，需群管理员身份，仅能操作普通成员）；`permanent=true` 时同时加入
+  群黑名单（禁止重新加入），QQ 平台自此支持踢人；`SetAdmin` 仍不支持
+- **群黑名单**（QQ 特有，经 `openapi.OpenAPI` 通道 B 暴露）：查询
+  `GET /v2/groups/{group_openid}/member_blacklist`（cursor/limit 分页）与
+  操作 `POST .../member_blacklist`（op=add/del，单次最多 20 个，目标成员
+  仍在群中时无法加入黑名单）
+- **能力文档同步**：`PLATFORM_CAPABILITIES.md` 群组管理矩阵中 QQ
+  `GroupManager` 更新为 ✅（带脚注说明踢人/禁言实现路径）；
+  `platform/optional.go` 能力注释同步
+- 以上接口官方标注"正在内邀接入中，仅白名单机器人可用"（错误码 11253），
+  未开通白名单的机器人调用会返回权限错误
+- **防回归**：新增只读真机测试 TestQQGroupMemberAPIsLive（`-tags network`，
+  验证成员列表/单成员/群黑名单查询，遇 11253 时以 Skip 提示而非失败）
+
 ## v1.55.0 (2026-09-06)
 
 ### 🖼 pic 插件：无结果引导与内容分级防绕过
